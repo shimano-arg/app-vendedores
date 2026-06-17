@@ -7,7 +7,7 @@
 //
 // Cuando se cambie la version, bumpear CACHE_VERSION para invalidar el cache viejo.
 
-const CACHE_VERSION = 'v10';
+const CACHE_VERSION = 'v11';
 const STATIC_CACHE = 'shimano-static-' + CACHE_VERSION;
 const HTML_CACHE = 'shimano-html-' + CACHE_VERSION;
 
@@ -42,6 +42,22 @@ self.addEventListener('fetch', event => {
 
   // No interceptar nada fuera del origin (firebase, leaflet, sheetjs, openstreetmap tiles, etc.)
   if (url.origin !== self.location.origin) return;
+
+  // CRITICO: NO interceptar URLs con callbacks OAuth de Firebase Auth.
+  // Cuando el usuario vuelve del redirect de Google, la URL trae parametros
+  // como ?state=...&code=...&authuser=...&apiKey=...&storagerelay=...
+  // Si el SW devuelve el HTML cacheado en vez de dejar pasar la URL, Firebase
+  // Auth no procesa el callback y el usuario queda en loop de login.
+  const search = url.search || '';
+  const isAuthCallback = (
+    search.indexOf('state=') >= 0 ||
+    search.indexOf('apiKey=') >= 0 ||
+    search.indexOf('authuser=') >= 0 ||
+    search.indexOf('storagerelay=') >= 0 ||
+    search.indexOf('mode=signIn') >= 0 ||
+    url.pathname.indexOf('__/auth/') >= 0
+  );
+  if (isAuthCallback) return; // dejar pasar a la red directo, sin tocar
 
   // HTML / root: network-first con fallback a cache
   const isHtml = req.mode === 'navigate'
