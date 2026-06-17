@@ -1,0 +1,10 @@
+{
+  "updatedAt": null,
+  "source": "placeholder",
+  "warehouse": "07",
+  "totalSkus": 0,
+  "withStock": 0,
+  "withoutStock": 0,
+  "note": "Esperando primera sincronizacion desde SAP. Configurar el secret SAP_STOCK_CSV_URL en el repo y disparar el workflow Sync SAP Stock.",
+  "stock": {}
+}

@@ -1,0 +1,53 @@
+name: Sync SAP Stock
+
+# Corre cada 30 min y permite dispararse a mano desde la pestaña Actions.
+# Descarga el CSV de stock que David exporta de SAP (deposito 07) y lo
+# convierte a stock.json. La app vendedores lee ese JSON para mostrar un
+# punto verde/rojo al lado de cada SKU al crear pedidos.
+#
+# Configuracion previa requerida:
+#   Settings -> Secrets and variables -> Actions -> New repository secret
+#     Name:  SAP_STOCK_CSV_URL
+#     Value: URL publica del CSV (Google Drive direct download recomendado)
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # cada 30 min UTC
+  workflow_dispatch:           # boton "Run workflow" para forzar manualmente
+
+permissions:
+  contents: write              # necesario para commitear stock.json
+
+concurrency:
+  group: sync-stock
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run sync script
+        env:
+          SAP_STOCK_CSV_URL: ${{ secrets.SAP_STOCK_CSV_URL }}
+        run: python scripts/sync_stock.py
+
+      - name: Commit stock.json if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- stock.json; then
+            echo "::notice::Sin cambios en stock.json - no commit"
+          else
+            git add stock.json
+            git commit -m "stock: auto-sync $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push
+            echo "::notice::stock.json actualizado"
+          fi

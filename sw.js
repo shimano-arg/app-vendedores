@@ -7,7 +7,7 @@
 //
 // Cuando se cambie la version, bumpear CACHE_VERSION para invalidar el cache viejo.
 
-const CACHE_VERSION = 'v24';
+const CACHE_VERSION = 'v25';
 const STATIC_CACHE = 'shimano-static-' + CACHE_VERSION;
 const HTML_CACHE = 'shimano-html-' + CACHE_VERSION;
 
@@ -58,6 +58,16 @@ self.addEventListener('fetch', event => {
     url.pathname.indexOf('__/auth/') >= 0
   );
   if (isAuthCallback) return; // dejar pasar a la red directo, sin tocar
+
+  // stock.json: SIEMPRE network-first (sin cache). Es un snapshot que se
+  // actualiza cada 30 min en el repo via GitHub Actions y la app necesita
+  // siempre la version mas fresca para mostrar stock real.
+  if (url.pathname.endsWith('/stock.json')) {
+    event.respondWith(
+      fetch(req, {cache: 'no-store'}).catch(() => caches.match(req))
+    );
+    return;
+  }
 
   // HTML / root: network-first con fallback a cache
   const isHtml = req.mode === 'navigate'
