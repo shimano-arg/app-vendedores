@@ -72,9 +72,49 @@ def info(msg: str) -> None:
 
 def fetch_csv(url: str) -> str:
     info(f"Descargando CSV desde {url[:80]}...")
-    req = urllib.request.Request(url, headers={"User-Agent": "ShimanoStockSync/1.0"})
+    # User-Agent de navegador real: Drive a veces devuelve HTML de bloqueo
+    # cuando detecta clients raros (default urllib o WGET sin UA).
+    ua = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/126.0.0.0 Safari/537.36"
+    )
+    req = urllib.request.Request(url, headers={"User-Agent": ua})
     with urllib.request.urlopen(req, timeout=60) as resp:
         raw = resp.read()
+        info(f"HTTP {resp.status} Content-Type={resp.headers.get('Content-Type')} bytes={len(raw)}")
+
+    # Detectar si Drive devolvio una pagina de confirmacion (archivos > 25 MB o
+    # con flag virus-scan-skipped) o de bloqueo. En ese caso intenta extraer
+    # el link de descarga real desde el HTML y reintentar.
+    head_lower = raw[:512].lower()
+    if b"<html" in head_lower or b"<!doctype" in head_lower:
+        info("La respuesta es HTML, no CSV. Intento extraer link de confirmacion...")
+        html = raw.decode("utf-8", errors="replace")
+        # Caso 1: pagina de "virus scan" tiene un form con confirm token
+        import re
+        m = re.search(r'href="(/uc\?[^"]*confirm=[^"]+)"', html)
+        if m:
+            confirm_url = "https://drive.google.com" + m.group(1).replace("&amp;", "&")
+            info(f"Confirm URL detectada, reintento: {confirm_url[:80]}...")
+            req2 = urllib.request.Request(confirm_url, headers={"User-Agent": ua})
+            with urllib.request.urlopen(req2, timeout=60) as resp2:
+                raw = resp2.read()
+                info(f"Reintento HTTP {resp2.status} bytes={len(raw)}")
+        else:
+            # Mostrar primer trozo del HTML para debug
+            preview = raw[:500].decode("utf-8", errors="replace")
+            fail(
+                f"Drive devolvio HTML y no encontre link de confirmacion. "
+                f"Preview: {preview!r}"
+            )
+
+    # Validar que ahora si es CSV (no HTML)
+    head_lower = raw[:256].lower()
+    if b"<html" in head_lower or b"<!doctype" in head_lower:
+        preview = raw[:500].decode("utf-8", errors="replace")
+        fail(f"Tras reintento aun es HTML. Preview: {preview!r}")
+
     # Probar UTF-8 BOM, UTF-8, Latin-1
     for enc in ("utf-8-sig", "utf-8", "latin-1"):
         try:
