@@ -7,7 +7,7 @@
 //
 // Cuando se cambie la version, bumpear CACHE_VERSION para invalidar el cache viejo.
 
-const CACHE_VERSION = 'v31';
+const CACHE_VERSION = 'v32';
 const STATIC_CACHE = 'shimano-static-' + CACHE_VERSION;
 const HTML_CACHE = 'shimano-html-' + CACHE_VERSION;
 
@@ -18,6 +18,7 @@ const STATIC_ASSETS = [
   './icon-512-v3.png',
   './icon-512-maskable-v3.png',
   './Shimano-Logo.png',
+  './login-bg.jpg',
 ];
 
 self.addEventListener('install', event => {
