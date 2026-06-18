@@ -48,8 +48,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 STOCK_JSON = REPO_ROOT / "stock.json"
 
-SKU_COL_NAMES = {"itemcode", "sku", "codigo", "code", "item"}
-QTY_COL_NAMES = {"onhand", "available", "disponible", "stock", "cantidad", "qty", "saldo"}
+SKU_COL_NAMES = {
+    "itemcode", "sku", "codigo", "code", "item",
+    "item no.", "item no", "item number", "no. art.", "nro art",
+}
+QTY_COL_NAMES = {
+    "onhand", "available", "disponible", "stock", "cantidad", "qty", "saldo",
+    "in stock", "instock", "on hand",
+}
 WHS_COL_NAMES = {"whscode", "warehouse", "deposito", "almacen", "whs"}
 
 WAREHOUSE_FILTER = "07"  # solo deposito 07
