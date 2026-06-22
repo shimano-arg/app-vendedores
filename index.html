@@ -2057,6 +2057,41 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <label for="cm-locality" style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px">Localidad <span style="color:#dc2626">*</span></label>
             <input id="cm-locality" type="text" autocomplete="address-level2" placeholder="Ej: Palermo, San Isidro, La Plata..." oninput="onClientMetaInput()" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none"/>
           </div>
+          <div style="border-top:1px dashed #cbd5e1;margin:14px -2px 10px;padding-top:10px">
+            <div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Categorizacion comercial <span style="font-weight:500;color:#94a3b8;text-transform:none;letter-spacing:0">(para calcular descuento estimado)</span></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+              <div>
+                <label for="cm-cli-tipo" style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px">Tipo de cliente</label>
+                <select id="cm-cli-tipo" onchange="saveClientCategoriaFromModal('cliTipo', this)" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff">
+                  <option value="">(sin clasificar)</option>
+                  <option value="P">P (Premium)</option>
+                  <option value="A">A</option>
+                  <option value="B">B</option>
+                  <option value="C">C</option>
+                </select>
+              </div>
+              <div>
+                <label for="cm-cli-anticipado" style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px">Pago anticipado</label>
+                <select id="cm-cli-anticipado" onchange="saveClientCategoriaFromModal('cliAnticipado', this)" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff">
+                  <option value="">(sin clasificar)</option>
+                  <option value="SI">Si</option>
+                  <option value="NO">No</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label for="cm-cli-volumen" style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px">Volumen de compras</label>
+              <select id="cm-cli-volumen" onchange="saveClientCategoriaFromModal('cliVolumen', this)" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff">
+                <option value="">(sin clasificar)</option>
+                <option value="<3M">Hasta $3M (0%)</option>
+                <option value="3-4.5M">$3M - $4.5M (2%)</option>
+                <option value="4.5-10M">$4.5M - $10M (3%)</option>
+                <option value="10-20M">$10M - $20M (4%)</option>
+                <option value=">20M">Mas de $20M (6%)</option>
+              </select>
+            </div>
+            <div id="cm-cli-status" style="font-size:10px;color:#64748b;margin-top:6px;min-height:14px"></div>
+          </div>
           <div id="cm-geo-status" style="font-size:10px;color:#64748b;margin-top:4px;min-height:14px"></div>
         </div>
         <div id="cm-actions" class="client-actions-block pendiente">
@@ -3559,6 +3594,29 @@ function openClientModal(clientName, tipo, province, localityName){
   const locInput = document.getElementById('cm-locality');
   if (addrInput) addrInput.value = (meta && meta.address) ? meta.address : '';
   if (locInput) locInput.value = (meta && meta.locality) ? meta.locality : localityName;
+  // Cargar los 3 dropdowns de categorizacion comercial desde client_master
+  // (Firestore, global - no es per-device como clientMeta). Si no hay doc
+  // guardado, los selects quedan en "(sin clasificar)" por defecto.
+  const docId = clientLocId(province, localityName, clientName);
+  const cmData = clientMasterCache.get(docId) || {};
+  const selTipo  = document.getElementById('cm-cli-tipo');
+  const selVol   = document.getElementById('cm-cli-volumen');
+  const selAntic = document.getElementById('cm-cli-anticipado');
+  if (selTipo)  selTipo.value  = cmData.cliTipo       || '';
+  if (selVol)   selVol.value   = cmData.cliVolumen    || '';
+  if (selAntic) selAntic.value = cmData.cliAnticipado || '';
+  // Guardo en el dataset del modal los meta necesarios para escribir a
+  // client_master al cambiar un dropdown (vendor / prov / loc / name).
+  const modalEl = document.getElementById('client-modal');
+  if (modalEl) {
+    modalEl.dataset.docId = docId;
+    modalEl.dataset.vendor = (cmData && cmData.vendor) || '';
+    modalEl.dataset.provincia = province;
+    modalEl.dataset.localidad = localityName;
+    modalEl.dataset.clientName = clientName;
+  }
+  const cliStatus = document.getElementById('cm-cli-status');
+  if (cliStatus) cliStatus.innerHTML = '';
   const geoStatus = document.getElementById('cm-geo-status');
   if (geoStatus) {
     if (meta && meta.lat != null && meta.lng != null) {
@@ -5169,6 +5227,52 @@ window.onMcAddrInput = function(input, docId, originalSaved){
     } else if (dirtySpan) {
       dirtySpan.remove();
     }
+  }
+};
+
+// Auto-save de los 3 dropdowns de categorizacion en el modal "Dar de alta"
+// del vendedor (client-modal). Se guarda directo a client_master Firestore
+// (no a localStorage clientMeta) porque es business logic global - todos
+// los vendedores y admin tienen que ver los mismos valores.
+window.saveClientCategoriaFromModal = async function(fieldName, sel){
+  if (typeof canWrite === 'function' && !canWrite()) {
+    alert('Tu rol no permite cambiar la categorizacion del cliente.');
+    const modalEl = document.getElementById('client-modal');
+    const cmData = clientMasterCache.get(modalEl.dataset.docId) || {};
+    sel.value = cmData[fieldName] || '';
+    return;
+  }
+  const modalEl = document.getElementById('client-modal');
+  const docId = modalEl && modalEl.dataset.docId;
+  if (!docId) return;
+  const newVal = sel.value || '';
+  const meta = {
+    vendor:     modalEl.dataset.vendor     || '',
+    provincia:  modalEl.dataset.provincia  || '',
+    localidad:  modalEl.dataset.localidad  || '',
+    clientName: modalEl.dataset.clientName || '',
+  };
+  const status = document.getElementById('cm-cli-status');
+  if (status) status.innerHTML = '<span style="color:#1d4ed8">Guardando...</span>';
+  sel.disabled = true;
+  try {
+    const update = Object.assign({}, meta, {
+      updatedBy: currentUser.email || '',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    update[fieldName] = newVal;
+    await fbDb.collection('client_master').doc(docId).set(update, {merge: true});
+    if (status) {
+      status.innerHTML = '<span style="color:#166534">&#10003; Categorizacion guardada</span>';
+      setTimeout(() => { if (status.innerHTML.indexOf('Categorizacion') >= 0) status.innerHTML = ''; }, 2200);
+    }
+  } catch(e) {
+    console.error('saveClientCategoriaFromModal', e);
+    if (status) status.innerHTML = '<span style="color:#991b1b">Error guardando: ' + escapeHtml(e.message || String(e)) + '</span>';
+    const cmData = clientMasterCache.get(docId) || {};
+    sel.value = cmData[fieldName] || '';
+  } finally {
+    sel.disabled = false;
   }
 };
 
