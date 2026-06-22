@@ -1283,6 +1283,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <button class="logout-btn" id="master-cli-btn" onclick="openMasterClientesPanel()" title="Cargar direcciones exactas de cada tienda" style="display:none">Master Clientes</button>
     <button class="logout-btn" id="admin-btn" onclick="openAdminPanel()" title="Gestion de usuarios" style="display:none">Usuarios</button>
     <button class="logout-btn" id="stock-btn" onclick="openStockModal()" title="Cargar / actualizar snapshot de stock (CSV desde SAP)" style="display:none">Stock</button>
+    <button class="logout-btn" id="precios-btn" onclick="openPreciosModal()" title="Cargar / actualizar lista de precios (CSV o Excel desde SAP)" style="display:none">Precios</button>
     <button class="logout-btn" id="audit-btn" onclick="openAuditPanel()" title="Auditoria: log de operaciones sensibles" style="display:none">Auditor&iacute;a</button>
     <button class="logout-btn" onclick="signOut()" title="Cerrar sesion">Salir</button>
   </div>
@@ -1424,6 +1425,42 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
           <button class="stock-action-btn cancel" onclick="closeStockModal()">Cancelar</button>
           <button class="stock-action-btn publish" id="stock-publish-btn" onclick="publishStockSnapshot()" disabled>&#128190; Publicar a la app</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="precios-modal" onclick="if(event.target===this)closePreciosModal()">
+    <div class="modal-box" style="width:min(640px,96vw)">
+      <div class="modal-head" style="background:linear-gradient(135deg,#065f46,#10b981)">
+        <div>
+          <h2>&#128176; Lista de Precios SAP</h2>
+          <div class="subt">Sub&iacute; el archivo (CSV o Excel) con SKU y precio. Se aplica al instante para todos los vendedores y autocompleta el precio al cargar pedidos.</div>
+        </div>
+        <button class="modal-close" onclick="closePreciosModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:18px 22px">
+        <div id="precios-current-info" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#475569"></div>
+        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#78350f;line-height:1.5">
+          <b>&#9881; Columnas que reconoce:</b><br>
+          <b>SKU</b> (acepta: ItemCode, SKU, Codigo, Code, Item, Articulo)<br>
+          <b>Precio</b> (acepta: Price, Precio, Importe, Unit Price, Precio Unitario)<br>
+          <b>Moneda</b> <i>(opcional)</i> - acepta: Currency, Moneda. Si no viene asume ARS.
+        </div>
+        <div id="precios-drop" class="stock-drop-zone" onclick="document.getElementById('precios-file-input').click()">
+          <div class="stock-drop-icon">&#128193;</div>
+          <div class="stock-drop-text">Arrastr&aacute; el archivo (CSV o Excel) o clic para elegirlo</div>
+          <div class="stock-drop-hint">Tama&ntilde;o m&aacute;ximo recomendado: 10MB</div>
+        </div>
+        <input id="precios-file-input" type="file" accept=".csv,.xlsx,.xls" style="display:none" onchange="onPreciosFileSelected(event)"/>
+        <div id="precios-preview" style="display:none;background:#ecfdf5;border:1.5px solid #86efac;border-radius:6px;padding:14px;margin-top:14px">
+          <div style="font-size:11px;font-weight:800;color:#166534;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Vista previa</div>
+          <div id="precios-preview-stats" style="font-size:13px;color:#14532d;line-height:1.6"></div>
+          <div id="precios-preview-sample" style="font-size:11px;color:#475569;margin-top:8px;font-family:Consolas,monospace;background:#fff;border:1px solid #d1fae5;border-radius:4px;padding:8px;max-height:140px;overflow:auto"></div>
+        </div>
+        <div id="precios-error" style="display:none;background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:12px;line-height:1.5"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+          <button class="stock-action-btn cancel" onclick="closePreciosModal()">Cancelar</button>
+          <button class="stock-action-btn publish" id="precios-publish-btn" onclick="publishPreciosSnapshot()" disabled style="background:#10b981">&#128190; Publicar a la app</button>
         </div>
       </div>
     </div>
@@ -4703,19 +4740,26 @@ async function parseMcSapFile(file){
     }
     if (!rows.length) throw new Error('El archivo no tiene filas de datos.');
 
-    // Mapear columnas. Acepta varios nombres como sinonimos.
+    // Mapear columnas. Acepta varios nombres como sinonimos. El orden importa:
+    // findKey itera candidates en orden y devuelve el primer header del archivo
+    // que matchea. Para state ponemos 'provincia_1' antes que 'provincia' porque
+    // los exports de SAP B1 traen "Provincia" dos veces (la primera columna
+    // suele venir vacia / con fecha y la real queda en "Provincia_1").
     const SKU_NAMES = {
-      cardCode:  ['cardcode','codigo','code','codigo cliente','id'],
-      cardName:  ['cardname','name','nombre','razon social','razonsocial','cliente','clientname','nombre cliente'],
-      address:   ['address','direccion','street','calle','address1','domicilio'],
-      city:      ['city','ciudad','localidad','locality'],
-      state:     ['state','province','provincia'],
+      cardCode:  ['cardcode','codigo','code','codigo cliente','id','codigo sn','código sn','code sn','codigosn'],
+      cardName:  ['cardname','name','nombre','razon social','razonsocial','cliente','clientname','nombre cliente','nombre sn','namesn','nombresn'],
+      address:   ['address','direccion','street','calle','address1','domicilio','ship-to street','ship to street','direccion envio'],
+      city:      ['city','ciudad','localidad','locality','ship-to city','ship to city'],
+      state:     ['provincia_1','ship-to state','ship to state','state','province','provincia'],
     };
     function findKey(row, candidates){
       const keys = Object.keys(row);
-      for (const k of keys) {
-        const kn = k.toLowerCase().trim();
-        if (candidates.includes(kn)) return k;
+      // Iterar candidates en orden de prioridad: el primero que aparece en el
+      // archivo gana. Asi 'provincia_1' tiene prioridad sobre 'provincia'.
+      for (const cand of candidates) {
+        for (const k of keys) {
+          if (k.toLowerCase().trim() === cand) return k;
+        }
       }
       return null;
     }
@@ -10887,7 +10931,7 @@ window.addSuggestionPrompt = function(code){
     if (existing) {
       existing.qty = (parseFloat(existing.qty) || 0) + qty;
     } else {
-      entry.lines.push({code: prod.code, desc: prod.desc, cat: prod.cat || '', fam: prod.fam || '', sub: prod.sub || '', qty: qty, precio: 0});
+      entry.lines.push({code: prod.code, desc: prod.desc, cat: prod.cat || '', fam: prod.fam || '', sub: prod.sub || '', qty: qty, precio: getDefaultPrice(prod.code)});
     }
     persistPendingEntry(entry);
     flashSaved();
@@ -11201,7 +11245,7 @@ function addToOrder(code){
     } else {
       const prod = PRODUCTS.find(p => p.code === code);
       if (!prod) return;
-      entry.lines.push({code: prod.code, desc: prod.desc, cat: prod.cat, fam: prod.fam, sub: prod.sub, qty: 1, precio: 0});
+      entry.lines.push({code: prod.code, desc: prod.desc, cat: prod.cat, fam: prod.fam, sub: prod.sub, qty: 1, precio: getDefaultPrice(prod.code)});
     }
     persistPendingEntry(entry);
     flashSaved();
@@ -11218,7 +11262,7 @@ function addToOrder(code){
   } else {
     const prod = PRODUCTS.find(p => p.code === code);
     if (!prod) return;
-    ord.push({code: prod.code, desc: prod.desc, cat: prod.cat, fam: prod.fam, sub: prod.sub, qty: 1, precio: 0});
+    ord.push({code: prod.code, desc: prod.desc, cat: prod.cat, fam: prod.fam, sub: prod.sub, qty: 1, precio: getDefaultPrice(prod.code)});
   }
   saveOrders();
   flashSaved();
@@ -12393,6 +12437,8 @@ function applyRolePermissions(){
   // integracion automatizada con el middleware de SEIDOR, lo hacemos manual).
   const stockBtnEl = document.getElementById('stock-btn');
   if (stockBtnEl) stockBtnEl.style.display = (userRole === 'admin') ? '' : 'none';
+  const preciosBtnEl = document.getElementById('precios-btn');
+  if (preciosBtnEl) preciosBtnEl.style.display = (userRole === 'admin') ? '' : 'none';
   document.getElementById('campaigns-btn').style.display = (userRole === 'admin') ? '' : 'none';
   // Vendedores tambien acceden a SAP: ven solo sus propios pedidos confirmados,
   // pueden exportar su ZIP DTW y marcar como transferidos.
@@ -12423,7 +12469,7 @@ function applyRolePermissions(){
   // el resto ve todas). Solo se oculta para unassigned.
   document.getElementById('mis-camps-btn').style.display = (userRole !== 'unassigned') ? '' : 'none';
   // Activa listeners cross-collection segun rol
-  if (userRole !== 'unassigned') { ensureNotifsListener(); ensureRouteOverridesListener(); ensureTargetsListener(); ensureClientLocsListener(); ensureSapVendorsListener(); ensureClientMasterListener(); ensureAltaCliListener(); ensureRendicionesListener(); ensureVendorOverridesListener(); ensureStockSnapshotListener(); ensureApprovedAltasListener(); }
+  if (userRole !== 'unassigned') { ensureNotifsListener(); ensureRouteOverridesListener(); ensureTargetsListener(); ensureClientLocsListener(); ensureSapVendorsListener(); ensureClientMasterListener(); ensureAltaCliListener(); ensureRendicionesListener(); ensureVendorOverridesListener(); ensureStockSnapshotListener(); ensurePriceListListener(); ensureApprovedAltasListener(); }
   // Si soy VDI, cargar las parejas VDE para habilitar "actuar en nombre de".
   if (userRole === 'interno') { try { loadMyExternalPartners(); } catch(e) { console.warn('loadMyExternalPartners', e); } }
   // Acceso denegado para unassigned
@@ -14406,6 +14452,235 @@ function ensureStockSnapshotListener(){
       try { renderProductPicker(); } catch(e){}
     }
   }, err => console.warn('stock snapshot listener', err));
+}
+
+// =====================================================================
+// Lista de Precios SAP - upload manual (modal "Precios") - solo admin
+// =====================================================================
+// El admin sube el export de SAP B1 (OITM + ITM1) con SKU y precio.
+// Se guarda en Firestore app_config/price_list y todos los vendedores lo
+// reciben en tiempo real. Cuando se agrega un SKU al pedido, el precio
+// se autocompleta (queda editable manualmente). Mientras no haya Service
+// Layer, este es el canal oficial para mantener precios alineados con SAP.
+let PRICE_LIST_MAP = {};
+let PRICE_LIST_UPDATED_AT = null;
+let PRICE_LIST_CURRENCY = 'ARS';
+let _preciosParsedPayload = null;
+let unsubPriceList = null;
+
+function getDefaultPrice(sku){
+  if (!sku) return 0;
+  const k = String(sku).toUpperCase().trim();
+  if (k in PRICE_LIST_MAP) return PRICE_LIST_MAP[k] || 0;
+  // Fallback igual que stock: sku '042163' puede venir sin ceros a la izq.
+  if (/^0+\d+$/.test(k)) {
+    const stripped = k.replace(/^0+/, '');
+    if (stripped in PRICE_LIST_MAP) return PRICE_LIST_MAP[stripped] || 0;
+  }
+  return 0;
+}
+window.getDefaultPrice = getDefaultPrice;
+
+window.openPreciosModal = function(){
+  if (userRole !== 'admin') { alert('Solo el administrador puede actualizar la lista de precios.'); return; }
+  _preciosParsedPayload = null;
+  document.getElementById('precios-preview').style.display = 'none';
+  document.getElementById('precios-error').style.display = 'none';
+  document.getElementById('precios-file-input').value = '';
+  document.getElementById('precios-publish-btn').disabled = true;
+  const drop = document.getElementById('precios-drop');
+  if (drop && !drop.dataset.dragInit) {
+    drop.dataset.dragInit = '1';
+    ['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => {
+      e.preventDefault(); e.stopPropagation(); drop.classList.add('dragover');
+    }));
+    ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => {
+      e.preventDefault(); e.stopPropagation(); drop.classList.remove('dragover');
+    }));
+    drop.addEventListener('drop', e => {
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) parsePreciosFile(file);
+    });
+  }
+  const info = document.getElementById('precios-current-info');
+  if (info) {
+    const total = Object.keys(PRICE_LIST_MAP).length;
+    if (total && PRICE_LIST_UPDATED_AT) {
+      const dt = new Date(PRICE_LIST_UPDATED_AT).toLocaleString('es-AR');
+      info.innerHTML = '<b>&#128181; Lista actual:</b> ' + total + ' SKUs en ' + escapeHtml(PRICE_LIST_CURRENCY) + ' - Actualizado: ' + dt;
+    } else {
+      info.innerHTML = '<b>Sin lista cargada todavia.</b> Sub&iacute; el primer archivo para que los vendedores vean precios sugeridos al armar pedidos.';
+    }
+  }
+  document.getElementById('precios-modal').classList.add('open');
+};
+window.closePreciosModal = function(){
+  document.getElementById('precios-modal').classList.remove('open');
+  _preciosParsedPayload = null;
+};
+
+window.onPreciosFileSelected = function(ev){
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  parsePreciosFile(file);
+};
+
+async function parsePreciosFile(file){
+  const errEl = document.getElementById('precios-error');
+  const prevEl = document.getElementById('precios-preview');
+  errEl.style.display = 'none';
+  prevEl.style.display = 'none';
+  try {
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    let rows = [];
+    if (ext === 'xlsx' || ext === 'xls') {
+      if (typeof XLSX === 'undefined') throw new Error('La libreria XLSX no se cargo. Recarga la pagina y reintenta.');
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, {type: 'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(ws, {defval: ''});
+    } else if (ext === 'csv') {
+      let text = await file.text();
+      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+      const firstLine = text.split(/\r?\n/)[0] || '';
+      let delim = ',', maxC = 0;
+      [';', '|', '\t', ','].forEach(d => {
+        const c = (firstLine.match(new RegExp(d === '|' ? '\\|' : d === '\t' ? '\\t' : d, 'g')) || []).length;
+        if (c > maxC) { maxC = c; delim = d; }
+      });
+      if (typeof XLSX !== 'undefined') {
+        const wb = XLSX.read(text, {type: 'string', FS: delim});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        rows = XLSX.utils.sheet_to_json(ws, {defval: ''});
+      } else {
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        const header = lines[0].split(delim).map(h => h.trim().replace(/^"|"$/g, ''));
+        rows = lines.slice(1).map(line => {
+          const cells = line.split(delim).map(c => c.trim().replace(/^"|"$/g, ''));
+          const o = {};
+          header.forEach((h, i) => { o[h] = cells[i] || ''; });
+          return o;
+        });
+      }
+    } else {
+      throw new Error('Formato no soportado: ' + ext + '. Subi un archivo .csv, .xlsx o .xls');
+    }
+    if (!rows.length) throw new Error('El archivo no tiene filas de datos.');
+
+    const SKU_NAMES   = ['itemcode','sku','codigo','code','item','item no.','item no','no. art.','articulo','art','codigo articulo'];
+    const PRICE_NAMES = ['price','precio','importe','unit price','precio unitario','priceunit','precio unit','unitprice','precio_lista'];
+    const CURR_NAMES  = ['currency','moneda','divisa','cur'];
+    function findKey(row, candidates){
+      const keys = Object.keys(row);
+      for (const cand of candidates) {
+        for (const k of keys) {
+          if (k.toLowerCase().trim() === cand) return k;
+        }
+      }
+      return null;
+    }
+    const kSku   = findKey(rows[0], SKU_NAMES);
+    const kPrice = findKey(rows[0], PRICE_NAMES);
+    const kCurr  = findKey(rows[0], CURR_NAMES);
+    if (!kSku)   throw new Error('No se encontro columna SKU. Headers leidos: ' + Object.keys(rows[0]).join(' | '));
+    if (!kPrice) throw new Error('No se encontro columna Precio. Headers leidos: ' + Object.keys(rows[0]).join(' | '));
+
+    const prices = {};
+    const currencies = {};
+    let zeros = 0, invalid = 0;
+    rows.forEach(r => {
+      const sku = String(r[kSku] || '').trim().toUpperCase();
+      if (!sku) return;
+      let priceRaw = String(r[kPrice] != null ? r[kPrice] : '').trim();
+      if (!priceRaw) { invalid++; return; }
+      // Limpieza decimal igual que stock parser.
+      let cleaned = priceRaw;
+      if (cleaned.includes(',') && cleaned.includes('.')) {
+        cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+      } else if (cleaned.includes(',')) {
+        cleaned = cleaned.replace(',', '.');
+      }
+      cleaned = cleaned.replace(/[^\d.\-]/g, '');
+      const p = parseFloat(cleaned);
+      if (isNaN(p)) { invalid++; return; }
+      if (p === 0) zeros++;
+      // Si el SKU aparece varias veces, nos quedamos con el ultimo precio > 0
+      // (asi un archivo con multiples listas de precios mezcladas no rompe).
+      if (prices[sku] === undefined || (p > 0 && prices[sku] === 0)) {
+        prices[sku] = p;
+      }
+      if (kCurr) {
+        const c = String(r[kCurr] || '').trim().toUpperCase();
+        if (c) currencies[c] = (currencies[c] || 0) + 1;
+      }
+    });
+    const total = Object.keys(prices).length;
+    if (!total) throw new Error('No se encontraron SKUs validos con precio en el archivo.');
+    // Moneda dominante (la mas frecuente). Default ARS.
+    let currency = 'ARS';
+    let maxCount = 0;
+    Object.entries(currencies).forEach(([c, n]) => { if (n > maxCount) { maxCount = n; currency = c; } });
+    _preciosParsedPayload = {prices, totalSkus: total, currency, zeros, invalid};
+
+    document.getElementById('precios-preview-stats').innerHTML =
+        '<b>&#128203; SKUs con precio:</b> ' + total + '<br>'
+      + '<b>&#128181; Moneda:</b> ' + escapeHtml(currency) + (Object.keys(currencies).length > 1 ? ' <i>(habia varias - tomamos la dominante)</i>' : '')
+      + (zeros ? ('<br><b style="color:#9a3412">&#9888; SKUs con precio 0:</b> ' + zeros) : '')
+      + (invalid ? ('<br><b style="color:#991b1b">&#10007; Filas invalidas descartadas:</b> ' + invalid) : '');
+    const sample = Object.entries(prices).slice(0, 8).map(([s, p]) => s + ' &rarr; $' + p.toLocaleString('es-AR')).join('<br>');
+    document.getElementById('precios-preview-sample').innerHTML = '<b>Primeros SKUs:</b><br>' + sample;
+    prevEl.style.display = '';
+    document.getElementById('precios-publish-btn').disabled = false;
+  } catch(e) {
+    console.error('parsePreciosFile', e);
+    errEl.innerHTML = '<b>Error procesando el archivo:</b><br>' + escapeHtml(e.message || String(e));
+    errEl.style.display = '';
+    document.getElementById('precios-publish-btn').disabled = true;
+    _preciosParsedPayload = null;
+  }
+}
+
+window.publishPreciosSnapshot = async function(){
+  if (!_preciosParsedPayload) return;
+  const payload = _preciosParsedPayload;
+  if (!confirm('Publicar lista de precios?\n\n' + payload.totalSkus + ' SKUs en ' + payload.currency + '.\nReemplaza la lista actual para todos los vendedores.')) return;
+  const btn = document.getElementById('precios-publish-btn');
+  btn.disabled = true;
+  btn.textContent = 'Publicando...';
+  try {
+    await fbDb.collection('app_config').doc('price_list').set({
+      prices: payload.prices,
+      totalSkus: payload.totalSkus,
+      currency: payload.currency,
+      source: 'manual_upload',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedByUid: currentUser.uid,
+      updatedByEmail: currentUser.email || '',
+      updatedByDisplayName: currentUser.displayName || currentUser.email || '',
+    });
+    showSyncTag('Lista de precios publicada: ' + payload.totalSkus + ' SKUs en ' + payload.currency);
+    closePreciosModal();
+  } catch(e) {
+    console.error('publishPreciosSnapshot', e);
+    const errEl = document.getElementById('precios-error');
+    errEl.innerHTML = '<b>Error publicando a Firestore:</b><br>' + escapeHtml(e.message || String(e));
+    errEl.style.display = '';
+    btn.disabled = false;
+    btn.innerHTML = '&#128190; Publicar a la app';
+  }
+};
+
+function ensurePriceListListener(){
+  if (unsubPriceList || !currentUser || !fbDb) return;
+  unsubPriceList = fbDb.collection('app_config').doc('price_list').onSnapshot(snap => {
+    if (!snap.exists) return;
+    const d = snap.data() || {};
+    PRICE_LIST_MAP = d.prices || {};
+    PRICE_LIST_CURRENCY = d.currency || 'ARS';
+    PRICE_LIST_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : null;
+    const total = Object.keys(PRICE_LIST_MAP).length;
+    console.log('[precios] desde Firestore: ' + total + ' SKUs en ' + PRICE_LIST_CURRENCY + '. updatedAt=' + PRICE_LIST_UPDATED_AT);
+  }, err => console.warn('price list listener', err));
 }
 
 // =====================================================================
