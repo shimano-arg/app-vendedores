@@ -14157,16 +14157,140 @@ window.exportSapReadyCsv = function(){
   // Nombres OQUT/QUT1 corresponden a Sales Quotation (no Sales Order).
   const nameDoc = 'OQUT - Documents.csv';
   const nameLin = 'QUT1 - Document_Lines.csv';
+  // Helper: arma un Excel de control con 3 hojas (Pedidos / Lineas /
+  // Por vendedor) para que Mariano pueda validar manualmente que pidio
+  // cada vendedor, cada tienda y cuanto cierra el lote. NO va a SAP.
+  function buildControlXlsxArray(){
+    if (typeof XLSX === 'undefined') return null;
+    const wb = XLSX.utils.book_new();
+    // --- Hoja 1: Pedidos (1 fila por pedido) ---
+    const pedRows = target.map((p, i) => {
+      const pedKey = p._fsKey || (p.tipo + '|' + (p.province||'') + '|' + (p.locName||'') + '|' + (p.clientName||''));
+      const pedidoVendor = (typeof getVendorForKey === 'function') ? getVendorForKey(pedKey) : '';
+      const lines = p.lines || [];
+      const subtotalBruto = lines.reduce((s, l) => s + (parseFloat(l.qty)||0) * (parseFloat(l.precio)||0), 0);
+      const netAmount = (p.netAmountArs != null) ? p.netAmountArs : subtotalBruto;
+      const unidades = lines.reduce((s, l) => s + (parseFloat(l.qty)||0), 0);
+      return {
+        'DocNum lote':         i + 1,
+        'ID Firestore':        p._fsId || '',
+        'Fecha confirmado':    p.confirmedAt ? String(p.confirmedAt).slice(0,10) : '',
+        'Mes pedido':          p.month || '',
+        'Vendedor':            (typeof titleCase === 'function') ? titleCase(pedidoVendor || '') : (pedidoVendor || ''),
+        'Provincia':           (typeof titleCase === 'function') ? titleCase(p.province || '') : (p.province || ''),
+        'Localidad':           p.locName || '',
+        'Cliente':             p.clientName || '',
+        'CardCode SAP':        (typeof sapGetClienteCode === 'function' ? (sapGetClienteCode(p.clientName) || '') : ''),
+        'Tipo cliente':        (p.discountSnapshot && p.discountSnapshot.cliTipo) || '',
+        'Forma de pago':       p.condicionPago || '',
+        '# Lineas':            lines.length,
+        'Unidades':            unidades,
+        'Subtotal Bruto ARS':  Math.round(subtotalBruto),
+        'Descuento %':         (p.discountPct != null) ? p.discountPct : 0,
+        'Total Neto ARS':      Math.round(netAmount),
+        'Cargado por':         p.createdByEmail || p.ownerEmail || '',
+        'En nombre de VDE':    p.onBehalfOf ? 'SI' : 'NO',
+        'BatchId lote':        dtwBatchId,
+      };
+    });
+    if (pedRows.length) {
+      const ws1 = XLSX.utils.json_to_sheet(pedRows);
+      // Anchos amigables (no exactos, solo aproximacion)
+      ws1['!cols'] = [{wch:10},{wch:24},{wch:14},{wch:14},{wch:22},{wch:18},{wch:22},{wch:30},{wch:18},{wch:8},{wch:14},{wch:8},{wch:10},{wch:18},{wch:11},{wch:18},{wch:30},{wch:8},{wch:30}];
+      XLSX.utils.book_append_sheet(wb, ws1, 'Pedidos');
+    }
+    // --- Hoja 2: Lineas (1 fila por SKU) ---
+    const lineasRows = [];
+    target.forEach((p, i) => {
+      const pedKey = p._fsKey || (p.tipo + '|' + (p.province||'') + '|' + (p.locName||'') + '|' + (p.clientName||''));
+      const pedidoVendor = (typeof getVendorForKey === 'function') ? getVendorForKey(pedKey) : '';
+      (p.lines || []).forEach((l, li) => {
+        const qty = parseFloat(l.qty)||0;
+        const precio = parseFloat(l.precio)||0;
+        lineasRows.push({
+          'DocNum lote':       i + 1,
+          'Vendedor':          (typeof titleCase === 'function') ? titleCase(pedidoVendor || '') : (pedidoVendor || ''),
+          'Cliente':           p.clientName || '',
+          'Localidad':         p.locName || '',
+          'Provincia':         (typeof titleCase === 'function') ? titleCase(p.province || '') : (p.province || ''),
+          'Linea':             li + 1,
+          'SKU App':           l.code || '',
+          'SKU SAP':           (typeof sapGetMaterialCode === 'function' ? (sapGetMaterialCode(l.code) || l.code || '') : (l.code || '')),
+          'Producto':          l.desc || '',
+          'Categoria':         l.cat || '',
+          'Familia':           l.fam || '',
+          'Subfamilia':        l.sub || '',
+          'Cantidad':          qty,
+          'Precio Unit ARS':   precio,
+          'Subtotal ARS':      Math.round(qty * precio),
+          'Mes pedido':        p.month || '',
+          'Fecha confirmado':  p.confirmedAt ? String(p.confirmedAt).slice(0,10) : '',
+        });
+      });
+    });
+    if (lineasRows.length) {
+      const ws2 = XLSX.utils.json_to_sheet(lineasRows);
+      ws2['!cols'] = [{wch:10},{wch:22},{wch:30},{wch:22},{wch:18},{wch:7},{wch:14},{wch:14},{wch:40},{wch:18},{wch:18},{wch:18},{wch:10},{wch:14},{wch:14},{wch:14},{wch:14}];
+      XLSX.utils.book_append_sheet(wb, ws2, 'Lineas');
+    }
+    // --- Hoja 3: Por vendedor (agregado) ---
+    const perVendor = {};
+    target.forEach(p => {
+      const pedKey = p._fsKey || (p.tipo + '|' + (p.province||'') + '|' + (p.locName||'') + '|' + (p.clientName||''));
+      const v = (typeof getVendorForKey === 'function') ? getVendorForKey(pedKey) : '';
+      const k = (typeof titleCase === 'function') ? titleCase(v || 'Sin asignar') : (v || 'Sin asignar');
+      if (!perVendor[k]) perVendor[k] = {pedidos:0, clientes:new Set(), lineas:0, unidades:0, brutoArs:0, netoArs:0};
+      const lines = p.lines || [];
+      const subtotal = lines.reduce((s, l) => s + (parseFloat(l.qty)||0) * (parseFloat(l.precio)||0), 0);
+      const neto = (p.netAmountArs != null) ? p.netAmountArs : subtotal;
+      perVendor[k].pedidos  += 1;
+      perVendor[k].lineas   += lines.length;
+      perVendor[k].unidades += lines.reduce((s, l) => s + (parseFloat(l.qty)||0), 0);
+      perVendor[k].brutoArs += subtotal;
+      perVendor[k].netoArs  += neto;
+      perVendor[k].clientes.add(p.clientName);
+    });
+    const vendRows = Object.entries(perVendor).map(([v, d]) => ({
+      'Vendedor':           v,
+      '# Pedidos':          d.pedidos,
+      '# Clientes':         d.clientes.size,
+      '# Lineas':           d.lineas,
+      'Unidades totales':   d.unidades,
+      'Subtotal Bruto ARS': Math.round(d.brutoArs),
+      'Total Neto ARS':     Math.round(d.netoArs),
+    })).sort((a, b) => b['Total Neto ARS'] - a['Total Neto ARS']);
+    if (vendRows.length) {
+      const ws3 = XLSX.utils.json_to_sheet(vendRows);
+      ws3['!cols'] = [{wch:24},{wch:11},{wch:11},{wch:11},{wch:14},{wch:18},{wch:18}];
+      XLSX.utils.book_append_sheet(wb, ws3, 'Por vendedor');
+    }
+    if (!wb.SheetNames.length) return null;
+    try { return XLSX.write(wb, {bookType: 'xlsx', type: 'array'}); }
+    catch(e) { console.warn('buildControlXlsxArray write error', e); return null; }
+  }
+  const controlXlsxArr = buildControlXlsxArray();
+  const nameXlsx = 'CONTROL_pedidos.xlsx';
+
   if (typeof JSZip !== 'undefined') {
     const zip = new JSZip();
     zip.file(nameDoc, docCsv);
     zip.file(nameLin, linCsv);
+    if (controlXlsxArr) zip.file(nameXlsx, controlXlsxArr);
     // README chico
     const readme = [
       'SAP DTW Import Files - Generado por App Vendedores Shimano',
       'Fecha de export: ' + new Date().toLocaleString('es-AR'),
       'Pedidos: ' + target.length,
       'Tipo de documento: SALES QUOTATION (OQUT) - NO compromete stock.',
+      '',
+      'CONTENIDO DEL ZIP:',
+      '  - OQUT - Documents.csv      -> cabecera de cada Quotation (para DTW).',
+      '  - QUT1 - Document_Lines.csv -> lineas de cada Quotation (para DTW).',
+      '  - CONTROL_pedidos.xlsx       -> Excel de control (NO se importa a SAP).',
+      '       3 hojas: Pedidos, Lineas, Por vendedor.',
+      '       Usalo para validar a mano antes/despues del import: que pidio',
+      '       cada vendedor, que compro cada tienda y cuanto suma el lote.',
+      '  - LEEME.txt                  -> este archivo.',
       '',
       'COMO USAR:',
       '1. Conectate por VPN.',
