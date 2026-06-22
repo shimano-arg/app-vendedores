@@ -1123,6 +1123,21 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .review-line .rl-rm{background:transparent;border:none;color:#dc2626;cursor:pointer;font-size:15px;font-weight:800}
 .review-totals{margin-top:12px;padding:12px;background:#0f172a;color:#fff;border-radius:6px;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:700}
 .review-totals .rt-money{color:#10b981;font-size:16px;font-weight:800}
+/* Bloque de descuento estimado (informativo, no afecta payload SAP) */
+.review-discount{margin-top:10px;padding:12px 14px;background:linear-gradient(135deg,#ecfdf5,#d1fae5);border:1.5px solid #6ee7b7;border-radius:6px;font-size:12px;color:#064e3b}
+.review-discount .rd-head{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#065f46;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.review-discount .rd-line{display:flex;justify-content:space-between;padding:3px 0;font-size:12px;line-height:1.4}
+.review-discount .rd-line.rd-sep{border-top:1px dashed #6ee7b7;margin-top:6px;padding-top:8px;font-weight:700}
+.review-discount .rd-pct{color:#047857;font-weight:700;font-family:monospace}
+.review-discount .rd-money{color:#047857;font-weight:700;font-family:monospace}
+.review-discount .rd-total{font-weight:800;color:#064e3b;font-size:13px}
+.review-discount .rd-warn{margin-top:8px;padding:6px 8px;background:#fef3c7;border:1px solid #fde68a;color:#92400e;border-radius:4px;font-size:10px;line-height:1.4}
+.review-discount .rd-empty{padding:4px 0;font-size:11px;color:#065f46;font-style:italic}
+/* Master Clientes: dropdowns compactos para Tipo / Volumen / Anticipado */
+.mc-cli-sel{padding:5px 6px;border:1.5px solid #cbd5e1;border-radius:4px;font-size:11px;background:#fff;outline:none;font-family:inherit;width:100%;box-sizing:border-box;cursor:pointer}
+.mc-cli-sel:focus{border-color:#00A9E0}
+.mc-cli-sel.has-value{border-color:#10b981;background:#f0fdf4;color:#064e3b;font-weight:600}
+.mc-cli-sel.saving{opacity:.5;pointer-events:none}
 @media (max-width:700px){
   .review-line{grid-template-columns:60px 1fr 70px 50px 26px;font-size:10px;padding:6px}
   .review-line input{font-size:13px;padding:8px 6px}
@@ -1653,6 +1668,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569;margin:8px 0 4px">Pedido actual</div>
         <div id="rv-lines"></div>
         <div class="review-totals" id="rv-totals"></div>
+        <div id="rv-discount"></div>
       </div>
       <div class="modal-footer" style="justify-content:space-between;gap:12px">
         <button class="btn-cancel" style="background:#fff;color:#475569;border:1.5px solid #cbd5e1" onclick="closeReviewDialog()">Volver a editar</button>
@@ -5050,13 +5066,48 @@ window.renderMasterClientesTable = function(){
     return;
   }
 
+  // Opciones de los 3 dropdowns nuevos (categorizacion comercial).
+  // El descuento se calcula en renderReviewLines() solo como referencia
+  // visual - el pedido a SAP va sin descuento, SAP recalcula al ingresarlo.
+  const TIPO_OPTS = [
+    {v:'',  l:'(sin clasificar)'},
+    {v:'P', l:'P (Premium)'},
+    {v:'A', l:'A'},
+    {v:'B', l:'B'},
+    {v:'C', l:'C'},
+  ];
+  const VOL_OPTS = [
+    {v:'',         l:'(sin clasificar)'},
+    {v:'<3M',      l:'Hasta $3M (0%)'},
+    {v:'3-4.5M',   l:'$3M - $4.5M (2%)'},
+    {v:'4.5-10M',  l:'$4.5M - $10M (3%)'},
+    {v:'10-20M',   l:'$10M - $20M (4%)'},
+    {v:'>20M',     l:'Mas de $20M (6%)'},
+  ];
+  const ANTIC_OPTS = [
+    {v:'',   l:'(sin clasificar)'},
+    {v:'SI', l:'Si'},
+    {v:'NO', l:'No'},
+  ];
+  function _selHtml(name, current, opts, docId){
+    const has = current ? ' has-value' : '';
+    let s = '<select class="mc-cli-sel' + has + '" onchange="saveMcClientField(\'' + escapeAttr(docId) + '\', \'' + name + '\', this)">';
+    opts.forEach(o => {
+      s += '<option value="' + escapeAttr(o.v) + '"' + (o.v === current ? ' selected' : '') + '>' + escapeHtml(o.l) + '</option>';
+    });
+    s += '</select>';
+    return s;
+  }
   let html = '<table class="mc-table"><thead><tr>';
-  html += '<th style="width:24%">Tienda</th>';
-  html += '<th style="width:14%">Localidad</th>';
-  html += '<th style="width:13%">Provincia</th>';
-  html += '<th style="width:14%">Vendedor</th>';
-  html += '<th style="width:27%">Direcci&oacute;n exacta</th>';
-  html += '<th style="width:8%"></th>';
+  html += '<th style="width:18%">Tienda</th>';
+  html += '<th style="width:10%">Localidad</th>';
+  html += '<th style="width:9%">Provincia</th>';
+  html += '<th style="width:11%">Vendedor</th>';
+  html += '<th style="width:19%">Direcci&oacute;n exacta</th>';
+  html += '<th style="width:7%" title="Categoria comercial del cliente">Tipo</th>';
+  html += '<th style="width:11%" title="Volumen tipico de compra (tier estatico)">Volumen</th>';
+  html += '<th style="width:8%" title="Cliente con pago anticipado">Anticip.</th>';
+  html += '<th style="width:7%"></th>';
   html += '</tr></thead><tbody>';
   const MAX = 500;
   entries.slice(0, MAX).forEach(e => {
@@ -5069,12 +5120,18 @@ window.renderMasterClientesTable = function(){
     const btnCls = 'mc-save-btn' + (isDirty ? ' changed' : '');
     const vendInfo = VENDORS.find(v => v.key === e.vendor);
     const vendLabel = vendInfo ? (vendInfo.zone + ' ' + titleCase(e.vendor)) : (e.vendor ? titleCase(e.vendor) : '-');
+    const curTipo  = (saved && saved.cliTipo) || '';
+    const curVol   = (saved && saved.cliVolumen) || '';
+    const curAntic = (saved && saved.cliAnticipado) || '';
     html += '<tr data-doc="' + escapeAttr(id) + '">';
     html += '<td><div class="mc-name">' + escapeHtml(e.nombre) + '</div><div class="mc-meta"><span class="mc-tag ' + (e.tipo === 'cliente' ? 'cli' : 'pro') + '">' + (e.tipo === 'cliente' ? 'CLIENTE' : 'PROSPECTO') + '</span></div></td>';
     html += '<td>' + escapeHtml(e.localidad) + '</td>';
     html += '<td>' + escapeHtml(titleCase(e.provincia)) + '</td>';
     html += '<td>' + escapeHtml(vendLabel) + '</td>';
-    html += '<td><input type="text" class="' + inputCls + '" value="' + escapeAttr(cur) + '" placeholder="Av. Belgrano 123, Barrio Norte" oninput="onMcAddrInput(this, \'' + escapeAttr(id) + '\', \'' + escapeAttr(savedAddr) + '\')" onkeydown="if(event.key===\'Enter\')this.nextElementSibling.click()" /></td>';
+    html += '<td><input type="text" class="' + inputCls + '" value="' + escapeAttr(cur) + '" placeholder="Av. Belgrano 123, Barrio Norte" oninput="onMcAddrInput(this, \'' + escapeAttr(id) + '\', \'' + escapeAttr(savedAddr) + '\')" onkeydown="if(event.key===\'Enter\')this.parentElement.parentElement.querySelector(\'.mc-save-btn\').click()" /></td>';
+    html += '<td data-vendor="' + escapeAttr(e.vendor) + '" data-prov="' + escapeAttr(e.provincia) + '" data-loc="' + escapeAttr(e.localidad) + '" data-name="' + escapeAttr(e.nombre) + '">' + _selHtml('cliTipo', curTipo, TIPO_OPTS, id) + '</td>';
+    html += '<td>' + _selHtml('cliVolumen', curVol, VOL_OPTS, id) + '</td>';
+    html += '<td>' + _selHtml('cliAnticipado', curAntic, ANTIC_OPTS, id) + '</td>';
     html += '<td><button class="' + btnCls + '" onclick="saveMcAddr(\'' + escapeAttr(id) + '\', this)" data-vendor="' + escapeAttr(e.vendor) + '" data-prov="' + escapeAttr(e.provincia) + '" data-loc="' + escapeAttr(e.localidad) + '" data-name="' + escapeAttr(e.nombre) + '">Guardar</button></td>';
     html += '</tr>';
   });
@@ -5114,6 +5171,89 @@ window.onMcAddrInput = function(input, docId, originalSaved){
     }
   }
 };
+
+// Auto-save de los 3 dropdowns de categorizacion comercial (Tipo / Volumen /
+// Anticipado). Se guardan directo a client_master sin requerir el boton
+// Guardar (que sigue siendo solo para la direccion). El select cambia de
+// color cuando se completa para feedback visual.
+window.saveMcClientField = async function(docId, fieldName, sel){
+  if (userRole !== 'admin') {
+    alert('Solo admin puede editar categorizacion comercial.');
+    // Revertir UI
+    const saved = clientMasterCache.get(docId);
+    sel.value = (saved && saved[fieldName]) || '';
+    return;
+  }
+  const newVal = sel.value || '';
+  // Para construir/actualizar el doc necesitamos los metadatos basicos.
+  // Los sacamos del <td> contenedor que tiene los data-attrs del row.
+  const td = sel.closest('td[data-vendor]') || sel.closest('tr').querySelector('td[data-vendor]');
+  const meta = {
+    vendor:     td ? td.dataset.vendor : '',
+    provincia:  td ? td.dataset.prov   : '',
+    localidad:  td ? td.dataset.loc    : '',
+    clientName: td ? td.dataset.name   : '',
+  };
+  sel.classList.add('saving');
+  try {
+    const update = Object.assign({}, meta, {
+      updatedBy: currentUser.email || '',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    update[fieldName] = newVal;
+    await fbDb.collection('client_master').doc(docId).set(update, {merge: true});
+    sel.classList.toggle('has-value', !!newVal);
+    showSyncTag('Categorizacion guardada');
+  } catch(e) {
+    console.error('saveMcClientField', e);
+    alert('Error guardando: ' + (e.message || e));
+    // Revertir UI al valor previo
+    const saved = clientMasterCache.get(docId);
+    sel.value = (saved && saved[fieldName]) || '';
+  } finally {
+    sel.classList.remove('saving');
+  }
+};
+
+// Calcula el descuento estimado para un pedido en base a la categorizacion
+// del cliente (Tipo / Volumen / Anticipado). Es PURAMENTE INFORMATIVO para
+// que el vendedor pueda mostrarle al duenio de la tienda como queda el
+// pedido aplicando los descuentos. El payload a SAP va con el subtotal
+// SIN descuento - SAP recalcula al ingresar el pedido para evitar duplicar
+// descuentos.
+//
+// Tabla de descuentos (acumulativos):
+//   Fijo (por tipo):           P=6% / A=3% / B,C=0%
+//   Volumen (tier estatico):   2/3/4/6% segun bracket guardado en cliente
+//   Anticipado (si=SI):        P=5% / A=3% / B,C=0%
+function calcClientDiscount(clientData, subtotal){
+  const tipo   = (clientData && clientData.cliTipo)       || '';
+  const vol    = (clientData && clientData.cliVolumen)    || '';
+  const antic  = (clientData && clientData.cliAnticipado) || '';
+  const FIJO_PCT   = {P: 6, A: 3, B: 0, C: 0};
+  const VOL_PCT    = {'<3M': 0, '3-4.5M': 2, '4.5-10M': 3, '10-20M': 4, '>20M': 6};
+  const ANTIC_PCT  = {P: 5, A: 3, B: 0, C: 0};
+  const pctFijo   = FIJO_PCT[tipo]  || 0;
+  const pctVol    = VOL_PCT[vol]    || 0;
+  const pctAntic  = (antic === 'SI') ? (ANTIC_PCT[tipo] || 0) : 0;
+  const pctTotal  = pctFijo + pctVol + pctAntic;
+  const monto     = subtotal * pctTotal / 100;
+  return {
+    tipo, vol, antic,
+    pctFijo, pctVol, pctAntic, pctTotal,
+    monto, total: subtotal - monto,
+    hasAny: !!(tipo || vol || antic),
+  };
+}
+window.calcClientDiscount = calcClientDiscount;
+
+// Devuelve los datos comerciales del cliente actual del pedido (currentOrderClient).
+// Se usa en renderReviewLines para calcular el descuento estimado.
+function getCurrentOrderClientData(){
+  if (!currentOrderClient) return null;
+  const id = clientLocId(currentOrderClient.province, currentOrderClient.locName, currentOrderClient.name);
+  return clientMasterCache.get(id) || null;
+}
 
 window.saveMcAddr = async function(docId, btn){
   if (userRole !== 'admin') { alert('Solo admin puede editar.'); return; }
@@ -11005,6 +11145,31 @@ function renderReviewLines(){
   document.getElementById('rv-lines').innerHTML = html;
   // Totals
   document.getElementById('rv-totals').innerHTML = '<span>' + ord.length + ' productos &middot; ' + totalU + ' unidades</span><span class="rt-money">$' + Math.round(totalM).toLocaleString('es-AR') + '</span>';
+  // Descuento estimado (informativo, no afecta payload SAP). Solo se muestra
+  // si el cliente tiene al menos una categorizacion cargada en client_master.
+  const discEl = document.getElementById('rv-discount');
+  if (discEl) {
+    if (!ord.length || totalM <= 0) { discEl.innerHTML = ''; return; }
+    const cd = getCurrentOrderClientData();
+    const d = calcClientDiscount(cd, totalM);
+    if (!d.hasAny) {
+      discEl.innerHTML = '<div class="review-discount"><div class="rd-head"><span>&#128176; Descuento estimado</span></div>'
+        + '<div class="rd-empty">Cliente sin categorizacion comercial cargada. Cargar Tipo / Volumen / Anticipado en <b>Master Clientes</b> para ver el descuento estimado.</div></div>';
+      return;
+    }
+    const tipoLbl  = d.tipo ? ('Tipo ' + d.tipo) : 'Sin tipo';
+    const volLbl   = d.vol  ? d.vol             : 'Sin volumen';
+    const anticLbl = (d.antic === 'SI') ? 'SI' : (d.antic === 'NO' ? 'NO' : 'Sin definir');
+    let body = '';
+    body += '<div class="rd-line"><span>Subtotal pedido</span><span class="rd-money">$' + Math.round(totalM).toLocaleString('es-AR') + '</span></div>';
+    body += '<div class="rd-line"><span>&middot; Descuento fijo (' + escapeHtml(tipoLbl) + ')</span><span class="rd-pct">-' + d.pctFijo + '%</span></div>';
+    body += '<div class="rd-line"><span>&middot; Descuento por volumen (' + escapeHtml(volLbl) + ')</span><span class="rd-pct">-' + d.pctVol + '%</span></div>';
+    body += '<div class="rd-line"><span>&middot; Descuento pago anticipado (' + escapeHtml(anticLbl) + ')</span><span class="rd-pct">-' + d.pctAntic + '%</span></div>';
+    body += '<div class="rd-line rd-sep"><span>Descuento acumulado</span><span class="rd-pct">-' + d.pctTotal + '% (-$' + Math.round(d.monto).toLocaleString('es-AR') + ')</span></div>';
+    body += '<div class="rd-line"><span class="rd-total">Total estimado con descuento</span><span class="rd-total">$' + Math.round(d.total).toLocaleString('es-AR') + '</span></div>';
+    body += '<div class="rd-warn">&#9888; Solo referencial - el pedido se envia a SAP por el subtotal sin descuentos. SAP recalcula al ingresarlo para evitar duplicar.</div>';
+    discEl.innerHTML = '<div class="review-discount"><div class="rd-head"><span>&#128176; Descuento estimado para el cliente</span></div>' + body + '</div>';
+  }
 }
 
 window.openConfirmDialog = function(){
