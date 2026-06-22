@@ -1765,6 +1765,12 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <div><h2 id="mis-camps-title">Campa&ntilde;as Activas</h2><div class="subt" id="mis-camps-subt">Tocá una campa&ntilde;a para ver los SKU involucrados.</div></div>
         <button class="modal-close" onclick="closeMisCampsModal()">&times;</button>
       </div>
+      <div style="padding:10px 22px 0;background:#fffbeb;border-bottom:1px solid #fde68a">
+        <div style="display:flex;gap:4px;background:#fef3c7;border-radius:6px;padding:3px;width:fit-content">
+          <button type="button" id="mc-tab-active" class="mc-cli-tab-btn active" onclick="setMisCampsTab('active')" style="padding:6px 14px;border:none;border-radius:4px;background:#fff;color:#92400e;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 1px 2px rgba(0,0,0,.08)">Activas <span id="mc-tab-active-count" style="background:#b45309;color:#fff;border-radius:9px;padding:1px 7px;font-size:10px;margin-left:4px">0</span></button>
+          <button type="button" id="mc-tab-history" class="mc-cli-tab-btn" onclick="setMisCampsTab('history')" style="padding:6px 14px;border:none;border-radius:4px;background:transparent;color:#92400e;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Hist&oacute;ricas <span id="mc-tab-history-count" style="background:#a3a3a3;color:#fff;border-radius:9px;padding:1px 7px;font-size:10px;margin-left:4px">0</span></button>
+        </div>
+      </div>
       <div class="users-wrap" id="mis-camps-content"></div>
     </div>
   </div>
@@ -15445,7 +15451,9 @@ function ensureVendorOverridesListener(){
 
 window.openMisCampsModal = function(){
   document.getElementById('mis-camps-modal').classList.add('open');
-  renderMisCamps();
+  // Reset al tab "Activas" al reabrir el modal (no arrastrar seleccion previa).
+  if (typeof setMisCampsTab === 'function') setMisCampsTab('active');
+  else renderMisCamps();
 };
 window.closeMisCampsModal = function(){
   document.getElementById('mis-camps-modal').classList.remove('open');
@@ -15457,41 +15465,108 @@ window.toggleMisCampSkus = function(idx){
   body.classList.toggle('open');
   if (arrow) arrow.classList.toggle('open');
 };
+// Tab actual del listado en el modal "Campañas Activas" (visible para todos
+// los roles). 'active' = vigentes, 'history' = ya terminadas (auto por
+// fecha o manualmente desde el panel admin).
+let misCampsTab = 'active';
+window.setMisCampsTab = function(tab){
+  misCampsTab = tab;
+  const a = document.getElementById('mc-tab-active');
+  const h = document.getElementById('mc-tab-history');
+  if (a) {
+    a.style.background = (tab === 'active') ? '#fff' : 'transparent';
+    a.style.boxShadow  = (tab === 'active') ? '0 1px 2px rgba(0,0,0,.08)' : 'none';
+  }
+  if (h) {
+    h.style.background = (tab === 'history') ? '#fff' : 'transparent';
+    h.style.boxShadow  = (tab === 'history') ? '0 1px 2px rgba(0,0,0,.08)' : 'none';
+  }
+  renderMisCamps();
+};
+
 function renderMisCamps(){
   const cont = document.getElementById('mis-camps-content');
   if (!cont) return;
-  // Ajusta titulo/subtitulo segun rol (vendedor ve solo sus aplicables, el resto ve todas)
   const isVend = (userRole === 'vendedor' && assignedVendor);
+  const tab = misCampsTab || 'active';
+  // Titulo + subtitulo dinamicos segun rol y tab.
   const titleEl = document.getElementById('mis-camps-title');
   const subtEl = document.getElementById('mis-camps-subt');
-  if (titleEl) titleEl.textContent = isVend ? 'Mis Campañas Activas' : 'Campañas Activas';
-  if (subtEl) subtEl.textContent = isVend
-    ? 'Campañas vigentes en tu zona. Tocá una para ver los SKU a impulsar.'
-    : 'Todas las campañas vigentes. Tocá una para ver los SKU involucrados.';
+  if (titleEl) {
+    if (tab === 'history') titleEl.textContent = isVend ? 'Mis Campañas Históricas' : 'Campañas Históricas';
+    else titleEl.textContent = isVend ? 'Mis Campañas Activas' : 'Campañas Activas';
+  }
+  if (subtEl) {
+    if (tab === 'history') {
+      subtEl.textContent = isVend
+        ? 'Campañas terminadas que se aplicaron a tu zona.'
+        : 'Campañas terminadas (por fecha o finalizadas manualmente).';
+    } else {
+      subtEl.textContent = isVend
+        ? 'Campañas vigentes en tu zona. Tocá una para ver los SKU a impulsar.'
+        : 'Todas las campañas vigentes. Tocá una para ver los SKU involucrados.';
+    }
+  }
   const todayISO = new Date().toISOString().slice(0, 10);
-  let mine = (campaignsCache || [])
+  // Active = no archivada manualmente Y vigente por fecha.
+  let activeList = (campaignsCache || [])
     .filter(c => !c.archivedManually && c.startDate && c.endDate && c.startDate <= todayISO && c.endDate >= todayISO);
-  if (isVend) mine = mine.filter(c => isCampaignApplicableToVendor(c, assignedVendor));
-  mine.sort((a, b) => (a.endDate || '').localeCompare(b.endDate || ''));
+  // Historic = archivada manualmente O ya pasado el endDate.
+  let historyList = (campaignsCache || [])
+    .filter(c => c.startDate && c.endDate && (c.archivedManually || c.endDate < todayISO));
+  if (isVend) {
+    activeList  = activeList.filter(c => isCampaignApplicableToVendor(c, assignedVendor));
+    historyList = historyList.filter(c => isCampaignApplicableToVendor(c, assignedVendor));
+  }
+  // Actualizar contadores de las tabs.
+  const aC = document.getElementById('mc-tab-active-count');
+  const hC = document.getElementById('mc-tab-history-count');
+  if (aC) aC.textContent = activeList.length;
+  if (hC) hC.textContent = historyList.length;
+  const mine = (tab === 'history') ? historyList : activeList;
+  // Historicas: ordenadas por endDate DESC (mas recientes arriba).
+  if (tab === 'history') mine.sort((a, b) => (b.endDate || '').localeCompare(a.endDate || ''));
+  else mine.sort((a, b) => (a.endDate || '').localeCompare(b.endDate || ''));
   if (!mine.length) {
-    const msg = isVend
-      ? 'No tenes campañas activas en este momento.<br><span style="font-weight:500;font-size:11px">Cuando arranque una nueva campaña en tu zona, va a aparecer acá.</span>'
-      : 'No hay campañas activas en este momento.';
+    let msg;
+    if (tab === 'history') {
+      msg = isVend
+        ? 'Todavia no hay campañas terminadas en tu zona.'
+        : 'Todavia no hay campañas terminadas.';
+    } else {
+      msg = isVend
+        ? 'No tenes campañas activas en este momento.<br><span style="font-weight:500;font-size:11px">Cuando arranque una nueva campaña en tu zona, va a aparecer acá.</span>'
+        : 'No hay campañas activas en este momento.';
+    }
     cont.innerHTML = '<div class="mc-empty">' + msg + '</div>';
     return;
   }
-  const summaryTxt = isVend
-    ? (mine.length + ' campañas activas para impulsar')
-    : (mine.length + ' campañas activas');
+  let summaryTxt;
+  if (tab === 'history') {
+    summaryTxt = mine.length + (mine.length === 1 ? ' campaña histórica' : ' campañas históricas');
+  } else {
+    summaryTxt = isVend
+      ? (mine.length + ' campañas activas para impulsar')
+      : (mine.length + ' campañas activas');
+  }
   let html = '<div class="mc-summary">' + summaryTxt + '</div>';
   mine.forEach((c, idx) => {
     const skuList = Array.isArray(c.skus) ? c.skus : (Array.isArray(c.filterValues) ? c.filterValues : []);
     const skuCount = skuList.length;
     const target = (c.targetType === 'money') ? ('$' + (parseFloat(c.targetAmount)||0).toLocaleString('es-AR')) : ((parseFloat(c.targetAmount)||0).toLocaleString('es-AR') + ' u');
     const scopeTxt = (typeof describeCampaignScope === 'function') ? describeCampaignScope(c) : '';
-    html += '<div class="mc-camp-card">';
+    // En historicas mostramos badge con motivo de finalizacion.
+    let historicBadge = '';
+    if (tab === 'history') {
+      const archivedAtTxt = (c.archivedAt && c.archivedAt.toDate) ? c.archivedAt.toDate().toLocaleDateString('es-AR') : '';
+      const motivo = c.archivedManually
+        ? ('Finalizada manualmente' + (archivedAtTxt ? ' el ' + archivedAtTxt : ''))
+        : ('Finalizada el ' + c.endDate);
+      historicBadge = '<span style="display:inline-block;background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:9px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:8px;vertical-align:middle">' + escapeHtml(motivo) + '</span>';
+    }
+    html += '<div class="mc-camp-card"' + (tab === 'history' ? ' style="opacity:.88"' : '') + '>';
     html += '<div class="mc-camp-head" onclick="toggleMisCampSkus(' + idx + ')">';
-    html += '<div><div class="mc-camp-name">' + escapeHtml(c.name || 'Campaña') + '</div>';
+    html += '<div><div class="mc-camp-name">' + escapeHtml(c.name || 'Campaña') + historicBadge + '</div>';
     html += '<div class="mc-camp-meta">' + escapeHtml(c.startDate) + ' &rarr; ' + escapeHtml(c.endDate) + ' &middot; Objetivo: ' + escapeHtml(target) + ' &middot; ' + escapeHtml(scopeTxt) + ' &middot; ' + skuCount + ' SKU</div></div>';
     html += '<div class="mc-camp-arrow" id="mc-arrow-' + idx + '">&#9654;</div>';
     html += '</div>';
