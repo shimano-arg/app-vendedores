@@ -1668,6 +1668,18 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569;margin:8px 0 4px">Pedido actual</div>
         <div id="rv-lines"></div>
         <div class="review-totals" id="rv-totals"></div>
+        <div style="margin-top:12px;padding:10px 12px;background:#fff;border:1.5px solid #cbd5e1;border-radius:6px">
+          <label for="rv-forma-pago" style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569;display:block;margin-bottom:6px">Forma de pago <span style="color:#dc2626">*</span></label>
+          <select id="rv-forma-pago" onchange="onFormaPagoChange()" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;font-weight:600;color:#0f172a;outline:none;background:#fff">
+            <option value="">- Seleccionar -</option>
+            <option value="CONTADO">Contado</option>
+            <option value="CHEQUE">Cheque</option>
+            <option value="CTA CTE">Cuenta Corriente</option>
+            <option value="VTA ESP">Venta Especial</option>
+            <option value="CON CHEQ">Contado / Cheque</option>
+          </select>
+          <div id="rv-forma-pago-hint" style="font-size:10px;color:#64748b;margin-top:4px">Solo "Contado" suma el bonus de pago anticipado al descuento.</div>
+        </div>
         <div id="rv-discount"></div>
       </div>
       <div class="modal-footer" style="justify-content:space-between;gap:12px">
@@ -2010,18 +2022,6 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <select id="cd-mes" style="flex:2;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;font-weight:600;color:#0f172a;outline:none"></select>
             <select id="cd-anio" style="flex:1;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;font-weight:600;color:#0f172a;outline:none"></select>
           </div>
-          <div style="margin-bottom:14px">
-            <label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569;display:block;margin-bottom:4px">Condici&oacute;n de pago <span style="color:#dc2626">*</span></label>
-            <select id="cd-condicion" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;font-weight:600;color:#0f172a;outline:none">
-              <option value="">- Seleccionar -</option>
-              <option value="CONTADO">Contado</option>
-              <option value="CHEQUE">Cheque</option>
-              <option value="CTA CTE">Cuenta Corriente</option>
-              <option value="VTA ESP">Venta especial</option>
-              <option value="CON CHEQ">Contado / Cheque</option>
-            </select>
-            <div id="cd-condicion-error" style="display:none;margin-top:4px;color:#dc2626;font-size:11px;font-weight:600">Tenes que seleccionar una condici&oacute;n de pago.</div>
-          </div>
           <div id="cd-actingas-wrap" style="display:none;margin-bottom:14px">
             <label style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569;display:block;margin-bottom:4px">Crear en nombre de <span style="font-weight:500;text-transform:none;color:#7c3aed">(soporte como VDI)</span></label>
             <select id="cd-actingas" onchange="onPedidoActingAsChange()" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;font-weight:600;color:#0f172a;outline:none">
@@ -2058,38 +2058,15 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <input id="cm-locality" type="text" autocomplete="address-level2" placeholder="Ej: Palermo, San Isidro, La Plata..." oninput="onClientMetaInput()" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none"/>
           </div>
           <div style="border-top:1px dashed #cbd5e1;margin:14px -2px 10px;padding-top:10px">
-            <div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Categorizacion comercial <span style="font-weight:500;color:#94a3b8;text-transform:none;letter-spacing:0">(para calcular descuento estimado)</span></div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-              <div>
-                <label for="cm-cli-tipo" style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px">Tipo de cliente</label>
-                <select id="cm-cli-tipo" onchange="saveClientCategoriaFromModal('cliTipo', this)" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff">
-                  <option value="">(sin clasificar)</option>
-                  <option value="P">P (Premium)</option>
-                  <option value="A">A</option>
-                  <option value="B">B</option>
-                  <option value="C">C</option>
-                </select>
-              </div>
-              <div>
-                <label for="cm-cli-anticipado" style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px">Pago anticipado</label>
-                <select id="cm-cli-anticipado" onchange="saveClientCategoriaFromModal('cliAnticipado', this)" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff">
-                  <option value="">(sin clasificar)</option>
-                  <option value="P">P (Premium) - 5%</option>
-                  <option value="A">A - 3%</option>
-                  <option value="B">B - sin descuento</option>
-                  <option value="C">C - sin descuento</option>
-                </select>
-              </div>
-            </div>
+            <div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Categorizacion comercial <span style="font-weight:500;color:#94a3b8;text-transform:none;letter-spacing:0">(determina el descuento fijo + el bonus de pago anticipado)</span></div>
             <div>
-              <label for="cm-cli-volumen" style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px">Volumen de compras</label>
-              <select id="cm-cli-volumen" onchange="saveClientCategoriaFromModal('cliVolumen', this)" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff">
+              <label for="cm-cli-tipo" style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px">Tipo de cliente</label>
+              <select id="cm-cli-tipo" onchange="saveClientCategoriaFromModal('cliTipo', this)" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff">
                 <option value="">(sin clasificar)</option>
-                <option value="<3M">Hasta $3M (0%)</option>
-                <option value="3-4.5M">$3M - $4.5M (2%)</option>
-                <option value="4.5-10M">$4.5M - $10M (3%)</option>
-                <option value="10-20M">$10M - $20M (4%)</option>
-                <option value=">20M">Mas de $20M (6%)</option>
+                <option value="P">P (Premium) - fijo 6% / anticipado 5%</option>
+                <option value="A">A - fijo 3% / anticipado 3%</option>
+                <option value="B">B - sin descuento</option>
+                <option value="C">C - sin descuento</option>
               </select>
             </div>
             <div id="cm-cli-status" style="font-size:10px;color:#64748b;margin-top:6px;min-height:14px"></div>
@@ -3596,17 +3573,16 @@ function openClientModal(clientName, tipo, province, localityName){
   const locInput = document.getElementById('cm-locality');
   if (addrInput) addrInput.value = (meta && meta.address) ? meta.address : '';
   if (locInput) locInput.value = (meta && meta.locality) ? meta.locality : localityName;
-  // Cargar los 3 dropdowns de categorizacion comercial desde client_master
-  // (Firestore, global - no es per-device como clientMeta). Si no hay doc
-  // guardado, los selects quedan en "(sin clasificar)" por defecto.
+  // Cargar el dropdown de Tipo de cliente desde client_master (Firestore
+  // global - no es per-device como clientMeta). Si no hay doc guardado,
+  // queda en "(sin clasificar)" por defecto.
+  // El "Volumen" ahora es dinamico (sale del subtotal del pedido) y el
+  // bonus de "Pago anticipado" depende de la forma de pago elegida en
+  // cada pedido - asi que no hay mas campos a nivel cliente.
   const docId = clientLocId(province, localityName, clientName);
   const cmData = clientMasterCache.get(docId) || {};
-  const selTipo  = document.getElementById('cm-cli-tipo');
-  const selVol   = document.getElementById('cm-cli-volumen');
-  const selAntic = document.getElementById('cm-cli-anticipado');
-  if (selTipo)  selTipo.value  = cmData.cliTipo       || '';
-  if (selVol)   selVol.value   = cmData.cliVolumen    || '';
-  if (selAntic) selAntic.value = cmData.cliAnticipado || '';
+  const selTipo = document.getElementById('cm-cli-tipo');
+  if (selTipo) selTipo.value = cmData.cliTipo || '';
   // Guardo en el dataset del modal los meta necesarios para escribir a
   // client_master al cambiar un dropdown (vendor / prov / loc / name).
   const modalEl = document.getElementById('client-modal');
@@ -5135,30 +5111,15 @@ window.renderMasterClientesTable = function(){
     return;
   }
 
-  // Opciones de los 3 dropdowns nuevos (categorizacion comercial).
-  // El descuento se calcula en renderReviewLines() solo como referencia
-  // visual - el pedido a SAP va sin descuento, SAP recalcula al ingresarlo.
+  // Dropdown unico de Tipo de cliente (P/A/B/C). Volumen ahora es dinamico
+  // (sale del subtotal del pedido) y el bonus de pago anticipado depende
+  // de la forma de pago elegida al armar cada pedido.
   const TIPO_OPTS = [
     {v:'',  l:'(sin clasificar)'},
     {v:'P', l:'P (Premium)'},
     {v:'A', l:'A'},
     {v:'B', l:'B'},
     {v:'C', l:'C'},
-  ];
-  const VOL_OPTS = [
-    {v:'',         l:'(sin clasificar)'},
-    {v:'<3M',      l:'Hasta $3M (0%)'},
-    {v:'3-4.5M',   l:'$3M - $4.5M (2%)'},
-    {v:'4.5-10M',  l:'$4.5M - $10M (3%)'},
-    {v:'10-20M',   l:'$10M - $20M (4%)'},
-    {v:'>20M',     l:'Mas de $20M (6%)'},
-  ];
-  const ANTIC_OPTS = [
-    {v:'',  l:'(sin clasificar)'},
-    {v:'P', l:'P (Premium) - 5%'},
-    {v:'A', l:'A - 3%'},
-    {v:'B', l:'B - sin desc.'},
-    {v:'C', l:'C - sin desc.'},
   ];
   function _selHtml(name, current, opts, docId){
     const has = current ? ' has-value' : '';
@@ -5170,15 +5131,13 @@ window.renderMasterClientesTable = function(){
     return s;
   }
   let html = '<table class="mc-table"><thead><tr>';
-  html += '<th style="width:18%">Tienda</th>';
-  html += '<th style="width:10%">Localidad</th>';
-  html += '<th style="width:9%">Provincia</th>';
-  html += '<th style="width:11%">Vendedor</th>';
-  html += '<th style="width:19%">Direcci&oacute;n exacta</th>';
-  html += '<th style="width:7%" title="Categoria comercial del cliente">Tipo</th>';
-  html += '<th style="width:11%" title="Volumen tipico de compra (tier estatico)">Volumen</th>';
-  html += '<th style="width:8%" title="Cliente con pago anticipado">Anticip.</th>';
-  html += '<th style="width:7%"></th>';
+  html += '<th style="width:22%">Tienda</th>';
+  html += '<th style="width:12%">Localidad</th>';
+  html += '<th style="width:11%">Provincia</th>';
+  html += '<th style="width:13%">Vendedor</th>';
+  html += '<th style="width:23%">Direcci&oacute;n exacta</th>';
+  html += '<th style="width:11%" title="Categoria comercial del cliente">Tipo</th>';
+  html += '<th style="width:8%"></th>';
   html += '</tr></thead><tbody>';
   const MAX = 500;
   entries.slice(0, MAX).forEach(e => {
@@ -5191,9 +5150,7 @@ window.renderMasterClientesTable = function(){
     const btnCls = 'mc-save-btn' + (isDirty ? ' changed' : '');
     const vendInfo = VENDORS.find(v => v.key === e.vendor);
     const vendLabel = vendInfo ? (vendInfo.zone + ' ' + titleCase(e.vendor)) : (e.vendor ? titleCase(e.vendor) : '-');
-    const curTipo  = (saved && saved.cliTipo) || '';
-    const curVol   = (saved && saved.cliVolumen) || '';
-    const curAntic = (saved && saved.cliAnticipado) || '';
+    const curTipo = (saved && saved.cliTipo) || '';
     html += '<tr data-doc="' + escapeAttr(id) + '">';
     html += '<td><div class="mc-name">' + escapeHtml(e.nombre) + '</div><div class="mc-meta"><span class="mc-tag ' + (e.tipo === 'cliente' ? 'cli' : 'pro') + '">' + (e.tipo === 'cliente' ? 'CLIENTE' : 'PROSPECTO') + '</span></div></td>';
     html += '<td>' + escapeHtml(e.localidad) + '</td>';
@@ -5201,8 +5158,6 @@ window.renderMasterClientesTable = function(){
     html += '<td>' + escapeHtml(vendLabel) + '</td>';
     html += '<td><input type="text" class="' + inputCls + '" value="' + escapeAttr(cur) + '" placeholder="Av. Belgrano 123, Barrio Norte" oninput="onMcAddrInput(this, \'' + escapeAttr(id) + '\', \'' + escapeAttr(savedAddr) + '\')" onkeydown="if(event.key===\'Enter\')this.parentElement.parentElement.querySelector(\'.mc-save-btn\').click()" /></td>';
     html += '<td data-vendor="' + escapeAttr(e.vendor) + '" data-prov="' + escapeAttr(e.provincia) + '" data-loc="' + escapeAttr(e.localidad) + '" data-name="' + escapeAttr(e.nombre) + '">' + _selHtml('cliTipo', curTipo, TIPO_OPTS, id) + '</td>';
-    html += '<td>' + _selHtml('cliVolumen', curVol, VOL_OPTS, id) + '</td>';
-    html += '<td>' + _selHtml('cliAnticipado', curAntic, ANTIC_OPTS, id) + '</td>';
     html += '<td><button class="' + btnCls + '" onclick="saveMcAddr(\'' + escapeAttr(id) + '\', this)" data-vendor="' + escapeAttr(e.vendor) + '" data-prov="' + escapeAttr(e.provincia) + '" data-loc="' + escapeAttr(e.localidad) + '" data-name="' + escapeAttr(e.nombre) + '">Guardar</button></td>';
     html += '</tr>';
   });
@@ -5332,37 +5287,44 @@ window.saveMcClientField = async function(docId, fieldName, sel){
   }
 };
 
-// Calcula el descuento estimado para un pedido en base a la categorizacion
-// del cliente (Tipo / Volumen / Anticipado). Es PURAMENTE INFORMATIVO para
-// que el vendedor pueda mostrarle al duenio de la tienda como queda el
-// pedido aplicando los descuentos. El payload a SAP va con el subtotal
-// SIN descuento - SAP recalcula al ingresar el pedido para evitar duplicar
-// descuentos.
+// Calcula el descuento estimado para un pedido en base a Tipo de cliente,
+// el subtotal real del pedido (volumen dinamico) y la forma de pago elegida
+// para ESTE pedido. Es PURAMENTE INFORMATIVO para que el vendedor pueda
+// mostrarle al duenio de la tienda como queda el pedido aplicando los
+// descuentos. El payload a SAP va con el subtotal SIN descuento - SAP
+// recalcula al ingresar el pedido para evitar duplicar descuentos.
 //
 // Tabla de descuentos (acumulativos):
-//   Fijo (por tipo):           P=6% / A=3% / B,C=0%
-//   Volumen (tier estatico):   2/3/4/6% segun bracket guardado en cliente
-//   Anticipado (rating propio):P=5% / A=3% / B,C=0%
-// Anticipado es un rating independiente de Tipo - un cliente puede ser Tipo A
-// y al mismo tiempo tener Anticipado P si para pagos por adelantado tiene
-// mejor scoring (o viceversa).
-function calcClientDiscount(clientData, subtotal){
-  const tipo   = (clientData && clientData.cliTipo)       || '';
-  const vol    = (clientData && clientData.cliVolumen)    || '';
-  const antic  = (clientData && clientData.cliAnticipado) || '';
-  const FIJO_PCT   = {P: 6, A: 3, B: 0, C: 0};
-  const VOL_PCT    = {'<3M': 0, '3-4.5M': 2, '4.5-10M': 3, '10-20M': 4, '>20M': 6};
-  const ANTIC_PCT  = {P: 5, A: 3, B: 0, C: 0};
-  const pctFijo   = FIJO_PCT[tipo]  || 0;
-  const pctVol    = VOL_PCT[vol]    || 0;
-  const pctAntic  = ANTIC_PCT[antic] || 0;
-  const pctTotal  = pctFijo + pctVol + pctAntic;
-  const monto     = subtotal * pctTotal / 100;
+//   Fijo (por tipo de cliente):   P=6% / A=3% / B,C=0%
+//   Volumen (DINAMICO segun subtotal del pedido actual):
+//     hasta $3M: 0% / $3M-$4.5M: 2% / $4.5M-$10M: 3% /
+//     $10M-$20M: 4% / mas de $20M: 6%
+//   Pago Anticipado (solo si forma de pago = CONTADO):
+//     P=5% / A=3% / B,C=0%
+function calcClientDiscount(clientData, subtotal, formaPago){
+  const tipo = (clientData && clientData.cliTipo) || '';
+  const FIJO_PCT  = {P: 6, A: 3, B: 0, C: 0};
+  const ANTIC_PCT = {P: 5, A: 3, B: 0, C: 0};
+  // Bracket de volumen segun subtotal real (en ARS).
+  let pctVol = 0, volLabel = '';
+  if (subtotal > 20000000)       { pctVol = 6; volLabel = 'mas de $20M'; }
+  else if (subtotal > 10000000)  { pctVol = 4; volLabel = '$10M-$20M'; }
+  else if (subtotal > 4500000)   { pctVol = 3; volLabel = '$4.5M-$10M'; }
+  else if (subtotal > 3000000)   { pctVol = 2; volLabel = '$3M-$4.5M'; }
+  else                           { pctVol = 0; volLabel = 'hasta $3M'; }
+  const pctFijo  = FIJO_PCT[tipo] || 0;
+  // Anticipado solo aplica con forma de pago CONTADO.
+  const pctAntic = (formaPago === 'CONTADO') ? (ANTIC_PCT[tipo] || 0) : 0;
+  const pctTotal = pctFijo + pctVol + pctAntic;
+  const monto    = subtotal * pctTotal / 100;
   return {
-    tipo, vol, antic,
+    tipo,
+    vol:      volLabel,
+    formaPago: formaPago || '',
+    subtotal,
     pctFijo, pctVol, pctAntic, pctTotal,
     monto, total: subtotal - monto,
-    hasAny: !!(tipo || vol || antic),
+    hasAny: !!(tipo || formaPago || pctVol > 0),
   };
 }
 window.calcClientDiscount = calcClientDiscount;
@@ -11121,6 +11083,9 @@ window.openReviewDialog = function(mode){
     lines = orders[currentOrderKey] || [];
   }
   if (!lines.length) { alert('El pedido esta vacio. Agregue productos antes de confirmar.'); return; }
+  // Reset del dropdown de forma de pago - no arrastrar seleccion previa.
+  const fpSel = document.getElementById('rv-forma-pago');
+  if (fpSel) fpSel.value = '';
   renderReviewLines();
   renderReviewSuggestions();
   updateReviewFooter();
@@ -11285,21 +11250,24 @@ function renderReviewLines(){
   document.getElementById('rv-lines').innerHTML = html;
   // Totals
   document.getElementById('rv-totals').innerHTML = '<span>' + ord.length + ' productos &middot; ' + totalU + ' unidades</span><span class="rt-money">$' + Math.round(totalM).toLocaleString('es-AR') + '</span>';
-  // Descuento estimado (informativo, no afecta payload SAP). Solo se muestra
-  // si el cliente tiene al menos una categorizacion cargada en client_master.
+  // Descuento estimado (informativo, no afecta payload SAP).
+  // Volumen es DINAMICO (depende del subtotal del pedido) y el bonus de
+  // pago anticipado solo aplica si el vendedor elige CONTADO.
   const discEl = document.getElementById('rv-discount');
   if (discEl) {
     if (!ord.length || totalM <= 0) { discEl.innerHTML = ''; return; }
     const cd = getCurrentOrderClientData();
-    const d = calcClientDiscount(cd, totalM);
-    if (!d.hasAny) {
+    const formaPagoSel = document.getElementById('rv-forma-pago');
+    const formaPago = formaPagoSel ? formaPagoSel.value : '';
+    const d = calcClientDiscount(cd, totalM, formaPago);
+    if (!d.hasAny && !formaPago) {
       discEl.innerHTML = '<div class="review-discount"><div class="rd-head"><span>&#128176; Descuento estimado</span></div>'
-        + '<div class="rd-empty">Cliente sin categorizacion comercial cargada. Cargar Tipo / Volumen / Anticipado en <b>Master Clientes</b> para ver el descuento estimado.</div></div>';
+        + '<div class="rd-empty">Cargar <b>Tipo de cliente</b> en Master Clientes y elegir <b>Forma de pago</b> aca arriba para ver el descuento estimado.</div></div>';
       return;
     }
-    const tipoLbl  = d.tipo  ? ('Tipo ' + d.tipo)        : 'Sin tipo';
-    const volLbl   = d.vol   ? d.vol                     : 'Sin volumen';
-    const anticLbl = d.antic ? ('Categoria ' + d.antic)  : 'Sin definir';
+    const tipoLbl  = d.tipo ? ('Tipo ' + d.tipo) : 'Sin tipo';
+    const volLbl   = d.vol;
+    const anticLbl = (d.formaPago === 'CONTADO') ? 'CONTADO' : (d.formaPago ? (d.formaPago + ' - no aplica') : 'Sin forma de pago');
     let body = '';
     body += '<div class="rd-line"><span>Subtotal pedido</span><span class="rd-money">$' + Math.round(totalM).toLocaleString('es-AR') + '</span></div>';
     body += '<div class="rd-line"><span>&middot; Descuento fijo (' + escapeHtml(tipoLbl) + ')</span><span class="rd-pct">-' + d.pctFijo + '%</span></div>';
@@ -11311,6 +11279,12 @@ function renderReviewLines(){
     discEl.innerHTML = '<div class="review-discount"><div class="rd-head"><span>&#128176; Descuento estimado para el cliente</span></div>' + body + '</div>';
   }
 }
+
+// Callback del dropdown "Forma de pago" en el modal Revisa tu pedido:
+// recalcula el descuento estimado al cambiar (volumen sigue dinamico).
+window.onFormaPagoChange = function(){
+  renderReviewLines();
+};
 
 window.openConfirmDialog = function(){
   if (!currentOrderKey || currentOrderKey === '__readonly__') return;
@@ -11328,13 +11302,11 @@ window.openConfirmDialog = function(){
   anioSel.innerHTML = yopts;
   anioSel.value = year;
   document.getElementById('cd-title').textContent = 'Confirmar pedido';
-  document.getElementById('cd-text').innerHTML = 'Desea confirmar el pedido de <b>' + escapeHtml(currentOrderClient.name) + '</b>?<br><span style="font-size:11px;color:#64748b">Seleccione el mes/a&ntilde;o y la condici&oacute;n de pago:</span>';
-  // Reset del dropdown de condicion de pago al abrir el modal (no queremos
-  // arrastrar la seleccion de un pedido anterior).
-  const condSel = document.getElementById('cd-condicion');
-  if (condSel) condSel.value = '';
-  const condErr = document.getElementById('cd-condicion-error');
-  if (condErr) condErr.style.display = 'none';
+  // Forma de pago ya se eligio en el modal "Revisa tu pedido" - aca solo
+  // confirmamos mes/anio.
+  const formaPagoYaElegida = (document.getElementById('rv-forma-pago') && document.getElementById('rv-forma-pago').value) || '';
+  const fpLine = formaPagoYaElegida ? ('<br><span style="font-size:11px;color:#475569">Forma de pago: <b>' + escapeHtml(formaPagoYaElegida) + '</b></span>') : '';
+  document.getElementById('cd-text').innerHTML = 'Desea confirmar el pedido de <b>' + escapeHtml(currentOrderClient.name) + '</b>?<br><span style="font-size:11px;color:#64748b">Seleccione el mes/a&ntilde;o:</span>' + fpLine;
   // Selector "Crear en nombre de" para VDI con parejas VDE.
   renderPedidoActingAsSelect();
   document.getElementById('confirm-dialog').classList.add('open');
@@ -17237,17 +17209,19 @@ window.doConfirmPedido = function(){
   if (!currentOrderKey || currentOrderKey === '__readonly__') return;
   const ord = orders[currentOrderKey] || [];
   if (!ord.length) return;
-  // Validar condicion de pago: campo obligatorio que mapea al UDF
-  // U_TipoGasto de la cabecera del documento SAP (header "Condicion").
-  const condicionSel = document.getElementById('cd-condicion');
-  const condicionVal = (condicionSel && condicionSel.value) ? condicionSel.value : '';
-  const condicionErrEl = document.getElementById('cd-condicion-error');
+  // Validar forma de pago: campo obligatorio que se elige en el modal de
+  // "Revisa tu pedido" (no aca). Mapea al UDF U_TipoGasto del header SAP.
+  // Si el vendedor llego hasta aca sin elegir forma de pago, es probable
+  // que haya abierto Confirmar directamente desde un pendiente sin pasar
+  // por Review - mostramos alert y abortamos.
+  const formaPagoSel = document.getElementById('rv-forma-pago');
+  const condicionVal = (formaPagoSel && formaPagoSel.value) ? formaPagoSel.value : '';
   if (!condicionVal) {
-    if (condicionErrEl) condicionErrEl.style.display = '';
-    if (condicionSel) try { condicionSel.focus(); } catch(e) {}
+    alert('Tenes que elegir una forma de pago en "Revisa tu pedido" antes de confirmar.');
+    closeConfirmDialog();
+    try { openReviewDialog(); } catch(e) {}
     return;
   }
-  if (condicionErrEl) condicionErrEl.style.display = 'none';
   const mesIdx = parseInt(document.getElementById('cd-mes').value);
   const anio = document.getElementById('cd-anio').value;
   const monthLabel = MESES[mesIdx] + ' ' + anio;
@@ -17255,31 +17229,31 @@ window.doConfirmPedido = function(){
   // ownerUid es el del VDE; queda auditoria de quien lo cargo (createdBy...).
   const actingPartner = getActingVendorPartner();
   const onBehalfBanner = actingPartner ? '\n(en nombre de ' + (actingPartner.displayName || actingPartner.email || 'VDE') + ')' : '';
-  if (!confirm('Confirmar pedido de "' + currentOrderClient.name + '" para ' + monthLabel + '?\nCondicion de pago: ' + condicionVal + onBehalfBanner)) return;
+  if (!confirm('Confirmar pedido de "' + currentOrderClient.name + '" para ' + monthLabel + '?\nForma de pago: ' + condicionVal + onBehalfBanner)) return;
   const parts = currentOrderKey.split('|');
   const ownerUid = actingPartner ? actingPartner.uid : (currentUser ? currentUser.uid : null);
   const ownerEmail = actingPartner ? (actingPartner.email || '') : (currentUser ? currentUser.email : null);
   // Calcular snapshot del descuento al momento de confirmar.
-  // INMUTABLE: cambios futuros a la categorizacion del cliente NO afectan
-  // este pedido. El dashboard/targets usan el netAmountArs como "monto real
-  // de la operacion" (lo que cobra Shimano y cuenta para el target del
-  // vendedor). El payload a SAP sigue yendo SIN descuento - SAP recalcula.
+  // INMUTABLE: cambios futuros a categorizacion del cliente o a la tabla
+  // de descuentos NO afectan este pedido. El dashboard/targets usan
+  // netAmountArs como "monto real de la operacion". El payload a SAP sigue
+  // yendo SIN descuento - SAP recalcula al ingresar.
   const _subtotalArs = (ord || []).reduce((s, l) => s + (parseFloat(l.qty)||0) * (parseFloat(l.precio)||0), 0);
   const _cmDocId = clientLocId(parts[1], parts[2], parts[3]);
   const _cmData = (typeof clientMasterCache !== 'undefined' && clientMasterCache.get) ? clientMasterCache.get(_cmDocId) : null;
-  const _disc = (typeof calcClientDiscount === 'function') ? calcClientDiscount(_cmData, _subtotalArs) : null;
+  const _disc = (typeof calcClientDiscount === 'function') ? calcClientDiscount(_cmData, _subtotalArs, condicionVal) : null;
   const _discountSnapshot = _disc ? {
-    cliTipo:       _disc.tipo  || '',
-    cliVolumen:    _disc.vol   || '',
-    cliAnticipado: _disc.antic || '',
-    pctFijo:       _disc.pctFijo,
-    pctVol:        _disc.pctVol,
-    pctAntic:      _disc.pctAntic,
-    pctTotal:      _disc.pctTotal,
-    subtotal:      _disc.subtotal,
-    monto:         _disc.monto,
-    total:         _disc.total,
-    calculatedAt:  new Date().toISOString(),
+    cliTipo:      _disc.tipo  || '',
+    volBracket:   _disc.vol   || '',
+    formaPago:    _disc.formaPago || '',
+    pctFijo:      _disc.pctFijo,
+    pctVol:       _disc.pctVol,
+    pctAntic:     _disc.pctAntic,
+    pctTotal:     _disc.pctTotal,
+    subtotal:     _disc.subtotal,
+    monto:        _disc.monto,
+    total:        _disc.total,
+    calculatedAt: new Date().toISOString(),
   } : null;
   const docData = {
     ownerUid: ownerUid,
