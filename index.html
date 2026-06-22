@@ -4134,9 +4134,13 @@ async function exportVentasForMonth(anio, monthIdx){
     if (!lines.length) return;
     const vendorKey = p.vendor || lookupVendorForClient(p.province, p.locName, p.clientName) || '';
     const vendorInfo = vendorLookup[vendorKey] || {};
+    const factor = (typeof pedidoDiscountFactor === 'function') ? pedidoDiscountFactor(p) : 1;
+    const discPct = (p.discountSnapshot && p.discountSnapshot.pctTotal) || 0;
     lines.forEach(l => {
       const qty = parseFloat(l.qty) || 0;
       const precio = parseFloat(l.precio) || 0;
+      const gross = qty * precio;
+      const net = gross * factor;
       rows.push({
         Mes: p.month || '',
         Fecha_Confirmado: p.confirmedAt ? String(p.confirmedAt).slice(0, 10) : '',
@@ -4153,7 +4157,12 @@ async function exportVentasForMonth(anio, monthIdx){
         Subfamilia: l.sub || '',
         Cantidad: qty,
         Precio_Unit_ARS: precio,
-        Subtotal_ARS: qty * precio,
+        // Subtotal_ARS = NETO (con descuento aplicado) - es lo que cuenta
+        // para el target del vendedor. Subtotal_Bruto_ARS muestra el valor
+        // de lista sin descuento para trazabilidad.
+        Subtotal_ARS: Math.round(net),
+        Subtotal_Bruto_ARS: Math.round(gross),
+        Descuento_Pct: discPct,
         En_Nombre_De_VDE: p.onBehalfOf ? 'SI' : 'NO',
         Cargado_Por: p.createdByDisplayName || p.createdByEmail || '',
       });
@@ -5366,6 +5375,18 @@ function getCurrentOrderClientData(){
   return clientMasterCache.get(id) || null;
 }
 
+// Devuelve el factor multiplicativo para convertir subtotal bruto a NETO
+// (post-descuento) segun el snapshot guardado al confirmar el pedido.
+// Pedidos viejos sin snapshot devuelven 1 (sin descuento aplicado -
+// retrocompatibilidad: el dashboard sigue mostrando lo que mostraba antes).
+function pedidoDiscountFactor(pedido){
+  const pct = (pedido && pedido.discountSnapshot && pedido.discountSnapshot.pctTotal) || 0;
+  if (pct <= 0) return 1;
+  if (pct >= 100) return 0;
+  return 1 - (pct / 100);
+}
+window.pedidoDiscountFactor = pedidoDiscountFactor;
+
 window.saveMcAddr = async function(docId, btn){
   if (userRole !== 'admin') { alert('Solo admin puede editar.'); return; }
   if (!(docId in mcPendingChanges)) { alert('No hay cambios pendientes para esta tienda.'); return; }
@@ -5744,6 +5765,9 @@ function buildPedidoDetailRows(){
     const pt = POINTS.find(p => p.province === prov && p.name === locName);
     const vendor = pt ? pt.vendor : '';
     const vm = vendorLookup[vendor];
+    // Factor de descuento por pedido (1 si no hay snapshot guardado).
+    // subtotal_ars en cada row queda como NETO (post-descuento) para que
+    // las agregaciones de targets / dashboard sumen el monto real.
     list.forEach(c => {
       const dt = (c.confirmedAt || c.finalizedAt || '').slice(0, 10);
       const dParts = dt.split('-');
@@ -5753,11 +5777,14 @@ function buildPedidoDetailRows(){
       const quarter = monthNum ? 'Q' + (Math.floor((parseInt(monthNum)-1)/3)+1) : '';
       const contactKeyC = tipo + '|' + prov + '|' + locName + '|' + clientName;
       const wasContacted = contacted.has(contactKeyC) ? 'Si' : 'No';
+      const factor = (typeof pedidoDiscountFactor === 'function') ? pedidoDiscountFactor(c) : 1;
+      const discPct = (c.discountSnapshot && c.discountSnapshot.pctTotal) || 0;
       (c.lines || []).forEach((l, idx) => {
         const q = parseFloat(l.qty) || 0;
         const pr = parseFloat(l.precio) || 0;
-        const ars = q * pr;
-        const usd = EXCHANGE_RATE > 0 ? ars / EXCHANGE_RATE : 0;
+        const grossArs = q * pr;
+        const netArs = grossArs * factor;
+        const usd = EXCHANGE_RATE > 0 ? netArs / EXCHANGE_RATE : 0;
         rows.push({
           line_id: (c._fsId || key) + '_' + idx,
           fecha: dt,
@@ -5781,7 +5808,9 @@ function buildPedidoDetailRows(){
           subfamilia: l.sub || '',
           cantidad: q,
           precio_unit_ars: fmt2(pr),
-          subtotal_ars: fmt2(ars),
+          subtotal_ars: fmt2(netArs),
+          subtotal_bruto_ars: fmt2(grossArs),
+          descuento_pct: discPct,
           subtotal_usd: fmt2(usd),
         });
       });
@@ -16194,10 +16223,15 @@ window.renderDashboard = function(){
       const inJul2026 = dt.startsWith('2026-07');
       const inSemestre = dt >= '2026-07-01' && dt <= '2026-12-31';
       const inAnual2027 = dt >= '2027-01-01' && dt <= '2027-12-31';
+      // Factor de descuento del pedido. Convertimos subtotal bruto a neto
+      // distribuyendo el % proporcionalmente por linea. Asi la suma por
+      // producto / cliente / vendedor refleja la facturacion real
+      // (lo que cuenta para targets).
+      const factor = pedidoDiscountFactor(c);
       (c.lines || []).forEach(l => {
         const q = parseFloat(l.qty) || 0;
         const pr = parseFloat(l.precio) || 0;
-        const m = q * pr;
+        const m = q * pr * factor;
         if (inYear) {
           yearUnits += q; yearMoneyArs += m;
           if (!productAgg[l.code]) productAgg[l.code] = {qty:0, money:0, desc:l.desc||l.code};
@@ -17117,6 +17151,12 @@ function attachFirebaseListeners(){
         month: d.month, monthIdx: d.monthIdx, year: d.year,
         confirmedAt: d.confirmedAt, finalizedAt: d.finalizedAt || null,
         lines: d.lines || [],
+        // Snapshot del descuento al confirmar - dashboard y targets usan
+        // netAmountArs como "monto real" del pedido (con descuento aplicado).
+        discountSnapshot: d.discountSnapshot || null,
+        subtotalArs: d.subtotalArs != null ? d.subtotalArs : null,
+        netAmountArs: d.netAmountArs != null ? d.netAmountArs : null,
+        discountPct: d.discountPct != null ? d.discountPct : 0,
       };
       const target = d.stage === 'confirmed' ? newConfirmed : newPending;
       if (!target[d.key]) target[d.key] = [];
@@ -17148,6 +17188,12 @@ function attachFirebaseListeners(){
         confirmedAt: d.confirmedAt, finalizedAt: d.finalizedAt || null,
         lines: d.lines || [],
         transferidoSAP: d.transferidoSAP || null,
+        // Snapshot inmutable del descuento al confirmar - usado por
+        // dashboard y exports para reportar netAmountArs (monto real).
+        discountSnapshot: d.discountSnapshot || null,
+        subtotalArs: d.subtotalArs != null ? d.subtotalArs : null,
+        netAmountArs: d.netAmountArs != null ? d.netAmountArs : null,
+        discountPct: d.discountPct != null ? d.discountPct : 0,
       });
     });
     if (typeof renderSapPedidos === 'function' && document.getElementById('sap-modal').classList.contains('open')) {
@@ -17213,6 +17259,28 @@ window.doConfirmPedido = function(){
   const parts = currentOrderKey.split('|');
   const ownerUid = actingPartner ? actingPartner.uid : (currentUser ? currentUser.uid : null);
   const ownerEmail = actingPartner ? (actingPartner.email || '') : (currentUser ? currentUser.email : null);
+  // Calcular snapshot del descuento al momento de confirmar.
+  // INMUTABLE: cambios futuros a la categorizacion del cliente NO afectan
+  // este pedido. El dashboard/targets usan el netAmountArs como "monto real
+  // de la operacion" (lo que cobra Shimano y cuenta para el target del
+  // vendedor). El payload a SAP sigue yendo SIN descuento - SAP recalcula.
+  const _subtotalArs = (ord || []).reduce((s, l) => s + (parseFloat(l.qty)||0) * (parseFloat(l.precio)||0), 0);
+  const _cmDocId = clientLocId(parts[1], parts[2], parts[3]);
+  const _cmData = (typeof clientMasterCache !== 'undefined' && clientMasterCache.get) ? clientMasterCache.get(_cmDocId) : null;
+  const _disc = (typeof calcClientDiscount === 'function') ? calcClientDiscount(_cmData, _subtotalArs) : null;
+  const _discountSnapshot = _disc ? {
+    cliTipo:       _disc.tipo  || '',
+    cliVolumen:    _disc.vol   || '',
+    cliAnticipado: _disc.antic || '',
+    pctFijo:       _disc.pctFijo,
+    pctVol:        _disc.pctVol,
+    pctAntic:      _disc.pctAntic,
+    pctTotal:      _disc.pctTotal,
+    subtotal:      _disc.subtotal,
+    monto:         _disc.monto,
+    total:         _disc.total,
+    calculatedAt:  new Date().toISOString(),
+  } : null;
   const docData = {
     ownerUid: ownerUid,
     ownerEmail: ownerEmail,
@@ -17230,6 +17298,13 @@ window.doConfirmPedido = function(){
     // en el header del Sales Quotation cuando se exporta el ZIP DTW.
     condicionPago: condicionVal,
     lines: ord.map(l => ({code: l.code, desc: l.desc, cat: l.cat||'', fam: l.fam||'', sub: l.sub||'', qty: parseFloat(l.qty)||0, precio: parseFloat(l.precio)||0})),
+    // Subtotal bruto (qty*precio) y monto neto (con descuento aplicado).
+    // El dashboard y los targets usan netAmountArs; el payload a SAP usa
+    // subtotalArs (SAP recalcula descuentos al ingresar el pedido).
+    subtotalArs: Math.round(_subtotalArs),
+    netAmountArs: _discountSnapshot ? Math.round(_discountSnapshot.total) : Math.round(_subtotalArs),
+    discountPct: _discountSnapshot ? _discountSnapshot.pctTotal : 0,
+    discountSnapshot: _discountSnapshot,
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
   if (currentUser) {
