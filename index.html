@@ -1825,8 +1825,16 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           </div>
           <div style="display:flex;justify-content:center;margin-top:14px"><button class="btn-camp" onclick="saveCampaign()">Crear campa&ntilde;a</button></div>
         </div>
-        <div style="margin-top:18px"><h4 style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#475569;margin-bottom:8px">Campa&ntilde;as existentes</h4>
-        <div id="campaigns-list"></div></div>
+        <div style="margin-top:18px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+            <h4 style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#475569;margin:0">Campa&ntilde;as</h4>
+            <div class="camp-tabs" style="display:flex;gap:4px;background:#f1f5f9;border-radius:6px;padding:3px">
+              <button type="button" id="camp-tab-active" class="camp-tab-btn active" onclick="setCampaignsTab('active')" style="padding:6px 12px;border:none;border-radius:4px;background:#fff;color:#0f172a;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 1px 2px rgba(0,0,0,.06)">Activas <span id="camp-tab-active-count" style="background:#f59e0b;color:#fff;border-radius:9px;padding:1px 7px;font-size:10px;margin-left:4px">0</span></button>
+              <button type="button" id="camp-tab-history" class="camp-tab-btn" onclick="setCampaignsTab('history')" style="padding:6px 12px;border:none;border-radius:4px;background:transparent;color:#475569;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Hist&oacute;ricas <span id="camp-tab-history-count" style="background:#94a3b8;color:#fff;border-radius:9px;padding:1px 7px;font-size:10px;margin-left:4px">0</span></button>
+            </div>
+          </div>
+          <div id="campaigns-list"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -10573,7 +10581,7 @@ function proceedToCreateOrder(name, tipo, province, locName){
       return pt ? (pt.vendor || '') : '';
     })();
     const activeCamps = (typeof campaignsCache !== 'undefined' ? campaignsCache : [])
-      .filter(c => c.startDate <= todayISO && c.endDate >= todayISO)
+      .filter(c => !c.archivedManually && c.startDate <= todayISO && c.endDate >= todayISO)
       .filter(c => isCampaignApplicableToVendor(c, vendorForCheck));
     if (activeCamps.length) {
       let msg = 'CAMPAÑAS ACTIVAS (' + activeCamps.length + ')\n\n';
@@ -11432,6 +11440,7 @@ function getActiveCampaignSkusForCurrentOrder(){
   const vendor = pt ? (pt.vendor || '') : '';
   const todayISO = new Date().toISOString().slice(0, 10);
   campaignsCache.forEach(c => {
+    if (c.archivedManually) return;
     if (!c.startDate || !c.endDate) return;
     if (c.startDate > todayISO || c.endDate < todayISO) return;
     if (typeof isCampaignApplicableToVendor === 'function' && vendor && !isCampaignApplicableToVendor(c, vendor)) return;
@@ -15461,7 +15470,7 @@ function renderMisCamps(){
     : 'Todas las campañas vigentes. Tocá una para ver los SKU involucrados.';
   const todayISO = new Date().toISOString().slice(0, 10);
   let mine = (campaignsCache || [])
-    .filter(c => c.startDate && c.endDate && c.startDate <= todayISO && c.endDate >= todayISO);
+    .filter(c => !c.archivedManually && c.startDate && c.endDate && c.startDate <= todayISO && c.endDate >= todayISO);
   if (isVend) mine = mine.filter(c => isCampaignApplicableToVendor(c, assignedVendor));
   mine.sort((a, b) => (a.endDate || '').localeCompare(b.endDate || ''));
   if (!mine.length) {
@@ -16227,7 +16236,7 @@ window.renderDashboard = function(){
   // Campañas activas: filtra por aplicabilidad al vendedor activo del dashboard.
   // Si admin/viewer y "Todos" seleccionado, muestra todas. Si filtra por vendedor, aplica el filtro de alcance.
   const todayISO = now.toISOString().slice(0,10);
-  let activeCamps = campaignsCache.filter(c => c.startDate <= todayISO && c.endDate >= todayISO);
+  let activeCamps = campaignsCache.filter(c => !c.archivedManually && c.startDate <= todayISO && c.endDate >= todayISO);
   const dashVendor = (userRole === 'vendedor') ? assignedVendor : (dashboardVendorFilter && dashboardVendorFilter !== 'ALL' ? dashboardVendorFilter : null);
   if (dashVendor) {
     activeCamps = activeCamps.filter(c => isCampaignApplicableToVendor(c, dashVendor));
@@ -16539,7 +16548,9 @@ window.openCampaignsPanel = async function(){
   document.getElementById('cf-name').value = '';
   document.getElementById('cf-target-amount').value = '';
   setTargetType('units');
-  await refreshCampaignsList();
+  // Reset al tab Activas por default cada vez que se abre el panel.
+  if (typeof setCampaignsTab === 'function') setCampaignsTab('active');
+  else await refreshCampaignsList();
 };
 window.closeCampaignsPanel = function(){ document.getElementById('campaigns-modal').classList.remove('open'); };
 
@@ -16600,16 +16611,55 @@ window.updateSkuCounter = function(){
   if (counter) counter.textContent = count + ' SKU seleccionado(s)';
 };
 
+// Tab actual del listado: 'active' (default) muestra campañas vigentes -
+// startDate <= hoy <= endDate y NO archivadas manualmente. 'history' muestra
+// las terminadas (por fecha o por X manual).
+let currentCampTab = 'active';
+window.setCampaignsTab = function(tab){
+  currentCampTab = tab;
+  document.getElementById('camp-tab-active').classList.toggle('active', tab === 'active');
+  document.getElementById('camp-tab-active').style.background = (tab === 'active') ? '#fff' : 'transparent';
+  document.getElementById('camp-tab-active').style.color     = (tab === 'active') ? '#0f172a' : '#475569';
+  document.getElementById('camp-tab-active').style.boxShadow = (tab === 'active') ? '0 1px 2px rgba(0,0,0,.06)' : 'none';
+  document.getElementById('camp-tab-history').classList.toggle('active', tab === 'history');
+  document.getElementById('camp-tab-history').style.background = (tab === 'history') ? '#fff' : 'transparent';
+  document.getElementById('camp-tab-history').style.color     = (tab === 'history') ? '#0f172a' : '#475569';
+  document.getElementById('camp-tab-history').style.boxShadow = (tab === 'history') ? '0 1px 2px rgba(0,0,0,.06)' : 'none';
+  refreshCampaignsList();
+};
+
 async function refreshCampaignsList(){
   const listEl = document.getElementById('campaigns-list');
+  const tab = currentCampTab || 'active';
   try {
     const qs = await fbDb.collection('campaigns').orderBy('startDate','desc').get();
-    if (qs.empty) { listEl.innerHTML = '<div style="font-size:11px;color:#94a3b8">No hay campa&ntilde;as creadas.</div>'; return; }
+    const todayISO = new Date().toISOString().slice(0,10);
+    // Clasificar: una campaña es "historica" si endDate < hoy, si fue
+    // archivada manualmente, o si todavia no arranco pero fue cancelada.
+    const all = [];
+    qs.forEach(d => { all.push(Object.assign({_id: d.id}, d.data())); });
+    const active  = all.filter(c => !c.archivedManually && c.endDate >= todayISO && c.startDate <= todayISO);
+    const history = all.filter(c => c.archivedManually || c.endDate < todayISO);
+    // Pendiente arranque (startDate > hoy) tambien va a active para que el admin las vea.
+    all.forEach(c => {
+      if (!c.archivedManually && c.startDate > todayISO && c.endDate >= todayISO && !active.includes(c)) active.push(c);
+    });
+    // Actualizar contadores de las tabs.
+    const aCountEl = document.getElementById('camp-tab-active-count');
+    const hCountEl = document.getElementById('camp-tab-history-count');
+    if (aCountEl) aCountEl.textContent = active.length;
+    if (hCountEl) hCountEl.textContent = history.length;
+    const list = (tab === 'history') ? history : active;
+    if (!list.length) {
+      const msg = (tab === 'history')
+        ? 'Todavia no hay campa&ntilde;as terminadas. Cuando una campa&ntilde;a llegue a su fecha final o la finalices manualmente, aparece aca.'
+        : 'No hay campa&ntilde;as activas. Crea una arriba o revisa "Hist&oacute;ricas".';
+      listEl.innerHTML = '<div style="font-size:11px;color:#94a3b8;padding:14px;background:#f8fafc;border-radius:6px;text-align:center">' + msg + '</div>';
+      return;
+    }
     let html = '';
-    qs.forEach(d => {
-      const c = d.data();
+    list.forEach(c => {
       const target = c.targetType === 'money' ? '$' + (c.targetAmount||0).toLocaleString('es-AR') : (c.targetAmount||0) + ' unid.';
-      // Descripcion: nuevo formato (familia/subfamilia/skus) o fallback al viejo (filterType/filterValues)
       let desc;
       if (c.familia && c.subfamilia) {
         const nSkus = Array.isArray(c.skus) ? c.skus.length : 0;
@@ -16619,16 +16669,50 @@ async function refreshCampaignsList(){
       }
       const scopeDesc = describeCampaignScope(c);
       const scopeColor = (c.scope === 'province') ? '#0284c7' : (c.scope === 'vendor') ? '#7c3aed' : '#475569';
-      html += '<div class="camp-list-item">';
+      // Estado (solo en historicas): manual vs auto + fecha de finalizacion.
+      let estadoLine = '';
+      if (tab === 'history') {
+        let estado = c.archivedManually ? 'Finalizada manualmente' : 'Finalizada por fecha (' + c.endDate + ')';
+        const archivedAt = c.archivedAt && c.archivedAt.toDate ? c.archivedAt.toDate().toLocaleDateString('es-AR') : '';
+        if (c.archivedManually && archivedAt) estado += ' el ' + archivedAt;
+        if (c.archivedBy) estado += ' por ' + c.archivedBy;
+        estadoLine = '<div class="cli-meta" style="color:#7c2d12;font-weight:600;margin-top:3px;font-size:10px">&#9202; ' + escapeHtml(estado) + '</div>';
+      }
+      html += '<div class="camp-list-item"' + (tab === 'history' ? ' style="opacity:.85;background:#f8fafc;border-color:#e2e8f0"' : '') + '>';
       html += '<div style="flex:1"><div class="cli-name">' + escapeHtml(c.name) + '</div>';
       html += '<div class="cli-meta">' + desc + ' &middot; ' + c.startDate + ' a ' + c.endDate + ' &middot; ' + target + '</div>';
-      html += '<div class="cli-meta" style="color:' + scopeColor + ';font-weight:700;margin-top:3px">' + escapeHtml(scopeDesc) + '</div></div>';
-      html += '<button class="cli-del" onclick="deleteCampaign(\'' + d.id + '\')" title="Eliminar">&times;</button>';
+      html += '<div class="cli-meta" style="color:' + scopeColor + ';font-weight:700;margin-top:3px">' + escapeHtml(scopeDesc) + '</div>';
+      html += estadoLine + '</div>';
+      // Boton: en active = finalizar; en history = eliminar definitivo.
+      if (tab === 'active') {
+        html += '<button class="cli-del" onclick="finalizarCampaign(\'' + c._id + '\')" title="Finalizar campa&ntilde;a manualmente (queda en Hist&oacute;ricas)" style="background:#f59e0b">&#9201;</button>';
+      } else {
+        html += '<button class="cli-del" onclick="deleteCampaign(\'' + c._id + '\')" title="Eliminar definitivamente (no se puede recuperar)">&times;</button>';
+      }
       html += '</div>';
     });
     listEl.innerHTML = html;
   } catch(e) { console.error('refreshCampaignsList', e); listEl.innerHTML = '<div style="color:#dc2626;font-size:11px">Error: ' + (e.message||e) + '</div>'; }
 }
+
+// Finalizar manualmente: NO borra el doc, lo marca como archivado y mueve
+// la campania a la pestania Historicas. Asi conservamos historial completo
+// (nombre, fechas, scope, SKUs, target, etc) para futuras consultas.
+window.finalizarCampaign = async function(id){
+  if (!confirm('Finalizar manualmente esta campaña?\n\nVa a quedar en la pestaña Históricas. NO se borra - podes consultarla siempre que quieras.')) return;
+  try {
+    const snap = await fbDb.collection('campaigns').doc(id).get();
+    const data = snap.exists ? snap.data() : {};
+    if (typeof logOp === 'function') logOp('finalizar_campaña', 'campaign', data.name || id, {id});
+    await fbDb.collection('campaigns').doc(id).set({
+      archivedManually: true,
+      archivedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      archivedBy: (currentUser && currentUser.email) || '',
+    }, {merge: true});
+    await refreshCampaignsList();
+    showSyncTag('Campaña finalizada (movida a Históricas)');
+  } catch(e) { console.error('finalizarCampaign', e); alert('Error: ' + (e.message || e)); }
+};
 
 // === Alcance de campaña: all / province / vendor ===
 let cfScope = 'all';
