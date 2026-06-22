@@ -2074,8 +2074,10 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
                 <label for="cm-cli-anticipado" style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px">Pago anticipado</label>
                 <select id="cm-cli-anticipado" onchange="saveClientCategoriaFromModal('cliAnticipado', this)" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff">
                   <option value="">(sin clasificar)</option>
-                  <option value="SI">Si</option>
-                  <option value="NO">No</option>
+                  <option value="P">P (Premium) - 5%</option>
+                  <option value="A">A - 3%</option>
+                  <option value="B">B - sin descuento</option>
+                  <option value="C">C - sin descuento</option>
                 </select>
               </div>
             </div>
@@ -5143,9 +5145,11 @@ window.renderMasterClientesTable = function(){
     {v:'>20M',     l:'Mas de $20M (6%)'},
   ];
   const ANTIC_OPTS = [
-    {v:'',   l:'(sin clasificar)'},
-    {v:'SI', l:'Si'},
-    {v:'NO', l:'No'},
+    {v:'',  l:'(sin clasificar)'},
+    {v:'P', l:'P (Premium) - 5%'},
+    {v:'A', l:'A - 3%'},
+    {v:'B', l:'B - sin desc.'},
+    {v:'C', l:'C - sin desc.'},
   ];
   function _selHtml(name, current, opts, docId){
     const has = current ? ' has-value' : '';
@@ -5329,7 +5333,10 @@ window.saveMcClientField = async function(docId, fieldName, sel){
 // Tabla de descuentos (acumulativos):
 //   Fijo (por tipo):           P=6% / A=3% / B,C=0%
 //   Volumen (tier estatico):   2/3/4/6% segun bracket guardado en cliente
-//   Anticipado (si=SI):        P=5% / A=3% / B,C=0%
+//   Anticipado (rating propio):P=5% / A=3% / B,C=0%
+// Anticipado es un rating independiente de Tipo - un cliente puede ser Tipo A
+// y al mismo tiempo tener Anticipado P si para pagos por adelantado tiene
+// mejor scoring (o viceversa).
 function calcClientDiscount(clientData, subtotal){
   const tipo   = (clientData && clientData.cliTipo)       || '';
   const vol    = (clientData && clientData.cliVolumen)    || '';
@@ -5339,7 +5346,7 @@ function calcClientDiscount(clientData, subtotal){
   const ANTIC_PCT  = {P: 5, A: 3, B: 0, C: 0};
   const pctFijo   = FIJO_PCT[tipo]  || 0;
   const pctVol    = VOL_PCT[vol]    || 0;
-  const pctAntic  = (antic === 'SI') ? (ANTIC_PCT[tipo] || 0) : 0;
+  const pctAntic  = ANTIC_PCT[antic] || 0;
   const pctTotal  = pctFijo + pctVol + pctAntic;
   const monto     = subtotal * pctTotal / 100;
   return {
@@ -11261,9 +11268,9 @@ function renderReviewLines(){
         + '<div class="rd-empty">Cliente sin categorizacion comercial cargada. Cargar Tipo / Volumen / Anticipado en <b>Master Clientes</b> para ver el descuento estimado.</div></div>';
       return;
     }
-    const tipoLbl  = d.tipo ? ('Tipo ' + d.tipo) : 'Sin tipo';
-    const volLbl   = d.vol  ? d.vol             : 'Sin volumen';
-    const anticLbl = (d.antic === 'SI') ? 'SI' : (d.antic === 'NO' ? 'NO' : 'Sin definir');
+    const tipoLbl  = d.tipo  ? ('Tipo ' + d.tipo)        : 'Sin tipo';
+    const volLbl   = d.vol   ? d.vol                     : 'Sin volumen';
+    const anticLbl = d.antic ? ('Categoria ' + d.antic)  : 'Sin definir';
     let body = '';
     body += '<div class="rd-line"><span>Subtotal pedido</span><span class="rd-money">$' + Math.round(totalM).toLocaleString('es-AR') + '</span></div>';
     body += '<div class="rd-line"><span>&middot; Descuento fijo (' + escapeHtml(tipoLbl) + ')</span><span class="rd-pct">-' + d.pctFijo + '%</span></div>';
