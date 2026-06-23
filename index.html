@@ -60,7 +60,7 @@ body{font-family:"Segoe UI",Calibri,Arial,sans-serif;background:#dbeafe;color:#1
 .auth-logo img{display:block;height:30px;width:auto;max-width:180px}
 .auth-box h2{font-size:22px;font-weight:800;color:#0f172a;margin-bottom:8px}
 .auth-box p{font-size:13px;color:#64748b;line-height:1.5;margin-bottom:22px}
-.auth-btn{display:inline-flex;align-items:center;gap:10px;padding:11px 22px;border:1.5px solid #cbd5e1;background:#fff;color:#1e293b;font-size:14px;font-weight:700;border-radius:8px;cursor:pointer;transition:.15s;font-family:inherit}
+.auth-btn{display:flex;align-items:center;justify-content:center;gap:10px;padding:11px 22px;border:1.5px solid #cbd5e1;background:#fff;color:#1e293b;font-size:14px;font-weight:700;border-radius:8px;cursor:pointer;transition:.15s;font-family:inherit;width:100%;max-width:300px;margin-left:auto;margin-right:auto}
 .auth-btn:hover{background:#f8fafc;border-color:#00A9E0;box-shadow:0 2px 6px rgba(0,0,0,.08)}
 .auth-status{margin-top:14px;font-size:11px;color:#dc2626;min-height:14px}
 .sync-tag{position:fixed;bottom:14px;left:14px;background:#0f172a;color:#fff;padding:5px 12px;border-radius:14px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;z-index:1500;display:none;box-shadow:0 2px 8px rgba(0,0,0,.25)}
@@ -1356,30 +1356,30 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
   <div class="sync-tag" id="sync-tag">Sincronizando...</div>
   <!-- Modal "Continuar con Email" (passwordless / magic link) -->
   <div class="modal-overlay" id="email-link-modal" onclick="if(event.target===this)closeEmailLinkModal()" style="z-index:10001">
-    <div class="modal-box" style="width:min(440px,96vw)">
+    <div class="modal-box" style="width:min(500px,96vw)">
       <div class="modal-head" style="background:linear-gradient(135deg,#0f172a,#334155)">
         <div>
           <h2>Ingresar con tu email</h2>
-          <div class="subt">Te mandamos un link a tu casilla para iniciar sesi&oacute;n. No necesitas password.</div>
+          <div class="subt">Te mandamos un link de 1 solo uso a tu casilla. No necesit&aacute;s password.</div>
         </div>
         <button class="modal-close" onclick="closeEmailLinkModal()">&times;</button>
       </div>
-      <div class="modal-body" style="padding:18px 22px">
+      <div class="modal-body" style="padding:24px 28px">
         <div id="elink-form">
-          <label style="display:block;font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Tu email corporativo Shimano</label>
-          <input id="elink-email" type="email" placeholder="ej: mariano.erbino@shimano.com.ar" style="width:100%;padding:10px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:14px;font-family:inherit;outline:none" onkeydown="if(event.key==='Enter')sendEmailSignInLink()"/>
-          <div id="elink-error" style="display:none;background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:6px;padding:10px 12px;margin-top:12px;font-size:12px;line-height:1.5"></div>
-          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
-            <button onclick="closeEmailLinkModal()" style="padding:8px 16px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Cancelar</button>
-            <button id="elink-send-btn" onclick="sendEmailSignInLink()" style="padding:8px 20px;border:none;border-radius:6px;background:#0f172a;color:#fff;font-size:12px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Enviar link</button>
+          <label for="elink-email" style="display:block;font-size:11px;font-weight:800;color:#0f172a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;text-align:center">Tu email corporativo Shimano</label>
+          <input id="elink-email" type="email" placeholder="nombre.apellido@shimano.com.ar" autocomplete="email" inputmode="email" style="width:100%;padding:12px 14px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:14px;font-family:inherit;outline:none;text-align:center;box-sizing:border-box" onkeydown="if(event.key==='Enter')sendEmailSignInLink()"/>
+          <div id="elink-error" style="display:none;background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:12px;line-height:1.5;text-align:center"></div>
+          <div style="display:flex;flex-direction:column;gap:10px;align-items:center;margin-top:20px">
+            <button id="elink-send-btn" onclick="sendEmailSignInLink()" style="width:100%;max-width:280px;padding:12px 20px;border:none;border-radius:8px;background:#0f172a;color:#fff;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px;box-shadow:0 2px 6px rgba(15,23,42,.25)">&#9993; Enviar link a mi email</button>
+            <button onclick="closeEmailLinkModal()" style="background:transparent;color:#64748b;border:none;font-size:12px;font-weight:600;cursor:pointer;padding:6px 12px;text-decoration:underline">Cancelar</button>
           </div>
         </div>
-        <div id="elink-sent" style="display:none;text-align:center;padding:18px 0">
-          <div style="font-size:48px;margin-bottom:12px">&#128231;</div>
-          <h3 style="font-size:18px;color:#0f172a;margin-bottom:8px">Link enviado!</h3>
-          <p style="font-size:13px;color:#475569;line-height:1.5;margin-bottom:14px">Te mandamos un link a <b id="elink-sent-email">tu email</b>.<br>Abrilo y hac&eacute; clic para volver a la app autenticado.</p>
-          <p style="font-size:11px;color:#94a3b8;line-height:1.5">No lo ves? Revis&aacute; spam o promociones. El link expira en 1 hora.</p>
-          <button onclick="closeEmailLinkModal()" style="margin-top:14px;padding:8px 20px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Cerrar</button>
+        <div id="elink-sent" style="display:none;text-align:center;padding:10px 0">
+          <div style="font-size:54px;margin-bottom:14px">&#128231;</div>
+          <h3 style="font-size:18px;color:#0f172a;margin-bottom:10px;font-weight:800">Link enviado!</h3>
+          <p style="font-size:13px;color:#475569;line-height:1.5;margin-bottom:14px">Te mandamos un link a<br><b id="elink-sent-email" style="color:#0f172a;word-break:break-all">tu email</b><br><br>Abrilo y hac&eacute; clic para volver a la app autenticado.</p>
+          <p style="font-size:11px;color:#94a3b8;line-height:1.5;margin-bottom:18px">No lo ves? Revis&aacute; <b>spam</b> o <b>promociones</b>. El link expira en 1 hora.</p>
+          <button onclick="closeEmailLinkModal()" style="padding:10px 24px;border:1.5px solid #cbd5e1;border-radius:8px;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Cerrar</button>
         </div>
       </div>
     </div>
