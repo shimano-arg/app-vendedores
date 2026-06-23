@@ -1398,42 +1398,42 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <button class="modal-close" onclick="closeExportDialog()">&times;</button>
       </div>
       <div class="export-options">
-        <div class="exp-opt" onclick="closeExportDialog();showMonthPicker('VENTAS')">
+        <div class="exp-opt" data-exp-kind="VENTAS" onclick="closeExportDialog();showMonthPicker('VENTAS')">
           <div class="exp-icon" style="background:#166534">&#128202;</div>
           <div class="exp-body">
             <h3>Ventas</h3>
             <p>Pedidos confirmados del periodo: cliente, vendedor, productos, cantidades, ARS.</p>
           </div>
         </div>
-        <div class="exp-opt" onclick="closeExportDialog();showMonthPicker('VISITAS')">
+        <div class="exp-opt" data-exp-kind="VISITAS" onclick="closeExportDialog();showMonthPicker('VISITAS')">
           <div class="exp-icon" style="background:#7c3aed">&#128197;</div>
           <div class="exp-body">
             <h3>Visitas</h3>
             <p>Detalle de visitas registradas: fecha, vendedor, tienda, relevancia, POP, competencia.</p>
           </div>
         </div>
-        <div class="exp-opt" onclick="closeExportDialog();showMonthPicker('RENDICIONES')">
+        <div class="exp-opt" data-exp-kind="RENDICIONES" onclick="closeExportDialog();showMonthPicker('RENDICIONES')">
           <div class="exp-icon" style="background:#f59e0b">&#128181;</div>
           <div class="exp-body">
             <h3>Rendiciones</h3>
             <p>Gastos rendidos y anticipos del periodo: tipo, monto, estado, aprobador.</p>
           </div>
         </div>
-        <div class="exp-opt" onclick="closeExportDialog();showMonthPicker('RUTAS')">
+        <div class="exp-opt" data-exp-kind="RUTAS" onclick="closeExportDialog();showMonthPicker('RUTAS')">
           <div class="exp-icon" style="background:#00A9E0">&#128663;</div>
           <div class="exp-body">
             <h3>Rutas</h3>
             <p>Rutas asignadas del periodo por vendedor: tiendas, fecha, derivaciones, reagendas.</p>
           </div>
         </div>
-        <div class="exp-opt" onclick="closeExportDialog();showMonthPicker('ALTAS')">
+        <div class="exp-opt" data-exp-kind="ALTAS" onclick="closeExportDialog();showMonthPicker('ALTAS')">
           <div class="exp-icon" style="background:#0891b2">&#128100;</div>
           <div class="exp-body">
             <h3>Altas de clientes</h3>
             <p>Solicitudes de alta cargadas en el periodo: comercio, CUIT, estado, aprobador.</p>
           </div>
         </div>
-        <div class="exp-opt" onclick="closeExportDialog();exportMasterClientes()">
+        <div class="exp-opt" data-exp-kind="MASTER" onclick="closeExportDialog();exportMasterClientes()">
           <div class="exp-icon" style="background:#1e3a8a">&#127970;</div>
           <div class="exp-body">
             <h3>Clientes (masterfile)</h3>
@@ -4170,6 +4170,16 @@ window.exportToExcel = function(){
     alert('La libreria de Excel no se cargo. Verifique su conexion a internet y reintente.');
     return;
   }
+  // Filtrar opciones segun rol. Vendedores solo ven Ventas / Visitas /
+  // Rutas (operativo de su dia a dia). Admin/viewer/interno ven todo.
+  const allowedByRole = {
+    vendedor: new Set(['VENTAS', 'VISITAS', 'RUTAS']),
+  };
+  const allowed = allowedByRole[userRole] || null; // null = ver todo
+  document.querySelectorAll('#export-modal .exp-opt').forEach(el => {
+    const kind = el.dataset.expKind || '';
+    el.style.display = (!allowed || allowed.has(kind)) ? '' : 'none';
+  });
   document.getElementById('export-modal').classList.add('open');
 };
 window.closeExportDialog = function(){
