@@ -14439,8 +14439,13 @@ const sapSL = {
     if (r.ok && r.body && Array.isArray(r.body.value) && r.body.value.length) {
       return {ok: true, qty: parseFloat(r.body.value[0].OnHand || 0)};
     }
-    // Fallback: usar el endpoint Items() y leer ItemWarehouseInfoCollection
-    r = await this.fetchWithSession('/b1s/v1/Items(' + JSON.stringify(itemCode) + ')?$select=ItemCode,ItemWarehouseInfoCollection');
+    // Fallback: usar el endpoint Items() y leer ItemWarehouseInfoCollection.
+    // OData / Service Layer requiere COMILLAS SIMPLES (no dobles) para keys
+    // string. Por eso construimos manualmente y NO usamos JSON.stringify
+    // (que mete dobles). El codigo se URL-encodea para escapar caracteres
+    // raros pero la comilla simple SI queda como ' literal.
+    const safeCode = String(itemCode || '').replace(/'/g, "''"); // escapar single quote OData
+    r = await this.fetchWithSession("/b1s/v1/Items('" + encodeURIComponent(safeCode) + "')?$select=ItemCode,ItemWarehouseInfoCollection");
     if (!r.ok) return {ok: false, error: r.error};
     const whs = (r.body && r.body.ItemWarehouseInfoCollection) || [];
     const target = whs.find(w => w.WarehouseCode === whsCode);
