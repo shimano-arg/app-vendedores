@@ -1281,6 +1281,13 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         Continuar con Microsoft
       </button>
       <div style="text-align:center;margin:10px 0 8px;font-size:10px;color:#94a3b8;letter-spacing:1px">&mdash; O &mdash;</div>
+      <button class="auth-btn" onclick="openEmailLinkModal()" style="background:#0f172a;color:#fff">
+        <svg width="18" height="18" viewBox="0 0 24 24" style="flex-shrink:0" fill="currentColor">
+          <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+        </svg>
+        Continuar con Email
+      </button>
+      <div style="text-align:center;margin:10px 0 8px;font-size:10px;color:#94a3b8;letter-spacing:1px">&mdash; O &mdash;</div>
       <button class="auth-btn" onclick="signInWithGoogle()">
         <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
         Continuar con Google
@@ -1347,6 +1354,36 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
   <div id="map"></div>
   <div class="click-debug" id="click-debug"></div>
   <div class="sync-tag" id="sync-tag">Sincronizando...</div>
+  <!-- Modal "Continuar con Email" (passwordless / magic link) -->
+  <div class="modal-overlay" id="email-link-modal" onclick="if(event.target===this)closeEmailLinkModal()" style="z-index:10001">
+    <div class="modal-box" style="width:min(440px,96vw)">
+      <div class="modal-head" style="background:linear-gradient(135deg,#0f172a,#334155)">
+        <div>
+          <h2>Ingresar con tu email</h2>
+          <div class="subt">Te mandamos un link a tu casilla para iniciar sesi&oacute;n. No necesitas password.</div>
+        </div>
+        <button class="modal-close" onclick="closeEmailLinkModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:18px 22px">
+        <div id="elink-form">
+          <label style="display:block;font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Tu email corporativo Shimano</label>
+          <input id="elink-email" type="email" placeholder="ej: mariano.erbino@shimano.com.ar" style="width:100%;padding:10px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:14px;font-family:inherit;outline:none" onkeydown="if(event.key==='Enter')sendEmailSignInLink()"/>
+          <div id="elink-error" style="display:none;background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:6px;padding:10px 12px;margin-top:12px;font-size:12px;line-height:1.5"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+            <button onclick="closeEmailLinkModal()" style="padding:8px 16px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Cancelar</button>
+            <button id="elink-send-btn" onclick="sendEmailSignInLink()" style="padding:8px 20px;border:none;border-radius:6px;background:#0f172a;color:#fff;font-size:12px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Enviar link</button>
+          </div>
+        </div>
+        <div id="elink-sent" style="display:none;text-align:center;padding:18px 0">
+          <div style="font-size:48px;margin-bottom:12px">&#128231;</div>
+          <h3 style="font-size:18px;color:#0f172a;margin-bottom:8px">Link enviado!</h3>
+          <p style="font-size:13px;color:#475569;line-height:1.5;margin-bottom:14px">Te mandamos un link a <b id="elink-sent-email">tu email</b>.<br>Abrilo y hac&eacute; clic para volver a la app autenticado.</p>
+          <p style="font-size:11px;color:#94a3b8;line-height:1.5">No lo ves? Revis&aacute; spam o promociones. El link expira en 1 hora.</p>
+          <button onclick="closeEmailLinkModal()" style="margin-top:14px;padding:8px 20px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <div class="access-denied hidden" id="access-denied">
     <div class="ad-box">
       <h3>Acceso pendiente</h3>
@@ -12241,6 +12278,103 @@ window.signInWithMicrosoft = async function(){
   provider.addScope('profile');
   await _runOAuthFlow(provider, 'Microsoft');
 };
+
+// ============================================================
+// EMAIL LINK SIGN-IN (passwordless / magic link)
+// ============================================================
+// Flujo alternativo a OAuth (Google/Microsoft) sin necesidad de
+// configurar Azure AD. El usuario ingresa su email -> Firebase manda
+// un link de un solo uso a esa casilla -> al hacer click vuelve a la
+// app autenticado. Requiere que el admin habilite "Email link" en
+// Firebase Console > Authentication > Sign-in method > Email/Password
+// > toggle "Email link (passwordless sign-in)".
+const EMAIL_LINK_STORAGE_KEY = 'shimano_email_for_signin';
+
+window.openEmailLinkModal = function(){
+  document.getElementById('elink-form').style.display = '';
+  document.getElementById('elink-sent').style.display = 'none';
+  document.getElementById('elink-error').style.display = 'none';
+  document.getElementById('elink-email').value = '';
+  document.getElementById('email-link-modal').classList.add('open');
+  setTimeout(() => { try { document.getElementById('elink-email').focus(); } catch(e) {} }, 100);
+};
+window.closeEmailLinkModal = function(){
+  document.getElementById('email-link-modal').classList.remove('open');
+};
+
+window.sendEmailSignInLink = async function(){
+  const errEl = document.getElementById('elink-error');
+  const btn = document.getElementById('elink-send-btn');
+  const emailInput = document.getElementById('elink-email');
+  const email = (emailInput.value || '').trim().toLowerCase();
+  errEl.style.display = 'none';
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errEl.innerHTML = 'Ingresa un email valido (ej: mariano.erbino@shimano.com.ar)';
+    errEl.style.display = '';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Enviando...';
+  // continueUrl: la app vuelve a esta misma URL despues del clic en el
+  // link. Firebase agrega los parametros oobCode/apiKey/mode automatico.
+  const actionCodeSettings = {
+    url: window.location.origin + window.location.pathname,
+    handleCodeInApp: true,
+  };
+  try {
+    await fbAuth.sendSignInLinkToEmail(email, actionCodeSettings);
+    // Guardar el email en localStorage: cuando el usuario haga clic en
+    // el link y vuelva, Firebase pide reconfirmar el email para evitar
+    // spoofing. Lo leemos del storage para no molestar al usuario.
+    window.localStorage.setItem(EMAIL_LINK_STORAGE_KEY, email);
+    document.getElementById('elink-form').style.display = 'none';
+    document.getElementById('elink-sent').style.display = '';
+    document.getElementById('elink-sent-email').textContent = email;
+  } catch(e) {
+    console.error('sendSignInLinkToEmail error', e);
+    const code = e && e.code;
+    let msg = e.message || String(e);
+    if (code === 'auth/operation-not-allowed') {
+      msg = '<b>Email link no esta habilitado todavia.</b><br>'
+        + '<span style="font-size:11px">Avisale al admin para que active "Email link (passwordless sign-in)" en Firebase Console > Authentication > Sign-in method > Email/Password.</span>';
+    } else if (code === 'auth/invalid-email') {
+      msg = 'El email es invalido.';
+    } else if (code === 'auth/unauthorized-continue-uri' || code === 'auth/invalid-continue-uri') {
+      msg = '<b>El dominio de la app no esta autorizado.</b><br>'
+        + '<span style="font-size:11px">Admin: agrega ' + window.location.hostname + ' en Firebase Console > Authentication > Settings > Authorized domains.</span>';
+    }
+    errEl.innerHTML = msg;
+    errEl.style.display = '';
+    btn.disabled = false;
+    btn.textContent = 'Enviar link';
+  }
+};
+
+// Al cargar la pagina, ver si la URL contiene el oobCode del email link.
+// Si si, completar el sign-in transparente para el usuario.
+(function handleIncomingEmailLink(){
+  try {
+    if (!fbAuth.isSignInWithEmailLink || !fbAuth.isSignInWithEmailLink(window.location.href)) return;
+    // Tomar el email del storage; si no esta (link abierto en otro
+    // dispositivo) pedirlo al usuario.
+    let email = window.localStorage.getItem(EMAIL_LINK_STORAGE_KEY);
+    if (!email) {
+      email = window.prompt('Para terminar de iniciar sesion, confirma el email donde recibiste el link:');
+      if (!email) return;
+    }
+    fbAuth.signInWithEmailLink(email, window.location.href)
+      .then(result => {
+        console.log('[Auth] Email link sign-in OK:', result.user && result.user.email);
+        window.localStorage.removeItem(EMAIL_LINK_STORAGE_KEY);
+        // Limpiar la URL para que no quede el oobCode (evita reusos).
+        try { window.history.replaceState({}, document.title, window.location.pathname); } catch(e) {}
+      })
+      .catch(err => {
+        console.error('[Auth] signInWithEmailLink error', err);
+        alert('No pudimos completar el inicio de sesion con email: ' + (err.message || err.code));
+      });
+  } catch(e) { console.warn('handleIncomingEmailLink', e); }
+})();
 
 window.signOut = function(){
   if (!confirm('Cerrar sesion? Tus datos quedan guardados en la nube.')) return;
