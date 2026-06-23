@@ -1938,6 +1938,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       <div class="users-wrap" id="users-wrap">
         <div id="allowed-emails-section" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 14px;margin-bottom:14px"></div>
         <div id="gemini-config-section" style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:12px 14px;margin-bottom:14px"></div>
+        <div id="gmaps-config-section" style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;padding:12px 14px;margin-bottom:14px"></div>
         <div style="overflow-x:auto;width:100%">
         <table class="users-table" id="users-table" style="min-width:920px">
           <thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Vendedor</th><th>Pareja interno</th><th></th></tr></thead>
@@ -3804,6 +3805,18 @@ function aplicarEstadoCliente(state){
 // Limite Nominatim: 1 req/seg. Pausa 1.1s entre intentos.
 // El campo precision en el resultado indica que tan exacto fue el match.
 async function geocodeClientAddress(address, locality, provinceCode){
+  // PROVIDER 1: Google Maps Geocoding API (si hay key configurada).
+  // Mucho mejor cobertura que OSM en AR (sobre todo localidades chicas
+  // y zonas rurales). Si tiene key y matchea, devolvemos directo.
+  try {
+    const gmapsResult = await geocodeWithGoogleMaps(address, locality, provinceCode);
+    if (gmapsResult) {
+      console.log('[geocode] match via Google Maps:', gmapsResult.locationType, gmapsResult.display);
+      return gmapsResult;
+    }
+  } catch(e) { console.warn('[geocode] google maps fall back to OSM:', e); }
+
+  // PROVIDER 2 (fallback): cascada OSM Nominatim.
   const prov = (typeof titleCase === 'function') ? titleCase(provinceCode || '') : (provinceCode || '');
   const addrTrim = (address || '').trim();
   const locTrim  = (locality || '').trim();
@@ -13402,6 +13415,141 @@ window.deleteGeminiApiKey = async function(){
   }
 };
 
+// ============================================================
+// GOOGLE MAPS Geocoding API - mejor cobertura en AR rural que OSM
+// ============================================================
+// La key se guarda en app_config/google_maps. Si esta seteada, la usamos
+// como geocoder PRIMARIO en geocodeClientAddress; si falla o no esta
+// seteada, caemos a la cascada OSM Nominatim como fallback.
+let gmapsApiKeyCache = null;
+async function getGmapsApiKey(){
+  if (gmapsApiKeyCache) return gmapsApiKeyCache;
+  try {
+    const snap = await fbDb.collection('app_config').doc('google_maps').get();
+    if (snap.exists) {
+      const d = snap.data() || {};
+      if (d.apiKey) { gmapsApiKeyCache = d.apiKey; return d.apiKey; }
+    }
+  } catch(e) { console.warn('[gmaps] no se pudo leer api key', e); }
+  return null;
+}
+function renderGmapsConfigSection(data){
+  const el = document.getElementById('gmaps-config-section');
+  if (!el) return;
+  const hasKey = data && data.apiKey;
+  const masked = hasKey ? (data.apiKey.slice(0, 4) + '••••••••••' + data.apiKey.slice(-4)) : '';
+  const updatedBy = (data && data.updatedBy) || '';
+  const updatedAt = (data && data.updatedAt && data.updatedAt.toDate) ? data.updatedAt.toDate().toLocaleString('es-AR') : '';
+  let html = '<div style="text-align:center;margin-bottom:10px">';
+  html += '<div style="font-size:12px;font-weight:800;color:#065f46">Google Maps API Key (geocoding)</div>';
+  html += '<div style="font-size:10px;color:#64748b;margin-top:2px">Convierte direcciones a coordenadas con mucha mejor precisión que OSM (sobre todo en localidades chicas). Costo gratis hasta 40.000 requests/mes.</div>';
+  html += '</div>';
+  if (hasKey) {
+    html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;justify-content:center">';
+    html += '<span style="font-family:Consolas,monospace;font-size:11px;background:#fff;border:1px solid #6ee7b7;border-radius:4px;padding:4px 8px;color:#065f46">' + escapeHtml(masked) + '</span>';
+    html += '<span style="font-size:10px;color:#64748b">Cargada por ' + escapeHtml(updatedBy || 'admin') + (updatedAt ? ' (' + escapeHtml(updatedAt) + ')' : '') + '</span>';
+    html += '</div>';
+  } else {
+    html += '<div style="font-size:11px;color:#94a3b8;margin-bottom:10px;text-align:center">Sin API key. Geocoding usa OpenStreetMap (gratis pero peor cobertura en AR rural).</div>';
+  }
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">';
+  html += '<button class="app-btn-pill app-btn-cyan" onclick="saveGmapsApiKey()" style="background:#10b981">' + (hasKey ? 'Cambiar key' : 'Cargar key') + '</button>';
+  if (hasKey) html += '<button class="app-btn-pill app-btn-red" onclick="deleteGmapsApiKey()">Borrar</button>';
+  html += '</div>';
+  el.innerHTML = html;
+}
+window.saveGmapsApiKey = async function(){
+  if (userRole !== 'admin') return;
+  const raw = prompt('Pega aca la API key de Google Maps (formato AIzaSy...).\n\nIMPORTANTE: en Google Cloud Console restringi la key por HTTP referrer a https://shimano-arg.github.io/* para que nadie te la robe.', '');
+  if (raw === null) return;
+  const key = raw.trim();
+  if (!key) { alert('Vacia.'); return; }
+  if (key.length < 20) { alert('La key parece muy corta. Revisa que la pegaste completa.'); return; }
+  try {
+    await fbDb.collection('app_config').doc('google_maps').set({
+      apiKey: key,
+      updatedBy: currentUser.email || '',
+      updatedByUid: currentUser.uid,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    }, {merge: true});
+    gmapsApiKeyCache = key;
+    showSyncTag('Google Maps API key guardada');
+    try { openAdminPanel(); } catch(e) {}
+  } catch(e) {
+    console.error('saveGmapsApiKey', e);
+    alert('Error: ' + (e.message || e));
+  }
+};
+window.deleteGmapsApiKey = async function(){
+  if (userRole !== 'admin') return;
+  if (!confirm('Borrar la API key de Google Maps? El geocoding vuelve a OSM (peor cobertura en AR rural).')) return;
+  try {
+    await fbDb.collection('app_config').doc('google_maps').delete();
+    gmapsApiKeyCache = null;
+    showSyncTag('Google Maps API key borrada');
+    try { openAdminPanel(); } catch(e) {}
+  } catch(e) {
+    console.error('deleteGmapsApiKey', e);
+    alert('Error: ' + (e.message || e));
+  }
+};
+
+// Geocoding con Google Maps API. Devuelve {lat, lng, display, precision}
+// o null si no encontro / sin key.
+async function geocodeWithGoogleMaps(address, locality, provinceCode){
+  const key = await getGmapsApiKey();
+  if (!key) return null;
+  const prov = (typeof titleCase === 'function') ? titleCase(provinceCode || '') : (provinceCode || '');
+  const fullAddr = [address, locality, prov, 'Argentina'].filter(Boolean).join(', ');
+  // region=ar + components=country:AR sesga los resultados a AR.
+  const url = 'https://maps.googleapis.com/maps/api/geocode/json'
+    + '?address=' + encodeURIComponent(fullAddr)
+    + '&region=ar'
+    + '&components=country:AR'
+    + '&language=es'
+    + '&key=' + encodeURIComponent(key);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    if (data.status === 'OK' && data.results && data.results.length) {
+      const res = data.results[0];
+      const loc = res.geometry && res.geometry.location;
+      if (!loc) return null;
+      // location_type indica precision: ROOFTOP > RANGE_INTERPOLATED > GEOMETRIC_CENTER > APPROXIMATE.
+      const lt = (res.geometry && res.geometry.location_type) || '';
+      let precision = 'address';
+      if (lt === 'APPROXIMATE') precision = 'locality';
+      else if (lt === 'GEOMETRIC_CENTER') precision = 'street';
+      return {
+        lat: parseFloat(loc.lat),
+        lng: parseFloat(loc.lng),
+        display: res.formatted_address || fullAddr,
+        precision: precision,
+        provider: 'google',
+        locationType: lt,
+      };
+    }
+    if (data.status === 'ZERO_RESULTS') {
+      console.log('[gmaps] ZERO_RESULTS for:', fullAddr);
+      return null;
+    }
+    if (data.status === 'REQUEST_DENIED') {
+      console.error('[gmaps] REQUEST_DENIED:', data.error_message || '(sin detalle). Revisar que la API key tenga habilitada Geocoding API y el referrer permita este dominio.');
+      return null;
+    }
+    if (data.status === 'OVER_QUERY_LIMIT') {
+      console.error('[gmaps] OVER_QUERY_LIMIT - excedio el limite. Caemos a OSM.');
+      return null;
+    }
+    console.warn('[gmaps] status inesperado:', data.status, data.error_message);
+    return null;
+  } catch(e) {
+    console.warn('[gmaps] geocode error:', e);
+    return null;
+  }
+}
+
 window.openAdminPanel = async function(){
   if (userRole !== 'admin') return;
   document.getElementById('admin-modal').classList.add('open');
@@ -13417,6 +13565,11 @@ window.openAdminPanel = async function(){
     const gSnap = await fbDb.collection('app_config').doc('gemini').get();
     renderGeminiConfigSection(gSnap.exists ? gSnap.data() : null);
   } catch(e) { console.warn('load gemini config', e); renderGeminiConfigSection(null); }
+  // Cargar config Google Maps para mostrar la seccion de API key.
+  try {
+    const gmSnap = await fbDb.collection('app_config').doc('google_maps').get();
+    renderGmapsConfigSection(gmSnap.exists ? gmSnap.data() : null);
+  } catch(e) { console.warn('load gmaps config', e); renderGmapsConfigSection(null); }
   try {
     const qs = await fbDb.collection('roles').orderBy('email').get();
     usersCache = [];
