@@ -3571,13 +3571,24 @@ function renderClients(pts){
     const safeLoc = escapeAttr(it.point.name);
     const stateLabel = state === 'habilitado' ? '&#10003; Habilitado' : state === 'cancelado' ? '&#10006; Cancelado' : 'Pendiente';
     const leftColor = state === 'habilitado' ? '#10b981' : (state === 'cancelado' ? '#dc2626' : accent);
+    // Si el cliente tiene un customName guardado en clientMeta (por
+    // ejemplo lo renombro un vendedor desde el modal), mostrarlo a TODOS
+    // los roles. Admin/viewer reciben los clientMeta de todos los usuarios
+    // mergeados via attachFirebaseListeners, asi que ven los nombres
+    // custom que pusieron los vendedores.
+    const displayName = (typeof getClientDisplayName === 'function')
+      ? getClientDisplayName(k, it.name)
+      : it.name;
+    const renamedTag = (displayName !== it.name)
+      ? '<span style="font-size:9px;color:#94a3b8;font-weight:500;margin-left:6px" title="Nombre original: ' + escapeAttr(it.name) + '">(' + escapeHtml(it.name) + ')</span>'
+      : '';
     html += '<div class="client-card estado-' + state + '"';
     html += ' data-key="' + escapeHtml(k) + '"';
     html += ' style="border-left-color:' + leftColor + '" title="Click: ver historial, recomendaciones y dar de alta / cancelar"';
     html += ' onclick="onClientCardClick(event, \'' + escapeAttr(k) + '\', ' + it.point.lat + ', ' + it.point.lon + ')"';
     html += ' ondblclick="openClientModal(\'' + safeName + '\', \'' + it.tipo + '\', \'' + safeProv + '\', \'' + safeLoc + '\')">';
     html += '<div class="client-body">';
-    html += '<div class="client-name">' + escapeHtml(it.name) + '</div>';
+    html += '<div class="client-name">' + escapeHtml(displayName) + renamedTag + '</div>';
     html += '<div class="client-meta">';
     html += '<span class="cli-state-badge ' + state + '">' + stateLabel + '</span>';
     html += '<span>' + escapeHtml(it.point.name) + '</span>';
@@ -5262,18 +5273,35 @@ window.renderMasterClientesTable = function(){
   if (fq) entries = entries.filter(e => e.nombre.toLowerCase().includes(fq));
 
   // Aplicar filtro de estado segun cache (combinado con pending)
-  function getCurrent(docId){
+  // Devuelve la direccion del cliente: 1) pending changes en memoria,
+  // 2) client_master (Firestore global, escrito por admin), 3) clientMeta
+  // (per-user, mergeado por admin/viewer via attachFirebaseListeners para
+  // ver lo que cargo cada vendedor desde el modal "Dar de alta").
+  function getCurrent(docId, provincia, localidad, nombre, tipo){
     if (mcPendingChanges[docId] != null) return mcPendingChanges[docId];
     const d = clientMasterCache.get(docId);
-    return d && d.address ? d.address : '';
+    if (d && d.address) return d.address;
+    if (typeof clientMeta === 'object' && clientMeta && provincia && localidad && nombre) {
+      // El key de clientMeta es 'tipo|prov|loc|nombre' donde tipo es 'C' o 'P'.
+      const cTipo = (tipo === 'cliente' ? 'C' : tipo === 'prospecto' ? 'P' : null);
+      const candidates = cTipo
+        ? [cTipo + '|' + provincia + '|' + localidad + '|' + nombre]
+        : ['C|' + provincia + '|' + localidad + '|' + nombre,
+           'P|' + provincia + '|' + localidad + '|' + nombre];
+      for (const k of candidates) {
+        const m = clientMeta[k];
+        if (m && m.address) return m.address;
+      }
+    }
+    return '';
   }
-  if (fe === 'con') entries = entries.filter(e => !!getCurrent(clientLocId(e.provincia, e.localidad, e.nombre)));
-  else if (fe === 'sin') entries = entries.filter(e => !getCurrent(clientLocId(e.provincia, e.localidad, e.nombre)));
+  if (fe === 'con') entries = entries.filter(e => !!getCurrent(clientLocId(e.provincia, e.localidad, e.nombre), e.provincia, e.localidad, e.nombre, e.tipo));
+  else if (fe === 'sin') entries = entries.filter(e => !getCurrent(clientLocId(e.provincia, e.localidad, e.nombre), e.provincia, e.localidad, e.nombre, e.tipo));
 
   entries.sort((a, b) => a.provincia.localeCompare(b.provincia) || a.localidad.localeCompare(b.localidad) || a.nombre.localeCompare(b.nombre));
 
   // Stats globales (sobre el total filtrado, no solo lo paginado)
-  const totalConDir = entries.filter(e => !!getCurrent(clientLocId(e.provincia, e.localidad, e.nombre))).length;
+  const totalConDir = entries.filter(e => !!getCurrent(clientLocId(e.provincia, e.localidad, e.nombre), e.provincia, e.localidad, e.nombre, e.tipo)).length;
   const statsHtml = '<span class="ok">Con direcci&oacute;n: ' + totalConDir + '</span>'
     + '<span>Sin direcci&oacute;n: ' + (entries.length - totalConDir) + '</span>'
     + '<span>Total filtrado: ' + entries.length + '</span>'
@@ -5316,7 +5344,7 @@ window.renderMasterClientesTable = function(){
   const MAX = 500;
   entries.slice(0, MAX).forEach(e => {
     const id = clientLocId(e.provincia, e.localidad, e.nombre);
-    const cur = getCurrent(id);
+    const cur = getCurrent(id, e.provincia, e.localidad, e.nombre, e.tipo);
     const saved = clientMasterCache.get(id);
     const savedAddr = saved && saved.address ? saved.address : '';
     const isDirty = mcPendingChanges[id] != null;
@@ -5325,8 +5353,20 @@ window.renderMasterClientesTable = function(){
     const vendInfo = VENDORS.find(v => v.key === e.vendor);
     const vendLabel = vendInfo ? (vendInfo.zone + ' ' + titleCase(e.vendor)) : (e.vendor ? titleCase(e.vendor) : '-');
     const curTipo = (saved && saved.cliTipo) || '';
+    // Aplicar customName de clientMeta si un vendedor renombro la tienda
+    // desde el modal "Dar de alta". Como admin/viewer reciben los
+    // clientMeta de todos los users mergeados, vemos los renombres aca.
+    const _cTipo = (e.tipo === 'cliente' ? 'C' : 'P');
+    const _metaKey = _cTipo + '|' + e.provincia + '|' + e.localidad + '|' + e.nombre;
+    const _customName = (clientMeta && clientMeta[_metaKey] && clientMeta[_metaKey].customName)
+      ? String(clientMeta[_metaKey].customName).trim()
+      : '';
+    const displayName = _customName || e.nombre;
+    const renamedHint = (_customName && _customName !== e.nombre)
+      ? '<div style="font-size:9px;color:#94a3b8;font-weight:500" title="Nombre original">orig: ' + escapeHtml(e.nombre) + '</div>'
+      : '';
     html += '<tr data-doc="' + escapeAttr(id) + '">';
-    html += '<td><div class="mc-name">' + escapeHtml(e.nombre) + '</div><div class="mc-meta"><span class="mc-tag ' + (e.tipo === 'cliente' ? 'cli' : 'pro') + '">' + (e.tipo === 'cliente' ? 'CLIENTE' : 'PROSPECTO') + '</span></div></td>';
+    html += '<td><div class="mc-name">' + escapeHtml(displayName) + '</div>' + renamedHint + '<div class="mc-meta"><span class="mc-tag ' + (e.tipo === 'cliente' ? 'cli' : 'pro') + '">' + (e.tipo === 'cliente' ? 'CLIENTE' : 'PROSPECTO') + '</span></div></td>';
     html += '<td>' + escapeHtml(e.localidad) + '</td>';
     html += '<td>' + escapeHtml(titleCase(e.provincia)) + '</td>';
     html += '<td>' + escapeHtml(vendLabel) + '</td>';
