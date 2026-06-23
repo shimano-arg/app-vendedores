@@ -12307,6 +12307,9 @@ fbAuth.onAuthStateChanged(async user => {
       // que fetchAndApplyRole (5 campos: email, displayName, role, vendor,
       // createdAt). No agregamos campos extra porque las Firestore rules
       // pueden rechazar el create si vienen fields no esperados.
+      let createOk = false;
+      let createErrCode = '';
+      let createErrMsg = '';
       try {
         const roleRef = fbDb.collection('roles').doc(user.uid);
         const snap = await roleRef.get();
@@ -12320,6 +12323,7 @@ fbAuth.onAuthStateChanged(async user => {
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           });
           console.log('[Auth] /roles/' + user.uid + ' creado OK. Notificando admins...');
+          createOk = true;
           // Notificar a admins (best-effort, no bloquea el flow).
           try {
             const adminsSnap = await fbDb.collection('roles').where('role', '==', 'admin').get();
@@ -12346,11 +12350,13 @@ fbAuth.onAuthStateChanged(async user => {
           } catch(e) { console.warn('[Auth] notify admins new user fallo:', e); }
         } else {
           console.log('[Auth] /roles/' + user.uid + ' ya existe (role=' + (snap.data().role || 'unassigned') + '). No recreo.');
+          createOk = true; // ya existe, equivalente a OK
         }
       } catch(e) {
+        createErrCode = (e && e.code) || 'unknown';
+        createErrMsg  = (e && e.message) || String(e);
         console.error('[Auth] No pude crear /roles/' + user.uid + ':', e);
-        console.error('[Auth] Codigo:', e && e.code, 'Mensaje:', e && e.message);
-        console.error('[Auth] Esto indica que las Firestore Security Rules estan bloqueando el create. Revisar regla en collection roles.');
+        console.error('[Auth] Codigo:', createErrCode, 'Mensaje:', createErrMsg);
       }
       // Mostrar pantalla "Acceso pendiente". El usuario puede cerrar
       // sesion desde ahi si se logueo con una cuenta equivocada.
@@ -12360,10 +12366,27 @@ fbAuth.onAuthStateChanged(async user => {
       if (adEl) adEl.classList.remove('hidden');
       if (adMsg) {
         const nameTxt = user.displayName ? ('<b>' + user.displayName + '</b><br>') : '';
+        // Si el create fallo (rules), avisar explicitamente al admin/usuario
+        // para que sepa que hay un bug de Firestore Rules y no esperar
+        // eternamente la habilitacion.
+        let errBlock = '';
+        if (!createOk) {
+          errBlock = '<div style="background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;border-radius:6px;padding:10px 12px;margin-top:12px;font-size:11px;text-align:left;line-height:1.5">'
+            + '<b>&#9888; No pudimos registrar tu solicitud en el sistema.</b><br>'
+            + 'Mostrá esto al admin (Mariano):<br>'
+            + '<code style="display:block;background:#fff;padding:6px 8px;border-radius:4px;margin-top:6px;font-size:10px;word-break:break-word">'
+            + '[' + escapeHtml(createErrCode) + '] ' + escapeHtml(createErrMsg)
+            + '</code>'
+            + '<span style="display:block;margin-top:6px;font-size:10px">El admin tiene que ajustar las Firestore Security Rules para permitir que usuarios nuevos creen su propio doc en /roles con role=unassigned.</span>'
+            + '</div>';
+        }
         adMsg.innerHTML = nameTxt
           + 'Te logueaste con <b>' + (user.email || '') + '</b>.<br>'
-          + 'Le avisamos al administrador para que te habilite. Cuando este listo, recargas la app y entras directo.<br>'
-          + '<span style="font-size:11px;color:#94a3b8;display:block;margin-top:10px">Si te logueaste con una cuenta equivocada, tocá "Cerrar sesión" abajo y volve a entrar con la cuenta correcta.</span>';
+          + (createOk
+              ? 'Le avisamos al administrador para que te habilite. Cuando este listo, recargas la app y entras directo.'
+              : 'No tenes permiso para usar la app todavia.')
+          + '<br><span style="font-size:11px;color:#94a3b8;display:block;margin-top:10px">Si te logueaste con una cuenta equivocada, tocá "Cerrar sesión" abajo y volve a entrar con la cuenta correcta.</span>'
+          + errBlock;
       }
       return;
     }
