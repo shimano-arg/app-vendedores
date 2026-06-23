@@ -12303,22 +12303,24 @@ fbAuth.onAuthStateChanged(async user => {
       // y parecia un loop). En su lugar la registramos como 'unassigned' en
       // /roles para que el admin la vea en Panel Usuarios y la habilite.
       // Mientras espera, le mostramos la pantalla "Acceso pendiente".
+      // Crear el doc en /roles con role='unassigned' usando el MISMO schema
+      // que fetchAndApplyRole (5 campos: email, displayName, role, vendor,
+      // createdAt). No agregamos campos extra porque las Firestore rules
+      // pueden rechazar el create si vienen fields no esperados.
       try {
         const roleRef = fbDb.collection('roles').doc(user.uid);
         const snap = await roleRef.get();
         if (!snap.exists) {
+          console.log('[Auth] Creando /roles/' + user.uid + ' como unassigned para', user.email);
           await roleRef.set({
             email: user.email || '',
             displayName: user.displayName || '',
-            photoURL: user.photoURL || '',
             role: 'unassigned',
             vendor: null,
-            providerIds: (user.providerData || []).map(p => p.providerId).join(','),
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
-            signupSource: 'oauth_first_login',
           });
-          // Notificar a todos los admins (best-effort, no bloquea el flow).
+          console.log('[Auth] /roles/' + user.uid + ' creado OK. Notificando admins...');
+          // Notificar a admins (best-effort, no bloquea el flow).
           try {
             const adminsSnap = await fbDb.collection('roles').where('role', '==', 'admin').get();
             const notifPromises = [];
@@ -12338,15 +12340,18 @@ fbAuth.onAuthStateChanged(async user => {
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
               }));
             });
-            await Promise.allSettled(notifPromises);
-          } catch(e) { console.warn('notify admins new user', e); }
+            const results = await Promise.allSettled(notifPromises);
+            const failed = results.filter(r => r.status === 'rejected').length;
+            console.log('[Auth] Notificaciones admin: ' + (results.length - failed) + '/' + results.length + ' enviadas');
+          } catch(e) { console.warn('[Auth] notify admins new user fallo:', e); }
         } else {
-          // Doc existe pero rol es unassigned (caso raro: alguien que
-          // empezo el flow y no fue aprobado todavia). Actualizar
-          // lastLogin nada mas.
-          roleRef.update({lastLogin: firebase.firestore.FieldValue.serverTimestamp()}).catch(()=>{});
+          console.log('[Auth] /roles/' + user.uid + ' ya existe (role=' + (snap.data().role || 'unassigned') + '). No recreo.');
         }
-      } catch(e) { console.warn('register unassigned user', e); }
+      } catch(e) {
+        console.error('[Auth] No pude crear /roles/' + user.uid + ':', e);
+        console.error('[Auth] Codigo:', e && e.code, 'Mensaje:', e && e.message);
+        console.error('[Auth] Esto indica que las Firestore Security Rules estan bloqueando el create. Revisar regla en collection roles.');
+      }
       // Mostrar pantalla "Acceso pendiente". El usuario puede cerrar
       // sesion desde ahi si se logueo con una cuenta equivocada.
       document.getElementById('auth-overlay').classList.add('hidden');
