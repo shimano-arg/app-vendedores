@@ -12299,11 +12299,67 @@ fbAuth.onAuthStateChanged(async user => {
     // Validar acceso: hardcoded, rol pre-asignado o allowed_emails.
     const ok = await isUserAllowed(user);
     if (!ok) {
-      document.getElementById('auth-status').innerHTML = 'El email <b>' + (user.email || '') + '</b> no esta autorizado.<br>' +
-        'Solo se permite iniciar sesion con una cuenta <b>@shimano.com.ar</b> o un email previamente autorizado por el admin.<br>' +
-        '<span style="font-size:11px;color:#94a3b8;display:block;margin-top:6px">Si tu cuenta corporativa deberia tener acceso y no entra, contactá a Mariano.</span>';
-      currentUser = null;
-      try { await fbAuth.signOut(); } catch(e) {}
+      // Cuenta nueva sin pre-autorizacion: NO la deslogueamos (eso confundia
+      // y parecia un loop). En su lugar la registramos como 'unassigned' en
+      // /roles para que el admin la vea en Panel Usuarios y la habilite.
+      // Mientras espera, le mostramos la pantalla "Acceso pendiente".
+      try {
+        const roleRef = fbDb.collection('roles').doc(user.uid);
+        const snap = await roleRef.get();
+        if (!snap.exists) {
+          await roleRef.set({
+            email: user.email || '',
+            displayName: user.displayName || '',
+            photoURL: user.photoURL || '',
+            role: 'unassigned',
+            vendor: null,
+            providerIds: (user.providerData || []).map(p => p.providerId).join(','),
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
+            signupSource: 'oauth_first_login',
+          });
+          // Notificar a todos los admins (best-effort, no bloquea el flow).
+          try {
+            const adminsSnap = await fbDb.collection('roles').where('role', '==', 'admin').get();
+            const notifPromises = [];
+            adminsSnap.forEach(d => {
+              const a = d.data() || {};
+              if (!a.email) return;
+              notifPromises.push(fbDb.collection('notifications').add({
+                type: 'new_user_signup',
+                fromUid: user.uid,
+                fromEmail: user.email || '',
+                fromName: user.displayName || user.email || '',
+                targetUid: d.id,
+                targetEmail: a.email,
+                title: 'Nuevo usuario esperando aprobacion',
+                description: (user.displayName || user.email || '(sin nombre)') + ' (' + (user.email || '') + ') se logueo por primera vez. Asignale un rol en Panel Usuarios.',
+                status: 'unread',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+              }));
+            });
+            await Promise.allSettled(notifPromises);
+          } catch(e) { console.warn('notify admins new user', e); }
+        } else {
+          // Doc existe pero rol es unassigned (caso raro: alguien que
+          // empezo el flow y no fue aprobado todavia). Actualizar
+          // lastLogin nada mas.
+          roleRef.update({lastLogin: firebase.firestore.FieldValue.serverTimestamp()}).catch(()=>{});
+        }
+      } catch(e) { console.warn('register unassigned user', e); }
+      // Mostrar pantalla "Acceso pendiente". El usuario puede cerrar
+      // sesion desde ahi si se logueo con una cuenta equivocada.
+      document.getElementById('auth-overlay').classList.add('hidden');
+      const adEl = document.getElementById('access-denied');
+      const adMsg = document.getElementById('access-denied-msg');
+      if (adEl) adEl.classList.remove('hidden');
+      if (adMsg) {
+        const nameTxt = user.displayName ? ('<b>' + user.displayName + '</b><br>') : '';
+        adMsg.innerHTML = nameTxt
+          + 'Te logueaste con <b>' + (user.email || '') + '</b>.<br>'
+          + 'Le avisamos al administrador para que te habilite. Cuando este listo, recargas la app y entras directo.<br>'
+          + '<span style="font-size:11px;color:#94a3b8;display:block;margin-top:10px">Si te logueaste con una cuenta equivocada, tocá "Cerrar sesión" abajo y volve a entrar con la cuenta correcta.</span>';
+      }
       return;
     }
     // NO ocultamos auth-overlay todavia: si lo hicieramos, durante los await
