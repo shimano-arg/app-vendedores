@@ -788,6 +788,13 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .stat-box{text-align:center;padding:4px 12px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;min-width:64px}
 .stat-box .num{font-size:18px;font-weight:800;color:#00A9E0;line-height:1.1}
 .stat-box .lbl{font-size:8px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+/* DESKTOP (>900px): la stats-bar va arriba de las pestañas en la sidebar,
+   no en el header. La del header se esconde, la sidebar es visible. */
+#stats-bar-header{display:none}
+#stats-bar-sidebar{display:flex;width:100%;margin:0 0 10px;gap:6px;justify-content:space-between}
+#stats-bar-sidebar .stat-box{flex:1 1 0;min-width:0;padding:6px 4px}
+#stats-bar-sidebar .stat-box .num{font-size:18px}
+#stats-bar-sidebar .stat-box .lbl{font-size:8px}
 .main-container{display:flex;height:calc(100vh - 116px)}
 #map{flex:1;z-index:1;background:#eaf3f8}
 .sidebar{width:420px;background:#fff;overflow-y:auto;border-left:1px solid #e5e7eb;padding:14px 16px;display:flex;flex-direction:column}
@@ -953,6 +960,10 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
   .stat-box{flex:1 1 0;min-width:0;padding:4px 4px;background:#f8fafc;border:1px solid #e2e8f0}
   .stat-box .num{font-size:14px;line-height:1}
   .stat-box .lbl{font-size:7px;letter-spacing:.2px;display:block;margin-top:2px}
+  /* MOBILE (<=900px): invertimos - la stats-bar va en el header como antes.
+     La copia de la sidebar se esconde. */
+  #stats-bar-header{display:flex}
+  #stats-bar-sidebar{display:none}
   /* Los 3 botones de la barra derecha (Campanas / Exportar Analisis / Exportar
      Excel) APILADOS uno debajo del otro en mobile (no en fila), para que se
      lean bien y el tap target sea cómodo. */
@@ -1302,10 +1313,10 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
   <h1>MAPA DE VENTAS - ARGENTINA</h1>
   <div class="header-badge" id="header-badge"><span id="user-role-badge" class="role-badge" style="display:none"></span></div>
   <div class="stats-bar" id="stats-bar-header">
-    <div class="stat-box"><div class="num" id="stat-loc">0</div><div class="lbl">Localidades</div></div>
-    <div class="stat-box"><div class="num" id="stat-c" style="color:#10b981">0</div><div class="lbl">Habilitados</div></div>
-    <div class="stat-box"><div class="num" id="stat-p" style="color:#f59e0b">0</div><div class="lbl">Pendientes</div></div>
-    <div class="stat-box"><div class="num" id="stat-t">0</div><div class="lbl">Tiendas</div></div>
+    <div class="stat-box"><div class="num js-stat-loc" id="stat-loc">0</div><div class="lbl">Localidades</div></div>
+    <div class="stat-box"><div class="num js-stat-c" id="stat-c" style="color:#10b981">0</div><div class="lbl">Habilitados</div></div>
+    <div class="stat-box"><div class="num js-stat-p" id="stat-p" style="color:#f59e0b">0</div><div class="lbl">Pendientes</div></div>
+    <div class="stat-box"><div class="num js-stat-t" id="stat-t">0</div><div class="lbl">Tiendas</div></div>
   </div>
   <div class="user-info" id="user-info" style="display:none">
     <span id="user-email"></span>
@@ -2155,6 +2166,15 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     </div>
   </div>
   <div class="sidebar">
+    <!-- Stats-bar clonada para desktop: queda arriba de las pestañas. La
+         original (en el header) se oculta via CSS en desktop. En mobile
+         se invierte: la del header queda y esta clone se esconde. -->
+    <div class="stats-bar" id="stats-bar-sidebar">
+      <div class="stat-box"><div class="num js-stat-loc">0</div><div class="lbl">Localidades</div></div>
+      <div class="stat-box"><div class="num js-stat-c" style="color:#10b981">0</div><div class="lbl">Habilitados</div></div>
+      <div class="stat-box"><div class="num js-stat-p" style="color:#f59e0b">0</div><div class="lbl">Pendientes</div></div>
+      <div class="stat-box"><div class="num js-stat-t">0</div><div class="lbl">Tiendas</div></div>
+    </div>
     <div class="tabs">
       <button class="tab-btn" data-tab="locs" onclick="setTab('locs')">Localidades <span class="tab-count" id="tab-loc-count">0</span></button>
       <button class="tab-btn" data-tab="clients" onclick="setTab('clients')">Clientes <span class="tab-count" id="tab-cli-count">0</span></button>
@@ -3459,10 +3479,14 @@ function updateStats(pts){
   }
   // Cuando hay filtro Tipo activo, contamos solo las localidades que tienen al menos
   // una tienda del tipo seleccionado. Sin filtro: todas las localidades visibles.
-  document.getElementById('stat-loc').textContent = (currentTypeFilter === 'ALL') ? pts.length : locsConTiendas;
-  document.getElementById('stat-c').textContent = habilitados;
-  document.getElementById('stat-p').textContent = pendientes;
-  document.getElementById('stat-t').textContent = total;
+  // Hay 2 copias de la stats-bar en el DOM (header en mobile, sidebar en
+  // desktop) controladas por CSS. Actualizamos ambas via querySelectorAll
+  // sobre las clases js-stat-* compartidas.
+  const _statLocVal = (currentTypeFilter === 'ALL') ? pts.length : locsConTiendas;
+  document.querySelectorAll('.js-stat-loc').forEach(el => { el.textContent = _statLocVal; });
+  document.querySelectorAll('.js-stat-c').forEach(el => { el.textContent = habilitados; });
+  document.querySelectorAll('.js-stat-p').forEach(el => { el.textContent = pendientes; });
+  document.querySelectorAll('.js-stat-t').forEach(el => { el.textContent = total; });
 }
 
 window.onTypeChange = function(){
