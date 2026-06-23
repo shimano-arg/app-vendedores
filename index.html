@@ -12533,7 +12533,7 @@ fbAuth.onAuthStateChanged(async user => {
     await fetchAndApplyRole();
     if (userRole === 'unassigned') return;
     // Password gate: si el doc tiene passwordHash, exigir password antes de entrar.
-    // Si no lo tiene (usuario nuevo o flujo viejo), setea el default 'Shi*10'.
+    // Si no lo tiene (usuario nuevo o flujo viejo), setea el default 'Shi0*'.
     const okPwd = await ensurePasswordGate();
     if (!okPwd) return; // canceló o no validó
     // TOTP gate (2FA): si el usuario lo tiene activado, pedir codigo de 6 digitos.
@@ -12667,7 +12667,7 @@ function loadQRCodeLib(){
 // app despues del login Google, se le pide al usuario su password. Si el
 // doc no la tiene seteada, se inicializa con el default DEFAULT_USER_PASSWORD.
 // El admin puede resetearla a cualquier valor nuevo desde Panel Usuarios.
-const DEFAULT_USER_PASSWORD = 'Shi*10';
+const DEFAULT_USER_PASSWORD = 'Shi0*';
 
 async function hashPasswordSHA256(password, salt){
   const enc = new TextEncoder();
@@ -12697,7 +12697,7 @@ async function ensurePasswordGate(){
   catch(e) { console.error('passwordGate fetch', e); return true; } // si falla el read, dejamos pasar (no romper la app)
   if (!snap || !snap.exists) return true;
   const data = snap.data() || {};
-  // Si no tiene password seteada -> setear el default Shi*10 ahora.
+  // Si no tiene password seteada -> setear el default Shi0* ahora.
   if (!data.passwordHash || !data.passwordSalt) {
     try {
       const creds = await buildPasswordCredentials(DEFAULT_USER_PASSWORD);
@@ -17517,7 +17517,7 @@ window.disableTotp = async function(uid){
 
 window.changeUserPassword = async function(uid, email){
   if (userRole !== 'admin') return;
-  const newPwd = prompt('Nueva contraseña para ' + (email || uid) + ':\n\n(El usuario va a tener que usarla en su proximo ingreso. La default es Shi*10)', '');
+  const newPwd = prompt('Nueva contraseña para ' + (email || uid) + ':\n\n(El usuario va a tener que usarla en su proximo ingreso. La default es Shi0*)', '');
   if (newPwd === null) return;
   const pwd = (newPwd || '').trim();
   if (pwd.length < 4) { alert('La contraseña tiene que tener al menos 4 caracteres.'); return; }
