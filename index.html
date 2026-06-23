@@ -3789,18 +3789,76 @@ function aplicarEstadoCliente(state){
             : 'Estado reseteado a pendiente';
   if (typeof showSyncTag === 'function') showSyncTag(msg);
 }
-// Geocodifica direccion + localidad + provincia con OSM Nominatim.
-// Limite Nominatim: 1 req/seg + User-Agent identificable. La app no genera
-// trafico fuerte porque solo llama 1 vez al dar de alta a un cliente.
+// Geocodifica direccion + localidad + provincia con OSM Nominatim usando
+// una cascada de variantes para maximizar tasa de matcheo en localidades
+// chicas de AR (donde Nominatim no siempre tiene la calle indexada).
+//
+// Estrategia: probamos del mas especifico al mas general. La primera
+// variante que matchee se devuelve. Asi para "Güemes 3601, Frontera, SF":
+//   1) "Güemes 3601, Frontera, Santa Fe, Argentina"  (calle + altura)
+//   2) "Güemes 3601, Frontera, Santa Fe, Argentina"  (sin prefijos Av/Calle)
+//   3) "Güemes, Frontera, Santa Fe, Argentina"       (sin altura)
+//   4) "Frontera, Santa Fe, Argentina"               (centro del pueblo)
+//   5) "Santa Fe, Argentina"                          (centro de la provincia)
+//
+// Limite Nominatim: 1 req/seg. Pausa 1.1s entre intentos.
+// El campo precision en el resultado indica que tan exacto fue el match.
 async function geocodeClientAddress(address, locality, provinceCode){
   const prov = (typeof titleCase === 'function') ? titleCase(provinceCode || '') : (provinceCode || '');
-  const q = [address, locality, prov, 'Argentina'].filter(Boolean).join(', ');
-  const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ar&q=' + encodeURIComponent(q);
-  const r = await fetch(url, {headers: {'Accept': 'application/json'}});
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  const data = await r.json();
-  if (!data || !data.length) return null;
-  return {lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), display: data[0].display_name || q};
+  const addrTrim = (address || '').trim();
+  const locTrim  = (locality || '').trim();
+
+  const variants = [];
+  const seen = new Set();
+  function pushVar(q, precision){
+    if (!q) return;
+    if (seen.has(q)) return;
+    seen.add(q);
+    variants.push({q, precision});
+  }
+  // 1) Direccion tal como la escribio el usuario.
+  if (addrTrim && locTrim) pushVar([addrTrim, locTrim, prov, 'Argentina'].filter(Boolean).join(', '), 'address');
+  // 2) Direccion sin prefijos Av./Avenida/Calle/Gral. (ej. "Av. Güemes 3601" -> "Güemes 3601").
+  if (addrTrim) {
+    const cleaned = addrTrim.replace(/\b(av\.?|avenida|calle|gral\.?|general)\s+/gi, '').replace(/\s+/g, ' ').trim();
+    if (cleaned && cleaned !== addrTrim && locTrim) {
+      pushVar([cleaned, locTrim, prov, 'Argentina'].filter(Boolean).join(', '), 'address-clean');
+    }
+  }
+  // 3) Solo nombre de calle (sin altura) + localidad. Cae al inicio o medio de la calle.
+  const addrNoNum = addrTrim.replace(/\s+\d+(\s*[-\/]\s*\d+)?\s*$/, '').trim();
+  if (addrNoNum && addrNoNum !== addrTrim && locTrim) {
+    pushVar([addrNoNum, locTrim, prov, 'Argentina'].filter(Boolean).join(', '), 'street');
+  }
+  // 4) Solo localidad + provincia. Pin en el centro del pueblo. Casi siempre matchea.
+  if (locTrim) pushVar([locTrim, prov, 'Argentina'].filter(Boolean).join(', '), 'locality');
+  // 5) Solo provincia. Ultimo recurso para que el pin no quede en (0,0).
+  if (prov) pushVar([prov, 'Argentina'].filter(Boolean).join(', '), 'province');
+
+  for (let i = 0; i < variants.length; i++) {
+    const v = variants[i];
+    try {
+      const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ar&q=' + encodeURIComponent(v.q);
+      const r = await fetch(url, {headers: {'Accept': 'application/json'}});
+      if (!r.ok) {
+        console.warn('[geocode] HTTP', r.status, 'on', v.q);
+      } else {
+        const data = await r.json();
+        if (data && data.length) {
+          return {
+            lat: parseFloat(data[0].lat),
+            lng: parseFloat(data[0].lon),
+            display: data[0].display_name || v.q,
+            queryUsed: v.q,
+            precision: v.precision,
+          };
+        }
+      }
+    } catch(e) { console.warn('[geocode] variant fail', v.q, e); }
+    // Rate limit Nominatim: 1 req/seg.
+    if (i < variants.length - 1) await new Promise(res => setTimeout(res, 1100));
+  }
+  return null;
 }
 
 window.darAltaClienteModal = async function(){
@@ -3821,7 +3879,7 @@ window.darAltaClienteModal = async function(){
     : 'Dar de alta este cliente?\n\nDirección: ' + address + '\nLocalidad: ' + locality + '\n\nVamos a geocodificar la dirección y ubicarlo en el mapa.';
   if (!confirm(msg)) return;
   const statusEl = document.getElementById('cm-geo-status');
-  if (statusEl) statusEl.innerHTML = '<span style="color:#1d4ed8">Buscando coordenadas en OpenStreetMap...</span>';
+  if (statusEl) statusEl.innerHTML = '<span style="color:#1d4ed8">Buscando coordenadas en OpenStreetMap (probando variantes)...</span>';
   let geo = null;
   try {
     geo = await geocodeClientAddress(address, locality, provinceCode);
@@ -3831,12 +3889,44 @@ window.darAltaClienteModal = async function(){
     return;
   }
   if (!geo) {
-    if (statusEl) statusEl.innerHTML = '<span style="color:#991b1b">No se encontró la dirección. Probá ajustando el texto (ej: agregá número, ciudad más amplia).</span>';
-    if (!confirm('No pudimos geocodificar esa dirección. ¿Querés darlo de alta igual? El pin no va a aparecer en el mapa hasta que corrijas la dirección.')) return;
+    // Caso muy raro: ni siquiera el centro de la localidad/provincia matcheo.
+    if (statusEl) statusEl.innerHTML = '<span style="color:#991b1b">No encontramos la dirección ni el centro del pueblo en OSM.</span>';
+    if (!confirm('No pudimos geocodificar. ¿Querés darlo de alta igual? El pin no va a aparecer en el mapa hasta que corrijas la dirección.')) return;
     setClientMetaPatch(currentClientModalKey, {address: address, locality: locality, lat: null, lng: null});
   } else {
-    setClientMetaPatch(currentClientModalKey, {address: address, locality: locality, lat: geo.lat, lng: geo.lng, geoDisplay: geo.display || ''});
-    if (statusEl) statusEl.innerHTML = '<span style="color:#166534">&#10003; Ubicación guardada (' + geo.lat.toFixed(5) + ', ' + geo.lng.toFixed(5) + ')</span>';
+    // Si caimos en un fallback (no la calle exacta), avisar al usuario y
+    // pedir confirmacion para que sepa que el pin es aproximado.
+    const precision = geo.precision || 'address';
+    let precisionLabel = '';
+    let confirmNeeded = false;
+    if (precision === 'address') {
+      precisionLabel = 'preciso';
+    } else if (precision === 'address-clean') {
+      precisionLabel = 'preciso (limpiando "Av./Calle")';
+    } else if (precision === 'street') {
+      precisionLabel = 'aproximado (calle sin altura)';
+      confirmNeeded = true;
+    } else if (precision === 'locality') {
+      precisionLabel = 'aproximado (centro de ' + locality + ')';
+      confirmNeeded = true;
+    } else if (precision === 'province') {
+      precisionLabel = 'MUY aproximado (centro de la provincia)';
+      confirmNeeded = true;
+    }
+    if (confirmNeeded) {
+      const ok = confirm('No encontramos la dirección exacta en OpenStreetMap, pero ubicamos un pin '
+        + precisionLabel + '.\n\n¿Querés darlo de alta igual?\n\nDespues podés corregir la dirección y se vuelve a geocodificar.');
+      if (!ok) {
+        if (statusEl) statusEl.innerHTML = '<span style="color:#92400e">Cancelado. Probá una dirección mas estándar (ej. sin tildes, con número claro).</span>';
+        return;
+      }
+    }
+    setClientMetaPatch(currentClientModalKey, {address: address, locality: locality, lat: geo.lat, lng: geo.lng, geoDisplay: geo.display || '', geoPrecision: precision});
+    if (statusEl) {
+      const color = confirmNeeded ? '#92400e' : '#166534';
+      const tag = confirmNeeded ? '&#9888; Pin ' + precisionLabel : '&#10003; Pin ' + precisionLabel;
+      statusEl.innerHTML = '<span style="color:' + color + '">' + tag + ' (' + geo.lat.toFixed(5) + ', ' + geo.lng.toFixed(5) + ')</span>';
+    }
   }
   aplicarEstadoCliente('habilitado');
 };
