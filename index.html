@@ -2496,7 +2496,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       </div>
       <button class="modal-close" onclick="closeExcelPedidoModal()">&times;</button>
     </div>
-    <div class="modal-body" style="padding:18px 22px;max-height:75vh;overflow-y:auto">
+    <div class="modal-body" style="padding:22px 24px;max-height:75vh;overflow-y:auto;display:block">
       <div id="excel-ped-drop" class="stock-drop-zone" onclick="document.getElementById('excel-ped-file-input').click()">
         <div class="stock-drop-icon">&#128196;</div>
         <div class="stock-drop-text">Arrastr&aacute; el Excel o clic para elegirlo</div>
@@ -2516,7 +2516,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         </div>
       </div>
       <div id="excel-ped-error" style="display:none;background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:12px;line-height:1.5"></div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <div style="display:flex;gap:10px;justify-content:center;align-items:center;margin-top:20px;flex-wrap:wrap">
         <button class="stock-action-btn cancel" onclick="closeExcelPedidoModal()">Cancelar</button>
         <button class="stock-action-btn publish" id="excel-ped-confirm-btn" onclick="confirmExcelPedido()" disabled style="background:#1e40af">&#10003; Continuar a revisar</button>
       </div>
