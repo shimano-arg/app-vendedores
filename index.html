@@ -1345,7 +1345,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
   </select>
   <div class="controls-right-group">
     <button class="btn-mis-camps" id="mis-camps-btn" onclick="openMisCampsModal()" style="display:none" title="Ver campa&ntilde;as activas y los SKU involucrados">Campa&ntilde;as Activas</button>
-    <button class="btn-analisis" onclick="openExportAnalisis()" title="Formatos avanzados (Power BI / ML / ZIP fotos) - requiere PIN">Exportar para An&aacute;lisis</button>
+    <button class="btn-analisis" id="analisis-btn" onclick="openExportAnalisis()" style="display:none" title="Formatos avanzados (Power BI / ML / ZIP fotos) - requiere PIN">Exportar para An&aacute;lisis</button>
     <button class="btn-export" onclick="exportToExcel()" title="Descargar Excel con toda la base de datos para analisis">Exportar a Excel</button>
     <button class="btn-zonas" id="zonas-btn" onclick="openZonasModal()" style="display:none" title="Reasignar tiendas o localidades a otro vendedor / interno / distribuidor">Zonas</button>
   </div>
@@ -13152,6 +13152,11 @@ function applyRolePermissions(){
   // Solo admin puede usarlo - cambios son globales para toda la app.
   const zonasBtnEl = document.getElementById('zonas-btn');
   if (zonasBtnEl) zonasBtnEl.style.display = (userRole === 'admin') ? '' : 'none';
+  // Exportar para Analisis: solo admin. Antes era visible para todos
+  // pero pedia PIN al abrirlo; ahora directamente lo escondemos para
+  // vendedores/viewers/internos.
+  const analisisBtnEl = document.getElementById('analisis-btn');
+  if (analisisBtnEl) analisisBtnEl.style.display = (userRole === 'admin') ? '' : 'none';
   // Boton Stock: subir CSV de stock SAP. Solo admin (mientras no este la
   // integracion automatizada con el middleware de SEIDOR, lo hacemos manual).
   const stockBtnEl = document.getElementById('stock-btn');
