@@ -11047,17 +11047,43 @@ window.closeExcelPedidoModal = function(){
 // (PRODUCTS) para que la tienda solo complete cantidades.
 window.downloadExcelPedidoTemplate = function(){
   if (typeof XLSX === 'undefined') { alert('La libreria XLSX no se cargo.'); return; }
-  const rows = PRODUCTS.map(p => ({
-    'Codigo SKU':   p.code || '',
-    'Descripcion':  p.desc || '',
-    'Cantidad':     '',
-  }));
-  // Insertar fila de instrucciones arriba.
+  // Hoja 1: Pedido - una fila por SKU del catalogo con su precio sugerido.
+  // El precio sale de la lista de precios SAP (getDefaultPrice). Si no hay
+  // lista cargada, queda vacio y el vendedor lo ingresa a mano despues.
+  const rows = PRODUCTS.map(p => {
+    const precio = (typeof getDefaultPrice === 'function') ? getDefaultPrice(p.code) : 0;
+    return {
+      'Codigo SKU':   p.code || '',
+      'Descripcion':  p.desc || '',
+      'Precio':       precio > 0 ? precio : '',
+      'Cantidad':     '',
+    };
+  });
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows);
-  // Setear anchos amigables.
-  ws['!cols'] = [{wch:18},{wch:60},{wch:12}];
+  ws['!cols'] = [{wch:18},{wch:60},{wch:14},{wch:12}];
+  // Formato moneda para columna C (Precio).
+  for (let i = 2; i <= rows.length + 1; i++) {
+    const cell = ws['C' + i];
+    if (cell && typeof cell.v === 'number') cell.z = '"$"#,##0';
+  }
   XLSX.utils.book_append_sheet(wb, ws, 'Pedido');
+
+  // Hoja 2: Descuentos - tabla informativa para que la tienda sepa los
+  // tramos de descuento por volumen y maximice el monto del pedido.
+  const descRows = [
+    ['Monto del pedido', 'Descuento General'],
+    ['$3.000.001 a $4.500.000', '2%'],
+    ['$4.501.000 a $10.000.000', '3%'],
+    ['$10.000.001 a $20.000.000', '4%'],
+    ['Encima de $20.000.000', '6%'],
+  ];
+  const wsDesc = XLSX.utils.aoa_to_sheet(descRows);
+  wsDesc['!cols'] = [{wch:34},{wch:22}];
+  // Bold en header (fila 1) para que se distinga - openpyxl-style con XLSX
+  // no aplica directo, pero al menos el dato queda legible.
+  XLSX.utils.book_append_sheet(wb, wsDesc, 'Descuentos');
+
   // Filename con cliente para que no se mezclen.
   const cliShort = (currentOrderClient && currentOrderClient.name)
     ? currentOrderClient.name.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 30)
