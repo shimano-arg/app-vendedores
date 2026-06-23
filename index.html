@@ -7876,6 +7876,10 @@ let rutaVendorFilter = null;     // admin: vendedor seleccionado
 const RUTA_MIN = 10;
 const RUTA_TARGET = 12;
 const RUTA_MAX = 15;
+// Stats de la ultima ejecucion de generarRutasVendor. Lo lee recalcularRutas
+// para mostrar al usuario cuantas rutas se consolidaron (fusionadas con su
+// vecina mas cercana) - sirve para entender que paso al agregar tiendas.
+let _lastRouteStats = {totalRutas: 0, consolidadas: 0, nuevasTiendasAprox: 0};
 
 function haversineKm(lat1, lon1, lat2, lon2){
   if (lat1 == null || lat2 == null || lon1 == null || lon2 == null) return Infinity;
@@ -8024,6 +8028,53 @@ function generarRutasVendor(vendor, monthIdx, year){
       });
     }
   }
+
+  // 2.5. PASADA DE CONSOLIDACION: fusionar rutas chicas (< RUTA_MIN) con
+  // la ruta mas cercana donde quepan (sin pasar RUTA_MAX + 2). Esto evita
+  // que al dar de alta una tienda nueva quede como ruta solitaria de 1-2.
+  // Iteramos: en cada vuelta agarramos la mas chica y la mergeamos con la
+  // mas cercana viable. Si no hay donde mergear (todas estan llenas o lejos),
+  // la dejamos como esta y rompemos.
+  let consolidadasCount = 0;
+  while (true) {
+    let smallestIdx = -1, smallestLen = Infinity;
+    rutas.forEach((r, i) => {
+      if (r.tiendas.length < RUTA_MIN && r.tiendas.length < smallestLen) {
+        smallestLen = r.tiendas.length;
+        smallestIdx = i;
+      }
+    });
+    if (smallestIdx === -1) break;
+    const tiny = rutas[smallestIdx];
+    // Buscar la ruta mas cercana (cualquiera, tiny o no) donde quepa.
+    let bestIdx = -1, bestDist = Infinity;
+    rutas.forEach((r, i) => {
+      if (i === smallestIdx) return;
+      if (r.tiendas.length + tiny.tiendas.length > RUTA_MAX + 2) return;
+      const d = haversineKm(tiny.lat, tiny.lon, r.lat, r.lon);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    });
+    if (bestIdx === -1) break;
+    // Merge: tiny -> best. Centroide ponderado por cantidad de tiendas.
+    const best = rutas[bestIdx];
+    const wPrev = best.tiendas.length;
+    const wTiny = tiny.tiendas.length;
+    best.lat = (best.lat * wPrev + tiny.lat * wTiny) / (wPrev + wTiny);
+    best.lon = (best.lon * wPrev + tiny.lon * wTiny) / (wPrev + wTiny);
+    best.tiendas = best.tiendas.concat(tiny.tiendas);
+    tiny.localidades.forEach(l => {
+      if (best.localidades.indexOf(l) < 0) best.localidades.push(l);
+    });
+    // Mergear provincias unicas separadas por coma.
+    const tinyProvs = (tiny.provincia || '').split(',').map(s => s.trim()).filter(Boolean);
+    const bestProvs = (best.provincia || '').split(',').map(s => s.trim()).filter(Boolean);
+    tinyProvs.forEach(p => { if (bestProvs.indexOf(p) < 0) bestProvs.push(p); });
+    best.provincia = bestProvs.join(', ');
+    rutas.splice(smallestIdx, 1);
+    consolidadasCount++;
+    console.log('[rutas] Consolidada ruta chica (' + wTiny + ' tiendas) con ruta mas cercana a ' + bestDist.toFixed(1) + ' km. Total ahora: ' + best.tiendas.length);
+  }
+  _lastRouteStats = {totalRutas: rutas.length, consolidadas: consolidadasCount, nuevasTiendasAprox: 0};
 
   // IDs y nombres iniciales
   rutas.forEach((r, idx) => {
@@ -8198,6 +8249,14 @@ window.recalcularRutas = async function(){
   const btn = document.querySelector('.rt-recalc-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = '⟳ Recalculando...'; }
   showSyncTag('Recalculando rutas...');
+  // Snapshot pre-recalculo: cuantas tiendas habia en POINTS para detectar
+  // si aparecieron tiendas nuevas (altas aprobadas que entraron al map).
+  let prevTotalTiendas = 0;
+  try {
+    POINTS.forEach(p => {
+      prevTotalTiendas += (p.clients || []).length + (p.prospects || []).length;
+    });
+  } catch(e) {}
   try {
     // Re-aplicar overrides a POINTS por si el listener todavia no proceso
     // (ej. acabamos de cambiar una zona y queremos ver el efecto ya).
@@ -8207,12 +8266,30 @@ window.recalcularRutas = async function(){
     // Refrescar listeners (vuelven a leer Firestore si estan suspendidos)
     if (typeof ensureVisitsListener === 'function') ensureVisitsListener();
     if (typeof ensureRouteOverridesListener === 'function') ensureRouteOverridesListener();
+    if (typeof ensureApprovedAltasListener === 'function') ensureApprovedAltasListener();
     // Resetear vista a "ruta detalle" cerrado para volver al listado
     rutaDetalleId = null;
     renderRutasTab();
     // Refrescar contador del tab tambien
     try { if (typeof updateRutasTabCount === 'function') updateRutasTabCount(); } catch(e){}
-    showSyncTag('Rutas recalculadas');
+    // Reporte al usuario: total de rutas + cuantas se consolidaron + si hay
+    // nuevas tiendas. _lastRouteStats lo setea generarRutasVendor.
+    let nuevasTiendas = 0;
+    try {
+      let postTotalTiendas = 0;
+      POINTS.forEach(p => {
+        postTotalTiendas += (p.clients || []).length + (p.prospects || []).length;
+      });
+      nuevasTiendas = Math.max(0, postTotalTiendas - prevTotalTiendas);
+    } catch(e) {}
+    const stats = _lastRouteStats || {};
+    let msg = 'Rutas recalculadas';
+    const parts = [];
+    if (stats.totalRutas) parts.push(stats.totalRutas + ' rutas');
+    if (stats.consolidadas) parts.push(stats.consolidadas + ' consolidada(s)');
+    if (nuevasTiendas > 0) parts.push(nuevasTiendas + ' tienda(s) nueva(s) agregada(s)');
+    if (parts.length) msg += ': ' + parts.join(' · ');
+    showSyncTag(msg, 3500);
   } catch(e) {
     console.error('recalcularRutas', e);
     showSyncTag('Error recalculando rutas');
