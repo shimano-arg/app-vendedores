@@ -1955,6 +1955,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <div id="allowed-emails-section" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 14px;margin-bottom:14px"></div>
         <div id="gemini-config-section" style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:12px 14px;margin-bottom:14px"></div>
         <div id="gmaps-config-section" style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;padding:12px 14px;margin-bottom:14px"></div>
+        <div id="bulk-approver-section" style="background:#fdf4ff;border:1px solid #f0abfc;border-radius:8px;padding:12px 14px;margin-bottom:14px"></div>
         <div style="overflow-x:auto;width:100%">
         <table class="users-table" id="users-table" style="min-width:920px">
           <thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Vendedor</th><th>Pareja interno</th><th></th></tr></thead>
@@ -13825,6 +13826,91 @@ window.deleteGmapsApiKey = async function(){
   }
 };
 
+// ============================================================
+// BULK APPROVER - asignar el mismo "Responsable de rendiciones"
+// a todos los vendedores de un solo click.
+// ============================================================
+// Util cuando un solo aprobador (ej. Pablo gerente) revisa las
+// rendiciones de TODOS los vendedores. Sin esto el admin tiene que
+// abrir cada fila del panel Usuarios y setear el dropdown una a una.
+function renderBulkApproverSection(){
+  const el = document.getElementById('bulk-approver-section');
+  if (!el) return;
+  const candidates = (usersCache || []).filter(u =>
+    u.role === 'admin' || u.role === 'gerente' || u.role === 'interno'
+  );
+  const vendedores = (usersCache || []).filter(u => u.role === 'vendedor');
+  let html = '<div style="text-align:center;margin-bottom:10px">';
+  html += '<div style="font-size:12px;font-weight:800;color:#a21caf">Aprobador de Rendiciones - asignacion masiva</div>';
+  html += '<div style="font-size:10px;color:#64748b;margin-top:2px">Aplica el mismo responsable a TODOS los vendedores de un solo click. Util cuando un gerente comercial centraliza la aprobacion.</div>';
+  html += '</div>';
+  if (!candidates.length) {
+    html += '<div style="font-size:11px;color:#94a3b8;text-align:center;padding:6px 0">No hay usuarios con rol admin / gerente / interno. Primero asigna un rol a alguien.</div>';
+    el.innerHTML = html;
+    return;
+  }
+  if (!vendedores.length) {
+    html += '<div style="font-size:11px;color:#94a3b8;text-align:center;padding:6px 0">No hay usuarios con rol vendedor todavia.</div>';
+    el.innerHTML = html;
+    return;
+  }
+  html += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center">';
+  html += '<select id="bulk-approver-select" style="padding:8px 10px;border:1.5px solid #f0abfc;border-radius:6px;font-size:12px;background:#fff;font-family:inherit;flex:1;max-width:340px">';
+  html += '<option value="">- Elegir aprobador -</option>';
+  candidates.forEach(u => {
+    const lbl = (u.displayName || u.email || u._uid) + ' (' + u.role + ')';
+    html += '<option value="' + escapeAttr(u._uid) + '">' + escapeHtml(lbl) + '</option>';
+  });
+  html += '</select>';
+  html += '<button class="app-btn-pill app-btn-violet" onclick="bulkAssignApprover()">Asignar a TODOS los vendedores (' + vendedores.length + ')</button>';
+  html += '</div>';
+  el.innerHTML = html;
+}
+window.bulkAssignApprover = async function(){
+  if (userRole !== 'admin') { alert('Solo admin.'); return; }
+  const sel = document.getElementById('bulk-approver-select');
+  const uid = sel && sel.value;
+  if (!uid) { alert('Eleg&iacute; un aprobador del dropdown.'); return; }
+  const approver = (usersCache || []).find(u => u._uid === uid);
+  if (!approver) { alert('Aprobador no encontrado.'); return; }
+  const vendedores = (usersCache || []).filter(u => u.role === 'vendedor');
+  if (!vendedores.length) { alert('No hay vendedores para asignar.'); return; }
+  const approverLabel = approver.displayName || approver.email || approver._uid;
+  if (!confirm('Asignar a ' + approverLabel + ' como aprobador de los ' + vendedores.length + ' vendedores?\n\nVa a sobrescribir cualquier aprobador previo asignado a cada vendedor.')) return;
+  let okCount = 0, errCount = 0;
+  // Update en lote. Usamos un batch de Firestore.
+  const batch = fbDb.batch();
+  vendedores.forEach(v => {
+    const ref = fbDb.collection('roles').doc(v._uid);
+    batch.update(ref, {
+      rendicionesApproverUid: uid,
+      rendicionesApproverEmail: approver.email || '',
+      rendicionesApproverUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      rendicionesApproverUpdatedBy: currentUser.email || '',
+    });
+  });
+  try {
+    await batch.commit();
+    okCount = vendedores.length;
+    if (typeof logOp === 'function') {
+      logOp('bulk_assign_approver', 'roles', approverLabel, {
+        approverUid: uid,
+        approverEmail: approver.email || '',
+        vendedorCount: vendedores.length,
+        vendedorUids: vendedores.map(v => v._uid),
+      });
+    }
+  } catch(e) {
+    console.error('bulkAssignApprover', e);
+    errCount = vendedores.length;
+    alert('Error: ' + (e.message || e));
+  }
+  if (okCount) {
+    showSyncTag(okCount + ' vendedor(es) asignado(s) a ' + approverLabel);
+    try { openAdminPanel(); } catch(e) {} // refrescar
+  }
+};
+
 // Geocoding con Google Maps API. Devuelve {lat, lng, display, precision}
 // o null si no encontro / sin key.
 async function geocodeWithGoogleMaps(address, locality, provinceCode){
@@ -13905,6 +13991,8 @@ window.openAdminPanel = async function(){
     const qs = await fbDb.collection('roles').orderBy('email').get();
     usersCache = [];
     qs.forEach(doc => { usersCache.push(Object.assign({_uid: doc.id}, doc.data())); });
+    // Render del bloque "Asignar aprobador a todos los vendedores" arriba de la tabla.
+    try { renderBulkApproverSection(); } catch(e) { console.warn('bulk approver section', e); }
     // Lista de internos disponibles (para asignar pareja a los vendedores)
     const internos = usersCache.filter(u => u.role === 'interno');
     const internoOpts = '<option value="">- Sin pareja -</option>' + internos.map(u =>
