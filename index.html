@@ -2497,12 +2497,6 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       <button class="modal-close" onclick="closeExcelPedidoModal()">&times;</button>
     </div>
     <div class="modal-body" style="padding:18px 22px;max-height:75vh;overflow-y:auto">
-      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#1e40af;line-height:1.5">
-        <b>&#9881; Formato esperado del Excel:</b><br>
-        3 columnas: <b>Codigo SKU</b> &middot; <b>Descripcion</b> &middot; <b>Cantidad</b>.<br>
-        Solo se cargan las filas con <b>cantidad &gt; 0</b>. Las que esten en 0 o vacias se ignoran.
-        <div style="margin-top:8px"><button onclick="downloadExcelPedidoTemplate()" style="background:#1e40af;color:#fff;border:none;padding:7px 14px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#11015; Descargar template</button></div>
-      </div>
       <div id="excel-ped-drop" class="stock-drop-zone" onclick="document.getElementById('excel-ped-file-input').click()">
         <div class="stock-drop-icon">&#128196;</div>
         <div class="stock-drop-text">Arrastr&aacute; el Excel o clic para elegirlo</div>
