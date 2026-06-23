@@ -2471,6 +2471,55 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <p>Continuar al formulario de carga.</p>
         </div>
       </div>
+      <div class="ccm-opt action" onclick="ccmCargarExcelPedido()" style="background:linear-gradient(135deg,#1e3a8a,#3b82f6)">
+        <div class="ccm-opt-icon">&#128196;</div>
+        <div class="ccm-opt-body">
+          <h4>Cargar pedido por Excel</h4>
+          <p>Subi el Excel con SKUs y cantidades que te mando la tienda.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="excel-pedido-modal" onclick="if(event.target===this)closeExcelPedidoModal()">
+  <div class="modal-box" style="width:min(680px,98vw)">
+    <div class="modal-head" style="background:linear-gradient(135deg,#1e3a8a,#3b82f6)">
+      <div>
+        <h2>&#128196; Cargar pedido por Excel</h2>
+        <div class="subt" id="excel-ped-subt">Subi el archivo que te devolvi&oacute; la tienda con las cantidades.</div>
+      </div>
+      <button class="modal-close" onclick="closeExcelPedidoModal()">&times;</button>
+    </div>
+    <div class="modal-body" style="padding:18px 22px;max-height:75vh;overflow-y:auto">
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#1e40af;line-height:1.5">
+        <b>&#9881; Formato esperado del Excel:</b><br>
+        3 columnas: <b>Codigo SKU</b> &middot; <b>Descripcion</b> &middot; <b>Cantidad</b>.<br>
+        Solo se cargan las filas con <b>cantidad &gt; 0</b>. Las que esten en 0 o vacias se ignoran.
+        <div style="margin-top:8px"><button onclick="downloadExcelPedidoTemplate()" style="background:#1e40af;color:#fff;border:none;padding:7px 14px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#11015; Descargar template</button></div>
+      </div>
+      <div id="excel-ped-drop" class="stock-drop-zone" onclick="document.getElementById('excel-ped-file-input').click()">
+        <div class="stock-drop-icon">&#128196;</div>
+        <div class="stock-drop-text">Arrastr&aacute; el Excel o clic para elegirlo</div>
+        <div class="stock-drop-hint">Formatos: .xlsx, .xls</div>
+      </div>
+      <input id="excel-ped-file-input" type="file" accept=".xlsx,.xls" style="display:none" onchange="onExcelPedidoFileSelected(event)"/>
+      <div id="excel-ped-preview" style="display:none;margin-top:14px">
+        <div id="excel-ped-stats" style="background:#ecfdf5;border:1.5px solid #86efac;border-radius:6px;padding:10px 12px;font-size:12px;color:#14532d;line-height:1.5"></div>
+        <div id="excel-ped-warnings" style="display:none;background:#fef3c7;border:1.5px solid #fcd34d;color:#78350f;border-radius:6px;padding:10px 12px;margin-top:8px;font-size:11px;line-height:1.5;max-height:160px;overflow-y:auto"></div>
+        <div style="margin-top:10px;max-height:240px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px">
+          <table style="width:100%;border-collapse:collapse;font-size:11px">
+            <thead style="background:#0f172a;color:#fff;position:sticky;top:0">
+              <tr><th style="text-align:left;padding:6px 8px">SKU</th><th style="text-align:left;padding:6px 8px">Producto</th><th style="text-align:right;padding:6px 8px">Cantidad</th></tr>
+            </thead>
+            <tbody id="excel-ped-rows"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="excel-ped-error" style="display:none;background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:12px;line-height:1.5"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button class="stock-action-btn cancel" onclick="closeExcelPedidoModal()">Cancelar</button>
+        <button class="stock-action-btn publish" id="excel-ped-confirm-btn" onclick="confirmExcelPedido()" disabled style="background:#1e40af">&#10003; Continuar a revisar</button>
+      </div>
     </div>
   </div>
 </div>
@@ -10933,6 +10982,204 @@ window.ccmCrearPedido = function(){
   const {name, tipo, province, locName} = clientMenuContext;
   closeClientMenu();
   proceedToCreateOrder(name, tipo, province, locName);
+};
+
+// ============================================================
+// CARGAR PEDIDO POR EXCEL
+// ============================================================
+// El vendedor manda a la tienda un Excel con SKUs + descripcion +
+// columna Cantidad vacia. La tienda completa cantidades y se lo
+// devuelve. El vendedor lo carga aca: parseamos el archivo, validamos
+// que los SKUs esten en el catalogo PRODUCTS, y armamos un pedido
+// pre-cargado que se abre en el modal "Revisa tu pedido" para que el
+// vendedor ajuste precios + elija forma de pago + confirme a Pendientes.
+let _excelPedidoParsed = null; // [{code, desc, qty}] post-parseo
+
+window.ccmCargarExcelPedido = function(){
+  if (!clientMenuContext) return;
+  const {name, tipo, province, locName} = clientMenuContext;
+  closeClientMenu();
+  openExcelPedidoModal(name, tipo, province, locName);
+};
+
+window.openExcelPedidoModal = function(name, tipo, province, locName){
+  // Setear el cliente actual para que cuando reciclemos el flujo de
+  // crear pedido (proceedToCreateOrder + openPedidoModal), use este cliente.
+  currentOrderClient = {name, tipo, province, locName};
+  currentOrderKey = tipo + '|' + province + '|' + locName + '|' + name;
+  document.getElementById('excel-ped-subt').textContent =
+    'Cliente: ' + name + ' - ' + locName + ' / ' + titleCase(province);
+  _excelPedidoParsed = null;
+  document.getElementById('excel-ped-file-input').value = '';
+  document.getElementById('excel-ped-preview').style.display = 'none';
+  document.getElementById('excel-ped-error').style.display = 'none';
+  document.getElementById('excel-ped-confirm-btn').disabled = true;
+  // Hook drag&drop solo la primera vez.
+  const drop = document.getElementById('excel-ped-drop');
+  if (drop && !drop.dataset.dragInit) {
+    drop.dataset.dragInit = '1';
+    ['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => {
+      e.preventDefault(); e.stopPropagation(); drop.classList.add('dragover');
+    }));
+    ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => {
+      e.preventDefault(); e.stopPropagation(); drop.classList.remove('dragover');
+    }));
+    drop.addEventListener('drop', e => {
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) parseExcelPedidoFile(file);
+    });
+  }
+  document.getElementById('excel-pedido-modal').classList.add('open');
+};
+window.closeExcelPedidoModal = function(){
+  document.getElementById('excel-pedido-modal').classList.remove('open');
+  _excelPedidoParsed = null;
+};
+
+// Genera y descarga un Excel template con 3 columnas: Codigo SKU,
+// Descripcion, Cantidad. Lo prefill con todos los SKUs del catalogo
+// (PRODUCTS) para que la tienda solo complete cantidades.
+window.downloadExcelPedidoTemplate = function(){
+  if (typeof XLSX === 'undefined') { alert('La libreria XLSX no se cargo.'); return; }
+  const rows = PRODUCTS.map(p => ({
+    'Codigo SKU':   p.code || '',
+    'Descripcion':  p.desc || '',
+    'Cantidad':     '',
+  }));
+  // Insertar fila de instrucciones arriba.
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows);
+  // Setear anchos amigables.
+  ws['!cols'] = [{wch:18},{wch:60},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Pedido');
+  // Filename con cliente para que no se mezclen.
+  const cliShort = (currentOrderClient && currentOrderClient.name)
+    ? currentOrderClient.name.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 30)
+    : 'cliente';
+  const fname = 'Template_Pedido_' + cliShort + '.xlsx';
+  XLSX.writeFile(wb, fname);
+  showSyncTag('Template descargado: ' + fname);
+};
+
+window.onExcelPedidoFileSelected = function(ev){
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  parseExcelPedidoFile(file);
+};
+
+async function parseExcelPedidoFile(file){
+  const errEl = document.getElementById('excel-ped-error');
+  errEl.style.display = 'none';
+  try {
+    if (typeof XLSX === 'undefined') throw new Error('La libreria XLSX no se cargo. Recarga la pagina.');
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (ext !== 'xlsx' && ext !== 'xls') throw new Error('Formato no soportado: ' + ext + '. Subi .xlsx o .xls');
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type: 'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {defval: ''});
+    if (!rows.length) throw new Error('El archivo no tiene filas de datos.');
+    // Mapear columnas (acepta varios nombres como sinonimos).
+    const SKU_NAMES = ['codigo sku','sku','codigo','code','item','itemcode','codigo articulo','codigo del articulo'];
+    const DESC_NAMES = ['descripcion','description','desc','producto','articulo','descripcion del articulo'];
+    const QTY_NAMES = ['cantidad','quantity','qty','unidades','cant'];
+    function findKey(row, candidates){
+      const keys = Object.keys(row);
+      for (const cand of candidates) {
+        for (const k of keys) {
+          if (k.toLowerCase().trim() === cand) return k;
+        }
+      }
+      return null;
+    }
+    const kSku = findKey(rows[0], SKU_NAMES);
+    const kQty = findKey(rows[0], QTY_NAMES);
+    if (!kSku) throw new Error('No se encontro la columna SKU. Headers leidos: ' + Object.keys(rows[0]).join(' | '));
+    if (!kQty) throw new Error('No se encontro la columna Cantidad. Headers leidos: ' + Object.keys(rows[0]).join(' | '));
+    const parsed = [];
+    const notFound = []; // SKUs del Excel que no estan en el catalogo PRODUCTS.
+    const zerosOrEmpty = [];
+    rows.forEach(r => {
+      const code = String(r[kSku] || '').trim().toUpperCase();
+      if (!code) return;
+      let qtyRaw = String(r[kQty] != null ? r[kQty] : '').trim();
+      let cleaned = qtyRaw.replace(/\./g, '').replace(',', '.').replace(/[^\d.\-]/g, '');
+      const qty = parseFloat(cleaned) || 0;
+      if (qty <= 0) {
+        if (qtyRaw && qtyRaw !== '0') zerosOrEmpty.push({code, qty: qtyRaw});
+        return;
+      }
+      const prod = PRODUCTS.find(p => p.code === code);
+      if (!prod) {
+        notFound.push({code, qty});
+        return;
+      }
+      // Si el mismo SKU aparece varias veces, sumamos cantidades.
+      const existing = parsed.find(x => x.code === code);
+      if (existing) existing.qty += qty;
+      else parsed.push({code, desc: prod.desc, cat: prod.cat||'', fam: prod.fam||'', sub: prod.sub||'', qty});
+    });
+    if (!parsed.length) throw new Error('No se encontraron lineas validas (con SKU del catalogo + cantidad > 0).');
+    _excelPedidoParsed = parsed;
+    // Render preview.
+    const totalUnid = parsed.reduce((s, l) => s + l.qty, 0);
+    document.getElementById('excel-ped-stats').innerHTML =
+      '<b>&#10003; ' + parsed.length + '</b> SKUs validos &middot; <b>' + totalUnid + '</b> unidades totales';
+    const warnEl = document.getElementById('excel-ped-warnings');
+    let warnHtml = '';
+    if (notFound.length) {
+      warnHtml += '<b>&#9888; ' + notFound.length + ' SKU(s) NO estan en el catalogo (se ignoraron):</b><br>';
+      warnHtml += notFound.slice(0, 8).map(x => '&middot; ' + escapeHtml(x.code) + ' (' + x.qty + ' u)').join('<br>');
+      if (notFound.length > 8) warnHtml += '<br><i>... y ' + (notFound.length - 8) + ' mas</i>';
+    }
+    if (zerosOrEmpty.length && warnHtml) warnHtml += '<br><br>';
+    if (zerosOrEmpty.length) {
+      warnHtml += '<b>' + zerosOrEmpty.length + ' fila(s) con cantidad invalida o 0:</b> se ignoraron.';
+    }
+    if (warnHtml) { warnEl.innerHTML = warnHtml; warnEl.style.display = ''; }
+    else { warnEl.style.display = 'none'; }
+    // Tabla de filas parseadas.
+    const tbody = document.getElementById('excel-ped-rows');
+    tbody.innerHTML = parsed.slice(0, 200).map(l =>
+      '<tr><td style="padding:5px 8px;border-top:1px solid #f1f5f9;font-family:monospace;font-size:10px">' +
+      escapeHtml(l.code) + '</td><td style="padding:5px 8px;border-top:1px solid #f1f5f9">' + escapeHtml(l.desc) +
+      '</td><td style="padding:5px 8px;border-top:1px solid #f1f5f9;text-align:right;font-weight:700">' +
+      l.qty + '</td></tr>'
+    ).join('') + (parsed.length > 200 ? '<tr><td colspan="3" style="padding:8px;text-align:center;font-size:10px;color:#94a3b8;font-style:italic">... y ' + (parsed.length - 200) + ' lineas mas</td></tr>' : '');
+    document.getElementById('excel-ped-preview').style.display = '';
+    document.getElementById('excel-ped-confirm-btn').disabled = false;
+  } catch(e) {
+    console.error('parseExcelPedidoFile', e);
+    errEl.innerHTML = '<b>Error procesando el Excel:</b><br>' + escapeHtml(e.message || String(e));
+    errEl.style.display = '';
+    document.getElementById('excel-ped-confirm-btn').disabled = true;
+    _excelPedidoParsed = null;
+  }
+}
+
+// Carga las lineas parseadas en orders[currentOrderKey], cierra este
+// modal y abre el modal "Revisa tu pedido" - el resto del flujo
+// (forma de pago, descuentos, confirmar a Pendientes) sigue igual.
+window.confirmExcelPedido = function(){
+  if (!_excelPedidoParsed || !_excelPedidoParsed.length) return;
+  if (!currentOrderKey) { alert('Cliente sin contexto. Cerra y abri de nuevo.'); return; }
+  // Cargar las lineas en orders[] con precio default desde la price list.
+  orders[currentOrderKey] = _excelPedidoParsed.map(l => ({
+    code: l.code,
+    desc: l.desc,
+    cat: l.cat || '',
+    fam: l.fam || '',
+    sub: l.sub || '',
+    qty: l.qty,
+    precio: (typeof getDefaultPrice === 'function') ? getDefaultPrice(l.code) : 0,
+  }));
+  try { saveOrders(); } catch(e){}
+  showSyncTag('Pedido cargado desde Excel: ' + _excelPedidoParsed.length + ' lineas');
+  closeExcelPedidoModal();
+  // Abrir el modal "Revisa tu pedido" directamente. El usuario ajusta
+  // cantidades / precios, elige forma de pago y confirma a Pendientes.
+  try { openReviewDialog('crear'); }
+  catch(e) { console.error('openReviewDialog from excel', e); alert('Pedido cargado pero no pudimos abrir Revisar. Andá a Pedidos > Crear.'); }
 };
 
 // === Modal: ultima visita ===
