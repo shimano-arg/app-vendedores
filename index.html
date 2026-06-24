@@ -2861,19 +2861,42 @@ function applyVendorOverridesFilter(p, names){
   });
 }
 
-// Helper: una tienda esta "confirmada en SAP" si en client_master tiene
-// tanto sapCardCode como address poblados. Estos campos los setea el
-// flujo "Importar desde SAP" del panel Master Clientes. Esta es la
-// fuente unica de verdad para decidir si una tienda existe en SAP B1
-// con datos completos.
+// Helper: una tienda esta "confirmada en SAP" si esta presente en SAP
+// con CardCode + direccion. Buscamos en 2 lugares posibles porque el
+// import "desde SAP" guarda los datos en uno u otro segun haya matcheado
+// o no con el master POINTS:
+//   1) client_master[docId].sapCardCode + address: cuando matcheo con
+//      una tienda existente del Excel master (POINTS).
+//   2) client_applications con cardCodeSap + calle: cuando el import
+//      creo la tienda como "nueva" porque no encontro match (SAP exporta
+//      nombre legal del titular, POINTS guarda nombre comercial).
 function isSapConfirmed(provincia, localidad, nombre){
-  if (typeof clientLocId !== 'function' || typeof clientMasterCache === 'undefined') return false;
-  try {
-    const docId = clientLocId(provincia, localidad, nombre);
-    const d = clientMasterCache.get(docId);
-    if (!d) return false;
-    return !!(d.sapCardCode && (d.address || d.sapAddress));
-  } catch(e) { return false; }
+  // Path 1: entrada en client_master con CardCode + direccion.
+  if (typeof clientLocId === 'function' && typeof clientMasterCache !== 'undefined') {
+    try {
+      const docId = clientLocId(provincia, localidad, nombre);
+      const d = clientMasterCache.get(docId);
+      if (d && d.sapCardCode && (d.address || d.sapAddress)) return true;
+    } catch(e) {}
+  }
+  // Path 2: alta aprobada (client_applications) con cardCodeSap +
+  // direccion. Estas son las "Nuevas" del import SAP que no matchearon
+  // con POINTS pero igual existen en SAP B1.
+  if (typeof approvedAltasByLoc !== 'undefined' && approvedAltasByLoc) {
+    const key = (provincia || '').toUpperCase() + '|' + localidad;
+    const altas = approvedAltasByLoc[key] || [];
+    const found = altas.find(a => {
+      if (!a) return false;
+      const altaName = a.comercio || a.fantasia || '';
+      if (altaName !== nombre) return false;
+      if (!a.cardCodeSap) return false;
+      // Direccion: el import guardo en a.calle. Aceptamos cualquier
+      // string no vacio como confirmacion de direccion.
+      return !!(a.calle || a.address);
+    });
+    if (found) return true;
+  }
+  return false;
 }
 
 function effClients(p){
