@@ -5254,12 +5254,17 @@ async function exportVisitasForMonth(anio, monthIdx){
     const v = d.data() || {};
     if (parseInt(v.anio) !== anio) return;
     if (targetMes && (v.mes || '').toUpperCase() !== targetMes) return;
+    // tipoContacto puede ser 'telefono' (contacto via Marcar como contactado)
+    // o ausente / 'presencial' (visita presencial cargada con el form).
+    const tipoContactoLbl = (v.tipoContacto === 'telefono') ? 'Telefono' : 'Presencial';
     rows.push({
       Fecha: v.fecha || '',
       Mes: v.mes || '',
       Anio: v.anio || '',
       Vendedor: titleCase(v.vendor || ''),
       Owner_Email: v.ownerEmail || '',
+      Tipo_Contacto: tipoContactoLbl,
+      Comentario_Contacto: v.comentario || '',
       Provincia: titleCase(v.provincia || ''),
       Localidad: v.localidad || '',
       Tienda: v.tienda || '',
@@ -7208,6 +7213,8 @@ window.exportVisitsWithEmbeddedPhotos = async function(){
     {header: 'Fecha',         key: 'fecha',     width: 12},
     {header: 'Mes',           key: 'mes',       width: 10},
     {header: 'Vendedor',      key: 'vendedor',  width: 22},
+    {header: 'Tipo contacto', key: 'tipoCt',    width: 12},
+    {header: 'Comentario',    key: 'coment',    width: 32},
     {header: 'Provincia',     key: 'provincia', width: 16},
     {header: 'Localidad',     key: 'localidad', width: 18},
     {header: 'Tienda',        key: 'tienda',    width: 30},
@@ -7241,10 +7248,13 @@ window.exportVisitsWithEmbeddedPhotos = async function(){
   const sorted = visitsCache.slice().sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
 
   for (const v of sorted) {
+    const tipoContactoLbl = (v.tipoContacto === 'telefono') ? 'Telefono' : 'Presencial';
     const r = ws.addRow({
       fecha:     v.fecha || '',
       mes:       v.mes || '',
       vendedor:  titleCase(v.vendor || ''),
+      tipoCt:    tipoContactoLbl,
+      coment:    v.comentario || '',
       provincia: titleCase(v.provincia || ''),
       localidad: v.localidad || '',
       tienda:    v.tienda || '',
@@ -8177,6 +8187,8 @@ function buildVisitRows(){
     Mes: v.mes || '',
     Ano: v.anio || '',
     Vendedor: titleCase(v.vendor || ''),
+    'Tipo contacto': (v.tipoContacto === 'telefono') ? 'Telefono' : 'Presencial',
+    Comentario: v.comentario || '',
     Provincia: titleCase(v.provincia || ''),
     Localidad: v.localidad || '',
     Tienda: v.tienda || '',
@@ -9783,9 +9795,19 @@ window.marcarTiendaContactada = async function(localidad, provincia, tienda){
   const ownerUid = actingPartner ? actingPartner.uid : currentUser.uid;
   const ownerEmail = actingPartner ? (actingPartner.email || '') : (currentUser.email || '');
   const ownerName = actingPartner ? (actingPartner.displayName || actingPartner.email || '') : (currentUser.displayName || currentUser.email || '');
-  const vendor = (typeof currentVendor !== 'undefined' && currentVendor && currentVendor !== 'ALL')
-    ? currentVendor
-    : ((actingPartner && actingPartner.vendorKey) || '');
+  // El vendor del visit doc TIENE que coincidir con el de la ruta activa, no
+  // con currentVendor (que para admin es 'ALL' y haria que el visit no se
+  // detecte y la tienda no se ponga verde). getActiveRutaVendor devuelve el
+  // vendor del cual estamos viendo la ruta detallada.
+  let vendor = '';
+  if (typeof getActiveRutaVendor === 'function') {
+    try { vendor = getActiveRutaVendor() || ''; } catch(e) {}
+  }
+  if (!vendor) {
+    vendor = (typeof currentVendor !== 'undefined' && currentVendor && currentVendor !== 'ALL')
+      ? currentVendor
+      : ((actingPartner && actingPartner.vendorKey) || '');
+  }
   const data = {
     tienda: tienda,
     localidad: localidad,
