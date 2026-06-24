@@ -9185,23 +9185,83 @@ function generarRutasVendor(vendor, monthIdx, year){
     monthIdx = cm.monthIdx;
     year = cm.year;
   }
-  // 1. Recolectar localidades del vendedor con tiendas (clientes + prospectos, sin distincion)
+  // 1. Recolectar localidades del vendedor con tiendas HABILITADAS (= en SAP
+  // con cardCodeSap y direccion cargada). El resto queda fuera de la ruta
+  // - aparecen en el mapa como pin azul pero no se rutean hasta que SAP
+  // tenga la direccion. Pulsar "Recalcular rutas" trae a los nuevos.
+  const isSapOk = (typeof isSapConfirmed === 'function')
+    ? (prov, loc, nombre) => isSapConfirmed(prov, loc, nombre)
+    : () => true;
   const localidades = [];
   POINTS.forEach(p => {
     if (!vendor || p.vendor !== vendor) return;
     const allTiendas = [...(p.clients || []), ...(p.prospects || [])];
     if (!allTiendas.length) return;
+    const tiendasOk = allTiendas.filter(name => isSapOk(p.province, p.name, name));
+    if (!tiendasOk.length) return;
     localidades.push({
       name: p.name,
       province: p.province,
       lat: p.lat,
       lon: p.lon,
-      tiendas: allTiendas.map(nombre => ({
+      tiendas: tiendasOk.map(nombre => ({
         nombre: nombre,
         localidad: p.name,
         provincia: p.province,
         lat: p.lat,
         lon: p.lon,
+      })),
+    });
+  });
+  // 1.b Sumar las altas SAP huerfanas (cardCodeSap + calle, asignadas a
+  // este vendedor, que NO matchean con ningun POINT por nombre+provincia).
+  // Las agrupamos por localidad - centroide aproximado si no hay lat/lng.
+  const ptNameSet = new Set();
+  localidades.forEach(L => L.tiendas.forEach(t => ptNameSet.add(((t.provincia||'').toUpperCase()) + '|' + (t.nombre||'').toLowerCase())));
+  const altasOk = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).filter(a => {
+    if (!a || !a.cardCodeSap) return false;
+    if (!(a.calle || a.address)) return false; // sin direccion no se rutea
+    if (a.assignedVendor && a.assignedVendor !== vendor) return false;
+    const prov = (a.provincia || '').toUpperCase().trim();
+    if (!prov) return false;
+    const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
+    return !ptNameSet.has(prov + '|' + nombre.toLowerCase());
+  });
+  // Agrupar las huerfanas por (provincia, localidad) y armar una localidad
+  // virtual con su lat/lng promedio (o centroide de provincia).
+  const altasByLoc = new Map();
+  altasOk.forEach(a => {
+    const prov = (a.provincia || '').toUpperCase().trim();
+    const loc = (a.localidadFinal || a.localidad || '').trim() || '(sin localidad)';
+    const key = prov + '|' + loc;
+    if (!altasByLoc.has(key)) altasByLoc.set(key, []);
+    altasByLoc.get(key).push(a);
+  });
+  altasByLoc.forEach((altas, key) => {
+    const parts = key.split('|');
+    const prov = parts[0], loc = parts[1];
+    const lats = altas.filter(x => x.lat != null).map(x => parseFloat(x.lat));
+    const lngs = altas.filter(x => x.lng != null).map(x => parseFloat(x.lng));
+    let lat = lats.length ? (lats.reduce((s, v) => s + v, 0) / lats.length) : null;
+    let lon = lngs.length ? (lngs.reduce((s, v) => s + v, 0) / lngs.length) : null;
+    if (lat == null && typeof getProvinceCentroid === 'function') {
+      const c = getProvinceCentroid(prov);
+      if (c) { lat = c[0]; lon = c[1]; }
+    }
+    if (lat == null) return;
+    localidades.push({
+      name: loc,
+      province: prov,
+      lat: lat,
+      lon: lon,
+      tiendas: altas.map(a => ({
+        nombre: a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8)),
+        localidad: loc,
+        provincia: prov,
+        lat: (a.lat != null) ? parseFloat(a.lat) : lat,
+        lon: (a.lng != null) ? parseFloat(a.lng) : lon,
+        sapAltaFsId: a._fsId,
+        cardCodeSap: a.cardCodeSap,
       })),
     });
   });
