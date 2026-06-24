@@ -7025,7 +7025,30 @@ window.saveTargets = async function(){
   try {
     for (const id of ids) {
       const ch = tgtPendingChanges[id];
-      const raw = (ch.value || '').toString().trim();
+      // Defensa: si por algun motivo (race condition, bug previo) el
+      // pending change quedo en undefined o como string suelto (formato
+      // viejo), lo manejamos sin tirar excepcion.
+      if (ch == null) {
+        console.warn('saveTargets: pending change null/undefined para id', id);
+        delete tgtPendingChanges[id];
+        continue;
+      }
+      // Tolerar formato viejo (cuando ch era string en vez de objeto).
+      const isObj = typeof ch === 'object';
+      const raw = isObj ? (ch.value != null ? String(ch.value) : '').trim()
+                        : String(ch || '').trim();
+      const monthIdx = isObj ? ch.monthIdx : null;
+      // Reasignar para que el resto del codigo siga funcionando con el obj.
+      const safeCh = {value: raw, monthIdx: monthIdx};
+      // Recuperar el monthIdx del docId si el pending change no lo trajo.
+      // El docId tiene formato <vendor>_<year>_<MM> (MM padded 2 digitos).
+      let effectiveMonthIdx = safeCh.monthIdx;
+      if (effectiveMonthIdx == null) {
+        const parts = id.split('_');
+        const last = parts[parts.length - 1];
+        const parsed = parseInt(last);
+        if (!isNaN(parsed)) effectiveMonthIdx = parsed;
+      }
       try {
         if (raw === '') {
           // Vacio = borrar el target
@@ -7035,13 +7058,14 @@ window.saveTargets = async function(){
           const num = parseFloat(raw);
           if (isNaN(num) || num < 0) {
             fail++;
-            if (!firstError) firstError = 'Valor invalido en ' + MESES[ch.monthIdx] + ': "' + raw + '"';
+            const monthName = (effectiveMonthIdx != null && MESES[effectiveMonthIdx]) ? MESES[effectiveMonthIdx] : ('mes ' + (effectiveMonthIdx != null ? effectiveMonthIdx : '?'));
+            if (!firstError) firstError = 'Valor invalido en ' + monthName + ': "' + raw + '"';
             continue;
           }
           await fbDb.collection('targets').doc(id).set({
             sellerId: tgtSelectedVendor,
             year: tgtSelectedYear,
-            month: ch.monthIdx,
+            month: effectiveMonthIdx,
             targetArs: Math.round(num),
             updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
             updatedBy: currentUser.uid,
