@@ -2823,6 +2823,21 @@ function ensureApprovedAltasListener(){
       });
       console.log('[approvedAltas] cargadas:', approvedAltasList.length, 'en', Object.keys(approvedAltasByLoc).length, 'localidades');
       try { if (typeof drawMarkers === 'function') drawMarkers(); } catch(e){}
+      // Si el modal Master Clientes esta abierto, repintar la tabla para
+      // reflejar cambios en altas SAP (direccion, lat/lng, dedupe).
+      try {
+        const mEl = document.getElementById('master-cli-modal');
+        if (mEl && mEl.classList.contains('open') && typeof renderMasterClientesTable === 'function') {
+          renderMasterClientesTable();
+        }
+      } catch(e){}
+      // Si la lista CLIENTES esta a la vista, repintar tambien (las cards
+      // SAP huerfanas vienen de approvedAltasList).
+      try {
+        if (typeof renderClients === 'function' && typeof filteredPoints === 'function') {
+          renderClients(filteredPoints());
+        }
+      } catch(e){}
     }, err => console.warn('approvedAltas listener', err));
 }
 
@@ -5416,6 +5431,29 @@ function getAllStoreEntries(){
     (p.clients || []).forEach(n => out.push({nombre: n, localidad: p.name, provincia: p.province, vendor: p.vendor || '', tipo: 'cliente', locLat: p.lat, locLon: p.lon}));
     (p.prospects || []).forEach(n => out.push({nombre: n, localidad: p.name, provincia: p.province, vendor: p.vendor || '', tipo: 'prospecto', locLat: p.lat, locLon: p.lon}));
   });
+  // Agregar SAP altas huerfanas: las que tienen cardCodeSap y no matchean
+  // contra ningun POINT por nombre+provincia. Estas son las ~46 tiendas
+  // SAP que vinieron del import bulk y nunca se ancla ron al padron de
+  // POINTS porque el CardName (legal) difiere del nombre comercial.
+  const ptNames = new Set();
+  out.forEach(e => ptNames.add((e.provincia||'').toUpperCase() + '|' + (e.nombre||'').toLowerCase()));
+  (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).forEach(a => {
+    if (!a || !a.cardCodeSap) return;
+    const prov = (a.provincia || '').toUpperCase().trim();
+    if (!prov) return;
+    const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
+    if (ptNames.has(prov + '|' + nombre.toLowerCase())) return;
+    const localidad = (a.localidadFinal || a.localidad || '').trim() || '(sin localidad)';
+    out.push({
+      nombre, localidad, provincia: prov,
+      vendor: a.assignedVendor || '',
+      tipo: 'sap_alta',
+      sapFsId: a._fsId,
+      sapCardCode: a.cardCodeSap || '',
+      locLat: (a.lat != null ? a.lat : null),
+      locLon: (a.lng != null ? a.lng : null),
+    });
+  });
   return out;
 }
 
@@ -5928,6 +5966,12 @@ window.renderMasterClientesTable = function(){
   // ver lo que cargo cada vendedor desde el modal "Dar de alta").
   function getCurrent(docId, provincia, localidad, nombre, tipo){
     if (mcPendingChanges[docId] != null) return mcPendingChanges[docId];
+    // Para SAP altas (docId con prefijo sap:) leemos de approvedAltasList.
+    if (typeof docId === 'string' && docId.indexOf('sap:') === 0) {
+      const fsId = docId.slice(4);
+      const a = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(x => x._fsId === fsId);
+      return a ? (a.calle || a.address || '') : '';
+    }
     const d = clientMasterCache.get(docId);
     if (d && d.address) return d.address;
     if (typeof clientMeta === 'object' && clientMeta && provincia && localidad && nombre) {
@@ -5944,13 +5988,17 @@ window.renderMasterClientesTable = function(){
     }
     return '';
   }
-  if (fe === 'con') entries = entries.filter(e => !!getCurrent(clientLocId(e.provincia, e.localidad, e.nombre), e.provincia, e.localidad, e.nombre, e.tipo));
-  else if (fe === 'sin') entries = entries.filter(e => !getCurrent(clientLocId(e.provincia, e.localidad, e.nombre), e.provincia, e.localidad, e.nombre, e.tipo));
+  // Helper: id de entrada considerando SAP altas (que usan prefijo sap:<fsId>).
+  function entryDocId(e){
+    return (e.tipo === 'sap_alta') ? ('sap:' + e.sapFsId) : clientLocId(e.provincia, e.localidad, e.nombre);
+  }
+  if (fe === 'con') entries = entries.filter(e => !!getCurrent(entryDocId(e), e.provincia, e.localidad, e.nombre, e.tipo));
+  else if (fe === 'sin') entries = entries.filter(e => !getCurrent(entryDocId(e), e.provincia, e.localidad, e.nombre, e.tipo));
 
   entries.sort((a, b) => a.provincia.localeCompare(b.provincia) || a.localidad.localeCompare(b.localidad) || a.nombre.localeCompare(b.nombre));
 
   // Stats globales (sobre el total filtrado, no solo lo paginado)
-  const totalConDir = entries.filter(e => !!getCurrent(clientLocId(e.provincia, e.localidad, e.nombre), e.provincia, e.localidad, e.nombre, e.tipo)).length;
+  const totalConDir = entries.filter(e => !!getCurrent(entryDocId(e), e.provincia, e.localidad, e.nombre, e.tipo)).length;
   const statsHtml = '<span class="ok">Con direcci&oacute;n: ' + totalConDir + '</span>'
     + '<span>Sin direcci&oacute;n: ' + (entries.length - totalConDir) + '</span>'
     + '<span>Total filtrado: ' + entries.length + '</span>'
@@ -5992,36 +6040,54 @@ window.renderMasterClientesTable = function(){
   html += '</tr></thead><tbody>';
   const MAX = 500;
   entries.slice(0, MAX).forEach(e => {
-    const id = clientLocId(e.provincia, e.localidad, e.nombre);
+    const isSap = (e.tipo === 'sap_alta');
+    const id = entryDocId(e);
     const cur = getCurrent(id, e.provincia, e.localidad, e.nombre, e.tipo);
-    const saved = clientMasterCache.get(id);
-    const savedAddr = saved && saved.address ? saved.address : '';
+    // Para POINTS usamos clientMasterCache; para SAP altas usamos el doc en
+    // approvedAltasList (savedAddr es la calle/address actual guardada).
+    let savedAddr = '';
+    let curTipo = '';
+    if (isSap) {
+      const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(x => x._fsId === e.sapFsId);
+      savedAddr = alta ? (alta.calle || alta.address || '') : '';
+      curTipo = (alta && alta.cliTipo) || '';
+    } else {
+      const saved = clientMasterCache.get(id);
+      savedAddr = saved && saved.address ? saved.address : '';
+      curTipo = (saved && saved.cliTipo) || '';
+    }
     const isDirty = mcPendingChanges[id] != null;
     const inputCls = 'mc-addr-input' + (cur ? ' has-value' : '');
     const btnCls = 'mc-save-btn' + (isDirty ? ' changed' : '');
     const vendInfo = VENDORS.find(v => v.key === e.vendor);
     const vendLabel = vendInfo ? (vendInfo.zone + ' ' + titleCase(e.vendor)) : (e.vendor ? titleCase(e.vendor) : '-');
-    const curTipo = (saved && saved.cliTipo) || '';
     // Aplicar customName de clientMeta si un vendedor renombro la tienda
     // desde el modal "Dar de alta". Como admin/viewer reciben los
     // clientMeta de todos los users mergeados, vemos los renombres aca.
     const _cTipo = (e.tipo === 'cliente' ? 'C' : 'P');
     const _metaKey = _cTipo + '|' + e.provincia + '|' + e.localidad + '|' + e.nombre;
-    const _customName = (clientMeta && clientMeta[_metaKey] && clientMeta[_metaKey].customName)
+    const _customName = (!isSap && clientMeta && clientMeta[_metaKey] && clientMeta[_metaKey].customName)
       ? String(clientMeta[_metaKey].customName).trim()
       : '';
     const displayName = _customName || e.nombre;
     const renamedHint = (_customName && _customName !== e.nombre)
       ? '<div style="font-size:9px;color:#94a3b8;font-weight:500" title="Nombre original">orig: ' + escapeHtml(e.nombre) + '</div>'
       : '';
+    // Badge: CLIENTE / PROSPECTO / SAP segun tipo.
+    let tagHtml;
+    if (isSap) {
+      tagHtml = '<span class="mc-tag" style="background:#dbeafe;color:#1e3a8a;border:1px solid #93c5fd">SAP ' + escapeHtml(e.sapCardCode || '') + '</span>';
+    } else {
+      tagHtml = '<span class="mc-tag ' + (e.tipo === 'cliente' ? 'cli' : 'pro') + '">' + (e.tipo === 'cliente' ? 'CLIENTE' : 'PROSPECTO') + '</span>';
+    }
     html += '<tr data-doc="' + escapeAttr(id) + '">';
-    html += '<td><div class="mc-name">' + escapeHtml(displayName) + '</div>' + renamedHint + '<div class="mc-meta"><span class="mc-tag ' + (e.tipo === 'cliente' ? 'cli' : 'pro') + '">' + (e.tipo === 'cliente' ? 'CLIENTE' : 'PROSPECTO') + '</span></div></td>';
+    html += '<td><div class="mc-name">' + escapeHtml(displayName) + '</div>' + renamedHint + '<div class="mc-meta">' + tagHtml + '</div></td>';
     html += '<td>' + escapeHtml(e.localidad) + '</td>';
     html += '<td>' + escapeHtml(titleCase(e.provincia)) + '</td>';
     html += '<td>' + escapeHtml(vendLabel) + '</td>';
     html += '<td><input type="text" class="' + inputCls + '" value="' + escapeAttr(cur) + '" placeholder="Av. Belgrano 123, Barrio Norte" oninput="onMcAddrInput(this, \'' + escapeAttr(id) + '\', \'' + escapeAttr(savedAddr) + '\')" onkeydown="if(event.key===\'Enter\')this.parentElement.parentElement.querySelector(\'.mc-save-btn\').click()" /></td>';
     html += '<td data-vendor="' + escapeAttr(e.vendor) + '" data-prov="' + escapeAttr(e.provincia) + '" data-loc="' + escapeAttr(e.localidad) + '" data-name="' + escapeAttr(e.nombre) + '">' + _selHtml('cliTipo', curTipo, TIPO_OPTS, id) + '</td>';
-    html += '<td><button class="' + btnCls + '" onclick="saveMcAddr(\'' + escapeAttr(id) + '\', this)" data-vendor="' + escapeAttr(e.vendor) + '" data-prov="' + escapeAttr(e.provincia) + '" data-loc="' + escapeAttr(e.localidad) + '" data-name="' + escapeAttr(e.nombre) + '">Guardar</button></td>';
+    html += '<td><button class="' + btnCls + '" onclick="saveMcAddr(\'' + escapeAttr(id) + '\', this)" data-vendor="' + escapeAttr(e.vendor) + '" data-prov="' + escapeAttr(e.provincia) + '" data-loc="' + escapeAttr(e.localidad) + '" data-name="' + escapeAttr(e.nombre) + '" data-sap-fsid="' + escapeAttr(isSap ? e.sapFsId : '') + '">Guardar</button></td>';
     html += '</tr>';
   });
   html += '</tbody></table>';
@@ -6120,31 +6186,48 @@ window.saveMcClientField = async function(docId, fieldName, sel){
     return;
   }
   const newVal = sel.value || '';
-  // Para construir/actualizar el doc necesitamos los metadatos basicos.
-  // Los sacamos del <td> contenedor que tiene los data-attrs del row.
-  const td = sel.closest('td[data-vendor]') || sel.closest('tr').querySelector('td[data-vendor]');
-  const meta = {
-    vendor:     td ? td.dataset.vendor : '',
-    provincia:  td ? td.dataset.prov   : '',
-    localidad:  td ? td.dataset.loc    : '',
-    clientName: td ? td.dataset.name   : '',
-  };
+  // SAP altas (prefijo sap:) -> escribir a client_applications.
+  const isSap = (typeof docId === 'string' && docId.indexOf('sap:') === 0);
   sel.classList.add('saving');
   try {
-    const update = Object.assign({}, meta, {
-      updatedBy: currentUser.email || '',
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
-    update[fieldName] = newVal;
-    await fbDb.collection('client_master').doc(docId).set(update, {merge: true});
+    if (isSap) {
+      const fsId = docId.slice(4);
+      const update = {
+        updatedBy: currentUser.email || '',
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      };
+      update[fieldName] = newVal;
+      await fbDb.collection('client_applications').doc(fsId).set(update, {merge: true});
+    } else {
+      // Para POINTS sacamos metadatos del <td> con data-attrs del row.
+      const td = sel.closest('td[data-vendor]') || sel.closest('tr').querySelector('td[data-vendor]');
+      const meta = {
+        vendor:     td ? td.dataset.vendor : '',
+        provincia:  td ? td.dataset.prov   : '',
+        localidad:  td ? td.dataset.loc    : '',
+        clientName: td ? td.dataset.name   : '',
+      };
+      const update = Object.assign({}, meta, {
+        updatedBy: currentUser.email || '',
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      update[fieldName] = newVal;
+      await fbDb.collection('client_master').doc(docId).set(update, {merge: true});
+    }
     sel.classList.toggle('has-value', !!newVal);
     showSyncTag('Categorizacion guardada');
   } catch(e) {
     console.error('saveMcClientField', e);
     alert('Error guardando: ' + (e.message || e));
     // Revertir UI al valor previo
-    const saved = clientMasterCache.get(docId);
-    sel.value = (saved && saved[fieldName]) || '';
+    if (isSap) {
+      const fsId = docId.slice(4);
+      const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(x => x._fsId === fsId);
+      sel.value = (alta && alta[fieldName]) || '';
+    } else {
+      const saved = clientMasterCache.get(docId);
+      sel.value = (saved && saved[fieldName]) || '';
+    }
   } finally {
     sel.classList.remove('saving');
   }
@@ -6216,29 +6299,68 @@ window.saveMcAddr = async function(docId, btn){
   if (userRole !== 'admin') { alert('Solo admin puede editar.'); return; }
   if (!(docId in mcPendingChanges)) { alert('No hay cambios pendientes para esta tienda.'); return; }
   const newVal = mcPendingChanges[docId];
-  const meta = {
-    vendor: btn.dataset.vendor || '',
-    provincia: btn.dataset.prov || '',
-    localidad: btn.dataset.loc || '',
-    clientName: btn.dataset.name || '',
-  };
   btn.disabled = true;
   const oldTxt = btn.textContent;
   btn.textContent = 'Guardando...';
+  // Detectar SAP alta por prefijo sap: en el docId.
+  const isSap = (typeof docId === 'string' && docId.indexOf('sap:') === 0);
   try {
-    if (!newVal) {
-      // Vacio = limpiar address (no borro el doc por si tiene mas datos)
-      await fbDb.collection('client_master').doc(docId).set(Object.assign({}, meta, {
-        address: '',
-        updatedBy: currentUser.email || '',
+    if (isSap) {
+      // Escribir a client_applications.doc(fsId) con la nueva calle. Limpiar
+      // lat/lng asi se re-geocodifica con la nueva direccion.
+      const fsId = docId.slice(4);
+      const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(x => x._fsId === fsId);
+      const updatePayload = {
+        calle: newVal,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      }), {merge: true});
+        updatedBy: currentUser.email || '',
+      };
+      // Si la direccion cambio respecto a la guardada, limpiar lat/lng para
+      // re-geocodificar. Si esta vacia tambien las limpiamos.
+      const prevAddr = alta ? (alta.calle || alta.address || '') : '';
+      if (newVal !== prevAddr) {
+        updatePayload.lat = firebase.firestore.FieldValue.delete();
+        updatePayload.lng = firebase.firestore.FieldValue.delete();
+      }
+      await fbDb.collection('client_applications').doc(fsId).set(updatePayload, {merge: true});
+      // Disparar geocoding (Google -> OSM) si hay direccion.
+      if (newVal && alta && typeof geocodeClientAddress === 'function') {
+        const locForGeo = alta.localidadFinal || alta.localidad || '';
+        const provForGeo = alta.provincia || '';
+        try {
+          const geo = await geocodeClientAddress(newVal, locForGeo, provForGeo);
+          if (geo && geo.lat != null && geo.lng != null) {
+            await fbDb.collection('client_applications').doc(fsId).set({
+              lat: geo.lat, lng: geo.lng,
+              geoDisplay: geo.display || '',
+              geoPrecision: geo.precision || '',
+              geoProvider: geo.provider || 'osm',
+              geoAt: firebase.firestore.FieldValue.serverTimestamp(),
+            }, {merge: true});
+          }
+        } catch(eg) { console.warn('geocode tras MC save', eg); }
+      }
     } else {
-      await fbDb.collection('client_master').doc(docId).set(Object.assign({}, meta, {
-        address: newVal,
-        updatedBy: currentUser.email || '',
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      }), {merge: true});
+      const meta = {
+        vendor: btn.dataset.vendor || '',
+        provincia: btn.dataset.prov || '',
+        localidad: btn.dataset.loc || '',
+        clientName: btn.dataset.name || '',
+      };
+      if (!newVal) {
+        // Vacio = limpiar address (no borro el doc por si tiene mas datos)
+        await fbDb.collection('client_master').doc(docId).set(Object.assign({}, meta, {
+          address: '',
+          updatedBy: currentUser.email || '',
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        }), {merge: true});
+      } else {
+        await fbDb.collection('client_master').doc(docId).set(Object.assign({}, meta, {
+          address: newVal,
+          updatedBy: currentUser.email || '',
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        }), {merge: true});
+      }
     }
     delete mcPendingChanges[docId];
     btn.classList.remove('changed');
