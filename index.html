@@ -3763,15 +3763,24 @@ function drawSapAltaPins(){
       lng = centroid[1] + dx;
       color = '#1d4ed8';
       bgPill = '#dbeafe'; txtPill = '#1e3a8a';
-      statusLine = '<div style="background:#fef3c7;color:#92400e;padding:4px 8px;border-radius:4px;font-size:10px;font-weight:700;margin-bottom:6px">&#9888;&#65039; Falta direccion - ubicacion aproximada</div>';
+      // Mensaje segun caso: con direccion -> "sin ubicar" (geocoding fallo);
+      // sin direccion -> "falta direccion".
+      if (direccion) {
+        statusLine = '<div style="background:#fef3c7;color:#92400e;padding:4px 8px;border-radius:4px;font-size:10px;font-weight:700;margin-bottom:6px">&#9888;&#65039; Sin ubicar en el mapa - puede faltar localidad</div>';
+      } else {
+        statusLine = '<div style="background:#fef3c7;color:#92400e;padding:4px 8px;border-radius:4px;font-size:10px;font-weight:700;margin-bottom:6px">&#9888;&#65039; Falta direccion - ubicacion aproximada</div>';
+      }
     }
     const html = '<div style="background:' + color + ';border:2px solid #fff;border-radius:50%;width:14px;height:14px;box-shadow:0 0 0 1.5px ' + color + ',0 2px 4px rgba(0,0,0,.3)"></div>';
     const icon = L.divIcon({className: hasGeo ? 'sap-alta-pin-icon-green' : 'sap-alta-pin-icon-blue', html: html, iconSize: [14,14], iconAnchor: [7,7]});
     const marker = L.marker([lat, lng], {icon: icon, zIndexOffset: hasGeo ? 900 : 800});
-    const safeFsId = JSON.stringify(a._fsId || '');
-    const editBtn = !hasGeo
-      ? '<div style="margin-top:8px"><button onclick="openSapAltaAddressModal(' + safeFsId + ')" style="padding:6px 12px;border:none;border-radius:5px;background:#1d4ed8;color:#fff;font-size:11px;font-weight:700;cursor:pointer">&#128393; Cargar direccion</button></div>'
-      : '';
+    // FIX: usar escapeAttr (no JSON.stringify) para el onclick. JSON.stringify
+    // genera string con dobles comillas, que rompe el attribute onclick="..."
+    // del HTML y desactiva el handler. escapeAttr usa &quot; o single-quotes.
+    const safeFsId = escapeAttr(a._fsId || '');
+    const editBtn = '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">'
+      + '<button onclick="openSapAltaAddressModal(\'' + safeFsId + '\')" style="padding:6px 12px;border:none;border-radius:5px;background:#1d4ed8;color:#fff;font-size:11px;font-weight:700;cursor:pointer">&#128393; ' + (hasGeo ? 'Editar direccion' : 'Cargar direccion') + '</button>'
+      + '</div>';
     const popup = '<div style="min-width:220px;font-family:inherit">'
       + '<div style="font-weight:800;color:' + color + ';font-size:13px;margin-bottom:4px">' + escapeHtml(nombre) + '</div>'
       + statusLine
@@ -3819,9 +3828,10 @@ window.openSapAltaCard = function(fsId){
   }
 };
 
-// Modal para que el admin cargue la direccion de una alta SAP que no la tiene.
-// Despues de guardar, dispara geocoding inmediato para mover el pin de azul
-// (centroide aproximado) a verde (ubicacion exacta).
+// Modal para que el admin cargue la direccion de una alta SAP. Pide solo la
+// direccion - la localidad la deducimos del geocoding (Google/OSM devuelven
+// la localidad junto con lat/lng). Si el geocoding falla, recien ahi pedimos
+// la localidad a mano como segundo intento.
 window.openSapAltaAddressModal = function(fsId){
   if (!fsId) return;
   if (userRole !== 'admin') { alert('Solo admin.'); return; }
@@ -3831,43 +3841,84 @@ window.openSapAltaAddressModal = function(fsId){
   const currentCalle = a.calle || a.address || '';
   const currentLoc = a.localidadFinal || a.localidad || '';
   const newCalle = prompt(
-    'Cargar direccion de:\n' + nombre + ' (SAP ' + (a.cardCodeSap || '') + ')\nProvincia: ' + (a.provincia || '') +
-    '\n\nDireccion (calle + numero):',
+    'Cargar direccion de:\n' + nombre + ' (SAP ' + (a.cardCodeSap || '') + ')\n' +
+    'Provincia: ' + (a.provincia || '') + (currentLoc ? '\nLocalidad: ' + currentLoc : '') +
+    '\n\nIngresa direccion (calle + numero). La localidad la voy a deducir del geocoding.',
     currentCalle
   );
   if (newCalle == null) return; // cancelo
   const trimmed = newCalle.trim();
   if (!trimmed) return;
-  const newLoc = prompt('Localidad / Ciudad:', currentLoc) || currentLoc;
   (async () => {
     try {
-      await fbDb.collection('client_applications').doc(fsId).set({
+      // Primero: guardar la direccion + limpiar lat/lng para forzar re-geocode.
+      const initialPayload = {
         calle: trimmed,
-        localidad: newLoc,
-        localidadFinal: newLoc,
         lat: firebase.firestore.FieldValue.delete(),
         lng: firebase.firestore.FieldValue.delete(),
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         updatedBy: currentUser ? (currentUser.email || currentUser.uid) : '',
-      }, {merge: true});
-      // Geocodificar de una usando la cascada Google -> OSM.
+      };
+      await fbDb.collection('client_applications').doc(fsId).set(initialPayload, {merge: true});
+      // Geocodificar usando Google -> OSM. Pasamos la localidad actual (puede
+      // estar vacia) para ayudar al match. Si vuelve, leemos su locality.
       let geo = null;
       try {
         if (typeof geocodeClientAddress === 'function') {
-          geo = await geocodeClientAddress(trimmed, newLoc, a.provincia || '');
+          geo = await geocodeClientAddress(trimmed, currentLoc || '', a.provincia || '');
         }
       } catch(e) { console.warn('geocode tras cargar direccion', e); }
       if (geo && geo.lat != null && geo.lng != null) {
-        await fbDb.collection('client_applications').doc(fsId).set({
+        const followUp = {
           lat: geo.lat, lng: geo.lng,
           geoDisplay: geo.display || '',
           geoPrecision: geo.precision || '',
           geoProvider: geo.provider || 'osm',
           geoAt: firebase.firestore.FieldValue.serverTimestamp(),
-        }, {merge: true});
-        alert('Direccion guardada y geocodificada. El pin se va a poner verde en unos segundos.');
+        };
+        // Si geocoding devolvio localidad y la app no tenia (o tenia
+        // distinta), la actualizamos. Esto cubre los BPs donde SAP no
+        // exporto Ship-to City - lo deducimos del geocoding.
+        const detectedLoc = (geo.locality || '').trim();
+        if (detectedLoc && !currentLoc) {
+          followUp.localidad = detectedLoc;
+          followUp.localidadFinal = detectedLoc;
+        }
+        await fbDb.collection('client_applications').doc(fsId).set(followUp, {merge: true});
+        const locMsg = detectedLoc ? '\nLocalidad detectada: ' + detectedLoc : '';
+        alert('Direccion guardada y geocodificada (' + (geo.provider || 'osm') + ').' + locMsg + '\n\nEl pin se va a poner verde en unos segundos.');
       } else {
-        alert('Direccion guardada pero no se pudo geocodificar (Google rechazo o OSM no la encontro). El pin sigue azul. Probá con la calle mas especifica o corre el geocoding bulk despues.');
+        // Geocoding fallo. Pedir localidad a mano como ultimo intento - con
+        // localidad puede que OSM matchee donde antes no podia.
+        const newLoc = prompt(
+          'No pude geocodificar "' + trimmed + '" automaticamente.\n\n' +
+          'Ingresa la localidad / ciudad asi reintentamos el geocoding:',
+          currentLoc
+        );
+        if (newLoc != null && newLoc.trim()) {
+          const cleanLoc = newLoc.trim();
+          // Guardar la localidad y reintentar geocoding.
+          await fbDb.collection('client_applications').doc(fsId).set({
+            localidad: cleanLoc,
+            localidadFinal: cleanLoc,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          }, {merge: true});
+          let geo2 = null;
+          try {
+            geo2 = await geocodeClientAddress(trimmed, cleanLoc, a.provincia || '');
+          } catch(e) { console.warn('geocode 2nd try', e); }
+          if (geo2 && geo2.lat != null && geo2.lng != null) {
+            await fbDb.collection('client_applications').doc(fsId).set({
+              lat: geo2.lat, lng: geo2.lng,
+              geoDisplay: geo2.display || '',
+              geoProvider: geo2.provider || 'osm',
+              geoAt: firebase.firestore.FieldValue.serverTimestamp(),
+            }, {merge: true});
+            alert('Geocodificada en el 2do intento con localidad "' + cleanLoc + '". Pin verde.');
+            return;
+          }
+        }
+        alert('No se pudo geocodificar la direccion. La direccion quedo guardada pero el pin sigue azul. Probá con direccion mas especifica.');
       }
     } catch(e) {
       console.error('openSapAltaAddressModal save', e);
@@ -4704,19 +4755,26 @@ async function geocodeClientAddress(address, locality, provinceCode){
   for (let i = 0; i < variants.length; i++) {
     const v = variants[i];
     try {
-      const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ar&q=' + encodeURIComponent(v.q);
+      const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ar&addressdetails=1&q=' + encodeURIComponent(v.q);
       const r = await fetch(url, {headers: {'Accept': 'application/json'}});
       if (!r.ok) {
         console.warn('[geocode] HTTP', r.status, 'on', v.q);
       } else {
         const data = await r.json();
         if (data && data.length) {
+          // OSM Nominatim devuelve address.{city,town,village,...} para que
+          // podamos autocompletar la localidad cuando SAP no la exporto.
+          const addr = (data[0].address) || {};
+          const detectedLocality = addr.city || addr.town || addr.village || addr.suburb || addr.county || '';
+          const detectedProvince = addr.state || '';
           return {
             lat: parseFloat(data[0].lat),
             lng: parseFloat(data[0].lon),
             display: data[0].display_name || v.q,
             queryUsed: v.q,
             precision: v.precision,
+            locality: detectedLocality,
+            province: detectedProvince,
           };
         }
       }
@@ -6541,13 +6599,20 @@ window.saveMcAddr = async function(docId, btn){
         try {
           const geo = await geocodeClientAddress(newVal, locForGeo, provForGeo);
           if (geo && geo.lat != null && geo.lng != null) {
-            await fbDb.collection('client_applications').doc(fsId).set({
+            const followUp = {
               lat: geo.lat, lng: geo.lng,
               geoDisplay: geo.display || '',
               geoPrecision: geo.precision || '',
               geoProvider: geo.provider || 'osm',
               geoAt: firebase.firestore.FieldValue.serverTimestamp(),
-            }, {merge: true});
+            };
+            // Autocompletar localidad si geocoding la detecto y la app no tenia.
+            const detectedLoc = (geo.locality || '').trim();
+            if (detectedLoc && !locForGeo) {
+              followUp.localidad = detectedLoc;
+              followUp.localidadFinal = detectedLoc;
+            }
+            await fbDb.collection('client_applications').doc(fsId).set(followUp, {merge: true});
           }
         } catch(eg) { console.warn('geocode tras MC save', eg); }
       }
@@ -14947,6 +15012,16 @@ async function geocodeWithGoogleMaps(address, locality, provinceCode){
       let precision = 'address';
       if (lt === 'APPROXIMATE') precision = 'locality';
       else if (lt === 'GEOMETRIC_CENTER') precision = 'street';
+      // Extraer locality + admin_area del response para autocompletar campos
+      // que SAP no exporto (Ship-to City vacio es muy comun en BPs viejos).
+      const components = res.address_components || [];
+      const byType = t => {
+        const c = components.find(cc => Array.isArray(cc.types) && cc.types.includes(t));
+        return c ? (c.long_name || '') : '';
+      };
+      // Prioridad para localidad: locality > sublocality > administrative_area_level_2.
+      const detectedLocality = byType('locality') || byType('sublocality') || byType('administrative_area_level_2') || '';
+      const detectedProvince = byType('administrative_area_level_1') || '';
       return {
         lat: parseFloat(loc.lat),
         lng: parseFloat(loc.lng),
@@ -14954,6 +15029,8 @@ async function geocodeWithGoogleMaps(address, locality, provinceCode){
         precision: precision,
         provider: 'google',
         locationType: lt,
+        locality: detectedLocality,
+        province: detectedProvince,
       };
     }
     if (data.status === 'ZERO_RESULTS') {
