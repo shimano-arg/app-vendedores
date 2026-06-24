@@ -12465,6 +12465,35 @@ async function parseExcelPedidoFile(file){
         'Primeras filas leidas:\n' + preview
       );
     }
+    // Extraer Cliente / CUIT de las filas previas al header. Buscamos en
+    // columna A (o las primeras 3) un label "CLIENTE" o "CUIT" y tomamos
+    // el valor de la columna SIGUIENTE no-vacia. Esto cubre templates que
+    // tienen el label en A y el valor en B (mergeado a D), como el
+    // "Lista de pesca" de Shimano.
+    let detectedCliente = '';
+    let detectedCuit = '';
+    const CLIENTE_LABELS = ['cliente','razon social','razon_social','nombre cliente','nombre del cliente','tienda'];
+    const CUIT_LABELS = ['cuit','c.u.i.t','c.u.i.t.','cuit numero','nro cuit','numero cuit','tax id'];
+    for (let r = 0; r < headerRowIdx; r++) {
+      const row = aoa[r] || [];
+      for (let c = 0; c < Math.min(row.length, 4); c++) {
+        const lbl = norm(row[c]);
+        if (!lbl) continue;
+        const isCliente = CLIENTE_LABELS.indexOf(lbl) >= 0;
+        const isCuit = CUIT_LABELS.indexOf(lbl) >= 0;
+        if (!isCliente && !isCuit) continue;
+        // Tomar la primera celda no vacia a la derecha del label.
+        let val = '';
+        for (let c2 = c + 1; c2 < row.length; c2++) {
+          const v = row[c2];
+          if (v != null && String(v).trim() !== '') { val = String(v).trim(); break; }
+        }
+        if (isCliente && !detectedCliente) detectedCliente = val;
+        if (isCuit && !detectedCuit) detectedCuit = val;
+      }
+    }
+    // Stash para que confirmExcelPedido o el preview lo muestren.
+    window._excelPedidoMeta = {cliente: detectedCliente, cuit: detectedCuit};
     // Convertir el resto de filas a array de objetos {sku, qty}.
     const rows = [];
     for (let r = headerRowIdx + 1; r < aoa.length; r++) {
@@ -12505,7 +12534,28 @@ async function parseExcelPedidoFile(file){
     _excelPedidoParsed = parsed;
     // Render preview.
     const totalUnid = parsed.reduce((s, l) => s + l.qty, 0);
-    document.getElementById('excel-ped-stats').innerHTML =
+    // Info de cliente / CUIT detectados (si el archivo los trae). Mostramos
+    // un warning si no matchean con el cliente del pedido actual asi el
+    // admin se da cuenta antes de guardar.
+    let metaHtml = '';
+    const meta = window._excelPedidoMeta || {};
+    if (meta.cliente || meta.cuit) {
+      // Cliente del pedido actual (currentOrderKey: 'tipo|prov|loc|nombre').
+      const ctxParts = (typeof currentOrderKey === 'string') ? currentOrderKey.split('|') : ['','','',''];
+      const ctxNombre = ctxParts[3] || '';
+      const mismatchCliente = !!(meta.cliente && ctxNombre && norm(meta.cliente) !== norm(ctxNombre));
+      const okStyle = 'background:#dcfce7;border:1px solid #86efac;color:#166534';
+      const warnStyle = 'background:#fef3c7;border:1px solid #fcd34d;color:#92400e';
+      const style = mismatchCliente ? warnStyle : okStyle;
+      metaHtml = '<div style="' + style + ';padding:8px 10px;border-radius:5px;font-size:11px;margin-bottom:8px;line-height:1.5">';
+      metaHtml += '<b>Cliente segun Excel:</b> ' + escapeHtml(meta.cliente || '(no leido)') + '<br>';
+      metaHtml += '<b>CUIT:</b> ' + escapeHtml(meta.cuit || '(no leido)');
+      if (mismatchCliente) {
+        metaHtml += '<br><br>&#9888;&#65039; <b>OJO:</b> el cliente del Excel ("' + escapeHtml(meta.cliente) + '") es distinto al cliente del pedido actual ("' + escapeHtml(ctxNombre) + '"). El pedido se va a guardar para el cliente del pedido actual.';
+      }
+      metaHtml += '</div>';
+    }
+    document.getElementById('excel-ped-stats').innerHTML = metaHtml +
       '<b>&#10003; ' + parsed.length + '</b> SKUs validos &middot; <b>' + totalUnid + '</b> unidades totales';
     const warnEl = document.getElementById('excel-ped-warnings');
     let warnHtml = '';
