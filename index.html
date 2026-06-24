@@ -12426,25 +12426,58 @@ async function parseExcelPedidoFile(file){
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, {type: 'array'});
     const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, {defval: ''});
-    if (!rows.length) throw new Error('El archivo no tiene filas de datos.');
-    // Mapear columnas (acepta varios nombres como sinonimos).
-    const SKU_NAMES = ['codigo sku','sku','codigo','code','item','itemcode','codigo articulo','codigo del articulo'];
-    const DESC_NAMES = ['descripcion','description','desc','producto','articulo','descripcion del articulo'];
-    const QTY_NAMES = ['cantidad','quantity','qty','unidades','cant'];
-    function findKey(row, candidates){
-      const keys = Object.keys(row);
-      for (const cand of candidates) {
-        for (const k of keys) {
-          if (k.toLowerCase().trim() === cand) return k;
-        }
+    // Leer como array-of-arrays para poder auto-detectar la fila de header.
+    // Algunos templates (ej. Lista de pesca Jun26) tienen filas previas con
+    // datos como "VER CATALOGO", "CLIENTE", "CUIT" antes del header real.
+    const aoa = XLSX.utils.sheet_to_json(ws, {header: 1, defval: ''});
+    if (!aoa.length) throw new Error('El archivo no tiene filas.');
+    // Normalizador: quita tildes / acentos para comparar 'Código' = 'codigo'.
+    const norm = s => String(s || '').toLowerCase().trim().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    // Sinonimos. El parser ahora acepta tambien "Pedido" / "U." (planilla
+    // Shimano-style con columnas Familia | Tipo | Modelo | Codigo | ...).
+    const SKU_NAMES = ['codigo sku','sku','codigo','code','item','itemcode','codigo articulo','codigo del articulo','cod','codigo sap','articulo'];
+    const QTY_NAMES = ['pedido','cantidad','quantity','qty','unidades','cant','u','u.','cant.','pedidos','unidades pedidas'];
+    // Buscar fila de header: la primera (hasta fila 20) que contenga
+    // ALGUNA columna que matchee SKU_NAMES y ALGUNA que matchee QTY_NAMES.
+    let headerRowIdx = -1;
+    let kSkuIdx = -1, kQtyIdx = -1;
+    const maxHeaderScan = Math.min(aoa.length, 20);
+    for (let r = 0; r < maxHeaderScan; r++) {
+      const row = aoa[r] || [];
+      let sIdx = -1, qIdx = -1;
+      for (let c = 0; c < row.length; c++) {
+        const cn = norm(row[c]);
+        if (sIdx < 0 && SKU_NAMES.indexOf(cn) >= 0) sIdx = c;
+        if (qIdx < 0 && QTY_NAMES.indexOf(cn) >= 0) qIdx = c;
       }
-      return null;
+      if (sIdx >= 0 && qIdx >= 0) {
+        headerRowIdx = r;
+        kSkuIdx = sIdx;
+        kQtyIdx = qIdx;
+        break;
+      }
     }
-    const kSku = findKey(rows[0], SKU_NAMES);
-    const kQty = findKey(rows[0], QTY_NAMES);
-    if (!kSku) throw new Error('No se encontro la columna SKU. Headers leidos: ' + Object.keys(rows[0]).join(' | '));
-    if (!kQty) throw new Error('No se encontro la columna Cantidad. Headers leidos: ' + Object.keys(rows[0]).join(' | '));
+    if (headerRowIdx < 0) {
+      // Dump de las primeras filas para ayudar al admin a diagnosticar.
+      const preview = aoa.slice(0, 6).map((r, i) => 'fila ' + (i + 1) + ': ' + r.slice(0, 10).join(' | ')).join('\n');
+      throw new Error(
+        'No encontre el header. Esperaba alguna fila con columnas tipo "Codigo" y "Pedido" (o "Cantidad").\n\n' +
+        'Primeras filas leidas:\n' + preview
+      );
+    }
+    // Convertir el resto de filas a array de objetos {sku, qty}.
+    const rows = [];
+    for (let r = headerRowIdx + 1; r < aoa.length; r++) {
+      const row = aoa[r] || [];
+      const sku = row[kSkuIdx];
+      const qty = row[kQtyIdx];
+      // Saltar filas totalmente vacias o sin SKU.
+      if (sku == null || String(sku).trim() === '') continue;
+      rows.push({__sku: sku, __qty: qty});
+    }
+    if (!rows.length) throw new Error('No hay filas con datos despues del header. Cargar al menos un SKU con cantidad.');
+    const kSku = '__sku';
+    const kQty = '__qty';
     const parsed = [];
     const notFound = []; // SKUs del Excel que no estan en el catalogo PRODUCTS.
     const zerosOrEmpty = [];
