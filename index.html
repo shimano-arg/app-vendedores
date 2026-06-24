@@ -1774,8 +1774,31 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <div class="vf-row"><label>Tienda de pesca <span class="req">*</span></label><select id="vf-tienda" required><option value="">Seleccionar localidad primero...</option></select></div>
           <div class="vf-row"><label>Tipo de tienda <span class="req">*</span></label><select id="vf-tipo" required><option value="">Seleccionar...</option><option>OUTDOOR</option><option>PESCA</option><option>HIBRIDO (PESCA+OUTDOOR)</option><option>GENERAL (FERRETERIA/CUCHILLERIA/OTROS)</option></select></div>
           <div class="vf-row"><label>Local <span class="req">*</span></label><select id="vf-local" required><option value="">Seleccionar...</option><option>FISICO</option><option>ECOMMERCE</option></select></div>
-          <div class="vf-row"><label>Tama&ntilde;o de la tienda <span class="req">*</span></label><select id="vf-tamano" required><option value="">Seleccionar...</option><option>GRANDE</option><option>MEDIANA</option><option>CHICA</option></select></div>
+          <div class="vf-row"><label>Tipo de cliente <span class="req">*</span></label><select id="vf-tamano" required>
+            <option value="">Seleccionar...</option>
+            <option>GRANDE</option>
+            <option>MEDIANA</option>
+            <option>CHICA</option>
+            <option>MULTIRUBRO</option>
+            <option>MAYORISTA</option>
+            <option>LODGE</option>
+            <option>GUIA DE PESCA</option>
+            <option>VENTAS ESPECIALES</option>
+          </select></div>
           <div class="vf-row"><label>Fidelidad <span class="req">*</span></label><select id="vf-fidelidad" required><option value="">Seleccionar...</option><option>ALTA</option><option>MEDIA</option><option>BAJA</option></select></div>
+          <div class="vf-row"><label>Especializaci&oacute;n por tipo de pesca <span class="req">*</span></label><select id="vf-especializacion" required>
+            <option value="">Seleccionar...</option>
+            <option>PREMIUM</option>
+            <option>AGUA DULCE</option>
+            <option>PESCA DE MAR</option>
+            <option>BAJA-GENERAL</option>
+          </select></div>
+          <div class="vf-row"><label>Canal de compra <span class="req">*</span></label><select id="vf-canalcompra" required>
+            <option value="">Seleccionar...</option>
+            <option>PRESENCIAL</option>
+            <option>CALL CENTER / WHATSAPP</option>
+            <option>AMBOS</option>
+          </select></div>
           <div class="vf-row"><label>Relevancia de la tienda <span class="req">*</span> <span class="vf-hint">(1 = poco importante / 5 = muy importante)</span></label>
             <div class="vf-likert" id="vf-relevancia"><button type="button" data-v="1" onclick="setLikert(1)">1</button><button type="button" data-v="2" onclick="setLikert(2)">2</button><button type="button" data-v="3" onclick="setLikert(3)">3</button><button type="button" data-v="4" onclick="setLikert(4)">4</button><button type="button" data-v="5" onclick="setLikert(5)">5</button></div>
           </div>
@@ -1790,7 +1813,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <div class="vf-row"><label>Lo m&aacute;s vendido Shimano</label><textarea id="vf-masvendido" rows="2"></textarea></div>
           <div class="vf-row"><label>Lo que m&aacute;s preguntan de Shimano <span class="vf-hint">(nuevos lanzamientos, l&iacute;neas espec&iacute;ficas, etc.)</span></label><textarea id="vf-maspreguntan" rows="2"></textarea></div>
           <div class="vf-row"><label>Ayuda a tienda <span class="vf-hint">(qu&eacute; necesita el due&ntilde;o de nosotros)</span></label><textarea id="vf-ayuda" rows="2"></textarea></div>
-          <div class="vf-row" id="vf-frente-row"><label><span id="vf-frente-label">Frente del local</span> <span class="req" id="vf-frente-req">*</span> <span class="vf-hint" id="vf-frente-hint">(1 foto)</span></label>
+          <div class="vf-row" id="vf-frente-row"><label><span id="vf-frente-label">Frente del local</span> <span class="vf-hint" id="vf-frente-hint">(opcional - 1 foto)</span></label>
             <div class="photo-grid" id="vf-frente-grid"><label class="photo-cell add"><input type="file" accept="image/*" capture="environment" onchange="onFrentePhoto(this)"/>+</label></div>
           </div>
           <div class="vf-row"><label>Tipo de venta <span class="req">*</span></label><select id="vf-tipoventa" required onchange="onTipoVentaChange()"><option value="">Seleccionar...</option><option>MOSTRADO</option><option>ECOMMERCE</option><option>AMBOS</option></select></div>
@@ -16939,19 +16962,9 @@ window.openVisitaModal = function(){
   // Renderiza el selector "Crear en nombre de" si soy VDI con parejas.
   renderActingAsVendorSelect();
   populateVisitaLocalidades();
-  // Ajusta visibilidad del asterisco "obligatorio" en Frente del local segun rol.
-  // Vendedor interno NO puede tomar la foto (esta en la oficina) -> queda opcional.
-  const reqEl = document.getElementById('vf-frente-req');
-  const hintEl = document.getElementById('vf-frente-hint');
-  if (reqEl && hintEl) {
-    if (userRole === 'interno') {
-      reqEl.style.display = 'none';
-      hintEl.textContent = '(opcional - 1 foto)';
-    } else {
-      reqEl.style.display = '';
-      hintEl.textContent = '(1 foto)';
-    }
-  }
+  // Frente del local: ahora OPCIONAL para todos los roles (antes era
+  // obligatorio para vendedor externo). Sin el asterisco rojo en el
+  // label. El elemento vf-frente-req ya no existe en el DOM.
   // Subscribe listener para mis visitas
   if (!unsubVisits && currentUser) {
     let q;
@@ -17186,11 +17199,13 @@ window.submitVisita = async function(){
   if (!readField('vf-local')) errors.push('Local');
   if (!readField('vf-tamano')) errors.push('Tamano');
   if (!readField('vf-fidelidad')) errors.push('Fidelidad');
+  if (!readField('vf-especializacion')) errors.push('Especializacion por tipo de pesca');
+  if (!readField('vf-canalcompra')) errors.push('Canal de compra');
   if (!visitState.relevancia) errors.push('Relevancia');
   if (!visitState.pop) errors.push('POP');
   if (visitState.pop === 'SI' && !readField('vf-necesidad')) errors.push('Necesidad puntual');
-  // Para vendedor interno la foto de frente es opcional (esta en la oficina, no puede tomarla).
-  if (!visitState.frentePhoto && userRole !== 'interno') errors.push('Frente del local (foto)');
+  // Frente del local: OPCIONAL (antes era obligatorio para vendedor externo;
+  // ahora se puede saltar siempre - el vendedor decide si toma la foto).
   const tv = readField('vf-tipoventa');
   if (!tv) errors.push('Tipo de venta');
   if (tv === 'AMBOS') {
@@ -17248,6 +17263,8 @@ window.submitVisita = async function(){
     local: readField('vf-local'),
     tamano: readField('vf-tamano'),
     fidelidad: readField('vf-fidelidad'),
+    especializacion: readField('vf-especializacion'),
+    canalCompra: readField('vf-canalcompra'),
     relevancia: visitState.relevancia,
     pop: visitState.pop,
     necesidadPuntual: visitState.pop === 'SI' ? readField('vf-necesidad') : '',
