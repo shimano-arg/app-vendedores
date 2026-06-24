@@ -2030,6 +2030,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <button class="mc-sap-btn" onclick="openMcSapImport()" title="Subir archivo descargado desde SAP para autocompletar CardCode y direcciones de forma masiva">&#128229; Importar desde SAP</button>
         <button id="mc-geocode-btn" class="mc-sap-btn" onclick="runBulkGeocodeSapAltas()" style="background:#1d4ed8;box-shadow:0 1px 3px rgba(29,78,216,.3)" title="Llama a Google Maps para obtener lat/lng de cada cliente SAP que no tiene ubicacion geografica. Es necesario para que aparezcan como pines en el mapa.">&#128205; Geocodificar tiendas SAP</button>
         <button id="mc-dedupe-btn" class="mc-sap-btn" onclick="runDedupeSapAltas()" style="background:#b91c1c;box-shadow:0 1px 3px rgba(185,28,28,.3)" title="Busca altas SAP duplicadas (mismo cardCodeSap en multiples documentos) y deja solo la mas reciente.">&#129529; Deduplicar SAP</button>
+        <button id="mc-revisar-btn" class="mc-sap-btn" onclick="runRevisarDireccionesSap()" style="background:#0f766e;box-shadow:0 1px 3px rgba(15,118,110,.3)" title="Lee SAP B1 via Service Layer y sincroniza nombre + direccion + ciudad de cada cliente con CardCode. Si difieren, la app se actualiza con los datos de SAP (SAP gana). Util cuando se editaron BPs en SAP y queres bajar los cambios.">&#128260; Revisar direcciones</button>
       </div>
       <div class="mc-stats" id="mc-stats"></div>
       <div class="mc-body" id="mc-body"></div>
@@ -3055,6 +3056,182 @@ window.runDedupeSapAltas = async function(){
   }
   if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || 'Deduplicar SAP'; }
   alert('Dedupe completo:\n\n' + deleted + ' duplicados borrados\n' + errors + ' errores\n\nLas tiendas ahora deberian aparecer 1 sola vez en el mapa.');
+};
+
+// REVISAR DIRECCIONES: lee SAP B1 via Service Layer para cada cliente con
+// cardCodeSap y, si nombre / direccion / ciudad difieren respecto a la app,
+// actualiza la app con los datos de SAP (SAP gana). Funciona para SAP altas
+// (client_applications) y POINTS matcheados (client_master con sapCardCode).
+window.runRevisarDireccionesSap = async function(){
+  if (userRole !== 'admin') { alert('Solo admin.'); return; }
+  if (typeof sapSL === 'undefined' || typeof sapSL.isEnabled !== 'function' || !sapSL.isEnabled()) {
+    alert('SAP Service Layer no esta configurado o esta deshabilitado.\n\nIr a Panel admin > SAP > Service Layer y completar URL, CompanyDB, usuario y password. Tambien activar el toggle "Enabled".');
+    return;
+  }
+  // Recolectar todos los stores con cardCodeSap.
+  const targets = [];
+  (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).forEach(a => {
+    if (a && a.cardCodeSap) targets.push({
+      kind: 'alta',
+      fsId: a._fsId,
+      cardCode: String(a.cardCodeSap).trim(),
+      currentName: a.comercio || a.fantasia || '',
+      currentAddr: a.calle || a.address || '',
+      currentCity: a.localidadFinal || a.localidad || '',
+      currentProv: a.provincia || '',
+    });
+  });
+  if (typeof clientMasterCache !== 'undefined' && clientMasterCache.forEach) {
+    clientMasterCache.forEach((d, docId) => {
+      if (d && d.sapCardCode) targets.push({
+        kind: 'master',
+        docId,
+        cardCode: String(d.sapCardCode).trim(),
+        currentName: d.clientName || '',
+        currentAddr: d.address || '',
+        currentCity: d.localidad || d.sapCity || '',
+        currentProv: d.provincia || '',
+      });
+    });
+  }
+  if (!targets.length) { alert('No hay clientes con CardCode SAP. Importar primero desde SAP o cargar manualmente.'); return; }
+  if (!confirm(
+    'Revisar ' + targets.length + ' clientes contra SAP B1 (Service Layer)?\n\n' +
+    'Por cada uno se lee el BusinessPartner y, si el nombre / direccion / ciudad difieren,\n' +
+    'se ACTUALIZA la app con los datos de SAP (SAP siempre gana).\n\n' +
+    'Demora ~' + Math.ceil(targets.length / 4) + ' segundos (rate limit 4 req/seg).\n\n' +
+    'Continuar?'
+  )) return;
+  const btn = document.getElementById('mc-revisar-btn');
+  if (btn) { btn.disabled = true; btn.dataset.origText = btn.textContent; btn.textContent = 'Conectando...'; }
+  // Pre-login para detectar problemas de config / CORS antes de empezar.
+  const sess = await sapSL.ensureSession();
+  if (!sess.ok) {
+    alert('No se pudo conectar al Service Layer:\n\n' + sess.error + '\n\nVerifica que la URL este OK, que el CORS este aplicado en Apache, y que el usuario + password sean correctos.');
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || 'Revisar direcciones'; }
+    return;
+  }
+  // Normalizadores para detectar diferencias REALES (no whitespace/case).
+  const normStr = s => (s == null ? '' : String(s).trim().replace(/\s+/g, ' '));
+  const eqLoose = (a, b) => normStr(a).toUpperCase() === normStr(b).toUpperCase();
+  let checked = 0, notFound = 0, errors = 0;
+  const diffs = [];
+  for (const t of targets) {
+    checked++;
+    if (btn) btn.textContent = 'Revisando ' + checked + '/' + targets.length + '...';
+    const safeCard = t.cardCode.replace(/'/g, "''"); // escape OData single quote
+    const path = "/b1s/v1/BusinessPartners('" + encodeURIComponent(safeCard) + "')?$select=CardCode,CardName,AliasName,MailAddress,MailZipCode,BPAddresses";
+    const r = await sapSL.fetchWithSession(path);
+    if (!r.ok) {
+      if (r.status === 404) { notFound++; }
+      else { errors++; console.warn('[revisar] error en', t.cardCode, r.error); }
+    } else {
+      const bp = r.body || {};
+      const sapCardName = bp.CardName || '';
+      const sapAlias = bp.AliasName || '';
+      // Direccion: priorizar BPAddresses (Ship-to), fallback a campos top-level.
+      let sapStreet = bp.MailAddress || '';
+      let sapCity = '';
+      let sapZip = bp.MailZipCode || '';
+      if (Array.isArray(bp.BPAddresses) && bp.BPAddresses.length) {
+        const ship = bp.BPAddresses.find(a => a.AddressType === 'bo_ShipTo')
+          || bp.BPAddresses.find(a => a.AddressType === 'bo_BillTo')
+          || bp.BPAddresses[0];
+        if (ship) {
+          if (ship.Street) sapStreet = ship.Street;
+          if (ship.City) sapCity = ship.City;
+          if (ship.ZipCode) sapZip = ship.ZipCode;
+        }
+      }
+      // Detectar cambios. Preferimos AliasName como "nombre" comercial; si esta
+      // vacio caemos a CardName (legal).
+      const sapName = normStr(sapAlias) || normStr(sapCardName);
+      const changes = {};
+      if (sapName && !eqLoose(sapName, t.currentName)) changes.name = sapName;
+      if (normStr(sapStreet) && !eqLoose(sapStreet, t.currentAddr)) changes.addr = normStr(sapStreet);
+      if (normStr(sapCity) && !eqLoose(sapCity, t.currentCity)) changes.city = normStr(sapCity);
+      if (normStr(sapZip)) changes.zip = normStr(sapZip);
+      if (changes.name || changes.addr || changes.city) {
+        diffs.push({target: t, changes, sapName: sapName || sapCardName});
+      }
+    }
+    // Throttle ~4 req/seg.
+    if (checked < targets.length) await new Promise(r => setTimeout(r, 250));
+  }
+  if (!diffs.length) {
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || 'Revisar direcciones'; }
+    alert('Listo. Todo en sync con SAP.\n\n' + checked + ' revisados\n' + notFound + ' no encontrados en SAP\n' + errors + ' errores.');
+    return;
+  }
+  // Mostrar resumen y pedir confirmacion para aplicar.
+  const sample = diffs.slice(0, 8).map(d => {
+    const c = d.changes;
+    const parts = [];
+    if (c.name) parts.push('nombre: "' + (d.target.currentName || '-').slice(0, 30) + '" -> "' + c.name.slice(0, 30) + '"');
+    if (c.addr) parts.push('direccion: "' + (d.target.currentAddr || '-').slice(0, 30) + '" -> "' + c.addr.slice(0, 30) + '"');
+    if (c.city) parts.push('ciudad: "' + (d.target.currentCity || '-').slice(0, 20) + '" -> "' + c.city.slice(0, 20) + '"');
+    return d.target.cardCode + '\n   ' + parts.join('\n   ');
+  }).join('\n\n');
+  if (!confirm(
+    'Encontradas ' + diffs.length + ' diferencias.\n\n' +
+    'Ejemplos:\n\n' + sample + (diffs.length > 8 ? '\n\n...y ' + (diffs.length - 8) + ' mas' : '') + '\n\n' +
+    'Aplicar TODOS los cambios? (SAP siempre gana)\n' +
+    'Las direcciones que cambien se van a re-geocodificar automaticamente.'
+  )) {
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || 'Revisar direcciones'; }
+    return;
+  }
+  // Aplicar cambios.
+  let updated = 0;
+  for (let i = 0; i < diffs.length; i++) {
+    const d = diffs[i];
+    const c = d.changes;
+    if (btn) btn.textContent = 'Aplicando ' + (i + 1) + '/' + diffs.length + '...';
+    try {
+      const payload = {
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: currentUser.email || '',
+        sapSyncedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      };
+      if (d.target.kind === 'alta') {
+        if (c.name) payload.comercio = c.name;
+        if (c.addr) {
+          payload.calle = c.addr;
+          payload.lat = firebase.firestore.FieldValue.delete();
+          payload.lng = firebase.firestore.FieldValue.delete();
+        }
+        if (c.city) {
+          payload.localidad = c.city;
+          payload.localidadFinal = c.city;
+        }
+        if (c.zip) payload.codigoPostal = c.zip;
+        await fbDb.collection('client_applications').doc(d.target.fsId).set(payload, {merge: true});
+      } else {
+        if (c.name) payload.clientName = c.name;
+        if (c.addr) payload.address = c.addr;
+        if (c.city) {
+          payload.localidad = c.city;
+          payload.sapCity = c.city;
+        }
+        if (c.zip) payload.sapZip = c.zip;
+        await fbDb.collection('client_master').doc(d.target.docId).set(payload, {merge: true});
+      }
+      updated++;
+    } catch(e) {
+      errors++;
+      console.error('[revisar] error aplicando', d.target.cardCode, e);
+    }
+  }
+  if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || 'Revisar direcciones'; }
+  alert(
+    'Sincronizacion terminada:\n\n' +
+    checked + ' clientes revisados\n' +
+    diffs.length + ' tenian diferencias\n' +
+    updated + ' actualizados con datos de SAP\n' +
+    notFound + ' no encontrados en SAP\n' +
+    errors + ' errores\n\n' +
+    'Las direcciones que cambiaron quedaron sin lat/lng. Corre "Geocodificar tiendas SAP" para volver a ubicarlas en el mapa.'
+  );
 };
 
 // Helper: una tienda esta "confirmada en SAP" si esta presente en SAP
