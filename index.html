@@ -2029,6 +2029,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <input type="search" id="mc-search" placeholder="Buscar por nombre de tienda..." oninput="renderMasterClientesTable()"/>
         <button class="mc-sap-btn" onclick="openMcSapImport()" title="Subir archivo descargado desde SAP para autocompletar CardCode y direcciones de forma masiva">&#128229; Importar desde SAP</button>
         <button id="mc-geocode-btn" class="mc-sap-btn" onclick="runBulkGeocodeSapAltas()" style="background:#1d4ed8;box-shadow:0 1px 3px rgba(29,78,216,.3)" title="Llama a Google Maps para obtener lat/lng de cada cliente SAP que no tiene ubicacion geografica. Es necesario para que aparezcan como pines en el mapa.">&#128205; Geocodificar tiendas SAP</button>
+        <button id="mc-dedupe-btn" class="mc-sap-btn" onclick="runDedupeSapAltas()" style="background:#b91c1c;box-shadow:0 1px 3px rgba(185,28,28,.3)" title="Busca altas SAP duplicadas (mismo cardCodeSap en multiples documentos) y deja solo la mas reciente.">&#129529; Deduplicar SAP</button>
       </div>
       <div class="mc-stats" id="mc-stats"></div>
       <div class="mc-body" id="mc-body"></div>
@@ -2950,6 +2951,93 @@ window.runBulkGeocodeSapAltas = async function(){
   alert('Geocoding terminado:\n\n' + result.ok + ' tiendas ubicadas\n' + result.fail + ' fallidas\n' + result.skip + ' saltadas (sin direccion o provincia)\n\nLas que pudieron geocodificarse ya aparecen como pines azules en el mapa.');
 };
 
+// Dedupe de altas SAP duplicadas. Encuentra grupos con el mismo cardCodeSap
+// y deja solo la mas reciente (sapImportedAt mas alto, o el doc con prefijo
+// 'sap_' que es el determinista del fix), borrando las demas.
+window.runDedupeSapAltas = async function(){
+  if (userRole !== 'admin') { alert('Solo admin.'); return; }
+  // Re-leer fresco de Firestore para evitar trabajar con cache desactualizado.
+  let snap;
+  try {
+    snap = await fbDb.collection('client_applications')
+      .where('status', '==', 'approved').get();
+  } catch(e) { alert('Error leyendo Firestore: ' + (e.message || e)); return; }
+  // Agrupar por cardCodeSap.
+  const groups = new Map();
+  snap.forEach(d => {
+    const data = d.data() || {};
+    if (!data.cardCodeSap) return;
+    const key = String(data.cardCodeSap).trim().toUpperCase();
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({id: d.id, ref: d.ref, data: data});
+  });
+  // Filtrar solo grupos con mas de 1 doc (duplicados).
+  const dupGroups = [];
+  groups.forEach((arr, card) => { if (arr.length > 1) dupGroups.push({card, arr}); });
+  if (!dupGroups.length) { alert('Sin duplicados. Todas las altas SAP tienen un solo documento.'); return; }
+  // Calcular cuantos vamos a borrar.
+  let toDelete = 0;
+  dupGroups.forEach(g => toDelete += (g.arr.length - 1));
+  // Preview del primero para que el admin vea que va a pasar.
+  const preview = dupGroups.slice(0, 5).map(g => {
+    return g.card + ': ' + g.arr.length + ' docs (' + g.arr.map(x => x.id.slice(0, 12)).join(', ') + ')';
+  }).join('\n');
+  if (!confirm(
+    'Encontrados ' + dupGroups.length + ' cardCodes con duplicados. Total a borrar: ' + toDelete + ' docs.\n\n' +
+    'Vamos a dejar 1 doc por cardCode (el mas reciente, o el que tiene prefijo "sap_") y borrar el resto.\n\n' +
+    'Ejemplos:\n' + preview + (dupGroups.length > 5 ? '\n...y ' + (dupGroups.length - 5) + ' mas' : '') +
+    '\n\n¿Confirmar?'
+  )) return;
+  const btn = document.getElementById('mc-dedupe-btn');
+  if (btn) { btn.disabled = true; btn.dataset.origText = btn.textContent; btn.textContent = 'Deduplicando...'; }
+  // Para cada grupo, ordenar y borrar todos menos el "ganador":
+  // ganador = el que tiene prefijo 'sap_' (el determinista del fix); si hay
+  // varios sap_ o ninguno, el de sapImportedAt mas reciente.
+  let deleted = 0, errors = 0;
+  for (const g of dupGroups) {
+    // Sort: prefer 'sap_' prefix, then highest sapImportedAt/updatedAt/approvedAt.
+    g.arr.sort((a, b) => {
+      const aHasPrefix = a.id.startsWith('sap_') ? 1 : 0;
+      const bHasPrefix = b.id.startsWith('sap_') ? 1 : 0;
+      if (aHasPrefix !== bHasPrefix) return bHasPrefix - aHasPrefix;
+      const at = (a.data.sapImportedAt || a.data.updatedAt || a.data.approvedAt || a.data.createdAt);
+      const bt = (b.data.sapImportedAt || b.data.updatedAt || b.data.approvedAt || b.data.createdAt);
+      const av = (at && at.toMillis) ? at.toMillis() : 0;
+      const bv = (bt && bt.toMillis) ? bt.toMillis() : 0;
+      return bv - av;
+    });
+    const keep = g.arr[0];
+    const drop = g.arr.slice(1);
+    // Antes de borrar: copiar lat/lng del descartado al ganador si el ganador
+    // no las tiene (asi no perdemos geocoding que ya se hizo).
+    let needsMerge = false;
+    const mergeData = {};
+    if ((keep.data.lat == null || keep.data.lng == null)) {
+      const withGeo = drop.find(x => x.data.lat != null && x.data.lng != null);
+      if (withGeo) {
+        mergeData.lat = withGeo.data.lat;
+        mergeData.lng = withGeo.data.lng;
+        if (withGeo.data.geoDisplay) mergeData.geoDisplay = withGeo.data.geoDisplay;
+        if (withGeo.data.geoProvider) mergeData.geoProvider = withGeo.data.geoProvider;
+        needsMerge = true;
+      }
+    }
+    if (needsMerge) {
+      try { await keep.ref.set(mergeData, {merge: true}); }
+      catch(e) { console.error('dedupe merge', keep.id, e); }
+    }
+    for (const dropDoc of drop) {
+      try {
+        await dropDoc.ref.delete();
+        deleted++;
+        if (btn) btn.textContent = 'Borrando... (' + deleted + '/' + toDelete + ')';
+      } catch(e) { errors++; console.error('dedupe delete', dropDoc.id, e); }
+    }
+  }
+  if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || 'Deduplicar SAP'; }
+  alert('Dedupe completo:\n\n' + deleted + ' duplicados borrados\n' + errors + ' errores\n\nLas tiendas ahora deberian aparecer 1 sola vez en el mapa.');
+};
+
 // Helper: una tienda esta "confirmada en SAP" si esta presente en SAP
 // con CardCode + direccion. Buscamos en 2 lugares posibles porque el
 // import "desde SAP" guarda los datos en uno u otro segun haya matcheado
@@ -3365,41 +3453,176 @@ let clientPinLayer = L.layerGroup().addTo(map);
 // Se dibujan en azul fuerte (#1d4ed8) para distinguirlos de los habilitados.
 let sapAltaPinLayer = L.layerGroup().addTo(map);
 
-// Dibuja pines individuales para cada cliente confirmado en SAP que tenga
-// lat/lng (geocodificado al importar o por accion manual del admin).
-// Estos son los 212+ clientes que vienen de "Importar desde SAP" pero que
-// no tenian localidad para anclar al master POINTS. Los pines van en color
-// AZUL fuerte para distinguir visualmente de los habilitados (verde).
+// Centroides aproximados de provincias argentinas. Usados para posicionar
+// pines AZULES de tiendas SAP que no tienen direccion cargada todavia,
+// asi el admin las puede ver agrupadas y entrar a cargarles la calle.
+const AR_PROVINCE_CENTROIDS = {
+  'BUENOS AIRES': [-36.5, -60.5],
+  'CAPITAL FEDERAL': [-34.6037, -58.3816],
+  'CIUDAD AUTONOMA DE BUENOS AIRES': [-34.6037, -58.3816],
+  'CIUDAD AUTÓNOMA DE BUENOS AIRES': [-34.6037, -58.3816],
+  'CABA': [-34.6037, -58.3816],
+  'CATAMARCA': [-27.5, -67.0],
+  'CHACO': [-26.5, -60.5],
+  'CHUBUT': [-43.5, -68.5],
+  'CORDOBA': [-32.0, -64.0],
+  'CÓRDOBA': [-32.0, -64.0],
+  'CORRIENTES': [-28.5, -57.5],
+  'ENTRE RIOS': [-32.0, -59.0],
+  'ENTRE RÍOS': [-32.0, -59.0],
+  'FORMOSA': [-25.0, -60.0],
+  'JUJUY': [-23.0, -65.5],
+  'LA PAMPA': [-37.0, -65.0],
+  'LA RIOJA': [-29.5, -67.5],
+  'MENDOZA': [-34.5, -68.5],
+  'MISIONES': [-27.0, -54.5],
+  'NEUQUEN': [-38.5, -70.0],
+  'NEUQUÉN': [-38.5, -70.0],
+  'RIO NEGRO': [-40.0, -67.0],
+  'RÍO NEGRO': [-40.0, -67.0],
+  'SALTA': [-25.0, -65.0],
+  'SAN JUAN': [-31.0, -69.0],
+  'SAN LUIS': [-34.0, -66.0],
+  'SANTA CRUZ': [-49.0, -70.0],
+  'SANTA FE': [-31.0, -61.0],
+  'SANTIAGO DEL ESTERO': [-27.5, -63.0],
+  'TIERRA DEL FUEGO': [-54.0, -67.0],
+  'TUCUMAN': [-27.0, -65.5],
+  'TUCUMÁN': [-27.0, -65.5],
+};
+function getProvinceCentroid(prov){
+  if (!prov) return null;
+  const key = String(prov).trim().toUpperCase();
+  return AR_PROVINCE_CENTROIDS[key] || null;
+}
+
+// Dibuja pines individuales para cada cliente confirmado en SAP.
+// VERDE para los que tienen lat/lng (geocodificados, con direccion completa).
+// AZUL para los que estan en SAP pero NO tienen direccion / lat/lng todavia
+// (se colocan en el centroide de la provincia con un pequeño jitter para
+// que no se apilen exactamente arriba uno del otro). El popup azul ofrece
+// un boton "Cargar direccion" para que el admin complete el dato.
 function drawSapAltaPins(){
   if (typeof sapAltaPinLayer === 'undefined') return;
   sapAltaPinLayer.clearLayers();
   if (!Array.isArray(approvedAltasList) || !approvedAltasList.length) return;
+  const effSet = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
+  // Conteo por provincia para distribuir el jitter de los pines sin direccion.
+  const provCounter = {};
   approvedAltasList.forEach(a => {
     if (!a || !a.cardCodeSap) return;
-    if (a.lat == null || a.lng == null) return;
-    // Respetar filtro vendor: si hay filtro de zona activo, ocultar las
-    // altas asignadas a otro vendedor.
-    const effSet = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
     if (effSet && a.assignedVendor && !effSet.has(a.assignedVendor)) return;
     const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
-    const html = '<div style="background:#1d4ed8;border:2px solid #fff;border-radius:50%;width:14px;height:14px;box-shadow:0 0 0 1.5px #1d4ed8,0 2px 4px rgba(0,0,0,.3)"></div>';
-    const icon = L.divIcon({className:'sap-alta-pin-icon', html: html, iconSize: [14,14], iconAnchor: [7,7]});
-    const marker = L.marker([parseFloat(a.lat), parseFloat(a.lng)], {icon: icon, zIndexOffset: 900});
-    const direccion = a.calle || a.address || '-';
-    const localidad = a.localidadFinal || a.localidad || '(sin localidad)';
-    const popup = '<div style="min-width:200px;font-family:inherit">'
-      + '<div style="font-weight:800;color:#1d4ed8;font-size:13px;margin-bottom:4px">' + escapeHtml(nombre) + '</div>'
-      + '<div style="background:#dbeafe;color:#1e3a8a;padding:3px 7px;border-radius:4px;font-size:10px;font-weight:700;display:inline-block;margin-bottom:6px">SAP ' + escapeHtml(a.cardCodeSap) + '</div>'
+    const direccion = a.calle || a.address || '';
+    const localidad = a.localidadFinal || a.localidad || '';
+    const hasGeo = (a.lat != null && a.lng != null);
+    let lat, lng, color, bgPill, txtPill, statusLine;
+    if (hasGeo) {
+      // VERDE: tienda con todo (direccion + ubicacion).
+      lat = parseFloat(a.lat); lng = parseFloat(a.lng);
+      color = '#166534';
+      bgPill = '#dcfce7'; txtPill = '#166534';
+      statusLine = '';
+    } else {
+      // AZUL: tienda SAP sin direccion o sin geocodificar. La pongo en el
+      // centroide de la provincia + jitter en grilla para que no se apilen.
+      const centroid = getProvinceCentroid(a.provincia);
+      if (!centroid) return; // sin provincia conocida no la podemos mostrar
+      const provKey = String(a.provincia || '').trim().toUpperCase();
+      const n = (provCounter[provKey] = (provCounter[provKey] || 0) + 1) - 1;
+      // Grilla en espiral cuadrada chica: ~0.05 grados (~5km) de paso.
+      const step = 0.05;
+      const ring = Math.floor((Math.sqrt(n + 1) + 0.5));
+      const side = ring > 0 ? (2 * ring) : 1;
+      const offset = n - ((side - 2) * (side - 2));
+      const dx = ((offset % side) - ring) * step;
+      const dy = (Math.floor(offset / side) - ring) * step;
+      lat = centroid[0] + dy;
+      lng = centroid[1] + dx;
+      color = '#1d4ed8';
+      bgPill = '#dbeafe'; txtPill = '#1e3a8a';
+      statusLine = '<div style="background:#fef3c7;color:#92400e;padding:4px 8px;border-radius:4px;font-size:10px;font-weight:700;margin-bottom:6px">&#9888;&#65039; Falta direccion - ubicacion aproximada</div>';
+    }
+    const html = '<div style="background:' + color + ';border:2px solid #fff;border-radius:50%;width:14px;height:14px;box-shadow:0 0 0 1.5px ' + color + ',0 2px 4px rgba(0,0,0,.3)"></div>';
+    const icon = L.divIcon({className: hasGeo ? 'sap-alta-pin-icon-green' : 'sap-alta-pin-icon-blue', html: html, iconSize: [14,14], iconAnchor: [7,7]});
+    const marker = L.marker([lat, lng], {icon: icon, zIndexOffset: hasGeo ? 900 : 800});
+    const safeFsId = JSON.stringify(a._fsId || '');
+    const editBtn = !hasGeo
+      ? '<div style="margin-top:8px"><button onclick="openSapAltaAddressModal(' + safeFsId + ')" style="padding:6px 12px;border:none;border-radius:5px;background:#1d4ed8;color:#fff;font-size:11px;font-weight:700;cursor:pointer">&#128393; Cargar direccion</button></div>'
+      : '';
+    const popup = '<div style="min-width:220px;font-family:inherit">'
+      + '<div style="font-weight:800;color:' + color + ';font-size:13px;margin-bottom:4px">' + escapeHtml(nombre) + '</div>'
+      + statusLine
+      + '<div style="background:' + bgPill + ';color:' + txtPill + ';padding:3px 7px;border-radius:4px;font-size:10px;font-weight:700;display:inline-block;margin-bottom:6px">SAP ' + escapeHtml(a.cardCodeSap) + '</div>'
       + '<div style="font-size:11px;color:#475569;line-height:1.5">'
-      + '<b>Dirección:</b> ' + escapeHtml(direccion) + '<br>'
-      + '<b>Localidad:</b> ' + escapeHtml(localidad) + '<br>'
+      + '<b>Direccion:</b> ' + escapeHtml(direccion || '(falta cargar)') + '<br>'
+      + '<b>Localidad:</b> ' + escapeHtml(localidad || '(sin localidad)') + '<br>'
       + '<b>Provincia:</b> ' + escapeHtml(titleCase(a.provincia || '')) + '<br>'
       + (a.assignedVendor ? '<b>Vendedor:</b> ' + escapeHtml(titleCase(a.assignedVendor)) : '')
-      + '</div></div>';
+      + '</div>'
+      + editBtn
+      + '</div>';
     marker.bindPopup(popup);
     marker.addTo(sapAltaPinLayer);
   });
 }
+
+// Modal para que el admin cargue la direccion de una alta SAP que no la tiene.
+// Despues de guardar, dispara geocoding inmediato para mover el pin de azul
+// (centroide aproximado) a verde (ubicacion exacta).
+window.openSapAltaAddressModal = function(fsId){
+  if (!fsId) return;
+  if (userRole !== 'admin') { alert('Solo admin.'); return; }
+  const a = (approvedAltasList || []).find(x => x._fsId === fsId);
+  if (!a) { alert('No encontre la alta. Recargá la pagina y reintentá.'); return; }
+  const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
+  const currentCalle = a.calle || a.address || '';
+  const currentLoc = a.localidadFinal || a.localidad || '';
+  const newCalle = prompt(
+    'Cargar direccion de:\n' + nombre + ' (SAP ' + (a.cardCodeSap || '') + ')\nProvincia: ' + (a.provincia || '') +
+    '\n\nDireccion (calle + numero):',
+    currentCalle
+  );
+  if (newCalle == null) return; // cancelo
+  const trimmed = newCalle.trim();
+  if (!trimmed) return;
+  const newLoc = prompt('Localidad / Ciudad:', currentLoc) || currentLoc;
+  (async () => {
+    try {
+      await fbDb.collection('client_applications').doc(fsId).set({
+        calle: trimmed,
+        localidad: newLoc,
+        localidadFinal: newLoc,
+        lat: firebase.firestore.FieldValue.delete(),
+        lng: firebase.firestore.FieldValue.delete(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: currentUser ? (currentUser.email || currentUser.uid) : '',
+      }, {merge: true});
+      // Geocodificar de una usando la cascada Google -> OSM.
+      let geo = null;
+      try {
+        if (typeof geocodeClientAddress === 'function') {
+          geo = await geocodeClientAddress(trimmed, newLoc, a.provincia || '');
+        }
+      } catch(e) { console.warn('geocode tras cargar direccion', e); }
+      if (geo && geo.lat != null && geo.lng != null) {
+        await fbDb.collection('client_applications').doc(fsId).set({
+          lat: geo.lat, lng: geo.lng,
+          geoDisplay: geo.display || '',
+          geoPrecision: geo.precision || '',
+          geoProvider: geo.provider || 'osm',
+          geoAt: firebase.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+        alert('Direccion guardada y geocodificada. El pin se va a poner verde en unos segundos.');
+      } else {
+        alert('Direccion guardada pero no se pudo geocodificar (Google rechazo o OSM no la encontro). El pin sigue azul. Probá con la calle mas especifica o corre el geocoding bulk despues.');
+      }
+    } catch(e) {
+      console.error('openSapAltaAddressModal save', e);
+      alert('Error guardando: ' + (e.message || e));
+    }
+  })();
+};
 
 function drawHabilitadosPins(){
   clientPinLayer.clearLayers();
@@ -5449,7 +5672,13 @@ window.applyMcSapImport = async function(){
         const assignedVendor = (typeof inferVendorFromProvince === 'function')
           ? inferVendorFromProvince(provNorm)
           : '';
-        const newDoc = fbDb.collection('client_applications').doc();
+        // docId deterministico por cardCodeSap para que re-imports hagan
+        // UPSERT en lugar de duplicar (antes era doc() random => cada
+        // re-import creaba duplicados). El prefijo evita colisiones con
+        // docs de alta-cliente manuales que usan IDs random.
+        const safeCard = String(sap.cardCode || '').replace(/[^A-Za-z0-9]/g, '_').slice(0, 80);
+        const newDocId = 'sap_' + safeCard;
+        const newDoc = fbDb.collection('client_applications').doc(newDocId);
         batch.set(newDoc, {
           comercio: sap.cardName,
           cuit: '',
@@ -5473,9 +5702,9 @@ window.applyMcSapImport = async function(){
             name: currentUser.displayName || '',
           }},
           approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          sapImportedAt: firebase.firestore.FieldValue.serverTimestamp(),
           updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        });
+        }, {merge: true});
       });
       await batch.commit();
       doneNew += chunk.length;
