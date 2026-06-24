@@ -6351,7 +6351,15 @@ window.renderMasterClientesTable = function(){
     }
     html += '<tr data-doc="' + escapeAttr(id) + '">';
     html += '<td><div class="mc-name">' + escapeHtml(displayName) + '</div>' + renamedHint + '<div class="mc-meta">' + tagHtml + '</div></td>';
-    html += '<td>' + escapeHtml(e.localidad) + '</td>';
+    // Localidad: editable INPUT para SAP altas (asi el admin puede completar
+    // las que vienen como "(sin localidad)" sin recargar). Para POINTS la
+    // localidad esta atada al docId del padron - se queda como texto.
+    if (isSap) {
+      const locVal = (e.localidad === '(sin localidad)') ? '' : e.localidad;
+      html += '<td><input type="text" class="mc-addr-input' + (locVal ? ' has-value' : '') + '" style="font-size:11px" value="' + escapeAttr(locVal) + '" placeholder="(sin localidad)" onblur="saveMcSapLocalidad(\'' + escapeAttr(e.sapFsId) + '\', this)" onkeydown="if(event.key===\'Enter\')this.blur()" /></td>';
+    } else {
+      html += '<td>' + escapeHtml(e.localidad) + '</td>';
+    }
     html += '<td>' + escapeHtml(titleCase(e.provincia)) + '</td>';
     html += '<td>' + escapeHtml(vendLabel) + '</td>';
     html += '<td><input type="text" class="' + inputCls + '" value="' + escapeAttr(cur) + '" placeholder="Av. Belgrano 123, Barrio Norte" oninput="onMcAddrInput(this, \'' + escapeAttr(id) + '\', \'' + escapeAttr(savedAddr) + '\')" onkeydown="if(event.key===\'Enter\')this.parentElement.parentElement.querySelector(\'.mc-save-btn\').click()" /></td>';
@@ -6446,6 +6454,63 @@ window.saveClientCategoriaFromModal = async function(fieldName, sel){
 // Anticipado). Se guardan directo a client_master sin requerir el boton
 // Guardar (que sigue siendo solo para la direccion). El select cambia de
 // color cuando se completa para feedback visual.
+// Auto-save de la localidad de una SAP alta cuando el admin la edita inline
+// en el Master Clientes. Se dispara onblur (al perder foco) o Enter. Si la
+// localidad cambia, ademas borra lat/lng asi se re-geocodifica con la nueva
+// localidad la proxima vez que se actualice la direccion.
+window.saveMcSapLocalidad = async function(fsId, inputEl){
+  if (userRole !== 'admin') {
+    alert('Solo admin.');
+    const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(x => x._fsId === fsId);
+    if (alta && inputEl) inputEl.value = alta.localidadFinal || alta.localidad || '';
+    return;
+  }
+  if (!fsId) return;
+  const newVal = (inputEl.value || '').trim();
+  const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(x => x._fsId === fsId);
+  const oldVal = alta ? ((alta.localidadFinal || alta.localidad || '').trim()) : '';
+  if (newVal === oldVal) return; // sin cambios
+  inputEl.classList.add('saving');
+  try {
+    const payload = {
+      localidad: newVal,
+      localidadFinal: newVal,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: currentUser ? (currentUser.email || currentUser.uid) : '',
+    };
+    // Si cambio la localidad, limpiar lat/lng asi el proximo geocoding
+    // arranca con la nueva localidad (mejor match en OSM/Google).
+    if (newVal !== oldVal) {
+      payload.lat = firebase.firestore.FieldValue.delete();
+      payload.lng = firebase.firestore.FieldValue.delete();
+    }
+    await fbDb.collection('client_applications').doc(fsId).set(payload, {merge: true});
+    inputEl.classList.toggle('has-value', !!newVal);
+    showSyncTag(newVal ? 'Localidad actualizada' : 'Localidad limpiada');
+    // Si tiene direccion y ahora tiene localidad, intentar geocoding directo
+    // asi se actualiza el pin.
+    if (newVal && alta && (alta.calle || alta.address) && typeof geocodeClientAddress === 'function') {
+      try {
+        const geo = await geocodeClientAddress(alta.calle || alta.address, newVal, alta.provincia || '');
+        if (geo && geo.lat != null && geo.lng != null) {
+          await fbDb.collection('client_applications').doc(fsId).set({
+            lat: geo.lat, lng: geo.lng,
+            geoDisplay: geo.display || '',
+            geoProvider: geo.provider || 'osm',
+            geoAt: firebase.firestore.FieldValue.serverTimestamp(),
+          }, {merge: true});
+        }
+      } catch(e) { console.warn('geocode tras cambiar localidad', e); }
+    }
+  } catch(e) {
+    console.error('saveMcSapLocalidad', e);
+    alert('Error guardando localidad: ' + (e.message || e));
+    if (alta) inputEl.value = alta.localidadFinal || alta.localidad || '';
+  } finally {
+    inputEl.classList.remove('saving');
+  }
+};
+
 window.saveMcClientField = async function(docId, fieldName, sel){
   if (userRole !== 'admin') {
     alert('Solo admin puede editar categorizacion comercial.');
