@@ -9663,15 +9663,19 @@ function renderRutaDetalle(){
 
     if (visited && visit) {
       const fecha = visit.fecha ? new Date(visit.fecha).toLocaleDateString('es-AR') : '';
-      html += '<div class="ruta-tienda-visit-meta">Visitada el ' + escapeHtml(fecha);
+      const esTelefono = (visit.tipoContacto === 'telefono');
+      const verbo = esTelefono ? 'Contactada por telefono' : 'Visitada';
+      const icon = esTelefono ? '&#128222; ' : '';
+      html += '<div class="ruta-tienda-visit-meta">' + icon + verbo + ' el ' + escapeHtml(fecha);
       if (visit.ownerEmail) html += ' por ' + escapeHtml(visit.ownerEmail);
       html += '</div>';
-      html += '<button class="ruta-tienda-btn outline" onclick="event.stopPropagation();abrirVisitaExistente(\'' + escapeAttr(visit.id) + '\')">Ver visita</button>';
+      html += '<button class="ruta-tienda-btn outline" onclick="event.stopPropagation();abrirVisitaExistente(\'' + escapeAttr(visit.id) + '\')">' + (esTelefono ? 'Ver contacto' : 'Ver visita') + '</button>';
     } else if (allowEdit) {
       const tNomJson = JSON.stringify(t.nombre).replace(/"/g, '&quot;');
       const tLocJson = JSON.stringify(t.localidad).replace(/"/g, '&quot;');
       const tProvJson = JSON.stringify(t.provincia).replace(/"/g, '&quot;');
       html += '<button class="ruta-tienda-btn primary" onclick="abrirVisitaParaTienda(' + tLocJson + ', ' + tProvJson + ', ' + tNomJson + ')">Cargar visita</button>';
+      html += '<button class="ruta-tienda-btn outline" style="margin-top:6px;background:#fff;border:1.5px solid #0f766e;color:#0f766e" onclick="event.stopPropagation();marcarTiendaContactada(' + tLocJson + ', ' + tProvJson + ', ' + tNomJson + ')" title="Para usar cuando contactaste al cliente por telefono / mensaje y no necesitaste hacer la visita presencial. Se registra como Contactado y la tienda queda completada en la ruta.">&#128222; Marcar como contactado</button>';
     }
     html += '</div>';
   });
@@ -9685,6 +9689,85 @@ function renderRutaDetalle(){
 window.abrirVisitaParaTienda = function(localidad, provincia, tienda){
   // Antes de abrir el form, preguntar si la tienda esta abierta
   openTiendaModal(localidad, provincia, tienda);
+};
+
+// Marca una tienda de la ruta como "contactada por telefono". A diferencia de
+// "Cargar visita" no abre el form largo - solo registra un visit doc minimo
+// con tipoContacto='telefono' para que la tienda figure como completada en la
+// ruta y cuente para los stats del vendedor.
+window.marcarTiendaContactada = async function(localidad, provincia, tienda){
+  if (typeof canWrite === 'function' && !canWrite()) {
+    alert('No tenes permiso para registrar contactos.');
+    return;
+  }
+  if (!currentUser) { alert('No hay usuario logueado.'); return; }
+  // Pregunta corta para confirmar + obtener una breve nota opcional.
+  const nota = prompt(
+    'Marcar como CONTACTADO por telefono / mensaje:\n\n' +
+    tienda + '\n' + localidad + ', ' + titleCase(provincia) + '\n\n' +
+    'Comentario corto (opcional - ej: "encargo Stradic", "no precisa pedido"):',
+    ''
+  );
+  if (nota == null) return; // cancelo
+  const now = new Date();
+  const mes = MESES[now.getMonth()];
+  const anio = now.getFullYear();
+  // Vendedor efectivo (mismo que se usa para visitas reales - admin/VDI puede
+  // estar actuando en nombre de un VDE).
+  const actingPartner = (typeof getActingVendorPartner === 'function') ? getActingVendorPartner() : null;
+  const ownerUid = actingPartner ? actingPartner.uid : currentUser.uid;
+  const ownerEmail = actingPartner ? (actingPartner.email || '') : (currentUser.email || '');
+  const ownerName = actingPartner ? (actingPartner.displayName || actingPartner.email || '') : (currentUser.displayName || currentUser.email || '');
+  const vendor = (typeof currentVendor !== 'undefined' && currentVendor && currentVendor !== 'ALL')
+    ? currentVendor
+    : ((actingPartner && actingPartner.vendorKey) || '');
+  const data = {
+    tienda: tienda,
+    localidad: localidad,
+    provincia: provincia,
+    vendor: vendor || '',
+    ownerUid: ownerUid,
+    ownerEmail: ownerEmail,
+    ownerName: ownerName,
+    tipoContacto: 'telefono',
+    comentario: (nota || '').trim(),
+    estado: 'abierta',
+    fecha: now.toISOString().slice(0, 10),
+    mes: mes,
+    anio: anio,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  try {
+    await fbDb.collection('visits').add(data);
+    showSyncTag('Contacto telefonico registrado');
+    // Notificar al partner si admin/VDI marcaron en nombre de un VDE.
+    if (actingPartner) {
+      try {
+        await fbDb.collection('notifications').add({
+          type: 'partner_action',
+          subtype: 'phone_contact_created',
+          targetUid: actingPartner.uid,
+          fromUid: currentUser.uid,
+          fromEmail: currentUser.email || '',
+          fromDisplayName: currentUser.displayName || currentUser.email || '',
+          title: (currentUser.displayName || currentUser.email) + ' marco una tienda como contactada en tu nombre',
+          body: 'Tienda: ' + tienda + ' (' + localidad + ', ' + titleCase(provincia) + ').' + (nota ? ' Comentario: ' + nota : ''),
+          tienda: tienda,
+          provincia: provincia,
+          localidad: localidad,
+          status: 'unread',
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+      } catch(e) { console.warn('notif partner', e); }
+    }
+    // Refrescar UI: la ruta se redibuja con la tienda como Contactada.
+    if (typeof renderRutaDetalle === 'function') {
+      try { renderRutaDetalle(); } catch(e) {}
+    }
+  } catch(e) {
+    console.error('marcarTiendaContactada', e);
+    alert('Error registrando contacto: ' + (e.message || e));
+  }
 };
 
 // ============================================================
