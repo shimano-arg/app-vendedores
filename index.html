@@ -6247,6 +6247,11 @@ window.renderMasterClientesTable = function(){
       return a ? (a.calle || a.address || '') : '';
     }
     const d = clientMasterCache.get(docId);
+    // Si admin guardo explicitamente (incluido vacio), gana sobre clientMeta.
+    // Esto permite que admin borre una direccion que el vendedor cargo y
+    // realmente quede vacia al re-renderizar (antes el clear se "deshacia"
+    // porque clientMeta seguia teniendo el valor del vendedor).
+    if (d && d.addressExplicit) return d.address || '';
     if (d && d.address) return d.address;
     if (typeof clientMeta === 'object' && clientMeta && provincia && localidad && nombre) {
       // El key de clientMeta es 'tipo|prov|loc|nombre' donde tipo es 'C' o 'P'.
@@ -6647,7 +6652,10 @@ window.saveMcAddr = async function(docId, btn){
   const newVal = (inputEl.value || '').trim();
   // Detectar SAP alta por prefijo sap: en el docId.
   const isSap = (typeof docId === 'string' && docId.indexOf('sap:') === 0);
-  // Comparar con el valor actual de Firestore para evitar escribir sin cambios.
+  // Comparar con el valor "actual" mostrado en el input. Usamos la misma
+  // cascada que getCurrent: para POINTs check client_master, despues
+  // clientMeta (que es donde quedan las direcciones que cargo el vendedor
+  // desde el modal "Dar de alta"). Para SAP altas, leemos del alta directo.
   let prevAddr = '';
   if (isSap) {
     const fsId = docId.slice(4);
@@ -6655,7 +6663,21 @@ window.saveMcAddr = async function(docId, btn){
     prevAddr = alta ? (alta.calle || alta.address || '') : '';
   } else {
     const saved = clientMasterCache.get(docId);
-    prevAddr = (saved && saved.address) || '';
+    if (saved && saved.address) {
+      prevAddr = saved.address;
+    } else {
+      // No esta en client_master - tal vez la cargo el vendedor en clientMeta.
+      const prov = btn.dataset.prov || '';
+      const loc = btn.dataset.loc || '';
+      const nombre = btn.dataset.name || '';
+      if (typeof clientMeta === 'object' && clientMeta && prov && loc && nombre) {
+        const candidates = ['C|' + prov + '|' + loc + '|' + nombre, 'P|' + prov + '|' + loc + '|' + nombre];
+        for (const k of candidates) {
+          const m = clientMeta[k];
+          if (m && m.address) { prevAddr = m.address; break; }
+        }
+      }
+    }
   }
   if (newVal.trim() === (prevAddr || '').trim()) {
     alert('No hay cambios pendientes para esta tienda.\n\n(El valor del input es identico al guardado.)');
@@ -6714,20 +6736,16 @@ window.saveMcAddr = async function(docId, btn){
         localidad: btn.dataset.loc || '',
         clientName: btn.dataset.name || '',
       };
-      if (!newVal) {
-        // Vacio = limpiar address (no borro el doc por si tiene mas datos)
-        await fbDb.collection('client_master').doc(docId).set(Object.assign({}, meta, {
-          address: '',
-          updatedBy: currentUser.email || '',
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        }), {merge: true});
-      } else {
-        await fbDb.collection('client_master').doc(docId).set(Object.assign({}, meta, {
-          address: newVal,
-          updatedBy: currentUser.email || '',
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        }), {merge: true});
-      }
+      // addressExplicit = true marca que admin escribio el campo a proposito.
+      // Esto hace que getCurrent respete el valor (incluido vacio) sobre la
+      // direccion que un vendedor haya guardado en clientMeta. Sin este flag,
+      // al borrar la direccion el render reverteria al valor del vendedor.
+      await fbDb.collection('client_master').doc(docId).set(Object.assign({}, meta, {
+        address: newVal || '',
+        addressExplicit: true,
+        updatedBy: currentUser.email || '',
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }), {merge: true});
     }
     delete mcPendingChanges[docId];
     btn.classList.remove('changed');
