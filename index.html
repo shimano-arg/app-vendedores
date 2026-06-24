@@ -2028,6 +2028,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         </select>
         <input type="search" id="mc-search" placeholder="Buscar por nombre de tienda..." oninput="renderMasterClientesTable()"/>
         <button class="mc-sap-btn" onclick="openMcSapImport()" title="Subir archivo descargado desde SAP para autocompletar CardCode y direcciones de forma masiva">&#128229; Importar desde SAP</button>
+        <button id="mc-geocode-btn" class="mc-sap-btn" onclick="runBulkGeocodeSapAltas()" style="background:#1d4ed8;box-shadow:0 1px 3px rgba(29,78,216,.3)" title="Llama a Google Maps para obtener lat/lng de cada cliente SAP que no tiene ubicacion geografica. Es necesario para que aparezcan como pines en el mapa.">&#128205; Geocodificar tiendas SAP</button>
       </div>
       <div class="mc-stats" id="mc-stats"></div>
       <div class="mc-body" id="mc-body"></div>
@@ -2861,6 +2862,94 @@ function applyVendorOverridesFilter(p, names){
   });
 }
 
+// Geocodifica TODAS las altas aprobadas que vienen de SAP (tienen
+// cardCodeSap) pero todavia no tienen lat/lng. Usa geocodeClientAddress
+// que prueba Google Maps primero, fallback a OSM. Throttle 1 request por
+// segundo para respetar rate limits. Reporta progreso al usuario.
+// Diseñado para correr en bulk al hacer un import SAP, o manualmente
+// desde un boton en Master Clientes.
+async function geocodeAllPendingSapAltas(options){
+  options = options || {};
+  const onProgress = options.onProgress || function(){};
+  const onLog = options.onLog || function(){};
+  if (!Array.isArray(approvedAltasList) || !approvedAltasList.length) {
+    onLog('No hay altas aprobadas para procesar.');
+    return {ok: 0, fail: 0, skip: 0};
+  }
+  // Filtrar las que necesitan geocoding.
+  const pending = approvedAltasList.filter(a =>
+    a && a.cardCodeSap &&
+    (a.lat == null || a.lng == null) &&
+    (a.calle || a.address)
+  );
+  if (!pending.length) {
+    onLog('Todas las altas SAP ya estan geocodificadas. Nada que hacer.');
+    return {ok: 0, fail: 0, skip: 0};
+  }
+  onLog('Geocodificando ' + pending.length + ' altas (1 req/seg, demora ~' + Math.ceil(pending.length / 60) + ' min).');
+  let ok = 0, fail = 0, skip = 0;
+  for (let i = 0; i < pending.length; i++) {
+    const a = pending[i];
+    onProgress({done: i, total: pending.length, current: a.comercio || a.cardCodeSap});
+    try {
+      const address = a.calle || a.address || '';
+      const locality = a.localidadFinal || a.localidad || '';
+      const province = a.provincia || '';
+      if (!address || !province) { skip++; continue; }
+      const geo = await geocodeClientAddress(address, locality, province);
+      if (geo && geo.lat != null && geo.lng != null) {
+        // Update Firestore con lat/lng + metadata.
+        await fbDb.collection('client_applications').doc(a._fsId).set({
+          lat: geo.lat,
+          lng: geo.lng,
+          geoDisplay: geo.display || '',
+          geoPrecision: geo.precision || '',
+          geoProvider: geo.provider || 'osm',
+          geoAt: firebase.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+        // Actualizar el cache en memoria asi se renderiza inmediatamente.
+        a.lat = geo.lat; a.lng = geo.lng;
+        ok++;
+      } else {
+        fail++;
+        console.warn('[geocode-bulk] No match para', a.comercio, '-', address);
+      }
+    } catch(e) {
+      fail++;
+      console.error('[geocode-bulk] error en', a.comercio || a.cardCodeSap, e);
+    }
+    // Pausa entre requests para respetar rate limit.
+    if (i < pending.length - 1) await new Promise(r => setTimeout(r, 1100));
+  }
+  onProgress({done: pending.length, total: pending.length, current: null});
+  onLog('Listo: ' + ok + ' geocodificadas, ' + fail + ' fallidas, ' + skip + ' saltadas.');
+  // Repintar el mapa con los nuevos pines.
+  try { if (typeof drawMarkers === 'function') drawMarkers(); } catch(e){}
+  return {ok, fail, skip};
+}
+window.geocodeAllPendingSapAltas = geocodeAllPendingSapAltas;
+
+// Trigger del admin: corre el geocoding en lote y muestra progreso en UI.
+window.runBulkGeocodeSapAltas = async function(){
+  if (userRole !== 'admin') { alert('Solo admin.'); return; }
+  const pending = (approvedAltasList || []).filter(a =>
+    a && a.cardCodeSap && (a.lat == null || a.lng == null) && (a.calle || a.address)
+  );
+  if (!pending.length) { alert('Todas las tiendas SAP ya tienen ubicacion geografica. No hay nada para procesar.'); return; }
+  const estMin = Math.ceil(pending.length / 60);
+  if (!confirm('Geocodificar ' + pending.length + ' tiendas SAP?\n\nEsto va a llamar a Google Maps una por una respetando el rate limit (1/seg). Demora ~' + estMin + ' minuto(s).\n\nNo cierres el navegador hasta que termine.')) return;
+  const btn = document.getElementById('mc-geocode-btn');
+  if (btn) { btn.disabled = true; btn.dataset.origText = btn.textContent; }
+  const result = await geocodeAllPendingSapAltas({
+    onProgress: ({done, total, current}) => {
+      if (btn) btn.textContent = 'Geocodificando ' + done + '/' + total + (current ? ' (' + String(current).slice(0, 24) + '...)' : '');
+    },
+    onLog: msg => { console.log('[geocode-bulk]', msg); if (typeof showSyncTag === 'function') showSyncTag(msg, 4000); },
+  });
+  if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || 'Geocodificar tiendas SAP'; }
+  alert('Geocoding terminado:\n\n' + result.ok + ' tiendas ubicadas\n' + result.fail + ' fallidas\n' + result.skip + ' saltadas (sin direccion o provincia)\n\nLas que pudieron geocodificarse ya aparecen como pines azules en el mapa.');
+};
+
 // Helper: una tienda esta "confirmada en SAP" si esta presente en SAP
 // con CardCode + direccion. Buscamos en 2 lugares posibles porque el
 // import "desde SAP" guarda los datos en uno u otro segun haya matcheado
@@ -3272,6 +3361,45 @@ let markerLayer = L.layerGroup().addTo(map);
 // Layer aparte para los pines de clientes habilitados con direccion geocodificada.
 // Se mantiene visible por encima de los markers agregados de localidades.
 let clientPinLayer = L.layerGroup().addTo(map);
+// Layer para los pines de clientes confirmados en SAP geocodificados.
+// Se dibujan en azul fuerte (#1d4ed8) para distinguirlos de los habilitados.
+let sapAltaPinLayer = L.layerGroup().addTo(map);
+
+// Dibuja pines individuales para cada cliente confirmado en SAP que tenga
+// lat/lng (geocodificado al importar o por accion manual del admin).
+// Estos son los 212+ clientes que vienen de "Importar desde SAP" pero que
+// no tenian localidad para anclar al master POINTS. Los pines van en color
+// AZUL fuerte para distinguir visualmente de los habilitados (verde).
+function drawSapAltaPins(){
+  if (typeof sapAltaPinLayer === 'undefined') return;
+  sapAltaPinLayer.clearLayers();
+  if (!Array.isArray(approvedAltasList) || !approvedAltasList.length) return;
+  approvedAltasList.forEach(a => {
+    if (!a || !a.cardCodeSap) return;
+    if (a.lat == null || a.lng == null) return;
+    // Respetar filtro vendor: si hay filtro de zona activo, ocultar las
+    // altas asignadas a otro vendedor.
+    const effSet = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
+    if (effSet && a.assignedVendor && !effSet.has(a.assignedVendor)) return;
+    const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
+    const html = '<div style="background:#1d4ed8;border:2px solid #fff;border-radius:50%;width:14px;height:14px;box-shadow:0 0 0 1.5px #1d4ed8,0 2px 4px rgba(0,0,0,.3)"></div>';
+    const icon = L.divIcon({className:'sap-alta-pin-icon', html: html, iconSize: [14,14], iconAnchor: [7,7]});
+    const marker = L.marker([parseFloat(a.lat), parseFloat(a.lng)], {icon: icon, zIndexOffset: 900});
+    const direccion = a.calle || a.address || '-';
+    const localidad = a.localidadFinal || a.localidad || '(sin localidad)';
+    const popup = '<div style="min-width:200px;font-family:inherit">'
+      + '<div style="font-weight:800;color:#1d4ed8;font-size:13px;margin-bottom:4px">' + escapeHtml(nombre) + '</div>'
+      + '<div style="background:#dbeafe;color:#1e3a8a;padding:3px 7px;border-radius:4px;font-size:10px;font-weight:700;display:inline-block;margin-bottom:6px">SAP ' + escapeHtml(a.cardCodeSap) + '</div>'
+      + '<div style="font-size:11px;color:#475569;line-height:1.5">'
+      + '<b>Dirección:</b> ' + escapeHtml(direccion) + '<br>'
+      + '<b>Localidad:</b> ' + escapeHtml(localidad) + '<br>'
+      + '<b>Provincia:</b> ' + escapeHtml(titleCase(a.provincia || '')) + '<br>'
+      + (a.assignedVendor ? '<b>Vendedor:</b> ' + escapeHtml(titleCase(a.assignedVendor)) : '')
+      + '</div></div>';
+    marker.bindPopup(popup);
+    marker.addTo(sapAltaPinLayer);
+  });
+}
 
 function drawHabilitadosPins(){
   clientPinLayer.clearLayers();
@@ -3567,6 +3695,10 @@ function drawMarkers(){
   updateSidebar(visiblePoints);
   // Pintar los pines individuales de los clientes habilitados (con geo).
   try { drawHabilitadosPins(); } catch(e) { console.warn('drawHabilitadosPins:', e); }
+  // Pintar los pines individuales de los clientes confirmados en SAP que
+  // tienen lat/lng geocodificado. Estos son los que vienen del import SAP
+  // y se ubican geograficamente sin depender de POINTS/localidades.
+  try { drawSapAltaPins(); } catch(e) { console.warn('drawSapAltaPins:', e); }
 }
 
 function updateStats(pts){
@@ -5356,6 +5488,19 @@ window.applyMcSapImport = async function(){
     // Forzar re-render del mapa para mostrar tiendas nuevas y nuevos contactados
     try { if (typeof drawMarkers === 'function') drawMarkers(); } catch(e){}
     try { if (typeof restyleZoneLayers === 'function') restyleZoneLayers(); } catch(e){}
+    // Si se crearon altas nuevas, avisar al usuario que tiene que geocodificar
+    // para verlas como pines en el mapa.
+    if (_mcSapUnmatched.length > 0) {
+      setTimeout(() => {
+        const wantGeo = confirm(
+          'Import terminado: ' + _mcSapMatched.length + ' actualizadas + ' + _mcSapUnmatched.length + ' nuevas.\n\n' +
+          'Las tiendas NUEVAS no tienen ubicacion geografica todavia. Para que aparezcan como pines en el mapa hay que geocodificarlas con Google Maps.\n\n' +
+          '¿Querés geocodificarlas AHORA? (~' + Math.ceil(_mcSapUnmatched.length / 60) + ' min)\n\n' +
+          'Si decis No, podes hacerlo despues desde Master Clientes > "Geocodificar tiendas SAP".'
+        );
+        if (wantGeo) { try { runBulkGeocodeSapAltas(); } catch(e) { console.error('auto geocode after import', e); } }
+      }, 500);
+    }
   } catch(e) {
     console.error('applyMcSapImport', e);
     alert('Error aplicando: ' + (e.message || e));
