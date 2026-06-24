@@ -2382,7 +2382,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <div class="ac-row"><label>Constancia inscripci&oacute;n ARCA <span class="req">*</span> <span class="vf-hint">(1 imagen/PDF)</span></label>
             <div class="photo-grid" id="ac-arca-grid"><label class="photo-cell add"><input type="file" accept="image/*,.pdf" onchange="onAltaCliFile(this,'arca')"/>+</label></div>
           </div>
-          <div class="ac-row"><label>Constancia IIBB <span class="req">*</span> <span class="vf-hint">(si corresponde)</span></label>
+          <div class="ac-row"><label>Constancia IIBB <span class="vf-hint">(opcional - solo si corresponde)</span></label>
             <div class="photo-grid" id="ac-iibb-grid"><label class="photo-cell add"><input type="file" accept="image/*,.pdf" onchange="onAltaCliFile(this,'iibb')"/>+</label></div>
           </div>
           <div class="ac-row"><label>Fotos del local <span class="req">*</span> <span class="vf-hint">(frente e interior, hasta 5)</span></label>
@@ -9480,7 +9480,7 @@ window.submitClientApplication = async function(){
   ];
   fields.forEach(([id, label]) => { if (!read(id)) errors.push(label); });
   if (!altaCliFiles.arca) errors.push('Constancia ARCA');
-  if (!altaCliFiles.iibb) errors.push('Constancia IIBB');
+  // Constancia IIBB es OPCIONAL: muchas tiendas (monotributistas) no tienen.
   if (!altaCliFiles.fotos.length) errors.push('Fotos del local (al menos 1)');
   if (errors.length) { alert('Faltan completar:\n\n- ' + errors.join('\n- ')); return; }
 

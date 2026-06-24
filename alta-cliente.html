@@ -59,7 +59,7 @@ h2{font-size:13px;font-weight:800;color:#0284c7;margin:18px 0 10px;padding-botto
   </div>
 
   <div class="intro">
-    <b>Importante:</b> todos los campos marcados con <span class="req">*</span> son obligatorios. Vas a necesitar tener a mano la <b>Constancia ARCA</b>, la <b>Constancia IIBB</b> y <b>fotos del local (frente e interior)</b>.
+    <b>Importante:</b> todos los campos marcados con <span class="req">*</span> son obligatorios. Vas a necesitar tener a mano la <b>Constancia ARCA</b> y <b>fotos del local (frente e interior)</b>. La <b>Constancia IIBB</b> es opcional (solo si corresponde a tu situación fiscal).
   </div>
 
   <div class="err-screen" id="err-screen"></div>
@@ -102,7 +102,7 @@ h2{font-size:13px;font-weight:800;color:#0284c7;margin:18px 0 10px;padding-botto
     <div class="row"><label>Constancia inscripci&oacute;n ARCA <span class="req">*</span></label>
       <div class="photo-grid" id="g-arca"><label class="photo-cell add"><input type="file" accept="image/*,.pdf" onchange="onF(this,'arca')"/><span>+ ARCA</span></label></div>
     </div>
-    <div class="row"><label>Constancia IIBB <span class="req">*</span></label>
+    <div class="row"><label>Constancia IIBB <span class="hint">(opcional - solo si corresponde)</span></label>
       <div class="photo-grid" id="g-iibb"><label class="photo-cell add"><input type="file" accept="image/*,.pdf" onchange="onF(this,'iibb')"/><span>+ IIBB</span></label></div>
     </div>
     <div class="row"><label>Fotos del local <span class="req">*</span> <span class="hint">(frente e interior, hasta 5)</span></label>
@@ -232,7 +232,7 @@ async function submitForm(){
   ];
   fields.forEach(([id, label]) => { if (!r(id)) errors.push(label); });
   if (!files.arca) errors.push('Constancia ARCA');
-  if (!files.iibb) errors.push('Constancia IIBB');
+  // Constancia IIBB es OPCIONAL (no la validamos).
   if (!files.fotos.length) errors.push('Fotos del local');
   if (errors.length) {
     const errEl = document.getElementById('err-screen');
