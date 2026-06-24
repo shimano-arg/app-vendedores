@@ -2811,8 +2811,12 @@ function ensureApprovedAltasListener(){
         const a = Object.assign({_fsId: d.id}, d.data());
         approvedAltasList.push(a);
         const prov = (a.provincia || '').toString().trim().toUpperCase();
-        const loc = (a.localidadFinal || a.localidad || '').toString().trim();
-        if (!prov || !loc) return;
+        // Altas SAP sin Ship-to City quedaban afuera del indice. Las metemos
+        // bajo la pseudo-localidad "(sin localidad)" para que entren a la
+        // lista CLIENTES y al sistema en general. Si la alta no tiene
+        // provincia tampoco, ahi si la saltamos (no hay donde anclarla).
+        if (!prov) return;
+        const loc = (a.localidadFinal || a.localidad || '').toString().trim() || '(sin localidad)';
         const key = prov + '|' + loc;
         if (!approvedAltasByLoc[key]) approvedAltasByLoc[key] = [];
         approvedAltasByLoc[key].push(a);
@@ -3567,6 +3571,36 @@ function drawSapAltaPins(){
   });
 }
 
+// Handler de click en card SAP de la lista CLIENTES. Si la alta no tiene
+// direccion, salta directo al modal de cargar direccion. Si la tiene, muestra
+// info + ofrece editar / re-geocodificar.
+window.openSapAltaCard = function(fsId){
+  if (!fsId) return;
+  const a = (approvedAltasList || []).find(x => x._fsId === fsId);
+  if (!a) { alert('Alta no encontrada. Recarga la pagina.'); return; }
+  const hasAddr = !!(a.calle || a.address);
+  const hasGeo = (a.lat != null && a.lng != null);
+  if (!hasAddr) {
+    // Sin direccion: ir directo al modal de cargar.
+    if (typeof openSapAltaAddressModal === 'function') openSapAltaAddressModal(fsId);
+    return;
+  }
+  const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0,8));
+  const info = nombre + '\n'
+    + 'SAP: ' + (a.cardCodeSap || '-') + '\n'
+    + 'Direccion: ' + (a.calle || a.address || '-') + '\n'
+    + 'Localidad: ' + (a.localidadFinal || a.localidad || '(sin localidad)') + '\n'
+    + 'Provincia: ' + (a.provincia || '-') + '\n'
+    + 'Vendedor: ' + (a.assignedVendor || '(sin asignar)') + '\n\n'
+    + (hasGeo
+        ? 'Ubicada en el mapa: ' + Number(a.lat).toFixed(5) + ', ' + Number(a.lng).toFixed(5)
+        : 'NO geocodificada todavia (no aparece como pin verde)') + '\n\n'
+    + 'OK: editar direccion / re-geocodificar.\nCancelar: cerrar.';
+  if (confirm(info)) {
+    if (typeof openSapAltaAddressModal === 'function') openSapAltaAddressModal(fsId);
+  }
+};
+
 // Modal para que el admin cargue la direccion de una alta SAP que no la tiene.
 // Despues de guardar, dispara geocoding inmediato para mover el pin de azul
 // (centroide aproximado) a verde (ubicacion exacta).
@@ -3943,6 +3977,37 @@ function updateStats(pts){
       else if (!canceled.has(kC) && !canceled.has(kP)) pendientes++;
     });
   }
+  // Sumar SAP altas huerfanas (no anclan a un POINT) al total de tiendas.
+  // Con direccion + lat/lng cuentan como "habilitados"; sin direccion como
+  // "pendientes" (faltan datos). Respetan los mismos filtros vendor/prov/loc.
+  if (currentFilter !== 'prospects' && currentTypeFilter !== 'PROSPECTOS') {
+    const provFilter = (typeof currentProvince !== 'undefined' && currentProvince !== 'ALL') ? currentProvince : null;
+    const locFilter = (typeof currentLocality !== 'undefined' && currentLocality !== 'ALL') ? currentLocality : null;
+    const sapEffSet = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
+    // Set de nombres ya contados via POINTS para evitar doble conteo.
+    const ptsCounted = new Set();
+    pts.forEach(p => {
+      effClients(p).forEach(n => ptsCounted.add(((p.province||'').toUpperCase()) + '|' + (n||'').toLowerCase()));
+    });
+    const sapLocs = new Set();
+    (approvedAltasList || []).forEach(a => {
+      if (!a || !a.cardCodeSap) return;
+      if (sapEffSet && a.assignedVendor && !sapEffSet.has(a.assignedVendor)) return;
+      const prov = (a.provincia || '').toUpperCase().trim();
+      if (!prov) return;
+      if (provFilter && prov !== provFilter) return;
+      const aLoc = (a.localidadFinal || a.localidad || '').trim();
+      if (locFilter && aLoc !== locFilter) return;
+      const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
+      if (ptsCounted.has(prov + '|' + nombre.toLowerCase())) return;
+      total++;
+      const hasGeo = (a.lat != null && a.lng != null);
+      const hasAddr = !!(a.calle || a.address);
+      if (hasGeo && hasAddr) habilitados++; else pendientes++;
+      sapLocs.add(prov + '|' + (aLoc || '(sin localidad)'));
+    });
+    locsConTiendas += sapLocs.size;
+  }
   // Cuando hay filtro Tipo activo, contamos solo las localidades que tienen al menos
   // una tienda del tipo seleccionado. Sin filtro: todas las localidades visibles.
   // Hay 2 copias de la stats-bar en el DOM (header en mobile, sidebar en
@@ -4040,6 +4105,49 @@ function renderClients(pts){
       });
     }
   });
+
+  // INYECCION DE ALTAS SAP "huerfanas": altas en client_applications con
+  // cardCodeSap que no matchearon contra ningun POINT del padron (porque
+  // SAP exporta nombre legal y POINTS usa nombre comercial). Las agregamos
+  // como cards independientes con su propio click handler. No vamos a
+  // duplicar las que ya esten visibles por nombre+provincia.
+  if (currentFilter !== 'prospects' && currentTypeFilter !== 'PROSPECTOS') {
+    const alreadyIn = new Set();
+    items.forEach(it => alreadyIn.add(((it.point.province||'').toUpperCase()) + '|' + (it.name||'').toLowerCase()));
+    const provFilter = (typeof currentProvince !== 'undefined' && currentProvince !== 'ALL') ? currentProvince : null;
+    const locFilter = (typeof currentLocality !== 'undefined' && currentLocality !== 'ALL') ? currentLocality : null;
+    const sapEffSet = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
+    (approvedAltasList || []).forEach(a => {
+      if (!a || !a.cardCodeSap) return;
+      if (sapEffSet && a.assignedVendor && !sapEffSet.has(a.assignedVendor)) return;
+      const prov = (a.provincia || '').toUpperCase().trim();
+      if (!prov) return;
+      if (provFilter && prov !== provFilter) return;
+      const aLoc = (a.localidadFinal || a.localidad || '').trim();
+      if (locFilter && aLoc !== locFilter) return;
+      const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
+      const dupKey = prov + '|' + nombre.toLowerCase();
+      if (alreadyIn.has(dupKey)) return;
+      if (cq && !nombre.toLowerCase().includes(cq)) return;
+      // Estado para filtro confirmados/pendientes: confirmados = tiene lat/lng,
+      // pendientes = falta lat/lng o direccion.
+      const hasGeo = (a.lat != null && a.lng != null);
+      const hasAddr = !!(a.calle || a.address);
+      if (stateFilter === 'confirmados' && !(hasGeo && hasAddr)) return;
+      if (stateFilter === 'pendientes' && (hasGeo && hasAddr)) return;
+      items.push({
+        name: nombre, tipo: 'C',
+        sapAlta: a,
+        point: {
+          province: prov,
+          name: aLoc || '(sin localidad)',
+          vendor: a.assignedVendor || '',
+          lat: (a.lat != null ? a.lat : null),
+          lon: (a.lng != null ? a.lng : null),
+        },
+      });
+    });
+  }
   // sort: pendientes primero (los que requieren accion), luego habilitados, luego cancelados; alfabetico dentro
   const stateRank = {pendiente: 0, habilitado: 1, cancelado: 2};
   items.sort((a, b) => {
@@ -4052,6 +4160,32 @@ function renderClients(pts){
   });
   let html = '';
   for (const it of items) {
+    // Render especial para SAP altas huerfanas (no anclan a un POINT).
+    if (it.sapAlta) {
+      const a = it.sapAlta;
+      const hasGeo = (a.lat != null && a.lng != null);
+      const hasAddr = !!(a.calle || a.address);
+      const sapLeft = hasGeo ? '#10b981' : (hasAddr ? '#f59e0b' : '#1d4ed8');
+      const sapBadgeBg = hasGeo ? '#dcfce7' : (hasAddr ? '#fef3c7' : '#dbeafe');
+      const sapBadgeFg = hasGeo ? '#166534' : (hasAddr ? '#92400e' : '#1e3a8a');
+      const sapLabel = hasGeo
+        ? '&#10003; SAP en mapa'
+        : (hasAddr ? '&#9888;&#65039; SAP sin geocodificar' : '&#9888;&#65039; SAP sin direccion');
+      const safeFsId = escapeAttr(a._fsId || '');
+      html += '<div class="client-card estado-sap"';
+      html += ' style="border-left-color:' + sapLeft + ';cursor:pointer"';
+      html += ' onclick="openSapAltaCard(\'' + safeFsId + '\')"';
+      html += '>';
+      html += '<div class="client-body">';
+      html += '<div class="client-name">' + escapeHtml(it.name);
+      html += ' <span style="font-size:9px;color:' + sapBadgeFg + ';font-weight:700;margin-left:6px;background:' + sapBadgeBg + ';padding:2px 6px;border-radius:3px">SAP ' + escapeHtml(a.cardCodeSap) + '</span></div>';
+      html += '<div class="client-meta">';
+      html += '<span class="cli-state-badge" style="background:' + sapLeft + ';color:#fff">' + sapLabel + '</span>';
+      html += '<span>' + escapeHtml(it.point.name) + '</span>';
+      html += '<span style="color:#94a3b8">/ ' + escapeHtml(titleCase(it.point.province)) + '</span>';
+      html += '</div></div></div>';
+      continue;
+    }
     const k = contactKey(it.point, it.name, it.tipo);
     const state = getClientState(k);
     const vm = vendorLookup[it.point.vendor];
