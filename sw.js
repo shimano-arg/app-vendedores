@@ -7,7 +7,7 @@
 //
 // Cuando se cambie la version, bumpear CACHE_VERSION para invalidar el cache viejo.
 
-const CACHE_VERSION = 'v99';
+const CACHE_VERSION = 'v100';
 const STATIC_CACHE = 'shimano-static-' + CACHE_VERSION;
 const HTML_CACHE = 'shimano-html-' + CACHE_VERSION;
 

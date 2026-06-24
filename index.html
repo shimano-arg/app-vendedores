@@ -3064,8 +3064,34 @@ window.runDedupeSapAltas = async function(){
 // (client_applications) y POINTS matcheados (client_master con sapCardCode).
 window.runRevisarDireccionesSap = async function(){
   if (userRole !== 'admin') { alert('Solo admin.'); return; }
-  if (typeof sapSL === 'undefined' || typeof sapSL.isEnabled !== 'function' || !sapSL.isEnabled()) {
-    alert('SAP Service Layer no esta configurado o esta deshabilitado.\n\nIr a Panel admin > SAP > Service Layer y completar URL, CompanyDB, usuario y password. Tambien activar el toggle "Enabled".');
+  if (typeof sapSL === 'undefined' || typeof sapSL.isEnabled !== 'function') {
+    alert('Modulo SAP Service Layer no cargado. Reintenta despues de recargar la pagina.');
+    return;
+  }
+  // Asegurar listener de config SAP por si nunca se abrio el panel SAP (ahi
+  // se setea el listener). Ademas, si el cache esta vacio, traer el doc
+  // directo con .get() para no depender de que el snapshot llegue antes.
+  if (typeof ensureSapConfigListener === 'function') {
+    try { ensureSapConfigListener(); } catch(e){}
+  }
+  if (!sapConfigCache || !sapConfigCache.serviceLayer) {
+    try {
+      const snap = await fbDb.collection('app_config').doc('sap_integration').get();
+      if (snap && snap.exists) sapConfigCache = snap.data() || {};
+    } catch(e) { console.warn('runRevisarDireccionesSap fetch sap_config', e); }
+  }
+  if (!sapSL.isEnabled()) {
+    const cfg = sapSL.loadConfig();
+    const missing = [];
+    if (!cfg.enabled) missing.push('toggle "enabled" en OFF');
+    if (!cfg.url) missing.push('URL vacia');
+    if (!cfg.companyDB) missing.push('CompanyDB vacia');
+    if (!cfg.username) missing.push('Usuario vacio');
+    alert(
+      'SAP Service Layer no esta listo para usarse.\n\n' +
+      'Diagnostico: ' + (missing.join(', ') || 'config incompleta') + '.\n\n' +
+      'Ir a Panel admin > SAP > tab "Service Layer", completar URL / CompanyDB / Usuario / Password, marcar el checkbox "Enabled" y Guardar.'
+    );
     return;
   }
   // Recolectar todos los stores con cardCodeSap.
