@@ -2861,6 +2861,21 @@ function applyVendorOverridesFilter(p, names){
   });
 }
 
+// Helper: una tienda esta "confirmada en SAP" si en client_master tiene
+// tanto sapCardCode como address poblados. Estos campos los setea el
+// flujo "Importar desde SAP" del panel Master Clientes. Esta es la
+// fuente unica de verdad para decidir si una tienda existe en SAP B1
+// con datos completos.
+function isSapConfirmed(provincia, localidad, nombre){
+  if (typeof clientLocId !== 'function' || typeof clientMasterCache === 'undefined') return false;
+  try {
+    const docId = clientLocId(provincia, localidad, nombre);
+    const d = clientMasterCache.get(docId);
+    if (!d) return false;
+    return !!(d.sapCardCode && (d.address || d.sapAddress));
+  } catch(e) { return false; }
+}
+
 function effClients(p){
   if (currentTypeFilter === 'PROSPECTOS') return [];
   // En modo Distribuidores: usamos el listado OFICIAL del Excel CLIENTES_ZONAS
@@ -2880,16 +2895,17 @@ function effClients(p){
   if (currentTypeFilter !== 'VENTAS_ESPECIALES') {
     try { src = src.concat(altasForPoint(p)); } catch(e){}
   }
+  // FILTRO SAP: el mapa solo muestra clientes confirmados en SAP B1
+  // (con CardCode y direccion). El resto queda oculto.
+  src = src.filter(n => isSapConfirmed(p.province, p.name, n));
   return src;
 }
 function effProspects(p){
-  if (currentTypeFilter === 'EXISTENTES') return [];
-  if (currentTypeFilter === 'DISTRIBUIDORES') return [];
-  let src = p.prospects || [];
-  if (currentTypeFilter === 'VENTAS_ESPECIALES') {
-    src = src.filter(n => passesTypeFilter(n));
-  }
-  return applyVendorOverridesFilter(p, src);
+  // FILTRO SAP: los prospects NO existen todavia en SAP (no tienen CardCode).
+  // Por definicion ninguno cumple la condicion. Devolvemos array vacio para
+  // que el mapa no los muestre. Cuando un prospect entra en SAP (admin lo
+  // habilita y aparece en el siguiente import), pasa a ser cliente.
+  return [];
 }
 
 // Detecta si estamos en un dispositivo tactil (celular/tablet). En esos casos
@@ -4872,6 +4888,12 @@ function ensureClientMasterListener(){
     qs.forEach(d => clientMasterCache.set(d.id, Object.assign({_id: d.id}, d.data())));
     const m = document.getElementById('master-cli-modal');
     if (m && m.classList.contains('open')) renderMasterClientesTable();
+    // Como el mapa filtra por SAP-confirmado (lee de clientMasterCache), si
+    // hay un import o un cambio de address/sapCardCode tenemos que repintar
+    // los marcadores y los conteos.
+    try { if (typeof drawMarkers === 'function') drawMarkers(); } catch(e){}
+    try { if (typeof restyleZoneLayers === 'function') restyleZoneLayers(); } catch(e){}
+    try { if (typeof renderClients === 'function' && typeof filteredPoints === 'function') renderClients(filteredPoints()); } catch(e){}
   }, err => console.warn('client_master listener', err));
 }
 
