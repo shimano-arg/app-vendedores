@@ -10677,22 +10677,78 @@ window.closeImgViewer = function(){
 };
 
 // === Tarea: poblar destinatario, manejar imagenes, enviar ===
+// IMPORTANTE: Firestore Rules bloquean a vendedores de listar /roles
+// (solo pueden leer su propio doc). Para que el dropdown de destinatarios
+// funcione para todos los roles, leemos de app_config/users_directory
+// (un mapa publico que el admin mantiene sincronizado). Si esa fuente
+// no existe todavia, fallback a /roles (admin / viewer si funcionan).
 function populateTaskTargetSelect(){
   const sel = document.getElementById('task-target');
   if (!sel) return;
-  // Cargar usuarios validos (no unassigned, no self)
-  fbDb.collection('roles').get().then(qs => {
+  function renderFromMap(usersMap){
     const opts = ['<option value="">Seleccionar...</option>'];
-    qs.forEach(d => {
-      const data = d.data() || {};
-      if (d.id === currentUser.uid) return;
-      if (!data.role || data.role === 'unassigned') return;
-      const label = (data.displayName || data.email || d.id) + ' &middot; ' + (data.role || '');
-      opts.push('<option value="' + escapeAttr(d.id) + '" data-email="' + escapeAttr(data.email || '') + '" data-name="' + escapeAttr(data.displayName || data.email || '') + '">' + escapeHtml(label) + '</option>');
+    Object.entries(usersMap || {}).forEach(([uid, u]) => {
+      if (uid === currentUser.uid) return;
+      if (!u || !u.role || u.role === 'unassigned') return;
+      const label = (u.displayName || u.email || uid) + ' · ' + (u.role || '');
+      opts.push('<option value="' + escapeAttr(uid) + '" data-email="' + escapeAttr(u.email || '') + '" data-name="' + escapeAttr(u.displayName || u.email || '') + '">' + escapeHtml(label) + '</option>');
     });
     sel.innerHTML = opts.join('');
-  }).catch(e => { console.warn('populate task target', e); });
+  }
+  // Intento principal: directorio publico mantenido por admin.
+  fbDb.collection('app_config').doc('users_directory').get().then(snap => {
+    if (snap.exists && snap.data() && snap.data().users) {
+      renderFromMap(snap.data().users);
+      return;
+    }
+    // Fallback: leer /roles directamente (funciona para admin/viewer
+    // pero NO para vendedor por security rules).
+    fbDb.collection('roles').get().then(qs => {
+      const usersMap = {};
+      qs.forEach(d => { usersMap[d.id] = d.data() || {}; });
+      renderFromMap(usersMap);
+    }).catch(e => {
+      console.warn('populate task target - sin /roles ni users_directory:', e);
+      sel.innerHTML = '<option value="">Seleccionar... (sin usuarios disponibles, pedile al admin que entre 1 vez al Panel Usuarios)</option>';
+    });
+  }).catch(e => {
+    console.warn('populate task target - fallback a /roles:', e);
+    fbDb.collection('roles').get().then(qs => {
+      const usersMap = {};
+      qs.forEach(d => { usersMap[d.id] = d.data() || {}; });
+      renderFromMap(usersMap);
+    }).catch(()=>{
+      sel.innerHTML = '<option value="">Seleccionar... (sin usuarios disponibles)</option>';
+    });
+  });
 }
+
+// Admin solo: sincronizar el directorio publico a partir del usersCache
+// que se carga en openAdminPanel. Los demas roles lo leen para poblar
+// el dropdown de destinatarios de tareas.
+function syncUsersDirectory(){
+  if (userRole !== 'admin') return;
+  if (!Array.isArray(usersCache) || !usersCache.length) return;
+  const dir = {};
+  usersCache.forEach(u => {
+    if (!u || !u._uid) return;
+    if (!u.role || u.role === 'unassigned') return;
+    dir[u._uid] = {
+      email: u.email || '',
+      displayName: u.displayName || '',
+      role: u.role,
+    };
+  });
+  fbDb.collection('app_config').doc('users_directory').set({
+    users: dir,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    updatedBy: (currentUser && currentUser.email) || '',
+    userCount: Object.keys(dir).length,
+  }, {merge: true}).then(() => {
+    console.log('[users_directory] sincronizado:', Object.keys(dir).length, 'usuarios');
+  }).catch(e => console.warn('syncUsersDirectory error:', e));
+}
+window.syncUsersDirectory = syncUsersDirectory;
 
 window.onTaskImageInput = async function(input){
   const files = [...(input.files || [])];
@@ -14013,6 +14069,10 @@ window.openAdminPanel = async function(){
     qs.forEach(doc => { usersCache.push(Object.assign({_uid: doc.id}, doc.data())); });
     // Render del bloque "Asignar aprobador a todos los vendedores" arriba de la tabla.
     try { renderBulkApproverSection(); } catch(e) { console.warn('bulk approver section', e); }
+    // Sincronizar el directorio publico de usuarios para que los vendedores
+    // puedan ver destinatarios al crear tareas en Notificaciones. Sin esto
+    // los vendedores ven el dropdown vacio (security rules bloquean /roles).
+    try { syncUsersDirectory(); } catch(e) { console.warn('syncUsersDirectory', e); }
     // Lista de internos disponibles (para asignar pareja a los vendedores)
     const internos = usersCache.filter(u => u.role === 'interno');
     const internoOpts = '<option value="">- Sin pareja -</option>' + internos.map(u =>
