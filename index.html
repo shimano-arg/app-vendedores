@@ -3802,6 +3802,13 @@ function _buildVendorOutlinesCache(){
     byVendor[v].push(feat);
   });
   const out = {};
+  // Redondea coordenadas a 5 decimales (~1m). polygon-clipping tiene
+  // problemas con diferencias floating point (ej. 27.0249 vs
+  // 27.02490000000006) y tira "Unable to complete output ring".
+  const roundCoord = c => [Math.round(c[0] * 100000) / 100000, Math.round(c[1] * 100000) / 100000];
+  const roundRing = ring => ring.map(roundCoord);
+  const roundPoly = poly => poly.map(roundRing);
+  const roundMp = mp => mp.map(roundPoly);
   Object.entries(byVendor).forEach(([vendor, deptos]) => {
     // Convertir cada feature a polygon-clipping MultiPolygon: array de poly,
     // donde poly = array de rings. Para Polygon plain, envolver en array.
@@ -3809,8 +3816,8 @@ function _buildVendorOutlinesCache(){
     deptos.forEach(feat => {
       const g = feat.geometry;
       if (!g || !g.coordinates) return;
-      if (g.type === 'MultiPolygon') mps.push(g.coordinates);
-      else if (g.type === 'Polygon') mps.push([g.coordinates]);
+      if (g.type === 'MultiPolygon') mps.push(roundMp(g.coordinates));
+      else if (g.type === 'Polygon') mps.push([roundPoly(g.coordinates)]);
     });
     if (!mps.length) { out[vendor] = []; return; }
     try {
