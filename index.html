@@ -14325,24 +14325,42 @@ window.signInWithEmailPassword = async function(){
   const oldTxt = btn.textContent;
   btn.textContent = 'Iniciando sesión...';
   try {
-    // Validar que el email este pre-autorizado por admin (collection
-    // allowed_emails). Esto evita que cualquiera con un email valido se
-    // cree una cuenta sin permiso. El doc tiene id = email lowercase.
-    const allowSnap = await fbDb.collection('allowed_emails').doc(email).get();
-    if (!allowSnap.exists) {
-      throw {code: 'app/email-not-allowed', message: 'Tu email no esta habilitado. Pedile al admin (Mariano) que te pre-autorice.'};
-    }
-    // Intentar sign-in. Si el usuario no existe en Firebase Auth, lo creamos.
+    // PRIMERO hacer signin (o crear cuenta). Antes intentabamos leer
+    // allowed_emails sin estar autenticado, pero las reglas Firestore no
+    // permiten lecturas anonimas, asi que tiraba "Missing or insufficient
+    // permission". Ahora signin primero -> ya autenticado -> despues
+    // chequeamos allowed_emails -> si no esta, signOut.
+    let didCreate = false;
     try {
       await fbAuth.signInWithEmailAndPassword(email, password);
-      // OK, onAuthStateChanged se encarga del resto.
     } catch(e) {
       if (e && e.code === 'auth/user-not-found') {
         // Primera vez: lo creamos con esta password como inicial.
         await fbAuth.createUserWithEmailAndPassword(email, password);
+        didCreate = true;
       } else {
         throw e;
       }
+    }
+    // Ya autenticado. Verificar que el email este en allowed_emails. Si
+    // no esta, signOut y borrar la cuenta recien creada (para no dejar
+    // basura en Firebase Auth). Si el read falla por permisos (por
+    // ejemplo rules muy estrictas), logueamos y dejamos pasar - el rol
+    // unassigned va a bloquearlo en el siguiente paso normal del flujo.
+    try {
+      const allowSnap = await fbDb.collection('allowed_emails').doc(email).get();
+      if (!allowSnap.exists) {
+        if (didCreate && fbAuth.currentUser) {
+          try { await fbAuth.currentUser.delete(); } catch(_){}
+        }
+        try { await fbAuth.signOut(); } catch(_){}
+        throw {code: 'app/email-not-allowed', message: 'Tu email no esta habilitado. Pedile al admin (Mariano) que te pre-autorice y reintenta.'};
+      }
+    } catch(eAllow) {
+      if (eAllow && eAllow.code === 'app/email-not-allowed') throw eAllow;
+      // Read fallo por reglas u otra cosa. No bloqueamos - el rol unassigned
+      // se va a encargar de bloquear el acceso si corresponde.
+      console.warn('[auth] no pude validar allowed_emails (read denegado o error):', eAllow);
     }
     closeEmailPasswordModal();
   } catch(e) {
