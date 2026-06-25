@@ -16982,6 +16982,12 @@ function renderSapPedidos(){
     const canTransfer = ((userRole === 'admin' || userRole === 'vendedor') && sapPendSelection.size > 0);
     html += '<button class="sap-btn secondary" onclick="exportSapReadyCsv()" title="Genera ZIP con 2 CSV en formato oficial DTW: OQUT - Documents.csv (cabecera Sales Quotation) + QUT1 - Document_Lines.csv (lineas). Listo para importar en DTW.">Exportar ZIP DTW (Listos)</button>';
     html += '<button class="sap-btn success" onclick="marcarLoteTransferido()"' + (canTransfer ? '' : ' disabled') + '>Marcar lote como transferido (' + sapPendSelection.size + ')</button>';
+    // Boton de borrado (solo admin / gerente). Util para limpiar pedidos
+    // de prueba sin tener que ir uno por uno.
+    if (userRole === 'admin' || userRole === 'gerente') {
+      const canDelete = sapPendSelection.size > 0;
+      html += '<button class="sap-btn" style="background:' + (canDelete ? '#dc2626' : '#94a3b8') + ';color:#fff;border:none" onclick="deleteSelectedPedidos()"' + (canDelete ? '' : ' disabled') + ' title="Borra los pedidos seleccionados de Firestore. Accion irreversible. Util para limpiar pedidos de prueba.">&#128465; Eliminar seleccionados (' + sapPendSelection.size + ')</button>';
+    }
   } else {
     html += '<button class="sap-btn secondary" onclick="exportSapReadyCsv()">Exportar CSV historico</button>';
   }
@@ -17183,6 +17189,35 @@ window.togglePedidoSelection = function(fsId){
   if (sapPendSelection.has(fsId)) sapPendSelection.delete(fsId);
   else sapPendSelection.add(fsId);
   renderSapPedidos();
+};
+
+// Borra de Firestore los pedidos seleccionados. Solo admin/gerente.
+// Util para limpiar pedidos de prueba sin tener que ir uno por uno.
+window.deleteSelectedPedidos = async function(){
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente puede borrar pedidos.');
+    return;
+  }
+  if (!sapPendSelection.size) return;
+  const ids = [...sapPendSelection];
+  if (!confirm(
+    'BORRAR DEFINITIVAMENTE ' + ids.length + ' pedido(s) de Firestore?\n\n'
+    + 'Esto es irreversible y afecta todos los usuarios.\n\n'
+    + 'Solo confirma si son pedidos de PRUEBA. ¿Continuar?'
+  )) return;
+  let ok = 0, fail = 0;
+  for (const fsId of ids) {
+    try {
+      await fbDb.collection('pedidos').doc(fsId).delete();
+      ok++;
+    } catch(e) {
+      console.error('delete pedido', fsId, e);
+      fail++;
+    }
+  }
+  sapPendSelection.clear();
+  alert(ok + ' pedido(s) borrado(s). ' + (fail ? fail + ' fallaron - revisar consola.' : ''));
+  // El listener de pedidos va a refrescar la UI automaticamente.
 };
 
 window.marcarLoteTransferido = async function(){
