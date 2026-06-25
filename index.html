@@ -15271,10 +15271,11 @@ function setTotpLastOK(uid){
 
 // Roles para los que el 2FA es OBLIGATORIO. Si el usuario tiene uno de estos
 // roles y todavia no configuro 2FA, se le fuerza el setup antes de entrar.
-// Decidido tras review de seguridad de Juan (IT/Sistemas): los admins manejan
-// configuracion sensible (targets, master clientes, integracion SAP, alta de
-// usuarios) y deberian tener 2FA siempre.
-const TOTP_REQUIRED_ROLES = ['admin'];
+// 2FA es OPCIONAL para todos los roles. Solo se activa cuando el admin lo
+// configura explicitamente para un usuario desde Panel Usuarios (set
+// totpEnabled=true + totpSecret en /roles/{uid}). Sin esos campos, el
+// gate de TOTP se saltea. Esto deja a Mariano decidir per-usuario.
+const TOTP_REQUIRED_ROLES = [];
 
 async function ensureTotpGate(){
   let snap;
