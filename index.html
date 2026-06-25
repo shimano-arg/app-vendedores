@@ -14399,19 +14399,27 @@ window.doInlineLogin = async function(){
     }
     // Login OK. Recordar el email para la proxima.
     try { window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, email); } catch(e){}
-    // Validacion de allowed_emails en background (no bloquea).
-    setTimeout(() => {
-      fbDb.collection('allowed_emails').doc(email).get()
-        .then(snap => {
-          if (!snap.exists) {
-            console.warn('[auth-inline] email no esta en allowed_emails');
-            if (didCreate && fbAuth.currentUser) { fbAuth.currentUser.delete().catch(()=>{}); }
-            fbAuth.signOut();
-            alert('Tu email no esta habilitado. Pedile al admin que te pre-autorice y reintenta.');
-          }
-        })
-        .catch(e => console.warn('[auth-inline] allowed_emails read denegado:', e && (e.code || e.message)));
-    }, 100);
+    // Si el usuario YA EXISTIA en Firebase Auth (no lo creamos nosotros) lo
+    // tratamos como pre-autorizado: el admin lo creo desde Firebase Console
+    // con password, asi que Firebase Auth ES la allowlist. No hace falta
+    // double-checkear allowed_emails (que ademas el admin no esta usando).
+    // SOLO si lo creamos recien en este flujo (didCreate=true) chequeamos
+    // allowed_emails para bloquear registros random: alguien que tipea un
+    // email nuevo en el login form podria auto-registrarse sin permiso.
+    if (didCreate) {
+      setTimeout(() => {
+        fbDb.collection('allowed_emails').doc(email).get()
+          .then(snap => {
+            if (!snap.exists) {
+              console.warn('[auth-inline] cuenta creada pero email NO esta en allowed_emails - eliminando');
+              if (fbAuth.currentUser) { fbAuth.currentUser.delete().catch(()=>{}); }
+              fbAuth.signOut();
+              alert('Este email no esta habilitado para crear cuenta. Pedile al admin que te de de alta primero.');
+            }
+          })
+          .catch(e => console.warn('[auth-inline] allowed_emails read denegado:', e && (e.code || e.message)));
+      }, 100);
+    }
   } catch(e) {
     console.error('doInlineLogin', e);
     const code = e && e.code;
@@ -14498,31 +14506,26 @@ window.signInWithEmailPassword = async function(){
         throw e;
       }
     }
-    // Ya autenticado. Cerramos el modal antes de cualquier otra cosa que
-    // pueda fallar - asi el usuario por lo menos ve la pantalla de la app
-    // (con su pantalla de unassigned o lo que sea). Antes el allowed_emails
-    // check estaba aca pero la rule podia bloquear y la app se quedaba en
-    // un estado raro. Movido a un side-effect que no bloquea.
+    // Ya autenticado. Cerramos el modal asi el usuario ve la app.
     console.log('[auth] step 3: closing modal');
     closeEmailPasswordModal();
-    // Side-effect (fire-and-forget): si el email no esta en allowed_emails,
-    // signOut. Pero no bloqueamos el flujo principal con este check.
-    setTimeout(() => {
-      fbDb.collection('allowed_emails').doc(email).get()
-        .then(snap => {
-          if (!snap.exists) {
-            console.warn('[auth] email no esta en allowed_emails - cerrando sesion');
-            if (didCreate && fbAuth.currentUser) {
-              fbAuth.currentUser.delete().catch(()=>{});
+    // Solo chequeamos allowed_emails si la cuenta se creo recien aca. Si
+    // el usuario YA EXISTIA en Firebase Auth, lo tratamos como autorizado
+    // (admin lo creo desde Firebase Console). Asi evitamos pedir 2 listas.
+    if (didCreate) {
+      setTimeout(() => {
+        fbDb.collection('allowed_emails').doc(email).get()
+          .then(snap => {
+            if (!snap.exists) {
+              console.warn('[auth] cuenta creada pero email NO esta en allowed_emails - eliminando');
+              if (fbAuth.currentUser) { fbAuth.currentUser.delete().catch(()=>{}); }
+              fbAuth.signOut();
+              alert('Este email no esta habilitado para crear cuenta. Pedile al admin que te de de alta primero.');
             }
-            fbAuth.signOut();
-            alert('Tu email no esta habilitado. Pedile al admin que te pre-autorice y reintenta.');
-          } else {
-            console.log('[auth] email confirmado en allowed_emails');
-          }
-        })
-        .catch(e => console.warn('[auth] no pude validar allowed_emails (read denegado):', e && (e.code || e.message)));
-    }, 100);
+          })
+          .catch(e => console.warn('[auth] no pude validar allowed_emails:', e && (e.code || e.message)));
+      }, 100);
+    }
   } catch(e) {
     console.error('signInWithEmailPassword', e);
     const code = e && e.code;
