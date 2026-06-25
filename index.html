@@ -1788,7 +1788,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       </div>
       <div class="modal-footer" style="justify-content:space-between;gap:12px">
         <button class="btn-cancel" style="background:#fff;color:#475569;border:1.5px solid #cbd5e1" onclick="closeReviewDialog()">Volver a editar</button>
-        <button class="btn-confirm" onclick="closeReviewDialog();openConfirmDialog()">Confirmar y enviar a Pendientes</button>
+        <button class="btn-confirm" onclick="closeReviewDialog();openConfirmDialog()">Pasar a Pendientes</button>
       </div>
     </div>
   </div>
@@ -13567,7 +13567,7 @@ function updateReviewFooter(){
       + '<button class="btn-confirm" onclick="doConfirmDefinitivoFromReview()">Confirmar y enviar a Confirmados</button>';
   } else {
     footer.innerHTML = '<button class="btn-cancel" style="background:#fff;color:#475569;border:1.5px solid #cbd5e1" onclick="closeReviewDialog()">Volver a editar</button>'
-      + '<button class="btn-confirm" onclick="closeReviewDialog();openConfirmDialog()">Confirmar y enviar a Pendientes</button>';
+      + '<button class="btn-confirm" onclick="closeReviewDialog();openConfirmDialog()">Pasar a Pendientes</button>';
   }
 }
 
