@@ -14330,39 +14330,48 @@ window.signInWithEmailPassword = async function(){
     // permiten lecturas anonimas, asi que tiraba "Missing or insufficient
     // permission". Ahora signin primero -> ya autenticado -> despues
     // chequeamos allowed_emails -> si no esta, signOut.
+    console.log('[auth] step 1: signing in', email);
     let didCreate = false;
     try {
       await fbAuth.signInWithEmailAndPassword(email, password);
+      console.log('[auth] step 2: signin OK, uid=', fbAuth.currentUser && fbAuth.currentUser.uid);
     } catch(e) {
+      console.log('[auth] signin error code=', e && e.code);
       if (e && e.code === 'auth/user-not-found') {
         // Primera vez: lo creamos con esta password como inicial.
+        console.log('[auth] step 2b: user not found, creating');
         await fbAuth.createUserWithEmailAndPassword(email, password);
         didCreate = true;
+        console.log('[auth] step 2c: created OK, uid=', fbAuth.currentUser && fbAuth.currentUser.uid);
       } else {
         throw e;
       }
     }
-    // Ya autenticado. Verificar que el email este en allowed_emails. Si
-    // no esta, signOut y borrar la cuenta recien creada (para no dejar
-    // basura en Firebase Auth). Si el read falla por permisos (por
-    // ejemplo rules muy estrictas), logueamos y dejamos pasar - el rol
-    // unassigned va a bloquearlo en el siguiente paso normal del flujo.
-    try {
-      const allowSnap = await fbDb.collection('allowed_emails').doc(email).get();
-      if (!allowSnap.exists) {
-        if (didCreate && fbAuth.currentUser) {
-          try { await fbAuth.currentUser.delete(); } catch(_){}
-        }
-        try { await fbAuth.signOut(); } catch(_){}
-        throw {code: 'app/email-not-allowed', message: 'Tu email no esta habilitado. Pedile al admin (Mariano) que te pre-autorice y reintenta.'};
-      }
-    } catch(eAllow) {
-      if (eAllow && eAllow.code === 'app/email-not-allowed') throw eAllow;
-      // Read fallo por reglas u otra cosa. No bloqueamos - el rol unassigned
-      // se va a encargar de bloquear el acceso si corresponde.
-      console.warn('[auth] no pude validar allowed_emails (read denegado o error):', eAllow);
-    }
+    // Ya autenticado. Cerramos el modal antes de cualquier otra cosa que
+    // pueda fallar - asi el usuario por lo menos ve la pantalla de la app
+    // (con su pantalla de unassigned o lo que sea). Antes el allowed_emails
+    // check estaba aca pero la rule podia bloquear y la app se quedaba en
+    // un estado raro. Movido a un side-effect que no bloquea.
+    console.log('[auth] step 3: closing modal');
     closeEmailPasswordModal();
+    // Side-effect (fire-and-forget): si el email no esta en allowed_emails,
+    // signOut. Pero no bloqueamos el flujo principal con este check.
+    setTimeout(() => {
+      fbDb.collection('allowed_emails').doc(email).get()
+        .then(snap => {
+          if (!snap.exists) {
+            console.warn('[auth] email no esta en allowed_emails - cerrando sesion');
+            if (didCreate && fbAuth.currentUser) {
+              fbAuth.currentUser.delete().catch(()=>{});
+            }
+            fbAuth.signOut();
+            alert('Tu email no esta habilitado. Pedile al admin que te pre-autorice y reintenta.');
+          } else {
+            console.log('[auth] email confirmado en allowed_emails');
+          }
+        })
+        .catch(e => console.warn('[auth] no pude validar allowed_emails (read denegado):', e && (e.code || e.message)));
+    }, 100);
   } catch(e) {
     console.error('signInWithEmailPassword', e);
     const code = e && e.code;
