@@ -10382,7 +10382,11 @@ function getMyAllowedVendorKeys(){
   if (userRole === 'admin' || userRole === 'viewer') return null;
   if (userRole === 'vendedor') return new Set(assignedVendor ? [assignedVendor] : []);
   if (userRole === 'interno') {
+    // VDI ve sus parejas (VDEs con internalPartnerUid apuntando a el)
+    // + su propia zona asignada en /roles/{uid}.vendor (ej. Santiago
+    // Esteban tiene Z7 = NOA + Misiones, ademas de cubrir Mauricio + Martin).
     const keys = (myExternalPartners || []).map(p => p.vendor).filter(Boolean);
+    if (assignedVendor) keys.push(assignedVendor);
     return new Set(keys);
   }
   return new Set();
