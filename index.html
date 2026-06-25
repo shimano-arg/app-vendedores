@@ -5057,6 +5057,11 @@ window.exportMasterClientes = function(){
     return v ? v.label : (vendorKey || '');
   }
 
+  // FILTRO SAP: solo se exportan los clientes HABILITADOS en SAP - los que
+  // tienen cardCode + direccion. Esos son los que aparecen como verdes en
+  // el mapa y se cuentan en el stat HABILITADOS. Antes el masterfile bajaba
+  // los ~1000 POINTS del padron historico, que no representaba el universo
+  // real operable hoy.
   const rows = [];
   POINTS.forEach(p => {
     const province = p.province || '';
@@ -5067,38 +5072,38 @@ window.exportMasterClientes = function(){
     const vdi = VDE_TO_VDI[vendor] || '';
     const lat = (p.lat != null) ? p.lat : '';
     const lon = (p.lon != null) ? p.lon : '';
-    // Combinar clients + prospects con su tipo correspondiente. Tambien
-    // sumar los distributorClients (filas DISTRIBUIDORES del Excel) marcandolos
-    // como categoria=Distribuidor.
-    const regularClients = (p.clients || []).map(name => ({name, tipo: 'Cliente actual', categoria: 'Regular'}));
-    const regularPros = (p.prospects || []).map(name => ({name, tipo: 'Prospecto', categoria: 'Regular'}));
-    const distribClients = (p.distributorClients || []).map(name => ({name, tipo: 'Distribuidor', categoria: 'Distribuidor'}));
-    [...regularClients, ...regularPros, ...distribClients].forEach(entry => {
-      const name = entry.name;
+    // Solo clientes regulares (no prospects, no distribuidores) que pasen
+    // el filtro isSapConfirmed: tienen cardCodeSap + direccion.
+    (p.clients || []).forEach(name => {
       if (!name) return;
-      // Estado: habilitado / cancelado / pendiente (con la clave del modal Cliente).
-      const tipoLetra = entry.tipo === 'Cliente actual' ? 'C' : (entry.tipo === 'Prospecto' ? 'P' : 'D');
-      const k = tipoLetra + '|' + province + '|' + localityMap + '|' + name;
-      let estado = 'Pendiente';
-      if (typeof contacted !== 'undefined' && contacted && contacted.has && contacted.has(k)) estado = 'Habilitado';
-      else if (typeof canceled !== 'undefined' && canceled && canceled.has && canceled.has(k)) estado = 'Cancelado';
-      // Metadata custom (direccion, localidad declarada, geocode) del modal Alta.
+      if (typeof isSapConfirmed !== 'function' || !isSapConfirmed(province, localityMap, name)) return;
+      const k = 'C|' + province + '|' + localityMap + '|' + name;
+      // Estado: habilitado/cancelado/pendiente (legacy contacted set).
+      let estado = 'Habilitado'; // por definicion ya esta SAP-confirmado
+      if (typeof canceled !== 'undefined' && canceled && canceled.has && canceled.has(k)) estado = 'Cancelado';
+      // Metadata custom (direccion, localidad declarada, geocode).
       const meta = (typeof clientMeta !== 'undefined' && clientMeta) ? (clientMeta[k] || {}) : {};
       const customName = meta.customName || '';
-      const address = meta.address || '';
-      const localityCust = meta.locality || '';
+      // Buscar address: 1) client_master.address (admin), 2) clientMeta.address (vendor).
+      const docId = (typeof clientLocId === 'function') ? clientLocId(province, localityMap, name) : '';
+      const cmData = (typeof clientMasterCache !== 'undefined' && docId) ? (clientMasterCache.get(docId) || {}) : {};
+      const address = cmData.address || meta.address || '';
+      const localityCust = cmData.localidad || meta.locality || '';
       const customLat = (meta.lat != null) ? meta.lat : '';
       const customLng = (meta.lng != null) ? meta.lng : '';
-      // Categoria especial: ventas especiales (override de Regular)
-      let categoria = entry.categoria;
-      if (typeof CLIENT_SPECIAL_SALES_SET !== 'undefined' && CLIENT_SPECIAL_SALES_SET.has && CLIENT_SPECIAL_SALES_SET.has(normClientName(name))) {
-        categoria = 'Ventas especiales';
+      // CardCode SAP (de client_master o de la alta vinculada).
+      let cardCode = cmData.sapCardCode || '';
+      if (!cardCode && typeof approvedAltasByLoc !== 'undefined') {
+        const key = province.toUpperCase() + '|' + localityMap;
+        const altas = approvedAltasByLoc[key] || [];
+        const altaMatch = altas.find(a => (a.comercio || a.fantasia || '') === name);
+        if (altaMatch) cardCode = altaMatch.cardCodeSap || '';
       }
       rows.push({
+        'CardCode SAP':             cardCode,
         'Nombre tienda':            name,
         'Alias (modal)':            customName,
-        'Tipo':                     entry.tipo,
-        'Categoria':                categoria,
+        'Tipo':                     'Cliente actual',
         'Estado':                   estado,
         'Provincia':                (typeof titleCase === 'function') ? titleCase(province) : province,
         'Localidad (mapa)':         localityMap,
@@ -5107,13 +5112,51 @@ window.exportMasterClientes = function(){
         'Zona':                     zone,
         'Etiqueta zona':            lookupVendorLabel(vendor),
         'Asesor interno (VDI)':     vdi,
-        'Direccion declarada':      address,
+        'Direccion':                address,
         'Localidad declarada':      localityCust,
         'Lat (geocode)':            customLat || lat,
         'Lng (geocode)':            customLng || lon,
       });
     });
   });
+  // Inyectar las SAP altas huerfanas (cardCodeSap + direccion, no
+  // matcheadas a ningun POINT por nombre). Estas son las que el mapa
+  // muestra como pines azul/verde y se cuentan en HABILITADOS pero no
+  // estan en el padron POINTS.
+  const seen = new Set();
+  rows.forEach(r => seen.add(((r.Provincia || '').toString().toUpperCase()) + '|' + (r['Nombre tienda'] || '').toLowerCase()));
+  if (typeof approvedAltasList !== 'undefined' && approvedAltasList.length) {
+    approvedAltasList.forEach(a => {
+      if (!a || !a.cardCodeSap) return;
+      if (!(a.calle || a.address)) return; // solo si tiene direccion
+      const prov = (a.provincia || '').toString();
+      const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
+      const dupKey = prov.toUpperCase() + '|' + nombre.toLowerCase();
+      if (seen.has(dupKey)) return;
+      const vendor = a.assignedVendor || '';
+      const zone = lookupZone(vendor);
+      const vdi = VDE_TO_VDI[vendor] || '';
+      const loc = a.localidadFinal || a.localidad || '(sin localidad)';
+      rows.push({
+        'CardCode SAP':             a.cardCodeSap || '',
+        'Nombre tienda':            nombre,
+        'Alias (modal)':            '',
+        'Tipo':                     'Cliente actual',
+        'Estado':                   'Habilitado',
+        'Provincia':                (typeof titleCase === 'function') ? titleCase(prov) : prov,
+        'Localidad (mapa)':         loc,
+        'Departamento':             '',
+        'Vendedor externo (VDE)':   vendor,
+        'Zona':                     zone,
+        'Etiqueta zona':            lookupVendorLabel(vendor),
+        'Asesor interno (VDI)':     vdi,
+        'Direccion':                a.calle || a.address || '',
+        'Localidad declarada':      loc,
+        'Lat (geocode)':            (a.lat != null ? a.lat : ''),
+        'Lng (geocode)':            (a.lng != null ? a.lng : ''),
+      });
+    });
+  }
 
   // Ordenar por provincia, localidad, nombre.
   rows.sort((a, b) => {
@@ -5125,17 +5168,22 @@ window.exportMasterClientes = function(){
   });
 
   if (!rows.length) {
-    alert('No se generaron filas. Algo raro paso.');
+    alert('No hay clientes habilitados en SAP todavía.\n\n'
+      + 'Habilitado en SAP = tiene CardCode + dirección cargada en SAP.\n\n'
+      + 'Pasos para sumar habilitados:\n'
+      + '1. SAP → Importar masterfile de BPs (panel SAP).\n'
+      + '2. Cargar dirección a cada tienda (panel Master Clientes).\n'
+      + '3. Geocodificar las direcciones.');
     return;
   }
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = [
+    {wch:16}, // CardCode SAP
     {wch:38}, // Nombre tienda
     {wch:28}, // Alias
     {wch:14}, // Tipo
-    {wch:18}, // Categoria
     {wch:14}, // Estado
     {wch:22}, // Provincia
     {wch:22}, // Localidad mapa
@@ -5144,41 +5192,35 @@ window.exportMasterClientes = function(){
     {wch:8},  // Zona
     {wch:48}, // Etiqueta zona
     {wch:28}, // Asesor interno
-    {wch:38}, // Direccion declarada
+    {wch:38}, // Direccion
     {wch:24}, // Localidad declarada
     {wch:14}, // Lat
     {wch:14}, // Lng
   ];
-  XLSX.utils.book_append_sheet(wb, ws, 'Clientes');
+  XLSX.utils.book_append_sheet(wb, ws, 'Clientes habilitados SAP');
 
   // Hoja resumen por zona
   const byZone = {};
   rows.forEach(r => {
     const z = r['Etiqueta zona'] || 'Sin zona';
-    if (!byZone[z]) byZone[z] = {total: 0, habilitados: 0, pendientes: 0, cancelados: 0, distribuidores: 0, especiales: 0};
+    if (!byZone[z]) byZone[z] = {total: 0, habilitados: 0, cancelados: 0};
     byZone[z].total++;
     if (r.Estado === 'Habilitado') byZone[z].habilitados++;
     else if (r.Estado === 'Cancelado') byZone[z].cancelados++;
-    else byZone[z].pendientes++;
-    if (r.Categoria === 'Distribuidor') byZone[z].distribuidores++;
-    else if (r.Categoria === 'Ventas especiales') byZone[z].especiales++;
   });
   const resumenRows = Object.entries(byZone).map(([z, d]) => ({
     'Zona / Vendedor': z,
-    'Total tiendas':  d.total,
-    'Habilitadas':    d.habilitados,
-    'Pendientes':     d.pendientes,
-    'Canceladas':     d.cancelados,
-    'Distribuidores': d.distribuidores,
-    'Ventas espec.':  d.especiales,
+    'Total tiendas':   d.total,
+    'Habilitadas':     d.habilitados,
+    'Canceladas':      d.cancelados,
   })).sort((a, b) => b['Total tiendas'] - a['Total tiendas']);
   const wsRes = XLSX.utils.json_to_sheet(resumenRows);
-  wsRes['!cols'] = [{wch:48},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14}];
+  wsRes['!cols'] = [{wch:48},{wch:14},{wch:14},{wch:14}];
   XLSX.utils.book_append_sheet(wb, wsRes, 'Resumen por zona');
 
   const ts = new Date().toISOString().slice(0,10);
-  XLSX.writeFile(wb, 'Masterfile_Clientes_' + ts + '.xlsx');
-  showSyncTag(rows.length + ' tiendas exportadas');
+  XLSX.writeFile(wb, 'Masterfile_Clientes_SAP_' + ts + '.xlsx');
+  showSyncTag(rows.length + ' clientes SAP exportados');
 };
 
 // ======================================================
