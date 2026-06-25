@@ -3766,7 +3766,10 @@ let vendorOutlineLayer = L.layerGroup().addTo(map);
 let _vendorOutlinesCache = null; // {vendor: [[[lat,lng],[lat,lng]], ...]}
 function _buildVendorOutlinesCache(){
   if (_vendorOutlinesCache) return _vendorOutlinesCache;
-  const round = n => Math.round(n * 100000) / 100000; // ~1 metro de precision
+  // Precision de 3 decimales (~100m). Mas tolerante que 5 decimales asi
+  // los vertices compartidos entre 2 deptos del mismo vendor se cancelan
+  // aunque tengan pequeñas diferencias de precision en el GeoJSON original.
+  const round = n => Math.round(n * 1000) / 1000;
   const byVendor = {};
   // Filtrar Antartida igual que el deptLayer.
   const safe = _filterOutAntarctica(DEPT_GEO);
