@@ -16990,6 +16990,12 @@ function renderSapPedidos(){
     }
   } else {
     html += '<button class="sap-btn secondary" onclick="exportSapReadyCsv()">Exportar CSV historico</button>';
+    // Boton de borrado masivo tambien en Ya transferidos (admin / gerente).
+    // Misma logica: usa sapPendSelection y deleteSelectedPedidos.
+    if (userRole === 'admin' || userRole === 'gerente') {
+      const canDelete = sapPendSelection.size > 0;
+      html += '<button class="sap-btn" style="background:' + (canDelete ? '#dc2626' : '#94a3b8') + ';color:#fff;border:none" onclick="deleteSelectedPedidos()"' + (canDelete ? '' : ' disabled') + ' title="Borra los pedidos seleccionados. Irreversible. Util para limpiar pedidos de prueba ya transferidos.">&#128465; Eliminar seleccionados (' + sapPendSelection.size + ')</button>';
+    }
   }
   html += '</div>';
 
@@ -17030,7 +17036,11 @@ function renderPedidoCard(p, status){
 
   let html = '<div class="' + cardClass + '">';
   html += '<div class="sap-card-head"><div>';
-  if (status === 'listo' && (userRole === 'admin' || userRole === 'vendedor')) {
+  // Checkbox: en listos para admin/vendedor (marcar como transferido) y en
+  // cualquier estado para admin/gerente (borrado masivo).
+  const showCheck = (status === 'listo' && (userRole === 'admin' || userRole === 'vendedor'))
+    || (status === 'transferido' && (userRole === 'admin' || userRole === 'gerente'));
+  if (showCheck) {
     const checked = sapPendSelection.has(p._fsId) ? ' checked' : '';
     html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" class="sap-pend-check" onchange="togglePedidoSelection(\'' + p._fsId + '\')"' + checked + '/><span class="sap-card-title">' + escapeHtml(p.clientName || '-') + '</span></label>';
   } else {
@@ -17117,7 +17127,13 @@ function renderBloqueadoGroup(g){
     const u = (p.lines || []).reduce((s, l) => s + (parseFloat(l.qty) || 0), 0);
     const m = (p.lines || []).reduce((s, l) => s + (parseFloat(l.qty) || 0) * (parseFloat(l.precio) || 0), 0);
     html += '<div class="sap-bloqueado-ped">';
-    html += '<span><b>' + escapeHtml(p.month || '-') + '</b> &middot; ' + (p.lines || []).length + ' SKUs &middot; ' + Math.round(u) + ' uds &middot; $' + Math.round(m).toLocaleString('es-AR') + ' &middot; ' + escapeHtml(p.ownerEmail || '') + '</span>';
+    // Checkbox para admin/gerente - habilita borrado masivo en la barra superior.
+    if (userRole === 'admin' || userRole === 'gerente') {
+      const checked = sapPendSelection.has(p._fsId) ? ' checked' : '';
+      html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1"><input type="checkbox" class="sap-pend-check" onchange="togglePedidoSelection(\'' + p._fsId + '\')"' + checked + '/><span><b>' + escapeHtml(p.month || '-') + '</b> &middot; ' + (p.lines || []).length + ' SKUs &middot; ' + Math.round(u) + ' uds &middot; $' + Math.round(m).toLocaleString('es-AR') + ' &middot; ' + escapeHtml(p.ownerEmail || '') + '</span></label>';
+    } else {
+      html += '<span><b>' + escapeHtml(p.month || '-') + '</b> &middot; ' + (p.lines || []).length + ' SKUs &middot; ' + Math.round(u) + ' uds &middot; $' + Math.round(m).toLocaleString('es-AR') + ' &middot; ' + escapeHtml(p.ownerEmail || '') + '</span>';
+    }
     if (userRole === 'admin') {
       html += '<button class="sap-btn secondary" style="padding:5px 10px;font-size:10px" onclick="marcarManualSap(\'' + p._fsId + '\')">Cargado manual</button>';
     }
