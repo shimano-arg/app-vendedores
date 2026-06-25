@@ -1612,6 +1612,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         </div>
         <div id="zonas-content" style="flex:1;overflow-y:auto;padding:0 14px"></div>
         <div style="display:flex;gap:8px;padding:12px 14px;border-top:1px solid #e5e7eb;background:#f8fafc;flex-wrap:wrap;justify-content:flex-end">
+          <button class="zonas-action-btn" style="background:#0f766e;color:#fff;border:none;padding:8px 14px;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;margin-right:auto" onclick="exportZonasMapeoExcel()" title="Exporta a Excel cómo está mapeado cada vendedor: las provincias y localidades que tiene asignadas + cantidad de tiendas en cada una">&#128202; Exportar mapeo a Excel</button>
           <button class="zonas-action-btn refresh" onclick="refreshZonasMap()">&#128260; Refrescar Mapa</button>
           <button class="zonas-action-btn save" onclick="saveZonasChanges()" id="zonas-save-btn" disabled>&#128190; Guardar Cambios</button>
         </div>
@@ -18148,6 +18149,167 @@ function getVendorTypeFromKey(vendorKey){
   if (VENDORS.some(v => v.key === vendorKey)) return 'VDE';
   return null;
 }
+
+// Exporta a Excel el mapeo actual de vendor -> (provincia, localidad, tiendas).
+// Util para auditar como esta distribuida la cartera y detectar tiendas mal
+// asignadas (ej. una tienda de Mauricio en una provincia que no le corresponde).
+// Incluye los overrides activos en vendor_overrides (cambios desde el modal Zonas).
+window.exportZonasMapeoExcel = function(){
+  if (typeof XLSX === 'undefined') { alert('Falta la libreria XLSX. Recargá la página.'); return; }
+  // Estructura intermedia: vendor -> provincia -> localidad -> {tiendas, clients[], prospects[]}.
+  const map = new Map();
+  function getEntry(vendor, provincia, localidad){
+    if (!map.has(vendor)) map.set(vendor, new Map());
+    const provMap = map.get(vendor);
+    if (!provMap.has(provincia)) provMap.set(provincia, new Map());
+    const locMap = provMap.get(provincia);
+    if (!locMap.has(localidad)) locMap.set(localidad, {tiendas: 0, clients: [], prospects: []});
+    return locMap.get(localidad);
+  }
+  POINTS.forEach(p => {
+    const allClients = (p.clients || []);
+    const allProspects = (p.prospects || []);
+    // Para cada tienda: determinar su vendor EFECTIVO (incluyendo overrides
+    // si hay alguno aplicado desde el modal Zonas). Si no hay override,
+    // usa el vendor del POINT.
+    function vendorOf(clientName){
+      if (typeof getEffectiveVendorForClient === 'function') {
+        try { return getEffectiveVendorForClient(p, clientName) || p.vendor || '(sin vendor)'; }
+        catch(e) { return p.vendor || '(sin vendor)'; }
+      }
+      return p.vendor || '(sin vendor)';
+    }
+    allClients.forEach(name => {
+      const v = vendorOf(name);
+      const e = getEntry(v, p.province || '(sin provincia)', p.name || '(sin localidad)');
+      e.tiendas++;
+      e.clients.push(name);
+    });
+    allProspects.forEach(name => {
+      const v = vendorOf(name);
+      const e = getEntry(v, p.province || '(sin provincia)', p.name || '(sin localidad)');
+      e.tiendas++;
+      e.prospects.push(name);
+    });
+  });
+  // Tambien sumamos las SAP altas con cardCodeSap + direccion (las que el
+  // mapa muestra como pin azul/verde) - usan assignedVendor del alta.
+  if (typeof approvedAltasList !== 'undefined' && approvedAltasList.length) {
+    approvedAltasList.forEach(a => {
+      if (!a || !a.cardCodeSap) return;
+      const v = a.assignedVendor || '(sin vendor)';
+      const prov = (a.provincia || '(sin provincia)').toString();
+      const loc = (a.localidadFinal || a.localidad || '(sin localidad)').toString();
+      const e = getEntry(v, prov, loc);
+      e.tiendas++;
+      e.clients.push((a.comercio || a.fantasia || 'SAP ' + a.cardCodeSap) + ' [SAP]');
+    });
+  }
+  // Armar 3 hojas: Por vendor + provincia, Por vendor + localidad, Detalle por tienda.
+  const wb = XLSX.utils.book_new();
+  // Hoja 1: agregado por vendor + provincia
+  const resumenProvRows = [];
+  map.forEach((provMap, vendor) => {
+    provMap.forEach((locMap, prov) => {
+      let totalTiendas = 0;
+      const locs = [];
+      locMap.forEach((e, loc) => { totalTiendas += e.tiendas; locs.push(loc); });
+      const vm = (typeof vendorLookup !== 'undefined' && vendorLookup) ? vendorLookup[vendor] : null;
+      resumenProvRows.push({
+        Vendedor: vendor,
+        Zona: vm ? vm.zone : '',
+        Provincia: titleCase(prov),
+        'Localidades (cant)': locs.length,
+        'Tiendas (cant)': totalTiendas,
+        Localidades: locs.sort().join(', '),
+      });
+    });
+  });
+  resumenProvRows.sort((a, b) => (a.Vendedor || '').localeCompare(b.Vendedor) || (a.Provincia || '').localeCompare(b.Provincia));
+  const ws1 = XLSX.utils.json_to_sheet(resumenProvRows);
+  ws1['!cols'] = [{wch:30},{wch:8},{wch:22},{wch:14},{wch:14},{wch:60}];
+  XLSX.utils.book_append_sheet(wb, ws1, 'Por vendor + provincia');
+  // Hoja 2: por vendor + localidad
+  const resumenLocRows = [];
+  map.forEach((provMap, vendor) => {
+    provMap.forEach((locMap, prov) => {
+      locMap.forEach((e, loc) => {
+        const vm = (typeof vendorLookup !== 'undefined' && vendorLookup) ? vendorLookup[vendor] : null;
+        resumenLocRows.push({
+          Vendedor: vendor,
+          Zona: vm ? vm.zone : '',
+          Provincia: titleCase(prov),
+          Localidad: loc,
+          'Tiendas (cant)': e.tiendas,
+        });
+      });
+    });
+  });
+  resumenLocRows.sort((a, b) => (a.Vendedor || '').localeCompare(b.Vendedor) || (a.Provincia || '').localeCompare(b.Provincia) || (a.Localidad || '').localeCompare(b.Localidad));
+  const ws2 = XLSX.utils.json_to_sheet(resumenLocRows);
+  ws2['!cols'] = [{wch:30},{wch:8},{wch:22},{wch:24},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Por vendor + localidad');
+  // Hoja 3: detalle por tienda
+  const detalleRows = [];
+  map.forEach((provMap, vendor) => {
+    provMap.forEach((locMap, prov) => {
+      locMap.forEach((e, loc) => {
+        const vm = (typeof vendorLookup !== 'undefined' && vendorLookup) ? vendorLookup[vendor] : null;
+        e.clients.forEach(name => {
+          detalleRows.push({
+            Vendedor: vendor,
+            Zona: vm ? vm.zone : '',
+            Provincia: titleCase(prov),
+            Localidad: loc,
+            Tienda: name,
+            Tipo: name.endsWith('[SAP]') ? 'SAP alta' : 'Cliente',
+          });
+        });
+        e.prospects.forEach(name => {
+          detalleRows.push({
+            Vendedor: vendor,
+            Zona: vm ? vm.zone : '',
+            Provincia: titleCase(prov),
+            Localidad: loc,
+            Tienda: name,
+            Tipo: 'Prospecto',
+          });
+        });
+      });
+    });
+  });
+  detalleRows.sort((a, b) => (a.Vendedor || '').localeCompare(b.Vendedor) || (a.Provincia || '').localeCompare(b.Provincia) || (a.Localidad || '').localeCompare(b.Localidad) || (a.Tienda || '').localeCompare(b.Tienda));
+  const ws3 = XLSX.utils.json_to_sheet(detalleRows);
+  ws3['!cols'] = [{wch:30},{wch:8},{wch:22},{wch:24},{wch:35},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, ws3, 'Detalle por tienda');
+  // Hoja 4: resumen totales por vendor
+  const totalesRows = [];
+  map.forEach((provMap, vendor) => {
+    let totalTiendas = 0; const provincias = new Set(); const localidades = new Set();
+    provMap.forEach((locMap, prov) => {
+      provincias.add(prov);
+      locMap.forEach((e, loc) => { totalTiendas += e.tiendas; localidades.add(prov + '|' + loc); });
+    });
+    const vm = (typeof vendorLookup !== 'undefined' && vendorLookup) ? vendorLookup[vendor] : null;
+    totalesRows.push({
+      Vendedor: vendor,
+      Zona: vm ? vm.zone : '',
+      'Provincias (cant)': provincias.size,
+      'Localidades (cant)': localidades.size,
+      'Tiendas (cant)': totalTiendas,
+      Provincias: [...provincias].map(p => titleCase(p)).sort().join(', '),
+    });
+  });
+  totalesRows.sort((a, b) => (a.Vendedor || '').localeCompare(b.Vendedor));
+  const ws4 = XLSX.utils.json_to_sheet(totalesRows);
+  ws4['!cols'] = [{wch:30},{wch:8},{wch:14},{wch:14},{wch:14},{wch:60}];
+  XLSX.utils.book_append_sheet(wb, ws4, 'Resumen por vendor');
+  // Mover Resumen al primer lugar - readable.
+  wb.SheetNames = ['Resumen por vendor', 'Por vendor + provincia', 'Por vendor + localidad', 'Detalle por tienda'];
+  const fname = 'Shimano_Mapeo_Zonas_' + new Date().toISOString().slice(0, 10) + '.xlsx';
+  XLSX.writeFile(wb, fname);
+  showSyncTag('Mapeo exportado a ' + fname);
+};
 
 window.openZonasModal = function(){
   if (userRole !== 'admin') { alert('Solo el administrador puede reasignar zonas.'); return; }
