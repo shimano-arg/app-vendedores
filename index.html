@@ -3821,31 +3821,37 @@ function _buildVendorOutlinesCache(){
     });
     if (!mps.length) { out[vendor] = []; return; }
     try {
-      // Estrategia robusta: unir progresivamente uno por uno. Si polygon-clipping
-      // falla con un par especifico (errores de "Unable to complete ring"), lo
-      // saltamos y seguimos con el resto. Antes pasabamos todo de una y un solo
-      // error rompia todo el vendor.
-      let merged = mps[0];
-      let skipped = 0;
-      for (let i = 1; i < mps.length; i++) {
-        try {
-          merged = polygonClipping.union(merged, mps[i]);
-        } catch(eUnion) {
-          skipped++;
-          // Reintentar con coordenadas mas redondeadas (3 decimales ~100m).
+      // Estrategia: primero intentar batch union (rapido - O(N log N)).
+      // Si falla por algun error de precision, caer a union progresiva
+      // (lenta - O(N^2) pero robusta a errores individuales). Asi la
+      // mayoria de vendors corren rapido y solo los problematicos (ej.
+      // Santiago Esteban con precision rara en NOA) van por el camino lento.
+      let merged;
+      try {
+        merged = polygonClipping.union(...mps);
+      } catch(eBatch) {
+        console.warn('[outlines]', vendor, 'batch fallo, fallback progresivo');
+        merged = mps[0];
+        let skipped = 0;
+        for (let i = 1; i < mps.length; i++) {
           try {
-            const aggressive = c => [Math.round(c[0] * 1000) / 1000, Math.round(c[1] * 1000) / 1000];
-            const rRing = ring => ring.map(aggressive);
-            const rPoly = poly => poly.map(rRing);
-            const rMp = mp => mp.map(rPoly);
-            merged = polygonClipping.union(merged, rMp(mps[i]));
-            skipped--;
-          } catch(e2) {
-            // No pudimos integrar este depto - sigue siendo merged sin el.
+            merged = polygonClipping.union(merged, mps[i]);
+          } catch(eUnion) {
+            skipped++;
+            try {
+              const aggressive = c => [Math.round(c[0] * 1000) / 1000, Math.round(c[1] * 1000) / 1000];
+              const rRing = ring => ring.map(aggressive);
+              const rPoly = poly => poly.map(rRing);
+              const rMp = mp => mp.map(rPoly);
+              merged = polygonClipping.union(merged, rMp(mps[i]));
+              skipped--;
+            } catch(e2) {
+              // descartar este depto
+            }
           }
         }
+        if (skipped > 0) console.warn('[outlines]', vendor, ': skipped', skipped, 'deptos');
       }
-      if (skipped > 0) console.warn('[outlines]', vendor, ': skipped', skipped, 'deptos por errores de union');
       // merged es un MultiPolygon = array de poligonos = array de rings.
       // Cada ring = array de [lng, lat]. Convertir a polilineas para Leaflet.
       // Filtramos islas chicas: polygon-clipping a veces deja "islas" pequeñas
@@ -3919,8 +3925,25 @@ function drawVendorOutlines(){
     });
   });
 }
-// Build inicial - puede tardar un par de segundos por el N de deptos.
-setTimeout(() => { try { drawVendorOutlines(); } catch(e) { console.warn('drawVendorOutlines initial', e); } }, 100);
+// Build inicial diferido: dejamos que la app se vea funcional primero
+// (mapa, listeners, login) y recien despues calculamos los outlines.
+// La union polygon-clipping puede tomar 1-3s para los ~3000 deptos.
+// Antes era 100ms - sumaba esos segundos al "tiempo de aparicion" de la
+// app. Ahora se ven los deptos coloreados al instante y los contornos
+// gruesos aparecen un par de segundos despues sin bloquear nada.
+function _scheduleInitialOutlines(){
+  const trigger = () => {
+    console.time('[outlines] initial build');
+    try { drawVendorOutlines(); } catch(e) { console.warn('drawVendorOutlines initial', e); }
+    console.timeEnd('[outlines] initial build');
+  };
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(trigger, {timeout: 3000});
+  } else {
+    setTimeout(trigger, 1500);
+  }
+}
+_scheduleInitialOutlines();
 
 // Build set of provinces (normalized) per vendor for prov visibility
 const vendorProvinces = {};
@@ -17128,12 +17151,15 @@ function renderBloqueadoGroup(g){
     const m = (p.lines || []).reduce((s, l) => s + (parseFloat(l.qty) || 0) * (parseFloat(l.precio) || 0), 0);
     html += '<div class="sap-bloqueado-ped">';
     // Checkbox para admin/gerente - habilita borrado masivo en la barra superior.
+    // No usamos <label> wrapper porque algun estilo padre estaba ocultando el
+    // input dentro de la fila bloqueada. Mejor: input visible con onclick
+    // directo + un span junto con tipografia normal.
+    const metaSpan = '<span><b>' + escapeHtml(p.month || '-') + '</b> &middot; ' + (p.lines || []).length + ' SKUs &middot; ' + Math.round(u) + ' uds &middot; $' + Math.round(m).toLocaleString('es-AR') + ' &middot; ' + escapeHtml(p.ownerEmail || '') + '</span>';
     if (userRole === 'admin' || userRole === 'gerente') {
-      const checked = sapPendSelection.has(p._fsId) ? ' checked' : '';
-      html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1"><input type="checkbox" class="sap-pend-check" onchange="togglePedidoSelection(\'' + p._fsId + '\')"' + checked + '/><span><b>' + escapeHtml(p.month || '-') + '</b> &middot; ' + (p.lines || []).length + ' SKUs &middot; ' + Math.round(u) + ' uds &middot; $' + Math.round(m).toLocaleString('es-AR') + ' &middot; ' + escapeHtml(p.ownerEmail || '') + '</span></label>';
-    } else {
-      html += '<span><b>' + escapeHtml(p.month || '-') + '</b> &middot; ' + (p.lines || []).length + ' SKUs &middot; ' + Math.round(u) + ' uds &middot; $' + Math.round(m).toLocaleString('es-AR') + ' &middot; ' + escapeHtml(p.ownerEmail || '') + '</span>';
+      const checkedAttr = sapPendSelection.has(p._fsId) ? ' checked' : '';
+      html += '<input type="checkbox" class="sap-pend-check" onclick="event.stopPropagation();togglePedidoSelection(\'' + p._fsId + '\')"' + checkedAttr + ' style="width:18px;height:18px;cursor:pointer;flex-shrink:0;margin-right:8px;accent-color:#dc2626" />';
     }
+    html += metaSpan;
     if (userRole === 'admin') {
       html += '<button class="sap-btn secondary" style="padding:5px 10px;font-size:10px" onclick="marcarManualSap(\'' + p._fsId + '\')">Cargado manual</button>';
     }
