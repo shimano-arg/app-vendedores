@@ -3853,7 +3853,8 @@ function _buildVendorOutlinesCache(){
     }
   });
   _vendorOutlinesCache = out;
-  console.log('[outlines] cache built via union:', Object.keys(out).length, 'vendors');
+  const summary = Object.keys(out).map(v => v + '(' + (out[v] || []).length + 'p)');
+  console.log('[outlines] cache built via union:', Object.keys(out).length, 'vendors:', summary.join(', '));
   return out;
 }
 
