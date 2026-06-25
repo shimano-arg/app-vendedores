@@ -15552,11 +15552,15 @@ function refreshZoneSelectForVDI(){
   const allowed = getMyAllowedVendorKeys(); // Set
   const allowedKeys = [...allowed];
   if (allowedKeys.length === 0) {
-    // Sin parejas asignadas todavia. Mostrar un mensaje placeholder.
-    sel.innerHTML = '<option value="ALL">Sin VDEs asignados</option>';
-    sel.value = 'ALL';
+    // Sin parejas asignadas todavia. Antes seteabamos 'ALL' como vendor y
+    // eso desactivaba el filtro -> el VDI veia TODO el mapa. Ahora usamos
+    // un sentinel '__NO_PARTNERS__' que ningun vendedor real tiene, asi el
+    // filtro de vendor da vacio y el mapa queda en blanco (correcto: si no
+    // hay parejas asignadas, no hay datos que ver).
+    sel.innerHTML = '<option value="__NO_PARTNERS__">Sin VDEs asignados - pedile al admin que te asigne parejas</option>';
+    sel.value = '__NO_PARTNERS__';
     sel.disabled = true;
-    currentVendor = 'ALL';
+    currentVendor = '__NO_PARTNERS__';
     populateProvinces();
     populateLocalities();
     restyleZoneLayers();
