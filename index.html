@@ -2072,6 +2072,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <button id="mc-geocode-btn" class="mc-sap-btn" onclick="runBulkGeocodeSapAltas()" style="background:#1d4ed8;box-shadow:0 1px 3px rgba(29,78,216,.3)" title="Llama a Google Maps para obtener lat/lng de cada cliente SAP que no tiene ubicacion geografica. Es necesario para que aparezcan como pines en el mapa.">&#128205; Geocodificar tiendas SAP</button>
         <button id="mc-dedupe-btn" class="mc-sap-btn" onclick="runDedupeSapAltas()" style="background:#b91c1c;box-shadow:0 1px 3px rgba(185,28,28,.3)" title="Busca altas SAP duplicadas (mismo cardCodeSap en multiples documentos) y deja solo la mas reciente.">&#129529; Deduplicar SAP</button>
         <button id="mc-revisar-btn" class="mc-sap-btn" onclick="runRevisarDireccionesSap()" style="background:#0f766e;box-shadow:0 1px 3px rgba(15,118,110,.3)" title="Lee SAP B1 via Service Layer y sincroniza nombre + direccion + ciudad de cada cliente con CardCode. Si difieren, la app se actualiza con los datos de SAP (SAP gana). Util cuando se editaron BPs en SAP y queres bajar los cambios.">&#128260; Revisar direcciones</button>
+        <button id="mc-base-toggle-btn" class="mc-sap-btn" onclick="toggleMcBaseMaster()" style="background:#6b7280;box-shadow:0 1px 3px rgba(107,114,128,.3)" title="Por default Master Clientes muestra solo los clientes habilitados en SAP. Tocá este boton para ver tambien el padron BASE completo (~1000 tiendas historicas) - util si necesitas buscar una tienda especifica del padron viejo.">&#128218; Masterfile-Base</button>
       </div>
       <div class="mc-stats" id="mc-stats"></div>
       <div class="mc-body" id="mc-body"></div>
@@ -3115,6 +3116,29 @@ window.runDedupeSapAltas = async function(){
   }
   if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || 'Deduplicar SAP'; }
   alert('Dedupe completo:\n\n' + deleted + ' duplicados borrados\n' + errors + ' errores\n\nLas tiendas ahora deberian aparecer 1 sola vez en el mapa.');
+};
+
+// Toggle entre vista "Solo SAP confirmados" (default) y "Masterfile-Base
+// completo" (padron historico ~1000 tiendas). Actualiza el label del boton
+// y refresca la tabla.
+window.toggleMcBaseMaster = function(){
+  mcShowBaseMaster = !mcShowBaseMaster;
+  const btn = document.getElementById('mc-base-toggle-btn');
+  if (btn) {
+    if (mcShowBaseMaster) {
+      btn.innerHTML = '&#128214; Volver a SAP solamente';
+      btn.style.background = '#b45309';
+      btn.style.boxShadow = '0 1px 3px rgba(180,83,9,.3)';
+      btn.title = 'Estas viendo el padron base completo (~1000 tiendas historicas + las SAP). Tocá para volver a la vista default de solo SAP confirmados.';
+    } else {
+      btn.innerHTML = '&#128218; Masterfile-Base';
+      btn.style.background = '#6b7280';
+      btn.style.boxShadow = '0 1px 3px rgba(107,114,128,.3)';
+      btn.title = 'Por default Master Clientes muestra solo los clientes habilitados en SAP. Tocá este boton para ver tambien el padron BASE completo (~1000 tiendas historicas).';
+    }
+  }
+  // Repoblar filtros de provincia/localidad para reflejar el universo nuevo.
+  try { renderMasterClientesTable(); } catch(e) { console.warn('toggleMcBaseMaster render', e); }
 };
 
 // REVISAR DIRECCIONES: lee SAP B1 via Service Layer para cada cliente con
@@ -5840,13 +5864,30 @@ function ensureClientMasterListener(){
   }, err => console.warn('client_master listener', err));
 }
 
+// Toggle: por default Master Clientes muestra SOLO los SAP-confirmados. Si
+// admin toca el boton "Masterfile-Base", pasa a mostrar TAMBIEN el padron
+// completo (POINTS clients + prospects) - la vista anterior.
+let mcShowBaseMaster = false;
 function getAllStoreEntries(){
-  // Devuelve [{nombre, localidad, provincia, vendor, tipo, lat, lon}] uniendo clients y prospects.
+  // Devuelve [{nombre, localidad, provincia, vendor, tipo, lat, lon}] segun el
+  // toggle de vista. Default: solo SAP-confirmados (~46). Con base activado:
+  // se suman tambien POINTS del padron historico (~1000+).
   const out = [];
-  (POINTS || []).forEach(p => {
-    (p.clients || []).forEach(n => out.push({nombre: n, localidad: p.name, provincia: p.province, vendor: p.vendor || '', tipo: 'cliente', locLat: p.lat, locLon: p.lon}));
-    (p.prospects || []).forEach(n => out.push({nombre: n, localidad: p.name, provincia: p.province, vendor: p.vendor || '', tipo: 'prospecto', locLat: p.lat, locLon: p.lon}));
-  });
+  if (mcShowBaseMaster) {
+    (POINTS || []).forEach(p => {
+      (p.clients || []).forEach(n => out.push({nombre: n, localidad: p.name, provincia: p.province, vendor: p.vendor || '', tipo: 'cliente', locLat: p.lat, locLon: p.lon}));
+      (p.prospects || []).forEach(n => out.push({nombre: n, localidad: p.name, provincia: p.province, vendor: p.vendor || '', tipo: 'prospecto', locLat: p.lat, locLon: p.lon}));
+    });
+  } else {
+    // Default: solo POINTS confirmados en SAP via isSapConfirmed.
+    (POINTS || []).forEach(p => {
+      (p.clients || []).forEach(n => {
+        if (typeof isSapConfirmed === 'function' && !isSapConfirmed(p.province, p.name, n)) return;
+        out.push({nombre: n, localidad: p.name, provincia: p.province, vendor: p.vendor || '', tipo: 'cliente', locLat: p.lat, locLon: p.lon});
+      });
+      // En modo SAP, no incluimos prospectos (no estan en SAP por definicion).
+    });
+  }
   // Agregar SAP altas huerfanas: las que tienen cardCodeSap y no matchean
   // contra ningun POINT por nombre+provincia. Estas son las ~46 tiendas
   // SAP que vinieron del import bulk y nunca se ancla ron al padron de
