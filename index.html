@@ -12289,16 +12289,46 @@ window.markAllNotifsRead = async function(){
   } catch(e) { console.error('mark all', e); }
 };
 
-// === Pedidos tab: lista de clientes contactados con su contador de pedido ===
+// === Pedidos tab: lista de clientes HABILITADOS (en SAP con direccion) ===
+// Antes filtraba por el set 'contacted' (marcado manual con checkbox), pero
+// ahora la definicion de "habilitado" es estar en SAP con cardCode +
+// direccion. effClients ya aplica ese filtro. Ademas inyectamos las SAP
+// altas huerfanas (las que no anclan a un POINT del padron). Esto deja
+// disponibles para pedido todas las tiendas que aparecen como verdes en
+// el mapa, sin requerir que el vendedor las marque a mano primero.
 function getContactedClientsFromFilter(pts){
-  // Devuelve [{clientName, tipo, point}] solo con los contactados
   const items = [];
   pts.forEach(p => {
-    p.clients.forEach(n => {
-      if (contacted.has(contactKey(p, n, 'C'))) items.push({name:n, tipo:'C', point:p});
-    });
-    p.prospects.forEach(n => {
-      if (contacted.has(contactKey(p, n, 'P'))) items.push({name:n, tipo:'P', point:p});
+    if (typeof effClients === 'function') {
+      effClients(p).forEach(n => items.push({name:n, tipo:'C', point:p}));
+    }
+  });
+  // Inyectar SAP altas huerfanas (mismo patron que renderClients/updateStats).
+  const sapEffSet = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
+  const provFilter = (typeof currentProvince !== 'undefined' && currentProvince !== 'ALL') ? currentProvince : null;
+  const locFilter = (typeof currentLocality !== 'undefined' && currentLocality !== 'ALL') ? currentLocality : null;
+  const seen = new Set();
+  items.forEach(it => seen.add(((it.point.province||'').toUpperCase()) + '|' + (it.name||'').toLowerCase()));
+  (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).forEach(a => {
+    if (!a || !a.cardCodeSap) return;
+    if (sapEffSet && a.assignedVendor && !sapEffSet.has(a.assignedVendor)) return;
+    const prov = (a.provincia || '').toUpperCase().trim();
+    if (!prov) return;
+    if (provFilter && prov !== provFilter) return;
+    const aLoc = (a.localidadFinal || a.localidad || '').trim();
+    if (locFilter && aLoc !== locFilter) return;
+    const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
+    if (seen.has(prov + '|' + nombre.toLowerCase())) return;
+    items.push({
+      name: nombre, tipo: 'C',
+      sapAlta: a,
+      point: {
+        province: prov,
+        name: aLoc || '(sin localidad)',
+        vendor: a.assignedVendor || '',
+        lat: (a.lat != null ? a.lat : null),
+        lon: (a.lng != null ? a.lng : null),
+      },
     });
   });
   return items;
@@ -12344,10 +12374,11 @@ function renderCrearList(){
     if (hasOrder) html += '<div style="font-size:9px;color:#166534;font-weight:700">En curso</div>';
     html += '</div></div>';
   });
-  if (!items.length) html = '<div style="color:#94a3b8;font-size:12px;padding:14px;text-align:center;background:#f8fafc;border-radius:6px;line-height:1.5">Sin clientes contactados en la seleccion actual.<br><span style="font-size:10px">Marcalos primero en el tab <b>Clientes</b>.</span></div>';
+  if (!items.length) html = '<div style="color:#94a3b8;font-size:12px;padding:14px;text-align:center;background:#f8fafc;border-radius:6px;line-height:1.5">Sin clientes habilitados en la selección actual.<br><span style="font-size:10px">Cambiá los filtros o pedile al admin que sume tiendas en SAP.</span></div>';
   document.getElementById('pedidos-content').innerHTML = html;
   document.getElementById('tab-ped-count').textContent = items.length;
-  document.getElementById('pedidos-summary').textContent = items.length + ' cliente(s) contactado(s). Doble click para crear pedido.';
+  const tipPed = IS_TOUCH ? 'Tocá para crear pedido.' : 'Doble click para crear pedido.';
+  document.getElementById('pedidos-summary').textContent = items.length + ' cliente(s) habilitado(s). ' + tipPed;
 }
 
 // El click en un cliente de "Crear pedido" abre el menu intermedio (no directo el form)
