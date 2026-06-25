@@ -18373,9 +18373,24 @@ async function loadVdiPartnerUsers(){
         email: v.email || '',
         displayName: v.displayName || v.email || d.id,
         vendorKey: 'ADMIN_' + d.id,
+        roleKind: 'admin',
       });
     });
-    console.log('[Zonas] VDIs:', vdiPartnerUsers.length, 'Otros (admins):', otherUsers.length);
+    // Tambien incluir gerentes (Pablo y otros) para que aparezcan en el
+    // dropdown - son responsables comerciales que pueden tener tiendas
+    // asignadas especialmente.
+    const qsg = await fbDb.collection('roles').where('role', '==', 'gerente').get();
+    qsg.forEach(d => {
+      const v = d.data() || {};
+      otherUsers.push({
+        uid: d.id,
+        email: v.email || '',
+        displayName: v.displayName || v.email || d.id,
+        vendorKey: 'GERENTE_' + d.id,
+        roleKind: 'gerente',
+      });
+    });
+    console.log('[Zonas] VDIs:', vdiPartnerUsers.length, 'Otros (admin+gerente):', otherUsers.length);
   } catch(e) { console.warn('loadVdiPartnerUsers', e); }
 }
 
@@ -18434,9 +18449,20 @@ function zonasDestOptions(selectedKey){
     html += '<option value="' + escapeAttr(u.vendorKey) + '"' + sel + '>' + escapeHtml(u.displayName) + '</option>';
   });
   html += '</optgroup>';
-  if (otherUsers.length) {
+  // Gerentes (Pablo y otros): grupo aparte para que se distingan de admins.
+  const gerentes = otherUsers.filter(u => u.roleKind === 'gerente');
+  if (gerentes.length) {
+    html += '<optgroup label="Gerentes">';
+    gerentes.forEach(u => {
+      const sel = (u.vendorKey === selectedKey) ? ' selected' : '';
+      html += '<option value="' + escapeAttr(u.vendorKey) + '"' + sel + '>' + escapeHtml(u.displayName) + '</option>';
+    });
+    html += '</optgroup>';
+  }
+  const admins = otherUsers.filter(u => u.roleKind !== 'gerente');
+  if (admins.length) {
     html += '<optgroup label="Otros (admins)">';
-    otherUsers.forEach(u => {
+    admins.forEach(u => {
       const sel = (u.vendorKey === selectedKey) ? ' selected' : '';
       html += '<option value="' + escapeAttr(u.vendorKey) + '"' + sel + '>' + escapeHtml(u.displayName) + '</option>';
     });
@@ -18478,9 +18504,14 @@ function vendorLabel(vendorKey){
   // VDI sintetico (futuro VDI sin vendor key historico)
   const vdi = vdiPartnerUsers.find(u => u.vendorKey === vendorKey);
   if (vdi) return '<span class="vendor-pill" style="background:#f3e8ff;color:#6b21a8;border-color:#e9d5ff">VDI: ' + escapeHtml(vdi.displayName) + '</span>';
-  // Otros (admins)
+  // Otros (admins / gerentes)
   const other = otherUsers.find(u => u.vendorKey === vendorKey);
-  if (other) return '<span class="vendor-pill" style="background:#fee2e2;color:#991b1b;border-color:#fca5a5">Otro: ' + escapeHtml(other.displayName) + '</span>';
+  if (other) {
+    if (other.roleKind === 'gerente') {
+      return '<span class="vendor-pill" style="background:#fef3c7;color:#92400e;border-color:#fcd34d">Gerente: ' + escapeHtml(other.displayName) + '</span>';
+    }
+    return '<span class="vendor-pill" style="background:#fee2e2;color:#991b1b;border-color:#fca5a5">Admin: ' + escapeHtml(other.displayName) + '</span>';
+  }
   // Fallback: en VENDORS pero no clasificado
   const vde = VENDORS.find(v => v.key === vendorKey);
   if (vde) return '<span class="vendor-pill" style="background:' + vde.fill + ';color:' + vde.color + ';border-color:' + vde.color + '">' + escapeHtml(titleCase(vde.key)) + '</span>';
