@@ -3648,21 +3648,21 @@ function deptStyle(feat){
   if (!deptInRouteFocus(feat)) {
     return {fillOpacity: 0, opacity: 0, weight: 0, interactive: false};
   }
+  // Filtro de vendor: aplica SIEMPRE (no solo cuando currentVendor !== 'ALL').
+  // Antes el bloque "ALL" no aplicaba filtro y los VDIs veian todo el mapa
+  // cuando elegian "Todas mis zonas". Ahora getEffectiveVendorSet devuelve
+  // las parejas del VDI incluso con 'ALL', y aca chequeamos siempre.
+  const effSet = getEffectiveVendorSet(currentVendor);
+  if (effSet && !effSet.has(v)) {
+    return {fillOpacity: 0, opacity: 0, weight: 0, interactive: false};
+  }
   if (currentVendor !== 'ALL') {
-    // VDI filter: incluir tambien deptos de sus VDEs pareja.
-    const effSet = getEffectiveVendorSet(currentVendor);
-    if (effSet && !effSet.has(v)) {
-      return {fillOpacity: 0, opacity: 0, weight: 0, interactive: false};
-    }
     if (currentProvince !== 'ALL' && feat.properties.province !== currentProvince) {
       return {fillOpacity: 0, opacity: 0, weight: 0, interactive: false};
     }
     if (!deptMatchesLocality(feat)) {
       return {fillOpacity: 0, opacity: 0, weight: 0, interactive: false};
     }
-    // Antes los deptos con todos los clientes contactados se pintaban de
-    // verde. Lo sacamos - ahora siempre se usa el color del vendedor para
-    // que el mapa quede mas legible y no se mezcle el sentido del color.
     const fill = vm ? vm.color : '#cbd5e1';
     return {
       fillColor: fill,
@@ -3672,7 +3672,8 @@ function deptStyle(feat){
       opacity: 0.9,
     };
   }
-  // currentVendor === 'ALL'
+  // currentVendor === 'ALL' (admin/viewer pasa por aca, VDI con todas mis
+  // zonas tambien pasa aca pero solo despues del filtro effSet de arriba).
   if (currentProvince !== 'ALL' && feat.properties.province !== currentProvince) {
     return {fillOpacity: 0, opacity: 0, weight: 0, interactive: false};
   }
@@ -10407,10 +10408,28 @@ const VENDOR_INCLUDES_OTHERS = {
 // Si es 'ALL' o no hay extras, devuelve null (sin restriccion en la dimension
 // vendor). Si es un VDI, devuelve su propio key + los keys de sus VDEs apoyo.
 function getEffectiveVendorSet(vendor){
-  if (!vendor || vendor === 'ALL') return null;
+  // ROLE-BASED ALLOWLIST: para VDIs (internos), el set efectivo NUNCA puede
+  // exceder sus parejas, sin importar que vendor este seleccionado en el
+  // dropdown. Antes 'ALL' devolvia null y el VDI veia TODO el mapa cuando
+  // tocaba "Todas mis zonas" - bug de visibilidad.
+  const roleAllowed = (typeof getMyAllowedVendorKeys === 'function') ? getMyAllowedVendorKeys() : null;
+  if (!vendor || vendor === 'ALL') {
+    // Admin / viewer: roleAllowed === null -> sin filtro (ven todo, OK).
+    // Vendedor: roleAllowed = {assignedVendor} -> ve solo el suyo.
+    // VDI: roleAllowed = parejas -> ve solo sus parejas.
+    return roleAllowed;
+  }
   const set = new Set([vendor]);
   const extras = VENDOR_INCLUDES_OTHERS[vendor];
   if (extras) extras.forEach(v => set.add(v));
+  // Si el rol tiene allowlist, intersectar - asi un VDI que selecciona una
+  // sola pareja no puede ver una zona ajena si el VENDOR_INCLUDES_OTHERS
+  // hardcoded incluye vendors fuera de su scope.
+  if (roleAllowed !== null) {
+    const filtered = new Set();
+    set.forEach(v => { if (roleAllowed.has(v)) filtered.add(v); });
+    return filtered;
+  }
   return set;
 }
 
