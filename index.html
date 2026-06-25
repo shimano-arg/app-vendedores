@@ -15034,6 +15034,15 @@ async function buildPasswordCredentials(password){
 let passwordGateResolver = null;
 
 async function ensurePasswordGate(){
+  // Si el usuario logueo con email+password de Firebase Auth, ya valido su
+  // password al entrar - no necesita una segunda capa de validacion. El
+  // password gate solo se justifica cuando se entra via OAuth (Google /
+  // Microsoft) donde la app no vio la password real del usuario.
+  try {
+    const providers = (currentUser && currentUser.providerData) || [];
+    const usedPassword = providers.some(p => p && p.providerId === 'password');
+    if (usedPassword) return true;
+  } catch(e) { console.warn('check providerData', e); }
   // Lee el doc actual del usuario.
   let snap;
   try { snap = await fbDb.collection('roles').doc(currentUser.uid).get(); }
