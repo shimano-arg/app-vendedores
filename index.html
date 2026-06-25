@@ -3822,14 +3822,18 @@ function _buildVendorOutlinesCache(){
         }
         return s;
       }
+      // Cada poly en merged es [outer_ring, hole_ring_1, hole_ring_2, ...].
+      // El primer ring es el contorno exterior; los siguientes son AGUJEROS
+      // dentro del poligono (huecos donde polygon-clipping no pudo cerrar
+      // por mismatches de bordes). Solo queremos el outer ring - los holes
+      // se ven como triangulitos blancos adentro de la zona y son ruido.
       const polylines = [];
       merged.forEach(poly => {
-        poly.forEach(ring => {
-          if (ringPerimeter(ring) < minPerim) return;
-          // Convertir ring de [lng, lat] a [lat, lng] (formato Leaflet).
-          const ll = ring.map(c => [c[1], c[0]]);
-          polylines.push(ll);
-        });
+        if (!poly.length) return;
+        const outerRing = poly[0];
+        if (ringPerimeter(outerRing) < minPerim) return;
+        const ll = outerRing.map(c => [c[1], c[0]]);
+        polylines.push(ll);
       });
       out[vendor] = polylines;
     } catch(e) {
