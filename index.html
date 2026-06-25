@@ -20,6 +20,7 @@
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512-v3.png">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.3/dist/polygon-clipping.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -3775,10 +3776,11 @@ let vendorOutlineLayer = L.layerGroup().addTo(map);
 let _vendorOutlinesCache = null; // {vendor: [[[lat,lng],[lat,lng]], ...]}
 function _buildVendorOutlinesCache(){
   if (_vendorOutlinesCache) return _vendorOutlinesCache;
-  // Precision de 3 decimales (~100m). Mas tolerante que 5 decimales asi
-  // los vertices compartidos entre 2 deptos del mismo vendor se cancelan
-  // aunque tengan pequeñas diferencias de precision en el GeoJSON original.
-  const round = n => Math.round(n * 1000) / 1000;
+  if (typeof polygonClipping === 'undefined') {
+    console.warn('[outlines] polygon-clipping no cargo, no se pueden calcular contornos');
+    _vendorOutlinesCache = {};
+    return _vendorOutlinesCache;
+  }
   const byVendor = {};
   // Filtrar Antartida igual que el deptLayer.
   const safe = _filterOutAntarctica(DEPT_GEO);
@@ -3790,39 +3792,38 @@ function _buildVendorOutlinesCache(){
   });
   const out = {};
   Object.entries(byVendor).forEach(([vendor, deptos]) => {
-    const edgeCount = {};
-    const edgeCoords = {};
+    // Convertir cada feature a polygon-clipping MultiPolygon: array de poly,
+    // donde poly = array de rings. Para Polygon plain, envolver en array.
+    const mps = [];
     deptos.forEach(feat => {
       const g = feat.geometry;
       if (!g || !g.coordinates) return;
-      const polys = (g.type === 'MultiPolygon') ? g.coordinates : [g.coordinates];
-      polys.forEach(poly => {
+      if (g.type === 'MultiPolygon') mps.push(g.coordinates);
+      else if (g.type === 'Polygon') mps.push([g.coordinates]);
+    });
+    if (!mps.length) { out[vendor] = []; return; }
+    try {
+      // polygonClipping.union acepta MultiPolygon[] y devuelve un MultiPolygon
+      // unificado. Internamente hace clipping robusto contra mismatches.
+      const merged = polygonClipping.union(...mps);
+      // merged es un MultiPolygon = array de poligonos = array de rings.
+      // Cada ring = array de [lng, lat]. Convertir a polilineas para Leaflet.
+      const polylines = [];
+      merged.forEach(poly => {
         poly.forEach(ring => {
-          for (let i = 0; i < ring.length - 1; i++) {
-            const a = ring[i], b = ring[i + 1];
-            if (!a || !b) continue;
-            const ax = round(a[0]), ay = round(a[1]);
-            const bx = round(b[0]), by = round(b[1]);
-            // Clave canonica: ordenar por (x, y) asi (a,b) y (b,a) colapsan.
-            let k;
-            if (ax < bx || (ax === bx && ay < by)) k = ax + ',' + ay + '|' + bx + ',' + by;
-            else k = bx + ',' + by + '|' + ax + ',' + ay;
-            edgeCount[k] = (edgeCount[k] || 0) + 1;
-            if (!edgeCoords[k]) edgeCoords[k] = [[ay, ax], [by, bx]]; // leaflet usa [lat, lng]
-          }
+          // Convertir ring de [lng, lat] a [lat, lng] (formato Leaflet).
+          const ll = ring.map(c => [c[1], c[0]]);
+          polylines.push(ll);
         });
       });
-    });
-    // Edges que aparecen SOLO una vez = exterior. Los compartidos por 2
-    // deptos del mismo vendor cancelan (count >= 2).
-    const outerEdges = [];
-    Object.keys(edgeCount).forEach(k => {
-      if (edgeCount[k] === 1) outerEdges.push(edgeCoords[k]);
-    });
-    out[vendor] = outerEdges;
+      out[vendor] = polylines;
+    } catch(e) {
+      console.warn('[outlines] union fallo para vendor', vendor, e);
+      out[vendor] = [];
+    }
   });
   _vendorOutlinesCache = out;
-  console.log('[outlines] cache built:', Object.keys(out).length, 'vendors');
+  console.log('[outlines] cache built via union:', Object.keys(out).length, 'vendors');
   return out;
 }
 
@@ -3843,11 +3844,11 @@ function drawVendorOutlines(){
     }
     const vm = (typeof vendorLookup !== 'undefined') ? vendorLookup[vendor] : null;
     const color = vm ? vm.color : '#475569';
-    const segments = outlines[vendor] || [];
+    const polylines = outlines[vendor] || [];
     // Cuanto mas filtrado, mas grueso el borde para mayor enfasis.
     const weight = (currentVendor !== 'ALL') ? 3.5 : 2.5;
-    segments.forEach(seg => {
-      L.polyline(seg, {
+    polylines.forEach(ll => {
+      L.polyline(ll, {
         color: color,
         weight: weight,
         opacity: 0.92,
