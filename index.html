@@ -3642,14 +3642,15 @@ function deptStyle(feat){
     if (!deptMatchesLocality(feat)) {
       return {fillOpacity: 0, opacity: 0, weight: 0, interactive: false};
     }
-    const pct = deptContactPct(feat);
-    const fully = pct >= 1;
-    const fill = fully ? GREEN : (vm ? vm.color : '#cbd5e1');
+    // Antes los deptos con todos los clientes contactados se pintaban de
+    // verde. Lo sacamos - ahora siempre se usa el color del vendedor para
+    // que el mapa quede mas legible y no se mezcle el sentido del color.
+    const fill = vm ? vm.color : '#cbd5e1';
     return {
       fillColor: fill,
-      fillOpacity: fully ? 0.55 : (currentLocality !== 'ALL' ? 0.42 : 0.30),
-      color: fully ? GREEN : (vm ? vm.color : '#94a3b8'),
-      weight: fully ? 1.4 : (currentLocality !== 'ALL' ? 1.2 : 0.6),
+      fillOpacity: (currentLocality !== 'ALL' ? 0.42 : 0.30),
+      color: vm ? vm.color : '#94a3b8',
+      weight: (currentLocality !== 'ALL' ? 1.2 : 0.6),
       opacity: 0.9,
     };
   }
@@ -3660,15 +3661,13 @@ function deptStyle(feat){
   if (!deptMatchesLocality(feat)) {
     return {fillOpacity: 0, opacity: 0, weight: 0, interactive: false};
   }
-  const pct = deptContactPct(feat);
-  const fully = pct >= 1;
-  const fill = fully ? GREEN : (vm ? vm.color : '#cbd5e1');
+  const fill = vm ? vm.color : '#cbd5e1';
   return {
     fillColor: fill,
-    fillOpacity: fully ? 0.5 : (vm ? 0.22 : 0.05),
-    color: fully ? GREEN : '#94a3b8',
-    weight: fully ? 1.0 : 0.4,
-    opacity: fully ? 0.9 : 0.6,
+    fillOpacity: vm ? 0.22 : 0.05,
+    color: '#94a3b8',
+    weight: 0.4,
+    opacity: 0.6,
   };
 }
 
@@ -4035,27 +4034,19 @@ function drawHabilitadosPins(){
 }
 
 function makeBubbleIcon(label, color, size, selected, contactPct){
-  // contactPct: 0..1 fraccion de clientes contactados en la localidad
-  contactPct = contactPct || 0;
+  // contactPct ya no se usa para colorear de verde - se mantiene el parametro
+  // por compat con los callers existentes. Las localidades siempre muestran
+  // el color del vendedor, sin pintarse de verde aunque todos sus clientes
+  // esten habilitados / contactados.
   const radius = size / 2;
   const fontSize = String(label).length > 3 ? 11 : String(label).length > 2 ? 12 : 13;
   const border = selected ? 4 : 2.4;
-  const green = '#10b981';
-  // Si todos contactados: burbuja verde llena. Si parcial: vendor color + dot verde.
-  let bg, fg, brd;
-  if (contactPct >= 1) {
-    bg = green; fg = '#fff'; brd = green;
-  } else {
-    bg = '#fff'; fg = color; brd = color;
-  }
+  const bg = '#fff';
+  const fg = color;
+  const brd = color;
   const ring = selected ? ';box-shadow:0 0 0 4px rgba(0,169,224,.35),0 2px 6px rgba(0,0,0,.25)' : ';box-shadow:0 1px 5px rgba(0,0,0,.22)';
   let html = '<div style="position:relative;background:' + bg + ';color:' + fg + ';border:' + border + 'px solid ' + brd + ';border-radius:50%;width:' + size + 'px;height:' + size + 'px;display:flex;align-items:center;justify-content:center;font-size:' + fontSize + 'px;font-weight:800;font-family:Arial;cursor:pointer;pointer-events:auto' + ring + '">';
   html += label;
-  // dot verde si es parcial (no 0, no 100)
-  if (contactPct > 0 && contactPct < 1) {
-    const dotSize = Math.max(10, size * 0.32);
-    html += '<div style="position:absolute;top:-3px;right:-3px;width:' + dotSize + 'px;height:' + dotSize + 'px;background:' + green + ';border:2px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:' + Math.round(dotSize*0.55) + 'px;color:#fff;font-weight:800">&#10003;</div>';
-  }
   html += '</div>';
   return L.divIcon({className:'shimano-bubble', html: html, iconSize:[size, size], iconAnchor:[radius, radius]});
 }
