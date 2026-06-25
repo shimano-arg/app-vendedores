@@ -3687,12 +3687,22 @@ function deptStyle(feat){
       return {fillOpacity: 0, opacity: 0, weight: 0, interactive: false};
     }
     const fill = vm ? vm.color : '#cbd5e1';
+    // Solo dibujar borde de depto si se filtro una localidad especifica.
+    // Caso contrario: stroke: false elimina toda linea de borde - el
+    // contorno externo de la zona lo dibuja vendorOutlineLayer.
+    if (currentLocality !== 'ALL') {
+      return {
+        fillColor: fill,
+        fillOpacity: 0.42,
+        color: vm ? vm.color : '#94a3b8',
+        weight: 1.2,
+        opacity: 0.9,
+      };
+    }
     return {
       fillColor: fill,
-      fillOpacity: (currentLocality !== 'ALL' ? 0.42 : 0.30),
-      color: vm ? vm.color : '#94a3b8',
-      weight: (currentLocality !== 'ALL' ? 1.2 : 0),
-      opacity: 0.9,
+      fillOpacity: 0.30,
+      stroke: false,
     };
   }
   // currentVendor === 'ALL' (admin/viewer pasa por aca, VDI con todas mis
@@ -3707,10 +3717,9 @@ function deptStyle(feat){
   return {
     fillColor: fill,
     fillOpacity: vm ? 0.22 : 0.05,
-    color: '#94a3b8',
-    weight: 0,  // bordes internos de localidades fuera; el contorno externo
-                 // de la zona lo dibuja vendorOutlineLayer.
-    opacity: 0.6,
+    stroke: false,  // sin lineas de borde - el contorno externo va por
+                    // vendorOutlineLayer. weight=0 no alcanzaba porque
+                    // Leaflet a veces dibuja 1px aun asi.
   };
 }
 
@@ -3866,12 +3875,11 @@ function provStyle(feat){
   if (currentTypeFilter === 'DISTRIBUIDORES') {
     return {fillColor: 'transparent', fillOpacity: 0, color: '#cbd5e1', weight: 0.8, opacity: 0.6};
   }
-  if (currentVendor !== 'ALL') {
-    // Cuando se filtra un vendedor, ocultamos todos los bordes provinciales:
-    // solo deben verse los departamentos que pertenecen a su zona.
-    return {fillOpacity: 0, opacity: 0, weight: 0};
-  }
-  return {fillColor: 'transparent', fillOpacity: 0, color: '#475569', weight: 1.2, opacity: 0.85};
+  // Los contornos provinciales se desactivan SIEMPRE (excepto distrib). La
+  // separacion entre provincias se ve naturalmente por el cambio de color
+  // de las zonas. Antes weight 1.2 generaba lineas grises dentro de las
+  // zonas que confundian con bordes de localidades.
+  return {fillColor: 'transparent', fillOpacity: 0, stroke: false};
 }
 
 const provLayer = L.geoJSON(_filterOutAntarctica(PROV_GEO), {
