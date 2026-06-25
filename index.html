@@ -2398,7 +2398,25 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       <h3>Alta de clientes</h3>
       <div class="ac-subtabs">
         <button class="ac-subtab-btn active" data-acsub="nuevo" onclick="setAltaCliSubtab('nuevo')">Nueva solicitud</button>
+        <button class="ac-subtab-btn" data-acsub="rapida" onclick="setAltaCliSubtab('rapida')" title="Alta provisoria - sin SAP. El admin tiene que cargar manualmente despues.">&#9889; Alta r&aacute;pida</button>
         <button class="ac-subtab-btn" data-acsub="mias" onclick="setAltaCliSubtab('mias')">Mis solicitudes <span class="ac-sub-count" id="ac-sub-count-mias"></span></button>
+      </div>
+      <!-- Sub-tab ALTA RAPIDA: provisional, sin SAP. Pide solo 3 campos. -->
+      <div id="ac-pane-rapida" style="display:none">
+        <div style="background:#fef3c7;border:1.5px solid #fcd34d;border-radius:8px;padding:12px 14px;margin-bottom:14px;line-height:1.5">
+          <div style="font-size:12px;font-weight:800;color:#92400e;margin-bottom:5px">&#9889; Alta r&aacute;pida (provisoria)</div>
+          <div style="font-size:11px;color:#78350f">Para cuando una tienda <b>todav&iacute;a no est&aacute; en SAP</b> y necesit&aacute;s tomar un pedido r&aacute;pido. Pide solo 3 datos. El cliente queda <b>habilitado provisoriamente</b> y vas a poder cargarle pedidos hasta que administraci&oacute;n lo de de alta oficial en SAP.</div>
+          <div style="font-size:10px;color:#92400e;margin-top:6px;font-style:italic">&#9888; Estos pedidos NO se cargan autom&aacute;ticamente en SAP. Administraci&oacute;n los va a tener que cargar manualmente.</div>
+        </div>
+        <form id="alta-rapida-form" autocomplete="off">
+          <div class="ac-row"><label>Nombre del local <span class="req">*</span></label><input type="text" id="ar-comercio" required maxlength="120" placeholder="Ej: Pesca y Camping El Trucha"/></div>
+          <div class="ac-row"><label>Direcci&oacute;n <span class="req">*</span></label><input type="text" id="ar-direccion" required maxlength="120" placeholder="Ej: Av. Belgrano 1234, San Isidro, Buenos Aires"/></div>
+          <div class="ac-row"><label>Nombre del due&ntilde;o / contacto <span class="req">*</span></label><input type="text" id="ar-dueno" required maxlength="80" placeholder="Ej: Juan P&eacute;rez"/></div>
+          <div class="ac-row"><label>Tel&eacute;fono (opcional)</label><input type="tel" id="ar-telefono" maxlength="30" placeholder="Ej: 11 5555-1234"/></div>
+          <div class="ac-row" style="margin-top:14px">
+            <button type="button" class="btn-confirm" style="background:#f59e0b;width:100%;padding:12px;font-size:13px;color:#fff;border:none;border-radius:6px;font-weight:800;cursor:pointer" onclick="submitAltaRapida()">&#9889; Confirmar cliente y habilitar</button>
+          </div>
+        </form>
       </div>
       <div id="ac-pane-nuevo">
         <div style="background:#ecfeff;border:1px solid #67e8f9;border-radius:8px;padding:12px 14px;margin-bottom:14px;text-align:center">
@@ -3809,7 +3827,8 @@ function drawSapAltaPins(){
   // Conteo por provincia para distribuir el jitter de los pines sin direccion.
   const provCounter = {};
   approvedAltasList.forEach(a => {
-    if (!a || !a.cardCodeSap) return;
+    if (!a) return;
+    if (!a.cardCodeSap && !a.manualSapPending) return;
     if (effSet && a.assignedVendor && !effSet.has(a.assignedVendor)) return;
     const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
     const direccion = a.calle || a.address || '';
@@ -3861,7 +3880,7 @@ function drawSapAltaPins(){
     const popup = '<div style="min-width:220px;font-family:inherit">'
       + '<div style="font-weight:800;color:' + color + ';font-size:13px;margin-bottom:4px">' + escapeHtml(nombre) + '</div>'
       + statusLine
-      + '<div style="background:' + bgPill + ';color:' + txtPill + ';padding:3px 7px;border-radius:4px;font-size:10px;font-weight:700;display:inline-block;margin-bottom:6px">SAP ' + escapeHtml(a.cardCodeSap) + '</div>'
+      + '<div style="background:' + bgPill + ';color:' + txtPill + ';padding:3px 7px;border-radius:4px;font-size:10px;font-weight:700;display:inline-block;margin-bottom:6px">' + (a.cardCodeSap ? ('SAP ' + escapeHtml(a.cardCodeSap)) : '&#9889; PROVISORIO (cargar a SAP manual)') + '</div>'
       + '<div style="font-size:11px;color:#475569;line-height:1.5">'
       + '<b>Direccion:</b> ' + escapeHtml(direccion || '(falta cargar)') + '<br>'
       + '<b>Localidad:</b> ' + escapeHtml(localidad || '(sin localidad)') + '<br>'
@@ -4329,7 +4348,8 @@ function updateStats(pts){
     });
     const sapLocs = new Set();
     (approvedAltasList || []).forEach(a => {
-      if (!a || !a.cardCodeSap) return;
+      if (!a) return;
+    if (!a.cardCodeSap && !a.manualSapPending) return;
       if (sapEffSet && a.assignedVendor && !sapEffSet.has(a.assignedVendor)) return;
       const prov = (a.provincia || '').toUpperCase().trim();
       if (!prov) return;
@@ -4456,7 +4476,8 @@ function renderClients(pts){
     const locFilter = (typeof currentLocality !== 'undefined' && currentLocality !== 'ALL') ? currentLocality : null;
     const sapEffSet = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
     (approvedAltasList || []).forEach(a => {
-      if (!a || !a.cardCodeSap) return;
+      if (!a) return;
+    if (!a.cardCodeSap && !a.manualSapPending) return;
       if (sapEffSet && a.assignedVendor && !sapEffSet.has(a.assignedVendor)) return;
       const prov = (a.provincia || '').toUpperCase().trim();
       if (!prov) return;
@@ -4516,7 +4537,8 @@ function renderClients(pts){
       html += '>';
       html += '<div class="client-body">';
       html += '<div class="client-name">' + escapeHtml(it.name);
-      html += ' <span style="font-size:9px;color:' + sapBadgeFg + ';font-weight:700;margin-left:6px;background:' + sapBadgeBg + ';padding:2px 6px;border-radius:3px">SAP ' + escapeHtml(a.cardCodeSap) + '</span></div>';
+      const sapBadgeLabel = a.cardCodeSap ? ('SAP ' + escapeHtml(a.cardCodeSap)) : '&#9889; PROVISORIO';
+      html += ' <span style="font-size:9px;color:' + sapBadgeFg + ';font-weight:700;margin-left:6px;background:' + sapBadgeBg + ';padding:2px 6px;border-radius:3px">' + sapBadgeLabel + '</span></div>';
       html += '<div class="client-meta">';
       html += '<span class="cli-state-badge" style="background:' + sapLeft + ';color:#fff">' + sapLabel + '</span>';
       html += '<span>' + escapeHtml(it.point.name) + '</span>';
@@ -5790,7 +5812,8 @@ function getAllStoreEntries(){
   const ptNames = new Set();
   out.forEach(e => ptNames.add((e.provincia||'').toUpperCase() + '|' + (e.nombre||'').toLowerCase()));
   (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).forEach(a => {
-    if (!a || !a.cardCodeSap) return;
+    if (!a) return;
+    if (!a.cardCodeSap && !a.manualSapPending) return;
     const prov = (a.provincia || '').toUpperCase().trim();
     if (!prov) return;
     const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
@@ -6438,10 +6461,14 @@ window.renderMasterClientesTable = function(){
     const renamedHint = (_customName && _customName !== e.nombre)
       ? '<div style="font-size:9px;color:#94a3b8;font-weight:500" title="Nombre original">orig: ' + escapeHtml(e.nombre) + '</div>'
       : '';
-    // Badge: CLIENTE / PROSPECTO / SAP segun tipo.
+    // Badge: CLIENTE / PROSPECTO / SAP / PROVISORIO segun tipo.
     let tagHtml;
     if (isSap) {
-      tagHtml = '<span class="mc-tag" style="background:#dbeafe;color:#1e3a8a;border:1px solid #93c5fd">SAP ' + escapeHtml(e.sapCardCode || '') + '</span>';
+      if (e.sapCardCode) {
+        tagHtml = '<span class="mc-tag" style="background:#dbeafe;color:#1e3a8a;border:1px solid #93c5fd">SAP ' + escapeHtml(e.sapCardCode) + '</span>';
+      } else {
+        tagHtml = '<span class="mc-tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d">&#9889; PROVISORIO</span>';
+      }
     } else {
       tagHtml = '<span class="mc-tag ' + (e.tipo === 'cliente' ? 'cli' : 'pro') + '">' + (e.tipo === 'cliente' ? 'CLIENTE' : 'PROSPECTO') + '</span>';
     }
@@ -9324,7 +9351,8 @@ function generarRutasVendor(vendor, monthIdx, year){
   const ptNameSet = new Set();
   localidades.forEach(L => L.tiendas.forEach(t => ptNameSet.add(((t.provincia||'').toUpperCase()) + '|' + (t.nombre||'').toLowerCase())));
   const altasOk = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).filter(a => {
-    if (!a || !a.cardCodeSap) return false;
+    if (!a) return false;
+    if (!a.cardCodeSap && !a.manualSapPending) return false;
     if (!(a.calle || a.address)) return false; // sin direccion no se rutea
     if (a.assignedVendor && a.assignedVendor !== vendor) return false;
     const prov = (a.provincia || '').toUpperCase().trim();
@@ -10780,7 +10808,107 @@ window.setAltaCliSubtab = function(sub){
   document.querySelectorAll('.ac-subtab-btn').forEach(b => b.classList.toggle('active', b.dataset.acsub === sub));
   document.getElementById('ac-pane-nuevo').style.display = sub === 'nuevo' ? '' : 'none';
   document.getElementById('ac-pane-mias').style.display = sub === 'mias' ? '' : 'none';
+  const rapidaPane = document.getElementById('ac-pane-rapida');
+  if (rapidaPane) rapidaPane.style.display = sub === 'rapida' ? '' : 'none';
   if (sub === 'mias') renderAltaCliMisSolicitudes();
+};
+
+// Alta rapida (provisoria): solo 3 campos, sin SAP, sin aprobacion. Se
+// crea un doc en client_applications con status='approved' (asi entra
+// directo a las listas de tiendas habilitadas) y un flag manualSapPending
+// = true para que admin sepa que hay que cargarlo a mano en SAP.
+window.submitAltaRapida = async function(){
+  if (!currentUser) { alert('No hay sesión activa.'); return; }
+  const comercio = (document.getElementById('ar-comercio').value || '').trim();
+  const direccion = (document.getElementById('ar-direccion').value || '').trim();
+  const dueno = (document.getElementById('ar-dueno').value || '').trim();
+  const telefono = (document.getElementById('ar-telefono').value || '').trim();
+  if (comercio.length < 2) { alert('Completá el nombre del local.'); return; }
+  if (direccion.length < 5) { alert('Completá la dirección.'); return; }
+  if (dueno.length < 2) { alert('Completá el nombre del dueño / contacto.'); return; }
+  if (!confirm('Confirmar alta rápida de "' + comercio + '"?\n\n'
+    + 'Direccion: ' + direccion + '\n'
+    + 'Dueño: ' + dueno + (telefono ? '\nTel: ' + telefono : '') + '\n\n'
+    + 'El cliente queda habilitado para tomar pedidos AHORA.\n'
+    + 'Administracion va a tener que cargarlo manualmente en SAP.')) return;
+  const btn = document.querySelector('#alta-rapida-form .btn-confirm');
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+  // Vendor efectivo: el del vendedor logueado (assignedVendor) o admin.
+  const myVendor = (typeof assignedVendor !== 'undefined' && assignedVendor) ? assignedVendor : '';
+  // Geocoding fire-and-forget: intentamos pero no bloqueamos el alta.
+  let geoPromise = Promise.resolve(null);
+  if (typeof geocodeClientAddress === 'function') {
+    geoPromise = geocodeClientAddress(direccion, '', '').catch(() => null);
+  }
+  try {
+    const docRef = await fbDb.collection('client_applications').add({
+      comercio: comercio,
+      fantasia: comercio,
+      calle: direccion,
+      duenoNombre: dueno,
+      telefonoContacto: telefono || '',
+      status: 'approved',
+      source: 'alta_rapida',
+      manualSapPending: true,  // FLAG: admin tiene que cargar a SAP manual
+      assignedVendor: myVendor,
+      ownerUid: currentUser.uid,
+      ownerEmail: currentUser.email || '',
+      ownerName: currentUser.displayName || currentUser.email || '',
+      approvals: {[currentUser.uid]: {
+        approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        email: currentUser.email || '',
+        name: currentUser.displayName || '',
+        note: 'Alta rapida auto-aprobada por el vendedor',
+      }},
+      approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    // Geocoding en background (no bloquea).
+    geoPromise.then(geo => {
+      if (geo && geo.lat != null && geo.lng != null) {
+        const update = {
+          lat: geo.lat, lng: geo.lng,
+          geoDisplay: geo.display || '',
+          geoProvider: geo.provider || 'osm',
+          geoAt: firebase.firestore.FieldValue.serverTimestamp(),
+        };
+        const detectedLoc = (geo.locality || '').trim();
+        if (detectedLoc) {
+          update.localidad = detectedLoc;
+          update.localidadFinal = detectedLoc;
+        }
+        const detectedProv = (geo.province || '').trim();
+        if (detectedProv) update.provincia = detectedProv.toUpperCase();
+        docRef.set(update, {merge: true}).catch(e => console.warn('geocode update alta rapida', e));
+      }
+    });
+    // Notificar al admin para que sepa que hay un alta provisoria que cargar.
+    try {
+      const adminsSnap = await fbDb.collection('roles').where('role', '==', 'admin').get();
+      const me = currentUser.displayName || currentUser.email || 'Vendedor';
+      adminsSnap.forEach(d => {
+        fbDb.collection('notifications').add({
+          type: 'alta_rapida_creada',
+          targetUid: d.id,
+          fromUid: currentUser.uid,
+          fromEmail: currentUser.email || '',
+          title: 'Alta rapida pendiente de carga manual en SAP',
+          body: me + ' dio de alta rapida a "' + comercio + '" (' + direccion + ', dueño ' + dueno + '). Hay que cargarlo manualmente en SAP.',
+          comercio: comercio,
+          status: 'unread',
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        }).catch(()=>{});
+      });
+    } catch(e) { console.warn('notify admin alta rapida', e); }
+    document.getElementById('alta-rapida-form').reset();
+    if (btn) { btn.disabled = false; btn.textContent = '⚡ Confirmar cliente y habilitar'; }
+    alert('✓ Cliente habilitado provisoriamente.\n\nYa podes cargarle pedidos desde la solapa PEDIDOS.');
+  } catch(e) {
+    console.error('submitAltaRapida', e);
+    if (btn) { btn.disabled = false; btn.textContent = '⚡ Confirmar cliente y habilitar'; }
+    alert('Error guardando: ' + (e.message || e));
+  }
 };
 
 window.onAltaCliFile = async function(input, kind){
@@ -12310,7 +12438,8 @@ function getContactedClientsFromFilter(pts){
   const seen = new Set();
   items.forEach(it => seen.add(((it.point.province||'').toUpperCase()) + '|' + (it.name||'').toLowerCase()));
   (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).forEach(a => {
-    if (!a || !a.cardCodeSap) return;
+    if (!a) return;
+    if (!a.cardCodeSap && !a.manualSapPending) return;
     if (sapEffSet && a.assignedVendor && !sapEffSet.has(a.assignedVendor)) return;
     const prov = (a.provincia || '').toUpperCase().trim();
     if (!prov) return;
