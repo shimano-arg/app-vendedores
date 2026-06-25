@@ -8235,7 +8235,14 @@ window.onTgtInputChange = function(input){
 
 window.saveTargets = async function(){
   if (!canManageTargets()) { alert('No tenes permisos.'); return; }
-  const ids = Object.keys(tgtPendingChanges);
+  // SNAPSHOT inmediato de los pending changes. Antes el loop iteraba
+  // directo sobre tgtPendingChanges, pero el listener de Firestore se
+  // dispara despues del primer write, llama renderTargetsTable() y eso
+  // resetea tgtPendingChanges = {}. Resultado: solo el primer mes se
+  // guardaba. Ahora copiamos a una variable local antes de empezar.
+  const snapshot = {};
+  Object.keys(tgtPendingChanges).forEach(id => { snapshot[id] = tgtPendingChanges[id]; });
+  const ids = Object.keys(snapshot);
   if (!ids.length) { alert('No hay cambios para guardar.'); return; }
   const btn = document.getElementById('tgt-save-btn');
   btn.disabled = true;
@@ -8244,13 +8251,9 @@ window.saveTargets = async function(){
   let firstError = null;
   try {
     for (const id of ids) {
-      const ch = tgtPendingChanges[id];
-      // Defensa: si por algun motivo (race condition, bug previo) el
-      // pending change quedo en undefined o como string suelto (formato
-      // viejo), lo manejamos sin tirar excepcion.
+      const ch = snapshot[id];
       if (ch == null) {
         console.warn('saveTargets: pending change null/undefined para id', id);
-        delete tgtPendingChanges[id];
         continue;
       }
       // Tolerar formato viejo (cuando ch era string en vez de objeto).
