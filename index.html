@@ -3821,9 +3821,31 @@ function _buildVendorOutlinesCache(){
     });
     if (!mps.length) { out[vendor] = []; return; }
     try {
-      // polygonClipping.union acepta MultiPolygon[] y devuelve un MultiPolygon
-      // unificado. Internamente hace clipping robusto contra mismatches.
-      const merged = polygonClipping.union(...mps);
+      // Estrategia robusta: unir progresivamente uno por uno. Si polygon-clipping
+      // falla con un par especifico (errores de "Unable to complete ring"), lo
+      // saltamos y seguimos con el resto. Antes pasabamos todo de una y un solo
+      // error rompia todo el vendor.
+      let merged = mps[0];
+      let skipped = 0;
+      for (let i = 1; i < mps.length; i++) {
+        try {
+          merged = polygonClipping.union(merged, mps[i]);
+        } catch(eUnion) {
+          skipped++;
+          // Reintentar con coordenadas mas redondeadas (3 decimales ~100m).
+          try {
+            const aggressive = c => [Math.round(c[0] * 1000) / 1000, Math.round(c[1] * 1000) / 1000];
+            const rRing = ring => ring.map(aggressive);
+            const rPoly = poly => poly.map(rRing);
+            const rMp = mp => mp.map(rPoly);
+            merged = polygonClipping.union(merged, rMp(mps[i]));
+            skipped--;
+          } catch(e2) {
+            // No pudimos integrar este depto - sigue siendo merged sin el.
+          }
+        }
+      }
+      if (skipped > 0) console.warn('[outlines]', vendor, ': skipped', skipped, 'deptos por errores de union');
       // merged es un MultiPolygon = array de poligonos = array de rings.
       // Cada ring = array de [lng, lat]. Convertir a polilineas para Leaflet.
       // Filtramos islas chicas: polygon-clipping a veces deja "islas" pequeñas
