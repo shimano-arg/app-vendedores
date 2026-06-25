@@ -3691,7 +3691,7 @@ function deptStyle(feat){
       fillColor: fill,
       fillOpacity: (currentLocality !== 'ALL' ? 0.42 : 0.30),
       color: vm ? vm.color : '#94a3b8',
-      weight: (currentLocality !== 'ALL' ? 1.2 : 0.6),
+      weight: (currentLocality !== 'ALL' ? 1.2 : 0),
       opacity: 0.9,
     };
   }
@@ -3708,7 +3708,8 @@ function deptStyle(feat){
     fillColor: fill,
     fillOpacity: vm ? 0.22 : 0.05,
     color: '#94a3b8',
-    weight: 0.4,
+    weight: 0,  // bordes internos de localidades fuera; el contorno externo
+                 // de la zona lo dibuja vendorOutlineLayer.
     opacity: 0.6,
   };
 }
@@ -3754,6 +3755,100 @@ const deptLayer = L.geoJSON(_filterOutAntarctica(DEPT_GEO), {
   interactive: false,
 }).addTo(map);
 
+// Capa de CONTORNOS de zonas: para cada vendor, calculamos el contorno
+// exterior uniendo sus departamentos via "edge cancellation" (los bordes
+// internos compartidos por 2 deptos del mismo vendor se cancelan; solo
+// quedan los bordes exteriores). Se renderiza como polilineas gruesas
+// con el color del vendor. La capa de deptos individuales conserva el
+// fill pero su weight de borde se baja casi a 0 para que las localidades
+// no se vean separadas - solo el contorno general de la zona.
+let vendorOutlineLayer = L.layerGroup().addTo(map);
+let _vendorOutlinesCache = null; // {vendor: [[[lat,lng],[lat,lng]], ...]}
+function _buildVendorOutlinesCache(){
+  if (_vendorOutlinesCache) return _vendorOutlinesCache;
+  const round = n => Math.round(n * 100000) / 100000; // ~1 metro de precision
+  const byVendor = {};
+  // Filtrar Antartida igual que el deptLayer.
+  const safe = _filterOutAntarctica(DEPT_GEO);
+  safe.features.forEach(feat => {
+    const v = feat.properties && feat.properties.vendor;
+    if (!v) return;
+    if (!byVendor[v]) byVendor[v] = [];
+    byVendor[v].push(feat);
+  });
+  const out = {};
+  Object.entries(byVendor).forEach(([vendor, deptos]) => {
+    const edgeCount = {};
+    const edgeCoords = {};
+    deptos.forEach(feat => {
+      const g = feat.geometry;
+      if (!g || !g.coordinates) return;
+      const polys = (g.type === 'MultiPolygon') ? g.coordinates : [g.coordinates];
+      polys.forEach(poly => {
+        poly.forEach(ring => {
+          for (let i = 0; i < ring.length - 1; i++) {
+            const a = ring[i], b = ring[i + 1];
+            if (!a || !b) continue;
+            const ax = round(a[0]), ay = round(a[1]);
+            const bx = round(b[0]), by = round(b[1]);
+            // Clave canonica: ordenar por (x, y) asi (a,b) y (b,a) colapsan.
+            let k;
+            if (ax < bx || (ax === bx && ay < by)) k = ax + ',' + ay + '|' + bx + ',' + by;
+            else k = bx + ',' + by + '|' + ax + ',' + ay;
+            edgeCount[k] = (edgeCount[k] || 0) + 1;
+            if (!edgeCoords[k]) edgeCoords[k] = [[ay, ax], [by, bx]]; // leaflet usa [lat, lng]
+          }
+        });
+      });
+    });
+    // Edges que aparecen SOLO una vez = exterior. Los compartidos por 2
+    // deptos del mismo vendor cancelan (count >= 2).
+    const outerEdges = [];
+    Object.keys(edgeCount).forEach(k => {
+      if (edgeCount[k] === 1) outerEdges.push(edgeCoords[k]);
+    });
+    out[vendor] = outerEdges;
+  });
+  _vendorOutlinesCache = out;
+  console.log('[outlines] cache built:', Object.keys(out).length, 'vendors');
+  return out;
+}
+
+function drawVendorOutlines(){
+  vendorOutlineLayer.clearLayers();
+  // Modo DISTRIBUIDORES no muestra outlines de vendor (solo deptos en azul marino).
+  if (currentTypeFilter === 'DISTRIBUIDORES') return;
+  const outlines = _buildVendorOutlinesCache();
+  const effSet = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
+  Object.keys(outlines).forEach(vendor => {
+    // Filtrar por vendor: si effSet existe y no incluye este vendor, ocultar.
+    if (effSet && !effSet.has(vendor)) return;
+    // Si esta filtrada una localidad o provincia especifica, no dibujamos
+    // outlines (queda raro porque el filtro recorta solo a esa region).
+    if (currentLocality !== 'ALL') return;
+    if (currentProvince !== 'ALL' && currentVendor !== 'ALL') {
+      // OK: vendor + provincia mantienen el outline general del vendor.
+    }
+    const vm = (typeof vendorLookup !== 'undefined') ? vendorLookup[vendor] : null;
+    const color = vm ? vm.color : '#475569';
+    const segments = outlines[vendor] || [];
+    // Cuanto mas filtrado, mas grueso el borde para mayor enfasis.
+    const weight = (currentVendor !== 'ALL') ? 3.5 : 2.5;
+    segments.forEach(seg => {
+      L.polyline(seg, {
+        color: color,
+        weight: weight,
+        opacity: 0.92,
+        lineCap: 'round',
+        lineJoin: 'round',
+        interactive: false,
+      }).addTo(vendorOutlineLayer);
+    });
+  });
+}
+// Build inicial - puede tardar un par de segundos por el N de deptos.
+setTimeout(() => { try { drawVendorOutlines(); } catch(e) { console.warn('drawVendorOutlines initial', e); } }, 100);
+
 // Build set of provinces (normalized) per vendor for prov visibility
 const vendorProvinces = {};
 VENDORS.forEach(v => vendorProvinces[v.key] = new Set());
@@ -3784,6 +3879,8 @@ const provLayer = L.geoJSON(_filterOutAntarctica(PROV_GEO), {
 function restyleZoneLayers(){
   deptLayer.setStyle(deptStyle);
   provLayer.setStyle(provStyle);
+  // Redibujar el contorno de zonas para que respete el filtro actual.
+  try { if (typeof drawVendorOutlines === 'function') drawVendorOutlines(); } catch(e) { console.warn('drawVendorOutlines', e); }
 }
 
 let markerLayer = L.layerGroup().addTo(map);
