@@ -2994,7 +2994,7 @@ window.geocodeAllPendingSapAltas = geocodeAllPendingSapAltas;
 
 // Trigger del admin: corre el geocoding en lote y muestra progreso en UI.
 window.runBulkGeocodeSapAltas = async function(){
-  if (userRole !== 'admin') { alert('Solo admin.'); return; }
+  if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente.'); return; }
   const pending = (approvedAltasList || []).filter(a =>
     a && a.cardCodeSap && (a.lat == null || a.lng == null) && (a.calle || a.address)
   );
@@ -3017,7 +3017,7 @@ window.runBulkGeocodeSapAltas = async function(){
 // y deja solo la mas reciente (sapImportedAt mas alto, o el doc con prefijo
 // 'sap_' que es el determinista del fix), borrando las demas.
 window.runDedupeSapAltas = async function(){
-  if (userRole !== 'admin') { alert('Solo admin.'); return; }
+  if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente.'); return; }
   // Re-leer fresco de Firestore para evitar trabajar con cache desactualizado.
   let snap;
   try {
@@ -3105,7 +3105,7 @@ window.runDedupeSapAltas = async function(){
 // actualiza la app con los datos de SAP (SAP gana). Funciona para SAP altas
 // (client_applications) y POINTS matcheados (client_master con sapCardCode).
 window.runRevisarDireccionesSap = async function(){
-  if (userRole !== 'admin') { alert('Solo admin.'); return; }
+  if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente.'); return; }
   if (typeof sapSL === 'undefined' || typeof sapSL.isEnabled !== 'function') {
     alert('Modulo SAP Service Layer no cargado. Reintenta despues de recargar la pagina.');
     return;
@@ -3911,7 +3911,7 @@ window.openSapAltaCard = function(fsId){
 // la localidad a mano como segundo intento.
 window.openSapAltaAddressModal = function(fsId){
   if (!fsId) return;
-  if (userRole !== 'admin') { alert('Solo admin.'); return; }
+  if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente.'); return; }
   const a = (approvedAltasList || []).find(x => x._fsId === fsId);
   if (!a) { alert('No encontre la alta. Recargá la pagina y reintentá.'); return; }
   const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
@@ -5558,8 +5558,8 @@ window.exportTargetsZonas = async function(){
     alert('La libreria de Excel no se cargo. Verificá tu conexión y reintentá.');
     return;
   }
-  if (userRole !== 'admin') {
-    alert('Solo el administrador puede exportar el master.');
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente puede exportar el master.');
     return;
   }
   showSyncTag('Generando Excel TARGETS-ZONAS...');
@@ -5810,7 +5810,7 @@ function getAllStoreEntries(){
 }
 
 window.openMasterClientesPanel = function(){
-  if (userRole !== 'admin') { alert('Solo admin puede acceder a Master Clientes.'); return; }
+  if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente puede acceder a Master Clientes.'); return; }
   ensureClientMasterListener();
   mcPendingChanges = {};
   // Cargar filtros si no estan poblados
@@ -5857,7 +5857,7 @@ let _mcSapMatched = [];           // [{docId, point, sapRow, willOverwrite}]
 let _mcSapUnmatched = [];         // [{sapRow}] - rows que no encontraron tienda
 
 window.openMcSapImport = function(){
-  if (userRole !== 'admin') { alert('Solo admin puede usar esta funcion.'); return; }
+  if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente puede usar esta funcion.'); return; }
   _mcSapParsedRows = []; _mcSapMatched = []; _mcSapUnmatched = [];
   document.getElementById('mc-sap-preview').style.display = 'none';
   document.getElementById('mc-sap-error').style.display = 'none';
@@ -6558,8 +6558,8 @@ window.saveClientCategoriaFromModal = async function(fieldName, sel){
 // localidad cambia, ademas borra lat/lng asi se re-geocodifica con la nueva
 // localidad la proxima vez que se actualice la direccion.
 window.saveMcSapLocalidad = async function(fsId, inputEl){
-  if (userRole !== 'admin') {
-    alert('Solo admin.');
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente.');
     const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(x => x._fsId === fsId);
     if (alta && inputEl) inputEl.value = alta.localidadFinal || alta.localidad || '';
     return;
@@ -6611,8 +6611,8 @@ window.saveMcSapLocalidad = async function(fsId, inputEl){
 };
 
 window.saveMcClientField = async function(docId, fieldName, sel){
-  if (userRole !== 'admin') {
-    alert('Solo admin puede editar categorizacion comercial.');
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente puede editar categorizacion comercial.');
     // Revertir UI
     const saved = clientMasterCache.get(docId);
     sel.value = (saved && saved[fieldName]) || '';
@@ -6729,7 +6729,7 @@ function pedidoDiscountFactor(pedido){
 window.pedidoDiscountFactor = pedidoDiscountFactor;
 
 window.saveMcAddr = async function(docId, btn){
-  if (userRole !== 'admin') { alert('Solo admin puede editar.'); return; }
+  if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente puede editar.'); return; }
   // Leer los inputs de la fila directamente del DOM. Antes dependiamos de
   // mcPendingChanges, pero si el listener de Firestore re-renderizaba la
   // tabla mientras tipeabas se perdia la referencia.
@@ -7463,7 +7463,7 @@ window.exportVisitsWithEmbeddedPhotos = async function(){
 let bkLastRunInfo = null;
 
 window.openBackupMensualModal = function(){
-  if (userRole !== 'admin') { alert('Solo admin.'); return; }
+  if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente.'); return; }
   document.getElementById('bk-resumen').innerHTML = '';
   document.getElementById('bk-acciones-finales').innerHTML = '';
   document.getElementById('backup-mensual-modal').classList.add('open');
@@ -7559,7 +7559,7 @@ function _bkExtractPhotos(doc){
 }
 
 window.runFullBackup = async function(){
-  if (userRole !== 'admin') { alert('Solo admin.'); return; }
+  if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente.'); return; }
   if (typeof JSZip === 'undefined') { alert('La libreria de ZIP no se cargo.'); return; }
   const resumenEl = document.getElementById('bk-resumen');
   resumenEl.innerHTML = '<div style="background:#f0f9ff;border:1px solid #7dd3fc;border-radius:6px;padding:14px;font-size:12px;color:#0c4a6e"><b>Iniciando backup TOTAL...</b><br>Vamos a leer todas las colecciones de Firestore y empaquetar las fotos en un ZIP. <b>NO cierres esta pestana.</b></div>';
@@ -15278,31 +15278,30 @@ function applyRolePermissions(){
     badgeText = userRole.toUpperCase();
   }
   badge.textContent = badgeText;
-  // Admin buttons
+  // Helper: gerente = admin pero sin USUARIOS / STOCK / PRECIOS / AUDITORIA.
+  // Para todo lo demas (mapa, master clientes, zonas, campañas, sap, analisis)
+  // gerente tiene los mismos permisos que admin.
+  const isAdminOrGerente = (userRole === 'admin' || userRole === 'gerente');
+  // USUARIOS: SOLO admin.
   document.getElementById('admin-btn').style.display = (userRole === 'admin') ? '' : 'none';
-  // Boton Zonas: reasignacion de tiendas/localidades a otro vendedor.
-  // Solo admin puede usarlo - cambios son globales para toda la app.
-  const zonasBtnEl = document.getElementById('zonas-btn');
-  if (zonasBtnEl) zonasBtnEl.style.display = (userRole === 'admin') ? '' : 'none';
-  // Exportar para Analisis: solo admin. Antes era visible para todos
-  // pero pedia PIN al abrirlo; ahora directamente lo escondemos para
-  // vendedores/viewers/internos.
-  const analisisBtnEl = document.getElementById('analisis-btn');
-  if (analisisBtnEl) analisisBtnEl.style.display = (userRole === 'admin') ? '' : 'none';
-  // Boton Stock: subir CSV de stock SAP. Solo admin (mientras no este la
-  // integracion automatizada con el middleware de SEIDOR, lo hacemos manual).
+  // STOCK: SOLO admin (no gerente).
   const stockBtnEl = document.getElementById('stock-btn');
   if (stockBtnEl) stockBtnEl.style.display = (userRole === 'admin') ? '' : 'none';
+  // PRECIOS: SOLO admin (no gerente).
   const preciosBtnEl = document.getElementById('precios-btn');
   if (preciosBtnEl) preciosBtnEl.style.display = (userRole === 'admin') ? '' : 'none';
-  document.getElementById('campaigns-btn').style.display = (userRole === 'admin') ? '' : 'none';
-  // Vendedores tambien acceden a SAP: ven solo sus propios pedidos confirmados,
-  // pueden exportar su ZIP DTW y marcar como transferidos.
-  document.getElementById('sap-btn').style.display = (userRole === 'admin' || userRole === 'viewer' || userRole === 'vendedor') ? '' : 'none';
-  document.getElementById('master-cli-btn').style.display = (userRole === 'admin') ? '' : 'none';
-  // Auditoria: admin y viewer pueden ver el log
+  // AUDITORIA: admin + viewer (no gerente).
   const auditBtn = document.getElementById('audit-btn');
   if (auditBtn) auditBtn.style.display = (userRole === 'admin' || userRole === 'viewer') ? '' : 'none';
+  // Zonas, Analisis, Campañas, Master Clientes: admin + gerente.
+  const zonasBtnEl = document.getElementById('zonas-btn');
+  if (zonasBtnEl) zonasBtnEl.style.display = isAdminOrGerente ? '' : 'none';
+  const analisisBtnEl = document.getElementById('analisis-btn');
+  if (analisisBtnEl) analisisBtnEl.style.display = isAdminOrGerente ? '' : 'none';
+  document.getElementById('campaigns-btn').style.display = isAdminOrGerente ? '' : 'none';
+  document.getElementById('master-cli-btn').style.display = isAdminOrGerente ? '' : 'none';
+  // SAP: admin + viewer + vendedor + gerente.
+  document.getElementById('sap-btn').style.display = (userRole === 'admin' || userRole === 'viewer' || userRole === 'vendedor' || userRole === 'gerente') ? '' : 'none';
   // Notificaciones para usuarios que las reciben
   // Notificaciones: ahora es una pestaña de la 3ra fila del sidebar (no header).
   const canNotif = ['admin','interno','vendedor','gerente'].indexOf(userRole) >= 0;
