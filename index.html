@@ -3793,12 +3793,57 @@ const deptLayer = L.geoJSON(_filterOutAntarctica(DEPT_GEO), {
 // no se vean separadas - solo el contorno general de la zona.
 let vendorOutlineLayer = L.layerGroup().addTo(map);
 let _vendorOutlinesCache = null; // {vendor: [[[lat,lng],[lat,lng]], ...]}
+// Cache de localStorage: invalida si subimos esta version cuando cambia
+// el DEPT_GEO. Asi la primera carga tarda 1-2s pero las siguientes son
+// instantaneas (las polilineas ya estan calculadas y guardadas).
+const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v3';
 function _buildVendorOutlinesCache(){
   if (_vendorOutlinesCache) return _vendorOutlinesCache;
+  // Intentar leer del localStorage primero.
+  try {
+    const raw = localStorage.getItem(VENDOR_OUTLINES_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        _vendorOutlinesCache = parsed;
+        console.log('[outlines] cargado de localStorage:', Object.keys(parsed).length, 'vendors');
+        return parsed;
+      }
+    }
+  } catch(e) { console.warn('[outlines] no se pudo leer cache:', e); }
   if (typeof polygonClipping === 'undefined') {
     console.warn('[outlines] polygon-clipping no cargo, no se pueden calcular contornos');
     _vendorOutlinesCache = {};
     return _vendorOutlinesCache;
+  }
+  // Helper: union via tree reduction (O(N log N)) - mucho mas rapido que
+  // progresivo (O(N^2)) para vendors con muchos deptos. Errores individuales
+  // descartan el par pero el arbol sigue.
+  function unionTree(mps){
+    if (mps.length === 0) return null;
+    if (mps.length === 1) return mps[0];
+    const pairs = [];
+    for (let i = 0; i < mps.length; i += 2) {
+      if (i + 1 < mps.length) {
+        try {
+          pairs.push(polygonClipping.union(mps[i], mps[i + 1]));
+        } catch(e) {
+          // Reintentar con redondeo agresivo del segundo argumento.
+          try {
+            const aggR = c => [Math.round(c[0] * 1000) / 1000, Math.round(c[1] * 1000) / 1000];
+            const rR = ring => ring.map(aggR);
+            const rP = poly => poly.map(rR);
+            const rMp = mp => mp.map(rP);
+            pairs.push(polygonClipping.union(mps[i], rMp(mps[i + 1])));
+          } catch(e2) {
+            pairs.push(mps[i]); // descartar el problematico
+          }
+        }
+      } else {
+        pairs.push(mps[i]);
+      }
+    }
+    return unionTree(pairs);
   }
   const byVendor = {};
   // Filtrar Antartida igual que el deptLayer.
@@ -3840,36 +3885,17 @@ function _buildVendorOutlinesCache(){
     });
     if (!mps.length) { out[vendor] = []; return; }
     try {
-      // Estrategia: primero intentar batch union (rapido - O(N log N)).
-      // Si falla por algun error de precision, caer a union progresiva
-      // (lenta - O(N^2) pero robusta a errores individuales). Asi la
-      // mayoria de vendors corren rapido y solo los problematicos (ej.
-      // Santiago Esteban con precision rara en NOA) van por el camino lento.
+      // Estrategia: batch union primero (rapido). Si falla por precision,
+      // caer a tree reduction O(N log N) - mucho mas rapido que la union
+      // progresiva O(N^2). Asi Santiago Esteban con sus errores de
+      // precision se calcula en ~1s en lugar de 11s.
       let merged;
       try {
         merged = polygonClipping.union(...mps);
       } catch(eBatch) {
-        console.warn('[outlines]', vendor, 'batch fallo, fallback progresivo');
-        merged = mps[0];
-        let skipped = 0;
-        for (let i = 1; i < mps.length; i++) {
-          try {
-            merged = polygonClipping.union(merged, mps[i]);
-          } catch(eUnion) {
-            skipped++;
-            try {
-              const aggressive = c => [Math.round(c[0] * 1000) / 1000, Math.round(c[1] * 1000) / 1000];
-              const rRing = ring => ring.map(aggressive);
-              const rPoly = poly => poly.map(rRing);
-              const rMp = mp => mp.map(rPoly);
-              merged = polygonClipping.union(merged, rMp(mps[i]));
-              skipped--;
-            } catch(e2) {
-              // descartar este depto
-            }
-          }
-        }
-        if (skipped > 0) console.warn('[outlines]', vendor, ': skipped', skipped, 'deptos');
+        console.warn('[outlines]', vendor, 'batch fallo, usando tree reduction');
+        merged = unionTree(mps);
+        if (!merged) { out[vendor] = []; return; }
       }
       // merged es un MultiPolygon = array de poligonos = array de rings.
       // Cada ring = array de [lng, lat]. Convertir a polilineas para Leaflet.
@@ -3909,6 +3935,13 @@ function _buildVendorOutlinesCache(){
   _vendorOutlinesCache = out;
   const summary = Object.keys(out).map(v => v + '(' + (out[v] || []).length + 'p)');
   console.log('[outlines] cache built via union:', Object.keys(out).length, 'vendors:', summary.join(', '));
+  // Persistir en localStorage para que las proximas cargas sean instantaneas.
+  try {
+    localStorage.setItem(VENDOR_OUTLINES_CACHE_KEY, JSON.stringify(out));
+    console.log('[outlines] cache persistido en localStorage');
+  } catch(e) {
+    console.warn('[outlines] no se pudo persistir cache (storage lleno?):', e);
+  }
   return out;
 }
 
