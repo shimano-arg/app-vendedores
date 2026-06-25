@@ -3785,8 +3785,19 @@ function _buildVendorOutlinesCache(){
   // Filtrar Antartida igual que el deptLayer.
   const safe = _filterOutAntarctica(DEPT_GEO);
   safe.features.forEach(feat => {
-    const v = feat.properties && feat.properties.vendor;
+    // Usar el vendor EFECTIVO (mismo que deptStyle): considera overrides
+    // del modal Zonas + mayoria de tiendas. Antes leiamos feat.properties.vendor
+    // raw del GeoJSON, pero algunos vendors (ej Santiago Esteban Z7) no
+    // existen como propiedad original - su zona surge solo via override o
+    // por la mayoria de tiendas, asi que sin esto no se calculaba su outline.
+    let v;
+    if (typeof deptEffectiveVendor === 'function') {
+      try { v = deptEffectiveVendor(feat); } catch(e) { v = feat.properties && feat.properties.vendor; }
+    } else {
+      v = feat.properties && feat.properties.vendor;
+    }
     if (!v) return;
+    if (v === '__DISTRIBUTOR__') return; // distribuidores se ven aparte en modo distrib
     if (!byVendor[v]) byVendor[v] = [];
     byVendor[v].push(feat);
   });
