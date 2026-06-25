@@ -4604,6 +4604,23 @@ function openClientModal(clientName, tipo, province, localityName){
   currentClientModalKey = k;
   currentClientModalOriginalName = clientName;
   const meta = getClientMeta(k);
+  const docId = clientLocId(province, localityName, clientName);
+  const cmData = clientMasterCache.get(docId) || {};
+  // Cuando admin escribe direccion desde MASTER CLIENTES guarda a client_master
+  // (global). Cuando vendedor escribe desde este modal guarda en clientMeta
+  // (per-device). client_master gana siempre - es la fuente de verdad. Asi
+  // si admin corrige una direccion, todos los vendedores ven la correccion
+  // sin tener que reescribir manualmente.
+  function _resolveAddress(){
+    if (cmData.addressExplicit) return cmData.address || '';
+    if (cmData.address) return cmData.address;
+    return (meta && meta.address) ? meta.address : '';
+  }
+  function _resolveLocality(){
+    if (cmData.localidad) return cmData.localidad;
+    if (meta && meta.locality) return meta.locality;
+    return localityName;
+  }
   const displayName = (meta && meta.customName && meta.customName.trim()) ? meta.customName.trim() : clientName;
   const nameEl = document.getElementById('cm-name');
   nameEl.textContent = displayName;
@@ -4612,19 +4629,19 @@ function openClientModal(clientName, tipo, province, localityName){
     + '<span class="badge prov">' + escapeHtml(titleCase(province)) + '</span>'
     + '<span>' + escapeHtml(localityName) + '</span>';
 
-  // Cargar inputs de direccion / localidad con la metadata guardada.
+  // Cargar inputs de direccion / localidad: admin gana (client_master) >
+  // vendedor (clientMeta). Si admin todavia no cargo nada en MASTER CLIENTES,
+  // se respeta lo que el vendedor haya cargado desde aca.
   const addrInput = document.getElementById('cm-address');
   const locInput = document.getElementById('cm-locality');
-  if (addrInput) addrInput.value = (meta && meta.address) ? meta.address : '';
-  if (locInput) locInput.value = (meta && meta.locality) ? meta.locality : localityName;
+  if (addrInput) addrInput.value = _resolveAddress();
+  if (locInput) locInput.value = _resolveLocality();
   // Cargar el dropdown de Tipo de cliente desde client_master (Firestore
   // global - no es per-device como clientMeta). Si no hay doc guardado,
   // queda en "(sin clasificar)" por defecto.
   // El "Volumen" ahora es dinamico (sale del subtotal del pedido) y el
   // bonus de "Pago anticipado" depende de la forma de pago elegida en
   // cada pedido - asi que no hay mas campos a nivel cliente.
-  const docId = clientLocId(province, localityName, clientName);
-  const cmData = clientMasterCache.get(docId) || {};
   const selTipo = document.getElementById('cm-cli-tipo');
   if (selTipo) selTipo.value = cmData.cliTipo || '';
   // Guardo en el dataset del modal los meta necesarios para escribir a
