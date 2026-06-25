@@ -6366,7 +6366,10 @@ window.renderMasterClientesTable = function(){
     // localidad esta atada al docId del padron - se queda como texto.
     if (isSap) {
       const locVal = (e.localidad === '(sin localidad)') ? '' : e.localidad;
-      html += '<td><input type="text" class="mc-addr-input' + (locVal ? ' has-value' : '') + '" style="font-size:11px" value="' + escapeAttr(locVal) + '" placeholder="(sin localidad)" onblur="saveMcSapLocalidad(\'' + escapeAttr(e.sapFsId) + '\', this)" onkeydown="if(event.key===\'Enter\')this.blur()" /></td>';
+      // Sin onblur (lo manejaba saveMcSapLocalidad por separado y confundia
+      // si el admin tipeaba localidad y direccion al mismo tiempo). Ahora
+      // el boton GUARDAR commitea AMBOS campos en una sola operacion.
+      html += '<td><input type="text" class="mc-addr-input js-mc-localidad-input' + (locVal ? ' has-value' : '') + '" style="font-size:11px" value="' + escapeAttr(locVal) + '" placeholder="(sin localidad)" onkeydown="if(event.key===\'Enter\')this.parentElement.parentElement.querySelector(\'.mc-save-btn\').click()" /></td>';
     } else {
       html += '<td>' + escapeHtml(e.localidad) + '</td>';
     }
@@ -6641,26 +6644,33 @@ window.pedidoDiscountFactor = pedidoDiscountFactor;
 
 window.saveMcAddr = async function(docId, btn){
   if (userRole !== 'admin') { alert('Solo admin puede editar.'); return; }
-  // Leer el valor actual del input directamente del DOM. Antes dependiamos
-  // de mcPendingChanges, pero si el listener de Firestore re-renderizaba la
-  // tabla mientras tipeabas, la referencia se podia perder y el guardar
-  // tiraba "No hay cambios pendientes" aunque el input mostrara el nuevo
-  // valor. Ahora lo leemos directo del input para evitar timing issues.
+  // Leer los inputs de la fila directamente del DOM. Antes dependiamos de
+  // mcPendingChanges, pero si el listener de Firestore re-renderizaba la
+  // tabla mientras tipeabas se perdia la referencia.
   const row = btn.closest('tr');
   const inputEl = row ? row.querySelector('input.js-mc-direccion-input') : null;
   if (!inputEl) { alert('No pude leer la direccion. Recargá la pagina.'); return; }
   const newVal = (inputEl.value || '').trim();
-  // Detectar SAP alta por prefijo sap: en el docId.
   const isSap = (typeof docId === 'string' && docId.indexOf('sap:') === 0);
-  // Comparar con el valor "actual" mostrado en el input. Usamos la misma
-  // cascada que getCurrent: para POINTs check client_master, despues
-  // clientMeta (que es donde quedan las direcciones que cargo el vendedor
-  // desde el modal "Dar de alta"). Para SAP altas, leemos del alta directo.
+  // Para SAP altas tambien leemos la LOCALIDAD del input de la misma fila,
+  // asi el boton GUARDAR commitea direccion + localidad juntos. Antes la
+  // localidad se autosalvaba por onblur y confundia al admin si tipeaba
+  // localidad y direccion al mismo tiempo.
+  let newLoc = null;
+  if (isSap) {
+    const locInput = row ? row.querySelector('input.js-mc-localidad-input') : null;
+    if (locInput) newLoc = (locInput.value || '').trim();
+  }
+  // Calcular el valor "guardado" para direccion. Usamos la misma cascada
+  // que getCurrent (client_master -> clientMeta) para POINTs. Para SAP
+  // altas leemos del alta directo.
   let prevAddr = '';
+  let prevLoc = '';
   if (isSap) {
     const fsId = docId.slice(4);
     const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(x => x._fsId === fsId);
     prevAddr = alta ? (alta.calle || alta.address || '') : '';
+    prevLoc = alta ? ((alta.localidadFinal || alta.localidad || '').trim()) : '';
   } else {
     const saved = clientMasterCache.get(docId);
     if (saved && saved.address) {
@@ -6679,8 +6689,10 @@ window.saveMcAddr = async function(docId, btn){
       }
     }
   }
-  if (newVal.trim() === (prevAddr || '').trim()) {
-    alert('No hay cambios pendientes para esta tienda.\n\n(El valor del input es identico al guardado.)');
+  const addrChanged = newVal.trim() !== (prevAddr || '').trim();
+  const locChanged = isSap && (newLoc != null) && (newLoc !== prevLoc);
+  if (!addrChanged && !locChanged) {
+    alert('No hay cambios pendientes para esta tienda.\n\n(Direccion y localidad son identicas a lo guardado.)');
     return;
   }
   btn.disabled = true;
@@ -6697,17 +6709,24 @@ window.saveMcAddr = async function(docId, btn){
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         updatedBy: currentUser.email || '',
       };
-      // Si la direccion cambio respecto a la guardada, limpiar lat/lng para
-      // re-geocodificar. Si esta vacia tambien las limpiamos.
-      const prevAddr = alta ? (alta.calle || alta.address || '') : '';
-      if (newVal !== prevAddr) {
+      // Si el admin cambio la localidad en el input de la fila, la
+      // commiteamos junto con la direccion.
+      if (locChanged) {
+        updatePayload.localidad = newLoc;
+        updatePayload.localidadFinal = newLoc;
+      }
+      // Si la direccion O la localidad cambiaron, limpiar lat/lng para
+      // re-geocodificar con los datos nuevos. Si la direccion esta vacia
+      // tambien las limpiamos.
+      if (addrChanged || locChanged) {
         updatePayload.lat = firebase.firestore.FieldValue.delete();
         updatePayload.lng = firebase.firestore.FieldValue.delete();
       }
       await fbDb.collection('client_applications').doc(fsId).set(updatePayload, {merge: true});
-      // Disparar geocoding (Google -> OSM) si hay direccion.
+      // Disparar geocoding (Google -> OSM) si hay direccion. Usamos la
+      // localidad NUEVA si la cambiamos en esta misma operacion.
       if (newVal && alta && typeof geocodeClientAddress === 'function') {
-        const locForGeo = alta.localidadFinal || alta.localidad || '';
+        const locForGeo = locChanged ? newLoc : (alta.localidadFinal || alta.localidad || '');
         const provForGeo = alta.provincia || '';
         try {
           const geo = await geocodeClientAddress(newVal, locForGeo, provForGeo);
