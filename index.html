@@ -1301,7 +1301,13 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <svg width="18" height="18" viewBox="0 0 24 24" style="flex-shrink:0" fill="currentColor">
           <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
         </svg>
-        Continuar con Email
+        Email con link de 1 uso
+      </button>
+      <button class="auth-btn" onclick="openEmailPasswordModal()" style="background:#fff;color:#0f172a;border:1.5px solid #cbd5e1">
+        <svg width="18" height="18" viewBox="0 0 24 24" style="flex-shrink:0" fill="currentColor">
+          <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6zm9 14H6V10h12v10zm-6-3c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"/>
+        </svg>
+        Email + contraseña
       </button>
       <div style="text-align:center;margin:10px 0 8px;font-size:10px;color:#94a3b8;letter-spacing:1px">&mdash; O &mdash;</div>
       <button class="auth-btn" onclick="signInWithGoogle()">
@@ -1396,6 +1402,34 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <p style="font-size:13px;color:#475569;line-height:1.5;margin-bottom:14px">Te mandamos un link a<br><b id="elink-sent-email" style="color:#0f172a;word-break:break-all">tu email</b><br><br>Abrilo y hac&eacute; clic para volver a la app autenticado.</p>
           <p style="font-size:11px;color:#94a3b8;line-height:1.5;margin-bottom:18px">No lo ves? Revis&aacute; <b>spam</b> o <b>promociones</b>. El link expira en 1 hora.</p>
           <button onclick="closeEmailLinkModal()" style="padding:10px 24px;border:1.5px solid #cbd5e1;border-radius:8px;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Modal "Continuar con Email + contraseña" (sin OAuth, sin link, sin Azure) -->
+  <div class="modal-overlay" id="email-pwd-modal" onclick="if(event.target===this)closeEmailPasswordModal()" style="z-index:10001">
+    <div class="modal-box" style="width:min(500px,96vw)">
+      <div class="modal-head" style="background:linear-gradient(135deg,#0f172a,#334155)">
+        <div>
+          <h2>Ingresar con email y contraseña</h2>
+          <div class="subt">Tu email tiene que estar habilitado por el admin. La contraseña te la pasa el admin la primera vez.</div>
+        </div>
+        <button class="modal-close" onclick="closeEmailPasswordModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:24px 28px;display:block">
+        <div id="epwd-form">
+          <label for="epwd-email" style="display:block;font-size:11px;font-weight:800;color:#0f172a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Email</label>
+          <input id="epwd-email" type="email" placeholder="nombre.apellido@shimano.com.ar" autocomplete="username" inputmode="email" style="width:100%;padding:12px 14px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:14px;font-family:inherit;outline:none;box-sizing:border-box;margin-bottom:14px"/>
+          <label for="epwd-pass" style="display:block;font-size:11px;font-weight:800;color:#0f172a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Contraseña</label>
+          <input id="epwd-pass" type="password" placeholder="" autocomplete="current-password" style="width:100%;padding:12px 14px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:14px;font-family:inherit;outline:none;box-sizing:border-box" onkeydown="if(event.key==='Enter')signInWithEmailPassword()"/>
+          <div id="epwd-error" style="display:none;background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:12px;line-height:1.5"></div>
+          <div style="display:flex;flex-direction:column;gap:10px;align-items:center;margin-top:18px">
+            <button id="epwd-go-btn" onclick="signInWithEmailPassword()" style="width:100%;max-width:280px;padding:12px 20px;border:none;border-radius:8px;background:#0f172a;color:#fff;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px;box-shadow:0 2px 6px rgba(15,23,42,.25)">Iniciar sesión</button>
+            <button onclick="closeEmailPasswordModal()" style="background:transparent;color:#64748b;border:none;font-size:12px;font-weight:600;cursor:pointer;padding:6px 12px;text-decoration:underline">Cancelar</button>
+          </div>
+          <div style="margin-top:18px;padding-top:14px;border-top:1px solid #e2e8f0;font-size:11px;color:#64748b;line-height:1.5;text-align:center">
+            ¿Primera vez? El admin te pre-autoriza tu email + te pasa la contraseña inicial por WhatsApp.
+          </div>
         </div>
       </div>
     </div>
@@ -14249,6 +14283,90 @@ window.openEmailLinkModal = function(){
   document.getElementById('elink-email').value = '';
   document.getElementById('email-link-modal').classList.add('open');
   setTimeout(() => { try { document.getElementById('elink-email').focus(); } catch(e) {} }, 100);
+};
+
+// ============================================================
+// EMAIL + PASSWORD SIGN-IN (sin OAuth, sin email link, sin Azure)
+// ============================================================
+// Para vendedores cuyo correo corporativo tiene Microsoft Intune que
+// bloquea links externos. El admin pre-autoriza el email en la collection
+// allowed_emails, le pasa la contraseña inicial por WhatsApp, y el vendedor
+// la usa. Despues la cambia desde el password gate normal.
+window.openEmailPasswordModal = function(){
+  const errEl = document.getElementById('epwd-error');
+  if (errEl) errEl.style.display = 'none';
+  const emailEl = document.getElementById('epwd-email');
+  const passEl = document.getElementById('epwd-pass');
+  if (emailEl) emailEl.value = '';
+  if (passEl) passEl.value = '';
+  document.getElementById('email-pwd-modal').classList.add('open');
+  setTimeout(() => { try { emailEl.focus(); } catch(e) {} }, 100);
+};
+window.closeEmailPasswordModal = function(){
+  document.getElementById('email-pwd-modal').classList.remove('open');
+};
+window.signInWithEmailPassword = async function(){
+  const btn = document.getElementById('epwd-go-btn');
+  const errEl = document.getElementById('epwd-error');
+  errEl.style.display = 'none';
+  const email = (document.getElementById('epwd-email').value || '').trim().toLowerCase();
+  const password = document.getElementById('epwd-pass').value || '';
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errEl.innerHTML = 'Ingresá un email válido.';
+    errEl.style.display = '';
+    return;
+  }
+  if (password.length < 6) {
+    errEl.innerHTML = 'La contraseña tiene que ser de al menos 6 caracteres.';
+    errEl.style.display = '';
+    return;
+  }
+  btn.disabled = true;
+  const oldTxt = btn.textContent;
+  btn.textContent = 'Iniciando sesión...';
+  try {
+    // Validar que el email este pre-autorizado por admin (collection
+    // allowed_emails). Esto evita que cualquiera con un email valido se
+    // cree una cuenta sin permiso. El doc tiene id = email lowercase.
+    const allowSnap = await fbDb.collection('allowed_emails').doc(email).get();
+    if (!allowSnap.exists) {
+      throw {code: 'app/email-not-allowed', message: 'Tu email no esta habilitado. Pedile al admin (Mariano) que te pre-autorice.'};
+    }
+    // Intentar sign-in. Si el usuario no existe en Firebase Auth, lo creamos.
+    try {
+      await fbAuth.signInWithEmailAndPassword(email, password);
+      // OK, onAuthStateChanged se encarga del resto.
+    } catch(e) {
+      if (e && e.code === 'auth/user-not-found') {
+        // Primera vez: lo creamos con esta password como inicial.
+        await fbAuth.createUserWithEmailAndPassword(email, password);
+      } else {
+        throw e;
+      }
+    }
+    closeEmailPasswordModal();
+  } catch(e) {
+    console.error('signInWithEmailPassword', e);
+    const code = e && e.code;
+    let msg;
+    if (code === 'app/email-not-allowed') {
+      msg = e.message;
+    } else if (code === 'auth/wrong-password' || code === 'auth/invalid-credential' || code === 'auth/invalid-login-credentials') {
+      msg = 'Contraseña incorrecta. Si olvidaste tu contraseña, pediselo al admin para resetearla.';
+    } else if (code === 'auth/operation-not-allowed') {
+      msg = '<b>El método de Email + contraseña no está habilitado en Firebase.</b><br>Admin: ir a Firebase Console → Authentication → Sign-in method → Email/Password → activar.';
+    } else if (code === 'auth/weak-password') {
+      msg = 'La contraseña es muy débil. Usá al menos 6 caracteres.';
+    } else if (code === 'auth/too-many-requests') {
+      msg = 'Demasiados intentos. Esperá unos minutos y reintentá.';
+    } else {
+      msg = (e && (e.message || e.code)) || 'Error desconocido';
+    }
+    errEl.innerHTML = msg;
+    errEl.style.display = '';
+    btn.disabled = false;
+    btn.textContent = oldTxt;
+  }
 };
 window.closeEmailLinkModal = function(){
   document.getElementById('email-link-modal').classList.remove('open');
