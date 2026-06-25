@@ -1365,14 +1365,12 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
   <select class="zone-select small" id="prov-select"><option value="ALL">Todas</option></select>
   <label>Localidad:</label>
   <select class="zone-select small" id="loc-select"><option value="ALL">Todas</option></select>
-  <label>Tipo:</label>
-  <select class="zone-select small" id="type-select" onchange="onTypeChange()">
-    <option value="ALL">Todos</option>
-    <option value="EXISTENTES">Existentes</option>
-    <option value="PROSPECTOS">Prospectos</option>
-    <option value="DISTRIBUIDORES">Distribuidores</option>
-    <option value="VENTAS_ESPECIALES">Ventas Especiales</option>
-  </select>
+  <!-- Filtro Tipo removido - ya no aporta valor desde que el padron se
+       unifico con SAP y los tipos legacy (Existentes/Prospectos/
+       Distribuidores/Ventas Especiales) dejaron de tener sentido
+       operativo. Mantenemos el input oculto con valor 'ALL' para no
+       romper el codigo que lee currentTypeFilter y type-select.value. -->
+  <input type="hidden" id="type-select" value="ALL"/>
   <div class="controls-right-group">
     <button class="btn-mis-camps" id="mis-camps-btn" onclick="openMisCampsModal()" style="display:none" title="Ver campa&ntilde;as activas y los SKU involucrados">Campa&ntilde;as Activas</button>
     <button class="btn-analisis" id="analisis-btn" onclick="openExportAnalisis()" style="display:none" title="Formatos avanzados (Power BI / ML / ZIP fotos) - requiere PIN">Exportar para An&aacute;lisis</button>
