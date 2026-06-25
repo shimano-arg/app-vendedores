@@ -1287,21 +1287,21 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
          puntuales (admin con Google, vendedor con email link, etc.). -->
     <div id="auth-login-block" style="display:none">
       <h2>App Vendedores</h2>
-      <p style="font-size:13px;opacity:.85">Iniciá sesión con tu email y contraseña. La primera vez te las pasa el admin (Mariano).</p>
+      <p style="font-size:13px;color:#475569">Iniciá sesión con tu email y contraseña. La primera vez te las pasa el admin (Mariano).</p>
       <div style="text-align:left;margin-top:14px">
-        <label for="login-email" style="display:block;font-size:11px;font-weight:800;color:rgba(255,255,255,.85);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Email</label>
-        <input id="login-email" type="email" placeholder="tu.email@shimano.com.ar" autocomplete="username" inputmode="email" style="width:100%;padding:12px 14px;border:1.5px solid rgba(255,255,255,.25);border-radius:8px;font-size:14px;font-family:inherit;outline:none;box-sizing:border-box;margin-bottom:12px;background:rgba(255,255,255,.95);color:#0f172a"/>
-        <label for="login-pass" style="display:block;font-size:11px;font-weight:800;color:rgba(255,255,255,.85);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Contraseña</label>
-        <input id="login-pass" type="password" placeholder="" autocomplete="current-password" style="width:100%;padding:12px 14px;border:1.5px solid rgba(255,255,255,.25);border-radius:8px;font-size:14px;font-family:inherit;outline:none;box-sizing:border-box;background:rgba(255,255,255,.95);color:#0f172a" onkeydown="if(event.key==='Enter')doInlineLogin()"/>
-        <div id="login-error" style="display:none;background:rgba(239,68,68,.15);border:1px solid rgba(252,165,165,.5);color:#fecaca;border-radius:6px;padding:9px 11px;margin-top:11px;font-size:12px;line-height:1.4"></div>
+        <label for="login-email" style="display:block;font-size:11px;font-weight:800;color:#0f172a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Email</label>
+        <input id="login-email" type="email" placeholder="tu.email@shimano.com.ar" autocomplete="username" inputmode="email" style="width:100%;padding:12px 14px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:14px;font-family:inherit;outline:none;box-sizing:border-box;margin-bottom:12px;background:#fff;color:#0f172a"/>
+        <label for="login-pass" style="display:block;font-size:11px;font-weight:800;color:#0f172a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Contraseña</label>
+        <input id="login-pass" type="password" placeholder="" autocomplete="current-password" style="width:100%;padding:12px 14px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:14px;font-family:inherit;outline:none;box-sizing:border-box;background:#fff;color:#0f172a" onkeydown="if(event.key==='Enter')doInlineLogin()"/>
+        <div id="login-error" style="display:none;background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:6px;padding:9px 11px;margin-top:11px;font-size:12px;line-height:1.4"></div>
         <button id="login-submit-btn" class="auth-btn" onclick="doInlineLogin()" style="background:#00A9E0;color:#fff;margin-top:14px;font-weight:800">
           Iniciar sesión
         </button>
       </div>
       <div style="text-align:center;margin-top:16px">
-        <button onclick="toggleOtrasOpciones()" id="otras-opciones-btn" style="background:transparent;border:none;color:rgba(255,255,255,.7);font-size:11px;text-decoration:underline;cursor:pointer">Otras opciones de inicio de sesión</button>
+        <button onclick="toggleOtrasOpciones()" id="otras-opciones-btn" style="background:transparent;border:none;color:#64748b;font-size:11px;text-decoration:underline;cursor:pointer">Otras opciones de inicio de sesión</button>
       </div>
-      <div id="otras-opciones-block" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.15)">
+      <div id="otras-opciones-block" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid #e2e8f0">
         <button class="auth-btn" onclick="signInWithMicrosoft()" style="background:#fff;color:#1f2328;border:1.5px solid #cbd5e1;margin-bottom:8px">
           <svg width="18" height="18" viewBox="0 0 23 23" style="flex-shrink:0">
             <rect x="1" y="1" width="10" height="10" fill="#F25022"/>
@@ -2796,7 +2796,7 @@ async function loadStockSnapshot(){
 const vendorLookup = {};
 VENDORS.forEach(v => vendorLookup[v.key] = v);
 
-const map = L.map('map', {zoomControl: true, minZoom: 3, maxZoom: 14}).setView([-38, -64], 4);
+const map = L.map('map', {zoomControl: true, minZoom: 4, maxZoom: 14, maxBounds: [[-22, -76], [-56, -52]], maxBoundsViscosity: 0.7}).setView([-38, -64], 4);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; OSM | CARTO',
   subdomains: 'abcd',
@@ -3672,7 +3672,43 @@ function deptStyle(feat){
   };
 }
 
-const deptLayer = L.geoJSON(DEPT_GEO, {
+// Filtra de un FeatureCollection las geometrias enteramente en la
+// "Antartida Argentina" (sur de lat -56). Esa zona corresponde al reclamo
+// territorial de la provincia "Tierra del Fuego, Antartida e Islas del
+// Atlantico Sur" pero como no esta habitada no tiene sentido renderizarla.
+// Devuelve un nuevo FeatureCollection con las features ajustadas - los
+// MultiPolygon pierden los poligonos antarticos pero conservan Tierra del
+// Fuego y demas. Si un feature queda sin coordenadas, se omite.
+function _filterOutAntarctica(geojson){
+  const out = {type: geojson.type || 'FeatureCollection', features: []};
+  const MIN_LAT = -56; // todo lo que tenga puntos < -56 lo descartamos
+  function polyHasOnlyAntarctic(poly){
+    // poly = array of rings; cada ring = array de [lng, lat]
+    for (const ring of poly) {
+      for (const c of ring) {
+        if (c[1] >= MIN_LAT) return false; // tiene al menos 1 punto al norte
+      }
+    }
+    return true;
+  }
+  (geojson.features || []).forEach(f => {
+    const g = f.geometry;
+    if (!g || !g.coordinates) { out.features.push(f); return; }
+    if (g.type === 'MultiPolygon') {
+      const kept = g.coordinates.filter(poly => !polyHasOnlyAntarctic(poly));
+      if (kept.length) {
+        out.features.push(Object.assign({}, f, {geometry: {type: 'MultiPolygon', coordinates: kept}}));
+      }
+    } else if (g.type === 'Polygon') {
+      if (!polyHasOnlyAntarctic(g.coordinates)) out.features.push(f);
+    } else {
+      out.features.push(f);
+    }
+  });
+  return out;
+}
+
+const deptLayer = L.geoJSON(_filterOutAntarctica(DEPT_GEO), {
   style: deptStyle,
   interactive: false,
 }).addTo(map);
@@ -3699,7 +3735,7 @@ function provStyle(feat){
   return {fillColor: 'transparent', fillOpacity: 0, color: '#475569', weight: 1.2, opacity: 0.85};
 }
 
-const provLayer = L.geoJSON(PROV_GEO, {
+const provLayer = L.geoJSON(_filterOutAntarctica(PROV_GEO), {
   style: provStyle,
   interactive: false,
 }).addTo(map);
