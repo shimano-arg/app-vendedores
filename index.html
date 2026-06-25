@@ -14284,28 +14284,87 @@ window.sendEmailSignInLink = async function(){
 };
 
 // Al cargar la pagina, ver si la URL contiene el oobCode del email link.
-// Si si, completar el sign-in transparente para el usuario.
+// CRITICO: NO auto-completamos el sign-in apenas carga la pagina. En vez,
+// mostramos un cartel con un boton "Continuar". El motivo: muchos clientes
+// de correo corporativos (Outlook Safe Links, Gmail antivirus de empresa,
+// etc.) PRE-CARGAN los links en un sandbox para escanear seguridad. Si ese
+// sandbox ejecuta el JS, consume el oobCode antes que el usuario clickee
+// realmente, y cuando el usuario llega le tira "invalid-action-code".
+// Requerir click manual previene esto: el sandbox solo ve HTML estatico.
 (function handleIncomingEmailLink(){
   try {
     if (!fbAuth.isSignInWithEmailLink || !fbAuth.isSignInWithEmailLink(window.location.href)) return;
-    // Tomar el email del storage; si no esta (link abierto en otro
-    // dispositivo) pedirlo al usuario.
-    let email = window.localStorage.getItem(EMAIL_LINK_STORAGE_KEY);
-    if (!email) {
-      email = window.prompt('Para terminar de iniciar sesion, confirma el email donde recibiste el link:');
-      if (!email) return;
+    // Guardar el href ANTES de que algo lo modifique. La firma del link se
+    // necesita exacta para que Firebase valide el oobCode.
+    const fullLink = window.location.href;
+    const storedEmail = window.localStorage.getItem(EMAIL_LINK_STORAGE_KEY) || '';
+    // Construir overlay sobre la pagina.
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.96);z-index:99999;display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;padding:24px;';
+    overlay.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:440px;width:100%;padding:28px 24px;box-shadow:0 12px 40px rgba(0,0,0,.4);text-align:center">' +
+      '<div style="width:56px;height:56px;background:#dbeafe;border-radius:50%;margin:0 auto 14px;display:flex;align-items:center;justify-content:center;font-size:28px">&#128231;</div>' +
+      '<h2 style="margin:0 0 6px;font-size:20px;color:#0f172a">Confirmar inicio de sesion</h2>' +
+      '<p style="margin:0 0 18px;font-size:13px;color:#475569;line-height:1.5">Por seguridad, tenes que confirmar manualmente el inicio de sesion.</p>' +
+      '<input id="emaillink-confirm-email" type="email" placeholder="Tu email" value="' + storedEmail.replace(/"/g,'&quot;') + '" style="width:100%;padding:11px 12px;border:1.5px solid #cbd5e1;border-radius:7px;font-size:13px;margin-bottom:10px;box-sizing:border-box" />' +
+      '<button id="emaillink-confirm-btn" style="width:100%;padding:13px;border:none;border-radius:8px;background:#0f172a;color:#fff;font-size:14px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.5px">Continuar e iniciar sesion</button>' +
+      '<div id="emaillink-confirm-err" style="display:none;margin-top:14px;padding:11px 14px;background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;border-radius:7px;font-size:12px;line-height:1.5;text-align:left"></div>' +
+      '<button id="emaillink-confirm-cancel" style="margin-top:14px;background:transparent;border:none;color:#64748b;font-size:12px;text-decoration:underline;cursor:pointer">Cancelar y volver al login normal</button>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    const errEl = document.getElementById('emaillink-confirm-err');
+    const emailEl = document.getElementById('emaillink-confirm-email');
+    const btn = document.getElementById('emaillink-confirm-btn');
+    const cancelBtn = document.getElementById('emaillink-confirm-cancel');
+    function clearUrlParams(){
+      try { window.history.replaceState({}, document.title, window.location.pathname); } catch(e) {}
     }
-    fbAuth.signInWithEmailLink(email, window.location.href)
-      .then(result => {
+    cancelBtn.onclick = () => {
+      clearUrlParams();
+      overlay.remove();
+    };
+    btn.onclick = async () => {
+      const email = (emailEl.value || '').trim().toLowerCase();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        errEl.textContent = 'Ingresa un email valido.';
+        errEl.style.display = '';
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = 'Iniciando sesion...';
+      errEl.style.display = 'none';
+      try {
+        const result = await fbAuth.signInWithEmailLink(email, fullLink);
         console.log('[Auth] Email link sign-in OK:', result.user && result.user.email);
         window.localStorage.removeItem(EMAIL_LINK_STORAGE_KEY);
-        // Limpiar la URL para que no quede el oobCode (evita reusos).
-        try { window.history.replaceState({}, document.title, window.location.pathname); } catch(e) {}
-      })
-      .catch(err => {
+        clearUrlParams();
+        overlay.remove();
+      } catch(err) {
         console.error('[Auth] signInWithEmailLink error', err);
-        alert('No pudimos completar el inicio de sesion con email: ' + (err.message || err.code));
-      });
+        const code = err && err.code;
+        let msg;
+        if (code === 'auth/invalid-action-code') {
+          msg = '<b>El link de inicio de sesion no es valido o ya fue usado.</b><br><br>'
+              + 'Posibles causas:<br>'
+              + '&middot; El link expiro (vence aprox. 1 hora despues de enviarse).<br>'
+              + '&middot; Ya iniciaste sesion con este link antes.<br>'
+              + '&middot; Un antivirus / Outlook Safe Links pre-cargo el link y lo consumio antes que vos.<br><br>'
+              + '<b>Solucion:</b> cancela y vuelve a pedir un nuevo link de inicio de sesion.';
+        } else if (code === 'auth/invalid-email') {
+          msg = 'El email no coincide con el que se uso para enviar el link.';
+        } else if (code === 'auth/user-disabled') {
+          msg = 'Tu cuenta esta deshabilitada. Pedile al admin que te re-habilite.';
+        } else {
+          msg = 'No pudimos completar el inicio de sesion.<br><br>Error: ' + (err.message || code || 'desconocido');
+        }
+        errEl.innerHTML = msg;
+        errEl.style.display = '';
+        btn.disabled = false;
+        btn.textContent = 'Reintentar';
+      }
+    };
+    // Enter en el input dispara el boton.
+    emailEl.addEventListener('keydown', e => { if (e.key === 'Enter') btn.click(); });
+    setTimeout(() => { try { (storedEmail ? btn : emailEl).focus(); } catch(e) {} }, 100);
   } catch(e) { console.warn('handleIncomingEmailLink', e); }
 })();
 
