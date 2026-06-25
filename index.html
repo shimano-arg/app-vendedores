@@ -3808,9 +3808,24 @@ function _buildVendorOutlinesCache(){
       const merged = polygonClipping.union(...mps);
       // merged es un MultiPolygon = array de poligonos = array de rings.
       // Cada ring = array de [lng, lat]. Convertir a polilineas para Leaflet.
+      // Filtramos islas chicas: polygon-clipping a veces deja "islas" pequeñas
+      // cuando los polígonos source no tienen vertices identicos en bordes
+      // compartidos. Esas islas aparecen como lineas internas. Si la sumatoria
+      // de longitudes de los segmentos del ring es < umbral, descartamos.
+      const minPerim = 0.5; // 0.5 grados ≈ 55 km aprox
+      function ringPerimeter(ring){
+        let s = 0;
+        for (let i = 0; i < ring.length - 1; i++) {
+          const a = ring[i], b = ring[i + 1];
+          const dx = a[0] - b[0], dy = a[1] - b[1];
+          s += Math.sqrt(dx * dx + dy * dy);
+        }
+        return s;
+      }
       const polylines = [];
       merged.forEach(poly => {
         poly.forEach(ring => {
+          if (ringPerimeter(ring) < minPerim) return;
           // Convertir ring de [lng, lat] a [lat, lng] (formato Leaflet).
           const ll = ring.map(c => [c[1], c[0]]);
           polylines.push(ll);
