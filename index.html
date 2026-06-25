@@ -1282,38 +1282,46 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       <div style="display:inline-block;width:38px;height:38px;border:3px solid #e5e7eb;border-top-color:#00A9E0;border-radius:50%;animation:authSpin 0.9s linear infinite"></div>
       <div style="margin-top:14px;font-size:13px;color:#475569">Cargando sesi&oacute;n...</div>
     </div>
-    <!-- Bloque de login con Google: oculto por default, solo se muestra
-         despues de que Firebase confirmo que NO hay sesion guardada. -->
+    <!-- Bloque de login: por default solo email + password inline. Otros
+         metodos quedan colapsados detras de "Otras opciones" para casos
+         puntuales (admin con Google, vendedor con email link, etc.). -->
     <div id="auth-login-block" style="display:none">
       <h2>App Vendedores</h2>
-      <p><b>Primera vez aqu&iacute;?</b><br>Ingres&aacute; con tu cuenta corporativa Shimano (Microsoft) o con tu cuenta de Google. El admin recibir&aacute; un aviso para habilitarte.<br><span style="font-size:11px;opacity:.85;display:block;margin-top:8px">Las pr&oacute;ximas veces solo te pediremos tu contrase&ntilde;a.</span></p>
-      <button class="auth-btn" onclick="signInWithMicrosoft()" style="background:#fff;color:#1f2328;border:1.5px solid #cbd5e1">
-        <svg width="18" height="18" viewBox="0 0 23 23" style="flex-shrink:0">
-          <rect x="1" y="1" width="10" height="10" fill="#F25022"/>
-          <rect x="12" y="1" width="10" height="10" fill="#7FBA00"/>
-          <rect x="1" y="12" width="10" height="10" fill="#00A4EF"/>
-          <rect x="12" y="12" width="10" height="10" fill="#FFB900"/>
-        </svg>
-        Continuar con Microsoft
-      </button>
-      <div style="text-align:center;margin:10px 0 8px;font-size:10px;color:#94a3b8;letter-spacing:1px">&mdash; O &mdash;</div>
-      <button class="auth-btn" onclick="openEmailLinkModal()" style="background:#0f172a;color:#fff">
-        <svg width="18" height="18" viewBox="0 0 24 24" style="flex-shrink:0" fill="currentColor">
-          <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
-        </svg>
-        Email con link de 1 uso
-      </button>
-      <button class="auth-btn" onclick="openEmailPasswordModal()" style="background:#fff;color:#0f172a;border:1.5px solid #cbd5e1">
-        <svg width="18" height="18" viewBox="0 0 24 24" style="flex-shrink:0" fill="currentColor">
-          <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6zm9 14H6V10h12v10zm-6-3c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"/>
-        </svg>
-        Email + contraseña
-      </button>
-      <div style="text-align:center;margin:10px 0 8px;font-size:10px;color:#94a3b8;letter-spacing:1px">&mdash; O &mdash;</div>
-      <button class="auth-btn" onclick="signInWithGoogle()">
-        <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-        Continuar con Google
-      </button>
+      <p style="font-size:13px;opacity:.85">Iniciá sesión con tu email y contraseña. La primera vez te las pasa el admin (Mariano).</p>
+      <div style="text-align:left;margin-top:14px">
+        <label for="login-email" style="display:block;font-size:11px;font-weight:800;color:rgba(255,255,255,.85);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Email</label>
+        <input id="login-email" type="email" placeholder="tu.email@shimano.com.ar" autocomplete="username" inputmode="email" style="width:100%;padding:12px 14px;border:1.5px solid rgba(255,255,255,.25);border-radius:8px;font-size:14px;font-family:inherit;outline:none;box-sizing:border-box;margin-bottom:12px;background:rgba(255,255,255,.95);color:#0f172a"/>
+        <label for="login-pass" style="display:block;font-size:11px;font-weight:800;color:rgba(255,255,255,.85);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Contraseña</label>
+        <input id="login-pass" type="password" placeholder="" autocomplete="current-password" style="width:100%;padding:12px 14px;border:1.5px solid rgba(255,255,255,.25);border-radius:8px;font-size:14px;font-family:inherit;outline:none;box-sizing:border-box;background:rgba(255,255,255,.95);color:#0f172a" onkeydown="if(event.key==='Enter')doInlineLogin()"/>
+        <div id="login-error" style="display:none;background:rgba(239,68,68,.15);border:1px solid rgba(252,165,165,.5);color:#fecaca;border-radius:6px;padding:9px 11px;margin-top:11px;font-size:12px;line-height:1.4"></div>
+        <button id="login-submit-btn" class="auth-btn" onclick="doInlineLogin()" style="background:#00A9E0;color:#fff;margin-top:14px;font-weight:800">
+          Iniciar sesión
+        </button>
+      </div>
+      <div style="text-align:center;margin-top:16px">
+        <button onclick="toggleOtrasOpciones()" id="otras-opciones-btn" style="background:transparent;border:none;color:rgba(255,255,255,.7);font-size:11px;text-decoration:underline;cursor:pointer">Otras opciones de inicio de sesión</button>
+      </div>
+      <div id="otras-opciones-block" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.15)">
+        <button class="auth-btn" onclick="signInWithMicrosoft()" style="background:#fff;color:#1f2328;border:1.5px solid #cbd5e1;margin-bottom:8px">
+          <svg width="18" height="18" viewBox="0 0 23 23" style="flex-shrink:0">
+            <rect x="1" y="1" width="10" height="10" fill="#F25022"/>
+            <rect x="12" y="1" width="10" height="10" fill="#7FBA00"/>
+            <rect x="1" y="12" width="10" height="10" fill="#00A4EF"/>
+            <rect x="12" y="12" width="10" height="10" fill="#FFB900"/>
+          </svg>
+          Continuar con Microsoft
+        </button>
+        <button class="auth-btn" onclick="signInWithGoogle()" style="margin-bottom:8px">
+          <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          Continuar con Google
+        </button>
+        <button class="auth-btn" onclick="openEmailLinkModal()" style="background:#0f172a;color:#fff">
+          <svg width="18" height="18" viewBox="0 0 24 24" style="flex-shrink:0" fill="currentColor">
+            <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+          </svg>
+          Email con link de 1 uso
+        </button>
+      </div>
       <div class="auth-status" id="auth-status"></div>
     </div>
   </div>
@@ -14285,6 +14293,105 @@ window.openEmailLinkModal = function(){
   setTimeout(() => { try { document.getElementById('elink-email').focus(); } catch(e) {} }, 100);
 };
 
+// Toggle del bloque "Otras opciones de inicio de sesion" en la pantalla de login.
+window.toggleOtrasOpciones = function(){
+  const block = document.getElementById('otras-opciones-block');
+  const btn = document.getElementById('otras-opciones-btn');
+  if (!block) return;
+  const visible = (block.style.display !== 'none');
+  block.style.display = visible ? 'none' : '';
+  if (btn) btn.textContent = visible ? 'Otras opciones de inicio de sesión' : 'Ocultar otras opciones';
+};
+
+// Pre-fill del email recordado en localStorage cuando se muestra el login.
+// Asi en logins siguientes el vendedor solo tipea password.
+const LAST_LOGIN_EMAIL_KEY = 'shimano_last_login_email';
+function prefillLoginEmail(){
+  const stored = window.localStorage.getItem(LAST_LOGIN_EMAIL_KEY);
+  if (!stored) return;
+  const el = document.getElementById('login-email');
+  if (el && !el.value) {
+    el.value = stored;
+    // Si ya hay email, mover el foco al password directamente.
+    const passEl = document.getElementById('login-pass');
+    if (passEl) setTimeout(() => { try { passEl.focus(); } catch(e){} }, 200);
+  }
+}
+
+// Login inline desde la pantalla principal (no modal). Reutiliza la
+// misma logica que signInWithEmailPassword pero leyendo los inputs
+// inline en lugar de los del modal.
+window.doInlineLogin = async function(){
+  const btn = document.getElementById('login-submit-btn');
+  const errEl = document.getElementById('login-error');
+  if (errEl) errEl.style.display = 'none';
+  const email = (document.getElementById('login-email').value || '').trim().toLowerCase();
+  const password = document.getElementById('login-pass').value || '';
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errEl.innerHTML = 'Ingresá un email válido.';
+    errEl.style.display = '';
+    return;
+  }
+  if (password.length < 6) {
+    errEl.innerHTML = 'La contraseña tiene que ser de al menos 6 caracteres.';
+    errEl.style.display = '';
+    return;
+  }
+  btn.disabled = true;
+  const oldTxt = btn.textContent;
+  btn.textContent = 'Iniciando sesión...';
+  try {
+    console.log('[auth-inline] signing in', email);
+    let didCreate = false;
+    try {
+      await fbAuth.signInWithEmailAndPassword(email, password);
+    } catch(e) {
+      if (e && e.code === 'auth/user-not-found') {
+        await fbAuth.createUserWithEmailAndPassword(email, password);
+        didCreate = true;
+      } else {
+        throw e;
+      }
+    }
+    // Login OK. Recordar el email para la proxima.
+    try { window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, email); } catch(e){}
+    // Validacion de allowed_emails en background (no bloquea).
+    setTimeout(() => {
+      fbDb.collection('allowed_emails').doc(email).get()
+        .then(snap => {
+          if (!snap.exists) {
+            console.warn('[auth-inline] email no esta en allowed_emails');
+            if (didCreate && fbAuth.currentUser) { fbAuth.currentUser.delete().catch(()=>{}); }
+            fbAuth.signOut();
+            alert('Tu email no esta habilitado. Pedile al admin que te pre-autorice y reintenta.');
+          }
+        })
+        .catch(e => console.warn('[auth-inline] allowed_emails read denegado:', e && (e.code || e.message)));
+    }, 100);
+  } catch(e) {
+    console.error('doInlineLogin', e);
+    const code = e && e.code;
+    let msg;
+    if (code === 'auth/wrong-password' || code === 'auth/invalid-credential' || code === 'auth/invalid-login-credentials') {
+      msg = 'Contraseña incorrecta. Si no la sabés, pediselo al admin.';
+    } else if (code === 'auth/user-not-found') {
+      msg = 'No existe una cuenta con ese email. Pediselo al admin para que te dé de alta.';
+    } else if (code === 'auth/operation-not-allowed') {
+      msg = 'Email + contraseña no está habilitado en Firebase. Admin: habilitarlo.';
+    } else if (code === 'auth/too-many-requests') {
+      msg = 'Demasiados intentos. Esperá unos minutos.';
+    } else if (code === 'auth/network-request-failed') {
+      msg = 'Sin internet. Verificá tu conexión y reintentá.';
+    } else {
+      msg = (e && (e.message || e.code)) || 'Error desconocido';
+    }
+    errEl.innerHTML = msg;
+    errEl.style.display = '';
+    btn.disabled = false;
+    btn.textContent = oldTxt;
+  }
+};
+
 // ============================================================
 // EMAIL + PASSWORD SIGN-IN (sin OAuth, sin email link, sin Azure)
 // ============================================================
@@ -14563,6 +14670,8 @@ function showLoginPrompt(){
   const block = document.getElementById('auth-login-block');
   if (loader) loader.style.display = 'none';
   if (block) block.style.display = 'block';
+  // Pre-fill email del ultimo login si esta guardado.
+  try { prefillLoginEmail(); } catch(e){}
 }
 
 // Fallback de seguridad: si despues de 5 segundos onAuthStateChanged todavia
