@@ -16012,7 +16012,7 @@ window.openAdminPanel = async function(){
         const isSelf = docId === currentUser.uid;
         const isProtected = PROTECTED_ADMIN_EMAILS.indexOf((d.email || '').toLowerCase()) >= 0;
         const isInterno = d.role === 'interno';
-        const roleOptions = ['unassigned','admin','vendedor','interno','viewer'].map(r =>
+        const roleOptions = ['unassigned','admin','gerente','vendedor','interno','viewer'].map(r =>
           '<option value="' + r + '"' + (d.role === r ? ' selected' : '') + (isSelf && r !== 'admin' ? ' disabled' : '') + '>' + r + '</option>'
         ).join('');
         const vendorOptions = '<option value="">-</option>' + VENDORS.map(v =>
