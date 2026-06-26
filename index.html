@@ -2893,6 +2893,36 @@ const RefreshAppControl = L.Control.extend({
 });
 map.addControl(new RefreshAppControl());
 
+// Boton "Reubicar pines" debajo del refresh. Solo admin/gerente.
+// Triggerea runBulkGeocodeSapAltas que geocodifica las altas SAP con
+// direccion + provincia pero sin lat/lng. Asi el admin no tiene que
+// hacer clic en cada cliente uno por uno. Visible siempre pero la
+// funcion misma valida rol al ejecutarse.
+const GeocodePinsControl = L.Control.extend({
+  options: { position: 'topleft' },
+  onAdd: function(){
+    const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control geocode-pins-bar');
+    const btn = L.DomUtil.create('a', '', container);
+    btn.href = '#';
+    btn.title = 'Reubicar pines: geocodifica todas las tiendas SAP que tienen direccion pero estan en el centro de la provincia';
+    btn.setAttribute('role', 'button');
+    btn.setAttribute('aria-label', 'Reubicar pines en el mapa');
+    btn.innerHTML = '&#128205;'; // simbolo pin (round pushpin)
+    btn.style.cssText = 'font-size:16px;font-weight:800;color:#0f172a;text-align:center;line-height:30px;cursor:pointer;display:block;width:30px;height:30px';
+    L.DomEvent.on(btn, 'click', L.DomEvent.stop);
+    L.DomEvent.on(btn, 'click', function(){
+      if (userRole !== 'admin' && userRole !== 'gerente') {
+        alert('Solo admin o gerente puede reubicar pines.');
+        return;
+      }
+      if (typeof runBulkGeocodeSapAltas === 'function') runBulkGeocodeSapAltas();
+      else alert('Funcion no disponible aun. Recarga la app.');
+    });
+    return container;
+  }
+});
+map.addControl(new GeocodePinsControl());
+
 let currentVendor = 'ALL';
 let currentProvince = 'ALL';
 let currentLocality = 'ALL';
