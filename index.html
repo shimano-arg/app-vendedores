@@ -11835,13 +11835,34 @@ function refreshRendFotoGrid(){
 async function resolveMyRendicionesApprover(){
   // Devuelve {uid, email} del responsable asignado al usuario logueado.
   // Si no esta asignado o el doc no existe, devuelve null.
+  //
+  // IMPORTANTE: los vendedores NO pueden leer /roles/{otroUid} por security
+  // rules. Estrategia:
+  //   1. Si tenemos el email cacheado en /roles/{yo}.rendicionesApproverEmail
+  //      (lo escribe bulkAssignApprover), usar eso directo - 0 reads extra.
+  //   2. Si no, leer del directorio publico app_config/users_directory que
+  //      admin sincroniza al abrir Panel Usuarios.
+  //   3. Fallback /roles (solo funciona para admin/gerente).
   if (!myRendicionesApproverUid) return null;
+  if (myRendicionesApproverEmail) {
+    return {uid: myRendicionesApproverUid, email: myRendicionesApproverEmail, name: myRendicionesApproverEmail};
+  }
+  try {
+    const dirSnap = await fbDb.collection('app_config').doc('users_directory').get();
+    if (dirSnap.exists) {
+      const dir = (dirSnap.data() || {}).users || {};
+      const u = dir[myRendicionesApproverUid];
+      if (u) {
+        return {uid: myRendicionesApproverUid, email: u.email || '', name: u.displayName || u.email || ''};
+      }
+    }
+  } catch(e) { console.warn('resolve approver via directory', e); }
   try {
     const snap = await fbDb.collection('roles').doc(myRendicionesApproverUid).get();
     if (!snap.exists) return null;
     const data = snap.data() || {};
     return {uid: myRendicionesApproverUid, email: data.email || '', name: data.displayName || data.email || ''};
-  } catch(e) { console.warn('resolve approver', e); return null; }
+  } catch(e) { console.warn('resolve approver via roles', e); return null; }
 }
 
 async function notifyRendicionApprover(approver, title, description, rendId){
@@ -14849,6 +14870,7 @@ var userRole = null;          // 'admin' | 'vendedor' | 'viewer' | 'interno' | '
 var assignedVendor = null;    // VENDOR.key cuando role=vendedor
 let myWhatsappNumber = null;  // numero personal cargado por admin en panel Usuarios (formato wa.me: 5491126762031)
 let myRendicionesApproverUid = null; // uid del responsable de rendiciones asignado a mi cuenta
+let myRendicionesApproverEmail = null; // email cacheado (escrito por el bulk assign) - evita un read extra al directorio
 let unsubUserData = null;
 let unsubPedidosOwn = null;
 let unsubPedidosAll = null;
@@ -15949,6 +15971,9 @@ async function fetchAndApplyRole(){
   assignedVendor = data.vendor || null;
   myWhatsappNumber = data.whatsapp || null;
   myRendicionesApproverUid = data.rendicionesApproverUid || null;
+  // Email cacheado del aprobador. Lo escribe bulkAssignApprover; si solo se
+  // uso saveUserRole (per-row) puede estar vacio - se resuelve via directorio.
+  myRendicionesApproverEmail = data.rendicionesApproverEmail || null;
   applyRolePermissions();
 }
 
@@ -21240,13 +21265,24 @@ window.saveUserRole = async function(uid, btn){
   // Responsable de rendiciones (uid del usuario que aprueba)
   const rendApproverSel = container.querySelector('.rend-approver-sel');
   const rendicionesApproverUid = rendApproverSel ? (rendApproverSel.value || null) : null;
+  // Cachear tambien el email del aprobador en el doc del vendedor: los
+  // vendedores no pueden leer /roles/{otroUid} por security rules, asi que
+  // necesitan el email aca para poder mandar la rendicion (resolveMyRendicionesApprover
+  // lo usa como primer fast-path). Sin esto el flujo dependia del directorio
+  // publico (users_directory) que solo se sincroniza cuando admin abre el panel.
+  let rendicionesApproverEmail = null;
+  if (rendicionesApproverUid) {
+    const approverUser = (usersCache || []).find(u => u._uid === rendicionesApproverUid);
+    rendicionesApproverEmail = approverUser ? (approverUser.email || null) : null;
+  }
   btn.disabled = true; btn.textContent = '...';
   try {
-    await fbDb.collection('roles').doc(uid).set({role, vendor, internalPartnerUid, whatsapp: whatsapp || null, rendicionesApproverUid: rendicionesApproverUid, assignedBy: currentUser.uid, assignedAt: firebase.firestore.FieldValue.serverTimestamp()}, {merge: true});
+    await fbDb.collection('roles').doc(uid).set({role, vendor, internalPartnerUid, whatsapp: whatsapp || null, rendicionesApproverUid: rendicionesApproverUid, rendicionesApproverEmail: rendicionesApproverEmail, assignedBy: currentUser.uid, assignedAt: firebase.firestore.FieldValue.serverTimestamp()}, {merge: true});
     // Si el usuario edito su propio numero, actualizar el cache local
     if (uid === currentUser.uid) {
       myWhatsappNumber = whatsapp || null;
       myRendicionesApproverUid = rendicionesApproverUid || null;
+      myRendicionesApproverEmail = rendicionesApproverEmail || null;
     }
     btn.textContent = 'OK';
     // Re-render del panel asi los dropdowns "Pareja interno" muestran los internos actualizados
