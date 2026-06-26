@@ -5044,6 +5044,12 @@ function renderClients(pts){
       html += '<div class="client-name">' + escapeHtml(it.name);
       const sapBadgeLabel = a.cardCodeSap ? ('SAP ' + escapeHtml(a.cardCodeSap)) : '&#9889; PROVISORIO';
       html += ' <span style="font-size:9px;color:' + sapBadgeFg + ';font-weight:700;margin-left:6px;background:' + sapBadgeBg + ';padding:2px 6px;border-radius:3px">' + sapBadgeLabel + '</span></div>';
+      // Nombre de fantasia: si el comercio es el nombre del titular (ej. "AGUSTIN BEBER")
+      // pero el local tiene un nombre comercial / marca (ej. "PESCAPLAY"), mostramos ambos.
+      const fantSap = (a.fantasia || '').trim();
+      if (fantSap && fantSap.toLowerCase() !== (it.name || '').toLowerCase()) {
+        html += '<div style="font-size:11px;color:#475569;font-weight:600;margin-top:2px"><span style="color:#94a3b8;font-weight:500">Local:</span> ' + escapeHtml(fantSap) + '</div>';
+      }
       html += '<div class="client-meta">';
       html += '<span class="cli-state-badge" style="background:' + sapLeft + ';color:#fff">' + sapLabel + '</span>';
       html += '<span>' + escapeHtml(it.point.name) + '</span>';
@@ -5078,6 +5084,32 @@ function renderClients(pts){
     html += ' ondblclick="openClientModal(\'' + safeName + '\', \'' + it.tipo + '\', \'' + safeProv + '\', \'' + safeLoc + '\')">';
     html += '<div class="client-body">';
     html += '<div class="client-name">' + escapeHtml(displayName) + renamedTag + '</div>';
+    // Buscar la fantasia del local en approvedAltasList (matching por
+    // comercio + provincia, case-insensitive). Si el cliente tiene cargada
+    // una alta con nombreFantasia diferente al nombre del comercio (caso
+    // tipico: comercio = "AGUSTIN BEBER", fantasia = "PESCAPLAY"), mostramos
+    // ambos. Sino solo el nombre.
+    let fantPt = '';
+    if (typeof approvedAltasByLoc !== 'undefined') {
+      const aLocKey = (it.point.province || '').toUpperCase() + '|' + (it.point.name || '');
+      const altas = approvedAltasByLoc[aLocKey] || [];
+      const nameLower = (it.name || '').toLowerCase();
+      const altaMatch = altas.find(a => {
+        if (!a) return false;
+        const c = (a.comercio || '').toLowerCase();
+        const f = (a.fantasia || '').toLowerCase();
+        return c === nameLower || f === nameLower;
+      });
+      if (altaMatch && altaMatch.fantasia) {
+        const f = altaMatch.fantasia.trim();
+        if (f && f.toLowerCase() !== (it.name || '').toLowerCase() && f.toLowerCase() !== displayName.toLowerCase()) {
+          fantPt = f;
+        }
+      }
+    }
+    if (fantPt) {
+      html += '<div style="font-size:11px;color:#475569;font-weight:600;margin-top:2px"><span style="color:#94a3b8;font-weight:500">Local:</span> ' + escapeHtml(fantPt) + '</div>';
+    }
     html += '<div class="client-meta">';
     html += '<span class="cli-state-badge ' + state + '">' + stateLabel + '</span>';
     html += '<span>' + escapeHtml(it.point.name) + '</span>';
