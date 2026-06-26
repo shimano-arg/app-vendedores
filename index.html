@@ -2845,6 +2845,50 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   maxZoom: 18
 }).addTo(map);
 
+// Boton "Forzar actualizacion" debajo del zoom. Limpia caches del SW +
+// unregister + reload con cache-bust. Asi los vendedores se aseguran de
+// tener la ultima version sin tener que hacer Ctrl+Shift+R.
+async function forceUpdateApp(){
+  if (!confirm('Forzar actualizacion?\n\nSe limpia el cache y se recarga la app con la ultima version.')) return;
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+  } catch(e){ console.warn('SW unregister', e); }
+  try {
+    if (window.caches && caches.keys) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+  } catch(e){ console.warn('caches clear', e); }
+  // Invalidar tambien el cache de outlines (vive en localStorage) por si
+  // los cambios traen depts reasignados.
+  try { localStorage.removeItem('shimano_vendor_outlines_v4'); } catch(e){}
+  // Reload con cache-bust en query string.
+  const base = window.location.pathname.replace(/[?#].*$/, '');
+  window.location.replace(base + '?_t=' + Date.now());
+}
+window.forceUpdateApp = forceUpdateApp;
+
+const RefreshAppControl = L.Control.extend({
+  options: { position: 'topleft' },
+  onAdd: function(){
+    const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control refresh-app-bar');
+    const btn = L.DomUtil.create('a', '', container);
+    btn.href = '#';
+    btn.title = 'Forzar actualizacion de la app';
+    btn.setAttribute('role', 'button');
+    btn.setAttribute('aria-label', 'Forzar actualizacion de la app');
+    btn.innerHTML = '&#8635;'; // simbolo refresh
+    btn.style.cssText = 'font-size:20px;font-weight:800;color:#0f172a;text-align:center;line-height:30px;cursor:pointer;display:block;width:30px;height:30px';
+    L.DomEvent.on(btn, 'click', L.DomEvent.stop);
+    L.DomEvent.on(btn, 'click', forceUpdateApp);
+    return container;
+  }
+});
+map.addControl(new RefreshAppControl());
+
 let currentVendor = 'ALL';
 let currentProvince = 'ALL';
 let currentLocality = 'ALL';
