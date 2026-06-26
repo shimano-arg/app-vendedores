@@ -4147,6 +4147,32 @@ function getProvinceCentroid(prov){
   return AR_PROVINCE_CENTROIDS[key] || null;
 }
 
+// Devuelve [lat, lon] de la localidad si existe como POINT (mismo
+// matching que el padron). Soluciona el caso de altas SAP sin lat/lng
+// donde antes caian al centroide de la provincia (ej. Bahia Blanca
+// terminaba apilada en el medio de Buenos Aires). Match case y diacritic
+// insensitive porque localidadFinal del alta a veces viene "Bahia Blanca"
+// y el POINT viene "BAHIA BLANCA" o viceversa.
+let _localityCentroidIndex = null;
+let _localityCentroidIndexSize = 0;
+function getLocalityCentroid(prov, loc){
+  if (!prov || !loc) return null;
+  if (!Array.isArray(POINTS) || !POINTS.length) return null;
+  // Rebuild index si cambio POINTS (raro pero por las dudas).
+  if (!_localityCentroidIndex || _localityCentroidIndexSize !== POINTS.length) {
+    _localityCentroidIndex = {};
+    POINTS.forEach(p => {
+      if (!p || p.lat == null || p.lon == null) return;
+      const k = normName(p.province) + '|' + normName(p.name);
+      // Si hay varios depts con misma localidad (raro), gana el primero.
+      if (!_localityCentroidIndex[k]) _localityCentroidIndex[k] = [parseFloat(p.lat), parseFloat(p.lon)];
+    });
+    _localityCentroidIndexSize = POINTS.length;
+  }
+  const key = normName(prov) + '|' + normName(loc);
+  return _localityCentroidIndex[key] || null;
+}
+
 // Dibuja pines individuales para cada cliente confirmado en SAP.
 // VERDE para los que tienen lat/lng (geocodificados, con direccion completa).
 // AZUL para los que estan en SAP pero NO tienen direccion / lat/lng todavia
@@ -4191,7 +4217,12 @@ function drawSapAltaPins(){
   sapAltaPinLayer.clearLayers();
   if (!Array.isArray(approvedAltasList) || !approvedAltasList.length) return;
   const effSet = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
-  // Conteo por provincia para distribuir el jitter de los pines sin direccion.
+  // Contadores para distribuir el jitter de los pines sin direccion. Uno
+  // por localidad (cuando hay match con POINT) y uno por provincia
+  // (cuando solo conocemos la provincia). Asi las altas SAP de la misma
+  // localidad se ven cerca de su localidad, no apiladas en el medio de
+  // la provincia.
+  const locCounter = {};
   const provCounter = {};
   approvedAltasList.forEach(a => {
     if (!a) return;
@@ -4210,14 +4241,28 @@ function drawSapAltaPins(){
       bgPill = '#dcfce7'; txtPill = '#166534';
       statusLine = '';
     } else {
-      // AZUL: tienda SAP sin direccion o sin geocodificar. La pongo en el
-      // centroide de la provincia + jitter en grilla para que no se apilen.
-      const centroid = getProvinceCentroid(a.provincia);
-      if (!centroid) return; // sin provincia conocida no la podemos mostrar
-      const provKey = String(a.provincia || '').trim().toUpperCase();
-      const n = (provCounter[provKey] = (provCounter[provKey] || 0) + 1) - 1;
-      // Grilla en espiral cuadrada chica: ~0.05 grados (~5km) de paso.
-      const step = 0.05;
+      // AZUL: tienda SAP sin lat/lng. Estrategia:
+      // 1) Si conocemos la LOCALIDAD (matchea POINT por prov+nombre), usar
+      //    el centroide de la localidad con jitter chico (~500m) - asi las
+      //    tiendas de Bahia Blanca caen en Bahia Blanca, no en el centro
+      //    de Buenos Aires.
+      // 2) Sino, fallback al centroide de la PROVINCIA con jitter ~5km.
+      const locCentroid = getLocalityCentroid(a.provincia, localidad);
+      let centroid, step, counterKey, counterMap;
+      if (locCentroid) {
+        centroid = locCentroid;
+        step = 0.005;  // ~500m - cluster chico cerca de la localidad
+        counterKey = normName(a.provincia) + '|' + normName(localidad);
+        counterMap = locCounter;
+      } else {
+        centroid = getProvinceCentroid(a.provincia);
+        if (!centroid) return; // sin provincia conocida no la podemos mostrar
+        step = 0.05;   // ~5km - cluster grande, no sabemos la localidad
+        counterKey = String(a.provincia || '').trim().toUpperCase();
+        counterMap = provCounter;
+      }
+      const n = (counterMap[counterKey] = (counterMap[counterKey] || 0) + 1) - 1;
+      // Grilla en espiral cuadrada.
       const ring = Math.floor((Math.sqrt(n + 1) + 0.5));
       const side = ring > 0 ? (2 * ring) : 1;
       const offset = n - ((side - 2) * (side - 2));
@@ -4228,8 +4273,11 @@ function drawSapAltaPins(){
       color = '#1d4ed8';
       bgPill = '#dbeafe'; txtPill = '#1e3a8a';
       // Mensaje segun caso: con direccion -> "sin ubicar" (geocoding fallo);
-      // sin direccion -> "falta direccion".
-      if (direccion) {
+      // sin direccion -> "falta direccion". Si lo anclamos a la localidad,
+      // avisar al usuario que el pin esta en el centro de la localidad.
+      if (locCentroid) {
+        statusLine = '<div style="background:#fef3c7;color:#92400e;padding:4px 8px;border-radius:4px;font-size:10px;font-weight:700;margin-bottom:6px">&#9888;&#65039; Pin en el centro de ' + escapeHtml(localidad) + ' (falta direccion exacta)</div>';
+      } else if (direccion) {
         statusLine = '<div style="background:#fef3c7;color:#92400e;padding:4px 8px;border-radius:4px;font-size:10px;font-weight:700;margin-bottom:6px">&#9888;&#65039; Sin ubicar en el mapa - puede faltar localidad</div>';
       } else {
         statusLine = '<div style="background:#fef3c7;color:#92400e;padding:4px 8px;border-radius:4px;font-size:10px;font-weight:700;margin-bottom:6px">&#9888;&#65039; Falta direccion - ubicacion aproximada</div>';
