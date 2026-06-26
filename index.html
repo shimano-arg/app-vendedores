@@ -13489,13 +13489,40 @@ window.ccmOpenRecomendaciones = function(){
 };
 window.closeCReco = function(){ document.getElementById('cr-modal').classList.remove('open'); };
 
-function renderPendientesList(){
+// Set de keys (tipo|prov|loc|nombre) que matchean los filtros activos
+// (vendor / provincia / localidad). Usado por las listas Pendientes y
+// Confirmados. Incluye tiendas de POINTS Y altas SAP de approvedAltasList -
+// asi un pedido a una alta SAP huerfana (no anclada a POINT) tambien aparece.
+function buildPedidoVisibleKeysSet(){
   const pts = filteredPoints();
   const visibleKeys = new Set();
   pts.forEach(p => {
     p.clients.forEach(n => visibleKeys.add(orderKey(n, p.province, p.name, 'C')));
     p.prospects.forEach(n => visibleKeys.add(orderKey(n, p.province, p.name, 'P')));
   });
+  // Altas SAP aprobadas (no necesariamente en POINTS). Respetan filtros de
+  // vendor / provincia / localidad como POINTS.
+  if (typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList)) {
+    const effSet = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
+    approvedAltasList.forEach(a => {
+      if (!a) return;
+      const nombre = a.comercio || a.fantasia || '';
+      const prov = (a.provincia || '').toString().toUpperCase().trim();
+      const loc = (a.localidadFinal || a.localidad || '').toString().trim();
+      if (!nombre || !prov || !loc) return;
+      if (currentProvince !== 'ALL' && prov !== currentProvince) return;
+      if (currentLocality !== 'ALL' && loc !== currentLocality) return;
+      if (effSet && a.assignedVendor && !effSet.has(a.assignedVendor)) return;
+      // Las altas se cargan a pedido con tipo='C' (cliente actual) por
+      // convencion - cuando entran a SAP dejan de ser prospectos.
+      visibleKeys.add(orderKey(nombre, prov, loc, 'C'));
+    });
+  }
+  return visibleKeys;
+}
+
+function renderPendientesList(){
+  const visibleKeys = buildPedidoVisibleKeysSet();
   let items = [];
   Object.entries(pending).forEach(([k, list]) => {
     if (!visibleKeys.has(k)) return;
@@ -13524,12 +13551,7 @@ function renderPendientesList(){
 }
 
 function renderConfirmadosList(){
-  const pts = filteredPoints();
-  const visibleKeys = new Set();
-  pts.forEach(p => {
-    p.clients.forEach(n => visibleKeys.add(orderKey(n, p.province, p.name, 'C')));
-    p.prospects.forEach(n => visibleKeys.add(orderKey(n, p.province, p.name, 'P')));
-  });
+  const visibleKeys = buildPedidoVisibleKeysSet();
   let items = [];
   Object.entries(confirmed).forEach(([k, list]) => {
     if (!visibleKeys.has(k)) return;
