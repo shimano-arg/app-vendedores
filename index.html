@@ -3619,7 +3619,20 @@ function deptInRouteFocus(feat){
 // con ese nuevo vendor. Si hay mezcla, gana el mayoritario. Si no hay
 // tiendas, devuelve el vendor original del polígono (fallback).
 // Devuelve '__DISTRIBUTOR__' si la mayoria son distribuidores.
+// Override permanente provincia -> vendor. Aplica cuando la geografia
+// entera de una provincia es de un vendedor, independientemente de los
+// puntos cargados. Util para provincias con cobertura clara (ej. San
+// Luis = Martin) donde el GeoJSON original tiene depts mal etiquetados
+// o partidos entre varios vendors.
+const PROVINCE_VENDOR_OVERRIDE = {
+  'SAN LUIS': 'MARTIN BOIERO',
+};
+
 function deptEffectiveVendor(feat){
+  // Override hardcoded por provincia primero - independiente de overrides
+  // del modal Zonas o de la mayoria de puntos.
+  const provOverride = PROVINCE_VENDOR_OVERRIDE[feat.properties.province];
+  if (provOverride) return provOverride;
   // Sin overrides cargados, vendor original (rapido).
   if (typeof vendorOverrides === 'undefined' || !vendorOverrides || !Object.keys(vendorOverrides).length) {
     return feat.properties.vendor || '';
@@ -3800,7 +3813,7 @@ let _vendorOutlinesCache = null; // {vendor: [[[lat,lng],[lat,lng]], ...]}
 // Cache de localStorage: invalida si subimos esta version cuando cambia
 // el DEPT_GEO. Asi la primera carga tarda 1-2s pero las siguientes son
 // instantaneas (las polilineas ya estan calculadas y guardadas).
-const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v3';
+const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v4';
 function _buildVendorOutlinesCache(){
   if (_vendorOutlinesCache) return _vendorOutlinesCache;
   // Intentar leer del localStorage primero.
@@ -18981,6 +18994,10 @@ function getEffectiveVendorForPoint(p){
   // Considera override de localidad (si existe) sobre el vendor original del point.
   const locKey = zonasKey('loc', p.province, p.name);
   if (vendorOverrides[locKey]) return vendorOverrides[locKey].newVendor;
+  // Override permanente por provincia (geografia 100% del vendor).
+  if (typeof PROVINCE_VENDOR_OVERRIDE !== 'undefined' && PROVINCE_VENDOR_OVERRIDE[p.province]) {
+    return PROVINCE_VENDOR_OVERRIDE[p.province];
+  }
   return p.vendor || '';
 }
 function getEffectiveVendorForClient(p, clientName){
