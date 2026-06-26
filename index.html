@@ -2868,6 +2868,7 @@ async function forceUpdateApp(){
     localStorage.removeItem('shimano_vendor_outlines_v4');
     localStorage.removeItem('shimano_vendor_outlines_v5');
     localStorage.removeItem('shimano_vendor_outlines_v6');
+    localStorage.removeItem('shimano_vendor_outlines_v7');
   } catch(e){}
   // Reload con cache-bust en query string.
   const base = window.location.pathname.replace(/[?#].*$/, '');
@@ -3891,7 +3892,7 @@ let _vendorOutlinesCache = null; // {vendor: [[[lat,lng],[lat,lng]], ...]}
 // Cache de localStorage: invalida si subimos esta version cuando cambia
 // el DEPT_GEO. Asi la primera carga tarda 1-2s pero las siguientes son
 // instantaneas (las polilineas ya estan calculadas y guardadas).
-const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v6';
+const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v7';
 function _buildVendorOutlinesCache(){
   if (_vendorOutlinesCache) return _vendorOutlinesCache;
   // Intentar leer del localStorage primero.
@@ -3961,15 +3962,13 @@ function _buildVendorOutlinesCache(){
     byVendor[v].push(feat);
   });
   const out = {};
-  // Redondea coordenadas a 2 decimales (~1km). polygon-clipping necesita
-  // edges identicas para dissolver bordes compartidos entre depts/provincias.
-  // El GeoJSON de INDEC tiene mismatches floating-point + microgaps reales
-  // entre depts. Con 3 decimales (~100m) seguian quedando lineas internas
-  // (ej. Tucuman/Santiago, Cordoba interior). A zoom pais 1km = 0.1px,
-  // invisible. A zoom 8 (ciudad) son ~10px - cuando el usuario filtra una
-  // localidad esa diferencia no importa porque el outline general no se
-  // dibuja (queda el deptStyle).
-  const roundCoord = c => [Math.round(c[0] * 100) / 100, Math.round(c[1] * 100) / 100];
+  // Redondea coordenadas a 3 decimales (~100m). polygon-clipping necesita
+  // edges identicas para dissolver bordes compartidos entre depts. Con 2
+  // decimales (~1km) habia colapsos: polygonos chicos quedaban degenerados
+  // y la union devolvia rectangulos gigantes raros. 3 decimales preserva
+  // las formas y dissuelve la mayoria de los bordes; los que quedan los
+  // filtramos en el post-process por bbox-containment mas abajo.
+  const roundCoord = c => [Math.round(c[0] * 1000) / 1000, Math.round(c[1] * 1000) / 1000];
   const roundRing = ring => ring.map(roundCoord);
   const roundPoly = poly => poly.map(roundRing);
   const roundMp = mp => mp.map(roundPoly);
@@ -4018,14 +4017,49 @@ function _buildVendorOutlinesCache(){
       // dentro del poligono (huecos donde polygon-clipping no pudo cerrar
       // por mismatches de bordes). Solo queremos el outer ring - los holes
       // se ven como triangulitos blancos adentro de la zona y son ruido.
-      const polylines = [];
+      const rawRings = [];
       merged.forEach(poly => {
         if (!poly.length) return;
         const outerRing = poly[0];
         if (ringPerimeter(outerRing) < minPerim) return;
-        const ll = outerRing.map(c => [c[1], c[0]]);
-        polylines.push(ll);
+        rawRings.push(outerRing);
       });
+      // Post-process: cuando polygon-clipping no logra mergear depts vecinos
+      // (microgaps en INDEC), devuelve N anillos vs el 1 esperado. Filtramos
+      // los anillos que estan ENTERAMENTE CONTENIDOS en el bbox de otro anillo
+      // mas grande - esos son los pedazos internos que se ven como "lineas
+      // raras adentro" de la zona. Asi queda solo el contorno externo de
+      // cada region disconexa real (Patagonia + isla Tierra del Fuego, p.ej.).
+      function ringBBox(ring){
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (let i = 0; i < ring.length; i++) {
+          const x = ring[i][0], y = ring[i][1];
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+        }
+        return [minX, minY, maxX, maxY, (maxX - minX) * (maxY - minY)];
+      }
+      const ringInfos = rawRings.map(r => ({ring: r, bbox: ringBBox(r)}));
+      // Orden por area de bbox desc - los grandes primero.
+      ringInfos.sort((a, b) => b.bbox[4] - a.bbox[4]);
+      const SHRINK = 0.02; // ~2km tolerancia para "contenido en bbox"
+      const kept = [];
+      for (const ri of ringInfos) {
+        // Esta contenido en algun bbox de los ya aceptados? Si si, es interno.
+        const [minX, minY, maxX, maxY] = ri.bbox;
+        let inside = false;
+        for (const kp of kept) {
+          const [kMinX, kMinY, kMaxX, kMaxY] = kp.bbox;
+          if (minX >= kMinX - SHRINK && minY >= kMinY - SHRINK &&
+              maxX <= kMaxX + SHRINK && maxY <= kMaxY + SHRINK) {
+            inside = true; break;
+          }
+        }
+        if (!inside) kept.push(ri);
+      }
+      const polylines = kept.map(ri => ri.ring.map(c => [c[1], c[0]]));
       out[vendor] = polylines;
     } catch(e) {
       console.warn('[outlines] union fallo para vendor', vendor, e);
