@@ -5836,49 +5836,138 @@ async function exportVisitasForMonth(anio, monthIdx){
   try { snap = await fbDb.collection('visits').get(); }
   catch(e) { alert('Error leyendo visitas: ' + (e.message || e)); return; }
   const targetMes = (monthIdx !== null) ? MESES[monthIdx].toUpperCase() : null;
-  const rows = [];
+  const items = [];
   snap.forEach(d => {
     const v = d.data() || {};
     if (parseInt(v.anio) !== anio) return;
     if (targetMes && (v.mes || '').toUpperCase() !== targetMes) return;
-    // tipoContacto puede ser 'telefono' (contacto via Marcar como contactado)
-    // o ausente / 'presencial' (visita presencial cargada con el form).
-    const tipoContactoLbl = (v.tipoContacto === 'telefono') ? 'Telefono' : 'Presencial';
-    rows.push({
-      Fecha: v.fecha || '',
-      Mes: v.mes || '',
-      Anio: v.anio || '',
-      Vendedor: titleCase(v.vendor || ''),
-      Owner_Email: v.ownerEmail || '',
-      Tipo_Contacto: tipoContactoLbl,
-      Comentario_Contacto: v.comentario || '',
-      Provincia: titleCase(v.provincia || ''),
-      Localidad: v.localidad || '',
-      Tienda: v.tienda || '',
-      Tipo: v.tipo || '',
-      Local: v.local || '',
-      Tamano: v.tamano || '',
-      Fidelidad: v.fidelidad || '',
-      Relevancia: v.relevancia || '',
-      POP: v.pop || '',
-      Necesidad_Puntual: v.necesidadPuntual || '',
-      Oportunidad: v.oportunidad || '',
-      Mas_Vendido: v.masVendido || '',
-      Mas_Preguntan: v.masPreguntan || '',
-      Ayuda_Tienda: v.ayudaTienda || '',
-      Tipo_Venta: v.tipoVenta || '',
-      Pond_Mostrado: v.ponderacionMostrado || '',
-      Pond_Ecommerce: v.ponderacionEcommerce || '',
-      Competencia: v.competencia || '',
-      GPS_Status: v.gpsStatus || '',
-      GPS_Distancia_M: v.gpsDistanceM != null ? v.gpsDistanceM : '',
-      En_Nombre_De_VDE: v.onBehalfOf ? 'SI' : 'NO',
-      Cargado_Por: v.createdByDisplayName || v.createdByEmail || '',
-    });
+    items.push(v);
   });
-  const fname = 'Shimano_Visitas_' + periodLabel(anio, monthIdx) + '.xlsx';
-  downloadXlsx(fname, [{name: 'Visitas', rows}]);
-  showSyncTag('Export Visitas listo (' + rows.length + ' filas)', 2400);
+  if (!items.length) {
+    alert('No hay visitas en el periodo seleccionado.');
+    return;
+  }
+  // ExcelJS con foto del frente embebida en cada fila. Lazy load.
+  try { await loadExcelJS(); }
+  catch(e) { alert(e.message || e); return; }
+  showSyncTag('Generando Excel con ' + items.length + ' visitas...', 3000);
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'App Vendedores Shimano';
+  wb.created = new Date();
+  const ws = wb.addWorksheet('Visitas', {views: [{state: 'frozen', ySplit: 1}]});
+  ws.columns = [
+    {header: 'Fecha',             key: 'fecha',     width: 12},
+    {header: 'Mes',               key: 'mes',       width: 10},
+    {header: 'Anio',              key: 'anio',      width: 8},
+    {header: 'Vendedor',          key: 'vendedor',  width: 22},
+    {header: 'Owner Email',       key: 'email',     width: 28},
+    {header: 'Tipo Contacto',     key: 'tipoCt',    width: 12},
+    {header: 'Comentario',        key: 'coment',    width: 30},
+    {header: 'Provincia',         key: 'provincia', width: 16},
+    {header: 'Localidad',         key: 'localidad', width: 18},
+    {header: 'Tienda',            key: 'tienda',    width: 28},
+    {header: 'Tipo',              key: 'tipo',      width: 12},
+    {header: 'Local',             key: 'local',     width: 12},
+    {header: 'Tamano',            key: 'tamano',    width: 10},
+    {header: 'Fidelidad',         key: 'fidelidad', width: 10},
+    {header: 'Relevancia',        key: 'relev',     width: 10},
+    {header: 'POP',               key: 'pop',       width: 8},
+    {header: 'Necesidad Puntual', key: 'nec',       width: 22},
+    {header: 'Oportunidad',       key: 'oportu',    width: 24},
+    {header: 'Mas Vendido',       key: 'masVe',     width: 24},
+    {header: 'Mas Preguntan',     key: 'masPr',     width: 24},
+    {header: 'Ayuda Tienda',      key: 'ayuda',     width: 22},
+    {header: 'Tipo Venta',        key: 'tipoVenta', width: 12},
+    {header: 'Pond Mostrado',     key: 'pMost',     width: 10},
+    {header: 'Pond Ecommerce',    key: 'pEcom',     width: 10},
+    {header: 'Competencia',       key: 'compe',     width: 16},
+    {header: 'GPS Status',        key: 'gpsSt',     width: 12},
+    {header: 'GPS Dist (m)',      key: 'gpsDist',   width: 10},
+    {header: 'Foto frente',       key: 'foto',      width: 22},
+    {header: 'En nombre de VDE',  key: 'onBehalf',  width: 12},
+    {header: 'Cargado Por',       key: 'createdBy', width: 24},
+  ];
+  ws.getRow(1).font = {bold: true, color: {argb: 'FFFFFFFF'}};
+  ws.getRow(1).fill = {type: 'pattern', pattern: 'solid', fgColor: {argb: 'FF0C4A6E'}};
+  ws.getRow(1).alignment = {vertical: 'middle', horizontal: 'center'};
+  ws.getRow(1).height = 22;
+
+  const FOTO_COL_IDX = ws.getColumn('foto').number - 1;
+  const ROW_H = 100;
+  const IMG_W = 130;
+  const IMG_H = 90;
+
+  // Orden cronologico desc
+  items.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+
+  for (const v of items) {
+    const tipoContactoLbl = (v.tipoContacto === 'telefono') ? 'Telefono' : 'Presencial';
+    const row = ws.addRow({
+      fecha:     v.fecha || '',
+      mes:       v.mes || '',
+      anio:      v.anio || '',
+      vendedor:  titleCase(v.vendor || ''),
+      email:     v.ownerEmail || '',
+      tipoCt:    tipoContactoLbl,
+      coment:    v.comentario || '',
+      provincia: titleCase(v.provincia || ''),
+      localidad: v.localidad || '',
+      tienda:    v.tienda || '',
+      tipo:      v.tipo || '',
+      local:     v.local || '',
+      tamano:    v.tamano || '',
+      fidelidad: v.fidelidad || '',
+      relev:     v.relevancia || '',
+      pop:       v.pop || '',
+      nec:       v.necesidadPuntual || '',
+      oportu:    v.oportunidad || '',
+      masVe:     v.masVendido || '',
+      masPr:     v.masPreguntan || '',
+      ayuda:     v.ayudaTienda || '',
+      tipoVenta: v.tipoVenta || '',
+      pMost:     v.ponderacionMostrado || '',
+      pEcom:     v.ponderacionEcommerce || '',
+      compe:     v.competencia || '',
+      gpsSt:     v.gpsStatus || '',
+      gpsDist:   v.gpsDistanceM != null ? v.gpsDistanceM : '',
+      foto:      '', // celda vacia - imagen encima
+      onBehalf:  v.onBehalfOf ? 'SI' : 'NO',
+      createdBy: v.createdByDisplayName || v.createdByEmail || '',
+    });
+    row.height = ROW_H;
+    row.alignment = {vertical: 'middle', wrapText: true};
+    if (v.frenteLocal && typeof v.frenteLocal === 'string') {
+      try {
+        let b64 = v.frenteLocal;
+        let ext = 'jpeg';
+        const m = /^data:image\/(\w+);base64,(.+)$/i.exec(b64);
+        if (m) { ext = m[1].toLowerCase(); b64 = m[2]; }
+        if (ext === 'jpg') ext = 'jpeg';
+        const imageId = wb.addImage({base64: b64, extension: ext});
+        ws.addImage(imageId, {
+          tl: {col: FOTO_COL_IDX + 0.1, row: row.number - 1 + 0.1},
+          ext: {width: IMG_W, height: IMG_H},
+          editAs: 'oneCell',
+        });
+      } catch(e) { console.warn('embebiendo foto visita', e); }
+    }
+  }
+
+  try {
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Shimano_Visitas_' + periodLabel(anio, monthIdx) + '.xlsx';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    showSyncTag('Export Visitas listo (' + items.length + ' filas)', 2400);
+  } catch(e) {
+    console.error('exportVisitasForMonth', e);
+    alert('Error generando el Excel: ' + (e.message || e));
+  }
 }
 
 // ============================================================
