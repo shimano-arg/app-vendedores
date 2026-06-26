@@ -1604,6 +1604,10 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <button class="zonas-tab-btn" data-zt="hist" onclick="setZonasTab('hist')">Historial</button>
         </div>
         <div style="padding:10px 14px;background:#fff;border-bottom:1px solid #e5e7eb;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="zonas-filters">
+          <!-- Toggle scope: por default Clientes-SAP (habilitados en SAP).
+               Tocar Masterfile-Base muestra TODOS los del padron historico. -->
+          <button id="zonas-scope-sap" onclick="setZonasScope('sap')" style="padding:6px 12px;border:none;border-radius:5px;background:#0c4a6e;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#9889; Clientes SAP</button>
+          <button id="zonas-scope-base" onclick="setZonasScope('base')" style="padding:6px 12px;border:none;border-radius:5px;background:#fff;color:#475569;border:1.5px solid #cbd5e1;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#128218; Masterfile-Base</button>
           <select id="zonas-prov-sel" onchange="renderZonasList()" style="padding:6px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px;min-width:160px">
             <option value="ALL">Todas las provincias</option>
           </select>
@@ -18526,6 +18530,7 @@ const VDI_VENDOR_KEYS = new Set(['IOANNIS PALKOUDAKIS', 'SANTIAGO ESTEBAN']);
 
 // Estado local del modal:
 let zonasTab = 'shop';                 // 'shop' | 'loc' | 'hist'
+let zonasScope = 'sap';                // 'sap' (default - habilitados SAP) | 'base' (todo el padron)
 let zonasPendingChanges = {};          // key -> {scope, target, originalVendor, originalType, newVendor, newType, newVendorUid, newVendorEmail}
 // 'var' (no 'let') para evitar TDZ - estas vars son consultadas por deptStyle,
 // effClients, filteredPoints en el bootstrap inicial antes de su declaracion.
@@ -18738,6 +18743,33 @@ window.setZonasTab = function(tab){
   });
   // Esconder filtros en historial (no aplican)
   document.getElementById('zonas-filters').style.display = (tab === 'hist') ? 'none' : '';
+  renderZonasList();
+};
+
+// Toggle entre "Clientes SAP" (habilitados, default) y "Masterfile-Base"
+// (todo el padron historico). Pinta los botones segun el estado activo.
+window.setZonasScope = function(scope){
+  if (scope !== 'sap' && scope !== 'base') return;
+  zonasScope = scope;
+  const sapBtn = document.getElementById('zonas-scope-sap');
+  const baseBtn = document.getElementById('zonas-scope-base');
+  if (sapBtn && baseBtn) {
+    if (scope === 'sap') {
+      sapBtn.style.background = '#0c4a6e';
+      sapBtn.style.color = '#fff';
+      sapBtn.style.border = 'none';
+      baseBtn.style.background = '#fff';
+      baseBtn.style.color = '#475569';
+      baseBtn.style.border = '1.5px solid #cbd5e1';
+    } else {
+      baseBtn.style.background = '#b45309';
+      baseBtn.style.color = '#fff';
+      baseBtn.style.border = 'none';
+      sapBtn.style.background = '#fff';
+      sapBtn.style.color = '#475569';
+      sapBtn.style.border = '1.5px solid #cbd5e1';
+    }
+  }
   renderZonasList();
 };
 
@@ -18976,6 +19008,11 @@ function renderZonasList(){
       [...allClients, ...distribClients].forEach(name => {
         if (!name || seen.has(name)) return;
         seen.add(name);
+        // Scope filter: en modo 'sap' solo mostramos los habilitados en SAP
+        // (cardCode + direccion). En 'base' mostramos todos los del padron.
+        if (zonasScope === 'sap') {
+          if (typeof isSapConfirmed !== 'function' || !isSapConfirmed(p.province, p.name, name)) return;
+        }
         // Search filter: matchea con nombre tienda, localidad O direccion.
         let addrCached = null;
         if (searchQ) {
@@ -19003,6 +19040,51 @@ function renderZonasList(){
         if (count >= 500) return; // limit para evitar render lento
       });
     });
+    // En modo 'sap', inyectar SAP altas huerfanas (las que no matchean
+    // ningun POINT por nombre). Para reasignarlas, escribimos directamente
+    // su assignedVendor en client_applications, no via vendor_overrides.
+    if (zonasScope === 'sap' && count < 500) {
+      const ptNamesSet = new Set();
+      POINTS.forEach(p => {
+        (p.clients||[]).forEach(n => ptNamesSet.add((p.province||'').toUpperCase() + '|' + (n||'').toLowerCase()));
+      });
+      (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).forEach(a => {
+        if (count >= 500) return;
+        if (!a || !a.cardCodeSap) return;
+        if (!(a.calle || a.address)) return;
+        const prov = (a.provincia || '').toUpperCase().trim();
+        if (!prov) return;
+        const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0,8));
+        if (ptNamesSet.has(prov + '|' + nombre.toLowerCase())) return;
+        if (provFilter !== 'ALL' && prov !== provFilter) return;
+        if (locFilter !== 'ALL') {
+          const [pr, lc] = locFilter.split('||');
+          if (prov !== pr || (a.localidadFinal || a.localidad || '') !== lc) return;
+        }
+        const direccion = a.calle || a.address || '';
+        if (searchQ) {
+          const inName = nombre.toLowerCase().includes(searchQ);
+          const inLoc = (a.localidadFinal || a.localidad || '').toLowerCase().includes(searchQ);
+          const inAddr = direccion.toLowerCase().includes(searchQ);
+          if (!inName && !inLoc && !inAddr) return;
+        }
+        const effVendor = a.assignedVendor || '';
+        const locName = a.localidadFinal || a.localidad || '(sin localidad)';
+        const key = zonasKey('shop', prov, locName, nombre);
+        const pending = zonasPendingChanges[key];
+        const newSelKey = pending ? pending.newVendor : '';
+        const rowCls = pending ? ' changed' : '';
+        const addrLine = '<div class="meta" style="font-size:10px;color:#94a3b8;margin-top:2px">' + escapeHtml(direccion) + '</div>';
+        const badgeSap = '<span style="background:#dbeafe;color:#1e3a8a;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;margin-left:4px">SAP ' + escapeHtml(a.cardCodeSap) + '</span>';
+        html += '<div class="zonas-row' + rowCls + '" data-sap-fsid="' + escapeAttr(a._fsId || '') + '">'
+          + '<div><div class="name">' + escapeHtml(nombre) + badgeSap + '</div>' + addrLine + '</div>'
+          + '<div><div class="meta">' + escapeHtml(locName) + ' &middot; ' + escapeHtml(titleCase(prov)) + '</div></div>'
+          + '<div class="current">' + vendorLabel(effVendor) + '</div>'
+          + '<div><select onchange="onZonasSapAltaChange(\'' + escapeAttr(a._fsId || '') + '\', this)">' + zonasDestOptions(newSelKey) + '</select></div>'
+          + '</div>';
+        count++;
+      });
+    }
   } else if (zonasTab === 'loc') {
     // Por localidad
     POINTS.forEach(p => {
@@ -19052,6 +19134,33 @@ function populateZonasFilters_locOnly(){
   // Mantener seleccion si todavia aplica
   if ([...locSel.options].some(o => o.value === curLoc)) locSel.value = curLoc;
 }
+
+// Handler para reasignar una SAP alta huerfana (no anclada a POINT).
+// Escribe directamente assignedVendor en client_applications. A diferencia
+// de las tiendas POINT que usan vendor_overrides, las SAP altas tienen
+// su vendor "nativo" en su propio doc.
+window.onZonasSapAltaChange = async function(fsId, sel){
+  const newVendor = sel.value;
+  if (!fsId) return;
+  if (!newVendor || newVendor === '__DISTRIBUTOR__') {
+    if (newVendor === '__DISTRIBUTOR__') alert('Para reasignar alta SAP a DISTRIBUIDOR no esta soportado. Usa el modal Master Clientes.');
+    sel.value = '';
+    return;
+  }
+  try {
+    await fbDb.collection('client_applications').doc(fsId).update({
+      assignedVendor: newVendor,
+      reassignedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      reassignedBy: currentUser ? (currentUser.email || currentUser.uid) : '',
+    });
+    showSyncTag('Alta SAP reasignada');
+    // El listener de approvedAltas repinta solo.
+  } catch(e) {
+    console.error('onZonasSapAltaChange', e);
+    alert('Error reasignando: ' + (e.message || e));
+    sel.value = '';
+  }
+};
 
 window.onZonasRowChange = function(scope, province, locName, clientName, sel){
   const key = zonasKey(scope, province, locName, clientName);
