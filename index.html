@@ -19276,7 +19276,16 @@ function renderMisCamps(){
     html += '<div class="mc-camp-head" onclick="toggleMisCampSkus(' + idx + ')">';
     html += '<div><div class="mc-camp-name">' + escapeHtml(c.name || 'Campaña') + historicBadge + '</div>';
     html += '<div class="mc-camp-meta">' + escapeHtml(c.startDate) + ' &rarr; ' + escapeHtml(c.endDate) + ' &middot; Objetivo: ' + escapeHtml(target) + ' &middot; ' + escapeHtml(scopeTxt) + ' &middot; ' + skuCount + ' SKU</div></div>';
-    html += '<div class="mc-camp-arrow" id="mc-arrow-' + idx + '">&#9654;</div>';
+    // Boton de eliminar (solo admin / gerente). event.stopPropagation evita
+    // que el click expanda los SKUs del card. Action irreversible: borra
+    // el doc de Firestore en /campaigns/{id}.
+    let actionsHtml = '';
+    if (userRole === 'admin' || userRole === 'gerente') {
+      const safeId = escapeAttr(c._fsId || c.id || '');
+      const safeName = escapeAttr(c.name || 'Campaña');
+      actionsHtml = '<button onclick="event.stopPropagation();deleteMisCampaign(\'' + safeId + '\', \'' + safeName + '\')" title="Eliminar esta campaña (irreversible)" style="background:#dc2626;color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;margin-right:8px">&#128465; Eliminar</button>';
+    }
+    html += actionsHtml + '<div class="mc-camp-arrow" id="mc-arrow-' + idx + '">&#9654;</div>';
     html += '</div>';
     html += '<div class="mc-camp-body" id="mc-body-' + idx + '">';
     if (!skuList.length) {
@@ -19297,6 +19306,28 @@ function renderMisCamps(){
   cont.innerHTML = html;
 }
 window.renderMisCamps = renderMisCamps;
+
+// Borrado de campaña (solo admin / gerente). Util para limpiar campañas
+// de prueba. Action irreversible - hace .delete() en /campaigns/{id}.
+window.deleteMisCampaign = async function(fsId, name){
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente puede eliminar campañas.');
+    return;
+  }
+  if (!fsId) return;
+  if (!confirm('Eliminar campaña "' + (name || fsId) + '"?\n\n'
+    + 'Esto es irreversible. La campaña se borra de Firestore para todos los usuarios.\n\n'
+    + '¿Confirmar?')) return;
+  try {
+    await fbDb.collection('campaigns').doc(fsId).delete();
+    showSyncTag('Campaña eliminada');
+    // El listener de campaigns repinta solo. Renderizamos por las dudas.
+    try { renderMisCamps(); } catch(e){}
+  } catch(e) {
+    console.error('deleteMisCampaign', e);
+    alert('Error eliminando: ' + (e.message || e));
+  }
+};
 
 // ============================================================
 // VISITA - formulario y persistencia
