@@ -4294,6 +4294,14 @@ window.openSapAltaAddressModal = function(fsId){
 function drawHabilitadosPins(){
   clientPinLayer.clearLayers();
   if (!clientMeta || typeof clientMeta !== 'object') return;
+  // Respetar el filtro de vendor: si hay vendor seleccionado, solo pintar
+  // los clientes que esten en su zona. Antes mostraba TODOS los legacy
+  // habilitados sin importar la zona, lo que ensuciaba el mapa cuando un
+  // vendedor especifico estaba filtrado.
+  const effSet = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
+  // Tambien filtros de provincia / localidad activos.
+  const provFilter = (currentProvince !== 'ALL') ? currentProvince : null;
+  const locFilter = (currentLocality !== 'ALL') ? currentLocality : null;
   // Solo pintar los clientes habilitados que tengan geo guardada.
   Object.keys(clientMeta).forEach(k => {
     if (!contacted.has(k)) return; // solo habilitados
@@ -4302,6 +4310,19 @@ function drawHabilitadosPins(){
     const parts = k.split('|'); // [tipo, province, locName, clientName]
     if (parts.length < 4) return;
     const tipo = parts[0], province = parts[1], locName = parts[2], clientName = parts[3];
+    // Filtro provincia / localidad antes de calcular vendor.
+    if (provFilter && province !== provFilter) return;
+    if (locFilter && locName !== locFilter) return;
+    // Filtro vendor: buscar el POINT correspondiente y chequear su vendor
+    // efectivo (considerando overrides y reasignaciones por tienda).
+    if (effSet) {
+      const pt = POINTS.find(p => p.province === province && p.name === locName);
+      if (!pt) return; // sin POINT no podemos saber el vendor - mejor ocultar
+      const v = (typeof getEffectiveVendorForClient === 'function')
+        ? (getEffectiveVendorForClient(pt, clientName) || pt.vendor || '')
+        : (pt.vendor || '');
+      if (!effSet.has(v)) return; // vendor no esta en el set efectivo
+    }
     const displayName = (m.customName && m.customName.trim()) ? m.customName.trim() : clientName;
     const html = '<div style="background:#166534;border:2px solid #fff;border-radius:50%;width:14px;height:14px;box-shadow:0 0 0 1.5px #166534,0 2px 4px rgba(0,0,0,.3)"></div>';
     const icon = L.divIcon({className:'client-pin-icon', html: html, iconSize: [14,14], iconAnchor: [7,7]});
