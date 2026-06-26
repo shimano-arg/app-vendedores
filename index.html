@@ -5889,10 +5889,10 @@ async function exportRendicionesForMonth(anio, monthIdx){
   let snap;
   try { snap = await fbDb.collection('rendiciones').get(); }
   catch(e) { alert('Error leyendo rendiciones: ' + (e.message || e)); return; }
-  const rows = [];
+  // Filtrar por mes/anio
+  const items = [];
   snap.forEach(d => {
     const r = d.data() || {};
-    // Filtrar por fecha (campo fecha, fechaGasto o createdAt)
     let dt = r.fecha || r.fechaGasto || '';
     if (!dt && r.createdAt && r.createdAt.toDate) {
       try { dt = r.createdAt.toDate().toISOString().slice(0, 10); } catch(e) {}
@@ -5902,23 +5902,113 @@ async function exportRendicionesForMonth(anio, monthIdx){
     if (isNaN(dObj.getTime())) return;
     if (dObj.getFullYear() !== anio) return;
     if (monthIdx !== null && dObj.getMonth() !== monthIdx) return;
-    rows.push({
-      Fecha: dt,
-      Vendedor: r.vendorName || r.ownerEmail || '',
-      Owner_Email: r.ownerEmail || '',
-      Tipo: r.tipo || '',
-      Concepto: r.concepto || r.descripcion || '',
-      Monto_ARS: r.monto != null ? r.monto : '',
-      Moneda: r.moneda || 'ARS',
-      Estado: r.status || r.estado || '',
-      Aprobador: r.approverEmail || r.aprobador || '',
-      Aprobado_En: r.approvedAt && r.approvedAt.toDate ? r.approvedAt.toDate().toISOString().slice(0,10) : '',
-      Notas: r.notas || r.notes || '',
-    });
+    items.push({id: d.id, fecha: dt, r: r});
   });
-  const fname = 'Shimano_Rendiciones_' + periodLabel(anio, monthIdx) + '.xlsx';
-  downloadXlsx(fname, [{name: 'Rendiciones', rows}]);
-  showSyncTag('Export Rendiciones listo (' + rows.length + ' filas)', 2400);
+  if (!items.length) {
+    alert('No hay rendiciones en el periodo seleccionado.');
+    return;
+  }
+  // ExcelJS con foto embebida en cada fila. Carga lazy.
+  try { await loadExcelJS(); }
+  catch(e) { alert(e.message || e); return; }
+  showSyncTag('Generando Excel con ' + items.length + ' rendiciones...', 3000);
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'App Vendedores Shimano';
+  wb.created = new Date();
+  const ws = wb.addWorksheet('Rendiciones', {views: [{state: 'frozen', ySplit: 1}]});
+  ws.columns = [
+    {header: 'Fecha',            key: 'fecha',     width: 12},
+    {header: 'Tipo',             key: 'tipo',      width: 10},
+    {header: 'Vendedor',         key: 'vendedor',  width: 26},
+    {header: 'Owner Email',      key: 'email',     width: 28},
+    {header: 'Concepto',         key: 'concepto',  width: 18},
+    {header: 'N Ticket',         key: 'numTicket', width: 14},
+    {header: 'Modo pago',        key: 'modoPago',  width: 14},
+    {header: 'Tipo gasto',       key: 'tipoGasto', width: 24},
+    {header: 'Division',         key: 'division',  width: 14},
+    {header: 'Importe',          key: 'importe',   width: 12},
+    {header: 'Moneda',           key: 'moneda',    width: 10},
+    {header: 'Importe USD',      key: 'importeUsd',width: 12},
+    {header: 'Observaciones',    key: 'obs',       width: 30},
+    {header: 'Foto ticket',      key: 'foto',      width: 22},
+    {header: 'Estado',           key: 'estado',    width: 18},
+    {header: 'Aprobador',        key: 'aprobador', width: 28},
+    {header: 'Aprobado en',      key: 'aprobadoEn',width: 14},
+  ];
+  ws.getRow(1).font = {bold: true, color: {argb: 'FFFFFFFF'}};
+  ws.getRow(1).fill = {type: 'pattern', pattern: 'solid', fgColor: {argb: 'FF7E22CE'}};
+  ws.getRow(1).alignment = {vertical: 'middle', horizontal: 'center'};
+  ws.getRow(1).height = 22;
+
+  const FOTO_COL_IDX = ws.getColumn('foto').number - 1; // 0-indexed para addImage
+  const ROW_H = 110;
+  const IMG_W = 140;
+  const IMG_H = 100;
+
+  // Orden cronologico desc
+  items.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+
+  for (const it of items) {
+    const r = it.r;
+    const isGasto = r.tipo === 'gasto';
+    const conceptStr = isGasto ? (r.descripcion || '') : (r.tipoOperacion || r.motivo || '');
+    const obsStr = (r.observaciones || r.notas || '') + (isGasto ? '' : (r.solicitadoPor ? (' | Solicitado por: ' + r.solicitadoPor) : ''));
+    const row = ws.addRow({
+      fecha:      it.fecha,
+      tipo:       r.tipo || '',
+      vendedor:   r.ownerName || r.vendorName || r.ownerEmail || '',
+      email:      r.ownerEmail || '',
+      concepto:   conceptStr,
+      numTicket:  r.numeroTicket || '',
+      modoPago:   r.modoPago || '',
+      tipoGasto:  r.tipoGasto || '',
+      division:   r.divisionGasto || '',
+      importe:    r.importe != null ? r.importe : '',
+      moneda:     r.moneda || 'PESOS',
+      importeUsd: r.importeUsd != null && r.importeUsd !== 0 ? r.importeUsd : '',
+      obs:        obsStr,
+      foto:       '', // celda vacia - encima va la imagen
+      estado:     r.status || r.estado || '',
+      aprobador:  r.approverEmail || r.aprobador || '',
+      aprobadoEn: r.approvedAt && r.approvedAt.toDate ? r.approvedAt.toDate().toISOString().slice(0,10) : '',
+    });
+    row.height = ROW_H;
+    row.alignment = {vertical: 'middle', wrapText: true};
+    // Embeber foto del ticket si existe. Para gastos: fotoTicket. Para
+    // solicitudes: adjunto (mismo formato dataURL base64).
+    const fotoSrc = r.fotoTicket || r.adjunto || '';
+    if (fotoSrc && typeof fotoSrc === 'string') {
+      try {
+        let b64 = fotoSrc;
+        let ext = 'jpeg';
+        const m = /^data:image\/(\w+);base64,(.+)$/i.exec(b64);
+        if (m) { ext = m[1].toLowerCase(); b64 = m[2]; }
+        if (ext === 'jpg') ext = 'jpeg';
+        const imageId = wb.addImage({base64: b64, extension: ext});
+        ws.addImage(imageId, {
+          tl: {col: FOTO_COL_IDX + 0.1, row: row.number - 1 + 0.1},
+          ext: {width: IMG_W, height: IMG_H},
+          editAs: 'oneCell',
+        });
+      } catch(e) { console.warn('embebiendo foto rendicion', it.id, e); }
+    }
+  }
+
+  try {
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Shimano_Rendiciones_' + periodLabel(anio, monthIdx) + '.xlsx';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    showSyncTag('Export Rendiciones listo (' + items.length + ' filas)', 2400);
+  } catch(e) {
+    console.error('exportRendicionesForMonth', e);
+    alert('Error generando el Excel: ' + (e.message || e));
+  }
 }
 
 // ============================================================
