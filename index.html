@@ -2162,7 +2162,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <div style="display:flex;flex-direction:column;gap:2px"><span>Pedido guardado automaticamente</span><span id="pm-saved-tag" style="color:#475569">Sin cambios</span></div>
         <div style="display:flex;gap:8px" id="pm-actions-edit">
           <button class="btn-cancel" id="pm-cancel" onclick="cancelPedido()">Cancelar pedido</button>
-          <button class="btn-confirm" id="pm-confirm" onclick="onClickConfirmPedido()">Confirmar pedido</button>
+          <button class="btn-confirm" id="pm-confirm" onclick="onClickConfirmPedido()">Vista preliminar</button>
         </div>
         <div style="display:none;gap:8px" id="pm-actions-pending">
           <button class="btn-cancel" onclick="eliminarPendiente()">Eliminar</button>
@@ -4091,6 +4091,39 @@ function getProvinceCentroid(prov){
 // (se colocan en el centroide de la provincia con un pequeño jitter para
 // que no se apilen exactamente arriba uno del otro). El popup azul ofrece
 // un boton "Cargar direccion" para que el admin complete el dato.
+// Resuelve el vendor "efectivo" de una alta SAP considerando los
+// vendor_overrides aplicados via modal Zonas. Si el comercio de la alta
+// matchea un POINT (mismo nombre + provincia + localidad), prioriza el
+// override (shop > loc) sobre el assignedVendor nativo de la alta.
+// Asi el map respeta las reasignaciones hechas en Zonas sin tener que
+// duplicar la escritura en client_applications.
+function getEffectiveVendorForSapAlta(a){
+  const baseVendor = (a && a.assignedVendor) ? a.assignedVendor : '';
+  if (!a || typeof vendorOverrides === 'undefined' || !vendorOverrides) return baseVendor;
+  if (!Object.keys(vendorOverrides).length) return baseVendor;
+  const prov = String(a.provincia || '').trim().toUpperCase();
+  if (!prov) return baseVendor;
+  const nombre = String(a.comercio || a.fantasia || '').trim().toLowerCase();
+  if (!nombre) return baseVendor;
+  const locAlta = String(a.localidadFinal || a.localidad || '').trim().toLowerCase();
+  for (let i = 0; i < POINTS.length; i++) {
+    const p = POINTS[i];
+    if ((p.province || '').toUpperCase() !== prov) continue;
+    if (locAlta && (p.name || '').toLowerCase() !== locAlta) continue;
+    const allClients = (p.clients || []).concat(p.prospects || []);
+    for (let j = 0; j < allClients.length; j++) {
+      const cn = allClients[j];
+      if (!cn || cn.toLowerCase() !== nombre) continue;
+      const sk = zonasKey('shop', p.province, p.name, cn);
+      if (vendorOverrides[sk]) return vendorOverrides[sk].newVendor;
+      const lk = zonasKey('loc', p.province, p.name);
+      if (vendorOverrides[lk]) return vendorOverrides[lk].newVendor;
+      return baseVendor;
+    }
+  }
+  return baseVendor;
+}
+
 function drawSapAltaPins(){
   if (typeof sapAltaPinLayer === 'undefined') return;
   sapAltaPinLayer.clearLayers();
@@ -4101,7 +4134,8 @@ function drawSapAltaPins(){
   approvedAltasList.forEach(a => {
     if (!a) return;
     if (!a.cardCodeSap && !a.manualSapPending) return;
-    if (effSet && a.assignedVendor && !effSet.has(a.assignedVendor)) return;
+    const effVendor = getEffectiveVendorForSapAlta(a);
+    if (effSet && effVendor && !effSet.has(effVendor)) return;
     const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
     const direccion = a.calle || a.address || '';
     const localidad = a.localidadFinal || a.localidad || '';
@@ -4157,7 +4191,7 @@ function drawSapAltaPins(){
       + '<b>Direccion:</b> ' + escapeHtml(direccion || '(falta cargar)') + '<br>'
       + '<b>Localidad:</b> ' + escapeHtml(localidad || '(sin localidad)') + '<br>'
       + '<b>Provincia:</b> ' + escapeHtml(titleCase(a.provincia || '')) + '<br>'
-      + (a.assignedVendor ? '<b>Vendedor:</b> ' + escapeHtml(titleCase(a.assignedVendor)) : '')
+      + (effVendor ? '<b>Vendedor:</b> ' + escapeHtml(titleCase(effVendor)) : '')
       + '</div>'
       + editBtn
       + '</div>';
@@ -13869,14 +13903,28 @@ function renderReviewLines(){
   // Lines
   let html = '';
   let totalU = 0, totalM = 0;
+  // Subtotales por disponibilidad de stock. hasStock(code):
+  //   true  -> disponible
+  //   false -> NO disponible (rojo)
+  //   null  -> sin datos cargados aun (tratamos como disponible para no asustar)
+  let okU = 0, okM = 0, okN = 0;
+  let noU = 0, noM = 0, noN = 0;
   ord.forEach(l => {
     const q = parseFloat(l.qty) || 0;
     const p = parseFloat(l.precio) || 0;
+    const subtotal = q * p;
     totalU += q;
-    totalM += q * p;
-    html += '<div class="review-line">';
-    html += '<div class="rl-code">' + escapeHtml(l.code) + '</div>';
-    html += '<div class="rl-name">' + escapeHtml(l.desc) + '</div>';
+    totalM += subtotal;
+    const stockAvail = (typeof hasStock === 'function') ? hasStock(l.code) : null;
+    const noDisp = stockAvail === false;
+    if (noDisp) { noU += q; noM += subtotal; noN++; }
+    else        { okU += q; okM += subtotal; okN++; }
+    const dot = noDisp
+      ? '<span title="Sin stock" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#dc2626;margin-right:6px;vertical-align:middle"></span>'
+      : (stockAvail === true ? '<span title="Disponible" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#16a34a;margin-right:6px;vertical-align:middle"></span>' : '');
+    html += '<div class="review-line"' + (noDisp ? ' style="background:#fef2f2;border-color:#fecaca"' : '') + '>';
+    html += '<div class="rl-code">' + dot + escapeHtml(l.code) + '</div>';
+    html += '<div class="rl-name">' + escapeHtml(l.desc) + (noDisp ? ' <span style="color:#dc2626;font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.4px">&middot; sin stock</span>' : '') + '</div>';
     html += '<input type="number" min="0" step="any" value="' + p + '" placeholder="$" onchange="setOrderPrice(\'' + escapeAttr(l.code) + '\', this.value);renderReviewLines()" title="Precio unitario"/>';
     html += '<input type="number" min="0" step="1" value="' + q + '" title="Cantidad" onchange="setOrderQty(\'' + escapeAttr(l.code) + '\', this.value);renderReviewLines()"/>';
     html += '<button class="rl-rm" onclick="removeFromOrder(\'' + escapeAttr(l.code) + '\');renderReviewLines();renderReviewSuggestions()" title="Quitar">&times;</button>';
@@ -13884,8 +13932,30 @@ function renderReviewLines(){
   });
   if (!ord.length) html = '<div class="no-data">Sin productos. Volve a editar y agrega items.</div>';
   document.getElementById('rv-lines').innerHTML = html;
-  // Totals
-  document.getElementById('rv-totals').innerHTML = '<span>' + ord.length + ' productos &middot; ' + totalU + ' unidades</span><span class="rt-money">$' + Math.round(totalM).toLocaleString('es-AR') + '</span>';
+  // Totals: si hay items sin stock, discriminamos los 2 subtotales asi el
+  // vendedor puede mostrarle al cliente "del total $X, hay $Y sin stock,
+  // pagarias $Z efectivamente".
+  const fmt = n => '$' + Math.round(n).toLocaleString('es-AR');
+  let totalsHtml = '';
+  if (noN > 0 && okN > 0) {
+    totalsHtml = '<div style="display:flex;flex-direction:column;gap:8px;width:100%">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid #334155">'
+      +   '<span style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#86efac"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#16a34a"></span>Disponibles &middot; ' + okN + ' prod &middot; ' + okU + ' u</span>'
+      +   '<span style="color:#86efac;font-size:14px;font-weight:800">' + fmt(okM) + '</span>'
+      + '</div>'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid #334155">'
+      +   '<span style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#fca5a5"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#dc2626"></span>Sin stock &middot; ' + noN + ' prod &middot; ' + noU + ' u</span>'
+      +   '<span style="color:#fca5a5;font-size:14px;font-weight:800">' + fmt(noM) + '</span>'
+      + '</div>'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
+      +   '<span style="font-size:12px;font-weight:800">Total pedido &middot; ' + ord.length + ' prod &middot; ' + totalU + ' u</span>'
+      +   '<span class="rt-money">' + fmt(totalM) + '</span>'
+      + '</div>'
+      + '</div>';
+  } else {
+    totalsHtml = '<span>' + ord.length + ' productos &middot; ' + totalU + ' unidades</span><span class="rt-money">' + fmt(totalM) + '</span>';
+  }
+  document.getElementById('rv-totals').innerHTML = totalsHtml;
   // Descuento estimado (informativo, no afecta payload SAP).
   // Volumen es DINAMICO (depende del subtotal del pedido) y el bonus de
   // pago anticipado solo aplica si el vendedor elige CONTADO.
