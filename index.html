@@ -2864,7 +2864,10 @@ async function forceUpdateApp(){
   } catch(e){ console.warn('caches clear', e); }
   // Invalidar tambien el cache de outlines (vive en localStorage) por si
   // los cambios traen depts reasignados.
-  try { localStorage.removeItem('shimano_vendor_outlines_v4'); } catch(e){}
+  try {
+    localStorage.removeItem('shimano_vendor_outlines_v4');
+    localStorage.removeItem('shimano_vendor_outlines_v5');
+  } catch(e){}
   // Reload con cache-bust en query string.
   const base = window.location.pathname.replace(/[?#].*$/, '');
   window.location.replace(base + '?_t=' + Date.now());
@@ -3857,7 +3860,7 @@ let _vendorOutlinesCache = null; // {vendor: [[[lat,lng],[lat,lng]], ...]}
 // Cache de localStorage: invalida si subimos esta version cuando cambia
 // el DEPT_GEO. Asi la primera carga tarda 1-2s pero las siguientes son
 // instantaneas (las polilineas ya estan calculadas y guardadas).
-const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v4';
+const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v5';
 function _buildVendorOutlinesCache(){
   if (_vendorOutlinesCache) return _vendorOutlinesCache;
   // Intentar leer del localStorage primero.
@@ -3927,10 +3930,12 @@ function _buildVendorOutlinesCache(){
     byVendor[v].push(feat);
   });
   const out = {};
-  // Redondea coordenadas a 5 decimales (~1m). polygon-clipping tiene
-  // problemas con diferencias floating point (ej. 27.0249 vs
-  // 27.02490000000006) y tira "Unable to complete output ring".
-  const roundCoord = c => [Math.round(c[0] * 100000) / 100000, Math.round(c[1] * 100000) / 100000];
+  // Redondea coordenadas a 3 decimales (~100m). polygon-clipping necesita
+  // edges identicas para dissolver bordes compartidos entre depts/provincias.
+  // Con 5 decimales (~1m) sobrevivian mismatches floating-point que dejaban
+  // lineas internas en zonas grandes (ej. SL/Cordoba, Mendoza/La Pampa).
+  // 3 decimales es invisible a zoom pais y dissuelve la mayoria de edges.
+  const roundCoord = c => [Math.round(c[0] * 1000) / 1000, Math.round(c[1] * 1000) / 1000];
   const roundRing = ring => ring.map(roundCoord);
   const roundPoly = poly => poly.map(roundRing);
   const roundMp = mp => mp.map(roundPoly);
