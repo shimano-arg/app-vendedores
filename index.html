@@ -10826,7 +10826,10 @@ function getMyAllowedVendorKeys(){
   // Bootstrap inicial (antes del login): userRole es null/undefined ->
   // no filtramos para que el mapa cargue completo.
   if (!userRole) return null;
-  if (userRole === 'admin' || userRole === 'viewer') return null;
+  // admin / gerente / viewer ven todas las zonas. gerente es admin sin
+  // permisos especiales (USUARIOS / STOCK / PRECIOS / AUDITORIA) pero a
+  // nivel de visibilidad del mapa son equivalentes.
+  if (userRole === 'admin' || userRole === 'gerente' || userRole === 'viewer') return null;
   if (userRole === 'vendedor') return new Set(assignedVendor ? [assignedVendor] : []);
   if (userRole === 'interno') {
     // VDI ve sus parejas (VDEs con internalPartnerUid apuntando a el)
