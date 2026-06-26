@@ -1610,7 +1610,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <select id="zonas-loc-sel" onchange="renderZonasList()" style="padding:6px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px;min-width:180px">
             <option value="ALL">Todas las localidades</option>
           </select>
-          <input type="search" id="zonas-search" oninput="renderZonasList()" placeholder="Buscar tienda o localidad..." style="flex:1;min-width:180px;padding:6px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px"/>
+          <input type="search" id="zonas-search" oninput="renderZonasList()" placeholder="Buscar tienda, localidad o direccion..." style="flex:1;min-width:180px;padding:6px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px"/>
           <span id="zonas-pending-info" style="font-size:11px;color:#7c3aed;font-weight:700;margin-left:auto"></span>
         </div>
         <div id="zonas-content" style="flex:1;overflow-y:auto;padding:0 14px"></div>
@@ -4334,7 +4334,7 @@ function drawHabilitadosPins(){
       + '<b>Localidad:</b> ' + escapeHtml(m.locality || '-') + '<br>'
       + '<b>Provincia:</b> ' + escapeHtml(titleCase(province))
       + '</div>'
-      + '<div style="margin-top:6px"><button onclick="openClientModal(' + JSON.stringify(clientName) + ',' + JSON.stringify(tipo) + ',' + JSON.stringify(province) + ',' + JSON.stringify(locName) + ')" style="padding:5px 10px;border:none;border-radius:5px;background:#00A9E0;color:#fff;font-size:11px;font-weight:700;cursor:pointer">Abrir cliente</button></div>'
+      + '<div style="margin-top:6px"><button onclick="openClientModal(&quot;' + escapeAttr(clientName) + '&quot;,&quot;' + escapeAttr(tipo) + '&quot;,&quot;' + escapeAttr(province) + '&quot;,&quot;' + escapeAttr(locName) + '&quot;)" style="padding:5px 10px;border:none;border-radius:5px;background:#00A9E0;color:#fff;font-size:11px;font-weight:700;cursor:pointer">Abrir cliente</button></div>'
       + '</div>';
     marker.bindPopup(popup);
     marker.addTo(clientPinLayer);
@@ -18935,6 +18935,32 @@ function renderZonasList(){
     + '<div>Reasignar a</div>'
     + '</div>';
   let count = 0;
+  // Helper: busca la direccion guardada de una tienda. Prioridad:
+  // client_master (admin) > clientMeta (vendor) > alta SAP. Devuelve string
+  // vacio si no hay direccion.
+  function _zonasAddrFor(prov, locName, clientName){
+    if (typeof clientLocId === 'function' && typeof clientMasterCache !== 'undefined') {
+      try {
+        const docId = clientLocId(prov, locName, clientName);
+        const d = clientMasterCache.get(docId);
+        if (d && d.address) return d.address;
+      } catch(e) {}
+    }
+    if (typeof clientMeta === 'object' && clientMeta) {
+      for (const t of ['C','P']) {
+        const k = t + '|' + prov + '|' + locName + '|' + clientName;
+        const m = clientMeta[k];
+        if (m && m.address) return m.address;
+      }
+    }
+    if (typeof approvedAltasByLoc !== 'undefined' && approvedAltasByLoc) {
+      const key = (prov || '').toUpperCase() + '|' + locName;
+      const altas = approvedAltasByLoc[key] || [];
+      const a = altas.find(x => (x.comercio || x.fantasia || '') === clientName);
+      if (a) return a.calle || a.address || '';
+    }
+    return '';
+  }
   if (zonasTab === 'shop') {
     POINTS.forEach(p => {
       if (provFilter !== 'ALL' && p.province !== provFilter) return;
@@ -18950,14 +18976,25 @@ function renderZonasList(){
       [...allClients, ...distribClients].forEach(name => {
         if (!name || seen.has(name)) return;
         seen.add(name);
-        if (searchQ && !name.toLowerCase().includes(searchQ) && !p.name.toLowerCase().includes(searchQ)) return;
+        // Search filter: matchea con nombre tienda, localidad O direccion.
+        let addrCached = null;
+        if (searchQ) {
+          const inName = name.toLowerCase().includes(searchQ);
+          const inLoc = p.name.toLowerCase().includes(searchQ);
+          if (!inName && !inLoc) {
+            addrCached = _zonasAddrFor(p.province, p.name, name);
+            if (!addrCached.toLowerCase().includes(searchQ)) return;
+          }
+        }
+        if (addrCached === null) addrCached = _zonasAddrFor(p.province, p.name, name);
         const effVendor = getEffectiveVendorForClient(p, name);
         const key = zonasKey('shop', p.province, p.name, name);
         const pending = zonasPendingChanges[key];
         const newSelKey = pending ? pending.newVendor : '';
         const rowCls = pending ? ' changed' : '';
+        const addrLine = addrCached ? ('<div class="meta" style="font-size:10px;color:#94a3b8;margin-top:2px">' + escapeHtml(addrCached) + '</div>') : '';
         html += '<div class="zonas-row' + rowCls + '">'
-          + '<div><div class="name">' + escapeHtml(name) + '</div></div>'
+          + '<div><div class="name">' + escapeHtml(name) + '</div>' + addrLine + '</div>'
           + '<div><div class="meta">' + escapeHtml(p.name) + ' &middot; ' + escapeHtml(titleCase(p.province)) + '</div></div>'
           + '<div class="current">' + vendorLabel(effVendor) + '</div>'
           + '<div><select onchange="onZonasRowChange(\'shop\',\'' + escapeAttr(p.province) + '\',\'' + escapeAttr(p.name) + '\',\'' + escapeAttr(name) + '\', this)">' + zonasDestOptions(newSelKey) + '</select></div>'
