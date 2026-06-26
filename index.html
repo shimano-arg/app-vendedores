@@ -2356,7 +2356,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:11px;color:#991b1b;line-height:1.6">
           <b>Carga un ticket o factura por foto.</b> Si el OCR (Gemini) est&aacute; configurado, los campos se autocompletan. Sino, los llen&aacute;s a mano. Revis&aacute; siempre antes de enviar.
         </div>
-        <div class="ac-row"><label>Foto del ticket / factura <span class="req">*</span></label>
+        <div class="ac-row"><label>Foto del ticket / factura <span class="vf-hint">(opcional)</span></label>
           <div class="photo-grid" id="rd-foto-grid">
             <label class="photo-cell add" style="background:#fce7f3;border-color:#f9a8d4;color:#9d174d;font-size:10px;font-weight:800;letter-spacing:.3px"><input type="file" accept="image/*" capture="environment" style="display:none" onchange="onRendFotoTicket(this)"/>&#128247; SACAR<br>FOTO</label>
             <label class="photo-cell add" style="background:#dbeafe;border-color:#93c5fd;color:#1e40af;font-size:10px;font-weight:800;letter-spacing:.3px"><input type="file" accept="image/*" style="display:none" onchange="onRendFotoTicket(this)"/>&#128194; ELEGIR<br>DE GALERÍA</label>
@@ -2364,7 +2364,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <div id="rd-ocr-status" style="margin-top:8px;display:none"></div>
         </div>
         <form id="rd-gasto-form" autocomplete="off">
-          <div class="ac-row"><label>N&uacute;mero de ticket / factura <span class="req">*</span></label><input type="text" id="rg-numero" required/></div>
+          <div class="ac-row"><label>N&uacute;mero de ticket / factura <span class="vf-hint">(opcional)</span></label><input type="text" id="rg-numero"/></div>
           <div class="ac-row"><label>Descripci&oacute;n <span class="req">*</span></label><select id="rg-desc" required>
             <option value="">Seleccionar...</option>
             <option>COMBUSTIBLE</option><option>COMIDA</option><option>HOSPEDAJE</option>
@@ -11988,8 +11988,9 @@ window.submitRendSolicitud = async function(){
 window.submitRendGasto = async function(){
   function read(id){ const el = document.getElementById(id); return el ? (el.value || '').trim() : ''; }
   const errors = [];
-  if (!rdGastoFoto) errors.push('Foto del ticket');
-  ['rg-numero','rg-desc','rg-modoPago','rg-moneda','rg-tipoGasto','rg-importe','rg-divGasto','rg-obs'].forEach(id => { if (!read(id)) errors.push(id.replace('rg-','')); });
+  // Foto del ticket y numero de ticket son OPCIONALES - el vendedor puede
+  // cargar un gasto manual sin comprobante (caso GASTO SIN COMPROBANTE).
+  ['rg-desc','rg-modoPago','rg-moneda','rg-tipoGasto','rg-importe','rg-divGasto','rg-obs'].forEach(id => { if (!read(id)) errors.push(id.replace('rg-','')); });
   if (errors.length) { alert('Faltan: ' + errors.join(', ')); return; }
   const approver = await resolveMyRendicionesApprover();
   if (!approver) { alert('No tenes un responsable de rendiciones asignado. Pedile a Mariano que lo configure en el Panel Usuarios.'); return; }
