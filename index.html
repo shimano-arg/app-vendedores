@@ -2712,7 +2712,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v176';
+const APP_VERSION = 'v177';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -4473,6 +4473,35 @@ window.openSapAltaCard = function(fsId){
     return;
   }
   const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0,8));
+  // Step 1: ofrecer editar el nombre del local / fantasia. Asi para las altas
+  // SAP el admin tiene una via rapida para taggearlas con "PESCAPLAY" y que
+  // se vea en la card. Cancel saltea este paso.
+  const curFant = (a.fantasia && a.fantasia.trim() && a.fantasia.trim().toLowerCase() !== (a.comercio || '').toLowerCase()) ? a.fantasia.trim() : '';
+  const newFant = prompt(
+    'Nombre del local / marca del comercio.\n' +
+    'Ejemplo: AGUSTIN BEBER (titular) -> PESCAPLAY (local).\n' +
+    'Dejar vacio si no aplica.\n\n' +
+    'Titular: ' + nombre + '\n' +
+    'Local actual: ' + (curFant || '(vacio)'),
+    curFant
+  );
+  if (newFant !== null) {
+    const trimmed = newFant.trim();
+    if (trimmed !== curFant) {
+      const isAdminLike = (userRole === 'admin' || userRole === 'gerente');
+      if (!isAdminLike) {
+        alert('Solo admin o gerente puede editar el nombre del local.');
+      } else {
+        fbDb.collection('client_applications').doc(fsId).update({
+          fantasia: trimmed || firebase.firestore.FieldValue.delete(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        }).then(() => {
+          if (typeof showSyncTag === 'function') showSyncTag(trimmed ? ('Local guardado: ' + trimmed) : 'Nombre del local borrado');
+        }).catch(e => { console.error('save fantasia', e); alert('Error: ' + (e.message || e)); });
+      }
+    }
+  }
+  // Step 2: el comportamiento original - confirm con info + opcion editar direccion.
   const info = nombre + '\n'
     + 'SAP: ' + (a.cardCodeSap || '-') + '\n'
     + 'Direccion: ' + (a.calle || a.address || '-') + '\n'
