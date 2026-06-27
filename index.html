@@ -2712,7 +2712,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v177';
+const APP_VERSION = 'v178';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -2902,6 +2902,7 @@ async function forceUpdateApp(){
     localStorage.removeItem('shimano_vendor_outlines_v6');
     localStorage.removeItem('shimano_vendor_outlines_v7');
     localStorage.removeItem('shimano_vendor_outlines_v8');
+    localStorage.removeItem('shimano_vendor_outlines_v9');
   } catch(e){}
   // Reload con cache-bust en query string.
   const base = window.location.pathname.replace(/[?#].*$/, '');
@@ -3925,7 +3926,7 @@ let _vendorOutlinesCache = null; // {vendor: [[[lat,lng],[lat,lng]], ...]}
 // Cache de localStorage: invalida si subimos esta version cuando cambia
 // el DEPT_GEO. Asi la primera carga tarda 1-2s pero las siguientes son
 // instantaneas (las polilineas ya estan calculadas y guardadas).
-const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v8';
+const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v9';
 function _buildVendorOutlinesCache(){
   if (_vendorOutlinesCache) return _vendorOutlinesCache;
   // Intentar leer del localStorage primero.
@@ -3940,49 +3941,22 @@ function _buildVendorOutlinesCache(){
       }
     }
   } catch(e) { console.warn('[outlines] no se pudo leer cache:', e); }
-  if (typeof polygonClipping === 'undefined') {
-    console.warn('[outlines] polygon-clipping no cargo, no se pueden calcular contornos');
-    _vendorOutlinesCache = {};
-    return _vendorOutlinesCache;
-  }
-  // Helper: union via tree reduction (O(N log N)) - mucho mas rapido que
-  // progresivo (O(N^2)) para vendors con muchos deptos. Errores individuales
-  // descartan el par pero el arbol sigue.
-  function unionTree(mps){
-    if (mps.length === 0) return null;
-    if (mps.length === 1) return mps[0];
-    const pairs = [];
-    for (let i = 0; i < mps.length; i += 2) {
-      if (i + 1 < mps.length) {
-        try {
-          pairs.push(polygonClipping.union(mps[i], mps[i + 1]));
-        } catch(e) {
-          // Reintentar con redondeo agresivo del segundo argumento.
-          try {
-            const aggR = c => [Math.round(c[0] * 1000) / 1000, Math.round(c[1] * 1000) / 1000];
-            const rR = ring => ring.map(aggR);
-            const rP = poly => poly.map(rR);
-            const rMp = mp => mp.map(rP);
-            pairs.push(polygonClipping.union(mps[i], rMp(mps[i + 1])));
-          } catch(e2) {
-            pairs.push(mps[i]); // descartar el problematico
-          }
-        }
-      } else {
-        pairs.push(mps[i]);
-      }
-    }
-    return unionTree(pairs);
-  }
+  // Edge-counting algorithm: para cada vendor agrupamos sus depts. Cada arista
+  // de polygono se snapea a una grilla de 3 decimales (~100m) y se cuenta
+  // cuantas veces aparece. Aristas internas (entre 2 depts del mismo vendor)
+  // aparecen 2+ veces -> se descartan. Aristas externas aparecen 1 vez ->
+  // forman el contorno. Despues stitcheamos las aristas externas en anillos
+  // cerrados via vertex chaining.
+  //
+  // Ventajas sobre polygon-clipping.union:
+  //  - No depende de coordenadas exactas (el snap-to-grid une los microgaps).
+  //  - No deja "anillos internos" duplicados cuando 2 depts vecinos no se
+  //    funden bien (la causa de las lineas raras en Cordoba, SL/Cordoba, etc).
+  //  - O(N) en lugar de O(N^2) - mas rapido para vendors con muchos depts.
+  //  - No requiere libreria externa.
   const byVendor = {};
-  // Filtrar Antartida igual que el deptLayer.
   const safe = _filterOutAntarctica(DEPT_GEO);
   safe.features.forEach(feat => {
-    // Usar el vendor EFECTIVO (mismo que deptStyle): considera overrides
-    // del modal Zonas + mayoria de tiendas. Antes leiamos feat.properties.vendor
-    // raw del GeoJSON, pero algunos vendors (ej Santiago Esteban Z7) no
-    // existen como propiedad original - su zona surge solo via override o
-    // por la mayoria de tiendas, asi que sin esto no se calculaba su outline.
     let v;
     if (typeof deptEffectiveVendor === 'function') {
       try { v = deptEffectiveVendor(feat); } catch(e) { v = feat.properties && feat.properties.vendor; }
@@ -3990,165 +3964,93 @@ function _buildVendorOutlinesCache(){
       v = feat.properties && feat.properties.vendor;
     }
     if (!v) return;
-    if (v === '__DISTRIBUTOR__') return; // distribuidores se ven aparte en modo distrib
+    if (v === '__DISTRIBUTOR__') return;
     if (!byVendor[v]) byVendor[v] = [];
     byVendor[v].push(feat);
   });
   const out = {};
-  // Redondea coordenadas a 3 decimales (~100m). polygon-clipping necesita
-  // edges identicas para dissolver bordes compartidos entre depts. Con 2
-  // decimales (~1km) habia colapsos: polygonos chicos quedaban degenerados
-  // y la union devolvia rectangulos gigantes raros. 3 decimales preserva
-  // las formas y dissuelve la mayoria de los bordes; los que quedan los
-  // filtramos en el post-process por bbox-containment mas abajo.
-  const roundCoord = c => [Math.round(c[0] * 1000) / 1000, Math.round(c[1] * 1000) / 1000];
-  const roundRing = ring => ring.map(roundCoord);
-  const roundPoly = poly => poly.map(roundRing);
-  const roundMp = mp => mp.map(roundPoly);
+  const SCALE = 1000; // 3 decimales = ~100m
+  function vkeyArr(v) { return v[0] + ',' + v[1]; }
+  function snap(c) {
+    return [Math.round(c[0] * SCALE) / SCALE, Math.round(c[1] * SCALE) / SCALE];
+  }
   Object.entries(byVendor).forEach(([vendor, deptos]) => {
-    // Convertir cada feature a polygon-clipping MultiPolygon: array de poly,
-    // donde poly = array de rings. Para Polygon plain, envolver en array.
-    const mps = [];
+    const edgeCount = new Map(); // edge_key -> count
+    const edgeVerts = new Map(); // edge_key -> [a, b]
     deptos.forEach(feat => {
       const g = feat.geometry;
       if (!g || !g.coordinates) return;
-      if (g.type === 'MultiPolygon') mps.push(roundMp(g.coordinates));
-      else if (g.type === 'Polygon') mps.push([roundPoly(g.coordinates)]);
-    });
-    if (!mps.length) { out[vendor] = []; return; }
-    try {
-      // Estrategia: batch union primero (rapido). Si falla por precision,
-      // caer a tree reduction O(N log N) - mucho mas rapido que la union
-      // progresiva O(N^2). Asi Santiago Esteban con sus errores de
-      // precision se calcula en ~1s en lugar de 11s.
-      let merged;
-      try {
-        merged = polygonClipping.union(...mps);
-      } catch(eBatch) {
-        console.warn('[outlines]', vendor, 'batch fallo, usando tree reduction');
-        merged = unionTree(mps);
-        if (!merged) { out[vendor] = []; return; }
-      }
-      // merged es un MultiPolygon = array de poligonos = array de rings.
-      // Cada ring = array de [lng, lat]. Convertir a polilineas para Leaflet.
-      // Filtramos islas chicas: polygon-clipping a veces deja "islas" pequeñas
-      // cuando los polígonos source no tienen vertices identicos en bordes
-      // compartidos. Esas islas aparecen como lineas internas. Si la sumatoria
-      // de longitudes de los segmentos del ring es < umbral, descartamos.
-      const minPerim = 0.5; // 0.5 grados ≈ 55 km aprox
-      function ringPerimeter(ring){
-        let s = 0;
-        for (let i = 0; i < ring.length - 1; i++) {
-          const a = ring[i], b = ring[i + 1];
-          const dx = a[0] - b[0], dy = a[1] - b[1];
-          s += Math.sqrt(dx * dx + dy * dy);
-        }
-        return s;
-      }
-      // Cada poly en merged es [outer_ring, hole_ring_1, hole_ring_2, ...].
-      // El primer ring es el contorno exterior; los siguientes son AGUJEROS
-      // dentro del poligono (huecos donde polygon-clipping no pudo cerrar
-      // por mismatches de bordes). Solo queremos el outer ring - los holes
-      // se ven como triangulitos blancos adentro de la zona y son ruido.
-      const rawRings = [];
-      merged.forEach(poly => {
+      const polys = g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates];
+      polys.forEach(poly => {
         if (!poly.length) return;
-        const outerRing = poly[0];
-        if (ringPerimeter(outerRing) < minPerim) return;
-        rawRings.push(outerRing);
-      });
-      // Post-process: cuando polygon-clipping no logra mergear depts vecinos
-      // devuelve N anillos en lugar del 1 esperado. Necesitamos quedar solo
-      // con el contorno externo de cada region disconexa real (ej. Patagonia
-      // continental + isla Tierra del Fuego).
-      //
-      // Filtros aplicados en orden:
-      //  1) Drop degenerados: anillos donde el "area / perimeter^2" es muy
-      //     baja - son lineas planas, no zonas (las que se ven como rayas
-      //     verticales raras).
-      //  2) Drop interiores: anillos cuyo centroide cae DENTRO de otro
-      //     anillo ya aceptado mas grande - son pedazos que en realidad
-      //     son subsets del contorno externo.
-      //
-      // Usamos area firmada via shoelace (mas robusto que bbox).
-      function ringBBox(ring){
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (let i = 0; i < ring.length; i++) {
-          const x = ring[i][0], y = ring[i][1];
-          if (x < minX) minX = x;
-          if (y < minY) minY = y;
-          if (x > maxX) maxX = x;
-          if (y > maxY) maxY = y;
-        }
-        return [minX, minY, maxX, maxY];
-      }
-      function ringSignedArea(ring){
-        let s = 0;
+        const ring = poly[0]; // outer ring (skip holes)
         for (let i = 0; i < ring.length - 1; i++) {
-          s += (ring[i][0] * ring[i + 1][1]) - (ring[i + 1][0] * ring[i][1]);
+          const a = snap(ring[i]);
+          const b = snap(ring[i + 1]);
+          if (a[0] === b[0] && a[1] === b[1]) continue; // edge colapsado
+          const ka = vkeyArr(a), kb = vkeyArr(b);
+          const key = ka < kb ? (ka + '|' + kb) : (kb + '|' + ka);
+          edgeCount.set(key, (edgeCount.get(key) || 0) + 1);
+          if (!edgeVerts.has(key)) edgeVerts.set(key, [a, b]);
         }
-        return s / 2;
-      }
-      function ringCentroid(ring){
-        // Centroide simple = promedio de vertices. Suficiente para el
-        // point-in-polygon test (no necesitamos centroide de masa exacto).
-        let sx = 0, sy = 0, n = 0;
-        for (let i = 0; i < ring.length - 1; i++) {
-          sx += ring[i][0]; sy += ring[i][1]; n++;
-        }
-        return n > 0 ? [sx / n, sy / n] : [0, 0];
-      }
-      function pointInRing(pt, ring){
-        // Ray casting clasico. ring es array de [x, y].
-        const x = pt[0], y = pt[1];
-        let inside = false;
-        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-          const xi = ring[i][0], yi = ring[i][1];
-          const xj = ring[j][0], yj = ring[j][1];
-          const intersect = ((yi > y) !== (yj > y)) &&
-            (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-          if (intersect) inside = !inside;
-        }
-        return inside;
-      }
-      const ringInfos = [];
-      rawRings.forEach(r => {
-        const area = Math.abs(ringSignedArea(r));
-        const perim = ringPerimeter(r);
-        const bbox = ringBBox(r);
-        // Filtro 1: degenerados (rayas planas). 'area/perim^2' baja indica
-        // forma alargada y delgada. Umbral 0.001 deja pasar rectangulos
-        // normales pero descarta lineas casi 1D.
-        const compactness = perim > 0 ? area / (perim * perim) : 0;
-        if (compactness < 0.001) return;
-        ringInfos.push({ring: r, area: area, bbox: bbox, centroid: ringCentroid(r)});
       });
-      // Orden por area desc - los grandes primero, asi cuando filtramos
-      // por point-in-polygon los chicos ya tienen contra que comparar.
-      ringInfos.sort((a, b) => b.area - a.area);
-      const kept = [];
-      for (const ri of ringInfos) {
-        let inside = false;
-        for (const kp of kept) {
-          // Optimizacion: si el centroide no esta ni siquiera en el bbox del
-          // kept, saltar el point-in-polygon caro.
-          const c = ri.centroid;
-          const [kMinX, kMinY, kMaxX, kMaxY] = kp.bbox;
-          if (c[0] < kMinX || c[0] > kMaxX || c[1] < kMinY || c[1] > kMaxY) continue;
-          if (pointInRing(c, kp.ring)) { inside = true; break; }
-        }
-        if (!inside) kept.push(ri);
-      }
-      const polylines = kept.map(ri => ri.ring.map(c => [c[1], c[0]]));
-      out[vendor] = polylines;
-    } catch(e) {
-      console.warn('[outlines] union fallo para vendor', vendor, e);
-      out[vendor] = [];
+    });
+    // Construir grafo de aristas externas (count == 1).
+    const adj = new Map(); // vkey -> [{to: vkey, vert: [x,y], edgeKey}]
+    for (const [key, count] of edgeCount) {
+      if (count !== 1) continue;
+      const [a, b] = edgeVerts.get(key);
+      const ka = vkeyArr(a), kb = vkeyArr(b);
+      if (!adj.has(ka)) adj.set(ka, []);
+      if (!adj.has(kb)) adj.set(kb, []);
+      adj.get(ka).push({to: kb, vert: b, edgeKey: key});
+      adj.get(kb).push({to: ka, vert: a, edgeKey: key});
     }
+    // Stitch aristas en polilineas cerradas via vertex chaining.
+    // Marcamos aristas visitadas (no vertices - un vertice puede tener
+    // grado > 2 cuando 3 zonas se encuentran en un punto).
+    const visitedEdges = new Set();
+    const polylines = [];
+    for (const [startKey, startEdges] of adj) {
+      for (const startEdge of startEdges) {
+        if (visitedEdges.has(startEdge.edgeKey)) continue;
+        // Empezamos un anillo desde startKey siguiendo startEdge.
+        const ring = [startKey.split(',').map(Number)];
+        let curKey = startKey;
+        let nextEdge = startEdge;
+        let safety = 0;
+        while (nextEdge && safety++ < 100000) {
+          visitedEdges.add(nextEdge.edgeKey);
+          ring.push(nextEdge.vert);
+          curKey = nextEdge.to;
+          if (curKey === startKey) break; // cerrado
+          // Buscar siguiente arista no visitada desde curKey.
+          const opts = adj.get(curKey) || [];
+          nextEdge = null;
+          for (const opt of opts) {
+            if (visitedEdges.has(opt.edgeKey)) continue;
+            nextEdge = opt;
+            break;
+          }
+        }
+        // Filtrar anillos muy chicos: perimetro < 0.5 grados (~55km) son
+        // ruido (islas espurias).
+        let perim = 0;
+        for (let i = 0; i < ring.length - 1; i++) {
+          const dx = ring[i + 1][0] - ring[i][0];
+          const dy = ring[i + 1][1] - ring[i][1];
+          perim += Math.sqrt(dx * dx + dy * dy);
+        }
+        if (ring.length < 4 || perim < 0.5) continue;
+        // Convertir [lng, lat] a [lat, lng] para Leaflet.
+        polylines.push(ring.map(c => [c[1], c[0]]));
+      }
+    }
+    out[vendor] = polylines;
   });
   _vendorOutlinesCache = out;
   const summary = Object.keys(out).map(v => v + '(' + (out[v] || []).length + 'p)');
-  console.log('[outlines] cache built via union:', Object.keys(out).length, 'vendors:', summary.join(', '));
+  console.log('[outlines] cache built via edge-counting:', Object.keys(out).length, 'vendors:', summary.join(', '));
   // Persistir en localStorage para que las proximas cargas sean instantaneas.
   try {
     localStorage.setItem(VENDOR_OUTLINES_CACHE_KEY, JSON.stringify(out));
