@@ -2712,7 +2712,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v180';
+const APP_VERSION = 'v181';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -2904,6 +2904,7 @@ async function forceUpdateApp(){
     localStorage.removeItem('shimano_vendor_outlines_v8');
     localStorage.removeItem('shimano_vendor_outlines_v9');
     localStorage.removeItem('shimano_vendor_outlines_v10');
+    localStorage.removeItem('shimano_vendor_outlines_v11');
   } catch(e){}
   // Reload con cache-bust en query string.
   const base = window.location.pathname.replace(/[?#].*$/, '');
@@ -3927,7 +3928,7 @@ let _vendorOutlinesCache = null; // {vendor: [[[lat,lng],[lat,lng]], ...]}
 // Cache de localStorage: invalida si subimos esta version cuando cambia
 // el DEPT_GEO. Asi la primera carga tarda 1-2s pero las siguientes son
 // instantaneas (las polilineas ya estan calculadas y guardadas).
-const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v10';
+const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v11';
 function _buildVendorOutlinesCache(){
   if (_vendorOutlinesCache) return _vendorOutlinesCache;
   // Intentar leer del localStorage primero.
@@ -3947,15 +3948,18 @@ function _buildVendorOutlinesCache(){
     _vendorOutlinesCache = {};
     return _vendorOutlinesCache;
   }
-  // Estrategia: polygon-clipping.union para fusionar depts vecinos (maneja
-  // edges no-identicas internamente). Post-process: convex hull jerarquico -
-  // cada vendor termina con N convex hulls (uno por cluster geografico
-  // disjunto). Esto elimina TODA linea interna porque el convex hull es
-  // por definicion un solo anillo cerrado externo.
+  // Estrategia province-based: en lugar de fusionar 3000+ depts INDEC (cuyos
+  // vertices no matchean entre vecinos -> microgaps y lineas internas), usamos
+  // las ~24 provincias de PROV_GEO. Sus bordes son consistentes entre vecinos
+  // asi que polygon-clipping union los funde limpio.
   //
-  // Tradeoff: perdemos concavidad menor en las zonas. Pero los contornos
-  // de las zonas de vendedores son aproximadamente convexos a nivel pais,
-  // asi que es aceptable. Y queda visualmente clean - ZERO lineas internas.
+  // Algoritmo:
+  //  1) Para cada provincia, determinar su vendor "dominante" (mayoria de
+  //     depts de esa provincia que estan asignados a ese vendor).
+  //     PROVINCE_VENDOR_OVERRIDE manda primero (caso SAN LUIS -> Martin).
+  //  2) Agrupar provincias por vendor.
+  //  3) Union por vendor via polygon-clipping.
+  //  4) Output: outer rings de cada poligono resultado.
   function unionTree(mps){
     if (mps.length === 0) return null;
     if (mps.length === 1) return mps[0];
@@ -3968,9 +3972,13 @@ function _buildVendorOutlinesCache(){
     }
     return unionTree(pairs);
   }
-  const byVendor = {};
-  const safe = _filterOutAntarctica(DEPT_GEO);
-  safe.features.forEach(feat => {
+  // Step 1: contar depts por (provincia, vendor) para encontrar el vendor
+  // dominante de cada provincia.
+  const provVendorCount = {}; // { provName: { vendor: count } }
+  const safeDept = _filterOutAntarctica(DEPT_GEO);
+  safeDept.features.forEach(feat => {
+    const prov = (feat.properties && feat.properties.province) || '';
+    if (!prov) return;
     let v;
     if (typeof deptEffectiveVendor === 'function') {
       try { v = deptEffectiveVendor(feat); } catch(e) { v = feat.properties && feat.properties.vendor; }
@@ -3978,81 +3986,49 @@ function _buildVendorOutlinesCache(){
       v = feat.properties && feat.properties.vendor;
     }
     if (!v || v === '__DISTRIBUTOR__') return;
-    if (!byVendor[v]) byVendor[v] = [];
-    byVendor[v].push(feat);
+    if (!provVendorCount[prov]) provVendorCount[prov] = {};
+    provVendorCount[prov][v] = (provVendorCount[prov][v] || 0) + 1;
   });
+  function dominantVendorForProv(provName){
+    // PROVINCE_VENDOR_OVERRIDE manda siempre.
+    if (typeof PROVINCE_VENDOR_OVERRIDE !== 'undefined' && PROVINCE_VENDOR_OVERRIDE[provName]) {
+      return PROVINCE_VENDOR_OVERRIDE[provName];
+    }
+    const counts = provVendorCount[provName];
+    if (!counts) return '';
+    let best = '', bestN = 0;
+    Object.entries(counts).forEach(([v, n]) => {
+      if (n > bestN) { best = v; bestN = n; }
+    });
+    return best;
+  }
+  // Step 2: agrupar provincias por vendor dominante.
+  const byVendor = {};
+  const safeProv = _filterOutAntarctica(PROV_GEO);
+  // Las features de PROV_GEO usan distintos campos para el nombre segun la
+  // fuente. Tratamos varios candidatos.
+  function provNameFromFeat(feat){
+    const p = feat.properties || {};
+    const raw = p.nombre || p.name || p.provincia || p.NAME_1 || p.NAM || '';
+    return normName(raw);
+  }
+  safeProv.features.forEach(feat => {
+    const provName = provNameFromFeat(feat);
+    if (!provName) return;
+    const vendor = dominantVendorForProv(provName);
+    if (!vendor) return;
+    if (!byVendor[vendor]) byVendor[vendor] = [];
+    byVendor[vendor].push(feat);
+  });
+  // Step 3: union por vendor.
   const out = {};
   const roundCoord = c => [Math.round(c[0] * 1000) / 1000, Math.round(c[1] * 1000) / 1000];
   const roundRing = ring => ring.map(roundCoord);
   const roundPoly = poly => poly.map(roundRing);
   const roundMp = mp => mp.map(roundPoly);
-  // Convex hull (algoritmo de Andrew) - O(n log n).
-  function convexHull(points){
-    if (points.length < 3) return points.slice();
-    const pts = points.slice().sort((a, b) => a[0] !== b[0] ? a[0] - b[0] : a[1] - b[1]);
-    const n = pts.length;
-    function cross(O, A, B){ return (A[0] - O[0]) * (B[1] - O[1]) - (A[1] - O[1]) * (B[0] - O[0]); }
-    const lower = [];
-    for (let i = 0; i < n; i++) {
-      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], pts[i]) <= 0) lower.pop();
-      lower.push(pts[i]);
-    }
-    const upper = [];
-    for (let i = n - 1; i >= 0; i--) {
-      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pts[i]) <= 0) upper.pop();
-      upper.push(pts[i]);
-    }
-    upper.pop(); lower.pop();
-    return lower.concat(upper);
-  }
-  // Distancia minima entre 2 puntos (para clustering).
-  function distSq(a, b){ const dx = a[0] - b[0], dy = a[1] - b[1]; return dx * dx + dy * dy; }
-  // Clustering jerarquico de puntos: 2 puntos del mismo cluster si su distancia
-  // < THRESHOLD. Threshold 1.5 grados (~150km) - separa regiones genuinamente
-  // disjuntas (ej. Patagonia + Tierra del Fuego) sin fragmentar zonas
-  // continuas.
-  function clusterPoints(points, thresholdSq){
-    if (!points.length) return [];
-    // Union-find simple. Para cada punto, buscar si esta cerca de algun
-    // representative existente; si si, unir; sino, nuevo cluster.
-    const parent = new Array(points.length).fill(0).map((_, i) => i);
-    function find(i){ while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; }
-    function unite(i, j){ const ri = find(i), rj = find(j); if (ri !== rj) parent[ri] = rj; }
-    // Para eficiencia: bucketizar puntos en grid 1 grado.
-    const grid = new Map();
-    const gridKey = p => Math.floor(p[0]) + ',' + Math.floor(p[1]);
-    points.forEach((p, idx) => {
-      const k = gridKey(p);
-      if (!grid.has(k)) grid.set(k, []);
-      grid.get(k).push(idx);
-    });
-    // Para cada punto, comparar con puntos en sus 9 celdas vecinas.
-    points.forEach((p, idx) => {
-      const px = Math.floor(p[0]), py = Math.floor(p[1]);
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          const k = (px + dx) + ',' + (py + dy);
-          const others = grid.get(k);
-          if (!others) continue;
-          for (const oIdx of others) {
-            if (oIdx === idx) continue;
-            if (distSq(p, points[oIdx]) <= thresholdSq) unite(idx, oIdx);
-          }
-        }
-      }
-    });
-    const clusters = new Map();
-    points.forEach((p, idx) => {
-      const r = find(idx);
-      if (!clusters.has(r)) clusters.set(r, []);
-      clusters.get(r).push(p);
-    });
-    return Array.from(clusters.values());
-  }
-  Object.entries(byVendor).forEach(([vendor, deptos]) => {
-    // Convertir a polygon-clipping format.
+  Object.entries(byVendor).forEach(([vendor, provs]) => {
     const mps = [];
-    deptos.forEach(feat => {
+    provs.forEach(feat => {
       const g = feat.geometry;
       if (!g || !g.coordinates) return;
       if (g.type === 'MultiPolygon') mps.push(roundMp(g.coordinates));
@@ -4065,41 +4041,30 @@ function _buildVendorOutlinesCache(){
       merged = unionTree(mps);
       if (!merged) { out[vendor] = []; return; }
     }
-    // Extraer TODOS los puntos del merge (solo outer rings, skip holes).
-    const allPoints = [];
+    // Step 4: extraer outer rings. Filtramos anillos chicos (perimetro < 0.5
+    // grados ~55km) por si quedan slivers.
+    function ringPerim(ring){
+      let s = 0;
+      for (let i = 0; i < ring.length - 1; i++) {
+        const dx = ring[i + 1][0] - ring[i][0];
+        const dy = ring[i + 1][1] - ring[i][1];
+        s += Math.sqrt(dx * dx + dy * dy);
+      }
+      return s;
+    }
+    const polylines = [];
     merged.forEach(poly => {
       if (!poly.length) return;
-      poly[0].forEach(c => allPoints.push(c));
-    });
-    if (!allPoints.length) { out[vendor] = []; return; }
-    // Cluster los puntos por proximidad geografica - asi Tierra del Fuego
-    // queda en cluster separado de Patagonia continental.
-    const CLUSTER_THRESHOLD_DEG = 1.5;
-    const clusters = clusterPoints(allPoints, CLUSTER_THRESHOLD_DEG * CLUSTER_THRESHOLD_DEG);
-    // Computar convex hull de cada cluster grande. Descartar clusters chicos
-    // (< 5 puntos) que son ruido/floats.
-    const polylines = [];
-    clusters.forEach(clusterPts => {
-      if (clusterPts.length < 5) return;
-      const hull = convexHull(clusterPts);
-      if (hull.length < 3) return;
-      // Cerrar el anillo.
-      const closed = hull.concat([hull[0]]);
-      // Filtrar perimetro chico.
-      let perim = 0;
-      for (let i = 0; i < closed.length - 1; i++) {
-        const dx = closed[i + 1][0] - closed[i][0];
-        const dy = closed[i + 1][1] - closed[i][1];
-        perim += Math.sqrt(dx * dx + dy * dy);
-      }
-      if (perim < 0.5) return;
-      polylines.push(closed.map(c => [c[1], c[0]]));
+      const outer = poly[0];
+      if (outer.length < 4) return;
+      if (ringPerim(outer) < 0.5) return;
+      polylines.push(outer.map(c => [c[1], c[0]]));
     });
     out[vendor] = polylines;
   });
   _vendorOutlinesCache = out;
   const summary = Object.keys(out).map(v => v + '(' + (out[v] || []).length + 'p)');
-  console.log('[outlines] cache built via convex hull cluster:', Object.keys(out).length, 'vendors:', summary.join(', '));
+  console.log('[outlines] cache built via province union:', Object.keys(out).length, 'vendors:', summary.join(', '));
   // Persistir en localStorage para que las proximas cargas sean instantaneas.
   try {
     localStorage.setItem(VENDOR_OUTLINES_CACHE_KEY, JSON.stringify(out));
