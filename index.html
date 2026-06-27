@@ -2310,6 +2310,12 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <span class="contact-summary" id="pedidos-summary">0 clientes</span>
       </div>
       <div class="ped-search-wrap"><input type="search" id="pedido-search" class="ped-search" placeholder="Buscar tienda por nombre..." oninput="renderPedidosTab()" autocomplete="off"/></div>
+      <!-- Filtros solo visibles en "Confirmados" - mismo patron que Mis Visitas. -->
+      <div id="pedido-confirmados-filters" class="visit-filters" style="display:none;margin-top:8px">
+        <select id="pcf-mes" onchange="renderPedidosTab()"><option value="">Todos los meses</option></select>
+        <select id="pcf-tienda" onchange="renderPedidosTab()"><option value="">Todas las tiendas</option></select>
+        <select id="pcf-anio" onchange="renderPedidosTab()"><option value="">Todos los a&ntilde;os</option></select>
+      </div>
       <div id="pedidos-content"></div>
     </div>
     <div class="tab-pane" id="pane-rutas" style="display:none">
@@ -2719,7 +2725,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v184';
+const APP_VERSION = 'v185';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -13414,6 +13420,9 @@ window.setPedidoView = function(v){
   document.getElementById('pt-crear').classList.toggle('active', v === 'crear');
   document.getElementById('pt-pend').classList.toggle('active', v === 'pendientes');
   document.getElementById('pt-conf').classList.toggle('active', v === 'confirmados');
+  // Mostrar filtros mes/tienda/anio solo en Confirmados.
+  const filtersEl = document.getElementById('pedido-confirmados-filters');
+  if (filtersEl) filtersEl.style.display = (v === 'confirmados') ? 'flex' : 'none';
   renderPedidosTab();
 };
 
@@ -14024,14 +14033,35 @@ function renderPendientesList(){
 
 function renderConfirmadosList(){
   const visibleKeys = buildPedidoVisibleKeysSet();
-  let items = [];
+  // Armar items completos antes de filtrar - usamos los items para popular
+  // los dropdowns de filtros con las opciones disponibles.
+  const allItems = [];
   Object.entries(confirmed).forEach(([k, list]) => {
     if (!visibleKeys.has(k)) return;
     const parts = k.split('|');
     (list || []).forEach((c, idx) => {
-      items.push({key: k, idx, tipo: parts[0], prov: parts[1], locName: parts[2], clientName: parts[3], conf: c});
+      allItems.push({key: k, idx, tipo: parts[0], prov: parts[1], locName: parts[2], clientName: parts[3], conf: c});
     });
   });
+  // Poblar dropdowns. Conservamos el valor seleccionado actual si sigue valido.
+  function repopulate(selId, options, label){
+    const sel = document.getElementById(selId);
+    if (!sel) return '';
+    const cur = sel.value;
+    const opts = Array.from(new Set(options.filter(Boolean))).sort();
+    sel.innerHTML = '<option value="">' + label + '</option>' +
+      opts.map(o => '<option value="' + escapeAttr(String(o)) + '">' + escapeHtml(String(o)) + '</option>').join('');
+    if (opts.indexOf(cur) >= 0) sel.value = cur;
+    return sel.value;
+  }
+  const fMes = repopulate('pcf-mes', allItems.map(it => it.conf.month || ''), 'Todos los meses');
+  const fTienda = repopulate('pcf-tienda', allItems.map(it => it.clientName || ''), 'Todas las tiendas');
+  const fAnio = repopulate('pcf-anio', allItems.map(it => it.conf.year || ''), 'Todos los años');
+  // Aplicar filtros + search.
+  let items = allItems;
+  if (fMes) items = items.filter(it => (it.conf.month || '') === fMes);
+  if (fTienda) items = items.filter(it => (it.clientName || '') === fTienda);
+  if (fAnio) items = items.filter(it => String(it.conf.year || '') === fAnio);
   const q = getPedidoSearchQuery();
   if (q) items = items.filter(it => (it.clientName || '').toLowerCase().includes(q));
   items.sort((a, b) => (b.conf.confirmedAt || '').localeCompare(a.conf.confirmedAt || ''));
