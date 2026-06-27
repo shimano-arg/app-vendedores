@@ -2712,7 +2712,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v181';
+const APP_VERSION = 'v182';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -2905,6 +2905,7 @@ async function forceUpdateApp(){
     localStorage.removeItem('shimano_vendor_outlines_v9');
     localStorage.removeItem('shimano_vendor_outlines_v10');
     localStorage.removeItem('shimano_vendor_outlines_v11');
+    localStorage.removeItem('shimano_vendor_outlines_v12');
   } catch(e){}
   // Reload con cache-bust en query string.
   const base = window.location.pathname.replace(/[?#].*$/, '');
@@ -3928,7 +3929,7 @@ let _vendorOutlinesCache = null; // {vendor: [[[lat,lng],[lat,lng]], ...]}
 // Cache de localStorage: invalida si subimos esta version cuando cambia
 // el DEPT_GEO. Asi la primera carga tarda 1-2s pero las siguientes son
 // instantaneas (las polilineas ya estan calculadas y guardadas).
-const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v11';
+const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v12';
 function _buildVendorOutlinesCache(){
   if (_vendorOutlinesCache) return _vendorOutlinesCache;
   // Intentar leer del localStorage primero.
@@ -3972,9 +3973,8 @@ function _buildVendorOutlinesCache(){
     }
     return unionTree(pairs);
   }
-  // Step 1: contar depts por (provincia, vendor) para encontrar el vendor
-  // dominante de cada provincia.
-  const provVendorCount = {}; // { provName: { vendor: count } }
+  // Step 1: agrupar depts por provincia y vendor.
+  const provDepts = {}; // { provName: { vendor: [feature, ...] } }
   const safeDept = _filterOutAntarctica(DEPT_GEO);
   safeDept.features.forEach(feat => {
     const prov = (feat.properties && feat.properties.province) || '';
@@ -3986,54 +3986,89 @@ function _buildVendorOutlinesCache(){
       v = feat.properties && feat.properties.vendor;
     }
     if (!v || v === '__DISTRIBUTOR__') return;
-    if (!provVendorCount[prov]) provVendorCount[prov] = {};
-    provVendorCount[prov][v] = (provVendorCount[prov][v] || 0) + 1;
+    if (!provDepts[prov]) provDepts[prov] = {};
+    if (!provDepts[prov][v]) provDepts[prov][v] = [];
+    provDepts[prov][v].push(feat);
   });
-  function dominantVendorForProv(provName){
-    // PROVINCE_VENDOR_OVERRIDE manda siempre.
+  // Step 2: clasificar provincias en SINGLE-VENDOR (un solo vendor con >= 90%
+  // de los depts -> usar polygon provincial entero, sale limpio) vs SPLIT (varios
+  // vendors significativos -> unionizar los depts de cada vendor por separado
+  // dentro de esa provincia).
+  // PROVINCE_VENDOR_OVERRIDE fuerza el caso single-vendor.
+  const SPLIT_THRESHOLD = 0.9;
+  function classifyProv(provName){
     if (typeof PROVINCE_VENDOR_OVERRIDE !== 'undefined' && PROVINCE_VENDOR_OVERRIDE[provName]) {
-      return PROVINCE_VENDOR_OVERRIDE[provName];
+      return {mode: 'single', vendor: PROVINCE_VENDOR_OVERRIDE[provName]};
     }
-    const counts = provVendorCount[provName];
-    if (!counts) return '';
+    const byV = provDepts[provName] || {};
+    let total = 0;
+    Object.values(byV).forEach(arr => total += arr.length);
+    if (!total) return {mode: 'none'};
     let best = '', bestN = 0;
-    Object.entries(counts).forEach(([v, n]) => {
-      if (n > bestN) { best = v; bestN = n; }
+    Object.entries(byV).forEach(([v, arr]) => {
+      if (arr.length > bestN) { best = v; bestN = arr.length; }
     });
-    return best;
+    return (bestN / total >= SPLIT_THRESHOLD)
+      ? {mode: 'single', vendor: best}
+      : {mode: 'split'};
   }
-  // Step 2: agrupar provincias por vendor dominante.
-  const byVendor = {};
+  // Step 3: indexar PROV_GEO por nombre para acceso rapido.
   const safeProv = _filterOutAntarctica(PROV_GEO);
-  // Las features de PROV_GEO usan distintos campos para el nombre segun la
-  // fuente. Tratamos varios candidatos.
   function provNameFromFeat(feat){
     const p = feat.properties || {};
     const raw = p.nombre || p.name || p.provincia || p.NAME_1 || p.NAM || '';
     return normName(raw);
   }
+  const provFeatByName = {};
   safeProv.features.forEach(feat => {
-    const provName = provNameFromFeat(feat);
-    if (!provName) return;
-    const vendor = dominantVendorForProv(provName);
-    if (!vendor) return;
-    if (!byVendor[vendor]) byVendor[vendor] = [];
-    byVendor[vendor].push(feat);
+    const n = provNameFromFeat(feat);
+    if (n && !provFeatByName[n]) provFeatByName[n] = feat;
   });
-  // Step 3: union por vendor.
-  const out = {};
+  // Step 4: armar mps por vendor.
+  //   - Provincias SINGLE: agregamos el polygon provincial completo a su vendor.
+  //   - Provincias SPLIT: agregamos los depts de cada vendor a su entrada
+  //     respectiva, asi cada vendor union solo sus depts en esa provincia.
+  const vendorMps = {};
   const roundCoord = c => [Math.round(c[0] * 1000) / 1000, Math.round(c[1] * 1000) / 1000];
   const roundRing = ring => ring.map(roundCoord);
   const roundPoly = poly => poly.map(roundRing);
   const roundMp = mp => mp.map(roundPoly);
-  Object.entries(byVendor).forEach(([vendor, provs]) => {
-    const mps = [];
-    provs.forEach(feat => {
-      const g = feat.geometry;
-      if (!g || !g.coordinates) return;
-      if (g.type === 'MultiPolygon') mps.push(roundMp(g.coordinates));
-      else if (g.type === 'Polygon') mps.push([roundPoly(g.coordinates)]);
-    });
+  function pushFeatToVendor(vendor, feat){
+    const g = feat.geometry;
+    if (!g || !g.coordinates) return;
+    if (!vendorMps[vendor]) vendorMps[vendor] = [];
+    if (g.type === 'MultiPolygon') vendorMps[vendor].push(roundMp(g.coordinates));
+    else if (g.type === 'Polygon') vendorMps[vendor].push([roundPoly(g.coordinates)]);
+  }
+  Object.keys(provDepts).forEach(provName => {
+    const klass = classifyProv(provName);
+    if (klass.mode === 'single') {
+      const feat = provFeatByName[provName];
+      if (feat) {
+        pushFeatToVendor(klass.vendor, feat);
+      } else {
+        // Fallback: si no encontramos la provincia en PROV_GEO (raro), usar
+        // los depts. Asi el vendor no queda sin contorno.
+        const byV = provDepts[provName] || {};
+        Object.entries(byV).forEach(([v, arr]) => arr.forEach(f => pushFeatToVendor(v, f)));
+      }
+    } else if (klass.mode === 'split') {
+      const byV = provDepts[provName] || {};
+      Object.entries(byV).forEach(([v, arr]) => arr.forEach(f => pushFeatToVendor(v, f)));
+    }
+  });
+  // Step 5: union por vendor.
+  const out = {};
+  function ringPerim(ring){
+    let s = 0;
+    for (let i = 0; i < ring.length - 1; i++) {
+      const dx = ring[i + 1][0] - ring[i][0];
+      const dy = ring[i + 1][1] - ring[i][1];
+      s += Math.sqrt(dx * dx + dy * dy);
+    }
+    return s;
+  }
+  Object.entries(vendorMps).forEach(([vendor, mps]) => {
     if (!mps.length) { out[vendor] = []; return; }
     let merged;
     try { merged = polygonClipping.union(...mps); }
@@ -4041,30 +4076,19 @@ function _buildVendorOutlinesCache(){
       merged = unionTree(mps);
       if (!merged) { out[vendor] = []; return; }
     }
-    // Step 4: extraer outer rings. Filtramos anillos chicos (perimetro < 0.5
-    // grados ~55km) por si quedan slivers.
-    function ringPerim(ring){
-      let s = 0;
-      for (let i = 0; i < ring.length - 1; i++) {
-        const dx = ring[i + 1][0] - ring[i][0];
-        const dy = ring[i + 1][1] - ring[i][1];
-        s += Math.sqrt(dx * dx + dy * dy);
-      }
-      return s;
-    }
     const polylines = [];
     merged.forEach(poly => {
       if (!poly.length) return;
       const outer = poly[0];
       if (outer.length < 4) return;
-      if (ringPerim(outer) < 0.5) return;
+      if (ringPerim(outer) < 0.3) return;
       polylines.push(outer.map(c => [c[1], c[0]]));
     });
     out[vendor] = polylines;
   });
   _vendorOutlinesCache = out;
   const summary = Object.keys(out).map(v => v + '(' + (out[v] || []).length + 'p)');
-  console.log('[outlines] cache built via province union:', Object.keys(out).length, 'vendors:', summary.join(', '));
+  console.log('[outlines] cache built via prov+dept hybrid:', Object.keys(out).length, 'vendors:', summary.join(', '));
   // Persistir en localStorage para que las proximas cargas sean instantaneas.
   try {
     localStorage.setItem(VENDOR_OUTLINES_CACHE_KEY, JSON.stringify(out));
