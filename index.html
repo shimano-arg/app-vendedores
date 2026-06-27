@@ -2206,6 +2206,10 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <div id="cm-data-section" class="client-data-block">
           <div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Datos del cliente</div>
           <div style="margin-bottom:10px">
+            <label for="cm-fantasia" style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px">Nombre del local / fantas&iacute;a <span style="font-weight:400;color:#94a3b8">(ej: PESCAPLAY)</span></label>
+            <input id="cm-fantasia" type="text" placeholder="Marca o nombre del local (si difiere del titular)" oninput="onClientFantasiaInput()" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none"/>
+          </div>
+          <div style="margin-bottom:10px">
             <label for="cm-address" style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px">Direccion exacta <span style="color:#dc2626">*</span></label>
             <input id="cm-address" type="text" autocomplete="street-address" placeholder="Ej: Av. Corrientes 1234" oninput="onClientMetaInput()" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none"/>
           </div>
@@ -5084,13 +5088,15 @@ function renderClients(pts){
     html += ' ondblclick="openClientModal(\'' + safeName + '\', \'' + it.tipo + '\', \'' + safeProv + '\', \'' + safeLoc + '\')">';
     html += '<div class="client-body">';
     html += '<div class="client-name">' + escapeHtml(displayName) + renamedTag + '</div>';
-    // Buscar la fantasia del local en approvedAltasList (matching por
-    // comercio + provincia, case-insensitive). Si el cliente tiene cargada
-    // una alta con nombreFantasia diferente al nombre del comercio (caso
-    // tipico: comercio = "AGUSTIN BEBER", fantasia = "PESCAPLAY"), mostramos
-    // ambos. Sino solo el nombre.
+    // Nombre del local / fantasia. Prioridad:
+    //  1) clientMeta.customFantasia (lo escribiste vos en el modal del cliente).
+    //  2) approvedAltasList[].fantasia matcheado por comercio+provincia,
+    //     siempre que difiera del nombre del comercio (no eco).
     let fantPt = '';
-    if (typeof approvedAltasByLoc !== 'undefined') {
+    const mFant = (typeof clientMeta !== 'undefined' && clientMeta[k] && clientMeta[k].customFantasia) ? clientMeta[k].customFantasia : '';
+    if (mFant) {
+      fantPt = mFant.trim();
+    } else if (typeof approvedAltasByLoc !== 'undefined') {
       const aLocKey = (it.point.province || '').toUpperCase() + '|' + (it.point.name || '');
       const altas = approvedAltasByLoc[aLocKey] || [];
       const nameLower = (it.name || '').toLowerCase();
@@ -5107,7 +5113,7 @@ function renderClients(pts){
         }
       }
     }
-    if (fantPt) {
+    if (fantPt && fantPt.toLowerCase() !== (it.name || '').toLowerCase() && fantPt.toLowerCase() !== displayName.toLowerCase()) {
       html += '<div style="font-size:11px;color:#475569;font-weight:600;margin-top:2px"><span style="color:#94a3b8;font-weight:500">Local:</span> ' + escapeHtml(fantPt) + '</div>';
     }
     html += '<div class="client-meta">';
@@ -5186,6 +5192,27 @@ function openClientModal(clientName, tipo, province, localityName){
   const locInput = document.getElementById('cm-locality');
   if (addrInput) addrInput.value = _resolveAddress();
   if (locInput) locInput.value = _resolveLocality();
+  // Cargar nombre del local (fantasia). Prioridad:
+  //  1) customFantasia que cargaste vos desde este input.
+  //  2) a.fantasia del alta SAP si difiere de a.comercio (no es eco).
+  const fantInput = document.getElementById('cm-fantasia');
+  if (fantInput) {
+    let preset = (meta && meta.customFantasia) ? meta.customFantasia : '';
+    if (!preset && typeof approvedAltasByLoc !== 'undefined') {
+      const aLocKey = (province || '').toUpperCase() + '|' + localityName;
+      const altas = approvedAltasByLoc[aLocKey] || [];
+      const nameLower = (clientName || '').toLowerCase();
+      const altaMatch = altas.find(a => {
+        if (!a) return false;
+        const c = (a.comercio || '').toLowerCase();
+        return c === nameLower;
+      });
+      if (altaMatch && altaMatch.fantasia && altaMatch.fantasia.toLowerCase() !== (altaMatch.comercio || '').toLowerCase()) {
+        preset = altaMatch.fantasia;
+      }
+    }
+    fantInput.value = preset || '';
+  }
   // Cargar el dropdown de Tipo de cliente desde client_master (Firestore
   // global - no es per-device como clientMeta). Si no hay doc guardado,
   // queda en "(sin clasificar)" por defecto.
@@ -5319,6 +5346,22 @@ window.onClientMetaInput = function(){
     status.innerHTML = '<span style="color:#92400e">Cambiaste los datos. Al dar de alta se vuelve a geocodificar.</span>';
   }
   renderClientActionsBlock(currentClientModalKey);
+};
+
+// Debounced save del nombre del local (fantasia) en clientMeta.customFantasia.
+// Asi la card muestra "Local: <fantasia>" debajo del nombre del titular.
+let _fantasiaDebounceTimer = null;
+window.onClientFantasiaInput = function(){
+  if (!currentClientModalKey) return;
+  if (_fantasiaDebounceTimer) clearTimeout(_fantasiaDebounceTimer);
+  _fantasiaDebounceTimer = setTimeout(() => {
+    const el = document.getElementById('cm-fantasia');
+    if (!el) return;
+    const val = (el.value || '').trim();
+    setClientMetaPatch(currentClientModalKey, {customFantasia: val || null});
+    // Re-render del listado de clientes si esta visible para reflejar el cambio.
+    try { if (typeof renderClients === 'function' && typeof filteredPoints === 'function') renderClients(filteredPoints()); } catch(e){}
+  }, 350);
 };
 function aplicarEstadoCliente(state){
   if (!currentClientModalKey) return;
