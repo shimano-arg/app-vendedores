@@ -2712,7 +2712,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v182';
+const APP_VERSION = 'v183';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -20372,17 +20372,41 @@ window.onLocalidadChange = function(){
   if (!v) { sel.innerHTML = '<option value="">Seleccionar localidad primero...</option>'; return; }
   const [prov, name] = v.split('||');
   const myVendor = (userRole === 'vendedor') ? assignedVendor : null;
+  // Solo mostrar tiendas habilitadas en SAP. Filtramos via isSapConfirmed
+  // (que mira client_master con sapCardCode + direccion, o alta SAP en
+  // client_applications con cardCodeSap + direccion). Prospectos NO entran -
+  // no estan en SAP todavia.
   const tiendaSet = new Set();
+  // Path 1: POINTS clients confirmados en SAP.
   POINTS.forEach(p => {
     if (myVendor && p.vendor !== myVendor) return;
     if (p.province !== prov || p.name !== name) return;
-    // Incluir clientes Y prospectos: una visita puede ser a cualquier tienda fisica de la localidad,
-    // independiente de si es prospecto pendiente o cliente confirmado.
-    (p.clients || []).forEach(c => tiendaSet.add(c));
-    (p.prospects || []).forEach(c => tiendaSet.add(c));
+    (p.clients || []).forEach(c => {
+      if (typeof isSapConfirmed === 'function' && isSapConfirmed(p.province, p.name, c)) {
+        tiendaSet.add(c);
+      }
+    });
   });
+  // Path 2: SAP altas huerfanas (en client_applications con cardCodeSap)
+  // que no matchean ningun POINT - igual son habilitadas en SAP.
+  if (typeof approvedAltasList !== 'undefined') {
+    approvedAltasList.forEach(a => {
+      if (!a || !a.cardCodeSap) return;
+      if (!(a.calle || a.address)) return;
+      const aProv = (a.provincia || '').toUpperCase().trim();
+      const aLoc = (a.localidadFinal || a.localidad || '').trim();
+      if (aProv !== prov || aLoc !== name) return;
+      if (myVendor && a.assignedVendor && a.assignedVendor !== myVendor) return;
+      const nombre = a.comercio || a.fantasia;
+      if (nombre) tiendaSet.add(nombre);
+    });
+  }
   const tiendas = [...tiendaSet].sort();
-  sel.innerHTML = '<option value="">Seleccionar...</option>' + tiendas.map(t => '<option value="' + escapeAttr(t) + '">' + escapeHtml(t) + '</option>').join('');
+  if (!tiendas.length) {
+    sel.innerHTML = '<option value="">(sin tiendas habilitadas en SAP en esta localidad)</option>';
+  } else {
+    sel.innerHTML = '<option value="">Seleccionar...</option>' + tiendas.map(t => '<option value="' + escapeAttr(t) + '">' + escapeHtml(t) + '</option>').join('');
+  }
 };
 
 window.setLikert = function(v){
