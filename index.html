@@ -2873,6 +2873,7 @@ async function forceUpdateApp(){
     localStorage.removeItem('shimano_vendor_outlines_v5');
     localStorage.removeItem('shimano_vendor_outlines_v6');
     localStorage.removeItem('shimano_vendor_outlines_v7');
+    localStorage.removeItem('shimano_vendor_outlines_v8');
   } catch(e){}
   // Reload con cache-bust en query string.
   const base = window.location.pathname.replace(/[?#].*$/, '');
@@ -3896,7 +3897,7 @@ let _vendorOutlinesCache = null; // {vendor: [[[lat,lng],[lat,lng]], ...]}
 // Cache de localStorage: invalida si subimos esta version cuando cambia
 // el DEPT_GEO. Asi la primera carga tarda 1-2s pero las siguientes son
 // instantaneas (las polilineas ya estan calculadas y guardadas).
-const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v7';
+const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v8';
 function _buildVendorOutlinesCache(){
   if (_vendorOutlinesCache) return _vendorOutlinesCache;
   // Intentar leer del localStorage primero.
@@ -4029,11 +4030,19 @@ function _buildVendorOutlinesCache(){
         rawRings.push(outerRing);
       });
       // Post-process: cuando polygon-clipping no logra mergear depts vecinos
-      // (microgaps en INDEC), devuelve N anillos vs el 1 esperado. Filtramos
-      // los anillos que estan ENTERAMENTE CONTENIDOS en el bbox de otro anillo
-      // mas grande - esos son los pedazos internos que se ven como "lineas
-      // raras adentro" de la zona. Asi queda solo el contorno externo de
-      // cada region disconexa real (Patagonia + isla Tierra del Fuego, p.ej.).
+      // devuelve N anillos en lugar del 1 esperado. Necesitamos quedar solo
+      // con el contorno externo de cada region disconexa real (ej. Patagonia
+      // continental + isla Tierra del Fuego).
+      //
+      // Filtros aplicados en orden:
+      //  1) Drop degenerados: anillos donde el "area / perimeter^2" es muy
+      //     baja - son lineas planas, no zonas (las que se ven como rayas
+      //     verticales raras).
+      //  2) Drop interiores: anillos cuyo centroide cae DENTRO de otro
+      //     anillo ya aceptado mas grande - son pedazos que en realidad
+      //     son subsets del contorno externo.
+      //
+      // Usamos area firmada via shoelace (mas robusto que bbox).
       function ringBBox(ring){
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (let i = 0; i < ring.length; i++) {
@@ -4043,23 +4052,62 @@ function _buildVendorOutlinesCache(){
           if (x > maxX) maxX = x;
           if (y > maxY) maxY = y;
         }
-        return [minX, minY, maxX, maxY, (maxX - minX) * (maxY - minY)];
+        return [minX, minY, maxX, maxY];
       }
-      const ringInfos = rawRings.map(r => ({ring: r, bbox: ringBBox(r)}));
-      // Orden por area de bbox desc - los grandes primero.
-      ringInfos.sort((a, b) => b.bbox[4] - a.bbox[4]);
-      const SHRINK = 0.02; // ~2km tolerancia para "contenido en bbox"
+      function ringSignedArea(ring){
+        let s = 0;
+        for (let i = 0; i < ring.length - 1; i++) {
+          s += (ring[i][0] * ring[i + 1][1]) - (ring[i + 1][0] * ring[i][1]);
+        }
+        return s / 2;
+      }
+      function ringCentroid(ring){
+        // Centroide simple = promedio de vertices. Suficiente para el
+        // point-in-polygon test (no necesitamos centroide de masa exacto).
+        let sx = 0, sy = 0, n = 0;
+        for (let i = 0; i < ring.length - 1; i++) {
+          sx += ring[i][0]; sy += ring[i][1]; n++;
+        }
+        return n > 0 ? [sx / n, sy / n] : [0, 0];
+      }
+      function pointInRing(pt, ring){
+        // Ray casting clasico. ring es array de [x, y].
+        const x = pt[0], y = pt[1];
+        let inside = false;
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+          const xi = ring[i][0], yi = ring[i][1];
+          const xj = ring[j][0], yj = ring[j][1];
+          const intersect = ((yi > y) !== (yj > y)) &&
+            (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+          if (intersect) inside = !inside;
+        }
+        return inside;
+      }
+      const ringInfos = [];
+      rawRings.forEach(r => {
+        const area = Math.abs(ringSignedArea(r));
+        const perim = ringPerimeter(r);
+        const bbox = ringBBox(r);
+        // Filtro 1: degenerados (rayas planas). 'area/perim^2' baja indica
+        // forma alargada y delgada. Umbral 0.001 deja pasar rectangulos
+        // normales pero descarta lineas casi 1D.
+        const compactness = perim > 0 ? area / (perim * perim) : 0;
+        if (compactness < 0.001) return;
+        ringInfos.push({ring: r, area: area, bbox: bbox, centroid: ringCentroid(r)});
+      });
+      // Orden por area desc - los grandes primero, asi cuando filtramos
+      // por point-in-polygon los chicos ya tienen contra que comparar.
+      ringInfos.sort((a, b) => b.area - a.area);
       const kept = [];
       for (const ri of ringInfos) {
-        // Esta contenido en algun bbox de los ya aceptados? Si si, es interno.
-        const [minX, minY, maxX, maxY] = ri.bbox;
         let inside = false;
         for (const kp of kept) {
+          // Optimizacion: si el centroide no esta ni siquiera en el bbox del
+          // kept, saltar el point-in-polygon caro.
+          const c = ri.centroid;
           const [kMinX, kMinY, kMaxX, kMaxY] = kp.bbox;
-          if (minX >= kMinX - SHRINK && minY >= kMinY - SHRINK &&
-              maxX <= kMaxX + SHRINK && maxY <= kMaxY + SHRINK) {
-            inside = true; break;
-          }
+          if (c[0] < kMinX || c[0] > kMaxX || c[1] < kMinY || c[1] > kMaxY) continue;
+          if (pointInRing(c, kp.ring)) { inside = true; break; }
         }
         if (!inside) kept.push(ri);
       }
