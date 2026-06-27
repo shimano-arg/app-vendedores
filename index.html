@@ -2712,7 +2712,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v178';
+const APP_VERSION = 'v179';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -4368,55 +4368,80 @@ window.openSapAltaCard = function(fsId){
   const a = (approvedAltasList || []).find(x => x._fsId === fsId);
   if (!a) { alert('Alta no encontrada. Recarga la pagina.'); return; }
   const hasAddr = !!(a.calle || a.address);
-  const hasGeo = (a.lat != null && a.lng != null);
   if (!hasAddr) {
-    // Sin direccion: ir directo al modal de cargar.
     if (typeof openSapAltaAddressModal === 'function') openSapAltaAddressModal(fsId);
     return;
   }
-  const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0,8));
-  // Step 1: ofrecer editar el nombre del local / fantasia. Asi para las altas
-  // SAP el admin tiene una via rapida para taggearlas con "PESCAPLAY" y que
-  // se vea en la card. Cancel saltea este paso.
+  // Modal inline para editar la fantasia + ver info + entrar a editar
+  // direccion. Reemplaza el chain prompt() + confirm() que era poco
+  // discoverable.
+  openSapAltaInfoModal(fsId);
+};
+
+function openSapAltaInfoModal(fsId){
+  const a = (approvedAltasList || []).find(x => x._fsId === fsId);
+  if (!a) return;
+  const hasGeo = (a.lat != null && a.lng != null);
+  const titular = a.comercio || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
   const curFant = (a.fantasia && a.fantasia.trim() && a.fantasia.trim().toLowerCase() !== (a.comercio || '').toLowerCase()) ? a.fantasia.trim() : '';
-  const newFant = prompt(
-    'Nombre del local / marca del comercio.\n' +
-    'Ejemplo: AGUSTIN BEBER (titular) -> PESCAPLAY (local).\n' +
-    'Dejar vacio si no aplica.\n\n' +
-    'Titular: ' + nombre + '\n' +
-    'Local actual: ' + (curFant || '(vacio)'),
-    curFant
-  );
-  if (newFant !== null) {
-    const trimmed = newFant.trim();
-    if (trimmed !== curFant) {
-      const isAdminLike = (userRole === 'admin' || userRole === 'gerente');
-      if (!isAdminLike) {
-        alert('Solo admin o gerente puede editar el nombre del local.');
-      } else {
-        fbDb.collection('client_applications').doc(fsId).update({
-          fantasia: trimmed || firebase.firestore.FieldValue.delete(),
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        }).then(() => {
-          if (typeof showSyncTag === 'function') showSyncTag(trimmed ? ('Local guardado: ' + trimmed) : 'Nombre del local borrado');
-        }).catch(e => { console.error('save fantasia', e); alert('Error: ' + (e.message || e)); });
-      }
-    }
+  const direccion = a.calle || a.address || '-';
+  const localidad = a.localidadFinal || a.localidad || '(sin localidad)';
+  const provincia = a.provincia || '-';
+  const vendedor = a.assignedVendor || '(sin asignar)';
+  const isAdminLike = (userRole === 'admin' || userRole === 'gerente');
+  let modalEl = document.getElementById('sap-alta-info-modal');
+  if (!modalEl) {
+    modalEl = document.createElement('div');
+    modalEl.id = 'sap-alta-info-modal';
+    modalEl.className = 'modal-overlay';
+    modalEl.onclick = function(e){ if (e.target === modalEl) modalEl.classList.remove('open'); };
+    document.body.appendChild(modalEl);
   }
-  // Step 2: el comportamiento original - confirm con info + opcion editar direccion.
-  const info = nombre + '\n'
-    + 'SAP: ' + (a.cardCodeSap || '-') + '\n'
-    + 'Direccion: ' + (a.calle || a.address || '-') + '\n'
-    + 'Localidad: ' + (a.localidadFinal || a.localidad || '(sin localidad)') + '\n'
-    + 'Provincia: ' + (a.provincia || '-') + '\n'
-    + 'Vendedor: ' + (a.assignedVendor || '(sin asignar)') + '\n\n'
-    + (hasGeo
-        ? 'Ubicada en el mapa: ' + Number(a.lat).toFixed(5) + ', ' + Number(a.lng).toFixed(5)
-        : 'NO geocodificada todavia (no aparece como pin verde)') + '\n\n'
-    + 'OK: editar direccion / re-geocodificar.\nCancelar: cerrar.';
-  if (confirm(info)) {
-    if (typeof openSapAltaAddressModal === 'function') openSapAltaAddressModal(fsId);
-  }
+  const safeFsId = escapeAttr(fsId);
+  modalEl.innerHTML =
+    '<div class="modal-box" style="width:min(520px,96vw)">' +
+      '<div class="modal-head" style="background:linear-gradient(135deg,#166534,#10b981)">' +
+        '<div><h2>Alta SAP</h2><div class="subt">' + escapeHtml(titular) + ' &middot; ' + escapeHtml(a.cardCodeSap || '') + '</div></div>' +
+        '<button class="modal-close" onclick="document.getElementById(\'sap-alta-info-modal\').classList.remove(\'open\')">&times;</button>' +
+      '</div>' +
+      '<div class="users-wrap" style="padding:14px">' +
+        '<div style="background:#f1f5f9;border-radius:6px;padding:10px;font-size:12px;line-height:1.6;margin-bottom:14px">' +
+          '<div><b>Titular:</b> ' + escapeHtml(titular) + '</div>' +
+          '<div><b>Direccion:</b> ' + escapeHtml(direccion) + '</div>' +
+          '<div><b>Localidad:</b> ' + escapeHtml(localidad) + ' / ' + escapeHtml(titleCase(provincia)) + '</div>' +
+          '<div><b>Vendedor:</b> ' + escapeHtml(titleCase(vendedor)) + '</div>' +
+          '<div><b>Mapa:</b> ' + (hasGeo ? ('<span style="color:#166534">Ubicada (' + Number(a.lat).toFixed(5) + ', ' + Number(a.lng).toFixed(5) + ')</span>') : '<span style="color:#92400e">No geocodificada</span>') + '</div>' +
+        '</div>' +
+        '<label style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:4px">Nombre del local / fantas&iacute;a</label>' +
+        '<div style="font-size:11px;color:#94a3b8;margin-bottom:6px">Marca del comercio (ej: <b>PESCAPLAY</b>). Dejar vac&iacute;o si no aplica.</div>' +
+        '<input type="text" id="sai-fantasia-input" value="' + escapeAttr(curFant) + '" placeholder="Ej: PESCAPLAY"' +
+          (isAdminLike ? '' : ' disabled') +
+          ' style="width:100%;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;margin-bottom:14px"/>' +
+        (isAdminLike ? '' : '<div style="font-size:10px;color:#dc2626;margin-bottom:10px;margin-top:-6px">Solo admin o gerente puede editar este campo.</div>') +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">' +
+          (isAdminLike ? '<button class="btn-confirm" onclick="saveSapAltaFantasiaFromModal(\'' + safeFsId + '\')" style="background:#16a34a">Guardar local</button>' : '') +
+          '<button onclick="document.getElementById(\'sap-alta-info-modal\').classList.remove(\'open\');openSapAltaAddressModal(\'' + safeFsId + '\')" style="padding:9px 14px;border:1.5px solid #1d4ed8;border-radius:6px;background:#fff;color:#1d4ed8;font-size:12px;font-weight:700;cursor:pointer">Editar direccion</button>' +
+          '<button class="btn-cancel" onclick="document.getElementById(\'sap-alta-info-modal\').classList.remove(\'open\')">Cerrar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  modalEl.classList.add('open');
+  setTimeout(() => { const inp = document.getElementById('sai-fantasia-input'); if (inp && isAdminLike) inp.focus(); }, 50);
+}
+
+window.saveSapAltaFantasiaFromModal = function(fsId){
+  if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente.'); return; }
+  const inp = document.getElementById('sai-fantasia-input');
+  if (!inp) return;
+  const trimmed = (inp.value || '').trim();
+  fbDb.collection('client_applications').doc(fsId).update({
+    fantasia: trimmed || firebase.firestore.FieldValue.delete(),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  }).then(() => {
+    if (typeof showSyncTag === 'function') showSyncTag(trimmed ? ('Local guardado: ' + trimmed) : 'Nombre del local borrado');
+    const modalEl = document.getElementById('sap-alta-info-modal');
+    if (modalEl) modalEl.classList.remove('open');
+  }).catch(e => { console.error('save fantasia', e); alert('Error: ' + (e.message || e)); });
 };
 
 // Modal para que el admin cargue la direccion de una alta SAP. Pide solo la
