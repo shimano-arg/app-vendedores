@@ -2727,7 +2727,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v186';
+const APP_VERSION = 'v187';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -12030,6 +12030,8 @@ function renderAltaCliMisSolicitudes(){
     const dt = a.createdAt ? (a.createdAt.toDate ? a.createdAt.toDate() : null) : null;
     const dtStr = dt ? dt.toLocaleString('es-AR') : '';
     const apCount = a.approvals ? Object.keys(a.approvals).length : 0;
+    const isRapida = (a.source === 'alta_rapida');
+    const hasSap = !!a.cardCodeSap;
     html += '<div class="ac-app-card ' + stCls + '">';
     html += '<h5>' + escapeHtml(a.comercio || '-') + '</h5>';
     html += '<div class="ac-app-meta">' + escapeHtml(a.fantasia || '') + ' &middot; CUIT ' + escapeHtml(a.cuit || '') + '</div>';
@@ -12042,10 +12044,35 @@ function renderAltaCliMisSolicitudes(){
       html += '<div style="font-size:10px;color:#991b1b;margin-top:4px"><b>Motivo:</b> ' + escapeHtml(a.rejectedReason) + '</div>';
     }
     html += '</div>';
+    // Boton eliminar. Para altas rapidas se permite siempre (mientras
+    // no esten cargadas en SAP). Para altas formales se permite cuando
+    // estan pendientes o rechazadas - aprobadas con cardCode no se pueden
+    // borrar desde aca (se manejan desde SAP).
+    const canDelete = isRapida ? !hasSap : (a.status !== 'approved' || !hasSap);
+    if (canDelete) {
+      const safeId = escapeAttr(a._fsId || '');
+      const safeName = JSON.stringify(a.comercio || '').replace(/"/g, '&quot;');
+      html += '<div style="margin-top:8px;text-align:right">';
+      html += '<button onclick="deleteMyAltaCli(\'' + safeId + '\', ' + safeName + ')" style="background:#fee2e2;color:#991b1b;border:1.5px solid #fca5a5;border-radius:5px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer">&#128465; Eliminar</button>';
+      html += '</div>';
+    }
     html += '</div>';
   });
   cont.innerHTML = html;
 }
+
+window.deleteMyAltaCli = async function(fsId, comercio){
+  if (!fsId) return;
+  const nombre = comercio || 'esta solicitud';
+  if (!confirm('Eliminar "' + nombre + '"?\n\nLa alta se borra de tus solicitudes y deja de aparecer en PEDIDOS / VISITAS / mapa. No se puede deshacer.')) return;
+  try {
+    await fbDb.collection('client_applications').doc(fsId).delete();
+    if (typeof showSyncTag === 'function') showSyncTag('Alta eliminada');
+  } catch(e) {
+    console.error('deleteMyAltaCli', e);
+    alert('Error eliminando la solicitud: ' + (e.message || e));
+  }
+};
 
 // ============================================================
 // RENDICIONES - solicitud anticipo + gastos con foto + aprobacion
@@ -13078,9 +13105,29 @@ function notifItemHtml(n, opts){
       h += '</div>';
     }
   }
+  // Boton "Eliminar" generico para todas las notificaciones recibidas
+  // (excepto modo readonly). No depende del tipo - cualquier notif
+  // puede borrarse de la lista propia.
+  if (!opts.readonly) {
+    h += '<div class="notif-item-actions" style="margin-top:6px;justify-content:flex-end">';
+    h += '<button class="btn-read" style="background:#fee2e2;color:#991b1b;border:1.5px solid #fca5a5;font-weight:700" onclick="deleteNotif(\'' + escapeAttr(n._fsId) + '\')" title="Eliminar esta notificacion">&#128465; Eliminar</button>';
+    h += '</div>';
+  }
   h += '</div>';
   return h;
 }
+
+window.deleteNotif = async function(fsId){
+  if (!fsId) return;
+  if (!confirm('Eliminar esta notificacion? No se puede deshacer.')) return;
+  try {
+    await fbDb.collection('notifications').doc(fsId).delete();
+    if (typeof showSyncTag === 'function') showSyncTag('Notificacion eliminada');
+  } catch(e) {
+    console.error('deleteNotif', e);
+    alert('Error eliminando la notificacion: ' + (e.message || e));
+  }
+};
 
 function renderNotifsList(){
   // Recibidas = solo pendientes (no read, no done)
