@@ -2436,7 +2436,9 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         </div>
         <form id="alta-rapida-form" autocomplete="off">
           <div class="ac-row"><label>Nombre del local <span class="req">*</span></label><input type="text" id="ar-comercio" required maxlength="120" placeholder="Ej: Pesca y Camping El Trucha"/></div>
-          <div class="ac-row"><label>Direcci&oacute;n <span class="req">*</span></label><input type="text" id="ar-direccion" required maxlength="120" placeholder="Ej: Av. Belgrano 1234, San Isidro, Buenos Aires"/></div>
+          <div class="ac-row"><label>Provincia <span class="req">*</span></label><select id="ar-provincia" required><option value="">Seleccionar...</option></select></div>
+          <div class="ac-row"><label>Localidad <span class="req">*</span></label><input type="text" id="ar-localidad" required maxlength="80" placeholder="Ej: San Isidro, Quilmes, La Plata..."/></div>
+          <div class="ac-row"><label>Direcci&oacute;n <span class="req">*</span></label><input type="text" id="ar-direccion" required maxlength="120" placeholder="Ej: Av. Belgrano 1234"/></div>
           <div class="ac-row"><label>Nombre del due&ntilde;o / contacto <span class="req">*</span></label><input type="text" id="ar-dueno" required maxlength="80" placeholder="Ej: Juan P&eacute;rez"/></div>
           <div class="ac-row"><label>Tel&eacute;fono (opcional)</label><input type="tel" id="ar-telefono" maxlength="30" placeholder="Ej: 11 5555-1234"/></div>
           <div class="ac-row" style="margin-top:14px">
@@ -2725,7 +2727,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v185';
+const APP_VERSION = 'v186';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -11689,14 +11691,18 @@ function ensureAltaCliListener(){
 }
 
 function populateAltaCliProvincias(){
-  const sel = document.getElementById('ac-provincia');
-  if (!sel || sel.options.length > 1) return;
   const provs = new Set();
   (POINTS || []).forEach(p => provs.add(p.province));
-  [...provs].sort().forEach(pr => {
-    const o = document.createElement('option');
-    o.value = pr; o.textContent = titleCase(pr);
-    sel.appendChild(o);
+  const sorted = [...provs].sort();
+  // Lleno el select de "Nueva solicitud" y tambien el de "Alta rapida".
+  ['ac-provincia', 'ar-provincia'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel || sel.options.length > 1) return;
+    sorted.forEach(pr => {
+      const o = document.createElement('option');
+      o.value = pr; o.textContent = titleCase(pr);
+      sel.appendChild(o);
+    });
   });
 }
 
@@ -11749,17 +11755,24 @@ window.setAltaCliSubtab = function(sub){
 window.submitAltaRapida = async function(){
   if (!currentUser) { alert('No hay sesión activa.'); return; }
   const comercio = (document.getElementById('ar-comercio').value || '').trim();
+  const provincia = ((document.getElementById('ar-provincia') || {}).value || '').trim().toUpperCase();
+  const localidad = ((document.getElementById('ar-localidad') || {}).value || '').trim();
   const direccion = (document.getElementById('ar-direccion').value || '').trim();
   const dueno = (document.getElementById('ar-dueno').value || '').trim();
   const telefono = (document.getElementById('ar-telefono').value || '').trim();
   if (comercio.length < 2) { alert('Completá el nombre del local.'); return; }
+  if (!provincia) { alert('Elegí la provincia.'); return; }
+  if (localidad.length < 2) { alert('Completá la localidad.'); return; }
   if (direccion.length < 5) { alert('Completá la dirección.'); return; }
   if (dueno.length < 2) { alert('Completá el nombre del dueño / contacto.'); return; }
   if (!confirm('Confirmar alta rápida de "' + comercio + '"?\n\n'
+    + 'Provincia: ' + titleCase(provincia) + '\n'
+    + 'Localidad: ' + localidad + '\n'
     + 'Direccion: ' + direccion + '\n'
     + 'Dueño: ' + dueno + (telefono ? '\nTel: ' + telefono : '') + '\n\n'
-    + 'El cliente queda habilitado para tomar pedidos AHORA.\n'
-    + 'Administracion va a tener que cargarlo manualmente en SAP.')) return;
+    + 'El cliente queda habilitado PROVISORIAMENTE (amarillo).\n'
+    + 'Vas a poder cargarle pedidos y visitas, pero los pedidos NO se envian\n'
+    + 'a SAP hasta que administracion cree el cliente alli.')) return;
   const btn = document.querySelector('#alta-rapida-form .btn-confirm');
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
   // Vendor efectivo: el del vendedor logueado (assignedVendor) o admin.
@@ -11774,6 +11787,9 @@ window.submitAltaRapida = async function(){
       comercio: comercio,
       fantasia: comercio,
       calle: direccion,
+      provincia: provincia,
+      localidad: localidad,
+      localidadFinal: localidad,
       duenoNombre: dueno,
       telefonoContacto: telefono || '',
       status: 'approved',
@@ -13447,13 +13463,22 @@ function renderCrearList(){
   items.forEach(it => {
     const k = orderKey(it.name, it.point.province, it.point.name, it.tipo);
     const hasOrder = (orders[k] || []).length > 0;
+    // Detectar si es alta provisoria (sin SAP todavia). Sale del flag
+    // manualSapPending del alta cuando no tiene cardCodeSap aun.
+    const isProvisorio = !!(it.sapAlta && it.sapAlta.manualSapPending && !it.sapAlta.cardCodeSap);
     const evtAttr = IS_TOUCH ? 'onclick' : 'ondblclick';
     const tipText = IS_TOUCH ? 'Tocar para crear pedido' : 'Doble click para crear pedido';
-    html += '<div class="pedido-client-card" ' + evtAttr + '="askCreatePedido(\'' + escapeAttr(it.name) + '\',\'' + it.tipo + '\',\'' + escapeAttr(it.point.province) + '\',\'' + escapeAttr(it.point.name) + '\')" title="' + tipText + '">';
+    const cardStyle = isProvisorio ? ' style="border-left:4px solid #f59e0b;background:#fffbeb"' : '';
+    html += '<div class="pedido-client-card"' + cardStyle + ' ' + evtAttr + '="askCreatePedido(\'' + escapeAttr(it.name) + '\',\'' + it.tipo + '\',\'' + escapeAttr(it.point.province) + '\',\'' + escapeAttr(it.point.name) + '\')" title="' + tipText + '">';
     html += '<div style="flex:1;min-width:0"><div class="ped-name">' + escapeHtml(it.name) + '</div>';
     html += '<div class="ped-meta">' + escapeHtml(it.point.name) + ' / ' + escapeHtml(titleCase(it.point.province)) + '</div></div>';
     html += '<div style="text-align:right;display:flex;flex-direction:column;gap:3px;align-items:flex-end">';
-    html += '<div style="background:#10b981;color:#fff;font-size:9px;font-weight:800;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:.4px">Habilitado</div>';
+    if (isProvisorio) {
+      html += '<div style="background:#f59e0b;color:#fff;font-size:9px;font-weight:800;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:.4px">&#9889; Provisorio</div>';
+      html += '<div style="font-size:9px;color:#92400e;font-weight:700">Esperando carga SAP</div>';
+    } else {
+      html += '<div style="background:#10b981;color:#fff;font-size:9px;font-weight:800;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:.4px">Habilitado</div>';
+    }
     if (hasOrder) html += '<div style="font-size:9px;color:#166534;font-weight:700">En curso</div>';
     html += '</div></div>';
   });
@@ -20352,6 +20377,21 @@ function populateVisitaLocalidades(){
     if (!p.clients || !p.clients.length) return; // solo localidades con clientes confirmados
     locsSet.add(p.province + '||' + p.name);
   });
+  // Sumar localidades que tienen altas SAP / provisorias (las localidades
+  // del alta rapida no necesariamente existen en POINTS). Si no las incluimos,
+  // un vendedor que dio de alta a "Mariano Pesca" en Quilmes no puede
+  // seleccionar Quilmes como localidad de visita.
+  if (typeof approvedAltasList !== 'undefined') {
+    approvedAltasList.forEach(a => {
+      if (!a) return;
+      if (!(a.cardCodeSap || a.manualSapPending)) return;
+      const aProv = (a.provincia || '').toUpperCase().trim();
+      const aLoc = (a.localidadFinal || a.localidad || '').trim();
+      if (!aProv || !aLoc) return;
+      if (myVendor && a.assignedVendor && a.assignedVendor !== myVendor) return;
+      locsSet.add(aProv + '||' + aLoc);
+    });
+  }
   const locs = [...locsSet].sort();
   const sel = document.getElementById('vf-localidad');
   sel.innerHTML = '<option value="">Seleccionar...</option>' + locs.map(k => {
@@ -20425,11 +20465,14 @@ window.onLocalidadChange = function(){
     });
   });
   // Path 2: SAP altas huerfanas (en client_applications con cardCodeSap)
-  // que no matchean ningun POINT - igual son habilitadas en SAP.
+  // que no matchean ningun POINT - igual son habilitadas en SAP. Tambien
+  // incluimos las "provisorias" del alta rapida (manualSapPending) para que
+  // el vendedor pueda registrar visitas mientras admin las carga a SAP.
   if (typeof approvedAltasList !== 'undefined') {
     approvedAltasList.forEach(a => {
-      if (!a || !a.cardCodeSap) return;
-      if (!(a.calle || a.address)) return;
+      if (!a) return;
+      const enabledForVisits = !!(a.cardCodeSap || a.manualSapPending);
+      if (!enabledForVisits) return;
       const aProv = (a.provincia || '').toUpperCase().trim();
       const aLoc = (a.localidadFinal || a.localidad || '').trim();
       if (aProv !== prov || aLoc !== name) return;
