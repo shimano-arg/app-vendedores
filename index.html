@@ -2051,6 +2051,56 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       </div>
     </div>
   </div>
+  <!-- Modal: crear/editar ruta personalizada -->
+  <div class="modal-overlay" id="ruta-personalizada-modal" onclick="if(event.target===this)closeRutaPersonalizadaModal()">
+    <div class="modal-box" style="width:min(640px,96vw)">
+      <div class="modal-head" style="background:linear-gradient(135deg,#5b21b6,#7c3aed)">
+        <div><h2 id="rpm-title">Nueva ruta personalizada</h2><div class="subt">Arm&aacute; tu ruta a medida agregando las tiendas que vas a visitar</div></div>
+        <button class="modal-close" onclick="closeRutaPersonalizadaModal()">&times;</button>
+      </div>
+      <div class="users-wrap" style="padding:14px;max-height:70vh;overflow-y:auto">
+        <input type="hidden" id="rpm-id"/>
+        <div class="ac-row">
+          <label style="font-size:11px;font-weight:700;color:#475569">Nombre de la ruta <span style="color:#dc2626">*</span></label>
+          <input type="text" id="rpm-name" maxlength="80" placeholder="Ej: Lunes Quilmes - Berazategui" style="width:100%;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none"/>
+        </div>
+        <div class="ac-row" style="margin-top:10px">
+          <label style="font-size:11px;font-weight:700;color:#475569">Fecha planeada (opcional)</label>
+          <input type="date" id="rpm-fecha" style="width:100%;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none"/>
+        </div>
+        <div class="ac-row" style="margin-top:10px">
+          <label style="font-size:11px;font-weight:700;color:#475569">Notas (opcional)</label>
+          <textarea id="rpm-notes" rows="2" maxlength="300" placeholder="Detalles, prioridades, etc." style="width:100%;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:12px;outline:none;font-family:inherit;resize:vertical"></textarea>
+        </div>
+        <div style="margin-top:18px;border-top:1px dashed #cbd5e1;padding-top:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-size:12px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.4px">Tiendas (<span id="rpm-tiendas-count">0</span>)</div>
+            <button onclick="openRpmPickerModal()" style="background:#7c3aed;color:#fff;border:none;border-radius:5px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer">&#10133; Agregar tienda</button>
+          </div>
+          <div id="rpm-tiendas-list" style="display:flex;flex-direction:column;gap:6px"></div>
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content:space-between;gap:8px">
+        <button class="btn-cancel" onclick="closeRutaPersonalizadaModal()">Cancelar</button>
+        <button class="btn-confirm" style="background:#7c3aed" onclick="saveRutaPersonalizada()">Guardar ruta</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: picker de tienda para agregar a la ruta personalizada -->
+  <div class="modal-overlay" id="rpm-picker-modal" onclick="if(event.target===this)closeRpmPickerModal()" style="z-index:3500">
+    <div class="modal-box" style="width:min(520px,96vw)">
+      <div class="modal-head" style="background:linear-gradient(135deg,#0284a0,#00A9E0)">
+        <div><h2>Agregar tienda a la ruta</h2><div class="subt">Buscala por nombre o filtra por localidad</div></div>
+        <button class="modal-close" onclick="closeRpmPickerModal()">&times;</button>
+      </div>
+      <div class="users-wrap" style="padding:14px">
+        <input type="search" id="rpm-picker-search" oninput="renderRpmPickerList()" placeholder="Buscar tienda o localidad..." style="width:100%;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;margin-bottom:10px"/>
+        <div id="rpm-picker-list" style="max-height:50vh;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="sap-modal" onclick="if(event.target===this)closeSapPanel()">
     <div class="modal-box" style="width:min(980px,98vw)">
       <div class="modal-head" style="background:linear-gradient(135deg,#0c4a6e,#0284c7)">
@@ -2320,10 +2370,21 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     </div>
     <div class="tab-pane" id="pane-rutas" style="display:none">
       <h3>Rutas del recorrido</h3>
-      <div class="toggle-pedidos" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <!-- Toggle Recomendadas / Personalizadas. Recomendadas = generadas auto.
+           Personalizadas = el vendedor arma a mano. -->
+      <div class="toggle-pedidos" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <button id="rmode-reco" class="active" onclick="setRutaMode('recomendada')" style="background:#1d4ed8;color:#fff">&#9989; Rutas recomendadas</button>
+        <button id="rmode-pers" onclick="setRutaMode('personalizada')" style="background:#7c3aed;color:#fff">&#9999;&#65039; Rutas personalizadas</button>
+      </div>
+      <!-- Subcontroles solo para modo Recomendadas -->
+      <div id="ruta-reco-controls" class="toggle-pedidos" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <button id="rt-mes" class="active" onclick="setRutaView('mes')">Del mes</button>
         <button id="rt-hist" onclick="setRutaView('historico')">Hist&oacute;rico</button>
         <button class="rt-recalc-btn" onclick="recalcularRutas()" title="Recalcular las rutas con las asignaciones y derivaciones mas recientes">&#128260; Recalcular Rutas</button>
+      </div>
+      <!-- Subcontroles solo para modo Personalizadas -->
+      <div id="ruta-pers-controls" class="toggle-pedidos" style="display:none;align-items:center;gap:8px;flex-wrap:wrap">
+        <button onclick="openNuevaRutaPersonalizadaModal()" style="background:#7c3aed;color:#fff;padding:8px 14px;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#10133; Nueva ruta</button>
       </div>
       <div id="rutas-filters"></div>
       <div id="rutas-content"></div>
@@ -2727,7 +2788,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v187';
+const APP_VERSION = 'v188';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -10647,6 +10708,34 @@ window.recalcularRutas = async function(){
   }
 };
 
+// Modo de la pestaña Rutas: 'recomendada' (autogeneradas) o 'personalizada'
+// (cada vendedor arma a mano).
+let rutaMode = 'recomendada';
+window.setRutaMode = function(m){
+  rutaMode = m;
+  rutaDetalleId = null;
+  document.getElementById('rmode-reco').classList.toggle('active', m === 'recomendada');
+  document.getElementById('rmode-pers').classList.toggle('active', m === 'personalizada');
+  document.getElementById('ruta-reco-controls').style.display = (m === 'recomendada') ? 'flex' : 'none';
+  document.getElementById('ruta-pers-controls').style.display = (m === 'personalizada') ? 'flex' : 'none';
+  if (m === 'personalizada') ensureCustomRoutesListener();
+  renderRutasTab();
+};
+
+// Rutas personalizadas: cache local + listener.
+let myCustomRoutes = [];
+let unsubCustomRoutes = null;
+function ensureCustomRoutesListener(){
+  if (unsubCustomRoutes || !currentUser || !fbDb) return;
+  unsubCustomRoutes = fbDb.collection('custom_routes')
+    .where('ownerUid', '==', currentUser.uid)
+    .onSnapshot(qs => {
+      myCustomRoutes = [];
+      qs.forEach(d => myCustomRoutes.push(Object.assign({_fsId: d.id}, d.data())));
+      if (rutaMode === 'personalizada') renderRutasTab();
+    }, err => console.warn('custom_routes listener', err));
+}
+
 window.setRutaView = function(v){
   rutaView = v;
   rutaDetalleId = null;
@@ -10662,6 +10751,7 @@ window.setRutaView = function(v){
 };
 
 function renderRutasTab(){
+  if (rutaMode === 'personalizada') return renderRutasPersonalizadas();
   if (rutaDetalleId) return renderRutaDetalle();
   const vendor = getActiveRutaVendor();
   const {monthIdx, year} = getRutaTargetMonth();
@@ -10755,6 +10845,239 @@ function renderRutasTab(){
   const tabBadge = document.getElementById('tab-rutas-count');
   if (tabBadge) tabBadge.textContent = rutas.length;
 }
+
+// ============================================================
+// RUTAS PERSONALIZADAS (vendedor las arma a mano)
+// ============================================================
+function renderRutasPersonalizadas(){
+  document.getElementById('rutas-filters').innerHTML = '';
+  const cont = document.getElementById('rutas-content');
+  if (!myCustomRoutes.length) {
+    cont.innerHTML = '<div class="no-data">Todav&iacute;a no creaste ninguna ruta personalizada. Toc&aacute; <b>+ Nueva ruta</b> para empezar.</div>';
+    return;
+  }
+  // Ordenar por fecha desc, las sin fecha al final
+  const sorted = myCustomRoutes.slice().sort((a, b) => {
+    if (!a.fecha && !b.fecha) return (b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0) - (a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0);
+    if (!a.fecha) return 1;
+    if (!b.fecha) return -1;
+    return b.fecha.localeCompare(a.fecha);
+  });
+  let html = '';
+  const todayStr = new Date().toISOString().slice(0, 10);
+  sorted.forEach(r => {
+    const tiendas = r.tiendas || [];
+    const safeId = escapeAttr(r._fsId || '');
+    let fechaCls = 'futura';
+    if (r.fecha === todayStr) fechaCls = 'hoy';
+    else if (r.fecha && r.fecha < todayStr) fechaCls = 'atrasada';
+    const fechaBadge = r.fecha
+      ? '<span class="ruta-fecha-badge ' + fechaCls + '">' + r.fecha + (fechaCls === 'hoy' ? ' &middot; HOY' : '') + '</span>'
+      : '';
+    html += '<div class="ruta-card" style="border-left:4px solid #7c3aed">';
+    html += '<div class="ruta-card-head"><div class="ruta-num" style="background:#7c3aed">Personalizada</div><div class="ruta-status">' + tiendas.length + ' tiendas</div></div>';
+    html += '<div class="ruta-title">' + escapeHtml(r.name || '(sin nombre)') + '</div>';
+    if (r.notes) html += '<div class="ruta-meta" style="font-style:italic">' + escapeHtml(r.notes) + '</div>';
+    if (fechaBadge) html += '<div>' + fechaBadge + '</div>';
+    html += '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">';
+    html += '<button onclick="editRutaPersonalizada(\'' + safeId + '\')" style="background:#7c3aed;color:#fff;border:none;border-radius:5px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer">Ver / Editar</button>';
+    html += '<button onclick="deleteRutaPersonalizada(\'' + safeId + '\')" style="background:#fee2e2;color:#991b1b;border:1.5px solid #fca5a5;border-radius:5px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer">&#128465; Eliminar</button>';
+    html += '</div>';
+    html += '</div>';
+  });
+  cont.innerHTML = html;
+}
+
+// Estado in-memory del modal de edicion (tiendas seleccionadas).
+let _rpmTiendas = [];
+
+window.openNuevaRutaPersonalizadaModal = function(){
+  if (!currentUser) { alert('No hay sesion activa.'); return; }
+  document.getElementById('rpm-title').textContent = 'Nueva ruta personalizada';
+  document.getElementById('rpm-id').value = '';
+  document.getElementById('rpm-name').value = '';
+  document.getElementById('rpm-fecha').value = '';
+  document.getElementById('rpm-notes').value = '';
+  _rpmTiendas = [];
+  refreshRpmTiendasList();
+  document.getElementById('ruta-personalizada-modal').classList.add('open');
+};
+
+window.editRutaPersonalizada = function(fsId){
+  const r = (myCustomRoutes || []).find(x => x._fsId === fsId);
+  if (!r) { alert('Ruta no encontrada. Recarga la pagina.'); return; }
+  document.getElementById('rpm-title').textContent = 'Editar ruta personalizada';
+  document.getElementById('rpm-id').value = fsId;
+  document.getElementById('rpm-name').value = r.name || '';
+  document.getElementById('rpm-fecha').value = r.fecha || '';
+  document.getElementById('rpm-notes').value = r.notes || '';
+  _rpmTiendas = (r.tiendas || []).slice();
+  refreshRpmTiendasList();
+  document.getElementById('ruta-personalizada-modal').classList.add('open');
+};
+
+window.closeRutaPersonalizadaModal = function(){
+  document.getElementById('ruta-personalizada-modal').classList.remove('open');
+};
+
+function refreshRpmTiendasList(){
+  const cont = document.getElementById('rpm-tiendas-list');
+  const cnt = document.getElementById('rpm-tiendas-count');
+  if (cnt) cnt.textContent = _rpmTiendas.length;
+  if (!_rpmTiendas.length) {
+    cont.innerHTML = '<div style="font-size:11px;color:#94a3b8;padding:8px;background:#f1f5f9;border-radius:5px;text-align:center">Toc&aacute; <b>+ Agregar tienda</b> para sumar las primeras.</div>';
+    return;
+  }
+  let html = '';
+  _rpmTiendas.forEach((t, idx) => {
+    html += '<div style="display:flex;align-items:center;gap:6px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:5px;padding:6px 8px">';
+    html += '<div style="background:#7c3aed;color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex-shrink:0">' + (idx + 1) + '</div>';
+    html += '<div style="flex:1;min-width:0">';
+    html += '<div style="font-size:12px;font-weight:700;color:#0f172a">' + escapeHtml(t.clientName || '') + '</div>';
+    html += '<div style="font-size:10px;color:#64748b">' + escapeHtml(t.locName || '') + ' / ' + escapeHtml(titleCase(t.prov || '')) + '</div>';
+    html += '</div>';
+    if (idx > 0) html += '<button onclick="moveRpmTienda(' + idx + ',-1)" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:14px" title="Subir">&uarr;</button>';
+    if (idx < _rpmTiendas.length - 1) html += '<button onclick="moveRpmTienda(' + idx + ',1)" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:14px" title="Bajar">&darr;</button>';
+    html += '<button onclick="removeRpmTienda(' + idx + ')" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:16px" title="Quitar">&times;</button>';
+    html += '</div>';
+  });
+  cont.innerHTML = html;
+}
+
+window.moveRpmTienda = function(idx, dir){
+  const j = idx + dir;
+  if (j < 0 || j >= _rpmTiendas.length) return;
+  const t = _rpmTiendas[idx];
+  _rpmTiendas[idx] = _rpmTiendas[j];
+  _rpmTiendas[j] = t;
+  refreshRpmTiendasList();
+};
+
+window.removeRpmTienda = function(idx){
+  _rpmTiendas.splice(idx, 1);
+  refreshRpmTiendasList();
+};
+
+window.openRpmPickerModal = function(){
+  document.getElementById('rpm-picker-search').value = '';
+  renderRpmPickerList();
+  document.getElementById('rpm-picker-modal').classList.add('open');
+};
+
+window.closeRpmPickerModal = function(){
+  document.getElementById('rpm-picker-modal').classList.remove('open');
+};
+
+window.renderRpmPickerList = function(){
+  const q = (document.getElementById('rpm-picker-search').value || '').toLowerCase().trim();
+  const myVendor = (userRole === 'vendedor') ? assignedVendor : null;
+  // Items: POINTS clients confirmados en SAP + altas SAP (incl. provisorias).
+  const items = [];
+  const seen = new Set();
+  POINTS.forEach(p => {
+    if (myVendor && p.vendor !== myVendor) return;
+    (p.clients || []).forEach(c => {
+      if (typeof isSapConfirmed === 'function' && !isSapConfirmed(p.province, p.name, c)) return;
+      const k = p.province + '|' + p.name + '|' + c;
+      if (seen.has(k)) return;
+      seen.add(k);
+      items.push({prov: p.province, locName: p.name, clientName: c, tipo: 'C'});
+    });
+  });
+  if (typeof approvedAltasList !== 'undefined') {
+    approvedAltasList.forEach(a => {
+      if (!a) return;
+      if (!(a.cardCodeSap || a.manualSapPending)) return;
+      const aProv = (a.provincia || '').toUpperCase().trim();
+      const aLoc = (a.localidadFinal || a.localidad || '').trim();
+      if (!aProv || !aLoc) return;
+      if (myVendor && a.assignedVendor && a.assignedVendor !== myVendor) return;
+      const nombre = a.comercio || a.fantasia;
+      if (!nombre) return;
+      const k = aProv + '|' + aLoc + '|' + nombre;
+      if (seen.has(k)) return;
+      seen.add(k);
+      items.push({prov: aProv, locName: aLoc, clientName: nombre, tipo: 'C', isProvisorio: !!(a.manualSapPending && !a.cardCodeSap)});
+    });
+  }
+  // Filtrar las que ya estan en la ruta.
+  const already = new Set(_rpmTiendas.map(t => (t.prov || '') + '|' + (t.locName || '') + '|' + (t.clientName || '')));
+  let filtered = items.filter(it => !already.has(it.prov + '|' + it.locName + '|' + it.clientName));
+  if (q) {
+    filtered = filtered.filter(it => (it.clientName.toLowerCase().includes(q) || it.locName.toLowerCase().includes(q)));
+  }
+  filtered.sort((a, b) => a.clientName.localeCompare(b.clientName));
+  const cont = document.getElementById('rpm-picker-list');
+  if (!filtered.length) {
+    cont.innerHTML = '<div style="padding:18px;color:#94a3b8;text-align:center;font-size:12px">No hay tiendas que coincidan.</div>';
+    return;
+  }
+  let html = '';
+  filtered.slice(0, 200).forEach(it => {
+    const safeProv = escapeAttr(it.prov);
+    const safeLoc = escapeAttr(it.locName);
+    const safeName = escapeAttr(it.clientName);
+    const provBadge = it.isProvisorio ? ' <span style="background:#f59e0b;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px;margin-left:4px">PROVISORIO</span>' : '';
+    html += '<div onclick="addRpmTienda(\'' + safeProv + '\',\'' + safeLoc + '\',\'' + safeName + '\',\'' + (it.isProvisorio ? '1' : '0') + '\')" style="padding:9px 11px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:12px" onmouseover="this.style.background=\'#ecfdf5\'" onmouseout="this.style.background=\'\'">';
+    html += '<div style="font-weight:700;color:#0f172a">' + escapeHtml(it.clientName) + provBadge + '</div>';
+    html += '<div style="font-size:10px;color:#64748b">' + escapeHtml(it.locName) + ' / ' + escapeHtml(titleCase(it.prov)) + '</div>';
+    html += '</div>';
+  });
+  if (filtered.length > 200) html += '<div style="padding:8px;font-size:10px;color:#94a3b8;text-align:center">Mostrando los primeros 200. Refin&aacute; la b&uacute;squeda.</div>';
+  cont.innerHTML = html;
+};
+
+window.addRpmTienda = function(prov, locName, clientName, isProvisorio){
+  _rpmTiendas.push({prov, locName, clientName, tipo: 'C', isProvisorio: isProvisorio === '1'});
+  refreshRpmTiendasList();
+  // Re-render picker para sacar la que ya agregaste.
+  renderRpmPickerList();
+};
+
+window.saveRutaPersonalizada = async function(){
+  if (!currentUser) { alert('No hay sesion activa.'); return; }
+  const name = (document.getElementById('rpm-name').value || '').trim();
+  if (!name) { alert('Ponle un nombre a la ruta.'); return; }
+  if (!_rpmTiendas.length) { alert('Agreg&aacute; al menos 1 tienda.'); return; }
+  const fecha = (document.getElementById('rpm-fecha').value || '').trim();
+  const notes = (document.getElementById('rpm-notes').value || '').trim();
+  const id = (document.getElementById('rpm-id').value || '').trim();
+  const data = {
+    name: name,
+    fecha: fecha || null,
+    notes: notes || null,
+    tiendas: _rpmTiendas,
+    ownerUid: currentUser.uid,
+    ownerEmail: currentUser.email || '',
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  try {
+    if (id) {
+      await fbDb.collection('custom_routes').doc(id).update(data);
+    } else {
+      data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      await fbDb.collection('custom_routes').add(data);
+    }
+    showSyncTag(id ? 'Ruta actualizada' : 'Ruta creada');
+    closeRutaPersonalizadaModal();
+  } catch(e) {
+    console.error('saveRutaPersonalizada', e);
+    alert('Error guardando la ruta: ' + (e.message || e));
+  }
+};
+
+window.deleteRutaPersonalizada = async function(fsId){
+  const r = (myCustomRoutes || []).find(x => x._fsId === fsId);
+  if (!r) return;
+  if (!confirm('Eliminar la ruta personalizada "' + (r.name || '-') + '"?\n\nNo se puede deshacer.')) return;
+  try {
+    await fbDb.collection('custom_routes').doc(fsId).delete();
+    showSyncTag('Ruta eliminada');
+  } catch(e) {
+    console.error('deleteRutaPersonalizada', e);
+    alert('Error eliminando: ' + (e.message || e));
+  }
+};
 
 window.abrirRutaDetalle = function(rutaId){
   rutaDetalleId = rutaId;
