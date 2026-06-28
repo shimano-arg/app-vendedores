@@ -2370,21 +2370,21 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     </div>
     <div class="tab-pane" id="pane-rutas" style="display:none">
       <h3>Rutas del recorrido</h3>
-      <!-- Toggle Recomendadas / Personalizadas. Recomendadas = generadas auto.
-           Personalizadas = el vendedor arma a mano. -->
-      <div class="toggle-pedidos" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-        <button id="rmode-reco" class="active" onclick="setRutaMode('recomendada')" style="background:#1d4ed8;color:#fff">&#9989; Rutas recomendadas</button>
-        <button id="rmode-pers" onclick="setRutaMode('personalizada')" style="background:#7c3aed;color:#fff">&#9999;&#65039; Rutas personalizadas</button>
+      <!-- Toggle Recomendadas / Personalizadas. Botones de igual ancho via
+           flex:1 (no se desalinean ni stackean por diferencia de texto). -->
+      <div class="toggle-pedidos" style="display:flex;align-items:stretch;gap:8px;margin-bottom:8px">
+        <button id="rmode-reco" class="active" onclick="setRutaMode('recomendada')" style="background:#1d4ed8;color:#fff;flex:1;min-width:0;padding:10px 12px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">&#9989; Rutas recomendadas</button>
+        <button id="rmode-pers" onclick="setRutaMode('personalizada')" style="background:#7c3aed;color:#fff;flex:1;min-width:0;padding:10px 12px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">&#9999;&#65039; Rutas personalizadas</button>
       </div>
-      <!-- Subcontroles solo para modo Recomendadas -->
-      <div id="ruta-reco-controls" class="toggle-pedidos" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <!-- Subcontroles solo para modo Recomendadas: centrados -->
+      <div id="ruta-reco-controls" class="toggle-pedidos" style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap">
         <button id="rt-mes" class="active" onclick="setRutaView('mes')">Del mes</button>
         <button id="rt-hist" onclick="setRutaView('historico')">Hist&oacute;rico</button>
         <button class="rt-recalc-btn" onclick="recalcularRutas()" title="Recalcular las rutas con las asignaciones y derivaciones mas recientes">&#128260; Recalcular Rutas</button>
       </div>
-      <!-- Subcontroles solo para modo Personalizadas -->
-      <div id="ruta-pers-controls" class="toggle-pedidos" style="display:none;align-items:center;gap:8px;flex-wrap:wrap">
-        <button onclick="openNuevaRutaPersonalizadaModal()" style="background:#7c3aed;color:#fff;padding:8px 14px;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#10133; Nueva ruta</button>
+      <!-- Subcontroles solo para modo Personalizadas: 1 boton centrado -->
+      <div id="ruta-pers-controls" class="toggle-pedidos" style="display:none;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap">
+        <button onclick="openNuevaRutaPersonalizadaModal()" style="background:#7c3aed;color:#fff;padding:10px 22px;border:none;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#10133; Nueva ruta</button>
       </div>
       <div id="rutas-filters"></div>
       <div id="rutas-content"></div>
@@ -2788,7 +2788,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v188';
+const APP_VERSION = 'v189';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
