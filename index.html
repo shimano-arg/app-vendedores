@@ -2806,7 +2806,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v195';
+const APP_VERSION = 'v196';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -5025,17 +5025,24 @@ function updateStats(pts){
     if (!a.cardCodeSap && !a.manualSapPending) return;
       if (sapEffSet && a.assignedVendor && !sapEffSet.has(a.assignedVendor)) return;
       const prov = (a.provincia || '').toUpperCase().trim();
-      if (!prov) return;
-      if (provFilter && prov !== provFilter) return;
+      // Si no hay provincia (Excel SAP sin columna State), igual la
+      // contamos como PENDIENTE para que el admin vea que hay datos
+      // que cargar. Sin esto las nuevas import quedaban invisibles en
+      // el contador "47 HABILITADOS" aunque existieran en Firestore.
+      if (!prov && (provFilter || locFilter)) return; // con filtro activo, sin prov no aplica
+      if (prov && provFilter && prov !== provFilter) return;
       const aLoc = (a.localidadFinal || a.localidad || '').trim();
       if (locFilter && aLoc !== locFilter) return;
       const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
-      if (ptsCounted.has(prov + '|' + nombre.toLowerCase())) return;
+      if (prov && ptsCounted.has(prov + '|' + nombre.toLowerCase())) return;
       total++;
       const hasGeo = (a.lat != null && a.lng != null);
       const hasAddr = !!(a.calle || a.address);
-      if (hasGeo && hasAddr) habilitados++; else pendientes++;
-      sapLocs.add(prov + '|' + (aLoc || '(sin localidad)'));
+      // Solo cuenta como habilitado si tiene PROVINCIA + direccion + geo.
+      // Sin alguno -> pendiente.
+      if (prov && hasGeo && hasAddr) habilitados++;
+      else pendientes++;
+      sapLocs.add((prov || '(sin provincia)') + '|' + (aLoc || '(sin localidad)'));
     });
     locsConTiendas += sapLocs.size;
   }
