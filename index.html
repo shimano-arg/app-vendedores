@@ -2806,7 +2806,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v194';
+const APP_VERSION = 'v195';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -6796,8 +6796,11 @@ function getAllStoreEntries(){
   (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).forEach(a => {
     if (!a) return;
     if (!a.cardCodeSap && !a.manualSapPending) return;
-    const prov = (a.provincia || '').toUpperCase().trim();
-    if (!prov) return;
+    // Provincia vacia: incluimos igual bajo "(sin provincia)" - sino el
+    // admin no las ve para corregirles los datos. Esto pasa cuando el
+    // Excel SAP no traia columna State, o tenia un nombre que el parser
+    // no reconocio.
+    const prov = (a.provincia || '').toUpperCase().trim() || '(sin provincia)';
     const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
     if (ptNames.has(prov + '|' + nombre.toLowerCase())) return;
     const localidad = (a.localidadFinal || a.localidad || '').trim() || '(sin localidad)';
@@ -7294,6 +7297,10 @@ window.applyMcSapImport = async function(){
 
     const actualCreated = createdIds.length;
     const failedCount = failedDocIds.length;
+    // Contar cuantas de las nuevas quedaron sin provincia (el Excel SAP no
+    // siempre trae columna State). Esas se crearon pero no aparecen en el
+    // mapa hasta que admin les cargue la provincia manualmente.
+    const sinProv = _mcSapUnmatched.filter(s => !(s.state || '').trim()).length;
     if (failedCount > 0) {
       alert('Import termino con errores:\n\n'
         + _mcSapMatched.length + ' matches actualizados.\n'
@@ -7302,6 +7309,11 @@ window.applyMcSapImport = async function(){
         + 'Las que fallaron son tipicamente por permisos. Verifica:\n'
         + '1) Sos admin o gerente.\n'
         + '2) La rule de client_applications permite create para admin.');
+    } else if (sinProv > 0) {
+      alert('Import OK: ' + _mcSapMatched.length + ' actualizadas + ' + actualCreated + ' nuevas creadas.\n\n'
+        + '⚠️ ATENCION: ' + sinProv + ' de las nuevas no tienen PROVINCIA en el Excel SAP.\n\n'
+        + 'Esas tiendas aparecen en Master Clientes bajo "(sin provincia)" - cargales la provincia a mano y se ubican en el mapa.\n\n'
+        + 'Si tu Excel si tenia provincia, fijate que la columna se llame: State, Province, Provincia, Ship-to State o Provincia_1.');
     } else {
       showSyncTag(_mcSapMatched.length + ' actualizadas + ' + actualCreated + ' nuevas');
     }
