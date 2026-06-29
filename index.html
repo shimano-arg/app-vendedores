@@ -2806,7 +2806,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v193';
+const APP_VERSION = 'v194';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -7190,9 +7190,12 @@ window.applyMcSapImport = async function(){
     // existente (ensureApprovedAltasListener) las agrega al mapa
     // automaticamente en su provincia/localidad.
     let doneNew = 0;
+    let failedDocIds = []; // para diagnostico si algo falla
+    const createdIds = [];
     while (doneNew < _mcSapUnmatched.length) {
       const chunk = _mcSapUnmatched.slice(doneNew, doneNew + 400);
       const batch = fbDb.batch();
+      const chunkDocIds = [];
       chunk.forEach(sap => {
         const provNorm = (sap.state || '').toUpperCase().trim();
         // Vendedor: lo deducimos por la provincia siguiendo las reglas
@@ -7246,13 +7249,62 @@ window.applyMcSapImport = async function(){
         // todavia, esos campos quedan ausentes (lo que es OK - las altas SAP
         // no requieren cuit para funcionar).
         batch.set(newDoc, payload, {merge: true});
+        chunkDocIds.push(newDocId);
       });
-      await batch.commit();
+      try {
+        await batch.commit();
+        createdIds.push.apply(createdIds, chunkDocIds);
+      } catch(batchErr) {
+        console.error('[sap-import] batch fallo, intentando individual:', batchErr && batchErr.message);
+        // Fallback: si el batch fallo, escribir uno por uno asi vemos cual rompe.
+        for (let i = 0; i < chunk.length; i++) {
+          const sap = chunk[i];
+          const safeCard = String(sap.cardCode || '').replace(/[^A-Za-z0-9]/g, '_').slice(0, 80);
+          const newDocId = 'sap_' + safeCard;
+          const provNorm = (sap.state || '').toUpperCase().trim();
+          const assignedVendor = (typeof inferVendorFromProvince === 'function') ? inferVendorFromProvince(provNorm) : '';
+          const payload = {
+            comercio: sap.cardName, cardCodeSap: sap.cardCode, provincia: provNorm,
+            status: 'approved', source: 'sap_bulk_import',
+            ownerUid: currentUser.uid, ownerEmail: currentUser.email || '',
+            approvals: {[currentUser.uid]: {approvedAt: firebase.firestore.FieldValue.serverTimestamp(), email: currentUser.email || '', name: currentUser.displayName || ''}},
+            approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            sapImportedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          };
+          if (sap.address) payload.calle = sap.address;
+          if (sap.city) { payload.localidad = sap.city; payload.localidadFinal = sap.city; }
+          if (assignedVendor) payload.assignedVendor = assignedVendor;
+          try {
+            await fbDb.collection('client_applications').doc(newDocId).set(payload, {merge: true});
+            createdIds.push(newDocId);
+          } catch(individualErr) {
+            console.error('[sap-import] falla individual', newDocId, individualErr && individualErr.message);
+            failedDocIds.push({docId: newDocId, name: sap.cardName, error: individualErr && individualErr.message});
+          }
+        }
+      }
       doneNew += chunk.length;
       btn.textContent = 'Creando nuevas... (' + doneNew + '/' + _mcSapUnmatched.length + ')';
     }
+    console.log('[sap-import] createdIds:', createdIds.length, createdIds);
+    if (failedDocIds.length) {
+      console.error('[sap-import] failedDocIds:', failedDocIds);
+    }
 
-    showSyncTag(_mcSapMatched.length + ' actualizadas + ' + _mcSapUnmatched.length + ' nuevas');
+    const actualCreated = createdIds.length;
+    const failedCount = failedDocIds.length;
+    if (failedCount > 0) {
+      alert('Import termino con errores:\n\n'
+        + _mcSapMatched.length + ' matches actualizados.\n'
+        + actualCreated + ' nuevas creadas.\n'
+        + failedCount + ' fallaron (ver F12 > Console para detalle).\n\n'
+        + 'Las que fallaron son tipicamente por permisos. Verifica:\n'
+        + '1) Sos admin o gerente.\n'
+        + '2) La rule de client_applications permite create para admin.');
+    } else {
+      showSyncTag(_mcSapMatched.length + ' actualizadas + ' + actualCreated + ' nuevas');
+    }
     closeMcSapImport();
     renderMasterClientesTable();
     // Forzar re-render del mapa para mostrar tiendas nuevas y nuevos contactados
