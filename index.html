@@ -2268,6 +2268,25 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       </div>
     </div>
   </div>
+  <!-- Modal: detalle de localidad con clientes + direcciones -->
+  <div class="modal-overlay" id="localidad-modal" onclick="if(event.target===this)closeLocalidadModal()">
+    <div class="modal-box" style="width:min(720px,96vw)">
+      <div class="modal-head" style="background:linear-gradient(135deg,#0284a0,#00A9E0)">
+        <div>
+          <h2 id="lcm-title">Localidad</h2>
+          <div class="subt" id="lcm-meta">-</div>
+        </div>
+        <button class="modal-close" onclick="closeLocalidadModal()">&times;</button>
+      </div>
+      <div class="users-wrap" style="padding:14px;max-height:70vh;overflow-y:auto">
+        <div id="lcm-content"></div>
+      </div>
+      <div class="modal-footer" style="justify-content:flex-end">
+        <button class="btn-cancel" onclick="closeLocalidadModal()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="client-modal" onclick="if(event.target===this)closeClientModal()">
     <div class="modal-box">
       <div class="modal-head">
@@ -2806,7 +2825,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v199';
+const APP_VERSION = 'v200';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -5015,6 +5034,9 @@ function updateStats(pts){
   // Sumar SAP altas huerfanas (no anclan a un POINT) al total de tiendas.
   // Con direccion + lat/lng cuentan como "habilitados"; sin direccion como
   // "pendientes" (faltan datos). Respetan los mismos filtros vendor/prov/loc.
+  // sapLocs declarado fuera del if para que el contador LOCALIDADES (mas
+  // abajo) pueda leerlo aunque el filtro de Tipo no haya activado el bloque.
+  let sapLocs = new Set();
   if (currentFilter !== 'prospects' && currentTypeFilter !== 'PROSPECTOS') {
     const provFilter = (typeof currentProvince !== 'undefined' && currentProvince !== 'ALL') ? currentProvince : null;
     const locFilter = (typeof currentLocality !== 'undefined' && currentLocality !== 'ALL') ? currentLocality : null;
@@ -5024,7 +5046,6 @@ function updateStats(pts){
     pts.forEach(p => {
       effClients(p).forEach(n => ptsCounted.add(((p.province||'').toUpperCase()) + '|' + (n||'').toLowerCase()));
     });
-    const sapLocs = new Set();
     (approvedAltasList || []).forEach(a => {
       if (!a) return;
     if (!a.cardCodeSap && !a.manualSapPending) return;
@@ -5056,7 +5077,19 @@ function updateStats(pts){
   // Hay 2 copias de la stats-bar en el DOM (header en mobile, sidebar en
   // desktop) controladas por CSS. Actualizamos ambas via querySelectorAll
   // sobre las clases js-stat-* compartidas.
-  const _statLocVal = (currentTypeFilter === 'ALL') ? pts.length : locsConTiendas;
+  // El contador de LOCALIDADES suma POINTS + localidades de altas SAP
+  // huerfanas (las que no estan en POINTS). Antes solo contaba pts.length
+  // y para vendedores 100% SAP (ej. Martin) decia 0 aunque tuviera tiendas.
+  // sapLocs ya viene poblado dentro del if (currentFilter !== 'prospects')
+  // de arriba con las localidades SAP-only que pasaron los filtros.
+  let _statLocVal;
+  if (currentTypeFilter === 'ALL') {
+    // Sumar POINTS + SAP-only. Sin doble conteo: sapLocs ya excluye los que
+    // estan en POINTS via ptsCounted.
+    _statLocVal = pts.length + (typeof sapLocs !== 'undefined' && sapLocs ? sapLocs.size : 0);
+  } else {
+    _statLocVal = locsConTiendas;
+  }
   document.querySelectorAll('.js-stat-loc').forEach(el => { el.textContent = _statLocVal; });
   document.querySelectorAll('.js-stat-c').forEach(el => { el.textContent = habilitados; });
   document.querySelectorAll('.js-stat-p').forEach(el => { el.textContent = pendientes; });
@@ -5465,6 +5498,119 @@ function closeClientModal(){
   currentClientModalKey = null;
 }
 window.closeClientModal = closeClientModal;
+
+// ============================================================
+// Modal: detalle de localidad con clientes + direcciones.
+// Click en una card de localidad de la sidebar -> abre este modal
+// listando todos los clientes de esa localidad (POINTS + altas SAP)
+// con su direccion (cliente_master / clientMeta / alta.calle).
+// ============================================================
+window.openLocalidadModal = function(prov, locName){
+  if (!prov || !locName) return;
+  const provUp = String(prov).toUpperCase().trim();
+  const locTrim = String(locName).trim();
+  const titleEl = document.getElementById('lcm-title');
+  const metaEl = document.getElementById('lcm-meta');
+  const contEl = document.getElementById('lcm-content');
+  if (titleEl) titleEl.textContent = locTrim;
+  if (metaEl) metaEl.textContent = titleCase(prov);
+  // Recolectar clientes: 1) POINTS (clientes + prospectos) 2) SAP altas.
+  const items = []; // [{nombre, tipo, direccion, badge, lat, lng, fsId}]
+  // Path 1: POINTS
+  const myVendor = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
+  (POINTS || []).forEach(p => {
+    if ((p.province || '').toUpperCase() !== provUp) return;
+    if ((p.name || '').toLowerCase() !== locTrim.toLowerCase()) return;
+    if (myVendor && !myVendor.has(p.vendor)) {
+      // Pero seguimos si alguno de los clientes esta reasignado al vendor activo
+      // (override) - mantengamos simple por ahora: si el point no matchea, skip.
+      return;
+    }
+    // Resolver direccion para cada cliente via cliente_master > clientMeta.
+    function _addrFor(name, tipo){
+      const docId = (typeof clientLocId === 'function') ? clientLocId(p.province, p.name, name) : '';
+      if (docId && typeof clientMasterCache !== 'undefined' && clientMasterCache.get) {
+        const d = clientMasterCache.get(docId);
+        if (d && d.address) return d.address;
+      }
+      const cTipo = (tipo === 'cliente' ? 'C' : 'P');
+      const metaKey = cTipo + '|' + p.province + '|' + p.name + '|' + name;
+      if (typeof clientMeta === 'object' && clientMeta[metaKey] && clientMeta[metaKey].address) {
+        return clientMeta[metaKey].address;
+      }
+      return '';
+    }
+    (p.clients || []).forEach(n => {
+      // Filtrar a SAP-confirmados si isSapConfirmed esta disponible (consistente
+      // con la lista CLIENTES y el dropdown de VISITA - solo mostramos
+      // habilitados).
+      if (typeof isSapConfirmed === 'function' && !isSapConfirmed(p.province, p.name, n)) return;
+      items.push({nombre: n, tipo: 'CLIENTE', direccion: _addrFor(n, 'cliente'), badge: 'cli'});
+    });
+    (p.prospects || []).forEach(n => {
+      items.push({nombre: n, tipo: 'PROSPECTO', direccion: _addrFor(n, 'prospecto'), badge: 'pro'});
+    });
+  });
+  // Path 2: SAP altas en esta localidad.
+  if (typeof approvedAltasList !== 'undefined') {
+    approvedAltasList.forEach(a => {
+      if (!a) return;
+      if (!(a.cardCodeSap || a.manualSapPending)) return;
+      const aProv = (a.provincia || '').toUpperCase().trim();
+      const aLoc = (a.localidadFinal || a.localidad || '').trim();
+      if (aProv !== provUp) return;
+      if (aLoc.toLowerCase() !== locTrim.toLowerCase()) return;
+      if (myVendor && a.assignedVendor && !myVendor.has(a.assignedVendor)) return;
+      const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
+      // Skip si ya esta en la lista por POINTS (matchea nombre).
+      const dup = items.some(it => (it.nombre || '').toLowerCase() === nombre.toLowerCase());
+      if (dup) return;
+      const isProv = !!(a.manualSapPending && !a.cardCodeSap);
+      items.push({
+        nombre: nombre,
+        tipo: isProv ? 'PROVISORIO' : 'SAP',
+        direccion: a.calle || a.address || '',
+        badge: isProv ? 'prov' : 'sap',
+        sapCode: a.cardCodeSap || '',
+        fantasia: a.fantasia && a.fantasia !== a.comercio ? a.fantasia : '',
+      });
+    });
+  }
+  // Sort alfabetico.
+  items.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
+  // Render.
+  if (!items.length) {
+    contEl.innerHTML = '<div style="color:#94a3b8;font-size:13px;padding:18px;text-align:center">No hay clientes en esta localidad para el filtro activo.</div>';
+  } else {
+    let html = '<div style="font-size:11px;color:#475569;margin-bottom:10px;font-weight:700">' + items.length + ' tienda(s) en ' + escapeHtml(locTrim) + '</div>';
+    html += '<div style="display:flex;flex-direction:column;gap:6px">';
+    items.forEach(it => {
+      let badgeColor;
+      let badgeBg;
+      if (it.badge === 'sap') { badgeColor = '#1e3a8a'; badgeBg = '#dbeafe'; }
+      else if (it.badge === 'prov') { badgeColor = '#92400e'; badgeBg = '#fef3c7'; }
+      else if (it.badge === 'pro') { badgeColor = '#475569'; badgeBg = '#e2e8f0'; }
+      else { badgeColor = '#065f46'; badgeBg = '#dcfce7'; }
+      html += '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px">';
+      html += '<div style="flex:1;min-width:0">';
+      html += '<div style="font-size:13px;font-weight:700;color:#0f172a">' + escapeHtml(it.nombre);
+      html += ' <span style="font-size:9px;font-weight:800;background:' + badgeBg + ';color:' + badgeColor + ';padding:2px 6px;border-radius:3px;margin-left:4px;text-transform:uppercase;letter-spacing:.4px">' + it.tipo + (it.sapCode ? ' &middot; ' + escapeHtml(it.sapCode) : '') + '</span></div>';
+      if (it.fantasia) {
+        html += '<div style="font-size:11px;color:#475569;margin-top:2px"><span style="color:#94a3b8">Local:</span> ' + escapeHtml(it.fantasia) + '</div>';
+      }
+      const addrTxt = it.direccion ? escapeHtml(it.direccion) : '<span style="color:#dc2626;font-style:italic">(sin direccion cargada)</span>';
+      html += '<div style="font-size:11px;color:#475569;margin-top:4px"><span style="color:#94a3b8;font-weight:500">Direccion:</span> ' + addrTxt + '</div>';
+      html += '</div></div>';
+    });
+    html += '</div>';
+    contEl.innerHTML = html;
+  }
+  document.getElementById('localidad-modal').classList.add('open');
+};
+
+window.closeLocalidadModal = function(){
+  document.getElementById('localidad-modal').classList.remove('open');
+};
 
 function renderClientActionsBlock(k){
   const state = getClientState(k);
@@ -15737,7 +15883,9 @@ function updateSidebar(pts){
     const c = p.clients.length, pp = p.prospects.length, total = c + pp;
     const vm = vendorLookup[p.vendor];
     const accent = vm ? vm.color : '#00A9E0';
-    html += '<div class="loc-card" style="border-left-color:' + accent + '" onclick="zoomTo(' + p.lat + ',' + p.lon + ')">';
+    const safeProv = escapeAttr(p.province);
+    const safeName = escapeAttr(p.name);
+    html += '<div class="loc-card" style="border-left-color:' + accent + ';cursor:pointer" onclick="openLocalidadModal(\'' + safeProv + '\',\'' + safeName + '\')">';
     html += '<div class="loc-card-title">' + escapeHtml(p.name) + '<span class="badge" style="background:' + accent + '">' + total + '</span></div>';
     html += '<div class="loc-card-meta"><span class="c">' + c + ' clientes</span> &nbsp;-&nbsp; <span class="p">' + pp + ' prospectos</span></div>';
     html += '<div class="loc-card-meta" style="font-size:10px;margin-top:2px;color:#94a3b8">' + escapeHtml(p.province) + (p.dept ? ' / ' + escapeHtml(p.dept) : '') + '</div>';
@@ -15746,12 +15894,9 @@ function updateSidebar(pts){
   for (const sp of sapLocs) {
     const vm = vendorLookup[sp.vendor];
     const accent = vm ? vm.color : '#94a3b8';
-    // Centroide de las altas para el zoom (si tienen lat/lng).
-    let avgLat = null, avgLon = null, geoN = 0;
-    sp.altas.forEach(a => { if (a.lat != null && a.lng != null) { avgLat = (avgLat || 0) + parseFloat(a.lat); avgLon = (avgLon || 0) + parseFloat(a.lng); geoN++; } });
-    if (geoN > 0) { avgLat = avgLat / geoN; avgLon = avgLon / geoN; }
-    const onclickAttr = (avgLat != null) ? 'onclick="zoomTo(' + avgLat + ',' + avgLon + ')"' : '';
-    html += '<div class="loc-card" style="border-left-color:' + accent + '" ' + onclickAttr + '>';
+    const safeProv = escapeAttr(sp.province);
+    const safeName = escapeAttr(sp.name);
+    html += '<div class="loc-card" style="border-left-color:' + accent + ';cursor:pointer" onclick="openLocalidadModal(\'' + safeProv + '\',\'' + safeName + '\')">';
     html += '<div class="loc-card-title">' + escapeHtml(sp.name) + '<span class="badge" style="background:' + accent + '">' + sp.count + '</span></div>';
     html += '<div class="loc-card-meta"><span class="c">' + sp.count + ' clientes SAP</span></div>';
     html += '<div class="loc-card-meta" style="font-size:10px;margin-top:2px;color:#94a3b8">' + escapeHtml(titleCase(sp.province)) + '</div>';
