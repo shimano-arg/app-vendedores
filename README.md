@@ -1,6 +1,6 @@
 # Shimano App Vendedores — Documentación técnica completa
 
-App web para el equipo comercial de **Shimano Argentina** durante la transición de Baraldo (distribuidor histórico) a venta directa. Cubre todo el ciclo: gestión territorial por zona, alta de clientes, visitas con GPS, armado de pedidos, rendiciones de gastos con OCR de tickets, rutas optimizadas, tareas entre usuarios e integración con SAP B1 vía DTW.
+App web para el equipo comercial de **Shimano Argentina** durante la transición de Baraldo (distribuidor histórico) a venta directa. Cubre todo el ciclo: gestión territorial por zona, alta de clientes, visitas con GPS, armado de pedidos, rendiciones de gastos con OCR de tickets, rutas optimizadas, tareas entre usuarios, integración con SAP B1 (DTW manual + Service Layer directo), backup total y reasignación de zonas.
 
 | | |
 |---|---|
@@ -9,45 +9,56 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Firebase project** | `app-vendedores-shimano` |
 | **Admin bootstrap** | `bot.shimano.pesca@gmail.com` (auto-elevación al primer login) |
 | **Admin backup** | `erbinomariano@gmail.com` (Mariano Erbino) |
+| **SAP Service Layer URL** | `https://shimano-sap.seidor.com.ar:50000` |
+| **SAP CompanyDB PROD** | `SHIMANO_SAU` |
+| **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
+| **Versión actual** | SW v197 (commit `259ed55`) |
+| **APP_VERSION** | `v197` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 
 ---
 
 ## Índice
 
 1. [Resumen ejecutivo](#1-resumen-ejecutivo)
-2. [Stack técnico](#2-stack-técnico)
-3. [Estructura del repo](#3-estructura-del-repo)
-4. [Pipeline de build](#4-pipeline-de-build)
-5. [Sistema de autenticación y autorización](#5-sistema-de-autenticación-y-autorización)
-6. [Roles y permisos](#6-roles-y-permisos)
-7. [Modelo de datos Firestore](#7-modelo-de-datos-firestore)
-8. [Firestore Security Rules](#8-firestore-security-rules)
-9. [Estructura de la UI](#9-estructura-de-la-ui)
-10. [Sección: Localidades / Clientes / Pedidos](#10-sección-localidades--clientes--pedidos)
-11. [Sección: Rutas](#11-sección-rutas)
-12. [Sección: Visita](#12-sección-visita)
-13. [Sección: Dashboard](#13-sección-dashboard)
-14. [Sección: Rendiciones](#14-sección-rendiciones)
-15. [Sección: Alta Clientes](#15-sección-alta-clientes)
-16. [Sección: Notificaciones (Alertas y tareas)](#16-sección-notificaciones-alertas-y-tareas)
-17. [Sistema VDE-VDI (vendedor externo / interno)](#17-sistema-vde-vdi-vendedor-externo--interno)
-18. [Campañas comerciales](#18-campañas-comerciales)
-19. [Targets mensuales](#19-targets-mensuales)
-20. [Panel Master Clientes (direcciones)](#20-panel-master-clientes-direcciones)
-21. [Integración SAP B1](#21-integración-sap-b1)
-22. [OCR de tickets con Gemini API](#22-ocr-de-tickets-con-gemini-api)
-23. [PWA installable](#23-pwa-installable)
-24. [Backup mensual](#24-backup-mensual)
-25. [Exports a Excel / Power BI / ML](#25-exports-a-excel--power-bi--ml)
-26. [Panel admin "Usuarios"](#26-panel-admin-usuarios)
-27. [URLs externas e integraciones](#27-urls-externas-e-integraciones)
-28. [Convenciones de código](#28-convenciones-de-código)
-29. [Regenerar y deployar](#29-regenerar-y-deployar)
-30. [Troubleshooting](#30-troubleshooting)
-31. [Roadmap / pendientes](#31-roadmap--pendientes)
-32. [Ciberseguridad y hardening](#32-ciberseguridad-y-hardening)
+2. [Estado actual del lanzamiento](#2-estado-actual-del-lanzamiento)
+3. [Stack técnico](#3-stack-técnico)
+4. [Estructura del repo](#4-estructura-del-repo)
+5. [Pipeline de build](#5-pipeline-de-build)
+6. [Sistema de autenticación y autorización](#6-sistema-de-autenticación-y-autorización)
+7. [Roles y permisos](#7-roles-y-permisos)
+8. [Modelo de datos Firestore](#8-modelo-de-datos-firestore)
+9. [Firestore Security Rules](#9-firestore-security-rules)
+10. [Estructura de la UI](#10-estructura-de-la-ui)
+11. [Sistema de zonas y vendedores](#11-sistema-de-zonas-y-vendedores)
+12. [Sección: Localidades / Clientes / Pedidos](#12-sección-localidades--clientes--pedidos)
+13. [Sección: Rutas](#13-sección-rutas)
+14. [Sección: Visita](#14-sección-visita)
+15. [Sección: Dashboard](#15-sección-dashboard)
+16. [Sección: Rendiciones](#16-sección-rendiciones)
+17. [Sección: Alta Clientes](#17-sección-alta-clientes)
+18. [Sección: Notificaciones](#18-sección-notificaciones-alertas-y-tareas)
+19. [Sistema VDE-VDI (vendedor externo / interno)](#19-sistema-vde-vdi-vendedor-externo--interno)
+20. [Provincias hardcoded a VDIs](#20-provincias-hardcoded-a-vdis)
+21. [Campañas comerciales](#21-campañas-comerciales)
+22. [Targets mensuales](#22-targets-mensuales)
+23. [Panel Master Clientes + import SAP](#23-panel-master-clientes--import-sap)
+24. [Modal Zonas (reasignación)](#24-modal-zonas-reasignación)
+25. [Integración SAP B1](#25-integración-sap-b1)
+26. [Stock SAP](#26-stock-sap)
+27. [OCR de tickets con Gemini API](#27-ocr-de-tickets-con-gemini-api)
+28. [PWA installable](#28-pwa-installable)
+29. [Backup TOTAL de la app](#29-backup-total-de-la-app)
+30. [Exports a Excel / Power BI / ML](#30-exports-a-excel--power-bi--ml)
+31. [Panel admin "Usuarios"](#31-panel-admin-usuarios)
+32. [URLs externas e integraciones](#32-urls-externas-e-integraciones)
+33. [Convenciones de código](#33-convenciones-de-código)
+34. [Regenerar y deployar](#34-regenerar-y-deployar)
+35. [Troubleshooting](#35-troubleshooting)
+36. [Ciberseguridad y hardening](#36-ciberseguridad-y-hardening)
+37. [Contactos clave](#37-contactos-clave)
+38. [Roadmap / pendientes](#38-roadmap--pendientes)
 
 ---
 
@@ -55,37 +66,115 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 
 ### Para qué sirve
 
-Shimano Argentina necesita gestionar la operación de 6 vendedores externos que recorren tiendas de pesca en todo el país después de la salida del distribuidor histórico (Baraldo). La app cubre:
+Shimano Argentina necesita gestionar la operación de **4 vendedores externos (VDE)** y **2 vendedores internos (VDI)** que recorren tiendas de pesca en todo el país después de la salida del distribuidor histórico (Baraldo). La app cubre:
 
 - **Mapa interactivo** de Argentina con 24 provincias + 527 departamentos pintados por zona de vendedor.
-- **941 tiendas** pre-cargadas (master + prospectos) con sistema de habilitación.
+- **~1.000 tiendas** pre-cargadas (clientes + prospectos + distribuidores) con sistema de habilitación.
 - **665 SKUs** del master de productos (pesca).
-- **6 zonas** (Z1 Gonzalo, Z2 Federico, Z4 Martín, Z5 Mauricio, Z6 Ioannis, Z7 Santiago).
+- **6 zonas**: Z1 Gonzalo, Z2 Federico, Z4 Martin, Z5 Mauricio, Z6 Ioannis (VDI), Z7 Santiago (VDI).
+- **Provincias hardcoded a VDIs** (Patagonia → Ioannis, NOA + NEA → Santiago).
 - **Rutas mensuales** auto-generadas por proximidad (10-15 tiendas por ruta).
 - **Visitas a tiendas** con formulario completo + foto + GPS doble-check.
-- **Pedidos** confirmados → exportables como ZIP DTW para SAP B1.
+- **Pedidos** confirmados con condición de pago → exportables como ZIP DTW o enviados directo por Service Layer.
 - **Rendiciones de gastos** con OCR de tickets (Gemini) y aprobación por gerente.
-- **Alta de clientes nuevos** con doble aprobación + link público para que el cliente se cargue solo.
-- **Notificaciones y tareas** entre usuarios con imágenes.
+- **Alta de clientes nuevos** con doble aprobación + auto-aparición en el mapa al aprobar.
+- **Reasignación de zonas** desde modal admin (overrides por tienda o por localidad).
+- **Master Clientes** con direcciones exactas + import masivo desde SAP B1.
+- **Stock SAP** vía CSV manual (3x día) o Service Layer real-time.
+- **Notificaciones y tareas** entre usuarios con imágenes (con botón Eliminar por card desde v179+).
 - **Dashboard** comparativo del equipo + por vendedor individual.
 - **Campañas comerciales** vigentes con tracking de SKUs.
 - **Targets mensuales en ARS** cargados por gerente.
 - **PWA installable** en celular como app nativa.
-- **Backup mensual** con eliminación automática de fotos viejas para no inflar Firestore.
+- **Backup TOTAL** mensual con TODAS las colecciones Firestore + fotos.
+- **Sistema VDE-VDI** con pareja: VDI puede crear pedidos/visitas en nombre de su VDE pareja.
+- **Rutas personalizadas** (colección `custom_routes`): el vendedor arma su propia ruta con tiendas + fecha + orden, complementando las rutas auto-recomendadas.
+- **Alta rápida** de clientes provisorios (`source: 'alta_rapida'`, `manualSapPending: true`) para no bloquear pedidos mientras Admin carga el cliente a SAP.
 
 ### Filosofía de diseño
 
 - **App estática en GitHub Pages** (sin backend propio). Toda la lógica corre en el navegador.
 - **Firebase Firestore** como backend real (auth + DB).
-- **Sin framework** (JS vanilla): un solo `index.html` ~2.9 MB con todo embebido.
+- **Sin framework** (JS vanilla): un solo `index.html` ~3.2 MB con todo embebido.
 - **Build offline en Python** genera el HTML desde Excels master cuando hay que actualizar datos estáticos.
-- **Datos vivos** (pedidos, visitas, usuarios) viven 100% en Firestore.
+- **Datos vivos** (pedidos, visitas, usuarios, alta clientes, etc.) viven 100% en Firestore.
 - **Tiempo real** via `onSnapshot` listeners.
 - **Offline-friendly**: persistencia IndexedDB activada en Firestore.
+- **SAP B1 con doble vía**: DTW manual (probado y funcional) + Service Layer (preparado, en espera de bloqueantes SEIDOR/IT).
 
 ---
 
-## 2) Stack técnico
+## 2) Estado actual del lanzamiento
+
+### Funcionalidades implementadas (✅ todas)
+
+```
+[X] Mapa interactivo con 6 zonas + filtros
+[X] Sistema de roles (admin / gerente / vendedor / interno / viewer / unassigned)
+[X] Auth Google + Microsoft (Azure AD) + Email/password + Magic link (passwordless)
+[X] Reset password vía Firebase Auth (panel Usuarios → 2 opciones: reset email / PIN legacy)
+[X] 2FA opcional para todos los roles (antes era obligatorio admin)
+[X] Alta de clientes con flujo de aprobación 2 aprobadores
+[X] Alta rapida: cliente provisorio sin doble aprobacion (badge "⚡ PROVISORIO" + fondo crema)
+[X] Auto-aparición en mapa al aprobar alta + al crear alta rapida
+[X] Modal Zonas (admin): reasignar tienda o localidad con historial
+[X] Outlines de zonas: hibrido provincia+dept con union polygon-clipping + cache localStorage
+[X] PROVINCE_VENDOR_OVERRIDE (hoy: SAN LUIS → MARTIN BOIERO)
+[X] Master Clientes: direcciones + CardCode SAP + dropdown provincia editable
+[X] Import masivo desde SAP B1 (fuzzy matching + auto-habilitar + crear nuevas + ownerUid)
+[X] Stock SAP via CSV upload manual (Stock panel admin) + GitHub Actions sync 30min
+[X] Cliente Service Layer JS + pestaña config en SAP modal (en espera de cableado UI)
+[X] ZIP DTW funcional, probado E2E en TST_06 con OQUT + UDFs + Series APP
+[X] Backup TOTAL: ZIP con 19 colecciones Firestore + fotos + metadata
+[X] Sugerencias de SKUs basadas en historial real de pedidos (no MELI)
+[X] Provincias hardcoded a VDIs (Patagonia/Mendoza→Ioannis, NOA/NEA→Santiago)
+[X] Rutas auto-generadas + recalcular manual
+[X] Rutas personalizadas (collection custom_routes con toggle "Recomendadas/Personalizadas")
+[X] Rendiciones con OCR Gemini de tickets + foto y N° ticket opcionales
+[X] Export Rendiciones mensual con foto embebida (ExcelJS) + columnas SAP
+[X] Export Visitas mensual con foto del frente embebida (ExcelJS)
+[X] Dashboard comparativo
+[X] Export Excel TARGETS-ZONAS con altas integradas
+[X] Notificaciones entre usuarios con imágenes + boton Eliminar por card
+[X] Sistema VDI/VDE con pareja + restricción de filtro por rol
+[X] Gerente ve todo el mapa (fix getMyAllowedVendorKeys)
+[X] Targets mensuales por vendedor
+[X] Campañas comerciales con tracking de SKUs
+[X] Vista preliminar de pedido (puntos verde/rojo por stock, subtotales disponibles/no)
+[X] Filtro stock en picker (Todos / Disponibles / No disp.)
+[X] Confirmados con filtros mes/tienda/año
+[X] PWA con SW v197 + login bg con foto del río
+[X] Boton "Forzar actualizacion" (↻) + "Reubicar pines" (📍) + "REFRESCAR APP" mobile
+[X] Banner version + chequeo sync HTML vs SW en console al arrancar
+[X] Botón Recalcular Rutas en la pestaña Rutas
+```
+
+### Bloqueantes externos para el lanzamiento
+
+| # | Bloqueante | Responsable | Estado |
+|---|---|---|---|
+| 1 | **CORS habilitado en Apache** delante del Service Layer | Alejandro Caracchi (SEIDOR) | ⏳ Email enviado |
+| 2 | **Usuario integración** en SAP (licencia Limited CRM o Logistics) | Juan (IT Shimano) | ⏳ Email enviado |
+| 3 | **UDFs + Serie APP 103 en PROD** (SHIMANO_SAU) | Ezequiel Mendoza (SEIDOR) | ⏳ Pendiente |
+
+### Plan de contingencia
+
+Si alguno de los 3 bloqueantes no llega a tiempo para el lanzamiento, **arrancamos con el ZIP DTW manual** que ya está probado y funcional. Admin descarga el ZIP de pedidos confirmados, lo importa en DTW, los pedidos entran como Quotations. Lento pero confiable. El DTW manual queda como **backup permanente** incluso cuando Service Layer esté operativo.
+
+### Última prueba E2E exitosa
+
+**Fecha**: 2026-06-19 — DTW import OK en SHIMANO_TST_06.
+- **Pedido**: `f896nK70TWpu9KJxSs6j`
+- **Sales Quotation creada**: APP-2000000
+- **Cliente**: GUSTAVO BARGELLINI (CardCode `C20220956513`)
+- **2 líneas**: `CAC58MH2UR` x 2 + `CAC66MH2UR` x 2 en W07
+- **UDFs poblados OK**: `U_AppOrigen = SHIMANO_APP_VENDEDORES`, `U_AppOrderId`, `U_AppBatchId`, `U_TipoGasto = CONDICION`
+- **Sales Employee**: Gonzalo de la Rosa (mapeo SlpCode OK)
+- **Status**: Open (sin Approval Procedure — Santiago aprueba manualmente)
+
+---
+
+## 3) Stack técnico
 
 | Capa | Tecnología | Versión / detalle |
 |---|---|---|
@@ -96,1703 +185,1678 @@ Shimano Argentina necesita gestionar la operación de 6 vendedores externos que 
 | Excel con fotos embebidas | ExcelJS | 4.4.0 (lazy load, solo al exportar) |
 | ZIP | JSZip | 3.10.1 (CDN cloudflare) |
 | Auth + DB | Firebase compat SDK | 10.7.1 (auth + firestore) |
+| QR | qrcode.js (davidshimjs) | 1.0.0 (CDN cloudflare cdnjs) — para setup 2FA |
 | OCR | Google Gemini API | `gemini-2.5-flash` (REST) |
+| Geocoding | OpenStreetMap Nominatim | gratis, country=AR |
 | Hosting | GitHub Pages | rama `main` |
 | Build offline | Python 3 + openpyxl | genera HTML desde Excels |
 | Storage local | localStorage + IndexedDB | persistencia y cache |
+| SAP B1 backend (futuro) | Service Layer v1 | puerto 50000, https con cert GoDaddy |
 
 **Sin Node, sin Webpack, sin TypeScript, sin React.** Una elección deliberada para minimizar fricciones de mantenimiento: cualquier persona con conocimientos de JS y HTML puede editar el código.
 
 ---
 
-## 3) Estructura del repo
+## 4) Estructura del repo
 
 ```
 shimano-arg/app-vendedores/
-├── index.html                # App completa (~2.9 MB - todo embebido)
+├── index.html                # App completa (~3.2 MB - todo embebido)
 ├── alta-cliente.html         # Formulario público standalone (link compartible)
 ├── manifest.json             # PWA manifest
-├── sw.js                     # Service Worker
+├── sw.js                     # Service Worker (v57)
+├── login-bg.jpg              # Foto de fondo del login (río al amanecer)
+├── stock.json                # Snapshot del stock SAP (placeholder hoy)
 ├── Shimano-Logo.png          # Logo (header + splash)
 ├── icon-180-v3.png           # PWA icon iOS 180×180
 ├── icon-192-v3.png           # PWA icon Android 192×192
 ├── icon-512-v3.png           # PWA icon 512×512 (any)
 ├── icon-512-maskable-v3.png  # PWA icon 512×512 (maskable Android adaptive)
+├── .github/
+│   └── workflows/
+│       └── sync-stock.yml    # Cron 30min: sync stock CSV → stock.json
+├── scripts/
+│   └── sync_stock.py         # Procesa CSV exportado de SAP → JSON
 └── README.md                 # Este archivo
 ```
 
-El código fuente que genera `index.html` está en otra carpeta del disco del mantenedor (no en el repo público):
+### Archivos generados (no en repo)
 
-```
-C:\Users\shimano.sandbox\Desktop\MASTERFILES\PROSPECTOS\MAPAS\
-└── _build_argentina_zonas_v2.py    # Python ~12.000 líneas
-                                    # Output: Mapa_Argentina_Shimano_Zonas.html
-                                    # Se copia a APP VENDEDORES/index.html
-```
+Los siguientes archivos viven en el desktop de Mariano (fuera del repo):
 
-El script de build:
-1. Lee 25 archivos `Mapa_<Provincia>_Shimano.html` con polígonos pre-procesados.
-2. Lee `MASTERFILES/ZONAS/TARGETS VENDEDORES-ZONAS.xlsx` para clientes/prospectos + targets USD.
-3. Lee `MASTERFILES/PRODUCTO/MASTERFILE PRODUCTOS PESCA.xlsx` (665 SKUs).
-4. Lee `FORECAST/DATOS_CRUDOS/Masterfile Shimano Venta Ult 365 Días.xlsx` (~12.700 órdenes MELI).
-5. Embebe todo como constantes JSON dentro del template HTML.
-6. Output: un `.html` autosuficiente que se sirve estático.
+- `C:\Users\shimano.sandbox\Desktop\MASTERFILES\PROSPECTOS\MAPAS\_build_argentina_zonas_v2.py` — Build script principal
+- `C:\Users\shimano.sandbox\Desktop\MASTERFILES\PROSPECTOS\MAPAS\Mapa_Argentina_Shimano_Zonas.html` — Output del build (= `index.html`)
+- `C:\Users\shimano.sandbox\Desktop\MASTERFILES\ZONAS\TARGETS VENDEDORES-ZONAS.xlsx` — Excel master con clientes
+- `C:\Users\shimano.sandbox\Desktop\FORECAST\DATOS_CRUDOS\Masterfile Shimano Venta Ult 365 Días.xlsx` — Excel histórico ventas MELI (deprecado, ahora se usa historial app)
+- `C:\Users\shimano.sandbox\Desktop\LANZAMIENTO-APP-FALTANTES.txt` — Punteo de bloqueantes para lanzamiento
 
 ---
 
-## 4) Pipeline de build
+## 5) Pipeline de build
 
-### Cuándo regenerar
-- Cambian los masters (productos, tiendas, vendedores, targets).
-- Se modifica el código fuente del template (que vive dentro del Python script).
+### Cuándo regenerar el HTML
 
-### Comando de build + deploy
-```powershell
-cd "C:\Users\shimano.sandbox\Desktop\MASTERFILES\PROSPECTOS\MAPAS"
-python _build_argentina_zonas_v2.py
-Copy-Item Mapa_Argentina_Shimano_Zonas.html "C:\Users\shimano.sandbox\Desktop\APP VENDEDORES\index.html"
-cd "C:\Users\shimano.sandbox\Desktop\APP VENDEDORES"
-git add index.html
-git commit -m "data refresh"
+- Cambios en el código JS/CSS embebido en el build script
+- Actualización del Excel master de clientes
+- Actualización del Excel de productos
+- Actualización de polígonos geo (mapas provinciales)
+- Cambio de provincias asignadas a VDIs
+
+### Cómo regenerar
+
+```bash
+cd "C:/Users/shimano.sandbox/Desktop/MASTERFILES/PROSPECTOS/MAPAS"
+python -c "import sys; sys.stdout.reconfigure(encoding='utf-8'); exec(open(r'_build_argentina_zonas_v2.py', encoding='utf-8').read())"
+```
+
+El script:
+1. Lee los HTMLs provinciales en `MASTERFILES/PROSPECTOS/MAPAS/` (uno por provincia).
+2. Lee el Excel master de clientes (`TARGETS VENDEDORES-ZONAS.xlsx`).
+3. Lee el Excel histórico de ventas MELI (deprecado, ahora se usa historial app).
+4. Lee el Excel de targets de vendedores.
+5. Lee el Excel master de productos (665 SKUs).
+6. Calcula asignaciones por provincia (incluyendo el hardcode VDI Patagonia/NOA-NEA).
+7. Aplica el guardrail para excluir distribuidores en BA/CABA/Córdoba/Santa Fe.
+8. Inyecta TODO en el template HTML.
+9. Genera `Mapa_Argentina_Shimano_Zonas.html`.
+
+### Deploy
+
+```bash
+cp "C:/Users/shimano.sandbox/Desktop/MASTERFILES/PROSPECTOS/MAPAS/Mapa_Argentina_Shimano_Zonas.html" \
+   "C:/Users/shimano.sandbox/Desktop/APP VENDEDORES/index.html"
+cd "C:/Users/shimano.sandbox/Desktop/APP VENDEDORES"
+# Bumpear sw.js: CACHE_VERSION = 'v57' → 'v58'
+git add index.html sw.js
+git commit -m "Mensaje claro de cambio"
 git push
 ```
 
-GitHub Pages propaga en 30-90 segundos. Los datos en Firestore **NO se tocan**: solo se reemplaza el HTML estático.
-
-### Cuándo no regenerar
-Cualquier cambio de **datos dinámicos** (pedidos, visitas, rutas, rendiciones, targets, campañas, etc.) **NO requiere regenerar el HTML**: se modifica desde la propia app y persiste en Firestore.
+GitHub Pages propaga en 1-5 minutos. Los usuarios reciben el SW nuevo cuando cierran y abren la PWA (o hacen Ctrl+Shift+R).
 
 ---
 
-## 5) Sistema de autenticación y autorización
+## 6) Sistema de autenticación y autorización
 
-### Login
-- Solo **Google OAuth** (firebase-auth-compat).
-- Botón único "Continuar con Google" → popup nativo de Google.
-- Forzado `prompt: 'select_account'` para mostrar el selector siempre.
+### Flujo de login
 
-### Whitelist de emails (4 fuentes de aprobación)
+1. **Usuario abre la URL** → ve splash + spinner "Cargando sesión..." (foto fondo: río al amanecer).
+2. **Firebase auth.onAuthStateChanged()** chequea si hay sesión guardada en IndexedDB.
+3. Si **hay sesión** → directo al password gate (PIN de 4 dígitos).
+4. Si **no hay sesión** → la pantalla muestra **4 alternativas** de login:
+   - **Continuar con Google** (`signInWithRedirect` + provider Google).
+   - **Continuar con Microsoft** (`signInWithRedirect` + `OAuthProvider('microsoft.com')`, Azure AD).
+   - **Email + contraseña** (`signInWithEmailAndPassword`).
+   - **Continuar con email** (magic link / passwordless: `sendSignInLinkToEmail` → el usuario clickea el link recibido por mail → `signInWithEmailLink` cierra el flow).
+5. **Password gate** (PIN) → admin lo configura desde panel Usuarios (legacy, sigue funcionando).
+6. **2FA** (opcional para cualquier rol) → Authenticator de Google con QR.
 
-Un usuario tiene acceso si cumple **al menos UNA** de estas condiciones:
+### Persistencia de sesión
 
-1. **Email en hardcoded `ALLOWED_EMAILS`** (admins/bots históricos):
-   - `bot.shimano.pesca@gmail.com`
-   - `erbinomariano@gmail.com`
-   - `srb90284@gmail.com`
-   - `quilgym@gmail.com`
-2. **Dominio en hardcoded `ALLOWED_EMAIL_DOMAINS`**:
-   - `shimano.com.ar`
-   - `shimano-arg.com.ar`
-3. **Ya tiene rol asignado** en `/roles/{uid}` distinto de `unassigned` (admin ya lo aprobó previamente).
-4. **Email cargado en collection `allowed_emails`** (gestionable desde el Panel Usuarios).
+- `setPersistence(LOCAL)` → IndexedDB.
+- En iOS PWA standalone hay un edge case conocido: iOS borra IndexedDB de PWAs "inactivas" después de 7 días. Si el usuario abre la app esporádicamente, se le pide login de nuevo.
 
-Si NO cumple ninguna, se hace `signOut()` inmediato antes de crear el doc en `/roles`, evitando que la collection se ensucie con cuentas no autorizadas.
+### Roles
 
-### Bootstrap del admin
-La primera vez que `bot.shimano.pesca@gmail.com` loguea, la app le asigna `role='admin'` automáticamente (`fetchAndApplyRole`).
+- **Bootstrap**: el primer email en hacer login se auto-eleva a `admin` si está en la lista de `BOOTSTRAP_ADMIN_EMAILS` (hardcoded en el código): `bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com`.
+- **Otros usuarios**: arrancan como `unassigned` y el admin les asigna rol desde el panel Usuarios.
 
-### Login fallido
-Si la cuenta no pasa el whitelist, se muestra en el splash de auth:
-> El email `X@gmail.com` no está autorizado. Solo se permite iniciar sesión con una cuenta @shimano.com.ar o un email previamente autorizado por el admin.
+### 2FA (Two-Factor Authentication)
+
+- **Opcional para todos los roles** (antes era obligatorio para admin; desde v178+ ya no se fuerza).
+- Path: panel Usuarios → botón `🔐 2FA` del usuario → genera QR → usuario escanea con Google Authenticator → ingresa 6 dígitos para validar.
+- Si el rol requiere 2FA y no está configurado, la app muestra pantalla bloqueante "Pedile al admin que te configure el 2FA".
+- TTL del último check: 30 días (se guarda timestamp en localStorage).
+
+### Reset de password
+
+Panel Usuarios → botón **🔐 Contraseña** del usuario abre un modal con **2 opciones**:
+
+1. **Mandar mail de reset** (`fbAuth.sendPasswordResetEmail(email)`): el usuario recibe un link de Firebase para fijarse una contraseña nueva. Recomendado para usuarios con login Email/contraseña o Magic link.
+2. **PIN legacy** (gate de 4 dígitos): se mantiene para no romper el flow histórico de los usuarios que ya tenían PIN configurado.
+
+### `allowed_emails` (pre-autorizaciones)
+
+Admin puede pre-autorizar emails desde el panel admin antes de que se logueen. Cuando ese email se loguea por primera vez, se le asigna el rol pre-cargado.
 
 ---
 
-## 6) Roles y permisos
+## 7) Roles y permisos
 
-| Rol | Quiénes | Capacidades |
+| Rol | Quién | Qué puede hacer |
 |---|---|---|
-| `admin` | bot.shimano.pesca + Mariano Erbino | Todo: gestión de roles, campañas, targets, panel SAP, master clientes, integración SAP, zona de peligro, backup mensual, todos los exports, dashboard global. |
-| `vendedor` | 6 vendedores externos (Z1-Z7 sin Z3) | Solo su zona, sus pedidos, sus visitas, sus rendiciones. Puede armar pedidos, cargar visitas, cargar rendiciones, ver dashboard de su zona, generar rutas, derivar tiendas al VDI, exportar su ZIP DTW. |
-| `interno` (VDI) | Vendedor interno de oficina | Recibe derivaciones de tiendas que el externo encontró cerradas. Carga visitas remotas (sin foto del frente). Ve sus propias notificaciones. Puede aprobar/rechazar solicitudes de alta de clientes. |
-| `gerente` | Gerente de ventas | Carga targets mensuales. Aprueba/rechaza rendiciones de los vendedores que lo tengan como responsable. Ve dashboard consolidado. |
-| `viewer` | Solo lectura (analistas) | Lee todo (pedidos, visitas, dashboard) pero no escribe. Acceso al panel SAP en modo lectura. |
-| `unassigned` | Default al primer login | Sin acceso. Ve pantalla "Acceso pendiente — tu usuario aún no tiene rol asignado". |
+| **`admin`** | Mariano, Diego | Todo: panel admin, modal Zonas, Master Clientes, SAP, Stock, Backup, Targets, aprobar altas, Auditoría |
+| **`gerente`** | Cargo gerencial | Casi todo lo de admin **excepto** USUARIOS, STOCK, PRECIOS y AUDITORIA. Ve todo el mapa, aprueba Altas Clientes, aprueba Rendiciones, edita Master Clientes (con campos restringidos), reubica pines |
+| **`vendedor`** | VDEs (Mauricio, Martin, Gonzalo, Federico) | Ver SOLO su zona, crear pedidos/visitas propios, cargar Alta Cliente |
+| **`interno`** | VDIs (Santiago, Ioannis) | Ver zonas de sus VDEs pareja, crear pedidos/visitas en nombre del VDE pareja |
+| **`viewer`** | Solo lectura | Ve todo pero no escribe nada |
+| **`unassigned`** | Usuarios nuevos sin rol | Pantalla "Tu usuario aún no tiene rol asignado. Pedile al admin que te habilite." |
 
-### Sub-asignaciones por vendedor (configurables en Panel Usuarios)
+### Restricción por rol al filtrar mapa
 
-- **`vendor`** (string, solo para `role=vendedor`): clave de zona (`GONZALO DE LA ROSA`, `FEDERICO CASTELANELLI`, etc.).
-- **`internalPartnerUid`**: UID del vendedor interno (VDI) que es su pareja para derivaciones de tiendas cerradas.
-- **`whatsapp`**: número de WhatsApp del usuario en formato `wa.me` (5491126762031). Se usa al enviar ruta por WhatsApp — el mensaje le llega al propio número del vendedor.
-- **`rendicionesApproverUid`**: UID de quien aprueba sus rendiciones (gerente / interno / admin). Si no está asignado, la rendición no se puede enviar.
+Implementado en `getMyAllowedVendorKeys()`:
+- **admin / gerente / viewer**: `null` (sin restricción, ven todo) — `gerente` se sumó al null-bucket en v182+ para que pueda ver el mapa completo.
+- **vendedor**: `Set([assignedVendor])` (solo su zona)
+- **interno**: `Set([vendorKeys de sus parejas VDE])` (ej: Santiago ve Z4+Z5)
+- **unassigned**: `Set()` (no ve nada)
+
+### Pareja VDI ↔ VDE
+
+Configurado en `roles/{uid}.internalPartnerUid`. Cada VDE tiene un VDI asignado como pareja. El VDI puede:
+- Ver las tiendas del VDE en su filtro Zona.
+- Crear pedidos/visitas en nombre del VDE (`onBehalfOf: true` + `createdByUid: VDI` + `ownerUid: VDE`).
+- Aprobar Altas Clientes.
+
+Las parejas estándar son:
+- **Federico** (Z2) ↔ Ioannis (VDI)
+- **Gonzalo** (Z1) ↔ Ioannis (VDI)
+- **Mauricio** (Z5) ↔ Santiago (VDI)
+- **Martin** (Z4) ↔ Santiago (VDI)
 
 ---
 
-## 7) Modelo de datos Firestore
+## 8) Modelo de datos Firestore
 
-Listado exhaustivo de las collections y la forma de los docs. La numeración refleja el orden en que aparecen en las rules.
+20 colecciones activas en el proyecto `app-vendedores-shimano` (la 20va es `custom_routes`, agregada en v182+):
 
-### `roles/{uid}` — Rol y configuración por usuario
+### Auth y usuarios
+
+#### `roles/{uid}`
 ```js
 {
-  email: string,
-  displayName: string,
-  role: 'admin' | 'vendedor' | 'interno' | 'gerente' | 'viewer' | 'unassigned',
-  vendor: string | null,                    // vendor key cuando role=vendedor
-  internalPartnerUid: string | null,        // uid del VDI pareja
-  whatsapp: string | null,                  // formato wa.me sin + ni espacios
-  rendicionesApproverUid: string | null,    // uid de quien aprueba sus rendiciones
-  assignedBy: string,
-  assignedAt: serverTimestamp,
-  lastLogin: serverTimestamp
+  email: "vendedor@shimano.com.ar",
+  displayName: "Mauricio Gil",
+  role: "vendedor",              // admin | vendedor | interno | viewer | gerente | unassigned
+  vendor: "MAURICIO GIL",        // VENDORS.key cuando role = vendedor
+  internalPartnerUid: "uid_santiago",  // VDI asignado al VDE
+  whatsapp: "5491126762031",     // sin + ni espacios
+  rendicionesApproverUid: "uid_gerente",
+  totpEnabled: true,
+  totpSecret: "BASE32...",       // base32 del secret TOTP
+  totpEnabledAt: <Timestamp>,
+  pin: "1234",                   // PIN encriptado (legacy)
+  pinHash: "...",                // bcrypt del PIN
+  protectedAdmin: true,          // los 2 admins iniciales no se pueden borrar
 }
 ```
 
-### `userData/{uid}` — Estado local + drafts del vendedor
+#### `userData/{uid}`
+Estado per-usuario (sincronizado entre dispositivos):
 ```js
 {
-  email: string,
-  displayName: string,
-  contacted: Set<string>,                   // claves de clientes "habilitados"
-  canceled: Set<string>,                    // claves de clientes "cancelados"
-  orders: { [key]: lines[] },               // pedidos borrador (no enviados)
-  lastSeen: serverTimestamp
+  contacted: ["C|BUENOS AIRES|Quilmes|JUAN PESCA", ...],   // tiendas habilitadas
+  canceled: ["P|...", ...],                                  // tiendas canceladas
+  orders: {key: [...lines]},                                 // pedidos en borrador
+  clientMeta: {                                              // metadata custom por cliente
+    "C|prov|loc|name": {
+      customName: "...",
+      customFantasia: "Pesca Total",   // fantasia local mostrada como "Local: XXX" en la card cliente (NUEVO)
+      address: "Av. Corrientes 1234",
+      locality: "Palermo",
+      lat: -34.5879,
+      lng: -58.4321,
+      updatedAt: 1718812345678
+    }
+  },
+  email: "user@...",
+  displayName: "...",
+  lastSeen: <Timestamp>,
 }
 ```
 
-`key` para un cliente: `<tipo>|<provincia>|<localidad>|<nombre>` (ej. `C|BUENOS AIRES|San Pedro|MARIANO-PESCA`). Tipo `C` = cliente master, `P` = prospecto.
+#### `allowed_emails/{docId}`
+Pre-autorizaciones. Cuando el email se loguea, se eleva al rol pre-cargado.
 
-### `pedidos/{auto_id}` — Pedidos confirmados
+### Operación comercial
+
+#### `pedidos/{pedidoId}`
 ```js
 {
-  ownerUid: string,
-  ownerEmail: string,
-  stage: 'confirmed',                       // único valor en producción
-  key: string,                              // misma key que userData.orders
-  tipo: 'C' | 'P',
-  province: string,
-  locName: string,
-  clientName: string,
-  month: string,                            // 'JUNIO 2026' (uppercase)
-  monthIdx: number,                         // 0-11
-  year: number,
-  confirmedAt: ISOString,
-  finalizedAt: ISOString,
+  ownerUid: "uid_vde",           // dueño del pedido (vendedor)
+  ownerEmail: "...",
+  createdByUid: "uid_vdi",       // quien lo cargó (puede ser VDI en nombre del VDE)
+  onBehalfOf: true,              // si VDI cargó en nombre de VDE
+  key: "C|prov|loc|cliente",
+  stage: "pending" | "confirmed" | "sap_imported",
+  tipo: "C" | "P",
+  province: "BUENOS AIRES",
+  locName: "Quilmes",
+  clientName: "JUAN PESCA",
+  month: "Junio 2026",
+  monthIdx: 5,
+  year: 2026,
+  confirmedAt: "ISO date",
+  condicionPago: "CTA CTE",      // → U_TipoGasto en SAP
   lines: [
-    { code: 'XYZ', desc: '...', cat: '...', fam: '...', sub: '...', qty: number, precio: number }
+    {code: "CAC58MH2UR", desc: "...", qty: 2, precio: 12500, cat: "...", fam: "...", sub: "..."}
   ],
-  transferidoSAP: {                         // se completa cuando se marca como transferido
-    transferredAt: ISOString,
-    transferredBy: string,
-    batchId: string,                        // YYYYMMDDHHMMSS
-    sapDocRange: string                     // ej. '5000123-5000147'
-  } | null
+  transferidoSAP: {              // populado al exportar ZIP DTW o enviar por SL
+    via: "dtw_manual" | "service_layer",
+    docEntry: 12345,             // SL only: número interno SAP
+    docNum: 2000001,             // SL only: número de Quotation
+    batchId: "BATCH-20260619-...",  // DTW only
+    at: <Timestamp>,
+    by: "..."
+  },
+  createdAt: <Timestamp>,
 }
 ```
 
-### `campaigns/{auto_id}` — Campañas comerciales
+#### `visits/{visitId}`
 ```js
 {
-  name: string,
-  familia: string,
-  subfamilia: string,
-  skus: string[],                           // SKUs incluidos en la campaña
-  filterType: string,                       // legacy
-  filterValues: string[],                   // legacy
-  targetType: 'units' | 'money',
-  targetAmount: number,
-  startDate: 'YYYY-MM-DD',
-  endDate: 'YYYY-MM-DD',
-  scope: 'all' | 'province' | 'vendor',     // alcance
-  scopeValues: string[],                    // provincias o vendor keys según scope
-  createdBy: string,
-  createdAt: serverTimestamp
+  ownerUid: "...",
+  ownerEmail: "...",
+  fecha: "2026-06-19",
+  mes: "JUNIO",
+  anio: 2026,
+  vendor: "MAURICIO GIL",
+  provincia: "BUENOS AIRES",
+  localidad: "Quilmes",
+  tienda: "JUAN PESCA",
+  tipo: "C",
+  local: "Propio",
+  tamano: "Mediano",
+  fidelidad: "Alta",
+  relevancia: "Alta",
+  pop: "Stickers Shimano + display",
+  necesidadPuntual: "...",
+  tipoVenta: "Casa de pesca + ecommerce",
+  ponderacionMostrado: 80,
+  ponderacionEcommerce: 60,
+  competencia: "Daiwa, Penn",
+  oportunidad: "...",
+  masVendido: "Línea Stradic",
+  masPreguntan: "Cañas Caius",
+  ayudaTienda: "Capacitación productos",
+  frenteLocal: "data:image/jpeg;base64,...",   // foto del frente
+  espacio: ["data:image/jpeg;base64,...", ...], // hasta 5 fotos
+  gpsStatus: "ok" | "outside" | "noloc",
+  gpsDistanceM: 25.4,
+  createdAt: <Timestamp>,
 }
 ```
 
-### `visits/{auto_id}` — Visitas a tiendas
+#### `route_overrides/{docId}`
+Derivaciones y reagendas de rutas. Cuando un vendedor deriva una tienda al VDI o reagenda para otra fecha.
+
+#### `custom_routes/{routeId}` (NUEVO desde v182+)
+Rutas armadas a medida por el propio vendedor (modo "Rutas personalizadas"):
 ```js
 {
-  ownerUid: string,
-  ownerEmail: string,
-  vendor: string,
-  provincia: string,
-  localidad: string,
-  tienda: string,
-  tipo: string,                             // tipo de tienda
-  local: 'FISICO' | 'ECOMMERCE',
-  tamano: 'GRANDE' | 'MEDIANA' | 'CHICA',
-  fidelidad: 'ALTA' | 'MEDIA' | 'BAJA',
-  relevancia: 1 | 2 | 3 | 4 | 5,
-  pop: 'SI' | 'NO',
-  necesidadPuntual: string | null,
-  espacio: string[],                        // hasta 8 fotos base64
-  oportunidad: string,
-  masVendido: string,
-  masPreguntan: string,
-  ayudaTienda: string,
-  frenteLocal: string | null,               // base64 (null para internos)
-  tipoVenta: 'MOSTRADO' | 'ECOMMERCE' | 'AMBOS',
-  ponderacionMostrado: number | null,
-  ponderacionEcommerce: number | null,
-  competencia: string,
-  fecha: 'YYYY-MM-DD',
-  mes: 'JUNIO',                             // SIEMPRE UPPERCASE
-  anio: number,
-  // GPS doble-check
-  gpsStatus: 'confirmed' | 'near' | 'far' | 'first' | 'denied' | 'no_reference' | 'unavailable' | 'timeout' | 'error',
-  gpsLat: number | null,
-  gpsLon: number | null,
-  gpsAccuracy: number | null,
-  gpsCapturedAt: ISOString | null,
-  gpsDistanceM: number | null,
-  gpsRefLat: number | null,                 // ubicación de referencia de la tienda
-  gpsRefLon: number | null,
-  gpsRefSource: 'auto' | null,
-  gpsError: string | null,
-  // Backup mensual
-  photosDeletedAt: serverTimestamp | null,
-  photosDeletedBy: string | null,
-  createdAt: serverTimestamp
+  ownerUid: "...",                // dueño de la ruta
+  ownerEmail: "...",
+  name: "Ruta Mar del Plata Mayo",
+  plannedDate: "2026-06-29",      // ISO YYYY-MM-DD
+  notes: "Cargar Stradic en Mostacciuolo, retirar POP en La Marea",
+  stops: [
+    {
+      order: 0,
+      key: "C|BUENOS AIRES|Mar del Plata|JUAN PESCA",
+      tipo: "C" | "P",
+      provincia: "BUENOS AIRES",
+      localidad: "Mar del Plata",
+      clientName: "JUAN PESCA",
+      isProvisorio: false,        // true si es alta provisoria (manualSapPending)
+      sapAltaId: "abc123",        // cuando viene de client_applications
+    }
+  ],
+  createdAt: <Ts>,
+  updatedAt: <Ts>,
 }
 ```
+El picker de tiendas para agregar stops busca en POINTS + altas SAP aprobadas + provisorias (alta rápida), respetando el filtro de vendor del usuario.
 
-### `operations_log/{auto_id}` — Log de auditoría (inmutable)
+#### `campaigns/{campaignId}`
+Campañas comerciales: nombre, fechas vigencia, SKUs incluidos, zonas aplicables.
+
+#### `targets/{docId}`
+Targets mensuales en ARS por vendedor + mes + año. Cargados por admin/gerente.
+
+#### `rendiciones/{docId}`
+Rendiciones de gastos con OCR Gemini de tickets. Tiene `status: pending_approval | approved | rejected`.
+
+### Alta clientes + master
+
+#### `client_applications/{appId}`
+Solicitudes de alta de cliente con flujo de doble aprobación:
 ```js
 {
-  action: string,                           // 'cancelar_borrador_pedido', 'PURGE_TOTAL_HISTORIAL', 'backup_mensual_run', etc.
-  entityType: string,
-  entityName: string,
-  details: object,
-  userUid: string,
-  userEmail: string,
-  userRole: string,
-  timestamp: serverTimestamp
+  ownerUid: "uid_vendedor",
+  ownerEmail: "...",
+  ownerName: "Mauricio Gil",
+  comercio: "PESCA TOTAL S.A.",
+  fantasia: "Pesca Total",
+  cuit: "30-12345678-9",
+  condicionFiscal: "Responsable Inscripto",
+  calle: "Av. Corrientes",
+  numero: "1234",
+  localidad: "Palermo",
+  provincia: "BUENOS AIRES",
+  localidadFinal: "Palermo",     // override del aprobador si la declarada no matcheaba
+  cardCodeSap: "C-12345",        // cargado por el aprobador
+  assignedVendor: "FEDERICO CASTELANELLI",  // cargado por el aprobador
+  constanciaArca: "data:image/...",
+  constanciaIIBB: "data:image/...",
+  fotosLocal: ["data:image/...", ...],
+  status: "pending_approval" | "approved" | "rejected",
+  source: "manual" | "sap_bulk_import" | "alta_rapida",
+  manualSapPending: true,         // si vino por alta_rapida y todavía no se cargó a SAP
+  approvals: {
+    "uid_admin": {approvedAt: <Ts>, email: "...", name: "..."},
+    "uid_gerente": {approvedAt: <Ts>, email: "...", name: "..."}
+  },
+  approvedAt: <Timestamp>,
+  rejectedByEmail: "...",
+  rejectedReason: "...",
+  submittedByPublicForm: false,  // true si vino del alta-cliente.html público
+  createdAt: <Timestamp>,
+  updatedAt: <Timestamp>,
 }
 ```
 
-### `sap_clients/{docId}` — Mapping Tienda app → CardCode SAP
+#### `client_locations/{docId}`
+GPS preciso de cada tienda (cargado durante visitas con GPS).
+
+#### `client_master/{docId}`
+Master de direcciones exactas + CardCode SAP:
 ```js
 {
-  clientName: string,
-  sapCode: string,                          // CardCode (ej. C123456789)
-  sapName: string | null,                   // nombre como lo trae SAP
-  updatedBy: string,
-  updatedAt: serverTimestamp,
-  source: 'manual' | 'sap_integration_v1'
+  clientName: "JUAN PESCA",
+  provincia: "BUENOS AIRES",
+  localidad: "Quilmes",
+  vendor: "FEDERICO CASTELANELLI",
+  address: "Av. Mitre 2345",
+  sapCardCode: "C-12345",        // NUEVO: usado por DTW/SL
+  sapAddress: "AV MITRE 2345",   // direccion raw del SAP
+  sapCity: "QUILMES",
+  sapState: "BUENOS AIRES",
+  sapImportedAt: <Ts>,
+  sapImportedBy: "admin@...",
+  clientNameOriginal: "Juan Pesca",  // backup del nombre antes del import SAP
+  localidadOriginal: "Quilmes",      // backup de la localidad
+  matchType: "exact" | "fuzzy",
+  matchSimilarity: 1.0,
+  updatedAt: <Ts>,
+  updatedBy: "...",
 }
 ```
-`docId` = `sapNorm(clientName).replace(/[^A-Z0-9]/g, '_')`.
 
-### `sap_products/{docId}` — Mapping SKU app → Material SAP
+### Reasignaciones (modal Zonas)
+
+#### `vendor_overrides/{docId}`
+Reasignación de tiendas/localidades a otro vendedor:
 ```js
 {
-  productCode: string,                      // código en la app
-  sapMaterial: string,                      // ItemCode en SAP
-  sapName: string | null,
-  updatedBy: string,
-  updatedAt: serverTimestamp,
-  source: 'manual' | 'sap_integration_v1'
+  scope: "shop" | "loc",
+  province: "BUENOS AIRES",
+  localityName: "Santa Fe",
+  clientName: "AZZONI LUCAS",    // solo si scope = "shop"
+  originalVendor: "MARTIN BOIERO",
+  newVendor: "MAURICIO GIL" | "IOANNIS PALKOUDAKIS" | "__DISTRIBUTOR__",
+  newType: "VDE" | "VDI" | "DISTRIBUIDOR" | "OTRO",
+  updatedAt: <Timestamp>,
+  updatedByUid: "...",
+  updatedByEmail: "...",
+  updatedByDisplayName: "Mariano Erbino",
 }
 ```
 
-### `sap_vendors/{docId}` — Mapping vendedor app → SlpCode SAP
-```js
-{
-  vendorKey: string,                        // 'GONZALO DE LA ROSA'
-  slpCode: string,                          // ej. '12'
-  slpName: string,                          // como lo creó SAP
-  zone: string,                             // 'Z1'
-  updatedBy: string,
-  updatedAt: serverTimestamp,
-  source: 'sap_integration_v1'
-}
-```
+### Integración SAP
 
-### `route_overrides/{auto_id}` — Reagendamientos y derivaciones
-```js
-{
-  vendor: string,
-  mes: string,                              // 'Junio' (capitalización normal en este caso)
-  monthIdx: number,
-  anio: number,
-  tienda: string,
-  localidad: string,
-  provincia: string,
-  action: 'derivada' | 'reagendada',
-  // Si derivada:
-  derivedToUid: string,
-  derivedToEmail: string,
-  // Si reagendada:
-  targetDate: 'YYYYMMDD',
-  createdByUid: string,
-  createdByEmail: string,
-  createdAt: serverTimestamp
-}
-```
+#### `sap_clients/{docId}`
+Mapeo `clientName → CardCode SAP`.
 
-### `notifications/{auto_id}` — Alertas + tareas + ACKs
-```js
-{
-  type: 'derivacion' | 'task' | 'task_ack' | 'client_approval' | 'client_approval_ack' | 'rendicion_approval' | 'rendicion_approval_ack',
-  fromUid: string,
-  fromEmail: string,
-  fromName: string,
-  targetUid: string,
-  targetEmail: string,
-  targetName: string,                       // para tasks
-  status: 'unread' | 'read' | 'done',
-  createdAt: serverTimestamp,
-  readAt: serverTimestamp | null,
-  doneAt: serverTimestamp | null,
+#### `sap_products/{docId}`
+Mapeo `productCode → ItemCode SAP`.
 
-  // según el type:
-  // derivacion:
-  tienda, localidad, provincia, vendor, message,
-  // task:
-  title, description, images: string[],
-  // task_ack:
-  title, message, relatedTaskId,
-  // client_approval / client_approval_ack:
-  title, description | message, applicationId,
-  // rendicion_approval / rendicion_approval_ack:
-  title, description | message, rendicionId
-}
-```
+#### `sap_vendors/{docId}`
+Mapeo `vendorKey → SlpCode SAP`.
 
-### `targets/{docId}` — Targets mensuales en ARS
-```js
-{
-  sellerId: string,                         // vendor key
-  year: number,
-  month: number,                            // 0-11
-  targetArs: number,
-  updatedBy: string,
-  updatedByEmail: string,
-  updatedAt: serverTimestamp
-}
-```
-`docId` = `tgtNormKey(vendorKey)_<year>_<MM>` (ej. `GONZALO_DE_LA_ROSA_2026_06`).
+#### `app_config/{docId}`
+Configuraciones globales:
+- `gemini`: API key para OCR.
+- `sap_integration`: Series ID, Service Layer config.
+- `stock_snapshot`: snapshot actual del stock W07.
 
-### `client_locations/{docId}` — GPS preciso de cada tienda
-Auto-aprendido en la primera visita con GPS válido. Después se usa para doble-check de visitas y para optimizar rutas.
-```js
-{
-  provincia: string,
-  localidad: string,
-  tienda: string,
-  lat: number,
-  lon: number,
-  accuracy: number,
-  source: 'auto' | 'manual',
-  setBy: string,
-  setByUid: string,
-  setAt: serverTimestamp
-}
-```
-`docId` = `clientLocId(prov, loc, tienda)` = `<provNorm>__<locNorm>__<nombreNorm>`.
+### Notificaciones y log
 
-### `client_master/{docId}` — Direcciones exactas (Master Clientes)
-```js
-{
-  clientName: string,
-  provincia: string,
-  localidad: string,
-  vendor: string,
-  address: string,                          // 'Av. Belgrano 123, Barrio Norte'
-  updatedBy: string,
-  updatedAt: serverTimestamp
-}
-```
-Mismo `docId` que `client_locations`. Usado por el link de WhatsApp de rutas: si hay GPS preciso lo usa; sino usa `address` para geocoding; sino fallback al nombre.
+#### `notifications/{docId}`
+Alertas + tareas + derivaciones VDI. Con imágenes embebidas.
 
-### `allowed_emails/{docId}` — Whitelist gestionable por admin
-```js
-{
-  email: string,
-  note: string,                             // 'Vendedor Z3 Diego'
-  addedBy: string,
-  addedByUid: string,
-  addedAt: serverTimestamp
-}
-```
-`docId` = email normalizado (lowercase + `[^a-z0-9]+` → `_`).
-
-### `client_applications/{auto_id}` — Solicitudes de alta de cliente
-```js
-{
-  // Datos comercio:
-  email, comercio, fantasia, cuit, condicionFiscal,
-  calle, numero, localidad, provincia, cp,
-  telefono, web, redes,
-  // Contacto:
-  contactoNombre, contactoTelParticular, contactoWhatsapp, contactoEmail,
-  tipoComercio: 'PESCA' | 'OUTDOOR' | 'CAZA' | 'MULTIRUBRO',
-  tiendaOnline: 'MERCADO LIBRE' | 'PÁGINA WEB PROPIA' | 'OTROS' | 'NO TIENE',
-  // Documentos (base64):
-  constanciaArca: string,
-  constanciaIIBB: string,
-  fotosLocal: string[],                     // hasta 5
-  // Metadata:
-  ownerUid: string,
-  ownerEmail: string,
-  ownerName: string,
-  vendor: string | null,
-  submittedByPublicForm: boolean,           // true si vino del form público compartido
-  status: 'pending_approval' | 'approved' | 'rejected',
-  approvals: { [uid]: { approvedAt, email, name } },  // hasta 2
-  approvedAt: serverTimestamp | null,
-  rejectedBy, rejectedByEmail, rejectedReason, rejectedAt,
-  createdAt: serverTimestamp
-}
-```
-
-### `rendiciones/{auto_id}` — Rendiciones y solicitudes de anticipo
-```js
-{
-  tipo: 'solicitud' | 'gasto',
-  ownerUid, ownerEmail, ownerName,
-  vendor: string | null,
-  approverUid: string,                      // snapshot al momento de crear
-  approverEmail: string,
-  status: 'pending_approval' | 'approved' | 'rejected',
-  approvedBy, approvedByEmail, approvedAt,
-  rejectedBy, rejectedByEmail, rejectedReason, rejectedAt,
-  createdAt: serverTimestamp,
-
-  // Si tipo='solicitud':
-  solicitadoPor: string,
-  motivo: string,
-  tipoOperacion: 'ANTICIPO DE EFECTIVO' | 'RENDICION DE GASTO' | 'RECARGA',
-  importe: number,
-  moneda: 'PESOS ARGENTINOS' | 'DOLARES' | 'OTRAS MONEDAS',
-  observaciones: string,
-  estadoSolicitud: 'ABIERTO' | 'CERRADO',
-  adjunto: { name, type, data } | null,     // base64 (Excel/PDF/imagen)
-
-  // Si tipo='gasto':
-  numeroTicket: string,
-  descripcion: 'COMBUSTIBLE' | 'COMIDA' | 'HOSPEDAJE' | 'PEAJE' | 'TRASLADO' | 'OTROS',
-  modoPago: 'RECARGABLE' | 'CORPORATIVA' | 'EFECTIVO',
-  moneda: 'PESOS' | 'DOLARES' | 'OTRAS MONEDAS',
-  tipoGasto: 'GASTO CON COMPROBANTE' | 'GASTO SIN COMPROBANTE' | 'FACTURA A',
-  importe: number,
-  importeUsd: number,
-  divisionGasto: 'GASTO LOCAL' | 'GASTO REGIONAL',
-  observaciones: string,
-  fotoTicket: string                        // base64 jpeg
-}
-```
-
-### `app_config/{docId}` — Configuración sensible
-```js
-// app_config/gemini
-{
-  apiKey: string,                           // hardcoded en Firestore (NO en repo)
-  updatedBy, updatedByUid, updatedAt
-}
-```
+#### `operations_log/{logId}`
+Log inmutable de acciones para auditoría. Solo admin/viewer leen.
 
 ---
 
-## 8) Firestore Security Rules
+## 9) Firestore Security Rules
 
-Rules completas (publicar en Firebase Console → Firestore → Rules):
+Reglas vigentes (versión actual). Resumen de qué puede hacer cada rol:
 
-```javascript
-rules_version = "2";
-service cloud.firestore {
-  match /databases/{database}/documents {
+| Colección | Read | Write |
+|---|---|---|
+| `roles` | propio doc + admin | admin (update/delete), usuario propio (create con role unassigned/admin) |
+| `userData` | propio + admin/viewer | propio + admin |
+| `pedidos` | todos los readers | admin / vendedor (su propio) / VDI en nombre del VDE pareja |
+| `visits` | todos | admin / vendedor / interno propio / VDI en nombre del VDE pareja |
+| `campaigns` | todos | admin |
+| `notifications` | targetUid o fromUid o admin | propio crea, propio update si es targetUid, **delete: target o admin** (NUEVO: el target puede borrar la card desde Recibidas) |
+| `targets` | todos | admin / gerente |
+| `client_locations` | todos | admin / vendedor / interno (create), admin (update/delete) |
+| `client_master` | todos | admin / gerente (incluye dropdown provincia editable + auto-infer vendor) |
+| `allowed_emails` | autenticados | admin |
+| `client_applications` | todos | propio crea, admin/gerente/interno update, **delete: admin O owner si NO tiene cardCodeSap** (NUEVO: el vendedor puede eliminar sus Mis Solicitudes mientras no estén cargadas a SAP) |
+| `rendiciones` | todos | propio crea, admin/gerente update, admin delete |
+| `app_config` | todos | admin |
+| `vendor_overrides` | todos | admin (cambios globales) |
+| `route_overrides` | todos | admin / vendedor (su propio), admin (update/delete) |
+| `custom_routes` (NUEVO) | todos los readers | propio crea/update/delete (filtrado por ownerUid) |
+| `sap_clients`, `sap_products`, `sap_vendors` | todos | admin |
+| `operations_log` | admin / viewer | autenticado crea (userUid == auth.uid), nadie update/delete |
 
-    function role() {
-      return get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role;
-    }
-    function isAdmin()   { return request.auth != null && role() == 'admin'; }
-    function isViewer()  { return request.auth != null && role() == 'viewer'; }
-    function isVendor()  { return request.auth != null && role() == 'vendedor'; }
-    function isInterno() { return request.auth != null && role() == 'interno'; }
-    function isGerente() { return request.auth != null && role() == 'gerente'; }
-    function isReader()  { return isAdmin() || isViewer() || isVendor() || isInterno() || isGerente(); }
+Helper `isMyPartnerVDE(targetUid)`: para que un VDI pueda actuar en nombre de un VDE solo si el VDE tiene a ese VDI como `internalPartnerUid`. Esto bloquea que un VDI cualquiera cargue pedidos a nombre de cualquier VDE.
 
-    match /roles/{uid} {
-      allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
-      allow create: if request.auth != null && request.auth.uid == uid
-                     && request.resource.data.role in ['unassigned', 'admin'];
-      allow update, delete: if isAdmin();
-    }
+### Rendiciones — fix de resolveApprover (v189+)
 
-    match /userData/{uid} {
-      allow read: if request.auth != null && (request.auth.uid == uid || isAdmin() || isViewer());
-      allow write: if request.auth != null && (request.auth.uid == uid || isAdmin());
-    }
+Antes el vendedor no podía mandar rendiciones si tenía responsable asignado (las rules intentaban resolver el aprobador leyendo `/roles/{approverUid}` directo, lo cual no era legible por el VDE). El fix:
+- El cliente lee `app_config/users_directory` (público) para encontrar el aprobador por email.
+- Cachea el email en localStorage para no pegar Firestore en cada submit.
+- Las rules permiten escribir la rendición sin necesitar leer `/roles` del aprobador.
 
-    match /pedidos/{pedidoId} {
-      allow read: if isReader();
-      allow create: if isAdmin() || (isVendor() && request.resource.data.ownerUid == request.auth.uid);
-      allow update, delete: if isAdmin() || (isVendor() && resource.data.ownerUid == request.auth.uid);
-    }
+---
 
-    match /campaigns/{campaignId} {
-      allow read: if isReader();
-      allow create, update, delete: if isAdmin();
-    }
+## 10) Estructura de la UI
 
-    match /visits/{visitId} {
-      allow read: if isReader();
-      allow create: if (isAdmin() || isVendor() || isInterno())
-                     && request.resource.data.ownerUid == request.auth.uid;
-      allow update, delete: if isAdmin()
-                     || ((isVendor() || isInterno()) && resource.data.ownerUid == request.auth.uid);
-    }
+### Header superior
+- **Logo Shimano** + título "MAPA DE VENTAS - ARGENTINA"
+- **Badge ADMIN** (violeta, centrado) — solo si rol = admin
+- **Stat cards** (4): Localidades / Habilitados / Pendientes / Tiendas
+- **Botones admin** (a la derecha): TARGETS / CAMPAÑAS / SAP / MASTER CLIENTES / USUARIOS / STOCK / AUDITORÍA / SALIR
 
-    match /operations_log/{logId} {
-      allow read: if isAdmin() || isViewer();
-      allow create: if request.auth != null && request.resource.data.userUid == request.auth.uid;
-      allow update, delete: if false;
-    }
+Header + Controls tienen `border-bottom-radius: 22px` para look "pill flotante".
 
-    match /sap_clients/{docId}  { allow read: if isReader(); allow write: if isAdmin(); }
-    match /sap_products/{docId} { allow read: if isReader(); allow write: if isAdmin(); }
-    match /sap_vendors/{docId}  { allow read: if isReader(); allow write: if isAdmin(); }
+### Controls (filtros del mapa)
+- Selector **Zona** (filtro por vendedor)
+- Selector **Provincia**
+- Selector **Localidad**
+- Selector **Tipo** (Todos / Existentes / Prospectos / Distribuidores / Ventas Especiales)
+- Botones (derecha): **Campañas Activas** (amarillo) / **Exportar para Análisis** (verde) / **Exportar a Excel** (celeste) / **Zonas** (azul marino)
 
-    match /route_overrides/{docId} {
-      allow read: if isReader();
-      allow create: if (isAdmin() || isVendor()) && request.resource.data.createdByUid == request.auth.uid;
-      allow update, delete: if isAdmin();
-    }
+### Cuerpo
+- **Mapa Leaflet** (izquierda, ocupa gran parte de la pantalla).
+- **Sidebar derecha** con tabs: Localidades / Clientes / Pedidos / Rutas / Visita / Dashboard / Rendiciones / Alta Clientes / Notificaciones.
 
-    match /notifications/{docId} {
-      allow read: if request.auth != null && (
-        resource.data.targetUid == request.auth.uid
-        || resource.data.fromUid == request.auth.uid
-        || isAdmin()
-      );
-      allow create: if request.auth != null && request.resource.data.fromUid == request.auth.uid;
-      allow update: if request.auth != null && resource.data.targetUid == request.auth.uid;
-      allow delete: if isAdmin();
-    }
+### Controles topleft del mapa (debajo de zoom Leaflet)
 
-    match /targets/{docId} {
-      allow read: if isReader();
-      allow create, update: if isAdmin() || isGerente();
-      allow delete: if isAdmin();
-    }
+- **↻ Forzar actualización**: hace `unregister()` del SW, limpia caches y recarga con cache-bust. Útil cuando el banner del console marca DESYNC HTML vs SW.
+- **📍 Reubicar pines** (solo admin/gerente): triggea `runBulkGeocodeSapAltas()` para correr geocoding bulk de altas SAP que no tengan lat/lng.
 
-    match /client_locations/{docId} {
-      allow read: if isReader();
-      allow create: if isAdmin() || isVendor() || isInterno();
-      allow update, delete: if isAdmin();
-    }
+### Mobile
 
-    match /client_master/{docId} { allow read: if isReader(); allow write: if isAdmin(); }
+Botón **REFRESCAR APP** ocupa la celda libre al lado del selector Localidad (atajo equivalente al ↻ del desktop).
 
-    match /allowed_emails/{docId} {
-      // Read sin isReader (la verificacion corre ANTES de tener rol asignado)
-      allow read: if request.auth != null;
-      allow write: if isAdmin();
-    }
+### Body background
+Color celeste claro `#dbeafe` (matchea con el color base de `.controls`).
 
-    match /client_applications/{docId} {
-      allow read: if isReader();
-      allow create: if (request.auth != null && request.resource.data.ownerUid == request.auth.uid)
-                 || (request.resource.data.submittedByPublicForm == true
-                     && request.resource.data.comercio is string
-                     && request.resource.data.cuit is string
-                     && request.resource.data.status == 'pending_approval');
-      allow update: if isAdmin() || isGerente() || isInterno();
-      allow delete: if isAdmin();
-    }
+### Login background
+Foto: `login-bg.jpg` (río al amanecer con lancha de pesca) + overlay oscuro semi-transparente para contraste del cuadro blanco del login/PIN.
 
-    match /rendiciones/{docId} {
-      allow read: if isReader();
-      allow create: if request.auth != null && request.resource.data.ownerUid == request.auth.uid;
-      allow update: if isAdmin() || isGerente();
-      allow delete: if isAdmin();
-    }
+---
 
-    match /app_config/{docId} {
-      allow read: if isReader();
-      allow write: if isAdmin();
-    }
-  }
+## 11) Sistema de zonas y vendedores
+
+### Las 6 zonas (`VENDORS` array)
+
+```js
+[
+  {key: 'GONZALO DE LA ROSA',    zone: 'Z1', color: '#00A9E0', label: 'CABA + AMBA Norte/Oeste'},
+  {key: 'FEDERICO CASTELANELLI', zone: 'Z2', color: '#003366', label: 'AMBA Sur + BA Interior + Costa'},
+  {key: 'MARTIN BOIERO',         zone: 'Z4', color: '#E83A2E', label: 'Cordoba + Cuyo + SF Oeste'},
+  {key: 'MAURICIO GIL',          zone: 'Z5', color: '#F97316', label: 'Litoral + Norte BA'},
+  {key: 'IOANNIS PALKOUDAKIS',   zone: 'Z6', color: '#8E44AD', label: 'Patagonia + Mendoza + apoyo Federico/Gonzalo'},
+  {key: 'SANTIAGO ESTEBAN',      zone: 'Z7', color: '#F39C12', label: 'NOA + NEA + Cuyo norte + apoyo Mauricio/Martin'},
+]
+```
+
+### Clasificación operativa
+
+```js
+VDE_VENDOR_KEYS = {'MAURICIO GIL', 'MARTIN BOIERO', 'GONZALO DE LA ROSA', 'FEDERICO CASTELANELLI'}
+VDI_VENDOR_KEYS = {'IOANNIS PALKOUDAKIS', 'SANTIAGO ESTEBAN'}
+```
+
+Ioannis y Santiago están en `VENDORS` históricamente (Z6, Z7), pero operativamente son VDIs.
+
+### Inclusión cruzada VDI → VDEs pareja
+
+Cuando se filtra Ioannis o Santiago en el header, automáticamente se incluyen las zonas de sus VDEs pareja:
+
+```js
+VENDOR_INCLUDES_OTHERS = {
+  'IOANNIS PALKOUDAKIS': ['FEDERICO CASTELANELLI', 'GONZALO DE LA ROSA'],
+  'SANTIAGO ESTEBAN':    ['MAURICIO GIL', 'MARTIN BOIERO'],
 }
 ```
 
----
+### Asignación automática a tienda
 
-## 9) Estructura de la UI
+Una tienda se asigna a un vendor según la columna `ASESOR EXTERNO` del Excel master:
+- `MAURICIO GIL`, `MARTIN BOIERO`, `GONZALO DE LA ROSA`, `FEDERICO CASTELANELLI` → VDE.
+- `DISTRIBUIDORES` → entra al filtro "Distribuidores" (no cuenta como venta directa).
+- `VENTAS ESPECIALES` → entra al filtro "Ventas Especiales".
 
-### Header (siempre visible arriba)
-- Logo Shimano + título "Market Scan - Argentina por Zonas" + badge ADMIN/VENDEDOR
-- Botones admin: **TARGETS, CAMPAÑAS, SAP, MASTER CLIENTES, USUARIOS, SALIR**
-- Botón **CAMPAÑAS ACTIVAS** (amarillo): muestra campañas vigentes en un modal con SKUs incluidos
-- Botón **EXPORTAR PARA ANÁLISIS** (PIN 1235): formatos avanzados
-- Botón **EXPORTAR A EXCEL** (verde): export rápido
+La columna `ASESOR INTERNO` siempre dice Ioannis o Santiago según la pareja del VDE.
 
-### Sidebar derecho (3 filas de 3 tabs c/u)
+### `PROVINCE_VENDOR_OVERRIDE` (override hardcoded por provincia)
+
+Constante en `index.html` que pisa el vendor de TODOS los departamentos de una provincia, independientemente del Excel master y de `vendor_overrides`. Hoy:
+
+```js
+const PROVINCE_VENDOR_OVERRIDE = {
+  'SAN LUIS': 'MARTIN BOIERO',
+};
 ```
-Fila 1: 🟥 LOCALIDADES    🟩 CLIENTES        🟦 PEDIDOS
-Fila 2: 🟨 RUTAS          🟪 VISITA          🟦 DASHBOARD
-Fila 3: 🌸 RENDICIONES    🩵 ALTA CLIENTES   🟥 NOTIFICACIONES
-```
 
-Las tabs ROJA / VERDE / AZUL son las que muestran contenido en el panel sidebar (Localidades, Clientes, Pedidos, Rutas, Rendiciones, Alta Clientes). El resto son "actions" que abren modal (Visita, Dashboard, Notificaciones).
+Útil cuando el GeoJSON tiene depts mal etiquetados o cuando se decidió mover toda una provincia a otro vendor sin pasar por modal Zonas. Se aplica en:
+- `deptEffectiveVendor(feat)` (color del polígono dept).
+- `_buildVendorOutlinesCache` (clasificación SINGLE-VENDOR forzada).
+- Marker color y filtros.
 
-Los contadores numéricos al lado del nombre están **ocultos por preferencia del usuario** (regla CSS `.tabs .tab-count { display:none }`).
+### Outlines de zonas (contornos visuales por vendor)
 
-### Mapa (centro)
-Leaflet con polígonos provinciales/departamentales pintados según vendedor. Burbujas (markers) en cada localidad con conteo de tiendas. Click para drillear.
+El contorno de cada zona pasó por **varias iteraciones**:
+1. ~~Union polygon-clipping sobre TODOS los depts INDEC (~3.000 features).~~ Demasiado lento y dejaba microgaps por vertices que no matcheaban entre depts vecinos.
+2. ~~Edge-counting (contar aristas compartidas y dibujar las únicas).~~ Sigue dejando lineas internas.
+3. ~~Convex hull por vendor.~~ Pierde detalle de borde y se mete en zonas de otros vendors.
+4. **Híbrido provincia + dept (actual, desde v182)**: clasifica cada provincia como **single-vendor** (≥90% de sus depts con un mismo vendor → usa el polígono provincial entero de `PROV_GEO`) o **split** (varios vendors significativos → union de los depts de cada vendor SOLO dentro de esa provincia). `PROVINCE_VENDOR_OVERRIDE` fuerza el modo single.
 
-### Filtros superiores
-- **Zona** (vendedor): bloqueado para `role=vendedor`.
-- **Provincia**: dependiente de zona.
-- **Localidad**: dependiente de provincia.
-- **Stats** (cards): 277 localidades · 8 habilitados · 932 pendientes · 941 tiendas.
+Esto resuelve casos como **Buenos Aires** (dividida entre Gonzalo en CABA+AMBA Norte/Oeste y Federico en AMBA Sur+Interior): la provincia es SPLIT, así que se unionan los depts por vendor por separado y queda un borde limpio para cada uno.
 
----
+### Optimización + cache
 
-## 10) Sección: Localidades / Clientes / Pedidos
-
-### Pestaña LOCALIDADES
-Tarjetas con cada localidad de la zona del vendedor. Búsqueda por nombre. Click → fly-to en el mapa.
-
-### Pestaña CLIENTES
-Lista de tiendas (clientes + prospectos del master). Cada tienda tiene **3 estados**:
-- `pendiente` (default): sin contactar todavía.
-- `habilitado`: el vendedor confirmó que es un cliente activo. Pinta verde. Solo los habilitados aparecen en CREAR PEDIDO.
-- `cancelado`: el vendedor confirmó que NO es cliente (cerró, no le interesa, etc.).
-
-Búsqueda por nombre. Filtros: TODOS / CONFIRMADOS / NO CONFIRMADOS.
-
-Click en una tienda → modal con:
-- Datos: tipo, provincia, localidad.
-- Botones de estado: HABILITAR / CANCELAR.
-- Sub-sección **"Compras anteriores"** si hay pedidos confirmados.
-- Sub-sección **"Recomendados"**: SKUs que otras tiendas de la misma provincia compraron y esta tienda NO tiene (cross-selling).
-
-### Pestaña PEDIDOS (3 sub-vistas)
-- **CREAR**: lista de clientes habilitados. Click en uno → modal intermedio con 4 opciones:
-  - **Cargar visita** → abre form de visita.
-  - **Ver compras anteriores** → muestra historial.
-  - **Ver recomendados** → SKUs sugeridos.
-  - **Crear pedido** → abre el picker de productos.
-- **PENDIENTES**: pedidos en draft (no confirmados definitivos). Click → revisión + sugeridos clickeables.
-- **CONFIRMADOS**: solo lectura.
-
-### Picker de productos (Crear pedido)
-- Filtros encadenados: Categoría → Familia → Subfamilia.
-- Buscador por código/descripción.
-- Cada producto: nombre + categoría + botón "+".
-- **Cuando ya hay qty > 0**: el botón "+" se convierte en un mini-stepper `[−][qty editable][+]`.
-- **Highlight amarillo** si el SKU está en una campaña activa aplicable + badge `★ CAMP`.
-
-### Modal de revisión de pedido
-- Header: cliente + provincia + localidad.
-- Lista de líneas: SKU, descripción, qty (editable), precio (editable), eliminar.
-- Total al pie.
-- Botones: Volver a editar / Confirmar y enviar a Pendientes.
-
-### Confirmación final
-- Botón "Confirmar definitivo" en el modal de Pendientes.
-- Pasa el pedido a `stage='confirmed'` con `confirmedAt` y `finalizedAt`.
-- A partir de ese momento es exportable a SAP via DTW.
+- Union via **tree reduction** O(N log N) en `unionTree()` cuando `polygonClipping.union(...mps)` falla (fallback resistente).
+- `_vendorOutlinesCache` se persiste en `localStorage` (key `VENDOR_OUTLINES_CACHE_KEY`). La próxima vez que se abre el mapa, el cache se reutiliza inmediatamente.
+- `polygon-clipping` se carga **defer** (es un blob ~150KB que sólo hace falta para los outlines).
 
 ---
 
-## 11) Sección: Rutas
+## 12) Sección: Localidades / Clientes / Pedidos
 
-### Generación automática
-Algoritmo `generarRutasVendor(vendor, monthIdx, year)`:
-1. Toma todas las tiendas **habilitadas** de la zona del vendedor.
-2. Las agrupa por **proximidad** usando lat/lon de la localidad (haversine clustering).
-3. Forma rutas de **10-15 tiendas** (target 12).
-4. Asigna **fechas hábiles** del mes a cada ruta, distribuyendo equitativamente.
-5. Aplica **route_overrides**:
-   - `derivada`: la tienda queda marcada en amarillo "Esperando contacto del VDI", no se elimina de la ruta.
-   - `reagendada`: la tienda se mueve a la ruta de la fecha objetivo (puede crear ruta nueva si no existía).
-6. Re-numera y ordena por fecha.
+### Localidades
 
-### Vista detalle de una ruta
-Card por cada tienda:
-- 🟢 **Verde** = visitada (hay visita en `visits` para esa tienda+mes+año por cualquier vendor, incluido VDI)
-- 🟡 **Amarillo mostaza** (derivada) = derivada al VDI, esperando que cargue visita
-- 🟡 **Amarillo ámbar** (reagendada) = movida a fecha futura
-- ⚪ **Gris** = pendiente sin tocar
+Tab "Localidades" del sidebar. Lista todas las localidades visibles según los filtros del header, ordenadas por cantidad de tiendas.
 
-### Click en "Cargar visita" en una tienda
-Abre un mini-modal con 2 opciones:
-- **La tienda está abierta** → abre form de visita con tienda pre-seleccionada.
-- **La tienda está cerrada** → 2 opciones:
-  - **Derivar al VDI**: crea `route_overrides` con `action='derivada'` + manda notif al VDI.
-  - **Reagendar**: muestra picker de días hábiles (próximos 7) + confirma.
+### Clientes
 
-### Enviar ruta por WhatsApp
-Botón verde en cada ruta. Al tocarlo:
-1. Pide GPS del vendedor (`navigator.geolocation.getCurrentPosition`).
-2. Si lo otorga, ordena las tiendas con **Nearest Neighbor** desde su posición.
-3. Si la ruta tiene > 10 tiendas, las divide en **tramos balanceados** (Google Maps URL soporta max 9 waypoints + 1 destino).
-4. Para cada tienda usa, en orden de prioridad:
-   - GPS preciso de `client_locations` (lat,lon)
-   - Dirección de `client_master` (geocoding)
-   - Nombre + localidad + provincia (fallback)
-5. Genera links Google Maps `https://www.google.com/maps/dir/?api=1&origin=...&destination=...&waypoints=...|...&travelmode=driving`
-6. Compone mensaje WhatsApp con todos los tramos y abre `wa.me/<myWhatsappNumber>?text=...`
+Tab "Clientes". Lista todas las tiendas visibles. Estados:
+- **Pendiente**: badge ámbar (no se le pueden crear pedidos todavía).
+- **Habilitado**: badge verde (puede crear pedidos).
+- **Cancelado**: badge rojo (oculto del flujo).
 
-El número destino es el propio número del vendedor (configurado en Panel Usuarios) → se manda a sí mismo como notas.
+### Flujo de "dar de alta" una tienda
 
-### Histórico
-Toggle "Histórico" para ver rutas de meses anteriores (solo lectura).
+Al tocar una tienda se abre el modal:
+1. **Nombre editable** (click en el título → contenteditable).
+2. **Dirección exacta** (input obligatorio).
+3. **Localidad** (input obligatorio, precarga la del mapa).
+4. **Botón "Dar de alta"** se habilita cuando los 2 inputs están llenos.
+5. **Geocoding** con OpenStreetMap Nominatim (Argentina-only).
+6. Si encuentra → guarda lat/lng en `clientMeta`. Si no → ofrece habilitar igual.
+7. Marca el cliente como Habilitado y aparece un **pin verde** en el mapa.
 
----
+### Pedidos
 
-## 12) Sección: Visita
+Tab "Pedidos". 3 sub-tabs:
+- **Crear**: lista de clientes habilitados con búsqueda. **Incluye las altas SAP aprobadas + las provisorias (alta rápida)** vía `buildPedidoVisibleKeysSet()` (antes sólo POINTS).
+- **Pendientes**: pedidos confirmados pero no transferidos a SAP. Con filtros mes / tienda / año.
+- **Confirmados**: pedidos transferidos a SAP (DTW o Service Layer). Con filtros mes / tienda / año (igual que Mis Visitas).
 
-Formulario completo de visita a tienda. Pestañas internas: **Nueva visita** / **Mis visitas**.
+### Modal Crear Pedido
 
-### Campos del form (todos obligatorios salvo aclarado)
-- **Localidad** (cascada con `vf-tienda`)
-- **Tienda** (filtrada por localidad y vendedor; incluye clients + prospects)
-- **Tipo de tienda** (texto libre)
-- **Local**: `FISICO` | `ECOMMERCE`
-- **Tamaño**: `GRANDE` | `MEDIANA` | `CHICA`
-- **Fidelidad**: `ALTA` | `MEDIA` | `BAJA`
-- **Relevancia**: Likert 1-5
-- **POP**: SI / NO. Si SI, pide **Necesidad puntual** (CAÑERO/CARTEL/MOSTRADO/OTROS)
-- **Espacio**: hasta 8 fotos (cámara o galería)
-- **Oportunidad** (textarea, opcional)
-- **Lo más vendido Shimano** (textarea, opcional)
-- **Lo que más preguntan** (textarea, opcional)
-- **Ayuda a tienda** (textarea, opcional)
-- **Frente del local**: 1 foto. **OBLIGATORIA salvo `role=interno`** (el VDI carga visitas desde la oficina, no puede sacar foto).
-- **Tipo de venta**: `MOSTRADO` | `ECOMMERCE` | `AMBOS`. Si AMBOS, pide ponderación % (debe sumar 100).
-- **Competencia** (texto, opcional)
+Picker de productos con:
+- Filtros: Categoría / Familia / Subfamilia / Buscar.
+- **Filtro stock** (3 botones en la celda libre al lado de Subfamilia): `Todos` / `Disponibles` / `No disp.` — filtra el listado del picker según `hasStock(code)`.
+- **Indicador de stock** verde/rojo al lado de cada SKU (basado en `STOCK_MAP`).
+- Stepper `[-][n][+]` para cantidad.
+- **Sugeridos**: SKUs que vecinos pidieron en pedidos confirmados (umbral 3 casas, basado en historial real de la app no MELI).
 
-### GPS doble-check al enviar
-1. Al tocar "Enviar formulario", pide GPS del navegador.
-2. Si lo otorga, busca la tienda en `client_locations`.
-3. Si NO existe ubicación de referencia → la primera visita la auto-confirma.
-4. Si existe → calcula distancia haversine.
-5. Estados:
-   - `confirmed`: ≤ 300 m
-   - `near`: 300 m – 1 km
-   - `far`: > 1 km (pide confirmación extra)
-   - `first`: primera visita, define la referencia
-   - `denied`/`unavailable`/`timeout`/`error`: sin GPS válido
+### Botón "Vista preliminar" (antes "Confirmar pedido")
 
-### Mis visitas (sub-tab)
-Lista con filtros: Mes, Tienda, Año, Vendedor (solo admin/viewer). Click → ver visita en modo solo lectura con foto del frente, GPS info, link a Google Maps.
+Renombrado en v190+. Abre un modal de revisión antes de confirmar:
+
+- **Líneas con punto verde/rojo** según `hasStock(code)`. Las líneas sin stock tienen **fondo rosa** + label inline **"SIN STOCK"**.
+- Debajo del bloque "Descuento estimado" aparecen **2 cuadrantes (verde + rojo)**:
+  - `Subtotal disponibles` — suma de líneas con stock.
+  - `Subtotal no disponibles` — suma de líneas sin stock.
+  - Estos subtotales **sólo se muestran si hay al menos 1 item sin stock**.
+- Botón "Confirmar pedido" para cerrar el flow.
+
+### Modal Confirmar Pedido (paso final)
+
+Antes de enviar a SAP:
+- Mes / año.
+- **Condición de pago** obligatoria: CONTADO / CHEQUE / CTA CTE / VTA ESP / CON CHEQ.
+- (VDI) Dropdown "Crear en nombre de" si tiene parejas VDE.
+
+Al confirmar:
+- Si Service Layer enabled → POST a `/b1s/v1/Quotations` (**hoy no cableado** — la función `enviarPedidosASAPViaServiceLayer` existe pero no se llama desde ningún botón).
+- Si NO → queda en estado `pending` para luego "Listo para SAP" + ZIP DTW.
+
+### Helpers de visibilidad
+
+`buildPedidoVisibleKeysSet()` arma el set de keys (`tipo|prov|loc|name`) visibles para Pendientes/Confirmados. Desde v183+ incluye:
+- Tiendas POINTS habilitadas (`contacted`).
+- Altas SAP con `cardCodeSap` (aprobadas formalmente).
+- Altas con `manualSapPending` (provisorias, vienen del flow Alta Rápida).
+
+### Card de cliente — Fantasía editable + badge PROVISORIO
+
+- La card del cliente muestra `Local: XXX` cuando hay fantasía distinta del nombre legal. La fantasía se edita con un **modal HTML** (reemplaza el chain `prompt() + confirm()` que existía hasta v177).
+- La fantasía se guarda en `clientMeta[key].customFantasia`.
+- Tiendas con `manualSapPending: true` muestran badge **"⚡ PROVISORIO (cargar a SAP manual)"** + fondo crema para que Admin las detecte.
 
 ---
 
-## 13) Sección: Dashboard
+## 13) Sección: Rutas
 
-### Vista admin con filtro "Todos los vendedores"
-Cuando admin/viewer abre el Dashboard sin filtrar a un vendedor específico, ve la **vista consolidada**:
+Tab "Rutas" del sidebar. Arriba hay un **toggle de modo** con 2 botones (ambos `flex: 1`, texto centrado):
+- **Rutas recomendadas** (auto-generadas, modo histórico).
+- **Rutas personalizadas** (custom_routes, NUEVO desde v182+).
 
-#### Card "Resumen equipo"
-Fondo azul Shimano. Totales del mes:
-- Facturado ARS total del equipo
-- # Pedidos
-- # Visitas
-- % Cumplimiento global (suma facturado / suma targets)
-- Línea info: cuántos vendedores tienen target asignado.
+### Modo "Rutas recomendadas"
 
-#### Card "Ranking de vendedores"
-Los 6 vendedores apilados, ordenados por **% cumplimiento descendente**. Cada card:
-- 🟢 #1 (verde) · 🏆 LÍDER DEL MES (si pct > 0)
-- 🔵 #2 (azul)
-- 🟠 #3 (ámbar)
-- ⚪ #4-6 (gris)
+Auto-genera rutas mensuales por proximidad geográfica:
 
-Cada card muestra: nombre + zona, % cumplimiento grande, barra de progreso, facturado / target, contadores (pedidos / unidades / visitas), o badge "SIN TARGET" si no tiene asignado.
+- Recolecta localidades del vendedor con tiendas.
+- Ordena por lat (Norte → Sur).
+- Agrupa por proximidad (~10-15 tiendas por ruta).
+- Asigna fechas distribuidas por semanas del mes.
 
-### Vista por vendedor específico
-Cuando se filtra a un vendedor:
-- Card "Mes en curso" con unidades + facturado + target + % cumplimiento + barra
-- Card "Acumulado anual YTD" con totales del año
-- Card "Target Jul-Dic 2026" del semestre completo
-- Card "Campañas activas" del vendedor
+### Modo "Rutas personalizadas" (NUEVO)
 
-Los targets vienen de la collection `targets` (cargados por gerente).
+Lista de rutas armadas a medida por el vendedor (colección `custom_routes`, filtrada por `ownerUid`). Cada ruta tiene:
+- **Nombre** (libre).
+- **Fecha planeada** (YYYY-MM-DD).
+- **Notas** (texto largo).
+- **Stops**: lista de tiendas con orden, agregar/quitar/reordenar.
 
----
+El picker para agregar una tienda al stop busca en POINTS + altas SAP aprobadas + altas provisorias (alta rápida), respetando el filtro de vendor del usuario. Las provisorias se marcan con badge **PROVISORIO** dentro del picker.
 
-## 14) Sección: Rendiciones
+Operaciones:
+- Crear ruta (form vacío).
+- Editar nombre / fecha / notas / stops.
+- Eliminar ruta (la collection `custom_routes` permite delete sólo al ownerUid).
+- "Enviar por WhatsApp" reutiliza el mismo helper de las rutas recomendadas.
 
-3 sub-tabs:
+### Estados de tienda en ruta
 
-### Sub-tab "Solicitar recarga"
-Formulario simple:
-- Solicitado por (texto)
-- Motivo o evento (textarea)
-- Tipo de operación: ANTICIPO DE EFECTIVO / RENDICION DE GASTO / RECARGA
-- Importe (number)
-- Moneda: PESOS ARGENTINOS / DOLARES / OTRAS MONEDAS
-- Observaciones (textarea, obligatorio)
-- Estado: ABIERTO / CERRADO
-- Adjunto opcional (Excel/PDF/imagen)
+- **Pendiente** (gris).
+- **Visitada** (verde) — si hay visita registrada para esa tienda en el mes.
+- **Derivada VDI** (ámbar) — si el VDE delegó al VDI.
+- **Reagendada** (azul) — si se movió a otra fecha.
 
-### Sub-tab "Rendir gasto"
-Form para cada ticket. Foto del ticket **obligatoria** con 2 botones:
-- 📷 **SACAR FOTO** (cámara trasera, `capture="environment"`)
-- 📂 **ELEGIR DE GALERÍA** (file picker normal)
+### Botón "Recalcular Rutas"
 
-Cuando se sube la foto, **automáticamente** se llama a Gemini API para extraer los datos (OCR). Si el OCR funciona, los siguientes campos quedan autocompletados (revisables antes de enviar):
+Refresca con datos más recientes:
+- Re-aplica overrides de Zonas a POINTS.
+- Refresca listeners de visitas y route_overrides.
+- Resetea vista detalle al listado.
+- Re-renderiza con conteos actualizados.
 
-- Número de ticket
-- Descripción: COMBUSTIBLE / COMIDA / HOSPEDAJE / PEAJE / TRASLADO / OTROS
-- Modo de pago: RECARGABLE / CORPORATIVA / EFECTIVO
-- Moneda: PESOS / DOLARES / OTRAS MONEDAS
-- Tipo de gasto (categoría tributaria): GASTO CON COMPROBANTE / GASTO SIN COMPROBANTE / FACTURA A
-- Importe (number)
-- Importe USD (opcional)
-- División gasto: GASTO LOCAL / GASTO REGIONAL
-- Observaciones (texto, obligatorio)
+### "Enviar ruta por WhatsApp"
 
-Banner amarillo después del OCR: "Revisá los campos antes de enviar. La IA puede equivocarse, sobre todo en montos, número de ticket y descripción." + botón "Re-analizar".
-
-### Sub-tab "Mis rendiciones"
-Lista de todas las rendiciones del vendedor con tags por estado:
-- 🟡 Pendiente de aprobación
-- 🟢 Aprobada (sale en el Excel)
-- 🔴 Rechazada (con motivo)
-
-Botón **"Exportar Excel (solo aprobadas)"**: descarga un xlsx con formato **Shimano oficial**:
-- Hoja "RENDICIÓN" con título "PLANILLA RENDICIÓN" en fila 2, subtítulo "gastos visitas DD-MM-AAAA" en fila 4, headers en fila 8.
-- Columnas: FECHA / NUMERO DE TICKET / DESCRIPCIÓN / MODO DE PAGO / MONEDA / TIPO DE GASTO / IMPORTE / DIVISIÓN GASTO / OBSERVACIONES.
-- Totales por moneda + cantidad de tickets al final.
-- Hoja "Solicitudes" con los anticipos aprobados (si hubo).
-- Hoja "Desplegable" con las listas de validación.
-- Nombre archivo: `RENDICION DE GASTOS DD DE MES AAAA.xlsx`.
-
-### Flujo de aprobación
-- Cuando vendedor envía → `status='pending_approval'`.
-- Se determina el aprobador leyendo `myRendicionesApproverUid` del rol del vendedor.
-- Se manda notif tipo `rendicion_approval` al aprobador (SOLO a él, no broadcast).
-- Aprobador ve la notif en su pestaña Notificaciones → "Ver detalle y decidir" → modal con todos los datos + foto del ticket ampliable → Aprobar / Rechazar (rechazo pide motivo obligatorio).
-- Vendedor recibe `rendicion_approval_ack` con el resultado.
-- Solo las APROBADAS aparecen en el Excel.
+Genera un link de Google Maps con todas las tiendas de la ruta como waypoints. Si la tienda tiene `client_master.address`, usa esa dirección exacta. Sino usa el nombre + localidad. Abre WhatsApp con un mensaje preformateado.
 
 ---
 
-## 15) Sección: Alta Clientes
+## 14) Sección: Visita
 
-2 sub-tabs:
+Formulario completo para registrar una visita a tienda:
 
-### Sub-tab "Nueva solicitud"
-Panel cyan arriba: **"🔗 Compartir formulario con el cliente"** con 2 botones:
-- 📋 **Copiar link**: copia al portapapeles `https://shimano-arg.github.io/app-vendedores/alta-cliente.html?vendor=<uid>&vendorName=<nombre>&vendorEmail=<email>`
-- 📱 **Enviar por WhatsApp**: abre wa.me con mensaje pre-armado
+- **Selector de localidad** → incluye localidades de POINTS + altas SAP aprobadas + provisorias (alta rápida).
+- **Dropdown "Tienda de pesca"** → sólo muestra tiendas habilitadas en SAP (filtra prospectos y legacy desde v185+; antes traía todo). Las provisorias también aparecen porque tienen `manualSapPending`.
+- Datos del local: Propio / Alquilado / Compartido, Tamaño, Fidelidad, Relevancia.
+- POP: stickers, displays, banners.
+- Necesidad puntual.
+- Tipo de venta: Casa de pesca, ecommerce, mixto.
+- % Mostrado / % Ecommerce (sliders 0-100).
+- Competencia (texto libre).
+- Oportunidad detectada.
+- Lo más vendido Shimano.
+- Lo que más preguntan.
+- Ayuda que necesita la tienda.
+- **Foto del frente del local** (obligatoria).
+- **Hasta 5 fotos del espacio interior** (opcionales).
+- **GPS doble-check**: la app saca lat/lng al iniciar el form y al guardar; si la distancia con `client_locations` es > 500m, marca `gpsStatus: 'outside'`.
 
-Debajo, el formulario completo con 3 secciones:
+VDI puede cargar visitas en nombre de un VDE pareja.
 
-#### Sección "Datos del comercio" (13 campos)
-E-mail, Nombre del comercio, Nombre de fantasía, CUIT, Condición fiscal (RI/Monotributo/Exento/CF/RNI), Calle, Número, Localidad, Provincia, CP, Teléfono, Web, Redes (IG/FB).
+### Export Visitas mensual (NUEVO)
 
-#### Sección "Datos de contacto" (6 campos)
-Nombre y apellido, Tel particular, WhatsApp/celular, E-mail contacto, Tipo de comercio (PESCA/OUTDOOR/CAZA/MULTIRUBRO), Tienda online (MELI/Web propia/Otros/No tiene).
+Botón "Exportar visitas del mes" → genera un Excel con **foto del frente embebida** (vía **ExcelJS** lazy-load). Las columnas incluyen todos los campos del formulario + fecha + vendedor + provincia + localidad. La foto va incrustada en la celda correspondiente (no como link).
 
-#### Sección "Documentación a adjuntar"
-- Constancia ARCA (1 imagen/PDF) — obligatorio
-- Constancia IIBB (1 imagen/PDF) — obligatorio
-- Fotos del local (hasta 5, frente e interior) — obligatorio
+---
+
+## 15) Sección: Dashboard
+
+Dashboard comparativo con:
+- KPIs del mes vs target (% cumplimiento ARS).
+- Comparativa entre vendedores (tabla + gráfico).
+- Top SKUs vendidos.
+- Top clientes por facturación.
+- Filtros: mes / año / vendedor / categoría.
+
+---
+
+## 16) Sección: Rendiciones
+
+Carga de gastos del vendedor con OCR automático:
+
+1. Vendedor saca foto del ticket (**foto y N° de ticket son opcionales desde v188+**; antes la foto era bloqueante).
+2. La foto se manda a **Gemini API** (`gemini-2.5-flash`) con un prompt estructurado.
+3. Gemini devuelve JSON con: fecha, monto, comercio, tipo de gasto.
+4. Vendedor verifica y ajusta si hace falta.
+5. Se guarda en `rendiciones/{docId}` con `status: pending_approval`.
+6. El aprobador (configurado en `roles/{vde}.rendicionesApproverUid`) la aprueba o rechaza.
+
+### Tipos de gasto
+
+Combustible, peajes, alojamiento, comidas, varios.
+
+### Export Rendiciones mensual (NUEVO)
+
+Botón "Exportar rendiciones del mes" → Excel con **foto del ticket embebida** (ExcelJS lazy-load) + más columnas:
+
+- Concepto
+- N° Ticket
+- Modo de pago
+- Tipo de gasto
+- División
+- Importe USD (calculado con TC del período)
+- Aprobador
+- Aprobado en (timestamp)
+
+### Fix de Firestore Rules (v189+)
+
+Antes: el vendedor no podía submitter si tenía aprobador asignado porque las rules intentaban leer `/roles/{approverUid}` (que el VDE no tenía permiso de leer). Fix:
+- El cliente lee `app_config/users_directory` (público) para resolver el email del aprobador.
+- Se cachea el email en `localStorage` con TTL.
+- Las rules permiten escribir la rendición sin necesitar leer `/roles` ajenos.
+
+---
+
+## 17) Sección: Alta Clientes
+
+Tab con **3 sub-tabs**:
+1. **Nuevo cliente** (formal, doble aprobación).
+2. **Alta rápida** (provisorio, NUEVO desde v183+).
+3. **Mis solicitudes** (ver/eliminar las propias).
+
+### Flujo formal "Nuevo cliente" (doble aprobación)
+
+End-to-end:
+
+1. **Vendedor (o público vía `alta-cliente.html`)** carga la solicitud con:
+   - Datos del comercio (razón social, fantasía, CUIT, condición fiscal).
+   - Dirección completa.
+   - Foto ARCA + IIBB + hasta 3 fotos del local.
+
+2. **Estado**: `pending_approval`.
+
+3. **Aprobador** (admin / gerente / interno) ve la notificación.
+
+4. **Modal de aprobación** con campos extras:
+   - **CardCode SAP B1** (input — sin esto no se pueden crear pedidos).
+   - **Vendedor asignado** (dropdown VDE / VDI / Distribuidor).
+   - **Localidad final** (override si la declarada no matchea).
+
+5. Necesita **2 aprobaciones** distintas para pasar a `approved`.
+
+6. Cuando se aprueba → listener `ensureApprovedAltasListener` la agrega al mapa en su provincia/localidad con el vendor asignado.
+
+7. El vendedor entra a la app y ve la tienda en su zona como "Habilitada" lista para crear pedidos.
+
+### Flujo "Alta rápida" (NUEVO en v183+)
+
+Para cuando el vendedor necesita crear un pedido **YA** y no puede esperar la doble aprobación + carga en SAP:
+
+1. Sub-tab **"Alta rápida"** → formulario corto: comercio, dirección, **provincia + localidad obligatorias**, dueño.
+2. Crea un documento en `client_applications` con:
+   - `source: 'alta_rapida'`
+   - `manualSapPending: true`
+   - `status: 'approved'` (la app no exige doble aprobación para alta rápida).
+3. **Notifica automáticamente a admin** (`type: 'alta_rapida_creada'`) con texto "X dio de alta rápida a ... — hay que cargarlo manualmente en SAP".
+4. La tienda aparece **al instante** en:
+   - Mapa (pin SAP).
+   - Picker de Pedidos (`buildPedidoVisibleKeysSet`).
+   - Visitas (dropdown localidad + tienda).
+   - Rutas (picker custom).
+5. Se identifica con badge **"⚡ PROVISORIO (cargar a SAP manual)"** + fondo crema en todas las vistas.
+6. Admin más tarde la carga formalmente a SAP, le pone `cardCodeSap`, y `manualSapPending` queda `false`.
 
 ### Sub-tab "Mis solicitudes"
-Lista de solicitudes del vendedor con tags por estado: Pendiente (X/2 aprobaciones) / Aprobada / Rechazada con motivo.
 
-### Flujo de doble aprobación
-- Al enviar → `status='pending_approval'`, `approvals={}`.
-- Se manda notif `client_approval` a los **2 aprobadores hardcoded** (`CLIENT_APPLICATION_APPROVER_EMAILS`):
-  - `srb90284@gmail.com` (Santiago)
-  - `quilgym@gmail.com` (Diego)
-- Cada uno entra al notif → "Ver detalle y decidir" → modal con todos los datos + thumbnails de docs clickeables.
-- Aprobar → `approvals[uid] = { approvedAt, email, name }`.
-- Cuando el doc tiene 2 entradas en `approvals` → `status='approved'` automáticamente.
-- Se manda `client_approval_ack` al vendedor con el resultado.
-- Si alguno rechaza primero → `status='rejected'` + motivo + ACK al vendedor.
+Lista las altas creadas por el usuario. **Botón Eliminar** (NUEVO v184+) con guard: **NO permite borrar altas que ya tienen `cardCodeSap`** (porque significa que están cargadas en SAP). Las rules también validan esto server-side.
 
-### Página standalone `alta-cliente.html`
-Formulario público (sin login) que vive en el mismo repo. Conecta al mismo proyecto Firebase sin auth (las rules permiten create cuando `submittedByPublicForm=true` con validaciones mínimas: comercio + cuit + status=pending_approval).
+### Auto-aparición en el mapa
 
-Recibe en query string: `vendor`, `vendorName`, `vendorEmail`. Muestra "Enviada a través de: NOMBRE" como atribución visual. Al enviar, crea el doc en `client_applications` con `submittedByPublicForm: true`, `ownerUid: vendorUid`, `ownerName: vendorName`. Después sigue el flujo de aprobación normal.
+Implementado con un index global `approvedAltasByLoc[PROV|LOCALIDAD]`. `effClients(p)` suma las altas de esa localidad al listado del point. `filteredPoints()` incluye points cuya localidad tenga alguna alta asignada al vendor del filtro.
+
+### `drawSapAltaPins` — anclaje a centroide de localidad (v186+)
+
+Cuando un alta SAP no tiene `lat/lng` (no se geocodificó todavía), el pin se dibuja en el **centroide de su localidad** si se conoce, no en el medio de la provincia. Esto evita el problema visual histórico de tiendas SAP apiladas en el centro de la provincia.
+
+Además respeta `vendor_overrides` vía `getEffectiveVendorForSapAlta(a)`: si la tienda fue reasignada por modal Zonas, el pin se pinta con el color del vendor efectivo.
 
 ---
 
-## 16) Sección: Notificaciones (Alertas y tareas)
+## 18) Sección: Notificaciones (Alertas y tareas)
 
-Modal con **4 tabs** (en mobile: grid 2×2):
+3 sub-tabs:
+- **Recibidas**: alertas + tareas + derivaciones VDI pendientes.
+- **Realizadas**: las ya cerradas.
+- **Crear tarea**: form para mandarle una tarea a otro usuario con texto + imágenes.
 
-### Tab "Recibidas"
-Lista de las notifs con `status='unread'` dirigidas al usuario. Cada item se renderiza según el `type`:
+Tipos de notificación:
+- `partner_action` (subtype `order_created`): VDI cargó un pedido en nombre del VDE.
+- `client_approval_ack`: tu alta cliente fue aprobada.
+- `alta_rapida_creada`: notifica a admin cuando un vendedor crea un cliente provisorio que hay que cargar a SAP manual.
+- Derivaciones de ruta.
+- Tareas manuales entre usuarios.
 
-| Type | Render | Acciones |
-|---|---|---|
-| `derivacion` | Tienda + mensaje + ubicación | "Contactar" (abre form visita con tienda pre-cargada) / "Solo marcar leída" |
-| `task` | Título + descripción + thumbnails de imágenes (click → fullscreen) | "Marcar como completada" → status='done' + manda task_ack al emisor |
-| `task_ack` | Mensaje "X marcó como completada tu tarea" | "Marcar leída" |
-| `client_approval` | Resumen de la solicitud + Vendedor + CUIT + Localidad | "Ver detalle y decidir" (Aprobar / Rechazar) |
-| `client_approval_ack` | Aprobada/Rechazada + motivo si aplica | "Marcar leída" |
-| `rendicion_approval` | Tipo + importe + moneda + ticket | "Ver detalle y decidir" |
-| `rendicion_approval_ack` | Aprobada/Rechazada | "Marcar leída" |
+### Botón Eliminar por card (NUEVO en v179+)
 
-### Tab "Realizadas"
-Notifs con `status='read'` o `status='done'`. Solo lectura, sin botones.
-
-### Tab "Crear tarea"
-Formulario:
-- Destinatario: dropdown con todos los usuarios con rol asignado (excluye unassigned y self).
-- Título corto (max 100 chars)
-- Descripción (textarea)
-- Imágenes: hasta 5 fotos comprimidas a 1200px@75% calidad.
-- Botón "Enviar tarea" → crea notif type='task'.
-
-### Tab "Enviadas"
-Tareas que el usuario creó. Listener `where('fromUid', '==', currentUser.uid)` y filtra `type='task'` en cliente (evita índice compuesto). Muestra estado actualizado en tiempo real (cambia a "✓ Completada" cuando el destinatario marca done).
-
-### Badge rojo en la pestaña
-Cuenta solo las **pendientes** (status ≠ read y ≠ done). Se actualiza vía `updateNotifsBadge` cada vez que el listener `myNotifications` se dispara.
-
-### Image viewer fullscreen
-Click en cualquier thumbnail abre overlay oscuro fullscreen con la imagen ampliada. Click-out cierra.
+Cada notificación recibida tiene un **botón Eliminar rojo** alineado a la derecha. Borra el doc de `notifications/{fsId}` (las rules permiten delete si auth.uid == targetUid). Funciona para **todos los tipos**, no sólo tareas. Útil para limpiar la bandeja sin esperar a marcar como hecho.
 
 ---
 
-## 17) Sistema VDE-VDI (vendedor externo / interno)
+## 19) Sistema VDE-VDI (vendedor externo / interno)
 
-VDE = vendedor externo (recorre el campo). VDI = vendedor interno (oficina). Cada VDE tiene un **VDI pareja** asignado en Panel Usuarios (`internalPartnerUid`).
+### Concepto
 
-### Caso de uso típico
-1. Gonzalo (VDE Z1) recorre San Pedro. Visita "MARIANO-PESCA" pero la encuentra cerrada.
-2. Gonzalo abre la ruta del día → toca la tienda → "La tienda está cerrada" → "Derivar al VDI".
-3. Se crea `route_overrides` con `action='derivada'`, `derivedToUid: quilgymUid`.
-4. Se crea notif `derivacion` para `quilgym@gmail.com` (Diego, el VDI).
-5. La card de "MARIANO-PESCA" en la ruta de Gonzalo queda 🟡 amarilla "Derivada VDI".
-6. Diego abre la app, ve la notif → "Contactar" → form de visita con tienda pre-cargada.
-7. Diego completa la visita (sin foto del frente, porque está en la oficina). Envía.
-8. Listener `unsubVisitsPartner` de Gonzalo detecta la visita del partner (filter `ownerUid == myInternalPartnerUid`) y actualiza el cache.
-9. La card de Gonzalo pasa automáticamente de 🟡 amarillo a 🟢 verde sin recargar.
+- **VDE** (vendedor externo): visita las tiendas, recibe pedidos. Su zona es restringida geográficamente.
+- **VDI** (vendedor interno): hace soporte desde la oficina. Atiende llamadas de tiendas, carga pedidos en nombre de un VDE pareja cuando este está en ruta.
 
-### Visitas del VDI
-- Campo "Frente del local" no obligatorio.
-- El asterisco rojo del label se oculta.
-- La hint dice "(opcional - 1 foto)".
+### Configuración de pareja
 
----
+En el panel admin "Usuarios", al vendedor VDE le aparece un campo dropdown "**Pareja interno**". Se elige un usuario con rol `interno`. Esto setea `roles/{vde}.internalPartnerUid = uid_vdi`.
 
-## 18) Campañas comerciales
+### Filtrado para VDI
 
-Solo admin puede crear/editar/borrar.
+El VDI ve en el mapa **solo las zonas de sus VDEs pareja**. Implementado en `loadMyExternalPartners()`:
+1. Listener `where('internalPartnerUid', '==', currentUser.uid)` sobre `roles`.
+2. Filtra los que tienen `role = 'vendedor'`.
+3. Construye `myExternalPartners` con vendor key de cada VDE.
 
-### Crear campaña (modal violeta)
-Form en cascada:
-1. **Familia** (dropdown).
-2. **Subfamilia** (filtrada por familia).
-3. **SKUs incluidos** (checkbox list con todos los SKUs de esa subfamilia).
-4. **Nombre** de la campaña.
-5. **Objetivo**: Unidades / Monto $ (toggle).
-6. **Fechas** desde/hasta.
-7. **Alcance**: TODAS LAS ZONAS / POR PROVINCIA / POR VENDEDOR.
+Cuando el VDI abre el header, el dropdown Zona muestra sus VDEs como opciones.
 
-### Botón "Campañas activas" (header amarillo)
-Disponible para todos los roles. Modal con las campañas vigentes (`startDate <= today <= endDate`):
-- Para vendedores: filtradas por `isCampaignApplicableToVendor()` (su provincia / su vendedor key).
-- Para admin/viewer: todas.
-- Cada card: nombre + fechas + objetivo + ámbito + SKUs (colapsable).
+### Acción en nombre de
 
-### Highlight en picker de productos
-Cuando un vendedor está armando un pedido, los SKUs que pertenecen a una campaña activa aplicable se renderizan con **fondo amarillo claro + borde naranja + badge ★ CAMP**.
+En el modal "Confirmar Pedido" y "Visita", si el usuario es VDI con parejas, aparece un dropdown "**Crear en nombre de**" con opciones VDE.
+
+Al confirmar:
+- `ownerUid = uid_vde` (dueño es el VDE).
+- `createdByUid = uid_vdi` (auditoría).
+- `onBehalfOf = true`.
+
+El VDE recibe una notificación automática "X cargó un pedido en tu nombre".
 
 ---
 
-## 19) Targets mensuales
-
-Solo `admin` o `gerente` pueden cargar (función `canManageTargets`). Botón **TARGETS** en el header (oculto para los demás).
-
-### Panel Targets
-Modal con selector de Vendedor + Año + tabla de 12 meses (Enero a Diciembre). Por cada mes:
-- Input numérico de Target ARS.
-- Tag de estado: Asignado (verde) / Sin cargar (gris).
-- Highlight del mes actual.
-
-Al guardar:
-- Si el valor está vacío → borra el doc.
-- Si tiene valor → upsert en `targets/{vendorKey}_<year>_<MM>`.
-
-El dashboard usa estos targets para calcular % cumplimiento.
-
----
-
-## 20) Panel Master Clientes (direcciones)
-
-Solo admin. Botón **MASTER CLIENTES** en el header.
-
-Modal con:
-- **Filtros**: Vendedor, Provincia, Localidad (dependiente), Estado (con/sin dirección), Buscador por nombre.
-- **Stats arriba**: Con dirección X / Sin dirección Y / Total filtrado Z / Cambios sin guardar.
-- **Tabla**: cada fila = una tienda (clients + prospects). Columnas: Tienda + tag, Localidad, Provincia, Vendedor, Input dirección, Botón Guardar.
-
-El botón Guardar se vuelve ámbar y pulsa cuando hay cambios sin guardar en esa fila.
-
-### Cómo lo usa el WhatsApp de rutas
-`buildStopRef(tienda)` consulta en orden de prioridad:
-1. GPS de `client_locations` (coordenadas).
-2. Dirección de `client_master` (string con dirección).
-3. Fallback al nombre.
-
-Cargar direcciones mejora la precisión del link Google Maps que se manda por WhatsApp.
-
----
-
-## 21) Integración SAP B1
-
-Panel **SAP** del header (admin + viewer + vendedor; cada vendedor ve solo sus pedidos).
-
-### 4 tabs (solo admin ve las 2 últimas)
-- **Pendientes de SAP**: pedidos confirmed sin transferir, separados en "Listos" (con CardCode asignado) y "Bloqueados" (sin alta SAP del cliente).
-- **Ya transferidos**: histórico, modo lectura.
-- **Mapeo Clientes** (solo admin): tabla con todas las tiendas + input CardCode SAP + bulk import (TAB/coma).
-- **Mapeo Productos** (solo admin): tabla con todos los SKUs + input Material SAP + bulk import.
-
-### Exportar ZIP DTW
-Botón "Exportar ZIP DTW (Listos)" genera un ZIP con:
-- `ORDR - Documents.csv`: cabeceras de Sales Order (2 filas header API+Internal + datos)
-- `RDR1 - Document_Lines.csv`: líneas de pedido
-- `LEEME.txt`: instrucciones paso a paso para DTW
-
-Campos que completa al CSV:
-- `CardCode` ← `sap_clients[clientName]`
-- `ItemCode` ← `sap_products[code]` (fallback al code app)
-- `DocDate`, `DocDueDate` (+30 días), `TaxDate`
-- `WarehouseCode` = `07` (PESCA hardcoded)
-- `Comments` = `"AppShimano | <Tienda> | <Mes> | <Email vendedor>"`
-- `NumAtCard` = ID Firestore del pedido (trazabilidad)
-- `SalesPersonCode` ← `sap_vendors[vendorKey].slpCode`
-- `DiscountPercent` = 0
-
-### Marcar lote como transferido
-Después de subir el CSV a DTW, el vendedor (o admin) tilda los pedidos y toca "Marcar lote como transferido (N)" → modal pide opcional el rango de DocNum SAP creado → actualiza cada pedido con `transferidoSAP: { transferredAt, transferredBy, batchId, sapDocRange }`.
-
-### Panel "Integración SAP" (solo Mariano)
-Dentro de "Exportar para Análisis" (PIN 1235) → opción "Integración SAP" → modal con 3 inputs file:
-- **Business Partners**: Excel/CSV con `CardCode, CardName` (acepta variaciones de nombre de columna).
-- **Items**: `ItemCode, ItemName`.
-- **Sales Employees**: `SlpCode, SlpName`.
-
-Al procesar:
-- **Match exacto normalizado** (NFD + lowercase + sin "S.A./SRL/LTDA/CIA").
-- Productos: match por código case-insensitive.
-- Vendedores: match `SlpName` contra `VENDORS.key`.
-
-Resultados en 3 cards: Matches OK / Ambiguos / Sin match. Botón "Descargar reporte CSV" + "Aplicar a Firestore" (escribe a `sap_clients`, `sap_products`, `sap_vendors` con `source: 'sap_integration_v1'`).
-
-### UDFs a crear en SAP (pendiente SEIDOR)
-En la tabla **ORDR** (Sales Order header):
-
-| UDF | Tipo | Valores |
-|---|---|---|
-| `U_AppOrigen` | Alfanumérico 20 | Valid Values: `APP / SAP_MAN / SAP_TEL` (default `SAP_MAN`) |
-| `U_AppOrderId` | Alfanumérico 50 | Texto libre (ID Firestore) |
-| `U_AppBatchId` | Alfanumérico 30 | Texto libre (timestamp YYYYMMDDHHMMSS) |
-
-Además se pidió crear:
-- **Serie "APP"** para Sales Order Document Numbering (numeración separada de manual).
-- **6 Sales Employees** (los 6 vendedores externos) → se mapean en `sap_vendors`.
-
----
-
-## 22) OCR de tickets con Gemini API
-
-### Configuración
-- **Provider**: Google Gemini API.
-- **Modelo**: `gemini-2.5-flash` (alta calidad multimodal, free tier 3M tokens/día).
-- **Endpoint**: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`.
-- **API key**: vive en **Firestore** (`app_config/gemini.apiKey`), NO en el código fuente del repo público.
-- **Carga de key**: Panel Usuarios → sección violeta "Gemini API Key" → botón "Cargar/Cambiar key" → prompt para pegarla.
-- **Lectura desde la app**: `getGeminiApiKey()` async lee del cache local o de Firestore.
-
-### Flujo
-1. Vendedor en sub-tab "Rendir gasto" sube foto del ticket (cámara o galería).
-2. Auto-llamada a `extractTicketDataWithGemini(dataUrl)`.
-3. Body del request:
-   ```json
-   {
-     "contents": [{
-       "parts": [
-         { "text": "<prompt con esquema JSON>" },
-         { "inline_data": { "mime_type": "image/jpeg", "data": "<base64>" } }
-       ]
-     }],
-     "generationConfig": {
-       "response_mime_type": "application/json",
-       "temperature": 0.1
-     }
-   }
-   ```
-4. El prompt fuerza a Gemini a devolver JSON con 10 campos válidos (dropdowns hardcoded del sistema Shimano).
-5. `fillRendGastoFormFromOcr(json)` autocompleta los inputs/selects del form. Para los selects, hace match case-insensitive contra las opciones válidas.
-6. Banner amarillo después: "Revisá los campos antes de enviar".
-
-### Restricciones de seguridad (recomendadas)
-- En Google Cloud Console → Credentials → editar la key:
-  - **API restrictions**: solo "Generative Language API".
-  - HTTP referrer (si la key no está vinculada a Service Account): `shimano-arg.github.io/*`.
-- Si se filtra: el peor escenario es que alguien agote tu cuota gratis. Mitigación: rotar la key desde el Panel Usuarios.
-
----
-
-## 23) PWA installable
-
-La app puede instalarse en el home del celular como app standalone.
-
-### Archivos PWA en el repo
-- `manifest.json`: nombre, íconos, theme color (#00A9E0), background color (#ffffff), display=standalone, start_url=./
-- `sw.js`: service worker mínimo:
-  - **HTML (index.html)**: network-first con fallback a cache. Garantiza que el usuario siempre ve la última versión.
-  - **Assets locales** (manifest, íconos, logo): cache-first. No cambian salvo deploy.
-  - **CDNs externos** (firebase, leaflet, sheetjs, openstreetmap tiles): NO se interceptan. Pasan directo a la red.
-- Íconos: `icon-180-v3.png` (iOS), `icon-192-v3.png` (Android), `icon-512-v3.png`, `icon-512-maskable-v3.png` (Android adaptive icons).
-
-### Versionado de cache
-Constante `CACHE_VERSION` en `sw.js` (actualmente `'v3'`). Bumpearla invalida el cache viejo. Los íconos tienen `-v3` en el nombre para forzar refresh en iOS (que cachea agresivamente).
-
-### Instalación en celular
-- **Android Chrome**: prompt automático "Agregar a pantalla principal" o desde menú "Instalar app".
-- **iPhone Safari**: Compartir → Agregar a pantalla de inicio. (Chrome iOS no permite instalar PWAs por restricción de Apple.)
-
-### Notas
-- El **theme color** se aplica al status bar Android.
-- El **background color** es el splash screen al abrir la PWA.
-- Cuando se cambian íconos hay que **bumpear versión** y renombrar archivos para invalidar el cache de iOS.
-
----
-
-## 24) Backup mensual
-
-Acceso: admin → "Exportar para Análisis" (PIN 1235) → opción "Backup mensual + limpiar fotos" (borde naranja, badge ADMIN).
-
-### Flujo
-1. Selector mes / año (default: mes pasado).
-2. Toca "Generar backup" → en 30-90 segundos descarga 4 archivos:
-   - **`Shimano_Fotos_YYYY-MM.zip`**: organizado por `Vendedor/Tienda_YYYYMMDD/{frente.jpg, espacio_N.jpg}`.
-   - **`Shimano_Visitas_YYYY-MM.xlsx`**: metadata de cada visita del mes (sin fotos).
-   - **`Shimano_Pedidos_YYYY-MM.xlsx`**: líneas de pedido de los confirmados del mes.
-   - **`Shimano_Rutas_YYYY-MM.xlsx`**: 2 hojas (Cumplimiento por vendedor + Detalle rutas con # asignadas vs visitadas y %).
-3. Después de verificar que los archivos están OK, botón rojo **"Borrar fotos del mes (N)"** → pide PIN 1234 → para cada visita del mes hace:
-   ```js
-   visits/{id}.update({
-     frenteLocal: FieldValue.delete(),
-     espacio: FieldValue.delete(),
-     photosDeletedAt: serverTimestamp,
-     photosDeletedBy: currentUser.email
-   })
-   ```
-4. Las visitas quedan intactas, solo se eliminan las imágenes. Esto controla el crecimiento de Firestore.
-
-### Envío automático mensual (NO implementado)
-La app no manda email automático (es estática, sin backend). Alternativas para automatizar:
-- **Firebase Cloud Functions** + Cloud Scheduler + SendGrid (Blaze plan).
-- **GitHub Actions** con cron + service account + nodemailer (gratis).
-
----
-
-## 25) Exports a Excel / Power BI / ML
-
-Botón "EXPORTAR PARA ANÁLISIS" (PIN 1235) abre modal con 5+ opciones:
-
-| Opción | Descripción |
-|---|---|
-| **Power BI** | Tabla de hechos + dimensiones (vendedor, producto, cliente, calendario, campaña). Modelo estrella importable directo. |
-| **Python / ML** | Una tabla larga (`master_ml`) con 24 columnas por línea de pedido. Para pandas/scikit-learn. |
-| **Fotos de visitas (ZIP)** | ZIP con todas las fotos organizadas por vendedor/tienda/fecha. |
-| **Excel con fotos embebidas** | XLSX donde cada visita lleva la foto del frente DENTRO de la celda (usa ExcelJS 4.4.0 lazy load). |
-| **Integración SAP** (solo Mariano) | Cruce de masters SAP con la app (descrito arriba). |
-| **Backup mensual + limpiar fotos** (solo admin) | Descrito arriba. |
-
-Botón "EXPORTAR A EXCEL" (verde, sin PIN) abre otro modal con:
-- **Excel ejecutivo**: consolidado + hoja por vendedor + visitas + contactados + log.
-- **Excel de visitas**: solo visitas.
-
----
-
-## 26) Panel admin "Usuarios"
-
-Botón "USUARIOS" en el header (solo admin). Modal con 3 secciones:
-
-### 1. Emails pre-autorizados (sección azul)
-Lista de chips con los emails de `allowed_emails`. Botón "+ Agregar email" → prompt email + nota. Cada chip tiene botón X para quitar.
-
-### 2. Gemini API Key (sección violeta)
-Muestra la key enmascarada + quien la cargó + cuándo. Botones "Cambiar key" / "Borrar".
-
-### 3. Tabla de usuarios
-Una fila por cada doc en `/roles`. Columnas:
-- Email + tags (`(VOS)` si self, 🔒 PROTEGIDO si admin protegido)
-- Nombre
-- **Rol** (dropdown)
-- **Vendedor** (dropdown VENDOR keys)
-- **Pareja interno** (dropdown internos disponibles)
-- **WhatsApp** (input tel, se limpia a solo dígitos al guardar)
-- **Resp. rendiciones** (dropdown admin/gerente/interno)
-- **Acciones**: Eliminar (rojo, no aparece para protegidos ni self) + Guardar (verde)
-
-En mobile la tabla se rinde como cards apilados.
-
-### Admins protegidos
-- `bot.shimano.pesca@gmail.com`
-- `erbinomariano@gmail.com`
-
-No pueden eliminarse desde la UI.
-
-### Zona de peligro
-Sección con borde rojo abajo: **"Borrar todo el historial"**.
-Click → prompt pidiendo password `1234` → confirmación final → itera collections `pedidos, visits, campaigns, sap_clients, sap_products, route_overrides, notifications` y borra todo. Limpia `userData`. Crea log `PURGE_TOTAL_HISTORIAL` antes.
-
-Los roles, allowed_emails y app_config se preservan.
-
----
-
-## 27) URLs externas e integraciones
-
-| Servicio | URL | Uso |
-|---|---|---|
-| GitHub Pages | https://shimano-arg.github.io/app-vendedores/ | Hosting del HTML |
-| GitHub repo | https://github.com/shimano-arg/app-vendedores | Source code |
-| Firebase project | app-vendedores-shimano.firebaseapp.com | Auth + DB |
-| Firebase Console | https://console.firebase.google.com/project/app-vendedores-shimano | Mgmt |
-| Google AI Studio | https://aistudio.google.com/app/apikey | Generar API key Gemini |
-| Google Cloud Console | https://console.cloud.google.com/apis/credentials?project=gen-lang-client-0633054372 | Restringir API key |
-| Leaflet | https://unpkg.com/leaflet@1.9.4/ | Mapa (CDN) |
-| OpenStreetMap CartoDB | tiles via cartocdn.com | Tile layer |
-| SheetJS | https://cdn.jsdelivr.net/npm/xlsx@0.18.5 | Excel (CDN) |
-| ExcelJS | https://cdn.jsdelivr.net/npm/exceljs@4.4.0 | Excel con fotos (lazy) |
-| JSZip | https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1 | ZIP (CDN) |
-| Firebase compat SDK | https://www.gstatic.com/firebasejs/10.7.1/ | App+Auth+Firestore |
-| Gemini API | https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent | OCR |
-| WhatsApp | https://wa.me/ | Compartir rutas y links de alta cliente |
-| Google Maps Directions | https://www.google.com/maps/dir/?api=1 | Rutas WhatsApp |
-
-### Origins permitidos en Firebase Auth
-- `app-vendedores-shimano.firebaseapp.com`
-- `shimano-arg.github.io`
-- localhost (para testing)
-
----
-
-## 28) Convenciones de código
-
-### Idioma
-Comentarios y mensajes al usuario en **español rioplatense informal**. Identificadores en inglés cuando son técnicos (uid, status, etc.).
-
-### Nomenclatura
-- Funciones globales expuestas en `window.X` para que `onclick="X()"` del HTML las encuentre.
-- Listeners de Firestore: `unsubXxx` (función para desuscribir) + `ensureXxxListener()` (idempotente).
-- Cache local: `xxxCache` (Map o array).
-- Constantes UPPER_SNAKE_CASE.
-
-### Manejo de estados
-- Pedidos: `stage='confirmed'` (único valor real). Los borradores viven en `userData.orders`.
-- Visitas: `mes` UPPERCASE (`'JUNIO'`). Cuando se compara contra `MESES[idx]` (capitalización normal), siempre hacer `.toUpperCase()` en ambos lados.
-- Aprobaciones: `status='pending_approval' | 'approved' | 'rejected'`.
-- Tareas: `status='unread' | 'read' | 'done'`.
-
-### Helpers comunes
-- `titleCase(s)`: primera letra mayúscula del primer token.
-- `escapeHtml(s)`: para usar en innerHTML.
-- `escapeAttr(s)`: para usar en atributos.
-- `fmtMoney(n)`: `$1.234.567` (es-AR).
-- `fmtNum(n)`: con separadores de miles.
-- `fmtUSD(n)`: `USD 1,234`.
-- `arsToUsd(ars)`: `ars / EXCHANGE_RATE`.
-- `haversineKm(lat1, lon1, lat2, lon2)`.
-- `compressImage(file, maxWidth, quality)`: redimensiona y comprime a JPEG base64.
-- `sapNorm(s)`: normaliza nombres (NFD + uppercase + sin acentos + sin "S.A./SRL").
-- `clientLocId(prov, loc, tienda)`: docId determinístico para `client_locations` y `client_master`.
-- `emailToDocId(email)`: para `allowed_emails`.
-
-### Patrón listener
-```js
-let myCache = [];
-let unsubMy = null;
-function ensureMyListener(){
-  if (unsubMy || !currentUser || !fbDb) return;
-  unsubMy = fbDb.collection('xxx').where(...).onSnapshot(qs => {
-    myCache = [];
-    qs.forEach(d => myCache.push({...}));
-    // re-render condicional
-  }, err => console.warn('xxx listener', err));
+## 20) Provincias hardcoded a VDIs
+
+Para que sin filtros el mapa muestre las regiones de distribuidores con el color del VDI correspondiente:
+
+```python
+IOANNIS_PROVINCES = {
+    'TIERRA DEL FUEGO', 'SANTA CRUZ', 'CHUBUT', 'RIO NEGRO',
+    'NEUQUEN', 'LA PAMPA', 'MENDOZA',
+}
+SANTIAGO_PROVINCES = {
+    'SAN JUAN', 'SAN LUIS', 'JUJUY', 'SALTA', 'CATAMARCA',
+    'SANTIAGO DEL ESTERO', 'FORMOSA', 'CHACO', 'MISIONES',
+    'LA RIOJA', 'TUCUMAN',
 }
 ```
 
-### Listeners centrales
-Activados en `applyRolePermissions` cuando `userRole !== 'unassigned'`:
-- `ensureNotifsListener`
-- `ensureRouteOverridesListener`
-- `ensureTargetsListener`
-- `ensureClientLocsListener`
-- `ensureSapVendorsListener`
-- `ensureClientMasterListener`
-- `ensureAltaCliListener`
-- `ensureRendicionesListener`
+Aplicado en el build script al asignar `dept['vendor']`: si la provincia está en uno de los sets, sobreescribe el vendor por el VDI correspondiente.
+
+Cuando se filtra Ioannis → ve **sus provincias + Federico + Gonzalo**. Idem Santiago con Mauricio + Martin.
 
 ---
 
-## 29) Regenerar y deployar
+## 21) Campañas comerciales
 
-### Workflow normal (cambios en código JS dentro del template Python)
-```powershell
-cd "C:\Users\shimano.sandbox\Desktop\MASTERFILES\PROSPECTOS\MAPAS"
-python _build_argentina_zonas_v2.py
-Copy-Item Mapa_Argentina_Shimano_Zonas.html "C:\Users\shimano.sandbox\Desktop\APP VENDEDORES\index.html"
-cd "C:\Users\shimano.sandbox\Desktop\APP VENDEDORES"
-git add index.html
-git commit -m "descripción del cambio"
-git push
+Admin crea campañas con:
+- Nombre + descripción.
+- Fechas vigencia (desde / hasta).
+- SKUs incluidos.
+- Zonas / vendedores aplicables.
+
+En el picker de productos del pedido, los SKUs en campaña activa aparecen marcados con badge **★ CAMP**.
+
+Tab "Campañas Activas" (botón amarillo del header) muestra el detalle.
+
+---
+
+## 22) Targets mensuales
+
+Gerente carga el target de facturación en USD para cada mes:
+- Julio 2026 USD
+- Julio-Diciembre 2026 USD
+- Anual 2027 USD
+
+Tipo de cambio se carga desde el master. Targets en ARS se calculan automáticamente.
+
+Dashboard muestra % de cumplimiento del mes contra target.
+
+---
+
+## 23) Panel Master Clientes + import SAP
+
+### Master Clientes — Direcciones
+
+Tab que lista todas las tiendas del mapa con un input para cargar la **dirección exacta** de cada una. Mejora la precisión del link de Google Maps al enviar la ruta por WhatsApp.
+
+Filtros: vendor / provincia / localidad / estado / búsqueda.
+
+### Dropdown editable de provincia para altas SAP (NUEVO en v185+)
+
+Las filas que son altas SAP (no POINTS originales) tienen un **dropdown editable de provincia** en la columna provincia. Al cambiar la provincia:
+- Se actualiza `client_applications.{id}.provincia`.
+- Se **auto-infiere el vendor** según `inferVendorFromProvince()` + `PROVINCE_VENDOR_OVERRIDE` + sets VDI hardcoded.
+- Se **limpian `lat/lng`** para forzar re-geocodificación en la próxima corrida de "Reubicar pines".
+
+### Altas SAP sin provincia → grupo "(sin provincia)" (v186+)
+
+Antes: las altas que se importaban sin provincia quedaban invisibles (no se mostraban en Master Clientes). Ahora aparecen bajo un grupo virtual **"(sin provincia)"** así Admin las puede ver y completarles la provincia con el dropdown.
+
+### Import desde SAP B1
+
+Botón naranja **📥 Importar desde SAP** abre un sub-modal con drop zone para subir el master de Business Partners exportado de SAP B1 (CSV o XLSX).
+
+### Lógica del import
+
+1. **Parsing tolerante de columnas**:
+   - SKU/CardCode: `CardCode`, `Codigo`, `Code`, `ID`.
+   - Nombre: `CardName`, `Name`, `Nombre`, `Razon Social`.
+   - Dirección: `Address`, `Direccion`, `Street`, `Calle`.
+   - Ciudad: `City`, `Ciudad`, `Localidad`.
+   - Provincia: `State`, `Province`, `Provincia`.
+
+2. **Matching de 3 niveles** entre `cardName` SAP y `clientName` POINTS:
+   - **Exact**: mismo nombre normalizado (uppercase, sin acentos, sin caracteres especiales, sin sufijos `SA`, `SRL`, `SAS`, `EIRL`, `LTDA`).
+   - **Fuzzy**: similitud Levenshtein ≥ 0.82 + misma provincia.
+   - **Sin match**: se crea como cliente nuevo.
+
+3. **Preview** con stats:
+   - Filas en el archivo.
+   - Matches exactos (verde) + fuzzy (ámbar) + nuevas (azul).
+   - Lista de fuzzy con porcentaje (para verificación manual).
+   - Lista de nuevas con CardCode + ciudad.
+
+4. **Apply**:
+   - **Matcheadas**: sobrescribe `client_master` con datos SAP (nombre, dirección, localidad). El nombre/localidad originales se guardan como backup en `clientNameOriginal`/`localidadOriginal`. Se agrega al set `contacted` (auto-habilitar).
+   - **Nuevas**: se crean como `client_applications` con `status: 'approved'` + `source: 'sap_bulk_import'` + **`ownerUid` populado** (fix de permisos: antes las rules rechazaban escrituras sin owner). El vendor se infiere de la provincia con `inferVendorFromProvince()`. Aparecen al instante en el mapa vía `ensureApprovedAltasListener`.
+
+5. **Batches** de 400 docs (límite Firestore es 500). Si el batch falla, **fallback individual** doc-por-doc con log de errores.
+
+6. **Alert visible al final** con conteo real de tiendas creadas + cuántas quedaron **sin provincia** (para que Admin las complete vía el dropdown del Master).
+
+---
+
+## 24) Modal Zonas (reasignación)
+
+Solo admin. Botón violeta **🗺️ Zonas** en el header.
+
+### Tabs
+
+1. **Por tienda**: lista de cada tienda con dropdown para cambiar de vendor.
+2. **Por localidad**: igual pero a nivel localidad (afecta todas sus tiendas).
+3. **Historial**: últimos 50 cambios con quién, cuándo, de quién a quién.
+
+### Destinos disponibles
+
+- **Vendedores externos** (VDE): los 4 reales (Mauricio, Martin, Gonzalo, Federico).
+- **Vendedores internos** (VDI): Ioannis, Santiago.
+- **Otros (admins)**: cargados de Firestore con rol `admin`.
+- **DISTRIBUIDOR**: sale de venta directa, aparece solo en filtro Distribuidores.
+
+### Persistencia
+
+Colección `vendor_overrides/{docId}`. Listener `ensureVendorOverridesListener` aplica los cambios en tiempo real:
+- **Override de localidad**: muta `p.vendor` del POINT → automáticamente afecta el filtro, marker color, contadores.
+- **Override de tienda**: `getEffectiveVendorForClient(p, name)` lo respeta en `effClients(p)`, `filteredPoints()`, y `deptStyle()` (via `deptEffectiveVendor`).
+
+### Distribuidor en deptStyle
+
+Cuando el vendor mayoritario de un dept es `__DISTRIBUTOR__`, **solo se pinta azul si el filtro Tipo = Distribuidores está activo**. Sino, ignora `__DISTRIBUTOR__` del conteo y usa el segundo vendor mayoritario (o el original del Excel).
+
+---
+
+## 25) Integración SAP B1
+
+Dos vías paralelas (no excluyentes):
+
+### Vía 1: ZIP DTW manual (funcional desde 2026-06-19)
+
+Estado: **OPERATIVO** — probado E2E en SHIMANO_TST_06.
+
+#### Cómo funciona
+
+1. Vendedor confirma pedido en la app.
+2. Pasa a estado `pending`.
+3. Admin (vos) marca el pedido como "Listo para SAP" en el panel Pedidos.
+4. Pestaña "Listos" → botón **"Exportar ZIP DTW"**.
+5. Se descarga un ZIP con:
+   - `OQUT - Documents.csv` (cabecera Sales Quotation).
+   - `QUT1 - Document_Lines.csv` (líneas).
+   - `_README.txt` con instrucciones.
+6. Abrir DTW conectado a SAP B1 base correcta.
+7. Import → Transactional Data → Add New Data → Sales → Sales Quotation.
+8. Apuntar a los 2 CSV → Next → Next → Run.
+9. Verificar en SAP que las Quotations se crearon con serie APP + UDFs poblados.
+
+#### Headers del CSV (formato DTW oficial)
+
+Header fila 1: nombres "user-friendly" (UserSign, DocCur, etc).
+Header fila 2: nombres internos SAP (DataSource columns).
+A partir de fila 3: datos.
+
+Total: ~180 columnas. Solo poblamos las necesarias:
+- `DocNum`, `DocType=dDocument_Items`, `HandWritten=tNO`, `Printed=psNo`.
+- `DocDate`, `DocDueDate` (+30 días), `TaxDate`.
+- `CardCode` (del mapeo `sap_clients` o `client_master.sapCardCode`).
+- `Comments` (`AppShimano | cliente | mes | email`).
+- `NumAtCard` (= `_fsId` del pedido en Firestore para trazabilidad legible).
+- `SalesPersonCode` (SlpCode del mapeo `sap_vendors`).
+- `Series` (id 103 PROD / 104 TEST configurado en `app_config.sap_integration.appSeriesId`).
+- `DocObjectCode = '23'` (Sales Quotation — el código numérico, NO el enum string `oQuotations`).
+- `U_AppOrigen = 'SHIMANO_APP_VENDEDORES'`.
+- `U_AppOrderId = <FSId>`.
+- `U_AppBatchId = 'BATCH-YYYYMMDD-HHMMSS-XXXX'` (todos los pedidos del ZIP comparten el BatchId).
+- `U_TipoGasto = <condicionPago>` o `'CONDICION'` si no se eligió.
+
+Líneas (`QUT1`):
+- `ParentKey` = `DocNum` del header.
+- `LineNum`, `ItemCode` (mapeo `sap_products`), `Quantity`, `WarehouseCode='07'`.
+
+### Vía 2: Service Layer directo (preparado, esperando bloqueantes)
+
+Estado: **CÓDIGO LISTO** — en espera de CORS + usuario integración.
+
+#### Configuración
+
+Panel admin → SAP → pestaña **🔗 Service Layer**:
+- URL: `https://shimano-sap.seidor.com.ar:50000`
+- CompanyDB: `SHIMANO_SAU` (PROD)
+- Usuario: `APP_VENDEDORES` (a crear con Juan IT)
+- Password: a definir
+- Toggle: **enabled**
+
+#### Cliente JS (`window.sapSL`)
+
+```js
+sapSL.login()                    // POST /b1s/v1/Login
+sapSL.ensureSession()             // TTL 25 min
+sapSL.fetchWithSession(path, opts) // wrapper con retry 401
+sapSL.createQuotation(payload)    // POST /b1s/v1/Quotations
+sapSL.getStock(itemCode, whsCode) // GET stock por SKU
+sapSL.buildQuotationPayload(pedido) // pedido app → JSON OQUT
 ```
 
-### Cambios sin regenerar (manifest, sw, alta-cliente.html, README)
-```powershell
-cd "C:\Users\shimano.sandbox\Desktop\APP VENDEDORES"
-git add <archivo>
-git commit -m "..."
+#### Cómo funciona el envío automático
+
+Cuando el toggle SL está ON, al confirmar un pedido en la app:
+1. Se arma el payload JSON con `buildQuotationPayload(pedido)`.
+2. Se hace `POST /b1s/v1/Quotations`.
+3. SAP devuelve `{DocEntry, DocNum, ...}` con el número real de la Quotation.
+4. La app marca el pedido con `transferidoSAP.via = 'service_layer' + docEntry + docNum`.
+5. El pedido pasa a estado `sap_imported`.
+
+#### Diagnóstico de errores en "Probar conexión"
+
+- **CORS bloqueado**: "Error de red o CORS" → escalar a Alejandro Caracchi.
+- **Credenciales mal**: "HTTP 401" → revisar usuario/pass.
+- **CompanyDB incorrecta**: "DB not found" → verificar nombre exacto.
+- **Sin licencia**: "User has no permission" → escalar a Juan/SEIDOR.
+
+### UDFs creados en SAP B1
+
+| UDF | Tipo | Campo | Para qué |
+|---|---|---|---|
+| `U_AppOrigen` | Alphanumeric (30) | Marketing Doc Title | Constante `SHIMANO_APP_VENDEDORES` para filtrar pedidos de la app |
+| `U_AppOrderId` | Alphanumeric (30) | Marketing Doc Title | ID Firestore del pedido (28 chars) |
+| `U_AppBatchId` | Alphanumeric (40) | Marketing Doc Title | ID del lote de export ZIP |
+| `U_TipoGasto` | Alphanumeric (10) | Marketing Doc Title (ya existía) | Condición de pago, default CONDICION |
+
+UDFs aplican a OQUT (Sales Quotation) y ORDR (Sales Order).
+
+### Series APP
+
+- TEST_06: id **104** (autogenerado, rango 2000000-2999999).
+- PROD: id **103** (a confirmar por Ezequiel).
+
+Configurada en `app_config/sap_integration.appSeriesId`. Si está vacía, DTW usa serie default del usuario.
+
+### Stock W07
+
+El depósito 07 es el único que la app consulta para el indicador verde/rojo. NUR (operaciones internas) carga stock a W07 cuando llega mercadería.
+
+---
+
+## 26) Stock SAP
+
+### Vía 1: CSV manual (panel admin "Stock")
+
+Estado: **OPERATIVO**.
+
+1. Admin exporta query de SAP B1 Query Generator:
+   ```sql
+   SELECT "ItemCode", "OnHand" FROM OITW WHERE "WhsCode" = '07'
+   ```
+2. Guarda como CSV UTF-8.
+3. Botón **Stock** del header → arrastra el CSV al drop zone.
+4. Preview con stats: total SKUs / con stock / sin stock.
+5. **Publicar a la app** → escribe a `app_config/stock_snapshot`.
+6. Listener `ensureStockSnapshotListener` actualiza `STOCK_MAP` en tiempo real para todos los usuarios.
+7. Picker de productos refresca con verde/rojo.
+
+Frecuencia recomendada: 3x día hasta que esté Service Layer.
+
+### Vía 2: Service Layer real-time (preparado)
+
+Cuando esté habilitado SL:
+- `sapSL.getStock(itemCode, '07')` consulta directamente.
+- No requiere CSV.
+- Refresh transparente al abrir el picker o cada N segundos.
+
+### Fallback estático
+
+`stock.json` del repo. Se mantiene como fallback histórico para que la app no quede sin info de stock si Firestore no responde.
+
+### Workflow GitHub Actions
+
+`.github/workflows/sync-stock.yml` corre cada 30 min. Si está configurado el secret `SAP_STOCK_CSV_URL`, descarga el CSV de la URL pública (Drive) y actualiza `stock.json`. Hoy queda como sistema legacy desde que tenemos el upload manual + listener Firestore.
+
+---
+
+## 27) OCR de tickets con Gemini API
+
+### Cómo funciona
+
+1. Vendedor abre Rendiciones → Cargar gasto.
+2. Saca foto del ticket.
+3. La foto (data URL base64) se manda a Gemini con prompt:
+   ```
+   Extraé estos datos del ticket en JSON:
+   - fecha (ISO YYYY-MM-DD)
+   - monto (number, sin símbolos)
+   - comercio (string)
+   - tipoGasto (Combustible / Peaje / Alojamiento / Comida / Varios)
+   Solo devolveme el JSON crudo, sin markdown.
+   ```
+4. Endpoint: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=<API_KEY>`.
+5. Vendedor verifica y confirma.
+6. Se guarda en `rendiciones/{docId}` con la foto + datos.
+
+### API Key
+
+Almacenada en `app_config/gemini.apiKey`. Solo admin edita. Lectura general para que cualquier vendedor pueda OCRizar.
+
+---
+
+## 28) PWA installable
+
+### Manifest
+
+```json
+{
+  "name": "Shimano Vendedores",
+  "short_name": "Shimano",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#dbeafe",
+  "theme_color": "#00A9E0",
+  "icons": [/* 4 tamaños */]
+}
+```
+
+### Service Worker
+
+`sw.js` — estrategia:
+- **HTML / root**: network-first con fallback a cache.
+- **Assets locales** (manifest, iconos, logo, login-bg): cache-first.
+- **CDNs** (firebase, leaflet, sheetjs, jszip, OSM tiles): pasan directo a la red.
+- **OAuth callbacks Firebase** (URLs con `state=`, `apiKey=`, etc): pasan directo a la red.
+- **`stock.json`**: siempre network-first (sin cache) para datos frescos.
+
+Cuando se bumpea `CACHE_VERSION` (cada deploy), el SW viejo borra sus caches y carga los nuevos al reabrir la PWA.
+
+### Instalación
+
+- **Android**: menú navegador → "Agregar a pantalla inicio".
+- **iOS**: Safari → Compartir → "Agregar a pantalla inicio".
+
+---
+
+## 29) Backup TOTAL de la app
+
+Botón en **Exportar para Análisis** → tarjeta naranja **"Backup TOTAL"** (solo admin).
+
+### Qué descarga
+
+Un ZIP único con:
+
+#### `/firestore/` — 19 colecciones en JSON
+
+```
+roles.json, userData.json, pedidos.json, visits.json, campaigns.json,
+notifications.json, client_applications.json, client_master.json,
+client_locations.json, vendor_overrides.json, route_overrides.json,
+targets.json, rendiciones.json, sap_clients.json, sap_products.json,
+sap_vendors.json, app_config.json, allowed_emails.json,
+operations_log.json
+```
+
+Cada archivo es un array de `{_id, _data}`. Los `Timestamp` se serializan como `{__type__: 'timestamp', iso: '...'}` para reconvertir al restaurar.
+
+#### `/photos/{col}/` — fotos extraídas
+
+```
+photos/visits/<visitId>__frente.jpg
+photos/visits/<visitId>__espacio_1.jpg ...
+photos/client_applications/<id>__arca.jpg
+photos/client_applications/<id>__iibb.jpg
+photos/client_applications/<id>__local_1.jpg ...
+photos/rendiciones/<id>__comprobante_1.jpg
+photos/notifications/<id>__image_1.jpg
+```
+
+#### `/metadata/info.json`
+
+Resumen estructurado: cantidad de docs por colección, fecha, usuario, errores.
+
+#### `README.txt`
+
+Instrucciones de restauración.
+
+### Frecuencia recomendada
+
+1 vez por mes. Calendarizar el día 1.
+
+### Cómo restaurar
+
+1. Abrir Firebase Console → Firestore → limpiar/crear colecciones.
+2. Para cada `/firestore/<col>.json`:
+   - Iterar el array.
+   - Convertir Timestamps: `Timestamp.fromDate(new Date(iso))` antes de escribir.
+   - `await fbDb.collection(col).doc(item._id).set(item._data)`.
+3. Las fotos NO se restauran automáticamente — quedan como respaldo visual.
+
+---
+
+## 30) Exports a Excel / Power BI / ML
+
+Botón **Exportar a Excel** (celeste) → 6 opciones:
+- **Ventas** (pedidos confirmados del mes).
+- **Visitas** (con detalle por tienda).
+- **Rendiciones** (gastos del período).
+- **Rutas** (con cumplimiento).
+- **Altas de clientes** (del período).
+- **Clientes (masterfile)**: listado completo de tiendas con zona/vendedor/dirección/estado.
+
+Botón **Exportar para Análisis** (verde) → 5 opciones avanzadas:
+- **Power BI** (fact + dim tables).
+- **Python / IA / ML** (tabla larga).
+- **Fotos de visitas (ZIP)**.
+- **Excel con fotos embebidas**.
+- **Excel TARGETS-ZONAS (con altas)** ← genera el formato del Excel master con todas las tiendas + altas aprobadas integradas.
+- **Backup TOTAL** ← ZIP con todo.
+
+---
+
+## 31) Panel admin "Usuarios"
+
+Tabla con todos los usuarios:
+
+- Email + displayName.
+- Rol (dropdown).
+- Vendor key (si es VDE).
+- Pareja interno (dropdown VDI para VDEs).
+- WhatsApp.
+- Responsable de rendiciones (dropdown).
+- Botón **🔐 Contraseña** (cambiar PIN del usuario).
+- Botón **🔐 2FA** (configurar Authenticator).
+- Botón **Eliminar** (no disponible para los 2 admins protegidos).
+- Botón **Guardar**.
+
+Mobile: layout cards en vez de tabla.
+
+### Sección `allowed_emails`
+
+Arriba de la tabla. Permite pre-autorizar emails antes del primer login.
+
+---
+
+## 32) URLs externas e integraciones
+
+| Servicio | URL | Para qué |
+|---|---|---|
+| Firebase project | https://console.firebase.google.com/project/app-vendedores-shimano | Console |
+| Firebase Auth | (mismo) → Authentication | Manage users |
+| Firestore | (mismo) → Firestore Database | Manage data |
+| Firestore Rules | (mismo) → Firestore → Rules | Edit security rules |
+| GitHub repo | https://github.com/shimano-arg/app-vendedores | Code |
+| GitHub Actions | (mismo) → Actions | Workflows |
+| GitHub Secrets | (mismo) → Settings → Secrets | `SAP_STOCK_CSV_URL` |
+| GitHub Pages | (mismo) → Settings → Pages | Deploy URL |
+| Gemini API | https://generativelanguage.googleapis.com | OCR de tickets |
+| OSM Nominatim | https://nominatim.openstreetmap.org | Geocoding |
+| **SAP Service Layer** | **https://shimano-sap.seidor.com.ar:50000** | **API REST SAP B1** |
+| SEIDOR Freshdesk | https://seidorb1arg.freshdesk.com | Tickets de soporte |
+
+---
+
+## 33) Convenciones de código
+
+### Estilo
+- Indentación: 2 espacios.
+- Strings: single quotes en JS, double en Python.
+- Comentarios técnicos en castellano.
+- Variables descriptivas (no `x`, `tmp`).
+
+### Naming
+- camelCase en JS.
+- snake_case en Python.
+- SCREAMING_SNAKE para constantes.
+- Funciones helper privadas con prefijo `_`.
+
+### `var` vs `let` para variables globales del bootstrap
+Las variables que pueden ser consultadas por funciones que corren en el bootstrap inicial (antes de que se declaren con `let`) deben usar `var` para evitar TDZ. Ejemplos:
+```js
+var userRole = null;
+var assignedVendor = null;
+var vendorOverrides = {};
+var approvedAltasByLoc = {};
+```
+
+### Defensive coding
+Las helpers que pueden ser llamadas antes del bootstrap completo (ej. `getEffectiveVendorForClient`) chequean `typeof functionName === 'function'` antes de invocarlas para evitar ReferenceError.
+
+### Banner de versión + chequeo HTML vs SW
+
+Al arrancar la app, en console se imprime:
+- `Shimano App v197 — <timestamp ISO>` (banner con styled console.log).
+- **Chequeo de sync**: fetcheaq `sw.js`, parsea su `CACHE_VERSION` y compara con `APP_VERSION` del HTML.
+  - Si coinciden: `[version] HTML v197 === SW v197 OK` en verde.
+  - Si difieren: `[version] DESYNC: HTML=v197 vs SW=v196 - tocar ↻ en el mapa para refrescar` en rojo.
+
+`APP_VERSION` se exporta en `window.APP_VERSION` para que se pueda consultar desde la consola. **Bumpear las dos constantes (HTML + SW) en cada release.**
+
+### CSS
+- Clases con prefijo por sección: `.mc-*` (Master Clientes), `.bk-*` (Backup), `.sl-*` (Service Layer), `.zonas-*` (Zonas), `.stock-*` (Stock).
+- Colores: usar la paleta Shimano (`#00A9E0` celeste, `#003366` azul marino, `#E83A2E` rojo, `#F97316` naranja, `#8E44AD` violeta, `#F39C12` amarillo) o Tailwind (`#1e3a8a` blue-900, `#166534` green-800, etc.).
+
+---
+
+## 34) Regenerar y deployar
+
+### Workflow estándar
+
+```bash
+# 1. Editar el build script
+# C:/Users/shimano.sandbox/Desktop/MASTERFILES/PROSPECTOS/MAPAS/_build_argentina_zonas_v2.py
+
+# 2. Generar HTML
+cd "C:/Users/shimano.sandbox/Desktop/MASTERFILES/PROSPECTOS/MAPAS"
+python -c "import sys; sys.stdout.reconfigure(encoding='utf-8'); exec(open(r'_build_argentina_zonas_v2.py', encoding='utf-8').read())"
+
+# 3. Copiar al repo
+cp "C:/Users/shimano.sandbox/Desktop/MASTERFILES/PROSPECTOS/MAPAS/Mapa_Argentina_Shimano_Zonas.html" \
+   "C:/Users/shimano.sandbox/Desktop/APP VENDEDORES/index.html"
+
+# 4. Bumpear AMBAS versiones (deben quedar sincronizadas):
+#    - index.html: const APP_VERSION = 'vXX' → 'vYY'
+#    - sw.js:      const CACHE_VERSION = 'vXX' → 'vYY'
+#    Si quedan desincronizadas, el banner en console marca DESYNC.
+
+# 5. Commit y push
+cd "C:/Users/shimano.sandbox/Desktop/APP VENDEDORES"
+git pull --rebase --autostash
+git add index.html sw.js
+git commit -m "Mensaje claro del cambio"
 git push
 ```
 
 ### Tiempo de propagación
-GitHub Pages: 30-90 segundos.
 
-### Forzar refresh en clientes
-Para invalidar cache del Service Worker:
-1. Editar `sw.js`: bumpear `CACHE_VERSION` a `vN+1`.
-2. Bumpear referencias a íconos si cambiaron (v3 → v4) y renombrar archivos.
+- Commit → GitHub Pages: 1-5 min.
+- GitHub Pages → cache de usuarios: instantáneo al cerrar/abrir PWA o Ctrl+Shift+R.
 
-Usuarios PWA en iOS pueden necesitar quitar la app del home + reinstalar para ver los íconos nuevos (iOS cachea agresivamente).
+### Bumpear SW
 
----
+**SIEMPRE** bumpear `CACHE_VERSION` en `sw.js` Y `APP_VERSION` en `index.html` cuando hay cambios en HTML/JS/CSS. Sino el SW viejo sirve el HTML cacheado y los usuarios no ven el cambio. El banner en console marca DESYNC si se olvida una de las dos.
 
-## 30) Troubleshooting
+### Forzar refresh desde el mapa
 
-### "Missing or insufficient permissions"
-Falta publicar las rules. Ver sección 8 y copiar todo a Firebase Console.
-
-### Login rechazado a un email autorizado
-- Verificar que el email esté en `ALLOWED_EMAILS` hardcoded, `ALLOWED_EMAIL_DOMAINS`, o en collection `allowed_emails`.
-- Si tiene rol asignado previo en `/roles` ≠ `unassigned`, también debe pasar (condición 3 del whitelist).
-
-### Las visitas no se pintan verdes en las rutas
-- Verificar que `v.mes` sea UPPERCASE en el doc.
-- El comparador case-sensitive era un bug; ahora todos los matches hacen `.toUpperCase()` en ambos lados.
-
-### Las tareas "Enviadas" no se actualizan al ser completadas
-- Antes había problema de índice compuesto (`where fromUid + where type`).
-- Ahora el listener filtra solo por `fromUid` y aplica `type==='task'` en cliente.
-
-### OCR Gemini devuelve 429
-- Quota exceeded. Cambiar de modelo (`gemini-2.5-flash-lite` tiene más cuota).
-- O la key está vinculada a Service Account sin billing → crear key nueva desde AI Studio sin SA.
-
-### Tab "Notificaciones" tiene contador raro
-- `updateNotifsBadge` cuenta solo `status !== 'read' && status !== 'done'`.
-- Si querés ocultar el contador globalmente, el CSS `.tabs .tab-count { display:none }` ya lo hace.
-
-### El form Alta Cliente público no envía
-- Verificar rule de `client_applications` que permita create cuando `submittedByPublicForm == true`.
-- Browser console de la página standalone para ver error real.
-
-### Push protection de GitHub rechaza commits
-GitHub detecta secretos (API keys, credenciales) y bloquea push. Soluciones:
-- Mover el secret a Firestore (caso Gemini key).
-- Si es falso positivo: bypass desde la web (no recomendado).
-- Nunca usar ofuscación (split de string) — el guardrail del agente también lo bloquea.
+Para usuarios que ven la app cacheada y no quieren cerrar la PWA: tocar el botón **↻ "Forzar actualización"** en el topleft del mapa (debajo del zoom). Hace `unregister()` del SW, limpia caches y recarga con cache-bust.
 
 ---
 
-## 31) Roadmap / pendientes
+## 35) Troubleshooting
 
-### Para SEIDOR (integración SAP)
-- Crear 3 UDFs en ORDR: `U_AppOrigen`, `U_AppOrderId`, `U_AppBatchId` (ver sección 21).
-- Crear serie "APP" para Sales Order numbering.
-- Crear 6 Sales Employees (David Carballo).
+### "Cargando sesión..." infinito al abrir la app
 
-### Mejoras planeadas
-- **Filtrar clientes CANCELADOS de rutas** (hoy aparecen).
-- **Alertas de tiendas atrasadas**: tiendas no visitadas hace > 30 días, por vendedor.
-- **Integración total client_applications aprobadas → POINTS**: hoy las solicitudes aprobadas no aparecen automáticamente en la pestaña Clientes para hacerles pedidos. Requiere decisión sobre si sincronizar con master Python o cache paralelo.
-- **Notificaciones push** (FCM) para tareas y rendiciones pendientes.
-- **Cloud Functions** para envío automático del backup mensual por email.
-- **Dominio personalizado** (`app.shimano.com.ar`).
-- **Dashboard del admin con vista consolidada anual** (no solo del mes).
+**Causa probable**: error JS en el bootstrap (TDZ con `let`, función llamada antes de declararse).
 
-### Pendientes operativos
-- Mariano: actualizar Gemini API key cuando se rote.
-- Mariano: configurar `internalPartnerUid` para cada vendedor cuando entren VDIs definitivos.
-- Mariano: configurar `rendicionesApproverUid` para cada vendedor.
-- David Carballo: enviar dump OITM con datos de productos para integración SAP.
-- David Carballo: dump OCRD con BPs.
-- Eliana: confirmar creación de UDFs + serie.
+**Fix**:
+1. F12 → Console → leer el error.
+2. Si dice "Cannot access 'X' before initialization" → cambiar `let X` por `var X`.
+3. Sino, buscar el error y aplicar el fix correspondiente.
+
+Histórico: este bug pasó 3 veces con `userRole`, `vendorOverrides`, `approvedAltasByLoc`. Todos fueron arreglados con `let → var`.
+
+### Cambios no aparecen después de deploy
+
+**Causa**: cache del SW.
+
+**Fix**:
+1. Esperar 5 min (propagación Pages).
+2. PC: F12 → Application → Service Workers → Unregister + Storage → Clear site data + Ctrl+Shift+R.
+3. Mobile: cerrar PWA del switcher + desinstalar + reinstalar.
+
+### Firestore "Missing or insufficient permissions"
+
+**Causa**: colección sin regla de seguridad o regla mal escrita.
+
+**Fix**: Firebase Console → Firestore → Rules → agregar la regla. Estructura tipo:
+```
+match /coleccion/{docId} {
+  allow read: if isReader();
+  allow write: if isAdmin();
+}
+```
+
+### DTW falla en import: "X is not valid value for property"
+
+**Causa**: el CSV tiene un valor enum string en lugar del código numérico.
+
+Conocidos:
+- `DocObjectCode = 'oQuotations'` → debe ser `'23'`.
+
+### Service Layer falla: "Error de red o CORS"
+
+**Causa**: el server Apache no tiene los headers CORS.
+
+**Fix**: escalar a Alejandro Caracchi (SEIDOR) para que habilite (ver sección 25).
+
+### Stock no aparece
+
+**Causa**: `app_config/stock_snapshot` está vacío.
+
+**Fix**: admin sube un CSV nuevo desde el panel Stock.
+
+### "Pedile al admin que te configure el 2FA"
+
+**Causa**: el rol del usuario requiere 2FA pero no está configurado.
+
+**Fix**: admin entra al panel Usuarios → botón 🔐 2FA del usuario → escanea QR con Authenticator → ingresa código → activado.
+
+### El usuario olvidó su contraseña (login Email/contraseña)
+
+**Fix**: admin entra al panel Usuarios → botón 🔐 Contraseña → opción **"Mandar mail de reset"** → Firebase manda link de reset al email del usuario.
+
+### Magic link no llega
+
+**Causa**: el email del usuario terminó en spam, o el dominio del email no está en la whitelist de Firebase Auth.
+
+**Fix**: chequear spam primero. Si no llega, ir a Firebase Console → Authentication → Settings → Authorized domains.
+
+### El gerente no ve todo el mapa
+
+**Causa**: `getMyAllowedVendorKeys()` no contemplaba el rol `gerente` (fix en v182+).
+
+**Fix**: actualizar a v182+ o asegurarse que la rama `if (rol === 'admin' || rol === 'gerente' || rol === 'viewer') return null` esté presente.
+
+### El badge ADMIN se ve corrido del centro
+
+**Causa**: alguien volvió a poner `badge.style.display = 'inline-block'`.
+
+**Fix**: cambiar a `'flex'` para que `align-items: center` + `justify-content: center` apliquen.
+
+### Polígonos de Tucumán/etc. pintados de un vendedor que ya no es
+
+**Causa**: hay un override en `vendor_overrides` que afecta el dept.
+
+**Fix**: modal Zonas → tab Historial → revisar y revertir si fue erróneo. O mejor: ajustar la lógica de `deptEffectiveVendor` para tratar mejor el caso.
 
 ---
 
-## 32) Ciberseguridad y hardening
+## 36) Ciberseguridad y hardening
 
-Junio 2026 se ejecutó un hardening integral de seguridad sobre todas las capas del stack. El detalle completo está en `Informe_Ciberseguridad_App_Vendedores.docx` (destinado a IT/Sistemas). Esta sección resume las **9 capas activas** y las decisiones tomadas, para que cualquier futuro mantenedor entienda **qué hay, por qué, y cómo modificarlo sin romper nada**.
+### Capas de seguridad
 
-### 32.1 Filosofía: defense-in-depth
+1. **Firebase Auth**: Google OAuth → tokens JWT con expiración.
+2. **Password gate**: PIN de 4 dígitos después del OAuth (configurado por admin).
+3. **2FA TOTP**: opcional pero recomendado para admin.
+4. **Firestore Rules**: validación server-side de TODA escritura.
+5. **AppCheck reCAPTCHA v3**: protege contra abuso de API. Lazy-load post-login.
+6. **CSP** (Content Security Policy): limita los dominios desde donde se cargan scripts/imagenes/conexiones.
+7. **SW**: intercepta callbacks OAuth para no romper Firebase Auth.
 
-Cada capa es independiente. Si una falla, las otras contienen el ataque. No depende de que un único control sea perfecto.
+### CSP actual
 
-| # | Capa | Tecnología | Estado |
-|---|---|---|---|
-| 1 | Autenticación | Google OAuth + whitelist + password gate + 2FA TOTP | ✅ Activo |
-| 2 | Autorización | Firestore Security Rules con roles | ✅ Activo |
-| 3 | Anti-abuso | Firebase App Check + reCAPTCHA v3 | ✅ Activo (modo observación) |
-| 4 | API key restringida | Google Cloud Console (4 APIs + 3 dominios) | ✅ Activo |
-| 5 | Dominios OAuth | Firebase Auth Authorized Domains (3 dominios) | ✅ Activo |
-| 6 | Repo (push) | GitHub Branch Ruleset "Protect main" | ✅ Activo |
-| 7 | Repo (análisis) | CodeQL + Dependabot security updates | ✅ Activo |
-| 8 | Repo (secretos) | Secret scanning + Push protection | ✅ Activo |
-| 9 | Cliente (browser) | Content Security Policy | ✅ Activo |
-
-### 32.2 Capa 1 — Autenticación
-
-Tres factores apilados:
-
-1. **Google OAuth 2.0** — el vendedor inicia sesión con su cuenta Google. Shimano nunca ve la password de Google. Beneficio extra: si Google detecta login sospechoso (ubicación rara, device nuevo) bloquea antes de llegar a la app.
-2. **Whitelist de emails** — colección `usuarios` en Firestore. Emails no preregistrados son deslogueados.
-3. **Password gate** — después de Google OAuth, cada usuario ingresa una password adicional. Default `Shi*10`, cambiable por admin. Hash SHA-256 + salt por usuario, guardado en Firestore. La password en texto plano **nunca se almacena**.
-4. **2FA TOTP opcional** — implementación propia de RFC 6238 en JS del browser, compatible con Google Authenticator. Algoritmo HMAC-SHA1, ventana de tolerancia ±30s. Activación por usuario desde su perfil; recomendada para administradores.
-
-### 32.3 Capa 2 — Autorización (Firestore Security Rules)
-
-Las rules se evalúan **server-side** en cada operación. Imposible saltearlas modificando el cliente.
-
-Estructura general:
-- `allow read` si `auth.uid` existe + email en whitelist + rol permite la acción.
-- `allow write` si admin O dueño del recurso, validando que no se modifiquen campos protegidos.
-- Validación de tipos (string, number, timestamp) para prevenir corrupción.
-- Bloqueo de paths sensibles (`app_config`) sólo a admin.
-
-Roles definidos: `admin`, `vendedor`, `vendedor_interno`.
-
-### 32.4 Capa 3 — Firebase App Check (anti-abuso)
-
-Aunque la API key de Firebase es pública (visible en el JS del cliente, por diseño de Firebase), un atacante no puede usarla desde otro lugar porque **cada request debe ir acompañada de un token App Check válido**.
-
-- **Provider**: reCAPTCHA v3 (invisible, sin interacción del usuario).
-- **Site Key**: `6Ld7ghktAAAAALHkv0-D3YFHqMiq_6zMD3yXsci-` (pública, embebida en cliente).
-- **Secret Key**: configurada en Firebase Console App Check.
-- **Token TTL**: 24 horas.
-- **Score reCAPTCHA threshold**: 0.5 (medio).
-- **Estado actual**: modo **Unenforced** (loguea pero no bloquea). Después de 7 días verificando >95% requests Verified en dashboard, activar **Enforce** en Cloud Firestore API y Identity Toolkit API.
-
-Dashboard de observación:
 ```
-https://console.firebase.google.com/project/app-vendedores-shimano/appcheck/apis
+default-src 'self';
+script-src 'self' 'unsafe-inline' 'unsafe-eval'
+  https://www.gstatic.com https://www.google.com https://*.google.com
+  https://apis.google.com https://www.googletagmanager.com
+  https://unpkg.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com
+  https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com
+  https://*.recaptcha.net https://recaptcha.net;
+connect-src 'self' https://*.googleapis.com https://*.firebaseio.com
+  https://*.firebaseapp.com https://generativelanguage.googleapis.com
+  https://www.google.com https://*.google.com https://apis.google.com
+  https://*.gstatic.com https://*.recaptcha.net https://recaptcha.net
+  https://nominatim.openstreetmap.org
+  wss://*.firebaseio.com wss://*.googleapis.com;
+... etc.
 ```
 
-### 32.5 Capa 4 — Restricción de API key (Google Cloud Console)
+> Cuando esté Service Layer activo, agregar `https://shimano-sap.seidor.com.ar:50000` a `connect-src`.
 
-API key `AIzaSyB...` está pública pero restringida:
+### Audit log
 
-**Application restrictions (HTTP referers)**: solo funciona desde:
-- `https://shimano-arg.github.io/*` (producción)
-- `https://app-vendedores-shimano.firebaseapp.com/*`
-- `http://localhost` (dev)
+Colección `operations_log` registra acciones críticas (no editable después de creada). Solo admin/viewer leen.
 
-**API restrictions**: solo puede invocar 4 APIs:
-1. Identity Toolkit API (Firebase Auth)
-2. Cloud Firestore API
-3. Token Service API
-4. Firebase Installations API
+### Acciones protegidas
 
-Cualquier intento de usar la key para Cloud Functions, Storage, BigQuery, Maps → **403 Forbidden**.
+Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com`) tienen `protectedAdmin: true` → no se pueden eliminar desde el panel Usuarios.
 
-Configuración en:
-```
-https://console.cloud.google.com/apis/credentials/key/<KEY_ID>?project=app-vendedores-shimano
-```
+### Secrets
 
-### 32.6 Capa 5 — Dominios OAuth autorizados
+- **API Keys** (Gemini): en `app_config/gemini` (solo admin lee/escribe). Eventualmente migrar a Firebase Functions con env vars.
+- **Service Layer password**: en `app_config/sap_integration.serviceLayer.password`. Solo admin lee/escribe vía Firestore rules. Mejor a futuro: variable de entorno de Cloud Function.
 
-Firebase Auth solo acepta redirecciones OAuth hacia dominios explícitamente autorizados. Evita phishing con dominios similares.
+---
 
-Lista actual depurada:
-- `shimano-arg.github.io` (Custom)
-- `app-vendedores-shimano.firebaseapp.com` (Default)
-- `app-vendedores-shimano.web.app` (Default)
+## 37) Contactos clave
 
-Eliminados durante hardening:
-- `localhost` — ya no se desarrolla local sobre la app productiva.
-- `marianoerbino.github.io` — dominio personal previo a migración a usuario corporativo `shimano-arg`.
+### SEIDOR (consultora SAP)
 
-Configuración en Firebase Console → Authentication → Settings → Authorized domains.
-
-### 32.7 Capa 6 — Branch Ruleset "Protect main"
-
-Ruleset aplicado a la rama `main` del repositorio GitHub.
-
-- **Status**: Active.
-- **Bypass list**: vacía (nadie puede saltarse las reglas).
-- **Target**: default branch (main).
-- **Reglas activas**:
-  - ✅ Restrict deletions — nadie puede borrar main.
-  - ✅ Block force pushes — nadie puede reescribir la historia.
-  - ✅ Require linear history — previene merges enredados.
-- **Reglas NO activadas (intencionalmente)**: requerir PR previo, requerir reviewers, requerir commits firmados. Se evaluarán si se incorpora un segundo developer.
-
-Configuración: `https://github.com/shimano-arg/app-vendedores/settings/rules`
-
-### 32.8 Capa 7 — Dependabot + CodeQL
-
-**Dependabot** (escaneo de dependencias):
-- ✅ Dependency graph
-- ✅ Automatic dependency submission
-- ✅ Dependabot alerts (notifica CVEs)
-- ✅ Dependabot security updates (PR automático con patch)
-- ✅ Grouped security updates (agrupa fixes)
-- ❌ Dependabot version updates (intencionalmente OFF — genera ruido)
-
-**CodeQL Code scanning**:
-- Setup **Default**, lenguaje JavaScript.
-- Análisis semántico buscando patrones de XSS, injection, path traversal.
-- Frecuencia: push a main + escaneo semanal.
-- ✅ Copilot Autofix activo (sugerencias de fix con IA).
-- Severity threshold: High or higher.
-
-Configuración: `https://github.com/shimano-arg/app-vendedores/settings/security_analysis`
-
-### 32.9 Capa 8 — Secret Scanning + Push Protection
-
-- ✅ **Secret Scanning** — escanea el historial completo del repo buscando API keys/tokens/credenciales.
-- ✅ **Push Protection** — bloquea pushes en el acto si contienen un secreto detectable (AWS, GCP, Anthropic, OpenAI, Stripe, Firebase, 200+ proveedores).
-- ✅ **Private vulnerability reporting** — investigadores externos pueden reportar bugs sin exponerlos.
-
-**Incidente prevenido (junio 2026)**: durante el desarrollo se intentó por error commitear una API key de Google Gemini hardcodeada. Push Protection lo bloqueó. Se reemplazó por lectura dinámica desde Firestore `app_config/gemini.apiKey`.
-
-### 32.10 Capa 9 — Content Security Policy (CSP)
-
-Meta tag en el `<head>` del HTML que limita desde qué dominios el browser puede cargar contenido. Si un atacante logra inyectar JS via XSS, el browser bloqueará cualquier intento de cargar código desde dominios no autorizados.
-
-**Allowlist configurado (resumen)**:
-
-| Directiva | Dominios permitidos |
-|---|---|
-| `default-src` | `'self'` |
-| `script-src` | self, gstatic, google, googletagmanager, apis.google.com, unpkg, jsdelivr, cdnjs, `*.googleapis.com`, `*.firebaseio.com`, `*.firebaseapp.com`, recaptcha.net + `'unsafe-inline'` + `'unsafe-eval'` |
-| `style-src` | self, unpkg, jsdelivr, gstatic + `'unsafe-inline'` |
-| `img-src` | self, `data:`, `blob:`, OpenStreetMap, CartoDB, googleusercontent, `*.googleapis.com`, `*.gstatic.com` |
-| `connect-src` | self, `*.googleapis.com`, `*.firebaseio.com`, `*.firebaseapp.com`, generativelanguage, google, gstatic, recaptcha, `wss://*.googleapis.com` (Firestore listeners) |
-| `frame-src` / `child-src` | self, google, firebaseapp, accounts.google.com, apis.google.com, recaptcha |
-| `font-src` | self, `data:`, `*.gstatic.com` |
-| `base-uri` | `'self'` |
-| `form-action` | `'self'`, accounts.google.com |
-
-**`unsafe-inline` y `unsafe-eval`** en `script-src` son necesarios porque la app usa `onclick` inline y algunas librerías (Leaflet, Firebase) hacen `eval`. Tradeoff conocido — se compensa con el resto de capas.
-
-⚠️ **Si en el futuro se agrega una integración nueva** (WhatsApp Business API, MercadoPago, analytics, etc.), hay que **agregar su dominio al CSP antes de deployar**. Caso contrario el browser bloquea la conexión y el feature falla silenciosamente en producción. El CSP está en `_build_argentina_zonas_v2.py` línea ~578 (meta tag dentro del `<head>`).
-
-### 32.11 Modelo de amenazas considerado
-
-| # | Amenaza | Mitigación principal |
+| Persona | Rol | Contacto |
 |---|---|---|
-| T1 | Robo de credenciales (phishing) | OAuth + 2FA + Whitelist |
-| T2 | Acceso no autorizado a datos de otro vendedor | Firestore Rules con UID check |
-| T3 | API key exfiltrada y usada externamente | Restricción Cloud Console + App Check |
-| T4 | XSS (inyección de JS) | CSP estricta + escape de HTML |
-| T5 | Bot scraping / abuso de API | App Check + reCAPTCHA v3 |
-| T6 | Compromiso del repositorio | Branch ruleset + 2FA GitHub |
-| T7 | Dependencias vulnerables | Dependabot + CodeQL |
-| T8 | Secretos hardcodeados | Secret Scanning + Push Protection |
-| T9 | Phishing con dominio similar | Authorized domains restringidos |
+| **Eliana Morgan** | Consultora SAP — punto de entrada inicial | (delegó en Ezequiel) |
+| **Ezequiel Mendoza** | Consultor proyecto Integración App | `serviciosalcliente@seidorb1arg.freshdesk.com` (Ticket #105768) |
+| **Alejandro Caracchi** | Analista Infraestructura TI — CORS + Service Layer | `serviciosalcliente@seidorb1arg.freshdesk.com` (Ticket #105771) |
 
-### 32.12 Próximos pasos (post-hardening)
+### Shimano Argentina
 
-**Corto plazo (7-14 días)**:
-- Activar App Check **Enforcement** en Firestore API + Identity Toolkit API (cuando el dashboard muestre >95% Verified).
-- Revisar findings del primer scan de CodeQL y resolver High/Critical.
-
-**Mediano plazo (1-3 meses)**:
-- Budget alerts en Google Cloud Console (alerta a partir de USD X/día).
-- Subresource Integrity (SRI) hashes en scripts de CDN.
-- Auditoría de Firestore activada en Cloud Logging.
-- Migración a dominio personalizado verificado (`vendedores.shimano.com.ar`).
-
-**Largo plazo**:
-- Penetration test externo.
-- WAF (Cloudflare) frente a GitHub Pages.
-- Migración a Firebase Hosting (security headers automáticos).
-
-### 32.13 Si rompés algo de seguridad accidentalmente
-
-| Síntoma | Causa probable | Fix |
+| Persona | Rol | Para qué |
 |---|---|---|
-| Login con Google falla con `auth/internal-error` | CSP bloquea `apis.google.com` o `accounts.google.com` | Verificar que ambos estén en `script-src` y `frame-src` |
-| App Check da 403 throttled por 24h | Browser cacheó throttle del SDK | Limpiar site data en `edge://settings/siteData?siteToFilter=...github.io` |
-| Firestore writes fallan con "Missing or insufficient permissions" | Rules cambiadas y el rol del usuario no coincide | Revisar reglas + campo `rol` en `usuarios/{uid}` |
-| Push bloqueado por GitHub | Secret Scanning detectó API key en el diff | NO bypassear. Mover el secreto a Firestore o variable de entorno; ver `git reset --soft HEAD~1` para deshacer el commit |
-| Recursos bloqueados en consola por CSP | Dominio nuevo no en allowlist | Editar el meta CSP en el Python build (~línea 578) y deployar |
-
-### 32.14 Quién maneja qué
-
-- **Mariano** — desarrollo, Firestore Rules, CSP, App Check, GitHub repo, integración Gemini.
-- **Juan (IT/Sistemas)** — custodio del informe formal de ciberseguridad, punto de contacto ante incidentes.
-- **Eliana (IT/SAP)** — UDFs y serie "APP" en SAP B1.
-- **David (Comercial)** — datos maestros OITM/OCRD y alta de SlpCodes.
-
-### 32.15 Documentación relacionada
-
-- **`Informe_Ciberseguridad_App_Vendedores.docx`** — versión formal para IT/Sistemas con detalle completo de cada capa.
-- **Firestore Rules** — sección 8 de este README.
-- **Roles y permisos** — sección 6 de este README.
+| **Juan** | IT | Crear usuarios SAP, manejar infra |
+| **Santiago Esteban** | VDI | Aprobar Quotations manualmente, copia a Sales Order |
+| **David Daiub** | Funcional SAP | Consulta funcional (ya no es bloqueante) |
+| **NUR (operaciones)** | Almacén | Cargar stock W07 cuando llega mercadería |
 
 ---
 
-## Apéndice A: Variables globales clave
+## 38) Roadmap / pendientes
 
-```js
-let currentUser = null;                    // Firebase Auth user
-let userRole = null;                       // 'admin' | 'vendedor' | etc.
-let assignedVendor = null;                 // vendor key cuando role=vendedor
-let myWhatsappNumber = null;
-let myRendicionesApproverUid = null;
-let myInternalPartnerUid = null;           // VDI pareja
+### Sprint actual
 
-// Caches
-let myNotifications = [];
-let mySentTasks = [];
-let routeOverrides = [];
-let visitsCache = [];
-let visitsCachePartner = [];               // visitas del VDI pareja
-let targetsCache = new Map();
-let clientLocsCache = new Map();
-let clientMasterCache = new Map();
-let sapVendorsCache = new Map();
-let altaCliMine = [];
-let misRendiciones = [];
-let allowedEmailsCache = new Set();        // implícito en collection check
-let geminiApiKeyCache = null;
-let usersCache = [];                       // para panel admin
-let globalPedidos = [];                    // todos los pedidos (admin/viewer ven todos)
-let confirmed = {};                        // organizado por key
-let orders = {};                           // drafts locales
+- [ ] Esperar respuesta de Ezequiel sobre UDFs + Serie 103 en PROD.
+- [ ] Esperar respuesta de Alejandro sobre CORS.
+- [ ] Esperar respuesta de Juan sobre usuario integración.
+- [ ] Cuando estén los 3 → pasos 1-11 del archivo `LANZAMIENTO-APP-FALTANTES.txt`.
 
-// Constantes
-const ANALISIS_PIN = '1235';
-const WHATSAPP_TEST_NUMBER = '5491126762031';
-const MAPS_MAX_WAYPOINTS = 9;
-const RUTA_MIN = 10, RUTA_TARGET = 12, RUTA_MAX = 15;
-const ALTA_CLI_MAX_FOTOS = 5;
-const CLIENT_APPLICATION_APPROVER_EMAILS = ['srb90284@gmail.com', 'quilgym@gmail.com'];
-const GEMINI_MODEL = 'gemini-2.5-flash';
-const ADMIN_BOOTSTRAP_EMAIL = 'bot.shimano.pesca@gmail.com';
-const PROTECTED_ADMIN_EMAILS = ['bot.shimano.pesca@gmail.com', 'erbinomariano@gmail.com'];
-```
+### Próximo sprint
 
----
+- [ ] **Cablear `enviarPedidosASAPViaServiceLayer` a un botón**: la función ya existe en `index.html` pero hoy no se llama desde ninguna parte de la UI. Cuando los 3 bloqueantes externos estén resueltos, agregar un botón "Enviar a SAP por Service Layer" en la pestaña de Pedidos Pendientes/Confirmados.
+- [ ] Documentación operativa para vendedores (manual de uso).
+- [ ] Capacitación de los 6 vendedores en la app.
+- [ ] Definir ritmo de revisión de Quotations con Santiago (1x día recomendado).
+- [ ] Migrar API keys / passwords a variables de entorno con Cloud Functions.
+- [ ] Restauración automatizada del backup (script Node.js que lee el ZIP).
+- [ ] Telemetría de uso (qué pestañas se abren más, latencias).
 
-## Apéndice B: Datos master embebidos en el build
+### Hecho recientemente (✅)
 
-| Constante | Origen | Tamaño |
-|---|---|---|
-| `POINTS` | 25 archivos `Mapa_<Prov>_Shimano.html` | 277 localidades |
-| `PRODUCTS` | `MASTERFILE PRODUCTOS PESCA.xlsx` | 665 SKUs |
-| `VENDORS` | hardcoded | 6 vendedores externos (Z1, Z2, Z4, Z5, Z6, Z7) |
-| `TARGETS_BY_VENDOR` | `TARGETS VENDEDORES-ZONAS.xlsx` (hoja TARGET VENDEDORES) | Targets USD por vendedor (legacy, ahora se usa collection targets) |
-| `EXCHANGE_RATE` | Excel de targets | 1500 ARS/USD aprox |
-| `CLIENT_SALES` | MELI últimos 365 días | ~12.700 órdenes, 74 clientes matcheados |
-| `PROV_TOP_PRODUCTS` | MELI agregado por provincia | Top SKUs por provincia |
-| `DTW_DOC_API`, `DTW_DOC_INT`, `DTW_LIN_API`, `DTW_LIN_INT` | Plantillas DTW de SEIDOR | Headers oficiales |
+- [X] **Stock auto-sync vía GitHub Actions** (`sync-stock.yml` corre cada 30 min, funcionando como sistema legacy + el upload manual del panel admin Stock).
+- [X] Banner versión + chequeo HTML vs SW en console.
+- [X] Botón "Forzar actualización" + "Reubicar pines" + "REFRESCAR APP" mobile.
+
+### Mejoras futuras
+
+- [ ] Migrar de password Firestore a Cloud KMS para credenciales SAP.
+- [ ] Modo offline real (cola de pedidos cuando no hay red, sync al volver).
+- [ ] Notificaciones push nativas via FCM.
+- [ ] Webhooks SAP → app: cuando Santiago copia Quotation a SO, la app se entera y refleja el cambio.
+- [ ] Heatmap de visitas en el mapa.
+- [ ] Filtro por fecha en el dashboard.
+- [ ] Comparativa de targets vs facturación real con gráficos.
+
+### Cosas que NO se van a hacer (decisión explícita)
+
+- **Middleware intermedio**: descartado el 2026-06-19. Service Layer directo es suficiente.
+- **Approval Procedure sobre OQUT**: descartado el 2026-06-19. Santiago revisa manual.
+- **Migrar a React/Vue/Angular**: no aporta valor proporcional al esfuerzo. La app es manejable como vanilla.
+- **Backend Node/Python propio**: Firestore Rules + Cloud Functions cuando necesitemos sólo lo justo.
 
 ---
 
-> Última actualización del README: 11-junio-2026. Documento mantenido por Mariano Erbino (data scientist Shimano Argentina). Para reportar bugs o sugerir mejoras: bot.shimano.pesca@gmail.com / erbinomariano@gmail.com.
->
-> **Cambios 11-junio-2026**: hardening completo de ciberseguridad (sección 32 nueva), cambio de color botón "Exportar para Análisis" a celeste corporativo (#00A9E0).
+## Convenciones del documento
+
+**Cuando se actualice esta app**, mantener este README sincronizado con:
+1. Nuevas features → agregar sección o ampliar la existente.
+2. Cambios en modelo de datos → actualizar sección 8.
+3. Cambios en Firestore Rules → actualizar sección 9.
+4. Nuevos roles → actualizar sección 7.
+5. Nuevas colecciones → actualizar secciones 8 y 9.
+6. Cambios en el lanzamiento (bloqueantes resueltos) → actualizar sección 2.
+7. SW version → actualizar el header del documento.
+
+---
+
+**Última actualización**: 2026-06-29 — SW v197 / commit `259ed55` / agrega Rutas personalizadas, Alta rápida, Vista preliminar con subtotales de stock, login Microsoft + Email/password + Magic link, reset password Firebase, 2FA opcional, outlines híbrido provincia+dept, `PROVINCE_VENDOR_OVERRIDE` (SAN LUIS → Martin), dropdown provincia editable en Master, botones de refresh + reubicar pines, banner versión + chequeo HTML vs SW, export Visitas/Rendiciones con fotos embebidas (ExcelJS), delete de notificaciones por target, delete de altas propias sin SAP, fix gerente ve todo el mapa, fix rules rendiciones via users_directory.
