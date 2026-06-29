@@ -2806,7 +2806,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v192';
+const APP_VERSION = 'v193';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -22222,23 +22222,61 @@ window.disableTotp = async function(uid){
 
 window.changeUserPassword = async function(uid, email){
   if (userRole !== 'admin') return;
-  const newPwd = prompt('Nueva contraseña para ' + (email || uid) + ':\n\n(El usuario va a tener que usarla en su proximo ingreso. La default es Shi0*)', '');
-  if (newPwd === null) return;
-  const pwd = (newPwd || '').trim();
-  if (pwd.length < 4) { alert('La contraseña tiene que tener al menos 4 caracteres.'); return; }
-  try {
-    const creds = await buildPasswordCredentials(pwd);
-    await fbDb.collection('roles').doc(uid).update({
-      passwordHash: creds.passwordHash,
-      passwordSalt: creds.passwordSalt,
-      passwordChangedBy: currentUser.email || '',
-      passwordChangedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
-    showSyncTag('Contraseña actualizada para ' + (email || 'usuario'));
-  } catch(e) {
-    console.error('changeUserPassword', e);
-    alert('Error guardando contraseña: ' + (e.message || e));
+  if (!email) { alert('Este usuario no tiene email registrado - no se puede resetear.'); return; }
+  const choice = prompt(
+    'Resetear contraseña de ' + email + '\n\n' +
+    'Elegi una opcion (1 / 2):\n\n' +
+    '1) ENVIAR MAIL DE RESETEO (recomendado)\n' +
+    '   Le llega a ' + email + ' un mail de Firebase con un link.\n' +
+    '   El usuario clickea, setea su nueva password y vuelve a la app.\n' +
+    '   Es lo estandar y funciona seguro.\n\n' +
+    '2) Resetear SOLO el password-gate (segunda capa).\n' +
+    '   No cambia la password real de Firebase. Sirve si el usuario\n' +
+    '   entra por Google y olvido la password-gate de la app, NO si\n' +
+    '   olvido la password del login con email.\n\n' +
+    'Escribi 1 o 2:',
+    '1'
+  );
+  if (choice === null) return;
+  if (choice.trim() === '1') {
+    try {
+      await fbAuth.sendPasswordResetEmail(email);
+      alert('OK - le envie un mail de reseteo a ' + email + '. Decile que revise inbox y spam. El link expira en 1 hora.');
+      try {
+        await fbDb.collection('roles').doc(uid).update({
+          passwordChangedBy: currentUser.email || '',
+          passwordChangedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          passwordResetMethod: 'firebase_email',
+        });
+      } catch(e){}
+    } catch(e) {
+      console.error('sendPasswordResetEmail', e);
+      alert('Error enviando el mail: ' + (e.message || e));
+    }
+    return;
   }
+  if (choice.trim() === '2') {
+    const newPwd = prompt('Nueva password-gate para ' + email + ':\n\n(Solo afecta la segunda capa de la app, NO el login con email)', '');
+    if (newPwd === null) return;
+    const pwd = (newPwd || '').trim();
+    if (pwd.length < 4) { alert('La contraseña tiene que tener al menos 4 caracteres.'); return; }
+    try {
+      const creds = await buildPasswordCredentials(pwd);
+      await fbDb.collection('roles').doc(uid).update({
+        passwordHash: creds.passwordHash,
+        passwordSalt: creds.passwordSalt,
+        passwordChangedBy: currentUser.email || '',
+        passwordChangedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        passwordResetMethod: 'gate_only',
+      });
+      showSyncTag('Password-gate actualizada para ' + email);
+    } catch(e) {
+      console.error('changeUserPassword gate', e);
+      alert('Error guardando: ' + (e.message || e));
+    }
+    return;
+  }
+  alert('Opcion no valida. Cancelado.');
 };
 
 window.saveUserRole = async function(uid, btn){
