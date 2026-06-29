@@ -2806,7 +2806,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v198';
+const APP_VERSION = 'v199';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -15700,6 +15700,38 @@ function updateSidebar(pts){
   const filteredByQuery = lq ? pts.filter(p => (p.name || '').toLowerCase().includes(lq) || (p.province || '').toLowerCase().includes(lq)) : pts;
 
   const sorted = [...filteredByQuery].sort((a, b) => (b.clients.length + b.prospects.length) - (a.clients.length + a.prospects.length));
+  // Sumar localidades de altas SAP huerfanas (las que no estan en POINTS).
+  // Para vendedores como Martin donde todos sus clientes son SAP altas, el
+  // listado de localidades quedaba vacio aunque el mapa mostrara pines.
+  const sapLocs = []; // [{name, province, vendor, altas:[a, a, a]}]
+  if (typeof approvedAltasList !== 'undefined') {
+    const ptKeys = new Set();
+    sorted.forEach(p => ptKeys.add((p.province || '').toUpperCase() + '|' + (p.name || '').toLowerCase()));
+    const myVendor = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
+    const provFilter = (currentProvince !== 'ALL') ? currentProvince : null;
+    const locFilter = (currentLocality !== 'ALL') ? currentLocality : null;
+    const locMap = new Map(); // key -> {name, province, vendor, count, altas}
+    approvedAltasList.forEach(a => {
+      if (!a) return;
+      if (!(a.cardCodeSap || a.manualSapPending)) return;
+      const prov = (a.provincia || '').toUpperCase().trim();
+      const loc = (a.localidadFinal || a.localidad || '').trim();
+      if (!prov || !loc) return;
+      if (myVendor && a.assignedVendor && !myVendor.has(a.assignedVendor)) return;
+      if (provFilter && prov !== provFilter) return;
+      if (locFilter && loc !== locFilter) return;
+      if (ptKeys.has(prov + '|' + loc.toLowerCase())) return; // ya esta en POINTS
+      if (lq && !(loc.toLowerCase().includes(lq) || prov.toLowerCase().includes(lq))) return;
+      const k = prov + '|' + loc;
+      if (!locMap.has(k)) locMap.set(k, {name: loc, province: prov, vendor: a.assignedVendor || '', count: 0, altas: []});
+      const entry = locMap.get(k);
+      entry.count++;
+      entry.altas.push(a);
+    });
+    locMap.forEach(v => sapLocs.push(v));
+  }
+  // Sort por cantidad de tiendas desc.
+  sapLocs.sort((a, b) => b.count - a.count);
   let html = '';
   for (const p of sorted) {
     const c = p.clients.length, pp = p.prospects.length, total = c + pp;
@@ -15711,9 +15743,24 @@ function updateSidebar(pts){
     html += '<div class="loc-card-meta" style="font-size:10px;margin-top:2px;color:#94a3b8">' + escapeHtml(p.province) + (p.dept ? ' / ' + escapeHtml(p.dept) : '') + '</div>';
     html += '</div>';
   }
-  if (!sorted.length) html = '<div style="color:#94a3b8;font-size:12px;padding:8px">Sin localidades con datos para esta combinacion.</div>';
+  for (const sp of sapLocs) {
+    const vm = vendorLookup[sp.vendor];
+    const accent = vm ? vm.color : '#94a3b8';
+    // Centroide de las altas para el zoom (si tienen lat/lng).
+    let avgLat = null, avgLon = null, geoN = 0;
+    sp.altas.forEach(a => { if (a.lat != null && a.lng != null) { avgLat = (avgLat || 0) + parseFloat(a.lat); avgLon = (avgLon || 0) + parseFloat(a.lng); geoN++; } });
+    if (geoN > 0) { avgLat = avgLat / geoN; avgLon = avgLon / geoN; }
+    const onclickAttr = (avgLat != null) ? 'onclick="zoomTo(' + avgLat + ',' + avgLon + ')"' : '';
+    html += '<div class="loc-card" style="border-left-color:' + accent + '" ' + onclickAttr + '>';
+    html += '<div class="loc-card-title">' + escapeHtml(sp.name) + '<span class="badge" style="background:' + accent + '">' + sp.count + '</span></div>';
+    html += '<div class="loc-card-meta"><span class="c">' + sp.count + ' clientes SAP</span></div>';
+    html += '<div class="loc-card-meta" style="font-size:10px;margin-top:2px;color:#94a3b8">' + escapeHtml(titleCase(sp.province)) + '</div>';
+    html += '</div>';
+  }
+  const totalShown = sorted.length + sapLocs.length;
+  if (!totalShown) html = '<div style="color:#94a3b8;font-size:12px;padding:8px">Sin localidades con datos para esta combinacion.</div>';
   document.getElementById('sidebar-content').innerHTML = html;
-  document.getElementById('tab-loc-count').textContent = sorted.length;
+  document.getElementById('tab-loc-count').textContent = totalShown;
   renderClients(pts);
   renderPedidosTab();
 }
