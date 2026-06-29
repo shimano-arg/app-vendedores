@@ -2806,7 +2806,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v197';
+const APP_VERSION = 'v198';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -4903,8 +4903,13 @@ function drawMarkers(){
   markerLayer.clearLayers();
   const mode = getDisplayMode();
   const visiblePoints = filteredPoints();
-
-  if (mode === 'vendor') {
+  // Burbujas numericas agregadas (counts por vendor/provincia/localidad)
+  // desactivadas a pedido del usuario: el mapa muestra SOLO los pines
+  // individuales de tiendas (drawHabilitadosPins + drawSapAltaPins).
+  // Si en algun momento las queres volver a activar, cambiar SHOW_AGG_BUBBLES
+  // a true.
+  const SHOW_AGG_BUBBLES = false;
+  if (SHOW_AGG_BUBBLES && mode === 'vendor') {
     const groups = {};
     for (const p of visiblePoints) {
       const k = p.vendor || 'OTRO';
@@ -4931,7 +4936,7 @@ function drawMarkers(){
       });
       m.addTo(markerLayer);
     }
-  } else if (mode === 'province') {
+  } else if (SHOW_AGG_BUBBLES && mode === 'province') {
     const groups = {};
     for (const p of visiblePoints) {
       const k = (p.vendor || '_') + '|' + p.province;
@@ -4958,7 +4963,7 @@ function drawMarkers(){
       });
       m.addTo(markerLayer);
     }
-  } else { // locality
+  } else if (SHOW_AGG_BUBBLES) { // locality
     for (const p of visiblePoints) {
       const cc = getCounts(p);
       const total = cc.c + cc.pr;
