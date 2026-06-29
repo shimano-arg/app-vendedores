@@ -17,6 +17,17 @@ on:
   schedule:
     - cron: '0 12 * * 1,3'     # Lun y Mie 12 UTC (9 AM AR)
   workflow_dispatch:           # boton "Run workflow" para forzar manualmente
+    inputs:
+      force:
+        description: 'Forzar envio con TODAS las rendiciones aprobadas (incluso las ya notificadas)'
+        type: boolean
+        required: false
+        default: false
+      skip_mark:
+        description: 'Mandar el mail pero NO marcar como notificadas (para testing)'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -49,4 +60,6 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           MAIL_FROM: bot.shimano.pesca@gmail.com
           MAIL_TO: mariano.erbino@shimano.com.ar
+          FORCE_SEND: ${{ inputs.force }}
+          SKIP_MARK: ${{ inputs.skip_mark }}
         run: python scripts/send_rendiciones_email.py

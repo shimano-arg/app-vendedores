@@ -47,6 +47,12 @@ MAIL_TO = os.environ.get("MAIL_TO", "mariano.erbino@shimano.com.ar")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 FB_SA_JSON = os.environ.get("FIREBASE_SERVICE_ACCOUNT", "")
 
+def _envbool(name: str) -> bool:
+    return (os.environ.get(name, "") or "").strip().lower() in ("1", "true", "yes", "on")
+
+FORCE_SEND = _envbool("FORCE_SEND")  # ignora filtro notifiedAt
+SKIP_MARK = _envbool("SKIP_MARK")    # NO marca como notificadas (testing)
+
 
 def die(msg: str) -> None:
     print(f"::error::{msg}", file=sys.stderr)
@@ -66,15 +72,18 @@ def init_firestore():
 
 
 def fetch_pending_approved(db):
-    """Query rendiciones aprobadas no notificadas."""
+    """Query rendiciones aprobadas. Si FORCE_SEND, traemos todas las
+    aprobadas (incluso las ya notificadas) - util para testear el formato
+    del Excel sin tener que esperar nuevas rendiciones."""
     docs = db.collection("rendiciones").where("status", "==", "approved").stream()
     out = []
     for d in docs:
         data = d.to_dict() or {}
-        # Filtrar las que YA fueron notificadas (notifiedAt no null).
-        notified_at = data.get("notifiedAt")
-        if notified_at:
-            continue
+        if not FORCE_SEND:
+            # Filtrar las que YA fueron notificadas (notifiedAt no null).
+            notified_at = data.get("notifiedAt")
+            if notified_at:
+                continue
         data["_id"] = d.id
         data["_ref"] = d.reference
         out.append(data)
@@ -270,7 +279,8 @@ def mark_as_notified(rendiciones) -> None:
 
 def main() -> int:
     db = init_firestore()
-    print("[fetch] Buscando rendiciones aprobadas no notificadas...")
+    mode_lbl = "FORCE_SEND (todas)" if FORCE_SEND else "solo no notificadas"
+    print(f"[fetch] Modo: {mode_lbl}")
     rendiciones = fetch_pending_approved(db)
     print(f"[fetch] Encontradas: {len(rendiciones)}")
     if not rendiciones:
@@ -278,8 +288,11 @@ def main() -> int:
         return 0
     xlsx_bytes = build_excel(rendiciones)
     send_email(xlsx_bytes, len(rendiciones))
-    mark_as_notified(rendiciones)
-    print(f"[done] {len(rendiciones)} rendiciones marcadas como notificadas.")
+    if SKIP_MARK:
+        print(f"[done] SKIP_MARK activo - {len(rendiciones)} rendiciones NO se marcaron como notificadas (testing).")
+    else:
+        mark_as_notified(rendiciones)
+        print(f"[done] {len(rendiciones)} rendiciones marcadas como notificadas.")
     return 0
 
 
