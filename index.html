@@ -2806,7 +2806,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v191';
+const APP_VERSION = 'v192';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -7210,12 +7210,16 @@ window.applyMcSapImport = async function(){
         const newDoc = fbDb.collection('client_applications').doc(newDocId);
         // Payload base: campos que SIEMPRE se actualizan en cada re-import
         // (SAP es source of truth para nombre comercial / cardCode / provincia).
+        // ownerUid = admin que corre la import. Necesario porque la rule
+        // de create en client_applications exige ownerUid == request.auth.uid.
         const payload = {
           comercio: sap.cardName,
           cardCodeSap: sap.cardCode,
           provincia: provNorm,
           status: 'approved',
           source: 'sap_bulk_import',
+          ownerUid: currentUser.uid,
+          ownerEmail: currentUser.email || '',
           approvals: {[currentUser.uid]: {
             approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
             email: currentUser.email || '',
