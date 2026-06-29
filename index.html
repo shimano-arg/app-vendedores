@@ -2826,7 +2826,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v202';
+const APP_VERSION = 'v203';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -16184,6 +16184,29 @@ function showSyncTag(msg, timeoutMs){
   el._t = setTimeout(() => el.classList.remove('show'), timeoutMs || 1800);
 }
 
+// Toast verde grande con titulo + descripcion. Pensado para reasignaciones
+// de Zonas: queda visible 5seg, anclado arriba al centro, scrolleable si
+// hay muchos cambios.
+function showZonasToast(title, items){
+  let el = document.getElementById('zonas-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'zonas-toast';
+    el.style.cssText = 'position:fixed;top:80px;left:50%;transform:translateX(-50%) translateY(-20px);background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;padding:14px 20px;border-radius:10px;font-family:inherit;font-size:13px;font-weight:600;line-height:1.5;z-index:9999;box-shadow:0 8px 24px rgba(22,163,74,.4);opacity:0;transition:opacity .25s ease,transform .25s ease;max-width:min(560px,92vw);pointer-events:none';
+    document.body.appendChild(el);
+  }
+  const lines = (items || []).map(it => '<div style="margin-top:4px">' + it + '</div>').join('');
+  el.innerHTML = '<div style="font-size:14px;font-weight:800;margin-bottom:4px;display:flex;align-items:center;gap:8px"><span style="font-size:18px">&#9989;</span>' + (title || '') + '</div>' + lines;
+  el.style.opacity = '1';
+  el.style.transform = 'translateX(-50%) translateY(0)';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateX(-50%) translateY(-20px)';
+  }, 5000);
+}
+window.showZonasToast = showZonasToast;
+
 // ============================================================
 // CONTROL DE ACCESO POR EMAIL
 // ============================================================
@@ -20682,6 +20705,15 @@ window.onZonasSapAltaChange = async function(fsId, sel){
       reassignedBy: currentUser ? (currentUser.email || currentUser.uid) : '',
     });
     showSyncTag('Alta SAP reasignada');
+    // Toast verde con el detalle. Tomar el nombre del alta del approvedAltasList.
+    try {
+      const a = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(x => x._fsId === fsId);
+      const nombre = a ? (a.comercio || a.fantasia || 'Alta SAP') : 'Alta SAP';
+      const loc = a ? ((a.localidadFinal || a.localidad || '').trim()) : '';
+      const dst = newVendor === '__DISTRIBUTOR__' ? 'Distribuidor' : titleCase(newVendor);
+      const detail = 'Tienda <b>' + escapeHtml(nombre) + '</b>' + (loc ? ' en ' + escapeHtml(loc) : '') + ' &rarr; <b>' + escapeHtml(dst) + '</b>';
+      showZonasToast('Reasignacion guardada', [detail]);
+    } catch(e) { /* toast best-effort */ }
     // El listener de approvedAltas repinta solo.
   } catch(e) {
     console.error('onZonasSapAltaChange', e);
@@ -20756,6 +20788,31 @@ window.saveZonasChanges = async function(){
   try {
     await batch.commit();
     showSyncTag(changes.length + ' reasignacion(es) guardadas');
+    // Toast verde grande con el detalle de cada reasignacion. Mensaje
+    // segun scope: provincia / localidad / tienda. Si hay >5 cambios
+    // mostramos solo los primeros 5 + "y N mas".
+    function vendorPlain(k){
+      if (!k) return '(sin asignar)';
+      if (k === '__DISTRIBUTOR__') return 'Distribuidor';
+      return titleCase(k);
+    }
+    const lines = [];
+    const maxShow = 5;
+    changes.slice(0, maxShow).forEach(c => {
+      const dst = vendorPlain(c.newVendor);
+      if (c.scope === 'prov') {
+        lines.push('Provincia <b>' + escapeHtml(titleCase(c.province)) + '</b> &rarr; <b>' + escapeHtml(dst) + '</b>');
+      } else if (c.scope === 'loc') {
+        lines.push('Localidad <b>' + escapeHtml(c.localityName) + '</b> (' + escapeHtml(titleCase(c.province)) + ') &rarr; <b>' + escapeHtml(dst) + '</b>');
+      } else {
+        lines.push('Tienda <b>' + escapeHtml(c.clientName) + '</b> en ' + escapeHtml(c.localityName) + ' &rarr; <b>' + escapeHtml(dst) + '</b>');
+      }
+    });
+    if (changes.length > maxShow) lines.push('<i style="opacity:.85">... y ' + (changes.length - maxShow) + ' mas</i>');
+    const title = changes.length === 1
+      ? 'Reasignacion guardada'
+      : (changes.length + ' reasignaciones guardadas');
+    showZonasToast(title, lines);
     zonasPendingChanges = {};
     updateZonasPendingInfo();
     renderZonasList();
