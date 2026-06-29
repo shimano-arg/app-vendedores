@@ -1617,6 +1617,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <div style="display:flex;gap:6px;padding:10px 14px;background:#faf5ff;border-bottom:1px solid #e9d5ff">
           <button class="zonas-tab-btn active" data-zt="shop" onclick="setZonasTab('shop')">Por tienda</button>
           <button class="zonas-tab-btn" data-zt="loc" onclick="setZonasTab('loc')">Por localidad</button>
+          <button class="zonas-tab-btn" data-zt="prov" onclick="setZonasTab('prov')">Por provincia</button>
           <button class="zonas-tab-btn" data-zt="hist" onclick="setZonasTab('hist')">Historial</button>
         </div>
         <div style="padding:10px 14px;background:#fff;border-bottom:1px solid #e5e7eb;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="zonas-filters">
@@ -2825,7 +2826,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v201';
+const APP_VERSION = 'v202';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -20017,6 +20018,7 @@ let vdiPartnerUsers = [];              // usuarios con rol 'interno' (VDIs) para
 let otherUsers = [];                   // usuarios con rol 'admin' u otros -> seccion "Otros"
 
 function zonasKey(scope, province, locName, clientName){
+  if (scope === 'prov') return 'PROV|' + province;
   if (scope === 'loc') return 'LOC|' + province + '|' + locName;
   return 'SHOP|' + province + '|' + locName + '|' + clientName;
 }
@@ -20194,7 +20196,10 @@ window.exportZonasMapeoExcel = function(){
 };
 
 window.openZonasModal = function(){
-  if (userRole !== 'admin') { alert('Solo el administrador puede reasignar zonas.'); return; }
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente puede reasignar zonas.');
+    return;
+  }
   zonasPendingChanges = {};
   zonasTab = 'shop';
   document.getElementById('zonas-modal').classList.add('open');
@@ -20384,9 +20389,12 @@ function zonasDestOptions(selectedKey){
 }
 
 function getEffectiveVendorForPoint(p){
-  // Considera override de localidad (si existe) sobre el vendor original del point.
+  // Prioridad de overrides: localidad > provincia (modal Zonas) > hardcode
+  // PROVINCE_VENDOR_OVERRIDE > vendor original del point.
   const locKey = zonasKey('loc', p.province, p.name);
   if (vendorOverrides[locKey]) return vendorOverrides[locKey].newVendor;
+  const provKey = zonasKey('prov', p.province);
+  if (vendorOverrides[provKey]) return vendorOverrides[provKey].newVendor;
   // Override permanente por provincia (geografia 100% del vendor).
   if (typeof PROVINCE_VENDOR_OVERRIDE !== 'undefined' && PROVINCE_VENDOR_OVERRIDE[p.province]) {
     return PROVINCE_VENDOR_OVERRIDE[p.province];
@@ -20440,8 +20448,9 @@ function renderZonasList(){
   const provFilter = document.getElementById('zonas-prov-sel').value;
   const locFilter = document.getElementById('zonas-loc-sel').value;
   const searchQ = (document.getElementById('zonas-search').value || '').toLowerCase().trim();
+  const colTitle = zonasTab === 'shop' ? 'Tienda' : (zonasTab === 'prov' ? 'Provincia' : 'Localidad');
   let html = '<div class="zonas-row header">'
-    + '<div>' + (zonasTab === 'shop' ? 'Tienda' : 'Localidad') + '</div>'
+    + '<div>' + colTitle + '</div>'
     + '<div>Ubicaci&oacute;n</div>'
     + '<div>Asignaci&oacute;n actual</div>'
     + '<div>Reasignar a</div>'
@@ -20589,6 +20598,45 @@ function renderZonasList(){
       count++;
       if (count >= 500) return;
     });
+  } else if (zonasTab === 'prov') {
+    // Una fila por provincia. Vendor "actual" = el dominante de los POINTS
+    // de esa provincia (mayoria simple), considerando los overrides ya
+    // aplicados a p.vendor.
+    const provGroups = {}; // provName -> { vendors: {key: count}, total }
+    POINTS.forEach(p => {
+      if (provFilter !== 'ALL' && p.province !== provFilter) return;
+      if (searchQ && !(p.province || '').toLowerCase().includes(searchQ)) return;
+      if (!provGroups[p.province]) provGroups[p.province] = {vendors: {}, total: 0};
+      const tds = (p.clients || []).length + (p.prospects || []).length + (p.distributorClients || []).length;
+      provGroups[p.province].total += tds;
+      const v = p.vendor || '__SIN_ASIGNAR__';
+      provGroups[p.province].vendors[v] = (provGroups[p.province].vendors[v] || 0) + tds;
+    });
+    const provNames = Object.keys(provGroups).sort();
+    provNames.forEach(prov => {
+      const g = provGroups[prov];
+      // Vendor "actual" = override de provincia si existe, sino el dominante.
+      const provKey2 = zonasKey('prov', prov);
+      const provOverride = vendorOverrides[provKey2];
+      let effVendor;
+      if (provOverride) effVendor = provOverride.newVendor;
+      else if (typeof PROVINCE_VENDOR_OVERRIDE !== 'undefined' && PROVINCE_VENDOR_OVERRIDE[prov]) effVendor = PROVINCE_VENDOR_OVERRIDE[prov];
+      else {
+        let best = '', bestN = 0;
+        Object.entries(g.vendors).forEach(([k, n]) => { if (k !== '__SIN_ASIGNAR__' && n > bestN) { best = k; bestN = n; } });
+        effVendor = best;
+      }
+      const pending = zonasPendingChanges[provKey2];
+      const newSelKey = pending ? pending.newVendor : '';
+      const rowCls = pending ? ' changed' : '';
+      html += '<div class="zonas-row' + rowCls + '">'
+        + '<div><div class="name">' + escapeHtml(titleCase(prov)) + '</div><div class="meta">' + g.total + ' tiendas</div></div>'
+        + '<div><div class="meta">' + Object.keys(g.vendors).filter(k => k !== '__SIN_ASIGNAR__').length + ' vendor(es) en la prov.</div></div>'
+        + '<div class="current">' + vendorLabel(effVendor) + '</div>'
+        + '<div><select onchange="onZonasRowChange(\'prov\',\'' + escapeAttr(prov) + '\',null,null, this)">' + zonasDestOptions(newSelKey) + '</select></div>'
+        + '</div>';
+      count++;
+    });
   }
   if (count === 0) html += '<div class="zonas-empty">Sin resultados para los filtros aplicados.</div>';
   if (count >= 500) html += '<div class="zonas-empty">Mostrando los primeros 500 resultados. Acota mas los filtros para ver el resto.</div>';
@@ -20648,16 +20696,28 @@ window.onZonasRowChange = function(scope, province, locName, clientName, sel){
   if (!newVendor) {
     delete zonasPendingChanges[key];
   } else {
-    const originalVendor = scope === 'loc'
-      ? (POINTS.find(p => p.province === province && p.name === locName) || {}).vendor || ''
-      : (function(){
-          const p = POINTS.find(pp => pp.province === province && pp.name === locName);
-          return p ? p.vendor : '';
-        })();
+    // Vendor original: para scope provincia tomamos el dominante simple
+    // de los POINTS de esa provincia. Para localidad y tienda, el vendor
+    // del POINT correspondiente.
+    let originalVendor = '';
+    if (scope === 'prov') {
+      const counts = {};
+      POINTS.forEach(p => {
+        if (p.province !== province) return;
+        const v = p.vendor || '';
+        if (!v) return;
+        counts[v] = (counts[v] || 0) + 1;
+      });
+      let bestN = 0;
+      Object.entries(counts).forEach(([v, n]) => { if (n > bestN) { originalVendor = v; bestN = n; } });
+    } else {
+      const p = POINTS.find(pp => pp.province === province && pp.name === locName);
+      originalVendor = p ? (p.vendor || '') : '';
+    }
     zonasPendingChanges[key] = {
       scope: scope,
       province: province,
-      localityName: locName,
+      localityName: locName || '',
       clientName: clientName || '',
       originalVendor: originalVendor,
       newVendor: newVendor,
@@ -20725,11 +20785,19 @@ function renderZonasHistory(){
   vendorOverridesHistory.forEach(h => {
     const at = h.updatedAt && h.updatedAt.toDate ? h.updatedAt.toDate() : null;
     const dt = at ? at.toLocaleString('es-AR') : '-';
-    const target = h.scope === 'loc'
-      ? (h.localityName + ' (' + titleCase(h.province) + ')')
-      : (h.clientName + ' &middot; ' + h.localityName + ' (' + titleCase(h.province) + ')');
+    let target, icon;
+    if (h.scope === 'prov') {
+      target = 'Provincia ' + titleCase(h.province);
+      icon = '&#127759; '; // globo
+    } else if (h.scope === 'loc') {
+      target = h.localityName + ' (' + titleCase(h.province) + ')';
+      icon = '&#128205; '; // pin
+    } else {
+      target = h.clientName + ' &middot; ' + h.localityName + ' (' + titleCase(h.province) + ')';
+      icon = '&#127978; '; // building
+    }
     html += '<div class="zonas-hist-row">'
-      + '<div class="h-target">' + (h.scope === 'loc' ? '&#128205; ' : '&#127978; ') + escapeHtml(target) + '</div>'
+      + '<div class="h-target">' + icon + escapeHtml(target) + '</div>'
       + '<div class="h-change">' + vendorLabel(h.originalVendor) + '<span class="arrow">&#10142;</span>' + vendorLabel(h.newVendor) + '</div>'
       + '<div class="h-meta">' + escapeHtml(dt) + ' &middot; por ' + escapeHtml(h.updatedByDisplayName || h.updatedByEmail || 'usuario') + '</div>'
       + '</div>';
@@ -20754,10 +20822,24 @@ function applyVendorOverridesToPoints(){
     const k = p.province + '|' + p.name;
     if (k in _originalPointVendors) p.vendor = _originalPointVendors[k];
   });
-  // Aplicar overrides de LOCALIDAD: mutan p.vendor -> afecta marker color,
-  // filtro de vendor, contadores. Solo localidad por ahora; los overrides
-  // de tienda especifica quedan registrados en Firestore + Historial pero
-  // todavia no mutan el mapa (proxima iteracion).
+  // Aplicar overrides en cascada: primero PROVINCIA (pisa todos los points
+  // de la provincia), despues LOCALIDAD (override mas especifico).
+  Object.values(vendorOverrides).forEach(v => {
+    if (v.scope !== 'prov') return;
+    POINTS.forEach(p => {
+      if (p.province !== v.province) return;
+      if (v.newVendor === '__DISTRIBUTOR__') {
+        p.vendor = '';
+        p.hasDistributor = true;
+        p.isDistributor = true;
+      } else {
+        p.vendor = v.newVendor;
+      }
+    });
+  });
+  // Overrides de LOCALIDAD: mutan p.vendor -> afecta marker color, filtro
+  // de vendor, contadores. Los overrides de tienda especifica quedan
+  // registrados en Firestore + Historial pero todavia no mutan el mapa.
   Object.values(vendorOverrides).forEach(v => {
     if (v.scope !== 'loc') return;
     const p = POINTS.find(pp => pp.province === v.province && pp.name === v.localityName);
