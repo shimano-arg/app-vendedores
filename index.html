@@ -2304,6 +2304,20 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <label for="cm-fantasia" style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px">Nombre del local / fantas&iacute;a <span style="font-weight:400;color:#94a3b8">(ej: PESCAPLAY)</span></label>
             <input id="cm-fantasia" type="text" placeholder="Marca o nombre del local (si difiere del titular)" oninput="onClientFantasiaInput()" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none"/>
           </div>
+          <!-- Toggle "Cliente con precaucion" - card sale amarilla + alert al crear pedido -->
+          <div style="background:#fef3c7;border:1.5px solid #fcd34d;border-radius:6px;padding:8px 10px;margin-bottom:10px">
+            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
+              <input type="checkbox" id="cm-precaucion" onchange="onClientPrecaucionInput()" style="margin-top:2px;flex-shrink:0;accent-color:#d97706"/>
+              <div style="flex:1">
+                <div style="font-size:11px;font-weight:800;color:#92400e">&#9888;&#65039; Cliente con precauci&oacute;n</div>
+                <div style="font-size:9px;color:#78350f;margin-top:1px;line-height:1.4">Activa si tuvo incumplimientos de pago en otras empresas. La card sale en amarillo y al crear pedido se avisa al vendedor.</div>
+              </div>
+            </label>
+            <div style="margin-top:6px">
+              <label for="cm-precaucion-reason" style="font-size:9px;font-weight:700;color:#78350f;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px">Motivo (opcional)</label>
+              <textarea id="cm-precaucion-reason" rows="2" maxlength="240" oninput="onClientPrecaucionInput()" placeholder="Ej: Mora con Distribuidor X en 2025" style="width:100%;padding:5px 8px;border:1.5px solid #fcd34d;border-radius:4px;font-size:11px;outline:none;font-family:inherit;background:#fffbeb;resize:vertical"></textarea>
+            </div>
+          </div>
           <div style="margin-bottom:10px">
             <label for="cm-address" style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px">Direccion exacta <span style="color:#dc2626">*</span></label>
             <input id="cm-address" type="text" autocomplete="street-address" placeholder="Ej: Av. Corrientes 1234" oninput="onClientMetaInput()" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none"/>
@@ -2826,7 +2840,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v203';
+const APP_VERSION = 'v204';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -4570,8 +4584,26 @@ function openSapAltaInfoModal(fsId){
           (isAdminLike ? '' : ' disabled') +
           ' style="width:100%;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;margin-bottom:14px"/>' +
         (isAdminLike ? '' : '<div style="font-size:10px;color:#dc2626;margin-bottom:10px;margin-top:-6px">Solo admin o gerente puede editar este campo.</div>') +
+        // Toggle "Cliente con precaucion": cuando esta activado, la card
+        // del cliente sale en amarillo en CLIENTES y al crear pedido salta
+        // un alert avisando al vendedor que tenga cuidado.
+        '<div style="background:#fef3c7;border:1.5px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-bottom:14px">' +
+          '<label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">' +
+            '<input type="checkbox" id="sai-precaucion-input" ' + (a.precaucion ? 'checked' : '') + (isAdminLike ? '' : ' disabled') + ' style="margin-top:2px;flex-shrink:0;accent-color:#d97706"/>' +
+            '<div style="flex:1">' +
+              '<div style="font-size:12px;font-weight:800;color:#92400e">&#9888;&#65039; Cliente con precauci&oacute;n</div>' +
+              '<div style="font-size:10px;color:#78350f;margin-top:2px;line-height:1.4">Marca este cliente si tuvo incumplimientos de pago en otras empresas. La card sale en amarillo y al crear pedido salta una alerta para el vendedor.</div>' +
+            '</div>' +
+          '</label>' +
+          '<div style="margin-top:8px">' +
+            '<label style="font-size:10px;font-weight:700;color:#78350f;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:3px">Motivo (opcional)</label>' +
+            '<textarea id="sai-precaucion-reason" rows="2" maxlength="240" placeholder="Ej: Mora con Distribuidor X en 2025, cheques rechazados"' +
+              (isAdminLike ? '' : ' disabled') +
+              ' style="width:100%;padding:6px 9px;border:1.5px solid #fcd34d;border-radius:5px;font-size:11px;outline:none;font-family:inherit;background:#fffbeb;resize:vertical">' + escapeHtml(a.precaucionReason || '') + '</textarea>' +
+          '</div>' +
+        '</div>' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">' +
-          (isAdminLike ? '<button class="btn-confirm" onclick="saveSapAltaFantasiaFromModal(\'' + safeFsId + '\')" style="background:#16a34a">Guardar local</button>' : '') +
+          (isAdminLike ? '<button class="btn-confirm" onclick="saveSapAltaFantasiaFromModal(\'' + safeFsId + '\')" style="background:#16a34a">Guardar</button>' : '') +
           '<button onclick="document.getElementById(\'sap-alta-info-modal\').classList.remove(\'open\');openSapAltaAddressModal(\'' + safeFsId + '\')" style="padding:9px 14px;border:1.5px solid #1d4ed8;border-radius:6px;background:#fff;color:#1d4ed8;font-size:12px;font-weight:700;cursor:pointer">Editar direccion</button>' +
           '<button class="btn-cancel" onclick="document.getElementById(\'sap-alta-info-modal\').classList.remove(\'open\')">Cerrar</button>' +
         '</div>' +
@@ -4586,14 +4618,21 @@ window.saveSapAltaFantasiaFromModal = function(fsId){
   const inp = document.getElementById('sai-fantasia-input');
   if (!inp) return;
   const trimmed = (inp.value || '').trim();
-  fbDb.collection('client_applications').doc(fsId).update({
+  const precaucionEl = document.getElementById('sai-precaucion-input');
+  const reasonEl = document.getElementById('sai-precaucion-reason');
+  const precaucion = precaucionEl ? !!precaucionEl.checked : false;
+  const reason = reasonEl ? (reasonEl.value || '').trim() : '';
+  const payload = {
     fantasia: trimmed || firebase.firestore.FieldValue.delete(),
+    precaucion: precaucion,
+    precaucionReason: precaucion ? (reason || '') : firebase.firestore.FieldValue.delete(),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-  }).then(() => {
-    if (typeof showSyncTag === 'function') showSyncTag(trimmed ? ('Local guardado: ' + trimmed) : 'Nombre del local borrado');
+  };
+  fbDb.collection('client_applications').doc(fsId).update(payload).then(() => {
+    if (typeof showSyncTag === 'function') showSyncTag('Cliente actualizado' + (precaucion ? ' (precaucion ON)' : ''));
     const modalEl = document.getElementById('sap-alta-info-modal');
     if (modalEl) modalEl.classList.remove('open');
-  }).catch(e => { console.error('save fantasia', e); alert('Error: ' + (e.message || e)); });
+  }).catch(e => { console.error('save SAP alta', e); alert('Error: ' + (e.message || e)); });
 };
 
 // Modal para que el admin cargue la direccion de una alta SAP. Pide solo la
@@ -5250,14 +5289,24 @@ function renderClients(pts){
         ? '&#10003; SAP en mapa'
         : (hasAddr ? '&#9888;&#65039; SAP sin geocodificar' : '&#9888;&#65039; SAP sin direccion');
       const safeFsId = escapeAttr(a._fsId || '');
+      // Si esta marcado como "precaucion" (incumplimientos de pago), la
+      // card sale en amarillo - el vendedor lo identifica al toque.
+      const isPrec = !!a.precaucion;
+      const cardStyle = isPrec
+        ? 'border-left-color:#d97706;background:#fffbeb;cursor:pointer'
+        : ('border-left-color:' + sapLeft + ';cursor:pointer');
       html += '<div class="client-card estado-sap"';
-      html += ' style="border-left-color:' + sapLeft + ';cursor:pointer"';
+      html += ' style="' + cardStyle + '"';
       html += ' onclick="openSapAltaCard(\'' + safeFsId + '\')"';
       html += '>';
       html += '<div class="client-body">';
       html += '<div class="client-name">' + escapeHtml(it.name);
       const sapBadgeLabel = a.cardCodeSap ? ('SAP ' + escapeHtml(a.cardCodeSap)) : '&#9889; PROVISORIO';
-      html += ' <span style="font-size:9px;color:' + sapBadgeFg + ';font-weight:700;margin-left:6px;background:' + sapBadgeBg + ';padding:2px 6px;border-radius:3px">' + sapBadgeLabel + '</span></div>';
+      html += ' <span style="font-size:9px;color:' + sapBadgeFg + ';font-weight:700;margin-left:6px;background:' + sapBadgeBg + ';padding:2px 6px;border-radius:3px">' + sapBadgeLabel + '</span>';
+      if (isPrec) {
+        html += ' <span title="' + escapeAttr(a.precaucionReason || 'Cliente con precaucion') + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:4px;background:#d97706;padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">&#9888;&#65039; Precauci&oacute;n</span>';
+      }
+      html += '</div>';
       // Nombre de fantasia: si el comercio es el nombre del titular (ej. "AGUSTIN BEBER")
       // pero el local tiene un nombre comercial / marca (ej. "PESCAPLAY"), mostramos ambos.
       const fantSap = (a.fantasia || '').trim();
@@ -5291,13 +5340,23 @@ function renderClients(pts){
     const renamedTag = (displayName !== it.name)
       ? '<span style="font-size:9px;color:#94a3b8;font-weight:500;margin-left:6px" title="Nombre original: ' + escapeAttr(it.name) + '">(' + escapeHtml(it.name) + ')</span>'
       : '';
+    // Precaucion: si clientMeta tiene precaucion=true, la card sale en amarillo.
+    const mPrec = !!(typeof clientMeta !== 'undefined' && clientMeta[k] && clientMeta[k].precaucion);
+    const mPrecReason = (mPrec && clientMeta[k].precaucionReason) ? clientMeta[k].precaucionReason : '';
+    const cardCustom = mPrec
+      ? 'border-left-color:#d97706;background:#fffbeb'
+      : ('border-left-color:' + leftColor);
     html += '<div class="client-card estado-' + state + '"';
     html += ' data-key="' + escapeHtml(k) + '"';
-    html += ' style="border-left-color:' + leftColor + '" title="Click: ver historial, recomendaciones y dar de alta / cancelar"';
+    html += ' style="' + cardCustom + '" title="Click: ver historial, recomendaciones y dar de alta / cancelar"';
     html += ' onclick="onClientCardClick(event, \'' + escapeAttr(k) + '\', ' + it.point.lat + ', ' + it.point.lon + ')"';
     html += ' ondblclick="openClientModal(\'' + safeName + '\', \'' + it.tipo + '\', \'' + safeProv + '\', \'' + safeLoc + '\')">';
     html += '<div class="client-body">';
-    html += '<div class="client-name">' + escapeHtml(displayName) + renamedTag + '</div>';
+    html += '<div class="client-name">' + escapeHtml(displayName) + renamedTag;
+    if (mPrec) {
+      html += ' <span title="' + escapeAttr(mPrecReason || 'Cliente con precaucion') + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:4px;background:#d97706;padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">&#9888;&#65039; Precauci&oacute;n</span>';
+    }
+    html += '</div>';
     // Nombre del local / fantasia. Prioridad:
     //  1) clientMeta.customFantasia (lo escribiste vos en el modal del cliente).
     //  2) approvedAltasList[].fantasia matcheado por comercio+provincia,
@@ -5423,6 +5482,11 @@ function openClientModal(clientName, tipo, province, localityName){
     }
     fantInput.value = preset || '';
   }
+  // Cargar el toggle de precaucion + motivo desde clientMeta.
+  const precInput = document.getElementById('cm-precaucion');
+  const precReason = document.getElementById('cm-precaucion-reason');
+  if (precInput) precInput.checked = !!(meta && meta.precaucion);
+  if (precReason) precReason.value = (meta && meta.precaucionReason) || '';
   // Cargar el dropdown de Tipo de cliente desde client_master (Firestore
   // global - no es per-device como clientMeta). Si no hay doc guardado,
   // queda en "(sin clasificar)" por defecto.
@@ -5683,6 +5747,25 @@ window.onClientFantasiaInput = function(){
     const val = (el.value || '').trim();
     setClientMetaPatch(currentClientModalKey, {customFantasia: val || null});
     // Re-render del listado de clientes si esta visible para reflejar el cambio.
+    try { if (typeof renderClients === 'function' && typeof filteredPoints === 'function') renderClients(filteredPoints()); } catch(e){}
+  }, 350);
+};
+
+// Toggle "Cliente con precaucion": guarda en clientMeta.precaucion + .precaucionReason.
+// Debounced para no escribir a Firestore por cada tecla del motivo.
+let _precaucionDebounceTimer = null;
+window.onClientPrecaucionInput = function(){
+  if (!currentClientModalKey) return;
+  if (_precaucionDebounceTimer) clearTimeout(_precaucionDebounceTimer);
+  _precaucionDebounceTimer = setTimeout(() => {
+    const cb = document.getElementById('cm-precaucion');
+    const txt = document.getElementById('cm-precaucion-reason');
+    const precaucion = cb ? !!cb.checked : false;
+    const reason = (txt && precaucion) ? (txt.value || '').trim() : '';
+    setClientMetaPatch(currentClientModalKey, {
+      precaucion: precaucion,
+      precaucionReason: precaucion ? (reason || null) : null,
+    });
     try { if (typeof renderClients === 'function' && typeof filteredPoints === 'function') renderClients(filteredPoints()); } catch(e){}
   }, 350);
 };
@@ -14189,6 +14272,49 @@ window.askCreatePedido = function(name, tipo, province, locName){
 
 // Flujo real de crear pedido (lo que antes era askCreatePedido). Lo llama la opcion "Crear pedido" del menu.
 function proceedToCreateOrder(name, tipo, province, locName){
+  // PRECAUCION: si el cliente esta marcado con incumplimientos de pago en
+  // otras empresas (clientMeta.precaucion para POINTS, alta.precaucion para
+  // SAP altas), avisar al vendedor ANTES de armar el pedido.
+  try {
+    const k = (typeof contactKey === 'function')
+      ? contactKey({province: province, name: locName}, name, tipo)
+      : (tipo + '|' + province + '|' + locName + '|' + name);
+    let precFlag = false;
+    let precReason = '';
+    if (typeof clientMeta !== 'undefined' && clientMeta[k] && clientMeta[k].precaucion) {
+      precFlag = true;
+      precReason = clientMeta[k].precaucionReason || '';
+    }
+    if (!precFlag && typeof approvedAltasList !== 'undefined') {
+      const provUp = (province || '').toUpperCase();
+      const locTrim = (locName || '').trim();
+      const nameL = (name || '').toLowerCase();
+      const alta = approvedAltasList.find(a => {
+        if (!a || !a.precaucion) return false;
+        const aProv = (a.provincia || '').toUpperCase().trim();
+        const aLoc = (a.localidadFinal || a.localidad || '').trim();
+        if (aProv !== provUp || aLoc !== locTrim) return false;
+        const c = (a.comercio || '').toLowerCase();
+        const f = (a.fantasia || '').toLowerCase();
+        return c === nameL || f === nameL;
+      });
+      if (alta) {
+        precFlag = true;
+        precReason = alta.precaucionReason || '';
+      }
+    }
+    if (precFlag) {
+      const msg = '⚠️  PRECAUCION CON ESTE CLIENTE  ⚠️\n\n'
+        + '"' + name + '" esta marcado por incumplimientos de pago en otras empresas.\n\n'
+        + (precReason ? 'Motivo registrado:\n' + precReason + '\n\n' : '')
+        + 'Recomendaciones antes de armar el pedido:\n'
+        + ' • Confirmar forma de pago (preferir CONTADO o cheque al dia).\n'
+        + ' • No otorgar plazos extendidos sin consulta.\n'
+        + ' • Avisar a administracion antes de cerrar el pedido.\n\n'
+        + 'Si querés continuar, toca OK. Cancelar = no abrir el pedido.';
+      if (!confirm(msg)) return;
+    }
+  } catch(e) { console.warn('precaucion check', e); }
   try {
     const todayISO = new Date().toISOString().slice(0, 10);
     // Filtra campañas vigentes + aplicables al vendedor activo. Si es admin, considera el vendedor de la tienda destino.
