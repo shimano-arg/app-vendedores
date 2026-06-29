@@ -41,6 +41,7 @@ from openpyxl import Workbook
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 MAIL_FROM = os.environ.get("MAIL_FROM", "bot.shimano.pesca@gmail.com")
 MAIL_TO = os.environ.get("MAIL_TO", "mariano.erbino@shimano.com.ar")
@@ -202,6 +203,15 @@ def build_excel(rendiciones):
     widths_g = [22, 16, 28, 14, 26, 14, 22, 16, 12, 12, 12, 36, 26, 16, 14]
     for i, w in enumerate(widths_g):
         ws_g.column_dimensions[get_column_letter(i + 1)].width = w
+    # Power Automate necesita una Excel Table con nombre para poder leer las
+    # filas via el action "List rows present in a table". Sin esto, el flow
+    # no encuentra datos. Tabla "Gastos" cubre desde A1 hasta la ultima fila.
+    if ws_g.max_row >= 2:
+        last_col_letter = get_column_letter(len(hdr_g))
+        table_ref = f"A1:{last_col_letter}{ws_g.max_row}"
+        tab_g = Table(displayName="TablaGastos", ref=table_ref)
+        tab_g.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
+        ws_g.add_table(tab_g)
 
     # Hoja 3: Solicitudes / anticipos
     ws_s = wb.create_sheet("Solicitudes")
@@ -233,6 +243,13 @@ def build_excel(rendiciones):
     widths_s = [22, 16, 28, 22, 22, 30, 12, 12, 12, 36, 26, 16]
     for i, w in enumerate(widths_s):
         ws_s.column_dimensions[chr(65 + i)].width = w
+    # Tabla con nombre tambien en Solicitudes (mismo motivo: Power Automate).
+    if ws_s.max_row >= 2:
+        last_col_letter_s = get_column_letter(len(hdr_s))
+        table_ref_s = f"A1:{last_col_letter_s}{ws_s.max_row}"
+        tab_s = Table(displayName="TablaSolicitudes", ref=table_ref_s)
+        tab_s.tableStyleInfo = TableStyleInfo(name="TableStyleMedium4", showRowStripes=True)
+        ws_s.add_table(tab_s)
 
     buf = io.BytesIO()
     wb.save(buf)
