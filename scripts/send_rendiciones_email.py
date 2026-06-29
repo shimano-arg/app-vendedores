@@ -143,29 +143,13 @@ def fmt_ts(ts):
 
 
 def build_excel(rendiciones):
-    """Arma el Workbook con 2 hojas (Gastos + Solicitudes) + 1 hoja Resumen."""
+    """Arma el Workbook con 2 hojas: Gastos + Solicitudes."""
     wb = Workbook()
-    # Hoja 1: Resumen
-    ws_sum = wb.active
-    ws_sum.title = "Resumen"
-    ws_sum.append(["Reporte de Rendiciones Aprobadas - Shimano App Vendedores"])
-    ws_sum["A1"].font = Font(bold=True, size=14)
-    ws_sum.append([f"Generado: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"])
-    ws_sum.append([])
-    ws_sum.append(["Total rendiciones notificadas en este lote:", len(rendiciones)])
     gastos = [r for r in rendiciones if r.get("tipo") == "gasto"]
     sols = [r for r in rendiciones if r.get("tipo") == "solicitud"]
-    ws_sum.append(["  - Gastos:", len(gastos)])
-    ws_sum.append(["  - Solicitudes / anticipos:", len(sols)])
-    total_ars = sum(float(r.get("importe") or 0) for r in rendiciones if (r.get("moneda") or "").upper().startswith("PESO"))
-    total_usd = sum(float(r.get("importe") or 0) for r in rendiciones if (r.get("moneda") or "").upper().startswith("DOLAR"))
-    ws_sum.append(["  - Total ARS:", round(total_ars, 2)])
-    ws_sum.append(["  - Total USD:", round(total_usd, 2)])
-    ws_sum.column_dimensions["A"].width = 50
-    ws_sum.column_dimensions["B"].width = 18
-
-    # Hoja 2: Gastos
-    ws_g = wb.create_sheet("Gastos")
+    # Hoja 1: Gastos (era hoja 2 antes - sacamos "Resumen" a pedido del user).
+    ws_g = wb.active
+    ws_g.title = "Gastos"
     hdr_g = [
         "ID", "Fecha carga", "Vendedor (email)", "N° Ticket", "Descripcion",
         "Modo pago", "Tipo gasto", "Division gasto", "Moneda", "Importe",
@@ -264,7 +248,6 @@ def send_email(xlsx_bytes: bytes, count: int) -> None:
         f"Hola Mariano,\n\n"
         f"Adjunto el Excel con las {count} rendiciones aprobadas pendientes de notificar.\n"
         f"Las hojas son:\n"
-        f"  - Resumen: totales por moneda + conteos.\n"
         f"  - Gastos: cada gasto cargado por foto/manual. Ultima columna 'Ticket' es un\n"
         f"    link cliqueable que abre la foto del ticket en su tamano original en el navegador.\n"
         f"  - Solicitudes: anticipos / recargas / rendiciones de gasto generales.\n\n"
