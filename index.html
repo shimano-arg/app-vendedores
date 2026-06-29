@@ -2825,7 +2825,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v200';
+const APP_VERSION = 'v201';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -7715,7 +7715,8 @@ window.renderMasterClientesTable = function(){
     html += '<td>' + escapeHtml(vendLabel) + '</td>';
     html += '<td><input type="text" class="' + inputCls + ' js-mc-direccion-input" value="' + escapeAttr(cur) + '" placeholder="Av. Belgrano 123, Barrio Norte" oninput="onMcAddrInput(this, \'' + escapeAttr(id) + '\', \'' + escapeAttr(savedAddr) + '\')" onkeydown="if(event.key===\'Enter\')this.parentElement.parentElement.querySelector(\'.mc-save-btn\').click()" /></td>';
     html += '<td data-vendor="' + escapeAttr(e.vendor) + '" data-prov="' + escapeAttr(e.provincia) + '" data-loc="' + escapeAttr(e.localidad) + '" data-name="' + escapeAttr(e.nombre) + '">' + _selHtml('cliTipo', curTipo, TIPO_OPTS, id) + '</td>';
-    html += '<td><button class="' + btnCls + '" onclick="saveMcAddr(\'' + escapeAttr(id) + '\', this)" data-vendor="' + escapeAttr(e.vendor) + '" data-prov="' + escapeAttr(e.provincia) + '" data-loc="' + escapeAttr(e.localidad) + '" data-name="' + escapeAttr(e.nombre) + '" data-sap-fsid="' + escapeAttr(isSap ? e.sapFsId : '') + '">Guardar</button></td>';
+    html += '<td><div style="display:flex;gap:4px;flex-wrap:wrap"><button class="' + btnCls + '" onclick="saveMcAddr(\'' + escapeAttr(id) + '\', this)" data-vendor="' + escapeAttr(e.vendor) + '" data-prov="' + escapeAttr(e.provincia) + '" data-loc="' + escapeAttr(e.localidad) + '" data-name="' + escapeAttr(e.nombre) + '" data-sap-fsid="' + escapeAttr(isSap ? e.sapFsId : '') + '">Guardar</button>'
+      + '<button onclick="deleteMcEntry(\'' + escapeAttr(id) + '\',' + JSON.stringify(e.nombre).replace(/"/g, '&quot;') + ',\'' + escapeAttr(isSap ? e.sapFsId : '') + '\')" style="background:#dc2626;color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px" title="Eliminar tienda">&#128465;</button></div></td>';
     html += '</tr>';
   });
   html += '</tbody></table>';
@@ -7979,6 +7980,49 @@ function pedidoDiscountFactor(pedido){
   return 1 - (pct / 100);
 }
 window.pedidoDiscountFactor = pedidoDiscountFactor;
+
+// Eliminar una entrada de Master Clientes. Comportamiento segun tipo:
+//  - SAP altas (sapFsId presente): borra el doc en client_applications.
+//    Solo si no tiene cardCodeSap todavia O si el admin/gerente confirma
+//    que entiende que esta borrando un cliente cargado en SAP B1.
+//  - POINTS legacy: borra el doc en client_master (limpia direccion) y
+//    avisa que el nombre queda en el padron historico hasta el proximo
+//    rebuild del Excel.
+window.deleteMcEntry = async function(docId, nombre, sapFsId){
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente puede eliminar tiendas.');
+    return;
+  }
+  const safeName = nombre || 'esta tienda';
+  if (sapFsId) {
+    // Es un alta SAP - tiene su propio doc en client_applications.
+    const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(x => x._fsId === sapFsId);
+    const hasSapCode = !!(alta && alta.cardCodeSap);
+    const warn = hasSapCode
+      ? '\n\nATENCION: esta tienda esta cargada en SAP (cardCode ' + alta.cardCodeSap + '). Borrarla solo la saca de la app, NO la borra de SAP B1. Si tiene pedidos asociados, esos pedidos pueden quedar huerfanos.\n'
+      : '';
+    if (!confirm('Eliminar "' + safeName + '" de Master Clientes?' + warn + '\nNo se puede deshacer.')) return;
+    try {
+      await fbDb.collection('client_applications').doc(sapFsId).delete();
+      if (typeof showSyncTag === 'function') showSyncTag('Tienda eliminada: ' + safeName);
+    } catch(e) {
+      console.error('deleteMcEntry SAP', e);
+      alert('Error eliminando: ' + (e.message || e));
+    }
+    return;
+  }
+  // POINTS legacy: solo borramos el doc client_master (la direccion). El
+  // nombre del cliente vive en POINTS hardcoded - no se puede borrar desde
+  // aca, hay que rebuildear el HTML para sacarlo del padron.
+  if (!confirm('Limpiar la direccion guardada de "' + safeName + '"?\n\nEl nombre del cliente queda en el padron historico (no se puede borrar del POINTS desde la app).\n\nNo se puede deshacer.')) return;
+  try {
+    await fbDb.collection('client_master').doc(docId).delete();
+    if (typeof showSyncTag === 'function') showSyncTag('Direccion eliminada: ' + safeName);
+  } catch(e) {
+    console.error('deleteMcEntry client_master', e);
+    alert('Error eliminando: ' + (e.message || e));
+  }
+};
 
 window.saveMcAddr = async function(docId, btn){
   if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente puede editar.'); return; }
