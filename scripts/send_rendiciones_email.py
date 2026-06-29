@@ -36,7 +36,7 @@ from email.message import EmailMessage
 from pathlib import Path
 
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, storage
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -66,9 +66,43 @@ def init_firestore():
         sa_dict = json.loads(FB_SA_JSON)
     except json.JSONDecodeError as e:
         die(f"FIREBASE_SERVICE_ACCOUNT no es JSON valido: {e}")
+    project_id = sa_dict.get("project_id", "")
+    # Default storage bucket: <project-id>.appspot.com (convencion Firebase).
+    # Si el bucket esta deshabilitado, el upload falla y caemos al fallback
+    # de embeber thumbnail en Excel.
+    storage_bucket = f"{project_id}.appspot.com" if project_id else None
     cred = credentials.Certificate(sa_dict)
-    firebase_admin.initialize_app(cred)
+    options = {"storageBucket": storage_bucket} if storage_bucket else None
+    firebase_admin.initialize_app(cred, options)
     return firestore.client()
+
+
+def upload_foto_to_storage(rendicion_id: str, foto_dataurl: str):
+    """Sube la foto a Firebase Storage en un path predecible y devuelve la URL
+    publica permanente. None si no se pudo (storage deshabilitado o foto
+    corrupta)."""
+    if not foto_dataurl or not isinstance(foto_dataurl, str):
+        return None
+    try:
+        m = re.match(r"^data:image/([\w+]+);base64,(.+)$", foto_dataurl, re.IGNORECASE)
+        if m:
+            ext = m.group(1).lower()
+            b64_data = m.group(2)
+        else:
+            # No es dataURL: asumir base64 puro + jpeg.
+            ext = "jpeg"
+            b64_data = foto_dataurl
+        if ext == "jpg":
+            ext = "jpeg"
+        raw = base64.b64decode(b64_data)
+        bucket = storage.bucket()
+        blob = bucket.blob(f"rendiciones-tickets/{rendicion_id}.{ext}")
+        blob.upload_from_string(raw, content_type=f"image/{ext}")
+        blob.make_public()
+        return blob.public_url
+    except Exception as e:
+        print(f"[storage] no pude subir foto {rendicion_id}: {e}", file=sys.stderr)
+        return None
 
 
 def fetch_pending_approved(db):
@@ -136,20 +170,16 @@ def build_excel(rendiciones):
         "ID", "Fecha carga", "Vendedor (email)", "N° Ticket", "Descripcion",
         "Modo pago", "Tipo gasto", "Division gasto", "Moneda", "Importe",
         "Importe USD", "Observaciones", "Aprobado por", "Fecha aprobacion",
-        "Imagen ticket",
+        "Ticket",
     ]
     ws_g.append(hdr_g)
     for cell in ws_g[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="0F172A")
         cell.alignment = Alignment(horizontal="center")
-    # Indice 1-based de la columna "Imagen ticket". Lo usamos para anclar
-    # las imagenes embebidas en cada fila.
+    # Indice 1-based de la columna "Ticket" (hyperlink).
     foto_col_idx = len(hdr_g)  # 15 con el header actual
-    foto_col_letter = get_column_letter(foto_col_idx)
-    # Tamano objetivo de la imagen embebida en la celda (px).
-    IMG_W, IMG_H = 140, 100
-    ROW_H = 80  # alto de fila en puntos para que la imagen entre
+    link_font = Font(color="0563C1", underline="single", bold=True)
     for r in gastos:
         ws_g.append([
             r.get("_id", ""),
@@ -166,28 +196,26 @@ def build_excel(rendiciones):
             r.get("observaciones") or "",
             r.get("approvedByEmail") or "",
             fmt_ts(r.get("approvedAt")),
-            "",  # placeholder de la imagen
+            "",  # placeholder - lo seteamos abajo con hyperlink
         ])
-        # Embeber foto del ticket si esta cargada en el doc Firestore.
-        # fotoTicket viene como dataURL "data:image/jpeg;base64,XXXX".
+        # Subir la foto a Firebase Storage y meter URL como hyperlink. Si
+        # storage no esta disponible o la foto esta corrupta, el campo
+        # queda como "(sin foto)".
         foto_src = r.get("fotoTicket") or r.get("adjunto") or ""
-        if foto_src and isinstance(foto_src, str):
-            try:
-                # Aceptar tanto dataURL como base64 puro.
-                m = re.match(r"^data:image/[\w+]+;base64,(.+)$", foto_src, re.IGNORECASE)
-                b64_data = m.group(1) if m else foto_src
-                raw = base64.b64decode(b64_data)
-                bio = io.BytesIO(raw)
-                img = XLImage(bio)
-                img.width, img.height = IMG_W, IMG_H
-                anchor_cell = f"{foto_col_letter}{ws_g.max_row}"
-                ws_g.add_image(img, anchor_cell)
-                # Ajustar alto de la fila para que entre la imagen.
-                ws_g.row_dimensions[ws_g.max_row].height = ROW_H
-            except Exception as embed_err:
-                print(f"[gastos] no pude embeber foto de {r.get('_id')}: {embed_err}", file=sys.stderr)
-    # Anchos amigables (15 columnas con la nueva Imagen al final).
-    widths_g = [22, 16, 28, 14, 26, 14, 22, 16, 12, 12, 12, 36, 26, 16, 22]
+        cell = ws_g.cell(row=ws_g.max_row, column=foto_col_idx)
+        if foto_src:
+            url = upload_foto_to_storage(r.get("_id", "rend"), foto_src)
+            if url:
+                cell.value = "📷 Ver ticket"
+                cell.hyperlink = url
+                cell.font = link_font
+                cell.alignment = Alignment(horizontal="center")
+            else:
+                cell.value = "(error al subir)"
+        else:
+            cell.value = "(sin foto)"
+    # Anchos amigables (15 columnas; Ticket es link compacto).
+    widths_g = [22, 16, 28, 14, 26, 14, 22, 16, 12, 12, 12, 36, 26, 16, 14]
     for i, w in enumerate(widths_g):
         ws_g.column_dimensions[get_column_letter(i + 1)].width = w
 
@@ -237,9 +265,8 @@ def send_email(xlsx_bytes: bytes, count: int) -> None:
         f"Adjunto el Excel con las {count} rendiciones aprobadas pendientes de notificar.\n"
         f"Las hojas son:\n"
         f"  - Resumen: totales por moneda + conteos.\n"
-        f"  - Gastos: cada gasto cargado por foto/manual. Ultima columna 'Imagen ticket'\n"
-        f"    embebe la foto del ticket cuando el vendedor la cargo (Excel la muestra inline,\n"
-        f"    se puede hacer click para agrandar).\n"
+        f"  - Gastos: cada gasto cargado por foto/manual. Ultima columna 'Ticket' es un\n"
+        f"    link cliqueable que abre la foto del ticket en su tamano original en el navegador.\n"
         f"  - Solicitudes: anticipos / recargas / rendiciones de gasto generales.\n\n"
         f"Este mail se manda automaticamente cada Lunes y Miercoles a las 9 AM (AR).\n"
         f"Una vez recibido, las rendiciones se marcan como notificadas y no vuelven a salir.\n\n"

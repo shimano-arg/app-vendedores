@@ -49,10 +49,9 @@ jobs:
           python-version: '3.11'
 
       - name: Install deps
-        # pillow es requerido por openpyxl para embeber imagenes (PNG/JPEG)
-        # en las celdas. Sin Pillow openpyxl tira "ImportError: PIL is
-        # required to load Excel images".
-        run: pip install firebase-admin openpyxl pillow
+        # firebase-admin trae google-cloud-storage como dep transitiva, no
+        # hace falta agregarlo aparte.
+        run: pip install firebase-admin openpyxl
 
       - name: Run send_rendiciones_email
         env:
