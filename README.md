@@ -14,8 +14,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v197 (commit `259ed55`) |
-| **APP_VERSION** | `v197` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v203 (commit `f621d5a`) |
+| **APP_VERSION** | `v203` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 
 ---
 
@@ -131,8 +131,9 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] Rutas auto-generadas + recalcular manual
 [X] Rutas personalizadas (collection custom_routes con toggle "Recomendadas/Personalizadas")
 [X] Rendiciones con OCR Gemini de tickets + foto y N° ticket opcionales
-[X] Export Rendiciones mensual con foto embebida (ExcelJS) + columnas SAP
+[X] Export Rendiciones mensual desde la UI con foto embebida (ExcelJS local) + columnas SAP
 [X] Export Visitas mensual con foto del frente embebida (ExcelJS)
+[X] Mail Rendiciones cron Lun/Mie (Python + openpyxl) con hyperlink Firebase Storage a foto del ticket
 [X] Dashboard comparativo
 [X] Export Excel TARGETS-ZONAS con altas integradas
 [X] Notificaciones entre usuarios con imágenes + boton Eliminar por card
@@ -143,10 +144,16 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] Vista preliminar de pedido (puntos verde/rojo por stock, subtotales disponibles/no)
 [X] Filtro stock en picker (Todos / Disponibles / No disp.)
 [X] Confirmados con filtros mes/tienda/año
-[X] PWA con SW v197 + login bg con foto del río
+[X] PWA con SW v203 + login bg con foto del río
 [X] Boton "Forzar actualizacion" (↻) + "Reubicar pines" (📍) + "REFRESCAR APP" mobile
 [X] Banner version + chequeo sync HTML vs SW en console al arrancar
 [X] Botón Recalcular Rutas en la pestaña Rutas
+[X] Sidebar Localidades incluye altas SAP (suma POINTS + sapLocs) + modal localidad con detalle por tienda (v198+)
+[X] Burbujas agregadas del mapa OFF por flag SHOW_AGG_BUBBLES = false (v199+)
+[X] Master Clientes: botón Eliminar 🗑 por fila (admin/gerente) — SAP altas y POINTS legacy (v200+)
+[X] Zonas: gerente puede reasignar + scope "Por provincia" + toast verde con detalle de cambios (v201/v203)
+[X] Mail Rendiciones cron Lun/Mie 9am AR con hyperlink Firebase Storage a foto del ticket + Tablas Excel nombradas (v202+)
+[X] Integración SharePoint + Power Automate: ítems creados automáticamente en lista "ANTICIPO Y RENDICION DE GASTO" del team SAR (v203)
 ```
 
 ### Bloqueantes externos para el lanzamiento
@@ -214,10 +221,12 @@ shimano-arg/app-vendedores/
 ├── icon-512-maskable-v3.png  # PWA icon 512×512 (maskable Android adaptive)
 ├── .github/
 │   └── workflows/
-│       └── sync-stock.yml    # Cron 30min: sync stock CSV → stock.json
+│       ├── sync-stock.yml              # Cron 30min: sync stock CSV → stock.json
+│       └── send-rendiciones-email.yml  # Cron Lun/Mie 9am AR: Excel + mail rendiciones aprobadas
 ├── scripts/
-│   └── sync_stock.py         # Procesa CSV exportado de SAP → JSON
-└── README.md                 # Este archivo
+│   ├── sync_stock.py             # Procesa CSV exportado de SAP → JSON
+│   └── send_rendiciones_email.py # Genera Excel (TablaGastos + TablaSolicitudes) + sube fotos a Firebase Storage + manda mail
+└── README.md                     # Este archivo
 ```
 
 ### Archivos generados (no en repo)
@@ -778,6 +787,26 @@ Esto resuelve casos como **Buenos Aires** (dividida entre Gonzalo en CABA+AMBA N
 - `_vendorOutlinesCache` se persiste en `localStorage` (key `VENDOR_OUTLINES_CACHE_KEY`). La próxima vez que se abre el mapa, el cache se reutiliza inmediatamente.
 - `polygon-clipping` se carga **defer** (es un blob ~150KB que sólo hace falta para los outlines).
 
+### Burbujas agregadas del mapa — desactivadas (v199+)
+
+Históricamente el mapa dibujaba **burbujas numéricas blancas con número** superpuestas a los pines individuales en 3 modos:
+
+- Por **vendedor** (zoom out, sin filtro).
+- Por **provincia** (zoom medio, filtro vendor).
+- Por **localidad** (zoom alto, filtro prov).
+
+En la práctica generaban confusión visual: los usuarios veían un "8" gigante encima de 8 pines individuales y no sabían si era stock, cantidad de pedidos, o tiendas.
+
+Desde v199+ están **gateadas detrás de un flag** en `drawMarkers`:
+
+```js
+const SHOW_AGG_BUBBLES = false;  // ← cambiar a true para re-habilitarlas
+```
+
+Con el flag en `false`, los 3 modos no se dibujan. Los pines individuales (`drawHabilitadosPins` + `drawSapAltaPins`) siguen apareciendo igual.
+
+Para re-habilitar puntualmente: cambiar el flag a `true` en `drawMarkers` y recompilar.
+
 ---
 
 ## 12) Sección: Localidades / Clientes / Pedidos
@@ -785,6 +814,30 @@ Esto resuelve casos como **Buenos Aires** (dividida entre Gonzalo en CABA+AMBA N
 ### Localidades
 
 Tab "Localidades" del sidebar. Lista todas las localidades visibles según los filtros del header, ordenadas por cantidad de tiendas.
+
+#### Fuente del listado (v198+)
+
+Antes el listado iteraba **solo POINTS**: para vendedores 100% SAP (ej. Martin Boiero) decía "Sin localidades con datos" aunque hubiera 10 pines en el mapa porque sus tiendas vivían en `client_applications` y no en POINTS.
+
+Ahora suma localidades desde 2 fuentes:
+- **POINTS** del Excel master (legacy).
+- **`approvedAltasList`** agrupadas por `(provincia, localidad)` — incluye altas SAP aprobadas + provisorias (alta rápida).
+
+El listado respeta los filtros vendor/provincia/localidad del header. El contador **"LOCALIDADES"** del header ahora suma `POINTS + sapLocs` (antes era solo `pts.length`, que daba 0 para vendedores 100% SAP).
+
+#### Modal "Localidad" (v198+)
+
+Click en la card de una localidad ya **no hace zoom al mapa**: abre un nuevo modal `localidad-modal` que lista **todas las tiendas de esa localidad con su dirección**, agrupadas por tipo:
+
+| Badge | Tipo | Origen |
+|---|---|---|
+| **CLIENTE** | POINTS SAP-confirmed | `contacted` set, hay match con SAP |
+| **PROSPECTO** | POINTS prospecto | sin habilitar todavía |
+| **SAP** + cardCode | Altas SAP aprobadas | `client_applications` con `cardCodeSap` |
+| **PROVISORIO** | Altas provisorias | `client_applications` con `manualSapPending: true` |
+
+- La **dirección** se busca en este orden: `cliente_master.address` → `clientMeta.address` → `alta.calle`. Si no hay ninguna, aparece en rojo: **"(sin dirección cargada)"**.
+- Si el alta tiene `fantasia` distinta del comercio legal, debajo del nombre se muestra **"Local: <fantasia>"**.
 
 ### Clientes
 
@@ -963,7 +1016,7 @@ Carga de gastos del vendedor con OCR automático:
 
 Combustible, peajes, alojamiento, comidas, varios.
 
-### Export Rendiciones mensual (NUEVO)
+### Export Rendiciones mensual (Excel local)
 
 Botón "Exportar rendiciones del mes" → Excel con **foto del ticket embebida** (ExcelJS lazy-load) + más columnas:
 
@@ -982,6 +1035,131 @@ Antes: el vendedor no podía submitter si tenía aprobador asignado porque las r
 - El cliente lee `app_config/users_directory` (público) para resolver el email del aprobador.
 - Se cachea el email en `localStorage` con TTL.
 - Las rules permiten escribir la rendición sin necesitar leer `/roles` ajenos.
+
+### Mail Rendiciones cron — Lunes y Miércoles 9am AR (v202+)
+
+Cron automatizado en GitHub Actions: `scripts/send_rendiciones_email.py` corre **Lunes y Miércoles 9am hora Argentina** y manda un mail desde `bot.shimano.pesca@gmail.com` a `mariano.erbino@shimano.com.ar` (Outlook 365) con un Excel de las rendiciones aprobadas desde la última corrida.
+
+#### Estructura del Excel (2 hojas)
+
+| Hoja | Tabla nombrada | Estilo |
+|---|---|---|
+| **Gastos** (default) | `TablaGastos` | Medium2 |
+| **Solicitudes** | `TablaSolicitudes` | Medium4 |
+
+> La hoja "Resumen" fue **eliminada** en v202+. El Excel queda compacto y mappeable a Power Automate.
+
+> Los nombres de tabla (`TablaGastos`, `TablaSolicitudes`) son **Excel Tables reales** (no rangos). Power Automate los necesita para el step `List rows present in a table`.
+
+#### Columna "Imagen ticket" — hyperlink a Firebase Storage (v202+)
+
+Hasta v201 se intentó embebir la foto directamente con openpyxl + Pillow → quedaba apretada en Excel y el archivo pesaba mucho.
+
+Desde v202+ cada foto se sube a **Firebase Storage** y la celda queda con un hyperlink:
+
+1. Función `upload_foto_to_storage(rendicion_id, foto_dataurl)` sube el blob a `rendiciones-tickets/<rendicion_id>.<ext>`.
+2. `blob.make_public()` para que la URL sea permanente y abrible sin auth.
+3. En la celda Excel queda hyperlink azul **"📷 Ver ticket"** que abre la imagen a tamaño original en el navegador.
+4. Sin foto → celda dice **"(sin foto)"**.
+5. Foto corrupta → **"(error al subir)"**.
+
+`init_firestore()` configura `storageBucket = <project-id>.appspot.com`.
+
+> **REQUIERE plan Firebase Blaze** activado: Firebase Storage no funciona en Spark (free tier).
+
+#### Inputs del workflow_dispatch (v202+)
+
+El workflow acepta dos inputs para uso manual:
+
+| Input | Para qué |
+|---|---|
+| `force=true` | Ignora el filtro `notifiedAt`, trae **TODAS** las aprobadas (testing/reenvío completo) |
+| `skip_mark=true` | No marca como `notifiedAt` después del envío (reenvíos sin afectar el estado del flow) |
+
+El cron Lun/Mie normal usa ambos en `false`.
+
+---
+
+## 16-bis) Integración SharePoint + Power Automate (NUEVO en v203)
+
+Sección entera nueva: el flow de **Power Automate** que carga automáticamente las rendiciones aprobadas a la lista de **SharePoint** del team **SAR** (Admin & Finanzas).
+
+### Stack end-to-end
+
+```
+GitHub Actions (Lun/Mie 9am AR)
+   ↓ Python script
+   ↓ Genera Excel (TablaGastos + TablaSolicitudes)
+   ↓ Sube fotos a Firebase Storage (hyperlinks)
+Mail desde bot.shimano.pesca@gmail.com
+   ↓
+Outlook 365 (mariano.erbino@shimano.com.ar)
+   ↓ Trigger Power Automate
+Flow "Cargar rendiciones aprobadas a SharePoint"
+   ↓ Create file en OneDrive
+   ↓ List rows in TablaGastos
+   ↓ For each row → Create item
+Lista SharePoint "ANTICIPO Y RENDICION DE GASTO"
+   ↓
+Equipo SAR (Fernando Gamboa — Admin/Finanzas) ve los ítems
+```
+
+### Lista SharePoint destino
+
+| Dato | Valor |
+|---|---|
+| Site URL | `https://teamshimano.sharepoint.com/teams/SLA_int_00002` |
+| Lista | `ANTICIPO Y RENDICION DE GASTO` |
+| Contacto Admin/Finanzas | **Fernando Gamboa** |
+
+### Flow Power Automate
+
+Vive en `make.powerautomate.com` bajo la cuenta `mariano.erbino@shimano.com.ar`.
+
+- **Nombre**: `Cargar rendiciones aprobadas a SharePoint`
+- **Trigger**: `When a new email arrives (V3)` → Office 365 Outlook.
+  - From: `bot.shimano.pesca@gmail.com`
+  - Subject Filter: `Rendiciones aprobadas`
+  - Include Attachments: **Yes**
+
+Estructura:
+
+```
+Trigger
+└── For each (attachments)
+     ├── Create file (OneDrive Business) → /shimano-rendiciones/rendiciones-temp.xlsx
+     ├── List rows present in a table (Excel Online Business) → TablaGastos
+     └── For each 1 (rows)
+          └── Create item (SharePoint)
+```
+
+### Mapeo Excel → SharePoint
+
+| Campo SharePoint | Valor / fuente Excel |
+|---|---|
+| `Title` | `Descripcion` |
+| `Importe` | `Importe` (con `float(item()?['Importe'])` si el chip no detecta tipo) |
+| `Moneda Value` | `Moneda` |
+| `Tipo de gasto Value` | `Tipo gasto` |
+| `Solicitado por Claims` | `Vendedor (email)` |
+| `Tipo de Operacion Value` | `"Rendicion de Gasto"` (literal) |
+| `Comentarios` | `Observaciones` |
+| `Estado Value` | `"Abierto"` (default) |
+| `Registrado` | `"No"` (default) |
+| `SAP Value` | `"No Registrado"` (default) |
+
+### Particularidades técnicas conocidas
+
+- **Detección del schema de TablaGastos**: para que el step `List rows` detecte las columnas de `TablaGastos`, necesitamos un archivo ya en OneDrive antes de configurar `Create item`. Workflow recomendado:
+  1. Setear `File` temporalmente con una ruta estática (un Excel de prueba ya subido).
+  2. Configurar `Create item` con todos los chips dinámicos.
+  3. Volver el `File` a chip dinámico `Id` del step `Create file`.
+- **`Importe` como Number**: el campo `Importe` en SharePoint es tipo Number. Si el chip se rechaza por type mismatch, usar la expression `float(item()?['Importe'])`.
+- **Document Library aparece como "ドキュメント"** (japonés): es el OneDrive normal, bug conocido de localización de Microsoft Connectors. Funciona sin problema, solo confunde visualmente.
+
+### Estado actual del flow
+
+> **FUNCIONÓ** — runs Succeeded, ítems aparecen en SharePoint con todos los datos bien mapeados. **Lista para producción.**
 
 ---
 
@@ -1171,6 +1349,17 @@ Las filas que son altas SAP (no POINTS originales) tienen un **dropdown editable
 
 Antes: las altas que se importaban sin provincia quedaban invisibles (no se mostraban en Master Clientes). Ahora aparecen bajo un grupo virtual **"(sin provincia)"** así Admin las puede ver y completarles la provincia con el dropdown.
 
+### Botón Eliminar 🗑 por fila (v200+)
+
+Cada fila tiene un **botón rojo 🗑** al lado de Guardar. Sólo visible para **admin / gerente**. Comportamiento según el tipo de fila:
+
+| Tipo | Acción | Confirmación |
+|---|---|---|
+| **Alta SAP** (`sapFsId`) | Borra el doc de `client_applications` | Confirm extra con **warning** si la tienda ya tiene `cardCodeSap` (está en SAP) |
+| **POINTS legacy** | Borra el doc de `client_master` (limpia dirección) | Confirm simple. El nombre del cliente queda en el padrón POINTS hasta el próximo rebuild del HTML |
+
+Útil para limpiar tiendas duplicadas que aparecen post-import SAP (mismo cliente con razón social y fantasía).
+
 ### Import desde SAP B1
 
 Botón naranja **📥 Importar desde SAP** abre un sub-modal con drop zone para subir el master de Business Partners exportado de SAP B1 (CSV o XLSX).
@@ -1207,13 +1396,16 @@ Botón naranja **📥 Importar desde SAP** abre un sub-modal con drop zone para 
 
 ## 24) Modal Zonas (reasignación)
 
-Solo admin. Botón violeta **🗺️ Zonas** en el header.
+**Admin y gerente** (desde v201+). Botón violeta **🗺️ Zonas** en el header.
 
-### Tabs
+> Antes `openZonasModal` bloqueaba a `gerente` con "Solo el administrador puede reasignar zonas". Desde v201+ el guard se removió — las Firestore rules de `vendor_overrides` ya permitían gerente.
+
+### Tabs (4 desde v201+)
 
 1. **Por tienda**: lista de cada tienda con dropdown para cambiar de vendor.
 2. **Por localidad**: igual pero a nivel localidad (afecta todas sus tiendas).
-3. **Historial**: últimos 50 cambios con quién, cuándo, de quién a quién.
+3. **Por provincia** (NUEVO en v201+): una fila por provincia con conteo de tiendas + vendor dominante actual.
+4. **Historial**: últimos 50 cambios con quién, cuándo, de quién a quién. El historial muestra `scope='prov'` con icono globo 🌎.
 
 ### Destinos disponibles
 
@@ -1222,15 +1414,47 @@ Solo admin. Botón violeta **🗺️ Zonas** en el header.
 - **Otros (admins)**: cargados de Firestore con rol `admin`.
 - **DISTRIBUIDOR**: sale de venta directa, aparece solo en filtro Distribuidores.
 
+### Cascada de prioridades (v201+)
+
+Cuando hay overlap entre scopes, se respeta esta cascada (más específico gana):
+
+```
+Override localidad   ← más específico
+Override provincia   ← nuevo en v201+
+PROVINCE_VENDOR_OVERRIDE hardcoded
+Vendor original del POINT
+```
+
+`applyVendorOverridesToPoints` aplica `scope='prov'` **antes** de `scope='loc'`, así un override de localidad puntual puede sobreescribir al override provincial.
+
 ### Persistencia
 
-Colección `vendor_overrides/{docId}`. Listener `ensureVendorOverridesListener` aplica los cambios en tiempo real:
+Colección `vendor_overrides/{docId}` con campo `scope: 'shop' | 'loc' | 'prov'`. Listener `ensureVendorOverridesListener` aplica los cambios en tiempo real:
+- **Override de provincia** (nuevo): muta `p.vendor` de todos los POINTS de esa provincia.
 - **Override de localidad**: muta `p.vendor` del POINT → automáticamente afecta el filtro, marker color, contadores.
 - **Override de tienda**: `getEffectiveVendorForClient(p, name)` lo respeta en `effClients(p)`, `filteredPoints()`, y `deptStyle()` (via `deptEffectiveVendor`).
 
 ### Distribuidor en deptStyle
 
 Cuando el vendor mayoritario de un dept es `__DISTRIBUTOR__`, **solo se pinta azul si el filtro Tipo = Distribuidores está activo**. Sino, ignora `__DISTRIBUTOR__` del conteo y usa el segundo vendor mayoritario (o el original del Excel).
+
+### Toast verde con detalle (v203)
+
+Nueva función `showZonasToast(title, items)`: toast **fixed arriba al centro**, gradiente verde, fade in/out, max 560px de ancho, **auto-close 5 seg**.
+
+Se dispara después de:
+- `saveZonasChanges` (Save explícito).
+- `onZonasSapAltaChange` (instant save al cambiar vendor de un alta SAP).
+
+Mensajes según el `scope` del override aplicado:
+
+| Scope | Texto del item |
+|---|---|
+| `prov` | `Provincia X → <Vendor>` |
+| `loc` | `Localidad X (Provincia) → <Vendor>` |
+| `shop` | `Tienda X en Localidad → <Vendor>` |
+
+Si hay más de 5 cambios en el save, el toast muestra los **primeros 5 + "y N más"**.
 
 ---
 
@@ -1555,6 +1779,9 @@ Arriba de la tabla. Permite pre-autorizar emails antes del primer login.
 | OSM Nominatim | https://nominatim.openstreetmap.org | Geocoding |
 | **SAP Service Layer** | **https://shimano-sap.seidor.com.ar:50000** | **API REST SAP B1** |
 | SEIDOR Freshdesk | https://seidorb1arg.freshdesk.com | Tickets de soporte |
+| **SharePoint team SAR** | **https://teamshimano.sharepoint.com/teams/SLA_int_00002** | **Lista "ANTICIPO Y RENDICION DE GASTO"** (Admin/Finanzas) |
+| Power Automate | https://make.powerautomate.com | Flow "Cargar rendiciones aprobadas a SharePoint" (cuenta `mariano.erbino@shimano.com.ar`) |
+| Firebase Storage | https://console.firebase.google.com/project/app-vendedores-shimano/storage | Bucket `rendiciones-tickets/` (requiere plan Blaze) |
 
 ---
 
@@ -1587,10 +1814,10 @@ Las helpers que pueden ser llamadas antes del bootstrap completo (ej. `getEffect
 ### Banner de versión + chequeo HTML vs SW
 
 Al arrancar la app, en console se imprime:
-- `Shimano App v197 — <timestamp ISO>` (banner con styled console.log).
+- `Shimano App v203 — <timestamp ISO>` (banner con styled console.log).
 - **Chequeo de sync**: fetcheaq `sw.js`, parsea su `CACHE_VERSION` y compara con `APP_VERSION` del HTML.
-  - Si coinciden: `[version] HTML v197 === SW v197 OK` en verde.
-  - Si difieren: `[version] DESYNC: HTML=v197 vs SW=v196 - tocar ↻ en el mapa para refrescar` en rojo.
+  - Si coinciden: `[version] HTML v203 === SW v203 OK` en verde.
+  - Si difieren: `[version] DESYNC: HTML=v203 vs SW=v202 - tocar ↻ en el mapa para refrescar` en rojo.
 
 `APP_VERSION` se exporta en `window.APP_VERSION` para que se pueda consultar desde la consola. **Bumpear las dos constantes (HTML + SW) en cada release.**
 
@@ -1799,6 +2026,7 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 | **Santiago Esteban** | VDI | Aprobar Quotations manualmente, copia a Sales Order |
 | **David Daiub** | Funcional SAP | Consulta funcional (ya no es bloqueante) |
 | **NUR (operaciones)** | Almacén | Cargar stock W07 cuando llega mercadería |
+| **Fernando Gamboa** | Admin & Finanzas (team SAR) | Recibe rendiciones aprobadas en la lista SharePoint vía Power Automate |
 
 ---
 
@@ -1826,6 +2054,12 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 - [X] **Stock auto-sync vía GitHub Actions** (`sync-stock.yml` corre cada 30 min, funcionando como sistema legacy + el upload manual del panel admin Stock).
 - [X] Banner versión + chequeo HTML vs SW en console.
 - [X] Botón "Forzar actualización" + "Reubicar pines" + "REFRESCAR APP" mobile.
+- [X] **Sidebar Localidades** suma altas SAP + modal localidad con detalle de tiendas y direcciones (v198+).
+- [X] Burbujas agregadas del mapa OFF por flag (v199+).
+- [X] Master Clientes: botón Eliminar 🗑 por fila (SAP altas + POINTS legacy) — admin/gerente (v200+).
+- [X] Modal Zonas: gerente puede reasignar + scope "Por provincia" + toast verde de confirmación (v201/v203).
+- [X] **Mail Rendiciones cron Lun/Mie 9am AR** con Excel (Tablas nombradas TablaGastos/TablaSolicitudes) + hyperlink Firebase Storage para fotos de ticket (v202+).
+- [X] **Integración SharePoint + Power Automate** end-to-end: el flow carga rendiciones aprobadas a la lista del team SAR (v203).
 
 ### Mejoras futuras
 
@@ -1856,7 +2090,9 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 5. Nuevas colecciones → actualizar secciones 8 y 9.
 6. Cambios en el lanzamiento (bloqueantes resueltos) → actualizar sección 2.
 7. SW version → actualizar el header del documento.
+8. Cambios en el flow SharePoint / Power Automate → actualizar sección 16-bis.
+9. Cambios en `scripts/send_rendiciones_email.py` (estructura del Excel, columnas, tablas) → actualizar el subapartado del cron en sección 16 (Mail Rendiciones).
 
 ---
 
-**Última actualización**: 2026-06-29 — SW v197 / commit `259ed55` / agrega Rutas personalizadas, Alta rápida, Vista preliminar con subtotales de stock, login Microsoft + Email/password + Magic link, reset password Firebase, 2FA opcional, outlines híbrido provincia+dept, `PROVINCE_VENDOR_OVERRIDE` (SAN LUIS → Martin), dropdown provincia editable en Master, botones de refresh + reubicar pines, banner versión + chequeo HTML vs SW, export Visitas/Rendiciones con fotos embebidas (ExcelJS), delete de notificaciones por target, delete de altas propias sin SAP, fix gerente ve todo el mapa, fix rules rendiciones via users_directory.
+**Última actualización**: 2026-06-29 — SW v203 / commit `f621d5a` / agrega Sidebar Localidades amplió a altas SAP + modal detalle por localidad (v198), burbujas agregadas del mapa OFF por flag SHOW_AGG_BUBBLES (v199), Master Clientes botón Eliminar 🗑 por fila para SAP altas y POINTS legacy (v200), Modal Zonas habilitado a gerente + scope "Por provincia" en cascada + toast verde de confirmación con detalle de cambios (v201/v203), mail Rendiciones cron Lun/Mie 9am AR con Excel `TablaGastos`/`TablaSolicitudes` + hyperlink Firebase Storage para foto del ticket + inputs `force` y `skip_mark` (v202), integración SharePoint + Power Automate end-to-end que carga rendiciones aprobadas a la lista "ANTICIPO Y RENDICION DE GASTO" del team SAR (v203). Requiere plan **Firebase Blaze** activado para Storage. — Histórico previo (v197): Rutas personalizadas, Alta rápida, Vista preliminar con subtotales de stock, login Microsoft + Email/password + Magic link, reset password Firebase, 2FA opcional, outlines híbrido provincia+dept, `PROVINCE_VENDOR_OVERRIDE` (SAN LUIS → Martin), dropdown provincia editable en Master, botones de refresh + reubicar pines, banner versión + chequeo HTML vs SW, export Visitas/Rendiciones con fotos embebidas (ExcelJS local), delete de notificaciones por target, delete de altas propias sin SAP, fix gerente ve todo el mapa, fix rules rendiciones via users_directory.
