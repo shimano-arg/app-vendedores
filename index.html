@@ -2806,7 +2806,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v196';
+const APP_VERSION = 'v197';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -7543,7 +7543,24 @@ window.renderMasterClientesTable = function(){
     } else {
       html += '<td>' + escapeHtml(e.localidad) + '</td>';
     }
-    html += '<td>' + escapeHtml(titleCase(e.provincia)) + '</td>';
+    // Provincia: dropdown editable para SAP altas (asi el admin asigna
+    // las "(sin provincia)" sin reimportar el Excel). Para POINTS es texto
+    // fijo porque la provincia esta atada al docId del padron.
+    if (isSap) {
+      const provVal = (e.provincia === '(sin provincia)') ? '' : e.provincia;
+      const provHas = provVal ? ' has-value' : '';
+      let provSel = '<td><select class="mc-cli-sel js-mc-provincia-input' + provHas + '" style="font-size:11px;width:100%">';
+      provSel += '<option value="">(sin provincia)</option>';
+      const provSet = new Set();
+      (POINTS || []).forEach(p => provSet.add(p.province));
+      [...provSet].sort().forEach(pr => {
+        provSel += '<option value="' + escapeAttr(pr) + '"' + (pr === provVal ? ' selected' : '') + '>' + escapeHtml(titleCase(pr)) + '</option>';
+      });
+      provSel += '</select></td>';
+      html += provSel;
+    } else {
+      html += '<td>' + escapeHtml(titleCase(e.provincia)) + '</td>';
+    }
     html += '<td>' + escapeHtml(vendLabel) + '</td>';
     html += '<td><input type="text" class="' + inputCls + ' js-mc-direccion-input" value="' + escapeAttr(cur) + '" placeholder="Av. Belgrano 123, Barrio Norte" oninput="onMcAddrInput(this, \'' + escapeAttr(id) + '\', \'' + escapeAttr(savedAddr) + '\')" onkeydown="if(event.key===\'Enter\')this.parentElement.parentElement.querySelector(\'.mc-save-btn\').click()" /></td>';
     html += '<td data-vendor="' + escapeAttr(e.vendor) + '" data-prov="' + escapeAttr(e.provincia) + '" data-loc="' + escapeAttr(e.localidad) + '" data-name="' + escapeAttr(e.nombre) + '">' + _selHtml('cliTipo', curTipo, TIPO_OPTS, id) + '</td>';
@@ -7822,25 +7839,28 @@ window.saveMcAddr = async function(docId, btn){
   if (!inputEl) { alert('No pude leer la direccion. Recargá la pagina.'); return; }
   const newVal = (inputEl.value || '').trim();
   const isSap = (typeof docId === 'string' && docId.indexOf('sap:') === 0);
-  // Para SAP altas tambien leemos la LOCALIDAD del input de la misma fila,
-  // asi el boton GUARDAR commitea direccion + localidad juntos. Antes la
-  // localidad se autosalvaba por onblur y confundia al admin si tipeaba
-  // localidad y direccion al mismo tiempo.
+  // Para SAP altas tambien leemos la LOCALIDAD y PROVINCIA del input de
+  // la misma fila, asi el boton GUARDAR commitea los 3 campos juntos.
   let newLoc = null;
+  let newProv = null;
   if (isSap) {
     const locInput = row ? row.querySelector('input.js-mc-localidad-input') : null;
     if (locInput) newLoc = (locInput.value || '').trim();
+    const provSel = row ? row.querySelector('.js-mc-provincia-input') : null;
+    if (provSel) newProv = (provSel.value || '').trim().toUpperCase();
   }
   // Calcular el valor "guardado" para direccion. Usamos la misma cascada
   // que getCurrent (client_master -> clientMeta) para POINTs. Para SAP
   // altas leemos del alta directo.
   let prevAddr = '';
   let prevLoc = '';
+  let prevProv = '';
   if (isSap) {
     const fsId = docId.slice(4);
     const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(x => x._fsId === fsId);
     prevAddr = alta ? (alta.calle || alta.address || '') : '';
     prevLoc = alta ? ((alta.localidadFinal || alta.localidad || '').trim()) : '';
+    prevProv = alta ? ((alta.provincia || '').toUpperCase().trim()) : '';
   } else {
     const saved = clientMasterCache.get(docId);
     if (saved && saved.address) {
@@ -7861,8 +7881,9 @@ window.saveMcAddr = async function(docId, btn){
   }
   const addrChanged = newVal.trim() !== (prevAddr || '').trim();
   const locChanged = isSap && (newLoc != null) && (newLoc !== prevLoc);
-  if (!addrChanged && !locChanged) {
-    alert('No hay cambios pendientes para esta tienda.\n\n(Direccion y localidad son identicas a lo guardado.)');
+  const provChanged = isSap && (newProv != null) && (newProv !== prevProv);
+  if (!addrChanged && !locChanged && !provChanged) {
+    alert('No hay cambios pendientes para esta tienda.\n\n(Direccion, localidad y provincia son identicas a lo guardado.)');
     return;
   }
   btn.disabled = true;
@@ -7885,10 +7906,23 @@ window.saveMcAddr = async function(docId, btn){
         updatePayload.localidad = newLoc;
         updatePayload.localidadFinal = newLoc;
       }
-      // Si la direccion O la localidad cambiaron, limpiar lat/lng para
-      // re-geocodificar con los datos nuevos. Si la direccion esta vacia
-      // tambien las limpiamos.
-      if (addrChanged || locChanged) {
+      // Si el admin asigno provincia desde el dropdown, commiteamos. Si
+      // tambien hay vendor logico para esa provincia (via inferVendorFromProvince),
+      // lo seteamos solo si el alta no tenia vendor antes (no pisar trabajo
+      // del admin que ya reasigno).
+      if (provChanged) {
+        updatePayload.provincia = newProv;
+        if (newProv && typeof inferVendorFromProvince === 'function') {
+          const altaCurrent = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(x => x._fsId === docId.slice(4));
+          if (altaCurrent && !altaCurrent.assignedVendor) {
+            const inferred = inferVendorFromProvince(newProv);
+            if (inferred) updatePayload.assignedVendor = inferred;
+          }
+        }
+      }
+      // Si la direccion / localidad / provincia cambiaron, limpiar lat/lng
+      // para re-geocodificar con los datos nuevos.
+      if (addrChanged || locChanged || provChanged) {
         updatePayload.lat = firebase.firestore.FieldValue.delete();
         updatePayload.lng = firebase.firestore.FieldValue.delete();
       }
@@ -7897,7 +7931,7 @@ window.saveMcAddr = async function(docId, btn){
       // localidad NUEVA si la cambiamos en esta misma operacion.
       if (newVal && alta && typeof geocodeClientAddress === 'function') {
         const locForGeo = locChanged ? newLoc : (alta.localidadFinal || alta.localidad || '');
-        const provForGeo = alta.provincia || '';
+        const provForGeo = provChanged ? newProv : (alta.provincia || '');
         try {
           const geo = await geocodeClientAddress(newVal, locForGeo, provForGeo);
           if (geo && geo.lat != null && geo.lng != null) {
