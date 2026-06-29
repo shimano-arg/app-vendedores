@@ -1810,6 +1810,9 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <div id="rv-forma-pago-hint" style="font-size:10px;color:#64748b;margin-top:4px">Solo "Contado" suma el bonus de pago anticipado al descuento.</div>
         </div>
         <div id="rv-discount"></div>
+        <!-- 2 cuadrantes con el subtotal partido por disponibilidad de stock.
+             Solo se muestra si hay al menos 1 item sin stock - sino oculto. -->
+        <div id="rv-stock-split" style="display:none;margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px"></div>
       </div>
       <div class="modal-footer" style="justify-content:space-between;gap:12px">
         <button class="btn-cancel" style="background:#fff;color:#475569;border:1.5px solid #cbd5e1" onclick="closeReviewDialog()">Volver a editar</button>
@@ -2803,7 +2806,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v190';
+const APP_VERSION = 'v191';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -14952,6 +14955,36 @@ function renderReviewLines(){
     totalsHtml = '<span>' + ord.length + ' productos &middot; ' + totalU + ' unidades</span><span class="rt-money">' + fmt(totalM) + '</span>';
   }
   document.getElementById('rv-totals').innerHTML = totalsHtml;
+  // 2 cuadrantes con subtotal por disponibilidad. Solo se muestra si hay
+  // al menos 1 item sin stock - sino fold up. Pensado para el speech con
+  // el cliente: "del total $X, esto se va ahora ($okM) y esto queda
+  // pendiente del faltante ($noM)".
+  const splitEl = document.getElementById('rv-stock-split');
+  if (splitEl) {
+    if (noN > 0) {
+      splitEl.style.display = 'grid';
+      splitEl.style.gridTemplateColumns = '1fr 1fr';
+      splitEl.style.gap = '8px';
+      splitEl.innerHTML =
+        '<div style="background:#ecfdf5;border:1.5px solid #6ee7b7;border-radius:8px;padding:10px 12px">' +
+          '<div style="display:flex;align-items:center;gap:6px;font-size:10px;font-weight:800;color:#065f46;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">' +
+            '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#16a34a"></span>Subtotal disponibles' +
+          '</div>' +
+          '<div style="font-size:16px;font-weight:800;color:#047857">' + fmt(okM) + '</div>' +
+          '<div style="font-size:10px;color:#065f46;margin-top:2px">' + okN + ' producto' + (okN === 1 ? '' : 's') + ' &middot; ' + okU + ' u</div>' +
+        '</div>' +
+        '<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:8px;padding:10px 12px">' +
+          '<div style="display:flex;align-items:center;gap:6px;font-size:10px;font-weight:800;color:#991b1b;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">' +
+            '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#dc2626"></span>Subtotal no disp.' +
+          '</div>' +
+          '<div style="font-size:16px;font-weight:800;color:#dc2626">' + fmt(noM) + '</div>' +
+          '<div style="font-size:10px;color:#991b1b;margin-top:2px">' + noN + ' producto' + (noN === 1 ? '' : 's') + ' &middot; ' + noU + ' u</div>' +
+        '</div>';
+    } else {
+      splitEl.style.display = 'none';
+      splitEl.innerHTML = '';
+    }
+  }
   // Descuento estimado (informativo, no afecta payload SAP).
   // Volumen es DINAMICO (depende del subtotal del pedido) y el bonus de
   // pago anticipado solo aplica si el vendedor elige CONTADO.
