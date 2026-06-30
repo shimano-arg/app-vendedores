@@ -1700,8 +1700,8 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <div class="exp-opt" onclick="exportTargetsZonas();closeExportAnalisis()">
           <div class="exp-icon" style="background:#0891b2">TGT</div>
           <div class="exp-body">
-            <h3>Excel TARGETS-ZONAS (con altas)</h3>
-            <p>Genera el Excel maestro <code>TARGETS VENDEDORES-ZONAS</code> con la hoja <b>CLIENTES_ZONAS</b> actualizada: incluye todas las tiendas del Excel base + las <b>altas aprobadas</b> via "Alta Clientes" con su vendedor asignado. Lo us&aacute;s como nuevo master para el pr&oacute;ximo rebuild del mapa.</p>
+            <h3>TARGETS-ZONAS</h3>
+            <p>Genera el Excel maestro <code>TARGETS VENDEDORES-ZONAS</code> con la hoja <b>CLIENTES_ZONAS</b> basada en los <b>clientes habilitados en SAP</b> (altas aprobadas con CardCode SAP). Una fila por BP con su vendedor asignado, region, direccion y CUIT - listo para usarlo como master del proximo rebuild del mapa.</p>
           </div>
         </div>
         <div class="exp-opt" id="exp-opt-backup-mensual" style="display:none;border:2px solid #b45309" onclick="closeExportAnalisis();openBackupMensualModal()">
@@ -2840,7 +2840,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v207';
+const APP_VERSION = 'v208';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -6770,18 +6770,15 @@ async function exportAltasForMonth(anio, monthIdx){
 // Exportar para Analisis: protegido con PIN
 const ANALISIS_PIN = '1235';
 // =====================================================================
-// Export Excel TARGETS-ZONAS con altas aprobadas integradas
+// Export Excel TARGETS-ZONAS - solo clientes habilitados en SAP
 // =====================================================================
-// Genera un Excel con la misma estructura que CLIENTES_ZONAS del master
-// (columnas: TIPO, NRO CTE, REGION, PROVINCIA, ASESOR EXTERNO,
-// ASESOR INTERNO, CALLE, NUMERO, LOCALIDAD, CP, NOMBRE COMERCIAL,
-// NOMBRE DE FANTASIA, CUIT, CONDICION FISCAL, TELEFONO) que incluye:
-// - Todas las tiendas de POINTS del mapa actual (con su vendor asignado).
-// - Los distributorClients (filas DISTRIBUIDORES).
-// - Las altas aprobadas de client_applications con su assignedVendor y
-//   cardCodeSap.
-// Vos despues pegas esta hoja sobre CLIENTES_ZONAS del Excel master para
-// hacer el siguiente rebuild del mapa.
+// Genera la hoja CLIENTES_ZONAS con UNA fila por BP que esta vivo en SAP:
+// cualquier alta de client_applications con status='approved' Y cardCodeSap
+// asignado. Excluye POINTS / distribuidores / prospectos / altas sin
+// CardCode (mocks o pendientes de SAP). Es lo que efectivamente se factura.
+// Columnas: TIPO, NRO CTE, REGION, PROVINCIA, ASESOR EXTERNO, ASESOR INTERNO,
+// CALLE, NUMERO, LOCALIDAD, CP, NOMBRE COMERCIAL, NOMBRE DE FANTASIA, CUIT,
+// CONDICION FISCAL, TELEFONO, CARDCODE SAP.
 window.exportTargetsZonas = async function(){
   if (typeof XLSX === 'undefined') {
     alert('La libreria de Excel no se cargo. Verificá tu conexión y reintentá.');
@@ -6792,7 +6789,6 @@ window.exportTargetsZonas = async function(){
     return;
   }
   showSyncTag('Generando Excel TARGETS-ZONAS...');
-  // Mapping VDE -> VDI estandar (igual que en exportMasterClientes)
   const VDE_TO_VDI = {
     'FEDERICO CASTELANELLI': 'IOANNIS PALKOUDAKIS',
     'GONZALO DE LA ROSA':    'IOANNIS PALKOUDAKIS',
@@ -6811,117 +6807,44 @@ window.exportTargetsZonas = async function(){
   function vendorLabelForExcel(key){
     if (!key) return '';
     if (key === '__DISTRIBUTOR__') return 'DISTRIBUIDORES';
-    return key; // ya esta en uppercase (ej "FEDERICO CASTELANELLI")
+    return key;
   }
-  // Estado: contadores
-  let nFromPoints = 0;
-  let nFromDistrib = 0;
-  let nFromAltas = 0;
-  let nroCte = 1;
   const rows = [];
-
-  // 1) Tiendas de POINTS (clientes regulares y prospects)
-  POINTS.forEach(p => {
-    const province = p.province || '';
-    const localityMap = p.name || '';
-    const vendor = p.vendor || '';
-    const region = regionOf(province);
-    const asesorInt = VDE_TO_VDI[vendor] || '';
-    (p.clients || []).forEach(name => {
-      rows.push({
-        TIPO: 'DADO DE ALTA',
-        'NRO CTE': nroCte++,
-        'REGION': region,
-        'PROVINCIA': province,
-        'ASESOR EXTERNO': vendorLabelForExcel(vendor),
-        'ASESOR INTERNO': asesorInt,
-        'CALLE': '',
-        'NUMERO': '',
-        'LOCALIDAD': localityMap,
-        'CP': '',
-        'NOMBRE COMERCIAL': name,
-        'NOMBRE DE FANTASIA': '',
-        'CUIT': '',
-        'CONDICION FISCAL': '',
-        'TELEFONO': '',
-      });
-      nFromPoints++;
-    });
-    (p.prospects || []).forEach(name => {
-      rows.push({
-        TIPO: 'PROSPECTOS',
-        'NRO CTE': nroCte++,
-        'REGION': region,
-        'PROVINCIA': province,
-        'ASESOR EXTERNO': vendorLabelForExcel(vendor),
-        'ASESOR INTERNO': asesorInt,
-        'CALLE': '',
-        'NUMERO': '',
-        'LOCALIDAD': localityMap,
-        'CP': '',
-        'NOMBRE COMERCIAL': name,
-        'NOMBRE DE FANTASIA': '',
-        'CUIT': '',
-        'CONDICION FISCAL': '',
-        'TELEFONO': '',
-      });
-      nFromPoints++;
-    });
-    // 2) Distribuidores (de p.distributorClients)
-    (p.distributorClients || []).forEach(name => {
-      rows.push({
-        TIPO: 'DADO DE ALTA',
-        'NRO CTE': nroCte++,
-        'REGION': region,
-        'PROVINCIA': province,
-        'ASESOR EXTERNO': 'DISTRIBUIDORES',
-        'ASESOR INTERNO': asesorInt,
-        'CALLE': '',
-        'NUMERO': '',
-        'LOCALIDAD': localityMap,
-        'CP': '',
-        'NOMBRE COMERCIAL': name,
-        'NOMBRE DE FANTASIA': '',
-        'CUIT': '',
-        'CONDICION FISCAL': '',
-        'TELEFONO': '',
-      });
-      nFromDistrib++;
-    });
-  });
-
-  // 3) Altas aprobadas (Firestore)
   let altasSnap;
   try { altasSnap = await fbDb.collection('client_applications').where('status', '==', 'approved').get(); }
   catch(e) { alert('Error leyendo altas aprobadas: ' + (e.message || e)); return; }
+  let skippedNoSap = 0;
   altasSnap.forEach(d => {
     const a = d.data() || {};
+    const cardCode = (a.cardCodeSap || '').trim();
+    // Filtro clave: solo BPs con CardCode SAP asignado (= habilitado en SAP).
+    if (!cardCode) { skippedNoSap++; return; }
     const province = (a.provincia || '').toUpperCase().trim();
     const localityFinal = a.localidadFinal || a.localidad || '';
     const vendor = a.assignedVendor || '';
-    const region = regionOf(province);
-    const asesorInt = VDE_TO_VDI[vendor] || '';
     rows.push({
       TIPO: 'DADO DE ALTA',
-      'NRO CTE': nroCte++,
-      'REGION': region,
+      'NRO CTE': 0, // se renumera despues del sort
+      'REGION': regionOf(province),
       'PROVINCIA': province,
       'ASESOR EXTERNO': vendorLabelForExcel(vendor),
-      'ASESOR INTERNO': asesorInt,
+      'ASESOR INTERNO': VDE_TO_VDI[vendor] || '',
       'CALLE': a.calle || '',
       'NUMERO': a.numero || '',
       'LOCALIDAD': localityFinal,
       'CP': a.cp || '',
-      'NOMBRE COMERCIAL': a.comercio || '',
+      'NOMBRE COMERCIAL': a.comercio || a.titular || '',
       'NOMBRE DE FANTASIA': a.fantasia || '',
       'CUIT': a.cuit || '',
       'CONDICION FISCAL': a.condicionFiscal || '',
       'TELEFONO': a.telefono || '',
+      'CARDCODE SAP': cardCode,
     });
-    nFromAltas++;
   });
-
-  // Sort por Provincia, Localidad, Nombre Comercial
+  if (!rows.length) {
+    alert('No hay clientes habilitados en SAP todavia.\n\nUna alta entra al export solo cuando tiene CardCode SAP asignado.');
+    return;
+  }
   rows.sort((r1, r2) => {
     const p = (r1.PROVINCIA || '').localeCompare(r2.PROVINCIA || '');
     if (p !== 0) return p;
@@ -6929,29 +6852,18 @@ window.exportTargetsZonas = async function(){
     if (l !== 0) return l;
     return (r1['NOMBRE COMERCIAL'] || '').localeCompare(r2['NOMBRE COMERCIAL'] || '');
   });
-  // Renumerar NRO CTE
   rows.forEach((r, i) => r['NRO CTE'] = i + 1);
-
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = [
     {wch:14}, {wch:10}, {wch:16}, {wch:22}, {wch:28},
     {wch:28}, {wch:28}, {wch:10}, {wch:22}, {wch:10},
-    {wch:38}, {wch:32}, {wch:14}, {wch:24}, {wch:18},
+    {wch:38}, {wch:32}, {wch:14}, {wch:24}, {wch:18}, {wch:14},
   ];
   XLSX.utils.book_append_sheet(wb, ws, 'CLIENTES_ZONAS');
-
-  // Segunda hoja: solo las altas aprobadas para que veas que se sumo
-  if (nFromAltas > 0) {
-    const altasRows = rows.filter(r => r.CUIT); // las que tienen CUIT son las altas
-    const wsAltas = XLSX.utils.json_to_sheet(altasRows);
-    wsAltas['!cols'] = ws['!cols'];
-    XLSX.utils.book_append_sheet(wb, wsAltas, 'ALTAS_NUEVAS');
-  }
-
   const ts = new Date().toISOString().slice(0,10);
   XLSX.writeFile(wb, 'TARGETS_VENDEDORES_ZONAS_' + ts + '.xlsx');
-  showSyncTag('Excel exportado: ' + nFromPoints + ' tiendas + ' + nFromDistrib + ' distribuidores + ' + nFromAltas + ' altas');
+  showSyncTag('Excel exportado: ' + rows.length + ' clientes SAP habilitados' + (skippedNoSap > 0 ? ' (' + skippedNoSap + ' sin CardCode descartados)' : ''));
 };
 
 window.openExportAnalisis = function(){
@@ -17470,7 +17382,12 @@ function applyRolePermissions(){
   const zonasBtnEl = document.getElementById('zonas-btn');
   if (zonasBtnEl) zonasBtnEl.style.display = isAdminOrGerente ? '' : 'none';
   const analisisBtnEl = document.getElementById('analisis-btn');
-  if (analisisBtnEl) analisisBtnEl.style.display = isAdminOrGerente ? '' : 'none';
+  // EXPORTAR PARA ANALISIS: solo Mariano (es el unico que carga el master,
+  // procesa Power BI / ML y genera backups). El resto del equipo no lo usa.
+  if (analisisBtnEl) {
+    const isMarianoBtn = !!(currentUser && (currentUser.email || '').toLowerCase() === 'erbinomariano@gmail.com');
+    analisisBtnEl.style.display = isMarianoBtn ? '' : 'none';
+  }
   document.getElementById('campaigns-btn').style.display = isAdminOrGerente ? '' : 'none';
   document.getElementById('master-cli-btn').style.display = isAdminOrGerente ? '' : 'none';
   // SAP: admin + viewer + vendedor + gerente.
@@ -18162,7 +18079,7 @@ function listenSapMaps(){
 }
 
 window.openSapPanel = function(){
-  if (userRole !== 'admin' && userRole !== 'viewer' && userRole !== 'vendedor') return;
+  if (userRole !== 'admin' && userRole !== 'viewer' && userRole !== 'vendedor' && userRole !== 'gerente') return;
   document.getElementById('sap-modal').classList.add('open');
   // si todavia no estaba escuchando, asegurar la suscripcion
   if (!unsubSapClients || !unsubSapProducts) listenSapMaps();
@@ -22314,7 +22231,7 @@ window.setTargetType = function(t){
 };
 
 window.openCampaignsPanel = async function(){
-  if (userRole !== 'admin') return;
+  if (userRole !== 'admin' && userRole !== 'gerente') return;
   document.getElementById('campaigns-modal').classList.add('open');
   populateCampFamilias();
   document.getElementById('cf-familia').value = '';
