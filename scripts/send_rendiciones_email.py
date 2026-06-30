@@ -83,10 +83,13 @@ def init_firestore():
     except json.JSONDecodeError as e:
         die(f"FIREBASE_SERVICE_ACCOUNT no es JSON valido: {e}")
     project_id = sa_dict.get("project_id", "")
-    # Default storage bucket: <project-id>.appspot.com (convencion Firebase).
-    # Si el bucket esta deshabilitado, el upload falla y caemos al fallback
-    # de embeber thumbnail en Excel.
-    storage_bucket = f"{project_id}.appspot.com" if project_id else None
+    # Default storage bucket: <project-id>.firebasestorage.app (formato nuevo,
+    # post 2024). Antes era <project-id>.appspot.com. Si el bucket esta
+    # deshabilitado/no inicializado, el upload falla con 404 'bucket does
+    # not exist' y caemos al fallback de campo vacio (URL omitida).
+    # Override via env var STORAGE_BUCKET si Firebase usa el nombre legacy.
+    default_bucket = f"{project_id}.firebasestorage.app" if project_id else None
+    storage_bucket = os.environ.get("STORAGE_BUCKET") or default_bucket
     cred = credentials.Certificate(sa_dict)
     options = {"storageBucket": storage_bucket} if storage_bucket else None
     firebase_admin.initialize_app(cred, options)
