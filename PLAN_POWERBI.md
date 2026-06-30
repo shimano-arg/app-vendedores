@@ -3,7 +3,113 @@
 Fecha de armado: 2026-06-29
 Owner: Mariano Erbino (mariano.erbino@shimano.com.ar)
 Arranque: 2026-06-30
-Estado: prerrequisitos confirmados — listo para arrancar Día 1.
+Estado: en ejecución — pausa esperando upgrade a Blaze (~12:00 cuando llegue Diego).
+
+---
+
+## CHECKLIST DE EJECUCIÓN (live status)
+
+### ✅ Hecho hoy
+- [x] Verificar Project ID Firebase → `app-vendedores-shimano` (núm 746111030735)
+- [x] Login a Google Cloud Console con `erbinomariano@gmail.com` (owner del proyecto)
+- [x] Habilitar BigQuery API en GCP
+- [x] Crear dataset `shimano_app` en us-central1 (Iowa)
+
+### ⏳ Bloqueado — esperando OK Diego (~12:00)
+- [ ] **Diego confirma cargo de Blaze a tarjeta corporativa**
+- [ ] **Upgrade Firebase Spark → Blaze**
+  - Link: https://console.firebase.google.com/project/app-vendedores-shimano/usage/details
+  - Click "Modificar plan" → Blaze → vincular tarjeta de Diego
+  - Setear budget alert en **USD 25/mes** (paso obligatorio antes de confirmar)
+
+### ⬜ Después de Blaze (Día 1, cuando esté activo)
+Estimación: 2.5 horas hasta cierre del Día 1.
+
+#### Paso 4.3 — Instalar 6 extensiones Stream Firestore to BigQuery (~30 min)
+Por cada colección, en Firebase Console → Extensions → "Stream Firestore to BigQuery":
+- [ ] `pedidos` → tabla `pedidos_raw`
+- [ ] `visits` → tabla `visits_raw`
+- [ ] `client_applications` → tabla `client_applications_raw`
+- [ ] `campaigns` → tabla `campaigns_raw`
+- [ ] `targets` → tabla `targets_raw`
+- [ ] `roles` → tabla `roles_raw`
+
+Config común para todas:
+- Dataset ID: `shimano_app`
+- Location: `us-central1`
+- Backup collection: vacío
+- Excluded fields: vacío
+
+#### Paso 4.4 — Verificar que llega data (~10 min)
+- [ ] En la app: hacer un cambio chico en cualquier colección (ej. modificar una visita de prueba).
+- [ ] En BigQuery: confirmar que aparece la row en `*_raw_changelog`.
+- [ ] Si no llega: revisar logs de Cloud Function de la extension.
+
+#### Paso 4.5 — Backfill histórico (~30 min)
+Solo trae lo que se escribe DESDE que se instala la extension. Para histórico:
+- [ ] Backfill `pedidos` (sin confirmados todavía → costo cero)
+- [ ] Backfill `visits` (visitas de prueba acumuladas)
+- [ ] Backfill `client_applications` (altas SAP cargadas hasta hoy)
+- [ ] Backfill `campaigns` (campañas creadas)
+- [ ] Backfill `targets` (targets cargados)
+- [ ] Backfill `roles` (todos los users registrados)
+
+Comando: `npx --package=@firebaseextensions/fs-bq-import-collection fs-bq-import-collection`
+
+#### Paso 4.6 — Crear 6 vistas SQL planas (~1 hora)
+Pegar desde el Apéndice A de este plan. En orden:
+- [ ] `pedidos_view` + `pedido_lines_view`
+- [ ] `visits_view`
+- [ ] `client_applications_view`
+- [ ] `campaigns_view`
+- [ ] `targets_view`
+- [ ] `roles_view`
+
+#### Paso 4.7 — Smoke test SQL (~15 min)
+- [ ] Query: contar pedidos confirmados → matchea Dashboard de la app
+- [ ] Query: facturación mes actual → matchea Dashboard
+- [ ] Query: top 5 SKUs por unidades → matchea
+
+#### Paso 8 — Billing alert (al cierre del Día 1, ~5 min)
+- [ ] GCP Console → Billing → Budgets & alerts → Create budget
+- [ ] Monto: USD 25/mes
+- [ ] Alertas: 50%, 90%, 100% (a `mariano.erbino@shimano.com.ar`)
+
+### 📋 Tasks offline mientras esperás a Diego
+Cosas productivas que NO requieren Blaze:
+- [ ] **Confirmar emails Pablo + Ioannis** para Power BI workspace.
+  - Pablo: ¿`pablo.<apellido>@shimano.uy`? necesito el email exacto
+  - Ioannis: ¿`ioannis.<apellido>@shimano.uy`? idem
+- [ ] **Releer el plan** (este documento) sección por sección para que llegues familiarizado al Día 2-3.
+- [ ] **Confirmar password de `erbinomariano@gmail.com`** está a mano. Lo vamos a usar para instalar las extensions cuando arranquemos.
+- [ ] **Verificar que tenés Node.js instalado** (para el backfill paso 4.5). En PowerShell: `node --version`. Si no está, instalar de https://nodejs.org/
+
+### ⬜ Día 2 (mañana 01/07) — Power BI Desktop
+- [ ] Crear Service Account `powerbi-reader` en GCP IAM
+- [ ] Descargar JSON key del Service Account (guardar en password manager, NO commitear)
+- [ ] Conectar Power BI Desktop a BigQuery via Service Account
+- [ ] Cargar las 6 vistas como modelos
+- [ ] Modelar relaciones entre tablas
+- [ ] Crear medidas DAX base (Pedidos Confirmados, Facturado ARS, Conv v→p, etc.)
+- [ ] Armar página 1: Resumen ejecutivo
+- [ ] Armar página 2: Pedidos & Facturación
+
+### ⬜ Día 3 (jueves 02/07) — Tableros + publish
+- [ ] Armar página 3: Visitas & Conversión
+- [ ] Armar página 4: Campañas activas
+- [ ] Publish a Power BI Service
+- [ ] Crear workspace "Shimano Vendedores"
+- [ ] Asignar viewers (Diego, Santi, Pablo, Ioannis)
+- [ ] Configurar refresh automático c/30 min
+- [ ] Test refresh end-to-end
+
+### ⬜ Día 4 (viernes 03/07) — Demo + ajustes
+- [ ] Demo a Diego + Pablo
+- [ ] Capturar feedback y armar lista de ajustes
+- [ ] Implementar ajustes top priority
+- [ ] Documentar uso del tablero (cómo filtrar, qué significa cada KPI)
+
+---
 
 ---
 
