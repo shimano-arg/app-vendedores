@@ -2982,7 +2982,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v211';
+const APP_VERSION = 'v212';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -23679,10 +23679,14 @@ function detectSegPendientes(visits, pedidos){
     if (!c.visits.length) return;
     const hasConfirmed = c.orders.some(o => o.stage === 'confirmed');
     if (hasConfirmed) return;
+    // El usuario marco el caso como 'resuelto' desde el timeline o el
+    // boton X de pendientes -> no volvemos a listarlo.
+    if (segStatusCache[k] === 'resuelto') return;
     const latestV = c.visits.map(v => v.fecha||'').sort().pop();
     const daysAgo = latestV ? Math.floor((Date.now() - new Date(latestV).getTime())/86400000) : 0;
     if (daysAgo >= 7) {
       items.push({
+        kind: 'visit-no-order',
         clientKey:k, client:c.name, vendor:c.vendor, prov:c.prov, loc:c.loc,
         problema: 'Visitado sin pedido hace ' + daysAgo + ' dias',
         accion: 'Contactar y ofrecer cierre',
@@ -23696,6 +23700,8 @@ function detectSegPendientes(visits, pedidos){
     const dt = (p.finalizedAt||'').slice(0,10) || (p.confirmedAt||'').slice(0,10) || '';
     const daysAgo = dt ? Math.floor((Date.now() - new Date(dt).getTime())/86400000) : 0;
     items.push({
+      kind: 'pedido-pending',
+      pedidoFsId: p._fsId || '',
       clientKey: segMakeKey(p.vendor, p.province, p.locName, p.clientName),
       client: p.clientName, vendor:p.vendor, prov:p.province, loc:p.locName,
       problema: 'Pedido pendiente de confirmar' + (daysAgo ? ' hace ' + daysAgo + ' dias' : ''),
@@ -23889,19 +23895,42 @@ function renderSegResumen(visits, pedidos){
 function renderSegVisitas(visits){
   if (!visits.length) return '<div class="seg-empty">No hay visitas en el rango.</div>';
   const sorted = visits.slice().sort((a,b) => (b.fecha||'').localeCompare(a.fecha||''));
+  const canDel = (userRole === 'admin' || userRole === 'gerente');
   let html = '<div class="seg-row head"><div>Fecha</div><div>Vendedor</div><div>Cliente / Tienda</div><div>Localidad</div><div>Observaciones</div></div>';
   sorted.forEach(v => {
     const k = segMakeKey(v.vendor, v.provincia, v.localidad, v.tienda);
+    const delBtn = canDel && v.id
+      ? ' <button onclick="event.stopPropagation();deleteSegVisita(\'' + escapeAttr(v.id) + '\',\'' + escapeAttr(v.tienda||'') + '\')" title="Eliminar esta visita (admin/gerente)" style="margin-left:6px;padding:3px 8px;border:none;border-radius:4px;background:#dc2626;color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Borrar</button>'
+      : '';
     html += '<div class="seg-row" onclick="openSegTimeline(\'' + escapeAttr(k) + '\')">';
     html += '<div>' + escapeHtml((v.fecha||'').slice(0,10) || '-') + '</div>';
     html += '<div>' + escapeHtml(titleCase(v.vendor||'')) + '</div>';
     html += '<div><b>' + escapeHtml(v.tienda||'-') + '</b></div>';
     html += '<div>' + escapeHtml(v.localidad||'-') + '</div>';
-    html += '<div style="color:#475569">' + escapeHtml((v.comentario||v.observaciones||'').slice(0,140)) + (v.proximaAccion ? '<br><span style="color:#0d9488;font-weight:700">Proxima: ' + escapeHtml(v.proximaAccion) + '</span>' : '') + '</div>';
+    html += '<div style="color:#475569">' + escapeHtml((v.comentario||v.observaciones||'').slice(0,140)) + (v.proximaAccion ? '<br><span style="color:#0d9488;font-weight:700">Proxima: ' + escapeHtml(v.proximaAccion) + '</span>' : '') + delBtn + '</div>';
     html += '</div>';
   });
   return html;
 }
+
+// Elimina una visita. Solo admin/gerente (las rules ademas autorizan al
+// owner, pero desde Seguimiento la accion es de revision/limpieza).
+window.deleteSegVisita = async function(visitId, tienda){
+  if (!visitId) return;
+  if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente puede eliminar visitas.'); return; }
+  const lbl = tienda ? ('"' + tienda + '"') : 'esta visita';
+  if (!confirm('Eliminar la visita a ' + lbl + ' del historial?\n\nEsta accion es IRREVERSIBLE: la visita desaparece de Seguimiento, rutas, dashboard y stats del vendedor externo.')) return;
+  try {
+    await fbDb.collection('visits').doc(visitId).delete();
+    if (typeof showSyncTag === 'function') showSyncTag('Visita eliminada');
+    // Re-fetch local (no hay listener de visits global). Despues re-render.
+    await loadSegVisits();
+    renderSeguimientoTab();
+  } catch(e) {
+    console.error('deleteSegVisita', e);
+    alert('Error: ' + (e.message||e));
+  }
+};
 
 function renderSegPedidos(pedidos){
   if (!pedidos.length) return '<div class="seg-empty">No hay pedidos en el rango.</div>';
@@ -23956,15 +23985,28 @@ window.deleteSegPedido = async function(fsId, clientName){
 function renderSegPendientes(items){
   if (!items.length) return '<div class="seg-empty">Sin pendientes en el rango.</div>';
   items = items.slice().sort((a,b) => (a.status === 'red' ? -1 : 1));
+  const canDel = (userRole === 'admin' || userRole === 'gerente');
+  const isSegUser = (userRole === 'admin' || userRole === 'gerente' || userRole === 'interno');
   let html = '<div class="seg-row head"><div>Estado</div><div>Vendedor</div><div>Cliente</div><div>Ult. accion</div><div>Problema + accion sugerida</div></div>';
   items.forEach(it => {
     const lbl = it.status==='red'?'CRITICO':it.status==='yellow'?'REVISAR':'OK';
+    // Boton de eliminar/resolver segun origen del pendiente:
+    //  - pedido-pending: borrar el doc del pedido (solo admin/gerente).
+    //  - visit-no-order: marcar el clientKey como 'resuelto' en
+    //    seguimiento_status para que detectSegPendientes lo oculte
+    //    (cualquier user de Seguimiento puede resolverlo).
+    let actionBtn = '';
+    if (it.kind === 'pedido-pending' && canDel && it.pedidoFsId) {
+      actionBtn = ' <button onclick="event.stopPropagation();deleteSegPedido(\'' + escapeAttr(it.pedidoFsId) + '\',\'' + escapeAttr(it.client||'') + '\')" title="Eliminar el pedido pendiente del historial (admin/gerente)" style="margin-left:6px;padding:3px 8px;border:none;border-radius:4px;background:#dc2626;color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Borrar pedido</button>';
+    } else if (it.kind === 'visit-no-order' && isSegUser) {
+      actionBtn = ' <button onclick="event.stopPropagation();setSegStatus(\'' + escapeAttr(it.clientKey) + '\',\'resuelto\')" title="Marcar este cliente como resuelto - se oculta de Pendientes (no borra visitas)" style="margin-left:6px;padding:3px 8px;border:none;border-radius:4px;background:#0d9488;color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#10003; Resolver</button>';
+    }
     html += '<div class="seg-row" onclick="openSegTimeline(\'' + escapeAttr(it.clientKey) + '\')">';
     html += '<div><span class="seg-status-dot ' + it.status + '"></span><span class="seg-badge ' + it.status + '">' + lbl + '</span></div>';
     html += '<div>' + escapeHtml(titleCase(it.vendor||'')) + '</div>';
     html += '<div><b>' + escapeHtml(it.client||'-') + '</b><br><span style="font-size:10px;color:#94a3b8">' + escapeHtml(it.loc||'') + '</span></div>';
     html += '<div style="font-size:10px;color:#64748b">' + escapeHtml(it.ultimaAccion||'-') + '</div>';
-    html += '<div><b>' + escapeHtml(it.problema||'-') + '</b><br><span style="color:#0d9488;font-weight:700">&rarr; ' + escapeHtml(it.accion||'') + '</span></div>';
+    html += '<div><b>' + escapeHtml(it.problema||'-') + '</b><br><span style="color:#0d9488;font-weight:700">&rarr; ' + escapeHtml(it.accion||'') + '</span>' + actionBtn + '</div>';
     html += '</div>';
   });
   return html;
