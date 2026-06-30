@@ -2984,7 +2984,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v218';
+const APP_VERSION = 'v219';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -18767,6 +18767,55 @@ window.testSlStock = async function(){
   }
 };
 
+// Handler del boton "Enviar a SAP via Service Layer" del tab Pendientes.
+// Toma los pedidos tildados (sapPendSelection) que sean LISTOS (con CardCode
+// asignado), valida que SL este habilitado, los manda uno por uno y muestra
+// el resultado. Solo admin/gerente. Despues del envio el listener de
+// pedidos actualiza globalPedidos y el render se refresca automaticamente.
+window.enviarSeleccionadosViaSL = async function(){
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente puede enviar pedidos a SAP.');
+    return;
+  }
+  if (typeof sapSL === 'undefined' || typeof sapSL.isEnabled !== 'function') {
+    alert('Modulo Service Layer no cargado. Recarga la app.');
+    return;
+  }
+  if (!sapSL.isEnabled()) {
+    alert('Service Layer no esta habilitado. Activalo en panel SAP > Service Layer y volve a intentar.');
+    return;
+  }
+  if (!sapPendSelection.size) {
+    alert('No hay pedidos seleccionados.');
+    return;
+  }
+  // Filtrar los seleccionados que esten en LISTOS (con CardCode resuelto).
+  // Bloqueados no se mandan - no tienen CardCode todavia.
+  const allConfirmed = (globalPedidos || []).filter(p => p.stage === 'confirmed');
+  const selected = allConfirmed.filter(p => sapPendSelection.has(p._fsId));
+  const conCard = selected.filter(p => sapGetClienteCode(p.clientName));
+  const sinCard = selected.length - conCard.length;
+  if (!conCard.length) {
+    alert('Ninguno de los pedidos seleccionados tiene CardCode SAP. Asigna codigos primero o desmarca los bloqueados.');
+    return;
+  }
+  const msg = 'Enviar ' + conCard.length + ' pedido(s) a SAP via Service Layer?' +
+              (sinCard > 0 ? '\n\nNota: ' + sinCard + ' seleccionado(s) sin CardCode quedaran sin enviar.' : '');
+  if (!confirm(msg)) return;
+  if (typeof showSyncTag === 'function') showSyncTag('Enviando ' + conCard.length + ' a SAP...');
+  const r = await enviarPedidosASAPViaServiceLayer(conCard);
+  let detail = 'Enviados OK: ' + r.sent + '\nFallaron: ' + r.failed;
+  if (r.failed > 0 && r.errors && r.errors.length) {
+    detail += '\n\nErrores:\n' + r.errors.slice(0, 5).map(e => '- ' + (e.cliente || e.pedido) + ': ' + e.error).join('\n');
+    if (r.errors.length > 5) detail += '\n... ' + (r.errors.length - 5) + ' mas.';
+  }
+  alert(detail);
+  // Limpiar seleccion y re-render. El listener de pedidos refrescara solo
+  // pero forzamos un re-render por timing.
+  sapPendSelection.clear();
+  setTimeout(() => { try { renderSapPedidos(); } catch(e){} }, 250);
+};
+
 // ----- Wrapper de envio: elige Service Layer o ZIP DTW segun config -----
 // Recibe la lista de pedidos "Listos para SAP" y los envia uno por uno por
 // la via configurada. Si SL falla, NO cae automaticamente al DTW (admin
@@ -18893,6 +18942,13 @@ function renderSapPedidos(){
   if (isPend) {
     // Vendedor tambien marca sus pedidos como transferidos (es el responsable de subirlos via DTW).
     const canTransfer = ((userRole === 'admin' || userRole === 'vendedor') && sapPendSelection.size > 0);
+    // Boton para enviar via Service Layer (auto, sin DTW). Solo aparece si
+    // el admin habilito SL en panel SAP > Service Layer y hay seleccion.
+    const slEnabled = (typeof sapSL !== 'undefined' && typeof sapSL.isEnabled === 'function' && sapSL.isEnabled());
+    if (slEnabled && (userRole === 'admin' || userRole === 'gerente')) {
+      const canSL = sapPendSelection.size > 0;
+      html += '<button class="sap-btn success" onclick="enviarSeleccionadosViaSL()"' + (canSL ? '' : ' disabled') + ' style="background:#0d9488" title="Envia los pedidos seleccionados directo a SAP via Service Layer como Sales Quotation. Sin DTW manual.">&#9889; Enviar a SAP via Service Layer (' + sapPendSelection.size + ')</button>';
+    }
     html += '<button class="sap-btn secondary" onclick="exportSapReadyCsv()" title="Genera ZIP con 2 CSV en formato oficial DTW: OQUT - Documents.csv (cabecera Sales Quotation) + QUT1 - Document_Lines.csv (lineas). Listo para importar en DTW.">Exportar ZIP DTW (Listos)</button>';
     html += '<button class="sap-btn success" onclick="marcarLoteTransferido()"' + (canTransfer ? '' : ' disabled') + '>Marcar lote como transferido (' + sapPendSelection.size + ')</button>';
     // Boton de borrado (solo admin / gerente). Util para limpiar pedidos
