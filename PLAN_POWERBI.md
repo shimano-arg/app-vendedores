@@ -157,7 +157,13 @@ Si no aparece después de 1 minuto:
 
 ### 4.5. Backfill del histórico (~30 min)
 La extension solo trae cambios DESDE que se instala. Para traer todo lo
-viejo (pedidos de hoy, visits de 2025, etc.) hay que correr backfill.
+viejo (pedidos previos al arranque, visits de prueba, altas SAP cargadas
+antes del go-live) hay que correr backfill.
+
+**Estado actual confirmado por Mariano**: no hay pedidos confirmados todavía
+(la app está arrancando). El backfill va a ser cuasi-cero costo en
+`pedidos` y va a traer el grueso de altas (`client_applications`) +
+visitas de prueba acumuladas.
 
 1. Firebase Console → Extensions → tu extension de `pedidos` → "How this
    extension works" → seguir link al script `fs-bq-import-collection`.
@@ -363,13 +369,13 @@ Pedidos Pendientes = CALCULATE(COUNTROWS(pedidos_view), pedidos_view[stage] = "p
 3. Configurar gateway si querés DirectQuery (más complejo, se hace después).
 
 ### 7.2. Permisos del workspace
-| Usuario | Rol |
-|---------|-----|
-| mariano.erbino@shimano.com.ar | Admin |
-| diego.rama@shimano.com.ar | Viewer |
-| pablo.maraschin@shimano.com.ar | Member (puede editar) |
-| santiago.esteban@shimano.com.ar | Viewer |
-| ioannis.palkoudakis@shimano.com.ar | Viewer |
+| Usuario | Email | Rol |
+|---------|-------|-----|
+| Mariano Erbino | mariano.erbino@shimano.com.ar | Admin |
+| Diego Valsi | diego.valsi@shimano.uy | Viewer |
+| Santiago Beron | santiago.beron@shimano.uy | Viewer |
+| Pablo (gerente) | _pendiente de confirmar_ | Member |
+| Ioannis (VDI) | _pendiente de confirmar_ | Viewer |
 
 ### 7.3. Refresh automático
 - Service → Dataset → Schedule refresh → cada 30 minutos.
