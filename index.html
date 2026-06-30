@@ -2840,7 +2840,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v206';
+const APP_VERSION = 'v207';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -22239,32 +22239,48 @@ window.renderDashboard = function(){
     html += '<div style="font-size:11px;color:#94a3b8">No hay campa&ntilde;as activas en este momento.</div>';
   } else {
     activeCamps.forEach(c => {
-      // Calcular progreso del vendor sobre la campaña
-      let prog = 0;
-      Object.entries(confirmed).forEach(([key, list]) => {
-        if (effectiveVendor && effectiveVendor !== 'ALL') {
-          if (getVendorForKey(key) !== effectiveVendor) return;
+      // Progreso GLOBAL de la campaña: suma los confirmados de TODOS los
+      // vendedores asignados al scope (no solo del que esta mirando).
+      // Si la campaña FX 1000u va para gonzalo+federico y Fede lleva 200 y
+      // Gonzalo 500, ambos ven 700/1000 = 70% en su dashboard.
+      // Usa globalPedidos (todos los pedidos de todos los users), no
+      // 'confirmed' (que para un vendedor solo trae los propios).
+      const passesCampScope = (function(){
+        const scope = (c && c.scope) || 'all';
+        if (scope === 'all') return null; // sin filtro
+        const values = c.scopeValues || [];
+        if (scope === 'vendor') {
+          const vSet = new Set(values);
+          return (p) => vSet.has(getVendorForKey(p.key || ''));
         }
-        (list || []).forEach(entry => {
-          const dt = (entry.confirmedAt || '').slice(0,10);
-          if (dt < c.startDate || dt > c.endDate) return;
-          (entry.lines || []).forEach(l => {
-            // Nuevo formato: matchea por SKU code (skus array).
-            // Fallback al viejo formato (filterType=familia/subfamilia/categoria).
-            let matches;
-            if (Array.isArray(c.skus) && c.skus.length) {
-              matches = c.skus.includes(l.code);
-            } else {
-              matches = c.filterType === 'familia' ? (c.filterValues||[]).includes(l.fam)
-                : c.filterType === 'subfamilia' ? (c.filterValues||[]).includes(l.sub)
-                : c.filterType === 'categoria' ? (c.filterValues||[]).includes(l.cat) : false;
-            }
-            if (!matches) return;
-            const q = parseFloat(l.qty) || 0;
-            const pr = parseFloat(l.precio) || 0;
-            if (c.targetType === 'money') prog += q * pr;
-            else prog += q;
-          });
+        if (scope === 'province') {
+          const pSet = new Set(values);
+          return (p) => pSet.has(p.province || '');
+        }
+        return null;
+      })();
+      let prog = 0;
+      (globalPedidos || []).forEach(p => {
+        if (p.stage !== 'confirmed') return;
+        if (passesCampScope && !passesCampScope(p)) return;
+        const dt = (p.confirmedAt || '').slice(0,10);
+        if (dt < c.startDate || dt > c.endDate) return;
+        (p.lines || []).forEach(l => {
+          // Nuevo formato: matchea por SKU code (skus array).
+          // Fallback al viejo formato (filterType=familia/subfamilia/categoria).
+          let matches;
+          if (Array.isArray(c.skus) && c.skus.length) {
+            matches = c.skus.includes(l.code);
+          } else {
+            matches = c.filterType === 'familia' ? (c.filterValues||[]).includes(l.fam)
+              : c.filterType === 'subfamilia' ? (c.filterValues||[]).includes(l.sub)
+              : c.filterType === 'categoria' ? (c.filterValues||[]).includes(l.cat) : false;
+          }
+          if (!matches) return;
+          const q = parseFloat(l.qty) || 0;
+          const pr = parseFloat(l.precio) || 0;
+          if (c.targetType === 'money') prog += q * pr;
+          else prog += q;
         });
       });
       const pct = c.targetAmount > 0 ? Math.min(100, Math.round(prog/c.targetAmount*100)) : 0;
