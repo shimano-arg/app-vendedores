@@ -2984,7 +2984,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v220';
+const APP_VERSION = 'v221';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -15114,13 +15114,17 @@ window.viewPedido = function(stage, key, idx){
     renderProductPicker();
     renderOrderLines();
   } else {
-    // CONFIRMADO -> read-only
+    // CONFIRMADO -> read-only. Mostramos las lineas + un bloque grande
+    // con la info comercial: forma de pago + breakdown de descuentos +
+    // subtotal/neto + info de transferencia a SAP si corresponde.
     let html = '';
     let totalU = 0;
+    let subtotalCalc = 0;
     (c.lines || []).forEach(l => {
       const q = parseFloat(l.qty) || 0;
       const pr = parseFloat(l.precio) || 0;
       totalU += q;
+      subtotalCalc += q * pr;
       html += '<div class="ped-line" style="grid-template-columns:70px 1fr 70px 50px">';
       html += '<div class="pcode">' + escapeHtml(l.code) + '</div>';
       html += '<div class="pname">' + escapeHtml(l.desc) + '</div>';
@@ -15131,7 +15135,87 @@ window.viewPedido = function(stage, key, idx){
     document.getElementById('pm-lines').innerHTML = html || '<div class="no-data">Pedido vacio</div>';
     document.getElementById('pm-line-count').textContent = (c.lines || []).length + ' productos';
     document.getElementById('pm-units').textContent = totalU + ' unidades';
-    document.getElementById('pm-products').innerHTML = '<div class="no-data">Pedido CONFIRMADO definitivamente.<br>Confirmado el ' + (c.confirmedAt ? new Date(c.confirmedAt).toLocaleString() : '-') + '</div>';
+    // === Bloque info comercial ===
+    // Source de los valores: c.condicionPago (forma de pago elegida al
+    // confirmar), c.discountSnapshot (breakdown), c.subtotalArs +
+    // c.netAmountArs (totales finales con el descuento ya aplicado).
+    const formaPago = c.condicionPago || '(no registrada)';
+    const subtotal = (c.subtotalArs != null) ? c.subtotalArs : subtotalCalc;
+    const neto = (c.netAmountArs != null) ? c.netAmountArs : subtotal;
+    const ds = c.discountSnapshot || {};
+    const pctTotal = ds.pctTotal || c.discountPct || 0;
+    const montoDesc = ds.monto != null ? ds.monto : (subtotal - neto);
+    const fmtAr = (n) => '$' + Math.round(n).toLocaleString('es-AR');
+    let infoHtml = '<div style="padding:14px 16px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">';
+    infoHtml += '<div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#475569;margin-bottom:10px">Resumen comercial</div>';
+    // Forma de pago
+    infoHtml += '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e5e7eb;font-size:12px">';
+    infoHtml += '<span style="color:#475569;font-weight:600">Forma de pago</span>';
+    infoHtml += '<span style="font-weight:800;color:#0f172a">' + escapeHtml(formaPago) + '</span>';
+    infoHtml += '</div>';
+    // Tipo de cliente (si esta en el snapshot)
+    if (ds.tipo) {
+      infoHtml += '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e5e7eb;font-size:12px">';
+      infoHtml += '<span style="color:#475569;font-weight:600">Tipo de cliente</span>';
+      infoHtml += '<span style="font-weight:700;color:#0f172a">' + escapeHtml(ds.tipo) + '</span>';
+      infoHtml += '</div>';
+    }
+    // Subtotal
+    infoHtml += '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e5e7eb;font-size:12px">';
+    infoHtml += '<span style="color:#475569;font-weight:600">Subtotal</span>';
+    infoHtml += '<span style="font-weight:700;color:#0f172a">' + fmtAr(subtotal) + '</span>';
+    infoHtml += '</div>';
+    // Desglose de descuentos
+    if (ds.pctFijo) {
+      infoHtml += '<div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:11px;color:#64748b">';
+      infoHtml += '<span>&middot; Descuento fijo' + (ds.tipo ? ' (' + escapeHtml(ds.tipo) + ')' : '') + '</span>';
+      infoHtml += '<span style="font-weight:700;color:#0d9488">-' + ds.pctFijo + '%</span>';
+      infoHtml += '</div>';
+    }
+    if (ds.pctVol) {
+      infoHtml += '<div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:11px;color:#64748b">';
+      infoHtml += '<span>&middot; Descuento por volumen</span>';
+      infoHtml += '<span style="font-weight:700;color:#0d9488">-' + ds.pctVol + '%</span>';
+      infoHtml += '</div>';
+    }
+    if (ds.pctAntic) {
+      infoHtml += '<div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:11px;color:#64748b">';
+      infoHtml += '<span>&middot; Bonus pago anticipado (CONTADO)</span>';
+      infoHtml += '<span style="font-weight:700;color:#0d9488">-' + ds.pctAntic + '%</span>';
+      infoHtml += '</div>';
+    }
+    // Descuento total
+    if (pctTotal > 0) {
+      infoHtml += '<div style="display:flex;justify-content:space-between;padding:7px 0;border-top:1.5px solid #cbd5e1;border-bottom:1px solid #e5e7eb;font-size:12px;background:#f0fdfa;margin:0 -16px;padding-left:16px;padding-right:16px">';
+      infoHtml += '<span style="color:#0f766e;font-weight:800">Descuento total aplicado</span>';
+      infoHtml += '<span style="font-weight:800;color:#0d9488">-' + pctTotal + '% &middot; -' + fmtAr(montoDesc) + '</span>';
+      infoHtml += '</div>';
+    }
+    // Neto
+    infoHtml += '<div style="display:flex;justify-content:space-between;padding:10px 0 7px 0;font-size:14px">';
+    infoHtml += '<span style="font-weight:800;color:#0f172a">TOTAL NETO</span>';
+    infoHtml += '<span style="font-weight:800;color:#166534;font-size:16px">' + fmtAr(neto) + '</span>';
+    infoHtml += '</div>';
+    // Fecha confirmacion
+    infoHtml += '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed #cbd5e1;font-size:10px;color:#94a3b8">';
+    infoHtml += 'Confirmado el ' + (c.confirmedAt ? new Date(c.confirmedAt).toLocaleString('es-AR') : '-');
+    infoHtml += '</div>';
+    // Estado SAP
+    if (c.transferidoSAP) {
+      const ts = c.transferidoSAP;
+      const tsAt = ts.at && ts.at.toDate ? ts.at.toDate().toLocaleString('es-AR')
+                  : (ts.transferredAt ? new Date(ts.transferredAt).toLocaleString('es-AR') : '-');
+      infoHtml += '<div style="margin-top:8px;padding:8px 10px;background:#dcfce7;border:1px solid #86efac;border-radius:5px;font-size:11px;color:#166534">';
+      infoHtml += '<b>&#10003; En SAP</b> &middot; DocNum: <b>' + (ts.docNum || '-') + '</b><br>';
+      infoHtml += '<span style="font-size:10px">Via: ' + escapeHtml(ts.via || 'manual') + ' &middot; ' + tsAt + '</span>';
+      infoHtml += '</div>';
+    } else {
+      infoHtml += '<div style="margin-top:8px;padding:8px 10px;background:#fef3c7;border:1px solid #fcd34d;border-radius:5px;font-size:11px;color:#92400e">';
+      infoHtml += '&#9888;&#65039; <b>Aun no transferido a SAP.</b> Esperando carga manual o auto-envio.';
+      infoHtml += '</div>';
+    }
+    infoHtml += '</div>';
+    document.getElementById('pm-products').innerHTML = infoHtml;
   }
   // Sugeridos: solo en PENDIENTE (clickeables). En CONFIRMADO no se muestran.
   if (stage === 'pending') {
