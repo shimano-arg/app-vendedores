@@ -14,8 +14,10 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v203 (commit `f621d5a`) |
-| **APP_VERSION** | `v203` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v217 |
+| **APP_VERSION** | `v217` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
+| **Pipeline Power BI** | Firestore → BigQuery (extension `firestore-bigquery-export`) → Power BI Service — **en armado, Día 1 hoy** (ver `PLAN_POWERBI.md`) |
 
 ---
 
@@ -59,6 +61,9 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 36. [Ciberseguridad y hardening](#36-ciberseguridad-y-hardening)
 37. [Contactos clave](#37-contactos-clave)
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
+39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
+40. [Power BI / BigQuery](#40-power-bi--bigquery)
+41. [Changelog v204 → v217](#41-changelog-v204--v217)
 
 ---
 
@@ -144,7 +149,7 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] Vista preliminar de pedido (puntos verde/rojo por stock, subtotales disponibles/no)
 [X] Filtro stock en picker (Todos / Disponibles / No disp.)
 [X] Confirmados con filtros mes/tienda/año
-[X] PWA con SW v203 + login bg con foto del río
+[X] PWA con SW v217 + login bg con foto del río
 [X] Boton "Forzar actualizacion" (↻) + "Reubicar pines" (📍) + "REFRESCAR APP" mobile
 [X] Banner version + chequeo sync HTML vs SW en console al arrancar
 [X] Botón Recalcular Rutas en la pestaña Rutas
@@ -154,6 +159,16 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] Zonas: gerente puede reasignar + scope "Por provincia" + toast verde con detalle de cambios (v201/v203)
 [X] Mail Rendiciones cron Lun/Mie 9am AR con hyperlink Firebase Storage a foto del ticket + Tablas Excel nombradas (v202+)
 [X] Integración SharePoint + Power Automate: ítems creados automáticamente en lista "ANTICIPO Y RENDICION DE GASTO" del team SAR (v203)
+[X] Gerente: canWrite + abre CAMPAÑAS/SAP + ve todos los pedidos (lista CONFIRMADOS poblada) + edita rutas del mes (v205/v208/v214/v215)
+[X] Card precaución más visible: amber-200 + franja marrón izquierda 5px (v206)
+[X] Progreso de campañas GLOBAL (suma todos los vendedores del scope, no solo el propio) (v207)
+[X] TARGETS-ZONAS reescrito: solo BPs vivos con CardCode SAP + columna CARDCODE SAP (v208)
+[X] "Exportar para Análisis" restringido a Mariano (v208)
+[X] **SEGUIMIENTO**: panel comercial completo para admin/gerente/interno con 7 tabs + timeline cliente + notas internas + status flow (v209-v212)
+[X] Botón "Recalcular contornos de zonas" en topleft del mapa (admin/gerente) (v213)
+[X] Botón ZONAS sin ícono emoji (v214)
+[X] Tildar pedido bloqueado en SAP — fix cleanup de sapPendSelection (v216)
+[X] Rendiciones v2: TablaGastos agrupada por dupla (vendedor, tipoGasto) + hoja "Detalle" sin agrupar para auditoría + fotos pre-subidas a Storage y concatenadas (v217)
 ```
 
 ### Bloqueantes externos para el lanzamiento
@@ -211,7 +226,7 @@ shimano-arg/app-vendedores/
 ├── index.html                # App completa (~3.2 MB - todo embebido)
 ├── alta-cliente.html         # Formulario público standalone (link compartible)
 ├── manifest.json             # PWA manifest
-├── sw.js                     # Service Worker (v57)
+├── sw.js                     # Service Worker (v217)
 ├── login-bg.jpg              # Foto de fondo del login (río al amanecer)
 ├── stock.json                # Snapshot del stock SAP (placeholder hoy)
 ├── Shimano-Logo.png          # Logo (header + splash)
@@ -225,7 +240,12 @@ shimano-arg/app-vendedores/
 │       └── send-rendiciones-email.yml  # Cron Lun/Mie 9am AR: Excel + mail rendiciones aprobadas
 ├── scripts/
 │   ├── sync_stock.py             # Procesa CSV exportado de SAP → JSON
-│   └── send_rendiciones_email.py # Genera Excel (TablaGastos + TablaSolicitudes) + sube fotos a Firebase Storage + manda mail
+│   └── send_rendiciones_email.py # Genera Excel (Gastos agrupado + Detalle + Solicitudes) + sube fotos a Firebase Storage + manda mail
+├── PLAN_POWERBI.md               # Plan 4 días Firestore → BigQuery → Power BI (NUEVO v217)
+├── POWER_AUTOMATE_RENDICIONES.md # Doc operativo del flow de SharePoint (schema v2 de TablaGastos) (NUEVO v217)
+├── Roadmap_Integracion_App_SAP.md
+├── Solicitud_SEIDOR_Integracion_App.md
+├── Pitch_Lunes_App_Vendedores.md
 └── README.md                     # Este archivo
 ```
 
@@ -275,7 +295,7 @@ El script:
 cp "C:/Users/shimano.sandbox/Desktop/MASTERFILES/PROSPECTOS/MAPAS/Mapa_Argentina_Shimano_Zonas.html" \
    "C:/Users/shimano.sandbox/Desktop/APP VENDEDORES/index.html"
 cd "C:/Users/shimano.sandbox/Desktop/APP VENDEDORES"
-# Bumpear sw.js: CACHE_VERSION = 'v57' → 'v58'
+# Bumpear sw.js: CACHE_VERSION = 'v217' → 'v218' (+ APP_VERSION en index.html)
 git add index.html sw.js
 git commit -m "Mensaje claro de cambio"
 git push
@@ -334,10 +354,10 @@ Admin puede pre-autorizar emails desde el panel admin antes de que se logueen. C
 
 | Rol | Quién | Qué puede hacer |
 |---|---|---|
-| **`admin`** | Mariano, Diego | Todo: panel admin, modal Zonas, Master Clientes, SAP, Stock, Backup, Targets, aprobar altas, Auditoría |
-| **`gerente`** | Cargo gerencial | Casi todo lo de admin **excepto** USUARIOS, STOCK, PRECIOS y AUDITORIA. Ve todo el mapa, aprueba Altas Clientes, aprueba Rendiciones, edita Master Clientes (con campos restringidos), reubica pines |
+| **`admin`** | Mariano, Diego | Todo: panel admin, modal Zonas, Master Clientes, SAP, Stock, Backup, Targets, aprobar altas, Auditoría, Seguimiento, "Exportar para Análisis" (solo Mariano desde v208) |
+| **`gerente`** | Pablo Maraschin | Casi todo lo de admin **excepto** USUARIOS, STOCK, PRECIOS y AUDITORIA. Ve todo el mapa, aprueba Altas Clientes, aprueba Rendiciones, edita Master Clientes, reubica pines. **Desde v205+ entra a `canWrite()`** (cambia estado de cliente, renombra, categoriza, marca contactado). **Abre CAMPAÑAS + SAP + Seguimiento** (v208+). **Lee TODOS los pedidos** (necesario para tab CONFIRMADOS y filtros, v215+). **Carga visitas / marca contactado en cualquier ruta del mes** (v214+). |
 | **`vendedor`** | VDEs (Mauricio, Martin, Gonzalo, Federico) | Ver SOLO su zona, crear pedidos/visitas propios, cargar Alta Cliente |
-| **`interno`** | VDIs (Santiago, Ioannis) | Ver zonas de sus VDEs pareja, crear pedidos/visitas en nombre del VDE pareja |
+| **`interno`** | VDIs (Santiago, Ioannis) | Ver zonas de sus VDEs pareja, crear pedidos/visitas en nombre del VDE pareja. **Acceso a SEGUIMIENTO** (con scope acotado a sus parejas, v209+). **Carga visitas / marca contactado en rutas de sus VDEs** (v214+). |
 | **`viewer`** | Solo lectura | Ve todo pero no escribe nada |
 | **`unassigned`** | Usuarios nuevos sin rol | Pantalla "Tu usuario aún no tiene rol asignado. Pedile al admin que te habilite." |
 
@@ -366,7 +386,7 @@ Las parejas estándar son:
 
 ## 8) Modelo de datos Firestore
 
-20 colecciones activas en el proyecto `app-vendedores-shimano` (la 20va es `custom_routes`, agregada en v182+):
+22 colecciones activas en el proyecto `app-vendedores-shimano` (las 2 nuevas son `seguimiento_notes` y `seguimiento_status`, agregadas en v209+):
 
 ### Auth y usuarios
 
@@ -636,6 +656,40 @@ Alertas + tareas + derivaciones VDI. Con imágenes embebidas.
 #### `operations_log/{logId}`
 Log inmutable de acciones para auditoría. Solo admin/viewer leen.
 
+### Seguimiento (NUEVO desde v209+)
+
+#### `seguimiento_notes/{noteId}`
+Notas internas que admin/gerente/interno escriben sobre un cliente o pedido desde el Timeline de Seguimiento:
+```js
+{
+  vendorExt: "MARTIN BOIERO",        // VDE al que aplica (clave del scope)
+  clientKey: "C|CORDOBA|Rio Cuarto|PESCA TOTAL",
+  clientName: "PESCA TOTAL",
+  province: "CORDOBA",
+  locality: "Rio Cuarto",
+  text: "Pidio catalogo nuevo. Llamar 22/Jun.",
+  authorUid: "uid_pablo",
+  authorEmail: "pablo@shimano.uy",
+  authorName: "Pablo Maraschin",
+  authorRole: "gerente",             // admin | gerente | interno
+  createdAt: <Timestamp>,
+}
+```
+
+#### `seguimiento_status/{statusId}`
+Estado de un item pendiente o oportunidad. Permite cerrar manualmente un pendiente auto-detectado:
+```js
+{
+  vendorExt: "MARTIN BOIERO",
+  itemId: "<id de la visita o pedido>",
+  itemType: "visit_no_order" | "pending_order" | "opportunity",
+  status: "pendiente" | "revisado" | "resuelto",
+  updatedByUid: "...",
+  updatedByEmail: "...",
+  updatedAt: <Timestamp>,
+}
+```
+
 ---
 
 ## 9) Firestore Security Rules
@@ -662,8 +716,12 @@ Reglas vigentes (versión actual). Resumen de qué puede hacer cada rol:
 | `custom_routes` (NUEVO) | todos los readers | propio crea/update/delete (filtrado por ownerUid) |
 | `sap_clients`, `sap_products`, `sap_vendors` | todos | admin |
 | `operations_log` | admin / viewer | autenticado crea (userUid == auth.uid), nadie update/delete |
+| `seguimiento_notes` (NUEVO v209+) | `isSeguimientoUser()` (admin/gerente/interno) | `isSeguimientoUser()` crea/update/delete |
+| `seguimiento_status` (NUEVO v209+) | `isSeguimientoUser()` | `isSeguimientoUser()` crea/update/delete |
 
 Helper `isMyPartnerVDE(targetUid)`: para que un VDI pueda actuar en nombre de un VDE solo si el VDE tiene a ese VDI como `internalPartnerUid`. Esto bloquea que un VDI cualquiera cargue pedidos a nombre de cualquier VDE.
+
+Helper `isSeguimientoUser()` (v209+): `userRole in ['admin', 'gerente', 'interno']`. Lo usan las rules de `seguimiento_notes` y `seguimiento_status` para evitar que un vendedor pueda leer las notas internas que se escriben sobre él.
 
 ### Rendiciones — fix de resolveApprover (v189+)
 
@@ -689,7 +747,7 @@ Header + Controls tienen `border-bottom-radius: 22px` para look "pill flotante".
 - Selector **Provincia**
 - Selector **Localidad**
 - Selector **Tipo** (Todos / Existentes / Prospectos / Distribuidores / Ventas Especiales)
-- Botones (derecha): **Campañas Activas** (amarillo) / **Exportar para Análisis** (verde) / **Exportar a Excel** (celeste) / **Zonas** (azul marino)
+- Botones (derecha): **Campañas Activas** (amarillo) / **Exportar para Análisis** (verde, solo Mariano desde v208) / **Seguimiento** (teal, admin/gerente/interno desde v209+) / **Exportar a Excel** (celeste) / **Zonas** (azul marino, sin emoji desde v214)
 
 ### Cuerpo
 - **Mapa Leaflet** (izquierda, ocupa gran parte de la pantalla).
@@ -699,6 +757,7 @@ Header + Controls tienen `border-bottom-radius: 22px` para look "pill flotante".
 
 - **↻ Forzar actualización**: hace `unregister()` del SW, limpia caches y recarga con cache-bust. Útil cuando el banner del console marca DESYNC HTML vs SW.
 - **📍 Reubicar pines** (solo admin/gerente): triggea `runBulkGeocodeSapAltas()` para correr geocoding bulk de altas SAP que no tengan lat/lng.
+- **⏣ Recalcular contornos de zonas** (NUEVO v213, solo admin/gerente): limpia `_vendorOutlinesCache` + `localStorage[VENDOR_OUTLINES_CACHE_KEY]` y llama a `restyleZoneLayers()` + `drawVendorOutlines()`. Útil después de reasignar localidades/provincias en el modal ZONAS — sin esto los outlines viejos quedan cacheados y muestran fronteras que ya no aplican.
 
 ### Mobile
 
@@ -908,6 +967,14 @@ Al confirmar:
 - La fantasía se guarda en `clientMeta[key].customFantasia`.
 - Tiendas con `manualSapPending: true` muestran badge **"⚡ PROVISORIO (cargar a SAP manual)"** + fondo crema para que Admin las detecte.
 
+### Card de cliente — Precaución (más visible desde v206)
+
+Cuando una tienda tiene `clientMeta[key].precaucion = true` (problema de cobro, fraude reportado, etc.), la card sale destacada:
+- Fondo `#fde68a` (amber-200, fuerte; antes era `#fffbeb` que casi no se distinguía).
+- Franja izquierda de 5px en marrón (`#b45309`).
+- Badge naranja **"⚠️ PRECAUCIÓN"** al lado del nombre (con tooltip de `precaucionReason`).
+- Aplica tanto a tiendas POINTS como a altas SAP/POINTS huérfanos.
+
 ---
 
 ## 13) Sección: Rutas
@@ -1040,16 +1107,59 @@ Antes: el vendedor no podía submitter si tenía aprobador asignado porque las r
 
 Cron automatizado en GitHub Actions: `scripts/send_rendiciones_email.py` corre **Lunes y Miércoles 9am hora Argentina** y manda un mail desde `bot.shimano.pesca@gmail.com` a `mariano.erbino@shimano.com.ar` (Outlook 365) con un Excel de las rendiciones aprobadas desde la última corrida.
 
-#### Estructura del Excel (2 hojas)
+#### Estructura del Excel — v2 desde v217 (3 hojas)
 
-| Hoja | Tabla nombrada | Estilo |
-|---|---|---|
-| **Gastos** (default) | `TablaGastos` | Medium2 |
-| **Solicitudes** | `TablaSolicitudes` | Medium4 |
+| Hoja | Tabla nombrada | Granularidad | Mapea a Power Automate? |
+|---|---|---|---|
+| **Gastos** (default) | `TablaGastos` | **UNA fila por dupla (ownerEmail, tipoGasto)** | **SÍ** — la lee Power Automate y crea UN item SharePoint por dupla |
+| **Detalle** (NUEVA en v217) | — | UNA fila por gasto individual (15 columnas) | NO — solo auditoría humana |
+| **Solicitudes** | `TablaSolicitudes` | UNA fila por anticipo | SÍ |
 
 > La hoja "Resumen" fue **eliminada** en v202+. El Excel queda compacto y mappeable a Power Automate.
 
 > Los nombres de tabla (`TablaGastos`, `TablaSolicitudes`) son **Excel Tables reales** (no rangos). Power Automate los necesita para el step `List rows present in a table`.
+
+#### Cambio v2 — Agrupación por dupla (v217, pedido de Fernando)
+
+**Antes (v202–v216)**: `TablaGastos` tenía **15 columnas** y **una fila por gasto**. Si Gonzalo cargaba 3 facturas A en una semana, Power Automate creaba 3 items separados en SharePoint → confundía la rendición consolidada.
+
+**Ahora (v217)**: agrupación por `(ownerEmail, tipoGasto)`. Los 3 tipos típicos son `Factura A`, `Gastos con comprobante`, `Gastos sin comprobante` → max 3 filas por persona por período.
+
+`TablaGastos` v2 — **10 columnas**:
+
+| # | Columna | Tipo | Detalle |
+|---|---|---|---|
+| 1 | `Vendedor (email)` | texto | `gonzalo.delarosa@shimano.uy` |
+| 2 | `Tipo gasto` | texto | `Factura A` / etc. |
+| 3 | `Cant Rendiciones` | número | Cuántos gastos hay en la dupla |
+| 4 | `Importe Total` | número | Suma del grupo |
+| 5 | `Importe USD Total` | número | Suma USD (vacío si ninguno tenía USD) |
+| 6 | `Moneda` | texto | Una moneda si todas iguales, `MIXTO` si conviven varias |
+| 7 | `Periodo Desde` | texto fecha | `createdAt` más antigua del grupo |
+| 8 | `Periodo Hasta` | texto fecha | `createdAt` más reciente del grupo |
+| 9 | `Rendiciones IDs` | texto | IDs Firestore concatenados con `;` |
+| 10 | `Fotos URLs` | texto | URLs públicas Firebase Storage concatenadas con `;` — Power Automate hace `split` y adjunta cada foto al item |
+
+> **Detalle**: la hoja nueva tiene las 15 columnas viejas sin agrupar (ID, Fecha carga, N° Ticket, Descripcion, Modo pago, Tipo gasto, Division gasto, Moneda, Importe, Importe USD, Observaciones, Aprobado por, Fecha aprobacion, Ticket hyperlink). Fernando o Mariano la abren si quieren ver línea por línea.
+
+#### Pre-upload de fotos antes de agrupar (v217)
+
+Para que el grupo pueda concatenar URLs, el script:
+1. Recorre TODAS las rendiciones de tipo `gasto` ANTES de agrupar.
+2. Llama `upload_foto_to_storage(rendicion_id, foto_dataurl)` por cada foto y cachea en `foto_url_by_id = {id: url}`.
+3. Agrupa por dupla.
+4. Al armar cada fila, concatena `foto_url_by_id[id]` solo de los gastos cuyo upload fue exitoso. Una foto rota no rompe la fila — simplemente no entra al `;`.
+
+#### Bucket de Storage — formato nuevo `.firebasestorage.app` (v217)
+
+Firebase post-2024 usa `<project-id>.firebasestorage.app` como nombre default del bucket (antes era `.appspot.com`). `init_firestore()` ahora arma:
+
+```python
+default_bucket = f"{project_id}.firebasestorage.app"
+storage_bucket = os.environ.get("STORAGE_BUCKET") or default_bucket
+```
+
+Override via env var `STORAGE_BUCKET` si por alguna razón el proyecto sigue en el bucket legacy.
 
 #### Columna "Imagen ticket" — hyperlink a Firebase Storage (v202+)
 
@@ -1063,9 +1173,9 @@ Desde v202+ cada foto se sube a **Firebase Storage** y la celda queda con un hyp
 4. Sin foto → celda dice **"(sin foto)"**.
 5. Foto corrupta → **"(error al subir)"**.
 
-`init_firestore()` configura `storageBucket = <project-id>.appspot.com`.
+`init_firestore()` configura `storageBucket = <project-id>.firebasestorage.app` (formato nuevo Firebase, v217+; antes era `.appspot.com`).
 
-> **REQUIERE plan Firebase Blaze** activado: Firebase Storage no funciona en Spark (free tier).
+> **REQUIERE plan Firebase Blaze** activado: Firebase Storage no funciona en Spark (free tier). **Blaze ya activo en el proyecto desde 2026-06-30**.
 
 #### Inputs del workflow_dispatch (v202+)
 
@@ -1133,33 +1243,69 @@ Trigger
           └── Create item (SharePoint)
 ```
 
-### Mapeo Excel → SharePoint
+### Mapeo Excel → SharePoint (Schema v2, v217)
+
+> **Detalle operativo completo** en `POWER_AUTOMATE_RENDICIONES.md` (archivo separado, mismo repo).
+
+Columnas nuevas creadas en la lista SharePoint **"ANTICIPO Y RENDICION DE GASTO"** (2026-06-30):
+
+| Columna SharePoint | Tipo | Source columna Excel v2 |
+|---|---|---|
+| `Tipo comprobante` | Choice (FACTURA A / GASTO CON COMPROBANTE / GASTO SIN COMPROBANTE) | `Tipo gasto` |
+| `Cant rendiciones` | Number | `Cant Rendiciones` |
+| `Desde` | Single line text | `Periodo Desde` |
+| `Hasta` | Single line text | `Periodo Hasta` |
+| `Rendiciones IDs` | Multiple lines text | `Rendiciones IDs` |
+
+Mapeo total v2:
 
 | Campo SharePoint | Valor / fuente Excel |
 |---|---|
-| `Title` | `Descripcion` |
-| `Importe` | `Importe` (con `float(item()?['Importe'])` si el chip no detecta tipo) |
-| `Moneda Value` | `Moneda` |
-| `Tipo de gasto Value` | `Tipo gasto` |
+| `Title` | `{Vendedor (email)} \| {Tipo gasto} \| <12 chars primer ID>` (idempotency key) |
+| `Importe` | `float(item()?['Importe Total'])` |
+| `Moneda Value` | `Moneda` (puede valer `MIXTO`) |
+| `Tipo comprobante Value` | `Tipo gasto` |
+| `Cant rendiciones` | `Cant Rendiciones` |
+| `Desde` / `Hasta` | `Periodo Desde` / `Periodo Hasta` |
+| `Rendiciones IDs` | `Rendiciones IDs` |
 | `Solicitado por Claims` | `Vendedor (email)` |
 | `Tipo de Operacion Value` | `"Rendicion de Gasto"` (literal) |
-| `Comentarios` | `Observaciones` |
 | `Estado Value` | `"Abierto"` (default) |
-| `Registrado` | `"No"` (default) |
 | `SAP Value` | `"No Registrado"` (default) |
+
+### Estructura del flow (Híbrida Opción C — v217)
+
+```
+Trigger: When a new email arrives (V3)
+└── For each (attachments)
+     ├── Save attachment to OneDrive
+     ├── List rows present in a table → TablaGastos (v2: 10 cols)
+     ├── Get items SharePoint (filter Title eq <key>)   ← idempotencia
+     └── For each row
+          ├── Condition: rowCount == 0
+          │    └── True: Create item SharePoint (con todos los campos v2)
+          ├── Compose: split(Fotos URLs, ';')
+          ├── For each foto URL
+          │    ├── HTTP GET (foto pública Firebase Storage)
+          │    └── Add attachment SharePoint (Id = nuevo item, foto descargada)
+          └── Add attachment SharePoint (Id = nuevo item, Excel original)
+                via base64ToBinary(items('For_each')?['ContentBytes'])
+```
 
 ### Particularidades técnicas conocidas
 
-- **Detección del schema de TablaGastos**: para que el step `List rows` detecte las columnas de `TablaGastos`, necesitamos un archivo ya en OneDrive antes de configurar `Create item`. Workflow recomendado:
+- **Idempotencia por Title**: el script genera el Title como `{vendedor} | {tipoGasto} | {primeros 12 chars de Rendiciones IDs}`. Si el flow corre 2 veces sobre el mismo Excel, el `Get items` con `$filter` detecta el item existente y no se duplica.
+- **Premium HTTP connector**: el step `HTTP GET` para bajar la foto requiere **Power Automate Premium**. Mariano tiene **trial Premium de 90 días activado** (2026-06-30). Después hay que comprar licencia o migrar a un paso nativo.
+- **Detección del schema de TablaGastos**: para que el step `List rows` detecte las 10 columnas nuevas, necesitamos un Excel ya en OneDrive antes de configurar `Create item`. Workflow recomendado:
   1. Setear `File` temporalmente con una ruta estática (un Excel de prueba ya subido).
   2. Configurar `Create item` con todos los chips dinámicos.
   3. Volver el `File` a chip dinámico `Id` del step `Create file`.
-- **`Importe` como Number**: el campo `Importe` en SharePoint es tipo Number. Si el chip se rechaza por type mismatch, usar la expression `float(item()?['Importe'])`.
-- **Document Library aparece como "ドキュメント"** (japonés): es el OneDrive normal, bug conocido de localización de Microsoft Connectors. Funciona sin problema, solo confunde visualmente.
+- **`Importe` como Number**: usar `float(item()?['Importe Total'])` para forzar la conversión.
+- **Document Library aparece como "ドキュメント"** (japonés): es el OneDrive normal, bug conocido de localización de Microsoft Connectors. Funciona sin problema.
 
 ### Estado actual del flow
 
-> **FUNCIONÓ** — runs Succeeded, ítems aparecen en SharePoint con todos los datos bien mapeados. **Lista para producción.**
+> **FUNCIONÓ con schema v1** — runs Succeeded en producción. **Schema v2 (agrupado por dupla) en migración hoy 2026-06-30** — ver `POWER_AUTOMATE_RENDICIONES.md` para los cambios exactos al flow.
 
 ---
 
@@ -1305,7 +1451,7 @@ Cuando se filtra Ioannis → ve **sus provincias + Federico + Gonzalo**. Idem Sa
 
 ## 21) Campañas comerciales
 
-Admin crea campañas con:
+Admin (+ gerente desde v208+) crea campañas con:
 - Nombre + descripción.
 - Fechas vigencia (desde / hasta).
 - SKUs incluidos.
@@ -1314,6 +1460,18 @@ Admin crea campañas con:
 En el picker de productos del pedido, los SKUs en campaña activa aparecen marcados con badge **★ CAMP**.
 
 Tab "Campañas Activas" (botón amarillo del header) muestra el detalle.
+
+### Progreso GLOBAL (v207+)
+
+Antes, cada vendedor veía solo **su aporte** sobre el target de la campaña — un VDE podía ver "12 / 200 unidades" aunque entre el equipo ya hubieran cargado 180. Confundía la lectura.
+
+Desde v207+ el progreso se calcula **sobre el scope de la campaña**:
+- Source: `globalPedidos` (todos los pedidos confirmados de todos los users, no solo `confirmed{}` del propio).
+- Helper `passesCampScope(p)`: filtra según el `scope` configurado en la campaña:
+  - `all` → cuenta todos los pedidos.
+  - `vendor` → solo del vendor target.
+  - `province` → solo de la provincia target.
+- Admin/gerente y vendedor/interno ven exactamente el mismo número (el progreso del equipo, no el aporte individual).
 
 ---
 
@@ -1730,12 +1888,12 @@ Botón **Exportar a Excel** (celeste) → 6 opciones:
 - **Altas de clientes** (del período).
 - **Clientes (masterfile)**: listado completo de tiendas con zona/vendedor/dirección/estado.
 
-Botón **Exportar para Análisis** (verde) → 5 opciones avanzadas:
+Botón **Exportar para Análisis** (verde) → **visible SOLO para `erbinomariano@gmail.com`** desde v208+ (antes era admin + gerente). 5 opciones avanzadas:
 - **Power BI** (fact + dim tables).
 - **Python / IA / ML** (tabla larga).
 - **Fotos de visitas (ZIP)**.
 - **Excel con fotos embebidas**.
-- **Excel TARGETS-ZONAS (con altas)** ← genera el formato del Excel master con todas las tiendas + altas aprobadas integradas.
+- **TARGETS-ZONAS** ← reescrito en v208+. Antes generaba el master full con todas las tiendas POINTS + altas mezcladas; ahora genera **UNA fila por BP vivo en SAP** (solo `client_applications` con `status='approved'` Y `cardCodeSap` no vacío). Excluye POINTS, distribuidores, prospectos y mocks. Columnas: TIPO / NRO CTE / REGION / PROVINCIA / ASESOR EXTERNO / ASESOR INTERNO / CALLE / NUMERO / LOCALIDAD / CP / NOMBRE COMERCIAL / NOMBRE DE FANTASIA / CUIT / CONDICION FISCAL / TELEFONO / **CARDCODE SAP** (columna nueva).
 - **Backup TOTAL** ← ZIP con todo.
 
 ---
@@ -1780,8 +1938,10 @@ Arriba de la tabla. Permite pre-autorizar emails antes del primer login.
 | **SAP Service Layer** | **https://shimano-sap.seidor.com.ar:50000** | **API REST SAP B1** |
 | SEIDOR Freshdesk | https://seidorb1arg.freshdesk.com | Tickets de soporte |
 | **SharePoint team SAR** | **https://teamshimano.sharepoint.com/teams/SLA_int_00002** | **Lista "ANTICIPO Y RENDICION DE GASTO"** (Admin/Finanzas) |
-| Power Automate | https://make.powerautomate.com | Flow "Cargar rendiciones aprobadas a SharePoint" (cuenta `mariano.erbino@shimano.com.ar`) |
-| Firebase Storage | https://console.firebase.google.com/project/app-vendedores-shimano/storage | Bucket `rendiciones-tickets/` (requiere plan Blaze) |
+| Power Automate | https://make.powerautomate.com | Flow "Cargar rendiciones aprobadas a SharePoint" (cuenta `mariano.erbino@shimano.com.ar`). **Trial Premium 90 días activo desde 2026-06-30** (HTTP connector) |
+| Firebase Storage | https://console.firebase.google.com/project/app-vendedores-shimano/storage | Bucket `<project>.firebasestorage.app/rendiciones-tickets/` (requiere plan Blaze). **Inicializado 2026-06-30** |
+| BigQuery | https://console.cloud.google.com/bigquery?project=app-vendedores-shimano | Dataset `shimano_app` (us-central1). **Creado 2026-06-30** — destino del pipeline `firestore-bigquery-export` (ver `PLAN_POWERBI.md`) |
+| Power BI Service | https://app.powerbi.com | Workspace "Shimano Vendedores" (en armado). Viewers: Mariano (admin), Diego Valsi, Santiago Beron, Pablo + Ioannis (emails pendientes) |
 
 ---
 
@@ -1814,10 +1974,10 @@ Las helpers que pueden ser llamadas antes del bootstrap completo (ej. `getEffect
 ### Banner de versión + chequeo HTML vs SW
 
 Al arrancar la app, en console se imprime:
-- `Shimano App v203 — <timestamp ISO>` (banner con styled console.log).
+- `Shimano App v217 — <timestamp ISO>` (banner con styled console.log).
 - **Chequeo de sync**: fetcheaq `sw.js`, parsea su `CACHE_VERSION` y compara con `APP_VERSION` del HTML.
-  - Si coinciden: `[version] HTML v203 === SW v203 OK` en verde.
-  - Si difieren: `[version] DESYNC: HTML=v203 vs SW=v202 - tocar ↻ en el mapa para refrescar` en rojo.
+  - Si coinciden: `[version] HTML v217 === SW v217 OK` en verde.
+  - Si difieren: `[version] DESYNC: HTML=v217 vs SW=v216 - tocar ↻ en el mapa para refrescar` en rojo.
 
 `APP_VERSION` se exporta en `window.APP_VERSION` para que se pueda consultar desde la consola. **Bumpear las dos constantes (HTML + SW) en cada release.**
 
@@ -2060,6 +2220,30 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 - [X] Modal Zonas: gerente puede reasignar + scope "Por provincia" + toast verde de confirmación (v201/v203).
 - [X] **Mail Rendiciones cron Lun/Mie 9am AR** con Excel (Tablas nombradas TablaGastos/TablaSolicitudes) + hyperlink Firebase Storage para fotos de ticket (v202+).
 - [X] **Integración SharePoint + Power Automate** end-to-end: el flow carga rendiciones aprobadas a la lista del team SAR (v203).
+- [X] Gerente: `canWrite()` + apertura de CAMPAÑAS/SAP + lee todos los pedidos + edita rutas del mes (v205/v208/v214/v215).
+- [X] Card precaución más visible: amber-200 + franja marrón izquierda 5px (v206).
+- [X] Progreso de campañas GLOBAL sobre el scope, no aporte propio (v207).
+- [X] TARGETS-ZONAS solo BPs vivos con CardCode SAP + "Exportar para Análisis" restringido a Mariano (v208).
+- [X] **SEGUIMIENTO** — panel comercial completo (v209–v212).
+- [X] Botón Recalcular contornos de zonas (v213).
+- [X] Tildar pedido bloqueado en SAP — fix cleanup (v216).
+- [X] **Rendiciones v2** — TablaGastos agrupada por dupla + hoja Detalle + fotos pre-subidas + bucket `.firebasestorage.app` (v217).
+- [X] **Firebase Storage** inicializado + **plan Blaze** activo + **BigQuery dataset** creado + **Power Automate Premium trial** (2026-06-30).
+
+### Costos / infraestructura externa
+
+| Servicio | Plan | Costo estimado | Estado |
+|---|---|---|---|
+| **Firebase** (Auth + Firestore + Storage + Extensions) | **Blaze** (pay-as-you-go) | ~5 USD/mes (free tier cubre la mayor parte) | Activo |
+| **BigQuery** | Free tier | ~0 USD/mes (queries < 1 TB/mes, storage < 10 GB) | Dataset `shimano_app` creado |
+| **Power Automate Premium** | Trial 90 días → licencia | ~15 USD/mes/usuario después del trial | Trial activo (Mariano) |
+| **Power BI Pro** | Por usuario | ~10 USD/mes × 5 viewers = 50 USD/mes | Workspace en armado |
+| **GCP** (BigQuery export storage) | Pago por uso | ~5 USD/mes | Activo |
+| Gmail App Password (`bot.shimano.pesca`) | Free | 0 USD | Activo |
+| GitHub (repo + Actions) | Free | 0 USD | Activo |
+| **Total estimado** | | **~89 USD/mes** | |
+
+Budget alert configurado a **25 USD/mes** en GCP (alertas a `mariano.erbino@shimano.com.ar` al 50/90/100%). Confirmado por Diego — cargo a tarjeta corporativa.
 
 ### Mejoras futuras
 
@@ -2080,6 +2264,227 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 
 ---
 
+## 39) Seguimiento (panel VDIs)
+
+**Nuevo bloque grande introducido entre v209 y v212**. Es el panel de gestión comercial diaria, pensado originalmente para **vendedores internos** (Santiago Esteban e Ioannis Palkoudakis) y extendido a admin/gerente para que vean todo el equipo.
+
+### Botón en el header
+
+Botón **"Seguimiento"** teal al lado de "Exportar a Excel". Visible cuando `canViewSeguimiento()` devuelve `true`:
+
+```js
+function canViewSeguimiento(){
+  if (userRole === 'admin' || userRole === 'gerente') return true;
+  if (userRole === 'interno') return true;
+  return false;
+}
+```
+
+Vendedores externos (VDEs) y viewer NO ven el botón. El check se replica del lado JS en cada render (no es solo CSS) y los listeners de `visits` / `pedidos` re-validan el scope antes de pintar para que no se pueda forzar acceso con devtools.
+
+### Mapping interno → externo (`myExternalPartners`)
+
+El conjunto de VDEs que un VDI puede gestionar viene de `loadMyExternalPartners()` — listener sobre `/roles` con `where internalPartnerUid == currentUser.uid`. Es **configurable desde el panel Usuarios**, sin hardcodear nombres en el código:
+
+```js
+function getSeguimientoExternalSet(){
+  if (userRole === 'admin' || userRole === 'gerente') {
+    // Fallback: arma el set desde VENDOR_INCLUDES_OTHERS (constante existente).
+    const all = new Set();
+    Object.values(VENDOR_INCLUDES_OTHERS).forEach(arr => arr.forEach(v => all.add(v)));
+    return all;
+  }
+  if (userRole === 'interno') {
+    return new Set((myExternalPartners || []).map(p => p.vendor).filter(Boolean));
+  }
+  return new Set();
+}
+
+function vendorInSeguimientoScope(vendorKey){
+  return !!vendorKey && getSeguimientoExternalSet().has(vendorKey);
+}
+```
+
+### Modal — barra de filtros + 8 stats cards + 7 tabs
+
+**Filtros** (arriba del modal):
+- **Vendedor** (dropdown de VDEs del scope).
+- **Fechas** (default últimos 90 días).
+- **Cliente** (búsqueda libre).
+- **Estado** (verde / amarillo / rojo).
+- **Solo pendientes / oportunidades** (checkbox).
+- Botón **APLICAR** centrado en su propia fila (v217, antes estaba en el flex de filtros y rompía el layout).
+
+**Stats cards** (8 contadores: visitas, pedidos, facturación, conversión visita→pedido, clientes únicos, etc.) que recalculan según filtros.
+
+**Tabs** (7):
+
+| Tab | Qué muestra | Acciones por fila |
+|---|---|---|
+| **Resumen** | 1 card por VDE con visitas / pedidos / facturación / conversión / clientes únicos | Click abre Timeline del VDE |
+| **Visitas** | Lista filtrable de visitas | Click → Timeline cliente. Botón **Borrar** (admin/gerente) → delete en `/visits` |
+| **Pedidos** | Lista filtrable de pedidos | Botón **Borrar** (admin/gerente) → delete en `/pedidos` (útil para limpiar pedidos TEST) |
+| **Pendientes** | Heurística auto-detección: visitado sin pedido > 7 días (amarillo) o > 14 días (rojo); pedido pending > 5 días (rojo) | Borrar pedido (si origen `pending`) o marcar resuelto en `seguimiento_status` (si origen `visit_no_order`) |
+| **Sin movimiento** | Sin visita > 30 días Y sin pedido > 45 días. **Critical** si facturación > 100k ARS y > 60 días | Timeline cliente |
+| **Oportunidades** | Visitas cuyos `comentarios` contienen keywords (interés en producto, posible cambio de marca, etc.) | Timeline cliente |
+| **Métricas duplas** | Conversión visita→pedido por dupla VDI/VDE | — |
+
+### Timeline cliente
+
+Click en cualquier fila de Visitas/Pedidos/Pendientes/etc. abre un modal **Timeline del cliente** con:
+- Lista cronológica ordenada de **visitas + pedidos + notas internas**.
+- Botones de estado: **pendiente / revisado / resuelto** (escriben a `seguimiento_status`).
+- Form para agregar **nota interna** (escribe a `seguimiento_notes`).
+
+### Colecciones Firestore nuevas
+
+- `seguimiento_notes` — notas internas (texto + autor + clientKey + vendorExt).
+- `seguimiento_status` — estado de items pendientes/oportunidades (pendiente/revisado/resuelto).
+
+Ver schema completo en sección 8.
+
+### Rules nuevas requeridas
+
+Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gerente/interno). Ya están aplicadas en Firebase Console (Mariano las pegó el día del lanzamiento de v209). Si se hace un reset de rules, **hay que volver a aplicarlas** o el modal abre pero no puede escribir notas/estados.
+
+---
+
+## 40) Power BI / BigQuery
+
+**En armado, Día 1 hoy 2026-06-30**. Doc completo en `PLAN_POWERBI.md` (588 líneas, 4 días de plan).
+
+### Objetivo
+
+Tablero Power BI alimentado real-time (5-30s de lag) desde Firestore para que Diego, Pablo y Mariano vean performance comercial sin esperar exports manuales.
+
+### Arquitectura
+
+```
+Firestore (app vive aquí)
+   ↓ Firebase extension "firestore-bigquery-export" (una instancia por colección)
+BigQuery dataset shimano_app (us-central1)
+   ↓ Vistas SQL planas (aplanan el JSON crudo)
+Power BI Desktop → publish → Power BI Service
+   ↓ Refresh DirectQuery o cada 30 min
+Workspace "Shimano Vendedores" (viewers: Mariano, Diego, Santiago Beron, Pablo, Ioannis)
+```
+
+### Colecciones que se sincronizan
+
+6 instancias de la extension `firestore-bigquery-export`:
+
+| Colección Firestore | Tabla raw BigQuery | Vista SQL plana |
+|---|---|---|
+| `pedidos` | `pedidos_raw_changelog` + `pedidos_raw_latest` | `pedidos_view` + `pedido_lines_view` |
+| `visits` | `visits_raw_*` | `visits_view` |
+| `client_applications` | `client_applications_raw_*` | `client_applications_view` |
+| `campaigns` | `campaigns_raw_*` | `campaigns_view` |
+| `targets` | `targets_raw_*` | `targets_view` |
+| `roles` | `roles_raw_*` | `roles_view` |
+
+**Fuera de alcance fase 1**: rendiciones (ya en SharePoint), stock (snapshots), audit log (privacy review pendiente), backups de fotos.
+
+### Estado checklist (Día 1 — 2026-06-30)
+
+- [X] Project ID confirmado (`app-vendedores-shimano`).
+- [X] Login GCP Console con `erbinomariano@gmail.com`.
+- [X] BigQuery API habilitada.
+- [X] Dataset `shimano_app` creado en us-central1.
+- [X] Plan **Blaze** activo (paso bloqueante para extensions + Storage).
+- [ ] Instalar 6 instancias `firestore-bigquery-export`.
+- [ ] Backfill histórico de cada colección.
+- [ ] Crear 6 vistas SQL planas (queries en Apéndice A de `PLAN_POWERBI.md`).
+- [ ] Smoke test SQL (contar pedidos / facturación / top SKUs vs Dashboard de la app).
+- [ ] Configurar budget alert en GCP a 25 USD/mes.
+
+### Próximos días
+
+- **Día 2 (mañana 01/07)**: Service Account `powerbi-reader` + Power BI Desktop + cargar vistas + modelar relaciones + medidas DAX + páginas Resumen / Pedidos.
+- **Día 3 (02/07)**: páginas Visitas / Campañas + publish a Power BI Service + asignar viewers.
+- **Día 4 (03/07)**: demo a Diego + Pablo + ajustes finales + capacitación de uso.
+
+### Viewers del workspace
+
+- **Mariano Erbino** (admin) — `mariano.erbino@shimano.com.ar`
+- **Diego Valsi** — `diego.valsi@shimano.uy`
+- **Santiago Beron** — `santiago.beron@shimano.uy`
+- **Pablo Maraschin** — email pendiente confirmación
+- **Ioannis Palkoudakis** — email pendiente confirmación
+
+---
+
+## 41) Changelog v204 → v217
+
+Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v204
+- Internos preview del panel Seguimiento (esqueleto de tabs, sin acciones de borrado todavía).
+
+### v205 — `canWrite()` incluye `gerente`
+- `function canWrite(){ return userRole === 'admin' || userRole === 'vendedor' || userRole === 'gerente'; }`
+- **Destraba en la UI**: cambiar estado de cliente, renombrar, categorización, marcar tienda contactada, tildar contactado. Hasta v204 Pablo abría la app y los toggles le quedaban inertes.
+
+### v206 — Card precaución más visible
+- Background pasa de `#fffbeb` (casi blanco) a `#fde68a` (amber-200).
+- Franja izquierda 5px en marrón (`#b45309`).
+- Aplica a tiendas POINTS, SAP huérfanas y POINTS legacy.
+
+### v207 — Progreso de campañas GLOBAL
+- Antes: cada vendedor veía solo SU aporte sobre el target → confundía.
+- Ahora: suma TODOS los pedidos del scope de la campaña. Source cambia de `confirmed{}` a `globalPedidos`.
+- Helper interno `passesCampScope(p)` filtra por `scope: 'all' | 'vendor' | 'province'`.
+- Admin/gerente ven igual número que vendedor (todos ven el progreso del equipo).
+
+### v208 — Gerente abre CAMPAÑAS/SAP + TARGETS-ZONAS base SAP + Análisis solo Mariano
+- `openCampaignsPanel` y `openSapPanel` aceptan `gerente`.
+- Botón renombrado **"Excel TARGETS-ZONAS (con altas)"** → **"TARGETS-ZONAS"**.
+- `exportTargetsZonas` reescrita: solo `client_applications` con `status='approved'` Y `cardCodeSap`. Excluye POINTS, distribuidores, prospectos, mocks sin SAP.
+- Columna nueva **CARDCODE SAP**.
+- Botón "Exportar para Análisis" pasa de admin+gerente a **solo `erbinomariano@gmail.com`**.
+
+### v209 — SEGUIMIENTO (esqueleto operativo)
+- Botón teal "Seguimiento" en header.
+- Helpers `canViewSeguimiento()`, `getSeguimientoExternalSet()`, `vendorInSeguimientoScope()`.
+- Mapping configurable interno→externo via `myExternalPartners` (cargado desde `roles` con `where internalPartnerUid == uid`).
+- Fallback admin/gerente: `VENDOR_INCLUDES_OTHERS`.
+- Modal con barra de filtros + 8 stats cards + 7 tabs.
+- Nuevas colecciones Firestore: `seguimiento_notes`, `seguimiento_status`.
+- Rules nuevas con helper `isSeguimientoUser()`.
+
+### v210-v212 — SEGUIMIENTO acciones de borrar / resolver
+- Tab Visitas: botón **Borrar** por fila (admin/gerente) → delete en `/visits`.
+- Tab Pedidos: botón **Borrar** por fila (admin/gerente) → delete en `/pedidos`. Útil para limpiar pedidos TEST.
+- Tab Pendientes: acciones por tipo de origen. Borrar pedido si `pending_order`, marcar resuelto en `seguimiento_status` si `visit_no_order`.
+- Timeline cliente: notas internas + cambio de status (pendiente/revisado/resuelto).
+
+### v213 — Botón "Recalcular contornos de zonas"
+- Tercer botón en topleft del mapa (debajo de ↻ Forzar actualización y 📍 Reubicar pines).
+- Icono ⏣ polygon outline. Solo admin/gerente.
+- Limpia `_vendorOutlinesCache` + `localStorage[VENDOR_OUTLINES_CACHE_KEY]` + llama a `restyleZoneLayers()` + `drawVendorOutlines()`.
+- Útil después de reasignar zonas con el modal ZONAS.
+
+### v214 — Botón ZONAS sin emoji + cargar visita para gerente/interno
+- Eliminado el `.btn-zonas::before` (estaba metiendo emoji rolled-up map `🗺️`).
+- `allowEdit` en `renderRutaDetalle` ampliado: **gerente** (cualquier ruta) e **interno** (zonas de sus VDEs pareja). Pablo ahora ve los botones "Cargar visita" y "Marcar como contactado" en cada tienda de la ruta del mes actual.
+
+### v215 — Gerente lee TODOS los pedidos
+- `unsubPedidosOwn`: la query branch para admin/gerente/viewer es `fbDb.collection('pedidos')` sin filter. Antes gerente quedaba con `where ownerUid == his_uid` → `confirmed{}` vacío → tab PEDIDOS > CONFIRMADOS sin contenido y filtros sin opciones.
+
+### v216 — Fix tildar pedido bloqueado en SAP
+- `renderSapPedidos`: la cleanup de `sapPendSelection` solo conservaba ids de `listos`. Al tildar un pedido BLOQUEADO el id se borraba en el siguiente render → checkbox volvía a quedar sin tildar.
+- Ahora cleanup acepta `listos + bloqueados`.
+
+### v217 — Rendiciones v2 (Híbrida Opción C) + Bucket Storage nuevo + Filtros Seguimiento
+- `scripts/send_rendiciones_email.py`: import `from collections import defaultdict`.
+- `build_excel` produce 3 hojas: **Gastos** agrupado por dupla `(ownerEmail, tipoGasto)` (10 columnas, lee Power Automate), **Detalle** sin agrupar (15 columnas, auditoría humana — no se mapea a SharePoint), **Solicitudes** sin agrupar.
+- Pre-sube TODAS las fotos a Firebase Storage primero (cache `foto_url_by_id`), después agrupa. Las URLs van concatenadas con `;` en `Fotos URLs`.
+- Bucket name actualizado a `<project>.firebasestorage.app` (formato nuevo Firebase post-2024). Env var `STORAGE_BUCKET` para forzar legacy si necesario.
+- Power Automate flow se rearma: lee 10 columnas, idempotencia con `Get items` + Condition sobre `Title` único. Bloque attachments: `Compose split → For each foto URL → HTTP GET → Add attachment`. Requiere **Premium HTTP connector** (trial 90 días activo).
+- Lista SharePoint SAR: columnas nuevas `Tipo comprobante` (Choice), `Cant rendiciones` (Number), `Desde`, `Hasta`, `Rendiciones IDs`.
+- Seguimiento: botón APLICAR centrado en su propia fila, separado del flex de filtros.
+
+---
+
 ## Convenciones del documento
 
 **Cuando se actualice esta app**, mantener este README sincronizado con:
@@ -2089,10 +2494,21 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 4. Nuevos roles → actualizar sección 7.
 5. Nuevas colecciones → actualizar secciones 8 y 9.
 6. Cambios en el lanzamiento (bloqueantes resueltos) → actualizar sección 2.
-7. SW version → actualizar el header del documento.
-8. Cambios en el flow SharePoint / Power Automate → actualizar sección 16-bis.
+7. SW version → actualizar el header del documento + sección 41 (Changelog).
+8. Cambios en el flow SharePoint / Power Automate → actualizar sección 16-bis + `POWER_AUTOMATE_RENDICIONES.md`.
 9. Cambios en `scripts/send_rendiciones_email.py` (estructura del Excel, columnas, tablas) → actualizar el subapartado del cron en sección 16 (Mail Rendiciones).
+10. Cambios en SEGUIMIENTO (tabs, heurísticas, scope, status flow) → sección 39.
+11. Avance del plan Power BI → sección 40 (resumen) + `PLAN_POWERBI.md` (detalle).
 
 ---
 
-**Última actualización**: 2026-06-29 — SW v203 / commit `f621d5a` / agrega Sidebar Localidades amplió a altas SAP + modal detalle por localidad (v198), burbujas agregadas del mapa OFF por flag SHOW_AGG_BUBBLES (v199), Master Clientes botón Eliminar 🗑 por fila para SAP altas y POINTS legacy (v200), Modal Zonas habilitado a gerente + scope "Por provincia" en cascada + toast verde de confirmación con detalle de cambios (v201/v203), mail Rendiciones cron Lun/Mie 9am AR con Excel `TablaGastos`/`TablaSolicitudes` + hyperlink Firebase Storage para foto del ticket + inputs `force` y `skip_mark` (v202), integración SharePoint + Power Automate end-to-end que carga rendiciones aprobadas a la lista "ANTICIPO Y RENDICION DE GASTO" del team SAR (v203). Requiere plan **Firebase Blaze** activado para Storage. — Histórico previo (v197): Rutas personalizadas, Alta rápida, Vista preliminar con subtotales de stock, login Microsoft + Email/password + Magic link, reset password Firebase, 2FA opcional, outlines híbrido provincia+dept, `PROVINCE_VENDOR_OVERRIDE` (SAN LUIS → Martin), dropdown provincia editable en Master, botones de refresh + reubicar pines, banner versión + chequeo HTML vs SW, export Visitas/Rendiciones con fotos embebidas (ExcelJS local), delete de notificaciones por target, delete de altas propias sin SAP, fix gerente ve todo el mapa, fix rules rendiciones via users_directory.
+**Última actualización**: 2026-06-30 — SW v217. Las novedades v204→v217 (changelog detallado en sección 41) cubren:
+- **SEGUIMIENTO** — panel comercial completo para admin/gerente/interno, 7 tabs + Timeline cliente + notas internas + 2 colecciones Firestore nuevas (v209-v212).
+- **Gerente desbloqueado** — `canWrite()`, CAMPAÑAS, SAP, lee todos los pedidos, edita rutas, recalcular contornos (v205/v208/v213/v214/v215).
+- **Card precaución más visible** (v206) y **progreso de campañas global** (v207).
+- **TARGETS-ZONAS reescrito** — solo BPs vivos con CardCode SAP, columna CARDCODE SAP. "Exportar para Análisis" solo Mariano (v208).
+- **Rendiciones v2 (Híbrida Opción C)** — TablaGastos agrupada por dupla `(vendedor, tipoGasto)`, hoja Detalle nueva sin agrupar, fotos pre-subidas a Firebase Storage y concatenadas con `;`. Bucket `<project>.firebasestorage.app` (post-2024). Power Automate flow rearmado con HTTP GET de fotos (Premium) + idempotencia por Title (v217).
+- **Fix tildar pedido bloqueado en SAP** (v216) y **botón ZONAS sin emoji** (v214).
+- **Infra externa nueva** — **Firebase Blaze** activo, **Firebase Storage** inicializado, **BigQuery dataset** `shimano_app` creado, **Power Automate Premium** trial 90 días. Plan Power BI 4 días arrancando hoy (`PLAN_POWERBI.md`).
+
+Histórico previo (v197-v203): Sidebar Localidades amplió a altas SAP + modal localidad (v198), burbujas agregadas OFF (v199), Master Clientes botón Eliminar 🗑 (v200), Modal Zonas gerente + scope provincia + toast (v201/v203), mail Rendiciones cron Lun/Mie (v202), SharePoint + Power Automate schema v1 (v203). Histórico previo (v197): Rutas personalizadas, Alta rápida, Vista preliminar con subtotales de stock, login Microsoft + Email/password + Magic link, reset password Firebase, 2FA opcional, outlines híbrido provincia+dept, `PROVINCE_VENDOR_OVERRIDE` (SAN LUIS → Martin), dropdown provincia editable en Master, botones de refresh + reubicar pines, banner versión + chequeo HTML vs SW, export Visitas/Rendiciones con fotos embebidas (ExcelJS local), delete de notificaciones por target, delete de altas propias sin SAP, fix gerente ve todo el mapa, fix rules rendiciones via users_directory.
