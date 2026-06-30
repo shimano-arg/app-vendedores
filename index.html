@@ -1588,6 +1588,13 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <p>Listado completo de tiendas: nombre, zona, vendedor, asesor interno, direcci&oacute;n, provincia, localidad y estado.</p>
           </div>
         </div>
+        <div class="exp-opt" data-exp-kind="PRECIOS_STOCK" onclick="closeExportDialog();exportPreciosStock()">
+          <div class="exp-icon" style="background:#0d9488">&#128221;</div>
+          <div class="exp-body">
+            <h3>Precios + Stock por SKU</h3>
+            <p>Lista completa de SKUs con precio actual en ARS y estado de stock (W07). Util para revisar disponibilidad y reposicion. Tomado del snapshot vigente de la app.</p>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -2984,7 +2991,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v222';
+const APP_VERSION = 'v223';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -6399,6 +6406,104 @@ window.exportMasterClientes = function(){
   const ts = new Date().toISOString().slice(0,10);
   XLSX.writeFile(wb, 'Masterfile_Clientes_SAP_' + ts + '.xlsx');
   showSyncTag(rows.length + ' clientes SAP exportados');
+};
+
+// =====================================================================
+// Export: Precios + Stock por SKU
+// =====================================================================
+// Genera un Excel con TODO el catalogo cruzando los 3 mapas vigentes
+// en memoria: PRODUCTS (master de SKUs), PRICE_LIST_MAP (precio ARS de
+// Firestore) y STOCK_MAP (booleano por SKU del stock.json del repo).
+// Hojas:
+//  - "Precios y Stock": una fila por SKU con todas las columnas juntas
+//    (lo mas comun para revisar disponibilidad + precio).
+//  - "Precios": solo SKU + descripcion + precio (sin stock).
+//  - "Stock": solo SKU + descripcion + estado de stock.
+//  - "Info": fecha de los snapshots y fuentes.
+window.exportPreciosStock = function(){
+  if (typeof XLSX === 'undefined') {
+    alert('La libreria de Excel no se cargo. Verifique su conexion a internet y reintente.');
+    return;
+  }
+  if (!Array.isArray(PRODUCTS) || !PRODUCTS.length) {
+    alert('No hay catalogo de productos cargado todavia.');
+    return;
+  }
+  showSyncTag('Generando Excel precios + stock...');
+  // Helper de formato de stock para que sea legible en Excel.
+  function fmtStock(sku){
+    const v = (typeof hasStock === 'function') ? hasStock(sku) : null;
+    if (v === true) return 'Disponible';
+    if (v === false) return 'Sin stock';
+    return 'Sin dato';
+  }
+  function fmtPrecio(sku){
+    const p = (typeof PRICE_LIST_MAP === 'object' && PRICE_LIST_MAP) ? PRICE_LIST_MAP[sku] : null;
+    if (p == null) return '';
+    return Number(p) || 0;
+  }
+  // Hoja 1: combo completo (es la mas pedida).
+  const rows = PRODUCTS.map(p => ({
+    'SKU':           p.code || '',
+    'Descripcion':   p.desc || '',
+    'Familia':       p.fam || '',
+    'Subfamilia':    p.sub || '',
+    'Categoria':     p.cat || '',
+    'Precio ARS':    fmtPrecio(p.code),
+    'Stock W07':     fmtStock(p.code),
+  })).sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:14}, {wch:60}, {wch:18}, {wch:22}, {wch:18}, {wch:14}, {wch:14}];
+  // Aplicar formato moneda a la columna Precio ARS (columna F = 6).
+  for (let i = 2; i <= rows.length + 1; i++) {
+    const cell = ws['F' + i];
+    if (cell && typeof cell.v === 'number') cell.z = '"$"#,##0';
+  }
+  XLSX.utils.book_append_sheet(wb, ws, 'Precios y Stock');
+
+  // Hoja 2: solo Precios
+  const preciosRows = PRODUCTS
+    .map(p => ({SKU: p.code || '', Descripcion: p.desc || '', 'Precio ARS': fmtPrecio(p.code)}))
+    .filter(r => r['Precio ARS'] !== '')
+    .sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
+  const wsP = XLSX.utils.json_to_sheet(preciosRows);
+  wsP['!cols'] = [{wch:14}, {wch:60}, {wch:14}];
+  for (let i = 2; i <= preciosRows.length + 1; i++) {
+    const cell = wsP['C' + i];
+    if (cell && typeof cell.v === 'number') cell.z = '"$"#,##0';
+  }
+  XLSX.utils.book_append_sheet(wb, wsP, 'Precios');
+
+  // Hoja 3: solo Stock
+  const stockRows = PRODUCTS
+    .map(p => ({SKU: p.code || '', Descripcion: p.desc || '', 'Stock W07': fmtStock(p.code)}))
+    .sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
+  const wsS = XLSX.utils.json_to_sheet(stockRows);
+  wsS['!cols'] = [{wch:14}, {wch:60}, {wch:14}];
+  XLSX.utils.book_append_sheet(wb, wsS, 'Stock');
+
+  // Hoja 4: metadata - cuando fue cada snapshot para que el lector sepa
+  // si la lista esta fresca.
+  const infoRows = [
+    {Item: 'Total SKUs en catalogo', Valor: PRODUCTS.length},
+    {Item: 'Total SKUs con precio cargado', Valor: preciosRows.length},
+    {Item: 'Total SKUs con stock disponible', Valor: PRODUCTS.filter(p => hasStock(p.code) === true).length},
+    {Item: 'Total SKUs sin stock', Valor: PRODUCTS.filter(p => hasStock(p.code) === false).length},
+    {Item: 'Total SKUs sin dato de stock', Valor: PRODUCTS.filter(p => hasStock(p.code) == null).length},
+    {Item: 'Lista de precios moneda', Valor: (typeof PRICE_LIST_CURRENCY !== 'undefined') ? PRICE_LIST_CURRENCY : 'ARS'},
+    {Item: 'Lista de precios actualizada', Valor: (typeof PRICE_LIST_UPDATED_AT !== 'undefined' && PRICE_LIST_UPDATED_AT) ? new Date(PRICE_LIST_UPDATED_AT).toLocaleString('es-AR') : '(no cargada)'},
+    {Item: 'Stock snapshot actualizado', Valor: STOCK_UPDATED_AT ? new Date(STOCK_UPDATED_AT).toLocaleString('es-AR') : '(no cargado)'},
+    {Item: 'Exportado', Valor: new Date().toLocaleString('es-AR')},
+    {Item: 'Exportado por', Valor: (currentUser && (currentUser.email || currentUser.displayName)) || '(desconocido)'},
+  ];
+  const wsI = XLSX.utils.json_to_sheet(infoRows);
+  wsI['!cols'] = [{wch:36}, {wch:36}];
+  XLSX.utils.book_append_sheet(wb, wsI, 'Info');
+
+  const ts = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, 'Precios_y_Stock_' + ts + '.xlsx');
+  showSyncTag(rows.length + ' SKUs exportados (precios + stock)');
 };
 
 // ======================================================
