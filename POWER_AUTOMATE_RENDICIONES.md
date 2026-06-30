@@ -1,0 +1,173 @@
+# Power Automate — Flow rendiciones a SharePoint
+
+Documento operativo del flow que mueve rendiciones aprobadas desde el email
+automático (Lun/Mié 9 AM AR) a la SharePoint List **"ANTICIPO Y RENDICION
+DE GASTO"** del team SAR.
+
+Última actualización: 2026-06-30 (cambio Fernando — agrupación por dupla)
+
+---
+
+## Schema nuevo de TablaGastos (v2)
+
+A partir del commit donde se actualizó `scripts/send_rendiciones_email.py`,
+TablaGastos cambia de **una fila por gasto** a **una fila por dupla
+(ownerEmail, tipoGasto)**.
+
+| Columna Excel | Tipo | Ejemplo | Cómo usar |
+|---|---|---|---|
+| `Vendedor (email)` | texto | `gonzalo.delarosa@shimano.uy` | columna SharePoint "Vendedor" |
+| `Tipo gasto` | texto | `Factura A` / `Gastos con comprobante` / `Gastos sin comprobante` | columna SharePoint "Tipo comprobante" |
+| `Cant Rendiciones` | número | `3` | columna SharePoint "Cant rendiciones" |
+| `Importe Total` | número | `45000.00` | columna SharePoint "Importe" (el sumado) |
+| `Importe USD Total` | número | `42.50` ó vacío | columna SharePoint "Importe USD" |
+| `Moneda` | texto | `ARS` ó `MIXTO` | columna SharePoint "Moneda" |
+| `Periodo Desde` | texto fecha | `2026-06-22 14:35` | columna SharePoint "Desde" |
+| `Periodo Hasta` | texto fecha | `2026-06-29 10:12` | columna SharePoint "Hasta" |
+| `Rendiciones IDs` | texto largo | `id1;id2;id3` | columna SharePoint "Rendiciones IDs" (texto, NO multi) |
+| `Fotos URLs` | texto largo | `url1;url2;url3` | NO va como columna — son los adjuntos |
+
+---
+
+## Cambios al flow en Power Automate
+
+El flow existente probablemente tiene esta estructura (de tu config en sesión
+previa):
+
+```
+1. Trigger: When a new email arrives (V3) — Office 365 Outlook
+2. Condition: subject contains "Rendiciones aprobadas"
+3. Save attachment to OneDrive (el Excel)
+4. List rows present in a table — TablaGastos
+5. Apply to each: por cada row
+   5a. Create item — SharePoint List "ANTICIPO Y RENDICION DE GASTO"
+```
+
+### Cambios requeridos para v2
+
+**5a. Create item — actualizar mapeo de columnas:**
+
+| Columna SharePoint | Antes (v1) | Ahora (v2) |
+|---|---|---|
+| Vendedor | `Vendedor (email)` | `Vendedor (email)` (igual) |
+| Tipo comprobante | `Tipo gasto` | `Tipo gasto` (igual) |
+| Importe | `Importe` (de un gasto) | `Importe Total` (sumado) |
+| Cant rendiciones | _no existía_ | `Cant Rendiciones` (NUEVO) |
+| Moneda | `Moneda` | `Moneda` (igual, puede ser "MIXTO") |
+| Desde | _no existía_ | `Periodo Desde` (NUEVO) |
+| Hasta | _no existía_ | `Periodo Hasta` (NUEVO) |
+| Rendiciones IDs | _no existía_ | `Rendiciones IDs` (NUEVO, multilínea) |
+
+Si en SharePoint las 4 columnas nuevas no existen, hay que crearlas primero
+en la List (Add column → Single line of text o Number según corresponda).
+
+**Después del Create item — agregar manejo de adjuntos:**
+
+Nuevos pasos dentro del Apply to each:
+
+```
+5b. Compose — "Split fotos"
+    Expression: split(item()?['Fotos URLs'], ';')
+    Output: array de URLs (puede ser vacío)
+
+5c. Apply to each — sobre output de Compose 5b
+    5c.1. HTTP — GET
+          URI: item() (cada URL del array)
+          Method: GET
+          (No auth — son URLs públicas de Firebase Storage)
+    5c.2. SharePoint — Add attachment
+          Site: <tu site SAR>
+          List: ANTICIPO Y RENDICION DE GASTO
+          Id: outputs('Create_item').body/ID  (del paso 5a)
+          File name: concat('foto_', iterationIndexes('Apply_to_each_2'), '.jpg')
+                     (o usar el último segmento de la URL como nombre)
+          File content: body('HTTP') (el binario que devolvió el GET)
+
+5d. (Opcional) — SharePoint Add attachment del Excel completo
+    Para que cada item SharePoint tenga el Excel original al lado de las
+    fotos. Usar la variable del Save attachment del paso 3.
+```
+
+---
+
+## Limites a tener en cuenta
+
+| Limite | Valor | Mitigación |
+|---|---|---|
+| Tamaño max attachment SharePoint | 250 MB por archivo | OK — fotos típicas pesan <2 MB |
+| Cantidad max attachments por item | ~250 | Si una persona tuviera 250+ facturas en un período, partir el flow |
+| Tiempo max ejecución flow | 30 min (free) / 1 año (premium) | Para 50 duplas con 3 fotos c/u: ~5 min, OK |
+| Rate limit HTTP en Power Automate | 600 calls/min | OK — los GET son secuenciales |
+
+---
+
+## Trade-offs y decisiones
+
+### ¿Por qué agrupamos en Python y no en Power Automate?
+
+Lo discutimos cuando armamos esta v2. Se eligió la opción híbrida porque:
+
+1. **Lógica de agrupación en código** = testeable, versionado, refactorizable.
+2. **Manejo de attachments en Power Automate** = lo que hace nativo, sin
+   tocar Microsoft Graph API desde Python.
+3. **Hoja "Detalle"** queda en el Excel para auditoría (cero costo extra).
+4. Si Fernando mañana cambia el criterio de agrupación (ej. agregar mes
+   como tercera dimensión), se toca solo Python y el flow no cambia.
+
+### ¿Qué pasa si una rendición no tiene foto?
+
+- Se incluye en el agrupado igual (la suma del importe es correcta).
+- No suma URL al campo `Fotos URLs`.
+- En la hoja "Detalle" sale como `(sin foto)` para que se vea explícito.
+- En SharePoint, el item se crea con menos adjuntos. No falla nada.
+
+### ¿Qué pasa si la foto falla al subir a Storage?
+
+- Se incluye el importe en la suma (no se descarta el gasto).
+- No suma URL.
+- En la hoja "Detalle" sale como `(error al subir)`.
+- Mariano puede inspeccionar el log de GitHub Actions para ver el error
+  específico (`[storage] no pude subir foto <id>: <error>`).
+
+### ¿Por qué no se borró la columna `Importe USD` aunque casi siempre va a ser 0?
+
+Para que cuando empiecen a aparecer gastos en USD (compra Shimano Japón,
+herramientas importadas, etc.) no haya que tocar nada — ya está la columna
+preparada.
+
+---
+
+## Plan de migración (cuándo aplicar los cambios al flow)
+
+1. Push del cambio Python al repo (commit con la modificación de
+   `send_rendiciones_email.py`).
+2. **Antes del próximo cron (próximo Lun o Mié 9 AM AR)**:
+   - Crear las 4 columnas nuevas en la SharePoint List.
+   - Editar el flow en Power Automate: actualizar mapping Create item +
+     agregar bloque de attachments.
+   - Test corriendo el workflow manualmente con `FORCE_SEND=true` desde
+     GitHub Actions (sin marcar como notificadas).
+3. Verificar en SharePoint:
+   - Un item por dupla (ej. Gonzalo Factura A: 1 item con suma).
+   - Cada item con sus fotos adjuntas.
+   - Excel original también adjunto al primer item (opcional).
+4. Si OK: dejar correr el próximo cron automático.
+5. Si no OK: revertir el flow al mapping viejo (no toca el Python — el Excel
+   tiene la hoja "Detalle" con el formato ungroupeado por si Fernando
+   quiere usar ese mientras se ajusta el flow).
+
+---
+
+## FAQ futura
+
+- **"Quiero ver el detalle de una dupla en SharePoint"**: cada item tiene
+  el campo `Rendiciones IDs` con los IDs de Firestore separados por `;`.
+  Esos IDs son las claves de la collection `rendiciones` y se pueden ver
+  en la app desde Admin → Rendiciones.
+
+- **"Falta una rendición en SharePoint"**: chequear en el Excel la hoja
+  "Detalle" si el gasto aparece ahí. Si no aparece, no estaba `approved` o
+  ya había sido notificada antes (ver `notifiedAt` en Firestore).
+
+- **"Quiero recibir las rendiciones de un solo día"**: en GitHub Actions →
+  Run workflow → poner `FORCE_SEND=true` y `SKIP_MARK=true` (test).

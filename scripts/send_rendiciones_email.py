@@ -16,10 +16,24 @@ Logica:
   1. Conectarse a Firestore con el service account.
   2. Query: collection 'rendiciones' where status='approved'
      and (notifiedAt does not exist OR notifiedAt is null).
-  3. Generar Excel con 2 hojas: Gastos + Solicitudes.
-  4. Si hay >= 1 rendicion para notificar, mandar mail con el xlsx
+  3. Subir TODAS las fotos a Firebase Storage y cachear URLs por rendicion id.
+  4. Generar Excel con 3 hojas:
+       - "Gastos": agrupado por (ownerEmail, tipoGasto). Una fila por dupla
+         con importeTotal + cantRendiciones + fotosUrls (separadas por ';') +
+         rendicionesIds. Tabla "TablaGastos" que lee Power Automate.
+       - "Detalle": una fila por gasto individual, formato viejo (audit only).
+       - "Solicitudes": sin agrupar, una fila por anticipo. Tabla
+         "TablaSolicitudes".
+  5. Si hay >= 1 rendicion para notificar, mandar mail con el xlsx
      adjunto. Si no hay nada, salir sin mandar mail (evita spam).
-  5. Marcar las notificadas en batch.
+  6. Marcar las notificadas en batch.
+
+Cambio v2 (2026-06-30, Fernando):
+  Antes Power Automate creaba 1 item SharePoint POR rendicion. Si Gonzalo
+  tenia 3 facturas A salian 3 items separados, complicando la rendicion.
+  Ahora el script agrupa: 1 fila = 1 item SharePoint con la suma y todas
+  las fotos como adjuntos. Power Automate hace split de fotosUrls y attach
+  uno por uno.
 """
 
 from __future__ import annotations
@@ -31,6 +45,7 @@ import os
 import re
 import smtplib
 import sys
+from collections import defaultdict
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
@@ -144,29 +159,111 @@ def fmt_ts(ts):
 
 
 def build_excel(rendiciones):
-    """Arma el Workbook con 2 hojas: Gastos + Solicitudes."""
+    """Arma el Workbook con 3 hojas: Gastos (agrupado), Detalle, Solicitudes.
+
+    Layout v2 (a pedido de Fernando, 2026-06-30):
+      Hoja "Gastos": una fila por (ownerEmail, tipoGasto). Suma importes y
+        concatena fotosUrls + rendicionesIds. Power Automate lee TablaGastos
+        y crea UN item SharePoint por fila + adjunta todas las fotos.
+      Hoja "Detalle": una fila por gasto individual (vista ungroupeada).
+        Solo para auditoria del que abre el Excel - NO se mapea a SharePoint.
+      Hoja "Solicitudes": una fila por solicitud (sin agrupar - cada anticipo
+        es independiente).
+    """
     wb = Workbook()
     gastos = [r for r in rendiciones if r.get("tipo") == "gasto"]
     sols = [r for r in rendiciones if r.get("tipo") == "solicitud"]
-    # Hoja 1: Gastos (era hoja 2 antes - sacamos "Resumen" a pedido del user).
+
+    # PASO 1: subir todas las fotos a Storage primero. Necesitamos las URLs
+    # antes de agrupar para poder concatenarlas en cada grupo. Cacheamos por
+    # id de rendicion para evitar duplicar uploads.
+    foto_url_by_id = {}
+    for r in gastos:
+        foto_src = r.get("fotoTicket") or r.get("adjunto") or ""
+        if not foto_src:
+            continue
+        rid = r.get("_id", "rend")
+        url = upload_foto_to_storage(rid, foto_src)
+        if url:
+            foto_url_by_id[rid] = url
+
+    # PASO 2: agrupar por (ownerEmail, tipoGasto). Estos son los 3 valores
+    # tipicos: "Factura A", "Gastos con comprobante", "Gastos sin comprobante".
+    # Si una persona tiene 3 rendiciones de Factura A -> 1 fila con suma.
+    groups = defaultdict(list)
+    for r in gastos:
+        email = (r.get("ownerEmail") or r.get("createdByEmail") or "").strip()
+        tipo = (r.get("tipoGasto") or "").strip() or "(sin tipo)"
+        groups[(email, tipo)].append(r)
+
+    # === HOJA 1: GASTOS AGRUPADO (la que lee Power Automate) ===
     ws_g = wb.active
     ws_g.title = "Gastos"
     hdr_g = [
-        "ID", "Fecha carga", "Vendedor (email)", "N° Ticket", "Descripcion",
-        "Modo pago", "Tipo gasto", "Division gasto", "Moneda", "Importe",
-        "Importe USD", "Observaciones", "Aprobado por", "Fecha aprobacion",
-        "Ticket",
+        "Vendedor (email)", "Tipo gasto", "Cant Rendiciones",
+        "Importe Total", "Importe USD Total", "Moneda",
+        "Periodo Desde", "Periodo Hasta",
+        "Rendiciones IDs", "Fotos URLs",
     ]
     ws_g.append(hdr_g)
     for cell in ws_g[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="0F172A")
         cell.alignment = Alignment(horizontal="center")
-    # Indice 1-based de la columna "Ticket" (hyperlink).
-    foto_col_idx = len(hdr_g)  # 15 con el header actual
+
+    for (email, tipo), items in sorted(groups.items(), key=lambda kv: (kv[0][0].lower(), kv[0][1].lower())):
+        cant = len(items)
+        importe_total = sum(float(r.get("importe") or 0) for r in items)
+        importe_usd_total = sum(float(r.get("importeUsd") or 0) for r in items if r.get("importeUsd"))
+        monedas = {(r.get("moneda") or "").strip() for r in items if r.get("moneda")}
+        moneda_lbl = next(iter(monedas)) if len(monedas) == 1 else ("MIXTO" if monedas else "")
+        fechas = sorted(filter(None, (fmt_ts(r.get("createdAt")) for r in items)))
+        desde = fechas[0] if fechas else ""
+        hasta = fechas[-1] if fechas else ""
+        ids = ";".join(r.get("_id", "") for r in items)
+        # Concatenar URLs solo de los gastos cuya foto SI se subio bien.
+        # Si una foto fallo upload, se omite (no rompe la fila).
+        urls = ";".join(foto_url_by_id[r["_id"]] for r in items if r.get("_id") in foto_url_by_id)
+        ws_g.append([
+            email, tipo, cant,
+            round(importe_total, 2),
+            round(importe_usd_total, 2) if importe_usd_total else "",
+            moneda_lbl,
+            desde, hasta,
+            ids, urls,
+        ])
+    # Anchos: Fotos URLs ancha porque concatenamos hasta varias.
+    widths_g = [28, 26, 14, 16, 16, 10, 18, 18, 50, 70]
+    for i, w in enumerate(widths_g):
+        ws_g.column_dimensions[get_column_letter(i + 1)].width = w
+    # Power Automate lee TablaGastos. El displayName se mantiene para no
+    # romper el flow existente - solo cambian las columnas dentro.
+    if ws_g.max_row >= 2:
+        last_col_letter = get_column_letter(len(hdr_g))
+        table_ref = f"A1:{last_col_letter}{ws_g.max_row}"
+        tab_g = Table(displayName="TablaGastos", ref=table_ref)
+        tab_g.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
+        ws_g.add_table(tab_g)
+
+    # === HOJA 2: DETALLE (auditoria, una fila por gasto) ===
+    # No se mapea a SharePoint - es solo para que Fernando o vos puedan abrir
+    # el Excel y ver linea por linea si necesitan investigar un monto.
+    ws_d = wb.create_sheet("Detalle")
+    hdr_d = [
+        "ID", "Fecha carga", "Vendedor (email)", "N° Ticket", "Descripcion",
+        "Modo pago", "Tipo gasto", "Division gasto", "Moneda", "Importe",
+        "Importe USD", "Observaciones", "Aprobado por", "Fecha aprobacion",
+        "Ticket",
+    ]
+    ws_d.append(hdr_d)
+    for cell in ws_d[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="0F172A")
+        cell.alignment = Alignment(horizontal="center")
+    foto_col_idx_d = len(hdr_d)
     link_font = Font(color="0563C1", underline="single", bold=True)
     for r in gastos:
-        ws_g.append([
+        ws_d.append([
             r.get("_id", ""),
             fmt_ts(r.get("createdAt")),
             r.get("ownerEmail") or r.get("createdByEmail") or "",
@@ -181,39 +278,25 @@ def build_excel(rendiciones):
             r.get("observaciones") or "",
             r.get("approvedByEmail") or "",
             fmt_ts(r.get("approvedAt")),
-            "",  # placeholder - lo seteamos abajo con hyperlink
+            "",  # placeholder
         ])
-        # Subir la foto a Firebase Storage y meter URL como hyperlink. Si
-        # storage no esta disponible o la foto esta corrupta, el campo
-        # queda como "(sin foto)".
-        foto_src = r.get("fotoTicket") or r.get("adjunto") or ""
-        cell = ws_g.cell(row=ws_g.max_row, column=foto_col_idx)
-        if foto_src:
-            url = upload_foto_to_storage(r.get("_id", "rend"), foto_src)
-            if url:
-                cell.value = "📷 Ver ticket"
-                cell.hyperlink = url
-                cell.font = link_font
-                cell.alignment = Alignment(horizontal="center")
-            else:
-                cell.value = "(error al subir)"
+        cell = ws_d.cell(row=ws_d.max_row, column=foto_col_idx_d)
+        rid = r.get("_id", "")
+        url = foto_url_by_id.get(rid)
+        if url:
+            cell.value = "📷 Ver ticket"
+            cell.hyperlink = url
+            cell.font = link_font
+            cell.alignment = Alignment(horizontal="center")
+        elif r.get("fotoTicket") or r.get("adjunto"):
+            cell.value = "(error al subir)"
         else:
             cell.value = "(sin foto)"
-    # Anchos amigables (15 columnas; Ticket es link compacto).
-    widths_g = [22, 16, 28, 14, 26, 14, 22, 16, 12, 12, 12, 36, 26, 16, 14]
-    for i, w in enumerate(widths_g):
-        ws_g.column_dimensions[get_column_letter(i + 1)].width = w
-    # Power Automate necesita una Excel Table con nombre para poder leer las
-    # filas via el action "List rows present in a table". Sin esto, el flow
-    # no encuentra datos. Tabla "Gastos" cubre desde A1 hasta la ultima fila.
-    if ws_g.max_row >= 2:
-        last_col_letter = get_column_letter(len(hdr_g))
-        table_ref = f"A1:{last_col_letter}{ws_g.max_row}"
-        tab_g = Table(displayName="TablaGastos", ref=table_ref)
-        tab_g.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
-        ws_g.add_table(tab_g)
+    widths_d = [22, 16, 28, 14, 26, 14, 22, 16, 12, 12, 12, 36, 26, 16, 14]
+    for i, w in enumerate(widths_d):
+        ws_d.column_dimensions[get_column_letter(i + 1)].width = w
 
-    # Hoja 3: Solicitudes / anticipos
+    # === HOJA 3: SOLICITUDES (sin agrupar, una fila por anticipo) ===
     ws_s = wb.create_sheet("Solicitudes")
     hdr_s = [
         "ID", "Fecha carga", "Vendedor (email)", "Solicitado por",
@@ -265,9 +348,12 @@ def send_email(xlsx_bytes: bytes, count: int) -> None:
         f"Hola Mariano,\n\n"
         f"Adjunto el Excel con las {count} rendiciones aprobadas pendientes de notificar.\n"
         f"Las hojas son:\n"
-        f"  - Gastos: cada gasto cargado por foto/manual. Ultima columna 'Ticket' es un\n"
-        f"    link cliqueable que abre la foto del ticket en su tamano original en el navegador.\n"
-        f"  - Solicitudes: anticipos / recargas / rendiciones de gasto generales.\n\n"
+        f"  - Gastos: AGRUPADO por (vendedor, tipo de gasto). Una fila por dupla con\n"
+        f"    el importe total sumado y la lista de fotos concatenada. Es la que lee\n"
+        f"    Power Automate para crear los items en SharePoint con sus adjuntos.\n"
+        f"  - Detalle: una fila por gasto individual (vista ungroupeada). Solo para\n"
+        f"    auditoria - permite ver linea por linea cualquier monto.\n"
+        f"  - Solicitudes: anticipos / recargas (sin agrupar - cada uno es independiente).\n\n"
         f"Este mail se manda automaticamente cada Lunes y Miercoles a las 9 AM (AR).\n"
         f"Una vez recibido, las rendiciones se marcan como notificadas y no vuelven a salir.\n\n"
         f"-- Shimano App Vendedores"
