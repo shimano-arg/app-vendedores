@@ -2982,7 +2982,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v212';
+const APP_VERSION = 'v213';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -3230,6 +3230,54 @@ const GeocodePinsControl = L.Control.extend({
   }
 });
 map.addControl(new GeocodePinsControl());
+
+// Boton "Recalcular contornos de zonas". Solo admin/gerente.
+// Despues de mover localidades/provincias entre vendedores via Zonas, los
+// outlines viejos quedan cacheados en localStorage. Esto los invalida y
+// fuerza un recalculo limpio: union polygon-clipping de las nuevas
+// asignaciones + restyle de los deptos coloreados.
+const RecalcOutlinesControl = L.Control.extend({
+  options: { position: 'topleft' },
+  onAdd: function(){
+    const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control recalc-outlines-bar');
+    const btn = L.DomUtil.create('a', '', container);
+    btn.href = '#';
+    btn.title = 'Recalcular contornos de zonas (despues de reasignar localidades/provincias en ZONAS)';
+    btn.setAttribute('role', 'button');
+    btn.setAttribute('aria-label', 'Recalcular contornos de zonas');
+    btn.innerHTML = '&#9866;'; // symbol: polygon outline
+    btn.style.cssText = 'font-size:18px;font-weight:800;color:#0f172a;text-align:center;line-height:30px;cursor:pointer;display:block;width:30px;height:30px';
+    L.DomEvent.on(btn, 'click', L.DomEvent.stop);
+    L.DomEvent.on(btn, 'click', function(){
+      if (userRole !== 'admin' && userRole !== 'gerente') {
+        alert('Solo admin o gerente puede recalcular los contornos de zonas.');
+        return;
+      }
+      if (!confirm('Recalcular los contornos de cada zona?\n\nUsa esto despues de reasignar localidades o provincias en el panel ZONAS. Va a tomar 1-3 segundos.')) return;
+      try {
+        // Limpiar cache en memoria y localStorage para forzar recompute.
+        _vendorOutlinesCache = null;
+        try { localStorage.removeItem(VENDOR_OUTLINES_CACHE_KEY); } catch(e){}
+        if (typeof showSyncTag === 'function') showSyncTag('Recalculando contornos...');
+        // En el siguiente tick para que el sync tag pinte antes del freeze.
+        setTimeout(() => {
+          try {
+            if (typeof restyleZoneLayers === 'function') restyleZoneLayers();
+            if (typeof drawVendorOutlines === 'function') drawVendorOutlines();
+            if (typeof showSyncTag === 'function') showSyncTag('Contornos recalculados');
+          } catch(e) {
+            console.error('recalc outlines', e);
+            alert('Error recalculando contornos: ' + (e.message || e));
+          }
+        }, 50);
+      } catch(e) {
+        alert('Error: ' + (e.message || e));
+      }
+    });
+    return container;
+  }
+});
+map.addControl(new RecalcOutlinesControl());
 
 let currentVendor = 'ALL';
 let currentProvince = 'ALL';
