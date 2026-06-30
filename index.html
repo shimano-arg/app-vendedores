@@ -2980,7 +2980,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v209';
+const APP_VERSION = 'v210';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -23904,6 +23904,7 @@ function renderSegVisitas(visits){
 function renderSegPedidos(pedidos){
   if (!pedidos.length) return '<div class="seg-empty">No hay pedidos en el rango.</div>';
   const sorted = pedidos.slice().sort((a,b) => ((b.confirmedAt||b.finalizedAt||'').localeCompare(a.confirmedAt||a.finalizedAt||'')));
+  const canDel = (userRole === 'admin' || userRole === 'gerente');
   let html = '<div class="seg-row head"><div>Fecha</div><div>Vendedor</div><div>Cliente</div><div>Unidades</div><div>Importe + Estado</div></div>';
   sorted.forEach(p => {
     const k = segMakeKey(p.vendor, p.province, p.locName, p.clientName);
@@ -23912,16 +23913,43 @@ function renderSegPedidos(pedidos){
     const amt = (p.netAmountArs!=null)?p.netAmountArs:(p.subtotalArs||0);
     const badgeCls = p.stage === 'confirmed' ? 'green' : 'yellow';
     const badgeTxt = p.stage === 'confirmed' ? 'Confirmado' : 'Pendiente';
+    // Boton ELIMINAR: solo admin/gerente. Util para limpiar pedidos TEST.
+    // stopPropagation evita que el click dispare el timeline del cliente.
+    const delBtn = canDel && p._fsId
+      ? ' <button onclick="event.stopPropagation();deleteSegPedido(\'' + escapeAttr(p._fsId) + '\',\'' + escapeAttr(p.clientName||'') + '\')" title="Eliminar este pedido del historial (admin/gerente)" style="margin-left:8px;padding:3px 8px;border:none;border-radius:4px;background:#dc2626;color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Borrar</button>'
+      : '';
     html += '<div class="seg-row" onclick="openSegTimeline(\'' + escapeAttr(k) + '\')">';
     html += '<div>' + escapeHtml(dt||'-') + '</div>';
     html += '<div>' + escapeHtml(titleCase(p.vendor||'')) + '</div>';
     html += '<div><b>' + escapeHtml(p.clientName||'-') + '</b><br><span style="font-size:10px;color:#94a3b8">' + escapeHtml(p.locName||'') + '</span></div>';
     html += '<div>' + units.toFixed(0) + ' u</div>';
-    html += '<div>$' + Math.round(amt).toLocaleString('es-AR') + ' <span class="seg-badge ' + badgeCls + '">' + badgeTxt + '</span></div>';
+    html += '<div>$' + Math.round(amt).toLocaleString('es-AR') + ' <span class="seg-badge ' + badgeCls + '">' + badgeTxt + '</span>' + delBtn + '</div>';
     html += '</div>';
   });
   return html;
 }
+
+// Elimina un pedido del historial. Solo admin/gerente. Las rules ya lo
+// permiten via 'allow update, delete: if isAdminOrGerente() || ...'.
+// Pensado para limpiar pedidos de TEST o duplicados sin tener que salir
+// de Seguimiento. Action irreversible: borra el doc en /pedidos/{id}.
+window.deleteSegPedido = async function(fsId, clientName){
+  if (!fsId) return;
+  if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente puede eliminar pedidos.'); return; }
+  const lbl = clientName ? ('"' + clientName + '"') : 'este pedido';
+  if (!confirm('Eliminar el pedido de ' + lbl + ' del historial?\n\nEsta accion es IRREVERSIBLE: el pedido desaparece de Seguimiento, Dashboard, exports y campañas.')) return;
+  try {
+    await fbDb.collection('pedidos').doc(fsId).delete();
+    if (typeof showSyncTag === 'function') showSyncTag('Pedido eliminado');
+    // El listener global de pedidos refresca globalPedidos solo. Pero
+    // por timing, forzamos un re-render por si todavia no llego el
+    // snapshot updated.
+    setTimeout(() => { try { renderSeguimientoTab(); } catch(e){} }, 250);
+  } catch(e) {
+    console.error('deleteSegPedido', e);
+    alert('Error: ' + (e.message||e));
+  }
+};
 
 function renderSegPendientes(items){
   if (!items.length) return '<div class="seg-empty">Sin pendientes en el rango.</div>';
