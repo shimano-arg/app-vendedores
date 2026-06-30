@@ -1,8 +1,9 @@
 # Plan Power BI — Sincronización real-time desde la app
 
 Fecha de armado: 2026-06-29
-Owner: Mariano Erbino
+Owner: Mariano Erbino (mariano.erbino@shimano.com.ar)
 Arranque: 2026-06-30
+Estado: prerrequisitos confirmados — listo para arrancar Día 1.
 
 ---
 
@@ -80,20 +81,20 @@ vea la performance comercial sin esperar exports manuales.
 | 1 | Plan Blaze de Firebase activo | Ya lo activamos para Storage | ✅ |
 | 2 | Acceso owner al proyecto Firebase | Login con tu cuenta Google | ✅ |
 | 3 | Cuenta Google Cloud Console (mismo proyecto que Firebase) | Auto-creada con Firebase | ✅ |
-| 4 | Power BI Desktop instalado | https://aka.ms/pbidesktop (free) | ⚠️ confirmar |
-| 5 | Licencia Power BI Pro | Para publicar y compartir online. ~USD 14/mes/usuario | ⚠️ pedir a Diego |
-| 6 | Cuenta de servicio Google Cloud (Service Account) para Power BI | La creamos juntos en el paso 4.2 | ❌ pendiente |
-| 7 | Habilitar BigQuery API en GCP | Auto-habilita la extension | ❌ pendiente |
-| 8 | Confirmar billing alert: límite 20 USD/mes para BigQuery + extension | GCP Console → Billing → Budgets | ❌ pendiente |
+| 4 | Power BI Desktop instalado | https://aka.ms/pbidesktop (free) | ✅ instalado |
+| 5 | Licencia Power BI Pro | Para publicar y compartir online | ✅ confirmada |
+| 6 | Cuenta de servicio Google Cloud (Service Account) para Power BI | La creamos juntos en el paso 5.1 | ❌ Día 2 |
+| 7 | Habilitar BigQuery API en GCP | Auto-habilita la extension | ❌ Día 1, paso 4.1 |
+| 8 | Confirmar billing alert: límite 20 USD/mes para BigQuery + extension | GCP Console → Billing → Budgets | ❌ Día 1, al final |
 
-**Decisiones que hay que tomar mañana al inicio:**
-- ¿Usuario titular del Power BI será `erbinomariano@gmail.com` o
-  `mariano.erbino@shimano.com.ar`? Recomiendo el corporativo para que
-  Shimano-IT pueda asumirlo si te tomás vacaciones.
-- ¿Refresh schedule o DirectQuery? Recomiendo arrancar con refresh c/30 min
-  (más simple) y migrar a DirectQuery solo si Diego pide vista live.
-- ¿Quién más necesita ver el tablero? Lista con emails para alta en Power BI
-  Workspace.
+**Decisiones tomadas (lock-in 2026-06-29):**
+- ✅ **Usuario titular Power BI**: `mariano.erbino@shimano.com.ar` (corporativo).
+  Toda licencia Pro, workspace y Service Account se asocian a este email.
+- ✅ **Refresh mode**: Import + refresh automático cada 30 min. Migrar a
+  DirectQuery solo si Diego pide vista 100% live.
+- ⚠️ **Audiencia del tablero (pendiente de confirmar mañana)**: Diego,
+  Pablo, Santi, Ioannis con rol viewer. Confirmar emails exactos antes del
+  paso 7.2.
 
 ---
 
