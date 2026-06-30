@@ -2991,7 +2991,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v223';
+const APP_VERSION = 'v224';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -19072,14 +19072,18 @@ window.enviarPedidosASAPViaServiceLayer = async function(pedidos){
       // Marcar el pedido como transferido a SAP en Firestore
       try {
         await fbDb.collection('pedidos').doc(p._fsId).update({
+          // Mantener stage='confirmed' para que el pedido siga apareciendo
+          // en Pedidos > Confirmados. El campo transferidoSAP.transferredAt
+          // es el que SAP > Ya Transferidos usa como filtro.
           transferidoSAP: {
             via: 'service_layer',
             docEntry: r.body.DocEntry || null,
             docNum: r.body.DocNum || null,
-            at: firebase.firestore.FieldValue.serverTimestamp(),
-            by: currentUser.email || '',
+            transferredAt: new Date().toISOString(),
+            transferredBy: currentUser.email || '',
+            sapDocRange: String(r.body.DocNum || ''),
+            batchId: 'SL-' + Date.now(),
           },
-          stage: 'sap_imported',
         });
       } catch(e) { console.warn('No pude marcar pedido como transferido', p._fsId, e); }
     } else {
@@ -24597,14 +24601,18 @@ function ensureSapAutoSendListener(){
             const r = await sapSL.createQuotation(payload);
             if (r.ok) {
               await fbDb.collection('pedidos').doc(fsId).update({
+                // No tocamos stage - se queda como 'confirmed' para que el
+                // pedido siga visible en Pedidos > Confirmados. SAP > Ya
+                // Transferidos lo detecta via transferidoSAP.transferredAt.
                 transferidoSAP: {
                   via: 'service_layer_auto',
                   docEntry: r.body.DocEntry || null,
                   docNum: r.body.DocNum || null,
-                  at: firebase.firestore.FieldValue.serverTimestamp(),
-                  by: 'auto/' + (currentUser && currentUser.email || ''),
+                  transferredAt: new Date().toISOString(),
+                  transferredBy: 'auto/' + (currentUser && currentUser.email || ''),
+                  sapDocRange: String(r.body.DocNum || ''),
+                  batchId: 'SL-AUTO-' + Date.now(),
                 },
-                stage: 'sap_imported',
               });
               console.log('[SAP auto] OK', fsId, p.clientName, '-> DocNum', r.body.DocNum);
               if (typeof showSyncTag === 'function') showSyncTag('Auto-enviado: ' + p.clientName + ' (#' + (r.body.DocNum || '?') + ')');
