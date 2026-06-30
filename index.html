@@ -670,6 +670,72 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .btn-zonas{padding:7px 12px;border:none;border-radius:6px;background:#1e3a8a;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(30,58,138,.3);transition:.15s;white-space:nowrap;flex-shrink:0}
 .btn-zonas:hover{background:#1e40af;box-shadow:0 2px 6px rgba(30,58,138,.45)}
 .btn-zonas::before{content:"\01F5FA";font-size:13px}
+/* SEGUIMIENTO: panel para vendedores internos (Santiago/Ioannis) y admin/gerente */
+.btn-seguimiento{padding:7px 12px;border:none;border-radius:6px;background:#0d9488;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(13,148,136,.35);transition:.15s;white-space:nowrap;flex-shrink:0}
+.btn-seguimiento:hover{background:#0f766e;box-shadow:0 2px 6px rgba(13,148,136,.5)}
+.btn-seguimiento:active{transform:translateY(1px)}
+.btn-seguimiento::before{content:"\01F4CA";font-size:13px}
+.seg-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:8px 0 14px}
+.seg-stat{background:#fff;border:1.5px solid #e5e7eb;border-radius:8px;padding:10px 12px;text-align:center}
+.seg-stat .num{font-size:18px;font-weight:800;color:#0f172a}
+.seg-stat .lbl{font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-top:2px}
+.seg-stat.visitas .num{color:#7c3aed}
+.seg-stat.pedidos .num{color:#0284c7}
+.seg-stat.fact .num{color:#16a34a}
+.seg-stat.pend .num{color:#f59e0b}
+.seg-stat.opp .num{color:#0d9488}
+.seg-stat.dead .num{color:#dc2626}
+.seg-stat.conv .num{color:#1e40af}
+.seg-tabs{display:flex;gap:4px;flex-wrap:wrap;background:#f1f5f9;border-radius:6px;padding:3px;margin-bottom:12px}
+.seg-tab{flex:1;min-width:90px;padding:7px 10px;border:none;border-radius:4px;background:transparent;color:#475569;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px}
+.seg-tab.active{background:#fff;color:#0f172a;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.seg-tab .count{display:inline-block;background:#cbd5e1;color:#1e293b;border-radius:9px;padding:1px 6px;font-size:9px;margin-left:4px;font-weight:800}
+.seg-tab.active .count{background:#0d9488;color:#fff}
+.seg-filters{display:flex;gap:8px;flex-wrap:wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:12px}
+.seg-filters label{font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.3px;display:flex;flex-direction:column;gap:3px}
+.seg-filters input,.seg-filters select{padding:5px 8px;border:1.5px solid #cbd5e1;border-radius:4px;font-size:12px;outline:none;background:#fff;font-family:inherit}
+.seg-filters input:focus,.seg-filters select:focus{border-color:#0d9488}
+.seg-filters .chk{flex-direction:row;align-items:center;gap:5px}
+.seg-vendor-card{background:#fff;border:1.5px solid #e5e7eb;border-radius:10px;padding:12px 14px;margin-bottom:10px;border-left:5px solid #0d9488}
+.seg-vendor-card.yellow{border-left-color:#f59e0b;background:#fffbeb}
+.seg-vendor-card.red{border-left-color:#dc2626;background:#fef2f2}
+.seg-vendor-card h4{font-size:14px;font-weight:800;color:#0f172a;margin-bottom:6px}
+.seg-vendor-card .vmetrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:6px;margin-top:6px}
+.seg-vendor-card .vm{background:#f8fafc;border-radius:5px;padding:6px 8px;text-align:center;font-size:11px}
+.seg-vendor-card .vm b{display:block;font-size:14px;color:#0f172a;margin-bottom:1px}
+.seg-row{display:grid;grid-template-columns:90px 130px 1fr 110px 1fr;gap:8px;padding:8px 10px;border-bottom:1px solid #e5e7eb;font-size:11px;align-items:center;cursor:pointer;transition:.1s}
+.seg-row:hover{background:#f0fdfa}
+.seg-row.head{background:#f1f5f9;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.3px;font-size:10px;cursor:default}
+.seg-row.head:hover{background:#f1f5f9}
+.seg-row .seg-badge{display:inline-block;padding:1px 6px;border-radius:9px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px}
+.seg-badge.green{background:#dcfce7;color:#166534}
+.seg-badge.yellow{background:#fef3c7;color:#92400e}
+.seg-badge.red{background:#fee2e2;color:#991b1b}
+.seg-status-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:middle}
+.seg-status-dot.green{background:#10b981}
+.seg-status-dot.yellow{background:#f59e0b}
+.seg-status-dot.red{background:#dc2626}
+.seg-empty{text-align:center;color:#94a3b8;padding:30px 10px;font-size:12px;font-style:italic}
+.seg-timeline{padding:6px 0}
+.seg-timeline-item{position:relative;padding:8px 14px 10px 28px;border-left:2px solid #cbd5e1;margin-left:10px}
+.seg-timeline-item::before{content:"";position:absolute;left:-7px;top:11px;width:12px;height:12px;border-radius:50%;background:#0d9488;border:2px solid #fff;box-shadow:0 0 0 1px #0d9488}
+.seg-timeline-item.visit::before{background:#7c3aed;box-shadow:0 0 0 1px #7c3aed}
+.seg-timeline-item.order::before{background:#0284c7;box-shadow:0 0 0 1px #0284c7}
+.seg-timeline-item.note::before{background:#f59e0b;box-shadow:0 0 0 1px #f59e0b}
+.seg-timeline-date{font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+.seg-timeline-title{font-size:13px;font-weight:800;color:#0f172a;margin-top:2px}
+.seg-timeline-body{font-size:11px;color:#475569;margin-top:3px;line-height:1.45}
+.seg-note-form{background:#fff7ed;border:1.5px solid #fdba74;border-radius:6px;padding:10px 12px;margin-top:10px}
+.seg-note-form textarea{width:100%;padding:6px 8px;border:1.5px solid #fdba74;border-radius:4px;font-size:12px;outline:none;resize:vertical;min-height:54px;font-family:inherit}
+.seg-note-form button{margin-top:6px;padding:6px 14px;border:none;border-radius:5px;background:#f59e0b;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px}
+.seg-note-form button:hover{background:#d97706}
+.seg-status-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.seg-status-btn{padding:5px 11px;border:1.5px solid #cbd5e1;border-radius:5px;background:#fff;color:#475569;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px}
+.seg-status-btn:hover{border-color:#0d9488;color:#0d9488}
+.seg-status-btn.active{background:#0d9488;color:#fff;border-color:#0d9488}
+@media (max-width: 760px){
+  .seg-row{grid-template-columns:1fr;gap:3px;padding:8px 10px}
+}
 /* Modal Stock: upload del CSV de SAP */
 .stock-drop-zone{border:2px dashed #cbd5e1;border-radius:8px;padding:32px 20px;text-align:center;cursor:pointer;transition:.15s;background:#f8fafc}
 .stock-drop-zone:hover{border-color:#ea580c;background:#fff7ed}
@@ -1396,6 +1462,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <button class="btn-mis-camps" id="mis-camps-btn" onclick="openMisCampsModal()" style="display:none" title="Ver campa&ntilde;as activas y los SKU involucrados">Campa&ntilde;as Activas</button>
     <button class="btn-analisis" id="analisis-btn" onclick="openExportAnalisis()" style="display:none" title="Formatos avanzados (Power BI / ML / ZIP fotos) - requiere PIN">Exportar para An&aacute;lisis</button>
     <button class="btn-export" onclick="exportToExcel()" title="Descargar Excel con toda la base de datos para analisis">Exportar a Excel</button>
+    <button class="btn-seguimiento" id="seguimiento-btn" onclick="openSeguimientoModal()" style="display:none" title="Panel de gestion comercial para vendedores internos">Seguimiento</button>
     <button class="btn-zonas" id="zonas-btn" onclick="openZonasModal()" style="display:none" title="Reasignar tiendas o localidades a otro vendedor / interno / distribuidor">Zonas</button>
   </div>
 </div>
@@ -1928,6 +1995,79 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         </div>
       </div>
       <div class="users-wrap" id="mis-camps-content"></div>
+    </div>
+  </div>
+  <!-- SEGUIMIENTO: panel para vendedores internos (Santiago / Ioannis) y admin/gerente.
+       Backend de permisos: openSeguimientoModal valida canViewSeguimiento(); cada
+       render adicional filtra usando getSeguimientoExternalSet(). El frontend NO
+       puede forzar visibilidad de otro VDE: aunque se manipule el dropdown via
+       devtools, los reducers descartan filas cuyo vendor no esta en el scope. -->
+  <div class="modal-overlay" id="seguimiento-modal" onclick="if(event.target===this)closeSeguimientoModal()">
+    <div class="modal-box" style="width:min(1100px,98vw);max-height:92vh;display:flex;flex-direction:column">
+      <div class="modal-head" style="background:linear-gradient(135deg,#0f766e,#14b8a6)">
+        <div>
+          <h2>&#128202; Seguimiento</h2>
+          <div class="subt" id="seg-subt">Panel de gestion comercial: visitas, pedidos, pendientes y oportunidades por vendedor externo asignado.</div>
+        </div>
+        <button class="modal-close" onclick="closeSeguimientoModal()">&times;</button>
+      </div>
+      <div style="padding:14px 20px;overflow-y:auto;flex:1">
+        <!-- Filtros -->
+        <div class="seg-filters">
+          <label>Vendedor externo
+            <select id="seg-fvendor"><option value="ALL">Todos</option></select>
+          </label>
+          <label>Desde
+            <input type="date" id="seg-fdesde">
+          </label>
+          <label>Hasta
+            <input type="date" id="seg-fhasta">
+          </label>
+          <label>Cliente / tienda
+            <input type="text" id="seg-fcliente" placeholder="Buscar nombre...">
+          </label>
+          <label>Estado
+            <select id="seg-festado">
+              <option value="ALL">Todos</option>
+              <option value="green">&#128994; Normal</option>
+              <option value="yellow">&#128993; Requiere revisi&oacute;n</option>
+              <option value="red">&#128308; Cr&iacute;tico</option>
+            </select>
+          </label>
+          <label class="chk">
+            <input type="checkbox" id="seg-fpend" onchange="renderSeguimientoTab()"> Solo pendientes / oportunidades
+          </label>
+          <label style="justify-content:flex-end">&nbsp;
+            <button onclick="renderSeguimientoTab()" style="padding:6px 14px;border:none;border-radius:5px;background:#0d9488;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Aplicar</button>
+          </label>
+        </div>
+        <!-- Stats cards arriba -->
+        <div class="seg-stats" id="seg-stats"></div>
+        <!-- Tabs -->
+        <div class="seg-tabs" id="seg-tabs">
+          <button class="seg-tab active" data-seg-tab="resumen" onclick="setSeguimientoTab('resumen')">Resumen</button>
+          <button class="seg-tab" data-seg-tab="visitas" onclick="setSeguimientoTab('visitas')">Visitas <span class="count" id="seg-count-visitas">0</span></button>
+          <button class="seg-tab" data-seg-tab="pedidos" onclick="setSeguimientoTab('pedidos')">Pedidos <span class="count" id="seg-count-pedidos">0</span></button>
+          <button class="seg-tab" data-seg-tab="pendientes" onclick="setSeguimientoTab('pendientes')">Pendientes <span class="count" id="seg-count-pendientes">0</span></button>
+          <button class="seg-tab" data-seg-tab="dead" onclick="setSeguimientoTab('dead')">Sin movimiento <span class="count" id="seg-count-dead">0</span></button>
+          <button class="seg-tab" data-seg-tab="opp" onclick="setSeguimientoTab('opp')">Oportunidades <span class="count" id="seg-count-opp">0</span></button>
+          <button class="seg-tab" data-seg-tab="duplas" onclick="setSeguimientoTab('duplas')">M&eacute;tricas duplas</button>
+        </div>
+        <div id="seg-content"></div>
+      </div>
+    </div>
+  </div>
+  <!-- Timeline modal: se abre al click de cualquier cliente desde Seguimiento -->
+  <div class="modal-overlay" id="seg-timeline-modal" onclick="if(event.target===this)closeSegTimeline()">
+    <div class="modal-box" style="width:min(720px,96vw);max-height:90vh;display:flex;flex-direction:column">
+      <div class="modal-head" style="background:linear-gradient(135deg,#0d9488,#5eead4)">
+        <div>
+          <h2 id="seg-tl-title">Timeline cliente</h2>
+          <div class="subt" id="seg-tl-sub"></div>
+        </div>
+        <button class="modal-close" onclick="closeSegTimeline()">&times;</button>
+      </div>
+      <div style="padding:14px 20px;overflow-y:auto;flex:1" id="seg-tl-content"></div>
     </div>
   </div>
   <div class="modal-overlay" id="dashboard-modal" onclick="if(event.target===this)closeDashboardModal()">
@@ -2840,7 +2980,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v208';
+const APP_VERSION = 'v209';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -11954,6 +12094,44 @@ const VENDOR_INCLUDES_OTHERS = {
   'SANTIAGO ESTEBAN':    ['MAURICIO GIL', 'MARTIN BOIERO'],
 };
 
+// ====================================================================
+// SEGUIMIENTO: helpers de permisos + scope.
+// ====================================================================
+// Quien ve el boton "Seguimiento":
+//   - admin + gerente: todas las duplas comerciales.
+//   - interno (Santiago / Ioannis): solo las VDEs que lo tienen como
+//     pareja en /roles/{uid}.internalPartnerUid (lista que ya cargo
+//     loadMyExternalPartners en myExternalPartners).
+// Vendedores externos NUNCA tienen acceso.
+function canViewSeguimiento(){
+  if (userRole === 'admin' || userRole === 'gerente') return true;
+  if (userRole === 'interno') return true;
+  return false;
+}
+// Conjunto de VDE keys que el usuario puede ver en Seguimiento.
+// Es el guard de seguridad: cada render filtra usando este Set, y los
+// listeners de visits/pedidos chequean tambien antes de pintar.
+// Para internos se basa en myExternalPartners (configurable desde Panel
+// Usuarios). Para admin/gerente fallback a VENDOR_INCLUDES_OTHERS para
+// no hardcodear nombres en componentes.
+function getSeguimientoExternalSet(){
+  if (userRole === 'admin' || userRole === 'gerente') {
+    const all = new Set();
+    Object.values(VENDOR_INCLUDES_OTHERS).forEach(arr => arr.forEach(v => all.add(v)));
+    return all;
+  }
+  if (userRole === 'interno') {
+    return new Set((myExternalPartners || []).map(p => p.vendor).filter(Boolean));
+  }
+  return new Set();
+}
+// Util: el vendor pasado, esta dentro del scope autorizado?
+// Se usa antes de mostrar cualquier dato del VDE en la UI.
+function vendorInSeguimientoScope(vendorKey){
+  if (!vendorKey) return false;
+  return getSeguimientoExternalSet().has(vendorKey);
+}
+
 // Devuelve el Set de vendor keys efectivos cuando se filtra por 'vendor'.
 // Si es 'ALL' o no hay extras, devuelve null (sin restriccion en la dimension
 // vendor). Si es un VDI, devuelve su propio key + los keys de sus VDEs apoyo.
@@ -17390,6 +17568,12 @@ function applyRolePermissions(){
   }
   document.getElementById('campaigns-btn').style.display = isAdminOrGerente ? '' : 'none';
   document.getElementById('master-cli-btn').style.display = isAdminOrGerente ? '' : 'none';
+  // SEGUIMIENTO: admin + gerente + interno (Santiago/Ioannis).
+  // El check de rol del lado JS es replicado dentro del open handler y en
+  // cada render (guard de scope) para que el frontend no pueda forzar
+  // acceso ocultando estilo display:none.
+  const segBtnEl = document.getElementById('seguimiento-btn');
+  if (segBtnEl) segBtnEl.style.display = (typeof canViewSeguimiento === 'function' && canViewSeguimiento()) ? '' : 'none';
   // SAP: admin + viewer + vendedor + gerente.
   document.getElementById('sap-btn').style.display = (userRole === 'admin' || userRole === 'viewer' || userRole === 'vendedor' || userRole === 'gerente') ? '' : 'none';
   // Notificaciones para usuarios que las reciben
@@ -23270,6 +23454,633 @@ renderSuggestionsForReadonly = function(clientName, province){
   });
   if (!html) html = '<div class="suggest-empty-msg">El pedido ya cubre todos los productos sugeridos.</div>';
   listEl.innerHTML = html;
+};
+
+// =========================================================================
+// SEGUIMIENTO - Panel de gestion comercial para vendedores internos.
+// =========================================================================
+// Modelo:
+//   visitas      -> collection 'visits' (cargada 1x con where vendor in [...])
+//   pedidos      -> globalPedidos (ya listenerado para sugerencias cruzadas)
+//   notas        -> collection 'seguimiento_notes'
+//   estados      -> collection 'seguimiento_status'  (revisado / pendiente / resuelto)
+// Permisos: getSeguimientoExternalSet() es el guard. Cada accion (open,
+// render, save, setStatus) re-valida vendorInSeguimientoScope(vendor) para
+// que la manipulacion del frontend no pueda forzar acceso a un VDE ajeno.
+let segVisitsCache = [];
+let segNotesCache = [];
+let segStatusCache = {};
+let unsubSegNotes = null;
+let unsubSegStatus = null;
+let segCurrentTab = 'resumen';
+let currentSegTimelineKey = null;
+let _segDebounceTimer = null;
+
+function segPedidoVendor(p){
+  if (!p) return '';
+  if (p.vendor) return p.vendor;
+  if (p.assignedVendor) return p.assignedVendor;
+  if (typeof getVendorForKey === 'function' && p.key) return getVendorForKey(p.key);
+  return '';
+}
+
+window.openSeguimientoModal = async function(){
+  if (!canViewSeguimiento()) { alert('Tu rol no tiene acceso a Seguimiento.'); return; }
+  const set = getSeguimientoExternalSet();
+  if (!set.size) {
+    alert('Todavia no tenes vendedores externos asignados.\n\nSi sos vendedor interno (Santiago / Ioannis), pedile al admin que en Panel Usuarios -> tu VDE -> "Pareja interno" te asocie como pareja.');
+    return;
+  }
+  document.getElementById('seguimiento-modal').classList.add('open');
+  populateSegFilters();
+  const desdeEl = document.getElementById('seg-fdesde');
+  const hastaEl = document.getElementById('seg-fhasta');
+  if (desdeEl && !desdeEl.value) {
+    const now = new Date();
+    const desde = new Date(now.getTime() - 90*86400*1000);
+    desdeEl.value = desde.toISOString().slice(0,10);
+    hastaEl.value = now.toISOString().slice(0,10);
+  }
+  document.getElementById('seg-content').innerHTML = '<div class="seg-empty">Cargando datos...</div>';
+  await loadSegVisits();
+  attachSegNotesListener();
+  attachSegStatusListener();
+  setSeguimientoTab(segCurrentTab);
+};
+window.closeSeguimientoModal = function(){
+  document.getElementById('seguimiento-modal').classList.remove('open');
+};
+
+function populateSegFilters(){
+  const set = getSeguimientoExternalSet();
+  const sel = document.getElementById('seg-fvendor');
+  if (!sel) return;
+  const cur = sel.value || 'ALL';
+  const opts = ['<option value="ALL">Todos</option>'].concat(
+    [...set].sort().map(v => '<option value="'+escapeAttr(v)+'">'+escapeHtml(titleCase(v))+'</option>')
+  );
+  sel.innerHTML = opts.join('');
+  sel.value = (set.has(cur) || cur === 'ALL') ? cur : 'ALL';
+  sel.onchange = () => renderSeguimientoTab();
+  document.getElementById('seg-fdesde').onchange = () => { loadSegVisits().then(() => renderSeguimientoTab()); };
+  document.getElementById('seg-fhasta').onchange = () => { loadSegVisits().then(() => renderSeguimientoTab()); };
+  const cli = document.getElementById('seg-fcliente');
+  cli.oninput = function(){
+    if (_segDebounceTimer) clearTimeout(_segDebounceTimer);
+    _segDebounceTimer = setTimeout(() => renderSeguimientoTab(), 300);
+  };
+  document.getElementById('seg-festado').onchange = () => renderSeguimientoTab();
+}
+
+async function loadSegVisits(){
+  const set = getSeguimientoExternalSet();
+  if (!set.size || !fbDb) { segVisitsCache = []; return; }
+  try {
+    const list = [...set];
+    // Firestore IN max 10 - aca tenemos 2-4, OK.
+    const qs = await fbDb.collection('visits').where('vendor', 'in', list).get();
+    segVisitsCache = [];
+    qs.forEach(d => segVisitsCache.push(Object.assign({id: d.id}, d.data())));
+  } catch(e) {
+    console.error('[Seguimiento] error cargando visitas:', e);
+    segVisitsCache = [];
+    if (e && e.code === 'permission-denied') {
+      alert('Tu rol no tiene permisos en Firestore para leer las visitas del scope.\n\nEl admin tiene que actualizar las rules para permitir a interno/gerente leer visits de sus VDEs asignados.');
+    }
+  }
+}
+
+function attachSegNotesListener(){
+  if (unsubSegNotes) { unsubSegNotes(); unsubSegNotes = null; }
+  const set = getSeguimientoExternalSet();
+  if (!set.size || !fbDb) return;
+  try {
+    unsubSegNotes = fbDb.collection('seguimiento_notes').where('vendorExt', 'in', [...set])
+      .onSnapshot(qs => {
+        segNotesCache = [];
+        qs.forEach(d => segNotesCache.push(Object.assign({id: d.id}, d.data())));
+        if (currentSegTimelineKey) openSegTimeline(currentSegTimelineKey);
+      }, err => console.warn('[Seguimiento] notes listener', err));
+  } catch(e) { console.warn('[Seguimiento] notes attach', e); }
+}
+
+function attachSegStatusListener(){
+  if (unsubSegStatus) { unsubSegStatus(); unsubSegStatus = null; }
+  const set = getSeguimientoExternalSet();
+  if (!set.size || !fbDb) return;
+  try {
+    unsubSegStatus = fbDb.collection('seguimiento_status').where('vendorExt', 'in', [...set])
+      .onSnapshot(qs => {
+        segStatusCache = {};
+        qs.forEach(d => {
+          const dd = d.data() || {};
+          if (dd.clientKey) segStatusCache[dd.clientKey] = dd.status || '';
+        });
+        renderSeguimientoTab();
+      }, err => console.warn('[Seguimiento] status listener', err));
+  } catch(e) { console.warn('[Seguimiento] status attach', e); }
+}
+
+window.setSeguimientoTab = function(tab){
+  segCurrentTab = tab;
+  document.querySelectorAll('.seg-tab').forEach(b => b.classList.toggle('active', b.dataset.segTab === tab));
+  renderSeguimientoTab();
+};
+
+function getSegFilters(){
+  return {
+    vendor: document.getElementById('seg-fvendor').value || 'ALL',
+    desde: document.getElementById('seg-fdesde').value || '',
+    hasta: document.getElementById('seg-fhasta').value || '',
+    cliente: (document.getElementById('seg-fcliente').value || '').toLowerCase().trim(),
+    estado: document.getElementById('seg-festado').value || 'ALL',
+    soloPend: !!document.getElementById('seg-fpend').checked,
+  };
+}
+
+function getSegDataset(){
+  const set = getSeguimientoExternalSet();
+  const f = getSegFilters();
+  const inScope = (v) => set.has(v);
+  const inDate = (d) => {
+    if (!d) return true; // tolerar registros sin fecha
+    if (f.desde && d < f.desde) return false;
+    if (f.hasta && d > f.hasta) return false;
+    return true;
+  };
+  const matchVendor = (v) => f.vendor === 'ALL' ? true : v === f.vendor;
+  const matchCliente = (name) => f.cliente ? (name||'').toLowerCase().includes(f.cliente) : true;
+  const visits = (segVisitsCache || []).filter(v => {
+    if (!inScope(v.vendor)) return false;
+    if (!matchVendor(v.vendor)) return false;
+    if (!inDate((v.fecha||'').slice(0,10))) return false;
+    if (!matchCliente(v.tienda)) return false;
+    return true;
+  });
+  const pedidos = (globalPedidos || []).map(p => Object.assign({}, p, {vendor: segPedidoVendor(p)}))
+    .filter(p => {
+      if (!inScope(p.vendor)) return false;
+      if (!matchVendor(p.vendor)) return false;
+      const dt = (p.confirmedAt||'').slice(0,10) || (p.finalizedAt||'').slice(0,10) || '';
+      if (!inDate(dt)) return false;
+      if (!matchCliente(p.clientName)) return false;
+      return true;
+    });
+  return { visits, pedidos };
+}
+
+function buildSegAggregates(visits, pedidos){
+  const set = getSeguimientoExternalSet();
+  const byVendor = {};
+  set.forEach(v => {
+    byVendor[v] = { visits:0, pedidos:0, facturacion:0, pendientesPedidos:0, lastActivity:'',
+                    clientsActive:new Set(), clientsVisited:new Set() };
+  });
+  visits.forEach(v => {
+    const b = byVendor[v.vendor]; if (!b) return;
+    b.visits++;
+    if (v.tienda) b.clientsVisited.add(v.tienda + '|' + (v.localidad||''));
+    const d = (v.fecha||'').slice(0,10);
+    if (d && d > b.lastActivity) b.lastActivity = d;
+  });
+  pedidos.forEach(p => {
+    const b = byVendor[p.vendor]; if (!b) return;
+    b.pedidos++;
+    const amt = (p.netAmountArs != null) ? p.netAmountArs : (p.subtotalArs != null ? p.subtotalArs : 0);
+    if (p.stage === 'confirmed') b.facturacion += +amt || 0;
+    if (p.stage === 'pending') b.pendientesPedidos++;
+    if (p.clientName) b.clientsActive.add(p.clientName + '|' + (p.locName||''));
+    const d = (p.confirmedAt||'').slice(0,10) || (p.finalizedAt||'').slice(0,10);
+    if (d && d > b.lastActivity) b.lastActivity = d;
+  });
+  return byVendor;
+}
+
+function segMakeKey(vendor, prov, loc, name){
+  return [vendor||'', prov||'', loc||'', name||''].join('|');
+}
+
+function detectSegPendientes(visits, pedidos){
+  const items = [];
+  const byClient = {};
+  visits.forEach(v => {
+    const k = segMakeKey(v.vendor, v.provincia, v.localidad, v.tienda);
+    if (!byClient[k]) byClient[k] = {vendor:v.vendor, prov:v.provincia, loc:v.localidad, name:v.tienda, visits:[], orders:[]};
+    byClient[k].visits.push(v);
+  });
+  pedidos.forEach(p => {
+    const k = segMakeKey(p.vendor, p.province, p.locName, p.clientName);
+    if (!byClient[k]) byClient[k] = {vendor:p.vendor, prov:p.province, loc:p.locName, name:p.clientName, visits:[], orders:[]};
+    byClient[k].orders.push(p);
+  });
+  Object.entries(byClient).forEach(([k, c]) => {
+    if (!c.visits.length) return;
+    const hasConfirmed = c.orders.some(o => o.stage === 'confirmed');
+    if (hasConfirmed) return;
+    const latestV = c.visits.map(v => v.fecha||'').sort().pop();
+    const daysAgo = latestV ? Math.floor((Date.now() - new Date(latestV).getTime())/86400000) : 0;
+    if (daysAgo >= 7) {
+      items.push({
+        clientKey:k, client:c.name, vendor:c.vendor, prov:c.prov, loc:c.loc,
+        problema: 'Visitado sin pedido hace ' + daysAgo + ' dias',
+        accion: 'Contactar y ofrecer cierre',
+        ultimaAccion: 'Visita: ' + latestV,
+        status: daysAgo > 14 ? 'red' : 'yellow',
+      });
+    }
+  });
+  pedidos.forEach(p => {
+    if (p.stage !== 'pending') return;
+    const dt = (p.finalizedAt||'').slice(0,10) || (p.confirmedAt||'').slice(0,10) || '';
+    const daysAgo = dt ? Math.floor((Date.now() - new Date(dt).getTime())/86400000) : 0;
+    items.push({
+      clientKey: segMakeKey(p.vendor, p.province, p.locName, p.clientName),
+      client: p.clientName, vendor:p.vendor, prov:p.province, loc:p.locName,
+      problema: 'Pedido pendiente de confirmar' + (daysAgo ? ' hace ' + daysAgo + ' dias' : ''),
+      accion: 'Revisar stock y llamar al cliente',
+      ultimaAccion: 'Pedido: ' + (dt || '(s/f)'),
+      status: daysAgo >= 5 ? 'red' : 'yellow',
+    });
+  });
+  return items;
+}
+
+function detectSegSinMovimiento(visits, pedidos){
+  const map = {};
+  visits.forEach(v => {
+    const k = segMakeKey(v.vendor, v.provincia, v.localidad, v.tienda);
+    if (!map[k]) map[k] = {vendor:v.vendor, prov:v.provincia, loc:v.localidad, name:v.tienda, lastV:'', lastO:'', facturacion:0};
+    if ((v.fecha||'') > map[k].lastV) map[k].lastV = v.fecha;
+  });
+  pedidos.forEach(p => {
+    const k = segMakeKey(p.vendor, p.province, p.locName, p.clientName);
+    if (!map[k]) map[k] = {vendor:p.vendor, prov:p.province, loc:p.locName, name:p.clientName, lastV:'', lastO:'', facturacion:0};
+    const dt = (p.confirmedAt||'').slice(0,10);
+    if (p.stage === 'confirmed' && dt > map[k].lastO) map[k].lastO = dt;
+    if (p.stage === 'confirmed') {
+      const amt = (p.netAmountArs!=null)?p.netAmountArs:(p.subtotalArs||0);
+      map[k].facturacion += +amt || 0;
+    }
+  });
+  const out = [];
+  Object.entries(map).forEach(([k, c]) => {
+    const lastVdays = c.lastV ? Math.floor((Date.now() - new Date(c.lastV).getTime())/86400000) : Infinity;
+    const lastOdays = c.lastO ? Math.floor((Date.now() - new Date(c.lastO).getTime())/86400000) : Infinity;
+    if (lastVdays > 30 && lastOdays > 45) {
+      const lastDays = Math.min(lastVdays, lastOdays);
+      out.push({
+        clientKey:k, client:c.name, vendor:c.vendor, prov:c.prov, loc:c.loc,
+        lastVisit:c.lastV||'-', lastOrder:c.lastO||'-',
+        daysAgo: isFinite(lastDays) ? lastDays : '999+',
+        facturacion: c.facturacion,
+        accion: c.facturacion > 0 ? 'Recontactar - cliente con historial' : 'Recontactar - puede ser oportunidad',
+        status: (c.facturacion > 100000 && lastDays > 60) ? 'red' : 'yellow',
+      });
+    }
+  });
+  return out.sort((a,b) => (b.facturacion||0) - (a.facturacion||0));
+}
+
+function detectSegOportunidades(visits, pedidos){
+  const items = [];
+  const keys = ['interesad', 'potencial', 'cierre', 'reposici', 'oferta', 'descuento', 'volver', 'cotiz'];
+  visits.forEach(v => {
+    const txt = ((v.comentario||'') + ' ' + (v.observaciones||'')).toLowerCase();
+    if (keys.some(kw => txt.includes(kw))) {
+      items.push({
+        clientKey: segMakeKey(v.vendor, v.provincia, v.localidad, v.tienda),
+        client: v.tienda, vendor:v.vendor, prov:v.provincia, loc:v.localidad,
+        problema: 'Comentario comercial: "' + ((v.comentario||v.observaciones||'')).slice(0,80) + '"',
+        accion: 'Coordinar cierre con el VDE',
+        ultimaAccion: 'Visita: ' + (v.fecha||'-'),
+        status: 'yellow',
+      });
+    }
+  });
+  return items;
+}
+
+function buildSegDuplas(visits, pedidos){
+  const externalToInternal = {};
+  Object.entries(VENDOR_INCLUDES_OTHERS).forEach(([interno, ext]) => ext.forEach(e => externalToInternal[e] = interno));
+  const duplas = {};
+  const ensure = (interno, externo) => {
+    const k = interno + ' + ' + externo;
+    if (!duplas[k]) duplas[k] = {interno, externo, visitas:0, pedidos:0, pedidosConf:0, fact:0, clientes:new Set(), pendientes:0, lastAct:''};
+    return duplas[k];
+  };
+  visits.forEach(v => {
+    const interno = externalToInternal[v.vendor]; if (!interno) return;
+    const d = ensure(interno, v.vendor);
+    d.visitas++;
+    if (v.tienda) d.clientes.add(v.tienda + '|' + (v.localidad||''));
+    const dt = (v.fecha||'').slice(0,10);
+    if (dt > d.lastAct) d.lastAct = dt;
+  });
+  pedidos.forEach(p => {
+    const interno = externalToInternal[p.vendor]; if (!interno) return;
+    const d = ensure(interno, p.vendor);
+    d.pedidos++;
+    if (p.stage === 'confirmed') {
+      d.pedidosConf++;
+      const amt = (p.netAmountArs!=null)?p.netAmountArs:(p.subtotalArs||0);
+      d.fact += +amt || 0;
+    } else if (p.stage === 'pending') d.pendientes++;
+    if (p.clientName) d.clientes.add(p.clientName + '|' + (p.locName||''));
+    const dt = (p.confirmedAt||'').slice(0,10);
+    if (dt > d.lastAct) d.lastAct = dt;
+  });
+  return duplas;
+}
+
+window.renderSeguimientoTab = function(){
+  if (!canViewSeguimiento()) {
+    document.getElementById('seg-content').innerHTML = '<div class="seg-empty">Sin permisos.</div>';
+    return;
+  }
+  const { visits, pedidos } = getSegDataset();
+  renderSegTopStats(visits, pedidos);
+  const pendientes = detectSegPendientes(visits, pedidos);
+  const dead = detectSegSinMovimiento(visits, pedidos);
+  const opps = detectSegOportunidades(visits, pedidos);
+  document.getElementById('seg-count-visitas').textContent = visits.length;
+  document.getElementById('seg-count-pedidos').textContent = pedidos.length;
+  document.getElementById('seg-count-pendientes').textContent = pendientes.length;
+  document.getElementById('seg-count-dead').textContent = dead.length;
+  document.getElementById('seg-count-opp').textContent = opps.length;
+  const tab = segCurrentTab || 'resumen';
+  const f = getSegFilters();
+  const filterByEstado = (arr) => f.estado === 'ALL' ? arr : arr.filter(x => x.status === f.estado);
+  let html = '';
+  if (tab === 'resumen') html = renderSegResumen(visits, pedidos);
+  else if (tab === 'visitas') {
+    let rows = visits.slice();
+    if (f.soloPend) {
+      const pendSet = new Set(pendientes.map(p => p.clientKey));
+      rows = rows.filter(v => pendSet.has(segMakeKey(v.vendor, v.provincia, v.localidad, v.tienda)));
+    }
+    html = renderSegVisitas(rows);
+  } else if (tab === 'pedidos') {
+    let rows = pedidos.slice();
+    if (f.soloPend) rows = rows.filter(p => p.stage === 'pending');
+    html = renderSegPedidos(rows);
+  } else if (tab === 'pendientes') html = renderSegPendientes(filterByEstado(pendientes));
+  else if (tab === 'dead') html = renderSegDead(filterByEstado(dead));
+  else if (tab === 'opp') html = renderSegOpps(filterByEstado(opps));
+  else if (tab === 'duplas') html = renderSegDuplas(buildSegDuplas(visits, pedidos));
+  document.getElementById('seg-content').innerHTML = html;
+};
+
+function renderSegTopStats(visits, pedidos){
+  let fact = 0, conf = 0, pend = 0, lastAct = '';
+  pedidos.forEach(p => {
+    if (p.stage === 'confirmed') {
+      conf++;
+      const amt = (p.netAmountArs!=null)?p.netAmountArs:(p.subtotalArs||0);
+      fact += +amt || 0;
+    } else if (p.stage === 'pending') pend++;
+    const dt = (p.confirmedAt||'').slice(0,10) || (p.finalizedAt||'').slice(0,10);
+    if (dt > lastAct) lastAct = dt;
+  });
+  visits.forEach(v => { const d = (v.fecha||'').slice(0,10); if (d > lastAct) lastAct = d; });
+  const pendientes = detectSegPendientes(visits, pedidos);
+  const dead = detectSegSinMovimiento(visits, pedidos);
+  const opps = detectSegOportunidades(visits, pedidos);
+  const conv = visits.length > 0 ? Math.round(conf / visits.length * 100) : 0;
+  const fmtMon = (n) => '$' + Math.round(n).toLocaleString('es-AR');
+  const html = '' +
+    '<div class="seg-stat visitas"><div class="num">' + visits.length + '</div><div class="lbl">Visitas</div></div>' +
+    '<div class="seg-stat pedidos"><div class="num">' + pedidos.length + '</div><div class="lbl">Pedidos</div></div>' +
+    '<div class="seg-stat fact"><div class="num">' + fmtMon(fact) + '</div><div class="lbl">Facturado</div></div>' +
+    '<div class="seg-stat pend"><div class="num">' + pendientes.length + '</div><div class="lbl">Pendientes</div></div>' +
+    '<div class="seg-stat opp"><div class="num">' + opps.length + '</div><div class="lbl">Oportunidades</div></div>' +
+    '<div class="seg-stat dead"><div class="num">' + dead.length + '</div><div class="lbl">Sin movimiento</div></div>' +
+    '<div class="seg-stat conv"><div class="num">' + conv + '%</div><div class="lbl">Conv v&rarr;p</div></div>' +
+    '<div class="seg-stat"><div class="num" style="font-size:13px">' + (lastAct || '-') + '</div><div class="lbl">Ultima actividad</div></div>';
+  document.getElementById('seg-stats').innerHTML = html;
+}
+
+function renderSegResumen(visits, pedidos){
+  const agg = buildSegAggregates(visits, pedidos);
+  let html = '';
+  Object.entries(agg).sort().forEach(([vendor, b]) => {
+    const conv = b.visits ? Math.round(b.pedidos / b.visits * 100) : 0;
+    const lastDays = b.lastActivity ? Math.floor((Date.now() - new Date(b.lastActivity).getTime())/86400000) : Infinity;
+    const cardCls = lastDays > 7 ? 'yellow' : (lastDays > 15 ? 'red' : '');
+    html += '<div class="seg-vendor-card ' + cardCls + '">';
+    html += '<h4>' + escapeHtml(titleCase(vendor)) + '</h4>';
+    html += '<div class="vmetrics">' +
+      '<div class="vm"><b>' + b.visits + '</b>Visitas</div>' +
+      '<div class="vm"><b>' + b.pedidos + '</b>Pedidos</div>' +
+      '<div class="vm"><b>$' + Math.round(b.facturacion).toLocaleString('es-AR') + '</b>Facturacion</div>' +
+      '<div class="vm"><b>' + b.clientsActive.size + '</b>Clientes activos</div>' +
+      '<div class="vm"><b>' + b.clientsVisited.size + '</b>Clientes visitados</div>' +
+      '<div class="vm"><b>' + b.pendientesPedidos + '</b>Pend. confirmar</div>' +
+      '<div class="vm"><b>' + conv + '%</b>Conv. v&rarr;p</div>' +
+      '<div class="vm"><b>' + (b.lastActivity || '-') + '</b>Ult. actividad</div>' +
+    '</div></div>';
+  });
+  if (!html) html = '<div class="seg-empty">No hay vendedores externos en el scope.</div>';
+  return html;
+}
+
+function renderSegVisitas(visits){
+  if (!visits.length) return '<div class="seg-empty">No hay visitas en el rango.</div>';
+  const sorted = visits.slice().sort((a,b) => (b.fecha||'').localeCompare(a.fecha||''));
+  let html = '<div class="seg-row head"><div>Fecha</div><div>Vendedor</div><div>Cliente / Tienda</div><div>Localidad</div><div>Observaciones</div></div>';
+  sorted.forEach(v => {
+    const k = segMakeKey(v.vendor, v.provincia, v.localidad, v.tienda);
+    html += '<div class="seg-row" onclick="openSegTimeline(\'' + escapeAttr(k) + '\')">';
+    html += '<div>' + escapeHtml((v.fecha||'').slice(0,10) || '-') + '</div>';
+    html += '<div>' + escapeHtml(titleCase(v.vendor||'')) + '</div>';
+    html += '<div><b>' + escapeHtml(v.tienda||'-') + '</b></div>';
+    html += '<div>' + escapeHtml(v.localidad||'-') + '</div>';
+    html += '<div style="color:#475569">' + escapeHtml((v.comentario||v.observaciones||'').slice(0,140)) + (v.proximaAccion ? '<br><span style="color:#0d9488;font-weight:700">Proxima: ' + escapeHtml(v.proximaAccion) + '</span>' : '') + '</div>';
+    html += '</div>';
+  });
+  return html;
+}
+
+function renderSegPedidos(pedidos){
+  if (!pedidos.length) return '<div class="seg-empty">No hay pedidos en el rango.</div>';
+  const sorted = pedidos.slice().sort((a,b) => ((b.confirmedAt||b.finalizedAt||'').localeCompare(a.confirmedAt||a.finalizedAt||'')));
+  let html = '<div class="seg-row head"><div>Fecha</div><div>Vendedor</div><div>Cliente</div><div>Unidades</div><div>Importe + Estado</div></div>';
+  sorted.forEach(p => {
+    const k = segMakeKey(p.vendor, p.province, p.locName, p.clientName);
+    const dt = (p.confirmedAt||p.finalizedAt||'').slice(0,10);
+    const units = (p.lines||[]).reduce((s,l) => s + (parseFloat(l.qty)||0), 0);
+    const amt = (p.netAmountArs!=null)?p.netAmountArs:(p.subtotalArs||0);
+    const badgeCls = p.stage === 'confirmed' ? 'green' : 'yellow';
+    const badgeTxt = p.stage === 'confirmed' ? 'Confirmado' : 'Pendiente';
+    html += '<div class="seg-row" onclick="openSegTimeline(\'' + escapeAttr(k) + '\')">';
+    html += '<div>' + escapeHtml(dt||'-') + '</div>';
+    html += '<div>' + escapeHtml(titleCase(p.vendor||'')) + '</div>';
+    html += '<div><b>' + escapeHtml(p.clientName||'-') + '</b><br><span style="font-size:10px;color:#94a3b8">' + escapeHtml(p.locName||'') + '</span></div>';
+    html += '<div>' + units.toFixed(0) + ' u</div>';
+    html += '<div>$' + Math.round(amt).toLocaleString('es-AR') + ' <span class="seg-badge ' + badgeCls + '">' + badgeTxt + '</span></div>';
+    html += '</div>';
+  });
+  return html;
+}
+
+function renderSegPendientes(items){
+  if (!items.length) return '<div class="seg-empty">Sin pendientes en el rango.</div>';
+  items = items.slice().sort((a,b) => (a.status === 'red' ? -1 : 1));
+  let html = '<div class="seg-row head"><div>Estado</div><div>Vendedor</div><div>Cliente</div><div>Ult. accion</div><div>Problema + accion sugerida</div></div>';
+  items.forEach(it => {
+    const lbl = it.status==='red'?'CRITICO':it.status==='yellow'?'REVISAR':'OK';
+    html += '<div class="seg-row" onclick="openSegTimeline(\'' + escapeAttr(it.clientKey) + '\')">';
+    html += '<div><span class="seg-status-dot ' + it.status + '"></span><span class="seg-badge ' + it.status + '">' + lbl + '</span></div>';
+    html += '<div>' + escapeHtml(titleCase(it.vendor||'')) + '</div>';
+    html += '<div><b>' + escapeHtml(it.client||'-') + '</b><br><span style="font-size:10px;color:#94a3b8">' + escapeHtml(it.loc||'') + '</span></div>';
+    html += '<div style="font-size:10px;color:#64748b">' + escapeHtml(it.ultimaAccion||'-') + '</div>';
+    html += '<div><b>' + escapeHtml(it.problema||'-') + '</b><br><span style="color:#0d9488;font-weight:700">&rarr; ' + escapeHtml(it.accion||'') + '</span></div>';
+    html += '</div>';
+  });
+  return html;
+}
+
+function renderSegDead(items){
+  if (!items.length) return '<div class="seg-empty">Todos los clientes tuvieron actividad reciente. ' + 'Umbrales aplicados: sin visita 30d Y sin pedido 45d.</div>';
+  let html = '<div class="seg-row head"><div>Estado</div><div>Vendedor</div><div>Cliente</div><div>Dias sin act.</div><div>Ult. visita / pedido + facturacion + accion</div></div>';
+  items.forEach(it => {
+    const lbl = it.status==='red'?'CRITICO':'REVISAR';
+    html += '<div class="seg-row" onclick="openSegTimeline(\'' + escapeAttr(it.clientKey) + '\')">';
+    html += '<div><span class="seg-status-dot ' + it.status + '"></span><span class="seg-badge ' + it.status + '">' + lbl + '</span></div>';
+    html += '<div>' + escapeHtml(titleCase(it.vendor||'')) + '</div>';
+    html += '<div><b>' + escapeHtml(it.client||'-') + '</b><br><span style="font-size:10px;color:#94a3b8">' + escapeHtml(it.loc||'') + '</span></div>';
+    html += '<div><b style="color:#dc2626">' + it.daysAgo + 'd</b></div>';
+    html += '<div>Visita: ' + escapeHtml(it.lastVisit||'-') + ' &middot; Pedido: ' + escapeHtml(it.lastOrder||'-') + (it.facturacion ? '<br>Facturacion historica: <b>$' + Math.round(it.facturacion).toLocaleString('es-AR') + '</b>' : '') + '<br><span style="color:#0d9488;font-weight:700">&rarr; ' + escapeHtml(it.accion||'') + '</span></div>';
+    html += '</div>';
+  });
+  return html;
+}
+
+function renderSegOpps(items){
+  if (!items.length) return '<div class="seg-empty">No detect&eacute; oportunidades en el rango.<br>Las oportunidades se detectan por palabras clave en los comentarios de visita (interesado, potencial, cierre, reposicion, cotiza...).</div>';
+  return renderSegPendientes(items);
+}
+
+function renderSegDuplas(duplas){
+  const arr = Object.values(duplas);
+  if (!arr.length) return '<div class="seg-empty">No hay duplas con actividad en el rango.</div>';
+  let html = '<div style="font-size:11px;color:#64748b;margin-bottom:8px;font-weight:700;padding:8px 12px;background:#f0fdfa;border-left:3px solid #0d9488;border-radius:5px">Tasa de conversion visita &rarr; pedido = pedidos confirmados / visitas. Es la metrica clave para evaluar si las visitas generan negocio real.</div>';
+  arr.sort((a,b) => (b.fact||0) - (a.fact||0));
+  arr.forEach(d => {
+    const conv = d.visitas ? Math.round(d.pedidosConf / d.visitas * 100) : 0;
+    const cls = conv >= 50 ? '' : conv >= 25 ? 'yellow' : 'red';
+    const convBg = conv>=50?'#dcfce7':conv>=25?'#fef3c7':'#fee2e2';
+    html += '<div class="seg-vendor-card ' + cls + '">';
+    html += '<h4>' + escapeHtml(titleCase(d.interno)) + ' &middot; ' + escapeHtml(titleCase(d.externo)) + '</h4>';
+    html += '<div class="vmetrics">' +
+      '<div class="vm"><b>' + d.visitas + '</b>Visitas</div>' +
+      '<div class="vm"><b>' + d.pedidos + '</b>Pedidos</div>' +
+      '<div class="vm"><b>' + d.pedidosConf + '</b>Confirmados</div>' +
+      '<div class="vm" style="background:' + convBg + '"><b>' + conv + '%</b>Conv v&rarr;p</div>' +
+      '<div class="vm"><b>$' + Math.round(d.fact).toLocaleString('es-AR') + '</b>Facturacion</div>' +
+      '<div class="vm"><b>' + d.clientes.size + '</b>Clientes</div>' +
+      '<div class="vm"><b>' + d.pendientes + '</b>Pend. confirmar</div>' +
+      '<div class="vm"><b>' + (d.lastAct||'-') + '</b>Ult. actividad</div>' +
+    '</div></div>';
+  });
+  return html;
+}
+
+window.openSegTimeline = function(clientKey){
+  if (!canViewSeguimiento()) return;
+  const parts = (clientKey || '').split('|');
+  const vendor = parts[0], prov = parts[1], loc = parts[2], name = parts[3];
+  if (!vendorInSeguimientoScope(vendor)) { alert('No tenes permisos para ver este cliente.'); return; }
+  currentSegTimelineKey = clientKey;
+  document.getElementById('seg-tl-title').textContent = name || '(cliente)';
+  document.getElementById('seg-tl-sub').innerHTML = escapeHtml(titleCase(vendor||'')) + ' &middot; ' + escapeHtml(loc||'') + ' / ' + escapeHtml(titleCase(prov||''));
+  const items = [];
+  (segVisitsCache||[]).filter(v => v.vendor===vendor && v.provincia===prov && v.localidad===loc && v.tienda===name).forEach(v => {
+    items.push({type:'visit', date:(v.fecha||'').slice(0,10), title:'Visita', body: (v.comentario||v.observaciones||'(sin comentarios)') + (v.proximaAccion ? '\nProxima accion: ' + v.proximaAccion : '')});
+  });
+  (globalPedidos||[]).filter(p => segPedidoVendor(p)===vendor && p.province===prov && p.locName===loc && p.clientName===name).forEach(p => {
+    const dt = (p.confirmedAt||p.finalizedAt||'').slice(0,10);
+    const amt = (p.netAmountArs!=null)?p.netAmountArs:(p.subtotalArs||0);
+    const units = (p.lines||[]).reduce((s,l) => s + (parseFloat(l.qty)||0), 0);
+    items.push({type:'order', date:dt, title:'Pedido ' + (p.stage==='confirmed'?'confirmado':p.stage==='pending'?'pendiente':p.stage), body:'$' + Math.round(amt).toLocaleString('es-AR') + ' / ' + units.toFixed(0) + ' u / ' + (p.lines||[]).length + ' SKU(s)'});
+  });
+  (segNotesCache||[]).filter(n => n.clientKey === clientKey).forEach(n => {
+    const dt = (n.createdAt && n.createdAt.toDate) ? n.createdAt.toDate().toISOString().slice(0,10) : '';
+    items.push({type:'note', date:dt, title:'Nota interna - ' + (n.authorName||n.authorEmail||''), body: n.text||''});
+  });
+  items.sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  let html = '<div class="seg-timeline">';
+  if (!items.length) html += '<div class="seg-empty">Sin actividad registrada para este cliente.</div>';
+  items.forEach(it => {
+    html += '<div class="seg-timeline-item ' + it.type + '">';
+    html += '<div class="seg-timeline-date">' + escapeHtml(it.date||'(s/f)') + '</div>';
+    html += '<div class="seg-timeline-title">' + escapeHtml(it.title) + '</div>';
+    html += '<div class="seg-timeline-body">' + escapeHtml(it.body||'').replace(/\n/g,'<br>') + '</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+  const curStatus = segStatusCache[clientKey] || '';
+  html += '<div style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:10px 12px;margin-top:14px;border-radius:6px">';
+  html += '<div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px">Estado de seguimiento interno (no afecta visita ni pedido original)</div>';
+  html += '<div class="seg-status-row">';
+  [['pendiente','Marcar pendiente'],['revisado','Marcar revisado'],['resuelto','Marcar resuelto']].forEach(s => {
+    const act = (curStatus === s[0]) ? 'active' : '';
+    html += '<button class="seg-status-btn ' + act + '" onclick="setSegStatus(\'' + escapeAttr(clientKey) + '\',\'' + s[0] + '\')">' + s[1] + '</button>';
+  });
+  html += '</div></div>';
+  html += '<div class="seg-note-form">';
+  html += '<div style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.3px;margin-bottom:5px">Nota interna entre interno y externo (no modifica la visita)</div>';
+  html += '<textarea id="seg-note-input" placeholder="Ej: revisado, lo llamo mañana para cerrar reposicion"></textarea>';
+  html += '<button onclick="saveSegNote(\'' + escapeAttr(clientKey) + '\')">Guardar nota</button>';
+  html += '</div>';
+  document.getElementById('seg-tl-content').innerHTML = html;
+  document.getElementById('seg-timeline-modal').classList.add('open');
+};
+
+window.closeSegTimeline = function(){
+  document.getElementById('seg-timeline-modal').classList.remove('open');
+  currentSegTimelineKey = null;
+};
+
+window.saveSegNote = async function(clientKey){
+  if (!canViewSeguimiento()) return;
+  const parts = (clientKey||'').split('|');
+  const vendor = parts[0];
+  if (!vendorInSeguimientoScope(vendor)) { alert('Sin permisos.'); return; }
+  const ta = document.getElementById('seg-note-input');
+  const text = (ta && ta.value || '').trim();
+  if (!text) return;
+  try {
+    await fbDb.collection('seguimiento_notes').add({
+      clientKey, vendorExt:vendor, prov:parts[1], loc:parts[2], clientName:parts[3],
+      authorUid: currentUser.uid, authorEmail: currentUser.email||'',
+      authorName: currentUser.displayName||currentUser.email||'',
+      authorRole: userRole, text,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    if (ta) ta.value = '';
+    if (typeof showSyncTag === 'function') showSyncTag('Nota interna guardada');
+  } catch(e) {
+    alert('Error guardando nota: ' + (e.message||e) + '\n\nProbable: faltan rules en Firestore para "seguimiento_notes".');
+  }
+};
+
+window.setSegStatus = async function(clientKey, status){
+  if (!canViewSeguimiento()) return;
+  const parts = (clientKey||'').split('|');
+  const vendor = parts[0];
+  if (!vendorInSeguimientoScope(vendor)) { alert('Sin permisos.'); return; }
+  const docId = (clientKey.replace(/[\/\\#?]/g,'_').slice(0,400)) + '__' + (currentUser.uid || '');
+  try {
+    await fbDb.collection('seguimiento_status').doc(docId).set({
+      clientKey, vendorExt:vendor, prov:parts[1], loc:parts[2], clientName:parts[3],
+      authorUid:currentUser.uid, status,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    }, {merge:true});
+    if (typeof showSyncTag === 'function') showSyncTag('Estado: ' + status);
+  } catch(e) {
+    alert('Error: ' + (e.message||e) + '\n\nProbable: faltan rules para "seguimiento_status".');
+  }
 };
 
 // === PWA: registrar Service Worker ===
