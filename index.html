@@ -2984,7 +2984,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v217';
+const APP_VERSION = 'v218';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -18445,8 +18445,26 @@ window.saveSapAppSeries = async function(){
 };
 
 function sapGetClienteCode(clientName){
+  // Fuente 1 (prioridad): sap_clients - mapeo manual cargado por admin
+  // desde tab SAP > Mapeo Clientes o importado via Excel oficial de SAP.
   const v = sapClientsMap[sapNorm(clientName)];
-  return v ? (v.sapCode || '') : '';
+  if (v && v.sapCode) return v.sapCode;
+  // Fuente 2 (fallback): client_applications - altas aprobadas via "Alta
+  // Clientes" o SAP import que recibieron CardCode. Sin este fallback,
+  // un cliente recien dado de alta aparecia como "Bloqueado por alta" en
+  // SAP > Pendientes aunque ya tuviera cardCodeSap asignado, porque el
+  // mapeo manual no se hizo. Matcheamos por comercio | titular | fantasia
+  // contra el clientName del pedido (uppercased + trim, ignora .SA/.SRL).
+  if (typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList)) {
+    const norm = sapNorm(clientName);
+    for (const a of approvedAltasList) {
+      if (!a || !a.cardCodeSap) continue;
+      if (sapNorm(a.comercio || '') === norm) return a.cardCodeSap;
+      if (sapNorm(a.titular || '') === norm) return a.cardCodeSap;
+      if (sapNorm(a.fantasia || '') === norm) return a.cardCodeSap;
+    }
+  }
+  return '';
 }
 function sapGetMaterialCode(productCode){
   // 1) Si hay mapeo manual en sap_products (admin cargo correspondencia
