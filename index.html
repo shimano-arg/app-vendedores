@@ -691,11 +691,15 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .seg-tab.active{background:#fff;color:#0f172a;box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .seg-tab .count{display:inline-block;background:#cbd5e1;color:#1e293b;border-radius:9px;padding:1px 6px;font-size:9px;margin-left:4px;font-weight:800}
 .seg-tab.active .count{background:#0d9488;color:#fff}
-.seg-filters{display:flex;gap:8px;flex-wrap:wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:12px}
+.seg-filters{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:12px}
 .seg-filters label{font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.3px;display:flex;flex-direction:column;gap:3px}
-.seg-filters input,.seg-filters select{padding:5px 8px;border:1.5px solid #cbd5e1;border-radius:4px;font-size:12px;outline:none;background:#fff;font-family:inherit}
+.seg-filters input,.seg-filters select{padding:6px 8px;border:1.5px solid #cbd5e1;border-radius:4px;font-size:12px;outline:none;background:#fff;font-family:inherit;height:32px;box-sizing:border-box}
 .seg-filters input:focus,.seg-filters select:focus{border-color:#0d9488}
-.seg-filters .chk{flex-direction:row;align-items:center;gap:5px}
+.seg-filters .chk{flex-direction:row;align-items:center;gap:6px;height:32px;padding:0 4px;background:#fff;border:1.5px solid #cbd5e1;border-radius:4px;cursor:pointer;text-transform:none;font-weight:700;color:#0f172a;font-size:11px}
+.seg-filters .chk input{height:auto;margin:0;width:14px;cursor:pointer}
+.seg-aplicar-btn{height:32px;padding:0 22px;border:none;border-radius:5px;background:#0d9488;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 1px 3px rgba(13,148,136,.35);margin-left:auto}
+.seg-aplicar-btn:hover{background:#0f766e}
+.seg-aplicar-btn:active{transform:translateY(1px)}
 .seg-vendor-card{background:#fff;border:1.5px solid #e5e7eb;border-radius:10px;padding:12px 14px;margin-bottom:10px;border-left:5px solid #0d9488}
 .seg-vendor-card.yellow{border-left-color:#f59e0b;background:#fffbeb}
 .seg-vendor-card.red{border-left-color:#dc2626;background:#fef2f2}
@@ -2037,9 +2041,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <label class="chk">
             <input type="checkbox" id="seg-fpend" onchange="renderSeguimientoTab()"> Solo pendientes / oportunidades
           </label>
-          <label style="justify-content:flex-end">&nbsp;
-            <button onclick="renderSeguimientoTab()" style="padding:6px 14px;border:none;border-radius:5px;background:#0d9488;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Aplicar</button>
-          </label>
+          <button class="seg-aplicar-btn" onclick="renderSeguimientoTab()">Aplicar</button>
         </div>
         <!-- Stats cards arriba -->
         <div class="seg-stats" id="seg-stats"></div>
@@ -2980,7 +2982,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v210';
+const APP_VERSION = 'v211';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
