@@ -2840,7 +2840,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v205';
+const APP_VERSION = 'v206';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -5293,7 +5293,7 @@ function renderClients(pts){
       // card sale en amarillo - el vendedor lo identifica al toque.
       const isPrec = !!a.precaucion;
       const cardStyle = isPrec
-        ? 'border-left-color:#d97706;background:#fffbeb;cursor:pointer'
+        ? 'border-left:5px solid #b45309;border-color:#f59e0b;background:#fde68a;cursor:pointer'
         : ('border-left-color:' + sapLeft + ';cursor:pointer');
       html += '<div class="client-card estado-sap"';
       html += ' style="' + cardStyle + '"';
@@ -5344,7 +5344,7 @@ function renderClients(pts){
     const mPrec = !!(typeof clientMeta !== 'undefined' && clientMeta[k] && clientMeta[k].precaucion);
     const mPrecReason = (mPrec && clientMeta[k].precaucionReason) ? clientMeta[k].precaucionReason : '';
     const cardCustom = mPrec
-      ? 'border-left-color:#d97706;background:#fffbeb'
+      ? 'border-left:5px solid #b45309;border-color:#f59e0b;background:#fde68a'
       : ('border-left-color:' + leftColor);
     html += '<div class="client-card estado-' + state + '"';
     html += ' data-key="' + escapeHtml(k) + '"';
