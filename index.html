@@ -3059,7 +3059,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v243';
+const APP_VERSION = 'v244';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -19218,29 +19218,49 @@ const sapSL = {
     });
   },
 
-  // Consulta stock disponible de un SKU en un whs. Devuelve {ok, qty}
-  // Tip: Service Layer expone esta vista, mucho mas rapida que llamar a
-  // Items() y filtrar el array ItemWarehouseInfoCollection.
+  // Whs a EXCLUIR cuando sumamos stock total (no son vendibles):
+  //   '05' MARKETING, '06' DEVOLUCIONES.
+  // Todos los demas (01 ANDREANI, 02/10/11/12 MERCADERIA, 03 ZONA FRANCA,
+  // 04 EEUU, 07 PESCA EEUU) se suman como stock disponible.
+  _isSalesWarehouse(whsCode){
+    if (!whsCode) return false;
+    const code = String(whsCode);
+    if (code === '05' || code === '06') return false;
+    return true;
+  },
+
+  // Consulta stock disponible de un SKU. Si whsCode='ALL' (default nuevo) suma
+  // todos los warehouses vendibles. Si se pasa un codigo especifico, solo ese.
+  // Devuelve {ok, qty, byWhs?} donde byWhs es un objeto {WhsCode: qty} util
+  // para el modal Master de Productos.
   async getStock(itemCode, whsCode){
-    whsCode = whsCode || '07';
-    const path = "/b1s/v1/SQLQueries('ItemStockByWhs')/List?ItemCode='" + encodeURIComponent(itemCode) + "'&WhsCode='" + encodeURIComponent(whsCode) + "'";
-    // NOTA: 'ItemStockByWhs' es un SQL Query previamente guardado en SAP. Si
-    // no esta, caemos al endpoint estandar /Items().
-    let r = await this.fetchWithSession(path);
-    if (r.ok && r.body && Array.isArray(r.body.value) && r.body.value.length) {
-      return {ok: true, qty: parseFloat(r.body.value[0].OnHand || 0)};
+    whsCode = whsCode || 'ALL';
+    // Si piden un whs especifico, intentar el SQLQuery mas rapido primero.
+    if (whsCode !== 'ALL') {
+      const path = "/b1s/v1/SQLQueries('ItemStockByWhs')/List?ItemCode='" + encodeURIComponent(itemCode) + "'&WhsCode='" + encodeURIComponent(whsCode) + "'";
+      let rq = await this.fetchWithSession(path);
+      if (rq.ok && rq.body && Array.isArray(rq.body.value) && rq.body.value.length) {
+        return {ok: true, qty: parseFloat(rq.body.value[0].OnHand || 0)};
+      }
     }
-    // Fallback: usar el endpoint Items() y leer ItemWarehouseInfoCollection.
-    // OData / Service Layer requiere COMILLAS SIMPLES (no dobles) para keys
-    // string. Por eso construimos manualmente y NO usamos JSON.stringify
-    // (que mete dobles). El codigo se URL-encodea para escapar caracteres
-    // raros pero la comilla simple SI queda como ' literal.
-    const safeCode = String(itemCode || '').replace(/'/g, "''"); // escapar single quote OData
-    r = await this.fetchWithSession("/b1s/v1/Items('" + encodeURIComponent(safeCode) + "')?$select=ItemCode,ItemWarehouseInfoCollection");
+    // Fallback / caso ALL: leer todos los warehouses del Item.
+    const safeCode = String(itemCode || '').replace(/'/g, "''");
+    const r = await this.fetchWithSession("/b1s/v1/Items('" + encodeURIComponent(safeCode) + "')?$select=ItemCode,ItemWarehouseInfoCollection");
     if (!r.ok) return {ok: false, error: r.error};
     const whs = (r.body && r.body.ItemWarehouseInfoCollection) || [];
-    const target = whs.find(w => w.WarehouseCode === whsCode);
-    return {ok: true, qty: target ? parseFloat(target.InStock || 0) : 0};
+    if (whsCode !== 'ALL') {
+      const target = whs.find(w => w.WarehouseCode === whsCode);
+      return {ok: true, qty: target ? parseFloat(target.InStock || 0) : 0};
+    }
+    // ALL: sumar solo warehouses vendibles.
+    let total = 0;
+    const byWhs = {};
+    whs.forEach(w => {
+      const q = parseFloat(w.InStock || 0);
+      if (this._isSalesWarehouse(w.WarehouseCode)) total += q;
+      byWhs[w.WarehouseCode] = q;
+    });
+    return {ok: true, qty: total, byWhs};
   },
 
   // Trae TODOS los items del catalogo SAP paginando via OData.
@@ -19286,19 +19306,17 @@ const sapSL = {
     return {ok: true, items};
   },
 
-  // Trae stock de TODOS los items del deposito indicado via SL.
-  // Estrategia: iterar Items con ItemWarehouseInfoCollection (el mismo
-  // endpoint del catalogo pero con el campo extra de warehouses).
-  // Cada Item devuelve un array con todos sus warehouses; filtramos W07.
-  // ~500 requests × 300ms = ~2-3 min para 10k items. Aceptable para un
-  // sync que corre bajo demanda.
+  // Trae stock de TODOS los items via SL. Si whsCode='ALL' (default) suma
+  // los warehouses vendibles (excluye 05 Marketing / 06 Devoluciones). Si se
+  // pasa un codigo de whs especifico, filtra solo ese.
   async getAllStock(whsCode, onProgress){
-    whsCode = whsCode || '07';
+    whsCode = whsCode || 'ALL';
     const stockMap = {};
     let path = "/b1s/v1/Items?$select=ItemCode,ItemWarehouseInfoCollection";
     let pageCount = 0;
     let scanned = 0;
     let withStock = 0;
+    const self = this;
     while (path) {
       const r = await this.fetchWithSession(path);
       if (!r.ok) return {ok: false, error: r.error, itemsFetched: scanned};
@@ -19308,8 +19326,15 @@ const sapSL = {
         if (!code) return;
         scanned++;
         const whs = it.ItemWarehouseInfoCollection || [];
-        const target = whs.find(w => w.WarehouseCode === whsCode);
-        const qty = target ? parseFloat(target.InStock || 0) : 0;
+        let qty = 0;
+        if (whsCode === 'ALL') {
+          whs.forEach(w => {
+            if (self._isSalesWarehouse(w.WarehouseCode)) qty += parseFloat(w.InStock || 0);
+          });
+        } else {
+          const target = whs.find(w => w.WarehouseCode === whsCode);
+          qty = target ? parseFloat(target.InStock || 0) : 0;
+        }
         const hasStk = qty > 0;
         stockMap[code] = hasStk;
         if (hasStk) withStock++;
@@ -19459,10 +19484,21 @@ window.testSlStock = async function(){
   const out = document.getElementById('sl-test-result');
   const sku = prompt('SKU a consultar (ej. CAC58MH2UR):', 'CAC58MH2UR');
   if (!sku) return;
-  out.innerHTML = '<div style="background:#dbeafe;border:1px solid #93c5fd;color:#1e3a8a;border-radius:5px;padding:10px;font-size:12px">Consultando stock de ' + escapeHtml(sku) + ' en deposito 07...</div>';
-  const r = await sapSL.getStock(sku.trim(), '07');
+  out.innerHTML = '<div style="background:#dbeafe;border:1px solid #93c5fd;color:#1e3a8a;border-radius:5px;padding:10px;font-size:12px">Consultando stock de ' + escapeHtml(sku) + ' en TODOS los depositos vendibles...</div>';
+  const r = await sapSL.getStock(sku.trim(), 'ALL');
   if (r.ok) {
-    out.innerHTML = '<div style="background:#dcfce7;border:1.5px solid #86efac;color:#166534;border-radius:5px;padding:12px;font-size:13px"><b>&#10003; Stock obtenido</b><br>SKU: <code>' + escapeHtml(sku) + '</code><br>Cantidad en W07: <b>' + r.qty + '</b> unidades</div>';
+    // Armar detalle por whs para mostrar de donde sale el total.
+    let breakdown = '';
+    if (r.byWhs && typeof r.byWhs === 'object') {
+      const rows = Object.entries(r.byWhs)
+        .filter(([w, q]) => q > 0)
+        .map(([w, q]) => 'W' + w + ': ' + q)
+        .join(' &middot; ');
+      if (rows) breakdown = '<br><small style="color:#166534">Desglose (whs con stock): ' + rows + '</small>';
+      const excl = Object.entries(r.byWhs).filter(([w, q]) => q > 0 && !sapSL._isSalesWarehouse(w));
+      if (excl.length) breakdown += '<br><small style="color:#92400e">Excluidos (Marketing/Devoluciones): ' + excl.map(([w, q]) => 'W' + w + ': ' + q).join(' &middot; ') + '</small>';
+    }
+    out.innerHTML = '<div style="background:#dcfce7;border:1.5px solid #86efac;color:#166534;border-radius:5px;padding:12px;font-size:13px"><b>&#10003; Stock obtenido</b><br>SKU: <code>' + escapeHtml(sku) + '</code><br>Total vendible: <b>' + r.qty + '</b> unidades' + breakdown + '</div>';
   } else {
     out.innerHTML = '<div style="background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:5px;padding:12px;font-size:12px"><b>&#10006; Error consultando stock</b><br>' + escapeHtml(r.error || 'desconocido') + '</div>';
   }
@@ -20833,7 +20869,9 @@ window.syncSapStock = async function(){
     if (btn) { btn.disabled = false; btn.style.background = '#1e40af'; btn.innerHTML = '&#128260; Sincronizar stock ahora'; }
     return;
   }
-  const r = await sapSL.getAllStock('07', (scanned, withStock) => {
+  // 'ALL' suma todos los warehouses vendibles (excluye 05 Marketing y
+  // 06 Devoluciones). W07 solo tenia PESCA EEUU, no era representativo.
+  const r = await sapSL.getAllStock('ALL', (scanned, withStock) => {
     setStatus('&#8681; Descargando... ' + scanned.toLocaleString('es-AR') + ' SKUs (' + withStock + ' con stock)');
   });
   if (!r.ok) {
@@ -20850,7 +20888,7 @@ window.syncSapStock = async function(){
       stock: r.stockMap,
       totalItems: totalItems,
       withStock: r.withStock || 0,
-      warehouse: '07',
+      warehouse: 'ALL_SALES',
       source: 'service_layer',
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedBy: (currentUser && currentUser.email) || '',
@@ -20887,10 +20925,15 @@ window.queryStockLive = async function(code, btn){
   const origText = btn ? btn.innerHTML : '';
   if (btn) { btn.disabled = true; btn.innerHTML = '&#8230;'; btn.style.background = '#94a3b8'; }
   try {
-    const r = await sapSL.getStock(code, '07');
+    const r = await sapSL.getStock(code, 'ALL');
     if (r.ok) {
       const qty = Number(r.qty || 0);
-      alert('Stock actualizado en SAP para SKU:\n\n' + code + '\n\nDeposito W07: ' + qty + ' unidades\n\nFuente: Service Layer SAP B1 en tiempo real.');
+      let detail = '';
+      if (r.byWhs && typeof r.byWhs === 'object') {
+        const rows = Object.entries(r.byWhs).filter(([w, q]) => q > 0);
+        if (rows.length) detail = '\n\nDesglose por deposito (whs con stock):\n' + rows.map(([w, q]) => '  W' + w + ': ' + q).join('\n');
+      }
+      alert('Stock actualizado en SAP para SKU:\n\n' + code + '\n\nTotal vendible: ' + qty + ' unidades' + detail + '\n\nFuente: Service Layer SAP B1 en tiempo real.\n(Suma warehouses vendibles, excluye 05 Marketing y 06 Devoluciones)');
     } else {
       alert('Error consultando stock en SAP:\n\n' + (r.error || 'desconocido'));
     }
