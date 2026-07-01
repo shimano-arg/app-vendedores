@@ -1460,7 +1460,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <button class="logout-btn" id="sap-btn" onclick="openSapPanel()" title="Carga a SAP / Mapeo de c&oacute;digos" style="display:none">SAP</button>
     <button class="logout-btn" id="master-cli-btn" onclick="openMasterClientesPanel()" title="Cargar direcciones exactas de cada tienda" style="display:none">Master Clientes</button>
     <button class="logout-btn" id="admin-btn" onclick="openAdminPanel()" title="Gestion de usuarios" style="display:none">Usuarios</button>
-    <button class="logout-btn" id="stock-btn" onclick="openStockModal()" title="Cargar / actualizar snapshot de stock (CSV desde SAP)" style="display:none">Stock</button>
+    <button class="logout-btn" id="stock-btn" onclick="openProductMasterModal()" title="Buscador de productos: precio, stock y datos maestros de cualquier SKU" style="display:none">Productos</button>
     <button class="logout-btn" id="precios-btn" onclick="openPreciosModal()" title="Cargar / actualizar lista de precios (CSV o Excel desde SAP)" style="display:none">Precios</button>
     <button class="logout-btn" id="audit-btn" onclick="openAuditPanel()" title="Auditoria: log de operaciones sensibles" style="display:none">Auditor&iacute;a</button>
     <button class="logout-btn" onclick="signOut()" title="Cerrar sesion">Salir</button>
@@ -1673,6 +1673,39 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       </div>
     </div>
   </div>
+
+  <!-- MASTER DE PRODUCTOS: buscador visual del catalogo SAP sincronizado.
+       Reemplaza al viejo modal Stock (que era carga de CSV manual). Todos
+       los roles logueados pueden acceder. Read-only. -->
+  <div class="modal-overlay" id="product-master-modal" onclick="if(event.target===this)closeProductMasterModal()">
+    <div class="modal-box" style="width:min(900px,98vw);max-height:92vh;display:flex;flex-direction:column">
+      <div class="modal-head" style="background:linear-gradient(135deg,#0f766e,#14b8a6)">
+        <div>
+          <h2>&#128209; Master de Productos</h2>
+          <div class="subt" id="pm-master-subt">Buscador del catalogo SAP: SKU, descripcion, precio y stock.</div>
+        </div>
+        <button class="modal-close" onclick="closeProductMasterModal()">&times;</button>
+      </div>
+      <div style="padding:14px 20px;overflow-y:auto;flex:1" id="pm-master-body">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:flex-end">
+          <label style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:4px">
+            <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569">Buscar SKU o descripcion</span>
+            <input type="text" id="pm-master-search" placeholder="Ej: CAC58, Shimano Caius, 042163..." oninput="renderProductMaster()" style="padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;font-family:inherit">
+          </label>
+          <label style="min-width:140px;display:flex;flex-direction:column;gap:4px">
+            <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569">Familia</span>
+            <select id="pm-master-fam" onchange="renderProductMaster()" style="padding:9px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:12px;outline:none;background:#fff"><option value="ALL">Todas</option></select>
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;font-size:12px;font-weight:600;color:#0f172a;cursor:pointer">
+            <input type="checkbox" id="pm-master-stock-only" onchange="renderProductMaster()" style="width:15px;height:15px;accent-color:#10b981;cursor:pointer"> Solo con stock
+          </label>
+        </div>
+        <div id="pm-master-info" style="font-size:11px;color:#64748b;margin-bottom:10px;font-weight:600"></div>
+        <div id="pm-master-results"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="precios-modal" onclick="if(event.target===this)closePreciosModal()">
     <div class="modal-box" style="width:min(640px,96vw)">
       <div class="modal-head" style="background:linear-gradient(135deg,#065f46,#10b981)">
@@ -3018,7 +3051,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v238';
+const APP_VERSION = 'v239';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -17950,9 +17983,12 @@ function applyRolePermissions(){
   const isAdminOrGerente = (userRole === 'admin' || userRole === 'gerente');
   // USUARIOS: SOLO admin.
   document.getElementById('admin-btn').style.display = (userRole === 'admin') ? '' : 'none';
-  // STOCK: SOLO admin (no gerente).
+  // PRODUCTOS (ex-Stock): buscador de master de productos. Read-only, util
+  // para todos - vendedores lo usan para chequear si un SKU esta en SAP,
+  // admin para ver precio + stock real-time. Solo lo ocultamos a viewer
+  // y unassigned que no crean pedidos.
   const stockBtnEl = document.getElementById('stock-btn');
-  if (stockBtnEl) stockBtnEl.style.display = (userRole === 'admin') ? '' : 'none';
+  if (stockBtnEl) stockBtnEl.style.display = ['admin','gerente','vendedor','interno'].indexOf(userRole) >= 0 ? '' : 'none';
   // PRECIOS: SOLO admin (no gerente).
   const preciosBtnEl = document.getElementById('precios-btn');
   if (preciosBtnEl) preciosBtnEl.style.display = (userRole === 'admin') ? '' : 'none';
@@ -20554,6 +20590,147 @@ window.openDashboardModal = function(){
 // tiempo real para actualizar STOCK_MAP.
 let _stockParsedPayload = null;        // {stock, totalSkus, withStock, withoutStock}
 let unsubStockSnapshot = null;
+
+// =====================================================================
+// MASTER DE PRODUCTOS - buscador visual (v239+)
+// =====================================================================
+// Reemplaza al viejo modal de carga CSV de stock. Ahora el stock se
+// sincroniza via stock.json + Service Layer (para real-time por SKU
+// especifico). Este modal es solo lectura: buscar cualquier SKU y ver
+// precio, stock, familia. Con boton para consultar stock real-time
+// contra SAP via SL.
+
+window.openProductMasterModal = function(){
+  document.getElementById('product-master-modal').classList.add('open');
+  // Poblar dropdown de familia con las que existen en PRODUCTS.
+  const famSet = new Set();
+  (PRODUCTS || []).forEach(p => { if (p.fam) famSet.add(p.fam); });
+  const famSel = document.getElementById('pm-master-fam');
+  if (famSel) {
+    const cur = famSel.value || 'ALL';
+    const opts = ['<option value="ALL">Todas</option>']
+      .concat([...famSet].sort().map(f => '<option value="' + escapeAttr(f) + '">' + escapeHtml(f) + '</option>'));
+    famSel.innerHTML = opts.join('');
+    famSel.value = famSet.has(cur) || cur === 'ALL' ? cur : 'ALL';
+  }
+  // Reset search por si quedo de una sesion anterior.
+  const searchEl = document.getElementById('pm-master-search');
+  if (searchEl) searchEl.value = '';
+  const stockOnlyEl = document.getElementById('pm-master-stock-only');
+  if (stockOnlyEl) stockOnlyEl.checked = false;
+  // Subtitulo con totales.
+  const subt = document.getElementById('pm-master-subt');
+  if (subt) subt.textContent = 'Buscador del catalogo SAP: ' + (PRODUCTS ? PRODUCTS.length.toLocaleString('es-AR') : 0) + ' SKUs sincronizados.';
+  renderProductMaster();
+};
+
+window.closeProductMasterModal = function(){
+  document.getElementById('product-master-modal').classList.remove('open');
+};
+
+window.renderProductMaster = function(){
+  const q = (document.getElementById('pm-master-search') || {}).value || '';
+  const famFilter = (document.getElementById('pm-master-fam') || {}).value || 'ALL';
+  const stockOnly = !!(document.getElementById('pm-master-stock-only') && document.getElementById('pm-master-stock-only').checked);
+  const qNorm = q.toLowerCase().trim();
+  const list = (PRODUCTS || []).filter(p => {
+    if (famFilter !== 'ALL' && p.fam !== famFilter) return false;
+    if (stockOnly) {
+      const st = (typeof hasStock === 'function') ? hasStock(p.code) : null;
+      if (st !== true) return false;
+    }
+    if (!qNorm) return true;
+    return (p.code || '').toLowerCase().includes(qNorm) || (p.desc || '').toLowerCase().includes(qNorm);
+  });
+  const total = (PRODUCTS || []).length;
+  const info = document.getElementById('pm-master-info');
+  if (info) {
+    info.innerHTML = total.toLocaleString('es-AR') + ' SKUs en catalogo &middot; <b>' + list.length.toLocaleString('es-AR') + '</b> match' + (list.length === 1 ? '' : 'es') + (qNorm || famFilter !== 'ALL' || stockOnly ? ' (filtrados)' : '');
+  }
+  const container = document.getElementById('pm-master-results');
+  if (!container) return;
+  if (!qNorm && famFilter === 'ALL' && !stockOnly) {
+    container.innerHTML = '<div style="padding:40px 20px;text-align:center;color:#94a3b8;font-size:13px;background:#f8fafc;border-radius:8px">Escribi un SKU o parte de una descripcion para buscar.<br><span style="font-size:11px">Ejemplos: <code>CAC58</code>, <code>Caius</code>, <code>Reel</code></span></div>';
+    return;
+  }
+  if (!list.length) {
+    container.innerHTML = '<div style="padding:30px 20px;text-align:center;color:#94a3b8;font-size:12px;background:#f8fafc;border-radius:8px;font-style:italic">Ningun SKU matchea con los filtros actuales.</div>';
+    return;
+  }
+  // Limitar a primeros 200 resultados para no saturar el DOM.
+  const shown = list.slice(0, 200);
+  let html = '';
+  shown.forEach(p => {
+    const stockRaw = (typeof hasStock === 'function') ? hasStock(p.code) : null;
+    const precio = (typeof PRICE_LIST_MAP === 'object' && PRICE_LIST_MAP) ? PRICE_LIST_MAP[p.code] : null;
+    const precioTxt = precio != null ? '$' + Number(precio).toLocaleString('es-AR') : '(sin precio)';
+    const precioColor = precio != null ? '#166534' : '#94a3b8';
+    let stockBadge = '';
+    if (stockRaw === true) stockBadge = '<span style="background:#dcfce7;color:#166534;padding:3px 9px;border-radius:10px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.3px">&#10003; Disponible</span>';
+    else if (stockRaw === false) stockBadge = '<span style="background:#fee2e2;color:#991b1b;padding:3px 9px;border-radius:10px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.3px">&#10006; Sin stock</span>';
+    else stockBadge = '<span style="background:#f1f5f9;color:#64748b;padding:3px 9px;border-radius:10px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.3px">Sin dato</span>';
+    const famTxt = p.fam ? escapeHtml(p.fam) : '';
+    const subTxt = p.sub ? ' &middot; ' + escapeHtml(p.sub) : '';
+    const catTxt = p.cat ? ' &middot; ' + escapeHtml(p.cat) : '';
+    html += '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">';
+    html += '<div style="flex:1;min-width:220px">';
+    html += '<div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:800;color:#0f172a;background:#f1f5f9;padding:2px 8px;border-radius:4px;display:inline-block;margin-bottom:4px">' + escapeHtml(p.code) + '</div>';
+    html += '<div style="font-size:13px;font-weight:700;color:#0f172a;line-height:1.35">' + escapeHtml(p.desc || '(sin descripcion)') + '</div>';
+    if (famTxt || subTxt || catTxt) html += '<div style="font-size:10px;color:#64748b;margin-top:2px">' + famTxt + subTxt + catTxt + '</div>';
+    html += '</div>';
+    html += '<div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;min-width:130px">';
+    html += '<div style="font-size:14px;font-weight:800;color:' + precioColor + '">' + precioTxt + '</div>';
+    html += stockBadge;
+    html += '<div style="display:flex;gap:4px;margin-top:4px">';
+    html += '<button onclick="copyProductCode(\'' + escapeAttr(p.code) + '\')" title="Copiar SKU al portapapeles" style="background:#0d9488;color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128203; Copiar</button>';
+    html += '<button onclick="queryStockLive(\'' + escapeAttr(p.code) + '\', this)" title="Consultar stock actualizado en SAP" style="background:#1e40af;color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128260; SAP live</button>';
+    html += '</div>';
+    html += '</div>';
+    html += '</div>';
+  });
+  if (list.length > 200) {
+    html += '<div style="padding:14px;text-align:center;color:#94a3b8;font-size:11px;font-style:italic">Mostrando primeros 200 de ' + list.length.toLocaleString('es-AR') + '. Afina la busqueda para ver menos.</div>';
+  }
+  container.innerHTML = html;
+};
+
+window.copyProductCode = async function(code){
+  try {
+    await navigator.clipboard.writeText(code);
+    if (typeof showSyncTag === 'function') showSyncTag('Codigo ' + code + ' copiado');
+  } catch(e) {
+    // Fallback para browsers viejos
+    const ta = document.createElement('textarea');
+    ta.value = code;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch(e2){}
+    document.body.removeChild(ta);
+    if (typeof showSyncTag === 'function') showSyncTag('Codigo copiado');
+  }
+};
+
+window.queryStockLive = async function(code, btn){
+  if (typeof sapSL === 'undefined' || !sapSL.isEnabled || !sapSL.isEnabled()) {
+    alert('Service Layer no esta habilitado. Configuralo en SAP > tab Service Layer para consultar stock real-time.');
+    return;
+  }
+  const origText = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '&#8230;'; btn.style.background = '#94a3b8'; }
+  try {
+    const r = await sapSL.getStock(code, '07');
+    if (r.ok) {
+      const qty = Number(r.qty || 0);
+      alert('Stock actualizado en SAP para SKU:\n\n' + code + '\n\nDeposito W07: ' + qty + ' unidades\n\nFuente: Service Layer SAP B1 en tiempo real.');
+    } else {
+      alert('Error consultando stock en SAP:\n\n' + (r.error || 'desconocido'));
+    }
+  } catch(e) {
+    alert('Error: ' + (e.message || String(e)));
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = origText; btn.style.background = '#1e40af'; }
+  }
+};
 
 window.openStockModal = function(){
   if (userRole !== 'admin') { alert('Solo el administrador puede actualizar el stock.'); return; }
