@@ -239,11 +239,59 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
     return items, stock_map, scanned, with_stock
 
 
+def load_local_categorization_from_html() -> dict:
+    """
+    Extrae el mapa {code: {cat, fam, sub}} desde el CSV inline `const PRODUCTS =
+    [...]` en index.html del repo. Este CSV es la fuente de verdad de la
+    categorizacion (cargada a mano por el equipo de pesca). El script del server
+    la usa asi no borra las categorias cuando escribe el catalogo desde SAP.
+
+    Retorna dict vacio si no encuentra la linea (no critico, seguiria escribiendo
+    sin cat/fam/sub y el catalogo quedaria plano).
+    """
+    result = {}
+    html_path = os.path.join(os.path.dirname(__file__), '..', 'index.html')
+    html_path = os.path.abspath(html_path)
+    if not os.path.exists(html_path):
+        log(f'[WARN] index.html no encontrado en {html_path}, no puedo leer categorias locales')
+        return result
+    try:
+        # PRODUCTS es una asignacion de una sola linea larga:
+        # const PRODUCTS = [{"code":"...","desc":"...","cat":"...","fam":"...","sub":"..."},...];
+        with open(html_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                stripped = line.lstrip()
+                if stripped.startswith('const PRODUCTS = ['):
+                    json_part = stripped[len('const PRODUCTS = '):].rstrip()
+                    if json_part.endswith(';'):
+                        json_part = json_part[:-1]
+                    try:
+                        arr = json.loads(json_part)
+                    except json.JSONDecodeError as e:
+                        log(f'[WARN] no pude parsear PRODUCTS inline: {e}')
+                        return result
+                    for p in arr:
+                        code = (p.get('code') or '').strip()
+                        if not code:
+                            continue
+                        if p.get('cat') or p.get('fam') or p.get('sub'):
+                            result[code] = {
+                                'cat': p.get('cat') or '',
+                                'fam': p.get('fam') or '',
+                                'sub': p.get('sub') or '',
+                            }
+                    break
+    except Exception as e:
+        log(f'[WARN] load_local_categorization_from_html: {e}')
+    log(f'[merge/local] {len(result)} items con categorizacion en index.html')
+    return result
+
+
 def load_existing_catalog(db: firestore.Client) -> dict:
     """
     Trae los chunks actuales de product_catalog y arma {code: {cat, fam, sub}}
-    para preservar la categorizacion ya cargada. El sync del cliente hace lo
-    mismo pero contra PRODUCTS en memoria (que a su vez viene del CSV/repo).
+    para preservar categorizacion ya cargada. Se usa como capa 2 (fallback si
+    el CSV inline no tiene el item).
     """
     existing = {}
     try:
@@ -254,7 +302,6 @@ def load_existing_catalog(db: firestore.Client) -> dict:
                 code = it.get('code')
                 if not code:
                     continue
-                # Solo guardamos si hay algo util
                 if it.get('cat') or it.get('fam') or it.get('sub'):
                     existing[code] = {
                         'cat': it.get('cat') or '',
@@ -262,8 +309,8 @@ def load_existing_catalog(db: firestore.Client) -> dict:
                         'sub': it.get('sub') or '',
                     }
     except Exception as e:
-        log(f'[WARN] load_existing_catalog: {e} - sigo sin merge')
-    log(f'[merge] {len(existing)} items con categorizacion previa')
+        log(f'[WARN] load_existing_catalog: {e} - sigo sin merge Firestore')
+    log(f'[merge/firestore] {len(existing)} items con categorizacion previa en Firestore')
     return existing
 
 
@@ -383,8 +430,15 @@ def main() -> int:
         log('[FATAL] SL devolvio 0 items. No escribo nada para no pisar datos buenos.')
         return 5
 
-    # Catalogo: mergea con existente para preservar cat/fam/sub
-    existing = load_existing_catalog(db)
+    # Catalogo: fuente primaria de categorizacion = CSV inline en index.html.
+    # Fallback = product_catalog en Firestore (por si alguien clasifico items
+    # nuevos via el sync manual del admin y no llegaron al CSV inline aun).
+    local_cat = load_local_categorization_from_html()
+    fs_cat = load_existing_catalog(db)
+    # Merge: local tiene prioridad, firestore rellena huecos.
+    existing = dict(fs_cat)
+    existing.update(local_cat)
+    log(f'[merge] total items con categorizacion disponible: {len(existing)}')
     write_catalog(db, items, existing)
     write_stock_snapshot(db, stock_map, with_stock)
 
