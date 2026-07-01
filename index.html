@@ -1999,8 +1999,8 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <div><h2 id="mis-camps-title">Campa&ntilde;as Activas</h2><div class="subt" id="mis-camps-subt">Tocá una campa&ntilde;a para ver los SKU involucrados.</div></div>
         <button class="modal-close" onclick="closeMisCampsModal()">&times;</button>
       </div>
-      <div style="padding:10px 22px 0;background:#fffbeb;border-bottom:1px solid #fde68a">
-        <div style="display:flex;gap:4px;background:#fef3c7;border-radius:6px;padding:3px;width:fit-content">
+      <div style="padding:10px 22px 0;background:#fffbeb;border-bottom:1px solid #fde68a;display:flex;justify-content:center">
+        <div style="display:flex;gap:4px;background:#fef3c7;border-radius:6px;padding:3px">
           <button type="button" id="mc-tab-active" class="mc-cli-tab-btn active" onclick="setMisCampsTab('active')" style="padding:6px 14px;border:none;border-radius:4px;background:#fff;color:#92400e;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 1px 2px rgba(0,0,0,.08)">Activas <span id="mc-tab-active-count" style="background:#b45309;color:#fff;border-radius:9px;padding:1px 7px;font-size:10px;margin-left:4px">0</span></button>
           <button type="button" id="mc-tab-history" class="mc-cli-tab-btn" onclick="setMisCampsTab('history')" style="padding:6px 14px;border:none;border-radius:4px;background:transparent;color:#92400e;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Hist&oacute;ricas <span id="mc-tab-history-count" style="background:#a3a3a3;color:#fff;border-radius:9px;padding:1px 7px;font-size:10px;margin-left:4px">0</span></button>
         </div>
@@ -2991,7 +2991,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v226';
+const APP_VERSION = 'v227';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
