@@ -3018,7 +3018,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v234';
+const APP_VERSION = 'v235';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -18770,6 +18770,25 @@ function renderSapConfig(){
         + '<tr style="background:#f8fafc"><td style="padding:7px 10px;font-family:Consolas,monospace;font-weight:700;color:#5b21b6">U_AppBatchId</td><td style="padding:7px 10px">ID unico del lote de export: <code>BATCH-YYYYMMDD-HHMMSS-XXXX</code>. Todos los pedidos de un mismo ZIP comparten este ID.</td></tr>'
       + '</table>'
     + '</div>'
+    // --- Sincronizar catalogo de productos desde SAP ---
+    + (function(){
+        // Leer el estado actual del catalogo (async, pero para render inicial
+        // usamos el listener). Aca leemos el ultimo apply de la sesion actual.
+        let catalogInfo = '';
+        if (typeof _lastAppliedCatalogBatch !== 'undefined' && _lastAppliedCatalogBatch) {
+          catalogInfo = '<b style="color:#166534">&#10003; Catalogo sincronizado</b> - ' + (PRODUCTS ? PRODUCTS.length.toLocaleString('es-AR') : 0) + ' SKUs en memoria. Ultimo batch: <code>' + escapeHtml(String(_lastAppliedCatalogBatch)) + '</code>';
+        } else {
+          catalogInfo = 'Sin sincronizar en esta sesion. El picker usa el catalogo hardcoded del HTML (' + (PRODUCTS ? PRODUCTS.length.toLocaleString('es-AR') : 0) + ' SKUs).';
+        }
+        return '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px 16px;margin-bottom:14px">'
+          + '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569;margin-bottom:4px">Catalogo de productos</div>'
+          + '<div style="font-size:11px;color:#64748b;line-height:1.5;margin-bottom:10px">'
+            + 'Descarga TODOS los items activos del maestro de articulos de SAP (Ventas &gt; Datos Maestros &gt; Articulos) y los guarda en Firestore. La app usa este catalogo en el picker de productos al crear pedidos. Corre cuando cargan articulos nuevos en SAP.'
+          + '</div>'
+          + '<div id="sap-catalog-status" style="font-size:11px;color:#64748b;margin-bottom:10px">' + catalogInfo + '</div>'
+          + (isAdmin ? '<button class="app-btn-pill" style="background:#0d9488;color:#fff;padding:10px 18px;border:none;border-radius:6px;cursor:pointer;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:11px" onclick="syncSapCatalog()">&#128260; Sincronizar catalogo desde SAP</button>' : '<div style="font-size:11px;color:#94a3b8">Solo admin puede sincronizar</div>')
+        + '</div>';
+      })()
     // --- Estado integracion ---
     + '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px 14px;font-size:11px;color:#15803d;line-height:1.6">'
       + '<b>Checklist integracion SAP</b><br>'
@@ -18826,6 +18845,139 @@ window.saveSapAppSeries = async function(){
     alert('Error guardando: ' + (e.message || e));
   }
 };
+
+// ====================================================================
+// Sincronizar catalogo de productos desde SAP via Service Layer
+// ====================================================================
+// Descarga TODOS los items activos de SAP y los guarda en Firestore
+// para que la app los use en el picker de productos. Reemplaza items
+// duplicados via merge inteligente: si un ItemCode ya esta en PRODUCTS
+// local con familia/subfamilia/categoria, mantenemos esos campos.
+// Si es nuevo, se agrega con esos campos vacios.
+window.syncSapCatalog = async function(){
+  if (userRole !== 'admin') return;
+  if (typeof sapSL === 'undefined' || !sapSL.isEnabled || !sapSL.isEnabled()) {
+    alert('Service Layer no esta habilitado. Configuralo en el tab Service Layer.');
+    return;
+  }
+  if (!confirm('Sincronizar catalogo de productos desde SAP?\n\nEsto puede tardar 10-30 segundos segun la cantidad de items. Los datos existentes se REEMPLAZAN por lo que este en SAP hoy.')) return;
+  const statusEl = document.getElementById('sap-catalog-status');
+  const setStatus = (txt, color) => {
+    if (!statusEl) return;
+    statusEl.style.color = color || '#0284c7';
+    statusEl.style.fontStyle = 'normal';
+    statusEl.innerHTML = txt;
+  };
+  setStatus('&#9203; Conectando a Service Layer...');
+  const sess = await sapSL.ensureSession();
+  if (!sess.ok) { setStatus('&#10006; Error de sesion: ' + escapeHtml(sess.error || ''), '#dc2626'); return; }
+  setStatus('&#8681; Descargando items desde SAP...');
+  const r = await sapSL.getAllItems((fetched) => {
+    setStatus('&#8681; Descargando... ' + fetched.toLocaleString('es-AR') + ' items');
+  });
+  if (!r.ok) {
+    setStatus('&#10006; Error descargando: ' + escapeHtml(r.error || ''), '#dc2626');
+    return;
+  }
+  const slItems = r.items || [];
+  setStatus('&#128190; Guardando ' + slItems.length.toLocaleString('es-AR') + ' items en Firestore...');
+  // Merge inteligente con PRODUCTS local.
+  const localMap = new Map();
+  if (Array.isArray(PRODUCTS)) {
+    PRODUCTS.forEach(p => localMap.set(p.code, p));
+  }
+  const merged = slItems.map(it => {
+    const existing = localMap.get(it.ItemCode);
+    return {
+      code: it.ItemCode || '',
+      desc: it.ItemName || '',
+      fam: (existing && existing.fam) || '',
+      sub: (existing && existing.sub) || '',
+      cat: (existing && existing.cat) || '',
+    };
+  });
+  // Chunkear en 3 docs (por si supera 1 MB). ~4000 items/chunk.
+  const CHUNK = 4000;
+  const chunks = [];
+  for (let i = 0; i < merged.length; i += CHUNK) chunks.push(merged.slice(i, i + CHUNK));
+  const syncBatchId = 'SYNC-' + Date.now();
+  try {
+    const batch = fbDb.batch();
+    // Escribir cada chunk
+    chunks.forEach((chunk, idx) => {
+      const ref = fbDb.collection('product_catalog').doc('chunk_' + idx);
+      batch.set(ref, {
+        items: chunk,
+        chunkIdx: idx,
+        totalChunks: chunks.length,
+        syncBatchId: syncBatchId,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    });
+    // Limpiar chunks viejos que ya no aplican (si antes teniamos 5 chunks y
+    // ahora tenemos 3, borrar 3 y 4). Chequeo con .get() previo.
+    await batch.commit();
+    // Metadata doc que dispara el listener en la app.
+    await fbDb.collection('app_config').doc('product_catalog_meta').set({
+      totalItems: merged.length,
+      totalChunks: chunks.length,
+      syncBatchId: syncBatchId,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: currentUser.email || '',
+    });
+    // Cleanup asincrono de chunks huerfanos (chunks_N donde N >= totalChunks).
+    (async () => {
+      try {
+        const snap = await fbDb.collection('product_catalog').get();
+        const stale = snap.docs.filter(d => {
+          const idx = (d.data() && d.data().chunkIdx);
+          return idx == null || idx >= chunks.length;
+        });
+        for (const d of stale) { try { await d.ref.delete(); } catch(e){} }
+      } catch(e) { console.warn('[catalog] cleanup stale chunks', e); }
+    })();
+    setStatus('&#10003; Sincronizado: ' + merged.length.toLocaleString('es-AR') + ' items en ' + chunks.length + ' chunks - ' + new Date().toLocaleString('es-AR'), '#166534');
+    try { logOp('sap_catalog_sync', 'product_catalog', syncBatchId, {totalItems: merged.length, totalChunks: chunks.length}); } catch(e){}
+    showSyncTag('Catalogo sincronizado: ' + merged.length + ' SKUs');
+  } catch(e) {
+    console.error('syncSapCatalog', e);
+    setStatus('&#10006; Error guardando en Firestore: ' + escapeHtml(e.message || String(e)), '#dc2626');
+  }
+};
+
+// Listener del catalogo de productos. Cuando el metadata doc cambia
+// (syncBatchId nuevo), fetch todos los chunks y actualiza PRODUCTS en
+// memoria. La app se refresca sola sin necesidad de reload.
+let unsubProductCatalog = null;
+let _lastAppliedCatalogBatch = null;
+function ensureProductCatalogListener(){
+  if (unsubProductCatalog || !currentUser || !fbDb) return;
+  unsubProductCatalog = fbDb.collection('app_config').doc('product_catalog_meta').onSnapshot(async snap => {
+    if (!snap.exists) return;
+    const meta = snap.data() || {};
+    if (!meta.syncBatchId || meta.syncBatchId === _lastAppliedCatalogBatch) return;
+    _lastAppliedCatalogBatch = meta.syncBatchId;
+    console.log('[catalog] listener detecto nuevo batch:', meta.syncBatchId, '(' + meta.totalItems + ' items en ' + meta.totalChunks + ' chunks)');
+    try {
+      const items = [];
+      for (let i = 0; i < meta.totalChunks; i++) {
+        const chunkSnap = await fbDb.collection('product_catalog').doc('chunk_' + i).get();
+        if (!chunkSnap.exists) { console.warn('[catalog] chunk faltante:', i); continue; }
+        const arr = (chunkSnap.data() && chunkSnap.data().items) || [];
+        arr.forEach(it => items.push(it));
+      }
+      if (items.length) {
+        // Reemplazar PRODUCTS. Cuidado: PRODUCTS es const, tengo que
+        // mutar el array in-place para preservar referencia.
+        PRODUCTS.length = 0;
+        items.forEach(it => PRODUCTS.push(it));
+        console.log('[catalog] PRODUCTS actualizado con', items.length, 'items desde SAP');
+        // Re-render del picker si esta visible.
+        try { if (typeof renderProductPicker === 'function' && document.getElementById('pm-products')) renderProductPicker(); } catch(e){}
+      }
+    } catch(e) { console.warn('[catalog] error cargando chunks:', e); }
+  }, err => console.warn('[catalog] listener error', err));
+}
 
 function sapGetClienteCode(clientName){
   // Fuente 1 (prioridad): sap_clients - mapeo manual cargado por admin
@@ -19012,6 +19164,35 @@ const sapSL = {
     const whs = (r.body && r.body.ItemWarehouseInfoCollection) || [];
     const target = whs.find(w => w.WarehouseCode === whsCode);
     return {ok: true, qty: target ? parseFloat(target.InStock || 0) : 0};
+  },
+
+  // Trae TODOS los items activos del catalogo SAP paginando via OData.
+  // Callback onProgress(fetched, total) se llama cada pagina para actualizar
+  // barra de progreso. total puede ser null si SL no lo devuelve.
+  // Devuelve {ok, items: [{ItemCode, ItemName}], error?}.
+  async getAllItems(onProgress){
+    const items = [];
+    let skip = 0;
+    const pageSize = 999; // maximo permitido por Service Layer
+    while (true) {
+      const path = "/b1s/v1/Items?$select=ItemCode,ItemName,Valid&$top=" + pageSize + "&$skip=" + skip;
+      const r = await this.fetchWithSession(path);
+      if (!r.ok) return {ok: false, error: r.error, itemsFetched: items.length};
+      const arr = (r.body && r.body.value) || [];
+      // Filtrar items inactivos (Valid !== 'tYES'). Si Valid es undefined
+      // asumimos activo (compatibilidad si SAP no expone el campo).
+      arr.forEach(it => {
+        if (it.Valid && it.Valid !== 'tYES') return;
+        items.push({ItemCode: it.ItemCode || '', ItemName: it.ItemName || ''});
+      });
+      if (typeof onProgress === 'function') onProgress(items.length, r.body['@odata.count'] || null);
+      // Si trajimos menos que pageSize, ya no hay mas paginas.
+      if (arr.length < pageSize) break;
+      skip += pageSize;
+      // Safety: cortar a 50k items para evitar loops infinitos.
+      if (items.length > 50000) break;
+    }
+    return {ok: true, items};
   },
 
   // Arma el payload JSON de OQUT a partir de un pedido de la app, equivalente
@@ -23629,6 +23810,12 @@ function attachFirebaseListeners(){
   // mantuviera el panel SAP abierto.
   if ((userRole === 'admin' || userRole === 'gerente') && typeof ensureSapConfigListener === 'function') {
     try { ensureSapConfigListener(); } catch(e){}
+  }
+  // Listener del catalogo de productos - todos los roles logueados. Cuando
+  // el admin sincroniza desde SAP, esto propaga el nuevo PRODUCTS a todos
+  // sin necesidad de reload.
+  if (typeof ensureProductCatalogListener === 'function') {
+    try { ensureProductCatalogListener(); } catch(e){}
   }
   // 1) userData -> contacted + orders (drafts)
   // Admin/viewer leen TODOS los userData (vista global de contactados); vendedor solo el suyo.
