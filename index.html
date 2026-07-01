@@ -3059,7 +3059,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v241';
+const APP_VERSION = 'v242';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -5606,18 +5606,21 @@ function renderClients(pts){
       html += ' onclick="openSapAltaCard(\'' + safeFsId + '\')"';
       html += '>';
       html += '<div class="client-body">';
-      html += '<div class="client-name">' + escapeHtml(it.name);
+      // Prioridad de nombres: LOCAL (fantasia) en grande, TITULAR (comercio)
+      // en chico. Si no hay fantasia, el titular va en grande.
+      const fantSap = (a.fantasia || '').trim();
+      const titularSap = (it.name || '').trim();
+      const hasFant = fantSap && fantSap.toLowerCase() !== titularSap.toLowerCase();
+      const bigName = hasFant ? fantSap : titularSap;
+      html += '<div class="client-name">' + escapeHtml(bigName);
       const sapBadgeLabel = a.cardCodeSap ? ('SAP ' + escapeHtml(a.cardCodeSap)) : '&#9889; PROVISORIO';
       html += ' <span style="font-size:9px;color:' + sapBadgeFg + ';font-weight:700;margin-left:6px;background:' + sapBadgeBg + ';padding:2px 6px;border-radius:3px">' + sapBadgeLabel + '</span>';
       if (isPrec) {
         html += ' <span title="' + escapeAttr(a.precaucionReason || 'Cliente con precaucion') + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:4px;background:#d97706;padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">&#9888;&#65039; Precauci&oacute;n</span>';
       }
       html += '</div>';
-      // Nombre de fantasia: si el comercio es el nombre del titular (ej. "AGUSTIN BEBER")
-      // pero el local tiene un nombre comercial / marca (ej. "PESCAPLAY"), mostramos ambos.
-      const fantSap = (a.fantasia || '').trim();
-      if (fantSap && fantSap.toLowerCase() !== (it.name || '').toLowerCase()) {
-        html += '<div style="font-size:11px;color:#475569;font-weight:600;margin-top:2px"><span style="color:#94a3b8;font-weight:500">Local:</span> ' + escapeHtml(fantSap) + '</div>';
+      if (hasFant) {
+        html += '<div style="font-size:11px;color:#475569;font-weight:600;margin-top:2px"><span style="color:#94a3b8;font-weight:500">Titular:</span> ' + escapeHtml(titularSap) + '</div>';
       }
       html += '<div class="client-meta">';
       html += '<span class="cli-state-badge" style="background:' + sapLeft + ';color:#fff">' + sapLabel + '</span>';
@@ -5681,15 +5684,11 @@ function renderClients(pts){
     html += ' onclick="onClientCardClick(event, \'' + escapeAttr(k) + '\', ' + it.point.lat + ', ' + it.point.lon + ')"';
     html += ' ondblclick="openClientModal(\'' + safeName + '\', \'' + it.tipo + '\', \'' + safeProv + '\', \'' + safeLoc + '\')">';
     html += '<div class="client-body">';
-    html += '<div class="client-name">' + escapeHtml(displayName) + renamedTag;
-    if (mPrec) {
-      html += ' <span title="' + escapeAttr(mPrecReason || 'Cliente con precaucion') + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:4px;background:#d97706;padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">&#9888;&#65039; Precauci&oacute;n</span>';
-    }
-    html += '</div>';
-    // Nombre del local / fantasia. Prioridad:
+    // Nombre del LOCAL (fantasia) va en grande, TITULAR abajo en chico.
+    // Fantasia se resuelve por:
     //  1) clientMeta.customFantasia (lo escribiste vos en el modal del cliente).
-    //  2) approvedAltasList[].fantasia matcheado por comercio+provincia,
-    //     siempre que difiera del nombre del comercio (no eco).
+    //  2) approvedAltasList[].fantasia matcheado por comercio+provincia.
+    // Si no hay fantasia, el titular va en grande.
     let fantPt = '';
     const mFant = (typeof clientMeta !== 'undefined' && clientMeta[k] && clientMeta[k].customFantasia) ? clientMeta[k].customFantasia : '';
     if (mFant) {
@@ -5711,8 +5710,16 @@ function renderClients(pts){
         }
       }
     }
-    if (fantPt && fantPt.toLowerCase() !== (it.name || '').toLowerCase() && fantPt.toLowerCase() !== displayName.toLowerCase()) {
-      html += '<div style="font-size:11px;color:#475569;font-weight:600;margin-top:2px"><span style="color:#94a3b8;font-weight:500">Local:</span> ' + escapeHtml(fantPt) + '</div>';
+    const titularPt = displayName;
+    const hasFantPt = fantPt && fantPt.toLowerCase() !== titularPt.toLowerCase();
+    const bigNamePt = hasFantPt ? fantPt : titularPt;
+    html += '<div class="client-name">' + escapeHtml(bigNamePt) + (hasFantPt ? '' : renamedTag);
+    if (mPrec) {
+      html += ' <span title="' + escapeAttr(mPrecReason || 'Cliente con precaucion') + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:4px;background:#d97706;padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">&#9888;&#65039; Precauci&oacute;n</span>';
+    }
+    html += '</div>';
+    if (hasFantPt) {
+      html += '<div style="font-size:11px;color:#475569;font-weight:600;margin-top:2px"><span style="color:#94a3b8;font-weight:500">Titular:</span> ' + escapeHtml(titularPt) + renamedTag + '</div>';
     }
     html += '<div class="client-meta">';
     html += '<span class="cli-state-badge ' + state + '">' + stateLabel + '</span>';
@@ -14662,12 +14669,41 @@ function renderCrearList(){
     } else if (isProvisorio) {
       cardStyle = ' style="border-left:4px solid #f59e0b;background:#fffbeb"';
     }
+    // Resolver nombre local (fantasia) para mostrarlo en grande. Mismo
+    // criterio que renderClients: clientMeta.customFantasia > alta
+    // matcheada por nombre + provincia. Si no hay fantasia, muestra el
+    // titular en grande.
+    let fantPed = '';
+    const kPed = contactKey(it.point, it.name, it.tipo);
+    if (typeof clientMeta !== 'undefined' && clientMeta[kPed] && clientMeta[kPed].customFantasia) {
+      fantPed = clientMeta[kPed].customFantasia.trim();
+    } else if (it.sapAlta && it.sapAlta.fantasia) {
+      const f = it.sapAlta.fantasia.trim();
+      if (f && f.toLowerCase() !== (it.name || '').toLowerCase()) fantPed = f;
+    } else if (typeof approvedAltasByLoc !== 'undefined') {
+      const aLocKey = (it.point.province || '').toUpperCase() + '|' + (it.point.name || '');
+      const altas = approvedAltasByLoc[aLocKey] || [];
+      const nameLower = (it.name || '').toLowerCase();
+      const altaMatch = altas.find(a => {
+        if (!a) return false;
+        return (a.comercio || '').toLowerCase() === nameLower || (a.fantasia || '').toLowerCase() === nameLower;
+      });
+      if (altaMatch && altaMatch.fantasia) {
+        const f = altaMatch.fantasia.trim();
+        if (f && f.toLowerCase() !== (it.name || '').toLowerCase()) fantPed = f;
+      }
+    }
+    const hasFantPed = !!fantPed;
+    const bigNamePed = hasFantPed ? fantPed : it.name;
     html += '<div class="pedido-client-card"' + cardStyle + ' ' + evtAttr + '="askCreatePedido(\'' + escapeAttr(it.name) + '\',\'' + it.tipo + '\',\'' + escapeAttr(it.point.province) + '\',\'' + escapeAttr(it.point.name) + '\')" title="' + tipText + '">';
-    html += '<div style="flex:1;min-width:0"><div class="ped-name">' + escapeHtml(it.name);
+    html += '<div style="flex:1;min-width:0"><div class="ped-name">' + escapeHtml(bigNamePed);
     if (prec.flag) {
       html += ' <span title="' + escapeAttr(prec.reason || 'Cliente con precaucion') + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:4px;background:#d97706;padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">&#9888;&#65039; Precauci&oacute;n</span>';
     }
     html += '</div>';
+    if (hasFantPed) {
+      html += '<div style="font-size:10px;color:#475569;margin-top:1px"><span style="color:#94a3b8">Titular:</span> ' + escapeHtml(it.name) + '</div>';
+    }
     html += '<div class="ped-meta">' + escapeHtml(it.point.name) + ' / ' + escapeHtml(titleCase(it.point.province)) + '</div></div>';
     html += '<div style="text-align:right;display:flex;flex-direction:column;gap:3px;align-items:flex-end">';
     if (isProvisorio) {
