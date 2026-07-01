@@ -765,6 +765,22 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .zonas-tab-btn{padding:7px 14px;border:1.5px solid #d8b4fe;border-radius:6px;background:#fff;color:#6d28d9;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;transition:.15s}
 .zonas-tab-btn:hover{background:#f5f3ff}
 .zonas-tab-btn.active{background:#7c3aed;color:#fff;border-color:#7c3aed}
+/* Modal Zonas en mobile: ancho y alto full-screen, tabs/filtros stackeados */
+@media (max-width:900px){
+  #zonas-modal .modal-overlay,#zonas-modal.modal-overlay{padding:0}
+  #zonas-modal .modal-box{width:100vw!important;max-width:100vw!important;max-height:100dvh!important;height:100dvh;border-radius:0}
+  #zonas-modal .modal-body{max-height:none}
+  /* Tabs: distribuir equitativamente para que HISTORIAL no se corte */
+  #zonas-modal .modal-body > div:first-child{padding:8px 10px!important;flex-wrap:wrap;gap:4px!important}
+  #zonas-modal .zonas-tab-btn{flex:1 1 calc(50% - 4px);min-width:0;padding:7px 8px;font-size:10px;text-align:center}
+  /* Filtros: cada uno full width, stackeados */
+  #zonas-filters{flex-direction:column;align-items:stretch!important;padding:10px!important;gap:8px!important}
+  #zonas-filters button,#zonas-filters select,#zonas-filters input{width:100%!important;min-width:0!important;max-width:100%!important;box-sizing:border-box}
+  #zonas-filters #zonas-pending-info{margin-left:0!important;text-align:center;font-size:12px}
+  /* Footer con acciones: full width buttons */
+  #zonas-modal .modal-body > div:last-child{flex-direction:column;align-items:stretch;padding:10px!important;gap:6px!important}
+  #zonas-modal .zonas-action-btn,#zonas-modal .modal-body > div:last-child button{width:100%!important;margin:0!important;text-align:center}
+}
 .zonas-row{display:grid;grid-template-columns:1.5fr 1.2fr 1fr 1fr;gap:10px;padding:9px 6px;border-bottom:1px solid #f1f5f9;font-size:12px;align-items:center}
 .zonas-row.header{font-size:10px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.4px;background:#f8fafc;border-bottom:1.5px solid #e2e8f0;position:sticky;top:0;z-index:2}
 .zonas-row .name{font-weight:700;color:#0f172a;word-break:break-word;line-height:1.3}
@@ -3002,7 +3018,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v230';
+const APP_VERSION = 'v231';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
