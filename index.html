@@ -3002,7 +3002,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v228';
+const APP_VERSION = 'v229';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -5586,19 +5586,22 @@ function renderClients(pts){
     // Precaucion: check en 2 fuentes para cubrir todos los casos.
     // 1) clientMeta[k].precaucion (POINTS, seteado desde el modal cliente).
     // 2) approvedAltasList[].precaucion (SAP altas, seteado desde el modal
-    //    Alta SAP). Un mismo cliente puede tener alta SAP y ser POINTS
-    //    (padron viejo). Si el flag esta en la alta pero no en clientMeta,
-    //    en mobile antes se veia blanco. Ahora matcheamos por nombre y
-    //    provincia normalizados, hallando cualquiera de las dos fuentes.
+    //    Alta SAP). Match por nombre normalizado (sin espacios extra, sin
+    //    tildes, uppercase). Sin filtro por provincia porque a veces la
+    //    provincia difiere entre POINTS (ej. 'Caba') y client_applications
+    //    (ej. 'Capital Federal') - el nombre completo es unico suficiente.
     let mPrec = !!(typeof clientMeta !== 'undefined' && clientMeta[k] && clientMeta[k].precaucion);
     let mPrecReason = (mPrec && clientMeta[k].precaucionReason) ? clientMeta[k].precaucionReason : '';
     if (!mPrec && typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList)) {
-      const nameU = (it.name || '').toUpperCase().trim();
-      const provU = (it.point.province || '').toUpperCase().trim();
+      const normStr = s => (s || '').toString().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+      const nameU = normStr(it.name);
       for (const a of approvedAltasList) {
         if (!a || !a.precaucion) continue;
-        if ((a.provincia || '').toUpperCase().trim() !== provU) continue;
-        const matches = [a.comercio, a.titular, a.fantasia].some(n => (n || '').toUpperCase().trim() === nameU);
+        const matches = [a.comercio, a.titular, a.fantasia].some(n => {
+          const nn = normStr(n);
+          if (!nn) return false;
+          return nn === nameU;
+        });
         if (matches) {
           mPrec = true;
           mPrecReason = a.precaucionReason || 'Cliente con precaucion';
