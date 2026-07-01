@@ -3018,7 +3018,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v232';
+const APP_VERSION = 'v233';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -14577,17 +14577,50 @@ function renderCrearList(){
   if (q) items = items.filter(it => (it.name || '').toLowerCase().includes(q));
   items.sort((a, b) => a.name.localeCompare(b.name));
   let html = '';
+  // Helper para chequear si el cliente tiene flag de precaucion. Match
+  // en 2 fuentes: clientMeta (POINTS) y approvedAltasList (SAP altas).
+  // Mismo criterio que renderClients para consistencia entre CLIENTES y
+  // PEDIDOS. Si el cliente esta marcado precaucion, la card sale amarilla.
+  function _pedidoIsPrecaucion(itObj){
+    try {
+      const k = contactKey(itObj.point, itObj.name, itObj.tipo);
+      if (typeof clientMeta !== 'undefined' && clientMeta[k] && clientMeta[k].precaucion) {
+        return {flag: true, reason: clientMeta[k].precaucionReason || ''};
+      }
+      if (typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList)) {
+        const normStr = s => (s || '').toString().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+        const nameU = normStr(itObj.name);
+        for (const a of approvedAltasList) {
+          if (!a || !a.precaucion) continue;
+          const matches = [a.comercio, a.titular, a.fantasia].some(n => normStr(n) === nameU);
+          if (matches) return {flag: true, reason: a.precaucionReason || ''};
+        }
+      }
+    } catch(e){}
+    return {flag: false, reason: ''};
+  }
   items.forEach(it => {
     const k = orderKey(it.name, it.point.province, it.point.name, it.tipo);
     const hasOrder = (orders[k] || []).length > 0;
     // Detectar si es alta provisoria (sin SAP todavia). Sale del flag
     // manualSapPending del alta cuando no tiene cardCodeSap aun.
     const isProvisorio = !!(it.sapAlta && it.sapAlta.manualSapPending && !it.sapAlta.cardCodeSap);
+    const prec = _pedidoIsPrecaucion(it);
     const evtAttr = IS_TOUCH ? 'onclick' : 'ondblclick';
     const tipText = IS_TOUCH ? 'Tocar para crear pedido' : 'Doble click para crear pedido';
-    const cardStyle = isProvisorio ? ' style="border-left:4px solid #f59e0b;background:#fffbeb"' : '';
+    // Prioridad de estilo: precaucion > provisorio > default.
+    let cardStyle = '';
+    if (prec.flag) {
+      cardStyle = ' style="border-left:5px solid #b45309;border-color:#f59e0b;background:#fde68a"';
+    } else if (isProvisorio) {
+      cardStyle = ' style="border-left:4px solid #f59e0b;background:#fffbeb"';
+    }
     html += '<div class="pedido-client-card"' + cardStyle + ' ' + evtAttr + '="askCreatePedido(\'' + escapeAttr(it.name) + '\',\'' + it.tipo + '\',\'' + escapeAttr(it.point.province) + '\',\'' + escapeAttr(it.point.name) + '\')" title="' + tipText + '">';
-    html += '<div style="flex:1;min-width:0"><div class="ped-name">' + escapeHtml(it.name) + '</div>';
+    html += '<div style="flex:1;min-width:0"><div class="ped-name">' + escapeHtml(it.name);
+    if (prec.flag) {
+      html += ' <span title="' + escapeAttr(prec.reason || 'Cliente con precaucion') + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:4px;background:#d97706;padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">&#9888;&#65039; Precauci&oacute;n</span>';
+    }
+    html += '</div>';
     html += '<div class="ped-meta">' + escapeHtml(it.point.name) + ' / ' + escapeHtml(titleCase(it.point.province)) + '</div></div>';
     html += '<div style="text-align:right;display:flex;flex-direction:column;gap:3px;align-items:flex-end">';
     if (isProvisorio) {
