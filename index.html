@@ -1461,8 +1461,6 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <button class="logout-btn" id="master-cli-btn" onclick="openMasterClientesPanel()" title="Cargar direcciones exactas de cada tienda" style="display:none">Master Clientes</button>
     <button class="logout-btn" id="admin-btn" onclick="openAdminPanel()" title="Gestion de usuarios" style="display:none">Usuarios</button>
     <button class="logout-btn" id="stock-btn" onclick="openProductMasterModal()" title="Buscador de productos: precio, stock y datos maestros de cualquier SKU" style="display:none">Productos</button>
-    <button class="logout-btn" id="precios-btn" onclick="openPreciosModal()" title="Cargar / actualizar lista de precios (CSV o Excel desde SAP)" style="display:none">Precios</button>
-    <button class="logout-btn" id="audit-btn" onclick="openAuditPanel()" title="Auditoria: log de operaciones sensibles" style="display:none">Auditor&iacute;a</button>
     <button class="logout-btn" onclick="signOut()" title="Cerrar sesion">Salir</button>
   </div>
 </div>
@@ -3051,7 +3049,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v239';
+const APP_VERSION = 'v240';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -17989,12 +17987,9 @@ function applyRolePermissions(){
   // y unassigned que no crean pedidos.
   const stockBtnEl = document.getElementById('stock-btn');
   if (stockBtnEl) stockBtnEl.style.display = ['admin','gerente','vendedor','interno'].indexOf(userRole) >= 0 ? '' : 'none';
-  // PRECIOS: SOLO admin (no gerente).
-  const preciosBtnEl = document.getElementById('precios-btn');
-  if (preciosBtnEl) preciosBtnEl.style.display = (userRole === 'admin') ? '' : 'none';
-  // AUDITORIA: admin + viewer (no gerente).
-  const auditBtn = document.getElementById('audit-btn');
-  if (auditBtn) auditBtn.style.display = (userRole === 'admin' || userRole === 'viewer') ? '' : 'none';
+  // (v240: botones PRECIOS y AUDITORIA removidos del header - ya no se
+  // usan. La lista de precios se maneja via panel Precios interno o SAP
+  // directo. Auditoria queda accesible por URL directa si hace falta.)
   // Zonas, Analisis, Campañas, Master Clientes: admin + gerente.
   const zonasBtnEl = document.getElementById('zonas-btn');
   if (zonasBtnEl) zonasBtnEl.style.display = isAdminOrGerente ? '' : 'none';
