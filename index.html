@@ -2166,8 +2166,8 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <div style="display:flex;justify-content:center;margin-top:14px"><button class="btn-camp" onclick="saveCampaign()">Crear campa&ntilde;a</button></div>
         </div>
         <div style="margin-top:18px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-            <h4 style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#475569;margin:0">Campa&ntilde;as</h4>
+          <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:10px;gap:8px">
+            <h4 style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#475569;margin:0;text-align:center">Campa&ntilde;as</h4>
             <div class="camp-tabs" style="display:flex;gap:4px;background:#f1f5f9;border-radius:6px;padding:3px">
               <button type="button" id="camp-tab-active" class="camp-tab-btn active" onclick="setCampaignsTab('active')" style="padding:6px 12px;border:none;border-radius:4px;background:#fff;color:#0f172a;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 1px 2px rgba(0,0,0,.06)">Activas <span id="camp-tab-active-count" style="background:#f59e0b;color:#fff;border-radius:9px;padding:1px 7px;font-size:10px;margin-left:4px">0</span></button>
               <button type="button" id="camp-tab-history" class="camp-tab-btn" onclick="setCampaignsTab('history')" style="padding:6px 12px;border:none;border-radius:4px;background:transparent;color:#475569;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Hist&oacute;ricas <span id="camp-tab-history-count" style="background:#94a3b8;color:#fff;border-radius:9px;padding:1px 7px;font-size:10px;margin-left:4px">0</span></button>
@@ -3018,7 +3018,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v231';
+const APP_VERSION = 'v232';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
