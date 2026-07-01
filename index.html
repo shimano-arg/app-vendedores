@@ -2991,7 +2991,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v224';
+const APP_VERSION = 'v225';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -4257,17 +4257,46 @@ let _vendorOutlinesCache = null; // {vendor: [[[lat,lng],[lat,lng]], ...]}
 // el DEPT_GEO. Asi la primera carga tarda 1-2s pero las siguientes son
 // instantaneas (las polilineas ya estan calculadas y guardadas).
 const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v12';
+// Firma del estado que impacta en los outlines: si el usuario reasigna
+// zonas en el modal ZONAS, la firma cambia -> cache stale -> se recomputa
+// en el proximo load automaticamente (sin tener que apretar el boton
+// recalcular). Combina PROVINCE_VENDOR_OVERRIDE hardcoded + vendor_overrides
+// desde Firestore.
+function _outlinesSignature(){
+  const parts = [];
+  if (typeof PROVINCE_VENDOR_OVERRIDE !== 'undefined') {
+    Object.entries(PROVINCE_VENDOR_OVERRIDE).sort().forEach(([k, v]) => parts.push('P:' + k + ':' + v));
+  }
+  if (typeof vendorOverrides !== 'undefined' && vendorOverrides) {
+    Object.entries(vendorOverrides).sort().forEach(([k, v]) => parts.push('O:' + k + ':' + (v && v.vendor || '')));
+  }
+  return parts.join('|') || '(empty)';
+}
 function _buildVendorOutlinesCache(){
   if (_vendorOutlinesCache) return _vendorOutlinesCache;
-  // Intentar leer del localStorage primero.
+  // Intentar leer del localStorage primero. Solo se usa si la firma del
+  // estado matchea la actual. Si no, rebuild automatico.
   try {
     const raw = localStorage.getItem(VENDOR_OUTLINES_CACHE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') {
-        _vendorOutlinesCache = parsed;
-        console.log('[outlines] cargado de localStorage:', Object.keys(parsed).length, 'vendors');
-        return parsed;
+      // Formato nuevo (v13+): {outlines: {...}, signature: '...'}
+      // Formato viejo (v12): {vendor: [...]} directo
+      if (parsed && parsed.outlines && typeof parsed.outlines === 'object' && parsed.signature) {
+        const curSig = _outlinesSignature();
+        if (parsed.signature === curSig) {
+          _vendorOutlinesCache = parsed.outlines;
+          console.log('[outlines] cargado de localStorage:', Object.keys(parsed.outlines).length, 'vendors (signature match)');
+          return parsed.outlines;
+        } else {
+          console.log('[outlines] localStorage stale (signature changed) -> recompute');
+          try { localStorage.removeItem(VENDOR_OUTLINES_CACHE_KEY); } catch(e){}
+        }
+      } else if (parsed && typeof parsed === 'object' && !parsed.outlines) {
+        // Formato viejo sin signature. Lo descartamos para forzar rebuild
+        // con el nuevo formato firmado. Solo pasa una vez tras el upgrade.
+        console.log('[outlines] localStorage formato viejo, forzando rebuild firmado');
+        try { localStorage.removeItem(VENDOR_OUTLINES_CACHE_KEY); } catch(e){}
       }
     }
   } catch(e) { console.warn('[outlines] no se pudo leer cache:', e); }
@@ -4416,10 +4445,14 @@ function _buildVendorOutlinesCache(){
   _vendorOutlinesCache = out;
   const summary = Object.keys(out).map(v => v + '(' + (out[v] || []).length + 'p)');
   console.log('[outlines] cache built via prov+dept hybrid:', Object.keys(out).length, 'vendors:', summary.join(', '));
-  // Persistir en localStorage para que las proximas cargas sean instantaneas.
+  // Persistir en localStorage con la firma del estado actual. Si vendor_overrides
+  // cambia en Firestore, la firma cambia -> el proximo load descarta el cache
+  // y recomputa. Asi el usuario no necesita apretar el boton "Recalcular
+  // contornos" despues de cada cambio en Zonas.
   try {
-    localStorage.setItem(VENDOR_OUTLINES_CACHE_KEY, JSON.stringify(out));
-    console.log('[outlines] cache persistido en localStorage');
+    const payload = {outlines: out, signature: _outlinesSignature(), savedAt: Date.now()};
+    localStorage.setItem(VENDOR_OUTLINES_CACHE_KEY, JSON.stringify(payload));
+    console.log('[outlines] cache persistido en localStorage (con signature)');
   } catch(e) {
     console.warn('[outlines] no se pudo persistir cache (storage lleno?):', e);
   }
