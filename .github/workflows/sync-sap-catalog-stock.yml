@@ -1,0 +1,66 @@
+name: Sync SAP Catalog + Stock (Service Layer)
+
+# Corre cada 30 minutos. Reemplaza al viejo Sync SAP Stock (sync-stock.yml)
+# que dependia del CSV que David subia a Drive.
+#
+# Flujo (scripts/sync_sap_to_firestore.py):
+#   1. Lee credenciales del Service Layer desde Firestore
+#      (app_config/sap_integration.serviceLayer)
+#   2. Login SL, iteracion Items?$select=... paginada
+#   3. Escribe product_catalog/chunk_N + app_config/product_catalog_meta
+#      + app_config/stock_snapshot
+#   4. Los listeners del cliente reaccionan solos.
+#
+# Secrets requeridos:
+#   FIREBASE_SERVICE_ACCOUNT   Mismo JSON usado por send-rendiciones-email.
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # cada 30 min UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Modo dry-run (no escribe a Firestore, solo loguea)'
+        type: boolean
+        required: false
+        default: false
+      sl_insecure:
+        description: 'Deshabilitar verify SSL en Service Layer (solo si el cert falla)'
+        type: boolean
+        required: false
+        default: false
+      max_items:
+        description: 'Cap de items para test (0 = sin cap)'
+        required: false
+        default: '0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-sap-catalog-stock
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15    # Sync completo suele tardar 3-5 min. Con margen.
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install firebase-admin requests
+
+      - name: Run sync
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          SL_INSECURE: ${{ inputs.sl_insecure }}
+          SL_MAX_ITEMS: ${{ inputs.max_items }}
+        run: python scripts/sync_sap_to_firestore.py

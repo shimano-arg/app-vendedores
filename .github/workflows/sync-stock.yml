@@ -1,18 +1,18 @@
-name: Sync SAP Stock
+name: Sync SAP Stock (LEGACY - CSV Drive)
 
-# Corre cada 30 min y permite dispararse a mano desde la pestaña Actions.
-# Descarga el CSV de stock que David exporta de SAP (deposito 07) y lo
-# convierte a stock.json. La app vendedores lee ese JSON para mostrar un
-# punto verde/rojo al lado de cada SKU al crear pedidos.
+# DEPRECADO desde v245: reemplazado por sync-sap-catalog-stock.yml, que
+# consulta directo el Service Layer de SAP en vez de depender del CSV que
+# David subia manualmente a Drive. Este workflow queda con solo trigger
+# manual (workflow_dispatch) por si se necesita restaurar el flujo viejo
+# temporalmente.
 #
-# Configuracion previa requerida:
-#   Settings -> Secrets and variables -> Actions -> New repository secret
+# Configuracion previa (si se dispara manual):
+#   Settings -> Secrets and variables -> Actions
 #     Name:  SAP_STOCK_CSV_URL
 #     Value: URL publica del CSV (Google Drive direct download recomendado)
 
 on:
-  schedule:
-    - cron: '*/30 * * * *'   # cada 30 min UTC
+  # schedule: DESACTIVADO. Ahora corre sync-sap-catalog-stock.yml.
   workflow_dispatch:           # boton "Run workflow" para forzar manualmente
 
 permissions:
