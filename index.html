@@ -3018,7 +3018,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v236';
+const APP_VERSION = 'v237';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -19167,23 +19167,23 @@ const sapSL = {
   },
 
   // Trae TODOS los items del catalogo SAP paginando via OData.
-  // Callback onProgress(fetched, total) se llama cada pagina para actualizar
-  // barra de progreso. total puede ser null si SL no lo devuelve.
+  // SL tiene un limite de pagina configurado en el server (comunmente 20).
+  // Estrategia:
+  //  1) Pedir con header Prefer: odata.maxpagesize=999 para intentar
+  //     obtener mas items por request.
+  //  2) Seguir el @odata.nextLink que devuelve SL despues de cada pagina
+  //     hasta que no venga mas (paginacion consciente del server).
   // Devuelve {ok, items: [{ItemCode, ItemName}], error?}.
   async getAllItems(onProgress){
     const items = [];
-    let skip = 0;
-    const pageSize = 999;
+    let path = "/b1s/v1/Items?$select=ItemCode,ItemName";
     let pageCount = 0;
-    while (true) {
-      // NO filtramos por Valid en el select porque puede que SAP tenga items
-      // con Valid vacio o distinto de tYES pero igual sean utiles. Trayendo
-      // todos y decidiendo en cliente si hace falta.
-      const path = "/b1s/v1/Items?$select=ItemCode,ItemName&$top=" + pageSize + "&$skip=" + skip;
-      const r = await this.fetchWithSession(path);
+    while (path) {
+      const r = await this.fetchWithSession(path, {
+        headers: {'Prefer': 'odata.maxpagesize=999'},
+      });
       if (!r.ok) return {ok: false, error: r.error, itemsFetched: items.length};
       const arr = (r.body && r.body.value) || [];
-      // Debug: primera pagina logea el primer item completo para ver formato.
       if (pageCount === 0) {
         console.log('[catalog SL] primera pagina:', arr.length, 'items. Body keys:', Object.keys(r.body || {}));
         if (arr[0]) console.log('[catalog SL] primer item:', arr[0]);
@@ -19193,10 +19193,22 @@ const sapSL = {
       });
       pageCount++;
       if (typeof onProgress === 'function') onProgress(items.length, r.body['@odata.count'] || null);
-      if (arr.length < pageSize) break;
-      skip += pageSize;
+      // Chequear si hay mas paginas via @odata.nextLink.
+      const nextLink = (r.body && (r.body['@odata.nextLink'] || r.body['odata.nextLink'])) || null;
+      if (!nextLink) break;
+      // Normalizar el nextLink a un path que fetchWithSession pueda usar.
+      if (nextLink.startsWith('http')) {
+        const idx = nextLink.indexOf('/b1s/v1/');
+        path = idx >= 0 ? nextLink.slice(idx) : nextLink;
+      } else if (nextLink.startsWith('/')) {
+        path = nextLink;
+      } else {
+        // Es un path relativo tipo "Items?$skip=20&$top=20"
+        path = '/b1s/v1/' + nextLink;
+      }
       if (items.length > 50000) { console.warn('[catalog SL] safety cap 50k alcanzado'); break; }
     }
+    console.log('[catalog SL] termino con', items.length, 'items en', pageCount, 'paginas');
     return {ok: true, items};
   },
 
