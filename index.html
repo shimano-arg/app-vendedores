@@ -3059,7 +3059,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v242';
+const APP_VERSION = 'v243';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -20844,8 +20844,10 @@ window.syncSapStock = async function(){
   const totalItems = Object.keys(r.stockMap).length;
   setStatus('&#128190; Guardando en Firestore...');
   try {
+    // NOTA: la key es 'stock' (no 'stockMap') para ser compatible con el
+    // listener existente ensureStockSnapshotListener que lee d.stock.
     await fbDb.collection('app_config').doc('stock_snapshot').set({
-      stockMap: r.stockMap,
+      stock: r.stockMap,
       totalItems: totalItems,
       withStock: r.withStock || 0,
       warehouse: '07',
@@ -20870,28 +20872,12 @@ window.syncSapStock = async function(){
   }
 };
 
-// Listener del snapshot de stock. Cuando el admin sincroniza, todos los
-// usuarios (vendedores, gerente, etc) reciben el mapa nuevo en tiempo
-// real sin recargar la app. Sobrescribe STOCK_MAP + STOCK_UPDATED_AT.
-let unsubStockSnapshot = null;
-let _lastAppliedStockBatch = null;
-function ensureStockSnapshotListener(){
-  if (unsubStockSnapshot || !currentUser || !fbDb) return;
-  unsubStockSnapshot = fbDb.collection('app_config').doc('stock_snapshot').onSnapshot(snap => {
-    if (!snap.exists) return;
-    const d = snap.data() || {};
-    if (!d.syncBatchId || d.syncBatchId === _lastAppliedStockBatch) return;
-    _lastAppliedStockBatch = d.syncBatchId;
-    if (d.stockMap && typeof d.stockMap === 'object') {
-      STOCK_MAP = d.stockMap;
-      STOCK_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : new Date().toISOString();
-      console.log('[stock] snapshot desde Firestore aplicado:', Object.keys(STOCK_MAP).length, 'SKUs, batch:', d.syncBatchId);
-      // Re-render picker + master si estan visibles
-      try { if (typeof renderProductPicker === 'function' && document.getElementById('pm-products')) renderProductPicker(); } catch(e){}
-      try { if (typeof renderProductMaster === 'function' && document.getElementById('product-master-modal').classList.contains('open')) renderProductMaster(); } catch(e){}
-    }
-  }, err => console.warn('[stock] listener error', err));
-}
+// (v241 -> v243) La declaracion + funcion ensureStockSnapshotListener
+// duplicada estaba aca. Se eliminaron para no chocar con la version
+// existente mas abajo (linea ~21085). El listener existente ya cubre el
+// caso: lee d.stock, lo aplica a STOCK_MAP y re-renderea el picker.
+// Adapte syncSapStock para escribir la key 'stock' (compatible con el
+// listener viejo) en vez de 'stockMap'.
 
 window.queryStockLive = async function(code, btn){
   if (typeof sapSL === 'undefined' || !sapSL.isEnabled || !sapSL.isEnabled()) {
@@ -24191,11 +24177,10 @@ function attachFirebaseListeners(){
   if (typeof ensureProductCatalogListener === 'function') {
     try { ensureProductCatalogListener(); } catch(e){}
   }
-  // Listener del snapshot de stock: cuando el admin sincroniza via SL,
-  // todos los usuarios reciben el mapa fresco. Sobrescribe STOCK_MAP.
-  if (typeof ensureStockSnapshotListener === 'function') {
-    try { ensureStockSnapshotListener(); } catch(e){}
-  }
+  // (Nota: ensureStockSnapshotListener ya se llama en el pre-existente
+  // ensureRolesListeners al login. No duplicar aca - antes causaba
+  // 'unsubStockSnapshot has already been declared' porque yo habia
+  // agregado una segunda declaracion + funcion duplicada.)
   // 1) userData -> contacted + orders (drafts)
   // Admin/viewer leen TODOS los userData (vista global de contactados); vendedor solo el suyo.
   const userDataRef = fbDb.collection('userData').doc(currentUser.uid);
