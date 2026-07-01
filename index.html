@@ -45,6 +45,10 @@
 .header-logo{height:34px;width:auto;display:block;cursor:pointer;transition:transform .15s ease,opacity .15s ease;max-width:none}
 .header-logo:hover{transform:scale(1.04);opacity:.85}
 .header-logo:active{transform:scale(.97)}
+/* Hamburger button: oculto en desktop, visible en mobile via media query. */
+.header-hamburger{display:none;background:transparent;border:1.5px solid #cbd5e1;border-radius:6px;color:#0f172a;font-size:20px;padding:4px 10px;cursor:pointer;line-height:1;height:36px;align-items:center;justify-content:center;transition:.15s}
+.header-hamburger:hover{background:#f1f5f9;border-color:#94a3b8}
+.header-hamburger:active{transform:scale(.95)}
 
 body{font-family:"Segoe UI",Calibri,Arial,sans-serif;background:#dbeafe;color:#1e293b;touch-action:manipulation;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%}
 .header{background:#fff;color:#0f172a;padding:14px 28px;display:flex;align-items:center;gap:20px;border-bottom:1px solid #e5e7eb;box-shadow:0 1px 4px rgba(0,0,0,.04);position:relative;border-bottom-left-radius:22px;border-bottom-right-radius:22px}
@@ -626,18 +630,22 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
   .auth-box{padding:22px 20px}.auth-box h2{font-size:18px}
 }
 @media (max-width:900px){
-  .header{flex-wrap:wrap;padding:8px 12px;gap:6px;justify-content:center;align-items:center}
-  /* Fila 1: logo a la izquierda + badge a la derecha */
-  .header-logo-wrap{order:1;flex:0 0 auto;display:flex;align-items:center;margin-right:auto}
+  .header{flex-wrap:wrap;padding:8px 12px;gap:6px;justify-content:center;align-items:center;position:relative}
+  /* Fila 1: hamburguesa a la izquierda + badge (opcional) al medio + logo a la derecha */
+  .header-hamburger{display:inline-flex;order:1;flex:0 0 auto}
+  .header-badge{order:2;flex:1 1 auto;display:flex;align-items:center;justify-content:center;margin:0}
+  .header-logo-wrap{order:3;flex:0 0 auto;display:flex;align-items:center;margin-left:auto;margin-right:0}
   .header-logo{height:32px!important;width:90px!important;max-width:90px!important;min-width:0;object-fit:contain;display:block;flex:0 0 auto}
-  .header-badge{order:2;flex:0 0 auto;margin-left:auto;display:flex;align-items:center}
   .role-badge{display:flex!important;align-items:center!important;justify-content:center!important;text-align:center!important;width:96px!important;min-width:96px!important;max-width:140px!important;height:32px!important;padding:0!important;font-size:12px;font-weight:800;letter-spacing:.4px;text-indent:.4px;border-radius:6px;overflow:hidden;white-space:nowrap;box-sizing:border-box;margin:0!important;line-height:1!important;flex-shrink:0}
-  /* Fila 2: grilla responsive con maximo 3 botones por fila, distribucion equitativa */
-  .user-info{order:3;flex-basis:100%;width:100%;display:flex;flex-wrap:wrap;justify-content:flex-start;align-items:stretch;gap:6px;margin:6px 0 0}
-  /* flex 1 1 base = cada boton mide ~33% pero crece para llenar la fila */
-  .user-info .logout-btn{flex:1 1 calc(33.333% - 4px);min-width:calc(33.333% - 4px);max-width:100%;padding:8px 6px;font-size:11px;font-weight:700;letter-spacing:.3px;text-align:center;margin:0;display:flex;align-items:center;justify-content:center;min-height:34px}
-  /* Notif boton (icono campana): mantiene proporcion pero un poco mas chico */
-  .user-info #notif-btn{padding:6px 6px}
+  /* user-info: en mobile pasa a ser DROPDOWN que se abre con el boton
+     hamburguesa. Oculto por default (display:none). El JS toggleMobileMenu()
+     agrega la clase .open que lo muestra como panel absolute abajo del
+     header. !important necesario porque el JS de login setea inline
+     style="display:flex" que sino ganaria a las media queries. */
+  .user-info{display:none!important}
+  .user-info.open{display:flex!important;flex-direction:column;position:absolute;top:100%;left:8px;right:8px;background:#fff;box-shadow:0 6px 20px rgba(0,0,0,.18);border:1px solid #cbd5e1;border-radius:8px;padding:8px;z-index:100;margin:4px 0 0;gap:6px}
+  .user-info.open .logout-btn{flex:none;width:100%;padding:12px 14px;font-size:13px;font-weight:700;text-align:left;justify-content:flex-start;min-height:auto}
+  .user-info.open #user-email{display:block;padding:4px 8px;font-size:10px;color:#94a3b8;border-bottom:1px solid #e5e7eb;margin-bottom:4px}
   .header h1{position:static;transform:none;font-size:14px;font-weight:800;flex-basis:100%;width:100%;text-align:center;order:4;margin-top:4px;letter-spacing:.3px}
 }
 .controls{background:#dbeafe;padding:10px 18px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #bfdbfe;flex-wrap:nowrap;overflow-x:auto;border-bottom-left-radius:22px;border-bottom-right-radius:22px}
@@ -1417,6 +1425,9 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 </div>
 <style>@keyframes authSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}</style>
 <div class="header">
+  <!-- Boton hamburguesa: solo visible en mobile (<900px). Toggle del menu
+       dropdown con las acciones admin (Targets, Campañas, SAP, etc.). -->
+  <button class="header-hamburger" id="header-hamburger-btn" onclick="toggleMobileMenu()" aria-label="Menu" title="Abrir menu">&#9776;</button>
   <div class="header-logo-wrap"><img src="Shimano-Logo.png" alt="Shimano" class="header-logo" onclick="if(confirm('Recargar la aplicacion?'))location.reload()" title="Click para refrescar la app"/></div>
   <h1>MAPA DE VENTAS - ARGENTINA</h1>
   <div class="header-badge" id="header-badge"><span id="user-role-badge" class="role-badge" style="display:none"></span></div>
@@ -2991,7 +3002,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v227';
+const APP_VERSION = 'v228';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -17249,6 +17260,31 @@ window.signOut = function(){
   if (!confirm('Cerrar sesion? Tus datos quedan guardados en la nube.')) return;
   fbAuth.signOut();
 };
+
+// Toggle del menu hamburguesa en mobile. Muestra/oculta el user-info que
+// contiene los botones de acciones admin (Targets, Campañas, SAP, etc.).
+// En desktop este boton esta oculto por CSS, entonces no interfiere.
+window.toggleMobileMenu = function(){
+  const el = document.getElementById('user-info');
+  if (!el) return;
+  el.classList.toggle('open');
+};
+// Cerrar el menu al tocar cualquier boton adentro (para que despues de
+// abrir Targets, por ejemplo, el menu se colapse automaticamente).
+document.addEventListener('click', function(ev){
+  const menu = document.getElementById('user-info');
+  const hamb = document.getElementById('header-hamburger-btn');
+  if (!menu || !menu.classList.contains('open')) return;
+  // Click DENTRO del menu en un boton -> cerrar (dio a lo que queria).
+  if (menu.contains(ev.target) && ev.target.tagName === 'BUTTON') {
+    menu.classList.remove('open');
+    return;
+  }
+  // Click FUERA del menu y del boton hamburguesa -> cerrar.
+  if (!menu.contains(ev.target) && !(hamb && hamb.contains(ev.target))) {
+    menu.classList.remove('open');
+  }
+}, true);
 
 // Capturar el resultado del redirect cuando el usuario vuelve desde Google.
 // onAuthStateChanged ya lo procesa internamente, pero llamar getRedirectResult
