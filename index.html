@@ -3018,7 +3018,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v233';
+const APP_VERSION = 'v234';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -4301,29 +4301,35 @@ function _outlinesSignature(){
 }
 function _buildVendorOutlinesCache(){
   if (_vendorOutlinesCache) return _vendorOutlinesCache;
-  // Intentar leer del localStorage primero. Solo se usa si la firma del
-  // estado matchea la actual. Si no, rebuild automatico.
+  // Load estrategia:
+  // 1) Al arrancar la app, SIEMPRE confiar en el cache localStorage - no
+  //    hacemos check de firma aca porque vendor_overrides puede no estar
+  //    cargado todavia (Firestore listener asincrono). El cache tiene
+  //    el estado de la ultima sesion, que es lo mas cercano a la verdad
+  //    disponible en ese momento.
+  // 2) La invalidacion por cambio de vendor_overrides se hace en el
+  //    listener de Firestore (ensureVendorOverridesListener) que compara
+  //    la firma actual contra la del cache y si difieren invalida +
+  //    rebuild. Asi el load es siempre instantaneo con cache, y el
+  //    refresh es reactivo a cambios reales de datos.
   try {
     const raw = localStorage.getItem(VENDOR_OUTLINES_CACHE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       // Formato nuevo (v13+): {outlines: {...}, signature: '...'}
-      // Formato viejo (v12): {vendor: [...]} directo
-      if (parsed && parsed.outlines && typeof parsed.outlines === 'object' && parsed.signature) {
-        const curSig = _outlinesSignature();
-        if (parsed.signature === curSig) {
-          _vendorOutlinesCache = parsed.outlines;
-          console.log('[outlines] cargado de localStorage:', Object.keys(parsed.outlines).length, 'vendors (signature match)');
-          return parsed.outlines;
-        } else {
-          console.log('[outlines] localStorage stale (signature changed) -> recompute');
-          try { localStorage.removeItem(VENDOR_OUTLINES_CACHE_KEY); } catch(e){}
-        }
-      } else if (parsed && typeof parsed === 'object' && !parsed.outlines) {
-        // Formato viejo sin signature. Lo descartamos para forzar rebuild
-        // con el nuevo formato firmado. Solo pasa una vez tras el upgrade.
-        console.log('[outlines] localStorage formato viejo, forzando rebuild firmado');
-        try { localStorage.removeItem(VENDOR_OUTLINES_CACHE_KEY); } catch(e){}
+      if (parsed && parsed.outlines && typeof parsed.outlines === 'object') {
+        _vendorOutlinesCache = parsed.outlines;
+        const sigInfo = parsed.signature ? ' (sig cached)' : ' (sin sig)';
+        console.log('[outlines] cargado de localStorage:', Object.keys(parsed.outlines).length, 'vendors' + sigInfo);
+        return parsed.outlines;
+      }
+      // Formato viejo (v12): {vendor: [...]} directo. Lo aceptamos igual
+      // para no rebuildear en la primera carga post-upgrade, y se re-guarda
+      // con formato nuevo en la primera reasignacion.
+      if (parsed && typeof parsed === 'object' && !parsed.outlines) {
+        _vendorOutlinesCache = parsed;
+        console.log('[outlines] cargado de localStorage formato viejo:', Object.keys(parsed).length, 'vendors - se migrara en el proximo save');
+        return parsed;
       }
     }
   } catch(e) { console.warn('[outlines] no se pudo leer cache:', e); }
@@ -21690,6 +21696,31 @@ function ensureVendorOverridesListener(){
     // Refrescar mapa y sidebars para reflejar los nuevos vendor keys
     try { if (typeof drawMarkers === 'function') drawMarkers(); } catch(e){}
     try { if (typeof restyleZoneLayers === 'function') restyleZoneLayers(); } catch(e){}
+    // Invalidar cache de contornos si la firma cambio. Esto se dispara:
+    //  1) Al abrir la app: si vendor_overrides trae cambios respecto a la
+    //     ultima sesion, se rebuild automatico (usuario no tiene que
+    //     apretar el boton Recalcular).
+    //  2) Cuando otro admin reasigna zonas en tiempo real: mi mapa se
+    //     actualiza solo.
+    try {
+      if (typeof _outlinesSignature === 'function' && typeof VENDOR_OUTLINES_CACHE_KEY !== 'undefined') {
+        const raw = localStorage.getItem(VENDOR_OUTLINES_CACHE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const cachedSig = parsed && parsed.signature;
+          const currentSig = _outlinesSignature();
+          if (cachedSig !== currentSig) {
+            console.log('[outlines] vendor_overrides listener detecto cambio de firma - invalidando cache');
+            _vendorOutlinesCache = null;
+            try { localStorage.removeItem(VENDOR_OUTLINES_CACHE_KEY); } catch(e){}
+            if (typeof drawVendorOutlines === 'function') drawVendorOutlines();
+          }
+        } else {
+          // No hay cache pero vendor_overrides trajo data - primer render.
+          if (typeof drawVendorOutlines === 'function') drawVendorOutlines();
+        }
+      }
+    } catch(e) { console.warn('[outlines] error chequeando invalidacion:', e); }
   }, err => console.warn('vendor_overrides listener', err));
 }
 
