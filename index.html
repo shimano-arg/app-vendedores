@@ -1698,6 +1698,16 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <input type="checkbox" id="pm-master-stock-only" onchange="renderProductMaster()" style="width:15px;height:15px;accent-color:#10b981;cursor:pointer"> Solo con stock
           </label>
         </div>
+        <!-- Sync stock desde SAP - solo admin. Tarda ~2 min pero actualiza
+             el stock de todos los SKUs via Service Layer, y se propaga a
+             todos los usuarios via Firestore. -->
+        <div id="pm-master-sync-block" style="background:#eff6ff;border:1px solid #93c5fd;border-radius:6px;padding:10px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px;font-size:11px;color:#1e40af;line-height:1.4">
+            <b>Stock actualizado:</b> <span id="pm-master-stock-updated-at">-</span><br>
+            <span style="font-size:10px;color:#64748b">Actualizacion automatica cada 30 min desde CSV. Si necesitas fresco al instante, tocá el boton (~2 min via Service Layer).</span>
+          </div>
+          <button id="pm-master-sync-stock-btn" onclick="syncSapStock()" style="background:#1e40af;color:#fff;border:none;padding:9px 14px;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap">&#128260; Sincronizar stock ahora</button>
+        </div>
         <div id="pm-master-info" style="font-size:11px;color:#64748b;margin-bottom:10px;font-weight:600"></div>
         <div id="pm-master-results"></div>
       </div>
@@ -3049,7 +3059,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v240';
+const APP_VERSION = 'v241';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -19240,6 +19250,52 @@ const sapSL = {
     return {ok: true, items};
   },
 
+  // Trae stock de TODOS los items del deposito indicado via SL.
+  // Estrategia: iterar Items con ItemWarehouseInfoCollection (el mismo
+  // endpoint del catalogo pero con el campo extra de warehouses).
+  // Cada Item devuelve un array con todos sus warehouses; filtramos W07.
+  // ~500 requests × 300ms = ~2-3 min para 10k items. Aceptable para un
+  // sync que corre bajo demanda.
+  async getAllStock(whsCode, onProgress){
+    whsCode = whsCode || '07';
+    const stockMap = {};
+    let path = "/b1s/v1/Items?$select=ItemCode,ItemWarehouseInfoCollection";
+    let pageCount = 0;
+    let scanned = 0;
+    let withStock = 0;
+    while (path) {
+      const r = await this.fetchWithSession(path);
+      if (!r.ok) return {ok: false, error: r.error, itemsFetched: scanned};
+      const arr = (r.body && r.body.value) || [];
+      arr.forEach(it => {
+        const code = it.ItemCode || '';
+        if (!code) return;
+        scanned++;
+        const whs = it.ItemWarehouseInfoCollection || [];
+        const target = whs.find(w => w.WarehouseCode === whsCode);
+        const qty = target ? parseFloat(target.InStock || 0) : 0;
+        const hasStk = qty > 0;
+        stockMap[code] = hasStk;
+        if (hasStk) withStock++;
+      });
+      pageCount++;
+      if (typeof onProgress === 'function') onProgress(scanned, withStock);
+      const nextLink = (r.body && (r.body['@odata.nextLink'] || r.body['odata.nextLink'])) || null;
+      if (!nextLink) break;
+      if (nextLink.startsWith('http')) {
+        const idx = nextLink.indexOf('/b1s/v1/');
+        path = idx >= 0 ? nextLink.slice(idx) : nextLink;
+      } else if (nextLink.startsWith('/')) {
+        path = nextLink;
+      } else {
+        path = '/b1s/v1/' + nextLink;
+      }
+      if (scanned > 50000) { console.warn('[stock SL] safety cap 50k'); break; }
+    }
+    console.log('[stock SL] termino:', scanned, 'items scanned,', withStock, 'con stock. Paginas:', pageCount);
+    return {ok: true, stockMap, scanned, withStock};
+  },
+
   // Arma el payload JSON de OQUT a partir de un pedido de la app, equivalente
   // semantico al ZIP DTW pero en formato Service Layer (camelCase + numerico).
   buildQuotationPayload(pedido){
@@ -20616,6 +20672,21 @@ window.openProductMasterModal = function(){
   // Subtitulo con totales.
   const subt = document.getElementById('pm-master-subt');
   if (subt) subt.textContent = 'Buscador del catalogo SAP: ' + (PRODUCTS ? PRODUCTS.length.toLocaleString('es-AR') : 0) + ' SKUs sincronizados.';
+  // Fecha del stock actual
+  const stockAtEl = document.getElementById('pm-master-stock-updated-at');
+  if (stockAtEl) {
+    if (STOCK_UPDATED_AT) {
+      const withSt = Object.values(STOCK_MAP).filter(v => v).length;
+      const total = Object.keys(STOCK_MAP).length;
+      const dt = new Date(STOCK_UPDATED_AT).toLocaleString('es-AR');
+      stockAtEl.innerHTML = dt + ' &middot; ' + total.toLocaleString('es-AR') + ' SKUs (' + withSt.toLocaleString('es-AR') + ' con stock)';
+    } else {
+      stockAtEl.textContent = 'Sin datos - toca sincronizar para traer stock desde SAP.';
+    }
+  }
+  // Solo admin ve el boton de sync
+  const syncBtn = document.getElementById('pm-master-sync-stock-btn');
+  if (syncBtn) syncBtn.style.display = (userRole === 'admin') ? '' : 'none';
   renderProductMaster();
 };
 
@@ -20704,6 +20775,87 @@ window.copyProductCode = async function(code){
     if (typeof showSyncTag === 'function') showSyncTag('Codigo copiado');
   }
 };
+
+// Sincroniza stock de TODOS los SKUs desde SAP via Service Layer. Solo
+// admin puede correrlo (tarda 2-3 min). Guarda el snapshot en Firestore
+// app_config/stock_snapshot y todos los usuarios lo reciben en tiempo real.
+window.syncSapStock = async function(){
+  if (userRole !== 'admin') return;
+  if (typeof sapSL === 'undefined' || !sapSL.isEnabled || !sapSL.isEnabled()) {
+    alert('Service Layer no esta habilitado.');
+    return;
+  }
+  if (!confirm('Sincronizar stock desde SAP?\n\nEsto tarda 2-3 minutos (recorre ~10.000 items via Service Layer).\nEl navegador debe quedar abierto durante el proceso.')) return;
+  const btn = document.getElementById('pm-master-sync-stock-btn');
+  const statusEl = document.getElementById('pm-master-stock-updated-at');
+  if (btn) { btn.disabled = true; btn.style.background = '#94a3b8'; btn.innerHTML = '&#8230; Sincronizando...'; }
+  const setStatus = (txt) => { if (statusEl) statusEl.innerHTML = txt; };
+  setStatus('&#9203; Conectando a Service Layer...');
+  const sess = await sapSL.ensureSession();
+  if (!sess.ok) {
+    setStatus('&#10006; Error de sesion: ' + escapeHtml(sess.error || ''));
+    if (btn) { btn.disabled = false; btn.style.background = '#1e40af'; btn.innerHTML = '&#128260; Sincronizar stock ahora'; }
+    return;
+  }
+  const r = await sapSL.getAllStock('07', (scanned, withStock) => {
+    setStatus('&#8681; Descargando... ' + scanned.toLocaleString('es-AR') + ' SKUs (' + withStock + ' con stock)');
+  });
+  if (!r.ok) {
+    setStatus('&#10006; Error: ' + escapeHtml(r.error || ''));
+    if (btn) { btn.disabled = false; btn.style.background = '#1e40af'; btn.innerHTML = '&#128260; Sincronizar stock ahora'; }
+    return;
+  }
+  const totalItems = Object.keys(r.stockMap).length;
+  setStatus('&#128190; Guardando en Firestore...');
+  try {
+    await fbDb.collection('app_config').doc('stock_snapshot').set({
+      stockMap: r.stockMap,
+      totalItems: totalItems,
+      withStock: r.withStock || 0,
+      warehouse: '07',
+      source: 'service_layer',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: (currentUser && currentUser.email) || '',
+      syncBatchId: 'SYNC-STOCK-' + Date.now(),
+    });
+    // Aplicar en memoria inmediatamente para que el usuario vea el cambio.
+    STOCK_MAP = r.stockMap;
+    STOCK_UPDATED_AT = new Date().toISOString();
+    setStatus('&#10003; Stock actualizado: ' + totalItems.toLocaleString('es-AR') + ' SKUs (' + (r.withStock || 0).toLocaleString('es-AR') + ' con stock) - ' + new Date().toLocaleString('es-AR'));
+    showSyncTag('Stock sincronizado: ' + (r.withStock || 0) + ' SKUs con stock');
+    try { logOp('sap_stock_sync', 'app_config/stock_snapshot', 'service_layer', {totalItems, withStock: r.withStock}); } catch(e){}
+    // Re-render del master si esta visible
+    try { renderProductMaster(); } catch(e){}
+  } catch(e) {
+    console.error('syncSapStock', e);
+    setStatus('&#10006; Error guardando: ' + escapeHtml(e.message || String(e)));
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.background = '#1e40af'; btn.innerHTML = '&#128260; Sincronizar stock ahora'; }
+  }
+};
+
+// Listener del snapshot de stock. Cuando el admin sincroniza, todos los
+// usuarios (vendedores, gerente, etc) reciben el mapa nuevo en tiempo
+// real sin recargar la app. Sobrescribe STOCK_MAP + STOCK_UPDATED_AT.
+let unsubStockSnapshot = null;
+let _lastAppliedStockBatch = null;
+function ensureStockSnapshotListener(){
+  if (unsubStockSnapshot || !currentUser || !fbDb) return;
+  unsubStockSnapshot = fbDb.collection('app_config').doc('stock_snapshot').onSnapshot(snap => {
+    if (!snap.exists) return;
+    const d = snap.data() || {};
+    if (!d.syncBatchId || d.syncBatchId === _lastAppliedStockBatch) return;
+    _lastAppliedStockBatch = d.syncBatchId;
+    if (d.stockMap && typeof d.stockMap === 'object') {
+      STOCK_MAP = d.stockMap;
+      STOCK_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : new Date().toISOString();
+      console.log('[stock] snapshot desde Firestore aplicado:', Object.keys(STOCK_MAP).length, 'SKUs, batch:', d.syncBatchId);
+      // Re-render picker + master si estan visibles
+      try { if (typeof renderProductPicker === 'function' && document.getElementById('pm-products')) renderProductPicker(); } catch(e){}
+      try { if (typeof renderProductMaster === 'function' && document.getElementById('product-master-modal').classList.contains('open')) renderProductMaster(); } catch(e){}
+    }
+  }, err => console.warn('[stock] listener error', err));
+}
 
 window.queryStockLive = async function(code, btn){
   if (typeof sapSL === 'undefined' || !sapSL.isEnabled || !sapSL.isEnabled()) {
@@ -24002,6 +24154,11 @@ function attachFirebaseListeners(){
   // sin necesidad de reload.
   if (typeof ensureProductCatalogListener === 'function') {
     try { ensureProductCatalogListener(); } catch(e){}
+  }
+  // Listener del snapshot de stock: cuando el admin sincroniza via SL,
+  // todos los usuarios reciben el mapa fresco. Sobrescribe STOCK_MAP.
+  if (typeof ensureStockSnapshotListener === 'function') {
+    try { ensureStockSnapshotListener(); } catch(e){}
   }
   // 1) userData -> contacted + orders (drafts)
   // Admin/viewer leen TODOS los userData (vista global de contactados); vendedor solo el suyo.
