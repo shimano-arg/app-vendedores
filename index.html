@@ -3059,7 +3059,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v244';
+const APP_VERSION = 'v245';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -3180,10 +3180,19 @@ const EXCHANGE_RATE = 1500.0;
 // Layer de SAP B1.
 let STOCK_MAP = {};
 let STOCK_UPDATED_AT = null;
+// Flag O(1) para que hasStock() no tenga que hacer Object.keys(STOCK_MAP)
+// en cada llamada. Antes: con 10.657 SKUs y el picker filtrando por
+// disponibles = 10657 llamadas × 10657 keys = ~113M ops => la app se
+// colgaba al tocar DISPONIBLES. Ahora seteamos este flag cada vez que
+// se muta STOCK_MAP (loadStockSnapshot + listener + syncSapStock).
+let _STOCK_MAP_HAS_DATA = false;
+function _markStockMapLoaded(){
+  _STOCK_MAP_HAS_DATA = STOCK_MAP && Object.keys(STOCK_MAP).length > 0;
+}
 function hasStock(sku){
   if (!sku) return null;
+  if (!_STOCK_MAP_HAS_DATA) return null; // sin datos aun
   const k = String(sku).toUpperCase().trim();
-  if (Object.keys(STOCK_MAP).length === 0) return null; // sin datos aun
   if (k in STOCK_MAP) return !!STOCK_MAP[k];
   // Fallback: SKUs puramente numericos del catalogo (ej '042163') pueden venir
   // del CSV sin ceros a la izquierda (Excel los exporta como numero -> '42163').
@@ -3202,6 +3211,7 @@ async function loadStockSnapshot(){
     const data = await r.json();
     STOCK_MAP = data.stock || {};
     STOCK_UPDATED_AT = data.updatedAt || null;
+    _markStockMapLoaded();
     const total = Object.keys(STOCK_MAP).length;
     const withStock = Object.values(STOCK_MAP).filter(v => v).length;
     console.log('[stock] cargado: ' + total + ' SKUs (' + withStock + ' con stock). updatedAt=' + STOCK_UPDATED_AT);
@@ -20897,6 +20907,7 @@ window.syncSapStock = async function(){
     // Aplicar en memoria inmediatamente para que el usuario vea el cambio.
     STOCK_MAP = r.stockMap;
     STOCK_UPDATED_AT = new Date().toISOString();
+    _markStockMapLoaded();
     setStatus('&#10003; Stock actualizado: ' + totalItems.toLocaleString('es-AR') + ' SKUs (' + (r.withStock || 0).toLocaleString('es-AR') + ' con stock) - ' + new Date().toLocaleString('es-AR'));
     showSyncTag('Stock sincronizado: ' + (r.withStock || 0) + ' SKUs con stock');
     try { logOp('sap_stock_sync', 'app_config/stock_snapshot', 'service_layer', {totalItems, withStock: r.withStock}); } catch(e){}
@@ -21118,6 +21129,7 @@ function ensureStockSnapshotListener(){
     const d = snap.data() || {};
     STOCK_MAP = d.stock || {};
     STOCK_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : null;
+    _markStockMapLoaded();
     const total = Object.keys(STOCK_MAP).length;
     const ws = Object.values(STOCK_MAP).filter(v => v).length;
     console.log('[stock] desde Firestore: ' + total + ' SKUs (' + ws + ' con stock). updatedAt=' + STOCK_UPDATED_AT);
