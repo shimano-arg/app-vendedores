@@ -400,6 +400,12 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
   .pm-master-card-left{width:100%;text-align:center}
   .pm-master-card-right{width:100%;align-items:center !important;min-width:0}
 }
+/* Botones del tab Service Layer (SAP > Service Layer) - mobile:
+   Guardar / Probar conexion / Probar stock SKU apilados a 100% del ancho. */
+@media (max-width:700px){
+  .sl-actions{flex-direction:column;align-items:stretch;gap:8px}
+  .sl-actions .sap-btn{width:100%;padding:12px 16px;font-size:12px;text-align:center}
+}
 .sap-btn{padding:9px 16px;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px}
 .sap-btn.primary{background:#0284c7;color:#fff}
 .sap-btn.primary:hover{background:#0369a1}
@@ -3089,7 +3095,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v257';
+const APP_VERSION = 'v258';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -19615,8 +19621,9 @@ function renderSapServiceLayer(){
   h += '<input id="sl-pass" type="password" placeholder="..." value="' + escapeAttr(cfg.password) + '" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px;font-family:Consolas,monospace"/></div>';
   h += '</div>';
   h += '<div style="font-size:10px;color:#94a3b8;margin-top:8px"><b>Seguridad:</b> la password se guarda en Firestore con merge - solo admin puede leerla. Cuando este la integracion al 100%, vamos a mover esto a una variable de entorno encriptada.</div>';
-  // Botones
-  h += '<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">';
+  // Botones - clase sl-actions para poder aplicar media query mobile
+  // (all 100% width + apilados) sin tocar el desktop.
+  h += '<div class="sl-actions" style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">';
   h += '<button class="sap-btn primary" style="background:#0284c7" onclick="saveSlConfig()">&#128190; Guardar configuracion</button>';
   h += '<button class="sap-btn" style="background:#fff;border:1.5px solid #cbd5e1;color:#475569" onclick="testSlConnection()">&#128268; Probar conexion (Login)</button>';
   h += '<button class="sap-btn" style="background:#fff;border:1.5px solid #cbd5e1;color:#475569" onclick="testSlStock()">&#128230; Probar stock SKU prueba</button>';
