@@ -388,6 +388,18 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
   .sap-row-actions .sap-search{width:100%}
   .sap-row-actions .sap-btn{width:100%;padding:12px 16px;font-size:12px;text-align:center}
 }
+/* Modal Master de Productos - mobile (<=700px):
+   - Familia y "Solo con stock" ocupan 100% del ancho.
+   - Cards: cuando wrapea la parte derecha (precio/stock/botones) se centra
+     en la pantalla en vez de alinearse a la derecha. */
+@media (max-width:700px){
+  .pm-master-fam-label{width:100%;min-width:0}
+  .pm-master-fam-label select{width:100%}
+  .pm-master-stock-only-label{width:100%;justify-content:center}
+  .pm-master-card{justify-content:center}
+  .pm-master-card-left{width:100%;text-align:center}
+  .pm-master-card-right{width:100%;align-items:center !important;min-width:0}
+}
 .sap-btn{padding:9px 16px;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px}
 .sap-btn.primary{background:#0284c7;color:#fff}
 .sap-btn.primary:hover{background:#0369a1}
@@ -1707,11 +1719,11 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569">Buscar SKU o descripcion</span>
             <input type="text" id="pm-master-search" placeholder="Ej: CAC58, Shimano Caius, 042163..." oninput="renderProductMaster()" style="padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;font-family:inherit">
           </label>
-          <label style="min-width:140px;display:flex;flex-direction:column;gap:4px">
+          <label class="pm-master-fam-label" style="min-width:140px;display:flex;flex-direction:column;gap:4px">
             <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569">Familia</span>
             <select id="pm-master-fam" onchange="renderProductMaster()" style="padding:9px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:12px;outline:none;background:#fff"><option value="ALL">Todas</option></select>
           </label>
-          <label style="display:flex;align-items:center;gap:6px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;font-size:12px;font-weight:600;color:#0f172a;cursor:pointer">
+          <label class="pm-master-stock-only-label" style="display:flex;align-items:center;gap:6px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;font-size:12px;font-weight:600;color:#0f172a;cursor:pointer">
             <input type="checkbox" id="pm-master-stock-only" onchange="renderProductMaster()" style="width:15px;height:15px;accent-color:#10b981;cursor:pointer"> Solo con stock
           </label>
         </div>
@@ -3077,7 +3089,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v255';
+const APP_VERSION = 'v256';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -20986,13 +20998,13 @@ window.renderProductMaster = function(){
     const famTxt = p.fam ? escapeHtml(p.fam) : '';
     const subTxt = p.sub ? ' &middot; ' + escapeHtml(p.sub) : '';
     const catTxt = p.cat ? ' &middot; ' + escapeHtml(p.cat) : '';
-    html += '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">';
-    html += '<div style="flex:1;min-width:220px">';
+    html += '<div class="pm-master-card" style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">';
+    html += '<div class="pm-master-card-left" style="flex:1;min-width:220px">';
     html += '<div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:800;color:#0f172a;background:#f1f5f9;padding:2px 8px;border-radius:4px;display:inline-block;margin-bottom:4px">' + escapeHtml(p.code) + '</div>';
     html += '<div style="font-size:13px;font-weight:700;color:#0f172a;line-height:1.35">' + escapeHtml(p.desc || '(sin descripcion)') + '</div>';
     if (famTxt || subTxt || catTxt) html += '<div style="font-size:10px;color:#64748b;margin-top:2px">' + famTxt + subTxt + catTxt + '</div>';
     html += '</div>';
-    html += '<div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;min-width:130px">';
+    html += '<div class="pm-master-card-right" style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;min-width:130px">';
     html += '<div style="font-size:14px;font-weight:800;color:' + precioColor + '">' + precioTxt + '</div>';
     html += stockBadge;
     html += '<div style="display:flex;gap:4px;margin-top:4px">';
