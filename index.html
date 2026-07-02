@@ -3095,7 +3095,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v259';
+const APP_VERSION = 'v260';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -21331,7 +21331,17 @@ function ensureStockSnapshotListener(){
     if (!snap.exists) return;
     const d = snap.data() || {};
     STOCK_MAP = d.stock || {};
-    STOCK_QUANTITIES = d.quantities || {};
+    // 'quantities' viene como string JSON (workaround del limite de 40k
+    // index entries por doc de Firestore - dos maps grandes en el mismo
+    // doc fallaba con INDEX_ENTRIES_COUNT_LIMIT_EXCEEDED). Parseamos aca.
+    if (typeof d.quantities === 'string') {
+      try { STOCK_QUANTITIES = JSON.parse(d.quantities) || {}; }
+      catch(e) { console.warn('[stock] no pude parsear quantities:', e); STOCK_QUANTITIES = {}; }
+    } else {
+      // Backward compat: snapshot viejo con quantities como map (funcionaba
+      // solo si habia menos de 40k index entries total, ya no se usa).
+      STOCK_QUANTITIES = d.quantities || {};
+    }
     STOCK_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : null;
     _markStockMapLoaded();
     const total = Object.keys(STOCK_MAP).length;

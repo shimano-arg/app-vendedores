@@ -393,15 +393,19 @@ def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, w
     if os.environ.get('DRY_RUN', '').lower() == 'true':
         log(f'[DRY_RUN] escribiria stock_snapshot con {len(stock_map)} SKUs ({with_stock} con stock, con cantidades)')
         return sync_batch_id
+    # Firestore tiene un limite HARD de ~40.000 index entries por documento.
+    # Cada map field indexa cada key automaticamente. Con stock (10.684 entries)
+    # + quantities (otras 10.684 como map) exedemos el limite y falla con
+    # INDEX_ENTRIES_COUNT_LIMIT_EXCEEDED. Serializar quantities como string
+    # JSON evita el problema: Firestore no indexa el contenido de un string.
+    # El cliente hace JSON.parse cuando lo lee (~200 KB, negligible).
+    qty_json = json.dumps(qty_map, separators=(',', ':'), ensure_ascii=True)
     db.collection('app_config').document('stock_snapshot').set({
         # Key 'stock' compatible con el listener existente ensureStockSnapshotListener.
         'stock': stock_map,
-        # Key 'quantities' nueva - cantidad exacta por SKU. La usa el cliente
-        # cuando un vendedor toca 'SAP LIVE' en el modal Master de Productos.
-        # Antes ese boton requeria login SL desde el browser (solo admin/gerente
-        # tenian sapConfigCache) - ahora los vendedores leen esta key directo
-        # del snapshot y ven la cantidad con delay maximo 30 min.
-        'quantities': qty_map,
+        # Key 'quantities' como STRING JSON (no map) para evitar el limite
+        # de 40k index entries de Firestore.
+        'quantities': qty_json,
         'totalItems': len(stock_map),
         'withStock': with_stock,
         'warehouse': 'ALL_SALES',
@@ -410,7 +414,7 @@ def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, w
         'updatedBy': 'github-actions/sync_sap_to_firestore',
         'syncBatchId': sync_batch_id,
     })
-    log(f'[FS] stock_snapshot escrito: {len(stock_map)} SKUs, {with_stock} con stock (quantities incluidas)')
+    log(f'[FS] stock_snapshot escrito: {len(stock_map)} SKUs, {with_stock} con stock (quantities JSON string, {len(qty_json)} bytes)')
     return sync_batch_id
 
 
