@@ -153,7 +153,10 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
       with_stock: total con stock > 0
     """
     items = []
-    stock_map = {}
+    stock_map = {}       # {sku: bool}    (backward compat con listener actual)
+    qty_map = {}         # {sku: int}     (nueva: cantidad total vendible - permite
+                         #                 que vendedores vean cantidad exacta sin
+                         #                 tener que hacer login al SL desde el browser)
     scanned = 0
     with_stock = 0
 
@@ -206,12 +209,16 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
             has_stk = total_qty > 0
             items.append({'code': code, 'desc': name})
             stock_map[code] = has_stk
+            # Cantidad total en entero (SAP no maneja fracciones de items). La
+            # guardamos separada del bool para no romper el listener actual
+            # que espera stock_map[sku] = bool.
+            qty_map[code] = int(round(total_qty))
             scanned += 1
             if has_stk:
                 with_stock += 1
             if max_items and scanned >= max_items:
                 log(f'[SL] cap de {max_items} alcanzado (test)')
-                return items, stock_map, scanned, with_stock
+                return items, stock_map, qty_map, scanned, with_stock
 
         page_count += 1
         # Progress log cada 5 segundos
@@ -236,7 +243,7 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
             break
 
     log(f'[SL] termino: {scanned} items, {with_stock} con stock, {page_count} paginas')
-    return items, stock_map, scanned, with_stock
+    return items, stock_map, qty_map, scanned, with_stock
 
 
 def load_local_categorization_from_html() -> dict:
@@ -381,14 +388,20 @@ def write_catalog(db: firestore.Client, items: list, existing_meta: dict) -> tup
     return sync_batch_id, total_chunks
 
 
-def write_stock_snapshot(db: firestore.Client, stock_map: dict, with_stock: int) -> str:
+def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, with_stock: int) -> str:
     sync_batch_id = 'SYNC-STOCK-AUTO-' + str(int(time.time() * 1000))
     if os.environ.get('DRY_RUN', '').lower() == 'true':
-        log(f'[DRY_RUN] escribiria stock_snapshot con {len(stock_map)} SKUs ({with_stock} con stock)')
+        log(f'[DRY_RUN] escribiria stock_snapshot con {len(stock_map)} SKUs ({with_stock} con stock, con cantidades)')
         return sync_batch_id
     db.collection('app_config').document('stock_snapshot').set({
         # Key 'stock' compatible con el listener existente ensureStockSnapshotListener.
         'stock': stock_map,
+        # Key 'quantities' nueva - cantidad exacta por SKU. La usa el cliente
+        # cuando un vendedor toca 'SAP LIVE' en el modal Master de Productos.
+        # Antes ese boton requeria login SL desde el browser (solo admin/gerente
+        # tenian sapConfigCache) - ahora los vendedores leen esta key directo
+        # del snapshot y ven la cantidad con delay maximo 30 min.
+        'quantities': qty_map,
         'totalItems': len(stock_map),
         'withStock': with_stock,
         'warehouse': 'ALL_SALES',
@@ -397,7 +410,7 @@ def write_stock_snapshot(db: firestore.Client, stock_map: dict, with_stock: int)
         'updatedBy': 'github-actions/sync_sap_to_firestore',
         'syncBatchId': sync_batch_id,
     })
-    log(f'[FS] stock_snapshot escrito: {len(stock_map)} SKUs, {with_stock} con stock')
+    log(f'[FS] stock_snapshot escrito: {len(stock_map)} SKUs, {with_stock} con stock (quantities incluidas)')
     return sync_batch_id
 
 
@@ -478,7 +491,7 @@ def main() -> int:
         sl_login(sl_cfg, session)
 
     max_items = int(os.environ.get('SL_MAX_ITEMS', '0') or 0)
-    items, stock_map, scanned, with_stock = sl_fetch_items_and_stock(sl_cfg, session, max_items=max_items)
+    items, stock_map, qty_map, scanned, with_stock = sl_fetch_items_and_stock(sl_cfg, session, max_items=max_items)
 
     if scanned == 0:
         log('[FATAL] SL devolvio 0 items. No escribo nada para no pisar datos buenos.')
@@ -507,9 +520,12 @@ def main() -> int:
     log(f'[filtro] {len(items_categorized)} items categorizados escritos al catalogo, {items_excluded} sin categoria omitidos')
 
     write_catalog(db, items_categorized, existing)
-    # Stock SI se escribe COMPLETO (10.657 items) - solo se usa para el
-    # indicador verde/rojo y para el modal Master de Productos.
-    write_stock_snapshot(db, stock_map, with_stock)
+    # Stock SI se escribe COMPLETO (10.657 items) - se usa para:
+    # - indicador verde/rojo en el picker (bool via stock_map)
+    # - cantidad exacta en el modal Master de Productos para vendedores
+    #   (via qty_map - antes solo admin podia ver la cantidad porque
+    #   requeria login SL desde el browser).
+    write_stock_snapshot(db, stock_map, qty_map, with_stock)
     # Ademas escribimos stock.json en la raiz del repo. Lo consume el Google
     # Sheet "Inventario-Bot" via GitHub Pages (https://shimano-arg.github.io/
     # app-vendedores/stock.json). El workflow despues hace commit si cambio.
