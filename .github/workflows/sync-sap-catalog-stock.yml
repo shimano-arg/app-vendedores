@@ -16,7 +16,13 @@ name: Sync SAP Catalog + Stock (Service Layer)
 
 on:
   schedule:
-    - cron: '*/30 * * * *'   # cada 30 min UTC
+    # Cada 30 min, DESFASADO (:13 y :43) para evitar el throttling de
+    # GitHub Actions en :00/:30 (documentado como picos de carga globales
+    # donde muchos scheduled workflows compiten). Con *0/*30 GitHub estaba
+    # skippeando la mitad de las corridas (verificado 2026-07-02: 6 runs
+    # en 15hs en vez de 30). Con :13/:43 sube la probabilidad de que
+    # respete el intervalo real.
+    - cron: '13,43 * * * *'
   workflow_dispatch:
     inputs:
       dry_run:
