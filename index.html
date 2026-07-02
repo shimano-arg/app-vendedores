@@ -3060,7 +3060,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v251';
+const APP_VERSION = 'v252';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -15835,17 +15835,36 @@ window.onClickConfirmPedido = function(){
 };
 
 window.cancelPedido = function(){
-  if (!currentOrderKey || currentOrderKey === '__readonly__') return;
-  const ord = orders[currentOrderKey] || [];
-  if (!ord.length) {
+  console.log('[cancelPedido] currentOrderKey=', currentOrderKey, 'client=', currentOrderClient && currentOrderClient.name);
+  if (!currentOrderKey || currentOrderKey === '__readonly__') {
+    console.warn('[cancelPedido] key invalido o readonly, cerrando modal');
     closePedidoModal();
     return;
   }
-  if (!confirm('Eliminar TODO el pedido de "' + currentOrderClient.name + '"? Esta accion no se puede deshacer.')) return;
-  logOp('cancelar_borrador_pedido', 'pedido', currentOrderClient.name, {key: currentOrderKey, items: ord.length, province: currentOrderClient.province, locName: currentOrderClient.locName});
+  const ord = orders[currentOrderKey] || [];
+  const nItems = ord.length;
+  console.log('[cancelPedido] items en el pedido:', nItems);
+  const clientName = (currentOrderClient && currentOrderClient.name) || 'este cliente';
+  // Siempre confirmar (incluso con 0 items - para dar feedback al vendedor
+  // que la accion se ejecuto). Antes con 0 items cerraba silencioso y el
+  // vendedor no entendia si habia pasado algo.
+  const msg = nItems > 0
+    ? ('Eliminar los ' + nItems + ' producto(s) del pedido de "' + clientName + '"?\n\nEsta accion no se puede deshacer.')
+    : ('Cerrar el pedido de "' + clientName + '" sin cargar nada?');
+  if (!confirm(msg)) return;
+  try { logOp('cancelar_borrador_pedido', 'pedido', clientName, {key: currentOrderKey, items: nItems, province: currentOrderClient && currentOrderClient.province, locName: currentOrderClient && currentOrderClient.locName}); } catch(e){}
+  // Borrado defensivo: delete + reasignar por si el objeto era congelado
+  // por algun getter/setter de Firestore. Ademas limpiamos DOS storages
+  // (localStorage + Firestore userData via saveOrders).
   delete orders[currentOrderKey];
   saveOrders();
+  console.log('[cancelPedido] orders[key] borrado. orders restantes:', Object.keys(orders).length);
+  // Rerender inmediato del picker y de lineas por si el modal queda visible
+  // (algunos flows del modal reciclan el key sin cerrar).
+  try { if (typeof renderProductPicker === 'function') renderProductPicker(); } catch(e){}
+  try { if (typeof renderOrderLines === 'function') renderOrderLines(); } catch(e){}
   closePedidoModal();
+  if (typeof showSyncTag === 'function') showSyncTag('Pedido cancelado (' + nItems + ' items eliminados)');
 };
 
 let reviewMode = 'crear'; // 'crear' | 'pending-confirm'
