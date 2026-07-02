@@ -406,6 +406,14 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
   .sl-actions{flex-direction:column;align-items:stretch;gap:8px}
   .sl-actions .sap-btn{width:100%;padding:12px 16px;font-size:12px;text-align:center}
 }
+/* Serie APP en SAP: en mobile poner el boton Guardar abajo del input,
+   centrado, para que se lea completo (antes se cortaba visualmente al
+   costado del input). Desktop queda como estaba (flex row). */
+@media (max-width:700px){
+  .sap-series-row{flex-direction:column;align-items:stretch;gap:10px}
+  .sap-series-row input{width:100%}
+  .sap-series-save-btn{align-self:center;min-width:160px;padding:10px 24px}
+}
 .sap-btn{padding:9px 16px;border:none;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px}
 .sap-btn.primary{background:#0284c7;color:#fff}
 .sap-btn.primary:hover{background:#0369a1}
@@ -3095,7 +3103,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v260';
+const APP_VERSION = 'v261';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -19010,9 +19018,9 @@ function renderSapConfig(){
       + '<div style="font-size:11px;color:#64748b;line-height:1.5;margin-bottom:10px">'
         + 'Pedile a Eliana el <b>ID numerico</b> de la serie "APP" que creo para los pedidos importados desde la app (no el nombre &laquo;APP&raquo;, el numero/codigo asignado en la tabla NNM1). Si lo dejas vacio, DTW va a usar la serie default del usuario que importa.'
       + '</div>'
-      + '<div style="display:flex;gap:8px;align-items:center">'
+      + '<div class="sap-series-row" style="display:flex;gap:8px;align-items:center">'
         + '<input type="text" id="sap-app-series-input" placeholder="ej. 7" value="' + escapeAttr(seriesId) + '" ' + (isAdmin ? '' : 'disabled') + ' style="flex:1;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-family:Consolas,monospace;font-size:14px;font-weight:700;color:#0c4a6e"/>'
-        + (isAdmin ? '<button class="app-btn-pill app-btn-cyan" onclick="saveSapAppSeries()">Guardar</button>' : '')
+        + (isAdmin ? '<button class="app-btn-pill app-btn-cyan sap-series-save-btn" onclick="saveSapAppSeries()">Guardar</button>' : '')
       + '</div>'
       + (updatedAt ? '<div style="margin-top:8px;font-size:10px;color:#94a3b8">Ultimo cambio: ' + escapeHtml(updatedAt) + ' por ' + escapeHtml(updatedBy) + '</div>' : '<div style="margin-top:8px;font-size:10px;color:#94a3b8;font-style:italic">Sin configurar todavia.</div>')
     + '</div>'
