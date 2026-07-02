@@ -439,7 +439,22 @@ def main() -> int:
     existing = dict(fs_cat)
     existing.update(local_cat)
     log(f'[merge] total items con categorizacion disponible: {len(existing)}')
-    write_catalog(db, items, existing)
+
+    # FILTRO CRITICO: solo escribimos al catalogo los items que estan
+    # categorizados (tienen cat/fam/sub cargado). El motivo: los items de
+    # SAP no categorizados son productos de otras lineas (bici, zapatos,
+    # accesorios que NO se venden por este canal) o SKUs viejos/inactivos,
+    # y ademas NO tienen precio en PRICE_LIST_MAP -> si los mostramos al
+    # vendedor entran al pedido con precio $0 y ensucian la experiencia.
+    # Cuando el negocio decida sumar una nueva linea, se agregan al CSV
+    # inline de index.html con su cat/fam/sub y el proximo sync los toma.
+    items_categorized = [it for it in items if it['code'] in existing]
+    items_excluded = len(items) - len(items_categorized)
+    log(f'[filtro] {len(items_categorized)} items categorizados escritos al catalogo, {items_excluded} sin categoria omitidos')
+
+    write_catalog(db, items_categorized, existing)
+    # Stock SI se escribe COMPLETO (10.657 items) - solo se usa para el
+    # indicador verde/rojo y para el modal Master de Productos.
     write_stock_snapshot(db, stock_map, with_stock)
 
     elapsed = time.time() - t_start
