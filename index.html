@@ -2524,7 +2524,8 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <input id="cm-fantasia" type="text" placeholder="Marca o nombre del local (si difiere del titular)" oninput="onClientFantasiaInput()" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none"/>
           </div>
           <!-- Toggle "Cliente con precaucion" - card sale amarilla + alert al crear pedido -->
-          <div style="background:#fef3c7;border:1.5px solid #fcd34d;border-radius:6px;padding:8px 10px;margin-bottom:10px">
+          <!-- SOLO admin/gerente: el JS de openClientModal se encarga de ocultarlo si el user es vendedor/interno. -->
+          <div id="cm-precaucion-block" style="background:#fef3c7;border:1.5px solid #fcd34d;border-radius:6px;padding:8px 10px;margin-bottom:10px">
             <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
               <input type="checkbox" id="cm-precaucion" onchange="onClientPrecaucionInput()" style="margin-top:2px;flex-shrink:0;accent-color:#d97706"/>
               <div style="flex:1">
@@ -3059,7 +3060,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v248';
+const APP_VERSION = 'v249';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -4900,24 +4901,26 @@ function openSapAltaInfoModal(fsId){
           (isAdminLike ? '' : ' disabled') +
           ' style="width:100%;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;margin-bottom:14px"/>' +
         (isAdminLike ? '' : '<div style="font-size:10px;color:#dc2626;margin-bottom:10px;margin-top:-6px">Solo admin o gerente puede editar este campo.</div>') +
-        // Toggle "Cliente con precaucion": cuando esta activado, la card
-        // del cliente sale en amarillo en CLIENTES y al crear pedido salta
-        // un alert avisando al vendedor que tenga cuidado.
-        '<div style="background:#fef3c7;border:1.5px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-bottom:14px">' +
-          '<label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">' +
-            '<input type="checkbox" id="sai-precaucion-input" ' + (a.precaucion ? 'checked' : '') + (isAdminLike ? '' : ' disabled') + ' style="margin-top:2px;flex-shrink:0;accent-color:#d97706"/>' +
-            '<div style="flex:1">' +
-              '<div style="font-size:12px;font-weight:800;color:#92400e">&#9888;&#65039; Cliente con precauci&oacute;n</div>' +
-              '<div style="font-size:10px;color:#78350f;margin-top:2px;line-height:1.4">Marca este cliente si tuvo incumplimientos de pago en otras empresas. La card sale en amarillo y al crear pedido salta una alerta para el vendedor.</div>' +
+        // Toggle "Cliente con precaucion": SOLO visible para admin/gerente.
+        // La info es sensible (mora con otros distribuidores, cheques
+        // rechazados) y no queremos que los vendedores vean el motivo o
+        // toggle. Sigue funcionando el resaltado amarillo de la card en
+        // CLIENTES + alert al crear pedido, esos si son visibles a todos.
+        (isAdminLike ?
+          '<div style="background:#fef3c7;border:1.5px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-bottom:14px">' +
+            '<label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">' +
+              '<input type="checkbox" id="sai-precaucion-input" ' + (a.precaucion ? 'checked' : '') + ' style="margin-top:2px;flex-shrink:0;accent-color:#d97706"/>' +
+              '<div style="flex:1">' +
+                '<div style="font-size:12px;font-weight:800;color:#92400e">&#9888;&#65039; Cliente con precauci&oacute;n</div>' +
+                '<div style="font-size:10px;color:#78350f;margin-top:2px;line-height:1.4">Marca este cliente si tuvo incumplimientos de pago en otras empresas. La card sale en amarillo y al crear pedido salta una alerta para el vendedor.</div>' +
+              '</div>' +
+            '</label>' +
+            '<div style="margin-top:8px">' +
+              '<label style="font-size:10px;font-weight:700;color:#78350f;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:3px">Motivo (opcional)</label>' +
+              '<textarea id="sai-precaucion-reason" rows="2" maxlength="240" placeholder="Ej: Mora con Distribuidor X en 2025, cheques rechazados" style="width:100%;padding:6px 9px;border:1.5px solid #fcd34d;border-radius:5px;font-size:11px;outline:none;font-family:inherit;background:#fffbeb;resize:vertical">' + escapeHtml(a.precaucionReason || '') + '</textarea>' +
             '</div>' +
-          '</label>' +
-          '<div style="margin-top:8px">' +
-            '<label style="font-size:10px;font-weight:700;color:#78350f;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:3px">Motivo (opcional)</label>' +
-            '<textarea id="sai-precaucion-reason" rows="2" maxlength="240" placeholder="Ej: Mora con Distribuidor X en 2025, cheques rechazados"' +
-              (isAdminLike ? '' : ' disabled') +
-              ' style="width:100%;padding:6px 9px;border:1.5px solid #fcd34d;border-radius:5px;font-size:11px;outline:none;font-family:inherit;background:#fffbeb;resize:vertical">' + escapeHtml(a.precaucionReason || '') + '</textarea>' +
-          '</div>' +
-        '</div>' +
+          '</div>'
+          : '') +
         '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">' +
           (isAdminLike ? '<button class="btn-confirm" onclick="saveSapAltaFantasiaFromModal(\'' + safeFsId + '\')" style="background:#16a34a">Guardar</button>' : '') +
           '<button onclick="document.getElementById(\'sap-alta-info-modal\').classList.remove(\'open\');openSapAltaAddressModal(\'' + safeFsId + '\')" style="padding:9px 14px;border:1.5px solid #1d4ed8;border-radius:6px;background:#fff;color:#1d4ed8;font-size:12px;font-weight:700;cursor:pointer">Editar direccion</button>' +
@@ -5828,7 +5831,14 @@ function openClientModal(clientName, tipo, province, localityName){
     }
     fantInput.value = preset || '';
   }
-  // Cargar el toggle de precaucion + motivo desde clientMeta.
+  // Cargar el toggle de precaucion + motivo desde clientMeta. El bloque
+  // entero es SOLO admin/gerente (info sensible sobre morosidad). Los
+  // vendedores no ven el toggle ni el motivo, pero SI ven el resaltado
+  // amarillo de la card + alert al crear pedido (esa info ya llega por
+  // otras vias del render).
+  const precBlockEl = document.getElementById('cm-precaucion-block');
+  const isAdminLike = (userRole === 'admin' || userRole === 'gerente');
+  if (precBlockEl) precBlockEl.style.display = isAdminLike ? '' : 'none';
   const precInput = document.getElementById('cm-precaucion');
   const precReason = document.getElementById('cm-precaucion-reason');
   if (precInput) precInput.checked = !!(meta && meta.precaucion);
