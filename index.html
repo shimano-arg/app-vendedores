@@ -743,9 +743,33 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
    selects normales - dispar). Grid de 1 columna en vez del flex row. */
 @media (max-width:700px){
   .seg-filters{display:grid;grid-template-columns:1fr;gap:8px;padding:10px}
-  .seg-filters label{width:100%}
-  .seg-filters input,.seg-filters select,.seg-filters .chk{width:100%;height:38px;font-size:13px;padding:8px 10px}
-  .seg-filters .chk{justify-content:flex-start}
+  .seg-filters label{width:100%;max-width:100%;min-width:0}
+  .seg-filters input,.seg-filters select,.seg-filters .chk{
+    width:100%;max-width:100%;min-width:0;box-sizing:border-box;
+    height:38px;font-size:13px;padding:8px 10px;
+    /* Safari iOS: los input[type=date] tienen text-align center por default
+       y un padding intrinseco que hace que se salgan del ancho. Forzamos
+       la alineacion y quitamos el padding intrinseco de webkit. */
+    text-align:left;
+    -webkit-appearance:none;-moz-appearance:none;appearance:none;
+  }
+  /* Los inputs date + select mantienen el chevron/calendar picker nativo:
+     re-agregamos el appearance solo para esos si es necesario. Pero para
+     que TODOS tengan exactamente el mismo ancho, dejamos el appearance
+     removido y el chevron custom queda implicito. */
+  .seg-filters input[type=date]{
+    /* iOS Safari: el input date tiene padding-inline extra invisible.
+       Forzar padding explicito y font-size 16px (para que iOS no haga zoom
+       al tocarlo). */
+    font-size:16px;padding:8px 10px;
+  }
+  .seg-filters select{
+    /* Restaurar chevron nativo removido por appearance:none */
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'><path fill='%23475569' d='M6 8L0 0h12z'/></svg>");
+    background-repeat:no-repeat;background-position:right 12px center;background-size:10px;
+    padding-right:32px;
+  }
+  .seg-filters .chk{justify-content:flex-start;appearance:auto;-webkit-appearance:none}
 }
 .seg-aplicar-wrap{display:flex;justify-content:center;margin:0 0 12px}
 .seg-aplicar-btn{height:34px;padding:0 28px;border:none;border-radius:6px;background:#0d9488;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 2px 5px rgba(13,148,136,.4)}
@@ -3103,7 +3127,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v261';
+const APP_VERSION = 'v262';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
