@@ -3089,7 +3089,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v256';
+const APP_VERSION = 'v257';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -21013,7 +21013,7 @@ window.renderProductMaster = function(){
     // "STOCK" para vendedores (lee del snapshot Firestore, delay max 30 min).
     // El comportamiento del click esta en queryStockLive que rutea segun rol.
     const _isAdminForBtn = (userRole === 'admin' || userRole === 'gerente');
-    const _btnLabel = _isAdminForBtn ? '&#128260; SAP live' : '&#128181; Stock';
+    const _btnLabel = _isAdminForBtn ? '&#128260; SAP live' : 'Stock';
     const _btnTitle = _isAdminForBtn
       ? 'Consultar stock actualizado en SAP en tiempo real'
       : 'Ver cantidad de stock del ultimo sync (cada 30 min desde SAP)';
@@ -21129,8 +21129,15 @@ window.queryStockLive = async function(code, btn){
       alert('Sin datos de stock para el SKU:\n\n' + code + '\n\nEl snapshot aun no tiene informacion para este codigo. Puede ser un SKU nuevo que todavia no se sincronizo.');
       return;
     }
-    const qty = Number(STOCK_QUANTITIES[k] || 0);
     const hasStock = !!STOCK_MAP[k];
+    // La key 'quantities' se agrego al snapshot recien en v253 (2026-07-02).
+    // Snapshots anteriores solo tenian 'stock' (bool). Si el snapshot que
+    // esta en Firestore ahora es previo, STOCK_QUANTITIES puede estar vacio
+    // o no tener la key para este SKU concreto - en ese caso NO decir "0"
+    // (seria mentira), mostrar solo el estado disponible/sin stock y avisar
+    // que el numero exacto llega en el proximo sync.
+    const hasQtyData = (k in STOCK_QUANTITIES);
+    const qty = hasQtyData ? Number(STOCK_QUANTITIES[k] || 0) : null;
     const upd = STOCK_UPDATED_AT ? new Date(STOCK_UPDATED_AT).toLocaleString('es-AR') : '(desconocido)';
     // Calcular hace cuanto se actualizo (util para saber si vale la pena
     // esperar al proximo sync o preguntar al admin).
@@ -21140,9 +21147,14 @@ window.queryStockLive = async function(code, btn){
       if (mins < 60) ageStr = ' (hace ' + mins + ' min)';
       else ageStr = ' (hace ' + Math.round(mins / 60) + ' hs)';
     }
-    const status = hasStock
-      ? ('Total vendible: ' + qty + ' unidades')
-      : 'SIN STOCK en depositos vendibles';
+    let status;
+    if (hasStock) {
+      status = hasQtyData
+        ? ('Total vendible: ' + qty + ' unidades')
+        : 'DISPONIBLE en depositos vendibles\n\n(Cantidad exacta se muestra en el proximo sync automatico - snapshot actual no la tiene todavia)';
+    } else {
+      status = 'SIN STOCK en depositos vendibles';
+    }
     alert('Stock del SKU:\n\n' + code + '\n\n' + status + '\n\nFuente: snapshot SAP\nUltima actualizacion: ' + upd + ageStr + '\n\n(Se sincroniza automatico cada 30 min desde SAP Service Layer)');
     return;
   }
