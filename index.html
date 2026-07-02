@@ -3059,7 +3059,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v247';
+const APP_VERSION = 'v248';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -12201,10 +12201,20 @@ window.sendRouteByWhatsApp = async function(rutaId){
   const ruta = rutas.find(r => r.id === rutaId);
   if (!ruta || !ruta.tiendas || !ruta.tiendas.length) { alert('La ruta no tiene tiendas para mapear.'); return; }
 
-  // Pedimos la ubicacion actual del vendedor antes de armar la ruta. Si la otorga,
-  // re-ordenamos las tiendas con vecino-mas-cercano desde su posicion (primer tramo = mas cercanas).
-  showSyncTag('Obteniendo tu ubicacion para optimizar la ruta...');
-  const gps = await captureGpsPosition();
+  // ABRIMOS UNA TAB PLACEHOLDER YA (dentro del user gesture) - clave para
+  // Safari iOS / Chrome PWA: window.open desde async post-await es bloqueado
+  // porque el navegador ya no considera la accion como usuario. Abrimos
+  // 'about:blank' ahora y despues cambiamos su location con la URL final.
+  const isIOS = /iP(ad|hone|od)/i.test(navigator.userAgent);
+  const waTab = isIOS ? window.open('about:blank', '_blank') : null;
+
+  // GPS opcional: le damos max 5s con enableHighAccuracy=false. Es suficiente
+  // para ubicar la ciudad y ordenar por proximidad. Antes usabamos 12s con
+  // high accuracy y en iOS/Android sin GPS del sistema quedaba colgado ->
+  // el vendedor veia "Obteniendo tu ubicacion..." indefinidamente y nunca
+  // se abria WhatsApp.
+  showSyncTag('Obteniendo ubicacion... (max 5s)');
+  const gps = await captureGpsPositionFast();
   let orderedTiendas = ruta.tiendas;
   let originLatLon = null;
   let optimized = false;
@@ -12212,10 +12222,11 @@ window.sendRouteByWhatsApp = async function(rutaId){
     originLatLon = {lat: gps.lat, lon: gps.lon};
     orderedTiendas = orderTiendasNearestNeighbor(ruta.tiendas, gps.lat, gps.lon);
     optimized = true;
-  } else if (gps.status === 'denied') {
-    if (!confirm('No diste permiso para ubicacion. La ruta se va a armar en el orden por defecto (no optimizado por proximidad). ¿Continuar?')) return;
+    showSyncTag('Ubicacion OK, armando ruta...');
   } else {
-    // timeout / unavailable: seguir con orden default sin pedir confirmacion
+    // No confirm dialogs - la user gesture ya se rompio con await, un
+    // confirm ademas de trabar el flujo evita que window.open funcione.
+    // Seguimos con orden por defecto en TODOS los casos (denied/timeout/etc).
     showSyncTag('Sin GPS: usando orden por defecto');
   }
 
@@ -12259,8 +12270,69 @@ window.sendRouteByWhatsApp = async function(rutaId){
     if (!confirm('No tenes un numero de WhatsApp personal configurado. La ruta se va a enviar al numero de TEST (' + WHATSAPP_TEST_NUMBER + ').\n\nPedile a Mariano que en Panel Usuarios cargue tu numero personal y reintenta. ¿Continuar igual?')) return;
   }
   const waUrl = 'https://wa.me/' + destNumber + '?text=' + encodeURIComponent(msg);
-  window.open(waUrl, '_blank');
+  // Estrategia doble para maximizar compatibilidad:
+  // - En iOS ya abrimos una tab placeholder al inicio (dentro del gesture).
+  //   Ahora le cambiamos el location a la URL de WA. Si el placeholder fallo
+  //   (popup blocker), waTab es null y caemos al fallback.
+  // - En Android/Desktop, window.open post-await funciona la mayoria de veces.
+  //   Si no, tenemos fallback a location.href.
+  let opened = false;
+  if (waTab && !waTab.closed) {
+    try { waTab.location.href = waUrl; opened = true; } catch(e) { console.warn('waTab.location.href', e); }
+  }
+  if (!opened) {
+    const w = window.open(waUrl, '_blank');
+    if (w) opened = true;
+  }
+  if (!opened) {
+    // Ultimo fallback: navegar en la misma tab. Saca al vendedor de la app
+    // pero al menos abre WhatsApp (que es lo importante). El usuario puede
+    // volver con back.
+    if (confirm('El navegador bloqueo abrir WhatsApp en una nueva pestaña.\n\n¿Abrir WhatsApp en esta misma pantalla? (Vas a salir de la app.)')) {
+      window.location.href = waUrl;
+    }
+  }
 };
+
+// Version rapida de captureGpsPosition: max 5s, sin high accuracy. Usada
+// por el flujo de Enviar Ruta por WhatsApp donde precision aproximada es
+// suficiente y no queremos hacer esperar al vendedor. La captureGpsPosition
+// original (con high accuracy) sigue existiendo para el registro de visitas
+// donde SI necesitamos precision para el check-in.
+function captureGpsPositionFast(){
+  return new Promise(resolve => {
+    if (!navigator.geolocation) {
+      resolve({status: 'unavailable'}); return;
+    }
+    let done = false;
+    const finish = v => { if (done) return; done = true; resolve(v); };
+    const safety = setTimeout(() => finish({status: 'timeout'}), 5500);
+    // Checkeo previo del permission API (si esta disponible) para no
+    // esperar 5s cuando ya sabemos que esta denegado.
+    try {
+      if (navigator.permissions && navigator.permissions.query) {
+        navigator.permissions.query({name: 'geolocation'}).then(res => {
+          if (res.state === 'denied') {
+            clearTimeout(safety);
+            finish({status: 'denied'});
+          }
+        }).catch(()=>{});
+      }
+    } catch(e){}
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        clearTimeout(safety);
+        finish({status: 'ok', lat: pos.coords.latitude, lon: pos.coords.longitude});
+      },
+      err => {
+        clearTimeout(safety);
+        const code = err && err.code;
+        finish({status: code === 1 ? 'denied' : (code === 3 ? 'timeout' : 'error')});
+      },
+      {enableHighAccuracy: false, timeout: 5000, maximumAge: 60000}
+    );
+  });
+}
 
 function abrirVisitaParaTienda_real(localidad, provincia, tienda){
   openVisitaModal();
