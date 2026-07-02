@@ -3060,7 +3060,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v250';
+const APP_VERSION = 'v251';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -13760,13 +13760,18 @@ function renderMisRendiciones(){
     const ttl = r.tipo === 'gasto'
       ? ((r.descripcion || '-') + ' &middot; ' + (r.tipoGasto || ''))
       : ((r.tipoOperacion || '-') + ' &middot; ' + (r.motivo || ''));
-    html += '<div class="rd-mias-card ' + stCls + '">';
+    const rId = r._fsId || r._id || r.id || '';
+    // Card clickeable -> abre modal con detalle completo (incluye foto del
+    // ticket / adjunto). Reutiliza openRendicionDetail que ya usa el admin
+    // desde notificaciones. Sin approver buttons porque somos el owner.
+    html += '<div class="rd-mias-card ' + stCls + '" onclick="openRendicionDetail(\'' + escapeAttr(rId) + '\')" style="cursor:pointer" title="Tocar para ver el detalle y el ticket">';
     html += '<h5><span class="rd-tipo-tag">' + tipoTag + '</span>' + escapeHtml(ttl) + '</h5>';
     html += '<div class="rd-meta">Importe: <b>' + (r.importe || 0).toLocaleString('es-AR') + ' ' + escapeHtml(r.moneda || '') + '</b>';
     if (r.tipo === 'gasto') html += ' &middot; Ticket: ' + escapeHtml(r.numeroTicket || '');
     html += ' &middot; ' + escapeHtml(dtStr) + '</div>';
     html += '<div><span class="rd-status">' + stLbl + '</span></div>';
     if (r.status === 'rejected' && r.rejectedReason) html += '<div style="font-size:10px;color:#991b1b;margin-top:4px"><b>Motivo:</b> ' + escapeHtml(r.rejectedReason) + '</div>';
+    html += '<div style="font-size:10px;color:#0891b2;margin-top:6px;font-weight:700">&#128194; Tocar para ver detalle y comprobante &rarr;</div>';
     html += '</div>';
   });
   cont.innerHTML = html;
