@@ -14,10 +14,12 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v217 |
-| **APP_VERSION** | `v217` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v252 |
+| **APP_VERSION** | `v252` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (extension `firestore-bigquery-export`) → Power BI Service — **en armado, Día 1 hoy** (ver `PLAN_POWERBI.md`) |
+| **Sync SAP automático** | Service Layer → Firestore + `stock.json` cada 30 min (cron GH Actions `13,43 * * * *`) — ACTIVO desde v246 (2026-07-01) |
+| **Bot Inventario Google Sheet** | Lee `raw.githubusercontent.com/shimano-arg/app-vendedores/main/stock.json` cada 30 min — datos frescos garantizados |
 
 ---
 
@@ -63,7 +65,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v204 → v217](#41-changelog-v204--v217)
+41. [Changelog v204 → v252](#41-changelog-v204--v252)
 
 ---
 
@@ -175,13 +177,13 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 
 | # | Bloqueante | Responsable | Estado |
 |---|---|---|---|
-| 1 | **CORS habilitado en Apache** delante del Service Layer | Alejandro Caracchi (SEIDOR) | ⏳ Email enviado |
-| 2 | **Usuario integración** en SAP (licencia Limited CRM o Logistics) | Juan (IT Shimano) | ⏳ Email enviado |
-| 3 | **UDFs + Serie APP 103 en PROD** (SHIMANO_SAU) | Ezequiel Mendoza (SEIDOR) | ⏳ Pendiente |
+| 1 | **CORS habilitado en Apache** delante del Service Layer | Alejandro Caracchi (SEIDOR) | ✅ Resuelto (SL responde desde el browser + GitHub Actions) |
+| 2 | **Usuario integración** en SAP (licencia Limited CRM o Logistics) | Juan (IT Shimano) | ✅ Resuelto (`APP_VENDEDORES` operativo) |
+| 3 | **UDFs + Serie APP 103 en PROD** (SHIMANO_SAU) | Ezequiel Mendoza (SEIDOR) | ⏳ Pendiente confirmación en PROD (funciona en TST_06) |
 
 ### Plan de contingencia
 
-Si alguno de los 3 bloqueantes no llega a tiempo para el lanzamiento, **arrancamos con el ZIP DTW manual** que ya está probado y funcional. Admin descarga el ZIP de pedidos confirmados, lo importa en DTW, los pedidos entran como Quotations. Lento pero confiable. El DTW manual queda como **backup permanente** incluso cuando Service Layer esté operativo.
+Si el punto 3 no llega a tiempo, **arrancamos con el ZIP DTW manual** que ya está probado y funcional. Admin descarga el ZIP de pedidos confirmados, lo importa en DTW, los pedidos entran como Quotations. El DTW manual queda como **backup permanente** incluso con Service Layer operativo.
 
 ### Última prueba E2E exitosa
 
@@ -226,9 +228,12 @@ shimano-arg/app-vendedores/
 ├── index.html                # App completa (~3.2 MB - todo embebido)
 ├── alta-cliente.html         # Formulario público standalone (link compartible)
 ├── manifest.json             # PWA manifest
-├── sw.js                     # Service Worker (v217)
+├── sw.js                     # Service Worker (v252)
 ├── login-bg.jpg              # Foto de fondo del login (río al amanecer)
-├── stock.json                # Snapshot del stock SAP (placeholder hoy)
+├── stock.json                # Snapshot fresco del stock SAP (autogenerado por
+│                             #  sync_sap_to_firestore.py cada 30 min - lo consume
+│                             #  el Google Sheet "Inventario-Bot" via raw.github)
+├── .nojekyll                 # (v252+) Deshabilita procesamiento Jekyll en Pages
 ├── Shimano-Logo.png          # Logo (header + splash)
 ├── icon-180-v3.png           # PWA icon iOS 180×180
 ├── icon-192-v3.png           # PWA icon Android 192×192
@@ -236,13 +241,25 @@ shimano-arg/app-vendedores/
 ├── icon-512-maskable-v3.png  # PWA icon 512×512 (maskable Android adaptive)
 ├── .github/
 │   └── workflows/
-│       ├── sync-stock.yml              # Cron 30min: sync stock CSV → stock.json
+│       ├── sync-sap-catalog-stock.yml  # (v246+) Cron 13,43 * * * * : Service Layer
+│       │                               #  → Firestore (catalog + stock_snapshot) +
+│       │                               #  commit stock.json si cambia. Reemplazo
+│       │                               #  del legacy sync-stock (CSV manual).
+│       ├── sync-stock.yml              # LEGACY (cron desactivado). Dispatch manual
+│       │                               #  como respaldo. Depende del CSV que David
+│       │                               #  subia a Drive - ya no se usa.
 │       └── send-rendiciones-email.yml  # Cron Lun/Mie 9am AR: Excel + mail rendiciones aprobadas
 ├── scripts/
-│   ├── sync_stock.py             # Procesa CSV exportado de SAP → JSON
+│   ├── sync_sap_to_firestore.py  # (v246+) SL login → itera Items?$expand=... →
+│   │                             #  escribe product_catalog (665 items filtrados
+│   │                             #  con cat/fam/sub) + app_config/stock_snapshot
+│   │                             #  + stock.json en el repo. Usado por el cron
+│   │                             #  y dispatch manual desde Actions.
+│   ├── sync_stock.py             # LEGACY. Procesa CSV manual de David. Queda
+│   │                             #  por si hay que restaurar el flujo viejo.
 │   └── send_rendiciones_email.py # Genera Excel (Gastos agrupado + Detalle + Solicitudes) + sube fotos a Firebase Storage + manda mail
-├── PLAN_POWERBI.md               # Plan 4 días Firestore → BigQuery → Power BI (NUEVO v217)
-├── POWER_AUTOMATE_RENDICIONES.md # Doc operativo del flow de SharePoint (schema v2 de TablaGastos) (NUEVO v217)
+├── PLAN_POWERBI.md               # Plan 4 días Firestore → BigQuery → Power BI
+├── POWER_AUTOMATE_RENDICIONES.md # Doc operativo del flow de SharePoint (schema v2 de TablaGastos)
 ├── Roadmap_Integracion_App_SAP.md
 ├── Solicitud_SEIDOR_Integracion_App.md
 ├── Pitch_Lunes_App_Vendedores.md
@@ -1729,37 +1746,53 @@ El depósito 07 es el único que la app consulta para el indicador verde/rojo. N
 
 ## 26) Stock SAP
 
-### Vía 1: CSV manual (panel admin "Stock")
+### Vía principal: Sync automático Service Layer (v246+)
 
-Estado: **OPERATIVO**.
+Estado: **OPERATIVO desde 2026-07-01**.
 
-1. Admin exporta query de SAP B1 Query Generator:
-   ```sql
-   SELECT "ItemCode", "OnHand" FROM OITW WHERE "WhsCode" = '07'
-   ```
-2. Guarda como CSV UTF-8.
-3. Botón **Stock** del header → arrastra el CSV al drop zone.
-4. Preview con stats: total SKUs / con stock / sin stock.
-5. **Publicar a la app** → escribe a `app_config/stock_snapshot`.
-6. Listener `ensureStockSnapshotListener` actualiza `STOCK_MAP` en tiempo real para todos los usuarios.
-7. Picker de productos refresca con verde/rojo.
+**Flujo (GitHub Actions cron `13,43 * * * *`, cada 30 min):**
 
-Frecuencia recomendada: 3x día hasta que esté Service Layer.
+1. `scripts/sync_sap_to_firestore.py` corre en Actions.
+2. Lee credenciales del SL desde `app_config/sap_integration.serviceLayer` (Firestore).
+3. Login `POST /b1s/v1/Login`, itera `Items?$select=ItemCode,ItemName,ItemWarehouseInfoCollection` paginando via `@odata.nextLink` (SL responde ~20 items por página).
+4. Por cada item calcula `stock total = suma de InStock en warehouses vendibles`. **Excluye W05 (Marketing) y W06 (Devoluciones)**. Suma W01/02/03/04/07/10/11/12.
+5. Filtra los items a escribir al catálogo por los que tienen `cat/fam/sub` en el CSV inline de `index.html` (665 items de pesca). El resto (~10.000 SKUs de bici/otras líneas/inactivos) NO se escribe al catálogo → no ensucian el picker del vendedor.
+6. Escribe a Firestore:
+   - `product_catalog/chunk_N` (665 items en chunks de 4000)
+   - `app_config/product_catalog_meta` (dispara listener)
+   - `app_config/stock_snapshot` con `{stock: {SKU: bool}, warehouse: 'ALL_SALES', ...}`
+7. Escribe también `stock.json` en la raíz del repo y hace commit si cambió (consumido por el Google Sheet Inventario-Bot — ver sección específica).
+8. Cliente: `ensureStockSnapshotListener` y `ensureProductCatalogListener` reciben los cambios en tiempo real. `PRODUCTS` en memoria se reemplaza con los 665 items del catalog. `STOCK_MAP` se actualiza con los bools.
 
-### Vía 2: Service Layer real-time (preparado)
+**Diferencia clave vs legacy**: antes se usaba W07 (PESCA EEUU, casi siempre vacío) → `withStock: 2`. Ahora `ALL_SALES` → `withStock: ~3459` reales.
 
-Cuando esté habilitado SL:
-- `sapSL.getStock(itemCode, '07')` consulta directamente.
-- No requiere CSV.
-- Refresh transparente al abrir el picker o cada N segundos.
+**Workflow**: `.github/workflows/sync-sap-catalog-stock.yml`
+**Permisos**: `contents: write` (para commitear `stock.json`)
+**Cron desfasado** `13,43 * * * *` en vez de `*/30` para evitar throttling GitHub Actions en :00/:30.
 
-### Fallback estático
+### Vía manual: consulta live SKU (modal Master Productos)
 
-`stock.json` del repo. Se mantiene como fallback histórico para que la app no quede sin info de stock si Firestore no responde.
+Admin puede tocar botón "Consultar stock live" en el modal para un SKU específico → `sapSL.getStock(sku, 'ALL')` hace request directo al SL en el momento (no espera al cron). Muestra desglose por warehouse.
 
-### Workflow GitHub Actions
+### Vía legacy (deprecada, cron desactivado)
 
-`.github/workflows/sync-stock.yml` corre cada 30 min. Si está configurado el secret `SAP_STOCK_CSV_URL`, descarga el CSV de la URL pública (Drive) y actualiza `stock.json`. Hoy queda como sistema legacy desde que tenemos el upload manual + listener Firestore.
+`.github/workflows/sync-stock.yml` + `scripts/sync_stock.py`: leía un CSV que David subía a Drive. Dejó de actualizarse el 2026-06-18 (David dejó de subir el CSV). El schedule está comentado, solo queda `workflow_dispatch` manual como respaldo.
+
+### Vía manual: CSV upload por admin (panel "Stock")
+
+Sigue disponible como fallback pero rara vez se usa (sync automático la cubre). Botón **Stock** en header → drop zone del CSV → publicar. Escribe a `app_config/stock_snapshot` con `source: 'csv_manual'`.
+
+### Bot Google Sheet "Inventario-Bot"
+
+Sistema paralelo (mantenido por Federico) que lee `stock.json` cada 30 min y llena una columna "STOCK DISPONIBLE" en un Sheet con DISPONIBLE / NO DISPONIBLE / NO ENCONTRADO. **URL que consume**:
+
+```
+https://raw.githubusercontent.com/shimano-arg/app-vendedores/main/stock.json
+```
+
+(No usa GitHub Pages: los builds Jekyll venían fallando y el CDN cachea 10 min. `raw.githubusercontent` sirve directo del branch, ~30 seg de propagación y sin build.)
+
+El script Apps Script hace `UrlFetchApp.fetch` con `?t=${Date.now()}` para bustear cache. Ver historial de commits para el código completo.
 
 ---
 
@@ -2413,7 +2446,7 @@ Workspace "Shimano Vendedores" (viewers: Mariano, Diego, Santiago Beron, Pablo, 
 
 ---
 
-## 41) Changelog v204 → v217
+## 41) Changelog v204 → v252
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
 
@@ -2483,6 +2516,98 @@ Solo las versiones nuevas — el histórico anterior está en la última entrada
 - Lista SharePoint SAR: columnas nuevas `Tipo comprobante` (Choice), `Cant rendiciones` (Number), `Desde`, `Hasta`, `Rendiciones IDs`.
 - Seguimiento: botón APLICAR centrado en su propia fila, separado del flex de filtros.
 
+### v218 — Fix SAP > Pendientes CardCode fallback
+- `sapGetClienteCode` prioriza `sap_clients` (mapeo manual) pero cae a `approvedAltasList` con match por comercio/titular/fantasia. Antes clientes recién dados de alta sin mapeo manual quedaban como "bloqueados" en Pendientes.
+
+### v219-v220 — Envio a SAP via Service Layer (botón + auto-envio)
+- Nueva UI: botón "Enviar a SAP via SL" en tab Pendientes. Solo admin/gerente. Manda pedidos LISTOS uno por uno como Sales Quotations via `POST /b1s/v1/Quotations`.
+- Toggle "AUTO-ENVIO ACTIVO" en config: cuando el vendedor confirma un pedido, se manda automáticamente a SAP sin intervención manual del admin.
+- Listener SAP auto-envio (`ensureSapAutoSendListener`) watchea pedidos `stage=confirmed` y `!transferidoSAP`.
+
+### v221-v222 — Detalle del pedido confirmado: método de pago + descuentos
+- Modal "Ver pedido" ahora muestra `condicionPago`, `discountPct`, `discountSnapshot.total` para que Santiago/gerente puedan revisar cómo se armó el precio final.
+
+### v223 — Export Excel "Precios + Stock por SKU"
+- Nueva opción en el menú Exportar: baja lista completa con SKU, descripción, precio ARS, estado stock. Útil para revisar disponibilidad + reposición fuera de la app.
+
+### v224-v226 — Fix stage='confirmed' + outlines persistence + Precaución mobile
+- Fix v224: al enviar a SAP el pedido conserva `stage='confirmed'`, agrega `transferidoSAP: {at: iso, source: 'sl'}`. Antes ponía `stage='sap_imported'` y el pedido desaparecía de "Confirmados".
+- Fix v225: outlines de zonas (union polygon-clipping) persisten en localStorage con signature; check de signature ANTES del listener para no invalidar el cache prematuramente.
+- Fix v226/v229: cliente SOUTO aparecía sin resaltado amarillo en mobile por bug de precaución. Corregido en 4 render paths.
+
+### v227/v230/v231/v232 — Ajustes visuales mobile
+- v227/v232: ACTIVAS/HISTÓRICAS centradas en el modal Campañas.
+- v228: menú hamburguesa en mobile (SALIR/exportar/etc) + logo del otro lado.
+- v230: contenido de botón SEGUIMIENTO centrado.
+- v231: modal Zonas full-screen en mobile.
+
+### v233-v234 — Precaución en pedidos + real-time outlines
+- Cards de pedidos con clientes precaución muestran resaltado amarillo (antes solo en Clientes).
+- Nuevo listener `unsubOutlinesInvalidation` reacciona a cambios en `route_overrides` y recalcula outlines sin recarga.
+
+### v235-v238 — Sync catálogo de productos desde SAP (manual desde cliente admin)
+- Nueva pestaña "Catálogo" en modal SAP. Admin toca "Sincronizar catálogo desde SAP" → `sapSL.getAllItems()` itera `Items?$select=ItemCode,ItemName` paginando via `@odata.nextLink`.
+- Escribe `product_catalog/chunk_N` chunkeado en Firestore (~4000 items/chunk).
+- Listener `ensureProductCatalogListener` en cliente reemplaza `PRODUCTS` con lo de Firestore en tiempo real.
+- v236: sacar filtro `Valid=Y` (SAP no siempre lo respeta, dejaba items fuera). v237: paginación via nextLink en vez de $skip. v238: quitar header `Prefer` que CORS bloqueaba.
+
+### v239-v240 — STOCK button → Master de Productos search + eliminar botones obsoletos
+- El botón STOCK del header se repurposó a "Master de Productos": modal con searchbox contra todo el catálogo SAP, muestra descripción + precio + stock en tiempo real (`sapSL.getStock(sku, 'ALL')` on-demand).
+- v240: eliminados los botones PRECIOS y AUDITORÍA del header (funcionalidad migrada / obsoleta).
+
+### v241/v243 — Sync stock manual desde cliente admin + fix duplicate declaration
+- v241: botón "Sincronizar stock ahora" en modal Master Productos. Admin corre `sapSL.getAllStock('07')` en el cliente, escribe a `app_config/stock_snapshot`. Listener refresca `STOCK_MAP` para todos.
+- v243 hotfix: eliminé duplicado `let unsubStockSnapshot` que rompía todo el bundle con `SyntaxError: Identifier already declared` → app quedaba colgada en "Cargando sesión...".
+
+### v242 — LOCAL/Titular en cards (swap de display)
+- En 3 render paths (SAP huérfana, POINTS, PEDIDOS CREAR): fantasía en grande + titular como subtítulo "Titular:" en chico. Antes era al revés y el vendedor buscaba por el fantasía.
+
+### v244 — Stock SL suma warehouses vendibles (no solo W07)
+- Antes: SKU `471512` decía 0 unidades en la app pero SAP tenía 20 en W12. `sapSL.getStock(sku, 'ALL')` ahora suma TODOS los warehouses **excepto W05 (Marketing) y W06 (Devoluciones)**. Los items comerciales se muestran con stock real.
+- Impact: `withStock` en el snapshot pasó de ~2 (con W07 vacío) a ~3.459 reales.
+
+### v245 — Fix cuelgue de "DISPONIBLES" en picker con 10k SKUs
+- `hasStock()` hacía `Object.keys(STOCK_MAP).length` en cada llamada. Con 10.657 SKUs y el filtro DISPONIBLES iterando `PRODUCTS.filter(...)`, eran ~113M ops → thread bloqueado varios segundos.
+- Fix: flag `_STOCK_MAP_HAS_DATA` O(1) actualizado cuando STOCK_MAP muta.
+
+### v246 — 🎯 Sync automático SAP → Firestore + stock.json (GH Actions cron 30min)
+**Hito grande.** Fin del CSV manual de David.
+
+- Nuevo script `scripts/sync_sap_to_firestore.py` (Python + firebase-admin + requests):
+  - Lee credenciales SL de Firestore (`app_config/sap_integration.serviceLayer`).
+  - Login SL, itera Items paginando via `@odata.nextLink`.
+  - Extrae stock sumando warehouses vendibles.
+  - Merge con categorización del CSV inline en `index.html` (fuente de `cat/fam/sub` para los ~665 items de pesca).
+  - Filtro: solo escribe al `product_catalog` los items categorizados (665). Los ~10.000 SKUs de bici/otras líneas van al `stock_snapshot` pero NO al catálogo → no ensucian el picker.
+  - Escribe: `product_catalog/chunk_N`, `app_config/product_catalog_meta`, `app_config/stock_snapshot`, `stock.json` en raíz del repo.
+- Nuevo workflow `.github/workflows/sync-sap-catalog-stock.yml` con cron `13,43 * * * *` (desfasado para evitar throttling en :00/:30).
+- Permisos `contents: write` para poder commitear `stock.json` cuando cambia.
+- Legacy `sync-stock.yml` con cron desactivado (queda como respaldo dispatch manual).
+
+### v247 — Debug log de precios faltantes
+- `getDefaultPrice` loguea en consola cuando no encuentra precio para un SKU (para diagnosticar mismatches SAP ↔ lista de precios).
+
+### v248 — Fix "Enviar ruta por WhatsApp" colgado en iOS
+- Dos bugs combinados:
+  1. GPS con `enableHighAccuracy: true` + timeout 12s → colgaba en iOS con GPS del sistema apagado.
+  2. `window.open(_blank)` post-`await` bloqueado por popup blocker (perdía la user gesture chain).
+- Fix: nuevo `captureGpsPositionFast` con `enableHighAccuracy: false` + timeout 5s + check previo de `navigator.permissions`. En iOS abrimos una tab placeholder al toque del botón (dentro del gesture) y solo cambiamos su location cuando el mensaje está listo.
+
+### v249 — Ocultar bloque "Precaución" a vendedores
+- Info sensible (mora con distribuidores, cheques rechazados) ahora solo visible para admin/gerente. Los vendedores ven la card en amarillo y el alert al crear pedido, pero no la UI de edición del toggle/motivo.
+
+### v250 — Fix contador HABILITADOS inconsistente
+- `updateContactSummary` contaba solo clientes POINTS. `updateStats` sumaba además `approvedAltasList`. Con vendedores 100% SAP el header decía "97 habilitados" y el sub-título "0/28". Fix: replicar la misma lógica de altas SAP en `updateContactSummary`.
+
+### v251 — MIS RENDICIONES cards clickeables
+- Cada card en la lista de rendiciones del vendedor ahora abre `openRendicionDetail` con el detalle completo + foto del ticket (con zoom) + adjunto descargable. Reutiliza el mismo modal que usaba admin desde notificaciones.
+
+### v252 — Fix CANCELAR PEDIDO (feedback + logs)
+- Siempre pide confirmación (antes con 0 items cerraba silencioso). Toast al final "Pedido cancelado (N items eliminados)". Logs de diagnóstico en consola para casos edge. Rerender defensivo de picker + orderLines antes de cerrar.
+
+### v252-post — .nojekyll para GitHub Pages
+- Commit `a6b28d5`: agrego `.nojekyll` en la raíz para skipear procesamiento Jekyll (los builds Pages venían fallando con "Page build failed" sin más info). No usamos Jekyll para nada — la app es una PWA estática. Efecto colateral: builds más rápidos.
+
 ---
 
 ## Convenciones del documento
@@ -2502,13 +2627,26 @@ Solo las versiones nuevas — el histórico anterior está en la última entrada
 
 ---
 
-**Última actualización**: 2026-06-30 — SW v217. Las novedades v204→v217 (changelog detallado en sección 41) cubren:
+**Última actualización**: 2026-07-02 — SW v252. Highlights v218→v252 (changelog detallado en sección 41):
+
+- **🎯 Sync automático SAP → Firestore + stock.json cada 30 min via GitHub Actions** (v246). Fin del CSV manual de David. `sync_sap_to_firestore.py` corre en cron `13,43 * * * *`, escribe `product_catalog` (665 items filtrados por categorización) + `app_config/stock_snapshot` + `stock.json` en el repo. El bot Inventario-Bot de Google Sheet ahora lee datos frescos vía `raw.githubusercontent.com`.
+- **Stock real de warehouses vendibles** (v244). Antes se filtraba solo W07 (PESCA EEUU, casi vacío) → `withStock: 2`. Ahora suma todos EXCEPTO W05 (Marketing) y W06 (Devoluciones) → `withStock: ~3.459` reales.
+- **Sync de catálogo desde SL** (v235-v240). Master de Productos con búsqueda live + consulta stock on-demand por SKU. Elimina dependencia de mantener PRODUCTS hardcoded.
+- **Envío directo a SAP via Service Layer** (v219-v220). Botón manual + toggle auto-envio (pedido confirmado → Sales Quotation automático). CORS + usuario SL resueltos.
+- **Fix perf DISPONIBLES en picker** (v245). Antes con 10k SKUs bloqueaba el thread ~113M ops. Ahora flag O(1).
+- **Fix WhatsApp ruta en iOS** (v248). GPS con `enableHighAccuracy: false` + timeout 5s + `window.open` placeholder para no perder user gesture.
+- **Precaución solo admin/gerente** (v249). Info sensible oculta a vendedores.
+- **Fix contador habilitados inconsistente** (v250). Header y sub-título ahora coinciden.
+- **MIS RENDICIONES clickeables** (v251). Vendedor puede ver detalle + foto del ticket de rendiciones pasadas.
+- **UI ajustes mobile varios** (v226-v233): resaltado precaución en pedidos, hamburger menu, botones centrados, modal Zonas full-screen.
+
+Highlights v204→v217 (histórico anterior):
 - **SEGUIMIENTO** — panel comercial completo para admin/gerente/interno, 7 tabs + Timeline cliente + notas internas + 2 colecciones Firestore nuevas (v209-v212).
 - **Gerente desbloqueado** — `canWrite()`, CAMPAÑAS, SAP, lee todos los pedidos, edita rutas, recalcular contornos (v205/v208/v213/v214/v215).
 - **Card precaución más visible** (v206) y **progreso de campañas global** (v207).
 - **TARGETS-ZONAS reescrito** — solo BPs vivos con CardCode SAP, columna CARDCODE SAP. "Exportar para Análisis" solo Mariano (v208).
 - **Rendiciones v2 (Híbrida Opción C)** — TablaGastos agrupada por dupla `(vendedor, tipoGasto)`, hoja Detalle nueva sin agrupar, fotos pre-subidas a Firebase Storage y concatenadas con `;`. Bucket `<project>.firebasestorage.app` (post-2024). Power Automate flow rearmado con HTTP GET de fotos (Premium) + idempotencia por Title (v217).
 - **Fix tildar pedido bloqueado en SAP** (v216) y **botón ZONAS sin emoji** (v214).
-- **Infra externa nueva** — **Firebase Blaze** activo, **Firebase Storage** inicializado, **BigQuery dataset** `shimano_app` creado, **Power Automate Premium** trial 90 días. Plan Power BI 4 días arrancando hoy (`PLAN_POWERBI.md`).
+- **Infra externa nueva** — **Firebase Blaze** activo, **Firebase Storage** inicializado, **BigQuery dataset** `shimano_app` creado, **Power Automate Premium** trial 90 días. Plan Power BI 4 días.
 
-Histórico previo (v197-v203): Sidebar Localidades amplió a altas SAP + modal localidad (v198), burbujas agregadas OFF (v199), Master Clientes botón Eliminar 🗑 (v200), Modal Zonas gerente + scope provincia + toast (v201/v203), mail Rendiciones cron Lun/Mie (v202), SharePoint + Power Automate schema v1 (v203). Histórico previo (v197): Rutas personalizadas, Alta rápida, Vista preliminar con subtotales de stock, login Microsoft + Email/password + Magic link, reset password Firebase, 2FA opcional, outlines híbrido provincia+dept, `PROVINCE_VENDOR_OVERRIDE` (SAN LUIS → Martin), dropdown provincia editable en Master, botones de refresh + reubicar pines, banner versión + chequeo HTML vs SW, export Visitas/Rendiciones con fotos embebidas (ExcelJS local), delete de notificaciones por target, delete de altas propias sin SAP, fix gerente ve todo el mapa, fix rules rendiciones via users_directory.
+Histórico previo (v197-v203): Sidebar Localidades amplió a altas SAP + modal localidad (v198), burbujas agregadas OFF (v199), Master Clientes botón Eliminar 🗑 (v200), Modal Zonas gerente + scope provincia + toast (v201/v203), mail Rendiciones cron Lun/Mie (v202), SharePoint + Power Automate schema v1 (v203).
