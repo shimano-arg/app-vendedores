@@ -401,6 +401,60 @@ def write_stock_snapshot(db: firestore.Client, stock_map: dict, with_stock: int)
     return sync_batch_id
 
 
+def write_stock_json_for_bot(stock_map: dict, with_stock: int) -> bool:
+    """
+    Escribe stock.json en la raiz del repo para que el Google Sheet
+    "Inventario-Bot" (que consume desde GitHub Pages) tenga datos frescos.
+    Devuelve True si el file cambio (y el workflow deberia commitearlo),
+    False si es identico al existente (skip commit para no ensuciar historial).
+
+    Historia: esta ruta existia con sync_stock.py (deprecado, dependia de un
+    CSV que David subia a Drive y dejo de actualizar). Ahora la fuente es la
+    misma que Firestore -> SAP Service Layer -> stock por SKU sumado en todos
+    los warehouses vendibles (no solo W07 que era el motivo de que quedara
+    'withStock: 2' historico).
+    """
+    if os.environ.get('DRY_RUN', '').lower() == 'true':
+        log(f'[DRY_RUN] escribiria stock.json con {len(stock_map)} SKUs')
+        return False
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    stock_json_path = os.path.join(repo_root, 'stock.json')
+
+    payload = {
+        'updatedAt': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        'source': 'SAP_ServiceLayer',
+        # 'ALL_SALES' = suma de todos los warehouses vendibles (excluye 05
+        # Marketing y 06 Devoluciones). Antes el CSV de David filtraba solo
+        # W07 (PESCA EEUU) que estaba vacio -> withStock: 2 historico.
+        'warehouse': 'ALL_SALES',
+        'totalSkus': len(stock_map),
+        'withStock': with_stock,
+        'withoutStock': len(stock_map) - with_stock,
+        'stock': stock_map,
+    }
+
+    # Comparar contra existente para no reescribir si stock_map es identico
+    # (aunque los valores cambien, si el conjunto de SKUs con stock es igual
+    # no hace falta commit). Como esto se corre 48 veces por dia, evitamos
+    # inflar historia git con commits identicos.
+    existing_stock = None
+    if os.path.exists(stock_json_path):
+        try:
+            with open(stock_json_path, 'r', encoding='utf-8') as f:
+                existing_data = json.load(f)
+            existing_stock = existing_data.get('stock')
+        except (json.JSONDecodeError, OSError):
+            existing_stock = None
+    if existing_stock == stock_map:
+        log('[stock.json] sin cambios (stock idem al existente), no reescribo')
+        return False
+
+    with open(stock_json_path, 'w', encoding='utf-8') as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    log(f'[stock.json] escrito: {len(stock_map)} SKUs, {with_stock} con stock')
+    return True
+
+
 def main() -> int:
     t_start = time.time()
     log('=== SAP -> Firestore sync start ===')
@@ -456,6 +510,20 @@ def main() -> int:
     # Stock SI se escribe COMPLETO (10.657 items) - solo se usa para el
     # indicador verde/rojo y para el modal Master de Productos.
     write_stock_snapshot(db, stock_map, with_stock)
+    # Ademas escribimos stock.json en la raiz del repo. Lo consume el Google
+    # Sheet "Inventario-Bot" via GitHub Pages (https://shimano-arg.github.io/
+    # app-vendedores/stock.json). El workflow despues hace commit si cambio.
+    stock_json_changed = write_stock_json_for_bot(stock_map, with_stock)
+    # Escribir un archivo marker que el step de git del workflow puede usar
+    # para decidir si hacer commit (evita correr git diff si sabemos que no
+    # cambio). Es un flag opcional; el workflow tambien puede chequear con
+    # git diff --quiet.
+    if stock_json_changed:
+        try:
+            with open(os.path.join(os.path.dirname(__file__), '..', '.stock_json_changed'), 'w') as f:
+                f.write('1')
+        except OSError:
+            pass
 
     elapsed = time.time() - t_start
     log(f'=== OK. {scanned} items, {with_stock} con stock. {elapsed:.1f}s ===')

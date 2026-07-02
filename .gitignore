@@ -7,3 +7,10 @@ _*.py
 Pitch_Lunes_App_Vendedores.md
 Roadmap_Integracion_App_SAP.md
 Solicitud_SEIDOR_Integracion_App.md
+
+# Claude Code - configuracion local del proyecto (permisos, etc)
+.claude/
+
+# Marker temporal usado por el workflow sync-sap-catalog-stock para decidir
+# si commitear stock.json - lo escribe/borra el mismo script/workflow.
+.stock_json_changed

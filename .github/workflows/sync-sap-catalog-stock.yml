@@ -41,7 +41,9 @@ on:
         default: '0'
 
 permissions:
-  contents: read
+  # Necesitamos write para poder commitear stock.json cuando cambia
+  # (consumido por el Google Sheet "Inventario-Bot" via GitHub Pages).
+  contents: write
 
 concurrency:
   group: sync-sap-catalog-stock
@@ -70,3 +72,30 @@ jobs:
           SL_INSECURE: ${{ inputs.sl_insecure }}
           SL_MAX_ITEMS: ${{ inputs.max_items }}
         run: python scripts/sync_sap_to_firestore.py
+
+      - name: Commit stock.json if changed
+        # stock.json es consumido por el Google Sheet "Inventario-Bot" via
+        # GitHub Pages (shimano-arg.github.io/app-vendedores/stock.json). Si
+        # el sync detecto cambios, commiteamos y pusheamos.
+        # No corre en dry-run.
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          if [ ! -f .stock_json_changed ]; then
+            echo "::notice::stock.json no cambio, no commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stock.json
+          if git diff --cached --quiet; then
+            echo "::notice::git dice que no hay diff en stock.json (safety net), no commit"
+            exit 0
+          fi
+          git commit -m "stock.json: auto-sync $(date -u +%Y-%m-%dT%H:%MZ)"
+          # Pull + rebase por si hubo pushes concurrentes (poco probable pero
+          # como corremos cada 30 min, si alguien commiteo justo se evita el
+          # non-fast-forward error).
+          git pull --rebase origin main || true
+          git push
+          echo "::notice::stock.json actualizado y pusheado"
+          rm -f .stock_json_changed
