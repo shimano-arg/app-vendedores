@@ -3127,7 +3127,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v265';
+const APP_VERSION = 'v266';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -22857,16 +22857,42 @@ function clientMatchesQuery(name, localityName, k, query){
   return false;
 }
 
-// Devuelve el HTML de un badge con la categoria del cliente (P/A/B/C)
-// segun clientMasterCache.cliTipo. Usado en cards de CLIENTES y PEDIDOS
-// para que el vendedor vea de un vistazo la categoria comercial que le
-// asigno admin/gerente en Master Clientes. Sin categoria -> string vacio.
+// Devuelve el HTML de un badge con la categoria del cliente (P/A/B/C).
+// Los clientes SAP guardan cliTipo en client_applications (approvedAltasList),
+// los POINTS regulares en client_master. Chequeamos ambas fuentes.
+// Usado en cards de CLIENTES y PEDIDOS para que el vendedor vea de un
+// vistazo la categoria comercial que le asigno admin/gerente en Master
+// Clientes. Sin categoria -> string vacio.
 function getClientCategoryBadgeHtml(province, locName, name){
-  if (typeof clientMasterCache === 'undefined' || !clientMasterCache) return '';
   try {
-    const docId = clientLocId(province || '', locName || '', name || '');
-    const cm = clientMasterCache.get(docId);
-    const tipo = (cm && cm.cliTipo) ? cm.cliTipo.toString().toUpperCase().trim() : '';
+    let tipo = '';
+    // Fuente 1: client_master (POINTS regulares).
+    if (typeof clientMasterCache !== 'undefined' && clientMasterCache) {
+      const docId = clientLocId(province || '', locName || '', name || '');
+      const cm = clientMasterCache.get(docId);
+      if (cm && cm.cliTipo) tipo = cm.cliTipo.toString().toUpperCase().trim();
+    }
+    // Fuente 2: client_applications (SAP altas). Match por nombre (comercio,
+    // titular o fantasia) + provincia + localidad. Multiples matches son
+    // posibles (multi-alta), tomamos el primero con cliTipo cargado.
+    if (!tipo && typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList)) {
+      const norm = s => (s || '').toString().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+      const nameU = norm(name);
+      const provU = norm(province);
+      const locU = norm(locName);
+      for (const a of approvedAltasList) {
+        if (!a || !a.cliTipo) continue;
+        // Match por nombre en cualquiera de los 3 campos.
+        const matches = [a.comercio, a.titular, a.fantasia].some(n => norm(n) === nameU);
+        if (!matches) continue;
+        // Match adicional por provincia (si esta cargada). Localidad es
+        // mas laxa porque a veces varia entre POINTS y client_applications.
+        const aProv = norm(a.provincia);
+        if (provU && aProv && provU !== aProv) continue;
+        tipo = a.cliTipo.toString().toUpperCase().trim();
+        break;
+      }
+    }
     if (!tipo) return '';
     const styles = {
       P: {bg: '#7c3aed', title: 'Premium - 6% fijo + 5% CONTADO'},
