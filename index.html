@@ -3127,7 +3127,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v264';
+const APP_VERSION = 'v265';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -5637,14 +5637,17 @@ function renderClients(pts){
     const pro = effProspects(p);
     if (currentFilter !== 'prospects') {
       cli.forEach(n => {
-        if (cq && !(n.toLowerCase().includes(cq) || (p.name||'').toLowerCase().includes(cq))) return;
+        // Busqueda ampliada: nombre + localidad + fantasia (customFantasia
+        // en clientMeta y fantasia en approvedAltasList matcheado por
+        // comercio/titular).
+        if (cq && !clientMatchesQuery(n, p.name, contactKey(p, n, 'C'), cq)) return;
         if (!passesStateFilter(p, n, 'C')) return;
         items.push({name:n, tipo:'C', point:p});
       });
     }
     if (currentFilter !== 'clients') {
       pro.forEach(n => {
-        if (cq && !(n.toLowerCase().includes(cq) || (p.name||'').toLowerCase().includes(cq))) return;
+        if (cq && !clientMatchesQuery(n, p.name, contactKey(p, n, 'P'), cq)) return;
         if (!passesStateFilter(p, n, 'P')) return;
         items.push({name:n, tipo:'P', point:p});
       });
@@ -5674,7 +5677,17 @@ function renderClients(pts){
       const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
       const dupKey = prov + '|' + nombre.toLowerCase();
       if (alreadyIn.has(dupKey)) return;
-      if (cq && !nombre.toLowerCase().includes(cq)) return;
+      // Busqueda ampliada: matchea contra comercio + titular + fantasia
+      // + localidad + cardCode. El vendedor puede buscar por cualquiera.
+      if (cq) {
+        const q = cq;
+        const c = (a.comercio || '').toLowerCase();
+        const t = (a.titular || '').toLowerCase();
+        const f = (a.fantasia || '').toLowerCase();
+        const l = (aLoc || '').toLowerCase();
+        const sap = (a.cardCodeSap || '').toLowerCase();
+        if (!c.includes(q) && !t.includes(q) && !f.includes(q) && !l.includes(q) && !sap.includes(q)) return;
+      }
       // Estado para filtro confirmados/pendientes: confirmados = tiene lat/lng,
       // pendientes = falta lat/lng o direccion.
       const hasGeo = (a.lat != null && a.lng != null);
@@ -14839,7 +14852,27 @@ function renderCrearList(){
   const pts = filteredPoints();
   let items = getContactedClientsFromFilter(pts);
   const q = getPedidoSearchQuery();
-  if (q) items = items.filter(it => (it.name || '').toLowerCase().includes(q));
+  if (q) {
+    // Busqueda ampliada: nombre (titular/comercio) + fantasia del local +
+    // localidad. Muchas veces el vendedor conoce el nombre del local (ej.
+    // "Pescaplay") pero no del titular ("Juan Perez") - antes solo matcheaba
+    // el titular y el cliente no aparecia en la lista.
+    items = items.filter(it => {
+      const k = (typeof contactKey === 'function') ? contactKey(it.point, it.name, it.tipo) : '';
+      // Chequeo standard con el helper compartido.
+      if (clientMatchesQuery(it.name, it.point && it.point.name, k, q)) return true;
+      // Si es una alta SAP huerfana, chequear tambien sus campos internos.
+      if (it.sapAlta) {
+        const a = it.sapAlta;
+        const c = (a.comercio || '').toLowerCase();
+        const t = (a.titular || '').toLowerCase();
+        const f = (a.fantasia || '').toLowerCase();
+        const sap = (a.cardCodeSap || '').toLowerCase();
+        if (c.includes(q) || t.includes(q) || f.includes(q) || sap.includes(q)) return true;
+      }
+      return false;
+    });
+  }
   items.sort((a, b) => a.name.localeCompare(b.name));
   let html = '';
   // Helper para chequear si el cliente tiene flag de precaucion. Match
@@ -15527,7 +15560,13 @@ function renderPendientesList(){
     });
   });
   const q = getPedidoSearchQuery();
-  if (q) items = items.filter(it => (it.clientName || '').toLowerCase().includes(q));
+  if (q) items = items.filter(it => {
+    // Busqueda ampliada: matchea contra clientName (titular/comercio) +
+    // localidad + fantasia guardada en clientMeta o en approvedAltasList.
+    const fakePoint = {province: it.prov, name: it.locName};
+    const k = (typeof contactKey === 'function') ? contactKey(fakePoint, it.clientName, it.tipo) : '';
+    return clientMatchesQuery(it.clientName, it.locName, k, q);
+  });
   items.sort((a, b) => (b.conf.confirmedAt || '').localeCompare(a.conf.confirmedAt || ''));
   let html = '';
   items.forEach(it => {
@@ -15577,7 +15616,13 @@ function renderConfirmadosList(){
   if (fTienda) items = items.filter(it => (it.clientName || '') === fTienda);
   if (fAnio) items = items.filter(it => String(it.conf.year || '') === fAnio);
   const q = getPedidoSearchQuery();
-  if (q) items = items.filter(it => (it.clientName || '').toLowerCase().includes(q));
+  if (q) items = items.filter(it => {
+    // Busqueda ampliada: matchea contra clientName (titular/comercio) +
+    // localidad + fantasia guardada en clientMeta o en approvedAltasList.
+    const fakePoint = {province: it.prov, name: it.locName};
+    const k = (typeof contactKey === 'function') ? contactKey(fakePoint, it.clientName, it.tipo) : '';
+    return clientMatchesQuery(it.clientName, it.locName, k, q);
+  });
   items.sort((a, b) => (b.conf.confirmedAt || '').localeCompare(a.conf.confirmedAt || ''));
   let html = '';
   items.forEach(it => {
@@ -22773,6 +22818,43 @@ let unsubClientLocs = null;
 function clientLocId(prov, locName, tienda){
   function norm(s){ return (s || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''); }
   return norm(prov) + '__' + norm(locName) + '__' + norm(tienda);
+}
+
+// Buscador que matchea el query contra varias fuentes de nombre del cliente:
+//  1) Nombre titular (comercio o razon social) - lo que aparece en POINTS
+//     y en approvedAltasList.comercio.
+//  2) Nombre del local (fantasia) - customFantasia en clientMeta y fantasia
+//     en approvedAltasList. Los vendedores muchas veces saben el nombre del
+//     local pero no del titular ("Pescaplay" en vez de "Juan Perez").
+//  3) Localidad - por si buscan "Rio Tercero" o similar.
+//  4) Titular alternativo de la alta SAP (a.titular).
+// Devuelve true si el query esta vacio o si alguno de los campos matchea.
+function clientMatchesQuery(name, localityName, k, query){
+  if (!query) return true;
+  const q = query.toLowerCase();
+  const nameL = (name || '').toLowerCase();
+  if (nameL.includes(q)) return true;
+  if ((localityName || '').toLowerCase().includes(q)) return true;
+  // customFantasia guardado por el vendedor desde el modal cliente.
+  if (typeof clientMeta !== 'undefined' && k && clientMeta[k] && clientMeta[k].customFantasia) {
+    if (clientMeta[k].customFantasia.toLowerCase().includes(q)) return true;
+  }
+  // Match contra approvedAltasList: si el titular coincide con el nombre
+  // que estamos evaluando, buscamos tambien en su fantasia + titular alterno.
+  if (typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList)) {
+    for (const a of approvedAltasList) {
+      if (!a) continue;
+      const c = (a.comercio || '').toLowerCase();
+      const t = (a.titular || '').toLowerCase();
+      const f = (a.fantasia || '').toLowerCase();
+      // Si alguna de las variantes de nombre matchea al cliente actual,
+      // aceptamos que el query pegue en cualquiera de las 3.
+      if (c === nameL || t === nameL || f === nameL) {
+        if (c.includes(q) || t.includes(q) || f.includes(q)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 // Devuelve el HTML de un badge con la categoria del cliente (P/A/B/C)
