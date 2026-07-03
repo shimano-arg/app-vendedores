@@ -3127,7 +3127,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v262';
+const APP_VERSION = 'v263';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -23334,6 +23334,10 @@ function renderVisitasList(){
   if (!list.length) { el.innerHTML = '<div class="no-data">No hay visitas que coincidan con los filtros.</div>'; return; }
   let html = '';
   list.forEach(v => {
+    // Permisos para eliminar: admin y gerente ven el boton en todas las
+    // visitas, vendedores solo en las propias (matcheando ownerUid).
+    const canDeleteThis = (userRole === 'admin' || userRole === 'gerente') ||
+                          (currentUser && v.ownerUid === currentUser.uid);
     html += '<div class="visit-card" onclick="viewVisit(\'' + escapeAttr(v.id) + '\')"><div class="vc-head">';
     html += '<div><div class="vc-name">' + escapeHtml(v.tienda || '?') + '</div>';
     html += '<div class="vc-meta">' + escapeHtml(v.localidad || '') + ' / ' + escapeHtml(titleCase(v.provincia || '')) + (v.vendor ? ' &middot; ' + escapeHtml(titleCase(v.vendor)) : '') + '</div>';
@@ -23342,11 +23346,40 @@ function renderVisitasList(){
     if ((v.espacio || []).length || v.frenteLocal) html += '<div class="vc-meta">Fotos: ' + (v.frenteLocal ? '1 frente' : '') + ((v.espacio || []).length ? (v.frenteLocal ? ' + ' : '') + (v.espacio || []).length + ' espacio' : '') + '</div>';
     const gpsB = gpsBadgeHtml(v);
     if (gpsB) html += '<div class="vc-meta" style="margin-top:4px">' + gpsB + '</div>';
-    html += '</div><div class="vc-date">' + escapeHtml(v.mes || '') + ' ' + (v.anio || '') + '</div>';
+    html += '</div><div class="vc-date" style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">' + escapeHtml(v.mes || '') + ' ' + (v.anio || '');
+    if (canDeleteThis) {
+      html += '<button onclick="event.stopPropagation();deleteVisit(\'' + escapeAttr(v.id) + '\',\'' + escapeAttr(v.tienda || '') + '\')" title="Eliminar esta visita" style="background:#dc2626;color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Eliminar</button>';
+    }
+    html += '</div>';
     html += '</div></div>';
   });
   el.innerHTML = html;
 }
+
+window.deleteVisit = async function(visitId, tiendaName){
+  if (!visitId) return;
+  if (!currentUser || !fbDb) { alert('Sesion no inicializada.'); return; }
+  const v = visitsCache.find(x => x.id === visitId);
+  if (!v) { alert('Visita no encontrada.'); return; }
+  // Chequeo de permisos redundante (el boton no aparece si no corresponde,
+  // pero por si alguien lo dispara via consola).
+  const canDelete = (userRole === 'admin' || userRole === 'gerente') ||
+                    (currentUser && v.ownerUid === currentUser.uid);
+  if (!canDelete) { alert('No tenes permisos para eliminar esta visita.'); return; }
+  const label = tiendaName || v.tienda || 'esta visita';
+  if (!confirm('Eliminar la visita de "' + label + '" del ' + (v.mes || '') + ' ' + (v.anio || '') + '?\n\nEsta accion no se puede deshacer.')) return;
+  try {
+    await fbDb.collection('visits').doc(visitId).delete();
+    try { logOp('eliminar_visita', 'visits', visitId, {tienda: label, mes: v.mes, anio: v.anio, ownerEmail: v.ownerEmail || ''}); } catch(e){}
+    if (typeof showSyncTag === 'function') showSyncTag('Visita eliminada');
+    // El listener de visits refresca visitsCache automaticamente; forzamos
+    // re-render por si el modal se queda visible.
+    try { renderVisitasList(); } catch(e){}
+  } catch(e) {
+    console.error('deleteVisit', e);
+    alert('Error eliminando la visita: ' + (e.message || e));
+  }
+};
 
 let visitViewMode = 'new';
 function setVisitFormReadonly(readonly){
