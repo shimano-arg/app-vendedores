@@ -3127,7 +3127,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v263';
+const APP_VERSION = 'v264';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -5741,6 +5741,8 @@ function renderClients(pts){
       if (isPrec) {
         html += ' <span title="' + escapeAttr(a.precaucionReason || 'Cliente con precaucion') + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:4px;background:#d97706;padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">&#9888;&#65039; Precauci&oacute;n</span>';
       }
+      // Badge de categoria comercial (P/A/B/C) desde Master Clientes
+      html += getClientCategoryBadgeHtml(it.point.province, it.point.name, it.name);
       html += '</div>';
       if (hasFant) {
         html += '<div style="font-size:11px;color:#475569;font-weight:600;margin-top:2px"><span style="color:#94a3b8;font-weight:500">Titular:</span> ' + escapeHtml(titularSap) + '</div>';
@@ -5840,6 +5842,8 @@ function renderClients(pts){
     if (mPrec) {
       html += ' <span title="' + escapeAttr(mPrecReason || 'Cliente con precaucion') + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:4px;background:#d97706;padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">&#9888;&#65039; Precauci&oacute;n</span>';
     }
+    // Badge de categoria comercial (P/A/B/C) desde Master Clientes
+    html += getClientCategoryBadgeHtml(it.point.province, it.point.name, it.name);
     html += '</div>';
     if (hasFantPt) {
       html += '<div style="font-size:11px;color:#475569;font-weight:600;margin-top:2px"><span style="color:#94a3b8;font-weight:500">Titular:</span> ' + escapeHtml(titularPt) + renamedTag + '</div>';
@@ -14907,6 +14911,8 @@ function renderCrearList(){
     if (prec.flag) {
       html += ' <span title="' + escapeAttr(prec.reason || 'Cliente con precaucion') + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:4px;background:#d97706;padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">&#9888;&#65039; Precauci&oacute;n</span>';
     }
+    // Badge de categoria comercial (P/A/B/C) desde Master Clientes
+    html += getClientCategoryBadgeHtml(it.point.province, it.point.name, it.name);
     html += '</div>';
     if (hasFantPed) {
       html += '<div style="font-size:10px;color:#475569;margin-top:1px"><span style="color:#94a3b8">Titular:</span> ' + escapeHtml(it.name) + '</div>';
@@ -22767,6 +22773,29 @@ let unsubClientLocs = null;
 function clientLocId(prov, locName, tienda){
   function norm(s){ return (s || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''); }
   return norm(prov) + '__' + norm(locName) + '__' + norm(tienda);
+}
+
+// Devuelve el HTML de un badge con la categoria del cliente (P/A/B/C)
+// segun clientMasterCache.cliTipo. Usado en cards de CLIENTES y PEDIDOS
+// para que el vendedor vea de un vistazo la categoria comercial que le
+// asigno admin/gerente en Master Clientes. Sin categoria -> string vacio.
+function getClientCategoryBadgeHtml(province, locName, name){
+  if (typeof clientMasterCache === 'undefined' || !clientMasterCache) return '';
+  try {
+    const docId = clientLocId(province || '', locName || '', name || '');
+    const cm = clientMasterCache.get(docId);
+    const tipo = (cm && cm.cliTipo) ? cm.cliTipo.toString().toUpperCase().trim() : '';
+    if (!tipo) return '';
+    const styles = {
+      P: {bg: '#7c3aed', title: 'Premium - 6% fijo + 5% CONTADO'},
+      A: {bg: '#059669', title: 'A - 3% fijo + 3% CONTADO'},
+      B: {bg: '#0284c7', title: 'B - sin descuento'},
+      C: {bg: '#64748b', title: 'C - sin descuento'},
+    };
+    const s = styles[tipo];
+    if (!s) return '';
+    return ' <span title="' + escapeAttr(s.title) + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:6px;background:' + s.bg + ';padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">Cat ' + tipo + '</span>';
+  } catch(e) { return ''; }
 }
 function ensureClientLocsListener(){
   if (unsubClientLocs || !currentUser || !fbDb) return;
