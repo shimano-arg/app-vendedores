@@ -2042,7 +2042,9 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <label for="rv-transp-nombre" style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Nombre del transportista <span style="color:#dc2626">*</span></label>
             <input id="rv-transp-nombre" type="text" placeholder="Ej: Cruz del Sur, Andreani, etc." style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff;margin-bottom:8px"/>
             <label for="rv-transp-direccion" style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Direccion del transportista <span style="color:#dc2626">*</span></label>
-            <input id="rv-transp-direccion" type="text" placeholder="Ej: Av. Corrientes 1234, CABA" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff"/>
+            <input id="rv-transp-direccion" type="text" placeholder="Ej: Av. Corrientes 1234, CABA" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff;margin-bottom:8px"/>
+            <label for="rv-cliente-direccion" style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Direccion de entrega al cliente <span style="color:#dc2626">*</span></label>
+            <input id="rv-cliente-direccion" type="text" placeholder="Ej: Av. Belgrano 4567, Rio Cuarto (destino final)" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff"/>
           </div>
           <!-- Bloque campo SUCURSAL -->
           <div id="rv-entrega-sucursal-block" style="display:none;margin-top:10px">
@@ -3154,7 +3156,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v272';
+const APP_VERSION = 'v273';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -15773,6 +15775,12 @@ window.viewPedido = function(stage, key, idx){
           infoHtml += '<span style="font-weight:700;color:#0f172a;max-width:60%;text-align:right">' + escapeHtml(fe.transpDireccion) + '</span>';
           infoHtml += '</div>';
         }
+        if (fe.clienteDireccion) {
+          infoHtml += '<div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:11px;color:#64748b">';
+          infoHtml += '<span>&middot; Direccion entrega al cliente</span>';
+          infoHtml += '<span style="font-weight:700;color:#0f172a;max-width:60%;text-align:right">' + escapeHtml(fe.clienteDireccion) + '</span>';
+          infoHtml += '</div>';
+        }
       } else if (fe.tipo === 'SUCURSAL') {
         if (fe.sucursalDireccion) {
           infoHtml += '<div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:11px;color:#64748b">';
@@ -16080,7 +16088,7 @@ window.openReviewDialog = function(mode){
   // Reset del bloque forma de entrega + sus campos condicionales.
   const feSel = document.getElementById('rv-forma-entrega');
   if (feSel) feSel.value = '';
-  ['rv-transp-nombre','rv-transp-direccion','rv-sucursal-direccion'].forEach(id => {
+  ['rv-transp-nombre','rv-transp-direccion','rv-cliente-direccion','rv-sucursal-direccion'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   const bTransp = document.getElementById('rv-entrega-transp-block');
@@ -16139,11 +16147,21 @@ window.validateReviewAndPasarAPendientes = function(){
   }
   const transpNombre = ((document.getElementById('rv-transp-nombre') || {}).value || '').trim();
   const transpDireccion = ((document.getElementById('rv-transp-direccion') || {}).value || '').trim();
+  const clienteDireccion = ((document.getElementById('rv-cliente-direccion') || {}).value || '').trim();
   const sucursalDireccion = ((document.getElementById('rv-sucursal-direccion') || {}).value || '').trim();
   if (feVal === 'TRANSPORTISTA') {
-    if (!transpNombre || !transpDireccion) {
-      showReviewError('Elegiste "Entregar a transportista": falta completar NOMBRE y/o DIRECCION del transportista.');
-      const el = document.getElementById(!transpNombre ? 'rv-transp-nombre' : 'rv-transp-direccion');
+    // 3 campos obligatorios: nombre + direccion del transportista + direccion
+    // de entrega FINAL al cliente (donde el transportista entrega).
+    if (!transpNombre || !transpDireccion || !clienteDireccion) {
+      const faltantes = [];
+      if (!transpNombre) faltantes.push('NOMBRE del transportista');
+      if (!transpDireccion) faltantes.push('DIRECCION del transportista');
+      if (!clienteDireccion) faltantes.push('DIRECCION DE ENTREGA AL CLIENTE');
+      showReviewError('Elegiste "Entregar a transportista": falta completar ' + faltantes.join(' + ') + '.');
+      const targetId = !transpNombre ? 'rv-transp-nombre'
+                    : !transpDireccion ? 'rv-transp-direccion'
+                    : 'rv-cliente-direccion';
+      const el = document.getElementById(targetId);
       if (el) { try { el.focus(); el.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){} }
       return;
     }
@@ -16455,6 +16473,7 @@ window.onFormaEntregaChange = function(){
   if (val !== 'TRANSPORTISTA') {
     const n = document.getElementById('rv-transp-nombre'); if (n) n.value = '';
     const d = document.getElementById('rv-transp-direccion'); if (d) d.value = '';
+    const cd = document.getElementById('rv-cliente-direccion'); if (cd) cd.value = '';
   }
   if (val !== 'SUCURSAL') {
     const s = document.getElementById('rv-sucursal-direccion'); if (s) s.value = '';
@@ -19540,8 +19559,13 @@ function buildEntregaSuffixForRemarks(pedido){
   if (fe.tipo === 'TRANSPORTISTA') {
     const nombre = (fe.transpNombre || '').trim();
     const direccion = (fe.transpDireccion || '').trim();
-    if (!nombre && !direccion) return ' | Entrega TRANSPORTISTA';
-    return ' | Entrega TRANSPORTISTA: ' + nombre + (direccion ? (' - ' + direccion) : '');
+    // v273+: si el pedido tiene direccion de entrega final al cliente,
+    // la agregamos al Remarks para que el operador SAP la vea.
+    const clienteDireccion = (fe.clienteDireccion || '').trim();
+    if (!nombre && !direccion && !clienteDireccion) return ' | Entrega TRANSPORTISTA';
+    let out = ' | Entrega TRANSPORTISTA: ' + nombre + (direccion ? (' - ' + direccion) : '');
+    if (clienteDireccion) out += ' | Entrega al cliente: ' + clienteDireccion;
+    return out;
   }
   if (fe.tipo === 'SUCURSAL') {
     const direccion = (fe.sucursalDireccion || '').trim();
@@ -25217,10 +25241,11 @@ window.doConfirmPedido = function(){
   }
   const transpNombre = (document.getElementById('rv-transp-nombre') || {}).value || '';
   const transpDireccion = (document.getElementById('rv-transp-direccion') || {}).value || '';
+  const clienteDireccion = (document.getElementById('rv-cliente-direccion') || {}).value || '';
   const sucursalDireccion = (document.getElementById('rv-sucursal-direccion') || {}).value || '';
   if (formaEntregaVal === 'TRANSPORTISTA') {
-    if (!transpNombre.trim() || !transpDireccion.trim()) {
-      alert('Como elegiste "Entregar a transportista", tenes que completar el NOMBRE y la DIRECCION del transportista.');
+    if (!transpNombre.trim() || !transpDireccion.trim() || !clienteDireccion.trim()) {
+      alert('Como elegiste "Entregar a transportista", tenes que completar NOMBRE + DIRECCION del transportista + DIRECCION DE ENTREGA AL CLIENTE.');
       closeConfirmDialog();
       try { openReviewDialog(); } catch(e) {}
       return;
@@ -25291,6 +25316,9 @@ window.doConfirmPedido = function(){
       tipo: formaEntregaVal,  // 'TRANSPORTISTA' | 'SUCURSAL'
       transpNombre: (formaEntregaVal === 'TRANSPORTISTA') ? transpNombre.trim() : '',
       transpDireccion: (formaEntregaVal === 'TRANSPORTISTA') ? transpDireccion.trim() : '',
+      // v273+: cuando es TRANSPORTISTA guardamos tambien la direccion final
+      // donde el transportista entregara el pedido al cliente.
+      clienteDireccion: (formaEntregaVal === 'TRANSPORTISTA') ? clienteDireccion.trim() : '',
       sucursalDireccion: (formaEntregaVal === 'SUCURSAL') ? sucursalDireccion.trim() : '',
     },
     lines: ord.map(l => ({code: l.code, desc: l.desc, cat: l.cat||'', fam: l.fam||'', sub: l.sub||'', qty: parseFloat(l.qty)||0, precio: parseFloat(l.precio)||0})),
