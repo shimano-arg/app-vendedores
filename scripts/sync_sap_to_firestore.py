@@ -62,6 +62,13 @@ except ImportError:
 # Todos los demas suman.
 NON_SALES_WHS = {'05', '06'}
 
+# Codigo de la lista de precios "PESCA" en SAP (Administration > Setup >
+# Inventory > Price Lists). Confirmado 2026-07-06: es #12 en ARS con
+# factor 1 y base = PESCA. Es la que corresponde a los vendedores de
+# pesca. Si en algun momento renumeran las listas en SAP, actualizar
+# aca (o mover a env var / lookup dinamico por nombre).
+PESCA_PRICE_LIST_NUM = 12
+
 # Bugs de la Service Layer: si mandamos Prefer no anda por CORS + SL v10 lo
 # rechaza. Sin Prefer, SL responde con pageSize=20. Con ~11k items = ~550
 # requests. A 200-300 ms cada uno = 2-3 min. Aceptable para un cron 30 min.
@@ -191,8 +198,10 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
     items = []
     stock_map = {}       # {sku: bool}
     qty_map = {}         # {sku: int}
+    price_map = {}       # {sku: float}   precio en ARS de la lista PESCA (#12)
     scanned = 0
     with_stock = 0
+    with_price = 0
 
     # Filtrar por el grupo PESCA server-side. Antes traiamos TODOS los items
     # (~10.700) y despues filtrabamos client-side usando el CSV inline de
@@ -202,10 +211,13 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
     # Fix: filtrar por ItemsGroupCode eq <numero_de_pesca> directamente.
     # Ademas es mas eficiente: bajamos de ~530 requests paginados a ~100.
     pesca_group_code = resolve_pesca_group_code(cfg, session)
+    # ItemPrices trae los precios en TODAS las listas para cada item.
+    # Filtramos por la lista PESCA (#12 en SAP, ARS) mas abajo cuando
+    # iteramos ItemPrices.
     path = (
         "/b1s/v1/Items"
         f"?$filter=ItemsGroupCode eq {pesca_group_code}"
-        "&$select=ItemCode,ItemName,ItemWarehouseInfoCollection"
+        "&$select=ItemCode,ItemName,ItemWarehouseInfoCollection,ItemPrices"
     )
     page_count = 0
     last_progress_log = time.time()
@@ -257,17 +269,32 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
             # guardamos separada del bool para no romper el listener actual
             # que espera stock_map[sku] = bool.
             qty_map[code] = int(round(total_qty))
+            # Extraer el precio de la lista PESCA (#12 en SAP, ARS). Si el
+            # SKU no tiene precio cargado en esa lista, no lo agregamos al
+            # map -> el frontend lo muestra como '(sin precio)'. En SAP,
+            # cuando no hay precio, ItemPrices puede tener Price=null o 0.
+            # Solo escribimos si hay un precio > 0.
+            for ip in (it.get('ItemPrices') or []):
+                if ip.get('PriceList') == PESCA_PRICE_LIST_NUM:
+                    price = ip.get('Price')
+                    if price is not None and price != 0:
+                        try:
+                            price_map[code] = float(price)
+                            with_price += 1
+                        except (TypeError, ValueError):
+                            pass
+                    break
             scanned += 1
             if has_stk:
                 with_stock += 1
             if max_items and scanned >= max_items:
                 log(f'[SL] cap de {max_items} alcanzado (test)')
-                return items, stock_map, qty_map, scanned, with_stock
+                return items, stock_map, qty_map, price_map, scanned, with_stock, with_price
 
         page_count += 1
         # Progress log cada 5 segundos
         if time.time() - last_progress_log > 5:
-            log(f'[SL] pag {page_count}: {scanned} items ({with_stock} con stock)')
+            log(f'[SL] pag {page_count}: {scanned} items ({with_stock} stock, {with_price} precio)')
             last_progress_log = time.time()
 
         next_link = body.get('@odata.nextLink') or body.get('odata.nextLink')
@@ -286,8 +313,8 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
             log('[SL] safety cap 50k alcanzado, cortando iteracion')
             break
 
-    log(f'[SL] termino: {scanned} items, {with_stock} con stock, {page_count} paginas')
-    return items, stock_map, qty_map, scanned, with_stock
+    log(f'[SL] termino: {scanned} items, {with_stock} con stock, {with_price} con precio, {page_count} paginas')
+    return items, stock_map, qty_map, price_map, scanned, with_stock, with_price
 
 
 def load_local_categorization_from_html() -> dict:
@@ -432,6 +459,46 @@ def write_catalog(db: firestore.Client, items: list, existing_meta: dict) -> tup
     return sync_batch_id, total_chunks
 
 
+def write_price_list(db: firestore.Client, price_map: dict) -> str:
+    """
+    Escribe la lista de precios (SKU -> ARS float) a
+    app_config/price_list en Firestore. El cliente la lee via
+    ensurePriceListListener y actualiza PRICE_LIST_MAP en tiempo real.
+
+    Estructura escrita (compatible con el listener actual):
+      {
+        prices: {SKU: number, ...},
+        currency: 'ARS',
+        source: 'service_layer_auto',
+        updatedAt: SERVER_TIMESTAMP,
+        updatedBy: '<script>',
+        totalSkus: int,
+        priceListName: 'PESCA',
+        priceListNum: 12,
+      }
+
+    Antes de v268 los precios se cargaban manualmente por CSV desde el
+    modal admin. Ahora vienen automatic desde SAP cada 30 min.
+    """
+    sync_batch_id = 'SYNC-PRICE-AUTO-' + str(int(time.time() * 1000))
+    if os.environ.get('DRY_RUN', '').lower() == 'true':
+        log(f'[DRY_RUN] escribiria price_list con {len(price_map)} SKUs')
+        return sync_batch_id
+    db.collection('app_config').document('price_list').set({
+        'prices': price_map,
+        'currency': 'ARS',
+        'source': 'service_layer_auto',
+        'updatedAt': firestore.SERVER_TIMESTAMP,
+        'updatedBy': 'github-actions/sync_sap_to_firestore',
+        'totalSkus': len(price_map),
+        'priceListName': 'PESCA',
+        'priceListNum': PESCA_PRICE_LIST_NUM,
+        'syncBatchId': sync_batch_id,
+    })
+    log(f'[FS] price_list escrito: {len(price_map)} SKUs con precio ARS (lista PESCA #{PESCA_PRICE_LIST_NUM})')
+    return sync_batch_id
+
+
 def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, with_stock: int) -> str:
     sync_batch_id = 'SYNC-STOCK-AUTO-' + str(int(time.time() * 1000))
     if os.environ.get('DRY_RUN', '').lower() == 'true':
@@ -539,7 +606,7 @@ def main() -> int:
         sl_login(sl_cfg, session)
 
     max_items = int(os.environ.get('SL_MAX_ITEMS', '0') or 0)
-    items, stock_map, qty_map, scanned, with_stock = sl_fetch_items_and_stock(sl_cfg, session, max_items=max_items)
+    items, stock_map, qty_map, price_map, scanned, with_stock, with_price = sl_fetch_items_and_stock(sl_cfg, session, max_items=max_items)
 
     if scanned == 0:
         log('[FATAL] SL devolvio 0 items. No escribo nada para no pisar datos buenos.')
@@ -578,6 +645,11 @@ def main() -> int:
     #   (via qty_map - antes solo admin podia ver la cantidad porque
     #   requeria login SL desde el browser).
     write_stock_snapshot(db, stock_map, qty_map, with_stock)
+    # Precios (v268+): traidos automatic de la lista PESCA #12 de SAP.
+    # Antes se subian manual por CSV desde el modal admin -> lista congelada
+    # con SKUs faltantes. Ahora se refresca cada 30 min.
+    log(f'[precios] escribiendo {len(price_map)} precios de SKUs de PESCA (lista #{PESCA_PRICE_LIST_NUM} ARS)')
+    write_price_list(db, price_map)
     # Ademas escribimos stock.json en la raiz del repo. Lo consume el Google
     # Sheet "Inventario-Bot" via GitHub Pages (https://shimano-arg.github.io/
     # app-vendedores/stock.json). El workflow despues hace commit si cambio.
