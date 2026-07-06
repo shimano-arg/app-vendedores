@@ -3189,7 +3189,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v274';
+const APP_VERSION = 'v275';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -15164,7 +15164,9 @@ window.ccmCargarExcelPedido = function(){
 window.openExcelPedidoModal = function(name, tipo, province, locName){
   // Setear el cliente actual para que cuando reciclemos el flujo de
   // crear pedido (proceedToCreateOrder + openPedidoModal), use este cliente.
-  currentOrderClient = {name, tipo, province, locName};
+  // stage: 'crear' explicito para diferenciar de 'pending' (asi las
+  // funciones de validacion no confunden el flow).
+  currentOrderClient = {name, tipo, province, locName, stage: 'crear'};
   currentOrderKey = tipo + '|' + province + '|' + locName + '|' + name;
   document.getElementById('excel-ped-subt').textContent =
     'Cliente: ' + name + ' - ' + locName + ' / ' + titleCase(province);
@@ -16149,67 +16151,90 @@ window.closeReviewDialog = function(){
 // IMPORTANTE: no bloqueamos por falta de stock. SKUs sin stock salen
 // en rojo pero pueden estar en el pedido - solo advertencia visual.
 window.validateReviewAndPasarAPendientes = function(){
-  // Limpiar cualquier error anterior visible.
-  showReviewError('');
-  // 1) Sanity: hay pedido con lineas?
-  let ord = [];
-  if (currentOrderClient && currentOrderClient.stage === 'pending') {
-    const entry = (typeof getCurrentPendingEntry === 'function') ? getCurrentPendingEntry() : null;
-    ord = entry ? (entry.lines || []) : [];
-  } else if (currentOrderKey && currentOrderKey !== '__readonly__') {
-    ord = orders[currentOrderKey] || [];
-  }
-  if (!ord.length) {
-    showReviewError('El pedido esta vacio. Agregua productos antes de pasar a Pendientes.');
-    return;
-  }
-  // 2) Forma de pago obligatoria.
-  const fpSel = document.getElementById('rv-forma-pago');
-  const fpVal = (fpSel && fpSel.value) ? fpSel.value : '';
-  if (!fpVal) {
-    showReviewError('Falta elegir la FORMA DE PAGO (arriba en este mismo modal).');
-    if (fpSel) { try { fpSel.focus(); fpSel.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){} }
-    return;
-  }
-  // 3) Forma de entrega obligatoria + sub-campos condicionales.
-  const feSel = document.getElementById('rv-forma-entrega');
-  const feVal = (feSel && feSel.value) ? feSel.value : '';
-  if (!feVal) {
-    showReviewError('Falta elegir la FORMA DE ENTREGA (arriba en este mismo modal).');
-    if (feSel) { try { feSel.focus(); feSel.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){} }
-    return;
-  }
-  const transpNombre = ((document.getElementById('rv-transp-nombre') || {}).value || '').trim();
-  const transpDireccion = ((document.getElementById('rv-transp-direccion') || {}).value || '').trim();
-  const clienteDireccion = ((document.getElementById('rv-cliente-direccion') || {}).value || '').trim();
-  const sucursalDireccion = ((document.getElementById('rv-sucursal-direccion') || {}).value || '').trim();
-  if (feVal === 'TRANSPORTISTA') {
-    // 3 campos obligatorios: nombre + direccion del transportista + direccion
-    // de entrega FINAL al cliente (donde el transportista entrega).
-    if (!transpNombre || !transpDireccion || !clienteDireccion) {
-      const faltantes = [];
-      if (!transpNombre) faltantes.push('NOMBRE del transportista');
-      if (!transpDireccion) faltantes.push('DIRECCION del transportista');
-      if (!clienteDireccion) faltantes.push('DIRECCION DE ENTREGA AL CLIENTE');
-      showReviewError('Elegiste "Entregar a transportista": falta completar ' + faltantes.join(' + ') + '.');
-      const targetId = !transpNombre ? 'rv-transp-nombre'
-                    : !transpDireccion ? 'rv-transp-direccion'
-                    : 'rv-cliente-direccion';
-      const el = document.getElementById(targetId);
-      if (el) { try { el.focus(); el.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){} }
+  try {
+    console.log('[pedido] validateReviewAndPasarAPendientes: start', {
+      currentOrderKey: currentOrderKey,
+      currentOrderClient: currentOrderClient,
+      ordersLen: (orders[currentOrderKey] || []).length,
+    });
+    // Limpiar cualquier error anterior visible.
+    showReviewError('');
+    // 1) Sanity: hay pedido con lineas?
+    let ord = [];
+    if (currentOrderClient && currentOrderClient.stage === 'pending') {
+      const entry = (typeof getCurrentPendingEntry === 'function') ? getCurrentPendingEntry() : null;
+      ord = entry ? (entry.lines || []) : [];
+    } else if (currentOrderKey && currentOrderKey !== '__readonly__') {
+      ord = orders[currentOrderKey] || [];
+    }
+    if (!ord.length) {
+      showReviewError('El pedido esta vacio. Agregua productos antes de pasar a Pendientes.');
       return;
     }
-  } else if (feVal === 'SUCURSAL') {
-    if (!sucursalDireccion) {
-      showReviewError('Elegiste "Envio a sucursal": falta completar la DIRECCION DE ENTREGA.');
-      const el = document.getElementById('rv-sucursal-direccion');
-      if (el) { try { el.focus(); el.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){} }
+    // 2) Forma de pago obligatoria.
+    const fpSel = document.getElementById('rv-forma-pago');
+    const fpVal = (fpSel && fpSel.value) ? fpSel.value : '';
+    if (!fpVal) {
+      showReviewError('Falta elegir la FORMA DE PAGO (arriba en este mismo modal).');
+      if (fpSel) { try { fpSel.focus(); fpSel.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){} }
       return;
     }
+    // 3) Forma de entrega obligatoria + sub-campos condicionales.
+    const feSel = document.getElementById('rv-forma-entrega');
+    const feVal = (feSel && feSel.value) ? feSel.value : '';
+    if (!feVal) {
+      showReviewError('Falta elegir la FORMA DE ENTREGA (arriba en este mismo modal).');
+      if (feSel) { try { feSel.focus(); feSel.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){} }
+      return;
+    }
+    const transpNombre = ((document.getElementById('rv-transp-nombre') || {}).value || '').trim();
+    const transpDireccion = ((document.getElementById('rv-transp-direccion') || {}).value || '').trim();
+    const clienteDireccion = ((document.getElementById('rv-cliente-direccion') || {}).value || '').trim();
+    const sucursalDireccion = ((document.getElementById('rv-sucursal-direccion') || {}).value || '').trim();
+    if (feVal === 'TRANSPORTISTA') {
+      // 3 campos obligatorios: nombre + direccion del transportista + direccion
+      // de entrega FINAL al cliente (donde el transportista entrega).
+      if (!transpNombre || !transpDireccion || !clienteDireccion) {
+        const faltantes = [];
+        if (!transpNombre) faltantes.push('NOMBRE del transportista');
+        if (!transpDireccion) faltantes.push('DIRECCION del transportista');
+        if (!clienteDireccion) faltantes.push('DIRECCION DE ENTREGA AL CLIENTE');
+        showReviewError('Elegiste "Entregar a transportista": falta completar ' + faltantes.join(' + ') + '.');
+        const targetId = !transpNombre ? 'rv-transp-nombre'
+                      : !transpDireccion ? 'rv-transp-direccion'
+                      : 'rv-cliente-direccion';
+        const el = document.getElementById(targetId);
+        if (el) { try { el.focus(); el.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){} }
+        return;
+      }
+    } else if (feVal === 'SUCURSAL') {
+      if (!sucursalDireccion) {
+        showReviewError('Elegiste "Envio a sucursal": falta completar la DIRECCION DE ENTREGA.');
+        const el = document.getElementById('rv-sucursal-direccion');
+        if (el) { try { el.focus(); el.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){} }
+        return;
+      }
+    }
+    console.log('[pedido] validacion OK, abriendo confirm-dialog (mes/anio)');
+    // Todo OK: cerrar review y abrir confirm-dialog (mes/anio).
+    closeReviewDialog();
+    openConfirmDialog();
+    // Verificacion: el confirm-dialog quedo abierto?
+    setTimeout(function(){
+      const cd = document.getElementById('confirm-dialog');
+      const isOpen = cd && cd.classList.contains('open');
+      console.log('[pedido] confirm-dialog open?', isOpen);
+      if (!isOpen) {
+        // Fallback: si openConfirmDialog fallo silenciosamente, abrir de nuevo
+        // el review con mensaje al user asi puede reintentar.
+        alert('No se pudo abrir el dialogo de confirmacion. Reintenta desde "Vista preliminar" o avisa al admin. currentOrderKey=' + currentOrderKey);
+        try { openReviewDialog('crear'); } catch(e) {}
+      }
+    }, 200);
+  } catch(err) {
+    console.error('[pedido] validateReviewAndPasarAPendientes FATAL', err);
+    alert('Error inesperado al pasar el pedido a Pendientes:\n\n' + (err && err.message ? err.message : String(err)) + '\n\nAvisa al admin y adjunta el mensaje.');
   }
-  // Todo OK: cerrar review y abrir confirm-dialog (mes/anio).
-  closeReviewDialog();
-  openConfirmDialog();
 };
 
 // Muestra u oculta el banner de error dentro del modal review. Si el
@@ -16515,7 +16540,16 @@ window.onFormaEntregaChange = function(){
 };
 
 window.openConfirmDialog = function(){
-  if (!currentOrderKey || currentOrderKey === '__readonly__') return;
+  console.log('[pedido] openConfirmDialog:', {
+    currentOrderKey: currentOrderKey,
+    hasClient: !!currentOrderClient,
+    clientName: currentOrderClient && currentOrderClient.name,
+    ordersLen: (orders[currentOrderKey] || []).length,
+  });
+  if (!currentOrderKey || currentOrderKey === '__readonly__') {
+    alert('No hay un pedido activo para confirmar. Cerra y volve a abrir el cliente.');
+    return;
+  }
   const ord = orders[currentOrderKey] || [];
   if (!ord.length) { alert('El pedido esta vacio. Agregue productos antes de confirmar.'); return; }
   // populate month/year selects
@@ -16534,9 +16568,28 @@ window.openConfirmDialog = function(){
   // confirmamos mes/anio.
   const formaPagoYaElegida = (document.getElementById('rv-forma-pago') && document.getElementById('rv-forma-pago').value) || '';
   const fpLine = formaPagoYaElegida ? ('<br><span style="font-size:11px;color:#475569">Forma de pago: <b>' + escapeHtml(formaPagoYaElegida) + '</b></span>') : '';
-  document.getElementById('cd-text').innerHTML = 'Desea confirmar el pedido de <b>' + escapeHtml(currentOrderClient.name) + '</b>?<br><span style="font-size:11px;color:#64748b">Seleccione el mes/a&ntilde;o:</span>' + fpLine;
+  // Si currentOrderClient no esta seteado (edge case post-Excel), reconstruir
+  // el nombre desde currentOrderKey ('tipo|prov|loc|name').
+  let clientName = (currentOrderClient && currentOrderClient.name) || '';
+  if (!clientName && typeof currentOrderKey === 'string') {
+    const parts = currentOrderKey.split('|');
+    if (parts.length >= 4) clientName = parts[3];
+    // Ademas reponer currentOrderClient con datos minimos asi doConfirmPedido
+    // no crashea despues por currentOrderClient.name null.
+    if (!currentOrderClient) {
+      currentOrderClient = {
+        name: parts[3] || '',
+        tipo: parts[0] || '',
+        province: parts[1] || '',
+        locName: parts[2] || '',
+        stage: 'crear',
+      };
+      console.warn('[pedido] currentOrderClient recuperado desde key:', currentOrderClient);
+    }
+  }
+  document.getElementById('cd-text').innerHTML = 'Desea confirmar el pedido de <b>' + escapeHtml(clientName || '(sin nombre)') + '</b>?<br><span style="font-size:11px;color:#64748b">Seleccione el mes/a&ntilde;o:</span>' + fpLine;
   // Selector "Crear en nombre de" para VDI con parejas VDE.
-  renderPedidoActingAsSelect();
+  try { renderPedidoActingAsSelect(); } catch(e) { console.warn('renderPedidoActingAsSelect fallo', e); }
   document.getElementById('confirm-dialog').classList.add('open');
 };
 
