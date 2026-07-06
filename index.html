@@ -915,6 +915,23 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .vf-row select,.vf-row input[type=text],.vf-row input[type=number],.vf-row textarea{width:100%;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;font-family:inherit;background:#fff;box-sizing:border-box}
 .vf-row select:focus,.vf-row input:focus,.vf-row textarea:focus{border-color:#7c3aed;box-shadow:0 0 0 2px rgba(124,58,237,.15)}
 .vf-row textarea{resize:vertical;min-height:48px}
+/* Filter-select: input de busqueda + dropdown filtrado. Reemplaza a los
+   <select> nativos en VISITAS (Localidad, Tienda) para permitir busqueda
+   escribiendo en vez de scrollear listas largas en mobile. */
+.fs-wrap{position:relative;width:100%}
+.fs-input{width:100%;padding:9px 32px 9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;font-family:inherit;background:#fff;box-sizing:border-box}
+.fs-input:focus{border-color:#7c3aed;box-shadow:0 0 0 2px rgba(124,58,237,.15)}
+.fs-input:disabled{background:#f1f5f9;color:#94a3b8;cursor:not-allowed}
+.fs-clear{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:#94a3b8;font-size:18px;cursor:pointer;padding:2px 6px;line-height:1;display:none}
+.fs-wrap.has-value .fs-clear{display:block}
+.fs-clear:hover{color:#dc2626}
+.fs-dropdown{position:absolute;top:calc(100% + 2px);left:0;right:0;max-height:220px;overflow-y:auto;background:#fff;border:1.5px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.08);z-index:1000;display:none}
+.fs-dropdown.open{display:block}
+.fs-item{padding:9px 12px;font-size:13px;color:#0f172a;cursor:pointer;border-bottom:1px solid #f1f5f9}
+.fs-item:last-child{border-bottom:none}
+.fs-item:hover,.fs-item.hover{background:#f5f3ff;color:#7c3aed}
+.fs-item.no-match{color:#94a3b8;font-style:italic;cursor:default}
+.fs-item.no-match:hover{background:#fff;color:#94a3b8}
 .vf-likert{display:flex;gap:6px}
 .vf-likert button{flex:1;padding:11px 0;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;color:#475569;font-size:14px;font-weight:800;cursor:pointer;transition:.12s}
 .vf-likert button:hover{border-color:#7c3aed;color:#7c3aed}
@@ -2082,8 +2099,24 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             </select>
             <div id="vf-actingas-info" style="margin-top:6px;font-size:11px;color:#7c3aed;font-weight:600;display:none"></div>
           </div>
-          <div class="vf-row"><label>Localidad <span class="req">*</span></label><select id="vf-localidad" required onchange="onLocalidadChange()"><option value="">Seleccionar...</option></select></div>
-          <div class="vf-row"><label>Tienda de pesca <span class="req">*</span></label><select id="vf-tienda" required><option value="">Seleccionar localidad primero...</option></select></div>
+          <div class="vf-row">
+            <label>Localidad <span class="req">*</span><span class="vf-hint">buscar escribiendo</span></label>
+            <div class="fs-wrap" data-fs-id="vf-localidad">
+              <input type="text" class="fs-input" id="vf-localidad-search" placeholder="Escribi para buscar (ej: cordoba, rio cuarto)" autocomplete="off" oninput="fsOnInput(this)" onfocus="fsOnFocus(this)" onblur="fsOnBlur(this)" onkeydown="fsOnKeydown(this,event)"/>
+              <button type="button" class="fs-clear" onclick="fsClear('vf-localidad')" title="Limpiar">&times;</button>
+              <div class="fs-dropdown" id="vf-localidad-dropdown"></div>
+              <input type="hidden" id="vf-localidad" required/>
+            </div>
+          </div>
+          <div class="vf-row">
+            <label>Tienda de pesca <span class="req">*</span><span class="vf-hint">buscar escribiendo</span></label>
+            <div class="fs-wrap" data-fs-id="vf-tienda">
+              <input type="text" class="fs-input" id="vf-tienda-search" placeholder="Elegi una localidad primero" autocomplete="off" disabled oninput="fsOnInput(this)" onfocus="fsOnFocus(this)" onblur="fsOnBlur(this)" onkeydown="fsOnKeydown(this,event)"/>
+              <button type="button" class="fs-clear" onclick="fsClear('vf-tienda')" title="Limpiar">&times;</button>
+              <div class="fs-dropdown" id="vf-tienda-dropdown"></div>
+              <input type="hidden" id="vf-tienda" required/>
+            </div>
+          </div>
           <div class="vf-row"><label>Tipo de tienda <span class="req">*</span></label><select id="vf-tipo" required><option value="">Seleccionar...</option><option>OUTDOOR</option><option>PESCA</option><option>HIBRIDO (PESCA+OUTDOOR)</option><option>GENERAL (FERRETERIA/CUCHILLERIA/OTROS)</option></select></div>
           <div class="vf-row"><label>Local <span class="req">*</span></label><select id="vf-local" required><option value="">Seleccionar...</option><option>FISICO</option><option>ECOMMERCE</option></select></div>
           <div class="vf-row"><label>Tipo de cliente <span class="req">*</span></label><select id="vf-tamano" required>
@@ -2119,14 +2152,14 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           </div>
           <div class="vf-row" id="vf-necesidad-wrap" style="display:none"><label>Necesidad puntual <span class="req">*</span></label><select id="vf-necesidad"><option value="">Seleccionar...</option><option>CA&Ntilde;ERO</option><option>CARTEL</option><option>MOSTRADO</option><option>OTROS</option></select></div>
           <div class="vf-row"><label>Espacio <span class="vf-hint">(hasta 8 fotos)</span></label>
-            <div class="photo-grid" id="vf-espacio-grid"><label class="photo-cell add" id="vf-espacio-add"><input type="file" accept="image/*" multiple capture="environment" onchange="onEspacioPhotos(this)"/>+</label></div>
+            <div class="photo-grid" id="vf-espacio-grid"><label class="photo-cell add" id="vf-espacio-add"><input type="file" accept="image/*,image/heic,image/heif" multiple onchange="onEspacioPhotos(this)"/>+</label></div>
           </div>
           <div class="vf-row"><label>Oportunidad <span class="vf-hint">(algo que el due&ntilde;o mencion&oacute; para mejorar)</span></label><textarea id="vf-oportunidad" rows="2"></textarea></div>
           <div class="vf-row"><label>Lo m&aacute;s vendido Shimano</label><textarea id="vf-masvendido" rows="2"></textarea></div>
           <div class="vf-row"><label>Lo que m&aacute;s preguntan de Shimano <span class="vf-hint">(nuevos lanzamientos, l&iacute;neas espec&iacute;ficas, etc.)</span></label><textarea id="vf-maspreguntan" rows="2"></textarea></div>
           <div class="vf-row"><label>Ayuda a tienda <span class="vf-hint">(qu&eacute; necesita el due&ntilde;o de nosotros)</span></label><textarea id="vf-ayuda" rows="2"></textarea></div>
           <div class="vf-row" id="vf-frente-row"><label><span id="vf-frente-label">Frente del local</span> <span class="vf-hint" id="vf-frente-hint">(opcional - 1 foto)</span></label>
-            <div class="photo-grid" id="vf-frente-grid"><label class="photo-cell add"><input type="file" accept="image/*" capture="environment" onchange="onFrentePhoto(this)"/>+</label></div>
+            <div class="photo-grid" id="vf-frente-grid"><label class="photo-cell add"><input type="file" accept="image/*,image/heic,image/heif" onchange="onFrentePhoto(this)"/>+</label></div>
           </div>
           <div class="vf-row"><label>Tipo de venta <span class="req">*</span></label><select id="vf-tipoventa" required onchange="onTipoVentaChange()"><option value="">Seleccionar...</option><option>MOSTRADO</option><option>ECOMMERCE</option><option>AMBOS</option></select></div>
           <div class="vf-row" id="vf-pond-wrap" style="display:none"><label>Ponderaci&oacute;n tipo de venta <span class="req">*</span> <span class="vf-hint">(debe sumar 100%)</span></label>
@@ -3156,7 +3189,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v273';
+const APP_VERSION = 'v274';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -12510,21 +12543,22 @@ function captureGpsPositionFast(){
 function abrirVisitaParaTienda_real(localidad, provincia, tienda){
   openVisitaModal();
   setTimeout(() => {
-    const selLoc = document.getElementById('vf-localidad');
-    if (!selLoc) return;
+    // Post v274: vf-localidad y vf-tienda son filter-select (input search
+    // + dropdown filtrable) en vez de <select>. Populados por
+    // populateVisitaLocalidades y onLocalidadChange respectivamente via
+    // fsPopulate. Usar fsSetValue en vez de sel.value directo.
     const targetKey = provincia + '||' + localidad;
-    let found = false;
-    for (let i = 0; i < selLoc.options.length; i++) {
-      if (selLoc.options[i].value === targetKey) { selLoc.value = targetKey; found = true; break; }
-    }
-    if (!found) return;
+    const targetLabel = localidad + ' - ' + titleCase(provincia);
+    // Verificar que la localidad este en el registry (si no, no la puede
+    // seleccionar el user tampoco).
+    const cfgLoc = (typeof _fsRegistry !== 'undefined') ? _fsRegistry['vf-localidad'] : null;
+    if (!cfgLoc || !(cfgLoc.options || []).find(o => o.value === targetKey)) return;
+    fsSetValue('vf-localidad', targetKey, targetLabel);
     onLocalidadChange();
     setTimeout(() => {
-      const selT = document.getElementById('vf-tienda');
-      if (!selT) return;
-      for (let i = 0; i < selT.options.length; i++) {
-        if (selT.options[i].value === tienda) { selT.value = tienda; break; }
-      }
+      const cfgT = (typeof _fsRegistry !== 'undefined') ? _fsRegistry['vf-tienda'] : null;
+      if (!cfgT || !(cfgT.options || []).find(o => o.value === tienda)) return;
+      fsSetValue('vf-tienda', tienda, tienda);
     }, 60);
   }, 120);
 }
@@ -23482,13 +23516,159 @@ function populateVisitaLocalidades(){
     });
   }
   const locs = [...locsSet].sort();
-  const sel = document.getElementById('vf-localidad');
-  sel.innerHTML = '<option value="">Seleccionar...</option>' + locs.map(k => {
+  const options = locs.map(k => {
     const [prov, name] = k.split('||');
-    return '<option value="' + escapeAttr(k) + '">' + escapeHtml(name) + ' - ' + escapeHtml(titleCase(prov)) + '</option>';
-  }).join('');
-  document.getElementById('vf-tienda').innerHTML = '<option value="">Seleccionar localidad primero...</option>';
+    return {value: k, label: name + ' - ' + titleCase(prov)};
+  });
+  // Popular el filter-select de Localidad + resetear el de Tienda.
+  fsPopulate('vf-localidad', options, function(val){ onLocalidadChange(); });
+  fsReset('vf-localidad');
+  fsPopulate('vf-tienda', [], null);
+  fsReset('vf-tienda');
+  const tiendaInput = document.getElementById('vf-tienda-search');
+  if (tiendaInput) {
+    tiendaInput.disabled = true;
+    tiendaInput.placeholder = 'Elegi una localidad primero';
+  }
 }
+
+// =====================================================================
+// Componente Filter-Select (busqueda + dropdown filtrable). Reemplaza a
+// los <select> nativos en VISITAS para permitir buscar escribiendo, en
+// vez de scrollear listas largas. Estructura HTML esperada:
+//   <div class="fs-wrap" data-fs-id="foo">
+//     <input class="fs-input" id="foo-search" .../>
+//     <button class="fs-clear" onclick="fsClear('foo')">×</button>
+//     <div class="fs-dropdown" id="foo-dropdown"></div>
+//     <input type="hidden" id="foo"/>  <!-- value real -->
+//   </div>
+// Uso desde codigo: fsPopulate('foo', [{value, label}, ...], onChange).
+// =====================================================================
+const _fsRegistry = {};
+function _fsNormalize(s){
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+}
+function fsPopulate(fsId, optionsArray, onChangeCb){
+  _fsRegistry[fsId] = {options: optionsArray || [], onChange: onChangeCb || null};
+  _fsRenderDropdown(fsId, '');
+}
+function _fsRenderDropdown(fsId, query){
+  const dropdown = document.getElementById(fsId + '-dropdown');
+  if (!dropdown) return;
+  const cfg = _fsRegistry[fsId];
+  const opts = cfg ? cfg.options : [];
+  const q = _fsNormalize(query);
+  const matches = q
+    ? opts.filter(o => _fsNormalize(o.label).includes(q) || _fsNormalize(o.value).includes(q))
+    : opts;
+  if (!matches.length) {
+    dropdown.innerHTML = '<div class="fs-item no-match">' + (opts.length ? 'Sin resultados' : 'Sin opciones') + '</div>';
+    return;
+  }
+  const shown = matches.slice(0, 200);
+  dropdown.innerHTML = shown.map(o => (
+    '<div class="fs-item" data-fs="' + escapeAttr(fsId) + '" data-value="' + escapeAttr(o.value) + '" onmousedown="_fsSelect(event)">'
+    + escapeHtml(o.label)
+    + '</div>'
+  )).join('') + (matches.length > 200 ? '<div class="fs-item no-match">... y ' + (matches.length - 200) + ' mas (afina la busqueda)</div>' : '');
+}
+function _fsSelect(evt){
+  evt.preventDefault();  // que no dispare blur del input
+  const el = evt.currentTarget;
+  const fsId = el.dataset.fs;
+  const val = el.dataset.value;
+  const label = el.textContent;
+  fsSetValue(fsId, val, label);
+  const dropdown = document.getElementById(fsId + '-dropdown');
+  if (dropdown) dropdown.classList.remove('open');
+  const inp = document.getElementById(fsId + '-search');
+  if (inp) inp.blur();
+  const cfg = _fsRegistry[fsId];
+  if (cfg && cfg.onChange) { try { cfg.onChange(val); } catch(e) { console.warn('fs onChange', e); } }
+}
+window.fsOnInput = function(inputEl){
+  const wrap = inputEl.closest('.fs-wrap');
+  if (!wrap) return;
+  const fsId = wrap.dataset.fsId;
+  _fsRenderDropdown(fsId, inputEl.value);
+  const dropdown = document.getElementById(fsId + '-dropdown');
+  if (dropdown) dropdown.classList.add('open');
+  wrap.classList.toggle('has-value', inputEl.value.trim().length > 0);
+};
+window.fsOnFocus = function(inputEl){
+  if (inputEl.disabled) return;
+  const wrap = inputEl.closest('.fs-wrap');
+  if (!wrap) return;
+  const fsId = wrap.dataset.fsId;
+  _fsRenderDropdown(fsId, inputEl.value);
+  const dropdown = document.getElementById(fsId + '-dropdown');
+  if (dropdown) dropdown.classList.add('open');
+};
+window.fsOnBlur = function(inputEl){
+  // Timeout para dejar que el mousedown del item se procese antes de cerrar.
+  setTimeout(function(){
+    const wrap = inputEl.closest('.fs-wrap');
+    if (!wrap) return;
+    const fsId = wrap.dataset.fsId;
+    const dropdown = document.getElementById(fsId + '-dropdown');
+    if (dropdown) dropdown.classList.remove('open');
+    // Si el user escribio texto pero no eligio nada (input.value distinto al
+    // label del hidden actual), NO borramos el hidden - dejamos que la
+    // validacion del form pida elegir una opcion.
+  }, 150);
+};
+window.fsOnKeydown = function(inputEl, evt){
+  if (evt.key === 'Escape') { inputEl.blur(); return; }
+  if (evt.key === 'Enter') {
+    evt.preventDefault();
+    // Elegir el primer match visible.
+    const wrap = inputEl.closest('.fs-wrap');
+    const fsId = wrap.dataset.fsId;
+    const dropdown = document.getElementById(fsId + '-dropdown');
+    if (!dropdown) return;
+    const first = dropdown.querySelector('.fs-item:not(.no-match)');
+    if (first) {
+      const val = first.dataset.value;
+      const label = first.textContent;
+      fsSetValue(fsId, val, label);
+      dropdown.classList.remove('open');
+      inputEl.blur();
+      const cfg = _fsRegistry[fsId];
+      if (cfg && cfg.onChange) { try { cfg.onChange(val); } catch(e){} }
+    }
+  }
+};
+// Setear el value del hidden + input search. Sirve para restaurar el estado
+// al hacer viewVisit u otras acciones que hoy hacen sel.value = "algo".
+function fsSetValue(fsId, value, label){
+  const hidden = document.getElementById(fsId);
+  const search = document.getElementById(fsId + '-search');
+  if (hidden) hidden.value = value || '';
+  if (search) {
+    // Buscar el label si no fue provisto.
+    let lbl = label;
+    if (!lbl && value) {
+      const cfg = _fsRegistry[fsId];
+      if (cfg) {
+        const opt = (cfg.options || []).find(o => o.value === value);
+        if (opt) lbl = opt.label;
+      }
+    }
+    search.value = lbl || value || '';
+  }
+  const wrap = search ? search.closest('.fs-wrap') : null;
+  if (wrap) wrap.classList.toggle('has-value', !!value);
+}
+window.fsSetValue = fsSetValue;
+function fsReset(fsId){ fsSetValue(fsId, '', ''); }
+window.fsReset = fsReset;
+window.fsClear = function(fsId){
+  fsReset(fsId);
+  const search = document.getElementById(fsId + '-search');
+  if (search) search.focus();
+  const cfg = _fsRegistry[fsId];
+  if (cfg && cfg.onChange) { try { cfg.onChange(''); } catch(e){} }
+};
 
 // Renderiza el selector "Crear en nombre de" segun mis parejas VDE. Se llama
 // al abrir el modal de Visita y cuando cambia la lista de parejas.
@@ -23534,8 +23714,15 @@ window.onActingAsChange = function(){
 
 window.onLocalidadChange = function(){
   const v = document.getElementById('vf-localidad').value;
-  const sel = document.getElementById('vf-tienda');
-  if (!v) { sel.innerHTML = '<option value="">Seleccionar localidad primero...</option>'; return; }
+  const tiendaInput = document.getElementById('vf-tienda-search');
+  // Reset del filter-select de Tienda cuando cambia la localidad.
+  fsReset('vf-tienda');
+  if (!v) {
+    if (tiendaInput) { tiendaInput.disabled = true; tiendaInput.placeholder = 'Elegi una localidad primero'; }
+    fsPopulate('vf-tienda', [], null);
+    return;
+  }
+  if (tiendaInput) { tiendaInput.disabled = false; tiendaInput.placeholder = 'Escribi para buscar tienda'; }
   const [prov, name] = v.split('||');
   const myVendor = (userRole === 'vendedor') ? assignedVendor : null;
   // Solo mostrar tiendas habilitadas en SAP. Filtramos via isSapConfirmed
@@ -23575,10 +23762,11 @@ window.onLocalidadChange = function(){
     });
   }
   const tiendas = [...tiendaSet].sort();
-  if (!tiendas.length) {
-    sel.innerHTML = '<option value="">(sin tiendas habilitadas en SAP en esta localidad)</option>';
-  } else {
-    sel.innerHTML = '<option value="">Seleccionar...</option>' + tiendas.map(t => '<option value="' + escapeAttr(t) + '">' + escapeHtml(t) + '</option>').join('');
+  const options = tiendas.map(t => ({value: t, label: t}));
+  fsPopulate('vf-tienda', options, null);
+  if (!tiendas.length && tiendaInput) {
+    tiendaInput.disabled = true;
+    tiendaInput.placeholder = 'Sin tiendas habilitadas en SAP en esta localidad';
   }
 };
 
@@ -23647,7 +23835,7 @@ function refreshEspacioGrid(){
     '<div class="photo-cell"><img src="' + b64 + '"/><button type="button" class="rm" onclick="removeEspacioPhoto(' + i + ')">&times;</button></div>'
   ).join('');
   const addCell = visitState.espacioPhotos.length < 8
-    ? '<label class="photo-cell add"><input type="file" accept="image/*" multiple capture="environment" onchange="onEspacioPhotos(this)"/>+</label>'
+    ? '<label class="photo-cell add"><input type="file" accept="image/*,image/heic,image/heif" multiple onchange="onEspacioPhotos(this)"/>+</label>'
     : '';
   grid.innerHTML = cells + addCell;
 }
@@ -23672,7 +23860,7 @@ function refreshFrenteGrid(){
   if (visitState.frentePhoto) {
     wrap.innerHTML = '<div class="photo-cell"><img src="' + visitState.frentePhoto + '"/><button type="button" class="rm" onclick="removeFrentePhoto()">&times;</button></div>';
   } else {
-    wrap.innerHTML = '<label class="photo-cell add"><input type="file" accept="image/*" capture="environment" onchange="onFrentePhoto(this)"/>+</label>';
+    wrap.innerHTML = '<label class="photo-cell add"><input type="file" accept="image/*,image/heic,image/heif" onchange="onFrentePhoto(this)"/>+</label>';
   }
 }
 
@@ -23936,10 +24124,13 @@ window.viewVisit = function(visitId){
   // Switch to form view + populate
   setVisitaView('form');
   resetVisitaForm();
-  // Populate fields
-  document.getElementById('vf-localidad').value = (v.provincia || '') + '||' + (v.localidad || '');
+  // Populate fields. Los filter-select (vf-localidad, vf-tienda) usan
+  // fsSetValue para actualizar tanto el hidden como el input search visible.
+  const locKey = (v.provincia || '') + '||' + (v.localidad || '');
+  const locLabel = (v.localidad || '') + ' - ' + titleCase(v.provincia || '');
+  fsSetValue('vf-localidad', locKey, locLabel);
   onLocalidadChange();
-  document.getElementById('vf-tienda').value = v.tienda || '';
+  fsSetValue('vf-tienda', v.tienda || '', v.tienda || '');
   document.getElementById('vf-tipo').value = v.tipo || '';
   document.getElementById('vf-local').value = v.local || '';
   document.getElementById('vf-tamano').value = v.tamano || '';
