@@ -14,8 +14,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v252 |
-| **APP_VERSION** | `v252` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v276 |
+| **APP_VERSION** | `v276` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (extension `firestore-bigquery-export`) → Power BI Service — **en armado, Día 1 hoy** (ver `PLAN_POWERBI.md`) |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` cada 30 min (cron GH Actions `13,43 * * * *`) — ACTIVO desde v246 (2026-07-01) |
@@ -65,7 +65,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v204 → v252](#41-changelog-v204--v252)
+41. [Changelog v204 → v276](#41-changelog-v204--v276)
 
 ---
 
@@ -473,6 +473,15 @@ Pre-autorizaciones. Cuando el email se loguea, se eleva al rol pre-cargado.
   year: 2026,
   confirmedAt: "ISO date",
   condicionPago: "CTA CTE",      // → U_TipoGasto en SAP
+  formaEntrega: {                 // v269+ (v273: agregado clienteDireccion)
+    tipo: "TRANSPORTISTA" | "SUCURSAL",
+    // Solo si tipo === "TRANSPORTISTA":
+    transpNombre: "Cruz del Sur",
+    transpDireccion: "Av. Corrientes 1234, CABA",
+    clienteDireccion: "Av. Belgrano 4567, Rio Cuarto",  // destino final
+    // Solo si tipo === "SUCURSAL":
+    sucursalDireccion: "Av. Cabildo 4567, CABA"
+  },
   lines: [
     {code: "CAC58MH2UR", desc: "...", qty: 2, precio: 12500, cat: "...", fam: "...", sub: "..."}
   ],
@@ -1675,6 +1684,12 @@ Total: ~180 columnas. Solo poblamos las necesarias:
 - `U_AppOrderId = <FSId>`.
 - `U_AppBatchId = 'BATCH-YYYYMMDD-HHMMSS-XXXX'` (todos los pedidos del ZIP comparten el BatchId).
 - `U_TipoGasto = <condicionPago>` o `'CONDICION'` si no se eligió.
+- **Comments extendido con "Forma de entrega"** (v271, v273+): se agrega un sufijo al string base con la info logística que el vendedor cargó en el modal review. Formato:
+  - **TRANSPORTISTA**: `| Entrega TRANSPORTISTA: <nombre> - <direccion transportista> | Entrega al cliente: <direccion cliente>`
+  - **SUCURSAL**: `| Entrega SUCURSAL: <direccion>`
+  - Ejemplo completo: `AppShimano | GUSTAVO BARGELLINI | Junio 2026 | vendedor@shimano.com.ar | Entrega TRANSPORTISTA: Cruz del Sur - Av. Corrientes 1234, CABA | Entrega al cliente: Av. Belgrano 4567, Rio Cuarto`
+  - Implementado en `buildEntregaSuffixForRemarks(pedido)` — usado por SL y DTW CSV.
+  - Cuando Ezequiel Mendoza (SEIDOR) cree UDFs dedicados (`U_FormaEntrega`, `U_TransportistaNombre`, `U_TransportistaDireccion`, `U_DireccionEntregaCliente`), reemplazar el sufijo por campos separados en el payload y sacar la info del Comments.
 
 Líneas (`QUT1`):
 - `ParentKey` = `DocNum` del header.
@@ -1756,13 +1771,16 @@ Estado: **OPERATIVO desde 2026-07-01**.
 2. Lee credenciales del SL desde `app_config/sap_integration.serviceLayer` (Firestore).
 3. Login `POST /b1s/v1/Login`, itera `Items?$select=ItemCode,ItemName,ItemWarehouseInfoCollection` paginando via `@odata.nextLink` (SL responde ~20 items por página).
 4. Por cada item calcula `stock total = suma de InStock en warehouses vendibles`. **Excluye W05 (Marketing) y W06 (Devoluciones)**. Suma W01/02/03/04/07/10/11/12.
-5. Filtra los items a escribir al catálogo por los que tienen `cat/fam/sub` en el CSV inline de `index.html` (665 items de pesca). El resto (~10.000 SKUs de bici/otras líneas/inactivos) NO se escribe al catálogo → no ensucian el picker del vendedor.
-6. Escribe a Firestore:
-   - `product_catalog/chunk_N` (665 items en chunks de 4000)
+5. **Filtro por Item Group PESCA** (v268+): en vez de filtrar client-side por el CSV inline de `index.html` (que dejaba fuera SKUs nuevos de pesca cargados directo en SAP), ahora se hace `?$filter=ItemsGroupCode eq <PESCA_NUMBER>` server-side. `PESCA_NUMBER` se resuelve dinámicamente vía `/b1s/v1/ItemGroups?$filter=GroupName eq 'PESCA'` (es `102` en SAP). Resultado: 755 items de pesca traídos (antes 665 con SKUs invisibles).
+6. **Precios** (v268+): en el mismo query se agrega `ItemPrices` al `$select`. Extrae precio de la **lista PESCA #12 en ARS** (ver constante `PESCA_PRICE_LIST_NUM = 12` en el script) por cada item. Solo se escribe si `Price > 0`.
+7. **Cantidades exactas** (v253+): además del `stock: {SKU: bool}` legacy se escribe `quantities: <JSON string>` con la cantidad por SKU. Serializado como STRING porque map con 10k+ keys exedía el límite de 40k index entries de Firestore por doc. El cliente hace `JSON.parse` en el listener.
+8. Escribe a Firestore:
+   - `product_catalog/chunk_N` (755 items en chunks de 4000)
    - `app_config/product_catalog_meta` (dispara listener)
-   - `app_config/stock_snapshot` con `{stock: {SKU: bool}, warehouse: 'ALL_SALES', ...}`
-7. Escribe también `stock.json` en la raíz del repo y hace commit si cambió (consumido por el Google Sheet Inventario-Bot — ver sección específica).
-8. Cliente: `ensureStockSnapshotListener` y `ensureProductCatalogListener` reciben los cambios en tiempo real. `PRODUCTS` en memoria se reemplaza con los 665 items del catalog. `STOCK_MAP` se actualiza con los bools.
+   - `app_config/stock_snapshot` con `{stock: {SKU: bool}, quantities: "<json string>", warehouse: 'ALL_SALES', ...}`
+   - `app_config/price_list` con `{prices: {SKU: number}, currency: 'ARS', priceListNum: 12, priceListName: 'PESCA', ...}`
+9. Escribe también `stock.json` en la raíz del repo y hace commit si cambió (consumido por el Google Sheet Inventario-Bot — ver sección específica).
+10. Cliente: `ensureStockSnapshotListener`, `ensureProductCatalogListener` y `ensurePriceListListener` reciben los cambios en tiempo real. `PRODUCTS`, `STOCK_MAP`, `STOCK_QUANTITIES` y `PRICE_LIST_MAP` se actualizan en memoria.
 
 **Diferencia clave vs legacy**: antes se usaba W07 (PESCA EEUU, casi siempre vacío) → `withStock: 2`. Ahora `ALL_SALES` → `withStock: ~3459` reales.
 
@@ -1781,6 +1799,40 @@ Admin puede tocar botón "Consultar stock live" en el modal para un SKU específ
 ### Vía manual: CSV upload por admin (panel "Stock")
 
 Sigue disponible como fallback pero rara vez se usa (sync automático la cubre). Botón **Stock** en header → drop zone del CSV → publicar. Escribe a `app_config/stock_snapshot` con `source: 'csv_manual'`.
+
+### Precios: fuentes y prioridad (v268+, v270+)
+
+La app resuelve el precio de un SKU consultando **2 fuentes** en orden:
+
+1. **SAP** (`app_config/price_list.prices[SKU]`) — sync automático cada 30 min desde la lista PESCA #12 en ARS. Cuando administración carga un precio nuevo en SAP, aparece en la app en máximo 30 min sin acción manual.
+2. **Temporal** (`app_config/price_list_temporal.prices[SKU]`) — fallback cargado por admin/gerente desde el modal Master de Productos para SKUs que aún no tienen precio en SAP.
+
+**Resolución (`getPriceInfo(sku)`):**
+- Si SAP tiene el SKU con precio > 0 → `{source: 'sap', price}` (SAP siempre gana)
+- Si SAP no lo tiene pero temporal sí → `{source: 'temporal', price}` (fallback)
+- Si ninguna fuente lo tiene → `{source: null, price: 0}` → UI muestra "(sin precio)"
+
+**Cuando administración carga el precio real en SAP**, el próximo sync automático lo trae y `PRICE_LIST_MAP` ganará prioridad automáticamente. El precio temporal queda en Firestore pero se ignora (no hay que borrarlo manual).
+
+**UI en Master de Productos (solo admin/gerente):**
+- Nuevo checkbox **"Solo sin precio"** → filtra SKUs sin precio SAP NI temporal (lista de trabajo del admin).
+- Badge amarillo `⏱ TEMPORAL` al lado del precio cuando la fuente es temporal.
+- Botón por SKU:
+  - **"💵 Cargar $"** (rojo) — SKU sin precio ninguno
+  - **"✎ Editar $"** (amber) — SKU con precio temporal (editar o borrar con 0)
+  - **"✎ Temp"** (gris) — SKU con precio SAP (permite cargar temporal pero no se usará)
+- Prompt con contexto claro sobre la prioridad SAP > temporal + confirmación antes de escribir.
+
+**Colección Firestore `app_config/price_list_temporal`:**
+```
+{
+  prices: {SKU: number},         // fallback usado por getPriceInfo
+  entries: {SKU: {price, by, byName, at}},  // metadata para auditoría
+  updatedAt, updatedBy
+}
+```
+
+Los writes usan dot notation (`prices.{SKU}` y `entries.{SKU}`) con `set/merge` para no pisar otros SKUs. Borrado usa `FieldValue.delete()`. Solo admin/gerente tienen permiso (validado en el cliente + rules).
 
 ### Bot Google Sheet "Inventario-Bot"
 
@@ -2446,7 +2498,7 @@ Workspace "Shimano Vendedores" (viewers: Mariano, Diego, Santiago Beron, Pablo, 
 
 ---
 
-## 41) Changelog v204 → v252
+## 41) Changelog v204 → v276
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
 
@@ -2608,6 +2660,92 @@ Solo las versiones nuevas — el histórico anterior está en la última entrada
 ### v252-post — .nojekyll para GitHub Pages
 - Commit `a6b28d5`: agrego `.nojekyll` en la raíz para skipear procesamiento Jekyll (los builds Pages venían fallando con "Page build failed" sin más info). No usamos Jekyll para nada — la app es una PWA estática. Efecto colateral: builds más rápidos.
 
+### v253-v260 — Vendedores ven cantidad de stock + fix sync 40k index limit
+- v253: vendedores/internos pueden tocar "STOCK" en el picker/Master de Productos y ver la cantidad exacta del SKU (antes solo admin/gerente porque requería login SL desde el browser). Nueva key `quantities` en el snapshot Firestore (dict `{sku: qty}`) escrita por el sync automático. El cliente vendedor lee esa key + muestra "Total vendible: N unidades" + fecha de la última actualización.
+- v257-v259: unificar botón "Stock" para todos los roles (sacado el "SAP LIVE" del admin que fallaba por sesión expirada / CORS). Fix: `getPriceInfo(sku)` distingue entre "no tengo el número" y "el número es 0" para no mentir con "0 unidades".
+- v260: fix sync fallando con `INDEX_ENTRIES_COUNT_LIMIT_EXCEEDED`. Firestore tiene límite ~40k index entries por doc. Con `stock` (10.684 keys) + `quantities` (otras 10.684 como map) exedíamos el límite y el sync fallaba. Fix: serializar `quantities` como STRING JSON en vez de map. Firestore no indexa el contenido de un string. El cliente hace `JSON.parse` en el listener.
+
+### v261-v266 — UI ajustes mobile + badge categoría clientes + búsqueda por fantasía
+- v261: SAP Config → botón "Guardar" de Serie APP centrado abajo en mobile (no al costado del input).
+- v262: fix inputs `type=date` en Seguimiento se salían del ancho en Safari iOS (`-webkit-appearance:none` + `max-width:100%` + `font-size:16px` para evitar zoom automático).
+- v263: botón **🗑 Eliminar visita** en cada card de "MIS VISITAS". Admin/gerente puede borrar cualquiera; vendedor solo las suyas. Confirmación + delete de Firestore + log en `operations_log`.
+- v264: **Badge de categoría (P/A/B/C) visible en cards de CLIENTES y PEDIDOS**. Colores por tipo (P morado, A verde, B azul, C gris). Tooltip con detalle del descuento aplicable.
+- v265: buscadores de CLIENTES y PEDIDOS matchean también nombre del local (fantasía), no solo el titular. Nuevo helper `clientMatchesQuery` que busca en 4 fuentes: nombre titular, localidad, `customFantasia` de `clientMeta`, y `fantasia` de `approvedAltasList`.
+- v266: fix badge categoría no aparecía en cards de clientes SAP. Master Clientes guarda `cliTipo` de clientes SAP en `client_applications` (no en `client_master`). Helper `getClientCategoryBadgeHtml` ahora chequea 2 fuentes: `clientMasterCache` (POINTS) + `approvedAltasList` (SAP altas) matcheando por nombre normalizado + provincia.
+
+### v267 — Alta rápida ahora visible en VISITAS y RUTAS
+- Reporte: cliente creado con "Alta rápida" (`manualSapPending: true`, sin `cardCodeSap`) aparece en CLIENTES en amarillo y en PEDIDOS, pero **NO aparecía en VISITAS ni RUTAS**.
+- Causa 1 (RUTAS - `generarRutasVendor`): el filtro exigía `calle` o `address` para incluir el alta en el ruteo. Las altas rápidas muchas veces se crean sin dirección exacta → quedaban fuera silenciosamente. Fix: exigir dirección **solo** para BPs con `cardCodeSap` (oficiales SAP). Las provisorias con `manualSapPending` se rutean con centroide de la localidad.
+- Causa 2 (VISITAS - `onLocalidadChange`): comparación `aLoc !== name` case-sensitive. Si POINTS tenía "Balcarce" y el vendedor tipeó "balcarce" en el alta rápida, la tienda no aparecía. Fix: comparación case-insensitive con `_normLoc(s)` (toLowerCase + trim).
+
+### v268 — 💰 Sync automático de precios desde SAP (lista PESCA #12 ARS)
+- Antes v240 eliminamos el botón PRECIOS del header. La lógica de escritura a `app_config/price_list` quedó huérfana → precios congelados desde la última carga manual (~629 SKUs desactualizados). SKUs nuevos aparecían como "(sin precio)".
+- **Fix**: extender el sync automático (cron 30 min) para también traer precios de SAP y escribirlos a `app_config/price_list`. Fuente: **lista "PESCA" #12 en SAP** (ARS, factor 1), confirmada con Mariano.
+- Cambios en `sync_sap_to_firestore.py`:
+  - Nueva constante `PESCA_PRICE_LIST_NUM = 12`
+  - En `sl_fetch_items_and_stock`: agregar `ItemPrices` al `$select` (mismo query, sin requests adicionales). Extraer precio de lista #12 por cada item → `price_map`. Solo se escribe si Price > 0.
+  - Nueva función `write_price_list` que escribe a `app_config/price_list` en el mismo formato que espera el listener actual del cliente.
+- Cuando administración carga un precio nuevo en SAP → aparece en la app en máximo 30 min (cron) sin acción manual.
+- Filtro server-side por Item Group PESCA (`Number=102`, resuelto dinámicamente por nombre) → 755 items de pesca en el catálogo (antes 665, quedaban 90 SKUs de pesca invisibles porque no estaban en el CSV inline de `index.html`).
+
+### v269 — Forma de entrega en el modal "Revisá tu pedido"
+- Nuevo dropdown obligatorio en el modal "Revisá tu pedido" — abajo del "Forma de pago" — con 2 opciones:
+  - **TRANSPORTISTA** ("Entregar a transportista") → pide nombre + dirección del transportista.
+  - **SUCURSAL** ("Envío a sucursal") → pide dirección de entrega.
+- Al cambiar de opción, los campos que ya no aplican se ocultan y se limpian.
+- Al confirmar el pedido: si `Forma de entrega` está vacía o falta algún campo condicional, sale un alert y vuelve al modal review.
+- Guardado en `docData.formaEntrega = {tipo, transpNombre, transpDireccion, sucursalDireccion}`.
+
+### v270 — Precios TEMPORALES para SKUs sin precio en SAP
+- Admin/gerente puede asignar un **precio temporal** desde el modal Master de Productos para SKUs que aún no tienen precio cargado en SAP.
+- Prioridad: SAP > temporal (cuando SAP tiene precio, gana automático).
+- Nueva colección Firestore: `app_config/price_list_temporal` con estructura `{prices: {SKU: number}, entries: {SKU: {price, by, at}}}`.
+- Nueva función `getPriceInfo(sku)` que devuelve `{source: 'sap'|'temporal'|null, price}`. `getDefaultPrice` es un wrapper.
+- Modal Master de Productos:
+  - Nuevo checkbox **"Solo sin precio"** junto a "Solo con stock" → filtra SKUs sin precio en SAP NI temporal (útil para asignar precios).
+  - Badge amarillo `⏱ TEMPORAL` al lado del precio cuando la fuente es temporal.
+  - Botón por SKU (solo admin/gerente): **"💵 Cargar $"** (rojo, sin precio), **"✎ Editar $"** (amber, con temporal), **"✎ Temp"** (gris, ya tiene SAP).
+  - Prompt con contexto claro sobre la prioridad SAP > temporal.
+
+### v271 — Forma de entrega al Remarks del Sales Quotation
+- Hasta que Ezequiel Mendoza (SEIDOR) cree UDFs dedicados para forma de entrega en SAP, se guarda la info dentro del campo Remarks (=Comments en OQUT / Sales Quotation).
+- Nuevo helper `buildEntregaSuffixForRemarks(pedido)` usado en:
+  1. `sapSL.buildQuotationPayload` → Comments (Service Layer)
+  2. `exportSapReadyCsv` → Comments (DTW CSV OQUT)
+- Formato del suffix:
+  - `Entrega TRANSPORTISTA: <nombre> - <direccion>`
+  - `Entrega SUCURSAL: <direccion>`
+
+### v272 — Fix "Pasar a Pendientes" fallando silencioso post-Excel
+- Reporte del vendedor cargando pedido desde Excel: al tocar "Pasar a Pendientes" "no pasaba nada". Causa: la validación de forma de entrega (obligatoria desde v269) se hacía **dentro** de `doConfirmPedido` — después de cerrar el modal review y abrir el confirm-dialog (mes/año). Cuando fallaba, salía `alert()` + cierre del confirm-dialog + apertura del review de nuevo, pero el vendedor no lo entendía.
+- **Fix**: nueva función `validateReviewAndPasarAPendientes()` que hace TODAS las validaciones ANTES de cerrar el review. Si algo falla, muestra un **banner rojo visible dentro del modal** review + focus/scroll al campo faltante. El review NO se cierra hasta que esté todo OK.
+- **STOCK sin cambios**: SKUs sin stock nunca bloquearon el pedido. Salen en rojo como advertencia visual solamente. El parser Excel distingue entre "SKU inexistente" (se ignora + advierte) y "SKU reconocido pero sin stock" (se agrega normal).
+
+### v273 — Entregar a transportista: 3er campo "Dirección de entrega al cliente"
+- En el bloque TRANSPORTISTA del modal Revisá tu pedido ahora se piden **3 campos obligatorios** (antes eran 2):
+  1. Nombre del transportista
+  2. Dirección del transportista
+  3. **Dirección de entrega al cliente** (NUEVO) — dirección final donde el transportista deja el pedido para el cliente.
+- Persistencia: `docData.formaEntrega.clienteDireccion` guardado al confirmar. Compat con pedidos previos (sin `formaEntrega`).
+- Vista del pedido confirmado: muestra la nueva línea "Dirección entrega al cliente: <valor>".
+- Remarks del Sales Quotation SAP: agrega `| Entrega al cliente: <direccion>` al string existente. Aplicado a SL + DTW.
+
+### v274 — VISITAS: foto desde galería + búsqueda en Localidad/Tienda
+- **Fix 1 - carga de fotos desde galería**: los inputs de foto en VISITAS tenían `capture="environment"` que en mobile forzaba abrir SOLO la cámara. Removido en los 4 lugares (vf-espacio + vf-frente, static y dinámicos). Ademas agregado `image/heic,image/heif` al `accept` para que iPhone pueda subir sus fotos nativas.
+- **Fix 2 - búsqueda escribiendo en Localidad y Tienda**: antes eran `<select>` nativos con listas larguísimas (~500 localidades) que obligaban a scrollear mucho en mobile. Reemplazados por un componente **filter-select** custom (input de texto que filtra un dropdown al escribir, tolerante a mayús/minús y acentos).
+- Nuevas funciones globales: `fsPopulate(fsId, options, onChangeCb)`, `fsSetValue(fsId, value, label)`, `fsReset(fsId)`, `fsClear(fsId)` + handlers UI. Enter selecciona el primer match, Escape cierra el dropdown.
+- El hidden input mantiene el id `vf-localidad` / `vf-tienda` para que el submit del form siga funcionando sin cambios.
+
+### v275 — Fix flujo Excel → Pasar a Pendientes (defensive)
+- `openExcelPedidoModal`: agregar `stage: 'crear'` al `currentOrderClient` para diferenciar explícito de `pending` (antes era undefined y podía confundir el flow).
+- `openConfirmDialog`: defensivo contra `currentOrderClient` null. Si está null, reconstruye el nombre desde `currentOrderKey.split('|')` + rebuild `currentOrderClient` con datos mínimos así `doConfirmPedido` no crashea después.
+- `validateReviewAndPasarAPendientes`: wrap todo en try/catch. `console.log` al inicio + antes de `openConfirmDialog`. setTimeout 200ms para verificar que el confirm-dialog quedó abierto — si no, alert al user y reabre el review.
+
+### v276 — Fix CANCELAR pedido no vaciaba realmente el borrador
+- **Bug**: al tocar CANCELAR en pedido EN CURSO, el borrador se borraba en localStorage pero **revivía** al volver el listener y quedaba EN CURSO de nuevo. Los SKUs no se deseleccionaban.
+- **Causa raíz**: `saveOrders` hace `.set({orders}, {merge: true})` en Firestore. Con `merge:true`, Firestore aplica **deep merge** de objetos anidados → las keys borradas localmente NO se borran en el server (se mantienen con su valor anterior porque no están en el nuevo payload). El siguiente snapshot del listener trae `orders` con las keys zombie → el pedido cancelado "revive".
+- **Fix**: `cancelPedido` ahora usa `FieldPath('orders', key)` + `FieldValue.delete()` para borrar la key específica en Firestore (FieldPath es necesario porque las keys tienen `|` que rompe dot notation). `suppressCloudSave = true` durante la operación para evitar re-escribir el objeto viejo.
+
 ---
 
 ## Convenciones del documento
@@ -2627,7 +2765,20 @@ Solo las versiones nuevas — el histórico anterior está en la última entrada
 
 ---
 
-**Última actualización**: 2026-07-02 — SW v252. Highlights v218→v252 (changelog detallado en sección 41):
+**Última actualización**: 2026-07-06 — SW v276. Highlights v253→v276 (changelog detallado en sección 41):
+
+- **💰 Sync automático de precios desde SAP** (v268). Extendido el `sync_sap_to_firestore.py` para traer precios de la **lista PESCA #12 ARS** cada 30 min. Antes: precios congelados desde la última carga manual (629 SKUs desactualizados) porque el botón PRECIOS del header se eliminó en v240 y la lógica quedó huérfana. Ahora: cuando administración carga un precio en SAP, aparece en la app en máximo 30 min sin acción manual. Filtro server-side por Item Group PESCA (Number=102, resuelto dinámicamente) → 755 items en el catálogo (antes 665 con SKUs invisibles).
+- **Precios TEMPORALES** (v270). Admin/gerente puede asignar un precio temporal a SKUs sin precio en SAP desde el modal Master de Productos. Prioridad SAP > temporal (cuando SAP tiene precio, gana automático). Nuevo checkbox "Solo sin precio" para filtrar la lista de trabajo. Badge amarillo `⏱ TEMPORAL` en cards. Coleccion `app_config/price_list_temporal`.
+- **Forma de entrega en pedidos** (v269, v271, v273). Nuevo dropdown obligatorio "Forma de entrega" en el modal review con 2 opciones: **TRANSPORTISTA** (3 campos: nombre + dirección del transportista + dirección de entrega al cliente) y **SUCURSAL** (dirección de entrega). Se agrega al Remarks del Sales Quotation SAP (mientras Ezequiel Mendoza no cree UDFs dedicados). Aplicado a Service Layer y DTW CSV.
+- **VISITAS mejorado** (v274). Fotos ahora se pueden cargar desde galería (removido `capture="environment"` en los 4 inputs) + accept HEIC/HEIF para iPhone. Selects de Localidad/Tienda reemplazados por un componente **filter-select** custom con búsqueda escribiendo (tolerante a mayús/minús y acentos: "cordoba" matchea "Córdoba"). Enter selecciona primer match, Escape cierra.
+- **Vendedores ven cantidad exacta de stock** (v253-v260). Antes solo admin/gerente porque requería login SL desde el browser. Nueva key `quantities` en el snapshot Firestore (serializada como JSON string para evitar el límite de 40k index entries por doc). Botón "Stock" unificado para todos los roles.
+- **Alta rápida ahora en VISITAS y RUTAS** (v267). Antes las provisorias con `manualSapPending` sin dirección no aparecían en RUTAS (filtro exigía calle/address) y case-sensitivity en VISITAS (Balcarce vs balcarce). Ambos corregidos.
+- **Búsqueda por fantasía en CLIENTES y PEDIDOS** (v265). Los buscadores matchean también el nombre del local (fantasía) además del titular. Ej: "Pescaplay" encuentra al cliente aunque el titular sea "Juan Pérez".
+- **Badge de categoría (P/A/B/C) en cards** (v264, v266). Colores por tipo. Fix: para clientes SAP el `cliTipo` está en `client_applications`, no en `client_master`. Helper chequea ambas fuentes.
+- **Fixes flujo pedidos** (v272, v275, v276). v272: banner rojo visible en modal review cuando falta forma de pago/entrega (antes salía alert después de cerrar el modal y el vendedor no lo veía). v275: defensive contra `currentOrderClient` null post-Excel + logs de diagnóstico. v276: fix CANCELAR pedido que no vaciaba realmente el borrador — Firestore deep merge no borraba las keys removidas localmente, ahora se usa `FieldPath` + `FieldValue.delete()`.
+- **Otros ajustes UI mobile** (v261-v263): botón Guardar Serie APP centrado; fix inputs date en Safari iOS; botón Eliminar visita en MIS VISITAS.
+
+Highlights v218→v252 (changelog detallado en sección 41):
 
 - **🎯 Sync automático SAP → Firestore + stock.json cada 30 min via GitHub Actions** (v246). Fin del CSV manual de David. `sync_sap_to_firestore.py` corre en cron `13,43 * * * *`, escribe `product_catalog` (665 items filtrados por categorización) + `app_config/stock_snapshot` + `stock.json` en el repo. El bot Inventario-Bot de Google Sheet ahora lee datos frescos vía `raw.githubusercontent.com`.
 - **Stock real de warehouses vendibles** (v244). Antes se filtraba solo W07 (PESCA EEUU, casi vacío) → `withStock: 2`. Ahora suma todos EXCEPTO W05 (Marketing) y W06 (Devoluciones) → `withStock: ~3.459` reales.
