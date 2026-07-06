@@ -396,6 +396,7 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
   .pm-master-fam-label{width:100%;min-width:0}
   .pm-master-fam-label select{width:100%}
   .pm-master-stock-only-label{width:100%;justify-content:center}
+  .pm-master-noprice-only-label{width:100%;justify-content:center}
   .pm-master-card{justify-content:center}
   .pm-master-card-left{width:100%;text-align:center}
   .pm-master-card-right{width:100%;align-items:center !important;min-width:0}
@@ -1763,6 +1764,9 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           </label>
           <label class="pm-master-stock-only-label" style="display:flex;align-items:center;gap:6px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;font-size:12px;font-weight:600;color:#0f172a;cursor:pointer">
             <input type="checkbox" id="pm-master-stock-only" onchange="renderProductMaster()" style="width:15px;height:15px;accent-color:#10b981;cursor:pointer"> Solo con stock
+          </label>
+          <label class="pm-master-noprice-only-label" style="display:flex;align-items:center;gap:6px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;font-size:12px;font-weight:600;color:#0f172a;cursor:pointer" title="Muestra solo los SKUs que no tienen precio (ni de SAP ni temporal). Util para asignar precios temporales.">
+            <input type="checkbox" id="pm-master-noprice-only" onchange="renderProductMaster()" style="width:15px;height:15px;accent-color:#dc2626;cursor:pointer"> Solo sin precio
           </label>
         </div>
         <!-- Sync stock desde SAP - solo admin. Tarda ~2 min pero actualiza
@@ -3150,7 +3154,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v269';
+const APP_VERSION = 'v270';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -18448,7 +18452,7 @@ function applyRolePermissions(){
   // el resto ve todas). Solo se oculta para unassigned.
   document.getElementById('mis-camps-btn').style.display = (userRole !== 'unassigned') ? '' : 'none';
   // Activa listeners cross-collection segun rol
-  if (userRole !== 'unassigned') { ensureNotifsListener(); ensureRouteOverridesListener(); ensureTargetsListener(); ensureClientLocsListener(); ensureSapVendorsListener(); ensureClientMasterListener(); ensureAltaCliListener(); ensureRendicionesListener(); ensureVendorOverridesListener(); ensureStockSnapshotListener(); ensurePriceListListener(); ensureApprovedAltasListener(); }
+  if (userRole !== 'unassigned') { ensureNotifsListener(); ensureRouteOverridesListener(); ensureTargetsListener(); ensureClientLocsListener(); ensureSapVendorsListener(); ensureClientMasterListener(); ensureAltaCliListener(); ensureRendicionesListener(); ensureVendorOverridesListener(); ensureStockSnapshotListener(); ensurePriceListListener(); ensureTemporalPriceListListener(); ensureApprovedAltasListener(); }
   // Si soy VDI, cargar las parejas VDE para habilitar "actuar en nombre de".
   if (userRole === 'interno') { try { loadMyExternalPartners(); } catch(e) { console.warn('loadMyExternalPartners', e); } }
   // Acceso denegado para unassigned
@@ -21141,6 +21145,8 @@ window.renderProductMaster = function(){
   const q = (document.getElementById('pm-master-search') || {}).value || '';
   const famFilter = (document.getElementById('pm-master-fam') || {}).value || 'ALL';
   const stockOnly = !!(document.getElementById('pm-master-stock-only') && document.getElementById('pm-master-stock-only').checked);
+  const noPriceOnly = !!(document.getElementById('pm-master-noprice-only') && document.getElementById('pm-master-noprice-only').checked);
+  const isAdminLike = (userRole === 'admin' || userRole === 'gerente');
   const qNorm = q.toLowerCase().trim();
   const list = (PRODUCTS || []).filter(p => {
     if (famFilter !== 'ALL' && p.fam !== famFilter) return false;
@@ -21148,17 +21154,23 @@ window.renderProductMaster = function(){
       const st = (typeof hasStock === 'function') ? hasStock(p.code) : null;
       if (st !== true) return false;
     }
+    if (noPriceOnly) {
+      const info = getPriceInfo(p.code);
+      // Filtro "Solo sin precio": SKUs sin precio en SAP NI temporal.
+      if (info.source !== null) return false;
+    }
     if (!qNorm) return true;
     return (p.code || '').toLowerCase().includes(qNorm) || (p.desc || '').toLowerCase().includes(qNorm);
   });
   const total = (PRODUCTS || []).length;
   const info = document.getElementById('pm-master-info');
   if (info) {
-    info.innerHTML = total.toLocaleString('es-AR') + ' SKUs en catalogo &middot; <b>' + list.length.toLocaleString('es-AR') + '</b> match' + (list.length === 1 ? '' : 'es') + (qNorm || famFilter !== 'ALL' || stockOnly ? ' (filtrados)' : '');
+    const anyFilter = qNorm || famFilter !== 'ALL' || stockOnly || noPriceOnly;
+    info.innerHTML = total.toLocaleString('es-AR') + ' SKUs en catalogo &middot; <b>' + list.length.toLocaleString('es-AR') + '</b> match' + (list.length === 1 ? '' : 'es') + (anyFilter ? ' (filtrados)' : '');
   }
   const container = document.getElementById('pm-master-results');
   if (!container) return;
-  if (!qNorm && famFilter === 'ALL' && !stockOnly) {
+  if (!qNorm && famFilter === 'ALL' && !stockOnly && !noPriceOnly) {
     container.innerHTML = '<div style="padding:40px 20px;text-align:center;color:#94a3b8;font-size:13px;background:#f8fafc;border-radius:8px">Escribi un SKU o parte de una descripcion para buscar.<br><span style="font-size:11px">Ejemplos: <code>CAC58</code>, <code>Caius</code>, <code>Reel</code></span></div>';
     return;
   }
@@ -21171,9 +21183,20 @@ window.renderProductMaster = function(){
   let html = '';
   shown.forEach(p => {
     const stockRaw = (typeof hasStock === 'function') ? hasStock(p.code) : null;
-    const precio = (typeof PRICE_LIST_MAP === 'object' && PRICE_LIST_MAP) ? PRICE_LIST_MAP[p.code] : null;
-    const precioTxt = precio != null ? '$' + Number(precio).toLocaleString('es-AR') : '(sin precio)';
-    const precioColor = precio != null ? '#166534' : '#94a3b8';
+    // Precio: primero SAP, despues temporal, despues null.
+    const pinfo = getPriceInfo(p.code);
+    let precioTxt, precioColor, precioBadge = '';
+    if (pinfo.source === 'sap') {
+      precioTxt = '$' + Number(pinfo.price).toLocaleString('es-AR');
+      precioColor = '#166534';
+    } else if (pinfo.source === 'temporal') {
+      precioTxt = '$' + Number(pinfo.price).toLocaleString('es-AR');
+      precioColor = '#b45309';
+      precioBadge = '<span title="Precio temporal cargado por admin/gerente. Cuando administracion cargue el precio en SAP, este se reemplaza automatico." style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:10px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#9200; Temporal</span>';
+    } else {
+      precioTxt = '(sin precio)';
+      precioColor = '#94a3b8';
+    }
     let stockBadge = '';
     if (stockRaw === true) stockBadge = '<span style="background:#dcfce7;color:#166534;padding:3px 9px;border-radius:10px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.3px">&#10003; Disponible</span>';
     else if (stockRaw === false) stockBadge = '<span style="background:#fee2e2;color:#991b1b;padding:3px 9px;border-radius:10px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.3px">&#10006; Sin stock</span>';
@@ -21188,18 +21211,22 @@ window.renderProductMaster = function(){
     if (famTxt || subTxt || catTxt) html += '<div style="font-size:10px;color:#64748b;margin-top:2px">' + famTxt + subTxt + catTxt + '</div>';
     html += '</div>';
     html += '<div class="pm-master-card-right" style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;min-width:130px">';
-    html += '<div style="font-size:14px;font-weight:800;color:' + precioColor + '">' + precioTxt + '</div>';
+    html += '<div style="font-size:14px;font-weight:800;color:' + precioColor + '">' + precioTxt + precioBadge + '</div>';
     html += stockBadge;
-    html += '<div style="display:flex;gap:4px;margin-top:4px">';
+    html += '<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;justify-content:flex-end">';
     html += '<button onclick="copyProductCode(\'' + escapeAttr(p.code) + '\')" title="Copiar SKU al portapapeles" style="background:#0d9488;color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128203; Copiar</button>';
-    // Label uniforme para TODOS los roles ('Stock'). Antes admin/gerente
-    // veian 'SAP LIVE' con consulta live via Service Layer, pero eso fallaba
-    // en algunos casos (sesion SL expirada / CORS puntual / etc) y ademas
-    // confundia porque la UX difiere del vendedor. Ahora todos leen del
-    // snapshot Firestore (actualizado cada 30 min por el cron), consistente
-    // y sin fallas. Si el admin necesita fresco al instante, tiene el boton
-    // 'Sincronizar stock ahora' arriba en este mismo modal.
+    // Todos los roles ven "Stock" (lee del snapshot Firestore, cada 30 min).
     html += '<button onclick="queryStockLive(\'' + escapeAttr(p.code) + '\', this)" title="Ver cantidad de stock del ultimo sync (cada 30 min desde SAP)" style="background:#1e40af;color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Stock</button>';
+    // Solo admin/gerente: boton para cargar/editar precio temporal.
+    // Aparece SIEMPRE (independiente de si ya tiene precio SAP o no) para
+    // que puedan agregar temporal a algo sin precio, o ver/borrar los que
+    // ya cargaron.
+    if (isAdminLike) {
+      const btnLabel = (pinfo.source === 'temporal') ? '&#9998; Editar $' : ((pinfo.source === 'sap') ? '&#9998; Temp' : '&#128181; Cargar $');
+      const btnBg = (pinfo.source === 'temporal') ? '#b45309' : ((pinfo.source === 'sap') ? '#64748b' : '#dc2626');
+      const btnTitle = (pinfo.source === 'temporal') ? 'Editar/borrar el precio temporal cargado' : ((pinfo.source === 'sap') ? 'Este SKU ya tiene precio en SAP - podes cargar uno temporal si necesitas overridearlo (raro)' : 'Este SKU NO tiene precio en SAP. Carga un precio temporal para que los vendedores puedan hacer pedidos hasta que administracion lo cargue en SAP');
+      html += '<button onclick="promptTemporalPrice(\'' + escapeAttr(p.code) + '\', \'' + escapeAttr(p.desc || '') + '\')" title="' + btnTitle + '" style="background:' + btnBg + ';color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">' + btnLabel + '</button>';
+    }
     html += '</div>';
     html += '</div>';
     html += '</div>';
@@ -21208,6 +21235,44 @@ window.renderProductMaster = function(){
     html += '<div style="padding:14px;text-align:center;color:#94a3b8;font-size:11px;font-style:italic">Mostrando primeros 200 de ' + list.length.toLocaleString('es-AR') + '. Afina la busqueda para ver menos.</div>';
   }
   container.innerHTML = html;
+};
+
+// Prompt al admin/gerente para asignar (o borrar) un precio temporal.
+// Se llama desde el boton del modal Master de Productos.
+window.promptTemporalPrice = function(sku, desc){
+  if (userRole !== 'admin' && userRole !== 'gerente') return;
+  const k = String(sku || '').toUpperCase().trim();
+  if (!k) return;
+  const pinfo = getPriceInfo(sku);
+  const label = desc ? (' (' + desc.substr(0, 60) + ')') : '';
+  let msg = 'Asignar precio TEMPORAL en ARS para el SKU:\n\n' + k + label + '\n\n';
+  if (pinfo.source === 'sap') {
+    msg += 'ATENCION: este SKU ya tiene precio en SAP: $' + Number(pinfo.price).toLocaleString('es-AR') + '\n';
+    msg += 'Si cargas un precio temporal, NO se va a usar (SAP tiene prioridad).\n';
+    msg += 'Solo tiene sentido cargar temporal cuando SAP no tiene precio.\n\n';
+  } else if (pinfo.source === 'temporal') {
+    msg += 'Precio temporal actual: $' + Number(pinfo.price).toLocaleString('es-AR') + '\n\n';
+    msg += 'Escribi un nuevo precio para reemplazarlo, o 0 para BORRARLO.\n\n';
+  } else {
+    msg += 'Este SKU no tiene precio en SAP. Cargar un precio temporal permite\n';
+    msg += 'que los vendedores hagan pedidos con este SKU hasta que administracion\n';
+    msg += 'cargue el precio real en SAP.\n\n';
+  }
+  msg += 'Precio en ARS (numero entero, sin separadores):';
+  const val = prompt(msg, pinfo.source === 'temporal' ? String(pinfo.price) : '');
+  if (val === null) return; // canceled
+  const clean = val.replace(/[^\d.]/g, '');
+  const num = parseFloat(clean);
+  if (isNaN(num) || num < 0) {
+    alert('Precio invalido: "' + val + '". Ingresa un numero >= 0.');
+    return;
+  }
+  if (num === 0) {
+    if (!confirm('Confirmar BORRAR el precio temporal de ' + k + '?')) return;
+  } else {
+    if (!confirm('Confirmar precio TEMPORAL para ' + k + ': $' + num.toLocaleString('es-AR') + '?')) return;
+  }
+  saveTemporalPrice(k, num);
 };
 
 window.copyProductCode = async function(code){
@@ -21543,28 +21608,37 @@ let PRICE_LIST_CURRENCY = 'ARS';
 let _preciosParsedPayload = null;
 let unsubPriceList = null;
 
-function getDefaultPrice(sku){
-  if (!sku) return 0;
+// Precios TEMPORALES (v270+): admin/gerente puede asignar un precio a un SKU
+// que aun no tiene precio cargado en SAP. Se usa como FALLBACK cuando el
+// precio de SAP esta ausente. Cuando administracion carga el precio real
+// en SAP, el sync automatico refresca PRICE_LIST_MAP y ese precio ganara
+// prioridad (SAP siempre es la fuente de verdad).
+// Vive en app_config/price_list_temporal.
+let TEMPORAL_PRICE_LIST_MAP = {};
+let TEMPORAL_PRICE_LIST_UPDATED_AT = null;
+let unsubTemporalPriceList = null;
+
+// Devuelve la fuente + el precio para un SKU:
+//   {source: 'sap'|'temporal'|null, price: number}
+// Usado por renderProductMaster para pintar badges y por getDefaultPrice.
+function getPriceInfo(sku){
+  if (!sku) return {source: null, price: 0};
   const k = String(sku).toUpperCase().trim();
-  if (k in PRICE_LIST_MAP) return PRICE_LIST_MAP[k] || 0;
-  // Fallback igual que stock: sku '042163' puede venir sin ceros a la izq.
+  // Fuente 1 (prioridad): SAP price list (sync automatico cada 30 min).
+  if (k in PRICE_LIST_MAP && PRICE_LIST_MAP[k] > 0) return {source: 'sap', price: PRICE_LIST_MAP[k]};
   if (/^0+\d+$/.test(k)) {
     const stripped = k.replace(/^0+/, '');
-    if (stripped in PRICE_LIST_MAP) return PRICE_LIST_MAP[stripped] || 0;
+    if (stripped in PRICE_LIST_MAP && PRICE_LIST_MAP[stripped] > 0) return {source: 'sap', price: PRICE_LIST_MAP[stripped]};
   }
-  // Diagnostico: si nunca encontramos el precio, logueamos cuales keys tiene
-  // PRICE_LIST_MAP que se le PARECEN al SKU buscado. Ayuda a debuggear
-  // mismatches por mayus/minus o caracteres invisibles. Solo la primera
-  // vez para no ensuciar la consola.
-  if (!window._priceMissLogged) window._priceMissLogged = {};
-  if (!window._priceMissLogged[k]) {
-    window._priceMissLogged[k] = true;
-    const mapKeys = Object.keys(PRICE_LIST_MAP);
-    const sample = mapKeys.slice(0, 3);
-    const similar = mapKeys.filter(mk => mk.toUpperCase().includes(k.slice(0, 5))).slice(0, 3);
-    console.warn('[precio] SKU sin precio: "' + sku + '" (buscado como "' + k + '") | total keys en map:', mapKeys.length, '| ejemplo keys:', sample, '| similares:', similar);
-  }
-  return 0;
+  // Fuente 2 (fallback): precio temporal cargado por admin/gerente desde
+  // el modal Master de Productos mientras administracion carga en SAP.
+  if (k in TEMPORAL_PRICE_LIST_MAP && TEMPORAL_PRICE_LIST_MAP[k] > 0) return {source: 'temporal', price: TEMPORAL_PRICE_LIST_MAP[k]};
+  return {source: null, price: 0};
+}
+window.getPriceInfo = getPriceInfo;
+
+function getDefaultPrice(sku){
+  return getPriceInfo(sku).price;
 }
 window.getDefaultPrice = getDefaultPrice;
 
@@ -21766,9 +21840,85 @@ function ensurePriceListListener(){
     PRICE_LIST_CURRENCY = d.currency || 'ARS';
     PRICE_LIST_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : null;
     const total = Object.keys(PRICE_LIST_MAP).length;
-    console.log('[precios] desde Firestore: ' + total + ' SKUs en ' + PRICE_LIST_CURRENCY + '. updatedAt=' + PRICE_LIST_UPDATED_AT);
+    console.log('[precios] SAP: ' + total + ' SKUs en ' + PRICE_LIST_CURRENCY + '. updatedAt=' + PRICE_LIST_UPDATED_AT);
+    // Si estamos viendo el modal Master de Productos, repintar para reflejar
+    // cambios (ej: cuando administracion carga un precio en SAP y el sync
+    // lo trae, el badge TEMPORAL debe desaparecer).
+    try {
+      const mm = document.getElementById('product-master-modal');
+      if (mm && mm.classList.contains('open') && typeof renderProductMaster === 'function') renderProductMaster();
+    } catch(e) {}
   }, err => console.warn('price list listener', err));
 }
+
+// Listener del price_list_temporal: precios cargados por admin/gerente
+// desde el modal Master de Productos como fallback cuando SAP aun no tiene
+// el precio del SKU. Estructura del doc:
+//   {prices: {SKU: number}, updatedAt, updatedBy, entries: {SKU: {price, by, at}, ...}}
+function ensureTemporalPriceListListener(){
+  if (unsubTemporalPriceList || !currentUser || !fbDb) return;
+  unsubTemporalPriceList = fbDb.collection('app_config').doc('price_list_temporal').onSnapshot(snap => {
+    if (!snap.exists) { TEMPORAL_PRICE_LIST_MAP = {}; return; }
+    const d = snap.data() || {};
+    TEMPORAL_PRICE_LIST_MAP = d.prices || {};
+    TEMPORAL_PRICE_LIST_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : null;
+    const total = Object.keys(TEMPORAL_PRICE_LIST_MAP).length;
+    console.log('[precios] temporales: ' + total + ' SKUs. updatedAt=' + TEMPORAL_PRICE_LIST_UPDATED_AT);
+    try {
+      const mm = document.getElementById('product-master-modal');
+      if (mm && mm.classList.contains('open') && typeof renderProductMaster === 'function') renderProductMaster();
+    } catch(e) {}
+  }, err => console.warn('temporal price list listener', err));
+}
+
+// Guarda un precio temporal para un SKU en Firestore. Solo admin/gerente.
+// Si price es 0 o null -> borra la entrada.
+window.saveTemporalPrice = async function(sku, price){
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente puede asignar precios temporales.');
+    return;
+  }
+  const k = String(sku || '').toUpperCase().trim();
+  if (!k) return;
+  const numPrice = parseFloat(price);
+  if (isNaN(numPrice) || numPrice < 0) {
+    alert('Precio invalido: ' + price);
+    return;
+  }
+  try {
+    const ref = fbDb.collection('app_config').doc('price_list_temporal');
+    // Estructura: prices.{SKU} = number. Se usa dot notation para no pisar
+    // otros SKUs. entries.{SKU} guarda metadata (quien y cuando).
+    if (numPrice === 0) {
+      // Borrar la entrada usando FieldValue.delete().
+      await ref.set({
+        prices: {[k]: firebase.firestore.FieldValue.delete()},
+        entries: {[k]: firebase.firestore.FieldValue.delete()},
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: currentUser.email || '',
+      }, {merge: true});
+      if (typeof showSyncTag === 'function') showSyncTag('Precio temporal eliminado para ' + k);
+      try { logOp('temporal_price_delete', 'app_config/price_list_temporal', k, {}); } catch(e){}
+    } else {
+      await ref.set({
+        prices: {[k]: numPrice},
+        entries: {[k]: {
+          price: numPrice,
+          by: currentUser.email || '',
+          byName: currentUser.displayName || '',
+          at: firebase.firestore.FieldValue.serverTimestamp(),
+        }},
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: currentUser.email || '',
+      }, {merge: true});
+      if (typeof showSyncTag === 'function') showSyncTag('Precio temporal guardado: ' + k + ' = $' + numPrice.toLocaleString('es-AR'));
+      try { logOp('temporal_price_set', 'app_config/price_list_temporal', k, {price: numPrice}); } catch(e){}
+    }
+  } catch(e) {
+    console.error('saveTemporalPrice', e);
+    alert('Error guardando precio temporal: ' + (e.message || e));
+  }
+};
 
 // =====================================================================
 // Reasignacion de zonas (modal "Zonas") - solo admin
