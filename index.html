@@ -3154,7 +3154,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v270';
+const APP_VERSION = 'v271';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -19430,6 +19430,36 @@ function ensureProductCatalogListener(){
   }, err => console.warn('[catalog] listener error', err));
 }
 
+// Devuelve un sufijo listo para pegar al final del string 'Comments' /
+// 'Remarks' del Sales Quotation, con la info de forma de entrega elegida
+// por el vendedor. Formato:
+//   ' | Entrega TRANSPORTISTA: <nombre> - <direccion>'
+//   ' | Entrega SUCURSAL: <direccion>'
+//   ''  (si el pedido no tiene formaEntrega cargada, pedidos previos a v269)
+//
+// Se usa en dos lugares:
+//  1) buildQuotationPayload (Service Layer) -> campo Comments
+//  2) exportSapReadyCsv (DTW CSV OQUT) -> campo Comments
+//
+// Nota: cuando Ezequiel Mendoza (SEIDOR) cree los UDFs dedicados
+// (U_FormaEntrega, U_TransportistaNombre, etc), reemplazar este sufijo
+// por campos separados en el payload y sacar los datos del Remarks.
+function buildEntregaSuffixForRemarks(pedido){
+  const fe = pedido && pedido.formaEntrega;
+  if (!fe || !fe.tipo) return '';
+  if (fe.tipo === 'TRANSPORTISTA') {
+    const nombre = (fe.transpNombre || '').trim();
+    const direccion = (fe.transpDireccion || '').trim();
+    if (!nombre && !direccion) return ' | Entrega TRANSPORTISTA';
+    return ' | Entrega TRANSPORTISTA: ' + nombre + (direccion ? (' - ' + direccion) : '');
+  }
+  if (fe.tipo === 'SUCURSAL') {
+    const direccion = (fe.sucursalDireccion || '').trim();
+    return ' | Entrega SUCURSAL' + (direccion ? (': ' + direccion) : '');
+  }
+  return ' | Entrega ' + String(fe.tipo);
+}
+
 function sapGetClienteCode(clientName){
   // Fuente 1 (prioridad): sap_clients - mapeo manual cargado por admin
   // desde tab SAP > Mapeo Clientes o importado via Excel oficial de SAP.
@@ -19755,7 +19785,7 @@ const sapSL = {
       DocDueDate: dueDate,
       TaxDate: docDate,
       SalesPersonCode: slpCode ? parseInt(slpCode) : -1,
-      Comments: 'AppShimano | ' + (p.clientName || '') + ' | ' + (p.month || '') + ' | ' + (p.ownerEmail || ''),
+      Comments: 'AppShimano | ' + (p.clientName || '') + ' | ' + (p.month || '') + ' | ' + (p.ownerEmail || '') + buildEntregaSuffixForRemarks(p),
       NumAtCard: p._fsId || '',
       U_AppOrigen: 'SHIMANO_APP_VENDEDORES',
       U_AppOrderId: p._fsId || '',
@@ -20494,7 +20524,7 @@ window.exportSapReadyCsv = function(){
     const docDate = fmtDtwDate(docDateIso);
     const dueDate = fmtDtwDate(addDaysIso(docDateIso, 30));
     const taxDate = docDate;
-    const commentTxt = 'AppShimano | ' + (p.clientName || '') + ' | ' + (p.month || '') + ' | ' + (p.ownerEmail || '');
+    const commentTxt = 'AppShimano | ' + (p.clientName || '') + ' | ' + (p.month || '') + ' | ' + (p.ownerEmail || '') + buildEntregaSuffixForRemarks(p);
 
     // Resolver SlpCode del vendedor que armo el pedido (si esta cargado en sap_vendors)
     const pedidoVendor = getVendorForKey(p._fsKey || (p.ordertype + '|' + (p.province||'') + '|' + (p.locName||'') + '|' + (p.clientName||'')));
