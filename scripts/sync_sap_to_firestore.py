@@ -143,26 +143,70 @@ def sl_login(cfg: dict, session: requests.Session) -> None:
     log('[SL] login OK')
 
 
+def resolve_pesca_group_code(cfg: dict, session: requests.Session) -> int:
+    """
+    Resuelve dinamicamente el ItemsGroupCode (numerico) del grupo PESCA
+    consultando /ItemGroups?$filter=GroupName eq 'PESCA'.
+
+    Devuelve int. Si no encuentra, aborta con FATAL.
+
+    Se hace lookup dinamico en vez de hardcodear el numero porque:
+     - Si en SAP renombran/renumeran el grupo, no rompemos silenciosamente.
+     - Si en TEST y PROD el numero difiere, no hace falta cambiar el script.
+     - Deja explicito en el log cual es el grupo actual.
+    """
+    path = "/b1s/v1/ItemGroups?$filter=GroupName eq 'PESCA'&$select=Number,GroupName"
+    resp = session.get(f"{cfg['url']}{path}", timeout=30)
+    if not resp.ok:
+        try:
+            detail = resp.json().get('error', {}).get('message', {}).get('value', '')
+        except Exception:
+            detail = resp.text[:200]
+        log(f"[FATAL] no pude resolver grupo PESCA: HTTP {resp.status_code} - {detail}")
+        sys.exit(6)
+    body = resp.json()
+    arr = body.get('value', []) or []
+    if not arr:
+        log(f"[FATAL] no existe un grupo llamado 'PESCA' en SAP. Chequear Administration > Setup > Inventory > Item Groups.")
+        sys.exit(6)
+    if len(arr) > 1:
+        log(f"[WARN] {len(arr)} grupos matchean 'PESCA', tomo el primero: {arr[0]}")
+    grupo = arr[0]
+    number = grupo.get('Number')
+    log(f"[grupo] PESCA resuelto: Number={number} (GroupName='{grupo.get('GroupName')}')")
+    return int(number)
+
+
 def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: int = 0):
     """
-    Itera Items?$select=ItemCode,ItemName,ItemWarehouseInfoCollection paginando.
-    Devuelve (items, stock_map, scanned, with_stock) donde:
+    Itera Items del grupo PESCA (filtrado server-side) con
+    ?$select=ItemCode,ItemName,ItemWarehouseInfoCollection paginando.
+    Devuelve (items, stock_map, qty_map, scanned, with_stock) donde:
       items:      lista de {code, desc}
-      stock_map:  dict {ItemCode: bool}  (True = hay stock en algun whs vendible)
+      stock_map:  dict {ItemCode: bool}
+      qty_map:    dict {ItemCode: int}
       scanned:    total de items iterados
       with_stock: total con stock > 0
     """
     items = []
-    stock_map = {}       # {sku: bool}    (backward compat con listener actual)
-    qty_map = {}         # {sku: int}     (nueva: cantidad total vendible - permite
-                         #                 que vendedores vean cantidad exacta sin
-                         #                 tener que hacer login al SL desde el browser)
+    stock_map = {}       # {sku: bool}
+    qty_map = {}         # {sku: int}
     scanned = 0
     with_stock = 0
 
-    # Path inicial. nextLink es un path relativo tipo 'Items?$skip=20&$top=20'
-    # o a veces URL completa. Lo normalizamos a path absoluto.
-    path = "/b1s/v1/Items?$select=ItemCode,ItemName,ItemWarehouseInfoCollection"
+    # Filtrar por el grupo PESCA server-side. Antes traiamos TODOS los items
+    # (~10.700) y despues filtrabamos client-side usando el CSV inline de
+    # index.html (~665). Problema: cualquier SKU nuevo de pesca (ej. SJCM70HB
+    # Shimano Sojourn) que no estaba en el CSV inline quedaba invisible en
+    # la app aunque estuviera en PESCA en SAP.
+    # Fix: filtrar por ItemsGroupCode eq <numero_de_pesca> directamente.
+    # Ademas es mas eficiente: bajamos de ~530 requests paginados a ~100.
+    pesca_group_code = resolve_pesca_group_code(cfg, session)
+    path = (
+        "/b1s/v1/Items"
+        f"?$filter=ItemsGroupCode eq {pesca_group_code}"
+        "&$select=ItemCode,ItemName,ItemWarehouseInfoCollection"
+    )
     page_count = 0
     last_progress_log = time.time()
 
@@ -511,20 +555,24 @@ def main() -> int:
     existing.update(local_cat)
     log(f'[merge] total items con categorizacion disponible: {len(existing)}')
 
-    # FILTRO CRITICO: solo escribimos al catalogo los items que estan
-    # categorizados (tienen cat/fam/sub cargado). El motivo: los items de
-    # SAP no categorizados son productos de otras lineas (bici, zapatos,
-    # accesorios que NO se venden por este canal) o SKUs viejos/inactivos,
-    # y ademas NO tienen precio en PRICE_LIST_MAP -> si los mostramos al
-    # vendedor entran al pedido con precio $0 y ensucian la experiencia.
-    # Cuando el negocio decida sumar una nueva linea, se agregan al CSV
-    # inline de index.html con su cat/fam/sub y el proximo sync los toma.
-    items_categorized = [it for it in items if it['code'] in existing]
-    items_excluded = len(items) - len(items_categorized)
-    log(f'[filtro] {len(items_categorized)} items categorizados escritos al catalogo, {items_excluded} sin categoria omitidos')
+    # Desde v267: el filtro por grupo PESCA ahora es server-side en
+    # sl_fetch_items_and_stock (via ?$filter=ItemsGroupCode eq X). Todos
+    # los `items` que llegan aca son ya de pesca, no hace falta filtrar
+    # de nuevo por CSV inline. El merge con `existing` sigue para copiar
+    # cat/fam/sub cuando estan disponibles (para que el picker mantenga
+    # los dropdowns de categoria). Items nuevos sin cat/fam/sub quedan
+    # con esos campos vacios pero SI aparecen en el buscador Master.
+    items_with_cat = 0
+    items_sin_cat = 0
+    for it in items:
+        if it['code'] in existing:
+            items_with_cat += 1
+        else:
+            items_sin_cat += 1
+    log(f'[catalogo] escribiendo {len(items)} items de PESCA ({items_with_cat} con cat/fam/sub, {items_sin_cat} sin cat/fam/sub)')
 
-    write_catalog(db, items_categorized, existing)
-    # Stock SI se escribe COMPLETO (10.657 items) - se usa para:
+    write_catalog(db, items, existing)
+    # Stock SI se escribe COMPLETO (todos los items del grupo PESCA) - se usa para:
     # - indicador verde/rojo en el picker (bool via stock_map)
     # - cantidad exacta en el modal Master de Productos para vendedores
     #   (via qty_map - antes solo admin podia ver la cantidad porque
