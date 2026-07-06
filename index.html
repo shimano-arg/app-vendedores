@@ -3189,7 +3189,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v275';
+const APP_VERSION = 'v276';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -16087,12 +16087,37 @@ window.cancelPedido = function(){
     : ('Cerrar el pedido de "' + clientName + '" sin cargar nada?');
   if (!confirm(msg)) return;
   try { logOp('cancelar_borrador_pedido', 'pedido', clientName, {key: currentOrderKey, items: nItems, province: currentOrderClient && currentOrderClient.province, locName: currentOrderClient && currentOrderClient.locName}); } catch(e){}
-  // Borrado defensivo: delete + reasignar por si el objeto era congelado
-  // por algun getter/setter de Firestore. Ademas limpiamos DOS storages
-  // (localStorage + Firestore userData via saveOrders).
-  delete orders[currentOrderKey];
-  saveOrders();
-  console.log('[cancelPedido] orders[key] borrado. orders restantes:', Object.keys(orders).length);
+  const keyToDelete = currentOrderKey;
+  // 1) Local: borrar la key del objeto en memoria + localStorage.
+  delete orders[keyToDelete];
+  try { localStorage.setItem(ORDERS_KEY, JSON.stringify(orders)); } catch(e){}
+  console.log('[cancelPedido] orders[key] borrado localmente. orders restantes:', Object.keys(orders).length);
+  // 2) Firestore: BUG CRITICO que estabamos arrastrando - saveOrders hace
+  //    .set({orders: orders}, {merge: true}) que hace DEEP MERGE de objetos
+  //    anidados. Las keys borradas localmente NO se borran en Firestore.
+  //    Cuando el listener trae de vuelta el snapshot, hace orders = data.orders
+  //    con las keys viejas -> el pedido cancelado 'revive' y queda EN CURSO.
+  //    Fix: usar FieldPath + FieldValue.delete() para borrar la key
+  //    especifica en el server. FieldPath maneja los caracteres especiales
+  //    como '|' (que rompen dot notation).
+  if (currentUser && fbDb) {
+    try {
+      const suppress = suppressCloudSave; // guardar flag actual
+      suppressCloudSave = true;           // que saveOrders no dispare cloud
+      const fieldPath = new firebase.firestore.FieldPath('orders', keyToDelete);
+      fbDb.collection('userData').doc(currentUser.uid).update(
+        fieldPath, firebase.firestore.FieldValue.delete()
+      ).catch(function(e) {
+        // Puede fallar si el doc no existe todavia (usuario nuevo). En ese
+        // caso no hay nada que borrar - el estado local ya esta OK.
+        console.warn('[cancelPedido] no pude borrar la key del cloud (puede ser normal):', e && e.message);
+      }).finally(function() {
+        suppressCloudSave = suppress;
+      });
+    } catch(e) {
+      console.error('[cancelPedido] error escribiendo delete a Firestore:', e);
+    }
+  }
   // Rerender inmediato del picker y de lineas por si el modal queda visible
   // (algunos flows del modal reciclan el key sin cerrar).
   try { if (typeof renderProductPicker === 'function') renderProductPicker(); } catch(e){}
