@@ -3127,7 +3127,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v266';
+const APP_VERSION = 'v267';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -11219,7 +11219,14 @@ function generarRutasVendor(vendor, monthIdx, year){
   const altasOk = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).filter(a => {
     if (!a) return false;
     if (!a.cardCodeSap && !a.manualSapPending) return false;
-    if (!(a.calle || a.address)) return false; // sin direccion no se rutea
+    // ANTES: exigiamos calle/address para rutear. Excluia a las provisorias
+    // del "Alta rapida" que muchas veces se crean sin direccion exacta
+    // (el vendedor solo tiene nombre + localidad hasta que va a visitarlas).
+    // AHORA: exigimos direccion SOLO si tiene cardCodeSap (BPs oficiales de
+    // SAP - deberian tener direccion). Las provisorias con manualSapPending
+    // pueden rutearse sin direccion, usando el centroide de la localidad
+    // (mismo comportamiento que altas SAP sin geo, ya soportado abajo).
+    if (a.cardCodeSap && !(a.calle || a.address)) return false;
     if (a.assignedVendor && a.assignedVendor !== vendor) return false;
     const prov = (a.provincia || '').toUpperCase().trim();
     if (!prov) return false;
@@ -23170,6 +23177,10 @@ window.onLocalidadChange = function(){
   // que no matchean ningun POINT - igual son habilitadas en SAP. Tambien
   // incluimos las "provisorias" del alta rapida (manualSapPending) para que
   // el vendedor pueda registrar visitas mientras admin las carga a SAP.
+  // Comparacion de localidad case-insensitive: en POINTS puede venir como
+  // 'Balcarce' y en alta rapida como 'balcarce' (el vendedor escribio en
+  // minuscula) - antes 'aLoc !== name' saltaba y no aparecia la tienda.
+  const _normLoc = s => (s || '').toString().toLowerCase().trim();
   if (typeof approvedAltasList !== 'undefined') {
     approvedAltasList.forEach(a => {
       if (!a) return;
@@ -23177,7 +23188,7 @@ window.onLocalidadChange = function(){
       if (!enabledForVisits) return;
       const aProv = (a.provincia || '').toUpperCase().trim();
       const aLoc = (a.localidadFinal || a.localidad || '').trim();
-      if (aProv !== prov || aLoc !== name) return;
+      if (aProv !== prov || _normLoc(aLoc) !== _normLoc(name)) return;
       if (myVendor && a.assignedVendor && a.assignedVendor !== myVendor) return;
       const nombre = a.comercio || a.fantasia;
       if (nombre) tiendaSet.add(nombre);
