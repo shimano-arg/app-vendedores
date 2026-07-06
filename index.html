@@ -2057,7 +2057,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       </div>
       <div class="modal-footer" style="justify-content:space-between;gap:12px">
         <button class="btn-cancel" style="background:#fff;color:#475569;border:1.5px solid #cbd5e1" onclick="closeReviewDialog()">Volver a editar</button>
-        <button class="btn-confirm" onclick="closeReviewDialog();openConfirmDialog()">Pasar a Pendientes</button>
+        <button class="btn-confirm" onclick="validateReviewAndPasarAPendientes()">Pasar a Pendientes</button>
       </div>
     </div>
   </div>
@@ -3154,7 +3154,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v271';
+const APP_VERSION = 'v272';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -16072,6 +16072,8 @@ window.openReviewDialog = function(mode){
     lines = orders[currentOrderKey] || [];
   }
   if (!lines.length) { alert('El pedido esta vacio. Agregue productos antes de confirmar.'); return; }
+  // Limpiar banner de error de sesion anterior.
+  try { if (typeof showReviewError === 'function') showReviewError(''); } catch(e){}
   // Reset del dropdown de forma de pago - no arrastrar seleccion previa.
   const fpSel = document.getElementById('rv-forma-pago');
   if (fpSel) fpSel.value = '';
@@ -16095,6 +16097,94 @@ window.closeReviewDialog = function(){
   document.getElementById('review-modal').classList.remove('open');
 };
 
+// Validaciones + abrir el confirm-dialog. Reemplaza al viejo
+// 'closeReviewDialog();openConfirmDialog()' que fallaba silenciosamente:
+// si algo faltaba, se cerraba el review y salia un alert nativo en un
+// contexto donde el vendedor no lo entendia. Ahora validamos ANTES,
+// mostramos error VISIBLE dentro del modal review y solo cerramos si
+// todo esta OK.
+//
+// IMPORTANTE: no bloqueamos por falta de stock. SKUs sin stock salen
+// en rojo pero pueden estar en el pedido - solo advertencia visual.
+window.validateReviewAndPasarAPendientes = function(){
+  // Limpiar cualquier error anterior visible.
+  showReviewError('');
+  // 1) Sanity: hay pedido con lineas?
+  let ord = [];
+  if (currentOrderClient && currentOrderClient.stage === 'pending') {
+    const entry = (typeof getCurrentPendingEntry === 'function') ? getCurrentPendingEntry() : null;
+    ord = entry ? (entry.lines || []) : [];
+  } else if (currentOrderKey && currentOrderKey !== '__readonly__') {
+    ord = orders[currentOrderKey] || [];
+  }
+  if (!ord.length) {
+    showReviewError('El pedido esta vacio. Agregua productos antes de pasar a Pendientes.');
+    return;
+  }
+  // 2) Forma de pago obligatoria.
+  const fpSel = document.getElementById('rv-forma-pago');
+  const fpVal = (fpSel && fpSel.value) ? fpSel.value : '';
+  if (!fpVal) {
+    showReviewError('Falta elegir la FORMA DE PAGO (arriba en este mismo modal).');
+    if (fpSel) { try { fpSel.focus(); fpSel.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){} }
+    return;
+  }
+  // 3) Forma de entrega obligatoria + sub-campos condicionales.
+  const feSel = document.getElementById('rv-forma-entrega');
+  const feVal = (feSel && feSel.value) ? feSel.value : '';
+  if (!feVal) {
+    showReviewError('Falta elegir la FORMA DE ENTREGA (arriba en este mismo modal).');
+    if (feSel) { try { feSel.focus(); feSel.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){} }
+    return;
+  }
+  const transpNombre = ((document.getElementById('rv-transp-nombre') || {}).value || '').trim();
+  const transpDireccion = ((document.getElementById('rv-transp-direccion') || {}).value || '').trim();
+  const sucursalDireccion = ((document.getElementById('rv-sucursal-direccion') || {}).value || '').trim();
+  if (feVal === 'TRANSPORTISTA') {
+    if (!transpNombre || !transpDireccion) {
+      showReviewError('Elegiste "Entregar a transportista": falta completar NOMBRE y/o DIRECCION del transportista.');
+      const el = document.getElementById(!transpNombre ? 'rv-transp-nombre' : 'rv-transp-direccion');
+      if (el) { try { el.focus(); el.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){} }
+      return;
+    }
+  } else if (feVal === 'SUCURSAL') {
+    if (!sucursalDireccion) {
+      showReviewError('Elegiste "Envio a sucursal": falta completar la DIRECCION DE ENTREGA.');
+      const el = document.getElementById('rv-sucursal-direccion');
+      if (el) { try { el.focus(); el.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){} }
+      return;
+    }
+  }
+  // Todo OK: cerrar review y abrir confirm-dialog (mes/anio).
+  closeReviewDialog();
+  openConfirmDialog();
+};
+
+// Muestra u oculta el banner de error dentro del modal review. Si el
+// contenedor no existe, lo crea al vuelo. Vacio -> oculta.
+function showReviewError(msg){
+  const modalBody = document.querySelector('#review-modal .modal-body') || document.querySelector('#review-modal .review-content') || document.getElementById('review-modal');
+  if (!modalBody) return;
+  let el = document.getElementById('rv-error-banner');
+  if (!msg) {
+    if (el) el.remove();
+    return;
+  }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'rv-error-banner';
+    el.style.cssText = 'background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:6px;padding:10px 12px;margin:10px 0;font-size:12px;font-weight:600;line-height:1.5';
+    // Poner el banner cerca del footer (arriba del boton).
+    const footer = document.querySelector('#review-modal .modal-footer');
+    if (footer && footer.parentNode) footer.parentNode.insertBefore(el, footer);
+    else modalBody.appendChild(el);
+  }
+  el.innerHTML = '&#9888;&#65039; ' + msg;
+  // Scroll al banner por si esta fuera de vista.
+  try { el.scrollIntoView({behavior: 'smooth', block: 'center'}); } catch(e){}
+}
+window.showReviewError = showReviewError;
+
 function updateReviewFooter(){
   const footer = document.querySelector('#review-modal .modal-footer');
   if (reviewMode === 'pending-confirm') {
@@ -16102,7 +16192,7 @@ function updateReviewFooter(){
       + '<button class="btn-confirm" onclick="doConfirmDefinitivoFromReview()">Confirmar y enviar a Confirmados</button>';
   } else {
     footer.innerHTML = '<button class="btn-cancel" style="background:#fff;color:#475569;border:1.5px solid #cbd5e1" onclick="closeReviewDialog()">Volver a editar</button>'
-      + '<button class="btn-confirm" onclick="closeReviewDialog();openConfirmDialog()">Pasar a Pendientes</button>';
+      + '<button class="btn-confirm" onclick="validateReviewAndPasarAPendientes()">Pasar a Pendientes</button>';
   }
 }
 
