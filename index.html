@@ -2023,6 +2023,29 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           </select>
           <div id="rv-forma-pago-hint" style="font-size:10px;color:#64748b;margin-top:4px">Solo "Contado" suma el bonus de pago anticipado al descuento.</div>
         </div>
+        <!-- Forma de entrega + campos condicionales segun la opcion elegida.
+             TRANSPORTISTA -> Nombre + Direccion del transportista.
+             SUCURSAL      -> Direccion de entrega. -->
+        <div style="margin-top:12px;padding:10px 12px;background:#fff;border:1.5px solid #cbd5e1;border-radius:6px">
+          <label for="rv-forma-entrega" style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569;display:block;margin-bottom:6px">Forma de entrega <span style="color:#dc2626">*</span></label>
+          <select id="rv-forma-entrega" onchange="onFormaEntregaChange()" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;font-weight:600;color:#0f172a;outline:none;background:#fff">
+            <option value="">- Seleccionar -</option>
+            <option value="TRANSPORTISTA">Entregar a transportista</option>
+            <option value="SUCURSAL">Envio a sucursal</option>
+          </select>
+          <!-- Bloque campos TRANSPORTISTA -->
+          <div id="rv-entrega-transp-block" style="display:none;margin-top:10px">
+            <label for="rv-transp-nombre" style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Nombre del transportista <span style="color:#dc2626">*</span></label>
+            <input id="rv-transp-nombre" type="text" placeholder="Ej: Cruz del Sur, Andreani, etc." style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff;margin-bottom:8px"/>
+            <label for="rv-transp-direccion" style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Direccion del transportista <span style="color:#dc2626">*</span></label>
+            <input id="rv-transp-direccion" type="text" placeholder="Ej: Av. Corrientes 1234, CABA" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff"/>
+          </div>
+          <!-- Bloque campo SUCURSAL -->
+          <div id="rv-entrega-sucursal-block" style="display:none;margin-top:10px">
+            <label for="rv-sucursal-direccion" style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Direccion de entrega <span style="color:#dc2626">*</span></label>
+            <input id="rv-sucursal-direccion" type="text" placeholder="Ej: Av. Cabildo 4567, CABA" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff"/>
+          </div>
+        </div>
         <div id="rv-discount"></div>
         <!-- 2 cuadrantes con el subtotal partido por disponibilidad de stock.
              Solo se muestra si hay al menos 1 item sin stock - sino oculto. -->
@@ -3127,7 +3150,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v268';
+const APP_VERSION = 'v269';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -15722,6 +15745,39 @@ window.viewPedido = function(stage, key, idx){
     infoHtml += '<span style="color:#475569;font-weight:600">Forma de pago</span>';
     infoHtml += '<span style="font-weight:800;color:#0f172a">' + escapeHtml(formaPago) + '</span>';
     infoHtml += '</div>';
+    // Forma de entrega + campos condicionales. Solo se muestra si el pedido
+    // tiene el bloque cargado (pedidos previos a v269 no lo tienen).
+    if (c.formaEntrega && c.formaEntrega.tipo) {
+      const fe = c.formaEntrega;
+      const feLabel = (fe.tipo === 'TRANSPORTISTA') ? 'Entregar a transportista'
+                    : (fe.tipo === 'SUCURSAL') ? 'Envio a sucursal'
+                    : fe.tipo;
+      infoHtml += '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e5e7eb;font-size:12px">';
+      infoHtml += '<span style="color:#475569;font-weight:600">Forma de entrega</span>';
+      infoHtml += '<span style="font-weight:800;color:#0f172a">' + escapeHtml(feLabel) + '</span>';
+      infoHtml += '</div>';
+      if (fe.tipo === 'TRANSPORTISTA') {
+        if (fe.transpNombre) {
+          infoHtml += '<div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:11px;color:#64748b">';
+          infoHtml += '<span>&middot; Transportista</span>';
+          infoHtml += '<span style="font-weight:700;color:#0f172a;max-width:60%;text-align:right">' + escapeHtml(fe.transpNombre) + '</span>';
+          infoHtml += '</div>';
+        }
+        if (fe.transpDireccion) {
+          infoHtml += '<div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:11px;color:#64748b">';
+          infoHtml += '<span>&middot; Direccion transportista</span>';
+          infoHtml += '<span style="font-weight:700;color:#0f172a;max-width:60%;text-align:right">' + escapeHtml(fe.transpDireccion) + '</span>';
+          infoHtml += '</div>';
+        }
+      } else if (fe.tipo === 'SUCURSAL') {
+        if (fe.sucursalDireccion) {
+          infoHtml += '<div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:11px;color:#64748b">';
+          infoHtml += '<span>&middot; Direccion de entrega</span>';
+          infoHtml += '<span style="font-weight:700;color:#0f172a;max-width:60%;text-align:right">' + escapeHtml(fe.sucursalDireccion) + '</span>';
+          infoHtml += '</div>';
+        }
+      }
+    }
     // Tipo de cliente (si esta en el snapshot)
     if (ds.tipo) {
       infoHtml += '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e5e7eb;font-size:12px">';
@@ -16015,6 +16071,16 @@ window.openReviewDialog = function(mode){
   // Reset del dropdown de forma de pago - no arrastrar seleccion previa.
   const fpSel = document.getElementById('rv-forma-pago');
   if (fpSel) fpSel.value = '';
+  // Reset del bloque forma de entrega + sus campos condicionales.
+  const feSel = document.getElementById('rv-forma-entrega');
+  if (feSel) feSel.value = '';
+  ['rv-transp-nombre','rv-transp-direccion','rv-sucursal-direccion'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  const bTransp = document.getElementById('rv-entrega-transp-block');
+  const bSucursal = document.getElementById('rv-entrega-sucursal-block');
+  if (bTransp) bTransp.style.display = 'none';
+  if (bSucursal) bSucursal.style.display = 'none';
   renderReviewLines();
   renderReviewSuggestions();
   updateReviewFooter();
@@ -16279,6 +16345,26 @@ function renderReviewLines(){
 // recalcula el descuento estimado al cambiar (volumen sigue dinamico).
 window.onFormaPagoChange = function(){
   renderReviewLines();
+};
+
+// Callback del dropdown "Forma de entrega" en el modal Revisa tu pedido:
+// muestra u oculta los bloques de campos condicionales.
+window.onFormaEntregaChange = function(){
+  const sel = document.getElementById('rv-forma-entrega');
+  const val = sel ? sel.value : '';
+  const bTransp = document.getElementById('rv-entrega-transp-block');
+  const bSucursal = document.getElementById('rv-entrega-sucursal-block');
+  if (bTransp) bTransp.style.display = (val === 'TRANSPORTISTA') ? '' : 'none';
+  if (bSucursal) bSucursal.style.display = (val === 'SUCURSAL') ? '' : 'none';
+  // Al ocultarse un bloque, tambien limpiamos el value asi no queda
+  // guardado si el vendedor cambia de opcion despues.
+  if (val !== 'TRANSPORTISTA') {
+    const n = document.getElementById('rv-transp-nombre'); if (n) n.value = '';
+    const d = document.getElementById('rv-transp-direccion'); if (d) d.value = '';
+  }
+  if (val !== 'SUCURSAL') {
+    const s = document.getElementById('rv-sucursal-direccion'); if (s) s.value = '';
+  }
 };
 
 window.openConfirmDialog = function(){
@@ -24750,6 +24836,9 @@ function attachFirebaseListeners(){
         subtotalArs: d.subtotalArs != null ? d.subtotalArs : null,
         netAmountArs: d.netAmountArs != null ? d.netAmountArs : null,
         discountPct: d.discountPct != null ? d.discountPct : 0,
+        condicionPago: d.condicionPago || '',
+        // Forma de entrega (v269+): tipo + campos condicionales.
+        formaEntrega: d.formaEntrega || null,
       };
       const target = d.stage === 'confirmed' ? newConfirmed : newPending;
       if (!target[d.key]) target[d.key] = [];
@@ -24787,6 +24876,9 @@ function attachFirebaseListeners(){
         subtotalArs: d.subtotalArs != null ? d.subtotalArs : null,
         netAmountArs: d.netAmountArs != null ? d.netAmountArs : null,
         discountPct: d.discountPct != null ? d.discountPct : 0,
+        condicionPago: d.condicionPago || '',
+        // Forma de entrega (v269+): tipo + campos condicionales.
+        formaEntrega: d.formaEntrega || null,
       });
     });
     if (typeof renderSapPedidos === 'function' && document.getElementById('sap-modal').classList.contains('open')) {
@@ -24843,6 +24935,34 @@ window.doConfirmPedido = function(){
     try { openReviewDialog(); } catch(e) {}
     return;
   }
+  // Forma de entrega + campos condicionales. TRANSPORTISTA requiere nombre
+  // y direccion del transportista; SUCURSAL requiere direccion de entrega.
+  const formaEntregaSel = document.getElementById('rv-forma-entrega');
+  const formaEntregaVal = (formaEntregaSel && formaEntregaSel.value) ? formaEntregaSel.value : '';
+  if (!formaEntregaVal) {
+    alert('Tenes que elegir una forma de entrega en "Revisa tu pedido" antes de confirmar.');
+    closeConfirmDialog();
+    try { openReviewDialog(); } catch(e) {}
+    return;
+  }
+  const transpNombre = (document.getElementById('rv-transp-nombre') || {}).value || '';
+  const transpDireccion = (document.getElementById('rv-transp-direccion') || {}).value || '';
+  const sucursalDireccion = (document.getElementById('rv-sucursal-direccion') || {}).value || '';
+  if (formaEntregaVal === 'TRANSPORTISTA') {
+    if (!transpNombre.trim() || !transpDireccion.trim()) {
+      alert('Como elegiste "Entregar a transportista", tenes que completar el NOMBRE y la DIRECCION del transportista.');
+      closeConfirmDialog();
+      try { openReviewDialog(); } catch(e) {}
+      return;
+    }
+  } else if (formaEntregaVal === 'SUCURSAL') {
+    if (!sucursalDireccion.trim()) {
+      alert('Como elegiste "Envio a sucursal", tenes que completar la DIRECCION DE ENTREGA.');
+      closeConfirmDialog();
+      try { openReviewDialog(); } catch(e) {}
+      return;
+    }
+  }
   const mesIdx = parseInt(document.getElementById('cd-mes').value);
   const anio = document.getElementById('cd-anio').value;
   const monthLabel = MESES[mesIdx] + ' ' + anio;
@@ -24892,6 +25012,17 @@ window.doConfirmPedido = function(){
     // Condicion de pago seleccionada por el vendedor. Va al UDF U_TipoGasto
     // en el header del Sales Quotation cuando se exporta el ZIP DTW.
     condicionPago: condicionVal,
+    // Forma de entrega (v269+). Se guarda como estructura con tipo + los
+    // campos que correspondan (nombre/direccion transportista, o direccion
+    // de entrega sucursal). Se muestra en la vista del pedido confirmado
+    // y en el modal de detalle. NO se envia al header SAP todavia - hay
+    // que definir en que UDF/comentario meterlo con Ezequiel Mendoza.
+    formaEntrega: {
+      tipo: formaEntregaVal,  // 'TRANSPORTISTA' | 'SUCURSAL'
+      transpNombre: (formaEntregaVal === 'TRANSPORTISTA') ? transpNombre.trim() : '',
+      transpDireccion: (formaEntregaVal === 'TRANSPORTISTA') ? transpDireccion.trim() : '',
+      sucursalDireccion: (formaEntregaVal === 'SUCURSAL') ? sucursalDireccion.trim() : '',
+    },
     lines: ord.map(l => ({code: l.code, desc: l.desc, cat: l.cat||'', fam: l.fam||'', sub: l.sub||'', qty: parseFloat(l.qty)||0, precio: parseFloat(l.precio)||0})),
     // Subtotal bruto (qty*precio) y monto neto (con descuento aplicado).
     // El dashboard y los targets usan netAmountArs; el payload a SAP usa
