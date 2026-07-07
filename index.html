@@ -3189,7 +3189,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v278';
+const APP_VERSION = 'v279';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -25645,8 +25645,16 @@ window.doConfirmPedido = function(){
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
   if (currentUser) {
-    fbDb.collection('pedidos').add(docData).then(()=>{
+    fbDb.collection('pedidos').add(docData).then((ref)=>{
       showSyncTag('Pedido pendiente guardado');
+      // Fallback local: solo cuando Firestore lo acepto. Si fallo por permisos,
+      // NO metemos nada en pending[] porque el listener del snapshot rerenderiza
+      // sobre el estado local y hace que el pedido "aparezca y desaparezca".
+      if (!pending[currentOrderKey]) pending[currentOrderKey] = [];
+      pending[currentOrderKey].push({ _fsId: ref.id, month: monthLabel, monthIdx: mesIdx, year: parseInt(anio), confirmedAt: docData.confirmedAt, lines: docData.lines });
+      savePending();
+      delete orders[currentOrderKey];
+      saveOrders();
       // Si fue creado en nombre de un VDE, notificar al VDE.
       if (actingPartner) {
         try {
@@ -25670,14 +25678,34 @@ window.doConfirmPedido = function(){
           }).catch(e => console.warn('notif al VDE pareja (pedido)', e));
         } catch(e) { console.warn('notif al VDE pareja (pedido) outer', e); }
       }
-    }).catch(e=>{ console.error('pending push', e); alert('Error guardando en la nube: ' + (e.message||e)); });
+    }).catch(e=>{
+      console.error('pending push FAIL', e, 'docData:', docData);
+      const code = (e && e.code) || '';
+      const msg = (e && e.message) || String(e);
+      // permission-denied / unauthenticated -> el pedido NO se guardo en cloud.
+      // NO tocamos pending[] local para no confundir al vendedor con un pedido
+      // que aparece y desaparece. El borrador queda en orders[] asi puede
+      // reintentar despues de que se arreglen las Rules.
+      if (code === 'permission-denied' || code === 'unauthenticated' || /Missing or insufficient permissions/i.test(msg)) {
+        alert('El pedido NO se pudo guardar en la nube (permisos denegados).\n\n' +
+              'El borrador queda intacto en "En curso" - podes reintentar.\n\n' +
+              'Avisa al admin: hay que revisar las Firestore Rules de la coleccion pedidos.\n\n' +
+              'Cliente: ' + (currentOrderClient && currentOrderClient.name) + '\n' +
+              'Usuario: ' + (currentUser && currentUser.email) + '\n' +
+              'Error: ' + msg);
+        return; // NO cerrar modales, NO borrar orders[] - dejar borrador vivo
+      }
+      // Otro tipo de error (network, timeout, quota) -> guardar local igual
+      // para no perder el trabajo. Cuando vuelva la conexion, el user puede
+      // reintentar desde el pedido pendiente.
+      alert('Error guardando en la nube (se guardo local, podes reintentar):\n\n' + msg);
+      if (!pending[currentOrderKey]) pending[currentOrderKey] = [];
+      pending[currentOrderKey].push({ month: monthLabel, monthIdx: mesIdx, year: parseInt(anio), confirmedAt: docData.confirmedAt, lines: docData.lines });
+      savePending();
+      delete orders[currentOrderKey];
+      saveOrders();
+    });
   }
-  // fallback local
-  if (!pending[currentOrderKey]) pending[currentOrderKey] = [];
-  pending[currentOrderKey].push({ month: monthLabel, monthIdx: mesIdx, year: parseInt(anio), confirmedAt: docData.confirmedAt, lines: docData.lines });
-  savePending();
-  delete orders[currentOrderKey];
-  saveOrders();
   closeConfirmDialog();
   closePedidoModal();
   setPedidoView('pendientes');
