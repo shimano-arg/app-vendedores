@@ -1366,7 +1366,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .btn-camp:hover{background:#92400e;box-shadow:0 2px 6px rgba(180,83,9,.45)}
 .btn-camp:active{transform:translateY(1px)}
 .btn-camp:disabled{background:#cbd5e1;cursor:not-allowed;box-shadow:none}
-.confirm-dialog{position:absolute;inset:0;background:rgba(15,23,42,.55);display:none;align-items:center;justify-content:center;padding:20px;z-index:10;border-radius:10px}
+.confirm-dialog{position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:center;justify-content:center;padding:20px;z-index:9999;border-radius:0}
 .confirm-dialog.open{display:flex}
 .confirm-box{background:#fff;border-radius:10px;padding:22px 24px;width:min(440px,94%);box-shadow:0 8px 28px rgba(0,0,0,.3)}
 .confirm-box h3{font-size:16px;font-weight:800;color:#0f172a;margin-bottom:4px}
@@ -2057,16 +2057,16 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <!-- Bloque campos TRANSPORTISTA -->
           <div id="rv-entrega-transp-block" style="display:none;margin-top:10px">
             <label for="rv-transp-nombre" style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Nombre del transportista <span style="color:#dc2626">*</span></label>
-            <input id="rv-transp-nombre" type="text" placeholder="Ej: Cruz del Sur, Andreani, etc." style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff;margin-bottom:8px"/>
+            <input id="rv-transp-nombre" oninput="try{revalidateReviewSilently()}catch(e){}" type="text" placeholder="Ej: Cruz del Sur, Andreani, etc." style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff;margin-bottom:8px"/>
             <label for="rv-transp-direccion" style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Direccion del transportista <span style="color:#dc2626">*</span></label>
-            <input id="rv-transp-direccion" type="text" placeholder="Ej: Av. Corrientes 1234, CABA" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff;margin-bottom:8px"/>
+            <input id="rv-transp-direccion" oninput="try{revalidateReviewSilently()}catch(e){}" type="text" placeholder="Ej: Av. Corrientes 1234, CABA" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff;margin-bottom:8px"/>
             <label for="rv-cliente-direccion" style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Direccion de entrega al cliente <span style="color:#dc2626">*</span></label>
-            <input id="rv-cliente-direccion" type="text" placeholder="Ej: Av. Belgrano 4567, Rio Cuarto (destino final)" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff"/>
+            <input id="rv-cliente-direccion" oninput="try{revalidateReviewSilently()}catch(e){}" type="text" placeholder="Ej: Av. Belgrano 4567, Rio Cuarto (destino final)" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff"/>
           </div>
           <!-- Bloque campo SUCURSAL -->
           <div id="rv-entrega-sucursal-block" style="display:none;margin-top:10px">
             <label for="rv-sucursal-direccion" style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Direccion de entrega <span style="color:#dc2626">*</span></label>
-            <input id="rv-sucursal-direccion" type="text" placeholder="Ej: Av. Cabildo 4567, CABA" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff"/>
+            <input id="rv-sucursal-direccion" oninput="try{revalidateReviewSilently()}catch(e){}" type="text" placeholder="Ej: Av. Cabildo 4567, CABA" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff"/>
           </div>
         </div>
         <div id="rv-discount"></div>
@@ -3189,7 +3189,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v276';
+const APP_VERSION = 'v278';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -16240,22 +16240,40 @@ window.validateReviewAndPasarAPendientes = function(){
         return;
       }
     }
-    console.log('[pedido] validacion OK, abriendo confirm-dialog (mes/anio)');
-    // Todo OK: cerrar review y abrir confirm-dialog (mes/anio).
+    console.log('[pedido] validacion OK, pasando directo a Pendientes (mes/anio=actual)');
+    // Todo OK: cerrar review y pasar DIRECTO a Pendientes.
+    // El paso intermedio de "elegir mes/anio" (confirm-dialog) se elimina
+    // porque el vendedor esperaba que "Pasar a Pendientes" pase efectivamente
+    // a Pendientes. Si el confirm-dialog no se veia (porque estaba anidado
+    // dentro del pedido-modal que no siempre esta abierto), el pedido quedaba
+    // como "En curso" y el vendedor no entendia por que.
+    // Ahora usamos mes/anio del sistema por default; el vendedor puede editar
+    // despues desde el pedido en Pendientes si necesita cambiarlo.
     closeReviewDialog();
-    openConfirmDialog();
-    // Verificacion: el confirm-dialog quedo abierto?
-    setTimeout(function(){
-      const cd = document.getElementById('confirm-dialog');
-      const isOpen = cd && cd.classList.contains('open');
-      console.log('[pedido] confirm-dialog open?', isOpen);
-      if (!isOpen) {
-        // Fallback: si openConfirmDialog fallo silenciosamente, abrir de nuevo
-        // el review con mensaje al user asi puede reintentar.
-        alert('No se pudo abrir el dialogo de confirmacion. Reintenta desde "Vista preliminar" o avisa al admin. currentOrderKey=' + currentOrderKey);
-        try { openReviewDialog('crear'); } catch(e) {}
-      }
-    }, 200);
+    // Popular los selects (los lee doConfirmPedido) con mes/anio actual.
+    const now = new Date();
+    const mesSel = document.getElementById('cd-mes');
+    if (mesSel) {
+      mesSel.innerHTML = MESES.map((m, i) => '<option value="' + i + '">' + m + '</option>').join('');
+      mesSel.value = now.getMonth();
+    }
+    const anioSel = document.getElementById('cd-anio');
+    if (anioSel) {
+      const year = now.getFullYear();
+      let yopts = '';
+      for (let y = year - 1; y <= year + 2; y++) yopts += '<option value="' + y + '">' + y + '</option>';
+      anioSel.innerHTML = yopts;
+      anioSel.value = year;
+    }
+    // Ejecutar directo: doConfirmPedido tiene su propio confirm() nativo
+    // pidiendo "Confirmar pedido de X para <mes actual>?" - ahi el vendedor
+    // puede cancelar si quiere.
+    try { doConfirmPedido(); }
+    catch(err) {
+      console.error('[pedido] doConfirmPedido fallo', err);
+      alert('No pudimos pasar el pedido a Pendientes:\n\n' + (err && err.message ? err.message : String(err)));
+      try { openReviewDialog('crear'); } catch(e){}
+    }
   } catch(err) {
     console.error('[pedido] validateReviewAndPasarAPendientes FATAL', err);
     alert('Error inesperado al pasar el pedido a Pendientes:\n\n' + (err && err.message ? err.message : String(err)) + '\n\nAvisa al admin y adjunta el mensaje.');
@@ -16541,6 +16559,7 @@ function renderReviewLines(){
 // recalcula el descuento estimado al cambiar (volumen sigue dinamico).
 window.onFormaPagoChange = function(){
   renderReviewLines();
+  try { revalidateReviewSilently(); } catch(e){}
 };
 
 // Callback del dropdown "Forma de entrega" en el modal Revisa tu pedido:
@@ -16562,6 +16581,31 @@ window.onFormaEntregaChange = function(){
   if (val !== 'SUCURSAL') {
     const s = document.getElementById('rv-sucursal-direccion'); if (s) s.value = '';
   }
+  try { revalidateReviewSilently(); } catch(e){}
+};
+
+// Chequea el estado actual de los campos del review y limpia el banner
+// de error si ya no aplica. Se llama tras cada onchange/oninput de los
+// campos del modal para evitar que un banner "stuck" siga visible cuando
+// el vendedor ya corrigio lo que faltaba.
+// NO muestra errores nuevos: eso lo hace validateReviewAndPasarAPendientes
+// al tocar el boton. Aca solo LIMPIAMOS silenciosamente.
+window.revalidateReviewSilently = function(){
+  const fpVal = ((document.getElementById('rv-forma-pago') || {}).value || '').trim();
+  if (!fpVal) return; // sigue faltando forma de pago -> no limpiar
+  const feVal = ((document.getElementById('rv-forma-entrega') || {}).value || '').trim();
+  if (!feVal) return; // sigue faltando forma de entrega -> no limpiar
+  if (feVal === 'TRANSPORTISTA') {
+    const n = ((document.getElementById('rv-transp-nombre') || {}).value || '').trim();
+    const d = ((document.getElementById('rv-transp-direccion') || {}).value || '').trim();
+    const cd = ((document.getElementById('rv-cliente-direccion') || {}).value || '').trim();
+    if (!n || !d || !cd) return;
+  } else if (feVal === 'SUCURSAL') {
+    const s = ((document.getElementById('rv-sucursal-direccion') || {}).value || '').trim();
+    if (!s) return;
+  }
+  // Todo OK: limpiar banner si estaba visible.
+  try { showReviewError(''); } catch(e){}
 };
 
 window.openConfirmDialog = function(){
