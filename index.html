@@ -2029,7 +2029,17 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <div class="suggest-head"><span>Sugeridos para este cliente</span><span id="rv-suggest-info" style="font-size:9px;color:#94a3b8;font-weight:600"></span></div>
           <div class="suggest-list" id="rv-suggest-list"></div>
         </div>
-        <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569;margin:8px 0 4px">Pedido actual</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0 4px">
+          <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569">Pedido actual</div>
+          <div style="font-size:10px;color:#94a3b8;font-weight:600" id="rv-search-count"></div>
+        </div>
+        <!-- v281+: buscador dentro del review para filtrar lineas del pedido
+             sin scrollear. Filtra por codigo o descripcion (case-insensitive). -->
+        <div style="position:relative;margin-bottom:6px">
+          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:14px">&#128269;</span>
+          <input id="rv-search" type="text" placeholder="Buscar producto por codigo o descripcion..." oninput="onReviewSearch()" style="width:100%;padding:7px 30px 7px 32px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:12px;color:#0f172a;outline:none;background:#fff"/>
+          <button id="rv-search-clear" onclick="clearReviewSearch()" title="Limpiar" style="display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#94a3b8;font-size:16px;padding:2px 6px">&times;</button>
+        </div>
         <div id="rv-lines"></div>
         <div class="review-totals" id="rv-totals"></div>
         <div style="margin-top:12px;padding:10px 12px;background:#fff;border:1.5px solid #cbd5e1;border-radius:6px">
@@ -3189,7 +3199,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v280';
+const APP_VERSION = 'v281';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -16168,6 +16178,10 @@ window.openReviewDialog = function(mode){
   if (!lines.length) { alert('El pedido esta vacio. Agregue productos antes de confirmar.'); return; }
   // Limpiar banner de error de sesion anterior.
   try { if (typeof showReviewError === 'function') showReviewError(''); } catch(e){}
+  // v281+: reset del buscador para que no arrastre el filtro de una sesion previa.
+  window._reviewSearchQuery = '';
+  const _rvSearch = document.getElementById('rv-search');
+  if (_rvSearch) _rvSearch.value = '';
   // Reset del dropdown de forma de pago - no arrastrar seleccion previa.
   const fpSel = document.getElementById('rv-forma-pago');
   if (fpSel) fpSel.value = '';
@@ -16464,9 +16478,22 @@ function renderReviewLines(){
     sumEl.innerHTML = '<div class="rs-name">' + escapeHtml(currentOrderClient.name) + '</div>'
       + '<div class="rs-meta">' + escapeHtml(titleCase(currentOrderClient.province)) + ' &middot; ' + escapeHtml(currentOrderClient.locName) + ' &middot; ' + (currentOrderClient.tipo === 'C' ? 'Cliente actual' : 'Prospecto') + '</div>';
   }
+  // v281+: filtro de busqueda del review. NO altera los totales (los subtotales
+  // siguen calculandose sobre TODO el pedido) - solo filtra que lineas se
+  // renderizan visualmente. Asi el vendedor puede buscar sin perder de vista
+  // el total real del pedido.
+  const searchQuery = (window._reviewSearchQuery || '').toLowerCase().trim();
+  const searchActive = searchQuery.length > 0;
+  const matchesSearch = (l) => {
+    if (!searchActive) return true;
+    const code = (l.code || '').toLowerCase();
+    const desc = (l.desc || '').toLowerCase();
+    return code.indexOf(searchQuery) >= 0 || desc.indexOf(searchQuery) >= 0;
+  };
   // Lines
   let html = '';
   let totalU = 0, totalM = 0;
+  let visibleN = 0;  // v281+: cuenta lineas que pasan el filtro (para el counter).
   // Subtotales por disponibilidad de stock. hasStock(code):
   //   true  -> disponible
   //   false -> NO disponible (rojo)
@@ -16492,6 +16519,11 @@ function renderReviewLines(){
       : (noDisp
           ? '<span title="Sin stock" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#dc2626;margin-right:6px;vertical-align:middle"></span>'
           : (stockAvail === true ? '<span title="Disponible" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#16a34a;margin-right:6px;vertical-align:middle"></span>' : ''));
+    // v281+: si el buscador esta activo, la linea se cuenta para totales pero
+    // solo se renderiza si matchea la busqueda. Asi el vendedor puede filtrar
+    // sin perder el total real del pedido.
+    if (!matchesSearch(l)) return;
+    visibleN++;
     const lineStyle = needsReview
       ? ' style="background:#fef3c7;border-color:#fcd34d"'
       : (noDisp ? ' style="background:#fef2f2;border-color:#fecaca"' : '');
@@ -16509,8 +16541,19 @@ function renderReviewLines(){
     html += '<button class="rl-rm" onclick="removeFromOrder(\'' + escapeAttr(l.code) + '\');renderReviewLines();renderReviewSuggestions()" title="Quitar">&times;</button>';
     html += '</div>';
   });
+  // v281+: si el filtro esta activo y no matchea nada, mostrar mensaje claro.
   if (!ord.length) html = '<div class="no-data">Sin productos. Volve a editar y agrega items.</div>';
+  else if (searchActive && visibleN === 0) html = '<div class="no-data">Ningun producto matchea &laquo;' + escapeHtml(searchQuery) + '&raquo;.</div>';
   document.getElementById('rv-lines').innerHTML = html;
+  // v281+: contador del buscador (ej: "3 de 159").
+  const searchCountEl = document.getElementById('rv-search-count');
+  if (searchCountEl) {
+    if (searchActive) searchCountEl.textContent = visibleN + ' de ' + ord.length + ' productos';
+    else searchCountEl.textContent = '';
+  }
+  // v281+: mostrar/ocultar el boton (x) de limpiar segun si hay texto en el input.
+  const clearBtn = document.getElementById('rv-search-clear');
+  if (clearBtn) clearBtn.style.display = searchActive ? '' : 'none';
   // Totals: si hay items sin stock, discriminamos los 2 subtotales asi el
   // vendedor puede mostrarle al cliente "del total $X, hay $Y sin stock,
   // pagarias $Z efectivamente".
@@ -16594,6 +16637,21 @@ function renderReviewLines(){
     discEl.innerHTML = '<div class="review-discount"><div class="rd-head"><span>&#128176; Descuento estimado para el cliente</span></div>' + body + '</div>';
   }
 }
+
+// v281+: buscador dentro del modal "Revisa tu pedido" que filtra las lineas
+// en tiempo real por codigo o descripcion. Los totales NO se ven afectados
+// (siguen sumando sobre todo el pedido) - solo cambia que lineas se muestran.
+window.onReviewSearch = function(){
+  const inp = document.getElementById('rv-search');
+  window._reviewSearchQuery = inp ? inp.value : '';
+  renderReviewLines();
+};
+window.clearReviewSearch = function(){
+  window._reviewSearchQuery = '';
+  const inp = document.getElementById('rv-search');
+  if (inp) { inp.value = ''; inp.focus(); }
+  renderReviewLines();
+};
 
 // Callback del dropdown "Forma de pago" en el modal Revisa tu pedido:
 // recalcula el descuento estimado al cambiar (volumen sigue dinamico).
