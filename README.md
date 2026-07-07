@@ -14,10 +14,10 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v276 |
-| **APP_VERSION** | `v276` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v281 |
+| **APP_VERSION** | `v281` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
-| **Pipeline Power BI** | Firestore → BigQuery (extension `firestore-bigquery-export`) → Power BI Service — **en armado, Día 1 hoy** (ver `PLAN_POWERBI.md`) |
+| **Pipeline Power BI** | Firestore → BigQuery (extension `firestore-bigquery-export`) → Power BI Service — **Fase 1.1 completa 2026-07-07**: 7 collecciones sincronizando en tiempo real + 264 docs históricos ya en BigQuery. Pendiente: sync SAP → BigQuery + modelo DAX (ver sección 40) |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` cada 30 min (cron GH Actions `13,43 * * * *`) — ACTIVO desde v246 (2026-07-01) |
 | **Bot Inventario Google Sheet** | Lee `raw.githubusercontent.com/shimano-arg/app-vendedores/main/stock.json` cada 30 min — datos frescos garantizados |
 
@@ -65,7 +65,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v204 → v276](#41-changelog-v204--v276)
+41. [Changelog v204 → v281](#41-changelog-v204--v281)
 
 ---
 
@@ -726,7 +726,7 @@ Reglas vigentes (versión actual). Resumen de qué puede hacer cada rol:
 |---|---|---|
 | `roles` | propio doc + admin | admin (update/delete), usuario propio (create con role unassigned/admin) |
 | `userData` | propio + admin/viewer | propio + admin |
-| `pedidos` | todos los readers | admin / vendedor (su propio) / VDI en nombre del VDE pareja |
+| `pedidos` | todos los readers | admin/gerente / vendedor (su propio) / **interno propio (v279+)** / interno en nombre del VDE pareja |
 | `visits` | todos | admin / vendedor / interno propio / VDI en nombre del VDE pareja |
 | `campaigns` | todos | admin |
 | `notifications` | targetUid o fromUid o admin | propio crea, propio update si es targetUid, **delete: target o admin** (NUEVO: el target puede borrar la card desde Recibidas) |
@@ -2436,59 +2436,159 @@ Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gere
 
 ## 40) Power BI / BigQuery
 
-**En armado, Día 1 hoy 2026-06-30**. Doc completo en `PLAN_POWERBI.md` (588 líneas, 4 días de plan).
+**Fase 1.1 completa desde 2026-07-07** (sync Firestore → BigQuery de 7 colecciones + backfill del histórico). Falta arrancar Fase 1.2 (sync SAP → BigQuery), Fase 2 (modelo/vistas) y Fase 3 (Power BI Desktop).
 
 ### Objetivo
 
-Tablero Power BI alimentado real-time (5-30s de lag) desde Firestore para que Diego, Pablo y Mariano vean performance comercial sin esperar exports manuales.
+Tablero Power BI alimentado casi real-time (5-30s de lag desde Firestore, ~30 min desde SAP) para que Diego, Pablo, Mariano y jefes de equipo vean performance comercial sin esperar exports manuales. KPIs Ola 1 (Ventas + Campo + Inventario + Campañas): facturación MTD, ticket promedio, visitas ejecutadas, cobertura padrón, conversión visita→pedido, stock crítico, progreso campañas, deuda vencida.
 
 ### Arquitectura
 
 ```
-Firestore (app vive aquí)
-   ↓ Firebase extension "firestore-bigquery-export" (una instancia por colección)
-BigQuery dataset shimano_app (us-central1)
-   ↓ Vistas SQL planas (aplanan el JSON crudo)
-Power BI Desktop → publish → Power BI Service
-   ↓ Refresh DirectQuery o cada 30 min
-Workspace "Shimano Vendedores" (viewers: Mariano, Diego, Santiago Beron, Pablo, Ioannis)
+┌─ Firestore (app vive aquí) ───────────────┐
+│    ↓ 7 Firebase Extensions                │
+│      firestore-bigquery-export (uno por   │
+│      colección — trigger nativo)          │
+│                                            │
+├─ SAP B1 Service Layer ────────────────────┤
+│    ↓ script Python + GH Actions cron      │
+│      sync_sap_to_bigquery.py              │
+│                                            │
+└─→ BigQuery dataset shimano_app            │
+    (southamerica-east1 - Sao Paulo)       │
+        ↓ Vistas SQL curadas (Fase 2)      │
+        ↓ Power BI Desktop DirectQuery     │
+        ↓ Publish → Workspace "Shimano"    │
 ```
 
-### Colecciones que se sincronizan
+**Regla: todo en `southamerica-east1` (Sao Paulo)** — Firestore + BigQuery + Cloud Functions de las Extensions. Latencia mínima, sin cargos cross-region.
 
-6 instancias de la extension `firestore-bigquery-export`:
+### Fase 1.1 — Firestore → BigQuery — ✅ HECHO 2026-07-07
 
-| Colección Firestore | Tabla raw BigQuery | Vista SQL plana |
-|---|---|---|
-| `pedidos` | `pedidos_raw_changelog` + `pedidos_raw_latest` | `pedidos_view` + `pedido_lines_view` |
-| `visits` | `visits_raw_*` | `visits_view` |
-| `client_applications` | `client_applications_raw_*` | `client_applications_view` |
-| `campaigns` | `campaigns_raw_*` | `campaigns_view` |
-| `targets` | `targets_raw_*` | `targets_view` |
-| `roles` | `roles_raw_*` | `roles_view` |
+**7 instancias de la extension `firestore-bigquery-export@0.3.2`** instaladas, todas en dataset `shimano_app`:
 
-**Fuera de alcance fase 1**: rendiciones (ya en SharePoint), stock (snapshots), audit log (privacy review pendiente), backups de fotos.
+| # | Colección Firestore | Table ID en BQ | Docs backfill 2026-07-07 |
+|---|---|---|---|
+| 1 | `pedidos` | `pedidos_raw` → `_raw_changelog` + `_raw_latest` | 4 |
+| 2 | `visits` | `visits_raw` → `_raw_changelog` + `_raw_latest` | 8 |
+| 3 | `client_master` | `client_master_raw` → `_raw_changelog` + `_raw_latest` | 105 |
+| 4 | `sap_clients` | `sap_clients_raw` → `_raw_changelog` + `_raw_latest` | 4 |
+| 5 | `client_applications` | `client_applications_raw` → `_raw_changelog` + `_raw_latest` | 109 |
+| 6 | `rendiciones` | `rendiciones_raw` → `_raw_changelog` + `_raw_latest` | 34 |
+| 7 | `campaigns` | `campaigns_raw` → `_raw_changelog` + `_raw_latest` | 0 (colección vacía, se llenará cuando se cree la 1ª campaña) |
 
-### Estado checklist (Día 1 — 2026-06-30)
+**Total: 264 documentos históricos importados.** Cada write futuro se sincroniza automáticamente (trigger nativo de Firestore, sin código adicional).
 
-- [X] Project ID confirmado (`app-vendedores-shimano`).
-- [X] Login GCP Console con `erbinomariano@gmail.com`.
-- [X] BigQuery API habilitada.
-- [X] Dataset `shimano_app` creado en us-central1.
-- [X] Plan **Blaze** activo (paso bloqueante para extensions + Storage).
-- [ ] Instalar 6 instancias `firestore-bigquery-export`.
-- [ ] Backfill histórico de cada colección.
-- [ ] Crear 6 vistas SQL planas (queries en Apéndice A de `PLAN_POWERBI.md`).
-- [ ] Smoke test SQL (contar pedidos / facturación / top SKUs vs Dashboard de la app).
-- [ ] Configurar budget alert en GCP a 25 USD/mes.
+**Fuera de alcance Fase 1.1** (posible ampliación futura): `notifications`, `custom_routes`, `route_overrides`, `vendor_overrides`, `roles`, `userData`, `product_catalog` (chunks), `sap_products`, `sap_vendors`, `client_locations`, `operations_log`, `targets`, `allowed_emails`, `app_config`. Se pueden sumar 1x1 con más instancias si Power BI las necesita.
 
-### Próximos días
+#### Estructura de cada tabla stream
 
-- **Día 2 (mañana 01/07)**: Service Account `powerbi-reader` + Power BI Desktop + cargar vistas + modelar relaciones + medidas DAX + páginas Resumen / Pedidos.
-- **Día 3 (02/07)**: páginas Visitas / Campañas + publish a Power BI Service + asignar viewers.
-- **Día 4 (03/07)**: demo a Diego + Pablo + ajustes finales + capacitación de uso.
+Para cada colección se generan **2 objetos** en BigQuery:
 
-### Viewers del workspace
+- **`<prefix>_raw_changelog`** (tabla): 1 fila por cada evento Firestore (`CREATE` / `UPDATE` / `DELETE` / `IMPORT`). Columnas: `document_name`, `document_id`, `operation`, `timestamp`, `data` (JSON), `old_data` (JSON del estado anterior en UPDATEs). Es la fuente de verdad para audit trail y para reconstruir el estado en cualquier momento.
+- **`<prefix>_raw_latest`** (view materializada): última versión de cada `document_id` que existe hoy (DELETEs quedan excluidos). Es la que usa Power BI por default.
+
+**Convención de nombre**: Table ID `pedidos_raw` → tablas reales `pedidos_raw_raw_changelog` y `pedidos_raw_raw_latest` (el sufijo `_raw_*` es literal del template de la Extension; podríamos haber puesto `pedidos` como Table ID para que quedara `pedidos_raw_changelog`, pero mantenemos `_raw` por consistencia con el resto).
+
+#### Config común de todas las Extensions
+
+- **Cloud Functions location**: `southamerica-east1`
+- **BigQuery Dataset location**: `southamerica-east1`
+- **BigQuery Project ID**: `app-vendedores-shimano`
+- **Firestore Instance ID**: `(default)`
+- **Firestore Instance Location**: `southamerica-east1`
+- **Dataset ID**: `shimano_app`
+- **Wildcard Column**: `false`
+- **Time Partitioning**: `NONE` / `omit`
+- **Clustering**: default (`data,document_id,timestamp`)
+- **View Type**: `View` (materializada, refresh 60 min)
+- **Max synced docs/sec**: 100
+- **Habilitar eventos (Eventarc)**: **desmarcado** — no se usan custom event handlers y evita el bug de permisos IAM que teníamos con `cloudtasks.tasks.create` en Service Agent Eventarc.
+- **Excluir old payloads**: `no` (queremos `old_data` para poder trackear cambios)
+
+#### Backfill del histórico
+
+Se hace **UNA vez por colección** con el script `@firebaseextensions/fs-bq-import-collection` (npx). Después del install la Extension solo captura writes futuros; sin backfill los docs previos quedan invisibles a Power BI.
+
+**Requisitos**:
+- Node.js 14+ (funciona con 22 y 24)
+- Service account key JSON descargado desde Firebase Console → Configuración → Cuentas de servicio (guardado como `~/Desktop/sa-key.json`, no commitear)
+- El service account necesita 2 roles adicionales en IAM (por default solo trae permisos de Firebase, no BigQuery):
+  - **BigQuery Data Editor** (`roles/bigquery.dataEditor`)
+  - **BigQuery Job User** (`roles/bigquery.jobUser`)
+
+**Script**: `~/Desktop/backfill-all.ps1` procesa las 6 colecciones nuevas en secuencia (pedidos ya se hizo aparte). Ejemplo de comando por colección:
+
+```powershell
+$env:GOOGLE_APPLICATION_CREDENTIALS = "C:\Users\shimano.sandbox\Desktop\sa-key.json"
+npx --yes @firebaseextensions/fs-bq-import-collection `
+  --non-interactive `
+  --project=app-vendedores-shimano `
+  --source-collection-path=<colección> `
+  --dataset=shimano_app `
+  --table-name-prefix=<colección>_raw `
+  --dataset-location=southamerica-east1 `
+  --batch-size=300 `
+  --query-collection-group=false
+```
+
+**Verificación post-backfill** (query BigQuery para cualquier colección):
+```sql
+SELECT operation, COUNT(*) AS cnt
+FROM `app-vendedores-shimano.shimano_app.<prefix>_raw_changelog`
+GROUP BY operation;
+```
+
+Debe mostrar `IMPORT` con el conteo real de docs existentes.
+
+### Fase 1.2 — SAP → BigQuery — ⏳ PRÓXIMA
+
+Script Python que corra vía Service Layer y escriba directo a BigQuery (paralelo al `sync_sap_to_firestore.py` actual que va solo a Firestore). GitHub Actions cron `13,43 * * * *` (mismo patrón para evitar throttling).
+
+**Tablas destino previstas**:
+- `sap_invoices_raw` — facturas emitidas (para facturación diaria, ticket promedio, YoY).
+- `sap_quotations_raw` — cotizaciones abiertas (backlog).
+- `sap_bp_raw` — Business Partners (padrón real SAP con CardCode).
+- `sap_items_raw` — catálogo + precio + stock por depósito.
+- `sap_credit_notes_raw` — notas de crédito (opcional Ola 1).
+
+### Fase 2 — Modelo de datos — ⏳ PENDIENTE
+
+Vistas SQL curadas que aplanen los `_raw_latest` JSON en columnas tipadas para que Power BI las importe sin pelearse con `JSON_VALUE()`:
+
+- `v_pedidos_full` — pedidos + líneas explotadas + join con `client_master_raw_latest`.
+- `v_visitas_full` — visitas + join con vendedor + join con targets del mes.
+- `v_ventas_diarias` — agregado de facturas SAP por vendedor × día.
+- `v_stock_crítico` — SKUs con `stock < días_cobertura(15)`.
+- `v_cobertura_padron` — % de tiendas visitadas / asignadas por vendedor.
+
+Documentación de cada vista quedará en `README_BIGQUERY.md` (a crear).
+
+### Fase 3 — Power BI Desktop — ⏳ PENDIENTE
+
+- Instalar Power BI Desktop en la máquina de trabajo.
+- Conector nativo BigQuery + service account `powerbi-reader` con rol `roles/bigquery.dataViewer` sobre `shimano_app`.
+- Modo **DirectQuery** para dashboards live (o Import con refresh 30 min si el volumen crece).
+- Medidas DAX principales: `Facturación MTD`, `Facturación YoY`, `Ticket Promedio`, `Cumplimiento vs Target`, `Cobertura Padrón`, `Conversión Visita→Pedido`, `Stock Crítico`, `Días de Cobertura`.
+- Dashboards por pilar (los 4 slides de la presentación `Real-Time.pptx`):
+  - Ventas · Campo · Inventario · Campañas
+  - Vista Ejecutiva (KPIs Ola 1)
+- Publish al **Power BI Service** (workspace Shimano).
+- Compartir con stakeholders (roles: gerencia, jefe ventas, oncall inventario).
+
+### Fase 4 — Alertas — ⏳ PENDIENTE
+
+Alertas automáticas Ola 1 (6):
+- Meta a mitad de mes
+- Cliente Premium dormido
+- Stock quebrado con demanda
+- Vendedor bajo target día 20
+- Cotización sin cerrar >15 días
+- Meta superada (motivación)
+
+Canal a decidir: **Power BI Data Alerts** (email nativo) o **Cloud Function + Slack/WhatsApp**.
+
+### Viewers del workspace (Fase 3)
 
 - **Mariano Erbino** (admin) — `mariano.erbino@shimano.com.ar`
 - **Diego Valsi** — `diego.valsi@shimano.uy`
@@ -2496,9 +2596,21 @@ Workspace "Shimano Vendedores" (viewers: Mariano, Diego, Santiago Beron, Pablo, 
 - **Pablo Maraschin** — email pendiente confirmación
 - **Ioannis Palkoudakis** — email pendiente confirmación
 
+### Troubleshooting Extensions
+
+**Síntoma: Extension queda "En proceso · Configuring BigQuery Sync" por días.** Está colgada (permisos IAM incompletos o timeout). Desinstalar y reinstalar limpio (los permisos ya deberían haber propagado; si es la primera vez y falla, esperar 30 min y reintentar).
+
+**Síntoma: Extension "Instalada" ✅ pero tabla no aparece en BigQuery.** Verificar en el sidebar "Estado del entorno de ejecución" que diga "Processing" en verde. Si dice "En proceso" o error, revisar logs de la Cloud Function `ext-*-syncBigQuery` en Google Cloud Console → Cloud Functions.
+
+**Síntoma: Backfill falla con "Access Denied: Permission bigquery.tables.get denied".** El service account `firebase-adminsdk-*` viene con permisos de Firebase pero NO de BigQuery. Agregar en IAM los roles `BigQuery Data Editor` + `BigQuery Job User`.
+
+**Síntoma: Backfill falla con "QueryCollectionGroup is not specified".** Falta el flag `--query-collection-group=false` en el comando `fs-bq-import-collection` (la versión nueva lo pide).
+
+**Síntoma: Dataset ID quedó en `firestore_export` en lugar de `shimano_app`.** El wizard de la Extension trae `firestore_export` como default y es fácil pasarlo por alto. Corregir: desinstalar la Extension mal configurada y reinstalar poniendo `shimano_app` a mano. Después, en BigQuery Console borrar el dataset huérfano `firestore_export` si quedó vacío.
+
 ---
 
-## 41) Changelog v204 → v276
+## 41) Changelog v204 → v281
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
 
@@ -2746,6 +2858,41 @@ Solo las versiones nuevas — el histórico anterior está en la última entrada
 - **Causa raíz**: `saveOrders` hace `.set({orders}, {merge: true})` en Firestore. Con `merge:true`, Firestore aplica **deep merge** de objetos anidados → las keys borradas localmente NO se borran en el server (se mantienen con su valor anterior porque no están en el nuevo payload). El siguiente snapshot del listener trae `orders` con las keys zombie → el pedido cancelado "revive".
 - **Fix**: `cancelPedido` ahora usa `FieldPath('orders', key)` + `FieldValue.delete()` para borrar la key específica en Firestore (FieldPath es necesario porque las keys tienen `|` que rompe dot notation). `suppressCloudSave = true` durante la operación para evitar re-escribir el objeto viejo.
 
+### v277 — Fix banner de error stuck en modal review
+- **Bug UX**: cuando el vendedor tocaba "Pasar a Pendientes" antes de elegir Forma de Pago / Forma de Entrega, el banner rojo aparecía. Al corregir el campo faltante, el `onchange` de los selects **solo recalculaba el descuento** pero NO limpiaba el banner. Quedaba visible aunque el error ya no aplicara → confusión del vendedor ("¿por qué no me deja pasar si ya lo puse?").
+- **Fix**: nueva función `revalidateReviewSilently()` que chequea el estado completo de los campos del review y limpia el banner si todo está OK. Se dispara en `onchange` de los selects (Forma Pago, Forma Entrega) y en `oninput` de los 4 inputs de dirección (`rv-transp-nombre`, `rv-transp-direccion`, `rv-cliente-direccion`, `rv-sucursal-direccion`). No introduce errores nuevos — solo LIMPIA silenciosamente cuando corresponde.
+
+### v278 — Pasar a Pendientes ahora pasa DIRECTO (sin paso intermedio de mes/año)
+- **Bug estructural**: el diálogo de mes/año (`.confirm-dialog`) tenía CSS `position:absolute;inset:0;z-index:10` anidado dentro del `#pedido-modal`. En el flujo Excel (que abre `#review-modal` **sin abrir** `#pedido-modal`), al tocar "Pasar a Pendientes" el `openConfirmDialog()` "abría" el diálogo pero **sin contenedor visible → invisible**. `doConfirmPedido` nunca corría, el pedido quedaba en `orders[]` con badge "En curso" y el vendedor no entendía por qué.
+- **Fix funcional**: `validateReviewAndPasarAPendientes` ahora popula `cd-mes`/`cd-anio` con el mes/año actual y llama **directo** a `doConfirmPedido`, saltándose el `confirm-dialog` intermedio. El vendedor ve el `confirm()` nativo del navegador ("Confirmar pedido de X para <mes actual>?") — imposible de perder. Si necesita cambiar el mes/año lo edita después desde el pendiente.
+- **Fix defensivo (por si algún flujo futuro sigue abriendo el confirm-dialog)**: cambio CSS `.confirm-dialog { position:fixed; z-index:9999; border-radius:0 }` para que sea full-screen y no dependa del pedido-modal.
+
+### v279 — Fix pedido aparece y desaparece cuando Firestore rechaza por permisos + rules para interno
+- **Bug UX**: cuando `pedidos.add()` fallaba con `Missing or insufficient permissions`, el `.catch()` mostraba el alert pero el bloque de **fallback local** seguía ejecutándose → el pedido se metía en `pending[currentOrderKey]` y aparecía momentáneamente en la pestaña PENDIENTES. Cuando el listener del snapshot rerenderizaba con datos del server (que NO tenía el pedido), la lista se refrescaba y el pedido "desaparecía". Confusión total del vendedor.
+- **Fix del frontend**: en `doConfirmPedido`, la escritura local a `pending[]` ahora ocurre **dentro del `.then()`** de Firestore, no fuera. En el `.catch()`, si el error es `permission-denied` / `unauthenticated`, NO se toca `pending[]` local — el borrador queda vivo en `orders[]` (badge "En curso") con un alert claro incluyendo email del user, cliente y error code. Para errores de red / timeout / quota SÍ se guarda local (offline-first) para no perder el trabajo.
+- **Fix de las Rules (Firebase Console)**: la Rule original de `pedidos` **solo permitía a un usuario interno (VDI) crear pedidos EN NOMBRE de un VDE pareja** (`onBehalfOf: true`). Cuando Santiago (interno) intentaba cargar un pedido para sí mismo (`onBehalfOf: false`), la Rule lo rechazaba. Se agregaron 2 líneas a `/pedidos/{pedidoId}` (create y update/delete):
+  ```
+  || (isInterno()
+      && request.resource.data.ownerUid == request.auth.uid
+      && request.resource.data.onBehalfOf == false)
+  ```
+  Con esto, un interno también puede crear/editar/borrar sus propios pedidos (mirror de la Rule de visitas que ya lo permitía).
+
+### v280 — Excel: incluir SKUs no encontrados con badge REVISAR EN SAP + matching case-insensitive
+- **Bug reportado**: la app descartaba silenciosamente cualquier SKU del Excel que no matcheara **exacto y case-sensitive** con el catálogo. Ejemplo real: el vendedor cargó `GLF-26BLUE` (con L y todo mayúsculas) pero el SKU real en el master SAP era `GLF-26B1ue` (con **1** en lugar de L + minúsculas). El pedido llegaba sin esa línea y el vendedor no se enteraba.
+- **Fix 1 — matching case-insensitive**: `parseExcelPedidoFile` ahora compara `codeLower` contra `p.code.toLowerCase()`. Si el vendedor escribió `glf-26b1ue` (todo minúscula) o `GLF-26B1UE`, igual matchea con `GLF-26B1ue`. Al hacer match, se guarda el código CANÓNICO del master (no la capitalización del vendedor) para que SAP reciba el código bien formado.
+- **Fix 2 — SKUs no encontrados se incluyen con needsReview**: cuando aun con case-insensitive no hay match, la línea se **agrega igual** al pedido con `needsReview: true`, `desc: "⚠ REVISAR EN SAP - SKU no encontrado en catalogo"`, `precio: 0`, sin cat/fam/sub. Preview del Excel cambia el warning: antes decía *"se ignoraron"*, ahora dice *"se incluyen en el pedido con marca ‹REVISAR EN SAP› para que Administración los verifique antes de cargarlo"*.
+- **Highlight visual** en el modal review: líneas con `needsReview` salen con fondo amarillo, dot naranja y badge `🔍 REVISAR EN SAP`.
+- **Persistencia**: `docData.lines[].needsReview` se guarda a Firestore + 2 flags top-level nuevos: `docData.hasSkusToReview: true` y `docData.skusToReviewCount: N`. Admin puede filtrar pedidos con SKUs pendientes con `WHERE hasSkusToReview = true` (en Firestore o desde Power BI cuando esté conectado).
+
+### v281 — Buscador con lupa dentro del modal Revisá tu pedido
+- Con pedidos de ~150 SKUs (típico de un Excel completo) el vendedor tenía que scrollear mucho para encontrar un producto puntual y verificar precio o cantidad.
+- Nuevo input con lupa arriba del listado que filtra las líneas en tiempo real por código o descripción (case-insensitive, sensible a substring).
+- **Los totales NO se ven afectados por el filtro** (siguen sumando sobre TODO el pedido). El filtro es solo visual, para navegar. El vendedor puede buscar sin miedo de estar viendo un total falso.
+- Contador *"N de M productos"* a la derecha del label "Pedido actual" cuando el buscador está activo.
+- Botón (×) para limpiar el filtro con un click. El buscador se resetea al abrir el modal (no arrastra filtros de sesiones previas).
+- Si el filtro no matchea nada, mensaje *"Ningún producto matchea «X»"*.
+
 ---
 
 ## Convenciones del documento
@@ -2765,7 +2912,16 @@ Solo las versiones nuevas — el histórico anterior está en la última entrada
 
 ---
 
-**Última actualización**: 2026-07-06 — SW v276. Highlights v253→v276 (changelog detallado en sección 41):
+**Última actualización**: 2026-07-07 — SW v281. Highlights v277→v281 (changelog detallado en sección 41):
+
+- **📊 Fase 1.1 pipeline Power BI COMPLETA** (2026-07-07). 7 instancias de la Firebase Extension `firestore-bigquery-export` sincronizando en tiempo real → dataset `shimano_app` en `southamerica-east1`. Backfill del histórico ejecutado con `fs-bq-import-collection`: 264 documentos importados (pedidos, visits, client_master, sap_clients, client_applications, rendiciones, campaigns). Cada write futuro se sincroniza automáticamente sin código adicional. Detalles + troubleshooting en sección 40.
+- **🔍 Buscador con lupa en modal Revisá tu pedido** (v281). Input arriba del listado que filtra por código o descripción. Los totales NO se ven afectados (siguen sumando sobre TODO el pedido). Contador "N de M productos" + botón (×) para limpiar. Útil para pedidos Excel de ~150 SKUs donde scrollear era tedioso.
+- **⚠ Excel: SKUs no encontrados se incluyen con badge REVISAR EN SAP** (v280). Antes se descartaban silenciosamente si no matcheaban exactos con el catálogo. Ahora se agregan igual con `needsReview: true`, fondo amarillo en el review, badge `🔍 REVISAR EN SAP` y precio 0. Admin los ve claros antes de cargar a SAP. También se agregaron flags `hasSkusToReview` + `skusToReviewCount` al pedido para poder filtrar en BigQuery. Bonus: matching case-insensitive contra el master para reducir falsos negativos por capitalización (`glf-26b1ue` matchea `GLF-26B1ue`).
+- **🐛 Fix pedido aparece y desaparece en Pendientes** (v279). Cuando Firestore rechazaba el `pedidos.add()` por permisos, el fallback local pushea a `pending[]` local y el pedido aparecía momentáneamente en la pestaña PENDIENTES. Cuando el listener del snapshot rerenderizaba, la lista se refrescaba y "desaparecía". Ahora: si el error es `permission-denied` no se toca `pending[]` local — el borrador queda vivo en "En curso" con alert claro incluyendo email + cliente + error code. **Fix relacionado en Firestore Rules**: interno (VDI) ahora puede crear/editar/borrar sus PROPIOS pedidos (`onBehalfOf: false` + `ownerUid == request.auth.uid`), no solo en nombre de VDE pareja como antes.
+- **🚀 "Pasar a Pendientes" ahora pasa DIRECTO** (v278). Antes había un paso intermedio con diálogo de mes/año (`.confirm-dialog`) que en el flujo Excel resultaba INVISIBLE por bug de CSS `position:absolute` anidado. El pedido quedaba en `orders[]` como "En curso" y el vendedor no entendía por qué. Ahora `validateReviewAndPasarAPendientes` popula el mes/año actual y llama directo a `doConfirmPedido` — el vendedor ve el `confirm()` nativo del navegador. Si necesita cambiar el mes/año lo edita después. Bonus defensivo: CSS de `.confirm-dialog` cambió a `position:fixed;z-index:9999` para que si algún flujo futuro lo abre, no quede invisible.
+- **✨ Auto-clear del banner de error en modal review** (v277). Cuando el vendedor completaba los campos faltantes (Forma Pago, Forma Entrega, direcciones), el banner rojo quedaba stuck aunque el error ya no aplicara. Nueva función `revalidateReviewSilently()` chequea el estado completo en cada `onchange`/`oninput` y limpia el banner cuando todo está OK. No introduce errores nuevos — solo LIMPIA silenciosamente.
+
+Highlights v253→v276 (changelog detallado en sección 41):
 
 - **💰 Sync automático de precios desde SAP** (v268). Extendido el `sync_sap_to_firestore.py` para traer precios de la **lista PESCA #12 ARS** cada 30 min. Antes: precios congelados desde la última carga manual (629 SKUs desactualizados) porque el botón PRECIOS del header se eliminó en v240 y la lógica quedó huérfana. Ahora: cuando administración carga un precio en SAP, aparece en la app en máximo 30 min sin acción manual. Filtro server-side por Item Group PESCA (Number=102, resuelto dinámicamente) → 755 items en el catálogo (antes 665 con SKUs invisibles).
 - **Precios TEMPORALES** (v270). Admin/gerente puede asignar un precio temporal a SKUs sin precio en SAP desde el modal Master de Productos. Prioridad SAP > temporal (cuando SAP tiene precio, gana automático). Nuevo checkbox "Solo sin precio" para filtrar la lista de trabajo. Badge amarillo `⏱ TEMPORAL` en cards. Coleccion `app_config/price_list_temporal`.
