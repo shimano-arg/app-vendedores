@@ -3189,7 +3189,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v279';
+const APP_VERSION = 'v280';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -15349,26 +15349,47 @@ async function parseExcelPedidoFile(file){
     const notFound = []; // SKUs del Excel que no estan en el catalogo PRODUCTS.
     const zerosOrEmpty = [];
     rows.forEach(r => {
-      const code = String(r[kSku] || '').trim().toUpperCase();
-      if (!code) return;
+      // v280+: NO forzamos toUpperCase del codigo del Excel para preservar la
+      // capitalizacion original (SAP usa codigos case-sensitive tipo GLF-26B1ue).
+      // El match se hace case-insensitive mas abajo para reducir falsos negativos.
+      const codeRaw = String(r[kSku] || '').trim();
+      if (!codeRaw) return;
       let qtyRaw = String(r[kQty] != null ? r[kQty] : '').trim();
       let cleaned = qtyRaw.replace(/\./g, '').replace(',', '.').replace(/[^\d.\-]/g, '');
       const qty = parseFloat(cleaned) || 0;
       if (qty <= 0) {
-        if (qtyRaw && qtyRaw !== '0') zerosOrEmpty.push({code, qty: qtyRaw});
+        if (qtyRaw && qtyRaw !== '0') zerosOrEmpty.push({code: codeRaw, qty: qtyRaw});
         return;
       }
-      const prod = PRODUCTS.find(p => p.code === code);
-      if (!prod) {
-        notFound.push({code, qty});
+      // Match case-insensitive contra el catalogo (v280+). Si el vendedor
+      // escribio 'glf-26b1ue' o 'GLF-26B1UE' pero el master SAP tiene
+      // 'GLF-26B1ue', igual matchea.
+      const codeLower = codeRaw.toLowerCase();
+      const prod = PRODUCTS.find(p => (p.code || '').toLowerCase() === codeLower);
+      if (prod) {
+        // Match OK -> guardamos con el codigo CANONICO del master (asi SAP
+        // no tiene que interpretar la capitalizacion del vendedor).
+        const canonicalCode = prod.code;
+        const existing = parsed.find(x => x.code === canonicalCode);
+        if (existing) existing.qty += qty;
+        else parsed.push({code: canonicalCode, desc: prod.desc, cat: prod.cat||'', fam: prod.fam||'', sub: prod.sub||'', qty, needsReview: false});
         return;
       }
-      // Si el mismo SKU aparece varias veces, sumamos cantidades.
-      const existing = parsed.find(x => x.code === code);
+      // No match -> v280+: NO descartamos. Lo agregamos igual con flag
+      // needsReview para que el admin lo revise antes de cargarlo a SAP.
+      // Preservamos la capitalizacion original del Excel (el admin verificara).
+      notFound.push({code: codeRaw, qty}); // seguimos loggeando para el warning en preview
+      const existing = parsed.find(x => x.code === codeRaw && x.needsReview);
       if (existing) existing.qty += qty;
-      else parsed.push({code, desc: prod.desc, cat: prod.cat||'', fam: prod.fam||'', sub: prod.sub||'', qty});
+      else parsed.push({
+        code: codeRaw,
+        desc: '⚠ REVISAR EN SAP - SKU no encontrado en catalogo',
+        cat: '', fam: '', sub: '',
+        qty,
+        needsReview: true,
+      });
     });
-    if (!parsed.length) throw new Error('No se encontraron lineas validas (con SKU del catalogo + cantidad > 0).');
+    if (!parsed.length) throw new Error('No se encontraron lineas validas (con cantidad > 0). Todas las filas quedaron descartadas por cantidad 0 o invalida.');
     _excelPedidoParsed = parsed;
     // Render preview.
     const totalUnid = parsed.reduce((s, l) => s + l.qty, 0);
@@ -15398,8 +15419,9 @@ async function parseExcelPedidoFile(file){
     const warnEl = document.getElementById('excel-ped-warnings');
     let warnHtml = '';
     if (notFound.length) {
-      warnHtml += '<b>&#9888; ' + notFound.length + ' SKU(s) NO estan en el catalogo (se ignoraron):</b><br>';
-      warnHtml += notFound.slice(0, 8).map(x => '&middot; ' + escapeHtml(x.code) + ' (' + x.qty + ' u)').join('<br>');
+      warnHtml += '<b>&#9888; ' + notFound.length + ' SKU(s) NO estan en el catalogo Shimano:</b><br>';
+      warnHtml += '<span style="font-size:11px;color:#92400e">Se incluyen en el pedido con marca &laquo;REVISAR EN SAP&raquo; para que Administracion los verifique antes de cargarlo.</span><br><br>';
+      warnHtml += notFound.slice(0, 8).map(x => '&middot; <span style="font-family:monospace">' + escapeHtml(x.code) + '</span> (' + x.qty + ' u)').join('<br>');
       if (notFound.length > 8) warnHtml += '<br><i>... y ' + (notFound.length - 8) + ' mas</i>';
     }
     if (zerosOrEmpty.length && warnHtml) warnHtml += '<br><br>';
@@ -15441,7 +15463,10 @@ window.confirmExcelPedido = function(){
     fam: l.fam || '',
     sub: l.sub || '',
     qty: l.qty,
-    precio: (typeof getDefaultPrice === 'function') ? getDefaultPrice(l.code) : 0,
+    // Precio: si es needsReview no lo buscamos (no existe en price list) - queda
+    // 0 y el vendedor / admin lo carga a mano en el modal review.
+    precio: l.needsReview ? 0 : ((typeof getDefaultPrice === 'function') ? getDefaultPrice(l.code) : 0),
+    needsReview: !!l.needsReview,
   }));
   try { saveOrders(); } catch(e){}
   showSyncTag('Pedido cargado desde Excel: ' + _excelPedidoParsed.length + ' lineas');
@@ -16458,12 +16483,27 @@ function renderReviewLines(){
     const noDisp = stockAvail === false;
     if (noDisp) { noU += q; noM += subtotal; noN++; }
     else        { okU += q; okM += subtotal; okN++; }
-    const dot = noDisp
-      ? '<span title="Sin stock" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#dc2626;margin-right:6px;vertical-align:middle"></span>'
-      : (stockAvail === true ? '<span title="Disponible" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#16a34a;margin-right:6px;vertical-align:middle"></span>' : '');
-    html += '<div class="review-line"' + (noDisp ? ' style="background:#fef2f2;border-color:#fecaca"' : '') + '>';
+    // v280+: linea con needsReview (SKU cargado por Excel que no matcheo con
+    // el catalogo) - pinta en amarillo con badge REVISAR EN SAP asi el
+    // vendedor / admin lo ve claro antes de confirmar el pedido.
+    const needsReview = !!l.needsReview;
+    const dot = needsReview
+      ? '<span title="Revisar en SAP" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-right:6px;vertical-align:middle"></span>'
+      : (noDisp
+          ? '<span title="Sin stock" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#dc2626;margin-right:6px;vertical-align:middle"></span>'
+          : (stockAvail === true ? '<span title="Disponible" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#16a34a;margin-right:6px;vertical-align:middle"></span>' : ''));
+    const lineStyle = needsReview
+      ? ' style="background:#fef3c7;border-color:#fcd34d"'
+      : (noDisp ? ' style="background:#fef2f2;border-color:#fecaca"' : '');
+    html += '<div class="review-line"' + lineStyle + '>';
     html += '<div class="rl-code">' + dot + escapeHtml(l.code) + '</div>';
-    html += '<div class="rl-name">' + escapeHtml(l.desc) + (noDisp ? ' <span style="color:#dc2626;font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.4px">&middot; sin stock</span>' : '') + '</div>';
+    const badgeReview = needsReview
+      ? ' <span style="color:#b45309;font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.4px;background:#fde68a;padding:1px 5px;border-radius:3px">&#128269; revisar en sap</span>'
+      : '';
+    const badgeNoStock = (!needsReview && noDisp)
+      ? ' <span style="color:#dc2626;font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.4px">&middot; sin stock</span>'
+      : '';
+    html += '<div class="rl-name">' + escapeHtml(l.desc) + badgeReview + badgeNoStock + '</div>';
     html += '<input type="number" min="0" step="any" value="' + p + '" placeholder="$" onchange="setOrderPrice(\'' + escapeAttr(l.code) + '\', this.value);renderReviewLines()" title="Precio unitario"/>';
     html += '<input type="number" min="0" step="1" value="' + q + '" title="Cantidad" onchange="setOrderQty(\'' + escapeAttr(l.code) + '\', this.value);renderReviewLines()"/>';
     html += '<button class="rl-rm" onclick="removeFromOrder(\'' + escapeAttr(l.code) + '\');renderReviewLines();renderReviewSuggestions()" title="Quitar">&times;</button>';
@@ -25634,7 +25674,11 @@ window.doConfirmPedido = function(){
       clienteDireccion: (formaEntregaVal === 'TRANSPORTISTA') ? clienteDireccion.trim() : '',
       sucursalDireccion: (formaEntregaVal === 'SUCURSAL') ? sucursalDireccion.trim() : '',
     },
-    lines: ord.map(l => ({code: l.code, desc: l.desc, cat: l.cat||'', fam: l.fam||'', sub: l.sub||'', qty: parseFloat(l.qty)||0, precio: parseFloat(l.precio)||0})),
+    lines: ord.map(l => ({code: l.code, desc: l.desc, cat: l.cat||'', fam: l.fam||'', sub: l.sub||'', qty: parseFloat(l.qty)||0, precio: parseFloat(l.precio)||0, needsReview: !!l.needsReview})),
+    // v280+: flag global si el pedido tiene AL MENOS 1 SKU con needsReview.
+    // Permite al admin filtrar/priorizar pedidos con SKUs para revisar.
+    hasSkusToReview: (ord || []).some(l => !!l.needsReview),
+    skusToReviewCount: (ord || []).filter(l => !!l.needsReview).length,
     // Subtotal bruto (qty*precio) y monto neto (con descuento aplicado).
     // El dashboard y los targets usan netAmountArs; el payload a SAP usa
     // subtotalArs (SAP recalcula descuentos al ingresar el pedido).
