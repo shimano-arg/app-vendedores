@@ -3579,7 +3579,23 @@ function ensureApprovedAltasListener(){
         approvedAltasByLoc[key].push(a);
       });
       console.log('[approvedAltas] cargadas:', approvedAltasList.length, 'en', Object.keys(approvedAltasByLoc).length, 'localidades');
-      try { if (typeof drawMarkers === 'function') drawMarkers(); } catch(e){}
+      // v283+: drawMarkers() ya incluia updateStats/updateSidebar al final,
+      // pero si drawMarkers throwea silencioso las cards del header quedaban
+      // congeladas (Localidades/Habilitados/Pendientes/Tiendas). Fallback:
+      // si drawMarkers no corrio, forzar updateStats a mano con los points
+      // filtrados. Log explicito si el fallback tuvo que actuar.
+      let markersOK = false;
+      try {
+        if (typeof drawMarkers === 'function') { drawMarkers(); markersOK = true; }
+      } catch(e){ console.error('[approvedAltas] drawMarkers fallo:', e); }
+      if (!markersOK) {
+        try {
+          if (typeof updateStats === 'function' && typeof filteredPoints === 'function') {
+            updateStats(filteredPoints());
+            console.warn('[approvedAltas] fallback: updateStats() llamado directamente');
+          }
+        } catch(e){ console.error('[approvedAltas] updateStats fallback fallo:', e); }
+      }
       // Si el modal Master Clientes esta abierto, repintar la tabla para
       // reflejar cambios en altas SAP (direccion, lat/lng, dedupe).
       try {
