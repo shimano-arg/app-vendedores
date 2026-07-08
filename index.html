@@ -5656,21 +5656,25 @@ function resetContacted(){
 window.resetContacted = resetContacted;
 
 function updateContactSummary(){
-  // NOTA: este contador tiene que quedar CONSISTENTE con el stat "97
-  // HABILITADOS" del header (calculado en updateStats). Antes solo miraba
-  // POINTS -> con vendedores 100% SAP el mostrador decia "0/28" pero el
-  // header decia 97 porque incluia altas SAP huerfanas. Ahora sumamos
-  // approvedAltasList con la misma logica que updateStats.
+  // v283+: este contador ahora usa effClients/effProspects (misma logica que
+  // updateStats) para que "97 / 109 habilitados" coincida con el TIENDAS de
+  // las cards. Antes usaba p.clients + p.prospects directo y contaba 137,
+  // pero las cards decian 109 porque updateStats filtra por isSapConfirmed.
+  // La discrepancia confundia: los 28 clientes de mas eran del padron viejo
+  // sin CardCode SAP. Ahora ambos usan el mismo criterio: solo clientes
+  // SAP-confirmados + altas SAP en curso.
   const pts = filteredPoints();
   let total = 0, done = 0;
   const ptsCounted = new Set();
   pts.forEach(p => {
-    p.clients.forEach(n => {
+    const cli = effClients(p);
+    const pro = effProspects(p);
+    cli.forEach(n => {
       total++;
       if (contacted.has(contactKey(p, n, 'C'))) done++;
       ptsCounted.add(((p.province||'').toUpperCase()) + '|' + (n||'').toLowerCase());
     });
-    p.prospects.forEach(n => {
+    pro.forEach(n => {
       total++;
       if (contacted.has(contactKey(p, n, 'P'))) done++;
       ptsCounted.add(((p.province||'').toUpperCase()) + '|' + (n||'').toLowerCase());
