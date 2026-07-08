@@ -69,6 +69,31 @@ NON_SALES_WHS = {'05', '06'}
 # aca (o mover a env var / lookup dinamico por nombre).
 PESCA_PRICE_LIST_NUM = 12
 
+# ============================================================
+# BPs pesca (v282+, 2026-07-08): sync automatico BusinessPartners -> app
+# ============================================================
+# Antes: los BPs nuevos dados de alta en SAP quedaban "invisibles" en la
+# app hasta que admin subia manualmente un CSV desde el panel SAP >
+# Integracion. Ahora se sincronizan automatic cada 30 min a la coleccion
+# client_applications de Firestore.
+#
+# Filtro: solo BPs de pesca (SalesPersonCode ∈ {50..55}), del tipo Customer.
+# SAP es la fuente unica de verdad para asignacion de vendedor - si el
+# gerente reasigna en la app, en la proxima corrida el sync va a pisarlo
+# (para reasignar de forma persistente hay que cambiarlo en SAP).
+PESCA_SLP_CODES = [50, 51, 52, 53, 54, 55]
+
+# Mapping SlpCode -> vendedor en la app (nombre, email).
+# Nombres en UPPERCASE porque assignedVendor usa esa convencion en la app.
+SLP_TO_VENDOR = {
+    50: {'name': 'GONZALO DE LA ROSA',     'email': 'gonzalo.de.la.rosa@shimano.com.ar'},
+    51: {'name': 'MAURICIO GIL',           'email': 'mauricio.gil@shimano.com.ar'},
+    52: {'name': 'IOANNIS PALKOUDAKIS',    'email': 'ioannis.palkoudakis@shimano.com.ar'},
+    53: {'name': 'SANTIAGO ESTEBAN',       'email': 'santiago.esteban@shimano.com.ar'},
+    54: {'name': 'FEDERICO CASTELANELLI',  'email': 'federico.castelanelli@shimano.com.ar'},
+    55: {'name': 'MARTIN BOIERO',          'email': 'martin.boiero@shimano.com.ar'},
+}
+
 # Bugs de la Service Layer: si mandamos Prefer no anda por CORS + SL v10 lo
 # rechaza. Sin Prefer, SL responde con pageSize=20. Con ~11k items = ~550
 # requests. A 200-300 ms cada uno = 2-3 min. Aceptable para un cron 30 min.
@@ -583,6 +608,277 @@ def write_stock_json_for_bot(stock_map: dict, with_stock: int) -> bool:
     return True
 
 
+# ============================================================
+# BPs pesca -> Firestore (v282+)
+# ============================================================
+def _norm_name(s: str) -> str:
+    """Replica de sapNorm() del cliente (index.html:19449): trim + uppercase.
+    Se usa como fallback para matchear BPs SAP con client_applications de la
+    app cuando no hay match por CardCode ni CUIT."""
+    return (s or '').strip().upper()
+
+
+def _norm_cuit(s: str) -> str:
+    """Limpia el CUIT dejando solo digitos. SAP a veces trae con guiones
+    (20-12345678-9) o espacios, la app puede tenerlo distinto."""
+    return ''.join(c for c in (s or '') if c.isdigit())
+
+
+def load_vendor_uids_by_email(db: firestore.Client) -> dict:
+    """
+    Consulta /roles y devuelve {email_lowercase: uid}. Se usa para poblar
+    ownerUid en client_applications creados/actualizados. Si un vendedor
+    aun no se logueo (no tiene doc en /roles), su email no va a estar en
+    el dict y ownerUid queda vacio - el sync loguea WARN y sigue.
+    """
+    result = {}
+    try:
+        docs = db.collection('roles').stream()
+        for d in docs:
+            data = d.to_dict() or {}
+            email = (data.get('email') or '').strip().lower()
+            if email:
+                result[email] = d.id
+    except Exception as e:
+        log(f'[WARN] load_vendor_uids_by_email: {e}')
+    log(f'[bp] {len(result)} vendedores en /roles con email')
+    return result
+
+
+def fetch_bp_pesca_from_sl(cfg: dict, session: requests.Session) -> list:
+    """
+    Trae BPs pesca de SAP via Service Layer con paginacion.
+    Filtro: CardType='cCustomer' + SalesPersonCode ∈ {50..55}.
+    """
+    slp_filter = ' or '.join([f'SalesPersonCode eq {s}' for s in PESCA_SLP_CODES])
+    filter_expr = f"CardType eq 'cCustomer' and ({slp_filter})"
+    # Campos minimos necesarios para el upsert. Evitamos CreditLine/State1 que
+    # no existen en el schema SL de este SAP (probamos en sync_sap_to_bigquery
+    # 2026-07-08).
+    select_fields = [
+        'CardCode', 'CardName', 'FederalTaxID',
+        'SalesPersonCode', 'Address', 'City', 'ZipCode',
+        'Phone1', 'Cellular', 'EmailAddress',
+        'CreateDate', 'UpdateDate', 'Valid', 'Frozen',
+    ]
+    path = (
+        "/b1s/v1/BusinessPartners"
+        f"?$filter={filter_expr}"
+        f"&$select={','.join(select_fields)}"
+    )
+    bps = []
+    page = 0
+    last_progress = time.time()
+    while path:
+        url = path if path.startswith('http') else f"{cfg['url']}{path}"
+        try:
+            resp = session.get(url, timeout=60)
+        except requests.RequestException as e:
+            log(f'[SL/BP] error de red pag {page}: {e}. Retry en 5s.')
+            time.sleep(5)
+            resp = session.get(url, timeout=60)
+        if resp.status_code == 401:
+            log('[SL/BP] 401 - re-login y retry')
+            sl_login(cfg, session)
+            resp = session.get(url, timeout=60)
+        if not resp.ok:
+            try:
+                detail = resp.json().get('error', {}).get('message', {}).get('value', '')
+            except Exception:
+                detail = resp.text[:200]
+            log(f'[FATAL/BP] HTTP {resp.status_code} - {detail}')
+            return bps  # devolver lo que llevemos, no aborta el sync entero
+        body = resp.json()
+        bps.extend(body.get('value', []) or [])
+        page += 1
+        if time.time() - last_progress > 5:
+            log(f'[SL/BP] pag {page}: {len(bps)} BPs')
+            last_progress = time.time()
+        path = body.get('@odata.nextLink')
+    log(f'[SL/BP] total: {len(bps)} BPs pesca en {page} paginas')
+    return bps
+
+
+def load_existing_client_applications(db: firestore.Client) -> list:
+    """
+    Trae TODOS los docs de client_applications. Con ~150 docs es rapido y
+    permite matchear en memoria por CardCode / CUIT / nombre normalizado.
+    """
+    out = []
+    try:
+        for d in db.collection('client_applications').stream():
+            data = d.to_dict() or {}
+            data['__id'] = d.id
+            data['__ref'] = d.reference
+            out.append(data)
+    except Exception as e:
+        log(f'[WARN] load_existing_client_applications: {e}')
+    log(f'[bp] {len(out)} client_applications cargados para matching')
+    return out
+
+
+def find_match(bp: dict, existing_apps: list):
+    """
+    Busca un doc en client_applications que matchee con el BP:
+      1. Por cardCodeSap (mas confiable)
+      2. Por cuit normalizado (solo digitos)
+      3. Fallback: por nombre normalizado (comercio o fantasia, uppercase+trim)
+    Retorna el dict del doc (con __id, __ref) o None.
+    """
+    bp_cardcode = (bp.get('CardCode') or '').strip()
+    bp_cuit = _norm_cuit(bp.get('FederalTaxID', ''))
+    bp_name_norm = _norm_name(bp.get('CardName', ''))
+    # 1. Match por cardCodeSap
+    if bp_cardcode:
+        for app in existing_apps:
+            if (app.get('cardCodeSap') or '').strip() == bp_cardcode:
+                return app
+    # 2. Match por CUIT
+    if bp_cuit:
+        for app in existing_apps:
+            app_cuit = _norm_cuit(app.get('cuit', '') or app.get('cuitCliente', ''))
+            if app_cuit and app_cuit == bp_cuit:
+                return app
+    # 3. Match por nombre normalizado (comercio o fantasia)
+    if bp_name_norm:
+        for app in existing_apps:
+            for field in ('comercio', 'fantasia', 'razonSocial'):
+                val_norm = _norm_name(app.get(field, ''))
+                if val_norm and val_norm == bp_name_norm:
+                    return app
+    return None
+
+
+def upsert_bp_pesca_to_firestore(db: firestore.Client,
+                                  bps: list,
+                                  vendor_uids: dict,
+                                  dry_run: bool = False) -> dict:
+    """
+    Para cada BP pesca de SAP:
+      - Busca match en client_applications
+      - Si existe como PROVISORIO (manualSapPending=true) -> pisar con datos SAP
+        + status=approved + cardCodeSap seteado + manualSapPending=false
+      - Si existe como HABILITADO -> actualizar datos SAP (incluye vendedor,
+        segun opcion A elegida por el user 2026-07-08: SAP es fuente unica de
+        verdad; si el gerente reasigno en la app, se pisa)
+      - Si NO existe -> crear nuevo con status=approved
+
+    Devuelve dict con stats {created, updated_prov_to_conf, updated_existing,
+    skipped_unknown_vendor}.
+    """
+    existing_apps = load_existing_client_applications(db)
+    stats = {'created': 0, 'updated_prov_to_conf': 0, 'updated_existing': 0, 'skipped_unknown_vendor': 0}
+    for bp in bps:
+        cardcode = (bp.get('CardCode') or '').strip()
+        cardname = (bp.get('CardName') or '').strip()
+        slp = bp.get('SalesPersonCode')
+        try:
+            slp = int(slp) if slp is not None else None
+        except (TypeError, ValueError):
+            slp = None
+        vendor_info = SLP_TO_VENDOR.get(slp)
+        if not vendor_info:
+            log(f'[bp] SKIP {cardcode} ({cardname}): SlpCode {slp} no esta en mapping pesca')
+            stats['skipped_unknown_vendor'] += 1
+            continue
+        vendor_email = vendor_info['email']
+        vendor_name = vendor_info['name']
+        vendor_uid = vendor_uids.get(vendor_email.lower(), '')
+        if not vendor_uid:
+            log(f'[bp] WARN {cardcode} ({cardname}): vendedor {vendor_email} no tiene UID en /roles - ownerUid queda vacio')
+
+        # Payload para upsert. Solo pisamos campos "SAP", NO tocamos campos
+        # manuales del gerente que no son de SAP (approvals, notas, categorizacion,
+        # etc.) - Firestore hace merge de subcolecciones si usamos set(..., merge=True).
+        base_payload = {
+            # Nombre + identificacion
+            'comercio': cardname,
+            'fantasia': cardname,
+            'cardCodeSap': cardcode,
+            'cuit': _norm_cuit(bp.get('FederalTaxID', '')),
+            # Direccion
+            'calle': bp.get('Address', '') or '',
+            'localidad': bp.get('City', '') or '',
+            'localidadFinal': bp.get('City', '') or '',
+            'codigoPostal': bp.get('ZipCode', '') or '',
+            # Contacto
+            'telefonoContacto': bp.get('Phone1', '') or bp.get('Cellular', '') or '',
+            'email': bp.get('EmailAddress', '') or '',
+            # SAP metadata
+            'sapSalesPersonCode': slp,
+            'sapValid': bp.get('Valid', ''),
+            'sapFrozen': bp.get('Frozen', ''),
+            'sapUpdateDate': bp.get('UpdateDate', ''),
+            # Vendedor asignado (SAP es fuente de verdad - pisa lo que hubiera)
+            'assignedVendor': vendor_name,
+            'ownerUid': vendor_uid,
+            'ownerEmail': vendor_email,
+            'ownerName': vendor_name.title(),  # "Gonzalo De La Rosa"
+            # Estado
+            'status': 'approved',
+            'manualSapPending': False,
+            'source': 'sap_sync',
+            'syncedAt': firestore.SERVER_TIMESTAMP,
+            'updatedAt': firestore.SERVER_TIMESTAMP,
+        }
+
+        match = find_match(bp, existing_apps)
+        if match is None:
+            # CASO 3: crear nuevo
+            base_payload['createdAt'] = firestore.SERVER_TIMESTAMP
+            if dry_run:
+                log(f'[DRY_RUN/bp] CREATE {cardcode} ({cardname}) -> {vendor_name}')
+            else:
+                db.collection('client_applications').add(base_payload)
+            stats['created'] += 1
+            log(f'[bp] CREATED {cardcode} ({cardname}) asignado a {vendor_name}')
+            continue
+
+        was_provisorio = bool(match.get('manualSapPending')) or (not match.get('cardCodeSap'))
+        if was_provisorio:
+            # CASO 1: provisorio -> confirmado. Pisar todo.
+            if dry_run:
+                log(f'[DRY_RUN/bp] PROV->CONF {match["__id"]} ({cardname}) -> cardCodeSap={cardcode}')
+            else:
+                match['__ref'].set(base_payload, merge=True)
+            stats['updated_prov_to_conf'] += 1
+            log(f'[bp] PROV->CONF {match["__id"]} ({cardname}) cardCodeSap={cardcode} vendedor={vendor_name}')
+        else:
+            # CASO 2: ya estaba habilitado - solo actualizar datos SAP.
+            # No tocamos createdAt ni approvals.
+            if dry_run:
+                log(f'[DRY_RUN/bp] UPDATE {match["__id"]} ({cardname})')
+            else:
+                match['__ref'].set(base_payload, merge=True)
+            stats['updated_existing'] += 1
+            log(f'[bp] UPDATED {match["__id"]} ({cardname}) cardCodeSap={cardcode}')
+
+    return stats
+
+
+def sync_bp_pesca(db: firestore.Client, cfg: dict, session: requests.Session) -> None:
+    """
+    Sync BPs pesca de SAP -> Firestore client_applications.
+    Se llama desde main() al final del sync de items/stock. Si falla, loguea
+    pero no aborta el sync entero (los items/stock ya fueron escritos).
+    """
+    dry_run = os.environ.get('DRY_RUN', '').lower() == 'true'
+    log('[bp] === sync BPs pesca START ===')
+    try:
+        vendor_uids = load_vendor_uids_by_email(db)
+        bps = fetch_bp_pesca_from_sl(cfg, session)
+        if not bps:
+            log('[bp] SL devolvio 0 BPs pesca. No hago nada.')
+            return
+        stats = upsert_bp_pesca_to_firestore(db, bps, vendor_uids, dry_run=dry_run)
+        log(f'[bp] === sync BPs pesca END: created={stats["created"]}, '
+            f'prov->conf={stats["updated_prov_to_conf"]}, '
+            f'updated={stats["updated_existing"]}, '
+            f'skipped={stats["skipped_unknown_vendor"]} ===')
+    except Exception as e:
+        log(f'[bp] FATAL sync BPs pesca: {e}. Sigo sin abortar el sync general.')
+
+
 def main() -> int:
     t_start = time.time()
     log('=== SAP -> Firestore sync start ===')
@@ -664,6 +960,11 @@ def main() -> int:
                 f.write('1')
         except OSError:
             pass
+
+    # v282+: sync BPs pesca -> client_applications. Se ejecuta al final del
+    # sync general para no bloquear items/stock si falla. Best-effort:
+    # cualquier error queda logueado pero no aborta el sync entero.
+    sync_bp_pesca(db, sl_cfg, session)
 
     elapsed = time.time() - t_start
     log(f'=== OK. {scanned} items, {with_stock} con stock. {elapsed:.1f}s ===')
