@@ -909,9 +909,25 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
             slp_header = int(slp_header) if slp_header is not None else None
         except (TypeError, ValueError):
             slp_header = None
-        # Provincia raw para info (puede venir como codigo tipo '1' o como
-        # nombre). No se usa para asignar vendedor, solo se muestra en la app.
-        prov_raw = (bp.get('U_SH_PCIA') or bp.get('Province') or '').strip()
+        # v288+: convertir el codigo de U_SH_PCIA (ej: '2') a nombre real
+        # de provincia ('SALTA') usando el mapping de SAP States. La app
+        # espera el nombre en el campo 'provincia' para poder filtrar la
+        # lista de clientes por localidad/provincia.
+        prov_code_raw = (bp.get('U_SH_PCIA') or bp.get('Province') or '').strip()
+        prov_name = ''
+        if prov_code_raw and provinces_map:
+            prov_name = provinces_map.get(prov_code_raw, '')
+        # Fallback: buscar en BPAddresses[].State por si el UDF no tiene valor.
+        if not prov_name:
+            for addr in (bp.get('BPAddresses') or []):
+                st = (addr.get('State') or addr.get('State1') or '').strip()
+                if st and provinces_map:
+                    prov_name = provinces_map.get(st, '')
+                    if prov_name:
+                        break
+        # provincia_final: el nombre canonico (SALTA, BUENOS AIRES, etc.) o
+        # el codigo raw si el mapping fallo (mejor mostrar algo que nada).
+        provincia_final = prov_name or prov_code_raw or ''
         # Vendedor: NO asignar. Queda vacio para que admin/gerente lo asigne
         # en la app usando la logica de zonas visual.
         vendor_email = ''
@@ -932,6 +948,9 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
             'localidad': bp.get('City', '') or '',
             'localidadFinal': bp.get('City', '') or '',
             'codigoPostal': bp.get('ZipCode', '') or '',
+            # v288+: provincia CANONICA en uppercase (SALTA, BUENOS AIRES, etc.)
+            # que la app usa para filtrar/agrupar clientes por localidad.
+            'provincia': provincia_final.upper() if provincia_final else '',
             # Contacto
             'telefonoContacto': bp.get('Phone1', '') or bp.get('Cellular', '') or '',
             'email': bp.get('EmailAddress', '') or '',
@@ -945,8 +964,8 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
             'sapValid': bp.get('Valid', ''),
             'sapFrozen': bp.get('Frozen', ''),
             'sapUpdateDate': bp.get('UpdateDate', ''),
-            # Provincia SAP raw (codigo o nombre segun venga). Solo info.
-            'sapProvinceRaw': prov_raw,
+            # Provincia SAP raw (codigo interno). Solo info auditable.
+            'sapProvinceRaw': prov_code_raw,
             # sapReadyForSL: convenience flag para la app. True solo si es
             # Customer + Valid=tYES + Frozen=tNO. La app deberia skip auto-envio
             # a Service Layer si es False (asi no se acumulan errores 400 en
@@ -1018,11 +1037,17 @@ def sync_bp_pesca(db: firestore.Client, cfg: dict, session: requests.Session) ->
     log('[bp] === sync BPs pesca START ===')
     try:
         vendor_uids = load_vendor_uids_by_email(db)
+        # v288+: cargar mapping code->name de provincias argentinas desde SAP
+        # asi podemos convertir U_SH_PCIA (codigo interno tipo '2') al nombre
+        # de la provincia ('SALTA', 'BUENOS AIRES', etc.) y poblarlo en el
+        # campo 'provincia' del doc client_applications - que es el que usa
+        # la app para filtrar/agrupar clientes por provincia.
+        provinces_map = load_ar_provinces_map(cfg, session)
         bps = fetch_bp_pesca_from_sl(cfg, session)
         if not bps:
             log('[bp] SL devolvio 0 BPs pesca. No hago nada.')
             return
-        stats = upsert_bp_pesca_to_firestore(db, bps, vendor_uids, dry_run=dry_run)
+        stats = upsert_bp_pesca_to_firestore(db, bps, vendor_uids, provinces_map=provinces_map, dry_run=dry_run)
         log(f'[bp] === sync BPs pesca END: created={stats["created"]}, '
             f'prov->conf={stats["updated_prov_to_conf"]}, '
             f'updated={stats["updated_existing"]}, '
