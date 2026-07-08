@@ -839,9 +839,13 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
     for bp in bps:
         cardcode = (bp.get('CardCode') or '').strip()
         cardname = (bp.get('CardName') or '').strip()
-        # v285+: filtrar por UDF DIVISION=PESCA en Python
+        # v286+: en el SAP de Shimano el UDF U_DIVISION viene como codigo
+        # numerico (confirmado 2026-07-08 log run #95: siempre '1' para BPs
+        # pesca). SAP guarda dropdowns como valores internos y muestra el
+        # texto en el UI. '1' = PESCA. Aceptamos '1' y 'PESCA' textual por
+        # compatibilidad con otras configuraciones.
         division = get_bp_division(bp)
-        if division != 'PESCA':
+        if division not in ('1', 'PESCA', 'P'):
             stats['skipped_not_pesca'] += 1
             continue
         # v284+: SalesPersonCode del header viene -1 (no asignado) para los
