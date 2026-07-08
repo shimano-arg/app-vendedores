@@ -281,7 +281,9 @@ def flatten_bp(bp: dict, sync_ts: str) -> dict:
         'address': bp.get('Address'),
         'city': bp.get('City'),
         'zip_code': bp.get('ZipCode'),
-        'state': bp.get('State1'),
+        # state queda en None por ahora (State1 fue removido del schema SL en
+        # 2026-07-08). Se puede extraer de BPAddresses en la vista Fase 2.
+        'state': None,
         'country': bp.get('Country'),
         'email': bp.get('EmailAddress'),
         'phone1': bp.get('Phone1'),
@@ -442,9 +444,13 @@ def main():
     log(f'[historial] cutoff DocDate >= {since_iso_date} (ultimos {history_months} meses)')
 
     # === 1. Business Partners (customers)
+    # Nota: State1 fue removido del schema de BusinessPartner en la version SL
+    # actual del Shimano SAP (2026-07-08: HTTP 400 "Property 'State1' invalid").
+    # El State ahora vive en BPAddresses (coleccion anidada). Si Power BI lo
+    # necesita, lo extraemos con UNNEST en las vistas curadas (Fase 2).
     bp_select = [
         'CardCode', 'CardName', 'CardType', 'GroupCode', 'Currency',
-        'Address', 'City', 'ZipCode', 'State1', 'Country',
+        'Address', 'City', 'ZipCode', 'Country',
         'EmailAddress', 'Phone1', 'Cellular',
         'PayTermsGrpCode', 'CreditLine', 'CurrentAccountBalance',
         'SalesPersonCode', 'Notes', 'Valid', 'Frozen',
