@@ -656,6 +656,41 @@ def _norm_cuit(s: str) -> str:
     return ''.join(c for c in (s or '') if c.isdigit())
 
 
+def load_ar_provinces_map(cfg: dict, session: requests.Session) -> dict:
+    """
+    v287+: en SAP de Shimano el UDF U_SH_PCIA guarda el codigo interno de
+    provincia (ej: '1', '2', '3'), no el nombre. Este helper trae el mapping
+    code -> name para Argentina desde /b1s/v1/States?$filter=Country eq 'AR'.
+
+    Devuelve dict {'1': 'BUENOS AIRES', '2': 'CIUDAD AUTONOMA...', ...}
+    en UPPERCASE para matchear con las zonas hardcoded.
+
+    Si el lookup falla, devuelve dict vacio y el filtro de vendor por
+    provincia va a fallar (skip por vendor). No aborta el sync.
+    """
+    result = {}
+    try:
+        # Intentamos primero con /States (nombre canonico en SL v10+).
+        path = "/b1s/v1/States?$filter=Country eq 'AR'&$select=Code,Name"
+        resp = session.get(f"{cfg['url']}{path}", timeout=30)
+        if resp.ok:
+            for state in resp.json().get('value', []):
+                code = str(state.get('Code', '')).strip()
+                name = str(state.get('Name', '')).strip().upper()
+                if code and name:
+                    result[code] = name
+        else:
+            log(f'[bp] load_ar_provinces: HTTP {resp.status_code} en /States')
+    except Exception as e:
+        log(f'[bp] WARN load_ar_provinces: {e}')
+    log(f'[bp] {len(result)} codigos de provincia AR cargados desde SAP States')
+    if result:
+        # Sample para diagnostico
+        sample_items = list(result.items())[:10]
+        log(f'[bp] sample provincias: {sample_items}')
+    return result
+
+
 def load_vendor_uids_by_email(db: firestore.Client) -> dict:
     """
     Consulta /roles y devuelve {email_lowercase: uid}. Se usa para poblar
@@ -796,6 +831,7 @@ def find_match(bp: dict, existing_apps: list):
 def upsert_bp_pesca_to_firestore(db: firestore.Client,
                                   bps: list,
                                   vendor_uids: dict,
+                                  provinces_map: dict = None,
                                   dry_run: bool = False) -> dict:
     """
     Para cada BP pesca de SAP:
@@ -811,6 +847,7 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
     skipped_unknown_vendor}.
     """
     existing_apps = load_existing_client_applications(db)
+    provinces_map = provinces_map or {}
     stats = {'created': 0, 'updated_prov_to_conf': 0, 'updated_existing': 0, 'skipped_unknown_vendor': 0, 'skipped_not_pesca': 0}
     # v285+: filtrar por UDF DIVISION=PESCA en Python porque OData $filter no
     # matchea el UDF con seguridad. Probamos varios nombres posibles.
@@ -859,50 +896,24 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
         if division not in ('1', 'PESCA', 'P'):
             stats['skipped_not_pesca'] += 1
             continue
-        # v284+: SalesPersonCode del header viene -1 (no asignado) para los
-        # BPs pesca. La asignacion de vendedor se hace por PROVINCIA usando
-        # el mapping resolve_vendor_by_province (mismo que la app hardcodea).
-        # Slp_header queda como info auditable pero no se usa para asignar.
+        # v287+ SIMPLIFICADO: el requerimiento del user (2026-07-08) es que
+        # TODOS los BPs pesca de SAP aparezcan en la app. La asignacion de
+        # vendedor+zona la hace admin/gerente MANUALMENTE desde la app.
+        # No mapeamos provincia -> vendedor (evita todo el drama de codigos
+        # numericos y campos raros).
         slp_header = bp.get('SalesPersonCode')
         try:
             slp_header = int(slp_header) if slp_header is not None else None
         except (TypeError, ValueError):
             slp_header = None
-        # v286+: la provincia en el SAP de Shimano se guarda principalmente
-        # en el UDF U_SH_PCIA (Shimano Provincia). El campo estandar 'Province'
-        # del header viene vacio para la mayoria de BPs pesca. Intentamos en
-        # orden: U_SH_PCIA -> Province -> State1 -> BPAddresses[].State.
-        prov_raw = (bp.get('U_SH_PCIA') or '').strip()
-        prov_source = 'U_SH_PCIA' if prov_raw else ''
-        if not prov_raw:
-            prov_raw = (bp.get('Province') or '').strip()
-            if prov_raw:
-                prov_source = 'Province'
-        if not prov_raw:
-            prov_raw = (bp.get('State1') or '').strip()
-            if prov_raw:
-                prov_source = 'State1'
-        vendor_info = resolve_vendor_by_province(prov_raw)
-        if not vendor_info:
-            # Fallback: buscar en cada BPAddress (State primero).
-            for addr in (bp.get('BPAddresses') or []):
-                p2 = (addr.get('State') or addr.get('State1') or '').strip()
-                if not p2:
-                    continue
-                vendor_info = resolve_vendor_by_province(p2)
-                if vendor_info:
-                    prov_raw = p2
-                    prov_source = 'BPAddress.State'
-                    break
-        if not vendor_info:
-            log(f'[bp] SKIP {cardcode} ({cardname}): provincia "{prov_raw}" (source={prov_source or "ninguno"}) no matchea ninguna zona pesca')
-            stats['skipped_unknown_vendor'] += 1
-            continue
-        vendor_email = vendor_info['email']
-        vendor_name = vendor_info['name']
-        vendor_uid = vendor_uids.get(vendor_email.lower(), '')
-        if not vendor_uid:
-            log(f'[bp] WARN {cardcode} ({cardname}): vendedor {vendor_email} no tiene UID en /roles - ownerUid queda vacio')
+        # Provincia raw para info (puede venir como codigo tipo '1' o como
+        # nombre). No se usa para asignar vendedor, solo se muestra en la app.
+        prov_raw = (bp.get('U_SH_PCIA') or bp.get('Province') or '').strip()
+        # Vendedor: NO asignar. Queda vacio para que admin/gerente lo asigne
+        # en la app usando la logica de zonas visual.
+        vendor_email = ''
+        vendor_name = ''
+        vendor_uid = ''
 
         # Payload para upsert. Solo pisamos campos "SAP", NO tocamos campos
         # manuales del gerente que no son de SAP (approvals, notas, categorizacion,
@@ -931,8 +942,8 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
             'sapValid': bp.get('Valid', ''),
             'sapFrozen': bp.get('Frozen', ''),
             'sapUpdateDate': bp.get('UpdateDate', ''),
-            # Provincia que se uso para resolver el vendedor. Auditable.
-            'sapProvinceUsedForVendor': prov_raw,
+            # Provincia SAP raw (codigo o nombre segun venga). Solo info.
+            'sapProvinceRaw': prov_raw,
             # sapReadyForSL: convenience flag para la app. True solo si es
             # Customer + Valid=tYES + Frozen=tNO. La app deberia skip auto-envio
             # a Service Layer si es False (asi no se acumulan errores 400 en
@@ -943,11 +954,10 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
                 and bp.get('Valid') == 'tYES'
                 and bp.get('Frozen') != 'tYES'
             ),
-            # Vendedor asignado (SAP es fuente de verdad - pisa lo que hubiera)
-            'assignedVendor': vendor_name,
-            'ownerUid': vendor_uid,
-            'ownerEmail': vendor_email,
-            'ownerName': vendor_name.title(),  # "Gonzalo De La Rosa"
+            # v287+: NO poblar assignedVendor/ownerUid en el payload. El
+            # admin/gerente los asigna manualmente desde la app. Solo los
+            # inicializamos vacios en el CREATE inicial; en UPDATE no los
+            # tocamos para no pisar lo que el gerente asigno.
             # Estado
             'status': 'approved',
             'manualSapPending': False,
@@ -958,28 +968,33 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
 
         match = find_match(bp, existing_apps)
         if match is None:
-            # CASO 3: crear nuevo
+            # CASO 3: crear nuevo. Solo aca inicializamos vendedor vacio.
             base_payload['createdAt'] = firestore.SERVER_TIMESTAMP
+            base_payload['assignedVendor'] = ''
+            base_payload['ownerUid'] = ''
+            base_payload['ownerEmail'] = ''
+            base_payload['ownerName'] = ''
             if dry_run:
-                log(f'[DRY_RUN/bp] CREATE {cardcode} ({cardname}) -> {vendor_name}')
+                log(f'[DRY_RUN/bp] CREATE {cardcode} ({cardname}) sin vendedor asignado')
             else:
                 db.collection('client_applications').add(base_payload)
             stats['created'] += 1
-            log(f'[bp] CREATED {cardcode} ({cardname}) asignado a {vendor_name}')
+            log(f'[bp] CREATED {cardcode} ({cardname}) - admin debe asignar vendedor+zona en la app')
             continue
 
         was_provisorio = bool(match.get('manualSapPending')) or (not match.get('cardCodeSap'))
         if was_provisorio:
-            # CASO 1: provisorio -> confirmado. Pisar todo.
+            # CASO 1: provisorio -> confirmado. Pisar datos SAP pero preservar
+            # vendedor que el gerente pueda haber asignado antes.
             if dry_run:
                 log(f'[DRY_RUN/bp] PROV->CONF {match["__id"]} ({cardname}) -> cardCodeSap={cardcode}')
             else:
                 match['__ref'].set(base_payload, merge=True)
             stats['updated_prov_to_conf'] += 1
-            log(f'[bp] PROV->CONF {match["__id"]} ({cardname}) cardCodeSap={cardcode} vendedor={vendor_name}')
+            log(f'[bp] PROV->CONF {match["__id"]} ({cardname}) cardCodeSap={cardcode}')
         else:
             # CASO 2: ya estaba habilitado - solo actualizar datos SAP.
-            # No tocamos createdAt ni approvals.
+            # No tocamos createdAt ni approvals ni assignedVendor.
             if dry_run:
                 log(f'[DRY_RUN/bp] UPDATE {match["__id"]} ({cardname})')
             else:
