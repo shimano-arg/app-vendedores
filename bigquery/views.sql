@@ -136,13 +136,18 @@ SELECT
   JSON_VALUE(data, '$.createdByUid')                                  AS created_by_uid,
   JSON_VALUE(data, '$.createdByEmail')                                AS created_by_email,
   SAFE_CAST(JSON_VALUE(data, '$.onBehalfOf') AS BOOL)                 AS on_behalf_of,
-  JSON_VALUE(data, '$.province')                                      AS provincia,
-  JSON_VALUE(data, '$.locName')                                       AS localidad,
+  -- IMPORTANTE: visits guarda estos campos con nombres en español
+  -- (a diferencia de pedidos que usa province/locName). Confirmado
+  -- 2026-07-08 mirando submitVisita en index.html linea ~24155.
+  JSON_VALUE(data, '$.provincia')                                     AS provincia,
+  JSON_VALUE(data, '$.localidad')                                     AS localidad,
   JSON_VALUE(data, '$.tienda')                                        AS tienda,
   JSON_VALUE(data, '$.tipo')                                          AS tipo_cliente,
   JSON_VALUE(data, '$.local')                                         AS local_tipo,
   JSON_VALUE(data, '$.tamano')                                        AS tamano,
   JSON_VALUE(data, '$.fidelidad')                                     AS fidelidad,
+  JSON_VALUE(data, '$.especializacion')                               AS especializacion,
+  JSON_VALUE(data, '$.canalCompra')                                   AS canal_compra,
   SAFE_CAST(JSON_VALUE(data, '$.relevancia') AS FLOAT64)              AS relevancia,
   JSON_VALUE(data, '$.pop')                                           AS pop,
   JSON_VALUE(data, '$.necesidadPuntual')                              AS necesidad_puntual,
