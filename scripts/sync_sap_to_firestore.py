@@ -835,7 +835,18 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
                 if v is not None:
                     div_val = f'{k}={v!r}'
                     break
-            log(f'[bp] diag #{i+1} CardCode={bp_diag.get("CardCode")} CardType={bp_diag.get("CardType")} DIVISION={div_val or "(sin UDF DIVISION)"}')
+            # v286+: log tambien la provincia detectada en distintos campos
+            # para poder diagnosticar por que se skippean por vendor.
+            prov_pcia = bp_diag.get('U_SH_PCIA')
+            prov_std = bp_diag.get('Province')
+            prov_addr = None
+            for addr in (bp_diag.get('BPAddresses') or []):
+                p2 = addr.get('State') or addr.get('State1')
+                if p2:
+                    prov_addr = p2
+                    break
+            log(f'[bp] diag #{i+1} CardCode={bp_diag.get("CardCode")} CardType={bp_diag.get("CardType")} '
+                f'DIVISION={div_val or "(none)"} U_SH_PCIA={prov_pcia!r} Province={prov_std!r} BPAddr.State={prov_addr!r}')
     for bp in bps:
         cardcode = (bp.get('CardCode') or '').strip()
         cardname = (bp.get('CardName') or '').strip()
@@ -857,22 +868,34 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
             slp_header = int(slp_header) if slp_header is not None else None
         except (TypeError, ValueError):
             slp_header = None
-        # Provincia viene en el header del BP. Fallback: primera BPAddress
-        # con Row Bill To si el header no la trae.
-        prov_raw = bp.get('Province', '') or bp.get('State1', '') or ''
-        # A veces la provincia viene como codigo (ej. "BA"). Si no matchea,
-        # intentamos con el nombre expandido buscando en BPAddresses.
+        # v286+: la provincia en el SAP de Shimano se guarda principalmente
+        # en el UDF U_SH_PCIA (Shimano Provincia). El campo estandar 'Province'
+        # del header viene vacio para la mayoria de BPs pesca. Intentamos en
+        # orden: U_SH_PCIA -> Province -> State1 -> BPAddresses[].State.
+        prov_raw = (bp.get('U_SH_PCIA') or '').strip()
+        prov_source = 'U_SH_PCIA' if prov_raw else ''
+        if not prov_raw:
+            prov_raw = (bp.get('Province') or '').strip()
+            if prov_raw:
+                prov_source = 'Province'
+        if not prov_raw:
+            prov_raw = (bp.get('State1') or '').strip()
+            if prov_raw:
+                prov_source = 'State1'
         vendor_info = resolve_vendor_by_province(prov_raw)
         if not vendor_info:
-            # Fallback: intentar con la primera direccion.
+            # Fallback: buscar en cada BPAddress (State primero).
             for addr in (bp.get('BPAddresses') or []):
-                p2 = addr.get('State', '') or addr.get('State1', '') or ''
+                p2 = (addr.get('State') or addr.get('State1') or '').strip()
+                if not p2:
+                    continue
                 vendor_info = resolve_vendor_by_province(p2)
                 if vendor_info:
                     prov_raw = p2
+                    prov_source = 'BPAddress.State'
                     break
         if not vendor_info:
-            log(f'[bp] SKIP {cardcode} ({cardname}): provincia "{prov_raw}" no matchea ninguna zona pesca')
+            log(f'[bp] SKIP {cardcode} ({cardname}): provincia "{prov_raw}" (source={prov_source or "ninguno"}) no matchea ninguna zona pesca')
             stats['skipped_unknown_vendor'] += 1
             continue
         vendor_email = vendor_info['email']
