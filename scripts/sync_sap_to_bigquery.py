@@ -289,10 +289,13 @@ def flatten_bp(bp: dict, sync_ts: str) -> dict:
         'phone1': bp.get('Phone1'),
         'cellular': bp.get('Cellular'),
         'pay_terms_group_code': bp.get('PayTermsGrpCode'),
-        'credit_line': bp.get('CreditLine'),
-        'current_account_balance': bp.get('CurrentAccountBalance'),
+        # credit_line, current_account_balance, notes removidos del select
+        # (ver comentario en main). Mantenemos las columnas en el schema BQ
+        # con null para no romper vistas o consumers downstream.
+        'credit_line': None,
+        'current_account_balance': None,
         'sales_person_code': bp.get('SalesPersonCode'),
-        'notes': bp.get('Notes'),
+        'notes': None,
         'valid': bp.get('Valid'),
         'frozen': bp.get('Frozen'),
         'create_date': bp.get('CreateDate'),
@@ -444,16 +447,21 @@ def main():
     log(f'[historial] cutoff DocDate >= {since_iso_date} (ultimos {history_months} meses)')
 
     # === 1. Business Partners (customers)
-    # Nota: State1 fue removido del schema de BusinessPartner en la version SL
-    # actual del Shimano SAP (2026-07-08: HTTP 400 "Property 'State1' invalid").
-    # El State ahora vive en BPAddresses (coleccion anidada). Si Power BI lo
-    # necesita, lo extraemos con UNNEST en las vistas curadas (Fase 2).
+    # Campos removidos del $select por incompatibilidad con el schema SL de
+    # Shimano (2026-07-08 pruebas manuales):
+    #   - State1  -> HTTP 400 (movido a BPAddresses)
+    #   - CreditLine -> HTTP 400 (renombrado o no expuesto)
+    #   - CurrentAccountBalance -> preventivo (campo calculado, puede fallar
+    #     por el mismo motivo)
+    #   - Notes -> preventivo (LongText a veces rompe autodetect en BQ)
+    # Se pueden extraer despues en las vistas curadas de Fase 2 si Power BI
+    # los necesita.
     bp_select = [
         'CardCode', 'CardName', 'CardType', 'GroupCode', 'Currency',
         'Address', 'City', 'ZipCode', 'Country',
         'EmailAddress', 'Phone1', 'Cellular',
-        'PayTermsGrpCode', 'CreditLine', 'CurrentAccountBalance',
-        'SalesPersonCode', 'Notes', 'Valid', 'Frozen',
+        'PayTermsGrpCode',
+        'SalesPersonCode', 'Valid', 'Frozen',
         'CreateDate', 'UpdateDate',
     ]
     bps = sl_fetch_all(
