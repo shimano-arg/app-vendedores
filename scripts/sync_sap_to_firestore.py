@@ -682,21 +682,14 @@ def fetch_bp_pesca_from_sl(cfg: dict, session: requests.Session) -> list:
     Trae BPs pesca de SAP via Service Layer con paginacion.
     Filtro: CardType='cCustomer' + SalesPersonCode ∈ {50..55}.
     """
-    # v284+: filtrar por UDF U_DIVISION = 'PESCA' en vez de SalesPersonCode.
-    # Descubierto 2026-07-08 mirando el BP TOMPY PESCA en SAP:
-    #   - SalesPersonCode = -1 (no asignado a los VDE PESCA en el header)
-    #   - Group = 'Clientes' (generico)
-    #   - U_DIVISION = 'PESCA' (UDF que si identifica la unidad de negocio)
-    # La asignacion de vendedor se hace por provincia (mismo mapping que la
-    # app hardcodea en index.html ~8160).
-    # Incluir cLid (Leads) ademas de cCustomer porque muchos BPs pesca estan
-    # como Lead esperando validacion de finanzas.
+    # v285+ (2026-07-08): U_DIVISION eq 'PESCA' en $filter devuelve 0 desde SL
+    # aunque el UDF exista con ese valor. Los UDFs en SL son picky con el
+    # naming y a veces no aceptan filter directo. Solucion: traer todos los
+    # BPs (Customer + Lead) y filtrar en Python por el UDF, probando
+    # variantes del nombre (U_DIVISION, U_Division, etc).
     type_filter = "(CardType eq 'cCustomer' or CardType eq 'cLid')"
-    division_filter = "U_DIVISION eq 'PESCA'"
-    filter_expr = f"{type_filter} and {division_filter}"
-    # No dejamos $select para que el schema completo llegue (SL rechaza
-    # $select con UDFs porque no puede resolver el nombre). Pagamos un poco
-    # mas de bandwidth por request, negligible con ~50-100 BPs.
+    filter_expr = type_filter
+    # $select vacio -> SL devuelve schema completo incluidos los UDFs.
     select_fields = None
     path = f"/b1s/v1/BusinessPartners?$filter={filter_expr}"
     if select_fields:
@@ -802,10 +795,29 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
     skipped_unknown_vendor}.
     """
     existing_apps = load_existing_client_applications(db)
-    stats = {'created': 0, 'updated_prov_to_conf': 0, 'updated_existing': 0, 'skipped_unknown_vendor': 0}
+    stats = {'created': 0, 'updated_prov_to_conf': 0, 'updated_existing': 0, 'skipped_unknown_vendor': 0, 'skipped_not_pesca': 0}
+    # v285+: filtrar por UDF DIVISION=PESCA en Python porque OData $filter no
+    # matchea el UDF con seguridad. Probamos varios nombres posibles.
+    UDF_DIVISION_KEYS = ('U_DIVISION', 'U_Division', 'U_division', 'U_DIV', 'U_Categoria', 'U_CATEGORIA')
+    def get_bp_division(bp_data):
+        for k in UDF_DIVISION_KEYS:
+            v = bp_data.get(k)
+            if v is not None and str(v).strip() != '':
+                return str(v).strip().upper()
+        return ''
+    # Diagnostico: mostrar sample de UDFs detectados en el primer BP.
+    if bps:
+        sample = bps[0]
+        udf_keys_found = [k for k in sample.keys() if k.startswith('U_')]
+        log(f'[bp] sample BP CardCode={sample.get("CardCode")}, UDFs detectados: {udf_keys_found}')
     for bp in bps:
         cardcode = (bp.get('CardCode') or '').strip()
         cardname = (bp.get('CardName') or '').strip()
+        # v285+: filtrar por UDF DIVISION=PESCA en Python
+        division = get_bp_division(bp)
+        if division != 'PESCA':
+            stats['skipped_not_pesca'] += 1
+            continue
         # v284+: SalesPersonCode del header viene -1 (no asignado) para los
         # BPs pesca. La asignacion de vendedor se hace por PROVINCIA usando
         # el mapping resolve_vendor_by_province (mismo que la app hardcodea).
@@ -943,7 +955,8 @@ def sync_bp_pesca(db: firestore.Client, cfg: dict, session: requests.Session) ->
         log(f'[bp] === sync BPs pesca END: created={stats["created"]}, '
             f'prov->conf={stats["updated_prov_to_conf"]}, '
             f'updated={stats["updated_existing"]}, '
-            f'skipped={stats["skipped_unknown_vendor"]} ===')
+            f'skipped_vendor={stats["skipped_unknown_vendor"]}, '
+            f'skipped_not_pesca={stats.get("skipped_not_pesca", 0)} ===')
     except Exception as e:
         log(f'[bp] FATAL sync BPs pesca: {e}. Sigo sin abortar el sync general.')
 
