@@ -1,0 +1,74 @@
+name: Sync SAP to BigQuery
+
+# Corre cada 30 min. Complementa al sync-sap-catalog-stock.yml (que va a
+# Firestore para el frontend). Este va directo a BigQuery para el pipeline
+# Power BI:
+#
+# Flujo (scripts/sync_sap_to_bigquery.py):
+#   1. Lee credenciales SL desde Firestore (app_config/sap_integration)
+#   2. Login SL, fetch de BusinessPartners + Items + Invoices + Quotations
+#   3. Truncate + load a las 4 tablas sap_*_raw en shimano_app (BQ)
+#
+# Secrets requeridos:
+#   FIREBASE_SERVICE_ACCOUNT   Mismo JSON usado por los otros workflows.
+#                              El SA (firebase-adminsdk-fbsvc) ya tiene
+#                              BQ Data Editor + Studio User desde el
+#                              backfill 2026-07-07.
+
+on:
+  schedule:
+    # Cada 30 min desfasado :13/:43 (mismo pattern que sync-sap-catalog-stock
+    # para evitar throttling en :00/:30 documentado en GH Actions).
+    - cron: '13,43 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Modo dry-run (no escribe a BigQuery, solo loguea)'
+        type: boolean
+        required: false
+        default: false
+      sl_insecure:
+        description: 'Deshabilitar verify SSL en Service Layer'
+        type: boolean
+        required: false
+        default: false
+      max_docs:
+        description: 'Cap de docs por endpoint (0 = sin cap, util para test)'
+        required: false
+        default: '0'
+      history_months:
+        description: 'Meses de historial de Invoices/Quotations (default 24)'
+        required: false
+        default: '24'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-sap-to-bigquery
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20    # Con 24 meses de facturas puede tardar ~10 min.
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install firebase-admin requests google-cloud-bigquery
+
+      - name: Run sync
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          SL_INSECURE: ${{ inputs.sl_insecure }}
+          SL_MAX_DOCS: ${{ inputs.max_docs }}
+          HISTORY_MONTHS: ${{ inputs.history_months }}
+        run: python scripts/sync_sap_to_bigquery.py
