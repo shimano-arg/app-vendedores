@@ -2603,6 +2603,12 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <button onclick="volverABorrador()" style="padding:9px 14px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;color:#475569;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Volver a borrador</button>
           <button class="btn-confirm" onclick="confirmarDefinitivo()">Confirmar definitivo</button>
         </div>
+        <!-- v283+: acciones para pedidos CONFIRMADOS. Solo se muestran a
+             admin/gerente. Permite revertir un pedido a Pendientes (ej: si
+             se confirmo por error o hay que editarlo antes de enviar a SAP). -->
+        <div style="display:none;gap:8px" id="pm-actions-confirmed">
+          <button onclick="volverAPendientes()" style="padding:9px 14px;border:1.5px solid #d97706;border-radius:6px;background:#fff;color:#d97706;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#8617; Volver a Pendientes</button>
+        </div>
       </div>
       <div class="confirm-dialog" id="confirm-dialog">
         <div class="confirm-box">
@@ -3199,7 +3205,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v281';
+const APP_VERSION = 'v283';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -15774,6 +15780,12 @@ window.viewPedido = function(stage, key, idx){
   document.getElementById('pm-confirm').style.display = 'none';
   document.getElementById('pm-cancel').style.display = 'none';
   document.getElementById('pm-actions-pending').style.display = (stage === 'pending') ? 'flex' : 'none';
+  // v283+: mostrar boton "Volver a Pendientes" para admin/gerente en modo
+  // confirmed. Vendedores no lo ven (proteccion contra reverse accidental).
+  const canRevertConfirmed = (stage === 'confirmed')
+    && (userRole === 'admin' || userRole === 'gerente');
+  const actionsConfirmedEl = document.getElementById('pm-actions-confirmed');
+  if (actionsConfirmedEl) actionsConfirmedEl.style.display = canRevertConfirmed ? 'flex' : 'none';
   document.getElementById('pm-saved-tag').textContent = stage === 'pending' ? 'Pendiente - editable' : 'Confirmado';
 
   if (stage === 'pending') {
@@ -25870,6 +25882,73 @@ window.volverABorrador = function(){
   savePending();
   closePedidoModal();
   setPedidoView('crear');
+};
+
+// v283+: revierte un pedido de CONFIRMADO a PENDIENTES. Solo admin/gerente.
+// Casos de uso:
+//  - Se confirmo por error y hay que editarlo.
+//  - Hay que hacer un ajuste antes de que salga a SAP.
+//  - El BP destino en SAP esta como Lead/Inactive y todavia no se puede
+//    facturar - se retiene en Pendientes hasta que admin lo active.
+// IMPORTANTE: si el pedido ya se transfirio a SAP (transferidoSAP set),
+// se avisa al usuario que la Sales Quotation en SAP NO se elimina - eso
+// hay que hacerlo manualmente desde SAP. Aca solo revertimos el estado
+// en Firestore para que la app lo trate como pending.
+window.volverAPendientes = function(){
+  if (!currentOrderClient || currentOrderClient.stage !== 'confirmed') return;
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin/gerente pueden revertir un pedido confirmado.');
+    return;
+  }
+  const key = currentOrderClient.viewKey, idx = currentOrderClient.viewIdx;
+  const list = confirmed[key] || [];
+  const entry = list[idx];
+  if (!entry) return;
+  const wasTransferred = !!(entry.transferidoSAP && (entry.transferidoSAP.docNum || entry.transferidoSAP.docEntry));
+  let msg = 'Revertir el pedido de "' + currentOrderClient.name + '" (' + entry.month + ') a PENDIENTES?\n\n'
+          + 'Va a salir de "Confirmados" y volver a "Pendientes" donde se puede editar.';
+  if (wasTransferred) {
+    const docNum = entry.transferidoSAP.docNum || entry.transferidoSAP.docEntry;
+    msg += '\n\n⚠ IMPORTANTE: este pedido YA se transfirio a SAP como Sales Quotation #' + docNum + '.\n'
+        +  'Al revertirlo, la Quotation en SAP NO se elimina automaticamente. Tenes que ir a SAP\n'
+        +  'y cancelarla manualmente para evitar duplicados.';
+  }
+  if (!confirm(msg)) return;
+  logOp('revertir_a_pendiente', 'pedido', currentOrderClient.name, {
+    key, month: entry.month, items: (entry.lines||[]).length,
+    wasTransferred: wasTransferred,
+    sapDocNum: wasTransferred ? (entry.transferidoSAP.docNum || entry.transferidoSAP.docEntry) : null,
+  });
+  // Firestore: cambiar stage -> pending y limpiar finalizedAt + transferidoSAP.
+  if (entry._fsId && currentUser) {
+    const updateData = {
+      stage: 'pending',
+      finalizedAt: firebase.firestore.FieldValue.delete(),
+    };
+    if (wasTransferred) {
+      updateData.transferidoSAP = firebase.firestore.FieldValue.delete();
+      updateData.revertedFromConfirmedAt = new Date().toISOString();
+      updateData.revertedBy = currentUser.email || '';
+      updateData.previousSapDocNum = entry.transferidoSAP.docNum || entry.transferidoSAP.docEntry || null;
+    }
+    fbDb.collection('pedidos').doc(entry._fsId).update(updateData)
+      .then(() => {
+        showSyncTag('Pedido revertido a Pendientes' + (wasTransferred ? ' (SAP Quotation #' + (entry.transferidoSAP.docNum || entry.transferidoSAP.docEntry) + ' NO se elimino)' : ''));
+      })
+      .catch(e => { console.error('revertir a pending', e); alert('Error revertiendo el pedido: ' + (e.message || e)); });
+  }
+  // Local fallback: mover del array confirmed al pending.
+  if (!pending[key]) pending[key] = [];
+  const revertedEntry = Object.assign({}, entry);
+  delete revertedEntry.finalizedAt;
+  if (wasTransferred) delete revertedEntry.transferidoSAP;
+  pending[key].push(revertedEntry);
+  savePending();
+  confirmed[key] = list.filter((_, i) => i !== idx);
+  if (!confirmed[key].length) delete confirmed[key];
+  saveConfirmed();
+  closePedidoModal();
+  setPedidoView('pendientes');
 };
 
 // ========== Sugerencias: ahora usan globalPedidos (todos los vendedores) ==========
