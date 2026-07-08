@@ -94,6 +94,38 @@ SLP_TO_VENDOR = {
     55: {'name': 'MARTIN BOIERO',          'email': 'martin.boiero@shimano.com.ar'},
 }
 
+# v284 (2026-07-08): descubrimiento importante. Los BPs pesca en SAP NO
+# tienen SalesPersonCode asignado a los 6 vendedores (viene -1 "No Sales
+# Employee" en el header). El campo real que identifica pesca es el UDF
+# U_DIVISION con valor "PESCA". La asignacion vendedor -> cliente se hace
+# por PROVINCIA (mismo mapping que la app tiene hardcoded en index.html
+# ~linea 8160). Cuando el gerente reasigna manualmente en la app, respetamos
+# via opcion A elegida antes (el sync pisa; para cambiar de forma persistente
+# hay que cambiar la provincia del BP en SAP).
+IOANNIS_PROVS = {'TIERRA DEL FUEGO', 'SANTA CRUZ', 'CHUBUT', 'RIO NEGRO', 'NEUQUEN', 'LA PAMPA', 'MENDOZA'}
+SANTIAGO_PROVS = {'SALTA', 'JUJUY', 'TUCUMAN', 'CATAMARCA', 'LA RIOJA', 'SANTIAGO DEL ESTERO', 'MISIONES', 'CHACO', 'FORMOSA'}
+MAURICIO_PROVS = {'ENTRE RIOS', 'CORRIENTES'}
+MARTIN_PROVS = {'CORDOBA', 'SANTA FE', 'SAN JUAN', 'SAN LUIS'}
+GONZALO_PROVS = {'CIUDAD AUTONOMA DE BUENOS AIRES', 'CABA', 'CAPITAL FEDERAL'}
+# Buenos Aires (provincia) default -> Federico (BA Interior + Costa). Podemos
+# afinar por localidad en el futuro si el gerente quiere sub-zonas.
+FEDERICO_PROVS = {'BUENOS AIRES'}
+
+
+def resolve_vendor_by_province(prov: str):
+    """Mapea provincia -> vendedor pesca segun las zonas hardcoded de la app.
+    Devuelve el dict de SLP_TO_VENDOR o None si no matchea."""
+    if not prov:
+        return None
+    p = prov.strip().upper()
+    if p in IOANNIS_PROVS:      return SLP_TO_VENDOR[52]
+    if p in SANTIAGO_PROVS:     return SLP_TO_VENDOR[53]
+    if p in MAURICIO_PROVS:     return SLP_TO_VENDOR[51]
+    if p in MARTIN_PROVS:       return SLP_TO_VENDOR[55]
+    if p in GONZALO_PROVS:      return SLP_TO_VENDOR[50]
+    if p in FEDERICO_PROVS:     return SLP_TO_VENDOR[54]
+    return None
+
 # Bugs de la Service Layer: si mandamos Prefer no anda por CORS + SL v10 lo
 # rechaza. Sin Prefer, SL responde con pageSize=20. Con ~11k items = ~550
 # requests. A 200-300 ms cada uno = 2-3 min. Aceptable para un cron 30 min.
@@ -650,29 +682,25 @@ def fetch_bp_pesca_from_sl(cfg: dict, session: requests.Session) -> list:
     Trae BPs pesca de SAP via Service Layer con paginacion.
     Filtro: CardType='cCustomer' + SalesPersonCode ∈ {50..55}.
     """
-    slp_filter = ' or '.join([f'SalesPersonCode eq {s}' for s in PESCA_SLP_CODES])
-    # v283+: incluir cLid (Leads) ademas de cCustomer. En Shimano PESCA todos
-    # los clientes empiezan como Lead esperando validacion de finanzas antes
-    # de convertirse en Customer. Los Leads inactivos tambien se traen - se
-    # muestran en la app con badge distintivo (SAP LEAD o SAP INACTIVE) y el
-    # vendedor sabe que si carga pedido, admin tiene que activar/convertir
-    # el BP en SAP antes de enviar a Service Layer.
+    # v284+: filtrar por UDF U_DIVISION = 'PESCA' en vez de SalesPersonCode.
+    # Descubierto 2026-07-08 mirando el BP TOMPY PESCA en SAP:
+    #   - SalesPersonCode = -1 (no asignado a los VDE PESCA en el header)
+    #   - Group = 'Clientes' (generico)
+    #   - U_DIVISION = 'PESCA' (UDF que si identifica la unidad de negocio)
+    # La asignacion de vendedor se hace por provincia (mismo mapping que la
+    # app hardcodea en index.html ~8160).
+    # Incluir cLid (Leads) ademas de cCustomer porque muchos BPs pesca estan
+    # como Lead esperando validacion de finanzas.
     type_filter = "(CardType eq 'cCustomer' or CardType eq 'cLid')"
-    filter_expr = f"{type_filter} and ({slp_filter})"
-    # Campos minimos necesarios para el upsert. Evitamos CreditLine/State1 que
-    # no existen en el schema SL de este SAP (probamos en sync_sap_to_bigquery
-    # 2026-07-08).
-    select_fields = [
-        'CardCode', 'CardName', 'CardType', 'FederalTaxID',
-        'SalesPersonCode', 'Address', 'City', 'ZipCode',
-        'Phone1', 'Cellular', 'EmailAddress',
-        'CreateDate', 'UpdateDate', 'Valid', 'Frozen',
-    ]
-    path = (
-        "/b1s/v1/BusinessPartners"
-        f"?$filter={filter_expr}"
-        f"&$select={','.join(select_fields)}"
-    )
+    division_filter = "U_DIVISION eq 'PESCA'"
+    filter_expr = f"{type_filter} and {division_filter}"
+    # No dejamos $select para que el schema completo llegue (SL rechaza
+    # $select con UDFs porque no puede resolver el nombre). Pagamos un poco
+    # mas de bandwidth por request, negligible con ~50-100 BPs.
+    select_fields = None
+    path = f"/b1s/v1/BusinessPartners?$filter={filter_expr}"
+    if select_fields:
+        path += f"&$select={','.join(select_fields)}"
     bps = []
     page = 0
     last_progress = time.time()
@@ -778,14 +806,31 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
     for bp in bps:
         cardcode = (bp.get('CardCode') or '').strip()
         cardname = (bp.get('CardName') or '').strip()
-        slp = bp.get('SalesPersonCode')
+        # v284+: SalesPersonCode del header viene -1 (no asignado) para los
+        # BPs pesca. La asignacion de vendedor se hace por PROVINCIA usando
+        # el mapping resolve_vendor_by_province (mismo que la app hardcodea).
+        # Slp_header queda como info auditable pero no se usa para asignar.
+        slp_header = bp.get('SalesPersonCode')
         try:
-            slp = int(slp) if slp is not None else None
+            slp_header = int(slp_header) if slp_header is not None else None
         except (TypeError, ValueError):
-            slp = None
-        vendor_info = SLP_TO_VENDOR.get(slp)
+            slp_header = None
+        # Provincia viene en el header del BP. Fallback: primera BPAddress
+        # con Row Bill To si el header no la trae.
+        prov_raw = bp.get('Province', '') or bp.get('State1', '') or ''
+        # A veces la provincia viene como codigo (ej. "BA"). Si no matchea,
+        # intentamos con el nombre expandido buscando en BPAddresses.
+        vendor_info = resolve_vendor_by_province(prov_raw)
         if not vendor_info:
-            log(f'[bp] SKIP {cardcode} ({cardname}): SlpCode {slp} no esta en mapping pesca')
+            # Fallback: intentar con la primera direccion.
+            for addr in (bp.get('BPAddresses') or []):
+                p2 = addr.get('State', '') or addr.get('State1', '') or ''
+                vendor_info = resolve_vendor_by_province(p2)
+                if vendor_info:
+                    prov_raw = p2
+                    break
+        if not vendor_info:
+            log(f'[bp] SKIP {cardcode} ({cardname}): provincia "{prov_raw}" no matchea ninguna zona pesca')
             stats['skipped_unknown_vendor'] += 1
             continue
         vendor_email = vendor_info['email']
@@ -816,10 +861,13 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
             # se pueden facturar hasta que admin los convierta manualmente en
             # SAP). sapFrozen/sapValid indican si esta activo.
             'sapCardType': bp.get('CardType', ''),  # cCustomer | cLid
-            'sapSalesPersonCode': slp,
+            'sapSalesPersonCode': slp_header,       # -1 en general para pesca
+            'sapDivision': bp.get('U_DIVISION', ''),  # 'PESCA'
             'sapValid': bp.get('Valid', ''),
             'sapFrozen': bp.get('Frozen', ''),
             'sapUpdateDate': bp.get('UpdateDate', ''),
+            # Provincia que se uso para resolver el vendedor. Auditable.
+            'sapProvinceUsedForVendor': prov_raw,
             # sapReadyForSL: convenience flag para la app. True solo si es
             # Customer + Valid=tYES + Frozen=tNO. La app deberia skip auto-envio
             # a Service Layer si es False (asi no se acumulan errores 400 en
