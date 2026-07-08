@@ -722,7 +722,23 @@ def fetch_bp_pesca_from_sl(cfg: dict, session: requests.Session) -> list:
         if time.time() - last_progress > 5:
             log(f'[SL/BP] pag {page}: {len(bps)} BPs')
             last_progress = time.time()
-        path = body.get('@odata.nextLink')
+        # v285+: SL v10+ devuelve nextLink con @, versiones viejas sin @.
+        # Chequear ambos para no cortar el paginado prematuramente.
+        next_link = body.get('@odata.nextLink') or body.get('odata.nextLink')
+        if not next_link:
+            break
+        # normalizar path
+        if next_link.startswith('http'):
+            idx = next_link.find('/b1s/v1/')
+            path = next_link[idx:] if idx >= 0 else next_link
+        elif next_link.startswith('/'):
+            path = next_link
+        else:
+            path = '/b1s/v1/' + next_link
+        # Safety cap para evitar loops infinitos.
+        if page > 500:
+            log(f'[SL/BP] safety cap 500 paginas alcanzado, cortando')
+            break
     log(f'[SL/BP] total: {len(bps)} BPs pesca en {page} paginas')
     return bps
 
@@ -805,11 +821,21 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
             if v is not None and str(v).strip() != '':
                 return str(v).strip().upper()
         return ''
-    # Diagnostico: mostrar sample de UDFs detectados en el primer BP.
+    # Diagnostico: mostrar sample de UDFs detectados en el primer BP + valor
+    # de U_DIVISION en los primeros 5 (asi vemos que valores esta trayendo
+    # SL para el UDF y ajustamos el filtro si hace falta).
     if bps:
         sample = bps[0]
         udf_keys_found = [k for k in sample.keys() if k.startswith('U_')]
         log(f'[bp] sample BP CardCode={sample.get("CardCode")}, UDFs detectados: {udf_keys_found}')
+        for i, bp_diag in enumerate(bps[:5]):
+            div_val = None
+            for k in UDF_DIVISION_KEYS:
+                v = bp_diag.get(k)
+                if v is not None:
+                    div_val = f'{k}={v!r}'
+                    break
+            log(f'[bp] diag #{i+1} CardCode={bp_diag.get("CardCode")} CardType={bp_diag.get("CardType")} DIVISION={div_val or "(sin UDF DIVISION)"}')
     for bp in bps:
         cardcode = (bp.get('CardCode') or '').strip()
         cardname = (bp.get('CardName') or '').strip()
