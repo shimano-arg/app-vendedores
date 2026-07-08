@@ -651,12 +651,19 @@ def fetch_bp_pesca_from_sl(cfg: dict, session: requests.Session) -> list:
     Filtro: CardType='cCustomer' + SalesPersonCode ∈ {50..55}.
     """
     slp_filter = ' or '.join([f'SalesPersonCode eq {s}' for s in PESCA_SLP_CODES])
-    filter_expr = f"CardType eq 'cCustomer' and ({slp_filter})"
+    # v283+: incluir cLid (Leads) ademas de cCustomer. En Shimano PESCA todos
+    # los clientes empiezan como Lead esperando validacion de finanzas antes
+    # de convertirse en Customer. Los Leads inactivos tambien se traen - se
+    # muestran en la app con badge distintivo (SAP LEAD o SAP INACTIVE) y el
+    # vendedor sabe que si carga pedido, admin tiene que activar/convertir
+    # el BP en SAP antes de enviar a Service Layer.
+    type_filter = "(CardType eq 'cCustomer' or CardType eq 'cLid')"
+    filter_expr = f"{type_filter} and ({slp_filter})"
     # Campos minimos necesarios para el upsert. Evitamos CreditLine/State1 que
     # no existen en el schema SL de este SAP (probamos en sync_sap_to_bigquery
     # 2026-07-08).
     select_fields = [
-        'CardCode', 'CardName', 'FederalTaxID',
+        'CardCode', 'CardName', 'CardType', 'FederalTaxID',
         'SalesPersonCode', 'Address', 'City', 'ZipCode',
         'Phone1', 'Cellular', 'EmailAddress',
         'CreateDate', 'UpdateDate', 'Valid', 'Frozen',
@@ -804,11 +811,25 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
             # Contacto
             'telefonoContacto': bp.get('Phone1', '') or bp.get('Cellular', '') or '',
             'email': bp.get('EmailAddress', '') or '',
-            # SAP metadata
+            # SAP metadata. sapCardType permite a la app distinguir Customers
+            # de Leads (los Leads son BPs esperando validacion de finanzas y NO
+            # se pueden facturar hasta que admin los convierta manualmente en
+            # SAP). sapFrozen/sapValid indican si esta activo.
+            'sapCardType': bp.get('CardType', ''),  # cCustomer | cLid
             'sapSalesPersonCode': slp,
             'sapValid': bp.get('Valid', ''),
             'sapFrozen': bp.get('Frozen', ''),
             'sapUpdateDate': bp.get('UpdateDate', ''),
+            # sapReadyForSL: convenience flag para la app. True solo si es
+            # Customer + Valid=tYES + Frozen=tNO. La app deberia skip auto-envio
+            # a Service Layer si es False (asi no se acumulan errores 400 en
+            # la consola). Se calcula aca para no complicar la logica del
+            # frontend.
+            'sapReadyForSL': (
+                bp.get('CardType') == 'cCustomer'
+                and bp.get('Valid') == 'tYES'
+                and bp.get('Frozen') != 'tYES'
+            ),
             # Vendedor asignado (SAP es fuente de verdad - pisa lo que hubiera)
             'assignedVendor': vendor_name,
             'ownerUid': vendor_uid,
