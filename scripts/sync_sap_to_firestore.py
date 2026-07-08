@@ -887,13 +887,16 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
     for bp in bps:
         cardcode = (bp.get('CardCode') or '').strip()
         cardname = (bp.get('CardName') or '').strip()
-        # v286+: en el SAP de Shimano el UDF U_DIVISION viene como codigo
-        # numerico (confirmado 2026-07-08 log run #95: siempre '1' para BPs
-        # pesca). SAP guarda dropdowns como valores internos y muestra el
-        # texto en el UI. '1' = PESCA. Aceptamos '1' y 'PESCA' textual por
-        # compatibilidad con otras configuraciones.
+        # v288+ (2026-07-08): correccion IMPORTANTE del filtro U_DIVISION.
+        # Los codigos del dropdown en Shimano SAP son:
+        #   1 = BIKE
+        #   2 = PESCA
+        #   3 = BIKE & PESCA
+        # v286 filtro por '1' pensando que era PESCA -> trajo ~2500 clientes
+        # de BICICLETAS. Aceptamos '2' (PESCA puro) y '3' (mixto BIKE&PESCA)
+        # + fallbacks textuales para otras configuraciones.
         division = get_bp_division(bp)
-        if division not in ('1', 'PESCA', 'P'):
+        if division not in ('2', '3', 'PESCA', 'BIKE & PESCA', 'BIKE&PESCA'):
             stats['skipped_not_pesca'] += 1
             continue
         # v287+ SIMPLIFICADO: el requerimiento del user (2026-07-08) es que
