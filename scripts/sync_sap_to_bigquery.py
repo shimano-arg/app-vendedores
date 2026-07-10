@@ -11,6 +11,7 @@ Este script escribe DIRECTO a BigQuery para el pipeline Power BI:
        - Items del grupo PESCA (con stock + precio lista PESCA): sap_items_raw
        - Facturas (Invoices) ultimos 24 meses: sap_invoices_raw
        - Cotizaciones (Quotations) ultimos 24 meses: sap_quotations_raw
+       - Ordenes de venta (Orders) ultimos 24 meses: sap_orders_raw  (v289+)
   3) Escribe a BigQuery con WRITE_TRUNCATE (full snapshot cada corrida).
      Cuando el volumen escale, migramos a delta por UpdateDate.
 
@@ -79,6 +80,10 @@ BQ_TABLE_BP         = f'{BQ_PROJECT}.{BQ_DATASET}.sap_bp_raw'
 BQ_TABLE_ITEMS      = f'{BQ_PROJECT}.{BQ_DATASET}.sap_items_raw'
 BQ_TABLE_INVOICES   = f'{BQ_PROJECT}.{BQ_DATASET}.sap_invoices_raw'
 BQ_TABLE_QUOTATIONS = f'{BQ_PROJECT}.{BQ_DATASET}.sap_quotations_raw'
+# v289+ (2026-07-10): Sales Orders (ORDR/RDR1 en SAP). Necesarias para
+# calcular el BACKORDER = Cantidad_Quotation - Cantidad_SO_generada para
+# el dashboard "Inventario y Backorder" de Power BI.
+BQ_TABLE_ORDERS     = f'{BQ_PROJECT}.{BQ_DATASET}.sap_orders_raw'
 
 # Codigo de la lista PESCA en SAP (misma que sync_sap_to_firestore.py).
 PESCA_PRICE_LIST_NUM = 12
@@ -520,6 +525,21 @@ def main():
     )
     qtn_rows = [flatten_doc(d, 'QUOTATION', sync_ts) for d in qtns]
     load_to_bq(bq_client, BQ_TABLE_QUOTATIONS, qtn_rows, 'QUOTATIONS', dry_run=dry_run)
+
+    # === 5. Orders (ultimos 24 meses). Sales Orders son ORDR/RDR1 en SAP.
+    # Necesarias para calcular Backorder = Cantidad_Quotation - Cantidad_SO
+    # generada por Administracion. Cada linea de Order tiene RemainingOpenQuantity
+    # (cuanto sigue abierto sin facturar) - eso alimenta el KPI backorder.
+    # Mismo doc_select que Invoices/Quotations (misma estructura de documento
+    # marketing de ventas).
+    orders = sl_fetch_all(
+        cfg, session, '/b1s/v1/Orders', 'ORDERS',
+        select_fields=doc_select,
+        filter_expr=f"DocDate ge '{since_iso_date}'",
+        max_docs=max_docs,
+    )
+    order_rows = [flatten_doc(d, 'ORDER', sync_ts) for d in orders]
+    load_to_bq(bq_client, BQ_TABLE_ORDERS, order_rows, 'ORDERS', dry_run=dry_run)
 
     log('=== sync_sap_to_bigquery END OK ===')
 
