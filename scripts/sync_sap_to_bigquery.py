@@ -99,7 +99,16 @@ PESCA_PRICE_LIST_NUM = 12
 NON_SALES_WHS = {'05', '06'}
 
 # Ventana historica default (meses). El env HISTORY_MONTHS puede overridear.
-DEFAULT_HISTORY_MONTHS = 24
+# v289 iter5 (2026-07-10): bajamos de 24 -> 12. PESCA arranco venta directa hace
+# ~1 mes; 12 meses cubre estacionalidad y corta ~50% del volumen de invoices/
+# quotations/orders/POs (~50% del tiempo de sync). Subir de nuevo cuando el
+# historial post-Baraldo justifique.
+DEFAULT_HISTORY_MONTHS = 12
+
+# Page size default de SL v10 es 20, con hasta 100 permitido antes de que
+# capee. Pedimos 100 en la primera pagina; @odata.nextLink hereda el $top.
+# Reduce round-trips por endpoint de ~38 pags a ~8 en Items.
+SL_PAGE_SIZE = 100
 
 
 # ============================================================
@@ -238,6 +247,8 @@ def sl_fetch_all(cfg, session, path_base, entity_name,
         query.append(f"$filter={filter_expr}")
     if select_fields:
         query.append(f"$select={','.join(select_fields)}")
+    # v289 iter5: pedir $top=100 para reducir round-trips (default SL es 20).
+    query.append(f"$top={SL_PAGE_SIZE}")
     if query:
         parts.append('?' + '&'.join(query))
     url_path = ''.join(parts)
