@@ -14,11 +14,11 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v281 |
-| **APP_VERSION** | `v281` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v288 |
+| **APP_VERSION** | `v288` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
-| **Pipeline Power BI** | Firestore → BigQuery (extension `firestore-bigquery-export`) → Power BI Service — **Fase 1.1 completa 2026-07-07**: 7 collecciones sincronizando en tiempo real + 264 docs históricos ya en BigQuery. Pendiente: sync SAP → BigQuery + modelo DAX (ver sección 40) |
-| **Sync SAP automático** | Service Layer → Firestore + `stock.json` cada 30 min (cron GH Actions `13,43 * * * *`) — ACTIVO desde v246 (2026-07-01) |
+| **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 collecciones) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 4 tablas) → 4 vistas curadas → **Power BI Desktop conectado y armando dashboard "Resumen-Desempeño"** (2026-07-08). Ver sección 40 |
+| **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
 | **Bot Inventario Google Sheet** | Lee `raw.githubusercontent.com/shimano-arg/app-vendedores/main/stock.json` cada 30 min — datos frescos garantizados |
 
 ---
@@ -65,7 +65,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v204 → v281](#41-changelog-v204--v281)
+41. [Changelog v204 → v288](#41-changelog-v204--v288)
 
 ---
 
@@ -2436,7 +2436,12 @@ Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gere
 
 ## 40) Power BI / BigQuery
 
-**Fase 1.1 completa desde 2026-07-07** (sync Firestore → BigQuery de 7 colecciones + backfill del histórico). Falta arrancar Fase 1.2 (sync SAP → BigQuery), Fase 2 (modelo/vistas) y Fase 3 (Power BI Desktop).
+**Estado a 2026-07-08**:
+- ✅ **Fase 1.1** Firestore → BigQuery (7 collecciones + backfill)
+- ✅ **Fase 1.2** SAP → BigQuery (4 tablas: BPs, Items, Invoices, Quotations)
+- ✅ **Fase 2** Modelo de datos: 4 vistas SQL curadas (`v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap`)
+- 🔨 **Fase 3** Power BI Desktop: conectado, 5 tablas cargadas, 12 medidas DAX, dashboard "Resumen-Desempeño" en armado
+- ⏳ **Fase 4** Alertas: pendiente
 
 ### Objetivo
 
@@ -2541,40 +2546,118 @@ GROUP BY operation;
 
 Debe mostrar `IMPORT` con el conteo real de docs existentes.
 
-### Fase 1.2 — SAP → BigQuery — ⏳ PRÓXIMA
+### Fase 1.2 — SAP → BigQuery — ✅ HECHO 2026-07-08
 
-Script Python que corra vía Service Layer y escriba directo a BigQuery (paralelo al `sync_sap_to_firestore.py` actual que va solo a Firestore). GitHub Actions cron `13,43 * * * *` (mismo patrón para evitar throttling).
+**Script**: `scripts/sync_sap_to_bigquery.py` (~510 líneas). Corre en GH Actions cron `13,43 * * * *` (mismo patrón que el sync a Firestore) mediante `.github/workflows/sync-sap-to-bigquery.yml`.
 
-**Tablas destino previstas**:
-- `sap_invoices_raw` — facturas emitidas (para facturación diaria, ticket promedio, YoY).
-- `sap_quotations_raw` — cotizaciones abiertas (backlog).
-- `sap_bp_raw` — Business Partners (padrón real SAP con CardCode).
-- `sap_items_raw` — catálogo + precio + stock por depósito.
-- `sap_credit_notes_raw` — notas de crédito (opcional Ola 1).
+**4 tablas SAP en BigQuery** (dataset `shimano_app`):
 
-### Fase 2 — Modelo de datos — ⏳ PENDIENTE
+| Tabla | Endpoint SL | Contenido | Volumen 2026-07-08 |
+|---|---|---|---|
+| `sap_bp_raw` | `/BusinessPartners?$filter=CardType eq 'cCustomer'` | Padrón Customers | ~20 rows |
+| `sap_items_raw` | `/Items?$filter=ItemsGroupCode eq <PESCA>` | Catálogo pesca con stock + precio | ~750 rows |
+| `sap_invoices_raw` | `/Invoices?$filter=DocDate ge '<24m>'` | Facturas últimos 24 meses | ~20+ rows |
+| `sap_quotations_raw` | `/Quotations?$filter=DocDate ge '<24m>'` | Cotizaciones últimos 24 meses | ~20+ rows |
 
-Vistas SQL curadas que aplanen los `_raw_latest` JSON en columnas tipadas para que Power BI las importe sin pelearse con `JSON_VALUE()`:
+**Estrategia**: `WRITE_TRUNCATE` cada corrida (full snapshot). Cuando el volumen escale (miles de facturas), migrar a delta por `UpdateDate`.
 
-- `v_pedidos_full` — pedidos + líneas explotadas + join con `client_master_raw_latest`.
-- `v_visitas_full` — visitas + join con vendedor + join con targets del mes.
-- `v_ventas_diarias` — agregado de facturas SAP por vendedor × día.
-- `v_stock_crítico` — SKUs con `stock < días_cobertura(15)`.
-- `v_cobertura_padron` — % de tiendas visitadas / asignadas por vendedor.
+Cada row incluye `_sync_timestamp` (UTC ISO) para trazabilidad de la corrida.
 
-Documentación de cada vista quedará en `README_BIGQUERY.md` (a crear).
+**DocumentLines** de invoices/quotations se guarda como JSON string en la columna `lines_json` para no explotar el schema. Fase 2 hace `UNNEST(JSON_EXTRACT_ARRAY(lines_json))` en las vistas cuando hace falta.
 
-### Fase 3 — Power BI Desktop — ⏳ PENDIENTE
+**Bugs encontrados y solucionados durante el desarrollo (2026-07-08)**:
+- `Property 'State1' of 'BusinessPartner' is invalid`: campo removido del schema SL de Shimano. Fix: quitar del `$select`, el `state` en `sap_bp_raw` queda `null` (se puede extraer de `BPAddresses` en vistas Fase 2 si Power BI lo necesita).
+- `Property 'CreditLine' of 'BusinessPartner' is invalid`: idem. También removidos `CurrentAccountBalance` y `Notes` como preventivo.
+- Volumen bajo confirmado con el user: es normal en esta etapa temprana de venta directa PESCA post-Baraldo.
 
-- Instalar Power BI Desktop en la máquina de trabajo.
-- Conector nativo BigQuery + service account `powerbi-reader` con rol `roles/bigquery.dataViewer` sobre `shimano_app`.
-- Modo **DirectQuery** para dashboards live (o Import con refresh 30 min si el volumen crece).
-- Medidas DAX principales: `Facturación MTD`, `Facturación YoY`, `Ticket Promedio`, `Cumplimiento vs Target`, `Cobertura Padrón`, `Conversión Visita→Pedido`, `Stock Crítico`, `Días de Cobertura`.
-- Dashboards por pilar (los 4 slides de la presentación `Real-Time.pptx`):
-  - Ventas · Campo · Inventario · Campañas
-  - Vista Ejecutiva (KPIs Ola 1)
-- Publish al **Power BI Service** (workspace Shimano).
+### Fase 2 — Vistas curadas — ✅ HECHO 2026-07-08
+
+**Archivo con SQL**: `bigquery/views.sql`. Se ejecuta manualmente **una vez** desde BigQuery Console; después se puede re-correr con cambios (todas usan `CREATE OR REPLACE VIEW`).
+
+**4 vistas creadas en `shimano_app`**:
+
+| Vista | Descripción | Fuente |
+|---|---|---|
+| `v_pedidos_header` | 1 fila por pedido, con todos los campos del header aplanados desde el JSON de Firestore (cliente, mes, forma pago, forma entrega, subtotales, discountSnapshot, hasSkusToReview, etc.) | `pedidos_raw_raw_latest` |
+| `v_pedidos_lines` | 1 fila POR LÍNEA (explota el array `lines` del pedido). Incluye contexto denormalizado del pedido (cliente_nombre, provincia, mes, etc.) para queries rápidos sin joins. | `pedidos_raw_raw_latest` con `UNNEST(JSON_EXTRACT_ARRAY(data, '$.lines'))` |
+| `v_visitas` | 1 fila por visita con todos los campos del formulario aplanados. Incluye VDE-VDI con `on_behalf_of` para detectar cargas hechas por VDI en nombre de VDE. **Fix v283**: los campos `provincia` y `localidad` en español (no `province`/`locName` como pedidos). | `visits_raw_raw_latest` |
+| `v_facturas_sap` | Facturas SAP + `LEFT JOIN` con `sap_bp_raw` para tener nombre del cliente + tipo + moneda + ciudad al lado, sin que Power BI tenga que hacer el join. | `sap_invoices_raw` + `sap_bp_raw` |
+
+**Convenciones**:
+- Nombres de columnas en **snake_case latino** natural para el usuario final (`cliente_nombre` en vez de `clientName`).
+- `SAFE_CAST` en todos los conversions para robustez (dato malformado → `NULL`, no rompe la vista).
+- `CREATE OR REPLACE VIEW`, ejecutables idempotentes.
+
+**Documentar cada vista** en `bigquery/views.sql` con comentarios en el propio SQL (ya está hecho).
+
+### Fase 3 — Power BI Desktop — 🔨 EN CURSO 2026-07-08
+
+**Estado**: conectado a BigQuery via conector nativo, 5 tablas cargadas en modo **Import**, medidas DAX básicas armadas, primer dashboard "Resumen-Desempeño" en armado.
+
+#### Setup
+
+- Power BI Desktop instalado en la máquina.
+- Conector: **Google BigQuery** (nativo, no Azure AD).
+- Modo: **Import** (más rápido que DirectQuery para los volúmenes actuales; migrar a DirectQuery cuando la data crezca).
+- Login: `bot.shimano.pesca@gmail.com` con OAuth.
+
+#### Tablas cargadas
+
+- `v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap` (las 4 vistas)
+- `sap_items_raw` (catálogo con stock/precio)
+- + tabla auxiliar `Vendedores` creada con **DATATABLE** en Power BI Desktop (6 filas hardcoded: SlpCode 50-55, Nombre, Tipo VDI/VDE, Región)
+- + tabla auxiliar `Origenes` (VDT, VDI, VDE) para el visual "Facturación por Origen"
+
+#### Relaciones
+
+- `v_pedidos_lines[pedido_id]` → `v_pedidos_header[pedido_id]` (many-to-one, autodetectada)
+- `Vendedores[SlpCode]` → `v_facturas_sap[sales_person_code_invoice]` (uno-a-varios, creada a mano)
+
+#### Medidas DAX principales (bajo `v_facturas_sap`)
+
+| Medida | Fórmula | Formato |
+|---|---|---|
+| Facturación Total | `CALCULATE(SUM('v_facturas_sap'[doc_total]), 'v_facturas_sap'[sales_person_code_invoice] IN {50, 51, 52, 53, 54, 55})` | Moneda ARS |
+| Ticket Promedio | `CALCULATE(AVERAGE(...), 'v_facturas_sap'[sales_person_code_invoice] IN {50..55})` | Moneda ARS |
+| Cuentas Atendidas | `DISTINCTCOUNT('v_facturas_sap'[card_code])` | Entero |
+| Pedidos Ingresados | `COUNTROWS('v_pedidos_header')` | Entero |
+| SKUs Únicos | `DISTINCTCOUNT('v_pedidos_lines'[sku])` | Entero |
+| Target Mensual | `50000000` (hardcoded temporal, migrar a tabla de targets después) | Moneda ARS |
+| % Cumplimiento | `DIVIDE([Facturación Total], [Target Mensual], 0)` | Porcentaje |
+| Desviación | `[Target Mensual] - [Facturación Total]` | Moneda ARS |
+| Descuento Medio | `AVG(discount_percent)` filtrado por PESCA | Porcentaje |
+| Facturación VDE | `CALCULATE(SUM(doc_total), sales_person_code_invoice IN {50, 51, 54, 55})` | Moneda |
+| Facturación VDI | `CALCULATE(SUM(doc_total), sales_person_code_invoice IN {52, 53})` | Moneda |
+| Peso VDE % / VDI % | `DIVIDE(...)` | Porcentaje |
+| Facturación por Origen | `SWITCH(TRUE(), SELECTEDVALUE('Origenes'[Origen]) = "VDT", [Facturación Total], ...)` | Moneda |
+| SKU Cliente | `DIVIDE([SKUs Únicos], [Cuentas Atendidas], 0)` | Entero |
+
+#### Columnas calculadas para slicers
+
+- `v_facturas_sap[Año]` = `YEAR(doc_date)`
+- `v_facturas_sap[Mes Nombre]` = `FORMAT(doc_date, "MMMM")` (ordenado por Mes Num)
+- `v_facturas_sap[Mes Num]` = `MONTH(doc_date)`
+- `v_facturas_sap[Día]` = `FORMAT(doc_date, "dd")` (para ejes de gráficos por día)
+
+#### Visuales en armado ("Resumen-Desempeño")
+
+- Header oscuro con título + slicers Año/Mes arriba a la derecha.
+- **Gauge "Facturación mensual"** (semicircular): valor actual / target.
+- **Gauge "% Cumplimiento"**.
+- **Card grande "Facturación Real"** con Desviación + Descuento Medio debajo.
+- **Grilla 2x3 de 6 KPIs pequeños**: Ticket Promedio, Peso VDE %, Peso VDI %, Cuentas Atendidas, Pedidos Ingresados, SKU Cliente.
+- **Bar chart "Facturación por Día"** (día del mes en eje X).
+- **Bar chart "Facturación por Región"** (barras verticales por región de vendedor).
+- **Bar chart "Facturación por Origen de Pedido"** (VDT/VDI/VDE).
+- **Bar chart horizontal "Regiones - TOP"**.
+
+#### Trabajo pendiente Fase 3
+
+- Publish al **Power BI Service** (workspace Shimano). Requiere licencia Pro para los viewers.
+- Configurar **Scheduled Refresh** cada 30 min (aligned con el cron del sync SAP → BigQuery).
+- Dashboards adicionales por pilar: Ventas · Campo · Inventario · Campañas (los 4 slides de `Real-Time.pptx`).
 - Compartir con stakeholders (roles: gerencia, jefe ventas, oncall inventario).
+- Cuando el volumen escale: considerar migrar a **DirectQuery** en las tablas críticas (facturas) para tener latencia ~30 seg desde SAP → dashboard.
 
 ### Fase 4 — Alertas — ⏳ PENDIENTE
 
@@ -2610,7 +2693,112 @@ Canal a decidir: **Power BI Data Alerts** (email nativo) o **Cloud Function + Sl
 
 ---
 
-## 41) Changelog v204 → v281
+## 40-bis) Sync automático de BPs pesca (v282-v288, 2026-07-08)
+
+**Objetivo**: cuando administración da de alta un cliente en SAP, aparece automáticamente en la app en la siguiente corrida del cron (~30 min). Sin acción manual del admin.
+
+### Contexto histórico
+
+**Antes** (v281 y anteriores) la única forma de que un cliente SAP apareciera en la app era:
+1. Admin exportaba CSV de BPs desde SAP.
+2. Iba al panel **SAP → Integración** en la app.
+3. Subía el archivo.
+4. La app hacía match contra `POINTS` (hardcoded).
+5. Los matches se guardaban en `sap_clients`; los no-match quedaban invisibles.
+
+**Fricción**: nadie lo corría rutinariamente. Los BPs SAP nuevos quedaban en limbo por semanas.
+
+### Fix v282-v288
+
+Nueva función `sync_bp_pesca()` dentro de `scripts/sync_sap_to_firestore.py` que corre en la misma corrida del cron cada 30 min. Después de items+stock+precios, también sincroniza BPs pesca desde `/BusinessPartners` → `client_applications` en Firestore.
+
+**Filtro correcto (v288)**:
+```
+U_DIVISION IN ('2', '3', 'PESCA', 'BIKE & PESCA')
+```
+Donde:
+- `1` = BIKE
+- `2` = PESCA
+- `3` = BIKE & PESCA (mixto, se incluye porque el user lo considera pesca)
+
+Además: `CardType IN ('cCustomer', 'cLid')` — incluye Leads (los BPs pesca empiezan como Lead esperando validación de finanzas).
+
+**Volumen actual**: ~103 BPs pesca. De 2600 BPs Customer/Lead totales, 2506 son BIKE (se descartan).
+
+### Provincia canónica
+
+El UDF `U_SH_PCIA` en SAP guarda el código interno de provincia (ej: `'2'`), no el nombre. El sync trae el mapping desde `/States?$filter=Country eq 'AR'` al inicio de cada corrida y convierte `'2'` → `'SALTA'` (uppercase para matchear con las zonas hardcoded de la app).
+
+Se guarda en el campo `provincia` del doc `client_applications` (el que usa la app para filtrar/agrupar). Fallback: si el UDF está vacío, buscar en `BPAddresses[].State`.
+
+### Comportamiento del upsert
+
+Matching en orden de prioridad:
+1. **`cardCodeSap`** (más confiable).
+2. **`cuit` normalizado** (solo dígitos).
+3. **Nombre normalizado** como fallback (`sapNorm(name)`).
+
+Tres casos:
+- **CASO 1** — Existe como PROVISORIO (`manualSapPending=true`): pisar con datos SAP + `status='approved'` + `cardCodeSap` poblado + `manualSapPending=false`. La app actualiza el badge de 🟡 PROVISORIO a 🟢 HABILITADO automáticamente vía listener.
+- **CASO 2** — Existe como HABILITADO: actualizar datos SAP (dirección, phone, email). **NO se toca** `assignedVendor`/`ownerUid` para no pisar reasignaciones manuales del gerente.
+- **CASO 3** — No existe: crear nuevo doc con `status='approved'`, `source='sap_sync'`, y `assignedVendor`/`ownerUid` vacíos. Admin/gerente los asigna en la app.
+
+### Vendedor por asignación manual
+
+**Decisión de diseño 2026-07-08**: NO asignar vendedor automáticamente en el sync. Razones:
+- El campo `SalesPersonCode` en el header del BP en SAP viene como `-1` (No Sales Employee) para todos los BPs pesca.
+- Mapping por provincia → vendedor podría ser incorrecto (una provincia grande tiene sub-zonas con distintos vendedores).
+- El gerente prefiere el control manual.
+
+El admin/gerente entra a la app y asigna vendedor+zona desde el panel Master Clientes o Alta Clientes.
+
+### Metadata SAP guardada en el doc
+
+Además de los campos estándar (`comercio`, `cardCodeSap`, `cuit`, `calle`, `localidad`, `provincia`), el sync guarda:
+- `sapCardType` — `cCustomer` | `cLid`.
+- `sapDivision` — código de U_DIVISION (`'2'` o `'3'`).
+- `sapValid` / `sapFrozen` — flags de estado en SAP.
+- `sapReadyForSL` — bool convenience. `true` sólo si `CardType='cCustomer' + Valid='tYES' + Frozen!='tYES'`. La app puede usar este flag para skip el auto-envío a Service Layer (evita el spam de errores 400 en consola cuando el BP es Lead o Inactive).
+- `sapSalesPersonCode` — el número del header (típicamente -1 para pesca).
+- `sapProvinceRaw` — el código interno de U_SH_PCIA para auditoría.
+- `source` — `'sap_sync'` (permite filtrar/limpiar docs del sync sin tocar altas manuales).
+
+### Script de limpieza
+
+`scripts/cleanup_bad_bp_sync.py` — herramienta para borrar docs mal cargados por el sync. Solo borra de **Firestore** (nunca de SAP).
+
+**Filtros de seguridad**:
+- `source == 'sap_sync'` (no toca altas manuales).
+- `createdAt > CUTOFF_DATE` (default `2026-07-08T00:00:00Z`; safety para no tocar docs viejos).
+
+**Uso**:
+```powershell
+$env:GOOGLE_APPLICATION_CREDENTIALS = "C:\Users\shimano.sandbox\Desktop\sa-key.json"
+$env:FIREBASE_SERVICE_ACCOUNT = Get-Content C:\Users\shimano.sandbox\Desktop\sa-key.json -Raw
+$env:DRY_RUN = "true"
+python scripts/cleanup_bad_bp_sync.py    # Ver qué va a borrar sin borrar
+# Después de confirmar en DRY_RUN:
+Remove-Item Env:\DRY_RUN
+python scripts/cleanup_bad_bp_sync.py    # Borrar de verdad
+```
+
+Borra en batches de 500 (max Firestore). ~2500 docs se borran en ~10 segundos.
+
+### Bugs superados durante el desarrollo (v282→v288)
+
+Cronología resumida:
+1. **v282**: filtro por `SalesPersonCode IN {50-55}` → 0 resultados (todos vienen -1 en el header).
+2. **v283**: intento con `U_DIVISION eq 'PESCA'` en OData → SL no matchea UDF en `$filter`.
+3. **v285**: filtrar UDF en Python → paginado se corta (nextLink sin `@` en algunas versiones SL).
+4. **v286**: fix paginado + filtro `U_DIVISION == '1'` → 2506 rows (¡BIKE!).
+5. **v287**: simplificado, no asignar vendedor auto.
+6. **v288 FINAL**: `U_DIVISION IN ('2', '3')` (PESCA + BIKE&PESCA), poblar `provincia` canónica desde mapping de SAP States.
+
+Total: ~15 iteraciones para llegar al fix correcto por la naturaleza propietaria del schema SL de este SAP.
+
+---
+
+## 41) Changelog v204 → v288
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
 
@@ -2893,6 +3081,42 @@ Solo las versiones nuevas — el histórico anterior está en la última entrada
 - Botón (×) para limpiar el filtro con un click. El buscador se resetea al abrir el modal (no arrastra filtros de sesiones previas).
 - Si el filtro no matchea nada, mensaje *"Ningún producto matchea «X»"*.
 
+### v282 — Sync automático de BPs pesca (primera versión, luego iterada)
+- Nueva función `sync_bp_pesca()` en `scripts/sync_sap_to_firestore.py`. Corre en la misma corrida del cron cada 30 min que ya trae items+stock+precios.
+- **Objetivo**: cerrar el gap donde los BPs nuevos de SAP quedaban invisibles en la app hasta que admin subía manualmente un CSV desde el panel Integración.
+- Primera versión filtraba por `SalesPersonCode IN {50-55}` (los 6 vendedores pesca) pero devolvió 0 BPs — el campo del header viene `-1` "No Sales Employee" para todos los BPs pesca. Se iteró hasta v288.
+
+### v283 — Fix banner de error stuck + revertir Confirmado → Pendientes + card fallback + Opción A
+Múltiples cambios agrupados:
+- **Banner de error auto-clear**: cuando el vendedor corregía los campos faltantes (Forma Pago, Forma Entrega, direcciones), el banner rojo se quedaba visible aunque el error ya no aplicara. Nueva función `revalidateReviewSilently()` que chequea el estado completo en cada `onchange`/`oninput` y limpia el banner si todo está OK.
+- **Botón "Volver a Pendientes"** en modo Confirmado (solo admin/gerente): permite revertir un pedido de la pestaña Confirmados de vuelta a Pendientes para editarlo o retener el envío a SAP. Si el pedido ya se transfirió a SAP (`transferidoSAP.docNum` seteado), avisa que la Sales Quotation en SAP NO se elimina y hay que cancelarla manualmente. Guarda auditoría en `revertedFromConfirmedAt`, `revertedBy`, `previousSapDocNum`.
+- **Fix `approvedAltas` listener con fallback**: cuando el sync o el admin agregaba clientes nuevos, las cards del header (Localidades/Habilitados/Pendientes/Tiendas) no se actualizaban silenciosamente si `drawMarkers()` throweaba. Fix defensivo: log explícito del error + fallback que llama `updateStats(filteredPoints())` directo para asegurar el update.
+- **Opción A — Alinear contador '97 / 137' con card TIENDAS**: `updateContactSummary()` ahora usa `effClients`/`effProspects` (misma lógica que `updateStats`). Antes contaba clientes del padrón viejo sin CardCode SAP; ahora ambos indicadores muestran el mismo criterio (solo SAP-confirmados). Coherencia total entre el header y la lista.
+
+### v284-v287 — Iteraciones del sync BPs pesca (ver sección 40-bis)
+Cronología de bugs y fixes:
+- **v284**: try filtrar por `U_DIVISION eq 'PESCA'` en OData → SL no matchea UDF en `$filter`. Además intento asignar vendedor por provincia con mapping hardcoded en el script (mismo mapping que index.html:~8160).
+- **v285**: cambio a filtrar UDF en Python. Paginado se cortaba porque el `nextLink` viene sin `@` en algunas versiones SL. Fix: chequear `@odata.nextLink` OR `odata.nextLink`. Agregado safety cap 500 páginas.
+- **v286**: filtro `U_DIVISION == '1'` (creyendo que era PESCA) → trajo 2506 BPs de BICICLETAS.
+- **v287**: **simplificación** — el user aclaró que solo quiere los BPs en la app, la asignación de vendedor+zona la hace admin/gerente manualmente. Se removió toda la lógica de "asignar vendedor por provincia". El sync deja `assignedVendor` y `ownerUid` vacíos en el CREATE inicial; en UPDATE no los toca (para no pisar reasignaciones del gerente).
+
+### v288 — FIX definitivo sync BPs pesca + poblar provincia canónica
+**El filtro correcto de U_DIVISION** después de capturas del BP master data en SAP:
+```
+1 = BIKE
+2 = PESCA
+3 = BIKE & PESCA
+```
+Anterior v286 filtraba por `'1'` (BIKE), causando la explosión de 2506 clientes bike en la app. Fix v288: `U_DIVISION IN ('2', '3', 'PESCA', 'BIKE & PESCA')`.
+
+**Provincia canónica**: el UDF `U_SH_PCIA` guarda el código interno (ej: `'2'`), no el nombre. El sync ahora hace lookup a `/States?$filter=Country eq 'AR'` al inicio para tener el mapping `{'2': 'SALTA', '3': 'BUENOS AIRES', ...}` y convierte el código al nombre canónico UPPERCASE. Se guarda en el campo `provincia` que la app usa para filtrar/agrupar clientes por localidad. Sin esto, los BPs sincronizados no aparecían en la lista de la app (aparecían en Firestore pero invisibles en la UI).
+
+**Nuevo script de limpieza** `scripts/cleanup_bad_bp_sync.py` — borrar de Firestore SOLO docs con `source='sap_sync'` + `createdAt > cutoff`. Con este script se limpiaron los 2506 clientes BIKE mal cargados por v286. Nunca toca SAP.
+
+**Volumen final actual**: ~103 BPs pesca. De los 2600 BPs Customer/Lead totales en SAP, 2506 son BIKE (se descartan).
+
+Detalles completos + troubleshooting en la nueva **sección 40-bis** del README.
+
 ---
 
 ## Convenciones del documento
@@ -2912,7 +3136,17 @@ Solo las versiones nuevas — el histórico anterior está en la última entrada
 
 ---
 
-**Última actualización**: 2026-07-07 — SW v281. Highlights v277→v281 (changelog detallado en sección 41):
+**Última actualización**: 2026-07-08 — SW v288. Highlights v282→v288 (changelog detallado en sección 41):
+
+- **🎯 Sync automático de BPs pesca de SAP → app** (v282-v288, 2026-07-08). Nueva función `sync_bp_pesca()` dentro del cron cada 30 min. Filtro correcto (v288): `U_DIVISION IN ('2', '3', 'PESCA', 'BIKE & PESCA')` — los códigos internos del dropdown en SAP son 1=BIKE, 2=PESCA, 3=BIKE&PESCA. Provincia canónica poblada desde lookup a `/States?filter=Country eq 'AR'` para convertir código interno (`'2'`) a nombre (`'SALTA'`). ~103 BPs pesca sincronizando cada 30 min. Ver sección **40-bis** con contexto histórico + comportamiento del upsert + 15 iteraciones que llevaron al fix definitivo.
+- **📊 Fase 1.2 SAP → BigQuery completa** (2026-07-08). Nuevo `scripts/sync_sap_to_bigquery.py` + workflow `.github/workflows/sync-sap-to-bigquery.yml`. 4 tablas SAP en dataset `shimano_app`: `sap_bp_raw`, `sap_items_raw`, `sap_invoices_raw`, `sap_quotations_raw`. Full snapshot cada 30 min con `WRITE_TRUNCATE`.
+- **📊 Fase 2 vistas curadas BigQuery** (2026-07-08). Archivo `bigquery/views.sql` con 4 vistas SQL: `v_pedidos_header`, `v_pedidos_lines` (con `UNNEST` del array lines), `v_visitas`, `v_facturas_sap` (con `LEFT JOIN` BPs). Aplanan el JSON de las Extensions con `JSON_VALUE`, tipado con `SAFE_CAST`, columnas en snake_case latino natural. Listas para Power BI sin `JSON_VALUE()` en cada medida.
+- **📊 Fase 3 Power BI Desktop conectado** (2026-07-08). Modo Import con las 4 vistas + `sap_items_raw` + 2 tablas auxiliares (`Vendedores`, `Origenes`). 12+ medidas DAX básicas. Dashboard "Resumen-Desempeño" en armado: gauges de Facturación mensual y % Cumplimiento, cards de KPIs principales, bar charts por Día/Región/Origen. Ver sección 40 con lista completa de medidas y visuales.
+- **↩️ Volver a Pendientes desde Confirmados** (v283, solo admin/gerente). Botón naranja en el footer del modal cuando el pedido está en Confirmados. Si el pedido ya se transfirió a SAP, aviso explícito que la Sales Quotation en SAP NO se elimina (hay que cancelarla manualmente). Guarda auditoría en `revertedFromConfirmedAt`, `revertedBy`, `previousSapDocNum`.
+- **🔗 Cards del header y contador de lista COINCIDEN** (v283, opción A elegida). `updateContactSummary()` ahora usa `effClients`/`effProspects` (misma lógica que `updateStats`). Antes contaba clientes del padrón viejo sin CardCode SAP; ahora ambos indicadores muestran solo SAP-confirmados. Fin de la discrepancia "97 / 137 habilitados" vs "TIENDAS 109".
+- **🐛 Fix `approvedAltas` listener con fallback defensivo** (v283). Cuando el sync o el admin agregaba clientes nuevos, las 4 cards del header no se actualizaban silenciosamente si `drawMarkers()` throweaba. Fix: log explícito del error + fallback que llama `updateStats(filteredPoints())` directo.
+
+Highlights v277→v281 (changelog detallado en sección 41):
 
 - **📊 Fase 1.1 pipeline Power BI COMPLETA** (2026-07-07). 7 instancias de la Firebase Extension `firestore-bigquery-export` sincronizando en tiempo real → dataset `shimano_app` en `southamerica-east1`. Backfill del histórico ejecutado con `fs-bq-import-collection`: 264 documentos importados (pedidos, visits, client_master, sap_clients, client_applications, rendiciones, campaigns). Cada write futuro se sincroniza automáticamente sin código adicional. Detalles + troubleshooting en sección 40.
 - **🔍 Buscador con lupa en modal Revisá tu pedido** (v281). Input arriba del listado que filtra por código o descripción. Los totales NO se ven afectados (siguen sumando sobre TODO el pedido). Contador "N de M productos" + botón (×) para limpiar. Útil para pedidos Excel de ~150 SKUs donde scrollear era tedioso.
