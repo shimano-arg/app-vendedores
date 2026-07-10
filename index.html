@@ -2812,6 +2812,12 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <button class="rd-subtab-btn active" data-rdsub="solicitud" onclick="setRendSubtab('solicitud')">Solicitar recarga</button>
         <button class="rd-subtab-btn" data-rdsub="gasto" onclick="setRendSubtab('gasto')">Rendir gasto</button>
         <button class="rd-subtab-btn" data-rdsub="mias" onclick="setRendSubtab('mias')">Mis rendiciones <span class="rd-sub-count" id="rd-sub-count-mias"></span></button>
+        <!-- v289+: sub-tab TODAS visible solo para admin/gerente. Permite
+             revisar cualquier rendicion aprobada/pendiente/rechazada
+             (equivalente a lo que hacen los vendedores en "Mis rendiciones"
+             pero para toda la organizacion). Se muestra/oculta desde JS
+             segun userRole. -->
+        <button class="rd-subtab-btn" data-rdsub="todas" onclick="setRendSubtab('todas')" id="rd-subtab-todas-btn" style="display:none;background:#7c2d12;color:#fff">Todas <span class="rd-sub-count" id="rd-sub-count-todas"></span></button>
       </div>
 
       <!-- Sub-tab 1: Solicitud / Anticipo -->
@@ -2896,6 +2902,28 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <button class="btn-camp" style="flex:1;padding:7px 10px;font-size:10px;background:#be185d;color:#fff;border:none;border-radius:5px;cursor:pointer;text-transform:uppercase;font-weight:800;letter-spacing:.3px" onclick="exportMisRendicionesExcel()">&#128202; Exportar Excel (solo aprobadas)</button>
         </div>
         <div id="rd-mias-list"></div>
+      </div>
+
+      <!-- v289+: Sub-tab TODAS (solo admin/gerente). Permite revisar
+           cualquier rendicion aprobada/pendiente/rechazada de toda la
+           organizacion. Reutiliza openRendicionDetail() para abrir cada
+           card con el detalle completo (foto ticket incluida). -->
+      <div id="rd-pane-todas" style="display:none">
+        <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:11px;color:#7c2d12;line-height:1.5">
+          <b>Vista de gestion:</b> lista completa de rendiciones de todos los vendedores. Tocar una card abre el detalle (foto ticket / adjunto / motivos). Filtrar por estado con los botones abajo.
+        </div>
+        <!-- Filtros por estado -->
+        <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+          <button class="rd-todas-filter active" data-rdfilter="all" onclick="setTodasRendFilter('all')" style="flex:1;padding:6px 10px;font-size:10px;background:#7c2d12;color:#fff;border:none;border-radius:5px;cursor:pointer;text-transform:uppercase;font-weight:800;letter-spacing:.3px">Todas <span id="rd-todas-count-all">0</span></button>
+          <button class="rd-todas-filter" data-rdfilter="approved" onclick="setTodasRendFilter('approved')" style="flex:1;padding:6px 10px;font-size:10px;background:#fff;color:#166534;border:1.5px solid #86efac;border-radius:5px;cursor:pointer;text-transform:uppercase;font-weight:800;letter-spacing:.3px">Aprobadas <span id="rd-todas-count-approved">0</span></button>
+          <button class="rd-todas-filter" data-rdfilter="pending_approval" onclick="setTodasRendFilter('pending_approval')" style="flex:1;padding:6px 10px;font-size:10px;background:#fff;color:#92400e;border:1.5px solid #fbbf24;border-radius:5px;cursor:pointer;text-transform:uppercase;font-weight:800;letter-spacing:.3px">Pendientes <span id="rd-todas-count-pending">0</span></button>
+          <button class="rd-todas-filter" data-rdfilter="rejected" onclick="setTodasRendFilter('rejected')" style="flex:1;padding:6px 10px;font-size:10px;background:#fff;color:#991b1b;border:1.5px solid #fca5a5;border-radius:5px;cursor:pointer;text-transform:uppercase;font-weight:800;letter-spacing:.3px">Rechazadas <span id="rd-todas-count-rejected">0</span></button>
+        </div>
+        <!-- Buscador rapido por vendedor / descripcion -->
+        <div style="margin-bottom:10px">
+          <input type="text" id="rd-todas-search" placeholder="Buscar por vendedor, descripcion, ticket, motivo..." oninput="renderTodasRendiciones()" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:12px;color:#0f172a;outline:none;background:#fff"/>
+        </div>
+        <div id="rd-todas-list"></div>
       </div>
     </div>
     <div class="tab-pane" id="pane-altacli" style="display:none">
@@ -3205,7 +3233,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v288';
+const APP_VERSION = 'v289';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -11207,7 +11235,18 @@ window.setTab = function(name){
   if (name === 'pedidos') renderPedidosTab();
   if (name === 'rutas') { ensureVisitsListener(); renderRutasTab(); }
   if (name === 'altacli') { populateAltaCliProvincias(); ensureAltaCliListener(); }
-  if (name === 'rendiciones') { ensureRendicionesListener(); renderMisRendiciones(); }
+  if (name === 'rendiciones') {
+    ensureRendicionesListener();
+    renderMisRendiciones();
+    // v289+: mostrar el sub-tab "TODAS" solo si el user es admin/gerente.
+    const btnTodas = document.getElementById('rd-subtab-todas-btn');
+    if (btnTodas) btnTodas.style.display = (userRole === 'admin' || userRole === 'gerente') ? '' : 'none';
+    // Si admin/gerente, arrancar el listener de todas para tener el badge
+    // con la cuenta en el sub-tab desde el arranque (sin tener que clickear).
+    if (userRole === 'admin' || userRole === 'gerente') {
+      ensureTodasRendicionesListener();
+    }
+  }
   if (name === 'notif') { try { renderNotifsList(); populateTaskTargets(); } catch(e) {} }
 };
 
@@ -13682,7 +13721,14 @@ window.setRendSubtab = function(sub){
   document.getElementById('rd-pane-solicitud').style.display = sub === 'solicitud' ? '' : 'none';
   document.getElementById('rd-pane-gasto').style.display = sub === 'gasto' ? '' : 'none';
   document.getElementById('rd-pane-mias').style.display = sub === 'mias' ? '' : 'none';
+  // v289+: sub-tab TODAS solo visible para admin/gerente.
+  const paneTodas = document.getElementById('rd-pane-todas');
+  if (paneTodas) paneTodas.style.display = sub === 'todas' ? '' : 'none';
   if (sub === 'mias') renderMisRendiciones();
+  if (sub === 'todas') {
+    ensureTodasRendicionesListener();
+    renderTodasRendiciones();
+  }
 };
 
 // Adjunto del form de solicitud (Excel/PDF/imagen)
@@ -13966,6 +14012,120 @@ function renderMisRendiciones(){
     html += ' &middot; ' + escapeHtml(dtStr) + '</div>';
     html += '<div><span class="rd-status">' + stLbl + '</span></div>';
     if (r.status === 'rejected' && r.rejectedReason) html += '<div style="font-size:10px;color:#991b1b;margin-top:4px"><b>Motivo:</b> ' + escapeHtml(r.rejectedReason) + '</div>';
+    html += '<div style="font-size:10px;color:#0891b2;margin-top:6px;font-weight:700">&#128194; Tocar para ver detalle y comprobante &rarr;</div>';
+    html += '</div>';
+  });
+  cont.innerHTML = html;
+}
+
+// v289+: gestion "TODAS LAS RENDICIONES" para admin/gerente.
+// Reutiliza openRendicionDetail (que ya usa el vendedor en "Mis rendiciones"
+// y el approver desde notifications) para mostrar el detalle completo con
+// foto del ticket / adjunto.
+let todasRendiciones = [];
+let unsubTodasRendiciones = null;
+let todasRendFilter = 'all';  // all | approved | pending_approval | rejected
+
+function ensureTodasRendicionesListener(){
+  if (unsubTodasRendiciones || !currentUser || !fbDb) return;
+  if (userRole !== 'admin' && userRole !== 'gerente') return;
+  // Sin filtro por owner - trae TODAS las rendiciones. Las Rules de
+  // /rendiciones ya permiten read para isReader() (incluye admin/gerente).
+  unsubTodasRendiciones = fbDb.collection('rendiciones')
+    .onSnapshot(qs => {
+      todasRendiciones = [];
+      qs.forEach(d => todasRendiciones.push(Object.assign({_fsId: d.id}, d.data())));
+      // Ordenar por fecha desc.
+      todasRendiciones.sort((a, b) => {
+        const ta = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate().getTime() : 0;
+        const tb = b.createdAt && b.createdAt.toDate ? b.createdAt.toDate().getTime() : 0;
+        return tb - ta;
+      });
+      // Actualizar contadores por estado.
+      const cntAll = todasRendiciones.length;
+      const cntApproved = todasRendiciones.filter(r => r.status === 'approved').length;
+      const cntPending = todasRendiciones.filter(r => r.status === 'pending_approval').length;
+      const cntRejected = todasRendiciones.filter(r => r.status === 'rejected').length;
+      const e1 = document.getElementById('rd-todas-count-all');       if (e1) e1.textContent = cntAll;
+      const e2 = document.getElementById('rd-todas-count-approved');  if (e2) e2.textContent = cntApproved;
+      const e3 = document.getElementById('rd-todas-count-pending');   if (e3) e3.textContent = cntPending;
+      const e4 = document.getElementById('rd-todas-count-rejected');  if (e4) e4.textContent = cntRejected;
+      // Badge en la sub-tab (total).
+      const badge = document.getElementById('rd-sub-count-todas');
+      if (badge) badge.textContent = cntAll;
+      renderTodasRendiciones();
+    }, err => console.warn('todasRendiciones listener', err));
+}
+
+window.setTodasRendFilter = function(f){
+  todasRendFilter = f || 'all';
+  document.querySelectorAll('.rd-todas-filter').forEach(b => {
+    const active = b.dataset.rdfilter === todasRendFilter;
+    b.classList.toggle('active', active);
+    // Cuando esta activa, ponerla en marron. Sino, borde de color segun estado.
+    if (active) {
+      b.style.background = '#7c2d12';
+      b.style.color = '#fff';
+      b.style.borderColor = '#7c2d12';
+    } else {
+      b.style.background = '#fff';
+      if (b.dataset.rdfilter === 'approved') { b.style.color = '#166534'; b.style.borderColor = '#86efac'; }
+      else if (b.dataset.rdfilter === 'pending_approval') { b.style.color = '#92400e'; b.style.borderColor = '#fbbf24'; }
+      else if (b.dataset.rdfilter === 'rejected') { b.style.color = '#991b1b'; b.style.borderColor = '#fca5a5'; }
+      else { b.style.color = '#7c2d12'; b.style.borderColor = '#7c2d12'; }
+    }
+  });
+  renderTodasRendiciones();
+};
+
+function renderTodasRendiciones(){
+  const cont = document.getElementById('rd-todas-list');
+  if (!cont) return;
+  if (!todasRendiciones.length) {
+    cont.innerHTML = '<div class="notif-empty">No hay rendiciones cargadas todavia en toda la organizacion.</div>';
+    return;
+  }
+  // Aplicar filtro por estado + buscador.
+  const q = ((document.getElementById('rd-todas-search') || {}).value || '').toLowerCase().trim();
+  let items = todasRendiciones;
+  if (todasRendFilter !== 'all') {
+    items = items.filter(r => r.status === todasRendFilter);
+  }
+  if (q) {
+    items = items.filter(r => {
+      const s = [
+        r.ownerName || '', r.ownerEmail || '', r.descripcion || '',
+        r.numeroTicket || '', r.motivo || '', r.tipoGasto || '',
+        r.tipoOperacion || '', r.observaciones || '',
+      ].join(' ').toLowerCase();
+      return s.indexOf(q) >= 0;
+    });
+  }
+  if (!items.length) {
+    cont.innerHTML = '<div class="notif-empty">No hay rendiciones que coincidan con el filtro / busqueda.</div>';
+    return;
+  }
+  let html = '';
+  items.forEach(r => {
+    const stCls = r.status === 'approved' ? 'approved' : (r.status === 'rejected' ? 'rejected' : 'pending');
+    const stLbl = r.status === 'approved' ? '✓ Aprobada' : (r.status === 'rejected' ? '✕ Rechazada' : 'Pendiente de aprobacion');
+    const dt = r.createdAt && r.createdAt.toDate ? r.createdAt.toDate() : null;
+    const dtStr = dt ? dt.toLocaleString('es-AR') : '';
+    const tipoTag = r.tipo === 'gasto' ? 'GASTO' : 'SOLICITUD';
+    const ttl = r.tipo === 'gasto'
+      ? ((r.descripcion || '-') + ' &middot; ' + (r.tipoGasto || ''))
+      : ((r.tipoOperacion || '-') + ' &middot; ' + (r.motivo || ''));
+    const rId = r._fsId || r._id || r.id || '';
+    const vendorLbl = r.ownerName || r.ownerEmail || '(sin owner)';
+    html += '<div class="rd-mias-card ' + stCls + '" onclick="openRendicionDetail(\'' + escapeAttr(rId) + '\')" style="cursor:pointer" title="Tocar para ver el detalle y el ticket">';
+    html += '<div style="font-size:10px;font-weight:800;color:#7c2d12;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">&#128100; ' + escapeHtml(vendorLbl) + '</div>';
+    html += '<h5><span class="rd-tipo-tag">' + tipoTag + '</span>' + escapeHtml(ttl) + '</h5>';
+    html += '<div class="rd-meta">Importe: <b>' + (r.importe || 0).toLocaleString('es-AR') + ' ' + escapeHtml(r.moneda || '') + '</b>';
+    if (r.tipo === 'gasto') html += ' &middot; Ticket: ' + escapeHtml(r.numeroTicket || '');
+    html += ' &middot; ' + escapeHtml(dtStr) + '</div>';
+    html += '<div><span class="rd-status">' + stLbl + '</span></div>';
+    if (r.status === 'rejected' && r.rejectedReason) html += '<div style="font-size:10px;color:#991b1b;margin-top:4px"><b>Motivo:</b> ' + escapeHtml(r.rejectedReason) + '</div>';
+    if (r.status === 'approved' && r.approvedByEmail) html += '<div style="font-size:10px;color:#166534;margin-top:4px"><b>Aprobada por:</b> ' + escapeHtml(r.approvedByEmail) + '</div>';
     html += '<div style="font-size:10px;color:#0891b2;margin-top:6px;font-weight:700">&#128194; Tocar para ver detalle y comprobante &rarr;</div>';
     html += '</div>';
   });
