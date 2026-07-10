@@ -105,10 +105,11 @@ NON_SALES_WHS = {'05', '06'}
 # historial post-Baraldo justifique.
 DEFAULT_HISTORY_MONTHS = 12
 
-# Page size default de SL v10 es 20, con hasta 100 permitido antes de que
-# capee. Pedimos 100 en la primera pagina; @odata.nextLink hereda el $top.
-# Reduce round-trips por endpoint de ~38 pags a ~8 en Items.
-SL_PAGE_SIZE = 100
+# Page size del SL v10. En SL, `$top=N` funciona como "cap total" (te resta
+# hasta llegar a 0), NO como page size. Para page size hay que usar el header
+# `Prefer: odata.maxpagesize=N`. Se puede pedir hasta 500. Con esto Items
+# pasa de 38 pags -> 2 pags (2 x 500).
+SL_PAGE_SIZE = 500
 
 
 # ============================================================
@@ -247,11 +248,11 @@ def sl_fetch_all(cfg, session, path_base, entity_name,
         query.append(f"$filter={filter_expr}")
     if select_fields:
         query.append(f"$select={','.join(select_fields)}")
-    # v289 iter5: pedir $top=100 para reducir round-trips (default SL es 20).
-    query.append(f"$top={SL_PAGE_SIZE}")
     if query:
         parts.append('?' + '&'.join(query))
     url_path = ''.join(parts)
+    # v289 iter6: page size via header (no $top - $top actua como cap total).
+    page_size_headers = {'Prefer': f'odata.maxpagesize={SL_PAGE_SIZE}'}
 
     docs = []
     page = 0
@@ -259,15 +260,15 @@ def sl_fetch_all(cfg, session, path_base, entity_name,
     while url_path:
         url = url_path if url_path.startswith('http') else f"{cfg['url']}{url_path}"
         try:
-            resp = session.get(url, timeout=60)
+            resp = session.get(url, timeout=60, headers=page_size_headers)
         except requests.RequestException as e:
             log(f'[SL/{entity_name}] error de red pag {page}: {e}. Retry en 5s.')
             time.sleep(5)
-            resp = session.get(url, timeout=60)
+            resp = session.get(url, timeout=60, headers=page_size_headers)
         if resp.status_code == 401:
             log(f'[SL/{entity_name}] 401 - re-login y retry')
             sl_login(cfg, session)
-            resp = session.get(url, timeout=60)
+            resp = session.get(url, timeout=60, headers=page_size_headers)
         if not resp.ok:
             try:
                 detail = resp.json().get('error', {}).get('message', {}).get('value', '')
