@@ -377,9 +377,18 @@ def get_local_categorization() -> dict:
 
 
 def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
-    """Aplana un Item de SAP para BQ: suma stock vendible + extrae precio PESCA."""
+    """Aplana un Item de SAP para BQ: suma stock vendible + extrae precio PESCA + costo por warehouse."""
+    def _safe_float(x):
+        try:
+            return float(x) if x is not None else None
+        except (TypeError, ValueError):
+            return None
     total_qty = 0.0
     whs_stock = {}
+    # v289 iter2: costo ponderado por warehouse (SUM stock*costo / SUM stock).
+    # StandardAveragePrice viene por deposito en algunos SAP; si no, dejamos None.
+    weighted_cost_num = 0.0
+    weighted_cost_den = 0.0
     for w in (item.get('ItemWarehouseInfoCollection') or []):
         whs_code = w.get('WarehouseCode') or ''
         try:
@@ -390,6 +399,11 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
         if whs_code in NON_SALES_WHS:
             continue
         total_qty += qty
+        # Costo promedio ponderado de warehouses vendibles.
+        c = _safe_float(w.get('StandardAveragePrice'))
+        if c is not None and c > 0 and qty > 0:
+            weighted_cost_num += c * qty
+            weighted_cost_den += qty
     price_pesca = None
     for ip in (item.get('ItemPrices') or []):
         if ip.get('PriceList') == price_list_num:
@@ -400,14 +414,13 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
                 except (TypeError, ValueError):
                     pass
             break
-    # v289+: costos del item para el KPI Valor Inventario (Costo).
-    def _safe_float(x):
-        try:
-            return float(x) if x is not None else None
-        except (TypeError, ValueError):
-            return None
-    last_purchase = _safe_float(item.get('LastPurchasePrice'))
-    avg_std = _safe_float(item.get('AvgStdPrice'))
+    # v289 iter2: costo por unidad. Si no hay stock ni costo por warehouse,
+    # queda None y Power BI lo trata como faltante (skip en Valor Inventario Costo).
+    cost_avg = (weighted_cost_num / weighted_cost_den) if weighted_cost_den > 0 else None
+    # last_purchase queda para compat con el schema (siempre None hasta que
+    # este SAP exponga LastPurchasePrice o algun campo equivalente).
+    last_purchase = None
+    avg_std = cost_avg
     # v289+: buscar la categorizacion cat/fam/sub del catalogo pesca.
     cat_all = get_local_categorization()
     _cat_map = cat_all.get(item.get('ItemCode') or '', {})
@@ -571,20 +584,16 @@ def main():
     # === 2. Items (grupo PESCA con stock + precio)
     pesca_code = resolve_pesca_group_code(cfg, session)
     log(f'[grupo] PESCA = {pesca_code}')
-    # v289+ (2026-07-10): agregar campos de COSTO para el KPI "Valor Inventario
-    # (Costo)" del dashboard Inventario. En SAP B1 hay 3 formas de valorar el
-    # costo del item:
-    #   LastPurchasePrice - precio de la ultima compra (mas confiable si compran
-    #                        seguido, pero desactualizado si no).
-    #   AvgStdPrice       - precio promedio movil (moving average).
-    #   InventoryValueUOM - valor por unidad de inventario (contable, el mejor).
-    # Pedimos los 3 para tener redundancia. Power BI usa el que este poblado
-    # con COALESCE(InventoryValueUOM, AvgStdPrice, LastPurchasePrice).
+    # v289 iter2 (2026-07-10): LastPurchasePrice/AvgStdPrice NO existen en el
+    # schema del Item de este SAP (SL devolvio HTTP 400 en run #29). En SAP B1
+    # el costo puede venir por warehouse en ItemWarehouseInfoCollection[]:
+    #   .StandardAveragePrice  - precio promedio ponderado por deposito
+    #   .Committed             - comprometido
+    # Los extraemos en flatten_item() desde ese array.
     item_select = [
         'ItemCode', 'ItemName', 'ForeignName', 'ItemsGroupCode',
         'ItemWarehouseInfoCollection', 'ItemPrices',
         'Valid', 'Frozen', 'CreateDate', 'UpdateDate',
-        'LastPurchasePrice', 'AvgStdPrice',
     ]
     items = sl_fetch_all(
         cfg, session, '/b1s/v1/Items', 'ITEMS',
