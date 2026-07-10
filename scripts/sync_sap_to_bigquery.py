@@ -316,6 +316,66 @@ def flatten_bp(bp: dict, sync_ts: str) -> dict:
     }
 
 
+def load_local_categorization_from_html() -> dict:
+    """
+    v289+: replica de la funcion homonima en sync_sap_to_firestore.py.
+    Lee el mapa {code: {cat, fam, sub}} desde el CSV inline `const PRODUCTS =
+    [...]` en index.html del repo. Este mapping es la fuente de verdad de
+    la categorizacion del catalogo pesca (cargada a mano por producto).
+    SAP no tiene la categoria fina - solo el ItemsGroupCode = PESCA.
+
+    Se usa para poblar cat/fam/sub en sap_items_raw asi Power BI puede
+    hacer el treemap Familia/Subfamilia sin joins raros.
+
+    Retorna dict vacio si no encuentra la linea (no critico).
+    """
+    result = {}
+    html_path = os.path.join(os.path.dirname(__file__), '..', 'index.html')
+    html_path = os.path.abspath(html_path)
+    if not os.path.exists(html_path):
+        log(f'[WARN] index.html no encontrado en {html_path}, no puedo leer categorias')
+        return result
+    try:
+        with open(html_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                stripped = line.lstrip()
+                if stripped.startswith('const PRODUCTS = ['):
+                    json_part = stripped[len('const PRODUCTS = '):].rstrip()
+                    if json_part.endswith(';'):
+                        json_part = json_part[:-1]
+                    try:
+                        arr = json.loads(json_part)
+                    except json.JSONDecodeError as e:
+                        log(f'[WARN] no pude parsear PRODUCTS inline: {e}')
+                        return result
+                    for p in arr:
+                        code = (p.get('code') or '').strip()
+                        if not code:
+                            continue
+                        if p.get('cat') or p.get('fam') or p.get('sub'):
+                            result[code] = {
+                                'cat': p.get('cat') or '',
+                                'fam': p.get('fam') or '',
+                                'sub': p.get('sub') or '',
+                            }
+                    break
+    except Exception as e:
+        log(f'[WARN] load_local_categorization_from_html: {e}')
+    log(f'[cat] {len(result)} items con categorizacion en index.html')
+    return result
+
+
+# Cache modulo-level: cargar el CSV una sola vez por corrida.
+_LOCAL_CATEGORIZATION_CACHE = None
+
+
+def get_local_categorization() -> dict:
+    global _LOCAL_CATEGORIZATION_CACHE
+    if _LOCAL_CATEGORIZATION_CACHE is None:
+        _LOCAL_CATEGORIZATION_CACHE = load_local_categorization_from_html()
+    return _LOCAL_CATEGORIZATION_CACHE
+
+
 def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
     """Aplana un Item de SAP para BQ: suma stock vendible + extrae precio PESCA."""
     total_qty = 0.0
@@ -348,6 +408,9 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
             return None
     last_purchase = _safe_float(item.get('LastPurchasePrice'))
     avg_std = _safe_float(item.get('AvgStdPrice'))
+    # v289+: buscar la categorizacion cat/fam/sub del catalogo pesca.
+    cat_all = get_local_categorization()
+    _cat_map = cat_all.get(item.get('ItemCode') or '', {})
     return {
         'item_code': item.get('ItemCode'),
         'item_name': item.get('ItemName'),
@@ -365,6 +428,13 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
         # tener siempre un valor razonable.
         'cost_last_purchase_ars': last_purchase,
         'cost_avg_ars': avg_std,
+        # v289+: categorizacion del catalogo pesca (Reels/Cañas/Lineas etc.)
+        # tomada del CSV inline en index.html. SAP solo tiene ItemsGroupCode
+        # (PESCA); la sub-categorizacion viene del catalogo cargado por producto.
+        # Power BI usa cat = Familia y fam = Subfamilia en el treemap.
+        'cat': _cat_map.get('cat', ''),
+        'fam': _cat_map.get('fam', ''),
+        'sub': _cat_map.get('sub', ''),
         '_sync_timestamp': sync_ts,
     }
 
