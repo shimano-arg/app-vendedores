@@ -84,6 +84,13 @@ BQ_TABLE_QUOTATIONS = f'{BQ_PROJECT}.{BQ_DATASET}.sap_quotations_raw'
 # calcular el BACKORDER = Cantidad_Quotation - Cantidad_SO_generada para
 # el dashboard "Inventario y Backorder" de Power BI.
 BQ_TABLE_ORDERS     = f'{BQ_PROJECT}.{BQ_DATASET}.sap_orders_raw'
+# v289+ (2026-07-10): Purchase Orders (OPOR/POR1 en SAP). Hoy Shimano PESCA
+# NO carga POs sistematicamente (cargan el embarque cuando llega y ven a
+# posteriori). A futuro van a cargar POs con fecha estimada de llegada para
+# tener previsibilidad -> el dashboard va a mostrar "ASIGNADO a embarque"
+# + fecha para los SKUs con PO abierta. Sincronizamos ya para tener la
+# tabla lista cuando arranquen a cargarlas (sin re-codear).
+BQ_TABLE_PURCHASE_ORDERS = f'{BQ_PROJECT}.{BQ_DATASET}.sap_purchase_orders_raw'
 
 # Codigo de la lista PESCA en SAP (misma que sync_sap_to_firestore.py).
 PESCA_PRICE_LIST_NUM = 12
@@ -540,6 +547,19 @@ def main():
     )
     order_rows = [flatten_doc(d, 'ORDER', sync_ts) for d in orders]
     load_to_bq(bq_client, BQ_TABLE_ORDERS, order_rows, 'ORDERS', dry_run=dry_run)
+
+    # === 6. Purchase Orders (ultimos 24 meses). Hoy vacio o casi vacio -
+    # Shimano PESCA arranca a cargar POs con fecha estimada de llegada mas
+    # adelante. Cuando lo hagan, el dashboard Power BI va a mostrar
+    # "ASIGNADO a embarque" + Prox. embarque para los SKUs con PO abierta.
+    pos = sl_fetch_all(
+        cfg, session, '/b1s/v1/PurchaseOrders', 'PURCHASE_ORDERS',
+        select_fields=doc_select,
+        filter_expr=f"DocDate ge '{since_iso_date}'",
+        max_docs=max_docs,
+    )
+    po_rows = [flatten_doc(d, 'PURCHASE_ORDER', sync_ts) for d in pos]
+    load_to_bq(bq_client, BQ_TABLE_PURCHASE_ORDERS, po_rows, 'PURCHASE_ORDERS', dry_run=dry_run)
 
     log('=== sync_sap_to_bigquery END OK ===')
 
