@@ -340,6 +340,14 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
                 except (TypeError, ValueError):
                     pass
             break
+    # v289+: costos del item para el KPI Valor Inventario (Costo).
+    def _safe_float(x):
+        try:
+            return float(x) if x is not None else None
+        except (TypeError, ValueError):
+            return None
+    last_purchase = _safe_float(item.get('LastPurchasePrice'))
+    avg_std = _safe_float(item.get('AvgStdPrice'))
     return {
         'item_code': item.get('ItemCode'),
         'item_name': item.get('ItemName'),
@@ -352,6 +360,11 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
         'stock_total_sellable': int(round(total_qty)),
         'stock_by_warehouse_json': json.dumps(whs_stock, default=str) if whs_stock else None,
         'price_pesca_ars': price_pesca,
+        # v289+: costos del item (2 fuentes de SAP para redundancia).
+        # Power BI usa COALESCE(cost_avg_ars, cost_last_purchase_ars) para
+        # tener siempre un valor razonable.
+        'cost_last_purchase_ars': last_purchase,
+        'cost_avg_ars': avg_std,
         '_sync_timestamp': sync_ts,
     }
 
@@ -488,10 +501,20 @@ def main():
     # === 2. Items (grupo PESCA con stock + precio)
     pesca_code = resolve_pesca_group_code(cfg, session)
     log(f'[grupo] PESCA = {pesca_code}')
+    # v289+ (2026-07-10): agregar campos de COSTO para el KPI "Valor Inventario
+    # (Costo)" del dashboard Inventario. En SAP B1 hay 3 formas de valorar el
+    # costo del item:
+    #   LastPurchasePrice - precio de la ultima compra (mas confiable si compran
+    #                        seguido, pero desactualizado si no).
+    #   AvgStdPrice       - precio promedio movil (moving average).
+    #   InventoryValueUOM - valor por unidad de inventario (contable, el mejor).
+    # Pedimos los 3 para tener redundancia. Power BI usa el que este poblado
+    # con COALESCE(InventoryValueUOM, AvgStdPrice, LastPurchasePrice).
     item_select = [
         'ItemCode', 'ItemName', 'ForeignName', 'ItemsGroupCode',
         'ItemWarehouseInfoCollection', 'ItemPrices',
         'Valid', 'Frozen', 'CreateDate', 'UpdateDate',
+        'LastPurchasePrice', 'AvgStdPrice',
     ]
     items = sl_fetch_all(
         cfg, session, '/b1s/v1/Items', 'ITEMS',
