@@ -275,7 +275,25 @@ def sl_fetch_all(cfg, session, path_base, entity_name,
             log(f'[SL/{entity_name}] cap {max_docs} alcanzado')
             docs = docs[:max_docs]
             break
-        url_path = body.get('@odata.nextLink')
+        # v289 iter3 (2026-07-10): SL v10+ devuelve nextLink con @, versiones
+        # viejas sin @. Chequear ambos para no cortar el paginado en pag 1.
+        # (Mismo fix que ya se aplico en sync_sap_to_firestore.py)
+        next_link = body.get('@odata.nextLink') or body.get('odata.nextLink')
+        if not next_link:
+            break
+        # Normalizar: puede venir absoluto (http://...) o relativo (/b1s/...) o
+        # sin barra ('Items?...').
+        if next_link.startswith('http'):
+            idx = next_link.find('/b1s/v1/')
+            url_path = next_link[idx:] if idx >= 0 else next_link
+        elif next_link.startswith('/'):
+            url_path = next_link
+        else:
+            url_path = '/b1s/v1/' + next_link
+        # Safety cap para evitar loops infinitos.
+        if page > 500:
+            log(f'[SL/{entity_name}] safety cap 500 paginas alcanzado, cortando')
+            break
     log(f'[SL/{entity_name}] total: {len(docs)} docs en {page} paginas')
     return docs
 
