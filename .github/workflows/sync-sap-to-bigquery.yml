@@ -51,7 +51,11 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 20    # Con 24 meses de facturas puede tardar ~10 min.
+    # v289 iter4 (2026-07-10): despues del fix de paginado empezamos a traer
+    # todos los docs (antes se cortaba en pag 1). Con 4 endpoints x cientos de
+    # paginas cada uno (Invoices/Quotations/Orders + PurchaseOrders eventualmente),
+    # 20 min no alcanzo. Subimos a 45 min con margen holgado.
+    timeout-minutes: 45
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
