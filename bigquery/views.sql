@@ -224,3 +224,138 @@ SELECT
 FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv
 LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
   ON inv.card_code = bp.card_code;
+
+
+-- ============================================================
+-- View 5: v_inventario
+-- ============================================================
+-- 1 fila por SKU pesca con la foto completa de inventario para la hoja
+-- "Inventario" de Power BI:
+--   * Stock actual sellable (excluye whs 05/06)
+--   * Cantidad en cotizaciones abiertas (demanda potencial no cerrada)
+--   * Cantidad en Sales Orders abiertas (backorder = comprometido sin entregar)
+--   * Cantidad en Purchase Orders abiertas (asignado a embarque - hoy ~0)
+--   * Valor inventario a costo y a precio de venta PESCA
+--   * Categorizacion cat/fam/sub del catalogo (para treemap)
+--   * Semaforos derivados: cobertura_meses = stock / demanda_promedio_ultimos_90d
+--     (se calcula en Power BI desde v_pedidos_lines si hace falta)
+--
+-- Convencion "abierto":
+--   - Quotations: document_status = 'bost_Open' (bost_Close = ganada o vencida).
+--     Usamos SUM(qty) de las lineas abiertas.
+--   - Orders: RemainingOpenQuantity por linea (SAP ya descuenta lo entregado).
+--   - Purchase Orders: idem RemainingOpenQuantity.
+--
+-- Notas:
+--   - stock_by_warehouse_json queda expuesta para que Power BI la explote
+--     con un query M si arma la vista por deposito. Alternativa: crear
+--     v_inventario_por_warehouse en fase posterior.
+--   - COALESCE(precio) para no propagar NULLs en el valor total.
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_inventario` AS
+WITH quotations_open_agg AS (
+  SELECT
+    JSON_VALUE(line, '$.ItemCode') AS item_code,
+    SUM(SAFE_CAST(JSON_VALUE(line, '$.RemainingOpenQuantity') AS FLOAT64)) AS qty_quotations_open
+  FROM `app-vendedores-shimano.shimano_app.sap_quotations_raw` q,
+  UNNEST(JSON_EXTRACT_ARRAY(q.lines_json)) AS line
+  WHERE q.document_status = 'bost_Open'
+    AND COALESCE(q.cancelled, 'tNO') = 'tNO'
+  GROUP BY item_code
+),
+orders_open_agg AS (
+  SELECT
+    JSON_VALUE(line, '$.ItemCode') AS item_code,
+    SUM(SAFE_CAST(JSON_VALUE(line, '$.RemainingOpenQuantity') AS FLOAT64)) AS qty_backorder
+  FROM `app-vendedores-shimano.shimano_app.sap_orders_raw` o,
+  UNNEST(JSON_EXTRACT_ARRAY(o.lines_json)) AS line
+  WHERE o.document_status = 'bost_Open'
+    AND COALESCE(o.cancelled, 'tNO') = 'tNO'
+  GROUP BY item_code
+),
+po_open_agg AS (
+  SELECT
+    JSON_VALUE(line, '$.ItemCode') AS item_code,
+    SUM(SAFE_CAST(JSON_VALUE(line, '$.RemainingOpenQuantity') AS FLOAT64)) AS qty_incoming
+  FROM `app-vendedores-shimano.shimano_app.sap_purchase_orders_raw` po,
+  UNNEST(JSON_EXTRACT_ARRAY(po.lines_json)) AS line
+  WHERE po.document_status = 'bost_Open'
+    AND COALESCE(po.cancelled, 'tNO') = 'tNO'
+  GROUP BY item_code
+)
+SELECT
+  it.item_code,
+  it.item_name,
+  it.foreign_name,
+  it.cat                                                              AS familia,
+  it.fam                                                              AS subfamilia,
+  it.sub                                                              AS sub_subfamilia,
+  it.valid,
+  it.frozen,
+  -- Stock
+  it.stock_total_sellable                                             AS stock_actual,
+  it.stock_by_warehouse_json,
+  -- Documentos abiertos
+  COALESCE(qo.qty_quotations_open, 0)                                 AS qty_quotations_open,
+  COALESCE(oo.qty_backorder, 0)                                       AS qty_backorder,
+  COALESCE(po.qty_incoming, 0)                                        AS qty_incoming,
+  -- Stock proyectado = actual + entrante - comprometido
+  it.stock_total_sellable
+    + COALESCE(po.qty_incoming, 0)
+    - COALESCE(oo.qty_backorder, 0)                                   AS stock_proyectado,
+  -- Precios y costos
+  it.price_pesca_ars,
+  it.cost_avg_ars,
+  it.cost_last_purchase_ars,
+  COALESCE(it.cost_avg_ars, it.cost_last_purchase_ars)                AS cost_efectivo_ars,
+  -- Valores
+  it.stock_total_sellable * COALESCE(it.price_pesca_ars, 0)           AS valor_inventario_venta_ars,
+  it.stock_total_sellable * COALESCE(it.cost_avg_ars, it.cost_last_purchase_ars, 0) AS valor_inventario_costo_ars,
+  -- Flags derivados para semaforos rapidos en Power BI
+  CASE
+    WHEN it.stock_total_sellable <= 0 AND COALESCE(qo.qty_quotations_open, 0) > 0 THEN 'QUEBRADO_CON_DEMANDA'
+    WHEN it.stock_total_sellable <= 0                                             THEN 'QUEBRADO'
+    WHEN it.stock_total_sellable < COALESCE(oo.qty_backorder, 0)                  THEN 'INSUFICIENTE_BACKORDER'
+    WHEN COALESCE(oo.qty_backorder, 0) = 0 AND it.stock_total_sellable > 0        THEN 'DISPONIBLE'
+    ELSE 'PARCIAL'
+  END                                                                 AS estado_stock,
+  it._sync_timestamp
+FROM `app-vendedores-shimano.shimano_app.sap_items_raw` it
+LEFT JOIN quotations_open_agg qo ON it.item_code = qo.item_code
+LEFT JOIN orders_open_agg     oo ON it.item_code = oo.item_code
+LEFT JOIN po_open_agg         po ON it.item_code = po.item_code;
+
+
+-- ============================================================
+-- View 6: v_inventario_por_warehouse
+-- ============================================================
+-- Explota stock_by_warehouse_json a UNA FILA POR (item, warehouse).
+-- Util para el drill "stock por deposito" de la hoja Inventario.
+-- Filtra warehouses no-vendibles (05 Marketing, 06 Devoluciones) como
+-- flag para que Power BI pueda mostrarlos u ocultarlos.
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_inventario_por_warehouse` AS
+SELECT
+  it.item_code,
+  it.item_name,
+  it.cat                                                              AS familia,
+  it.fam                                                              AS subfamilia,
+  wh.whs                                                              AS warehouse_code,
+  SAFE_CAST(wh.value AS FLOAT64)                                      AS stock_qty,
+  wh.whs IN ('05', '06')                                              AS is_non_sales,
+  it.price_pesca_ars,
+  it.cost_avg_ars,
+  SAFE_CAST(wh.value AS FLOAT64) * COALESCE(it.price_pesca_ars, 0)    AS valor_venta_ars,
+  SAFE_CAST(wh.value AS FLOAT64) * COALESCE(it.cost_avg_ars, it.cost_last_purchase_ars, 0) AS valor_costo_ars,
+  it._sync_timestamp
+FROM `app-vendedores-shimano.shimano_app.sap_items_raw` it,
+UNNEST(
+  ARRAY(
+    SELECT AS STRUCT
+      whs_code                                                        AS whs,
+      JSON_VALUE(PARSE_JSON(it.stock_by_warehouse_json, wide_number_mode => 'round'),
+                 '$.' || whs_code)                                    AS value
+    FROM UNNEST(JSON_KEYS(PARSE_JSON(it.stock_by_warehouse_json, wide_number_mode => 'round'), 1)) AS whs_code
+  )
+) AS wh
+WHERE it.stock_by_warehouse_json IS NOT NULL;
