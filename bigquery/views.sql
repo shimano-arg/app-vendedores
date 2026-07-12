@@ -399,9 +399,40 @@ SELECT
   SAFE_CAST(JSON_VALUE(line, '$.Price') AS FLOAT64)                     AS precio_unitario,
   SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)                 AS importe_linea_ars,
   JSON_VALUE(line, '$.WarehouseCode')                                   AS warehouse_code,
-  -- Categorizacion del catalogo (join con items)
-  it.item_name                                                          AS item_name_catalogo,
-  it.cat                                                                AS familia,
+  -- Categorizacion del catalogo (join con items).
+  -- Parche encoding: el catalogo embebido en index.html perdio acentos/enies
+  -- (bytes latin-1 leidos como UTF-8 -> U+FFFD). Reemplazamos los patrones
+  -- mas comunes para que Power BI muestre "Cania"/"Accion"/etc. correctos.
+  -- Fix definitivo pendiente en el build del catalogo maestro.
+  REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+    it.item_name,
+    'Ca�as', 'Cañas'),
+    'Ca�a',  'Caña'),
+    'Tama�o','Tamaño'),
+    'Se�uelo','Señuelo'),
+    'Acci�n','Acción'),
+    'visi�n','visión'),
+    'Multifunci�n','Multifunción'),
+    'C�digo','Código'),
+    'Jap�n','Japón'),
+    'Telesc�pica','Telescópica'),
+    'Se�al','Señal'),
+    'a�os','años'),
+    'a�o','año'),
+    '�',     '')                                                    AS item_name_catalogo,
+  -- Familia: catalogo + parche manual para SKUs pesca reales sin match.
+  COALESCE(
+    NULLIF(it.cat, ''),
+    CASE JSON_VALUE(line, '$.ItemCode')
+      WHEN 'CVC66H2CSA'   THEN 'CAÑAS'
+      WHEN 'CVC66MH2'     THEN 'CAÑAS'
+      WHEN 'CVC66MH4SACO' THEN 'CAÑAS'
+      WHEN 'FXPR410'      THEN 'CAÑAS'
+      WHEN '12843-01'     THEN 'CAÑAS'
+      WHEN '55CRT12524'   THEN 'CAÑAS'
+      WHEN '471512'       THEN 'FG'
+    END
+  )                                                                     AS familia,
   it.fam                                                                AS subfamilia,
   it.sub                                                                AS sub_subfamilia,
   -- is_pesca = TRUE si el SKU existe en sap_items_raw (grupo 102 PESCA).
@@ -449,7 +480,24 @@ SELECT
   o.doc_num                                                             AS so_doc_num,
   o.doc_date                                                            AS so_doc_date,
   JSON_VALUE(line, '$.ItemCode')                                        AS sku,
-  it.item_name                                                          AS producto,
+  -- Mismo parche encoding que v_ventas_lineas (catalogo con U+FFFD por
+  -- bytes latin-1 leidos como UTF-8). Fix definitivo pendiente en build.
+  REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+    it.item_name,
+    'Ca�as', 'Cañas'),
+    'Ca�a',  'Caña'),
+    'Tama�o','Tamaño'),
+    'Se�uelo','Señuelo'),
+    'Acci�n','Acción'),
+    'visi�n','visión'),
+    'Multifunci�n','Multifunción'),
+    'C�digo','Código'),
+    'Jap�n','Japón'),
+    'Telesc�pica','Telescópica'),
+    'Se�al','Señal'),
+    'a�os','años'),
+    'a�o','año'),
+    '�',     '')                                                        AS producto,
   it.cat                                                                AS familia,
   it.fam                                                                AS subfamilia,
   it.item_code IS NOT NULL                                              AS is_pesca,

@@ -3136,7 +3136,13 @@ Detalles completos + troubleshooting en la nueva **sección 40-bis** del README.
 
 ---
 
-**Última actualización**: 2026-07-08 — SW v288. Highlights v282→v288 (changelog detallado en sección 41):
+**Última actualización**: 2026-07-12 — SW v289 (frontend sin cambios v289→hoy; solo iteración BigQuery). Highlights recientes (BigQuery views para hoja Inventario, 2026-07-10→2026-07-12):
+
+- **📊 Vistas nuevas `v_ventas_lineas` + `v_backorder_lineas` para hoja "Inventario" de Power BI** (2026-07-10). `v_ventas_lineas` explota `lines_json` de facturas con `LEFT JOIN` a `sap_items_raw` para tener familia/subfamilia + flag `is_pesca`. `v_backorder_lineas` idem sobre `sap_orders_raw` (SO abiertas) con `LEFT JOIN` a próximos PO por SKU para columna `prox_embarque_date` y estado ASIGNADO/SIN ASIGNAR.
+- **🩹 Parche encoding + familias manuales en `v_ventas_lineas`/`v_backorder_lineas`** (2026-07-12). El catálogo embebido en `index.html` perdió acentos/eñes (bytes latin-1 leídos como UTF-8 → `U+FFFD`). Parche con REPLACE encadenados en las views SQL para mostrar `Caña`/`Tamaño`/`Acción`/etc correctos en Power BI. Además, 7 SKUs pesca reales facturaron `~1.96M ARS` con `familia=''` (sin match en catálogo): parche manual con `CASE WHEN item_code IN (...)` mapea `CVC66H2CSA`, `CVC66MH2`, `CVC66MH4SACO`, `FXPR410`, `12843-01`, `55CRT12524` → `CAÑAS`; `471512` → `FG`. Fix definitivo pendiente en el build del catálogo maestro (`_build_argentina_zonas_v2.py`).
+- **🔍 Scripts diagnóstico** (`scripts/check_ventas_facturado.py`, `scripts/investigate_pesca_sin_familia.py`, `scripts/check_encoding_bytes.py`). El primero mide cobertura de familia + top SKUs por unidades/facturado. El segundo lista SKUs `is_pesca=TRUE` con `familia=''` para identificar los que faltan en el catálogo. El tercero valida con `TO_HEX(CAST(x AS BYTES))` que los bytes UTF-8 en BQ son correctos (`0xC3B1=ñ`, `0xC3B3=ó`) — útil porque PowerShell renderiza los `�` aunque los datos estén bien.
+
+Highlights v282→v288 (changelog detallado en sección 41):
 
 - **🎯 Sync automático de BPs pesca de SAP → app** (v282-v288, 2026-07-08). Nueva función `sync_bp_pesca()` dentro del cron cada 30 min. Filtro correcto (v288): `U_DIVISION IN ('2', '3', 'PESCA', 'BIKE & PESCA')` — los códigos internos del dropdown en SAP son 1=BIKE, 2=PESCA, 3=BIKE&PESCA. Provincia canónica poblada desde lookup a `/States?filter=Country eq 'AR'` para convertir código interno (`'2'`) a nombre (`'SALTA'`). ~103 BPs pesca sincronizando cada 30 min. Ver sección **40-bis** con contexto histórico + comportamiento del upsert + 15 iteraciones que llevaron al fix definitivo.
 - **📊 Fase 1.2 SAP → BigQuery completa** (2026-07-08). Nuevo `scripts/sync_sap_to_bigquery.py` + workflow `.github/workflows/sync-sap-to-bigquery.yml`. 4 tablas SAP en dataset `shimano_app`: `sap_bp_raw`, `sap_items_raw`, `sap_invoices_raw`, `sap_quotations_raw`. Full snapshot cada 30 min con `WRITE_TRUNCATE`.
