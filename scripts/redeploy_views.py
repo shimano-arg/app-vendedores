@@ -24,7 +24,7 @@ except Exception as e:
 sql = (Path(__file__).resolve().parent.parent / 'bigquery' / 'views.sql').read_text(encoding='utf-8')
 parts = sql.split('-- View ')
 for part in parts:
-    if part[:2] in ('5:', '6:', '7:', '8:'):
+    if part[:2] in ('4-', '5:', '6:', '7:', '8:'):
         title = part.split(':', 1)[1].strip().splitlines()[0].strip()
         idx = part.find('CREATE OR REPLACE VIEW')
         if idx < 0:

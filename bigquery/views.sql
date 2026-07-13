@@ -227,6 +227,175 @@ LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
 
 
 -- ============================================================
+-- View 4-bis: v_sap_items_enriched (helper) — v2 (2026-07-13)
+-- ============================================================
+-- Enriquece sap_items_raw con familia_norm + AMPLIA el universo para
+-- cubrir SKUs que aparecen en documentos SAP abiertos (SQ / SO / PO)
+-- aunque NO esten en el maestro PESCA.
+--
+-- FIX 2026-07-13: sync_sap_to_bigquery.py filtra Items por
+-- ItemsGroupCode eq PESCA (~755 items). SKUs BIKE con backorder
+-- (patas de cambio, cadenas, shifters) NUNCA llegan a sap_items_raw,
+-- entonces v_backorder_lineas los mostraba con item_name/familia/stock
+-- en blanco y v_inventario no los listaba directamente. Ahora incluimos
+-- todos los item_code que aparezcan en algun documento SAP abierto
+-- (SQ / SO / PO), con stock=0 y familia='SIN CATALOGO' para huerfanos.
+--
+-- Filas resultantes: ~3.042 (755 maestro PESCA + 2.287 huerfanos con
+-- actividad en algun documento abierto). No incluye sap_invoices_raw
+-- para no inflar con SKUs historicos que ya no operan.
+--
+-- Nueva columna: is_in_master (BOOL). TRUE = existe en sap_items_raw
+-- (grupo PESCA). FALSE = huerfano (venia de SQ/SO/PO). Reemplaza el
+-- uso de `it.item_code IS NOT NULL` como sinonimo de "es PESCA" en
+-- v_backorder_lineas y v_ventas_lineas.
+--
+-- Prioridad de familia_norm (sin cambios):
+--   1. cat cargada en catalogo (fuente de verdad)
+--   2. Overrides manuales por item_code
+--   3. Regex heuristica por item_name
+--   4. Si es huerfano (not is_in_master) -> 'SIN CATALOGO'
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_sap_items_enriched` AS
+WITH universo_docs AS (
+  -- Item codes que aparecen en documentos abiertos y que pueden estar
+  -- fuera del maestro PESCA (grupo BIKE u otros).
+  SELECT JSON_VALUE(line, '$.ItemCode') AS item_code
+  FROM `app-vendedores-shimano.shimano_app.sap_quotations_raw` q,
+       UNNEST(JSON_EXTRACT_ARRAY(q.lines_json)) AS line
+  WHERE q.document_status = 'bost_Open'
+    AND COALESCE(q.cancelled, 'tNO') = 'tNO'
+  UNION DISTINCT
+  SELECT JSON_VALUE(line, '$.ItemCode')
+  FROM `app-vendedores-shimano.shimano_app.sap_orders_raw` o,
+       UNNEST(JSON_EXTRACT_ARRAY(o.lines_json)) AS line
+  WHERE o.document_status = 'bost_Open'
+    AND COALESCE(o.cancelled, 'tNO') = 'tNO'
+  UNION DISTINCT
+  SELECT JSON_VALUE(line, '$.ItemCode')
+  FROM `app-vendedores-shimano.shimano_app.sap_purchase_orders_raw` po,
+       UNNEST(JSON_EXTRACT_ARRAY(po.lines_json)) AS line
+  WHERE po.document_status = 'bost_Open'
+    AND COALESCE(po.cancelled, 'tNO') = 'tNO'
+),
+all_codes AS (
+  SELECT item_code
+  FROM `app-vendedores-shimano.shimano_app.sap_items_raw`
+  WHERE item_code IS NOT NULL AND item_code != ''
+  UNION DISTINCT
+  SELECT item_code FROM universo_docs
+  WHERE item_code IS NOT NULL AND item_code != ''
+),
+orphan_names_src AS (
+  -- Mejor esfuerzo para item_name de huerfanos: ultima descripcion vista
+  -- en SQ / SO / PO (por doc_date desc, empatan por 1er valor de ARRAY_AGG).
+  SELECT
+    JSON_VALUE(line, '$.ItemCode') AS item_code,
+    JSON_VALUE(line, '$.ItemDescription') AS item_name,
+    q.doc_date AS ranked_date
+  FROM `app-vendedores-shimano.shimano_app.sap_quotations_raw` q,
+       UNNEST(JSON_EXTRACT_ARRAY(q.lines_json)) AS line
+  WHERE q.document_status = 'bost_Open'
+    AND COALESCE(q.cancelled, 'tNO') = 'tNO'
+  UNION ALL
+  SELECT
+    JSON_VALUE(line, '$.ItemCode'),
+    JSON_VALUE(line, '$.ItemDescription'),
+    o.doc_date
+  FROM `app-vendedores-shimano.shimano_app.sap_orders_raw` o,
+       UNNEST(JSON_EXTRACT_ARRAY(o.lines_json)) AS line
+  WHERE o.document_status = 'bost_Open'
+    AND COALESCE(o.cancelled, 'tNO') = 'tNO'
+  UNION ALL
+  SELECT
+    JSON_VALUE(line, '$.ItemCode'),
+    JSON_VALUE(line, '$.ItemDescription'),
+    po.doc_date
+  FROM `app-vendedores-shimano.shimano_app.sap_purchase_orders_raw` po,
+       UNNEST(JSON_EXTRACT_ARRAY(po.lines_json)) AS line
+  WHERE po.document_status = 'bost_Open'
+    AND COALESCE(po.cancelled, 'tNO') = 'tNO'
+),
+orphan_names AS (
+  SELECT
+    item_code,
+    ARRAY_AGG(item_name ORDER BY ranked_date DESC LIMIT 1)[SAFE_OFFSET(0)] AS item_name_fallback
+  FROM orphan_names_src
+  WHERE item_code IS NOT NULL AND item_code != '' AND item_name IS NOT NULL
+  GROUP BY item_code
+),
+enriched AS (
+  SELECT
+    ac.item_code,
+    COALESCE(it.item_name, orn.item_name_fallback)                        AS item_name,
+    it.foreign_name,
+    it.items_group_code,
+    it.cat,
+    it.fam,
+    it.sub,
+    it.valid,
+    it.frozen,
+    -- Stock: COALESCE a 0 para huerfanos. Nunca NULL.
+    COALESCE(SAFE_CAST(it.stock_total_sellable AS FLOAT64), 0.0)          AS stock_total_sellable,
+    it.stock_by_warehouse_json,
+    it.price_pesca_ars,
+    it.cost_avg_ars,
+    it.cost_last_purchase_ars,
+    it.create_date,
+    it.update_date,
+    it._sync_timestamp,
+    -- Flag explicito: TRUE = existe en el maestro PESCA (grupo 102).
+    -- Reemplaza el patron `item_code IS NOT NULL` usado en downstream.
+    (it.item_code IS NOT NULL)                                            AS is_in_master
+  FROM all_codes ac
+  LEFT JOIN `app-vendedores-shimano.shimano_app.sap_items_raw` it
+    ON ac.item_code = it.item_code
+  LEFT JOIN orphan_names orn
+    ON ac.item_code = orn.item_code
+)
+SELECT
+  e.item_code,
+  e.item_name,
+  e.foreign_name,
+  e.items_group_code,
+  e.cat,
+  e.fam,
+  e.sub,
+  e.valid,
+  e.frozen,
+  e.stock_total_sellable,
+  e.stock_by_warehouse_json,
+  e.price_pesca_ars,
+  e.cost_avg_ars,
+  e.cost_last_purchase_ars,
+  e.create_date,
+  e.update_date,
+  e._sync_timestamp,
+  e.is_in_master,
+  CASE
+    -- Huerfanos: marca explicita para que no se mezclen con familias PESCA
+    -- en treemap / filtros del dashboard.
+    WHEN NOT e.is_in_master                                THEN 'SIN CATALOGO'
+    WHEN e.cat IS NOT NULL AND e.cat != ''                 THEN e.cat
+    -- Overrides manuales conocidos (SKUs pesca sin cat en catalogo)
+    WHEN e.item_code IN ('CVC66H2CSA','CVC66MH2','CVC66MH4SACO','FXPR410','12843-01','55CRT12524') THEN 'CAÑAS'
+    WHEN e.item_code = '471512'                            THEN 'FG'
+    -- Heuristica por nombre
+    WHEN REGEXP_CONTAINS(UPPER(e.item_name),
+      r'CA(N|Ñ)A|SOJOURN|CRUZAR|PEJERREY|CONVERGENCE|TELESC|NRX|G\.LOOMIS|TIP ASQ|SOLARA|CLARUS') THEN 'CAÑAS'
+    WHEN REGEXP_CONTAINS(UPPER(e.item_name),
+      r'REEL |SPINNING REEL|BAITCAST|BAITCASTING|FRONTAL|SPINNING FRONTAL') THEN 'REEL'
+    WHEN REGEXP_CONTAINS(UPPER(e.item_name), r'COMBO')     THEN 'COMBO'
+    WHEN REGEXP_CONTAINS(UPPER(e.item_name),
+      r'POWER ?PRO| LINE | LINEA|SEDAL|NYLON|FLUOROCARB|LEADER|MULTIFILAMENTO') THEN 'LINEAS'
+    WHEN REGEXP_CONTAINS(UPPER(e.item_name),
+      r'STICKER|BANNER|RUBBER MATT|PROMO|BUFF|GORRA|SOMBRERO|REMERA|BANDANA|KIT |BOLSA|CAJA|NECESER|CAMPING|ESTUCHE|LENTE|POLARIZADO| CAP | SHIRT|SHIMANO PROMO|PINZA|TIJERA|BOX|BAG|DISPLAY|DISP |CORTADOR|CUCHILLO|BOGAGRIP|ROD DISPLAY|FLOOR|COUNTER') THEN 'FG'
+    ELSE e.cat
+  END                                                                    AS familia_norm
+FROM enriched e;
+
+
+-- ============================================================
 -- View 5: v_inventario
 -- ============================================================
 -- 1 fila por SKU pesca con la foto completa de inventario para la hoja
@@ -254,19 +423,29 @@ LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
 -- ============================================================
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_inventario` AS
 WITH quotations_open_agg AS (
+  -- BACKORDER en la logica comercial Shimano:
+  -- Oferta de Venta (Sales Quotation) abierta con RemainingOpenQuantity > 0.
+  -- Incluye tanto (a) SQ parcialmente atendidas (Santiago aprobo SO por parte
+  -- del pedido, resto queda pendiente para el cliente) como (b) SQ intactas
+  -- (todavia no procesadas por Santiago). Ambas son "asignado a cliente
+  -- pendiente de entrega".
   SELECT
     JSON_VALUE(line, '$.ItemCode') AS item_code,
-    SUM(SAFE_CAST(JSON_VALUE(line, '$.RemainingOpenQuantity') AS FLOAT64)) AS qty_quotations_open
+    SUM(SAFE_CAST(JSON_VALUE(line, '$.RemainingOpenQuantity') AS FLOAT64)) AS qty_backorder
   FROM `app-vendedores-shimano.shimano_app.sap_quotations_raw` q,
   UNNEST(JSON_EXTRACT_ARRAY(q.lines_json)) AS line
   WHERE q.document_status = 'bost_Open'
     AND COALESCE(q.cancelled, 'tNO') = 'tNO'
+    AND SAFE_CAST(JSON_VALUE(line, '$.RemainingOpenQuantity') AS FLOAT64) > 0
   GROUP BY item_code
 ),
 orders_open_agg AS (
+  -- PEDIDOS EN CURSO: Sales Orders abiertas con RemainingOpenQty > 0.
+  -- Ya son ventas comprometidas por Santiago, pendientes de entregar (delivery).
+  -- No son backorder porque el compromiso ya paso a orden.
   SELECT
     JSON_VALUE(line, '$.ItemCode') AS item_code,
-    SUM(SAFE_CAST(JSON_VALUE(line, '$.RemainingOpenQuantity') AS FLOAT64)) AS qty_backorder
+    SUM(SAFE_CAST(JSON_VALUE(line, '$.RemainingOpenQuantity') AS FLOAT64)) AS qty_pedidos_en_curso
   FROM `app-vendedores-shimano.shimano_app.sap_orders_raw` o,
   UNNEST(JSON_EXTRACT_ARRAY(o.lines_json)) AS line
   WHERE o.document_status = 'bost_Open'
@@ -287,22 +466,29 @@ SELECT
   it.item_code,
   it.item_name,
   it.foreign_name,
-  it.cat                                                              AS familia,
+  it.familia_norm                                                     AS familia,
   it.fam                                                              AS subfamilia,
   it.sub                                                              AS sub_subfamilia,
   it.valid,
   it.frozen,
-  -- Stock
-  it.stock_total_sellable                                             AS stock_actual,
+  it.is_in_master,
+  -- Stock (COALESCE de seguridad: v_sap_items_enriched ya garantiza no-NULL,
+  -- pero explicito acá evita que un cambio futuro en enriched propague NULLs
+  -- al dashboard). Huerfanos = 0.
+  COALESCE(it.stock_total_sellable, 0)                                AS stock_actual,
   it.stock_by_warehouse_json,
-  -- Documentos abiertos
-  COALESCE(qo.qty_quotations_open, 0)                                 AS qty_quotations_open,
-  COALESCE(oo.qty_backorder, 0)                                       AS qty_backorder,
+  -- Documentos abiertos (naming Shimano):
+  --   qty_backorder        = SQ abiertas pendientes (asignado a cliente sin atender)
+  --   qty_pedidos_en_curso = SO abiertas pendientes (comprometido en delivery)
+  --   qty_incoming         = PO abiertas (mercaderia en camino)
+  COALESCE(qo.qty_backorder, 0)                                       AS qty_backorder,
+  COALESCE(oo.qty_pedidos_en_curso, 0)                                AS qty_pedidos_en_curso,
   COALESCE(po.qty_incoming, 0)                                        AS qty_incoming,
-  -- Stock proyectado = actual + entrante - comprometido
+  -- Stock proyectado = actual + entrante - comprometido total (backorder + pedidos en curso)
   it.stock_total_sellable
     + COALESCE(po.qty_incoming, 0)
-    - COALESCE(oo.qty_backorder, 0)                                   AS stock_proyectado,
+    - COALESCE(qo.qty_backorder, 0)
+    - COALESCE(oo.qty_pedidos_en_curso, 0)                            AS stock_proyectado,
   -- Precios y costos. SAFE_CAST porque autodetect a veces tipa columnas
   -- todo-NULL como STRING (cost_last_purchase_ars hoy siempre None ->
   -- STRING en el schema BQ). Forzamos FLOAT64 para que COALESCE compile.
@@ -316,16 +502,24 @@ SELECT
   it.stock_total_sellable * COALESCE(SAFE_CAST(it.cost_avg_ars AS FLOAT64),
                                      SAFE_CAST(it.cost_last_purchase_ars AS FLOAT64),
                                      0.0)                              AS valor_inventario_costo_ars,
-  -- Flags derivados para semaforos rapidos en Power BI
+  -- Flags derivados para semaforos rapidos en Power BI.
+  -- QUEBRADO_CON_DEMANDA: sin stock Y con senial de demanda (SQ pendiente O
+  -- SO abierta). Semaforo mas critico: hay clientes esperando y no tenemos.
+  -- INSUFICIENTE: stock < compromiso total (backorder + pedidos en curso).
   CASE
-    WHEN it.stock_total_sellable <= 0 AND COALESCE(qo.qty_quotations_open, 0) > 0 THEN 'QUEBRADO_CON_DEMANDA'
-    WHEN it.stock_total_sellable <= 0                                             THEN 'QUEBRADO'
-    WHEN it.stock_total_sellable < COALESCE(oo.qty_backorder, 0)                  THEN 'INSUFICIENTE_BACKORDER'
-    WHEN COALESCE(oo.qty_backorder, 0) = 0 AND it.stock_total_sellable > 0        THEN 'DISPONIBLE'
+    WHEN it.stock_total_sellable <= 0
+         AND (COALESCE(qo.qty_backorder, 0) > 0 OR COALESCE(oo.qty_pedidos_en_curso, 0) > 0)
+                                                                              THEN 'QUEBRADO_CON_DEMANDA'
+    WHEN it.stock_total_sellable <= 0                                         THEN 'QUEBRADO'
+    WHEN it.stock_total_sellable <
+         COALESCE(qo.qty_backorder, 0) + COALESCE(oo.qty_pedidos_en_curso, 0) THEN 'INSUFICIENTE'
+    WHEN COALESCE(qo.qty_backorder, 0) = 0
+         AND COALESCE(oo.qty_pedidos_en_curso, 0) = 0
+         AND it.stock_total_sellable > 0                                      THEN 'DISPONIBLE'
     ELSE 'PARCIAL'
   END                                                                 AS estado_stock,
   it._sync_timestamp
-FROM `app-vendedores-shimano.shimano_app.sap_items_raw` it
+FROM `app-vendedores-shimano.shimano_app.v_sap_items_enriched` it
 LEFT JOIN quotations_open_agg qo ON it.item_code = qo.item_code
 LEFT JOIN orders_open_agg     oo ON it.item_code = oo.item_code
 LEFT JOIN po_open_agg         po ON it.item_code = po.item_code;
@@ -378,12 +572,47 @@ UNNEST(JSON_KEYS(ip.whs_json, 1)) AS whs_code;
 --   * Top N productos mas vendidos (unidades / facturado)
 --   * Treemap Familia x Subfamilia con participacion de facturado
 --   * Cobertura de stock en dias (demanda promedio ultimos N dias)
+--   * Mapa/ranking de ventas por provincia (usa provincia_cliente)
 --
 -- Filtra facturas canceladas. La categorizacion cat/fam/sub viene del
 -- LEFT JOIN con sap_items_raw (fuente de verdad del catalogo pesca).
 -- SKUs que no matchean quedan con familia NULL - se pueden filtrar en PBI.
+--
+-- provincia_cliente: como sap_bp_raw.state esta NULL (sync BQ no lo
+-- pobla), hacemos lookup a client_applications (cardCodeSap) y
+-- client_master (sapCardCode). Prioridad: client_applications > master.
+-- Normalizado UPPERCASE, canonizando 'CORDOBA'/'ENTRE RIOS'/'TUCUMAN'
+-- (sin tildes) y unificando 'CABA' (CIUDAD AUTONOMA DE BUENOS AIRES /
+-- CAPITAL FEDERAL / CIUDAD DE BUENOS AIRES).
 -- ============================================================
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_ventas_lineas` AS
+WITH prov_lookup AS (
+  SELECT card_code, provincia AS provincia_raw
+  FROM (
+    SELECT card_code, provincia, priority,
+           ROW_NUMBER() OVER (PARTITION BY card_code ORDER BY priority) AS rn
+    FROM (
+      SELECT
+        JSON_VALUE(data, '$.cardCodeSap') AS card_code,
+        UPPER(TRIM(JSON_VALUE(data, '$.provincia'))) AS provincia,
+        1 AS priority
+      FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+      WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+        AND JSON_VALUE(data, '$.provincia') IS NOT NULL
+        AND JSON_VALUE(data, '$.provincia') NOT IN ('(sin provincia)', '')
+      UNION ALL
+      SELECT
+        JSON_VALUE(data, '$.sapCardCode') AS card_code,
+        UPPER(TRIM(JSON_VALUE(data, '$.provincia'))) AS provincia,
+        2 AS priority
+      FROM `app-vendedores-shimano.shimano_app.client_master_raw_raw_latest`
+      WHERE JSON_VALUE(data, '$.sapCardCode') IS NOT NULL
+        AND JSON_VALUE(data, '$.provincia') NOT IN ('(sin provincia)', '', NULL)
+    )
+    WHERE card_code IS NOT NULL
+  )
+  WHERE rn = 1
+)
 SELECT
   inv.doc_entry,
   inv.doc_num,
@@ -420,47 +649,58 @@ SELECT
     'a�os','años'),
     'a�o','año'),
     '�',     '')                                                    AS item_name_catalogo,
-  -- Familia: catalogo + parche manual para SKUs pesca reales sin match.
-  COALESCE(
-    NULLIF(it.cat, ''),
-    CASE JSON_VALUE(line, '$.ItemCode')
-      WHEN 'CVC66H2CSA'   THEN 'CAÑAS'
-      WHEN 'CVC66MH2'     THEN 'CAÑAS'
-      WHEN 'CVC66MH4SACO' THEN 'CAÑAS'
-      WHEN 'FXPR410'      THEN 'CAÑAS'
-      WHEN '12843-01'     THEN 'CAÑAS'
-      WHEN '55CRT12524'   THEN 'CAÑAS'
-      WHEN '471512'       THEN 'FG'
-    END
-  )                                                                     AS familia,
+  it.familia_norm                                                       AS familia,
   it.fam                                                                AS subfamilia,
   it.sub                                                                AS sub_subfamilia,
-  -- is_pesca = TRUE si el SKU existe en sap_items_raw (grupo 102 PESCA).
-  -- Permite filtrar en PBI para vistas PESCA-solo vs Shimano-entera.
-  it.item_code IS NOT NULL                                              AS is_pesca,
+  -- is_pesca = TRUE si el SKU existe en el maestro PESCA (grupo 102).
+  -- Post fix 2026-07-13: usa is_in_master de v_sap_items_enriched porque
+  -- item_code ya no distingue PESCA de huerfanos (BIKE etc.), item_code
+  -- ahora esta poblado tambien para SKUs fuera del maestro.
+  COALESCE(it.is_in_master, FALSE)                                      AS is_pesca,
+  -- Provincia canonizada del cliente (para mapa/ranking por region).
+  CASE
+    WHEN prov.provincia_raw IN ('CIUDAD AUTÓNOMA DE BUENOS AIRES',
+                                'CAPITAL FEDERAL',
+                                'CIUDAD DE BUENOS AIRES') THEN 'CABA'
+    WHEN prov.provincia_raw = 'CÓRDOBA'    THEN 'CORDOBA'
+    WHEN prov.provincia_raw = 'ENTRE RÍOS' THEN 'ENTRE RIOS'
+    WHEN prov.provincia_raw = 'TUCUMÁN'    THEN 'TUCUMAN'
+    WHEN prov.provincia_raw = 'RÍO NEGRO'  THEN 'RIO NEGRO'
+    WHEN prov.provincia_raw = 'NEUQUÉN'    THEN 'NEUQUEN'
+    ELSE prov.provincia_raw
+  END                                                                   AS provincia_cliente,
   inv._sync_timestamp
 FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv,
 UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json)) AS line
-LEFT JOIN `app-vendedores-shimano.shimano_app.sap_items_raw` it
+LEFT JOIN `app-vendedores-shimano.shimano_app.v_sap_items_enriched` it
   ON it.item_code = JSON_VALUE(line, '$.ItemCode')
+LEFT JOIN prov_lookup prov
+  ON prov.card_code = inv.card_code
 WHERE COALESCE(inv.cancelled, 'tNO') = 'tNO';
 
 
 -- ============================================================
 -- View 8: v_backorder_lineas
 -- ============================================================
--- Granularidad LINEA: 1 fila por (SO abierta, item_code, cliente).
--- Alimenta la tabla "Top Backorder" del dashboard con posibilidad de
--- expandir por cliente:
+-- Granularidad LINEA: 1 fila por (SQ abierta, item_code, cliente).
+-- Alimenta la tabla "Top Backorder" del dashboard.
 --
---   SKU | PRODUCTO | FAMILIA | PEDIDO | PENDIENTE | CLIENTE | PROX. EMBARQUE | ESTADO
+-- BACKORDER en la logica Shimano:
+--   Oferta de Venta (Sales Quotation) abierta con RemainingOpenQuantity > 0.
+--   Incluye tanto SQ parcialmente atendidas (Santiago hizo SO por parte, resto
+--   queda pendiente) como SQ intactas (aun no procesadas). Ambas = "asignado
+--   a cliente pendiente de entrega".
 --
--- - SKU agrupado en PBI muestra el resumen tipo mockup (Top 10 Backorder).
--- - Expandir muestra: que clientes tienen ese SKU pendiente + fecha de PO.
--- - is_pesca = TRUE si el item existe en sap_items_raw (grupo 102 PESCA).
---   Permite filtrar hoja Inventario para mostrar solo pesca vs todo Shimano.
+-- Columnas:
+--   sq_doc_entry/num/date = documento de la Sales Quotation.
+--   pedido    = qty original de la linea de SQ.
+--   pendiente = qty todavia sin cubrir por SO/Delivery/Invoice.
+--   estado    = ASIGNADO (hay PO con fecha) / SIN ASIGNAR (sin embarque).
 --
--- Filtramos SO/PO con document_status='bost_Open' y cancelled='tNO'.
+-- Nota historica: antes esta view leia de sap_orders_raw (SO), que en la
+-- logica Shimano son "pedidos en curso" (ya comprometidos), no backorder.
+-- Fix 2026-07-12 sobre feedback del user (flujo cotizacion 1200 -> SO 1000
+-- + SQ pendiente 200 = backorder).
 -- ============================================================
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_backorder_lineas` AS
 WITH po_prox AS (
@@ -476,9 +716,9 @@ WITH po_prox AS (
   GROUP BY item_code
 )
 SELECT
-  o.doc_entry                                                           AS so_doc_entry,
-  o.doc_num                                                             AS so_doc_num,
-  o.doc_date                                                            AS so_doc_date,
+  o.doc_entry                                                           AS sq_doc_entry,
+  o.doc_num                                                             AS sq_doc_num,
+  o.doc_date                                                            AS sq_doc_date,
   JSON_VALUE(line, '$.ItemCode')                                        AS sku,
   -- Mismo parche encoding que v_ventas_lineas (catalogo con U+FFFD por
   -- bytes latin-1 leidos como UTF-8). Fix definitivo pendiente en build.
@@ -498,10 +738,14 @@ SELECT
     'a�os','años'),
     'a�o','año'),
     '�',     '')                                                        AS producto,
-  it.cat                                                                AS familia,
+  it.familia_norm                                                       AS familia,
   it.fam                                                                AS subfamilia,
-  it.item_code IS NOT NULL                                              AS is_pesca,
-  it.stock_total_sellable                                               AS stock_actual,
+  -- Post fix 2026-07-13: usa is_in_master en vez de item_code IS NOT NULL
+  -- (que ahora esta poblado tambien para huerfanos BIKE fuera de PESCA).
+  COALESCE(it.is_in_master, FALSE)                                      AS is_pesca,
+  -- stock_actual: v_sap_items_enriched ya hace COALESCE a 0 para huerfanos.
+  -- Antes: NULL para SKUs que no estaban en sap_items_raw -> blanco en PBI.
+  COALESCE(it.stock_total_sellable, 0)                                  AS stock_actual,
   SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)                  AS pedido,
   SAFE_CAST(JSON_VALUE(line, '$.RemainingOpenQuantity') AS FLOAT64)     AS pendiente,
   SAFE_CAST(JSON_VALUE(line, '$.Price') AS FLOAT64)                     AS precio_unitario,
@@ -512,9 +756,9 @@ SELECT
   po.qty_incoming,
   IF(po.prox_embarque_date IS NOT NULL, 'ASIGNADO', 'SIN ASIGNAR')      AS estado,
   o._sync_timestamp
-FROM `app-vendedores-shimano.shimano_app.sap_orders_raw` o,
+FROM `app-vendedores-shimano.shimano_app.sap_quotations_raw` o,
 UNNEST(JSON_EXTRACT_ARRAY(o.lines_json)) AS line
-LEFT JOIN `app-vendedores-shimano.shimano_app.sap_items_raw` it
+LEFT JOIN `app-vendedores-shimano.shimano_app.v_sap_items_enriched` it
   ON it.item_code = JSON_VALUE(line, '$.ItemCode')
 LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
   ON bp.card_code = o.card_code
