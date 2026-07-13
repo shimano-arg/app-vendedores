@@ -219,7 +219,11 @@ SELECT
   inv.create_date,
   inv.update_date,
   inv.lines_count,
-  inv.lines_json,
+  -- lines_json removido 2026-07-14: cada JSON pesa 5-50KB unico -> VertiPaq
+  -- no puede comprimir y explota RAM en Power BI Desktop. El aplanamiento
+  -- ya vive en v_ventas_lineas (63k filas) que es la fuente real para
+  -- medidas de facturacion/margen. Si algun query necesita lines_json,
+  -- leerlo directo de sap_invoices_raw.lines_json.
   inv._sync_timestamp
 FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv
 LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
