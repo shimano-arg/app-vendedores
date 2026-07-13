@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v296 |
-| **APP_VERSION** | `v296` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v297 |
+| **APP_VERSION** | `v297` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 collecciones) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 4 tablas) → 4 vistas curadas → **Power BI Desktop conectado y armando dashboard "Resumen-Desempeño"** (2026-07-08). Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -183,6 +183,7 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] Botón "🔗 Vincular con SAP" en Master Clientes → Provisorios: modal con lista de BPs SAP disponibles, buscador y auto-ranking por CUIT match. Copia CardCode al provisorio + elimina el BP SAP duplicado + preserva assignedVendor/approvals/notas (v294+)
 [X] Badge de categoría (Cat P/A/B/C) fijado en la esquina superior derecha de cada card de CLIENTES (`position:absolute` + padding-right en la card) — siempre visible al escanear la lista. En PEDIDOS va en el cluster derecho arriba del badge Habilitado (v295+)
 [X] Ortografía "MOSTRADO" → "MOSTRADOR" en form de visita (Tipo de venta + Necesidad puntual + label ponderación) + display en modal cliente + headers Excel (`Pond Mostrador`, `% Mostrador`). Value en DB sigue siendo `MOSTRADO` para no romper visitas históricas; se mapea al mostrar (v296+)
+[X] Botón "📊 Exportar Excel" en modal Targets → XLSX formato largo (SlpCode, Vendedor, Año, Mes, Meta) — una fila por vendedor+mes con target > 0. SlpCode resuelto desde `sap_vendors`, Vendedor usa `slpName` de SAP (fallback titleCase). Uso: importar a SAP / Power BI (v297+)
 ```
 
 ### Bloqueantes externos para el lanzamiento
@@ -2919,7 +2920,7 @@ Total: ~15 iteraciones para llegar al fix correcto por la naturaleza propietaria
 
 ---
 
-## 41) Changelog v204 → v296
+## 41) Changelog v204 → v297
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
 
@@ -3268,6 +3269,25 @@ Detalles completos + troubleshooting en la nueva **sección 40-bis** del README.
 - Ahora `.js-stat-p` usa `getProvisoriosList().length` — mismo total global que el badge del botón Provisorios.
 - Ambos KPIs coinciden y significan lo mismo: **provisorios de Alta Rápida pendientes de cargar a SAP**.
 - Se pierde la métrica "cuántas tiendas de mi zona me faltan visitar/geolocalizar" como KPI destacado. La variable `pendientes` local sigue disponible en el scope de `updateStats()` si algún día se rescata.
+
+### v297 — Export Excel de Targets en formato largo (SAP / Power BI)
+
+**Pedido del usuario**: exportar los targets mensuales a Excel con formato "una fila por vendedor+mes" — específicamente con columnas `SlpCode | Vendedor | Año | Mes | Meta`. Uso: importar el master de targets a SAP o alimentar directamente Power BI.
+
+**Implementación**:
+- Nuevo botón verde **📊 Exportar Excel** en el footer del modal Targets (a la izquierda de "Cerrar" / "Guardar Targets").
+- `exportTargetsExcel()` itera `targetsCache` (todos los meses de todos los vendedores) y emite una fila por cada entrada con `targetArs > 0`. Meses sin cargar o con valor 0 se omiten.
+- **Columnas**:
+  - `SlpCode`: resuelto vía `sapGetSlpCodeForVendor(vendorKey)` desde `sap_vendors`. Si el vendedor no está mapeado a SAP, queda vacío (admin lo completa a mano).
+  - `Vendedor`: preferencia `slpName` de `sap_vendors` (formato SAP "Gonzalo de la Rosa"). Fallback: `titleCase(vendorKey)` (formato "Gonzalo De La Rosa").
+  - `Año`: número.
+  - `Mes`: **1-12** en el Excel (más legible), aunque Firestore guarda 0-11.
+  - `Meta`: `parseFloat(targetArs)` redondeado a entero.
+- **Orden**: SlpCode asc → Vendedor → Año → Mes.
+- **Nombre archivo**: `Targets_Shimano_YYYY-MM-DD.xlsx`.
+- Anchos de columna razonables via `ws['!cols']`.
+
+**Permisos**: `canManageTargets()` (admin/gerente + emails allowlist).
 
 ### v296 — Ortografía "MOSTRADO" → "MOSTRADOR" (reporte de vendedor)
 - Vendedor reportó "Abajo de todo en el registro de la visita, en la opción TIPO DE VENTA, dice 'MOSTRADO' en vez de MOSTRADOR".

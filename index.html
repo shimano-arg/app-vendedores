@@ -1897,9 +1897,12 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <select id="tgt-year" onchange="renderTargetsTable()"></select>
         </div>
         <div id="tgt-table-wrap"></div>
-        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
-          <button class="qmodal-btn cancel" onclick="closeTargetsPanel()">Cerrar</button>
-          <button class="qmodal-btn primary" id="tgt-save-btn" onclick="saveTargets()">Guardar Targets</button>
+        <div style="display:flex;justify-content:space-between;gap:8px;margin-top:14px;flex-wrap:wrap">
+          <button class="qmodal-btn" onclick="exportTargetsExcel()" style="background:#166534;color:#fff;border:none" title="Descarga XLSX con formato largo (SlpCode, Vendedor, Ano, Mes, Meta) - una fila por vendedor+mes con target cargado. Uso: importar a SAP / Power BI.">&#128202; Exportar Excel</button>
+          <div style="display:flex;gap:8px">
+            <button class="qmodal-btn cancel" onclick="closeTargetsPanel()">Cerrar</button>
+            <button class="qmodal-btn primary" id="tgt-save-btn" onclick="saveTargets()">Guardar Targets</button>
+          </div>
         </div>
       </div>
     </div>
@@ -3270,7 +3273,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v296';
+const APP_VERSION = 'v297';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -10792,6 +10795,80 @@ window.saveTargets = async function(){
     btn.textContent = 'Guardar Targets';
     btn.disabled = false;
   }
+};
+
+// v296+ Export Excel de targets en formato largo para SAP / Power BI.
+// Estructura: una fila por (vendedor, ano, mes) con target asignado.
+// Columnas: SlpCode | Vendedor | Ano | Mes | Meta.
+// - SlpCode: se resuelve via sapGetSlpCodeForVendor(vendorKey) desde sap_vendors.
+//   Si no esta cargado en sap_vendors, queda vacio y admin lo completa en Excel.
+// - Vendedor: prefiere slpName de sap_vendors (formato SAP "Gonzalo de la Rosa").
+//   Fallback a titleCase(vendorKey) si no esta en el cache.
+// - Mes: numero 1-12 (NO 0-11) para que sea legible en el Excel.
+// - Meta: number (parseFloat de targetArs). Excel formatea como entero.
+window.exportTargetsExcel = function(){
+  if (!canManageTargets()) { alert('No tenes permisos.'); return; }
+  if (typeof XLSX === 'undefined') { alert('SheetJS no cargado. Recarga la pagina.'); return; }
+  // Helper: nombre del vendedor con formato SAP si esta en sap_vendors,
+  // sino titleCase(vendorKey) como fallback.
+  function getVendorDisplayName(vendorKey){
+    if (!vendorKey) return '';
+    if (typeof sapVendorsCache !== 'undefined') {
+      for (const v of sapVendorsCache.values()) {
+        if ((v.vendorKey || '').toLowerCase() === vendorKey.toLowerCase()) {
+          if (v.slpName) return v.slpName;
+        }
+      }
+    }
+    return titleCase(vendorKey);
+  }
+  // Recolectar todas las filas: (vendorKey, year, month) -> targetArs
+  const rows = [];
+  targetsCache.forEach(t => {
+    if (!t) return;
+    const raw = t.targetArs;
+    const num = parseFloat(raw);
+    if (isNaN(num) || num <= 0) return; // skip meses sin cargar o valor 0
+    const vendorKey = t.sellerId || '';
+    if (!vendorKey) return;
+    const year = parseInt(t.year);
+    const monthIdx = parseInt(t.month); // 0-11 en Firestore
+    if (isNaN(year) || isNaN(monthIdx)) return;
+    rows.push({
+      SlpCode: (typeof sapGetSlpCodeForVendor === 'function') ? (sapGetSlpCodeForVendor(vendorKey) || '') : '',
+      Vendedor: getVendorDisplayName(vendorKey),
+      'Año': year,
+      Mes: monthIdx + 1, // 1-12 para el Excel (mas legible)
+      Meta: Math.round(num),
+    });
+  });
+  if (!rows.length) {
+    alert('No hay targets cargados para exportar.');
+    return;
+  }
+  // Orden: SlpCode asc -> Vendedor -> Ano -> Mes.
+  rows.sort((a, b) => {
+    const sa = (a.SlpCode || '').toString().padStart(6, '0');
+    const sb = (b.SlpCode || '').toString().padStart(6, '0');
+    if (sa !== sb) return sa.localeCompare(sb);
+    if (a.Vendedor !== b.Vendedor) return a.Vendedor.localeCompare(b.Vendedor);
+    if (a['Año'] !== b['Año']) return a['Año'] - b['Año'];
+    return a.Mes - b.Mes;
+  });
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows, {header: ['SlpCode', 'Vendedor', 'Año', 'Mes', 'Meta']});
+  // Anchos de columna razonables.
+  ws['!cols'] = [
+    {wch: 10},  // SlpCode
+    {wch: 26},  // Vendedor
+    {wch: 8},   // Año
+    {wch: 6},   // Mes
+    {wch: 16},  // Meta
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, 'Targets');
+  const ts = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, 'Targets_Shimano_' + ts + '.xlsx');
+  showSyncTag('Excel exportado (' + rows.length + ' filas)');
 };
 
 // Lista completa de contactados (clientes/prospectos marcados con check)
