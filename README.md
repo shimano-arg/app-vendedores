@@ -594,21 +594,29 @@ Solicitudes de alta de cliente con flujo de doble aprobación:
   ownerName: "Mauricio Gil",
   comercio: "PESCA TOTAL S.A.",
   fantasia: "Pesca Total",
-  cuit: "30-12345678-9",
+  cuit: "30-12345678-9",          // v294+: opcional en Alta Rapida (input ar-cuit).
+                                  // Normalizado a solo digitos. Habilita match automatico
+                                  // con SAP en find_match() paso 2 (mas confiable que nombre).
   condicionFiscal: "Responsable Inscripto",
   calle: "Av. Corrientes",
   numero: "1234",
   localidad: "Palermo",
   provincia: "BUENOS AIRES",
   localidadFinal: "Palermo",     // override del aprobador si la declarada no matcheaba
-  cardCodeSap: "C-12345",        // cargado por el aprobador
+  cardCodeSap: "C-12345",        // cargado por el aprobador (o por el sync SAP)
   assignedVendor: "FEDERICO CASTELANELLI",  // cargado por el aprobador
   constanciaArca: "data:image/...",
   constanciaIIBB: "data:image/...",
   fotosLocal: ["data:image/...", ...],
   status: "pending_approval" | "approved" | "rejected",
-  source: "manual" | "sap_bulk_import" | "alta_rapida",
+  // v294+: sap_sync_manual_link se setea cuando admin vincula manualmente un
+  // provisorio con un BP SAP desde Master Clientes -> Provisorios -> Vincular.
+  source: "manual" | "sap_bulk_import" | "alta_rapida" | "sap_sync" | "sap_sync_manual_link",
   manualSapPending: true,         // si vino por alta_rapida y todavía no se cargó a SAP
+  // v294+ auditoria de vinculacion manual admin:
+  linkedFromSapDocId: "abc123",   // fsId del BP SAP con el que se vinculo (se borra ese doc)
+  linkedBy: "admin@shimano.com",  // email/uid del admin que ejecuto la vinculacion
+  linkedAt: <Timestamp>,
   approvals: {
     "uid_admin": {approvedAt: <Ts>, email: "...", name: "..."},
     "uid_gerente": {approvedAt: <Ts>, email: "...", name: "..."}
@@ -943,6 +951,18 @@ Tab "Clientes". Lista todas las tiendas visibles. Estados:
 - **Habilitado**: badge verde (puede crear pedidos).
 - **Cancelado**: badge rojo (oculto del flujo).
 
+#### Filtros del tab (v264+)
+- **TODOS** — todo el listado.
+- **CONFIRMADOS** — solo clientes con estado `habilitado` (POINTS con match) + SAP altas con geo+dirección. Excluye provisorios.
+- **NO CONFIRMADOS** — provisorios (`manualSapPending && !cardCodeSap`) sin importar si tienen provincia/geo/addr **(v293+ fix)** + POINTS/prospectos pendientes de habilitar. Este total ahora coincide con el KPI **PENDIENTES** del header.
+
+#### Badge de categoría comercial fijo en esquina (v295+)
+Cada card de CLIENTES muestra el badge `Cat P/A/B/C` en la **esquina superior derecha** vía `position:absolute; top:6px; right:8px` (CSS `.cli-cat-corner`). `padding-right:62px` en `.client-card` reserva el espacio para que nombres largos no se solapen con el badge. `pointer-events:none` para no robar el click de la card.
+
+Colores: **P** violeta (`#7c3aed`), **A** verde (`#059669`), **B** celeste (`#0284c7`), **C** gris (`#64748b`). El `cliTipo` se lee de `client_master` (POINTS) o de `client_applications.cliTipo` (SAP altas) — helper `getClientCategoryBadgeHtml(province, locName, name, {corner:true})`.
+
+En **PEDIDOS** (`.pedido-client-card`) el badge va inline dentro del cluster derecho arriba del Habilitado/Provisorio, no absoluto (para no chocar con el badge de estado que ya vive en top-right).
+
 ### Flujo de "dar de alta" una tienda
 
 Al tocar una tienda se abre el modal:
@@ -1075,9 +1095,9 @@ Formulario completo para registrar una visita a tienda:
 - **Dropdown "Tienda de pesca"** → sólo muestra tiendas habilitadas en SAP (filtra prospectos y legacy desde v185+; antes traía todo). Las provisorias también aparecen porque tienen `manualSapPending`.
 - Datos del local: Propio / Alquilado / Compartido, Tamaño, Fidelidad, Relevancia.
 - POP: stickers, displays, banners.
-- Necesidad puntual.
-- Tipo de venta: Casa de pesca, ecommerce, mixto.
-- % Mostrado / % Ecommerce (sliders 0-100).
+- Necesidad puntual (opciones: CAÑERO, CARTEL, MOSTRADOR, OTROS — v296+ era "MOSTRADO").
+- Tipo de venta: MOSTRADOR, ECOMMERCE, AMBOS (label visible v296+; value en DB sigue siendo `MOSTRADO` por retrocompat).
+- % Mostrador / % Ecommerce (sliders 0-100, aparecen solo si Tipo=AMBOS).
 - Competencia (texto libre).
 - Oportunidad detectada.
 - Lo más vendido Shimano.
@@ -1382,11 +1402,12 @@ End-to-end:
 
 Para cuando el vendedor necesita crear un pedido **YA** y no puede esperar la doble aprobación + carga en SAP:
 
-1. Sub-tab **"Alta rápida"** → formulario corto: comercio, dirección, **provincia + localidad obligatorias**, dueño.
+1. Sub-tab **"Alta rápida"** → formulario corto: comercio, dirección, **provincia + localidad obligatorias**, dueño, teléfono opcional, **CUIT opcional (v294+)**.
 2. Crea un documento en `client_applications` con:
    - `source: 'alta_rapida'`
    - `manualSapPending: true`
    - `status: 'approved'` (la app no exige doble aprobación para alta rápida).
+   - `cuit: <solo digitos>` si el vendedor lo cargó — habilita match automático confiable en el próximo sync SAP.
 3. **Notifica automáticamente a admin** (`type: 'alta_rapida_creada'`) con texto "X dio de alta rápida a ... — hay que cargarlo manualmente en SAP".
 4. La tienda aparece **al instante** en:
    - Mapa (pin SAP).
@@ -1394,7 +1415,9 @@ Para cuando el vendedor necesita crear un pedido **YA** y no puede esperar la do
    - Visitas (dropdown localidad + tienda).
    - Rutas (picker custom).
 5. Se identifica con badge **"⚡ PROVISORIO (cargar a SAP manual)"** + fondo crema en todas las vistas.
-6. Admin más tarde la carga formalmente a SAP, le pone `cardCodeSap`, y `manualSapPending` queda `false`.
+6. Admin más tarde la carga formalmente a SAP:
+   - **Con CUIT (v294+)**: el próximo cron `sync_bp_pesca` (cada 30 min) matchea por CUIT en `find_match()` → `PROV→CONF` automático. Sin intervención manual.
+   - **Sin CUIT o si el nombre no matchea exacto**: admin abre **Master Clientes → 👤 Provisorios → 🔗 Vincular con SAP** y elige el BP correcto (auto-ranking por CUIT match si hubiera; ordenado alfabético si no). Setea `cardCodeSap` + `manualSapPending: false` + `source: 'sap_sync_manual_link'` + auditoría (`linkedFromSapDocId`, `linkedBy`, `linkedAt`) y **elimina el BP SAP duplicado** que había creado el sync.
 
 ### Sub-tab "Mis solicitudes"
 
@@ -1593,6 +1616,26 @@ Al tocarlo:
 - Segundo click → vuelve al modo default (Master SAP).
 
 El badge se actualiza en tiempo real vía `updateMcProvisorioCount()` disparado dentro del listener `ensureApprovedAltasListener`.
+
+### Botón "🔗 Vincular con SAP" en cada fila provisorio (v294+, admin only)
+
+Cuando el auto-match del cron `sync_bp_pesca` falla (nombre normalizado difiere entre el provisorio y el CardName SAP, o el provisorio no tiene CUIT cargado), admin puede vincular manualmente:
+
+1. Master Clientes → **👤 Provisorios** → columna "Acción" → **🔗 Vincular con SAP**.
+2. Modal `#vincular-sap-modal` abre con:
+   - **Info del provisorio** (nombre + localidad + provincia + CUIT + dirección).
+   - **Buscador** por nombre / CardCode / CUIT (default: pre-populado con el CUIT o comercio del provisorio).
+   - **Lista de BPs SAP disponibles** (filtro: `approvedAltasList` con `cardCodeSap` truthy y `!manualSapPending`).
+   - **Auto-ranking**: los BPs cuyo CUIT matchea el CUIT del provisorio aparecen primero con badge verde "✓ CUIT MATCH".
+3. Click en **Vincular** → confirm → batch:
+   - `set(provisorio, {cardCodeSap, manualSapPending: false, source: 'sap_sync_manual_link', linkedFromSapDocId, linkedBy, linkedAt, ...camposSAP}, {merge: true})`.
+   - Completa campos vacíos del provisorio (cuit/calle/localidad/provincia/email/tel/CP) con los de SAP sin pisar los cargados.
+   - `delete(bpSap)` — elimina el BP SAP duplicado que había creado el cron.
+4. El listener `approvedAltasList` repinta todo automático. El provisorio salta a CONFIRMADOS.
+
+**Permisos**: solo `admin` (columna muestra "(admin)" para gerente/interno). Motivo: el batch.delete del doc SAP con `cardCodeSap` requiere `role=admin` en Firestore Rules — gerente no es owner del doc creado por el sync.
+
+**Retrocompat**: la auditoría en `linkedFromSapDocId` guarda el ID del BP borrado para reconstruir manualmente si admin se equivocó de match.
 
 ### Botón Eliminar 🗑 por fila (v200+)
 
@@ -2357,6 +2400,18 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 
 ### Hecho recientemente (✅)
 
+**v290 → v296 (2026-07-13):**
+- [X] **Botón "👤 Provisorios"** violeta en Master Clientes para filtrar altas rápidas pendientes de SAP (v290).
+- [X] **Autosave debounced 900ms** en localidad/provincia/dirección de filas SAP (v291) + listener no re-renderea si hay saves en vuelo.
+- [X] **Fix crítico sync SAP** — `sync_sap_to_firestore.py` ya NO pisa localidad/provincia con vacío si SAP no trae valor (v291).
+- [X] **KPI PENDIENTES header = badge Provisorios Master Clientes** (v292) — ambos usan `getProvisoriosList()`.
+- [X] **Fix tab NO CONFIRMADOS** mostraba 3 items cuando el KPI decía 16 (v293) — provisorios sin provincia + con geo+addr ahora pasan siempre el filtro pendientes.
+- [X] **CUIT opcional en Alta Rápida** para habilitar match automático confiable con SAP (v294).
+- [X] **Botón "🔗 Vincular con SAP"** (admin only) en Master Clientes → Provisorios: modal con auto-ranking por CUIT match + batch set del cardCodeSap + delete del BP SAP duplicado (v294).
+- [X] **Badge Categoría (Cat P/A/B/C) fijo en esquina** de cards CLIENTES/PEDIDOS (v295).
+- [X] **Fix ortografía "MOSTRADO" → "MOSTRADOR"** en form de visita + Excel exports (v296, reporte vendedor). Value en DB se preserva.
+
+**v218 → v289 (2026-06 a 2026-07-12):**
 - [X] **Stock auto-sync vía GitHub Actions** (`sync-stock.yml` corre cada 30 min, funcionando como sistema legacy + el upload manual del panel admin Stock).
 - [X] Banner versión + chequeo HTML vs SW en console.
 - [X] Botón "Forzar actualización" + "Reubicar pines" + "REFRESCAR APP" mobile.
@@ -2374,6 +2429,11 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 - [X] Botón Recalcular contornos de zonas (v213).
 - [X] Tildar pedido bloqueado en SAP — fix cleanup (v216).
 - [X] **Rendiciones v2** — TablaGastos agrupada por dupla + hoja Detalle + fotos pre-subidas + bucket `.firebasestorage.app` (v217).
+- [X] **Sync automático SAP → Firestore + stock.json cada 30 min via GitHub Actions** (v246).
+- [X] **Sync BPs pesca de SAP → app** cada 30 min (v282-v288) — U_DIVISION filter fix.
+- [X] **Sync SAP → BigQuery** — 4 tablas raw (`sap_bp_raw`, `sap_items_raw`, `sap_invoices_raw`, `sap_quotations_raw`) via `sync_sap_to_bigquery.py` (v282+).
+- [X] **Vistas BigQuery curadas** — `v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap`, `v_ventas_lineas`, `v_backorder_lineas` (v282-v289).
+- [X] **Power BI Desktop conectado** al dataset `shimano_app` con 12+ medidas DAX + dashboard "Resumen-Desempeño" en armado (v282+).
 - [X] **Firebase Storage** inicializado + **plan Blaze** activo + **BigQuery dataset** creado + **Power Automate Premium trial** (2026-06-30).
 
 ### Costos / infraestructura externa
@@ -3275,13 +3335,24 @@ Detalles completos + troubleshooting en la nueva **sección 40-bis** del README.
 
 ---
 
-**Última actualización**: 2026-07-12 — SW v289 (frontend sin cambios v289→hoy; solo iteración BigQuery). Highlights recientes (BigQuery views para hoja Inventario, 2026-07-10→2026-07-12):
+**Última actualización**: 2026-07-13 — SW v296. Sesión frontend completa (fixes UX + auto-sync provisorios). Highlights v290→v296 (detalle en sección 41):
+
+- **✍️ Fix ortográfico "MOSTRADO" → "MOSTRADOR"** (v296, reportado por vendedor). Selects Tipo de venta + Necesidad puntual + label ponderación + Excel exports. Value en Firestore sigue siendo `'MOSTRADO'` (retrocompat), solo se mapea el display.
+- **🏷️ Badge Categoría (Cat P/A/B/C) fijo en esquina de card** (v295). En CLIENTES `position:absolute; top:6px; right:8px` — siempre visible sin importar el largo del nombre. En PEDIDOS va en el cluster derecho arriba del Habilitado (para no chocar). `padding-right:62px` reservado en `.client-card`.
+- **🔗 Vincular provisorio con BP SAP** (v294). Cuando el auto-match del cron falla (nombre difiere, provisorio sin CUIT), admin va a **Master Clientes → 👤 Provisorios → 🔗 Vincular con SAP** y elige manualmente el BP correcto. Auto-ranking con badge verde "✓ CUIT MATCH" si los CUITs coinciden. `batch.set(provisorio) + batch.delete(bp_duplicado)`. Preserva assignedVendor/approvals/notas. Solo admin (por Firestore Rules).
+- **📋 CUIT opcional en form Alta Rápida** (v294). Nuevo input `ar-cuit` normalizado (solo dígitos). Aviso si != 11 dígitos. Blinda el auto-match futuro por CUIT (el sync ya lo consume vía `_norm_cuit()` sin cambios).
+- **🐛 Fix tab "NO CONFIRMADOS" mostraba 3 items cuando el KPI PENDIENTES decía 16** (v293). El filtro descartaba provisorios sin provincia y los que tuvieran geo+addr. Ahora todo provisorio (`manualSapPending && !cardCodeSap`) siempre pasa el filtro "pendientes" y no requiere provincia. Bonus: badge naranja "⚠️ sin provincia" en lugar de `/` suelto.
+- **🐛 Fix `sync_sap_to_firestore.py` pisaba localidad/provincia manuales** (v291, 2026-07-13 mañana). El sync cada 30 min hacía `set(merge=True)` con string vacío si SAP no traía valor → destruía el trabajo manual del admin en Master Clientes. Fix: `base_payload.pop('localidad', None)` si `bp.City` viene vacío, mismo para provincia.
+- **💾 Autosave debounced en localidad/provincia/dirección del Master Clientes** (v291, filas SAP). Guarda 900ms después del último tipeo. El listener de `approvedAltasList` ya no re-renderea si hay saves en vuelo (evita perder texto por race con el snapshot).
+- **👤 Botón "Provisorios" violeta en Master Clientes** (v290). Filtra altas rápidas pendientes de SAP (`manualSapPending && !cardCodeSap`). Badge de conteo en tiempo real. Tabla dedicada `renderMcProvisoriosTable()` con columna "Acción" (v294).
+
+Highlights v282→v289 (BigQuery views para hoja Inventario + sync BPs pesca, 2026-07-08→2026-07-12):
 
 - **📊 Vistas nuevas `v_ventas_lineas` + `v_backorder_lineas` para hoja "Inventario" de Power BI** (2026-07-10). `v_ventas_lineas` explota `lines_json` de facturas con `LEFT JOIN` a `sap_items_raw` para tener familia/subfamilia + flag `is_pesca`. `v_backorder_lineas` idem sobre `sap_orders_raw` (SO abiertas) con `LEFT JOIN` a próximos PO por SKU para columna `prox_embarque_date` y estado ASIGNADO/SIN ASIGNAR.
 - **🩹 Parche encoding + familias manuales en `v_ventas_lineas`/`v_backorder_lineas`** (2026-07-12). El catálogo embebido en `index.html` perdió acentos/eñes (bytes latin-1 leídos como UTF-8 → `U+FFFD`). Parche con REPLACE encadenados en las views SQL para mostrar `Caña`/`Tamaño`/`Acción`/etc correctos en Power BI. Además, 7 SKUs pesca reales facturaron `~1.96M ARS` con `familia=''` (sin match en catálogo): parche manual con `CASE WHEN item_code IN (...)` mapea `CVC66H2CSA`, `CVC66MH2`, `CVC66MH4SACO`, `FXPR410`, `12843-01`, `55CRT12524` → `CAÑAS`; `471512` → `FG`. Fix definitivo pendiente en el build del catálogo maestro (`_build_argentina_zonas_v2.py`).
 - **🔍 Scripts diagnóstico** (`scripts/check_ventas_facturado.py`, `scripts/investigate_pesca_sin_familia.py`, `scripts/check_encoding_bytes.py`). El primero mide cobertura de familia + top SKUs por unidades/facturado. El segundo lista SKUs `is_pesca=TRUE` con `familia=''` para identificar los que faltan en el catálogo. El tercero valida con `TO_HEX(CAST(x AS BYTES))` que los bytes UTF-8 en BQ son correctos (`0xC3B1=ñ`, `0xC3B3=ó`) — útil porque PowerShell renderiza los `�` aunque los datos estén bien.
 
-Highlights v282→v288 (changelog detallado en sección 41):
+Highlights v282→v288 (changelog detallado en sección 41 — sync BPs pesca + BigQuery + Power BI):
 
 - **🎯 Sync automático de BPs pesca de SAP → app** (v282-v288, 2026-07-08). Nueva función `sync_bp_pesca()` dentro del cron cada 30 min. Filtro correcto (v288): `U_DIVISION IN ('2', '3', 'PESCA', 'BIKE & PESCA')` — los códigos internos del dropdown en SAP son 1=BIKE, 2=PESCA, 3=BIKE&PESCA. Provincia canónica poblada desde lookup a `/States?filter=Country eq 'AR'` para convertir código interno (`'2'`) a nombre (`'SALTA'`). ~103 BPs pesca sincronizando cada 30 min. Ver sección **40-bis** con contexto histórico + comportamiento del upsert + 15 iteraciones que llevaron al fix definitivo.
 - **📊 Fase 1.2 SAP → BigQuery completa** (2026-07-08). Nuevo `scripts/sync_sap_to_bigquery.py` + workflow `.github/workflows/sync-sap-to-bigquery.yml`. 4 tablas SAP en dataset `shimano_app`: `sap_bp_raw`, `sap_items_raw`, `sap_invoices_raw`, `sap_quotations_raw`. Full snapshot cada 30 min con `WRITE_TRUNCATE`.
