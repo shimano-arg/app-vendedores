@@ -1536,6 +1536,16 @@ Las filas que son altas SAP (no POINTS originales) tienen un **dropdown editable
 
 Antes: las altas que se importaban sin provincia quedaban invisibles (no se mostraban en Master Clientes). Ahora aparecen bajo un grupo virtual **"(sin provincia)"** así Admin las puede ver y completarles la provincia con el dropdown.
 
+### Fix crítico: sync SAP pisaba localidad/provincia manuales (v291+, 2026-07-13)
+
+**Bug reportado por Mariano:** completó a mano ~20 tiendas SAP con localidad + provincia en Master Clientes, guardó fila por fila. A las pocas horas, todas volvían a aparecer con `(sin localidad)` y `(sin provincia)`.
+
+**Causa raíz:** el workflow `sync-sap-catalog-stock.yml` corre cada 30 min (`cron: '13,43 * * * *'`) y ejecuta `scripts/sync_sap_to_firestore.py`, que dentro de `sync_bp_pesca()` hace `set({merge:True})` sobre cada BP con un `base_payload` que **siempre incluye** `localidad`, `localidadFinal`, `provincia` — aunque SAP los tenga vacíos. Como muchos BPs argentinos vienen sin `City`/`State` cargados desde SAP B1, cada corrida escribía `''` sobre esos campos y **destruía el trabajo manual del admin**.
+
+**Fix:** justo después de construir `base_payload` se hace `pop()` de `localidad` / `localidadFinal` cuando `bp.City` viene vacío, y de `provincia` cuando `provincia_final` viene vacío. Así el merge preserva lo que el admin ya cargó.
+
+**Trade-off consciente:** si en el futuro el admin edita localidad/provincia y en SAP B1 alguien carga un valor DISTINTO, el sync va a pisar el edit del admin con lo de SAP (comportamiento "SAP siempre gana", consistente con `runRevisarDireccionesSap`). Si eso también molesta, hay que agregar un flag `localidadManualOverride:true` que el sync respete.
+
 ### Autosave debounced en filas SAP (v291+)
 
 **Problema previo:** el input de localidad y el dropdown de provincia de las filas SAP solo se persistían cuando el admin tocaba GUARDAR de la fila. Además `mcPendingChanges` solo trackeaba el input de dirección, así que el aviso "Hay cambios sin guardar" al cerrar el modal NO detectaba localidad/provincia sin guardar → se perdían silenciosamente al cerrar. Peor: el listener `ensureApprovedAltasListener` re-renderea toda la tabla ante cualquier snapshot (`cont.innerHTML = html`), lo que borraba inputs no guardados de otras filas mientras trabajabas.

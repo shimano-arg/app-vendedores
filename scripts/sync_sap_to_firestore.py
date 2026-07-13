@@ -988,6 +988,19 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
             'updatedAt': firestore.SERVER_TIMESTAMP,
         }
 
+        # v291+ (2026-07-13): NO pisar localidad/provincia si SAP no tiene
+        # valor. Estos campos se editan manualmente por admin en Master
+        # Clientes cuando el BP viene con City/State vacios desde SAP B1.
+        # Antes: cada 30 min este sync hacia set(merge=True) con strings
+        # vacios y destruia el trabajo manual del admin (reportado por
+        # Mariano 2026-07-13 - completo ~20 tiendas a la manana y a la
+        # tarde estaban todas "(sin localidad)" otra vez).
+        if not (bp.get('City', '') or '').strip():
+            base_payload.pop('localidad', None)
+            base_payload.pop('localidadFinal', None)
+        if not provincia_final:
+            base_payload.pop('provincia', None)
+
         match = find_match(bp, existing_apps)
         if match is None:
             # CASO 3: crear nuevo. Solo aca inicializamos vendedor vacio.
