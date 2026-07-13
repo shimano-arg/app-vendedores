@@ -1,5 +1,8 @@
 # Shimano App Vendedores — Documentación técnica completa
 
+> ⚠️ **REGLA DURA PARA CLAUDE / IA COLABORADORA** ⚠️
+> **Después de CUALQUIER cambio en `index.html`, `sw.js` u otro archivo del repo, ACTUALIZAR ESTE README.md en la misma tanda de commits.** El README es la fuente de verdad viva del proyecto: si un cambio no queda reflejado acá (nueva sección, campo Firestore, botón, función, versión, etc), se considera trabajo incompleto. Bumpear también `APP_VERSION` / `CACHE_VERSION` y la fila "Versión actual" en la tabla de abajo. Nunca hacer `git push` sin haber tocado el README si el cambio es visible al usuario o al modelo de datos.
+
 App web para el equipo comercial de **Shimano Argentina** durante la transición de Baraldo (distribuidor histórico) a venta directa. Cubre todo el ciclo: gestión territorial por zona, alta de clientes, visitas con GPS, armado de pedidos, rendiciones de gastos con OCR de tickets, rutas optimizadas, tareas entre usuarios, integración con SAP B1 (DTW manual + Service Layer directo), backup total y reasignación de zonas.
 
 | | |
@@ -14,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v288 |
-| **APP_VERSION** | `v288` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v290 |
+| **APP_VERSION** | `v290` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 collecciones) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 4 tablas) → 4 vistas curadas → **Power BI Desktop conectado y armando dashboard "Resumen-Desempeño"** (2026-07-08). Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
