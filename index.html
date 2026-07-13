@@ -2562,6 +2562,29 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       </div>
     </div>
   </div>
+  <div class="modal-overlay" id="vincular-sap-modal" onclick="if(event.target===this)closeVincularSapModal()">
+    <div class="modal-box" style="width:min(760px,96vw);max-height:calc(100dvh - 30px)">
+      <div class="modal-head" style="background:linear-gradient(135deg,#0e7490,#0891b2)">
+        <div>
+          <h2>&#128279; Vincular provisorio con BP de SAP</h2>
+          <div class="subt">Eleg&iacute; el cliente SAP correspondiente. La app va a copiar CardCode + datos SAP al provisorio y borrar el BP duplicado.</div>
+        </div>
+        <button class="modal-close" onclick="closeVincularSapModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:16px 20px;overflow-y:auto">
+        <div id="vsm-provisorio-info" style="background:#fef3c7;border:1.5px solid #fcd34d;border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#78350f;line-height:1.5"></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+          <input type="search" id="vsm-search" placeholder="Buscar por nombre, CardCode o CUIT..." style="flex:1;padding:8px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px" oninput="renderVincularSapList()"/>
+          <span id="vsm-count" style="font-size:11px;color:#64748b;font-weight:600;white-space:nowrap"></span>
+        </div>
+        <div id="vsm-list" style="border:1px solid #e5e7eb;border-radius:6px;max-height:min(52vh,420px);overflow-y:auto;background:#f8fafc"></div>
+        <div id="vsm-error" style="display:none;background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:6px;padding:10px 12px;margin-top:12px;font-size:11.5px;line-height:1.5"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+          <button class="stock-action-btn cancel" onclick="closeVincularSapModal()">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <div class="modal-overlay" id="pedido-modal" onclick="if(event.target===this)closePedidoModal()">
     <div class="modal-box" style="width:min(1100px,98vw)">
       <div class="modal-head" style="background:linear-gradient(135deg,#166534,#15803d)">
@@ -2954,6 +2977,11 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <div class="ac-row"><label>Direcci&oacute;n <span class="req">*</span></label><input type="text" id="ar-direccion" required maxlength="120" placeholder="Ej: Av. Belgrano 1234"/></div>
           <div class="ac-row"><label>Nombre del due&ntilde;o / contacto <span class="req">*</span></label><input type="text" id="ar-dueno" required maxlength="80" placeholder="Ej: Juan P&eacute;rez"/></div>
           <div class="ac-row"><label>Tel&eacute;fono (opcional)</label><input type="tel" id="ar-telefono" maxlength="30" placeholder="Ej: 11 5555-1234"/></div>
+          <div class="ac-row">
+            <label>CUIT (opcional pero recomendado)</label>
+            <input type="text" id="ar-cuit" inputmode="numeric" maxlength="13" placeholder="20-12345678-9"/>
+            <div style="font-size:9.5px;color:#78716c;margin-top:3px;line-height:1.4">Si lo cargas, cuando administraci&oacute;n cree el cliente en SAP la app lo vincula sola y sale de "No confirmados" autom&aacute;ticamente.</div>
+          </div>
           <div class="ac-row" style="margin-top:14px">
             <button type="button" class="btn-confirm" style="background:#f59e0b;width:100%;padding:12px;font-size:13px;color:#fff;border:none;border-radius:6px;font-weight:800;cursor:pointer" onclick="submitAltaRapida()">&#9889; Confirmar cliente y habilitar</button>
           </div>
@@ -3240,7 +3268,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v293';
+const APP_VERSION = 'v294';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -8420,12 +8448,13 @@ function renderMcProvisoriosTable(){
   }
 
   let html = '<table class="mc-table"><thead><tr>';
-  html += '<th style="width:26%">Comercio</th>';
-  html += '<th style="width:13%">Localidad</th>';
-  html += '<th style="width:12%">Provincia</th>';
-  html += '<th style="width:16%">Vendedor / dado de alta por</th>';
-  html += '<th style="width:23%">Direccion (Alta Rapida)</th>';
-  html += '<th style="width:10%">Fecha alta</th>';
+  html += '<th style="width:22%">Comercio</th>';
+  html += '<th style="width:12%">Localidad</th>';
+  html += '<th style="width:11%">Provincia</th>';
+  html += '<th style="width:14%">Vendedor / dado de alta por</th>';
+  html += '<th style="width:19%">Direccion (Alta Rapida)</th>';
+  html += '<th style="width:9%">Fecha alta</th>';
+  html += '<th style="width:13%" title="Vincular manual con BP de SAP">Acci&oacute;n</th>';
   html += '</tr></thead><tbody>';
 
   const MAX = 500;
@@ -8442,6 +8471,8 @@ function renderMcProvisoriosTable(){
     const dueno = (a.duenoNombre || '').trim();
     const tel = (a.telefonoContacto || '').trim();
     const loc = a.localidadFinal || a.localidad || '-';
+    const cuit = (a.cuit || '').trim();
+    const safeId = escapeAttr(a._fsId || '');
 
     html += '<tr style="background:#fffbeb">';
     html += '<td>'
@@ -8449,6 +8480,7 @@ function renderMcProvisoriosTable(){
       + '<div class="mc-meta"><span class="mc-tag prov">&#9889; PROVISORIO</span>'
       + (dueno ? '<span style="font-size:10px;color:#64748b">Dueno: ' + escapeHtml(dueno) + '</span>' : '')
       + (tel ? '<span style="font-size:10px;color:#64748b"> &middot; ' + escapeHtml(tel) + '</span>' : '')
+      + (cuit ? '<span style="font-size:10px;color:#0369a1;font-weight:600"> &middot; CUIT ' + escapeHtml(cuit) + '</span>' : '')
       + '</div>'
       + '</td>';
     html += '<td>' + escapeHtml(loc) + '</td>';
@@ -8458,12 +8490,232 @@ function renderMcProvisoriosTable(){
       + '</td>';
     html += '<td style="font-size:11px;color:#334155">' + escapeHtml(dir || '(sin direccion)') + '</td>';
     html += '<td style="font-size:11px;color:#64748b">' + fecha + '</td>';
+    if (userRole === 'admin') {
+      html += '<td>'
+        + '<button type="button" class="mc-save-btn" '
+        + 'style="background:#0e7490;color:#fff;padding:6px 8px;font-size:10px;font-weight:700;border:none;border-radius:4px;cursor:pointer;white-space:nowrap" '
+        + 'title="Buscar el BP de SAP correspondiente y vincularlo (setea cardCodeSap y saca el provisorio de No confirmados)" '
+        + 'onclick="openVincularSapModal(\'' + safeId + '\')">&#128279; Vincular con SAP</button>'
+        + '</td>';
+    } else {
+      html += '<td style="font-size:10px;color:#94a3b8;text-align:center">(admin)</td>';
+    }
     html += '</tr>';
   });
   html += '</tbody></table>';
   if (items.length > MAX) html += '<div style="text-align:center;color:#94a3b8;font-size:11px;padding:12px">Mostrando ' + MAX + ' de ' + items.length + '. Refina con filtros.</div>';
   cont.innerHTML = html;
 }
+
+// v293+: Vincular provisorio con BP de SAP.
+// Cuando el auto-match del cron (sync_sap_to_firestore.py > find_match)
+// falla (nombre normalizado difiere, provisorio sin CUIT, etc.), admin
+// vincula el provisorio a mano contra un BP de SAP ya sincronizado.
+// La operacion:
+//   1. Copia los campos SAP (cardCodeSap, sapCardType, sapDivision, etc.)
+//      del BP elegido al doc del provisorio.
+//   2. Setea manualSapPending=false + source='sap_sync_manual_link'.
+//   3. Elimina el doc BP duplicado (el que creo el cron con status=approved)
+//      asi no quedan 2 clientes representando el mismo comercio.
+//   4. Guarda auditoria (linkedFromSapDocId, linkedBy, linkedAt).
+let vsmProvisorioId = null;
+let vsmSelectedSapId = null;
+
+window.openVincularSapModal = function(fsId){
+  if (!fsId) return;
+  // Firestore Rules: delete de client_applications con cardCodeSap requiere
+  // role=admin (el gerente no es owner del doc BP SAP, entonces el batch.delete
+  // fallaria con permission-denied). Restringimos aca para no exponer un
+  // boton que rompe.
+  if (userRole !== 'admin') {
+    alert('Solo admin puede vincular provisorios con SAP.');
+    return;
+  }
+  vsmProvisorioId = fsId;
+  vsmSelectedSapId = null;
+  const p = (approvedAltasList || []).find(x => x._fsId === fsId);
+  const infoEl = document.getElementById('vsm-provisorio-info');
+  if (p && infoEl) {
+    const nombre = p.comercio || p.fantasia || '(sin nombre)';
+    const loc = p.localidadFinal || p.localidad || '-';
+    const prov = titleCase(p.provincia || '-');
+    const cuit = (p.cuit || '').trim();
+    const dir = (p.calle || '').trim();
+    infoEl.innerHTML = '<b>Provisorio a vincular:</b><br>'
+      + '<span style="font-size:13px;font-weight:800;color:#78350f">' + escapeHtml(nombre) + '</span>'
+      + ' &middot; ' + escapeHtml(loc) + ' / ' + escapeHtml(prov)
+      + (cuit ? ' &middot; CUIT ' + escapeHtml(cuit) : '')
+      + (dir ? '<br><span style="font-size:11px;color:#92400e">' + escapeHtml(dir) + '</span>' : '');
+  }
+  const search = document.getElementById('vsm-search');
+  if (search) {
+    const nombreDefault = p ? (p.cuit || p.comercio || p.fantasia || '') : '';
+    search.value = String(nombreDefault).slice(0, 40);
+  }
+  const err = document.getElementById('vsm-error');
+  if (err) err.style.display = 'none';
+  const modal = document.getElementById('vincular-sap-modal');
+  if (modal) modal.classList.add('open');
+  renderVincularSapList();
+};
+
+window.closeVincularSapModal = function(){
+  const modal = document.getElementById('vincular-sap-modal');
+  if (modal) modal.classList.remove('open');
+  vsmProvisorioId = null;
+  vsmSelectedSapId = null;
+};
+
+window.renderVincularSapList = function(){
+  const listEl = document.getElementById('vsm-list');
+  const cntEl = document.getElementById('vsm-count');
+  if (!listEl) return;
+  const q = ((document.getElementById('vsm-search') || {value:''}).value || '').trim().toLowerCase();
+  // Candidatos: BPs SAP en approvedAltasList con cardCodeSap seteado y que
+  // NO sean el propio provisorio (no puede vincularse a si mismo).
+  const bps = (approvedAltasList || []).filter(a => {
+    if (!a || !a._fsId) return false;
+    if (a._fsId === vsmProvisorioId) return false;
+    if (!a.cardCodeSap) return false;  // solo BPs SAP reales
+    if (a.manualSapPending) return false;  // no vincular con otro provisorio
+    return true;
+  });
+  // Filtrar por query
+  let filtered = bps;
+  if (q) {
+    filtered = bps.filter(a => {
+      const c = (a.comercio || '').toLowerCase();
+      const f = (a.fantasia || '').toLowerCase();
+      const t = (a.titular || '').toLowerCase();
+      const cc = (a.cardCodeSap || '').toLowerCase();
+      const cu = (a.cuit || '').toLowerCase();
+      return c.includes(q) || f.includes(q) || t.includes(q) || cc.includes(q) || cu.includes(q);
+    });
+  }
+  // Ordenar por match del CUIT primero (mas confiable), despues alfabetico
+  const provisorio = (approvedAltasList || []).find(x => x._fsId === vsmProvisorioId);
+  const provCuit = provisorio ? (provisorio.cuit || '').trim() : '';
+  filtered.sort((a, b) => {
+    const aCuitMatch = (provCuit && a.cuit && a.cuit === provCuit) ? 0 : 1;
+    const bCuitMatch = (provCuit && b.cuit && b.cuit === provCuit) ? 0 : 1;
+    if (aCuitMatch !== bCuitMatch) return aCuitMatch - bCuitMatch;
+    return (a.comercio || '').localeCompare(b.comercio || '');
+  });
+  if (cntEl) cntEl.textContent = filtered.length + ' de ' + bps.length + ' BPs SAP';
+  if (!filtered.length) {
+    listEl.innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:12px">'
+      + (bps.length === 0
+        ? 'No hay BPs SAP sincronizados todavia. Cargalo primero en SAP y espera al proximo sync (cada 30 min).'
+        : 'Ningun BP SAP coincide con la busqueda.')
+      + '</div>';
+    return;
+  }
+  const MAX = 200;
+  let html = '';
+  filtered.slice(0, MAX).forEach(a => {
+    const nombre = a.comercio || a.fantasia || '(sin nombre)';
+    const cc = (a.cardCodeSap || '').trim();
+    const cu = (a.cuit || '').trim();
+    const loc = (a.localidadFinal || a.localidad || '').trim();
+    const prov = (a.provincia || '').trim();
+    const isSelected = (a._fsId === vsmSelectedSapId);
+    const cuitMatchBadge = (provCuit && cu && cu === provCuit)
+      ? '<span style="background:#10b981;color:#fff;font-size:9px;font-weight:800;padding:2px 6px;border-radius:3px;margin-left:6px">&#10003; CUIT MATCH</span>'
+      : '';
+    const bg = isSelected ? '#dbeafe' : '#fff';
+    const border = isSelected ? '#1d4ed8' : '#e5e7eb';
+    html += '<div onclick="selectVincularSapItem(\'' + escapeAttr(a._fsId) + '\')" '
+      + 'style="padding:10px 12px;border-bottom:1px solid ' + border + ';background:' + bg + ';cursor:pointer">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
+      + '<div style="flex:1;min-width:0">'
+      + '<div style="font-weight:700;color:#0f172a;font-size:12.5px">' + escapeHtml(nombre) + cuitMatchBadge + '</div>'
+      + '<div style="font-size:10.5px;color:#64748b;margin-top:2px">'
+      + '<span style="background:#dbeafe;color:#1e3a8a;padding:1px 5px;border-radius:3px;font-weight:600">SAP ' + escapeHtml(cc) + '</span> '
+      + (cu ? '&middot; CUIT ' + escapeHtml(cu) + ' ' : '')
+      + '&middot; ' + escapeHtml(loc || '-') + ' / ' + escapeHtml(titleCase(prov || '-'))
+      + '</div></div>'
+      + '<button type="button" onclick="event.stopPropagation();confirmVincularSap(\'' + escapeAttr(a._fsId) + '\')" '
+      + 'style="background:#0e7490;color:#fff;padding:6px 10px;font-size:10px;font-weight:700;border:none;border-radius:4px;cursor:pointer;white-space:nowrap">Vincular</button>'
+      + '</div></div>';
+  });
+  if (filtered.length > MAX) {
+    html += '<div style="padding:10px;text-align:center;color:#94a3b8;font-size:10px">Mostrando ' + MAX + ' de ' + filtered.length + '. Refina la busqueda.</div>';
+  }
+  listEl.innerHTML = html;
+};
+
+window.selectVincularSapItem = function(fsId){
+  vsmSelectedSapId = fsId;
+  renderVincularSapList();
+};
+
+window.confirmVincularSap = async function(sapAltaFsId){
+  if (!vsmProvisorioId || !sapAltaFsId) return;
+  if (userRole !== 'admin') return;
+  const prov = (approvedAltasList || []).find(x => x._fsId === vsmProvisorioId);
+  const sap = (approvedAltasList || []).find(x => x._fsId === sapAltaFsId);
+  if (!prov || !sap) { alert('No encuentro los documentos. Cerrá y volvé a abrir el modal.'); return; }
+  const provName = prov.comercio || prov.fantasia || '(sin nombre)';
+  const sapName = sap.comercio || sap.fantasia || '(sin nombre)';
+  const cc = (sap.cardCodeSap || '').trim();
+  if (!cc) { alert('El BP elegido no tiene cardCodeSap. No se puede vincular.'); return; }
+  const msg = 'Vincular el provisorio "' + provName + '" con el BP SAP:\n\n'
+    + '   ' + sapName + '\n'
+    + '   CardCode: ' + cc + '\n'
+    + (sap.cuit ? '   CUIT: ' + sap.cuit + '\n' : '')
+    + '\nEl provisorio va a quedar HABILITADO con este CardCode.\n'
+    + 'El BP duplicado del SAP se elimina.\n\nConfirmar?';
+  if (!confirm(msg)) return;
+  const errEl = document.getElementById('vsm-error');
+  if (errEl) errEl.style.display = 'none';
+  try {
+    const batch = fbDb.batch();
+    const provRef = fbDb.collection('client_applications').doc(vsmProvisorioId);
+    const sapRef = fbDb.collection('client_applications').doc(sapAltaFsId);
+    // Payload: campos SAP + limpiar el flag provisorio. Preservamos assignedVendor,
+    // ownerUid, approvals, notas, categorizacion del provisorio original.
+    const upd = {
+      cardCodeSap: cc,
+      manualSapPending: false,
+      source: 'sap_sync_manual_link',
+      // Copiar campos SAP relevantes si el provisorio no los tenia
+      sapCardType: sap.sapCardType || '',
+      sapDivision: sap.sapDivision || '',
+      sapValid: sap.sapValid || '',
+      sapFrozen: sap.sapFrozen || '',
+      sapSalesPersonCode: (sap.sapSalesPersonCode != null ? sap.sapSalesPersonCode : null),
+      sapReadyForSL: !!sap.sapReadyForSL,
+      linkedFromSapDocId: sapAltaFsId,
+      linkedBy: currentUser ? (currentUser.email || currentUser.uid) : '',
+      linkedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    };
+    // Completar datos vacios del provisorio con los del BP SAP (sin pisar los cargados)
+    if (!(prov.cuit || '').trim() && sap.cuit) upd.cuit = sap.cuit;
+    if (!(prov.calle || '').trim() && sap.calle) upd.calle = sap.calle;
+    if (!(prov.localidad || '').trim() && sap.localidad) { upd.localidad = sap.localidad; upd.localidadFinal = sap.localidadFinal || sap.localidad; }
+    if (!(prov.provincia || '').trim() && sap.provincia) upd.provincia = String(sap.provincia).toUpperCase();
+    if (!(prov.email || '').trim() && sap.email) upd.email = sap.email;
+    if (!(prov.telefonoContacto || '').trim() && sap.telefonoContacto) upd.telefonoContacto = sap.telefonoContacto;
+    if (!(prov.codigoPostal || '').trim() && sap.codigoPostal) upd.codigoPostal = sap.codigoPostal;
+    batch.set(provRef, upd, {merge: true});
+    batch.delete(sapRef);
+    await batch.commit();
+    // El listener de approvedAltasList repinta todo automatico. Cerrar modal.
+    closeVincularSapModal();
+    // Actualizar la tabla de Master Clientes (por si esta abierta)
+    if (typeof renderMasterClientesTable === 'function') renderMasterClientesTable();
+    alert('✓ Vinculado. "' + provName + '" ahora tiene CardCode ' + cc + ' y quedo confirmado.');
+  } catch(e) {
+    console.error('confirmVincularSap', e);
+    if (errEl) {
+      errEl.style.display = 'block';
+      errEl.textContent = 'Error vinculando: ' + (e.message || e);
+    } else {
+      alert('Error vinculando: ' + (e.message || e));
+    }
+  }
+};
 
 window.renderMasterClientesTable = function(){
   const cont = document.getElementById('mc-body');
@@ -13479,16 +13731,25 @@ window.submitAltaRapida = async function(){
   const direccion = (document.getElementById('ar-direccion').value || '').trim();
   const dueno = (document.getElementById('ar-dueno').value || '').trim();
   const telefono = (document.getElementById('ar-telefono').value || '').trim();
+  // CUIT opcional. Solo digitos para poder matchear con SAP (que a veces
+  // trae 20-12345678-9, otras 20123456789). Si el vendedor escribe algo
+  // que no es un CUIT valido (menos de 11 digitos), guardamos igual pero
+  // avisamos - el match automatico usa strict equality sobre digitos.
+  const cuitRaw = (document.getElementById('ar-cuit') || {value:''}).value || '';
+  const cuit = cuitRaw.replace(/\D/g, '');
   if (comercio.length < 2) { alert('Completá el nombre del local.'); return; }
   if (!provincia) { alert('Elegí la provincia.'); return; }
   if (localidad.length < 2) { alert('Completá la localidad.'); return; }
   if (direccion.length < 5) { alert('Completá la dirección.'); return; }
   if (dueno.length < 2) { alert('Completá el nombre del dueño / contacto.'); return; }
+  if (cuit && cuit.length !== 11) {
+    if (!confirm('El CUIT ingresado tiene ' + cuit.length + ' digitos (esperaba 11). Guardar igual?')) return;
+  }
   if (!confirm('Confirmar alta rápida de "' + comercio + '"?\n\n'
     + 'Provincia: ' + titleCase(provincia) + '\n'
     + 'Localidad: ' + localidad + '\n'
     + 'Direccion: ' + direccion + '\n'
-    + 'Dueño: ' + dueno + (telefono ? '\nTel: ' + telefono : '') + '\n\n'
+    + 'Dueño: ' + dueno + (telefono ? '\nTel: ' + telefono : '') + (cuit ? '\nCUIT: ' + cuit : '') + '\n\n'
     + 'El cliente queda habilitado PROVISORIAMENTE (amarillo).\n'
     + 'Vas a poder cargarle pedidos y visitas, pero los pedidos NO se envian\n'
     + 'a SAP hasta que administracion cree el cliente alli.')) return;
@@ -13511,6 +13772,7 @@ window.submitAltaRapida = async function(){
       localidadFinal: localidad,
       duenoNombre: dueno,
       telefonoContacto: telefono || '',
+      cuit: cuit || '',  // v293+: CUIT opcional para match automatico con SAP
       status: 'approved',
       source: 'alta_rapida',
       manualSapPending: true,  // FLAG: admin tiene que cargar a SAP manual

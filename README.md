@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v293 |
-| **APP_VERSION** | `v293` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v294 |
+| **APP_VERSION** | `v294` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 collecciones) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 4 tablas) → 4 vistas curadas → **Power BI Desktop conectado y armando dashboard "Resumen-Desempeño"** (2026-07-08). Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -179,6 +179,8 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] Fix crítico sync SAP: sync_sap_to_firestore.py ya NO pisa localidad/provincia con vacío si SAP no trae valor (evita destruir edits manuales del admin cada 30 min) (v291+)
 [X] KPI "PENDIENTES" del header ahora = mismo total global que badge "Provisorios" del Master Clientes (=provisorios de Alta Rápida pendientes de cargar a SAP) (v292+)
 [X] Fix tab "NO CONFIRMADOS" en CLIENTES: mostraba solo 3 cuando el KPI decía 16. Ahora todo provisorio (manualSapPending && !cardCodeSap) aparece siempre en "No confirmados", sin requerir provincia y sin filtrar por hasGeo/hasAddr — mismo criterio que getProvisoriosList() (v293+)
+[X] CUIT opcional en form Alta Rápida — habilita match automático confiable cuando el sync SAP corre (find_match usa CUIT como criterio prioritario después de CardCode) (v294+)
+[X] Botón "🔗 Vincular con SAP" en Master Clientes → Provisorios: modal con lista de BPs SAP disponibles, buscador y auto-ranking por CUIT match. Copia CardCode al provisorio + elimina el BP SAP duplicado + preserva assignedVendor/approvals/notas (v294+)
 ```
 
 ### Bloqueantes externos para el lanzamiento
@@ -2855,7 +2857,7 @@ Total: ~15 iteraciones para llegar al fix correcto por la naturaleza propietaria
 
 ---
 
-## 41) Changelog v204 → v293
+## 41) Changelog v204 → v294
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
 
@@ -3204,6 +3206,24 @@ Detalles completos + troubleshooting en la nueva **sección 40-bis** del README.
 - Ahora `.js-stat-p` usa `getProvisoriosList().length` — mismo total global que el badge del botón Provisorios.
 - Ambos KPIs coinciden y significan lo mismo: **provisorios de Alta Rápida pendientes de cargar a SAP**.
 - Se pierde la métrica "cuántas tiendas de mi zona me faltan visitar/geolocalizar" como KPI destacado. La variable `pendientes` local sigue disponible en el scope de `updateStats()` si algún día se rescata.
+
+### v294 — Vincular provisorios con BPs de SAP: CUIT en Alta Rápida + botón manual "Vincular"
+
+**Problema**: Cuando el admin cargaba un cliente a SAP (que la app tenía como provisorio), el sync `sync_bp_pesca()` corría cada 30 min y usaba `find_match()` para vincular. El match automático se hacía por: (1) `cardCodeSap`, (2) `cuit` normalizado, (3) nombre en `comercio`/`fantasia`/`razonSocial` uppercase+trim exacto. Los provisorios de Alta Rápida no guardaban CUIT y su nombre (nombre comercial, ej. "El Delfin") casi nunca matchea con el CardName de SAP (razón social del titular, ej. "BARGELLINI, GUSTAVO"). Resultado: el sync creaba un BP nuevo en `client_applications` y el provisorio quedaba huérfano en NO CONFIRMADOS para siempre.
+
+**Fix 1 — CUIT opcional en form Alta Rápida** (`ar-cuit`): input debajo de teléfono. Guardado en `client_applications.cuit` normalizado (solo dígitos). Aviso de confirmación si tiene ≠ 11 dígitos. El sync ya lo consume vía `_norm_cuit()` sin cambios. Vuelve el match 100% confiable para altas futuras.
+
+**Fix 2 — Botón "🔗 Vincular con SAP" en Master Clientes → tab Provisorios** (solo admin, columna "Acción"). Abre modal con:
+- Info del provisorio arriba (nombre + localidad + provincia + CUIT + dirección).
+- Buscador (nombre / CardCode / CUIT).
+- Lista de BPs SAP disponibles (`approvedAltasList` con `cardCodeSap` truthy y `!manualSapPending`).
+- **Auto-ranking**: los BPs cuyo CUIT matchea el CUIT del provisorio aparecen primero con badge verde "✓ CUIT MATCH".
+- Botón "Vincular" por fila → confirm → `batch.set` sobre el provisorio con `cardCodeSap` + `manualSapPending: false` + `source: 'sap_sync_manual_link'` + campos SAP (sapCardType, sapDivision, sapValid, sapFrozen, sapSalesPersonCode, sapReadyForSL) + `linkedFromSapDocId` + `linkedBy` + `linkedAt` de auditoría. Completa campos vacíos del provisorio (cuit/calle/localidad/provincia/email/tel/CP) con los de SAP sin pisar los cargados. `batch.delete(sapRef)` elimina el BP SAP duplicado.
+- **Permisos**: solo admin (gerente no puede delete del doc SAP porque no es owner, Firestore Rules línea "delete: admin O owner si NO tiene cardCodeSap"). Para gerente/interno la columna muestra "(admin)".
+
+**Resultado**: Los 16 provisorios existentes ahora se vinculan uno a uno vía UI sin esperar match automático. Los provisorios futuros con CUIT cargado se resuelven solos en el próximo cron (13,43 * * * *).
+
+**Trade-off consciente**: si admin vincula el provisorio con el BP SAP equivocado, no hay undo automático. Auditoría en `linkedFromSapDocId` (guarda el ID del BP borrado) permite reconstruir manualmente si hace falta.
 
 ### v293 — Fix tab "NO CONFIRMADOS" mostraba 3 items cuando el KPI PENDIENTES decía 16
 - Reporte del usuario: el header decía "16 PENDIENTES" pero al abrir CLIENTES → NO CONFIRMADOS aparecían solo 3 (los 3 tenían provincia = Capital Federal).
