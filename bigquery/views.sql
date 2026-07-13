@@ -471,10 +471,9 @@ SELECT
   it.sub                                                              AS sub_subfamilia,
   it.valid,
   it.frozen,
-  it.is_in_master,
   -- Stock (COALESCE de seguridad: v_sap_items_enriched ya garantiza no-NULL,
   -- pero explicito acá evita que un cambio futuro en enriched propague NULLs
-  -- al dashboard). Huerfanos = 0.
+  -- al dashboard).
   COALESCE(it.stock_total_sellable, 0)                                AS stock_actual,
   it.stock_by_warehouse_json,
   -- Documentos abiertos (naming Shimano):
@@ -522,7 +521,14 @@ SELECT
 FROM `app-vendedores-shimano.shimano_app.v_sap_items_enriched` it
 LEFT JOIN quotations_open_agg qo ON it.item_code = qo.item_code
 LEFT JOIN orders_open_agg     oo ON it.item_code = oo.item_code
-LEFT JOIN po_open_agg         po ON it.item_code = po.item_code;
+LEFT JOIN po_open_agg         po ON it.item_code = po.item_code
+-- Rollback quirurgico 2026-07-14: filtrar solo PESCA (is_in_master=TRUE)
+-- para volver a 755 filas y schema identico al pre-fix. Sin este WHERE
+-- v_inventario tendria 3.042 filas + columna is_in_master, cambio de
+-- schema que Power BI Desktop no digeria (refresh se colgaba post-fetch).
+-- El fix del gap huerfano vive en v_backorder_lineas / v_ventas_lineas
+-- (que si pueden manejar el schema porque son granularidad linea + join).
+WHERE it.is_in_master = TRUE;
 
 
 -- ============================================================
