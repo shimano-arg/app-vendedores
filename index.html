@@ -3240,7 +3240,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v292';
+const APP_VERSION = 'v293';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -5820,16 +5820,25 @@ function renderClients(pts){
     const sapEffSet = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
     (approvedAltasList || []).forEach(a => {
       if (!a) return;
-    if (!a.cardCodeSap && !a.manualSapPending) return;
+      if (!a.cardCodeSap && !a.manualSapPending) return;
       if (sapEffSet && a.assignedVendor && !sapEffSet.has(a.assignedVendor)) return;
       const prov = (a.provincia || '').toUpperCase().trim();
-      if (!prov) return;
+      // v293+: provisorio de Alta Rapida (manualSapPending && !cardCodeSap) es
+      // el mismo criterio que getProvisoriosList() usa para el KPI PENDIENTES.
+      // Antes se skipeaba si no tenia provincia y se filtraba por hasGeo/hasAddr,
+      // haciendo que el tab "No confirmados" mostrara menos items que el KPI.
+      // Ahora todo provisorio pasa siempre el filtro "pendientes" y aparece
+      // aunque no tenga provincia (a menos que el usuario haya activado un
+      // filtro provincial/localidad explicito).
+      const isProvisorio = !a.cardCodeSap && !!a.manualSapPending;
+      if (!prov && !isProvisorio) return;
       if (provFilter && prov !== provFilter) return;
+      if (!prov && provFilter) return;
       const aLoc = (a.localidadFinal || a.localidad || '').trim();
       if (locFilter && aLoc !== locFilter) return;
       const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
       const dupKey = prov + '|' + nombre.toLowerCase();
-      if (alreadyIn.has(dupKey)) return;
+      if (prov && alreadyIn.has(dupKey)) return;
       // Busqueda ampliada: matchea contra comercio + titular + fantasia
       // + localidad + cardCode. El vendedor puede buscar por cualquiera.
       if (cq) {
@@ -5841,12 +5850,16 @@ function renderClients(pts){
         const sap = (a.cardCodeSap || '').toLowerCase();
         if (!c.includes(q) && !t.includes(q) && !f.includes(q) && !l.includes(q) && !sap.includes(q)) return;
       }
-      // Estado para filtro confirmados/pendientes: confirmados = tiene lat/lng,
-      // pendientes = falta lat/lng o direccion.
+      // Estado para filtro confirmados/pendientes:
+      // - Provisorio (alta rapida sin CardCode SAP): SIEMPRE es "no confirmado".
+      // - SAP-alta con CardCode: confirmado = tiene lat/lng + direccion; pendiente = falta alguno.
       const hasGeo = (a.lat != null && a.lng != null);
       const hasAddr = !!(a.calle || a.address);
-      if (stateFilter === 'confirmados' && !(hasGeo && hasAddr)) return;
-      if (stateFilter === 'pendientes' && (hasGeo && hasAddr)) return;
+      if (stateFilter === 'confirmados') {
+        if (isProvisorio) return;
+        if (!(hasGeo && hasAddr)) return;
+      }
+      if (stateFilter === 'pendientes' && !isProvisorio && (hasGeo && hasAddr)) return;
       items.push({
         name: nombre, tipo: 'C',
         sapAlta: a,
@@ -5916,7 +5929,11 @@ function renderClients(pts){
       html += '<div class="client-meta">';
       html += '<span class="cli-state-badge" style="background:' + sapLeft + ';color:#fff">' + sapLabel + '</span>';
       html += '<span>' + escapeHtml(it.point.name) + '</span>';
-      html += '<span style="color:#94a3b8">/ ' + escapeHtml(titleCase(it.point.province)) + '</span>';
+      if (it.point.province) {
+        html += '<span style="color:#94a3b8">/ ' + escapeHtml(titleCase(it.point.province)) + '</span>';
+      } else {
+        html += '<span style="color:#f59e0b;font-weight:600">&#9888;&#65039; sin provincia</span>';
+      }
       html += '</div></div></div>';
       continue;
     }

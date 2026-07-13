@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v292 |
-| **APP_VERSION** | `v292` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v293 |
+| **APP_VERSION** | `v293` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 collecciones) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 4 tablas) → 4 vistas curadas → **Power BI Desktop conectado y armando dashboard "Resumen-Desempeño"** (2026-07-08). Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -178,6 +178,7 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] Master Clientes: autosave debounced 900ms en localidad/provincia/dirección de filas SAP + listener de approvedAltas no re-renderea si hay saves en vuelo (v291+)
 [X] Fix crítico sync SAP: sync_sap_to_firestore.py ya NO pisa localidad/provincia con vacío si SAP no trae valor (evita destruir edits manuales del admin cada 30 min) (v291+)
 [X] KPI "PENDIENTES" del header ahora = mismo total global que badge "Provisorios" del Master Clientes (=provisorios de Alta Rápida pendientes de cargar a SAP) (v292+)
+[X] Fix tab "NO CONFIRMADOS" en CLIENTES: mostraba solo 3 cuando el KPI decía 16. Ahora todo provisorio (manualSapPending && !cardCodeSap) aparece siempre en "No confirmados", sin requerir provincia y sin filtrar por hasGeo/hasAddr — mismo criterio que getProvisoriosList() (v293+)
 ```
 
 ### Bloqueantes externos para el lanzamiento
@@ -2854,7 +2855,7 @@ Total: ~15 iteraciones para llegar al fix correcto por la naturaleza propietaria
 
 ---
 
-## 41) Changelog v204 → v292
+## 41) Changelog v204 → v293
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
 
@@ -3203,6 +3204,17 @@ Detalles completos + troubleshooting en la nueva **sección 40-bis** del README.
 - Ahora `.js-stat-p` usa `getProvisoriosList().length` — mismo total global que el badge del botón Provisorios.
 - Ambos KPIs coinciden y significan lo mismo: **provisorios de Alta Rápida pendientes de cargar a SAP**.
 - Se pierde la métrica "cuántas tiendas de mi zona me faltan visitar/geolocalizar" como KPI destacado. La variable `pendientes` local sigue disponible en el scope de `updateStats()` si algún día se rescata.
+
+### v293 — Fix tab "NO CONFIRMADOS" mostraba 3 items cuando el KPI PENDIENTES decía 16
+- Reporte del usuario: el header decía "16 PENDIENTES" pero al abrir CLIENTES → NO CONFIRMADOS aparecían solo 3 (los 3 tenían provincia = Capital Federal).
+- Causa: en `renderClients()` la inyección de altas SAP/provisorios tenía dos filtros incompatibles con el criterio del KPI:
+  1. `if (!prov) return;` — skipeaba todo provisorio SIN provincia asignada (los 13 faltantes no tenían provincia todavía porque el vendedor no la completó en el alta rápida).
+  2. `if (stateFilter === 'pendientes' && (hasGeo && hasAddr)) return;` — un provisorio con geo + address se excluía del filtro "pendientes" aunque siga siendo provisorio (no cargado a SAP).
+- Fix: nuevo flag `isProvisorio = !cardCodeSap && !!manualSapPending` (mismo criterio que `getProvisoriosList()`). Los provisorios ahora:
+  - Pasan aunque no tengan provincia (no aplica el guard `!prov`).
+  - Siempre pasan el filtro "No confirmados" (nunca son "confirmados").
+  - Nunca aparecen en el filtro "Confirmados" aunque tengan lat/lng+dirección (siguen siendo provisorios hasta cargarlos a SAP).
+- Bonus render: cuando un provisorio no tiene provincia, la card muestra badge naranja "⚠️ sin provincia" en lugar de un `/` suelto.
 
 ---
 
