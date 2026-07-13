@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v204 → v288](#41-changelog-v204--v288)
+41. [Changelog v204 → v292](#41-changelog-v204--v292)
 
 ---
 
@@ -174,6 +174,10 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] Botón ZONAS sin ícono emoji (v214)
 [X] Tildar pedido bloqueado en SAP — fix cleanup de sapPendSelection (v216)
 [X] Rendiciones v2: TablaGastos agrupada por dupla (vendedor, tipoGasto) + hoja "Detalle" sin agrupar para auditoría + fotos pre-subidas a Storage y concatenadas (v217)
+[X] Master Clientes: botón "👤 Provisorios" violeta filtra altas rápidas pendientes de SAP (manualSapPending && !cardCodeSap) con badge de conteo en tiempo real (v290+)
+[X] Master Clientes: autosave debounced 900ms en localidad/provincia/dirección de filas SAP + listener de approvedAltas no re-renderea si hay saves en vuelo (v291+)
+[X] Fix crítico sync SAP: sync_sap_to_firestore.py ya NO pisa localidad/provincia con vacío si SAP no trae valor (evita destruir edits manuales del admin cada 30 min) (v291+)
+[X] KPI "PENDIENTES" del header ahora = mismo total global que badge "Provisorios" del Master Clientes (=provisorios de Alta Rápida pendientes de cargar a SAP) (v292+)
 ```
 
 ### Bloqueantes externos para el lanzamiento
@@ -231,7 +235,7 @@ shimano-arg/app-vendedores/
 ├── index.html                # App completa (~3.2 MB - todo embebido)
 ├── alta-cliente.html         # Formulario público standalone (link compartible)
 ├── manifest.json             # PWA manifest
-├── sw.js                     # Service Worker (v252)
+├── sw.js                     # Service Worker (CACHE_VERSION sincronizada con APP_VERSION; hoy v292)
 ├── login-bg.jpg              # Foto de fondo del login (río al amanecer)
 ├── stock.json                # Snapshot fresco del stock SAP (autogenerado por
 │                             #  sync_sap_to_firestore.py cada 30 min - lo consume
@@ -2850,7 +2854,7 @@ Total: ~15 iteraciones para llegar al fix correcto por la naturaleza propietaria
 
 ---
 
-## 41) Changelog v204 → v288
+## 41) Changelog v204 → v292
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
 
@@ -3168,6 +3172,37 @@ Anterior v286 filtraba por `'1'` (BIKE), causando la explosión de 2506 clientes
 **Volumen final actual**: ~103 BPs pesca. De los 2600 BPs Customer/Lead totales en SAP, 2506 son BIKE (se descartan).
 
 Detalles completos + troubleshooting en la nueva **sección 40-bis** del README.
+
+### v289 — README como fuente de verdad (regla dura para IA)
+- Bloque destacado al inicio del README obligando a mantenerlo actualizado en cada commit que toque `index.html`, `sw.js` u otro archivo del repo.
+- Bump de la tabla "Versión actual" / "APP_VERSION" a v290. Sin cambios funcionales en la app.
+
+### v290 — Botón "👤 Provisorios" en Master Clientes
+- Toolbar violeta al lado de "Masterfile-Base" con badge de conteo en tiempo real.
+- Filtra `approvedAltasList` por `manualSapPending === true && !cardCodeSap` → clientes de Alta Rápida que faltan cargar a SAP.
+- Al tocarlo, la tabla del Master Clientes reemplaza sus filas por los provisorios: fondo crema, badge morado ⚡ PROVISORIO, columnas Comercio (con dueño + teléfono) / Localidad / Provincia / Vendedor asignado / Dirección de Alta Rápida / Fecha alta.
+- Reutiliza `approvedAltasList` (no crea listener nuevo). Actualiza el badge desde `ensureApprovedAltasListener` cada vez que llega snapshot.
+
+### v291 — Autosave debounced + fix crítico del sync SAP
+
+**Autosave en Master Clientes filas SAP:**
+- Antes localidad/provincia solo se guardaban al tocar GUARDAR y el aviso "cambios sin guardar" solo detectaba la dirección. Se perdían silenciosamente al cerrar.
+- Ahora cada cambio dispara `scheduleMcAutosave(docId, row, 900)` → mismo `saveMcAddr` con merge + geocode.
+- Badge amarillo en stats: `Guardando N` / `Pendientes: N`.
+- Listener de `approvedAltasList` difiere el re-render de la tabla si hay saves en vuelo (evita reventar inputs de filas todavía sin guardar).
+- `closeMasterClientesPanel` chequea también `mcPendingRowIds` y `mcAutosaveInFlight`.
+
+**Fix crítico `sync_sap_to_firestore.py` (backend):**
+- Bug reportado: Mariano completó ~20 tiendas SAP con localidad+provincia a la mañana; a las pocas horas volvían a `(sin localidad)`/`(sin provincia)`.
+- Causa: `sync_bp_pesca()` hacía `set({merge:True})` con `base_payload` que **siempre** incluía `localidad`, `localidadFinal`, `provincia` — aunque SAP los tenga vacíos. Cada corrida del workflow scheduled (`cron: '13,43 * * * *'`) escribía `''` sobre esos campos y destruía el trabajo manual del admin.
+- Fix: `pop()` de esos campos del payload cuando SAP viene sin valor. Merge preserva lo cargado a mano.
+- Trade-off consciente: si SAP tiene un valor distinto al que cargó el admin, el sync sigue pisando (comportamiento "SAP siempre gana", consistente con `runRevisarDireccionesSap`). Para bloquearlo completamente habría que agregar un flag `localidadManualOverride: true` que el sync respete.
+
+### v292 — KPI "PENDIENTES" del header = badge "Provisorios" del Master Clientes
+- Antes `updateStats()` contaba `pendientes` = POINTS/prospectos no contactados + SAP altas sin `provincia + geo + dirección`, filtrados por vendor/provincia/localidad.
+- Ahora `.js-stat-p` usa `getProvisoriosList().length` — mismo total global que el badge del botón Provisorios.
+- Ambos KPIs coinciden y significan lo mismo: **provisorios de Alta Rápida pendientes de cargar a SAP**.
+- Se pierde la métrica "cuántas tiendas de mi zona me faltan visitar/geolocalizar" como KPI destacado. La variable `pendientes` local sigue disponible en el scope de `updateStats()` si algún día se rescata.
 
 ---
 
