@@ -1539,14 +1539,43 @@ Desde v207+ el progreso se calcula **sobre el scope de la campaña**:
 
 ## 22) Targets mensuales
 
-Gerente carga el target de facturación en USD para cada mes:
-- Julio 2026 USD
-- Julio-Diciembre 2026 USD
-- Anual 2027 USD
+Admin/gerente carga el objetivo de facturación en ARS por vendedor + año + mes desde el modal **Targets mensuales** (header → botón Targets).
 
-Tipo de cambio se carga desde el master. Targets en ARS se calculan automáticamente.
+Colección Firestore: `targets`. Doc ID: `{vendorKey_normalizado}_{year}_{monthPadded2}` (ej: `GONZALO_DE_LA_ROSA_2026_07`). Payload:
+```js
+{
+  sellerId: "GONZALO DE LA ROSA",  // vendorKey (el UPPERCASE del array VENDORS)
+  year: 2026,
+  month: 6,                        // 0-11 (índice del array MESES)
+  targetArs: 120000000,
+  updatedAt: <Ts>,
+  updatedBy: "<uid>",
+  updatedByEmail: "..."
+}
+```
 
-Dashboard muestra % de cumplimiento del mes contra target.
+- Meses vacíos se persisten como `delete()` del doc (no se guarda 0).
+- Autosave por click en Guardar (no debounced).
+- El dashboard suma `getCumulativeTargetArs(vendorKey, year, throughMonthIdx)` para el % de cumplimiento acumulado.
+
+### Export Excel formato largo (v297+)
+
+Botón verde **📊 Exportar Excel** en el footer del modal Targets → descarga `Targets_Shimano_YYYY-MM-DD.xlsx` con una fila por (vendedor, mes) con target > 0.
+
+Columnas exactas (matchea el master que sube gerente a SAP / Power BI):
+
+| SlpCode | Vendedor | Año | Mes | Meta |
+|---|---|---|---|---|
+| 50 | Gonzalo de la Rosa | 2026 | 7 | 120000000 |
+| 50 | Gonzalo de la Rosa | 2026 | 8 | 125000000 |
+
+- `SlpCode` ← `sapGetSlpCodeForVendor(vendorKey)` desde `sap_vendors` (vacío si el vendedor no está mapeado a SAP).
+- `Vendedor` ← preferencia `sap_vendors.slpName` (formato SAP "Gonzalo de la Rosa"). Fallback: `titleCase(vendorKey)`.
+- `Año` / `Mes` / `Meta` — directo del doc. **`Mes` se convierte 0-11 → 1-12** para el Excel.
+
+Orden: SlpCode → Vendedor → Año → Mes. Anchos de columna razonables via `ws['!cols']`.
+
+Permisos: `canManageTargets()` (admin/gerente + emails allowlist).
 
 ---
 
@@ -2086,6 +2115,20 @@ Botón **Exportar para Análisis** (verde) → **visible SOLO para `erbinomarian
 - **TARGETS-ZONAS** ← reescrito en v208+. Antes generaba el master full con todas las tiendas POINTS + altas mezcladas; ahora genera **UNA fila por BP vivo en SAP** (solo `client_applications` con `status='approved'` Y `cardCodeSap` no vacío). Excluye POINTS, distribuidores, prospectos y mocks. Columnas: TIPO / NRO CTE / REGION / PROVINCIA / ASESOR EXTERNO / ASESOR INTERNO / CALLE / NUMERO / LOCALIDAD / CP / NOMBRE COMERCIAL / NOMBRE DE FANTASIA / CUIT / CONDICION FISCAL / TELEFONO / **CARDCODE SAP** (columna nueva).
 - **Backup TOTAL** ← ZIP con todo.
 
+### Export desde modal Targets (v297+)
+
+Aparte del botón "Exportar para Análisis" (admin only), el modal **Targets mensuales** tiene su propio botón **📊 Exportar Excel** que emite el master de targets en formato largo:
+
+| Columna | Fuente | Notas |
+|---|---|---|
+| `SlpCode` | `sap_vendors.slpCode` | vacío si el vendedor no está mapeado |
+| `Vendedor` | `sap_vendors.slpName` (fallback `titleCase(vendorKey)`) | formato "Gonzalo de la Rosa" |
+| `Año` | `targets.year` | number |
+| `Mes` | `targets.month + 1` | convertido a 1-12 |
+| `Meta` | `targets.targetArs` | redondeado a entero |
+
+Uso operativo: gerente exporta a Excel, ajusta si hace falta, y sube el master a SAP o a Power BI (fuente para la vista de cumplimiento). Ver sección 22 para detalles.
+
 ---
 
 ## 31) Panel admin "Usuarios"
@@ -2401,7 +2444,8 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 
 ### Hecho recientemente (✅)
 
-**v290 → v296 (2026-07-13):**
+**v290 → v297 (2026-07-13):**
+- [X] **Export Excel de Targets en formato largo** (SlpCode/Vendedor/Año/Mes/Meta) desde el modal Targets (v297).
 - [X] **Botón "👤 Provisorios"** violeta en Master Clientes para filtrar altas rápidas pendientes de SAP (v290).
 - [X] **Autosave debounced 900ms** en localidad/provincia/dirección de filas SAP (v291) + listener no re-renderea si hay saves en vuelo.
 - [X] **Fix crítico sync SAP** — `sync_sap_to_firestore.py` ya NO pisa localidad/provincia con vacío si SAP no trae valor (v291).
@@ -3355,8 +3399,9 @@ Detalles completos + troubleshooting en la nueva **sección 40-bis** del README.
 
 ---
 
-**Última actualización**: 2026-07-13 — SW v296. Sesión frontend completa (fixes UX + auto-sync provisorios). Highlights v290→v296 (detalle en sección 41):
+**Última actualización**: 2026-07-13 — SW v297. Sesión frontend completa (fixes UX + auto-sync provisorios + export master targets). Highlights v290→v297 (detalle en sección 41):
 
+- **📊 Export Excel de Targets en formato largo** (v297, para SAP / Power BI). Botón verde en el modal Targets → `Targets_Shimano_YYYY-MM-DD.xlsx` con columnas `SlpCode | Vendedor | Año | Mes | Meta`, una fila por (vendedor, mes) con target > 0. SlpCode y Vendedor resueltos desde `sap_vendors`. Detalle en sección 22.
 - **✍️ Fix ortográfico "MOSTRADO" → "MOSTRADOR"** (v296, reportado por vendedor). Selects Tipo de venta + Necesidad puntual + label ponderación + Excel exports. Value en Firestore sigue siendo `'MOSTRADO'` (retrocompat), solo se mapea el display.
 - **🏷️ Badge Categoría (Cat P/A/B/C) fijo en esquina de card** (v295). En CLIENTES `position:absolute; top:6px; right:8px` — siempre visible sin importar el largo del nombre. En PEDIDOS va en el cluster derecho arriba del Habilitado (para no chocar). `padding-right:62px` reservado en `.client-card`.
 - **🔗 Vincular provisorio con BP SAP** (v294). Cuando el auto-match del cron falla (nombre difiere, provisorio sin CUIT), admin va a **Master Clientes → 👤 Provisorios → 🔗 Vincular con SAP** y elige manualmente el BP correcto. Auto-ranking con badge verde "✓ CUIT MATCH" si los CUITs coinciden. `batch.set(provisorio) + batch.delete(bp_duplicado)`. Preserva assignedVendor/approvals/notas. Solo admin (por Firestore Rules).
