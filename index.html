@@ -3240,7 +3240,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v290';
+const APP_VERSION = 'v291';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -3637,7 +3637,17 @@ function ensureApprovedAltasListener(){
       try {
         const mEl = document.getElementById('master-cli-modal');
         if (mEl && mEl.classList.contains('open') && typeof renderMasterClientesTable === 'function') {
-          renderMasterClientesTable();
+          // Evitar re-render si hay cambios locales en vuelo o inputs con
+          // debounce pendiente: reventaria inputs sin guardar. Diferimos y
+          // el updateMcDirtyStat aplica el render cuando todo este limpio.
+          const hasPending = (typeof mcPendingRowIds !== 'undefined' && mcPendingRowIds.size > 0)
+            || (typeof mcAutosaveInFlight !== 'undefined' && mcAutosaveInFlight > 0)
+            || (typeof mcAutosaveTimers !== 'undefined' && Object.keys(mcAutosaveTimers).length > 0);
+          if (hasPending) {
+            mcRenderDeferred = true;
+          } else {
+            renderMasterClientesTable();
+          }
         }
       } catch(e){}
       // Si la lista CLIENTES esta a la vista, repintar tambien (las cards
@@ -7616,6 +7626,72 @@ const clientMasterCache = new Map();
 let unsubClientMaster = null;
 let mcPendingChanges = {}; // docId -> nuevo address (en proceso)
 
+// Autosave debounced por fila. Antes solo se guardaba al tocar GUARDAR y
+// solo detectaba cambios en el input de direccion (mcPendingChanges), asi
+// que si cambiabas localidad/provincia y cerrabas el modal se perdian sin
+// aviso. Ahora cada cambio programa un save a los 900ms.
+const mcAutosaveTimers = {}; // docId -> setTimeout id
+const mcPendingRowIds = new Set(); // docIds con cambios locales aun no persistidos
+let mcAutosaveInFlight = 0;
+let mcRenderDeferred = false;
+
+function updateMcDirtyStat(){
+  const statsEl = document.getElementById('mc-stats');
+  if (!statsEl) return;
+  let dirtySpan = statsEl.querySelector('.mc-dirty');
+  const n = mcPendingRowIds.size + mcAutosaveInFlight;
+  if (n > 0) {
+    if (!dirtySpan) {
+      dirtySpan = document.createElement('span');
+      dirtySpan.className = 'mc-dirty';
+      dirtySpan.style.background = '#fef3c7';
+      dirtySpan.style.color = '#92400e';
+      dirtySpan.style.borderColor = '#fde68a';
+      statsEl.appendChild(dirtySpan);
+    }
+    dirtySpan.textContent = (mcAutosaveInFlight > 0 ? 'Guardando ' : 'Pendientes: ') + n;
+  } else if (dirtySpan) {
+    dirtySpan.remove();
+    // Si el listener quiso re-renderear mientras habia cambios en vuelo,
+    // aplicarlo ahora que todo esta commiteado.
+    if (mcRenderDeferred) {
+      mcRenderDeferred = false;
+      try { if (typeof renderMasterClientesTable === 'function') renderMasterClientesTable(); } catch(e){}
+    }
+  }
+}
+
+function scheduleMcAutosave(docId, row, delay){
+  if (!docId || !row) return;
+  mcPendingRowIds.add(docId);
+  updateMcDirtyStat();
+  if (mcAutosaveTimers[docId]) clearTimeout(mcAutosaveTimers[docId]);
+  mcAutosaveTimers[docId] = setTimeout(async () => {
+    delete mcAutosaveTimers[docId];
+    const btn = row.querySelector('.mc-save-btn');
+    if (!btn || btn.disabled) return;
+    mcAutosaveInFlight++;
+    updateMcDirtyStat();
+    try {
+      await window.saveMcAddr(docId, btn);
+    } catch(e) {
+      console.error('autosave mc', docId, e);
+    } finally {
+      mcAutosaveInFlight = Math.max(0, mcAutosaveInFlight - 1);
+      mcPendingRowIds.delete(docId);
+      updateMcDirtyStat();
+    }
+  }, delay || 900);
+}
+window.onMcSapFieldChange = function(el){
+  const row = el && el.closest ? el.closest('tr') : null;
+  if (!row) return;
+  const docId = row.getAttribute('data-doc');
+  if (!docId) return;
+  el.classList.toggle('has-value', !!(el.value || '').trim());
+  scheduleMcAutosave(docId, row, 900);
+};
+
 // Clientes provisorios de Alta Rapida: viven en client_applications con
 // status='approved' + manualSapPending=true + source='alta_rapida'. Ya estan
 // cacheados globalmente en approvedAltasList (poblada por
@@ -7743,10 +7819,20 @@ window.openMasterClientesPanel = function(){
   renderMasterClientesTable();
 };
 window.closeMasterClientesPanel = function(){
-  const dirty = Object.keys(mcPendingChanges).length > 0;
-  if (dirty && !confirm('Hay cambios sin guardar. Cerrar igual?')) return;
+  const dirty = Object.keys(mcPendingChanges).length > 0
+    || mcPendingRowIds.size > 0
+    || mcAutosaveInFlight > 0
+    || Object.keys(mcAutosaveTimers).length > 0;
+  if (dirty && !confirm('Hay cambios sin guardar (o guardando). Cerrar igual? Puede perderse la ultima edicion.')) return;
   document.getElementById('master-cli-modal').classList.remove('open');
   mcPendingChanges = {};
+  // No limpiamos mcPendingRowIds ni cancelamos timers: si el usuario dijo
+  // "cerrar igual", queremos que los saves en vuelo terminen igual y solo
+  // se pierdan los cambios que aun no dispararon el debounce.
+  Object.keys(mcAutosaveTimers).forEach(id => {
+    clearTimeout(mcAutosaveTimers[id]);
+    delete mcAutosaveTimers[id];
+  });
 };
 
 // =====================================================================
@@ -8509,7 +8595,7 @@ window.renderMasterClientesTable = function(){
       // Sin onblur (lo manejaba saveMcSapLocalidad por separado y confundia
       // si el admin tipeaba localidad y direccion al mismo tiempo). Ahora
       // el boton GUARDAR commitea AMBOS campos en una sola operacion.
-      html += '<td><input type="text" class="mc-addr-input js-mc-localidad-input' + (locVal ? ' has-value' : '') + '" style="font-size:11px" value="' + escapeAttr(locVal) + '" placeholder="(sin localidad)" onkeydown="if(event.key===\'Enter\')this.parentElement.parentElement.querySelector(\'.mc-save-btn\').click()" /></td>';
+      html += '<td><input type="text" class="mc-addr-input js-mc-localidad-input' + (locVal ? ' has-value' : '') + '" style="font-size:11px" value="' + escapeAttr(locVal) + '" placeholder="(sin localidad)" oninput="onMcSapFieldChange(this)" onkeydown="if(event.key===\'Enter\')this.parentElement.parentElement.querySelector(\'.mc-save-btn\').click()" /></td>';
     } else {
       html += '<td>' + escapeHtml(e.localidad) + '</td>';
     }
@@ -8519,7 +8605,7 @@ window.renderMasterClientesTable = function(){
     if (isSap) {
       const provVal = (e.provincia === '(sin provincia)') ? '' : e.provincia;
       const provHas = provVal ? ' has-value' : '';
-      let provSel = '<td><select class="mc-cli-sel js-mc-provincia-input' + provHas + '" style="font-size:11px;width:100%">';
+      let provSel = '<td><select class="mc-cli-sel js-mc-provincia-input' + provHas + '" style="font-size:11px;width:100%" onchange="onMcSapFieldChange(this)">';
       provSel += '<option value="">(sin provincia)</option>';
       const provSet = new Set();
       (POINTS || []).forEach(p => provSet.add(p.province));
@@ -8553,6 +8639,9 @@ window.onMcAddrInput = function(input, docId, originalSaved){
   input.classList.toggle('has-value', !!val);
   const btn = input.parentElement.parentElement.querySelector('.mc-save-btn');
   if (btn) btn.classList.toggle('changed', mcPendingChanges[docId] != null);
+  // Autosave debounced: programar guardado a los 900ms sin cambios.
+  const row = input.closest ? input.closest('tr') : null;
+  if (row) scheduleMcAutosave(docId, row, 900);
   // Actualizar contador stats (sin re-render entero)
   const statsEl = document.getElementById('mc-stats');
   if (statsEl) {

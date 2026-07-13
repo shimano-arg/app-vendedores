@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v290 |
-| **APP_VERSION** | `v290` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v291 |
+| **APP_VERSION** | `v291` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 collecciones) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 4 tablas) → 4 vistas curadas → **Power BI Desktop conectado y armando dashboard "Resumen-Desempeño"** (2026-07-08). Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -1535,6 +1535,19 @@ Las filas que son altas SAP (no POINTS originales) tienen un **dropdown editable
 ### Altas SAP sin provincia → grupo "(sin provincia)" (v186+)
 
 Antes: las altas que se importaban sin provincia quedaban invisibles (no se mostraban en Master Clientes). Ahora aparecen bajo un grupo virtual **"(sin provincia)"** así Admin las puede ver y completarles la provincia con el dropdown.
+
+### Autosave debounced en filas SAP (v291+)
+
+**Problema previo:** el input de localidad y el dropdown de provincia de las filas SAP solo se persistían cuando el admin tocaba GUARDAR de la fila. Además `mcPendingChanges` solo trackeaba el input de dirección, así que el aviso "Hay cambios sin guardar" al cerrar el modal NO detectaba localidad/provincia sin guardar → se perdían silenciosamente al cerrar. Peor: el listener `ensureApprovedAltasListener` re-renderea toda la tabla ante cualquier snapshot (`cont.innerHTML = html`), lo que borraba inputs no guardados de otras filas mientras trabajabas.
+
+**Fix:**
+- Cada cambio en localidad / provincia / dirección de una fila SAP dispara `scheduleMcAutosave(docId, row, 900)`.
+- Cae dentro del mismo `saveMcAddr` que ya usa el botón GUARDAR (misma lógica de merge + geocode).
+- Se muestra un badge amarillo en las stats: `Guardando 3...` o `Pendientes: 3`.
+- El listener de `approvedAltasList` NO re-renderea la tabla si hay saves en vuelo (`mcAutosaveInFlight > 0`) o inputs con debounce pendiente. Difiere el re-render con `mcRenderDeferred = true` hasta que todo esté commiteado, y ahí sí lo aplica.
+- `closeMasterClientesPanel` ahora también chequea `mcPendingRowIds` y `mcAutosaveInFlight` — si hay algo pendiente, confirmación al cerrar.
+
+Válido solo para altas SAP (filas con `tipo='sap_alta'`). Los POINTS legacy siguen con el botón GUARDAR clásico porque su localidad/provincia están atadas al docId del padrón.
 
 ### Botón "👤 Provisorios" — filtrar altas rápidas pendientes de SAP (v290+)
 
