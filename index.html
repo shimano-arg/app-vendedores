@@ -2168,7 +2168,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <div class="vf-row"><label>POP <span class="req">*</span> <span class="vf-hint">(necesita material Shimano: cartel, bandera, ca&ntilde;ero, etc.)</span></label>
             <div class="vf-toggle" id="vf-pop"><button type="button" data-v="SI" onclick="setPop('SI')">S&iacute;</button><button type="button" data-v="NO" onclick="setPop('NO')">No</button></div>
           </div>
-          <div class="vf-row" id="vf-necesidad-wrap" style="display:none"><label>Necesidad puntual <span class="req">*</span></label><select id="vf-necesidad"><option value="">Seleccionar...</option><option>CA&Ntilde;ERO</option><option>CARTEL</option><option>MOSTRADO</option><option>OTROS</option></select></div>
+          <div class="vf-row" id="vf-necesidad-wrap" style="display:none"><label>Necesidad puntual <span class="req">*</span></label><select id="vf-necesidad"><option value="">Seleccionar...</option><option>CA&Ntilde;ERO</option><option>CARTEL</option><option value="MOSTRADO">MOSTRADOR</option><option>OTROS</option></select></div>
           <div class="vf-row"><label>Espacio <span class="vf-hint">(hasta 8 fotos)</span></label>
             <div class="photo-grid" id="vf-espacio-grid"><label class="photo-cell add" id="vf-espacio-add"><input type="file" accept="image/*,image/heic,image/heif" multiple onchange="onEspacioPhotos(this)"/>+</label></div>
           </div>
@@ -2179,10 +2179,10 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <div class="vf-row" id="vf-frente-row"><label><span id="vf-frente-label">Frente del local</span> <span class="vf-hint" id="vf-frente-hint">(opcional - 1 foto)</span></label>
             <div class="photo-grid" id="vf-frente-grid"><label class="photo-cell add"><input type="file" accept="image/*,image/heic,image/heif" onchange="onFrentePhoto(this)"/>+</label></div>
           </div>
-          <div class="vf-row"><label>Tipo de venta <span class="req">*</span></label><select id="vf-tipoventa" required onchange="onTipoVentaChange()"><option value="">Seleccionar...</option><option>MOSTRADO</option><option>ECOMMERCE</option><option>AMBOS</option></select></div>
+          <div class="vf-row"><label>Tipo de venta <span class="req">*</span></label><select id="vf-tipoventa" required onchange="onTipoVentaChange()"><option value="">Seleccionar...</option><option value="MOSTRADO">MOSTRADOR</option><option value="ECOMMERCE">ECOMMERCE</option><option value="AMBOS">AMBOS</option></select></div>
           <div class="vf-row" id="vf-pond-wrap" style="display:none"><label>Ponderaci&oacute;n tipo de venta <span class="req">*</span> <span class="vf-hint">(debe sumar 100%)</span></label>
             <div class="vf-pond-grid">
-              <div><span>Mostrado %</span><input type="number" id="vf-pond-mostrado" min="0" max="100" placeholder="60"/></div>
+              <div><span>Mostrador %</span><input type="number" id="vf-pond-mostrado" min="0" max="100" placeholder="60"/></div>
               <div><span>Ecommerce %</span><input type="number" id="vf-pond-ecommerce" min="0" max="100" placeholder="40"/></div>
             </div>
           </div>
@@ -3270,7 +3270,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v295';
+const APP_VERSION = 'v296';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -7211,7 +7211,7 @@ async function exportVisitasForMonth(anio, monthIdx){
     {header: 'Mas Preguntan',     key: 'masPr',     width: 24},
     {header: 'Ayuda Tienda',      key: 'ayuda',     width: 22},
     {header: 'Tipo Venta',        key: 'tipoVenta', width: 12},
-    {header: 'Pond Mostrado',     key: 'pMost',     width: 10},
+    {header: 'Pond Mostrador',    key: 'pMost',     width: 10},
     {header: 'Pond Ecommerce',    key: 'pEcom',     width: 10},
     {header: 'Competencia',       key: 'compe',     width: 16},
     {header: 'GPS Status',        key: 'gpsSt',     width: 12},
@@ -7257,7 +7257,7 @@ async function exportVisitasForMonth(anio, monthIdx){
       masVe:     v.masVendido || '',
       masPr:     v.masPreguntan || '',
       ayuda:     v.ayudaTienda || '',
-      tipoVenta: v.tipoVenta || '',
+      tipoVenta: (v.tipoVenta === 'MOSTRADO' ? 'MOSTRADOR' : (v.tipoVenta || '')),
       pMost:     v.ponderacionMostrado || '',
       pEcom:     v.ponderacionEcommerce || '',
       compe:     v.competencia || '',
@@ -9911,7 +9911,7 @@ window.exportVisitsWithEmbeddedPhotos = async function(){
       fidelidad: v.fidelidad || '',
       relev:     v.relevancia || '',
       pop:       v.pop || '',
-      tipoVenta: v.tipoVenta || '',
+      tipoVenta: (v.tipoVenta === 'MOSTRADO' ? 'MOSTRADOR' : (v.tipoVenta || '')),
       compe:     v.competencia || '',
       oportu:    v.oportunidad || '',
       masVe:     v.masVendido || '',
@@ -10245,9 +10245,9 @@ window.runMonthlyBackup = async function(){
       Fidelidad: v.fidelidad || '',
       'Relevancia': v.relevancia || '',
       POP: v.pop || '',
-      'Necesidad puntual': v.necesidadPuntual || '',
-      'Tipo venta': v.tipoVenta || '',
-      '% Mostrado': v.ponderacionMostrado != null ? v.ponderacionMostrado : '',
+      'Necesidad puntual': (v.necesidadPuntual === 'MOSTRADO' ? 'MOSTRADOR' : (v.necesidadPuntual || '')),
+      'Tipo venta': (v.tipoVenta === 'MOSTRADO' ? 'MOSTRADOR' : (v.tipoVenta || '')),
+      '% Mostrador': v.ponderacionMostrado != null ? v.ponderacionMostrado : '',
       '% Ecommerce': v.ponderacionEcommerce != null ? v.ponderacionEcommerce : '',
       Competencia: v.competencia || '',
       Oportunidad: v.oportunidad || '',
@@ -10848,9 +10848,9 @@ function buildVisitRows(){
     Fidelidad: v.fidelidad || '',
     'Relevancia (1-5)': v.relevancia || '',
     POP: v.pop || '',
-    'Necesidad puntual': v.necesidadPuntual || '',
-    'Tipo venta': v.tipoVenta || '',
-    '% Mostrado': v.ponderacionMostrado != null ? v.ponderacionMostrado : '',
+    'Necesidad puntual': (v.necesidadPuntual === 'MOSTRADO' ? 'MOSTRADOR' : (v.necesidadPuntual || '')),
+    'Tipo venta': (v.tipoVenta === 'MOSTRADO' ? 'MOSTRADOR' : (v.tipoVenta || '')),
+    '% Mostrador': v.ponderacionMostrado != null ? v.ponderacionMostrado : '',
     '% Ecommerce': v.ponderacionEcommerce != null ? v.ponderacionEcommerce : '',
     Competencia: v.competencia || '',
     'Categoria cliente': v.categoriaCliente || '',
@@ -16199,7 +16199,10 @@ window.ccmOpenUltimaVisita = function(){
     if (v.masVendido) html += '<div class="cv-section"><div class="cv-label">Lo m&aacute;s vendido Shimano</div><div class="cv-val">' + escapeHtml(v.masVendido) + '</div></div>';
     if (v.masPreguntan) html += '<div class="cv-section"><div class="cv-label">Lo que m&aacute;s preguntan</div><div class="cv-val">' + escapeHtml(v.masPreguntan) + '</div></div>';
     if (v.ayudaTienda) html += '<div class="cv-section"><div class="cv-label">Ayuda a tienda</div><div class="cv-val">' + escapeHtml(v.ayudaTienda) + '</div></div>';
-    if (v.tipoVenta) html += '<div class="cv-section"><div class="cv-label">Tipo de venta</div><div class="cv-val">' + escapeHtml(v.tipoVenta) + '</div></div>';
+    // v295+ mapeo display: en DB el value legacy es 'MOSTRADO' pero el label
+    // correcto es 'MOSTRADOR' (mueble). No migramos la data historica, solo
+    // el string visible.
+    if (v.tipoVenta) html += '<div class="cv-section"><div class="cv-label">Tipo de venta</div><div class="cv-val">' + escapeHtml(v.tipoVenta === 'MOSTRADO' ? 'MOSTRADOR' : v.tipoVenta) + '</div></div>';
     if (v.competencia) html += '<div class="cv-section"><div class="cv-label">Competencia</div><div class="cv-val">' + escapeHtml(v.competencia) + '</div></div>';
     if (v.categoriaCliente) html += '<div class="cv-section"><div class="cv-label">Categor&iacute;a cliente</div><div class="cv-val">' + escapeHtml(v.categoriaCliente) + '</div></div>';
     if (matches.length > 1) {
