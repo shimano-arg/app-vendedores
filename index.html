@@ -3240,7 +3240,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v291';
+const APP_VERSION = 'v292';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -5663,7 +5663,16 @@ function updateStats(pts){
   }
   document.querySelectorAll('.js-stat-loc').forEach(el => { el.textContent = _statLocVal; });
   document.querySelectorAll('.js-stat-c').forEach(el => { el.textContent = habilitados; });
-  document.querySelectorAll('.js-stat-p').forEach(el => { el.textContent = pendientes; });
+  // v292+ (2026-07-13): PENDIENTES ahora significa "provisorios de Alta
+  // Rapida pendientes de cargar a SAP" (manualSapPending && !cardCodeSap),
+  // total GLOBAL sin filtrar por vendor/provincia/localidad. Antes contaba
+  // POINTS/prospectos no contactados + SAP altas sin geo/addr, lo que hacia
+  // que el numero no coincidiera con el badge del boton "Provisorios" en
+  // Master Clientes y confundia. Ahora ambos muestran el mismo total.
+  const _provisoriosCount = (typeof getProvisoriosList === 'function')
+    ? getProvisoriosList().length
+    : pendientes;
+  document.querySelectorAll('.js-stat-p').forEach(el => { el.textContent = _provisoriosCount; });
   document.querySelectorAll('.js-stat-t').forEach(el => { el.textContent = total; });
 }
 

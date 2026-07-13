@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v291 |
-| **APP_VERSION** | `v291` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v292 |
+| **APP_VERSION** | `v292` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 collecciones) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 4 tablas) → 4 vistas curadas → **Power BI Desktop conectado y armando dashboard "Resumen-Desempeño"** (2026-07-08). Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -1535,6 +1535,18 @@ Las filas que son altas SAP (no POINTS originales) tienen un **dropdown editable
 ### Altas SAP sin provincia → grupo "(sin provincia)" (v186+)
 
 Antes: las altas que se importaban sin provincia quedaban invisibles (no se mostraban en Master Clientes). Ahora aparecen bajo un grupo virtual **"(sin provincia)"** así Admin las puede ver y completarles la provincia con el dropdown.
+
+### KPI "PENDIENTES" del header ahora = badge "Provisorios" del Master Clientes (v292+, 2026-07-13)
+
+**Antes:** `updateStats()` (línea 5586) contaba como `pendientes`:
+- POINTS/prospectos no contactados +
+- SAP altas sin `provincia + geo + dirección`, filtradas por vendor/provincia/localidad activos.
+
+Mientras que el badge del botón **👤 Provisorios** (v290+) contaba los `approvedAltasList.filter(a => a.manualSapPending && !a.cardCodeSap)` **totales globales**. Confundía porque los números no coincidían (ej: 3 vs 16).
+
+**Ahora:** el KPI del header (`.js-stat-p`) usa `getProvisoriosList().length` — el mismo total global que el badge. Ambos muestran los provisorios de Alta Rápida pendientes de cargar a SAP.
+
+Se pierde la métrica antigua de "cuántas tiendas no contactadas hay en mi contexto" — si algún día se necesita, la lógica original quedó como `pendientes` en la variable local del scope, sólo se cambió el `textContent` final.
 
 ### Fix crítico: sync SAP pisaba localidad/provincia manuales (v291+, 2026-07-13)
 
