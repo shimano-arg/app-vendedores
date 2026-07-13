@@ -1054,7 +1054,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .contact-summary{color:#475569;font-weight:600}
 .contact-reset{padding:3px 10px;border:1px solid #cbd5e1;border-radius:4px;background:#fff;color:#475569;font-size:10px;font-weight:600;cursor:pointer;text-transform:uppercase;letter-spacing:.5px}
 .contact-reset:hover{background:#f1f5f9;color:#0f172a}
-.client-card{display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;padding:8px 10px;background:#fff;border:1px solid #e5e7eb;border-left:3px solid #cbd5e1;border-radius:6px;cursor:pointer;transition:.15s}
+.client-card{position:relative;display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;padding:8px 10px;padding-right:62px;background:#fff;border:1px solid #e5e7eb;border-left:3px solid #cbd5e1;border-radius:6px;cursor:pointer;transition:.15s}
 .client-card:hover{background:#f8fafc}
 .client-card.contacted{background:#ecfdf5;border-color:#10b981;border-left-color:#10b981}
 .client-card.estado-habilitado{background:#ecfdf5;border-color:#10b981;border-left-color:#10b981}
@@ -1301,7 +1301,9 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .ped-line input.qty:focus{border-color:#166534}
 .ped-line .rm-btn{background:transparent;border:none;color:#dc2626;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;font-weight:800}
 .ped-line .rm-btn:hover{color:#991b1b}
-.pedido-client-card{margin-bottom:6px;padding:10px 12px;background:#fff;border:1px solid #e5e7eb;border-left:3px solid #166534;border-radius:6px;cursor:pointer;transition:.15s;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.pedido-client-card{position:relative;margin-bottom:6px;padding:10px 12px;background:#fff;border:1px solid #e5e7eb;border-left:3px solid #166534;border-radius:6px;cursor:pointer;transition:.15s;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.cli-cat-corner{position:absolute;top:6px;right:8px;font-size:10px;font-weight:800;color:#fff;padding:3px 9px;border-radius:4px;text-transform:uppercase;letter-spacing:.5px;line-height:1;z-index:2;box-shadow:0 1px 2px rgba(0,0,0,.12);pointer-events:none}
+.pedido-client-card .cli-cat-corner{top:8px;right:10px}
 .pedido-client-card:hover{background:#f0fdf4;transform:translateX(2px)}
 .pedido-client-card .ped-name{font-size:12px;font-weight:700;color:#0f172a;line-height:1.25}
 .pedido-client-card .ped-meta{font-size:10px;color:#64748b;margin-top:2px}
@@ -3268,7 +3270,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v294';
+const APP_VERSION = 'v295';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -5948,8 +5950,6 @@ function renderClients(pts){
       if (isPrec) {
         html += ' <span title="' + escapeAttr(a.precaucionReason || 'Cliente con precaucion') + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:4px;background:#d97706;padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">&#9888;&#65039; Precauci&oacute;n</span>';
       }
-      // Badge de categoria comercial (P/A/B/C) desde Master Clientes
-      html += getClientCategoryBadgeHtml(it.point.province, it.point.name, it.name);
       html += '</div>';
       if (hasFant) {
         html += '<div style="font-size:11px;color:#475569;font-weight:600;margin-top:2px"><span style="color:#94a3b8;font-weight:500">Titular:</span> ' + escapeHtml(titularSap) + '</div>';
@@ -5962,7 +5962,10 @@ function renderClients(pts){
       } else {
         html += '<span style="color:#f59e0b;font-weight:600">&#9888;&#65039; sin provincia</span>';
       }
-      html += '</div></div></div>';
+      html += '</div></div>';
+      // Badge de categoria comercial (P/A/B/C) en la esquina de la card
+      html += getClientCategoryBadgeHtml(it.point.province, it.point.name, it.name, {corner: true});
+      html += '</div>';
       continue;
     }
     const k = contactKey(it.point, it.name, it.tipo);
@@ -6053,8 +6056,6 @@ function renderClients(pts){
     if (mPrec) {
       html += ' <span title="' + escapeAttr(mPrecReason || 'Cliente con precaucion') + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:4px;background:#d97706;padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">&#9888;&#65039; Precauci&oacute;n</span>';
     }
-    // Badge de categoria comercial (P/A/B/C) desde Master Clientes
-    html += getClientCategoryBadgeHtml(it.point.province, it.point.name, it.name);
     html += '</div>';
     if (hasFantPt) {
       html += '<div style="font-size:11px;color:#475569;font-weight:600;margin-top:2px"><span style="color:#94a3b8;font-weight:500">Titular:</span> ' + escapeHtml(titularPt) + renamedTag + '</div>';
@@ -6063,7 +6064,10 @@ function renderClients(pts){
     html += '<span class="cli-state-badge ' + state + '">' + stateLabel + '</span>';
     html += '<span>' + escapeHtml(it.point.name) + '</span>';
     html += '<span style="color:#94a3b8">/ ' + escapeHtml(it.point.province) + '</span>';
-    html += '</div></div></div>';
+    html += '</div></div>';
+    // Badge de categoria comercial (P/A/B/C) en la esquina de la card
+    html += getClientCategoryBadgeHtml(it.point.province, it.point.name, it.name, {corner: true});
+    html += '</div>';
   }
   if (!items.length) html = '<div style="color:#94a3b8;font-size:12px;padding:8px">Sin clientes para esta combinacion.</div>';
   document.getElementById('clients-content').innerHTML = html;
@@ -15703,14 +15707,16 @@ function renderCrearList(){
     if (prec.flag) {
       html += ' <span title="' + escapeAttr(prec.reason || 'Cliente con precaucion') + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:4px;background:#d97706;padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">&#9888;&#65039; Precauci&oacute;n</span>';
     }
-    // Badge de categoria comercial (P/A/B/C) desde Master Clientes
-    html += getClientCategoryBadgeHtml(it.point.province, it.point.name, it.name);
     html += '</div>';
     if (hasFantPed) {
       html += '<div style="font-size:10px;color:#475569;margin-top:1px"><span style="color:#94a3b8">Titular:</span> ' + escapeHtml(it.name) + '</div>';
     }
     html += '<div class="ped-meta">' + escapeHtml(it.point.name) + ' / ' + escapeHtml(titleCase(it.point.province)) + '</div></div>';
     html += '<div style="text-align:right;display:flex;flex-direction:column;gap:3px;align-items:flex-end">';
+    // Badge de categoria comercial (P/A/B/C) en el cluster derecho, arriba
+    // del Habilitado/Provisorio. En pedidos no lo pongo absoluto top-right
+    // porque chocaria con el badge de estado que ya vive ahi.
+    html += getClientCategoryBadgeHtml(it.point.province, it.point.name, it.name);
     if (isProvisorio) {
       html += '<div style="background:#f59e0b;color:#fff;font-size:9px;font-weight:800;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:.4px">&#9889; Provisorio</div>';
       html += '<div style="font-size:9px;color:#92400e;font-weight:700">Esperando carga SAP</div>';
@@ -24189,7 +24195,7 @@ function clientMatchesQuery(name, localityName, k, query){
 // Usado en cards de CLIENTES y PEDIDOS para que el vendedor vea de un
 // vistazo la categoria comercial que le asigno admin/gerente en Master
 // Clientes. Sin categoria -> string vacio.
-function getClientCategoryBadgeHtml(province, locName, name){
+function getClientCategoryBadgeHtml(province, locName, name, opts){
   try {
     let tipo = '';
     // Fuente 1: client_master (POINTS regulares).
@@ -24228,6 +24234,15 @@ function getClientCategoryBadgeHtml(province, locName, name){
     };
     const s = styles[tipo];
     if (!s) return '';
+    // v294+ modo "corner": renderea el badge como esquina fija de la card
+    // (position:absolute top-right). Requiere que el contenedor .client-card
+    // o .pedido-client-card tenga position:relative (ya seteado en CSS).
+    // Sin opts.corner sigue emitiendo el badge inline como antes (usado por
+    // otras superficies como el modal de cliente).
+    const corner = !!(opts && opts.corner);
+    if (corner) {
+      return '<span class="cli-cat-corner" title="' + escapeAttr(s.title) + '" style="background:' + s.bg + '">Cat ' + tipo + '</span>';
+    }
     return ' <span title="' + escapeAttr(s.title) + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:6px;background:' + s.bg + ';padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">Cat ' + tipo + '</span>';
   } catch(e) { return ''; }
 }

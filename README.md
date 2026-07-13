@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v294 |
-| **APP_VERSION** | `v294` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v295 |
+| **APP_VERSION** | `v295` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 collecciones) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 4 tablas) → 4 vistas curadas → **Power BI Desktop conectado y armando dashboard "Resumen-Desempeño"** (2026-07-08). Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -181,6 +181,7 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] Fix tab "NO CONFIRMADOS" en CLIENTES: mostraba solo 3 cuando el KPI decía 16. Ahora todo provisorio (manualSapPending && !cardCodeSap) aparece siempre en "No confirmados", sin requerir provincia y sin filtrar por hasGeo/hasAddr — mismo criterio que getProvisoriosList() (v293+)
 [X] CUIT opcional en form Alta Rápida — habilita match automático confiable cuando el sync SAP corre (find_match usa CUIT como criterio prioritario después de CardCode) (v294+)
 [X] Botón "🔗 Vincular con SAP" en Master Clientes → Provisorios: modal con lista de BPs SAP disponibles, buscador y auto-ranking por CUIT match. Copia CardCode al provisorio + elimina el BP SAP duplicado + preserva assignedVendor/approvals/notas (v294+)
+[X] Badge de categoría (Cat P/A/B/C) fijado en la esquina superior derecha de cada card de CLIENTES (`position:absolute` + padding-right en la card) — siempre visible al escanear la lista. En PEDIDOS va en el cluster derecho arriba del badge Habilitado (v295+)
 ```
 
 ### Bloqueantes externos para el lanzamiento
@@ -2857,7 +2858,7 @@ Total: ~15 iteraciones para llegar al fix correcto por la naturaleza propietaria
 
 ---
 
-## 41) Changelog v204 → v294
+## 41) Changelog v204 → v295
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
 
@@ -3206,6 +3207,15 @@ Detalles completos + troubleshooting en la nueva **sección 40-bis** del README.
 - Ahora `.js-stat-p` usa `getProvisoriosList().length` — mismo total global que el badge del botón Provisorios.
 - Ambos KPIs coinciden y significan lo mismo: **provisorios de Alta Rápida pendientes de cargar a SAP**.
 - Se pierde la métrica "cuántas tiendas de mi zona me faltan visitar/geolocalizar" como KPI destacado. La variable `pendientes` local sigue disponible en el scope de `updateStats()` si algún día se rescata.
+
+### v295 — Badge Categoría (Cat P/A/B/C) fijo en esquina de card
+- Pedido del usuario: que el badge de categoría comercial aparezca **siempre en la esquina superior derecha** de cada card en CLIENTES y PEDIDOS, no inline al lado del nombre (donde se movía según el largo del texto).
+- `getClientCategoryBadgeHtml(province, locName, name, opts)` acepta ahora `opts.corner`:
+  - `{corner: true}` → renderea `<span class="cli-cat-corner" ...>` con `position:absolute;top:6px;right:8px` + `pointer-events:none` (no roba el click de la card).
+  - Sin opts → sigue emitiendo el badge inline como antes (usado en el modal de cliente y otros lugares).
+- CSS: `.client-card` y `.pedido-client-card` ahora tienen `position:relative`. `.client-card` gana `padding-right:62px` para reservar el espacio del badge y evitar que el nombre se meta debajo.
+- Cards de **CLIENTES** (2 puntos de render en `renderClients()`) usan modo corner absoluto.
+- Cards de **PEDIDOS** (`renderPedidosClientes`): el CAT va dentro del cluster derecho arriba del badge Habilitado/Provisorio (inline, no absoluto) porque el `top-right` chocaba con "Habilitado" que ya vive ahí.
 
 ### v294 — Vincular provisorios con BPs de SAP: CUIT en Alta Rápida + botón manual "Vincular"
 
