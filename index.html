@@ -435,6 +435,12 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
 @media (max-width:520px){.mc-toolbar{grid-template-columns:1fr;gap:6px;padding:8px 10px}}
 .mc-sap-btn{padding:7px 14px;border:none;border-radius:6px;background:#ea580c;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;transition:.15s;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(234,88,12,.3)}
 .mc-sap-btn:hover{background:#c2410c;box-shadow:0 2px 6px rgba(234,88,12,.45)}
+.mc-prov-btn{padding:7px 14px;border:none;border-radius:6px;background:#7c3aed;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;transition:.15s;display:inline-flex;align-items:center;gap:6px;box-shadow:0 1px 3px rgba(124,58,237,.3)}
+.mc-prov-btn:hover{background:#6d28d9;box-shadow:0 2px 6px rgba(124,58,237,.45)}
+.mc-prov-btn.active{background:#5b21b6;box-shadow:inset 0 2px 4px rgba(0,0,0,.25)}
+.mc-prov-count{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;padding:0 6px;background:#fff;color:#5b21b6;border-radius:9px;font-size:10px;font-weight:900}
+.mc-prov-btn.active .mc-prov-count{background:#fde68a;color:#78350f}
+.mc-tag.prov{background:#ede9fe;color:#5b21b6}
 .mc-toolbar select,.mc-toolbar input{padding:7px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px;font-family:inherit;background:#fff;outline:none;min-width:0;width:100%;box-sizing:border-box}
 .mc-toolbar select:focus,.mc-toolbar input:focus{border-color:#7f1d1d}
 .mc-stats{display:flex;gap:10px;padding:10px 18px;background:#fef2f2;font-size:11px;color:#7f1d1d;font-weight:700;border-bottom:1px solid #fecaca;flex-wrap:wrap}
@@ -2510,6 +2516,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <button id="mc-dedupe-btn" class="mc-sap-btn" onclick="runDedupeSapAltas()" style="background:#b91c1c;box-shadow:0 1px 3px rgba(185,28,28,.3)" title="Busca altas SAP duplicadas (mismo cardCodeSap en multiples documentos) y deja solo la mas reciente.">&#129529; Deduplicar SAP</button>
         <button id="mc-revisar-btn" class="mc-sap-btn" onclick="runRevisarDireccionesSap()" style="background:#0f766e;box-shadow:0 1px 3px rgba(15,118,110,.3)" title="Lee SAP B1 via Service Layer y sincroniza nombre + direccion + ciudad de cada cliente con CardCode. Si difieren, la app se actualiza con los datos de SAP (SAP gana). Util cuando se editaron BPs en SAP y queres bajar los cambios.">&#128260; Revisar direcciones</button>
         <button id="mc-base-toggle-btn" class="mc-sap-btn" onclick="toggleMcBaseMaster()" style="background:#6b7280;box-shadow:0 1px 3px rgba(107,114,128,.3)" title="Por default Master Clientes muestra solo los clientes habilitados en SAP. Tocá este boton para ver tambien el padron BASE completo (~1000 tiendas historicas) - util si necesitas buscar una tienda especifica del padron viejo.">&#128218; Masterfile-Base</button>
+        <button id="mc-prov-toggle-btn" class="mc-prov-btn" onclick="toggleMcProvisorios()" title="Clientes provisorios dados de alta por los vendedores desde Alta Rapida. Pendientes de aprobacion (no estan en SAP todavia).">&#128100; Provisorios <span class="mc-prov-count" id="mc-prov-count">0</span></button>
       </div>
       <div class="mc-stats" id="mc-stats"></div>
       <div class="mc-body" id="mc-body"></div>
@@ -3233,7 +3240,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v289';
+const APP_VERSION = 'v290';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -3626,6 +3633,7 @@ function ensureApprovedAltasListener(){
       }
       // Si el modal Master Clientes esta abierto, repintar la tabla para
       // reflejar cambios en altas SAP (direccion, lat/lng, dedupe).
+      try { if (typeof updateMcProvisorioCount === 'function') updateMcProvisorioCount(); } catch(e){}
       try {
         const mEl = document.getElementById('master-cli-modal');
         if (mEl && mEl.classList.contains('open') && typeof renderMasterClientesTable === 'function') {
@@ -7608,6 +7616,29 @@ const clientMasterCache = new Map();
 let unsubClientMaster = null;
 let mcPendingChanges = {}; // docId -> nuevo address (en proceso)
 
+// Clientes provisorios de Alta Rapida: viven en client_applications con
+// status='approved' + manualSapPending=true + source='alta_rapida'. Ya estan
+// cacheados globalmente en approvedAltasList (poblada por
+// ensureApprovedAltasListener). Aca solo agregamos el toggle para filtrar
+// esa lista dentro del panel Master Clientes.
+let mcProvisorioMode = false;
+
+function getProvisoriosList(){
+  const arr = (typeof approvedAltasList !== 'undefined') ? approvedAltasList : [];
+  return arr.filter(a => a && a.manualSapPending && !a.cardCodeSap);
+}
+function updateMcProvisorioCount(){
+  const cnt = document.getElementById('mc-prov-count');
+  if (cnt) cnt.textContent = getProvisoriosList().length;
+}
+
+window.toggleMcProvisorios = function(){
+  mcProvisorioMode = !mcProvisorioMode;
+  const btn = document.getElementById('mc-prov-toggle-btn');
+  if (btn) btn.classList.toggle('active', mcProvisorioMode);
+  renderMasterClientesTable();
+};
+
 function ensureClientMasterListener(){
   if (unsubClientMaster || !currentUser || !fbDb) return;
   unsubClientMaster = fbDb.collection('client_master').onSnapshot(qs => {
@@ -7681,7 +7712,12 @@ function getAllStoreEntries(){
 window.openMasterClientesPanel = function(){
   if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente puede acceder a Master Clientes.'); return; }
   ensureClientMasterListener();
+  if (typeof ensureApprovedAltasListener === 'function') ensureApprovedAltasListener();
+  updateMcProvisorioCount();
   mcPendingChanges = {};
+  mcProvisorioMode = false;
+  const _pb = document.getElementById('mc-prov-toggle-btn');
+  if (_pb) _pb.classList.remove('active');
   // Cargar filtros si no estan poblados
   const vSel = document.getElementById('mc-filt-vendor');
   if (vSel.options.length <= 1) {
@@ -8238,9 +8274,89 @@ function rebuildMcLocalidadOptions(){
   if ([...locs].includes(cur)) lSel.value = cur;
 }
 
+function renderMcProvisoriosTable(){
+  const cont = document.getElementById('mc-body');
+  if (!cont) return;
+  const fv = document.getElementById('mc-filt-vendor').value;
+  const fp = document.getElementById('mc-filt-prov').value;
+  const fl = document.getElementById('mc-filt-loc').value;
+  const fq = (document.getElementById('mc-search').value || '').trim().toLowerCase();
+
+  // Alta Rapida guarda vendedor en assignedVendor (no vendor), provincia en
+  // upper y localidad en localidadFinal (post-geocoding) o localidad.
+  let items = getProvisoriosList();
+  if (fv !== 'ALL') items = items.filter(a => (a.assignedVendor || a.vendor || '') === fv);
+  if (fp !== 'ALL') items = items.filter(a => (a.provincia || '').toString().toUpperCase() === fp.toUpperCase());
+  if (fl !== 'ALL') items = items.filter(a => ((a.localidadFinal || a.localidad || '') + '').toUpperCase() === (fl || '').toUpperCase());
+  if (fq) items = items.filter(a => (((a.comercio || '') + ' ' + (a.fantasia || '') + ' ' + (a.duenoNombre || '')).toLowerCase()).includes(fq));
+
+  items.sort((a, b) => {
+    const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
+    const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
+    return tb - ta;
+  });
+
+  const total = getProvisoriosList().length;
+  const statsHtml = '<span style="background:#ede9fe;color:#5b21b6;border-color:#c4b5fd">&#9889; Provisorios (Alta Rapida): ' + total + '</span>'
+    + '<span>Filtrados: ' + items.length + '</span>'
+    + '<span style="background:#fef3c7;color:#92400e;border-color:#fde68a">Falta cargar a SAP manualmente</span>';
+  document.getElementById('mc-stats').innerHTML = statsHtml;
+
+  if (!items.length) {
+    cont.innerHTML = '<div class="mc-empty">No hay clientes provisorios con esos filtros.</div>';
+    return;
+  }
+
+  let html = '<table class="mc-table"><thead><tr>';
+  html += '<th style="width:26%">Comercio</th>';
+  html += '<th style="width:13%">Localidad</th>';
+  html += '<th style="width:12%">Provincia</th>';
+  html += '<th style="width:16%">Vendedor / dado de alta por</th>';
+  html += '<th style="width:23%">Direccion (Alta Rapida)</th>';
+  html += '<th style="width:10%">Fecha alta</th>';
+  html += '</tr></thead><tbody>';
+
+  const MAX = 500;
+  items.slice(0, MAX).forEach(a => {
+    const vendKey = a.assignedVendor || a.vendor || '';
+    const vendInfo = VENDORS.find(v => v.key === vendKey);
+    const vendLabel = vendInfo ? (vendInfo.zone + ' ' + titleCase(vendKey)) : (vendKey ? titleCase(vendKey) : '(sin vendedor)');
+    const owner = a.ownerName || a.ownerEmail || '';
+    const dir = (a.calle || '').trim();
+    const fecha = (a.createdAt && a.createdAt.seconds)
+      ? new Date(a.createdAt.seconds * 1000).toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit', year:'2-digit'})
+      : '-';
+    const nombre = a.comercio || a.fantasia || '(sin nombre)';
+    const dueno = (a.duenoNombre || '').trim();
+    const tel = (a.telefonoContacto || '').trim();
+    const loc = a.localidadFinal || a.localidad || '-';
+
+    html += '<tr style="background:#fffbeb">';
+    html += '<td>'
+      + '<div class="mc-name">' + escapeHtml(nombre) + '</div>'
+      + '<div class="mc-meta"><span class="mc-tag prov">&#9889; PROVISORIO</span>'
+      + (dueno ? '<span style="font-size:10px;color:#64748b">Dueno: ' + escapeHtml(dueno) + '</span>' : '')
+      + (tel ? '<span style="font-size:10px;color:#64748b"> &middot; ' + escapeHtml(tel) + '</span>' : '')
+      + '</div>'
+      + '</td>';
+    html += '<td>' + escapeHtml(loc) + '</td>';
+    html += '<td>' + escapeHtml(titleCase(a.provincia || '-')) + '</td>';
+    html += '<td><div style="font-weight:700;color:#334155">' + escapeHtml(vendLabel) + '</div>'
+      + (owner ? '<div style="font-size:10px;color:#64748b">' + escapeHtml(owner) + '</div>' : '')
+      + '</td>';
+    html += '<td style="font-size:11px;color:#334155">' + escapeHtml(dir || '(sin direccion)') + '</td>';
+    html += '<td style="font-size:11px;color:#64748b">' + fecha + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  if (items.length > MAX) html += '<div style="text-align:center;color:#94a3b8;font-size:11px;padding:12px">Mostrando ' + MAX + ' de ' + items.length + '. Refina con filtros.</div>';
+  cont.innerHTML = html;
+}
+
 window.renderMasterClientesTable = function(){
   const cont = document.getElementById('mc-body');
   if (!cont) return;
+  if (mcProvisorioMode) { renderMcProvisoriosTable(); return; }
   const fv = document.getElementById('mc-filt-vendor').value;
   const fp = document.getElementById('mc-filt-prov').value;
   const fl = document.getElementById('mc-filt-loc').value;

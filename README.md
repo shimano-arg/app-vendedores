@@ -1533,6 +1533,20 @@ Las filas que son altas SAP (no POINTS originales) tienen un **dropdown editable
 
 Antes: las altas que se importaban sin provincia quedaban invisibles (no se mostraban en Master Clientes). Ahora aparecen bajo un grupo virtual **"(sin provincia)"** así Admin las puede ver y completarles la provincia con el dropdown.
 
+### Botón "👤 Provisorios" — filtrar altas rápidas pendientes de SAP (v290+)
+
+Toolbar violeta al lado de "Masterfile-Base". Muestra el conteo pendiente en un badge (ej. `👤 Provisorios 4`).
+
+Filtra `approvedAltasList` por `manualSapPending === true && !cardCodeSap` — o sea, los clientes que un vendedor dio de alta por **Alta Rápida** y que todavía no fueron cargados a SAP manualmente por admin.
+
+Al tocarlo:
+- La tabla del Master Clientes reemplaza sus filas por los provisorios (fondo crema `#fffbeb`, badge morado **⚡ PROVISORIO**).
+- Columnas: Comercio (con dueño + teléfono), Localidad, Provincia, Vendedor asignado / dado de alta por, Dirección de Alta Rápida (`calle`), Fecha de alta.
+- Los filtros vendor / provincia / localidad / búsqueda siguen aplicando. El filtro "Con/Sin dirección" se ignora porque no aplica a solicitudes.
+- Segundo click → vuelve al modo default (Master SAP).
+
+El badge se actualiza en tiempo real vía `updateMcProvisorioCount()` disparado dentro del listener `ensureApprovedAltasListener`.
+
 ### Botón Eliminar 🗑 por fila (v200+)
 
 Cada fila tiene un **botón rojo 🗑** al lado de Guardar. Sólo visible para **admin / gerente**. Comportamiento según el tipo de fila:
