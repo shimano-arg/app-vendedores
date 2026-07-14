@@ -2475,6 +2475,8 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 ### Hecho recientemente (✅)
 
 **BigQuery / Power BI (2026-07-14):**
+- [X] **Suscripción diaria por email a Mariano** (`Desempeño diario de ventas SAR - PESCA` @ 15:00 AR, con miniatura + PDF adjunto con todas las páginas). Refresh programado 14:30 previo. Native Power BI Service. Detalle en sección 40.
+- [X] **Publish del `.pbix` a Power BI Service** (workspace "Mi área de trabajo" de Mariano). Dataset y reporte "TABLERO SAR" operativos.
 - [X] **Pipeline `v_targets` end-to-end**: sync Firestore → BQ + vista con SlpCode traducido (mapeo hardcoded 50-55, discrepancia con Firestore documentada). Ver sección 40.
 - [X] **`v_facturas_sap` sin `lines_json`**: fix crítico que destrababa el freeze de Power BI Desktop (VertiPaq explotaba con el JSON string gigante).
 - [X] **Rollback completo del intento "gap huérfano"** en `v_backorder_lineas`: `v_sap_items_enriched` vuelve al schema pre-fix. Reintroducir cuando la máquina del user tenga más RAM o migre a Power BI Service.
@@ -2643,7 +2645,8 @@ Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gere
 - ✅ **Fase 1.1** Firestore → BigQuery (7 collecciones + backfill)
 - ✅ **Fase 1.2** SAP → BigQuery (4 tablas: BPs, Items, Invoices, Quotations, Orders, PO)
 - ✅ **Fase 2** Modelo de datos: **9 vistas SQL curadas** (`v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap`, `v_inventario`, `v_inventario_por_warehouse`, `v_ventas_lineas`, `v_backorder_lineas`, `v_targets`)
-- 🔨 **Fase 3** Power BI Desktop: conectado, 9 tablas cargadas, medidas DAX en armado (targets + % cumplimiento + colores condicionales), dashboard "Resumen-Desempeño" con página TABLERO SAR operativa
+- ✅ **Fase 3** Power BI Desktop → Service: **publicado en `Mi área de trabajo` como "TABLERO SAR"**. Modelo con 9 tablas, medidas DAX (Target Mensual, Pct Cumplimiento, Color Cumplimiento con hex semaforo verde/amarillo/rojo), dashboard "Desempeño-Pesca" operativo con página TABLERO SAR.
+- ✅ **Fase 3.5** Distribución automática: **suscripción diaria a Mariano** ("Desempeño diario de ventas SAR - PESCA") @15:00 AR + refresh programado @14:30. Ver subsección abajo.
 - ⏳ **Fase 4** Alertas: pendiente
 
 ### v_targets — pipeline de metas (2026-07-14)
@@ -2683,6 +2686,44 @@ _sync_timestamp  TIMESTAMP
 - Sin duplicados (`COUNT = COUNT DISTINCT` por seller+año+mes) ✅
 
 **Sync**: `sync_sap_to_bigquery.py` → función `sync_targets_from_firestore()` — se ejecuta cada 30 min como paso 7 del pipeline. WRITE_TRUNCATE garantiza dedup.
+
+### Suscripción diaria por email (2026-07-14)
+
+Distribución automática del tablero por email vía **Power BI Service — Suscripciones estándar**. Nativa del servicio, sin código propio.
+
+**Config actual**:
+
+| Campo | Valor |
+|---|---|
+| Nombre suscripción | `Desempeño diario de ventas SAR - PESCA` |
+| Destinatario | `mariano.erbino@shimano.com.ar` |
+| Asunto | `Desempeño diario de ventas SAR - PESCA` |
+| Frecuencia | Diaria |
+| Hora envío | **15:00** (`UTC-03:00` Buenos Aires) |
+| Contenido | Miniatura de la página TABLERO SAR + link "Open report in Power BI" + PDF adjunto con todas las páginas |
+| Refresh dataset previo | **14:30** (30 min antes) — actualización programada del modelo semántico `TABLERO SAR` |
+| Ejecución de prueba | 2026-07-14 11:33 — llegó OK a Mariano con snapshot completo |
+
+**Cómo se configuró** (para replicar / agregar destinatarios):
+
+1. Publicar el `.pbix` a Power BI Service: Desktop → `Archivo → Publicar → seleccionar workspace`.
+2. En [app.powerbi.com](https://app.powerbi.com/) → workspace donde vive el informe → click en **TABLERO SAR (tipo Informe)** (icono barras naranjas).
+3. Toolbar superior → **Suscribirse a informe** → **+ Agregar nueva suscripción** → tipo **Estándar** (NO dinámico por destinatario, ese es para RLS con vista personalizada por user).
+4. Completar campos: nombre, destinatarios (`;` para múltiples), asunto, frecuencia diaria, hora `15:00`, zona `Buenos Aires`, activar **"Incluir la vista actual del informe"** (miniatura) y **"Adjuntar el informe completo (PDF)"** para que llegue TODO el reporte, no solo una página.
+5. **Guardar y cerrar**. Ejecutar "Ejecutar ahora" para probar sin esperar al día siguiente.
+
+**Refresh programado del dataset** (para que el mail traiga datos del día):
+
+- En el workspace → click en **TABLERO SAR (tipo Modelo semántico)** (icono cilindro) → **Configuración** → **Actualización programada** ON.
+- Frecuencia: Diaria, zona `Buenos Aires`.
+- Hora: `14:30`.
+- Credenciales del origen BigQuery: revisar que no digan "Editar credenciales" en rojo — si sí, autenticar con Google.
+
+**Para agregar destinatarios** (ej: Diego, Pablo): editar la suscripción existente en el panel "Suscribirse a informe" y sumar los emails separados por `;`. Los destinatarios externos al tenant `shimano.com.ar` requieren que IT habilite "External sharing" en Azure AD / Power BI Admin Portal.
+
+**Trade-off Estándar vs Dinámico por destinatario**:
+- **Estándar** = 1 snapshot igual para todos (el que tenemos). Simple.
+- **Dinámico** = usa RLS del modelo para mandar a cada usuario su vista filtrada (ej: cada vendedor solo ve sus targets). Requiere RLS configurado en el modelo. No implementado hoy.
 
 ### Rollback del fix "gap huérfano" en v_backorder_lineas (2026-07-13/14)
 
@@ -3499,10 +3540,11 @@ Detalles completos + troubleshooting en la nueva **sección 40-bis** del README.
 
 ---
 
-**Última actualización**: 2026-07-14 — SW v297 (frontend sin cambios desde ayer). Sesión enfocada en **pipeline BigQuery → Power BI**: nueva vista `v_targets`, fix crítico VertiPaq en `v_facturas_sap`, y rollback controlado del fix del gap huérfano en `v_backorder_lineas` (PBI Desktop del user no digería el schema ampliado).
+**Última actualización**: 2026-07-14 — SW v297 (frontend sin cambios desde ayer). Sesión enfocada en **pipeline BigQuery → Power BI**: nueva vista `v_targets`, fix crítico VertiPaq en `v_facturas_sap`, rollback controlado del fix del gap huérfano en `v_backorder_lineas` (PBI Desktop del user no digería el schema ampliado), y **suscripción diaria por email a Mariano** con snapshot del dashboard + PDF.
 
 Highlights sesión 2026-07-14 (detalle en sección 40):
 
+- **📧 Suscripción diaria por email @15:00 AR** — Power BI Service manda automáticamente a `mariano.erbino@shimano.com.ar` el snapshot del tablero "Desempeño-Pesca" + PDF con todas las páginas. Refresh programado del modelo semántico a las 14:30 (30 min antes) para que llegue con datos del día. Prueba exitosa el 2026-07-14 11:33.
 - **📊 Pipeline `v_targets` (Firestore → BigQuery)** — nueva función `sync_targets_from_firestore()` en `sync_sap_to_bigquery.py` que corre cada 30 min. Escribe `targets_raw` con WRITE_TRUNCATE (dedup por construcción). Nueva vista `v_targets` con schema pedido por Mariano: `slp_code, vendedor, anio, mes (1-12), target_ars, _sync_timestamp`. Mapeo vendorKey → SlpCode hardcoded en un CASE (50-55). Detalle en sección 40.
 - **⚠️ Discrepancia SlpCode confirmada contra SAP prod** — SlpCodes 50-55 NO existen aún en `SHIMANO_SAU` (consultado `/SalesPersons`). Solo hay 1-19, 33 (Mariano) y 56 (Santiago Beron). SEIDOR debe crearlos en prod. Firestore `sap_vendors` tiene mapeo bugueado en -1 (49-54); ignorado, el CASE de la vista usa el canónico que dio el user.
 - **🩹 `v_facturas_sap` sin `lines_json`** — el JSON string gigante (5-50KB por fila × 4776 filas) hacía explotar VertiPaq en Power BI Desktop y colgaba el refresh 30+ min. Removida esa columna; el aplanamiento de líneas ya vive en `v_ventas_lineas`.
