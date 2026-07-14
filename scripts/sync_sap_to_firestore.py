@@ -1002,6 +1002,31 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
             base_payload.pop('provincia', None)
 
         match = find_match(bp, existing_apps)
+
+        # v299+ (2026-07-14): NO pisar 'fantasia' si el admin/gerente ya
+        # cargo una distinta del comercio (nombre comercial real de la
+        # tienda vs razon social de SAP). Antes: bulk import cargaba
+        # "ARMERIA EL COLORADO" y el sync a los 30 min lo reemplazaba con
+        # "GABRIEL ALEJANDRO YAMIN" (CardName SAP). Mismo bug del user
+        # reporte: cargo fantasias a mano y "a los 2-3 dias desaparecieron".
+        #
+        # Regla:
+        # - Si match existe Y match.fantasia esta cargada Y difiere del
+        #   comercio -> NO incluir 'fantasia' en el payload (preserva manual).
+        # - Si no hay match (create) o fantasia == comercio o vacia
+        #   -> setear fantasia = cardname como default.
+        if match is not None:
+            existing_fant = (match.get('fantasia') or '').strip()
+            existing_com = (match.get('comercio') or '').strip()
+            has_manual_fantasia = (
+                existing_fant
+                and existing_fant.lower() != existing_com.lower()
+                and existing_fant.lower() != cardname.strip().lower()
+            )
+            if has_manual_fantasia:
+                base_payload.pop('fantasia', None)
+                log(f'[bp] preserva fantasia manual: {cardcode} keep={existing_fant!r} (sap dice {cardname!r})')
+
         if match is None:
             # CASO 3: crear nuevo. Solo aca inicializamos vendedor vacio.
             base_payload['createdAt'] = firestore.SERVER_TIMESTAMP

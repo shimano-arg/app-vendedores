@@ -186,6 +186,7 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] Botón "📊 Exportar Excel" en modal Targets → XLSX formato largo (SlpCode, Vendedor, Año, Mes, Meta) — una fila por vendedor+mes con target > 0. SlpCode resuelto desde `sap_vendors`, Vendedor usa `slpName` de SAP (fallback titleCase). Uso: importar a SAP / Power BI (v297+)
 [X] Gerente ve TODAS las visitas de todos los vendedores + comentarios (pedido de Pablo). Fix client-side de 2 líneas — Firestore Rules ya lo permitía (v298+)
 [X] Form Visita: buscar directo por tienda (localidad se autocompleta) — pedido vendedores, ahorra un paso y evita el problema "no sé qué localidad es". Badge celeste 📍 muestra la localidad detectada (v299+)
+[X] Bulk import de 103 nombres de fantasía desde Excel formulario (match por CUIT) + fix del cron `sync_sap_to_firestore.py` que pisaba fantasías manuales cada 30 min (mismo patrón v291 con localidad/provincia). Los nombres cargados ahora sobreviven al sync
 ```
 
 ### Bloqueantes externos para el lanzamiento
@@ -3456,6 +3457,18 @@ Detalles completos + troubleshooting en la nueva **sección 40-bis** del README.
 - Ahora `.js-stat-p` usa `getProvisoriosList().length` — mismo total global que el badge del botón Provisorios.
 - Ambos KPIs coinciden y significan lo mismo: **provisorios de Alta Rápida pendientes de cargar a SAP**.
 - Se pierde la métrica "cuántas tiendas de mi zona me faltan visitar/geolocalizar" como KPI destacado. La variable `pendientes` local sigue disponible en el scope de `updateStats()` si algún día se rescata.
+
+### Fix sync SAP: preservar nombre de fantasía manual (2026-07-14, script)
+
+**Bug reportado por Mariano**: cargó manualmente ~10 nombres de fantasía en clientes; a los 2-3 días desaparecieron. Después el bulk import (103 fantasías desde el Excel del formulario alta) — mismo riesgo: el próximo cron los pisaría.
+
+**Causa**: `sync_sap_to_firestore.py:upsert_bp_pesca_to_firestore()` incluía siempre `'fantasia': cardname` en el `base_payload`. El `set(merge=True)` cada 30 min pisaba la fantasía manual con el CardName raw de SAP ("GABRIEL ALEJANDRO YAMIN" en vez de "ARMERIA EL COLORADO").
+
+**Fix**: mismo patrón que aplicamos en v291 para localidad/provincia. Después de armar el `base_payload` y antes del write, chequeamos si el doc en Firestore ya tiene `fantasia` distinta del `comercio` y distinta del `cardname` — si sí, es una fantasía manual real → `pop('fantasia')`. El sync solo setea fantasia default (cardname) cuando el doc no la tenía cargada (CREATE) o cuando estaba vacía / igual al comercio.
+
+**Auditoría**: log line `[bp] preserva fantasia manual: C{cuit} keep='X' (sap dice 'Y')` en cada corrida del cron — permite ver en logs de GH Actions cuántas fantasías está preservando y cuáles.
+
+**No es un cambio en la app frontend** — el fix vive en el script Python del cron. `APP_VERSION` no cambia. El proximo corrida del workflow `.github/workflows/sync-sap-catalog-stock.yml` a hh:13/hh:43 ya lo va a aplicar.
 
 ### v299 — Form Visita: buscar directo por tienda, localidad se autocompleta
 
