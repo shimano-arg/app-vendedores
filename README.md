@@ -20,7 +20,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Versión actual** | SW v297 |
 | **APP_VERSION** | `v297` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
-| **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 collecciones) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 4 tablas) → 4 vistas curadas → **Power BI Desktop conectado y armando dashboard "Resumen-Desempeño"** (2026-07-08). Ver sección 40 |
+| **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **9 vistas curadas** (`v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap`, `v_inventario`, `v_inventario_por_warehouse`, `v_ventas_lineas`, `v_backorder_lineas`, **`v_targets`** ← nuevo 2026-07-14) → **Power BI Desktop conectado, dashboard "Resumen-Desempeño" operativo con medidas de cumplimiento y colores condicionales**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
 | **Bot Inventario Google Sheet** | Lee `raw.githubusercontent.com/shimano-arg/app-vendedores/main/stock.json` cada 30 min — datos frescos garantizados |
 
@@ -1577,6 +1577,36 @@ Orden: SlpCode → Vendedor → Año → Mes. Anchos de columna razonables via `
 
 Permisos: `canManageTargets()` (admin/gerente + emails allowlist).
 
+### Sync a BigQuery — vista `v_targets` (2026-07-14)
+
+Además del Excel manual, los targets se sincronizan **cada 30 min automáticamente** al modelo Power BI. Pipeline:
+
+```
+Firestore.targets ──► sync_sap_to_bigquery.py:sync_targets_from_firestore()
+                     ──► BigQuery.shimano_app.targets_raw (WRITE_TRUNCATE)
+                     ──► v_targets (CREATE OR REPLACE VIEW en bigquery/views.sql)
+                     ──► Power BI Import
+```
+
+`v_targets` expone las metas al modelo con **SlpCode SAP ya traducido desde el vendorKey app** (mapeo hardcoded en el CASE de la vista). Ver **sección 40** para el mapeo canónico completo, discrepancias detectadas contra SAP prod, y verificaciones de aceptación.
+
+**Uso en Power BI**:
+- Import como tabla nueva `v_targets` (BigQuery connector, dataset `shimano_app`).
+- Relación: `v_targets[slp_code]` ↔ `Vendedores[SlpCode]` (o dim equivalente).
+- Medidas típicas:
+  ```dax
+  Target Mensual = SUM ( v_targets[target_ars] )
+  Pct Cumplimiento = DIVIDE ( [Facturación Total], [Target Mensual], 0 )
+  Color Cumplimiento =
+      VAR Ratio = DIVIDE ( [Facturación Total], [Target Mensual], 0 )
+      RETURN SWITCH ( TRUE (),
+          Ratio >= 1,    "#22C55E",   -- verde: cumplió/superó
+          Ratio >= 0.9,  "#F59E0B",   -- amarillo: 90-99%
+          "#EF4444"                    -- rojo: < 90%
+      )
+  ```
+  El `Color Cumplimiento` se aplica en formato condicional de cards/tablas: **Formato → Fondo → f(x) → Basado en valor de campo → Color Cumplimiento**.
+
 ---
 
 ## 23) Panel Master Clientes + import SAP
@@ -2444,6 +2474,13 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 
 ### Hecho recientemente (✅)
 
+**BigQuery / Power BI (2026-07-14):**
+- [X] **Pipeline `v_targets` end-to-end**: sync Firestore → BQ + vista con SlpCode traducido (mapeo hardcoded 50-55, discrepancia con Firestore documentada). Ver sección 40.
+- [X] **`v_facturas_sap` sin `lines_json`**: fix crítico que destrababa el freeze de Power BI Desktop (VertiPaq explotaba con el JSON string gigante).
+- [X] **Rollback completo del intento "gap huérfano"** en `v_backorder_lineas`: `v_sap_items_enriched` vuelve al schema pre-fix. Reintroducir cuando la máquina del user tenga más RAM o migre a Power BI Service.
+- [X] **`sync_sap_to_bigquery.py` con nuevo paso 7 (targets)**: se ejecuta cada 30 min junto al resto del pipeline SAP.
+- [X] **Auditoría SlpCode contra SAP prod** vía `/SalesPersons`: confirmado que 50-55 aún no existen en `SHIMANO_SAU`, pendiente que SEIDOR los cree como parte del lanzamiento.
+
 **v290 → v297 (2026-07-13):**
 - [X] **Export Excel de Targets en formato largo** (SlpCode/Vendedor/Año/Mes/Meta) desde el modal Targets (v297).
 - [X] **Botón "👤 Provisorios"** violeta en Master Clientes para filtrar altas rápidas pendientes de SAP (v290).
@@ -2602,12 +2639,72 @@ Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gere
 
 ## 40) Power BI / BigQuery
 
-**Estado a 2026-07-08**:
+**Estado a 2026-07-14**:
 - ✅ **Fase 1.1** Firestore → BigQuery (7 collecciones + backfill)
-- ✅ **Fase 1.2** SAP → BigQuery (4 tablas: BPs, Items, Invoices, Quotations)
-- ✅ **Fase 2** Modelo de datos: 4 vistas SQL curadas (`v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap`)
-- 🔨 **Fase 3** Power BI Desktop: conectado, 5 tablas cargadas, 12 medidas DAX, dashboard "Resumen-Desempeño" en armado
+- ✅ **Fase 1.2** SAP → BigQuery (4 tablas: BPs, Items, Invoices, Quotations, Orders, PO)
+- ✅ **Fase 2** Modelo de datos: **9 vistas SQL curadas** (`v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap`, `v_inventario`, `v_inventario_por_warehouse`, `v_ventas_lineas`, `v_backorder_lineas`, `v_targets`)
+- 🔨 **Fase 3** Power BI Desktop: conectado, 9 tablas cargadas, medidas DAX en armado (targets + % cumplimiento + colores condicionales), dashboard "Resumen-Desempeño" con página TABLERO SAR operativa
 - ⏳ **Fase 4** Alertas: pendiente
+
+### v_targets — pipeline de metas (2026-07-14)
+
+Sync Firestore.`targets` → BigQuery.`targets_raw` → view `v_targets`. Detalle en sección **22 (Targets mensuales)**.
+
+**Schema `v_targets`** consumido por PBI (una fila por vendedor+año+mes con target > 0):
+
+```
+slp_code         INT64      Código SAP (mapeo hardcoded en el CASE de la vista)
+vendedor         STRING     Nombre completo en formato SAP
+anio             INT64
+mes              INT64      1-12 (convertido desde 0-11 de Firestore)
+target_ars       FLOAT64
+_sync_timestamp  TIMESTAMP
+```
+
+**Mapeo canónico vendorKey → SlpCode** (única fuente de verdad, en el CASE de la vista):
+
+| vendorKey app | SlpCode | Zona |
+|---|---:|---|
+| GONZALO DE LA ROSA | 50 | Z1 |
+| MAURICIO GIL | 51 | Z5 |
+| IOANNIS PALKOUDAKIS | 52 | Z6 |
+| SANTIAGO ESTEBAN | 53 | Z7 |
+| FEDERICO CASTELANELLI | 54 | Z2 |
+| MARTIN BOIERO | 55 | Z4 |
+
+**Discrepancias auditadas y documentadas en la vista**:
+- **Firestore `sap_vendors` está corrido en -1** (49-54). Ignorado; el CASE hardcoded es la única fuente.
+- **SAP prod `SHIMANO_SAU` al 2026-07-14 NO tiene creados los SlpCodes 50-55.** Solo hay 1-19, 33 (Mariano) y 56 (Santiago Beron). SEIDOR debe crearlos como parte del lanzamiento. Verificar con `python scripts/query_sap_sales_persons.py` cuando confirmen.
+- **SlpCode 49 = Mariano Erbino (admin), NUNCA vendedor comercial**. Excluido explícitamente.
+
+**Verificaciones de aceptación** (pasadas al deploy):
+- `SELECT * WHERE anio=2026 AND mes=7`: Julio Gonzalo → `slp_code=50, target_ars=57.000.000` ✅
+- Ningún `slp_code=49` ni NULL ✅
+- Sin duplicados (`COUNT = COUNT DISTINCT` por seller+año+mes) ✅
+
+**Sync**: `sync_sap_to_bigquery.py` → función `sync_targets_from_firestore()` — se ejecuta cada 30 min como paso 7 del pipeline. WRITE_TRUNCATE garantiza dedup.
+
+### Rollback del fix "gap huérfano" en v_backorder_lineas (2026-07-13/14)
+
+**Contexto**: `v_backorder_lineas` mostraba 1454 SKUs BIKE con `producto/familia/stock_actual` en blanco porque `sap_items_raw` solo trae grupo PESCA (755 items). Los SKUs BIKE con backorder existen en SQ pero no en el maestro.
+
+**Intento de fix** (commit `e5cef77`): ampliar `v_sap_items_enriched` para incluir SKUs de SQ/SO/PO abiertos como universo (3042 filas total). Nueva columna `is_in_master`. Todo funcionaba en SQL — verificaciones pasaron 0 huérfanos.
+
+**Problema en cliente**: Power BI Desktop del usuario (máquina con 8GB RAM, 95% memoria durante refresh) se colgaba 30+ min en el modal Actualizar. Los datos bajaban pero VertiPaq no lograba recomprimir el nuevo schema. Confirmado con Task Manager (CPU 0%, disco 0 MB/s durante freeze).
+
+**Rollback en 2 pasos**:
+1. Rollback quirúrgico (`7729ced`): dejar `v_inventario` con `WHERE is_in_master = TRUE` (755 filas, schema idéntico al pre-fix). No bastó.
+2. Rollback total (`f1f441a`): las 4 vistas afectadas vueltas exactas al estado pre-fix. `v_sap_items_enriched` vuelve a ser `SELECT * FROM sap_items_raw` con `familia_norm`.
+
+**Bonus fix mientras tanto** (commit `6f6397a`): `v_facturas_sap` — removida la columna `lines_json` (JSON string de 5-50KB por fila × 4776 = 20-200MB en un solo campo). VertiPaq no puede comprimir strings JSON únicos → explotaba RAM. El aplanamiento ya vive en `v_ventas_lineas`. Con eso el refresh de PBI se destrabó.
+
+**Pendiente / reintroducir cuando**:
+- El user tenga máquina con ≥16GB RAM, o
+- Se migre el modelo a Power BI Service (corre en servidor Microsoft con recursos garantizados).
+
+El SQL amplio para reintroducir el fix vive en git (commit `e5cef77`). Los scripts `diagnose_inventario_gap.py`, `test_inventario_fix.py`, `dryrun_new_views.py` permiten verificar el gap actual y validar el fix antes de aplicar.
+
+### Estado inicial pre-2026-07-13
 
 ### Objetivo
 
@@ -2712,18 +2809,21 @@ GROUP BY operation;
 
 Debe mostrar `IMPORT` con el conteo real de docs existentes.
 
-### Fase 1.2 — SAP → BigQuery — ✅ HECHO 2026-07-08
+### Fase 1.2 — SAP → BigQuery — ✅ HECHO 2026-07-08 (ampliado 2026-07-14)
 
-**Script**: `scripts/sync_sap_to_bigquery.py` (~510 líneas). Corre en GH Actions cron `13,43 * * * *` (mismo patrón que el sync a Firestore) mediante `.github/workflows/sync-sap-to-bigquery.yml`.
+**Script**: `scripts/sync_sap_to_bigquery.py` (~750 líneas). Corre en GH Actions cron `13,43 * * * *` (mismo patrón que el sync a Firestore) mediante `.github/workflows/sync-sap-to-bigquery.yml`.
 
-**4 tablas SAP en BigQuery** (dataset `shimano_app`):
+**6 tablas SAP + 1 tabla desde Firestore en BigQuery** (dataset `shimano_app`):
 
-| Tabla | Endpoint SL | Contenido | Volumen 2026-07-08 |
+| Tabla | Endpoint / Fuente | Contenido | Volumen 2026-07-14 |
 |---|---|---|---|
 | `sap_bp_raw` | `/BusinessPartners?$filter=CardType eq 'cCustomer'` | Padrón Customers | ~20 rows |
-| `sap_items_raw` | `/Items?$filter=ItemsGroupCode eq <PESCA>` | Catálogo pesca con stock + precio | ~750 rows |
-| `sap_invoices_raw` | `/Invoices?$filter=DocDate ge '<24m>'` | Facturas últimos 24 meses | ~20+ rows |
-| `sap_quotations_raw` | `/Quotations?$filter=DocDate ge '<24m>'` | Cotizaciones últimos 24 meses | ~20+ rows |
+| `sap_items_raw` | `/Items?$filter=ItemsGroupCode eq <PESCA>` | Catálogo pesca con stock + precio | 755 rows |
+| `sap_invoices_raw` | `/Invoices?$filter=DocDate ge '<24m>'` | Facturas últimos 24 meses | 4.776 rows |
+| `sap_quotations_raw` | `/Quotations?$filter=DocDate ge '<24m>'` | Cotizaciones últimos 24 meses | ~1.500 rows |
+| `sap_orders_raw` | `/Orders?$filter=DocDate ge '<24m>'` | Sales Orders últimos 24 meses | ~500 rows |
+| `sap_purchase_orders_raw` | `/PurchaseOrders` | POs abiertas (mercadería incoming) | ~200 rows |
+| **`targets_raw`** ← 2026-07-14 | Firestore `targets` (sync propio) | Metas mensuales cargadas por gerente | 4 rows (Julio 2026) |
 
 **Estrategia**: `WRITE_TRUNCATE` cada corrida (full snapshot). Cuando el volumen escale (miles de facturas), migrar a delta por `UpdateDate`.
 
@@ -3399,7 +3499,16 @@ Detalles completos + troubleshooting en la nueva **sección 40-bis** del README.
 
 ---
 
-**Última actualización**: 2026-07-13 — SW v297. Sesión frontend completa (fixes UX + auto-sync provisorios + export master targets). Highlights v290→v297 (detalle en sección 41):
+**Última actualización**: 2026-07-14 — SW v297 (frontend sin cambios desde ayer). Sesión enfocada en **pipeline BigQuery → Power BI**: nueva vista `v_targets`, fix crítico VertiPaq en `v_facturas_sap`, y rollback controlado del fix del gap huérfano en `v_backorder_lineas` (PBI Desktop del user no digería el schema ampliado).
+
+Highlights sesión 2026-07-14 (detalle en sección 40):
+
+- **📊 Pipeline `v_targets` (Firestore → BigQuery)** — nueva función `sync_targets_from_firestore()` en `sync_sap_to_bigquery.py` que corre cada 30 min. Escribe `targets_raw` con WRITE_TRUNCATE (dedup por construcción). Nueva vista `v_targets` con schema pedido por Mariano: `slp_code, vendedor, anio, mes (1-12), target_ars, _sync_timestamp`. Mapeo vendorKey → SlpCode hardcoded en un CASE (50-55). Detalle en sección 40.
+- **⚠️ Discrepancia SlpCode confirmada contra SAP prod** — SlpCodes 50-55 NO existen aún en `SHIMANO_SAU` (consultado `/SalesPersons`). Solo hay 1-19, 33 (Mariano) y 56 (Santiago Beron). SEIDOR debe crearlos en prod. Firestore `sap_vendors` tiene mapeo bugueado en -1 (49-54); ignorado, el CASE de la vista usa el canónico que dio el user.
+- **🩹 `v_facturas_sap` sin `lines_json`** — el JSON string gigante (5-50KB por fila × 4776 filas) hacía explotar VertiPaq en Power BI Desktop y colgaba el refresh 30+ min. Removida esa columna; el aplanamiento de líneas ya vive en `v_ventas_lineas`.
+- **🔄 Rollback completo del fix "gap huérfano"** — el intento de ampliar `v_sap_items_enriched` para incluir 2287 SKUs BIKE con backorder (deploy inicial en commit `e5cef77`) colgaba Power BI del user por cambio de schema + recompresión VertiPaq desde cero. Rollback quirúrgico (commit `7729ced`) y luego rollback total (`f1f441a`) — vistas idénticas al pre-fix. **Pendiente**: reintroducir cuando la máquina tenga más RAM o migres el modelo a Power BI Service. El SQL amplio queda en git como referencia.
+
+Highlights v290→v297 (2026-07-13, frontend, detalle en sección 41):
 
 - **📊 Export Excel de Targets en formato largo** (v297, para SAP / Power BI). Botón verde en el modal Targets → `Targets_Shimano_YYYY-MM-DD.xlsx` con columnas `SlpCode | Vendedor | Año | Mes | Meta`, una fila por (vendedor, mes) con target > 0. SlpCode y Vendedor resueltos desde `sap_vendors`. Detalle en sección 22.
 - **✍️ Fix ortográfico "MOSTRADO" → "MOSTRADOR"** (v296, reportado por vendedor). Selects Tipo de venta + Necesidad puntual + label ponderación + Excel exports. Value en Firestore sigue siendo `'MOSTRADO'` (retrocompat), solo se mapea el display.
