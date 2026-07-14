@@ -2120,23 +2120,29 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             </select>
             <div id="vf-actingas-info" style="margin-top:6px;font-size:11px;color:#7c3aed;font-weight:600;display:none"></div>
           </div>
-          <div class="vf-row">
-            <label>Localidad <span class="req">*</span><span class="vf-hint">buscar escribiendo</span></label>
+          <!-- v298+ (pedido vendedores): sacar seleccion de Localidad, ir
+               directo a Tienda. La localidad se autocompleta al elegir la
+               tienda. El input de Localidad queda como hidden (para
+               back-compat de readField y del save) + display readonly. -->
+          <div class="vf-row" style="display:none">
             <div class="fs-wrap" data-fs-id="vf-localidad">
-              <input type="text" class="fs-input" id="vf-localidad-search" placeholder="Escribi para buscar (ej: cordoba, rio cuarto)" autocomplete="off" oninput="fsOnInput(this)" onfocus="fsOnFocus(this)" onblur="fsOnBlur(this)" onkeydown="fsOnKeydown(this,event)"/>
-              <button type="button" class="fs-clear" onclick="fsClear('vf-localidad')" title="Limpiar">&times;</button>
+              <!-- El search + dropdown se mantienen para no romper el
+                   componente filter-select cuando algun codigo lo popule via
+                   fsSetValue, pero el usuario no interactua. -->
+              <input type="text" class="fs-input" id="vf-localidad-search" autocomplete="off" oninput="fsOnInput(this)" onfocus="fsOnFocus(this)" onblur="fsOnBlur(this)" onkeydown="fsOnKeydown(this,event)"/>
               <div class="fs-dropdown" id="vf-localidad-dropdown"></div>
               <input type="hidden" id="vf-localidad" required/>
             </div>
           </div>
           <div class="vf-row">
-            <label>Tienda de pesca <span class="req">*</span><span class="vf-hint">buscar escribiendo</span></label>
+            <label>Tienda de pesca <span class="req">*</span><span class="vf-hint">busc&aacute; por nombre &mdash; la localidad se completa sola</span></label>
             <div class="fs-wrap" data-fs-id="vf-tienda">
-              <input type="text" class="fs-input" id="vf-tienda-search" placeholder="Elegi una localidad primero" autocomplete="off" disabled oninput="fsOnInput(this)" onfocus="fsOnFocus(this)" onblur="fsOnBlur(this)" onkeydown="fsOnKeydown(this,event)"/>
+              <input type="text" class="fs-input" id="vf-tienda-search" placeholder="Escrib&iacute; el nombre de la tienda..." autocomplete="off" oninput="fsOnInput(this)" onfocus="fsOnFocus(this)" onblur="fsOnBlur(this)" onkeydown="fsOnKeydown(this,event)"/>
               <button type="button" class="fs-clear" onclick="fsClear('vf-tienda')" title="Limpiar">&times;</button>
               <div class="fs-dropdown" id="vf-tienda-dropdown"></div>
               <input type="hidden" id="vf-tienda" required/>
             </div>
+            <div id="vf-loc-detected" style="display:none;margin-top:6px;font-size:11.5px;color:#0369a1;background:#ecfeff;border:1px solid #67e8f9;border-radius:5px;padding:6px 10px;font-weight:600"></div>
           </div>
           <div class="vf-row"><label>Tipo de tienda <span class="req">*</span></label><select id="vf-tipo" required><option value="">Seleccionar...</option><option>OUTDOOR</option><option>PESCA</option><option>HIBRIDO (PESCA+OUTDOOR)</option><option>GENERAL (FERRETERIA/CUCHILLERIA/OTROS)</option></select></div>
           <div class="vf-row"><label>Local <span class="req">*</span></label><select id="vf-local" required><option value="">Seleccionar...</option><option>FISICO</option><option>ECOMMERCE</option></select></div>
@@ -3273,7 +3279,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v298';
+const APP_VERSION = 'v299';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -13185,23 +13191,18 @@ function captureGpsPositionFast(){
 function abrirVisitaParaTienda_real(localidad, provincia, tienda){
   openVisitaModal();
   setTimeout(() => {
-    // Post v274: vf-localidad y vf-tienda son filter-select (input search
-    // + dropdown filtrable) en vez de <select>. Populados por
-    // populateVisitaLocalidades y onLocalidadChange respectivamente via
-    // fsPopulate. Usar fsSetValue en vez de sel.value directo.
-    const targetKey = provincia + '||' + localidad;
-    const targetLabel = localidad + ' - ' + titleCase(provincia);
-    // Verificar que la localidad este en el registry (si no, no la puede
-    // seleccionar el user tampoco).
-    const cfgLoc = (typeof _fsRegistry !== 'undefined') ? _fsRegistry['vf-localidad'] : null;
-    if (!cfgLoc || !(cfgLoc.options || []).find(o => o.value === targetKey)) return;
-    fsSetValue('vf-localidad', targetKey, targetLabel);
-    onLocalidadChange();
-    setTimeout(() => {
-      const cfgT = (typeof _fsRegistry !== 'undefined') ? _fsRegistry['vf-tienda'] : null;
-      if (!cfgT || !(cfgT.options || []).find(o => o.value === tienda)) return;
-      fsSetValue('vf-tienda', tienda, tienda);
-    }, 60);
+    // v298+: vf-tienda es filter-select con value compuesto
+    // "PROV||Loc||Tienda". Seteamos el value y onTiendaChange autocompleta
+    // el hidden vf-localidad y muestra el badge de localidad detectada.
+    const provU = (provincia || '').toUpperCase();
+    const compositeVal = provU + '||' + localidad + '||' + tienda;
+    const compositeLabel = tienda + ' — ' + localidad + ', ' + titleCase(provincia);
+    // Verificar que la tienda este en el registry poblado por
+    // populateVisitaLocalidades (si no, no la puede seleccionar el user tampoco).
+    const cfgT = (typeof _fsRegistry !== 'undefined') ? _fsRegistry['vf-tienda'] : null;
+    if (!cfgT || !(cfgT.options || []).find(o => o.value === compositeVal)) return;
+    fsSetValue('vf-tienda', compositeVal, compositeLabel);
+    onTiendaChange(compositeVal);
   }, 120);
 }
 
@@ -24495,45 +24496,79 @@ function resetVisitaForm(){
 }
 
 function populateVisitaLocalidades(){
-  // Vendor key efectivo: si soy VDE -> mi zona. Si soy VDI actuando en nombre
-  // de un VDE -> zona del VDE. Admin/viewer -> null (ven todas).
+  // v298+ (2026-07-14, pedido vendedores): el vendedor busca DIRECTO por
+  // nombre de tienda; localidad + provincia se autocompletan al elegir.
+  // Antes había que elegir localidad primero -> lento y muchos no la sabían.
+  // Ahora populamos vf-tienda con TODAS las tiendas visibles al vendor,
+  // cada opcion muestra "Nombre — Localidad, Provincia" para desambiguar.
+  // El value del filter-select tiene formato "PROV||Loc||Tienda"; luego
+  // onTiendaChange parsea y setea el hidden vf-localidad + pisa vf-tienda
+  // con solo el nombre para no romper readField ni el schema del save.
   const myVendor = getEffectiveVendorKey();
-  const locsSet = new Set();
+  const items = [];
+  const seen = new Set();
+  const _norm = s => (s || '').toString().toLowerCase().trim();
+
+  // Path 1: POINTS clients confirmados en SAP.
   POINTS.forEach(p => {
     if (myVendor && p.vendor !== myVendor) return;
-    if (!p.clients || !p.clients.length) return; // solo localidades con clientes confirmados
-    locsSet.add(p.province + '||' + p.name);
+    (p.clients || []).forEach(c => {
+      if (typeof isSapConfirmed === 'function' && !isSapConfirmed(p.province, p.name, c)) return;
+      const key = p.province + '||' + p.name + '||' + c;
+      const dedupKey = _norm(p.province) + '|' + _norm(p.name) + '|' + _norm(c);
+      if (seen.has(dedupKey)) return;
+      seen.add(dedupKey);
+      items.push({
+        value: key,
+        label: c + ' — ' + p.name + ', ' + titleCase(p.province),
+        sortKey: _norm(c),
+      });
+    });
   });
-  // Sumar localidades que tienen altas SAP / provisorias (las localidades
-  // del alta rapida no necesariamente existen en POINTS). Si no las incluimos,
-  // un vendedor que dio de alta a "Mariano Pesca" en Quilmes no puede
-  // seleccionar Quilmes como localidad de visita.
+
+  // Path 2: SAP altas + provisorios de Alta Rápida.
   if (typeof approvedAltasList !== 'undefined') {
     approvedAltasList.forEach(a => {
       if (!a) return;
-      if (!(a.cardCodeSap || a.manualSapPending)) return;
+      const enabled = !!(a.cardCodeSap || a.manualSapPending);
+      if (!enabled) return;
       const aProv = (a.provincia || '').toUpperCase().trim();
       const aLoc = (a.localidadFinal || a.localidad || '').trim();
       if (!aProv || !aLoc) return;
       if (myVendor && a.assignedVendor && a.assignedVendor !== myVendor) return;
-      locsSet.add(aProv + '||' + aLoc);
+      const nombre = a.comercio || a.fantasia;
+      if (!nombre) return;
+      const dedupKey = _norm(aProv) + '|' + _norm(aLoc) + '|' + _norm(nombre);
+      if (seen.has(dedupKey)) return;
+      seen.add(dedupKey);
+      const badge = a.manualSapPending && !a.cardCodeSap ? ' ⚡' : '';
+      items.push({
+        value: aProv + '||' + aLoc + '||' + nombre,
+        label: nombre + badge + ' — ' + aLoc + ', ' + titleCase(aProv),
+        sortKey: _norm(nombre),
+      });
     });
   }
-  const locs = [...locsSet].sort();
-  const options = locs.map(k => {
-    const [prov, name] = k.split('||');
-    return {value: k, label: name + ' - ' + titleCase(prov)};
-  });
-  // Popular el filter-select de Localidad + resetear el de Tienda.
-  fsPopulate('vf-localidad', options, function(val){ onLocalidadChange(); });
-  fsReset('vf-localidad');
-  fsPopulate('vf-tienda', [], null);
+
+  items.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+
+  // Popular el filter-select de Tienda con el onChange que auto-completa
+  // la localidad. vf-localidad queda oculto (ver HTML) pero sigue siendo el
+  // hidden que consume el resto del flujo (readField, save, validate).
+  fsPopulate('vf-tienda', items, function(val){ onTiendaChange(val); });
   fsReset('vf-tienda');
+  fsPopulate('vf-localidad', [], null);
+  fsReset('vf-localidad');
   const tiendaInput = document.getElementById('vf-tienda-search');
   if (tiendaInput) {
-    tiendaInput.disabled = true;
-    tiendaInput.placeholder = 'Elegi una localidad primero';
+    tiendaInput.disabled = false;
+    tiendaInput.placeholder = items.length
+      ? 'Escribí el nombre de la tienda...'
+      : 'Sin tiendas habilitadas en SAP para tu zona';
   }
+  // Reset del display de localidad detectada.
+  const locDetected = document.getElementById('vf-loc-detected');
+  if (locDetected) { locDetected.style.display = 'none'; locDetected.textContent = ''; }
 }
 
 // =====================================================================
@@ -24716,61 +24751,36 @@ window.onActingAsChange = function(){
   refreshActingAsInfoLine();
 };
 
-window.onLocalidadChange = function(){
-  const v = document.getElementById('vf-localidad').value;
-  const tiendaInput = document.getElementById('vf-tienda-search');
-  // Reset del filter-select de Tienda cuando cambia la localidad.
-  fsReset('vf-tienda');
-  if (!v) {
-    if (tiendaInput) { tiendaInput.disabled = true; tiendaInput.placeholder = 'Elegi una localidad primero'; }
-    fsPopulate('vf-tienda', [], null);
+// v298+ deprecado: onLocalidadChange se mantiene como no-op para no romper
+// referencias externas. La logica de tiendas ahora se popula toda de una
+// (populateVisitaLocalidades) y se filtra por localidad automaticamente
+// cuando el vendedor elige tienda (onTiendaChange).
+window.onLocalidadChange = function(){ /* no-op post v298 */ };
+
+// v298+ onTiendaChange: se dispara al seleccionar una tienda del filter-select.
+// Parsea el value compuesto "PROV||Loc||Tienda", setea el hidden vf-localidad
+// con el formato "PROV||Loc" que espera el resto del flujo (save/validate),
+// y pisa el hidden vf-tienda con SOLO el nombre para que readField devuelva
+// el nombre plano. Muestra un display de confirmacion con la localidad.
+window.onTiendaChange = function(val){
+  const locDetected = document.getElementById('vf-loc-detected');
+  const hiddenLoc = document.getElementById('vf-localidad');
+  const hiddenTienda = document.getElementById('vf-tienda');
+  if (!val) {
+    if (hiddenLoc) hiddenLoc.value = '';
+    if (hiddenTienda) hiddenTienda.value = '';
+    if (locDetected) { locDetected.style.display = 'none'; locDetected.textContent = ''; }
     return;
   }
-  if (tiendaInput) { tiendaInput.disabled = false; tiendaInput.placeholder = 'Escribi para buscar tienda'; }
-  const [prov, name] = v.split('||');
-  const myVendor = (userRole === 'vendedor') ? assignedVendor : null;
-  // Solo mostrar tiendas habilitadas en SAP. Filtramos via isSapConfirmed
-  // (que mira client_master con sapCardCode + direccion, o alta SAP en
-  // client_applications con cardCodeSap + direccion). Prospectos NO entran -
-  // no estan en SAP todavia.
-  const tiendaSet = new Set();
-  // Path 1: POINTS clients confirmados en SAP.
-  POINTS.forEach(p => {
-    if (myVendor && p.vendor !== myVendor) return;
-    if (p.province !== prov || p.name !== name) return;
-    (p.clients || []).forEach(c => {
-      if (typeof isSapConfirmed === 'function' && isSapConfirmed(p.province, p.name, c)) {
-        tiendaSet.add(c);
-      }
-    });
-  });
-  // Path 2: SAP altas huerfanas (en client_applications con cardCodeSap)
-  // que no matchean ningun POINT - igual son habilitadas en SAP. Tambien
-  // incluimos las "provisorias" del alta rapida (manualSapPending) para que
-  // el vendedor pueda registrar visitas mientras admin las carga a SAP.
-  // Comparacion de localidad case-insensitive: en POINTS puede venir como
-  // 'Balcarce' y en alta rapida como 'balcarce' (el vendedor escribio en
-  // minuscula) - antes 'aLoc !== name' saltaba y no aparecia la tienda.
-  const _normLoc = s => (s || '').toString().toLowerCase().trim();
-  if (typeof approvedAltasList !== 'undefined') {
-    approvedAltasList.forEach(a => {
-      if (!a) return;
-      const enabledForVisits = !!(a.cardCodeSap || a.manualSapPending);
-      if (!enabledForVisits) return;
-      const aProv = (a.provincia || '').toUpperCase().trim();
-      const aLoc = (a.localidadFinal || a.localidad || '').trim();
-      if (aProv !== prov || _normLoc(aLoc) !== _normLoc(name)) return;
-      if (myVendor && a.assignedVendor && a.assignedVendor !== myVendor) return;
-      const nombre = a.comercio || a.fantasia;
-      if (nombre) tiendaSet.add(nombre);
-    });
-  }
-  const tiendas = [...tiendaSet].sort();
-  const options = tiendas.map(t => ({value: t, label: t}));
-  fsPopulate('vf-tienda', options, null);
-  if (!tiendas.length && tiendaInput) {
-    tiendaInput.disabled = true;
-    tiendaInput.placeholder = 'Sin tiendas habilitadas en SAP en esta localidad';
+  const parts = String(val).split('||');
+  const prov = (parts[0] || '').trim();
+  const loc = (parts[1] || '').trim();
+  const tienda = (parts[2] || '').trim();
+  if (hiddenLoc) hiddenLoc.value = prov + '||' + loc;
+  if (hiddenTienda) hiddenTienda.value = tienda;
+  if (locDetected) {
+    locDetected.innerHTML = '📍 Localidad detectada: <b>' + escapeHtml(loc) + '</b> &mdash; ' + escapeHtml(titleCase(prov));
+    locDetected.style.display = 'block';
   }
 };
 
@@ -25128,13 +25138,15 @@ window.viewVisit = function(visitId){
   // Switch to form view + populate
   setVisitaView('form');
   resetVisitaForm();
-  // Populate fields. Los filter-select (vf-localidad, vf-tienda) usan
-  // fsSetValue para actualizar tanto el hidden como el input search visible.
-  const locKey = (v.provincia || '') + '||' + (v.localidad || '');
-  const locLabel = (v.localidad || '') + ' - ' + titleCase(v.provincia || '');
-  fsSetValue('vf-localidad', locKey, locLabel);
-  onLocalidadChange();
-  fsSetValue('vf-tienda', v.tienda || '', v.tienda || '');
+  // Populate fields — v298+: la tienda es la fuente, la localidad se
+  // autocompleta. fsSetValue en vf-tienda pone el value compuesto
+  // "PROV||Loc||Tienda" para que matchee alguna opcion del dropdown;
+  // luego onTiendaChange pisa los hiddens con los valores atomicos.
+  const provU = (v.provincia || '').toUpperCase();
+  const compositeVal = provU + '||' + (v.localidad || '') + '||' + (v.tienda || '');
+  const compositeLabel = (v.tienda || '') + ' — ' + (v.localidad || '') + ', ' + titleCase(v.provincia || '');
+  fsSetValue('vf-tienda', compositeVal, compositeLabel);
+  onTiendaChange(compositeVal);
   document.getElementById('vf-tipo').value = v.tipo || '';
   document.getElementById('vf-local').value = v.local || '';
   document.getElementById('vf-tamano').value = v.tamano || '';

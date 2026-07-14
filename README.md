@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v298 |
-| **APP_VERSION** | `v298` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v299 |
+| **APP_VERSION** | `v299` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **9 vistas curadas** (`v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap`, `v_inventario`, `v_inventario_por_warehouse`, `v_ventas_lineas`, `v_backorder_lineas`, **`v_targets`** ← nuevo 2026-07-14) → **Power BI Desktop conectado, dashboard "Resumen-Desempeño" operativo con medidas de cumplimiento y colores condicionales**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -185,6 +185,7 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] Ortografía "MOSTRADO" → "MOSTRADOR" en form de visita (Tipo de venta + Necesidad puntual + label ponderación) + display en modal cliente + headers Excel (`Pond Mostrador`, `% Mostrador`). Value en DB sigue siendo `MOSTRADO` para no romper visitas históricas; se mapea al mostrar (v296+)
 [X] Botón "📊 Exportar Excel" en modal Targets → XLSX formato largo (SlpCode, Vendedor, Año, Mes, Meta) — una fila por vendedor+mes con target > 0. SlpCode resuelto desde `sap_vendors`, Vendedor usa `slpName` de SAP (fallback titleCase). Uso: importar a SAP / Power BI (v297+)
 [X] Gerente ve TODAS las visitas de todos los vendedores + comentarios (pedido de Pablo). Fix client-side de 2 líneas — Firestore Rules ya lo permitía (v298+)
+[X] Form Visita: buscar directo por tienda (localidad se autocompleta) — pedido vendedores, ahorra un paso y evita el problema "no sé qué localidad es". Badge celeste 📍 muestra la localidad detectada (v299+)
 ```
 
 ### Bloqueantes externos para el lanzamiento
@@ -3106,7 +3107,7 @@ Total: ~15 iteraciones para llegar al fix correcto por la naturaleza propietaria
 
 ---
 
-## 41) Changelog v204 → v298
+## 41) Changelog v204 → v299
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
 
@@ -3455,6 +3456,32 @@ Detalles completos + troubleshooting en la nueva **sección 40-bis** del README.
 - Ahora `.js-stat-p` usa `getProvisoriosList().length` — mismo total global que el badge del botón Provisorios.
 - Ambos KPIs coinciden y significan lo mismo: **provisorios de Alta Rápida pendientes de cargar a SAP**.
 - Se pierde la métrica "cuántas tiendas de mi zona me faltan visitar/geolocalizar" como KPI destacado. La variable `pendientes` local sigue disponible en el scope de `updateStats()` si algún día se rescata.
+
+### v299 — Form Visita: buscar directo por tienda, localidad se autocompleta
+
+**Pedido de los vendedores**: en el form de Visita perdían tiempo eligiendo primero la Localidad y "a veces no saben bien la localidad del cliente". Que puedan **ir directo a la tienda**.
+
+**Cambio**: la Tienda es ahora la fuente única de búsqueda. La Localidad se infiere automáticamente al elegir la tienda y se muestra como confirmación visual.
+
+**Antes** (v274 → v298): 2 pasos secuenciales
+1. Buscar localidad en `vf-localidad` (filter-select, deshabilita `vf-tienda`).
+2. Buscar tienda en `vf-tienda` (filtrada por localidad elegida).
+
+**Ahora** (v299+): 1 paso directo
+1. Buscar tienda en `vf-tienda` — cada opción muestra `"Nombre — Localidad, Provincia"` para desambiguar homónimos (ej. "El Delfín — Quilmes, Buenos Aires" vs "El Delfín — Tigre, Buenos Aires").
+2. Al elegir → badge celeste debajo del input: **"📍 Localidad detectada: Quilmes — Buenos Aires"**.
+
+**Implementación técnica**:
+- HTML: bloque de Localidad convertido en `display:none` (el `<input hidden id="vf-localidad">` sigue existiendo para no romper `readField` ni el schema del save). Tienda ahora arranca habilitada con placeholder "Escribí el nombre de la tienda...".
+- Nuevo div `#vf-loc-detected` (celeste, oculto por default) debajo de Tienda con el badge de localidad.
+- `populateVisitaLocalidades()` reescrita: en vez de armar `Set<PROV||Loc>`, arma `items[]` con `value = "PROV||Loc||Tienda"` y `label = "Tienda — Loc, Prov"`. Dedup case-insensitive. Recorre POINTS + `approvedAltasList` (incluye provisorios con badge ⚡).
+- Nuevo `onTiendaChange(val)`: parsea `val = "PROV||Loc||Tienda"`, setea el hidden `vf-localidad` con `"PROV||Loc"` (formato que espera el save en línea 24904 `const [prov, locName] = readField('vf-localidad').split('||')`), pisa el hidden `vf-tienda` con solo el nombre, y muestra el badge de confirmación.
+- `onLocalidadChange` queda como no-op para no romper referencias externas (era llamada por `abrirVisitaParaTienda_real` desde rutas).
+- `viewVisit()` y `abrirVisitaParaTienda_real()` actualizados: setean `vf-tienda` con el value compuesto y llaman `onTiendaChange`.
+
+**Data en Firestore sin cambios**: el schema del doc `visits` sigue igual (`provincia`, `localidad`, `tienda` como campos separados). Solo cambia la UX de captura.
+
+**Retrocompat**: visitas viejas se abren con el nuevo formato automáticamente (el `viewVisit` arma el compuesto desde los 3 campos). Sin migración de datos.
 
 ### v298 — Gerente ve todas las visitas + comentarios (pedido de Pablo)
 
