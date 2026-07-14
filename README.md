@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v299 |
-| **APP_VERSION** | `v299` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v300 |
+| **APP_VERSION** | `v300` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **9 vistas curadas** (`v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap`, `v_inventario`, `v_inventario_por_warehouse`, `v_ventas_lineas`, `v_backorder_lineas`, **`v_targets`** ← nuevo 2026-07-14) → **Power BI Desktop conectado, dashboard "Resumen-Desempeño" operativo con medidas de cumplimiento y colores condicionales**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -187,6 +187,7 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] Gerente ve TODAS las visitas de todos los vendedores + comentarios (pedido de Pablo). Fix client-side de 2 líneas — Firestore Rules ya lo permitía (v298+)
 [X] Form Visita: buscar directo por tienda (localidad se autocompleta) — pedido vendedores, ahorra un paso y evita el problema "no sé qué localidad es". Badge celeste 📍 muestra la localidad detectada (v299+)
 [X] Bulk import de 103 nombres de fantasía desde Excel formulario (match por CUIT) + fix del cron `sync_sap_to_firestore.py` que pisaba fantasías manuales cada 30 min (mismo patrón v291 con localidad/provincia). Los nombres cargados ahora sobreviven al sync
+[X] Buscador de tienda en form Visita ahora matchea por fantasía **O** titular (label muestra `"Fantasía (Titular) — Loc, Prov"`) — antes solo por titular (v300+)
 ```
 
 ### Bloqueantes externos para el lanzamiento
@@ -3108,7 +3109,7 @@ Total: ~15 iteraciones para llegar al fix correcto por la naturaleza propietaria
 
 ---
 
-## 41) Changelog v204 → v299
+## 41) Changelog v204 → v300
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
 
@@ -3457,6 +3458,30 @@ Detalles completos + troubleshooting en la nueva **sección 40-bis** del README.
 - Ahora `.js-stat-p` usa `getProvisoriosList().length` — mismo total global que el badge del botón Provisorios.
 - Ambos KPIs coinciden y significan lo mismo: **provisorios de Alta Rápida pendientes de cargar a SAP**.
 - Se pierde la métrica "cuántas tiendas de mi zona me faltan visitar/geolocalizar" como KPI destacado. La variable `pendientes` local sigue disponible en el scope de `updateStats()` si algún día se rescata.
+
+### v300 — Buscador de tienda en Visita: matchea por fantasía O titular
+
+**Bug reportado**: en el form de Visita el vendedor buscaba por fantasía (ej. "LA PALOMETA") y no encontraba la tienda porque el label del dropdown solo mostraba el titular ("ALAN OSCAR NICOLAS RODRIGUEZ — MUNRO, Buenos Aires"). El filter-select del componente `fs` matchea por substring del label, entonces si la fantasía no está en el label, no se encuentra.
+
+**Fix** en `populateVisitaLocalidades()`:
+- Nuevo pre-índice `fantasiaByName: Map<nombre_normalizado, fantasia>` construido desde `approvedAltasList` — cubre las 3 rutas de match (comercio, titular, fantasia) para que POINTS legacy también sepa qué fantasía usar.
+- Nuevo helper `buildLabel(titular, fantasia, loc, prov, badge)`: emite `"Fantasía (Titular) — Loc, Prov"` cuando la fantasía es distinta del titular, o solo `"Titular — Loc, Prov"` si son iguales o no hay fantasía. El filter matchea el label completo → **busca por fantasía o por titular indistintamente**.
+- Sort key: usa el nombre grande (fantasía cuando existe, sino titular) para que el dropdown salga alfabéticamente por lo que el vendedor ve primero.
+- El `value` del filter-select sigue siendo `"PROV||Loc||Titular"` (el save espera el titular en `v.tienda`).
+
+**Antes**:
+```
+ALAN OSCAR NICOLAS RODRIGUEZ — MUNRO, Buenos Aires
+```
+Buscar "PALOMETA" → 0 resultados.
+
+**Ahora**:
+```
+LA PALOMETA BAIT SHOP (ALAN OSCAR NICOLAS RODRIGUEZ) — MUNRO, Buenos Aires
+```
+Buscar "PALOMETA" ✅ / Buscar "ALAN" ✅ / Buscar "MUNRO" ✅.
+
+**Schema del doc `visits` sin cambios**: sigue guardando `tienda: "ALAN OSCAR NICOLAS RODRIGUEZ"` (el titular). Los reportes y timeline por cliente siguen agrupando por titular.
 
 ### Fix sync SAP: preservar nombre de fantasía manual (2026-07-14, script)
 

@@ -3279,7 +3279,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v299';
+const APP_VERSION = 'v300';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -24500,28 +24500,57 @@ function populateVisitaLocalidades(){
   // nombre de tienda; localidad + provincia se autocompletan al elegir.
   // Antes había que elegir localidad primero -> lento y muchos no la sabían.
   // Ahora populamos vf-tienda con TODAS las tiendas visibles al vendor,
-  // cada opcion muestra "Nombre — Localidad, Provincia" para desambiguar.
-  // El value del filter-select tiene formato "PROV||Loc||Tienda"; luego
-  // onTiendaChange parsea y setea el hidden vf-localidad + pisa vf-tienda
-  // con solo el nombre para no romper readField ni el schema del save.
+  // cada opcion muestra "Fantasia (Titular) — Localidad, Provincia" para
+  // que el buscador matchee tanto por fantasia como por titular. El value
+  // del filter-select tiene formato "PROV||Loc||Titular" (titular es lo
+  // que el save espera como v.tienda); luego onTiendaChange parsea y
+  // setea el hidden vf-localidad + pisa vf-tienda con solo el titular.
   const myVendor = getEffectiveVendorKey();
   const items = [];
   const seen = new Set();
   const _norm = s => (s || '').toString().toLowerCase().trim();
+
+  // Pre-build index de fantasias por nombre normalizado, para lookup O(1)
+  // desde POINTS. Cubrimos las 3 rutas de match: comercio, titular, fantasia.
+  const fantasiaByName = new Map();
+  if (typeof approvedAltasList !== 'undefined') {
+    approvedAltasList.forEach(a => {
+      if (!a || !a.fantasia) return;
+      const fant = String(a.fantasia).trim();
+      if (!fant) return;
+      ['comercio', 'titular', 'fantasia'].forEach(k => {
+        const v = _norm(a[k]);
+        if (v) fantasiaByName.set(v, fant);
+      });
+    });
+  }
+
+  // Helper: arma el label mostrando fantasia (titular) si son distintas.
+  // Si son iguales o no hay fantasia, solo el titular. El buscador matchea
+  // el label completo -> permite encontrar la tienda por cualquiera.
+  function buildLabel(titular, fantasia, loc, prov, badge){
+    const t = (titular || '').trim();
+    const f = (fantasia || '').trim();
+    const showFant = f && f.toLowerCase() !== t.toLowerCase();
+    const bigName = showFant ? f : t;
+    const secondary = showFant ? ' (' + t + ')' : '';
+    return bigName + secondary + (badge || '') + ' — ' + loc + ', ' + titleCase(prov);
+  }
 
   // Path 1: POINTS clients confirmados en SAP.
   POINTS.forEach(p => {
     if (myVendor && p.vendor !== myVendor) return;
     (p.clients || []).forEach(c => {
       if (typeof isSapConfirmed === 'function' && !isSapConfirmed(p.province, p.name, c)) return;
-      const key = p.province + '||' + p.name + '||' + c;
       const dedupKey = _norm(p.province) + '|' + _norm(p.name) + '|' + _norm(c);
       if (seen.has(dedupKey)) return;
       seen.add(dedupKey);
+      const fantasia = fantasiaByName.get(_norm(c)) || '';
+      const showFant = fantasia && fantasia.toLowerCase() !== c.toLowerCase();
       items.push({
-        value: key,
-        label: c + ' — ' + p.name + ', ' + titleCase(p.province),
-        sortKey: _norm(c),
+        value: p.province + '||' + p.name + '||' + c,
+        label: buildLabel(c, fantasia, p.name, p.province, ''),
+        sortKey: _norm(showFant ? fantasia : c),
       });
     });
   });
@@ -24536,16 +24565,22 @@ function populateVisitaLocalidades(){
       const aLoc = (a.localidadFinal || a.localidad || '').trim();
       if (!aProv || !aLoc) return;
       if (myVendor && a.assignedVendor && a.assignedVendor !== myVendor) return;
-      const nombre = a.comercio || a.fantasia;
-      if (!nombre) return;
+      const titular = a.comercio || a.titular || '';
+      const fantasia = (a.fantasia || '').trim();
+      if (!titular && !fantasia) return;
+      // Value usa el titular (o fantasia como fallback si no hay titular)
+      // porque el save guarda v.tienda con ese valor - matchea con lo que
+      // el resto del codigo espera.
+      const nombre = titular || fantasia;
       const dedupKey = _norm(aProv) + '|' + _norm(aLoc) + '|' + _norm(nombre);
       if (seen.has(dedupKey)) return;
       seen.add(dedupKey);
       const badge = a.manualSapPending && !a.cardCodeSap ? ' ⚡' : '';
+      const showFant = fantasia && fantasia.toLowerCase() !== nombre.toLowerCase();
       items.push({
         value: aProv + '||' + aLoc + '||' + nombre,
-        label: nombre + badge + ' — ' + aLoc + ', ' + titleCase(aProv),
-        sortKey: _norm(nombre),
+        label: buildLabel(nombre, fantasia, aLoc, aProv, badge),
+        sortKey: _norm(showFant ? fantasia : nombre),
       });
     });
   }
