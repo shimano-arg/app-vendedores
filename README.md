@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v297 |
-| **APP_VERSION** | `v297` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v298 |
+| **APP_VERSION** | `v298` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **9 vistas curadas** (`v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap`, `v_inventario`, `v_inventario_por_warehouse`, `v_ventas_lineas`, `v_backorder_lineas`, **`v_targets`** ← nuevo 2026-07-14) → **Power BI Desktop conectado, dashboard "Resumen-Desempeño" operativo con medidas de cumplimiento y colores condicionales**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -184,6 +184,7 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] Badge de categoría (Cat P/A/B/C) fijado en la esquina superior derecha de cada card de CLIENTES (`position:absolute` + padding-right en la card) — siempre visible al escanear la lista. En PEDIDOS va en el cluster derecho arriba del badge Habilitado (v295+)
 [X] Ortografía "MOSTRADO" → "MOSTRADOR" en form de visita (Tipo de venta + Necesidad puntual + label ponderación) + display en modal cliente + headers Excel (`Pond Mostrador`, `% Mostrador`). Value en DB sigue siendo `MOSTRADO` para no romper visitas históricas; se mapea al mostrar (v296+)
 [X] Botón "📊 Exportar Excel" en modal Targets → XLSX formato largo (SlpCode, Vendedor, Año, Mes, Meta) — una fila por vendedor+mes con target > 0. SlpCode resuelto desde `sap_vendors`, Vendedor usa `slpName` de SAP (fallback titleCase). Uso: importar a SAP / Power BI (v297+)
+[X] Gerente ve TODAS las visitas de todos los vendedores + comentarios (pedido de Pablo). Fix client-side de 2 líneas — Firestore Rules ya lo permitía (v298+)
 ```
 
 ### Bloqueantes externos para el lanzamiento
@@ -3105,7 +3106,7 @@ Total: ~15 iteraciones para llegar al fix correcto por la naturaleza propietaria
 
 ---
 
-## 41) Changelog v204 → v297
+## 41) Changelog v204 → v298
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
 
@@ -3454,6 +3455,24 @@ Detalles completos + troubleshooting en la nueva **sección 40-bis** del README.
 - Ahora `.js-stat-p` usa `getProvisoriosList().length` — mismo total global que el badge del botón Provisorios.
 - Ambos KPIs coinciden y significan lo mismo: **provisorios de Alta Rápida pendientes de cargar a SAP**.
 - Se pierde la métrica "cuántas tiendas de mi zona me faltan visitar/geolocalizar" como KPI destacado. La variable `pendientes` local sigue disponible en el scope de `updateStats()` si algún día se rescata.
+
+### v298 — Gerente ve todas las visitas + comentarios (pedido de Pablo)
+
+**Pedido**: Pablo (gerente) por Teams: "si me podes habilitar para ver los comentarios de las visitas que dejan los vendedores en el CRM".
+
+**Diagnóstico**: Firestore Rules línea `visits` ya permitía `reads = todos` para cualquier autenticado (ver sección 9). El bloqueo era 100% client-side: 2 listeners de `visits` filtraban por `.where('ownerUid', '==', currentUser.uid)` para cualquier rol que no fuera `admin` o `viewer`. Gerente caía en el else → solo veía sus propias visitas (que son 0 porque no visita clientes, solo aprueba).
+
+**Fix** (2 líneas): sumar `'gerente'` al bucket del listener sin filtro:
+- `index.html:12243` — listener de `ensureVisitsListener()` (rutas + mapa)
+- `index.html:24447` — listener del pane Visitas (`MIS VISITAS` → renderVisitasList)
+
+Ahora gerente:
+- Ve TODAS las visitas de todos los vendedores en el tab VISITAS.
+- Puede leer el comentario, tipo de venta, oportunidad, foto del frente, etc.
+- Puede eliminarlas (el permiso ya lo tenía en `canDeleteThis` desde antes, pero como no le llegaba la lista era inútil).
+- Las rutas del mes se pintan con visitas de todos.
+
+**Impacto en Firestore reads**: gerente ahora suscribe a la colección entera (~50-100 docs). Costo mínimo, dentro del free tier.
 
 ### v297 — Export Excel de Targets en formato largo (SAP / Power BI)
 

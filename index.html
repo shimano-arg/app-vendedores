@@ -3273,7 +3273,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v297';
+const APP_VERSION = 'v298';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -12240,7 +12240,10 @@ function ensureVisitsListener(){
   // Suscribe al listener de visits para que las rutas se actualicen en tiempo real
   if (unsubVisits || !currentUser || !fbDb) return;
   let q;
-  if (userRole === 'admin' || userRole === 'viewer') q = fbDb.collection('visits');
+  // v298 (2026-07-14): gerente sumado al bucket admin/viewer (pedido de Pablo
+  // para ver comentarios de visitas de todos los vendedores). Firestore Rules
+  // ya lo permitia (reads=todos), este era el unico filtro que le quedaba.
+  if (userRole === 'admin' || userRole === 'viewer' || userRole === 'gerente') q = fbDb.collection('visits');
   else q = fbDb.collection('visits').where('ownerUid', '==', currentUser.uid);
   unsubVisits = q.onSnapshot(qs => {
     visitsCache = [];
@@ -24444,7 +24447,8 @@ window.openVisitaModal = function(){
   // Subscribe listener para mis visitas
   if (!unsubVisits && currentUser) {
     let q;
-    if (userRole === 'admin' || userRole === 'viewer') {
+    // v298: gerente ve TODAS las visitas (ya lo permite Firestore Rules).
+    if (userRole === 'admin' || userRole === 'viewer' || userRole === 'gerente') {
       q = fbDb.collection('visits');
     } else {
       q = fbDb.collection('visits').where('ownerUid', '==', currentUser.uid);
