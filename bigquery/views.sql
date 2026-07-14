@@ -658,3 +658,75 @@ LEFT JOIN po_prox po
 WHERE o.document_status = 'bost_Open'
   AND COALESCE(o.cancelled, 'tNO') = 'tNO'
   AND SAFE_CAST(JSON_VALUE(line, '$.RemainingOpenQuantity') AS FLOAT64) > 0;
+
+
+-- ============================================================
+-- View 9: v_targets
+-- ============================================================
+-- Targets mensuales de facturacion en ARS, cargados por el gerente
+-- desde el modal Targets de la app (coleccion Firestore `targets`).
+-- Sincronizados a targets_raw via sync_sap_to_bigquery.py cada 30 min.
+--
+-- Esquema pedido por el usuario para consumo directo en Power BI:
+--   slp_code        INT64    codigo vendedor SAP (mapeo hardcoded, ver abajo)
+--   vendedor        STRING   nombre completo del vendedor (formato SAP)
+--   anio            INT64
+--   mes             INT64    1-12 (convertido desde 0-11 de Firestore)
+--   target_ars      FLOAT64
+--   _sync_timestamp TIMESTAMP
+--
+-- Mapeo vendorKey -> SlpCode HARDCODED en el CASE de abajo:
+--   Gonzalo de la Rosa    -> 50
+--   Mauricio Gil          -> 51
+--   Ioannis Palkoudakis   -> 52
+--   Santiago Esteban      -> 53
+--   Federico Castelanelli -> 54
+--   Martin Boiero         -> 55
+--
+-- HISTORIA / ADVERTENCIA (2026-07-14):
+--   * Firestore sap_vendors tiene el mapeo corrido en -1 (49-54 en vez
+--     de 50-55). Ese doc es una carga vieja errada de la app; el
+--     canonico definido por el usuario es 50-55.
+--   * SAP prod (SHIMANO_SAU) al 2026-07-14 aun NO tiene creados los
+--     SlpCodes 50-55 - solo estan hasta 19 + 33 (Mariano) + 56. SEIDOR
+--     los va a crear como parte del lanzamiento. Verificar los codes
+--     efectivos en /SalesPersons cuando SEIDOR confirme (bloqueante
+--     historico de la seccion 2 del README).
+--   * SlpCode 49 se reserva a Mariano Erbino (admin), NUNCA es un
+--     vendedor comercial - excluido explicitamente por regla del user.
+--
+-- DEDUP garantizado: doc ID en Firestore es {seller}_{year}_{MM}
+-- (unico por combinacion), y el sync usa WRITE_TRUNCATE a targets_raw,
+-- entonces la vista no puede tener duplicados por construccion.
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_targets` AS
+SELECT
+  -- Mapeo canonico app -> SAP. Si SAP asigna otros SlpCodes al crear
+  -- los usuarios en PROD, actualizar este CASE (unica fuente de verdad
+  -- del mapeo).
+  CASE seller_id
+    WHEN 'GONZALO DE LA ROSA'    THEN 50
+    WHEN 'MAURICIO GIL'          THEN 51
+    WHEN 'IOANNIS PALKOUDAKIS'   THEN 52
+    WHEN 'SANTIAGO ESTEBAN'      THEN 53
+    WHEN 'FEDERICO CASTELANELLI' THEN 54
+    WHEN 'MARTIN BOIERO'         THEN 55
+  END                                                     AS slp_code,
+  CASE seller_id
+    WHEN 'GONZALO DE LA ROSA'    THEN 'Gonzalo de la Rosa'
+    WHEN 'MAURICIO GIL'          THEN 'Mauricio Gil'
+    WHEN 'IOANNIS PALKOUDAKIS'   THEN 'Ioannis Palkoudakis'
+    WHEN 'SANTIAGO ESTEBAN'      THEN 'Santiago Esteban'
+    WHEN 'FEDERICO CASTELANELLI' THEN 'Federico Castelanelli'
+    WHEN 'MARTIN BOIERO'         THEN 'Martin Boiero'
+  END                                                     AS vendedor,
+  year                                                    AS anio,
+  month + 1                                               AS mes,   -- 0-11 -> 1-12
+  target_ars,
+  _sync_timestamp
+FROM `app-vendedores-shimano.shimano_app.targets_raw`
+WHERE seller_id IN (
+  'GONZALO DE LA ROSA','MAURICIO GIL','IOANNIS PALKOUDAKIS',
+  'SANTIAGO ESTEBAN','FEDERICO CASTELANELLI','MARTIN BOIERO'
+)
+  AND target_ars > 0;

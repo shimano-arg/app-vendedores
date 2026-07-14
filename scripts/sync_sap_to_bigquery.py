@@ -91,6 +91,7 @@ BQ_TABLE_ORDERS     = f'{BQ_PROJECT}.{BQ_DATASET}.sap_orders_raw'
 # + fecha para los SKUs con PO abierta. Sincronizamos ya para tener la
 # tabla lista cuando arranquen a cargarlas (sin re-codear).
 BQ_TABLE_PURCHASE_ORDERS = f'{BQ_PROJECT}.{BQ_DATASET}.sap_purchase_orders_raw'
+BQ_TABLE_TARGETS         = f'{BQ_PROJECT}.{BQ_DATASET}.targets_raw'
 
 # Codigo de la lista PESCA en SAP (misma que sync_sap_to_firestore.py).
 PESCA_PRICE_LIST_NUM = 12
@@ -521,6 +522,47 @@ def flatten_doc(doc: dict, doc_type: str, sync_ts: str) -> dict:
 # ============================================================
 # Carga a BigQuery (WRITE_TRUNCATE)
 # ============================================================
+def sync_targets_from_firestore(db: firestore.Client, sync_ts: str) -> list:
+    """Lee la coleccion `targets` de Firestore y aplana a rows para BQ.
+    Fields cargados por la app (ver index.html: saveTargets):
+      sellerId       STRING   vendorKey uppercase, ej 'GONZALO DE LA ROSA'
+      year           INT      2026, 2027, ...
+      month          INT      0-11 (indice del array MESES 0-indexed)
+      targetArs      NUMBER   objetivo del mes en ARS
+      updatedAt      TS
+      updatedBy      STRING   uid
+      updatedByEmail STRING
+
+    NOTA: el schema resultante en BQ preserva month 0-11. La conversion
+    a 1-12 vive en la vista v_targets para no romper la fidelidad de la
+    tabla staging."""
+    log('[TARGETS] leyendo coleccion targets de Firestore...')
+    rows = []
+    for d in db.collection('targets').stream():
+        data = d.to_dict() or {}
+        try:
+            target = float(data.get('targetArs', 0) or 0)
+        except (TypeError, ValueError):
+            log(f'[TARGETS] skip {d.id}: targetArs invalido ({data.get("targetArs")!r})')
+            continue
+        if target <= 0:
+            continue  # skip meses sin cargar
+        updated_at = data.get('updatedAt')
+        rows.append({
+            'doc_id':           d.id,
+            'seller_id':        data.get('sellerId', ''),
+            'year':             int(data.get('year', 0) or 0),
+            'month':            int(data.get('month', -1)),  # 0-11
+            'target_ars':       target,
+            'updated_at':       updated_at.isoformat() if updated_at else None,
+            'updated_by':       data.get('updatedBy', ''),
+            'updated_by_email': data.get('updatedByEmail', ''),
+            '_sync_timestamp':  sync_ts,
+        })
+    log(f'[TARGETS] {len(rows)} rows validas (target > 0)')
+    return rows
+
+
 def load_to_bq(bq_client: bigquery.Client, table_id: str, rows: list, entity_name: str, dry_run: bool = False):
     if not rows:
         log(f'[BQ/{entity_name}] 0 rows, nada que cargar')
@@ -692,6 +734,14 @@ def main():
     )
     po_rows = [flatten_doc(d, 'PURCHASE_ORDER', sync_ts) for d in pos]
     load_to_bq(bq_client, BQ_TABLE_PURCHASE_ORDERS, po_rows, 'PURCHASE_ORDERS', dry_run=dry_run)
+
+    # === 7. Targets mensuales (Firestore -> BigQuery)
+    # Coleccion `targets` en Firestore (una fila por vendedor+ano+mes).
+    # Doc ID canonico: {vendorKey_normalizado}_{year}_{MM} (unico por combinacion).
+    # WRITE_TRUNCATE: garantiza dedup por construccion (borra y reescribe todo).
+    # No usamos Firestore Extension porque son ~50 docs y este pull es mas simple.
+    target_rows = sync_targets_from_firestore(db, sync_ts)
+    load_to_bq(bq_client, BQ_TABLE_TARGETS, target_rows, 'TARGETS', dry_run=dry_run)
 
     log('=== sync_sap_to_bigquery END OK ===')
 
