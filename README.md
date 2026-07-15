@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v300 |
-| **APP_VERSION** | `v300` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v301 |
+| **APP_VERSION** | `v301` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **9 vistas curadas** (`v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap`, `v_inventario`, `v_inventario_por_warehouse`, `v_ventas_lineas`, `v_backorder_lineas`, **`v_targets`** ← nuevo 2026-07-14) → **Power BI Desktop conectado, dashboard "Resumen-Desempeño" operativo con medidas de cumplimiento y colores condicionales**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -189,6 +189,7 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] Bulk import de 103 nombres de fantasía desde Excel formulario (match por CUIT) + fix del cron `sync_sap_to_firestore.py` que pisaba fantasías manuales cada 30 min (mismo patrón v291 con localidad/provincia). Los nombres cargados ahora sobreviven al sync
 [X] Buscador de tienda en form Visita ahora matchea por fantasía **O** titular (label muestra `"Fantasía (Titular) — Loc, Prov"`) — antes solo por titular (v300+)
 [X] **Bulk fix de 22 provincias mal cargadas** (bug SAP prod - YAMIN CHUBUT→SALTA, TOMPY CHUBUT→SALTA, etc.) cruzando por CUIT contra el Excel formulario. Con validación de lista canónica (24 provincias AR + CABA) para no aceptar valores raros como "BS AS" o "7600.0". Sync SAP extendido con protección analog a fantasía: si `provinciaLocSource != 'sap_sync'`, no pisa provincia/localidad
+[X] Modal de pedido PENDIENTE ahora muestra **vista previa del pedido cargado + sugeridos side-by-side** para poder comparar (antes solo sugeridos ocupando todo el ancho). Read-only, click "Volver a borrador" para editar (v301+)
 ```
 
 ### Bloqueantes externos para el lanzamiento
@@ -3110,7 +3111,7 @@ Total: ~15 iteraciones para llegar al fix correcto por la naturaleza propietaria
 
 ---
 
-## 41) Changelog v204 → v300
+## 41) Changelog v204 → v301
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
 
@@ -3459,6 +3460,24 @@ Detalles completos + troubleshooting en la nueva **sección 40-bis** del README.
 - Ahora `.js-stat-p` usa `getProvisoriosList().length` — mismo total global que el badge del botón Provisorios.
 - Ambos KPIs coinciden y significan lo mismo: **provisorios de Alta Rápida pendientes de cargar a SAP**.
 - Se pierde la métrica "cuántas tiendas de mi zona me faltan visitar/geolocalizar" como KPI destacado. La variable `pendientes` local sigue disponible en el scope de `updateStats()` si algún día se rescata.
+
+### v301 — Modal de pedido PENDIENTE muestra vista previa del pedido + sugeridos side-by-side
+
+**Pedido**: en modal de pedido PENDIENTE, además de ver "Sugeridos para este cliente" (que ya estaba), ver también una **vista preliminar del pedido cargado** para contrastar contra los sugeridos y decidir qué agregar.
+
+**Antes**: la clase CSS `pending-suggest-only` explícitamente ocultaba `#pm-current-wrap` (línea 1320 del CSS antiguo) — solo se veían los sugeridos ocupando todo el ancho.
+
+**Ahora**: layout 2 columnas dentro de `.pedido-right`:
+- Izquierda: **Sugeridos para este cliente** (naranja) — sin cambios.
+- Derecha: **Ya cargado en este pedido** (verde `#f0fdf4` + border `#86efac`, sticky top) — muestra las líneas del pedido con precio y cantidad como texto plano (los inputs quedan sin borde, sin background, `pointer-events:none`).
+
+**Título dinámico**: `"Ya cargado en este pedido · N producto(s) · M unidades"` (calculado en JS al abrir).
+
+**Read-only en pending**: los inputs de cantidad/precio y el botón X (eliminar) se ocultan. Para editar el pedido, el user debe usar el botón **"Volver a borrador"** que ya existía. Esta es una vista de comparación, no de edición.
+
+**Mobile (<900px)**: los 2 bloques se apilan verticalmente, el pedido actual pierde el `max-height:65vh` para poder scrollear la página entera.
+
+**Backend sin cambios**. Todo es CSS + un par de líneas en `openPedidoModal` para actualizar el título del bloque.
 
 ### v300 — Buscador de tienda en Visita: matchea por fantasía O titular
 

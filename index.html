@@ -1313,13 +1313,28 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .pedido-body.crear-mode{grid-template-columns:1fr!important;display:flex!important;flex-direction:column!important}
 .pedido-body.crear-mode .pedido-right{display:none!important}
 .pedido-body.crear-mode .pedido-left{border-right:none}
-/* Modo Pendiente: solo mostrar la lista de sugeridos */
+/* Modo Pendiente: 2 columnas - Sugeridos + Pedido actual (v301+, pedido user).
+ * Antes solo mostraba sugeridos. Ahora tambien la vista preliminar del pedido
+ * ya cargado, para poder contrastar y decidir si sumar los sugeridos.
+ * En mobile (<900px) se apilan verticalmente. */
 .pedido-body.pending-suggest-only{grid-template-columns:1fr!important;display:flex!important;flex-direction:column!important}
 .pedido-body.pending-suggest-only .pedido-left{display:none!important}
 .pedido-body.pending-suggest-only .pedido-summary{display:none!important}
-.pedido-body.pending-suggest-only #pm-current-wrap{display:none!important}
-.pedido-body.pending-suggest-only .pedido-right{padding:14px 18px;overflow-y:auto;flex:1}
-.pedido-body.pending-suggest-only #pm-suggest-box{max-height:none!important;overflow:visible}
+.pedido-body.pending-suggest-only .pedido-right{padding:14px 18px;overflow-y:auto;flex:1;display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+.pedido-body.pending-suggest-only #pm-suggest-box{max-height:none!important;overflow:visible;margin:0}
+.pedido-body.pending-suggest-only #pm-current-wrap{margin:0;padding:12px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px;max-height:65vh;overflow-y:auto;position:sticky;top:0}
+.pedido-body.pending-suggest-only #pm-current-wrap > div:first-child{color:#166534;font-size:11px;font-weight:800;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #86efac}
+.pedido-body.pending-suggest-only #pm-lines{font-size:11.5px}
+/* Read-only look para los inputs qty/precio en modo pending: sin borde,
+ * sin background, sin interaccion. El user solo VE el pedido para comparar
+ * contra sugeridos - si quiere editar, tiene que "Volver a borrador". */
+.pedido-body.pending-suggest-only #pm-lines .qty{border:none;background:transparent;color:#0f172a;font-weight:700;pointer-events:none;padding:0 4px;text-align:right;width:auto;min-width:60px}
+.pedido-body.pending-suggest-only #pm-lines .rm-btn{display:none}
+.pedido-body.pending-suggest-only #pm-lines .ped-line{grid-template-columns:70px 1fr 70px 50px;gap:6px;padding:5px 4px;border-bottom:1px dashed #d1fae5}
+@media (max-width: 900px){
+  .pedido-body.pending-suggest-only .pedido-right{grid-template-columns:1fr}
+  .pedido-body.pending-suggest-only #pm-current-wrap{max-height:none}
+}
 /* Modo Confirmado: solo mostrar las lineas (producto, unidades, precio) */
 .pedido-body.confirmed-only{grid-template-columns:1fr!important;display:flex!important;flex-direction:column!important}
 .pedido-body.confirmed-only .pedido-left{display:none!important}
@@ -3279,7 +3294,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v300';
+const APP_VERSION = 'v301';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -16557,6 +16572,16 @@ window.viewPedido = function(stage, key, idx){
     populateProductFilters();
     renderProductPicker();
     renderOrderLines();
+    // v301+ (pedido usuario): titulo del bloque "Pedido actual" incluye el
+    // contador de lineas + unidades para que se vea de un pantallazo.
+    const linesArr = (getCurrentPendingEntry() || {}).lines || [];
+    const totalU = linesArr.reduce((s, l) => s + (parseFloat(l.qty) || 0), 0);
+    const currentHeader = document.querySelector('#pm-current-wrap > div:first-child');
+    if (currentHeader) {
+      currentHeader.innerHTML = 'Ya cargado en este pedido &middot; '
+        + '<span style="color:#166534">' + linesArr.length + ' producto(s)</span> &middot; '
+        + '<span style="color:#166534">' + totalU + ' unidades</span>';
+    }
   } else {
     // CONFIRMADO -> read-only. Mostramos las lineas + un bloque grande
     // con la info comercial: forma de pago + breakdown de descuentos +
