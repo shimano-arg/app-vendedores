@@ -188,6 +188,7 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] Form Visita: buscar directo por tienda (localidad se autocompleta) — pedido vendedores, ahorra un paso y evita el problema "no sé qué localidad es". Badge celeste 📍 muestra la localidad detectada (v299+)
 [X] Bulk import de 103 nombres de fantasía desde Excel formulario (match por CUIT) + fix del cron `sync_sap_to_firestore.py` que pisaba fantasías manuales cada 30 min (mismo patrón v291 con localidad/provincia). Los nombres cargados ahora sobreviven al sync
 [X] Buscador de tienda en form Visita ahora matchea por fantasía **O** titular (label muestra `"Fantasía (Titular) — Loc, Prov"`) — antes solo por titular (v300+)
+[X] **Bulk fix de 22 provincias mal cargadas** (bug SAP prod - YAMIN CHUBUT→SALTA, TOMPY CHUBUT→SALTA, etc.) cruzando por CUIT contra el Excel formulario. Con validación de lista canónica (24 provincias AR + CABA) para no aceptar valores raros como "BS AS" o "7600.0". Sync SAP extendido con protección analog a fantasía: si `provinciaLocSource != 'sap_sync'`, no pisa provincia/localidad
 ```
 
 ### Bloqueantes externos para el lanzamiento
