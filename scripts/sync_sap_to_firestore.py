@@ -1027,6 +1027,21 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
                 base_payload.pop('fantasia', None)
                 log(f'[bp] preserva fantasia manual: {cardcode} keep={existing_fant!r} (sap dice {cardname!r})')
 
+            # v300+ (2026-07-14): tambien preservar provincia + localidad si
+            # fueron corregidas manualmente (marca provinciaLocSource) o
+            # bulk_excel_*. Bug real: el sync SAP asigna provincia mal para
+            # muchos BPs (YAMIN en CHUBUT cuando es SALTA, TOMPY PESCA idem)
+            # por bug del provinces_map. Correcto seria arreglar SAP, pero
+            # como paliativo el admin corrige a mano y el sync respeta.
+            prov_locked_marker = (match.get('provinciaLocSource') or '').strip()
+            if prov_locked_marker and prov_locked_marker != 'sap_sync':
+                if 'provincia' in base_payload:
+                    log(f'[bp] preserva provincia manual: {cardcode} keep={match.get("provincia")!r} source={prov_locked_marker!r} (sap dice {base_payload["provincia"]!r})')
+                    base_payload.pop('provincia', None)
+                if 'localidad' in base_payload:
+                    base_payload.pop('localidad', None)
+                    base_payload.pop('localidadFinal', None)
+
         if match is None:
             # CASO 3: crear nuevo. Solo aca inicializamos vendedor vacio.
             base_payload['createdAt'] = firestore.SERVER_TIMESTAMP
