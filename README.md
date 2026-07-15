@@ -268,22 +268,50 @@ shimano-arg/app-vendedores/
 │       │                               #  como respaldo. Depende del CSV que David
 │       │                               #  subia a Drive - ya no se usa.
 │       └── send-rendiciones-email.yml  # Cron Lun/Mie 9am AR: Excel + mail rendiciones aprobadas
-├── scripts/
-│   ├── sync_sap_to_firestore.py  # (v246+) SL login → itera Items?$expand=... →
-│   │                             #  escribe product_catalog (665 items filtrados
-│   │                             #  con cat/fam/sub) + app_config/stock_snapshot
-│   │                             #  + stock.json en el repo. Usado por el cron
-│   │                             #  y dispatch manual desde Actions.
-│   ├── sync_stock.py             # LEGACY. Procesa CSV manual de David. Queda
-│   │                             #  por si hay que restaurar el flujo viejo.
-│   └── send_rendiciones_email.py # Genera Excel (Gastos agrupado + Detalle + Solicitudes) + sube fotos a Firebase Storage + manda mail
-├── PLAN_POWERBI.md               # Plan 4 días Firestore → BigQuery → Power BI
-├── POWER_AUTOMATE_RENDICIONES.md # Doc operativo del flow de SharePoint (schema v2 de TablaGastos)
+├── scripts/                     # ~30 scripts Python, agrupados por rol:
+│   ├── sync_sap_to_firestore.py     # Cron cada 30min: SAP → Firestore (BPs, items, stock)
+│   ├── sync_sap_to_bigquery.py      # Cron cada 30min: SAP + Firestore.targets → BigQuery
+│   ├── send_rendiciones_email.py    # Cron Lun/Mie: mail de rendiciones aprobadas
+│   ├── sync_stock.py                # LEGACY (deprecated 2026-06-18)
+│   ├── bootstrap_targets_to_bigquery.py     # Carga inicial de targets a BQ
+│   ├── bulk_import_fantasias_from_excel.py  # Cargar 103 fantasías por CUIT match
+│   ├── bulk_fix_provincia_localidad_from_excel.py # Fix 22 provincias mal cargadas
+│   ├── audit_targets.py             # Diagnóstico read-only de la colección targets
+│   ├── verify_fantasias_in_firestore.py     # Verifica fantasías post bulk
+│   ├── check_provincias_salta.py    # Debug de valores de provincia
+│   ├── check_salta_matching.py      # Cruce POINTS vs client_applications
+│   ├── query_sap_sales_persons.py   # Consulta /SalesPersons de SAP prod
+│   ├── query_sap_sales_persons_test.py # Idem TEST DB (SHIMANO_TST_06)
+│   ├── diagnose_inventario_gap.py   # Diagnóstico del gap backorder vs inventario
+│   ├── test_inventario_fix.py       # Dry-run del fix del enriched view
+│   ├── dryrun_new_views.py          # Dry-run 4 CREATE OR REPLACE VIEW
+│   ├── verify_inventario_post_deploy.py # Verificaciones de aceptación post deploy
+│   ├── apply_v_targets.py           # Aplica solo v_targets + verificaciones
+│   ├── apply_facturas_sap_slim.py   # Aplica v_facturas_sap sin lines_json (fix VertiPaq)
+│   ├── rollback_v_inventario.py     # Rollback quirúrgico v_inventario a pre-fix
+│   ├── redeploy_views.py            # Aplica todos los CREATE OR REPLACE VIEW
+│   ├── smoke_inventario.py          # Smoke test de v_inventario post-deploy
+│   ├── smoke_ventas_backorder.py    # Smoke test de ventas y backorder
+│   ├── smoke_pedidos_lines.py       # Smoke test rápido de vistas BQ
+│   ├── explore_targets_pipeline.py  # Investigación inicial pre-v_targets
+│   ├── validate_slp_mapping.py      # Validar mapeo canónico app → SlpCode SAP
+│   ├── inspect_shimano_fishing_excel.py  # Inspección Excel formulario alta
+│   ├── build_manual_shimano.py      # Generador PDF "APP SHIMANO MANUAL" (33 pág)
+│   ├── build_mejoras_shimano.py     # Generador PDF "MEJORAS" (21 pág, análisis crítico)
+│   └── [otros scripts diagnóstico legacy]
+├── bigquery/
+│   └── views.sql                # 9 vistas curadas para Power BI
+├── PLAN_POWERBI.md              # Plan 4 días Firestore → BigQuery → Power BI
+├── POWER_AUTOMATE_RENDICIONES.md # Doc operativo del flow de SharePoint
 ├── Roadmap_Integracion_App_SAP.md
 ├── Solicitud_SEIDOR_Integracion_App.md
 ├── Pitch_Lunes_App_Vendedores.md
-└── README.md                     # Este archivo
+└── README.md                    # Este archivo (documentación viva del proyecto)
 ```
+
+**Docs complementarias en Desktop** (generadas por scripts, no versionadas en Git):
+- `~/Desktop/APP SHIMANO MANUAL.pdf` (33 pág) — Manual técnico completo pensado para sucesor: qué usa la app, cómo funciona cada componente, roles, contactos, runbook. Se regenera con `python scripts/build_manual_shimano.py`.
+- `~/Desktop/MEJORAS.pdf` (21 pág) — Análisis crítico del estado actual con 12 puntos débiles priorizados + roadmap por horizontes (Sprint 1, Sprint 2, Q1, S1). Se regenera con `python scripts/build_mejoras_shimano.py`.
 
 ### Archivos generados (no en repo)
 
@@ -2480,14 +2508,30 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 
 ### Hecho recientemente (✅)
 
-**BigQuery / Power BI (2026-07-14):**
-- [X] **Suscripción diaria por email a Mariano** (`Desempeño diario de ventas SAR - PESCA` @ 15:00 AR, con miniatura + PDF adjunto con todas las páginas). Refresh programado 14:30 previo. Native Power BI Service. Detalle en sección 40.
-- [X] **Publish del `.pbix` a Power BI Service** (workspace "Mi área de trabajo" de Mariano). Dataset y reporte "TABLERO SAR" operativos.
-- [X] **Pipeline `v_targets` end-to-end**: sync Firestore → BQ + vista con SlpCode traducido (mapeo hardcoded 50-55, discrepancia con Firestore documentada). Ver sección 40.
-- [X] **`v_facturas_sap` sin `lines_json`**: fix crítico que destrababa el freeze de Power BI Desktop (VertiPaq explotaba con el JSON string gigante).
+**Sesión completa 2026-07-14 (v298 → v301 + BigQuery + PDFs):**
+
+*Documentos de referencia generados:*
+- [X] **`APP SHIMANO MANUAL.pdf`** (33 pág) — Manual técnico completo pensado para sucesor. Cubre negocio, arquitectura, Firebase, GitHub, SAP, BQ, Power BI, cron jobs, modelo de datos, roles, scripts, costos, contactos, runbook, roadmap y glosario. Generador en `scripts/build_manual_shimano.py`.
+- [X] **`MEJORAS.pdf`** (21 pág) — Análisis crítico del estado actual con 12 puntos débiles priorizados (severidad + esfuerzo + impacto + evidencia + solución) + roadmap por horizontes (Sprint 1 dos semanas, Sprint 2 un mes, Q1 tres meses, S1 seis meses). Incluye anexo de 5 bugs reales con commit hash + deuda técnica cuantificada. Generador en `scripts/build_mejoras_shimano.py`.
+
+*Cambios frontend (v298 → v301):*
+- [X] **v298 - Gerente ve todas las visitas** (pedido de Pablo por Teams) — fix client-side de 2 líneas, Firestore Rules ya lo permitía.
+- [X] **v299 - Form Visita simplificado** (pedido vendedores): buscar directo por tienda, localidad se autocompleta con badge celeste "📍 Localidad detectada".
+- [X] **v300 - Buscador de tienda matchea por fantasía O titular** — label ahora `"Fantasía (Titular) — Loc, Prov"`.
+- [X] **v301 - Modal pedido PENDIENTE con vista previa** — layout 2 columnas: sugeridos | pedido ya cargado. Read-only.
+
+*Datos y pipeline (BigQuery + Firestore + Power BI):*
+- [X] **Suscripción diaria de Power BI por email a Mariano** (`Desempeño diario de ventas SAR - PESCA` @ 15:00 AR, con miniatura + PDF adjunto). Refresh programado 14:30 previo.
+- [X] **Publish del `.pbix` a Power BI Service** (workspace de Mariano). Dataset y reporte "TABLERO SAR" operativos.
+- [X] **Pipeline `v_targets` end-to-end**: sync Firestore → BQ + vista con SlpCode traducido (mapeo hardcoded 50-55).
+- [X] **`v_facturas_sap` sin `lines_json`**: fix crítico que destrabó el freeze de Power BI Desktop (VertiPaq explotaba con el JSON string gigante).
 - [X] **Rollback completo del intento "gap huérfano"** en `v_backorder_lineas`: `v_sap_items_enriched` vuelve al schema pre-fix. Reintroducir cuando la máquina del user tenga más RAM o migre a Power BI Service.
 - [X] **`sync_sap_to_bigquery.py` con nuevo paso 7 (targets)**: se ejecuta cada 30 min junto al resto del pipeline SAP.
 - [X] **Auditoría SlpCode contra SAP prod** vía `/SalesPersons`: confirmado que 50-55 aún no existen en `SHIMANO_SAU`, pendiente que SEIDOR los cree como parte del lanzamiento.
+
+*Bulk imports desde Excel del formulario + fixes del sync SAP:*
+- [X] **Bulk import de 103 nombres de fantasía** desde Excel del formulario, match por CUIT + fix del cron `sync_sap_to_firestore.py` que las pisaba cada 30 min. Ejemplo: "GABRIEL ALEJANDRO YAMIN" ahora aparece como "ARMERIA EL COLORADO".
+- [X] **Bulk fix de 22 provincias mal cargadas** (bug SAP prod: YAMIN CHUBUT→SALTA, TOMPY CHUBUT→SALTA, etc.) con validación de lista canónica de 24 provincias AR + CABA. Sync extendido para respetar `provinciaLocSource != 'sap_sync'`.
 
 **v290 → v297 (2026-07-13):**
 - [X] **Export Excel de Targets en formato largo** (SlpCode/Vendedor/Año/Mes/Meta) desde el modal Targets (v297).
@@ -3644,15 +3688,22 @@ Ahora gerente:
 
 ---
 
-**Última actualización**: 2026-07-14 — SW v297 (frontend sin cambios desde ayer). Sesión enfocada en **pipeline BigQuery → Power BI**: nueva vista `v_targets`, fix crítico VertiPaq en `v_facturas_sap`, rollback controlado del fix del gap huérfano en `v_backorder_lineas` (PBI Desktop del user no digería el schema ampliado), y **suscripción diaria por email a Mariano** con snapshot del dashboard + PDF.
+**Última actualización**: 2026-07-14 — SW v301. Día intenso con múltiples pedidos del gerente + vendedores + refactor de UX + pipeline BigQuery → Power BI completo + 2 documentos PDF de referencia (Manual técnico + Análisis crítico con roadmap).
 
-Highlights sesión 2026-07-14 (detalle en sección 40):
+Highlights sesión completa 2026-07-14 (detalle en sección 41):
 
-- **📧 Suscripción diaria por email @15:00 AR** — Power BI Service manda automáticamente a `mariano.erbino@shimano.com.ar` el snapshot del tablero "Desempeño-Pesca" + PDF con todas las páginas. Refresh programado del modelo semántico a las 14:30 (30 min antes) para que llegue con datos del día. Prueba exitosa el 2026-07-14 11:33.
-- **📊 Pipeline `v_targets` (Firestore → BigQuery)** — nueva función `sync_targets_from_firestore()` en `sync_sap_to_bigquery.py` que corre cada 30 min. Escribe `targets_raw` con WRITE_TRUNCATE (dedup por construcción). Nueva vista `v_targets` con schema pedido por Mariano: `slp_code, vendedor, anio, mes (1-12), target_ars, _sync_timestamp`. Mapeo vendorKey → SlpCode hardcoded en un CASE (50-55). Detalle en sección 40.
-- **⚠️ Discrepancia SlpCode confirmada contra SAP prod** — SlpCodes 50-55 NO existen aún en `SHIMANO_SAU` (consultado `/SalesPersons`). Solo hay 1-19, 33 (Mariano) y 56 (Santiago Beron). SEIDOR debe crearlos en prod. Firestore `sap_vendors` tiene mapeo bugueado en -1 (49-54); ignorado, el CASE de la vista usa el canónico que dio el user.
-- **🩹 `v_facturas_sap` sin `lines_json`** — el JSON string gigante (5-50KB por fila × 4776 filas) hacía explotar VertiPaq en Power BI Desktop y colgaba el refresh 30+ min. Removida esa columna; el aplanamiento de líneas ya vive en `v_ventas_lineas`.
-- **🔄 Rollback completo del fix "gap huérfano"** — el intento de ampliar `v_sap_items_enriched` para incluir 2287 SKUs BIKE con backorder (deploy inicial en commit `e5cef77`) colgaba Power BI del user por cambio de schema + recompresión VertiPaq desde cero. Rollback quirúrgico (commit `7729ced`) y luego rollback total (`f1f441a`) — vistas idénticas al pre-fix. **Pendiente**: reintroducir cuando la máquina tenga más RAM o migres el modelo a Power BI Service. El SQL amplio queda en git como referencia.
+- **📄 2 documentos PDF para sucesor** — `APP SHIMANO MANUAL.pdf` (33 pág) doc técnica completa + `MEJORAS.pdf` (21 pág) análisis crítico con 12 puntos débiles priorizados y roadmap por horizontes. Generadores versionados en `scripts/build_manual_shimano.py` y `scripts/build_mejoras_shimano.py`.
+- **🛒 v301 - Modal pedido PENDIENTE con vista previa** — antes solo se veían sugeridos ocupando todo el ancho; ahora layout 2 columnas (sugeridos | pedido ya cargado) para poder comparar. Read-only, editar sigue siendo con "Volver a borrador".
+- **🔍 v300 - Buscador de tienda en Visita matchea por fantasía O titular** — label ahora "Fantasía (Titular) — Loc, Prov". Buscar "PALOMETA" encuentra a "ALAN OSCAR NICOLAS RODRIGUEZ (LA PALOMETA BAIT SHOP)".
+- **🏪 v299 - Form Visita simplificado: ir directo a tienda** (pedido de vendedores) — sacar el paso de elegir localidad primero. Al elegir tienda, se autocompleta la localidad con badge celeste "📍 Localidad detectada".
+- **👥 v298 - Gerente ve todas las visitas + comentarios** (pedido de Pablo por Teams) — fix client-side de 2 líneas, Firestore Rules ya lo permitía.
+- **🔧 Bulk import 103 fantasías desde Excel formulario** cruzando por CUIT + fix crítico del sync SAP que las pisaba cada 30 min (mismo patrón v291 con localidad/provincia). Ejemplo: "GABRIEL ALEJANDRO YAMIN" ahora muestra "ARMERIA EL COLORADO" como nombre grande.
+- **🗺️ Bulk fix 22 provincias mal cargadas** (bug SAP prod: YAMIN CHUBUT→SALTA, TOMPY CHUBUT→SALTA, etc.) cruzando por CUIT contra Excel formulario, con validación de lista canónica de 24 provincias AR + CABA para no aceptar valores raros como "BS AS" o "7600.0". Sync SAP extendido con protección análoga a fantasía.
+- **📧 Suscripción diaria de Power BI por email a Mariano** — Power BI Service manda automáticamente a las 15:00 AR el snapshot del tablero "Desempeño-Pesca" + PDF con todas las páginas. Refresh programado del modelo semántico a las 14:30.
+- **📊 Pipeline `v_targets` (Firestore → BigQuery)** — nueva función `sync_targets_from_firestore()` en el cron. Nueva vista `v_targets` con schema pedido: `slp_code, vendedor, anio, mes (1-12), target_ars, _sync_timestamp`. Mapeo vendorKey → SlpCode hardcoded en un CASE (50-55).
+- **⚠️ Discrepancia SlpCode confirmada contra SAP prod** — SlpCodes 50-55 NO existen aún en `SHIMANO_SAU` (consultado `/SalesPersons`). Firestore `sap_vendors` tenía mapeo corrido en -1. SEIDOR debe crearlos como parte del lanzamiento.
+- **🩹 `v_facturas_sap` sin `lines_json`** — el JSON string gigante hacía explotar VertiPaq en Power BI Desktop y colgaba el refresh 30+ min. Removida esa columna.
+- **🔄 Rollback completo del fix "gap huérfano"** en `v_backorder_lineas` — el intento de ampliar `v_sap_items_enriched` para incluir 2287 SKUs BIKE con backorder colgaba Power BI del user. Rollback en 2 pasos (quirúrgico → total). SQL amplio queda en git como referencia (commit `e5cef77`).
 
 Highlights v290→v297 (2026-07-13, frontend, detalle en sección 41):
 
