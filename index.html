@@ -2119,13 +2119,13 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
   </div>
   <div class="modal-overlay" id="visita-modal" onclick="if(event.target===this)closeVisitaModal()">
     <div class="modal-box" style="width:min(740px,98vw)">
-      <div class="modal-head" style="background:linear-gradient(135deg,#5b21b6,#7c3aed)">
-        <div><h2>Formulario de Visita</h2><div class="subt">Los campos con <b style="color:#fca5a5">*</b> son obligatorios.</div></div>
+      <div class="modal-head" id="visita-modal-head" style="background:linear-gradient(135deg,#5b21b6,#7c3aed)">
+        <div><h2 id="visita-modal-title">Formulario de Visita</h2><div class="subt" id="visita-modal-subt">Los campos con <b style="color:#fca5a5">*</b> son obligatorios.</div></div>
         <button class="modal-close" onclick="closeVisitaModal()">&times;</button>
       </div>
       <div class="visita-tabs">
-        <button class="vt-btn active" data-vt="form" onclick="onClickNuevaVisitaTab()">Nueva visita</button>
-        <button class="vt-btn" data-vt="list" onclick="setVisitaView('list')">Mis visitas</button>
+        <button class="vt-btn active" data-vt="form" id="visita-tab-nueva" onclick="onClickNuevaVisitaTab()">Nueva visita</button>
+        <button class="vt-btn" data-vt="list" id="visita-tab-mis" onclick="setVisitaView('list')">Mis visitas</button>
       </div>
       <div class="visita-body" id="visita-pane-form">
         <form id="visita-form" onsubmit="event.preventDefault();submitVisita()">
@@ -2194,7 +2194,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <div class="vf-toggle" id="vf-pop"><button type="button" data-v="SI" onclick="setPop('SI')">S&iacute;</button><button type="button" data-v="NO" onclick="setPop('NO')">No</button></div>
           </div>
           <div class="vf-row" id="vf-necesidad-wrap" style="display:none"><label>Necesidad puntual <span class="req">*</span></label><select id="vf-necesidad"><option value="">Seleccionar...</option><option>CA&Ntilde;ERO</option><option>CARTEL</option><option value="MOSTRADO">MOSTRADOR</option><option>OTROS</option></select></div>
-          <div class="vf-row"><label>Espacio <span class="vf-hint">(hasta 8 fotos)</span></label>
+          <div class="vf-row" id="vf-espacio-row"><label>Espacio <span class="vf-hint">(hasta 8 fotos)</span></label>
             <div class="photo-grid" id="vf-espacio-grid"><label class="photo-cell add" id="vf-espacio-add"><input type="file" accept="image/*,image/heic,image/heif" multiple onchange="onEspacioPhotos(this)"/>+</label></div>
           </div>
           <div class="vf-row"><label>Oportunidad <span class="vf-hint">(algo que el due&ntilde;o mencion&oacute; para mejorar)</span></label><textarea id="vf-oportunidad" rows="2"></textarea></div>
@@ -2228,7 +2228,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <span style="color:#475569">Se guarda en la nube al enviar</span>
         <div style="display:flex;gap:8px">
           <button class="btn-cancel" onclick="closeVisitaModal()">Cancelar</button>
-          <button class="btn-confirm" style="background:#7c3aed" onmouseover="this.style.background='#5b21b6'" onmouseout="this.style.background='#7c3aed'" onclick="submitVisita()">Enviar formulario</button>
+          <button class="btn-confirm" id="visita-submit-btn" style="background:#7c3aed" onclick="submitVisita()">Enviar formulario</button>
         </div>
       </div>
     </div>
@@ -2799,7 +2799,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       <button class="tab-btn" data-tab="pedidos" onclick="setTab('pedidos')">Pedidos <span class="tab-count" id="tab-ped-count">0</span></button>
       <button class="tab-btn" data-tab="rutas" onclick="setTab('rutas')">Rutas <span class="tab-count" id="tab-rutas-count">0</span></button>
       <button class="tab-btn tab-action" data-tab="visita-action" onclick="openVisitaModal()" title="Abrir formulario de visita a tienda">Visita</button>
-      <button class="tab-btn" data-tab="contactado" onclick="setTab('contactado')" title="Clientes contactados / seguimiento comercial (en construcci&oacute;n)">Contactado <span class="tab-count" id="tab-contactado-count" style="display:none">0</span></button>
+      <button class="tab-btn tab-action" data-tab="contactado-action" onclick="openVisitaModal('contacto')" title="Registrar contacto no presencial (WhatsApp / tel&eacute;fono / email)" style="background:#0d9488;color:#fff;border-color:#0d9488;border-bottom-color:#0f766e">Contactado</button>
       <button class="tab-btn" data-tab="rendiciones" onclick="setTab('rendiciones')" title="Rendiciones (en construccion)">Rendiciones <span class="tab-count" id="tab-rend-count" style="display:none">0</span></button>
       <button class="tab-btn" data-tab="altacli" onclick="setTab('altacli')" title="Alta de clientes (en construccion)">Alta clientes <span class="tab-count" id="tab-altacli-count" style="display:none">0</span></button>
       <button class="tab-btn active" id="tab-notif" data-tab="notif" onclick="setTab('notif')" title="Alertas y notificaciones">Notificaciones <span class="tab-count" id="tab-notif-count" style="display:none">0</span></button>
@@ -2862,14 +2862,6 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       </div>
       <div id="rutas-filters"></div>
       <div id="rutas-content"></div>
-    </div>
-    <div class="tab-pane" id="pane-contactado" style="display:none">
-      <h3>Contactado</h3>
-      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:14px;font-size:12px;color:#1e40af;line-height:1.5">
-        <b>Secci&oacute;n en construcci&oacute;n.</b><br>
-        Vamos a armarla juntos con las especificaciones que definas: qu&eacute; clientes listar, columnas, filtros, y qu&eacute; acci&oacute;n habilitar.
-      </div>
-      <div id="contactado-content" style="margin-top:12px"></div>
     </div>
     <div class="tab-pane" id="pane-rendiciones" style="display:none">
       <h3>Rendiciones</h3>
@@ -3303,7 +3295,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v304';
+const APP_VERSION = 'v305';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -11983,7 +11975,6 @@ window.setTab = function(name){
   document.getElementById('pane-clients').style.display = name === 'clients' ? '' : 'none';
   document.getElementById('pane-pedidos').style.display = name === 'pedidos' ? '' : 'none';
   document.getElementById('pane-rutas').style.display = name === 'rutas' ? '' : 'none';
-  document.getElementById('pane-contactado').style.display = name === 'contactado' ? '' : 'none';
   document.getElementById('pane-rendiciones').style.display = name === 'rendiciones' ? '' : 'none';
   document.getElementById('pane-altacli').style.display = name === 'altacli' ? '' : 'none';
   document.getElementById('pane-notif').style.display = name === 'notif' ? '' : 'none';
@@ -24640,7 +24631,15 @@ function gpsBadgeHtml(v){
 }
 let unsubVisits = null;
 
-window.openVisitaModal = function(){
+// v304+: mode puede ser 'visita' (default) o 'contacto'.
+// 'contacto' registra una interaccion no presencial (WhatsApp/Tel/Email).
+// Guarda en la misma coleccion `visits` con campo tipo='contacto'. UI
+// oculta las 2 filas de fotos y usa header verde/teal.
+window.visitMode = 'visita';
+window.openVisitaModal = function(mode){
+  mode = (mode === 'contacto') ? 'contacto' : 'visita';
+  window.visitMode = mode;
+  applyVisitModeUI(mode);
   document.getElementById('visita-modal').classList.add('open');
   visitViewMode = 'new';
   setVisitaView('form');
@@ -24672,6 +24671,36 @@ window.openVisitaModal = function(){
 window.closeVisitaModal = function(){
   document.getElementById('visita-modal').classList.remove('open');
 };
+
+// v304+: aplica cambios visuales al modal segun el modo (visita/contacto).
+// Contacto: header teal, oculta filas de fotos (espacio + frente),
+// renombra tab, cambia label del boton submit.
+function applyVisitModeUI(mode){
+  const isContacto = (mode === 'contacto');
+  const head = document.getElementById('visita-modal-head');
+  const title = document.getElementById('visita-modal-title');
+  const subt = document.getElementById('visita-modal-subt');
+  const tabNueva = document.getElementById('visita-tab-nueva');
+  const tabMis = document.getElementById('visita-tab-mis');
+  const rowEsp = document.getElementById('vf-espacio-row');
+  const rowFre = document.getElementById('vf-frente-row');
+  const btn = document.getElementById('visita-submit-btn');
+  if (head) head.style.background = isContacto
+    ? 'linear-gradient(135deg,#0f766e,#14b8a6)'
+    : 'linear-gradient(135deg,#5b21b6,#7c3aed)';
+  if (title) title.textContent = isContacto ? 'Registro de Contacto (no presencial)' : 'Formulario de Visita';
+  if (subt) subt.innerHTML = isContacto
+    ? 'Cliente contactado por WhatsApp / tel&eacute;fono / email (sin visita f&iacute;sica). Los campos con <b style="color:#fca5a5">*</b> son obligatorios.'
+    : 'Los campos con <b style="color:#fca5a5">*</b> son obligatorios.';
+  if (tabNueva) tabNueva.textContent = isContacto ? 'Nuevo contacto' : 'Nueva visita';
+  if (tabMis) tabMis.textContent = isContacto ? 'Mis contactos' : 'Mis visitas';
+  if (rowEsp) rowEsp.style.display = isContacto ? 'none' : '';
+  if (rowFre) rowFre.style.display = isContacto ? 'none' : '';
+  if (btn) {
+    btn.textContent = isContacto ? 'Registrar contacto' : 'Enviar formulario';
+    btn.style.background = isContacto ? '#0d9488' : '#7c3aed';
+  }
+}
 
 window.setVisitaView = function(v){
   document.querySelectorAll('.vt-btn').forEach(b => b.classList.toggle('active', b.dataset.vt === v));
@@ -25151,7 +25180,10 @@ window.submitVisita = async function(){
   const now = new Date();
   const mes = MESES[now.getMonth()].toUpperCase();
   const anio = now.getFullYear();
-  if (!confirm('¿SEGURO QUIERE ENVIAR EL FORMULARIO DE "' + tienda + '" DEL MES "' + mes + '" DE "' + anio + '"?')) return;
+  // v304+: mensaje de confirmacion cambia segun modo
+  const isContacto = (window.visitMode === 'contacto');
+  const labelAccion = isContacto ? 'REGISTRAR EL CONTACTO' : 'ENVIAR EL FORMULARIO';
+  if (!confirm('¿SEGURO QUIERE ' + labelAccion + ' DE "' + tienda + '" DEL MES "' + mes + '" DE "' + anio + '"?')) return;
 
   const [prov, locName] = readField('vf-localidad').split('||');
 
@@ -25183,6 +25215,11 @@ window.submitVisita = async function(){
     ownerUid: ownerUid,
     ownerEmail: ownerEmail,
     vendor: vendorKey,
+    // v304+: interactionType distingue entre visita presencial y contacto
+    // no presencial (WhatsApp/Tel/Email). Default 'visita' para retro-compat
+    // con docs previos que no tienen el campo. Naming: interactionType (no
+    // "tipo") porque 'tipo' ya se usa para tipo de tienda (OUTDOOR/PESCA/etc).
+    interactionType: isContacto ? 'contacto' : 'visita',
     // Auditoria: si fue cargada por un VDI en nombre de un VDE pareja.
     createdByUid: currentUser.uid,
     createdByEmail: currentUser.email || '',
@@ -25225,9 +25262,16 @@ window.submitVisita = async function(){
     gpsError: gps.gpsError,
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
+  // v304+: si es contacto, forzar arrays vacios para fotos (ni siquiera se
+  // muestran los inputs, pero por si el visitState quedaba con photos de una
+  // visita anterior sin cerrar el modal, limpiamos para no persistir basura).
+  if (isContacto) {
+    data.espacio = [];
+    data.frenteLocal = '';
+  }
   try {
     await fbDb.collection('visits').add(data);
-    showSyncTag('Visita registrada');
+    showSyncTag(isContacto ? 'Contacto registrado' : 'Visita registrada');
     // Si fue creada en nombre de un VDE, notificar al VDE para que este al tanto.
     if (actingPartner) {
       try {
