@@ -3294,7 +3294,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v302';
+const APP_VERSION = 'v303';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -9002,6 +9002,11 @@ window.renderMasterClientesTable = function(){
       ? '<div style="font-size:9px;color:#94a3b8;font-weight:500" title="Nombre original">orig: ' + escapeHtml(e.nombre) + '</div>'
       : '';
     // Badge: CLIENTE / PROSPECTO / SAP / PROVISORIO segun tipo.
+    // v302+: isProvisorio = SAP alta sin cardCodeSap (Alta Rapida pendiente
+    // de carga a SAP). Habilita edit inline del nombre y vendedor tambien
+    // desde el Master Clientes normal (no solo del modo Provisorios).
+    const isProvisorio = isSap && !e.sapCardCode;
+    const canEditProv302 = isProvisorio && (userRole === 'admin' || userRole === 'gerente');
     let tagHtml;
     if (isSap) {
       if (e.sapCardCode) {
@@ -9013,7 +9018,22 @@ window.renderMasterClientesTable = function(){
       tagHtml = '<span class="mc-tag ' + (e.tipo === 'cliente' ? 'cli' : 'pro') + '">' + (e.tipo === 'cliente' ? 'CLIENTE' : 'PROSPECTO') + '</span>';
     }
     html += '<tr data-doc="' + escapeAttr(id) + '">';
-    html += '<td><div class="mc-name">' + escapeHtml(displayName) + '</div>' + renamedHint + '<div class="mc-meta">' + tagHtml + '</div></td>';
+    if (canEditProv302) {
+      // Nombre editable: si el alta tenia comercio lo edita, sino edita fantasia.
+      const altaProv = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(x => x._fsId === e.sapFsId);
+      const nameField = (altaProv && (altaProv.comercio || '').trim()) ? 'comercio' : 'fantasia';
+      const safeFsId = escapeAttr(e.sapFsId || '');
+      html += '<td>'
+        + '<input type="text" class="mc-addr-input has-value" style="font-weight:800;font-size:12.5px;color:#0f172a" '
+        + 'value="' + escapeAttr(displayName) + '" '
+        + 'onchange="saveMcProvisorioComercio(\'' + safeFsId + '\', \'' + nameField + '\', this)" '
+        + 'onkeydown="if(event.key===\'Enter\')this.blur()" '
+        + 'title="Editar nombre del comercio (autosave al salir del campo o Enter)" />'
+        + '<div class="mc-meta" style="margin-top:4px">' + tagHtml + '</div>'
+        + '</td>';
+    } else {
+      html += '<td><div class="mc-name">' + escapeHtml(displayName) + '</div>' + renamedHint + '<div class="mc-meta">' + tagHtml + '</div></td>';
+    }
     // Localidad: editable INPUT para SAP altas (asi el admin puede completar
     // las que vienen como "(sin localidad)" sin recargar). Para POINTS la
     // localidad esta atada al docId del padron - se queda como texto.
@@ -9044,7 +9064,26 @@ window.renderMasterClientesTable = function(){
     } else {
       html += '<td>' + escapeHtml(titleCase(e.provincia)) + '</td>';
     }
-    html += '<td>' + escapeHtml(vendLabel) + '</td>';
+    if (canEditProv302) {
+      // Vendedor editable via dropdown VDE+VDI. Autosave onchange.
+      const safeFsId2 = escapeAttr(e.sapFsId || '');
+      let vSel = '<td><select class="mc-cli-sel' + (e.vendor ? ' has-value' : '') + '" '
+        + 'style="width:100%;font-size:11px" '
+        + 'onchange="saveMcProvisorioVendor(\'' + safeFsId2 + '\', this)">';
+      vSel += '<option value="">(sin vendedor)</option>';
+      vSel += '<optgroup label="VDE (Vendedores externos)">';
+      VENDORS.filter(v => VDE_VENDOR_KEYS.has(v.key)).forEach(v => {
+        vSel += '<option value="' + escapeAttr(v.key) + '"' + (v.key === e.vendor ? ' selected' : '') + '>' + escapeHtml(v.zone + ' - ' + titleCase(v.key)) + '</option>';
+      });
+      vSel += '</optgroup><optgroup label="VDI (Vendedores internos)">';
+      VENDORS.filter(v => VDI_VENDOR_KEYS.has(v.key)).forEach(v => {
+        vSel += '<option value="' + escapeAttr(v.key) + '"' + (v.key === e.vendor ? ' selected' : '') + '>' + escapeHtml(titleCase(v.key)) + '</option>';
+      });
+      vSel += '</optgroup></select></td>';
+      html += vSel;
+    } else {
+      html += '<td>' + escapeHtml(vendLabel) + '</td>';
+    }
     html += '<td><input type="text" class="' + inputCls + ' js-mc-direccion-input" value="' + escapeAttr(cur) + '" placeholder="Av. Belgrano 123, Barrio Norte" oninput="onMcAddrInput(this, \'' + escapeAttr(id) + '\', \'' + escapeAttr(savedAddr) + '\')" onkeydown="if(event.key===\'Enter\')this.parentElement.parentElement.querySelector(\'.mc-save-btn\').click()" /></td>';
     html += '<td data-vendor="' + escapeAttr(e.vendor) + '" data-prov="' + escapeAttr(e.provincia) + '" data-loc="' + escapeAttr(e.localidad) + '" data-name="' + escapeAttr(e.nombre) + '">' + _selHtml('cliTipo', curTipo, TIPO_OPTS, id) + '</td>';
     html += '<td><div style="display:flex;gap:4px;flex-wrap:wrap"><button class="' + btnCls + '" onclick="saveMcAddr(\'' + escapeAttr(id) + '\', this)" data-vendor="' + escapeAttr(e.vendor) + '" data-prov="' + escapeAttr(e.provincia) + '" data-loc="' + escapeAttr(e.localidad) + '" data-name="' + escapeAttr(e.nombre) + '" data-sap-fsid="' + escapeAttr(isSap ? e.sapFsId : '') + '">Guardar</button>'
