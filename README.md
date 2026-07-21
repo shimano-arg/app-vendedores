@@ -20,7 +20,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Versión actual** | SW v307 |
 | **APP_VERSION** | `v307` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
-| **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **9 vistas curadas** (`v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap`, `v_inventario`, `v_inventario_por_warehouse`, `v_ventas_lineas`, `v_backorder_lineas`, **`v_targets`** ← nuevo 2026-07-14) → **Power BI Desktop conectado, dashboard "Resumen-Desempeño" operativo con medidas de cumplimiento y colores condicionales**. Ver sección 40 |
+| **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **12 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`**, `v_inventario`, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`**, `v_backorder_lineas`, `v_targets`; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`) → **Power BI Desktop TABLERO SAR publicado con hoja "Facturación por Vendedor" que muestra Facturado/Cobrado/Deuda pesca cuadrado ($140.7M = $100.2M + $40.6M en Julio 2026)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
 | **Bot Inventario Google Sheet** | Lee `raw.githubusercontent.com/shimano-arg/app-vendedores/main/stock.json` cada 30 min — datos frescos garantizados |
 
@@ -2698,13 +2698,99 @@ Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gere
 
 ## 40) Power BI / BigQuery
 
-**Estado a 2026-07-14**:
+**Estado a 2026-07-21**:
 - ✅ **Fase 1.1** Firestore → BigQuery (7 collecciones + backfill)
-- ✅ **Fase 1.2** SAP → BigQuery (4 tablas: BPs, Items, Invoices, Quotations, Orders, PO)
-- ✅ **Fase 2** Modelo de datos: **9 vistas SQL curadas** (`v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap`, `v_inventario`, `v_inventario_por_warehouse`, `v_ventas_lineas`, `v_backorder_lineas`, `v_targets`)
-- ✅ **Fase 3** Power BI Desktop → Service: **publicado en `Mi área de trabajo` como "TABLERO SAR"**. Modelo con 9 tablas, medidas DAX (Target Mensual, Pct Cumplimiento, Color Cumplimiento con hex semaforo verde/amarillo/rojo), dashboard "Desempeño-Pesca" operativo con página TABLERO SAR.
+- ✅ **Fase 1.2** SAP → BigQuery (6 tablas raw: BPs, Items, Invoices, Quotations, Orders, PO)
+- ✅ **Fase 2** Modelo de datos: **12 vistas SQL curadas** (9 base + 3 de deuda 2026-07-20)
+- ✅ **Fase 3** Power BI Desktop → Service: **TABLERO SAR publicado en `Mi área de trabajo`**. Modelo con 12 vistas + `sap_items_raw` + `Vendedores` + `Origenes` + `Medidas` + `Date`. Páginas operativas: Desempeño-Pesca, Ventas, Pedidos, Visitas, **Facturación por Vendedor** (con Cobrado + Deuda), Backorder, Inventario.
 - ✅ **Fase 3.5** Distribución automática: **suscripción diaria a Mariano** ("Desempeño diario de ventas SAR - PESCA") @15:00 AR + refresh programado @14:30. Ver subsección abajo.
+- ✅ **Fase 3.6 (2026-07-21)** Deuda por vendedor de la app: 3 vistas + cards Cobrado/Deuda en hoja Facturación por Vendedor. Ver subsección "Vistas de deuda" abajo.
 - ⏳ **Fase 4** Alertas: pendiente
+
+### Vistas de deuda por vendedor (2026-07-20/21) — NUEVO
+
+Pedido de Pablo por Teams: *"quiero ver cuánto lleva facturado cada vendedor, por el tema del target también, y si tiene pedidos pendientes de pagar por ejemplo"*.
+
+**3 vistas nuevas en `bigquery/views.sql`**:
+
+| Vista | Granularidad | Uso PBI |
+|---|---|---|
+| `v_deuda_por_vendedor` | 1 fila por `assigned_vendor` | Card/tabla resumen: total facturas pendientes, deuda total, vencida, al día, próxima fecha vencimiento |
+| `v_deuda_facturas_detalle` | 1 fila por factura abierta | Drill-down: cliente, doc_num, días vencido, saldo, estado (VENCIDA/AL DIA) |
+| `v_facturado_cobrado_deuda_por_vendedor` | 1 fila por (vendedor, año, mes) | Serie temporal: facturado + cobrado + deuda por mes. Verifica: facturado = cobrado + deuda ± redondeo |
+
+**Agrupan por `assignedVendor` de la app** (no `SalesPersonCode` de SAP) porque SAP prod aún tiene facturas históricas con SlpCodes 1-19 / 23-34 (era Baraldo). Los códigos 50-55 se están adoptando pero parcialmente. Filtro implícito: solo los 6 vendedores pesca (`GONZALO DE LA ROSA`, `MAURICIO GIL`, `IOANNIS PALKOUDAKIS`, `SANTIAGO ESTEBAN`, `FEDERICO CASTELANELLI`, `MARTIN BOIERO`).
+
+**Deuda actual Julio 2026** (verificado 2026-07-21):
+- Gonzalo: $33.6M (1 factura — REBORN SRL / Xplora La Triestina)
+- Federico: $6.4M (2 facturas)
+- Martin: $2.4M (1 factura)
+- **Total: $42.4M en 4 facturas abiertas** (todas AL DIA, ninguna vencida al 2026-07-21)
+
+**Facturado Julio 2026** por vendedor (facturado = cobrado + deuda):
+- Gonzalo: $80.4M | cobrado $46.7M | deuda $33.6M
+- Federico: $32.0M | cobrado $25.6M | deuda $6.4M
+- Santiago: $23.2M | cobrado 100% | deuda $0
+- Martin: $11.9M | cobrado $9.5M | deuda $2.4M
+- Mauricio: $5.9M | cobrado 100% | deuda $0
+- Ioannis: $2.9M | cobrado 100% | deuda $0
+
+### Fix `paid_to_date` en `sap_invoices_raw` (2026-07-21)
+
+**Bug detectado**: el sync grande `sync_sap_to_bigquery.py` usa `autodetect=True` sin schema explícito. Como `paid_to_date` viene null para la mayoría de facturas cerradas antiguas, autodetect dropea la columna. Resultado: las 3 vistas de deuda tiraban `Name paid_to_date not found inside inv` en BigQuery.
+
+**Fix aplicado en 2 partes**:
+
+1. **`sync_sap_to_bigquery.py`** — agrega `PaidToDate` al `$select` de Invoices (líneas 690-694). Cotizaciones/Ordenes/PO no lo llevan (no aplica).
+2. **`scripts/patch_paid_to_date.py`** — one-off que agrega la columna manualmente via `ALTER TABLE ADD COLUMN paid_to_date FLOAT64` + staging table con schema explícito + `UPDATE ... FROM staging` (evita tocar `lines_json`). Idempotente, se puede correr las veces que sea.
+
+**Cuando volver a correr `patch_paid_to_date.py`**: si `sap_invoices_raw` pierde la columna `paid_to_date` (típicamente si alguien corre un sync ligero con schema viejo). Comando:
+```powershell
+cd "C:\Users\shimano.sandbox\Desktop\APP VENDEDORES"
+python scripts/patch_paid_to_date.py
+```
+
+### Cards Cobrado + Deuda en hoja "Facturación por Vendedor" (2026-07-21)
+
+Nuevas medidas DAX pedidas por Pablo:
+
+```dax
+Cobrado ARS = 
+CALCULATE(
+    SUM('v_ventas_lineas'[cobrado_prorrateado_ars]),
+    'v_ventas_lineas'[is_pesca] = TRUE
+)
+
+Deuda ARS = 
+CALCULATE(
+    SUM('v_ventas_lineas'[deuda_prorrateada_ars]),
+    'v_ventas_lineas'[is_pesca] = TRUE
+)
+```
+
+Usan **prorrateo por línea** (v_ventas_lineas tiene ahora `cobrado_prorrateado_ars` + `deuda_prorrateada_ars`) para que **[Cobrado ARS] + [Deuda ARS] = [Facturación Total]** exactamente. Julio 2026: $100.2M cobrado + $40.6M deuda = $140.8M facturado ✓.
+
+### Issue conocido: SlpCode 49 (Mariano admin) mal asignado a facturas de Gonzalo
+
+**Detectado 2026-07-21**: 7 facturas de Julio 2026 quedaron cargadas con `SalesPersonCode=49` (Mariano admin) en vez de `SalesPersonCode=50` (Gonzalo de la Rosa). Total: $80.4M facturado + $33.6M de deuda.
+
+**Consecuencia**: en el visual "Facturación por Origen por Tipo de Vendedor" del Dashboard, VDE + VDI ≠ VDT porque esos $80.4M no clasifican como VDE ni VDI.
+
+**Facturas afectadas** (todas → asignar a SlpCode 50):
+
+| # Factura | DocEntry | Cliente | Total ARS |
+|---|---|---|---:|
+| 18165 | 32150 | Nicolás Rinaldi (Mercadito Señuelero) | $2.610.000 |
+| 18180 | 32187 | María Prat (Pescamagic Bait Shop) | $2.390.000 |
+| 18224 | 32296 | Mundo Esturión | $20.676.000 |
+| 18233 | 32309 | Mundo Esturión | $19.501.000 |
+| 18242 | 32323 | Jonatan Angelino | $1.275.000 |
+| 18244 | 32333 | Jonatan Angelino | $284.000 |
+| 18262 | 32368 | REBORN SRL (Xplora La Triestina) | $33.624.000 |
+
+**Fix intentado via Service Layer PATCH**: falló con `-5002 "Value in Discount field is greater than permitted"` (usuario `APP_VENDEDORES` tiene límite de descuento bajo y SAP re-valida toda la factura al hacer PATCH). Se resolvió manualmente desde SAP B1 desktop con user admin.
+
+**Fix definitivo pendiente**: setear `SalesPersonCode=50` en la ficha del BP en SAP para los 5 clientes de Gonzalo (Mundo Esturión, REBORN, Rinaldi, Prat, Angelino), así el default de futuras facturas ya viene bien.
 
 ### v_targets — pipeline de metas (2026-07-14)
 
@@ -3162,9 +3248,51 @@ Total: ~15 iteraciones para llegar al fix correcto por la naturaleza propietaria
 
 ---
 
-## 41) Changelog v204 → v301
+## 41) Changelog v204 → v307
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v307 (2026-07-21) — Contactado Fase B: badges + filtro por tipo
+- Menú contextual del cliente: "Revisar última visita" → **"Última interacción"**.
+- Modal `cv-modal`: título renombrado + badge visual `🟣 Visita` (violeta) o `📱 Contactado` (teal) al lado de la fecha.
+- Contador de anteriores desglosa: `+ N interacciones anteriores (X visitas + Y contactos)`.
+- Lista "Mis visitas" (modal Visita → tab list): **nuevo filtro** dropdown `Visitas + Contactos / Solo visitas / Solo contactos` + badge por card.
+- Retro-compat: docs sin `interactionType` se tratan como visita.
+
+### v306 (2026-07-21) — Contactado celeste + Dashboard bordó + editar prov/loc en Provisorios
+- Tab Contactado pasa de teal a **celeste `#00A9E0`** (mismo grupo CSS que Rutas y Visita).
+- Botón Dashboard (barra superior) pasa de celeste a **bordó `#7f1d1d`** / hover `#991b1b`.
+- Master Clientes → Provisorios: columnas **Localidad** y **Provincia** editables inline con autosave. Marcan `provinciaLocSource='manual'` para que el sync SAP no las pise. Limpian `lat/lng` para forzar re-geocoding.
+
+### v305 (2026-07-21) — Contactado Fase A: modal Visita en modo `contacto`
+- Nueva variable global `window.visitMode = 'visita' | 'contacto'`.
+- `openVisitaModal(mode)` acepta parámetro (default `'visita'`, retro-compat).
+- `applyVisitModeUI(mode)` cambia visualmente el modal: header teal, título "Registro de Contacto (no presencial)", ocultar filas de fotos (`vf-espacio-row` + `vf-frente-row`), botón submit teal "Registrar contacto".
+- `submitVisita` agrega campo `interactionType='contacto'` al doc de `visits`.
+- Tab Contactado ahora abre `openVisitaModal('contacto')`.
+- Pane placeholder eliminado (ya no se usa).
+
+### v304 (2026-07-21) — Reorganizar barra superior: Dashboard como botón + tab Contactado (placeholder)
+- Botón Dashboard movido desde la grilla de tabs (posición 6) hacia la barra superior derecha, al lado de "Campañas Activas". Estilo turquesa `.btn-dashboard` (ya existía en CSS + media queries mobile).
+- Nueva tab **Contactado** en el slot donde estaba Dashboard. En v304 era placeholder; funcional desde v305.
+- `setTab` contempla el nuevo pane.
+
+### v303 (2026-07-21) — Edit inline nombre+vendedor también en Master Clientes vista normal
+- Fix del v302: los inputs editables solo aparecían en el modo "botón violeta Provisorios" (`renderMcProvisoriosTable`). En la vista default de Master Clientes (`renderMasterClientesTable`) las filas provisorias seguían mostrando texto readonly.
+- Ahora en `renderMasterClientesTable`, cuando `isSap && !e.sapCardCode` (provisorio) y `userRole` es admin/gerente:
+  - Columna Tienda: input editable → `saveMcProvisorioComercio`
+  - Columna Vendedor: `<select>` VDE+VDI → `saveMcProvisorioVendor`
+- Las 2 funciones ya existían del v302, solo faltaba invocarlas desde este renderer.
+
+### v302 (2026-07-21) — Modal ZONAS + Master Clientes editables para provisorios
+- **Modal ZONAS** acepta provisorios (`manualSapPending && !cardCodeSap`) con badge amarillo "⚡ PROVISORIO". Ya no exige `cardCode` ni dirección para incluirlos en el listado.
+- **Master Clientes tab Provisorios**: nombre del comercio y vendedor editables inline con autosave. Nombre escribe a `comercio` (o `fantasia` si no había comercio). Vendedor escribe a `assignedVendor` + resuelve `ownerUid` matcheando displayName en `roles` (así el vendedor asignado ve el provisorio en su lista personal).
+- **BigQuery paralelo (mismo día)**:
+  - `v_facturas_sap` agrega `paid_to_date` + `saldo_ars` (compat medidas PBI que respetan criterio SlpCode).
+  - `v_ventas_lineas` agrega `cobrado_prorrateado_ars` + `deuda_prorrateada_ars` a nivel línea. Permite `[Cobrado ARS] + [Deuda ARS] = [Facturación Total]` exacto.
+  - `sync_sap_to_bigquery.py` agrega `PaidToDate` al `$select` de Invoices (evita que autodetect dropee la columna en cargas futuras).
+  - `patch_paid_to_date.py` one-off idempotente que agrega la columna sin tocar `lines_json`.
+  - 3 vistas nuevas de deuda (creadas 2026-07-20, aplicadas hoy): `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`.
 
 ### v204
 - Internos preview del panel Seguimiento (esqueleto de tabs, sin acciones de borrado todavía).
