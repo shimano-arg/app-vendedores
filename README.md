@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v303 |
-| **APP_VERSION** | `v303` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v304 |
+| **APP_VERSION** | `v304` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **9 vistas curadas** (`v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap`, `v_inventario`, `v_inventario_por_warehouse`, `v_ventas_lineas`, `v_backorder_lineas`, **`v_targets`** ← nuevo 2026-07-14) → **Power BI Desktop conectado, dashboard "Resumen-Desempeño" operativo con medidas de cumplimiento y colores condicionales**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -193,6 +193,7 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] **Modal ZONAS ahora muestra provisorios (Alta Rápida sin cardCodeSap)** con badge amarillo "⚡ PROVISORIO" para que el gerente pueda asignarles vendedor apenas se dan de alta. Antes el filtro `!cardCodeSap → skip` los excluía y quedaban sin vendedor hasta que finanzas los cargara a SAP. Ya no requiere dirección tampoco (los provisorios pueden entrar sin calle) (v302+)
 [X] **Master Clientes → tab Provisorios**: nombre del comercio y vendedor ahora **editables inline** con autosave. Nombre: input que escribe a `comercio` (o `fantasia` si no había comercio). Vendedor: `<select>` con VDE + VDI que escribe a `assignedVendor` y resuelve `ownerUid` matcheando displayName en roles (así el vendedor asignado ve el provisorio en su lista personal). Antes eran texto readonly y solo se podía editar desde el modal ZONAS (v302+)
 [X] **Master Clientes vista normal**: mismo edit inline (nombre + vendedor) para filas provisorias mezcladas con SAP habilitados. Antes v302 solo funcionaba en el modo botón violeta "Provisorios"; ahora también en la vista default cuando el filtro devuelve un provisorio (v303+)
+[X] **Reorganización barra superior**: botón "Dashboard" movido desde la grilla de tabs (Localidades/Clientes/Pedidos/etc) hacia la barra superior derecha, al lado de "Campañas Activas" (mismo estilo turquesa `.btn-dashboard` que ya existía). Nueva tab **"Contactado"** ocupa el lugar donde estaba Dashboard en la grilla — sección placeholder en construcción, a definir contenido en próxima iteración (v304+)
 ```
 
 ### Bloqueantes externos para el lanzamiento
