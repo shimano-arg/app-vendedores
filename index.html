@@ -2220,6 +2220,11 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       <div class="visita-body" id="visita-pane-list" style="display:none">
         <div class="visit-filters">
           <select id="vfilt-vendedor" onchange="renderVisitasList()" class="vfilt-vendor-only"><option value="">Todos los vendedores</option></select>
+          <select id="vfilt-tipo" onchange="renderVisitasList()" title="Filtrar por tipo de interacci&oacute;n">
+            <option value="">Visitas + Contactos</option>
+            <option value="visita">Solo visitas presenciales</option>
+            <option value="contacto">Solo contactos no presenciales</option>
+          </select>
           <select id="vfilt-mes" onchange="renderVisitasList()"><option value="">Todos los meses</option></select>
           <select id="vfilt-tienda" onchange="renderVisitasList()"><option value="">Todas las tiendas</option></select>
           <select id="vfilt-anio" onchange="renderVisitasList()"><option value="">Todos los a&ntilde;os</option></select>
@@ -3136,8 +3141,8 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       <div class="ccm-opt" onclick="ccmOpenUltimaVisita()">
         <div class="ccm-opt-icon">&#128197;</div>
         <div class="ccm-opt-body">
-          <h4>Revisar &uacute;ltima visita</h4>
-          <p>Fecha, vendedor, observaciones e info de la &uacute;ltima visita registrada.</p>
+          <h4>&Uacute;ltima interacci&oacute;n</h4>
+          <p>Visita f&iacute;sica o contacto no presencial &mdash; lo m&aacute;s reciente registrado con esta tienda.</p>
         </div>
       </div>
       <div class="ccm-opt" onclick="ccmOpenUltimasCompras()">
@@ -3210,7 +3215,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 <div class="modal-overlay sec-modal" id="cv-modal" onclick="if(event.target===this)closeCVisita()">
   <div class="modal-box" style="width:min(540px,98vw)">
     <div class="modal-head" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">
-      <div><h2>&Uacute;ltima visita</h2><div class="subt" id="cv-sub"></div></div>
+      <div><h2 id="cv-title">&Uacute;ltima interacci&oacute;n</h2><div class="subt" id="cv-sub"></div></div>
       <button class="modal-close" onclick="closeCVisita()" title="Volver">&times;</button>
     </div>
     <div id="cv-body" style="padding:14px 18px;max-height:60vh;overflow-y:auto"></div>
@@ -3297,7 +3302,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v306';
+const APP_VERSION = 'v307';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -16544,12 +16549,18 @@ window.ccmOpenUltimaVisita = function(){
     return db - da;
   });
   if (!matches.length) {
-    body.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:24px;font-size:12px">No hay visitas registradas para esta tienda todav&iacute;a.</div>';
+    body.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:24px;font-size:12px">No hay interacciones registradas para esta tienda todav&iacute;a.</div>';
   } else {
     const v = matches[0];
     const fecha = v.fecha ? new Date(v.fecha).toLocaleDateString('es-AR') : '-';
+    // v306+: badge visual del tipo de interaccion. Docs viejos sin
+    // interactionType se tratan como 'visita' (default retro-compat).
+    const iType = v.interactionType === 'contacto' ? 'contacto' : 'visita';
+    const iBadge = (iType === 'contacto')
+      ? '<span style="display:inline-block;background:#ccfbf1;color:#0f766e;border:1px solid #5eead4;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;margin-left:6px">&#128241; Contactado</span>'
+      : '<span style="display:inline-block;background:#ede9fe;color:#5b21b6;border:1px solid #c4b5fd;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;margin-left:6px">&#128100; Visita</span>';
     let html = '';
-    html += '<div class="cv-section"><div class="cv-label">Fecha</div><div class="cv-val">' + escapeHtml(fecha) + '</div></div>';
+    html += '<div class="cv-section"><div class="cv-label">Fecha</div><div class="cv-val">' + escapeHtml(fecha) + iBadge + '</div></div>';
     html += '<div class="cv-section"><div class="cv-label">Vendedor</div><div class="cv-val">' + escapeHtml(titleCase(v.vendor || '')) + (v.ownerEmail ? ' <span style="color:#64748b">(' + escapeHtml(v.ownerEmail) + ')</span>' : '') + '</div></div>';
     const tipoLine = [v.tipo, v.local, v.tamano, v.fidelidad].filter(Boolean).join(' &middot; ');
     if (tipoLine) html += '<div class="cv-section"><div class="cv-label">Tipo &middot; Local &middot; Tama&ntilde;o &middot; Fidelidad</div><div class="cv-val">' + escapeHtml(tipoLine) + '</div></div>';
@@ -16566,7 +16577,17 @@ window.ccmOpenUltimaVisita = function(){
     if (v.competencia) html += '<div class="cv-section"><div class="cv-label">Competencia</div><div class="cv-val">' + escapeHtml(v.competencia) + '</div></div>';
     if (v.categoriaCliente) html += '<div class="cv-section"><div class="cv-label">Categor&iacute;a cliente</div><div class="cv-val">' + escapeHtml(v.categoriaCliente) + '</div></div>';
     if (matches.length > 1) {
-      html += '<div style="font-size:10px;color:#94a3b8;text-align:center;margin-top:10px">+ ' + (matches.length - 1) + ' visita' + (matches.length === 2 ? '' : 's') + ' anterior' + (matches.length === 2 ? '' : 'es') + ' (no mostradas)</div>';
+      const nOtras = matches.length - 1;
+      // Desglose: cuantas visitas fisicas + cuantos contactos de las anteriores.
+      let nVisitas = 0, nContactos = 0;
+      matches.slice(1).forEach(m => {
+        if (m.interactionType === 'contacto') nContactos++; else nVisitas++;
+      });
+      const parts = [];
+      if (nVisitas) parts.push(nVisitas + ' visita' + (nVisitas === 1 ? '' : 's'));
+      if (nContactos) parts.push(nContactos + ' contacto' + (nContactos === 1 ? '' : 's'));
+      const desglose = parts.join(' + ');
+      html += '<div style="font-size:10px;color:#94a3b8;text-align:center;margin-top:10px">+ ' + nOtras + ' interacci&oacute;n' + (nOtras === 1 ? '' : 'es') + ' anterior' + (nOtras === 1 ? '' : 'es') + ' (' + desglose + ')</div>';
     }
     body.innerHTML = html;
   }
@@ -25439,26 +25460,36 @@ function populateVisitFilters(){
 function renderVisitasList(){
   populateVisitFilters();
   const el = document.getElementById('visitas-list');
-  if (!visitsCache.length) { el.innerHTML = '<div class="no-data">No hay visitas registradas todavia.</div>'; return; }
+  if (!visitsCache.length) { el.innerHTML = '<div class="no-data">No hay interacciones registradas todavia.</div>'; return; }
   const fMes = document.getElementById('vfilt-mes').value;
   const fTienda = document.getElementById('vfilt-tienda').value;
   const fAnio = document.getElementById('vfilt-anio').value;
   const fVendedor = document.getElementById('vfilt-vendedor').value;
+  // v306+: filtro por tipo de interaccion (visita | contacto | ambos).
+  const fTipoEl = document.getElementById('vfilt-tipo');
+  const fTipo = fTipoEl ? fTipoEl.value : '';
   let list = visitsCache.slice();
   if (fMes) list = list.filter(v => (v.mes || '').toUpperCase() === fMes);
   if (fTienda) list = list.filter(v => v.tienda === fTienda);
   if (fAnio) list = list.filter(v => String(v.anio) === fAnio);
   if (fVendedor && (userRole === 'admin' || userRole === 'viewer')) list = list.filter(v => v.vendor === fVendedor);
+  if (fTipo === 'contacto') list = list.filter(v => v.interactionType === 'contacto');
+  else if (fTipo === 'visita') list = list.filter(v => v.interactionType !== 'contacto');
   list.sort((a,b) => (b.fecha || '').localeCompare(a.fecha || ''));
-  if (!list.length) { el.innerHTML = '<div class="no-data">No hay visitas que coincidan con los filtros.</div>'; return; }
+  if (!list.length) { el.innerHTML = '<div class="no-data">No hay interacciones que coincidan con los filtros.</div>'; return; }
   let html = '';
   list.forEach(v => {
     // Permisos para eliminar: admin y gerente ven el boton en todas las
     // visitas, vendedores solo en las propias (matcheando ownerUid).
     const canDeleteThis = (userRole === 'admin' || userRole === 'gerente') ||
                           (currentUser && v.ownerUid === currentUser.uid);
+    // v306+: badge visual del tipo de interaccion.
+    const isContacto = (v.interactionType === 'contacto');
+    const iBadge = isContacto
+      ? '<span style="display:inline-block;background:#ccfbf1;color:#0f766e;border:1px solid #5eead4;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#128241; Contacto</span>'
+      : '<span style="display:inline-block;background:#ede9fe;color:#5b21b6;border:1px solid #c4b5fd;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#128100; Visita</span>';
     html += '<div class="visit-card" onclick="viewVisit(\'' + escapeAttr(v.id) + '\')"><div class="vc-head">';
-    html += '<div><div class="vc-name">' + escapeHtml(v.tienda || '?') + '</div>';
+    html += '<div><div class="vc-name">' + escapeHtml(v.tienda || '?') + iBadge + '</div>';
     html += '<div class="vc-meta">' + escapeHtml(v.localidad || '') + ' / ' + escapeHtml(titleCase(v.provincia || '')) + (v.vendor ? ' &middot; ' + escapeHtml(titleCase(v.vendor)) : '') + '</div>';
     html += '<div class="vc-meta">' + escapeHtml(v.tipo || '') + (v.local ? ' - ' + escapeHtml(v.local) : '') + ' &middot; ' + escapeHtml(v.tamano || '') + ' &middot; Fidelidad ' + escapeHtml(v.fidelidad || '') + ' &middot; Relev ' + (v.relevancia || 0) + '/5</div>';
     if (v.pop === 'SI') html += '<div class="vc-meta" style="color:#7c3aed">POP: ' + escapeHtml(v.necesidadPuntual || '') + '</div>';
