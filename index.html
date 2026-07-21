@@ -702,8 +702,8 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .btn-export:hover{background:#0284c7;box-shadow:0 2px 6px rgba(0,169,224,.45)}
 .btn-export:active{transform:translateY(1px)}
 .btn-export::before{content:"\2193";font-size:13px;font-weight:800}
-.btn-dashboard{padding:7px 12px;border:none;border-radius:6px;background:#00A9E0;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(0,169,224,.3);transition:.15s;white-space:nowrap;flex-shrink:0}
-.btn-dashboard:hover{background:#0284a0;box-shadow:0 2px 6px rgba(0,169,224,.45)}
+.btn-dashboard{padding:7px 12px;border:none;border-radius:6px;background:#7f1d1d;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(127,29,29,.35);transition:.15s;white-space:nowrap;flex-shrink:0}
+.btn-dashboard:hover{background:#991b1b;box-shadow:0 2px 6px rgba(127,29,29,.5)}
 .btn-dashboard:active{transform:translateY(1px)}
 .btn-dashboard::before{content:"\01F4CA";font-size:13px}
 .btn-visita{padding:7px 12px;border:none;border-radius:6px;background:#7c3aed;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(124,58,237,.3);transition:.15s;white-space:nowrap;flex-shrink:0}
@@ -1021,9 +1021,11 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 /* --- Fila 2: CELESTE --- */
 .tab-btn[data-tab=rutas],
 .tab-btn.tab-action[data-tab=visita-action],
+.tab-btn.tab-action[data-tab=contactado-action],
 .tab-btn.tab-action[data-tab=dashboard-action]{background:#00A9E0;color:#fff;border-color:#00A9E0;border-bottom-color:#0284c7}
 .tab-btn[data-tab=rutas]:hover,
 .tab-btn.tab-action[data-tab=visita-action]:hover,
+.tab-btn.tab-action[data-tab=contactado-action]:hover,
 .tab-btn.tab-action[data-tab=dashboard-action]:hover{background:#0284c7;color:#fff}
 .tab-btn[data-tab=rutas].active{background:#fff;color:#00A9E0;border-color:#bae6fd;border-bottom-color:#00A9E0}
 .tab-btn[data-tab=rutas] .tab-count{background:rgba(255,255,255,.3);color:#fff}
@@ -2799,7 +2801,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       <button class="tab-btn" data-tab="pedidos" onclick="setTab('pedidos')">Pedidos <span class="tab-count" id="tab-ped-count">0</span></button>
       <button class="tab-btn" data-tab="rutas" onclick="setTab('rutas')">Rutas <span class="tab-count" id="tab-rutas-count">0</span></button>
       <button class="tab-btn tab-action" data-tab="visita-action" onclick="openVisitaModal()" title="Abrir formulario de visita a tienda">Visita</button>
-      <button class="tab-btn tab-action" data-tab="contactado-action" onclick="openVisitaModal('contacto')" title="Registrar contacto no presencial (WhatsApp / tel&eacute;fono / email)" style="background:#0d9488;color:#fff;border-color:#0d9488;border-bottom-color:#0f766e">Contactado</button>
+      <button class="tab-btn tab-action" data-tab="contactado-action" onclick="openVisitaModal('contacto')" title="Registrar contacto no presencial (WhatsApp / tel&eacute;fono / email)">Contactado</button>
       <button class="tab-btn" data-tab="rendiciones" onclick="setTab('rendiciones')" title="Rendiciones (en construccion)">Rendiciones <span class="tab-count" id="tab-rend-count" style="display:none">0</span></button>
       <button class="tab-btn" data-tab="altacli" onclick="setTab('altacli')" title="Alta de clientes (en construccion)">Alta clientes <span class="tab-count" id="tab-altacli-count" style="display:none">0</span></button>
       <button class="tab-btn active" id="tab-notif" data-tab="notif" onclick="setTab('notif')" title="Alertas y notificaciones">Notificaciones <span class="tab-count" id="tab-notif-count" style="display:none">0</span></button>
@@ -3295,7 +3297,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v305';
+const APP_VERSION = 'v306';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -8533,8 +8535,33 @@ function renderMcProvisoriosTable(){
         + '</div>'
         + '</td>';
     }
-    html += '<td>' + escapeHtml(loc) + '</td>';
-    html += '<td>' + escapeHtml(titleCase(a.provincia || '-')) + '</td>';
+    // v305+: Localidad y Provincia editables inline (autosave) para
+    // admin/gerente. Mismo patron que el modo SAP normal en Master Clientes.
+    if (canEditProv) {
+      const locVal = (loc === '-' || loc === '(sin localidad)') ? '' : loc;
+      html += '<td><input type="text" class="mc-addr-input' + (locVal ? ' has-value' : '') + '" '
+        + 'style="font-size:11px" '
+        + 'value="' + escapeAttr(locVal) + '" '
+        + 'placeholder="(sin localidad)" '
+        + 'onchange="saveMcProvisorioLocalidad(\'' + safeId + '\', this)" '
+        + 'onkeydown="if(event.key===\'Enter\')this.blur()" /></td>';
+      // Provincia: dropdown con las provincias del padron.
+      const provVal = (a.provincia || '').toUpperCase().trim();
+      let provSel = '<td><select class="mc-cli-sel' + (provVal ? ' has-value' : '') + '" '
+        + 'style="font-size:11px;width:100%" '
+        + 'onchange="saveMcProvisorioProvincia(\'' + safeId + '\', this)">';
+      provSel += '<option value="">(sin provincia)</option>';
+      const provSet = new Set();
+      (POINTS || []).forEach(p => provSet.add(p.province));
+      [...provSet].sort().forEach(pr => {
+        provSel += '<option value="' + escapeAttr(pr) + '"' + (pr === provVal ? ' selected' : '') + '>' + escapeHtml(titleCase(pr)) + '</option>';
+      });
+      provSel += '</select></td>';
+      html += provSel;
+    } else {
+      html += '<td>' + escapeHtml(loc) + '</td>';
+      html += '<td>' + escapeHtml(titleCase(a.provincia || '-')) + '</td>';
+    }
     if (canEditProv) {
       // Opciones: VDE + VDI (los 6 vendedores app). No incluye admin/gerente/distribuidor
       // (los provisorios se asignan a un vendedor real, no otro rol).
@@ -8607,6 +8634,82 @@ window.saveMcProvisorioComercio = async function(fsId, fieldName, inputEl){
     inputEl.value = oldVal;
   } finally {
     inputEl.classList.remove('saving');
+  }
+};
+
+// v305+: Autosave de localidad de un provisorio desde Master Clientes.
+// Escribe localidad + localidadFinal (para consistencia con saveMcSapLocalidad).
+// Si cambia la localidad, limpia lat/lng para forzar re-geocoding en el
+// proximo refresh.
+window.saveMcProvisorioLocalidad = async function(fsId, inputEl){
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente puede editar la localidad.');
+    return;
+  }
+  if (!fsId || !inputEl) return;
+  const newVal = (inputEl.value || '').trim();
+  const alta = (approvedAltasList || []).find(x => x._fsId === fsId);
+  if (!alta) return;
+  const oldVal = (alta.localidadFinal || alta.localidad || '').trim();
+  if (newVal === oldVal) return;
+  inputEl.classList.add('saving');
+  try {
+    const payload = {
+      localidad: newVal,
+      localidadFinal: newVal,
+      // v291+: marcar la fuente para que el sync SAP no pise el edit manual.
+      provinciaLocSource: 'manual',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: currentUser ? (currentUser.email || currentUser.uid) : '',
+    };
+    // Si cambio la localidad, limpiar lat/lng.
+    payload.lat = firebase.firestore.FieldValue.delete();
+    payload.lng = firebase.firestore.FieldValue.delete();
+    await fbDb.collection('client_applications').doc(fsId).set(payload, {merge: true});
+    inputEl.classList.toggle('has-value', !!newVal);
+    showSyncTag(newVal ? 'Localidad actualizada' : 'Localidad limpiada');
+  } catch(e) {
+    console.error('saveMcProvisorioLocalidad', e);
+    alert('Error guardando localidad: ' + (e.message || e));
+    inputEl.value = oldVal;
+  } finally {
+    inputEl.classList.remove('saving');
+  }
+};
+
+// v305+: Autosave de provincia de un provisorio desde Master Clientes.
+// Escribe provincia (uppercase, formato del padron POINTS).
+window.saveMcProvisorioProvincia = async function(fsId, selEl){
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente puede editar la provincia.');
+    return;
+  }
+  if (!fsId || !selEl) return;
+  const newVal = (selEl.value || '').toUpperCase().trim();
+  const alta = (approvedAltasList || []).find(x => x._fsId === fsId);
+  if (!alta) return;
+  const oldVal = (alta.provincia || '').toUpperCase().trim();
+  if (newVal === oldVal) return;
+  selEl.classList.add('saving');
+  try {
+    const payload = {
+      provincia: newVal,
+      provinciaLocSource: 'manual',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: currentUser ? (currentUser.email || currentUser.uid) : '',
+    };
+    // Si cambio provincia, limpiar lat/lng.
+    payload.lat = firebase.firestore.FieldValue.delete();
+    payload.lng = firebase.firestore.FieldValue.delete();
+    await fbDb.collection('client_applications').doc(fsId).set(payload, {merge: true});
+    selEl.classList.toggle('has-value', !!newVal);
+    showSyncTag(newVal ? 'Provincia actualizada' : 'Provincia limpiada');
+  } catch(e) {
+    console.error('saveMcProvisorioProvincia', e);
+    alert('Error guardando provincia: ' + (e.message || e));
+    selEl.value = oldVal;
+  } finally {
+    selEl.classList.remove('saving');
   }
 };
 

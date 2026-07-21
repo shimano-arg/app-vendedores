@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v305 |
-| **APP_VERSION** | `v305` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v306 |
+| **APP_VERSION** | `v306` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **9 vistas curadas** (`v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap`, `v_inventario`, `v_inventario_por_warehouse`, `v_ventas_lineas`, `v_backorder_lineas`, **`v_targets`** ← nuevo 2026-07-14) → **Power BI Desktop conectado, dashboard "Resumen-Desempeño" operativo con medidas de cumplimiento y colores condicionales**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -195,6 +195,7 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] **Master Clientes vista normal**: mismo edit inline (nombre + vendedor) para filas provisorias mezcladas con SAP habilitados. Antes v302 solo funcionaba en el modo botón violeta "Provisorios"; ahora también en la vista default cuando el filtro devuelve un provisorio (v303+)
 [X] **Reorganización barra superior**: botón "Dashboard" movido desde la grilla de tabs (Localidades/Clientes/Pedidos/etc) hacia la barra superior derecha, al lado de "Campañas Activas" (mismo estilo turquesa `.btn-dashboard` que ya existía). Nueva tab **"Contactado"** ocupa el lugar donde estaba Dashboard en la grilla — sección placeholder en construcción, a definir contenido en próxima iteración (v304+)
 [X] **Tab Contactado funcional (Fase A)**: reutiliza el modal Visita en modo `contacto`. Cambios visuales: header teal, título "Registro de Contacto (no presencial)", oculta filas de fotos (Espacio + Frente del local), botón dice "Registrar contacto". Guarda en la misma colección `visits` con nuevo campo `interactionType='contacto'` (default `'visita'` para retro-compat). Los docs viejos sin el campo se leen como visita. Fase B pendiente: badges "Visita"/"Contactado" en renderers de "última interacción" en Pedidos/Rutas/Dashboard (v305+)
+[X] **UI polish**: tab Contactado pasa de teal a celeste `#00A9E0` (mismo grupo que Rutas y Visita para consistencia visual). Botón Dashboard de la barra superior pasa de celeste a bordó `#7f1d1d` para diferenciarse del grupo tabs celeste. Master Clientes → Provisorios: Localidad y Provincia editables inline con autosave (mismo patrón que las filas SAP habilitadas), marcan `provinciaLocSource='manual'` y limpian lat/lng para forzar re-geocoding (v306+)
 ```
 
 ### Bloqueantes externos para el lanzamiento
