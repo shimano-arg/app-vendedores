@@ -3294,7 +3294,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v301';
+const APP_VERSION = 'v302';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -8502,20 +8502,62 @@ function renderMcProvisoriosTable(){
     const cuit = (a.cuit || '').trim();
     const safeId = escapeAttr(a._fsId || '');
 
+    // v302+: nombre y vendedor EDITABLES inline para provisorios.
+    // Nombre: input que escribe a `comercio` (o `fantasia` si no habia comercio).
+    // Vendedor: select con opciones VDE + VDI, escribe a `assignedVendor`.
+    // Ambos con autosave (sin boton) - se guardan al perder foco o al cambiar.
+    const canEditProv = (userRole === 'admin' || userRole === 'gerente');
+    const nameField = (a.comercio || '').trim() ? 'comercio' : 'fantasia';
     html += '<tr style="background:#fffbeb">';
-    html += '<td>'
-      + '<div class="mc-name">' + escapeHtml(nombre) + '</div>'
-      + '<div class="mc-meta"><span class="mc-tag prov">&#9889; PROVISORIO</span>'
-      + (dueno ? '<span style="font-size:10px;color:#64748b">Dueno: ' + escapeHtml(dueno) + '</span>' : '')
-      + (tel ? '<span style="font-size:10px;color:#64748b"> &middot; ' + escapeHtml(tel) + '</span>' : '')
-      + (cuit ? '<span style="font-size:10px;color:#0369a1;font-weight:600"> &middot; CUIT ' + escapeHtml(cuit) + '</span>' : '')
-      + '</div>'
-      + '</td>';
+    if (canEditProv) {
+      html += '<td>'
+        + '<input type="text" class="mc-addr-input has-value" style="font-weight:800;font-size:12.5px;color:#0f172a" '
+        + 'value="' + escapeAttr(nombre) + '" '
+        + 'onchange="saveMcProvisorioComercio(\'' + safeId + '\', \'' + nameField + '\', this)" '
+        + 'onkeydown="if(event.key===\'Enter\')this.blur()" '
+        + 'title="Editar nombre del comercio (autosave al salir del campo o Enter)" />'
+        + '<div class="mc-meta" style="margin-top:4px"><span class="mc-tag prov">&#9889; PROVISORIO</span>'
+        + (dueno ? '<span style="font-size:10px;color:#64748b">Dueno: ' + escapeHtml(dueno) + '</span>' : '')
+        + (tel ? '<span style="font-size:10px;color:#64748b"> &middot; ' + escapeHtml(tel) + '</span>' : '')
+        + (cuit ? '<span style="font-size:10px;color:#0369a1;font-weight:600"> &middot; CUIT ' + escapeHtml(cuit) + '</span>' : '')
+        + '</div>'
+        + '</td>';
+    } else {
+      html += '<td>'
+        + '<div class="mc-name">' + escapeHtml(nombre) + '</div>'
+        + '<div class="mc-meta"><span class="mc-tag prov">&#9889; PROVISORIO</span>'
+        + (dueno ? '<span style="font-size:10px;color:#64748b">Dueno: ' + escapeHtml(dueno) + '</span>' : '')
+        + (tel ? '<span style="font-size:10px;color:#64748b"> &middot; ' + escapeHtml(tel) + '</span>' : '')
+        + (cuit ? '<span style="font-size:10px;color:#0369a1;font-weight:600"> &middot; CUIT ' + escapeHtml(cuit) + '</span>' : '')
+        + '</div>'
+        + '</td>';
+    }
     html += '<td>' + escapeHtml(loc) + '</td>';
     html += '<td>' + escapeHtml(titleCase(a.provincia || '-')) + '</td>';
-    html += '<td><div style="font-weight:700;color:#334155">' + escapeHtml(vendLabel) + '</div>'
-      + (owner ? '<div style="font-size:10px;color:#64748b">' + escapeHtml(owner) + '</div>' : '')
-      + '</td>';
+    if (canEditProv) {
+      // Opciones: VDE + VDI (los 6 vendedores app). No incluye admin/gerente/distribuidor
+      // (los provisorios se asignan a un vendedor real, no otro rol).
+      let vendSel = '<td><select class="mc-cli-sel' + (vendKey ? ' has-value' : '') + '" '
+        + 'style="width:100%;font-size:11px" '
+        + 'onchange="saveMcProvisorioVendor(\'' + safeId + '\', this)">';
+      vendSel += '<option value="">(sin vendedor)</option>';
+      vendSel += '<optgroup label="VDE (Vendedores externos)">';
+      VENDORS.filter(v => VDE_VENDOR_KEYS.has(v.key)).forEach(v => {
+        vendSel += '<option value="' + escapeAttr(v.key) + '"' + (v.key === vendKey ? ' selected' : '') + '>' + escapeHtml(v.zone + ' - ' + titleCase(v.key)) + '</option>';
+      });
+      vendSel += '</optgroup><optgroup label="VDI (Vendedores internos)">';
+      VENDORS.filter(v => VDI_VENDOR_KEYS.has(v.key)).forEach(v => {
+        vendSel += '<option value="' + escapeAttr(v.key) + '"' + (v.key === vendKey ? ' selected' : '') + '>' + escapeHtml(titleCase(v.key)) + '</option>';
+      });
+      vendSel += '</optgroup></select>'
+        + (owner ? '<div style="font-size:10px;color:#64748b;margin-top:4px">Alta: ' + escapeHtml(owner) + '</div>' : '')
+        + '</td>';
+      html += vendSel;
+    } else {
+      html += '<td><div style="font-weight:700;color:#334155">' + escapeHtml(vendLabel) + '</div>'
+        + (owner ? '<div style="font-size:10px;color:#64748b">' + escapeHtml(owner) + '</div>' : '')
+        + '</td>';
+    }
     html += '<td style="font-size:11px;color:#334155">' + escapeHtml(dir || '(sin direccion)') + '</td>';
     html += '<td style="font-size:11px;color:#64748b">' + fecha + '</td>';
     if (userRole === 'admin') {
@@ -8534,6 +8576,85 @@ function renderMcProvisoriosTable(){
   if (items.length > MAX) html += '<div style="text-align:center;color:#94a3b8;font-size:11px;padding:12px">Mostrando ' + MAX + ' de ' + items.length + '. Refina con filtros.</div>';
   cont.innerHTML = html;
 }
+
+// v302+: Autosave del nombre del comercio (comercio o fantasia) desde el
+// modal Master Clientes tab Provisorios. Escribe a client_applications.
+// El listener de approvedAltasList repinta la tabla al terminar.
+window.saveMcProvisorioComercio = async function(fsId, fieldName, inputEl){
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente puede editar el nombre del comercio.');
+    return;
+  }
+  if (!fsId || !inputEl) return;
+  const newVal = (inputEl.value || '').trim();
+  const alta = (approvedAltasList || []).find(x => x._fsId === fsId);
+  if (!alta) return;
+  const oldVal = (alta[fieldName] || '').trim();
+  if (newVal === oldVal) return;
+  inputEl.classList.add('saving');
+  try {
+    const payload = {
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: currentUser ? (currentUser.email || currentUser.uid) : '',
+    };
+    payload[fieldName] = newVal;
+    await fbDb.collection('client_applications').doc(fsId).set(payload, {merge: true});
+    showSyncTag(newVal ? 'Nombre actualizado' : 'Nombre limpiado');
+  } catch(e) {
+    console.error('saveMcProvisorioComercio', e);
+    alert('Error guardando nombre: ' + (e.message || e));
+    inputEl.value = oldVal;
+  } finally {
+    inputEl.classList.remove('saving');
+  }
+};
+
+// v302+: Autosave del vendedor asignado a un provisorio desde Master Clientes.
+// Escribe assignedVendor. Refuerzo: si el provisorio no tenia ownerUid,
+// tratamos de resolverlo desde VENDORS[key] o desde roles matching displayName.
+window.saveMcProvisorioVendor = async function(fsId, selEl){
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente puede reasignar vendedor.');
+    return;
+  }
+  if (!fsId || !selEl) return;
+  const newVendor = (selEl.value || '').trim();
+  const alta = (approvedAltasList || []).find(x => x._fsId === fsId);
+  if (!alta) return;
+  const oldVendor = (alta.assignedVendor || alta.vendor || '').trim();
+  if (newVendor === oldVendor) return;
+  selEl.classList.add('saving');
+  try {
+    const payload = {
+      assignedVendor: newVendor,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: currentUser ? (currentUser.email || currentUser.uid) : '',
+      reassignedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      reassignedBy: currentUser ? (currentUser.email || currentUser.uid) : '',
+    };
+    // Buscar el uid del vendedor para tambien setear ownerUid (permite que el
+    // vendedor asignado vea el provisorio en su lista personal, no solo el admin).
+    let newOwnerUid = null;
+    try {
+      const rolesSnap = await fbDb.collection('roles').get();
+      rolesSnap.forEach(d => {
+        const v = d.data() || {};
+        const dn = String(v.displayName || v.email || '').toUpperCase();
+        if (dn && newVendor && dn === newVendor) newOwnerUid = d.id;
+      });
+    } catch(e) { /* best-effort */ }
+    if (newOwnerUid) payload.ownerUid = newOwnerUid;
+    await fbDb.collection('client_applications').doc(fsId).set(payload, {merge: true});
+    selEl.classList.toggle('has-value', !!newVendor);
+    showSyncTag(newVendor ? 'Vendedor asignado: ' + titleCase(newVendor) : 'Vendedor limpiado');
+  } catch(e) {
+    console.error('saveMcProvisorioVendor', e);
+    alert('Error asignando vendedor: ' + (e.message || e));
+    selEl.value = oldVendor;
+  } finally {
+    selEl.classList.remove('saving');
+  }
+};
 
 // v293+: Vincular provisorio con BP de SAP.
 // Cuando el auto-match del cron (sync_sap_to_firestore.py > find_match)
@@ -23664,11 +23785,19 @@ function renderZonasList(){
       });
       (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).forEach(a => {
         if (count >= 500) return;
-        if (!a || !a.cardCodeSap) return;
-        if (!(a.calle || a.address)) return;
+        if (!a) return;
+        // v302+: incluir tambien PROVISORIOS (alta rapida sin cardCodeSap
+        // todavia). Antes se filtraban porque exigian cardCodeSap+direccion,
+        // pero el gerente necesita poder asignarles vendedor apenas se dan
+        // de alta. Filtro nuevo: si es provisorio (manualSapPending) se
+        // acepta sin cardCode ni direccion; si no, se sigue exigiendo
+        // cardCode (habilitado SAP).
+        const isProvisorio = !!a.manualSapPending && !a.cardCodeSap;
+        if (!isProvisorio && !a.cardCodeSap) return;
+        if (!isProvisorio && !(a.calle || a.address)) return;
         const prov = (a.provincia || '').toUpperCase().trim();
         if (!prov) return;
-        const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0,8));
+        const nombre = a.comercio || a.fantasia || (a.cardCodeSap ? ('SAP ' + a.cardCodeSap.slice(0,8)) : (a.titular || 'Provisorio'));
         if (ptNamesSet.has(prov + '|' + nombre.toLowerCase())) return;
         if (provFilter !== 'ALL' && prov !== provFilter) return;
         if (locFilter !== 'ALL') {
@@ -23688,8 +23817,12 @@ function renderZonasList(){
         const pending = zonasPendingChanges[key];
         const newSelKey = pending ? pending.newVendor : '';
         const rowCls = pending ? ' changed' : '';
-        const addrLine = '<div class="meta" style="font-size:10px;color:#94a3b8;margin-top:2px">' + escapeHtml(direccion) + '</div>';
-        const badgeSap = '<span style="background:#dbeafe;color:#1e3a8a;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;margin-left:4px">SAP ' + escapeHtml(a.cardCodeSap) + '</span>';
+        const addrLine = direccion
+          ? '<div class="meta" style="font-size:10px;color:#94a3b8;margin-top:2px">' + escapeHtml(direccion) + '</div>'
+          : (isProvisorio ? '<div class="meta" style="font-size:10px;color:#b45309;margin-top:2px">Sin direccion cargada</div>' : '');
+        const badgeSap = isProvisorio
+          ? '<span style="background:#fef3c7;color:#78350f;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;margin-left:4px">&#9889; PROVISORIO</span>'
+          : '<span style="background:#dbeafe;color:#1e3a8a;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;margin-left:4px">SAP ' + escapeHtml(a.cardCodeSap) + '</span>';
         html += '<div class="zonas-row' + rowCls + '" data-sap-fsid="' + escapeAttr(a._fsId || '') + '">'
           + '<div><div class="name">' + escapeHtml(nombre) + badgeSap + '</div>' + addrLine + '</div>'
           + '<div><div class="meta">' + escapeHtml(locName) + ' &middot; ' + escapeHtml(titleCase(prov)) + '</div></div>'

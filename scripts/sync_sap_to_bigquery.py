@@ -506,6 +506,12 @@ def flatten_doc(doc: dict, doc_type: str, sync_ts: str) -> dict:
         'doc_rate': doc.get('DocRate'),
         'discount_percent': doc.get('DiscountPercent'),
         'total_discount': doc.get('TotalDiscount'),
+        # v302+ (2026-07-20): PaidToDate para calcular deuda por vendedor.
+        # DocumentBalance NO existe en el schema Shimano (SL 400).
+        # El saldo se calcula en la vista v_deuda_por_vendedor como
+        # doc_total - paid_to_date. Solo poblado para INVOICE (facturas);
+        # en QUOTATION/ORDER/PO viene null y no molesta.
+        'paid_to_date': doc.get('PaidToDate'),
         'sales_person_code': doc.get('SalesPersonCode'),
         'comments': doc.get('Comments'),
         'jrnl_memo': doc.get('JournalMemo'),
@@ -677,6 +683,32 @@ def main():
     load_to_bq(bq_client, BQ_TABLE_ITEMS, item_rows, 'ITEMS', dry_run=dry_run)
 
     # === 3. Invoices (ultimos 24 meses)
+    doc_select_invoices = [
+        'DocEntry', 'DocNum', 'DocDate', 'DocDueDate',
+        'DocumentStatus', 'Cancelled',
+        'CardCode', 'CardName',
+        'DocCurrency', 'DocTotal', 'DocTotalFc', 'DocRate',
+        # v302+ (2026-07-20): PaidToDate para calcular saldo pendiente.
+        # DocumentStatus='bost_Open' + saldo>0 = deuda vigente. Ver
+        # v_deuda_por_vendedor en bigquery/views.sql.
+        'PaidToDate',
+        'DiscountPercent', 'TotalDiscount',
+        'SalesPersonCode', 'Comments', 'JournalMemo',
+        'PaymentGroupCode', 'Series',
+        'CreationDate', 'UpdateDate',
+        'DocumentLines',
+    ]
+    invs = sl_fetch_all(
+        cfg, session, '/b1s/v1/Invoices', 'INVOICES',
+        select_fields=doc_select_invoices,
+        filter_expr=f"DocDate ge '{since_iso_date}'",
+        max_docs=max_docs,
+    )
+    inv_rows = [flatten_doc(d, 'INVOICE', sync_ts) for d in invs]
+    load_to_bq(bq_client, BQ_TABLE_INVOICES, inv_rows, 'INVOICES', dry_run=dry_run)
+
+    # Cotizaciones + Ordenes + PO usan el select viejo (sin PaidToDate,
+    # que en esos tipos no aplica).
     doc_select = [
         'DocEntry', 'DocNum', 'DocDate', 'DocDueDate',
         'DocumentStatus', 'Cancelled',
@@ -688,14 +720,6 @@ def main():
         'CreationDate', 'UpdateDate',
         'DocumentLines',
     ]
-    invs = sl_fetch_all(
-        cfg, session, '/b1s/v1/Invoices', 'INVOICES',
-        select_fields=doc_select,
-        filter_expr=f"DocDate ge '{since_iso_date}'",
-        max_docs=max_docs,
-    )
-    inv_rows = [flatten_doc(d, 'INVOICE', sync_ts) for d in invs]
-    load_to_bq(bq_client, BQ_TABLE_INVOICES, inv_rows, 'INVOICES', dry_run=dry_run)
 
     # === 4. Quotations (ultimos 24 meses)
     qtns = sl_fetch_all(

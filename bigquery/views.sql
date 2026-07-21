@@ -209,6 +209,12 @@ SELECT
   inv.doc_total,
   inv.doc_total_fc,
   inv.doc_rate,
+  -- v302+ (2026-07-21): paid_to_date para calcular Cobrado / Deuda en PBI
+  -- sin depender de v_facturado_cobrado_deuda_por_vendedor (que agrupa
+  -- por assigned_vendor de la app; aca conservamos el criterio SlpCode
+  -- de la pagina Facturacion por Vendedor).
+  inv.paid_to_date,
+  inv.doc_total - COALESCE(inv.paid_to_date, 0)                       AS saldo_ars,
   inv.discount_percent,
   inv.total_discount,
   inv.sales_person_code                                               AS sales_person_code_invoice,
@@ -524,6 +530,17 @@ SELECT
   SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)                  AS cantidad,
   SAFE_CAST(JSON_VALUE(line, '$.Price') AS FLOAT64)                     AS precio_unitario,
   SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)                 AS importe_linea_ars,
+  -- v302+ (2026-07-21): prorrateo cobrado/deuda por linea.
+  -- Permite en PBI:
+  --   [Cobrado ARS] = CALCULATE(SUM(cobrado_prorrateado_ars), is_pesca=TRUE)
+  --   [Deuda ARS]   = CALCULATE(SUM(deuda_prorrateada_ars),   is_pesca=TRUE)
+  -- que suman exactamente [Facturacion Total] (que usa importe_linea_ars).
+  -- Prorrateo lineal: cobrado_linea = importe_linea * (paid_to_date / doc_total)
+  SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+    * SAFE_DIVIDE(inv.paid_to_date, inv.doc_total)                      AS cobrado_prorrateado_ars,
+  SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+    * SAFE_DIVIDE(inv.doc_total - COALESCE(inv.paid_to_date, 0), inv.doc_total)
+                                                                        AS deuda_prorrateada_ars,
   JSON_VALUE(line, '$.WarehouseCode')                                   AS warehouse_code,
   -- Categorizacion del catalogo (join con items).
   -- Parche encoding: el catalogo embebido en index.html perdio acentos/enies
@@ -730,3 +747,254 @@ WHERE seller_id IN (
   'SANTIAGO ESTEBAN','FEDERICO CASTELANELLI','MARTIN BOIERO'
 )
   AND target_ars > 0;
+
+
+-- ============================================================
+-- View 10: v_deuda_por_vendedor (2026-07-20)
+-- ============================================================
+-- Facturas SAP abiertas con saldo pendiente, agrupadas por vendedor de la
+-- APP (no por SalesPersonCode del BP, que hoy tiene codigos historicos
+-- Baraldo).
+--
+-- Contexto (pedido de Pablo por Teams 2026-07-20):
+--   "quiero ver cuanto lleva facturado cada vendedor, por el tema del
+--   target tambien, y si tiene pedidos pendientes de pagar por ejemplo"
+--
+-- Estrategia:
+--   1. Filtrar sap_invoices_raw: bost_Open + tNO + saldo>0 (usando
+--      paid_to_date que se agrego en v302).
+--   2. LEFT JOIN client_applications_raw_latest por card_code para
+--      obtener el assignedVendor de la app.
+--   3. Solo mostrar facturas de clientes pesca (asignados a algun
+--      vendedor pesca de la app). Los clientes BIKE se descartan.
+--
+-- Nota SlpCode: NO usamos sap_invoices_raw.sales_person_code para
+-- agrupar. Motivo: SAP prod hoy tiene codigos historicos (1,2,9,11,12,
+-- 14,19,23,34) que corresponden a vendedores era Baraldo. Los codigos
+-- 50-55 de nuestros vendedores app recien empezaron a usarse (SlpCode
+-- 53 y 54 aparecen en pocas facturas 2026-07). Agrupar por assignedVendor
+-- de la app es mas util operativamente: muestra la deuda "de mis
+-- clientes" independiente de quien facturo historicamente.
+--
+-- Schema de salida:
+--   assigned_vendor  STRING    vendorKey app ("GONZALO DE LA ROSA", etc)
+--   facturas_pendientes    INT64     cantidad de facturas abiertas
+--   clientes_con_deuda     INT64     cantidad de card_codes distintos
+--   deuda_total_ars        FLOAT64   suma de saldos pendientes
+--   deuda_vencida_ars      FLOAT64   suma solo de facturas con due_date < hoy
+--   deuda_al_dia_ars       FLOAT64   suma de facturas con due_date >= hoy
+--   proxima_vencimiento    DATE      MIN(doc_due_date) del vendedor
+--   _sync_timestamp        TIMESTAMP
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_deuda_por_vendedor` AS
+WITH facturas_abiertas AS (
+  SELECT
+    inv.card_code,
+    inv.doc_entry,
+    inv.doc_num,
+    inv.doc_date,
+    inv.doc_due_date,
+    SAFE_CAST(inv.doc_total AS FLOAT64) - COALESCE(SAFE_CAST(inv.paid_to_date AS FLOAT64), 0) AS saldo_ars,
+    inv._sync_timestamp
+  FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv
+  WHERE inv.document_status = 'bost_Open'
+    AND inv.cancelled = 'tNO'
+    AND SAFE_CAST(inv.doc_total AS FLOAT64) - COALESCE(SAFE_CAST(inv.paid_to_date AS FLOAT64), 0) > 0.01
+),
+clientes_app AS (
+  -- Mapeo cardCode -> assignedVendor desde client_applications.
+  -- Un mismo cardCode puede existir en varios docs (raro pero puede pasar).
+  -- ARRAY_AGG + LIMIT 1 para deduplicar tomando el primero.
+  SELECT
+    JSON_VALUE(data, '$.cardCodeSap') AS card_code,
+    ARRAY_AGG(
+      JSON_VALUE(data, '$.assignedVendor')
+      IGNORE NULLS
+      ORDER BY document_id
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS assigned_vendor
+  FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+  WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+    AND JSON_VALUE(data, '$.cardCodeSap') != ''
+  GROUP BY card_code
+),
+enriquecido AS (
+  SELECT
+    fa.card_code,
+    fa.doc_entry,
+    fa.doc_num,
+    fa.doc_date,
+    fa.doc_due_date,
+    fa.saldo_ars,
+    fa._sync_timestamp,
+    ca.assigned_vendor
+  FROM facturas_abiertas fa
+  INNER JOIN clientes_app ca USING (card_code)
+  WHERE ca.assigned_vendor IS NOT NULL
+    AND ca.assigned_vendor != ''
+    AND ca.assigned_vendor IN (
+      'GONZALO DE LA ROSA', 'MAURICIO GIL', 'IOANNIS PALKOUDAKIS',
+      'SANTIAGO ESTEBAN', 'FEDERICO CASTELANELLI', 'MARTIN BOIERO'
+    )
+)
+SELECT
+  assigned_vendor,
+  COUNT(*) AS facturas_pendientes,
+  COUNT(DISTINCT card_code) AS clientes_con_deuda,
+  ROUND(SUM(saldo_ars), 2) AS deuda_total_ars,
+  ROUND(SUM(CASE WHEN doc_due_date < CURRENT_DATE() THEN saldo_ars ELSE 0 END), 2) AS deuda_vencida_ars,
+  ROUND(SUM(CASE WHEN doc_due_date >= CURRENT_DATE() THEN saldo_ars ELSE 0 END), 2) AS deuda_al_dia_ars,
+  MIN(doc_due_date) AS proxima_vencimiento,
+  MAX(_sync_timestamp) AS _sync_timestamp
+FROM enriquecido
+GROUP BY assigned_vendor;
+
+
+-- ============================================================
+-- View 10-bis: v_deuda_facturas_detalle (2026-07-20)
+-- ============================================================
+-- Drill-down de v_deuda_por_vendedor: 1 fila por factura abierta.
+-- Permite tabla detalle en Power BI mostrando cada factura por vendedor.
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_deuda_facturas_detalle` AS
+WITH facturas_abiertas AS (
+  SELECT
+    inv.card_code,
+    inv.card_name AS card_name_sap,
+    inv.doc_entry,
+    inv.doc_num,
+    inv.doc_date,
+    inv.doc_due_date,
+    SAFE_CAST(inv.doc_total AS FLOAT64) AS doc_total_ars,
+    COALESCE(SAFE_CAST(inv.paid_to_date AS FLOAT64), 0) AS paid_to_date_ars,
+    SAFE_CAST(inv.doc_total AS FLOAT64) - COALESCE(SAFE_CAST(inv.paid_to_date AS FLOAT64), 0) AS saldo_ars,
+    inv.sales_person_code AS sap_sales_person_code,
+    inv._sync_timestamp
+  FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv
+  WHERE inv.document_status = 'bost_Open'
+    AND inv.cancelled = 'tNO'
+    AND SAFE_CAST(inv.doc_total AS FLOAT64) - COALESCE(SAFE_CAST(inv.paid_to_date AS FLOAT64), 0) > 0.01
+),
+clientes_app AS (
+  SELECT
+    JSON_VALUE(data, '$.cardCodeSap') AS card_code,
+    ARRAY_AGG(
+      STRUCT(
+        JSON_VALUE(data, '$.assignedVendor') AS assigned_vendor,
+        JSON_VALUE(data, '$.comercio') AS comercio,
+        JSON_VALUE(data, '$.fantasia') AS fantasia
+      )
+      ORDER BY document_id
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS info
+  FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+  WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+    AND JSON_VALUE(data, '$.cardCodeSap') != ''
+  GROUP BY card_code
+)
+SELECT
+  ca.info.assigned_vendor AS assigned_vendor,
+  fa.card_code,
+  COALESCE(NULLIF(ca.info.fantasia, ''), ca.info.comercio, fa.card_name_sap) AS cliente_display,
+  ca.info.comercio AS cliente_titular,
+  ca.info.fantasia AS cliente_fantasia,
+  fa.doc_num,
+  fa.doc_entry,
+  fa.doc_date,
+  fa.doc_due_date,
+  DATE_DIFF(CURRENT_DATE(), fa.doc_due_date, DAY) AS dias_vencido,
+  fa.doc_total_ars,
+  fa.paid_to_date_ars,
+  ROUND(fa.saldo_ars, 2) AS saldo_ars,
+  CASE
+    WHEN fa.doc_due_date < CURRENT_DATE() THEN 'VENCIDA'
+    ELSE 'AL DIA'
+  END AS estado,
+  fa.sap_sales_person_code,
+  fa._sync_timestamp
+FROM facturas_abiertas fa
+INNER JOIN clientes_app ca USING (card_code)
+WHERE ca.info.assigned_vendor IN (
+  'GONZALO DE LA ROSA', 'MAURICIO GIL', 'IOANNIS PALKOUDAKIS',
+  'SANTIAGO ESTEBAN', 'FEDERICO CASTELANELLI', 'MARTIN BOIERO'
+);
+
+
+-- ============================================================
+-- View 11: v_facturado_cobrado_deuda_por_vendedor (2026-07-20)
+-- ============================================================
+-- La foto completa por vendedor de la app: cuanto facturo (total emitido),
+-- cuanto cobro (paid_to_date acumulado) y cuanto deben.
+--
+-- Granularidad: 1 fila por (vendedor, anio, mes) para poder filtrar en PBI.
+-- La deuda solo cuenta facturas ABIERTAS (bost_Open + saldo > 0); el
+-- facturado y cobrado cuentan tanto Open como Closed (para tener la foto
+-- historica completa de facturacion).
+--
+-- Verificacion matematica esperada:
+--   facturado_ars = cobrado_ars + deuda_ars   (por vendedor, considerando
+--   todas las facturas, abiertas y cerradas)
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_facturado_cobrado_deuda_por_vendedor` AS
+WITH facturas AS (
+  SELECT
+    inv.card_code,
+    inv.doc_date,
+    EXTRACT(YEAR FROM inv.doc_date) AS anio,
+    EXTRACT(MONTH FROM inv.doc_date) AS mes,
+    SAFE_CAST(inv.doc_total AS FLOAT64) AS doc_total_ars,
+    COALESCE(SAFE_CAST(inv.paid_to_date AS FLOAT64), 0) AS paid_to_date_ars,
+    inv.document_status,
+    inv.cancelled
+  FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv
+  WHERE inv.cancelled = 'tNO'  -- No contamos facturas anuladas
+    AND inv.doc_date IS NOT NULL
+),
+clientes_app AS (
+  SELECT
+    JSON_VALUE(data, '$.cardCodeSap') AS card_code,
+    ARRAY_AGG(
+      JSON_VALUE(data, '$.assignedVendor')
+      IGNORE NULLS
+      ORDER BY document_id
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS assigned_vendor
+  FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+  WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+    AND JSON_VALUE(data, '$.cardCodeSap') != ''
+  GROUP BY card_code
+),
+enriquecido AS (
+  SELECT
+    ca.assigned_vendor,
+    f.anio,
+    f.mes,
+    f.doc_total_ars,
+    f.paid_to_date_ars,
+    -- Deuda solo cuenta facturas abiertas con saldo real > 0.
+    -- Si esta cerrada, el saldo es 0 (aunque el saldo calculado
+    -- pueda tener redondeo residual).
+    CASE
+      WHEN f.document_status = 'bost_Open'
+       AND (f.doc_total_ars - f.paid_to_date_ars) > 0.01
+      THEN (f.doc_total_ars - f.paid_to_date_ars)
+      ELSE 0
+    END AS saldo_pendiente_ars
+  FROM facturas f
+  INNER JOIN clientes_app ca USING (card_code)
+  WHERE ca.assigned_vendor IN (
+    'GONZALO DE LA ROSA', 'MAURICIO GIL', 'IOANNIS PALKOUDAKIS',
+    'SANTIAGO ESTEBAN', 'FEDERICO CASTELANELLI', 'MARTIN BOIERO'
+  )
+)
+SELECT
+  assigned_vendor,
+  anio,
+  mes,
+  COUNT(*) AS facturas_emitidas,
+  ROUND(SUM(doc_total_ars), 2) AS facturado_ars,
+  ROUND(SUM(paid_to_date_ars), 2) AS cobrado_ars,
+  ROUND(SUM(saldo_pendiente_ars), 2) AS deuda_ars,
+  CURRENT_TIMESTAMP() AS _sync_timestamp
+FROM enriquecido
+GROUP BY assigned_vendor, anio, mes;
