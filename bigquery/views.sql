@@ -183,6 +183,27 @@ WHERE operation <> 'DELETE';
 -- los campos bp_* quedan NULL - la factura sigue apareciendo.
 -- ============================================================
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_facturas_sap` AS
+WITH cliente_app AS (
+  -- v311+ (2026-07-22): traer el assignedVendor de la app desde
+  -- client_applications. Solucion al problema del SlpCode SAP inconsistente:
+  -- SAP tiene facturas cargadas con SlpCode incorrectos (49=Mariano admin,
+  -- 54=Federico cuando el cliente es de Martin, etc). El assignedVendor
+  -- de la app es la fuente de verdad del negocio. Filtrar por este campo
+  -- en PBI muestra las facturas del vendedor real, no del que qued
+  -- registrado en la carga SAP.
+  SELECT
+    JSON_VALUE(data, '$.cardCodeSap') AS card_code,
+    ARRAY_AGG(
+      JSON_VALUE(data, '$.assignedVendor')
+      IGNORE NULLS
+      ORDER BY document_id
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS assigned_vendor_app
+  FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+  WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+    AND JSON_VALUE(data, '$.cardCodeSap') != ''
+  GROUP BY card_code
+)
 SELECT
   inv.doc_type,
   inv.doc_entry,
@@ -218,6 +239,9 @@ SELECT
   inv.discount_percent,
   inv.total_discount,
   inv.sales_person_code                                               AS sales_person_code_invoice,
+  -- v311+ (2026-07-22): vendedor real del cliente segun la app (source of truth).
+  -- Usar este campo en los slicers del TABLERO SAR en vez de SlpCode.
+  ca.assigned_vendor_app                                              AS assigned_vendor,
   inv.comments,
   inv.jrnl_memo,
   inv.payment_group_code,
@@ -233,7 +257,9 @@ SELECT
   inv._sync_timestamp
 FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv
 LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
-  ON inv.card_code = bp.card_code;
+  ON inv.card_code = bp.card_code
+LEFT JOIN cliente_app ca
+  ON ca.card_code = inv.card_code;
 
 
 -- ============================================================
@@ -523,6 +549,23 @@ WITH prov_lookup AS (
     WHERE card_code IS NOT NULL
   )
   WHERE rn = 1
+),
+cliente_app AS (
+  -- v311+ (2026-07-22): assignedVendor de la app como fuente de verdad
+  -- del vendedor real (independiente del SlpCode con el que se cargo la
+  -- factura en SAP). Ver v_facturas_sap para contexto completo.
+  SELECT
+    JSON_VALUE(data, '$.cardCodeSap') AS card_code,
+    ARRAY_AGG(
+      JSON_VALUE(data, '$.assignedVendor')
+      IGNORE NULLS
+      ORDER BY document_id
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS assigned_vendor_app
+  FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+  WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+    AND JSON_VALUE(data, '$.cardCodeSap') != ''
+  GROUP BY card_code
 )
 SELECT
   inv.doc_entry,
@@ -589,6 +632,10 @@ SELECT
     WHEN prov.provincia_raw = 'NEUQUÉN'    THEN 'NEUQUEN'
     ELSE prov.provincia_raw
   END                                                                   AS provincia_cliente,
+  -- v311+ (2026-07-22): vendedor real del cliente segun la app (fuente
+  -- de verdad del negocio). Usar en slicers PBI en lugar del SlpCode
+  -- SAP que esta inconsistente en decenas de facturas.
+  ca.assigned_vendor_app                                                AS assigned_vendor,
   inv._sync_timestamp
 FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv,
 UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json)) AS line
@@ -596,6 +643,8 @@ LEFT JOIN `app-vendedores-shimano.shimano_app.v_sap_items_enriched` it
   ON it.item_code = JSON_VALUE(line, '$.ItemCode')
 LEFT JOIN prov_lookup prov
   ON prov.card_code = inv.card_code
+LEFT JOIN cliente_app ca
+  ON ca.card_code = inv.card_code
 WHERE COALESCE(inv.cancelled, 'tNO') = 'tNO';
 
 
