@@ -3306,7 +3306,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v310';
+const APP_VERSION = 'v311';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -10982,19 +10982,23 @@ window.closeTargetsPanel = async function(){
     pendingIds.forEach(id => {
       if (_tgtAutosaveTimers[id]) { clearTimeout(_tgtAutosaveTimers[id]); delete _tgtAutosaveTimers[id]; }
     });
-    // Flush sync: esperar todos los saves antes de cerrar. Si alguno falla
-    // el alert dentro de _saveTargetFor avisa al user y NO cerramos el modal.
+    // Flush sync: esperar todos los saves antes de cerrar.
     for (const id of pendingIds) {
-      const input = document.querySelector('.tgt-input[data-month]');
-      // Buscar el input especifico por monthIdx del pending change:
       const ch = tgtPendingChanges[id];
-      const specificInput = ch != null ? document.querySelector('.tgt-input[data-month="' + ch.monthIdx + '"]') : input;
-      await _saveTargetFor(id, specificInput || null);
+      const monthIdx = ch ? ch.monthIdx : null;
+      if (monthIdx != null) await _saveTargetFor(id, monthIdx);
     }
   }
   document.getElementById('targets-modal').classList.remove('open');
   tgtPendingChanges = {};
 };
+
+// v310+: familias en las que se descompone el target mensual.
+// El total del mes se calcula como suma de las 3. Docs viejos sin
+// targetByFamily se muestran con REEL/CANAS/LINEAS vacios y el total
+// pre-existente en la columna Total (readonly, migrar cargando manual).
+const TARGET_FAMILIES = ['REEL', 'CANAS', 'LINEAS'];  // NO usar Ñ (BQ + JSON keys mas simples)
+const TARGET_FAMILY_LABELS = {REEL: 'Reel', CANAS: 'Cañas', LINEAS: 'Líneas'};
 
 function renderTargetsTable(){
   const vendor = document.getElementById('tgt-vendor').value;
@@ -11004,170 +11008,175 @@ function renderTargetsTable(){
   tgtPendingChanges = {};
   const nowM = new Date().getMonth();
   const nowY = new Date().getFullYear();
-  let html = '<table class="targets-table"><thead><tr><th style="width:32%">Mes</th><th style="width:48%">Target ARS</th><th style="width:20%">Estado</th></tr></thead><tbody>';
+  let html = '<table class="targets-table"><thead><tr>'
+    + '<th style="width:20%">Mes</th>'
+    + '<th style="width:18%">Reel</th>'
+    + '<th style="width:18%">Cañas</th>'
+    + '<th style="width:18%">Líneas</th>'
+    + '<th style="width:14%;background:#f0f9ff">Total mes</th>'
+    + '<th style="width:12%">Estado</th>'
+    + '</tr></thead><tbody>';
   for (let m = 0; m < 12; m++) {
     const id = targetDocId(vendor, year, m);
     const t = targetsCache.get(id);
+    const byFam = (t && t.targetByFamily) || {};
     const isCurrent = (year === nowY && m === nowM);
     const rowCls = isCurrent ? 'month-current' : '';
-    const currentVal = t && t.targetArs != null ? Math.round(parseFloat(t.targetArs)) : '';
-    const stateBadge = (t && t.targetArs != null) ? '<span class="tgt-state-badge asignado">&#10003; Asignado</span>' : '<span class="tgt-state-badge sin">Sin cargar</span>';
+    // Total sale de la suma de familias si estan cargadas, sino del legacy targetArs.
+    let totalMes = 0;
+    let algunaCargada = false;
+    TARGET_FAMILIES.forEach(f => {
+      const v = byFam[f] != null ? parseFloat(byFam[f]) : NaN;
+      if (!isNaN(v) && v > 0) { totalMes += v; algunaCargada = true; }
+    });
+    // Fallback: si no hay desglose por familia pero hay targetArs legacy, mostrarlo.
+    if (!algunaCargada && t && t.targetArs != null) totalMes = Math.round(parseFloat(t.targetArs));
+    const cargado = algunaCargada || (t && t.targetArs != null && t.targetArs > 0);
+    const stateBadge = cargado ? '<span class="tgt-state-badge asignado">&#10003; Asignado</span>' : '<span class="tgt-state-badge sin">Sin cargar</span>';
     html += '<tr class="' + rowCls + '">';
     html += '<td><b>' + MESES[m] + '</b>' + (isCurrent ? ' <span style="font-size:9px;color:#92400e;font-weight:700">(mes actual)</span>' : '') + '</td>';
-    html += '<td><input type="number" min="0" step="1000" class="tgt-input" data-month="' + m + '" placeholder="Sin asignar" value="' + currentVal + '" oninput="onTgtInputChange(this)"/></td>';
+    TARGET_FAMILIES.forEach(f => {
+      const val = byFam[f] != null ? Math.round(parseFloat(byFam[f])) : '';
+      html += '<td><input type="number" min="0" step="1000" class="tgt-input" data-month="' + m + '" data-familia="' + f + '" placeholder="0" value="' + val + '" oninput="onTgtInputChange(this)"/></td>';
+    });
+    html += '<td style="text-align:right;font-weight:800;color:#0369a1;font-family:ui-monospace,Menlo,monospace;background:#f0f9ff" id="tgt-total-' + m + '">' + (totalMes > 0 ? '$' + totalMes.toLocaleString('es-AR') : '-') + '</td>';
     html += '<td>' + stateBadge + '</td>';
     html += '</tr>';
   }
   html += '</tbody></table>';
-  html += '<div style="font-size:11px;color:#64748b;margin-top:10px;line-height:1.5"><b>Tip:</b> los valores se <b>guardan solos</b> al terminar de escribir (~1 segundo). Tambien podes usar <b>Guardar Targets</b> para forzar el guardado inmediato. Podes dejar meses en blanco &mdash; el dashboard solo suma los meses cargados.</div>';
+  html += '<div style="font-size:11px;color:#64748b;margin-top:10px;line-height:1.5"><b>Tip:</b> carg&aacute; el target de cada familia (Reel / Ca&ntilde;as / L&iacute;neas) y el <b>Total mes</b> se calcula solo. Los valores se <b>guardan solos</b> al terminar de escribir (~1 segundo).</div>';
   document.getElementById('tgt-table-wrap').innerHTML = html;
   document.getElementById('tgt-save-btn').textContent = 'Guardar Targets';
   document.getElementById('tgt-save-btn').disabled = false;
 }
 
-// v309+: autosave con debounce 900ms. Se guarda solo al terminar de
-// escribir sin tocar mas por un momento. Motivo: el flow anterior
-// exigia apretar "Guardar Targets" y muchos usuarios cerraban el
-// modal creyendo que ya se habia guardado, perdiendo los cambios.
+// v310+: autosave con debounce 900ms. Se guarda solo al terminar de
+// escribir sin tocar mas por un momento. Modelo: el pending change se
+// almacena por (mes) con `byFamily` map dentro. Al guardar, se lee el
+// estado completo de los 3 inputs de la fila (para no perder los
+// otros valores que no se tocaron en este pending).
 const _tgtAutosaveTimers = {};
 window.onTgtInputChange = function(input){
   const m = parseInt(input.dataset.month);
+  const familia = input.dataset.familia;
   const id = targetDocId(tgtSelectedVendor, tgtSelectedYear, m);
   const val = input.value.trim();
-  tgtPendingChanges[id] = {value: val, monthIdx: m};
+  // Merge: preservar cambios de otras familias del mismo mes.
+  if (!tgtPendingChanges[id]) tgtPendingChanges[id] = {monthIdx: m, byFamily: {}};
+  tgtPendingChanges[id].byFamily[familia] = val;
   input.classList.toggle('changed', true);
+  // Actualizar total en vivo (leyendo TODOS los inputs del mes, no solo
+  // el que se toco). Feedback inmediato mientras el debounce corre.
+  _tgtUpdateRowTotal(m);
   // Cancelar timer previo si el usuario sigue escribiendo.
   if (_tgtAutosaveTimers[id]) clearTimeout(_tgtAutosaveTimers[id]);
   _tgtAutosaveTimers[id] = setTimeout(() => {
     delete _tgtAutosaveTimers[id];
-    _saveTargetFor(id, input);
+    _saveTargetFor(id, m);
   }, 900);
 };
 
-// v309+: guarda un solo target (mes+vendedor). Usado por el autosave
-// del input y por el flush al cerrar el modal con cambios pendientes.
-async function _saveTargetFor(id, inputEl){
+// v310+: recalcula la celda "Total mes" leyendo los 3 inputs de la fila.
+function _tgtUpdateRowTotal(monthIdx){
+  const cell = document.getElementById('tgt-total-' + monthIdx);
+  if (!cell) return;
+  let total = 0;
+  TARGET_FAMILIES.forEach(f => {
+    const el = document.querySelector('.tgt-input[data-month="' + monthIdx + '"][data-familia="' + f + '"]');
+    if (!el) return;
+    const v = parseFloat((el.value || '').trim());
+    if (!isNaN(v) && v > 0) total += v;
+  });
+  cell.textContent = total > 0 ? '$' + total.toLocaleString('es-AR') : '-';
+}
+
+// v310+: guarda un solo target (mes+vendedor). Lee el estado COMPLETO
+// de los 3 inputs de la fila (Reel/Canas/Lineas), arma targetByFamily,
+// calcula targetArs = suma. Doc queda con ambos campos para retro-compat.
+async function _saveTargetFor(id, monthIdx){
   const ch = tgtPendingChanges[id];
   if (!ch) return;
-  const raw = String(ch.value != null ? ch.value : '').trim();
-  const monthIdx = ch.monthIdx;
-  if (inputEl) inputEl.classList.add('saving');
+  const rowInputs = TARGET_FAMILIES.map(f => ({
+    familia: f,
+    el: document.querySelector('.tgt-input[data-month="' + monthIdx + '"][data-familia="' + f + '"]'),
+  }));
+  const byFamily = {};
+  let total = 0;
+  let alguna = false;
+  let invalido = null;
+  rowInputs.forEach(({familia, el}) => {
+    if (!el) return;
+    const raw = (el.value || '').trim();
+    if (raw === '') return;  // familia sin cargar
+    const num = parseFloat(raw);
+    if (isNaN(num) || num < 0) { invalido = familia; return; }
+    byFamily[familia] = Math.round(num);
+    total += Math.round(num);
+    alguna = true;
+  });
+  if (invalido) {
+    alert('Valor invalido en ' + invalido + '. Cargar un numero >= 0.');
+    return;
+  }
+  // Marcar los 3 inputs de la fila como saving.
+  rowInputs.forEach(({el}) => { if (el) el.classList.add('saving'); });
   try {
-    if (raw === '') {
+    if (!alguna) {
+      // Todas las familias vacias = borrar el doc.
       await fbDb.collection('targets').doc(id).delete().catch(() => {});
     } else {
-      const num = parseFloat(raw);
-      if (isNaN(num) || num < 0) {
-        if (inputEl) inputEl.classList.remove('saving');
-        return; // valor invalido, no persistir
-      }
       await fbDb.collection('targets').doc(id).set({
         sellerId: tgtSelectedVendor,
         year: tgtSelectedYear,
         month: monthIdx,
-        targetArs: Math.round(num),
+        targetArs: total,                // suma calculada, para retro-compat con v_targets y PBI
+        targetByFamily: byFamily,        // v310+: desglose por familia
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         updatedBy: currentUser.uid,
         updatedByEmail: currentUser.email || '',
       }, {merge: true});
     }
     delete tgtPendingChanges[id];
-    if (inputEl) {
-      inputEl.classList.remove('changed', 'saving');
-      inputEl.classList.add('saved');
-      setTimeout(() => { inputEl.classList.remove('saved'); }, 1200);
-    }
-    showSyncTag('Target guardado');
+    rowInputs.forEach(({el}) => {
+      if (!el) return;
+      el.classList.remove('changed', 'saving');
+      el.classList.add('saved');
+      setTimeout(() => { el.classList.remove('saved'); }, 1200);
+    });
+    showSyncTag('Target guardado ($' + total.toLocaleString('es-AR') + ')');
   } catch(e) {
     console.error('_saveTargetFor', id, e);
-    if (inputEl) inputEl.classList.remove('saving');
+    rowInputs.forEach(({el}) => { if (el) el.classList.remove('saving'); });
     alert('Error guardando target: ' + (e.message || e));
   }
 }
 
 window.saveTargets = async function(){
   if (!canManageTargets()) { alert('No tenes permisos.'); return; }
-  // SNAPSHOT inmediato de los pending changes. Antes el loop iteraba
-  // directo sobre tgtPendingChanges, pero el listener de Firestore se
-  // dispara despues del primer write, llama renderTargetsTable() y eso
-  // resetea tgtPendingChanges = {}. Resultado: solo el primer mes se
-  // guardaba. Ahora copiamos a una variable local antes de empezar.
-  const snapshot = {};
-  Object.keys(tgtPendingChanges).forEach(id => { snapshot[id] = tgtPendingChanges[id]; });
-  const ids = Object.keys(snapshot);
-  if (!ids.length) { alert('No hay cambios para guardar.'); return; }
+  // v310+: reescrito para usar _saveTargetFor (que maneja targetByFamily).
+  // Flush inmediato de todos los pendientes.
+  const pendingIds = Object.keys(tgtPendingChanges);
+  if (!pendingIds.length) { alert('No hay cambios para guardar.'); return; }
   const btn = document.getElementById('tgt-save-btn');
   btn.disabled = true;
   btn.textContent = 'Guardando...';
-  let ok = 0, fail = 0;
-  let firstError = null;
-  try {
-    for (const id of ids) {
-      const ch = snapshot[id];
-      if (ch == null) {
-        console.warn('saveTargets: pending change null/undefined para id', id);
-        continue;
-      }
-      // Tolerar formato viejo (cuando ch era string en vez de objeto).
-      const isObj = typeof ch === 'object';
-      const raw = isObj ? (ch.value != null ? String(ch.value) : '').trim()
-                        : String(ch || '').trim();
-      const monthIdx = isObj ? ch.monthIdx : null;
-      // Reasignar para que el resto del codigo siga funcionando con el obj.
-      const safeCh = {value: raw, monthIdx: monthIdx};
-      // Recuperar el monthIdx del docId si el pending change no lo trajo.
-      // El docId tiene formato <vendor>_<year>_<MM> (MM padded 2 digitos).
-      let effectiveMonthIdx = safeCh.monthIdx;
-      if (effectiveMonthIdx == null) {
-        const parts = id.split('_');
-        const last = parts[parts.length - 1];
-        const parsed = parseInt(last);
-        if (!isNaN(parsed)) effectiveMonthIdx = parsed;
-      }
-      try {
-        if (raw === '') {
-          // Vacio = borrar el target
-          await fbDb.collection('targets').doc(id).delete().catch(() => {});
-          ok++;
-        } else {
-          const num = parseFloat(raw);
-          if (isNaN(num) || num < 0) {
-            fail++;
-            const monthName = (effectiveMonthIdx != null && MESES[effectiveMonthIdx]) ? MESES[effectiveMonthIdx] : ('mes ' + (effectiveMonthIdx != null ? effectiveMonthIdx : '?'));
-            if (!firstError) firstError = 'Valor invalido en ' + monthName + ': "' + raw + '"';
-            continue;
-          }
-          await fbDb.collection('targets').doc(id).set({
-            sellerId: tgtSelectedVendor,
-            year: tgtSelectedYear,
-            month: effectiveMonthIdx,
-            targetArs: Math.round(num),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            updatedBy: currentUser.uid,
-            updatedByEmail: currentUser.email || '',
-          }, {merge: true});
-          ok++;
-        }
-      } catch(e) {
-        console.error('save target', id, e);
-        fail++;
-        if (!firstError) firstError = (e && e.code ? '[' + e.code + '] ' : '') + (e && e.message ? e.message : String(e));
-      }
-    }
-    logOp('actualizar_targets', 'targets', tgtSelectedVendor + ' ' + tgtSelectedYear, {changes: ids.length, ok, fail});
-    tgtPendingChanges = {};
-    btn.textContent = ok + ' guardados' + (fail ? ' (' + fail + ' fallidos)' : '');
-    showSyncTag('Targets actualizados (' + ok + ')');
-    if (fail > 0 && firstError) {
-      alert('Hubo ' + fail + ' error(es) al guardar.\n\nPrimer error:\n' + firstError + '\n\nSi dice "permission-denied" o "Missing or insufficient permissions", tenes que actualizar las Firestore Security Rules para la collection "targets" (pedile el bloque a Mariano).');
-    }
-    setTimeout(() => { btn.textContent = 'Guardar Targets'; btn.disabled = false; renderTargetsTable(); }, 1200);
-  } catch(e) {
-    console.error('saveTargets', e);
-    alert('Error guardando: ' + (e.message || e));
-    btn.textContent = 'Guardar Targets';
-    btn.disabled = false;
+  // Cancelar debounces en curso para no dispararlos despues.
+  pendingIds.forEach(id => {
+    if (_tgtAutosaveTimers[id]) { clearTimeout(_tgtAutosaveTimers[id]); delete _tgtAutosaveTimers[id]; }
+  });
+  let ok = 0;
+  for (const id of pendingIds) {
+    const ch = tgtPendingChanges[id];
+    const monthIdx = ch ? ch.monthIdx : null;
+    if (monthIdx == null) continue;
+    try {
+      await _saveTargetFor(id, monthIdx);
+      ok++;
+    } catch(e) { console.error('saveTargets legacy loop', id, e); }
   }
+  logOp('actualizar_targets', 'targets', tgtSelectedVendor + ' ' + tgtSelectedYear, {changes: pendingIds.length, ok});
+  btn.textContent = ok + ' guardados';
+  setTimeout(() => { btn.textContent = 'Guardar Targets'; btn.disabled = false; }, 1200);
 };
 
 // v296+ Export Excel de targets en formato largo para SAP / Power BI.

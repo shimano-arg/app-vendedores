@@ -740,6 +740,13 @@ SELECT
   year                                                    AS anio,
   month + 1                                               AS mes,   -- 0-11 -> 1-12
   target_ars,
+  -- v310+: desglose por familia. Docs viejos pre-v310 tienen null en
+  -- estas 3 (targetByFamily no existia). Consumidores en PBI:
+  --   * Card "Target Reel del mes" = SUM(target_reel_ars)
+  --   * Cumplimiento por familia = SUM(reel_facturado) / SUM(target_reel_ars)
+  target_reel_ars,
+  target_canas_ars,
+  target_lineas_ars,
   _sync_timestamp
 FROM `app-vendedores-shimano.shimano_app.targets_raw`
 WHERE seller_id IN (

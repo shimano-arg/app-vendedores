@@ -534,10 +534,16 @@ def sync_targets_from_firestore(db: firestore.Client, sync_ts: str) -> list:
       sellerId       STRING   vendorKey uppercase, ej 'GONZALO DE LA ROSA'
       year           INT      2026, 2027, ...
       month          INT      0-11 (indice del array MESES 0-indexed)
-      targetArs      NUMBER   objetivo del mes en ARS
+      targetArs      NUMBER   objetivo del mes en ARS (suma de las familias)
+      targetByFamily MAP      v310+: desglose por familia REEL/CANAS/LINEAS
       updatedAt      TS
       updatedBy      STRING   uid
       updatedByEmail STRING
+
+    v310+: targetByFamily se aplana a columnas explicitas target_reel_ars,
+    target_canas_ars, target_lineas_ars. Docs viejos sin targetByFamily
+    (pre-v310) quedan con esas columnas en null; v_targets usa COALESCE
+    para exponer el target_ars global igual que antes.
 
     NOTA: el schema resultante en BQ preserva month 0-11. La conversion
     a 1-12 vive en la vista v_targets para no romper la fidelidad de la
@@ -554,12 +560,19 @@ def sync_targets_from_firestore(db: firestore.Client, sync_ts: str) -> list:
         if target <= 0:
             continue  # skip meses sin cargar
         updated_at = data.get('updatedAt')
+        by_fam = data.get('targetByFamily') or {}
+        def _safe_num(v):
+            try: return float(v) if v is not None else None
+            except (TypeError, ValueError): return None
         rows.append({
             'doc_id':           d.id,
             'seller_id':        data.get('sellerId', ''),
             'year':             int(data.get('year', 0) or 0),
             'month':            int(data.get('month', -1)),  # 0-11
             'target_ars':       target,
+            'target_reel_ars':   _safe_num(by_fam.get('REEL')),
+            'target_canas_ars':  _safe_num(by_fam.get('CANAS')),
+            'target_lineas_ars': _safe_num(by_fam.get('LINEAS')),
             'updated_at':       updated_at.isoformat() if updated_at else None,
             'updated_by':       data.get('updatedBy', ''),
             'updated_by_email': data.get('updatedByEmail', ''),
