@@ -611,6 +611,39 @@ def load_to_bq(bq_client: bigquery.Client, table_id: str, rows: list, entity_nam
     log(f'[BQ/{entity_name}] OK: {dest.num_rows} rows en la tabla despues del truncate+load')
 
 
+def _load_to_bq_with_schema(bq_client: bigquery.Client, table_id: str, rows: list, entity_name: str, schema: list, dry_run: bool = False):
+    """v311+: variante de load_to_bq con schema explicito. Usar cuando hay
+    columnas que pueden venir todas null en el batch (autodetect las
+    dropea, tipo lo que paso con paid_to_date y con target_reel_ars).
+    Fuerza las columnas del schema aunque no tengan valores todavia."""
+    if not rows:
+        log(f'[BQ/{entity_name}] 0 rows, nada que cargar')
+        return
+    if dry_run:
+        log(f'[BQ/{entity_name}] DRY-RUN: {len(rows)} rows NO cargados a {table_id}')
+        return
+    log(f'[BQ/{entity_name}] cargando {len(rows)} rows a {table_id} (schema explicito)...')
+    job_config = bigquery.LoadJobConfig(
+        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+        schema=schema,
+    )
+    ndjson_bytes = '\n'.join(json.dumps(r, default=str) for r in rows).encode('utf-8')
+    try:
+        job = bq_client.load_table_from_file(
+            BytesIO(ndjson_bytes),
+            table_id,
+            location=BQ_LOCATION,
+            job_config=job_config,
+        )
+        job.result()
+    except Exception as e:
+        log(f'[FATAL/{entity_name}] BigQuery load fallo: {e}')
+        sys.exit(5)
+    dest = bq_client.get_table(table_id)
+    log(f'[BQ/{entity_name}] OK: {dest.num_rows} rows en la tabla despues del truncate+load')
+
+
 # ============================================================
 # Main
 # ============================================================
@@ -777,8 +810,25 @@ def main():
     # Doc ID canonico: {vendorKey_normalizado}_{year}_{MM} (unico por combinacion).
     # WRITE_TRUNCATE: garantiza dedup por construccion (borra y reescribe todo).
     # No usamos Firestore Extension porque son ~50 docs y este pull es mas simple.
+    # v311+: schema explicito para forzar las columnas target_reel/canas/lineas_ars
+    # aunque vengan todas null. Sin schema, autodetect las dropea (bug conocido
+    # tipo el que tuvimos con paid_to_date en sap_invoices_raw).
     target_rows = sync_targets_from_firestore(db, sync_ts)
-    load_to_bq(bq_client, BQ_TABLE_TARGETS, target_rows, 'TARGETS', dry_run=dry_run)
+    _target_schema = [
+        bigquery.SchemaField('doc_id', 'STRING'),
+        bigquery.SchemaField('seller_id', 'STRING'),
+        bigquery.SchemaField('year', 'INT64'),
+        bigquery.SchemaField('month', 'INT64'),
+        bigquery.SchemaField('target_ars', 'FLOAT64'),
+        bigquery.SchemaField('target_reel_ars', 'FLOAT64'),
+        bigquery.SchemaField('target_canas_ars', 'FLOAT64'),
+        bigquery.SchemaField('target_lineas_ars', 'FLOAT64'),
+        bigquery.SchemaField('updated_at', 'TIMESTAMP'),
+        bigquery.SchemaField('updated_by', 'STRING'),
+        bigquery.SchemaField('updated_by_email', 'STRING'),
+        bigquery.SchemaField('_sync_timestamp', 'TIMESTAMP'),
+    ]
+    _load_to_bq_with_schema(bq_client, BQ_TABLE_TARGETS, target_rows, 'TARGETS', _target_schema, dry_run=dry_run)
 
     log('=== sync_sap_to_bigquery END OK ===')
 
