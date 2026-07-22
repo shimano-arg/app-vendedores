@@ -3303,7 +3303,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v308';
+const APP_VERSION = 'v309';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -14699,6 +14699,20 @@ function refreshRendFotoGrid(){
   }
 }
 
+// v308+: usuarios que auto-aprueban sus rendiciones (directores del area).
+// No requieren un responsable externo asignado en Panel Usuarios; el
+// submit del gasto/solicitud queda con status='approved' + approvedBy = self.
+// Motivo: Diego Valsi es director del area y rinde directo, sin necesidad
+// de que otro apruebe. Agregar mas emails aqui si suma otro director.
+const SELF_APPROVE_RENDICIONES_EMAILS = new Set([
+  'diego.valsi@shimano.uy',
+]);
+
+function isSelfApproverForRendiciones(){
+  const email = (currentUser && currentUser.email || '').toLowerCase().trim();
+  return SELF_APPROVE_RENDICIONES_EMAILS.has(email);
+}
+
 async function resolveMyRendicionesApprover(){
   // Devuelve {uid, email} del responsable asignado al usuario logueado.
   // Si no esta asignado o el doc no existe, devuelve null.
@@ -14756,9 +14770,21 @@ window.submitRendSolicitud = async function(){
   const errors = [];
   ['rd-solicitadoPor','rd-motivo','rd-tipoOp','rd-importe','rd-moneda','rd-obs','rd-estado'].forEach(id => { if (!read(id)) errors.push(id.replace('rd-','')); });
   if (errors.length) { alert('Faltan: ' + errors.join(', ')); return; }
-  const approver = await resolveMyRendicionesApprover();
-  if (!approver) { alert('No tenes un responsable de rendiciones asignado. Pedile a Mariano que lo configure en el Panel Usuarios.'); return; }
-  if (!confirm('Enviar la solicitud a "' + (approver.name || approver.email) + '"? Va a quedar PENDIENTE DE APROBACION hasta que la apruebe.')) return;
+  // v308+: Diego (director) auto-aprueba. Mismo patron que submitRendGasto.
+  const selfApprove = isSelfApproverForRendiciones();
+  let approver;
+  if (selfApprove) {
+    approver = {
+      uid: currentUser.uid,
+      email: currentUser.email || '',
+      name: (currentUser.displayName || currentUser.email || '') + ' (auto, director)',
+    };
+    if (!confirm('Registrar esta solicitud (auto-aprobada como director del area)?')) return;
+  } else {
+    approver = await resolveMyRendicionesApprover();
+    if (!approver) { alert('No tenes un responsable de rendiciones asignado. Pedile a Mariano que lo configure en el Panel Usuarios.'); return; }
+    if (!confirm('Enviar la solicitud a "' + (approver.name || approver.email) + '"? Va a quedar PENDIENTE DE APROBACION hasta que la apruebe.')) return;
+  }
   const data = {
     tipo: 'solicitud',
     solicitadoPor: read('rd-solicitadoPor'),
@@ -14775,20 +14801,28 @@ window.submitRendSolicitud = async function(){
     vendor: assignedVendor || null,
     approverUid: approver.uid,
     approverEmail: approver.email,
-    status: 'pending_approval',
+    status: selfApprove ? 'approved' : 'pending_approval',
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
+  if (selfApprove) {
+    data.approvedAt = firebase.firestore.FieldValue.serverTimestamp();
+    data.approvedBy = currentUser.uid;
+    data.approvedByEmail = currentUser.email || '';
+    data.approvalNote = 'Auto-aprobada (director del area)';
+  }
   const btn = document.querySelector('#rd-solicitud-form .btn-confirm');
-  if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
+  if (btn) { btn.disabled = true; btn.textContent = selfApprove ? 'Registrando...' : 'Enviando...'; }
   try {
     const ref = await fbDb.collection('rendiciones').add(data);
-    await notifyRendicionApprover(
-      approver,
-      'Nueva solicitud: ' + data.tipoOperacion,
-      'Vendedor: ' + (data.ownerName || data.ownerEmail) + '\nImporte: ' + data.importe + ' ' + data.moneda + '\nMotivo: ' + data.motivo,
-      ref.id
-    );
-    showSyncTag('Solicitud enviada a ' + (approver.name || approver.email));
+    if (!selfApprove) {
+      await notifyRendicionApprover(
+        approver,
+        'Nueva solicitud: ' + data.tipoOperacion,
+        'Vendedor: ' + (data.ownerName || data.ownerEmail) + '\nImporte: ' + data.importe + ' ' + data.moneda + '\nMotivo: ' + data.motivo,
+        ref.id
+      );
+    }
+    showSyncTag(selfApprove ? 'Solicitud registrada (auto-aprobada)' : ('Solicitud enviada a ' + (approver.name || approver.email)));
     document.getElementById('rd-solicitud-form').reset();
     rdSolicitudAdj = null;
     refreshRendAdjGrid();
@@ -14830,9 +14864,23 @@ window.submitRendGasto = async function(){
   // cargar un gasto manual sin comprobante (caso GASTO SIN COMPROBANTE).
   ['rg-desc','rg-modoPago','rg-moneda','rg-tipoGasto','rg-importe','rg-divGasto','rg-obs'].forEach(id => { if (!read(id)) errors.push(id.replace('rg-','')); });
   if (errors.length) { alert('Faltan: ' + errors.join(', ')); return; }
-  const approver = await resolveMyRendicionesApprover();
-  if (!approver) { alert('No tenes un responsable de rendiciones asignado. Pedile a Mariano que lo configure en el Panel Usuarios.'); return; }
-  if (!confirm('Enviar este gasto a "' + (approver.name || approver.email) + '" para aprobacion?')) return;
+  // v308+: Diego (y otros directores del area en SELF_APPROVE_RENDICIONES_EMAILS)
+  // rinde directo sin approver externo. La rendicion queda status='approved'
+  // desde el submit y no se notifica a nadie mas.
+  const selfApprove = isSelfApproverForRendiciones();
+  let approver;
+  if (selfApprove) {
+    approver = {
+      uid: currentUser.uid,
+      email: currentUser.email || '',
+      name: (currentUser.displayName || currentUser.email || '') + ' (auto, director)',
+    };
+    if (!confirm('Registrar este gasto (auto-aprobado como director del area)?')) return;
+  } else {
+    approver = await resolveMyRendicionesApprover();
+    if (!approver) { alert('No tenes un responsable de rendiciones asignado. Pedile a Mariano que lo configure en el Panel Usuarios.'); return; }
+    if (!confirm('Enviar este gasto a "' + (approver.name || approver.email) + '" para aprobacion?')) return;
+  }
   const importe = parseFloat(read('rg-importe')) || 0;
   const importeUsd = parseFloat(read('rg-importeUsd')) || 0;
   // v308+: la foto del ticket ahora se sube a Firebase Storage (no embebida
@@ -14872,19 +14920,29 @@ window.submitRendGasto = async function(){
     vendor: assignedVendor || null,
     approverUid: approver.uid,
     approverEmail: approver.email,
-    status: 'pending_approval',
+    status: selfApprove ? 'approved' : 'pending_approval',
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
-  if (btn) { btn.textContent = 'Enviando...'; }
+  if (selfApprove) {
+    // v308+: auto-aprobado (Diego director). Poblar campos de aprobacion
+    // como si el propio owner fuese el approver.
+    data.approvedAt = firebase.firestore.FieldValue.serverTimestamp();
+    data.approvedBy = currentUser.uid;
+    data.approvedByEmail = currentUser.email || '';
+    data.approvalNote = 'Auto-aprobada (director del area)';
+  }
+  if (btn) { btn.textContent = selfApprove ? 'Registrando...' : 'Enviando...'; }
   try {
     const ref = await fbDb.collection('rendiciones').add(data);
-    await notifyRendicionApprover(
-      approver,
-      'Nuevo gasto: ' + data.descripcion,
-      'Vendedor: ' + (data.ownerName || data.ownerEmail) + '\nImporte: ' + data.importe + ' ' + data.moneda + '\nTicket: ' + data.numeroTicket + '\nDescripción: ' + data.descripcion + '\nTipo: ' + data.tipoGasto,
-      ref.id
-    );
-    showSyncTag('Gasto enviado a ' + (approver.name || approver.email));
+    if (!selfApprove) {
+      await notifyRendicionApprover(
+        approver,
+        'Nuevo gasto: ' + data.descripcion,
+        'Vendedor: ' + (data.ownerName || data.ownerEmail) + '\nImporte: ' + data.importe + ' ' + data.moneda + '\nTicket: ' + data.numeroTicket + '\nDescripción: ' + data.descripcion + '\nTipo: ' + data.tipoGasto,
+        ref.id
+      );
+    }
+    showSyncTag(selfApprove ? 'Gasto registrado (auto-aprobado)' : ('Gasto enviado a ' + (approver.name || approver.email)));
     document.getElementById('rd-gasto-form').reset();
     rdGastoFoto = null;
     refreshRendFotoGrid();
