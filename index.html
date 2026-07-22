@@ -587,6 +587,9 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
 .targets-table input.tgt-input{width:100%;padding:7px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px;text-align:right;font-family:ui-monospace,Menlo,monospace;outline:none}
 .targets-table input.tgt-input:focus{border-color:#0284c7}
 .targets-table input.tgt-input.changed{border-color:#f59e0b;background:#fffbeb}
+.targets-table input.tgt-input.saving{border-color:#0284c7;background:#eff6ff;opacity:.7}
+.targets-table input.tgt-input.saved{border-color:#16a34a;background:#f0fdf4;animation:tgt-flash 1.2s ease-out}
+@keyframes tgt-flash{0%{background:#bbf7d0}100%{background:#f0fdf4}}
 .targets-table tr.month-current td{background:#fffbeb;font-weight:700}
 .tgt-state-badge{display:inline-block;font-size:9px;font-weight:800;padding:2px 7px;border-radius:4px;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap}
 .tgt-state-badge.asignado{background:#dcfce7;color:#166534}
@@ -3303,7 +3306,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v309';
+const APP_VERSION = 'v310';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -10968,9 +10971,27 @@ window.openTargetsPanel = function(){
   document.getElementById('targets-modal').classList.add('open');
   renderTargetsTable();
 };
-window.closeTargetsPanel = function(){
-  const dirty = Object.keys(tgtPendingChanges).length > 0;
-  if (dirty && !confirm('Hay cambios sin guardar. Cerrar igual?')) return;
+window.closeTargetsPanel = async function(){
+  // v309+: con autosave el modal casi nunca cierra con pendientes, pero
+  // si el debounce todavia no disparo (usuario aprieta X inmediatamente
+  // tras escribir), flusheamos todo sync antes de cerrar. No perdida de
+  // datos aunque cierre rapido.
+  const pendingIds = Object.keys(tgtPendingChanges);
+  if (pendingIds.length) {
+    // Cancelar cualquier debounce en curso para no dispararlo despues.
+    pendingIds.forEach(id => {
+      if (_tgtAutosaveTimers[id]) { clearTimeout(_tgtAutosaveTimers[id]); delete _tgtAutosaveTimers[id]; }
+    });
+    // Flush sync: esperar todos los saves antes de cerrar. Si alguno falla
+    // el alert dentro de _saveTargetFor avisa al user y NO cerramos el modal.
+    for (const id of pendingIds) {
+      const input = document.querySelector('.tgt-input[data-month]');
+      // Buscar el input especifico por monthIdx del pending change:
+      const ch = tgtPendingChanges[id];
+      const specificInput = ch != null ? document.querySelector('.tgt-input[data-month="' + ch.monthIdx + '"]') : input;
+      await _saveTargetFor(id, specificInput || null);
+    }
+  }
   document.getElementById('targets-modal').classList.remove('open');
   tgtPendingChanges = {};
 };
@@ -10998,20 +11019,71 @@ function renderTargetsTable(){
     html += '</tr>';
   }
   html += '</tbody></table>';
-  html += '<div style="font-size:11px;color:#64748b;margin-top:10px;line-height:1.5"><b>Tip:</b> los valores se guardan cuando apretas <b>Guardar Targets</b>. Podes dejar meses en blanco si todavia no estan definidos &mdash; el dashboard solo suma los meses asignados.</div>';
+  html += '<div style="font-size:11px;color:#64748b;margin-top:10px;line-height:1.5"><b>Tip:</b> los valores se <b>guardan solos</b> al terminar de escribir (~1 segundo). Tambien podes usar <b>Guardar Targets</b> para forzar el guardado inmediato. Podes dejar meses en blanco &mdash; el dashboard solo suma los meses cargados.</div>';
   document.getElementById('tgt-table-wrap').innerHTML = html;
   document.getElementById('tgt-save-btn').textContent = 'Guardar Targets';
   document.getElementById('tgt-save-btn').disabled = false;
 }
 
+// v309+: autosave con debounce 900ms. Se guarda solo al terminar de
+// escribir sin tocar mas por un momento. Motivo: el flow anterior
+// exigia apretar "Guardar Targets" y muchos usuarios cerraban el
+// modal creyendo que ya se habia guardado, perdiendo los cambios.
+const _tgtAutosaveTimers = {};
 window.onTgtInputChange = function(input){
   const m = parseInt(input.dataset.month);
   const id = targetDocId(tgtSelectedVendor, tgtSelectedYear, m);
   const val = input.value.trim();
-  // Almaceno el valor (puede ser '' para "borrar")
   tgtPendingChanges[id] = {value: val, monthIdx: m};
   input.classList.toggle('changed', true);
+  // Cancelar timer previo si el usuario sigue escribiendo.
+  if (_tgtAutosaveTimers[id]) clearTimeout(_tgtAutosaveTimers[id]);
+  _tgtAutosaveTimers[id] = setTimeout(() => {
+    delete _tgtAutosaveTimers[id];
+    _saveTargetFor(id, input);
+  }, 900);
 };
+
+// v309+: guarda un solo target (mes+vendedor). Usado por el autosave
+// del input y por el flush al cerrar el modal con cambios pendientes.
+async function _saveTargetFor(id, inputEl){
+  const ch = tgtPendingChanges[id];
+  if (!ch) return;
+  const raw = String(ch.value != null ? ch.value : '').trim();
+  const monthIdx = ch.monthIdx;
+  if (inputEl) inputEl.classList.add('saving');
+  try {
+    if (raw === '') {
+      await fbDb.collection('targets').doc(id).delete().catch(() => {});
+    } else {
+      const num = parseFloat(raw);
+      if (isNaN(num) || num < 0) {
+        if (inputEl) inputEl.classList.remove('saving');
+        return; // valor invalido, no persistir
+      }
+      await fbDb.collection('targets').doc(id).set({
+        sellerId: tgtSelectedVendor,
+        year: tgtSelectedYear,
+        month: monthIdx,
+        targetArs: Math.round(num),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByEmail: currentUser.email || '',
+      }, {merge: true});
+    }
+    delete tgtPendingChanges[id];
+    if (inputEl) {
+      inputEl.classList.remove('changed', 'saving');
+      inputEl.classList.add('saved');
+      setTimeout(() => { inputEl.classList.remove('saved'); }, 1200);
+    }
+    showSyncTag('Target guardado');
+  } catch(e) {
+    console.error('_saveTargetFor', id, e);
+    if (inputEl) inputEl.classList.remove('saving');
+    alert('Error guardando target: ' + (e.message || e));
+  }
+}
 
 window.saveTargets = async function(){
   if (!canManageTargets()) { alert('No tenes permisos.'); return; }
