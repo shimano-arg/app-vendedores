@@ -385,6 +385,14 @@ SELECT
   --   qty_pedidos_en_curso = SO abiertas pendientes (comprometido en delivery)
   --   qty_incoming         = PO abiertas (mercaderia en camino)
   COALESCE(qo.qty_backorder, 0)                                       AS qty_backorder,
+  -- v311+ (2026-07-22): alias legacy para no romper visuales viejos de PBI
+  -- que todavia referencian el nombre pre-rename (qty_quotations_open era
+  -- el nombre hasta 2026-07-12, cuando lo cambiamos a qty_backorder). El
+  -- refresh del TABLERO SAR tiraba warning "column not found" y algunos
+  -- visuales quedaban en blanco. Con este alias los visuales vuelven a
+  -- funcionar sin tocar el .pbix; cuando alguien identifique el visual
+  -- roto y lo actualice a qty_backorder, esta columna se puede sacar.
+  COALESCE(qo.qty_backorder, 0)                                       AS qty_quotations_open,
   COALESCE(oo.qty_pedidos_en_curso, 0)                                AS qty_pedidos_en_curso,
   COALESCE(po.qty_incoming, 0)                                        AS qty_incoming,
   -- Stock proyectado = actual + entrante - comprometido total (backorder + pedidos en curso)
