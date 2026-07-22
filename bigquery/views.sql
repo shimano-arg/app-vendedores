@@ -998,3 +998,109 @@ SELECT
   CURRENT_TIMESTAMP() AS _sync_timestamp
 FROM enriquecido
 GROUP BY assigned_vendor, anio, mes;
+
+
+-- ============================================================
+-- View 12: v_rendiciones (2026-07-22)
+-- ============================================================
+-- 1 fila por rendicion de gasto. Solo `tipo='gasto'` (excluye solicitudes
+-- de anticipo). Alimenta el dashboard "Rendiciones" de Power BI:
+--   * KPIs: total rendido, ticket promedio, monto pendiente aprobacion,
+--     % con comprobante fiscal
+--   * Grafico gasto por vendedor + evolucion diaria
+--   * Distribucion por concepto (COMBUSTIBLE/COMIDA/HOSPEDAJE/PEAJE/
+--     TRASLADO/OTROS) - el campo `descripcion` de la app ES el concepto
+--   * Modo de pago (RECARGABLE/CORPORATIVA/EFECTIVO)
+--   * Local vs Regional (divisionGasto)
+--   * Alertas: sin comprobante, pendientes, duplicados (ver v_rendiciones_duplicados)
+--
+-- Naming: usamos `concepto` en la vista aunque en el doc se llame
+-- `descripcion` (mas claro para el usuario final de Power BI, que ve
+-- "concepto de gasto" como categoria).
+--
+-- Foto ticket (v308+): preferir fotoTicketUrl (Storage) sobre fotoTicket
+-- (base64 legacy). Los 45 docs pre-v308 se retro-migraron con
+-- scripts/migrate_rendiciones_foto_to_storage.py el 2026-07-22.
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_rendiciones` AS
+SELECT
+  document_id                                                         AS rendicion_id,
+  JSON_VALUE(data, '$.ownerUid')                                      AS owner_uid,
+  JSON_VALUE(data, '$.ownerEmail')                                    AS owner_email,
+  JSON_VALUE(data, '$.ownerName')                                     AS owner_name,
+  JSON_VALUE(data, '$.vendor')                                        AS vendor,
+  JSON_VALUE(data, '$.status')                                        AS status,
+  JSON_VALUE(data, '$.descripcion')                                   AS concepto,
+  JSON_VALUE(data, '$.tipoGasto')                                     AS tipo_gasto,
+  JSON_VALUE(data, '$.modoPago')                                      AS modo_pago,
+  JSON_VALUE(data, '$.moneda')                                        AS moneda,
+  JSON_VALUE(data, '$.divisionGasto')                                 AS division_gasto,
+  SAFE_CAST(JSON_VALUE(data, '$.importe') AS FLOAT64)                 AS importe_ars,
+  SAFE_CAST(JSON_VALUE(data, '$.importeUsd') AS FLOAT64)              AS importe_usd,
+  JSON_VALUE(data, '$.numeroTicket')                                  AS numero_ticket,
+  JSON_VALUE(data, '$.observaciones')                                 AS observaciones,
+  JSON_VALUE(data, '$.approverEmail')                                 AS approver_email,
+  JSON_VALUE(data, '$.approvedByEmail')                               AS approved_by_email,
+  -- createdAt en Firestore serializa como {_seconds, _nanoseconds}.
+  -- Convertimos a TIMESTAMP + DATE para PBI.
+  TIMESTAMP_SECONDS(SAFE_CAST(JSON_VALUE(data, '$.createdAt._seconds') AS INT64))
+                                                                      AS created_at,
+  DATE(TIMESTAMP_SECONDS(SAFE_CAST(JSON_VALUE(data, '$.createdAt._seconds') AS INT64)),
+       'America/Argentina/Buenos_Aires')                              AS fecha_gasto,
+  EXTRACT(YEAR FROM DATE(TIMESTAMP_SECONDS(SAFE_CAST(JSON_VALUE(data, '$.createdAt._seconds') AS INT64)),
+                          'America/Argentina/Buenos_Aires'))          AS anio,
+  EXTRACT(MONTH FROM DATE(TIMESTAMP_SECONDS(SAFE_CAST(JSON_VALUE(data, '$.createdAt._seconds') AS INT64)),
+                           'America/Argentina/Buenos_Aires'))         AS mes,
+  EXTRACT(DAY FROM DATE(TIMESTAMP_SECONDS(SAFE_CAST(JSON_VALUE(data, '$.createdAt._seconds') AS INT64)),
+                         'America/Argentina/Buenos_Aires'))           AS dia,
+  TIMESTAMP_SECONDS(SAFE_CAST(JSON_VALUE(data, '$.approvedAt._seconds') AS INT64))
+                                                                      AS approved_at,
+  -- Foto ticket: preferir Storage URL sobre base64 legacy (aunque
+  -- despues del retro-migrate solo debe quedar la URL).
+  COALESCE(
+    JSON_VALUE(data, '$.fotoTicketUrl'),
+    JSON_VALUE(data, '$.fotoTicket')
+  )                                                                   AS foto_ticket_url,
+  -- Flags derivados para semaforos rapidos en Power BI.
+  JSON_VALUE(data, '$.tipoGasto') IN ('FACTURA A', 'GASTO CON COMPROBANTE')
+                                                                      AS tiene_comprobante_fiscal,
+  JSON_VALUE(data, '$.status') = 'pending_approval'                   AS pendiente_aprobacion,
+  JSON_VALUE(data, '$.status') = 'rejected'                           AS rechazada,
+  timestamp                                                           AS last_operation_at,
+  operation                                                           AS last_operation
+FROM `app-vendedores-shimano.shimano_app.rendiciones_raw_raw_latest`
+WHERE operation <> 'DELETE'
+  AND JSON_VALUE(data, '$.tipo') = 'gasto';
+
+
+-- ============================================================
+-- View 13: v_rendiciones_duplicados (2026-07-22)
+-- ============================================================
+-- Alerta de control: detecta rendiciones sospechosas de duplicado.
+-- Criterio: mismo vendor + misma fecha + mismo importe con count > 1.
+--
+-- Un vendedor podria legitimamente tener 2 gastos iguales el mismo dia
+-- (ej: 2 cafes de $2000 en la misma jornada), pero el approver deberia
+-- revisar cada caso. La vista NO borra ni marca automaticamente, solo
+-- expone para revision.
+--
+-- Uso en PBI: cargar la vista, mostrar como tabla en la seccion Alertas
+-- con drill-down a v_rendiciones filtrando por (vendor, fecha, importe).
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_rendiciones_duplicados` AS
+SELECT
+  vendor,
+  owner_email,
+  fecha_gasto,
+  importe_ars,
+  COUNT(*)                                                            AS cantidad_duplicados,
+  STRING_AGG(rendicion_id, ', ')                                      AS ids_afectados,
+  STRING_AGG(DISTINCT concepto, ' / ')                                AS conceptos,
+  STRING_AGG(DISTINCT tipo_gasto, ' / ')                              AS tipos_gasto,
+  ARRAY_AGG(status)                                                   AS estados,
+  MIN(created_at)                                                     AS primero_creado,
+  MAX(created_at)                                                     AS ultimo_creado
+FROM `app-vendedores-shimano.shimano_app.v_rendiciones`
+WHERE vendor IS NOT NULL AND vendor != ''
+GROUP BY vendor, owner_email, fecha_gasto, importe_ars
+HAVING COUNT(*) > 1;

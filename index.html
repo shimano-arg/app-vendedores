@@ -30,6 +30,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-check-compat.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -3302,7 +3303,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v307';
+const APP_VERSION = 'v308';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -7428,10 +7429,13 @@ async function exportRendicionesForMonth(anio, monthIdx){
     });
     row.height = ROW_H;
     row.alignment = {vertical: 'middle', wrapText: true};
-    // Embeber foto del ticket si existe. Para gastos: fotoTicket. Para
-    // solicitudes: adjunto (mismo formato dataURL base64).
+    // Embeber foto del ticket si existe. v308+: preferir base64 embebido
+    // (fotoTicket / adjunto) por compat, sino usar fotoTicketUrl como HYPERLINK.
+    // A nivel Excel un dataURL base64 se puede insertar como imagen inline,
+    // mientras que una URL de Storage se agrega como link clickeable (el
+    // usuario abre en el browser sin necesidad de que Excel descargue).
     const fotoSrc = r.fotoTicket || r.adjunto || '';
-    if (fotoSrc && typeof fotoSrc === 'string') {
+    if (fotoSrc && typeof fotoSrc === 'string' && fotoSrc.startsWith('data:image/')) {
       try {
         let b64 = fotoSrc;
         let ext = 'jpeg';
@@ -7445,6 +7449,13 @@ async function exportRendicionesForMonth(anio, monthIdx){
           editAs: 'oneCell',
         });
       } catch(e) { console.warn('embebiendo foto rendicion', it.id, e); }
+    } else if (r.fotoTicketUrl && typeof r.fotoTicketUrl === 'string') {
+      // Docs nuevos (v308+): foto en Storage, insertamos como hyperlink.
+      try {
+        const cell = row.getCell(FOTO_COL_IDX + 1);
+        cell.value = {text: 'Abrir ticket', hyperlink: r.fotoTicketUrl, tooltip: 'Abrir la foto del ticket en el browser'};
+        cell.font = {color: {argb: 'FF0563C1'}, underline: true};
+      } catch(e) { console.warn('hyperlink foto rendicion', it.id, e); }
     }
   }
 
@@ -14790,6 +14801,28 @@ window.submitRendSolicitud = async function(){
   }
 };
 
+// v308+: helper que sube una foto en formato data URL base64 a Firebase Storage
+// bajo el path rendiciones/{ownerUid}/{timestamp}_ticket.{ext} y devuelve la
+// downloadURL. Sirve tanto para el submit en vivo como para el script de
+// retro-migracion de las 46 rendiciones que ya tienen fotoTicket embebido.
+async function uploadRendicionFotoToStorage(dataUrl, ownerUid){
+  if (!dataUrl || typeof dataUrl !== 'string') return '';
+  const m = /^data:image\/(\w+);base64,(.+)$/i.exec(dataUrl);
+  if (!m) throw new Error('Formato de imagen invalido (esperado data:image/*;base64,...)');
+  const ext = (m[1] || 'jpg').toLowerCase().replace('jpeg', 'jpg');
+  const b64 = m[2];
+  // Convertir base64 a Blob (mas eficiente que putString para archivos grandes)
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const blob = new Blob([bytes], {type: 'image/' + ext});
+  const ts = Date.now();
+  const path = 'rendiciones/' + (ownerUid || 'anonimo') + '/' + ts + '_ticket.' + ext;
+  const ref = firebase.storage().ref(path);
+  const snap = await ref.put(blob);
+  return await snap.ref.getDownloadURL();
+}
+
 window.submitRendGasto = async function(){
   function read(id){ const el = document.getElementById(id); return el ? (el.value || '').trim() : ''; }
   const errors = [];
@@ -14802,6 +14835,25 @@ window.submitRendGasto = async function(){
   if (!confirm('Enviar este gasto a "' + (approver.name || approver.email) + '" para aprobacion?')) return;
   const importe = parseFloat(read('rg-importe')) || 0;
   const importeUsd = parseFloat(read('rg-importeUsd')) || 0;
+  // v308+: la foto del ticket ahora se sube a Firebase Storage (no embebida
+  // base64 en Firestore). Guardamos solo la URL en fotoTicketUrl para que:
+  // (a) el doc Firestore pese ~1KB en vez de 50-500KB
+  // (b) Power BI Import mode no explote VertiPaq al escalar
+  // Retro-compat: docs viejos siguen con fotoTicket base64; los renderers
+  // priorizan fotoTicketUrl y caen a fotoTicket si no existe.
+  const btn = document.querySelector('#rd-gasto-form .btn-confirm');
+  if (btn) { btn.disabled = true; btn.textContent = 'Subiendo foto...'; }
+  let fotoTicketUrl = '';
+  if (rdGastoFoto && typeof rdGastoFoto === 'string' && rdGastoFoto.startsWith('data:image/')) {
+    try {
+      fotoTicketUrl = await uploadRendicionFotoToStorage(rdGastoFoto, currentUser.uid);
+    } catch(e) {
+      console.error('upload foto ticket', e);
+      alert('Error subiendo la foto del ticket: ' + (e.message || e) + '\n\nEl gasto NO se envio. Reintenta.');
+      if (btn) { btn.disabled = false; btn.textContent = 'Enviar gasto a aprobacion'; }
+      return;
+    }
+  }
   const data = {
     tipo: 'gasto',
     numeroTicket: read('rg-numero'),
@@ -14813,7 +14865,7 @@ window.submitRendGasto = async function(){
     importeUsd: importeUsd,
     divisionGasto: read('rg-divGasto'), // dropdown: GASTO LOCAL / GASTO REGIONAL
     observaciones: read('rg-obs'),
-    fotoTicket: rdGastoFoto,
+    fotoTicketUrl: fotoTicketUrl,       // v308+: URL de Storage, no base64
     ownerUid: currentUser.uid,
     ownerEmail: currentUser.email || '',
     ownerName: currentUser.displayName || currentUser.email || '',
@@ -14823,8 +14875,7 @@ window.submitRendGasto = async function(){
     status: 'pending_approval',
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
-  const btn = document.querySelector('#rd-gasto-form .btn-confirm');
-  if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
+  if (btn) { btn.textContent = 'Enviando...'; }
   try {
     const ref = await fbDb.collection('rendiciones').add(data);
     await notifyRendicionApprover(
@@ -15121,7 +15172,10 @@ window.openRendicionDetail = async function(rendId, notifId){
       h += '<div><b>Importe USD:</b> ' + (r.importeUsd || 0).toLocaleString('es-AR') + '</div>';
       h += '<div style="grid-column:1/-1"><b>Observaciones:</b> ' + escapeHtml(r.observaciones || '') + '</div>';
       h += '</div>';
-      if (r.fotoTicket) h += '<div style="margin-top:10px"><b>Ticket:</b><br><img src="' + r.fotoTicket + '" id="rd-ticket-img" style="max-width:300px;border-radius:6px;border:1px solid #e5e7eb;cursor:pointer" onclick="openImgViewer(\'rd-ticket-img\')"/></div>';
+      // v308+: preferir fotoTicketUrl (Firebase Storage) sobre fotoTicket
+      // (base64 legacy). Docs viejos siguen funcionando via fallback.
+      const _tSrc = r.fotoTicketUrl || r.fotoTicket || '';
+      if (_tSrc) h += '<div style="margin-top:10px"><b>Ticket:</b><br><img src="' + _tSrc + '" id="rd-ticket-img" style="max-width:300px;border-radius:6px;border:1px solid #e5e7eb;cursor:pointer" onclick="openImgViewer(\'rd-ticket-img\')"/></div>';
     } else {
       h += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px 14px">';
       h += '<div><b>Tipo:</b> SOLICITUD</div><div><b>Tipo op:</b> ' + escapeHtml(r.tipoOperacion || '') + '</div>';
