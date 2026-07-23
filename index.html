@@ -3316,7 +3316,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v314';
+const APP_VERSION = 'v315';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -3733,6 +3733,28 @@ function ensureApprovedAltasListener(){
           renderClients(filteredPoints());
         }
       } catch(e){}
+      // v314+: si el modal Visita esta abierto (form nueva), refrescar el
+      // dropdown de tiendas. Sin esto, un vendedor que da de alta rapida
+      // y sigue con el modal abierto no ve el nuevo provisorio en el
+      // buscador (approvedAltasList si se actualizo, pero el dropdown ya
+      // habia rendereado su lista al abrir el modal).
+      // Guardian: si el usuario esta ESCRIBIENDO en vf-tienda-search
+      // (input tiene foco activo), diferir el re-populate para no
+      // interrumpir la busqueda que esta haciendo.
+      try {
+        const vEl = document.getElementById('visita-modal');
+        if (vEl && vEl.classList.contains('open') && typeof populateVisitaLocalidades === 'function') {
+          if (typeof visitViewMode === 'undefined' || visitViewMode === 'new') {
+            const tiendaSearchEl = document.getElementById('vf-tienda-search');
+            const escribiendo = tiendaSearchEl && document.activeElement === tiendaSearchEl;
+            if (!escribiendo) {
+              populateVisitaLocalidades();
+            }
+            // Si esta escribiendo, no re-poblamos ahora - la proxima
+            // apertura del modal ya trae la lista fresca.
+          }
+        }
+      } catch(e) { console.warn('re-populate visita dropdown', e); }
     }, err => console.warn('approvedAltas listener', err));
 }
 
@@ -25180,7 +25202,10 @@ function populateVisitaLocalidades(){
       const dedupKey = _norm(aProv) + '|' + _norm(aLoc) + '|' + _norm(nombre);
       if (seen.has(dedupKey)) return;
       seen.add(dedupKey);
-      const badge = a.manualSapPending && !a.cardCodeSap ? ' ⚡' : '';
+      // v314+: badge "⚡ PROVISORIO" mas visible (antes solo emoji ⚡). Ayuda
+      // al vendedor a identificar rapido en el dropdown que la tienda es un
+      // alta rapida reciente, para evitar picar un POINT del padron por error.
+      const badge = a.manualSapPending && !a.cardCodeSap ? ' ⚡ PROVISORIO' : '';
       const showFant = fantasia && fantasia.toLowerCase() !== nombre.toLowerCase();
       items.push({
         value: aProv + '||' + aLoc + '||' + nombre,
