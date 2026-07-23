@@ -3316,7 +3316,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v315';
+const APP_VERSION = 'v316';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -8575,7 +8575,21 @@ function renderMcProvisoriosTable(){
     // Ambos con autosave (sin boton) - se guardan al perder foco o al cambiar.
     const canEditProv = (userRole === 'admin' || userRole === 'gerente');
     const nameField = (a.comercio || '').trim() ? 'comercio' : 'fantasia';
-    html += '<tr style="background:#fffbeb">';
+    // v315+: detector de duplicado SAP. Si el provisorio matchea con un
+    // cliente SAP habilitado (misma prov+loc, nombre similar), pintar
+    // la fila roja + agregar tooltip con el cardCode SAP duplicado.
+    const dupSap = (typeof findSapDuplicateForProvisorio === 'function') ? findSapDuplicateForProvisorio(a) : null;
+    const rowBg = dupSap ? '#fee2e2' : '#fffbeb';
+    const rowBorder = dupSap ? 'border-left:4px solid #dc2626;' : '';
+    const dupTitle = dupSap
+      ? ('POSIBLE DUPLICADO SAP: ' + (dupSap.comercio || dupSap.fantasia || '?') + ' (' + (dupSap.cardCodeSap || '') + '). Revisa y elimina el provisorio si corresponde.')
+      : '';
+    html += '<tr style="background:' + rowBg + ';' + rowBorder + '"' + (dupTitle ? ' title="' + escapeAttr(dupTitle) + '"' : '') + '>';
+    // v315+: badge de duplicado (si aplica). Se agrega en la meta al lado
+    // del badge PROVISORIO amarillo, en rojo llamativo.
+    const dupBadge = dupSap
+      ? '<span style="background:#dc2626;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;margin-left:6px" title="' + escapeAttr(dupTitle) + '">&#9888; DUPLICADO SAP ' + escapeHtml(dupSap.cardCodeSap || '') + '</span>'
+      : '';
     if (canEditProv) {
       html += '<td>'
         + '<input type="text" class="mc-addr-input has-value" style="font-weight:800;font-size:12.5px;color:#0f172a" '
@@ -8583,7 +8597,7 @@ function renderMcProvisoriosTable(){
         + 'onchange="saveMcProvisorioComercio(\'' + safeId + '\', \'' + nameField + '\', this)" '
         + 'onkeydown="if(event.key===\'Enter\')this.blur()" '
         + 'title="Editar nombre del comercio (autosave al salir del campo o Enter)" />'
-        + '<div class="mc-meta" style="margin-top:4px"><span class="mc-tag prov">&#9889; PROVISORIO</span>'
+        + '<div class="mc-meta" style="margin-top:4px"><span class="mc-tag prov">&#9889; PROVISORIO</span>' + dupBadge
         + (dueno ? '<span style="font-size:10px;color:#64748b">Dueno: ' + escapeHtml(dueno) + '</span>' : '')
         + (tel ? '<span style="font-size:10px;color:#64748b"> &middot; ' + escapeHtml(tel) + '</span>' : '')
         + (cuit ? '<span style="font-size:10px;color:#0369a1;font-weight:600"> &middot; CUIT ' + escapeHtml(cuit) + '</span>' : '')
@@ -8592,7 +8606,7 @@ function renderMcProvisoriosTable(){
     } else {
       html += '<td>'
         + '<div class="mc-name">' + escapeHtml(nombre) + '</div>'
-        + '<div class="mc-meta"><span class="mc-tag prov">&#9889; PROVISORIO</span>'
+        + '<div class="mc-meta"><span class="mc-tag prov">&#9889; PROVISORIO</span>' + dupBadge
         + (dueno ? '<span style="font-size:10px;color:#64748b">Dueno: ' + escapeHtml(dueno) + '</span>' : '')
         + (tel ? '<span style="font-size:10px;color:#64748b"> &middot; ' + escapeHtml(tel) + '</span>' : '')
         + (cuit ? '<span style="font-size:10px;color:#0369a1;font-weight:600"> &middot; CUIT ' + escapeHtml(cuit) + '</span>' : '')
@@ -9178,17 +9192,30 @@ window.renderMasterClientesTable = function(){
     // desde el Master Clientes normal (no solo del modo Provisorios).
     const isProvisorio = isSap && !e.sapCardCode;
     const canEditProv302 = isProvisorio && (userRole === 'admin' || userRole === 'gerente');
+    // v315+: detector de duplicado SAP para las filas provisorias que aparecen
+    // mezcladas en la vista normal. Rojo + badge.
+    let dupSapV = null;
+    if (isProvisorio) {
+      const altaProv2 = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(x => x._fsId === e.sapFsId);
+      if (altaProv2 && typeof findSapDuplicateForProvisorio === 'function') {
+        dupSapV = findSapDuplicateForProvisorio(altaProv2);
+      }
+    }
+    const dupBadgeV = dupSapV
+      ? ' <span style="background:#dc2626;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;margin-left:6px" title="POSIBLE DUPLICADO SAP: ' + escapeAttr(dupSapV.comercio || dupSapV.fantasia || '?') + ' (' + escapeAttr(dupSapV.cardCodeSap || '') + '). Revisa y elimina el provisorio si corresponde.">&#9888; DUPLICADO SAP ' + escapeHtml(dupSapV.cardCodeSap || '') + '</span>'
+      : '';
+    const rowStyleV = dupSapV ? ' style="background:#fee2e2;border-left:4px solid #dc2626"' : '';
     let tagHtml;
     if (isSap) {
       if (e.sapCardCode) {
         tagHtml = '<span class="mc-tag" style="background:#dbeafe;color:#1e3a8a;border:1px solid #93c5fd">SAP ' + escapeHtml(e.sapCardCode) + '</span>';
       } else {
-        tagHtml = '<span class="mc-tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d">&#9889; PROVISORIO</span>';
+        tagHtml = '<span class="mc-tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d">&#9889; PROVISORIO</span>' + dupBadgeV;
       }
     } else {
       tagHtml = '<span class="mc-tag ' + (e.tipo === 'cliente' ? 'cli' : 'pro') + '">' + (e.tipo === 'cliente' ? 'CLIENTE' : 'PROSPECTO') + '</span>';
     }
-    html += '<tr data-doc="' + escapeAttr(id) + '">';
+    html += '<tr data-doc="' + escapeAttr(id) + '"' + rowStyleV + '>';
     if (canEditProv302) {
       // Nombre editable: si el alta tenia comercio lo edita, sino edita fantasia.
       const altaProv = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(x => x._fsId === e.sapFsId);
@@ -24825,6 +24852,61 @@ function matchesAllTokens(haystack, query){
   if (!tokens.length) return true;
   const hay = _normalizeSearch(haystack);
   return tokens.every(tok => hay.indexOf(tok) >= 0);
+}
+
+// v315+: detector de posible duplicado SAP vs Provisorio. Cuando finanzas
+// carga a SAP un cliente que ya existia como Alta Rapida (provisorio), la
+// app termina con 2 docs para la misma tienda. Este helper flagea el
+// provisorio para que admin lo elimine manualmente.
+//
+// Criterio de match:
+//   1. El candidato debe ser un SAP habilitado (cardCodeSap + status='approved').
+//   2. Misma PROVINCIA normalizada.
+//   3. Misma LOCALIDAD normalizada.
+//   4. Nombre "similar": comparten al menos 2 tokens significativos (>=3
+//      chars, sin stopwords tipo 'de', 'la', 'el', 'pesca'), o uno esta
+//      contenido en el otro (ambos normalizados).
+//
+// Devuelve el doc SAP duplicado (el objeto de approvedAltasList) o null.
+// Los stopwords son intencionalmente pocos - preferimos falsos positivos
+// (mas cards rojas) que falsos negativos (duplicados sin detectar).
+const _DUP_STOPWORDS = new Set(['de','del','la','el','los','las','y','al','en','con','pesca','pescas','pescador','tienda','store','shop','sa','srl','sas','sac','sh']);
+function _nameTokens(s){
+  const n = _normalizeSearch(s).replace(/[^a-z0-9\s]/g, ' ');
+  return n.split(/\s+/).filter(t => t.length >= 3 && !_DUP_STOPWORDS.has(t));
+}
+function findSapDuplicateForProvisorio(prov){
+  if (!prov || !prov.manualSapPending || prov.cardCodeSap) return null;
+  if (typeof approvedAltasList === 'undefined' || !Array.isArray(approvedAltasList)) return null;
+  const provName = prov.comercio || prov.fantasia || '';
+  if (!provName) return null;
+  const provTokens = _nameTokens(provName);
+  if (!provTokens.length) return null;
+  const provProv = _normalizeSearch(prov.provincia || '').trim();
+  const provLoc = _normalizeSearch(prov.localidadFinal || prov.localidad || '').trim();
+  if (!provProv || !provLoc) return null;
+  const provNameNorm = _normalizeSearch(provName);
+  for (const cand of approvedAltasList) {
+    if (!cand || !cand.cardCodeSap) continue;             // debe ser SAP habilitado
+    if (cand._fsId === prov._fsId) continue;              // no matchear con si mismo
+    if (cand.manualSapPending) continue;                   // no matchear con otro provisorio
+    const candProv = _normalizeSearch(cand.provincia || '').trim();
+    const candLoc = _normalizeSearch(cand.localidadFinal || cand.localidad || '').trim();
+    if (candProv !== provProv) continue;
+    if (candLoc !== provLoc) continue;
+    // Nombre similar: uno contiene al otro, o al menos 2 tokens comunes.
+    const candName = cand.comercio || cand.fantasia || cand.titular || '';
+    if (!candName) continue;
+    const candNameNorm = _normalizeSearch(candName);
+    let similar = provNameNorm.includes(candNameNorm) || candNameNorm.includes(provNameNorm);
+    if (!similar) {
+      const candTokens = _nameTokens(candName);
+      const common = provTokens.filter(t => candTokens.includes(t));
+      if (common.length >= 2) similar = true;
+    }
+    if (similar) return cand;
+  }
+  return null;
 }
 
 function clientMatchesQuery(name, localityName, k, query){
