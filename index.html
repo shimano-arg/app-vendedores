@@ -2167,6 +2167,16 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <div id="vf-loc-detected" style="display:none;margin-top:6px;font-size:11.5px;color:#0369a1;background:#ecfeff;border:1px solid #67e8f9;border-radius:5px;padding:6px 10px;font-weight:600"></div>
           </div>
           <div class="vf-row"><label>Tipo de tienda <span class="req">*</span></label><select id="vf-tipo" required><option value="">Seleccionar...</option><option>OUTDOOR</option><option>PESCA</option><option>HIBRIDO (PESCA+OUTDOOR)</option><option>GENERAL (FERRETERIA/CUCHILLERIA/OTROS)</option></select></div>
+          <!-- v313+: Forma de contacto. Solo visible en modo 'contacto' (no
+               presencial). Se oculta desde applyVisitModeUI cuando visitMode='visita'. -->
+          <div class="vf-row" id="vf-forma-contacto-row" style="display:none"><label>Forma de contacto <span class="req">*</span></label>
+            <select id="vf-formaContacto">
+              <option value="">Seleccionar...</option>
+              <option>LLAMADA TELEFONICA</option>
+              <option>MENSAJE DE WHATSAPP</option>
+              <option>MENSAJE SMS</option>
+            </select>
+          </div>
           <div class="vf-row"><label>Local <span class="req">*</span></label><select id="vf-local" required><option value="">Seleccionar...</option><option>FISICO</option><option>ECOMMERCE</option></select></div>
           <div class="vf-row"><label>Tipo de cliente <span class="req">*</span></label><select id="vf-tamano" required>
             <option value="">Seleccionar...</option>
@@ -3306,7 +3316,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v313';
+const APP_VERSION = 'v314';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -25050,6 +25060,11 @@ function applyVisitModeUI(mode){
   if (tabMis) tabMis.textContent = isContacto ? 'Mis contactos' : 'Mis visitas';
   if (rowEsp) rowEsp.style.display = isContacto ? 'none' : '';
   if (rowFre) rowFre.style.display = isContacto ? 'none' : '';
+  // v313+: Forma de contacto (llamada / whatsapp / SMS) solo en modo contacto.
+  const rowFC = document.getElementById('vf-forma-contacto-row');
+  if (rowFC) rowFC.style.display = isContacto ? '' : 'none';
+  const inputFC = document.getElementById('vf-formaContacto');
+  if (inputFC) inputFC.required = isContacto;
   if (btn) {
     btn.textContent = isContacto ? 'Registrar contacto' : 'Enviar formulario';
     btn.style.background = isContacto ? '#0d9488' : '#7c3aed';
@@ -25511,6 +25526,8 @@ window.submitVisita = async function(){
   if (!readField('vf-localidad')) errors.push('Localidad');
   if (!readField('vf-tienda')) errors.push('Tienda de pesca');
   if (!readField('vf-tipo')) errors.push('Tipo');
+  // v313+: en modo contacto, forma de contacto es obligatoria.
+  if (window.visitMode === 'contacto' && !readField('vf-formaContacto')) errors.push('Forma de contacto');
   if (!readField('vf-local')) errors.push('Local');
   if (!readField('vf-tamano')) errors.push('Tamano');
   if (!readField('vf-fidelidad')) errors.push('Fidelidad');
@@ -25574,6 +25591,10 @@ window.submitVisita = async function(){
     // con docs previos que no tienen el campo. Naming: interactionType (no
     // "tipo") porque 'tipo' ya se usa para tipo de tienda (OUTDOOR/PESCA/etc).
     interactionType: isContacto ? 'contacto' : 'visita',
+    // v313+: formaContacto solo tiene sentido en modo contacto. Valores:
+    // LLAMADA TELEFONICA / MENSAJE DE WHATSAPP / MENSAJE SMS. En modo
+    // visita queda '' (no aplica).
+    formaContacto: isContacto ? readField('vf-formaContacto') : '',
     // Auditoria: si fue cargada por un VDI en nombre de un VDE pareja.
     createdByUid: currentUser.uid,
     createdByEmail: currentUser.email || '',
@@ -25798,6 +25819,13 @@ window.viewVisit = function(visitId){
   fsSetValue('vf-tienda', compositeVal, compositeLabel);
   onTiendaChange(compositeVal);
   document.getElementById('vf-tipo').value = v.tipo || '';
+  // v313+: al abrir una interaccion, aplicar el modo correcto (visita/contacto)
+  // segun interactionType y precargar la forma de contacto si aplica.
+  const _iType = v.interactionType === 'contacto' ? 'contacto' : 'visita';
+  window.visitMode = _iType;
+  if (typeof applyVisitModeUI === 'function') applyVisitModeUI(_iType);
+  const _fcEl = document.getElementById('vf-formaContacto');
+  if (_fcEl) _fcEl.value = v.formaContacto || '';
   document.getElementById('vf-local').value = v.local || '';
   document.getElementById('vf-tamano').value = v.tamano || '';
   document.getElementById('vf-fidelidad').value = v.fidelidad || '';

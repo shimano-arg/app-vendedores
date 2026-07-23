@@ -177,6 +177,11 @@ SELECT
   -- COALESCE explicito con FALSE: si interactionType es NULL, el comparativo
   -- devuelve NULL (no FALSE) y COUNTIF(NOT es_contacto) no cuenta esos rows.
   COALESCE(JSON_VALUE(data, '$.interactionType') = 'contacto', FALSE) AS es_contacto,
+  -- v313+ (2026-07-23): forma de contacto para interactionType='contacto'.
+  -- Valores canonicos: LLAMADA TELEFONICA / MENSAJE DE WHATSAPP / MENSAJE SMS.
+  -- En modo visita queda NULL (no aplica). Uso PBI: desglose "Contactos por
+  -- canal" y comparar performance de WhatsApp vs telefono vs SMS.
+  JSON_VALUE(data, '$.formaContacto')                                 AS forma_contacto,
   timestamp                                                           AS last_operation_at,
   operation                                                           AS last_operation
 FROM `app-vendedores-shimano.shimano_app.visits_raw_raw_latest`
