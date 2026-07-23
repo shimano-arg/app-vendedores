@@ -3306,7 +3306,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v312';
+const APP_VERSION = 'v313';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -5905,16 +5905,15 @@ function renderClients(pts){
       const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
       const dupKey = prov + '|' + nombre.toLowerCase();
       if (prov && alreadyIn.has(dupKey)) return;
-      // Busqueda ampliada: matchea contra comercio + titular + fantasia
-      // + localidad + cardCode. El vendedor puede buscar por cualquiera.
+      // v312+: busqueda flexible por tokens. Matchea contra comercio +
+      // titular + fantasia + localidad + provincia + cardCode. Ej:
+      // "el pez gordo quilmes" encuentra "El Pez Gordo" (comercio) en
+      // "Quilmes Oeste" (localidad) aunque no esten en un solo campo.
       if (cq) {
-        const q = cq;
-        const c = (a.comercio || '').toLowerCase();
-        const t = (a.titular || '').toLowerCase();
-        const f = (a.fantasia || '').toLowerCase();
-        const l = (aLoc || '').toLowerCase();
-        const sap = (a.cardCodeSap || '').toLowerCase();
-        if (!c.includes(q) && !t.includes(q) && !f.includes(q) && !l.includes(q) && !sap.includes(q)) return;
+        const haystack = [
+          a.comercio, a.titular, a.fantasia, aLoc, prov, a.cardCodeSap,
+        ].filter(Boolean).join(' | ');
+        if (!matchesAllTokens(haystack, cq)) return;
       }
       // Estado para filtro confirmados/pendientes:
       // - Provisorio (alta rapida sin CardCode SAP): SIEMPRE es "no confirmado".
@@ -8489,7 +8488,10 @@ function renderMcProvisoriosTable(){
   if (fv !== 'ALL') items = items.filter(a => (a.assignedVendor || a.vendor || '') === fv);
   if (fp !== 'ALL') items = items.filter(a => (a.provincia || '').toString().toUpperCase() === fp.toUpperCase());
   if (fl !== 'ALL') items = items.filter(a => ((a.localidadFinal || a.localidad || '') + '').toUpperCase() === (fl || '').toUpperCase());
-  if (fq) items = items.filter(a => (((a.comercio || '') + ' ' + (a.fantasia || '') + ' ' + (a.duenoNombre || '')).toLowerCase()).includes(fq));
+  if (fq) items = items.filter(a => matchesAllTokens(
+    [a.comercio, a.fantasia, a.duenoNombre, a.provincia, a.localidadFinal || a.localidad, a.cuit, a.calle].filter(Boolean).join(' | '),
+    fq
+  ));
 
   items.sort((a, b) => {
     const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
@@ -9014,7 +9016,10 @@ window.renderMasterClientesTable = function(){
   if (fv !== 'ALL') entries = entries.filter(e => e.vendor === fv);
   if (fp !== 'ALL') entries = entries.filter(e => e.provincia === fp);
   if (fl !== 'ALL') entries = entries.filter(e => e.localidad === fl);
-  if (fq) entries = entries.filter(e => e.nombre.toLowerCase().includes(fq));
+  if (fq) entries = entries.filter(e => matchesAllTokens(
+    [e.nombre, e.localidad, e.provincia, e.vendor].filter(Boolean).join(' | '),
+    fq
+  ));
 
   // Aplicar filtro de estado segun cache (combinado con pending)
   // Devuelve la direccion del cliente: 1) pending changes en memoria,
@@ -16194,13 +16199,14 @@ function renderCrearList(){
       // Chequeo standard con el helper compartido.
       if (clientMatchesQuery(it.name, it.point && it.point.name, k, q)) return true;
       // Si es una alta SAP huerfana, chequear tambien sus campos internos.
+      // v312+: matchesAllTokens permite multi-palabra (ej "el pez gordo quilmes").
       if (it.sapAlta) {
         const a = it.sapAlta;
-        const c = (a.comercio || '').toLowerCase();
-        const t = (a.titular || '').toLowerCase();
-        const f = (a.fantasia || '').toLowerCase();
-        const sap = (a.cardCodeSap || '').toLowerCase();
-        if (c.includes(q) || t.includes(q) || f.includes(q) || sap.includes(q)) return true;
+        const haystack = [
+          a.comercio, a.titular, a.fantasia, a.cardCodeSap,
+          a.provincia, a.localidadFinal || a.localidad,
+        ].filter(Boolean).join(' | ');
+        if (matchesAllTokens(haystack, q)) return true;
       }
       return false;
     });
@@ -24771,32 +24777,52 @@ function clientLocId(prov, locName, tienda){
 //  3) Localidad - por si buscan "Rio Tercero" o similar.
 //  4) Titular alternativo de la alta SAP (a.titular).
 // Devuelve true si el query esta vacio o si alguno de los campos matchea.
+// v312+: helper reutilizable. Divide el query en tokens por espacios y
+// exige que TODOS aparezcan en el haystack (busqueda tipo Google - AND).
+// Permite ejemplos como "el pez gordo quilmes" que matchea "el pez gordo"
+// (nombre) + "quilmes oeste" (localidad) sin importar el orden.
+// Tambien normaliza acentos (á -> a) para busquedas mas laxas.
+function _normalizeSearch(s){
+  return (s || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+function matchesAllTokens(haystack, query){
+  if (!query) return true;
+  const q = _normalizeSearch(query).trim();
+  if (!q) return true;
+  const tokens = q.split(/\s+/).filter(t => t.length > 0);
+  if (!tokens.length) return true;
+  const hay = _normalizeSearch(haystack);
+  return tokens.every(tok => hay.indexOf(tok) >= 0);
+}
+
 function clientMatchesQuery(name, localityName, k, query){
   if (!query) return true;
-  const q = query.toLowerCase();
-  const nameL = (name || '').toLowerCase();
-  if (nameL.includes(q)) return true;
-  if ((localityName || '').toLowerCase().includes(q)) return true;
+  // v312+: armar haystack con todos los campos relevantes y hacer match
+  // por tokens. Antes cada campo se checkeaba con includes(query completo),
+  // por lo que "EL PEZ GORDO QUILMES" no matcheaba porque ninguna columna
+  // sola tenia esa cadena.
+  const parts = [];
+  parts.push(name || '');
+  parts.push(localityName || '');
   // customFantasia guardado por el vendedor desde el modal cliente.
   if (typeof clientMeta !== 'undefined' && k && clientMeta[k] && clientMeta[k].customFantasia) {
-    if (clientMeta[k].customFantasia.toLowerCase().includes(q)) return true;
+    parts.push(clientMeta[k].customFantasia);
   }
-  // Match contra approvedAltasList: si el titular coincide con el nombre
-  // que estamos evaluando, buscamos tambien en su fantasia + titular alterno.
+  // Match contra approvedAltasList: si alguna variante de nombre matchea
+  // al cliente actual, agregar sus 3 campos al haystack.
+  const nameL = (name || '').toLowerCase();
   if (typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList)) {
     for (const a of approvedAltasList) {
       if (!a) continue;
       const c = (a.comercio || '').toLowerCase();
       const t = (a.titular || '').toLowerCase();
       const f = (a.fantasia || '').toLowerCase();
-      // Si alguna de las variantes de nombre matchea al cliente actual,
-      // aceptamos que el query pegue en cualquiera de las 3.
       if (c === nameL || t === nameL || f === nameL) {
-        if (c.includes(q) || t.includes(q) || f.includes(q)) return true;
+        parts.push(a.comercio || '', a.titular || '', a.fantasia || '');
       }
     }
   }
-  return false;
+  return matchesAllTokens(parts.join(' | '), query);
 }
 
 // Devuelve el HTML de un badge con la categoria del cliente (P/A/B/C).
