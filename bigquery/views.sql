@@ -165,6 +165,18 @@ SELECT
   )                                                                   AS fecha_visita,
   JSON_VALUE(data, '$.fotoEspacio')                                   AS foto_espacio_url,
   JSON_VALUE(data, '$.fotoFrente')                                    AS foto_frente_url,
+  -- v311+ (2026-07-23): distincion visita fisica vs contacto no presencial.
+  -- El campo `interactionType` se agrego en v305 de la app. Docs pre-v305
+  -- (~19 de 32 totales al 2026-07-22) no lo tienen -> se cuentan como
+  -- 'visita' (COALESCE). En PBI usar:
+  --   * `interaction_type` para agrupar / colorear (2 valores: visita/contacto)
+  --   * `es_contacto` (BOOL) para filtros rapidos y medidas condicionales
+  --      Ej DAX:  Visitas = CALCULATE(COUNTROWS(v_visitas), NOT [es_contacto])
+  --              Contactos = CALCULATE(COUNTROWS(v_visitas), [es_contacto])
+  COALESCE(JSON_VALUE(data, '$.interactionType'), 'visita')           AS interaction_type,
+  -- COALESCE explicito con FALSE: si interactionType es NULL, el comparativo
+  -- devuelve NULL (no FALSE) y COUNTIF(NOT es_contacto) no cuenta esos rows.
+  COALESCE(JSON_VALUE(data, '$.interactionType') = 'contacto', FALSE) AS es_contacto,
   timestamp                                                           AS last_operation_at,
   operation                                                           AS last_operation
 FROM `app-vendedores-shimano.shimano_app.visits_raw_raw_latest`
