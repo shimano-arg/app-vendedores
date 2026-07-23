@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v316 |
-| **APP_VERSION** | `v316` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v317 |
+| **APP_VERSION** | `v317` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **14 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`) → **Power BI Desktop TABLERO SAR publicado con 8 páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -206,6 +206,7 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] **Registro de Contacto agrega campo Forma de contacto** (v314). En el modal Visita en modo `contacto`, después de "Tipo de tienda" aparece un select nuevo obligatorio con 3 opciones: `LLAMADA TELEFONICA / MENSAJE DE WHATSAPP / MENSAJE SMS`. `applyVisitModeUI` lo muestra/oculta según modo. `submitVisita` agrega validación y guarda `formaContacto` en el doc (queda `''` en modo visita presencial). BQ: `v_visitas` expone nueva columna `forma_contacto` (STRING) para desglose PBI "Contactos por canal" (v314+)
 [X] **Buscador de tiendas del form Visita: badge "⚡ PROVISORIO" + refresh en vivo** (v315). Antes en el dropdown solo aparecía un emoji chico `⚡` que se pasaba por alto y provocaba que el vendedor picara un POINT del padrón por error. Ahora el badge es texto llamativo `⚡ PROVISORIO`. Además, cuando llega snapshot de `approvedAltasList` y el modal Visita está abierto (form "Nueva"), se re-populate el dropdown para incluir provisorios recién creados. Guardián: si el input `vf-tienda-search` tiene foco (usuario escribiendo), difiere el re-populate para no interrumpir la búsqueda (v315+)
 [X] **Detector de duplicados SAP vs Provisorios (visual, sin borrar)** (v316). Cuando finanzas carga a SAP un cliente que ya existía como Alta Rápida, la app termina con 2 docs. Helper `findSapDuplicateForProvisorio(prov)` busca en `approvedAltasList` un SAP habilitado con misma provincia + localidad + nombre similar (contains cruzado o ≥2 tokens significativos comunes de ≥3 letras, excluyendo stopwords `de/la/el/pesca/tienda/store/srl/etc`). Si detecta match: fila roja `#fee2e2` + borde izquierdo rojo + badge `⚠ DUPLICADO SAP CXXXXXX` + tooltip con nombre del SAP. Aplica en Master Clientes tab Provisorios + vista normal. Cero deleteo automático — admin decide manualmente (v316+)
+[X] **Cards de clientes coloreadas por origen** (v317). Sidebar CLIENTES + tab PEDIDOS: cards ahora tienen fondo distintivo según el origen del cliente. **Celeste clarito `#e0f2fe`** (con borde izquierdo azul) para **Provisorios** (`manualSapPending && !cardCodeSap`). **Verde clarito `#dcfce7`** (borde izquierdo verde) para **SAP habilitados** (con `cardCodeSap`). Precaución (amarillo `#fde68a`) mantiene prioridad máxima sobre ambos. El vendedor distingue de un vistazo qué clientes ya están en SAP vs cuáles todavía son alta rápida pendiente (v317+)
 ```
 
 ### Bloqueantes externos para el lanzamiento
@@ -3303,9 +3304,14 @@ Total: ~15 iteraciones para llegar al fix correcto por la naturaleza propietaria
 
 ---
 
-## 41) Changelog v204 → v316
+## 41) Changelog v204 → v317
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v317 (2026-07-23) — Cards CLIENTES/PEDIDOS coloreadas por origen
+- Sidebar CLIENTES (`renderClients`): cards SAP con `background:#e0f2fe` (celeste clarito) si es provisorio, `#dcfce7` (verde clarito) si es SAP habilitado con cardCode. Precaución (amarillo) mantiene prioridad.
+- Tab PEDIDOS (`renderCrearList`): cards con el mismo esquema + borde izquierdo del color acorde (azul para provisorio, verde para SAP habilitado, ámbar oscuro para precaución).
+- Antes: todas las cards tenían el mismo fondo blanco/default, imposible distinguir origen del cliente de un vistazo.
 
 ### v316 (2026-07-23) — Detector de duplicados SAP vs Provisorios
 - Nuevo helper `findSapDuplicateForProvisorio(prov)`: busca en `approvedAltasList` un SAP habilitado con misma provincia + misma localidad + nombre "similar".

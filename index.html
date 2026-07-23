@@ -3316,7 +3316,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v316';
+const APP_VERSION = 'v317';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -5997,9 +5997,15 @@ function renderClients(pts){
       // Si esta marcado como "precaucion" (incumplimientos de pago), la
       // card sale en amarillo - el vendedor lo identifica al toque.
       const isPrec = !!a.precaucion;
+      // v316+: diferenciar visualmente por origen del cliente:
+      //   * Provisorio (Alta Rapida sin cardCode) -> celeste clarito #e0f2fe
+      //   * SAP habilitado (con cardCodeSap)      -> verde clarito   #dcfce7
+      //   * Precaucion (impago)                   -> amarillo (prioridad, ya existente)
+      const isProvisorioCard = !!(a.manualSapPending && !a.cardCodeSap);
+      const cardBg = isPrec ? '#fde68a' : (isProvisorioCard ? '#e0f2fe' : '#dcfce7');
       const cardStyle = isPrec
         ? 'border-left:5px solid #b45309;border-color:#f59e0b;background:#fde68a;cursor:pointer'
-        : ('border-left-color:' + sapLeft + ';cursor:pointer');
+        : ('border-left-color:' + sapLeft + ';background:' + cardBg + ';cursor:pointer');
       html += '<div class="client-card estado-sap"';
       html += ' style="' + cardStyle + '"';
       html += ' onclick="openSapAltaCard(\'' + safeFsId + '\')"';
@@ -16303,12 +16309,18 @@ function renderCrearList(){
     const prec = _pedidoIsPrecaucion(it);
     const evtAttr = IS_TOUCH ? 'onclick' : 'ondblclick';
     const tipText = IS_TOUCH ? 'Tocar para crear pedido' : 'Doble click para crear pedido';
-    // Prioridad de estilo: precaucion > provisorio > default.
+    // Prioridad de estilo: precaucion > provisorio > SAP habilitado > default.
+    // v316+: colores por origen (celeste=provisorio, verde=SAP habilitado)
+    // para que el vendedor distinga de un vistazo. Precaucion sigue en
+    // amarillo (prioridad maxima).
     let cardStyle = '';
+    const isSapHabilitado = !!(it.sapAlta && it.sapAlta.cardCodeSap && !it.sapAlta.manualSapPending);
     if (prec.flag) {
       cardStyle = ' style="border-left:5px solid #b45309;border-color:#f59e0b;background:#fde68a"';
     } else if (isProvisorio) {
-      cardStyle = ' style="border-left:4px solid #f59e0b;background:#fffbeb"';
+      cardStyle = ' style="border-left:4px solid #0284c7;background:#e0f2fe"';  // celeste clarito
+    } else if (isSapHabilitado) {
+      cardStyle = ' style="border-left:4px solid #16a34a;background:#dcfce7"';  // verde clarito
     }
     // Resolver nombre local (fantasia) para mostrarlo en grande. Mismo
     // criterio que renderClients: clientMeta.customFantasia > alta
