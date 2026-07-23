@@ -3306,7 +3306,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v311';
+const APP_VERSION = 'v312';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -6826,20 +6826,32 @@ window.exportMasterClientes = function(){
       });
     });
   });
-  // Inyectar las SAP altas huerfanas (cardCodeSap + direccion, no
-  // matcheadas a ningun POINT por nombre). Estas son las que el mapa
-  // muestra como pines azul/verde y se cuentan en HABILITADOS pero no
-  // estan en el padron POINTS.
+  // Inyectar altas de client_applications (approvedAltasList):
+  //   * HABILITADOS: tienen cardCodeSap + direccion. Van con Estado='Habilitado'.
+  //   * PROVISORIOS (v311+): manualSapPending && !cardCodeSap (Alta Rapida
+  //     pendiente de carga a SAP). Van con Estado='Provisorio'. Se
+  //     incluyen para que el export refleje el universo comercial completo
+  //     que el gerente esta gestionando, no solo los cerrados en SAP.
+  //     Los provisorios pueden no tener direccion todavia -> se aceptan igual.
   const seen = new Set();
   rows.forEach(r => seen.add(((r.Provincia || '').toString().toUpperCase()) + '|' + (r['Nombre tienda'] || '').toLowerCase()));
   if (typeof approvedAltasList !== 'undefined' && approvedAltasList.length) {
     approvedAltasList.forEach(a => {
-      if (!a || !a.cardCodeSap) return;
-      if (!(a.calle || a.address)) return; // solo si tiene direccion
+      if (!a) return;
+      const isProvisorio = !!a.manualSapPending && !a.cardCodeSap;
+      // Habilitados: siguen exigiendo cardCode + direccion (comportamiento pre-v311).
+      // Provisorios: sin cardCode ni direccion, van igual con Estado='Provisorio'.
+      if (!isProvisorio) {
+        if (!a.cardCodeSap) return;
+        if (!(a.calle || a.address)) return;
+      }
       const prov = (a.provincia || '').toString();
-      const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
+      const nombre = a.comercio || a.fantasia || (a.cardCodeSap
+        ? ('SAP ' + a.cardCodeSap.slice(0, 8))
+        : (a.titular || 'Provisorio'));
       const dupKey = prov.toUpperCase() + '|' + nombre.toLowerCase();
       if (seen.has(dupKey)) return;
+      seen.add(dupKey);
       const vendor = a.assignedVendor || '';
       const zone = lookupZone(vendor);
       const vdi = VDE_TO_VDI[vendor] || '';
@@ -6848,8 +6860,8 @@ window.exportMasterClientes = function(){
         'CardCode SAP':             a.cardCodeSap || '',
         'Nombre tienda':            nombre,
         'Alias (modal)':            '',
-        'Tipo':                     'Cliente actual',
-        'Estado':                   'Habilitado',
+        'Tipo':                     isProvisorio ? 'Provisorio (Alta rapida)' : 'Cliente actual',
+        'Estado':                   isProvisorio ? 'Provisorio' : 'Habilitado',
         'Provincia':                (typeof titleCase === 'function') ? titleCase(prov) : prov,
         'Localidad (mapa)':         loc,
         'Departamento':             '',
@@ -6875,12 +6887,11 @@ window.exportMasterClientes = function(){
   });
 
   if (!rows.length) {
-    alert('No hay clientes habilitados en SAP todavía.\n\n'
-      + 'Habilitado en SAP = tiene CardCode + dirección cargada en SAP.\n\n'
-      + 'Pasos para sumar habilitados:\n'
-      + '1. SAP → Importar masterfile de BPs (panel SAP).\n'
-      + '2. Cargar dirección a cada tienda (panel Master Clientes).\n'
-      + '3. Geocodificar las direcciones.');
+    alert('No hay clientes para exportar.\n\n'
+      + 'El masterfile incluye:\n'
+      + '  * Habilitados en SAP (cardCode + direccion cargados).\n'
+      + '  * Provisorios (Alta rapida pendiente de carga a SAP).\n\n'
+      + 'Si no ves ninguno, revisa el modal SAP o Alta Clientes.');
     return;
   }
 
