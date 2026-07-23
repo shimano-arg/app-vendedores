@@ -204,6 +204,8 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] **Export masterfile de Clientes incluye provisorios** (v312). Antes el export "Clientes (masterfile)" filtraba `!cardCodeSap → skip`, dejando afuera todos los provisorios (Alta rápida). Ahora se detecta `isProvisorio = manualSapPending && !cardCodeSap` y entran con `Tipo="Provisorio (Alta rapida)"` + `Estado="Provisorio"`. El gerente ve el universo comercial completo, no solo lo cerrado en SAP. Fix menor: `seen.add(dupKey)` que faltaba (evita duplicados si un habilitado y un provisorio tenían el mismo nombre) (v312+)
 [X] **Buscadores flexibles multi-token AND** (v313). Nuevo helper `matchesAllTokens(haystack, query)` divide el query por espacios y exige que TODOS los tokens aparezcan en el haystack concatenado. Normaliza acentos vía NFD (á→a, ñ→n). Aplicado en 4 buscadores: (1) CLIENTES sidebar (`clientMatchesQuery` + SAP altas inline), (2) PEDIDOS sidebar (fallback SAP altas), (3) Master Clientes vista normal, (4) Master Clientes tab Provisorios. Ejemplos que ahora funcionan: `"el pez gordo quilmes"`, `"pescamagic buenos aires"`, `"gonzalo cordoba"`. Orden no importa (v313+)
 [X] **Registro de Contacto agrega campo Forma de contacto** (v314). En el modal Visita en modo `contacto`, después de "Tipo de tienda" aparece un select nuevo obligatorio con 3 opciones: `LLAMADA TELEFONICA / MENSAJE DE WHATSAPP / MENSAJE SMS`. `applyVisitModeUI` lo muestra/oculta según modo. `submitVisita` agrega validación y guarda `formaContacto` en el doc (queda `''` en modo visita presencial). BQ: `v_visitas` expone nueva columna `forma_contacto` (STRING) para desglose PBI "Contactos por canal" (v314+)
+[X] **Buscador de tiendas del form Visita: badge "⚡ PROVISORIO" + refresh en vivo** (v315). Antes en el dropdown solo aparecía un emoji chico `⚡` que se pasaba por alto y provocaba que el vendedor picara un POINT del padrón por error. Ahora el badge es texto llamativo `⚡ PROVISORIO`. Además, cuando llega snapshot de `approvedAltasList` y el modal Visita está abierto (form "Nueva"), se re-populate el dropdown para incluir provisorios recién creados. Guardián: si el input `vf-tienda-search` tiene foco (usuario escribiendo), difiere el re-populate para no interrumpir la búsqueda (v315+)
+[X] **Detector de duplicados SAP vs Provisorios (visual, sin borrar)** (v316). Cuando finanzas carga a SAP un cliente que ya existía como Alta Rápida, la app termina con 2 docs. Helper `findSapDuplicateForProvisorio(prov)` busca en `approvedAltasList` un SAP habilitado con misma provincia + localidad + nombre similar (contains cruzado o ≥2 tokens significativos comunes de ≥3 letras, excluyendo stopwords `de/la/el/pesca/tienda/store/srl/etc`). Si detecta match: fila roja `#fee2e2` + borde izquierdo rojo + badge `⚠ DUPLICADO SAP CXXXXXX` + tooltip con nombre del SAP. Aplica en Master Clientes tab Provisorios + vista normal. Cero deleteo automático — admin decide manualmente (v316+)
 ```
 
 ### Bloqueantes externos para el lanzamiento
@@ -3301,9 +3303,21 @@ Total: ~15 iteraciones para llegar al fix correcto por la naturaleza propietaria
 
 ---
 
-## 41) Changelog v204 → v314
+## 41) Changelog v204 → v316
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v316 (2026-07-23) — Detector de duplicados SAP vs Provisorios
+- Nuevo helper `findSapDuplicateForProvisorio(prov)`: busca en `approvedAltasList` un SAP habilitado con misma provincia + misma localidad + nombre "similar".
+- Similaridad: `contains` cruzado (uno dentro del otro) o ≥2 tokens significativos comunes (≥3 letras, sin stopwords tipo `de/la/el/pesca/tienda/store/srl`).
+- Prefiere falsos positivos que falsos negativos (mejor ver muchas cards rojas y descartar que perder duplicados).
+- Aplicado en `renderMcProvisoriosTable` + `renderMasterClientesTable`: fila roja `#fee2e2` + borde izquierdo rojo + badge `⚠ DUPLICADO SAP CXXXXXX` + tooltip.
+- Sin borrado automático — admin decide qué eliminar.
+
+### v315 (2026-07-23) — Buscador de tiendas form Visita: badge visible + refresh en vivo
+- Fix A: badge `⚡ PROVISORIO` texto llamativo en el dropdown `vf-tienda` (antes solo un emoji chico ignorado, causaba que el vendedor picara POINT del padrón por error).
+- Fix C: hook en el listener de `approvedAltasList` que re-llama a `populateVisitaLocalidades()` cuando el modal Visita está abierto en tab "Nueva". Los provisorios recién creados aparecen al toque en el dropdown sin cerrar/reabrir el modal.
+- Guardián: si el input `vf-tienda-search` tiene foco (usuario escribiendo), difiere el re-populate para no cortar la búsqueda.
 
 ### v314 (2026-07-23) — Registro de Contacto: campo Forma de contacto
 - Modal Visita en modo `contacto`: nueva fila **"Forma de contacto"** después de "Tipo de tienda". Opciones: LLAMADA TELEFONICA / MENSAJE DE WHATSAPP / MENSAJE SMS. Obligatorio.
