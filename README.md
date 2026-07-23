@@ -20,7 +20,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Versión actual** | SW v314 |
 | **APP_VERSION** | `v314` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
-| **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **14 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas`, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`**, `v_inventario`, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`**, `v_backorder_lineas`, `v_targets`; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`) → **Power BI Desktop TABLERO SAR publicado con hoja "Facturación por Vendedor" que muestra Facturado/Cobrado/Deuda pesca cuadrado ($140.7M = $100.2M + $40.6M en Julio 2026)**. Ver sección 40 |
+| **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **14 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`) → **Power BI Desktop TABLERO SAR publicado con 8 páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
 | **Bot Inventario Google Sheet** | Lee `raw.githubusercontent.com/shimano-arg/app-vendedores/main/stock.json` cada 30 min — datos frescos garantizados |
 
@@ -201,6 +201,9 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] **Directores del área: auto-aprobación de rendiciones** (v309). Lista blanca `SELF_APPROVE_RENDICIONES_EMAILS` con `diego.valsi@shimano.uy` (director). Diego (o cualquier email agregado a la lista) puede rendir gastos + solicitudes sin necesidad de un approver externo asignado en Panel Usuarios. El doc queda con `status='approved'` desde el submit + `approvedBy=self` + `approvalNote='Auto-aprobada (director del area)'`. Skip de notificación al approver. Aplica a `submitRendGasto` y `submitRendSolicitud` (v309+)
 [X] **Targets: autosave al escribir** (v310). Antes: el usuario tenía que apretar "Guardar Targets" al final; si cerraba el modal antes se perdían los cambios. Ahora: `onTgtInputChange` programa `_saveTargetFor(id)` con debounce 900ms, guarda automáticamente. Feedback visual con clases `.saving` (azul) y `.saved` (verde flash 1.2s). `closeTargetsPanel` hace flush sync de cualquier pendiente antes de cerrar (safety para cierre inmediato). El botón "Guardar Targets" queda como fallback (v310+)
 [X] **Targets descompuestos por familia REEL/CAÑAS/LÍNEAS** (v311). El modal Targets ahora tiene 3 columnas de familia (Reel/Cañas/Líneas) + columna Total (readonly, calculado en vivo). Cargás cada familia y el total del mes es la suma. Firestore: doc `targets/{seller}_{y}_{MM}` agrega campo `targetByFamily: {REEL, CANAS, LINEAS}`. `targetArs` se mantiene como suma (retro-compat con v_targets, PBI, exports). Sync grande: `sync_sap_to_bigquery.py` aplana el map a 3 columnas explícitas `target_reel_ars`, `target_canas_ars`, `target_lineas_ars`. Vista `v_targets` amplía con esas 3 columnas — docs pre-v311 quedan con null (retro-compat total, `target_ars` sigue funcionando) (v311+)
+[X] **Export masterfile de Clientes incluye provisorios** (v312). Antes el export "Clientes (masterfile)" filtraba `!cardCodeSap → skip`, dejando afuera todos los provisorios (Alta rápida). Ahora se detecta `isProvisorio = manualSapPending && !cardCodeSap` y entran con `Tipo="Provisorio (Alta rapida)"` + `Estado="Provisorio"`. El gerente ve el universo comercial completo, no solo lo cerrado en SAP. Fix menor: `seen.add(dupKey)` que faltaba (evita duplicados si un habilitado y un provisorio tenían el mismo nombre) (v312+)
+[X] **Buscadores flexibles multi-token AND** (v313). Nuevo helper `matchesAllTokens(haystack, query)` divide el query por espacios y exige que TODOS los tokens aparezcan en el haystack concatenado. Normaliza acentos vía NFD (á→a, ñ→n). Aplicado en 4 buscadores: (1) CLIENTES sidebar (`clientMatchesQuery` + SAP altas inline), (2) PEDIDOS sidebar (fallback SAP altas), (3) Master Clientes vista normal, (4) Master Clientes tab Provisorios. Ejemplos que ahora funcionan: `"el pez gordo quilmes"`, `"pescamagic buenos aires"`, `"gonzalo cordoba"`. Orden no importa (v313+)
+[X] **Registro de Contacto agrega campo Forma de contacto** (v314). En el modal Visita en modo `contacto`, después de "Tipo de tienda" aparece un select nuevo obligatorio con 3 opciones: `LLAMADA TELEFONICA / MENSAJE DE WHATSAPP / MENSAJE SMS`. `applyVisitModeUI` lo muestra/oculta según modo. `submitVisita` agrega validación y guarda `formaContacto` en el doc (queda `''` en modo visita presencial). BQ: `v_visitas` expone nueva columna `forma_contacto` (STRING) para desglose PBI "Contactos por canal" (v314+)
 ```
 
 ### Bloqueantes externos para el lanzamiento
@@ -2702,10 +2705,10 @@ Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gere
 
 ## 40) Power BI / BigQuery
 
-**Estado a 2026-07-21**:
+**Estado a 2026-07-23**:
 - ✅ **Fase 1.1** Firestore → BigQuery (7 collecciones + backfill)
 - ✅ **Fase 1.2** SAP → BigQuery (6 tablas raw: BPs, Items, Invoices, Quotations, Orders, PO)
-- ✅ **Fase 2** Modelo de datos: **12 vistas SQL curadas** (9 base + 3 de deuda 2026-07-20)
+- ✅ **Fase 2** Modelo de datos: **14 vistas SQL curadas** (9 base + 3 deuda 2026-07-20 + 2 rendiciones 2026-07-22)
 - ✅ **Fase 3** Power BI Desktop → Service: **TABLERO SAR publicado en `Mi área de trabajo`**. Modelo con 12 vistas + `sap_items_raw` + `Vendedores` + `Origenes` + `Medidas` + `Date`. Páginas operativas: Desempeño-Pesca, Ventas, Pedidos, Visitas, **Facturación por Vendedor** (con Cobrado + Deuda), Backorder, Inventario.
 - ✅ **Fase 3.5** Distribución automática: **suscripción diaria a Mariano** ("Desempeño diario de ventas SAR - PESCA") @15:00 AR + refresh programado @14:30. Ver subsección abajo.
 - ✅ **Fase 3.6 (2026-07-21)** Deuda por vendedor de la app: 3 vistas + cards Cobrado/Deuda en hoja Facturación por Vendedor. Ver subsección "Vistas de deuda" abajo.
@@ -2773,6 +2776,52 @@ CALCULATE(
 ```
 
 Usan **prorrateo por línea** (v_ventas_lineas tiene ahora `cobrado_prorrateado_ars` + `deuda_prorrateada_ars`) para que **[Cobrado ARS] + [Deuda ARS] = [Facturación Total]** exactamente. Julio 2026: $100.2M cobrado + $40.6M deuda = $140.8M facturado ✓.
+
+### Fix estructural del slicer de vendedor: `assigned_vendor` (2026-07-22)
+
+**Problema raíz**: SAP tiene decenas de facturas cargadas con **SlpCodes históricos** (49 = Mariano admin, 34, 23, 11) para clientes que en la app están asignados a otros vendedores. El slicer del TABLERO SAR (que usaba `sales_person_code_invoice` como llave) mostraba tiendas bajo el vendedor equivocado.
+
+**Ejemplo confirmado**: FATECHI (Presi Store, Río Tercero, Córdoba). App: `assignedVendor="MARTIN BOIERO"`. SAP factura #18216 Julio 2026: `SlpCode=54` (Federico). El TABLERO SAR la mostraba bajo Federico.
+
+**Fix**: agregar campo `assigned_vendor` (STRING, tomado del app vía LEFT JOIN a `client_applications`) en **`v_facturas_sap`** y **`v_ventas_lineas`**. En Power BI se relacionó `Vendedores[VendorKey]` (columna calculada `UPPER([Nombre])`) → `assigned_vendor` en lugar de la relación por SlpCode.
+
+**Impacto Julio 2026**: 29 facturas mapeadas al vendedor real de la app, 141 sin mapear (BPs históricos/BIKE sin registro app). Números por vendedor cerraron con la realidad operativa.
+
+**Deuda técnica pendiente en SAP**: setear `SalesPersonCode=55` (Martin) en la ficha del BP de FATECHI (y otros clientes similares) para que futuras facturas vengan bien por default.
+
+### Rendiciones (2026-07-22)
+
+**Foto ticket migrada a Firebase Storage** (v308): antes se guardaba base64 en el doc Firestore (50-500KB por doc → rompía Power BI Import mode a escala). Ahora sube a bucket `rendiciones/{ownerUid}/{ts}_ticket.{ext}` y el doc queda con solo `fotoTicketUrl` (~1KB). Retro-migradas 45 fotos históricas con `scripts/migrate_rendiciones_foto_to_storage.py`.
+
+**Vistas nuevas**:
+
+| Vista | Contenido |
+|---|---|
+| `v_rendiciones` | 1 fila por gasto (`tipo='gasto'`). Campos aplanados: `concepto` (COMBUSTIBLE/COMIDA/HOSPEDAJE/PEAJE/TRASLADO/OTROS), `tipo_gasto` (FACTURA A / CON COMPROBANTE / SIN COMPROBANTE), `modo_pago` (RECARGABLE/CORPORATIVA/EFECTIVO), `division_gasto` (LOCAL/REGIONAL), `importe_ars/usd`, `moneda`, `vendor`, `status`, `foto_ticket_url`. Flags `tiene_comprobante_fiscal`, `pendiente_aprobacion`, `rechazada`. Fecha parseada con timezone AR. |
+| `v_rendiciones_duplicados` | Alerta: agrupa por `(vendor, fecha, importe)` con `count > 1`. Detecta duplicados sospechosos. |
+
+**Números actuales 2026-07-23**: $1.86M en 46 tickets · aprobado $1.55M · pendiente $307k · 45/45 fotos en Storage · 3 duplicados sospechosos (Martin 3 peajes $1500 el 30/6, Gonzalo y Federico 2 traslados $21k c/u el 26/6).
+
+**Auto-aprobación directores** (v309): lista blanca `SELF_APPROVE_RENDICIONES_EMAILS` con `diego.valsi@shimano.uy`. Diego rinde sin approver externo; doc queda `status='approved'` desde el submit + `approvalNote='Auto-aprobada (director del area)'`.
+
+### Targets descompuestos por familia (2026-07-21)
+
+Modal Targets ahora carga 3 sub-targets por mes: **REEL / CAÑAS / LÍNEAS**. Total del mes = suma automática. Autosave con debounce 900ms + flush sync al cerrar el modal.
+
+Firestore doc `targets/{seller}_{y}_{MM}` agrega `targetByFamily: {REEL, CANAS, LINEAS}`. `targetArs` se mantiene como total (retro-compat).
+
+BQ: `v_targets` amplía con `target_reel_ars`, `target_canas_ars`, `target_lineas_ars`. Docs pre-v311 aparecen con NULL en esas 3 (retro-compat 100%). Uso PBI: cumplimiento por familia (facturación pesca por familia / target por familia).
+
+`sync_sap_to_bigquery.py` usa **schema explícito** para targets (nueva función `_load_to_bq_with_schema`) para evitar el bug conocido de autodetect que dropea columnas todas-null.
+
+### Contactado: distinción visita vs contacto no presencial
+
+`v_visitas` expone 3 columnas nuevas para separar visitas físicas de contactos remotos:
+- `interaction_type` (STRING): `'visita'` o `'contacto'`. Docs pre-v305 quedan como `'visita'` por COALESCE.
+- `es_contacto` (BOOL): shortcut con `COALESCE(..., FALSE)` para filtros DAX simples.
+- `forma_contacto` (STRING, v314+): `LLAMADA TELEFONICA` / `MENSAJE DE WHATSAPP` / `MENSAJE SMS`. NULL para visitas físicas.
+
+Uso PBI: cards separados "Visitas físicas" vs "Contactos", donut por canal de contacto.
 
 ### Issue conocido: SlpCode 49 (Mariano admin) mal asignado a facturas de Gonzalo
 
@@ -3252,9 +3301,49 @@ Total: ~15 iteraciones para llegar al fix correcto por la naturaleza propietaria
 
 ---
 
-## 41) Changelog v204 → v307
+## 41) Changelog v204 → v314
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v314 (2026-07-23) — Registro de Contacto: campo Forma de contacto
+- Modal Visita en modo `contacto`: nueva fila **"Forma de contacto"** después de "Tipo de tienda". Opciones: LLAMADA TELEFONICA / MENSAJE DE WHATSAPP / MENSAJE SMS. Obligatorio.
+- `applyVisitModeUI` muestra/oculta la fila según modo. `submitVisita` valida y guarda como `formaContacto`.
+- BQ: `v_visitas` agrega columna `forma_contacto` (STRING). NULL para docs pre-v314 y visitas físicas.
+
+### v313 (2026-07-23) — Buscadores flexibles multi-token AND
+- Nuevo helper `matchesAllTokens(haystack, query)`: divide query por espacios, exige que TODOS los tokens aparezcan en el haystack. Normaliza acentos vía NFD.
+- Aplicado en 4 buscadores: CLIENTES sidebar (`clientMatchesQuery` + SAP altas), PEDIDOS sidebar, Master Clientes vista normal, Master Clientes Provisorios.
+- Ejemplos que ahora funcionan: `"el pez gordo quilmes"`, `"pescamagic buenos aires"`, `"gonzalo cordoba"`.
+- Pendientes de aplicar el mismo helper: Localidades, form Visita tienda, Vincular con SAP, Rendiciones TODAS, Zonas.
+
+### v312 (2026-07-23) — Export masterfile Clientes incluye Provisorios
+- Antes: `exportMasterClientes` filtraba `!cardCodeSap → skip`. Los provisorios (Alta rápida) quedaban afuera del Excel.
+- Ahora: detecta `isProvisorio = manualSapPending && !cardCodeSap` y los incluye con `Tipo="Provisorio (Alta rapida)"` + `Estado="Provisorio"`. Se aceptan sin dirección.
+- Bugfix: `seen.add(dupKey)` que faltaba (evitaba duplicados si un habilitado y un provisorio compartían nombre+provincia).
+
+### v311 (2026-07-22) — Targets descompuestos por familia REEL/CAÑAS/LÍNEAS
+- Modal Targets: 3 columnas de familia + columna Total (readonly, calculado en vivo).
+- Firestore: doc agrega `targetByFamily: {REEL, CANAS, LINEAS}` map. `targetArs` sigue siendo el total (retro-compat).
+- BQ: `v_targets` amplía con `target_reel_ars` / `target_canas_ars` / `target_lineas_ars`.
+- Sync grande: nueva función `_load_to_bq_with_schema` con schema explícito para targets (evita drop de columnas null por autodetect).
+- Fix `ALTER TABLE targets_raw ADD COLUMN` aplicado en BQ para docs pre-v311.
+
+### v310 (2026-07-21) — Targets autosave al escribir
+- Antes: había que apretar "Guardar Targets" al final; si cerrabas el modal antes, se perdían los cambios.
+- Ahora: `onTgtInputChange` programa `_saveTargetFor(id)` con debounce 900ms. Feedback visual (`.saving` azul / `.saved` verde flash).
+- `closeTargetsPanel` hace flush sync de cualquier pendiente antes de cerrar. Cero pérdida de datos.
+
+### v309 (2026-07-21) — Directores auto-aprueban rendiciones
+- Nueva `SELF_APPROVE_RENDICIONES_EMAILS = Set(['diego.valsi@shimano.uy'])`. Emails en la lista no necesitan responsable de rendiciones.
+- `submitRendGasto` + `submitRendSolicitud`: bypass del check + doc queda `status='approved'` desde el submit + `approvalNote='Auto-aprobada (director del area)'`. Skip notificación.
+- Extensible: sumar emails al Set para agregar otros directores.
+
+### v308 (2026-07-21) — Rendiciones foto a Firebase Storage + vistas BQ
+- Cargar Firebase Storage SDK 10.7.1.
+- `submitRendGasto` sube foto a `rendiciones/{ownerUid}/{ts}_ticket.{ext}` y guarda solo `fotoTicketUrl`. Doc pasa de 50-500KB a ~1KB.
+- Retro-migración: `scripts/migrate_rendiciones_foto_to_storage.py` movió 45/45 fotos históricas.
+- BQ: nuevas vistas `v_rendiciones` (46 filas) + `v_rendiciones_duplicados` (3 casos sospechosos).
+- Retro-compat: `openRendicionDetail` y export Excel prefieren `fotoTicketUrl` sino caen a `fotoTicket` base64.
 
 ### v307 (2026-07-21) — Contactado Fase B: badges + filtro por tipo
 - Menú contextual del cliente: "Revisar última visita" → **"Última interacción"**.
