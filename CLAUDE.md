@@ -39,3 +39,18 @@ Este archivo captura reglas de comportamiento aprendidas durante Fase 0 (rama `f
 **Por qué**: cambios de scope son legítimos y necesarios cuando aprendés cosas durante ejecución. Lo prohibido es "no lo puedo hacer verde, entonces bajo el listón".
 
 **Ejemplo (E0)**: quité `npx playwright --version` del gate de E0 porque playwright solo se usa en E2 (smoke test). No es relajación — es que E0 no tiene por qué garantizar Playwright listo. Documento la movida.
+
+## 6. Test bug vs SUT bug: distinguir antes de "arreglar"
+
+**Regla**: cuando un test falla, primero determinar si el bug está en el TEST (asserción documenta comportamiento fantasía que nunca existió) o en el SUT (comportamiento real difiere del especificado). SOLO en el segundo caso el fix va al SUT; en el primero se arregla el test para reflejar el comportamiento real, con un comentario que explique la sutileza.
+
+**Por qué**: la regla "no toco el test para hacerlo pasar" existe para prevenir que se relaje un criterio válido. NO impide corregir un test que documenta algo falso — al contrario, un test falso también es deuda.
+
+**Cómo aplicar**: leer la función bajo test (extraída verbatim de prod = comportamiento real de prod). Si el test asume algo que la función nunca hizo, es test bug. Si la función hace algo distinto de lo que dice su docstring o del comportamiento intencional, es SUT bug.
+
+**Ejemplo (E4)**: 3 tests iniciales fallaron. Los 3 eran test bugs míos:
+1. `titleCase("mc'donalds")` → asumí `Mc'donalds`, pero JS regex `\b` trata `'` como word boundary → `Mc'Donalds`. Función OK; test corregido para documentar.
+2. `hasAny` con `cliTipo:'C'` → asumí false, pero la fórmula `!!(tipo || ...)` hace true cuando hay tipo aunque el descuento sea 0%. Función intencional; test corregido + agregado test complementario que valida ambos casos.
+3. `matchSkuFromTitle('Shimano Stella 4000 FI', ...)` → título no contenía la key SKU (`REEL4000FI` no está adyacente en `SHIMANOSTELLA4000FI`). Test data corregida.
+
+Ninguno tocó el SUT. La distinción "bug del test vs bug del SUT" se resuelve *antes* de proponer cualquier cambio.
