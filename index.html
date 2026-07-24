@@ -1060,7 +1060,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .contact-summary{color:#475569;font-weight:600}
 .contact-reset{padding:3px 10px;border:1px solid #cbd5e1;border-radius:4px;background:#fff;color:#475569;font-size:10px;font-weight:600;cursor:pointer;text-transform:uppercase;letter-spacing:.5px}
 .contact-reset:hover{background:#f1f5f9;color:#0f172a}
-.client-card{position:relative;display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;padding:8px 10px;padding-right:200px;background:#fff;border:1px solid #e5e7eb;border-left:3px solid #cbd5e1;border-radius:6px;cursor:pointer;transition:.15s}
+.client-card{position:relative;display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;padding:8px 10px;padding-right:62px;background:#fff;border:1px solid #e5e7eb;border-left:3px solid #cbd5e1;border-radius:6px;cursor:pointer;transition:.15s}
 .client-card:hover{background:#f8fafc}
 .client-card.contacted{background:#ecfdf5;border-color:#10b981;border-left-color:#10b981}
 .client-card.estado-habilitado{background:#ecfdf5;border-color:#10b981;border-left-color:#10b981}
@@ -1310,12 +1310,10 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .pedido-client-card{position:relative;margin-bottom:6px;padding:10px 12px;background:#fff;border:1px solid #e5e7eb;border-left:3px solid #166534;border-radius:6px;cursor:pointer;transition:.15s;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .cli-cat-corner{position:absolute;top:6px;right:8px;font-size:10px;font-weight:800;color:#fff;padding:3px 9px;border-radius:4px;text-transform:uppercase;letter-spacing:.5px;line-height:1;z-index:2;box-shadow:0 1px 2px rgba(0,0,0,.12);pointer-events:none}
 .pedido-client-card .cli-cat-corner{top:8px;right:10px}
-/* v317+: badge de origen (SAP CXXXXXX o PROVISORIO) al lado del badge CAT.
-   Se posiciona a la izquierda del cat corner (right:65px). Ancho variable
-   segun el largo del cardCode; el padding-right de la card se aumenta a
-   190px para dejar espacio a ambos badges (CAT ~50px + gap + origen ~130px). */
-.cli-origen-corner{position:absolute;top:6px;right:65px;font-size:9px;font-weight:700;padding:3px 7px;border-radius:4px;line-height:1;z-index:2;box-shadow:0 1px 2px rgba(0,0,0,.10);pointer-events:none;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis}
-.pedido-client-card .cli-origen-corner{top:8px;right:65px}
+/* v318+: badge de origen (SAP CXXXXXX o PROVISORIO). Antes iba absolute
+   arriba a la derecha pero apretaba el nombre. Ahora inline en la
+   linea meta abajo (al lado de SAP EN MAPA + localidad). */
+.cli-origen-inline{display:inline-flex;align-items:center;font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;line-height:1;white-space:nowrap;margin-right:6px}
 .pedido-client-card:hover{background:#f0fdf4;transform:translateX(2px)}
 .pedido-client-card .ped-name{font-size:12px;font-weight:700;color:#0f172a;line-height:1.25}
 .pedido-client-card .ped-meta{font-size:10px;color:#64748b;margin-top:2px}
@@ -3322,7 +3320,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v318';
+const APP_VERSION = 'v319';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -6028,19 +6026,22 @@ function renderClients(pts){
         html += ' <span title="' + escapeAttr(a.precaucionReason || 'Cliente con precaucion') + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:4px;background:#d97706;padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">&#9888;&#65039; Precauci&oacute;n</span>';
       }
       html += '</div>';
-      // v317+: badge de origen (SAP o PROVISORIO) posicionado en la
-      // esquina superior derecha, al lado del badge CAT. Antes iba
-      // inline al lado del nombre y quedaba apretado.
+      // v318+: badge de origen (SAP CXXXXXX o PROVISORIO) inline en la
+      // linea meta abajo, al lado del "SAP EN MAPA" y la localidad.
+      // Antes estaba en la esquina superior derecha absoluta pero
+      // apretaba el nombre. Ahora convive con los demas metadatos.
       const sapOrigenLabel = a.cardCodeSap ? ('SAP ' + escapeHtml(a.cardCodeSap)) : '&#9889; PROVISORIO';
       const sapOrigenBg = a.cardCodeSap ? '#dcfce7' : '#fef3c7';
       const sapOrigenFg = a.cardCodeSap ? '#166534' : '#92400e';
       const sapOrigenBorder = a.cardCodeSap ? '#86efac' : '#fcd34d';
-      const sapOrigenCorner = '<span class="cli-origen-corner" style="background:' + sapOrigenBg + ';color:' + sapOrigenFg + ';border:1px solid ' + sapOrigenBorder + '">' + sapOrigenLabel + '</span>';
+      const sapOrigenInline = '<span class="cli-origen-inline" style="background:' + sapOrigenBg + ';color:' + sapOrigenFg + ';border:1px solid ' + sapOrigenBorder + '">' + sapOrigenLabel + '</span>';
       if (hasFant) {
         html += '<div style="font-size:11px;color:#475569;font-weight:600;margin-top:2px"><span style="color:#94a3b8;font-weight:500">Titular:</span> ' + escapeHtml(titularSap) + '</div>';
       }
       html += '<div class="client-meta">';
       html += '<span class="cli-state-badge" style="background:' + sapLeft + ';color:#fff">' + sapLabel + '</span>';
+      // v318+: badge SAP/PROVISORIO inline junto al SAP EN MAPA y la localidad.
+      html += sapOrigenInline;
       html += '<span>' + escapeHtml(it.point.name) + '</span>';
       if (it.point.province) {
         html += '<span style="color:#94a3b8">/ ' + escapeHtml(titleCase(it.point.province)) + '</span>';
@@ -6048,8 +6049,7 @@ function renderClients(pts){
         html += '<span style="color:#f59e0b;font-weight:600">&#9888;&#65039; sin provincia</span>';
       }
       html += '</div></div>';
-      // Badges esquina superior derecha: origen (SAP/PROVISORIO) + categoria CAT.
-      html += sapOrigenCorner;
+      // Badge CAT en la esquina superior derecha (como antes).
       html += getClientCategoryBadgeHtml(it.point.province, it.point.name, it.name, {corner: true});
       html += '</div>';
       continue;
