@@ -2842,8 +2842,8 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       </div>
       <div class="cli-filter-row">
         <button class="cli-filter-btn active" data-cli-filter="all" onclick="setClientStateFilter('all')">Todos</button>
-        <button class="cli-filter-btn" data-cli-filter="confirmados" onclick="setClientStateFilter('confirmados')">Confirmados</button>
-        <button class="cli-filter-btn" data-cli-filter="pendientes" onclick="setClientStateFilter('pendientes')">No confirmados</button>
+        <button class="cli-filter-btn" data-cli-filter="confirmados" onclick="setClientStateFilter('confirmados')">Cliente en SAP</button>
+        <button class="cli-filter-btn" data-cli-filter="pendientes" onclick="setClientStateFilter('pendientes')">Provisorios</button>
       </div>
       <div class="ped-search-wrap"><input type="search" id="cli-search" class="ped-search" placeholder="Buscar cliente por nombre..." oninput="onCliSearchChange()" autocomplete="off"/></div>
       <div id="clients-content"></div>
@@ -3320,7 +3320,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v319';
+const APP_VERSION = 'v320';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
