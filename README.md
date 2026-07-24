@@ -207,6 +207,10 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] **Buscador de tiendas del form Visita: badge "⚡ PROVISORIO" + refresh en vivo** (v315). Antes en el dropdown solo aparecía un emoji chico `⚡` que se pasaba por alto y provocaba que el vendedor picara un POINT del padrón por error. Ahora el badge es texto llamativo `⚡ PROVISORIO`. Además, cuando llega snapshot de `approvedAltasList` y el modal Visita está abierto (form "Nueva"), se re-populate el dropdown para incluir provisorios recién creados. Guardián: si el input `vf-tienda-search` tiene foco (usuario escribiendo), difiere el re-populate para no interrumpir la búsqueda (v315+)
 [X] **Detector de duplicados SAP vs Provisorios (visual, sin borrar)** (v316). Cuando finanzas carga a SAP un cliente que ya existía como Alta Rápida, la app termina con 2 docs. Helper `findSapDuplicateForProvisorio(prov)` busca en `approvedAltasList` un SAP habilitado con misma provincia + localidad + nombre similar (contains cruzado o ≥2 tokens significativos comunes de ≥3 letras, excluyendo stopwords `de/la/el/pesca/tienda/store/srl/etc`). Si detecta match: fila roja `#fee2e2` + borde izquierdo rojo + badge `⚠ DUPLICADO SAP CXXXXXX` + tooltip con nombre del SAP. Aplica en Master Clientes tab Provisorios + vista normal. Cero deleteo automático — admin decide manualmente (v316+)
 [X] **Cards de clientes coloreadas por origen** (v317). Sidebar CLIENTES + tab PEDIDOS: cards ahora tienen fondo distintivo según el origen del cliente. **Celeste clarito `#e0f2fe`** (con borde izquierdo azul) para **Provisorios** (`manualSapPending && !cardCodeSap`). **Verde clarito `#dcfce7`** (borde izquierdo verde) para **SAP habilitados** (con `cardCodeSap`). Precaución (amarillo `#fde68a`) mantiene prioridad máxima sobre ambos. El vendedor distingue de un vistazo qué clientes ya están en SAP vs cuáles todavía son alta rápida pendiente (v317+)
+[X] **Badge SAP/PROVISORIO en línea meta** (v319, iteración desde v318). El badge del cardCode / PROVISORIO se movió de al lado del nombre (que apretaba nombres largos) a la **línea meta abajo**, junto al `✓ SAP EN MAPA` y la localidad. Estilo `cli-origen-inline` (display inline-flex sin position:absolute). Colores mantenidos: verde clarito para SAP habilitado, ámbar para provisorio (v319+)
+[X] **Filtros sidebar CLIENTES renombrados**: `CONFIRMADOS` → **`CLIENTE EN SAP`** y `NO CONFIRMADOS` → **`PROVISORIOS`**. Alineación semántica con los colores de cards (verde=SAP, celeste=provisorio). Los valores internos siguen siendo `confirmados`/`pendientes` para no romper referencias del código (v320+)
+[X] **Cards SAP: localidad y provincia en línea separada** (v321). Antes badges + localidad + provincia iban todos en la misma línea `client-meta`; con CardCodes largos o localidades extensas se apretaba y la provincia bajaba sola (roto visual). Ahora `client-meta` se divide en 2 divs consecutivos: fila 1 con badges (SAP EN MAPA + SAP/PROVISORIO), fila 2 con Localidad / Provincia. Layout consistente sin importar largo de los datos (v321+)
+[X] **Notificaciones: botón "Marcar todas como leídas"** (v322). En la tab Recibidas, un header nuevo arriba de la lista muestra `N pendientes` + botón teal. Al apretar: confirm previo (con el N para evitar accidentes con 280+ ops) → **batch write en Firestore** (loops de 400 ops por batch, respeta límite de 500). El listener `onSnapshot` limpia la lista al toque. Reversible una por una desde tab "Realizadas" (v322+)
 [X] **Performance: geometrías del mapa lazy-loaded** (v323). Las constantes `DEPT_GEO` (1.37 MB, 527 departamentos) y `PROV_GEO` (400 KB, 24 provincias) se extrajeron a `geo.json` externo (1.56 MB). El HTML principal baja de **3.74 MB → 2.01 MB (-46%)**. Al arranque las variables son `{features: []}` vacías; un `fetch('./geo.json')` async las popula y re-renderiza `deptLayer`/`provLayer`/`vendorProvinces`/outlines. Login más rápido (menos parseo JS bloqueante). SW pre-cachea `geo.json` al instalar para que la segunda carga sea instant (v323+)
 ```
 
@@ -3305,9 +3309,48 @@ Total: ~15 iteraciones para llegar al fix correcto por la naturaleza propietaria
 
 ---
 
-## 41) Changelog v204 → v317
+## 41) Changelog v204 → v323
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v323 (2026-07-23) — Fix A performance: geometrías del mapa lazy-loaded
+- Extraídas `DEPT_GEO` (1.37 MB, 527 departamentos) y `PROV_GEO` (400 KB, 24 provincias) a `geo.json` externo (1.56 MB).
+- `index.html` baja de **3.74 MB → 2.01 MB (-46%)**.
+- Al arranque las variables son `{features: []}` vacías. IIFE `loadGeoAsync()` dispara `fetch('./geo.json')` en background, popula ambas y re-renderiza:
+    * `deptLayer` + `provLayer` (Leaflet)
+    * `vendorProvinces` (set por vendor → provincias)
+    * `_vendorOutlinesCache` invalidado + `drawVendorOutlines()`
+    * `updateStats` con `filteredPoints`
+- `sw.js` v323 agrega `geo.json` a `STATIC_ASSETS` (pre-cache al instalar). Segunda carga: instantánea desde cache SW.
+- Reversible: git revert restaura DEPT_GEO/PROV_GEO hardcoded.
+
+### v322 (2026-07-23) — Notificaciones: "Marcar todas como leídas"
+- Nuevo header arriba de la lista Recibidas: `N pendientes` + botón teal.
+- `markAllNotifsRead()`: confirm previo con N + batch write en Firestore (loops de 400 ops por batch, respeta límite de 500).
+- Listener `onSnapshot` limpia la lista al toque cuando llegan los updates.
+- Casos como 280+ notificaciones se limpian en un solo click.
+
+### v321 (2026-07-23) — Cards SAP: localidad/provincia en línea separada abajo
+- `client-meta` se divide en 2 divs consecutivos:
+    * Línea 1: badges `[SAP EN MAPA]` + `[SAP CXXXX]` o `[PROVISORIO]`
+    * Línea 2: `Localidad / Provincia`
+- Fix layout cuando CardCodes largos o nombres de localidad extensos causaban wrap desprolijo.
+
+### v320 (2026-07-23) — Filtros CLIENTES renombrados a lenguaje del negocio
+- Botón `CONFIRMADOS` → **`CLIENTE EN SAP`**.
+- Botón `NO CONFIRMADOS` → **`PROVISORIOS`**.
+- Alineación semántica con colores de cards (v317). Valores internos (`confirmados`/`pendientes`) sin cambios.
+
+### v319 (2026-07-23) — Badge SAP/PROVISORIO a línea meta (después de v318 UX)
+- Fix del intento v318 (badge absolute arriba a la derecha) que apretaba nombres largos.
+- Nueva CSS `.cli-origen-inline` (display inline-flex).
+- El badge se emite dentro de `<div class="client-meta">` entre el `SAP EN MAPA` y la localidad.
+- Padding-right de card vuelve a 62px.
+
+### v318 (2026-07-23) — Intento inicial: badge SAP/PROVISORIO a esquina superior
+- Movió el badge de al lado del nombre a esquina superior derecha (`.cli-origen-corner` absolute).
+- Padding-right de card aumentado a 200px.
+- **Deprecado en v319** por feedback UX del user: apretaba nombres/titulares largos.
 
 ### v317 (2026-07-23) — Cards CLIENTES/PEDIDOS coloreadas por origen
 - Sidebar CLIENTES (`renderClients`): cards SAP con `background:#e0f2fe` (celeste clarito) si es provisorio, `#dcfce7` (verde clarito) si es SAP habilitado con cardCode. Precaución (amarillo) mantiene prioridad.
