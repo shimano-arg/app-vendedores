@@ -14,6 +14,7 @@
     "audit:rules": "node scripts/audit-rules-coverage.js"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
     "esbuild": "^0.24.0",
     "fast-glob": "^3.3.2",
     "typescript": "^5.6.3",

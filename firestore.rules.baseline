@@ -1,21 +1,9 @@
-rules_version = '2';
+// BASELINE — rules actuales de producción `app-vendedores-shimano` (Firebase Console).
+// Recibido del usuario en el chat el 2026-07-24 durante E1 (Fase 0).
+// Este archivo NO se deploya. Es referencia histórica para poder comparar
+// cambios que hagamos en `firestore.rules` a lo largo de Fase 0.
 
-// Rules de app-vendedores-shimano.
-// Baseline: `firestore.rules.baseline` (snapshot 2026-07-24 desde Console).
-// Refactor Fase 0 (rama fase-0):
-//   1. `list` de pedidos/visits/rendiciones para vendedor requiere
-//      `resource.data.ownerUid == request.auth.uid`. Antes: cualquier
-//      reader listaba todo → un vendedor con consola browser podía
-//      enumerar visitas/pedidos/rendiciones de otros vendedores.
-//      Ahora vendor solo lista sus propios docs. Admin/gerente/interno
-//      no cambian (siguen viendo todo — necesario para panels).
-//   2. Doc `app_config/sap_integration` (creds SAP): read restringido a
-//      admin+gerente. Antes: cualquier reader (incluido viewer) leía
-//      las creds. E5 lo elimina moviendo creds a Secret Manager en
-//      Cloud Functions.
-// Todo lo demás preserva la baseline. Suite de tests contra emulator
-// en `tests/rules/` bloquea regresiones.
-
+rules_version = "2";
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -30,7 +18,6 @@ service cloud.firestore {
     function isAdminOrGerente() { return isAdmin() || isGerente(); }
     function isReader() { return isAdmin() || isViewer() || isVendor() || isInterno() || isGerente(); }
     function isSeguimientoUser() { return isAdmin() || isGerente() || isInterno(); }
-    function ownsDoc() { return request.auth != null && resource.data.ownerUid == request.auth.uid; }
 
     function isMyPartnerVDE(targetUid) {
       return isInterno()
@@ -56,10 +43,8 @@ service cloud.firestore {
       allow write: if request.auth != null && (request.auth.uid == uid || isAdmin());
     }
 
-    // Pedidos: get (por id) abierto a reader; list restringido para vendedor a own.
     match /pedidos/{pedidoId} {
-      allow get: if isReader();
-      allow list: if isAdminOrGerente() || isInterno() || (isVendor() && ownsDoc());
+      allow read: if isReader();
       allow create: if isAdminOrGerente()
         || (isVendor() && request.resource.data.ownerUid == request.auth.uid)
         || (isInterno()
@@ -84,10 +69,8 @@ service cloud.firestore {
       allow create, update, delete: if isAdminOrGerente();
     }
 
-    // Visits: mismo patrón que pedidos — vendor list solo own.
     match /visits/{visitId} {
-      allow get: if isReader();
-      allow list: if isAdminOrGerente() || isInterno() || (isVendor() && ownsDoc());
+      allow read: if isReader();
       allow create: if (isAdminOrGerente() || isVendor() || isInterno())
                        && request.resource.data.ownerUid == request.auth.uid
         || (isInterno()
@@ -107,9 +90,9 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    match /sap_clients/{docId}  { allow read: if isReader(); allow write: if isAdminOrGerente(); }
-    match /sap_products/{docId} { allow read: if isReader(); allow write: if isAdminOrGerente(); }
-    match /sap_vendors/{docId}  { allow read: if isReader(); allow write: if isAdminOrGerente(); }
+    match /sap_clients/{docId}   { allow read: if isReader(); allow write: if isAdminOrGerente(); }
+    match /sap_products/{docId}  { allow read: if isReader(); allow write: if isAdminOrGerente(); }
+    match /sap_vendors/{docId}   { allow read: if isReader(); allow write: if isAdminOrGerente(); }
 
     match /route_overrides/{docId} {
       allow read: if isReader();
@@ -181,24 +164,15 @@ service cloud.firestore {
             && (!('cardCodeSap' in resource.data) || resource.data.cardCodeSap == null));
     }
 
-    // Rendiciones: mismo patrón — vendor list solo own.
     match /rendiciones/{docId} {
-      allow get: if isReader();
-      allow list: if isAdminOrGerente() || isInterno() || (isVendor() && ownsDoc());
+      allow read: if isReader();
       allow create: if request.auth != null && request.resource.data.ownerUid == request.auth.uid;
       allow update: if isAdminOrGerente();
       allow delete: if isAdminOrGerente();
     }
 
-    // app_config: doc-specific overrides.
-    // - sap_integration: contiene creds SAP → SOLO admin+gerente (los únicos
-    //   que envían pedidos vía SL desde browser). E5 mueve las creds a
-    //   Secret Manager y esta rule podrá cerrarse aún más.
-    // - resto (gemini, google_maps, price_list*, product_catalog_meta,
-    //   stock_snapshot, users_directory): reader (todos necesitan).
     match /app_config/{docId} {
-      allow read: if (docId == 'sap_integration' && isAdminOrGerente())
-                  || (docId != 'sap_integration' && isReader());
+      allow read: if isReader();
       allow write: if isAdmin();
     }
 
