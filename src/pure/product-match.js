@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Matcher de SKU a partir de título MELI. Extracted de index.html:18627.
  *

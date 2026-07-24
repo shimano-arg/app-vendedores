@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Funciones puras de normalización de strings. Extracted de index.html
  * (líneas 3365-3372, 4396, 5580, 18595, 24962) como parte de E4 (Fase 0)
@@ -34,6 +35,7 @@ export function titleCase(s) {
  * @returns {string}
  */
 export function escapeHtml(s) {
+  /** @type {Record<string, string>} */
   const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
   return String(s).replace(/[&<>"']/g, (ch) => map[ch]);
 }

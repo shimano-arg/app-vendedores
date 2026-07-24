@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Buscador multi-token AND. Extracted de index.html:24962-24971 para E4.
  *

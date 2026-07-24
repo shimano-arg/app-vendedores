@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Cálculo de descuentos comerciales por categoría de cliente + volumen +
  * forma de pago. Extracted de index.html:9579 para E4 (Fase 0).
@@ -12,7 +13,9 @@
  *     P=5% / A=3% / B,C=0%
  */
 
+/** @type {Record<string, number>} */
 const FIJO_PCT  = { P: 6, A: 3, B: 0, C: 0 };
+/** @type {Record<string, number>} */
 const ANTIC_PCT = { P: 5, A: 3, B: 0, C: 0 };
 
 /**

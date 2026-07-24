@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Detector de duplicados SAP vs Provisorios. Extracted de index.html:24996
  * para E4.

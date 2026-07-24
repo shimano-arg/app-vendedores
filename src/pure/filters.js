@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Filtros del sidebar CLIENTES. Extracted de index.html:3658 para E4.
  *
