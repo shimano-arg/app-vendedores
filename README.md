@@ -68,7 +68,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v204 → v292](#41-changelog-v204--v292)
+41. [Changelog v204 → v323](#41-changelog-v204--v323)
+42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 
 ---
 
@@ -3306,6 +3307,96 @@ Cronología resumida:
 6. **v288 FINAL**: `U_DIVISION IN ('2', '3')` (PESCA + BIKE&PESCA), poblar `provincia` canónica desde mapping de SAP States.
 
 Total: ~15 iteraciones para llegar al fix correcto por la naturaleza propietaria del schema SL de este SAP.
+
+---
+
+## 42) Setup de desarrollo local (2026-07-24)
+
+Todo lo instalado en la máquina de Mariano (`shimano.sandbox` — Windows 11) para poder trabajar la app localmente + operar la infra remota desde terminal sin depender de consolas web.
+
+### 42.1 Herramientas CLI instaladas
+
+| Herramienta | Versión | Loggeado como |
+|---|---|---|
+| Node.js | 24.15.0 (LTS) | — |
+| npm | 11.12.1 | — |
+| Python | 3.13.14 | — |
+| Git | 2.54.0 (Windows) | — |
+| **Firebase CLI** | 15.24.0 | `bot.shimano.pesca@gmail.com` |
+| **Google Cloud SDK** | 577.0.0 | `bot.shimano.pesca@gmail.com` |
+| **bq** (BigQuery CLI) | 2.1.35 | (usa ADC de gcloud) |
+| **gsutil** (Storage CLI) | incluido en gcloud | (usa ADC de gcloud) |
+| **ADC** (App Default Creds) | activo | `bot.shimano.pesca@gmail.com` |
+| **Java Temurin JDK 25 LTS** | 25.0.3.9 | — (requisito para Firestore Emulator) |
+
+Config gcloud default:
+- Proyecto: `app-vendedores-shimano`
+- Región: `southamerica-east1`
+- Zona: `southamerica-east1-a`
+
+### 42.2 Comandos útiles que ahora funcionan desde terminal
+
+```powershell
+# Queries BigQuery ad-hoc
+bq query --nouse_legacy_sql --project_id=app-vendedores-shimano "SELECT COUNT(*) FROM shimano_app.v_ventas_lineas WHERE anio=2026 AND mes=7"
+
+# Listar vistas del dataset
+bq ls --project_id=app-vendedores-shimano shimano_app
+
+# Ver proyectos GCP
+gcloud projects list
+
+# Firestore Emulator local (para testear Security Rules sin tocar prod)
+firebase emulators:start --only firestore
+
+# Deploy Firestore Rules
+firebase deploy --only firestore:rules
+
+# Ver / gestionar archivos de Firebase Storage
+gsutil ls gs://app-vendedores-shimano.firebasestorage.app/rendiciones/
+gsutil cp gs://app-vendedores-shimano.firebasestorage.app/rendiciones/uid/foto.jpg .
+
+# Backup Firestore a Storage (una vez que esté armado)
+gcloud firestore export gs://backup-bucket
+```
+
+### 42.3 Sentry (monitoring de errores) — DSN listo, pendiente integrar
+
+**DSN**: `https://7cbe790b32043d72a1b147a2f7f0c641@sentry.io/...` (guardado en la cuenta de Sentry de Mariano).
+
+Snippet listo para inyectar en `index.html` cuando arranquemos Fase 0 del roadmap (antes del `<script>` principal, después de los Firebase SDK):
+
+```html
+<script
+  src="https://js.sentry-cdn.com/7cbe790b32043d72a1b147a2f7f0c641.min.js"
+  crossorigin="anonymous"
+></script>
+```
+
+Con eso, cualquier error JS en producción se reporta a Sentry con stack trace + user agent + URL. Alertas por email al superar N errores/hora. **Pendiente**: elegir plan gratis / paid, definir política de sampling, integrar tags con `userRole` para poder filtrar.
+
+### 42.4 Cuentas y sus roles reales
+
+- **`erbinomariano@gmail.com`** — Owner del proyecto GCP + creador Firebase project. Tiene todos los permisos IAM. Usar para operaciones privilegiadas (crear buckets, cambiar IAM, deploy funciones).
+- **`bot.shimano.pesca@gmail.com`** — Admin bootstrap de la APP (auto-elevación al primer login). Rol admin en Firestore. Firebase CLI + gcloud + ADC quedaron loggeados con esta cuenta — cubre 95% de operaciones. Si algún comando falla con `permission denied`, cambiar a `erbinomariano@gmail.com` con `gcloud auth login --account=erbinomariano@gmail.com`.
+
+### 42.5 Documento arquitectónico separado
+
+Archivo **`APP-CONTEXTO.md`** en `C:\Users\shimano.sandbox\Desktop\` — análisis completo del stack actual + evaluación de migrar a React/Node.js + roadmap Fase 0/1/2/3 sugerido + riesgos operativos. Documento autocontenido pensado para pasarle a Claude Cowork u otro dev consultor externo sin contexto previo.
+
+**TL;DR del documento**: NO migrar todo a React ahora (rewrites de apps en producción fallan 60-70% de las veces). SÍ refactor gradual en 12-18 meses. Primero cerrar security holes + agregar monitoring (Sentry) + backup automático diario. Recién después pensar en React/Next.js.
+
+### 42.6 Próximos pasos sugeridos para arrancar Fase 0
+
+Cuando el user quiera empezar el trabajo estructural (post-features):
+
+1. **Testear Firestore Rules localmente** — arrancar el emulator, escribir tests de acceso por rol (admin vs vendedor vs gerente), correr `firebase emulators:exec --only firestore "npm test"`.
+2. **Integrar Sentry** en `index.html` con el snippet del 42.3. Bumpear a v324.
+3. **Backup automático diario** de Firestore → Storage con `gcloud scheduler` + Cloud Function.
+4. **Mover credenciales SAP a Cloud Functions** (hoy están en `app_config/sap_integration` doc de Firestore, cualquier user autenticado las lee).
+5. **Auditar Security Rules** — hay áreas laxas ("cualquier user autenticado puede leer `visits`"). Restringir por role/ownerUid.
+
+Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo estimado: 2-4 semanas.
 
 ---
 
