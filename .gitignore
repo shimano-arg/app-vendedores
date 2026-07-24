@@ -14,3 +14,37 @@ Solicitud_SEIDOR_Integracion_App.md
 # Marker temporal usado por el workflow sync-sap-catalog-stock para decidir
 # si commitear stock.json - lo escribe/borra el mismo script/workflow.
 .stock_json_changed
+
+# --- Fase 0 tooling (rama fase-0) ---
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+.pnpm-debug.log*
+
+# Build output
+dist/
+
+# Firebase local state
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
+functions/lib/
+functions/node_modules/
+
+# Test artifacts
+coverage/
+test-results/
+playwright-report/
+.playwright/
+
+# TypeScript
+*.tsbuildinfo
+
+# Python (scripts/)
+__pycache__/
+*.py[cod]
+.pytest_cache/
