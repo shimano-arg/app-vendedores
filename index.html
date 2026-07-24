@@ -3320,7 +3320,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v321';
+const APP_VERSION = 'v322';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -15901,8 +15901,49 @@ function renderNotifsList(){
   const cont = document.getElementById('notifs-list');
   const pendientes = (myNotifications || []).filter(isNotifPending);
   if (!pendientes.length) { cont.innerHTML = '<div class="notif-empty">No tenes alertas ni tareas pendientes. &#127881;</div>'; return; }
-  cont.innerHTML = pendientes.map(n => notifItemHtml(n)).join('');
+  // v321+: header con contador + boton "Marcar todas como leidas" para
+  // limpiar la bandeja de una. Util cuando se acumulan 100+ notifs.
+  const nPend = pendientes.length;
+  let html = '';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;margin-bottom:8px;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:6px">';
+  html += '<div style="font-size:11px;color:#334155;font-weight:600">' + nPend + ' pendiente' + (nPend === 1 ? '' : 's') + '</div>';
+  html += '<button onclick="markAllNotifsRead()" style="background:#0d9488;color:#fff;border:none;padding:7px 12px;font-size:11px;font-weight:800;border-radius:5px;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap">&#10003; Marcar todas como leidas</button>';
+  html += '</div>';
+  html += pendientes.map(n => notifItemHtml(n)).join('');
+  cont.innerHTML = html;
 }
+
+// v321+: bulk mark-as-read. Usa writeBatch de Firestore (max 500 ops).
+// Loop de batches de 400 para tener margen. Confirma antes por si el
+// user aprieta por accidente (280 notifs es mucho para deshacer).
+window.markAllNotifsRead = async function(){
+  const pendientes = (myNotifications || []).filter(isNotifPending);
+  if (!pendientes.length) { alert('No hay notificaciones pendientes.'); return; }
+  const n = pendientes.length;
+  if (!confirm('Marcar ' + n + ' notificacion' + (n === 1 ? '' : 'es') + ' como leida' + (n === 1 ? '' : 's') + '?\n\nEsta accion no se puede deshacer masivamente (podrias re-abrir cada una manual desde Realizadas).')) return;
+  const btn = document.querySelector('#notifs-list button[onclick*="markAllNotifsRead"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Marcando...'; }
+  try {
+    const CHUNK = 400;  // margen sobre el limite de 500
+    let ok = 0;
+    for (let i = 0; i < pendientes.length; i += CHUNK) {
+      const slice = pendientes.slice(i, i + CHUNK);
+      const batch = fbDb.batch();
+      slice.forEach(n => {
+        const ref = fbDb.collection('notifications').doc(n._fsId);
+        batch.update(ref, {status: 'read', readAt: firebase.firestore.FieldValue.serverTimestamp()});
+      });
+      await batch.commit();
+      ok += slice.length;
+    }
+    showSyncTag(ok + ' notificaciones marcadas como leidas');
+    // El listener onSnapshot repinta al toque cuando llegan los updates.
+  } catch(e) {
+    console.error('markAllNotifsRead', e);
+    alert('Error marcando notificaciones: ' + (e.message || e));
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Marcar todas como leidas'; }
+  }
+};
 
 function renderNotifsRealizadas(){
   // Realizadas = ya cerradas (read o done). Solo lectura.
