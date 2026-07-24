@@ -54,3 +54,18 @@ Este archivo captura reglas de comportamiento aprendidas durante Fase 0 (rama `f
 3. `matchSkuFromTitle('Shimano Stella 4000 FI', ...)` → título no contenía la key SKU (`REEL4000FI` no está adyacente en `SHIMANOSTELLA4000FI`). Test data corregida.
 
 Ninguno tocó el SUT. La distinción "bug del test vs bug del SUT" se resuelve *antes* de proponer cualquier cambio.
+
+## 7. Cloud Functions: separar core puro del wrapper Firebase
+
+**Regla**: cuando escribas una Cloud Function, extraé toda la lógica de negocio a un módulo `functions/core/*.js` con dependencias inyectables (fetch, getUserRole, sapConfig, log). El archivo `functions/index.js` solo hace el plumbing Firebase → core.
+
+**Por qué**:
+1. **Testeable sin emulator**: mockear `fetch` y `getUserRole` es trivial en Vitest. Correr `firebase emulators:exec --only functions,firestore,auth` requiere descargar jars adicionales (~50-100 MB) que en esta red son bloqueantes.
+2. **Portabilidad**: si mañana movés de Firebase Functions a Cloud Run o Node.js standalone, solo re-escribís el wrapper. La lógica no cambia.
+3. **Zero acoplamiento a firebase-admin/firebase-functions en tests**: no necesitás `firebase-functions-test` (dep pesada + acopla el test al framework).
+
+**Cómo aplicar**:
+- Core: acepta `(data, auth, deps)` donde `deps = {fetch, getUserRole, sapConfig, log, ...}`. Tira objetos `{code, message}` compatibles con HttpsError pero sin importarlo.
+- Wrapper (`functions/index.js`): construye `deps` con valores reales (`globalThis.fetch`, `getFirestore()` para roles, `secret.value()` para creds), llama al core, y traduce el error del core a `HttpsError` de firebase-functions.
+
+**Ejemplo (E5)**: `functions/core/sap-proxy-core.js` tiene toda la lógica (auth check, endpoint sanitization, SL login, cookie extraction, forward, logout, no-leak checks). 25 tests con mocks. `functions/index.js` es 60 líneas de wiring. Deploy real es gate humano (IAM + Secret Manager) — pero eso NO es lo que los tests deben validar; los tests validan la lógica.
