@@ -12,15 +12,20 @@
  * Region: southamerica-east1 (mismo que Firestore + Storage del proyecto).
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret } from 'firebase-functions/params';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { v1 as firestoreV1 } from '@google-cloud/firestore';
 import { handleSapProxy } from './core/sap-proxy-core.js';
+import { runDailyBackup } from './core/backup-core.js';
 
 if (!getApps().length) initializeApp();
 
 const SAP_SL_PASSWORD = defineSecret('SAP_SL_PASSWORD');
 const REGION = 'southamerica-east1';
+const PROJECT_ID = process.env.GCLOUD_PROJECT || 'app-vendedores-shimano';
+const BACKUP_BUCKET = `${PROJECT_ID}-backups`;
 
 /**
  * Callable sapProxy.
@@ -68,5 +73,39 @@ export const sapProxy = onCall(
       console.error('sapProxy unexpected error', e);
       throw new HttpsError('internal', 'Error interno sapProxy');
     }
+  },
+);
+
+/**
+ * dailyFirestoreBackup — cron 02:00 America/Argentina/Buenos_Aires.
+ * Exporta Firestore a gs://<project>-backups/firestore/{YYYY-MM-DD}/.
+ * Requiere que:
+ *  1. Bucket destino exista (crear con `gcloud storage buckets create ...`).
+ *  2. Service account default tenga `roles/datastore.importExportAdmin` +
+ *     `roles/storage.objectAdmin` en el bucket.
+ *  3. Cloud Scheduler + Firestore API habilitadas.
+ * Alerta: configurar log-based metric sobre "dailyFirestoreBackup failed".
+ */
+export const dailyFirestoreBackup = onSchedule(
+  {
+    region: REGION,
+    schedule: '0 2 * * *',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 2,
+    memory: '256MiB',
+    timeoutSeconds: 540,
+  },
+  async () => {
+    const client = new firestoreV1.FirestoreAdminClient();
+    await runDailyBackup({
+      projectId: PROJECT_ID,
+      bucketName: BACKUP_BUCKET,
+      now: () => new Date(),
+      exportDocuments: async (request) => {
+        const [operation] = await client.exportDocuments(request);
+        return { name: operation.name || undefined };
+      },
+      log: (msg, extra) => console.log(msg, extra || {}),
+    });
   },
 );
