@@ -32,6 +32,44 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-check-compat.js"></script>
+
+<!-- Sentry loader (Fase 0 E7). Public key hardcoded; el loader baja el
+     config completo (DSN, org, project, sampling) desde el CDN de Sentry
+     keyed por public key. El SDK carga async y queue-ea calls previos.
+     Ver seccion 42.3 del README para deshabilitar / rotar. -->
+<script
+  src="https://js.sentry-cdn.com/7cbe790b32043d72a1b147a2f7f0c641.min.js"
+  crossorigin="anonymous"
+></script>
+<script>
+  window.Sentry = window.Sentry || [];
+  if (typeof Sentry.onLoad === 'function') {
+    Sentry.onLoad(function () {
+      Sentry.init({
+        release: window.APP_VERSION || 'unknown',
+        environment: 'production',
+        tracesSampleRate: 0.0,
+      });
+    });
+  }
+  // Helper duplicado de src/sentry.js (inline hasta que E2 modularice).
+  // Silencioso si Sentry todavia no cargo (loader async).
+  window.applySentryUserContext = function (sentry, user, role, vendor) {
+    if (!sentry) return;
+    try {
+      if (user && typeof sentry.setUser === 'function') {
+        sentry.setUser({ id: user.uid, email: user.email });
+      } else if (user === null && typeof sentry.setUser === 'function') {
+        sentry.setUser(null);
+      }
+      if (typeof sentry.setTag === 'function') {
+        sentry.setTag('role', role || 'unknown');
+        sentry.setTag('vendor', vendor || 'none');
+      }
+    } catch (_) { /* best-effort: no romper flow de auth */ }
+  };
+</script>
+
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 /* ===== Splash screen al iniciar ===== */
@@ -3320,7 +3358,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v323';
+const APP_VERSION = 'v324';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -20197,6 +20235,18 @@ async function fetchAndApplyRole(){
   assignedVendor = data.vendor || null;
   myWhatsappNumber = data.whatsapp || null;
   myRendicionesApproverUid = data.rendicionesApproverUid || null;
+  // Sentry (v324): setear tags de rol/vendor apenas conocemos el role.
+  // El helper es best-effort; si Sentry todavia no cargo, no rompe.
+  try {
+    if (typeof window.applySentryUserContext === 'function') {
+      window.applySentryUserContext(
+        window.Sentry,
+        currentUser ? { uid: currentUser.uid, email: currentUser.email } : null,
+        userRole,
+        assignedVendor,
+      );
+    }
+  } catch (_) { /* nunca romper fetchAndApplyRole por Sentry */ }
   // Email cacheado del aprobador. Lo escribe bulkAssignApprover; si solo se
   // uso saveUserRole (per-row) puede estar vacio - se resuelve via directorio.
   myRendicionesApproverEmail = data.rendicionesApproverEmail || null;

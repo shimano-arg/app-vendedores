@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v323 |
-| **APP_VERSION** | `v323` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v324 |
+| **APP_VERSION** | `v324` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **14 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`) → **Power BI Desktop TABLERO SAR publicado con 8 páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v204 → v323](#41-changelog-v204--v323)
+41. [Changelog v204 → v324](#41-changelog-v204--v324)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 
 ---
@@ -3360,20 +3360,24 @@ gsutil cp gs://app-vendedores-shimano.firebasestorage.app/rendiciones/uid/foto.j
 gcloud firestore export gs://backup-bucket
 ```
 
-### 42.3 Sentry (monitoring de errores) — DSN listo, pendiente integrar
+### 42.3 Sentry (monitoring de errores) — INTEGRADO en v324 (Fase 0 E7)
 
-**DSN**: `https://7cbe790b32043d72a1b147a2f7f0c641@sentry.io/...` (guardado en la cuenta de Sentry de Mariano).
+**Public key**: `7cbe790b32043d72a1b147a2f7f0c641` (cuenta Sentry de Mariano).
 
-Snippet listo para inyectar en `index.html` cuando arranquemos Fase 0 del roadmap (antes del `<script>` principal, después de los Firebase SDK):
+**Estado**: integrado en `index.html` desde v324 (rama `fase-0`). El loader CDN de Sentry usa la public key para bajar el config completo (DSN, org, project, sampling) del servidor de Sentry — no hace falta hardcodear el DSN completo en el HTML.
 
-```html
-<script
-  src="https://js.sentry-cdn.com/7cbe790b32043d72a1b147a2f7f0c641.min.js"
-  crossorigin="anonymous"
-></script>
-```
+**Cómo funciona**:
+- `<script src="https://js.sentry-cdn.com/{publicKey}.min.js">` en el `<head>` después de los SDKs de Firebase.
+- `Sentry.onLoad(...)` dispara `Sentry.init({release: APP_VERSION, environment:'production', tracesSampleRate: 0.0})` una vez que el SDK terminó de cargar (async).
+- Helper `applySentryUserContext(sentry, user, role, vendor)` (definido inline en index.html y también en `src/sentry.js` para tests) se llama post-login desde `fetchAndApplyRole` — setea `Sentry.setUser({id, email})` + `setTag('role')` + `setTag('vendor')`. Todo error subsiguiente viaja con esos tags.
 
-Con eso, cualquier error JS en producción se reporta a Sentry con stack trace + user agent + URL. Alertas por email al superar N errores/hora. **Pendiente**: elegir plan gratis / paid, definir política de sampling, integrar tags con `userRole` para poder filtrar.
+**Cómo desactivar / rotar public key**: editar el `<script src=...>` en `index.html` líneas post-Firebase-SDKs + bumpear APP_VERSION.
+
+**Pendientes** (no bloqueantes):
+- Configurar sample rate de `tracesSampleRate` si se quiere performance monitoring (hoy 0.0 = solo errores).
+- Definir alerta en dashboard Sentry (email al superar N errores/hora).
+- Elegir plan pago si supera 5k eventos/mes del free tier.
+- Errores dentro del Service Worker (`sw.js`) NO son capturados por este snippet — requieren init separado. Fuera de scope Fase 0.
 
 ### 42.4 Cuentas y sus roles reales
 
@@ -3400,9 +3404,17 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v204 → v323
+## 41) Changelog v204 → v324
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v324 (2026-07-24) — Sentry integrado (Fase 0 E7)
+- Loader CDN de Sentry (`js.sentry-cdn.com/{publicKey}.min.js`) en el `<head>` después de los SDKs de Firebase.
+- `Sentry.onLoad` dispara `Sentry.init({release: APP_VERSION, environment:'production', tracesSampleRate:0.0})`.
+- Helper `applySentryUserContext(sentry, user, role, vendor)` inline en `index.html` (duplicado también en `src/sentry.js` para tests). Llamado post-login desde `fetchAndApplyRole` con el rol + vendor del user.
+- Errores JS en producción viajan a sentry.io con `tags: {role, vendor}` para poder filtrar.
+- 7 tests unitarios de `applySentryUserContext` (happy, logout, defaults, sentry no cargado, sentry sin métodos, setUser lanza, user sin email).
+- Ver sección 42.3 para operativa (rotación de public key, disable, etc.).
 
 ### v323 (2026-07-23) — Fix A performance: geometrías del mapa lazy-loaded
 - Extraídas `DEPT_GEO` (1.37 MB, 527 departamentos) y `PROV_GEO` (400 KB, 24 provincias) a `geo.json` externo (1.56 MB).
