@@ -70,6 +70,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
 41. [Changelog v204 → v324](#41-changelog-v204--v324)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
+43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 
 ---
 
@@ -3327,7 +3328,7 @@ Todo lo instalado en la máquina de Mariano (`shimano.sandbox` — Windows 11) p
 | **bq** (BigQuery CLI) | 2.1.35 | (usa ADC de gcloud) |
 | **gsutil** (Storage CLI) | incluido en gcloud | (usa ADC de gcloud) |
 | **ADC** (App Default Creds) | activo | `bot.shimano.pesca@gmail.com` |
-| **Java Temurin JDK 25 LTS** | 25.0.3.9 | — (requisito para Firestore Emulator) |
+| **Java Temurin JRE 21 LTS** | 21.0.11+10 | — (requisito para Firestore Emulator; el JDK 25 MSI requería UAC → se bajó ZIP portable de JRE 21 a `C:\Users\shimano.sandbox\Java\jdk-21.0.11+10-jre`) |
 
 Config gcloud default:
 - Proyecto: `app-vendedores-shimano`
@@ -4173,3 +4174,374 @@ Highlights v204→v217 (histórico anterior):
 - **Infra externa nueva** — **Firebase Blaze** activo, **Firebase Storage** inicializado, **BigQuery dataset** `shimano_app` creado, **Power Automate Premium** trial 90 días. Plan Power BI 4 días.
 
 Histórico previo (v197-v203): Sidebar Localidades amplió a altas SAP + modal localidad (v198), burbujas agregadas OFF (v199), Master Clientes botón Eliminar 🗑 (v200), Modal Zonas gerente + scope provincia + toast (v201/v203), mail Rendiciones cron Lun/Mie (v202), SharePoint + Power Automate schema v1 (v203).
+
+---
+
+## 43) Fase 0 — Progreso 2026-07-24 (rama `fase-0`)
+
+Trabajo iniciado el 2026-07-24 para consolidar la app **sin migrar stack**. Base: `APP-CONTEXTO.md` sección 6 del Desktop (roadmap Fase 0/1/2/3). Todo en rama `fase-0` — **NO** hay push a `main` ni deploys hechos por Claude. Cada etapa mergea + deploya vos manualmente en tu propia ventana.
+
+Plan completo en `C:\Users\shimano.sandbox\.claude\plans\peppy-puzzling-bengio.md`. Reglas durables aprendidas durante la ejecución en `CLAUDE.md` (raíz del repo).
+
+### 43.1 Status global de las 8 etapas
+
+| # | Etapa | Estado | Gate | Commit | Turnos (u/b) | Tu acción para deploy |
+|---|---|---|---|---|---|---|
+| E0 | Setup rama + tooling | ✅ | 7 archivos scaffolded + npx vitest/tsc/esbuild/firebase --version OK | `1a373c1` | 4/3 | Ninguna (sin push) |
+| E1 | Firestore Rules cerradas | ✅ | Emulator + 96 tests verdes + audit 23/23 cobertura | `6a3cbb2` | 9/6 | `firebase deploy --only firestore:rules` |
+| E2 | Modularización + smoke Playwright | ⏭ **PENDIENTE (mañana)** | (no ejecutado) | — | 0/8 | — |
+| E3 | ts-check + JSDoc | ✅ | `tsc --noEmit` exit 0 + 7 archivos con `@ts-check` | `672b867` | 3/3 | Ninguna |
+| E4 | Tests unitarios Vitest | ✅ | 56 tests verdes sobre 10 funciones puras | `710efc6` | 4/4 | Ninguna |
+| E5 | Cloud Function sapProxy + Secret Manager | ✅ | 25 tests verdes con mocks | `c25a983` | 4/6 | Crear secret + IAM + `firebase deploy --only functions:sapProxy` (checklist 43.8) |
+| E6 | Backup automático diario Firestore → Storage | ✅ | 12 tests verdes con mocks | `ca71df1` | 3/4 | Crear bucket + IAM + `firebase deploy --only functions:dailyFirestoreBackup` (checklist 43.9) |
+| E7 | Sentry integrado con loader CDN + tags | ✅ | 7 tests verdes + presencia inline + APP_VERSION v324 | `37f81d5` | 3/2 | Merge + deploy GitHub Pages (checklist 43.10) |
+
+**Totales**: 7 de 8 etapas cerradas. **100 tests locales** verdes (56 unit + 25 sapProxy + 12 backup + 7 sentry). Solo `git log fase-0 --oneline` para ver los 7 commits.
+
+Para ver el diff completo entre `main` y `fase-0`:
+```powershell
+cd "C:\Users\shimano.sandbox\Desktop\APP VENDEDORES"
+git log main..fase-0 --oneline
+git diff main..fase-0 --stat
+```
+
+### 43.2 Infraestructura nueva incorporada al repo
+
+Archivos y carpetas creados en `fase-0` (todos nuevos, ninguno pisa código de la app en producción):
+
+```
+APP VENDEDORES/
+├── package.json                        ← devDeps: vitest, esbuild, typescript, fast-glob, @firebase/rules-unit-testing
+├── package-lock.json
+├── tsconfig.json                       ← allowJs + checkJs + strictNullChecks + noImplicitAny
+├── firebase.json                       ← config emulator + functions codebase
+├── .firebaserc                         ← default project: app-vendedores-shimano
+├── firestore.rules                     ← REESCRITAS (2 closures Fase 0 — ver 43.4)
+├── firestore.rules.baseline            ← snapshot histórico de las rules de prod pre-refactor
+├── firestore.indexes.json              ← vacío (no hay indexes composite hoy)
+├── .gitignore                          ← extendido con node_modules/, dist/, .firebase/, coverage/, __pycache__/
+├── CLAUDE.md                           ← NUEVO. 7 reglas durables aprendidas durante Fase 0 (ver 43.13)
+├── src/                                ← NUEVO. Módulos ES pequeños con lógica testeable.
+│   ├── types.js                        ← Typedefs JSDoc: UserRole, ClientTipo, PedidoDoc, ProductoDoc, etc.
+│   ├── sentry.js                       ← applySentryUserContext (E7) — helper testeable de Sentry
+│   └── pure/                           ← 10 funciones puras extraídas de index.html
+│       ├── normalize.js                ← normClientName, titleCase, escapeHtml, normTitle, normalizeSearch
+│       ├── discount.js                 ← calcClientDiscount (P/A/B/C + volumen + CONTADO)
+│       ├── search.js                   ← matchesAllTokens (buscador v313)
+│       ├── duplicate.js                ← findSapDuplicateForProvisorio (detector v316)
+│       ├── product-match.js            ← matchSkuFromTitle (SKU matching MELI)
+│       └── filters.js                  ← passesTypeFilter (VENTAS_ESPECIALES filter)
+├── functions/                          ← NUEVO. Cloud Functions v2 (Firebase Functions).
+│   ├── package.json                    ← firebase-admin, firebase-functions, @google-cloud/firestore
+│   ├── package-lock.json
+│   ├── index.js                        ← Wrappers: sapProxy (E5) + dailyFirestoreBackup (E6)
+│   └── core/                           ← Lógica pura de las functions (testeable sin emulator)
+│       ├── sap-proxy-core.js           ← handleSapProxy con deps inyectables (E5)
+│       └── backup-core.js              ← runDailyBackup con exportDocuments inyectable (E6)
+├── tests/                              ← NUEVO. Suite completa de tests (100 assertions).
+│   ├── rules/                          ← Firestore Rules contra emulator (E1)
+│   │   ├── setup.js                    ← Helpers: initTestEnv, seedCanonicalRoles, UIDs canónicos
+│   │   └── rules.test.js               ← 96 assertions (23 colecciones × 6 roles × 5 acciones)
+│   ├── unit/                           ← Funciones puras (E4 + E7)
+│   │   ├── normalize.test.js           ← 16 tests
+│   │   ├── discount.test.js            ← 11 tests
+│   │   ├── search.test.js              ← 5 tests
+│   │   ├── duplicate.test.js           ← 12 tests
+│   │   ├── product-match.test.js       ← 7 tests
+│   │   ├── filters.test.js             ← 5 tests
+│   │   └── sentry.test.js              ← 7 tests
+│   └── functions/                      ← Cloud Functions core con mocks (E5 + E6)
+│       ├── sap-proxy.test.js           ← 25 tests
+│       └── backup-scheduled.test.js    ← 12 tests
+└── scripts/
+    └── audit-rules-coverage.js         ← NUEVO. Verifica que cada colección grep de index.html
+                                        #   tenga match en firestore.rules Y aparezca en algún test.
+```
+
+**index.html** y **sw.js** también fueron tocados por E7 (solo Sentry loader + bump versión). Todo lo demás en el HTML monolítico permanece intacto (E2 lo va a modularizar mañana).
+
+### 43.3 Scripts npm disponibles (ejecutar desde `Desktop\APP VENDEDORES`)
+
+```powershell
+# Todos los tests unitarios (funciones puras + sentry)
+npm run test:unit
+# Alternativa directa:
+npx vitest run tests/unit/
+
+# Tests de rules (levanta Firestore emulator)
+$env:JAVA_HOME = "C:\Users\shimano.sandbox\Java\jdk-21.0.11+10-jre"
+$env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+firebase emulators:exec --only firestore --project demo-app-vendedores "npx vitest run tests/rules/"
+
+# Tests de Cloud Functions core (sap-proxy + backup)
+npx vitest run tests/functions/
+
+# Todos los suites de una: 100 tests
+npx vitest run tests/unit/ tests/functions/
+
+# TypeScript check
+npm run typecheck
+# = npx tsc --noEmit --project tsconfig.json
+
+# Audit de cobertura de rules
+npm run audit:rules
+# = node scripts/audit-rules-coverage.js
+```
+
+Java Temurin JRE 21 requerido solo para tests de rules (levanta emulator jar). Instalado en `C:\Users\shimano.sandbox\Java\jdk-21.0.11+10-jre` (ver 42.1 — JRE 21, no JDK 25 como decía originalmente el README).
+
+### 43.4 E1 — Firestore Rules (deploy manual pendiente tuyo)
+
+**Baseline**: guardada en `firestore.rules.baseline`. Es el snapshot que me pasaste de Firebase Console el 2026-07-24. NO se deploya — es referencia histórica.
+
+**Refactor** aplicado sobre baseline (2 closures documentadas):
+
+1. **`pedidos` / `visits` / `rendiciones`**: vendor `list` requiere `resource.data.ownerUid == request.auth.uid`. Antes cualquier reader listaba todo → vendor con consola browser podía enumerar visitas/pedidos/rendiciones ajenas. Verificado en `index.html:12775, 25247` que el vendor UI ya usa `where('ownerUid','==',uid)` — no rompe nada, solo cierra el bypass via consola.
+
+2. **`app_config/sap_integration`**: read restringido a admin+gerente (antes viewer también leía las creds SAP). E5 mueve las creds a Secret Manager y esta rule podrá cerrarse aún más.
+
+**Deploy** (tu terminal):
+```powershell
+cd "C:\Users\shimano.sandbox\Desktop\APP VENDEDORES"
+firebase deploy --only firestore:rules --project app-vendedores-shimano
+```
+
+**QA post-deploy** (5 min):
+- Loggeate como vendedor en la app real (bot.shimano.pesca u otro con `role='vendedor'`).
+- Abrí tabs Pedidos/Visitas/Rendiciones → deben renderizar tus datos igual que antes.
+- Si alguien reporta "no ve nada", buscar en `index.html` `.collection('pedidos').get()` o similar sin `where` — posiblemente algún path que no filtra por ownerUid.
+- En Console del browser: `firebase.firestore().collection('app_config').doc('sap_integration').get()` como vendor → debe devolver `permission-denied`.
+
+**Riesgos**:
+- Rules pasan contra emulator ≠ pasan en prod si `App Check` está enforced.
+- Grep detecta solo `collection('literal')`. Si `index.html` usa `collection(varName)` con nombre dinámico, no está cubierto por el audit.
+
+### 43.5 E2 — Modularización + smoke Playwright (pendiente mañana)
+
+**Por qué se pospuso**: (1) Playwright browsers ~600 MB con la red actual son ~90 min de download bloqueante; (2) extraer 28K líneas de JS inline con paridad funcional garantizada en 8 turnos es optimista — riesgo alto de introducir bugs que rompen a los 6 vendedores.
+
+**Plan para mañana** (ver plan file):
+1. Setup esbuild + build.js que produce `dist/index.html` funcionalmente equivalente.
+2. Extraer módulos por dominio (empezar con `src/utils.js`, `src/sentry.js` ya extraído, `src/sap-client.js` con la llamada a la Cloud Function sapProxy).
+3. Smoke test Playwright: app carga, login screen visible, cero errores consola, tabs abren.
+4. QA humano de 5 flujos críticos (crear pedido, subir rendición, alta rápida, ver mapa, backup) antes de mergear.
+
+Cuando E2 corra, absorbe:
+- Los módulos de `src/pure/*.js` (E4) como imports en vez de inline.
+- El helper `applySentryUserContext` de `src/sentry.js` (E7) reemplaza al inline duplicado en index.html.
+- Setup del cliente sapProxy: `httpsCallable('sapProxy')({endpoint, method, body})` reemplaza los `fetch(https://shimano-sap...)` directos.
+
+### 43.6 E3 — ts-check + JSDoc
+
+`tsconfig.json`: `allowJs + checkJs + noEmit + strictNullChecks + noImplicitAny + noImplicitThis`. Cubre `src/**/*.js`, `functions/core/**/*.js`, `functions/index.js`.
+
+**7 archivos con `// @ts-check`**:
+- `src/types.js` (typedefs)
+- `src/sentry.js`
+- `src/pure/normalize.js` / `discount.js` / `search.js` / `duplicate.js` / `product-match.js` / `filters.js`
+- `functions/core/sap-proxy-core.js` (agregado en E5)
+- `functions/core/backup-core.js` (agregado en E6)
+- `functions/index.js`
+
+**Errores reales de tipos fixed durante el gate**: 3 (indexing de `Record` sin declarar, resueltos con `@type {Record<string,number>}` explícito). Sin regresión en tests.
+
+**Deploy**: no requiere — es dev tooling, no toca prod.
+
+### 43.7 E4 — Tests unitarios (56 tests)
+
+10 funciones puras extraídas verbatim de `index.html` a `src/pure/*.js` con **dependencies inyectables** para testeabilidad. Refactor de 3 fns para recibir globales como params:
+- `findSapDuplicateForProvisorio(prov, approvedAltasList)` (antes leía `approvedAltasList` global)
+- `matchSkuFromTitle(title, skuIndex, skuTokens)` (antes leía `SKU_INDEX`/`SKU_TOKENS` globales)
+- `passesTypeFilter(name, filter, specialSalesSet)` (antes leía `currentTypeFilter`/`CLIENT_SPECIAL_SALES_SET` globales)
+
+Cuando E2 modularice, los callers en `index.html` pasan los params. Hasta entonces, el `index.html` original sigue usando las versiones inline con globales — cero riesgo.
+
+**Deploy**: no requiere — módulos aún no importados desde el HTML productivo. E2 los cablea.
+
+### 43.8 E5 — Cloud Function `sapProxy` (deploy manual tuyo)
+
+**Arquitectura core+wrapper** (documentada como regla 7 en CLAUDE.md):
+- `functions/core/sap-proxy-core.js` (~150 LOC): lógica pura `handleSapProxy(data, auth, deps)` con `deps.{fetch, getUserRole, sapConfig, log}` inyectables.
+- `functions/index.js`: wrapper Cloud Functions v2 que plumbea request → core y lee el secret real.
+
+**Reglas de autorización dentro de la function**:
+| Rol | Reads GET /Items /BusinessPartners /Warehouses /SalesPersons /Inventory | Writes POST/PATCH/DELETE |
+|---|---|---|
+| `anon` | ❌ unauthenticated | ❌ |
+| sin rol | ❌ permission-denied | ❌ |
+| `viewer` | ❌ | ❌ |
+| `vendedor` | ✅ | ❌ |
+| `interno` | ✅ | ❌ |
+| `admin` / `gerente` | ✅ | ✅ |
+
+**Sanitización SSRF**: endpoint debe empezar con `/b1s/v1/`. Method whitelist GET/POST/PATCH/DELETE. Password nunca en logs ni response (2 tests dedicados).
+
+**Deploy — checklist tuyo** (ejecutar en tu terminal, en orden):
+
+```powershell
+cd "C:\Users\shimano.sandbox\Desktop\APP VENDEDORES"
+
+# 1) Crear el secret (una vez)
+gcloud secrets create SAP_SL_PASSWORD --replication-policy=automatic --project=app-vendedores-shimano
+
+# 2) Cargar la password real del usuario APP_VENDEDORES
+Write-Output "<PASSWORD REAL APP_VENDEDORES>" | gcloud secrets versions add SAP_SL_PASSWORD --data-file=- --project=app-vendedores-shimano
+
+# 3) Grant al service account default
+gcloud secrets add-iam-policy-binding SAP_SL_PASSWORD `
+  --member="serviceAccount:app-vendedores-shimano@appspot.gserviceaccount.com" `
+  --role="roles/secretmanager.secretAccessor" `
+  --project=app-vendedores-shimano
+
+# 4) Deploy
+firebase deploy --only functions:sapProxy --project=app-vendedores-shimano
+
+# 5) Test E2E contra TST_06 (NO prod SHIMANO_SAU):
+#    en la app, crear un pedido de prueba que use la nueva ruta callable.
+#    Verificar en SAP TST_06 que la Quotation entró.
+```
+
+**Cambio en cliente pendiente** (parte de E2 o commit aparte): reemplazar `fetch('https://shimano-sap.seidor.com.ar:50000/b1s/v1/...')` en `index.html` por:
+```js
+const call = firebase.functions().httpsCallable('sapProxy');
+const result = await call({ endpoint: '/b1s/v1/Quotations', method: 'POST', body: {...} });
+```
+
+**Borrar creds de `app_config/sap_integration`**: SOLO después de confirmar que la nueva ruta funciona en TST_06 Y en prod. Borrar el campo `serviceLayer.password` — dejar `url`, `companyDB`, `username` (no sensibles).
+
+**Riesgos deploy real**:
+- Service account default sin `secretmanager.secretAccessor` sobre `SAP_SL_PASSWORD` → tests locales pasan pero prod falla al leer el secret.
+- Cloud Functions v2 requiere Eventarc/Cloud Run APIs habilitados.
+- SL está en on-premise Seidor: latencia + CORS + timeouts desde GCP región `southamerica-east1` no probados; puede requerir ajuste de timeout de la function (hoy 60s default).
+- `App Check` disabled en el callable (TODO cuando configuren). Cualquier user autenticado con Firebase Auth puede invocar `sapProxy` directamente por HTTP — el filtro de rol es la única defensa.
+
+### 43.9 E6 — Backup automático diario (deploy manual tuyo)
+
+Nueva scheduled function `dailyFirestoreBackup`:
+- Cron: `0 2 * * *` en `America/Argentina/Buenos_Aires` (2am AR).
+- Región `southamerica-east1`, retry 2, memory 256MiB, timeout 540s.
+- Exporta Firestore a `gs://app-vendedores-shimano-backups/firestore/{YYYY-MM-DD}/`.
+- Formato UTC en el timestamp (evita ambigüedad si el cron corre cerca de medianoche AR).
+- **`window.runFullBackup` intacto** — el botón manual admin (`index.html:10517`) sigue siendo el ZIP con fotos + JSON + metadata. Este scheduled es hot-restore-ready oficial de Firestore.
+
+**Deploy — checklist tuyo**:
+
+```powershell
+# 1) Crear bucket destino en South America
+gcloud storage buckets create gs://app-vendedores-shimano-backups `
+  --location=southamerica-east1 `
+  --project=app-vendedores-shimano `
+  --uniform-bucket-level-access
+
+# 2) Retention 90 días (recomendado, previene crecimiento infinito)
+$lifecycle = '{"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"age":90}}]}}'
+Write-Output $lifecycle | gcloud storage buckets update gs://app-vendedores-shimano-backups --lifecycle-file=-
+
+# 3) Habilitar APIs necesarias
+gcloud services enable cloudscheduler.googleapis.com firestore.googleapis.com --project=app-vendedores-shimano
+
+# 4) Grant IAM al service account default
+gcloud projects add-iam-policy-binding app-vendedores-shimano `
+  --member="serviceAccount:app-vendedores-shimano@appspot.gserviceaccount.com" `
+  --role="roles/datastore.importExportAdmin"
+
+gcloud storage buckets add-iam-policy-binding gs://app-vendedores-shimano-backups `
+  --member="serviceAccount:app-vendedores-shimano@appspot.gserviceaccount.com" `
+  --role="roles/storage.objectAdmin"
+
+# 5) Deploy
+firebase deploy --only functions:dailyFirestoreBackup --project=app-vendedores-shimano
+
+# 6) Verificar al día siguiente (~2:05 AR)
+gcloud storage ls gs://app-vendedores-shimano-backups/firestore/
+# Debe listar una carpeta con la fecha del día. Adentro: metadata + output-0.
+```
+
+**Alerta de fallo (recomendado)**: en Cloud Logging → crear log-based metric sobre `severity>=ERROR AND jsonPayload.message="dailyFirestoreBackup failed"` → Alerting policy → channel email a `bot.shimano.pesca@gmail.com`.
+
+**Riesgos deploy real**:
+- IAM incompleto → export falla silenciosamente en prod, tests locales no lo detectan.
+- Sin retention rule → bucket crece indefinidamente.
+- Sin alerta configurada → un fallo queda solo en Cloud Logging sin nadie mirando.
+- La function devuelve `operationName` (long-running op) pero no espera a que termine. Un fail parcial post-inicio no queda flaggeado por esta lógica.
+
+### 43.10 E7 — Sentry integrado (deploy en merge de rama)
+
+**Ya integrado en `index.html` (v324)**:
+- Loader CDN `https://js.sentry-cdn.com/7cbe790b32043d72a1b147a2f7f0c641.min.js` (public key del README 42.3) después de los 5 SDKs de Firebase.
+- `Sentry.onLoad → Sentry.init({release: APP_VERSION, environment:'production', tracesSampleRate:0.0})`.
+- `window.applySentryUserContext(sentry, user, role, vendor)` inline (duplicado de `src/sentry.js` para tests).
+- Wire post-login en `fetchAndApplyRole`: setea `Sentry.setUser({id, email}) + setTag('role') + setTag('vendor')`. Todo error subsecuente viaja con esos tags.
+
+**Deploy**: es parte del merge normal a `main` + push a GitHub Pages. Bumpeo ya hecho: `APP_VERSION` v324 en `index.html`, `CACHE_VERSION` v324 en `sw.js`.
+
+**Verificación E2E post-deploy** (5 min):
+1. Abrir la URL pública en browser, F12 → Console → verificar banner `v324`.
+2. En Console: `throw new Error('Sentry test post-deploy 2026-07-24');`
+3. Ir a sentry.io/organizations/<org>/issues/ (tu cuenta) → debería aparecer el error con `tags: {role: '<tu-rol>', vendor: '<tu-vendor>'}`.
+
+**Riesgos**:
+- Loader async: errores en los primeros ~200ms antes de que baje el SDK pueden perderse.
+- Service Worker (`sw.js`) NO capturado por este snippet — requiere init separado, fuera de scope Fase 0.
+- Free tier Sentry: 5k eventos/mes. Configurar alerta de quota en dashboard.
+- `tracesSampleRate: 0.0` = solo errores, no performance. Subir si quieren traces (empezar con 0.01).
+
+### 43.11 Checklist consolidado — qué te toca mergear/deployar
+
+En orden sugerido (etapas independientes se pueden reordenar):
+
+1. **E3 + E4 (sin efecto en prod)**: merge sin deploy. Habilita tests + typecheck localmente.
+2. **E7 (Sentry)**: merge + push a GitHub Pages. Verificación E2E post-deploy (43.10).
+3. **E1 (Rules)**: `firebase deploy --only firestore:rules --project=app-vendedores-shimano`. QA vendor tabs (43.4).
+4. **E5 (sapProxy)**: checklist 43.8 completo (crear secret + IAM + deploy). Test E2E en TST_06 antes de borrar creds de `app_config/sap_integration`.
+5. **E6 (backup)**: checklist 43.9 completo (bucket + retention + APIs + IAM + deploy). Verificar al día siguiente que hay backup en Storage.
+6. **E2**: pendiente para mañana.
+
+Después de todo mergeado + deployado: **la app está en Fase 0 completa**. Base sólida para arrancar Fase 1 (backend propio) si se decide, sin haber tocado el stack.
+
+### 43.12 Regression armor (por si tocás la app y querés validar)
+
+Antes de cualquier commit en `fase-0`, o antes de mergear a `main`:
+
+```powershell
+cd "C:\Users\shimano.sandbox\Desktop\APP VENDEDORES"
+
+# 1) Type-check
+npm run typecheck
+
+# 2) Todos los unit + function tests (rápido, ~1s)
+npx vitest run tests/unit/ tests/functions/
+
+# 3) Rules tests (requiere Java + emulator, ~1 min)
+$env:JAVA_HOME = "C:\Users\shimano.sandbox\Java\jdk-21.0.11+10-jre"
+$env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+firebase emulators:exec --only firestore --project demo-app-vendedores "npx vitest run tests/rules/"
+
+# 4) Audit de rules cobertura
+npm run audit:rules
+```
+
+Todos verdes → puede mergear. Alguno rojo → causa raíz.
+
+### 43.13 `CLAUDE.md` — 7 reglas durables aprendidas hoy
+
+Archivo nuevo en la raíz del repo. Reglas capturadas para que futuras sesiones no repitan los mismos aprendizajes:
+
+1. **Deps npm por etapa, no big-bang** — Windows red inestable + `npm install` con muchas deps grandes = `ECONNRESET`. Instalar incremental por etapa.
+2. **`firebase init` es interactivo — scaffold manual** — no correr `firebase init` en scripts automatizados; crear config files a mano.
+3. **`npx --no-install <bin>` no funciona con devDeps** — usar `npx <bin>` o `node_modules/.bin/<bin>` directo.
+4. **Ejecución en loop (act → verify → re-prompt)** — nunca declarar "done" desde una edición exitosa; siempre correr el gate y pegar salida real.
+5. **Rescope justificado ≠ relajar el gate** — si aparecen dependencias que no eran necesarias en esa etapa, moverlas a otra + documentar en plan + CLAUDE.md, no bajarlas del gate calladamente.
+6. **Test bug vs SUT bug: distinguir antes de "arreglar"** — cuando un test falla, primero determinar si el bug está en el TEST (asserción fantasía) o en el SUT (comportamiento incorrecto).
+7. **Cloud Functions: separar core puro del wrapper Firebase** — lógica de negocio en `functions/core/*.js` con deps inyectables; `functions/index.js` solo hace plumbing.
+
+Ver `CLAUDE.md` en la raíz del repo para el texto completo con contexto y ejemplos.
+
+### 43.14 Referencias operativas rápidas
+
+- **Plan Fase 0**: `C:\Users\shimano.sandbox\.claude\plans\peppy-puzzling-bengio.md` — plan completo con budgets, gates, riesgos por etapa.
+- **CLAUDE.md**: `Desktop\APP VENDEDORES\CLAUDE.md` — reglas durables.
+- **APP-CONTEXTO.md**: `Desktop\APP-CONTEXTO.md` sección 6 — origen del roadmap Fase 0/1/2/3.
+- **Rama activa**: `fase-0`. Última commit `37f81d5` (E7 Sentry).
+- **Emulator jar cacheado**: `~/.cache/firebase/emulators/cloud-firestore-emulator-v1.21.0.jar` (138 MB, ya no re-descarga).
+- **Java para emulator**: Temurin JRE 21 en `C:\Users\shimano.sandbox\Java\jdk-21.0.11+10-jre` (README 42.1 pero corrección: es JRE 21, no JDK 25).
