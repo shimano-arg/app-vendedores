@@ -4189,14 +4189,14 @@ Plan completo en `C:\Users\shimano.sandbox\.claude\plans\peppy-puzzling-bengio.m
 |---|---|---|---|---|---|---|
 | E0 | Setup rama + tooling | ✅ | 7 archivos scaffolded + npx vitest/tsc/esbuild/firebase --version OK | `1a373c1` | 4/3 | Ninguna (sin push) |
 | E1 | Firestore Rules cerradas | ✅ | Emulator + 96 tests verdes + audit 23/23 cobertura | `6a3cbb2` | 9/6 | `firebase deploy --only firestore:rules` |
-| E2 | Modularización + smoke Playwright | ⏭ **PENDIENTE (mañana)** | (no ejecutado) | — | 0/8 | — |
+| E2 | Pipeline esbuild + bundle aditivo + smoke Node | ✅ parcial | `npm run build` OK (dist/ 2.05 MB) + 19 tests nuevos verdes (8 sap-client + 11 smoke) | 2026-07-25 | 5/8 | Ninguna hoy. Extracción real de índex.html queda para E2.b |
 | E3 | ts-check + JSDoc | ✅ | `tsc --noEmit` exit 0 + 7 archivos con `@ts-check` | `672b867` | 3/3 | Ninguna |
 | E4 | Tests unitarios Vitest | ✅ | 56 tests verdes sobre 10 funciones puras | `710efc6` | 4/4 | Ninguna |
 | E5 | Cloud Function sapProxy + Secret Manager | ✅ | 25 tests verdes con mocks | `c25a983` | 4/6 | Crear secret + IAM + `firebase deploy --only functions:sapProxy` (checklist 43.8) |
 | E6 | Backup automático diario Firestore → Storage | ✅ | 12 tests verdes con mocks | `ca71df1` | 3/4 | Crear bucket + IAM + `firebase deploy --only functions:dailyFirestoreBackup` (checklist 43.9) |
 | E7 | Sentry integrado con loader CDN + tags | ✅ | 7 tests verdes + presencia inline + APP_VERSION v324 | `37f81d5` | 3/2 | Merge + deploy GitHub Pages (checklist 43.10) |
 
-**Totales**: 7 de 8 etapas cerradas. **100 tests locales** verdes (56 unit + 25 sapProxy + 12 backup + 7 sentry). Solo `git log fase-0 --oneline` para ver los 7 commits.
+**Totales**: 8 de 8 etapas cerradas (E2 parcial: pipeline + smoke ✅, extracción real E2.b pendiente). **119 tests locales** verdes (56 unit + 8 sap-client + 25 sapProxy + 12 backup + 7 sentry + 11 smoke). Solo `git log fase-0 --oneline` para ver los 8 commits.
 
 Para ver el diff completo entre `main` y `fase-0`:
 ```powershell
@@ -4221,9 +4221,12 @@ APP VENDEDORES/
 ├── firestore.indexes.json              ← vacío (no hay indexes composite hoy)
 ├── .gitignore                          ← extendido con node_modules/, dist/, .firebase/, coverage/, __pycache__/
 ├── CLAUDE.md                           ← NUEVO. 7 reglas durables aprendidas durante Fase 0 (ver 43.13)
+├── build.js                            ← NUEVO (E2). esbuild → dist/app.bundle.js + copia assets + inyecta script.
 ├── src/                                ← NUEVO. Módulos ES pequeños con lógica testeable.
 │   ├── types.js                        ← Typedefs JSDoc: UserRole, ClientTipo, PedidoDoc, ProductoDoc, etc.
 │   ├── sentry.js                       ← applySentryUserContext (E7) — helper testeable de Sentry
+│   ├── sap-client.js                   ← NUEVO (E2). createSapClient(firebase) → fetchWithSession compat sapSL.
+│   ├── main.js                         ← NUEVO (E2). Entrypoint del bundle. Registra window.__phase0.
 │   └── pure/                           ← 10 funciones puras extraídas de index.html
 │       ├── normalize.js                ← normClientName, titleCase, escapeHtml, normTitle, normalizeSearch
 │       ├── discount.js                 ← calcClientDiscount (P/A/B/C + volumen + CONTADO)
@@ -4238,21 +4241,29 @@ APP VENDEDORES/
 │   └── core/                           ← Lógica pura de las functions (testeable sin emulator)
 │       ├── sap-proxy-core.js           ← handleSapProxy con deps inyectables (E5)
 │       └── backup-core.js              ← runDailyBackup con exportDocuments inyectable (E6)
-├── tests/                              ← NUEVO. Suite completa de tests (100 assertions).
+├── tests/                              ← NUEVO. Suite completa de tests (119 assertions).
 │   ├── rules/                          ← Firestore Rules contra emulator (E1)
 │   │   ├── setup.js                    ← Helpers: initTestEnv, seedCanonicalRoles, UIDs canónicos
 │   │   └── rules.test.js               ← 96 assertions (23 colecciones × 6 roles × 5 acciones)
-│   ├── unit/                           ← Funciones puras (E4 + E7)
+│   ├── unit/                           ← Funciones puras (E4 + E7 + E2)
 │   │   ├── normalize.test.js           ← 16 tests
 │   │   ├── discount.test.js            ← 11 tests
 │   │   ├── search.test.js              ← 5 tests
 │   │   ├── duplicate.test.js           ← 12 tests
 │   │   ├── product-match.test.js       ← 7 tests
 │   │   ├── filters.test.js             ← 5 tests
-│   │   └── sentry.test.js              ← 7 tests
-│   └── functions/                      ← Cloud Functions core con mocks (E5 + E6)
-│       ├── sap-proxy.test.js           ← 25 tests
-│       └── backup-scheduled.test.js    ← 12 tests
+│   │   ├── sentry.test.js              ← 7 tests
+│   │   └── sap-client.test.js          ← NUEVO (E2). 8 tests: httpsCallable mock, SSRF client-side, error mapping
+│   ├── functions/                      ← Cloud Functions core con mocks (E5 + E6)
+│   │   ├── sap-proxy.test.js           ← 25 tests
+│   │   └── backup-scheduled.test.js    ← 12 tests
+│   └── smoke/                          ← NUEVO (E2). Runtime del bundle en Node vm.Context.
+│       └── bundle-runtime.test.js      ← 11 tests: artifacts, tamaño, script tag, window.__phase0 shape
+├── dist/                               ← .gitignored. Output de `npm run build`.
+│   ├── app.bundle.js                   ← IIFE 41 KB (bundle de src/main.js + src/pure/ + src/sentry.js + src/sap-client.js)
+│   ├── index.html                      ← copia de index.html + <script src="./app.bundle.js" defer> antes de </head>
+│   ├── sw.js, manifest.json, geo.json, stock.json, login-bg.jpg, alta-cliente.html,
+│   ├── politica-privacidad.html, Shimano-Logo.png, icon-*.png (7 iconos)
 └── scripts/
     └── audit-rules-coverage.js         ← NUEVO. Verifica que cada colección grep de index.html
                                         #   tenga match en firestore.rules Y aparezca en algún test.
@@ -4263,7 +4274,15 @@ APP VENDEDORES/
 ### 43.3 Scripts npm disponibles (ejecutar desde `Desktop\APP VENDEDORES`)
 
 ```powershell
-# Todos los tests unitarios (funciones puras + sentry)
+# Build del bundle E2 → dist/
+npm run build
+# → esbuild produce dist/app.bundle.js (41 KB) + copia assets + inyecta script en dist/index.html
+
+# Smoke del bundle (Node vm.Context, sin Playwright)
+npm run test:smoke
+# → 11 verdes: artifacts existen, tamaño ok, __phase0 poblado, funciones puras callables post-bundle
+
+# Todos los tests unitarios (funciones puras + sentry + sap-client)
 npm run test:unit
 # Alternativa directa:
 npx vitest run tests/unit/
@@ -4276,8 +4295,8 @@ firebase emulators:exec --only firestore --project demo-app-vendedores "npx vite
 # Tests de Cloud Functions core (sap-proxy + backup)
 npx vitest run tests/functions/
 
-# Todos los suites de una: 100 tests
-npx vitest run tests/unit/ tests/functions/
+# Todos los suites de una (unit + functions + smoke): 119 tests
+npx vitest run tests/unit/ tests/functions/ tests/smoke/
 
 # TypeScript check
 npm run typecheck
@@ -4316,20 +4335,68 @@ firebase deploy --only firestore:rules --project app-vendedores-shimano
 - Rules pasan contra emulator ≠ pasan en prod si `App Check` está enforced.
 - Grep detecta solo `collection('literal')`. Si `index.html` usa `collection(varName)` con nombre dinámico, no está cubierto por el audit.
 
-### 43.5 E2 — Modularización + smoke Playwright (pendiente mañana)
+### 43.5 E2 — Pipeline esbuild + bundle aditivo + smoke Node (2026-07-25)
 
-**Por qué se pospuso**: (1) Playwright browsers ~600 MB con la red actual son ~90 min de download bloqueante; (2) extraer 28K líneas de JS inline con paridad funcional garantizada en 8 turnos es optimista — riesgo alto de introducir bugs que rompen a los 6 vendedores.
+E2 partido en dos: **E2 (hoy)** deja el pipeline listo y un bundle aditivo NO-BREAKING; **E2.b (siguiente)** hará la extracción real de índex.html. Motivo del split: extraer 28K líneas inline con paridad funcional en un solo shot es demasiado riesgo con 6 vendedores en prod. Con el pipeline armado y el bundle probado, E2.b puede migrar dominio por dominio, cada uno con smoke propio.
 
-**Plan para mañana** (ver plan file):
-1. Setup esbuild + build.js que produce `dist/index.html` funcionalmente equivalente.
-2. Extraer módulos por dominio (empezar con `src/utils.js`, `src/sentry.js` ya extraído, `src/sap-client.js` con la llamada a la Cloud Function sapProxy).
-3. Smoke test Playwright: app carga, login screen visible, cero errores consola, tabs abren.
-4. QA humano de 5 flujos críticos (crear pedido, subir rendición, alta rápida, ver mapa, backup) antes de mergear.
+**Hecho hoy** (commit único E2 en `fase-0`):
 
-Cuando E2 corra, absorbe:
-- Los módulos de `src/pure/*.js` (E4) como imports en vez de inline.
-- El helper `applySentryUserContext` de `src/sentry.js` (E7) reemplaza al inline duplicado en index.html.
-- Setup del cliente sapProxy: `httpsCallable('sapProxy')({endpoint, method, body})` reemplaza los `fetch(https://shimano-sap...)` directos.
+1. **`build.js`** (esbuild): produce `dist/` con:
+   - `dist/app.bundle.js` — IIFE de 41 KB con sourcemap inline. Bundle de `src/main.js` que importa `src/pure/*.js` (10 funciones) + `src/sentry.js` + `src/sap-client.js`. Registra `window.__phase0 = { version, pure, sentry, sap }`.
+   - `dist/index.html` — copia byte-exacta de source + `<script src="./app.bundle.js" defer></script>` inyectado antes de `</head>` (idempotente). **NO** modifica APP_VERSION ni CACHE_VERSION — build es puramente idempotente, bumpear versiones sigue siendo responsabilidad tuya al mergear (regla dura del README top).
+   - `dist/sw.js`, `dist/manifest.json`, `dist/geo.json`, `dist/stock.json`, `dist/login-bg.jpg`, `dist/Shimano-Logo.png`, `dist/alta-cliente.html`, `dist/politica-privacidad.html`, 7 `dist/icon-*.png` — copiados verbatim.
+   - Warn logueado si `APP_VERSION` (index.html) ≠ `CACHE_VERSION` (sw.js).
+
+2. **`src/main.js`** — entrypoint del bundle. Expone `window.__phase0.{pure, sentry, sap, version}`. **Aditivo**: no pisa nada del inline actual de index.html; la app en prod sigue usando sus copias inline (idénticas por construcción a lo que vive en `src/pure/*.js` — verificado por los 63 tests unitarios).
+
+3. **`src/sap-client.js`** — helper `createSapClient(firebase)` que rutea por `httpsCallable('sapProxy')` con el MISMO shape `fetchWithSession(path, options) → {ok, body, status, error}` que usa hoy el `sapSL` inline (`index.html:21481`). Migración de E2.b será un swap 1:1 sin tocar callers. **Sin cablear todavía** — index.html sigue con el sapSL legacy hasta que Mariano deploye sapProxy en prod (checklist 43.8) y confirme E2E en TST_06.
+   - 8 tests unitarios cubren: GET happy path, POST con body serializado, path fuera de `/b1s/v1/` rechazado client-side, body no-JSON rechazado, status 4xx con detail SL, callable throw con code mapeado, override `callableName`, `createQuotation` compat.
+
+4. **`tests/smoke/bundle-runtime.test.js`** — 11 smoke tests Node-based (no Playwright):
+   - Existencia de los 3 artifacts (`app.bundle.js`, `index.html`, `sw.js`).
+   - `dist/index.html` en rango [1.5 MB, 3.5 MB] (2.05 MB actual).
+   - Script tag inyectado idempotentemente.
+   - APP_VERSION == CACHE_VERSION.
+   - Bundle carga en `vm.runInNewContext` sin throw.
+   - `window.__phase0` estructura correcta.
+   - Las 10 funciones puras callable post-bundling.
+   - Sanity: `titleCase('hola mundo') === 'Hola Mundo'`, `normClientName('Café López') === 'CAFE LOPEZ'`.
+   - `createSapClient` es factory, `applySentryUserContext(null,…)` no tira.
+
+**Por qué smoke Node y no Playwright**: el chromium download (~150-600 MB según OS) está bloqueado por la red actual (documentado ayer en esta misma sección). El smoke Node cubre la aserción crítica de E2 no-breaking — "el bundle carga sin throw y expone la API prometida" — sin necesidad de headless browser. La verificación DOM/Firebase real queda como gate humano manual pre-merge, mismo patrón que se usó para E1 (Rules).
+
+**Gate ejecutable** (correr desde repo root):
+```powershell
+npm run build                                                  # exit 0
+node -e "const s=require('fs').statSync('dist/index.html').size; if(s<1_500_000||s>3_500_000) process.exit(1); console.log('size OK', s)"
+npm run test:smoke                                             # 11 verdes
+npx vitest run tests/unit/ tests/functions/ tests/smoke/       # 119 verdes total
+npm run typecheck                                              # exit 0
+```
+
+**Cambios en repo** (todos en `fase-0`, ninguno pisa código de la app en prod):
+
+- `build.js` (nuevo, 130 LOC)
+- `src/main.js` (nuevo, entrypoint)
+- `src/sap-client.js` (nuevo, helper Cloud Function)
+- `tests/unit/sap-client.test.js` (nuevo, 8 tests)
+- `tests/smoke/bundle-runtime.test.js` (nuevo, 11 tests)
+- `package.json` — `test:smoke` cambiado de `playwright test` a `vitest run tests/smoke/`
+- `README.md` — esta sección + tabla 43.1 + tree 43.2
+
+**Qué te toca hoy**: nada — es todo local, no hay deploy ni push involucrado. Si querés inspeccionar: `npm run build && ls dist/` y abrí `dist/index.html` en el browser local (`file:///`) para que veas que carga como el original + con `window.__phase0` accesible en la console.
+
+### 43.5.b E2.b — Extracción real (pendiente, sin fecha)
+
+Esto es lo que el plan original de E2 llamaba "modularización por dominio". Se hace incremental, un dominio por commit, cada uno con smoke propio. Orden sugerido de menor a mayor riesgo:
+
+1. **Reemplazar copias inline de las 10 funciones puras** por `window.foo = window.__phase0.pure.foo` al inicio del `<script>` inline de index.html. Borrar los bloques inline de `titleCase`, `escapeHtml`, `normTitle`, `normalizeSearch`, `normClientName`, `calcClientDiscount`, `matchesAllTokens`, `findSapDuplicateForProvisorio`, `matchSkuFromTitle`, `passesTypeFilter`. Impacto: -100 LOC. Riesgo: bajo (funciones idénticas por construcción + 63 tests).
+2. **Reemplazar `applySentryUserContext` inline** por `window.__phase0.sentry.applySentryUserContext`. Impacto: -20 LOC. Riesgo: bajo.
+3. **Cablear `src/sap-client.js`**: reemplazar el objeto `sapSL` inline (index.html:~21470-21620) por `const sapSL = window.__phase0.sap.createSapClient(firebase)`. **Bloqueado** hasta que Mariano deploye sapProxy en prod y confirme E2E en TST_06 (checklist 43.8).
+4. **Extracciones por dominio** (opcional, mucha ganancia poca urgencia): auth, clients, orders, visits, rendiciones, geo, ui. Cada uno commit + smoke + QA humano de flujo crítico.
+
+**Pre-requisito para 3**: E5 (sapProxy) desplegado en prod + tests E2E OK.
+**Pre-requisito para 4**: E2.b pasos 1-2 completos + Playwright funcionando (o smoke DOM equivalente).
 
 ### 43.6 E3 — ts-check + JSDoc
 
@@ -4490,12 +4557,12 @@ gcloud storage ls gs://app-vendedores-shimano-backups/firestore/
 
 En orden sugerido (etapas independientes se pueden reordenar):
 
-1. **E3 + E4 (sin efecto en prod)**: merge sin deploy. Habilita tests + typecheck localmente.
+1. **E3 + E4 + E2 (sin efecto en prod)**: merge sin deploy. Habilita tests + typecheck + build pipeline localmente. E2 no cambia nada del código productivo (bundle no cableado; sap-client no cableado).
 2. **E7 (Sentry)**: merge + push a GitHub Pages. Verificación E2E post-deploy (43.10).
 3. **E1 (Rules)**: `firebase deploy --only firestore:rules --project=app-vendedores-shimano`. QA vendor tabs (43.4).
 4. **E5 (sapProxy)**: checklist 43.8 completo (crear secret + IAM + deploy). Test E2E en TST_06 antes de borrar creds de `app_config/sap_integration`.
 5. **E6 (backup)**: checklist 43.9 completo (bucket + retention + APIs + IAM + deploy). Verificar al día siguiente que hay backup en Storage.
-6. **E2**: pendiente para mañana.
+6. **E2.b (extracción real)**: recién después de que E5 esté en prod y sapProxy esté testeado E2E. Ver 43.5.b para orden sugerido.
 
 Después de todo mergeado + deployado: **la app está en Fase 0 completa**. Base sólida para arrancar Fase 1 (backend propio) si se decide, sin haber tocado el stack.
 

@@ -9,7 +9,7 @@
     "test:unit": "vitest run tests/unit/",
     "test:rules": "firebase emulators:exec --only firestore \"vitest run tests/rules/\"",
     "test:functions": "firebase emulators:exec --only functions,firestore,auth \"vitest run tests/functions/\"",
-    "test:smoke": "playwright test tests/smoke/",
+    "test:smoke": "vitest run tests/smoke/",
     "typecheck": "tsc --noEmit --project tsconfig.json",
     "audit:rules": "node scripts/audit-rules-coverage.js"
   },
