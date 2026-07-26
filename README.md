@@ -71,6 +71,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 41. [Changelog v204 → v324](#41-changelog-v204--v324)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
+44. [Estado de fin de sesión 2026-07-25 — dónde retomar mañana](#44-estado-de-fin-de-sesión-2026-07-25--dónde-retomar-mañana)
 
 ---
 
@@ -3361,11 +3362,19 @@ gsutil cp gs://app-vendedores-shimano.firebasestorage.app/rendiciones/uid/foto.j
 gcloud firestore export gs://backup-bucket
 ```
 
-### 42.3 Sentry (monitoring de errores) — INTEGRADO en v324 (Fase 0 E7), CSP arreglado en v326
+### 42.3 Sentry (monitoring de errores) — INTEGRADO en v324 (Fase 0 E7), CSP arreglado en v326+v327
 
 **Public key**: `7cbe790b32043d72a1b147a2f7f0c641` (cuenta Sentry de Mariano).
+**DSN completo** (público, embebido en el loader): `https://7cbe790b32043d72a1b147a2f7f0c641@o4511788116344832.ingest.us.sentry.io/4511788136071168`
+**Org slug**: `shimano` (URL: `https://shimano.sentry.io/`)
+**Project ID**: `4511788136071168`
 
-**Estado**: integrado en `index.html` desde v324 (rama `fase-0`). El loader CDN de Sentry usa la public key para bajar el config completo (DSN, org, project, sampling) del servidor de Sentry — no hace falta hardcodear el DSN completo en el HTML. **Operativo desde v326** — antes el CSP bloqueaba el loader (bug de E7).
+**Estado**: **operativo end-to-end desde v327** (verificado 2026-07-25 con 2 test events capturados: `Sentry.captureMessage(...)` + `Sentry.captureException(...)`, ambos aparecen en https://shimano.sentry.io/issues/ con event IDs asignados y tags `role`, `vendor`, `release`).
+
+**Historia del rollout**:
+- **v324 (E7)**: loader agregado, `Sentry.init` config OK, pero CSP no incluía Sentry — loader bloqueado por `script-src`. Blackout total ~24h.
+- **v326**: agregado `https://*.sentry-cdn.com` a `script-src` → loader baja OK. Agregado `https://*.ingest.sentry.io` a `connect-src`, pero el host real del ingest es `<org>.ingest.us.sentry.io` (subdominio regional US) y el wildcard `*.ingest.sentry.io` NO matchea `.us.sentry.io`. POSTs bloqueados silenciosamente. Otro ~1h de blackout.
+- **v327**: `connect-src` corregido a `https://*.sentry.io` (cubre US/EU/futuras regiones). POSTs pasan con 200. Sentry.io recibe eventos. ✅
 
 **Cómo funciona**:
 - `<script src="https://js.sentry-cdn.com/{publicKey}.min.js">` en el `<head>` después de los SDKs de Firebase.
@@ -3380,6 +3389,7 @@ gcloud firestore export gs://backup-bucket
 **Cómo desactivar / rotar public key**: editar el `<script src=...>` en `index.html` líneas post-Firebase-SDKs + bumpear APP_VERSION.
 
 **Pendientes** (no bloqueantes):
+- **Warning cosmético**: cuando DevTools está abierto, Chrome intenta bajar el source map del SDK desde `https://browser.sentry-cdn.com/10.68.0/bundle.min.js.map` y CSP lo bloquea (`browser.sentry-cdn.com` está en `script-src` pero no en `connect-src`). Fix opcional en v328: agregar `https://*.sentry-cdn.com` también a `connect-src`. No afecta la funcionalidad de Sentry (los stack traces que llegan al ingest tienen la info de posición sin depender del source map local).
 - Configurar sample rate de `tracesSampleRate` si se quiere performance monitoring (hoy 0.0 = solo errores).
 - Definir alerta en dashboard Sentry (email al superar N errores/hora).
 - Elegir plan pago si supera 5k eventos/mes del free tier.
@@ -4717,6 +4727,73 @@ Ver `CLAUDE.md` en la raíz del repo para el texto completo con contexto y ejemp
 - **Plan Fase 0**: `C:\Users\shimano.sandbox\.claude\plans\peppy-puzzling-bengio.md` — plan completo con budgets, gates, riesgos por etapa.
 - **CLAUDE.md**: `Desktop\APP VENDEDORES\CLAUDE.md` — reglas durables.
 - **APP-CONTEXTO.md**: `Desktop\APP-CONTEXTO.md` sección 6 — origen del roadmap Fase 0/1/2/3.
-- **Rama activa**: `fase-0`. Última commit `37f81d5` (E7 Sentry).
+- **Rama activa**: `main` (fase-0 ya mergeada 2026-07-25 via rebase + fast-forward por regla "no merge commits"). Última commit al cierre de sesión 2026-07-25: `523b3e1` (v327 CSP wildcard fix).
 - **Emulator jar cacheado**: `~/.cache/firebase/emulators/cloud-firestore-emulator-v1.21.0.jar` (138 MB, ya no re-descarga).
 - **Java para emulator**: Temurin JRE 21 en `C:\Users\shimano.sandbox\Java\jdk-21.0.11+10-jre` (README 42.1 pero corrección: es JRE 21, no JDK 25).
+
+---
+
+## 44) Estado de fin de sesión 2026-07-25 — dónde retomar mañana
+
+Sesión larga con Fase 0 mergeada a `main` + hotfixes para dejar Sentry funcionando. Todo pusheado a origen. Prod en **v327** con Sentry verificado end-to-end. Este es el punto de retoma para la próxima sesión.
+
+### 44.1 Commits de la sesión (todos en `main`, todos pusheados)
+
+| # | Commit | Descripción |
+|---|---|---|
+| 1 | `ea9eba3` | E2 (Fase 0): pipeline esbuild + bundle aditivo + smoke Node |
+| 2 | `285ae25` | E2.b steps 1+2: index.html consume 10 fns puras + sentry del bundle → v325 |
+| 3 | `3d8cd19` | v326: fix CSP para Sentry (`*.sentry-cdn.com` en script-src + `*.ingest.sentry.io` en connect-src) |
+| 4 | `b1b9225` | README docs: changelog v325+v326 + nota CSP en sección 42.3 |
+| 5 | `1926b5e` | deps: root package a 0 vulns (esbuild 0.24→0.28.1, vitest → 4.1.10, postcss fix) |
+| 6 | `523b3e1` | v327: fix CSP wildcard `*.ingest.sentry.io` → `*.sentry.io` (subdominio regional `.us.` no matcheaba) |
+
+Total: 9 commits Fase 0 originales (E0–E7 + E2.b) + 6 commits de esta sesión = **10 commits nuevos en `main` post-sesión** (contando el push del último README update pendiente al cierre).
+
+### 44.2 Cerrado en esta sesión (validado)
+
+- **E2 completa** (pipeline esbuild + bundle + smoke).
+- **E2.b steps 1+2**: 10 fns puras + `applySentryUserContext` migrados del inline al bundle. Verificado en prod (Chrome F12) con `window.__phase0`, `window.titleCase('hola mundo') === 'Hola Mundo'`, `window.calcClientDiscount({cliTipo:'P'}, 5_000_000, 'CONTADO').pctTotal === 14`.
+- **Sentry operativo end-to-end** (v327). 2 test events aparecen en https://shimano.sentry.io/issues/ con tags correctos.
+- **Dependabot root**: de 6 vulns → 0.
+- **Rama `fase-0`** cerró con 9 commits, mergeada a `main` via rebase + ff (regla del repo: no merge commits).
+
+### 44.3 Pendientes reales para próximas sesiones
+
+**Alto valor / fácil**:
+1. **QA humano de 5 flujos críticos en prod** — se arrancó B (QA) al cierre de sesión pero NO se ejecutó. Receta en la conversación del 2026-07-25:
+   - B1: crear pedido borrador (`titleCase`, `escapeHtml`, `calcClientDiscount`, `matchesAllTokens`)
+   - B2: mapa con 6 zonas + click localidad (`normClientName`)
+   - B3: alta rápida ficticia "TEST v327 QA" (`findSapDuplicateForProvisorio` wrapper)
+   - B4: nueva rendición con foto (OCR Gemini + `escapeHtml`)
+   - B5: `window.runFullBackup()` (backup manual admin)
+   - Con F12 Console abierto, filtro `error` en Console tab. Pegar cualquier error rojo que aparezca (descartando los ruidos conocidos: Kaspersky CSP, AppCheck 403, source maps de leaflet/polygon-clipping).
+2. **Confirmar tags Sentry** — abrir cualquier issue en shimano.sentry.io e inspeccionar que `role`, `vendor`, `release: v327`, `environment: production` estén presentes.
+
+**Deploys pendientes de Fase 0 originales** (cada uno tu ventana manual):
+3. **E1 Rules**: `firebase deploy --only firestore:rules --project=app-vendedores-shimano` (checklist 43.4). Rollback: `firebase rollback firestore:rules`.
+4. **E5 sapProxy**: crear secret + IAM + deploy Cloud Function + E2E TST_06 (checklist 43.8, ~30 min).
+5. **E6 backup diario**: crear bucket + IAM + retention + deploy scheduled function + verificar day+1 (checklist 43.9, ~20 min).
+6. Cuando E5 esté desplegado + E2E OK, **arrancar E2.b step 3**: cablear `src/sap-client.js` reemplazando el objeto `sapSL` inline en `index.html:~21470-21620` por `const sapSL = window.__phase0.sap.createSapClient(firebase)`. Ver 43.5.b.
+
+**Nice-to-have / low priority**:
+7. **v328 hotfix source map** (2 min, cosmético): agregar `https://*.sentry-cdn.com` a `connect-src` para eliminar el warning `Connecting to 'https://browser.sentry-cdn.com/.../bundle.min.js.map' violates CSP` que aparece solo cuando DevTools está abierto. No afecta operativa de Sentry (los stack traces reales viajan al ingest sin depender del source map local).
+8. **Dependabot functions/**: 8 vulns moderate transitivas (uuid/retry-request/teeny-request/gaxios via firebase-admin y @google-cloud/firestore). `npm audit fix --force` empeora (8 → 13 porque instala versiones con más transitivos rotos). Se aceptan como riesgo bajo (server-side Cloud Functions, sandbox de Google, code paths afectados no procesan input arbitrario). Silenciar en GitHub Security → Dependabot alerts con "Dismiss → Risk: Tolerable" cuando quieras que dejen de aparecer. Real fix: esperar a que firebase-admin publique versión con deps limpias.
+9. **AppCheck 403** (pre-existente desde antes de Fase 0): reCAPTCHA v3 rechaza tokens con throttle de 24h. Ver panel Firebase App Check para verificar domain registration (`shimano-arg.github.io`) y estado de reCAPTCHA v3 site key `AIzaSyAU9WhHZK6MQ01VJpdj-ZwGDRfjH6HEAFM`. No bloquea operativa.
+
+### 44.4 Estado técnico snapshot
+
+- **Prod URL**: https://shimano-arg.github.io/app-vendedores/
+- **Prod version**: v327 (index.html + sw.js)
+- **`app.bundle.js`**: commiteado en root, 42.4 KB IIFE, esbuild 0.28.1.
+- **Tests locales**: 127/127 verdes (56 unit + 8 sap-client + 25 sapProxy + 12 backup + 7 sentry + 19 smoke) + 96 rules contra emulator.
+- **`npm audit` root**: 0 vulnerabilities.
+- **`npm audit` functions/**: 8 moderate (aceptadas como riesgo bajo — server-side, transitivas).
+
+### 44.5 Cómo arrancar mañana
+
+1. Abrir Claude Code, `cd "C:\Users\shimano.sandbox\Desktop\APP VENDEDORES"`.
+2. Decir al Claude tomorrow: "arrancá con B (QA 5 flujos) — ver README sección 44.3 punto 1".
+3. Si algún flujo rompe → pegar error → diagnosticar.
+4. Si todo pasa → arrancar deploy de E1 Rules (comando en 44.3 punto 3, 5 min de trabajo).
+5. Si vas por E5 o E6, allocá 30 min uninterrumpidos por checklist.
