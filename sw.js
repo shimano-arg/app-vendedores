@@ -7,7 +7,7 @@
 //
 // Cuando se cambie la version, bumpear CACHE_VERSION para invalidar el cache viejo.
 
-const CACHE_VERSION = 'v324';
+const CACHE_VERSION = 'v325';
 const STATIC_CACHE = 'shimano-static-' + CACHE_VERSION;
 const HTML_CACHE = 'shimano-html-' + CACHE_VERSION;
 
@@ -22,6 +22,10 @@ const STATIC_ASSETS = [
   // v323+: geometrias del mapa. Se descargan al instalar el SW para que el
   // proximo arranque tenga el mapa completo sin esperar a la red.
   './geo.json',
+  // v325+: bundle de módulos ES (funciones puras + sentry + sap-client).
+  // index.html tiene <script src="./app.bundle.js"> blocking; sin este
+  // asset cacheado, offline no arranca.
+  './app.bundle.js',
 ];
 
 self.addEventListener('install', event => {

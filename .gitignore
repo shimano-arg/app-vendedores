@@ -23,7 +23,8 @@ npm-debug.log*
 yarn-debug.log*
 .pnpm-debug.log*
 
-# Build output
+# Build output (E2.b: dist/ deprecated; app.bundle.js va commiteado
+# en root porque GitHub Pages lo sirve directo sin build step).
 dist/
 
 # Firebase local state

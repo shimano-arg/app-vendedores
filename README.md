@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v324 |
-| **APP_VERSION** | `v324` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW) |
+| **Versión actual** | SW v325 |
+| **APP_VERSION** | `v325` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW). v325 = E2.b step 1+2: index.html consume 10 fns puras + sentry helper desde `app.bundle.js` en lugar de tenerlas inline. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **14 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`) → **Power BI Desktop TABLERO SAR publicado con 8 páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4189,14 +4189,14 @@ Plan completo en `C:\Users\shimano.sandbox\.claude\plans\peppy-puzzling-bengio.m
 |---|---|---|---|---|---|---|
 | E0 | Setup rama + tooling | ✅ | 7 archivos scaffolded + npx vitest/tsc/esbuild/firebase --version OK | `1a373c1` | 4/3 | Ninguna (sin push) |
 | E1 | Firestore Rules cerradas | ✅ | Emulator + 96 tests verdes + audit 23/23 cobertura | `6a3cbb2` | 9/6 | `firebase deploy --only firestore:rules` |
-| E2 | Pipeline esbuild + bundle aditivo + smoke Node | ✅ parcial | `npm run build` OK (dist/ 2.05 MB) + 19 tests nuevos verdes (8 sap-client + 11 smoke) | 2026-07-25 | 5/8 | Ninguna hoy. Extracción real de índex.html queda para E2.b |
+| E2 | Pipeline esbuild + bundle aditivo + smoke Node | ✅ | `npm run build` OK (`app.bundle.js` 41 KB en root) + 27 tests nuevos (8 sap-client + 19 smoke). Ver 43.5 + 43.5.b (steps 1+2 hechos) | 2026-07-25 | 12/8 (overrun por E2.b) | Merge normal + `git add app.bundle.js` |
 | E3 | ts-check + JSDoc | ✅ | `tsc --noEmit` exit 0 + 7 archivos con `@ts-check` | `672b867` | 3/3 | Ninguna |
 | E4 | Tests unitarios Vitest | ✅ | 56 tests verdes sobre 10 funciones puras | `710efc6` | 4/4 | Ninguna |
 | E5 | Cloud Function sapProxy + Secret Manager | ✅ | 25 tests verdes con mocks | `c25a983` | 4/6 | Crear secret + IAM + `firebase deploy --only functions:sapProxy` (checklist 43.8) |
 | E6 | Backup automático diario Firestore → Storage | ✅ | 12 tests verdes con mocks | `ca71df1` | 3/4 | Crear bucket + IAM + `firebase deploy --only functions:dailyFirestoreBackup` (checklist 43.9) |
 | E7 | Sentry integrado con loader CDN + tags | ✅ | 7 tests verdes + presencia inline + APP_VERSION v324 | `37f81d5` | 3/2 | Merge + deploy GitHub Pages (checklist 43.10) |
 
-**Totales**: 8 de 8 etapas cerradas (E2 parcial: pipeline + smoke ✅, extracción real E2.b pendiente). **119 tests locales** verdes (56 unit + 8 sap-client + 25 sapProxy + 12 backup + 7 sentry + 11 smoke). Solo `git log fase-0 --oneline` para ver los 8 commits.
+**Totales**: 8 de 8 etapas cerradas. E2 incluye E2.b steps 1+2 (extracción de 10 fns puras + sentry helper del inline al bundle). **127 tests locales** verdes (56 unit + 8 sap-client + 25 sapProxy + 12 backup + 7 sentry + 19 smoke). Solo `git log fase-0 --oneline` para ver los 9 commits.
 
 Para ver el diff completo entre `main` y `fase-0`:
 ```powershell
@@ -4221,7 +4221,10 @@ APP VENDEDORES/
 ├── firestore.indexes.json              ← vacío (no hay indexes composite hoy)
 ├── .gitignore                          ← extendido con node_modules/, dist/, .firebase/, coverage/, __pycache__/
 ├── CLAUDE.md                           ← NUEVO. 7 reglas durables aprendidas durante Fase 0 (ver 43.13)
-├── build.js                            ← NUEVO (E2). esbuild → dist/app.bundle.js + copia assets + inyecta script.
+├── build.js                            ← NUEVO (E2). esbuild → app.bundle.js en repo root. Idempotente.
+├── app.bundle.js                       ← NUEVO (E2.b). Build artifact commiteado — GitHub Pages lo sirve directo.
+├── index.html                          ← MODIFICADO (E2.b): <script src="./app.bundle.js"> en <head>; 10 fns puras + sentry helper consumidos del bundle. APP_VERSION v325.
+├── sw.js                               ← MODIFICADO (E2.b): CACHE_VERSION v325 + './app.bundle.js' agregado a STATIC_ASSETS.
 ├── src/                                ← NUEVO. Módulos ES pequeños con lógica testeable.
 │   ├── types.js                        ← Typedefs JSDoc: UserRole, ClientTipo, PedidoDoc, ProductoDoc, etc.
 │   ├── sentry.js                       ← applySentryUserContext (E7) — helper testeable de Sentry
@@ -4259,11 +4262,6 @@ APP VENDEDORES/
 │   │   └── backup-scheduled.test.js    ← 12 tests
 │   └── smoke/                          ← NUEVO (E2). Runtime del bundle en Node vm.Context.
 │       └── bundle-runtime.test.js      ← 11 tests: artifacts, tamaño, script tag, window.__phase0 shape
-├── dist/                               ← .gitignored. Output de `npm run build`.
-│   ├── app.bundle.js                   ← IIFE 41 KB (bundle de src/main.js + src/pure/ + src/sentry.js + src/sap-client.js)
-│   ├── index.html                      ← copia de index.html + <script src="./app.bundle.js" defer> antes de </head>
-│   ├── sw.js, manifest.json, geo.json, stock.json, login-bg.jpg, alta-cliente.html,
-│   ├── politica-privacidad.html, Shimano-Logo.png, icon-*.png (7 iconos)
 └── scripts/
     └── audit-rules-coverage.js         ← NUEVO. Verifica que cada colección grep de index.html
                                         #   tenga match en firestore.rules Y aparezca en algún test.
@@ -4274,9 +4272,10 @@ APP VENDEDORES/
 ### 43.3 Scripts npm disponibles (ejecutar desde `Desktop\APP VENDEDORES`)
 
 ```powershell
-# Build del bundle E2 → dist/
+# Build del bundle E2 → app.bundle.js en repo root (E2.b: dist/ deprecated)
 npm run build
-# → esbuild produce dist/app.bundle.js (41 KB) + copia assets + inyecta script en dist/index.html
+# → esbuild produce ./app.bundle.js (41 KB IIFE). Idempotente.
+# Committeá app.bundle.js después de cualquier cambio en src/**.
 
 # Smoke del bundle (Node vm.Context, sin Playwright)
 npm run test:smoke
@@ -4295,7 +4294,7 @@ firebase emulators:exec --only firestore --project demo-app-vendedores "npx vite
 # Tests de Cloud Functions core (sap-proxy + backup)
 npx vitest run tests/functions/
 
-# Todos los suites de una (unit + functions + smoke): 119 tests
+# Todos los suites de una (unit + functions + smoke): 127 tests
 npx vitest run tests/unit/ tests/functions/ tests/smoke/
 
 # TypeScript check
@@ -4386,17 +4385,61 @@ npm run typecheck                                              # exit 0
 
 **Qué te toca hoy**: nada — es todo local, no hay deploy ni push involucrado. Si querés inspeccionar: `npm run build && ls dist/` y abrí `dist/index.html` en el browser local (`file:///`) para que veas que carga como el original + con `window.__phase0` accesible en la console.
 
-### 43.5.b E2.b — Extracción real (pendiente, sin fecha)
+### 43.5.b E2.b — Extracción real (2026-07-25)
 
-Esto es lo que el plan original de E2 llamaba "modularización por dominio". Se hace incremental, un dominio por commit, cada uno con smoke propio. Orden sugerido de menor a mayor riesgo:
+Split del plan original de E2. Se hace incremental, un paso por commit, cada uno con smoke propio.
 
-1. **Reemplazar copias inline de las 10 funciones puras** por `window.foo = window.__phase0.pure.foo` al inicio del `<script>` inline de index.html. Borrar los bloques inline de `titleCase`, `escapeHtml`, `normTitle`, `normalizeSearch`, `normClientName`, `calcClientDiscount`, `matchesAllTokens`, `findSapDuplicateForProvisorio`, `matchSkuFromTitle`, `passesTypeFilter`. Impacto: -100 LOC. Riesgo: bajo (funciones idénticas por construcción + 63 tests).
-2. **Reemplazar `applySentryUserContext` inline** por `window.__phase0.sentry.applySentryUserContext`. Impacto: -20 LOC. Riesgo: bajo.
-3. **Cablear `src/sap-client.js`**: reemplazar el objeto `sapSL` inline (index.html:~21470-21620) por `const sapSL = window.__phase0.sap.createSapClient(firebase)`. **Bloqueado** hasta que Mariano deploye sapProxy en prod y confirme E2E en TST_06 (checklist 43.8).
-4. **Extracciones por dominio** (opcional, mucha ganancia poca urgencia): auth, clients, orders, visits, rendiciones, geo, ui. Cada uno commit + smoke + QA humano de flujo crítico.
+**Steps 1 + 2 (HECHO 2026-07-25 — commit combinado):**
 
-**Pre-requisito para 3**: E5 (sapProxy) desplegado en prod + tests E2E OK.
-**Pre-requisito para 4**: E2.b pasos 1-2 completos + Playwright funcionando (o smoke DOM equivalente).
+Motivo del commit combinado: por hoisting de `function foo(){}`, no se puede dejar la definición inline "por un rato" mientras se cablea el bundle — el binding local shadowaría al `window.foo` asignado desde el bundle. Ergo, agregar assignments + borrar inline tiene que ir junto.
+
+Cambios en source `index.html`:
+1. `<script src="./app.bundle.js"></script>` inyectado en `<head>` (blocking, después del bloque Sentry).
+2. `APP_VERSION` bumpeado v324 → v325.
+3. Bloque de assignments después del version-check (`Fase 0 E2.b (2026-07-25): consumir funciones del bundle`):
+   - **Fail-fast**: `if (!window.__phase0 || !window.__phase0.pure) throw new Error(...)` — si el bundle no cargó, la app se detiene con mensaje claro en vez de romper silencioso.
+   - **7 alias byte-idénticos**: `window.{normClientName,titleCase,escapeHtml,normTitle,_normalizeSearch (aliasado a normalizeSearch del bundle),calcClientDiscount,matchesAllTokens} = _P.foo`.
+   - **3 wrappers para las fns refactoradas en E4** (que reciben globales como params):
+     - `window.findSapDuplicateForProvisorio(prov) → _P.findSapDuplicateForProvisorio(prov, approvedAltasList)`
+     - `window.matchSkuFromTitle(meliTitle) → _P.matchSkuFromTitle(meliTitle, SKU_INDEX, SKU_TOKENS)`
+     - `window.passesTypeFilter(name) → _P.passesTypeFilter(name, currentTypeFilter, CLIENT_SPECIAL_SALES_SET)`
+     - Los globals se resuelven al CALL time (no define time), safe porque todos los callers son user-triggered post-init.
+   - **Sentry helper**: `window.applySentryUserContext = window.__phase0.sentry.applySentryUserContext`.
+4. **10 definiciones inline borradas** de `index.html`:
+   - `normClientName` (era línea 3407-3410)
+   - `passesTypeFilter` (3696-3703)
+   - `titleCase` (4434-4436)
+   - `escapeHtml` (5618-5620)
+   - `calcClientDiscount` + `window.calcClientDiscount = calcClientDiscount` redundante (9617-9643)
+   - `normTitle` (18633-18635)
+   - `matchSkuFromTitle` (18665-18684)
+   - `_normalizeSearch` + `matchesAllTokens` (25012-25023)
+   - `_DUP_STOPWORDS` + `_nameTokens` + `findSapDuplicateForProvisorio` (25041-25078) — helpers de dup detector solo usados adentro, se borraron los 3 juntos.
+5. **`window.applySentryUserContext = function...` inline en `<head>` (líneas 55-70) borrado**. Nuevo home: bloque de assignments del script principal.
+
+Cambios en `sw.js`:
+- `CACHE_VERSION` v324 → v325.
+- `./app.bundle.js` agregado a `STATIC_ASSETS` para offline PWA.
+
+Cambios en tooling:
+- `build.js` refactoreado: output a `app.bundle.js` en repo root (no `dist/`), idempotente, sin manipulación de versions.
+- `dist/` deprecated (comentado en `.gitignore`).
+- `tests/smoke/bundle-runtime.test.js` reescrito con 19 tests: verifica bundle + wiring del source `index.html` + `sw.js` + regex que confirma que las 10 defs inline NO existen.
+
+**Métricas del delta**:
+- `index.html`: -79 líneas netas (28,561 → 28,482), size 2.05 MB (casi igual — assignments block y comments compensan las 10 fns borradas).
+- `app.bundle.js`: 41 KB nuevo artifact en root.
+- Tests: 119 → 127 (+8 smoke).
+
+**Riesgo residual**:
+- Si `app.bundle.js` no está en el repo cuando se sirve `index.html`, la app tira `Error('Bundle window.__phase0 no cargó...')` con instrucciones claras. Mitigación operativa: incluir `git add app.bundle.js` en el flujo de merge (documentado en 43.11).
+- El bundle es `<script>` blocking (no defer). Suma ~40 KB de download blocking en initial load. Aceptable dado que Firebase SDKs ya suman ~600 KB blocking; contexto pinta que la app no es latency-critical.
+- **Manual gate humano pre-merge**: abrir `http://localhost:8000/index.html` (via `python -m http.server 8000` desde el repo) y verificar en F12 Console: (1) banner `Shimano App v325`, (2) `[version] HTML v325 === SW v325 OK`, (3) `window.__phase0` accesible y con estructura correcta, (4) cero errores rojos durante carga, (5) tabs abren normalmente.
+
+**Steps 3 y 4 (pendientes, sin fecha):**
+
+3. **Cablear `src/sap-client.js`**: reemplazar el objeto `sapSL` inline en `index.html` (~21470-21620, 150 LOC) por `const sapSL = window.__phase0.sap.createSapClient(firebase)`. **Bloqueado** hasta que Mariano deploye sapProxy en prod (checklist 43.8) y confirme E2E en TST_06.
+4. **Extracciones por dominio** (opcional, mucha ganancia poca urgencia): auth, clients, orders, visits, rendiciones, geo, ui. Cada uno commit + smoke + QA humano de flujo crítico. Pre-req: Playwright funcionando (o smoke DOM equivalente).
 
 ### 43.6 E3 — ts-check + JSDoc
 
@@ -4557,7 +4600,8 @@ gcloud storage ls gs://app-vendedores-shimano-backups/firestore/
 
 En orden sugerido (etapas independientes se pueden reordenar):
 
-1. **E3 + E4 + E2 (sin efecto en prod)**: merge sin deploy. Habilita tests + typecheck + build pipeline localmente. E2 no cambia nada del código productivo (bundle no cableado; sap-client no cableado).
+1. **E3 + E4 (sin efecto en prod)**: merge sin deploy. Habilita tests + typecheck localmente.
+1.b **E2 + E2.b steps 1+2 (EFECTO EN PROD — merge + push GitHub Pages)**: source `index.html` v325 consume 10 fns puras + sentry helper desde `app.bundle.js`. Regenerá el bundle antes del merge (`npm run build && git add app.bundle.js`). Verificación manual pre-merge: `python -m http.server 8000` → abrir `http://localhost:8000/` → F12 Console → banner v325 + `[version] HTML v325 === SW v325 OK` + cero errores rojos + tabs abren. **QA humano de 5 flujos críticos post-merge**: crear pedido, subir rendición, alta rápida, ver mapa, backup.
 2. **E7 (Sentry)**: merge + push a GitHub Pages. Verificación E2E post-deploy (43.10).
 3. **E1 (Rules)**: `firebase deploy --only firestore:rules --project=app-vendedores-shimano`. QA vendor tabs (43.4).
 4. **E5 (sapProxy)**: checklist 43.8 completo (crear secret + IAM + deploy). Test E2E en TST_06 antes de borrar creds de `app_config/sap_integration`.
