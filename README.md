@@ -3361,16 +3361,21 @@ gsutil cp gs://app-vendedores-shimano.firebasestorage.app/rendiciones/uid/foto.j
 gcloud firestore export gs://backup-bucket
 ```
 
-### 42.3 Sentry (monitoring de errores) — INTEGRADO en v324 (Fase 0 E7)
+### 42.3 Sentry (monitoring de errores) — INTEGRADO en v324 (Fase 0 E7), CSP arreglado en v326
 
 **Public key**: `7cbe790b32043d72a1b147a2f7f0c641` (cuenta Sentry de Mariano).
 
-**Estado**: integrado en `index.html` desde v324 (rama `fase-0`). El loader CDN de Sentry usa la public key para bajar el config completo (DSN, org, project, sampling) del servidor de Sentry — no hace falta hardcodear el DSN completo en el HTML.
+**Estado**: integrado en `index.html` desde v324 (rama `fase-0`). El loader CDN de Sentry usa la public key para bajar el config completo (DSN, org, project, sampling) del servidor de Sentry — no hace falta hardcodear el DSN completo en el HTML. **Operativo desde v326** — antes el CSP bloqueaba el loader (bug de E7).
 
 **Cómo funciona**:
 - `<script src="https://js.sentry-cdn.com/{publicKey}.min.js">` en el `<head>` después de los SDKs de Firebase.
 - `Sentry.onLoad(...)` dispara `Sentry.init({release: APP_VERSION, environment:'production', tracesSampleRate: 0.0})` una vez que el SDK terminó de cargar (async).
-- Helper `applySentryUserContext(sentry, user, role, vendor)` (definido inline en index.html y también en `src/sentry.js` para tests) se llama post-login desde `fetchAndApplyRole` — setea `Sentry.setUser({id, email})` + `setTag('role')` + `setTag('vendor')`. Todo error subsiguiente viaja con esos tags.
+- Helper `applySentryUserContext(sentry, user, role, vendor)` **vive en `src/sentry.js` y se expone como `window.applySentryUserContext` vía el bundle `app.bundle.js`** (v325+). Se llama post-login desde `fetchAndApplyRole` — setea `Sentry.setUser({id, email})` + `setTag('role')` + `setTag('vendor')`. Todo error subsiguiente viaja con esos tags.
+
+**CSP requerida** (en `index.html:8`, agregada en v326):
+- `script-src` debe incluir `https://*.sentry-cdn.com` (cubre `js.sentry-cdn.com` + `browser.sentry-cdn.com`; el loader carga el SDK desde estos hosts).
+- `connect-src` debe incluir `https://*.ingest.sentry.io` (endpoint donde Sentry POST-ea los eventos).
+- Si algún cambio futuro rota el project ID o cambia de región Sentry, verificar que los subdominios de ingest sigan matcheando `*.ingest.sentry.io` (Sentry usa formato `oXXXX.ingest.sentry.io` o `oXXXX.ingest.us.sentry.io` según región).
 
 **Cómo desactivar / rotar public key**: editar el `<script src=...>` en `index.html` líneas post-Firebase-SDKs + bumpear APP_VERSION.
 
@@ -3405,9 +3410,60 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v204 → v324
+## 41) Changelog v204 → v326
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v326 (2026-07-25) — Fix CSP para Sentry (hotfix sobre E7)
+
+- **Bug de E7**: la CSP en `index.html:8` no incluía los dominios de Sentry, así que el loader `js.sentry-cdn.com` quedaba bloqueado y ningún error se estaba reportando desde el deploy de v324 (~24h de blackout de Sentry).
+- Fix:
+  - `script-src` agregó `https://*.sentry-cdn.com` (cubre `js.sentry-cdn.com` + `browser.sentry-cdn.com`; el loader carga el SDK desde estos hosts).
+  - `connect-src` agregó `https://*.ingest.sentry.io` (endpoint donde Sentry POST-ea los eventos al backend).
+- Commit directo a `main` (no rama), 3 archivos tocados, 5 insertions / 5 deletions.
+- Verificado en prod (Chrome F12 Console): desaparece el error `Loading the script 'https://js.sentry-cdn.com/...' violates the following Content Security Policy directive`.
+
+### v325 (2026-07-25) — E2.b steps 1+2 (Fase 0): index.html consume 10 fns puras + sentry desde bundle
+
+Split de E2 en dos porque extraer 28K líneas inline en un shot era demasiado riesgo. E2 (v324→v325) dejó el pipeline y el bundle aditivo; **E2.b steps 1+2 (v325)** hace el consumo real desde el bundle.
+
+**Nuevo pipeline `build.js` + `app.bundle.js` en repo root**:
+- `npm run build` produce `./app.bundle.js` (41 KB IIFE, sourcemap inline). Bundle de `src/main.js` que importa 10 funciones puras + sentry helper + sap-client factory.
+- `app.bundle.js` va commiteado a `main` porque GitHub Pages sirve directo del root sin build step. Regenerar tras cualquier cambio en `src/**`.
+- `dist/` deprecated (nota en `.gitignore`).
+
+**Cambios en `index.html`** (v324 → v325):
+- `<script src="./app.bundle.js"></script>` blocking en `<head>` después del bloque Sentry.
+- Bloque nuevo "Fase 0 E2.b" después del version-check con:
+  - **Fail-fast**: `throw` si `window.__phase0` no cargó — no degradación silenciosa.
+  - **7 alias byte-idénticos**: `normClientName`, `titleCase`, `escapeHtml`, `normTitle`, `_normalizeSearch` (aliasado a `normalizeSearch` del bundle), `calcClientDiscount`, `matchesAllTokens`.
+  - **3 wrappers para fns refactoradas en E4**: `findSapDuplicateForProvisorio(prov)`, `matchSkuFromTitle(meliTitle)`, `passesTypeFilter(name)` — pasan los globales al call time.
+  - `applySentryUserContext` movido del `<head>` inline al bloque de assignments del script principal.
+- **10 definiciones inline borradas** (~120 LOC): `normClientName`, `titleCase`, `escapeHtml`, `normTitle`, `_normalizeSearch`, `calcClientDiscount`, `matchesAllTokens`, `findSapDuplicateForProvisorio` (+ helpers `_DUP_STOPWORDS`, `_nameTokens`), `matchSkuFromTitle`, `passesTypeFilter`.
+- **Inline `window.applySentryUserContext = function...` en `<head>` borrado**.
+
+**Cambios en `sw.js`** (v324 → v325):
+- `CACHE_VERSION` bump.
+- `./app.bundle.js` agregado a `STATIC_ASSETS` para offline PWA.
+
+**Tests nuevos**:
+- `tests/unit/sap-client.test.js`: 8 tests (mock `httpsCallable`, defensa SSRF client-side, error mapping, `createQuotation` compat).
+- `tests/smoke/bundle-runtime.test.js`: 19 tests Node-based (`vm.runInNewContext`). Verifica artifacts + wiring del source (script tag + assignments + fail-fast + regex confirma que las 10 defs inline NO existen) + APP_VERSION == CACHE_VERSION + sw.js incluye `./app.bundle.js`.
+
+**Métricas del delta**:
+- `index.html`: -79 líneas (28,561 → 28,482), size 2.14 MB (casi igual — assignments block y comments compensan las 10 fns borradas).
+- Tests: 100 → 127 (+27: 8 sap-client + 19 smoke).
+- Rama `fase-0` cerró con 9 commits (E0–E7 + E2.b), rebase + fast-forward a `main` (regla del repo: no merge commits).
+
+**Verificado en browser real** (Chrome F12 Console):
+- `window.__phase0` poblado con `{version, pure, sentry, sap}`.
+- `window.titleCase('hola mundo') === 'Hola Mundo'` (bundle sirviendo).
+- `window.calcClientDiscount({cliTipo:'P'}, 5_000_000, 'CONTADO').pctTotal === 14` (6% fijo + 3% vol + 5% antic).
+- Todos los handlers que dependen de las 10 fns (Firestore listeners, mapa, catálogo, SAP sync, alta cliente) funcionan sin cambios visibles al usuario.
+
+**Pendientes** (E2.b steps 3-4, fuera de este release):
+- Step 3: cablear `sap-client.js` (bloqueado hasta E5 en prod + E2E TST_06 OK).
+- Step 4: extracción por dominio (auth/clients/orders/etc). Requiere Playwright funcionando.
 
 ### v324 (2026-07-24) — Sentry integrado (Fase 0 E7)
 - Loader CDN de Sentry (`js.sentry-cdn.com/{publicKey}.min.js`) en el `<head>` después de los SDKs de Firebase.
