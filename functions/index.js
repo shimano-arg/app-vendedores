@@ -40,7 +40,11 @@ export const sapProxy = onCall(
   {
     region: REGION,
     secrets: [SAP_SL_PASSWORD],
-    cors: false, // callable maneja CORS internamente
+    // cors: true (default) permite que el framework responda el OPTIONS preflight
+    // que el browser manda antes del POST cross-origin. Con cors: false el
+    // preflight falla, el browser cachea el fallo, y los POST subsiguientes se
+    // cuelgan indefinidamente en el SDK client-side sin ni siquiera llegar al server.
+    cors: true,
     enforceAppCheck: false, // TODO: enable cuando App Check esté configurado
   },
   async (request) => {
