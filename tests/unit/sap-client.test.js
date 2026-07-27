@@ -16,7 +16,8 @@ function makeFirebase(opts = {}) {
   });
   const httpsCallable = vi.fn((name) => callable);
   const functions = vi.fn((region) => ({ httpsCallable }));
-  return { firebase: { functions }, callable, httpsCallable, functions };
+  const app = vi.fn(() => ({ functions }));
+  return { firebase: { app }, callable, httpsCallable, functions, app };
 }
 
 describe('createSapClient.fetchWithSession', () => {

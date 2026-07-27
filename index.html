@@ -3355,7 +3355,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v329';
+const APP_VERSION = 'v330';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -21449,7 +21449,32 @@ const sapSL = {
 
   // Wrapper de fetch que: 1) asegura sesion, 2) hace request, 3) si tira 401
   // re-loguea y reintenta una vez.
+  //
+  // Fase 0 E2.b step 3 (v330): si useCloudProxy=true rutea via
+  // sapProxy Cloud Function (creds en Secret Manager server-side).
+  // Si false, cae al fetch directo legacy (creds en Firestore, lo que
+  // E5 vino a cerrar). Flag por si hay que rollback rápido sin
+  // redeploy — flip a false y la app vuelve al modo legacy inmediato.
+  useCloudProxy: true,
+  _cloudClient: null,  // lazy singleton
+  _getCloudClient(){
+    if (!this._cloudClient) {
+      if (!window.__phase0 || !window.__phase0.sap || !window.__phase0.sap.createSapClient) {
+        return null;
+      }
+      this._cloudClient = window.__phase0.sap.createSapClient(firebase, { region: 'southamerica-east1' });
+    }
+    return this._cloudClient;
+  },
   async fetchWithSession(path, options){
+    // Nueva ruta: sapProxy Cloud Function.
+    if (this.useCloudProxy) {
+      const client = this._getCloudClient();
+      if (client) return client.fetchWithSession(path, options);
+      // Bundle no cargó — fallback al legacy con warning.
+      console.warn('[sapSL] cloud client no disponible, fallback a fetch directo');
+    }
+    // Legacy: fetch directo al SL con creds de Firestore.
     const cfg = this.config;
     let url = path.startsWith('http') ? path : (cfg.url.replace(/\/$/, '') + path);
     let s = await this.ensureSession();

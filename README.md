@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v329 |
-| **APP_VERSION** | `v329` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW). v329 = preparación para E2.b step 3: agregado `firebase-functions-compat.js` SDK + `https://*.cloudfunctions.net` a CSP `connect-src` + `sap-client.js` acepta `opts.region` (default `southamerica-east1` matcheando el deploy real de sapProxy). NO cablea el sapSL todavía. |
+| **Versión actual** | SW v330 |
+| **APP_VERSION** | `v330` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW). v330 = **E2.b step 3 completado**: `sapSL.fetchWithSession` en `index.html` rutea via Cloud Function `sapProxy` (creds server-side en Secret Manager) en vez del fetch directo a `shimano-sap.seidor.com.ar` con creds en Firestore. Feature flag `sapSL.useCloudProxy = true` (rollback flip a false = fetch legacy). |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **14 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`) → **Power BI Desktop TABLERO SAR publicado con 8 páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -3419,9 +3419,52 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v204 → v329
+## 41) Changelog v204 → v330
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v330 (2026-07-27) — E2.b step 3: sapSL rutea via Cloud Function sapProxy — **Fase 0 al 100%**
+
+Cambio funcional real que cierra E5+E2.b: las llamadas SAP dejan de ir directo desde el browser a `shimano-sap.seidor.com.ar` (con creds leídas de Firestore) y pasan por la Cloud Function `sapProxy` en `southamerica-east1` (creds en Secret Manager server-side).
+
+**Cambio en `index.html:21452`** (método `sapSL.fetchWithSession`):
+- Feature flag nueva: `sapSL.useCloudProxy = true` (default). Si se flipea a `false` desde Console vuelve al modo legacy sin redeploy.
+- Lazy singleton `sapSL._getCloudClient()` obtiene `window.__phase0.sap.createSapClient(firebase, {region: 'southamerica-east1'})` una sola vez.
+- Cuando useCloudProxy=true: la llamada rutea via `client.fetchWithSession(path, options)` → `httpsCallable('sapProxy')`.
+- Cuando useCloudProxy=false o el bundle no cargó: fallback al fetch inline legacy (mismo código de antes, +warning en console).
+- Los otros ~15 métodos del `sapSL` (loadConfig, login, ensureSession, createQuotation, getStock, getBpTemp, admin UI, etc.) NO se tocaron. Siguen funcionando exactamente igual porque llaman a `this.fetchWithSession(...)` que ahora rutea via el proxy.
+
+**Cambio en `src/sap-client.js`**:
+- Fix API compat SDK: usar `firebase.app().functions(region)` en vez de `firebase.functions(region)`. El namespace `firebase.functions(x)` solo acepta App instance como arg — pasar region string tiraba `firebase.functions-compat() takes either no argument or a Firebase App instance`. La forma correcta es obtener la App primero (`firebase.app()`) y llamar `.functions(region)` sobre ella.
+- Typedef actualizado (`FirebaseAppLike` con `.functions(region?)`, `FirebaseNamespaceLike` ahora tiene `.app()`).
+- Tests actualizados con nuevo mock shape.
+
+**Cambio en `functions/index.js`**:
+- Fix CORS: `cors: false` → `cors: true` (default). Con false el framework no responde al OPTIONS preflight que el browser manda antes del POST cross-origin — el preflight falla, el browser cachea el fallo, y todos los POSTs subsiguientes se cuelgan indefinidamente en el SDK client-side. Diagnóstico via `gcloud functions logs read sapProxy` que mostró `Request has invalid method. OPTIONS`.
+- Ya deployado a prod (commit `9802133`).
+
+**Bumps**:
+- APP_VERSION v329 → v330 (index.html).
+- CACHE_VERSION v329 → v330 (sw.js).
+
+**Bundle regenerado**: 42.9 KB → 43.4 KB (+0.5 KB por firebase.app() interop).
+
+**Tests**: 129/129 verdes.
+
+**Verificación pre-merge** (F12 Console tras Ctrl+Shift+R):
+```js
+// Cualquier request SAP ahora rutea por el proxy. Sanity check:
+console.log('cloud proxy activo?', sapSL.useCloudProxy);  // true
+console.log('cliente listo?', !!sapSL._getCloudClient()); // true
+sapSL.fetchWithSession('/b1s/v1/Items?$top=1&$select=ItemCode').then(r => console.log(r));
+// Debe devolver {ok: true, body: {value:[...]}, status: 200} en <5 seg
+```
+
+**Rollback**: en Console `sapSL.useCloudProxy = false` → app vuelve al fetch legacy inmediato. Sin redeploy necesario.
+
+**Pendiente post-v330** (opcional, cerrar el círculo de seguridad de E5):
+- Borrar `app_config/sap_integration.serviceLayer.password` de Firestore (el fetch legacy queda sin creds, pero como useCloudProxy=true los ignora). Antes de borrar, dejar la app corriendo N días para confirmar que useCloudProxy=true no da problemas en operación real.
+- Rotar la password (`Shi*99` es débil + leakeada en esta sesión). Ver 43.8.
 
 ### v329 (2026-07-27) — Preparación E2.b step 3: SDK + CSP + region
 
