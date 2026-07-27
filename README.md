@@ -71,7 +71,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 41. [Changelog v204 → v324](#41-changelog-v204--v324)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
-44. [Estado de fin de sesión 2026-07-25 — dónde retomar mañana](#44-estado-de-fin-de-sesión-2026-07-25--dónde-retomar-mañana)
+44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
 
 ---
 
@@ -4542,7 +4542,7 @@ Cuando E2 modularice, los callers en `index.html` pasan los params. Hasta entonc
 
 **Deploy**: no requiere — módulos aún no importados desde el HTML productivo. E2 los cablea.
 
-### 43.8 E5 — Cloud Function `sapProxy` (deploy manual tuyo)
+### 43.8 E5 — Cloud Function `sapProxy` (deploy manual tuyo, pendiente)
 
 **Arquitectura core+wrapper** (documentada como regla 7 en CLAUDE.md):
 - `functions/core/sap-proxy-core.js` (~150 LOC): lógica pura `handleSapProxy(data, auth, deps)` con `deps.{fetch, getUserRole, sapConfig, log}` inyectables.
@@ -4562,28 +4562,36 @@ Cuando E2 modularice, los callers en `index.html` pasan los params. Hasta entonc
 
 **Deploy — checklist tuyo** (ejecutar en tu terminal, en orden):
 
+**Estado al 2026-07-27**: Secret Manager API YA habilitada (E6 la habilitó) y secret `SAP_SL_PASSWORD` YA creado con valor **placeholder** (`placeholder-hasta-E5-no-usar`). El paso "crear secret" del checklist original ya no aplica — hay que **actualizar el valor** con la password real.
+
 ```powershell
 cd "C:\Users\shimano.sandbox\Desktop\APP VENDEDORES"
 
-# 1) Crear el secret (una vez)
-gcloud secrets create SAP_SL_PASSWORD --replication-policy=automatic --project=app-vendedores-shimano
+# 1) Actualizar el valor del secret con la password real del usuario APP_VENDEDORES.
+# NOTA WINDOWS: `--data-file=-` (stdin) NO funciona en Windows PowerShell (gcloud
+# lo interpreta como filename literal). Escribir a archivo temp y pasar el path.
+Set-Content -Path secret-tmp.txt -Value "<PASSWORD REAL APP_VENDEDORES>" -Encoding ascii -NoNewline
+gcloud secrets versions add SAP_SL_PASSWORD --data-file=secret-tmp.txt --project=app-vendedores-shimano
+Remove-Item secret-tmp.txt
 
-# 2) Cargar la password real del usuario APP_VENDEDORES
-Write-Output "<PASSWORD REAL APP_VENDEDORES>" | gcloud secrets versions add SAP_SL_PASSWORD --data-file=- --project=app-vendedores-shimano
-
-# 3) Grant al service account default
+# 2) Grant al Compute Engine default service account (Firebase Functions v2 runtime).
+# El default App Engine SA (<PROJECT>@appspot...) NO existe en este proyecto (ver
+# gotcha #1 en sección 43.9). Usar Compute Engine default:
 gcloud secrets add-iam-policy-binding SAP_SL_PASSWORD `
-  --member="serviceAccount:app-vendedores-shimano@appspot.gserviceaccount.com" `
+  --member="serviceAccount:746111030735-compute@developer.gserviceaccount.com" `
   --role="roles/secretmanager.secretAccessor" `
   --project=app-vendedores-shimano
 
-# 4) Deploy
+# 3) Deploy. Como el secret ya existe, no debería aparecer el prompt interactivo.
+# Cleanup policy de Artifact Registry ya seteada en E6 (30 días).
 firebase deploy --only functions:sapProxy --project=app-vendedores-shimano
 
-# 5) Test E2E contra TST_06 (NO prod SHIMANO_SAU):
+# 4) Test E2E contra TST_06 (NO prod SHIMANO_SAU):
 #    en la app, crear un pedido de prueba que use la nueva ruta callable.
 #    Verificar en SAP TST_06 que la Quotation entró.
 ```
+
+**Nota importante sobre secret versioning**: `gcloud secrets versions add` crea una versión nueva del secret y la marca como LATEST. La versión placeholder anterior queda inactiva pero disponible en el histórico. Si querés borrar la vieja explícitamente: `gcloud secrets versions destroy 1 --secret=SAP_SL_PASSWORD --project=app-vendedores-shimano`.
 
 **Cambio en cliente pendiente** (parte de E2 o commit aparte): reemplazar `fetch('https://shimano-sap.seidor.com.ar:50000/b1s/v1/...')` en `index.html` por:
 ```js
@@ -4599,55 +4607,91 @@ const result = await call({ endpoint: '/b1s/v1/Quotations', method: 'POST', body
 - SL está en on-premise Seidor: latencia + CORS + timeouts desde GCP región `southamerica-east1` no probados; puede requerir ajuste de timeout de la function (hoy 60s default).
 - `App Check` disabled en el callable (TODO cuando configuren). Cualquier user autenticado con Firebase Auth puede invocar `sapProxy` directamente por HTTP — el filtro de rol es la única defensa.
 
-### 43.9 E6 — Backup automático diario (deploy manual tuyo)
+### 43.9 E6 — Backup automático diario ✅ DEPLOYADO 2026-07-27
 
-Nueva scheduled function `dailyFirestoreBackup`:
+Scheduled function `dailyFirestoreBackup` activa en prod:
 - Cron: `0 2 * * *` en `America/Argentina/Buenos_Aires` (2am AR).
 - Región `southamerica-east1`, retry 2, memory 256MiB, timeout 540s.
 - Exporta Firestore a `gs://app-vendedores-shimano-backups/firestore/{YYYY-MM-DD}/`.
-- Formato UTC en el timestamp (evita ambigüedad si el cron corre cerca de medianoche AR).
+- Bucket con lifecycle rule: objetos con >90 días se auto-borran.
+- Cleanup policy Artifact Registry: container images >30 días auto-borradas (evita bill inflation por accumulación de builds).
 - **`window.runFullBackup` intacto** — el botón manual admin (`index.html:10517`) sigue siendo el ZIP con fotos + JSON + metadata. Este scheduled es hot-restore-ready oficial de Firestore.
 
-**Deploy — checklist tuyo**:
+**Checklist de deploy** (ejecutado 2026-07-27, guardar como referencia para futuros proyectos):
 
 ```powershell
-# 1) Crear bucket destino en South America
+cd "C:\Users\shimano.sandbox\Desktop\APP VENDEDORES"
+
+# 1) Crear bucket destino en South America (uniform bucket-level access simplifica IAM)
 gcloud storage buckets create gs://app-vendedores-shimano-backups `
   --location=southamerica-east1 `
   --project=app-vendedores-shimano `
   --uniform-bucket-level-access
 
-# 2) Retention 90 días (recomendado, previene crecimiento infinito)
-$lifecycle = '{"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"age":90}}]}}'
-Write-Output $lifecycle | gcloud storage buckets update gs://app-vendedores-shimano-backups --lifecycle-file=-
+# 2) Retention 90 días. NOTA WINDOWS: `--lifecycle-file=-` (stdin) NO funciona
+# en Windows PowerShell (gcloud lo interpreta como filename literal). Escribir
+# a archivo temp y pasar el path:
+Set-Content -Path lifecycle.json -Value '{"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"age":90}}]}}' -Encoding ascii
+gcloud storage buckets update gs://app-vendedores-shimano-backups --lifecycle-file=lifecycle.json
+Remove-Item lifecycle.json
 
 # 3) Habilitar APIs necesarias
-gcloud services enable cloudscheduler.googleapis.com firestore.googleapis.com --project=app-vendedores-shimano
+gcloud services enable cloudscheduler.googleapis.com firestore.googleapis.com secretmanager.googleapis.com --project=app-vendedores-shimano
+# Nota: secretmanager.googleapis.com hace falta porque functions/index.js
+# también exporta sapProxy (E5) que declara `defineSecret('SAP_SL_PASSWORD')`;
+# aunque estemos deployando solo dailyFirestoreBackup con `--only`, Firebase CLI
+# analiza el módulo entero y falla si Secret Manager API no está habilitada.
 
-# 4) Grant IAM al service account default
+# 4) Grant IAM al Compute Engine default service account.
+# IMPORTANTE: en proyectos Firebase nuevos (~2024+) el default App Engine SA
+# `<PROJECT>@appspot.gserviceaccount.com` NO existe; el runtime real de Cloud
+# Functions v2 es el Compute Engine default: `<PROJECT_NUMBER>-compute@developer...`.
+# Encontrar el número del proyecto con:
+#   gcloud iam service-accounts list --project=app-vendedores-shimano
+# Para app-vendedores-shimano el número es 746111030735.
 gcloud projects add-iam-policy-binding app-vendedores-shimano `
-  --member="serviceAccount:app-vendedores-shimano@appspot.gserviceaccount.com" `
+  --member="serviceAccount:746111030735-compute@developer.gserviceaccount.com" `
   --role="roles/datastore.importExportAdmin"
 
 gcloud storage buckets add-iam-policy-binding gs://app-vendedores-shimano-backups `
-  --member="serviceAccount:app-vendedores-shimano@appspot.gserviceaccount.com" `
+  --member="serviceAccount:746111030735-compute@developer.gserviceaccount.com" `
   --role="roles/storage.objectAdmin"
 
-# 5) Deploy
+# 5) Deploy. Primer deploy en el proyecto puede tardar 3-10 min (Firebase
+# habilita run/eventarc/pubsub/storage APIs + primer container build).
 firebase deploy --only functions:dailyFirestoreBackup --project=app-vendedores-shimano
+# Si prompt "Enter a value for SAP_SL_PASSWORD": es porque sapProxy declara
+# ese secret y CLI intenta crearlo si no existe. Poner un placeholder como
+# "placeholder-hasta-E5-no-usar" — E5 lo sobrescribe con el real.
+# Si prompt "How many days do you want to keep container images": responder 30.
 
 # 6) Verificar al día siguiente (~2:05 AR)
 gcloud storage ls gs://app-vendedores-shimano-backups/firestore/
 # Debe listar una carpeta con la fecha del día. Adentro: metadata + output-0.
+
+# 7) Verificar el cron scheduler job + function existen
+gcloud scheduler jobs list --location=southamerica-east1 --project=app-vendedores-shimano
+gcloud functions list --project=app-vendedores-shimano --regions=southamerica-east1
+
+# 8) Logs del run del día
+gcloud functions logs read dailyFirestoreBackup --region=southamerica-east1 --limit=20 --project=app-vendedores-shimano
 ```
 
-**Alerta de fallo (recomendado)**: en Cloud Logging → crear log-based metric sobre `severity>=ERROR AND jsonPayload.message="dailyFirestoreBackup failed"` → Alerting policy → channel email a `bot.shimano.pesca@gmail.com`.
+**Gotchas descubiertos durante deploy 2026-07-27** (documentados para no re-tropezar):
 
-**Riesgos deploy real**:
-- IAM incompleto → export falla silenciosamente en prod, tests locales no lo detectan.
-- Sin retention rule → bucket crece indefinidamente.
-- Sin alerta configurada → un fallo queda solo en Cloud Logging sin nadie mirando.
-- La function devuelve `operationName` (long-running op) pero no espera a que termine. Un fail parcial post-inicio no queda flaggeado por esta lógica.
+1. **SA email cambió**: el checklist original usaba `<PROJECT>@appspot.gserviceaccount.com` (default App Engine SA). GCP dejó de crearlo automáticamente en proyectos nuevos. Ahora hay que usar el Compute Engine default (`<PROJECT_NUMBER>-compute@developer.gserviceaccount.com`).
+2. **`--lifecycle-file=-` no anda en Windows**: gcloud interpreta `-` como filename literal en vez de leer de stdin. Escribir el JSON a archivo temporal y pasar el path.
+3. **Secret Manager API needs enabling**: aunque solo deployes `dailyFirestoreBackup` con `--only`, el CLI analiza el módulo entero, ve `sapProxy` con `defineSecret('SAP_SL_PASSWORD')`, y falla si la API está deshabilitada. Habilitar antes.
+4. **Prompt interactivo para secret**: si el secret no existe, el CLI lo crea interactivamente pidiendo valor. Dar placeholder identificable (`placeholder-hasta-E5-no-usar`) — el real va cuando toque E5.
+5. **`@google-cloud/firestore` es pesado**: cargar el package top-level en `functions/index.js` exhausta el timeout de 10s del "backend spec analysis" del CLI. Fix: dynamic import lazy dentro de la function body (ver `functions/index.js` línea ~100).
+6. **Cleanup policy de Artifact Registry**: al primer deploy, el CLI pregunta cuántos días retener container images (Cloud Run v2 acumula uno por deploy). Responder 30 (balance costo/rollback).
+
+**Alerta de fallo (recomendado, pendiente)**: en Cloud Logging → crear log-based metric sobre `severity>=ERROR AND resource.labels.function_name="dailyFirestoreBackup"` → Alerting policy → channel email a `bot.shimano.pesca@gmail.com`. Sin esta alerta, un fallo del cron queda solo en Cloud Logging sin nadie mirando.
+
+**Riesgos residuales**:
+- La function devuelve `operationName` (long-running op) pero NO espera a que termine. Un fail parcial post-inicio no queda flaggeado por esta lógica. El log del cron dice "OK" aunque el export en background falle.
+- El cron corre en zona horaria AR pero Cloud Scheduler ejecuta en UTC internamente. Verificar en scheduler jobs list que aparece con timezone correcto.
+- El bucket `gs://app-vendedores-shimano-backups` tiene lifecycle 90d pero no versioning. Si alguien borra manualmente objetos, no hay recovery.
 
 ### 43.10 E7 — Sentry integrado (deploy en merge de rama)
 
@@ -4733,67 +4777,98 @@ Ver `CLAUDE.md` en la raíz del repo para el texto completo con contexto y ejemp
 
 ---
 
-## 44) Estado de fin de sesión 2026-07-25 — dónde retomar mañana
+## 44) Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima
 
-Sesión larga con Fase 0 mergeada a `main` + hotfixes para dejar Sentry funcionando. Todo pusheado a origen. Prod en **v327** con Sentry verificado end-to-end. Este es el punto de retoma para la próxima sesión.
+Después de la sesión del 2026-07-25 (Fase 0 mergeada + Sentry OK) y del 2026-07-27 (QA + E1 + E6 deployados), **Fase 0 quedó operativa en prod al 87.5%** — solo falta E5 sapProxy + E2.b step 3 (bloqueado por E5).
 
-### 44.1 Commits de la sesión (todos en `main`, todos pusheados)
+### 44.1 Progreso acumulado 2026-07-24 → 2026-07-27
 
-| # | Commit | Descripción |
-|---|---|---|
-| 1 | `ea9eba3` | E2 (Fase 0): pipeline esbuild + bundle aditivo + smoke Node |
-| 2 | `285ae25` | E2.b steps 1+2: index.html consume 10 fns puras + sentry del bundle → v325 |
-| 3 | `3d8cd19` | v326: fix CSP para Sentry (`*.sentry-cdn.com` en script-src + `*.ingest.sentry.io` en connect-src) |
-| 4 | `b1b9225` | README docs: changelog v325+v326 + nota CSP en sección 42.3 |
-| 5 | `1926b5e` | deps: root package a 0 vulns (esbuild 0.24→0.28.1, vitest → 4.1.10, postcss fix) |
-| 6 | `523b3e1` | v327: fix CSP wildcard `*.ingest.sentry.io` → `*.sentry.io` (subdominio regional `.us.` no matcheaba) |
+| Etapa | Estado | Fecha cierre | Deploy en prod |
+|---|---|---|---|
+| E0 setup + tooling | ✅ | 2026-07-24 | — (local) |
+| E1 Firestore Rules | ✅ | **2026-07-27** | ✅ deployado |
+| E2 pipeline esbuild + bundle aditivo | ✅ | 2026-07-25 | ✅ v325 |
+| E2.b steps 1+2 (index.html consume del bundle) | ✅ | 2026-07-25 | ✅ v325 |
+| E2.b step 3 (cablear sap-client) | ⏸ bloqueado | — | ⏸ requiere E5 |
+| E3 ts-check + JSDoc | ✅ | 2026-07-24 | — (dev tooling) |
+| E4 tests unitarios | ✅ | 2026-07-24 | — (dev tooling) |
+| E5 sapProxy Cloud Function | ⏸ pendiente | — | ⏸ deploy manual |
+| E6 backup diario Firestore | ✅ | **2026-07-27** | ✅ deployado |
+| E7 Sentry integrado | ✅ | 2026-07-24 | ✅ v324 → operativo desde v327 |
+| Hotfix CSP Sentry (v326, v327) | ✅ | 2026-07-25 | ✅ v327 |
 
-Total: 9 commits Fase 0 originales (E0–E7 + E2.b) + 6 commits de esta sesión = **10 commits nuevos en `main` post-sesión** (contando el push del último README update pendiente al cierre).
+### 44.2 Commits acumulados en `main` (post-fase-0-merge)
 
-### 44.2 Cerrado en esta sesión (validado)
+De la sesión 2026-07-25:
+| Commit | Descripción |
+|---|---|
+| `ea9eba3` | E2: pipeline esbuild + bundle aditivo + smoke Node |
+| `285ae25` | E2.b steps 1+2 → v325 |
+| `3d8cd19` | v326: fix CSP para Sentry (script-src) |
+| `b1b9225` | README docs v325+v326 |
+| `1926b5e` | deps: root package 0 vulns (esbuild+vitest major bump) |
+| `523b3e1` | v327: fix CSP wildcard `*.sentry.io` |
+| `ce261b4` | README sección 44 fin de sesión 2026-07-25 |
 
-- **E2 completa** (pipeline esbuild + bundle + smoke).
-- **E2.b steps 1+2**: 10 fns puras + `applySentryUserContext` migrados del inline al bundle. Verificado en prod (Chrome F12) con `window.__phase0`, `window.titleCase('hola mundo') === 'Hola Mundo'`, `window.calcClientDiscount({cliTipo:'P'}, 5_000_000, 'CONTADO').pctTotal === 14`.
-- **Sentry operativo end-to-end** (v327). 2 test events aparecen en https://shimano.sentry.io/issues/ con tags correctos.
-- **Dependabot root**: de 6 vulns → 0.
-- **Rama `fase-0`** cerró con 9 commits, mergeada a `main` via rebase + ff (regla del repo: no merge commits).
+De la sesión 2026-07-27 (esta):
+| Commit | Descripción |
+|---|---|
+| `<pendiente>` | E6 fix + docs 43.8/43.9 gotchas + sección 44 actualizada |
 
-### 44.3 Pendientes reales para próximas sesiones
+### 44.3 Deployments en prod (Firebase / GCS)
 
-**Alto valor / fácil**:
-1. **QA humano de 5 flujos críticos en prod** — se arrancó B (QA) al cierre de sesión pero NO se ejecutó. Receta en la conversación del 2026-07-25:
-   - B1: crear pedido borrador (`titleCase`, `escapeHtml`, `calcClientDiscount`, `matchesAllTokens`)
-   - B2: mapa con 6 zonas + click localidad (`normClientName`)
-   - B3: alta rápida ficticia "TEST v327 QA" (`findSapDuplicateForProvisorio` wrapper)
-   - B4: nueva rendición con foto (OCR Gemini + `escapeHtml`)
-   - B5: `window.runFullBackup()` (backup manual admin)
-   - Con F12 Console abierto, filtro `error` en Console tab. Pegar cualquier error rojo que aparezca (descartando los ruidos conocidos: Kaspersky CSP, AppCheck 403, source maps de leaflet/polygon-clipping).
-2. **Confirmar tags Sentry** — abrir cualquier issue en shimano.sentry.io e inspeccionar que `role`, `vendor`, `release: v327`, `environment: production` estén presentes.
+- ✅ **`firestore.rules` v1.0** — deployado 2026-07-27 con `firebase deploy --only firestore:rules`. 2 closures activas: `pedidos/visits/rendiciones` list requiere ownerUid; `app_config/sap_integration` restringido a admin+gerente. Admin path verificado con 3 smoke commands en F12 Console (leer sap_integration + list pedidos + list visits, todos OK).
+- ✅ **`dailyFirestoreBackup` Cloud Function v2** — deployado 2026-07-27 en `southamerica-east1`. Cron `0 2 * * *` en zona `America/Argentina/Buenos_Aires`. Exporta a `gs://app-vendedores-shimano-backups/firestore/{YYYY-MM-DD}/`. Bucket con lifecycle 90d + Artifact Registry cleanup 30d.
+- ✅ **Bucket `gs://app-vendedores-shimano-backups`** creado en `southamerica-east1` con uniform bucket-level access. IAM otorgada al Compute Engine default SA (`746111030735-compute@developer...`) con roles `datastore.importExportAdmin` (project-wide) + `storage.objectAdmin` (bucket).
+- ✅ **Secret Manager**: `SAP_SL_PASSWORD` creado con valor placeholder `placeholder-hasta-E5-no-usar`. Se sobrescribe con password real cuando toque E5.
+- ✅ **APIs habilitadas 2026-07-27**: `cloudscheduler`, `firestore`, `secretmanager`, `run`, `eventarc`, `pubsub`, `storage`, `artifactregistry`, `cloudbuild`, `cloudfunctions`, `firebaseextensions` (varias las habilitó el CLI automáticamente al primer deploy Functions v2).
 
-**Deploys pendientes de Fase 0 originales** (cada uno tu ventana manual):
-3. **E1 Rules**: `firebase deploy --only firestore:rules --project=app-vendedores-shimano` (checklist 43.4). Rollback: `firebase rollback firestore:rules`.
-4. **E5 sapProxy**: crear secret + IAM + deploy Cloud Function + E2E TST_06 (checklist 43.8, ~30 min).
-5. **E6 backup diario**: crear bucket + IAM + retention + deploy scheduled function + verificar day+1 (checklist 43.9, ~20 min).
-6. Cuando E5 esté desplegado + E2E OK, **arrancar E2.b step 3**: cablear `src/sap-client.js` reemplazando el objeto `sapSL` inline en `index.html:~21470-21620` por `const sapSL = window.__phase0.sap.createSapClient(firebase)`. Ver 43.5.b.
+### 44.4 Pendientes reales para próximas sesiones
+
+**Alto valor**:
+1. **Verificar mañana (2026-07-28 después de 2:05 AR)** que el cron corrió: `gcloud storage ls gs://app-vendedores-shimano-backups/firestore/` debe listar `2026-07-28/` con export completo. Si no aparece: `gcloud functions logs read dailyFirestoreBackup --region=southamerica-east1 --limit=20 --project=app-vendedores-shimano`. Si sigue rota, investigar IAM del Compute Engine SA sobre Firestore.
+2. **Configurar alerta email de fallo del backup**: en Cloud Logging → log-based metric sobre `severity>=ERROR AND resource.labels.function_name="dailyFirestoreBackup"` → Alerting policy → email a `bot.shimano.pesca@gmail.com`. Sin esto, un fallo del cron pasa desapercibido.
+3. **E5 sapProxy** (~30 min): actualizar password real del secret (ver 43.8 actualizado con SA correcto), IAM `secretmanager.secretAccessor` al Compute Engine SA, deploy con `firebase deploy --only functions:sapProxy`, test E2E en TST_06.
+4. Cuando E5 esté OK, **E2.b step 3**: cablear `src/sap-client.js` reemplazando el `sapSL` inline en `index.html:~21470-21620` por `const sapSL = window.__phase0.sap.createSapClient(firebase)`. Ver 43.5.b.
 
 **Nice-to-have / low priority**:
-7. **v328 hotfix source map** (2 min, cosmético): agregar `https://*.sentry-cdn.com` a `connect-src` para eliminar el warning `Connecting to 'https://browser.sentry-cdn.com/.../bundle.min.js.map' violates CSP` que aparece solo cuando DevTools está abierto. No afecta operativa de Sentry (los stack traces reales viajan al ingest sin depender del source map local).
-8. **Dependabot functions/**: 8 vulns moderate transitivas (uuid/retry-request/teeny-request/gaxios via firebase-admin y @google-cloud/firestore). `npm audit fix --force` empeora (8 → 13 porque instala versiones con más transitivos rotos). Se aceptan como riesgo bajo (server-side Cloud Functions, sandbox de Google, code paths afectados no procesan input arbitrario). Silenciar en GitHub Security → Dependabot alerts con "Dismiss → Risk: Tolerable" cuando quieras que dejen de aparecer. Real fix: esperar a que firebase-admin publique versión con deps limpias.
-9. **AppCheck 403** (pre-existente desde antes de Fase 0): reCAPTCHA v3 rechaza tokens con throttle de 24h. Ver panel Firebase App Check para verificar domain registration (`shimano-arg.github.io`) y estado de reCAPTCHA v3 site key `AIzaSyAU9WhHZK6MQ01VJpdj-ZwGDRfjH6HEAFM`. No bloquea operativa.
+5. **v328 hotfix source map** (2 min, cosmético): agregar `https://*.sentry-cdn.com` a `connect-src` (además de `script-src`) para eliminar el warning `browser.sentry-cdn.com/.../bundle.min.js.map violates CSP` cuando DevTools abre. No afecta operativa de Sentry.
+6. **Dependabot functions/**: 8 vulns moderate transitivas (uuid/retry-request/teeny-request/gaxios via firebase-admin y @google-cloud/firestore). `npm audit fix --force` empeora (8 → 13). Se aceptan como riesgo bajo. Silenciar en GitHub Security → Dependabot alerts con "Dismiss → Risk: Tolerable" cuando quieras.
+7. **AppCheck 403 throttled** (pre-existente): reCAPTCHA v3 rechaza tokens con throttle 24h. Investigar en panel Firebase App Check el registration del dominio `shimano-arg.github.io` + estado del reCAPTCHA v3 site key. No bloquea operativa (Auth normal funciona).
+8. **Runtime Node.js 20 deprecation warning**: los deploys de Cloud Functions warnean que Node 20 fue deprecado el 2026-04-30 y decommissioned el 2026-10-30. Antes de octubre 2026, migrar `functions/package.json` engines a `"node": "22"` y `firebase-functions@latest`.
+9. **QA humano vendor-path**: validar con una cuenta rol `vendedor` real (no admin) que Pedidos/Visitas/Rendiciones renderean OK después del deploy de rules. Los vendors la usan a diario → si algo se rompió, en 24h se sabe. Rollback: `firebase rollback firestore:rules`.
 
-### 44.4 Estado técnico snapshot
+### 44.5 Estado técnico snapshot
 
 - **Prod URL**: https://shimano-arg.github.io/app-vendedores/
-- **Prod version**: v327 (index.html + sw.js)
+- **Prod version**: v327 (index.html + sw.js sincronizadas)
 - **`app.bundle.js`**: commiteado en root, 42.4 KB IIFE, esbuild 0.28.1.
-- **Tests locales**: 127/127 verdes (56 unit + 8 sap-client + 25 sapProxy + 12 backup + 7 sentry + 19 smoke) + 96 rules contra emulator.
+- **Tests locales**: 127/127 verdes (64 unit + 25 sapProxy + 12 backup + 7 sentry + 19 smoke) + 96 rules contra emulator.
 - **`npm audit` root**: 0 vulnerabilities.
-- **`npm audit` functions/**: 8 moderate (aceptadas como riesgo bajo — server-side, transitivas).
+- **`npm audit` functions/**: 8 moderate (aceptadas como riesgo bajo).
+- **Cloud Function activa**: `dailyFirestoreBackup(southamerica-east1)` — cron 2am AR.
+- **Cloud Function pendiente**: `sapProxy(southamerica-east1)` — código listo en `functions/index.js`, deploy pendiente.
+- **Bucket backups**: `gs://app-vendedores-shimano-backups` (empty hasta el primer cron 2026-07-28 02:00 AR).
+- **Secret**: `SAP_SL_PASSWORD` en Secret Manager con valor placeholder.
 
-### 44.5 Cómo arrancar mañana
+### 44.6 QA sesión 2026-07-27 (5 flujos B)
+
+Validados en prod después del deploy de rules:
+- **B1** pedido borrador (`titleCase`/`escapeHtml`/`calcClientDiscount`/`matchesAllTokens`) — creado con cliente ABU SAMER JUJUY, después borrado localmente. Zero errores rojos en Console.
+- **B2** mapa con 6 zonas + click localidad (`normClientName`) — 6 vendors renderizados, cache built OK. Zero errores.
+- **B3** alta rápida ficticia (`findSapDuplicateForProvisorio` wrapper) — approvedAltas subió 431 → 432, después limpiado. Zero errores.
+- **B4** rendición con OCR — no ejecutada explícitamente pero user confirma funciona bien en operación diaria.
+- **B5** `window.runFullBackup()` — Promise pending, ZIP descargado correctamente.
+
+Ruidos conocidos que aparecen y NO son bugs: Kaspersky CSP, AppCheck 403, source maps de leaflet/polygon-clipping/browser.sentry-cdn.com, `apple-mobile-web-app-capable` deprecated, `[gmaps] REQUEST_DENIED` (API key sin referer del dominio prod).
+
+### 44.7 Cómo arrancar la próxima sesión
 
 1. Abrir Claude Code, `cd "C:\Users\shimano.sandbox\Desktop\APP VENDEDORES"`.
-2. Decir al Claude tomorrow: "arrancá con B (QA 5 flujos) — ver README sección 44.3 punto 1".
+2. Prompt sugerido:
+   > "leé README sección 44 y decime qué hago. Prioridad si tenés que elegir: verificar que el backup diario de anoche corrió (ver 44.4 punto 1), y si sí, arrancar E5 sapProxy (checklist 43.8 actualizado)."
+3. Si el backup NO corrió: diagnosticar antes de nada más (los logs de la function te dicen dónde falla).
+4. Si sí corrió, arrancá con E5.
 3. Si algún flujo rompe → pegar error → diagnosticar.
 4. Si todo pasa → arrancar deploy de E1 Rules (comando en 44.3 punto 3, 5 min de trabajo).
 5. Si vas por E5 o E6, allocá 30 min uninterrumpidos por checklist.

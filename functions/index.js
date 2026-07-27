@@ -16,7 +16,10 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret } from 'firebase-functions/params';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { v1 as firestoreV1 } from '@google-cloud/firestore';
+// @google-cloud/firestore es pesado (~50 MB con gRPC/protobuf) y solo se
+// usa dentro de dailyFirestoreBackup para instanciar FirestoreAdminClient.
+// Cargarlo top-level exhausta el timeout de 10s del "backend spec analysis"
+// del deploy de Firebase Functions. Lazy dynamic import inside la function.
 import { handleSapProxy } from './core/sap-proxy-core.js';
 import { runDailyBackup } from './core/backup-core.js';
 
@@ -96,7 +99,10 @@ export const dailyFirestoreBackup = onSchedule(
     timeoutSeconds: 540,
   },
   async () => {
-    const client = new firestoreV1.FirestoreAdminClient();
+    // Dynamic import (CJS interop): puede venir como .default o directo.
+    const firestorePkg = await import('@google-cloud/firestore');
+    const v1 = (firestorePkg.default || firestorePkg).v1;
+    const client = new v1.FirestoreAdminClient();
     await runDailyBackup({
       projectId: PROJECT_ID,
       bucketName: BACKUP_BUCKET,
