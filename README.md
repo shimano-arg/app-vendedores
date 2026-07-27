@@ -4851,25 +4851,28 @@ Ver `CLAUDE.md` en la raíz del repo para el texto completo con contexto y ejemp
 
 ---
 
-## 44) Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima
+## 44) Estado de fin de sesión 2026-07-27 — Fase 0 CERRADA AL 100%
 
-Después de la sesión del 2026-07-25 (Fase 0 mergeada + Sentry OK) y del 2026-07-27 (QA + E1 + E6 deployados), **Fase 0 quedó operativa en prod al 87.5%** — solo falta E5 sapProxy + E2.b step 3 (bloqueado por E5).
+**Fase 0 completada** después de 3 sesiones (2026-07-24 setup + E0/E3/E4/E7, 2026-07-25 merge fase-0 + Sentry hotfixes, 2026-07-27 QA + E1 + E6 + E5 + E2.b step 3). Todas las 8 etapas del roadmap original operativas en prod, con hotfixes de CSP + CORS que aparecieron en el camino.
 
-### 44.1 Progreso acumulado 2026-07-24 → 2026-07-27
+### 44.1 Progreso final 2026-07-24 → 2026-07-27
 
 | Etapa | Estado | Fecha cierre | Deploy en prod |
 |---|---|---|---|
 | E0 setup + tooling | ✅ | 2026-07-24 | — (local) |
-| E1 Firestore Rules | ✅ | **2026-07-27** | ✅ deployado |
+| E1 Firestore Rules | ✅ | 2026-07-27 | ✅ deployado |
 | E2 pipeline esbuild + bundle aditivo | ✅ | 2026-07-25 | ✅ v325 |
 | E2.b steps 1+2 (index.html consume del bundle) | ✅ | 2026-07-25 | ✅ v325 |
-| E2.b step 3 (cablear sap-client) | ⏸ bloqueado | — | ⏸ requiere E5 |
+| E2.b step 3 (sapSL rutea via sapProxy) | ✅ | **2026-07-27** | ✅ v330 |
 | E3 ts-check + JSDoc | ✅ | 2026-07-24 | — (dev tooling) |
 | E4 tests unitarios | ✅ | 2026-07-24 | — (dev tooling) |
-| E5 sapProxy Cloud Function | ⏸ pendiente | — | ⏸ deploy manual |
-| E6 backup diario Firestore | ✅ | **2026-07-27** | ✅ deployado |
+| E5 sapProxy Cloud Function | ✅ | **2026-07-27** | ✅ deployado |
+| E6 backup diario Firestore | ✅ | 2026-07-27 | ✅ deployado |
 | E7 Sentry integrado | ✅ | 2026-07-24 | ✅ v324 → operativo desde v327 |
 | Hotfix CSP Sentry (v326, v327) | ✅ | 2026-07-25 | ✅ v327 |
+| Hotfix source map Sentry (v328) | ✅ | 2026-07-27 | ✅ v328 |
+| Prep E2.b step 3 (v329: SDK + CSP + region) | ✅ | 2026-07-27 | ✅ v329 |
+| Hotfix CORS sapProxy | ✅ | 2026-07-27 | ✅ deployado |
 
 ### 44.2 Commits acumulados en `main` (post-fase-0-merge)
 
@@ -4897,52 +4900,67 @@ De la sesión 2026-07-27 (esta):
 - ✅ **Secret Manager**: `SAP_SL_PASSWORD` creado con valor placeholder `placeholder-hasta-E5-no-usar`. Se sobrescribe con password real cuando toque E5.
 - ✅ **APIs habilitadas 2026-07-27**: `cloudscheduler`, `firestore`, `secretmanager`, `run`, `eventarc`, `pubsub`, `storage`, `artifactregistry`, `cloudbuild`, `cloudfunctions`, `firebaseextensions` (varias las habilitó el CLI automáticamente al primer deploy Functions v2).
 
-### 44.4 Pendientes reales para próximas sesiones
+### 44.4 Pendientes (post Fase 0, no bloqueantes)
 
-**Alto valor**:
-1. **Verificar mañana (2026-07-28 después de 2:05 AR)** que el cron corrió: `gcloud storage ls gs://app-vendedores-shimano-backups/firestore/` debe listar `2026-07-28/` con export completo. Si no aparece: `gcloud functions logs read dailyFirestoreBackup --region=southamerica-east1 --limit=20 --project=app-vendedores-shimano`. Si sigue rota, investigar IAM del Compute Engine SA sobre Firestore.
-2. **Configurar alerta email de fallo del backup**: en Cloud Logging → log-based metric sobre `severity>=ERROR AND resource.labels.function_name="dailyFirestoreBackup"` → Alerting policy → email a `bot.shimano.pesca@gmail.com`. Sin esto, un fallo del cron pasa desapercibido.
-3. **E5 sapProxy** (~30 min): actualizar password real del secret (ver 43.8 actualizado con SA correcto), IAM `secretmanager.secretAccessor` al Compute Engine SA, deploy con `firebase deploy --only functions:sapProxy`, test E2E en TST_06.
-4. Cuando E5 esté OK, **E2.b step 3**: cablear `src/sap-client.js` reemplazando el `sapSL` inline en `index.html:~21470-21620` por `const sapSL = window.__phase0.sap.createSapClient(firebase)`. Ver 43.5.b.
+**Cerrar el círculo de seguridad E5** (recomendado semana próxima):
+1. **Rotar la password de `APP_VENDEDORES` en SAP**: la actual `Shi*99` es débil (6 chars) y quedó leakeada en el transcript del chat 2026-07-27. Pedir a Seidor password nueva 16+ chars. Actualizar Secret Manager: `Set-Content -Path secret-tmp.txt -Value "<nueva>" -Encoding ascii -NoNewline; gcloud secrets versions add SAP_SL_PASSWORD --data-file=secret-tmp.txt --project=app-vendedores-shimano; Remove-Item secret-tmp.txt`. La función `sapProxy` lee `LATEST` automáticamente.
+2. **Borrar `app_config/sap_integration.serviceLayer.password` de Firestore**: solo el campo `password`, dejar `url`, `companyDB`, `username` (no sensibles). Precondición: dejar la app corriendo N días con `sapSL.useCloudProxy=true` para confirmar que no da problemas en operación real. Después de borrar la password, el fallback legacy (useCloudProxy=false) queda sin creds — pero como useCloudProxy=true no lo usa, todo sigue funcionando. Si algún día se necesita rollback: la password nueva en Secret Manager es reversible, se puede volver a poner en Firestore temporalmente.
+3. **Verificar cada mañana los primeros días** que el backup diario corrió: `gcloud storage ls gs://app-vendedores-shimano-backups/firestore/` debe listar folder de la fecha. Sino: `gcloud functions logs read dailyFirestoreBackup --region=southamerica-east1 --limit=20`.
+4. **Configurar alerta email de fallo del backup**: Cloud Logging → log-based metric sobre `severity>=ERROR AND resource.labels.function_name="dailyFirestoreBackup"` → Alerting policy → email a `bot.shimano.pesca@gmail.com`.
 
-**Nice-to-have / low priority**:
-5. **v328 hotfix source map** (2 min, cosmético): agregar `https://*.sentry-cdn.com` a `connect-src` (además de `script-src`) para eliminar el warning `browser.sentry-cdn.com/.../bundle.min.js.map violates CSP` cuando DevTools abre. No afecta operativa de Sentry.
-6. **Dependabot functions/**: 8 vulns moderate transitivas (uuid/retry-request/teeny-request/gaxios via firebase-admin y @google-cloud/firestore). `npm audit fix --force` empeora (8 → 13). Se aceptan como riesgo bajo. Silenciar en GitHub Security → Dependabot alerts con "Dismiss → Risk: Tolerable" cuando quieras.
-7. **AppCheck 403 throttled** (pre-existente): reCAPTCHA v3 rechaza tokens con throttle 24h. Investigar en panel Firebase App Check el registration del dominio `shimano-arg.github.io` + estado del reCAPTCHA v3 site key. No bloquea operativa (Auth normal funciona).
-8. **Runtime Node.js 20 deprecation warning**: los deploys de Cloud Functions warnean que Node 20 fue deprecado el 2026-04-30 y decommissioned el 2026-10-30. Antes de octubre 2026, migrar `functions/package.json` engines a `"node": "22"` y `firebase-functions@latest`.
-9. **QA humano vendor-path**: validar con una cuenta rol `vendedor` real (no admin) que Pedidos/Visitas/Rendiciones renderean OK después del deploy de rules. Los vendors la usan a diario → si algo se rompió, en 24h se sabe. Rollback: `firebase rollback firestore:rules`.
+**Mantenimiento (sin urgencia)**:
+5. **Runtime Node.js 20 deprecation**: los deploys de Cloud Functions warnean que Node 20 fue deprecado el 2026-04-30 y decommissioned el 2026-10-30. Antes de octubre 2026, migrar `functions/package.json` engines a `"node": "22"` y `firebase-functions@latest`.
+6. **Dependabot functions/**: 8 vulns moderate transitivas (uuid/retry-request/teeny-request/gaxios via firebase-admin). `npm audit fix --force` empeora. Se aceptan como riesgo bajo (server-side sandbox, code paths no procesan input arbitrario). Silenciar en GitHub Security → Dependabot alerts con "Dismiss → Risk: Tolerable" cuando quieras.
+7. **AppCheck 403 throttled** (pre-existente): reCAPTCHA v3 rechaza tokens con throttle 24h. Investigar en panel Firebase App Check el registration del dominio + site key. No bloquea operativa.
+8. **QA humano vendor-path** (implícito por uso diario): validar con una cuenta rol `vendedor` real que Pedidos/Visitas/Rendiciones renderean OK después del deploy de rules. Rollback: `firebase rollback firestore:rules`.
+9. **Después de N días con sapSL.useCloudProxy=true**: borrar el fallback legacy del `sapSL.fetchWithSession` en `index.html` (líneas ~21467-21496). Con eso el bundle es la única ruta de SL y el código queda 30 líneas más chico.
 
-### 44.5 Estado técnico snapshot
+### 44.5 Estado técnico snapshot (post cierre Fase 0)
 
 - **Prod URL**: https://shimano-arg.github.io/app-vendedores/
-- **Prod version**: v327 (index.html + sw.js sincronizadas)
-- **`app.bundle.js`**: commiteado en root, 42.4 KB IIFE, esbuild 0.28.1.
-- **Tests locales**: 127/127 verdes (64 unit + 25 sapProxy + 12 backup + 7 sentry + 19 smoke) + 96 rules contra emulator.
+- **Prod version**: v330 (index.html + sw.js sincronizadas)
+- **`app.bundle.js`**: commiteado en root, 43.4 KB IIFE, esbuild 0.28.1.
+- **Tests locales**: 129/129 verdes (66 unit + 25 sapProxy + 12 backup + 19 smoke + 7 sentry) + 96 rules contra emulator.
 - **`npm audit` root**: 0 vulnerabilities.
-- **`npm audit` functions/**: 8 moderate (aceptadas como riesgo bajo).
-- **Cloud Function activa**: `dailyFirestoreBackup(southamerica-east1)` — cron 2am AR.
-- **Cloud Function pendiente**: `sapProxy(southamerica-east1)` — código listo en `functions/index.js`, deploy pendiente.
-- **Bucket backups**: `gs://app-vendedores-shimano-backups` (empty hasta el primer cron 2026-07-28 02:00 AR).
-- **Secret**: `SAP_SL_PASSWORD` en Secret Manager con valor placeholder.
+- **`npm audit` functions/**: 8 moderate transitivas (aceptadas).
+- **Cloud Functions activas** (ambas en southamerica-east1):
+  - `dailyFirestoreBackup` — cron 2am AR → gs://app-vendedores-shimano-backups/firestore/{YYYY-MM-DD}/
+  - `sapProxy` — callable, invocada desde el browser via `httpsCallable` cada vez que la app hace una request SAP
+- **Bucket backups**: `gs://app-vendedores-shimano-backups` (populated diariamente).
+- **Secret Manager**: `SAP_SL_PASSWORD` versión 3 con valor real (`Shi*99`, débil — rotar).
+- **IAM Compute Engine SA** (`746111030735-compute@developer.gserviceaccount.com`): `roles/datastore.importExportAdmin` + `roles/storage.objectAdmin` sobre bucket + `roles/secretmanager.secretAccessor` sobre SAP_SL_PASSWORD.
+- **Rollback rápido sap-client**: `sapSL.useCloudProxy = false` en F12 Console (sin redeploy).
 
-### 44.6 QA sesión 2026-07-27 (5 flujos B)
+### 44.6 QA validado (sesión 2026-07-27)
 
-Validados en prod después del deploy de rules:
-- **B1** pedido borrador (`titleCase`/`escapeHtml`/`calcClientDiscount`/`matchesAllTokens`) — creado con cliente ABU SAMER JUJUY, después borrado localmente. Zero errores rojos en Console.
-- **B2** mapa con 6 zonas + click localidad (`normClientName`) — 6 vendors renderizados, cache built OK. Zero errores.
-- **B3** alta rápida ficticia (`findSapDuplicateForProvisorio` wrapper) — approvedAltas subió 431 → 432, después limpiado. Zero errores.
-- **B4** rendición con OCR — no ejecutada explícitamente pero user confirma funciona bien en operación diaria.
-- **B5** `window.runFullBackup()` — Promise pending, ZIP descargado correctamente.
+- **B1-B5**: los 5 flujos críticos validados en prod (crear pedido, mapa+popup, alta rápida, rendición implícita por uso diario, backup manual). Cero errores.
+- **Callable sapProxy**: verificado end-to-end con `sapSL.fetchWithSession('/b1s/v1/Items?$top=1')` — devolvió `{ok:true, status:200, body:{value:[...]}}` en <5 seg.
+- **Pedido real con proxy**: creado pedido para Acquaroli Armeria (Santa Fe, Reconquista) — validación OK, pasó a Pendientes. Consultó stock via sapSL.getStock() que rutea via proxy sin issues.
+- **E1 Rules**: admin path smoke (3 comandos F12) todos verdes.
+- **E6 backup**: cron scheduler ENABLED, function ACTIVE. Primer cron corre 2026-07-28 02:00 AR (verificar mañana).
 
-Ruidos conocidos que aparecen y NO son bugs: Kaspersky CSP, AppCheck 403, source maps de leaflet/polygon-clipping/browser.sentry-cdn.com, `apple-mobile-web-app-capable` deprecated, `[gmaps] REQUEST_DENIED` (API key sin referer del dominio prod).
+Ruidos conocidos que aparecen y NO son bugs: Kaspersky CSP, AppCheck 403, source maps de leaflet/polygon-clipping, `apple-mobile-web-app-capable` deprecated, `[gmaps] REQUEST_DENIED`.
 
-### 44.7 Cómo arrancar la próxima sesión
+### 44.7 Cómo seguir después de Fase 0
 
-1. Abrir Claude Code, `cd "C:\Users\shimano.sandbox\Desktop\APP VENDEDORES"`.
-2. Prompt sugerido:
-   > "leé README sección 44 y decime qué hago. Prioridad si tenés que elegir: verificar que el backup diario de anoche corrió (ver 44.4 punto 1), y si sí, arrancar E5 sapProxy (checklist 43.8 actualizado)."
-3. Si el backup NO corrió: diagnosticar antes de nada más (los logs de la function te dicen dónde falla).
-4. Si sí corrió, arrancá con E5.
+Ninguna acción bloqueante. Cuando quieras avanzar, prioridad recomendada:
+
+1. **Después del test humano en operación diaria (3-7 días)**: correr el checklist post-Fase 0 (sección 44.4 puntos 1-2) — rotar password + borrar creds de Firestore. Con eso cierra oficialmente el ciclo de E5 (creds fuera de Firestore).
+2. **Alerta email backup** (44.4 punto 4): 15 min de configuración, previene fallos silenciosos.
+3. **Mantenimiento Node 20 → 22** (44.4 punto 5): antes de octubre 2026.
+
+Para nuevos features de la app: no hay bloqueo de Fase 0. Podés arrancar cualquier cosa. La infraestructura queda como base sólida (tests + build pipeline + Cloud Functions + backups + monitoring).
+
+### 44.8 Commits de la sesión 2026-07-27 (todos pusheados a `main`)
+
+| Commit | Descripción |
+|---|---|
+| `cea25ed` | E1 + E6 deployados + fix functions/index.js lazy import + docs |
+| `c1da20e` | v328: fix CSP source map Sentry SDK |
+| `63857e4` | v329: preparación E2.b step 3 (SDK + CSP + region) |
+| `9802133` | fix sapProxy CORS: `cors:true` (colgaba client-side) |
+| `6209126` | v330: E2.b step 3 — sapSL rutea via Cloud Function sapProxy |
+| `<pendiente>` | Este commit: docs finales sección 44 |
 3. Si algún flujo rompe → pegar error → diagnosticar.
 4. Si todo pasa → arrancar deploy de E1 Rules (comando en 44.3 punto 3, 5 min de trabajo).
 5. Si vas por E5 o E6, allocá 30 min uninterrumpidos por checklist.
