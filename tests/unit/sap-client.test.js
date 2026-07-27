@@ -15,8 +15,8 @@ function makeFirebase(opts = {}) {
     return { data: { status: opts.status ?? 200, body: opts.body ?? { ok: true, payload } } };
   });
   const httpsCallable = vi.fn((name) => callable);
-  const functions = () => ({ httpsCallable });
-  return { firebase: { functions }, callable, httpsCallable };
+  const functions = vi.fn((region) => ({ httpsCallable }));
+  return { firebase: { functions }, callable, httpsCallable, functions };
 }
 
 describe('createSapClient.fetchWithSession', () => {
@@ -91,6 +91,20 @@ describe('createSapClient.fetchWithSession', () => {
     const client = createSapClient(firebase, { callableName: 'sapProxyTest' });
     await client.fetchWithSession('/b1s/v1/Items');
     expect(httpsCallable).toHaveBeenCalledWith('sapProxyTest');
+  });
+
+  it('default region: firebase.functions("southamerica-east1") — matchea el deploy real', async () => {
+    const { firebase, functions } = makeFirebase({ status: 200 });
+    const client = createSapClient(firebase);
+    await client.fetchWithSession('/b1s/v1/Items');
+    expect(functions).toHaveBeenCalledWith('southamerica-east1');
+  });
+
+  it('opts.region override: firebase.functions(<region>) — permite testing multi-region', async () => {
+    const { firebase, functions } = makeFirebase({ status: 200 });
+    const client = createSapClient(firebase, { region: 'us-central1' });
+    await client.fetchWithSession('/b1s/v1/Items');
+    expect(functions).toHaveBeenCalledWith('us-central1');
   });
 });
 

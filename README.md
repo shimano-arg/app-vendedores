@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v328 |
-| **APP_VERSION** | `v328` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW). v328 = agregado `https://*.sentry-cdn.com` a `connect-src` (además de `script-src`) para permitir que DevTools baje el source map del SDK Sentry sin CSP violation cosmética. No afecta operativa. |
+| **Versión actual** | SW v329 |
+| **APP_VERSION** | `v329` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW). v329 = preparación para E2.b step 3: agregado `firebase-functions-compat.js` SDK + `https://*.cloudfunctions.net` a CSP `connect-src` + `sap-client.js` acepta `opts.region` (default `southamerica-east1` matcheando el deploy real de sapProxy). NO cablea el sapSL todavía. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **14 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`) → **Power BI Desktop TABLERO SAR publicado con 8 páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -3419,9 +3419,33 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v204 → v328
+## 41) Changelog v204 → v329
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v329 (2026-07-27) — Preparación E2.b step 3: SDK + CSP + region
+
+- **Contexto**: E5 sapProxy Cloud Function ya deployada en `southamerica-east1`. Para invocarla desde el browser vía `httpsCallable`, faltaban 3 piezas: (a) el SDK `firebase-functions-compat.js` (nunca se había incluido — la app no usaba Cloud Functions), (b) CSP `connect-src` que permita `*.cloudfunctions.net` (la URL de invocación del callable), y (c) `sap-client.js` acepta la region correcta (default `us-central1` daría 404 vs. deploy en `southamerica-east1`).
+- **Cambios en `index.html`**:
+  - Agregado `<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-functions-compat.js">` después de los otros 5 SDKs de Firebase.
+  - `connect-src` agrega `https://*.cloudfunctions.net` (URL clásica del callable — Firebase la mantiene incluso para gen2).
+- **Cambios en `src/sap-client.js`**:
+  - `createSapClient(firebase, opts)` ahora acepta `opts.region` (default `'southamerica-east1'`).
+  - Interno: `firebase.functions(region).httpsCallable(callableName)` en vez de `firebase.functions().httpsCallable(callableName)`.
+  - Typedef `FirebaseNamespaceLike.functions` actualizado a `(region?: string) => FirebaseFunctionsLike`.
+- **2 tests nuevos** en `tests/unit/sap-client.test.js` (default region + override) → total 129.
+- Bumps: APP_VERSION v328 → v329, CACHE_VERSION v328 → v329.
+- Bundle regenerado: 42.4 KB → 42.9 KB (+0.5 KB por region handling).
+- **NO cablea el `sapSL` inline todavía**: la app en prod sigue fetcheando directo a SL como antes. E2.b step 3 (v330) es el que hace el swap real.
+
+Test verificación en prod (después del deploy): F12 Console →
+```js
+const call = firebase.app().functions('southamerica-east1').httpsCallable('sapProxy');
+call({ endpoint: '/b1s/v1/Items?$top=1&$select=ItemCode,ItemName', method: 'GET' })
+  .then(r => console.log('✅ SAP proxy OK:', r.data))
+  .catch(e => console.log('❌ SAP proxy FAIL:', e.code, '-', e.message));
+```
+Debe devolver `{status:200, body:{value:[{ItemCode:"...",ItemName:"..."}]}}`. Si sí, arrancar v330 (E2.b step 3).
 
 ### v328 (2026-07-27) — Fix CSP source map de Sentry SDK
 

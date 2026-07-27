@@ -33,16 +33,19 @@
  * @property {(name: string) => (data: unknown) => Promise<HttpsCallableResult>} httpsCallable
  *
  * @typedef {Object} FirebaseNamespaceLike
- * @property {() => FirebaseFunctionsLike} functions
+ * @property {(region?: string) => FirebaseFunctionsLike} functions
  */
 
 /**
  * Crea un cliente SAP que rutea por la Cloud Function `sapProxy`.
  * @param {FirebaseNamespaceLike} firebase Namespace compat de Firebase (window.firebase en el HTML).
- * @param {{ callableName?: string }} [opts]
+ * @param {{ callableName?: string, region?: string }} [opts]
  */
 export function createSapClient(firebase, opts) {
   const callableName = (opts && opts.callableName) || 'sapProxy';
+  // Region default matchea el deploy real de sapProxy (E5, southamerica-east1).
+  // Sin especificarla, firebase.functions() apunta a us-central1 y da 404.
+  const region = (opts && opts.region) || 'southamerica-east1';
 
   /**
    * @param {string} path Ej: '/b1s/v1/Items(\'ABC\')?$select=ItemCode'
@@ -60,7 +63,7 @@ export function createSapClient(firebase, opts) {
       try { parsedBody = JSON.parse(options.body); }
       catch { return { ok: false, status: 0, error: 'body no es JSON válido' }; }
     }
-    const callable = firebase.functions().httpsCallable(callableName);
+    const callable = firebase.functions(region).httpsCallable(callableName);
     try {
       const res = await callable({ endpoint: path, method, body: parsedBody });
       const status = (res && res.data && typeof res.data.status === 'number') ? res.data.status : 0;
