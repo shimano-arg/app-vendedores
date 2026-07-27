@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v327 |
-| **APP_VERSION** | `v327` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW). v327 = fix del wildcard CSP: v326 puso `https://*.ingest.sentry.io` pero el host real del ingest es `<org>.ingest.us.sentry.io` (subdominio regional) y `*.ingest.sentry.io` no matchea el sufijo `.us.sentry.io`. Cambiado a `https://*.sentry.io` (cubre US/EU/futuras regiones). Sentry recién captura desde v327. |
+| **Versión actual** | SW v328 |
+| **APP_VERSION** | `v328` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW). v328 = agregado `https://*.sentry-cdn.com` a `connect-src` (además de `script-src`) para permitir que DevTools baje el source map del SDK Sentry sin CSP violation cosmética. No afecta operativa. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **14 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`) → **Power BI Desktop TABLERO SAR publicado con 8 páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -3381,15 +3381,14 @@ gcloud firestore export gs://backup-bucket
 - `Sentry.onLoad(...)` dispara `Sentry.init({release: APP_VERSION, environment:'production', tracesSampleRate: 0.0})` una vez que el SDK terminó de cargar (async).
 - Helper `applySentryUserContext(sentry, user, role, vendor)` **vive en `src/sentry.js` y se expone como `window.applySentryUserContext` vía el bundle `app.bundle.js`** (v325+). Se llama post-login desde `fetchAndApplyRole` — setea `Sentry.setUser({id, email})` + `setTag('role')` + `setTag('vendor')`. Todo error subsiguiente viaja con esos tags.
 
-**CSP requerida** (en `index.html:8`, agregada en v326 + corregida en v327):
+**CSP requerida** (en `index.html:8`, agregada en v326 + corregida en v327 + source map fix en v328):
 - `script-src` debe incluir `https://*.sentry-cdn.com` (cubre `js.sentry-cdn.com` + `browser.sentry-cdn.com`; el loader carga el SDK desde estos hosts).
-- `connect-src` debe incluir `https://*.sentry.io` (endpoint donde Sentry POST-ea los eventos).
+- `connect-src` debe incluir `https://*.sentry.io` (endpoint donde Sentry POST-ea los eventos) **Y** `https://*.sentry-cdn.com` (para que DevTools baje el source map del SDK sin CSP violation).
 - **Ojo con el wildcard**: v326 tuvo `*.ingest.sentry.io` que NO matchea `<org>.ingest.us.sentry.io` (el host real del ingest usa subdominio regional `.us.sentry.io`). CSP wildcards requieren sufijo exacto: `*.ingest.sentry.io` solo matchea hosts que terminen en `.ingest.sentry.io`. v327 usa `*.sentry.io` para cubrir todas las regiones (US, EU, futuras).
 
 **Cómo desactivar / rotar public key**: editar el `<script src=...>` en `index.html` líneas post-Firebase-SDKs + bumpear APP_VERSION.
 
 **Pendientes** (no bloqueantes):
-- **Warning cosmético**: cuando DevTools está abierto, Chrome intenta bajar el source map del SDK desde `https://browser.sentry-cdn.com/10.68.0/bundle.min.js.map` y CSP lo bloquea (`browser.sentry-cdn.com` está en `script-src` pero no en `connect-src`). Fix opcional en v328: agregar `https://*.sentry-cdn.com` también a `connect-src`. No afecta la funcionalidad de Sentry (los stack traces que llegan al ingest tienen la info de posición sin depender del source map local).
 - Configurar sample rate de `tracesSampleRate` si se quiere performance monitoring (hoy 0.0 = solo errores).
 - Definir alerta en dashboard Sentry (email al superar N errores/hora).
 - Elegir plan pago si supera 5k eventos/mes del free tier.
@@ -3420,9 +3419,17 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v204 → v327
+## 41) Changelog v204 → v328
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v328 (2026-07-27) — Fix CSP source map de Sentry SDK
+
+- **Warning cosmético heredado desde v324**: cuando DevTools está abierto, Chrome intenta bajar el source map `https://browser.sentry-cdn.com/10.68.0/bundle.min.js.map` para tener stack traces más legibles al debuggear. `browser.sentry-cdn.com` estaba solo en `script-src` (para bajar el SDK), no en `connect-src` (para fetches AJAX/source maps). CSP bloqueaba el fetch → warning en Console.
+- **Fix**: agregar `https://*.sentry-cdn.com` a `connect-src` (además de mantenerlo en `script-src`).
+- **Sin impacto operativo**: los stack traces que llegan a sentry.io mantienen la posición del error sin depender del source map local — Sentry hace su propia deminification server-side con los source maps que subís (o si el bundle no está minificado como en nuestro caso, no hace falta).
+- Bumps: APP_VERSION v327 → v328, CACHE_VERSION v327 → v328.
+- Commit chico: 3 archivos (index.html + sw.js + README).
 
 ### v327 (2026-07-25) — Fix CSP wildcard: `*.ingest.sentry.io` → `*.sentry.io`
 
