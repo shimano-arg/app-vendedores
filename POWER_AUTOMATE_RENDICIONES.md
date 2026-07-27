@@ -121,6 +121,17 @@ Lo discutimos cuando armamos esta v2. Se eligió la opción híbrida porque:
 - En la hoja "Detalle" sale como `(sin foto)` para que se vea explícito.
 - En SharePoint, el item se crea con menos adjuntos. No falla nada.
 
+**Nota (fix 2026-07-27)**: si TODAS las rendiciones de una dupla no tienen foto, `Fotos URLs` queda como string vacío `""`. El `split("", ";")` en Power Automate devuelve `[""]` (array con 1 string vacío), no array vacío. El For each foto URL iteraba 1 vez con URI null → `InvalidTemplate error`. Fix aplicado en el Compose "Split Fotos URLs": expression cambiada a `if(empty(item()?['Fotos URLs']), createArray(), split(item()?['Fotos URLs'], ';'))` — devuelve array vacío cuando input es vacío, For each itera 0 veces.
+
+### ¿De dónde saca el script Python el URL de la foto?
+
+Depende de cuándo se creó la rendición:
+
+- **v308+ (rendiciones nuevas)**: la app sube la foto a Firebase Storage al crear la rendición y guarda la URL pública en el campo `fotoTicketUrl` de Firestore. El Python la reusa directo (skip re-upload).
+- **pre-v308 (rendiciones viejas)**: la foto vive como base64 dataURL en el campo `fotoTicket` (o `adjunto` legacy). El Python la sube a Storage y usa la URL nueva.
+
+Bug observado 2026-07-27: el Python solo leía `fotoTicket`/`adjunto` (pattern viejo), ignorando `fotoTicketUrl`. Resultado: rendiciones post-v308 aparecían como "sin foto" en el Excel aunque la foto existiera. Fix aplicado (commit posterior a 2026-07-27) — el script ahora dispatchea entre los 2 casos.
+
 ### ¿Qué pasa si la foto falla al subir a Storage?
 
 - Se incluye el importe en la suma (no se descarta el gasto).

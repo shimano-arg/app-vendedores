@@ -177,15 +177,28 @@ def build_excel(rendiciones):
     gastos = [r for r in rendiciones if r.get("tipo") == "gasto"]
     sols = [r for r in rendiciones if r.get("tipo") == "solicitud"]
 
-    # PASO 1: subir todas las fotos a Storage primero. Necesitamos las URLs
-    # antes de agrupar para poder concatenarlas en cada grupo. Cacheamos por
-    # id de rendicion para evitar duplicar uploads.
+    # PASO 1: obtener URL publica de la foto de cada rendicion.
+    # 2 casos segun cuando se creo la rendicion:
+    #   a) v308+: la app subio la foto a Firebase Storage al crear la rendicion
+    #      y guardo la URL en `fotoTicketUrl`. Reusamos esa URL directo (skip
+    #      re-upload). Este es el caso mayoritario para rendiciones nuevas.
+    #   b) pre-v308: la foto vive como base64 dataURL en `fotoTicket` (o
+    #      `adjunto` legacy). Subimos a Storage acá para obtener la URL.
+    # Sin este dispatch, las rendiciones post-v308 aparecen como "sin foto" en
+    # el Excel porque el field `fotoTicket` esta vacio - toda la data esta en
+    # `fotoTicketUrl`. Bug observado 2026-07-27: rendicion de diego.valsi con
+    # foto valida en la app pero flow de Power Automate fallo por Fotos URLs
+    # vacio (fix del flow ya aplicado, este fix cierra el otro lado).
     foto_url_by_id = {}
     for r in gastos:
+        rid = r.get("_id", "rend")
+        existing_url = r.get("fotoTicketUrl")
+        if existing_url:
+            foto_url_by_id[rid] = existing_url
+            continue
         foto_src = r.get("fotoTicket") or r.get("adjunto") or ""
         if not foto_src:
             continue
-        rid = r.get("_id", "rend")
         url = upload_foto_to_storage(rid, foto_src)
         if url:
             foto_url_by_id[rid] = url
