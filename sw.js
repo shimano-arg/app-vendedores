@@ -1,13 +1,23 @@
-// Service worker minimo para la PWA Shimano Vendedores.
-// Estrategia:
-// - index.html: network-first con fallback a cache. La app cambia seguido, queremos la version mas nueva.
-// - Assets locales (manifest, iconos, logo): cache-first. No cambian salvo deploy.
-// - CDNs (firebase, leaflet, sheetjs, jszip, openstreetmap tiles): se dejan pasar directo a la red.
-//   No interceptamos para no romper el flujo de auth ni los listeners realtime.
+// Service worker de la PWA Shimano Vendedores.
+// Estrategia por tipo de request:
+// - index.html: network-first con fallback a cache. Cambia seguido.
+// - stock.json: SIEMPRE network-first sin cache. Snapshot cada 30 min.
+// - Assets locales (bundle, chunks, iconos, geo.json, logo, manifest):
+//   STALE-WHILE-REVALIDATE (E5, v335+). Sirve del cache inmediato para
+//   arranque rapido + fetch en background para tener version fresca al
+//   proximo load. Resuelve el mismatch shell/chunk cuando el user tiene
+//   una version cacheada y otra recien deployada.
+// - CDNs (firebase, leaflet, sheetjs, jszip, openstreetmap tiles): no
+//   interceptamos, van directo a la red.
 //
-// Cuando se cambie la version, bumpear CACHE_VERSION para invalidar el cache viejo.
+// Post-E3 (v333+): STATIC_ASSETS incluye ./chunks/*.js explicitamente. Los
+// chunks lazy nuevos DEBEN agregarse aca ademas de en build.js LAZY_CHUNKS +
+// src/main.js installChunkStubs (regla CLAUDE.md #18 nueva - ver bottom).
+//
+// Cuando se cambie la version, bumpear CACHE_VERSION para invalidar cache viejo.
+// El activate event borra caches con nombres distintos al vigente.
 
-const CACHE_VERSION = 'v330';
+const CACHE_VERSION = 'v338';
 const STATIC_CACHE = 'shimano-static-' + CACHE_VERSION;
 const HTML_CACHE = 'shimano-html-' + CACHE_VERSION;
 
@@ -26,6 +36,12 @@ const STATIC_ASSETS = [
   // index.html tiene <script src="./app.bundle.js"> blocking; sin este
   // asset cacheado, offline no arranca.
   './app.bundle.js',
+  // v333+ (E3 code splitting): chunks lazy cargados on-demand por
+  // window.loadChunk(name). Cachearlos aquí garantiza offline funcional
+  // para exports + admin panel después de la primera apertura online.
+  './chunks/exports-core.js',
+  './chunks/exports-advanced.js',
+  './chunks/admin-users.js',
 ];
 
 self.addEventListener('install', event => {
@@ -96,14 +112,25 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Assets locales: cache-first
+  // Assets locales: STALE-WHILE-REVALIDATE (E5, v335+).
+  // 1. Si hay cached: servir INMEDIATO (fast path, arranque rapido offline).
+  // 2. En paralelo: fetch a la red y actualizar cache (background update).
+  //    Proximo load ya sirve la version fresca.
+  // 3. Si NO hay cached: esperar network (primer load o cache invalidado).
+  // 4. Si network falla y NO habia cached: propagar error (nada que servir).
   event.respondWith(
-    caches.match(req).then(cached => cached || fetch(req).then(resp => {
-      if (resp && resp.status === 200) {
-        const respClone = resp.clone();
-        caches.open(STATIC_CACHE).then(c => c.put(req, respClone)).catch(()=>{});
-      }
-      return resp;
-    }).catch(() => cached))
+    caches.open(STATIC_CACHE).then(cache =>
+      cache.match(req).then(cached => {
+        const netFetch = fetch(req).then(resp => {
+          if (resp && resp.status === 200) {
+            cache.put(req, resp.clone()).catch(()=>{});
+          }
+          return resp;
+        }).catch(() => cached); // network fail → fallback a cached (undefined si no habia)
+        // Fast path: si hay cached, retornarlo inmediato y dejar netFetch corriendo.
+        // Si no hay cached, esperar netFetch (primer request post-install).
+        return cached || netFetch;
+      })
+    )
   );
 });

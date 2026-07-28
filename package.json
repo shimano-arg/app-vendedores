@@ -17,6 +17,8 @@
     "@firebase/rules-unit-testing": "^5.0.1",
     "esbuild": "^0.28.1",
     "fast-glob": "^3.3.2",
+    "lighthouse": "^13.4.1",
+    "puppeteer-core": "^25.4.0",
     "typescript": "^5.6.3",
     "vitest": "^4.1.10"
   }

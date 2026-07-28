@@ -31,15 +31,33 @@ describe('artifacts en repo root', () => {
     expect(existsSync(BUNDLE)).toBe(true);
   });
 
-  it('app.bundle.js en rango [20 KB, 200 KB] (bundle chico esperado en Fase 0)', () => {
+  it('app.bundle.js (shell) en rango [20 KB, 2500 KB] post-E3 code splitting', () => {
+    // Pre-E2: ~44 KB. Post-E2 completo: 2.23 MB (bundle único).
+    // Post-E3 (3 chunks lazy): shell 1.89 MB + 3 chunks 358 KB total.
+    // Reducción del shell: ~15% en E3 fase 1. Chunks futuros reducirán más.
+    // Techo 2.5 MB deja margen para dominios que aún no fueron split.
     const size = statSync(BUNDLE).size;
     expect(size).toBeGreaterThan(20_000);
-    expect(size).toBeLessThan(200_000);
+    expect(size).toBeLessThan(2_500_000);
   });
 
-  it('index.html en rango [1.5 MB, 3.5 MB] (post-borrado de 10 fns inline)', () => {
+  it('E3: chunks/*.js existen y cada uno < 400 KB (assert del plan)', () => {
+    const chunks = ['exports-core', 'exports-advanced', 'admin-users'];
+    for (const name of chunks) {
+      const chunkPath = join(ROOT, 'chunks', name + '.js');
+      expect(existsSync(chunkPath), `chunks/${name}.js debe existir`).toBe(true);
+      const size = statSync(chunkPath).size;
+      expect(size, `chunks/${name}.js debe estar en rango`).toBeGreaterThan(1_000);
+      expect(size, `chunks/${name}.js debe estar < 400 KB`).toBeLessThan(400_000);
+    }
+  });
+
+  it('index.html en rango [800 KB, 3.5 MB] (baja durante E2 al ir extrayendo dominios)', () => {
+    // Pre-E2: 2.14 MB. Progresión E2: baja ~50-200 KB por dominio extraído.
+    // Post-E2.m.2: 1.44 MB (12,700+ LOC extraídos al bundle).
+    // Mínimo 800 KB deja margen para que sigamos extrayendo admin-users (~6,463 LOC).
     const size = statSync(INDEX).size;
-    expect(size).toBeGreaterThan(1_500_000);
+    expect(size).toBeGreaterThan(800_000);
     expect(size).toBeLessThan(3_500_000);
   });
 });
@@ -110,6 +128,36 @@ describe('sw.js wiring', () => {
     const sw = readFileSync(SW, 'utf8');
     expect(sw).toContain("'./app.bundle.js'");
   });
+
+  it('E3: STATIC_ASSETS incluye chunks lazy (./chunks/*.js) para offline', () => {
+    const sw = readFileSync(SW, 'utf8');
+    const chunks = ['exports-core', 'exports-advanced', 'admin-users'];
+    for (const name of chunks) {
+      expect(sw, `sw.js debe cachear ./chunks/${name}.js`).toContain(`'./chunks/${name}.js'`);
+    }
+  });
+
+  it('E5: activate limpia cachés viejos con nombre distinto al vigente', () => {
+    // El pattern del activate handler filtra keys.filter(k => k !== STATIC_CACHE && k !== HTML_CACHE)
+    // y borra los que quedan. Esto garantiza que al bump de CACHE_VERSION el
+    // cache viejo se elimine al primer activate del SW nuevo.
+    const sw = readFileSync(SW, 'utf8');
+    expect(sw).toContain("addEventListener('activate'");
+    expect(sw).toMatch(/keys\.filter\(k => k !== STATIC_CACHE/);
+    expect(sw).toContain('caches.delete');
+  });
+
+  it('E5: stale-while-revalidate para assets locales (bundle + chunks + iconos)', () => {
+    // Pattern del handler: caches.open(STATIC_CACHE).then(cache => cache.match(req)
+    // .then(cached => { const netFetch = fetch(req).then(resp => cache.put(req, ...)));
+    // return cached || netFetch }))
+    // Detecta que hay tanto match como put en el mismo handler.
+    const sw = readFileSync(SW, 'utf8');
+    expect(sw).toContain('STALE-WHILE-REVALIDATE');
+    expect(sw).toMatch(/cache\.match\(req\)[\s\S]+cache\.put\(req/);
+    // Sanity: return cached || netFetch (fast path)
+    expect(sw).toMatch(/return cached \|\| netFetch/);
+  });
 });
 
 describe('bundle runtime', () => {
@@ -129,6 +177,29 @@ describe('bundle runtime', () => {
     expect(p.pure).toBeDefined();
     expect(p.sentry).toBeDefined();
     expect(p.sap).toBeDefined();
+  });
+
+  it('E3: expone window.loadChunk (loader function)', () => {
+    const src = readFileSync(BUNDLE, 'utf8');
+    const ctx = { window: {}, console, globalThis: {}, document: { createElement: () => ({}), head: { appendChild: () => {} } } };
+    runInNewContext(src, ctx);
+    expect(typeof ctx.window.loadChunk).toBe('function');
+    // __chunksLoaded es el registry interno del loader
+    expect(ctx.window.__chunksLoaded).toBeDefined();
+  });
+
+  it('E3: instala stubs proxy para exports de chunks lazy (window.openAdminPanel, window.exportToExcel, etc.)', () => {
+    const src = readFileSync(BUNDLE, 'utf8');
+    const ctx = { window: {}, console, globalThis: {}, document: { createElement: () => ({}), head: { appendChild: () => {} } } };
+    runInNewContext(src, ctx);
+    // Stubs de admin-users
+    expect(typeof ctx.window.openAdminPanel).toBe('function');
+    expect(typeof ctx.window.saveUserRole).toBe('function');
+    // Stubs de exports-core
+    expect(typeof ctx.window.exportToExcel).toBe('function');
+    expect(typeof ctx.window.exportMasterClientes).toBe('function');
+    // Stubs de exports-advanced
+    expect(typeof ctx.window.exportPowerBI).toBe('function');
   });
 
   it('__phase0.pure expone las 10 funciones extraídas', () => {

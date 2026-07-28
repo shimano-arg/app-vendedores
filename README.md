@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v330 |
-| **APP_VERSION** | `v330` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW). v330 = **E2.b step 3 completado**: `sapSL.fetchWithSession` en `index.html` rutea via Cloud Function `sapProxy` (creds server-side en Secret Manager) en vez del fetch directo a `shimano-sap.seidor.com.ar` con creds en Firestore. Feature flag `sapSL.useCloudProxy = true` (rollback flip a false = fetch legacy). |
+| **Versión actual** | SW v332 |
+| **APP_VERSION** | `v332` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW). v332 = **WarehouseCode 07 → 11 en pedidos a SAP**: los pedidos que salen por Service Layer (`index.html` payload SL, `WarehouseCode: '11'`) y por CSV DTW (`QUT1 - Document_Lines.csv`, columna `WarehouseCode`) ahora apuntan al depósito **11 (MERCADERIA)** en vez del histórico 07 (que tenía solo PESCA EEUU y estaba vacío). También el tag del snapshot manual de stock (`app_config/stock_snapshot.warehouse`) y los labels UI "W07" en modal Exportar + headers Excel del export Precios/Stock migran a W11. No se toca `sync_stock.py` (CSV manual): el sync SAP automático ya suma `ALL_SALES` (vendibles ≠ 05 Marketing ≠ 06 Devoluciones), incluye W11. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **14 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`) → **Power BI Desktop TABLERO SAR publicado con 8 páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -72,6 +72,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
+45. [E2.b performance + code splitting (rama `e2b-perf`)](#45-e2b-performance--code-splitting-rama-e2b-perf)
 
 ---
 
@@ -3419,9 +3420,29 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v204 → v330
+## 41) Changelog v204 → v332
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v332 (2026-07-28) — WarehouseCode 07 → 11 en pedidos a SAP
+
+Los pedidos que salen de la app ahora apuntan al depósito **11 (MERCADERIA)** en vez del 07 histórico (que tenía solo PESCA EEUU y estaba vacío — ver comment `_isSalesWarehouse`). Alcance:
+
+- `index.html:21345` — payload Service Layer (`WarehouseCode: '11'`) en cada `DocumentLine` del Sales Quotation que envía la Cloud Function `sapProxy`.
+- `index.html:22142` — CSV `QUT1 - Document_Lines.csv` del ZIP DTW, columna `WarehouseCode = '11'`. Comment `// PESCA` reemplazado por `// MERCADERIA (v332)`.
+- `index.html:23116` — tag `warehouse` en el snapshot Firestore que genera la subida manual de CSV (`app_config/stock_snapshot`) sigue el mismo cambio para consistencia (no filtra qué se muestra al vendedor; solo audita).
+- Labels UI "W07" → "W11" en 4 lugares: `1774` (descripción modal Exportar → Precios/Stock), `7169` y `7196` (headers Excel `Stock W11`), `23034` (mensaje toast del CSV manual).
+
+**No** se toca `scripts/sync_stock.py` (mantiene `WAREHOUSE_FILTER='07'`) porque el sync automático `sync_sap_to_firestore.py` ya usa `'ALL_SALES'` (suma todos los vendibles ≠ 05 Marketing ≠ 06 Devoluciones — incluye W11). Si en algún momento se vuelve al flujo CSV manual con W11, hay que bumpear también `sync_stock.py`.
+
+### v331 (2026-07-28) — Export Clientes por scope de vendor + fix filtro VDI
+
+Dos cambios pedidos por el equipo comercial (Ioannis / Santiago):
+
+1. **Export Clientes habilitado a vendedores + internos**. Antes la opción "Clientes (masterfile)" del modal *Exportar a Excel* solo aparecía para admin/gerente/viewer (`allowedByRole.vendedor` no la incluía). Ahora `vendedor` e `interno` la ven, y `exportMasterClientes()` filtra por `getEffectiveVendorSet(currentVendor)` — cada usuario descarga solo las tiendas de su scope: VDE su zona, VDI sus parejas + propio o el subset elegido. Incluye habilitados en SAP y provisorios de Alta Rápida. El nombre del archivo lleva sufijo con el scope (`Masterfile_Clientes_SAP_IOANNIS_2026-07-28.xlsx` vs `Masterfile_Clientes_SAP_TODOS_...`).
+2. **Fix VDI que selecciona su propio nombre no expanda a parejas**. En `getEffectiveVendorSet(vendor)`, si `userRole === 'interno'` y `vendor === assignedVendor`, NO aplica `VENDOR_INCLUDES_OTHERS`. Antes 'IOANNIS PALKOUDAKIS' en el dropdown expandía a `{IOANNIS, FEDERICO, GONZALO}` — indistinguible de 'Todas mis zonas'. Ahora muestra únicamente los clientes propios del VDI (los de su `assignedVendor`). 'Todas mis zonas' sigue mostrando el union.
+
+Impacto en Excel export: cuando el VDI está posicionado en su propio nombre y descarga el masterfile, el Excel trae únicamente sus tiendas (sin las de sus VDEs pareja).
 
 ### v330 (2026-07-27) — E2.b step 3: sapSL rutea via Cloud Function sapProxy — **Fase 0 al 100%**
 
@@ -4964,3 +4985,279 @@ Para nuevos features de la app: no hay bloqueo de Fase 0. Podés arrancar cualqu
 3. Si algún flujo rompe → pegar error → diagnosticar.
 4. Si todo pasa → arrancar deploy de E1 Rules (comando en 44.3 punto 3, 5 min de trabajo).
 5. Si vas por E5 o E6, allocá 30 min uninterrumpidos por checklist.
+
+---
+
+## 45) E2.b performance + code splitting (rama `e2b-perf`)
+
+Trabajo iniciado 2026-07-27 después de cerrar Fase 0. **Rama `e2b-perf`**, NO mergeada a `main` todavía. Nada tocado de `main` hasta el gate final de E6 con Mariano.
+
+Plan completo: `C:\Users\shimano.sandbox\.claude\plans\majestic-seeking-avalanche.md`.
+
+### 45.1 Por qué hacemos esto
+
+**Problema observado cualitativamente**: la app se tilda al cargar (main thread bloqueado durante segundos) y el mapa tiene delay notable al abrir y al panear/zoomear. En desktop es visible, en celular con 4G (donde realmente la usan los 6 vendedores en la calle) es peor.
+
+**Problema medido cuantitativamente** (post E0 — ver `scripts/perf/BASELINE.md`): en Slow 4G emulado con CPU 4x, la app toma **28.6 segundos** hasta el LCP (Largest Contentful Paint). Transfer inicial de **5.3 MB**. Score Lighthouse mobile: **26/100** (red zone). Peor long task durante pan/zoom del mapa: **3.35 segundos** en un solo tick — literalmente el thread principal bloqueado 3+ seg cuando el vendedor mueve el mapa.
+
+**Root cause identificado en el trace de E0**: 
+1. Script inline de 28K líneas evaluado sincrónicamente al load (~4.4 seg de scriptEvaluation + parseCompile main thread breakdown).
+2. Scripts CDN sync bloqueantes (Leaflet 883ms, xlsx 479ms, jszip 154ms).
+3. Transfer 5.3 MB (geo.json 1.6 MB async pero pesa; Firebase SDKs 500 KB; etc.).
+4. `drawMarkers()` sync loop en cada `zoomend` recorriendo 2000+ elementos.
+
+**Outcome esperado post-E6**: shell inicial <500 KB, LCP mejora ≥40% vs baseline (target <17.2 s), cero long tasks >500ms en carga inicial, pan/zoom del mapa sin frames >200ms. **Cada mejora justificada por un número medido, no por hipótesis.**
+
+### 45.2 Estado actual de las 7 etapas — TODAS CERRADAS 2026-07-28
+
+| # | Etapa | Estado | Commit(s) | LOC extraídos / KB |
+|---|---|---|---|---|
+| E0 | Línea base medida (`scripts/perf/`) | ✅ | `addfa57` | — (~440 LOC scripts) |
+| E1 | Fix leak de 23/31 listeners onSnapshot | ✅ | `ea59a77` | — (fix defensive) |
+| E2 | Extracción por dominio VERBATIM (19 sub-commits) | ✅ | `9d2ef4f`..`db8bf46` | 14,275 LOC (50.1%) |
+| E3 | Code splitting: shell + 3 chunks lazy | ✅ | `a99ddd5` | 359 KB chunks |
+| E4 | Viewport filter en drawMarkers (culpable trace E0) | ✅ | `eb48c0a` | +18 LOC (fix quirúrgico) |
+| E5 | SW stale-while-revalidate + reglas #18/#19 | ✅ | `7da1ce3` | — (arquitectural) |
+| E6 | Fixes C1-C5 code review + FINAL-REPORT + docs | ✅ | `2b278e9` + este commit | 5 ReferenceError latentes |
+
+**Total commits**: 24 en branch `e2b-perf`. **`main` intacto hasta merge post-smoke**.
+
+Ver `scripts/perf/FINAL-REPORT.md` para: (a) instrucciones re-medición gate humano, (b) gates del plan pendientes de confirmar con números.
+
+### 45.3 E0 — Línea base medida ✅ (2026-07-27, commit `addfa57`)
+
+**Qué se hizo**:
+- `scripts/perf/` nuevo con `lighthouse-baseline.js` + `trace-map.js` + `compare-vs-baseline.js` + `config.js` + `README.md`.
+- devDeps: `lighthouse@12.9.0` + `puppeteer-core@24.24.0` (regla 1 CLAUDE.md incremental).
+- 3 corridas de Lighthouse (median) + 2/3 corridas de trace-map (tolerante a fallos).
+- **`scripts/perf/BASELINE.md`**: reporte con números + ranking de culpables **MEDIDOS**.
+
+**Números baseline oficial** (2026-07-27 pre-E1, en `scripts/perf/baseline-*-2026-07-27.json`):
+- Shell load: LCP **28.6 s**, FCP 14.5 s, TBT 1.5 s, transfer 5.3 MB, score **26/100**, 2 long tasks >500ms.
+- Map paint post-login: **17.3 s**.
+- Pan/zoom: peor long task **3.35 s**, 6 long tasks >200ms mediana, 2 long tasks >500ms mediana.
+
+**Ranking de culpables medidos**:
+1. Script inline 28K líneas: 3.55 s scriptEvaluation + 851 ms parseCompile + 2.34 s "Unattributable" long task.
+2. CDN sync bloqueantes en `<head>`: Leaflet 883 ms + xlsx 479 ms + jszip 154 ms.
+3. Transfer 5.3 MB: geo.json (1.6 MB async), Firebase SDKs (~500 KB), Leaflet CSS+JS (~150 KB).
+4. Mapa pan/zoom: 3.35 s peor long task, candidato #1 `drawMarkers()` sync loop (sin stack sampling no lo confirmo — E4 con sampling identifica función exacta).
+
+**Reglas nuevas en CLAUDE.md** (aprendidas durante E0):
+- **8**: Puppeteer + Google OAuth no funciona — conectar a Chrome real via `--remote-debugging-port=9222`.
+- **9**: `import.meta.url.pathname` deja `%20` en Windows — usar `fileURLToPath` de `node:url`.
+- **10**: CDP con throttling puede timeoutear — dispatch events via `page.evaluate` con `MouseEvent`/`WheelEvent`.
+- **11**: Scripts de perf en env inestable — tolerar fallos individuales si ≥2/3 corridas OK.
+
+**Cómo re-correr** (para gate humano de Mariano post-cada-etapa o E6 final):
+```powershell
+# En otra consola:
+python -m http.server 8000
+# En una tercera, para trace-map (una sola vez la 1ra):
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" `
+  --remote-debugging-port=9222 `
+  --user-data-dir="C:\temp\perf-chrome"
+# Loggeate en ese Chrome, después:
+node scripts/perf/lighthouse-baseline.js
+node scripts/perf/trace-map.js
+```
+
+### 45.4 E1 — Fix leak de 23/31 listeners onSnapshot ✅ (2026-07-27, commit `ea59a77`)
+
+**Qué se hizo**:
+- Audit del `index.html` reveló **31 listeners `onSnapshot` declarados**, pero `detachFirebaseListeners()` solo cerraba 8. Los otros **23 quedaban vivos al logout** → acumulaban memoria + CPU + network si el user logout/login repetidamente (session refresh, cambio de cuenta, TOTP, security code de Google, etc.).
+- `detachFirebaseListeners()` reescrito con helper local `off(name, fn, setNull)` — reduce repetición + tolera fallos (leak parcial > leak total). Cubre los 31.
+- Los 23 agregados: `unsubApprovedAltas`, `unsubClientMaster`, `unsubSapVendors`, `unsubTargets`, `unsubCustomRoutes`, `unsubRouteOverrides`, `unsubMyNotifs`, `unsubMyExternalPartners`, `unsubVisitsPartner`, `unsubMySentTasks`, `unsubAltaCliMine`, `unsubMisRendiciones`, `unsubTodasRendiciones`, `unsubSapConfig`, `unsubProductCatalog`, `unsubStockSnapshot`, `unsubPriceList`, `unsubTemporalPriceList`, `unsubVendorOverrides`, `unsubClientLocs`, `unsubSegNotes`, `unsubSegStatus`, `_unsubAutoSendPedidos`.
+- `tests/unit/listeners.test.js` nuevo (8 tests): **linting automático** — parsea `index.html`, extrae `let/var unsub*` y compara contra `off('name', ...)` del detach. Si en el futuro se agrega un listener sin su `off()`, el test falla con el nombre exacto.
+
+**False positive descartado**: el Explore agent había marcado el `unsubVisits` en `openVisitaModal` línea 25249 como "critical leak con double-binding". Re-verificado del código: **ya tenía guard** `if (!unsubVisits && currentUser)` — solo asigna si no existe. No es leak. Se documentó pero no se cambió la lógica.
+
+**Regla 12 nueva en CLAUDE.md**: todo `onSnapshot()` debe tener su `unsub*` en `detachFirebaseListeners()`. El test unitario es la red de seguridad.
+
+**Gate humano de E1** (Mariano — cuando quieras, no es bloqueante para E2): logout → login × 3 en la app real, F12 → Memory → heap snapshots antes/después. Sin acumulación de "Detached HTMLDivElement" u "onSnapshot" entre snapshots.
+
+### 45.5 E2 pendiente — Extracción por dominio VERBATIM (14 sub-etapas)
+
+**Objetivo**: mover cada dominio del inline gigante a `src/domains/<name>.js` preservando cada `window.foo = ...` intacto. Cada sub-etapa una por commit, orden por menor dependencia primero.
+
+**Orden planificado** (una sub-etapa por commit):
+
+| # | Dominio | Líneas aprox. | LOC | Justificación del orden |
+|---|---|---|---|---|
+| E2.a | admin-users | 20700-21200 | ~500 | Menos deps, buen primer test del pattern |
+| E2.b | targets | 11126-11500 | ~370 | Chico, aislable |
+| E2.c | campañas | 26488-26800 | ~310 | Aislable |
+| E2.d | seguimiento | 27734-28380 | ~646 | Deps: mapa (lookup clientes) |
+| E2.e | rendiciones | 14700-16000 | ~1,300 | Deps: Storage, Gemini |
+| E2.f | rutas | 12900-13500 | ~600 | Deps: mapa |
+| E2.g | notificaciones + OCR | 14213-16060 | ~1,847 | Comparte helpers con rendiciones |
+| E2.h | dashboard | 26114-26490 | ~376 | Deps: Firestore, POINTS |
+| E2.i | product-picker | 18800-20400 | ~1,600 | Deps: Firestore products |
+| E2.j | pedidos | 16320-18980 | ~2,660 | Grande, deps: mapa, product-picker, sap-client |
+| E2.k | visitas | 14036-16100 | ~2,064 | Grande, deps: Storage, Gemini, mapa |
+| E2.l | master-clientes | 6900-10600 | ~3,700 | El más grande, deps: Firestore, mapa, xlsx |
+| E2.m | sap-integrations | 18995-23000 | ~4,005 | Grande, mostly autocontenido |
+| E2.n | exports | 10687-12850 | ~2,163 | Depende de todos, último |
+
+**Acciones por sub-etapa** (pattern idéntico):
+1. Grep + lee las líneas del dominio en `index.html`.
+2. Crear `src/domains/<name>.js`. Copiar **verbatim**, cada `window.foo = ...` intacto.
+3. Agregar `import './domains/<name>.js';` (side-effect) en `src/main.js`.
+4. Eliminar las líneas equivalentes del inline en `index.html`.
+5. `npm run build` regenera `app.bundle.js`.
+6. Suite: `npx vitest run tests/unit/ tests/functions/ tests/smoke/` (137 verdes actualmente + 8 listeners) + `npm run typecheck`.
+7. Smoke manual del dominio en el browser (gate humano de Mariano, ~1 min).
+8. Commit: `E2.x: extract <dominio> to src/domains (verbatim)`.
+
+**Gate ejecutable por sub-etapa** (ver plan file 45.5 detalle):
+- `npm run build` exit 0
+- Bundle sigue conteniendo el `window.foo` esperado (verificado con `vm.runInNewContext`)
+- 137+ tests verdes + typecheck exit 0
+- Smoke manual del dominio (feature funciona sin console.error rojo)
+
+**Riesgos de falso verde** (críticos):
+- **Hoisting de `function foo(){}`**: mover un `function foo(){}` del inline al bundle → declaración se hoista en el bundle scope (que carga blocking en `<head>`, antes que inline). Si algún código inline restante llama `foo` — resuelve al `window.foo` del bundle. OK. Pero si borrás la definición inline SIN agregar el `import` — llama `foo` sin scope → undefined. Mitigar: verbatim copy + import side-effect al inicio de `main.js`.
+- **Closures rotas**: el inline usa vars locales del `<script>`. Si un dominio las lee después de extracción, no las encuentra. Mitigar: verbatim COPY incluye las vars accedidas. Si dos dominios comparten una var, dejarla en `main.js` o `src/shared/*.js`.
+- **Handlers `onclick="foo()"` HTML**: si `window.foo` no se preserva → click no hace nada, sin error visible. Test manual del dominio es la única detección. Gate humano crítico.
+
+**Budget total E2**: 12 turnos (~1 turno cada 2 sub-etapas chicas, ~2 turnos para las 4 grandes).
+
+### 45.6 E3 pendiente — Code splitting con esbuild
+
+Refactor `build.js` multi-entry: `src/main.js` → `shell.js` (nuevo nombre, mismo lugar que `app.bundle.js`), + `src/domains/<name>.js` → `chunks/<name>.js`. Loader dinámico `window.loadChunk(name)` con `<script>` injection (no eval, no dynamic import). Bump v330 → v331.
+
+**Gate**: shell < 500 KB, cada chunk < 400 KB, suite verde, smoke manual con Network tab mostrando chunks descargándose on-demand.
+
+Budget: 8 turnos.
+
+### 45.7 E4 pendiente — Fix mapa según trace de E0
+
+**No hay decisión previa** — se elige el fix según lo que E0 confirmó + un trace refinado con stack sampling activado durante E4. Candidatos (uno o combinación):
+- A: `polygon-clipping.union()` sin caché → mover a Web Worker
+- B: `geo.json` JSON.parse main thread → stream o pre-split
+- C: `drawMarkers()` sync loop → clustering con Leaflet.markercluster o batch con `requestIdleCallback` o viewport-based
+- D: listeners cascade durante pan → debounce
+- E: no anticipado
+
+**Gate**: re-medición con scripts de E0 confirma culpable identificado mejora ≥40% del long task específico.
+
+Budget: 6 turnos.
+
+### 45.8 E5 pendiente — SW audit + cache chunks
+
+Extender `sw.js` STATIC_ASSETS con `./shell.js` + todos los `./chunks/*.js`. Cache-first + background update. Smoke offline + smoke bump `CACHE_VERSION` (verifica caché limpio sin mezcla vieja/nueva).
+
+Budget: 3 turnos.
+
+### 45.9 E6 pendiente — Re-medición final + code review + docs
+
+Correr scripts de perf sobre `e2b-perf` HEAD. `scripts/perf/compare-vs-baseline.js` emite diff numérico + assertion. Code review del diff completo con subagente `general-purpose` contexto limpio. `FINAL-REPORT.md` con before/after. README sección 45 actualizada.
+
+**Gates finales** (todos deben pasar antes de merge a main):
+- LCP shell **≥40% mejor** vs baseline E0 (target <17.2 s)
+- Shell inicial **<500 KB** transferidos
+- **Cero long tasks >500ms** en carga inicial
+- Pan/zoom del mapa **sin frames >200ms**
+- 137+ tests verdes + typecheck OK
+- Smoke navegación cada módulo lazy sin errores console
+- Code review del subagente sin flags
+
+Budget: 3 turnos.
+
+### 45.10 Cómo retomar mañana
+
+1. `cd "C:\Users\shimano.sandbox\Desktop\APP VENDEDORES"`
+2. `git checkout e2b-perf` (chequear con `git branch --show-current`)
+3. `git log --oneline -5` — debería ver `ea59a77 E1` y `addfa57 E0` en top.
+4. Al Claude: **"leé README sección 45 y arrancá con E2.a (admin-users)"**.
+5. Sub-etapas se hacen una por commit, orden por menor dependencia (E2.a → E2.n).
+6. Gate humano tuyo: smoke manual del dominio extraído tras cada sub-etapa (~1 min c/u).
+
+**Al final de E2** (14 sub-etapas): pausar antes de arrancar E3 para que Mariano revise el diff acumulado y decida si mergear a main un "E2 completo" antes de E3, o esperar hasta E6 completo.
+
+**Verificación de sanidad en cualquier momento** (sin correr scripts perf pesados):
+```powershell
+npx vitest run tests/unit/ tests/functions/ tests/smoke/
+npm run typecheck
+npm run build
+```
+
+Los 137 tests + typecheck son el "canario" de regresiones. Si rompe algo → freno + causa raíz (regla 4 CLAUDE.md).
+
+### 45.11 Commits de la sesión 2026-07-27 (rama `e2b-perf`, NO pusheados a origen)
+
+| Commit | Descripción |
+|---|---|
+| `addfa57` | E0: línea base medida con Lighthouse + Puppeteer CDP + baseline JSON + BASELINE.md + reglas 8-11 CLAUDE.md |
+| `ea59a77` | E1: fix leak 23/31 listeners onSnapshot + test linting listeners + regla 12 CLAUDE.md |
+
+Ambos en `e2b-perf` local, sin push a origen. El branch queda listo para arrancar E2 mañana.
+
+## 46) E2-E6 completados 2026-07-28 — resumen ejecutivo
+
+Cerradas E2 (19 extracciones), E3 (code splitting), E4 (fix mapa), E5 (SW), E6 (code review + fixes + docs) en 24 commits del branch `e2b-perf`. **Aún no mergeado a `main`** — pendiente re-medición + smoke manual (ver `scripts/perf/FINAL-REPORT.md`).
+
+### 46.1 Métricas hard (post-E6)
+
+| | Pre-E2 | Post-E6 | Delta |
+|---|---|---|---|
+| `index.html` líneas | 28,511 | **14,236** | **-50.1%** |
+| Dominios en `src/domains/*.js` | 0 | **19** | +19 archivos |
+| `app.bundle.js` (shell) | 44 KB | **1.89 MB** | shell contiene 17 dominios |
+| `chunks/*.js` (lazy) | — | **359 KB** (3 chunks) | nuevo, on-demand |
+| Tests smoke/unit/functions | 129 | **143** | +14 nuevos |
+| CLAUDE.md reglas | 12 | **19** | +7 nuevas |
+| APP_VERSION | v330 | **v336** | +6 versiones (v331 hotfix, v332 W07→11, v333 E3, v334 E4, v335 E5, v336 fixes) |
+
+### 46.2 Los 19 dominios extraídos (bundle IIFE via esbuild)
+
+- **Shell** (16 dominios, cargados al load): `targets`, `campanias`, `dashboard`, `seguimiento`, `rutas`, `rendiciones`, `notificaciones` (parcial), `product-picker`, `visitas`, `pedidos-modal`, `master-clientes`, `sap-integration-modal`, `sap-service-layer`, `sap-auto-send-listener`, `sap-admin-panel`, `exports-sap`.
+- **Chunks lazy** (3 dominios, cargados on-demand): `exports-core`, `exports-advanced`, `admin-users`.
+
+Cada `src/domains/*.js` es verbatim del inline: 0 refactor de lógica, solo el pattern cross-scope (regla #13/#17) donde una variable es leída/escrita entre bundle e inline.
+
+### 46.3 Bugs latentes descubiertos por code review E6 (commit `2b278e9`)
+
+Subagent con contexto limpio detectó 5 `ReferenceError` runtime silenciados por `try/catch` que ningún test unitario capturaba. Todos son del patrón regla #17: `let X` en bundle donde inline lee/escribe X sin prefix window.
+
+| Bug | Var | Bundle | Inline | Impacto |
+|---|---|---|---|---|
+| C1 | `usersCache` | admin-users (chunk) | notificaciones (shell) `syncUsersDirectory` | users_directory nunca publica → dropdown tareas vacío |
+| C2 | `mcShowBaseMaster` | master-clientes | `toggleMcBaseMaster` L4048 | Botón Masterfile-Base tira excepción |
+| C3 | `notifsTab` | notificaciones | `updateNotifsBadge` L8519 | Notif no re-renderea live cuando pane abierto |
+| C4 | `rutaVendorFilter` | rutas | derivar/reagendar tiendas | admin sin `assignedVendor` no puede derivar |
+| C5 | `sapCurrentTab` | sap-admin-panel | callback `unsubPedidosAll` | Panel SAP no refresca pedidos en tiempo real |
+
+Todos corregidos con el patrón cross-scope estándar (`if (typeof window.X === 'undefined') window.X = ...` + reads/writes explícitos con `window.` prefix).
+
+### 46.4 Warnings del code review pendientes de fix (no bloqueantes)
+
+- **W1** `mcRenderDeferred`: silent divergence (inline crea `window.X`, bundle usa `let` local sin sync). Renders diferidos pueden perderse en race condition poco frecuente.
+- **W2** `_origListenSapConfig`: dead code en `sap-auto-send-listener.js:111` (`const X = (...) ? null : null;`). Sin impacto runtime.
+- **W3** `window.unsubVisits` doble asignación en rutas + visitas (guards previenen doble listener, pero patrón frágil).
+
+Fixear en commits futuros post-merge.
+
+### 46.5 Gates del plan — assessment
+
+| Gate | Objetivo | Status |
+|---|---|---|
+| LCP ≥40% mejor vs baseline (target <17.2s) | Métrica externa | **PENDIENTE** re-medición local |
+| Shell inicial <500 KB transferidos | Meta hard | ❌ **NO** — shell 1.89 MB (contiene 17 dominios). Requiere split más agresivo. |
+| Cero long tasks >500ms carga inicial | Meta hard | **PENDIENTE** re-medición |
+| Pan/zoom sin frames >200ms | Meta hard | **PENDIENTE** re-medición (E4 aplicado viewport filter, debería lograrlo) |
+| 129+ tests locales verdes | ✅ **143/143** | Superado |
+| Typecheck | ✅ 0 errores | Superado |
+| Smoke navegación cada módulo | Gate humano | **PENDIENTE** — ver `scripts/perf/FINAL-REPORT.md` §Follow-up |
+
+**Meta del shell < 500 KB no alcanzada en este ciclo**: la mayoría de los dominios tienen `ensure*Listener` que se llama al login (attachFirebaseListeners en el inline), obligándolos a estar en el shell. Solo pudimos hacer lazy los 3 que se abren claramente al click (exports-core, exports-advanced, admin-users). Alcanzar < 500 KB requiere refactor de attachFirebaseListeners para pre-loadear chunks en lugar de importarlos estáticamente. Fuera de scope de este ciclo.
+
+### 46.6 Next steps
+
+1. **Re-medición local** (10 min): seguir instrucciones en `scripts/perf/FINAL-REPORT.md`.
+2. **Smoke manual completo**: 19 dominios × 30 seg cada uno ≈ 10 min. Confirmar que cada tab funciona post-fixes C1-C5.
+3. **Rebase clean + squash o keep-commits** según preferencia antes de merge.
+4. **Merge a `main` + push + GitHub Pages auto-deploy** con APP_VERSION v336.
+5. **Post-deploy**: monitorear Sentry por nuevas issues (`ChunkLoadError` es la nueva superficie).
+6. **Follow-ups** (commits futuros): warnings W1-W3, más chunks lazy (product-picker, pedidos-modal, visitas si se logra desacoplar listeners al login).
+

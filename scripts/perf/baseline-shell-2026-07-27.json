@@ -1,0 +1,706 @@
+{
+  "tag": "2026-07-27",
+  "url": "http://localhost:8000/",
+  "runs": [
+    {
+      "lcp": 28774.605024999997,
+      "fcp": 14710.70915,
+      "tti": 28786.1411075,
+      "tbt": 1535.6789999999983,
+      "cls": 0.1063648537121547,
+      "transferSize": 5464848,
+      "performanceScore": 0.26,
+      "longTasks": [
+        {
+          "url": "Unattributable",
+          "startTime": 12440.38815,
+          "duration": 2339.999999999998
+        },
+        {
+          "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+          "startTime": 17346.577699999998,
+          "duration": 883
+        },
+        {
+          "url": "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+          "startTime": 20241.849699999995,
+          "duration": 479
+        },
+        {
+          "url": "http://localhost:8000/",
+          "startTime": 11979.38815,
+          "duration": 306
+        },
+        {
+          "url": "http://localhost:8000/",
+          "startTime": 11586.38815,
+          "duration": 217
+        },
+        {
+          "url": "Unattributable",
+          "startTime": 11255.38815,
+          "duration": 179
+        },
+        {
+          "url": "Unattributable",
+          "startTime": 12285.38815,
+          "duration": 155
+        },
+        {
+          "url": "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
+          "startTime": 17100.577699999998,
+          "duration": 154
+        },
+        {
+          "url": "https://apis.google.com/_/scs/abc-static/_/js/k=gapi.lb.es.rKx8NDPLHWQ.O/m=gapi_iframes/rt=j/sv=1/d=1/ed=1/rs=AHpOoo8wupU3uHFRTlJ6wVx8BqmaYt9f1Q/cb=gapi.loaded_0?le=scs",
+          "startTime": 18325.577699999998,
+          "duration": 129
+        },
+        {
+          "url": "http://localhost:8000/",
+          "startTime": 11865.38815,
+          "duration": 114
+        },
+        {
+          "url": "Unattributable",
+          "startTime": 11110.38815,
+          "duration": 97
+        },
+        {
+          "url": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js",
+          "startTime": 17254.577699999998,
+          "duration": 92
+        },
+        {
+          "url": "http://localhost:8000/",
+          "startTime": 11477.38815,
+          "duration": 66
+        },
+        {
+          "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+          "startTime": 14780.388149999999,
+          "duration": 61
+        },
+        {
+          "url": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js",
+          "startTime": 14841.388149999999,
+          "duration": 60
+        },
+        {
+          "url": "http://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=6X-jmnjIhyWxrefZRuhVc6MI4W3VZPHqnxrRsS6B0f4-7Ta484L47BX-0NFS1qYK",
+          "startTime": 17042.577699999998,
+          "duration": 58
+        }
+      ],
+      "mainThreadWork": [
+        {
+          "group": "scriptEvaluation",
+          "duration": 3550.0919999999655
+        },
+        {
+          "group": "other",
+          "duration": 1746.6639999999907
+        },
+        {
+          "group": "scriptParseCompile",
+          "duration": 850.64
+        },
+        {
+          "group": "styleLayout",
+          "duration": 776.4280000000002
+        },
+        {
+          "group": "parseHTML",
+          "duration": 390.4760000000002
+        },
+        {
+          "group": "garbageCollection",
+          "duration": 231.5359999999998
+        },
+        {
+          "group": "paintCompositeRender",
+          "duration": 83.78399999999993
+        }
+      ],
+      "bootupTime": [
+        {
+          "url": "Unattributable",
+          "total": 3130.143999999963,
+          "scripting": 2190.5399999999718
+        },
+        {
+          "url": "http://localhost:8000/",
+          "total": 2835.564,
+          "scripting": 336.66000000000327
+        },
+        {
+          "url": "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+          "total": 479.00000000000006,
+          "scripting": 337.64000000000004
+        },
+        {
+          "url": "http://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=6X-jmnjIhyWxrefZRuhVc6MI4W3VZPHqnxrRsS6B0f4-7Ta484L47BX-0NFS1qYK",
+          "total": 256.44000000000005,
+          "scripting": 124.01999999999998
+        },
+        {
+          "url": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js",
+          "total": 199.85599999999994,
+          "scripting": 132.50799999999995
+        },
+        {
+          "url": "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
+          "total": 163.72000000000003,
+          "scripting": 43.36400000000006
+        },
+        {
+          "url": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js",
+          "total": 161.99999999999997,
+          "scripting": 120.67999999999996
+        },
+        {
+          "url": "https://apis.google.com/_/scs/abc-static/_/js/k=gapi.lb.es.rKx8NDPLHWQ.O/m=gapi_iframes/rt=j/sv=1/d=1/ed=1/rs=AHpOoo8wupU3uHFRTlJ6wVx8BqmaYt9f1Q/cb=gapi.loaded_0?le=scs",
+          "total": 142.88400000000001,
+          "scripting": 124.04000000000002
+        },
+        {
+          "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+          "total": 128.33999999999997,
+          "scripting": 58.323999999999984
+        }
+      ]
+    },
+    {
+      "lcp": 28587.3724,
+      "fcp": 14481.414299999999,
+      "tti": 28598.74671,
+      "tbt": 1770,
+      "cls": 0.1063648537121547,
+      "transferSize": 5460475,
+      "performanceScore": 0.25,
+      "longTasks": [
+        {
+          "url": "Unattributable",
+          "startTime": 11983.8392,
+          "duration": 2546.9999999999964
+        },
+        {
+          "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+          "startTime": 14737.839199999997,
+          "duration": 780
+        },
+        {
+          "url": "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+          "startTime": 21110.208699999996,
+          "duration": 486
+        },
+        {
+          "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+          "startTime": 17075.762499999997,
+          "duration": 444
+        },
+        {
+          "url": "http://localhost:8000/",
+          "startTime": 11407.8392,
+          "duration": 287
+        },
+        {
+          "url": "Unattributable",
+          "startTime": 11819.8392,
+          "duration": 164
+        },
+        {
+          "url": "https://apis.google.com/_/scs/abc-static/_/js/k=gapi.lb.es.rKx8NDPLHWQ.O/m=gapi_iframes/rt=j/sv=1/d=1/ed=1/rs=AHpOoo8wupU3uHFRTlJ6wVx8BqmaYt9f1Q/cb=gapi.loaded_0?le=scs",
+          "startTime": 17582.762499999997,
+          "duration": 151
+        },
+        {
+          "url": "http://localhost:8000/",
+          "startTime": 11694.8392,
+          "duration": 125
+        },
+        {
+          "url": "Unattributable",
+          "startTime": 11217.8392,
+          "duration": 93
+        },
+        {
+          "url": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js",
+          "startTime": 16983.762499999997,
+          "duration": 92
+        },
+        {
+          "url": "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
+          "startTime": 16770.477199999998,
+          "duration": 78
+        },
+        {
+          "url": "Unattributable",
+          "startTime": 11108.8392,
+          "duration": 71
+        },
+        {
+          "url": "http://localhost:8000/",
+          "startTime": 14668.839199999997,
+          "duration": 69
+        },
+        {
+          "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+          "startTime": 14530.839199999997,
+          "duration": 60
+        },
+        {
+          "url": "http://localhost:8000/",
+          "startTime": 15531.839199999997,
+          "duration": 60
+        },
+        {
+          "url": "http://localhost:8000/",
+          "startTime": 11310.8392,
+          "duration": 52
+        }
+      ],
+      "mainThreadWork": [
+        {
+          "group": "scriptEvaluation",
+          "duration": 3695.5839999999835
+        },
+        {
+          "group": "other",
+          "duration": 2075.891999999991
+        },
+        {
+          "group": "scriptParseCompile",
+          "duration": 829.18
+        },
+        {
+          "group": "styleLayout",
+          "duration": 803.8760000000005
+        },
+        {
+          "group": "parseHTML",
+          "duration": 357.98000000000013
+        },
+        {
+          "group": "garbageCollection",
+          "duration": 267.77599999999995
+        },
+        {
+          "group": "paintCompositeRender",
+          "duration": 85.26399999999992
+        }
+      ],
+      "bootupTime": [
+        {
+          "url": "Unattributable",
+          "total": 3294.1239999999807,
+          "scripting": 2327.323999999986
+        },
+        {
+          "url": "http://localhost:8000/",
+          "total": 2300.4360000000042,
+          "scripting": 314.38800000000305
+        },
+        {
+          "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+          "total": 940.2559999999999,
+          "scripting": 46.432000000000016
+        },
+        {
+          "url": "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+          "total": 486.0999999999996,
+          "scripting": 357.29199999999963
+        },
+        {
+          "url": "http://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=a7ajM40vvcDSTtxhXDpVWFOjyxf0amOqIcj8_kQeFychcR894MKEyGR8Il2lzFqX",
+          "total": 269.048,
+          "scripting": 134.19600000000003
+        },
+        {
+          "url": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js",
+          "total": 199.56000000000003,
+          "scripting": 134.32800000000003
+        },
+        {
+          "url": "https://apis.google.com/_/scs/abc-static/_/js/k=gapi.lb.es.rKx8NDPLHWQ.O/m=gapi_iframes/rt=j/sv=1/d=1/ed=1/rs=AHpOoo8wupU3uHFRTlJ6wVx8BqmaYt9f1Q/cb=gapi.loaded_0?le=scs",
+          "total": 165.77200000000008,
+          "scripting": 142.16400000000007
+        },
+        {
+          "url": "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
+          "total": 153.464,
+          "scripting": 33.82399999999998
+        },
+        {
+          "url": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js",
+          "total": 148.04399999999993,
+          "scripting": 106.36399999999992
+        }
+      ]
+    },
+    {
+      "lcp": 28525.217750000003,
+      "fcp": 14392.1721,
+      "tti": 28541.331495000006,
+      "tbt": 1455.6941000000043,
+      "cls": 0.1063648537121547,
+      "transferSize": 5460257,
+      "performanceScore": 0.27,
+      "longTasks": [
+        {
+          "url": "Unattributable",
+          "startTime": 11934.8662,
+          "duration": 2530
+        },
+        {
+          "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+          "startTime": 14684.8662,
+          "duration": 485
+        },
+        {
+          "url": "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+          "startTime": 20916.53860000001,
+          "duration": 468
+        },
+        {
+          "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+          "startTime": 16835.131,
+          "duration": 445.00000000000364
+        },
+        {
+          "url": "http://localhost:8000/",
+          "startTime": 11430.8662,
+          "duration": 252
+        },
+        {
+          "url": "https://apis.google.com/_/scs/abc-static/_/js/k=gapi.lb.es.rKx8NDPLHWQ.O/m=gapi_iframes/rt=j/sv=1/d=1/ed=1/rs=AHpOoo8wupU3uHFRTlJ6wVx8BqmaYt9f1Q/cb=gapi.loaded_0?le=scs",
+          "startTime": 17487.137000000006,
+          "duration": 133
+        },
+        {
+          "url": "Unattributable",
+          "startTime": 11815.8662,
+          "duration": 119
+        },
+        {
+          "url": "Unattributable",
+          "startTime": 11217.8662,
+          "duration": 112
+        },
+        {
+          "url": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js",
+          "startTime": 16744.131,
+          "duration": 91
+        },
+        {
+          "url": "http://localhost:8000/",
+          "startTime": 11724.8662,
+          "duration": 91
+        },
+        {
+          "url": "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
+          "startTime": 16628.131,
+          "duration": 78
+        },
+        {
+          "url": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js",
+          "startTime": 14523.8662,
+          "duration": 71
+        },
+        {
+          "url": "Unattributable",
+          "startTime": 11107.8662,
+          "duration": 67
+        },
+        {
+          "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+          "startTime": 14464.8662,
+          "duration": 59
+        },
+        {
+          "url": "http://localhost:8000/",
+          "startTime": 11329.8662,
+          "duration": 57
+        },
+        {
+          "url": "http://localhost:8000/",
+          "startTime": 15185.8662,
+          "duration": 53
+        }
+      ],
+      "mainThreadWork": [
+        {
+          "group": "scriptEvaluation",
+          "duration": 3760.79999999998
+        },
+        {
+          "group": "other",
+          "duration": 1772.543999999988
+        },
+        {
+          "group": "scriptParseCompile",
+          "duration": 773.0959999999999
+        },
+        {
+          "group": "styleLayout",
+          "duration": 751.6999999999996
+        },
+        {
+          "group": "parseHTML",
+          "duration": 363.51600000000013
+        },
+        {
+          "group": "garbageCollection",
+          "duration": 204.07600000000014
+        },
+        {
+          "group": "paintCompositeRender",
+          "duration": 91.54799999999993
+        }
+      ],
+      "bootupTime": [
+        {
+          "url": "Unattributable",
+          "total": 3238.035999999981,
+          "scripting": 2420.331999999984
+        },
+        {
+          "url": "http://localhost:8000/",
+          "total": 2228.152000000002,
+          "scripting": 334.4960000000017
+        },
+        {
+          "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+          "total": 691.0440000000001,
+          "scripting": 51.03600000000003
+        },
+        {
+          "url": "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+          "total": 467.68800000000005,
+          "scripting": 329.08400000000006
+        },
+        {
+          "url": "http://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=vu-lkJ8k8NFwn_wllzT3N0Xuu9QNPwwKmZ2j6z7AFkQ5hNIko7msuExP5z_dicIm",
+          "total": 285.98800000000006,
+          "scripting": 135.2000000000001
+        },
+        {
+          "url": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js",
+          "total": 208.696,
+          "scripting": 136.704
+        },
+        {
+          "url": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js",
+          "total": 164.316,
+          "scripting": 110.46800000000002
+        },
+        {
+          "url": "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
+          "total": 151.33999999999997,
+          "scripting": 32.60799999999999
+        },
+        {
+          "url": "https://apis.google.com/_/scs/abc-static/_/js/k=gapi.lb.es.rKx8NDPLHWQ.O/m=gapi_iframes/rt=j/sv=1/d=1/ed=1/rs=AHpOoo8wupU3uHFRTlJ6wVx8BqmaYt9f1Q/cb=gapi.loaded_0?le=scs",
+          "total": 147.35200000000003,
+          "scripting": 130.03600000000003
+        }
+      ]
+    }
+  ],
+  "metrics": {
+    "lcp": {
+      "median": 28587.3724,
+      "min": 28525.217750000003,
+      "max": 28774.605024999997
+    },
+    "fcp": {
+      "median": 14481.414299999999,
+      "min": 14392.1721,
+      "max": 14710.70915
+    },
+    "tti": {
+      "median": 28598.74671,
+      "min": 28541.331495000006,
+      "max": 28786.1411075
+    },
+    "tbt": {
+      "median": 1535.6789999999983,
+      "min": 1455.6941000000043,
+      "max": 1770
+    },
+    "cls": {
+      "median": 0.1063648537121547,
+      "min": 0.1063648537121547,
+      "max": 0.1063648537121547
+    },
+    "transferSize": {
+      "median": 5460475,
+      "min": 5460257,
+      "max": 5464848
+    },
+    "performanceScore": {
+      "median": 26,
+      "min": 25,
+      "max": 27
+    }
+  },
+  "longTasksSample": [
+    {
+      "url": "Unattributable",
+      "startTime": 12440.38815,
+      "duration": 2339.999999999998
+    },
+    {
+      "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+      "startTime": 17346.577699999998,
+      "duration": 883
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+      "startTime": 20241.849699999995,
+      "duration": 479
+    },
+    {
+      "url": "http://localhost:8000/",
+      "startTime": 11979.38815,
+      "duration": 306
+    },
+    {
+      "url": "http://localhost:8000/",
+      "startTime": 11586.38815,
+      "duration": 217
+    },
+    {
+      "url": "Unattributable",
+      "startTime": 11255.38815,
+      "duration": 179
+    },
+    {
+      "url": "Unattributable",
+      "startTime": 12285.38815,
+      "duration": 155
+    },
+    {
+      "url": "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
+      "startTime": 17100.577699999998,
+      "duration": 154
+    },
+    {
+      "url": "https://apis.google.com/_/scs/abc-static/_/js/k=gapi.lb.es.rKx8NDPLHWQ.O/m=gapi_iframes/rt=j/sv=1/d=1/ed=1/rs=AHpOoo8wupU3uHFRTlJ6wVx8BqmaYt9f1Q/cb=gapi.loaded_0?le=scs",
+      "startTime": 18325.577699999998,
+      "duration": 129
+    },
+    {
+      "url": "http://localhost:8000/",
+      "startTime": 11865.38815,
+      "duration": 114
+    },
+    {
+      "url": "Unattributable",
+      "startTime": 11110.38815,
+      "duration": 97
+    },
+    {
+      "url": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js",
+      "startTime": 17254.577699999998,
+      "duration": 92
+    },
+    {
+      "url": "http://localhost:8000/",
+      "startTime": 11477.38815,
+      "duration": 66
+    },
+    {
+      "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+      "startTime": 14780.388149999999,
+      "duration": 61
+    },
+    {
+      "url": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js",
+      "startTime": 14841.388149999999,
+      "duration": 60
+    },
+    {
+      "url": "http://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=6X-jmnjIhyWxrefZRuhVc6MI4W3VZPHqnxrRsS6B0f4-7Ta484L47BX-0NFS1qYK",
+      "startTime": 17042.577699999998,
+      "duration": 58
+    }
+  ],
+  "mainThreadWorkSample": [
+    {
+      "group": "scriptEvaluation",
+      "duration": 3550.0919999999655
+    },
+    {
+      "group": "other",
+      "duration": 1746.6639999999907
+    },
+    {
+      "group": "scriptParseCompile",
+      "duration": 850.64
+    },
+    {
+      "group": "styleLayout",
+      "duration": 776.4280000000002
+    },
+    {
+      "group": "parseHTML",
+      "duration": 390.4760000000002
+    },
+    {
+      "group": "garbageCollection",
+      "duration": 231.5359999999998
+    },
+    {
+      "group": "paintCompositeRender",
+      "duration": 83.78399999999993
+    }
+  ],
+  "bootupTimeSample": [
+    {
+      "url": "Unattributable",
+      "total": 3130.143999999963,
+      "scripting": 2190.5399999999718
+    },
+    {
+      "url": "http://localhost:8000/",
+      "total": 2835.564,
+      "scripting": 336.66000000000327
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+      "total": 479.00000000000006,
+      "scripting": 337.64000000000004
+    },
+    {
+      "url": "http://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=6X-jmnjIhyWxrefZRuhVc6MI4W3VZPHqnxrRsS6B0f4-7Ta484L47BX-0NFS1qYK",
+      "total": 256.44000000000005,
+      "scripting": 124.01999999999998
+    },
+    {
+      "url": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js",
+      "total": 199.85599999999994,
+      "scripting": 132.50799999999995
+    },
+    {
+      "url": "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
+      "total": 163.72000000000003,
+      "scripting": 43.36400000000006
+    },
+    {
+      "url": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js",
+      "total": 161.99999999999997,
+      "scripting": 120.67999999999996
+    },
+    {
+      "url": "https://apis.google.com/_/scs/abc-static/_/js/k=gapi.lb.es.rKx8NDPLHWQ.O/m=gapi_iframes/rt=j/sv=1/d=1/ed=1/rs=AHpOoo8wupU3uHFRTlJ6wVx8BqmaYt9f1Q/cb=gapi.loaded_0?le=scs",
+      "total": 142.88400000000001,
+      "scripting": 124.04000000000002
+    },
+    {
+      "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+      "total": 128.33999999999997,
+      "scripting": 58.323999999999984
+    }
+  ]
+}

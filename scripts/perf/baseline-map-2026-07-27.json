@@ -1,0 +1,234 @@
+{
+  "tag": "2026-07-27",
+  "url": "http://localhost:8000/",
+  "runsCompleted": 2,
+  "runsExpected": 3,
+  "failures": [
+    {
+      "run": 2,
+      "error": "Tab no llegó a estado loggeado en 30s. Último estado: {\"hasMap\":true,\"hasLeaflet\":true,\"authVisible\":true,\"url\":\"http://localhost:8000/\"}. Loggeate en el Chrome del debug port y refrescá el tab de localhost:8000."
+    }
+  ],
+  "runs": [
+    {
+      "mapPaintMs": 17305,
+      "panZoom": {
+        "totalEvents": 32959,
+        "longTasks": [
+          {
+            "name": "RunTask",
+            "dur": 3353.111
+          },
+          {
+            "name": "RunTask",
+            "dur": 701.515
+          },
+          {
+            "name": "RunTask",
+            "dur": 464.636
+          },
+          {
+            "name": "RunTask",
+            "dur": 246.149
+          },
+          {
+            "name": "RunTask",
+            "dur": 218.024
+          },
+          {
+            "name": "RunTask",
+            "dur": 189.839
+          },
+          {
+            "name": "RunTask",
+            "dur": 145.322
+          },
+          {
+            "name": "RunTask",
+            "dur": 143.289
+          },
+          {
+            "name": "RunTask",
+            "dur": 131.958
+          },
+          {
+            "name": "RunTask",
+            "dur": 96.9
+          },
+          {
+            "name": "RunTask",
+            "dur": 64.011
+          },
+          {
+            "name": "RunTask",
+            "dur": 53.942
+          }
+        ],
+        "longTasksOver200ms": 5,
+        "longTasksOver500ms": 2,
+        "worstFrameMs": 0
+      }
+    },
+    {
+      "mapPaintMs": 17065,
+      "panZoom": {
+        "totalEvents": 26863,
+        "longTasks": [
+          {
+            "name": "RunTask",
+            "dur": 6452.169
+          },
+          {
+            "name": "RunTask",
+            "dur": 655.969
+          },
+          {
+            "name": "RunTask",
+            "dur": 473.009
+          },
+          {
+            "name": "RunTask",
+            "dur": 378.182
+          },
+          {
+            "name": "RunTask",
+            "dur": 229.85
+          },
+          {
+            "name": "RunTask",
+            "dur": 229.272
+          },
+          {
+            "name": "RunTask",
+            "dur": 189.849
+          },
+          {
+            "name": "RunTask",
+            "dur": 166.637
+          },
+          {
+            "name": "RunTask",
+            "dur": 165.199
+          },
+          {
+            "name": "RunTask",
+            "dur": 138.593
+          },
+          {
+            "name": "RunTask",
+            "dur": 138.413
+          },
+          {
+            "name": "RunTask",
+            "dur": 136.934
+          },
+          {
+            "name": "RunTask",
+            "dur": 135.753
+          },
+          {
+            "name": "RunTask",
+            "dur": 123.942
+          },
+          {
+            "name": "RunTask",
+            "dur": 88.93
+          },
+          {
+            "name": "RunTask",
+            "dur": 79.192
+          },
+          {
+            "name": "RunTask",
+            "dur": 78.555
+          },
+          {
+            "name": "RunTask",
+            "dur": 65.723
+          },
+          {
+            "name": "RunTask",
+            "dur": 63.682
+          },
+          {
+            "name": "RunTask",
+            "dur": 62.852
+          }
+        ],
+        "longTasksOver200ms": 6,
+        "longTasksOver500ms": 2,
+        "worstFrameMs": 0
+      }
+    }
+  ],
+  "mapPaint": {
+    "median": 17305,
+    "min": 17065,
+    "max": 17305,
+    "all": [
+      17305,
+      17065
+    ]
+  },
+  "panZoomWorstFrame": {
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "all": [
+      0,
+      0
+    ]
+  },
+  "longTasksOver200msMedian": 6,
+  "longTasksOver500msMedian": 2,
+  "longTasksSample": [
+    {
+      "name": "RunTask",
+      "dur": 3353.111
+    },
+    {
+      "name": "RunTask",
+      "dur": 701.515
+    },
+    {
+      "name": "RunTask",
+      "dur": 464.636
+    },
+    {
+      "name": "RunTask",
+      "dur": 246.149
+    },
+    {
+      "name": "RunTask",
+      "dur": 218.024
+    },
+    {
+      "name": "RunTask",
+      "dur": 189.839
+    },
+    {
+      "name": "RunTask",
+      "dur": 145.322
+    },
+    {
+      "name": "RunTask",
+      "dur": 143.289
+    },
+    {
+      "name": "RunTask",
+      "dur": 131.958
+    },
+    {
+      "name": "RunTask",
+      "dur": 96.9
+    },
+    {
+      "name": "RunTask",
+      "dur": 64.011
+    },
+    {
+      "name": "RunTask",
+      "dur": 53.942
+    }
+  ]
+}

@@ -42,6 +42,14 @@ test-results/
 playwright-report/
 .playwright/
 
+# Perf tooling (E2.b, rama e2b-perf)
+# Chrome profile con cookies de Firebase Auth — NO commitear (sensible).
+scripts/perf/perf-chrome-profile/
+# Reportes de corridas locales — se ignoran salvo el baseline oficial de E0
+# que sí queremos versionado como referencia.
+scripts/perf/baseline-shell-post-*.json
+scripts/perf/baseline-map-post-*.json
+
 # TypeScript
 *.tsbuildinfo
 
