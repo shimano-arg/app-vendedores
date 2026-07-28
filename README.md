@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v330 |
-| **APP_VERSION** | `v330` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW). v330 = **E2.b step 3 completado**: `sapSL.fetchWithSession` en `index.html` rutea via Cloud Function `sapProxy` (creds server-side en Secret Manager) en vez del fetch directo a `shimano-sap.seidor.com.ar` con creds en Firestore. Feature flag `sapSL.useCloudProxy = true` (rollback flip a false = fetch legacy). |
+| **Versión actual** | SW v332 |
+| **APP_VERSION** | `v332` (sincronizada con `sw.js` CACHE_VERSION). v332 = **WarehouseCode 07 → 11 en pedidos a SAP**: los pedidos salen por SL (`WarehouseCode: '11'`) y por CSV DTW (`QUT1`) apuntando al depósito 11 (MERCADERIA) en vez de 07 (que tenía solo PESCA EEUU y estaba vacío). También tag del stock snapshot manual + 4 labels UI "W07" → "W11". v331 = **Export Clientes por scope + fix filtro VDI**: opción "Clientes (masterfile)" habilitada para vendedor/interno filtrada por `getEffectiveVendorSet(currentVendor)`; VDI que selecciona su propio nombre no expande a parejas VDE (fix del bug histórico). v330 = **E2.b step 3 completado**: `sapSL.fetchWithSession` rutea via Cloud Function `sapProxy`. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **14 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`) → **Power BI Desktop TABLERO SAR publicado con 8 páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -3419,9 +3419,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v204 → v330
+## 41) Changelog v204 → v332
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v332 (2026-07-28) — WarehouseCode 07 → 11 en pedidos a SAP
+
+Los pedidos que salen de la app ahora apuntan al depósito **11 (MERCADERIA)** en vez del 07 histórico (que tenía solo PESCA EEUU y estaba vacío — ver comment `_isSalesWarehouse`). Alcance:
+
+- `index.html:21345` — payload Service Layer (`WarehouseCode: '11'`) en cada `DocumentLine` del Sales Quotation que envía la Cloud Function `sapProxy`.
+- `index.html:22142` — CSV `QUT1 - Document_Lines.csv` del ZIP DTW, columna `WarehouseCode = '11'`. Comment `// PESCA` reemplazado por `// MERCADERIA (v332)`.
+- `index.html:23116` — tag `warehouse` en el snapshot Firestore que genera la subida manual de CSV (`app_config/stock_snapshot`) — solo audita, no filtra qué se muestra al vendedor.
+- Labels UI "W07" → "W11" en 4 lugares (`1774`, `7169`, `7196`, `23034`).
+
+**No** se toca `scripts/sync_stock.py` (mantiene `WAREHOUSE_FILTER='07'`) porque el sync automático `sync_sap_to_firestore.py` ya usa `'ALL_SALES'` (suma todos los vendibles ≠ 05 Marketing ≠ 06 Devoluciones — incluye W11).
+
+### v331 (2026-07-28) — Export Clientes por scope de vendor + fix filtro VDI
+
+Dos cambios pedidos por el equipo comercial (Ioannis / Santiago):
+
+1. **Export Clientes habilitado a vendedores + internos**. Antes la opción "Clientes (masterfile)" del modal *Exportar a Excel* solo aparecía para admin/gerente/viewer. Ahora `vendedor` e `interno` la ven, y `exportMasterClientes()` filtra por `getEffectiveVendorSet(currentVendor)` — cada usuario descarga solo las tiendas de su scope: VDE su zona, VDI sus parejas + propio o el subset elegido. Incluye habilitados en SAP y provisorios de Alta Rápida. El nombre del archivo lleva sufijo con el scope (`Masterfile_Clientes_SAP_IOANNIS_2026-07-28.xlsx`).
+2. **Fix VDI que selecciona su propio nombre no expanda a parejas**. En `getEffectiveVendorSet(vendor)`, si `userRole === 'interno'` y `vendor === assignedVendor`, NO aplica `VENDOR_INCLUDES_OTHERS`. Antes 'IOANNIS PALKOUDAKIS' en el dropdown expandía a `{IOANNIS, FEDERICO, GONZALO}` — indistinguible de 'Todas mis zonas'. Ahora muestra únicamente los clientes propios del VDI.
 
 ### v330 (2026-07-27) — E2.b step 3: sapSL rutea via Cloud Function sapProxy — **Fase 0 al 100%**
 

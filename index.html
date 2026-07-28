@@ -1771,7 +1771,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <div class="exp-icon" style="background:#0d9488">&#128221;</div>
           <div class="exp-body">
             <h3>Precios + Stock por SKU</h3>
-            <p>Lista completa de SKUs con precio actual en ARS y estado de stock (W07). Util para revisar disponibilidad y reposicion. Tomado del snapshot vigente de la app.</p>
+            <p>Lista completa de SKUs con precio actual en ARS y estado de stock (W11). Util para revisar disponibilidad y reposicion. Tomado del snapshot vigente de la app.</p>
           </div>
         </div>
       </div>
@@ -3355,7 +3355,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v330';
+const APP_VERSION = 'v332';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -6902,6 +6902,21 @@ window.exportMasterClientes = function(){
     return;
   }
   showSyncTag('Generando masterfile de clientes...');
+  // Scope por vendor (v331): el export respeta el filtro de zona activo en el
+  // dropdown. Admin/gerente/viewer con 'Todas' obtienen null -> sin filtro
+  // (exporta todo el pais). Vendedor obtiene {assignedVendor}. VDI obtiene
+  // sus parejas + propio si eligio 'Todas mis zonas', o solo el subset que
+  // eligio (propio / una pareja especifica). Fuera de este set, las tiendas
+  // no se incluyen en el Excel - el archivo refleja exactamente lo que ve
+  // en el mapa quien exporta.
+  const scopeSet = (typeof getEffectiveVendorSet === 'function')
+    ? getEffectiveVendorSet(typeof currentVendor !== 'undefined' ? currentVendor : 'ALL')
+    : null;
+  const inScope = (vendorKey) => {
+    if (scopeSet === null) return true;
+    if (!vendorKey) return false;
+    return scopeSet.has(vendorKey);
+  };
   // Mapeo VDE -> VDI (a partir de las parejas estandar). Cuando una tienda
   // pertenece a Federico o Gonzalo, el VDI es Ioannis. Cuando es de Mauricio
   // o Martin, el VDI es Santiago. Si en el futuro se reasignan parejas via
@@ -6933,6 +6948,8 @@ window.exportMasterClientes = function(){
     const localityMap = p.name || '';
     const dept = p.dept || '';
     const vendor = p.vendor || '';
+    // v331: filtrar por scope de vendor del usuario que exporta.
+    if (!inScope(vendor)) return;
     const zone = lookupZone(vendor);
     const vdi = VDE_TO_VDI[vendor] || '';
     const lat = (p.lat != null) ? p.lat : '';
@@ -7011,6 +7028,8 @@ window.exportMasterClientes = function(){
       if (seen.has(dupKey)) return;
       seen.add(dupKey);
       const vendor = a.assignedVendor || '';
+      // v331: mismo filtro de scope aplica a altas SAP/provisorias.
+      if (!inScope(vendor)) return;
       const zone = lookupZone(vendor);
       const vdi = VDE_TO_VDI[vendor] || '';
       const loc = a.localidadFinal || a.localidad || '(sin localidad)';
@@ -7095,8 +7114,14 @@ window.exportMasterClientes = function(){
   XLSX.utils.book_append_sheet(wb, wsRes, 'Resumen por zona');
 
   const ts = new Date().toISOString().slice(0,10);
-  XLSX.writeFile(wb, 'Masterfile_Clientes_SAP_' + ts + '.xlsx');
-  showSyncTag(rows.length + ' clientes SAP exportados');
+  // v331: sufijo con el scope aplicado para diferenciar el archivo del VDE/VDI
+  // del export global del admin.
+  const scopeLbl = (scopeSet === null)
+    ? 'TODOS'
+    : (scopeSet.size === 1 ? [...scopeSet][0].split(' ')[0] : ('mis-zonas-' + scopeSet.size));
+  const fname = 'Masterfile_Clientes_SAP_' + scopeLbl + '_' + ts + '.xlsx';
+  XLSX.writeFile(wb, fname);
+  showSyncTag(rows.length + ' clientes exportados' + (scopeSet === null ? '' : ' (scope: ' + [...scopeSet].join(', ') + ')'));
 };
 
 // =====================================================================
@@ -7141,7 +7166,7 @@ window.exportPreciosStock = function(){
     'Subfamilia':    p.sub || '',
     'Categoria':     p.cat || '',
     'Precio ARS':    fmtPrecio(p.code),
-    'Stock W07':     fmtStock(p.code),
+    'Stock W11':     fmtStock(p.code),
   })).sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -7168,7 +7193,7 @@ window.exportPreciosStock = function(){
 
   // Hoja 3: solo Stock
   const stockRows = PRODUCTS
-    .map(p => ({SKU: p.code || '', Descripcion: p.desc || '', 'Stock W07': fmtStock(p.code)}))
+    .map(p => ({SKU: p.code || '', Descripcion: p.desc || '', 'Stock W11': fmtStock(p.code)}))
     .sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
   const wsS = XLSX.utils.json_to_sheet(stockRows);
   wsS['!cols'] = [{wch:14}, {wch:60}, {wch:14}];
@@ -7205,10 +7230,15 @@ window.exportToExcel = function(){
     alert('La libreria de Excel no se cargo. Verifique su conexion a internet y reintente.');
     return;
   }
-  // Filtrar opciones segun rol. Vendedores solo ven Ventas / Visitas /
-  // Rutas (operativo de su dia a dia). Admin/viewer/interno ven todo.
+  // Filtrar opciones segun rol.
+  //   vendedor: operativo diario (Ventas / Visitas / Rutas) + Clientes de su zona
+  //     (exportMasterClientes ya filtra por getEffectiveVendorSet -> solo su vendor).
+  //   interno (VDI): mismo scope operativo + Clientes de sus parejas (o solo el
+  //     propio si eligio su nombre en el dropdown de zonas).
+  //   admin / gerente / viewer: ven todo el listado (null = sin filtro).
   const allowedByRole = {
-    vendedor: new Set(['VENTAS', 'VISITAS', 'RUTAS']),
+    vendedor: new Set(['VENTAS', 'VISITAS', 'RUTAS', 'MASTER']),
+    interno:  new Set(['VENTAS', 'VISITAS', 'RUTAS', 'MASTER']),
   };
   const allowed = allowedByRole[userRole] || null; // null = ver todo
   document.querySelectorAll('#export-modal .exp-opt').forEach(el => {
@@ -13937,7 +13967,13 @@ function getEffectiveVendorSet(vendor){
     return roleAllowed;
   }
   const set = new Set([vendor]);
-  const extras = VENDOR_INCLUDES_OTHERS[vendor];
+  // Fix v331: si el usuario es VDI (interno) y selecciono SU PROPIO nombre en
+  // el dropdown, NO expandir a las parejas VDE. Antes 'IOANNIS PALKOUDAKIS'
+  // expandia a {IOANNIS, FEDERICO, GONZALO} via VENDOR_INCLUDES_OTHERS y no
+  // habia forma de ver solo los clientes propios. Para ver todas las zonas
+  // (propio + parejas) el VDI tiene la opcion 'Todas mis zonas' (ALL).
+  const isSelfPickByVDI = (userRole === 'interno' && vendor === assignedVendor);
+  const extras = isSelfPickByVDI ? null : VENDOR_INCLUDES_OTHERS[vendor];
   if (extras) extras.forEach(v => set.add(v));
   // Si el rol tiene allowlist, intersectar - asi un VDI que selecciona una
   // sola pareja no puede ver una zona ajena si el VENDOR_INCLUDES_OTHERS
@@ -21662,7 +21698,7 @@ const sapSL = {
     const docLines = (p.lines || []).map((l, idx) => ({
       ItemCode: (typeof sapGetProductCode === 'function') ? (sapGetProductCode(l.code) || l.code) : l.code,
       Quantity: parseFloat(l.qty) || 0,
-      WarehouseCode: '07',
+      WarehouseCode: '11',
       LineNum: idx,
     }));
     const payload = {
@@ -22459,7 +22495,7 @@ window.exportSapReadyCsv = function(){
         'ItemCode': matSap,
         'Quantity': (parseFloat(l.qty) || 0).toString(),
         'Price': (parseFloat(l.precio) || 0).toString(),
-        'WarehouseCode': '07',                          // PESCA
+        'WarehouseCode': '11',                          // MERCADERIA (v332)
         'DiscountPercent': '0',
         'TaxCode': '',                                  // default del BP
       };
@@ -23378,7 +23414,7 @@ async function parseStockCsvFile(file){
     // Mostrar primeros 5 SKUs con stock
     const sample = Object.entries(parsed.stock).filter(([k,v]) => v).slice(0, 5).map(([k]) => k).join(', ');
     document.getElementById('stock-preview-sample').textContent =
-      sample ? ('Primeros con stock: ' + sample) : 'Ningun SKU con stock en este snapshot (W07 vacio).';
+      sample ? ('Primeros con stock: ' + sample) : 'Ningun SKU con stock en este snapshot (W11 vacio).';
     prevEl.style.display = '';
     document.getElementById('stock-publish-btn').disabled = false;
   } catch(e) {
@@ -23460,7 +23496,7 @@ window.publishStockSnapshot = async function(){
       totalSkus: parsed.totalSkus,
       withStock: parsed.withStock,
       withoutStock: parsed.withoutStock,
-      warehouse: '07',
+      warehouse: '11',
       source: 'manual_upload',
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedByUid: currentUser.uid,
