@@ -2228,7 +2228,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <option>GUIA DE PESCA</option>
             <option>VENTAS ESPECIALES</option>
           </select></div>
-          <div class="vf-row"><label>Fidelidad <span class="req">*</span></label><select id="vf-fidelidad" required><option value="">Seleccionar...</option><option>ALTA</option><option>MEDIA</option><option>BAJA</option></select></div>
+          <div class="vf-row" id="vf-fidelidad-row"><label>Fidelidad <span class="req">*</span></label><select id="vf-fidelidad" required><option value="">Seleccionar...</option><option>ALTA</option><option>MEDIA</option><option>BAJA</option></select></div>
           <div class="vf-row"><label>Especializaci&oacute;n por tipo de pesca <span class="req">*</span></label><select id="vf-especializacion" required>
             <option value="">Seleccionar...</option>
             <option>PREMIUM</option>
@@ -2245,7 +2245,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <div class="vf-row"><label>Relevancia de la tienda <span class="req">*</span> <span class="vf-hint">(1 = poco importante / 5 = muy importante)</span></label>
             <div class="vf-likert" id="vf-relevancia"><button type="button" data-v="1" onclick="setLikert(1)">1</button><button type="button" data-v="2" onclick="setLikert(2)">2</button><button type="button" data-v="3" onclick="setLikert(3)">3</button><button type="button" data-v="4" onclick="setLikert(4)">4</button><button type="button" data-v="5" onclick="setLikert(5)">5</button></div>
           </div>
-          <div class="vf-row"><label>POP <span class="req">*</span> <span class="vf-hint">(necesita material Shimano: cartel, bandera, ca&ntilde;ero, etc.)</span></label>
+          <div class="vf-row" id="vf-pop-row"><label>POP <span class="req">*</span> <span class="vf-hint">(necesita material Shimano: cartel, bandera, ca&ntilde;ero, etc.)</span></label>
             <div class="vf-toggle" id="vf-pop"><button type="button" data-v="SI" onclick="setPop('SI')">S&iacute;</button><button type="button" data-v="NO" onclick="setPop('NO')">No</button></div>
           </div>
           <div class="vf-row" id="vf-necesidad-wrap" style="display:none"><label>Necesidad puntual <span class="req">*</span></label><select id="vf-necesidad"><option value="">Seleccionar...</option><option>CA&Ntilde;ERO</option><option>CARTEL</option><option value="MOSTRADO">MOSTRADOR</option><option>OTROS</option></select></div>
@@ -2259,7 +2259,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <div class="vf-row" id="vf-frente-row"><label><span id="vf-frente-label">Frente del local</span> <span class="vf-hint" id="vf-frente-hint">(opcional - 1 foto)</span></label>
             <div class="photo-grid" id="vf-frente-grid"><label class="photo-cell add"><input type="file" accept="image/*,image/heic,image/heif" onchange="onFrentePhoto(this)"/>+</label></div>
           </div>
-          <div class="vf-row"><label>Tipo de venta <span class="req">*</span></label><select id="vf-tipoventa" required onchange="onTipoVentaChange()"><option value="">Seleccionar...</option><option value="MOSTRADO">MOSTRADOR</option><option value="ECOMMERCE">ECOMMERCE</option><option value="AMBOS">AMBOS</option></select></div>
+          <div class="vf-row" id="vf-tipoventa-row"><label>Tipo de venta <span class="req">*</span></label><select id="vf-tipoventa" required onchange="onTipoVentaChange()"><option value="">Seleccionar...</option><option value="MOSTRADO">MOSTRADOR</option><option value="ECOMMERCE">ECOMMERCE</option><option value="AMBOS">AMBOS</option></select></div>
           <div class="vf-row" id="vf-pond-wrap" style="display:none"><label>Ponderaci&oacute;n tipo de venta <span class="req">*</span> <span class="vf-hint">(debe sumar 100%)</span></label>
             <div class="vf-pond-grid">
               <div><span>Mostrador %</span><input type="number" id="vf-pond-mostrado" min="0" max="100" placeholder="60"/></div>
@@ -3355,7 +3355,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v338';
+const APP_VERSION = 'v339';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(

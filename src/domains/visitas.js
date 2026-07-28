@@ -323,6 +323,21 @@ function applyVisitModeUI(mode){
   if (tabMis) tabMis.textContent = isContacto ? 'Mis contactos' : 'Mis visitas';
   if (rowEsp) rowEsp.style.display = isContacto ? 'none' : '';
   if (rowFre) rowFre.style.display = isContacto ? 'none' : '';
+  // v339+: en modo contacto no presencial ocultamos Fidelidad + POP + Tipo de venta
+  // (+ ponderacion asociada). No aplican para un contacto por WhatsApp/tel/SMS.
+  const rowFid = document.getElementById('vf-fidelidad-row');
+  const rowPop = document.getElementById('vf-pop-row');
+  const rowTV = document.getElementById('vf-tipoventa-row');
+  const rowPond = document.getElementById('vf-pond-wrap');
+  if (rowFid) rowFid.style.display = isContacto ? 'none' : '';
+  if (rowPop) rowPop.style.display = isContacto ? 'none' : '';
+  if (rowTV) rowTV.style.display = isContacto ? 'none' : '';
+  if (rowPond && isContacto) rowPond.style.display = 'none';
+  // Quitar 'required' en modo contacto para que submit no falle por validacion.
+  const selFid = document.getElementById('vf-fidelidad');
+  const selTV = document.getElementById('vf-tipoventa');
+  if (selFid) selFid.required = !isContacto;
+  if (selTV) selTV.required = !isContacto;
   // v313+: Forma de contacto (llamada / whatsapp / SMS) solo en modo contacto.
   const rowFC = document.getElementById('vf-forma-contacto-row');
   if (rowFC) rowFC.style.display = isContacto ? '' : 'none';
@@ -796,17 +811,19 @@ window.submitVisita = async function(){
   if (window.visitMode === 'contacto' && !readField('vf-formaContacto')) errors.push('Forma de contacto');
   if (!readField('vf-local')) errors.push('Local');
   if (!readField('vf-tamano')) errors.push('Tamano');
-  if (!readField('vf-fidelidad')) errors.push('Fidelidad');
+  // v339+: Fidelidad + POP + Tipo de venta ocultos en modo contacto (no aplican).
+  const _isContacto = (window.visitMode === 'contacto');
+  if (!_isContacto && !readField('vf-fidelidad')) errors.push('Fidelidad');
   if (!readField('vf-especializacion')) errors.push('Especializacion por tipo de pesca');
   if (!readField('vf-canalcompra')) errors.push('Canal de compra');
   if (!visitState.relevancia) errors.push('Relevancia');
-  if (!visitState.pop) errors.push('POP');
-  if (visitState.pop === 'SI' && !readField('vf-necesidad')) errors.push('Necesidad puntual');
+  if (!_isContacto && !visitState.pop) errors.push('POP');
+  if (!_isContacto && visitState.pop === 'SI' && !readField('vf-necesidad')) errors.push('Necesidad puntual');
   // Frente del local: OPCIONAL (antes era obligatorio para vendedor externo;
   // ahora se puede saltar siempre - el vendedor decide si toma la foto).
   const tv = readField('vf-tipoventa');
-  if (!tv) errors.push('Tipo de venta');
-  if (tv === 'AMBOS') {
+  if (!_isContacto && !tv) errors.push('Tipo de venta');
+  if (!_isContacto && tv === 'AMBOS') {
     const m = parseFloat(readField('vf-pond-mostrado')) || 0;
     const e = parseFloat(readField('vf-pond-ecommerce')) || 0;
     if (m + e !== 100) errors.push('Ponderacion (debe sumar 100%)');
