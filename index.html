@@ -3294,7 +3294,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v341';
+const APP_VERSION = 'v342';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -5269,10 +5269,9 @@ function openSapAltaInfoModal(fsId){
         '</div>' +
         '<label style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:4px">Nombre del local / fantas&iacute;a</label>' +
         '<div style="font-size:11px;color:#94a3b8;margin-bottom:6px">Marca del comercio (ej: <b>PESCAPLAY</b>). Dejar vac&iacute;o si no aplica.</div>' +
+        // v342+ (2026-07-28): fantasia editable a todos (antes admin/gerente only).
         '<input type="text" id="sai-fantasia-input" value="' + escapeAttr(curFant) + '" placeholder="Ej: PESCAPLAY"' +
-          (isAdminLike ? '' : ' disabled') +
           ' style="width:100%;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;margin-bottom:14px"/>' +
-        (isAdminLike ? '' : '<div style="font-size:10px;color:#dc2626;margin-bottom:10px;margin-top:-6px">Solo admin o gerente puede editar este campo.</div>') +
         // Toggle "Cliente con precaucion": SOLO visible para admin/gerente.
         // La info es sensible (mora con otros distribuidores, cheques
         // rechazados) y no queremos que los vendedores vean el motivo o
@@ -5294,18 +5293,21 @@ function openSapAltaInfoModal(fsId){
           '</div>'
           : '') +
         '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">' +
-          (isAdminLike ? '<button class="btn-confirm" onclick="saveSapAltaFantasiaFromModal(\'' + safeFsId + '\')" style="background:#16a34a">Guardar</button>' : '') +
+          // v342+: boton Guardar visible a todos (antes admin/gerente only).
+          '<button class="btn-confirm" onclick="saveSapAltaFantasiaFromModal(\'' + safeFsId + '\')" style="background:#16a34a">Guardar</button>' +
           '<button onclick="document.getElementById(\'sap-alta-info-modal\').classList.remove(\'open\');openSapAltaAddressModal(\'' + safeFsId + '\')" style="padding:9px 14px;border:1.5px solid #1d4ed8;border-radius:6px;background:#fff;color:#1d4ed8;font-size:12px;font-weight:700;cursor:pointer">Editar direccion</button>' +
           '<button class="btn-cancel" onclick="document.getElementById(\'sap-alta-info-modal\').classList.remove(\'open\')">Cerrar</button>' +
         '</div>' +
       '</div>' +
     '</div>';
   modalEl.classList.add('open');
-  setTimeout(() => { const inp = document.getElementById('sai-fantasia-input'); if (inp && isAdminLike) inp.focus(); }, 50);
+  // v342+: focus a todos (antes solo admin).
+  setTimeout(() => { const inp = document.getElementById('sai-fantasia-input'); if (inp) inp.focus(); }, 50);
 }
 
 window.saveSapAltaFantasiaFromModal = function(fsId){
-  if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente.'); return; }
+  // v342+ (2026-07-28): vendedores + interno pueden editar el nombre fantasia.
+  // Antes admin/gerente only. Los cambios quedan auditados via updatedBy.
   const inp = document.getElementById('sai-fantasia-input');
   if (!inp) return;
   const trimmed = (inp.value || '').trim();
@@ -5332,24 +5334,41 @@ window.saveSapAltaFantasiaFromModal = function(fsId){
 // la localidad a mano como segundo intento.
 window.openSapAltaAddressModal = function(fsId){
   if (!fsId) return;
-  if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente.'); return; }
+  // v342+ (2026-07-28): vendedores + interno pueden editar direccion + localidad.
+  // Antes admin/gerente only. Los cambios quedan auditados via updatedBy.
   const a = (approvedAltasList || []).find(x => x._fsId === fsId);
   if (!a) { alert('No encontre la alta. Recargá la pagina y reintentá.'); return; }
   const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
   const currentCalle = a.calle || a.address || '';
   const currentLoc = a.localidadFinal || a.localidad || '';
   const newCalle = prompt(
-    'Cargar direccion de:\n' + nombre + ' (SAP ' + (a.cardCodeSap || '') + ')\n' +
+    'Editar direccion de:\n' + nombre + ' (SAP ' + (a.cardCodeSap || '') + ')\n' +
     'Provincia: ' + (a.provincia || '') + (currentLoc ? '\nLocalidad: ' + currentLoc : '') +
-    '\n\nIngresa direccion (calle + numero). La localidad la voy a deducir del geocoding.',
+    '\n\nIngresa direccion (calle + numero). Luego te preguntamos localidad si queres corregirla.',
     currentCalle
   );
   if (newCalle == null) return; // cancelo
   const trimmed = newCalle.trim();
   if (!trimmed) return;
+  // v342+: prompt de localidad tambien editable (opcional). Si el usuario deja
+  // el valor actual o vacio, el geocoding la deduce como antes. Si escribe una
+  // nueva, se guarda + fuerza re-geocode con ella.
+  const locPromptCurrent = currentLoc || '(vacio - se detecta por geocoding)';
+  const newLocInput = prompt(
+    'Localidad de esta tienda\n\n' +
+    'Actual: ' + locPromptCurrent + '\n\n' +
+    'Dejala igual o corregila si esta mal. Si la dejas vacia, la voy a\n' +
+    'deducir del geocoding automatico.',
+    currentLoc
+  );
+  // Si el usuario cancela el prompt de localidad, seguimos con la localidad actual
+  // (no bloquea el save de direccion).
+  const editedLoc = (newLocInput != null) ? newLocInput.trim() : currentLoc;
+  const useEditedLoc = (newLocInput != null) && (editedLoc !== currentLoc);
   (async () => {
     try {
-      // Primero: guardar la direccion + limpiar lat/lng para forzar re-geocode.
+      // Primero: guardar la direccion (+ localidad si editada) + limpiar lat/lng
+      // para forzar re-geocode.
       const initialPayload = {
         calle: trimmed,
         lat: firebase.firestore.FieldValue.delete(),
@@ -5357,13 +5376,19 @@ window.openSapAltaAddressModal = function(fsId){
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         updatedBy: currentUser ? (currentUser.email || currentUser.uid) : '',
       };
+      // v342+: si el usuario edito la localidad, guardarla como override.
+      if (useEditedLoc) {
+        initialPayload.localidad = editedLoc;
+        initialPayload.localidadFinal = editedLoc;
+      }
       await fbDb.collection('client_applications').doc(fsId).set(initialPayload, {merge: true});
-      // Geocodificar usando Google -> OSM. Pasamos la localidad actual (puede
-      // estar vacia) para ayudar al match. Si vuelve, leemos su locality.
+      // Geocodificar usando Google -> OSM. Pasamos la localidad efectiva
+      // (editada si aplica, o la actual). Si vuelve, leemos su locality.
+      const geocodeLoc = useEditedLoc ? editedLoc : (currentLoc || '');
       let geo = null;
       try {
         if (typeof geocodeClientAddress === 'function') {
-          geo = await geocodeClientAddress(trimmed, currentLoc || '', a.provincia || '');
+          geo = await geocodeClientAddress(trimmed, geocodeLoc, a.provincia || '');
         }
       } catch(e) { console.warn('geocode tras cargar direccion', e); }
       if (geo && geo.lat != null && geo.lng != null) {
@@ -5377,8 +5402,10 @@ window.openSapAltaAddressModal = function(fsId){
         // Si geocoding devolvio localidad y la app no tenia (o tenia
         // distinta), la actualizamos. Esto cubre los BPs donde SAP no
         // exporto Ship-to City - lo deducimos del geocoding.
+        // v342+: si el usuario edito la localidad manualmente en el prompt,
+        // NO la sobreescribimos con detectedLoc — respeto explicito del user.
         const detectedLoc = (geo.locality || '').trim();
-        if (detectedLoc && !currentLoc) {
+        if (detectedLoc && !currentLoc && !useEditedLoc) {
           followUp.localidad = detectedLoc;
           followUp.localidadFinal = detectedLoc;
         }
