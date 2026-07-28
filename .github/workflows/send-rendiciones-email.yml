@@ -28,6 +28,11 @@ on:
         type: boolean
         required: false
         default: false
+      replay_ids:
+        description: 'IDs puntuales separados por coma (replay quirurgico, ignora status/notifiedAt)'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -61,4 +66,5 @@ jobs:
           MAIL_TO: mariano.erbino@shimano.com.ar
           FORCE_SEND: ${{ inputs.force }}
           SKIP_MARK: ${{ inputs.skip_mark }}
+          REPLAY_IDS: ${{ inputs.replay_ids }}
         run: python scripts/send_rendiciones_email.py

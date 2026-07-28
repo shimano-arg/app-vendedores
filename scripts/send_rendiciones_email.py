@@ -68,6 +68,7 @@ def _envbool(name: str) -> bool:
 
 FORCE_SEND = _envbool("FORCE_SEND")  # ignora filtro notifiedAt
 SKIP_MARK = _envbool("SKIP_MARK")    # NO marca como notificadas (testing)
+REPLAY_IDS = [x.strip() for x in (os.environ.get("REPLAY_IDS", "") or "").split(",") if x.strip()]
 
 
 def die(msg: str) -> None:
@@ -127,7 +128,24 @@ def upload_foto_to_storage(rendicion_id: str, foto_dataurl: str):
 def fetch_pending_approved(db):
     """Query rendiciones aprobadas. Si FORCE_SEND, traemos todas las
     aprobadas (incluso las ya notificadas) - util para testear el formato
-    del Excel sin tener que esperar nuevas rendiciones."""
+    del Excel sin tener que esperar nuevas rendiciones. Si REPLAY_IDS
+    tiene contenido, ignoramos status/notifiedAt y traemos solo esos IDs
+    (replay quirurgico de un batch puntual, ej. cuando un cron corrio con
+    un bug y hay que reenviar solo ese subconjunto sin duplicar historico
+    en SharePoint via Power Automate)."""
+    if REPLAY_IDS:
+        out = []
+        coll = db.collection("rendiciones")
+        for rid in REPLAY_IDS:
+            snap = coll.document(rid).get()
+            if not snap.exists:
+                print(f"[fetch] WARN: REPLAY_ID {rid} no existe", file=sys.stderr)
+                continue
+            data = snap.to_dict() or {}
+            data["_id"] = snap.id
+            data["_ref"] = snap.reference
+            out.append(data)
+        return out
     docs = db.collection("rendiciones").where("status", "==", "approved").stream()
     out = []
     for d in docs:
@@ -408,7 +426,12 @@ def mark_as_notified(rendiciones) -> None:
 
 def main() -> int:
     db = init_firestore()
-    mode_lbl = "FORCE_SEND (todas)" if FORCE_SEND else "solo no notificadas"
+    if REPLAY_IDS:
+        mode_lbl = f"REPLAY_IDS ({len(REPLAY_IDS)} IDs puntuales)"
+    elif FORCE_SEND:
+        mode_lbl = "FORCE_SEND (todas)"
+    else:
+        mode_lbl = "solo no notificadas"
     print(f"[fetch] Modo: {mode_lbl}")
     rendiciones = fetch_pending_approved(db)
     print(f"[fetch] Encontradas: {len(rendiciones)}")
