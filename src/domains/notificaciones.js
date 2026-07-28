@@ -175,7 +175,10 @@ window.shareAltaCliViaWhatsapp = function(){
 
 window.setAltaCliSubtab = function(sub){
   document.querySelectorAll('.ac-subtab-btn').forEach(b => b.classList.toggle('active', b.dataset.acsub === sub));
-  document.getElementById('ac-pane-nuevo').style.display = sub === 'nuevo' ? '' : 'none';
+  // v341+ (2026-07-28): sub-tab 'nuevo' + pane #ac-pane-nuevo removidos. Los
+  // getElementById se hacen con guard para tolerar el pane eliminado sin tirar.
+  const nuevoPane = document.getElementById('ac-pane-nuevo');
+  if (nuevoPane) nuevoPane.style.display = sub === 'nuevo' ? '' : 'none';
   document.getElementById('ac-pane-mias').style.display = sub === 'mias' ? '' : 'none';
   const rapidaPane = document.getElementById('ac-pane-rapida');
   if (rapidaPane) rapidaPane.style.display = sub === 'rapida' ? '' : 'none';

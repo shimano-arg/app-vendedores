@@ -3046,12 +3046,12 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <div class="tab-pane" id="pane-altacli" style="display:none">
       <h3>Alta de clientes</h3>
       <div class="ac-subtabs">
-        <button class="ac-subtab-btn active" data-acsub="nuevo" onclick="setAltaCliSubtab('nuevo')">Nueva solicitud</button>
-        <button class="ac-subtab-btn" data-acsub="rapida" onclick="setAltaCliSubtab('rapida')" title="Alta provisoria - sin SAP. El admin tiene que cargar manualmente despues.">&#9889; Alta r&aacute;pida</button>
+        <button class="ac-subtab-btn active" data-acsub="rapida" onclick="setAltaCliSubtab('rapida')" title="Alta provisoria - sin SAP. El admin tiene que cargar manualmente despues.">&#9889; Alta r&aacute;pida</button>
         <button class="ac-subtab-btn" data-acsub="mias" onclick="setAltaCliSubtab('mias')">Mis solicitudes <span class="ac-sub-count" id="ac-sub-count-mias"></span></button>
       </div>
-      <!-- Sub-tab ALTA RAPIDA: provisional, sin SAP. Pide solo 3 campos. -->
-      <div id="ac-pane-rapida" style="display:none">
+      <!-- Sub-tab ALTA RAPIDA: provisional, sin SAP. Pide solo 3 campos.
+           v341+ (2026-07-28): default visible (era la sub-tab Nueva solicitud). -->
+      <div id="ac-pane-rapida">
         <div style="background:#fef3c7;border:1.5px solid #fcd34d;border-radius:8px;padding:12px 14px;margin-bottom:14px;line-height:1.5">
           <div style="font-size:12px;font-weight:800;color:#92400e;margin-bottom:5px">&#9889; Alta r&aacute;pida (provisoria)</div>
           <div style="font-size:11px;color:#78350f">Para cuando una tienda <b>todav&iacute;a no est&aacute; en SAP</b> y necesit&aacute;s tomar un pedido r&aacute;pido. Pide solo 3 datos. El cliente queda <b>habilitado provisoriamente</b> y vas a poder cargarle pedidos hasta que administraci&oacute;n lo de de alta oficial en SAP.</div>
@@ -3074,68 +3074,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           </div>
         </form>
       </div>
-      <div id="ac-pane-nuevo">
-        <div style="background:#ecfeff;border:1px solid #67e8f9;border-radius:8px;padding:12px 14px;margin-bottom:14px;text-align:center">
-          <div style="font-size:11px;font-weight:800;color:#155e75;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px">&#128279; Compartir formulario con el cliente</div>
-          <div style="font-size:10px;color:#475569;line-height:1.5;margin-bottom:10px">¿No queres cargar vos los datos? Envia este link al cliente para que los complete el mismo. La solicitud sigue el mismo flujo de aprobacion.</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
-            <button type="button" class="app-btn-pill app-btn-cyan" onclick="copyAltaCliShareLink()">&#128203; Copiar link</button>
-            <button type="button" class="app-btn-pill app-btn-wa" onclick="shareAltaCliViaWhatsapp()">&#128241; Enviar por WhatsApp</button>
-          </div>
-        </div>
-        <form id="alta-cli-form" autocomplete="off">
-          <h4 class="ac-section-title">Datos del comercio</h4>
-          <div class="ac-row"><label>E-mail <span class="req">*</span></label><input type="email" id="ac-email" required/></div>
-          <div class="ac-row"><label>Nombre del comercio <span class="req">*</span></label><input type="text" id="ac-comercio" required maxlength="120"/></div>
-          <div class="ac-row"><label>Nombre de fantas&iacute;a <span class="req">*</span></label><input type="text" id="ac-fantasia" required maxlength="120"/></div>
-          <div class="ac-row"><label>CUIT <span class="req">*</span></label><input type="text" id="ac-cuit" required placeholder="20-12345678-9" inputmode="numeric" maxlength="13"/></div>
-          <div class="ac-row"><label>Condici&oacute;n Fiscal <span class="req">*</span></label><select id="ac-condfiscal" required>
-            <option value="">Seleccionar...</option>
-            <option>Responsable Inscripto</option>
-            <option>Monotributo</option>
-            <option>Exento</option>
-            <option>Consumidor Final</option>
-            <option>Responsable No Inscripto</option>
-          </select></div>
-          <div class="ac-row"><label>Calle <span class="req">*</span></label><input type="text" id="ac-calle" required maxlength="80"/></div>
-          <div class="ac-row"><label>N&uacute;mero <span class="req">*</span></label><input type="text" id="ac-numero" required maxlength="10"/></div>
-          <div class="ac-row"><label>Localidad <span class="req">*</span></label><input type="text" id="ac-localidad" required maxlength="60"/></div>
-          <div class="ac-row"><label>Provincia <span class="req">*</span></label><select id="ac-provincia" required><option value="">Seleccionar...</option></select></div>
-          <div class="ac-row"><label>C&oacute;digo Postal <span class="req">*</span></label><input type="text" id="ac-cp" required maxlength="10"/></div>
-          <div class="ac-row"><label>Tel&eacute;fono <span class="req">*</span></label><input type="tel" id="ac-telefono" required maxlength="20"/></div>
-          <div class="ac-row"><label>P&aacute;gina Web <span class="req">*</span></label><input type="url" id="ac-web" required placeholder="https://..."/></div>
-          <div class="ac-row"><label>Redes (Instagram / Facebook) <span class="req">*</span></label><input type="text" id="ac-redes" required placeholder="@usuario IG / usuario FB"/></div>
-
-          <h4 class="ac-section-title">Datos de contacto</h4>
-          <div class="ac-row"><label>Nombre y Apellido <span class="req">*</span></label><input type="text" id="ac-contacto-nombre" required maxlength="80"/></div>
-          <div class="ac-row"><label>Tel&eacute;fono particular <span class="req">*</span></label><input type="tel" id="ac-contacto-telpart" required maxlength="20"/></div>
-          <div class="ac-row"><label>WhatsApp / Celular <span class="req">*</span></label><input type="tel" id="ac-contacto-wsp" required maxlength="20"/></div>
-          <div class="ac-row"><label>E-mail del contacto <span class="req">*</span></label><input type="email" id="ac-contacto-email" required/></div>
-          <div class="ac-row"><label>Tipo de comercio <span class="req">*</span></label><select id="ac-tipocomercio" required>
-            <option value="">Seleccionar...</option>
-            <option>PESCA</option><option>OUTDOOR</option><option>CAZA</option><option>MULTIRUBRO</option>
-          </select></div>
-          <div class="ac-row"><label>Tienda online <span class="req">*</span></label><select id="ac-tiendaonline" required>
-            <option value="">Seleccionar...</option>
-            <option>MERCADO LIBRE</option><option>P&Aacute;GINA WEB PROPIA</option><option>OTROS</option><option>NO TIENE</option>
-          </select></div>
-
-          <h4 class="ac-section-title">Documentaci&oacute;n a adjuntar</h4>
-          <div class="ac-row"><label>Constancia inscripci&oacute;n ARCA <span class="req">*</span> <span class="vf-hint">(1 imagen/PDF)</span></label>
-            <div class="photo-grid" id="ac-arca-grid"><label class="photo-cell add"><input type="file" accept="image/*,.pdf" onchange="onAltaCliFile(this,'arca')"/>+</label></div>
-          </div>
-          <div class="ac-row"><label>Constancia IIBB <span class="vf-hint">(opcional - solo si corresponde)</span></label>
-            <div class="photo-grid" id="ac-iibb-grid"><label class="photo-cell add"><input type="file" accept="image/*,.pdf" onchange="onAltaCliFile(this,'iibb')"/>+</label></div>
-          </div>
-          <div class="ac-row"><label>Fotos del local <span class="req">*</span> <span class="vf-hint">(frente e interior, hasta 5)</span></label>
-            <div class="photo-grid" id="ac-fotos-grid"><label class="photo-cell add"><input type="file" accept="image/*" multiple onchange="onAltaCliFile(this,'fotos')"/>+</label></div>
-          </div>
-
-          <div class="ac-row" style="margin-top:14px">
-            <button type="button" class="btn-confirm" style="background:#0891b2;width:100%;padding:12px;font-size:13px" onclick="submitClientApplication()">Enviar solicitud de alta</button>
-          </div>
-        </form>
-      </div>
+      <!-- v341+ (2026-07-28): sub-tab Nueva solicitud + pane #ac-pane-nuevo removidos. -->
       <div id="ac-pane-mias" style="display:none">
         <div id="ac-mias-list"></div>
       </div>
@@ -3355,7 +3294,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v340';
+const APP_VERSION = 'v341';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
