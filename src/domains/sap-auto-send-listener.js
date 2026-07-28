@@ -62,14 +62,37 @@ function ensureSapAutoSendListener(){
         // muchas confirmaciones llegan juntas.
         _autoSendInflight.add(fsId);
         (async () => {
+          const docRef = fbDb.collection('pedidos').doc(fsId);
+          const mySessionId = (currentUser && currentUser.uid || 'anon') + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
           try {
-            // Adjuntar el _fsId al objeto antes de armar payload (lo necesita
-            // buildQuotationPayload via p._fsId).
+            // v344+ (2026-07-28): FIX DUPLICADOS. Antes _autoSendInflight era LOCAL
+            // por sesion -> con 2 tabs abiertos, 2 admins online, o F5 durante envio,
+            // se creaba la oferta duplicada en SAP. Fix: transaction Firestore que
+            // reserva el envio CROSS-SESSION escribiendo un lock sendingSapLock antes
+            // de llamar createQuotation. Solo un session gana la reserva.
+            await fbDb.runTransaction(async tx => {
+              const snap = await tx.get(docRef);
+              if (!snap.exists) throw new Error('DOC_GONE');
+              const data = snap.data() || {};
+              if (data.transferidoSAP) throw new Error('ALREADY_SENT');
+              // Lock stale-safe: si otro session tomo el lock hace <60 seg,
+              // respetamos. Si tiene mas de 60 seg asumimos que crasheo y
+              // podemos re-intentar. En happy path el lock se libera en <10 seg.
+              if (data.sendingSapLock && data.sendingSapLock.at) {
+                const lockAgeMs = Date.now() - data.sendingSapLock.at;
+                if (lockAgeMs < 60000) throw new Error('OTHER_SESSION_LOCK:' + (data.sendingSapLock.sessionId || 'unknown'));
+              }
+              tx.update(docRef, {
+                sendingSapLock: { sessionId: mySessionId, at: Date.now() },
+              });
+            });
+            // Reserva OK - somos el unico que puede enviar. Adjuntar el _fsId
+            // al objeto antes de armar payload (lo necesita buildQuotationPayload).
             const pedidoConFsId = Object.assign({_fsId: fsId}, p);
             const payload = sapSL.buildQuotationPayload(pedidoConFsId);
             const r = await sapSL.createQuotation(payload);
             if (r.ok) {
-              await fbDb.collection('pedidos').doc(fsId).update({
+              await docRef.update({
                 // No tocamos stage - se queda como 'confirmed' para que el
                 // pedido siga visible en Pedidos > Confirmados. SAP > Ya
                 // Transferidos lo detecta via transferidoSAP.transferredAt.
@@ -82,17 +105,30 @@ function ensureSapAutoSendListener(){
                   sapDocRange: String(r.body.DocNum || ''),
                   batchId: 'SL-AUTO-' + Date.now(),
                 },
+                // Liberar el lock (ya no hace falta - transferidoSAP protege).
+                sendingSapLock: firebase.firestore.FieldValue.delete(),
               });
               console.log('[SAP auto] OK', fsId, p.clientName, '-> DocNum', r.body.DocNum);
               if (typeof showSyncTag === 'function') showSyncTag('Auto-enviado: ' + p.clientName + ' (#' + (r.body.DocNum || '?') + ')');
             } else {
               console.warn('[SAP auto] FAILED', fsId, p.clientName, '-', r.error);
+              // Liberar el lock para que se pueda reintentar (manual o auto).
+              try { await docRef.update({ sendingSapLock: firebase.firestore.FieldValue.delete() }); } catch(_){}
               // No hacemos retry automatico. El admin lo ve en Pendientes y
               // puede mandarlo manual o ver el error.
               if (typeof showSyncTag === 'function') showSyncTag('Auto-envio FALLO: ' + p.clientName + ' - ver consola');
             }
           } catch(e) {
-            console.error('[SAP auto] exception', fsId, e);
+            // Si es ALREADY_SENT o OTHER_SESSION_LOCK, es esperable (otro
+            // session ya lo esta procesando). Log sin ruido.
+            const msg = e && e.message || String(e);
+            if (msg === 'ALREADY_SENT' || msg.startsWith('OTHER_SESSION_LOCK') || msg === 'DOC_GONE') {
+              console.log('[SAP auto] skip', fsId, p.clientName, '-', msg);
+            } else {
+              console.error('[SAP auto] exception', fsId, e);
+              // Intentar liberar lock por si lo tomamos y despues fallo el createQuotation.
+              try { await docRef.update({ sendingSapLock: firebase.firestore.FieldValue.delete() }); } catch(_){}
+            }
           } finally {
             _autoSendInflight.delete(fsId);
           }

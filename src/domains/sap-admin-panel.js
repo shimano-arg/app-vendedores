@@ -605,14 +605,41 @@ window.enviarPedidosASAPViaServiceLayer = async function(pedidos){
   }
   const errors = [];
   let sent = 0;
+  const skipped = [];
+  const mySessionId = (currentUser && currentUser.uid || 'anon') + '-manual-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
   for (const p of pedidos) {
+    const docRef = fbDb.collection('pedidos').doc(p._fsId);
+    // v344+ (2026-07-28): FIX DUPLICADOS. Igual que el auto-send listener,
+    // aca tambien reservamos con transaction para prevenir carrera contra el
+    // auto-send corriendo en OTRA sesion (o el mismo tab despues del F5).
+    let lockAcquired = false;
+    try {
+      await fbDb.runTransaction(async tx => {
+        const snap = await tx.get(docRef);
+        if (!snap.exists) throw new Error('DOC_GONE');
+        const data = snap.data() || {};
+        if (data.transferidoSAP) throw new Error('ALREADY_SENT');
+        if (data.sendingSapLock && data.sendingSapLock.at) {
+          const lockAgeMs = Date.now() - data.sendingSapLock.at;
+          if (lockAgeMs < 60000) throw new Error('OTHER_SESSION_LOCK:' + (data.sendingSapLock.sessionId || 'unknown'));
+        }
+        tx.update(docRef, { sendingSapLock: { sessionId: mySessionId, at: Date.now() } });
+      });
+      lockAcquired = true;
+    } catch (e) {
+      const msg = e && e.message || String(e);
+      if (msg === 'ALREADY_SENT') { skipped.push({pedido: p._fsId, cliente: p.clientName, motivo: 'ya enviado'}); continue; }
+      if (msg.startsWith('OTHER_SESSION_LOCK')) { skipped.push({pedido: p._fsId, cliente: p.clientName, motivo: 'lockeado por otra sesion'}); continue; }
+      errors.push({pedido: p._fsId, cliente: p.clientName, error: 'reserva fallo: ' + msg});
+      continue;
+    }
     const payload = sapSL.buildQuotationPayload(p);
     const r = await sapSL.createQuotation(payload);
     if (r.ok) {
       sent++;
       // Marcar el pedido como transferido a SAP en Firestore
       try {
-        await fbDb.collection('pedidos').doc(p._fsId).update({
+        await docRef.update({
           // Mantener stage='confirmed' para que el pedido siga apareciendo
           // en Pedidos > Confirmados. El campo transferidoSAP.transferredAt
           // es el que SAP > Ya Transferidos usa como filtro.
@@ -625,13 +652,16 @@ window.enviarPedidosASAPViaServiceLayer = async function(pedidos){
             sapDocRange: String(r.body.DocNum || ''),
             batchId: 'SL-' + Date.now(),
           },
+          sendingSapLock: firebase.firestore.FieldValue.delete(),
         });
       } catch(e) { console.warn('No pude marcar pedido como transferido', p._fsId, e); }
     } else {
+      // Liberar lock para permitir reintento.
+      if (lockAcquired) { try { await docRef.update({ sendingSapLock: firebase.firestore.FieldValue.delete() }); } catch(_){} }
       errors.push({pedido: p._fsId, cliente: p.clientName, error: r.error});
     }
   }
-  return {sent, failed: errors.length, errors};
+  return {sent, failed: errors.length, errors, skipped};
 };
 
 // ----- TAB: Pendientes / Transferidos -----
