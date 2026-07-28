@@ -3294,7 +3294,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v344';
+const APP_VERSION = 'v345';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -9116,23 +9116,30 @@ async function parseExcelPedidoFile(file){
     // Shimano-style con columnas Familia | Tipo | Modelo | Codigo | ...).
     const SKU_NAMES = ['codigo sku','sku','codigo','code','item','itemcode','codigo articulo','codigo del articulo','cod','codigo sap','articulo'];
     const QTY_NAMES = ['pedido','cantidad','quantity','qty','unidades','cant','u','u.','cant.','pedidos','unidades pedidas'];
+    // v345+ (2026-07-28): parser detecta ademas columna de PRECIO. Si existe,
+    // el precio del Excel pisa el precio default del catalogo/SAP en la carga
+    // del pedido (ver confirmExcelPedido). Aliases comunes en templates.
+    const PRICE_NAMES = ['precio','precio unitario','precio $','precio ars','importe unitario','p. unitario','p unitario','unit price','price','precio unit','pu','p.u.'];
     // Buscar fila de header: la primera (hasta fila 20) que contenga
     // ALGUNA columna que matchee SKU_NAMES y ALGUNA que matchee QTY_NAMES.
+    // La columna PRICE es OPCIONAL (si no aparece se usa el precio del catalogo).
     let headerRowIdx = -1;
-    let kSkuIdx = -1, kQtyIdx = -1;
+    let kSkuIdx = -1, kQtyIdx = -1, kPriceIdx = -1;
     const maxHeaderScan = Math.min(aoa.length, 20);
     for (let r = 0; r < maxHeaderScan; r++) {
       const row = aoa[r] || [];
-      let sIdx = -1, qIdx = -1;
+      let sIdx = -1, qIdx = -1, pIdx = -1;
       for (let c = 0; c < row.length; c++) {
         const cn = norm(row[c]);
         if (sIdx < 0 && SKU_NAMES.indexOf(cn) >= 0) sIdx = c;
         if (qIdx < 0 && QTY_NAMES.indexOf(cn) >= 0) qIdx = c;
+        if (pIdx < 0 && PRICE_NAMES.indexOf(cn) >= 0) pIdx = c;
       }
       if (sIdx >= 0 && qIdx >= 0) {
         headerRowIdx = r;
         kSkuIdx = sIdx;
         kQtyIdx = qIdx;
+        kPriceIdx = pIdx; // -1 si no habia col de precio en este archivo
         break;
       }
     }
@@ -9173,19 +9180,24 @@ async function parseExcelPedidoFile(file){
     }
     // Stash para que confirmExcelPedido o el preview lo muestren.
     window._excelPedidoMeta = {cliente: detectedCliente, cuit: detectedCuit};
-    // Convertir el resto de filas a array de objetos {sku, qty}.
+    // Convertir el resto de filas a array de objetos {sku, qty, precio?}.
+    // v345+: si hay columna precio detectada, la leemos y la pasamos como
+    // override en parsed[]. Si no, quedara undefined y confirmExcelPedido
+    // usara getDefaultPrice del catalogo.
     const rows = [];
     for (let r = headerRowIdx + 1; r < aoa.length; r++) {
       const row = aoa[r] || [];
       const sku = row[kSkuIdx];
       const qty = row[kQtyIdx];
+      const price = (kPriceIdx >= 0) ? row[kPriceIdx] : null;
       // Saltar filas totalmente vacias o sin SKU.
       if (sku == null || String(sku).trim() === '') continue;
-      rows.push({__sku: sku, __qty: qty});
+      rows.push({__sku: sku, __qty: qty, __price: price});
     }
     if (!rows.length) throw new Error('No hay filas con datos despues del header. Cargar al menos un SKU con cantidad.');
     const kSku = '__sku';
     const kQty = '__qty';
+    const kPrice = '__price';
     const parsed = [];
     const notFound = []; // SKUs del Excel que no estan en el catalogo PRODUCTS.
     const zerosOrEmpty = [];
@@ -9202,6 +9214,15 @@ async function parseExcelPedidoFile(file){
         if (qtyRaw && qtyRaw !== '0') zerosOrEmpty.push({code: codeRaw, qty: qtyRaw});
         return;
       }
+      // v345+: leer precio del Excel si existe. Formato ES-AR: '1.234,56'
+      // -> 1234.56. Tolerar '$', espacios, letras basura.
+      let precioExcel = null;
+      if (kPriceIdx >= 0 && r[kPrice] != null && String(r[kPrice]).trim() !== '') {
+        const priceRaw = String(r[kPrice]).trim();
+        const priceClean = priceRaw.replace(/\./g, '').replace(',', '.').replace(/[^\d.\-]/g, '');
+        const priceNum = parseFloat(priceClean);
+        if (!isNaN(priceNum) && priceNum > 0) precioExcel = priceNum;
+      }
       // Match case-insensitive contra el catalogo (v280+). Si el vendedor
       // escribio 'glf-26b1ue' o 'GLF-26B1UE' pero el master SAP tiene
       // 'GLF-26B1ue', igual matchea.
@@ -9212,8 +9233,14 @@ async function parseExcelPedidoFile(file){
         // no tiene que interpretar la capitalizacion del vendedor).
         const canonicalCode = prod.code;
         const existing = parsed.find(x => x.code === canonicalCode);
-        if (existing) existing.qty += qty;
-        else parsed.push({code: canonicalCode, desc: prod.desc, cat: prod.cat||'', fam: prod.fam||'', sub: prod.sub||'', qty, needsReview: false});
+        if (existing) {
+          existing.qty += qty;
+          // Si aparecen precios distintos en el mismo Excel, gana el ultimo
+          // definido (comportamiento predecible + evita romper el flow).
+          if (precioExcel != null) existing.precioExcel = precioExcel;
+        } else {
+          parsed.push({code: canonicalCode, desc: prod.desc, cat: prod.cat||'', fam: prod.fam||'', sub: prod.sub||'', qty, needsReview: false, precioExcel});
+        }
         return;
       }
       // No match -> v280+: NO descartamos. Lo agregamos igual con flag
@@ -9221,14 +9248,19 @@ async function parseExcelPedidoFile(file){
       // Preservamos la capitalizacion original del Excel (el admin verificara).
       notFound.push({code: codeRaw, qty}); // seguimos loggeando para el warning en preview
       const existing = parsed.find(x => x.code === codeRaw && x.needsReview);
-      if (existing) existing.qty += qty;
-      else parsed.push({
-        code: codeRaw,
-        desc: '⚠ REVISAR EN SAP - SKU no encontrado en catalogo',
-        cat: '', fam: '', sub: '',
-        qty,
-        needsReview: true,
-      });
+      if (existing) {
+        existing.qty += qty;
+        if (precioExcel != null) existing.precioExcel = precioExcel;
+      } else {
+        parsed.push({
+          code: codeRaw,
+          desc: '⚠ REVISAR EN SAP - SKU no encontrado en catalogo',
+          cat: '', fam: '', sub: '',
+          qty,
+          needsReview: true,
+          precioExcel,
+        });
+      }
     });
     if (!parsed.length) throw new Error('No se encontraron lineas validas (con cantidad > 0). Todas las filas quedaron descartadas por cantidad 0 o invalida.');
     _excelPedidoParsed = parsed;
@@ -9296,21 +9328,38 @@ async function parseExcelPedidoFile(file){
 window.confirmExcelPedido = function(){
   if (!_excelPedidoParsed || !_excelPedidoParsed.length) return;
   if (!currentOrderKey) { alert('Cliente sin contexto. Cerra y abri de nuevo.'); return; }
-  // Cargar las lineas en orders[] con precio default desde la price list.
-  orders[currentOrderKey] = _excelPedidoParsed.map(l => ({
-    code: l.code,
-    desc: l.desc,
-    cat: l.cat || '',
-    fam: l.fam || '',
-    sub: l.sub || '',
-    qty: l.qty,
-    // Precio: si es needsReview no lo buscamos (no existe en price list) - queda
-    // 0 y el vendedor / admin lo carga a mano en el modal review.
-    precio: l.needsReview ? 0 : ((typeof getDefaultPrice === 'function') ? getDefaultPrice(l.code) : 0),
-    needsReview: !!l.needsReview,
-  }));
+  // Cargar las lineas en orders[] con precio.
+  // v345+ (2026-07-28): PRIORIDAD DE PRECIO:
+  //   1. l.precioExcel (si el Excel trae columna precio con valor valido) — PISA todo.
+  //   2. getDefaultPrice(l.code) del catalogo/SAP como fallback.
+  //   3. 0 si es needsReview (SKU no encontrado en catalogo).
+  let priceExcelCount = 0;
+  orders[currentOrderKey] = _excelPedidoParsed.map(l => {
+    let precio;
+    if (l.precioExcel != null && l.precioExcel > 0) {
+      precio = l.precioExcel;
+      priceExcelCount++;
+    } else if (l.needsReview) {
+      precio = 0; // sin catalogo -> vendedor/admin lo carga a mano en review.
+    } else {
+      precio = (typeof getDefaultPrice === 'function') ? getDefaultPrice(l.code) : 0;
+    }
+    return {
+      code: l.code,
+      desc: l.desc,
+      cat: l.cat || '',
+      fam: l.fam || '',
+      sub: l.sub || '',
+      qty: l.qty,
+      precio,
+      needsReview: !!l.needsReview,
+    };
+  });
   try { saveOrders(); } catch(e){}
-  showSyncTag('Pedido cargado desde Excel: ' + _excelPedidoParsed.length + ' lineas');
+  const priceMsg = priceExcelCount > 0
+    ? ' (' + priceExcelCount + ' con precio del Excel)'
+    : '';
+  showSyncTag('Pedido cargado desde Excel: ' + _excelPedidoParsed.length + ' lineas' + priceMsg);
   closeExcelPedidoModal();
   // Abrir el modal "Revisa tu pedido" directamente. El usuario ajusta
   // cantidades / precios, elige forma de pago y confirma a Pendientes.
