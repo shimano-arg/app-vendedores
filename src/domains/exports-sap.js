@@ -167,7 +167,11 @@ window.exportSapReadyCsv = function(){
       'DocCurrency': '',                                // default ARS
       'Comments': commentTxt,
       'NumAtCard': p._fsId || '',                       // backup de trazabilidad (legible en lista de pedidos SAP sin abrir UDFs)
-      'DiscountPercent': '0',
+      // v343+ (2026-07-28): Descuento del header. El vendedor lo carga en el
+      // modal Review (input rv-manual-discount) y se persiste en p.discountPct.
+      // Igual que el payload SL, aplica a nivel documento (aparece en OQUT campo
+      // Descuento %). Rango 0-100. Antes era hardcoded '0'.
+      'DiscountPercent': String(Math.max(0, Math.min(100, parseFloat(p.discountPct) || 0))),
       'SalesPersonCode': slpCode,                       // SlpCode del vendedor (cargado via Integracion SAP)
       'Series': sapAppSeriesId || '',                   // serie 'APP' (si admin la cargo en app_config); vacio = serie default del usuario
       // Sales Quotation: DocObjectCode 23 (en lugar de 17 que seria Sales Order).

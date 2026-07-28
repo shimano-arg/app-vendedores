@@ -3294,7 +3294,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v342';
+const APP_VERSION = 'v343';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -13930,11 +13930,26 @@ window.doConfirmPedido = function(){
     hasSkusToReview: (ord || []).some(l => !!l.needsReview),
     skusToReviewCount: (ord || []).filter(l => !!l.needsReview).length,
     // Subtotal bruto (qty*precio) y monto neto (con descuento aplicado).
-    // El dashboard y los targets usan netAmountArs; el payload a SAP usa
-    // subtotalArs (SAP recalcula descuentos al ingresar el pedido).
+    // El dashboard y los targets usan netAmountArs.
+    //
+    // v343+ (2026-07-28): descuento MANUAL editado por el vendedor en el
+    // modal Review (input #rv-manual-discount). Si existe, pisa el
+    // auto-calculado del _discountSnapshot y se envia a SAP como DiscountPercent
+    // en el payload SL. Fallback al auto-calc si el input no existe (safety).
     subtotalArs: Math.round(_subtotalArs),
-    netAmountArs: _discountSnapshot ? Math.round(_discountSnapshot.total) : Math.round(_subtotalArs),
-    discountPct: _discountSnapshot ? _discountSnapshot.pctTotal : 0,
+    netAmountArs: (() => {
+      const _manualEl = document.getElementById('rv-manual-discount');
+      if (_manualEl) {
+        const _manualPct = parseFloat(_manualEl.value) || 0;
+        return Math.round(_subtotalArs * (1 - _manualPct / 100));
+      }
+      return _discountSnapshot ? Math.round(_discountSnapshot.total) : Math.round(_subtotalArs);
+    })(),
+    discountPct: (() => {
+      const _manualEl = document.getElementById('rv-manual-discount');
+      if (_manualEl) return parseFloat(_manualEl.value) || 0;
+      return _discountSnapshot ? _discountSnapshot.pctTotal : 0;
+    })(),
     discountSnapshot: _discountSnapshot,
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   };

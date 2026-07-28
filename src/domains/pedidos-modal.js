@@ -576,9 +576,14 @@ function renderReviewLines(){
       splitEl.innerHTML = '';
     }
   }
-  // Descuento estimado (informativo, no afecta payload SAP).
+  // v343+ (2026-07-28): Descuento total EDITABLE por el vendedor. Antes era
+  // solo informativo y el pedido iba a SAP sin descuento (SAP recalculaba).
+  // Ahora el input 'rv-manual-discount' se envia como DiscountPercent al
+  // payload SAP Service Layer -> aparece en el campo Descuento % de OQUT.
+  //
   // Volumen es DINAMICO (depende del subtotal del pedido) y el bonus de
-  // pago anticipado solo aplica si el vendedor elige CONTADO.
+  // pago anticipado solo aplica si el vendedor elige CONTADO. Se muestra
+  // como SUGERENCIA (auto-calculo) pero el vendedor puede editarla.
   const discEl = document.getElementById('rv-discount');
   if (discEl) {
     if (!ord.length || totalM <= 0) { discEl.innerHTML = ''; return; }
@@ -586,23 +591,37 @@ function renderReviewLines(){
     const formaPagoSel = document.getElementById('rv-forma-pago');
     const formaPago = formaPagoSel ? formaPagoSel.value : '';
     const d = calcClientDiscount(cd, totalM, formaPago);
-    if (!d.hasAny && !formaPago) {
-      discEl.innerHTML = '<div class="review-discount"><div class="rd-head"><span>&#128176; Descuento estimado</span></div>'
-        + '<div class="rd-empty">Cargar <b>Tipo de cliente</b> en Master Clientes y elegir <b>Forma de pago</b> aca arriba para ver el descuento estimado.</div></div>';
-      return;
-    }
-    const tipoLbl  = d.tipo ? ('Tipo ' + d.tipo) : 'Sin tipo';
-    const volLbl   = d.vol;
-    const anticLbl = (d.formaPago === 'CONTADO') ? 'CONTADO' : (d.formaPago ? (d.formaPago + ' - no aplica') : 'Sin forma de pago');
+    // Valor actual del input (preservar entre re-renders si el user tipeo).
+    // Si no hay valor tipeado, sugerir el auto-calculado.
+    const currentInput = document.getElementById('rv-manual-discount');
+    const currentValue = currentInput ? currentInput.value : '';
+    const suggested = d.hasAny ? d.pctTotal : 0;
+    const inputValue = (currentValue !== '' && currentValue != null) ? currentValue : String(suggested);
     let body = '';
     body += '<div class="rd-line"><span>Subtotal pedido</span><span class="rd-money">$' + Math.round(totalM).toLocaleString('es-AR') + '</span></div>';
-    body += '<div class="rd-line"><span>&middot; Descuento fijo (' + escapeHtml(tipoLbl) + ')</span><span class="rd-pct">-' + d.pctFijo + '%</span></div>';
-    body += '<div class="rd-line"><span>&middot; Descuento por volumen (' + escapeHtml(volLbl) + ')</span><span class="rd-pct">-' + d.pctVol + '%</span></div>';
-    body += '<div class="rd-line"><span>&middot; Descuento pago anticipado (' + escapeHtml(anticLbl) + ')</span><span class="rd-pct">-' + d.pctAntic + '%</span></div>';
-    body += '<div class="rd-line rd-sep"><span>Descuento acumulado</span><span class="rd-pct">-' + d.pctTotal + '% (-$' + Math.round(d.monto).toLocaleString('es-AR') + ')</span></div>';
-    body += '<div class="rd-line"><span class="rd-total">Total estimado con descuento</span><span class="rd-total">$' + Math.round(d.total).toLocaleString('es-AR') + '</span></div>';
-    body += '<div class="rd-warn">&#9888; Solo referencial - el pedido se envia a SAP por el subtotal sin descuentos. SAP recalcula al ingresarlo para evitar duplicar.</div>';
-    discEl.innerHTML = '<div class="review-discount"><div class="rd-head"><span>&#128176; Descuento estimado para el cliente</span></div>' + body + '</div>';
+    if (d.hasAny) {
+      const tipoLbl  = d.tipo ? ('Tipo ' + d.tipo) : 'Sin tipo';
+      const volLbl   = d.vol;
+      const anticLbl = (d.formaPago === 'CONTADO') ? 'CONTADO' : (d.formaPago ? (d.formaPago + ' - no aplica') : 'Sin forma de pago');
+      body += '<div class="rd-line" style="opacity:.75"><span>&middot; Descuento fijo (' + escapeHtml(tipoLbl) + ')</span><span class="rd-pct">-' + d.pctFijo + '%</span></div>';
+      body += '<div class="rd-line" style="opacity:.75"><span>&middot; Descuento por volumen (' + escapeHtml(volLbl) + ')</span><span class="rd-pct">-' + d.pctVol + '%</span></div>';
+      body += '<div class="rd-line" style="opacity:.75"><span>&middot; Descuento pago anticipado (' + escapeHtml(anticLbl) + ')</span><span class="rd-pct">-' + d.pctAntic + '%</span></div>';
+      body += '<div class="rd-line rd-sep" style="opacity:.75"><span>Sugerido por reglas</span><span class="rd-pct">-' + d.pctTotal + '%</span></div>';
+    } else {
+      body += '<div class="rd-line rd-sep" style="opacity:.75"><span>Sugerido por reglas</span><span class="rd-pct">-0% (sin tipo/forma pago cargados)</span></div>';
+    }
+    // INPUT editable del descuento total. Envia a SAP como DiscountPercent.
+    body += '<div class="rd-line" style="margin-top:8px;padding:10px;background:#ecfdf5;border:1.5px solid #86efac;border-radius:6px">'
+      + '<span style="font-weight:800;color:#166534">&#128176; Descuento total (%) <span style="color:#dc2626">*</span></span>'
+      + '<input type="number" id="rv-manual-discount" min="0" max="100" step="0.01" value="' + escapeAttr(inputValue) + '" style="width:80px;padding:6px 8px;border:1.5px solid #86efac;border-radius:5px;font-size:13px;font-weight:800;text-align:right;color:#166534" onchange="renderReviewLines()"/>'
+      + '</div>';
+    // Calculo del total con el descuento MANUAL (lo que va a SAP).
+    const manualPct = parseFloat(inputValue) || 0;
+    const manualMonto = totalM * (manualPct / 100);
+    const totalConDesc = totalM - manualMonto;
+    body += '<div class="rd-line"><span class="rd-total">Total con descuento manual</span><span class="rd-total">$' + Math.round(totalConDesc).toLocaleString('es-AR') + ' &middot; <span style="color:#0d9488">-$' + Math.round(manualMonto).toLocaleString('es-AR') + '</span></span></div>';
+    body += '<div class="rd-warn" style="background:#dcfce7;border-color:#86efac;color:#166534">&#128712; El descuento manual se envia a SAP como DiscountPercent (campo Descuento % en OQUT). El vendedor confirma este numero.</div>';
+    discEl.innerHTML = '<div class="review-discount"><div class="rd-head"><span>&#128176; Descuento del pedido</span></div>' + body + '</div>';
   }
 }
 

@@ -317,6 +317,11 @@ const sapSL = {
       WarehouseCode: '11',
       LineNum: idx,
     }));
+    // v343+ (2026-07-28): DiscountPercent del header. El vendedor lo carga en
+    // el modal Review (input #rv-manual-discount) que persiste en p.discountPct.
+    // SAP OQUT lo muestra en el campo Descuento %. Aplica a nivel documento
+    // (no por linea). Rango 0-100.
+    const discPct = Math.max(0, Math.min(100, parseFloat(p.discountPct) || 0));
     const payload = {
       CardCode: cliSap || '',
       DocDate: docDate,
@@ -325,6 +330,7 @@ const sapSL = {
       SalesPersonCode: slpCode ? parseInt(slpCode) : -1,
       Comments: 'AppShimano | ' + (p.clientName || '') + ' | ' + (p.month || '') + ' | ' + (p.ownerEmail || '') + buildEntregaSuffixForRemarks(p),
       NumAtCard: p._fsId || '',
+      DiscountPercent: discPct,
       U_AppOrigen: 'SHIMANO_APP_VENDEDORES',
       U_AppOrderId: p._fsId || '',
       U_AppBatchId: 'BATCH-' + new Date().toISOString().slice(0,19).replace(/[-:T]/g,''),
