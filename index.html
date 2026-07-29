@@ -3300,7 +3300,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v355';
+const APP_VERSION = 'v356';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -4636,7 +4636,16 @@ function deptStyle(feat){
     return {
       fillColor: fill,
       fillOpacity: 0.30,
-      stroke: false,
+      // v356: stroke del mismo color que el fill + misma opacity para tapar
+      // los micro-gaps entre depts adyacentes causados por Douglas-Peucker
+      // (v351) + smoothFactor 3.0 (v354): cada dept se simplifica
+      // independientemente, sus bordes no coinciden pixel-perfect con los
+      // vecinos, aparece el fondo blanco entre ellos. Un stroke sutil del
+      // mismo color tapa esos gaps SIN verse como linea visible (mismo
+      // opacity que fill = mismo tono aparente).
+      color: fill,
+      weight: 1,
+      opacity: 0.30,
     };
   }
   // currentVendor === 'ALL' (admin/viewer pasa por aca, VDI con todas mis
@@ -4648,12 +4657,18 @@ function deptStyle(feat){
     return {fillOpacity: 0, opacity: 0, weight: 0, interactive: false};
   }
   const fill = vm ? vm.color : '#cbd5e1';
+  const fo = vm ? 0.22 : 0.05;
   return {
     fillColor: fill,
-    fillOpacity: vm ? 0.22 : 0.05,
-    stroke: false,  // sin lineas de borde - el contorno externo va por
-                    // vendorOutlineLayer. weight=0 no alcanzaba porque
-                    // Leaflet a veces dibuja 1px aun asi.
+    fillOpacity: fo,
+    // v356: stroke sutil del mismo color y misma opacity que el fill —
+    // tapa los micro-gaps entre depts adyacentes (simplificacion
+    // independiente por Douglas-Peucker + smoothFactor). Mismo tono
+    // aparente que el fill, no se ve como linea de borde. El contorno
+    // externo grueso de la zona lo sigue dibujando vendorOutlineLayer.
+    color: fill,
+    weight: 1,
+    opacity: fo,
   };
 }
 
