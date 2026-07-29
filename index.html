@@ -3294,7 +3294,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v345';
+const APP_VERSION = 'v346';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -9119,7 +9119,21 @@ async function parseExcelPedidoFile(file){
     // v345+ (2026-07-28): parser detecta ademas columna de PRECIO. Si existe,
     // el precio del Excel pisa el precio default del catalogo/SAP en la carga
     // del pedido (ver confirmExcelPedido). Aliases comunes en templates.
-    const PRICE_NAMES = ['precio','precio unitario','precio $','precio ars','importe unitario','p. unitario','p unitario','unit price','price','precio unit','pu','p.u.'];
+    // v346+ (2026-07-29): agregado alias exacto del template Shimano
+    // "PRECIO VTA SHIMANO $ (SIN IVA)" (columna G del template oficial).
+    const PRICE_NAMES = [
+      'precio','precio unitario','precio $','precio ars','importe unitario',
+      'p. unitario','p unitario','unit price','price','precio unit','pu','p.u.',
+      // Template oficial Shimano: "PRECIO VTA SHIMANO $ (SIN IVA)".
+      'precio vta shimano $ (sin iva)',
+      'precio vta shimano $ sin iva',
+      'precio vta shimano',
+      'precio venta shimano',
+      'precio venta shimano $ (sin iva)',
+      'precio venta shimano sin iva',
+      'precio sin iva',
+      'precio (sin iva)',
+    ];
     // Buscar fila de header: la primera (hasta fila 20) que contenga
     // ALGUNA columna que matchee SKU_NAMES y ALGUNA que matchee QTY_NAMES.
     // La columna PRICE es OPCIONAL (si no aparece se usa el precio del catalogo).
