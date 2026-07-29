@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v349 |
-| **APP_VERSION** | `v349` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW). v349 = **Botón "SAP" en Master Clientes + default TIPO='C'**: nuevo botón toggle 🏭 SAP al lado de "Provisorios" que filtra la vista para mostrar SOLO tiendas con CardCode (contraparte de Provisorios; modos mutuamente exclusivos). El dropdown "TIPO" del Master Clientes ahora arranca en **'C'** cuando el cliente no tiene `cliTipo` guardado (antes arrancaba en '(sin clasificar)'). No auto-persiste — el usuario tiene que apretar "Guardar" para que quede grabado en Firestore. v348 = **"Reubicar pines" con modo FORZOSO + feedback al editar dirección**: el botón `runBulkGeocodeSapAltas` ahora ofrece 2 modos (ACEPTAR = forzar re-geocode de TODAS las tiendas con dirección, aunque ya tengan lat/lng; CANCELAR = solo las que faltan). `openSapAltaAddressModal` (v342+) también compara lat/lng nuevas vs previas post-geocode y avisa explícito cuando Google/OSM devolvió el MISMO punto (tolerancia ~15m). Bloque de bumps recientes: v333 = **E3 code splitting** (shell + 3 chunks lazy) + hotfixes v334-v338; v339 = **modo Contactado sin Fidelidad/POP/Tipo de venta**; v340 = **fix visual "Aun no transferido a SAP"** en pedidos ya transferidos; v341 = **remove sub-tab "Nueva Solicitud"** de Alta Clientes; v342 = **vendedor edita Nombre Fantasia + Dirección + Localidad**; v343 = **"Descuento total (%)"** en review dialog → SAP DiscountPercent header; v344 = **fix duplicados SAP** via Firestore transaction lock cross-session; v345/v346 = **Excel loader prioriza precios del archivo** con alias `PRECIO VTA SHIMANO $ (SIN IVA)`; v347 = **split líneas por stock** (verde con stock suficiente / rojo SIN STOCK) en pedido confirmado. |
+| **Versión actual** | SW v350 |
+| **APP_VERSION** | `v350` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW). v350 = **Fix layout toolbar Master Clientes**: grid de 12 botones/selects hacía overflow del modal (el botón "SAP" quedaba solito en una segunda fila desbordada). Cambio `grid-template-columns` de `repeat(5,1fr) auto` (5 columnas fijas) a `repeat(auto-fill, minmax(150px, 1fr))` — se acomoda dinámicamente según ancho del modal (7-8 columnas en 1200px, 5-6 en 900px, wrap automático). v349 = **Botón "SAP" en Master Clientes + default TIPO='C'**: nuevo botón toggle 🏭 SAP al lado de "Provisorios" que filtra la vista para mostrar SOLO tiendas con CardCode (contraparte de Provisorios; modos mutuamente exclusivos). El dropdown "TIPO" del Master Clientes ahora arranca en **'C'** cuando el cliente no tiene `cliTipo` guardado (antes arrancaba en '(sin clasificar)'). No auto-persiste — el usuario tiene que apretar "Guardar" para que quede grabado en Firestore. v348 = **"Reubicar pines" con modo FORZOSO + feedback al editar dirección**: el botón `runBulkGeocodeSapAltas` ahora ofrece 2 modos (ACEPTAR = forzar re-geocode de TODAS las tiendas con dirección, aunque ya tengan lat/lng; CANCELAR = solo las que faltan). `openSapAltaAddressModal` (v342+) también compara lat/lng nuevas vs previas post-geocode y avisa explícito cuando Google/OSM devolvió el MISMO punto (tolerancia ~15m). Bloque de bumps recientes: v333 = **E3 code splitting** (shell + 3 chunks lazy) + hotfixes v334-v338; v339 = **modo Contactado sin Fidelidad/POP/Tipo de venta**; v340 = **fix visual "Aun no transferido a SAP"** en pedidos ya transferidos; v341 = **remove sub-tab "Nueva Solicitud"** de Alta Clientes; v342 = **vendedor edita Nombre Fantasia + Dirección + Localidad**; v343 = **"Descuento total (%)"** en review dialog → SAP DiscountPercent header; v344 = **fix duplicados SAP** via Firestore transaction lock cross-session; v345/v346 = **Excel loader prioriza precios del archivo** con alias `PRECIO VTA SHIMANO $ (SIN IVA)`; v347 = **split líneas por stock** (verde con stock suficiente / rojo SIN STOCK) en pedido confirmado. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **14 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`) → **Power BI Desktop TABLERO SAR publicado con 8 páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -3420,9 +3420,24 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v204 → v349
+## 41) Changelog v204 → v350
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v350 (2026-07-29) — Fix layout toolbar Master Clientes (overflow botón SAP)
+
+**Bug**: después de v349, el toolbar del Master Clientes tenía 12 items (5 selects/inputs + 7 botones) pero el grid CSS estaba fijo en `repeat(5,1fr) auto`. En viewports desktop (>880px), esto forzaba layout de fila 1 = 5 selects + Importar (auto), fila 2 = 5 botones, fila 3 = SAP solito → el botón "SAP" quedaba desbordando el modal (visible en captura).
+
+**Fix**: `grid-template-columns: repeat(auto-fill, minmax(150px, 1fr))` — el grid ahora crea tantas columnas de 150px mínimo como quepan en el modal, y hace wrap natural. Distribución dinámica:
+- Modal 1200px+: 7-8 columnas por fila → 12 items en 2 filas.
+- Modal 900-1200px: 5-6 columnas por fila → 12 items en 2-3 filas.
+- Modal <520px: 1 columna (mobile media query se mantiene).
+
+También se removió el media query intermedio `@media (max-width:880px)` con `repeat(2,1fr)` que ahora es innecesario (el auto-fill lo maneja).
+
+Alcance:
+- `index.html:469-470` — nueva definición `.mc-toolbar` con auto-fill.
+- `APP_VERSION` v349→v350, `CACHE_VERSION` v349→v350.
 
 ### v349 (2026-07-29) — Botón "SAP" en Master Clientes + TIPO default 'C'
 

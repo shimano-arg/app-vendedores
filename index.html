@@ -466,8 +466,7 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
 .sap-input{width:100%;padding:6px 8px;border:1.5px solid #cbd5e1;border-radius:4px;font-size:11px;font-family:inherit;outline:none;background:#fff}
 .sap-input:focus{border-color:#0284c7}
 .sap-input.has-value{background:#ecfdf5;border-color:#a7f3d0}
-.mc-toolbar{display:grid;grid-template-columns:repeat(5,1fr) auto;gap:8px;padding:12px 18px;border-bottom:1px solid #e5e7eb;background:#fafafa}
-@media (max-width:880px){.mc-toolbar{grid-template-columns:repeat(2,1fr);padding:10px 12px}}
+.mc-toolbar{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;padding:12px 18px;border-bottom:1px solid #e5e7eb;background:#fafafa}
 @media (max-width:520px){.mc-toolbar{grid-template-columns:1fr;gap:6px;padding:8px 10px}}
 .mc-sap-btn{padding:7px 14px;border:none;border-radius:6px;background:#ea580c;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;transition:.15s;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(234,88,12,.3)}
 .mc-sap-btn:hover{background:#c2410c;box-shadow:0 2px 6px rgba(234,88,12,.45)}
@@ -2603,7 +2602,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <button id="mc-dedupe-btn" class="mc-sap-btn" onclick="runDedupeSapAltas()" style="background:#b91c1c;box-shadow:0 1px 3px rgba(185,28,28,.3)" title="Busca altas SAP duplicadas (mismo cardCodeSap en multiples documentos) y deja solo la mas reciente.">&#129529; Deduplicar SAP</button>
         <button id="mc-revisar-btn" class="mc-sap-btn" onclick="runRevisarDireccionesSap()" style="background:#0f766e;box-shadow:0 1px 3px rgba(15,118,110,.3)" title="Lee SAP B1 via Service Layer y sincroniza nombre + direccion + ciudad de cada cliente con CardCode. Si difieren, la app se actualiza con los datos de SAP (SAP gana). Util cuando se editaron BPs en SAP y queres bajar los cambios.">&#128260; Revisar direcciones</button>
         <button id="mc-base-toggle-btn" class="mc-sap-btn" onclick="toggleMcBaseMaster()" style="background:#6b7280;box-shadow:0 1px 3px rgba(107,114,128,.3)" title="Por default Master Clientes muestra solo los clientes habilitados en SAP. Tocá este boton para ver tambien el padron BASE completo (~1000 tiendas historicas) - util si necesitas buscar una tienda especifica del padron viejo.">&#128218; Masterfile-Base</button>
-<button id="mc-prov-toggle-btn" class="mc-prov-btn" onclick="toggleMcProvisorios()" title="Clientes provisorios dados de alta por los vendedores desde Alta Rapida. Pendientes de aprobacion (no estan en SAP todavia).">&#128100; Provisorios <span class="mc-prov-count" id="mc-prov-count">0</span></button>
+        <button id="mc-prov-toggle-btn" class="mc-prov-btn" onclick="toggleMcProvisorios()" title="Clientes provisorios dados de alta por los vendedores desde Alta Rapida. Pendientes de aprobacion (no estan en SAP todavia).">&#128100; Provisorios <span class="mc-prov-count" id="mc-prov-count">0</span></button>
         <button id="mc-sap-only-btn" class="mc-prov-btn" onclick="toggleMcSapOnly()" style="background:#065f46" title="Filtra la tabla para mostrar SOLO tiendas ya cargadas en SAP (con CardCode). Excluye padron BASE y provisorios pendientes de aprobacion.">&#127981; SAP <span class="mc-prov-count" id="mc-sap-only-count">0</span></button>
       </div>
       <div class="mc-stats" id="mc-stats"></div>
@@ -3295,7 +3294,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v349';
+const APP_VERSION = 'v350';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
