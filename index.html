@@ -2604,6 +2604,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <button id="mc-revisar-btn" class="mc-sap-btn" onclick="runRevisarDireccionesSap()" style="background:#0f766e;box-shadow:0 1px 3px rgba(15,118,110,.3)" title="Lee SAP B1 via Service Layer y sincroniza nombre + direccion + ciudad de cada cliente con CardCode. Si difieren, la app se actualiza con los datos de SAP (SAP gana). Util cuando se editaron BPs en SAP y queres bajar los cambios.">&#128260; Revisar direcciones</button>
         <button id="mc-base-toggle-btn" class="mc-sap-btn" onclick="toggleMcBaseMaster()" style="background:#6b7280;box-shadow:0 1px 3px rgba(107,114,128,.3)" title="Por default Master Clientes muestra solo los clientes habilitados en SAP. Tocá este boton para ver tambien el padron BASE completo (~1000 tiendas historicas) - util si necesitas buscar una tienda especifica del padron viejo.">&#128218; Masterfile-Base</button>
 <button id="mc-prov-toggle-btn" class="mc-prov-btn" onclick="toggleMcProvisorios()" title="Clientes provisorios dados de alta por los vendedores desde Alta Rapida. Pendientes de aprobacion (no estan en SAP todavia).">&#128100; Provisorios <span class="mc-prov-count" id="mc-prov-count">0</span></button>
+        <button id="mc-sap-only-btn" class="mc-prov-btn" onclick="toggleMcSapOnly()" style="background:#065f46" title="Filtra la tabla para mostrar SOLO tiendas ya cargadas en SAP (con CardCode). Excluye padron BASE y provisorios pendientes de aprobacion.">&#127981; SAP <span class="mc-prov-count" id="mc-sap-only-count">0</span></button>
       </div>
       <div class="mc-stats" id="mc-stats"></div>
       <div class="mc-body" id="mc-body"></div>
@@ -3294,7 +3295,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v348';
+const APP_VERSION = 'v349';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(

@@ -103,20 +103,43 @@ window.onMcSapFieldChange = function(el){
 // ensureApprovedAltasListener). Aca solo agregamos el toggle para filtrar
 // esa lista dentro del panel Master Clientes.
 let mcProvisorioMode = false;
+// v349+ (2026-07-29): modo SAP - filtra solo altas con cardCodeSap (contraparte
+// del modo Provisorios). Toggle exclusivo con mcProvisorioMode (encender uno
+// apaga el otro).
+let mcSapMode = false;
 
 function getProvisoriosList(){
   const arr = (typeof approvedAltasList !== 'undefined') ? approvedAltasList : [];
   return arr.filter(a => a && a.manualSapPending && !a.cardCodeSap);
 }
+function getSapList(){
+  const arr = (typeof approvedAltasList !== 'undefined') ? approvedAltasList : [];
+  return arr.filter(a => a && a.cardCodeSap);
+}
 function updateMcProvisorioCount(){
   const cnt = document.getElementById('mc-prov-count');
   if (cnt) cnt.textContent = getProvisoriosList().length;
+  const sapCnt = document.getElementById('mc-sap-only-count');
+  if (sapCnt) sapCnt.textContent = getSapList().length;
 }
 
 window.toggleMcProvisorios = function(){
   mcProvisorioMode = !mcProvisorioMode;
+  if (mcProvisorioMode) mcSapMode = false; // modos exclusivos
   const btn = document.getElementById('mc-prov-toggle-btn');
   if (btn) btn.classList.toggle('active', mcProvisorioMode);
+  const sapBtn = document.getElementById('mc-sap-only-btn');
+  if (sapBtn) sapBtn.classList.toggle('active', mcSapMode);
+  renderMasterClientesTable();
+};
+
+window.toggleMcSapOnly = function(){
+  mcSapMode = !mcSapMode;
+  if (mcSapMode) mcProvisorioMode = false; // modos exclusivos
+  const btn = document.getElementById('mc-sap-only-btn');
+  if (btn) btn.classList.toggle('active', mcSapMode);
+  const provBtn = document.getElementById('mc-prov-toggle-btn');
+  if (provBtn) provBtn.classList.toggle('active', mcProvisorioMode);
   renderMasterClientesTable();
 };
 
@@ -200,8 +223,11 @@ window.openMasterClientesPanel = function(){
   updateMcProvisorioCount();
   mcPendingChanges = {};
   mcProvisorioMode = false;
+  mcSapMode = false;
   const _pb = document.getElementById('mc-prov-toggle-btn');
   if (_pb) _pb.classList.remove('active');
+  const _sb = document.getElementById('mc-sap-only-btn');
+  if (_sb) _sb.classList.remove('active');
   // Cargar filtros si no estan poblados
   const vSel = document.getElementById('mc-filt-vendor');
   if (vSel.options.length <= 1) {
@@ -1314,6 +1340,9 @@ window.renderMasterClientesTable = function(){
   const cont = document.getElementById('mc-body');
   if (!cont) return;
   if (mcProvisorioMode) { renderMcProvisoriosTable(); return; }
+  // v349+: modo SAP - filtra dentro de la vista normal para que se vean
+  // SOLO las altas con cardCodeSap (excluye POINTS del padron viejo y
+  // provisorios). El resto de la logica de render/edit es igual.
   const fv = document.getElementById('mc-filt-vendor').value;
   const fp = document.getElementById('mc-filt-prov').value;
   const fl = document.getElementById('mc-filt-loc').value;
@@ -1321,6 +1350,9 @@ window.renderMasterClientesTable = function(){
   const fq = (document.getElementById('mc-search').value || '').trim().toLowerCase();
 
   let entries = getAllStoreEntries();
+  // v349+: modo SAP-only aplica primero. Excluye POINTS del padron viejo y
+  // provisorios (altas sin cardCodeSap). Solo deja las que tienen CardCode.
+  if (mcSapMode) entries = entries.filter(e => e.tipo === 'sap_alta' && e.sapCardCode);
   if (fv !== 'ALL') entries = entries.filter(e => e.vendor === fv);
   if (fp !== 'ALL') entries = entries.filter(e => e.provincia === fp);
   if (fl !== 'ALL') entries = entries.filter(e => e.localidad === fl);
@@ -1388,12 +1420,17 @@ window.renderMasterClientesTable = function(){
   // Dropdown unico de Tipo de cliente (P/A/B/C). Volumen ahora es dinamico
   // (sale del subtotal del pedido) y el bonus de pago anticipado depende
   // de la forma de pago elegida al armar cada pedido.
+  // v349+ (2026-07-29): default 'C' cuando el cliente no tiene cliTipo
+  // guardado. Antes arrancaba en (sin clasificar). Cambiar manualmente para
+  // upgrade a B/A/P. Se aplica en render: si curTipo es '' se muestra 'C'
+  // seleccionado (pero NO auto-persiste - el user debe apretar Guardar para
+  // que quede en Firestore).
   const TIPO_OPTS = [
-    {v:'',  l:'(sin clasificar)'},
-    {v:'P', l:'P (Premium)'},
-    {v:'A', l:'A'},
-    {v:'B', l:'B'},
     {v:'C', l:'C'},
+    {v:'B', l:'B'},
+    {v:'A', l:'A'},
+    {v:'P', l:'P (Premium)'},
+    {v:'',  l:'(sin clasificar)'},
   ];
   function _selHtml(name, current, opts, docId){
     const has = current ? ' has-value' : '';
@@ -1545,7 +1582,12 @@ window.renderMasterClientesTable = function(){
       html += '<td>' + escapeHtml(vendLabel) + '</td>';
     }
     html += '<td><input type="text" class="' + inputCls + ' js-mc-direccion-input" value="' + escapeAttr(cur) + '" placeholder="Av. Belgrano 123, Barrio Norte" oninput="onMcAddrInput(this, \'' + escapeAttr(id) + '\', \'' + escapeAttr(savedAddr) + '\')" onkeydown="if(event.key===\'Enter\')this.parentElement.parentElement.querySelector(\'.mc-save-btn\').click()" /></td>';
-    html += '<td data-vendor="' + escapeAttr(e.vendor) + '" data-prov="' + escapeAttr(e.provincia) + '" data-loc="' + escapeAttr(e.localidad) + '" data-name="' + escapeAttr(e.nombre) + '">' + _selHtml('cliTipo', curTipo, TIPO_OPTS, id) + '</td>';
+    // v349+: default visual 'C' cuando no hay cliTipo guardado. El campo
+    // NO se auto-persiste - el user tiene que apretar Guardar para que quede
+    // en Firestore. Asi las tiendas existentes sin cliTipo se ven en 'C' pero
+    // sabemos cuales fueron confirmadas explicitamente.
+    const curTipoRender = curTipo || 'C';
+    html += '<td data-vendor="' + escapeAttr(e.vendor) + '" data-prov="' + escapeAttr(e.provincia) + '" data-loc="' + escapeAttr(e.localidad) + '" data-name="' + escapeAttr(e.nombre) + '">' + _selHtml('cliTipo', curTipoRender, TIPO_OPTS, id) + '</td>';
     html += '<td><div style="display:flex;gap:4px;flex-wrap:wrap"><button class="' + btnCls + '" onclick="saveMcAddr(\'' + escapeAttr(id) + '\', this)" data-vendor="' + escapeAttr(e.vendor) + '" data-prov="' + escapeAttr(e.provincia) + '" data-loc="' + escapeAttr(e.localidad) + '" data-name="' + escapeAttr(e.nombre) + '" data-sap-fsid="' + escapeAttr(isSap ? e.sapFsId : '') + '">Guardar</button>'
       + '<button onclick="deleteMcEntry(\'' + escapeAttr(id) + '\',' + JSON.stringify(e.nombre).replace(/"/g, '&quot;') + ',\'' + escapeAttr(isSap ? e.sapFsId : '') + '\')" style="background:#dc2626;color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px" title="Eliminar tienda">&#128465;</button></div></td>';
     html += '</tr>';
