@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | SW v332 |
-| **APP_VERSION** | `v332` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW). v332 = **WarehouseCode 07 → 11 en pedidos a SAP**: los pedidos que salen por Service Layer (`index.html` payload SL, `WarehouseCode: '11'`) y por CSV DTW (`QUT1 - Document_Lines.csv`, columna `WarehouseCode`) ahora apuntan al depósito **11 (MERCADERIA)** en vez del histórico 07 (que tenía solo PESCA EEUU y estaba vacío). También el tag del snapshot manual de stock (`app_config/stock_snapshot.warehouse`) y los labels UI "W07" en modal Exportar + headers Excel del export Precios/Stock migran a W11. No se toca `sync_stock.py` (CSV manual): el sync SAP automático ya suma `ALL_SALES` (vendibles ≠ 05 Marketing ≠ 06 Devoluciones), incluye W11. |
+| **Versión actual** | SW v348 |
+| **APP_VERSION** | `v348` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW). v348 = **"Reubicar pines" con modo FORZOSO + feedback al editar dirección**: el botón `runBulkGeocodeSapAltas` ahora ofrece 2 modos (ACEPTAR = forzar re-geocode de TODAS las tiendas con dirección, aunque ya tengan lat/lng; CANCELAR = solo las que faltan). `openSapAltaAddressModal` (v342+) también compara lat/lng nuevas vs previas post-geocode y avisa explícito cuando Google/OSM devolvió el MISMO punto (tolerancia ~15m). Bloque de bumps recientes: v333 = **E3 code splitting** (shell + 3 chunks lazy) + hotfixes v334-v338; v339 = **modo Contactado sin Fidelidad/POP/Tipo de venta**; v340 = **fix visual "Aun no transferido a SAP"** en pedidos ya transferidos; v341 = **remove sub-tab "Nueva Solicitud"** de Alta Clientes; v342 = **vendedor edita Nombre Fantasia + Dirección + Localidad**; v343 = **"Descuento total (%)"** en review dialog → SAP DiscountPercent header; v344 = **fix duplicados SAP** via Firestore transaction lock cross-session; v345/v346 = **Excel loader prioriza precios del archivo** con alias `PRECIO VTA SHIMANO $ (SIN IVA)`; v347 = **split líneas por stock** (verde con stock suficiente / rojo SIN STOCK) en pedido confirmado. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, 6 tablas raw) → **14 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`) → **Power BI Desktop TABLERO SAR publicado con 8 páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v204 → v324](#41-changelog-v204--v324)
+41. [Changelog v204 → v348](#41-changelog-v204--v348)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -3420,9 +3420,133 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v204 → v332
+## 41) Changelog v204 → v348
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v348 (2026-07-29) — Botón "Geocodificar tiendas SAP" con modo FORZOSO + feedback al editar dirección
+
+**Problema reportado por vendedor**: "cambié la dirección de un cliente pero el pin quedó en el mismo lugar". Investigación reveló dos bugs:
+
+1. **Botón "Geocodificar tiendas SAP" filtraba solo altas sin lat/lng**. `geocodeAllPendingSapAltas` (index.html:3835) tomaba únicamente `(a.lat == null || a.lng == null)`. Si el vendedor editó dirección y el geocoding devolvió lat/lng nuevo pero incorrecto (por ej. Google fuzzy-matcheó ciudad equivocada), el pin quedaba fijo en la coordenada errónea y el botón NO lo re-procesaba. Fix: parámetro `force: true` que procesa TODAS las altas con dirección. Trigger en UI (`runBulkGeocodeSapAltas`) ahora hace `confirm(...)` con 2 opciones: **ACEPTAR = forzar todas**, CANCELAR = solo faltantes.
+2. **Edición individual de dirección sin feedback cuando el geocoding devolvía mismas coordenadas**. `openSapAltaAddressModal` (v342+) borraba lat/lng y re-geocodificaba, pero si Google/OSM matcheaba al mismo punto que antes, mostraba "Direccion guardada y geocodificada" sin avisar que el pin no se movió. Fix: v348 compara lat/lng nuevas vs previas (tolerancia ~15m); si son iguales, alerta "el geocoding devolvio EL MISMO punto que antes... probá con dirección más específica o usa el botón geocodificar forzoso". También agrega `console.log('[edit-address]', ...)` con prev/nuevo para diagnosis.
+
+Alcance:
+- `index.html:3835-3901` — `geocodeAllPendingSapAltas` acepta `options.force`.
+- `index.html:3905-3945` — `runBulkGeocodeSapAltas` prompt de modo (aceptar=forzoso / cancelar=solo faltantes).
+- `index.html:5440-5498` — `openSapAltaAddressModal` compara distancia lat/lng prev vs nuevo, alerta si `sameSpot`.
+- `APP_VERSION` v347→v348, `CACHE_VERSION` v347→v348.
+
+### v347 (2026-07-28) — Split de líneas por stock en pedido confirmado (verde/rojo)
+
+Cuando un pedido queda confirmado y el admin/vendedor abre el detalle (`viewPedido`), las líneas ahora se **separan en dos grupos visuales**: verde para las que tienen stock suficiente y rojo para las que SIN STOCK.
+
+**Comportamiento nuevo (post `confirmExcelPedido`)**: al cargar un pedido por Excel, si el pedido pide N unidades de un SKU y hay stock M<N disponible, la línea se **divide en 2**:
+- Línea A verde con cantidad `M` (cubierta por stock).
+- Línea B roja con cantidad `N-M` con badge `SIN STOCK` (backorder).
+
+Si el SKU tiene stock ≥ pedido, queda una única línea verde. Si el SKU no tiene stock alguno, línea única roja.
+
+Alcance:
+- `index.html:3467` — nuevo helper `getStockQty(sku)` lee `STOCK_QUANTITIES` (numeric map del snapshot Firestore, no el bool `STOCK_MAP`).
+- `confirmExcelPedido` (loader por Excel) — splittea las líneas antes de escribir el pedido a Firestore, marca cada línea con `sinStock: true` cuando aplica.
+- `viewPedido` (L9770+, detalle del pedido) — renderiza rojo con `background:#fee2e2;border-left:3px solid #dc2626` + badge SIN STOCK inline al lado del SKU si `line.sinStock`.
+- Ejemplo real: pediste 5× FX4000FC, hay 3 en stock → detalle muestra 1 línea verde `FX4000FC × 3` + 1 línea roja `FX4000FC × 2 [SIN STOCK]`.
+
+### v346 (2026-07-28) — Excel loader: alias específico `PRECIO VTA SHIMANO $ (SIN IVA)`
+
+Extensión del v345. Además de los aliases genéricos (`PRECIO`, `PRECIO UNITARIO`, `PRECIO VENTA`, etc.), agregamos la columna EXACTA que el equipo comercial usa en sus templates: **`PRECIO VTA SHIMANO $ (SIN IVA)`** (columna G del Excel oficial).
+
+Alcance:
+- `index.html` `PRICE_NAMES` — array con los aliases que el loader busca en el header row del Excel. Match case-insensitive + normalización de acentos + espacios múltiples.
+
+### v345 (2026-07-28) — Excel loader: precios del archivo pisan el catálogo
+
+Cuando el vendedor sube un pedido con **"Cargar pedido por Excel"**, la nueva regla es: **los precios del archivo tienen prioridad sobre los precios del catálogo interno** (`PRODUCTS` bundleado).
+
+Antes, el loader usaba siempre el `unit_price` de PRODUCTS y descartaba lo que viniera en el Excel. Ahora:
+1. Si la fila del Excel tiene una columna de precio detectable (alias `PRICE_NAMES`) con valor numérico > 0 → ese precio se usa como `price` en la línea del pedido.
+2. Si no, fallback al precio del catálogo.
+
+Motivación: los vendedores hacen negociaciones puntuales con precios que difieren del catálogo (descuento por volumen, ofertas por producto discontinuado, cotizaciones especiales). El Excel refleja el precio acordado con el cliente; la app tiene que respetarlo.
+
+Alcance:
+- `confirmExcelPedido` — extrae precio del row, valida `>0`, sino usa catálogo.
+- Log en consola cuando el precio del Excel difiere del catálogo (para auditoría).
+
+### v344 (2026-07-28) — Fix duplicados SAP: Firestore transaction lock cross-session
+
+**Bug reportado** (Ioannis): "cargué un pedido y en SAP me quedó la Oferta de Venta DUPLICADA (2 ofertas iguales con distinto DocEntry)".
+
+**Causa raíz**: race condition entre 2 sesiones del mismo admin (2 tabs abiertos, o F5 durante envío). El listener `ensureSapAutoSendListener` corre en **cada sesión admin**; el flag `_autoSendInflight` que prevenía doble envío era **local por sesión** — no coordinaba entre tabs/dispositivos. Ambas sesiones veían el pedido como `stage=confirmed` + `transferidoSAP=null` al mismo tiempo, ambas llamaban `sapSL.createQuotation` en paralelo, SAP creaba 2 documentos.
+
+**Fix**: distributed lock via **Firestore transaction** (`fbDb.runTransaction`) que escribe un campo `sendingSapLock={sessionId, at}` antes de invocar SAP. Solo un session gana la reserva; los demás ven el lock y saltan con `OTHER_SESSION_LOCK`. Lock stale-safe: si otro session lo tomó hace <60s, se respeta; si es más viejo se asume crashed y se puede re-intentar. Happy path libera el lock en <10s (`FieldValue.delete()` cuando se seteó `transferidoSAP`).
+
+Alcance:
+- `src/domains/sap-auto-send-listener.js` — envuelve la reserva en `runTransaction` que valida `transferidoSAP + sendingSapLock` antes de tocar SAP.
+- `src/domains/sap-admin-panel.js` (`enviarPedidosASAPViaServiceLayer`) — mismo patrón para envío manual (admin aprieta el botón).
+- Nuevo campo Firestore `pedidos/*.sendingSapLock: {sessionId, at}` — TTL implícito (60s desde `at`), auto-limpia post-transferido.
+
+Test manual: abrir 2 tabs admin con auto-send ON, generar un pedido → 1 sola oferta en SAP + logs de la 2da sesión reportando `[SAP auto] skip <fsId> - OTHER_SESSION_LOCK:<otherSessionId>`.
+
+### v343 (2026-07-28) — Campo "Descuento total (%)" manual → SAP DiscountPercent header
+
+**Pedido**: el vendedor tiene que poder cargar un **descuento manual por pedido** (no por línea) que se refleje en el campo Descuento % de la Oferta de Ventas de SAP.
+
+**Implementación**:
+- Modal *Revisá tu pedido* (`renderReviewLines`) tiene un nuevo input `#rv-manual-discount` — campo numérico 0-100, obligatorio, con onchange que recalcula el total visible.
+- Al confirmar (`doConfirmPedido`), el valor se persiste en el pedido como `discountPct`.
+- El listener SAP + envío manual (`sapSL.buildQuotationPayload`) mete el valor en `DiscountPercent` del header del Sales Quotation — aparece en OQUT.DiscPrcnt, campo "Descuento %" en el rincón inferior derecho del formulario SAP. Aplica a nivel documento, NO por línea.
+- Rango clampeado: `Math.max(0, Math.min(100, parseFloat(p.discountPct) || 0))`.
+- Export CSV DTW (`exports-sap.js` → `QUT - Documents.csv`) también incluye el DiscountPercent si el admin descarga el ZIP en vez de auto-enviar por Service Layer.
+
+Ver capturas y confirmación en la sesión 2026-07-29 (Q&A con Mariano): el input marcado con círculo en el review modal = campo Descuento % del OQUT header.
+
+### v342 (2026-07-28) — Vendedor edita Nombre Fantasía + Dirección + Localidad
+
+Antes solo admin/gerente podían editar los campos de una alta SAP existente (cardCodeSap presente). El equipo comercial pidió abrir **Nombre Fantasía, Dirección y Localidad** a **vendedores + internos** para poder corregir dispositivos in-situ.
+
+Alcance:
+- `openSapAltaAddressModal` — removido el gate admin/gerente; prompt de calle + prompt de localidad opcional.
+- Localidad editable: si el vendedor la corrige, se guarda como override (no la sobre-escribe el geocoding automático).
+- Re-geocode automático post-edit: borra `lat/lng` con `FieldValue.delete()` para forzar reprocesamiento (mismo flow que "Cargar dirección" original).
+- Cada save graba `updatedBy = currentUser.email` + `updatedAt = serverTimestamp` para auditar quién tocó qué.
+
+**Nombre Fantasía**: mismo pattern en `renderClientCard` — botón "✏️ Editar nombre" ahora visible para vendedor/interno además de admin. `assignedVendor` sigue siendo admin-only (no queremos que vendedor re-asigne clientes entre sí).
+
+### v341 (2026-07-28) — Remove sub-tab "Nueva solicitud" de Alta Clientes
+
+El sub-tab "Nueva solicitud" del panel Alta Clientes ya no se usaba (todas las altas ahora vienen de SAP sync o del flow rápido `openAltaRapidaModal`). Se removieron 62 líneas correspondientes al pane `#ac-pane-nuevo` (L3077-3138 pre-v341) + el botón del sub-tab.
+
+Sub-tabs restantes en Alta Clientes: **Mis solicitudes** (VDE ve sus altas rápidas + SAP asignadas), **Provisorios** (admin/gerente aprueban altas), **Aprobadas** (log de cerradas).
+
+### v340 (2026-07-28) — Fix visual "Aún no transferido a SAP" en pedidos ya transferidos
+
+**Bug**: los vendedores veían el mensaje `⚠️ Aun no transferido a SAP` en el detalle de sus pedidos aunque el pedido YA había entrado a SAP (visible en el panel del admin como "Transferidos").
+
+**Causa raíz**: el listener `unsubPedidosOwn` (que puebla la vista del vendedor) proyectaba solo un subset de campos del doc Firestore — el campo `transferidoSAP` NO estaba en el mapping → siempre llegaba `undefined` al render → siempre mostraba el warning.
+
+**Fix**: `index.html:13748+` — agregar `transferidoSAP: d.transferidoSAP || null` al objeto proyectado por el listener. Ahora el vendedor ve el mismo estado que el admin (badge verde `✓ En SAP - DocNum X` si transferido).
+
+### v339 (2026-07-28) — Modo Contactado: hide Fidelidad + POP + Tipo de Venta
+
+Cuando el vendedor abre el modal Visita en modo **`contacto`** (Registrar contacto, no visita física), los campos **Fidelidad**, **POP** y **Tipo de venta** ya no aparecen ni son obligatorios — no tienen sentido para un contacto telefónico / WhatsApp / mail.
+
+Alcance:
+- `src/domains/visitas.js` — `applyVisitModeUI` esconde los 3 rows cuando `visitMode === 'contacto'`.
+- `submitVisita` — skip validación de Fidelidad/POP/Tipo si estamos en modo contacto.
+
+Los campos siguen visibles + obligatorios en modo **`visita`** (visita presencial estándar).
+
+### v333-v338 (2026-07-28) — E3 code splitting + hotfixes E6
+
+Bloque de 6 versiones que cierran **E3 (code splitting) + E6 (audit + fixes)** de la rama `e2b-perf`. Ver sección 45 y 46 para detalle técnico. Resumen:
+
+- **v333 — E3 code splitting**: `app.bundle.js` (1 solo archivo monolítico ~1.89 MB) → **`shell.js`** (bundle base) + **`chunks/exports-core.js`**, **`chunks/exports-advanced.js`**, **`chunks/admin-users.js`** (lazy, cargan on-demand via `window.loadChunk(name)`). Loader `src/loader.js` + `installChunkStubs(chunkName, exportNames)` genera stubs `window.*` que triggerean la carga del chunk al primer llamado. SW cachea shell + chunks explícitamente.
+- **v334-v337 — E6 code review hotfixes**: subagente de code review contexto limpio detectó **5 ReferenceError** (C1-C5): `usersCache`, `mcShowBaseMaster`, `notifsTab`, `rutaVendorFilter`, `sapCurrentTab` declaradas `let X` dentro del bundle IIFE cuando el inline las leía/escribía → promovidas a `window.*` (regla CLAUDE.md #17). Auditoría sistemática con script Node encontró **13 helpers más sin `window.*` export** (`ensureClientLocsListener`, `dataUrlToBlob`, `renderMisRendiciones`, etc.). Cross-module bugs: **5 funciones referenciadas entre bundle chunks sin `window.*`** (`getCurrentOrderClientData`, `flashSaved`, `notifItemHtml`, `loadExcelJS`, `sapNorm`).
+- **v338 — SW stale-while-revalidate + `sw.js` STATIC_ASSETS con chunks**: cambio de estrategia de "cache-first" a **stale-while-revalidate** para assets locales (bundle + chunks + iconos + geo.json). Sirve del cache inmediato (fast path arranque) + fetch en background para refresh. Evita mismatch shell/chunk entre deploys parciales. `STATIC_ASSETS` incluye `./chunks/*.js` explícitamente. Ver sección 45.
+
+**Merge a main**: rama `e2b-perf` se mergea con `git merge --squash` (branch protection prohíbe merge commits). Los 6 bumps (v333-v338) llegan a main en un solo squash commit + los hotfixes que salieron post-merge (v339-v348).
 
 ### v332 (2026-07-28) — WarehouseCode 07 → 11 en pedidos a SAP
 
@@ -5076,7 +5200,9 @@ node scripts/perf/trace-map.js
 
 **Gate humano de E1** (Mariano — cuando quieras, no es bloqueante para E2): logout → login × 3 en la app real, F12 → Memory → heap snapshots antes/después. Sin acumulación de "Detached HTMLDivElement" u "onSnapshot" entre snapshots.
 
-### 45.5 E2 pendiente — Extracción por dominio VERBATIM (14 sub-etapas)
+> **Actualización 2026-07-29**: TODAS las etapas de este plan están cerradas y mergeadas a `main` desde 2026-07-28 (squash merge en un solo commit por branch protection — la rama prohíbe merge commits). Ver sección 46 para resumen ejecutivo + los cambios adicionales v339-v348 en el changelog sección 41 (hotfixes post-merge pedidos por el equipo comercial: modo Contactado, edición de dirección por vendedor, descuento manual, fix duplicados SAP via transaction, Excel loader con precios del archivo, split líneas por stock, y modo forzoso del botón "Reubicar pines").
+
+### 45.5 E2 COMPLETADO — Extracción por dominio VERBATIM (19 sub-etapas)
 
 **Objetivo**: mover cada dominio del inline gigante a `src/domains/<name>.js` preservando cada `window.foo = ...` intacto. Cada sub-etapa una por commit, orden por menor dependencia primero.
 
@@ -5122,7 +5248,7 @@ node scripts/perf/trace-map.js
 
 **Budget total E2**: 12 turnos (~1 turno cada 2 sub-etapas chicas, ~2 turnos para las 4 grandes).
 
-### 45.6 E3 pendiente — Code splitting con esbuild
+### 45.6 E3 COMPLETADO — Code splitting con esbuild
 
 Refactor `build.js` multi-entry: `src/main.js` → `shell.js` (nuevo nombre, mismo lugar que `app.bundle.js`), + `src/domains/<name>.js` → `chunks/<name>.js`. Loader dinámico `window.loadChunk(name)` con `<script>` injection (no eval, no dynamic import). Bump v330 → v331.
 
@@ -5130,7 +5256,7 @@ Refactor `build.js` multi-entry: `src/main.js` → `shell.js` (nuevo nombre, mis
 
 Budget: 8 turnos.
 
-### 45.7 E4 pendiente — Fix mapa según trace de E0
+### 45.7 E4 COMPLETADO — Fix mapa según trace de E0
 
 **No hay decisión previa** — se elige el fix según lo que E0 confirmó + un trace refinado con stack sampling activado durante E4. Candidatos (uno o combinación):
 - A: `polygon-clipping.union()` sin caché → mover a Web Worker
@@ -5143,13 +5269,13 @@ Budget: 8 turnos.
 
 Budget: 6 turnos.
 
-### 45.8 E5 pendiente — SW audit + cache chunks
+### 45.8 E5 COMPLETADO — SW audit + cache chunks
 
 Extender `sw.js` STATIC_ASSETS con `./shell.js` + todos los `./chunks/*.js`. Cache-first + background update. Smoke offline + smoke bump `CACHE_VERSION` (verifica caché limpio sin mezcla vieja/nueva).
 
 Budget: 3 turnos.
 
-### 45.9 E6 pendiente — Re-medición final + code review + docs
+### 45.9 E6 COMPLETADO — Re-medición final + code review + docs
 
 Correr scripts de perf sobre `e2b-perf` HEAD. `scripts/perf/compare-vs-baseline.js` emite diff numérico + assertion. Code review del diff completo con subagente `general-purpose` contexto limpio. `FINAL-REPORT.md` con before/after. README sección 45 actualizada.
 

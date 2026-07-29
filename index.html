@@ -2603,7 +2603,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <button id="mc-dedupe-btn" class="mc-sap-btn" onclick="runDedupeSapAltas()" style="background:#b91c1c;box-shadow:0 1px 3px rgba(185,28,28,.3)" title="Busca altas SAP duplicadas (mismo cardCodeSap en multiples documentos) y deja solo la mas reciente.">&#129529; Deduplicar SAP</button>
         <button id="mc-revisar-btn" class="mc-sap-btn" onclick="runRevisarDireccionesSap()" style="background:#0f766e;box-shadow:0 1px 3px rgba(15,118,110,.3)" title="Lee SAP B1 via Service Layer y sincroniza nombre + direccion + ciudad de cada cliente con CardCode. Si difieren, la app se actualiza con los datos de SAP (SAP gana). Util cuando se editaron BPs en SAP y queres bajar los cambios.">&#128260; Revisar direcciones</button>
         <button id="mc-base-toggle-btn" class="mc-sap-btn" onclick="toggleMcBaseMaster()" style="background:#6b7280;box-shadow:0 1px 3px rgba(107,114,128,.3)" title="Por default Master Clientes muestra solo los clientes habilitados en SAP. Tocá este boton para ver tambien el padron BASE completo (~1000 tiendas historicas) - util si necesitas buscar una tienda especifica del padron viejo.">&#128218; Masterfile-Base</button>
-        <button id="mc-prov-toggle-btn" class="mc-prov-btn" onclick="toggleMcProvisorios()" title="Clientes provisorios dados de alta por los vendedores desde Alta Rapida. Pendientes de aprobacion (no estan en SAP todavia).">&#128100; Provisorios <span class="mc-prov-count" id="mc-prov-count">0</span></button>
+<button id="mc-prov-toggle-btn" class="mc-prov-btn" onclick="toggleMcProvisorios()" title="Clientes provisorios dados de alta por los vendedores desde Alta Rapida. Pendientes de aprobacion (no estan en SAP todavia).">&#128100; Provisorios <span class="mc-prov-count" id="mc-prov-count">0</span></button>
       </div>
       <div class="mc-stats" id="mc-stats"></div>
       <div class="mc-body" id="mc-body"></div>
@@ -3294,7 +3294,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v347';
+const APP_VERSION = 'v348';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -3836,18 +3836,26 @@ async function geocodeAllPendingSapAltas(options){
   options = options || {};
   const onProgress = options.onProgress || function(){};
   const onLog = options.onLog || function(){};
+  // v348+ (2026-07-29): modo forzoso. Si options.force === true, procesa TODAS
+  // las altas que tienen direccion (incluso las que ya tienen lat/lng).
+  // Sirve para reubicar pines mal-geocodificados o post-edicion de direccion.
+  const forceMode = !!options.force;
   if (!Array.isArray(approvedAltasList) || !approvedAltasList.length) {
     onLog('No hay altas aprobadas para procesar.');
     return {ok: 0, fail: 0, skip: 0};
   }
   // Filtrar las que necesitan geocoding.
-  const pending = approvedAltasList.filter(a =>
-    a && a.cardCodeSap &&
-    (a.lat == null || a.lng == null) &&
-    (a.calle || a.address)
-  );
+  const pending = approvedAltasList.filter(a => {
+    if (!a || !a.cardCodeSap) return false;
+    if (!(a.calle || a.address)) return false;
+    if (forceMode) return true; // force: TODAS con direccion, tengan lat/lng o no.
+    return (a.lat == null || a.lng == null); // default: solo las que faltan.
+  });
   if (!pending.length) {
-    onLog('Todas las altas SAP ya estan geocodificadas. Nada que hacer.');
+    onLog(forceMode
+      ? 'No hay altas SAP con direccion cargada. Nada que hacer.'
+      : 'Todas las altas SAP ya estan geocodificadas. Nada que hacer.'
+    );
     return {ok: 0, fail: 0, skip: 0};
   }
   onLog('Geocodificando ' + pending.length + ' altas (1 req/seg, demora ~' + Math.ceil(pending.length / 60) + ' min).');
@@ -3894,17 +3902,39 @@ async function geocodeAllPendingSapAltas(options){
 window.geocodeAllPendingSapAltas = geocodeAllPendingSapAltas;
 
 // Trigger del admin: corre el geocoding en lote y muestra progreso en UI.
+// v348+ (2026-07-29): ofrece 2 modos - solo faltantes (default) o forzar TODAS
+// las tiendas con direccion. El modo forzoso resuelve el caso "edite la
+// direccion pero el pin no se movio" (geocoding devolvio mismas coordenadas o
+// el filtro anterior las ignoraba por tener lat/lng seteado aunque mal).
 window.runBulkGeocodeSapAltas = async function(){
   if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente.'); return; }
   const pending = (approvedAltasList || []).filter(a =>
     a && a.cardCodeSap && (a.lat == null || a.lng == null) && (a.calle || a.address)
   );
-  if (!pending.length) { alert('Todas las tiendas SAP ya tienen ubicacion geografica. No hay nada para procesar.'); return; }
-  const estMin = Math.ceil(pending.length / 60);
-  if (!confirm('Geocodificar ' + pending.length + ' tiendas SAP?\n\nEsto va a llamar a Google Maps una por una respetando el rate limit (1/seg). Demora ~' + estMin + ' minuto(s).\n\nNo cierres el navegador hasta que termine.')) return;
+  const total = (approvedAltasList || []).filter(a =>
+    a && a.cardCodeSap && (a.calle || a.address)
+  );
+  const forceMode = confirm(
+    'Geocodificar tiendas SAP - Elegi el modo:\n\n' +
+    '  ACEPTAR = FORZAR RE-GEOCODE de TODAS las tiendas con direccion (' + total.length + ' tiendas).\n' +
+    '           Usalo si un pin quedo mal ubicado despues de editar una direccion.\n\n' +
+    '  CANCELAR = Solo tiendas SIN ubicacion (' + pending.length + ' pendientes).\n' +
+    '           Modo estandar, no re-toca las que ya tienen pin.'
+  );
+  const targetCount = forceMode ? total.length : pending.length;
+  if (!targetCount) {
+    alert(forceMode
+      ? 'No hay tiendas SAP con direccion cargada.'
+      : 'Todas las tiendas SAP ya tienen ubicacion geografica.'
+    );
+    return;
+  }
+  const estMin = Math.ceil(targetCount / 60);
+  if (!confirm('Confirmar geocodificar ' + targetCount + ' tienda(s) SAP en modo ' + (forceMode ? 'FORZOSO' : 'solo faltantes') + '?\n\nEsto va a llamar a Google Maps una por una respetando el rate limit (1/seg). Demora ~' + estMin + ' minuto(s).\n\nNo cierres el navegador hasta que termine.')) return;
   const btn = document.getElementById('mc-geocode-btn');
   if (btn) { btn.disabled = true; btn.dataset.origText = btn.textContent; }
   const result = await geocodeAllPendingSapAltas({
+    force: forceMode,
     onProgress: ({done, total, current}) => {
       if (btn) btn.textContent = 'Geocodificando ' + done + '/' + total + (current ? ' (' + String(current).slice(0, 24) + '...)' : '');
     },
@@ -5406,12 +5436,19 @@ window.openSapAltaAddressModal = function(fsId){
       // Geocodificar usando Google -> OSM. Pasamos la localidad efectiva
       // (editada si aplica, o la actual). Si vuelve, leemos su locality.
       const geocodeLoc = useEditedLoc ? editedLoc : (currentLoc || '');
+      // v348+ (2026-07-29): guardar lat/lng previos para detectar si el nuevo
+      // geocoding devolvio las mismas coordenadas (Google/OSM matcheo al mismo
+      // punto). Sirve para avisar al user "editaste la direccion pero el pin
+      // quedo igual" en vez de dejarlo sin feedback.
+      const prevLat = (typeof a.lat === 'number') ? a.lat : null;
+      const prevLng = (typeof a.lng === 'number') ? a.lng : null;
       let geo = null;
       try {
         if (typeof geocodeClientAddress === 'function') {
           geo = await geocodeClientAddress(trimmed, geocodeLoc, a.provincia || '');
         }
       } catch(e) { console.warn('geocode tras cargar direccion', e); }
+      console.log('[edit-address]', {fsId, calle: trimmed, prev: [prevLat, prevLng], nuevo: geo ? [geo.lat, geo.lng] : null, provider: geo && geo.provider});
       if (geo && geo.lat != null && geo.lng != null) {
         const followUp = {
           lat: geo.lat, lng: geo.lng,
@@ -5432,7 +5469,20 @@ window.openSapAltaAddressModal = function(fsId){
         }
         await fbDb.collection('client_applications').doc(fsId).set(followUp, {merge: true});
         const locMsg = detectedLoc ? '\nLocalidad detectada: ' + detectedLoc : '';
-        alert('Direccion guardada y geocodificada (' + (geo.provider || 'osm') + ').' + locMsg + '\n\nEl pin se va a poner verde en unos segundos.');
+        // v348+: chequear si las coordenadas nuevas son ~iguales a las viejas
+        // (dentro de 15m). Si si, avisar al user que Google matcheo al mismo
+        // punto. Formula aprox: 1 grado lat = 111km. 15m = 0.000135 grados.
+        let sameSpot = false;
+        if (prevLat != null && prevLng != null) {
+          const dLat = Math.abs(geo.lat - prevLat);
+          const dLng = Math.abs(geo.lng - prevLng);
+          sameSpot = (dLat < 0.000135 && dLng < 0.000135);
+        }
+        if (sameSpot) {
+          alert('Direccion guardada, PERO el geocoding devolvio EL MISMO punto que antes (' + geo.lat.toFixed(5) + ', ' + geo.lng.toFixed(5) + ').\n\nGoogle/OSM matcheo la direccion nueva al mismo lugar que la vieja. Probá con una direccion mas especifica (agregar numero, esquina, o codigo postal) o pedile al admin que use "Geocodificar tiendas SAP" en modo FORZOSO.');
+        } else {
+          alert('Direccion guardada y geocodificada (' + (geo.provider || 'osm') + ').' + locMsg + '\n\nEl pin se va a mover en unos segundos.');
+        }
       } else {
         // Geocoding fallo. Pedir localidad a mano como ultimo intento - con
         // localidad puede que OSM matchee donde antes no podia.
