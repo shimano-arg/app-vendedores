@@ -483,26 +483,45 @@ function populateVisitaLocalidades(){
   // la localidad. vf-localidad queda oculto (ver HTML) pero sigue siendo el
   // hidden que consume el resto del flujo (readField, save, validate).
   //
-  // v359: preservar la seleccion previa si aun existe en las nuevas opciones.
+  // v360: preservar la seleccion previa si aun existe en las nuevas opciones.
   // Bug pre-v359: el listener onSnapshot de approvedAltasList
   // (index.html:3707) re-llama populateVisitaLocalidades cuando dispara
   // mientras el modal esta abierto. El fsReset('vf-tienda') incondicional
   // borraba la seleccion del user si Firestore actualizaba justo despues
   // de hacer click en una opcion (input ya no tenia foco -> el "guardian"
   // de linea 3785 no protegia). Se veia como "elegi tienda pero el input
-  // quedo vacio". Fix: si el hidden vf-tienda ya tenia un value y la
-  // opcion sigue existiendo en la nueva lista, restaurarla.
+  // quedo vacio".
+  // v359 (roto) comparaba vf-tienda.value directo con items[].value, pero
+  // onTiendaChange (v298+) pisa vf-tienda con SOLO el nombre plano de la
+  // tienda, mientras que items[].value tiene formato "PROV||Loc||Tienda".
+  // El find nunca matcheaba -> siempre caia al fsReset -> borraba igual.
+  // v360: reconstruimos el value compuesto usando vf-localidad
+  // ("PROV||Loc") + vf-tienda (nombre plano), que onTiendaChange dejo en
+  // paralelo. Con eso el match funciona y restauramos la seleccion.
   const _prevTiendaVal = (function(){
     const h = document.getElementById('vf-tienda');
     return h ? h.value : '';
   })();
+  const _prevLocVal = (function(){
+    const h = document.getElementById('vf-localidad');
+    return h ? h.value : '';
+  })();
+  const _prevCompositeVal = (_prevTiendaVal && _prevLocVal)
+    ? (_prevLocVal + '||' + _prevTiendaVal)
+    : '';
   fsPopulate('vf-tienda', items, function(val){ onTiendaChange(val); });
-  if (_prevTiendaVal) {
-    const _opt = items.find(function(i){ return i.value === _prevTiendaVal; });
+  if (_prevCompositeVal) {
+    const _opt = items.find(function(i){ return i.value === _prevCompositeVal; });
     if (_opt) {
-      fsSetValue('vf-tienda', _prevTiendaVal, _opt.label);
+      // fsSetValue pone el compuesto en el hidden; onTiendaChange lo pisa
+      // con el nombre plano + re-setea vf-localidad. Mismo camino que
+      // _fsSelect original.
+      fsSetValue('vf-tienda', _prevCompositeVal, _opt.label);
+      onTiendaChange(_prevCompositeVal);
     } else {
       fsReset('vf-tienda');
+      const _hL = document.getElementById('vf-localidad');
+      if (_hL) _hL.value = '';
     }
   } else {
     fsReset('vf-tienda');
