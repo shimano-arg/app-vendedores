@@ -325,19 +325,25 @@ function applyVisitModeUI(mode){
   if (rowFre) rowFre.style.display = isContacto ? 'none' : '';
   // v339+: en modo contacto no presencial ocultamos Fidelidad + POP + Tipo de venta
   // (+ ponderacion asociada). No aplican para un contacto por WhatsApp/tel/SMS.
+  // v357: se suma "Especializacion por tipo de pesca" a los campos ocultos en
+  // modo contacto (misma logica — no relevante en interaccion no presencial).
   const rowFid = document.getElementById('vf-fidelidad-row');
   const rowPop = document.getElementById('vf-pop-row');
   const rowTV = document.getElementById('vf-tipoventa-row');
   const rowPond = document.getElementById('vf-pond-wrap');
+  const rowEsp2 = document.getElementById('vf-especializacion-row');
   if (rowFid) rowFid.style.display = isContacto ? 'none' : '';
   if (rowPop) rowPop.style.display = isContacto ? 'none' : '';
   if (rowTV) rowTV.style.display = isContacto ? 'none' : '';
   if (rowPond && isContacto) rowPond.style.display = 'none';
+  if (rowEsp2) rowEsp2.style.display = isContacto ? 'none' : '';
   // Quitar 'required' en modo contacto para que submit no falle por validacion.
   const selFid = document.getElementById('vf-fidelidad');
   const selTV = document.getElementById('vf-tipoventa');
+  const selEsp = document.getElementById('vf-especializacion');
   if (selFid) selFid.required = !isContacto;
   if (selTV) selTV.required = !isContacto;
+  if (selEsp) selEsp.required = !isContacto;
   // v313+: Forma de contacto (llamada / whatsapp / SMS) solo en modo contacto.
   const rowFC = document.getElementById('vf-forma-contacto-row');
   if (rowFC) rowFC.style.display = isContacto ? '' : 'none';

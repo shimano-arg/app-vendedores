@@ -2234,7 +2234,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <option>VENTAS ESPECIALES</option>
           </select></div>
           <div class="vf-row" id="vf-fidelidad-row"><label>Fidelidad <span class="req">*</span></label><select id="vf-fidelidad" required><option value="">Seleccionar...</option><option>ALTA</option><option>MEDIA</option><option>BAJA</option></select></div>
-          <div class="vf-row"><label>Especializaci&oacute;n por tipo de pesca <span class="req">*</span></label><select id="vf-especializacion" required>
+          <div class="vf-row" id="vf-especializacion-row"><label>Especializaci&oacute;n por tipo de pesca <span class="req">*</span></label><select id="vf-especializacion" required>
             <option value="">Seleccionar...</option>
             <option>PREMIUM</option>
             <option>AGUA DULCE</option>
@@ -3300,7 +3300,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v356';
+const APP_VERSION = 'v357';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
