@@ -482,10 +482,38 @@ function populateVisitaLocalidades(){
   // Popular el filter-select de Tienda con el onChange que auto-completa
   // la localidad. vf-localidad queda oculto (ver HTML) pero sigue siendo el
   // hidden que consume el resto del flujo (readField, save, validate).
+  //
+  // v359: preservar la seleccion previa si aun existe en las nuevas opciones.
+  // Bug pre-v359: el listener onSnapshot de approvedAltasList
+  // (index.html:3707) re-llama populateVisitaLocalidades cuando dispara
+  // mientras el modal esta abierto. El fsReset('vf-tienda') incondicional
+  // borraba la seleccion del user si Firestore actualizaba justo despues
+  // de hacer click en una opcion (input ya no tenia foco -> el "guardian"
+  // de linea 3785 no protegia). Se veia como "elegi tienda pero el input
+  // quedo vacio". Fix: si el hidden vf-tienda ya tenia un value y la
+  // opcion sigue existiendo en la nueva lista, restaurarla.
+  const _prevTiendaVal = (function(){
+    const h = document.getElementById('vf-tienda');
+    return h ? h.value : '';
+  })();
   fsPopulate('vf-tienda', items, function(val){ onTiendaChange(val); });
-  fsReset('vf-tienda');
+  if (_prevTiendaVal) {
+    const _opt = items.find(function(i){ return i.value === _prevTiendaVal; });
+    if (_opt) {
+      fsSetValue('vf-tienda', _prevTiendaVal, _opt.label);
+    } else {
+      fsReset('vf-tienda');
+    }
+  } else {
+    fsReset('vf-tienda');
+  }
   fsPopulate('vf-localidad', [], null);
-  fsReset('vf-localidad');
+  // vf-localidad se autocompleta desde onTiendaChange - no lo reseteamos
+  // si ya tenia value (mismo razonamiento que vf-tienda arriba).
+  const _hLoc = document.getElementById('vf-localidad');
+  if (!_hLoc || !_hLoc.value) {
+    fsReset('vf-localidad');
+  }
   const tiendaInput = document.getElementById('vf-tienda-search');
   if (tiendaInput) {
     tiendaInput.disabled = false;
