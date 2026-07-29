@@ -57,3 +57,6 @@ scripts/perf/baseline-map-post-*.json
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# Backups locales (ej: geo.json.bak generado por scripts/simplify-geo.js)
+*.bak
