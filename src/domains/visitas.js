@@ -585,7 +585,15 @@ function _fsRenderDropdown(fsId, query){
     + '</div>'
   )).join('') + (matches.length > 200 ? '<div class="fs-item no-match">... y ' + (matches.length - 200) + ' mas (afina la busqueda)</div>' : '');
 }
-function _fsSelect(evt){
+// v361: expuesta en window. Post-E2 (extraccion de visitas al bundle IIFE)
+// esbuild tree-shakea funciones no referenciadas desde JS. _fsSelect solo
+// se llama desde el HTML inline handler onmousedown="_fsSelect(event)" del
+// dropdown -> el tree-shaker no lo ve como uso -> eliminada del bundle ->
+// el browser hacia lookup en window al hacer click -> ReferenceError ->
+// "no pasa nada" al tocar tienda. Todos los otros handlers fsOn* si estaban
+// expuestos porque estan referenciados como oninput/onfocus/onblur/onkeydown
+// en <input>. Este era el unico que faltaba.
+window._fsSelect = function(evt){
   evt.preventDefault();  // que no dispare blur del input
   const el = evt.currentTarget;
   const fsId = el.dataset.fs;
@@ -598,7 +606,7 @@ function _fsSelect(evt){
   if (inp) inp.blur();
   const cfg = _fsRegistry[fsId];
   if (cfg && cfg.onChange) { try { cfg.onChange(val); } catch(e) { console.warn('fs onChange', e); } }
-}
+};
 window.fsOnInput = function(inputEl){
   const wrap = inputEl.closest('.fs-wrap');
   if (!wrap) return;
