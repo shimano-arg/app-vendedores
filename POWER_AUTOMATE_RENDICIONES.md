@@ -4,15 +4,15 @@ Documento operativo del flow que mueve rendiciones aprobadas desde el email
 automático (Lun/Mié 9 AM AR) a la SharePoint List **"ANTICIPO Y RENDICION
 DE GASTO"** del team SAR.
 
-Última actualización: 2026-06-30 (cambio Fernando — agrupación por dupla)
+Última actualización: 2026-07-29 (cambio Mariano — Excel filtrado por dupla como adjunto SharePoint)
 
 ---
 
-## Schema nuevo de TablaGastos (v2)
+## Schema de TablaGastos (v3)
 
 A partir del commit donde se actualizó `scripts/send_rendiciones_email.py`,
-TablaGastos cambia de **una fila por gasto** a **una fila por dupla
-(ownerEmail, tipoGasto)**.
+TablaGastos tiene **una fila por dupla (ownerEmail, tipoGasto)** con una
+columna adicional que apunta al Excel filtrado de esa dupla.
 
 | Columna Excel | Tipo | Ejemplo | Cómo usar |
 |---|---|---|---|
@@ -26,6 +26,7 @@ TablaGastos cambia de **una fila por gasto** a **una fila por dupla
 | `Periodo Hasta` | texto fecha | `2026-06-29 10:12` | columna SharePoint "Hasta" |
 | `Rendiciones IDs` | texto largo | `id1;id2;id3` | columna SharePoint "Rendiciones IDs" (texto, NO multi) |
 | `Fotos URLs` | texto largo | `url1;url2;url3` | NO va como columna — son los adjuntos |
+| `Excel Dupla URL` **(NUEVA v3)** | URL | `https://storage.googleapis.com/.../gonzalo_facturaA.xlsx` | NO va como columna — se usa para descargar el Excel filtrado y adjuntarlo al item |
 
 ---
 
@@ -83,9 +84,33 @@ Nuevos pasos dentro del Apply to each:
                      (o usar el último segmento de la URL como nombre)
           File content: body('HTTP') (el binario que devolvió el GET)
 
-5d. (Opcional) — SharePoint Add attachment del Excel completo
-    Para que cada item SharePoint tenga el Excel original al lado de las
-    fotos. Usar la variable del Save attachment del paso 3.
+5d. **Cambio v3 (2026-07-29)** — SharePoint Add attachment del Excel FILTRADO
+    Antes se adjuntaba el Excel MAESTRO completo del OneDrive (paso 3) → cada
+    item tenia todas las rendiciones de todos los vendedores. Ahora usamos el
+    Excel filtrado por dupla que el script Python subio a Firebase Storage.
+
+    5d.1. HTTP — GET
+          URI: item()?['Excel Dupla URL']   (columna nueva de TablaGastos)
+          Method: GET
+          Auth: none (URL publica de Firebase Storage)
+          IMPORTANT: si el campo esta vacio (fallo el upload al Storage),
+          skipear con Condition antes del HTTP.
+    5d.2. SharePoint — Add attachment
+          Site: <tu site SAR>
+          List: ANTICIPO Y RENDICION DE GASTO
+          Id: outputs('Create_item')?['body/ID']  (del paso 5a)
+          File name: concat('Rendiciones_', item()?['Vendedor (email)'],
+                             '_', item()?['Tipo gasto'], '.xlsx')
+                     Nota: SharePoint no permite `/` `\` `:` `*` `?` `"` `<` `>` `|`
+                     en el filename — si aparecen en tipoGasto reemplazar con `_`.
+          File content: body('HTTP')  (el binario xlsx)
+
+5e. (Opcional) — Adjuntar tambien el Excel MAESTRO al primer item o borrarlo
+    Si preferís mantener el Excel maestro adjunto tambien (para que Fernando
+    pueda ver la lista completa desde SharePoint), agregar un Condition
+    "iterationIndexes eq 1" y solo entonces adjuntar la variable del paso 3.
+    Alternativa mas simple: dejar el maestro en el email/OneDrive y en
+    SharePoint solo el filtrado.
 ```
 
 ---
@@ -153,7 +178,7 @@ preparada.
 1. Push del cambio Python al repo (commit con la modificación de
    `send_rendiciones_email.py`).
 2. **Antes del próximo cron (próximo Lun o Mié 9 AM AR)**:
-   - Crear las 4 columnas nuevas en la SharePoint List.
+   - Crear las 4 columnas nuevas en la SharePoint List (v2 — Desde/Hasta/Cant/IDs si aún no están).
    - Editar el flow en Power Automate: actualizar mapping Create item +
      agregar bloque de attachments.
    - Test corriendo el workflow manualmente con `FORCE_SEND=true` desde
@@ -166,6 +191,49 @@ preparada.
 5. Si no OK: revertir el flow al mapping viejo (no toca el Python — el Excel
    tiene la hoja "Detalle" con el formato ungroupeado por si Fernando
    quiere usar ese mientras se ajusta el flow).
+
+---
+
+## Plan de migración v3 (2026-07-29) — Excel filtrado por dupla como adjunto
+
+Contexto: hasta v2 el flow adjuntaba a cada item de SharePoint el Excel MAESTRO
+completo del OneDrive (paso 5d viejo). Al abrir un item específico (ej. Federico
+Factura A) el Excel adjunto tenía las N rendiciones de TODOS los vendedores —
+Mariano tenía que scrollear/filtrar manualmente para ver solo las de esa fila.
+
+### Cambios v3:
+
+1. **Firebase Storage** ahora recibe además de las fotos, N mini-Excels
+   (uno por dupla) en `rendiciones-excels/<YYYY-MM-DD>/<email>__<tipo>.xlsx`.
+   Son públicos por URL. El script los sube en cada corrida.
+2. **TablaGastos** tiene una columna nueva `Excel Dupla URL` con el link al
+   xlsx filtrado de esa dupla.
+3. **Flow Power Automate** — en el Apply to each del step 5, después de las
+   fotos, se hace:
+   - HTTP GET a `item()?['Excel Dupla URL']`
+   - SharePoint Add attachment con el binario, filename
+     `Rendiciones_<vendedor>_<tipo>.xlsx`.
+4. El paso 5d viejo (adjuntar Excel maestro del OneDrive) se **elimina** o
+   se convierte en 5e opcional (solo primer item si querés dejarlo como
+   resumen general).
+
+### Testing sin ensuciar SharePoint
+
+Correr `FORCE_SEND=true` + `SKIP_MARK=true` desde GitHub Actions Run workflow.
+El mail se manda pero:
+- Ninguna rendición se marca como `notifiedAt` → el próximo cron las vuelve a mandar.
+- El flow crea items nuevos en SharePoint — testear en un **List de sandbox**
+  (temporalmente cambiar el "Site" del step Create item + Add attachment) o
+  borrar los items de testing después.
+
+### Rollback v3 → v2
+
+Si el HTTP GET falla masivamente (Storage rules mal, URL corrupta, etc.), el
+flow puede volver al comportamiento v2 así:
+- Deshabilitar el paso 5d.1 (HTTP) y 5d.2 (Add attachment del Excel dupla).
+- Re-habilitar el step viejo de "adjuntar Excel completo del OneDrive".
+El Python sigue generando la columna `Excel Dupla URL` (no rompe nada
+que el flow la ignore).
 
 ---
 

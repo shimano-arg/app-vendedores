@@ -34,6 +34,17 @@ Cambio v2 (2026-06-30, Fernando):
   Ahora el script agrupa: 1 fila = 1 item SharePoint con la suma y todas
   las fotos como adjuntos. Power Automate hace split de fotosUrls y attach
   uno por uno.
+
+Cambio v3 (2026-07-29, Mariano):
+  Antes el flow adjuntaba el Excel MAESTRO completo a cada item SharePoint
+  (todos los vendedores en un solo xlsx). Al abrir la fila de Federico el
+  Excel adjunto tenia las 5 rendiciones de todos, no solo las de Federico.
+  Ahora el script genera N mini-Excels (uno por dupla vendedor+tipoGasto)
+  y los sube a Firebase Storage. La URL publica se incluye en la nueva
+  columna "Excel Dupla URL" de TablaGastos. El flow hace HTTP GET a esa
+  URL + SharePoint Add attachment para poner el xlsx filtrado en el
+  item correspondiente. El Excel maestro sigue yendo al mail como
+  resumen para Mariano/Fernando.
 """
 
 from __future__ import annotations
@@ -123,6 +134,122 @@ def upload_foto_to_storage(rendicion_id: str, foto_dataurl: str):
     except Exception as e:
         print(f"[storage] no pude subir foto {rendicion_id}: {e}", file=sys.stderr)
         return None
+
+
+def _slug(text: str) -> str:
+    """Slug simple para path de Storage: quita chars no [a-z0-9-_.] y trunca."""
+    s = re.sub(r"[^\w.@-]+", "_", (text or "").strip().lower())
+    return s[:80] or "x"
+
+
+def upload_xlsx_to_storage(email: str, tipo: str, xlsx_bytes: bytes, day_str: str):
+    """Sube el Excel filtrado (una dupla vendedor+tipoGasto) a Firebase Storage
+    y devuelve la URL publica permanente. Path predecible por dia + dupla —
+    si el cron se corre 2 veces el mismo dia, el segundo run pisa el archivo
+    del primero (no acumula). None si no se pudo subir."""
+    if not xlsx_bytes:
+        return None
+    try:
+        key = f"{_slug(email)}__{_slug(tipo)}"
+        blob = storage.bucket().blob(f"rendiciones-excels/{day_str}/{key}.xlsx")
+        blob.upload_from_string(
+            xlsx_bytes,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        blob.make_public()
+        return blob.public_url
+    except Exception as e:
+        print(f"[storage] no pude subir xlsx {email}/{tipo}: {e}", file=sys.stderr)
+        return None
+
+
+def _build_dupla_xlsx(items: list, foto_url_by_id: dict, email: str, tipo: str) -> bytes:
+    """Arma un Excel MINI con solo las rendiciones de una dupla (vendedor, tipoGasto).
+    2 hojas: "Resumen" (una fila con totales) + "Detalle" (una fila por gasto).
+    Estilo consistente con el Excel maestro pero solo con las filas de la dupla —
+    asi Fernando abre desde SharePoint la fila de Federico Factura A y ve solo
+    las 2 rendiciones de esa dupla, no las 5 de todos los vendedores."""
+    wb = Workbook()
+
+    # === HOJA 1: RESUMEN (misma info que la fila de TablaGastos maestra) ===
+    ws_r = wb.active
+    ws_r.title = "Resumen"
+    hdr_r = ["Vendedor (email)", "Tipo gasto", "Cant Rendiciones",
+             "Importe Total", "Importe USD Total", "Moneda",
+             "Periodo Desde", "Periodo Hasta"]
+    ws_r.append(hdr_r)
+    for cell in ws_r[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="0F172A")
+        cell.alignment = Alignment(horizontal="center")
+    cant = len(items)
+    importe_total = sum(float(r.get("importe") or 0) for r in items)
+    importe_usd_total = sum(float(r.get("importeUsd") or 0) for r in items if r.get("importeUsd"))
+    monedas = {(r.get("moneda") or "").strip() for r in items if r.get("moneda")}
+    moneda_lbl = next(iter(monedas)) if len(monedas) == 1 else ("MIXTO" if monedas else "")
+    fechas = sorted(filter(None, (fmt_ts(r.get("createdAt")) for r in items)))
+    desde = fechas[0] if fechas else ""
+    hasta = fechas[-1] if fechas else ""
+    ws_r.append([
+        email, tipo, cant,
+        round(importe_total, 2),
+        round(importe_usd_total, 2) if importe_usd_total else "",
+        moneda_lbl, desde, hasta,
+    ])
+    for i, w in enumerate([28, 26, 14, 16, 16, 10, 18, 18]):
+        ws_r.column_dimensions[get_column_letter(i + 1)].width = w
+
+    # === HOJA 2: DETALLE (una fila por rendicion de esta dupla) ===
+    ws_d = wb.create_sheet("Detalle")
+    hdr_d = [
+        "ID", "Fecha carga", "Vendedor (email)", "N° Ticket", "Descripcion",
+        "Modo pago", "Tipo gasto", "Division gasto", "Moneda", "Importe",
+        "Importe USD", "Observaciones", "Aprobado por", "Fecha aprobacion",
+        "Ticket",
+    ]
+    ws_d.append(hdr_d)
+    for cell in ws_d[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="0F172A")
+        cell.alignment = Alignment(horizontal="center")
+    foto_col_idx_d = len(hdr_d)
+    link_font = Font(color="0563C1", underline="single", bold=True)
+    for r in items:
+        ws_d.append([
+            r.get("_id", ""),
+            fmt_ts(r.get("createdAt")),
+            r.get("ownerEmail") or r.get("createdByEmail") or "",
+            r.get("numeroTicket") or "",
+            r.get("descripcion") or "",
+            r.get("modoPago") or "",
+            r.get("tipoGasto") or "",
+            r.get("divisionGasto") or "",
+            r.get("moneda") or "",
+            float(r.get("importe") or 0),
+            float(r.get("importeUsd") or 0) if r.get("importeUsd") else "",
+            r.get("observaciones") or "",
+            r.get("approvedByEmail") or "",
+            fmt_ts(r.get("approvedAt")),
+            "",  # placeholder
+        ])
+        cell = ws_d.cell(row=ws_d.max_row, column=foto_col_idx_d)
+        rid = r.get("_id", "")
+        url = foto_url_by_id.get(rid)
+        if url:
+            cell.value = "📷 Ver ticket"
+            cell.hyperlink = url
+            cell.font = link_font
+            cell.alignment = Alignment(horizontal="center")
+        elif r.get("fotoTicket") or r.get("adjunto"):
+            cell.value = "(error al subir)"
+        else:
+            cell.value = "(sin foto)"
+    for i, w in enumerate([22, 16, 28, 14, 26, 14, 22, 16, 12, 12, 12, 36, 26, 16, 14]):
+        ws_d.column_dimensions[get_column_letter(i + 1)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 def fetch_pending_approved(db):
@@ -230,6 +357,25 @@ def build_excel(rendiciones):
         tipo = (r.get("tipoGasto") or "").strip() or "(sin tipo)"
         groups[(email, tipo)].append(r)
 
+    # PASO 2.5 (v3, 2026-07-29): por cada dupla, generar un mini-Excel con
+    # solo sus rendiciones + subirlo a Firebase Storage. La URL publica se
+    # incluye en una columna nueva "Excel Dupla URL" que Power Automate
+    # lee para adjuntar al item SharePoint (HTTP GET + Add attachment).
+    # Antes: el flow adjuntaba el Excel MAESTRO completo a cada item —
+    # la fila de Federico tenia adjunto el Excel con las 5 rendiciones
+    # de todos los vendedores. Ahora la fila de Federico Factura A tiene
+    # adjunto un Excel de 8 KB con solo sus 2 rendiciones de Factura A.
+    day_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    dupla_xlsx_url = {}
+    for (email, tipo), items in groups.items():
+        try:
+            xlsx_dupla = _build_dupla_xlsx(items, foto_url_by_id, email, tipo)
+            url = upload_xlsx_to_storage(email, tipo, xlsx_dupla, day_str)
+            if url:
+                dupla_xlsx_url[(email, tipo)] = url
+        except Exception as e:
+            print(f"[storage] error generando xlsx dupla {email}/{tipo}: {e}", file=sys.stderr)
+
     # === HOJA 1: GASTOS AGRUPADO (la que lee Power Automate) ===
     ws_g = wb.active
     ws_g.title = "Gastos"
@@ -238,6 +384,7 @@ def build_excel(rendiciones):
         "Importe Total", "Importe USD Total", "Moneda",
         "Periodo Desde", "Periodo Hasta",
         "Rendiciones IDs", "Fotos URLs",
+        "Excel Dupla URL",  # v3 (2026-07-29): URL del xlsx filtrado por dupla
     ]
     ws_g.append(hdr_g)
     for cell in ws_g[1]:
@@ -258,6 +405,7 @@ def build_excel(rendiciones):
         # Concatenar URLs solo de los gastos cuya foto SI se subio bien.
         # Si una foto fallo upload, se omite (no rompe la fila).
         urls = ";".join(foto_url_by_id[r["_id"]] for r in items if r.get("_id") in foto_url_by_id)
+        excel_url = dupla_xlsx_url.get((email, tipo), "")
         ws_g.append([
             email, tipo, cant,
             round(importe_total, 2),
@@ -265,9 +413,10 @@ def build_excel(rendiciones):
             moneda_lbl,
             desde, hasta,
             ids, urls,
+            excel_url,
         ])
-    # Anchos: Fotos URLs ancha porque concatenamos hasta varias.
-    widths_g = [28, 26, 14, 16, 16, 10, 18, 18, 50, 70]
+    # Anchos: Fotos URLs + Excel Dupla URL anchas porque son URLs largas.
+    widths_g = [28, 26, 14, 16, 16, 10, 18, 18, 50, 70, 70]
     for i, w in enumerate(widths_g):
         ws_g.column_dimensions[get_column_letter(i + 1)].width = w
     # Power Automate lee TablaGastos. El displayName se mantiene para no
