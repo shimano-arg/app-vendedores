@@ -3300,7 +3300,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v352';
+const APP_VERSION = 'v353';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -5049,34 +5049,61 @@ function restyleZoneLayers(){
     });
 })();
 
-// v352: markercluster para agrupar pines a zoom bajo (elimina el freezing con
-// ~1000 divIcons superpuestos en country view). Fallback a layerGroup si el
-// plugin no cargo (offline con SW viejo o CDN caido) — la app sigue funcional.
-// Opciones:
+// v352-v353: markercluster para agrupar pines a zoom bajo (elimina el freezing
+// con ~1000 divIcons superpuestos en country view).
+// Fallback a layerGroup si el plugin no cargo (offline con SW viejo o CDN caido)
+// — la app sigue funcional.
+//
+// v353: UN SOLO markerClusterGroup compartido entre las 3 fuentes de pines
+// (client / sap alta / agregado). Antes cada una tenia su propio cluster y por
+// eso un pin verde solitario junto a un cluster amarillo NO se agrupaba (eran
+// clusters distintos). Ahora se agrupan todos juntos, y cada "layer proxy"
+// mantiene un Set de sus markers para poder hacer clearLayers() sin tocar los
+// pines de las otras layers.
+//
+// Opciones del cluster:
 //   maxClusterRadius 60 (default 80): clusters mas chicos, mas separacion visual.
 //   disableClusteringAtZoom 12: en zoom >=12 (city detail) se ven todos los pines
 //     individuales, no queremos agrupar cuando el usuario ya esta en una calle.
 //   showCoverageOnHover false: default dibuja el poligono del cluster al hover,
 //     ruidoso sobre los outlines de zona.
-//   chunkedLoading true: agrega los markers en chunks de 200 (async), evita el
-//     freeze de 500-1000 addLayer sincronos.
+//   chunkedLoading true: agrega markers en chunks (async), evita freeze.
 //   spiderfyOnMaxZoom true (default): click en cluster en maxZoom -> spider.
-function _mkPinLayer(opts) {
-  if (typeof L.markerClusterGroup === 'function') {
-    return L.markerClusterGroup({
-      maxClusterRadius: 60,
-      disableClusteringAtZoom: 12,
-      showCoverageOnHover: false,
-      chunkedLoading: true,
-      spiderfyOnMaxZoom: true,
-      ...opts,
-    }).addTo(map);
+const _CLUSTER_OPTS = {
+  maxClusterRadius: 60,
+  disableClusteringAtZoom: 12,
+  showCoverageOnHover: false,
+  chunkedLoading: true,
+  spiderfyOnMaxZoom: true,
+};
+const _sharedCluster = (typeof L.markerClusterGroup === 'function')
+  ? L.markerClusterGroup(_CLUSTER_OPTS).addTo(map)
+  : null;
+
+function _mkPinLayer() {
+  if (_sharedCluster) {
+    // Proxy: forward addLayer/removeLayer al cluster compartido, pero trackea
+    // sus propios markers en un Set para que clearLayers() no toque los de las
+    // otras "layers". Implementa el subset minimo de la API L.LayerGroup que
+    // usa la app (addLayer, removeLayer, clearLayers) — Leaflet llama a
+    // layer.addLayer(marker) cuando el usuario hace marker.addTo(layer).
+    const markers = new Set();
+    return {
+      addLayer(m) { markers.add(m); _sharedCluster.addLayer(m); return this; },
+      removeLayer(m) { markers.delete(m); _sharedCluster.removeLayer(m); return this; },
+      clearLayers() {
+        if (markers.size) _sharedCluster.removeLayers(Array.from(markers));
+        markers.clear();
+        return this;
+      },
+      hasLayer(m) { return markers.has(m); },
+      getLayers() { return Array.from(markers); },
+    };
   }
   return L.layerGroup().addTo(map);
 }
 let markerLayer = _mkPinLayer();
 // Layer aparte para los pines de clientes habilitados con direccion geocodificada.
-// Se mantiene visible por encima de los markers agregados de localidades.
 let clientPinLayer = _mkPinLayer();
 // Layer para los pines de clientes confirmados en SAP geocodificados.
 // Se dibujan en azul fuerte (#1d4ed8) para distinguirlos de los habilitados.
