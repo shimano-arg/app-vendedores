@@ -20,6 +20,12 @@
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512-v3.png">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- v352: markercluster para agrupar los ~1000 pines de tiendas en burbujas
+     con numero cuando el zoom esta lejos. Elimina el freezing al pintar 1000
+     divIcons superpuestos en country view. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <!-- defer: polygon-clipping solo se necesita para los contornos de zonas
      (corre via requestIdleCallback). xlsx y jszip solo para export/import.
      Marcar como defer evita que bloqueen el parser del HTML durante la carga
@@ -3294,7 +3300,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v351';
+const APP_VERSION = 'v352';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -5043,13 +5049,38 @@ function restyleZoneLayers(){
     });
 })();
 
-let markerLayer = L.layerGroup().addTo(map);
+// v352: markercluster para agrupar pines a zoom bajo (elimina el freezing con
+// ~1000 divIcons superpuestos en country view). Fallback a layerGroup si el
+// plugin no cargo (offline con SW viejo o CDN caido) — la app sigue funcional.
+// Opciones:
+//   maxClusterRadius 60 (default 80): clusters mas chicos, mas separacion visual.
+//   disableClusteringAtZoom 12: en zoom >=12 (city detail) se ven todos los pines
+//     individuales, no queremos agrupar cuando el usuario ya esta en una calle.
+//   showCoverageOnHover false: default dibuja el poligono del cluster al hover,
+//     ruidoso sobre los outlines de zona.
+//   chunkedLoading true: agrega los markers en chunks de 200 (async), evita el
+//     freeze de 500-1000 addLayer sincronos.
+//   spiderfyOnMaxZoom true (default): click en cluster en maxZoom -> spider.
+function _mkPinLayer(opts) {
+  if (typeof L.markerClusterGroup === 'function') {
+    return L.markerClusterGroup({
+      maxClusterRadius: 60,
+      disableClusteringAtZoom: 12,
+      showCoverageOnHover: false,
+      chunkedLoading: true,
+      spiderfyOnMaxZoom: true,
+      ...opts,
+    }).addTo(map);
+  }
+  return L.layerGroup().addTo(map);
+}
+let markerLayer = _mkPinLayer();
 // Layer aparte para los pines de clientes habilitados con direccion geocodificada.
 // Se mantiene visible por encima de los markers agregados de localidades.
-let clientPinLayer = L.layerGroup().addTo(map);
+let clientPinLayer = _mkPinLayer();
 // Layer para los pines de clientes confirmados en SAP geocodificados.
 // Se dibujan en azul fuerte (#1d4ed8) para distinguirlos de los habilitados.
-let sapAltaPinLayer = L.layerGroup().addTo(map);
+let sapAltaPinLayer = _mkPinLayer();
 
 // Centroides aproximados de provincias argentinas. Usados para posicionar
 // pines AZULES de tiendas SAP que no tienen direccion cargada todavia,
