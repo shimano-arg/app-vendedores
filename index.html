@@ -3294,7 +3294,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v346';
+const APP_VERSION = 'v347';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -3478,6 +3478,27 @@ function hasStock(sku){
   }
   return null;
 }
+// v347+ (2026-07-29): devuelve la cantidad EXACTA de stock por SKU (numerica).
+// Usa STOCK_QUANTITIES que se popula desde el snapshot Firestore (v253+).
+// Retorna null si no hay datos de cantidad (snapshot viejo o sin sync).
+// Retorna 0 si el SKU no aparece en el mapa (asumimos sin stock).
+// Aplicaciones: split de lineas en confirmExcelPedido (verde con stock disponible,
+// roja con el faltante).
+function getStockQty(sku){
+  if (!sku) return null;
+  if (!_STOCK_MAP_HAS_DATA) return null;
+  const k = String(sku).toUpperCase().trim();
+  if (k in STOCK_QUANTITIES) return Number(STOCK_QUANTITIES[k] || 0);
+  if (/^0+\d+$/.test(k)) {
+    const stripped = k.replace(/^0+/, '');
+    if (stripped in STOCK_QUANTITIES) return Number(STOCK_QUANTITIES[stripped] || 0);
+  }
+  // Si sabemos que el SKU NO tiene stock (STOCK_MAP === false), retornar 0.
+  // Si no aparece en absoluto en el snapshot, retornar null (no sabemos).
+  if (k in STOCK_MAP) return 0;
+  return null;
+}
+window.getStockQty = getStockQty;
 async function loadStockSnapshot(){
   try {
     // Cache-busting: el SW intercepta el HTML pero no este JSON.
@@ -9343,12 +9364,22 @@ window.confirmExcelPedido = function(){
   if (!_excelPedidoParsed || !_excelPedidoParsed.length) return;
   if (!currentOrderKey) { alert('Cliente sin contexto. Cerra y abri de nuevo.'); return; }
   // Cargar las lineas en orders[] con precio.
-  // v345+ (2026-07-28): PRIORIDAD DE PRECIO:
+  // v345+ PRIORIDAD DE PRECIO:
   //   1. l.precioExcel (si el Excel trae columna precio con valor valido) — PISA todo.
   //   2. getDefaultPrice(l.code) del catalogo/SAP como fallback.
   //   3. 0 si es needsReview (SKU no encontrado en catalogo).
+  // v347+ (2026-07-29) SPLIT POR STOCK:
+  //   - qty <= stock: 1 linea normal (sinStock=false).
+  //   - qty > stock y stock > 0: 2 lineas — verde con `stock` uds + roja
+  //     con `qty - stock` uds (sinStock=true). El vendedor ve pedido total
+  //     y admin ve la parte faltante resaltada al confirmar.
+  //   - stock === 0: 1 linea completa con sinStock=true (todo faltante).
+  //   - stock === null (sin datos): 1 linea normal (asumimos que hay - no
+  //     tenemos como probar lo contrario).
   let priceExcelCount = 0;
-  orders[currentOrderKey] = _excelPedidoParsed.map(l => {
+  let sinStockCount = 0;
+  const outLines = [];
+  _excelPedidoParsed.forEach(l => {
     let precio;
     if (l.precioExcel != null && l.precioExcel > 0) {
       precio = l.precioExcel;
@@ -9358,22 +9389,40 @@ window.confirmExcelPedido = function(){
     } else {
       precio = (typeof getDefaultPrice === 'function') ? getDefaultPrice(l.code) : 0;
     }
-    return {
+    const baseLine = {
       code: l.code,
       desc: l.desc,
       cat: l.cat || '',
       fam: l.fam || '',
       sub: l.sub || '',
-      qty: l.qty,
       precio,
       needsReview: !!l.needsReview,
     };
+    // Split por stock. needsReview NO tiene sentido chequear stock (SKU
+    // no esta en catalogo) - dejamos qty como esta.
+    const stk = l.needsReview ? null : (typeof getStockQty === 'function' ? getStockQty(l.code) : null);
+    if (stk == null) {
+      // Sin datos de stock -> asumimos que hay (comportamiento anterior).
+      outLines.push(Object.assign({}, baseLine, {qty: l.qty, sinStock: false}));
+    } else if (l.qty <= stk) {
+      // Stock suficiente -> 1 linea normal.
+      outLines.push(Object.assign({}, baseLine, {qty: l.qty, sinStock: false}));
+    } else if (stk > 0) {
+      // Stock parcial -> split en 2 lineas: verde (stock) + roja (faltante).
+      outLines.push(Object.assign({}, baseLine, {qty: stk, sinStock: false}));
+      outLines.push(Object.assign({}, baseLine, {qty: l.qty - stk, sinStock: true}));
+      sinStockCount++;
+    } else {
+      // Stock 0 -> 1 linea completa roja.
+      outLines.push(Object.assign({}, baseLine, {qty: l.qty, sinStock: true}));
+      sinStockCount++;
+    }
   });
+  orders[currentOrderKey] = outLines;
   try { saveOrders(); } catch(e){}
-  const priceMsg = priceExcelCount > 0
-    ? ' (' + priceExcelCount + ' con precio del Excel)'
-    : '';
-  showSyncTag('Pedido cargado desde Excel: ' + _excelPedidoParsed.length + ' lineas' + priceMsg);
+  const priceMsg = priceExcelCount > 0 ? ' (' + priceExcelCount + ' con precio del Excel)' : '';
+  const stockMsg = sinStockCount > 0 ? ' — ⚠ ' + sinStockCount + ' SKU sin stock suficiente (marcado en rojo)' : '';
+  showSyncTag('Pedido cargado desde Excel: ' + _excelPedidoParsed.length + ' lineas' + priceMsg + stockMsg);
   closeExcelPedidoModal();
   // Abrir el modal "Revisa tu pedido" directamente. El usuario ajusta
   // cantidades / precios, elige forma de pago y confirma a Pendientes.
@@ -9718,16 +9767,28 @@ window.viewPedido = function(stage, key, idx){
     let html = '';
     let totalU = 0;
     let subtotalCalc = 0;
+    // v347+ (2026-07-29): lineas con l.sinStock=true se resaltan en rojo
+    // (unidades pedidas SIN cobertura de stock al momento de confirmar).
+    // Contador para el subtitulo header ('X uds sin stock').
+    let sinStockUnits = 0;
     (c.lines || []).forEach(l => {
       const q = parseFloat(l.qty) || 0;
       const pr = parseFloat(l.precio) || 0;
       totalU += q;
       subtotalCalc += q * pr;
-      html += '<div class="ped-line" style="grid-template-columns:70px 1fr 70px 50px">';
-      html += '<div class="pcode">' + escapeHtml(l.code) + '</div>';
+      const isSinStock = !!l.sinStock;
+      if (isSinStock) sinStockUnits += q;
+      // Estilo condicional: fondo rojo tenue + border rojo si sin stock.
+      const rowStyle = isSinStock
+        ? 'grid-template-columns:70px 1fr 70px 50px;background:#fee2e2;border-left:3px solid #dc2626'
+        : 'grid-template-columns:70px 1fr 70px 50px';
+      const qtyColor = isSinStock ? '#991b1b' : '#166534';
+      const codeExtra = isSinStock ? ' <span style="background:#dc2626;color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Sin stock al confirmar">SIN STOCK</span>' : '';
+      html += '<div class="ped-line" style="' + rowStyle + '">';
+      html += '<div class="pcode">' + escapeHtml(l.code) + codeExtra + '</div>';
       html += '<div class="pname">' + escapeHtml(l.desc) + '</div>';
       html += '<div style="text-align:right;font-weight:700;color:#475569">$' + pr.toLocaleString('es-AR') + '</div>';
-      html += '<div style="text-align:right;font-weight:800;color:#166534">' + q + '</div>';
+      html += '<div style="text-align:right;font-weight:800;color:' + qtyColor + '">' + q + '</div>';
       html += '</div>';
     });
     document.getElementById('pm-lines').innerHTML = html || '<div class="no-data">Pedido vacio</div>';
@@ -9746,6 +9807,10 @@ window.viewPedido = function(stage, key, idx){
     const fmtAr = (n) => '$' + Math.round(n).toLocaleString('es-AR');
     let infoHtml = '<div style="padding:14px 16px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">';
     infoHtml += '<div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#475569;margin-bottom:10px">Resumen comercial</div>';
+    // v347+: banner rojo si hay unidades sin stock (sumadas arriba en el forEach).
+    if (sinStockUnits > 0) {
+      infoHtml += '<div style="padding:9px 12px;background:#fee2e2;border:1px solid #fca5a5;border-radius:6px;font-size:12px;color:#991b1b;font-weight:700;margin-bottom:10px">&#9888;&#65039; ' + sinStockUnits + ' unidades pedidas SIN STOCK (marcadas en rojo arriba). Al momento de confirmar el pedido esos SKUs no tenian cobertura en el snapshot SAP.</div>';
+    }
     // Forma de pago
     infoHtml += '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e5e7eb;font-size:12px">';
     infoHtml += '<span style="color:#475569;font-weight:600">Forma de pago</span>';
