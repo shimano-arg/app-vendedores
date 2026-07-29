@@ -1392,39 +1392,118 @@ Mapeo total v2:
 | `Estado Value` | `"Abierto"` (default) |
 | `SAP Value` | `"No Registrado"` (default) |
 
-### Estructura del flow (Híbrida Opción C — v217)
+### Estructura del flow (v3 — 2026-07-29)
+
+Cambios v3 vs v2:
+1. **Rama nueva para solicitudes** (`TablaSolicitudes`): antes el flow ignoraba las solicitudes de recarga/anticipo, solo procesaba `TablaGastos`. Ahora hay un bloque paralelo para ambas tablas.
+2. **Excel filtrado por dupla adjunto en gastos**: antes se adjuntaba el Excel MAESTRO completo a cada item (56 rendiciones visibles en cada uno). Ahora el Python genera un mini-Excel por dupla y lo sube a Firebase Storage; el flow lo baja por HTTP GET y lo adjunta al item específico.
+3. **`Create file` con nombre único**: antes `rendiciones-temp.xlsx` fijo → colisionaba con file lock si el user tenía Excel abierto. Ahora `concat('rendiciones-', utcNow('yyyy-MM-dd-HHmmssfff'), '.xlsx')`.
+4. **`List rows` con Configure run after tolerante**: si un mail viene solo con gastos o solo con solicitudes, la tabla ausente hace fallar `List rows` con `NotFound`. Ambos `List rows` tienen configurado `is successful + has failed + is skipped` para que el flow continúe.
 
 ```
 Trigger: When a new email arrives (V3)
 └── For each (attachments)
-     ├── Save attachment to OneDrive
-     ├── List rows present in a table → TablaGastos (v2: 10 cols)
-     ├── Get items SharePoint (filter Title eq <key>)   ← idempotencia
-     └── For each row
-          ├── Condition: rowCount == 0
-          │    └── True: Create item SharePoint (con todos los campos v2)
-          ├── Compose: split(Fotos URLs, ';')
-          ├── For each foto URL
-          │    ├── HTTP GET (foto pública Firebase Storage)
-          │    └── Add attachment SharePoint (Id = nuevo item, foto descargada)
-          └── Add attachment SharePoint (Id = nuevo item, Excel original)
-                via base64ToBinary(items('For_each')?['ContentBytes'])
+     ├── Create file (OneDrive Business) → /shimano-rendiciones/rendiciones-<utcNow>.xlsx
+     ├── List rows present in a table → TablaGastos
+     │      ↳ Configure run after: tolera has failed + is skipped
+     ├── List rows Solicitudes → TablaSolicitudes
+     │      ↳ Configure run after: tolera has failed + is skipped
+     ├── For each 1 (rows de TablaGastos)
+     │    └── Apply to each
+     │         ├── Check duplicate
+     │         └── Condition (rowCount == 0)
+     │              └── True:
+     │                   ├── Create item SharePoint (todos los campos de gasto)
+     │                   ├── Bajar Excel Dupla (HTTP GET → item()?['Excel Dupla URL'])
+     │                   ├── Adjuntar Excel a item (SharePoint Add attachment con nombre
+     │                   │      `concat('Rendiciones_', vendedor, '_', replace(tipo, ' ', '_'), '.xlsx')`)
+     │                   ├── Split Fotos URLs
+     │                   └── For each foto URL
+     │                        ├── HTTP GET Storage
+     │                        └── Add attachment
+     └── Apply to each Solicitud (rows de TablaSolicitudes)
+          │      ↳ Configure run after de For each 1: tolera has failed + is skipped
+          └── Create item 1 SharePoint (mapeo específico solicitud)
+               ├── Title: concat(vendedor, ' | ', tipo operacion, ' | ', ID)
+               ├── Tipo de Operacion: if(equals(tipo, 'RECARGA'), 'Recarga',
+               │                       if(equals(tipo, 'ANTICIPO DE EFECTIVO'), 'Anticipo en efectivo',
+               │                          'Rendicion de Gasto'))
+               ├── Moneda: if(equals(moneda, 'PESOS ARGENTINOS'), 'PESOS', ...)
+               ├── Solicitado por Claims: Vendedor (email)
+               ├── Comentarios: concat('Motivo: ', motivo, ' — Obs: ', observaciones)
+               ├── Rendiciones IDs / Desde / Hasta / Importe: 1 fila del Apply to each
+               └── Cant rendiciones: 1 (fijo)
 ```
+
+### Mapeo Excel → SharePoint (Schema v3, 2026-07-29)
+
+Columnas nuevas del Excel en v3:
+
+| Columna Excel | Nueva en v3 | Uso |
+|---|---|---|
+| `Excel Dupla URL` (en `TablaGastos`) | ✓ | Público en Firebase Storage. El flow hace HTTP GET y adjunta el binario al item. |
+| Todas las de `TablaSolicitudes` | (existían pero sin uso) | Ahora el flow lee esta tabla también. |
+
+Mapeo total v3 — **TablaGastos → Items SharePoint tipo Rendicion de Gasto**:
+
+| Campo SharePoint | Valor / fuente Excel |
+|---|---|
+| `Title` | `{Vendedor (email)} \| {Tipo gasto} \| <12 chars primer ID>` |
+| `Importe` | `float(item()?['Importe Total'])` |
+| `Moneda Value` | `Moneda` (puede valer `MIXTO`) |
+| `Tipo comprobante Value` | `Tipo gasto` |
+| `Cant rendiciones` | `Cant Rendiciones` |
+| `Desde` / `Hasta` | `Periodo Desde` / `Periodo Hasta` |
+| `Rendiciones IDs` | `Rendiciones IDs` (concatenado por `;`) |
+| `Solicitado por Claims` | `Vendedor (email)` |
+| `Tipo de Operacion Value` | `"Rendicion de Gasto"` (literal) |
+| `Estado Value` | `"Abierto"` |
+| `SAP Value` | `"No Registrado"` |
+| **Attachment Excel** | Excel dupla bajado de `Excel Dupla URL` |
+| **Attachments fotos** | Cada URL del campo `Fotos URLs` splitteado por `;` |
+
+Mapeo v3 — **TablaSolicitudes → Items SharePoint tipo Recarga / Anticipo / Rendicion de Gasto**:
+
+| Campo SharePoint | Expression |
+|---|---|
+| `Title` | `concat(items('Apply_to_each_Solicitud')?['Vendedor (email)'], ' \| ', ...?['Tipo operacion'], ' \| ', ...?['ID'])` |
+| `Solicitado por Claims` | `items('Apply_to_each_Solicitud')?['Vendedor (email)']` |
+| `Tipo de Operacion Value` | `if(equals(?['Tipo operacion'], 'RECARGA'), 'Recarga', if(equals(...,'ANTICIPO DE EFECTIVO'), 'Anticipo en efectivo', 'Rendicion de Gasto'))` |
+| `Moneda Value` | `if(equals(?['Moneda'], 'PESOS ARGENTINOS'), 'PESOS', if(equals(...,'DOLARES'), 'DOLARES', 'OTRAS MONEDAS'))` |
+| `Importe` | `items('Apply_to_each_Solicitud')?['Importe']` |
+| `Comentarios` | `concat('Motivo: ', ?['Motivo'], if(empty(?['Observaciones']), '', concat(' — Obs: ', ?['Observaciones'])))` |
+| `Rendiciones IDs` | `items('Apply_to_each_Solicitud')?['ID']` (solo 1) |
+| `Cant rendiciones` | `1` (fijo) |
+| `Desde` / `Hasta` | `items('Apply_to_each_Solicitud')?['Fecha aprobacion']` (mismo valor) |
+| `Estado Value` | `"Abierto"` |
+| `Registrado` | `No` |
+| `SAP Value` | `"No Registrado"` |
+
+⚠️ **Importante**: NO usar `item()?['X']` en el Create item de solicitudes — usar SIEMPRE `items('Apply_to_each_Solicitud')?['X']` explícito. Si algún token queda apuntando implícitamente al `Create_item` de gastos, el save falla con:
+
+```
+InvalidTemplate: 'Create_item_1' cannot reference action 'Create_item'.
+The action 'Create_item' is nested in a foreach scope of multiple levels.
+Referencing repetition actions from outside the scope is supported only
+when there are no multiple levels of nesting.
+```
+
+Chequear en **Code view** del `Create item 1` que no haya `outputs('Create_item')` en ningún campo.
 
 ### Particularidades técnicas conocidas
 
 - **Idempotencia por Title**: el script genera el Title como `{vendedor} | {tipoGasto} | {primeros 12 chars de Rendiciones IDs}`. Si el flow corre 2 veces sobre el mismo Excel, el `Get items` con `$filter` detecta el item existente y no se duplica.
-- **Premium HTTP connector**: el step `HTTP GET` para bajar la foto requiere **Power Automate Premium**. Mariano tiene **trial Premium de 90 días activado** (2026-06-30). Después hay que comprar licencia o migrar a un paso nativo.
-- **Detección del schema de TablaGastos**: para que el step `List rows` detecte las 10 columnas nuevas, necesitamos un Excel ya en OneDrive antes de configurar `Create item`. Workflow recomendado:
-  1. Setear `File` temporalmente con una ruta estática (un Excel de prueba ya subido).
-  2. Configurar `Create item` con todos los chips dinámicos.
-  3. Volver el `File` a chip dinámico `Id` del step `Create file`.
-- **`Importe` como Number**: usar `float(item()?['Importe Total'])` para forzar la conversión.
+- **Premium HTTP connector**: los steps `HTTP GET` (para bajar foto Y Excel Dupla) requieren **Power Automate Premium**. Mariano tiene **trial Premium de 90 días activado** (2026-06-30). Después hay que comprar licencia.
+- **Nombre único del Excel (v3)**: `Create file` usa `concat('rendiciones-', utcNow('yyyy-MM-dd-HHmmssfff'), '.xlsx')` para evitar file lock cuando el user tiene Excel abierto en OneDrive/Desktop.
+- **Detección del schema de TablaGastos / TablaSolicitudes**: para que el step `List rows` detecte las columnas nuevas, necesitamos un Excel ya en OneDrive antes de configurar `Create item`. Si `Excel Dupla URL` no aparece en Dynamic content, usar expression manual `item()?['Excel Dupla URL']`.
+- **`Importe` como Number**: usar `float(item()?['Importe Total'])` (gastos) o `items('Apply_to_each_Solicitud')?['Importe']` (solicitudes) para forzar conversión.
 - **Document Library aparece como "ドキュメント"** (japonés): es el OneDrive normal, bug conocido de localización de Microsoft Connectors. Funciona sin problema.
+- **Configure run after tolerante**: cuando un mail tiene solo gastos, `TablaSolicitudes` no existe → `List rows Solicitudes` falla con `NotFound`. Y viceversa. Ambos `List rows` deben tener `is successful + has failed + is skipped` marcado. El `Apply to each Solicitud` también debe tener `has failed + is skipped` respecto a `For each 1` (que puede fallar si `TablaGastos` no existe).
+- **File lock 502 del Excel Online**: si aparece `List rows failed: BadGateway (502)`, chequear que el archivo Excel no esté abierto en Excel Desktop / Excel Online / Teams. El nombre único de v3 previene esto pero puede pasar si alguien abre el archivo cacheado.
 
 ### Estado actual del flow
 
-> **FUNCIONÓ con schema v1** — runs Succeeded en producción. **Schema v2 (agrupado por dupla) en migración hoy 2026-06-30** — ver `POWER_AUTOMATE_RENDICIONES.md` para los cambios exactos al flow.
+> **v3 en producción** (2026-07-29): pipeline completo funcional para gastos + solicitudes. Cada item de SharePoint tiene su Excel filtrado adjunto (`Rendiciones_<vendedor>_<tipo>.xlsx`) — al abrirlo se ven SOLO las rendiciones de esa dupla, no las de todos los vendedores. Ver `POWER_AUTOMATE_RENDICIONES.md` para el manual operativo y el `Plan de migración v3`.
 
 ---
 

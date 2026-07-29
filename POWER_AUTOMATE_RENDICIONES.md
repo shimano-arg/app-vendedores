@@ -237,6 +237,139 @@ que el flow la ignore).
 
 ---
 
+## Extensión v3 — bloque de solicitudes (2026-07-29)
+
+El flow v2 solo procesaba `TablaGastos`. Las solicitudes de anticipo/recarga
+(hoja `Solicitudes` del Excel, tabla `TablaSolicitudes`) se ignoraban → no
+llegaban a SharePoint. Fix en v3: agregar un bloque paralelo al final del
+`For each` de attachments.
+
+### Estructura agregada
+
+Después del `For each 1` (que procesa `TablaGastos`), al mismo nivel:
+
+```
+List rows Solicitudes         (Excel Online, Table = TablaSolicitudes)
+Apply to each Solicitud       (input: body/value del List rows Solicitudes)
+└── Create item 1             (SharePoint List = ANTICIPO Y RENDICION DE GASTO)
+```
+
+### Create item 1 — mapeo de campos
+
+Usar SIEMPRE `items('Apply_to_each_Solicitud')?['<campo>']` (nombre exacto
+del step Apply to each). NO usar `item()` — puede resolver mal si Power
+Automate detecta ambigüedad de scope.
+
+| Campo SharePoint | Expression |
+|---|---|
+| `Title` (Indicar el motivo...) | `concat(items('Apply_to_each_Solicitud')?['Vendedor (email)'], ' \| ', items('Apply_to_each_Solicitud')?['Tipo operacion'], ' \| ', items('Apply_to_each_Solicitud')?['ID'])` |
+| `Solicitado por Claims` | `items('Apply_to_each_Solicitud')?['Vendedor (email)']` |
+| `Tipo de Operacion Value` | `if(equals(items('Apply_to_each_Solicitud')?['Tipo operacion'], 'RECARGA'), 'Recarga', if(equals(items('Apply_to_each_Solicitud')?['Tipo operacion'], 'ANTICIPO DE EFECTIVO'), 'Anticipo en efectivo', 'Rendicion de Gasto'))` |
+| `Moneda Value` | `if(equals(items('Apply_to_each_Solicitud')?['Moneda'], 'PESOS ARGENTINOS'), 'PESOS', if(equals(items('Apply_to_each_Solicitud')?['Moneda'], 'DOLARES'), 'DOLARES', 'OTRAS MONEDAS'))` |
+| `Importe` | `items('Apply_to_each_Solicitud')?['Importe']` |
+| `Comentarios` | `concat('Motivo: ', items('Apply_to_each_Solicitud')?['Motivo'], if(empty(items('Apply_to_each_Solicitud')?['Observaciones']), '', concat(' — Obs: ', items('Apply_to_each_Solicitud')?['Observaciones'])))` |
+| `Rendiciones IDs` | `items('Apply_to_each_Solicitud')?['ID']` |
+| `Cant rendiciones` | `1` |
+| `Desde` / `Hasta` | `items('Apply_to_each_Solicitud')?['Fecha aprobacion']` |
+| `Estado Value` | `Abierto` (default) |
+| `Registrado` | `No` |
+| `SAP Value` | `No Registrado` |
+| `Tipo de gasto Value` | vacío (no aplica) |
+| `Tipo comprobante Value` | vacío (no aplica) |
+
+Valores válidos de `Tipo operacion` en el Excel (viene del dropdown de la app en
+`index.html` línea ~2951): `ANTICIPO DE EFECTIVO`, `RENDICION DE GASTO`,
+`RECARGA`. El `if()` los mapea a las 3 opciones del dropdown SharePoint:
+`Anticipo en efectivo`, `Rendicion de Gasto`, `Recarga`.
+
+### Configure run after — CRÍTICO
+
+Cuando un mail tiene solo gastos o solo solicitudes, una de las 2 tablas no
+existe en el Excel → `List rows` falla con `NotFound`. Sin configuración
+tolerante, el flow entero se detiene. Fix:
+
+1. **List rows present in a table** (Gastos): Settings → Run after (parent:
+   `Create file`) → marcar `is successful + has failed + is skipped`.
+2. **List rows Solicitudes**: Settings → Run after (parent: `List rows present
+   in a table` que es el de Gastos) → marcar `is successful + has failed +
+   is skipped`.
+3. **Apply to each Solicitud**: Settings → Run after (parent: `For each 1`) →
+   marcar `is successful + has failed + is skipped`. El `For each 1` puede
+   fallar por `ExpressionEvaluationFailed` si `List rows Gastos` devolvió
+   null; el Apply to each Solicitud debe correr igual.
+
+### Error común: "cannot reference action 'Create_item'"
+
+Si al guardar el flow aparece:
+
+```
+InvalidTemplate: 'Create_item_1' cannot reference action 'Create_item'.
+The action 'Create_item' is nested in a foreach scope of multiple levels.
+Referencing repetition actions from outside the scope is supported only
+when there are no multiple levels of nesting.
+```
+
+Causa: algún campo del `Create item 1` (solicitudes) referencia
+`outputs('Create_item')` — el Create item de gastos que está anidado
+profundamente en `For each attachments → For each 1 → Apply to each → Condition`.
+
+Fix: abrir el `Create item 1` → tab **Code view** → buscar `Create_item`
+(sin `_1`). Reemplazar por `items('Apply_to_each_Solicitud')?['<campo>']`.
+Típico culpable: el campo `Importe` (si se agregó desde Dynamic content
+picker cuando el step estaba dentro del scope de gastos, quedó apuntando al
+Create item viejo).
+
+### Nombre único del archivo Excel
+
+Cambiar el step **Create file** — campo `File Name` de `rendiciones-temp.xlsx`
+(fijo) a expression:
+
+```
+concat('rendiciones-', utcNow('yyyy-MM-dd-HHmmssfff'), '.xlsx')
+```
+
+Genera nombres tipo `rendiciones-2026-07-29-153042123.xlsx` — únicos por
+milisegundo. Previene el error `Create_file failed: file is locked for shared
+use` cuando el user tiene Excel abierto en Desktop / Online / Teams.
+
+Al hacer este cambio, actualizar el step **List rows present in a table**
+para que en `File` use dynamic content `Id` del Create file (no un path
+hardcoded).
+
+### Filename del attachment SharePoint
+
+Para que cada item tenga el Excel con un nombre útil:
+
+```
+concat('Rendiciones_', item()?['Vendedor (email)'], '_', replace(replace(item()?['Tipo gasto'], ' ', '_'), '/', '_'), '.xlsx')
+```
+
+Los `replace()` sanitizan espacios y `/` que SharePoint rechaza en filenames.
+
+### Reference log de troubleshooting v3 (2026-07-29)
+
+Durante la implementación del v3 surgieron estos issues, todos resueltos:
+
+1. **File lock `rendiciones-temp.xlsx`**: solucionado con nombre único
+   (`utcNow`).
+2. **502 BadGateway en List rows**: mismo root cause del file lock — la
+   solución del nombre único lo resuelve también.
+3. **Schema caché**: Power Automate a veces no ve las columnas nuevas del
+   Excel en Dynamic content (queda cacheado con schema viejo). Fix: usar
+   expression manual `item()?['Excel Dupla URL']` en vez de token.
+4. **Apply to each Solicitud creado en scope incorrecto**: al agregar el
+   step, Power Automate lo puso adentro del Apply to each de gastos (después
+   del Condition). Fix: cortar (`Cut to my clipboard`) y pegar al mismo nivel
+   del For each 1 (fuera de él).
+5. **`For each 1` failed por null**: cuando `List rows Gastos` falla,
+   `body/value` es null → `For each 1` no puede iterar. Se resolvió con
+   Configure run after tolerante en Apply to each Solicitud.
+6. **`Create_item` reference error**: el Importe del Create item 1 quedó
+   apuntando al Create item de gastos (`outputs('Create_item')`) tras el
+   Cut & Paste. Reemplazar por `items('Apply_to_each_Solicitud')?['Importe']`.
+
+---
+
 ## FAQ futura
 
 - **"Quiero ver el detalle de una dupla en SharePoint"**: cada item tiene
