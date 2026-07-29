@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v204 → v348](#41-changelog-v204--v348)
+41. [Changelog v204 → v353](#41-changelog-v204--v353)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -3420,9 +3420,68 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v204 → v350
+## 41) Changelog v204 → v353
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v353 (2026-07-29) — Fix cluster fragmentado: pines verdes sueltos se absorben en las burbujas
+
+**Bug reportado**: post v352 quedaban pines verdes sueltos al lado de clusters amarillos, en vez de mergearse con ellos (ej: un pin en Chubut al lado del cluster de 8 no se sumaba).
+
+**Causa raíz**: v352 creaba **3 `markerClusterGroup` independientes** (uno por layer: `clientPinLayer`, `sapAltaPinLayer`, `markerLayer`). Cada `L.markerClusterGroup` agrupa solo sus propios markers. Un pin verde de `clientPinLayer` solitario junto a un cluster de `sapAltaPinLayer` NO se mergea porque son clusters distintos.
+
+**Fix**: **UN solo `_sharedCluster` global**. Cada "layer" pasa a ser un proxy con un `Set` propio de markers que forwardea `addLayer / removeLayer / clearLayers` al cluster compartido. Cada layer sigue pudiendo hacer `clearLayers()` en su redraw (limpia solo sus markers trackeados, no toca los de las otras layers). API expuesta del proxy: `addLayer`, `removeLayer`, `clearLayers`, `hasLayer`, `getLayers` — suficiente para todos los usos actuales (`marker.addTo(layer)` + `layer.clearLayers()`).
+
+Alcance:
+- `index.html:5052-5106` — `_CLUSTER_OPTS`, `_sharedCluster`, helper `_mkPinLayer()` con proxy.
+- `APP_VERSION` v352→v353, `CACHE_VERSION` v352→v353.
+
+### v352 (2026-07-29) — Perf mapa: marker clustering (~1000 pines agrupados)
+
+**Motivación**: continuación de v351. El bottleneck restante era el freezing al pintar ~1000 divIcons juntos en country view (Argentina zoom 4-8). Un divIcon = un `<div>` DOM por marker; el reflow de 1000 elementos en cada frame de zoom era caro.
+
+**Fix**: agregado plugin `leaflet.markercluster@1.5.3` desde CDN unpkg (1 JS + 2 CSS en `<head>`). Los pines cercanos se agrupan en burbujas con contador (ej: "234 tiendas"). Click en cluster hace zoom automático al bounds.
+
+Opciones tuneadas:
+- `maxClusterRadius: 60` (default 80) — clusters más chicos, mejor separación visual.
+- `disableClusteringAtZoom: 12` — en zoom ≥12 (city detail) se ven todos los pines individuales, no queremos agrupar cuando el user ya está en una calle.
+- `showCoverageOnHover: false` — evita el polígono al hover (ruidoso sobre los outlines de zona).
+- `chunkedLoading: true` — agrega markers en chunks (async), evita freeze de 500-1000 `addLayer` síncronos.
+- `spiderfyOnMaxZoom: true` (default) — click en cluster en maxZoom → spider los markers.
+
+Fallback a `L.layerGroup()` si el plugin no cargó (offline con SW viejo o CDN caído) — la app sigue funcional.
+
+Aplicado a `clientPinLayer` + `sapAltaPinLayer` + `markerLayer` via helper `_mkPinLayer()`.
+
+Alcance:
+- `index.html:23-27` — `<link>` + `<script>` del plugin desde unpkg.
+- `index.html:5052-5075` — `_mkPinLayer()` con fallback.
+- `APP_VERSION` v351→v352, `CACHE_VERSION` v351→v352.
+
+**Nota**: v352 tenía bug de layers fragmentadas — corregido en v353 abajo.
+
+### v351 (2026-07-29) — Perf mapa: preferCanvas + geo.json simplificado (1.6MB → 885KB)
+
+**Motivación**: usuario reportó zoom in/out laggy en el mapa. Diagnóstico:
+- ~1000 markers + 24 provincias + 527 departamentos con polygons superpuestos.
+- Renderer default de Leaflet es SVG → cada zoom repintaba cada path.
+- `geo.json` 1.6 MB con geometrías full-res innecesarias en zoom 4-14.
+
+**Fix 1 (`preferCanvas: true`)**: `L.map('map', {preferCanvas: true, ...})`. Los polygonos (provincias + departamentos + zonas) ahora se pintan en un `<canvas>` en vez de SVG — un solo paint por frame en vez de re-render SVG de ~550 paths.
+
+**Fix 2 (simplificación `geo.json`)**: nuevo script `scripts/simplify-geo.js` — Douglas-Peucker + round de coordenadas a 4 decimales:
+- Dept tol 0.005° (~555 m, invisible en zoom 4-9): **60,692 → 26,215 coords (57% menos)**.
+- Prov tol 0.003° (~333 m): **20,426 → 17,322 coords (15% menos)**.
+- `geo.json`: **1602 KB → 885 KB (45% menor)**.
+
+Backup local `geo.json.bak` (ignorado por `*.bak` nuevo en `.gitignore`, no se commitea).
+
+Alcance:
+- `index.html:3526-3530` — `preferCanvas: true` en `L.map()`.
+- `geo.json` regenerado (simplificado).
+- `scripts/simplify-geo.js` (nuevo, ~120 LOC) — reusable para re-correr con otra tolerancia.
+- `.gitignore` — agregado `*.bak`.
+- `APP_VERSION` v350→v351, `CACHE_VERSION` v350→v351.
 
 ### v350 (2026-07-29) — Fix layout toolbar Master Clientes (overflow botón SAP)
 
@@ -5298,6 +5357,11 @@ Budget: 8 turnos.
 **Gate**: re-medición con scripts de E0 confirma culpable identificado mejora ≥40% del long task específico.
 
 Budget: 6 turnos.
+
+> **Update 2026-07-29 (post E4)**: fuera del plan formal, sobre `main` se aplicaron 3 mejoras adicionales al mapa en respuesta a report de usuario ("zoom laggy"):
+> - **v351** — candidato B parcial: `geo.json` simplificado con Douglas-Peucker (1602 → 885 KB, -45%) + `preferCanvas: true` (polygonos en `<canvas>` en vez de SVG). Ver sección 41.
+> - **v352** — candidato C: clustering con `leaflet.markercluster@1.5.3`.
+> - **v353** — fix del bug de layers fragmentadas de v352 (cluster compartido con proxies por layer).
 
 ### 45.8 E5 COMPLETADO — SW audit + cache chunks
 
