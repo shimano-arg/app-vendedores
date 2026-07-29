@@ -3300,7 +3300,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v354';
+const APP_VERSION = 'v355';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -4704,10 +4704,6 @@ const deptLayer = L.geoJSON(_filterOutAntarctica(DEPT_GEO), {
   interactive: false,
   smoothFactor: 3.0,
 }).addTo(map);
-// v354: deptLayer se agrega/quita segun zoom actual. En country view
-// (zoom < 8) los depts individuales son invisibles al ojo (Argentina entera
-// en pantalla), solo las zonas grandes cuentan → skip render de 527 polygons.
-// El listener zoomend se ata mas abajo, despues de que map este declarado.
 
 // Capa de CONTORNOS de zonas: para cada vendor, calculamos el contorno
 // exterior uniendo sus departamentos via "edge cancellation" (los bordes
@@ -5010,23 +5006,6 @@ const provLayer = L.geoJSON(_filterOutAntarctica(PROV_GEO), {
   interactive: false,
   smoothFactor: 3.0,
 }).addTo(map);
-
-// v354: toggle deptLayer segun zoom.
-// - Zoom < DEPT_MIN_ZOOM: se remueve del mapa (skip render de 527 polygons).
-//   El mapa muestra solo provinces + vendor outlines (zonas grandes), que es
-//   lo que el user ve util en country view.
-// - Zoom >= DEPT_MIN_ZOOM: se re-agrega. addTo/remove es idempotente en
-//   Leaflet — llamarlo cuando ya esta agregado/removido es no-op.
-const DEPT_MIN_ZOOM = 8;
-function _updateDeptLayerVisibility() {
-  const z = map.getZoom();
-  const hasIt = map.hasLayer(deptLayer);
-  if (z >= DEPT_MIN_ZOOM && !hasIt) deptLayer.addTo(map);
-  else if (z < DEPT_MIN_ZOOM && hasIt) map.removeLayer(deptLayer);
-}
-map.on('zoomend', _updateDeptLayerVisibility);
-// Estado inicial: setView([-38,-64], 4) arranca en zoom 4 < 8, quitar depts.
-_updateDeptLayerVisibility();
 
 function restyleZoneLayers(){
   deptLayer.setStyle(deptStyle);
