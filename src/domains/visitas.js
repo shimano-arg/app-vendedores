@@ -820,7 +820,11 @@ window.submitVisita = async function(){
   // v339+: Fidelidad + POP + Tipo de venta ocultos en modo contacto (no aplican).
   const _isContacto = (window.visitMode === 'contacto');
   if (!_isContacto && !readField('vf-fidelidad')) errors.push('Fidelidad');
-  if (!readField('vf-especializacion')) errors.push('Especializacion por tipo de pesca');
+  // v358: fix — Especializacion solo obligatorio en visita presencial.
+  // v357 oculto el campo en modo contacto pero olvide sacarlo de la
+  // validacion JS de submit → alert "Faltan completar: Especializacion..."
+  // aunque el campo estuviera invisible.
+  if (!_isContacto && !readField('vf-especializacion')) errors.push('Especializacion por tipo de pesca');
   if (!readField('vf-canalcompra')) errors.push('Canal de compra');
   if (!visitState.relevancia) errors.push('Relevancia');
   if (!_isContacto && !visitState.pop) errors.push('POP');
