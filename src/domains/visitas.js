@@ -1089,8 +1089,20 @@ function renderVisitasList(){
     const iBadge = isContacto
       ? '<span style="display:inline-block;background:#ccfbf1;color:#0f766e;border:1px solid #5eead4;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#128241; Contacto</span>'
       : '<span style="display:inline-block;background:#ede9fe;color:#5b21b6;border:1px solid #c4b5fd;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#128100; Visita</span>';
+    // v365+: badge de resultado del contacto no presencial (respondio / no respondio / sin marcar).
+    // Solo aplica a interactionType === 'contacto'; para visitas presenciales no tiene sentido.
+    let resBadge = '';
+    if (isContacto) {
+      if (v.contactoResultado === 'respondio') {
+        resBadge = '<span style="display:inline-block;background:#dcfce7;color:#166534;border:1px solid #86efac;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#9989; Respondio</span>';
+      } else if (v.contactoResultado === 'no_respondio') {
+        resBadge = '<span style="display:inline-block;background:#e2e8f0;color:#475569;border:1px solid #cbd5e1;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#10060; No respondio</span>';
+      } else {
+        resBadge = '<span style="display:inline-block;background:#fef3c7;color:#78350f;border:1px solid #fcd34d;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#8987; Sin marcar</span>';
+      }
+    }
     html += '<div class="visit-card" onclick="viewVisit(\'' + escapeAttr(v.id) + '\')"><div class="vc-head">';
-    html += '<div><div class="vc-name">' + escapeHtml(v.tienda || '?') + iBadge + '</div>';
+    html += '<div><div class="vc-name">' + escapeHtml(v.tienda || '?') + iBadge + resBadge + '</div>';
     html += '<div class="vc-meta">' + escapeHtml(v.localidad || '') + ' / ' + escapeHtml(titleCase(v.provincia || '')) + (v.vendor ? ' &middot; ' + escapeHtml(titleCase(v.vendor)) : '') + '</div>';
     html += '<div class="vc-meta">' + escapeHtml(v.tipo || '') + (v.local ? ' - ' + escapeHtml(v.local) : '') + ' &middot; ' + escapeHtml(v.tamano || '') + ' &middot; Fidelidad ' + escapeHtml(v.fidelidad || '') + ' &middot; Relev ' + (v.relevancia || 0) + '/5</div>';
     if (v.pop === 'SI') html += '<div class="vc-meta" style="color:#7c3aed">POP: ' + escapeHtml(v.necesidadPuntual || '') + '</div>';
@@ -1098,7 +1110,12 @@ function renderVisitasList(){
     const gpsB = gpsBadgeHtml(v);
     if (gpsB) html += '<div class="vc-meta" style="margin-top:4px">' + gpsB + '</div>';
     html += '</div><div class="vc-date" style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">' + escapeHtml(v.mes || '') + ' ' + (v.anio || '');
-    if (canDeleteThis) {
+    // v365+: boton ESTADO solo para contactos (no presencial). Abre modal con RESPONDIO / NO RESPONDIO / ELIMINAR.
+    if (isContacto && canDeleteThis) {
+      html += '<button onclick="event.stopPropagation();openContactoEstadoModal(\'' + escapeAttr(v.id) + '\')" title="Marcar resultado del contacto (respondio / no respondio) o eliminar" style="background:#0f766e;color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128203; Estado</button>';
+    }
+    if (canDeleteThis && !isContacto) {
+      // Para visitas presenciales el ELIMINAR sigue directo (sin pasar por el modal Estado).
       html += '<button onclick="event.stopPropagation();deleteVisit(\'' + escapeAttr(v.id) + '\',\'' + escapeAttr(v.tienda || '') + '\')" title="Eliminar esta visita" style="background:#dc2626;color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Eliminar</button>';
     }
     html += '</div>';
@@ -1130,6 +1147,78 @@ window.deleteVisit = async function(visitId, tiendaName){
     console.error('deleteVisit', e);
     alert('Error eliminando la visita: ' + (e.message || e));
   }
+};
+
+// v365+: modal "Estado del contacto" — marca si el cliente respondio al contacto no presencial.
+// Estado guardado en visits/{visitId}.contactoResultado como 'respondio' | 'no_respondio'.
+// Uso: openContactoEstadoModal(visitId) abre el modal precargando info del contacto.
+// Los botones del modal (setContactoResultado / deleteContactoFromEstadoModal) actuan sobre
+// window._contactoEstadoTargetId que preserva a que doc apuntar.
+if (typeof window._contactoEstadoTargetId === 'undefined') window._contactoEstadoTargetId = null;
+
+window.openContactoEstadoModal = function(visitId){
+  if (!visitId) return;
+  const v = (visitsCache || []).find(x => x.id === visitId);
+  if (!v) { alert('Contacto no encontrado en cache.'); return; }
+  if (v.interactionType !== 'contacto') { alert('Este registro no es un contacto no presencial.'); return; }
+  window._contactoEstadoTargetId = visitId;
+  const info = document.getElementById('ce-modal-info');
+  if (info) {
+    const forma = v.formaContacto ? ' &middot; via ' + escapeHtml(v.formaContacto) : '';
+    const cur = v.contactoResultado === 'respondio' ? '<b style="color:#166534">Respondio</b>'
+              : v.contactoResultado === 'no_respondio' ? '<b style="color:#475569">No respondio</b>'
+              : '<b style="color:#78350f">Sin marcar</b>';
+    info.innerHTML = '<b>' + escapeHtml(v.tienda || '?') + '</b>' + forma + '<br>'
+      + escapeHtml(v.localidad || '') + ' &middot; ' + escapeHtml(titleCase(v.provincia || '')) + '<br>'
+      + escapeHtml(v.mes || '') + ' ' + (v.anio || '') + ' &middot; Estado actual: ' + cur;
+  }
+  const modal = document.getElementById('contacto-estado-modal');
+  if (modal) modal.style.display = 'flex';
+};
+
+window.closeContactoEstadoModal = function(){
+  const modal = document.getElementById('contacto-estado-modal');
+  if (modal) modal.style.display = 'none';
+  window._contactoEstadoTargetId = null;
+};
+
+window.setContactoResultado = async function(resultado){
+  const visitId = window._contactoEstadoTargetId;
+  if (!visitId) return;
+  if (!currentUser || !fbDb) { alert('Sesion no inicializada.'); return; }
+  if (resultado !== 'respondio' && resultado !== 'no_respondio') { alert('Resultado invalido: ' + resultado); return; }
+  const v = visitsCache.find(x => x.id === visitId);
+  if (!v) { alert('Contacto no encontrado.'); return; }
+  const canEdit = (userRole === 'admin' || userRole === 'gerente') ||
+                  (currentUser && v.ownerUid === currentUser.uid);
+  if (!canEdit) { alert('No tenes permisos para modificar este contacto.'); return; }
+  try {
+    await fbDb.collection('visits').doc(visitId).update({
+      contactoResultado: resultado,
+      contactoResultadoAt: firebase.firestore.FieldValue.serverTimestamp(),
+      contactoResultadoBy: currentUser.uid,
+      contactoResultadoByEmail: currentUser.email || '',
+    });
+    try { logOp('contacto_resultado', 'visits', visitId, {tienda: v.tienda, resultado: resultado, mes: v.mes, anio: v.anio}); } catch(e){}
+    if (typeof showSyncTag === 'function') showSyncTag(resultado === 'respondio' ? 'Marcado: respondio' : 'Marcado: no respondio');
+    window.closeContactoEstadoModal();
+    // El listener refresca visitsCache; forzamos re-render por si.
+    try { renderVisitasList(); } catch(e){}
+  } catch(e) {
+    console.error('setContactoResultado', e);
+    alert('Error guardando el resultado: ' + (e.message || e));
+  }
+};
+
+window.deleteContactoFromEstadoModal = function(){
+  const visitId = window._contactoEstadoTargetId;
+  if (!visitId) return;
+  const v = visitsCache.find(x => x.id === visitId);
+  if (!v) { alert('Contacto no encontrado.'); return; }
+  // Cerramos el modal antes de disparar el confirm del deleteVisit para que el
+  // usuario vea el confirm sin overlay encima.
+  window.closeContactoEstadoModal();
+  window.deleteVisit(visitId, v.tienda || '');
 };
 
 let visitViewMode = 'new';

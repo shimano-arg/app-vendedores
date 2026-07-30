@@ -2168,6 +2168,24 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       </div>
     </div>
   </div>
+  <!-- v365+: Modal "Estado del contacto" para marcar el resultado de un contacto no presencial (respondio / no respondio / eliminar). -->
+  <div class="modal-overlay" id="contacto-estado-modal" onclick="if(event.target===this)closeContactoEstadoModal()">
+    <div class="modal-box" style="width:min(440px,96vw)">
+      <div class="modal-head" style="background:linear-gradient(135deg,#0f766e,#14b8a6)">
+        <div><h2>&#128203; Estado del contacto</h2><div class="subt" id="ce-modal-subt">Marca si el cliente respondio al contacto no presencial.</div></div>
+        <button class="modal-close" onclick="closeContactoEstadoModal()">&times;</button>
+      </div>
+      <div style="padding:18px 22px;display:flex;flex-direction:column;gap:10px">
+        <div id="ce-modal-info" style="font-size:12px;color:#475569;background:#f0fdfa;border:1px solid #ccfbf1;padding:10px 12px;border-radius:6px;line-height:1.5"></div>
+        <button id="ce-btn-respondio" onclick="setContactoResultado('respondio')" style="background:#16a34a;color:#fff;border:none;padding:12px 16px;border-radius:6px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 1px 3px rgba(22,163,74,.3);text-align:left">&#9989; Respondio &mdash; solicitar documentacion para alta SAP</button>
+        <button id="ce-btn-no-respondio" onclick="setContactoResultado('no_respondio')" style="background:#64748b;color:#fff;border:none;padding:12px 16px;border-radius:6px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 1px 3px rgba(100,116,139,.3);text-align:left">&#10060; No respondio &mdash; queda registrado el intento</button>
+        <button onclick="deleteContactoFromEstadoModal()" style="background:#dc2626;color:#fff;border:none;padding:12px 16px;border-radius:6px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 1px 3px rgba(220,38,38,.3);text-align:left">&#128465; Eliminar contacto (borra el registro)</button>
+        <div style="display:flex;justify-content:flex-end;margin-top:6px">
+          <button onclick="closeContactoEstadoModal()" style="background:#fff;color:#475569;border:1.5px solid #cbd5e1;padding:8px 16px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <div class="modal-overlay" id="visita-modal" onclick="if(event.target===this)closeVisitaModal()">
     <div class="modal-box" style="width:min(740px,98vw)">
       <div class="modal-head" id="visita-modal-head" style="background:linear-gradient(135deg,#5b21b6,#7c3aed)">
@@ -3301,7 +3319,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v364';
+const APP_VERSION = 'v365';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
