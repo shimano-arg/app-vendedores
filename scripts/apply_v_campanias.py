@@ -45,7 +45,6 @@ VIEWS_SQL = (SCRIPT_DIR.parent / 'bigquery' / 'views.sql').read_text(encoding='u
 print('=' * 70)
 print('1) Sync campaigns Firestore -> campaigns_raw BQ')
 print('=' * 70)
-rows = sync_campaigns_from_firestore(fs, now_iso())
 schema = [
     bigquery.SchemaField('campaign_id', 'STRING'),
     bigquery.SchemaField('name', 'STRING'),
@@ -67,6 +66,17 @@ schema = [
     bigquery.SchemaField('archived_by', 'STRING'),
     bigquery.SchemaField('_sync_timestamp', 'TIMESTAMP'),
 ]
+# Bootstrap: crear tabla vacia primero (idempotente). Necesario porque
+# _load_to_bq_with_schema skipea el create si rows=[] (Pablo puede no
+# tener campanias cargadas todavia), y las vistas fallan sin la tabla.
+tbl_ref = bigquery.Table(BQ_TABLE_CAMPAIGNS, schema=schema)
+try:
+    bq.create_table(tbl_ref, exists_ok=True)
+    print(f'  OK: tabla {BQ_TABLE_CAMPAIGNS} existe (creada o pre-existente)')
+except Exception as e:
+    print(f'  FAIL creando tabla: {e}')
+    raise
+rows = sync_campaigns_from_firestore(fs, now_iso())
 _load_to_bq_with_schema(bq, BQ_TABLE_CAMPAIGNS, rows, 'CAMPAIGNS', schema, dry_run=False)
 print(f'  OK: {len(rows)} campanias cargadas a {BQ_TABLE_CAMPAIGNS}\n')
 
