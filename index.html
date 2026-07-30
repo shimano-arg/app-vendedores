@@ -3301,7 +3301,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v363';
+const APP_VERSION = 'v364';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -6072,6 +6072,11 @@ function updateContactSummary(){
   // La discrepancia confundia: los 28 clientes de mas eran del padron viejo
   // sin CardCode SAP. Ahora ambos usan el mismo criterio: solo clientes
   // SAP-confirmados + altas SAP en curso.
+  //
+  // v364+: respeta el sub-filtro clientStateFilter (TODOS / CLIENTE EN SAP /
+  // PROVISORIOS). Antes siempre sumaba el total global -> "527 / 527" no
+  // cambiaba al tocar los sub-filtros aunque las cards se filtraban ok.
+  const stateFilter = (typeof clientStateFilter !== 'undefined' ? clientStateFilter : 'all');
   const pts = filteredPoints();
   let total = 0, done = 0;
   const ptsCounted = new Set();
@@ -6079,14 +6084,20 @@ function updateContactSummary(){
     const cli = effClients(p);
     const pro = effProspects(p);
     cli.forEach(n => {
+      ptsCounted.add(((p.province||'').toUpperCase()) + '|' + (n||'').toLowerCase());
+      const st = getClientState(contactKey(p, n, 'C'));
+      if (stateFilter === 'confirmados' && st !== 'habilitado') return;
+      if (stateFilter === 'pendientes' && st !== 'pendiente') return;
       total++;
       if (contacted.has(contactKey(p, n, 'C'))) done++;
-      ptsCounted.add(((p.province||'').toUpperCase()) + '|' + (n||'').toLowerCase());
     });
     pro.forEach(n => {
+      ptsCounted.add(((p.province||'').toUpperCase()) + '|' + (n||'').toLowerCase());
+      const st = getClientState(contactKey(p, n, 'P'));
+      if (stateFilter === 'confirmados' && st !== 'habilitado') return;
+      if (stateFilter === 'pendientes' && st !== 'pendiente') return;
       total++;
       if (contacted.has(contactKey(p, n, 'P'))) done++;
-      ptsCounted.add(((p.province||'').toUpperCase()) + '|' + (n||'').toLowerCase());
     });
   });
   // Sumar altas SAP huerfanas (mismos filtros que updateStats). No aplica
@@ -6101,15 +6112,24 @@ function updateContactSummary(){
       if (!a.cardCodeSap && !a.manualSapPending) return;
       if (sapEffSet && a.assignedVendor && !sapEffSet.has(a.assignedVendor)) return;
       const prov = (a.provincia || '').toUpperCase().trim();
-      if (!prov && (provFilter || locFilter)) return;
+      const isProvisorio = !a.cardCodeSap && !!a.manualSapPending;
+      if (!prov && !isProvisorio && (provFilter || locFilter)) return;
       if (prov && provFilter && prov !== provFilter) return;
+      if (!prov && provFilter) return;
       const aLoc = (a.localidadFinal || a.localidad || '').trim();
       if (locFilter && aLoc !== locFilter) return;
       const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
       if (prov && ptsCounted.has(prov + '|' + nombre.toLowerCase())) return;
-      total++;
+      // v364+: mismo criterio state que renderClients para SAP altas.
+      // 'confirmados' = SAP con geo+addr; 'pendientes' = provisorio O SAP sin geo/addr.
       const hasGeo = (a.lat != null && a.lng != null);
       const hasAddr = !!(a.calle || a.address);
+      if (stateFilter === 'confirmados') {
+        if (isProvisorio) return;
+        if (!(hasGeo && hasAddr)) return;
+      }
+      if (stateFilter === 'pendientes' && !isProvisorio && (hasGeo && hasAddr)) return;
+      total++;
       if (prov && hasGeo && hasAddr) done++;
     });
   }
@@ -10319,6 +10339,8 @@ window.setClientStateFilter = function(f){
   clientStateFilter = f;
   document.querySelectorAll('.cli-filter-btn').forEach(b => b.classList.toggle('active', b.dataset.cliFilter === f));
   renderClients(filteredPoints());
+  // v364+: refrescar contador "X / Y habilitados" — antes quedaba fijo en el total global.
+  updateContactSummary();
 };
 
 window.zoomTo = function(lat, lon){
