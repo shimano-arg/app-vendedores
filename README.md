@@ -2852,11 +2852,36 @@ Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gere
 **Estado a 2026-07-23**:
 - ✅ **Fase 1.1** Firestore → BigQuery (7 collecciones + backfill)
 - ✅ **Fase 1.2** SAP → BigQuery (6 tablas raw: BPs, Items, Invoices, Quotations, Orders, PO)
-- ✅ **Fase 2** Modelo de datos: **14 vistas SQL curadas** (9 base + 3 deuda 2026-07-20 + 2 rendiciones 2026-07-22)
+- ✅ **Fase 2** Modelo de datos: **16 vistas SQL curadas** (9 base + 3 deuda 2026-07-20 + 2 rendiciones 2026-07-22 + 2 campañas 2026-07-30)
 - ✅ **Fase 3** Power BI Desktop → Service: **TABLERO SAR publicado en `Mi área de trabajo`**. Modelo con 12 vistas + `sap_items_raw` + `Vendedores` + `Origenes` + `Medidas` + `Date`. Páginas operativas: Desempeño-Pesca, Ventas, Pedidos, Visitas, **Facturación por Vendedor** (con Cobrado + Deuda), Backorder, Inventario.
 - ✅ **Fase 3.5** Distribución automática: **suscripción diaria a Mariano** ("Desempeño diario de ventas SAR - PESCA") @15:00 AR + refresh programado @14:30. Ver subsección abajo.
 - ✅ **Fase 3.6 (2026-07-21)** Deuda por vendedor de la app: 3 vistas + cards Cobrado/Deuda en hoja Facturación por Vendedor. Ver subsección "Vistas de deuda" abajo.
 - ⏳ **Fase 4** Alertas: pendiente
+
+### Vistas de campañas comerciales (2026-07-30) — NUEVO
+
+Pedido de Mariano: hoja "CAMPAÑAS" en TABLERO SAR para ver evolución de campañas que Pablo carga desde la app (modal Campañas comerciales, `campaigns/{id}` en Firestore).
+
+**Pipeline nuevo**:
+- `scripts/sync_sap_to_bigquery.py` — nueva función `sync_campaigns_from_firestore()` corre en el mismo cron GH Actions cada 30 min. Snapshot WRITE_TRUNCATE a `campaigns_raw` (schema explícito). Filtra campañas sin `name` o `targetAmount<=0`.
+- `campaigns_raw` — 1 fila por campaña con: `campaign_id, name, familia, subfamilia, skus_json (STRING), skus_count, target_type ('units'|'money'), target_amount, start_date, end_date, scope ('all'|'province'|'vendor'), scope_values_json (STRING), created_by_email, created_at, archived, archived_at`.
+
+**2 vistas nuevas en `bigquery/views.sql`**:
+
+| Vista | Granularidad | Uso PBI |
+|---|---|---|
+| `v_campanias_progreso` | 1 fila por campaña | Tarjetas + tabla resumen: `realizado_qty`, `realizado_ars`, `pct_cumplimiento`, `dias_totales`, `dias_transcurridos`, `dias_restantes`, `activa` (bool). Progresión total del rango [start_date, end_date] |
+| `v_campanias_evolucion_diaria` | 1 fila por (campaña × día facturado) | Line chart: curva acumulada `qty_acumulado`/`ars_acumulado`/`pct_acumulado` día a día usando window functions |
+
+**Fuente de ventas**: cruza contra `v_ventas_lineas` (facturado SAP — venta real, no pedido). Filtros: `doc_date BETWEEN start_date AND end_date`, `item_code IN UNNEST(skus)`, y scope condicional (`all` sin filtro / `province` filtra `provincia_cliente` / `vendor` filtra `assigned_vendor`).
+
+**Bootstrap inicial + deploy**: `python scripts/apply_v_campanias.py` (helper que combina: sync inicial de campaigns Firestore→BQ + CREATE OR REPLACE de ambas vistas + verificación de schema). Después del bootstrap, el cron mantiene `campaigns_raw` actualizada automáticamente.
+
+**Layout sugerido de la hoja "CAMPAÑAS" en Power BI**:
+1. **Slicers**: `name` (dropdown), `familia`, `activa` (bool), `target_type`.
+2. **Tarjetas**: cantidad de campañas activas, total realizado ARS, pct cumplimiento promedio.
+3. **Tabla `v_campanias_progreso`**: columna con **barra de datos** en `pct_cumplimiento`, muestra `name / familia / target / realizado / % / dias_restantes / activa`.
+4. **Line chart** `v_campanias_evolucion_diaria`: eje X `doc_date`, eje Y `pct_acumulado`, breakdown por `campaign_id` (varias líneas si hay campañas paralelas).
 
 ### Vistas de deuda por vendedor (2026-07-20/21) — NUEVO
 
