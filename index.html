@@ -3320,7 +3320,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v366';
+const APP_VERSION = 'v367';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -13934,6 +13934,7 @@ function detachFirebaseListeners(){
   n += off('unsubPedidosOwn', unsubPedidosOwn, () => unsubPedidosOwn = null);
   n += off('unsubPedidosAll', unsubPedidosAll, () => unsubPedidosAll = null);
   n += off('unsubCampaigns', unsubCampaigns, () => unsubCampaigns = null);
+  n += off('unsubSapSnapshot', unsubSapSnapshot, () => unsubSapSnapshot = null);
   n += off('unsubVisits', unsubVisits, () => unsubVisits = null);
   n += off('unsubOpsLog', unsubOpsLog, () => unsubOpsLog = null);
   n += off('unsubSapClients', unsubSapClients, () => unsubSapClients = null);
@@ -14087,6 +14088,7 @@ function attachFirebaseListeners(){
 
   // 3) pedidos de TODOS (para sugerencias cruzadas)
   listenCampaigns();
+  if (typeof listenSapSnapshot === 'function') listenSapSnapshot();
   listenOpsLog();
   listenSapMaps();
   unsubPedidosAll = fbDb.collection('pedidos').onSnapshot(qs => {

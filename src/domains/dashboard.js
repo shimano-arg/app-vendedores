@@ -21,6 +21,11 @@
 // que las vars existen en window antes de que el inline las lea).
 if (typeof window.campaignsCache === 'undefined') window.campaignsCache = [];
 if (typeof window.unsubCampaigns === 'undefined') window.unsubCampaigns = null;
+// v367+: cache de sap_snapshot (BQ -> Firestore agregado por vendedor+mes)
+// alimenta las cards SAP del dashboard con facturado real SAP (neto de
+// credit notes). Actualizado cada 30 min por el cron GH Actions.
+if (typeof window.sapSnapshotCache === 'undefined') window.sapSnapshotCache = {};
+if (typeof window.unsubSapSnapshot === 'undefined') window.unsubSapSnapshot = null;
 
 // ============================================================
 // DASHBOARD + CAMPANAS
@@ -35,6 +40,48 @@ function listenCampaigns(){
     const mc = document.getElementById('mis-camps-modal');
     if (mc && mc.classList.contains('open')) renderMisCamps();
   }, err => console.error('campaigns listener', err));
+}
+
+// v367+: listener del snapshot BQ -> Firestore. Populado por
+// sync_sap_to_bigquery.py:sync_dashboard_snapshot_to_firestore() cada 30 min.
+// Docs: sap_snapshot/{VENDOR_NORM}_{YYYY}_{MM} con campos facturadoArsNeto,
+// unidadesNeto, ncsArs, facturasCount. Alimenta cards "SAP · Mes en curso"
+// y "SAP · Acumulado YTD" del dashboard.
+function listenSapSnapshot(){
+  if (window.unsubSapSnapshot) { window.unsubSapSnapshot(); window.unsubSapSnapshot = null; }
+  window.unsubSapSnapshot = fbDb.collection('sap_snapshot').onSnapshot(qs => {
+    window.sapSnapshotCache = {};
+    qs.forEach(d => { window.sapSnapshotCache[d.id] = Object.assign({id: d.id}, d.data()); });
+    if (document.getElementById('dashboard-modal').classList.contains('open')) renderDashboard();
+  }, err => console.error('sap_snapshot listener', err));
+}
+window.listenSapSnapshot = listenSapSnapshot;
+
+// Helper: obtener el doc sap_snapshot de un vendedor para (year, month).
+// month es 0-11 (convención JS Date.getMonth()); el doc ID usa 1-12.
+function getSapSnapshotFor(vendorKey, year, month){
+  if (!vendorKey || !window.sapSnapshotCache) return null;
+  const normKey = vendorKey.replace(/\s+/g, '_').toUpperCase();
+  const monthStr = String(month + 1).padStart(2, '0');
+  const docId = normKey + '_' + year + '_' + monthStr;
+  return window.sapSnapshotCache[docId] || null;
+}
+
+// Helper: suma YTD del vendedor (todos los meses del año hasta el mes actual, 0-11 inclusive).
+function getSapSnapshotYtd(vendorKey, year, monthUpTo){
+  if (!vendorKey || !window.sapSnapshotCache) return null;
+  let facturado = 0, unidades = 0, ncs = 0, mesesConDatos = 0;
+  for (let m = 0; m <= monthUpTo; m++) {
+    const snap = getSapSnapshotFor(vendorKey, year, m);
+    if (snap) {
+      facturado += Number(snap.facturadoArsNeto || 0);
+      unidades += Number(snap.unidadesNeto || 0);
+      ncs += Number(snap.ncsArs || 0);
+      mesesConDatos++;
+    }
+  }
+  if (mesesConDatos === 0) return null;
+  return {facturadoArsNeto: facturado, unidadesNeto: unidades, ncsArs: ncs, mesesConDatos};
 }
 
 function fmtMoney(n){ return '$' + Math.round(n).toLocaleString('es-AR'); }
@@ -299,9 +346,46 @@ window.renderDashboard = function(){
     return;
   }
 
+  // === v367+: Card SAP MES EN CURSO — facturado REAL SAP (neto de credit notes) ===
+  // Solo se muestra si hay vendedor especifico seleccionado (para no cargar
+  // en la vista consolidada admin/viewer que ya tiene su propia UI).
+  // La data viene de sap_snapshot que el cron BQ actualiza cada 30 min,
+  // consistente con el TABLERO SAR de Power BI.
+  if (dashboardVendorForTargets) {
+    const sapSnapMes = getSapSnapshotFor(dashboardVendorForTargets, now.getFullYear(), now.getMonth());
+    const monthTgtArsSap = getMonthlyTargetArs(dashboardVendorForTargets, now.getFullYear(), now.getMonth());
+    html += '<div class="dash-card" style="border:2px solid #0284c7;background:#f0f9ff">';
+    html += '<h4 style="color:#0c4a6e">&#128202; SAP - Mes en curso <span class="sub" style="color:#0369a1">' + MESES[now.getMonth()] + ' ' + now.getFullYear() + ' &middot; facturado real (v_facturas_sap neto)</span></h4>';
+    if (sapSnapMes) {
+      const facSap = Number(sapSnapMes.facturadoArsNeto || 0);
+      const unidSap = Number(sapSnapMes.unidadesNeto || 0);
+      const ncsSap = Number(sapSnapMes.ncsArs || 0);
+      html += '<div class="tgt-grid">';
+      html += '<div class="tgt-stat"><div class="num">' + fmtNum(unidSap) + '</div><div class="lbl">Unidades SAP</div></div>';
+      html += '<div class="tgt-stat money"><div class="num">' + fmtMoney(facSap) + '</div><div class="lbl">Facturado SAP ARS</div></div>';
+      if (monthTgtArsSap != null && monthTgtArsSap > 0) {
+        html += '<div class="tgt-stat target"><div class="num">' + fmtMoney(monthTgtArsSap) + '</div><div class="lbl">Target mensual</div></div>';
+        const pctSap = Math.round(facSap / monthTgtArsSap * 100);
+        const pctSapClamp = Math.min(100, Math.max(0, pctSap));
+        html += '<div class="tgt-stat"><div class="num" style="color:' + (pctSap >= 100 ? '#10b981' : (pctSap >= 70 ? '#f59e0b' : '#dc2626')) + '">' + pctSap + '%</div><div class="lbl">Cumplimiento</div></div>';
+        html += '</div>';
+        html += '<div class="tgt-bar"><div class="tgt-bar-fill ' + tgtBarCls(pctSap) + '" style="width:' + pctSapClamp + '%"></div></div>';
+        html += '<div class="tgt-meta"><span>' + fmtMoney(facSap) + ' / ' + fmtMoney(monthTgtArsSap) + '</span><span><b>' + pctSap + '%</b></span></div>';
+      } else {
+        html += '</div>';
+      }
+      if (ncsSap < 0) {
+        html += '<div style="font-size:11px;color:#78350f;background:#fef3c7;padding:6px 10px;border-radius:4px;margin-top:6px">Incluye ' + sapSnapMes.ncsCount + ' nota' + (sapSnapMes.ncsCount === 1 ? '' : 's') + ' de credito por ' + fmtMoney(ncsSap) + ' (descontado del facturado bruto).</div>';
+      }
+    } else {
+      html += '<div class="tgt-msg">Sin datos SAP para ' + escapeHtml(titleCase(dashboardVendorForTargets)) + ' en ' + MESES[now.getMonth()] + ' ' + now.getFullYear() + '. El cron actualiza sap_snapshot cada 30 min.</div>';
+    }
+    html += '</div>';
+  }
+
   // === Mes en curso ===
   html += '<div class="dash-card">';
-  html += '<h4>Mes en curso <span class="sub">' + MESES[now.getMonth()] + ' ' + now.getFullYear() + '</span></h4>';
+  html += '<h4>Mes en curso <span class="sub">' + MESES[now.getMonth()] + ' ' + now.getFullYear() + ' &middot; pedidos de la app</span></h4>';
   const monthTargetArs = dashboardVendorForTargets ? getMonthlyTargetArs(dashboardVendorForTargets, now.getFullYear(), now.getMonth()) : null;
   html += '<div class="tgt-grid">';
   html += '<div class="tgt-stat"><div class="num">' + fmtNum(monthUnits) + '</div><div class="lbl">Unidades vendidas</div></div>';
@@ -325,9 +409,39 @@ window.renderDashboard = function(){
   }
   html += '</div>';
 
+  // === v367+: Card SAP ACUMULADO ANUAL — YTD facturado real SAP ===
+  if (dashboardVendorForTargets) {
+    const sapYtd = getSapSnapshotYtd(dashboardVendorForTargets, now.getFullYear(), now.getMonth());
+    const ytdInfoSap = getCumulativeTargetArs(dashboardVendorForTargets, now.getFullYear(), now.getMonth());
+    html += '<div class="dash-card" style="border:2px solid #0284c7;background:#f0f9ff">';
+    html += '<h4 style="color:#0c4a6e">&#128202; SAP - Acumulado anual <span class="sub" style="color:#0369a1">' + yPrefix + ' YTD &middot; facturado real (v_facturas_sap neto)</span></h4>';
+    if (sapYtd) {
+      const facSapY = sapYtd.facturadoArsNeto;
+      const unidSapY = sapYtd.unidadesNeto;
+      html += '<div class="tgt-grid">';
+      html += '<div class="tgt-stat"><div class="num">' + fmtNum(unidSapY) + '</div><div class="lbl">Unidades SAP</div></div>';
+      html += '<div class="tgt-stat money"><div class="num">' + fmtMoney(facSapY) + '</div><div class="lbl">Facturado SAP ARS</div></div>';
+      if (ytdInfoSap && ytdInfoSap.monthsAssigned > 0) {
+        html += '<div class="tgt-stat target"><div class="num">' + fmtMoney(ytdInfoSap.sum) + '</div><div class="lbl">Target acumulado</div></div>';
+        const pctSapY = ytdInfoSap.sum > 0 ? Math.round(facSapY / ytdInfoSap.sum * 100) : 0;
+        const pctSapYClamp = Math.min(100, Math.max(0, pctSapY));
+        html += '<div class="tgt-stat"><div class="num" style="color:' + (pctSapY >= 100 ? '#10b981' : (pctSapY >= 70 ? '#f59e0b' : '#dc2626')) + '">' + pctSapY + '%</div><div class="lbl">Cumplimiento</div></div>';
+        html += '</div>';
+        html += '<div class="tgt-bar"><div class="tgt-bar-fill ' + tgtBarCls(pctSapY) + '" style="width:' + pctSapYClamp + '%"></div></div>';
+        html += '<div class="tgt-meta"><span>' + fmtMoney(facSapY) + ' / ' + fmtMoney(ytdInfoSap.sum) + '</span><span><b>' + pctSapY + '%</b></span></div>';
+      } else {
+        html += '</div>';
+      }
+      html += '<div style="font-size:10px;color:#075985;margin-top:6px">Datos SAP de ' + sapYtd.mesesConDatos + ' mes' + (sapYtd.mesesConDatos === 1 ? '' : 'es') + ' facturado' + (sapYtd.mesesConDatos === 1 ? '' : 's') + ' en ' + yPrefix + '.</div>';
+    } else {
+      html += '<div class="tgt-msg">Sin datos SAP para ' + escapeHtml(titleCase(dashboardVendorForTargets)) + ' en ' + yPrefix + '.</div>';
+    }
+    html += '</div>';
+  }
+
   // === Acumulado anual ===
   html += '<div class="dash-card">';
-  html += '<h4>Acumulado anual <span class="sub">' + yPrefix + ' YTD</span></h4>';
+  html += '<h4>Acumulado anual <span class="sub">' + yPrefix + ' YTD &middot; pedidos de la app</span></h4>';
   const ytdInfo = dashboardVendorForTargets ? getCumulativeTargetArs(dashboardVendorForTargets, now.getFullYear(), now.getMonth()) : null;
   html += '<div class="tgt-grid">';
   html += '<div class="tgt-stat"><div class="num">' + fmtNum(yearUnits) + '</div><div class="lbl">Unidades</div></div>';
