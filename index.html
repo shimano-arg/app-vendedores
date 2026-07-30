@@ -1933,6 +1933,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
                Tocar Masterfile-Base muestra TODOS los del padron historico. -->
           <button id="zonas-scope-sap" onclick="setZonasScope('sap')" style="padding:6px 12px;border:none;border-radius:5px;background:#0c4a6e;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#9889; Clientes SAP</button>
           <button id="zonas-scope-base" onclick="setZonasScope('base')" style="padding:6px 12px;border:none;border-radius:5px;background:#fff;color:#475569;border:1.5px solid #cbd5e1;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#128218; Masterfile-Base</button>
+          <button id="zonas-filter-unassigned" onclick="toggleZonasFilterUnassigned()" title="Muestra solo las tiendas / localidades / provincias que no tienen vendedor asignado" style="padding:6px 12px;border:1.5px solid #cbd5e1;border-radius:5px;background:#fff;color:#475569;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#128308; Solo sin asignar</button>
           <select id="zonas-prov-sel" onchange="renderZonasList()" style="padding:6px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px;min-width:160px">
             <option value="ALL">Todas las provincias</option>
           </select>
@@ -3300,7 +3301,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v362';
+const APP_VERSION = 'v363';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -12800,6 +12801,7 @@ const VDI_VENDOR_KEYS = new Set(['IOANNIS PALKOUDAKIS', 'SANTIAGO ESTEBAN']);
 // Estado local del modal:
 let zonasTab = 'shop';                 // 'shop' | 'loc' | 'hist'
 let zonasScope = 'sap';                // 'sap' (default - habilitados SAP) | 'base' (todo el padron)
+let zonasFilterUnassigned = false;     // v363: si true, muestra solo filas sin vendedor asignado (efectivo)
 let zonasPendingChanges = {};          // key -> {scope, target, originalVendor, originalType, newVendor, newType, newVendorUid, newVendorEmail}
 // 'var' (no 'let') para evitar TDZ - estas vars son consultadas por deptStyle,
 // effClients, filteredPoints en el bootstrap inicial antes de su declaracion.
@@ -12886,6 +12888,29 @@ window.setZonasScope = function(scope){
       sapBtn.style.background = '#fff';
       sapBtn.style.color = '#475569';
       sapBtn.style.border = '1.5px solid #cbd5e1';
+    }
+  }
+  renderZonasList();
+};
+
+// v363: toggle del filtro "Solo sin asignar" en el modal Zonas.
+// Cuando esta activo, renderZonasList() esconde toda fila cuyo vendor efectivo
+// no sea vacio (POINTS via getEffectiveVendorForClient, SAP altas via
+// a.assignedVendor, localidades via getEffectiveVendorForPoint, provincias via
+// override + mayoria). Util para el admin/gerente que quiere ver rapido que
+// falta asignar.
+window.toggleZonasFilterUnassigned = function(){
+  zonasFilterUnassigned = !zonasFilterUnassigned;
+  const btn = document.getElementById('zonas-filter-unassigned');
+  if (btn) {
+    if (zonasFilterUnassigned) {
+      btn.style.background = '#b91c1c';
+      btn.style.color = '#fff';
+      btn.style.border = 'none';
+    } else {
+      btn.style.background = '#fff';
+      btn.style.color = '#475569';
+      btn.style.border = '1.5px solid #cbd5e1';
     }
   }
   renderZonasList();
@@ -13151,6 +13176,7 @@ function renderZonasList(){
         }
         if (addrCached === null) addrCached = _zonasAddrFor(p.province, p.name, name);
         const effVendor = getEffectiveVendorForClient(p, name);
+        if (zonasFilterUnassigned && effVendor) return;
         const key = zonasKey('shop', p.province, p.name, name);
         const pending = zonasPendingChanges[key];
         const newSelKey = pending ? pending.newVendor : '';
@@ -13203,6 +13229,7 @@ function renderZonasList(){
           if (!inName && !inLoc && !inAddr) return;
         }
         const effVendor = a.assignedVendor || '';
+        if (zonasFilterUnassigned && effVendor) return;
         const locName = a.localidadFinal || a.localidad || '(sin localidad)';
         const key = zonasKey('shop', prov, locName, nombre);
         const pending = zonasPendingChanges[key];
@@ -13233,6 +13260,7 @@ function renderZonasList(){
       }
       if (searchQ && !p.name.toLowerCase().includes(searchQ)) return;
       const effVendor = getEffectiveVendorForPoint(p);
+      if (zonasFilterUnassigned && effVendor) return;
       const key = zonasKey('loc', p.province, p.name);
       const pending = zonasPendingChanges[key];
       const newSelKey = pending ? pending.newVendor : '';
@@ -13275,6 +13303,7 @@ function renderZonasList(){
         Object.entries(g.vendors).forEach(([k, n]) => { if (k !== '__SIN_ASIGNAR__' && n > bestN) { best = k; bestN = n; } });
         effVendor = best;
       }
+      if (zonasFilterUnassigned && effVendor) return;
       const pending = zonasPendingChanges[provKey2];
       const newSelKey = pending ? pending.newVendor : '';
       const rowCls = pending ? ' changed' : '';
