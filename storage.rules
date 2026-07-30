@@ -1,0 +1,42 @@
+rules_version = '2';
+
+// Firebase Storage Security Rules — Shimano App Vendedores
+//
+// Contexto: el bucket app-vendedores-shimano.firebasestorage.app se usa
+// exclusivamente para las fotos de ticket de rendiciones (v308+), bajo el
+// path `rendiciones/{ownerUid}/{timestamp}_ticket.{ext}`.
+// - El vendedor sube SU propia foto al submitear una rendicion.
+// - Admin/gerente leen la foto para aprobar la rendicion.
+// - Los urls firmados de download tambien requieren auth.
+//
+// Cualquier otro path (que no exista hoy) queda bloqueado por default —
+// evita que un cliente authenticado escriba archivos fuera de scope.
+//
+// Reemplaza las rules "test mode" que caducaban el 2026-07-30 y hubieran
+// bloqueado toda subida de tickets desde el 2026-07-31 en adelante.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Fotos de ticket de rendiciones:
+    // - write: el vendedor solo puede escribir en SU propia carpeta
+    //   (ownerUid del path == request.auth.uid). Limite 10 MB por archivo
+    //   + solo tipos image/*.
+    // - read: cualquier usuario autenticado puede leer (admin/gerente
+    //   necesitan ver todas las fotos para aprobar rendiciones).
+    match /rendiciones/{ownerUid}/{allFiles=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.auth.uid == ownerUid
+                   && request.resource.size < 10 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // Default: bloquear todo lo demas. Si en el futuro se agrega otro
+    // path (ej: fotos de visitas migradas a Storage), agregar un match
+    // dedicado arriba con sus propias reglas.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
