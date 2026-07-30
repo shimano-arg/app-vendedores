@@ -1362,3 +1362,80 @@ SELECT
   END AS pct_acumulado
 FROM lines_per_day
 ORDER BY campaign_id, doc_date;
+
+
+-- ============================================================
+-- View 16: v_campanias_ventas_detalle  (2026-07-30, v367+)
+-- ============================================================
+-- Granularidad DETALLE: 1 fila por (campania x linea de factura SAP).
+-- SIN agregacion. Preserva todas las dimensiones para armar en Power BI
+-- matrices tipo:
+--   Filas:    campaign_name > assigned_vendor > card_name > item_code
+--   Columnas: (nada) o mes
+--   Valores:  SUM(cantidad), SUM(importe_linea_ars)
+--
+-- Motivacion: v_campanias_progreso ya viene GROUP BY campaign_id, entonces
+-- perdio card_name, item_code, assigned_vendor. Para responder "quien le
+-- vendio que a quien dentro de la campania X" hace falta esta vista de
+-- detalle en la misma tabla (sino Power BI tira InvalidUnconstrainedJoin
+-- por falta de relacion entre v_campanias_progreso y v_ventas_lineas).
+--
+-- Mismos filtros de scope que las otras 2 vistas (all/province/vendor).
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_campanias_ventas_detalle` AS
+WITH c AS (
+  SELECT
+    campaign_id, name AS campaign_name, familia AS campaign_familia,
+    subfamilia AS campaign_subfamilia, target_type, target_amount,
+    start_date, end_date, scope,
+    ARRAY(SELECT JSON_EXTRACT_SCALAR(sku) FROM UNNEST(JSON_EXTRACT_ARRAY(skus_json)) sku) AS skus,
+    ARRAY(SELECT JSON_EXTRACT_SCALAR(v)   FROM UNNEST(JSON_EXTRACT_ARRAY(scope_values_json)) v) AS scope_values
+  FROM `app-vendedores-shimano.shimano_app.campaigns_raw`
+)
+SELECT
+  c.campaign_id,
+  c.campaign_name,
+  c.campaign_familia,
+  c.campaign_subfamilia,
+  c.target_type,
+  c.target_amount,
+  c.start_date                                                          AS campaign_start_date,
+  c.end_date                                                            AS campaign_end_date,
+  c.scope,
+  ARRAY_TO_STRING(c.scope_values, ', ')                                 AS scope_values_str,
+  -- Contexto de la factura
+  v.doc_entry,
+  v.doc_num,
+  v.doc_date,
+  v.anio,
+  v.mes,
+  -- Cliente
+  v.card_code,
+  v.card_name,
+  v.provincia_cliente,
+  -- SKU vendido (item de la campania)
+  v.item_code,
+  v.descripcion_linea,
+  v.warehouse_code,
+  -- Categorizacion del catalogo (item_name_catalogo con parche encoding, familia/subfamilia enriquecidas)
+  v.item_name_catalogo,
+  v.familia,
+  v.subfamilia,
+  v.is_pesca,
+  -- Vendedor
+  v.assigned_vendor,
+  v.sales_person_code,
+  -- Metricas
+  v.cantidad,
+  v.precio_unitario,
+  v.importe_linea_ars,
+  v.cobrado_prorrateado_ars,
+  v.deuda_prorrateada_ars
+FROM c
+JOIN `app-vendedores-shimano.shimano_app.v_ventas_lineas` v
+  ON v.item_code IN UNNEST(c.skus)
+ AND v.doc_date BETWEEN c.start_date AND c.end_date
+WHERE
+  c.scope = 'all'
+  OR (c.scope = 'province' AND v.provincia_cliente IN UNNEST(c.scope_values))
+  OR (c.scope = 'vendor'   AND v.assigned_vendor   IN UNNEST(c.scope_values));

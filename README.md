@@ -2852,7 +2852,7 @@ Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gere
 **Estado a 2026-07-23**:
 - ✅ **Fase 1.1** Firestore → BigQuery (7 collecciones + backfill)
 - ✅ **Fase 1.2** SAP → BigQuery (6 tablas raw: BPs, Items, Invoices, Quotations, Orders, PO)
-- ✅ **Fase 2** Modelo de datos: **16 vistas SQL curadas** (9 base + 3 deuda 2026-07-20 + 2 rendiciones 2026-07-22 + 2 campañas 2026-07-30)
+- ✅ **Fase 2** Modelo de datos: **17 vistas SQL curadas** (9 base + 3 deuda 2026-07-20 + 2 rendiciones 2026-07-22 + 3 campañas 2026-07-30)
 - ✅ **Fase 3** Power BI Desktop → Service: **TABLERO SAR publicado en `Mi área de trabajo`**. Modelo con 12 vistas + `sap_items_raw` + `Vendedores` + `Origenes` + `Medidas` + `Date`. Páginas operativas: Desempeño-Pesca, Ventas, Pedidos, Visitas, **Facturación por Vendedor** (con Cobrado + Deuda), Backorder, Inventario.
 - ✅ **Fase 3.5** Distribución automática: **suscripción diaria a Mariano** ("Desempeño diario de ventas SAR - PESCA") @15:00 AR + refresh programado @14:30. Ver subsección abajo.
 - ✅ **Fase 3.6 (2026-07-21)** Deuda por vendedor de la app: 3 vistas + cards Cobrado/Deuda en hoja Facturación por Vendedor. Ver subsección "Vistas de deuda" abajo.
@@ -2866,12 +2866,13 @@ Pedido de Mariano: hoja "CAMPAÑAS" en TABLERO SAR para ver evolución de campa�
 - `scripts/sync_sap_to_bigquery.py` — nueva función `sync_campaigns_from_firestore()` corre en el mismo cron GH Actions cada 30 min. Snapshot WRITE_TRUNCATE a `campaigns_raw` (schema explícito). Filtra campañas sin `name` o `targetAmount<=0`.
 - `campaigns_raw` — 1 fila por campaña con: `campaign_id, name, familia, subfamilia, skus_json (STRING), skus_count, target_type ('units'|'money'), target_amount, start_date, end_date, scope ('all'|'province'|'vendor'), scope_values_json (STRING), created_by_email, created_at, archived, archived_at`.
 
-**2 vistas nuevas en `bigquery/views.sql`**:
+**3 vistas nuevas en `bigquery/views.sql`**:
 
 | Vista | Granularidad | Uso PBI |
 |---|---|---|
 | `v_campanias_progreso` | 1 fila por campaña | Tarjetas + tabla resumen: `realizado_qty`, `realizado_ars`, `pct_cumplimiento`, `dias_totales`, `dias_transcurridos`, `dias_restantes`, `activa` (bool). Progresión total del rango [start_date, end_date] |
 | `v_campanias_evolucion_diaria` | 1 fila por (campaña × día facturado) | Line chart: curva acumulada `qty_acumulado`/`ars_acumulado`/`pct_acumulado` día a día usando window functions |
+| `v_campanias_ventas_detalle` | 1 fila por (campaña × línea de factura SAP) | **Matrices tipo "quién vendió qué a quién dentro de una campaña"**. Sin agregar — expone `card_name`, `item_code`, `assigned_vendor`, `provincia_cliente`, `cantidad`, `importe_linea_ars`, `familia`, `subfamilia`, `is_pesca`, `anio`, `mes`. Necesaria porque `v_campanias_progreso` YA está agregada por `campaign_id` y perdía esas dimensiones — sin esta vista, matrices multi-nivel en PBI tiran `InvalidUnconstrainedJoin` |
 
 **Fuente de ventas**: cruza contra `v_ventas_lineas` (facturado SAP — venta real, no pedido). Filtros: `doc_date BETWEEN start_date AND end_date`, `item_code IN UNNEST(skus)`, y scope condicional (`all` sin filtro / `province` filtra `provincia_cliente` / `vendor` filtra `assigned_vendor`).
 
