@@ -100,6 +100,16 @@ if not m:
 bq.query(m.group(1), location=BQ_LOCATION).result()
 print('  OK\n')
 
+# 3b) Aplicar v_campanias_ventas_detalle (v368+: para matrices por vendedor/cliente/SKU)
+print('=' * 70)
+print('3b) CREATE OR REPLACE VIEW v_campanias_ventas_detalle')
+print('=' * 70)
+m = re.search(r'(CREATE OR REPLACE VIEW `[^`]+\.v_campanias_ventas_detalle`[^;]+;)', VIEWS_SQL, re.DOTALL)
+if not m:
+    raise SystemExit('No encontre v_campanias_ventas_detalle en views.sql')
+bq.query(m.group(1), location=BQ_LOCATION).result()
+print('  OK\n')
+
 # 4) Verificacion: SELECT * de v_campanias_progreso
 print('=' * 70)
 print('4) SELECT * FROM v_campanias_progreso')
@@ -139,4 +149,15 @@ t = bq.get_table(f'{TBL}.v_campanias_evolucion_diaria')
 for f in t.schema:
     print(f'  {f.name:24}  {f.field_type}')
 
-print('\n>>> DONE. Ambas vistas listas para consumir desde Power BI.')
+print()
+print('=' * 70)
+print('7) SCHEMA de v_campanias_ventas_detalle (columnas expuestas a PBI)')
+print('=' * 70)
+t = bq.get_table(f'{TBL}.v_campanias_ventas_detalle')
+for f in t.schema:
+    print(f'  {f.name:24}  {f.field_type}')
+
+print('\n>>> DONE. 3 vistas listas para consumir desde Power BI:')
+print('    - v_campanias_progreso        (agregado por campania)')
+print('    - v_campanias_evolucion_diaria (linea temporal acumulada)')
+print('    - v_campanias_ventas_detalle   (detalle por venta para matrices)')
