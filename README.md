@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v204 → v359](#41-changelog-v204--v359)
+41. [Changelog v204 → v366](#41-changelog-v204--v366)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -3552,9 +3552,128 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v204 → v359
+## 41) Changelog v204 → v366
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v366 (2026-07-30) — Fix z-index del modal `#contacto-estado-modal`
+
+**Bug reportado por Mariano**: al tocar el botón ESTADO (v365) en una card de MIS CONTACTOS, "no pasaba nada". Solo al cerrar el modal Contactado padre aparecía el modal ESTADO atrás.
+
+**Causa**: ambos modales usan la clase `.modal-overlay` con `z-index:3000` fijo. Como `#visita-modal` (modal Contactado) está declarado DESPUÉS en el DOM que el nuevo `#contacto-estado-modal`, gana el stacking context y lo tapa completo.
+
+**Fix**: `style="z-index:4000"` inline en el `#contacto-estado-modal` (mismo nivel que `.qmodal-overlay` usada para otros modales secundarios).
+
+Alcance:
+- `index.html` — 1 línea del `<div id="contacto-estado-modal">`.
+- `APP_VERSION` v365→v366, `CACHE_VERSION` v365→v366.
+
+**Regla derivada**: cuando un modal se abre DESDE OTRO modal, bumpearle el z-index sobre el base. Documentar en CLAUDE.md si aparece un tercer caso.
+
+### v365 (2026-07-30) — Botón ESTADO + modal para marcar resultado de contactos no presenciales
+
+**Pedido de Mariano**: llevar registro sistemático de qué contactos no presenciales (WhatsApp/teléfono/email) dieron resultado — para decidir a quién enviarle documentación para alta SAP (salir de "Provisorios") y a quién eliminar del listado.
+
+**UI en MIS CONTACTOS** (dentro del modal Contactado):
+- Cada card de contacto muestra un tercer badge al lado de `📱 CONTACTO`: `⏳ SIN MARCAR` (ámbar, default) / `✅ RESPONDIÓ` (verde) / `❌ NO RESPONDIÓ` (gris).
+- Botón teal **`📋 ESTADO`** reemplaza al ELIMINAR rojo SOLO en cards de contactos (visitas presenciales mantienen ELIMINAR directo).
+- Al tocarlo abre modal `#contacto-estado-modal` con 3 opciones: RESPONDIÓ (badge verde + signal "mandar documentación") / NO RESPONDIÓ (badge gris) / ELIMINAR (dispara `deleteVisit` existente).
+
+**Firestore**: nuevo campo en `visits/{visitId}`:
+- `contactoResultado: 'respondio' | 'no_respondio'` (undefined = sin marcar).
+- `contactoResultadoAt: serverTimestamp`.
+- `contactoResultadoBy: uid`.
+- `contactoResultadoByEmail: string`.
+
+**Permisos**: admin/gerente marcan cualquier contacto; vendedores solo los propios (mismo criterio que `deleteVisit`). Auditado en `operations_log` como `contacto_resultado`.
+
+Alcance:
+- `index.html` — modal `#contacto-estado-modal` nuevo.
+- `src/domains/visitas.js` — `renderVisitasList` con badge + botón condicional; nuevas funciones `openContactoEstadoModal` / `setContactoResultado` / `closeContactoEstadoModal` / `deleteContactoFromEstadoModal`.
+- `app.bundle.js` regenerado.
+- `APP_VERSION` v364→v365.
+
+### v364 (2026-07-30) — Fix contador "X / Y habilitados" no cambiaba al tocar sub-filtro TODOS/CLIENTE EN SAP/PROVISORIOS
+
+**Bug reportado por Mariano**: el contador `#contact-summary` del sidebar CLIENTES siempre mostraba `527 / 527` sin importar qué sub-filtro se tocara, aunque las cards debajo sí filtraban correctamente.
+
+**Causa** (2 puntos):
+1. `updateContactSummary()` ignoraba `clientStateFilter` — sumaba todos los POINTS + todas las SAP altas sin filtrar por confirmados/provisorios.
+2. `setClientStateFilter()` solo llamaba `renderClients()`, nunca `updateContactSummary()` al cambiar filtro.
+
+**Fix**: `updateContactSummary` ahora replica el mismo criterio de `renderClients` — POINTS respetan `getClientState()`; SAP altas → `confirmados` = SAP con geo+addr, `pendientes` = provisorio O SAP sin geo/addr. Además `setClientStateFilter` ahora llama `updateContactSummary()` al final.
+
+Alcance:
+- `index.html` — `updateContactSummary` (líneas 6067+), `setClientStateFilter` (líneas 10318+).
+- `APP_VERSION` v363→v364.
+
+**Aprendizaje**: cuando el mismo state (`clientStateFilter`) impacta múltiples piezas de la UI (lista + contador), vanilla exige acordarse manualmente de disparar cada actualización. React resolvería esto automáticamente al declarar el contador como derivado del state — decisión de mantener vanilla acepta este tipo de bugs a cambio de simplicidad de stack.
+
+### v363 (2026-07-30) — Modal Zonas: filtro toggle "Solo sin asignar"
+
+**Pedido de Mariano**: encontrar rápido las tiendas sin vendedor asignado dentro del modal ZONAS. Antes había que scrollear entre ~500 filas mezcladas para detectar las grises `SIN ASIGNAR`.
+
+**Fix**: botón nuevo `🔴 Solo sin asignar` en la barra de filtros del `#zonas-modal` (entre "Masterfile-Base" y el select de provincias). Cuando está activo (fondo rojo `#b91c1c`), `renderZonasList()` esconde toda fila cuyo vendor efectivo NO sea vacío, en los 4 puntos de render:
+- shop POINTS via `getEffectiveVendorForClient`.
+- shop SAP altas via `a.assignedVendor`.
+- loc via `getEffectiveVendorForPoint`.
+- prov via override + mayoría de POINTS.
+
+Alcance:
+- `index.html` — botón nuevo `#zonas-filter-unassigned`, state `let zonasFilterUnassigned`, handler `window.toggleZonasFilterUnassigned()`, 4 guards en `renderZonasList`.
+- `APP_VERSION` v362→v363.
+
+### v362 (2026-07-30) — Fix `pendingNotifIdToMarkRead` cross-module scope
+
+**Bug reportado**: al submitear cualquier form de visita/contacto tiraba `Error guardando: Can't find variable: pendingNotifIdToMarkRead`.
+
+**Causa**: la variable estaba declarada como `let pendingNotifIdToMarkRead = null;` en `src/domains/notificaciones.js`. Al buildear con esbuild, esa `let` queda en el scope IIFE del módulo notificaciones (esbuild la renombra a `pendingNotifIdToMarkRead2` internamente para evitar collisions). Cuando `src/domains/visitas.js` leía/escribía `pendingNotifIdToMarkRead` sin sufijo `window.`, era una **free variable** → resolvía a `window.pendingNotifIdToMarkRead` (undefined) → `ReferenceError` al llegar al bloque de "marcar notificación como leída post-visita" dentro de `submitVisita`.
+
+**Fix**:
+1. En `notificaciones.js`: `let pendingNotifIdToMarkRead = null;` → `if (typeof window.pendingNotifIdToMarkRead === 'undefined') window.pendingNotifIdToMarkRead = null;`
+2. En `visitas.js`: prefix `window.` en las 3 referencias.
+
+**Extensión de la regla #17 CLAUDE.md**: aplica también **entre módulos del bundle**, no solo bundle↔inline. Cada `src/domains/*.js` tiene su propio scope IIFE en el bundle esbuild.
+
+Alcance:
+- `src/domains/notificaciones.js` — declaración cross-scope.
+- `src/domains/visitas.js` — 3 refs con prefix `window.`.
+- `app.bundle.js` regenerado.
+- `APP_VERSION` v361→v362.
+
+### v361 (2026-07-30) — Expone `_fsSelect` en `window` — click en dropdown no hacía nada
+
+**Bug reportado por Mariano**: "cuando toco 'Tienda de pesca' no pasa nada".
+
+**Causa**: el filter-select genera items con inline handler `onmousedown="_fsSelect(event)"`. Al extraer visitas al bundle IIFE en E2.k (Fase 0), esbuild **tree-shakea** la función `_fsSelect` porque no ve ninguna referencia JS a ella — el HTML inline (atributos `on*=`) no cuenta como uso. Al hacer click, el browser hace lookup en `window`, no encuentra `_fsSelect`, tira `ReferenceError` silencioso, el click no hace nada. Los otros handlers `fsOn*` (input/focus/blur/keydown) sí estaban expuestos con `window.fsOn* = function(...)` porque están referenciados en atributos `<input oninput=... onfocus=... onblur=... onkeydown=...>` — el único que faltaba era `_fsSelect`.
+
+**Por qué solo se notó ahora**: Enter en el input dispara `fsOnKeydown` que ejecuta la misma lógica sin tocar `_fsSelect`. El user probablemente venía usando Enter sin darse cuenta, o el bug estaba oculto detrás del bug del preservado v359/v360. Post-E2 esto siempre estuvo roto para touch/mouse click puro.
+
+**Fix**: cambio `function _fsSelect(evt){...}` por `window._fsSelect = function(evt){...}` en `src/domains/visitas.js`.
+
+Alcance:
+- `src/domains/visitas.js` — 1 línea de declaración.
+- `app.bundle.js` regenerado.
+- `APP_VERSION` v360→v361.
+
+**Aprendizaje**: al extraer código al bundle, cualquier función referenciada solo por HTML inline (atributos `on*`) debe declararse con `window.foo = function(...)` explícito, sino esbuild la marca como muerta y la tree-shakea. Los handlers referenciados por JS del bundle no tienen este problema.
+
+### v360 (2026-07-29) — Fix REAL del bug v359 — el selector "Tienda de pesca" seguía sin quedar seleccionado
+
+**Bug reportado por Mariano**: v359 introdujo la lógica de preservar la selección previa entre re-populates de `populateVisitaLocalidades` (disparados por `onSnapshot` de `approvedAltasList` con el modal abierto), pero **seguía sin funcionar** — al elegir una tienda en el modal Contactado, el input quedaba vacío igual.
+
+**Causa raíz** (que v359 no atacó): la comparación `items.find(i => i.value === _prevTiendaVal)` nunca matcheaba. `_fsSelect` pone en el hidden el value compuesto `"PROV||Loc||Tienda"`, pero **inmediatamente después** `onTiendaChange` (v298+) lo pisa con solo el nombre plano de la tienda. Los `items[].value` mantienen el formato compuesto. Entonces al comparar `_prevTiendaVal` (nombre plano) contra `items[].value` (compuesto) → siempre `undefined` → caía al `fsReset` → borraba igual que pre-v359.
+
+**Fix**: reconstruir el value compuesto usando `vf-localidad` (`"PROV||Loc"`, que `onTiendaChange` deja en paralelo) + `vf-tienda` (nombre plano) → `"PROV||Loc||Tienda"`. Con eso `items.find` matchea, `fsSetValue` restaura el compuesto en el hidden + label completo en el input search, y una llamada extra a `onTiendaChange(_prevCompositeVal)` re-pisa el hidden con el nombre plano y re-setea `vf-localidad` (mismo camino que `_fsSelect` original).
+
+El bug afectaba a AMBOS modos (visita + contacto), pero se notaba más en el modo Contactado porque es el flow nuevo y recién testeado.
+
+Alcance:
+- `src/domains/visitas.js` — reconstrucción del value compuesto en la lógica de preservación de v359.
+- `app.bundle.js` regenerado.
+- `APP_VERSION` v359→v360.
+
+**Aprendizaje**: cuando aparecen 2 funciones que escriben al mismo `<input hidden>` con formatos distintos (una con value compuesto, otra con nombre plano), la lógica de "preservar el value" debe conocer AMBAS convenciones. Idealmente unificar el formato del hidden, pero sin refactor el mínimo es reconstruir siempre desde los inputs paralelos.
 
 ### v359 (2026-07-29) — Fix selector "Tienda de pesca" se borraba al llegar update de Firestore
 
