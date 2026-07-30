@@ -92,6 +92,7 @@ BQ_TABLE_ORDERS     = f'{BQ_PROJECT}.{BQ_DATASET}.sap_orders_raw'
 # tabla lista cuando arranquen a cargarlas (sin re-codear).
 BQ_TABLE_PURCHASE_ORDERS = f'{BQ_PROJECT}.{BQ_DATASET}.sap_purchase_orders_raw'
 BQ_TABLE_TARGETS         = f'{BQ_PROJECT}.{BQ_DATASET}.targets_raw'
+BQ_TABLE_CAMPAIGNS       = f'{BQ_PROJECT}.{BQ_DATASET}.campaigns_raw'
 
 # Codigo de la lista PESCA en SAP (misma que sync_sap_to_firestore.py).
 PESCA_PRICE_LIST_NUM = 12
@@ -582,6 +583,88 @@ def sync_targets_from_firestore(db: firestore.Client, sync_ts: str) -> list:
     return rows
 
 
+def sync_campaigns_from_firestore(db: firestore.Client, sync_ts: str) -> list:
+    """v367+: lee la coleccion `campaigns` de Firestore y aplana a rows para BQ.
+    Fields cargados por la app (ver src/domains/campanias.js: crearCampania):
+      name              STRING   (nombre, requerido)
+      familia           STRING   (ej: 'REELS', 'CANAS')
+      subfamilia        STRING
+      skus              ARRAY    (ItemCodes incluidos, ej ['REEL4000',...])
+      filterType        STRING   ('sku' hoy, extensible)
+      filterValues      ARRAY    (copia de skus)
+      targetType        STRING   ('units' | 'money')
+      targetAmount      NUMBER
+      startDate         DATE ISO ('2026-07-30')
+      endDate           DATE ISO ('2026-08-29')
+      scope             STRING   ('all' | 'province' | 'vendor')
+      scopeValues       ARRAY    (provincias o vendor keys si scope != 'all')
+      createdBy         STRING   (uid)
+      createdByEmail    STRING
+      createdAt         TS
+      archivedManually  BOOL     (finalizada antes de endDate)
+      archivedAt        TS
+      archivedBy        STRING
+
+    Serializamos skus y scope_values como STRING JSON (usar JSON_EXTRACT_ARRAY
+    en la vista v_campanias_progreso). BQ ARRAY nested tira problemas con
+    autodetect + UNNEST cross-view; string JSON es mas robusto y compatible
+    con el patron que ya usan sap_invoices_raw.lines_json.
+    WRITE_TRUNCATE cada sync: dedup por construccion."""
+    log('[CAMPAIGNS] leyendo coleccion campaigns de Firestore...')
+    rows = []
+    for d in db.collection('campaigns').stream():
+        data = d.to_dict() or {}
+        name = (data.get('name') or '').strip()
+        if not name:
+            log(f'[CAMPAIGNS] skip {d.id}: name vacio')
+            continue
+        try:
+            target_amount = float(data.get('targetAmount', 0) or 0)
+        except (TypeError, ValueError):
+            log(f'[CAMPAIGNS] skip {d.id}: targetAmount invalido ({data.get("targetAmount")!r})')
+            continue
+        if target_amount <= 0:
+            log(f'[CAMPAIGNS] skip {d.id}: targetAmount <= 0')
+            continue
+        target_type = (data.get('targetType') or 'money').lower()
+        if target_type not in ('units', 'money'):
+            target_type = 'money'
+        scope = (data.get('scope') or 'all').lower()
+        if scope not in ('all', 'province', 'vendor'):
+            scope = 'all'
+        skus_list = data.get('skus') or []
+        if not isinstance(skus_list, list):
+            skus_list = []
+        scope_vals = data.get('scopeValues') or []
+        if not isinstance(scope_vals, list):
+            scope_vals = []
+        created_at = data.get('createdAt')
+        archived_at = data.get('archivedAt')
+        rows.append({
+            'campaign_id':      d.id,
+            'name':             name,
+            'familia':          (data.get('familia') or '').strip(),
+            'subfamilia':       (data.get('subfamilia') or '').strip(),
+            'skus_json':        json.dumps([str(s) for s in skus_list if s]),
+            'skus_count':       len([s for s in skus_list if s]),
+            'target_type':      target_type,
+            'target_amount':    target_amount,
+            'start_date':       data.get('startDate') or None,   # ISO 'YYYY-MM-DD'
+            'end_date':         data.get('endDate') or None,
+            'scope':            scope,
+            'scope_values_json': json.dumps([str(v) for v in scope_vals if v]),
+            'created_by':       data.get('createdBy', ''),
+            'created_by_email': data.get('createdByEmail', ''),
+            'created_at':       created_at.isoformat() if created_at else None,
+            'archived':         bool(data.get('archivedManually')),
+            'archived_at':      archived_at.isoformat() if archived_at else None,
+            'archived_by':      data.get('archivedBy', ''),
+            '_sync_timestamp':  sync_ts,
+        })
+    log(f'[CAMPAIGNS] {len(rows)} campanias validas (name + targetAmount > 0)')
+    return rows
+
+
 def load_to_bq(bq_client: bigquery.Client, table_id: str, rows: list, entity_name: str, dry_run: bool = False):
     if not rows:
         log(f'[BQ/{entity_name}] 0 rows, nada que cargar')
@@ -829,6 +912,36 @@ def main():
         bigquery.SchemaField('_sync_timestamp', 'TIMESTAMP'),
     ]
     _load_to_bq_with_schema(bq_client, BQ_TABLE_TARGETS, target_rows, 'TARGETS', _target_schema, dry_run=dry_run)
+
+    # === 8. Campanias comerciales (Firestore -> BigQuery)  v367+
+    # Coleccion `campaigns` en Firestore (una fila por campania). Doc ID = auto.
+    # WRITE_TRUNCATE dedup por construccion. Schema explicito porque skus_json
+    # y scope_values_json son STRING que van a UNNEST via JSON_EXTRACT_ARRAY
+    # en la vista v_campanias_progreso (mismo patron que sap_invoices_raw.lines_json).
+    # Alimenta hoja "CAMPAÑAS" del TABLERO SAR (Power BI).
+    campaign_rows = sync_campaigns_from_firestore(db, sync_ts)
+    _campaign_schema = [
+        bigquery.SchemaField('campaign_id', 'STRING'),
+        bigquery.SchemaField('name', 'STRING'),
+        bigquery.SchemaField('familia', 'STRING'),
+        bigquery.SchemaField('subfamilia', 'STRING'),
+        bigquery.SchemaField('skus_json', 'STRING'),
+        bigquery.SchemaField('skus_count', 'INT64'),
+        bigquery.SchemaField('target_type', 'STRING'),
+        bigquery.SchemaField('target_amount', 'FLOAT64'),
+        bigquery.SchemaField('start_date', 'DATE'),
+        bigquery.SchemaField('end_date', 'DATE'),
+        bigquery.SchemaField('scope', 'STRING'),
+        bigquery.SchemaField('scope_values_json', 'STRING'),
+        bigquery.SchemaField('created_by', 'STRING'),
+        bigquery.SchemaField('created_by_email', 'STRING'),
+        bigquery.SchemaField('created_at', 'TIMESTAMP'),
+        bigquery.SchemaField('archived', 'BOOL'),
+        bigquery.SchemaField('archived_at', 'TIMESTAMP'),
+        bigquery.SchemaField('archived_by', 'STRING'),
+        bigquery.SchemaField('_sync_timestamp', 'TIMESTAMP'),
+    ]
+    _load_to_bq_with_schema(bq_client, BQ_TABLE_CAMPAIGNS, campaign_rows, 'CAMPAIGNS', _campaign_schema, dry_run=dry_run)
 
     log('=== sync_sap_to_bigquery END OK ===')
 

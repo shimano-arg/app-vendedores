@@ -1185,3 +1185,180 @@ FROM `app-vendedores-shimano.shimano_app.v_rendiciones`
 WHERE vendor IS NOT NULL AND vendor != ''
 GROUP BY vendor, owner_email, fecha_gasto, importe_ars
 HAVING COUNT(*) > 1;
+
+
+-- ============================================================
+-- View 14: v_campanias_progreso  (2026-07-30, v367+)
+-- ============================================================
+-- 1 fila por campania con progreso agregado sobre TODO el rango [start_date, end_date].
+-- Cruza `campaigns_raw` con `v_ventas_lineas` (facturado SAP = venta REAL, no pedido).
+-- Alimenta la hoja "CAMPAÑAS" del TABLERO SAR (Power BI).
+--
+-- Reglas de cruce:
+--   * doc_date de la factura BETWEEN campania.start_date AND campania.end_date.
+--   * item_code de la linea IN UNNEST(campania.skus_json).
+--   * Filtro de scope:
+--       - scope='all'      -> todas las ventas del rango + SKUs.
+--       - scope='province' -> WHERE provincia_cliente IN scope_values.
+--       - scope='vendor'   -> WHERE assigned_vendor  IN scope_values.
+--
+-- Metricas:
+--   realizado_qty       = SUM(cantidad) de las lineas que caen en el filtro.
+--   realizado_ars       = SUM(importe_linea_ars) de las mismas lineas.
+--   pct_cumplimiento    = (realizado / target) * 100, segun target_type:
+--                         - target_type='units' -> divide por realizado_qty
+--                         - target_type='money' -> divide por realizado_ars
+--   dias_transcurridos  = DATE_DIFF(LEAST(CURRENT_DATE, end_date), start_date, DAY) + 1
+--   dias_totales        = DATE_DIFF(end_date, start_date, DAY) + 1
+--   dias_restantes      = GREATEST(DATE_DIFF(end_date, CURRENT_DATE, DAY), 0)
+--   activa              = CURRENT_DATE BETWEEN start_date AND end_date AND NOT archived
+--
+-- Notas:
+--   * Campanias sin skus (skus_count=0) quedan con 0 realizado (no matchea nada).
+--   * scope='province' compara UPPERCASE strings normalizados (v_ventas_lineas
+--     ya canoniza CABA/CORDOBA/etc; scope_values de la app se guarda tal cual
+--     lo elige el gerente en el modal — validar en PBI si aparecen mismatches).
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_campanias_progreso` AS
+WITH c AS (
+  SELECT
+    campaign_id, name, familia, subfamilia, skus_json, skus_count,
+    target_type, target_amount,
+    start_date, end_date, scope, scope_values_json,
+    created_by_email, created_at, archived, archived_at,
+    ARRAY(SELECT JSON_EXTRACT_SCALAR(sku) FROM UNNEST(JSON_EXTRACT_ARRAY(skus_json)) sku) AS skus,
+    ARRAY(SELECT JSON_EXTRACT_SCALAR(v)   FROM UNNEST(JSON_EXTRACT_ARRAY(scope_values_json)) v) AS scope_values
+  FROM `app-vendedores-shimano.shimano_app.campaigns_raw`
+),
+matched_lines AS (
+  SELECT
+    c.campaign_id,
+    v.item_code,
+    v.doc_date,
+    v.cantidad,
+    v.importe_linea_ars,
+    v.assigned_vendor,
+    v.provincia_cliente
+  FROM c
+  JOIN `app-vendedores-shimano.shimano_app.v_ventas_lineas` v
+    ON v.item_code IN UNNEST(c.skus)
+   AND v.doc_date BETWEEN c.start_date AND c.end_date
+  WHERE
+    c.scope = 'all'
+    OR (c.scope = 'province' AND v.provincia_cliente IN UNNEST(c.scope_values))
+    OR (c.scope = 'vendor'   AND v.assigned_vendor   IN UNNEST(c.scope_values))
+),
+agg AS (
+  SELECT
+    campaign_id,
+    SUM(COALESCE(cantidad, 0))          AS realizado_qty,
+    SUM(COALESCE(importe_linea_ars, 0)) AS realizado_ars,
+    COUNT(*)                             AS lineas_facturadas
+  FROM matched_lines
+  GROUP BY campaign_id
+)
+SELECT
+  c.campaign_id,
+  c.name,
+  c.familia,
+  c.subfamilia,
+  c.skus_count,
+  c.target_type,
+  c.target_amount,
+  c.start_date,
+  c.end_date,
+  c.scope,
+  c.scope_values_json,
+  ARRAY_TO_STRING(c.scope_values, ', ') AS scope_values_str,
+  c.created_by_email,
+  c.created_at,
+  c.archived,
+  c.archived_at,
+  COALESCE(agg.realizado_qty, 0)  AS realizado_qty,
+  COALESCE(agg.realizado_ars, 0)  AS realizado_ars,
+  COALESCE(agg.lineas_facturadas, 0) AS lineas_facturadas,
+  CASE
+    WHEN c.target_type = 'units' AND c.target_amount > 0
+      THEN SAFE_DIVIDE(COALESCE(agg.realizado_qty, 0), c.target_amount) * 100
+    WHEN c.target_type = 'money' AND c.target_amount > 0
+      THEN SAFE_DIVIDE(COALESCE(agg.realizado_ars, 0), c.target_amount) * 100
+    ELSE NULL
+  END                                                                     AS pct_cumplimiento,
+  DATE_DIFF(c.end_date, c.start_date, DAY) + 1                            AS dias_totales,
+  GREATEST(
+    DATE_DIFF(LEAST(CURRENT_DATE(), c.end_date), c.start_date, DAY) + 1,
+    0
+  )                                                                       AS dias_transcurridos,
+  GREATEST(DATE_DIFF(c.end_date, CURRENT_DATE(), DAY), 0)                 AS dias_restantes,
+  (CURRENT_DATE() BETWEEN c.start_date AND c.end_date AND NOT c.archived) AS activa
+FROM c
+LEFT JOIN agg USING (campaign_id);
+
+
+-- ============================================================
+-- View 15: v_campanias_evolucion_diaria  (2026-07-30, v367+)
+-- ============================================================
+-- 1 fila por campania × dia dentro del rango [start_date, end_date] donde hubo
+-- ventas facturadas. Permite line chart en Power BI mostrando la curva
+-- acumulada del cumplimiento dia a dia.
+--
+-- Metricas:
+--   qty_dia         = SUM(cantidad) facturado ese dia para SKUs de la campania.
+--   ars_dia         = SUM(importe_linea_ars) idem.
+--   qty_acumulado   = SUM window (partition by campaign_id order by doc_date).
+--   ars_acumulado   = idem para pesos.
+--   pct_acumulado   = (acumulado / target) * 100 segun target_type.
+--
+-- Notas:
+--   * Solo dias con al menos 1 factura matcheada (dias vacios NO se generan
+--     — no queremos rows fantasmas para 60 dias del rango si solo hubo
+--     ventas en 5. Power BI puede rellenar con axis continua si hace falta).
+--   * Mismos filtros de scope que v_campanias_progreso.
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_campanias_evolucion_diaria` AS
+WITH c AS (
+  SELECT
+    campaign_id, name, target_type, target_amount,
+    start_date, end_date, scope,
+    ARRAY(SELECT JSON_EXTRACT_SCALAR(sku) FROM UNNEST(JSON_EXTRACT_ARRAY(skus_json)) sku) AS skus,
+    ARRAY(SELECT JSON_EXTRACT_SCALAR(v)   FROM UNNEST(JSON_EXTRACT_ARRAY(scope_values_json)) v) AS scope_values
+  FROM `app-vendedores-shimano.shimano_app.campaigns_raw`
+),
+lines_per_day AS (
+  SELECT
+    c.campaign_id,
+    c.name,
+    c.target_type,
+    c.target_amount,
+    v.doc_date,
+    SUM(COALESCE(v.cantidad, 0))          AS qty_dia,
+    SUM(COALESCE(v.importe_linea_ars, 0)) AS ars_dia
+  FROM c
+  JOIN `app-vendedores-shimano.shimano_app.v_ventas_lineas` v
+    ON v.item_code IN UNNEST(c.skus)
+   AND v.doc_date BETWEEN c.start_date AND c.end_date
+  WHERE
+    c.scope = 'all'
+    OR (c.scope = 'province' AND v.provincia_cliente IN UNNEST(c.scope_values))
+    OR (c.scope = 'vendor'   AND v.assigned_vendor   IN UNNEST(c.scope_values))
+  GROUP BY c.campaign_id, c.name, c.target_type, c.target_amount, v.doc_date
+)
+SELECT
+  campaign_id,
+  name,
+  target_type,
+  target_amount,
+  doc_date,
+  qty_dia,
+  ars_dia,
+  SUM(qty_dia) OVER (PARTITION BY campaign_id ORDER BY doc_date) AS qty_acumulado,
+  SUM(ars_dia) OVER (PARTITION BY campaign_id ORDER BY doc_date) AS ars_acumulado,
+  CASE
+    WHEN target_type = 'units' AND target_amount > 0
+      THEN SAFE_DIVIDE(SUM(qty_dia) OVER (PARTITION BY campaign_id ORDER BY doc_date), target_amount) * 100
+    WHEN target_type = 'money' AND target_amount > 0
+      THEN SAFE_DIVIDE(SUM(ars_dia) OVER (PARTITION BY campaign_id ORDER BY doc_date), target_amount) * 100
+    ELSE NULL
+  END AS pct_acumulado
+FROM lines_per_day
+ORDER BY campaign_id, doc_date;
