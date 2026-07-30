@@ -79,6 +79,7 @@ BQ_LOCATION = 'southamerica-east1'
 BQ_TABLE_BP         = f'{BQ_PROJECT}.{BQ_DATASET}.sap_bp_raw'
 BQ_TABLE_ITEMS      = f'{BQ_PROJECT}.{BQ_DATASET}.sap_items_raw'
 BQ_TABLE_INVOICES   = f'{BQ_PROJECT}.{BQ_DATASET}.sap_invoices_raw'
+BQ_TABLE_CREDIT_NOTES = f'{BQ_PROJECT}.{BQ_DATASET}.sap_credit_notes_raw'
 BQ_TABLE_QUOTATIONS = f'{BQ_PROJECT}.{BQ_DATASET}.sap_quotations_raw'
 # v289+ (2026-07-10): Sales Orders (ORDR/RDR1 en SAP). Necesarias para
 # calcular el BACKORDER = Cantidad_Quotation - Cantidad_SO_generada para
@@ -835,6 +836,25 @@ def main():
     )
     inv_rows = [flatten_doc(d, 'INVOICE', sync_ts) for d in invs]
     load_to_bq(bq_client, BQ_TABLE_INVOICES, inv_rows, 'INVOICES', dry_run=dry_run)
+
+    # === 3b. Credit Notes / Notas de Credito (v367+, 2026-07-30)
+    # Endpoint SAP separado /b1s/v1/CreditNotes (schema identico a Invoices).
+    # Motivacion: hasta hoy el pipeline solo cargaba Invoices -> Power BI
+    # sobreestimaba la facturacion porque las NCs no se restaban. Bug
+    # reportado por Mariano: Santiago aparecia con $29M cuando deberia ser
+    # $18.9M (NC RC 1810 por -$10.1M nunca llegaba a BQ).
+    # Fix: cargar CNs a tabla separada + UNION ALL en v_ventas_lineas y
+    # v_facturas_sap con signo negativo en cantidad/importe_linea_ars/doc_total.
+    # Mismo doc_select que Invoices (incluye PaidToDate por consistencia,
+    # aunque en CNs no aplica igual — sirve para el UNION uniforme).
+    cns = sl_fetch_all(
+        cfg, session, '/b1s/v1/CreditNotes', 'CREDIT_NOTES',
+        select_fields=doc_select_invoices,
+        filter_expr=f"DocDate ge '{since_iso_date}'",
+        max_docs=max_docs,
+    )
+    cn_rows = [flatten_doc(d, 'CREDIT_NOTE', sync_ts) for d in cns]
+    load_to_bq(bq_client, BQ_TABLE_CREDIT_NOTES, cn_rows, 'CREDIT_NOTES', dry_run=dry_run)
 
     # Cotizaciones + Ordenes + PO usan el select viejo (sin PaidToDate,
     # que en esos tipos no aplica).
