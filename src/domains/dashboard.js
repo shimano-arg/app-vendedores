@@ -268,12 +268,25 @@ window.renderDashboard = function(){
       byV[vi.vendor].visits++;
     });
 
-    // Armar items con target y %, ordenar por cumplimiento
+    // v367+: usar facturado REAL SAP (sap_snapshot) para el ranking cuando esté
+    // disponible. `s.money` (pedidos app) sigue como fallback si no hay snapshot.
+    // Los vendedores no cargan la mayoría de sus pedidos en la app durante la
+    // transición → confiar en SAP como fuente de verdad para el cumplimiento.
     const items = VENDORS.map(v => {
       const s = byV[v.key];
+      const sapSnap = getSapSnapshotFor(v.key, now.getFullYear(), now.getMonth());
+      const facSap = sapSnap ? Number(sapSnap.facturadoArsNeto || 0) : 0;
+      const unidSap = sapSnap ? Number(sapSnap.unidadesNeto || 0) : 0;
+      // moneyForRank = SAP si hay snapshot; sino cae a pedidos app.
+      const moneyForRank = sapSnap ? facSap : s.money;
       const target = getMonthlyTargetArs(v.key, now.getFullYear(), now.getMonth());
-      const pct = (target != null && target > 0) ? Math.round(s.money / target * 100) : null;
-      return Object.assign({key: v.key, label: titleCase(v.key), zone: v.zone, target, pct}, s);
+      const pct = (target != null && target > 0) ? Math.round(moneyForRank / target * 100) : null;
+      return Object.assign({
+        key: v.key, label: titleCase(v.key), zone: v.zone,
+        target, pct,
+        moneySap: facSap, unidSap,
+        hasSap: !!sapSnap,
+      }, s, {moneyForRank});
     });
     items.sort((a, b) => {
       const ap = (a.pct == null) ? -1 : a.pct;
@@ -281,14 +294,15 @@ window.renderDashboard = function(){
       return bp - ap;
     });
 
-    // Totales del equipo
-    const teamMoney = items.reduce((s, i) => s + i.money, 0);
+    // Totales del equipo (v367+: teamMoney usa SAP snapshot si esta disponible).
+    const teamMoney = items.reduce((s, i) => s + i.moneyForRank, 0);
     const teamOrders = items.reduce((s, i) => s + i.orders, 0);
-    const teamUnits = items.reduce((s, i) => s + i.units, 0);
+    const teamUnits = items.reduce((s, i) => s + (i.hasSap ? i.unidSap : i.units), 0);
     const teamVisits = items.reduce((s, i) => s + i.visits, 0);
     const teamTarget = items.reduce((s, i) => s + (i.target || 0), 0);
     const teamPct = teamTarget > 0 ? Math.round(teamMoney / teamTarget * 100) : null;
     const targetsAsignados = items.filter(i => i.target != null && i.target > 0).length;
+    const vendorsConSap = items.filter(i => i.hasSap).length;
 
     // Resumen del equipo (card destacado)
     html += '<div class="dash-card" style="background:linear-gradient(135deg,#0c4a6e,#0284c7);color:#fff;border:none">';
@@ -303,7 +317,7 @@ window.renderDashboard = function(){
     }
     html += '</div>';
     if (teamTarget > 0) {
-      html += '<div style="font-size:11px;color:#bae6fd;margin-top:8px">Target equipo: ' + fmtMoney(teamTarget) + ' &middot; ' + targetsAsignados + ' de ' + items.length + ' vendedores con target asignado</div>';
+      html += '<div style="font-size:11px;color:#bae6fd;margin-top:8px">Target equipo: ' + fmtMoney(teamTarget) + ' &middot; ' + targetsAsignados + ' de ' + items.length + ' vendedores con target asignado &middot; <b style="color:#fff">' + vendorsConSap + '/' + items.length + ' con facturado SAP este mes</b></div>';
     } else {
       html += '<div style="font-size:11px;color:#fde047;margin-top:8px;font-weight:600">Ningun vendedor tiene target asignado este mes. Cargá los targets desde el panel <b>Targets</b>.</div>';
     }
@@ -329,13 +343,13 @@ window.renderDashboard = function(){
       if (it.target != null && it.target > 0) {
         const pctClamp = Math.min(100, Math.max(0, it.pct));
         html += '<div class="tgt-bar"><div class="tgt-bar-fill ' + tgtBarCls(it.pct) + '" style="width:' + pctClamp + '%"></div></div>';
-        html += '<div style="display:flex;justify-content:space-between;font-size:10px;color:#475569;margin-top:3px;font-weight:600"><span>' + fmtMoney(it.money) + ' / ' + fmtMoney(it.target) + '</span></div>';
+        html += '<div style="display:flex;justify-content:space-between;font-size:10px;color:#475569;margin-top:3px;font-weight:600"><span>' + fmtMoney(it.moneyForRank) + ' / ' + fmtMoney(it.target) + '</span>' + (it.hasSap ? '<span style="color:#0284c7;font-weight:800">SAP</span>' : '<span style="color:#94a3b8">pedidos app</span>') + '</div>';
       } else {
-        html += '<div style="font-size:11px;color:#475569;font-weight:600;margin-top:2px">Facturado: <b style="color:#0f172a">' + fmtMoney(it.money) + '</b></div>';
+        html += '<div style="font-size:11px;color:#475569;font-weight:600;margin-top:2px">Facturado: <b style="color:#0f172a">' + fmtMoney(it.moneyForRank) + '</b> ' + (it.hasSap ? '<span style="color:#0284c7;font-size:9px;font-weight:800">SAP</span>' : '') + '</div>';
       }
       html += '<div style="display:flex;gap:14px;margin-top:6px;font-size:10px;color:#64748b;flex-wrap:wrap">';
-      html += '<span><b style="color:#0f172a">' + it.orders + '</b> pedidos</span>';
-      html += '<span><b style="color:#0f172a">' + fmtNum(it.units) + '</b> uds</span>';
+      html += '<span><b style="color:#0f172a">' + it.orders + '</b> pedidos app</span>';
+      html += '<span><b style="color:#0f172a">' + fmtNum(it.hasSap ? it.unidSap : it.units) + '</b> uds' + (it.hasSap ? ' SAP' : '') + '</span>';
       html += '<span><b style="color:#0f172a">' + it.visits + '</b> visitas</span>';
       html += '</div></div>';
     });
