@@ -1208,7 +1208,11 @@ window.markNotifRead = async function(fsId){
 // Cuando el VDI toca "Contactar" en una notif: cerramos el panel de notifs,
 // abrimos el form de visita ya pre-poblado con la tienda derivada, y guardamos
 // el notifId para marcar la notif como leida cuando el form se envie con exito.
-let pendingNotifIdToMarkRead = null;
+// v362: en window (no let) porque visitas.js la lee/escribe al submit del
+// form. Cada src/domains/*.js es su propio scope en el bundle IIFE de
+// esbuild — cross-module reads requieren window (regla CLAUDE.md #17
+// extendida: aplica tambien entre modulos del bundle, no solo bundle vs inline).
+if (typeof window.pendingNotifIdToMarkRead === 'undefined') window.pendingNotifIdToMarkRead = null;
 window.contactarDesdeNotif = function(notifId){
   const n = (myNotifications || []).find(x => x._fsId === notifId);
   if (!n) { alert('Notificacion no encontrada.'); return; }
@@ -1216,7 +1220,7 @@ window.contactarDesdeNotif = function(notifId){
     alert('Esta notificacion no tiene datos completos de tienda. Marcala como leida desde el otro boton.');
     return;
   }
-  pendingNotifIdToMarkRead = notifId;
+  window.pendingNotifIdToMarkRead = notifId;
   closeNotifsPanel();
   // Abrir form de visita y pre-cargar la tienda derivada.
   if (typeof abrirVisitaParaTienda === 'function') {

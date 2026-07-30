@@ -1017,13 +1017,15 @@ window.submitVisita = async function(){
       } catch(e) { console.warn('notif al VDE pareja', e); }
     }
     // Si llegamos aca via 'Contactar' desde una notif, marcamos la notif como leida.
-    if (pendingNotifIdToMarkRead) {
+    // v362: window.* porque la var se declara en notificaciones.js (otro modulo
+    // del bundle) — cross-module scope requiere window (ver notificaciones.js:1211).
+    if (window.pendingNotifIdToMarkRead) {
       try {
-        await fbDb.collection('notifications').doc(pendingNotifIdToMarkRead).update({
+        await fbDb.collection('notifications').doc(window.pendingNotifIdToMarkRead).update({
           status: 'read', readAt: firebase.firestore.FieldValue.serverTimestamp(),
         });
       } catch(e) { console.warn('mark notif read after visit', e); }
-      pendingNotifIdToMarkRead = null;
+      window.pendingNotifIdToMarkRead = null;
     }
     alert('Formulario enviado correctamente.');
     resetVisitaForm();
