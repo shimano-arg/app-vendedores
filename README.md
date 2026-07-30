@@ -273,11 +273,17 @@ shimano-arg/app-vendedores/
 ├── index.html                # App completa (~3.2 MB - todo embebido)
 ├── alta-cliente.html         # Formulario público standalone (link compartible)
 ├── manifest.json             # PWA manifest
-├── sw.js                     # Service Worker (CACHE_VERSION sincronizada con APP_VERSION; hoy v292)
+├── sw.js                     # Service Worker (CACHE_VERSION sincronizada con APP_VERSION; hoy v364)
 ├── login-bg.jpg              # Foto de fondo del login (río al amanecer)
 ├── stock.json                # Snapshot fresco del stock SAP (autogenerado por
 │                             #  sync_sap_to_firestore.py cada 30 min - lo consume
 │                             #  el Google Sheet "Inventario-Bot" via raw.github)
+├── firebase.json             # Config de firebase deploy (firestore rules + functions + storage rules)
+├── firestore.rules           # Security rules de Firestore (deployadas 2026-07-27, sección 9)
+├── firestore.indexes.json    # Indices compuestos de Firestore
+├── storage.rules             # (v364+) Security rules de Cloud Storage — path rendiciones/{ownerUid}/*.
+│                             #  Reemplazan las test-mode que expiraban 2026-07-30. Deploy con
+│                             #  `firebase deploy --only storage --project=app-vendedores-shimano`.
 ├── .nojekyll                 # (v252+) Deshabilita procesamiento Jekyll en Pages
 ├── Shimano-Logo.png          # Logo (header + splash)
 ├── icon-180-v3.png           # PWA icon iOS 180×180
@@ -836,6 +842,19 @@ Antes el vendedor no podía mandar rendiciones si tenía responsable asignado (l
 - El cliente lee `app_config/users_directory` (público) para encontrar el aprobador por email.
 - Cachea el email en localStorage para no pegar Firestore en cada submit.
 - Las rules permiten escribir la rendición sin necesitar leer `/roles` del aprobador.
+
+### Cloud Storage Security Rules (v364+, deployadas 2026-07-30)
+
+Firebase mandó email 2026-07-29 avisando que las rules "test mode" originales del bucket expiraban el 2026-07-30 (allow read/write hasta esa fecha, cero validación después). Se reemplazaron pre-expiración con rules estrictas en `storage.rules`:
+
+| Path | Read | Write |
+|---|---|---|
+| `rendiciones/{ownerUid}/{allFiles=**}` | cualquier autenticado (admin/gerente aprueban) | `auth.uid == ownerUid` + size < 10 MB + `contentType image/*` |
+| `/{allPaths=**}` (default) | ❌ | ❌ (bloqueo explícito) |
+
+**Deploy**: `firebase deploy --only storage --project=app-vendedores-shimano`. La regla queda versionada en el repo (`storage.rules` + config en `firebase.json`).
+
+**Único uso actual de Storage**: foto de ticket de rendiciones (v308+, `rendiciones/{ownerUid}/{ts}_ticket.{ext}`). Fotos de visitas y altas siguen como base64 embebido en Firestore.
 
 ---
 
@@ -2391,32 +2410,64 @@ Al arrancar la app, en console se imprime:
 
 ## 34) Regenerar y deployar
 
-### Workflow estándar
+### Workflow actual (2026-07-30+): rama `dev` + PR squash a `main`
+
+Desde el 2026-07-30 se trabaja en la rama `dev`; los deploys a prod pasan por PR + squash-merge a `main` (branch protection existente + evita el bloqueo del harness Claude Code sobre push directo a default branch). Ver también CLAUDE.md regla #20 en el root del repo.
 
 ```bash
-# 1. Editar el build script
-# C:/Users/shimano.sandbox/Desktop/MASTERFILES/PROSPECTOS/MAPAS/_build_argentina_zonas_v2.py
+cd "C:/Users/shimano.sandbox/Desktop/APP VENDEDORES"
+git checkout dev
+git pull --rebase --autostash
 
-# 2. Generar HTML
-cd "C:/Users/shimano.sandbox/Desktop/MASTERFILES/PROSPECTOS/MAPAS"
-python -c "import sys; sys.stdout.reconfigure(encoding='utf-8'); exec(open(r'_build_argentina_zonas_v2.py', encoding='utf-8').read())"
+# 1. Editar directo en index.html / src/domains/*.js / sw.js (NO regenerar desde el _build_argentina_zonas_v2.py legacy — pisa cambios).
 
-# 3. Copiar al repo
-cp "C:/Users/shimano.sandbox/Desktop/MASTERFILES/PROSPECTOS/MAPAS/Mapa_Argentina_Shimano_Zonas.html" \
-   "C:/Users/shimano.sandbox/Desktop/APP VENDEDORES/index.html"
-
-# 4. Bumpear AMBAS versiones (deben quedar sincronizadas):
+# 2. Bumpear AMBAS versiones (deben quedar sincronizadas):
 #    - index.html: const APP_VERSION = 'vXX' → 'vYY'
 #    - sw.js:      const CACHE_VERSION = 'vXX' → 'vYY'
 #    Si quedan desincronizadas, el banner en console marca DESYNC.
 
-# 5. Commit y push
-cd "C:/Users/shimano.sandbox/Desktop/APP VENDEDORES"
-git pull --rebase --autostash
-git add index.html sw.js
-git commit -m "Mensaje claro del cambio"
-git push
+# 3. Si tocaste src/**/*.js, regenerar el bundle:
+npm run build          # produce app.bundle.js + chunks/
+
+# 4. Actualizar README (regla dura del proyecto) y CLAUDE.md si aplica.
+
+# 5. Commit y push a dev
+git add index.html sw.js README.md app.bundle.js chunks/
+git commit -m "vYY: mensaje claro del cambio"
+git push origin dev
+
+# 6. Deploy a prod = PR + squash-merge (no requiere autorización adicional del harness)
+gh pr create --base main --head dev --title "vYY: <resumen>" --body "..."
+gh pr merge dev --squash --delete-branch
+
+# 7. Sincronizar local post-merge (recrear dev limpia desde main actualizado)
+git checkout main
+git pull origin main
+git branch -D dev
+git checkout -b dev
+git push -u origin dev
 ```
+
+### Deploy de Firebase (rules + functions)
+
+Independiente del git push a Pages. Cada tipo requiere su comando propio:
+
+```bash
+# Firestore Rules (sección 9)
+firebase deploy --only firestore:rules --project=app-vendedores-shimano
+
+# Storage Rules (sección 9, subsección Cloud Storage Security Rules)
+firebase deploy --only storage --project=app-vendedores-shimano
+
+# Cloud Functions (sapProxy + dailyFirestoreBackup)
+firebase deploy --only functions --project=app-vendedores-shimano
+# O una function específica:
+firebase deploy --only functions:sapProxy --project=app-vendedores-shimano
+```
+
+### Legacy: build Python del HTML (deprecated)
+
+El build script `_build_argentina_zonas_v2.py` en `MASTERFILES/PROSPECTOS/MAPAS/` es de la era pre-Fase 0 y **ya no se usa**. La app se edita directo en `index.html` + `src/domains/*.js`. Si necesitás regenerar polígonos geo, tocá `geo.json` (v323+ es external).
 
 ### Tiempo de propagación
 
@@ -2529,10 +2580,12 @@ Conocidos:
 1. **Firebase Auth**: Google OAuth → tokens JWT con expiración.
 2. **Password gate**: PIN de 4 dígitos después del OAuth (configurado por admin).
 3. **2FA TOTP**: opcional pero recomendado para admin.
-4. **Firestore Rules**: validación server-side de TODA escritura.
-5. **AppCheck reCAPTCHA v3**: protege contra abuso de API. Lazy-load post-login.
-6. **CSP** (Content Security Policy): limita los dominios desde donde se cargan scripts/imagenes/conexiones.
-7. **SW**: intercepta callbacks OAuth para no romper Firebase Auth.
+4. **Firestore Rules**: validación server-side de TODA escritura (deployadas 2026-07-27, ver sección 9).
+5. **Storage Rules**: `rendiciones/{ownerUid}/*` restringido a su dueño + límite 10 MB + `image/*` (v364+, sección 9). Deployadas 2026-07-30 reemplazando las test-mode que expiraban ese día.
+6. **AppCheck reCAPTCHA v3**: protege contra abuso de API. Lazy-load post-login.
+7. **CSP** (Content Security Policy): limita los dominios desde donde se cargan scripts/imagenes/conexiones.
+8. **SW**: intercepta callbacks OAuth para no romper Firebase Auth.
+9. **Cloud Function `sapProxy`**: creds del Service Layer viven en Google Secret Manager, no en Firestore (v330+, sección 43.8).
 
 ### CSP actual
 
