@@ -666,6 +666,117 @@ def sync_campaigns_from_firestore(db: firestore.Client, sync_ts: str) -> list:
     return rows
 
 
+def sync_dashboard_snapshot_to_firestore(bq_client: bigquery.Client,
+                                          db: firestore.Client,
+                                          dry_run: bool = False) -> int:
+    """v367+ (2026-07-30): agrega los KPIs de v_facturas_sap + v_ventas_lineas
+    por (vendedor, año, mes) y los escribe a Firestore `sap_snapshot/{doc_id}`
+    para que el Dashboard de la app pueda mostrar facturado real SAP + unidades
+    + % cumplimiento vs target, en linea con el TABLERO SAR de Power BI.
+
+    Doc ID canonico: {vendorKey_normalizado}_{YYYY}_{MM}, ej
+    'GONZALO_DE_LA_ROSA_2026_07'. Convencion identica a la de targets_raw
+    para que la app pueda cruzar sap_snapshot con targets en el cliente.
+
+    Solo agrega vendedores donde `assigned_vendor` de client_applications no
+    sea NULL (los 6 vendedores pesca reales de la app: GONZALO DE LA ROSA,
+    FEDERICO CASTELANELLI, MARTIN BOIERO, MAURICIO GIL, IOANNIS PALKOUDAKIS,
+    SANTIAGO ESTEBAN). Ignora facturas historicas de Baraldo (assigned_vendor
+    NULL). Ventana: año actual completo (mes 1..12).
+
+    Retorna la cantidad de docs escritos (util para logging).
+
+    UI en la app: src/domains/dashboard.js lee la coleccion sap_snapshot y
+    la usa en las cards MES EN CURSO y ACUMULADO ANUAL del modal Dashboard.
+    """
+    log('[SNAPSHOT] agregando v_facturas_sap + v_ventas_lineas por (vendor, año, mes)...')
+    from datetime import date as _date
+    current_year = _date.today().year
+    query = f"""
+    WITH fact AS (
+      SELECT
+        assigned_vendor,
+        EXTRACT(YEAR  FROM doc_date) AS anio,
+        EXTRACT(MONTH FROM doc_date) AS mes,
+        SUM(doc_total)                                              AS facturado_ars_neto,
+        SUM(CASE WHEN doc_kind='INVOICE'      THEN doc_total ELSE 0 END) AS facturado_ars_bruto,
+        SUM(CASE WHEN doc_kind='CREDIT_NOTE'  THEN doc_total ELSE 0 END) AS ncs_ars,
+        COUNTIF(doc_kind='INVOICE')                                 AS facturas_count,
+        COUNTIF(doc_kind='CREDIT_NOTE')                             AS ncs_count
+      FROM `app-vendedores-shimano.shimano_app.v_facturas_sap`
+      WHERE assigned_vendor IS NOT NULL
+        AND EXTRACT(YEAR FROM doc_date) = {current_year}
+        AND COALESCE(cancelled, 'tNO') = 'tNO'
+      GROUP BY assigned_vendor, anio, mes
+    ),
+    unid AS (
+      SELECT
+        assigned_vendor,
+        EXTRACT(YEAR  FROM doc_date) AS anio,
+        EXTRACT(MONTH FROM doc_date) AS mes,
+        SUM(cantidad)                AS unidades_neto,
+        SUM(importe_linea_ars)       AS importe_lineas_ars_neto
+      FROM `app-vendedores-shimano.shimano_app.v_ventas_lineas`
+      WHERE assigned_vendor IS NOT NULL
+        AND EXTRACT(YEAR FROM doc_date) = {current_year}
+      GROUP BY assigned_vendor, anio, mes
+    )
+    SELECT
+      f.assigned_vendor,
+      f.anio,
+      f.mes,
+      f.facturado_ars_neto,
+      f.facturado_ars_bruto,
+      f.ncs_ars,
+      f.facturas_count,
+      f.ncs_count,
+      COALESCE(u.unidades_neto, 0)          AS unidades_neto,
+      COALESCE(u.importe_lineas_ars_neto, 0) AS importe_lineas_ars_neto
+    FROM fact f
+    LEFT JOIN unid u
+      ON u.assigned_vendor = f.assigned_vendor
+     AND u.anio = f.anio
+     AND u.mes  = f.mes
+    """
+    rows = list(bq_client.query(query, location=BQ_LOCATION).result())
+    if not rows:
+        log('[SNAPSHOT] 0 filas en la agregacion (verificar que v_facturas_sap tenga datos del año actual)')
+        return 0
+    if dry_run:
+        log(f'[SNAPSHOT] DRY-RUN: {len(rows)} docs listos para escribir a Firestore')
+        return 0
+    coll = db.collection('sap_snapshot')
+    batch = db.batch()
+    written = 0
+    for row in rows:
+        d = dict(row.items())
+        vendor_key = d['assigned_vendor']
+        vendor_norm = vendor_key.replace(' ', '_').upper()
+        doc_id = f"{vendor_norm}_{d['anio']}_{d['mes']:02d}"
+        payload = {
+            'vendorKey':               vendor_key,
+            'anio':                    int(d['anio']),
+            'mes':                     int(d['mes']),
+            'facturadoArsNeto':        float(d['facturado_ars_neto'] or 0),
+            'facturadoArsBruto':       float(d['facturado_ars_bruto'] or 0),
+            'ncsArs':                  float(d['ncs_ars'] or 0),
+            'facturasCount':           int(d['facturas_count'] or 0),
+            'ncsCount':                int(d['ncs_count'] or 0),
+            'unidadesNeto':            float(d['unidades_neto'] or 0),
+            'importeLineasArsNeto':    float(d['importe_lineas_ars_neto'] or 0),
+            'updatedAt':               firestore.SERVER_TIMESTAMP,
+        }
+        batch.set(coll.document(doc_id), payload)
+        written += 1
+        if written % 400 == 0:
+            batch.commit()
+            batch = db.batch()
+    if written % 400 != 0:
+        batch.commit()
+    log(f'[SNAPSHOT] {written} docs escritos a sap_snapshot (año {current_year})')
+    return written
+
+
 def load_to_bq(bq_client: bigquery.Client, table_id: str, rows: list, entity_name: str, dry_run: bool = False):
     if not rows:
         log(f'[BQ/{entity_name}] 0 rows, nada que cargar')
@@ -962,6 +1073,20 @@ def main():
         bigquery.SchemaField('_sync_timestamp', 'TIMESTAMP'),
     ]
     _load_to_bq_with_schema(bq_client, BQ_TABLE_CAMPAIGNS, campaign_rows, 'CAMPAIGNS', _campaign_schema, dry_run=dry_run)
+
+    # === 9. Dashboard snapshot (BQ -> Firestore) v367+
+    # Agrega v_facturas_sap + v_ventas_lineas por (vendor, año, mes) y escribe
+    # a Firestore sap_snapshot/{vendorKey_YYYYMM}. Alimenta el modal Dashboard
+    # de la app (KPIs facturado real SAP + unidades + % cumplimiento).
+    # Corre AL FINAL porque depende de v_facturas_sap y v_ventas_lineas
+    # (views que ya leen datos de sap_invoices_raw + sap_credit_notes_raw
+    # actualizados por los steps 3 y 3b de este mismo script).
+    try:
+        sync_dashboard_snapshot_to_firestore(bq_client, db, dry_run=dry_run)
+    except Exception as e:
+        # No detener el cron si esto falla — el snapshot se puede reintentar
+        # solo. El resto de la sync (raw + campaigns + targets) YA quedo OK.
+        log(f'[SNAPSHOT] fallo (no bloqueante): {e}')
 
     log('=== sync_sap_to_bigquery END OK ===')
 

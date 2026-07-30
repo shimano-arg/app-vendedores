@@ -151,6 +151,15 @@ service cloud.firestore {
       allow delete: if isAdminOrGerente();
     }
 
+    // v367+ (2026-07-30): sap_snapshot es escrito SOLO por el service account
+    // del cron sync_sap_to_bigquery.py (via Firebase Admin SDK, que bypassea
+    // Rules). Los usuarios web solo leen; el filtro por vendedor se aplica
+    // client-side via getMyAllowedVendorKeys() en dashboard.js.
+    match /sap_snapshot/{docId} {
+      allow read: if isReader();
+      allow write: if false;
+    }
+
     match /client_locations/{docId} {
       allow read: if isReader();
       allow create: if isAdminOrGerente() || isVendor() || isInterno();
