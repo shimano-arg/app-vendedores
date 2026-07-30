@@ -220,9 +220,22 @@ WITH cliente_app AS (
   WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
     AND JSON_VALUE(data, '$.cardCodeSap') != ''
   GROUP BY card_code
+),
+-- v367+ (2026-07-30): UNION ALL con Credit Notes para que las NCs resten
+-- automaticamente del Remitido/Facturado/Deuda en Power BI. Sin este UNION,
+-- las NCs quedan invisibles y el reporte sobreestima ventas. sign=-1 en CNs
+-- negando doc_total/paid_to_date/total_discount asegura que cualquier
+-- SUM(doc_total) en PBI ya venga con las devoluciones aplicadas.
+invoices_and_cns AS (
+  SELECT *, 1 AS sign, 'INVOICE' AS doc_kind
+  FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw`
+  UNION ALL
+  SELECT *, -1 AS sign, 'CREDIT_NOTE' AS doc_kind
+  FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw`
 )
 SELECT
   inv.doc_type,
+  inv.doc_kind,                                                       -- v367+: 'INVOICE' | 'CREDIT_NOTE'
   inv.doc_entry,
   inv.doc_num,
   inv.doc_date,
@@ -244,17 +257,21 @@ SELECT
   bp.valid                                                            AS bp_valid,
   bp.frozen                                                           AS bp_frozen,
   inv.doc_currency,
-  inv.doc_total,
-  inv.doc_total_fc,
+  -- v367+: multiplicamos por sign para que CNs vengan como negativo.
+  inv.doc_total * inv.sign                                            AS doc_total,
+  inv.doc_total_fc * inv.sign                                         AS doc_total_fc,
   inv.doc_rate,
   -- v302+ (2026-07-21): paid_to_date para calcular Cobrado / Deuda en PBI
   -- sin depender de v_facturado_cobrado_deuda_por_vendedor (que agrupa
   -- por assigned_vendor de la app; aca conservamos el criterio SlpCode
   -- de la pagina Facturacion por Vendedor).
-  inv.paid_to_date,
-  inv.doc_total - COALESCE(inv.paid_to_date, 0)                       AS saldo_ars,
+  -- v367+: paid_to_date * sign para que en CNs sea negativo (cobrar una
+  -- devolucion = plata que sale de tesoreria).
+  inv.paid_to_date * inv.sign                                         AS paid_to_date,
+  (inv.doc_total * inv.sign) - COALESCE(inv.paid_to_date * inv.sign, 0)
+                                                                      AS saldo_ars,
   inv.discount_percent,
-  inv.total_discount,
+  inv.total_discount * inv.sign                                       AS total_discount,
   inv.sales_person_code                                               AS sales_person_code_invoice,
   -- v311+ (2026-07-22): vendedor real del cliente segun la app (source of truth).
   -- Usar este campo en los slicers del TABLERO SAR en vez de SlpCode.
@@ -270,9 +287,9 @@ SELECT
   -- no puede comprimir y explota RAM en Power BI Desktop. El aplanamiento
   -- ya vive en v_ventas_lineas (63k filas) que es la fuente real para
   -- medidas de facturacion/margen. Si algun query necesita lines_json,
-  -- leerlo directo de sap_invoices_raw.lines_json.
+  -- leerlo directo de sap_invoices_raw.lines_json o sap_credit_notes_raw.lines_json.
   inv._sync_timestamp
-FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv
+FROM invoices_and_cns inv
 LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
   ON inv.card_code = bp.card_code
 LEFT JOIN cliente_app ca
@@ -583,10 +600,25 @@ cliente_app AS (
   WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
     AND JSON_VALUE(data, '$.cardCodeSap') != ''
   GROUP BY card_code
+),
+-- v367+ (2026-07-30): UNION ALL con Credit Notes multiplicando cantidad e
+-- importes por sign=-1 para que las NCs resten automaticamente cualquier
+-- SUM(cantidad) o SUM(importe_linea_ars) en PBI. Sin este UNION, las NCs
+-- no se veian en el pipeline (endpoint SAP separado /b1s/v1/CreditNotes)
+-- y las cards de facturacion sobreestimaban el total. Bug reportado por
+-- Mariano 2026-07-30: Santiago $29M vs $18.9M real (NC RC 1810 -$10.1M
+-- no restaba).
+invoices_and_cns AS (
+  SELECT *, 1 AS sign, 'INVOICE' AS doc_kind
+  FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw`
+  UNION ALL
+  SELECT *, -1 AS sign, 'CREDIT_NOTE' AS doc_kind
+  FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw`
 )
 SELECT
   inv.doc_entry,
   inv.doc_num,
+  inv.doc_kind,                                                         -- v367+: 'INVOICE' | 'CREDIT_NOTE'
   inv.doc_date,
   EXTRACT(YEAR  FROM inv.doc_date) AS anio,
   EXTRACT(MONTH FROM inv.doc_date) AS mes,
@@ -595,18 +627,22 @@ SELECT
   inv.sales_person_code,
   JSON_VALUE(line, '$.ItemCode')                                        AS item_code,
   JSON_VALUE(line, '$.Dscription')                                      AS descripcion_linea,
-  SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)                  AS cantidad,
+  -- v367+: cantidad y montos multiplicados por sign para que CNs resten.
+  SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64) * inv.sign       AS cantidad,
   SAFE_CAST(JSON_VALUE(line, '$.Price') AS FLOAT64)                     AS precio_unitario,
-  SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)                 AS importe_linea_ars,
+  SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64) * inv.sign      AS importe_linea_ars,
   -- v302+ (2026-07-21): prorrateo cobrado/deuda por linea.
   -- Permite en PBI:
   --   [Cobrado ARS] = CALCULATE(SUM(cobrado_prorrateado_ars), is_pesca=TRUE)
   --   [Deuda ARS]   = CALCULATE(SUM(deuda_prorrateada_ars),   is_pesca=TRUE)
   -- que suman exactamente [Facturacion Total] (que usa importe_linea_ars).
   -- Prorrateo lineal: cobrado_linea = importe_linea * (paid_to_date / doc_total)
-  SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+  -- v367+: para CNs paid_to_date/doc_total ambos son sign=-1 en el numerator
+  -- si aplicaramos negacion, pero SAFE_DIVIDE del ratio se cancela; entonces
+  -- multiplicamos importe_linea (ya con sign) por el ratio unsigned original.
+  SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64) * inv.sign
     * SAFE_DIVIDE(inv.paid_to_date, inv.doc_total)                      AS cobrado_prorrateado_ars,
-  SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+  SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64) * inv.sign
     * SAFE_DIVIDE(inv.doc_total - COALESCE(inv.paid_to_date, 0), inv.doc_total)
                                                                         AS deuda_prorrateada_ars,
   JSON_VALUE(line, '$.WarehouseCode')                                   AS warehouse_code,
@@ -654,7 +690,7 @@ SELECT
   -- SAP que esta inconsistente en decenas de facturas.
   ca.assigned_vendor_app                                                AS assigned_vendor,
   inv._sync_timestamp
-FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv,
+FROM invoices_and_cns inv,
 UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json)) AS line
 LEFT JOIN `app-vendedores-shimano.shimano_app.v_sap_items_enriched` it
   ON it.item_code = JSON_VALUE(line, '$.ItemCode')
