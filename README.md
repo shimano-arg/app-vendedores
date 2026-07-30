@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v204 → v367](#41-changelog-v204--v367)
+41. [Changelog v204 → v368](#41-changelog-v204--v368)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -3678,9 +3678,45 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v204 → v367
+## 41) Changelog v204 → v368
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v368 (2026-07-30) — Fix Dashboard consolidado admin: ranking usa `sap_snapshot`
+
+**Bug reportado por Mariano al abrir el Dashboard como admin con filtro "Todos los vendedores (sumado)"**: todas las cards del ranking mostraban `$0 / $57M` y `0% cumplimiento` aunque en Power BI Gonzalo marcaba `$110M` y `152%`. El F12 console confirmaba que la app cargó v367 OK — el bug era de lógica de render, no de despliegue.
+
+**Causa**: en v367 sub-c agregué las 2 cards SAP nuevas (`SAP · Mes en curso` y `SAP · Acumulado anual`) SOLO cuando hay vendedor específico seleccionado. El bloque del ranking consolidado admin (`dashboard.js:~194` post-E2.h) sigue usando `byV[v].money` calculado desde `confirmed` (pedidos que los vendedores cargan en la app). Durante la transición Baraldo → venta directa, los vendedores casi no cargan pedidos en la app porque los pedidos reales entran directo a SAP → `byV[v].money = 0` para todos → ranking con puros ceros.
+
+**Fix** (aditivo, sin romper el fallback):
+
+1. Cada `item` del ranking (línea 225+) ahora computa:
+   ```js
+   const sapSnap = getSapSnapshotFor(v.key, now.getFullYear(), now.getMonth());
+   const facSap = sapSnap ? Number(sapSnap.facturadoArsNeto || 0) : 0;
+   const moneyForRank = sapSnap ? facSap : s.money;  // SAP prioridad, pedidos app fallback
+   ```
+
+2. Totales del equipo (`teamMoney`, `teamUnits`) priorizan SAP cuando hay snapshot.
+
+3. Cada card individual del ranking muestra `fmtMoney(it.moneyForRank)` en la barra + monto, con badge chico a la derecha:
+   - `SAP` (celeste `#0284c7`) si el número vino del snapshot.
+   - `pedidos app` (gris `#94a3b8`) si cayó al fallback.
+
+4. Footer del bloque "Resumen equipo" agrega la línea `"N/6 con facturado SAP este mes"` (usa `vendorsConSap = items.filter(i => i.hasSap).length`) → visibilidad rápida de la cobertura del snapshot.
+
+5. Unidades del equipo también priorizan `unidSap` cuando hay datos SAP; caen a `units` (pedidos app) sino.
+
+**Sin cambios en la vista de vendedor específico** — las 2 cards SAP de v367 sub-c siguen apareciendo iguales al filtrar por un vendedor.
+
+**Post-deploy 2026-07-30**: al abrir Dashboard admin con "Todos", ranking muestra ordenado por % cumplimiento real SAP (Gonzalo `$110.2M / 193%`, Federico `$110.9M / 163%`, etc.) — matchea el card "Cumplimiento mensual" del Tablero SAR PBI. Footer confirma "6/6 con facturado SAP este mes".
+
+Alcance:
+- `src/domains/dashboard.js` — 3 bloques modificados en el consolidado admin (items map, teamMoney, render del ranking).
+- `app.bundle.js` regenerado con esbuild.
+- `APP_VERSION` v367 → v368, `CACHE_VERSION` v367 → v368.
+
+**Regla derivada**: cuando agregás una fuente de datos nueva a una UI con 2 renderers distintos (vista consolidada vs vista de detalle), auditar ambos para no dejar uno con la lógica vieja. En este caso: v367 sub-c cubrió el detalle pero olvidé el consolidado → hotfix v368.
 
 ### v367 (2026-07-30) — Pipeline BigQuery + Dashboard app sincronizado con TABLERO SAR
 
