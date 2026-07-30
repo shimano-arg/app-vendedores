@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v204 → v366](#41-changelog-v204--v366)
+41. [Changelog v204 → v367](#41-changelog-v204--v367)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -319,6 +319,8 @@ shimano-arg/app-vendedores/
 │   ├── dryrun_new_views.py          # Dry-run 4 CREATE OR REPLACE VIEW
 │   ├── verify_inventario_post_deploy.py # Verificaciones de aceptación post deploy
 │   ├── apply_v_targets.py           # Aplica solo v_targets + verificaciones
+│   ├── apply_v_campanias.py         # (v367+) Bootstrap: sync campaigns + aplica 3 vistas v_campanias_*
+│   ├── apply_credit_notes_fix.py    # (v367+) Bootstrap: fetch inicial /b1s/v1/CreditNotes + aplica v_facturas_sap/v_ventas_lineas con UNION
 │   ├── apply_facturas_sap_slim.py   # Aplica v_facturas_sap sin lines_json (fix VertiPaq)
 │   ├── rollback_v_inventario.py     # Rollback quirúrgico v_inventario a pre-fix
 │   ├── redeploy_views.py            # Aplica todos los CREATE OR REPLACE VIEW
@@ -2876,13 +2878,62 @@ Pedido de Mariano: hoja "CAMPAÑAS" en TABLERO SAR para ver evolución de campa�
 
 **Fuente de ventas**: cruza contra `v_ventas_lineas` (facturado SAP — venta real, no pedido). Filtros: `doc_date BETWEEN start_date AND end_date`, `item_code IN UNNEST(skus)`, y scope condicional (`all` sin filtro / `province` filtra `provincia_cliente` / `vendor` filtra `assigned_vendor`).
 
-**Bootstrap inicial + deploy**: `python scripts/apply_v_campanias.py` (helper que combina: sync inicial de campaigns Firestore→BQ + CREATE OR REPLACE de ambas vistas + verificación de schema). Después del bootstrap, el cron mantiene `campaigns_raw` actualizada automáticamente.
+**Bootstrap inicial + deploy**: `python scripts/apply_v_campanias.py` (helper que combina: sync inicial de campaigns Firestore→BQ + CREATE OR REPLACE de las 3 vistas + verificación de schema). Después del bootstrap, el cron mantiene `campaigns_raw` actualizada automáticamente.
 
 **Layout sugerido de la hoja "CAMPAÑAS" en Power BI**:
 1. **Slicers**: `name` (dropdown), `familia`, `activa` (bool), `target_type`.
 2. **Tarjetas**: cantidad de campañas activas, total realizado ARS, pct cumplimiento promedio.
 3. **Tabla `v_campanias_progreso`**: columna con **barra de datos** en `pct_cumplimiento`, muestra `name / familia / target / realizado / % / dias_restantes / activa`.
 4. **Line chart** `v_campanias_evolucion_diaria`: eje X `doc_date`, eje Y `pct_acumulado`, breakdown por `campaign_id` (varias líneas si hay campañas paralelas).
+5. **Matrix `v_campanias_ventas_detalle`** (agregada v367 sub-b): filas `campaign_name > assigned_vendor > card_name > item_code`, valores `Sum(cantidad)` + `Sum(importe_linea_ars)`. Responde "qué vendió cada vendedor a qué cliente dentro de la campaña X". Todo desde la misma vista → sin relaciones cruzadas ni ambiguedades PBI.
+
+### Fix Notas de crédito SAP (2026-07-30) — NUEVO
+
+Bug reportado por Mariano: en el TABLERO SAR, Santiago Esteban aparecía con `$29.09M` remitido en jul 2026 cuando el neto real era `$18.9M`. Ejemplo concreto: cliente **Ricardo Fabian Blanco Goitia** (`C20351155354`) tenía factura RF 18226 (+$10.1M) y **nota de crédito RC 1810 (-$10.1M)** que se cancelaban, dejando solo la RF 18291 ($9.3M) como venta real. Pero en BigQuery solo aparecía la parte positiva → sobreestimación sistemática de facturación cada vez que hay devoluciones/anulaciones.
+
+**Causa raíz**: el pipeline `sync_sap_to_bigquery.py` solo sincronizaba `/b1s/v1/Invoices` (facturas). Las notas de crédito viven en un endpoint SAP separado `/b1s/v1/CreditNotes` y **nunca llegaban a BigQuery** → no restaban de ningún `SUM(doc_total)` ni `SUM(importe_linea_ars)`.
+
+**Fix aplicado**:
+
+1. **Nueva tabla `sap_credit_notes_raw`** — misma estructura que `sap_invoices_raw` (mismo `flatten_doc` con `doc_type='CREDIT_NOTE'`). Populada por `sync_sap_to_bigquery.py` extendido (fetch de `/b1s/v1/CreditNotes` con mismo `doc_select` + `history_months`). Snapshot 413 CNs iniciales al bootstrap 2026-07-30; cron GH Actions mantiene sync cada 30 min.
+2. **`v_facturas_sap` extendida** con CTE `invoices_and_cns`:
+   ```sql
+   invoices_and_cns AS (
+     SELECT *, 1 AS sign, 'INVOICE' AS doc_kind
+     FROM sap_invoices_raw
+     UNION ALL
+     SELECT *, -1 AS sign, 'CREDIT_NOTE' AS doc_kind
+     FROM sap_credit_notes_raw
+   )
+   ```
+   Y multiplica por `sign` en las columnas monetarias: `doc_total * sign`, `paid_to_date * sign`, `total_discount * sign`, `saldo_ars`. Nueva columna `doc_kind` (`INVOICE`|`CREDIT_NOTE`) para desglose.
+3. **`v_ventas_lineas` extendida** igual: `cantidad * sign`, `importe_linea_ars * sign`, prorrateos `cobrado_prorrateado_ars` y `deuda_prorrateada_ars` también multiplicados.
+
+**Efecto cascada — todas las vistas derivadas heredan el fix sin tocarlas**:
+- `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor` — heredan de `v_facturas_sap`.
+- `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle` — heredan de `v_ventas_lineas`.
+- Power BI actualiza el neto correcto al hacer `Refresh` — **cero cambios en medidas DAX**.
+
+**Verificación post-deploy (jul 2026, doc_total con IVA)**:
+
+| Vendedor | Facturado bruto | Notas de crédito | NETO |
+|---|---|---|---|
+| Santiago Esteban | $34.5M | -$12.3M | $22.2M |
+| Gonzalo de la Rosa | $130.9M | -$20.7M | $110.2M |
+| Federico | $110.9M | $0 | $110.9M |
+| Mauricio | $29.7M | $0 | $29.7M |
+| Martin | $26.3M | -$2K | $26.3M |
+| Ioannis | $2.9M | $0 | $2.9M |
+
+**Bootstrap + deploy inicial**: `python scripts/apply_credit_notes_fix.py` (helper que fetchea CNs, aplica las 2 vistas, y muestra verify query del ejemplo Ricardo Blanco). Después el cron GH Actions mantiene sync sin intervención.
+
+**Nuevo insight aprovechable**: agregar a Power BI una card/tabla filtrada por `doc_kind = 'CREDIT_NOTE'` muestra el volumen de devoluciones por vendedor/mes. Herramienta de gestión — ej: Gonzalo tuvo $20.7M en NCs jul 2026, vale la pena investigar la causa.
+
+**Regla derivada del fix**: cuando un pipeline sincroniza N entities de un ERP, chequear siempre si existe una entity "inversa" (Credit Notes para Invoices, Return Orders para Sales Orders, etc.) y decidir explícitamente si va o no. Un endpoint faltante genera sobreestimación silenciosa que solo se detecta cross-checkeando con SAP mano a mano.
+
+### Helper `extract_view_sql()` para scripts apply_* (v367+)
+
+Regla derivada del deploy 2026-07-30: cuando un script Python aplica un CREATE OR REPLACE VIEW desde `bigquery/views.sql`, **no usar la regex simple `[^;]+;`** — se corta en el primer `;` que aparezca dentro de un comentario SQL (`-- por assigned_vendor de la app;`). Usar el helper `extract_view_sql(views_sql, 'view_name')` de `scripts/apply_credit_notes_fix.py` que busca desde el CREATE hasta el próximo CREATE (o EOF) y toma hasta el último `;` del chunk. Idea para futuro refactor: mover el helper a un módulo común `scripts/_view_extract.py` cuando aparezca el 3er caller.
 
 ### Vistas de deuda por vendedor (2026-07-20/21) — NUEVO
 
@@ -3578,9 +3629,35 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v204 → v366
+## 41) Changelog v204 → v367
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v367 (2026-07-30) — Pipeline BigQuery: campañas comerciales + Notas de crédito SAP
+
+Sesión intensiva de infra BQ (no toca `APP_VERSION` porque no cambia código de la app). 3 PRs consecutivos (#10, #12, #13) que amplían el modelo de datos de Power BI:
+
+**a) Pipeline campañas comerciales → BQ** (PR #10, #12)
+
+- Sync `campaigns` de Firestore → tabla `campaigns_raw` (WRITE_TRUNCATE cada 30 min via cron GH Actions, mismo patrón que `targets`).
+- 3 vistas nuevas en `bigquery/views.sql`:
+  - `v_campanias_progreso` — 1 fila por campaña (agregado): `realizado_qty`, `realizado_ars`, `pct_cumplimiento`, `dias_restantes`, `activa` (bool).
+  - `v_campanias_evolucion_diaria` — 1 fila por (campaña × día): `qty_acumulado`, `ars_acumulado`, `pct_acumulado` usando window functions.
+  - `v_campanias_ventas_detalle` — 1 fila por (campaña × línea de factura): 32 columnas (`card_name`, `item_code`, `assigned_vendor`, `provincia_cliente`, `familia`, `subfamilia`, `is_pesca`, `cantidad`, `importe_linea_ars`, etc.). **Necesaria** porque `v_campanias_progreso` viene agregada y las matrices multi-nivel PBI (por vendedor × cliente × SKU) tiraban `InvalidUnconstrainedJoin`.
+- Helper `scripts/apply_v_campanias.py` — bootstrap: sync inicial + CREATE OR REPLACE de las 3 vistas + verify.
+- Cruza contra `v_ventas_lineas` (facturado SAP = venta real, no pedido app). Filtros de scope (all/province/vendor) via WHERE conditional.
+- Objetivo: hoja "CAMPAÑAS" nueva del TABLERO SAR para ver progreso de campañas que Pablo carga desde la app.
+
+**b) Fix Notas de crédito SAP** (PR #13)
+
+- Bug reportado: Santiago aparecía con `$29.09M` cuando neto real era `$18.9M`. Ejemplo: cliente Ricardo Fabian Blanco Goitia tenía factura RF 18226 (+$10.1M) + nota crédito RC 1810 (-$10.1M) + factura RF 18291 ($9.3M). BQ solo tenía las 2 positivas → sobreestimación.
+- Causa: pipeline solo sincronizaba `/b1s/v1/Invoices`. Las NCs viven en `/b1s/v1/CreditNotes` (endpoint SAP separado) → nunca llegaban a BQ.
+- Fix: nueva tabla `sap_credit_notes_raw` (413 CNs cargadas 2026-07-30) + `v_facturas_sap` y `v_ventas_lineas` extendidas con `UNION ALL` de CNs usando `sign=-1` en columnas monetarias. Nueva columna `doc_kind` (`INVOICE`|`CREDIT_NOTE`) para desglose. Todas las vistas derivadas (deuda, facturado_cobrado, campañas) heredan el fix.
+- Helper `scripts/apply_credit_notes_fix.py` con helper reusable `extract_view_sql()` (extrae CREATE VIEW por nombre robusto frente a `;` en comentarios).
+
+**Total en Power BI post-v367**: **17 vistas curadas** (9 base + 3 deuda + 2 rendiciones + 3 campañas), 2 tablas raw nuevas (`campaigns_raw`, `sap_credit_notes_raw`). Sin cambios en la app (`APP_VERSION` sigue en v366).
+
+Ver README sección 40 para detalle completo de layout Power BI + números verificados post-deploy.
 
 ### v366 (2026-07-30) — Fix z-index del modal `#contacto-estado-modal`
 
