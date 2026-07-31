@@ -2932,6 +2932,42 @@ Bug reportado por Mariano: en el TABLERO SAR, Santiago Esteban aparecía con `$2
 
 **Regla derivada del fix**: cuando un pipeline sincroniza N entities de un ERP, chequear siempre si existe una entity "inversa" (Credit Notes para Invoices, Return Orders para Sales Orders, etc.) y decidir explícitamente si va o no. Un endpoint faltante genera sobreestimación silenciosa que solo se detecta cross-checkeando con SAP mano a mano.
 
+### Fix hoja "Backorder" del TABLERO SAR — stock separado + medidas DAX nuevas (2026-07-31, via Claude Cowork MCP)
+
+Post-v369/v370 quedó una inconsistencia entre app y tablero: la app ya distingue disponible venta (whs 11) vs tránsito (whs 12), pero la hoja Backorder del TABLERO SAR seguía mostrando el total combinado (`stock_total_sellable` de `v_sap_items_enriched`, que suma ambos). Para el ejemplo `SN2000FG`: card "Stock Total Unidades" mostraba `180` cuando en realidad el disponible venta era `0` y todo estaba en tránsito.
+
+**Alcance del fix** (delegado a Claude Cowork con acceso MCP al workspace Power BI del usuario, no lo hace este proyecto directo):
+
+1. **`Stock Disponible Venta`** (medida nueva): `CALCULATE(SUM(v_inventario_por_warehouse[stock_qty]), warehouse_code = "11")`. Reemplaza al `stock_total_sellable` en card "Stock Total Unidades" y columna "Stock Actual SKU".
+2. **`Unidades en Tránsito`** (medida nueva): idem con `warehouse_code = "12"`.
+3. **`Unidades Asignadas`** (medida nueva): `SUM(v_backorder_lineas[pendiente])` — unidades ya comprometidas a clientes vía Sales Quotations abiertas.
+4. **`Unidades Liberadas`** (medida nueva): `MAX(Unidades en Tránsito - Unidades Asignadas, 0)` — lo que va a quedar libre cuando llegue el embarque, restando lo comprometido. Ejemplo `SN2000FG`: `180 - 20 = 160` libres.
+5. **`Próx Embarque`** (medida modificada): cuando `prox_embarque_date IS BLANK` pero hay `Unidades en Tránsito > 0`, devuelve `"Hay embarque"` en vez de `"—"`.
+6. **`Estado Agregado`** (medida modificada): agrega branches `"ASIGNADAS (X/Y)"` cuando hay tránsito con asignaciones, `"✓ EN TRÁNSITO (N libres)"` cuando hay tránsito sin asignar. Los estados viejos (`✓ CON EMBARQUE / SIN REPOSICIÓN / PARCIAL`) se mantienen como fallback.
+
+**Relaciones nuevas requeridas en el modelo Power BI**:
+- `v_inventario_por_warehouse[item_code]` → `v_backorder_lineas[sku]` (1:N, single-direction) para que los slicers de SKU filtren ambas vistas.
+
+**Vistas BQ que consume la hoja Backorder post-fix**:
+- `v_inventario_por_warehouse` (17 vistas curadas + esta que ya existía pero no se usaba en Backorder) — 1 fila por (item_code, warehouse_code).
+- `v_backorder_lineas` — 1 fila por (Sales Quotation abierta, SKU, cliente) con `pendiente`, `prox_embarque_date`, `estado`, `qty_incoming`.
+
+**Verificación esperada** post-deploy tablero (filtrando por `Codigo del Producto = SN2000FG`):
+| Campo | Antes | Después |
+|---|---|---|
+| Stock Total Unidades | 180 (mal) | 0 (real disponible venta) |
+| Unidades en Tránsito | — | 180 |
+| Unidades Asignadas | — | 20 |
+| Unidades Liberadas | — | 160 |
+| Próx Embarque | — | "Hay embarque" o fecha PO |
+| Estado Agregado | SIN REPOSICIÓN | ASIGNADAS (20/180) |
+
+**Consistencia entre plataformas**: con este fix + v369/v370 de la app, ambas UIs cuentan la misma historia sobre el stock disponible:
+- **App vendedor** → semáforo del picker en ámbar cuando hay tránsito sin disponible, split del pedido marca todo SIN STOCK con badge `🚚 EN TRANSITO`.
+- **Tablero gerente** → cards separadas para disponible/tránsito/asignadas/liberadas + estado agregado que refleja la realidad de reposición.
+
+**Prompt utilizado** (documentado para futuras iteraciones): ver conversación 2026-07-31 en la sesión Claude Code — incluye contexto del bug, medidas DAX listas para pegar, y verificación con SN2000FG. Reutilizable si aparecen bugs similares en otras hojas del tablero.
+
 ### Sincronización Dashboard app ↔ TABLERO SAR (v367+ sub-c)
 
 Pedido de Mariano: el modal Dashboard de la app y el TABLERO SAR de Power BI deben mostrar los mismos números para el mismo vendedor. Hasta v367 sub-b, el Dashboard app solo veía pedidos que los vendedores cargaban internamente (pocos, por la transición). Ahora también ve la facturación real SAP neta de credit notes.
