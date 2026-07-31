@@ -3320,7 +3320,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v368';
+const APP_VERSION = 'v369';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -3480,6 +3480,14 @@ let STOCK_MAP = {};
 // SL desde el browser (que requiere password en sapConfigCache, admin-only).
 // La usa queryStockLive cuando el rol no es admin/gerente.
 let STOCK_QUANTITIES = {};
+// v368+ (2026-07-31): desglose por almacen para separar disponible venta vs
+// transito en la card de stock. Formato: {SKU: {"11": 20, "12": 160}}.
+// Warehouse code map (hardcoded segun estructura SAP PESCA):
+//   '11' Mercaderia NUR PESCA  = DISPONIBLE PARA VENTA
+//   '12' Mercaderia en TRANSITO PESCA = va a entrar, sirve para backorder
+//   '98' Cuarentena PESCA = bloqueado (no vendible aun)
+//   otros codigos (01/03/04/07) = agrupado como "Otros" en la UI
+let STOCK_WAREHOUSE_BREAKDOWN = {};
 let STOCK_UPDATED_AT = null;
 // Flag O(1) para que hasStock() no tenga que hacer Object.keys(STOCK_MAP)
 // en cada llamada. Antes: con 10.657 SKUs y el picker filtrando por
@@ -12297,9 +12305,36 @@ window.queryStockLive = function(code, btn){
   }
   let status;
   if (hasStock) {
-    status = hasQtyData
-      ? ('Total vendible: ' + qty + ' unidades')
-      : 'DISPONIBLE en depositos vendibles\n\n(Cantidad exacta se muestra en el proximo sync automatico - snapshot actual no la tiene todavia)';
+    // v368+ (2026-07-31): mostrar desglose por almacen (11 disponible / 12
+    // transito / otros) si el snapshot lo trae. Fallback al total si no
+    // (snapshot pre-v368 o SKU sin breakdown).
+    const whs = STOCK_WAREHOUSE_BREAKDOWN[k] || null;
+    if (whs && (whs['11'] != null || whs['12'] != null || Object.keys(whs).length > 0)) {
+      const disp = Number(whs['11'] || 0);
+      const transito = Number(whs['12'] || 0);
+      // Otros: cualquier almacen que no sea 11 o 12 (98 cuarentena, 01/03/04/07 no aplican a pesca vendible).
+      let otros = 0;
+      const otrosDetalle = [];
+      Object.entries(whs).forEach(([wc, q]) => {
+        if (wc !== '11' && wc !== '12') {
+          otros += Number(q || 0);
+          otrosDetalle.push(wc + ':' + q);
+        }
+      });
+      const total = disp + transito + otros;
+      const lines = [
+        '✅ DISPONIBLE venta (dep. 11): ' + disp + ' unidades',
+        '🚚 EN TRANSITO (dep. 12): ' + transito + ' unidades',
+      ];
+      if (otros > 0) lines.push('⚠️ Otros almacenes: ' + otros + ' unidades (' + otrosDetalle.join(', ') + ')');
+      lines.push('──────────────');
+      lines.push('Total: ' + total + ' unidades');
+      status = lines.join('\n');
+    } else if (hasQtyData) {
+      status = 'Total vendible: ' + qty + ' unidades\n\n(Sin desglose por almacen — el proximo sync separara disponible vs transito)';
+    } else {
+      status = 'DISPONIBLE en depositos vendibles\n\n(Cantidad exacta se muestra en el proximo sync automatico - snapshot actual no la tiene todavia)';
+    }
   } else {
     status = 'SIN STOCK en depositos vendibles';
   }
@@ -12489,6 +12524,15 @@ function ensureStockSnapshotListener(){
       // Backward compat: snapshot viejo con quantities como map (funcionaba
       // solo si habia menos de 40k index entries total, ya no se usa).
       STOCK_QUANTITIES = d.quantities || {};
+    }
+    // v368+: warehouseBreakdown (JSON string, mismo patron que quantities).
+    // Si el snapshot es de pre-v368 el campo no existe -> queda {} y la UI
+    // hace fallback al total.
+    if (typeof d.warehouseBreakdown === 'string') {
+      try { STOCK_WAREHOUSE_BREAKDOWN = JSON.parse(d.warehouseBreakdown) || {}; }
+      catch(e) { console.warn('[stock] no pude parsear warehouseBreakdown:', e); STOCK_WAREHOUSE_BREAKDOWN = {}; }
+    } else {
+      STOCK_WAREHOUSE_BREAKDOWN = {};
     }
     STOCK_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : null;
     _markStockMapLoaded();
