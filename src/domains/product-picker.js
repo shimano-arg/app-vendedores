@@ -141,15 +141,24 @@ function renderProductPicker(){
     } else {
       ctrlHtml = '<button class="add-btn" onclick="event.stopPropagation();addToOrder(\'' + escapeAttr(p.code) + '\')" title="Agregar al pedido">+</button>';
     }
-    // Indicador de stock SAP (deposito 07). Punto verde = hay; rojo = no hay;
-    // gris = sin datos cargados todavia (snapshot no llego o el SKU no esta
-    // en el archivo). Solo info visual, no bloquea el agregar al pedido.
+    // Indicador de stock SAP. Punto verde = hay disponible venta (whs 11);
+    // ambar = SIN disponible pero hay en transito (whs 12, va a entrar);
+    // rojo = sin stock en ningun warehouse; gris = sin datos.
+    // v369+ (2026-07-31): distingue disponible vs transito para evitar que
+    // el vendedor asuma "hay 180 unidades disponibles" cuando en realidad
+    // esas 180 estan en transito y hay 0 vendibles hoy.
     const stockSt = hasStock(p.code);
+    const disp = (typeof window.getStockDisponibleVenta === 'function') ? window.getStockDisponibleVenta(p.code) : null;
+    const trans = (typeof window.getStockTransito === 'function') ? window.getStockTransito(p.code) : null;
     let stockDot = '';
-    if (stockSt === true) {
-      stockDot = '<span class="stock-dot ok" title="Disponible en deposito 07"></span>';
+    if (stockSt === true && disp != null && disp === 0 && trans != null && trans > 0) {
+      // Ambar: 0 disponible pero N en transito -> se puede prometer con fecha estimada.
+      stockDot = '<span class="stock-dot" style="background:#f59e0b" title="0 disponible en deposito 11 pero ' + trans + ' unidades en transito (deposito 12) — se puede vender como backorder"></span>';
+    } else if (stockSt === true) {
+      const t = (disp != null) ? ('Disponible venta (dep. 11): ' + disp + ' uds' + (trans > 0 ? ' + ' + trans + ' en transito' : '')) : 'Disponible en depositos vendibles';
+      stockDot = '<span class="stock-dot ok" title="' + escapeAttr(t) + '"></span>';
     } else if (stockSt === false) {
-      stockDot = '<span class="stock-dot no" title="Sin stock en deposito 07"></span>';
+      stockDot = '<span class="stock-dot no" title="Sin stock en ningun deposito vendible"></span>';
     } else {
       stockDot = '<span class="stock-dot na" title="Sin datos de stock"></span>';
     }

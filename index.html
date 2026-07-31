@@ -3320,7 +3320,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v369';
+const APP_VERSION = 'v370';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(
@@ -3533,6 +3533,47 @@ function getStockQty(sku){
   return null;
 }
 window.getStockQty = getStockQty;
+
+// v369+ (2026-07-31): stock DISPONIBLE PARA VENTA — solo warehouse 11
+// (Mercaderia NUR PESCA). NO cuenta el warehouse 12 (Mercaderia en TRANSITO
+// PESCA) que va a entrar pero no se puede vender hoy.
+// Retorna null si no hay warehouseBreakdown (snapshot pre-v369) o sin datos.
+// Retorna 0 si el SKU aparece en breakdown pero sin nada en whs 11.
+// Uso: split de lineas en confirmExcelPedido para que backorder refleje la
+// realidad (no confundir transito con vendible).
+function getStockDisponibleVenta(sku){
+  if (!sku) return null;
+  if (!STOCK_WAREHOUSE_BREAKDOWN) return null;
+  const k = String(sku).toUpperCase().trim();
+  let whs = STOCK_WAREHOUSE_BREAKDOWN[k];
+  if (!whs && /^0+\d+$/.test(k)) {
+    const stripped = k.replace(/^0+/, '');
+    whs = STOCK_WAREHOUSE_BREAKDOWN[stripped];
+  }
+  if (!whs) {
+    // Fallback: si el SKU no tiene breakdown pero SI aparece en STOCK_MAP,
+    // usar el total (getStockQty) — mejor tener aprox que null. Cuando el
+    // proximo sync corra el SKU tendra breakdown y este fallback ya no aplica.
+    return getStockQty(sku);
+  }
+  return Number(whs['11'] || 0);
+}
+window.getStockDisponibleVenta = getStockDisponibleVenta;
+
+// v369+: stock EN TRANSITO — solo warehouse 12. Retorna 0 si no hay o null si no hay datos.
+function getStockTransito(sku){
+  if (!sku) return null;
+  if (!STOCK_WAREHOUSE_BREAKDOWN) return null;
+  const k = String(sku).toUpperCase().trim();
+  let whs = STOCK_WAREHOUSE_BREAKDOWN[k];
+  if (!whs && /^0+\d+$/.test(k)) {
+    const stripped = k.replace(/^0+/, '');
+    whs = STOCK_WAREHOUSE_BREAKDOWN[stripped];
+  }
+  if (!whs) return 0;
+  return Number(whs['12'] || 0);
+}
+window.getStockTransito = getStockTransito;
 async function loadStockSnapshot(){
   try {
     // Cache-busting: el SW intercepta el HTML pero no este JSON.
@@ -9584,21 +9625,28 @@ window.confirmExcelPedido = function(){
     };
     // Split por stock. needsReview NO tiene sentido chequear stock (SKU
     // no esta en catalogo) - dejamos qty como esta.
-    const stk = l.needsReview ? null : (typeof getStockQty === 'function' ? getStockQty(l.code) : null);
+    // v369+ (2026-07-31): usar disponible venta (whs 11) en vez del total
+    // (que suma whs 12 transito). Antes: SN2000FG con 0 en 11 y 180 en 12
+    // se marcaba como "stock=180" y NO splitea backorder. Ahora: stock=0 y
+    // toda la linea va roja. Adjuntamos transitoInfo para que la preview
+    // muestre "hay N en transito" al lado del rojo.
+    const stk = l.needsReview ? null : (typeof getStockDisponibleVenta === 'function' ? getStockDisponibleVenta(l.code) : (typeof getStockQty === 'function' ? getStockQty(l.code) : null));
+    const transito = l.needsReview ? 0 : (typeof getStockTransito === 'function' ? getStockTransito(l.code) : 0);
+    const withTransito = (opts) => Object.assign({}, baseLine, opts, transito > 0 ? {transitoQty: transito} : {});
     if (stk == null) {
       // Sin datos de stock -> asumimos que hay (comportamiento anterior).
-      outLines.push(Object.assign({}, baseLine, {qty: l.qty, sinStock: false}));
+      outLines.push(withTransito({qty: l.qty, sinStock: false}));
     } else if (l.qty <= stk) {
       // Stock suficiente -> 1 linea normal.
-      outLines.push(Object.assign({}, baseLine, {qty: l.qty, sinStock: false}));
+      outLines.push(withTransito({qty: l.qty, sinStock: false}));
     } else if (stk > 0) {
       // Stock parcial -> split en 2 lineas: verde (stock) + roja (faltante).
-      outLines.push(Object.assign({}, baseLine, {qty: stk, sinStock: false}));
-      outLines.push(Object.assign({}, baseLine, {qty: l.qty - stk, sinStock: true}));
+      outLines.push(withTransito({qty: stk, sinStock: false}));
+      outLines.push(withTransito({qty: l.qty - stk, sinStock: true}));
       sinStockCount++;
     } else {
       // Stock 0 -> 1 linea completa roja.
-      outLines.push(Object.assign({}, baseLine, {qty: l.qty, sinStock: true}));
+      outLines.push(withTransito({qty: l.qty, sinStock: true}));
       sinStockCount++;
     }
   });
@@ -9967,7 +10015,17 @@ window.viewPedido = function(stage, key, idx){
         ? 'grid-template-columns:70px 1fr 70px 50px;background:#fee2e2;border-left:3px solid #dc2626'
         : 'grid-template-columns:70px 1fr 70px 50px';
       const qtyColor = isSinStock ? '#991b1b' : '#166534';
-      const codeExtra = isSinStock ? ' <span style="background:#dc2626;color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Sin stock al confirmar">SIN STOCK</span>' : '';
+      // v369+: si la linea sin stock tiene transitoQty (unidades en almacen 12
+      // que van a llegar), mostrar badge extra ambar "🚚 N EN TRANSITO" al lado
+      // del rojo — asi el vendedor sabe que el backorder no es "sin fecha",
+      // hay mercaderia en camino que se puede reservar.
+      let codeExtra = '';
+      if (isSinStock) {
+        codeExtra = ' <span style="background:#dc2626;color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Sin stock disponible venta (whs 11) al confirmar">SIN STOCK</span>';
+        if (l.transitoQty && l.transitoQty > 0) {
+          codeExtra += ' <span style="background:#f59e0b;color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Hay unidades en almacen 12 (transito) que van a entrar - sirve para backorder con fecha estimada">&#128666; ' + l.transitoQty + ' EN TRANSITO</span>';
+        }
+      }
       html += '<div class="ped-line" style="' + rowStyle + '">';
       html += '<div class="pcode">' + escapeHtml(l.code) + codeExtra + '</div>';
       html += '<div class="pname">' + escapeHtml(l.desc) + '</div>';
