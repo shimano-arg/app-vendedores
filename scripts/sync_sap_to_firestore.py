@@ -254,7 +254,8 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
     """
     items = []
     stock_map = {}       # {sku: bool}
-    qty_map = {}         # {sku: int}
+    qty_map = {}         # {sku: int}     total sumado (retrocompat)
+    whs_map = {}         # {sku: {whs_code: int}}  v368+ desglose por almacen (11=NUR PESCA vendible, 12=EN TRANSITO PESCA, 98=CUARENTENA, etc.)
     price_map = {}       # {sku: float}   precio en ARS de la lista PESCA (#12)
     scanned = 0
     with_stock = 0
@@ -311,14 +312,18 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
             name = (it.get('ItemName') or '').strip()
             whs_list = it.get('ItemWarehouseInfoCollection') or []
             total_qty = 0.0
+            whs_breakdown = {}  # v368+: {whs_code: int} desglose para separar disponible vs transito en la UI
             for w in whs_list:
                 whs_code = w.get('WarehouseCode') or ''
                 if whs_code in NON_SALES_WHS:
                     continue
                 try:
-                    total_qty += float(w.get('InStock') or 0)
+                    stk = float(w.get('InStock') or 0)
                 except (TypeError, ValueError):
-                    pass
+                    continue
+                total_qty += stk
+                if stk > 0:
+                    whs_breakdown[whs_code] = int(round(stk))
             has_stk = total_qty > 0
             items.append({'code': code, 'desc': name})
             stock_map[code] = has_stk
@@ -326,6 +331,13 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
             # guardamos separada del bool para no romper el listener actual
             # que espera stock_map[sku] = bool.
             qty_map[code] = int(round(total_qty))
+            # v368+ (2026-07-31): desglose por almacen. Solo escribimos si el
+            # SKU tiene stock en al menos 1 warehouse (empty dict quema espacio).
+            # La UI usa 11 (disponible) y 12 (transito) por separado; el resto
+            # (98 cuarentena, 01/03/04/07 no aplican a stock vendible) queda
+            # como 'otros' en la card.
+            if whs_breakdown:
+                whs_map[code] = whs_breakdown
             # Extraer el precio de la lista PESCA (#12 en SAP, ARS). Si el
             # SKU no tiene precio cargado en esa lista, no lo agregamos al
             # map -> el frontend lo muestra como '(sin precio)'. En SAP,
@@ -346,7 +358,7 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
                 with_stock += 1
             if max_items and scanned >= max_items:
                 log(f'[SL] cap de {max_items} alcanzado (test)')
-                return items, stock_map, qty_map, price_map, scanned, with_stock, with_price
+                return items, stock_map, qty_map, whs_map, price_map, scanned, with_stock, with_price
 
         page_count += 1
         # Progress log cada 5 segundos
@@ -371,7 +383,7 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
             break
 
     log(f'[SL] termino: {scanned} items, {with_stock} con stock, {with_price} con precio, {page_count} paginas')
-    return items, stock_map, qty_map, price_map, scanned, with_stock, with_price
+    return items, stock_map, qty_map, whs_map, price_map, scanned, with_stock, with_price
 
 
 def load_local_categorization_from_html() -> dict:
@@ -556,7 +568,7 @@ def write_price_list(db: firestore.Client, price_map: dict) -> str:
     return sync_batch_id
 
 
-def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, with_stock: int) -> str:
+def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, whs_map: dict, with_stock: int) -> str:
     sync_batch_id = 'SYNC-STOCK-AUTO-' + str(int(time.time() * 1000))
     if os.environ.get('DRY_RUN', '').lower() == 'true':
         log(f'[DRY_RUN] escribiria stock_snapshot con {len(stock_map)} SKUs ({with_stock} con stock, con cantidades)')
@@ -568,12 +580,20 @@ def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, w
     # JSON evita el problema: Firestore no indexa el contenido de un string.
     # El cliente hace JSON.parse cuando lo lee (~200 KB, negligible).
     qty_json = json.dumps(qty_map, separators=(',', ':'), ensure_ascii=True)
+    # v368+ (2026-07-31): warehouseBreakdown como JSON string (mismo patron que
+    # quantities para evitar el limite de 40k index entries de Firestore).
+    # Formato: {"SN2000FG":{"11":20,"12":160},"OTROSKU":{"11":5},...}
+    # La UI parsea con JSON.parse y muestra Disponible (11) + Transito (12) + Otros.
+    whs_json = json.dumps(whs_map, separators=(',', ':'), ensure_ascii=True)
     db.collection('app_config').document('stock_snapshot').set({
         # Key 'stock' compatible con el listener existente ensureStockSnapshotListener.
         'stock': stock_map,
         # Key 'quantities' como STRING JSON (no map) para evitar el limite
         # de 40k index entries de Firestore.
         'quantities': qty_json,
+        # v368+: desglose por almacen para separar disponible venta (whs 11) vs
+        # transito (whs 12) en la card de stock de la app.
+        'warehouseBreakdown': whs_json,
         'totalItems': len(stock_map),
         'withStock': with_stock,
         'warehouse': 'ALL_SALES',
@@ -582,7 +602,7 @@ def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, w
         'updatedBy': 'github-actions/sync_sap_to_firestore',
         'syncBatchId': sync_batch_id,
     })
-    log(f'[FS] stock_snapshot escrito: {len(stock_map)} SKUs, {with_stock} con stock (quantities JSON string, {len(qty_json)} bytes)')
+    log(f'[FS] stock_snapshot escrito: {len(stock_map)} SKUs, {with_stock} con stock (quantities JSON string {len(qty_json)} bytes, warehouseBreakdown {len(whs_json)} bytes)')
     return sync_batch_id
 
 
@@ -1133,7 +1153,7 @@ def main() -> int:
         sl_login(sl_cfg, session)
 
     max_items = int(os.environ.get('SL_MAX_ITEMS', '0') or 0)
-    items, stock_map, qty_map, price_map, scanned, with_stock, with_price = sl_fetch_items_and_stock(sl_cfg, session, max_items=max_items)
+    items, stock_map, qty_map, whs_map, price_map, scanned, with_stock, with_price = sl_fetch_items_and_stock(sl_cfg, session, max_items=max_items)
 
     if scanned == 0:
         log('[FATAL] SL devolvio 0 items. No escribo nada para no pisar datos buenos.')
@@ -1171,7 +1191,7 @@ def main() -> int:
     # - cantidad exacta en el modal Master de Productos para vendedores
     #   (via qty_map - antes solo admin podia ver la cantidad porque
     #   requeria login SL desde el browser).
-    write_stock_snapshot(db, stock_map, qty_map, with_stock)
+    write_stock_snapshot(db, stock_map, qty_map, whs_map, with_stock)
     # Precios (v268+): traidos automatic de la lista PESCA #12 de SAP.
     # Antes se subian manual por CSV desde el modal admin -> lista congelada
     # con SKUs faltantes. Ahora se refresca cada 30 min.
