@@ -1649,7 +1649,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <button class="btn-mis-camps" id="mis-camps-btn" onclick="openMisCampsModal()" style="display:none" title="Ver campa&ntilde;as activas y los SKU involucrados">Campa&ntilde;as Activas</button>
     <button class="btn-dashboard" id="dashboard-btn" onclick="openDashboardModal()" title="Abrir dashboard de ventas">Dashboard</button>
     <button class="btn-analisis" id="analisis-btn" onclick="openExportAnalisis()" style="display:none" title="Formatos avanzados (Power BI / ML / ZIP fotos) - requiere PIN">Exportar para An&aacute;lisis</button>
-    <button class="btn-export" onclick="openExportFormatModal()" title="Elegir formato: Reportes Excel (uso operativo) o Dataset ZIP para pipelines de ML (solo admin/gerente)">Exportar a Excel</button>
+    <button class="btn-export" onclick="_safeOpenExportFormatModal()" title="Elegir formato: Reportes Excel (uso operativo) o Dataset ZIP para pipelines de ML (solo admin/gerente)">Exportar a Excel</button>
     <button class="btn-seguimiento" id="seguimiento-btn" onclick="openSeguimientoModal()" style="display:none" title="Panel de gestion comercial para vendedores internos">Seguimiento</button>
     <button class="btn-zonas" id="zonas-btn" onclick="openZonasModal()" style="display:none" title="Reasignar tiendas o localidades a otro vendedor / interno / distribuidor">Zonas</button>
   </div>
@@ -3352,8 +3352,34 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v371';
+const APP_VERSION = 'v372';
 window.APP_VERSION = APP_VERSION;
+
+// v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
+// Bug reportado en Sentry (iPhone Safari): "Can't find variable openExportFormatModal"
+// causado por mismatch shell/chunk (HTML v371 servido con bundle v370 stale del
+// SW cache, sin el stub instalado). Fix: onclick=_safeOpenExportFormatModal()
+// que verifica que la fn exista y sino la trae con loadChunk('exports-advanced').
+// Ver README §41 v372.
+window._safeOpenExportFormatModal = function(){
+  if (typeof window.openExportFormatModal === 'function') {
+    return window.openExportFormatModal();
+  }
+  if (typeof window.loadChunk === 'function') {
+    // Bundle cargo pero por algun motivo el stub no esta -> forzar chunk load.
+    return window.loadChunk('exports-advanced').then(function(){
+      if (typeof window.openExportFormatModal === 'function') {
+        return window.openExportFormatModal();
+      }
+      alert('La app no termino de cargar. Reintenta en unos segundos o refresca la pagina (Ctrl+Shift+R).');
+    }).catch(function(err){
+      console.error('[_safeOpenExportFormatModal] loadChunk fallo:', err);
+      alert('Error cargando el modulo de exports. Refresca la pagina (Ctrl+Shift+R en desktop, cerrar y abrir la app en mobile).');
+    });
+  }
+  // Ni la fn ni loadChunk existen -> bundle no cargo. Refresca.
+  alert('La app aun no termino de cargar. Espera 2 segundos y reintenta, o refresca (Ctrl+Shift+R en desktop, cerrar+abrir la PWA en mobile).');
+};
 try {
   console.log(
     '%c Shimano App ' + APP_VERSION + ' %c ' + new Date().toISOString() + ' ',
