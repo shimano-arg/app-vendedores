@@ -57,6 +57,8 @@ installChunkStubs('exports-core', [
 installChunkStubs('exports-advanced', [
   'exportAuditExcel', 'exportExecutive', 'exportML', 'exportPhotosZip',
   'exportPowerBI', 'exportVisitsExcel', 'exportVisitsWithEmbeddedPhotos',
+  // v371+: export dataset ZIP para pipelines ML (admin/gerente only)
+  'openExportFormatModal', 'closeExportFormatModal', 'exportDatasetZip',
 ]);
 installChunkStubs('admin-users', [
   'addAllowedEmail', 'bulkAssignApprover', 'changeUserPassword', 'closeAdminPanel',

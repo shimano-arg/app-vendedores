@@ -4,6 +4,20 @@
 // discontinuos separados por Backup + Audit + _exportLegacyFull que quedan
 // en el inline) como parte de E2.n.2 (e2b-perf 2026-07-28).
 //
+// v371+: exportDatasetZip() nuevo — ZIP con CSVs por entidad para pipelines
+// ML externos (Microsoft Fabric). Importa los helpers puros y schemas del
+// modulo src/pure/csv-serializer.js. Ver plan cosmic-pondering-stearns.md.
+
+import {
+  buildCsv,
+  computeNullRates,
+  firestoreValueToCsv,
+  DATASET_SCHEMAS,
+  DATASET_USE_CASE_MATRIX,
+  ROW_BUILDERS,
+  buildProductoRowsFromStockJson,
+} from '../pure/csv-serializer.js';
+//
 // Deps del inline: JSZip (CDN lazy), ExcelJS (CDN lazy via loadExcelJS),
 // XLSX (defer en head), visitsCache, campaignsCache, opsLogCache (audit
 // inline), auditLogCache (audit inline), contacted (global Set), POINTS,
@@ -604,6 +618,285 @@ window.exportML = function(){
   if (opsRowsC.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(opsRowsC), 'log_operaciones');
 
   XLSX.writeFile(wb, 'Shimano_ML_' + todayStr() + '.xlsx');
+};
+
+
+// ============================================================
+// v371+: Export dataset para análisis (ZIP de CSVs para ML pipelines)
+// ============================================================
+
+/**
+ * Abre el modal chico dispatcher del boton "Exportar a Excel". Muestra
+ * 2 tarjetas: Reportes Excel (todos) vs Dataset ZIP (solo admin/gerente).
+ */
+window.openExportFormatModal = function(){
+  // Ocultar/mostrar tarjeta Dataset segun rol.
+  const dsOpt = document.getElementById('exp-opt-dataset-zip');
+  if (dsOpt) {
+    const isAdminOrGerente = (userRole === 'admin' || userRole === 'gerente');
+    dsOpt.style.display = isAdminOrGerente ? '' : 'none';
+  }
+  // Ocultar progress bar (por si quedo abierto de una ejecucion anterior)
+  const prog = document.getElementById('export-dataset-progress');
+  if (prog) prog.style.display = 'none';
+  document.getElementById('export-format-modal').classList.add('open');
+};
+
+window.closeExportFormatModal = function(){
+  document.getElementById('export-format-modal').classList.remove('open');
+};
+
+/**
+ * Actualiza el status + barra del modal. status es texto libre; percent 0..100.
+ */
+function _updateExportProgress(status, percent){
+  const s = document.getElementById('export-dataset-status');
+  const b = document.getElementById('export-dataset-bar');
+  const wrap = document.getElementById('export-dataset-progress');
+  if (wrap) wrap.style.display = '';
+  if (s) s.textContent = status;
+  if (b) b.style.width = Math.max(0, Math.min(100, percent)) + '%';
+}
+
+/**
+ * Fetch stock.json del root del sitio (v369+ tiene warehouseBreakdown).
+ * Cache-busting con ?t= para evitar SW.
+ */
+async function _fetchStockJson(){
+  try {
+    const r = await fetch('./stock.json?t=' + Date.now(), {cache: 'no-store'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } catch (e) {
+    console.warn('[exportDatasetZip] stock.json fallo:', e && e.message);
+    return null; // no bloqueante — productos.csv queda vacio
+  }
+}
+
+/**
+ * Lazy load JSZip (patron ya usado en exportPhotosZip linea ~47).
+ */
+async function _ensureJSZipLoaded(){
+  if (typeof JSZip !== 'undefined') return;
+  await new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('No se pudo cargar JSZip'));
+    document.head.appendChild(s);
+  });
+}
+
+/**
+ * Descarga un Blob como archivo. Reusa el patron de exportPhotosZip.
+ */
+function _downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 100);
+}
+
+/**
+ * EXPORT PRINCIPAL. Solo admin/gerente. Genera ZIP con:
+ *  - pedidos.csv, visitas.csv, clientes.csv, client_master.csv, rendiciones.csv,
+ *    campanias.csv, targets.csv, productos.csv, vendor_overrides.csv,
+ *    custom_routes.csv, seguimiento_notes.csv
+ *  - manifest.json (schema + useCaseMatrix + rowCounts + nullRateByField + limitations)
+ *
+ * Casos borde manejados:
+ *  - Si alguna .get() falla -> alert + no descargar (no genera ZIP parcial silencioso).
+ *  - Si stock.json no responde -> productos.csv queda vacio con warning en manifest.
+ *  - Progress bar en el modal para feedback (~10-30 seg).
+ */
+window.exportDatasetZip = async function(){
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente pueden exportar el dataset.');
+    return;
+  }
+  if (!fbDb) {
+    alert('Firestore no inicializado. Recarga la app.');
+    return;
+  }
+
+  // Re-abrir modal si el usuario cerro y navegamos por otro flujo.
+  document.getElementById('export-format-modal').classList.add('open');
+  _updateExportProgress('Preparando...', 5);
+
+  try {
+    _updateExportProgress('Cargando JSZip...', 10);
+    await _ensureJSZipLoaded();
+
+    // 1) Fetch 10 colecciones Firestore en paralelo + stock.json
+    _updateExportProgress('Leyendo Firestore (10 colecciones)...', 20);
+    const firestoreEntries = [
+      ['pedidos',           fbDb.collection('pedidos').get()],
+      ['visitas',           fbDb.collection('visits').get()],
+      ['clientes',          fbDb.collection('client_applications').get()],
+      ['client_master',     fbDb.collection('client_master').get()],
+      ['rendiciones',       fbDb.collection('rendiciones').get()],
+      ['campanias',         fbDb.collection('campaigns').get()],
+      ['targets',           fbDb.collection('targets').get()],
+      ['vendor_overrides',  fbDb.collection('vendor_overrides').get()],
+      ['custom_routes',     fbDb.collection('custom_routes').get()],
+      ['seguimiento_notes', fbDb.collection('seguimiento_notes').get()],
+    ];
+    const promises = firestoreEntries.map(([, p]) => p);
+    promises.push(_fetchStockJson());
+
+    const settled = await Promise.allSettled(promises);
+    // Si CUALQUIER get() de Firestore rechazo, abortamos (no export parcial silencioso).
+    const failedFirestore = [];
+    settled.slice(0, firestoreEntries.length).forEach((r, i) => {
+      if (r.status === 'rejected') failedFirestore.push(firestoreEntries[i][0] + ': ' + (r.reason && r.reason.message || r.reason));
+    });
+    if (failedFirestore.length) {
+      throw new Error('Firestore fetch fallo en ' + failedFirestore.length + ' colecciones:\n' + failedFirestore.join('\n'));
+    }
+
+    // 2) Extraer snapshots + docs con _id
+    const snapshots = /** @type {Record<string, any[]>} */({});
+    firestoreEntries.forEach(([name], i) => {
+      const snap = /** @type {any} */(settled[i]).value;
+      const docs = [];
+      snap.forEach((d) => {
+        const data = d.data() || {};
+        data._id = d.id;
+        docs.push(data);
+      });
+      snapshots[name] = docs;
+    });
+    const stockJson = /** @type {any} */(settled[settled.length - 1]).value; // puede ser null
+
+    // 3) Construir CSVs con row builders + schemas
+    _updateExportProgress('Serializando CSVs...', 55);
+    const csvs = /** @type {Record<string, string>} */({});
+    const rowCounts = /** @type {Record<string, number>} */({});
+    const allRowsByCsv = /** @type {Record<string, any[][]>} */({});
+
+    for (const collName of Object.keys(snapshots)) {
+      const schema = DATASET_SCHEMAS[collName];
+      if (!schema) continue;
+      const builder = ROW_BUILDERS[collName];
+      if (!builder) continue;
+      const allRows = /** @type {any[][]} */([]);
+      for (const doc of snapshots[collName]) {
+        const rowsForDoc = builder(doc);
+        for (const r of rowsForDoc) allRows.push(r);
+      }
+      allRowsByCsv[schema.name] = allRows;
+      csvs[schema.name] = buildCsv(schema, allRows);
+      rowCounts[schema.name] = allRows.length;
+    }
+
+    // productos.csv (desde stock.json, no Firestore)
+    const productosSchema = DATASET_SCHEMAS.productos;
+    const productosRows = stockJson ? buildProductoRowsFromStockJson(stockJson) : [];
+    allRowsByCsv[productosSchema.name] = productosRows;
+    csvs[productosSchema.name] = buildCsv(productosSchema, productosRows);
+    rowCounts[productosSchema.name] = productosRows.length;
+
+    // 4) Computar nullRateByField para cada caso A-E
+    _updateExportProgress('Calculando calidad del dataset...', 75);
+    /** @type {Record<string, any>} */
+    const useCaseWithStats = {};
+    for (const [caseKey, uc] of Object.entries(DATASET_USE_CASE_MATRIX)) {
+      const stats = /** @type {any} */({priority: uc.priority, description: uc.description, requiredFields: uc.requiredFields, joinNotes: uc.joinNotes, nullRateByField: {}, limitations: []});
+      let hasHighNullRate = false;
+      let hasEmptyRequired = false;
+      for (const [csvName, fields] of Object.entries(uc.requiredFields)) {
+        const schemaForCsv = Object.values(DATASET_SCHEMAS).find((s) => s.name === csvName);
+        if (!schemaForCsv) { stats.limitations.push('Schema no encontrado para ' + csvName); continue; }
+        const rows = allRowsByCsv[csvName] || [];
+        const rates = computeNullRates(schemaForCsv, rows, fields);
+        for (const [f, rate] of Object.entries(rates)) {
+          stats.nullRateByField[csvName + '.' + f] = rate;
+          if (rows.length === 0) hasEmptyRequired = true;
+          else if (rate > 0.5) hasHighNullRate = true;
+        }
+      }
+      if (hasEmptyRequired) {
+        stats.status = 'EMPTY';
+        stats.limitations.push('Alguna coleccion requerida esta vacia — el caso no se puede entrenar hoy pero el schema esta listo.');
+      } else if (hasHighNullRate) {
+        stats.status = 'PARTIAL';
+        stats.limitations.push('Al menos 1 campo requerido tiene >50% de nulls — revisar tasas antes de usar.');
+      } else {
+        stats.status = 'OK';
+      }
+      useCaseWithStats[caseKey] = stats;
+    }
+
+    // 5) Manifest.json
+    const exportedAt = new Date().toISOString();
+    const manifest = {
+      exportedAt,
+      appVersion: (typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown'),
+      sourceProject: 'app-vendedores-shimano',
+      exportedByEmail: (currentUser && currentUser.email) || 'unknown',
+      exportedByUid: (currentUser && currentUser.uid) || 'unknown',
+      csvConventions: {
+        encoding: 'UTF-8',
+        separator: ',',
+        quoteChar: '"',
+        escapeQuote: '""',
+        lineTerminator: '\\r\\n',
+        dateFormat: 'ISO 8601 UTC (with Z)',
+        decimalSeparator: '.',
+        nullRepresentation: '(empty field)',
+        arrayFormat: 'JSON stringified',
+        objectFormat: 'JSON stringified',
+      },
+      rowCounts,
+      schema: {},
+      useCaseMatrix: useCaseWithStats,
+      exclusions: {
+        note: 'Datos sensibles y binarios excluidos del export.',
+        excludedCollections: ['roles', 'app_config', 'sap_snapshot', 'notifications', 'operations_log'],
+        excludedFields: [
+          'visits.frenteLocal (fotos base64)',
+          'visits.espacio[] (fotos base64)',
+          'client_applications.constanciaArca (base64)',
+          'client_applications.constanciaIIBB (base64)',
+          'client_applications.fotosLocal[] (base64)',
+          'rendiciones.fotoTicket (base64 legacy pre-v308; se exporta solo fotoTicketUrl)',
+        ],
+        stockJsonLoaded: stockJson !== null,
+      },
+    };
+    for (const [collName, schema] of Object.entries(DATASET_SCHEMAS)) {
+      manifest.schema[schema.name] = schema.columns.map((c) => ({col: c.col, type: c.type, desc: c.desc}));
+    }
+
+    // 6) Empaquetar ZIP
+    _updateExportProgress('Empaquetando ZIP...', 90);
+    const zip = new JSZip();
+    for (const [name, content] of Object.entries(csvs)) {
+      zip.file(name, content);
+    }
+    zip.file('manifest.json', JSON.stringify(manifest, null, 2));
+
+    const blob = await zip.generateAsync({type: 'blob', compression: 'DEFLATE', compressionOptions: {level: 6}});
+    const filename = 'shimano-dataset-' + exportedAt.replace(/[:.]/g, '-') + '.zip';
+    _downloadBlob(blob, filename);
+
+    _updateExportProgress('Dataset descargado: ' + filename + ' (' + Object.keys(csvs).length + ' CSVs + manifest.json)', 100);
+    if (typeof showSyncTag === 'function') {
+      const totalRows = Object.values(rowCounts).reduce((a, b) => a + b, 0);
+      showSyncTag('Dataset exportado: ' + totalRows + ' filas en ' + Object.keys(csvs).length + ' CSVs');
+    }
+    setTimeout(() => window.closeExportFormatModal(), 3000);
+  } catch (e) {
+    console.error('[exportDatasetZip] fatal:', e);
+    _updateExportProgress('Error: ' + (e && e.message || e), 0);
+    alert('Error al exportar el dataset:\n\n' + (e && e.message || e) + '\n\nEl ZIP NO se descargo (evitamos generar un archivo parcial). Revisa la consola para mas detalles.');
+  }
 };
 
 
