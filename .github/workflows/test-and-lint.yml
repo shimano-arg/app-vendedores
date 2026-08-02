@@ -1,0 +1,62 @@
+name: Test & Lint
+
+# v379+ (2026-08-02): CI mínimo para que ningún PR llegue a main con
+# tests rotos o types desalineados. Corre en cada PR + en cada push a
+# main (para catchear si alguien hace push directo desde otra máquina).
+#
+# NO reemplaza el smoke E2E manual que Mariano hace antes del squash-merge.
+# Sí garantiza que el suite de 193 unit+smoke tests + typecheck pasen SIEMPRE.
+#
+# Duración típica: ~1-2 min. Free tier de GH Actions cubre esto de sobra.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+# Cancelar corridas anteriores del mismo PR/branch si llega una nueva.
+# Evita gastar minutos de CI en versiones viejas del mismo cambio.
+concurrency:
+  group: test-and-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          # v378 usa Node 20 en Cloud Functions (deadline oct 2026 para
+          # migrar a Node 22). Alineamos el CI a la misma versión que prod.
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install root deps
+        run: npm ci
+
+      # v379 hotfix: sin este step el typecheck rompe porque tsconfig.json
+      # incluye functions/**/*.js y las deps (firebase-functions, firebase-admin,
+      # @google-cloud/firestore) viven en functions/node_modules, no en root.
+      - name: Install functions deps
+        run: cd functions && npm ci
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Unit tests (168 assertions)
+        run: npm run test:unit
+
+      - name: Smoke tests (25 assertions)
+        run: npm run test:smoke
+
+      # NO corremos test:rules ni test:functions aquí — requieren
+      # firebase-emulator + Java 21 que agrega ~2 min de setup por corrida.
+      # Esos se corren local antes del PR (documentado en README §42.1).
