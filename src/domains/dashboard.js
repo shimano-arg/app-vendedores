@@ -230,12 +230,22 @@ window.renderDashboard = function(){
   const helloName = userRole === 'vendedor' && assignedVendor ? titleCase(assignedVendor) : (currentUser.displayName || currentUser.email || 'Usuario');
   const scopeLabel = userRole === 'admin' ? 'Vista admin' : (userRole === 'viewer' ? 'Vista viewer' : 'Tus pedidos confirmados');
   html += '<div style="font-size:11px;color:#64748b;margin-bottom:10px"><b style="color:#0f172a">' + escapeHtml(helloName) + '</b> &middot; ' + scopeLabel + '</div>';
-  if (userRole === 'admin' || userRole === 'viewer') {
+  // v376+: interno (VDI) también ve el dropdown, con opciones filtradas a sus
+  // VDEs pareja + su propia zona (via getMyAllowedVendorKeys). Sin este fix,
+  // Santiago abría el dashboard y no tenía forma de ver la data de Mauricio
+  // o Martin — todo aparecía en 0.
+  if (userRole === 'admin' || userRole === 'viewer' || userRole === 'interno') {
+    // Filtro visible por rol:
+    // - admin/viewer: null (ven todos los vendedores).
+    // - interno: Set(['MAURICIO GIL', 'MARTIN BOIERO', ...su assignedVendor si tiene]).
+    const allowedSet = (typeof window.getMyAllowedVendorKeys === 'function') ? window.getMyAllowedVendorKeys() : null;
+    const visibleVendors = allowedSet ? VENDORS.filter(v => allowedSet.has(v.key)) : VENDORS;
+    const labelAll = (userRole === 'interno') ? 'Todas mis parejas (sumado)' : 'Todos los vendedores (sumado)';
     html += '<div class="dash-card" style="background:#f0f9ff;border-color:#7dd3fc;padding:10px 12px;margin-bottom:10px">';
     html += '<label style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#075985;display:block;margin-bottom:4px">Filtrar por vendedor</label>';
     html += '<select onchange="setDashboardVendor(this.value)" style="width:100%;padding:7px 10px;border:1.5px solid #7dd3fc;border-radius:5px;font-size:12px;font-weight:600;color:#0f172a;outline:none;background:#fff;font-family:inherit">';
-    html += '<option value="ALL"' + (dashboardVendorFilter === 'ALL' ? ' selected' : '') + '>Todos los vendedores (sumado)</option>';
-    VENDORS.forEach(v => {
+    html += '<option value="ALL"' + (dashboardVendorFilter === 'ALL' ? ' selected' : '') + '>' + labelAll + '</option>';
+    visibleVendors.forEach(v => {
       html += '<option value="' + v.key + '"' + (dashboardVendorFilter === v.key ? ' selected' : '') + '>' + v.zone + ' - ' + titleCase(v.key) + '</option>';
     });
     html += '</select></div>';
