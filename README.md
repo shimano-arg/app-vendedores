@@ -2888,6 +2888,41 @@ Pedido de Mariano: hoja "CAMPAÑAS" en TABLERO SAR para ver evolución de campa�
 4. **Line chart** `v_campanias_evolucion_diaria`: eje X `doc_date`, eje Y `pct_acumulado`, breakdown por `campaign_id` (varias líneas si hay campañas paralelas).
 5. **Matrix `v_campanias_ventas_detalle`** (agregada v367 sub-b): filas `campaign_name > assigned_vendor > card_name > item_code`, valores `Sum(cantidad)` + `Sum(importe_linea_ars)`. Responde "qué vendió cada vendedor a qué cliente dentro de la campaña X". Todo desde la misma vista → sin relaciones cruzadas ni ambiguedades PBI.
 
+### ✅ EJECUTADO — Fix hoja "Campañas" TABLERO SAR (2026-08-01 vía Claude Cowork MCP)
+
+**Estado**: 2 medidas creadas + 1 relación crítica corregida en el modelo Power BI Desktop. Pendiente solo la capa de reporte (Mariano).
+
+**Problema reportado**: al crear la campaña "POWER PRO" en la app el 2026-07-31 y abrir la hoja Campañas en Power BI al día siguiente:
+- Card superior "Campañas" mostraba el `campaign_id` crudo (`6w4JqjWXQ2SBOCyob...`) en vez del nombre "POWER PRO".
+- Card "Remitido" y "% Cumplimiento" en `--` y `0,00`.
+- Tabla del medio con header `campaign_name` pero vacía.
+- Filtros de página `is_pesca = True` y `provincia_cliente no está vacío` ocultaban data (los campos viven en `v_campanias_ventas_detalle` que está vacía cuando la campaña no tiene facturas todavía).
+
+**2 medidas nuevas** en el modelo:
+
+| Medida | Definición | Formato |
+|---|---|---|
+| `Facturación Campaña` | `SUM(v_campanias_progreso[realizado_ars])` | Moneda ARS, 0 decimales |
+| `% Cumplimiento Campaña` | `DIVIDE(SUM(v_campanias_progreso[realizado_ars]), SUM(v_campanias_progreso[target_amount]), 0)` | Porcentaje, 2 decimales |
+
+**Fix arquitectural crítico** — relación mal armada por auto-detect de Power BI:
+- **Antes**: `v_campanias_ventas_detalle[campaign_id]` → `v_campanias_progreso[created_at]` (¡unía **STRING campaign_id** contra **TIMESTAMP created_at**!). Auto-detect matcheó por columnas con nombre similar pero semántica opuesta. Silencioso — no rompía queries, solo devolvía resultados vacíos o cross-joins inesperados.
+- **Después**: `v_campanias_ventas_detalle[campaign_id]` ↔ `v_campanias_progreso[campaign_id]` (M:1, single-direction). Ahora los slicers de campaña filtran ambas vistas coherentemente.
+
+**Validación con `POWER PRO` (2026-08-01)**:
+- `Facturación Campaña` = `$0` ✓ (correcto — arrancó 2026-07-31, sin facturas SAP en la ventana todavía).
+- `% Cumplimiento Campaña` = `0,00%` ✓ (correcto por lo mismo).
+- Vistas `v_campanias_evolucion_diaria` y `v_campanias_ventas_detalle` = 0 filas ✓ (esperado — se poblarán cuando el cron detecte facturas SAP de los 25 SKUs de POWER PRO dentro del rango `[2026-07-31, 2026-09-29]`).
+
+**Pendiente para Mariano (capa de reporte)**:
+1. Reemplazar los 3 cards de arriba por: `name` (Card), `Facturación Campaña` (Card), `% Cumplimiento Campaña` (Card).
+2. Sacar del panel "Filtros de esta página" los 2 filtros `is_pesca = True` y `provincia_cliente no está vacío` (o moverlos a "Filtros de todas las páginas" solo si aplican en otras hojas).
+3. Tabla del medio → apuntar a `v_campanias_progreso` con columnas `name / target_amount / realizado_ars / pct_cumplimiento / dias_restantes / activa`.
+4. Slicer "Campaña" → cambiar a `v_campanias_progreso[name]` (no `campaign_id`).
+5. Guardar `.pbix` y **Publish al workspace**.
+
+**Aprendizaje capturado** — al importar tablas nuevas a Power BI, **desactivar auto-detect de relaciones** (`File → Options → Data Load → Autodetect new relationships after data is loaded`). Power BI matchea por nombre de columna similar sin chequear el tipo semántico (`campaign_id STRING` vs `created_at TIMESTAMP` es un mismatch obvio para un humano pero auto-detect lo ignora). Alternativa: dejarlo activado pero **auditar todas las relaciones en Model view** después de cada import y borrar/corregir las que no tengan sentido semántico. Complementa el aprendizaje del fix Backorder (evitar fact-fact via TREATAS).
+
 ### Fix Notas de crédito SAP (2026-07-30) — NUEVO
 
 Bug reportado por Mariano: en el TABLERO SAR, Santiago Esteban aparecía con `$29.09M` remitido en jul 2026 cuando el neto real era `$18.9M`. Ejemplo concreto: cliente **Ricardo Fabian Blanco Goitia** (`C20351155354`) tenía factura RF 18226 (+$10.1M) y **nota de crédito RC 1810 (-$10.1M)** que se cancelaban, dejando solo la RF 18291 ($9.3M) como venta real. Pero en BigQuery solo aparecía la parte positiva → sobreestimación sistemática de facturación cada vez que hay devoluciones/anulaciones.
