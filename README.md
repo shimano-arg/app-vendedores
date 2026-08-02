@@ -2420,7 +2420,7 @@ Al arrancar la app, en console se imprime:
 
 ### Workflow actual (2026-07-30+): rama `dev` + PR squash a `main`
 
-Desde el 2026-07-30 se trabaja en la rama `dev`; los deploys a prod pasan por PR + squash-merge a `main` (branch protection existente + evita el bloqueo del harness Claude Code sobre push directo a default branch). Ver también CLAUDE.md regla #20 en el root del repo.
+Desde el 2026-07-30 se trabaja en la rama `dev`; los deploys a prod pasan por PR + squash-merge a `main` (evita el bloqueo del harness Claude Code sobre push directo a default branch). Desde el **2026-08-02** además `main` tiene **branch protection activa** vía GitHub API con el status check `test` del workflow Test & Lint como required — detalle completo en §34.1. Ver también CLAUDE.md regla #20 en el root del repo.
 
 ```bash
 cd "C:/Users/shimano.sandbox/Desktop/APP VENDEDORES"
@@ -2489,6 +2489,56 @@ El build script `_build_argentina_zonas_v2.py` en `MASTERFILES/PROSPECTOS/MAPAS/
 ### Forzar refresh desde el mapa
 
 Para usuarios que ven la app cacheada y no quieren cerrar la PWA: tocar el botón **↻ "Forzar actualización"** en el topleft del mapa (debajo del zoom). Hace `unregister()` del SW, limpia caches y recarga con cache-bust.
+
+### 34.1) Branch protection en `main` (activada 2026-08-02, post-v379)
+
+`main` está protegida vía GitHub Branch Protection API. Cierra el TODO explícito de v379 ("NO se activó branch protection en main — requiere confirmación explícita del user"). Sin protection, el workflow Test & Lint agregado en v379 corría pero NO bloqueaba merges rojos — un `gh pr merge --squash` podía completar aunque el CI fallara, o alguien podía hacer `git push origin main` directo saltándose el PR entero.
+
+**Reglas activas** (verificable con `gh api repos/shimano-arg/app-vendedores/branches/main/protection`):
+
+| Regla | Valor | Efecto |
+|---|---|---|
+| `required_status_checks.contexts` | `["test"]` | El job `test` del workflow `.github/workflows/test-and-lint.yml` DEBE pasar verde antes del merge |
+| `required_status_checks.strict` | `true` | El branch del PR debe estar al día con `main` (rebase de `dev` sobre `main` antes de mergear si `main` avanzó) |
+| `required_pull_request_reviews` | `null` | Sin reviewer humano requerido (equipo chico; el CI garantiza calidad) |
+| `enforce_admins` | `false` | Escape hatch: Mariano como owner puede bypass en emergencia (ver sección abajo) |
+| `allow_force_pushes` | `false` | `git push --force origin main` falla |
+| `allow_deletions` | `false` | `git push origin :main` falla (no se puede borrar la rama) |
+| `required_conversation_resolution` | `true` | Todas las conversations del PR deben resolverse antes del merge |
+
+**Consecuencia práctica**: un PR de `dev` → `main` queda con el botón "Squash and merge" **deshabilitado** hasta que aparece el check verde `test`. Si el CI falla, el merge queda bloqueado hasta que se pushee un fix a `dev` y la re-corrida del workflow pase.
+
+**Cómo bypass en emergencia** (solo Mariano, solo si el CI se rompe y necesitás hotfix urgente):
+
+```powershell
+# 1. Desactivar temporal (elimina toda la config de protection)
+gh api --method DELETE repos/shimano-arg/app-vendedores/branches/main/protection
+
+# 2. Hacer el push/merge directo que necesites
+
+# 3. Re-activar corriendo el snippet de setup de abajo
+```
+
+**Snippet de setup / re-activación** (PowerShell — WriteAllText sin BOM es obligatorio, PS 5.1 default emite BOM que GitHub API rechaza con 400 "Problems parsing JSON"):
+
+```powershell
+$body = @{
+  required_status_checks = @{ strict = $true; contexts = @("test") }
+  enforce_admins = $false
+  required_pull_request_reviews = $null
+  restrictions = $null
+  allow_force_pushes = $false
+  allow_deletions = $false
+  required_conversation_resolution = $true
+} | ConvertTo-Json -Depth 5
+
+$path = Join-Path $env:TEMP "bp.json"
+[System.IO.File]::WriteAllText($path, $body, [System.Text.UTF8Encoding]::new($false))
+gh api --method PUT repos/shimano-arg/app-vendedores/branches/main/protection --input $path
+Remove-Item $path
+```
+
+**Si se agregan más jobs al workflow Test & Lint**: actualizar `contexts` para incluir los nuevos context names. Los context names son los nombres exactos de los jobs en el YAML (`jobs.<name>:`) — visibles en `gh pr checks <PR>` en la primera columna.
 
 ---
 
