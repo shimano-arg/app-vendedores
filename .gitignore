@@ -4,9 +4,33 @@ SAP-EXPOE*.xlsx
 *.csv
 _*.md
 _*.py
+_*.json
+_*.txt
 Pitch_Lunes_App_Vendedores.md
 Roadmap_Integracion_App_SAP.md
 Solicitud_SEIDOR_Integracion_App.md
+
+# v379+ (2026-08-02): informes generados / drafts locales. Se generan con
+# _build_informe_ciberseguridad.py u otros scripts one-shot y contienen
+# info sensible del entorno.
+*.docx
+
+# v379+ (2026-08-02): recovery codes / 2FA seeds de GitHub. Si Mariano
+# regenera codes desde github.com/settings/security, quedan como
+# `github-recovery-codes-*.txt`. NUNCA commitear (equivale a la clave
+# maestra de la cuenta de dev).
+github-recovery-codes-*.txt
+
+# v379+ (2026-08-02): scripts one-shot de investigacion / patches puntuales.
+# Los patterns `check_`, `count_`, `find_`, `query_`, `replay_`, `verify_`
+# son claramente investigation-only y no se mantienen activos.
+# Los scripts activos son sync_*.py, send_*.py, apply_*.py, audit_*.py -
+# esos SI se versionan.
+scripts/check_*.py
+scripts/count_*.py
+scripts/find_*.py
+scripts/query_*.py
+scripts/replay_*.py
 
 # Claude Code - configuracion local del proyecto (permisos, etc)
 .claude/
