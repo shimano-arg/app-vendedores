@@ -806,13 +806,43 @@ def load_to_bq(bq_client: bigquery.Client, table_id: str, rows: list, entity_nam
     log(f'[BQ/{entity_name}] OK: {dest.num_rows} rows en la tabla despues del truncate+load')
 
 
-def _load_to_bq_with_schema(bq_client: bigquery.Client, table_id: str, rows: list, entity_name: str, schema: list, dry_run: bool = False):
+def _load_to_bq_with_schema(bq_client: bigquery.Client, table_id: str, rows: list, entity_name: str, schema: list, dry_run: bool = False, truncate_on_empty: bool = False):
     """v311+: variante de load_to_bq con schema explicito. Usar cuando hay
     columnas que pueden venir todas null en el batch (autodetect las
     dropea, tipo lo que paso con paid_to_date y con target_reel_ars).
-    Fuerza las columnas del schema aunque no tengan valores todavia."""
+    Fuerza las columnas del schema aunque no tengan valores todavia.
+
+    v373+ (2026-08-02): parametro truncate_on_empty. Cuando la fuente
+    (Firestore) devuelve 0 rows Y truncate_on_empty=True, la tabla en BQ
+    se TRUNCATE explicito - refleja el estado actual de la fuente. Sin
+    este flag (default False, comportamiento anterior), 0 rows retorna
+    early y deja la tabla con el snapshot anterior.
+
+    Casos donde truncate_on_empty=True es CORRECTO:
+    - `campaigns_raw`: si Pablo borra la ultima campania activa, la vista
+      v_campanias_progreso NO debe seguir mostrandola. Bug reportado
+      2026-08-02: POWER PRO zombie en BQ tras delete desde la app.
+
+    Casos donde truncate_on_empty=False es CORRECTO (default):
+    - `sap_bp_raw`, `sap_items_raw`, `sap_invoices_raw`, `targets_raw`:
+      0 rows casi seguro es un bug de sync SAP (SL down, fetch fallo,
+      etc), NO un delete legitimo. Mejor conservar snapshot anterior
+      hasta que un humano investigue - vale mas la data stale que
+      la tabla vacia.
+    """
     if not rows:
-        log(f'[BQ/{entity_name}] 0 rows, nada que cargar')
+        if truncate_on_empty and not dry_run:
+            log(f'[BQ/{entity_name}] 0 rows y truncate_on_empty=True -> TRUNCATE explicito')
+            try:
+                job = bq_client.query(f'TRUNCATE TABLE `{table_id}`', location=BQ_LOCATION)
+                job.result()
+                dest = bq_client.get_table(table_id)
+                log(f'[BQ/{entity_name}] OK: tabla truncada, {dest.num_rows} rows (deberia ser 0)')
+            except Exception as e:
+                log(f'[FATAL/{entity_name}] BigQuery TRUNCATE fallo: {e}')
+                sys.exit(5)
+            return
+        log(f'[BQ/{entity_name}] 0 rows, nada que cargar (tabla queda con snapshot anterior)')
         return
     if dry_run:
         log(f'[BQ/{entity_name}] DRY-RUN: {len(rows)} rows NO cargados a {table_id}')
@@ -1072,7 +1102,11 @@ def main():
         bigquery.SchemaField('archived_by', 'STRING'),
         bigquery.SchemaField('_sync_timestamp', 'TIMESTAMP'),
     ]
-    _load_to_bq_with_schema(bq_client, BQ_TABLE_CAMPAIGNS, campaign_rows, 'CAMPAIGNS', _campaign_schema, dry_run=dry_run)
+    # v373+ (2026-08-02): truncate_on_empty=True porque si Pablo borra la
+    # ultima campania activa, la vista v_campanias_progreso debe reflejar
+    # el estado real (0 filas), no seguir mostrando la campania zombie.
+    # Ver docstring de _load_to_bq_with_schema para contexto completo.
+    _load_to_bq_with_schema(bq_client, BQ_TABLE_CAMPAIGNS, campaign_rows, 'CAMPAIGNS', _campaign_schema, dry_run=dry_run, truncate_on_empty=True)
 
     # === 9. Dashboard snapshot (BQ -> Firestore) v367+
     # Agrega v_facturas_sap + v_ventas_lineas por (vendor, año, mes) y escribe

@@ -77,7 +77,9 @@ except Exception as e:
     print(f'  FAIL creando tabla: {e}')
     raise
 rows = sync_campaigns_from_firestore(fs, now_iso())
-_load_to_bq_with_schema(bq, BQ_TABLE_CAMPAIGNS, rows, 'CAMPAIGNS', schema, dry_run=False)
+# v373+: truncate_on_empty=True para limpiar zombie data en BQ cuando Pablo
+# borra la ultima campania desde la app (bug reportado 2026-08-02 POWER PRO).
+_load_to_bq_with_schema(bq, BQ_TABLE_CAMPAIGNS, rows, 'CAMPAIGNS', schema, dry_run=False, truncate_on_empty=True)
 print(f'  OK: {len(rows)} campanias cargadas a {BQ_TABLE_CAMPAIGNS}\n')
 
 # 2) Aplicar v_campanias_progreso

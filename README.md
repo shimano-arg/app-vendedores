@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v204 → v372](#41-changelog-v204--v372)
+41. [Changelog v204 → v373](#41-changelog-v204--v373)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -3766,9 +3766,59 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v204 → v372
+## 41) Changelog v204 → v373
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v373 (2026-08-02) — Fix `sync_campaigns` limpia BQ cuando Firestore queda vacía (POWER PRO zombie)
+
+**Bug reportado** — hallado durante el smoke E2E del dataset v371 (`smoke_v371_dataset.py`):
+
+```
+Firestore campaigns:  0 docs  (Pablo borró POWER PRO desde la app)
+BQ campaigns_raw:     1 doc   (POWER PRO todavía presente, campaign_id 6w4JqjWXQ2SBOCyob)
+```
+
+**Impacto**: el TABLERO SAR seguía mostrando POWER PRO en las 3 vistas derivadas (`v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`). Cualquier caso E de la matriz ML también arrastraba el zombie.
+
+**Causa raíz** — `scripts/sync_sap_to_bigquery.py:809` (`_load_to_bq_with_schema`):
+
+```python
+if not rows:
+    log(f'[BQ/{entity_name}] 0 rows, nada que cargar')
+    return   # ← Early return SIN WRITE_TRUNCATE
+```
+
+Cuando Firestore devuelve 0 campañas, el loader hace **early return** sin tocar BQ → la tabla queda con el snapshot anterior indefinidamente. Este comportamiento era **correcto** para `sap_bp_raw`/`sap_items_raw`/`targets_raw` (0 rows casi siempre es un bug de sync SAP, no un delete legítimo — mejor conservar data stale hasta que un humano investigue) pero es **incorrecto** para `campaigns` donde borrar la última campaña activa es un flujo válido operativo.
+
+**Fix** — parametrizar el comportamiento por caller:
+
+1. **`_load_to_bq_with_schema` acepta `truncate_on_empty=False`** (default preserva comportamiento anterior para las tablas SAP + targets).
+2. Cuando `rows=[]` **Y** `truncate_on_empty=True`, ejecuta `TRUNCATE TABLE <ref>` explícito → BQ refleja el estado real de la fuente.
+3. **`campaigns` caller pasa `truncate_on_empty=True`** — semántica correcta: la tabla debe reflejar Firestore, no un histórico.
+4. Todos los demás callers (SAP raw + targets) sin cambio.
+
+**Docstring nueva** documenta explícitamente ambos casos:
+- `truncate_on_empty=True`: `campaigns_raw` (delete legítimo desde la app).
+- `truncate_on_empty=False` (default): `sap_*_raw`, `targets_raw` (0 rows = probable bug de sync).
+
+**Bootstrap manual** para limpiar el zombie YA sin esperar el próximo cron: `python scripts/apply_v_campanias.py` (helper actualizado con el mismo flag).
+
+**Efecto cascada** — todas las vistas derivadas se actualizan sin cambios:
+- `v_campanias_progreso` → 0 filas.
+- `v_campanias_evolucion_diaria` → 0 filas.
+- `v_campanias_ventas_detalle` → 0 filas.
+- TABLERO SAR hoja "Campañas" → limpia al próximo refresh.
+
+**Regla derivada** (candidata a #21 CLAUDE.md):
+
+> Cuando un sync source→sink puede tener 0 rows como estado válido (delete legítimo), el loader debe soportar TRUNCATE explícito. Cuando 0 rows es siempre indicativo de bug de sync (SAP down, network), mejor conservar snapshot anterior. La decisión es del caller, no del helper. Parametrizarlo con flag explícito.
+
+Alcance:
+- `scripts/sync_sap_to_bigquery.py` — `_load_to_bq_with_schema` acepta `truncate_on_empty` (~15 líneas nuevas). Caller de `campaigns` con flag=True.
+- `scripts/apply_v_campanias.py` — mismo flag para bootstrap manual.
+- **NO se toca**: app, tests, rules, vistas BQ. Fix backend puro.
+- Sin bump `APP_VERSION` (no cambia código de la app).
 
 ### v372 (2026-08-02) — Hotfix v371: wrapper defensivo del botón Exportar + cache invalidation forzada
 
