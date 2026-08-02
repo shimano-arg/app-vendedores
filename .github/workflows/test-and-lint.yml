@@ -39,8 +39,14 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install deps
+      - name: Install root deps
         run: npm ci
+
+      # v379 hotfix: sin este step el typecheck rompe porque tsconfig.json
+      # incluye functions/**/*.js y las deps (firebase-functions, firebase-admin,
+      # @google-cloud/firestore) viven en functions/node_modules, no en root.
+      - name: Install functions deps
+        run: cd functions && npm ci
 
       - name: TypeScript typecheck
         run: npm run typecheck
