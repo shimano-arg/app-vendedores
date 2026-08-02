@@ -1649,7 +1649,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <button class="btn-mis-camps" id="mis-camps-btn" onclick="openMisCampsModal()" style="display:none" title="Ver campa&ntilde;as activas y los SKU involucrados">Campa&ntilde;as Activas</button>
     <button class="btn-dashboard" id="dashboard-btn" onclick="openDashboardModal()" title="Abrir dashboard de ventas">Dashboard</button>
     <button class="btn-analisis" id="analisis-btn" onclick="openExportAnalisis()" style="display:none" title="Formatos avanzados (Power BI / ML / ZIP fotos) - requiere PIN">Exportar para An&aacute;lisis</button>
-    <button class="btn-export" onclick="exportToExcel()" title="Descargar Excel con toda la base de datos para analisis">Exportar a Excel</button>
+    <button class="btn-export" onclick="openExportFormatModal()" title="Elegir formato: Reportes Excel (uso operativo) o Dataset ZIP para pipelines de ML (solo admin/gerente)">Exportar a Excel</button>
     <button class="btn-seguimiento" id="seguimiento-btn" onclick="openSeguimientoModal()" style="display:none" title="Panel de gestion comercial para vendedores internos">Seguimiento</button>
     <button class="btn-zonas" id="zonas-btn" onclick="openZonasModal()" style="display:none" title="Reasignar tiendas o localidades a otro vendedor / interno / distribuidor">Zonas</button>
   </div>
@@ -1971,6 +1971,38 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <button class="qmodal-btn primary" id="tgt-save-btn" onclick="saveTargets()">Guardar Targets</button>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+  <!-- v371+: modal chico dispatcher del boton "Exportar a Excel". 2 tarjetas:
+       Reportes Excel (comportamiento actual, todos los roles) vs Dataset ZIP
+       para pipelines ML (solo admin/gerente). La tarjeta Dataset se oculta
+       via JS en openExportFormatModal() si userRole no es admin/gerente. -->
+  <div class="modal-overlay" id="export-format-modal" onclick="if(event.target===this)closeExportFormatModal()">
+    <div class="modal-box" style="width:min(560px,96vw)">
+      <div class="modal-head" style="background:linear-gradient(135deg,#0c4a6e,#0891b2)">
+        <div><h2>&#128190; Exportar datos</h2><div class="subt">Eleg&iacute; el formato seg&uacute;n para qu&eacute; los vas a usar.</div></div>
+        <button class="modal-close" onclick="closeExportFormatModal()">&times;</button>
+      </div>
+      <div class="export-options">
+        <div class="exp-opt" onclick="closeExportFormatModal();exportToExcel()">
+          <div class="exp-icon" style="background:#16a34a">XLS</div>
+          <div class="exp-body">
+            <h3>Reportes Excel</h3>
+            <p>Formato tradicional multi-hoja para uso operativo (Ventas, Visitas, Rutas, Master de Clientes, etc). Legible directo en Excel. Todos los roles.</p>
+          </div>
+        </div>
+        <div class="exp-opt" id="exp-opt-dataset-zip" onclick="closeExportFormatModal();exportDatasetZip()" style="display:none;border:2px solid #0284c7">
+          <div class="exp-icon" style="background:#0284c7">ZIP</div>
+          <div class="exp-body">
+            <h3>Dataset para an&aacute;lisis (ZIP) <span style="font-size:9px;color:#0284c7;font-weight:800;background:#e0f2fe;padding:2px 6px;border-radius:3px;margin-left:4px">ADMIN/GERENTE</span></h3>
+            <p>Datos crudos en CSV (1 por entidad: pedidos, visitas, clientes, rendiciones, campa&ntilde;as, targets, productos, etc.) + <code>manifest.json</code> con schema y matriz de casos de uso ML. Formato UTF-8 apto para Fabric, Databricks, Python pandas.</p>
+          </div>
+        </div>
+      </div>
+      <div id="export-dataset-progress" style="display:none;padding:14px 20px;background:#f0f9ff;border-top:1px solid #bae6fd">
+        <div style="font-size:11px;color:#075985;font-weight:700;margin-bottom:6px" id="export-dataset-status">Preparando export...</div>
+        <div style="background:#e0f2fe;border-radius:6px;height:8px;overflow:hidden"><div id="export-dataset-bar" style="height:100%;background:#0284c7;width:0%;transition:width .3s"></div></div>
       </div>
     </div>
   </div>
@@ -3320,7 +3352,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v370';
+const APP_VERSION = 'v371';
 window.APP_VERSION = APP_VERSION;
 try {
   console.log(

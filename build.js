@@ -46,6 +46,8 @@ const LAZY_CHUNKS = {
   'exports-advanced': [
     'exportAuditExcel', 'exportExecutive', 'exportML', 'exportPhotosZip',
     'exportPowerBI', 'exportVisitsExcel', 'exportVisitsWithEmbeddedPhotos',
+    // v371+: export dataset ZIP para pipelines ML (admin/gerente only)
+    'openExportFormatModal', 'closeExportFormatModal', 'exportDatasetZip',
   ],
   'admin-users': [
     'addAllowedEmail', 'bulkAssignApprover', 'changeUserPassword', 'closeAdminPanel',
