@@ -1456,6 +1456,16 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .confirmed-card .cc-month{background:#166534;color:#fff;font-size:10px;font-weight:800;padding:2px 9px;border-radius:10px;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}
 .confirmed-card .cc-meta{font-size:10px;color:#64748b;margin-top:3px}
 .confirmed-card .cc-summary{font-size:10px;color:#166534;margin-top:3px;font-weight:600}
+/* v378+ (2026-08-02): badge de estado SAP del pedido en cards CONFIRMADOS.
+   Muestra en que instancia del flujo SAP esta el pedido (OFERTA/ORDEN/FACTURADO/COBRADO). */
+.confirmed-card .cc-sap-estado{display:inline-block;font-size:10px;font-weight:800;padding:2px 8px;border-radius:8px;margin-top:4px;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;color:#fff}
+.confirmed-card .cc-sap-estado.est-oferta{background:#f59e0b}       /* naranja: OFERTA_VENTA */
+.confirmed-card .cc-sap-estado.est-orden{background:#2563eb}        /* azul: ORDEN_VENTA */
+.confirmed-card .cc-sap-estado.est-facturado{background:#7c3aed}    /* violeta: FACTURADO */
+.confirmed-card .cc-sap-estado.est-cobrado-parcial{background:#ea580c} /* naranja intenso: COBRADO_PARCIAL */
+.confirmed-card .cc-sap-estado.est-cobrado-completo{background:#059669} /* verde: COBRADO_COMPLETO */
+.confirmed-card .cc-sap-estado.est-cerrado{background:#64748b}      /* gris: CERRADO (SQ cancelada/vencida) */
+.confirmed-card .cc-sap-estado.est-desconocido{background:#e5e7eb;color:#475569;font-weight:600} /* pendiente snapshot */
 .ped-search-wrap{margin-bottom:8px}
 .ped-search{width:100%;padding:8px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;font-family:inherit;background:#fff;box-sizing:border-box;-webkit-appearance:none}
 .ped-search:focus{border-color:#00A9E0;box-shadow:0 0 0 2px rgba(0,169,224,.15)}
@@ -3352,7 +3362,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v377';
+const APP_VERSION = 'v378';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -9948,6 +9958,33 @@ function renderPendientesList(){
   document.getElementById('pedidos-summary').textContent = items.length + ' pedido(s) pendiente(s) de confirmacion definitiva';
 }
 
+// v378+ (2026-08-02): mapping estado -> {label visible, css class} para el
+// badge de la card CONFIRMADOS. El estado viene del sync BQ->Firestore que
+// deriva SQ open -> SO -> Invoice -> Cobrado leyendo BaseType/BaseEntry en
+// las lines_json de sap_orders_raw + sap_invoices_raw.
+const SAP_ESTADO_LABELS = {
+  'OFERTA_VENTA':      { label: 'OFERTA DE VENTA',    cls: 'est-oferta' },
+  'ORDEN_VENTA':       { label: 'ORDEN DE VENTA',     cls: 'est-orden' },
+  'FACTURADO':         { label: 'FACTURADO',          cls: 'est-facturado' },
+  'COBRADO_PARCIAL':   { label: 'COBRADO PARCIAL',    cls: 'est-cobrado-parcial' },
+  'COBRADO_COMPLETO':  { label: 'COBRADO COMPLETO',   cls: 'est-cobrado-completo' },
+  'CERRADO':           { label: 'PEDIDO CERRADO',     cls: 'est-cerrado' },
+};
+
+function renderSapEstadoBadge(estado, detalles){
+  // Sin snapshot todavia (pedido transferido hace <30 min o no matcheado): badge gris chico.
+  if (!estado) return '<div class="cc-sap-estado est-desconocido">Estado: aguardando snapshot SAP</div>';
+  const info = SAP_ESTADO_LABELS[estado];
+  if (!info) return '<div class="cc-sap-estado est-desconocido">Estado: ' + escapeHtml(estado) + '</div>';
+  let text = 'Estado: ' + info.label;
+  // Enriquecemos con % cobrado si es COBRADO_PARCIAL (info util para el vendedor).
+  if (estado === 'COBRADO_PARCIAL' && detalles && detalles.invoiceTotal > 0) {
+    const pct = Math.round((detalles.invoicePaidToDate / detalles.invoiceTotal) * 100);
+    text += ' (' + pct + '%)';
+  }
+  return '<div class="cc-sap-estado ' + info.cls + '">' + escapeHtml(text) + '</div>';
+}
+
 function renderConfirmadosList(){
   const visibleKeys = buildPedidoVisibleKeysSet();
   // Armar items completos antes de filtrar - usamos los items para popular
@@ -9996,6 +10033,12 @@ function renderConfirmadosList(){
     html += '<div class="cc-head"><div class="cc-name">' + escapeHtml(it.clientName) + '</div><div class="cc-month">' + escapeHtml(it.conf.month) + '</div></div>';
     html += '<div class="cc-meta">' + escapeHtml(it.locName) + ' / ' + escapeHtml(titleCase(it.prov)) + '</div>';
     html += '<div class="cc-summary">' + lineCount + ' productos &middot; ' + units + ' unidades &middot; ' + (it.conf.confirmedAt ? new Date(it.conf.confirmedAt).toLocaleDateString() : '') + '</div>';
+    // v378+ (2026-08-02): badge de estado SAP (OFERTA/ORDEN/FACTURADO/COBRADO/CERRADO).
+    // Solo aparece si el pedido fue transferido a SAP (tiene transferidoSAP.docNum).
+    // El estado se actualiza cada 30 min via sync_pedido_estados_to_firestore.
+    if (it.conf.transferidoSAP && it.conf.transferidoSAP.docNum) {
+      html += renderSapEstadoBadge(it.conf.sapEstado, it.conf.sapEstadoDetalles);
+    }
     html += '</div>';
   });
   if (!items.length) html = '<div style="color:#94a3b8;font-size:12px;padding:14px;text-align:center;background:#f8fafc;border-radius:6px;line-height:1.5">No hay pedidos confirmados definitivamente en la seleccion actual.</div>';
@@ -14254,6 +14297,13 @@ function attachFirebaseListeners(){
         // valido en Firestore). Bug historico del snapshot del entry — el
         // listener global unsubPedidosAll (globalPedidos) sí lo incluia.
         transferidoSAP: d.transferidoSAP || null,
+        // v378+ (2026-08-02): estado macro del pedido en el flujo SAP,
+        // escrito por sync_pedido_estados_to_firestore cada 30 min via cron BQ.
+        // Valores: OFERTA_VENTA | ORDEN_VENTA | FACTURADO | COBRADO_PARCIAL |
+        // COBRADO_COMPLETO | CERRADO. Se muestra como badge en la card CONFIRMADOS.
+        sapEstado: d.sapEstado || null,
+        sapEstadoDetalles: d.sapEstadoDetalles || null,
+        sapEstadoUpdatedAt: d.sapEstadoUpdatedAt || null,
       };
       const target = d.stage === 'confirmed' ? newConfirmed : newPending;
       if (!target[d.key]) target[d.key] = [];
@@ -14286,6 +14336,10 @@ function attachFirebaseListeners(){
         confirmedAt: d.confirmedAt, finalizedAt: d.finalizedAt || null,
         lines: d.lines || [],
         transferidoSAP: d.transferidoSAP || null,
+        // v378+ (2026-08-02): estado macro del pedido en el flujo SAP.
+        sapEstado: d.sapEstado || null,
+        sapEstadoDetalles: d.sapEstadoDetalles || null,
+        sapEstadoUpdatedAt: d.sapEstadoUpdatedAt || null,
         // Snapshot inmutable del descuento al confirmar - usado por
         // dashboard y exports para reportar netAmountArs (monto real).
         discountSnapshot: d.discountSnapshot || null,
