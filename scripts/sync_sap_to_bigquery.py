@@ -777,6 +777,200 @@ def sync_dashboard_snapshot_to_firestore(bq_client: bigquery.Client,
     return written
 
 
+def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
+                                       db: firestore.Client,
+                                       dry_run: bool = False) -> int:
+    """v378+ (2026-08-02): para cada pedido de Firestore con transferidoSAP.docNum,
+    deriva el estado macro del flujo SAP (SQ open -> SO -> Invoice -> Cobrada)
+    y escribe `sapEstado` + `sapEstadoDetalles` + `sapEstadoUpdatedAt` de vuelta
+    al doc de Firestore. El vendedor ve un badge en la card CONFIRMADOS con
+    el estado actual sin tener que preguntarle al admin.
+
+    Estados:
+      - OFERTA_VENTA       SQ abierta (bost_Open), sin SO copiada aun.
+      - ORDEN_VENTA        SO creada a partir de la SQ, sin factura aun.
+      - FACTURADO          Invoice creada, paid_to_date = 0.
+      - COBRADO_PARCIAL    Invoice con 0 < paid_to_date < doc_total.
+      - COBRADO_COMPLETO   Invoice con paid_to_date >= doc_total.
+      - CERRADO            SQ cancelada (tYES) o cerrada (bost_Close) sin llegar a SO.
+
+    Link entre docs (SAP convention):
+      - SO -> SQ:      Order.DocumentLines[].BaseType='17' + BaseEntry=<SQ.DocEntry>
+      - Invoice -> SO: Invoice.DocumentLines[].BaseType='17' + BaseEntry=<SO.DocEntry>
+        (En SL de SAP B1, BaseType='17' referencia tanto SQ como SO segun el
+        contexto del documento padre; el destino discrimina por el tipo de doc.)
+
+    Retorna cantidad de docs de pedidos actualizados.
+    """
+    log('[PEDIDO_ESTADO] agregando SQ->SO->Invoice->Cobrado y linkeando a pedidos Firestore...')
+    # Query BQ: para cada SQ, deriva el estado macro leyendo lines_json de
+    # sap_orders_raw y sap_invoices_raw. Filtramos SQ del ultimo año para
+    # bajar el volumen (los pedidos historicos ya no interesan al vendedor).
+    query = """
+    WITH sq_base AS (
+      SELECT
+        doc_entry              AS sq_doc_entry,
+        doc_num                AS sq_doc_num,
+        document_status        AS sq_status,
+        cancelled              AS sq_cancelled,
+        doc_date               AS sq_doc_date
+      FROM `app-vendedores-shimano.shimano_app.sap_quotations_raw`
+      WHERE doc_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)
+    ),
+    -- Para cada SO, extraer todos los BaseEntry (SQ DocEntry) que copio.
+    -- Una SO puede referenciar N SQs distintas (parcial fulfillment).
+    so_to_sq AS (
+      SELECT DISTINCT
+        o.doc_entry            AS so_doc_entry,
+        o.doc_num              AS so_doc_num,
+        o.document_status      AS so_status,
+        o.cancelled            AS so_cancelled,
+        SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry') AS INT64) AS sq_doc_entry
+      FROM `app-vendedores-shimano.shimano_app.sap_orders_raw` o,
+           UNNEST(JSON_QUERY_ARRAY(o.lines_json)) ln
+      WHERE JSON_VALUE(ln, '$.BaseType') = '17'  -- Quotation
+        AND JSON_VALUE(ln, '$.BaseEntry') IS NOT NULL
+        AND COALESCE(o.cancelled, 'tNO') = 'tNO'
+    ),
+    -- Para cada Invoice, extraer los BaseEntry (SO DocEntry) que factura.
+    inv_to_so AS (
+      SELECT DISTINCT
+        i.doc_entry            AS inv_doc_entry,
+        i.doc_num              AS inv_doc_num,
+        i.doc_total            AS inv_doc_total,
+        i.paid_to_date         AS inv_paid_to_date,
+        i.document_status      AS inv_status,
+        SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry') AS INT64) AS so_doc_entry
+      FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` i,
+           UNNEST(JSON_QUERY_ARRAY(i.lines_json)) ln
+      WHERE JSON_VALUE(ln, '$.BaseType') = '17'  -- SO
+        AND JSON_VALUE(ln, '$.BaseEntry') IS NOT NULL
+        AND COALESCE(i.cancelled, 'tNO') = 'tNO'
+    ),
+    -- Agregar por SQ: 1 fila por SQ, con la SO mas reciente + Invoice mas reciente.
+    -- Si la SQ genero N SOs (raro pero pasa), tomamos la de mayor doc_entry.
+    sq_agg AS (
+      SELECT
+        sq.sq_doc_entry,
+        sq.sq_doc_num,
+        sq.sq_status,
+        sq.sq_cancelled,
+        sq.sq_doc_date,
+        -- Info de la SO copiada (si existe)
+        ANY_VALUE(so.so_doc_entry) AS so_doc_entry,
+        ANY_VALUE(so.so_doc_num)   AS so_doc_num,
+        ANY_VALUE(so.so_status)    AS so_status,
+        -- Info de la Invoice (si existe)
+        ANY_VALUE(inv.inv_doc_entry)   AS inv_doc_entry,
+        ANY_VALUE(inv.inv_doc_num)     AS inv_doc_num,
+        ANY_VALUE(inv.inv_doc_total)   AS inv_doc_total,
+        ANY_VALUE(inv.inv_paid_to_date) AS inv_paid_to_date,
+        ANY_VALUE(inv.inv_status)      AS inv_status
+      FROM sq_base sq
+      LEFT JOIN so_to_sq so ON so.sq_doc_entry = sq.sq_doc_entry
+      LEFT JOIN inv_to_so inv ON inv.so_doc_entry = so.so_doc_entry
+      GROUP BY sq.sq_doc_entry, sq.sq_doc_num, sq.sq_status, sq.sq_cancelled, sq.sq_doc_date
+    )
+    SELECT
+      sq_doc_entry,
+      sq_doc_num,
+      sq_status,
+      sq_cancelled,
+      so_doc_entry,
+      so_doc_num,
+      so_status,
+      inv_doc_entry,
+      inv_doc_num,
+      inv_doc_total,
+      inv_paid_to_date,
+      inv_status,
+      CASE
+        WHEN inv_doc_entry IS NOT NULL
+             AND COALESCE(inv_paid_to_date, 0) >= COALESCE(inv_doc_total, 0)
+             AND COALESCE(inv_doc_total, 0) > 0
+          THEN 'COBRADO_COMPLETO'
+        WHEN inv_doc_entry IS NOT NULL
+             AND COALESCE(inv_paid_to_date, 0) > 0
+          THEN 'COBRADO_PARCIAL'
+        WHEN inv_doc_entry IS NOT NULL
+          THEN 'FACTURADO'
+        WHEN so_doc_entry IS NOT NULL
+          THEN 'ORDEN_VENTA'
+        WHEN sq_cancelled = 'tYES' OR sq_status = 'bost_Close'
+          THEN 'CERRADO'
+        ELSE 'OFERTA_VENTA'
+      END AS estado
+    FROM sq_agg
+    """
+    rows = list(bq_client.query(query, location=BQ_LOCATION).result())
+    if not rows:
+        log('[PEDIDO_ESTADO] 0 SQ encontradas (ventana 365d) - nada que actualizar')
+        return 0
+    # Index por sq_doc_num para lookup rapido desde los pedidos Firestore.
+    # Firestore guarda transferidoSAP.docNum como string, BQ como INT64 -
+    # normalizamos a string.
+    estados_by_doc_num = {}
+    for row in rows:
+        d = dict(row.items())
+        key = str(d['sq_doc_num'])
+        estados_by_doc_num[key] = {
+            'estado': d['estado'],
+            'sqDocEntry': int(d['sq_doc_entry']) if d['sq_doc_entry'] is not None else None,
+            'sqDocNum': int(d['sq_doc_num']) if d['sq_doc_num'] is not None else None,
+            'sqStatus': d['sq_status'],
+            'sqCancelled': d['sq_cancelled'],
+            'soDocEntry': int(d['so_doc_entry']) if d['so_doc_entry'] is not None else None,
+            'soDocNum': int(d['so_doc_num']) if d['so_doc_num'] is not None else None,
+            'soStatus': d['so_status'],
+            'invoiceDocEntry': int(d['inv_doc_entry']) if d['inv_doc_entry'] is not None else None,
+            'invoiceDocNum': int(d['inv_doc_num']) if d['inv_doc_num'] is not None else None,
+            'invoiceTotal': float(d['inv_doc_total']) if d['inv_doc_total'] is not None else None,
+            'invoicePaidToDate': float(d['inv_paid_to_date']) if d['inv_paid_to_date'] is not None else None,
+            'invoiceStatus': d['inv_status'],
+        }
+    log(f'[PEDIDO_ESTADO] {len(estados_by_doc_num)} SQ agregadas del ultimo año')
+    if dry_run:
+        # Ejemplo del primer estado computado para verificar la logica.
+        sample = next(iter(estados_by_doc_num.values()))
+        log(f'[PEDIDO_ESTADO] DRY-RUN sample: {sample}')
+        return 0
+    # Ahora leemos pedidos Firestore con transferidoSAP.docNum y matcheamos.
+    # No hay muchos pedidos (proyecto en transicion Baraldo->venta directa),
+    # asi que un scan completo del collection es OK (<1000 docs).
+    pedidos_ref = db.collection('pedidos')
+    updated = 0
+    unmatched = 0
+    batch = db.batch()
+    batch_count = 0
+    for doc in pedidos_ref.stream():
+        data = doc.to_dict() or {}
+        ts = data.get('transferidoSAP') or {}
+        doc_num = ts.get('docNum')
+        if not doc_num:
+            continue  # pedido aun no transferido a SAP
+        key = str(doc_num)
+        estado_info = estados_by_doc_num.get(key)
+        if not estado_info:
+            unmatched += 1
+            continue  # la SQ existe en el pedido pero no en BQ (fuera de ventana o vieja)
+        payload = {
+            'sapEstado': estado_info['estado'],
+            'sapEstadoDetalles': {k: v for k, v in estado_info.items() if k != 'estado'},
+            'sapEstadoUpdatedAt': firestore.SERVER_TIMESTAMP,
+        }
+        batch.update(doc.reference, payload)
+        batch_count += 1
+        updated += 1
+        if batch_count >= 400:
+            batch.commit()
+            batch = db.batch()
+            batch_count = 0
+    if batch_count > 0:
+        batch.commit()
+    log(f'[PEDIDO_ESTADO] {updated} pedidos Firestore actualizados con sapEstado (unmatched: {unmatched})')
+    return updated
+
+
 def load_to_bq(bq_client: bigquery.Client, table_id: str, rows: list, entity_name: str, dry_run: bool = False):
     if not rows:
         log(f'[BQ/{entity_name}] 0 rows, nada que cargar')
@@ -1121,6 +1315,16 @@ def main():
         # No detener el cron si esto falla — el snapshot se puede reintentar
         # solo. El resto de la sync (raw + campaigns + targets) YA quedo OK.
         log(f'[SNAPSHOT] fallo (no bloqueante): {e}')
+
+    # === 10. Pedido -> estado SAP (BQ -> Firestore) v378+ (2026-08-02)
+    # Para cada pedido con transferidoSAP.docNum, deriva el estado macro
+    # del flujo SAP (SQ open -> SO -> Invoice -> Cobrada) y escribe
+    # sapEstado + sapEstadoDetalles al doc de Firestore. Frontend usa esto
+    # para mostrar un badge en la card CONFIRMADOS.
+    try:
+        sync_pedido_estados_to_firestore(bq_client, db, dry_run=dry_run)
+    except Exception as e:
+        log(f'[PEDIDO_ESTADO] fallo (no bloqueante): {e}')
 
     log('=== sync_sap_to_bigquery END OK ===')
 
