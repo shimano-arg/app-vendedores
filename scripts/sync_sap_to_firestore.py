@@ -568,7 +568,81 @@ def write_price_list(db: firestore.Client, price_map: dict) -> str:
     return sync_batch_id
 
 
-def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, whs_map: dict, with_stock: int) -> str:
+def sl_fetch_backorder_by_sku(cfg: dict, session: requests.Session) -> dict:
+    """v377+ (2026-08-02): fetch de Sales Quotations abiertas (backorder) y
+    agrega el RemainingOpenQuantity por ItemCode.
+
+    Backorder Shimano = SQ open con RemainingOpenQuantity > 0. Incluye
+    tanto SQ parciales (SO cubrio parte, resto pendiente) como SQ intactas
+    (aun no procesadas). Es el mismo criterio que usa v_backorder_lineas
+    en BQ (bigquery/views.sql:V8).
+
+    La app usa este agregado para computar "Stock Liberado" = max(transito
+    (whs 12) - backorder, 0). Si backorder > transito, todo el transito
+    esta reservado y no hay stock que se libere cuando llegue mercaderia.
+
+    Retorna: {'SN2000FG': 20, 'REEL5000': 5, ...} - SKUs sin backorder
+    NO aparecen (equivale a 0). Para reducir el size del JSON.
+    """
+    log('[BACKORDER] fetch Sales Quotations abiertas (para computar backorder por SKU)...')
+    result = {}  # {sku: int (unidades pendientes)}
+    scanned_docs = 0
+    scanned_lines = 0
+    # $select para minimizar payload: solo lo necesario.
+    # $filter: solo abiertas + no canceladas. Ventana amplia porque las SQ
+    # abiertas pueden ser viejas (Santiago mantiene SQ pendientes de meses).
+    path = '/b1s/v1/Quotations?$select=DocEntry,DocumentStatus,Cancelled,DocumentLines&$filter=DocumentStatus%20eq%20%27bost_Open%27%20and%20Cancelled%20eq%20%27tNO%27'
+    page_count = 0
+    while True:
+        url = path if path.startswith('http') else f"{cfg['url']}{path}"
+        try:
+            resp = session.get(url, timeout=60)
+        except requests.RequestException as e:
+            log(f'[BACKORDER] error de red pagina {page_count} (no bloqueante): {e}')
+            return result
+        if resp.status_code == 401:
+            log('[BACKORDER] 401 - re-login y retry')
+            sl_login(cfg, session)
+            resp = session.get(url, timeout=60)
+        if not resp.ok:
+            log(f'[BACKORDER] HTTP {resp.status_code} (no bloqueante). Body: {resp.text[:200]}')
+            return result
+        body = resp.json()
+        arr = body.get('value', []) or []
+        for doc in arr:
+            scanned_docs += 1
+            lines = doc.get('DocumentLines') or []
+            for ln in lines:
+                scanned_lines += 1
+                code = (ln.get('ItemCode') or '').strip()
+                if not code:
+                    continue
+                try:
+                    remaining = float(ln.get('RemainingOpenQuantity') or 0)
+                except (TypeError, ValueError):
+                    remaining = 0
+                if remaining > 0:
+                    result[code] = result.get(code, 0) + int(round(remaining))
+        page_count += 1
+        next_link = body.get('@odata.nextLink') or body.get('odata.nextLink')
+        if not next_link:
+            break
+        if next_link.startswith('http'):
+            idx = next_link.find('/b1s/v1/')
+            path = next_link[idx:] if idx >= 0 else next_link
+        elif next_link.startswith('/'):
+            path = next_link
+        else:
+            path = '/b1s/v1/' + next_link
+        # Safety cap - las Quotations abiertas historicas rara vez pasan de 5000
+        if scanned_docs > 20000:
+            log(f'[BACKORDER] safety cap 20k Quotations, cortando')
+            break
+    log(f'[BACKORDER] {page_count} paginas, {scanned_docs} SQ open, {scanned_lines} lineas -> {len(result)} SKUs con backorder')
+    return result
+
+
+def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, whs_map: dict, backorder_map: dict, with_stock: int) -> str:
     sync_batch_id = 'SYNC-STOCK-AUTO-' + str(int(time.time() * 1000))
     if os.environ.get('DRY_RUN', '').lower() == 'true':
         log(f'[DRY_RUN] escribiria stock_snapshot con {len(stock_map)} SKUs ({with_stock} con stock, con cantidades)')
@@ -585,6 +659,12 @@ def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, w
     # Formato: {"SN2000FG":{"11":20,"12":160},"OTROSKU":{"11":5},...}
     # La UI parsea con JSON.parse y muestra Disponible (11) + Transito (12) + Otros.
     whs_json = json.dumps(whs_map, separators=(',', ':'), ensure_ascii=True)
+    # v377+ (2026-08-02): backorderBySku como JSON string (mismo patron).
+    # Formato: {"SN2000FG":20,"REEL5000":5,...} - suma de RemainingOpenQuantity
+    # de todas las SQ open no canceladas por SKU. La UI computa:
+    # Stock Liberado = max(transito(whs12) - backorder, 0).
+    # SKUs sin backorder NO estan en el map (equivale a 0) - reduce size.
+    backorder_json = json.dumps(backorder_map or {}, separators=(',', ':'), ensure_ascii=True)
     db.collection('app_config').document('stock_snapshot').set({
         # Key 'stock' compatible con el listener existente ensureStockSnapshotListener.
         'stock': stock_map,
@@ -594,6 +674,8 @@ def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, w
         # v368+: desglose por almacen para separar disponible venta (whs 11) vs
         # transito (whs 12) en la card de stock de la app.
         'warehouseBreakdown': whs_json,
+        # v377+: backorder por SKU (sumatoria RemainingOpenQuantity de SQ open).
+        'backorderBySku': backorder_json,
         'totalItems': len(stock_map),
         'withStock': with_stock,
         'warehouse': 'ALL_SALES',
@@ -602,7 +684,7 @@ def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, w
         'updatedBy': 'github-actions/sync_sap_to_firestore',
         'syncBatchId': sync_batch_id,
     })
-    log(f'[FS] stock_snapshot escrito: {len(stock_map)} SKUs, {with_stock} con stock (quantities JSON string {len(qty_json)} bytes, warehouseBreakdown {len(whs_json)} bytes)')
+    log(f'[FS] stock_snapshot escrito: {len(stock_map)} SKUs, {with_stock} con stock (quantities JSON string {len(qty_json)} bytes, warehouseBreakdown {len(whs_json)} bytes, backorderBySku {len(backorder_json)} bytes / {len(backorder_map or {})} SKUs)')
     return sync_batch_id
 
 
@@ -1186,12 +1268,22 @@ def main() -> int:
     log(f'[catalogo] escribiendo {len(items)} items de PESCA ({items_with_cat} con cat/fam/sub, {items_sin_cat} sin cat/fam/sub)')
 
     write_catalog(db, items, existing)
+    # v377+ (2026-08-02): antes de escribir el snapshot, fetchear backorder
+    # (RemainingOpenQuantity de SQ open) para computar Stock Liberado en la UI.
+    # Fetch fault-tolerante: si SL falla o timeout, backorder_map queda vacio
+    # y la UI simplemente no muestra la linea "Stock Liberado" (transito ==
+    # stock liberado). No aborta el sync entero por esta feature secundaria.
+    try:
+        backorder_map = sl_fetch_backorder_by_sku(sl_cfg, session)
+    except Exception as e:
+        log(f'[BACKORDER] exception no bloqueante: {e}. Continuo sin backorder_map.')
+        backorder_map = {}
     # Stock SI se escribe COMPLETO (todos los items del grupo PESCA) - se usa para:
     # - indicador verde/rojo en el picker (bool via stock_map)
     # - cantidad exacta en el modal Master de Productos para vendedores
     #   (via qty_map - antes solo admin podia ver la cantidad porque
     #   requeria login SL desde el browser).
-    write_stock_snapshot(db, stock_map, qty_map, whs_map, with_stock)
+    write_stock_snapshot(db, stock_map, qty_map, whs_map, backorder_map, with_stock)
     # Precios (v268+): traidos automatic de la lista PESCA #12 de SAP.
     # Antes se subian manual por CSV desde el modal admin -> lista congelada
     # con SKUs faltantes. Ahora se refresca cada 30 min.

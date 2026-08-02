@@ -3352,7 +3352,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v376';
+const APP_VERSION = 'v377';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -3546,6 +3546,11 @@ let STOCK_QUANTITIES = {};
 //   '98' Cuarentena PESCA = bloqueado (no vendible aun)
 //   otros codigos (01/03/04/07) = agrupado como "Otros" en la UI
 let STOCK_WAREHOUSE_BREAKDOWN = {};
+// v377+ (2026-08-02): backorder por SKU (sumatoria RemainingOpenQuantity de
+// SQ open). Se usa para computar "Stock Liberado" en el alert de busqueda:
+//   Stock Liberado = max(transito(whs 12) - backorder, 0)
+// Formato: {SKU: qty}. SKUs sin backorder NO estan en el map (equivale a 0).
+let STOCK_BACKORDER = {};
 let STOCK_UPDATED_AT = null;
 // Flag O(1) para que hasStock() no tenga que hacer Object.keys(STOCK_MAP)
 // en cada llamada. Antes: con 10.657 SKUs y el picker filtrando por
@@ -12438,10 +12443,21 @@ window.queryStockLive = function(code, btn){
         }
       });
       const total = disp + transito + otros;
+      // v377+ (2026-08-02): Stock Liberado = max(transito - backorder, 0).
+      // Backorder = suma de RemainingOpenQuantity de SQ open del SKU (mismo
+      // criterio que la vista v_backorder_lineas en BQ). Si backorder cubre
+      // todo el transito, el "stock liberado" al llegar la mercaderia es 0
+      // (ya esta reservado para clientes).
+      const backorder = Number(STOCK_BACKORDER[k] || STOCK_BACKORDER[k.toUpperCase()] || 0);
+      const liberado = Math.max(transito - backorder, 0);
       const lines = [
         '✅ DISPONIBLE venta (dep. 11): ' + disp + ' unidades',
         '🚚 EN TRANSITO (dep. 12): ' + transito + ' unidades',
       ];
+      if (backorder > 0) {
+        lines.push('🔒 BACKORDER (reservado a clientes): ' + backorder + ' unidades');
+        lines.push('🟢 STOCK LIBERADO (transito - backorder): ' + liberado + ' unidades');
+      }
       if (otros > 0) lines.push('⚠️ Otros almacenes: ' + otros + ' unidades (' + otrosDetalle.join(', ') + ')');
       lines.push('──────────────');
       lines.push('Total: ' + total + ' unidades');
@@ -12649,6 +12665,13 @@ function ensureStockSnapshotListener(){
       catch(e) { console.warn('[stock] no pude parsear warehouseBreakdown:', e); STOCK_WAREHOUSE_BREAKDOWN = {}; }
     } else {
       STOCK_WAREHOUSE_BREAKDOWN = {};
+    }
+    // v377+: backorderBySku (JSON string). Snapshot pre-v377 no lo tiene -> {}.
+    if (typeof d.backorderBySku === 'string') {
+      try { STOCK_BACKORDER = JSON.parse(d.backorderBySku) || {}; }
+      catch(e) { console.warn('[stock] no pude parsear backorderBySku:', e); STOCK_BACKORDER = {}; }
+    } else {
+      STOCK_BACKORDER = {};
     }
     STOCK_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : null;
     _markStockMapLoaded();
