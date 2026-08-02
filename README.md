@@ -2932,41 +2932,54 @@ Bug reportado por Mariano: en el TABLERO SAR, Santiago Esteban aparecía con `$2
 
 **Regla derivada del fix**: cuando un pipeline sincroniza N entities de un ERP, chequear siempre si existe una entity "inversa" (Credit Notes para Invoices, Return Orders para Sales Orders, etc.) y decidir explícitamente si va o no. Un endpoint faltante genera sobreestimación silenciosa que solo se detecta cross-checkeando con SAP mano a mano.
 
-### Fix hoja "Backorder" del TABLERO SAR — stock separado + medidas DAX nuevas (2026-07-31, via Claude Cowork MCP)
+### ✅ RESUELTO — Fix hoja "Backorder" TABLERO SAR (stock disponible vs tránsito) — 2026-07-31 vía Claude Cowork MCP
 
-Post-v369/v370 quedó una inconsistencia entre app y tablero: la app ya distingue disponible venta (whs 11) vs tránsito (whs 12), pero la hoja Backorder del TABLERO SAR seguía mostrando el total combinado (`stock_total_sellable` de `v_sap_items_enriched`, que suma ambos). Para el ejemplo `SN2000FG`: card "Stock Total Unidades" mostraba `180` cuando en realidad el disponible venta era `0` y todo estaba en tránsito.
+**Estado**: medidas creadas/corregidas y validadas por DAX contra datos de BigQuery. Pendiente solo la capa de reporte (repuntar visuales + publicar), a cargo de Mariano.
 
-**Alcance del fix** (delegado a Claude Cowork con acceso MCP al workspace Power BI del usuario, no lo hace este proyecto directo):
+**Problema**: la hoja Backorder tomaba como stock disponible la suma de todos los depósitos vendibles (whs 11 + whs 12), mezclando lo vendible hoy (whs 11) con lo que está en tránsito (whs 12). Resultado: SKUs figuraban con stock cuando no había nada para entregar. Ejemplo `SN2000FG`: card "Stock Total Unidades" mostraba `180` cuando el disponible venta real era `0` (todo en tránsito).
 
-1. **`Stock Disponible Venta`** (medida nueva): `CALCULATE(SUM(v_inventario_por_warehouse[stock_qty]), warehouse_code = "11")`. Reemplaza al `stock_total_sellable` en card "Stock Total Unidades" y columna "Stock Actual SKU".
-2. **`Unidades en Tránsito`** (medida nueva): idem con `warehouse_code = "12"`.
-3. **`Unidades Asignadas`** (medida nueva): `SUM(v_backorder_lineas[pendiente])` — unidades ya comprometidas a clientes vía Sales Quotations abiertas.
-4. **`Unidades Liberadas`** (medida nueva): `MAX(Unidades en Tránsito - Unidades Asignadas, 0)` — lo que va a quedar libre cuando llegue el embarque, restando lo comprometido. Ejemplo `SN2000FG`: `180 - 20 = 160` libres.
-5. **`Próx Embarque`** (medida modificada): cuando `prox_embarque_date IS BLANK` pero hay `Unidades en Tránsito > 0`, devuelve `"Hay embarque"` en vez de `"—"`.
-6. **`Estado Agregado`** (medida modificada): agrega branches `"ASIGNADAS (X/Y)"` cuando hay tránsito con asignaciones, `"✓ EN TRÁNSITO (N libres)"` cuando hay tránsito sin asignar. Los estados viejos (`✓ CON EMBARQUE / SIN REPOSICIÓN / PARCIAL`) se mantienen como fallback.
+**4 medidas nuevas** creadas en el modelo Power BI Desktop (ejecución vía MCP el 2026-07-31):
 
-**Relaciones nuevas requeridas en el modelo Power BI**:
-- `v_inventario_por_warehouse[item_code]` → `v_backorder_lineas[sku]` (1:N, single-direction) para que los slicers de SKU filtren ambas vistas.
-
-**Vistas BQ que consume la hoja Backorder post-fix**:
-- `v_inventario_por_warehouse` (17 vistas curadas + esta que ya existía pero no se usaba en Backorder) — 1 fila por (item_code, warehouse_code).
-- `v_backorder_lineas` — 1 fila por (Sales Quotation abierta, SKU, cliente) con `pendiente`, `prox_embarque_date`, `estado`, `qty_incoming`.
-
-**Verificación esperada** post-deploy tablero (filtrando por `Codigo del Producto = SN2000FG`):
-| Campo | Antes | Después |
+| Medida | Definición | Propósito |
 |---|---|---|
-| Stock Total Unidades | 180 (mal) | 0 (real disponible venta) |
-| Unidades en Tránsito | — | 180 |
-| Unidades Asignadas | — | 20 |
-| Unidades Liberadas | — | 160 |
-| Próx Embarque | — | "Hay embarque" o fecha PO |
-| Estado Agregado | SIN REPOSICIÓN | ASIGNADAS (20/180) |
+| `Stock Disponible Venta` | `SUM(v_inventario_por_warehouse[stock_qty])` con `warehouse_code = "11"` + `TREATAS(VALUES(v_backorder_lineas[sku]) → v_inventario_por_warehouse[item_code])` | Vendible hoy (WHS 11 real) |
+| `Unidades en Tránsito` | Igual pero con `warehouse_code = "12"` | Va a entrar (WHS 12) |
+| `Unidades Asignadas` | `SUM(v_backorder_lineas[pendiente])` | Comprometido a clientes vía SQ abiertas |
+| `Unidades Liberadas` | `SUMX` por SKU de `MAX(Tránsito − Asignadas, 0)` (aditiva) | Lo que queda libre cuando llegue el embarque |
 
-**Consistencia entre plataformas**: con este fix + v369/v370 de la app, ambas UIs cuentan la misma historia sobre el stock disponible:
+**2 medidas corregidas**:
+- `Próx Embarque` → si no hay fecha de PO pero hay tránsito (whs 12 > 0), devuelve `"Hay embarque"` en vez de `"—"`.
+- `Estado Agregado` → prioriza el tránsito real: `"ASIGNADAS (asignadas/tránsito)"` / `"✓ EN TRÁNSITO (n libres)"` antes de las ramas por columna `estado` (que mantienen `✓ CON EMBARQUE / SIN REPOSICIÓN / PARCIAL` como fallback).
+
+**Decisión de arquitectura — corrección al prompt original**: **NO se creó la relación** `v_inventario_por_warehouse → v_backorder_lineas` (sería hecho-con-hecho, rompe el esquema estrella). Ambas tablas ya se relacionan con `dim_Producto[SKU]`; el cruce por SKU en la tabla de backorder se resuelve con `TREATAS` (mismo patrón que la medida existente `Stock Actual SKU`). `v_inventario_por_warehouse` ya estaba en el modelo → no hubo que importarla.
+
+**Validación con `SN2000FG` (2026-07-31, medidas DAX contra datos BQ)**:
+| Métrica | Valor obtenido | Esperado |
+|---|---|---|
+| Stock Disponible Venta (whs 11) | 0 | 0 ✓ |
+| Unidades en Tránsito (whs 12) | 180 | 180 ✓ |
+| Unidades Asignadas | 20 | 20 ✓ |
+| Unidades Liberadas | 160 | 160 ✓ |
+| Próx Embarque | "Hay embarque" | ✓ |
+| Estado Agregado | "ASIGNADAS (20/180)" | ✓ |
+
+**Vistas BQ consumidas por la hoja Backorder post-fix**:
+- `v_inventario_por_warehouse` — 1 fila por (item_code, warehouse_code) con `stock_qty`, `is_non_sales`. Ya estaba en el modelo.
+- `v_backorder_lineas` — 1 fila por (Sales Quotation abierta, SKU, cliente) con `pendiente`, `prox_embarque_date`, `estado`, `qty_incoming`.
+- `dim_Producto[SKU]` — dimensión existente, hub del star schema para relacionar ambas vistas.
+
+**Pendiente para Mariano (capa de reporte)**:
+1. Card "Stock Total Unidades" → repuntar a `Stock Disponible Venta`.
+2. Columna "Stock Actual SKU" de la tabla → repuntar a `Stock Disponible Venta`.
+3. Agregar cards nuevos: `Unidades en Tránsito`, `Unidades Asignadas`, `Unidades Liberadas`.
+4. Agregar columna `Unidades Liberadas` a la tabla del backorder.
+5. Guardar `.pbix` y **Publish al workspace** (bot.shimano.pesca) para que Diego/Pablo vean el fix.
+
+**Consistencia entre plataformas** — con este fix + v369/v370 de la app, ambas UIs cuentan la misma historia sobre el stock:
 - **App vendedor** → semáforo del picker en ámbar cuando hay tránsito sin disponible, split del pedido marca todo SIN STOCK con badge `🚚 EN TRANSITO`.
 - **Tablero gerente** → cards separadas para disponible/tránsito/asignadas/liberadas + estado agregado que refleja la realidad de reposición.
 
-**Prompt utilizado** (documentado para futuras iteraciones): ver conversación 2026-07-31 en la sesión Claude Code — incluye contexto del bug, medidas DAX listas para pegar, y verificación con SN2000FG. Reutilizable si aparecen bugs similares en otras hojas del tablero.
+**Aprendizaje capturado (para futuros prompts a Cowork MCP)**: al agregar métricas que cruzan 2 vistas fact (backorder × inventario), **evitar crear relación directa entre ellas** — usa el hub dim compartido + `TREATAS` para trasladar el contexto. Es el patrón limpio de star schema y respeta lo que ya existía en el modelo.
 
 ### Sincronización Dashboard app ↔ TABLERO SAR (v367+ sub-c)
 
