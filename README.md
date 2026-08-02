@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v204 → v374](#41-changelog-v204--v374)
+41. [Changelog v204 → v375](#41-changelog-v204--v375)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -3766,9 +3766,32 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v204 → v374
+## 41) Changelog v204 → v375
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
+
+### v375 (2026-08-02) — Fix Dependabot HIGH: `fast-xml-parser` 5.9.x → 5.10.1
+
+**Alerta Dependabot HIGH** (GHSA-8r6m-32jq-jx6q): `fast-xml-parser: Repeated DOCTYPE declarations reset entity expansion limits`. Vulnerabilidad de **denial-of-service** (billion laughs attack variant) que permite consumo infinito de memoria/CPU al parsear XML malicioso.
+
+**Ubicación**: `functions/package-lock.json` — dependencia transitiva vía Firebase SDK. **No en el bundle del frontend** (los vendedores nunca la ven).
+
+**Riesgo real pre-fix**: **prácticamente cero**. Las 2 Cloud Functions actuales (`dailyFirestoreBackup` y `sapProxy`) no procesan XML de fuentes externas:
+- `dailyFirestoreBackup` — cron interno, sin input externo.
+- `sapProxy` — recibe JSON del browser y hace HTTP proxy a SAP Service Layer, no parsea XML.
+
+**Por qué se cerró igual**: higiene de seguridad + preventivo (si mañana se agrega una Function que sí procese XML, ya queda cubierta) + baja las alertas Dependabot abiertas de 9 → 8 (deja las 8 moderate transitivas conocidas que requieren `--force` con breaking changes — política aceptada).
+
+**Fix**: `cd functions && npm audit fix`. Bump minor `5.9.x → 5.10.1` sin cambios de API pública. Cleanup transitivo natural: `-118 líneas / +53` en `package-lock.json` por dedup.
+
+**Verificación**:
+- Tests functions: **37/37** verdes (`sapProxy` + `dailyFirestoreBackup`).
+- Suite full: **230/230** verdes.
+- `npm audit`: **9 vulns → 8** (1 HIGH resuelta, 8 moderate transitivas se mantienen).
+
+**Deploy**: `firebase deploy --only functions --project=app-vendedores-shimano` (requiere autorización explícita del user). El fix está en el repo, pero las Cloud Functions en prod siguen con `fast-xml-parser` 5.9.x hasta el próximo deploy manual.
+
+**Sin bump de `APP_VERSION`**: es backend Functions, no cambia el HTML/JS del bundle. Los usuarios frontend no ven diferencia.
 
 ### v374 (2026-08-02) — Selector de mes en Dashboard de ventas
 
