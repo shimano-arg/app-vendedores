@@ -102,6 +102,16 @@ window.setDashboardVendor = function(v){
   dashboardVendorFilter = v;
   renderDashboard();
 };
+
+// v374+ (2026-08-02): selector de mes. Formato del value: "YYYY-MM"
+// (ej: "2026-07") o null/'' para "mes actual". Solo afecta el bloque
+// "MES EN CURSO" + card SAP Mes; el bloque ACUMULADO ANUAL queda YTD del
+// ano actual siempre. Range del selector: mes actual + 11 anteriores.
+let dashboardSelectedMonth = null;
+window.setDashboardMonth = function(v){
+  dashboardSelectedMonth = (v && v !== 'current') ? v : null;
+  renderDashboard();
+};
 window.openDashboardModal = function(){
   document.getElementById('dashboard-modal').classList.add('open');
   renderDashboard();
@@ -135,7 +145,18 @@ window.renderDashboard = function(){
   const el = document.getElementById('dashboard-content');
   if (!currentUser) { el.innerHTML = '<div class="no-data">Esperando login...</div>'; return; }
   const now = new Date();
-  const ymPrefix = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+  // v374+: mes seleccionado (default = mes actual)
+  let selYear = now.getFullYear();
+  let selMonthIdx = now.getMonth(); // 0-11
+  if (dashboardSelectedMonth && /^\d{4}-\d{2}$/.test(dashboardSelectedMonth)) {
+    const parts = dashboardSelectedMonth.split('-');
+    selYear = parseInt(parts[0], 10);
+    selMonthIdx = parseInt(parts[1], 10) - 1;
+  }
+  const isCurrentMonth = (selYear === now.getFullYear() && selMonthIdx === now.getMonth());
+  // ymPrefix filtra el bloque MES (afectado por selector)
+  const ymPrefix = selYear + '-' + String(selMonthIdx + 1).padStart(2, '0');
+  // yPrefix filtra el bloque ACUMULADO ANUAL (siempre YTD del ano actual, no depende del selector)
   const yPrefix = String(now.getFullYear());
   // Vendor a filtrar (vendedor: forzado al suyo; admin/viewer: dropdown)
   const effectiveVendor = (userRole === 'vendedor') ? assignedVendor : dashboardVendorFilter;
@@ -220,6 +241,21 @@ window.renderDashboard = function(){
     html += '</select></div>';
   }
 
+  // v374+: selector de mes (visible para todos los roles). Rango: mes actual + 11 anteriores.
+  html += '<div class="dash-card" style="background:#fef3c7;border-color:#fcd34d;padding:10px 12px;margin-bottom:10px">';
+  html += '<label style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#78350f;display:block;margin-bottom:4px">Mes a mostrar (solo afecta al bloque MES)</label>';
+  html += '<select onchange="setDashboardMonth(this.value)" style="width:100%;padding:7px 10px;border:1.5px solid #fcd34d;border-radius:5px;font-size:12px;font-weight:600;color:#0f172a;outline:none;background:#fff;font-family:inherit">';
+  html += '<option value="current"' + (dashboardSelectedMonth == null ? ' selected' : '') + '>' + MESES[now.getMonth()] + ' ' + now.getFullYear() + ' (mes actual)</option>';
+  // Ultimos 11 meses anteriores
+  for (let back = 1; back <= 11; back++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - back, 1);
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    const value = y + '-' + String(m + 1).padStart(2, '0');
+    html += '<option value="' + value + '"' + (dashboardSelectedMonth === value ? ' selected' : '') + '>' + MESES[m] + ' ' + y + '</option>';
+  }
+  html += '</select></div>';
+
   // Para el card MES/ACUMULADO precisamos un vendor concreto para buscar su target.
   // Si admin/viewer sin filtrar => no podemos asumir un solo target; mostramos sin target.
   const dashboardVendorForTargets = (userRole === 'vendedor') ? assignedVendor
@@ -260,11 +296,12 @@ window.renderDashboard = function(){
     });
 
     // Visitas del mes -> agrupar por vendedor (match case-insensitive)
-    const monthLabelUp = MESES[now.getMonth()].toUpperCase();
+    // v374+: usa mes seleccionado
+    const monthLabelUp = MESES[selMonthIdx].toUpperCase();
     (visitsCache || []).forEach(vi => {
       if (!vi.vendor || !byV[vi.vendor]) return;
       if ((vi.mes || '').toUpperCase() !== monthLabelUp) return;
-      if (parseInt(vi.anio) !== now.getFullYear()) return;
+      if (parseInt(vi.anio) !== selYear) return;
       byV[vi.vendor].visits++;
     });
 
@@ -274,12 +311,13 @@ window.renderDashboard = function(){
     // transición → confiar en SAP como fuente de verdad para el cumplimiento.
     const items = VENDORS.map(v => {
       const s = byV[v.key];
-      const sapSnap = getSapSnapshotFor(v.key, now.getFullYear(), now.getMonth());
+      // v374+: usa mes seleccionado
+      const sapSnap = getSapSnapshotFor(v.key, selYear, selMonthIdx);
       const facSap = sapSnap ? Number(sapSnap.facturadoArsNeto || 0) : 0;
       const unidSap = sapSnap ? Number(sapSnap.unidadesNeto || 0) : 0;
       // moneyForRank = SAP si hay snapshot; sino cae a pedidos app.
       const moneyForRank = sapSnap ? facSap : s.money;
-      const target = getMonthlyTargetArs(v.key, now.getFullYear(), now.getMonth());
+      const target = getMonthlyTargetArs(v.key, selYear, selMonthIdx);
       const pct = (target != null && target > 0) ? Math.round(moneyForRank / target * 100) : null;
       return Object.assign({
         key: v.key, label: titleCase(v.key), zone: v.zone,
@@ -306,7 +344,7 @@ window.renderDashboard = function(){
 
     // Resumen del equipo (card destacado)
     html += '<div class="dash-card" style="background:linear-gradient(135deg,#0c4a6e,#0284c7);color:#fff;border:none">';
-    html += '<h4 style="color:#fff">Resumen equipo <span class="sub" style="color:#bae6fd">' + MESES[now.getMonth()] + ' ' + now.getFullYear() + '</span></h4>';
+    html += '<h4 style="color:#fff">Resumen equipo <span class="sub" style="color:#bae6fd">' + MESES[selMonthIdx] + ' ' + selYear + (isCurrentMonth ? '' : ' (mes seleccionado)') + '</span></h4>';
     html += '<div class="dash-grid">';
     html += '<div class="dash-stat" style="background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.2)"><div class="num" style="color:#fff">' + fmtMoney(teamMoney) + '</div><div class="lbl" style="color:#bae6fd">Facturado ARS</div></div>';
     html += '<div class="dash-stat" style="background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.2)"><div class="num" style="color:#fff">' + fmtNum(teamOrders) + '</div><div class="lbl" style="color:#bae6fd">Pedidos</div></div>';
@@ -366,10 +404,11 @@ window.renderDashboard = function(){
   // La data viene de sap_snapshot que el cron BQ actualiza cada 30 min,
   // consistente con el TABLERO SAR de Power BI.
   if (dashboardVendorForTargets) {
-    const sapSnapMes = getSapSnapshotFor(dashboardVendorForTargets, now.getFullYear(), now.getMonth());
-    const monthTgtArsSap = getMonthlyTargetArs(dashboardVendorForTargets, now.getFullYear(), now.getMonth());
+    // v374+: usa mes seleccionado (default = mes actual)
+    const sapSnapMes = getSapSnapshotFor(dashboardVendorForTargets, selYear, selMonthIdx);
+    const monthTgtArsSap = getMonthlyTargetArs(dashboardVendorForTargets, selYear, selMonthIdx);
     html += '<div class="dash-card" style="border:2px solid #0284c7;background:#f0f9ff">';
-    html += '<h4 style="color:#0c4a6e">&#128202; SAP - Mes en curso <span class="sub" style="color:#0369a1">' + MESES[now.getMonth()] + ' ' + now.getFullYear() + ' &middot; facturado real (v_facturas_sap neto)</span></h4>';
+    html += '<h4 style="color:#0c4a6e">&#128202; SAP - ' + (isCurrentMonth ? 'Mes en curso' : 'Mes de ' + MESES[selMonthIdx]) + ' <span class="sub" style="color:#0369a1">' + MESES[selMonthIdx] + ' ' + selYear + ' &middot; facturado real (v_facturas_sap neto)</span></h4>';
     if (sapSnapMes) {
       const facSap = Number(sapSnapMes.facturadoArsNeto || 0);
       const unidSap = Number(sapSnapMes.unidadesNeto || 0);
@@ -392,15 +431,15 @@ window.renderDashboard = function(){
         html += '<div style="font-size:11px;color:#78350f;background:#fef3c7;padding:6px 10px;border-radius:4px;margin-top:6px">Incluye ' + sapSnapMes.ncsCount + ' nota' + (sapSnapMes.ncsCount === 1 ? '' : 's') + ' de credito por ' + fmtMoney(ncsSap) + ' (descontado del facturado bruto).</div>';
       }
     } else {
-      html += '<div class="tgt-msg">Sin datos SAP para ' + escapeHtml(titleCase(dashboardVendorForTargets)) + ' en ' + MESES[now.getMonth()] + ' ' + now.getFullYear() + '. El cron actualiza sap_snapshot cada 30 min.</div>';
+      html += '<div class="tgt-msg">Sin datos SAP para ' + escapeHtml(titleCase(dashboardVendorForTargets)) + ' en ' + MESES[selMonthIdx] + ' ' + selYear + '.' + (isCurrentMonth ? ' El cron actualiza sap_snapshot cada 30 min.' : ' Verificar que el mes seleccionado tenga facturas SAP.') + '</div>';
     }
     html += '</div>';
   }
 
   // === Mes en curso ===
   html += '<div class="dash-card">';
-  html += '<h4>Mes en curso <span class="sub">' + MESES[now.getMonth()] + ' ' + now.getFullYear() + ' &middot; pedidos de la app</span></h4>';
-  const monthTargetArs = dashboardVendorForTargets ? getMonthlyTargetArs(dashboardVendorForTargets, now.getFullYear(), now.getMonth()) : null;
+  html += '<h4>' + (isCurrentMonth ? 'Mes en curso' : 'Mes de ' + MESES[selMonthIdx]) + ' <span class="sub">' + MESES[selMonthIdx] + ' ' + selYear + ' &middot; pedidos de la app</span></h4>';
+  const monthTargetArs = dashboardVendorForTargets ? getMonthlyTargetArs(dashboardVendorForTargets, selYear, selMonthIdx) : null;
   html += '<div class="tgt-grid">';
   html += '<div class="tgt-stat"><div class="num">' + fmtNum(monthUnits) + '</div><div class="lbl">Unidades vendidas</div></div>';
   html += '<div class="tgt-stat money"><div class="num">' + fmtMoney(monthMoneyArs) + '</div><div class="lbl">Facturado ARS</div></div>';
