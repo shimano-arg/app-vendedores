@@ -25,8 +25,15 @@ if (typeof window.unsubSapProducts === "undefined") window.unsubSapProducts = nu
 // CROSS-SCOPE (E6 fix C5): inline callback unsubPedidosAll L13810 lee.
 if (typeof window.sapCurrentTab === 'undefined') window.sapCurrentTab = 'pendientes';
 let sapPendSelection = new Set();
-var sapClienteSearch = '';   // var (no let) para permitir reasignación desde bundle exports-sap.js
-var sapProductoSearch = '';  // idem
+// CROSS-SCOPE (regla #17): sapClienteSearch/sapProductoSearch se leen y escriben
+// desde el bundle exports-sap.js (mismo bundle esbuild pero DISTINTO IIFE de módulo).
+// Var en el top-level de un módulo del bundle NO va a window global — queda
+// encerrada en el scope del IIFE. Fix: patrón window.X con guard typeof undefined.
+// El bug se disparó en prod (Sentry 2026-08-02 23:12 UTC, JAVASCRIPT-J):
+// renderSapClientes/renderSapProductos leían la var como free reference,
+// resolvía a window.sapClienteSearch = undefined → ReferenceError.
+if (typeof window.sapClienteSearch === 'undefined') window.sapClienteSearch = '';
+if (typeof window.sapProductoSearch === 'undefined') window.sapProductoSearch = '';
 let sapPendienteSearch = '';
 let sapTransferidoSearch = '';
 

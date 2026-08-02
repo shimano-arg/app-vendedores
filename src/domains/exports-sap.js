@@ -22,11 +22,13 @@
 // sapGetClienteCode, sapGetMaterialCode, sapGetSlpCodeForVendor (todas
 // del SAP Integration domain), getVendorForKey (bundle dashboard),
 // vendorLookup, clientMasterCache, approvedAltasList, buildEntregaSuffixForRemarks,
-// sapCurrentTab (let inline read-only OK), sapClienteSearch/sapProductoSearch
-// (upgraded a var en L15154-15155 pre-E2.n.3 para permitir reasignación).
+// sapCurrentTab (let inline read-only OK).
 //
-// Cross-scope state: NONE nueva. La var sapClienteSearch/sapProductoSearch
-// upgrade a var es responsabilidad de este commit (documentado).
+// Cross-scope state via window (regla #17):
+// - window.sapClienteSearch / window.sapProductoSearch: declaradas en
+//   sap-admin-panel.js con guard typeof, leidas + escritas aca via window.X.
+//   v380 (2026-08-02): fix del ReferenceError de Sentry (var en IIFE del
+//   bundle NO va a window; hay que prefixear window. explicit).
 // Sin listeners onSnapshot en este dominio (los listeners SAP están en
 // SAP Integration domain que queda en inline).
 
@@ -465,7 +467,7 @@ function allClientNamesFromPoints(){
 
 function renderSapClientes(){
   const names = allClientNamesFromPoints();
-  const q = sapNorm(sapClienteSearch);
+  const q = sapNorm(window.sapClienteSearch);
   const filtered = q ? names.filter(n => sapNorm(n).includes(q)) : names;
   const mapped = names.filter(n => sapGetClienteCode(n)).length;
 
@@ -477,7 +479,7 @@ function renderSapClientes(){
   html += '<div class="sap-stat warn"><div class="n">' + (names.length - mapped) + '</div><div class="l">Sin codigo</div></div>';
   html += '</div>';
   html += '<div class="sap-row-actions">';
-  html += '<input class="sap-search" type="search" id="sap-clientes-search" placeholder="Buscar tienda..." value="' + escapeHtml(sapClienteSearch) + '" oninput="onSapClientesSearch(this.value)"/>';
+  html += '<input class="sap-search" type="search" id="sap-clientes-search" placeholder="Buscar tienda..." value="' + escapeHtml(window.sapClienteSearch) + '" oninput="onSapClientesSearch(this.value)"/>';
   html += '<button class="sap-btn secondary" onclick="bulkImportSapClientes()">Importar lote (Excel/CSV)</button>';
   html += '<button class="sap-btn secondary" onclick="exportMapeoClientesCsv()">Exportar mapeo</button>';
   html += '</div>';
@@ -502,7 +504,7 @@ function renderSapClientes(){
 }
 
 window.onSapClientesSearch = function(v){
-  sapClienteSearch = v;
+  window.sapClienteSearch = v;
   const oldSel = document.activeElement && document.activeElement.selectionStart;
   renderSapClientes();
   const nf = document.getElementById('sap-clientes-search');
@@ -582,7 +584,7 @@ window.exportMapeoClientesCsv = function(){
 // ----- TAB: Mapeo Productos -----
 function renderSapProductos(){
   const list = (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) ? PRODUCTS : [];
-  const q = sapNorm(sapProductoSearch);
+  const q = sapNorm(window.sapProductoSearch);
   const filtered = q ? list.filter(p => sapNorm(p.code).includes(q) || sapNorm(p.desc).includes(q) || sapNorm(p.fam).includes(q) || sapNorm(p.sub).includes(q)) : list;
   const mapped = list.filter(p => sapGetMaterialCode(p.code)).length;
 
@@ -594,7 +596,7 @@ function renderSapProductos(){
   html += '<div class="sap-stat warn"><div class="n">' + (list.length - mapped) + '</div><div class="l">Sin material</div></div>';
   html += '</div>';
   html += '<div class="sap-row-actions">';
-  html += '<input class="sap-search" type="search" id="sap-prods-search" placeholder="Buscar SKU por codigo, descripcion, familia..." value="' + escapeHtml(sapProductoSearch) + '" oninput="onSapProductosSearch(this.value)"/>';
+  html += '<input class="sap-search" type="search" id="sap-prods-search" placeholder="Buscar SKU por codigo, descripcion, familia..." value="' + escapeHtml(window.sapProductoSearch) + '" oninput="onSapProductosSearch(this.value)"/>';
   html += '<button class="sap-btn secondary" onclick="bulkImportSapProductos()">Importar lote (Excel/CSV)</button>';
   html += '<button class="sap-btn secondary" onclick="exportMapeoProductosCsv()">Exportar mapeo</button>';
   html += '</div>';
@@ -619,7 +621,7 @@ function renderSapProductos(){
 }
 
 window.onSapProductosSearch = function(v){
-  sapProductoSearch = v;
+  window.sapProductoSearch = v;
   const oldSel = document.activeElement && document.activeElement.selectionStart;
   renderSapProductos();
   const nf = document.getElementById('sap-prods-search');
