@@ -2890,7 +2890,7 @@ Pedido de Mariano: hoja "CAMPAÑAS" en TABLERO SAR para ver evolución de campa�
 
 ### ✅ EJECUTADO — Fix hoja "Campañas" TABLERO SAR (2026-08-01 vía Claude Cowork MCP)
 
-**Estado**: 2 medidas creadas + 1 relación crítica corregida en el modelo Power BI Desktop. Pendiente solo la capa de reporte (Mariano).
+**Estado**: 2 medidas creadas + 1 relación crítica corregida en el modelo Power BI Desktop + capa de reporte aplicada y publicada al workspace por Mariano el 2026-08-02. Fix 100% completo.
 
 **Problema reportado**: al crear la campaña "POWER PRO" en la app el 2026-07-31 y abrir la hoja Campañas en Power BI al día siguiente:
 - Card superior "Campañas" mostraba el `campaign_id` crudo (`6w4JqjWXQ2SBOCyob...`) en vez del nombre "POWER PRO".
@@ -2914,12 +2914,12 @@ Pedido de Mariano: hoja "CAMPAÑAS" en TABLERO SAR para ver evolución de campa�
 - `% Cumplimiento Campaña` = `0,00%` ✓ (correcto por lo mismo).
 - Vistas `v_campanias_evolucion_diaria` y `v_campanias_ventas_detalle` = 0 filas ✓ (esperado — se poblarán cuando el cron detecte facturas SAP de los 25 SKUs de POWER PRO dentro del rango `[2026-07-31, 2026-09-29]`).
 
-**Pendiente para Mariano (capa de reporte)**:
-1. Reemplazar los 3 cards de arriba por: `name` (Card), `Facturación Campaña` (Card), `% Cumplimiento Campaña` (Card).
-2. Sacar del panel "Filtros de esta página" los 2 filtros `is_pesca = True` y `provincia_cliente no está vacío` (o moverlos a "Filtros de todas las páginas" solo si aplican en otras hojas).
-3. Tabla del medio → apuntar a `v_campanias_progreso` con columnas `name / target_amount / realizado_ars / pct_cumplimiento / dias_restantes / activa`.
-4. Slicer "Campaña" → cambiar a `v_campanias_progreso[name]` (no `campaign_id`).
-5. Guardar `.pbix` y **Publish al workspace**.
+**Capa de reporte aplicada por Mariano el 2026-08-02** (Power BI Desktop → Publish al workspace):
+1. ✅ Cards de arriba reemplazadas por: `name` / `Facturación Campaña` / `% Cumplimiento Campaña`.
+2. ✅ Filtros `is_pesca = True` y `provincia_cliente no está vacío` sacados del panel "Filtros de esta página".
+3. ✅ Tabla del medio apuntando a `v_campanias_progreso` con las 6 columnas.
+4. ✅ Slicer "Campaña" cambiado a `v_campanias_progreso[name]`.
+5. ✅ `.pbix` publicado — POWER PRO aparece con `$0 / 0,00%` (correcto — campaña arrancó 2026-07-31 sin facturas todavía).
 
 **Aprendizaje capturado** — al importar tablas nuevas a Power BI, **desactivar auto-detect de relaciones** (`File → Options → Data Load → Autodetect new relationships after data is loaded`). Power BI matchea por nombre de columna similar sin chequear el tipo semántico (`campaign_id STRING` vs `created_at TIMESTAMP` es un mismatch obvio para un humano pero auto-detect lo ignora). Alternativa: dejarlo activado pero **auditar todas las relaciones en Model view** después de cada import y borrar/corregir las que no tengan sentido semántico. Complementa el aprendizaje del fix Backorder (evitar fact-fact via TREATAS).
 
@@ -2969,7 +2969,7 @@ Bug reportado por Mariano: en el TABLERO SAR, Santiago Esteban aparecía con `$2
 
 ### ✅ RESUELTO — Fix hoja "Backorder" TABLERO SAR (stock disponible vs tránsito) — 2026-07-31 vía Claude Cowork MCP
 
-**Estado**: medidas creadas/corregidas y validadas por DAX contra datos de BigQuery. Pendiente solo la capa de reporte (repuntar visuales + publicar), a cargo de Mariano.
+**Estado**: medidas creadas/corregidas y validadas por DAX contra datos de BigQuery. Capa de reporte aplicada y publicada al workspace por Mariano el 2026-08-02. Fix 100% completo — Diego/Pablo ya ven el tablero actualizado.
 
 **Problema**: la hoja Backorder tomaba como stock disponible la suma de todos los depósitos vendibles (whs 11 + whs 12), mezclando lo vendible hoy (whs 11) con lo que está en tránsito (whs 12). Resultado: SKUs figuraban con stock cuando no había nada para entregar. Ejemplo `SN2000FG`: card "Stock Total Unidades" mostraba `180` cuando el disponible venta real era `0` (todo en tránsito).
 
@@ -3003,12 +3003,12 @@ Bug reportado por Mariano: en el TABLERO SAR, Santiago Esteban aparecía con `$2
 - `v_backorder_lineas` — 1 fila por (Sales Quotation abierta, SKU, cliente) con `pendiente`, `prox_embarque_date`, `estado`, `qty_incoming`.
 - `dim_Producto[SKU]` — dimensión existente, hub del star schema para relacionar ambas vistas.
 
-**Pendiente para Mariano (capa de reporte)**:
-1. Card "Stock Total Unidades" → repuntar a `Stock Disponible Venta`.
-2. Columna "Stock Actual SKU" de la tabla → repuntar a `Stock Disponible Venta`.
-3. Agregar cards nuevos: `Unidades en Tránsito`, `Unidades Asignadas`, `Unidades Liberadas`.
-4. Agregar columna `Unidades Liberadas` a la tabla del backorder.
-5. Guardar `.pbix` y **Publish al workspace** (bot.shimano.pesca) para que Diego/Pablo vean el fix.
+**Capa de reporte aplicada por Mariano el 2026-08-02** (Power BI Desktop → Publish al workspace `bot.shimano.pesca`):
+1. ✅ Card "Stock Total Unidades" repuntada a `Stock Disponible Venta`.
+2. ✅ Columna "Stock Actual SKU" de la tabla → `Stock Disponible Venta`.
+3. ✅ Cards nuevos agregados: `Unidades en Tránsito`, `Unidades Asignadas`, `Unidades Liberadas`.
+4. ✅ Columna `Unidades Liberadas` agregada a la tabla del backorder.
+5. ✅ `.pbix` guardado y publicado al workspace — Diego/Pablo ya ven el tablero actualizado.
 
 **Consistencia entre plataformas** — con este fix + v369/v370 de la app, ambas UIs cuentan la misma historia sobre el stock:
 - **App vendedor** → semáforo del picker en ámbar cuando hay tránsito sin disponible, split del pedido marca todo SIN STOCK con badge `🚚 EN TRANSITO`.
