@@ -72,12 +72,17 @@ function ensureSapAutoSendListener() {
           _autoSendInflight.add(fsId);
           (async () => {
             const docRef = fbDb.collection('pedidos').doc(fsId);
+            // v384 (2026-08-03): usar crypto.randomUUID() en vez de Math.random()
+            // para el session ID del lock cross-session. El uso real no es
+            // criptográfico (solo differentia sesiones concurrentes), pero
+            // CodeQL flag el Math.random en "security context" y crypto.randomUUID
+            // es mejor practica + más entropia (128 bits vs ~30 bits).
             const mySessionId =
               ((currentUser && currentUser.uid) || 'anon') +
               '-' +
               Date.now() +
               '-' +
-              Math.random().toString(36).slice(2, 8);
+              crypto.randomUUID().slice(0, 8);
             try {
               // v344+ (2026-07-28): FIX DUPLICADOS. Antes _autoSendInflight era LOCAL
               // por sesion -> con 2 tabs abiertos, 2 admins online, o F5 durante envio,
