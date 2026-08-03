@@ -3,8 +3,8 @@
 // esto para no repetir constants.
 
 import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Path de Chrome auto-detectado 2026-07-27 en el sistema de Mariano.
 // Si Mariano tiene Chrome en otra ubicación, override con env CHROME_PATH.
@@ -21,7 +21,8 @@ export function findChrome() {
     if (existsSync(p)) return p;
   }
   throw new Error(
-    'Chrome no encontrado. Setear env CHROME_PATH o instalar Chrome en una ubicación estándar.\nCandidatos probados: ' + CHROME_CANDIDATES.join('; ')
+    'Chrome no encontrado. Setear env CHROME_PATH o instalar Chrome en una ubicación estándar.\nCandidatos probados: ' +
+      CHROME_CANDIDATES.join('; ')
   );
 }
 
@@ -34,7 +35,7 @@ export const LOCAL_URL = 'http://localhost:8000/';
 // predictiva. Suficiente para comparar antes/después del split.
 export const THROTTLING = {
   rttMs: 150,
-  throughputKbps: 1638.4,      // 1.6 Mbps down
+  throughputKbps: 1638.4, // 1.6 Mbps down
   requestLatencyMs: 562.5,
   downloadThroughputKbps: 1474.56,
   uploadThroughputKbps: 675,

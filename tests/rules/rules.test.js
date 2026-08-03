@@ -8,18 +8,38 @@
  * Test de "no rules regression": si querés cambiar una rule, primero
  * cambiás/agregás el test acá, después la rule. Nunca al revés.
  */
-import { beforeAll, afterAll, beforeEach, describe, it, expect } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
-  initTestEnv, cleanupTestEnv, seedCanonicalRoles, seedDoc,
-  authedDb, anonDb, assertSucceeds, assertFails,
-  doc, setDoc, getDoc, updateDoc, deleteDoc, addDoc,
-  collection, getDocs, query, where,
+  addDoc,
+  anonDb,
+  assertFails,
+  assertSucceeds,
+  authedDb,
+  cleanupTestEnv,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  initTestEnv,
+  query,
+  seedCanonicalRoles,
+  seedDoc,
+  setDoc,
   UID,
+  updateDoc,
+  where,
 } from './setup.js';
 
-beforeAll(async () => { await initTestEnv(); });
-afterAll(async () => { await cleanupTestEnv(); });
-beforeEach(async () => { await seedCanonicalRoles(); });
+beforeAll(async () => {
+  await initTestEnv();
+});
+afterAll(async () => {
+  await cleanupTestEnv();
+});
+beforeEach(async () => {
+  await seedCanonicalRoles();
+});
 
 // ============================================================
 // ANON — nadie sin auth puede tocar nada sensible
@@ -55,12 +75,16 @@ describe('anon (no auth)', () => {
         comercio: 'Público SA',
         cuit: '20-12345678-9',
         status: 'pending_approval',
-      }),
+      })
     );
   });
   it('deniega crear client_applications sin submittedByPublicForm', async () => {
     await assertFails(
-      addDoc(collection(anonDb(), 'client_applications'), { comercio: 'X', cuit: '1', status: 'pending_approval' }),
+      addDoc(collection(anonDb(), 'client_applications'), {
+        comercio: 'X',
+        cuit: '1',
+        status: 'pending_approval',
+      })
     );
   });
 });
@@ -115,8 +139,12 @@ describe('/roles', () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.internoPartnered), 'roles', UID.vendor)));
   });
   it('solo admin puede update/delete roles', async () => {
-    await assertSucceeds(updateDoc(doc(authedDb(UID.admin), 'roles', UID.vendor), { role: 'gerente' }));
-    await assertFails(updateDoc(doc(authedDb(UID.gerente), 'roles', UID.vendor), { role: 'admin' }));
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.admin), 'roles', UID.vendor), { role: 'gerente' })
+    );
+    await assertFails(
+      updateDoc(doc(authedDb(UID.gerente), 'roles', UID.vendor), { role: 'admin' })
+    );
     await assertFails(deleteDoc(doc(authedDb(UID.vendor), 'roles', UID.vendor)));
   });
 });
@@ -157,12 +185,18 @@ describe('/pedidos', () => {
   });
 
   it('vendor puede list con where ownerUid == self (CLOSURE Fase 0)', async () => {
-    const q = query(collection(authedDb(UID.vendor), 'pedidos'), where('ownerUid', '==', UID.vendor));
+    const q = query(
+      collection(authedDb(UID.vendor), 'pedidos'),
+      where('ownerUid', '==', UID.vendor)
+    );
     await assertSucceeds(getDocs(q));
   });
 
   it('vendor NO puede list con where apuntando a otro vendor (CLOSURE Fase 0)', async () => {
-    const q = query(collection(authedDb(UID.vendor), 'pedidos'), where('ownerUid', '==', UID.vendorOther));
+    const q = query(
+      collection(authedDb(UID.vendor), 'pedidos'),
+      where('ownerUid', '==', UID.vendorOther)
+    );
     await assertFails(getDocs(q));
   });
 
@@ -178,16 +212,18 @@ describe('/pedidos', () => {
 
   it('vendor puede crear pedido propio', async () => {
     await assertSucceeds(
-      setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-new'), { ownerUid: UID.vendor }),
+      setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-new'), { ownerUid: UID.vendor })
     );
   });
   it('vendor NO puede crear pedido de otro', async () => {
     await assertFails(
-      setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-new-forge'), { ownerUid: UID.vendorOther }),
+      setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-new-forge'), { ownerUid: UID.vendorOther })
     );
   });
   it('vendor puede update/delete pedido propio', async () => {
-    await assertSucceeds(updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor'), { stage: 'confirmed' }));
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor'), { stage: 'confirmed' })
+    );
     await assertSucceeds(deleteDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor')));
   });
   it('vendor NO puede update/delete pedido ajeno', async () => {
@@ -201,7 +237,7 @@ describe('/pedidos', () => {
         ownerUid: UID.vendor,
         createdByUid: UID.internoPartnered,
         onBehalfOf: true,
-      }),
+      })
     );
   });
   it('interno NO-partnered NO puede crear pedido en nombre de vendor ajeno', async () => {
@@ -210,7 +246,7 @@ describe('/pedidos', () => {
         ownerUid: UID.vendor,
         createdByUid: UID.interno,
         onBehalfOf: true,
-      }),
+      })
     );
   });
 });
@@ -228,7 +264,10 @@ describe('/visits', () => {
     await assertFails(getDocs(collection(authedDb(UID.vendor), 'visits')));
   });
   it('vendor puede list con where ownerUid=self (CLOSURE Fase 0)', async () => {
-    const q = query(collection(authedDb(UID.vendor), 'visits'), where('ownerUid', '==', UID.vendor));
+    const q = query(
+      collection(authedDb(UID.vendor), 'visits'),
+      where('ownerUid', '==', UID.vendor)
+    );
     await assertSucceeds(getDocs(q));
   });
   it('admin/gerente/interno pueden list todo (preserved)', async () => {
@@ -237,10 +276,14 @@ describe('/visits', () => {
     await assertSucceeds(getDocs(collection(authedDb(UID.interno), 'visits')));
   });
   it('vendor crea visita propia', async () => {
-    await assertSucceeds(setDoc(doc(authedDb(UID.vendor), 'visits', 'v-new'), { ownerUid: UID.vendor }));
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'visits', 'v-new'), { ownerUid: UID.vendor })
+    );
   });
   it('vendor NO crea visita de otro', async () => {
-    await assertFails(setDoc(doc(authedDb(UID.vendor), 'visits', 'v-forge'), { ownerUid: UID.vendorOther }));
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'visits', 'v-forge'), { ownerUid: UID.vendorOther })
+    );
   });
   it('vendor update/delete solo la propia', async () => {
     await assertSucceeds(updateDoc(doc(authedDb(UID.vendor), 'visits', 'v-vendor'), { note: 'x' }));
@@ -261,7 +304,10 @@ describe('/rendiciones', () => {
     await assertFails(getDocs(collection(authedDb(UID.vendor), 'rendiciones')));
   });
   it('vendor lista solo con where ownerUid=self', async () => {
-    const q = query(collection(authedDb(UID.vendor), 'rendiciones'), where('ownerUid', '==', UID.vendor));
+    const q = query(
+      collection(authedDb(UID.vendor), 'rendiciones'),
+      where('ownerUid', '==', UID.vendor)
+    );
     await assertSucceeds(getDocs(q));
   });
   it('admin/gerente listan todo', async () => {
@@ -269,11 +315,17 @@ describe('/rendiciones', () => {
     await assertSucceeds(getDocs(collection(authedDb(UID.gerente), 'rendiciones')));
   });
   it('vendor crea rendición propia; NO puede aprobar (update)', async () => {
-    await assertSucceeds(setDoc(doc(authedDb(UID.vendor), 'rendiciones', 'r-new'), { ownerUid: UID.vendor }));
-    await assertFails(updateDoc(doc(authedDb(UID.vendor), 'rendiciones', 'r-vendor'), { status: 'approved' }));
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'rendiciones', 'r-new'), { ownerUid: UID.vendor })
+    );
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'rendiciones', 'r-vendor'), { status: 'approved' })
+    );
   });
   it('gerente aprueba rendición', async () => {
-    await assertSucceeds(updateDoc(doc(authedDb(UID.gerente), 'rendiciones', 'r-vendor'), { status: 'approved' }));
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.gerente), 'rendiciones', 'r-vendor'), { status: 'approved' })
+    );
   });
   it('vendor NO puede borrar rendición (solo admin/gerente)', async () => {
     await assertFails(deleteDoc(doc(authedDb(UID.vendor), 'rendiciones', 'r-vendor')));
@@ -327,14 +379,20 @@ describe('/app_config', () => {
 describe('/client_applications', () => {
   beforeEach(async () => {
     await seedDoc('client_applications/ca-vendor', { ownerUid: UID.vendor, status: 'approved' });
-    await seedDoc('client_applications/ca-with-sap', { ownerUid: UID.vendor, status: 'approved', cardCodeSap: 'C1' });
+    await seedDoc('client_applications/ca-with-sap', {
+      ownerUid: UID.vendor,
+      status: 'approved',
+      cardCodeSap: 'C1',
+    });
   });
   it('reader lee alta', async () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-vendor')));
     await assertSucceeds(getDoc(doc(authedDb(UID.viewer), 'client_applications', 'ca-vendor')));
   });
   it('vendor crea alta propia', async () => {
-    await assertSucceeds(setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-new'), { ownerUid: UID.vendor }));
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-new'), { ownerUid: UID.vendor })
+    );
   });
   it('vendor puede borrar alta propia SIN cardCodeSap', async () => {
     await assertSucceeds(deleteDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-vendor')));
@@ -343,10 +401,14 @@ describe('/client_applications', () => {
     await assertFails(deleteDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-with-sap')));
   });
   it('gerente puede borrar alta con cardCodeSap', async () => {
-    await assertSucceeds(deleteDoc(doc(authedDb(UID.gerente), 'client_applications', 'ca-with-sap')));
+    await assertSucceeds(
+      deleteDoc(doc(authedDb(UID.gerente), 'client_applications', 'ca-with-sap'))
+    );
   });
   it('interno puede update (aprobar) altas', async () => {
-    await assertSucceeds(updateDoc(doc(authedDb(UID.interno), 'client_applications', 'ca-vendor'), { status: 'x' }));
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'client_applications', 'ca-vendor'), { status: 'x' })
+    );
   });
 });
 
@@ -354,7 +416,15 @@ describe('/client_applications', () => {
 // Colecciones admin-gerente escrituras
 // ============================================================
 describe('colecciones admin+gerente write', () => {
-  const cases = ['campaigns', 'sap_clients', 'sap_products', 'sap_vendors', 'vendor_overrides', 'client_master', 'targets'];
+  const cases = [
+    'campaigns',
+    'sap_clients',
+    'sap_products',
+    'sap_vendors',
+    'vendor_overrides',
+    'client_master',
+    'targets',
+  ];
   for (const col of cases) {
     it(`${col}: reader lee, solo admin/gerente escribe`, async () => {
       await seedDoc(`${col}/x`, { foo: 1 });
@@ -368,16 +438,26 @@ describe('colecciones admin+gerente write', () => {
 
   it('client_locations: vendor/interno pueden crear pero no update/delete', async () => {
     await seedDoc('client_locations/loc1', { addr: 'x' });
-    await assertSucceeds(setDoc(doc(authedDb(UID.vendor), 'client_locations', 'loc-new'), { addr: 'y' }));
-    await assertFails(updateDoc(doc(authedDb(UID.vendor), 'client_locations', 'loc1'), { addr: 'z' }));
-    await assertSucceeds(updateDoc(doc(authedDb(UID.gerente), 'client_locations', 'loc1'), { addr: 'z' }));
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'client_locations', 'loc-new'), { addr: 'y' })
+    );
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'client_locations', 'loc1'), { addr: 'z' })
+    );
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.gerente), 'client_locations', 'loc1'), { addr: 'z' })
+    );
   });
 
   it('product_catalog: reader lee, solo admin escribe (gerente NO)', async () => {
     await seedDoc('product_catalog/chunk_0', { items: [] });
     await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'product_catalog', 'chunk_0')));
-    await assertSucceeds(setDoc(doc(authedDb(UID.admin), 'product_catalog', 'chunk_1'), { items: [] }));
-    await assertFails(setDoc(doc(authedDb(UID.gerente), 'product_catalog', 'chunk_2'), { items: [] }));
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.admin), 'product_catalog', 'chunk_1'), { items: [] })
+    );
+    await assertFails(
+      setDoc(doc(authedDb(UID.gerente), 'product_catalog', 'chunk_2'), { items: [] })
+    );
   });
 });
 
@@ -386,14 +466,20 @@ describe('colecciones admin+gerente write', () => {
 // ============================================================
 describe('/route_overrides', () => {
   it('vendor crea con createdByUid propio', async () => {
-    await assertSucceeds(setDoc(doc(authedDb(UID.vendor), 'route_overrides', 'ro1'), { createdByUid: UID.vendor }));
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'route_overrides', 'ro1'), { createdByUid: UID.vendor })
+    );
   });
   it('vendor NO crea con createdByUid ajeno (forgery)', async () => {
-    await assertFails(setDoc(doc(authedDb(UID.vendor), 'route_overrides', 'ro2'), { createdByUid: UID.vendorOther }));
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'route_overrides', 'ro2'), { createdByUid: UID.vendorOther })
+    );
   });
   it('vendor NO update/delete (solo admin/gerente)', async () => {
     await seedDoc('route_overrides/ro-existing', { createdByUid: UID.vendor });
-    await assertFails(updateDoc(doc(authedDb(UID.vendor), 'route_overrides', 'ro-existing'), { x: 1 }));
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'route_overrides', 'ro-existing'), { x: 1 })
+    );
   });
 });
 
@@ -408,15 +494,21 @@ describe('/custom_routes', () => {
   it('vendor lee/edita solo las suyas', async () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'custom_routes', 'cr-mine')));
     await assertFails(getDoc(doc(authedDb(UID.vendor), 'custom_routes', 'cr-other')));
-    await assertSucceeds(updateDoc(doc(authedDb(UID.vendor), 'custom_routes', 'cr-mine'), { stops: [] }));
-    await assertFails(updateDoc(doc(authedDb(UID.vendor), 'custom_routes', 'cr-other'), { stops: [] }));
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'custom_routes', 'cr-mine'), { stops: [] })
+    );
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'custom_routes', 'cr-other'), { stops: [] })
+    );
   });
   it('admin/gerente ven todas', async () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.admin), 'custom_routes', 'cr-other')));
     await assertSucceeds(getDoc(doc(authedDb(UID.gerente), 'custom_routes', 'cr-other')));
   });
   it('vendor NO puede crear con ownerUid ajeno', async () => {
-    await assertFails(setDoc(doc(authedDb(UID.vendor), 'custom_routes', 'cr-forge'), { ownerUid: UID.vendorOther }));
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'custom_routes', 'cr-forge'), { ownerUid: UID.vendorOther })
+    );
   });
 });
 
@@ -435,7 +527,9 @@ describe('/notifications', () => {
     await assertFails(getDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-other')));
   });
   it('vendor puede marcar leída (update) la suya', async () => {
-    await assertSucceeds(updateDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-me'), { readAt: 't' }));
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-me'), { readAt: 't' })
+    );
   });
   it('vendor puede borrar la suya recibida (feature v322)', async () => {
     await assertSucceeds(deleteDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-me')));
@@ -444,10 +538,20 @@ describe('/notifications', () => {
     await assertFails(deleteDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-other')));
   });
   it('vendor crea notif con fromUid propio', async () => {
-    await assertSucceeds(setDoc(doc(authedDb(UID.vendor), 'notifications', 'n-new'), { fromUid: UID.vendor, targetUid: UID.admin }));
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'notifications', 'n-new'), {
+        fromUid: UID.vendor,
+        targetUid: UID.admin,
+      })
+    );
   });
   it('vendor NO crea notif con fromUid ajeno (spoofing)', async () => {
-    await assertFails(setDoc(doc(authedDb(UID.vendor), 'notifications', 'n-forge'), { fromUid: UID.admin, targetUid: UID.vendor }));
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'notifications', 'n-forge'), {
+        fromUid: UID.admin,
+        targetUid: UID.vendor,
+      })
+    );
   });
 });
 
@@ -469,7 +573,12 @@ describe('/operations_log', () => {
     await assertFails(getDoc(doc(authedDb(UID.vendor), 'operations_log', 'l1')));
   });
   it('cualquiera puede append con su propio userUid', async () => {
-    await assertSucceeds(setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-new'), { userUid: UID.vendor, action: 'x' }));
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-new'), {
+        userUid: UID.vendor,
+        action: 'x',
+      })
+    );
   });
   it('nadie puede update ni delete (audit-only)', async () => {
     await assertFails(updateDoc(doc(authedDb(UID.admin), 'operations_log', 'l1'), { x: 1 }));
@@ -492,20 +601,32 @@ describe('/seguimiento_*', () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.admin), 'seguimiento_notes', 'n1')));
   });
   it('interno crea nota con authorUid propio', async () => {
-    await assertSucceeds(setDoc(doc(authedDb(UID.interno), 'seguimiento_notes', 'n-new'), { authorUid: UID.interno }));
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.interno), 'seguimiento_notes', 'n-new'), { authorUid: UID.interno })
+    );
   });
   it('interno NO puede crear con authorUid ajeno (spoof)', async () => {
-    await assertFails(setDoc(doc(authedDb(UID.interno), 'seguimiento_notes', 'n-forge'), { authorUid: UID.gerente }));
+    await assertFails(
+      setDoc(doc(authedDb(UID.interno), 'seguimiento_notes', 'n-forge'), { authorUid: UID.gerente })
+    );
   });
   it('interno solo edita/borra sus propias notas', async () => {
     await seedDoc('seguimiento_notes/n-mine', { authorUid: UID.interno });
     await seedDoc('seguimiento_notes/n-partner', { authorUid: UID.internoPartnered });
-    await assertSucceeds(updateDoc(doc(authedDb(UID.interno), 'seguimiento_notes', 'n-mine'), { text: 'x' }));
-    await assertFails(updateDoc(doc(authedDb(UID.interno), 'seguimiento_notes', 'n-partner'), { text: 'x' }));
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'seguimiento_notes', 'n-mine'), { text: 'x' })
+    );
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'seguimiento_notes', 'n-partner'), { text: 'x' })
+    );
   });
   it('seguimiento_status: mismo patrón, cada VDI ve/edita el suyo por cliente', async () => {
-    await assertSucceeds(setDoc(doc(authedDb(UID.interno), 'seguimiento_status', 's-x'), { authorUid: UID.interno }));
-    await assertFails(setDoc(doc(authedDb(UID.vendor), 'seguimiento_status', 's-y'), { authorUid: UID.vendor }));
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.interno), 'seguimiento_status', 's-x'), { authorUid: UID.interno })
+    );
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'seguimiento_status', 's-y'), { authorUid: UID.vendor })
+    );
   });
 });
 
@@ -513,7 +634,9 @@ describe('/seguimiento_*', () => {
 // allowed_emails — read: cualquier auth (bootstrap flow)
 // ============================================================
 describe('/allowed_emails', () => {
-  beforeEach(async () => { await seedDoc('allowed_emails/foo@x.com', { granted: true }); });
+  beforeEach(async () => {
+    await seedDoc('allowed_emails/foo@x.com', { granted: true });
+  });
   it('cualquier auth lee (bootstrap)', async () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.unassigned), 'allowed_emails', 'foo@x.com')));
     await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'allowed_emails', 'foo@x.com')));
@@ -522,7 +645,11 @@ describe('/allowed_emails', () => {
     await assertFails(getDoc(doc(anonDb(), 'allowed_emails', 'foo@x.com')));
   });
   it('solo admin escribe (gerente NO)', async () => {
-    await assertSucceeds(setDoc(doc(authedDb(UID.admin), 'allowed_emails', 'new@x.com'), { granted: true }));
-    await assertFails(setDoc(doc(authedDb(UID.gerente), 'allowed_emails', 'new2@x.com'), { granted: true }));
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.admin), 'allowed_emails', 'new@x.com'), { granted: true })
+    );
+    await assertFails(
+      setDoc(doc(authedDb(UID.gerente), 'allowed_emails', 'new2@x.com'), { granted: true })
+    );
   });
 });

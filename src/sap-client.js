@@ -66,22 +66,34 @@ export function createSapClient(firebase, opts) {
     }
     const method = (options && options.method) || 'GET';
     /** @type {unknown} */
-    let parsedBody = undefined;
+    let parsedBody;
     if (options && typeof options.body === 'string') {
-      try { parsedBody = JSON.parse(options.body); }
-      catch { return { ok: false, status: 0, error: 'body no es JSON válido' }; }
+      try {
+        parsedBody = JSON.parse(options.body);
+      } catch {
+        return { ok: false, status: 0, error: 'body no es JSON válido' };
+      }
     }
     const callable = firebase.app().functions(region).httpsCallable(callableName);
     try {
       const res = await callable({ endpoint: path, method, body: parsedBody });
-      const status = (res && res.data && typeof res.data.status === 'number') ? res.data.status : 0;
+      const status = res && res.data && typeof res.data.status === 'number' ? res.data.status : 0;
       const body = res && res.data ? res.data.body : undefined;
       const ok = status >= 200 && status < 300;
       if (!ok) {
-        const detail = (body && typeof body === 'object' && /** @type {any} */ (body).error &&
-                        /** @type {any} */ (body).error.message &&
-                        /** @type {any} */ (body).error.message.value) || '';
-        return { ok: false, status, body, error: 'HTTP ' + status + (detail ? ' - ' + detail : '') };
+        const detail =
+          (body &&
+            typeof body === 'object' &&
+            /** @type {any} */ (body).error &&
+            /** @type {any} */ (body).error.message &&
+            /** @type {any} */ (body).error.message.value) ||
+          '';
+        return {
+          ok: false,
+          status,
+          body,
+          error: 'HTTP ' + status + (detail ? ' - ' + detail : ''),
+        };
       }
       return { ok: true, status, body };
     } catch (e) {

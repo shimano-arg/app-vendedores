@@ -10,10 +10,10 @@
 //      Verifica: función tira → siguiente unsub sí se llama; setNull tira
 //      → siguiente sí se corre; función OK → return 1.
 
-import { describe, it, expect, vi } from 'vitest';
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
+import { describe, expect, it, vi } from 'vitest';
 
 const ROOT = process.cwd();
 const INDEX = join(ROOT, 'index.html');
@@ -72,7 +72,12 @@ describe('detachFirebaseListeners — cobertura de todos los onSnapshot listener
     // assertion estricta que importa es la de cobertura, más abajo.
     expect(declared.length).toBeGreaterThanOrEqual(20);
     // Sanity: nombres conocidos del baseline pre-E1 deben estar declarados.
-    for (const known of ['unsubUserData', 'unsubPedidosOwn', 'unsubApprovedAltas', 'unsubTargets']) {
+    for (const known of [
+      'unsubUserData',
+      'unsubPedidosOwn',
+      'unsubApprovedAltas',
+      'unsubTargets',
+    ]) {
       expect(declared, `${known} debe estar declarado en index.html`).toContain(known);
     }
   });
@@ -88,15 +93,20 @@ describe('detachFirebaseListeners — cobertura de todos los onSnapshot listener
   it('TODO listener declarado en index.html tiene su off() en detachFirebaseListeners', () => {
     const declared = extractDeclaredListeners();
     const detached = extractDetachedListeners();
-    const missing = declared.filter(name => !detached.includes(name));
-    expect(missing, `Listeners sin off() en detachFirebaseListeners (leak candidates): ${missing.join(', ')}`).toEqual([]);
+    const missing = declared.filter((name) => !detached.includes(name));
+    expect(
+      missing,
+      `Listeners sin off() en detachFirebaseListeners (leak candidates): ${missing.join(', ')}`
+    ).toEqual([]);
   });
 
   it('ningún off() referencia un listener que no exista (dead code)', () => {
     const declared = extractDeclaredListeners();
     const detached = extractDetachedListeners();
-    const orphan = detached.filter(name => !declared.includes(name));
-    expect(orphan, `off() de listeners inexistentes en index.html: ${orphan.join(', ')}`).toEqual([]);
+    const orphan = detached.filter((name) => !declared.includes(name));
+    expect(orphan, `off() de listeners inexistentes en index.html: ${orphan.join(', ')}`).toEqual(
+      []
+    );
   });
 });
 
@@ -109,10 +119,16 @@ describe('detachFirebaseListeners — patrón off() behavior (aislado en vm)', (
 
   function makeOff() {
     // Replica del helper interno para poder testarlo sin ejecutar el HTML.
-    return (name, fn, setNull) => {
+    return (_name, fn, setNull) => {
       if (typeof fn !== 'function') return 0;
-      try { fn(); } catch (e) { /* swallow */ }
-      try { setNull(); } catch (_) {}
+      try {
+        fn();
+      } catch (e) {
+        /* swallow */
+      }
+      try {
+        setNull();
+      } catch (_) {}
       return 1;
     };
   }
@@ -120,31 +136,49 @@ describe('detachFirebaseListeners — patrón off() behavior (aislado en vm)', (
   it('return 0 cuando fn === null (listener nunca inicializado)', () => {
     const off = makeOff();
     let x = null;
-    expect(off('x', x, () => { x = null; })).toBe(0);
+    expect(
+      off('x', x, () => {
+        x = null;
+      })
+    ).toBe(0);
   });
 
   it('llama fn() + setNull() cuando fn es function', () => {
     const off = makeOff();
     const spy = vi.fn();
     let x = spy;
-    expect(off('x', x, () => { x = null; })).toBe(1);
+    expect(
+      off('x', x, () => {
+        x = null;
+      })
+    ).toBe(1);
     expect(spy).toHaveBeenCalledTimes(1);
     expect(x).toBe(null);
   });
 
   it('fn tira → aún llama setNull (leak parcial > total)', () => {
     const off = makeOff();
-    const spy = vi.fn(() => { throw new Error('unsub crashed'); });
+    const spy = vi.fn(() => {
+      throw new Error('unsub crashed');
+    });
     let x = spy;
-    expect(off('x', x, () => { x = null; })).toBe(1);
+    expect(
+      off('x', x, () => {
+        x = null;
+      })
+    ).toBe(1);
     expect(x).toBe(null);
   });
 
   it('setNull tira → return 1 igual (el unsub ya corrió)', () => {
     const off = makeOff();
     const spy = vi.fn();
-    let x = spy;
-    expect(off('x', x, () => { throw new Error('setNull crashed'); })).toBe(1);
+    const x = spy;
+    expect(
+      off('x', x, () => {
+        throw new Error('setNull crashed');
+      })
+    ).toBe(1);
     expect(spy).toHaveBeenCalledTimes(1);
   });
 });

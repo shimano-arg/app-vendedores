@@ -7,7 +7,10 @@
  */
 
 // U+0300 – U+036F: diacríticos combinantes (marcas de acento).
-const DIACRITICS_RE = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36F) + ']', 'g');
+const DIACRITICS_RE = new RegExp(
+  '[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']',
+  'g'
+);
 
 /**
  * Normaliza nombre de cliente: NFD → strip diacríticos → upper → trim.
@@ -26,7 +29,9 @@ export function normClientName(s) {
  * @returns {string}
  */
 export function titleCase(s) {
-  return String(s).toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+  return String(s)
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /**

@@ -1,5 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { handleSapProxy, extractSessionCookies, makeHttpsError } from '../../functions/core/sap-proxy-core.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  extractSessionCookies,
+  handleSapProxy,
+  makeHttpsError,
+} from '../../functions/core/sap-proxy-core.js';
 
 /** Helper para construir deps con overrides. */
 function makeDeps(over = {}) {
@@ -55,14 +59,16 @@ describe('extractSessionCookies', () => {
 describe('handleSapProxy — auth', () => {
   it('sin auth → unauthenticated', async () => {
     const deps = makeDeps();
-    await expect(handleSapProxy({ endpoint: '/b1s/v1/Items' }, null, deps))
-      .rejects.toMatchObject({ code: 'unauthenticated' });
+    await expect(handleSapProxy({ endpoint: '/b1s/v1/Items' }, null, deps)).rejects.toMatchObject({
+      code: 'unauthenticated',
+    });
   });
 
   it('auth pero sin rol → permission-denied', async () => {
     const deps = makeDeps({ getUserRole: vi.fn(async () => null) });
-    await expect(handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps))
-      .rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(
+      handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps)
+    ).rejects.toMatchObject({ code: 'permission-denied' });
   });
 
   it('vendedor GET /Items → OK (lectura permitida)', async () => {
@@ -74,20 +80,24 @@ describe('handleSapProxy — auth', () => {
 
   it('vendedor POST /Quotations → permission-denied', async () => {
     const deps = makeDeps({ getUserRole: vi.fn(async () => 'vendedor') });
-    await expect(handleSapProxy(
-      { endpoint: '/b1s/v1/Quotations', method: 'POST', body: {} },
-      { uid: 'u1' },
-      deps,
-    )).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(
+      handleSapProxy(
+        { endpoint: '/b1s/v1/Quotations', method: 'POST', body: {} },
+        { uid: 'u1' },
+        deps
+      )
+    ).rejects.toMatchObject({ code: 'permission-denied' });
   });
 
   it('interno POST /Quotations → permission-denied (solo admin/gerente)', async () => {
     const deps = makeDeps({ getUserRole: vi.fn(async () => 'interno') });
-    await expect(handleSapProxy(
-      { endpoint: '/b1s/v1/Quotations', method: 'POST', body: {} },
-      { uid: 'u1' },
-      deps,
-    )).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(
+      handleSapProxy(
+        { endpoint: '/b1s/v1/Quotations', method: 'POST', body: {} },
+        { uid: 'u1' },
+        deps
+      )
+    ).rejects.toMatchObject({ code: 'permission-denied' });
   });
 
   it('gerente POST /Quotations → OK', async () => {
@@ -95,54 +105,62 @@ describe('handleSapProxy — auth', () => {
     const res = await handleSapProxy(
       { endpoint: '/b1s/v1/Quotations', method: 'POST', body: { CardCode: 'C1' } },
       { uid: 'u1' },
-      deps,
+      deps
     );
     expect(res.status).toBe(200);
   });
 
   it('viewer GET /Items → permission-denied', async () => {
     const deps = makeDeps({ getUserRole: vi.fn(async () => 'viewer') });
-    await expect(handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps))
-      .rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(
+      handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps)
+    ).rejects.toMatchObject({ code: 'permission-denied' });
   });
 });
 
 describe('handleSapProxy — sanitización', () => {
   it('endpoint sin /b1s/v1/ prefix → invalid-argument (protege SSRF)', async () => {
     const deps = makeDeps();
-    await expect(handleSapProxy({ endpoint: 'https://evil.com/steal' }, { uid: 'u1' }, deps))
-      .rejects.toMatchObject({ code: 'invalid-argument' });
+    await expect(
+      handleSapProxy({ endpoint: 'https://evil.com/steal' }, { uid: 'u1' }, deps)
+    ).rejects.toMatchObject({ code: 'invalid-argument' });
   });
 
   it('endpoint vacío → invalid-argument', async () => {
     const deps = makeDeps();
-    await expect(handleSapProxy({ endpoint: '' }, { uid: 'u1' }, deps))
-      .rejects.toMatchObject({ code: 'invalid-argument' });
+    await expect(handleSapProxy({ endpoint: '' }, { uid: 'u1' }, deps)).rejects.toMatchObject({
+      code: 'invalid-argument',
+    });
   });
 
   it('method no soportado → invalid-argument', async () => {
     const deps = makeDeps();
-    await expect(handleSapProxy(
-      { endpoint: '/b1s/v1/Items', method: /** @type {any} */ ('HEAD') },
-      { uid: 'u1' },
-      deps,
-    )).rejects.toMatchObject({ code: 'invalid-argument' });
+    await expect(
+      handleSapProxy(
+        { endpoint: '/b1s/v1/Items', method: /** @type {any} */ ('HEAD') },
+        { uid: 'u1' },
+        deps
+      )
+    ).rejects.toMatchObject({ code: 'invalid-argument' });
   });
 
   it('data sin endpoint → invalid-argument', async () => {
     const deps = makeDeps();
-    await expect(handleSapProxy(/** @type {any} */ ({}), { uid: 'u1' }, deps))
-      .rejects.toMatchObject({ code: 'invalid-argument' });
+    await expect(
+      handleSapProxy(/** @type {any} */ ({}), { uid: 'u1' }, deps)
+    ).rejects.toMatchObject({ code: 'invalid-argument' });
   });
 });
 
 describe('handleSapProxy — SL relay', () => {
   let deps;
-  beforeEach(() => { deps = makeDeps(); });
+  beforeEach(() => {
+    deps = makeDeps();
+  });
 
   it('llama Login con creds correctas', async () => {
     await handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps);
-    const loginCall = deps.fetch.mock.calls.find(c => c[0].endsWith('/Login'));
+    const loginCall = deps.fetch.mock.calls.find((c) => c[0].endsWith('/Login'));
     expect(loginCall).toBeTruthy();
     const body = JSON.parse(loginCall[1].body);
     expect(body).toEqual({
@@ -154,7 +172,7 @@ describe('handleSapProxy — SL relay', () => {
 
   it('forward call usa Cookie de la sesión', async () => {
     await handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps);
-    const proxyCall = deps.fetch.mock.calls.find(c => c[0].includes('/Items'));
+    const proxyCall = deps.fetch.mock.calls.find((c) => c[0].includes('/Items'));
     expect(proxyCall[1].headers.Cookie).toBe('B1SESSION=abc123; ROUTEID=.node1');
   });
 
@@ -162,27 +180,33 @@ describe('handleSapProxy — SL relay', () => {
     await handleSapProxy(
       { endpoint: '/b1s/v1/Quotations', method: 'POST', body: { CardCode: 'C1', DocLines: [] } },
       { uid: 'u1' },
-      deps,
+      deps
     );
-    const proxyCall = deps.fetch.mock.calls.find(c => c[0].endsWith('/Quotations'));
+    const proxyCall = deps.fetch.mock.calls.find((c) => c[0].endsWith('/Quotations'));
     expect(JSON.parse(proxyCall[1].body)).toEqual({ CardCode: 'C1', DocLines: [] });
   });
 
   it('llama Logout después del forward (hygiene)', async () => {
     await handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps);
-    const logoutCall = deps.fetch.mock.calls.find(c => c[0].endsWith('/Logout'));
+    const logoutCall = deps.fetch.mock.calls.find((c) => c[0].endsWith('/Logout'));
     expect(logoutCall).toBeTruthy();
   });
 
   it('Login fail → unavailable con status del SL', async () => {
     deps.fetch = vi.fn(async (url) => {
       if (url.endsWith('/Login')) {
-        return { ok: false, status: 401, headers: { get: () => null }, text: async () => 'auth failed' };
+        return {
+          ok: false,
+          status: 401,
+          headers: { get: () => null },
+          text: async () => 'auth failed',
+        };
       }
       return makeSlResponse(url);
     });
-    await expect(handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps))
-      .rejects.toMatchObject({ code: 'unavailable' });
+    await expect(
+      handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps)
+    ).rejects.toMatchObject({ code: 'unavailable' });
   });
 
   it('Login no devuelve cookies → unavailable', async () => {
@@ -192,14 +216,16 @@ describe('handleSapProxy — SL relay', () => {
       }
       return makeSlResponse(url);
     });
-    await expect(handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps))
-      .rejects.toMatchObject({ code: 'unavailable' });
+    await expect(
+      handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps)
+    ).rejects.toMatchObject({ code: 'unavailable' });
   });
 
   it('sapConfig incompleto → internal', async () => {
     deps.sapConfig = { url: '', companyDB: '', userName: '', password: '' };
-    await expect(handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps))
-      .rejects.toMatchObject({ code: 'internal' });
+    await expect(
+      handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps)
+    ).rejects.toMatchObject({ code: 'internal' });
   });
 
   it('response no-JSON queda como string (no rompe)', async () => {
@@ -214,7 +240,7 @@ describe('handleSapProxy — SL relay', () => {
 
   it('logout fail se traga (no rompe la response)', async () => {
     const okCalls = [];
-    deps.fetch = vi.fn(async (url, init) => {
+    deps.fetch = vi.fn(async (url, _init) => {
       if (url.endsWith('/Logout')) throw new Error('network err');
       okCalls.push(url);
       return makeSlResponse(url);

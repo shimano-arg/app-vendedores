@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { runDailyBackup, formatBackupTimestamp } from '../../functions/core/backup-core.js';
+import { describe, expect, it, vi } from 'vitest';
+import { formatBackupTimestamp, runDailyBackup } from '../../functions/core/backup-core.js';
 
 const FIXED_NOW = new Date('2026-07-24T05:00:00Z'); // 02:00 AR = 05:00 UTC
 
@@ -9,7 +9,9 @@ function makeDeps(over = {}) {
     projectId: 'app-vendedores-shimano',
     bucketName: 'app-vendedores-shimano-backups',
     now: () => FIXED_NOW,
-    exportDocuments: vi.fn(async () => ({ name: 'projects/app-vendedores-shimano/databases/(default)/operations/op-1' })),
+    exportDocuments: vi.fn(async () => ({
+      name: 'projects/app-vendedores-shimano/databases/(default)/operations/op-1',
+    })),
     log: vi.fn(),
     ...over,
   };
@@ -40,8 +42,12 @@ describe('runDailyBackup — request wiring', () => {
     expect(req.outputUriPrefix).toBe('gs://app-vendedores-shimano-backups/firestore/2026-07-24/');
     expect(req.collectionIds).toEqual([]); // export todas
 
-    expect(result.outputUriPrefix).toBe('gs://app-vendedores-shimano-backups/firestore/2026-07-24/');
-    expect(result.operationName).toBe('projects/app-vendedores-shimano/databases/(default)/operations/op-1');
+    expect(result.outputUriPrefix).toBe(
+      'gs://app-vendedores-shimano-backups/firestore/2026-07-24/'
+    );
+    expect(result.operationName).toBe(
+      'projects/app-vendedores-shimano/databases/(default)/operations/op-1'
+    );
     expect(result.timestamp).toBe('2026-07-24');
   });
 
@@ -80,7 +86,9 @@ describe('runDailyBackup — errores', () => {
 
   it('exportDocuments falla → re-throw (cloud logging captura)', async () => {
     const deps = makeDeps({
-      exportDocuments: vi.fn(async () => { throw new Error('PERMISSION_DENIED: needs datastore.importExportAdmin'); }),
+      exportDocuments: vi.fn(async () => {
+        throw new Error('PERMISSION_DENIED: needs datastore.importExportAdmin');
+      }),
     });
     await expect(runDailyBackup(deps)).rejects.toThrow(/PERMISSION_DENIED/);
   });
@@ -92,21 +100,25 @@ describe('runDailyBackup — logging', () => {
     const deps = makeDeps({ log: (msg, extra) => logs.push({ msg, extra }) });
     await runDailyBackup(deps);
 
-    const startLog = logs.find(l => l.msg === 'dailyFirestoreBackup starting');
-    const okLog = logs.find(l => l.msg === 'dailyFirestoreBackup started operation');
+    const startLog = logs.find((l) => l.msg === 'dailyFirestoreBackup starting');
+    const okLog = logs.find((l) => l.msg === 'dailyFirestoreBackup started operation');
     expect(startLog).toBeTruthy();
     expect(okLog).toBeTruthy();
-    expect(okLog.extra.operationName).toBe('projects/app-vendedores-shimano/databases/(default)/operations/op-1');
+    expect(okLog.extra.operationName).toBe(
+      'projects/app-vendedores-shimano/databases/(default)/operations/op-1'
+    );
   });
 
   it('loguea "dailyFirestoreBackup failed" antes de re-throw (para alerta)', async () => {
     const logs = [];
     const deps = makeDeps({
       log: (msg, extra) => logs.push({ msg, extra }),
-      exportDocuments: vi.fn(async () => { throw new Error('boom'); }),
+      exportDocuments: vi.fn(async () => {
+        throw new Error('boom');
+      }),
     });
     await expect(runDailyBackup(deps)).rejects.toThrow();
-    const failLog = logs.find(l => l.msg === 'dailyFirestoreBackup failed');
+    const failLog = logs.find((l) => l.msg === 'dailyFirestoreBackup failed');
     expect(failLog).toBeTruthy();
     expect(failLog.extra.error).toContain('boom');
   });

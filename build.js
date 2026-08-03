@@ -25,10 +25,10 @@
 //
 // Regenerar tras cualquier cambio en src/**: npm run build && git add app.bundle.js chunks/.
 
-import { build as esbuild } from 'esbuild';
-import { stat, mkdir } from 'node:fs/promises';
-import { dirname, join, basename } from 'node:path';
+import { mkdir, stat } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { build as esbuild } from 'esbuild';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const BUNDLE = join(ROOT, 'app.bundle.js');
@@ -39,21 +39,48 @@ const CHUNKS_DIR = join(ROOT, 'chunks');
 // stubs proxy que hagan lazy loadChunk + re-invoke.
 const LAZY_CHUNKS = {
   'exports-core': [
-    'closeExportAnalisis', 'closeExportDialog', 'closeMonthPicker', 'confirmMonthPicker',
-    'exportMasterClientes', 'exportPreciosStock', 'exportTargetsZonas', 'exportToExcel',
-    'openExportAnalisis', 'showMonthPicker',
+    'closeExportAnalisis',
+    'closeExportDialog',
+    'closeMonthPicker',
+    'confirmMonthPicker',
+    'exportMasterClientes',
+    'exportPreciosStock',
+    'exportTargetsZonas',
+    'exportToExcel',
+    'openExportAnalisis',
+    'showMonthPicker',
   ],
   'exports-advanced': [
-    'exportAuditExcel', 'exportExecutive', 'exportML', 'exportPhotosZip',
-    'exportPowerBI', 'exportVisitsExcel', 'exportVisitsWithEmbeddedPhotos',
+    'exportAuditExcel',
+    'exportExecutive',
+    'exportML',
+    'exportPhotosZip',
+    'exportPowerBI',
+    'exportVisitsExcel',
+    'exportVisitsWithEmbeddedPhotos',
     // v371+: export dataset ZIP para pipelines ML (admin/gerente only)
-    'openExportFormatModal', 'closeExportFormatModal', 'exportDatasetZip',
+    'openExportFormatModal',
+    'closeExportFormatModal',
+    'exportDatasetZip',
   ],
   'admin-users': [
-    'addAllowedEmail', 'bulkAssignApprover', 'changeUserPassword', 'closeAdminPanel',
-    'closeTotpSetupModal', 'confirmTotpSetup', 'deleteGeminiApiKey', 'deleteGmapsApiKey',
-    'deleteUserRole', 'disableTotp', 'generateNewTotp', 'openAdminPanel', 'openTotpSetup',
-    'removeAllowedEmail', 'saveGeminiApiKey', 'saveGmapsApiKey', 'saveUserRole',
+    'addAllowedEmail',
+    'bulkAssignApprover',
+    'changeUserPassword',
+    'closeAdminPanel',
+    'closeTotpSetupModal',
+    'confirmTotpSetup',
+    'deleteGeminiApiKey',
+    'deleteGmapsApiKey',
+    'deleteUserRole',
+    'disableTotp',
+    'generateNewTotp',
+    'openAdminPanel',
+    'openTotpSetup',
+    'removeAllowedEmail',
+    'saveGeminiApiKey',
+    'saveGmapsApiKey',
+    'saveUserRole',
   ],
 };
 
@@ -104,7 +131,10 @@ async function main() {
   for (const [name, size] of Object.entries(chunkSizes)) {
     console.log('[build] chunks/' + name + '.js', fmtSize(size));
   }
-  console.log('[build] Total:', fmtSize(shellSize + Object.values(chunkSizes).reduce((a, b) => a + b, 0)));
+  console.log(
+    '[build] Total:',
+    fmtSize(shellSize + Object.values(chunkSizes).reduce((a, b) => a + b, 0))
+  );
   console.log('[build] Done in', dt, 's');
   console.log('[build] Regenerá y commiteá app.bundle.js + chunks/ cada vez que cambies src/**');
 }

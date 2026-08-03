@@ -23,10 +23,10 @@
 //   DEBUG_PORT   default 9222
 //   BASELINE_TAG "post-e0" (default: iso date)
 
-import puppeteer from 'puppeteer-core';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { LOCAL_URL, THROTTLING, RUNS_PER_SCENARIO, OUTPUT_DIR, BASELINE_DATE } from './config.js';
+import puppeteer from 'puppeteer-core';
+import { BASELINE_DATE, LOCAL_URL, OUTPUT_DIR, RUNS_PER_SCENARIO, THROTTLING } from './config.js';
 
 const TAG = process.env.BASELINE_TAG || BASELINE_DATE;
 const DEBUG_PORT = parseInt(process.env.DEBUG_PORT || '9222', 10);
@@ -46,7 +46,9 @@ async function ensureLoggedIn(page) {
         const leaflet = document.querySelector('.leaflet-container');
         const authOverlay = document.querySelector('.auth-overlay');
         const authVisible = authOverlay
-          ? !authOverlay.classList.contains('hidden') && getComputedStyle(authOverlay).display !== 'none' && getComputedStyle(authOverlay).visibility !== 'hidden'
+          ? !authOverlay.classList.contains('hidden') &&
+            getComputedStyle(authOverlay).display !== 'none' &&
+            getComputedStyle(authOverlay).visibility !== 'hidden'
           : false;
         return {
           hasMap: !!mapEl,
@@ -59,18 +61,22 @@ async function ensureLoggedIn(page) {
         console.log('[trace] Tab loggeado ✓ (Leaflet listo, sin auth overlay)');
         return;
       }
-    } catch (_) { /* frame invalidated, retry */ }
-    await new Promise(r => setTimeout(r, 1000));
+    } catch (_) {
+      /* frame invalidated, retry */
+    }
+    await new Promise((r) => setTimeout(r, 1000));
   }
-  throw new Error(`Tab no llegó a estado loggeado en ${TIMEOUT / 1000}s. Último estado: ${JSON.stringify(lastState)}. Loggeate en el Chrome del debug port y refrescá el tab de localhost:8000.`);
+  throw new Error(
+    `Tab no llegó a estado loggeado en ${TIMEOUT / 1000}s. Último estado: ${JSON.stringify(lastState)}. Loggeate en el Chrome del debug port y refrescá el tab de localhost:8000.`
+  );
 }
 
 async function measureMapPaint(page) {
   console.log('[trace] Escenario (a): map paint inicial...');
   // Recargar para medir con cache-hit (representativo de "abrir la app 2da vez")
   const t0 = Date.now();
-  const outlinesReady = new Promise(res => {
-    const handler = msg => {
+  const outlinesReady = new Promise((res) => {
+    const handler = (msg) => {
       if (msg.text().includes('[outlines] cache built')) {
         page.off('console', handler);
         res(Date.now() - t0);
@@ -92,13 +98,14 @@ async function tracePanZoom(page, client) {
 
   // Iniciar tracing CDP con categorías de rendering + long tasks.
   await client.send('Tracing.start', {
-    categories: 'devtools.timeline,disabled-by-default-devtools.timeline,disabled-by-default-devtools.timeline.frame,disabled-by-default-v8.cpu_profiler',
+    categories:
+      'devtools.timeline,disabled-by-default-devtools.timeline,disabled-by-default-devtools.timeline.frame,disabled-by-default-v8.cpu_profiler',
     options: 'sampling-frequency=10000',
   });
 
-  const tCollect = new Promise(res => {
+  const tCollect = new Promise((res) => {
     const chunks = [];
-    client.on('Tracing.dataCollected', ev => chunks.push(...ev.value));
+    client.on('Tracing.dataCollected', (ev) => chunks.push(...ev.value));
     client.on('Tracing.tracingComplete', () => res(chunks));
   });
 
@@ -113,24 +120,36 @@ async function tracePanZoom(page, client) {
       const r = el.getBoundingClientRect();
       const cx = r.x + r.width / 2;
       const cy = r.y + r.height / 2;
-      const mk = (type, x, y, extras = {}) => new MouseEvent(type, {
-        bubbles: true, cancelable: true, view: window,
-        clientX: x, clientY: y, button: 0, buttons: 1, ...extras,
-      });
+      const mk = (type, x, y, extras = {}) =>
+        new MouseEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: x,
+          clientY: y,
+          button: 0,
+          buttons: 1,
+          ...extras,
+        });
       // Pan drag
       el.dispatchEvent(mk('mousedown', cx, cy));
       for (let s = 1; s <= 10; s++) {
-        el.dispatchEvent(mk('mousemove', cx - (100 * s / 10), cy - (100 * s / 10)));
+        el.dispatchEvent(mk('mousemove', cx - (100 * s) / 10, cy - (100 * s) / 10));
       }
       el.dispatchEvent(mk('mouseup', cx - 100, cy - 100));
       // Zoom wheel
       const wheel = new WheelEvent('wheel', {
-        bubbles: true, cancelable: true, view: window,
-        clientX: cx, clientY: cy, deltaY: -100, deltaMode: 0,
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX: cx,
+        clientY: cy,
+        deltaY: -100,
+        deltaMode: 0,
       });
       el.dispatchEvent(wheel);
     });
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise((r) => setTimeout(r, 1500));
   }
 
   await client.send('Tracing.end');
@@ -151,8 +170,8 @@ async function tracePanZoom(page, client) {
   return {
     totalEvents: events.length,
     longTasks: longTasks.sort((a, b) => b.dur - a.dur).slice(0, 20),
-    longTasksOver200ms: longTasks.filter(t => t.dur > 200).length,
-    longTasksOver500ms: longTasks.filter(t => t.dur > 500).length,
+    longTasksOver200ms: longTasks.filter((t) => t.dur > 200).length,
+    longTasksOver500ms: longTasks.filter((t) => t.dur > 500).length,
     worstFrameMs: worstFrame,
   };
 }
@@ -161,15 +180,15 @@ async function findLocalhostTab(browser) {
   // Busca el tab que tiene abierta la app en localhost:8000.
   // Match laxo: cualquier URL con "localhost:8000" o "[::1]:8000" o "127.0.0.1:8000".
   const pages = await browser.pages();
-  const allUrls = pages.map(p => p.url());
+  const allUrls = pages.map((p) => p.url());
   const isLocal = (u) => /(?:localhost|127\.0\.0\.1|\[::1\]):8000/.test(u);
   for (const p of pages) {
     if (isLocal(p.url())) return p;
   }
   throw new Error(
     `No hay ningún tab que matchee "localhost:8000" en el Chrome del debug port.\n` +
-    `Tabs abiertos actualmente:\n  ${allUrls.map(u => '- ' + u).join('\n  ')}\n` +
-    `Abrí la app en el Chrome que launcheaste con --remote-debugging-port=${DEBUG_PORT}.`
+      `Tabs abiertos actualmente:\n  ${allUrls.map((u) => '- ' + u).join('\n  ')}\n` +
+      `Abrí la app en el Chrome que launcheaste con --remote-debugging-port=${DEBUG_PORT}.`
   );
 }
 
@@ -196,7 +215,10 @@ async function runOne(browser) {
   try {
     await client.send('Emulation.setCPUThrottlingRate', { rate: 1 });
     await client.send('Network.emulateNetworkConditions', {
-      offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
+      offline: false,
+      latency: 0,
+      downloadThroughput: -1,
+      uploadThroughput: -1,
     });
   } catch (_) {}
 
@@ -221,7 +243,7 @@ async function main() {
   } catch (err) {
     throw new Error(
       `No pude conectar a ${DEBUG_URL}. Chequear que Chrome esté abierto con --remote-debugging-port=${DEBUG_PORT}.\n` +
-      `Original: ${err.message}`
+        `Original: ${err.message}`
     );
   }
   console.log('[trace] Conectado a Chrome ✓');
@@ -244,17 +266,21 @@ async function main() {
   }
 
   if (runs.length < 2) {
-    console.error(`\n[trace] Solo ${runs.length}/${RUNS_PER_SCENARIO} corridas exitosas — insuficiente para baseline.`);
+    console.error(
+      `\n[trace] Solo ${runs.length}/${RUNS_PER_SCENARIO} corridas exitosas — insuficiente para baseline.`
+    );
     console.error(`[trace] Fallos:`, failures);
     process.exit(1);
   }
   if (runs.length < RUNS_PER_SCENARIO) {
-    console.warn(`\n[trace] ⚠️  ${runs.length}/${RUNS_PER_SCENARIO} corridas OK (variance elegida sobre las OK).`);
+    console.warn(
+      `\n[trace] ⚠️  ${runs.length}/${RUNS_PER_SCENARIO} corridas OK (variance elegida sobre las OK).`
+    );
   }
 
-  const mapPaintTimes = runs.map(r => r.mapPaintMs);
-  const worstFrames = runs.map(r => r.panZoom.worstFrameMs);
-  const median = arr => {
+  const mapPaintTimes = runs.map((r) => r.mapPaintMs);
+  const worstFrames = runs.map((r) => r.panZoom.worstFrameMs);
+  const median = (arr) => {
     const s = [...arr].sort((a, b) => a - b);
     return s[Math.floor(s.length / 2)];
   };
@@ -278,8 +304,8 @@ async function main() {
       max: Math.max(...worstFrames),
       all: worstFrames,
     },
-    longTasksOver200msMedian: median(runs.map(r => r.panZoom.longTasksOver200ms)),
-    longTasksOver500msMedian: median(runs.map(r => r.panZoom.longTasksOver500ms)),
+    longTasksOver200msMedian: median(runs.map((r) => r.panZoom.longTasksOver200ms)),
+    longTasksOver500msMedian: median(runs.map((r) => r.panZoom.longTasksOver500ms)),
     longTasksSample: runs[0].panZoom.longTasks,
   };
 
@@ -288,12 +314,18 @@ async function main() {
   writeFileSync(outPath, JSON.stringify(output, null, 2));
   console.log(`\n[trace] Reporte: ${outPath}`);
   console.log(`[trace] Median map paint: ${output.mapPaint.median}ms`);
-  console.log(`[trace] Median worst frame durante pan/zoom: ${output.panZoomWorstFrame.median.toFixed(0)}ms`);
-  console.log(`[trace] Median long tasks >200ms durante pan/zoom: ${output.longTasksOver200msMedian}`);
-  console.log(`[trace] Median long tasks >500ms durante pan/zoom: ${output.longTasksOver500msMedian}`);
+  console.log(
+    `[trace] Median worst frame durante pan/zoom: ${output.panZoomWorstFrame.median.toFixed(0)}ms`
+  );
+  console.log(
+    `[trace] Median long tasks >200ms durante pan/zoom: ${output.longTasksOver200msMedian}`
+  );
+  console.log(
+    `[trace] Median long tasks >500ms durante pan/zoom: ${output.longTasksOver500msMedian}`
+  );
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('[trace] FAIL:', err.stack || err.message || err);
   process.exit(1);
 });

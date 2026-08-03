@@ -14,7 +14,7 @@
  */
 
 /** @type {Record<string, number>} */
-const FIJO_PCT  = { P: 6, A: 3, B: 0, C: 0 };
+const FIJO_PCT = { P: 6, A: 3, B: 0, C: 0 };
 /** @type {Record<string, number>} */
 const ANTIC_PCT = { P: 5, A: 3, B: 0, C: 0 };
 
@@ -46,22 +46,36 @@ export function calcClientDiscount(clientData, subtotal, formaPago) {
   const tipo = (clientData && clientData.cliTipo) || '';
   let pctVol = 0;
   let volLabel = '';
-  if (subtotal > 20000000)      { pctVol = 6; volLabel = 'mas de $20M'; }
-  else if (subtotal > 10000000) { pctVol = 4; volLabel = '$10M-$20M'; }
-  else if (subtotal > 4500000)  { pctVol = 3; volLabel = '$4.5M-$10M'; }
-  else if (subtotal > 3000000)  { pctVol = 2; volLabel = '$3M-$4.5M'; }
-  else                          { pctVol = 0; volLabel = 'hasta $3M'; }
+  if (subtotal > 20000000) {
+    pctVol = 6;
+    volLabel = 'mas de $20M';
+  } else if (subtotal > 10000000) {
+    pctVol = 4;
+    volLabel = '$10M-$20M';
+  } else if (subtotal > 4500000) {
+    pctVol = 3;
+    volLabel = '$4.5M-$10M';
+  } else if (subtotal > 3000000) {
+    pctVol = 2;
+    volLabel = '$3M-$4.5M';
+  } else {
+    pctVol = 0;
+    volLabel = 'hasta $3M';
+  }
 
-  const pctFijo  = FIJO_PCT[tipo] || 0;
-  const pctAntic = formaPago === 'CONTADO' ? (ANTIC_PCT[tipo] || 0) : 0;
+  const pctFijo = FIJO_PCT[tipo] || 0;
+  const pctAntic = formaPago === 'CONTADO' ? ANTIC_PCT[tipo] || 0 : 0;
   const pctTotal = pctFijo + pctVol + pctAntic;
-  const monto    = subtotal * pctTotal / 100;
+  const monto = (subtotal * pctTotal) / 100;
   return {
     tipo,
     vol: volLabel,
     formaPago: formaPago || '',
     subtotal,
-    pctFijo, pctVol, pctAntic, pctTotal,
+    pctFijo,
+    pctVol,
+    pctAntic,
+    pctTotal,
     monto,
     total: subtotal - monto,
     hasAny: !!(tipo || formaPago || pctVol > 0),

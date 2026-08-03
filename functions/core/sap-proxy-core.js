@@ -51,7 +51,9 @@ const ENDPOINT_PREFIX = '/b1s/v1/';
 /** @param {'unauthenticated'|'permission-denied'|'invalid-argument'|'internal'|'unavailable'} code
  *  @param {string} message
  *  @returns {HttpsErrorLike} */
-export function makeHttpsError(code, message) { return { code, message }; }
+export function makeHttpsError(code, message) {
+  return { code, message };
+}
 
 /**
  * Determina si un endpoint es de lectura (GET a colecciones seguras).
@@ -60,8 +62,14 @@ export function makeHttpsError(code, message) { return { code, message }; }
  */
 function isReadOnly(method, endpoint) {
   if (method !== 'GET') return false;
-  const readableCollections = ['Items', 'BusinessPartners', 'Warehouses', 'SalesPersons', 'Inventory'];
-  return readableCollections.some(c => endpoint.includes(`/b1s/v1/${c}`));
+  const readableCollections = [
+    'Items',
+    'BusinessPartners',
+    'Warehouses',
+    'SalesPersons',
+    'Inventory',
+  ];
+  return readableCollections.some((c) => endpoint.includes(`/b1s/v1/${c}`));
 }
 
 /**
@@ -111,10 +119,15 @@ export async function handleSapProxy(data, auth, deps) {
     throw makeHttpsError('invalid-argument', 'method inválido.');
   }
 
-  const roleWhitelist = isReadOnly(method, data.endpoint) ? ALLOWED_ROLES_READ : ALLOWED_ROLES_WRITE;
-  if (!(/** @type {readonly string[]} */ (roleWhitelist)).includes(role)) {
+  const roleWhitelist = isReadOnly(method, data.endpoint)
+    ? ALLOWED_ROLES_READ
+    : ALLOWED_ROLES_WRITE;
+  if (!(/** @type {readonly string[]} */ (roleWhitelist).includes(role))) {
     log('sapProxy denied by role', { uid: auth.uid, role, method, endpoint: data.endpoint });
-    throw makeHttpsError('permission-denied', `Rol ${role} no autorizado para ${method} ${data.endpoint}`);
+    throw makeHttpsError(
+      'permission-denied',
+      `Rol ${role} no autorizado para ${method} ${data.endpoint}`
+    );
   }
 
   const { url, companyDB, userName, password } = deps.sapConfig;
@@ -152,7 +165,11 @@ export async function handleSapProxy(data, auth, deps) {
   const proxyText = await proxyRes.text();
   /** @type {unknown} */
   let proxyBody = proxyText;
-  try { proxyBody = JSON.parse(proxyText); } catch { /* body no-json, dejamos texto */ }
+  try {
+    proxyBody = JSON.parse(proxyText);
+  } catch {
+    /* body no-json, dejamos texto */
+  }
 
   // Logout best-effort. Errores acá no rompen la response al cliente.
   try {
@@ -164,6 +181,12 @@ export async function handleSapProxy(data, auth, deps) {
     log('sapProxy SL logout swallowed', { err: String(e) });
   }
 
-  log('sapProxy OK', { uid: auth.uid, role, method, endpoint: data.endpoint, status: proxyRes.status });
+  log('sapProxy OK', {
+    uid: auth.uid,
+    role,
+    method,
+    endpoint: data.endpoint,
+    status: proxyRes.status,
+  });
   return { status: proxyRes.status, body: proxyBody };
 }

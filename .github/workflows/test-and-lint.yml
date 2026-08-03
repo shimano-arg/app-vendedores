@@ -51,6 +51,13 @@ jobs:
       - name: TypeScript typecheck
         run: npm run typecheck
 
+      # v383+ (2026-08-02): Biome lint. Guardrail principal contra bugs de
+      # scope tipo v382 (regla `noUndeclaredVariables`). 213 identifiers
+      # globales del inline declarados en biome.json → cualquier identifier
+      # nuevo sin declarar rompe el PR ANTES de que Sentry lo capture en prod.
+      - name: Lint (Biome)
+        run: npm run lint
+
       - name: Unit tests (168 assertions)
         run: npm run test:unit
 

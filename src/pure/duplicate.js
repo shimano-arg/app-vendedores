@@ -20,9 +20,27 @@
 import { normalizeSearch } from './normalize.js';
 
 const STOPWORDS = new Set([
-  'de','del','la','el','los','las','y','al','en','con',
-  'pesca','pescas','pescador','tienda','store','shop',
-  'sa','srl','sas','sac','sh',
+  'de',
+  'del',
+  'la',
+  'el',
+  'los',
+  'las',
+  'y',
+  'al',
+  'en',
+  'con',
+  'pesca',
+  'pescas',
+  'pescador',
+  'tienda',
+  'store',
+  'shop',
+  'sa',
+  'srl',
+  'sas',
+  'sac',
+  'sh',
 ]);
 
 /**

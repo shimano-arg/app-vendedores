@@ -14,25 +14,26 @@
  * (independiente, dep externa), verificar que los valores originales se
  * recuperan exactos (con las conversiones documentadas: null -> '', Date -> ISO).
  */
-import { describe, it, expect } from 'vitest';
+
 import Papa from 'papaparse';
+import { describe, expect, it } from 'vitest';
 import {
+  buildCampaniaRows,
+  buildClienteRows,
+  buildCsv,
+  buildCustomRouteRows,
+  buildPedidoRows,
+  buildProductoRowsFromStockJson,
+  buildRendicionRows,
+  buildTargetRows,
+  buildVisitaRows,
+  computeNullRates,
   csvEscape,
   csvRow,
-  firestoreValueToCsv,
-  getPath,
-  buildCsv,
-  computeNullRates,
   DATASET_SCHEMAS,
   DATASET_USE_CASE_MATRIX,
-  buildPedidoRows,
-  buildVisitaRows,
-  buildClienteRows,
-  buildRendicionRows,
-  buildCampaniaRows,
-  buildTargetRows,
-  buildCustomRouteRows,
-  buildProductoRowsFromStockJson,
+  firestoreValueToCsv,
+  getPath,
 } from '../../src/pure/csv-serializer.js';
 
 // ============================================================
@@ -109,7 +110,11 @@ describe('firestoreValueToCsv', () => {
     expect(firestoreValueToCsv(ts)).toBe('2026-08-01T00:00:00.000Z');
   });
   it('Timestamp.toDate() que tira -> vacio (no romper)', () => {
-    const ts = { toDate: () => { throw new Error('bad'); } };
+    const ts = {
+      toDate: () => {
+        throw new Error('bad');
+      },
+    };
     expect(firestoreValueToCsv(ts)).toBe('');
   });
   it('Array -> JSON stringified', () => {
@@ -143,7 +148,7 @@ describe('getPath', () => {
     expect(getPath({}, 'a.b')).toBe(undefined);
   });
   it('null root -> undefined', () => {
-    expect(getPath(/** @type {any} */(null), 'a')).toBe(undefined);
+    expect(getPath(/** @type {any} */ (null), 'a')).toBe(undefined);
   });
 });
 
@@ -185,15 +190,31 @@ describe('csvRow + round-trip con papaparse', () => {
     expect(parsed.data[0][1]).toBe('linea1\nlinea2');
   });
   it('buildCsv genera header + rows con \\r\\n', () => {
-    const schema = { columns: [{ col: 'a', type: 's', desc: '' }, { col: 'b', type: 's', desc: '' }] };
-    const csv = buildCsv(schema, [['1', '2'], ['3', '4']]);
+    const schema = {
+      columns: [
+        { col: 'a', type: 's', desc: '' },
+        { col: 'b', type: 's', desc: '' },
+      ],
+    };
+    const csv = buildCsv(schema, [
+      ['1', '2'],
+      ['3', '4'],
+    ]);
     expect(csv).toBe('a,b\r\n1,2\r\n3,4\r\n');
     // Round-trip
     const parsed = Papa.parse(csv.trim(), { header: true });
-    expect(parsed.data).toEqual([{ a: '1', b: '2' }, { a: '3', b: '4' }]);
+    expect(parsed.data).toEqual([
+      { a: '1', b: '2' },
+      { a: '3', b: '4' },
+    ]);
   });
   it('buildCsv con array vacio -> solo header', () => {
-    const schema = { columns: [{ col: 'a', type: 's', desc: '' }, { col: 'b', type: 's', desc: '' }] };
+    const schema = {
+      columns: [
+        { col: 'a', type: 's', desc: '' },
+        { col: 'b', type: 's', desc: '' },
+      ],
+    };
     expect(buildCsv(schema, [])).toBe('a,b\r\n');
   });
 });
@@ -243,8 +264,19 @@ describe('computeNullRates', () => {
 // ============================================================
 describe('DATASET_SCHEMAS', () => {
   it('tiene las 11 colecciones esperadas', () => {
-    const expected = ['pedidos', 'visitas', 'clientes', 'client_master', 'rendiciones',
-      'campanias', 'targets', 'productos', 'vendor_overrides', 'custom_routes', 'seguimiento_notes'];
+    const expected = [
+      'pedidos',
+      'visitas',
+      'clientes',
+      'client_master',
+      'rendiciones',
+      'campanias',
+      'targets',
+      'productos',
+      'vendor_overrides',
+      'custom_routes',
+      'seguimiento_notes',
+    ];
     expect(Object.keys(DATASET_SCHEMAS).sort()).toEqual(expected.sort());
   });
   it('cada schema tiene name, source, rowMode, columns', () => {
@@ -297,11 +329,11 @@ describe('DATASET_USE_CASE_MATRIX', () => {
     }
   });
   it('cada campo requerido existe en el schema del CSV correspondiente', () => {
-    const csvToSchema = /** @type {Record<string, any>} */({});
+    const csvToSchema = /** @type {Record<string, any>} */ ({});
     for (const s of Object.values(DATASET_SCHEMAS)) csvToSchema[s.name] = s;
     for (const [k, uc] of Object.entries(DATASET_USE_CASE_MATRIX)) {
       for (const [csvName, fields] of Object.entries(uc.requiredFields)) {
-        const cols = new Set(csvToSchema[csvName].columns.map((/** @type {any} */c) => c.col));
+        const cols = new Set(csvToSchema[csvName].columns.map((/** @type {any} */ c) => c.col));
         for (const f of fields) {
           expect(cols.has(f), `${k}: ${csvName}.${f} debe existir en schema`).toBe(true);
         }
@@ -332,15 +364,41 @@ describe('buildPedidoRows', () => {
       year: 2026,
       confirmedAt: '2026-07-30T14:00:00.000Z',
       condicionPago: 'CTA CTE',
-      formaEntrega: { tipo: 'TRANSPORTISTA', transpNombre: 'Cruz del Sur', transpDireccion: 'Av. Corrientes 1234', clienteDireccion: 'Av. Belgrano 4567' },
+      formaEntrega: {
+        tipo: 'TRANSPORTISTA',
+        transpNombre: 'Cruz del Sur',
+        transpDireccion: 'Av. Corrientes 1234',
+        clienteDireccion: 'Av. Belgrano 4567',
+      },
       discountPct: 5,
       subtotalArs: 100000,
       netAmountArs: 95000,
-      transferidoSAP: { via: 'service_layer', docNum: 2000001, docEntry: 12345, at: '2026-07-30T15:00:00Z' },
+      transferidoSAP: {
+        via: 'service_layer',
+        docNum: 2000001,
+        docEntry: 12345,
+        at: '2026-07-30T15:00:00Z',
+      },
       createdAt: '2026-07-30T13:00:00Z',
       lines: [
-        { code: 'CAC58MH2UR', desc: 'Cania spinning', qty: 2, precio: 12500, cat: 'CANIA', fam: 'SPINNING', sub: '58MH' },
-        { code: 'CAC66MH2UR', desc: 'Cania, potente', qty: 2, precio: 12500, cat: 'CANIA', fam: 'SPINNING', sub: '66MH' },
+        {
+          code: 'CAC58MH2UR',
+          desc: 'Cania spinning',
+          qty: 2,
+          precio: 12500,
+          cat: 'CANIA',
+          fam: 'SPINNING',
+          sub: '58MH',
+        },
+        {
+          code: 'CAC66MH2UR',
+          desc: 'Cania, potente',
+          qty: 2,
+          precio: 12500,
+          cat: 'CANIA',
+          fam: 'SPINNING',
+          sub: '66MH',
+        },
       ],
     };
     const rows = buildPedidoRows(doc);
@@ -380,7 +438,16 @@ describe('buildPedidoRows', () => {
 
 describe('buildVisitaRows', () => {
   it('visita presencial - 32 columnas', () => {
-    const doc = { _id: 'v1', ownerUid: 'u1', fecha: '2026-08-01', vendor: 'MAURICIO GIL', provincia: 'BUENOS AIRES', tienda: 'Test', interactionType: 'visita', contactoResultado: null };
+    const doc = {
+      _id: 'v1',
+      ownerUid: 'u1',
+      fecha: '2026-08-01',
+      vendor: 'MAURICIO GIL',
+      provincia: 'BUENOS AIRES',
+      tienda: 'Test',
+      interactionType: 'visita',
+      contactoResultado: null,
+    };
     const rows = buildVisitaRows(doc);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toHaveLength(DATASET_SCHEMAS.visitas.columns.length);
@@ -388,7 +455,13 @@ describe('buildVisitaRows', () => {
     expect(rows[0][27]).toBe('visita'); // interaction_type
   });
   it('contacto no presencial - contacto_resultado se preserva', () => {
-    const doc = { _id: 'v2', interactionType: 'contacto', formaContacto: 'MENSAJE DE WHATSAPP', contactoResultado: 'respondio', contactoResultadoBy: 'uid-admin' };
+    const doc = {
+      _id: 'v2',
+      interactionType: 'contacto',
+      formaContacto: 'MENSAJE DE WHATSAPP',
+      contactoResultado: 'respondio',
+      contactoResultadoBy: 'uid-admin',
+    };
     const rows = buildVisitaRows(doc);
     expect(rows[0][27]).toBe('contacto');
     expect(rows[0][28]).toBe('MENSAJE DE WHATSAPP');
@@ -398,7 +471,14 @@ describe('buildVisitaRows', () => {
 
 describe('buildClienteRows', () => {
   it('cliente provisorio (manualSapPending) - flags has_geo/has_address se derivan', () => {
-    const doc = { _id: 'c1', comercio: 'PESCA TOTAL', manualSapPending: true, lat: null, lng: null, calle: '' };
+    const doc = {
+      _id: 'c1',
+      comercio: 'PESCA TOTAL',
+      manualSapPending: true,
+      lat: null,
+      lng: null,
+      calle: '',
+    };
     const rows = buildClienteRows(doc);
     expect(rows[0][17]).toBe(true); // manual_sap_pending
     expect(rows[0][23]).toBe(false); // has_geo (lat/lng null)
@@ -414,12 +494,22 @@ describe('buildClienteRows', () => {
 
 describe('buildRendicionRows - NO exporta fotoTicket base64', () => {
   it('rendicion post-v308 con fotoTicketUrl -> URL exportado', () => {
-    const doc = { _id: 'r1', tipo: 'gasto', importeArs: 5000, fotoTicketUrl: 'https://storage.googleapis.com/...' };
+    const doc = {
+      _id: 'r1',
+      tipo: 'gasto',
+      importeArs: 5000,
+      fotoTicketUrl: 'https://storage.googleapis.com/...',
+    };
     const rows = buildRendicionRows(doc);
     expect(rows[0][9]).toBe('https://storage.googleapis.com/...');
   });
   it('rendicion legacy pre-v308 con fotoTicket base64 -> NO exporta base64', () => {
-    const doc = { _id: 'r2', tipo: 'gasto', importeArs: 5000, fotoTicket: 'data:image/jpeg;base64,ABCDEF...' };
+    const doc = {
+      _id: 'r2',
+      tipo: 'gasto',
+      importeArs: 5000,
+      fotoTicket: 'data:image/jpeg;base64,ABCDEF...',
+    };
     const rows = buildRendicionRows(doc);
     // fotoTicketUrl no existe -> retorna null (no filtramos el base64)
     expect(rows[0][9]).toBeNull();
@@ -452,7 +542,13 @@ describe('buildCampaniaRows', () => {
 
 describe('buildTargetRows con targetByFamily v311+', () => {
   it('doc pre-v311 sin targetByFamily -> familias null', () => {
-    const doc = { _id: 't1', sellerId: 'GONZALO DE LA ROSA', year: 2026, month: 6, targetArs: 57000000 };
+    const doc = {
+      _id: 't1',
+      sellerId: 'GONZALO DE LA ROSA',
+      year: 2026,
+      month: 6,
+      targetArs: 57000000,
+    };
     const rows = buildTargetRows(doc);
     expect(rows[0][4]).toBe(57000000);
     expect(rows[0][5]).toBeNull(); // reel
@@ -460,7 +556,11 @@ describe('buildTargetRows con targetByFamily v311+', () => {
     expect(rows[0][7]).toBeNull(); // lineas
   });
   it('doc post-v311 con targetByFamily', () => {
-    const doc = { _id: 't2', targetArs: 60000000, targetByFamily: { REEL: 20000000, CANAS: 15000000, LINEAS: 25000000 } };
+    const doc = {
+      _id: 't2',
+      targetArs: 60000000,
+      targetByFamily: { REEL: 20000000, CANAS: 15000000, LINEAS: 25000000 },
+    };
     const rows = buildTargetRows(doc);
     expect(rows[0][5]).toBe(20000000);
     expect(rows[0][6]).toBe(15000000);
@@ -470,11 +570,16 @@ describe('buildTargetRows con targetByFamily v311+', () => {
 
 describe('buildCustomRouteRows - flatten stops', () => {
   it('ruta con 3 stops -> 3 filas', () => {
-    const doc = { _id: 'r1', name: 'Ruta MDQ', plannedDate: '2026-08-05', stops: [
-      { order: 0, key: 'C|BA|MDQ|Tienda A', clientName: 'Tienda A' },
-      { order: 1, key: 'C|BA|MDQ|Tienda B', clientName: 'Tienda B' },
-      { order: 2, key: 'C|BA|MDQ|Tienda C', clientName: 'Tienda C' },
-    ]};
+    const doc = {
+      _id: 'r1',
+      name: 'Ruta MDQ',
+      plannedDate: '2026-08-05',
+      stops: [
+        { order: 0, key: 'C|BA|MDQ|Tienda A', clientName: 'Tienda A' },
+        { order: 1, key: 'C|BA|MDQ|Tienda B', clientName: 'Tienda B' },
+        { order: 2, key: 'C|BA|MDQ|Tienda C', clientName: 'Tienda C' },
+      ],
+    };
     const rows = buildCustomRouteRows(doc);
     expect(rows).toHaveLength(3);
     expect(rows[0][8]).toBe(0); // stop_order fila 0
@@ -492,11 +597,11 @@ describe('buildCustomRouteRows - flatten stops', () => {
 describe('buildProductoRowsFromStockJson v369+', () => {
   it('parsea stock.json y separa whs11 / whs12 / otros', () => {
     const stockJson = {
-      stock: { 'SN2000FG': true, 'REEL5000': true, 'SIN_STOCK_SKU': false },
-      quantities: JSON.stringify({ 'SN2000FG': 180, 'REEL5000': 25, 'SIN_STOCK_SKU': 0 }),
+      stock: { SN2000FG: true, REEL5000: true, SIN_STOCK_SKU: false },
+      quantities: JSON.stringify({ SN2000FG: 180, REEL5000: 25, SIN_STOCK_SKU: 0 }),
       warehouseBreakdown: JSON.stringify({
-        'SN2000FG': { '12': 180 },
-        'REEL5000': { '11': 20, '12': 5 },
+        SN2000FG: { 12: 180 },
+        REEL5000: { 11: 20, 12: 5 },
       }),
       updatedAt: '2026-07-31T14:00:00Z',
     };
@@ -513,14 +618,14 @@ describe('buildProductoRowsFromStockJson v369+', () => {
   });
   it('con warehouse "98" cuarentena -> va a otros_warehouses_json', () => {
     const sj = {
-      stock: { 'X': true },
-      quantities: JSON.stringify({ 'X': 100 }),
-      warehouseBreakdown: JSON.stringify({ 'X': { '11': 20, '98': 80 } }),
+      stock: { X: true },
+      quantities: JSON.stringify({ X: 100 }),
+      warehouseBreakdown: JSON.stringify({ X: { 11: 20, 98: 80 } }),
     };
     const rows = buildProductoRowsFromStockJson(sj);
     expect(rows[0][3]).toBe(20); // w11
-    expect(rows[0][4]).toBe(0);  // w12
-    expect(rows[0][5]).toEqual({ '98': 80 });
+    expect(rows[0][4]).toBe(0); // w12
+    expect(rows[0][5]).toEqual({ 98: 80 });
   });
   it('stock.json vacio -> 0 rows', () => {
     expect(buildProductoRowsFromStockJson({})).toEqual([]);
@@ -534,12 +639,14 @@ describe('E2E: schema + rows -> CSV parseable con papaparse', () => {
   it('pedidos con 2 docs -> CSV valido round-trip', () => {
     const docs = [
       {
-        _id: 'p1', clientName: 'Cliente, Con Coma', lines: [
-          { code: 'A', qty: 1, precio: 100 },
-        ],
+        _id: 'p1',
+        clientName: 'Cliente, Con Coma',
+        lines: [{ code: 'A', qty: 1, precio: 100 }],
       },
       {
-        _id: 'p2', clientName: 'Cliente "Especial"', lines: [
+        _id: 'p2',
+        clientName: 'Cliente "Especial"',
+        lines: [
           { code: 'B', qty: 2, precio: 200 },
           { code: 'C', qty: 3, precio: 300, desc: 'nota\ncon salto' },
         ],
