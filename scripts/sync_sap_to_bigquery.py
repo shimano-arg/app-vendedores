@@ -92,6 +92,13 @@ BQ_TABLE_ORDERS     = f'{BQ_PROJECT}.{BQ_DATASET}.sap_orders_raw'
 # + fecha para los SKUs con PO abierta. Sincronizamos ya para tener la
 # tabla lista cuando arranquen a cargarlas (sin re-codear).
 BQ_TABLE_PURCHASE_ORDERS = f'{BQ_PROJECT}.{BQ_DATASET}.sap_purchase_orders_raw'
+# v386+ (2026-08-03): DeliveryNotes (ODLN/DLN1 en SAP). Necesarias para el
+# reporte REMITIDO en Power BI. Aunque el 99.7% de las facturas se generan
+# desde el SO directo (BaseType=17, no BaseType=15), en SAP existen 18k+
+# DeliveryNotes paralelas que representan el pase real a deposito. Regla
+# hibrida en v_remitos_lineas: si el SO tiene Delivery -> usar la fecha
+# del remito; si no -> fallback a la fecha de la factura.
+BQ_TABLE_DELIVERIES      = f'{BQ_PROJECT}.{BQ_DATASET}.sap_deliveries_raw'
 BQ_TABLE_TARGETS         = f'{BQ_PROJECT}.{BQ_DATASET}.targets_raw'
 BQ_TABLE_CAMPAIGNS       = f'{BQ_PROJECT}.{BQ_DATASET}.campaigns_raw'
 
@@ -1242,6 +1249,24 @@ def main():
     )
     po_rows = [flatten_doc(d, 'PURCHASE_ORDER', sync_ts) for d in pos]
     load_to_bq(bq_client, BQ_TABLE_PURCHASE_ORDERS, po_rows, 'PURCHASE_ORDERS', dry_run=dry_run)
+
+    # === 7. DeliveryNotes (ultimos 24 meses). v386+ (2026-08-03).
+    # Aunque las Invoices Shimano se generan directo desde SO (BaseType=17),
+    # existen ~18k DeliveryNotes paralelas que registran el pase a deposito
+    # (transferencia de propiedad al cliente). El pipeline REMITIDO en Power
+    # BI usa v_remitos_lineas con regla hibrida MAX(delivery, invoice): si
+    # el SO tiene Delivery se usa la fecha del remito; si no, fallback a
+    # fecha de factura (caso SEBASTIAN SALES fact 18364 documentado).
+    # Mismo doc_select que Invoices/Orders (misma estructura de documento
+    # marketing de ventas). Ventana 24 meses = mismo criterio que invoices.
+    deliveries = sl_fetch_all(
+        cfg, session, '/b1s/v1/DeliveryNotes', 'DELIVERIES',
+        select_fields=doc_select,
+        filter_expr=f"DocDate ge '{since_iso_date}'",
+        max_docs=max_docs,
+    )
+    delivery_rows = [flatten_doc(d, 'DELIVERY', sync_ts) for d in deliveries]
+    load_to_bq(bq_client, BQ_TABLE_DELIVERIES, delivery_rows, 'DELIVERIES', dry_run=dry_run)
 
     # === 7. Targets mensuales (Firestore -> BigQuery)
     # Coleccion `targets` en Firestore (una fila por vendedor+ano+mes).

@@ -1539,3 +1539,153 @@ WHERE JSON_VALUE(data, '$.status') = 'approved'
   )
 GROUP BY assigned_vendor
 ORDER BY total_universo DESC;
+
+-- ============================================================
+-- V_REMITOS_LINEAS
+-- ============================================================
+-- Fuente REMITIDO para Power BI (vs Facturado / Cobrado). Alineada 1:1
+-- con v_ventas_lineas para que Power BI clone la card "Facturacion por
+-- Vendedor" cambiando SOLO la vista fuente.
+--
+-- Regla hibrida MAX(delivery, invoice) — decidida el 2026-08-03 tras
+-- confirmar por probe que en Shimano SAP coexisten 2 caminos comerciales:
+--   * Camino A (frecuente, ej: SEBASTIAN SALES fact 18364, SO 35063):
+--     SO -> Invoice directo, sin Delivery Note. El "remitido" no existe
+--     como documento formal en SAP; usamos la fecha de factura como
+--     fallback.
+--   * Camino C (dominante en volumen): SO -> Delivery + Invoice paralelas.
+--     Las 18k+ DeliveryNotes existen pero NO se linkean doc-a-doc con la
+--     Invoice (BaseType=15 en solo 5 de 4.681 facturas). Se matchean con
+--     el SO comun (Delivery.BaseEntry = Invoice.BaseEntry).
+--
+-- Estructura:
+--   1. `deliveries` — TODAS las lineas de DeliveryNotes no canceladas.
+--      fecha_remito = ODLN.DocDate.
+--   2. `invoices_sin_delivery` — lineas de facturas que NO tienen match
+--      en `deliveries` por (SO_DocEntry, SO_LineNum). Fallback:
+--      fecha_remito = OINV.DocDate.
+--   3. UNION ALL + LEFT JOINs con client_applications (assigned_vendor)
+--      y v_sap_items_enriched (familia/subfamilia/is_pesca).
+--
+-- Uso Power BI (TABLERO SAR): nueva card "REMITIDO" en la hoja
+-- Facturacion por Vendedor con `SUM(importe_linea_ars)` filtrado por mes
+-- actual + slicer vendor. El % Cumplimiento del vendedor deberia
+-- calcularse sobre esta vista, NO sobre v_ventas_lineas.
+--
+-- Volumen esperado (ventana 24 meses): ~5-8k rows (~15 MB BQ).
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_remitos_lineas` AS
+WITH
+cliente_app AS (
+  SELECT
+    JSON_VALUE(data, '$.cardCodeSap') AS card_code,
+    ARRAY_AGG(
+      JSON_VALUE(data, '$.assignedVendor')
+      IGNORE NULLS
+      ORDER BY document_id
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS assigned_vendor_app
+  FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+  WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+    AND JSON_VALUE(data, '$.cardCodeSap') != ''
+  GROUP BY card_code
+),
+items AS (
+  -- v_sap_items_enriched no tiene columnas 'familia'/'subfamilia'/'is_pesca'
+  -- directas; se derivan como en v_ventas_lineas: familia=familia_norm,
+  -- subfamilia=fam, is_pesca=item_code IS NOT NULL (existe en sap_items_raw).
+  SELECT
+    item_code,
+    familia_norm                 AS familia,
+    fam                          AS subfamilia,
+    item_code IS NOT NULL        AS is_pesca
+  FROM `app-vendedores-shimano.shimano_app.v_sap_items_enriched`
+),
+deliveries AS (
+  SELECT
+    'DELIVERY' AS source,
+    d.doc_entry                                                       AS remito_doc_entry,
+    d.doc_num                                                         AS remito_doc_num,
+    d.doc_date,
+    EXTRACT(YEAR  FROM d.doc_date)                                    AS anio,
+    EXTRACT(MONTH FROM d.doc_date)                                    AS mes,
+    d.card_code,
+    d.card_name,
+    d.sales_person_code,
+    d.doc_currency,
+    d.doc_rate,
+    SAFE_CAST(JSON_VALUE(ln, '$.LineNum')    AS INT64)                AS line_num,
+    JSON_VALUE(ln, '$.ItemCode')                                      AS item_code,
+    JSON_VALUE(ln, '$.Dscription')                                    AS descripcion_linea,
+    SAFE_CAST(JSON_VALUE(ln, '$.Quantity')   AS FLOAT64)              AS cantidad,
+    SAFE_CAST(JSON_VALUE(ln, '$.LineTotal')  AS FLOAT64)              AS importe_linea_ars,
+    SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry')  AS INT64)                AS so_doc_entry,
+    SAFE_CAST(JSON_VALUE(ln, '$.BaseLine')   AS INT64)                AS so_line_num
+  FROM `app-vendedores-shimano.shimano_app.sap_deliveries_raw` d,
+       UNNEST(JSON_QUERY_ARRAY(d.lines_json)) AS ln
+  WHERE d.cancelled = 'tNO'
+),
+invoices_sin_delivery AS (
+  SELECT
+    'INVOICE_NO_DELIVERY' AS source,
+    i.doc_entry                                                       AS remito_doc_entry,
+    i.doc_num                                                         AS remito_doc_num,
+    i.doc_date,
+    EXTRACT(YEAR  FROM i.doc_date)                                    AS anio,
+    EXTRACT(MONTH FROM i.doc_date)                                    AS mes,
+    i.card_code,
+    i.card_name,
+    i.sales_person_code,
+    i.doc_currency,
+    i.doc_rate,
+    SAFE_CAST(JSON_VALUE(ln, '$.LineNum')    AS INT64)                AS line_num,
+    JSON_VALUE(ln, '$.ItemCode')                                      AS item_code,
+    JSON_VALUE(ln, '$.Dscription')                                    AS descripcion_linea,
+    SAFE_CAST(JSON_VALUE(ln, '$.Quantity')   AS FLOAT64)              AS cantidad,
+    SAFE_CAST(JSON_VALUE(ln, '$.LineTotal')  AS FLOAT64)              AS importe_linea_ars,
+    SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry')  AS INT64)                AS so_doc_entry,
+    SAFE_CAST(JSON_VALUE(ln, '$.BaseLine')   AS INT64)                AS so_line_num
+  FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` i,
+       UNNEST(JSON_QUERY_ARRAY(i.lines_json)) AS ln
+  WHERE i.cancelled = 'tNO'
+    AND JSON_VALUE(ln, '$.BaseType') = '17'    -- solo lineas que vienen de SO
+    AND NOT EXISTS (
+      SELECT 1
+      FROM deliveries d
+      WHERE d.so_doc_entry = SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry') AS INT64)
+        AND d.so_line_num  = SAFE_CAST(JSON_VALUE(ln, '$.BaseLine')  AS INT64)
+    )
+),
+unioned AS (
+  SELECT * FROM deliveries
+  UNION ALL
+  SELECT * FROM invoices_sin_delivery
+)
+SELECT
+  u.source,
+  u.remito_doc_entry,
+  u.remito_doc_num,
+  u.doc_date,
+  u.anio,
+  u.mes,
+  u.card_code,
+  u.card_name,
+  u.item_code,
+  u.descripcion_linea,
+  u.cantidad,
+  u.importe_linea_ars,
+  it.is_pesca,
+  it.familia,
+  it.subfamilia,
+  u.sales_person_code,
+  CASE
+    WHEN u.sales_person_code BETWEEN 50 AND 55 THEN u.sales_person_code
+    ELSE NULL
+  END                              AS `SlpCode Asignado`,
+  ca.assigned_vendor_app           AS assigned_vendor,
+  u.so_doc_entry,
+  u.doc_currency,
+  u.doc_rate
+FROM unioned u
+LEFT JOIN items       it ON it.item_code = u.item_code
+LEFT JOIN cliente_app ca ON ca.card_code = u.card_code;
