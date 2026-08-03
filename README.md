@@ -181,7 +181,7 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] Master Clientes: botón "👤 Provisorios" violeta filtra altas rápidas pendientes de SAP (manualSapPending && !cardCodeSap) con badge de conteo en tiempo real (v290+)
 [X] Master Clientes: autosave debounced 900ms en localidad/provincia/dirección de filas SAP + listener de approvedAltas no re-renderea si hay saves en vuelo (v291+)
 [X] Fix crítico sync SAP: sync_sap_to_firestore.py ya NO pisa localidad/provincia con vacío si SAP no trae valor (evita destruir edits manuales del admin cada 30 min) (v291+)
-[X] KPI "PENDIENTES" del header ahora = mismo total global que badge "Provisorios" del Master Clientes (=provisorios de Alta Rápida pendientes de cargar a SAP) (v292+)
+[X] KPI **LEADS** del header (renombrado de "PENDIENTES" en v386) = provisorios de Alta Rápida pendientes de cargar a SAP (`manualSapPending && !cardCodeSap`), **filtrado por zona/provincia/localidad activos** (v386). El badge "Provisorios" del Master Clientes sigue mostrando el total global (v292+, sin cambio)
 [X] Fix tab "NO CONFIRMADOS" en CLIENTES: mostraba solo 3 cuando el KPI decía 16. Ahora todo provisorio (manualSapPending && !cardCodeSap) aparece siempre en "No confirmados", sin requerir provincia y sin filtrar por hasGeo/hasAddr — mismo criterio que getProvisoriosList() (v293+)
 [X] CUIT opcional en form Alta Rápida — habilita match automático confiable cuando el sync SAP corre (find_match usa CUIT como criterio prioritario después de CardCode) (v294+)
 [X] Botón "🔗 Vincular con SAP" en Master Clientes → Provisorios: modal con lista de BPs SAP disponibles, buscador y auto-ranking por CUIT match. Copia CardCode al provisorio + elimina el BP SAP duplicado + preserva assignedVendor/approvals/notas (v294+)
@@ -866,7 +866,7 @@ Firebase mandó email 2026-07-29 avisando que las rules "test mode" originales d
 ### Header superior
 - **Logo Shimano** + título "MAPA DE VENTAS - ARGENTINA"
 - **Badge ADMIN** (violeta, centrado) — solo si rol = admin
-- **Stat cards** (4): Localidades / Habilitados / Pendientes / Tiendas
+- **Stat cards** (4): Localidades / Habilitados / **Leads** / Tiendas (renombrado de "Pendientes" en v386; los 4 respetan el filtro activo de zona/provincia/localidad)
 - **Botones admin** (a la derecha): TARGETS / CAMPAÑAS / SAP / MASTER CLIENTES / USUARIOS / STOCK / AUDITORÍA / SALIR
 
 Header + Controls tienen `border-bottom-radius: 22px` para look "pill flotante".
@@ -1037,7 +1037,7 @@ Tab "Clientes". Lista todas las tiendas visibles. Estados:
 #### Filtros del tab (v264+)
 - **TODOS** — todo el listado.
 - **CONFIRMADOS** — solo clientes con estado `habilitado` (POINTS con match) + SAP altas con geo+dirección. Excluye provisorios.
-- **NO CONFIRMADOS** — provisorios (`manualSapPending && !cardCodeSap`) sin importar si tienen provincia/geo/addr **(v293+ fix)** + POINTS/prospectos pendientes de habilitar. Este total ahora coincide con el KPI **PENDIENTES** del header.
+- **NO CONFIRMADOS** — provisorios (`manualSapPending && !cardCodeSap`) sin importar si tienen provincia/geo/addr **(v293+ fix)** + POINTS/prospectos pendientes de habilitar. Nota (v386): el KPI **LEADS** del header ahora respeta el filtro de zona/provincia/localidad, así que puede no coincidir con este tab si el usuario tiene un filtro activo — es intencional (el tab lista, el KPI resume el scope actual).
 
 #### Badge de categoría comercial fijo en esquina (v295+)
 Cada card de CLIENTES muestra el badge `Cat P/A/B/C` en la **esquina superior derecha** vía `position:absolute; top:6px; right:8px` (CSS `.cli-cat-corner`). `padding-right:62px` en `.client-card` reserva el espacio para que nombres largos no se solapen con el badge. `pointer-events:none` para no robar el click de la card.
@@ -1789,17 +1789,24 @@ Las filas que son altas SAP (no POINTS originales) tienen un **dropdown editable
 
 Antes: las altas que se importaban sin provincia quedaban invisibles (no se mostraban en Master Clientes). Ahora aparecen bajo un grupo virtual **"(sin provincia)"** así Admin las puede ver y completarles la provincia con el dropdown.
 
-### KPI "PENDIENTES" del header ahora = badge "Provisorios" del Master Clientes (v292+, 2026-07-13)
+### KPI "LEADS" del header — evolución del contador (v292 → v386)
 
-**Antes:** `updateStats()` (línea 5586) contaba como `pendientes`:
+**v292 (2026-07-13) — Antes:** `updateStats()` contaba como `pendientes`:
 - POINTS/prospectos no contactados +
 - SAP altas sin `provincia + geo + dirección`, filtradas por vendor/provincia/localidad activos.
 
 Mientras que el badge del botón **👤 Provisorios** (v290+) contaba los `approvedAltasList.filter(a => a.manualSapPending && !a.cardCodeSap)` **totales globales**. Confundía porque los números no coincidían (ej: 3 vs 16).
 
-**Ahora:** el KPI del header (`.js-stat-p`) usa `getProvisoriosList().length` — el mismo total global que el badge. Ambos muestran los provisorios de Alta Rápida pendientes de cargar a SAP.
+**v292 fix:** el KPI del header (`.js-stat-p`) pasó a usar `getProvisoriosList().length` — el mismo total global que el badge. Ambos mostraban los provisorios de Alta Rápida pendientes de cargar a SAP.
 
-Se pierde la métrica antigua de "cuántas tiendas no contactadas hay en mi contexto" — si algún día se necesita, la lógica original quedó como `pendientes` en la variable local del scope, sólo se cambió el `textContent` final.
+**Efecto colateral:** el KPI dejó de responder al filtro de zona/provincia/localidad → confundía en la operación diaria del vendedor que cambia de zona (todos los demás contadores se actualizaban menos "PENDIENTES").
+
+**v386 (2026-08-03) — Ahora:**
+1. Label renombrado **PENDIENTES → LEADS** en las 2 stat-boxes (mobile header + desktop sidebar) para dejar claro que es un contador de oportunidades comerciales, no un "backlog administrativo".
+2. `_provisoriosCount` **vuelve a respetar los filtros activos** (`getEffectiveVendorSet(currentVendor)` + `currentProvince` + `currentLocality`), pero mantiene la definición semántica de v292 (solo provisorios `manualSapPending && !cardCodeSap`, no POINTS/prospectos legacy).
+3. El badge del botón **👤 Provisorios** del Master Clientes (`updateMcProvisorioCount` en `src/domains/master-clientes.js:123`) sigue global — es lo que ese contexto necesita, no se toca.
+
+Resultado: KPI LEADS del header respeta el scope activo (útil para el vendedor), badge Provisorios del Master Clientes muestra el total global (útil para el admin).
 
 ### Fix crítico: sync SAP pisaba localidad/provincia manuales (v291+, 2026-07-13)
 
