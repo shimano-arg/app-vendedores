@@ -588,7 +588,7 @@ function lookupVendorForClient(prov, locName, _clientName) {
 // VISITAS: detalle de visitas del periodo
 // ============================================================
 async function exportVisitasForMonth(anio, monthIdx) {
-  showSyncTag('Generando export de Visitas...');
+  showSyncTag('Generando export de Visitas + Contactos...');
   let snap;
   try {
     snap = await fbDb.collection('visits').get();
@@ -605,9 +605,11 @@ async function exportVisitasForMonth(anio, monthIdx) {
     items.push(v);
   });
   if (!items.length) {
-    alert('No hay visitas en el periodo seleccionado.');
+    alert('No hay visitas ni contactos en el periodo seleccionado.');
     return;
   }
+  const nVisitas = items.filter((v) => v.interactionType !== 'contacto').length;
+  const nContactos = items.length - nVisitas;
   // ExcelJS con foto del frente embebida en cada fila. Lazy load.
   try {
     await loadExcelJS();
@@ -615,19 +617,21 @@ async function exportVisitasForMonth(anio, monthIdx) {
     alert(e.message || e);
     return;
   }
-  showSyncTag('Generando Excel con ' + items.length + ' visitas...', 3000);
+  showSyncTag('Generando Excel: ' + nVisitas + ' visitas + ' + nContactos + ' contactos...', 3000);
 
   const wb = new ExcelJS.Workbook();
   wb.creator = 'App Vendedores Shimano';
   wb.created = new Date();
-  const ws = wb.addWorksheet('Visitas', { views: [{ state: 'frozen', ySplit: 1 }] });
+  const ws = wb.addWorksheet('Visitas y Contactos', { views: [{ state: 'frozen', ySplit: 1 }] });
   ws.columns = [
     { header: 'Fecha', key: 'fecha', width: 12 },
     { header: 'Mes', key: 'mes', width: 10 },
     { header: 'Anio', key: 'anio', width: 8 },
     { header: 'Vendedor', key: 'vendedor', width: 22 },
     { header: 'Owner Email', key: 'email', width: 28 },
-    { header: 'Tipo Contacto', key: 'tipoCt', width: 12 },
+    { header: 'Interaccion', key: 'interaccion', width: 12 },
+    { header: 'Forma Contacto', key: 'formaContacto', width: 22 },
+    { header: 'Resultado Contacto', key: 'resultadoCt', width: 16 },
     { header: 'Comentario', key: 'coment', width: 30 },
     { header: 'Provincia', key: 'provincia', width: 16 },
     { header: 'Localidad', key: 'localidad', width: 18 },
@@ -667,14 +671,24 @@ async function exportVisitasForMonth(anio, monthIdx) {
   items.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
 
   for (const v of items) {
-    const tipoContactoLbl = v.tipoContacto === 'telefono' ? 'Telefono' : 'Presencial';
+    const isContacto = v.interactionType === 'contacto';
+    const interaccionLbl = isContacto ? 'Contacto' : 'Visita';
+    const formaContactoLbl = isContacto ? v.formaContacto || 'Sin especificar' : 'Presencial';
+    let resultadoCtLbl = '';
+    if (isContacto) {
+      if (v.contactoResultado === 'respondio') resultadoCtLbl = 'Respondio';
+      else if (v.contactoResultado === 'no_respondio') resultadoCtLbl = 'No respondio';
+      else resultadoCtLbl = 'Sin marcar';
+    }
     const row = ws.addRow({
       fecha: v.fecha || '',
       mes: v.mes || '',
       anio: v.anio || '',
       vendedor: titleCase(v.vendor || ''),
       email: v.ownerEmail || '',
-      tipoCt: tipoContactoLbl,
+      interaccion: interaccionLbl,
+      formaContacto: formaContactoLbl,
+      resultadoCt: resultadoCtLbl,
       coment: v.comentario || '',
       provincia: titleCase(v.provincia || ''),
       localidad: v.localidad || '',
@@ -737,7 +751,7 @@ async function exportVisitasForMonth(anio, monthIdx) {
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 5000);
-    showSyncTag('Export Visitas listo (' + items.length + ' filas)', 2400);
+    showSyncTag('Export listo: ' + nVisitas + ' visitas + ' + nContactos + ' contactos', 2400);
   } catch (e) {
     console.error('exportVisitasForMonth', e);
     alert('Error generando el Excel: ' + (e.message || e));
