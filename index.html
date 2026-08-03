@@ -1618,7 +1618,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
   <div class="stats-bar" id="stats-bar-header">
     <div class="stat-box"><div class="num js-stat-loc" id="stat-loc">0</div><div class="lbl">Localidades</div></div>
     <div class="stat-box"><div class="num js-stat-c" id="stat-c" style="color:#10b981">0</div><div class="lbl">Habilitados</div></div>
-    <div class="stat-box"><div class="num js-stat-p" id="stat-p" style="color:#f59e0b">0</div><div class="lbl">Pendientes</div></div>
+    <div class="stat-box"><div class="num js-stat-p" id="stat-p" style="color:#f59e0b">0</div><div class="lbl">Leads</div></div>
     <div class="stat-box"><div class="num js-stat-t" id="stat-t">0</div><div class="lbl">Tiendas</div></div>
   </div>
   <div class="user-info" id="user-info" style="display:none">
@@ -2918,7 +2918,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <div class="stats-bar" id="stats-bar-sidebar">
       <div class="stat-box"><div class="num js-stat-loc">0</div><div class="lbl">Localidades</div></div>
       <div class="stat-box"><div class="num js-stat-c" style="color:#10b981">0</div><div class="lbl">Habilitados</div></div>
-      <div class="stat-box"><div class="num js-stat-p" style="color:#f59e0b">0</div><div class="lbl">Pendientes</div></div>
+      <div class="stat-box"><div class="num js-stat-p" style="color:#f59e0b">0</div><div class="lbl">Leads</div></div>
       <div class="stat-box"><div class="num js-stat-t">0</div><div class="lbl">Tiendas</div></div>
     </div>
     <div class="tabs">
@@ -3362,7 +3362,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v385';
+const APP_VERSION = 'v386';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -6158,15 +6158,34 @@ function updateStats(pts){
   }
   document.querySelectorAll('.js-stat-loc').forEach(el => { el.textContent = _statLocVal; });
   document.querySelectorAll('.js-stat-c').forEach(el => { el.textContent = habilitados; });
-  // v292+ (2026-07-13): PENDIENTES ahora significa "provisorios de Alta
-  // Rapida pendientes de cargar a SAP" (manualSapPending && !cardCodeSap),
-  // total GLOBAL sin filtrar por vendor/provincia/localidad. Antes contaba
-  // POINTS/prospectos no contactados + SAP altas sin geo/addr, lo que hacia
-  // que el numero no coincidiera con el badge del boton "Provisorios" en
-  // Master Clientes y confundia. Ahora ambos muestran el mismo total.
-  const _provisoriosCount = (typeof getProvisoriosList === 'function')
-    ? getProvisoriosList().length
-    : pendientes;
+  // v292+ (2026-07-13): LEADS = provisorios de Alta Rapida pendientes de
+  // cargar a SAP (manualSapPending && !cardCodeSap).
+  // v386 (2026-08-03): renombrado "Pendientes" -> "LEADS" y ahora RESPETA
+  // los filtros activos de vendor/provincia/localidad (antes era global).
+  // El pedido original de v292 era que coincidiera con el badge Master
+  // Clientes -> ese badge sigue usando getProvisoriosList().length global
+  // (funcion sin cambios en master-clientes.js). Aca en el sidebar el
+  // usuario espera que al cambiar de zona el contador se actualice como
+  // el resto (Localidades, Habilitados, Tiendas).
+  const _provisoriosAll = (typeof getProvisoriosList === 'function')
+    ? getProvisoriosList()
+    : [];
+  const _leadsProvFilter = (typeof currentProvince !== 'undefined' && currentProvince !== 'ALL') ? currentProvince : null;
+  const _leadsLocFilter = (typeof currentLocality !== 'undefined' && currentLocality !== 'ALL') ? currentLocality : null;
+  const _leadsVendSet = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
+  const _leadsFiltered = _provisoriosAll.filter(a => {
+    if (!a) return false;
+    // Filtro vendor: si hay set de vendors activo y el alta tiene assignedVendor
+    // fuera del set, se excluye. Altas sin assignedVendor cuentan en todos
+    // (mismo criterio que el bloque de sapLocs mas arriba).
+    if (_leadsVendSet && a.assignedVendor && !_leadsVendSet.has(a.assignedVendor)) return false;
+    const _aProv = (a.provincia || '').toUpperCase().trim();
+    if (_aProv && _leadsProvFilter && _aProv !== _leadsProvFilter) return false;
+    const _aLoc = (a.localidadFinal || a.localidad || '').trim();
+    if (_leadsLocFilter && _aLoc !== _leadsLocFilter) return false;
+    return true;
+  });
+  const _provisoriosCount = _leadsFiltered.length;
   document.querySelectorAll('.js-stat-p').forEach(el => { el.textContent = _provisoriosCount; });
   document.querySelectorAll('.js-stat-t').forEach(el => { el.textContent = total; });
 }
