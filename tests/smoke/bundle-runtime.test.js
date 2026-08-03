@@ -16,10 +16,10 @@
  * La verificación DOM/Firebase real queda como gate humano manual pre-merge.
  */
 
-import { describe, it, expect } from 'vitest';
-import { readFileSync, statSync, existsSync } from 'node:fs';
-import { runInNewContext } from 'node:vm';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
+import { describe, expect, it } from 'vitest';
 
 const ROOT = process.cwd();
 const BUNDLE = join(ROOT, 'app.bundle.js');
@@ -181,7 +181,12 @@ describe('bundle runtime', () => {
 
   it('E3: expone window.loadChunk (loader function)', () => {
     const src = readFileSync(BUNDLE, 'utf8');
-    const ctx = { window: {}, console, globalThis: {}, document: { createElement: () => ({}), head: { appendChild: () => {} } } };
+    const ctx = {
+      window: {},
+      console,
+      globalThis: {},
+      document: { createElement: () => ({}), head: { appendChild: () => {} } },
+    };
     runInNewContext(src, ctx);
     expect(typeof ctx.window.loadChunk).toBe('function');
     // __chunksLoaded es el registry interno del loader
@@ -190,7 +195,12 @@ describe('bundle runtime', () => {
 
   it('E3: instala stubs proxy para exports de chunks lazy (window.openAdminPanel, window.exportToExcel, etc.)', () => {
     const src = readFileSync(BUNDLE, 'utf8');
-    const ctx = { window: {}, console, globalThis: {}, document: { createElement: () => ({}), head: { appendChild: () => {} } } };
+    const ctx = {
+      window: {},
+      console,
+      globalThis: {},
+      document: { createElement: () => ({}), head: { appendChild: () => {} } },
+    };
     runInNewContext(src, ctx);
     // Stubs de admin-users
     expect(typeof ctx.window.openAdminPanel).toBe('function');
@@ -208,9 +218,16 @@ describe('bundle runtime', () => {
     runInNewContext(src, ctx);
     const pure = ctx.window.__phase0.pure;
     const expected = [
-      'normClientName', 'titleCase', 'escapeHtml', 'normTitle', 'normalizeSearch',
-      'calcClientDiscount', 'matchesAllTokens', 'findSapDuplicateForProvisorio',
-      'matchSkuFromTitle', 'passesTypeFilter',
+      'normClientName',
+      'titleCase',
+      'escapeHtml',
+      'normTitle',
+      'normalizeSearch',
+      'calcClientDiscount',
+      'matchesAllTokens',
+      'findSapDuplicateForProvisorio',
+      'matchSkuFromTitle',
+      'passesTypeFilter',
     ];
     for (const name of expected) {
       expect(typeof pure[name], `pure.${name} debe ser function`).toBe('function');
@@ -260,6 +277,8 @@ describe('bundle runtime', () => {
     const src = readFileSync(BUNDLE, 'utf8');
     const ctx = { window: {}, console, globalThis: {} };
     runInNewContext(src, ctx);
-    expect(() => ctx.window.__phase0.sentry.applySentryUserContext(null, null, null, null)).not.toThrow();
+    expect(() =>
+      ctx.window.__phase0.sentry.applySentryUserContext(null, null, null, null)
+    ).not.toThrow();
   });
 });

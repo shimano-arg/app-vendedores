@@ -16,8 +16,8 @@
 // ============================================================
 // VISITA - formulario y persistencia
 // ============================================================
-let visitState = {relevancia: 0, pop: '', espacioPhotos: [], frentePhoto: null};
-if (typeof window.visitsCache === "undefined") window.visitsCache = [];
+let visitState = { relevancia: 0, pop: '', espacioPhotos: [], frentePhoto: null };
+if (typeof window.visitsCache === 'undefined') window.visitsCache = [];
 
 // ============================================================
 // GEOLOCALIZACION para verificar visitas (doble check)
@@ -26,9 +26,17 @@ if (typeof window.visitsCache === "undefined") window.visitsCache = [];
 // y cargado via listener. La primera visita con GPS valido auto-confirma la
 // ubicacion (auto-aprendizaje); las siguientes se comparan contra esa.
 const clientLocsCache = new Map();
-if (typeof window.unsubClientLocs === "undefined") window.unsubClientLocs = null;
-function clientLocId(prov, locName, tienda){
-  function norm(s){ return (s || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''); }
+if (typeof window.unsubClientLocs === 'undefined') window.unsubClientLocs = null;
+function clientLocId(prov, locName, tienda) {
+  function norm(s) {
+    return (s || '')
+      .toString()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_|_$/g, '');
+  }
   return norm(prov) + '__' + norm(locName) + '__' + norm(tienda);
 }
 
@@ -68,7 +76,7 @@ function clientLocId(prov, locName, tienda){
 // al bundle (src/pure/duplicate.js). Wrapper en window.findSapDuplicateForProvisorio
 // pasa approvedAltasList como param (E4 refactor).
 
-function clientMatchesQuery(name, localityName, k, query){
+function clientMatchesQuery(name, localityName, k, query) {
   if (!query) return true;
   // v312+: armar haystack con todos los campos relevantes y hacer match
   // por tokens. Antes cada campo se checkeaba con includes(query completo),
@@ -104,7 +112,7 @@ function clientMatchesQuery(name, localityName, k, query){
 // Usado en cards de CLIENTES y PEDIDOS para que el vendedor vea de un
 // vistazo la categoria comercial que le asigno admin/gerente en Master
 // Clientes. Sin categoria -> string vacio.
-function getClientCategoryBadgeHtml(province, locName, name, opts){
+function getClientCategoryBadgeHtml(province, locName, name, opts) {
   try {
     let tipo = '';
     // Fuente 1: client_master (POINTS regulares).
@@ -117,14 +125,21 @@ function getClientCategoryBadgeHtml(province, locName, name, opts){
     // titular o fantasia) + provincia + localidad. Multiples matches son
     // posibles (multi-alta), tomamos el primero con cliTipo cargado.
     if (!tipo && typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList)) {
-      const norm = s => (s || '').toString().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+      const norm = (s) =>
+        (s || '')
+          .toString()
+          .toUpperCase()
+          .normalize('NFD')
+          .replace(/[̀-ͯ]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
       const nameU = norm(name);
       const provU = norm(province);
-      const locU = norm(locName);
+      const _locU = norm(locName);
       for (const a of approvedAltasList) {
         if (!a || !a.cliTipo) continue;
         // Match por nombre en cualquiera de los 3 campos.
-        const matches = [a.comercio, a.titular, a.fantasia].some(n => norm(n) === nameU);
+        const matches = [a.comercio, a.titular, a.fantasia].some((n) => norm(n) === nameU);
         if (!matches) continue;
         // Match adicional por provincia (si esta cargada). Localidad es
         // mas laxa porque a veces varia entre POINTS y client_applications.
@@ -136,10 +151,10 @@ function getClientCategoryBadgeHtml(province, locName, name, opts){
     }
     if (!tipo) return '';
     const styles = {
-      P: {bg: '#7c3aed', title: 'Premium - 6% fijo + 5% CONTADO'},
-      A: {bg: '#059669', title: 'A - 3% fijo + 3% CONTADO'},
-      B: {bg: '#0284c7', title: 'B - sin descuento'},
-      C: {bg: '#64748b', title: 'C - sin descuento'},
+      P: { bg: '#7c3aed', title: 'Premium - 6% fijo + 5% CONTADO' },
+      A: { bg: '#059669', title: 'A - 3% fijo + 3% CONTADO' },
+      B: { bg: '#0284c7', title: 'B - sin descuento' },
+      C: { bg: '#64748b', title: 'C - sin descuento' },
     };
     const s = styles[tipo];
     if (!s) return '';
@@ -150,31 +165,59 @@ function getClientCategoryBadgeHtml(province, locName, name, opts){
     // otras superficies como el modal de cliente).
     const corner = !!(opts && opts.corner);
     if (corner) {
-      return '<span class="cli-cat-corner" title="' + escapeAttr(s.title) + '" style="background:' + s.bg + '">Cat ' + tipo + '</span>';
+      return (
+        '<span class="cli-cat-corner" title="' +
+        escapeAttr(s.title) +
+        '" style="background:' +
+        s.bg +
+        '">Cat ' +
+        tipo +
+        '</span>'
+      );
     }
-    return ' <span title="' + escapeAttr(s.title) + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:6px;background:' + s.bg + ';padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">Cat ' + tipo + '</span>';
-  } catch(e) { return ''; }
+    return (
+      ' <span title="' +
+      escapeAttr(s.title) +
+      '" style="font-size:9px;color:#fff;font-weight:800;margin-left:6px;background:' +
+      s.bg +
+      ';padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">Cat ' +
+      tipo +
+      '</span>'
+    );
+  } catch (_e) {
+    return '';
+  }
 }
-function ensureClientLocsListener(){
+function ensureClientLocsListener() {
   if (unsubClientLocs || !currentUser || !fbDb) return;
-  window.unsubClientLocs = fbDb.collection('client_locations').onSnapshot(qs => {
-    clientLocsCache.clear();
-    qs.forEach(d => clientLocsCache.set(d.id, Object.assign({_id: d.id}, d.data())));
-  }, err => console.error('client_locations listener', err));
+  window.unsubClientLocs = fbDb.collection('client_locations').onSnapshot(
+    (qs) => {
+      clientLocsCache.clear();
+      qs.forEach((d) => clientLocsCache.set(d.id, Object.assign({ _id: d.id }, d.data())));
+    },
+    (err) => console.error('client_locations listener', err)
+  );
 }
-function captureGpsPosition(){
+function captureGpsPosition() {
   // Pide la geolocalizacion al navegador. Promise.
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     if (!navigator.geolocation) {
-      resolve({status: 'unavailable', error: 'El navegador no soporta geolocalizacion'});
+      resolve({ status: 'unavailable', error: 'El navegador no soporta geolocalizacion' });
       return;
     }
     let done = false;
-    const finish = (val) => { if (done) return; done = true; resolve(val); };
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      resolve(val);
+    };
     // timeout de seguridad por si el navegador se queda colgado
-    const safety = setTimeout(() => finish({status: 'timeout', error: 'Tardó mas de 12s en responder'}), 12000);
+    const safety = setTimeout(
+      () => finish({ status: 'timeout', error: 'Tardó mas de 12s en responder' }),
+      12000
+    );
     navigator.geolocation.getCurrentPosition(
-      pos => {
+      (pos) => {
         clearTimeout(safety);
         finish({
           status: 'ok',
@@ -184,87 +227,136 @@ function captureGpsPosition(){
           at: new Date().toISOString(),
         });
       },
-      err => {
+      (err) => {
         clearTimeout(safety);
         const code = err && err.code;
         let st = 'error';
-        if (code === 1) st = 'denied';      // PERMISSION_DENIED
-        else if (code === 2) st = 'unavailable'; // POSITION_UNAVAILABLE
-        else if (code === 3) st = 'timeout';     // TIMEOUT
-        finish({status: st, error: (err && err.message) || 'GPS no disponible'});
+        if (code === 1)
+          st = 'denied'; // PERMISSION_DENIED
+        else if (code === 2)
+          st = 'unavailable'; // POSITION_UNAVAILABLE
+        else if (code === 3) st = 'timeout'; // TIMEOUT
+        finish({ status: st, error: (err && err.message) || 'GPS no disponible' });
       },
-      {enableHighAccuracy: true, timeout: 10000, maximumAge: 0}
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   });
 }
-async function captureGpsForVisit(prov, locName, tienda){
+async function captureGpsForVisit(prov, locName, tienda) {
   // Devuelve un objeto con todos los campos a guardar en la visita.
   const pos = await captureGpsPosition();
   const base = {
     gpsStatus: pos.status,
-    gpsLat: null, gpsLon: null, gpsAccuracy: null, gpsCapturedAt: null,
-    gpsDistanceM: null, gpsRefLat: null, gpsRefLon: null, gpsRefSource: null,
+    gpsLat: null,
+    gpsLon: null,
+    gpsAccuracy: null,
+    gpsCapturedAt: null,
+    gpsDistanceM: null,
+    gpsRefLat: null,
+    gpsRefLon: null,
+    gpsRefSource: null,
     gpsError: pos.error || null,
   };
   if (pos.status !== 'ok') return base;
-  base.gpsLat = pos.lat; base.gpsLon = pos.lon;
-  base.gpsAccuracy = Math.round(pos.accuracy || 0); base.gpsCapturedAt = pos.at;
+  base.gpsLat = pos.lat;
+  base.gpsLon = pos.lon;
+  base.gpsAccuracy = Math.round(pos.accuracy || 0);
+  base.gpsCapturedAt = pos.at;
   const id = clientLocId(prov, locName, tienda);
   const ref = clientLocsCache.get(id);
   if (ref && typeof ref.lat === 'number' && typeof ref.lon === 'number') {
     const km = haversineKm(pos.lat, pos.lon, ref.lat, ref.lon);
     base.gpsDistanceM = Math.round(km * 1000);
-    base.gpsRefLat = ref.lat; base.gpsRefLon = ref.lon;
+    base.gpsRefLat = ref.lat;
+    base.gpsRefLon = ref.lon;
     base.gpsRefSource = ref.source || 'auto';
-    base.gpsStatus = base.gpsDistanceM <= 300 ? 'confirmed'
-                   : base.gpsDistanceM <= 1000 ? 'near'
-                   : 'far';
+    base.gpsStatus =
+      base.gpsDistanceM <= 300 ? 'confirmed' : base.gpsDistanceM <= 1000 ? 'near' : 'far';
   } else {
     // No hay ref previa: esta visita la define (auto-aprendizaje).
     try {
-      await fbDb.collection('client_locations').doc(id).set({
-        provincia: prov, localidad: locName, tienda: tienda,
-        lat: pos.lat, lon: pos.lon, accuracy: Math.round(pos.accuracy || 0),
-        source: 'auto', setBy: currentUser.email || '', setByUid: currentUser.uid,
-        setAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
-      base.gpsRefLat = pos.lat; base.gpsRefLon = pos.lon; base.gpsRefSource = 'auto';
+      await fbDb
+        .collection('client_locations')
+        .doc(id)
+        .set({
+          provincia: prov,
+          localidad: locName,
+          tienda: tienda,
+          lat: pos.lat,
+          lon: pos.lon,
+          accuracy: Math.round(pos.accuracy || 0),
+          source: 'auto',
+          setBy: currentUser.email || '',
+          setByUid: currentUser.uid,
+          setAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+      base.gpsRefLat = pos.lat;
+      base.gpsRefLon = pos.lon;
+      base.gpsRefSource = 'auto';
       base.gpsDistanceM = 0;
       base.gpsStatus = 'first';
-    } catch(e) {
+    } catch (e) {
       console.warn('No pude crear client_location:', e);
       base.gpsStatus = 'no_reference';
     }
   }
   return base;
 }
-function gpsBadgeHtml(v){
+function gpsBadgeHtml(v) {
   // Devuelve un span pequeño con semaforo segun gpsStatus
   if (!v) return '';
   const st = v.gpsStatus || '';
   let bg, fg, lbl;
-  if (st === 'confirmed' || st === 'first') { bg = '#dcfce7'; fg = '#166534'; lbl = st === 'first' ? '● GPS 1ra' : '● GPS OK'; }
-  else if (st === 'near') { bg = '#fef9c3'; fg = '#854d0e'; lbl = '● GPS Cerca'; }
-  else if (st === 'far') { bg = '#fee2e2'; fg = '#991b1b'; lbl = '● GPS LEJOS'; }
-  else if (st === 'denied') { bg = '#e5e7eb'; fg = '#475569'; lbl = '● Sin permiso GPS'; }
-  else if (st === 'no_reference') { bg = '#e0f2fe'; fg = '#075985'; lbl = '● Sin referencia'; }
-  else if (st === 'timeout' || st === 'unavailable' || st === 'error') { bg = '#e5e7eb'; fg = '#475569'; lbl = '● Sin GPS'; }
-  else return '';
+  if (st === 'confirmed' || st === 'first') {
+    bg = '#dcfce7';
+    fg = '#166534';
+    lbl = st === 'first' ? '● GPS 1ra' : '● GPS OK';
+  } else if (st === 'near') {
+    bg = '#fef9c3';
+    fg = '#854d0e';
+    lbl = '● GPS Cerca';
+  } else if (st === 'far') {
+    bg = '#fee2e2';
+    fg = '#991b1b';
+    lbl = '● GPS LEJOS';
+  } else if (st === 'denied') {
+    bg = '#e5e7eb';
+    fg = '#475569';
+    lbl = '● Sin permiso GPS';
+  } else if (st === 'no_reference') {
+    bg = '#e0f2fe';
+    fg = '#075985';
+    lbl = '● Sin referencia';
+  } else if (st === 'timeout' || st === 'unavailable' || st === 'error') {
+    bg = '#e5e7eb';
+    fg = '#475569';
+    lbl = '● Sin GPS';
+  } else return '';
   let txt = lbl;
   if (typeof v.gpsDistanceM === 'number' && (st === 'confirmed' || st === 'near' || st === 'far')) {
-    txt += ' &middot; ' + (v.gpsDistanceM >= 1000 ? (v.gpsDistanceM / 1000).toFixed(1) + ' km' : v.gpsDistanceM + ' m');
+    txt +=
+      ' &middot; ' +
+      (v.gpsDistanceM >= 1000 ? (v.gpsDistanceM / 1000).toFixed(1) + ' km' : v.gpsDistanceM + ' m');
   }
-  return '<span style="display:inline-block;font-size:10px;font-weight:800;padding:2px 7px;border-radius:4px;background:' + bg + ';color:' + fg + ';letter-spacing:.3px">' + txt + '</span>';
+  return (
+    '<span style="display:inline-block;font-size:10px;font-weight:800;padding:2px 7px;border-radius:4px;background:' +
+    bg +
+    ';color:' +
+    fg +
+    ';letter-spacing:.3px">' +
+    txt +
+    '</span>'
+  );
 }
-if (typeof window.unsubVisits === "undefined") window.unsubVisits = null;
+if (typeof window.unsubVisits === 'undefined') window.unsubVisits = null;
 
 // v304+: mode puede ser 'visita' (default) o 'contacto'.
 // 'contacto' registra una interaccion no presencial (WhatsApp/Tel/Email).
 // Guarda en la misma coleccion `visits` con campo tipo='contacto'. UI
 // oculta las 2 filas de fotos y usa header verde/teal.
 window.visitMode = 'visita';
-window.openVisitaModal = function(mode){
-  mode = (mode === 'contacto') ? 'contacto' : 'visita';
+window.openVisitaModal = function (mode) {
+  mode = mode === 'contacto' ? 'contacto' : 'visita';
   window.visitMode = mode;
   applyVisitModeUI(mode);
   document.getElementById('visita-modal').classList.add('open');
@@ -287,23 +379,27 @@ window.openVisitaModal = function(mode){
     } else {
       q = fbDb.collection('visits').where('ownerUid', '==', currentUser.uid);
     }
-    window.unsubVisits = q.onSnapshot(qs => {
-      window.visitsCache = [];
-      qs.forEach(d => visitsCache.push(Object.assign({id: d.id}, d.data())));
-      if (document.getElementById('visita-pane-list').style.display !== 'none') renderVisitasList();
-    }, err => console.error('visits listener', err));
+    window.unsubVisits = q.onSnapshot(
+      (qs) => {
+        window.visitsCache = [];
+        qs.forEach((d) => visitsCache.push(Object.assign({ id: d.id }, d.data())));
+        if (document.getElementById('visita-pane-list').style.display !== 'none')
+          renderVisitasList();
+      },
+      (err) => console.error('visits listener', err)
+    );
   }
 };
 
-window.closeVisitaModal = function(){
+window.closeVisitaModal = function () {
   document.getElementById('visita-modal').classList.remove('open');
 };
 
 // v304+: aplica cambios visuales al modal segun el modo (visita/contacto).
 // Contacto: header teal, oculta filas de fotos (espacio + frente),
 // renombra tab, cambia label del boton submit.
-function applyVisitModeUI(mode){
-  const isContacto = (mode === 'contacto');
+function applyVisitModeUI(mode) {
+  const isContacto = mode === 'contacto';
   const head = document.getElementById('visita-modal-head');
   const title = document.getElementById('visita-modal-title');
   const subt = document.getElementById('visita-modal-subt');
@@ -312,13 +408,18 @@ function applyVisitModeUI(mode){
   const rowEsp = document.getElementById('vf-espacio-row');
   const rowFre = document.getElementById('vf-frente-row');
   const btn = document.getElementById('visita-submit-btn');
-  if (head) head.style.background = isContacto
-    ? 'linear-gradient(135deg,#0f766e,#14b8a6)'
-    : 'linear-gradient(135deg,#5b21b6,#7c3aed)';
-  if (title) title.textContent = isContacto ? 'Registro de Contacto (no presencial)' : 'Formulario de Visita';
-  if (subt) subt.innerHTML = isContacto
-    ? 'Cliente contactado por WhatsApp / tel&eacute;fono / email (sin visita f&iacute;sica). Los campos con <b style="color:#fca5a5">*</b> son obligatorios.'
-    : 'Los campos con <b style="color:#fca5a5">*</b> son obligatorios.';
+  if (head)
+    head.style.background = isContacto
+      ? 'linear-gradient(135deg,#0f766e,#14b8a6)'
+      : 'linear-gradient(135deg,#5b21b6,#7c3aed)';
+  if (title)
+    title.textContent = isContacto
+      ? 'Registro de Contacto (no presencial)'
+      : 'Formulario de Visita';
+  if (subt)
+    subt.innerHTML = isContacto
+      ? 'Cliente contactado por WhatsApp / tel&eacute;fono / email (sin visita f&iacute;sica). Los campos con <b style="color:#fca5a5">*</b> son obligatorios.'
+      : 'Los campos con <b style="color:#fca5a5">*</b> son obligatorios.';
   if (tabNueva) tabNueva.textContent = isContacto ? 'Nuevo contacto' : 'Nueva visita';
   if (tabMis) tabMis.textContent = isContacto ? 'Mis contactos' : 'Mis visitas';
   if (rowEsp) rowEsp.style.display = isContacto ? 'none' : '';
@@ -355,15 +456,17 @@ function applyVisitModeUI(mode){
   }
 }
 
-window.setVisitaView = function(v){
-  document.querySelectorAll('.vt-btn').forEach(b => b.classList.toggle('active', b.dataset.vt === v));
+window.setVisitaView = function (v) {
+  document
+    .querySelectorAll('.vt-btn')
+    .forEach((b) => b.classList.toggle('active', b.dataset.vt === v));
   document.getElementById('visita-pane-form').style.display = v === 'form' ? '' : 'none';
   document.getElementById('visita-pane-list').style.display = v === 'list' ? '' : 'none';
   document.getElementById('visita-footer').style.display = v === 'form' ? '' : 'none';
   if (v === 'list') renderVisitasList();
 };
 
-window.onClickNuevaVisitaTab = function(){
+window.onClickNuevaVisitaTab = function () {
   if (visitViewMode === 'view') {
     visitViewMode = 'new';
     resetVisitaForm();
@@ -372,19 +475,20 @@ window.onClickNuevaVisitaTab = function(){
   setVisitaView('form');
 };
 
-function resetVisitaForm(){
+function resetVisitaForm() {
   document.getElementById('visita-form').reset();
-  visitState = {relevancia: 0, pop: '', espacioPhotos: [], frentePhoto: null};
-  document.querySelectorAll('.vf-likert button').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('#vf-pop button').forEach(b => b.classList.remove('active'));
+  visitState = { relevancia: 0, pop: '', espacioPhotos: [], frentePhoto: null };
+  document.querySelectorAll('.vf-likert button').forEach((b) => b.classList.remove('active'));
+  document.querySelectorAll('#vf-pop button').forEach((b) => b.classList.remove('active'));
   document.getElementById('vf-necesidad-wrap').style.display = 'none';
   document.getElementById('vf-pond-wrap').style.display = 'none';
-  const gi = document.getElementById('vf-gps-info'); if (gi) gi.innerHTML = '';
+  const gi = document.getElementById('vf-gps-info');
+  if (gi) gi.innerHTML = '';
   refreshEspacioGrid();
   refreshFrenteGrid();
 }
 
-function populateVisitaLocalidades(){
+function populateVisitaLocalidades() {
   // v298+ (2026-07-14, pedido vendedores): el vendedor busca DIRECTO por
   // nombre de tienda; localidad + provincia se autocompletan al elegir.
   // Antes había que elegir localidad primero -> lento y muchos no la sabían.
@@ -397,17 +501,17 @@ function populateVisitaLocalidades(){
   const myVendor = getEffectiveVendorKey();
   const items = [];
   const seen = new Set();
-  const _norm = s => (s || '').toString().toLowerCase().trim();
+  const _norm = (s) => (s || '').toString().toLowerCase().trim();
 
   // Pre-build index de fantasias por nombre normalizado, para lookup O(1)
   // desde POINTS. Cubrimos las 3 rutas de match: comercio, titular, fantasia.
   const fantasiaByName = new Map();
   if (typeof approvedAltasList !== 'undefined') {
-    approvedAltasList.forEach(a => {
+    approvedAltasList.forEach((a) => {
       if (!a || !a.fantasia) return;
       const fant = String(a.fantasia).trim();
       if (!fant) return;
-      ['comercio', 'titular', 'fantasia'].forEach(k => {
+      ['comercio', 'titular', 'fantasia'].forEach((k) => {
         const v = _norm(a[k]);
         if (v) fantasiaByName.set(v, fant);
       });
@@ -417,7 +521,7 @@ function populateVisitaLocalidades(){
   // Helper: arma el label mostrando fantasia (titular) si son distintas.
   // Si son iguales o no hay fantasia, solo el titular. El buscador matchea
   // el label completo -> permite encontrar la tienda por cualquiera.
-  function buildLabel(titular, fantasia, loc, prov, badge){
+  function buildLabel(titular, fantasia, loc, prov, badge) {
     const t = (titular || '').trim();
     const f = (fantasia || '').trim();
     const showFant = f && f.toLowerCase() !== t.toLowerCase();
@@ -427,9 +531,9 @@ function populateVisitaLocalidades(){
   }
 
   // Path 1: POINTS clients confirmados en SAP.
-  POINTS.forEach(p => {
+  POINTS.forEach((p) => {
     if (myVendor && p.vendor !== myVendor) return;
-    (p.clients || []).forEach(c => {
+    (p.clients || []).forEach((c) => {
       if (typeof isSapConfirmed === 'function' && !isSapConfirmed(p.province, p.name, c)) return;
       const dedupKey = _norm(p.province) + '|' + _norm(p.name) + '|' + _norm(c);
       if (seen.has(dedupKey)) return;
@@ -446,7 +550,7 @@ function populateVisitaLocalidades(){
 
   // Path 2: SAP altas + provisorios de Alta Rápida.
   if (typeof approvedAltasList !== 'undefined') {
-    approvedAltasList.forEach(a => {
+    approvedAltasList.forEach((a) => {
       if (!a) return;
       const enabled = !!(a.cardCodeSap || a.manualSapPending);
       if (!enabled) return;
@@ -498,20 +602,23 @@ function populateVisitaLocalidades(){
   // v360: reconstruimos el value compuesto usando vf-localidad
   // ("PROV||Loc") + vf-tienda (nombre plano), que onTiendaChange dejo en
   // paralelo. Con eso el match funciona y restauramos la seleccion.
-  const _prevTiendaVal = (function(){
+  const _prevTiendaVal = (function () {
     const h = document.getElementById('vf-tienda');
     return h ? h.value : '';
   })();
-  const _prevLocVal = (function(){
+  const _prevLocVal = (function () {
     const h = document.getElementById('vf-localidad');
     return h ? h.value : '';
   })();
-  const _prevCompositeVal = (_prevTiendaVal && _prevLocVal)
-    ? (_prevLocVal + '||' + _prevTiendaVal)
-    : '';
-  fsPopulate('vf-tienda', items, function(val){ onTiendaChange(val); });
+  const _prevCompositeVal =
+    _prevTiendaVal && _prevLocVal ? _prevLocVal + '||' + _prevTiendaVal : '';
+  fsPopulate('vf-tienda', items, function (val) {
+    onTiendaChange(val);
+  });
   if (_prevCompositeVal) {
-    const _opt = items.find(function(i){ return i.value === _prevCompositeVal; });
+    const _opt = items.find(function (i) {
+      return i.value === _prevCompositeVal;
+    });
     if (_opt) {
       // fsSetValue pone el compuesto en el hidden; onTiendaChange lo pisa
       // con el nombre plano + re-setea vf-localidad. Mismo camino que
@@ -542,7 +649,10 @@ function populateVisitaLocalidades(){
   }
   // Reset del display de localidad detectada.
   const locDetected = document.getElementById('vf-loc-detected');
-  if (locDetected) { locDetected.style.display = 'none'; locDetected.textContent = ''; }
+  if (locDetected) {
+    locDetected.style.display = 'none';
+    locDetected.textContent = '';
+  }
 }
 
 // =====================================================================
@@ -558,32 +668,52 @@ function populateVisitaLocalidades(){
 // Uso desde codigo: fsPopulate('foo', [{value, label}, ...], onChange).
 // =====================================================================
 const _fsRegistry = {};
-function _fsNormalize(s){
-  return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+function _fsNormalize(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .trim();
 }
-function fsPopulate(fsId, optionsArray, onChangeCb){
-  _fsRegistry[fsId] = {options: optionsArray || [], onChange: onChangeCb || null};
+function fsPopulate(fsId, optionsArray, onChangeCb) {
+  _fsRegistry[fsId] = { options: optionsArray || [], onChange: onChangeCb || null };
   _fsRenderDropdown(fsId, '');
 }
-function _fsRenderDropdown(fsId, query){
+function _fsRenderDropdown(fsId, query) {
   const dropdown = document.getElementById(fsId + '-dropdown');
   if (!dropdown) return;
   const cfg = _fsRegistry[fsId];
   const opts = cfg ? cfg.options : [];
   const q = _fsNormalize(query);
   const matches = q
-    ? opts.filter(o => _fsNormalize(o.label).includes(q) || _fsNormalize(o.value).includes(q))
+    ? opts.filter((o) => _fsNormalize(o.label).includes(q) || _fsNormalize(o.value).includes(q))
     : opts;
   if (!matches.length) {
-    dropdown.innerHTML = '<div class="fs-item no-match">' + (opts.length ? 'Sin resultados' : 'Sin opciones') + '</div>';
+    dropdown.innerHTML =
+      '<div class="fs-item no-match">' +
+      (opts.length ? 'Sin resultados' : 'Sin opciones') +
+      '</div>';
     return;
   }
   const shown = matches.slice(0, 200);
-  dropdown.innerHTML = shown.map(o => (
-    '<div class="fs-item" data-fs="' + escapeAttr(fsId) + '" data-value="' + escapeAttr(o.value) + '" onmousedown="_fsSelect(event)">'
-    + escapeHtml(o.label)
-    + '</div>'
-  )).join('') + (matches.length > 200 ? '<div class="fs-item no-match">... y ' + (matches.length - 200) + ' mas (afina la busqueda)</div>' : '');
+  dropdown.innerHTML =
+    shown
+      .map(
+        (o) =>
+          '<div class="fs-item" data-fs="' +
+          escapeAttr(fsId) +
+          '" data-value="' +
+          escapeAttr(o.value) +
+          '" onmousedown="_fsSelect(event)">' +
+          escapeHtml(o.label) +
+          '</div>'
+      )
+      .join('') +
+    (matches.length > 200
+      ? '<div class="fs-item no-match">... y ' +
+        (matches.length - 200) +
+        ' mas (afina la busqueda)</div>'
+      : '');
 }
 // v361: expuesta en window. Post-E2 (extraccion de visitas al bundle IIFE)
 // esbuild tree-shakea funciones no referenciadas desde JS. _fsSelect solo
@@ -593,8 +723,8 @@ function _fsRenderDropdown(fsId, query){
 // "no pasa nada" al tocar tienda. Todos los otros handlers fsOn* si estaban
 // expuestos porque estan referenciados como oninput/onfocus/onblur/onkeydown
 // en <input>. Este era el unico que faltaba.
-window._fsSelect = function(evt){
-  evt.preventDefault();  // que no dispare blur del input
+window._fsSelect = function (evt) {
+  evt.preventDefault(); // que no dispare blur del input
   const el = evt.currentTarget;
   const fsId = el.dataset.fs;
   const val = el.dataset.value;
@@ -605,9 +735,15 @@ window._fsSelect = function(evt){
   const inp = document.getElementById(fsId + '-search');
   if (inp) inp.blur();
   const cfg = _fsRegistry[fsId];
-  if (cfg && cfg.onChange) { try { cfg.onChange(val); } catch(e) { console.warn('fs onChange', e); } }
+  if (cfg && cfg.onChange) {
+    try {
+      cfg.onChange(val);
+    } catch (e) {
+      console.warn('fs onChange', e);
+    }
+  }
 };
-window.fsOnInput = function(inputEl){
+window.fsOnInput = function (inputEl) {
   const wrap = inputEl.closest('.fs-wrap');
   if (!wrap) return;
   const fsId = wrap.dataset.fsId;
@@ -616,7 +752,7 @@ window.fsOnInput = function(inputEl){
   if (dropdown) dropdown.classList.add('open');
   wrap.classList.toggle('has-value', inputEl.value.trim().length > 0);
 };
-window.fsOnFocus = function(inputEl){
+window.fsOnFocus = function (inputEl) {
   if (inputEl.disabled) return;
   const wrap = inputEl.closest('.fs-wrap');
   if (!wrap) return;
@@ -625,9 +761,9 @@ window.fsOnFocus = function(inputEl){
   const dropdown = document.getElementById(fsId + '-dropdown');
   if (dropdown) dropdown.classList.add('open');
 };
-window.fsOnBlur = function(inputEl){
+window.fsOnBlur = function (inputEl) {
   // Timeout para dejar que el mousedown del item se procese antes de cerrar.
-  setTimeout(function(){
+  setTimeout(function () {
     const wrap = inputEl.closest('.fs-wrap');
     if (!wrap) return;
     const fsId = wrap.dataset.fsId;
@@ -638,8 +774,11 @@ window.fsOnBlur = function(inputEl){
     // validacion del form pida elegir una opcion.
   }, 150);
 };
-window.fsOnKeydown = function(inputEl, evt){
-  if (evt.key === 'Escape') { inputEl.blur(); return; }
+window.fsOnKeydown = function (inputEl, evt) {
+  if (evt.key === 'Escape') {
+    inputEl.blur();
+    return;
+  }
   if (evt.key === 'Enter') {
     evt.preventDefault();
     // Elegir el primer match visible.
@@ -655,13 +794,17 @@ window.fsOnKeydown = function(inputEl, evt){
       dropdown.classList.remove('open');
       inputEl.blur();
       const cfg = _fsRegistry[fsId];
-      if (cfg && cfg.onChange) { try { cfg.onChange(val); } catch(e){} }
+      if (cfg && cfg.onChange) {
+        try {
+          cfg.onChange(val);
+        } catch (_e) {}
+      }
     }
   }
 };
 // Setear el value del hidden + input search. Sirve para restaurar el estado
 // al hacer viewVisit u otras acciones que hoy hacen sel.value = "algo".
-function fsSetValue(fsId, value, label){
+function fsSetValue(fsId, value, label) {
   const hidden = document.getElementById(fsId);
   const search = document.getElementById(fsId + '-search');
   if (hidden) hidden.value = value || '';
@@ -671,7 +814,7 @@ function fsSetValue(fsId, value, label){
     if (!lbl && value) {
       const cfg = _fsRegistry[fsId];
       if (cfg) {
-        const opt = (cfg.options || []).find(o => o.value === value);
+        const opt = (cfg.options || []).find((o) => o.value === value);
         if (opt) lbl = opt.label;
       }
     }
@@ -681,19 +824,25 @@ function fsSetValue(fsId, value, label){
   if (wrap) wrap.classList.toggle('has-value', !!value);
 }
 window.fsSetValue = fsSetValue;
-function fsReset(fsId){ fsSetValue(fsId, '', ''); }
+function fsReset(fsId) {
+  fsSetValue(fsId, '', '');
+}
 window.fsReset = fsReset;
-window.fsClear = function(fsId){
+window.fsClear = function (fsId) {
   fsReset(fsId);
   const search = document.getElementById(fsId + '-search');
   if (search) search.focus();
   const cfg = _fsRegistry[fsId];
-  if (cfg && cfg.onChange) { try { cfg.onChange(''); } catch(e){} }
+  if (cfg && cfg.onChange) {
+    try {
+      cfg.onChange('');
+    } catch (_e) {}
+  }
 };
 
 // Renderiza el selector "Crear en nombre de" segun mis parejas VDE. Se llama
 // al abrir el modal de Visita y cuando cambia la lista de parejas.
-function renderActingAsVendorSelect(){
+function renderActingAsVendorSelect() {
   const wrap = document.getElementById('vf-actingas-wrap');
   const sel = document.getElementById('vf-actingas');
   if (!wrap || !sel) return;
@@ -703,31 +852,43 @@ function renderActingAsVendorSelect(){
     return;
   }
   wrap.style.display = '';
-  const opts = ['<option value="">Mí mismo (mis pedidos/visitas)</option>']
-    .concat(myExternalPartners.map(p => {
+  const opts = ['<option value="">Mí mismo (mis pedidos/visitas)</option>'].concat(
+    myExternalPartners.map((p) => {
       const label = (p.displayName || p.email || '') + ' [VDE]';
-      return '<option value="' + escapeAttr(p.uid) + '"' + (actingOnBehalfOfUid === p.uid ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
-    }));
+      return (
+        '<option value="' +
+        escapeAttr(p.uid) +
+        '"' +
+        (actingOnBehalfOfUid === p.uid ? ' selected' : '') +
+        '>' +
+        escapeHtml(label) +
+        '</option>'
+      );
+    })
+  );
   sel.innerHTML = opts.join('');
   refreshActingAsInfoLine();
 }
 
-function refreshActingAsInfoLine(){
+function refreshActingAsInfoLine() {
   const info = document.getElementById('vf-actingas-info');
   if (!info) return;
   const p = getActingVendorPartner();
   if (p) {
     info.style.display = '';
-    info.innerHTML = '&#9888;&#65039; La visita queda registrada como del VDE <b>' + escapeHtml(p.displayName) + '</b>. Le va a llegar una notificacion automatica.';
+    info.innerHTML =
+      '&#9888;&#65039; La visita queda registrada como del VDE <b>' +
+      escapeHtml(p.displayName) +
+      '</b>. Le va a llegar una notificacion automatica.';
   } else {
     info.style.display = 'none';
     info.innerHTML = '';
   }
 }
 
-window.onActingAsChange = function(){
+window.onActingAsChange = function () {
   const sel = document.getElementById('vf-actingas');
-  actingOnBehalfOfUid = (sel && sel.value) ? sel.value : null;
+  actingOnBehalfOfUid = sel && sel.value ? sel.value : null;
   // Re-populate localidades segun el VDE elegido (cambia el vendor key efectivo).
   populateVisitaLocalidades();
   refreshActingAsInfoLine();
@@ -737,21 +898,26 @@ window.onActingAsChange = function(){
 // referencias externas. La logica de tiendas ahora se popula toda de una
 // (populateVisitaLocalidades) y se filtra por localidad automaticamente
 // cuando el vendedor elige tienda (onTiendaChange).
-window.onLocalidadChange = function(){ /* no-op post v298 */ };
+window.onLocalidadChange = function () {
+  /* no-op post v298 */
+};
 
 // v298+ onTiendaChange: se dispara al seleccionar una tienda del filter-select.
 // Parsea el value compuesto "PROV||Loc||Tienda", setea el hidden vf-localidad
 // con el formato "PROV||Loc" que espera el resto del flujo (save/validate),
 // y pisa el hidden vf-tienda con SOLO el nombre para que readField devuelva
 // el nombre plano. Muestra un display de confirmacion con la localidad.
-window.onTiendaChange = function(val){
+window.onTiendaChange = function (val) {
   const locDetected = document.getElementById('vf-loc-detected');
   const hiddenLoc = document.getElementById('vf-localidad');
   const hiddenTienda = document.getElementById('vf-tienda');
   if (!val) {
     if (hiddenLoc) hiddenLoc.value = '';
     if (hiddenTienda) hiddenTienda.value = '';
-    if (locDetected) { locDetected.style.display = 'none'; locDetected.textContent = ''; }
+    if (locDetected) {
+      locDetected.style.display = 'none';
+      locDetected.textContent = '';
+    }
     return;
   }
   const parts = String(val).split('||');
@@ -761,35 +927,43 @@ window.onTiendaChange = function(val){
   if (hiddenLoc) hiddenLoc.value = prov + '||' + loc;
   if (hiddenTienda) hiddenTienda.value = tienda;
   if (locDetected) {
-    locDetected.innerHTML = '📍 Localidad detectada: <b>' + escapeHtml(loc) + '</b> &mdash; ' + escapeHtml(titleCase(prov));
+    locDetected.innerHTML =
+      '📍 Localidad detectada: <b>' +
+      escapeHtml(loc) +
+      '</b> &mdash; ' +
+      escapeHtml(titleCase(prov));
     locDetected.style.display = 'block';
   }
 };
 
-window.setLikert = function(v){
+window.setLikert = function (v) {
   visitState.relevancia = v;
-  document.querySelectorAll('.vf-likert button').forEach(b => b.classList.toggle('active', parseInt(b.dataset.v) === v));
+  document
+    .querySelectorAll('.vf-likert button')
+    .forEach((b) => b.classList.toggle('active', parseInt(b.dataset.v, 10) === v));
 };
 
-window.setPop = function(v){
+window.setPop = function (v) {
   visitState.pop = v;
-  document.querySelectorAll('#vf-pop button').forEach(b => b.classList.toggle('active', b.dataset.v === v));
+  document
+    .querySelectorAll('#vf-pop button')
+    .forEach((b) => b.classList.toggle('active', b.dataset.v === v));
   document.getElementById('vf-necesidad-wrap').style.display = v === 'SI' ? '' : 'none';
   if (v !== 'SI') document.getElementById('vf-necesidad').value = '';
 };
 
-window.onTipoVentaChange = function(){
+window.onTipoVentaChange = function () {
   const v = document.getElementById('vf-tipoventa').value;
-  document.getElementById('vf-pond-wrap').style.display = (v === 'AMBOS') ? '' : 'none';
+  document.getElementById('vf-pond-wrap').style.display = v === 'AMBOS' ? '' : 'none';
 };
 
 // Compresion de imagenes a base64 jpeg ~700px max + 70% quality
-function compressImage(file, maxWidth, quality){
+function compressImage(file, maxWidth, quality) {
   maxWidth = maxWidth || 800;
   quality = quality || 0.7;
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = e => {
+    reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
         const scale = Math.min(maxWidth / img.width, 1);
@@ -807,83 +981,108 @@ function compressImage(file, maxWidth, quality){
   });
 }
 
-window.onEspacioPhotos = async function(inp){
+window.onEspacioPhotos = async function (inp) {
   const files = [...(inp.files || [])];
   for (const f of files) {
-    if (visitState.espacioPhotos.length >= 8) { alert('Maximo 8 fotos en Espacio'); break; }
+    if (visitState.espacioPhotos.length >= 8) {
+      alert('Maximo 8 fotos en Espacio');
+      break;
+    }
     try {
       const b64 = await compressImage(f, 800, 0.7);
       visitState.espacioPhotos.push(b64);
-    } catch(e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   }
   inp.value = '';
   refreshEspacioGrid();
 };
 
-window.removeEspacioPhoto = function(idx){
+window.removeEspacioPhoto = function (idx) {
   visitState.espacioPhotos.splice(idx, 1);
   refreshEspacioGrid();
 };
 
-function refreshEspacioGrid(){
+function refreshEspacioGrid() {
   const grid = document.getElementById('vf-espacio-grid');
-  const cells = visitState.espacioPhotos.map((b64, i) =>
-    '<div class="photo-cell"><img src="' + b64 + '"/><button type="button" class="rm" onclick="removeEspacioPhoto(' + i + ')">&times;</button></div>'
-  ).join('');
-  const addCell = visitState.espacioPhotos.length < 8
-    ? '<label class="photo-cell add"><input type="file" accept="image/*,image/heic,image/heif" multiple onchange="onEspacioPhotos(this)"/>+</label>'
-    : '';
+  const cells = visitState.espacioPhotos
+    .map(
+      (b64, i) =>
+        '<div class="photo-cell"><img src="' +
+        b64 +
+        '"/><button type="button" class="rm" onclick="removeEspacioPhoto(' +
+        i +
+        ')">&times;</button></div>'
+    )
+    .join('');
+  const addCell =
+    visitState.espacioPhotos.length < 8
+      ? '<label class="photo-cell add"><input type="file" accept="image/*,image/heic,image/heif" multiple onchange="onEspacioPhotos(this)"/>+</label>'
+      : '';
   grid.innerHTML = cells + addCell;
 }
 
-window.onFrentePhoto = async function(inp){
+window.onFrentePhoto = async function (inp) {
   const f = inp.files && inp.files[0];
   if (!f) return;
-  try { visitState.frentePhoto = await compressImage(f, 1000, 0.75); }
-  catch(e) { console.error(e); }
+  try {
+    visitState.frentePhoto = await compressImage(f, 1000, 0.75);
+  } catch (e) {
+    console.error(e);
+  }
   inp.value = '';
   refreshFrenteGrid();
 };
 
-window.removeFrentePhoto = function(){
+window.removeFrentePhoto = function () {
   visitState.frentePhoto = null;
   refreshFrenteGrid();
 };
 
-function refreshFrenteGrid(){
+function refreshFrenteGrid() {
   const wrap = document.getElementById('vf-frente-grid');
   if (!wrap) return;
   if (visitState.frentePhoto) {
-    wrap.innerHTML = '<div class="photo-cell"><img src="' + visitState.frentePhoto + '"/><button type="button" class="rm" onclick="removeFrentePhoto()">&times;</button></div>';
+    wrap.innerHTML =
+      '<div class="photo-cell"><img src="' +
+      visitState.frentePhoto +
+      '"/><button type="button" class="rm" onclick="removeFrentePhoto()">&times;</button></div>';
   } else {
-    wrap.innerHTML = '<label class="photo-cell add"><input type="file" accept="image/*,image/heic,image/heif" onchange="onFrentePhoto(this)"/>+</label>';
+    wrap.innerHTML =
+      '<label class="photo-cell add"><input type="file" accept="image/*,image/heic,image/heif" onchange="onFrentePhoto(this)"/>+</label>';
   }
 }
 
-function readField(id){ return (document.getElementById(id).value || '').trim(); }
+function readField(id) {
+  return (document.getElementById(id).value || '').trim();
+}
 
-window.submitVisita = async function(){
+window.submitVisita = async function () {
   // Validar
   const errors = [];
   if (!readField('vf-localidad')) errors.push('Localidad');
   if (!readField('vf-tienda')) errors.push('Tienda de pesca');
   if (!readField('vf-tipo')) errors.push('Tipo');
   // v313+: en modo contacto, forma de contacto es obligatoria.
-  if (window.visitMode === 'contacto' && !readField('vf-formaContacto')) errors.push('Forma de contacto');
+  if (window.visitMode === 'contacto' && !readField('vf-formaContacto'))
+    errors.push('Forma de contacto');
   if (!readField('vf-local')) errors.push('Local');
   if (!readField('vf-tamano')) errors.push('Tamano');
   // v339+: Fidelidad + POP + Tipo de venta ocultos en modo contacto (no aplican).
-  const _isContacto = (window.visitMode === 'contacto');
+  const _isContacto = window.visitMode === 'contacto';
   if (!_isContacto && !readField('vf-fidelidad')) errors.push('Fidelidad');
   // v358: fix — Especializacion solo obligatorio en visita presencial.
   // v357 oculto el campo en modo contacto pero olvide sacarlo de la
   // validacion JS de submit → alert "Faltan completar: Especializacion..."
   // aunque el campo estuviera invisible.
-  if (!_isContacto && !readField('vf-especializacion')) errors.push('Especializacion por tipo de pesca');
+  if (!_isContacto && !readField('vf-especializacion'))
+    errors.push('Especializacion por tipo de pesca');
   if (!readField('vf-canalcompra')) errors.push('Canal de compra');
   if (!visitState.relevancia) errors.push('Relevancia');
   if (!_isContacto && !visitState.pop) errors.push('POP');
-  if (!_isContacto && visitState.pop === 'SI' && !readField('vf-necesidad')) errors.push('Necesidad puntual');
+  if (!_isContacto && visitState.pop === 'SI' && !readField('vf-necesidad'))
+    errors.push('Necesidad puntual');
   // Frente del local: OPCIONAL (antes era obligatorio para vendedor externo;
   // ahora se puede saltar siempre - el vendedor decide si toma la foto).
   const tv = readField('vf-tipoventa');
@@ -893,16 +1092,32 @@ window.submitVisita = async function(){
     const e = parseFloat(readField('vf-pond-ecommerce')) || 0;
     if (m + e !== 100) errors.push('Ponderacion (debe sumar 100%)');
   }
-  if (errors.length) { alert('Faltan completar:\n\n- ' + errors.join('\n- ')); return; }
+  if (errors.length) {
+    alert('Faltan completar:\n\n- ' + errors.join('\n- '));
+    return;
+  }
 
   const tienda = readField('vf-tienda');
   const now = new Date();
   const mes = MESES[now.getMonth()].toUpperCase();
   const anio = now.getFullYear();
   // v304+: mensaje de confirmacion cambia segun modo
-  const isContacto = (window.visitMode === 'contacto');
+  const isContacto = window.visitMode === 'contacto';
   const labelAccion = isContacto ? 'REGISTRAR EL CONTACTO' : 'ENVIAR EL FORMULARIO';
-  if (!confirm('¿SEGURO QUIERE ' + labelAccion + ' DE "' + tienda + '" DEL MES "' + mes + '" DE "' + anio + '"?')) return;
+  if (
+    !confirm(
+      '¿SEGURO QUIERE ' +
+        labelAccion +
+        ' DE "' +
+        tienda +
+        '" DEL MES "' +
+        mes +
+        '" DE "' +
+        anio +
+        '"?'
+    )
+  )
+    return;
 
   const [prov, locName] = readField('vf-localidad').split('||');
 
@@ -912,12 +1127,22 @@ window.submitVisita = async function(){
   // Si esta lejos, pedir confirmacion extra (no bloquea, solo informa)
   if (gps.gpsStatus === 'far') {
     const km = (gps.gpsDistanceM / 1000).toFixed(1);
-    if (!confirm('AVISO: Tu ubicacion GPS esta a ' + km + ' km de la tienda registrada. ¿Continuar guardando la visita igual?')) {
+    if (
+      !confirm(
+        'AVISO: Tu ubicacion GPS esta a ' +
+          km +
+          ' km de la tienda registrada. ¿Continuar guardando la visita igual?'
+      )
+    ) {
       showSyncTag('Cancelado');
       return;
     }
   } else if (gps.gpsStatus === 'denied') {
-    if (!confirm('No diste permiso de ubicacion. La visita se va a guardar SIN verificacion GPS. ¿Continuar?')) {
+    if (
+      !confirm(
+        'No diste permiso de ubicacion. La visita se va a guardar SIN verificacion GPS. ¿Continuar?'
+      )
+    ) {
       showSyncTag('Cancelado');
       return;
     }
@@ -927,8 +1152,8 @@ window.submitVisita = async function(){
   // ownerUid es el del VDE; queda auditoria de quien la cargo (createdBy...).
   const actingPartner = getActingVendorPartner();
   const ownerUid = actingPartner ? actingPartner.uid : currentUser.uid;
-  const ownerEmail = actingPartner ? (actingPartner.email || '') : (currentUser.email || '');
-  const vendorKey = actingPartner ? (actingPartner.vendor || '') : (assignedVendor || '');
+  const ownerEmail = actingPartner ? actingPartner.email || '' : currentUser.email || '';
+  const vendorKey = actingPartner ? actingPartner.vendor || '' : assignedVendor || '';
 
   const data = {
     ownerUid: ownerUid,
@@ -946,8 +1171,8 @@ window.submitVisita = async function(){
     // Auditoria: si fue cargada por un VDI en nombre de un VDE pareja.
     createdByUid: currentUser.uid,
     createdByEmail: currentUser.email || '',
-    createdByDisplayName: (currentUser.displayName || currentUser.email || ''),
-    onBehalfOf: actingPartner ? true : false,
+    createdByDisplayName: currentUser.displayName || currentUser.email || '',
+    onBehalfOf: !!actingPartner,
     provincia: prov,
     localidad: locName,
     tienda: tienda,
@@ -967,8 +1192,8 @@ window.submitVisita = async function(){
     ayudaTienda: readField('vf-ayuda'),
     frenteLocal: visitState.frentePhoto,
     tipoVenta: tv,
-    ponderacionMostrado: (tv === 'AMBOS') ? (parseFloat(readField('vf-pond-mostrado')) || 0) : null,
-    ponderacionEcommerce: (tv === 'AMBOS') ? (parseFloat(readField('vf-pond-ecommerce')) || 0) : null,
+    ponderacionMostrado: tv === 'AMBOS' ? parseFloat(readField('vf-pond-mostrado')) || 0 : null,
+    ponderacionEcommerce: tv === 'AMBOS' ? parseFloat(readField('vf-pond-ecommerce')) || 0 : null,
     competencia: readField('vf-competencia'),
     fecha: now.toISOString().slice(0, 10),
     mes: mes,
@@ -998,7 +1223,7 @@ window.submitVisita = async function(){
     // Si fue creada en nombre de un VDE, notificar al VDE para que este al tanto.
     if (actingPartner) {
       try {
-        const me = (currentUser.displayName || currentUser.email || 'Tu pareja VDI');
+        const me = currentUser.displayName || currentUser.email || 'Tu pareja VDI';
         await fbDb.collection('notifications').add({
           type: 'partner_action',
           subtype: 'visit_created',
@@ -1014,7 +1239,9 @@ window.submitVisita = async function(){
           status: 'unread',
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         });
-      } catch(e) { console.warn('notif al VDE pareja', e); }
+      } catch (e) {
+        console.warn('notif al VDE pareja', e);
+      }
     }
     // Si llegamos aca via 'Contactar' desde una notif, marcamos la notif como leida.
     // v362: window.* porque la var se declara en notificaciones.js (otro modulo
@@ -1022,46 +1249,107 @@ window.submitVisita = async function(){
     if (window.pendingNotifIdToMarkRead) {
       try {
         await fbDb.collection('notifications').doc(window.pendingNotifIdToMarkRead).update({
-          status: 'read', readAt: firebase.firestore.FieldValue.serverTimestamp(),
+          status: 'read',
+          readAt: firebase.firestore.FieldValue.serverTimestamp(),
         });
-      } catch(e) { console.warn('mark notif read after visit', e); }
+      } catch (e) {
+        console.warn('mark notif read after visit', e);
+      }
       window.pendingNotifIdToMarkRead = null;
     }
     alert('Formulario enviado correctamente.');
     resetVisitaForm();
     setVisitaView('list');
-  } catch(e) {
+  } catch (e) {
     console.error('submitVisita', e);
     alert('Error guardando: ' + (e.message || e));
   }
 };
 
-function populateVisitFilters(){
+function populateVisitFilters() {
   const mesSel = document.getElementById('vfilt-mes');
   const mesCur = mesSel.value;
-  mesSel.innerHTML = '<option value="">Todos los meses</option>' + MESES.map(m => '<option value="' + m.toUpperCase() + '"' + (m.toUpperCase() === mesCur ? ' selected' : '') + '>' + m + '</option>').join('');
-  const tiendaSet = new Set(), yearSet = new Set(), vendorSet = new Set();
-  visitsCache.forEach(v => {
+  mesSel.innerHTML =
+    '<option value="">Todos los meses</option>' +
+    MESES.map(
+      (m) =>
+        '<option value="' +
+        m.toUpperCase() +
+        '"' +
+        (m.toUpperCase() === mesCur ? ' selected' : '') +
+        '>' +
+        m +
+        '</option>'
+    ).join('');
+  const tiendaSet = new Set(),
+    yearSet = new Set(),
+    vendorSet = new Set();
+  visitsCache.forEach((v) => {
     if (v.tienda) tiendaSet.add(v.tienda);
     if (v.anio) yearSet.add(v.anio);
     if (v.vendor) vendorSet.add(v.vendor);
   });
   const tiendaSel = document.getElementById('vfilt-tienda');
   const tiendaCur = tiendaSel.value;
-  tiendaSel.innerHTML = '<option value="">Todas las tiendas</option>' + [...tiendaSet].sort().map(t => '<option value="' + escapeAttr(t) + '"' + (t === tiendaCur ? ' selected' : '') + '>' + escapeHtml(t) + '</option>').join('');
+  tiendaSel.innerHTML =
+    '<option value="">Todas las tiendas</option>' +
+    [...tiendaSet]
+      .sort()
+      .map(
+        (t) =>
+          '<option value="' +
+          escapeAttr(t) +
+          '"' +
+          (t === tiendaCur ? ' selected' : '') +
+          '>' +
+          escapeHtml(t) +
+          '</option>'
+      )
+      .join('');
   const yearSel = document.getElementById('vfilt-anio');
   const yearCur = yearSel.value;
-  yearSel.innerHTML = '<option value="">Todos los años</option>' + [...yearSet].sort((a,b) => b - a).map(y => '<option value="' + y + '"' + (String(y) === yearCur ? ' selected' : '') + '>' + y + '</option>').join('');
+  yearSel.innerHTML =
+    '<option value="">Todos los años</option>' +
+    [...yearSet]
+      .sort((a, b) => b - a)
+      .map(
+        (y) =>
+          '<option value="' +
+          y +
+          '"' +
+          (String(y) === yearCur ? ' selected' : '') +
+          '>' +
+          y +
+          '</option>'
+      )
+      .join('');
   // Vendor filter solo se popula para admin/viewer (esta oculto via CSS para vendedor)
   const vendorSel = document.getElementById('vfilt-vendedor');
   const vendorCur = vendorSel.value;
-  vendorSel.innerHTML = '<option value="">Todos los vendedores</option>' + [...vendorSet].sort().map(v => '<option value="' + escapeAttr(v) + '"' + (v === vendorCur ? ' selected' : '') + '>' + escapeHtml(titleCase(v)) + '</option>').join('');
+  vendorSel.innerHTML =
+    '<option value="">Todos los vendedores</option>' +
+    [...vendorSet]
+      .sort()
+      .map(
+        (v) =>
+          '<option value="' +
+          escapeAttr(v) +
+          '"' +
+          (v === vendorCur ? ' selected' : '') +
+          '>' +
+          escapeHtml(titleCase(v)) +
+          '</option>'
+      )
+      .join('');
 }
 
-function renderVisitasList(){
+function renderVisitasList() {
   populateVisitFilters();
   const el = document.getElementById('visitas-list');
-  if (!visitsCache.length) { el.innerHTML = '<div class="no-data">No hay interacciones registradas todavia.</div>'; return; }
+  if (!visitsCache.length) {
+    el.innerHTML = '<div class="no-data">No hay interacciones registradas todavia.</div>';
+    return;
+  }
   const fMes = document.getElementById('vfilt-mes').value;
   const fTienda = document.getElementById('vfilt-tienda').value;
   const fAnio = document.getElementById('vfilt-anio').value;
@@ -1070,22 +1358,28 @@ function renderVisitasList(){
   const fTipoEl = document.getElementById('vfilt-tipo');
   const fTipo = fTipoEl ? fTipoEl.value : '';
   let list = visitsCache.slice();
-  if (fMes) list = list.filter(v => (v.mes || '').toUpperCase() === fMes);
-  if (fTienda) list = list.filter(v => v.tienda === fTienda);
-  if (fAnio) list = list.filter(v => String(v.anio) === fAnio);
-  if (fVendedor && (userRole === 'admin' || userRole === 'viewer')) list = list.filter(v => v.vendor === fVendedor);
-  if (fTipo === 'contacto') list = list.filter(v => v.interactionType === 'contacto');
-  else if (fTipo === 'visita') list = list.filter(v => v.interactionType !== 'contacto');
-  list.sort((a,b) => (b.fecha || '').localeCompare(a.fecha || ''));
-  if (!list.length) { el.innerHTML = '<div class="no-data">No hay interacciones que coincidan con los filtros.</div>'; return; }
+  if (fMes) list = list.filter((v) => (v.mes || '').toUpperCase() === fMes);
+  if (fTienda) list = list.filter((v) => v.tienda === fTienda);
+  if (fAnio) list = list.filter((v) => String(v.anio) === fAnio);
+  if (fVendedor && (userRole === 'admin' || userRole === 'viewer'))
+    list = list.filter((v) => v.vendor === fVendedor);
+  if (fTipo === 'contacto') list = list.filter((v) => v.interactionType === 'contacto');
+  else if (fTipo === 'visita') list = list.filter((v) => v.interactionType !== 'contacto');
+  list.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+  if (!list.length) {
+    el.innerHTML = '<div class="no-data">No hay interacciones que coincidan con los filtros.</div>';
+    return;
+  }
   let html = '';
-  list.forEach(v => {
+  list.forEach((v) => {
     // Permisos para eliminar: admin y gerente ven el boton en todas las
     // visitas, vendedores solo en las propias (matcheando ownerUid).
-    const canDeleteThis = (userRole === 'admin' || userRole === 'gerente') ||
-                          (currentUser && v.ownerUid === currentUser.uid);
+    const canDeleteThis =
+      userRole === 'admin' ||
+      userRole === 'gerente' ||
+      (currentUser && v.ownerUid === currentUser.uid);
     // v306+: badge visual del tipo de interaccion.
-    const isContacto = (v.interactionType === 'contacto');
+    const isContacto = v.interactionType === 'contacto';
     const iBadge = isContacto
       ? '<span style="display:inline-block;background:#ccfbf1;color:#0f766e;border:1px solid #5eead4;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#128241; Contacto</span>'
       : '<span style="display:inline-block;background:#ede9fe;color:#5b21b6;border:1px solid #c4b5fd;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#128100; Visita</span>';
@@ -1094,29 +1388,75 @@ function renderVisitasList(){
     let resBadge = '';
     if (isContacto) {
       if (v.contactoResultado === 'respondio') {
-        resBadge = '<span style="display:inline-block;background:#dcfce7;color:#166534;border:1px solid #86efac;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#9989; Respondio</span>';
+        resBadge =
+          '<span style="display:inline-block;background:#dcfce7;color:#166534;border:1px solid #86efac;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#9989; Respondio</span>';
       } else if (v.contactoResultado === 'no_respondio') {
-        resBadge = '<span style="display:inline-block;background:#e2e8f0;color:#475569;border:1px solid #cbd5e1;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#10060; No respondio</span>';
+        resBadge =
+          '<span style="display:inline-block;background:#e2e8f0;color:#475569;border:1px solid #cbd5e1;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#10060; No respondio</span>';
       } else {
-        resBadge = '<span style="display:inline-block;background:#fef3c7;color:#78350f;border:1px solid #fcd34d;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#8987; Sin marcar</span>';
+        resBadge =
+          '<span style="display:inline-block;background:#fef3c7;color:#78350f;border:1px solid #fcd34d;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#8987; Sin marcar</span>';
       }
     }
-    html += '<div class="visit-card" onclick="viewVisit(\'' + escapeAttr(v.id) + '\')"><div class="vc-head">';
-    html += '<div><div class="vc-name">' + escapeHtml(v.tienda || '?') + iBadge + resBadge + '</div>';
-    html += '<div class="vc-meta">' + escapeHtml(v.localidad || '') + ' / ' + escapeHtml(titleCase(v.provincia || '')) + (v.vendor ? ' &middot; ' + escapeHtml(titleCase(v.vendor)) : '') + '</div>';
-    html += '<div class="vc-meta">' + escapeHtml(v.tipo || '') + (v.local ? ' - ' + escapeHtml(v.local) : '') + ' &middot; ' + escapeHtml(v.tamano || '') + ' &middot; Fidelidad ' + escapeHtml(v.fidelidad || '') + ' &middot; Relev ' + (v.relevancia || 0) + '/5</div>';
-    if (v.pop === 'SI') html += '<div class="vc-meta" style="color:#7c3aed">POP: ' + escapeHtml(v.necesidadPuntual || '') + '</div>';
-    if ((v.espacio || []).length || v.frenteLocal) html += '<div class="vc-meta">Fotos: ' + (v.frenteLocal ? '1 frente' : '') + ((v.espacio || []).length ? (v.frenteLocal ? ' + ' : '') + (v.espacio || []).length + ' espacio' : '') + '</div>';
+    html +=
+      '<div class="visit-card" onclick="viewVisit(\'' +
+      escapeAttr(v.id) +
+      '\')"><div class="vc-head">';
+    html +=
+      '<div><div class="vc-name">' + escapeHtml(v.tienda || '?') + iBadge + resBadge + '</div>';
+    html +=
+      '<div class="vc-meta">' +
+      escapeHtml(v.localidad || '') +
+      ' / ' +
+      escapeHtml(titleCase(v.provincia || '')) +
+      (v.vendor ? ' &middot; ' + escapeHtml(titleCase(v.vendor)) : '') +
+      '</div>';
+    html +=
+      '<div class="vc-meta">' +
+      escapeHtml(v.tipo || '') +
+      (v.local ? ' - ' + escapeHtml(v.local) : '') +
+      ' &middot; ' +
+      escapeHtml(v.tamano || '') +
+      ' &middot; Fidelidad ' +
+      escapeHtml(v.fidelidad || '') +
+      ' &middot; Relev ' +
+      (v.relevancia || 0) +
+      '/5</div>';
+    if (v.pop === 'SI')
+      html +=
+        '<div class="vc-meta" style="color:#7c3aed">POP: ' +
+        escapeHtml(v.necesidadPuntual || '') +
+        '</div>';
+    if ((v.espacio || []).length || v.frenteLocal)
+      html +=
+        '<div class="vc-meta">Fotos: ' +
+        (v.frenteLocal ? '1 frente' : '') +
+        ((v.espacio || []).length
+          ? (v.frenteLocal ? ' + ' : '') + (v.espacio || []).length + ' espacio'
+          : '') +
+        '</div>';
     const gpsB = gpsBadgeHtml(v);
     if (gpsB) html += '<div class="vc-meta" style="margin-top:4px">' + gpsB + '</div>';
-    html += '</div><div class="vc-date" style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">' + escapeHtml(v.mes || '') + ' ' + (v.anio || '');
+    html +=
+      '</div><div class="vc-date" style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">' +
+      escapeHtml(v.mes || '') +
+      ' ' +
+      (v.anio || '');
     // v365+: boton ESTADO solo para contactos (no presencial). Abre modal con RESPONDIO / NO RESPONDIO / ELIMINAR.
     if (isContacto && canDeleteThis) {
-      html += '<button onclick="event.stopPropagation();openContactoEstadoModal(\'' + escapeAttr(v.id) + '\')" title="Marcar resultado del contacto (respondio / no respondio) o eliminar" style="background:#0f766e;color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128203; Estado</button>';
+      html +=
+        '<button onclick="event.stopPropagation();openContactoEstadoModal(\'' +
+        escapeAttr(v.id) +
+        '\')" title="Marcar resultado del contacto (respondio / no respondio) o eliminar" style="background:#0f766e;color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128203; Estado</button>';
     }
     if (canDeleteThis && !isContacto) {
       // Para visitas presenciales el ELIMINAR sigue directo (sin pasar por el modal Estado).
-      html += '<button onclick="event.stopPropagation();deleteVisit(\'' + escapeAttr(v.id) + '\',\'' + escapeAttr(v.tienda || '') + '\')" title="Eliminar esta visita" style="background:#dc2626;color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Eliminar</button>';
+      html +=
+        '<button onclick="event.stopPropagation();deleteVisit(\'' +
+        escapeAttr(v.id) +
+        "','" +
+        escapeAttr(v.tienda || '') +
+        '\')" title="Eliminar esta visita" style="background:#dc2626;color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Eliminar</button>';
     }
     html += '</div>';
     html += '</div></div>';
@@ -1124,26 +1464,57 @@ function renderVisitasList(){
   el.innerHTML = html;
 }
 
-window.deleteVisit = async function(visitId, tiendaName){
+window.deleteVisit = async function (visitId, tiendaName) {
   if (!visitId) return;
-  if (!currentUser || !fbDb) { alert('Sesion no inicializada.'); return; }
-  const v = visitsCache.find(x => x.id === visitId);
-  if (!v) { alert('Visita no encontrada.'); return; }
+  if (!currentUser || !fbDb) {
+    alert('Sesion no inicializada.');
+    return;
+  }
+  const v = visitsCache.find((x) => x.id === visitId);
+  if (!v) {
+    alert('Visita no encontrada.');
+    return;
+  }
   // Chequeo de permisos redundante (el boton no aparece si no corresponde,
   // pero por si alguien lo dispara via consola).
-  const canDelete = (userRole === 'admin' || userRole === 'gerente') ||
-                    (currentUser && v.ownerUid === currentUser.uid);
-  if (!canDelete) { alert('No tenes permisos para eliminar esta visita.'); return; }
+  const canDelete =
+    userRole === 'admin' ||
+    userRole === 'gerente' ||
+    (currentUser && v.ownerUid === currentUser.uid);
+  if (!canDelete) {
+    alert('No tenes permisos para eliminar esta visita.');
+    return;
+  }
   const label = tiendaName || v.tienda || 'esta visita';
-  if (!confirm('Eliminar la visita de "' + label + '" del ' + (v.mes || '') + ' ' + (v.anio || '') + '?\n\nEsta accion no se puede deshacer.')) return;
+  if (
+    !confirm(
+      'Eliminar la visita de "' +
+        label +
+        '" del ' +
+        (v.mes || '') +
+        ' ' +
+        (v.anio || '') +
+        '?\n\nEsta accion no se puede deshacer.'
+    )
+  )
+    return;
   try {
     await fbDb.collection('visits').doc(visitId).delete();
-    try { logOp('eliminar_visita', 'visits', visitId, {tienda: label, mes: v.mes, anio: v.anio, ownerEmail: v.ownerEmail || ''}); } catch(e){}
+    try {
+      logOp('eliminar_visita', 'visits', visitId, {
+        tienda: label,
+        mes: v.mes,
+        anio: v.anio,
+        ownerEmail: v.ownerEmail || '',
+      });
+    } catch (_e) {}
     if (typeof showSyncTag === 'function') showSyncTag('Visita eliminada');
     // El listener de visits refresca visitsCache automaticamente; forzamos
     // re-render por si el modal se queda visible.
-    try { renderVisitasList(); } catch(e){}
-  } catch(e) {
+    try {
+      renderVisitasList();
+    } catch (_e) {}
+  } catch (e) {
     console.error('deleteVisit', e);
     alert('Error eliminando la visita: ' + (e.message || e));
   }
@@ -1156,65 +1527,116 @@ window.deleteVisit = async function(visitId, tiendaName){
 // window._contactoEstadoTargetId que preserva a que doc apuntar.
 if (typeof window._contactoEstadoTargetId === 'undefined') window._contactoEstadoTargetId = null;
 
-window.openContactoEstadoModal = function(visitId){
+window.openContactoEstadoModal = function (visitId) {
   if (!visitId) return;
-  const v = (visitsCache || []).find(x => x.id === visitId);
-  if (!v) { alert('Contacto no encontrado en cache.'); return; }
-  if (v.interactionType !== 'contacto') { alert('Este registro no es un contacto no presencial.'); return; }
+  const v = (visitsCache || []).find((x) => x.id === visitId);
+  if (!v) {
+    alert('Contacto no encontrado en cache.');
+    return;
+  }
+  if (v.interactionType !== 'contacto') {
+    alert('Este registro no es un contacto no presencial.');
+    return;
+  }
   window._contactoEstadoTargetId = visitId;
   const info = document.getElementById('ce-modal-info');
   if (info) {
     const forma = v.formaContacto ? ' &middot; via ' + escapeHtml(v.formaContacto) : '';
-    const cur = v.contactoResultado === 'respondio' ? '<b style="color:#166534">Respondio</b>'
-              : v.contactoResultado === 'no_respondio' ? '<b style="color:#475569">No respondio</b>'
-              : '<b style="color:#78350f">Sin marcar</b>';
-    info.innerHTML = '<b>' + escapeHtml(v.tienda || '?') + '</b>' + forma + '<br>'
-      + escapeHtml(v.localidad || '') + ' &middot; ' + escapeHtml(titleCase(v.provincia || '')) + '<br>'
-      + escapeHtml(v.mes || '') + ' ' + (v.anio || '') + ' &middot; Estado actual: ' + cur;
+    const cur =
+      v.contactoResultado === 'respondio'
+        ? '<b style="color:#166534">Respondio</b>'
+        : v.contactoResultado === 'no_respondio'
+          ? '<b style="color:#475569">No respondio</b>'
+          : '<b style="color:#78350f">Sin marcar</b>';
+    info.innerHTML =
+      '<b>' +
+      escapeHtml(v.tienda || '?') +
+      '</b>' +
+      forma +
+      '<br>' +
+      escapeHtml(v.localidad || '') +
+      ' &middot; ' +
+      escapeHtml(titleCase(v.provincia || '')) +
+      '<br>' +
+      escapeHtml(v.mes || '') +
+      ' ' +
+      (v.anio || '') +
+      ' &middot; Estado actual: ' +
+      cur;
   }
   const modal = document.getElementById('contacto-estado-modal');
   if (modal) modal.style.display = 'flex';
 };
 
-window.closeContactoEstadoModal = function(){
+window.closeContactoEstadoModal = function () {
   const modal = document.getElementById('contacto-estado-modal');
   if (modal) modal.style.display = 'none';
   window._contactoEstadoTargetId = null;
 };
 
-window.setContactoResultado = async function(resultado){
+window.setContactoResultado = async function (resultado) {
   const visitId = window._contactoEstadoTargetId;
   if (!visitId) return;
-  if (!currentUser || !fbDb) { alert('Sesion no inicializada.'); return; }
-  if (resultado !== 'respondio' && resultado !== 'no_respondio') { alert('Resultado invalido: ' + resultado); return; }
-  const v = visitsCache.find(x => x.id === visitId);
-  if (!v) { alert('Contacto no encontrado.'); return; }
-  const canEdit = (userRole === 'admin' || userRole === 'gerente') ||
-                  (currentUser && v.ownerUid === currentUser.uid);
-  if (!canEdit) { alert('No tenes permisos para modificar este contacto.'); return; }
+  if (!currentUser || !fbDb) {
+    alert('Sesion no inicializada.');
+    return;
+  }
+  if (resultado !== 'respondio' && resultado !== 'no_respondio') {
+    alert('Resultado invalido: ' + resultado);
+    return;
+  }
+  const v = visitsCache.find((x) => x.id === visitId);
+  if (!v) {
+    alert('Contacto no encontrado.');
+    return;
+  }
+  const canEdit =
+    userRole === 'admin' ||
+    userRole === 'gerente' ||
+    (currentUser && v.ownerUid === currentUser.uid);
+  if (!canEdit) {
+    alert('No tenes permisos para modificar este contacto.');
+    return;
+  }
   try {
-    await fbDb.collection('visits').doc(visitId).update({
-      contactoResultado: resultado,
-      contactoResultadoAt: firebase.firestore.FieldValue.serverTimestamp(),
-      contactoResultadoBy: currentUser.uid,
-      contactoResultadoByEmail: currentUser.email || '',
-    });
-    try { logOp('contacto_resultado', 'visits', visitId, {tienda: v.tienda, resultado: resultado, mes: v.mes, anio: v.anio}); } catch(e){}
-    if (typeof showSyncTag === 'function') showSyncTag(resultado === 'respondio' ? 'Marcado: respondio' : 'Marcado: no respondio');
+    await fbDb
+      .collection('visits')
+      .doc(visitId)
+      .update({
+        contactoResultado: resultado,
+        contactoResultadoAt: firebase.firestore.FieldValue.serverTimestamp(),
+        contactoResultadoBy: currentUser.uid,
+        contactoResultadoByEmail: currentUser.email || '',
+      });
+    try {
+      logOp('contacto_resultado', 'visits', visitId, {
+        tienda: v.tienda,
+        resultado: resultado,
+        mes: v.mes,
+        anio: v.anio,
+      });
+    } catch (_e) {}
+    if (typeof showSyncTag === 'function')
+      showSyncTag(resultado === 'respondio' ? 'Marcado: respondio' : 'Marcado: no respondio');
     window.closeContactoEstadoModal();
     // El listener refresca visitsCache; forzamos re-render por si.
-    try { renderVisitasList(); } catch(e){}
-  } catch(e) {
+    try {
+      renderVisitasList();
+    } catch (_e) {}
+  } catch (e) {
     console.error('setContactoResultado', e);
     alert('Error guardando el resultado: ' + (e.message || e));
   }
 };
 
-window.deleteContactoFromEstadoModal = function(){
+window.deleteContactoFromEstadoModal = function () {
   const visitId = window._contactoEstadoTargetId;
   if (!visitId) return;
-  const v = visitsCache.find(x => x.id === visitId);
-  if (!v) { alert('Contacto no encontrado.'); return; }
+  const v = visitsCache.find((x) => x.id === visitId);
+  if (!v) {
+    alert('Contacto no encontrado.');
+    return;
+  }
   // Cerramos el modal antes de disparar el confirm del deleteVisit para que el
   // usuario vea el confirm sin overlay encima.
   window.closeContactoEstadoModal();
@@ -1222,27 +1644,35 @@ window.deleteContactoFromEstadoModal = function(){
 };
 
 let visitViewMode = 'new';
-function setVisitFormReadonly(readonly){
+function setVisitFormReadonly(readonly) {
   const form = document.getElementById('visita-form');
-  form.querySelectorAll('select,input,textarea').forEach(el => {
-    if (readonly) el.setAttribute('disabled', 'disabled'); else el.removeAttribute('disabled');
+  form.querySelectorAll('select,input,textarea').forEach((el) => {
+    if (readonly) el.setAttribute('disabled', 'disabled');
+    else el.removeAttribute('disabled');
   });
-  form.querySelectorAll('.vf-likert button, .vf-toggle button').forEach(b => {
-    if (readonly) b.setAttribute('disabled', 'disabled'); else b.removeAttribute('disabled');
+  form.querySelectorAll('.vf-likert button, .vf-toggle button').forEach((b) => {
+    if (readonly) b.setAttribute('disabled', 'disabled');
+    else b.removeAttribute('disabled');
   });
-  document.querySelectorAll('#visita-form .photo-cell.add').forEach(c => { c.style.display = readonly ? 'none' : ''; });
-  document.querySelectorAll('#visita-form .photo-cell .rm').forEach(b => { b.style.display = readonly ? 'none' : ''; });
+  document.querySelectorAll('#visita-form .photo-cell.add').forEach((c) => {
+    c.style.display = readonly ? 'none' : '';
+  });
+  document.querySelectorAll('#visita-form .photo-cell .rm').forEach((b) => {
+    b.style.display = readonly ? 'none' : '';
+  });
   // Footer: en view ocultar Enviar/Cancelar, mostrar Cerrar + Nueva visita
   const footer = document.getElementById('visita-footer');
   if (readonly) {
-    footer.innerHTML = '<span style="color:#475569">Solo lectura</span><div style="display:flex;gap:8px"><button class="btn-cancel" onclick="resetVisitaForm();setVisitFormReadonly(false);setVisitaView(\'form\');">Nueva visita</button><button class="btn-confirm" style="background:#7c3aed" onclick="closeVisitaModal()">Cerrar</button></div>';
+    footer.innerHTML =
+      '<span style="color:#475569">Solo lectura</span><div style="display:flex;gap:8px"><button class="btn-cancel" onclick="resetVisitaForm();setVisitFormReadonly(false);setVisitaView(\'form\');">Nueva visita</button><button class="btn-confirm" style="background:#7c3aed" onclick="closeVisitaModal()">Cerrar</button></div>';
   } else {
-    footer.innerHTML = '<span style="color:#475569">Se guarda en la nube al enviar</span><div style="display:flex;gap:8px"><button class="btn-cancel" onclick="closeVisitaModal()">Cancelar</button><button class="btn-confirm" style="background:#7c3aed" onclick="submitVisita()">Enviar formulario</button></div>';
+    footer.innerHTML =
+      '<span style="color:#475569">Se guarda en la nube al enviar</span><div style="display:flex;gap:8px"><button class="btn-cancel" onclick="closeVisitaModal()">Cancelar</button><button class="btn-confirm" style="background:#7c3aed" onclick="submitVisita()">Enviar formulario</button></div>';
   }
 }
 
-window.viewVisit = function(visitId){
-  const v = visitsCache.find(x => x.id === visitId);
+window.viewVisit = function (visitId) {
+  const v = visitsCache.find((x) => x.id === visitId);
   if (!v) return;
   visitViewMode = 'view';
   // Switch to form view + populate
@@ -1254,7 +1684,8 @@ window.viewVisit = function(visitId){
   // luego onTiendaChange pisa los hiddens con los valores atomicos.
   const provU = (v.provincia || '').toUpperCase();
   const compositeVal = provU + '||' + (v.localidad || '') + '||' + (v.tienda || '');
-  const compositeLabel = (v.tienda || '') + ' — ' + (v.localidad || '') + ', ' + titleCase(v.provincia || '');
+  const compositeLabel =
+    (v.tienda || '') + ' — ' + (v.localidad || '') + ', ' + titleCase(v.provincia || '');
   fsSetValue('vf-tienda', compositeVal, compositeLabel);
   onTiendaChange(compositeVal);
   document.getElementById('vf-tipo').value = v.tipo || '';
@@ -1281,25 +1712,53 @@ window.viewVisit = function(visitId){
   refreshFrenteGrid();
   document.getElementById('vf-tipoventa').value = v.tipoVenta || '';
   onTipoVentaChange();
-  if (v.ponderacionMostrado != null) document.getElementById('vf-pond-mostrado').value = v.ponderacionMostrado;
-  if (v.ponderacionEcommerce != null) document.getElementById('vf-pond-ecommerce').value = v.ponderacionEcommerce;
+  if (v.ponderacionMostrado != null)
+    document.getElementById('vf-pond-mostrado').value = v.ponderacionMostrado;
+  if (v.ponderacionEcommerce != null)
+    document.getElementById('vf-pond-ecommerce').value = v.ponderacionEcommerce;
   document.getElementById('vf-competencia').value = v.competencia || '';
   // Info GPS (solo si tiene)
   const gi = document.getElementById('vf-gps-info');
   if (gi) {
     if (v.gpsStatus) {
       const badge = gpsBadgeHtml(v);
-      const lat = v.gpsLat, lon = v.gpsLon;
-      const refLat = v.gpsRefLat, refLon = v.gpsRefLon;
+      const lat = v.gpsLat,
+        lon = v.gpsLon;
+      const refLat = v.gpsRefLat,
+        refLon = v.gpsRefLon;
       const acc = v.gpsAccuracy != null ? v.gpsAccuracy + ' m' : '';
       const at = v.gpsCapturedAt ? new Date(v.gpsCapturedAt).toLocaleString() : '';
-      let body = '<label>Verificaci&oacute;n GPS</label><div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px;font-size:11px;color:#334155;line-height:1.5">';
+      let body =
+        '<label>Verificaci&oacute;n GPS</label><div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px;font-size:11px;color:#334155;line-height:1.5">';
       body += badge ? badge + '<br>' : '';
-      if (lat && lon) body += 'GPS del envio: <b>' + lat.toFixed(6) + ', ' + lon.toFixed(6) + '</b>' + (acc ? ' &middot; precision ' + acc : '') + '<br>';
-      if (refLat && refLon) body += 'Tienda registrada: <b>' + refLat.toFixed(6) + ', ' + refLon.toFixed(6) + '</b>' + (v.gpsRefSource ? ' &middot; fuente ' + v.gpsRefSource : '') + '<br>';
+      if (lat && lon)
+        body +=
+          'GPS del envio: <b>' +
+          lat.toFixed(6) +
+          ', ' +
+          lon.toFixed(6) +
+          '</b>' +
+          (acc ? ' &middot; precision ' + acc : '') +
+          '<br>';
+      if (refLat && refLon)
+        body +=
+          'Tienda registrada: <b>' +
+          refLat.toFixed(6) +
+          ', ' +
+          refLon.toFixed(6) +
+          '</b>' +
+          (v.gpsRefSource ? ' &middot; fuente ' + v.gpsRefSource : '') +
+          '<br>';
       if (at) body += 'Capturado: ' + at + '<br>';
-      if (lat && lon) body += '<a href="https://www.google.com/maps?q=' + lat + ',' + lon + '" target="_blank" style="color:#0284a0;font-weight:700">Ver punto en Google Maps &rarr;</a>';
-      if (v.gpsError) body += '<br><span style="color:#991b1b">Error: ' + escapeHtml(v.gpsError) + '</span>';
+      if (lat && lon)
+        body +=
+          '<a href="https://www.google.com/maps?q=' +
+          lat +
+          ',' +
+          lon +
+          '" target="_blank" style="color:#0284a0;font-weight:700">Ver punto en Google Maps &rarr;</a>';
+      if (v.gpsError)
+        body += '<br><span style="color:#991b1b">Error: ' + escapeHtml(v.gpsError) + '</span>';
       body += '</div>';
       gi.innerHTML = body;
     } else {
@@ -1310,7 +1769,7 @@ window.viewVisit = function(visitId){
 };
 
 // === Exports a window ===
-if (typeof window.compressImage === "undefined") window.compressImage = compressImage;
+if (typeof window.compressImage === 'undefined') window.compressImage = compressImage;
 window.setVisitFormReadonly = setVisitFormReadonly;
 // E6 hotfix: applyRolePermissions del inline (L11540) llama estas 3 funciones
 // sin prefix. Sin window.* explicit, tira ReferenceError al login y la app

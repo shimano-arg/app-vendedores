@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createSapClient } from '../../src/sap-client.js';
 
 /**
@@ -14,19 +14,26 @@ function makeFirebase(opts = {}) {
     }
     return { data: { status: opts.status ?? 200, body: opts.body ?? { ok: true, payload } } };
   });
-  const httpsCallable = vi.fn((name) => callable);
-  const functions = vi.fn((region) => ({ httpsCallable }));
+  const httpsCallable = vi.fn((_name) => callable);
+  const functions = vi.fn((_region) => ({ httpsCallable }));
   const app = vi.fn(() => ({ functions }));
   return { firebase: { app }, callable, httpsCallable, functions, app };
 }
 
 describe('createSapClient.fetchWithSession', () => {
   it('happy GET: rutea por callable("sapProxy") con method=GET default', async () => {
-    const { firebase, callable, httpsCallable } = makeFirebase({ status: 200, body: { value: [1, 2] } });
+    const { firebase, callable, httpsCallable } = makeFirebase({
+      status: 200,
+      body: { value: [1, 2] },
+    });
     const client = createSapClient(firebase);
     const res = await client.fetchWithSession('/b1s/v1/Items?$top=5');
     expect(httpsCallable).toHaveBeenCalledWith('sapProxy');
-    expect(callable).toHaveBeenCalledWith({ endpoint: '/b1s/v1/Items?$top=5', method: 'GET', body: undefined });
+    expect(callable).toHaveBeenCalledWith({
+      endpoint: '/b1s/v1/Items?$top=5',
+      method: 'GET',
+      body: undefined,
+    });
     expect(res).toEqual({ ok: true, status: 200, body: { value: [1, 2] } });
   });
 
@@ -38,7 +45,11 @@ describe('createSapClient.fetchWithSession', () => {
       method: 'POST',
       body: JSON.stringify(payload),
     });
-    expect(callable).toHaveBeenCalledWith({ endpoint: '/b1s/v1/Quotations', method: 'POST', body: payload });
+    expect(callable).toHaveBeenCalledWith({
+      endpoint: '/b1s/v1/Quotations',
+      method: 'POST',
+      body: payload,
+    });
     expect(res.ok).toBe(true);
     expect(res.status).toBe(201);
     expect(res.body).toEqual({ DocEntry: 42 });
@@ -57,7 +68,10 @@ describe('createSapClient.fetchWithSession', () => {
   it('body no-JSON string: devuelve error client-side sin llamar callable', async () => {
     const { firebase, httpsCallable } = makeFirebase();
     const client = createSapClient(firebase);
-    const res = await client.fetchWithSession('/b1s/v1/Items', { method: 'POST', body: 'no soy json{' });
+    const res = await client.fetchWithSession('/b1s/v1/Items', {
+      method: 'POST',
+      body: 'no soy json{',
+    });
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/JSON/);
     expect(httpsCallable).not.toHaveBeenCalled();
@@ -69,7 +83,7 @@ describe('createSapClient.fetchWithSession', () => {
       body: { error: { message: { value: 'Item inexistente' } } },
     });
     const client = createSapClient(firebase);
-    const res = await client.fetchWithSession('/b1s/v1/Items(\'NOPE\')');
+    const res = await client.fetchWithSession("/b1s/v1/Items('NOPE')");
     expect(res.ok).toBe(false);
     expect(res.status).toBe(400);
     expect(res.error).toContain('HTTP 400');
@@ -78,7 +92,10 @@ describe('createSapClient.fetchWithSession', () => {
   });
 
   it('callable throw (permission-denied): mapea a ok=false + error con code', async () => {
-    const { firebase } = makeFirebase({ throwCode: 'permission-denied', throwMsg: 'Rol vendedor no autorizado' });
+    const { firebase } = makeFirebase({
+      throwCode: 'permission-denied',
+      throwMsg: 'Rol vendedor no autorizado',
+    });
     const client = createSapClient(firebase);
     const res = await client.fetchWithSession('/b1s/v1/Quotations', { method: 'POST', body: '{}' });
     expect(res.ok).toBe(false);
@@ -115,7 +132,11 @@ describe('createSapClient.createQuotation', () => {
     const client = createSapClient(firebase);
     const payload = { CardCode: 'C1', DocumentLines: [] };
     const res = await client.createQuotation(payload);
-    expect(callable).toHaveBeenCalledWith({ endpoint: '/b1s/v1/Quotations', method: 'POST', body: payload });
+    expect(callable).toHaveBeenCalledWith({
+      endpoint: '/b1s/v1/Quotations',
+      method: 'POST',
+      body: payload,
+    });
     expect(res.ok).toBe(true);
   });
 });

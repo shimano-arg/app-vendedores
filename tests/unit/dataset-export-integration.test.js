@@ -14,15 +14,16 @@
  *   - CSVs parseables con papaparse (independiente del serializer)
  *   - escape correcto de casos borde (comas, quotes, saltos, acentos)
  */
-import { describe, it, expect } from 'vitest';
+
 import Papa from 'papaparse';
+import { describe, expect, it } from 'vitest';
 import {
   buildCsv,
+  buildProductoRowsFromStockJson,
   computeNullRates,
   DATASET_SCHEMAS,
   DATASET_USE_CASE_MATRIX,
   ROW_BUILDERS,
-  buildProductoRowsFromStockJson,
 } from '../../src/pure/csv-serializer.js';
 
 // ============================================================
@@ -36,126 +37,292 @@ function seed() {
   const now = new Date('2026-08-01T10:00:00Z');
   return {
     pedidos: [
-      { _id: 'p1', ownerUid: UID_GONZALO, ownerEmail: 'gonza@shimano.com.ar',
-        key: 'C|CABA|Palermo|Pesca, Total SA', stage: 'confirmed', tipo: 'C',
-        province: 'CABA', locName: 'Palermo', clientName: 'Pesca, Total SA',
-        month: 'Julio 2026', monthIdx: 6, year: 2026, confirmedAt: '2026-07-15T10:00:00Z',
-        condicionPago: 'CTA CTE', discountPct: 5, subtotalArs: 100000, netAmountArs: 95000,
+      {
+        _id: 'p1',
+        ownerUid: UID_GONZALO,
+        ownerEmail: 'gonza@shimano.com.ar',
+        key: 'C|CABA|Palermo|Pesca, Total SA',
+        stage: 'confirmed',
+        tipo: 'C',
+        province: 'CABA',
+        locName: 'Palermo',
+        clientName: 'Pesca, Total SA',
+        month: 'Julio 2026',
+        monthIdx: 6,
+        year: 2026,
+        confirmedAt: '2026-07-15T10:00:00Z',
+        condicionPago: 'CTA CTE',
+        discountPct: 5,
+        subtotalArs: 100000,
+        netAmountArs: 95000,
         lines: [
-          { code: 'SN2000FG', desc: 'Reel Sienna 2000', qty: 5, precio: 12500, cat: 'REEL', fam: 'SPINNING', sub: '2000' },
-          { code: 'SN2500FG', desc: 'Reel Sienna 2500', qty: 3, precio: 15000, cat: 'REEL', fam: 'SPINNING', sub: '2500' },
+          {
+            code: 'SN2000FG',
+            desc: 'Reel Sienna 2000',
+            qty: 5,
+            precio: 12500,
+            cat: 'REEL',
+            fam: 'SPINNING',
+            sub: '2000',
+          },
+          {
+            code: 'SN2500FG',
+            desc: 'Reel Sienna 2500',
+            qty: 3,
+            precio: 15000,
+            cat: 'REEL',
+            fam: 'SPINNING',
+            sub: '2500',
+          },
         ],
         createdAt: now,
       },
-      { _id: 'p2', ownerUid: UID_FEDE, ownerEmail: 'fede@shimano.com.ar',
-        key: 'C|BUENOS AIRES|Quilmes|EL DELTA', stage: 'confirmed', tipo: 'C',
-        province: 'BUENOS AIRES', locName: 'Quilmes', clientName: 'EL DELTA',
-        month: 'Julio 2026', monthIdx: 6, year: 2026, confirmedAt: '2026-07-22T15:00:00Z',
-        condicionPago: 'CONTADO', discountPct: 0, subtotalArs: 50000, netAmountArs: 50000,
-        lines: [
-          { code: 'PPMC15150Y', desc: 'PowerPro "Maxcuatro" 15lb', qty: 10, precio: 5000 },
-        ],
+      {
+        _id: 'p2',
+        ownerUid: UID_FEDE,
+        ownerEmail: 'fede@shimano.com.ar',
+        key: 'C|BUENOS AIRES|Quilmes|EL DELTA',
+        stage: 'confirmed',
+        tipo: 'C',
+        province: 'BUENOS AIRES',
+        locName: 'Quilmes',
+        clientName: 'EL DELTA',
+        month: 'Julio 2026',
+        monthIdx: 6,
+        year: 2026,
+        confirmedAt: '2026-07-22T15:00:00Z',
+        condicionPago: 'CONTADO',
+        discountPct: 0,
+        subtotalArs: 50000,
+        netAmountArs: 50000,
+        lines: [{ code: 'PPMC15150Y', desc: 'PowerPro "Maxcuatro" 15lb', qty: 10, precio: 5000 }],
         transferidoSAP: { via: 'service_layer', docNum: 2000001, docEntry: 12345, at: now },
         createdAt: now,
       },
     ],
     visits: [
-      { _id: 'v1', ownerUid: UID_GONZALO, fecha: '2026-07-14', vendor: 'GONZALO DE LA ROSA',
-        provincia: 'CABA', localidad: 'Palermo', tienda: 'Pesca, Total SA',
-        tipo: 'C', fidelidad: 'Alta', interactionType: 'visita', relevancia: 4 },
-      { _id: 'v2', ownerUid: UID_FEDE, fecha: '2026-07-20', vendor: 'FEDERICO CASTELANELLI',
-        provincia: 'BUENOS AIRES', localidad: 'Quilmes', tienda: 'EL DELTA',
-        tipo: 'C', fidelidad: 'Media', interactionType: 'visita' },
+      {
+        _id: 'v1',
+        ownerUid: UID_GONZALO,
+        fecha: '2026-07-14',
+        vendor: 'GONZALO DE LA ROSA',
+        provincia: 'CABA',
+        localidad: 'Palermo',
+        tienda: 'Pesca, Total SA',
+        tipo: 'C',
+        fidelidad: 'Alta',
+        interactionType: 'visita',
+        relevancia: 4,
+      },
+      {
+        _id: 'v2',
+        ownerUid: UID_FEDE,
+        fecha: '2026-07-20',
+        vendor: 'FEDERICO CASTELANELLI',
+        provincia: 'BUENOS AIRES',
+        localidad: 'Quilmes',
+        tienda: 'EL DELTA',
+        tipo: 'C',
+        fidelidad: 'Media',
+        interactionType: 'visita',
+      },
       // Contacto (post v365) con resultado
-      { _id: 'v3', ownerUid: UID_GONZALO, fecha: '2026-07-25', vendor: 'GONZALO DE LA ROSA',
-        provincia: 'CORDOBA', localidad: 'Villa Carlos Paz', tienda: 'Rio Pesca',
-        interactionType: 'contacto', formaContacto: 'MENSAJE DE WHATSAPP',
-        contactoResultado: 'respondio' },
+      {
+        _id: 'v3',
+        ownerUid: UID_GONZALO,
+        fecha: '2026-07-25',
+        vendor: 'GONZALO DE LA ROSA',
+        provincia: 'CORDOBA',
+        localidad: 'Villa Carlos Paz',
+        tienda: 'Rio Pesca',
+        interactionType: 'contacto',
+        formaContacto: 'MENSAJE DE WHATSAPP',
+        contactoResultado: 'respondio',
+      },
       // Contacto sin marcar (undefined) — para probar nullRate
-      { _id: 'v4', ownerUid: UID_FEDE, fecha: '2026-07-28', vendor: 'FEDERICO CASTELANELLI',
-        provincia: 'BUENOS AIRES', localidad: 'La Plata', tienda: 'La Marea',
-        interactionType: 'contacto', formaContacto: 'LLAMADA TELEFONICA' },
+      {
+        _id: 'v4',
+        ownerUid: UID_FEDE,
+        fecha: '2026-07-28',
+        vendor: 'FEDERICO CASTELANELLI',
+        provincia: 'BUENOS AIRES',
+        localidad: 'La Plata',
+        tienda: 'La Marea',
+        interactionType: 'contacto',
+        formaContacto: 'LLAMADA TELEFONICA',
+      },
     ],
     client_applications: [
-      { _id: 'c1', comercio: 'Pesca, Total SA', fantasia: 'Pesca Total',
-        cuit: '30123456789', provincia: 'CABA', localidad: 'Palermo',
-        cardCodeSap: 'C00001', assignedVendor: 'GONZALO DE LA ROSA',
-        status: 'approved', manualSapPending: false,
-        lat: -34.58, lng: -58.43, calle: 'Av. Corrientes 1234',
-        createdAt: '2026-01-15T00:00:00Z', approvedAt: '2026-01-20T00:00:00Z' },
-      { _id: 'c2', comercio: 'EL DELTA', assignedVendor: 'FEDERICO CASTELANELLI',
-        cardCodeSap: 'C00002', status: 'approved', provincia: 'BUENOS AIRES',
-        localidad: 'Quilmes', lat: -34.72, lng: -58.25, calle: 'Rivadavia 500',
-        createdAt: '2026-02-10T00:00:00Z' },
+      {
+        _id: 'c1',
+        comercio: 'Pesca, Total SA',
+        fantasia: 'Pesca Total',
+        cuit: '30123456789',
+        provincia: 'CABA',
+        localidad: 'Palermo',
+        cardCodeSap: 'C00001',
+        assignedVendor: 'GONZALO DE LA ROSA',
+        status: 'approved',
+        manualSapPending: false,
+        lat: -34.58,
+        lng: -58.43,
+        calle: 'Av. Corrientes 1234',
+        createdAt: '2026-01-15T00:00:00Z',
+        approvedAt: '2026-01-20T00:00:00Z',
+      },
+      {
+        _id: 'c2',
+        comercio: 'EL DELTA',
+        assignedVendor: 'FEDERICO CASTELANELLI',
+        cardCodeSap: 'C00002',
+        status: 'approved',
+        provincia: 'BUENOS AIRES',
+        localidad: 'Quilmes',
+        lat: -34.72,
+        lng: -58.25,
+        calle: 'Rivadavia 500',
+        createdAt: '2026-02-10T00:00:00Z',
+      },
       // Provisorio (alta rapida) sin cardCode
-      { _id: 'c3', comercio: 'Provisorio Test', assignedVendor: 'GONZALO DE LA ROSA',
-        cardCodeSap: null, status: 'approved', manualSapPending: true,
-        provincia: 'CABA', localidad: 'Belgrano', lat: null, lng: null,
-        createdAt: '2026-07-30T00:00:00Z' },
+      {
+        _id: 'c3',
+        comercio: 'Provisorio Test',
+        assignedVendor: 'GONZALO DE LA ROSA',
+        cardCodeSap: null,
+        status: 'approved',
+        manualSapPending: true,
+        provincia: 'CABA',
+        localidad: 'Belgrano',
+        lat: null,
+        lng: null,
+        createdAt: '2026-07-30T00:00:00Z',
+      },
     ],
     client_master: [
-      { _id: 'cm1', clientName: 'Pesca, Total SA', provincia: 'CABA', localidad: 'Palermo',
-        vendor: 'GONZALO DE LA ROSA', address: 'Av. Corrientes 1234', sapCardCode: 'C00001' },
+      {
+        _id: 'cm1',
+        clientName: 'Pesca, Total SA',
+        provincia: 'CABA',
+        localidad: 'Palermo',
+        vendor: 'GONZALO DE LA ROSA',
+        address: 'Av. Corrientes 1234',
+        sapCardCode: 'C00001',
+      },
     ],
     rendiciones: [
-      { _id: 'r1', ownerUid: UID_GONZALO, vendor: 'GONZALO DE LA ROSA',
-        tipo: 'gasto', tipoGasto: 'PEAJES', importeArs: 3500,
-        fechaGasto: '2026-07-14', status: 'approved',
+      {
+        _id: 'r1',
+        ownerUid: UID_GONZALO,
+        vendor: 'GONZALO DE LA ROSA',
+        tipo: 'gasto',
+        tipoGasto: 'PEAJES',
+        importeArs: 3500,
+        fechaGasto: '2026-07-14',
+        status: 'approved',
         fotoTicketUrl: 'https://firebasestorage.googleapis.com/v0/b/x/o/y',
-        createdAt: '2026-07-14T20:00:00Z' },
-      { _id: 'r2', ownerUid: UID_FEDE, vendor: 'FEDERICO CASTELANELLI',
-        tipo: 'gasto', tipoGasto: 'FACTURA A', importeArs: 12000,
-        fechaGasto: '2026-07-22', status: 'pending_approval' },
+        createdAt: '2026-07-14T20:00:00Z',
+      },
+      {
+        _id: 'r2',
+        ownerUid: UID_FEDE,
+        vendor: 'FEDERICO CASTELANELLI',
+        tipo: 'gasto',
+        tipoGasto: 'FACTURA A',
+        importeArs: 12000,
+        fechaGasto: '2026-07-22',
+        status: 'pending_approval',
+      },
       // Rendicion legacy pre-v308 con fotoTicket base64: NO debe exportarse
-      { _id: 'r3', ownerUid: UID_GONZALO, tipo: 'gasto', importeArs: 800,
-        fechaGasto: '2026-05-01', status: 'approved',
-        fotoTicket: 'data:image/jpeg;base64,ABC...LARGO_BASE64_QUE_NO_QUEREMOS_EXPORTAR' },
+      {
+        _id: 'r3',
+        ownerUid: UID_GONZALO,
+        tipo: 'gasto',
+        importeArs: 800,
+        fechaGasto: '2026-05-01',
+        status: 'approved',
+        fotoTicket: 'data:image/jpeg;base64,ABC...LARGO_BASE64_QUE_NO_QUEREMOS_EXPORTAR',
+      },
     ],
     campaigns: [
-      { _id: 'camp1', name: 'POWER PRO', familia: 'POWER PRO', subfamilia: 'Maxcuatro',
+      {
+        _id: 'camp1',
+        name: 'POWER PRO',
+        familia: 'POWER PRO',
+        subfamilia: 'Maxcuatro',
         skus: ['PPMC15150Y', 'PPMC20150Y', 'PPMC25150Y'],
-        filterType: 'sku', filterValues: ['PPMC15150Y', 'PPMC20150Y', 'PPMC25150Y'],
-        targetType: 'money', targetAmount: 100000,
-        startDate: '2026-07-31', endDate: '2026-09-29', scope: 'all',
-        createdBy: 'uid-pablo', createdByEmail: 'pablo@shimano.uy',
-        createdAt: '2026-07-31T18:00:00Z' },
+        filterType: 'sku',
+        filterValues: ['PPMC15150Y', 'PPMC20150Y', 'PPMC25150Y'],
+        targetType: 'money',
+        targetAmount: 100000,
+        startDate: '2026-07-31',
+        endDate: '2026-09-29',
+        scope: 'all',
+        createdBy: 'uid-pablo',
+        createdByEmail: 'pablo@shimano.uy',
+        createdAt: '2026-07-31T18:00:00Z',
+      },
     ],
     targets: [
       { _id: 't1', sellerId: 'GONZALO DE LA ROSA', year: 2026, month: 6, targetArs: 57000000 },
       // Target con desglose por familia (v311+)
-      { _id: 't2', sellerId: 'FEDERICO CASTELANELLI', year: 2026, month: 6, targetArs: 68000000,
-        targetByFamily: { REEL: 25000000, CANAS: 20000000, LINEAS: 23000000 } },
+      {
+        _id: 't2',
+        sellerId: 'FEDERICO CASTELANELLI',
+        year: 2026,
+        month: 6,
+        targetArs: 68000000,
+        targetByFamily: { REEL: 25000000, CANAS: 20000000, LINEAS: 23000000 },
+      },
     ],
     vendor_overrides: [
-      { _id: 'vo1', scope: 'shop', province: 'CORDOBA', localityName: 'Rio Cuarto',
-        clientName: 'Test Store', originalVendor: 'MARTIN BOIERO', newVendor: 'MAURICIO GIL',
-        newType: 'VDE', updatedByEmail: 'admin@shimano.com' },
+      {
+        _id: 'vo1',
+        scope: 'shop',
+        province: 'CORDOBA',
+        localityName: 'Rio Cuarto',
+        clientName: 'Test Store',
+        originalVendor: 'MARTIN BOIERO',
+        newVendor: 'MAURICIO GIL',
+        newType: 'VDE',
+        updatedByEmail: 'admin@shimano.com',
+      },
     ],
     custom_routes: [
-      { _id: 'cr1', ownerUid: UID_GONZALO, name: 'Ruta CABA norte', plannedDate: '2026-08-05',
+      {
+        _id: 'cr1',
+        ownerUid: UID_GONZALO,
+        name: 'Ruta CABA norte',
+        plannedDate: '2026-08-05',
         notes: 'Cargar Sienna en Pesca Total',
         stops: [
           { order: 0, key: 'C|CABA|Palermo|Pesca Total', clientName: 'Pesca Total' },
           { order: 1, key: 'C|CABA|Belgrano|Rio Store', clientName: 'Rio Store' },
-        ] },
+        ],
+      },
     ],
     seguimiento_notes: [
-      { _id: 'sn1', vendorExt: 'GONZALO DE LA ROSA', clientKey: 'C|CABA|Palermo|Pesca Total',
-        clientName: 'Pesca Total', text: 'Pidio catalogo, llamar en 2 semanas',
-        authorRole: 'gerente', authorEmail: 'pablo@shimano.uy',
-        createdAt: '2026-07-25T14:00:00Z' },
+      {
+        _id: 'sn1',
+        vendorExt: 'GONZALO DE LA ROSA',
+        clientKey: 'C|CABA|Palermo|Pesca Total',
+        clientName: 'Pesca Total',
+        text: 'Pidio catalogo, llamar en 2 semanas',
+        authorRole: 'gerente',
+        authorEmail: 'pablo@shimano.uy',
+        createdAt: '2026-07-25T14:00:00Z',
+      },
     ],
   };
 }
 
 function seedStockJson() {
   return {
-    stock: { 'SN2000FG': true, 'SN2500FG': true, 'PPMC15150Y': true, 'SIN_STOCK': false },
-    quantities: JSON.stringify({ 'SN2000FG': 180, 'SN2500FG': 20, 'PPMC15150Y': 500, 'SIN_STOCK': 0 }),
+    stock: { SN2000FG: true, SN2500FG: true, PPMC15150Y: true, SIN_STOCK: false },
+    quantities: JSON.stringify({ SN2000FG: 180, SN2500FG: 20, PPMC15150Y: 500, SIN_STOCK: 0 }),
     warehouseBreakdown: JSON.stringify({
-      'SN2000FG': { '12': 180 },              // TODO transito - caso Mariano reportado
-      'SN2500FG': { '11': 20 },               // TODO disponible venta
-      'PPMC15150Y': { '11': 300, '12': 200 }, // split
+      SN2000FG: { 12: 180 }, // TODO transito - caso Mariano reportado
+      SN2500FG: { 11: 20 }, // TODO disponible venta
+      PPMC15150Y: { 11: 300, 12: 200 }, // split
     }),
     updatedAt: '2026-08-01T09:30:00Z',
   };
@@ -216,9 +383,19 @@ describe('exportDatasetZip pipeline: end-to-end con seed representativa', () => 
   const { csvs, rowCounts, allRowsByCsv } = runFullPipeline(s, sj);
 
   it('genera los 11 CSVs esperados', () => {
-    const expected = ['pedidos.csv', 'visitas.csv', 'clientes.csv', 'client_master.csv',
-      'rendiciones.csv', 'campanias.csv', 'targets.csv', 'productos.csv',
-      'vendor_overrides.csv', 'custom_routes.csv', 'seguimiento_notes.csv'];
+    const expected = [
+      'pedidos.csv',
+      'visitas.csv',
+      'clientes.csv',
+      'client_master.csv',
+      'rendiciones.csv',
+      'campanias.csv',
+      'targets.csv',
+      'productos.csv',
+      'vendor_overrides.csv',
+      'custom_routes.csv',
+      'seguimiento_notes.csv',
+    ];
     expect(Object.keys(csvs).sort()).toEqual(expected.sort());
   });
 
@@ -339,11 +516,11 @@ describe('useCaseMatrix: cada caso A-E tiene sus requiredFields con nullRates co
   }
 
   it('caso A conversion visita->pedido: fecha + owner_uid + tienda tienen nullRate razonable', () => {
-    const rates = computeNullRates(
-      DATASET_SCHEMAS.visitas,
-      allRowsByCsv['visitas.csv'],
-      ['fecha', 'owner_uid', 'tienda'],
-    );
+    const rates = computeNullRates(DATASET_SCHEMAS.visitas, allRowsByCsv['visitas.csv'], [
+      'fecha',
+      'owner_uid',
+      'tienda',
+    ]);
     // Los 4 seeds tienen fecha + ownerUid + tienda -> nullRate 0
     expect(rates.fecha).toBe(0);
     expect(rates.owner_uid).toBe(0);
@@ -352,8 +529,11 @@ describe('useCaseMatrix: cada caso A-E tiene sus requiredFields con nullRates co
 
   it('caso D anomalias rendiciones: importe_ars nunca null en las que tienen tipo=gasto', () => {
     const parsed = Papa.parse(
-      buildCsv(DATASET_SCHEMAS.rendiciones, allRowsByCsv['rendiciones.csv'].filter((r) => r[4] === 'gasto')).trim(),
-      { header: true },
+      buildCsv(
+        DATASET_SCHEMAS.rendiciones,
+        allRowsByCsv['rendiciones.csv'].filter((r) => r[4] === 'gasto')
+      ).trim(),
+      { header: true }
     );
     for (const r of parsed.data) {
       expect(r.importe_ars, `rendicion ${r.rendicion_id} tiene importe`).not.toBe('');
@@ -385,7 +565,10 @@ describe('joins por ID: pedidos.owner_uid existe en clientes.assigned_vendor (in
     const visitas = Papa.parse(csvs['visitas.csv'].trim(), { header: true }).data;
     const uidsVisitas = new Set(visitas.map((v) => v.owner_uid));
     for (const p of pedidos) {
-      expect(uidsVisitas.has(p.owner_uid), `pedido ${p.pedido_id} owner ${p.owner_uid} tiene visitas`).toBe(true);
+      expect(
+        uidsVisitas.has(p.owner_uid),
+        `pedido ${p.pedido_id} owner ${p.owner_uid} tiene visitas`
+      ).toBe(true);
     }
   });
 });

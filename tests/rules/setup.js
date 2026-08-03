@@ -3,11 +3,40 @@
  * Se usa un TestEnvironment global compartido entre suites. Cada test
  * limpia Firestore antes de correr para evitar cross-contamination.
  */
-import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
-import { readFileSync } from 'node:fs';
-import { doc, setDoc, getDoc, updateDoc, deleteDoc, addDoc, collection, getDocs, query, where } from 'firebase/firestore';
 
-export { assertSucceeds, assertFails, doc, setDoc, getDoc, updateDoc, deleteDoc, addDoc, collection, getDocs, query, where };
+import { readFileSync } from 'node:fs';
+import {
+  assertFails,
+  assertSucceeds,
+  initializeTestEnvironment,
+} from '@firebase/rules-unit-testing';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  setDoc,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
+
+export {
+  addDoc,
+  assertFails,
+  assertSucceeds,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  setDoc,
+  updateDoc,
+  where,
+};
 
 /** @type {import('@firebase/rules-unit-testing').RulesTestEnvironment} */
 let testEnv;

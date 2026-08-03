@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { findSapDuplicateForProvisorio } from '../../src/pure/duplicate.js';
 
 const sap = (over) => ({
@@ -50,7 +50,9 @@ describe('findSapDuplicateForProvisorio', () => {
 
   it('candidato sin cardCodeSap NO cuenta (es otro provisorio)', () => {
     const p = prov({ comercio: 'El Pez Gordo' });
-    const list = [{ ...sap({ comercio: 'El Pez Gordo' }), cardCodeSap: null, manualSapPending: true }];
+    const list = [
+      { ...sap({ comercio: 'El Pez Gordo' }), cardCodeSap: null, manualSapPending: true },
+    ];
     expect(findSapDuplicateForProvisorio(p, list)).toBeNull();
   });
 

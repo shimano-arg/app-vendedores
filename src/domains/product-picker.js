@@ -21,53 +21,87 @@
 //
 // Cross-scope state: NONE.  es local al módulo (solo usado por
 // flashSaved). No hay listeners onSnapshot.
-function populateProductFilters(){
-  const cats = [...new Set(PRODUCTS.map(p => p.cat).filter(Boolean))].sort();
-  document.getElementById('pm-cat').innerHTML = '<option value="ALL">Categoria: Todas</option>' + cats.map(c => '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>').join('');
+function populateProductFilters() {
+  const cats = [...new Set(PRODUCTS.map((p) => p.cat).filter(Boolean))].sort();
+  document.getElementById('pm-cat').innerHTML =
+    '<option value="ALL">Categoria: Todas</option>' +
+    cats
+      .map((c) => '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>')
+      .join('');
   populateFamilias();
 }
 
-function populateFamilias(){
+function populateFamilias() {
   const cat = document.getElementById('pm-cat').value;
-  const fams = [...new Set(PRODUCTS.filter(p => cat === 'ALL' || p.cat === cat).map(p => p.fam).filter(Boolean))].sort();
-  document.getElementById('pm-fam').innerHTML = '<option value="ALL">Familia: Todas</option>' + fams.map(c => '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>').join('');
+  const fams = [
+    ...new Set(
+      PRODUCTS.filter((p) => cat === 'ALL' || p.cat === cat)
+        .map((p) => p.fam)
+        .filter(Boolean)
+    ),
+  ].sort();
+  document.getElementById('pm-fam').innerHTML =
+    '<option value="ALL">Familia: Todas</option>' +
+    fams
+      .map((c) => '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>')
+      .join('');
   populateSubfamilias();
 }
 
-function populateSubfamilias(){
+function populateSubfamilias() {
   const cat = document.getElementById('pm-cat').value;
   const fam = document.getElementById('pm-fam').value;
-  const subs = [...new Set(PRODUCTS.filter(p => (cat === 'ALL' || p.cat === cat) && (fam === 'ALL' || p.fam === fam)).map(p => p.sub).filter(Boolean))].sort();
-  document.getElementById('pm-sub').innerHTML = '<option value="ALL">Subfamilia: Todas</option>' + subs.map(c => '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>').join('');
+  const subs = [
+    ...new Set(
+      PRODUCTS.filter((p) => (cat === 'ALL' || p.cat === cat) && (fam === 'ALL' || p.fam === fam))
+        .map((p) => p.sub)
+        .filter(Boolean)
+    ),
+  ].sort();
+  document.getElementById('pm-sub').innerHTML =
+    '<option value="ALL">Subfamilia: Todas</option>' +
+    subs
+      .map((c) => '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>')
+      .join('');
 }
 
-window.onChangeCategoria = function(){
+window.onChangeCategoria = function () {
   populateFamilias();
   renderProductPicker();
 };
-window.onChangeFamilia = function(){
+window.onChangeFamilia = function () {
   populateSubfamilias();
   renderProductPicker();
 };
 
-function getActiveCampaignSkusForCurrentOrder(){
+function getActiveCampaignSkusForCurrentOrder() {
   // Devuelve un Map: code -> Array(nombres de campañas activas y aplicables que incluyen ese SKU)
   const out = new Map();
   if (typeof campaignsCache === 'undefined' || !campaignsCache.length) return out;
   if (!currentOrderKey) return out;
   // Determinar vendor del pedido (segun la tienda destino)
   const parts = currentOrderKey.split('|');
-  const prov = parts[1] || '', locName = parts[2] || '';
-  const pt = POINTS.find(p => p.province === prov && p.name === locName);
-  const vendor = pt ? (pt.vendor || '') : '';
+  const prov = parts[1] || '',
+    locName = parts[2] || '';
+  const pt = POINTS.find((p) => p.province === prov && p.name === locName);
+  const vendor = pt ? pt.vendor || '' : '';
   const todayISO = new Date().toISOString().slice(0, 10);
-  campaignsCache.forEach(c => {
+  campaignsCache.forEach((c) => {
     if (c.archivedManually) return;
     if (!c.startDate || !c.endDate) return;
     if (c.startDate > todayISO || c.endDate < todayISO) return;
-    if (typeof isCampaignApplicableToVendor === 'function' && vendor && !isCampaignApplicableToVendor(c, vendor)) return;
-    const skuList = Array.isArray(c.skus) ? c.skus : (Array.isArray(c.filterValues) ? c.filterValues : []);
-    skuList.forEach(code => {
+    if (
+      typeof isCampaignApplicableToVendor === 'function' &&
+      vendor &&
+      !isCampaignApplicableToVendor(c, vendor)
+    )
+      return;
+    const skuList = Array.isArray(c.skus)
+      ? c.skus
+      : Array.isArray(c.filterValues)
+        ? c.filterValues
+        : [];
+    skuList.forEach((code) => {
       if (!out.has(code)) out.set(code, []);
       out.get(code).push(c.name || 'Campaña');
     });
@@ -77,17 +111,17 @@ function getActiveCampaignSkusForCurrentOrder(){
 
 // Filtro de stock en el picker: 'ALL' | 'OK' (con stock) | 'NO' (sin stock).
 // Se cambia desde los 3 botones que estan al lado de Subfamilia.
-window.setPmStockFilter = function(val){
+window.setPmStockFilter = function (val) {
   const wrap = document.querySelector('.pm-stock-filter');
   if (!wrap) return;
   wrap.setAttribute('data-stock', val);
-  wrap.querySelectorAll('.pm-stock-btn').forEach(b => {
+  wrap.querySelectorAll('.pm-stock-btn').forEach((b) => {
     b.classList.toggle('active', b.getAttribute('data-val') === val);
   });
   renderProductPicker();
 };
 
-function renderProductPicker(){
+function renderProductPicker() {
   const cat = document.getElementById('pm-cat').value;
   const fam = document.getElementById('pm-fam').value;
   const sub = document.getElementById('pm-sub').value;
@@ -101,45 +135,61 @@ function renderProductPicker(){
   let currentLines;
   if (currentOrderKey === '__pending__') {
     const entry = getCurrentPendingEntry();
-    currentLines = entry ? (entry.lines || []) : [];
+    currentLines = entry ? entry.lines || [] : [];
   } else {
     currentLines = orders[currentOrderKey] || [];
   }
-  const inOrder = new Set(currentLines.map(l => l.code));
+  const inOrder = new Set(currentLines.map((l) => l.code));
   const campMap = getActiveCampaignSkusForCurrentOrder();
-  const filt = PRODUCTS.filter(p => {
+  const filt = PRODUCTS.filter((p) => {
     if (cat !== 'ALL' && p.cat !== cat) return false;
     if (fam !== 'ALL' && p.fam !== fam) return false;
     if (sub !== 'ALL' && p.sub !== sub) return false;
     if (q && !(p.code.toLowerCase().includes(q) || p.desc.toLowerCase().includes(q))) return false;
     if (stockFilter !== 'ALL') {
-      const has = (typeof hasStock === 'function') ? hasStock(p.code) : null;
+      const has = typeof hasStock === 'function' ? hasStock(p.code) : null;
       if (stockFilter === 'OK' && has !== true) return false;
       if (stockFilter === 'NO' && has !== false) return false;
     }
     return true;
   }).slice(0, 200);
   let html = '';
-  filt.forEach(p => {
+  filt.forEach((p) => {
     const inCamp = campMap.has(p.code);
     let cls = 'prod-row';
     if (inOrder.has(p.code)) cls += ' in-order';
     if (inCamp) cls += ' in-camp';
-    const curLine = currentLines.find(l => l.code === p.code);
+    const curLine = currentLines.find((l) => l.code === p.code);
     const curQty = curLine ? Math.round(parseFloat(curLine.qty) || 0) : 0;
-    const campTitle = inCamp ? ('Producto en campaña activa: ' + campMap.get(p.code).join(', ')) : '';
-    const campBadge = inCamp ? '<span class="camp-badge" title="' + escapeAttr(campTitle) + '">★ CAMP</span>' : '';
+    const campTitle = inCamp ? 'Producto en campaña activa: ' + campMap.get(p.code).join(', ') : '';
+    const campBadge = inCamp
+      ? '<span class="camp-badge" title="' + escapeAttr(campTitle) + '">★ CAMP</span>'
+      : '';
     // Si ya hay cantidad, mostrar stepper [-][n][+] para poder subir, bajar o tipear directo.
     let ctrlHtml;
     if (curQty > 0) {
       const safeCode = escapeAttr(p.code);
       ctrlHtml = '<div class="qty-stepper" onclick="event.stopPropagation()">';
-      ctrlHtml += '<button class="minus" onclick="event.stopPropagation();decrementOrder(\'' + safeCode + '\')" title="Restar 1">&minus;</button>';
-      ctrlHtml += '<input type="number" min="0" step="1" inputmode="numeric" value="' + curQty + '" onclick="event.stopPropagation();this.select()" onchange="event.stopPropagation();setOrderQty(\'' + safeCode + '\', this.value)" title="Tipear cantidad"/>';
-      ctrlHtml += '<button class="plus" onclick="event.stopPropagation();addToOrder(\'' + safeCode + '\')" title="Sumar 1">+</button>';
+      ctrlHtml +=
+        '<button class="minus" onclick="event.stopPropagation();decrementOrder(\'' +
+        safeCode +
+        '\')" title="Restar 1">&minus;</button>';
+      ctrlHtml +=
+        '<input type="number" min="0" step="1" inputmode="numeric" value="' +
+        curQty +
+        '" onclick="event.stopPropagation();this.select()" onchange="event.stopPropagation();setOrderQty(\'' +
+        safeCode +
+        '\', this.value)" title="Tipear cantidad"/>';
+      ctrlHtml +=
+        '<button class="plus" onclick="event.stopPropagation();addToOrder(\'' +
+        safeCode +
+        '\')" title="Sumar 1">+</button>';
       ctrlHtml += '</div>';
     } else {
-      ctrlHtml = '<button class="add-btn" onclick="event.stopPropagation();addToOrder(\'' + escapeAttr(p.code) + '\')" title="Agregar al pedido">+</button>';
+      ctrlHtml =
+        '<button class="add-btn" onclick="event.stopPropagation();addToOrder(\'' +
+        escapeAttr(p.code) +
+        '\')" title="Agregar al pedido">+</button>';
     }
     // Indicador de stock SAP. Punto verde = hay disponible venta (whs 11);
     // ambar = SIN disponible pero hay en transito (whs 12, va a entrar);
@@ -148,24 +198,51 @@ function renderProductPicker(){
     // el vendedor asuma "hay 180 unidades disponibles" cuando en realidad
     // esas 180 estan en transito y hay 0 vendibles hoy.
     const stockSt = hasStock(p.code);
-    const disp = (typeof window.getStockDisponibleVenta === 'function') ? window.getStockDisponibleVenta(p.code) : null;
-    const trans = (typeof window.getStockTransito === 'function') ? window.getStockTransito(p.code) : null;
+    const disp =
+      typeof window.getStockDisponibleVenta === 'function'
+        ? window.getStockDisponibleVenta(p.code)
+        : null;
+    const trans =
+      typeof window.getStockTransito === 'function' ? window.getStockTransito(p.code) : null;
     let stockDot = '';
     if (stockSt === true && disp != null && disp === 0 && trans != null && trans > 0) {
       // Ambar: 0 disponible pero N en transito -> se puede prometer con fecha estimada.
-      stockDot = '<span class="stock-dot" style="background:#f59e0b" title="0 disponible en deposito 11 pero ' + trans + ' unidades en transito (deposito 12) — se puede vender como backorder"></span>';
+      stockDot =
+        '<span class="stock-dot" style="background:#f59e0b" title="0 disponible en deposito 11 pero ' +
+        trans +
+        ' unidades en transito (deposito 12) — se puede vender como backorder"></span>';
     } else if (stockSt === true) {
-      const t = (disp != null) ? ('Disponible venta (dep. 11): ' + disp + ' uds' + (trans > 0 ? ' + ' + trans + ' en transito' : '')) : 'Disponible en depositos vendibles';
+      const t =
+        disp != null
+          ? 'Disponible venta (dep. 11): ' +
+            disp +
+            ' uds' +
+            (trans > 0 ? ' + ' + trans + ' en transito' : '')
+          : 'Disponible en depositos vendibles';
       stockDot = '<span class="stock-dot ok" title="' + escapeAttr(t) + '"></span>';
     } else if (stockSt === false) {
       stockDot = '<span class="stock-dot no" title="Sin stock en ningun deposito vendible"></span>';
     } else {
       stockDot = '<span class="stock-dot na" title="Sin datos de stock"></span>';
     }
-    html += '<div class="' + cls + '" onclick="addToOrder(\'' + escapeAttr(p.code) + '\')"' + (inCamp ? ' title="' + escapeAttr(campTitle) + '"' : '') + '>';
+    html +=
+      '<div class="' +
+      cls +
+      '" onclick="addToOrder(\'' +
+      escapeAttr(p.code) +
+      '\')"' +
+      (inCamp ? ' title="' + escapeAttr(campTitle) + '"' : '') +
+      '>';
     html += '<div class="code">' + stockDot + escapeHtml(p.code) + campBadge + '</div>';
     html += '<div><div class="pdesc">' + escapeHtml(p.desc) + '</div>';
-    html += '<div class="pcat"><span>' + escapeHtml(p.cat) + '</span><span>' + escapeHtml(p.fam) + '</span><span>' + escapeHtml(p.sub) + '</span></div></div>';
+    html +=
+      '<div class="pcat"><span>' +
+      escapeHtml(p.cat) +
+      '</span><span>' +
+      escapeHtml(p.fam) +
+      '</span><span>' +
+      escapeHtml(p.sub) +
+      '</span></div></div>';
     html += ctrlHtml + '</div>';
   });
   if (!filt.length) html = '<div class="no-data">Sin productos para estos filtros.</div>';
@@ -173,36 +250,53 @@ function renderProductPicker(){
 }
 window.renderProductPicker = renderProductPicker;
 
-function addToOrder(code){
+function addToOrder(code) {
   if (!currentOrderKey || currentOrderKey === '__readonly__') return;
   if (currentOrderKey === '__pending__') {
     const entry = getCurrentPendingEntry();
     if (!entry) return;
     if (!entry.lines) entry.lines = [];
-    const existing = entry.lines.find(l => l.code === code);
+    const existing = entry.lines.find((l) => l.code === code);
     if (existing) {
       existing.qty = (parseFloat(existing.qty) || 0) + 1;
     } else {
-      const prod = PRODUCTS.find(p => p.code === code);
+      const prod = PRODUCTS.find((p) => p.code === code);
       if (!prod) return;
-      entry.lines.push({code: prod.code, desc: prod.desc, cat: prod.cat, fam: prod.fam, sub: prod.sub, qty: 1, precio: getDefaultPrice(prod.code)});
+      entry.lines.push({
+        code: prod.code,
+        desc: prod.desc,
+        cat: prod.cat,
+        fam: prod.fam,
+        sub: prod.sub,
+        qty: 1,
+        precio: getDefaultPrice(prod.code),
+      });
     }
     persistPendingEntry(entry);
     flashSaved();
     renderOrderLines();
     renderProductPicker();
-    if (currentOrderClient) renderSuggestionsForReadonly(currentOrderClient.name, currentOrderClient.province);
+    if (currentOrderClient)
+      renderSuggestionsForReadonly(currentOrderClient.name, currentOrderClient.province);
     return;
   }
   if (!orders[currentOrderKey]) orders[currentOrderKey] = [];
   const ord = orders[currentOrderKey];
-  const existing = ord.find(l => l.code === code);
+  const existing = ord.find((l) => l.code === code);
   if (existing) {
     existing.qty = (parseFloat(existing.qty) || 0) + 1;
   } else {
-    const prod = PRODUCTS.find(p => p.code === code);
+    const prod = PRODUCTS.find((p) => p.code === code);
     if (!prod) return;
-    ord.push({code: prod.code, desc: prod.desc, cat: prod.cat, fam: prod.fam, sub: prod.sub, qty: 1, precio: getDefaultPrice(prod.code)});
+    ord.push({
+      code: prod.code,
+      desc: prod.desc,
+      cat: prod.cat,
+      fam: prod.fam,
+      sub: prod.sub,
+      qty: 1,
+      precio: getDefaultPrice(prod.code),
+    });
   }
   saveOrders();
   flashSaved();
@@ -211,16 +305,16 @@ function addToOrder(code){
 }
 window.addToOrder = addToOrder;
 
-function setOrderQty(code, qty){
+function setOrderQty(code, qty) {
   if (!currentOrderKey) return;
   if (currentOrderKey === '__pending__') {
     const entry = getCurrentPendingEntry();
     if (!entry || !entry.lines) return;
-    const line = entry.lines.find(l => l.code === code);
+    const line = entry.lines.find((l) => l.code === code);
     if (!line) return;
     const q = parseFloat(qty);
-    if (isNaN(q) || q <= 0) {
-      entry.lines = entry.lines.filter(l => l.code !== code);
+    if (Number.isNaN(q) || q <= 0) {
+      entry.lines = entry.lines.filter((l) => l.code !== code);
     } else {
       line.qty = q;
     }
@@ -228,15 +322,16 @@ function setOrderQty(code, qty){
     flashSaved();
     renderOrderLines();
     renderProductPicker();
-    if (currentOrderClient) renderSuggestionsForReadonly(currentOrderClient.name, currentOrderClient.province);
+    if (currentOrderClient)
+      renderSuggestionsForReadonly(currentOrderClient.name, currentOrderClient.province);
     return;
   }
   const ord = orders[currentOrderKey] || [];
-  const line = ord.find(l => l.code === code);
+  const line = ord.find((l) => l.code === code);
   if (!line) return;
   const q = parseFloat(qty);
-  if (isNaN(q) || q <= 0) {
-    orders[currentOrderKey] = ord.filter(l => l.code !== code);
+  if (Number.isNaN(q) || q <= 0) {
+    orders[currentOrderKey] = ord.filter((l) => l.code !== code);
   } else {
     line.qty = q;
   }
@@ -247,16 +342,16 @@ function setOrderQty(code, qty){
 }
 window.setOrderQty = setOrderQty;
 
-function decrementOrder(code){
+function decrementOrder(code) {
   if (!currentOrderKey || currentOrderKey === '__readonly__') return;
   let curLines;
   if (currentOrderKey === '__pending__') {
     const entry = getCurrentPendingEntry();
-    curLines = entry ? (entry.lines || []) : [];
+    curLines = entry ? entry.lines || [] : [];
   } else {
     curLines = orders[currentOrderKey] || [];
   }
-  const line = curLines.find(l => l.code === code);
+  const line = curLines.find((l) => l.code === code);
   if (!line) return;
   const newQty = (parseFloat(line.qty) || 0) - 1;
   if (newQty <= 0) {
@@ -267,13 +362,13 @@ function decrementOrder(code){
 }
 window.decrementOrder = decrementOrder;
 
-function setOrderPrice(code, price){
+function setOrderPrice(code, price) {
   const p = parseFloat(price);
-  const newPrice = (isNaN(p) || p < 0) ? 0 : p;
+  const newPrice = Number.isNaN(p) || p < 0 ? 0 : p;
   if (currentOrderKey === '__pending__') {
     const entry = getCurrentPendingEntry();
     if (!entry || !entry.lines) return;
-    const line = entry.lines.find(l => l.code === code);
+    const line = entry.lines.find((l) => l.code === code);
     if (!line) return;
     line.precio = newPrice;
     persistPendingEntry(entry);
@@ -282,7 +377,7 @@ function setOrderPrice(code, price){
   }
   if (!currentOrderKey || currentOrderKey === '__readonly__') return;
   const ord = orders[currentOrderKey] || [];
-  const line = ord.find(l => l.code === code);
+  const line = ord.find((l) => l.code === code);
   if (!line) return;
   line.precio = newPrice;
   saveOrders();
@@ -290,20 +385,21 @@ function setOrderPrice(code, price){
 }
 window.setOrderPrice = setOrderPrice;
 
-function removeFromOrder(code){
+function removeFromOrder(code) {
   if (!currentOrderKey || currentOrderKey === '__readonly__') return;
   if (currentOrderKey === '__pending__') {
     const entry = getCurrentPendingEntry();
     if (!entry) return;
-    entry.lines = (entry.lines || []).filter(l => l.code !== code);
+    entry.lines = (entry.lines || []).filter((l) => l.code !== code);
     persistPendingEntry(entry);
     flashSaved();
     renderOrderLines();
     renderProductPicker();
-    if (currentOrderClient) renderSuggestionsForReadonly(currentOrderClient.name, currentOrderClient.province);
+    if (currentOrderClient)
+      renderSuggestionsForReadonly(currentOrderClient.name, currentOrderClient.province);
     return;
   }
-  orders[currentOrderKey] = (orders[currentOrderKey] || []).filter(l => l.code !== code);
+  orders[currentOrderKey] = (orders[currentOrderKey] || []).filter((l) => l.code !== code);
   saveOrders();
   flashSaved();
   renderOrderLines();
@@ -316,10 +412,10 @@ window.removeFromOrder = removeFromOrder;
 // Indice: SKU code (normalizado) -> producto. Lazy init (regla #15 CLAUDE.md):
 // PRODUCTS no existe cuando el bundle IIFE corre, se construye al primer uso.
 let _skuIndex = null;
-function getSkuIndex(){
+function getSkuIndex() {
   if (!_skuIndex) {
     _skuIndex = {};
-    PRODUCTS.forEach(p => {
+    PRODUCTS.forEach((p) => {
       const k = normTitle(p.code);
       if (k.length >= 3) _skuIndex[k] = p;
     });
@@ -329,17 +425,17 @@ function getSkuIndex(){
 
 // Indice por familia/subfamilia: { token: [products] } para matcheo por descripcion. Lazy init.
 let _skuTokens = null;
-function getSkuTokens(){
+function getSkuTokens() {
   if (!_skuTokens) {
     _skuTokens = {};
-    PRODUCTS.forEach(p => {
+    PRODUCTS.forEach((p) => {
       const tokens = new Set();
-      [p.sub, p.fam].forEach(s => {
+      [p.sub, p.fam].forEach((s) => {
         if (!s) return;
         const norm = normTitle(s);
         if (norm.length >= 3) tokens.add(norm);
       });
-      tokens.forEach(t => {
+      tokens.forEach((t) => {
         if (!_skuTokens[t]) _skuTokens[t] = [];
         _skuTokens[t].push(p);
       });
@@ -350,7 +446,7 @@ function getSkuTokens(){
 
 // matchSkuFromTitle: movido al bundle (window.matchSkuFromTitle vía __phase0.pure con wrapper).
 
-function renderSuggestions(){
+function _renderSuggestions() {
   if (!currentOrderClient || currentOrderKey === '__readonly__') return;
   const box = document.getElementById('pm-suggest-box');
   const listEl = document.getElementById('pm-suggest');
@@ -368,10 +464,10 @@ function renderSuggestions(){
     if (prov !== province) return;
     if (clientName === currentOrderClient.name) return; // excluir cliente actual
     peerShops.add(clientName);
-    list.forEach(c => {
-      (c.lines || []).forEach(l => {
+    list.forEach((c) => {
+      (c.lines || []).forEach((l) => {
         if (!l.code) return;
-        if (!agg[l.code]) agg[l.code] = {qty: 0, shops: new Set(), line: l};
+        if (!agg[l.code]) agg[l.code] = { qty: 0, shops: new Set(), line: l };
         agg[l.code].qty += parseFloat(l.qty) || 0;
         agg[l.code].shops.add(clientName);
       });
@@ -379,13 +475,19 @@ function renderSuggestions(){
   });
 
   // SKUs ya en el pedido actual
-  const inOrder = new Set((orders[currentOrderKey] || []).map(l => l.code));
+  const inOrder = new Set((orders[currentOrderKey] || []).map((l) => l.code));
 
   // Ordenar por # casas (popularidad) y luego por unidades
   const suggestions = Object.entries(agg)
     .filter(([code]) => !inOrder.has(code))
-    .map(([code, d]) => ({code, qty: d.qty, shops: d.shops.size, shopList: [...d.shops].sort(), line: d.line}))
-    .sort((a, b) => (b.shops - a.shops) || (b.qty - a.qty))
+    .map(([code, d]) => ({
+      code,
+      qty: d.qty,
+      shops: d.shops.size,
+      shopList: [...d.shops].sort(),
+      line: d.line,
+    }))
+    .sort((a, b) => b.shops - a.shops || b.qty - a.qty)
     .slice(0, 8);
 
   box.classList.remove('hidden');
@@ -394,17 +496,23 @@ function renderSuggestions(){
   if (!suggestions.length) {
     let msg;
     if (peerShops.size === 0) {
-      msg = 'Aun no hay pedidos confirmados de otras casas de pesca en <b>' + escapeHtml(titleCase(province)) + '</b>.<br><span style="font-size:9px">Las sugerencias se construyen a partir de los pedidos confirmados en el sistema.</span>';
+      msg =
+        'Aun no hay pedidos confirmados de otras casas de pesca en <b>' +
+        escapeHtml(titleCase(province)) +
+        '</b>.<br><span style="font-size:9px">Las sugerencias se construyen a partir de los pedidos confirmados en el sistema.</span>';
     } else {
-      msg = 'Las casas de pesca de <b>' + escapeHtml(titleCase(province)) + '</b> ya tienen sus productos cubiertos por el pedido actual.';
+      msg =
+        'Las casas de pesca de <b>' +
+        escapeHtml(titleCase(province)) +
+        '</b> ya tienen sus productos cubiertos por el pedido actual.';
     }
     listEl.innerHTML = '<div class="suggest-empty-msg">' + msg + '</div>';
     return;
   }
 
   let html = '';
-  suggestions.forEach(s => {
-    const masterProd = PRODUCTS.find(p => p.code === s.code);
+  suggestions.forEach((s) => {
+    const masterProd = PRODUCTS.find((p) => p.code === s.code);
     const desc = (masterProd && masterProd.desc) || s.line.desc || s.code;
     // Mostrar nombres de las casas: hasta 3, sino "X, Y y N mas"
     let shopsText;
@@ -417,48 +525,74 @@ function renderSuggestions(){
     html += '<div class="suggest-row" onclick="addToOrder(\'' + escapeAttr(s.code) + '\')">';
     html += '<div class="code">' + escapeHtml(s.code) + '</div>';
     html += '<div><div class="sname">' + escapeHtml(desc) + '</div>';
-    html += '<div class="sinfo" title="' + escapeHtml(shopsTitle) + '">Pidieron: ' + escapeHtml(shopsText) + ' &middot; ' + s.qty + ' unid.</div></div>';
-    html += '<button class="add-sg" onclick="event.stopPropagation();addToOrder(\'' + escapeAttr(s.code) + '\')" title="Agregar al pedido">+</button>';
+    html +=
+      '<div class="sinfo" title="' +
+      escapeHtml(shopsTitle) +
+      '">Pidieron: ' +
+      escapeHtml(shopsText) +
+      ' &middot; ' +
+      s.qty +
+      ' unid.</div></div>';
+    html +=
+      '<button class="add-sg" onclick="event.stopPropagation();addToOrder(\'' +
+      escapeAttr(s.code) +
+      '\')" title="Agregar al pedido">+</button>';
     html += '</div>';
   });
   listEl.innerHTML = html;
 }
 
-function renderOrderLines(){
+function renderOrderLines() {
   let ord;
   if (currentOrderKey === '__pending__') {
     const entry = getCurrentPendingEntry();
-    ord = entry ? (entry.lines || []) : [];
+    ord = entry ? entry.lines || [] : [];
   } else {
     ord = orders[currentOrderKey] || [];
   }
   let totalU = 0;
   let html = '';
-  ord.forEach(l => {
+  ord.forEach((l) => {
     const q = parseFloat(l.qty) || 0;
     const pr = parseFloat(l.precio) || 0;
     totalU += q;
     html += '<div class="ped-line">';
     html += '<div class="pcode">' + escapeHtml(l.code) + '</div>';
     html += '<div class="pname">' + escapeHtml(l.desc) + '</div>';
-    html += '<input type="number" class="qty" min="0" step="any" value="' + pr + '" placeholder="$" title="Precio unitario" onchange="setOrderPrice(\'' + escapeAttr(l.code) + '\', this.value)"/>';
-    html += '<input type="number" class="qty" min="0" step="1" value="' + q + '" title="Cantidad" onchange="setOrderQty(\'' + escapeAttr(l.code) + '\', this.value)"/>';
-    html += '<button class="rm-btn" onclick="removeFromOrder(\'' + escapeAttr(l.code) + '\')" title="Quitar">&times;</button>';
+    html +=
+      '<input type="number" class="qty" min="0" step="any" value="' +
+      pr +
+      '" placeholder="$" title="Precio unitario" onchange="setOrderPrice(\'' +
+      escapeAttr(l.code) +
+      '\', this.value)"/>';
+    html +=
+      '<input type="number" class="qty" min="0" step="1" value="' +
+      q +
+      '" title="Cantidad" onchange="setOrderQty(\'' +
+      escapeAttr(l.code) +
+      '\', this.value)"/>';
+    html +=
+      '<button class="rm-btn" onclick="removeFromOrder(\'' +
+      escapeAttr(l.code) +
+      '\')" title="Quitar">&times;</button>';
     html += '</div>';
   });
-  if (!ord.length) html = '<div class="no-data">Sin productos cargados. Agregue desde la izquierda.</div>';
+  if (!ord.length)
+    html = '<div class="no-data">Sin productos cargados. Agregue desde la izquierda.</div>';
   document.getElementById('pm-lines').innerHTML = html;
   document.getElementById('pm-line-count').textContent = ord.length + ' producto(s) en pedido';
   document.getElementById('pm-units').textContent = totalU + ' unidades';
 }
 
 let savedTimer = null;
-function flashSaved(){
+function flashSaved() {
   const el = document.getElementById('pm-saved-tag');
   if (!el) return;
   el.textContent = 'Guardado ' + new Date().toLocaleTimeString();
   clearTimeout(savedTimer);
-  savedTimer = setTimeout(() => { el.textContent = 'Sin cambios'; }, 2500);
+  savedTimer = setTimeout(() => {
+    el.textContent = 'Sin cambios';
+  }, 2500);
 }
 
 // === Exports a window para callers cross-scope ===

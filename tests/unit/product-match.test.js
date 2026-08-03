@@ -1,15 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { matchSkuFromTitle } from '../../src/pure/product-match.js';
 
 // SKU_INDEX ejemplo: keys son SKUs normalizados (por normTitle) → productos.
 const skuIndex = {
-  'REEL4000FI':  [{ sku: 'REEL-4000-FI', name: 'Shimano Stella 4000' }],
-  'REEL4000':    [{ sku: 'REEL-4000',    name: 'Shimano Stradic 4000' }],
-  'CANA6MH':     [{ sku: 'CANA-6MH',     name: 'Caña 6ft MH' }],
+  REEL4000FI: [{ sku: 'REEL-4000-FI', name: 'Shimano Stella 4000' }],
+  REEL4000: [{ sku: 'REEL-4000', name: 'Shimano Stradic 4000' }],
+  CANA6MH: [{ sku: 'CANA-6MH', name: 'Caña 6ft MH' }],
 };
 const skuTokens = {
-  'REEL':  [{ sku: 'FAM-REEL-DEFAULT', name: 'Reel genérico' }],
-  'CANA':  [{ sku: 'FAM-CANA-DEFAULT', name: 'Caña genérica' }],
+  REEL: [{ sku: 'FAM-REEL-DEFAULT', name: 'Reel genérico' }],
+  CANA: [{ sku: 'FAM-CANA-DEFAULT', name: 'Caña genérica' }],
 };
 
 describe('matchSkuFromTitle', () => {

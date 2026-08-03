@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { normClientName, titleCase, escapeHtml, normTitle, normalizeSearch } from '../../src/pure/normalize.js';
+import { describe, expect, it } from 'vitest';
+import {
+  escapeHtml,
+  normalizeSearch,
+  normClientName,
+  normTitle,
+  titleCase,
+} from '../../src/pure/normalize.js';
 
 describe('normClientName', () => {
   it('happy: strips diacritics + uppercases + trims', () => {
@@ -37,8 +43,9 @@ describe('titleCase', () => {
 
 describe('escapeHtml', () => {
   it('happy: escapa los 5 chars', () => {
-    expect(escapeHtml(`<script>alert('x' & "y")</script>`))
-      .toBe('&lt;script&gt;alert(&#39;x&#39; &amp; &quot;y&quot;)&lt;/script&gt;');
+    expect(escapeHtml(`<script>alert('x' & "y")</script>`)).toBe(
+      '&lt;script&gt;alert(&#39;x&#39; &amp; &quot;y&quot;)&lt;/script&gt;'
+    );
   });
   it('edge: sin chars especiales pasa transparente', () => {
     expect(escapeHtml('hola mundo 123')).toBe('hola mundo 123');

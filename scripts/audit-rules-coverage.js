@@ -7,14 +7,18 @@
  *
  * Exit 0: cobertura completa. Exit 1: hay huecos.
  */
-import { readFileSync, readdirSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
 function readOr(path) {
-  try { return readFileSync(join(root, path), 'utf8'); } catch { return ''; }
+  try {
+    return readFileSync(join(root, path), 'utf8');
+  } catch {
+    return '';
+  }
 }
 
 const html = readOr('index.html');
@@ -38,8 +42,8 @@ for (const m of testsBlob.matchAll(/['"]([a-zA-Z_][a-zA-Z0-9_]*)['"]/g)) {
   if (usedCollections.has(m[1])) testedCollections.add(m[1]);
 }
 
-const missingFromRules = [...usedCollections].filter(c => !rulesCollections.has(c)).sort();
-const missingFromTests = [...usedCollections].filter(c => !testedCollections.has(c)).sort();
+const missingFromRules = [...usedCollections].filter((c) => !rulesCollections.has(c)).sort();
+const missingFromTests = [...usedCollections].filter((c) => !testedCollections.has(c)).sort();
 
 console.log(`Colecciones usadas por index.html:  ${usedCollections.size}`);
 console.log(`Colecciones cubiertas por rules:    ${rulesCollections.size}`);

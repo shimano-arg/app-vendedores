@@ -11,17 +11,18 @@
  *
  * Region: southamerica-east1 (mismo que Firestore + Storage del proyecto).
  */
-import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { defineSecret } from 'firebase-functions/params';
-import { initializeApp, getApps } from 'firebase-admin/app';
+
+import { getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { defineSecret } from 'firebase-functions/params';
+import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { runDailyBackup } from './core/backup-core.js';
 // @google-cloud/firestore es pesado (~50 MB con gRPC/protobuf) y solo se
 // usa dentro de dailyFirestoreBackup para instanciar FirestoreAdminClient.
 // Cargarlo top-level exhausta el timeout de 10s del "backend spec analysis"
 // del deploy de Firebase Functions. Lazy dynamic import inside la function.
 import { handleSapProxy } from './core/sap-proxy-core.js';
-import { runDailyBackup } from './core/backup-core.js';
 
 if (!getApps().length) initializeApp();
 
@@ -54,24 +55,20 @@ export const sapProxy = onCall(
     const sl = sapCfg.serviceLayer || {};
 
     try {
-      return await handleSapProxy(
-        request.data,
-        request.auth ? { uid: request.auth.uid } : null,
-        {
-          getUserRole: async (uid) => {
-            const snap = await db.doc(`roles/${uid}`).get();
-            return (snap.data() || {}).role || null;
-          },
-          fetch: globalThis.fetch,
-          sapConfig: {
-            url: sl.url,
-            companyDB: sl.companyDB,
-            userName: sl.username || sl.userName,
-            password: SAP_SL_PASSWORD.value(),
-          },
-          log: (msg, extra) => console.log(msg, extra || {}),
+      return await handleSapProxy(request.data, request.auth ? { uid: request.auth.uid } : null, {
+        getUserRole: async (uid) => {
+          const snap = await db.doc(`roles/${uid}`).get();
+          return (snap.data() || {}).role || null;
         },
-      );
+        fetch: globalThis.fetch,
+        sapConfig: {
+          url: sl.url,
+          companyDB: sl.companyDB,
+          userName: sl.username || sl.userName,
+          password: SAP_SL_PASSWORD.value(),
+        },
+        log: (msg, extra) => console.log(msg, extra || {}),
+      });
     } catch (e) {
       if (e && typeof e === 'object' && 'code' in e && 'message' in e) {
         const err = /** @type {{code: string, message: string}} */ (e);
@@ -80,7 +77,7 @@ export const sapProxy = onCall(
       console.error('sapProxy unexpected error', e);
       throw new HttpsError('internal', 'Error interno sapProxy');
     }
-  },
+  }
 );
 
 /**
@@ -117,5 +114,5 @@ export const dailyFirestoreBackup = onSchedule(
       },
       log: (msg, extra) => console.log(msg, extra || {}),
     });
-  },
+  }
 );

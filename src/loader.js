@@ -14,8 +14,8 @@
 //   <button onclick="openVisitaModal()">  // funciona igual, el stub hace el lazy
 //   await window.loadChunk('visitas'); window.openVisitaModal();  // pattern manual
 
-const _loaded = Object.create(null);   // {chunkName: true} — chunk ya inyectado
-const _pending = Object.create(null);  // {chunkName: Promise} — chunk en vuelo
+const _loaded = Object.create(null); // {chunkName: true} — chunk ya inyectado
+const _pending = Object.create(null); // {chunkName: Promise} — chunk en vuelo
 
 /**
  * Carga el chunk `chunks/<name>.js` una sola vez. Idempotente + dedup.
@@ -29,7 +29,10 @@ export function loadChunk(name) {
     const s = document.createElement('script');
     s.src = './chunks/' + name + '.js';
     s.async = false; // preservar orden de ejecución si se cargan varios en paralelo
-    s.onload = () => { _loaded[name] = true; resolve(); };
+    s.onload = () => {
+      _loaded[name] = true;
+      resolve();
+    };
     s.onerror = () => {
       delete _pending[name];
       reject(new Error('loadChunk: failed to load chunks/' + name + '.js'));
@@ -56,7 +59,7 @@ export function installChunkStubs(chunkName, exportNames) {
   for (const name of exportNames) {
     // No sobreescribir si el chunk ya está cargado (defensivo).
     if (_loaded[chunkName]) continue;
-    // @ts-ignore — window augmentation runtime-only
+    // @ts-expect-error — window augmentation runtime-only
     window[name] = function () {
       const args = arguments;
       return loadChunk(chunkName).then(() => {
@@ -74,8 +77,8 @@ export function installChunkStubs(chunkName, exportNames) {
 
 // Expose to inline for manual usage.
 if (typeof window !== 'undefined') {
-  // @ts-ignore
+  // @ts-expect-error
   window.loadChunk = loadChunk;
-  // @ts-ignore
+  // @ts-expect-error
   window.__chunksLoaded = _loaded;
 }

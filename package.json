@@ -11,9 +11,13 @@
     "test:functions": "firebase emulators:exec --only functions,firestore,auth \"vitest run tests/functions/\"",
     "test:smoke": "vitest run tests/smoke/",
     "typecheck": "tsc --noEmit --project tsconfig.json",
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
+    "format": "biome format --write",
     "audit:rules": "node scripts/audit-rules-coverage.js"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.6",
     "@firebase/rules-unit-testing": "^5.0.1",
     "esbuild": "^0.28.1",
     "fast-glob": "^3.3.2",

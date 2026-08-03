@@ -12,9 +12,9 @@
 //
 // Escribe geo.json en el mismo lugar (backup manual antes si querés preservar el original).
 
-import { readFileSync, writeFileSync, statSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const GEO_PATH = join(ROOT, 'geo.json');
@@ -59,7 +59,7 @@ function douglasPeucker(points, tolerance) {
 }
 
 function roundCoord([x, y]) {
-  const f = Math.pow(10, DECIMALS);
+  const f = 10 ** DECIMALS;
   return [Math.round(x * f) / f, Math.round(y * f) / f];
 }
 
@@ -83,16 +83,18 @@ function simplifyGeometry(geom, tolerance) {
     return {
       type: 'Polygon',
       coordinates: geom.coordinates
-        .map(ring => simplifyRing(ring, tolerance))
-        .filter(ring => ring.length >= 4),
+        .map((ring) => simplifyRing(ring, tolerance))
+        .filter((ring) => ring.length >= 4),
     };
   }
   if (geom.type === 'MultiPolygon') {
     return {
       type: 'MultiPolygon',
       coordinates: geom.coordinates
-        .map(poly => poly.map(ring => simplifyRing(ring, tolerance)).filter(ring => ring.length >= 4))
-        .filter(poly => poly.length > 0),
+        .map((poly) =>
+          poly.map((ring) => simplifyRing(ring, tolerance)).filter((ring) => ring.length >= 4)
+        )
+        .filter((poly) => poly.length > 0),
     };
   }
   return geom;
@@ -100,12 +102,13 @@ function simplifyGeometry(geom, tolerance) {
 
 function countCoords(fc) {
   let n = 0;
-  const walk = g => {
+  const walk = (g) => {
     if (!g) return;
-    if (g.type === 'Polygon') g.coordinates.forEach(r => (n += r.length));
-    else if (g.type === 'MultiPolygon') g.coordinates.forEach(p => p.forEach(r => (n += r.length)));
+    if (g.type === 'Polygon') g.coordinates.forEach((r) => (n += r.length));
+    else if (g.type === 'MultiPolygon')
+      g.coordinates.forEach((p) => p.forEach((r) => (n += r.length)));
   };
-  fc.features.forEach(f => walk(f.geometry));
+  fc.features.forEach((f) => walk(f.geometry));
   return n;
 }
 
@@ -116,8 +119,8 @@ const beforeDept = countCoords(geo.dept);
 const beforeProv = countCoords(geo.prov);
 
 geo.dept.features = geo.dept.features
-  .map(f => ({ ...f, geometry: simplifyGeometry(f.geometry, DEPT_TOL) }))
-  .filter(f => {
+  .map((f) => ({ ...f, geometry: simplifyGeometry(f.geometry, DEPT_TOL) }))
+  .filter((f) => {
     const g = f.geometry;
     if (!g) return false;
     if (g.type === 'Polygon') return g.coordinates.length > 0;
@@ -126,8 +129,8 @@ geo.dept.features = geo.dept.features
   });
 
 geo.prov.features = geo.prov.features
-  .map(f => ({ ...f, geometry: simplifyGeometry(f.geometry, PROV_TOL) }))
-  .filter(f => {
+  .map((f) => ({ ...f, geometry: simplifyGeometry(f.geometry, PROV_TOL) }))
+  .filter((f) => {
     const g = f.geometry;
     if (!g) return false;
     if (g.type === 'Polygon') return g.coordinates.length > 0;
@@ -143,6 +146,12 @@ const afterDept = countCoords(geo.dept);
 const afterProv = countCoords(geo.prov);
 
 const pct = (before, after) => `${((1 - after / before) * 100).toFixed(1)}%`;
-console.log(`geo.json:  ${(beforeBytes / 1024).toFixed(0)} KB → ${(afterBytes / 1024).toFixed(0)} KB  (${pct(beforeBytes, afterBytes)} menor)`);
-console.log(`dept coords: ${beforeDept} → ${afterDept}  (${pct(beforeDept, afterDept)} menor)  [tol ${DEPT_TOL}°]`);
-console.log(`prov coords: ${beforeProv} → ${afterProv}  (${pct(beforeProv, afterProv)} menor)  [tol ${PROV_TOL}°]`);
+console.log(
+  `geo.json:  ${(beforeBytes / 1024).toFixed(0)} KB → ${(afterBytes / 1024).toFixed(0)} KB  (${pct(beforeBytes, afterBytes)} menor)`
+);
+console.log(
+  `dept coords: ${beforeDept} → ${afterDept}  (${pct(beforeDept, afterDept)} menor)  [tol ${DEPT_TOL}°]`
+);
+console.log(
+  `prov coords: ${beforeProv} → ${afterProv}  (${pct(beforeProv, afterProv)} menor)  [tol ${PROV_TOL}°]`
+);

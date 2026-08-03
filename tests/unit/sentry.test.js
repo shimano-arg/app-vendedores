@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { applySentryUserContext } from '../../src/sentry.js';
 
 /** Fabrica un mock Sentry con setUser y setTag como spies. */
@@ -47,7 +47,12 @@ describe('applySentryUserContext', () => {
   });
 
   it('setUser lanza: se traga silenciosamente (best-effort)', () => {
-    const s = { setUser: () => { throw new Error('boom'); }, setTag: vi.fn() };
+    const s = {
+      setUser: () => {
+        throw new Error('boom');
+      },
+      setTag: vi.fn(),
+    };
     expect(() => applySentryUserContext(s, { uid: 'u1' }, 'admin', 'X')).not.toThrow();
   });
 
