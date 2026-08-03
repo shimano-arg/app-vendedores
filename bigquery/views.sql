@@ -1475,3 +1475,67 @@ WHERE
   c.scope = 'all'
   OR (c.scope = 'province' AND v.provincia_cliente IN UNNEST(c.scope_values))
   OR (c.scope = 'vendor'   AND v.assigned_vendor   IN UNNEST(c.scope_values));
+
+-- ============================================================
+-- V_LEADS_VS_CLIENTES_POR_VENDEDOR
+-- ============================================================
+-- Universo: colección `client_applications` de Firestore, docs con
+-- status='approved' (los pending_approval / rejected / draft se excluyen).
+--
+-- Segmenta cada alta en 2 categorías mutuamente excluyentes:
+--   * clientes_sap: tienen cardCodeSap NO nulo/vacío -> ya cerrados en SAP.
+--   * leads: manualSapPending=true SIN cardCodeSap -> provisorios de Alta
+--     Rápida que Admin todavía no cargó a SAP. Es la definición del KPI
+--     "LEADS" del sidebar de la app (v386).
+--
+-- Métricas por assigned_vendor:
+--   * clientes_sap, leads, total_universo (= clientes_sap + leads + otros)
+--   * pct_conversion = clientes_sap / total_universo (0..1)
+--
+-- Notas:
+--   * "otros" = altas approved sin cardCodeSap y sin manualSapPending
+--     (docs viejos pre-v290 sin flag; muy pocos, quedan en el total
+--     como referencia pero no se tocan).
+--   * Altas huérfanas sin assignedVendor caen en el bucket "(SIN ASIGNAR)"
+--     para que Admin las vea y las asigne (75 altas huérfanas a 2026-08-03).
+--   * Docs de testing con assignedVendor tipo "ADMIN_<uid>" se filtran.
+--   * snapshot_at devuelve CURRENT_TIMESTAMP() -> ayuda a distinguir en
+--     Power BI cuándo se refreshó la vista.
+--
+-- Uso Power BI (TABLERO SAR): tarjetas KPI "LEADS" + "Clientes SAP" +
+-- "% Conversión" en la hoja Desempeño-Pesca con slicer de vendedor.
+-- Sin snapshot histórico todavía -> es la foto ACTUAL. Si se necesita
+-- serie mes-a-mes, agregar tabla leads_snapshot_raw + vista de
+-- evolución (ver §40 del README).
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_leads_vs_clientes_por_vendedor` AS
+SELECT
+  IFNULL(NULLIF(JSON_VALUE(data, '$.assignedVendor'), ''), '(SIN ASIGNAR)') AS assigned_vendor,
+  COUNTIF(
+    JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+    AND JSON_VALUE(data, '$.cardCodeSap') != ''
+  ) AS clientes_sap,
+  COUNTIF(
+    JSON_VALUE(data, '$.manualSapPending') = 'true'
+    AND (
+      JSON_VALUE(data, '$.cardCodeSap') IS NULL
+      OR JSON_VALUE(data, '$.cardCodeSap') = ''
+    )
+  ) AS leads,
+  COUNT(*) AS total_universo,
+  SAFE_DIVIDE(
+    COUNTIF(
+      JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+      AND JSON_VALUE(data, '$.cardCodeSap') != ''
+    ),
+    COUNT(*)
+  ) AS pct_conversion,
+  CURRENT_TIMESTAMP() AS snapshot_at
+FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+WHERE JSON_VALUE(data, '$.status') = 'approved'
+  AND (
+    JSON_VALUE(data, '$.assignedVendor') IS NULL
+    OR NOT STARTS_WITH(JSON_VALUE(data, '$.assignedVendor'), 'ADMIN_')
+  )
+GROUP BY assigned_vendor
+ORDER BY total_universo DESC;
