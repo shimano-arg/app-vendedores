@@ -55,7 +55,11 @@ jobs:
     # todos los docs (antes se cortaba en pag 1). Con 4 endpoints x cientos de
     # paginas cada uno (Invoices/Quotations/Orders + PurchaseOrders eventualmente),
     # 20 min no alcanzo. Subimos a 45 min con margen holgado.
-    timeout-minutes: 45
+    # 2026-08-03: subido a 60 min despues de agregar DeliveryNotes (fetch
+    # inicial ~7-10 min extra con 9k+ deliveries en ventana 12 meses) +
+    # margen si SAP viene lento (hoy los otros fetches tardaron 40 min vs
+    # 3-4 normal - problema de red intermitente en Seidor).
+    timeout-minutes: 60
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
