@@ -172,7 +172,11 @@ window.exportSapReadyCsv = function () {
   // marcarse como transferido (campo transferidoSAP.batchId).
   const now0 = new Date();
   const pad = (n) => String(n).padStart(2, '0');
-  const randomSuffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+  // v385: crypto.randomUUID() en vez de Math.random() para no gatillar CodeQL
+  // "insecure randomness". Uso NO criptográfico: sufijo de disambiguación en
+  // el batch id de DTW (BATCH-YYYYMMDD-HHMM-XXXX), evita colisión cuando 2
+  // exports arrancan en el mismo minuto.
+  const randomSuffix = crypto.randomUUID().slice(0, 4).toUpperCase();
   const dtwBatchId =
     'BATCH-' +
     now0.getFullYear() +

@@ -838,12 +838,17 @@ window.enviarPedidosASAPViaServiceLayer = async function (pedidos) {
   const errors = [];
   let sent = 0;
   const skipped = [];
+  // v385: crypto.randomUUID() en vez de Math.random() para no gatillar
+  // CodeQL "insecure randomness" (mismo fix de v384 en sap-auto-send-listener.js).
+  // Uso NO criptográfico: session ID para lock cross-session en runTransaction
+  // de Firestore; la entropía de 128 bits de UUID es superflua pero elimina
+  // el alert legítimamente (mejor práctica, no supresión).
   const mySessionId =
     ((currentUser && currentUser.uid) || 'anon') +
     '-manual-' +
     Date.now() +
     '-' +
-    Math.random().toString(36).slice(2, 8);
+    crypto.randomUUID().slice(0, 8);
   for (const p of pedidos) {
     const docRef = fbDb.collection('pedidos').doc(p._fsId);
     // v344+ (2026-07-28): FIX DUPLICADOS. Igual que el auto-send listener,

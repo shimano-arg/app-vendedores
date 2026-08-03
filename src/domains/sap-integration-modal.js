@@ -86,8 +86,15 @@ function sapIntOnFile(inputEl, kind) {
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
       sapIntState[kind] = rows;
-      info.textContent = f.name + ' &mdash; ' + rows.length + ' filas leidas';
-      info.innerHTML = '<b>' + f.name + '</b> &mdash; ' + rows.length + ' filas leidas';
+      // v385: reemplazado innerHTML por composición segura con textContent.
+      // f.name viene del <input type="file">, es user-controlled -> CodeQL
+      // marcaba "DOM text reinterpreted as HTML" (XSS). El bold visual se
+      // arma con un <b> creado por DOM API con textContent seguro.
+      info.replaceChildren();
+      const bold = document.createElement('b');
+      bold.textContent = f.name;
+      info.appendChild(bold);
+      info.appendChild(document.createTextNode(' — ' + rows.length + ' filas leidas'));
       info.className = 'sap-int-file-info ok';
     } catch (err) {
       console.error('sap int parse', err);
