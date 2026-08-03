@@ -85,10 +85,10 @@ def probe_last_5(cfg: dict, session: requests.Session) -> None:
     Nota SAP B1 SL: si $select incluye DocumentLines, algunos servers
     devuelven 400. En ese caso hacemos 2 requests: header + expand aparte.
     """
-    # Primera version: pedimos headers + expand lines.
+    # SAP B1 SL: usar UN solo campo en $orderby (compound orderby dio 400).
     url = (
         f"{cfg['url']}/b1s/v1/DeliveryNotes"
-        "?$top=5&$orderby=DocDate desc,DocEntry desc"
+        "?$top=5&$orderby=DocEntry desc"
         "&$select=DocEntry,DocNum,DocDate,CardCode,CardName,SlpCode,DocTotal,Cancelled"
     )
     resp = session.get(url, timeout=30)
@@ -122,20 +122,59 @@ def probe_last_5(cfg: dict, session: requests.Session) -> None:
 
 
 def probe_for_sebastian_sales_so(cfg: dict, session: requests.Session, so_doc_entry: int = 35063) -> None:
-    """Busca deliveries que apunten al SO 35063 (SEBASTIAN SALES caso 18364)."""
+    """Busca deliveries del caso SEBASTIAN SALES (fact 18364, SO 35063).
+
+    SAP B1 SL no soporta bien navigation por DocumentLines/any() -> 400.
+    Approach alternativo: filtrar por CardCode + rango de fecha (mismo
+    cliente, mismo mes que la factura). Despues chequear si alguna de
+    las deliveries devueltas apunta al SO 35063.
+    """
+    card_code = 'C20236640834'
     url = (
         f"{cfg['url']}/b1s/v1/DeliveryNotes"
-        f"?$filter=DocumentLines/any(dl: dl/BaseType eq 17 and dl/BaseEntry eq {so_doc_entry})"
+        f"?$filter=CardCode eq '{card_code}' and DocDate ge '2026-07-01' and DocDate le '2026-07-31'"
         "&$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,Cancelled"
     )
     resp = session.get(url, timeout=30)
     if not resp.ok:
-        log(f'[WARN] GET filter by SO {so_doc_entry}: HTTP {resp.status_code} - {resp.text[:300]}')
+        log(f'[WARN] GET filter by CardCode {card_code}: HTTP {resp.status_code} - {resp.text[:300]}')
         return
     rows = resp.json().get('value', [])
-    log(f'[PROBE][CASO SEBASTIAN SALES] Deliveries que referencian SO {so_doc_entry}: {len(rows)}')
+    log(f'[PROBE][CASO SEBASTIAN SALES] Deliveries de {card_code} en julio 2026: {len(rows)}')
     for r in rows:
-        log(f'  -> DocNum={r.get("DocNum")} Date={r.get("DocDate")} Total={r.get("DocTotal")} Card={r.get("CardName")}')
+        log(f'  -> DocNum={r.get("DocNum")} Date={r.get("DocDate")} Total={r.get("DocTotal")} Cancelled={r.get("Cancelled")}')
+        # Chequeamos si esta delivery referencia el SO 35063.
+        de = r.get('DocEntry')
+        if de is None:
+            continue
+        lresp = session.get(
+            f"{cfg['url']}/b1s/v1/DeliveryNotes({de})?$select=DocumentLines",
+            timeout=30,
+        )
+        if not lresp.ok:
+            continue
+        lines = lresp.json().get('DocumentLines', [])
+        so_entries = {ln.get('BaseEntry') for ln in lines if ln.get('BaseType') == 17}
+        if so_doc_entry in so_entries:
+            log(f'     [MATCH] Esta delivery cubre el SO {so_doc_entry} de la factura 18364')
+        else:
+            log(f'     [NO-MATCH] SOs referenciados por esta delivery: {sorted(so_entries)[:5]}')
+    # Adicional: probar el detalle del SO 35063 directamente.
+    order_url = (
+        f"{cfg['url']}/b1s/v1/Orders({so_doc_entry})"
+        "?$select=DocEntry,DocNum,DocDate,DocumentStatus,DocumentLines"
+    )
+    oresp = session.get(order_url, timeout=30)
+    if oresp.ok:
+        odata = oresp.json()
+        olines = odata.get('DocumentLines', [])
+        log(f'[PROBE] SO {so_doc_entry} DocNum={odata.get("DocNum")} DocumentStatus={odata.get("DocumentStatus")} Lines={len(olines)}')
+        if olines:
+            ex = olines[0]
+            log(f'  Ejemplo linea: Item={ex.get("ItemCode")} Qty={ex.get("Quantity")} '
+                f'RemainingOpenQty={ex.get("RemainingOpenQuantity")} DeliveredQty={ex.get("DeliveredQuantity")}')
+    else:
+        log(f'[WARN] GET Order {so_doc_entry}: HTTP {oresp.status_code}')
 
 
 def main() -> None:
