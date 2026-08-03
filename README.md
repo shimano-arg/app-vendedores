@@ -2917,11 +2917,57 @@ Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gere
 **Estado a 2026-07-23**:
 - ✅ **Fase 1.1** Firestore → BigQuery (7 collecciones + backfill)
 - ✅ **Fase 1.2** SAP → BigQuery (6 tablas raw: BPs, Items, Invoices, Quotations, Orders, PO)
-- ✅ **Fase 2** Modelo de datos: **18 vistas SQL curadas** (9 base + 3 deuda 2026-07-20 + 2 rendiciones 2026-07-22 + 3 campañas 2026-07-30 + 1 leads 2026-08-03)
+- ✅ **Fase 2** Modelo de datos: **19 vistas SQL curadas** (9 base + 3 deuda 2026-07-20 + 2 rendiciones 2026-07-22 + 3 campañas 2026-07-30 + 1 leads 2026-08-03 + 1 remitos 2026-08-03)
 - ✅ **Fase 3** Power BI Desktop → Service: **TABLERO SAR publicado en `Mi área de trabajo`**. Modelo con 12 vistas + `sap_items_raw` + `Vendedores` + `Origenes` + `Medidas` + `Date`. Páginas operativas: Desempeño-Pesca, Ventas, Pedidos, Visitas, **Facturación por Vendedor** (con Cobrado + Deuda), Backorder, Inventario.
 - ✅ **Fase 3.5** Distribución automática: **suscripción diaria a Mariano** ("Desempeño diario de ventas SAR - PESCA") @15:00 AR + refresh programado @14:30. Ver subsección abajo.
 - ✅ **Fase 3.6 (2026-07-21)** Deuda por vendedor de la app: 3 vistas + cards Cobrado/Deuda en hoja Facturación por Vendedor. Ver subsección "Vistas de deuda" abajo.
 - ⏳ **Fase 4** Alertas: pendiente
+
+### Vista REMITIDO (2026-08-03) — NUEVO
+
+Pedido de Mariano: el % Cumplimiento del vendedor debe medirse sobre lo **REMITIDO** (pase a depósito / transferencia de propiedad al cliente), no sobre facturado ni cobrado. Investigación completa en la conversación 2026-08-03.
+
+**Hallazgo del proceso comercial Shimano** — coexisten 2 caminos en SAP:
+
+| Camino | Descripción | Evidencia |
+|---|---|---|
+| **A. SO → Invoice directo** | Facturan sin emitir Delivery Note. El SO pasa a `DocumentStatus=bost_Close` cuando la factura cubre todo. El "remitido" NO existe como documento formal en SAP | Ejemplo: factura 18364 SEBASTIAN SALES → 0 deliveries para ese cliente en julio; SO 35063 cerrado directamente |
+| **C. SO → Delivery paralela + Invoice paralela** | Existen 18k+ DeliveryNotes pero NO se linkean doc-a-doc con la Invoice (`BaseType=15` en solo 5 de 4.681 facturas). Delivery y Invoice apuntan al mismo SO como bases separadas | Probe via SL: `@odata.count = 18237` DeliveryNotes totales, ratio ~3.9x sobre invoices |
+
+**Regla híbrida** implementada: `remitido = MAX(delivery, invoice)`:
+1. Si la línea del SO tiene Delivery paralela → `fecha_remito = ODLN.DocDate`, `source='DELIVERY'`.
+2. Si no → fallback a `fecha_remito = OINV.DocDate`, `source='INVOICE_NO_DELIVERY'`.
+
+**Vista nueva** en `bigquery/views.sql`:
+
+| Vista | Granularidad | Columnas |
+|---|---|---|
+| `v_remitos_lineas` | 1 fila por línea remitida (delivery o invoice-fallback) | `source, remito_doc_entry, remito_doc_num, doc_date, anio, mes, card_code, card_name, item_code, descripcion_linea, cantidad, importe_linea_ars, is_pesca, familia, subfamilia, sales_person_code, SlpCode Asignado, assigned_vendor, so_doc_entry, doc_currency, doc_rate` |
+
+**Nombres alineados 1:1 con `v_ventas_lineas`** → Power BI puede clonar la card "Facturación por Vendedor" cambiando SOLO la fuente. `SlpCode Asignado` con la misma lógica 50-55; `assigned_vendor` con la misma fórmula (lookup a `client_applications`).
+
+**Pipeline extendido** — `scripts/sync_sap_to_bigquery.py`:
+- Nueva tabla `sap_deliveries_raw` (misma estructura que `sap_invoices_raw`, se crea vacía con `CREATE TABLE ... AS SELECT ... WHERE FALSE`).
+- Bloque nuevo "=== 7. DeliveryNotes" reusa `sl_fetch_all` + `flatten_doc` + `load_to_bq`. Ventana 24 meses, mismo criterio que Invoices.
+- Cron cada 30 min lo mantiene fresco. Primer fetch inicial estimado: ~5-8k deliveries en la ventana, ~15 MB adicionales en BQ, +30-45 seg por corrida.
+
+**Snapshot inicial (2026-08-03 pre-cron)**:
+- `sap_deliveries_raw` = vacía → `v_remitos_lineas` de julio 2026 muestra 5.092 líneas / 296 docs / $887M ARS, **100% `source=INVOICE_NO_DELIVERY`** (fallback puro).
+- Cuando el cron corra y popule Deliveries, muchas líneas van a "migrar" a `source=DELIVERY` con la fecha real del remito.
+
+**Uso en Power BI Desktop** (pasos para agregar la card "REMITIDO" al TABLERO SAR):
+1. `Home → Transform data → Get Data → BigQuery → v_remitos_lineas`.
+2. Model view: chequear que auto-detect no arme relaciones falsas (mismo aprendizaje que Campañas 2026-08-01).
+3. Nueva card en hoja "Facturación por Vendedor":
+   - Tarjeta: `SUM(importe_linea_ars)` filtrado por mes actual.
+   - Slicer: `assigned_vendor`.
+   - Comparativa: pegar al lado la card "Facturado" existente (v_ventas_lineas) para ver diferencia.
+4. **Recalcular % Cumplimiento del vendedor** usando esta vista en vez de `v_ventas_lineas`.
+5. Publish al workspace.
+
+**Validación caso concreto (SEBASTIAN SALES 18364)**:
+- Aparece con `source=INVOICE_NO_DELIVERY`, `doc_date=2026-07-29`, `so_doc_entry=35063`.
+- Cuenta como "remitida" en julio 2026 por la regla híbrida. Si en el futuro se emite un remito formal para ese SO, la línea migra a `source=DELIVERY`.
 
 ### Vista de conversión LEADS → Clientes SAP (2026-08-03) — NUEVO
 
