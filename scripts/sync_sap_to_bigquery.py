@@ -1257,12 +1257,19 @@ def main():
     # BI usa v_remitos_lineas con regla hibrida MAX(delivery, invoice): si
     # el SO tiene Delivery se usa la fecha del remito; si no, fallback a
     # fecha de factura (caso SEBASTIAN SALES fact 18364 documentado).
-    # Mismo doc_select que Invoices/Orders (misma estructura de documento
-    # marketing de ventas). Ventana 24 meses = mismo criterio que invoices.
+    # Mismo doc_select que Invoices/Orders. Ventana 12 meses (hardcodeada,
+    # menor que HISTORY_MONTHS global) porque hay ~18k deliveries totales en
+    # SAP y el fetch de 24 meses hacia timeout el workflow (45 min). Con 12
+    # meses baja a ~9k -> ~7 min de fetch, sano dentro del timeout.
+    # Suficiente para el reporte % Cumplimiento del vendedor (mensual).
+    deliveries_history_months = min(12, history_months)
+    deliveries_since_dt = datetime.now(timezone.utc) - timedelta(days=deliveries_history_months * 31)
+    deliveries_since_iso = deliveries_since_dt.strftime('%Y-%m-%d')
+    log(f'[SL/DELIVERIES] ventana propia: {deliveries_since_iso} ({deliveries_history_months} meses)')
     deliveries = sl_fetch_all(
         cfg, session, '/b1s/v1/DeliveryNotes', 'DELIVERIES',
         select_fields=doc_select,
-        filter_expr=f"DocDate ge '{since_iso_date}'",
+        filter_expr=f"DocDate ge '{deliveries_since_iso}'",
         max_docs=max_docs,
     )
     delivery_rows = [flatten_doc(d, 'DELIVERY', sync_ts) for d in deliveries]
