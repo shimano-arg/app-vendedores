@@ -2917,11 +2917,59 @@ Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gere
 **Estado a 2026-07-23**:
 - ✅ **Fase 1.1** Firestore → BigQuery (7 collecciones + backfill)
 - ✅ **Fase 1.2** SAP → BigQuery (6 tablas raw: BPs, Items, Invoices, Quotations, Orders, PO)
-- ✅ **Fase 2** Modelo de datos: **17 vistas SQL curadas** (9 base + 3 deuda 2026-07-20 + 2 rendiciones 2026-07-22 + 3 campañas 2026-07-30)
+- ✅ **Fase 2** Modelo de datos: **18 vistas SQL curadas** (9 base + 3 deuda 2026-07-20 + 2 rendiciones 2026-07-22 + 3 campañas 2026-07-30 + 1 leads 2026-08-03)
 - ✅ **Fase 3** Power BI Desktop → Service: **TABLERO SAR publicado en `Mi área de trabajo`**. Modelo con 12 vistas + `sap_items_raw` + `Vendedores` + `Origenes` + `Medidas` + `Date`. Páginas operativas: Desempeño-Pesca, Ventas, Pedidos, Visitas, **Facturación por Vendedor** (con Cobrado + Deuda), Backorder, Inventario.
 - ✅ **Fase 3.5** Distribución automática: **suscripción diaria a Mariano** ("Desempeño diario de ventas SAR - PESCA") @15:00 AR + refresh programado @14:30. Ver subsección abajo.
 - ✅ **Fase 3.6 (2026-07-21)** Deuda por vendedor de la app: 3 vistas + cards Cobrado/Deuda en hoja Facturación por Vendedor. Ver subsección "Vistas de deuda" abajo.
 - ⏳ **Fase 4** Alertas: pendiente
+
+### Vista de conversión LEADS → Clientes SAP (2026-08-03) — NUEVO
+
+Pedido de Mariano: card en TABLERO SAR para trackear del total de altas asignadas a cada vendedor cuántas ya están en SAP (con CardCode) y cuántas siguen como LEADS (provisorios de Alta Rápida). Base para seguimiento mes a mes de conversión.
+
+**Vista nueva** en `bigquery/views.sql`:
+
+| Vista | Granularidad | Columnas |
+|---|---|---|
+| `v_leads_vs_clientes_por_vendedor` | 1 fila por `assigned_vendor` | `assigned_vendor, clientes_sap, leads, total_universo, pct_conversion (0..1), snapshot_at` |
+
+**Definición de las 2 categorías** (mutuamente excluyentes, matchean con la app):
+- **`clientes_sap`**: alta approved con `cardCodeSap` NO nulo/vacío → cerrado en SAP.
+- **`leads`**: alta approved con `manualSapPending=true` y sin `cardCodeSap` → provisorio de Alta Rápida pendiente de cargar a SAP (misma definición del KPI **LEADS** del sidebar de la app v386).
+
+**Filtros del universo**:
+- `status = 'approved'` — excluye pending_approval / rejected / draft.
+- Vendedores con nombre tipo `ADMIN_<uid>` excluidos (docs de testing).
+- Altas huérfanas sin `assignedVendor` van al bucket `(SIN ASIGNAR)` para que Admin las vea y las asigne.
+
+**Snapshot 2026-08-03 (validación inicial)**:
+
+| Vendedor | Clientes SAP | LEADS | Total | % Conversión |
+|---|---:|---:|---:|---:|
+| GONZALO DE LA ROSA | 44 | 42 | 86 | **51.2%** |
+| FEDERICO CASTELANELLI | 52 | 52 | 104 | 50.0% |
+| MAURICIO GIL | 30 | 77 | 107 | 28.0% |
+| MARTIN BOIERO | 23 | 68 | 91 | 25.3% |
+| IOANNIS PALKOUDAKIS | 17 | 70 | 87 | 19.5% |
+| SANTIAGO ESTEBAN | 14 | 96 | 110 | 12.7% |
+| (SIN ASIGNAR) | 1 | 69 | 70 | 1.4% |
+
+Total: 181 clientes SAP + 474 leads = 655 altas approved. Conversión global ~27.6%.
+
+**Deploy (2026-08-03)**: `bq query --use_legacy_sql=false` con el CREATE OR REPLACE VIEW directo. La vista se refresca en cada query — no hay materialización ni cron. Costo por query: <1 KB scanned (el JSON de `client_applications_raw_raw_latest` es <200 KB).
+
+**Uso en Power BI Desktop (pasos para agregar a TABLERO SAR)**:
+1. Abrir el `.pbix` de TABLERO SAR → **Home → Transform data → Get Data → BigQuery**.
+2. Elegir project `app-vendedores-shimano` → dataset `shimano_app` → chequear `v_leads_vs_clientes_por_vendedor` → **Load**.
+3. **Model view**: verificar que auto-detect NO cree relaciones falsas (mismo aprendizaje que Campañas — auto-detect matchea `assigned_vendor` STRING contra columnas TIMESTAMP). Si hay que joinear, hacerlo M:1 contra la tabla `Vendedores` existente.
+4. **Nueva página** "LEADS" o agregar a "Desempeño-Pesca":
+   - **Slicer** `assigned_vendor` (dropdown, single-select).
+   - **3 tarjetas**: `SUM(clientes_sap)`, `SUM(leads)`, `AVG(pct_conversion)` (formato %).
+   - **Tabla** con las 6 columnas del snapshot (ordenada por `pct_conversion` DESC).
+   - **Gráfico de barras apiladas 100%**: eje X `assigned_vendor`, apilado `clientes_sap` (verde) + `leads` (ámbar).
+5. **Publish** al workspace `Mi área de trabajo` para que se sincronice con la suscripción diaria @15:00.
+
+**Nota sobre snapshot histórico (mes a mes)**: la vista actual es la FOTO ACTUAL. Para trackear evolución mes-a-mes se necesita agregar una tabla `leads_snapshot_raw` populada mensualmente (write append con `snapshot_date`) + una vista `v_leads_evolucion_mensual`. **Recomendación**: dejar solo la foto actual por ahora; si a 30 días Mariano necesita ver la evolución, hacemos el snapshot histórico (arrancaría a acumular desde ese momento, no retroactivo — la data actual solo captura estado presente).
 
 ### Vistas de campañas comerciales (2026-07-30) — NUEVO
 
