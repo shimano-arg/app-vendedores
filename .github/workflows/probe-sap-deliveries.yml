@@ -1,0 +1,38 @@
+name: Probe SAP Deliveries (one-shot)
+
+# Workflow ad-hoc para investigar si Shimano SAP usa DeliveryNotes o
+# factura directo desde Sales Order (para tarea "Remitido" en Power BI).
+#
+# Solo se dispara manualmente (workflow_dispatch). Reusa el mismo secret
+# FIREBASE_SERVICE_ACCOUNT + las mismas creds SL que el cron de sync.
+# Cero writes. Cero cambios de estado. Solo 3 GETs a Service Layer.
+#
+# Este workflow es DESCARTABLE: una vez que se confirme escenario A vs B
+# se puede borrar del repo (o dejar como referencia).
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install firebase-admin requests google-cloud-bigquery
+
+      - name: Run probe
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: python scripts/probe_sap_deliveries.py
