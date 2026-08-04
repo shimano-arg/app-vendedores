@@ -2978,13 +2978,17 @@ En Shimano el flujo real es **SO → Invoice → Delivery** (NO el canónico SO 
 **Validación caso concreto (SEBASTIAN SALES 18364)** — post-fix determinista v386.3:
 - Aparece con `source=DELIVERY, remito_doc_num=18237, doc_date=2026-08-03, base_type=13, base_entry=32573` (DocEntry de la Factura 18364). 1 sola entrada por $15.61M — la factura NO aparece como INVOICE_NO_DELIVERY porque el match determinista la excluye correctamente.
 
-**Reconciliación TABLERO vs Mayor Contable / Reporte "Análisis Ventas por Artículo" (2026-08-04)** — decisión de negocio confirmada con Mariano:
+**Reconciliación TABLERO vs Mayor Contable / Reporte "Análisis Ventas por Artículo" (2026-08-04, v388.1 fix)** — investigación completa realizada con Mariano:
 
-El TABLERO SAR (visión comercial) va a diferir ~10% del Mayor Contable de la cuenta `4.1.010.10.002 - VENTA DE MERCADERIA FISH` y del reporte SAP "Análisis de ventas por artículos (anual)". Ejemplo julio 2026 pesca: TABLERO $283.42M facturado / $287.63M remitido vs Mayor Contable ~$254.79M vs reporte anual $254.49M. **No es un bug — son 3 lentes distintas sobre la misma data SAP**:
+**Hallazgo**: la diferencia $283M (TABLERO original) vs $254M (Mayor Contable) NO era por Notas de Crédito ni por método de cálculo distinto. La causa REAL era que `v_ventas_lineas` y `v_remitos_lineas` **no descontaban el `total_discount` de cabecera de la factura** (descuento global típico del 17% en Shimano). Ejemplo factura 18262 (SEBASTIAN SALES): suma de `LineTotal` = $32.86M, descuento cabecera $5.59M, total contable $27.27M. El descuento va a la cuenta contable "Descuentos Concedidos" aparte, no resta del `LineTotal` por línea. **Fix v388.1**: agregado CTE `sum_lines_per_doc` + prorrateo del descuento global por línea (formula: `LineTotal * (1 - total_discount / suma_lineas)`). Aplicado a `importe_linea_ars`, `cobrado_prorrateado_ars`, `deuda_prorrateada_ars` en `v_ventas_lineas` + a `deliveries/returns/invoices_sin_delivery` en `v_remitos_lineas`. **Resultado post-fix (julio 2026 pesca)**: Facturado NETO $254.79M ✓ matchea EXACTO con Mayor Contable + Reporte Santi; Remitido NETO $259.09M (levemente mayor porque incluye remitos aún no facturados). Los 3 reportes ahora convergen a la misma realidad.
+
+**Impacto operativo** (comunicar al equipo comercial): TODOS los importes del TABLERO SAR (Facturado, Cobrado, Deuda, % Cumplimiento) van a bajar ~10% post-refresh porque ahora reflejan la venta neta post-descuento comercial. Es la venta REAL que cobra el vendedor. Las comisiones se calculan sobre el NETO — no cambia el negocio, solo la exhibición del número. Antes se sobre-estimaba en ~10% por no restar el descuento global.
+
+El TABLERO SAR (visión comercial) puede seguir difiriendo levemente del Mayor Contable por 2 factores residuales: (a) fecha de contabilización vs fecha de emisión (facturas del 30-31 del mes se asientan el 1-2 del siguiente); (b) ítems del grupo PESCA imputados a cuentas contables distintas a `4.1.010.10.002` (típicamente <2% del total). **No es un bug — son 3 lentes distintas sobre la misma data SAP**:
 
 | Reporte | Base de cálculo | Uso |
 |---|---|---|
-| **TABLERO SAR** | `LineTotal` de cada línea de factura POR FECHA DE EMISIÓN. NCs restadas (v367). | Comisiones vendedor, % Cumplimiento, dashboard operativo diario. Es lo que el vendedor puede reconciliar con sus propias facturas. |
+| **TABLERO SAR** | `LineTotal` NETO POST-descuento global de cabecera (v388.1) POR FECHA DE EMISIÓN. NCs restadas (v367). | Comisiones vendedor, % Cumplimiento, dashboard operativo diario. Es lo que el vendedor efectivamente cobra (neto post-descuento). Matchea el Mayor Contable salvo por fecha de contabilización y cuentas de imputación distintas. |
 | **Reporte SAP anual** | Precio ponderado del período extendido (moving average) × cantidad. | Análisis de rentabilidad interanual con precios homologados (evita distorsión inflacionaria). |
 | **Mayor Contable FISH** | Asientos contables POR FECHA DE CONTABILIZACIÓN, con criterios de imputación por ítem. | Balance, IVA, reporte fiscal, cierres contables. |
 

@@ -614,6 +614,24 @@ invoices_and_cns AS (
   UNION ALL
   SELECT *, -1 AS sign, 'CREDIT_NOTE' AS doc_kind
   FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw`
+),
+-- v388.1 (2026-08-04): suma de LineTotal por doc, para prorratear el
+-- descuento global de cabecera (total_discount) al importe de cada linea.
+-- Sin este prorrateo, v_ventas_lineas mostraba el importe SIN restar el
+-- descuento global (que en Shimano suele ser 17%), sobreestimando la
+-- facturacion. Ejemplo: fact 18262 tenia doc_total=$33.6M pero suma de
+-- LineTotal=$32.8M porque el descuento de 17% ($5.6M) va a la cuenta
+-- contable 'Descuentos Concedidos' aparte. El Mayor Contable de la
+-- cuenta FISH refleja el NETO post-descuento; nuestro reporte tambien
+-- deberia. Fix confirmado con Mariano 2026-08-04.
+sum_lines_per_doc AS (
+  SELECT
+    doc_kind,
+    doc_entry,
+    SUM(SAFE_CAST(JSON_VALUE(ln, '$.LineTotal') AS FLOAT64)) AS suma_lineas
+  FROM invoices_and_cns,
+       UNNEST(JSON_EXTRACT_ARRAY(lines_json)) AS ln
+  GROUP BY doc_kind, doc_entry
 )
 SELECT
   inv.doc_entry,
@@ -630,19 +648,25 @@ SELECT
   -- v367+: cantidad y montos multiplicados por sign para que CNs resten.
   SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64) * inv.sign       AS cantidad,
   SAFE_CAST(JSON_VALUE(line, '$.Price') AS FLOAT64)                     AS precio_unitario,
-  SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64) * inv.sign      AS importe_linea_ars,
+  -- v388.1 (2026-08-04): importe_linea_ars ahora es NETO post-descuento
+  -- global de cabecera. Fórmula: LineTotal * sign * (1 - total_discount / suma_lineas).
+  -- Antes daba $283M (bruto), ahora da $254M (matchea Mayor Contable FISH).
+  SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64) * inv.sign
+    * (1 - SAFE_DIVIDE(COALESCE(inv.total_discount, 0), NULLIF(slp.suma_lineas, 0)))
+                                                                        AS importe_linea_ars,
   -- v302+ (2026-07-21): prorrateo cobrado/deuda por linea.
   -- Permite en PBI:
   --   [Cobrado ARS] = CALCULATE(SUM(cobrado_prorrateado_ars), is_pesca=TRUE)
   --   [Deuda ARS]   = CALCULATE(SUM(deuda_prorrateada_ars),   is_pesca=TRUE)
   -- que suman exactamente [Facturacion Total] (que usa importe_linea_ars).
-  -- Prorrateo lineal: cobrado_linea = importe_linea * (paid_to_date / doc_total)
-  -- v367+: para CNs paid_to_date/doc_total ambos son sign=-1 en el numerator
-  -- si aplicaramos negacion, pero SAFE_DIVIDE del ratio se cancela; entonces
-  -- multiplicamos importe_linea (ya con sign) por el ratio unsigned original.
+  -- Prorrateo lineal: cobrado_linea = importe_linea_neto * (paid_to_date / doc_total).
+  -- v388.1: aplica sobre el importe NETO (post descuento global) para mantener
+  -- la consistencia con importe_linea_ars.
   SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64) * inv.sign
+    * (1 - SAFE_DIVIDE(COALESCE(inv.total_discount, 0), NULLIF(slp.suma_lineas, 0)))
     * SAFE_DIVIDE(inv.paid_to_date, inv.doc_total)                      AS cobrado_prorrateado_ars,
   SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64) * inv.sign
+    * (1 - SAFE_DIVIDE(COALESCE(inv.total_discount, 0), NULLIF(slp.suma_lineas, 0)))
     * SAFE_DIVIDE(inv.doc_total - COALESCE(inv.paid_to_date, 0), inv.doc_total)
                                                                         AS deuda_prorrateada_ars,
   JSON_VALUE(line, '$.WarehouseCode')                                   AS warehouse_code,
@@ -692,6 +716,8 @@ SELECT
   inv._sync_timestamp
 FROM invoices_and_cns inv,
 UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json)) AS line
+LEFT JOIN sum_lines_per_doc slp
+  ON slp.doc_kind = inv.doc_kind AND slp.doc_entry = inv.doc_entry
 LEFT JOIN `app-vendedores-shimano.shimano_app.v_sap_items_enriched` it
   ON it.item_code = JSON_VALUE(line, '$.ItemCode')
 LEFT JOIN prov_lookup prov
@@ -1601,11 +1627,30 @@ items AS (
     item_code IS NOT NULL        AS is_pesca
   FROM `app-vendedores-shimano.shimano_app.v_sap_items_enriched`
 ),
--- v386.2 (2026-08-04): UNION ALL con Returns (sign=-1) para restar las
--- devoluciones. Sin esto v_remitos_lineas quedaba inflada por las
--- devoluciones (mismo bug conceptual que Credit Notes en v_facturas_sap v367).
--- Returns son la contrapartida FISICA del Delivery (mueven inventario de
--- vuelta al deposito). Van con cantidad e importe negativos.
+-- v388.1 (2026-08-04): sumas de LineTotal por doc para aplicar prorrateo
+-- del descuento global de cabecera (total_discount). Mismo criterio que
+-- v_ventas_lineas para mantener coherencia entre Facturado y Remitido.
+sum_lines_deliveries AS (
+  SELECT doc_entry, SUM(SAFE_CAST(JSON_VALUE(ln, '$.LineTotal') AS FLOAT64)) AS suma_lineas
+  FROM `app-vendedores-shimano.shimano_app.sap_deliveries_raw`,
+       UNNEST(JSON_QUERY_ARRAY(lines_json)) AS ln
+  WHERE cancelled = 'tNO'
+  GROUP BY doc_entry
+),
+sum_lines_returns AS (
+  SELECT doc_entry, SUM(SAFE_CAST(JSON_VALUE(ln, '$.LineTotal') AS FLOAT64)) AS suma_lineas
+  FROM `app-vendedores-shimano.shimano_app.sap_returns_raw`,
+       UNNEST(JSON_QUERY_ARRAY(lines_json)) AS ln
+  WHERE cancelled = 'tNO'
+  GROUP BY doc_entry
+),
+sum_lines_invoices AS (
+  SELECT doc_entry, SUM(SAFE_CAST(JSON_VALUE(ln, '$.LineTotal') AS FLOAT64)) AS suma_lineas
+  FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw`,
+       UNNEST(JSON_QUERY_ARRAY(lines_json)) AS ln
+  WHERE cancelled = 'tNO'
+  GROUP BY doc_entry
+),
 deliveries AS (
   SELECT
     'DELIVERY' AS source,
@@ -1623,17 +1668,16 @@ deliveries AS (
     JSON_VALUE(ln, '$.ItemCode')                                      AS item_code,
     JSON_VALUE(ln, '$.Dscription')                                    AS descripcion_linea,
     SAFE_CAST(JSON_VALUE(ln, '$.Quantity')   AS FLOAT64)              AS cantidad,
-    SAFE_CAST(JSON_VALUE(ln, '$.LineTotal')  AS FLOAT64)              AS importe_linea_ars,
-    -- v386.3 (2026-08-04) — expuesto base_type + base_entry en vez de
-    -- so_doc_entry porque en Shimano el 94% de las Deliveries tienen
-    -- BaseType=13 (A/R Invoice), no 17 (SO). El BaseEntry apunta al
-    -- DocEntry de la factura correspondiente. Confirmado por Santi
-    -- (SEIDOR) 2026-08-04.
+    -- v388.1 (2026-08-04): importe NETO post-descuento global cabecera.
+    SAFE_CAST(JSON_VALUE(ln, '$.LineTotal')  AS FLOAT64)
+      * (1 - SAFE_DIVIDE(COALESCE(d.total_discount, 0), NULLIF(sld.suma_lineas, 0)))
+                                                                      AS importe_linea_ars,
     SAFE_CAST(JSON_VALUE(ln, '$.BaseType')   AS INT64)                AS base_type,
     SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry')  AS INT64)                AS base_entry,
     SAFE_CAST(JSON_VALUE(ln, '$.BaseLine')   AS INT64)                AS base_line
   FROM `app-vendedores-shimano.shimano_app.sap_deliveries_raw` d,
        UNNEST(JSON_QUERY_ARRAY(d.lines_json)) AS ln
+  LEFT JOIN sum_lines_deliveries sld ON sld.doc_entry = d.doc_entry
   WHERE d.cancelled = 'tNO'
   UNION ALL
   SELECT
@@ -1652,15 +1696,17 @@ deliveries AS (
     JSON_VALUE(ln, '$.ItemCode')                                      AS item_code,
     JSON_VALUE(ln, '$.Dscription')                                    AS descripcion_linea,
     -- Cantidad e importe con sign=-1 para restar del total.
-    -- (Nota: multiplicar POR -1 al final en vez de con prefijo, para que
-    -- bq --flagfile no lo interprete como flag CLI).
     SAFE_CAST(JSON_VALUE(ln, '$.Quantity')   AS FLOAT64) * -1         AS cantidad,
-    SAFE_CAST(JSON_VALUE(ln, '$.LineTotal')  AS FLOAT64) * -1         AS importe_linea_ars,
+    -- v388.1: importe NETO post-descuento con sign=-1.
+    SAFE_CAST(JSON_VALUE(ln, '$.LineTotal')  AS FLOAT64) * -1
+      * (1 - SAFE_DIVIDE(COALESCE(r.total_discount, 0), NULLIF(slr.suma_lineas, 0)))
+                                                                      AS importe_linea_ars,
     SAFE_CAST(JSON_VALUE(ln, '$.BaseType')   AS INT64)                AS base_type,
     SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry')  AS INT64)                AS base_entry,
     SAFE_CAST(JSON_VALUE(ln, '$.BaseLine')   AS INT64)                AS base_line
   FROM `app-vendedores-shimano.shimano_app.sap_returns_raw` r,
        UNNEST(JSON_QUERY_ARRAY(r.lines_json)) AS ln
+  LEFT JOIN sum_lines_returns slr ON slr.doc_entry = r.doc_entry
   WHERE r.cancelled = 'tNO'
 ),
 invoices_sin_delivery AS (
@@ -1680,12 +1726,16 @@ invoices_sin_delivery AS (
     JSON_VALUE(ln, '$.ItemCode')                                      AS item_code,
     JSON_VALUE(ln, '$.Dscription')                                    AS descripcion_linea,
     SAFE_CAST(JSON_VALUE(ln, '$.Quantity')   AS FLOAT64)              AS cantidad,
-    SAFE_CAST(JSON_VALUE(ln, '$.LineTotal')  AS FLOAT64)              AS importe_linea_ars,
+    -- v388.1: importe NETO post-descuento global de cabecera.
+    SAFE_CAST(JSON_VALUE(ln, '$.LineTotal')  AS FLOAT64)
+      * (1 - SAFE_DIVIDE(COALESCE(i.total_discount, 0), NULLIF(sli.suma_lineas, 0)))
+                                                                      AS importe_linea_ars,
     17                                                                AS base_type,
     SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry')  AS INT64)                AS base_entry,
     SAFE_CAST(JSON_VALUE(ln, '$.BaseLine')   AS INT64)                AS base_line
   FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` i,
        UNNEST(JSON_QUERY_ARRAY(i.lines_json)) AS ln
+  LEFT JOIN sum_lines_invoices sli ON sli.doc_entry = i.doc_entry
   WHERE i.cancelled = 'tNO'
     AND JSON_VALUE(ln, '$.BaseType') = '17'    -- solo lineas que vienen de SO
     -- v386.3 (2026-08-04) MATCH DETERMINISTA CONFIRMADO POR SANTI (SEIDOR):
