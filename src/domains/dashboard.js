@@ -701,68 +701,11 @@ window.renderDashboard = function () {
     html += '</div>';
   }
 
-  // === Mes en curso ===
-  html += '<div class="dash-card">';
-  html +=
-    '<h4>' +
-    (isCurrentMonth ? 'Mes en curso' : 'Mes de ' + MESES[selMonthIdx]) +
-    ' <span class="sub">' +
-    MESES[selMonthIdx] +
-    ' ' +
-    selYear +
-    ' &middot; pedidos de la app</span></h4>';
-  const monthTargetArs = dashboardVendorForTargets
-    ? getMonthlyTargetArs(dashboardVendorForTargets, selYear, selMonthIdx)
-    : null;
-  html += '<div class="tgt-grid">';
-  html +=
-    '<div class="tgt-stat"><div class="num">' +
-    fmtNum(monthUnits) +
-    '</div><div class="lbl">Unidades vendidas</div></div>';
-  html +=
-    '<div class="tgt-stat money"><div class="num">' +
-    fmtMoney(monthMoneyArs) +
-    '</div><div class="lbl">Facturado ARS</div></div>';
-  if (monthTargetArs != null) {
-    html +=
-      '<div class="tgt-stat target"><div class="num">' +
-      fmtMoney(monthTargetArs) +
-      '</div><div class="lbl">Target mensual</div></div>';
-    const pct = monthTargetArs > 0 ? Math.round((monthMoneyArs / monthTargetArs) * 100) : 0;
-    const pctClamp = Math.min(100, Math.max(0, pct));
-    html +=
-      '<div class="tgt-stat"><div class="num" style="color:' +
-      (pct >= 100 ? '#10b981' : pct >= 70 ? '#f59e0b' : '#dc2626') +
-      '">' +
-      pct +
-      '%</div><div class="lbl">Cumplimiento</div></div>';
-    html += '</div>';
-    html +=
-      '<div class="tgt-bar"><div class="tgt-bar-fill ' +
-      tgtBarCls(pct) +
-      '" style="width:' +
-      pctClamp +
-      '%"></div></div>';
-    html +=
-      '<div class="tgt-meta"><span>' +
-      fmtMoney(monthMoneyArs) +
-      ' / ' +
-      fmtMoney(monthTargetArs) +
-      '</span><span><b>' +
-      pct +
-      '%</b></span></div>';
-    if (pct >= 100) html += '<div class="tgt-msg done">&#127881; Target alcanzado</div>';
-  } else {
-    html += '</div>';
-    if (dashboardVendorForTargets) {
-      html +=
-        '<div class="tgt-msg warn">Target mensual a&uacute;n no asignado. Carg&aacute; el objetivo desde el panel <b>Targets</b>.</div>';
-    } else {
-      html +=
-        '<div class="tgt-msg">Seleccion&aacute; un vendedor para ver su target mensual.</div>';
-    }
-  }
-  html += '</div>';
+  // v390.1 (2026-08-04): removida card "Mes en curso · pedidos de la app"
+  // (Mariano) — en la transicion Baraldo->venta directa la mayoria de los
+  // pedidos van directo a SAP y no via la app, entonces esa card muestra
+  // $0 permanentemente y es ruido visual. Se mantienen las cards SAP
+  // (que si tienen data real) y las cards de campañas.
 
   // === v367+: Card SAP ACUMULADO ANUAL — YTD facturado real SAP ===
   if (dashboardVendorForTargets) {
@@ -841,142 +784,14 @@ window.renderDashboard = function () {
     html += '</div>';
   }
 
-  // === Acumulado anual ===
-  html += '<div class="dash-card">';
-  html +=
-    '<h4>Acumulado anual <span class="sub">' +
-    yPrefix +
-    ' YTD &middot; pedidos de la app</span></h4>';
-  const ytdInfo = dashboardVendorForTargets
-    ? getCumulativeTargetArs(dashboardVendorForTargets, now.getFullYear(), now.getMonth())
-    : null;
-  html += '<div class="tgt-grid">';
-  html +=
-    '<div class="tgt-stat"><div class="num">' +
-    fmtNum(yearUnits) +
-    '</div><div class="lbl">Unidades</div></div>';
-  html +=
-    '<div class="tgt-stat money"><div class="num">' +
-    fmtMoney(yearMoneyArs) +
-    '</div><div class="lbl">Facturado ARS</div></div>';
-  if (ytdInfo && ytdInfo.monthsAssigned > 0) {
-    html +=
-      '<div class="tgt-stat target"><div class="num">' +
-      fmtMoney(ytdInfo.sum) +
-      '</div><div class="lbl">Target acumulado</div></div>';
-    const pctY = ytdInfo.sum > 0 ? Math.round((yearMoneyArs / ytdInfo.sum) * 100) : 0;
-    const pctYClamp = Math.min(100, Math.max(0, pctY));
-    html +=
-      '<div class="tgt-stat"><div class="num" style="color:' +
-      (pctY >= 100 ? '#10b981' : pctY >= 70 ? '#f59e0b' : '#dc2626') +
-      '">' +
-      pctY +
-      '%</div><div class="lbl">Cumplimiento</div></div>';
-    html += '</div>';
-    html +=
-      '<div class="tgt-bar"><div class="tgt-bar-fill ' +
-      tgtBarCls(pctY) +
-      '" style="width:' +
-      pctYClamp +
-      '%"></div></div>';
-    html +=
-      '<div class="tgt-meta"><span>' +
-      fmtMoney(yearMoneyArs) +
-      ' / ' +
-      fmtMoney(ytdInfo.sum) +
-      '</span><span><b>' +
-      pctY +
-      '%</b></span></div>';
-    if (pctY >= 100) html += '<div class="tgt-msg done">&#127881; Target acumulado alcanzado</div>';
-    if (ytdInfo.monthsMissing > 0) {
-      html +=
-        '<div class="tgt-msg warn">El acumulado no incluye ' +
-        ytdInfo.monthsMissing +
-        ' mes' +
-        (ytdInfo.monthsMissing === 1 ? '' : 'es') +
-        ' sin target asignado.</div>';
-    }
-  } else {
-    html += '</div>';
-    if (dashboardVendorForTargets) {
-      html +=
-        '<div class="tgt-msg warn">A&uacute;n no hay targets asignados para este vendedor en ' +
-        yPrefix +
-        '.</div>';
-    } else {
-      html +=
-        '<div class="tgt-msg">Seleccion&aacute; un vendedor para ver su target acumulado.</div>';
-    }
-  }
-  html += '</div>';
+  // v390.1 (2026-08-04): removida card "Acumulado anual · pedidos de la app"
+  // (Mariano) — mismo motivo que la de "Mes en curso": muestra siempre $0
+  // porque la mayoria de los pedidos van directo a SAP, no via la app.
 
-  // === TARGETS DE FIRESTORE (los que carga el admin en el panel Targets, en ARS) ===
-  // Solo se muestran cuando hay un vendor especifico seleccionado (no en modo "todos sumados").
-  if (dashboardVendorForTargets) {
-    const targetCard = (label, sub, progArs, targetArs, monthsMissing) => {
-      const hasTarget = targetArs != null && targetArs > 0;
-      const pct = hasTarget ? Math.min(100, Math.round((progArs / targetArs) * 100)) : 0;
-      let s = '<div class="dash-card">';
-      s += '<h4>' + label + ' <span class="sub">' + sub + '</span></h4>';
-      s +=
-        '<div class="dash-grid"><div class="dash-stat money"><div class="num">' +
-        fmtMoney(progArs) +
-        '</div><div class="lbl">Realizado</div></div>';
-      s +=
-        '<div class="dash-stat"><div class="num">' +
-        (hasTarget ? fmtMoney(targetArs) : 'Sin asignar') +
-        '</div><div class="lbl">Target</div></div></div>';
-      if (hasTarget) {
-        s +=
-          '<div class="camp-bar"><div class="camp-bar-fill ' +
-          (pct >= 100 ? 'done' : '') +
-          '" style="width:' +
-          pct +
-          '%;background:' +
-          (pct >= 100 ? '#10b981' : '#00A9E0') +
-          '"></div></div>';
-        s +=
-          '<div class="camp-meta"><span>' +
-          fmtMoney(progArs) +
-          ' / ' +
-          fmtMoney(targetArs) +
-          '</span><span>' +
-          pct +
-          '%</span></div>';
-        if (monthsMissing && monthsMissing > 0) {
-          s +=
-            '<div class="tgt-msg warn">El target no incluye ' +
-            monthsMissing +
-            ' mes' +
-            (monthsMissing === 1 ? '' : 'es') +
-            ' sin asignar.</div>';
-        }
-      } else {
-        s +=
-          '<div class="tgt-msg warn">Target no asignado. Carg&aacute; los objetivos desde el panel <b>Targets</b>.</div>';
-      }
-      s += '</div>';
-      return s;
-    };
-    // Jul-Dic 2026 (meses 6..11) - acumulado del semestre
-    let semTgt = 0,
-      semAssigned = 0,
-      semMissing = 0;
-    for (let m = 6; m <= 11; m++) {
-      const v = getMonthlyTargetArs(dashboardVendorForTargets, 2026, m);
-      if (v != null) {
-        semTgt += v;
-        semAssigned++;
-      } else semMissing++;
-    }
-    html += targetCard(
-      'Target Jul-Dic 2026',
-      'Segundo semestre',
-      semestreMoneyArs,
-      semAssigned > 0 ? semTgt : null,
-      semMissing
-    );
-  }
+  // v390.1 (2026-08-04): removida card "Target Jul-Dic 2026 · Segundo semestre"
+  // (Mariano) — usaba semestreMoneyArs de pedidos de la app, que siempre da $0
+  // porque los pedidos van directo a SAP. La info util (facturado vs target)
+  // ya aparece en la card SAP - ACUMULADO ANUAL que si usa data real.
 
   // Campañas activas
   html += '<div class="dash-card">';
