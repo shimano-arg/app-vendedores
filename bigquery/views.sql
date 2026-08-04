@@ -1670,6 +1670,104 @@ ORDER BY vxm.mes DESC, cv.conversiones_mes DESC;
 
 
 -- ============================================================
+-- V_LEADS_CONTACTOS_MENSUAL (2026-08-04)
+-- ============================================================
+-- Seguimiento mes a mes de contactos a LEADs (feature v396 - 3 botones
+-- ESTADO en el modal Alta SAP). Reconstruye la historia usando
+-- client_applications_raw_raw_changelog: cada vez que un vendedor marca
+-- un LEAD como "contactado_con_doc" o "contactado_sin_doc" queda un
+-- evento con timestamp que define el mes.
+--
+-- Metricas por (mes, vendedor):
+--   * leads_contactados_con_doc_mes = LEADs distintos marcados "envio doc" en M
+--   * leads_contactados_sin_doc_mes = LEADs distintos marcados "sin doc" en M
+--   * leads_contactados_total_mes   = LEADs distintos con al menos un contacto en M
+--     (sin doble conteo si el vendedor toco ambos botones en el mismo lead)
+--   * leads_convertidos_ever        = de los contactados en M, cuantos son
+--     CLIENTE EN SAP hoy (acumulativo: aunque converten meses despues)
+--   * pct_conversion_ever           = leads_convertidos_ever / leads_contactados_total_mes
+--
+-- Definicion "convertido ever" (acordada con Mariano 2026-08-04): mide el
+-- rendimiento real de los contactos hechos en M, sin importar en que mes
+-- terminaron convirtiendo. Sube con el tiempo. La alternativa "convertido
+-- mismo mes" seria mas estricta pero mas volatil.
+--
+-- Los datos NO se pierden aunque el vendedor cambie de estado en meses
+-- futuros: el changelog conserva TODOS los eventos historicamente. Si un
+-- lead marcado "contactado_con_doc" en agosto luego cambia a
+-- "contactado_sin_doc" en septiembre, se contabiliza en agosto Y en
+-- septiembre (una vez por mes en el que hubo un contacto).
+--
+-- Vendor: se atribuye al assigned_vendor actual (del latest), mismo criterio
+-- que v_conversion_leads_mensual. Cambios de vendor son raros.
+--
+-- Nota importante - retroactividad: v396 introdujo el campo leadEstado el
+-- 2026-08-04. Antes de esa fecha no habia eventos en el changelog, la
+-- vista arranca vacia. Los meses siguientes tienen datos completos a
+-- medida que los vendedores marquen sus leads.
+--
+-- Uso Power BI (TABLERO SAR): tabla + line chart en la hoja Desempeno-Pesca:
+--   * Eje X: mes
+--   * Series: assigned_vendor
+--   * Valor 1 (barras apiladas): con_doc + sin_doc
+--   * Valor 2 (linea): pct_conversion_ever
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_leads_contactos_mensual` AS
+WITH events AS (
+  SELECT
+    document_id,
+    timestamp,
+    JSON_VALUE(data, '$.leadEstado') AS estado_new
+  FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_changelog`
+),
+vendor_actual AS (
+  SELECT
+    document_id,
+    IFNULL(NULLIF(JSON_VALUE(data, '$.assignedVendor'), ''), '(SIN ASIGNAR)') AS assigned_vendor,
+    JSON_VALUE(data, '$.cardCodeSap') AS card_actual
+  FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+  WHERE JSON_VALUE(data, '$.status') = 'approved'
+    AND (JSON_VALUE(data, '$.assignedVendor') IS NULL
+         OR NOT STARTS_WITH(JSON_VALUE(data, '$.assignedVendor'), 'ADMIN_'))
+),
+contactos AS (
+  SELECT DISTINCT
+    DATE_TRUNC(DATE(e.timestamp), MONTH) AS mes,
+    e.document_id,
+    e.estado_new AS tipo_contacto
+  FROM events e
+  WHERE e.estado_new IN ('contactado_con_doc', 'contactado_sin_doc')
+),
+contactos_con_vendor AS (
+  SELECT c.mes, c.document_id, c.tipo_contacto, v.assigned_vendor,
+    (v.card_actual IS NOT NULL AND v.card_actual != '') AS es_sap_hoy
+  FROM contactos c
+  INNER JOIN vendor_actual v USING(document_id)
+),
+por_mes_vendor AS (
+  SELECT
+    mes,
+    assigned_vendor,
+    COUNT(DISTINCT IF(tipo_contacto='contactado_con_doc', document_id, NULL)) AS leads_contactados_con_doc_mes,
+    COUNT(DISTINCT IF(tipo_contacto='contactado_sin_doc', document_id, NULL)) AS leads_contactados_sin_doc_mes,
+    COUNT(DISTINCT document_id) AS leads_contactados_total_mes,
+    COUNT(DISTINCT IF(es_sap_hoy, document_id, NULL)) AS leads_convertidos_ever
+  FROM contactos_con_vendor
+  GROUP BY mes, assigned_vendor
+)
+SELECT
+  mes,
+  assigned_vendor,
+  leads_contactados_con_doc_mes,
+  leads_contactados_sin_doc_mes,
+  leads_contactados_total_mes,
+  leads_convertidos_ever,
+  SAFE_DIVIDE(leads_convertidos_ever, leads_contactados_total_mes) AS pct_conversion_ever
+FROM por_mes_vendor
+ORDER BY mes DESC, leads_contactados_total_mes DESC;
+
+
+-- ============================================================
 -- V_REMITOS_LINEAS
 -- ============================================================
 -- Fuente REMITIDO para Power BI (vs Facturado / Cobrado). Alineada 1:1
