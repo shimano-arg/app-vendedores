@@ -375,11 +375,28 @@ const sapSL = {
       sapConfigCache && sapConfigCache.appSeriesId
         ? parseInt(sapConfigCache.appSeriesId, 10)
         : null;
-    const docLines = (p.lines || []).map((l, idx) => ({
+    // v390 (2026-08-04): dedupe automatico por ItemCode. SAP rechaza con
+    // error 23105 "Uno o mas articulos se repiten" si hay 2+ lineas con el
+    // mismo ItemCode. Bug reportado: SANDOVAL cargo SLXC70HASA 2 veces sin
+    // darse cuenta. Fix: agrupar por ItemCode sumando quantities antes de
+    // enviar, en vez de fallar el pedido entero.
+    const rawLines = (p.lines || []).map((l) => ({
       ItemCode:
         typeof sapGetProductCode === 'function' ? sapGetProductCode(l.code) || l.code : l.code,
       Quantity: parseFloat(l.qty) || 0,
       WarehouseCode: '11',
+    }));
+    const dedupedByItem = {};
+    rawLines.forEach((ln) => {
+      const key = ln.ItemCode;
+      if (!dedupedByItem[key]) {
+        dedupedByItem[key] = { ...ln };
+      } else {
+        dedupedByItem[key].Quantity += ln.Quantity;
+      }
+    });
+    const docLines = Object.values(dedupedByItem).map((ln, idx) => ({
+      ...ln,
       LineNum: idx,
     }));
     // v343+ (2026-07-28): DiscountPercent del header. El vendedor lo carga en
