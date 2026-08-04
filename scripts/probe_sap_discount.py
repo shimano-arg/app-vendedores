@@ -24,7 +24,7 @@ def try_post_sq(cfg: dict, session: requests.Session, payload: dict, disc: float
     """Intenta POST y reporta el resultado. Si exitoso, DELETE inmediato."""
     payload['DiscountPercent'] = disc
     resp = session.post(
-        f"{cfg['url']}/b1s/v1/SalesQuotations",
+        f"{cfg['url']}/b1s/v1/Quotations",
         json=payload,
         timeout=30,
     )
@@ -35,7 +35,7 @@ def try_post_sq(cfg: dict, session: requests.Session, payload: dict, disc: float
         # Cleanup: cancel/delete
         try:
             del_resp = session.post(
-                f"{cfg['url']}/b1s/v1/SalesQuotations({doc_entry})/Cancel",
+                f"{cfg['url']}/b1s/v1/Quotations({doc_entry})/Cancel",
                 timeout=30,
             )
             log(f'  Cleanup Cancel: HTTP {del_resp.status_code}')
@@ -100,7 +100,7 @@ def main() -> None:
     log('=' * 60)
     payload['DiscountPercent'] = 4
     resp = session.post(
-        f"{cfg['url']}/b1s/v1/SalesQuotations",
+        f"{cfg['url']}/b1s/v1/Quotations",
         json=payload,
         timeout=30,
     )
@@ -118,7 +118,7 @@ def main() -> None:
             doc_entry = resp.json().get('DocEntry')
             log(f'ATENCION: creado DocEntry={doc_entry}, cancelando...')
             del_resp = session.post(
-                f"{cfg['url']}/b1s/v1/SalesQuotations({doc_entry})/Cancel",
+                f"{cfg['url']}/b1s/v1/Quotations({doc_entry})/Cancel",
                 timeout=30,
             )
             log(f'Cancel: HTTP {del_resp.status_code}')
