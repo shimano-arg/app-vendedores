@@ -1649,11 +1649,29 @@ invoices_sin_delivery AS (
        UNNEST(JSON_QUERY_ARRAY(i.lines_json)) AS ln
   WHERE i.cancelled = 'tNO'
     AND JSON_VALUE(ln, '$.BaseType') = '17'    -- solo lineas que vienen de SO
+    -- Match canonico: mismo SO+line entre Delivery e Invoice (raro en Shimano
+    -- porque Delivery y Invoice apuntan a SOs DISTINTOS aunque sean la misma
+    -- venta - ver caso SEBASTIAN SALES fact 18364/Del 18237 documentado).
     AND NOT EXISTS (
       SELECT 1
       FROM deliveries d
       WHERE d.so_doc_entry = SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry') AS INT64)
         AND d.so_line_num  = SAFE_CAST(JSON_VALUE(ln, '$.BaseLine')  AS INT64)
+    )
+    -- Match heuristico (v386.1, 2026-08-03): si existe Delivery para el mismo
+    -- (card_code, item_code, cantidad) en +/-10 dias de la factura, la venta
+    -- ya esta cubierta por la Delivery. Cubre el caso Shimano donde SAP genera
+    -- 2 SOs distintos para la misma operacion. Pending consulta a Santi para
+    -- encontrar el link directo v�a UDF/BaseRef y sacar esta heuristica.
+    -- Riesgo: cliente que compra mismo item+cantidad exacta 2+ veces en 20
+    -- dias puede tener match cruzado - marginal en la practica.
+    AND NOT EXISTS (
+      SELECT 1
+      FROM deliveries d
+      WHERE d.card_code = i.card_code
+        AND d.item_code = JSON_VALUE(ln, '$.ItemCode')
+        AND d.cantidad  = SAFE_CAST(JSON_VALUE(ln, '$.Quantity') AS FLOAT64)
+        AND ABS(DATE_DIFF(d.doc_date, i.doc_date, DAY)) <= 10
     )
 ),
 unioned AS (
