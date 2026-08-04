@@ -1,0 +1,16 @@
+name: Probe APP_VENDEDORES User (one-shot)
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: pip install firebase-admin requests google-cloud-bigquery
+      - env: {FIREBASE_SERVICE_ACCOUNT: "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}"}
+        run: python scripts/probe_app_user.py
