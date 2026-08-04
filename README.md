@@ -2917,7 +2917,7 @@ Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gere
 **Estado a 2026-07-23**:
 - ✅ **Fase 1.1** Firestore → BigQuery (7 collecciones + backfill)
 - ✅ **Fase 1.2** SAP → BigQuery (**9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, Deliveries, Returns)
-- ✅ **Fase 2** Modelo de datos: **21 vistas SQL curadas** (9 base + 3 deuda 2026-07-20 + 2 rendiciones 2026-07-22 + 3 campañas 2026-07-30 + 1 leads 2026-08-03 + 1 remitos 2026-08-03 + 1 ofertas/TOTAL 2026-08-04 + 1 conversion leads mensual 2026-08-04)
+- ✅ **Fase 2** Modelo de datos: **22 vistas SQL curadas** (9 base + 3 deuda 2026-07-20 + 2 rendiciones 2026-07-22 + 3 campañas 2026-07-30 + 1 leads 2026-08-03 + 1 remitos 2026-08-03 + 1 ofertas/TOTAL 2026-08-04 + 1 conversion leads mensual 2026-08-04 + 1 leads contactos mensual 2026-08-04)
 - ✅ **Fase 3** Power BI Desktop → Service: **TABLERO SAR publicado en `Mi área de trabajo`**. Modelo con 12 vistas + `sap_items_raw` + `Vendedores` + `Origenes` + `Medidas` + `Date`. Páginas operativas: Desempeño-Pesca, Ventas, Pedidos, Visitas, **Facturación por Vendedor** (con Cobrado + Deuda), Backorder, Inventario.
 - ✅ **Fase 3.5** Distribución automática: **suscripción diaria a Mariano** ("Desempeño diario de ventas SAR - PESCA") @15:00 AR + refresh programado @14:30. Ver subsección abajo.
 - ✅ **Fase 3.6 (2026-07-21)** Deuda por vendedor de la app: 3 vistas + cards Cobrado/Deuda en hoja Facturación por Vendedor. Ver subsección "Vistas de deuda" abajo.
@@ -3020,6 +3020,40 @@ Pedido de Mariano: seguimiento mes a mes de cuántos LEADs convierte cada vended
    - Valor 2 (línea): `pct_conversion_mes`
 3. Card individual "Conversión del mes" con `pct_conversion_mes` filtrada por vendor y mes actual.
 4. Sin medidas DAX nuevas — los campos vienen calculados de la vista.
+
+### Vista Contactos a LEADs mes a mes (2026-08-04) — NUEVO
+
+Pedido de Mariano: ver mes a mes cuántos LEADs fueron contactados (con o sin documentación) y cuántos de esos terminaron convirtiéndose en CLIENTES EN SAP, **sin que la data se pierda mes a mes**. Complementa `v_conversion_leads_mensual` — mientras esa vista mide la velocidad de procesamiento del backlog puro, esta mide el rendimiento efectivo de los contactos hechos.
+
+**Vista nueva** en `bigquery/views.sql`:
+
+| Vista | Granularidad | Columnas |
+|---|---|---|
+| `v_leads_contactos_mensual` | 1 fila por `(mes, assigned_vendor)` | `mes, assigned_vendor, leads_contactados_con_doc_mes, leads_contactados_sin_doc_mes, leads_contactados_total_mes, leads_convertidos_ever, pct_conversion_ever` |
+
+**Definición** (acordada con Mariano 2026-08-04): `pct_conversion_ever = leads_convertidos_ever / leads_contactados_total_mes` donde `leads_convertidos_ever` cuenta cualquier LEAD contactado en M que **hoy** tiene `cardCodeSap`, sin importar en qué mes terminó convirtiendo. La métrica sube con el tiempo — refleja "de los que contacté en agosto, cuántos terminaron siendo clientes SAP a hoy". La alternativa "convertido mismo mes" quedó descartada por ser más volátil.
+
+**Cómo se reconstruye la historia**: usa `client_applications_raw_raw_changelog` — cada vez que un vendedor marca un LEAD con estado `contactado_con_doc` o `contactado_sin_doc` (feature v396, botones ESTADO en el modal Alta SAP), la Firebase Extension guarda un evento con `timestamp`. La vista agrupa esos eventos por mes calendario y por `assigned_vendor` actual.
+
+**Persistencia histórica** — nada se pierde: si un lead marcado "contactado_con_doc" en agosto luego cambia a "contactado_sin_doc" en septiembre, cuenta en agosto Y en septiembre (una vez por mes con contacto). Aunque el vendedor cambie el estado del lead o lo mande a "eliminar", los eventos anteriores permanecen en el changelog.
+
+**Snapshot 2026-08-04 (día del deploy v396)**: 0 filas — el campo `leadEstado` recién se introdujo hoy, no hay eventos previos en el changelog. A medida que los vendedores marquen leads con los 3 botones nuevos, la vista se va poblando automáticamente.
+
+**Deploy 2026-08-04**: `CREATE OR REPLACE VIEW v_leads_contactos_mensual` aplicado en BQ.
+
+**Uso Power BI Desktop** — armar visual en TABLERO SAR:
+1. **Get Data → BigQuery → v_leads_contactos_mensual** → Load.
+2. Tabla en hoja Desempeño-Pesca:
+   - Filas: `assigned_vendor`
+   - Columnas: `mes`
+   - Valores: `leads_contactados_total_mes` (barras) + `pct_conversion_ever` (indicador)
+3. Barras apiladas para desglose con doc vs sin doc:
+   - Eje X: `mes`
+   - Series apiladas: `leads_contactados_con_doc_mes` (verde) + `leads_contactados_sin_doc_mes` (ámbar)
+   - Slicer: `assigned_vendor`
+4. Card individual "Contactos del mes" con `leads_contactados_total_mes` filtrada por vendor y mes actual + "% Conversión ever" con `pct_conversion_ever`.
+
+**Sin medidas DAX nuevas** — todos los cálculos vienen resueltos de la vista.
 
 ### Vista REMITIDO (2026-08-03) — NUEVO
 
