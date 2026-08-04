@@ -1800,3 +1800,72 @@ SELECT
 FROM unioned u
 LEFT JOIN items       it ON it.item_code = u.item_code
 LEFT JOIN cliente_app ca ON ca.card_code = u.card_code;
+
+-- ============================================================
+-- V_OFERTAS_LINEAS
+-- ============================================================
+-- Total de Ofertas de Venta (Sales Quotations) — lo que se pidio
+-- originalmente, sin importar si hubo stock o no. Alineada 1:1 con
+-- v_ventas_lineas y v_remitos_lineas.
+--
+-- Uso Power BI: card "TOTAL" que muestre cuanto hubiese sido la
+-- facturacion si Shimano tenia todo el stock pedido. Permite calcular
+-- oportunidad perdida (Ofertas - Facturado) por falta de stock.
+--
+-- Filtros: cancelled='tNO' (excluye SQs canceladas por Admin/rechazadas).
+-- Prorrateo total_discount de cabecera (mismo criterio v388.1).
+-- Ventana: 24 meses (misma que sap_quotations_raw).
+--
+-- Snapshot julio 2026 pesca: $557.42M en 72 ofertas
+-- vs Facturado $254.79M = ~$302M no convertidos por stock/rechazo.
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_ofertas_lineas` AS
+WITH
+cliente_app AS (
+  SELECT
+    JSON_VALUE(data, '$.cardCodeSap') AS card_code,
+    ARRAY_AGG(JSON_VALUE(data, '$.assignedVendor') IGNORE NULLS ORDER BY document_id LIMIT 1)[SAFE_OFFSET(0)] AS assigned_vendor_app
+  FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+  WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL AND JSON_VALUE(data, '$.cardCodeSap') != ''
+  GROUP BY card_code
+),
+items AS (
+  SELECT item_code, familia_norm AS familia, fam AS subfamilia, item_code IS NOT NULL AS is_pesca
+  FROM `app-vendedores-shimano.shimano_app.v_sap_items_enriched`
+),
+sum_lines_sq AS (
+  SELECT doc_entry, SUM(SAFE_CAST(JSON_VALUE(ln, '$.LineTotal') AS FLOAT64)) AS suma_lineas
+  FROM `app-vendedores-shimano.shimano_app.sap_quotations_raw`, UNNEST(JSON_QUERY_ARRAY(lines_json)) AS ln
+  WHERE cancelled = 'tNO'
+  GROUP BY doc_entry
+)
+SELECT
+  sq.doc_entry,
+  sq.doc_num,
+  sq.doc_date,
+  EXTRACT(YEAR FROM sq.doc_date) AS anio,
+  EXTRACT(MONTH FROM sq.doc_date) AS mes,
+  sq.card_code,
+  sq.card_name,
+  sq.sales_person_code,
+  JSON_VALUE(line, '$.ItemCode') AS item_code,
+  JSON_VALUE(line, '$.Dscription') AS descripcion_linea,
+  SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64) AS cantidad,
+  SAFE_CAST(JSON_VALUE(line, '$.Price') AS FLOAT64) AS precio_unitario,
+  SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+    * (1 - SAFE_DIVIDE(COALESCE(sq.total_discount, 0), NULLIF(slp.suma_lineas, 0))) AS importe_linea_ars,
+  it.familia,
+  it.subfamilia,
+  it.is_pesca,
+  sq.doc_currency,
+  sq.doc_rate,
+  sq.document_status,
+  CASE WHEN sq.sales_person_code BETWEEN 50 AND 55 THEN sq.sales_person_code ELSE NULL END AS `SlpCode Asignado`,
+  ca.assigned_vendor_app AS assigned_vendor,
+  sq._sync_timestamp
+FROM `app-vendedores-shimano.shimano_app.sap_quotations_raw` sq,
+     UNNEST(JSON_EXTRACT_ARRAY(sq.lines_json)) AS line
+LEFT JOIN sum_lines_sq slp ON slp.doc_entry = sq.doc_entry
+LEFT JOIN items it ON it.item_code = JSON_VALUE(line, '$.ItemCode')
+LEFT JOIN cliente_app ca ON ca.card_code = sq.card_code
+WHERE COALESCE(sq.cancelled, 'tNO') = 'tNO';
