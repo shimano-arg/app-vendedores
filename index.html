@@ -3362,7 +3362,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v392';
+const APP_VERSION = 'v393';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -6093,7 +6093,15 @@ function updateStats(pts){
       total++;
       const kC = contactKey(pt, nombre, 'C');
       const kP = contactKey(pt, nombre, 'P');
-      if (contacted.has(kC) || contacted.has(kP)) habilitados++;
+      // v392.1 (2026-08-04): "Clientes en SAP" ahora usa isSapConfirmed (chequea
+      // client_master.sapCardCode + address o approvedAltas con cardCodeSap +
+      // calle). Antes se usaba contacted.has(k) que era el sistema LEGACY de
+      // checkbox verde y contaba POINTS que nunca fueron cargados a SAP.
+      // Bug reportado por Mariano: card decía 687 vs tab CLIENTES EN SAP 183.
+      const enSap = (typeof isSapConfirmed === 'function')
+        ? isSapConfirmed(pt.province, pt.name, nombre)
+        : (contacted.has(kC) || contacted.has(kP));
+      if (enSap) habilitados++;
       else if (!canceled.has(kC) && !canceled.has(kP)) pendientes++;
     });
   }
