@@ -1,0 +1,35 @@
+name: Probe SAP Discount (one-shot)
+
+# Workflow ad-hoc para investigar por que SAP rechaza el DiscountPercent
+# de pedidos que salen de la app.
+#
+# Hace POST de test a SL con distintos DiscountPercent y reporta el
+# response completo (msg, code, exceptions). Si algun POST es exitoso,
+# cancela el documento inmediato para no dejar basura.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install firebase-admin requests google-cloud-bigquery
+
+      - name: Run probe
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: python scripts/probe_sap_discount.py
