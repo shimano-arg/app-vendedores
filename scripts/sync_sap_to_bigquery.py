@@ -99,6 +99,11 @@ BQ_TABLE_PURCHASE_ORDERS = f'{BQ_PROJECT}.{BQ_DATASET}.sap_purchase_orders_raw'
 # hibrida en v_remitos_lineas: si el SO tiene Delivery -> usar la fecha
 # del remito; si no -> fallback a la fecha de la factura.
 BQ_TABLE_DELIVERIES      = f'{BQ_PROJECT}.{BQ_DATASET}.sap_deliveries_raw'
+# v386.2+ (2026-08-04): Returns (ORIN/RIN1 en SAP). Contrapartida fisica del
+# Delivery cuando el cliente devuelve mercaderia. Sin restar Returns,
+# v_remitos_lineas queda inflada por las devoluciones (mismo bug conceptual
+# que Credit Notes en v_facturas_sap v367).
+BQ_TABLE_RETURNS         = f'{BQ_PROJECT}.{BQ_DATASET}.sap_returns_raw'
 BQ_TABLE_TARGETS         = f'{BQ_PROJECT}.{BQ_DATASET}.targets_raw'
 BQ_TABLE_CAMPAIGNS       = f'{BQ_PROJECT}.{BQ_DATASET}.campaigns_raw'
 
@@ -1274,6 +1279,22 @@ def main():
     )
     delivery_rows = [flatten_doc(d, 'DELIVERY', sync_ts) for d in deliveries]
     load_to_bq(bq_client, BQ_TABLE_DELIVERIES, delivery_rows, 'DELIVERIES', dry_run=dry_run)
+
+    # === 8. Returns (contrapartida fisica de Delivery, v386.2+ 2026-08-04)
+    # Endpoint SL: /b1s/v1/Returns (tabla ORIN/RIN1 en SAP B1). Cuando un
+    # cliente devuelve mercaderia se genera un Return (mueve inventario de
+    # vuelta al deposito) + una Credit Note (resta contable de la factura
+    # original). Sin restar Returns, v_remitos_lineas quedaba inflada por
+    # las devoluciones. Volumen bajo (~216 docs totales, ~37/mes recientes)
+    # asi que no impacta timeout. Misma ventana 12 meses que deliveries.
+    returns = sl_fetch_all(
+        cfg, session, '/b1s/v1/Returns', 'RETURNS',
+        select_fields=doc_select,
+        filter_expr=f"DocDate ge '{deliveries_since_iso}'",
+        max_docs=max_docs,
+    )
+    return_rows = [flatten_doc(r, 'RETURN', sync_ts) for r in returns]
+    load_to_bq(bq_client, BQ_TABLE_RETURNS, return_rows, 'RETURNS', dry_run=dry_run)
 
     # === 7. Targets mensuales (Firestore -> BigQuery)
     # Coleccion `targets` en Firestore (una fila por vendedor+ano+mes).
