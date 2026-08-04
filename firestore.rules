@@ -183,7 +183,13 @@ service cloud.firestore {
                      && request.resource.data.comercio is string
                      && request.resource.data.cuit is string
                      && request.resource.data.status == 'pending_approval');
-      allow update: if isAdminOrGerente() || isInterno();
+      // v396 (2026-08-04): permitir a cualquier reader (vendedor incluido)
+      // updatear SOLO los campos de estado del LEAD (leadEstado + auditoria).
+      // Los demas campos siguen restringidos a admin/gerente/interno.
+      allow update: if isAdminOrGerente() || isInterno()
+                     || (isReader()
+                         && request.resource.data.diff(resource.data).affectedKeys()
+                            .hasOnly(['leadEstado', 'leadEstadoAt', 'leadEstadoBy', 'updatedAt']));
       allow delete: if isAdminOrGerente()
         || (request.auth != null
             && resource.data.ownerUid == request.auth.uid

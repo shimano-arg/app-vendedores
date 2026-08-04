@@ -3362,7 +3362,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v395';
+const APP_VERSION = 'v396';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -5523,6 +5523,10 @@ function openSapAltaInfoModal(fsId){
   const provincia = a.provincia || '-';
   const vendedor = a.assignedVendor || '(sin asignar)';
   const isAdminLike = (userRole === 'admin' || userRole === 'gerente');
+  // v396: LEAD = sin cardCodeSap + marcado manualSapPending. Los 3 botones
+  // ESTADO solo aparecen en LEADs (no en clientes ya SAP).
+  const isLead = !a.cardCodeSap && !!a.manualSapPending;
+  const curLeadEstado = a.leadEstado || '';
   let modalEl = document.getElementById('sap-alta-info-modal');
   if (!modalEl) {
     modalEl = document.createElement('div');
@@ -5551,6 +5555,22 @@ function openSapAltaInfoModal(fsId){
         // v342+ (2026-07-28): fantasia editable a todos (antes admin/gerente only).
         '<input type="text" id="sai-fantasia-input" value="' + escapeAttr(curFant) + '" placeholder="Ej: PESCAPLAY"' +
           ' style="width:100%;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;margin-bottom:14px"/>' +
+        // v396 (2026-08-04): 3 botones ESTADO solo para LEADs (sin CardCode).
+        // Registra en cual etapa esta el follow-up del vendedor: contactado con
+        // docs enviados / contactado sin docs / lead descartado.
+        (isLead ?
+          '<div style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:14px">' +
+            '<div style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Estado del LEAD</div>' +
+            (curLeadEstado ?
+              '<div style="font-size:11px;color:#0f172a;margin-bottom:8px">Actual: <b style="color:' + LEAD_ESTADO_COLORS[curLeadEstado] + '">' + LEAD_ESTADO_LABELS[curLeadEstado] + '</b></div>'
+              : '<div style="font-size:11px;color:#94a3b8;margin-bottom:8px;font-style:italic">Sin marcar</div>') +
+            '<div style="display:flex;flex-direction:column;gap:6px">' +
+              '<button onclick="setLeadEstado(\'' + safeFsId + '\',\'contactado_con_doc\')" style="padding:9px 12px;border:none;border-radius:6px;background:#16a34a;color:#fff;font-size:12px;font-weight:700;cursor:pointer;text-align:left">&#9989; CONTACTADO - ENVI&Oacute; DOCUMENTACI&Oacute;N</button>' +
+              '<button onclick="setLeadEstado(\'' + safeFsId + '\',\'contactado_sin_doc\')" style="padding:9px 12px;border:none;border-radius:6px;background:#f59e0b;color:#fff;font-size:12px;font-weight:700;cursor:pointer;text-align:left">&#128337; CONTACTADO - SIN DOCUMENTACI&Oacute;N A&Uacute;N</button>' +
+              '<button onclick="setLeadEstado(\'' + safeFsId + '\',\'eliminar\')" style="padding:9px 12px;border:none;border-radius:6px;background:#dc2626;color:#fff;font-size:12px;font-weight:700;cursor:pointer;text-align:left">&#128465;&#65039; LEAD PARA ELIMINAR</button>' +
+            '</div>' +
+          '</div>'
+          : '') +
         // Toggle "Cliente con precaucion": SOLO visible para admin/gerente.
         // La info es sensible (mora con otros distribuidores, cheques
         // rechazados) y no queremos que los vendedores vean el motivo o
@@ -5605,6 +5625,38 @@ window.saveSapAltaFantasiaFromModal = function(fsId){
     const modalEl = document.getElementById('sap-alta-info-modal');
     if (modalEl) modalEl.classList.remove('open');
   }).catch(e => { console.error('save SAP alta', e); alert('Error: ' + (e.message || e)); });
+};
+
+// v396 (2026-08-04): estados de follow-up para LEADs sin CardCode. Se marca
+// desde el modal Alta SAP y persiste en client_applications/{id}.leadEstado.
+// Los labels + colores se re-usan en la card del sidebar CLIENTES para
+// mostrar un badge visual del estado actual.
+window.LEAD_ESTADO_LABELS = {
+  contactado_con_doc:  'Contactado - envio documentacion',
+  contactado_sin_doc:  'Contactado - sin documentacion aun',
+  eliminar:            'Marcado para eliminar'
+};
+window.LEAD_ESTADO_COLORS = {
+  contactado_con_doc:  '#16a34a',
+  contactado_sin_doc:  '#f59e0b',
+  eliminar:            '#dc2626'
+};
+
+window.setLeadEstado = function(fsId, estado){
+  if (!fsId || !estado) return;
+  if (!LEAD_ESTADO_LABELS[estado]) return;
+  if (estado === 'eliminar' && !confirm('Marcar este LEAD para eliminar? Va a quedar visible con badge rojo para que el admin lo revise.')) return;
+  const payload = {
+    leadEstado: estado,
+    leadEstadoAt: firebase.firestore.FieldValue.serverTimestamp(),
+    leadEstadoBy: currentUser ? (currentUser.email || currentUser.uid) : '',
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  fbDb.collection('client_applications').doc(fsId).update(payload).then(() => {
+    if (typeof showSyncTag === 'function') showSyncTag('Estado LEAD guardado: ' + LEAD_ESTADO_LABELS[estado]);
+    const modalEl = document.getElementById('sap-alta-info-modal');
+    if (modalEl) modalEl.classList.remove('open');
+  }).catch(e => { console.error('setLeadEstado', e); alert('Error: ' + (e.message || e)); });
 };
 
 // Modal para que el admin cargue la direccion de una alta SAP. Pide solo la
@@ -6496,6 +6548,12 @@ function renderClients(pts){
       html += '<div class="client-meta">';
       html += '<span class="cli-state-badge" style="background:' + sapLeft + ';color:#fff">' + sapLabel + '</span>';
       html += sapOrigenInline;
+      // v396: badge de estado del LEAD (contactado con doc / sin doc / eliminar).
+      if (!a.cardCodeSap && a.leadEstado && window.LEAD_ESTADO_LABELS && window.LEAD_ESTADO_LABELS[a.leadEstado]) {
+        const _leColor = window.LEAD_ESTADO_COLORS[a.leadEstado] || '#64748b';
+        const _leLabel = window.LEAD_ESTADO_LABELS[a.leadEstado].toUpperCase();
+        html += '<span class="cli-origen-inline" style="background:' + _leColor + ';color:#fff;border:1px solid ' + _leColor + '" title="' + escapeAttr(_leLabel) + '">' + escapeHtml(_leLabel) + '</span>';
+      }
       html += '</div>';
       html += '<div class="client-meta" style="margin-top:3px">';
       html += '<span>' + escapeHtml(it.point.name) + '</span>';
