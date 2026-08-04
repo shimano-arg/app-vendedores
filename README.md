@@ -2938,6 +2938,8 @@ Pedido de Mariano: el % Cumplimiento del vendedor debe medirse sobre lo **REMITI
 1. Si la línea del SO tiene Delivery paralela → `fecha_remito = ODLN.DocDate`, `source='DELIVERY'`.
 2. Si no → fallback a `fecha_remito = OINV.DocDate`, `source='INVOICE_NO_DELIVERY'`.
 
+**Deduplicación heurística (v386.1, 2026-08-03)**: descubierto post-primer-fetch que Shimano SAP genera **2 SOs distintos para la misma venta** (ej: factura 18364 SEBASTIAN SALES → SO 35063; delivery 18237 mismos ítems mismas cantidades → SO 32573). Sin dedupe, la vista contaba 2 veces el importe. Fix: además del match canónico por `(SO_DocEntry, SO_LineNum)`, se agregó match heurístico por `(card_code, item_code, cantidad)` + fecha ±10 días → si existe Delivery en ese window, la línea de factura NO cae al fallback. Impacto: INVOICE_NO_DELIVERY bajó de ~5.100 a ~640 líneas en julio 2026 (-87%). **Pendiente consulta a Santi (SEIDOR)** para encontrar el link directo Delivery↔Invoice via campo custom (BaseRef, UDF, etc.) y sacar la heurística. Riesgo residual: cliente que compre exactamente el mismo ítem+cantidad 2+ veces en 20 días puede tener match cruzado (marginal en la práctica).
+
 **Vista nueva** en `bigquery/views.sql`:
 
 | Vista | Granularidad | Columnas |
