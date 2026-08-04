@@ -989,7 +989,10 @@ window.onEspacioPhotos = async function (inp) {
       break;
     }
     try {
-      const b64 = await compressImage(f, 800, 0.7);
+      // v388: baja compresion 800/0.7 -> 500/0.5 (~60 KB por foto) para no
+      // exceder el limite Firestore de 1 MB por doc. Federico reportado bug
+      // 2026-08-04 con 8 fotos + 1 frente = 1.6 MB > 1 MB.
+      const b64 = await compressImage(f, 500, 0.5);
       visitState.espacioPhotos.push(b64);
     } catch (e) {
       console.error(e);
@@ -1027,7 +1030,8 @@ window.onFrentePhoto = async function (inp) {
   const f = inp.files && inp.files[0];
   if (!f) return;
   try {
-    visitState.frentePhoto = await compressImage(f, 1000, 0.75);
+    // v388: baja compresion 1000/0.75 -> 700/0.6 (~100 KB) por mismo motivo.
+    visitState.frentePhoto = await compressImage(f, 700, 0.6);
   } catch (e) {
     console.error(e);
   }
@@ -1216,6 +1220,28 @@ window.submitVisita = async function () {
   if (isContacto) {
     data.espacio = [];
     data.frenteLocal = '';
+  }
+  // v388 (2026-08-04): guard pre-submit para no exceder el limite de 1 MB por
+  // doc que impone Firestore. Estimacion: JSON.stringify de todo el doc. Si
+  // supera 950 KB (margen 100 KB para el overhead JSON + metadata Firestore),
+  // avisamos al vendedor que borre alguna foto en vez de fallar con un error
+  // opaco. Bug reportado por Federico 2026-08-04 con 8 fotos + 1 frente.
+  try {
+    const _docSizeBytes = new Blob([JSON.stringify(data)]).size;
+    if (_docSizeBytes > 950 * 1024) {
+      const _mbActual = (_docSizeBytes / 1024 / 1024).toFixed(2);
+      alert(
+        'La visita pesa ' +
+          _mbActual +
+          ' MB pero el maximo permitido por Firestore es 1 MB.\n\n' +
+          'Borra alguna foto de ESPACIO o del FRENTE (usa la X roja) y reintenta guardar.\n\n' +
+          'Tip: las fotos actualmente se comprimen automaticamente pero si tenes muchas + frente puede exceder.'
+      );
+      showSyncTag('Visita NO guardada: peso excede 1 MB');
+      return;
+    }
+  } catch (e) {
+    console.warn('[submitVisita] no pude estimar peso', e);
   }
   try {
     await fbDb.collection('visits').add(data);
