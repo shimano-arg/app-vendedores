@@ -2944,15 +2944,17 @@ Pedido de Mariano: card "TOTAL" en TABLERO SAR que muestre cuánto hubiese sido 
 
 Trade-off aceptado (Mariano 2026-08-04): mantener el filtro `cancelled='tNO'` porque las cancelaciones incluyen razones no-stock (errores, arrepentidos), no siempre son "oportunidad perdida por stock". Es más pragmático mostrar el pipeline activo que el universo total con ruido.
 
-**Snapshot 2026-08-04 (validación inicial)**:
+**Snapshot 2026-08-04 (post-dedupe v2)**:
 
 | Métrica julio 2026 pesca | $ ARS |
 |---|---:|
-| **Ofertas (TOTAL)** | **$557.42M** (72 SQ) |
+| **Ofertas (TOTAL)** | **$463.75M** (post-dedupe) |
 | Facturado (real, v_ventas_lineas) | $254.79M |
 | Remitido (real, v_remitos_lineas) | $259.09M |
-| **Oportunidad perdida** (Ofertas − Facturado) | **~$302M** |
-| **% Conversión Ofertas** (Facturado / Ofertas) | ~46% |
+| **Oportunidad perdida** (Ofertas − Facturado) | **~$209M** |
+| **% Conversión Ofertas** (Facturado / Ofertas) | ~55% |
+
+**Dedupe automático (v2 2026-08-04)**: los vendedores a veces recargan el mismo pedido varias veces cuando SAP no confirma stock, creando SQ duplicadas que inflan el TOTAL. Ejemplo: SANTIAGO ESTEBAN tenía 3 SQ idénticas de RICARDO BLANCO GOITIA en julio (SQs 25797/25827/25879, 67 líneas c/u, mismo importe) que inflaban su total de $31M a $68M. Fix: dedupe por `(card_code, año, mes, lines_hash)` manteniendo el `doc_entry` más reciente. Impacto global julio pesca: $557M → **$463M** (bajaron 23 SQ duplicadas). Preserva pedidos recurrentes legítimos entre meses (partición año+mes calendario).
 
 Los $302M no convertidos son por: (a) stock insuficiente al momento de armar el SO desde la SQ, (b) SQs canceladas por Admin (excluidas del cálculo), (c) SQs aún abiertas pendientes de convertirse en SO.
 
