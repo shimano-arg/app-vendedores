@@ -95,10 +95,35 @@ def main() -> None:
     }
 
     log('=' * 60)
-    log('Probando distintos DiscountPercent con 3 primeras lineas de SANDOVAL')
+    log('Modo CONSERVADOR: 1 solo POST con 4% (esperado que falle igual que en la app)')
+    log('Capturamos response completo para ver detalles del error')
     log('=' * 60)
-    for disc in [0, 0.5, 1, 2, 3, 4, 5, 10]:
-        try_post_sq(cfg, session, dict(payload), disc)
+    payload['DiscountPercent'] = 4
+    resp = session.post(
+        f"{cfg['url']}/b1s/v1/SalesQuotations",
+        json=payload,
+        timeout=30,
+    )
+    log(f'Status HTTP: {resp.status_code}')
+    log(f'Response headers: {dict(resp.headers)}')
+    log(f'Response body COMPLETO:')
+    try:
+        body = resp.json()
+        log(json.dumps(body, indent=2, ensure_ascii=False))
+    except Exception:
+        log(resp.text)
+
+    if resp.status_code in (200, 201):
+        try:
+            doc_entry = resp.json().get('DocEntry')
+            log(f'ATENCION: creado DocEntry={doc_entry}, cancelando...')
+            del_resp = session.post(
+                f"{cfg['url']}/b1s/v1/SalesQuotations({doc_entry})/Cancel",
+                timeout=30,
+            )
+            log(f'Cancel: HTTP {del_resp.status_code}')
+        except Exception as e:
+            log(f'Cleanup error: {e}')
 
 
 if __name__ == '__main__':
