@@ -1601,6 +1601,11 @@ items AS (
     item_code IS NOT NULL        AS is_pesca
   FROM `app-vendedores-shimano.shimano_app.v_sap_items_enriched`
 ),
+-- v386.2 (2026-08-04): UNION ALL con Returns (sign=-1) para restar las
+-- devoluciones. Sin esto v_remitos_lineas quedaba inflada por las
+-- devoluciones (mismo bug conceptual que Credit Notes en v_facturas_sap v367).
+-- Returns son la contrapartida FISICA del Delivery (mueven inventario de
+-- vuelta al deposito). Van con cantidad e importe negativos.
 deliveries AS (
   SELECT
     'DELIVERY' AS source,
@@ -1624,6 +1629,32 @@ deliveries AS (
   FROM `app-vendedores-shimano.shimano_app.sap_deliveries_raw` d,
        UNNEST(JSON_QUERY_ARRAY(d.lines_json)) AS ln
   WHERE d.cancelled = 'tNO'
+  UNION ALL
+  SELECT
+    'RETURN' AS source,
+    r.doc_entry                                                       AS remito_doc_entry,
+    r.doc_num                                                         AS remito_doc_num,
+    r.doc_date,
+    EXTRACT(YEAR  FROM r.doc_date)                                    AS anio,
+    EXTRACT(MONTH FROM r.doc_date)                                    AS mes,
+    r.card_code,
+    r.card_name,
+    r.sales_person_code,
+    r.doc_currency,
+    r.doc_rate,
+    SAFE_CAST(JSON_VALUE(ln, '$.LineNum')    AS INT64)                AS line_num,
+    JSON_VALUE(ln, '$.ItemCode')                                      AS item_code,
+    JSON_VALUE(ln, '$.Dscription')                                    AS descripcion_linea,
+    -- Cantidad e importe con sign=-1 para restar del total.
+    -- (Nota: multiplicar POR -1 al final en vez de con prefijo, para que
+    -- bq --flagfile no lo interprete como flag CLI).
+    SAFE_CAST(JSON_VALUE(ln, '$.Quantity')   AS FLOAT64) * -1         AS cantidad,
+    SAFE_CAST(JSON_VALUE(ln, '$.LineTotal')  AS FLOAT64) * -1         AS importe_linea_ars,
+    SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry')  AS INT64)                AS so_doc_entry,
+    SAFE_CAST(JSON_VALUE(ln, '$.BaseLine')   AS INT64)                AS so_line_num
+  FROM `app-vendedores-shimano.shimano_app.sap_returns_raw` r,
+       UNNEST(JSON_QUERY_ARRAY(r.lines_json)) AS ln
+  WHERE r.cancelled = 'tNO'
 ),
 invoices_sin_delivery AS (
   SELECT
