@@ -384,9 +384,15 @@ const sapSL = {
     }));
     // v343+ (2026-07-28): DiscountPercent del header. El vendedor lo carga en
     // el modal Review (input #rv-manual-discount) que persiste en p.discountPct.
-    // SAP OQUT lo muestra en el campo Descuento %. Aplica a nivel documento
-    // (no por linea). Rango 0-100.
+    // v389 (2026-08-04): NO se envia mas como DiscountPercent porque el user
+    // SAP APP_VENDEDORES tiene MaxDiscountSales = 0 y SAP rechaza cualquier
+    // valor > 0 con error 10000724. Fix: mandamos siempre DiscountPercent=0
+    // y el descuento solicitado por el vendedor va en Comments para que Admin
+    // (Santi) lo vea al aprobar la Oferta y lo aplique manualmente con sus
+    // permisos superuser. Alternativa arquitectural (que no elegimos ahora):
+    // pedir a Santi que suba MaxDiscount del user APP_VENDEDORES a 100%.
     const discPct = Math.max(0, Math.min(100, parseFloat(p.discountPct) || 0));
+    const discPctSuffix = discPct > 0 ? ' | DESCUENTO SOLICITADO: ' + discPct + '%' : '';
     const payload = {
       CardCode: cliSap || '',
       DocDate: docDate,
@@ -400,9 +406,10 @@ const sapSL = {
         (p.month || '') +
         ' | ' +
         (p.ownerEmail || '') +
+        discPctSuffix +
         buildEntregaSuffixForRemarks(p),
       NumAtCard: p._fsId || '',
-      DiscountPercent: discPct,
+      DiscountPercent: 0,
       U_AppOrigen: 'SHIMANO_APP_VENDEDORES',
       U_AppOrderId: p._fsId || '',
       U_AppBatchId: 'BATCH-' + new Date().toISOString().slice(0, 19).replace(/[-:T]/g, ''),
