@@ -1624,8 +1624,14 @@ deliveries AS (
     JSON_VALUE(ln, '$.Dscription')                                    AS descripcion_linea,
     SAFE_CAST(JSON_VALUE(ln, '$.Quantity')   AS FLOAT64)              AS cantidad,
     SAFE_CAST(JSON_VALUE(ln, '$.LineTotal')  AS FLOAT64)              AS importe_linea_ars,
-    SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry')  AS INT64)                AS so_doc_entry,
-    SAFE_CAST(JSON_VALUE(ln, '$.BaseLine')   AS INT64)                AS so_line_num
+    -- v386.3 (2026-08-04) — expuesto base_type + base_entry en vez de
+    -- so_doc_entry porque en Shimano el 94% de las Deliveries tienen
+    -- BaseType=13 (A/R Invoice), no 17 (SO). El BaseEntry apunta al
+    -- DocEntry de la factura correspondiente. Confirmado por Santi
+    -- (SEIDOR) 2026-08-04.
+    SAFE_CAST(JSON_VALUE(ln, '$.BaseType')   AS INT64)                AS base_type,
+    SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry')  AS INT64)                AS base_entry,
+    SAFE_CAST(JSON_VALUE(ln, '$.BaseLine')   AS INT64)                AS base_line
   FROM `app-vendedores-shimano.shimano_app.sap_deliveries_raw` d,
        UNNEST(JSON_QUERY_ARRAY(d.lines_json)) AS ln
   WHERE d.cancelled = 'tNO'
@@ -1650,8 +1656,9 @@ deliveries AS (
     -- bq --flagfile no lo interprete como flag CLI).
     SAFE_CAST(JSON_VALUE(ln, '$.Quantity')   AS FLOAT64) * -1         AS cantidad,
     SAFE_CAST(JSON_VALUE(ln, '$.LineTotal')  AS FLOAT64) * -1         AS importe_linea_ars,
-    SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry')  AS INT64)                AS so_doc_entry,
-    SAFE_CAST(JSON_VALUE(ln, '$.BaseLine')   AS INT64)                AS so_line_num
+    SAFE_CAST(JSON_VALUE(ln, '$.BaseType')   AS INT64)                AS base_type,
+    SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry')  AS INT64)                AS base_entry,
+    SAFE_CAST(JSON_VALUE(ln, '$.BaseLine')   AS INT64)                AS base_line
   FROM `app-vendedores-shimano.shimano_app.sap_returns_raw` r,
        UNNEST(JSON_QUERY_ARRAY(r.lines_json)) AS ln
   WHERE r.cancelled = 'tNO'
@@ -1674,35 +1681,34 @@ invoices_sin_delivery AS (
     JSON_VALUE(ln, '$.Dscription')                                    AS descripcion_linea,
     SAFE_CAST(JSON_VALUE(ln, '$.Quantity')   AS FLOAT64)              AS cantidad,
     SAFE_CAST(JSON_VALUE(ln, '$.LineTotal')  AS FLOAT64)              AS importe_linea_ars,
-    SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry')  AS INT64)                AS so_doc_entry,
-    SAFE_CAST(JSON_VALUE(ln, '$.BaseLine')   AS INT64)                AS so_line_num
+    17                                                                AS base_type,
+    SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry')  AS INT64)                AS base_entry,
+    SAFE_CAST(JSON_VALUE(ln, '$.BaseLine')   AS INT64)                AS base_line
   FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` i,
        UNNEST(JSON_QUERY_ARRAY(i.lines_json)) AS ln
   WHERE i.cancelled = 'tNO'
     AND JSON_VALUE(ln, '$.BaseType') = '17'    -- solo lineas que vienen de SO
-    -- Match canonico: mismo SO+line entre Delivery e Invoice (raro en Shimano
-    -- porque Delivery y Invoice apuntan a SOs DISTINTOS aunque sean la misma
-    -- venta - ver caso SEBASTIAN SALES fact 18364/Del 18237 documentado).
+    -- v386.3 (2026-08-04) MATCH DETERMINISTA CONFIRMADO POR SANTI (SEIDOR):
+    -- En Shimano el flujo real es SO -> Invoice -> Delivery (94% de casos,
+    -- 4478 de 4743 deliveries en 12 meses). Las lineas del Delivery tienen
+    -- BaseType=13 (A/R Invoice) + BaseEntry=Invoice.DocEntry, no SO como
+    -- yo asumia. Reemplaza la heuristica ±10 dias de v386.1.
     AND NOT EXISTS (
       SELECT 1
       FROM deliveries d
-      WHERE d.so_doc_entry = SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry') AS INT64)
-        AND d.so_line_num  = SAFE_CAST(JSON_VALUE(ln, '$.BaseLine')  AS INT64)
+      WHERE d.source = 'DELIVERY'
+        AND d.base_type = 13
+        AND d.base_entry = i.doc_entry
     )
-    -- Match heuristico (v386.1, 2026-08-03): si existe Delivery para el mismo
-    -- (card_code, item_code, cantidad) en +/-10 dias de la factura, la venta
-    -- ya esta cubierta por la Delivery. Cubre el caso Shimano donde SAP genera
-    -- 2 SOs distintos para la misma operacion. Pending consulta a Santi para
-    -- encontrar el link directo v�a UDF/BaseRef y sacar esta heuristica.
-    -- Riesgo: cliente que compra mismo item+cantidad exacta 2+ veces en 20
-    -- dias puede tener match cruzado - marginal en la practica.
+    -- Match secundario canonico (5%): flujo SO -> Delivery. Delivery
+    -- apunta al mismo SO+line que la factura via BaseType=17.
     AND NOT EXISTS (
       SELECT 1
       FROM deliveries d
-      WHERE d.card_code = i.card_code
-        AND d.item_code = JSON_VALUE(ln, '$.ItemCode')
-        AND d.cantidad  = SAFE_CAST(JSON_VALUE(ln, '$.Quantity') AS FLOAT64)
-        AND ABS(DATE_DIFF(d.doc_date, i.doc_date, DAY)) <= 10
+      WHERE d.source = 'DELIVERY'
+        AND d.base_type = 17
+        AND d.base_entry = SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry') AS INT64)
+        AND d.base_line  = SAFE_CAST(JSON_VALUE(ln, '$.BaseLine')  AS INT64)
     )
 ),
 unioned AS (
@@ -1732,7 +1738,13 @@ SELECT
     ELSE NULL
   END                              AS `SlpCode Asignado`,
   ca.assigned_vendor_app           AS assigned_vendor,
-  u.so_doc_entry,
+  -- v386.3: base_type indica a que apunta el Delivery/Return/Invoice-fallback:
+  --   13 = A/R Invoice (94% de deliveries Shimano — flujo SO->Invoice->Delivery)
+  --   17 = Sales Order (5% de deliveries — flujo canonico SO->Delivery->Invoice)
+  --   23 = Sales Quotation
+  u.base_type,
+  u.base_entry,
+  u.base_line,
   u.doc_currency,
   u.doc_rate
 FROM unioned u
