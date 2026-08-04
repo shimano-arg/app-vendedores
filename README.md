@@ -2978,6 +2978,23 @@ En Shimano el flujo real es **SO → Invoice → Delivery** (NO el canónico SO 
 **Validación caso concreto (SEBASTIAN SALES 18364)** — post-fix determinista v386.3:
 - Aparece con `source=DELIVERY, remito_doc_num=18237, doc_date=2026-08-03, base_type=13, base_entry=32573` (DocEntry de la Factura 18364). 1 sola entrada por $15.61M — la factura NO aparece como INVOICE_NO_DELIVERY porque el match determinista la excluye correctamente.
 
+**Reconciliación TABLERO vs Mayor Contable / Reporte "Análisis Ventas por Artículo" (2026-08-04)** — decisión de negocio confirmada con Mariano:
+
+El TABLERO SAR (visión comercial) va a diferir ~10% del Mayor Contable de la cuenta `4.1.010.10.002 - VENTA DE MERCADERIA FISH` y del reporte SAP "Análisis de ventas por artículos (anual)". Ejemplo julio 2026 pesca: TABLERO $283.42M facturado / $287.63M remitido vs Mayor Contable ~$254.79M vs reporte anual $254.49M. **No es un bug — son 3 lentes distintas sobre la misma data SAP**:
+
+| Reporte | Base de cálculo | Uso |
+|---|---|---|
+| **TABLERO SAR** | `LineTotal` de cada línea de factura POR FECHA DE EMISIÓN. NCs restadas (v367). | Comisiones vendedor, % Cumplimiento, dashboard operativo diario. Es lo que el vendedor puede reconciliar con sus propias facturas. |
+| **Reporte SAP anual** | Precio ponderado del período extendido (moving average) × cantidad. | Análisis de rentabilidad interanual con precios homologados (evita distorsión inflacionaria). |
+| **Mayor Contable FISH** | Asientos contables POR FECHA DE CONTABILIZACIÓN, con criterios de imputación por ítem. | Balance, IVA, reporte fiscal, cierres contables. |
+
+**Causas típicas del gap**:
+1. Facturas emitidas el 29-31 del mes que Contabilidad asienta recién los primeros días del mes siguiente (~$15-20M típico).
+2. Ítems del grupo PESCA facturados pero configurados en SAP con cuenta contable distinta a la 4.1.010.10.002 (ej: "Venta Muestras", "Venta Bonificaciones", "Venta Servicios") — cuentan en el TABLERO como venta pesca pero no en la cuenta FISH.
+3. Ajustes contables manuales de cierre que Juan/Contabilidad carga aparte, sin factura de origen.
+
+**Decisión (2026-08-04)**: NO se modifica el TABLERO SAR para que coincida con el Mayor Contable. Cambiar la lógica del TABLERO a criterio contable rompería comisiones (el vendedor cobraría según fecha de asiento, no de venta), timing de cierre de mes (no sabríamos el número final hasta el 5-10 del mes siguiente) y trazabilidad directa contra las facturas SAP. Los 3 números son correctos para sus respectivos usos.
+
 ### Vista de conversión LEADS → Clientes SAP (2026-08-03) — NUEVO
 
 Pedido de Mariano: card en TABLERO SAR para trackear del total de altas asignadas a cada vendedor cuántas ya están en SAP (con CardCode) y cuántas siguen como LEADS (provisorios de Alta Rápida). Base para seguimiento mes a mes de conversión.
