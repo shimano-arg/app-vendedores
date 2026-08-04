@@ -2988,7 +2988,7 @@ El TABLERO SAR (visión comercial) puede seguir difiriendo levemente del Mayor C
 
 | Reporte | Base de cálculo | Uso |
 |---|---|---|
-| **TABLERO SAR** | `LineTotal` de cada línea de factura POR FECHA DE EMISIÓN. NCs restadas (v367). | Comisiones vendedor, % Cumplimiento, dashboard operativo diario. Es lo que el vendedor puede reconciliar con sus propias facturas. |
+| **TABLERO SAR** | `LineTotal` NETO POST-descuento global de cabecera (v388.1) POR FECHA DE EMISIÓN. NCs restadas (v367). | Comisiones vendedor, % Cumplimiento, dashboard operativo diario. Es lo que el vendedor efectivamente cobra (neto post-descuento). Matchea el Mayor Contable salvo por fecha de contabilización y cuentas de imputación distintas. |
 | **Reporte SAP anual** | Precio ponderado del período extendido (moving average) × cantidad. | Análisis de rentabilidad interanual con precios homologados (evita distorsión inflacionaria). |
 | **Mayor Contable FISH** | Asientos contables POR FECHA DE CONTABILIZACIÓN, con criterios de imputación por ítem. | Balance, IVA, reporte fiscal, cierres contables. |
 
