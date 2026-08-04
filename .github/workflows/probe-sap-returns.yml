@@ -1,0 +1,34 @@
+name: Probe SAP Returns (one-shot)
+
+# Workflow ad-hoc para verificar cuantos Returns hay en SAP y el volumen
+# de devoluciones. Base para agregar sap_returns_raw al pipeline (bug
+# detectado 2026-08-04: v_remitos_lineas quedaba inflada por devoluciones).
+#
+# Descartable: una vez confirmado el volumen se puede borrar.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install firebase-admin requests google-cloud-bigquery
+
+      - name: Run probe
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: python scripts/probe_sap_returns.py
