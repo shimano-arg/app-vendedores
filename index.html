@@ -2946,7 +2946,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       <div class="cli-filter-row">
         <button class="cli-filter-btn active" data-cli-filter="all" onclick="setClientStateFilter('all')">Todos</button>
         <button class="cli-filter-btn" data-cli-filter="confirmados" onclick="setClientStateFilter('confirmados')">Cliente en SAP</button>
-        <button class="cli-filter-btn" data-cli-filter="pendientes" onclick="setClientStateFilter('pendientes')">Provisorios</button>
+        <button class="cli-filter-btn" data-cli-filter="pendientes" onclick="setClientStateFilter('pendientes')">Leads</button>
       </div>
       <div class="ped-search-wrap"><input type="search" id="cli-search" class="ped-search" placeholder="Buscar cliente por nombre..." oninput="onCliSearchChange()" autocomplete="off"/></div>
       <div id="clients-content"></div>
@@ -3362,7 +3362,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v386';
+const APP_VERSION = 'v387';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -5480,7 +5480,7 @@ function drawSapAltaPins(){
     const popup = '<div style="min-width:220px;font-family:inherit">'
       + '<div style="font-weight:800;color:' + color + ';font-size:13px;margin-bottom:4px">' + escapeHtml(nombre) + '</div>'
       + statusLine
-      + '<div style="background:' + bgPill + ';color:' + txtPill + ';padding:3px 7px;border-radius:4px;font-size:10px;font-weight:700;display:inline-block;margin-bottom:6px">' + (a.cardCodeSap ? ('SAP ' + escapeHtml(a.cardCodeSap)) : '&#9889; PROVISORIO (cargar a SAP manual)') + '</div>'
+      + '<div style="background:' + bgPill + ';color:' + txtPill + ';padding:3px 7px;border-radius:4px;font-size:10px;font-weight:700;display:inline-block;margin-bottom:6px">' + (a.cardCodeSap ? ('SAP ' + escapeHtml(a.cardCodeSap)) : '&#9889; LEAD (cargar a SAP manual)') + '</div>'
       + '<div style="font-size:11px;color:#475569;line-height:1.5">'
       + '<b>Direccion:</b> ' + escapeHtml(direccion || '(falta cargar)') + '<br>'
       + '<b>Localidad:</b> ' + escapeHtml(localidad || '(sin localidad)') + '<br>'
@@ -6462,7 +6462,7 @@ function renderClients(pts){
       // linea meta abajo, al lado del "SAP EN MAPA" y la localidad.
       // Antes estaba en la esquina superior derecha absoluta pero
       // apretaba el nombre. Ahora convive con los demas metadatos.
-      const sapOrigenLabel = a.cardCodeSap ? ('SAP ' + escapeHtml(a.cardCodeSap)) : '&#9889; PROVISORIO';
+      const sapOrigenLabel = a.cardCodeSap ? ('SAP ' + escapeHtml(a.cardCodeSap)) : '&#9889; LEAD';
       const sapOrigenBg = a.cardCodeSap ? '#dcfce7' : '#fef3c7';
       const sapOrigenFg = a.cardCodeSap ? '#166534' : '#92400e';
       const sapOrigenBorder = a.cardCodeSap ? '#86efac' : '#fcd34d';
@@ -13525,7 +13525,7 @@ function renderZonasList(){
           ? '<div class="meta" style="font-size:10px;color:#94a3b8;margin-top:2px">' + escapeHtml(direccion) + '</div>'
           : (isProvisorio ? '<div class="meta" style="font-size:10px;color:#b45309;margin-top:2px">Sin direccion cargada</div>' : '');
         const badgeSap = isProvisorio
-          ? '<span style="background:#fef3c7;color:#78350f;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;margin-left:4px">&#9889; PROVISORIO</span>'
+          ? '<span style="background:#fef3c7;color:#78350f;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;margin-left:4px">&#9889; LEAD</span>'
           : '<span style="background:#dbeafe;color:#1e3a8a;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;margin-left:4px">SAP ' + escapeHtml(a.cardCodeSap) + '</span>';
         html += '<div class="zonas-row' + rowCls + '" data-sap-fsid="' + escapeAttr(a._fsId || '') + '">'
           + '<div><div class="name">' + escapeHtml(nombre) + badgeSap + '</div>' + addrLine + '</div>'
