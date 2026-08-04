@@ -1231,9 +1231,11 @@ window.submitVisita = async function () {
     if (_docSizeBytes > 950 * 1024) {
       const _mbActual = (_docSizeBytes / 1024 / 1024).toFixed(2);
       alert(
-        'La visita pesa ' + _mbActual + ' MB pero el maximo permitido por Firestore es 1 MB.\n\n' +
-        'Borra alguna foto de ESPACIO o del FRENTE (usa la X roja) y reintenta guardar.\n\n' +
-        'Tip: las fotos actualmente se comprimen automaticamente pero si tenes muchas + frente puede exceder.'
+        'La visita pesa ' +
+          _mbActual +
+          ' MB pero el maximo permitido por Firestore es 1 MB.\n\n' +
+          'Borra alguna foto de ESPACIO o del FRENTE (usa la X roja) y reintenta guardar.\n\n' +
+          'Tip: las fotos actualmente se comprimen automaticamente pero si tenes muchas + frente puede exceder.'
       );
       showSyncTag('Visita NO guardada: peso excede 1 MB');
       return;
