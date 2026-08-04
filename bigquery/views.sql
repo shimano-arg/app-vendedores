@@ -1566,6 +1566,109 @@ WHERE JSON_VALUE(data, '$.status') = 'approved'
 GROUP BY assigned_vendor
 ORDER BY total_universo DESC;
 
+
+-- ============================================================
+-- V_CONVERSION_LEADS_MENSUAL (2026-08-04)
+-- ============================================================
+-- Serie mensual de conversion LEAD -> CLIENTE EN SAP por vendedor.
+-- Reconstruye la historia usando client_applications_raw_raw_changelog:
+-- cada vez que cardCodeSap paso de vacio -> con valor cuenta 1 conversion,
+-- y el timestamp del evento define en que mes cae.
+--
+-- Definicion "% conversion" (acordada con Mariano 2026-08-04):
+--   pct_conversion_mes = conversiones_mes / stock_leads_inicio_mes
+--   donde stock_leads_inicio_mes = LEADs (manualSapPending=true,
+--   sin cardCodeSap) que existian en la ultima operacion previa al
+--   arranque del mes M. Denominador NO incluye leads recibidos durante
+--   el mes -> mide velocidad de procesamiento del backlog.
+--
+-- Nota importante: julio 2026 muestra stock_inicio=0 porque no hay
+-- historia previa en el changelog (el sistema arranco ese mes).
+-- Los meses siguientes (agosto en adelante) tienen datos completos.
+--
+-- El assigned_vendor viene del snapshot ACTUAL del cliente (latest).
+-- Si un doc cambio de vendor a lo largo del tiempo, todas sus
+-- conversiones se atribuyen al vendor actual. Simplificacion aceptada
+-- porque cambios de vendor son raros.
+--
+-- Uso Power BI (TABLERO SAR): tabla + line chart en la hoja
+-- Desempeno-Pesca:
+--   * Eje X: mes
+--   * Series: assigned_vendor
+--   * Valor: conversiones_mes (barras) + pct_conversion_mes (linea)
+-- Card individual "Conversion del mes" filtrable por vendor.
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_conversion_leads_mensual` AS
+WITH events AS (
+  SELECT
+    document_id,
+    timestamp,
+    JSON_VALUE(data,     '$.cardCodeSap')       AS card_new,
+    JSON_VALUE(old_data, '$.cardCodeSap')       AS card_old,
+    JSON_VALUE(data,     '$.manualSapPending')  AS pending_new,
+    JSON_VALUE(data,     '$.status')            AS status_new
+  FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_changelog`
+),
+vendor_actual AS (
+  SELECT
+    document_id,
+    IFNULL(NULLIF(JSON_VALUE(data, '$.assignedVendor'), ''), '(SIN ASIGNAR)') AS assigned_vendor
+  FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+  WHERE JSON_VALUE(data, '$.status') = 'approved'
+    AND (JSON_VALUE(data, '$.assignedVendor') IS NULL
+         OR NOT STARTS_WITH(JSON_VALUE(data, '$.assignedVendor'), 'ADMIN_'))
+),
+conversiones AS (
+  SELECT
+    DATE_TRUNC(DATE(e.timestamp), MONTH) AS mes,
+    v.assigned_vendor,
+    COUNT(*) AS conversiones_mes
+  FROM events e
+  INNER JOIN vendor_actual v USING(document_id)
+  WHERE (e.card_old IS NULL OR e.card_old = '')
+    AND e.card_new IS NOT NULL AND e.card_new != ''
+  GROUP BY mes, v.assigned_vendor
+),
+meses AS (SELECT DISTINCT mes FROM conversiones),
+vendor_x_mes AS (
+  SELECT DISTINCT v.assigned_vendor, m.mes
+  FROM vendor_actual v CROSS JOIN meses m
+),
+snapshot_ante_mes AS (
+  SELECT
+    vxm.mes,
+    v.assigned_vendor,
+    e.document_id,
+    ARRAY_AGG(STRUCT(e.card_new, e.pending_new, e.status_new)
+              ORDER BY e.timestamp DESC LIMIT 1)[OFFSET(0)] AS ultimo
+  FROM vendor_x_mes vxm
+  INNER JOIN vendor_actual v ON v.assigned_vendor = vxm.assigned_vendor
+  INNER JOIN events e ON e.document_id = v.document_id
+                      AND e.timestamp < TIMESTAMP(vxm.mes)
+  GROUP BY vxm.mes, v.assigned_vendor, e.document_id
+),
+stock_inicio AS (
+  SELECT mes, assigned_vendor,
+    COUNTIF(ultimo.status_new = 'approved'
+            AND ultimo.pending_new = 'true'
+            AND (ultimo.card_new IS NULL OR ultimo.card_new = '')
+    ) AS stock_leads_inicio
+  FROM snapshot_ante_mes
+  GROUP BY mes, assigned_vendor
+)
+SELECT
+  vxm.mes,
+  vxm.assigned_vendor,
+  IFNULL(si.stock_leads_inicio, 0) AS stock_leads_inicio_mes,
+  IFNULL(cv.conversiones_mes, 0)   AS conversiones_mes,
+  SAFE_DIVIDE(cv.conversiones_mes, si.stock_leads_inicio) AS pct_conversion_mes
+FROM vendor_x_mes vxm
+LEFT JOIN stock_inicio si USING(mes, assigned_vendor)
+LEFT JOIN conversiones cv USING(mes, assigned_vendor)
+WHERE (cv.conversiones_mes > 0 OR si.stock_leads_inicio > 0)
+ORDER BY vxm.mes DESC, cv.conversiones_mes DESC;
+
+
 -- ============================================================
 -- V_REMITOS_LINEAS
 -- ============================================================

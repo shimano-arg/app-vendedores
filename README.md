@@ -2917,7 +2917,7 @@ Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gere
 **Estado a 2026-07-23**:
 - ✅ **Fase 1.1** Firestore → BigQuery (7 collecciones + backfill)
 - ✅ **Fase 1.2** SAP → BigQuery (**9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, Deliveries, Returns)
-- ✅ **Fase 2** Modelo de datos: **20 vistas SQL curadas** (9 base + 3 deuda 2026-07-20 + 2 rendiciones 2026-07-22 + 3 campañas 2026-07-30 + 1 leads 2026-08-03 + 1 remitos 2026-08-03 + 1 ofertas/TOTAL 2026-08-04)
+- ✅ **Fase 2** Modelo de datos: **21 vistas SQL curadas** (9 base + 3 deuda 2026-07-20 + 2 rendiciones 2026-07-22 + 3 campañas 2026-07-30 + 1 leads 2026-08-03 + 1 remitos 2026-08-03 + 1 ofertas/TOTAL 2026-08-04 + 1 conversion leads mensual 2026-08-04)
 - ✅ **Fase 3** Power BI Desktop → Service: **TABLERO SAR publicado en `Mi área de trabajo`**. Modelo con 12 vistas + `sap_items_raw` + `Vendedores` + `Origenes` + `Medidas` + `Date`. Páginas operativas: Desempeño-Pesca, Ventas, Pedidos, Visitas, **Facturación por Vendedor** (con Cobrado + Deuda), Backorder, Inventario.
 - ✅ **Fase 3.5** Distribución automática: **suscripción diaria a Mariano** ("Desempeño diario de ventas SAR - PESCA") @15:00 AR + refresh programado @14:30. Ver subsección abajo.
 - ✅ **Fase 3.6 (2026-07-21)** Deuda por vendedor de la app: 3 vistas + cards Cobrado/Deuda en hoja Facturación por Vendedor. Ver subsección "Vistas de deuda" abajo.
@@ -2973,6 +2973,53 @@ Los $302M no convertidos son por: (a) stock insuficiente al momento de armar el 
    ```dax
    % Conversion Ofertas = DIVIDE([Facturación Total], [TOTAL], 0)
    ```
+
+### Vista Conversión LEAD → CLIENTE EN SAP mensual (2026-08-04) — NUEVO
+
+Pedido de Mariano: seguimiento mes a mes de cuántos LEADs convierte cada vendedor a CLIENTES EN SAP. Mide la velocidad con que cada vendedor procesa su backlog de leads pendientes.
+
+**Vista nueva** en `bigquery/views.sql`:
+
+| Vista | Granularidad | Columnas |
+|---|---|---|
+| `v_conversion_leads_mensual` | 1 fila por `(mes, assigned_vendor)` | `mes, assigned_vendor, stock_leads_inicio_mes, conversiones_mes, pct_conversion_mes` |
+
+**Definición**: `pct_conversion_mes = conversiones_mes / stock_leads_inicio_mes`. Denominador = LEADs (`manualSapPending=true`, sin `cardCodeSap`) que existían en la última operación previa al arranque del mes M. NO incluye leads recibidos durante el mes → mide velocidad de procesamiento del backlog puro.
+
+**Cómo se reconstruye la historia**: usa `client_applications_raw_raw_changelog` (Firebase Extension guarda cada cambio con `timestamp`, `data`, `old_data`). Cada vez que `cardCodeSap` pasa de vacío → con valor cuenta 1 conversión, y el timestamp del evento define el mes. Para el `stock_inicio` toma el último snapshot de cada documento ANTES del arranque del mes.
+
+**Vendor**: se atribuye al `assigned_vendor` **actual** (del snapshot latest). Si un doc cambió de vendor a lo largo del tiempo, todas sus conversiones cuentan para el vendor actual. Simplificación aceptada (cambios de vendor son raros).
+
+**Nota importante — julio 2026 arranca en 0 de stock**: el sistema arrancó ese mes → no hay historia previa en el changelog. Los meses siguientes (agosto en adelante) muestran datos completos.
+
+**Snapshot 2026-08-04 (día 4 de agosto)**:
+
+| Mes | Vendedor | Stock inicio | Conversiones mes | % Conv |
+|---|---|---:|---:|---:|
+| ago-26 | GONZALO DE LA ROSA | 10 | 2 | 20.0% |
+| ago-26 | SANTIAGO ESTEBAN | 96 | 1 | 1.0% |
+| ago-26 | MARTIN BOIERO | 68 | 0 | 0% |
+| ago-26 | MAURICIO GIL | 76 | 0 | 0% |
+| ago-26 | FEDERICO CASTELANELLI | 48 | 0 | 0% |
+| ago-26 | IOANNIS PALKOUDAKIS | 70 | 0 | 0% |
+| jul-26 | FEDERICO CASTELANELLI | 0 | 52 | — |
+| jul-26 | GONZALO DE LA ROSA | 0 | 44 | — |
+| jul-26 | MAURICIO GIL | 0 | 30 | — |
+| jul-26 | MARTIN BOIERO | 0 | 23 | — |
+| jul-26 | IOANNIS PALKOUDAKIS | 0 | 17 | — |
+| jul-26 | SANTIAGO ESTEBAN | 0 | 14 | — |
+
+**Deploy 2026-08-04**: `CREATE OR REPLACE VIEW v_conversion_leads_mensual` aplicado en BQ.
+
+**Uso Power BI Desktop** — armar visual en TABLERO SAR:
+1. **Get Data → BigQuery → v_conversion_leads_mensual** → Load.
+2. Line chart en hoja Desempeño-Pesca:
+   - Eje X: `mes`
+   - Series: `assigned_vendor`
+   - Valor 1 (barras): `conversiones_mes`
+   - Valor 2 (línea): `pct_conversion_mes`
+3. Card individual "Conversión del mes" con `pct_conversion_mes` filtrada por vendor y mes actual.
+4. Sin medidas DAX nuevas — los campos vienen calculados de la vista.
 
 ### Vista REMITIDO (2026-08-03) — NUEVO
 
@@ -3059,6 +3106,7 @@ Pedido de Mariano: card en TABLERO SAR para trackear del total de altas asignada
 | Vista | Granularidad | Columnas |
 |---|---|---|
 | `v_leads_vs_clientes_por_vendedor` | 1 fila por `assigned_vendor` | `assigned_vendor, clientes_sap, leads, total_universo, pct_conversion (0..1), snapshot_at` |
+| `v_conversion_leads_mensual` | 1 fila por `(mes, assigned_vendor)` | `mes, assigned_vendor, stock_leads_inicio_mes, conversiones_mes, pct_conversion_mes` |
 
 **Definición de las 2 categorías** (mutuamente excluyentes, matchean con la app):
 - **`clientes_sap`**: alta approved con `cardCodeSap` NO nulo/vacío → cerrado en SAP.
