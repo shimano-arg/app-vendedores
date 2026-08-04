@@ -2937,6 +2937,13 @@ Pedido de Mariano: card "TOTAL" en TABLERO SAR que muestre cuánto hubiese sido 
 
 **Filtros**: `cancelled='tNO'` (excluye SQs canceladas por Admin/rechazadas). Ventana 24 meses (misma que `sap_quotations_raw`).
 
+**⚠️ IMPORTANTE — qué mide TOTAL** (aclarado 2026-08-04): NO es exactamente "lo que se hubiera facturado con 100% de stock". Es "el pipeline SAP activo" — SQs abiertas o parcialmente cumplidas que quedaron en el sistema. Casos:
+- ✅ SQ abierta con backorder parcial (100 pedidas, 60 facturadas, 40 pendientes) → cuenta las 100.
+- ✅ SQ sin stock pero no cancelada → cuenta las 100.
+- ❌ **SQ cancelada completa por Admin** (por falta total de stock O por otras razones: error de carga, cliente arrepentido, doble pedido) → NO cuenta. Estas quedan invisibles en el TOTAL.
+
+Trade-off aceptado (Mariano 2026-08-04): mantener el filtro `cancelled='tNO'` porque las cancelaciones incluyen razones no-stock (errores, arrepentidos), no siempre son "oportunidad perdida por stock". Es más pragmático mostrar el pipeline activo que el universo total con ruido.
+
 **Snapshot 2026-08-04 (validación inicial)**:
 
 | Métrica julio 2026 pesca | $ ARS |
