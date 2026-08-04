@@ -3362,7 +3362,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v394';
+const APP_VERSION = 'v395';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -6082,15 +6082,18 @@ function updateStats(pts){
   // Modelo nuevo: TODO arranca como Prospecto/Pendiente. Recien al darse de alta pasa a Cliente/Habilitado.
   // Stats: localidades / habilitados (verde) / pendientes (ambar) / total tiendas.
   // Si hay filtro Tipo aplicado, se contabilizan solo los del tipo correspondiente.
+  // v395 (2026-08-04): respeta clientStateFilter (TODOS / CLIENTE EN SAP / LEADS)
+  // para que las 4 cards superiores cambien al tocar los sub-filtros del panel
+  // de clientes. Antes quedaban fijas y solo cambiaba el "N / N habilitados".
+  const stateFilter = (typeof clientStateFilter !== 'undefined' ? clientStateFilter : 'all');
   let total = 0, habilitados = 0, pendientes = 0;
   let locsConTiendas = 0;
   for (const pt of pts) {
     const cli = effClients(pt);
     const pro = effProspects(pt);
     const all = [...cli, ...pro];
-    if (all.length > 0) locsConTiendas++;
+    let habEnPt = 0, pendEnPt = 0;
     all.forEach(nombre => {
-      total++;
       const kC = contactKey(pt, nombre, 'C');
       const kP = contactKey(pt, nombre, 'P');
       // v394 (2026-08-04): usar la misma logica que updateContactSummary
@@ -6098,9 +6101,15 @@ function updateStats(pts){
       // del tab CLIENTES EN SAP. Antes v393 uso isSapConfirmed pero contaba
       // POINTS que estan en client_master pero no fueron marcados manualmente
       // -> mostraba MAS que el tab (106 vs 51 reportado por Federico).
-      if (contacted.has(kC) || contacted.has(kP)) habilitados++;
-      else if (!canceled.has(kC) && !canceled.has(kP)) pendientes++;
+      if (contacted.has(kC) || contacted.has(kP)) habEnPt++;
+      else if (!canceled.has(kC) && !canceled.has(kP)) pendEnPt++;
     });
+    const habCount = (stateFilter === 'pendientes') ? 0 : habEnPt;
+    const pendCount = (stateFilter === 'confirmados') ? 0 : pendEnPt;
+    habilitados += habCount;
+    pendientes += pendCount;
+    total += habCount + pendCount;
+    if (habCount + pendCount > 0) locsConTiendas++;
   }
   // Sumar SAP altas huerfanas (no anclan a un POINT) al total de tiendas.
   // Con direccion + lat/lng cuentan como "habilitados"; sin direccion como
@@ -6132,13 +6141,16 @@ function updateStats(pts){
       if (locFilter && aLoc !== locFilter) return;
       const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
       if (prov && ptsCounted.has(prov + '|' + nombre.toLowerCase())) return;
-      total++;
       const hasGeo = (a.lat != null && a.lng != null);
       const hasAddr = !!(a.calle || a.address);
       // Solo cuenta como habilitado si tiene PROVINCIA + direccion + geo.
       // Sin alguno -> pendiente.
-      if (prov && hasGeo && hasAddr) habilitados++;
-      else pendientes++;
+      const isHab = !!(prov && hasGeo && hasAddr);
+      // v395: respetar stateFilter tambien en altas SAP huerfanas.
+      if (stateFilter === 'confirmados' && !isHab) return;
+      if (stateFilter === 'pendientes' && isHab) return;
+      total++;
+      if (isHab) habilitados++; else pendientes++;
       sapLocs.add((prov || '(sin provincia)') + '|' + (aLoc || '(sin localidad)'));
     });
     locsConTiendas += sapLocs.size;
@@ -6154,12 +6166,14 @@ function updateStats(pts){
   // sapLocs ya viene poblado dentro del if (currentFilter !== 'prospects')
   // de arriba con las localidades SAP-only que pasaron los filtros.
   let _statLocVal;
-  if (currentTypeFilter === 'ALL') {
+  if (stateFilter === 'all' && currentTypeFilter === 'ALL') {
     // Sumar POINTS + SAP-only. Sin doble conteo: sapLocs ya excluye los que
     // estan en POINTS via ptsCounted.
     _statLocVal = pts.length + (typeof sapLocs !== 'undefined' && sapLocs ? sapLocs.size : 0);
   } else {
-    _statLocVal = locsConTiendas;
+    // v395: con sub-filtro CLIENTE EN SAP / LEADS activo, solo cuenta las
+    // localidades que tienen al menos una tienda del tipo seleccionado.
+    _statLocVal = locsConTiendas + (typeof sapLocs !== 'undefined' && sapLocs ? sapLocs.size : 0);
   }
   document.querySelectorAll('.js-stat-loc').forEach(el => { el.textContent = _statLocVal; });
   document.querySelectorAll('.js-stat-c').forEach(el => { el.textContent = habilitados; });
@@ -6190,7 +6204,8 @@ function updateStats(pts){
     if (_leadsLocFilter && _aLoc !== _leadsLocFilter) return false;
     return true;
   });
-  const _provisoriosCount = _leadsFiltered.length;
+  // v395: LEADS card = 0 cuando el sub-filtro esta en CLIENTE EN SAP.
+  const _provisoriosCount = (stateFilter === 'confirmados') ? 0 : _leadsFiltered.length;
   document.querySelectorAll('.js-stat-p').forEach(el => { el.textContent = _provisoriosCount; });
   document.querySelectorAll('.js-stat-t').forEach(el => { el.textContent = total; });
 }
@@ -10556,6 +10571,9 @@ window.setClientStateFilter = function(f){
   renderClients(filteredPoints());
   // v364+: refrescar contador "X / Y habilitados" — antes quedaba fijo en el total global.
   updateContactSummary();
+  // v395 (2026-08-04): refrescar tambien las 4 cards superiores (LOCALIDADES /
+  // CLIENTES EN SAP / LEADS / TIENDAS) para que reflejen el sub-filtro activo.
+  try { updateStats(filteredPoints()); } catch(e) { console.warn('setClientStateFilter updateStats', e); }
 };
 
 window.zoomTo = function(lat, lon){
