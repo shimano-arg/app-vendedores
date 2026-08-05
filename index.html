@@ -1624,6 +1624,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
   <div class="user-info" id="user-info" style="display:none">
     <span id="user-email"></span>
     <button class="logout-btn" id="targets-btn" onclick="openTargetsPanel()" title="Cargar / editar targets mensuales" style="display:none">Targets</button>
+    <button class="logout-btn" id="zonas-btn-top" onclick="openZonasModal()" title="Reasignar tiendas o localidades a otro vendedor / interno / distribuidor" style="display:none">Zonas</button>
     <button class="logout-btn" id="campaigns-btn" onclick="openCampaignsPanel()" title="Gesti&oacute;n de campa&ntilde;as" style="display:none">Campa&ntilde;as</button>
     <button class="logout-btn" id="sap-btn" onclick="openSapPanel()" title="Carga a SAP / Mapeo de c&oacute;digos" style="display:none">SAP</button>
     <button class="logout-btn" id="master-cli-btn" onclick="openMasterClientesPanel()" title="Cargar direcciones exactas de cada tienda" style="display:none">Master Clientes</button>
@@ -1661,7 +1662,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <button class="btn-analisis" id="analisis-btn" onclick="openExportAnalisis()" style="display:none" title="Formatos avanzados (Power BI / ML / ZIP fotos) - requiere PIN">Exportar para An&aacute;lisis</button>
     <button class="btn-export" onclick="_safeOpenExportFormatModal()" title="Elegir formato: Reportes Excel (uso operativo) o Dataset ZIP para pipelines de ML (solo admin/gerente)">Exportar a Excel</button>
     <button class="btn-seguimiento" id="seguimiento-btn" onclick="openSeguimientoModal()" style="display:none" title="Panel de gestion comercial para vendedores internos">Seguimiento</button>
-    <button class="btn-zonas" id="zonas-btn" onclick="openZonasModal()" style="display:none" title="Reasignar tiendas o localidades a otro vendedor / interno / distribuidor">Zonas</button>
+    <button class="btn-zonas" id="backorders-btn" onclick="setTab('backorders')" title="Backorders: cuando llega mercaderia ver quien la tenia pedida" style="background:#c2410c;color:#fff">Backorders <span id="backorders-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
   </div>
 </div>
 <div class="main-container">
@@ -2942,7 +2943,6 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       <button class="tab-btn tab-action" data-tab="contactado-action" onclick="openVisitaModal('contacto')" title="Registrar contacto no presencial (WhatsApp / tel&eacute;fono / email)">Contactado</button>
       <button class="tab-btn" data-tab="rendiciones" onclick="setTab('rendiciones')" title="Rendiciones (en construccion)">Rendiciones <span class="tab-count" id="tab-rend-count" style="display:none">0</span></button>
       <button class="tab-btn" data-tab="altacli" onclick="setTab('altacli')" title="Alta de clientes (en construccion)">Alta clientes <span class="tab-count" id="tab-altacli-count" style="display:none">0</span></button>
-      <button class="tab-btn" data-tab="backorders" onclick="setTab('backorders')" title="Backorders por SKU y cliente (para avisar cuando llega mercaderia)">Backorders <span class="tab-count" id="tab-backorders-count" style="display:none">0</span></button>
       <button class="tab-btn active" id="tab-notif" data-tab="notif" onclick="setTab('notif')" title="Alertas y notificaciones">Notificaciones <span class="tab-count" id="tab-notif-count" style="display:none">0</span></button>
     </div>
     <div class="tab-pane" id="pane-locs" style="display:none">
@@ -3168,7 +3168,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         Datos actualizados desde SAP cada 30 min. Solo pesca.
       </div>
       <div id="backorders-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-        <input id="backorders-search" oninput="onBackordersSearch()" type="text" placeholder="Buscar por SKU o codigo (ej: SN2000FJ)..." style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff"/>
+        <input id="backorders-search" oninput="onBackordersSearch()" type="text" placeholder="Buscar por SKU, codigo o cliente (ej: SN2000FJ o MUNDO ESTURION)..." style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff"/>
         <button onclick="clearBackordersSearch()" style="padding:9px 14px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer">Limpiar</button>
       </div>
       <div id="backorders-summary" style="margin-bottom:12px;padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:11px;color:#78350f"></div>
@@ -3389,7 +3389,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v398';
+const APP_VERSION = 'v399';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -8678,13 +8678,15 @@ window.ensureBackordersListener = function(){
     // Re-render si estoy en el tab activo.
     const pane = document.getElementById('pane-backorders');
     if (pane && pane.style.display !== 'none') renderBackordersTab();
-    // Actualizar badge del tab.
-    const badge = document.getElementById('tab-backorders-count');
-    if (badge) {
-      const n = backorderLines.length;
-      badge.textContent = n;
-      badge.style.display = n > 0 ? '' : 'none';
-    }
+    // Actualizar badge del boton (v399: movido a controls row header).
+    const n = backorderLines.length;
+    ['tab-backorders-count', 'backorders-btn-count'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.textContent = n;
+        el.style.display = n > 0 ? '' : 'none';
+      }
+    });
   }, err => console.warn('backorder_snapshot listener', err));
 };
 window.onBackordersSearch = function(){
@@ -8712,7 +8714,13 @@ window.renderBackordersTab = function(){
   const skuMap = {};  // sku -> {producto, familia, subfamilia, totalPendiente, clientes: [{nombre, code, pendiente, precio, sqDocNum, sqDocDate}]}
   backorderLines.forEach(ln => {
     const sku = ln.sku || '';
-    if (q && !sku.toLowerCase().includes(q) && !(ln.producto || '').toLowerCase().includes(q)) return;
+    // v399: buscador matchea SKU, producto O nombre del cliente.
+    if (q) {
+      const skuHit = sku.toLowerCase().includes(q);
+      const prodHit = (ln.producto || '').toLowerCase().includes(q);
+      const cliHit = (ln.clienteNombre || '').toLowerCase().includes(q);
+      if (!skuHit && !prodHit && !cliHit) return;
+    }
     if (!skuMap[sku]) {
       skuMap[sku] = {sku: sku, producto: ln.producto || '', familia: ln.familia || '', subfamilia: ln.subfamilia || '', totalPendiente: 0, clientes: []};
     }
@@ -8732,7 +8740,12 @@ window.renderBackordersTab = function(){
   skus.sort((a,b) => b.totalPendiente - a.totalPendiente);
   // Summary
   const totalUnidades = skus.reduce((s,x) => s + x.totalPendiente, 0);
-  const totalClientes = new Set(backorderLines.filter(ln => !q || (ln.sku||'').toLowerCase().includes(q) || (ln.producto||'').toLowerCase().includes(q)).map(ln => ln.clienteCode)).size;
+  const totalClientes = new Set(backorderLines.filter(ln => {
+    if (!q) return true;
+    return (ln.sku||'').toLowerCase().includes(q)
+        || (ln.producto||'').toLowerCase().includes(q)
+        || (ln.clienteNombre||'').toLowerCase().includes(q);
+  }).map(ln => ln.clienteCode)).size;
   sum.innerHTML = '<b>' + skus.length + '</b> SKUs con backorder &middot; <b>' + Math.round(totalUnidades) + '</b> unidades pendientes &middot; <b>' + totalClientes + '</b> clientes'
     + (q ? ' &middot; <i>filtro: "' + escapeHtml(q) + '"</i>' : '');
   // Lista
@@ -12218,7 +12231,12 @@ function applyRolePermissions(){
   // usan. La lista de precios se maneja via panel Precios interno o SAP
   // directo. Auditoria queda accesible por URL directa si hace falta.)
   // Zonas, Analisis, Campañas, Master Clientes: admin + gerente.
-  const zonasBtnEl = document.getElementById('zonas-btn');
+  // v399 (2026-08-05): boton Zonas movido al header top (junto a Targets).
+  // El id viejo `zonas-btn` fue reemplazado por `zonas-btn-top` en la fila
+  // superior; en su lugar aparece `backorders-btn` (naranja). Backorders
+  // es visible a TODOS los roles con acceso (vendedores + admin), asi que
+  // no necesita gating especifico aca.
+  const zonasBtnEl = document.getElementById('zonas-btn-top');
   if (zonasBtnEl) zonasBtnEl.style.display = isAdminOrGerente ? '' : 'none';
   const analisisBtnEl = document.getElementById('analisis-btn');
   // EXPORTAR PARA ANALISIS: solo Mariano (es el unico que carga el master,
