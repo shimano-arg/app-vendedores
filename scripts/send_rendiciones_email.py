@@ -421,12 +421,16 @@ def build_excel(rendiciones):
         ws_g.column_dimensions[get_column_letter(i + 1)].width = w
     # Power Automate lee TablaGastos. El displayName se mantiene para no
     # romper el flow existente - solo cambian las columnas dentro.
-    if ws_g.max_row >= 2:
-        last_col_letter = get_column_letter(len(hdr_g))
-        table_ref = f"A1:{last_col_letter}{ws_g.max_row}"
-        tab_g = Table(displayName="TablaGastos", ref=table_ref)
-        tab_g.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
-        ws_g.add_table(tab_g)
+    # Fix 2026-08-05: mismo patron que TablaSolicitudes - si la semana no
+    # tuvo gastos aprobados, agregamos 1 fila placeholder para que la tabla
+    # exista siempre y el flow Power Automate no falle.
+    if ws_g.max_row < 2:
+        ws_g.append([""] * len(hdr_g))
+    last_col_letter = get_column_letter(len(hdr_g))
+    table_ref = f"A1:{last_col_letter}{ws_g.max_row}"
+    tab_g = Table(displayName="TablaGastos", ref=table_ref)
+    tab_g.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
+    ws_g.add_table(tab_g)
 
     # === HOJA 2: DETALLE (auditoria, una fila por gasto) ===
     # No se mapea a SharePoint - es solo para que Fernando o vos puedan abrir
@@ -510,12 +514,19 @@ def build_excel(rendiciones):
     for i, w in enumerate(widths_s):
         ws_s.column_dimensions[chr(65 + i)].width = w
     # Tabla con nombre tambien en Solicitudes (mismo motivo: Power Automate).
-    if ws_s.max_row >= 2:
-        last_col_letter_s = get_column_letter(len(hdr_s))
-        table_ref_s = f"A1:{last_col_letter_s}{ws_s.max_row}"
-        tab_s = Table(displayName="TablaSolicitudes", ref=table_ref_s)
-        tab_s.tableStyleInfo = TableStyleInfo(name="TableStyleMedium4", showRowStripes=True)
-        ws_s.add_table(tab_s)
+    # Fix 2026-08-05: si la semana no tuvo solicitudes de recarga, ws_s.max_row=1
+    # (solo header) -> antes NO se creaba la tabla -> el flow Power Automate
+    # "Cargar rendiciones aprobadas a SharePoint" fallaba con "No table was
+    # found with the name 'TablaSolicitudes'". Ahora agregamos 1 fila
+    # placeholder vacia para que la tabla exista siempre. Power Automate
+    # itera 0 filas utiles (todos los campos vacios) sin romper.
+    if ws_s.max_row < 2:
+        ws_s.append([""] * len(hdr_s))
+    last_col_letter_s = get_column_letter(len(hdr_s))
+    table_ref_s = f"A1:{last_col_letter_s}{ws_s.max_row}"
+    tab_s = Table(displayName="TablaSolicitudes", ref=table_ref_s)
+    tab_s.tableStyleInfo = TableStyleInfo(name="TableStyleMedium4", showRowStripes=True)
+    ws_s.add_table(tab_s)
 
     buf = io.BytesIO()
     wb.save(buf)
