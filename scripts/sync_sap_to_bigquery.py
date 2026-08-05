@@ -789,6 +789,112 @@ def sync_dashboard_snapshot_to_firestore(bq_client: bigquery.Client,
     return written
 
 
+def sync_backorder_snapshot_to_firestore(bq_client: bigquery.Client,
+                                          db: firestore.Client,
+                                          dry_run: bool = False) -> int:
+    """v398+ (2026-08-05): agrega v_backorder_lineas por vendedor y escribe
+    a Firestore backorder_snapshot/{VENDOR_NORM} con {lines: [array de
+    lineas SQ open sin stock]}. Alimenta la nueva tab BACKORDERS de la app:
+    cuando llega mercaderia el vendedor busca por SKU y ve que clientes
+    lo tenian pedido para avisarles.
+
+    Estrategia:
+    - 1 doc por vendedor (~6 vendedores + '(SIN ASIGNAR)' fallback).
+    - JOIN con client_applications_raw_raw_latest para obtener assignedVendor
+      por cliente_code.
+    - Vendedor lee solo su doc; admin/gerente/interno leen todos.
+    - Firestore doc size ~50-500 KB por vendedor (dentro del limite 1MB).
+    """
+    log('[BACKORDER] agregando v_backorder_lineas por vendedor...')
+    query = """
+    WITH backorder AS (
+      SELECT sku, producto, familia, subfamilia, is_pesca,
+             pedido, pendiente, stock_actual, precio_unitario,
+             cliente_code, cliente_nombre, cliente_ciudad,
+             sq_doc_num, sq_doc_date, estado
+      FROM `app-vendedores-shimano.shimano_app.v_backorder_lineas`
+      WHERE pendiente > 0
+    ),
+    cliente_vendor AS (
+      SELECT
+        JSON_VALUE(data, '$.cardCodeSap') AS card_code,
+        ARRAY_AGG(
+          IFNULL(NULLIF(JSON_VALUE(data, '$.assignedVendor'), ''), '(SIN ASIGNAR)')
+          IGNORE NULLS ORDER BY document_id LIMIT 1
+        )[SAFE_OFFSET(0)] AS assigned_vendor
+      FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+      WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+        AND JSON_VALUE(data, '$.cardCodeSap') != ''
+      GROUP BY card_code
+    )
+    SELECT
+      b.*,
+      IFNULL(cv.assigned_vendor, '(SIN ASIGNAR)') AS assigned_vendor
+    FROM backorder b
+    LEFT JOIN cliente_vendor cv ON cv.card_code = b.cliente_code
+    ORDER BY assigned_vendor, cliente_nombre, sku
+    """
+    rows = list(bq_client.query(query, location=BQ_LOCATION).result())
+    if not rows:
+        log('[BACKORDER] 0 filas (v_backorder_lineas vacia o pendiente<=0 en todas)')
+        return 0
+    # Group by vendor
+    by_vendor: dict = {}
+    for row in rows:
+        d = dict(row.items())
+        vendor = d.pop('assigned_vendor', '(SIN ASIGNAR)') or '(SIN ASIGNAR)'
+        # Firestore-friendly types: convertir dates a ISO strings.
+        if d.get('sq_doc_date'):
+            d['sq_doc_date'] = d['sq_doc_date'].isoformat()
+        # Solo lineas de PESCA (v_backorder_lineas ya trae otros items tambien
+        # pero para la app filtramos solo pesca)
+        if not d.get('is_pesca'):
+            continue
+        d = {
+            'sku':              d.get('sku') or '',
+            'producto':         d.get('producto') or '',
+            'familia':          d.get('familia') or '',
+            'subfamilia':       d.get('subfamilia') or '',
+            'pendiente':        float(d.get('pendiente') or 0),
+            'pedido':           float(d.get('pedido') or 0),
+            'stockActual':      int(d.get('stock_actual') or 0),
+            'precioUnitario':   float(d.get('precio_unitario') or 0),
+            'clienteCode':      d.get('cliente_code') or '',
+            'clienteNombre':    d.get('cliente_nombre') or '',
+            'clienteCiudad':    d.get('cliente_ciudad') or '',
+            'sqDocNum':         int(d.get('sq_doc_num') or 0),
+            'sqDocDate':        d.get('sq_doc_date') or '',
+            'estado':           d.get('estado') or '',
+        }
+        by_vendor.setdefault(vendor, []).append(d)
+    log(f'[BACKORDER] {sum(len(v) for v in by_vendor.values())} lineas pesca en {len(by_vendor)} vendedores')
+    if dry_run:
+        for v, lines in by_vendor.items():
+            log(f'  DRY-RUN {v}: {len(lines)} lineas')
+        return 0
+    coll = db.collection('backorder_snapshot')
+    written = 0
+    for vendor, lines in by_vendor.items():
+        vendor_norm = vendor.replace(' ', '_').replace('(', '').replace(')', '').upper()
+        payload = {
+            'vendorKey': vendor,
+            'linesCount': len(lines),
+            'lines': lines,
+            'updatedAt': firestore.SERVER_TIMESTAMP,
+        }
+        coll.document(vendor_norm).set(payload)
+        written += 1
+    # Cleanup: borrar docs de vendedores que ya no tienen backorder.
+    existing_ids = {vendor.replace(' ', '_').replace('(', '').replace(')', '').upper()
+                     for vendor in by_vendor.keys()}
+    for doc in coll.stream():
+        if doc.id not in existing_ids:
+            doc.reference.delete()
+            log(f'[BACKORDER] cleanup: borrado doc {doc.id} (sin backorder)')
+    log(f'[BACKORDER] {written} docs escritos a backorder_snapshot')
+    return written
+
+
 def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
                                        db: firestore.Client,
                                        dry_run: bool = False) -> int:
@@ -1378,6 +1484,16 @@ def main():
         sync_pedido_estados_to_firestore(bq_client, db, dry_run=dry_run)
     except Exception as e:
         log(f'[PEDIDO_ESTADO] fallo (no bloqueante): {e}')
+
+    # === 11. Backorder por vendedor (BQ -> Firestore) v398+ (2026-08-05)
+    # Alimenta la nueva tab BACKORDERS de la app. 1 doc por vendedor en
+    # backorder_snapshot/{VENDOR_NORM} con array de lineas SQ pendientes.
+    # Uso: cuando llega mercaderia el vendedor busca el SKU y ve que
+    # clientes lo tenian pedido para avisarles.
+    try:
+        sync_backorder_snapshot_to_firestore(bq_client, db, dry_run=dry_run)
+    except Exception as e:
+        log(f'[BACKORDER] fallo (no bloqueante): {e}')
 
     log('=== sync_sap_to_bigquery END OK ===')
 
