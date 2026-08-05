@@ -3169,7 +3169,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       </div>
       <div id="backorders-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <input id="backorders-search" oninput="onBackordersSearch()" type="text" placeholder="Buscar por SKU, codigo o cliente (ej: SN2000FJ o MUNDO ESTURION)..." style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff"/>
-        <button onclick="clearBackordersSearch()" style="padding:9px 14px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer">Limpiar</button>
+        <button onclick="exportBackordersToExcel()" style="padding:9px 14px;border:1.5px solid #c2410c;border-radius:6px;background:#c2410c;color:#fff;font-size:12px;font-weight:700;cursor:pointer">Exportar</button>
       </div>
       <div id="backorders-summary" style="margin-bottom:12px;padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:11px;color:#78350f"></div>
       <div id="backorders-list" style="max-height:calc(100vh - 320px);overflow-y:auto"></div>
@@ -3389,7 +3389,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v400';
+const APP_VERSION = 'v401';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -8699,6 +8699,55 @@ window.clearBackordersSearch = function(){
   if (inp) inp.value = '';
   backordersSearchQuery = '';
   renderBackordersTab();
+};
+// v401 (2026-08-05): exportar backorders filtrados a Excel. Respeta el
+// buscador actual (SKU/producto/clienteNombre) y el filtro role-based
+// que ya aplico ensureBackordersListener. Sheet unico con 1 fila por
+// linea (sku + cliente + unidades pendientes).
+window.exportBackordersToExcel = function(){
+  if (!backorderLines.length) {
+    alert('No hay backorders para exportar todavia. Espera al proximo sync (cada 30 min).');
+    return;
+  }
+  const q = backordersSearchQuery;
+  const rows = backorderLines.filter(ln => {
+    if (!q) return true;
+    return (ln.sku||'').toLowerCase().includes(q)
+        || (ln.producto||'').toLowerCase().includes(q)
+        || (ln.clienteNombre||'').toLowerCase().includes(q);
+  }).map(ln => ({
+    'SKU':              ln.sku || '',
+    'Producto':         ln.producto || '',
+    'Familia':          ln.familia || '',
+    'Subfamilia':       ln.subfamilia || '',
+    'Cliente':          ln.clienteNombre || '',
+    'CardCode':         ln.clienteCode || '',
+    'Ciudad':           ln.clienteCiudad || '',
+    'Vendedor':         ln.vendorKey || '',
+    'Unidades pendientes': Math.round(parseFloat(ln.pendiente) || 0),
+    'Precio unitario':  parseFloat(ln.precioUnitario) || 0,
+    'Importe pendiente': Math.round((parseFloat(ln.pendiente) || 0) * (parseFloat(ln.precioUnitario) || 0)),
+    'SQ Doc Num':       ln.sqDocNum || '',
+    'SQ Fecha':         ln.sqDocDate || '',
+    'Estado':           ln.estado || '',
+  }));
+  if (!rows.length) {
+    alert('No hay resultados para el filtro actual. Limpia la busqueda o cambia el termino.');
+    return;
+  }
+  try {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, 'Backorders');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const suffix = q ? ('_' + q.replace(/[^a-z0-9]/gi, '').slice(0, 20)) : '';
+    const filename = 'Backorders_' + dateStr + suffix + '.xlsx';
+    XLSX.writeFile(wb, filename);
+    if (typeof showSyncTag === 'function') showSyncTag('Exportado: ' + rows.length + ' lineas');
+  } catch(e) {
+    console.error('exportBackordersToExcel', e);
+    alert('Error al generar el Excel: ' + (e.message || e));
+  }
 };
 window.renderBackordersTab = function(){
   const list = document.getElementById('backorders-list');
