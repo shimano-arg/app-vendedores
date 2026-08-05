@@ -302,10 +302,12 @@ window.validateReviewAndPasarAPendientes = function () {
       (document.getElementById('rv-sucursal-direccion') || {}).value || ''
     ).trim();
     // v397 (2026-08-04): 4 campos para RETIRO_DEPOSITO.
-    const retiroNombre   = ((document.getElementById('rv-retiro-nombre')   || {}).value || '').trim();
-    const retiroApellido = ((document.getElementById('rv-retiro-apellido') || {}).value || '').trim();
-    const retiroDni      = ((document.getElementById('rv-retiro-dni')      || {}).value || '').trim();
-    const retiroPatente  = ((document.getElementById('rv-retiro-patente')  || {}).value || '').trim();
+    const retiroNombre = ((document.getElementById('rv-retiro-nombre') || {}).value || '').trim();
+    const retiroApellido = (
+      (document.getElementById('rv-retiro-apellido') || {}).value || ''
+    ).trim();
+    const retiroDni = ((document.getElementById('rv-retiro-dni') || {}).value || '').trim();
+    const retiroPatente = ((document.getElementById('rv-retiro-patente') || {}).value || '').trim();
     if (feVal === 'TRANSPORTISTA') {
       // 3 campos obligatorios: nombre + direccion del transportista + direccion
       // de entrega FINAL al cliente (donde el transportista entrega).
@@ -347,10 +349,10 @@ window.validateReviewAndPasarAPendientes = function () {
       // v397 (2026-08-04): NOMBRE + APELLIDO + DNI + PATENTE del responsable.
       if (!retiroNombre || !retiroApellido || !retiroDni || !retiroPatente) {
         const faltantes = [];
-        if (!retiroNombre)   faltantes.push('NOMBRE del responsable');
+        if (!retiroNombre) faltantes.push('NOMBRE del responsable');
         if (!retiroApellido) faltantes.push('APELLIDO del responsable');
-        if (!retiroDni)      faltantes.push('DNI del responsable');
-        if (!retiroPatente)  faltantes.push('PATENTE del vehiculo');
+        if (!retiroDni) faltantes.push('DNI del responsable');
+        if (!retiroPatente) faltantes.push('PATENTE del vehiculo');
         showReviewError(
           'Elegiste "Retiro en el deposito": falta completar ' + faltantes.join(' + ') + '.'
         );
@@ -997,10 +999,12 @@ window.onFormaEntregaChange = function () {
     if (s) s.value = '';
   }
   if (val !== 'RETIRO_DEPOSITO') {
-    ['rv-retiro-nombre', 'rv-retiro-apellido', 'rv-retiro-dni', 'rv-retiro-patente'].forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) el.value = '';
-    });
+    ['rv-retiro-nombre', 'rv-retiro-apellido', 'rv-retiro-dni', 'rv-retiro-patente'].forEach(
+      (id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      }
+    );
   }
   try {
     revalidateReviewSilently();
@@ -1027,10 +1031,10 @@ window.revalidateReviewSilently = function () {
     const s = ((document.getElementById('rv-sucursal-direccion') || {}).value || '').trim();
     if (!s) return;
   } else if (feVal === 'RETIRO_DEPOSITO') {
-    const n = ((document.getElementById('rv-retiro-nombre')   || {}).value || '').trim();
+    const n = ((document.getElementById('rv-retiro-nombre') || {}).value || '').trim();
     const a = ((document.getElementById('rv-retiro-apellido') || {}).value || '').trim();
-    const d = ((document.getElementById('rv-retiro-dni')      || {}).value || '').trim();
-    const p = ((document.getElementById('rv-retiro-patente')  || {}).value || '').trim();
+    const d = ((document.getElementById('rv-retiro-dni') || {}).value || '').trim();
+    const p = ((document.getElementById('rv-retiro-patente') || {}).value || '').trim();
     if (!n || !a || !d || !p) return;
   }
   // Todo OK: limpiar banner si estaba visible.

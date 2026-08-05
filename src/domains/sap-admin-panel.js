@@ -534,7 +534,8 @@ function buildEntregaSuffixForRemarks(pedido) {
     const dni = (fe.retiroDni || '').trim();
     const patente = (fe.retiroPatente || '').trim();
     const partes = [];
-    if (nombre || apellido) partes.push('Responsable: ' + [nombre, apellido].filter(Boolean).join(' '));
+    if (nombre || apellido)
+      partes.push('Responsable: ' + [nombre, apellido].filter(Boolean).join(' '));
     if (dni) partes.push('DNI: ' + dni);
     if (patente) partes.push('Patente: ' + patente);
     if (!partes.length) return ' | Entrega RETIRO_DEPOSITO';
