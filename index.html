@@ -3389,7 +3389,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v399';
+const APP_VERSION = 'v400';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -12194,9 +12194,10 @@ function applyRolePermissions(){
   // Badge: ADMIN solo el rol; resto solo PRIMER NOMBRE del usuario para que entre en mobile.
   const badge = document.getElementById('user-role-badge');
   badge.className = 'role-badge ' + userRole;
-  // Usamos 'flex' (no 'inline-block') para que align/justify del CSS .role-badge
-  // funcionen y el texto quede centrado vertical y horizontalmente.
-  badge.style.display = 'flex';
+  // v400 (2026-08-05): pedido de Mariano - ocultar el role-badge del header
+  // (mostraba "ADMIN" morado al lado del titulo "MAPA DE VENTAS - ARGENTINA").
+  // No aporta info util; el rol se ve implicito por los botones disponibles.
+  badge.style.display = 'none';
   function firstName(s){
     if (!s) return '';
     return s.toString().trim().split(/\s+/)[0].toUpperCase();
