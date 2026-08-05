@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v380](#41-changelog-v300--v380)
+41. [Changelog v300 → v397](#41-changelog-v300--v397)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -2914,7 +2914,7 @@ Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gere
 
 ## 40) Power BI / BigQuery
 
-**Estado a 2026-07-23**:
+**Estado a 2026-08-05**:
 - ✅ **Fase 1.1** Firestore → BigQuery (7 collecciones + backfill)
 - ✅ **Fase 1.2** SAP → BigQuery (**9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, Deliveries, Returns)
 - ✅ **Fase 2** Modelo de datos: **23 vistas SQL curadas** (9 base + 3 deuda 2026-07-20 + 2 rendiciones 2026-07-22 + 3 campañas 2026-07-30 + 1 leads 2026-08-03 + 1 remitos 2026-08-03 + 1 ofertas/TOTAL 2026-08-04 + 1 conversion leads mensual 2026-08-04 + 1 leads contactos mensual 2026-08-04 + 1 leads snapshot fin de mes 2026-08-04)
@@ -4132,11 +4132,25 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v380
+## 41) Changelog v300 → v397
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
 
 Versiones **v204 → v299 archivadas** en [`CHANGELOG-ARCHIVE-v204-v299.md`](./CHANGELOG-ARCHIVE-v204-v299.md) (poda v380, 2026-08-02).
+
+Versiones **v382 → v397** (2026-08-02 → 2026-08-05) documentadas de forma consolidada en la celda **APP_VERSION** de la tabla superior del README (§ tabla inicial) para evitar duplicación con los commits del bloque. Highlights del período:
+- **v382-v383** infra (fix ReferenceError cross-module + Biome lint como guardrail).
+- **v384-v389** compliance + fixes SAP (crypto.randomUUID, dedupe ItemCode, DiscountPercent=0, Federico 1MB fix).
+- **v390-v394** correcciones de UI/reporting (dedupe SAP, remove cards $0, rename HABILITADOS→CLIENTES EN SAP, fix contador).
+- **v395** fix cards del sidebar respetan sub-filtro TODOS/CLIENTE EN SAP/LEADS.
+- **v396** 3 botones ESTADO en modal Alta SAP para follow-up de LEADs + rules extendidas.
+- **v397** forma de entrega "Retiro en el depósito" con 4 campos obligatorios (nombre/apellido/DNI/patente).
+
+Vistas BQ agregadas en el mismo período (documentadas en §40):
+- `v_ofertas_lineas` con dedupe SQ (fix duplicados por vendedor)
+- `v_conversion_leads_mensual` (procesamiento del backlog)
+- `v_leads_contactos_mensual` (contactos con/sin doc + conversion ever)
+- `v_leads_snapshot_fin_mes` (foto congelada de stock LEADs+SAP al cierre de cada mes)
 
 ### v381 (2026-08-02) — Cleanup docs post-activación de branch protection
 
