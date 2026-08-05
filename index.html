@@ -3396,7 +3396,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v402';
+const APP_VERSION = 'v403';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -8826,9 +8826,24 @@ window.renderBackordersTab = function(){
     // Ordenar clientes por unidades DESC.
     g.clientes.sort((a,b) => b.pendiente - a.pendiente);
     const totalStr = Math.round(g.totalPendiente);
+    // v403 (2026-08-05): pintar header segun disponibilidad de stock.
+    // Verde=whs 11 (venta), Amarillo=whs 12 (transito), Naranja=sin stock.
+    const _stkDisp = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(g.sku) || 0) : 0;
+    const _stkTran = (typeof getStockTransito === 'function') ? (getStockTransito(g.sku) || 0) : 0;
+    let _hdrGradient, _stkLabel;
+    if (_stkDisp > 0) {
+      _hdrGradient = 'linear-gradient(135deg,#166534,#16a34a)';
+      _stkLabel = '&#9989; ' + _stkDisp + ' disponibles en dep. 11';
+    } else if (_stkTran > 0) {
+      _hdrGradient = 'linear-gradient(135deg,#78350f,#d97706)';
+      _stkLabel = '&#128666; ' + _stkTran + ' en transito (dep. 12)';
+    } else {
+      _hdrGradient = 'linear-gradient(135deg,#7c2d12,#c2410c)';
+      _stkLabel = '&#9888;&#65039; sin stock en ningun deposito';
+    }
     html += '<div style="margin-bottom:12px;background:#fff;border:1.5px solid #e2e8f0;border-radius:8px;overflow:hidden">';
     // Header del SKU
-    html += '<div style="padding:10px 14px;background:linear-gradient(135deg,#7c2d12,#c2410c);color:#fff">';
+    html += '<div style="padding:10px 14px;background:' + _hdrGradient + ';color:#fff">';
     html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">';
     html += '<div style="flex:1;min-width:0">';
     html += '<div style="font-size:13px;font-weight:800">' + escapeHtml(g.sku) + '</div>';
@@ -8836,6 +8851,7 @@ window.renderBackordersTab = function(){
     if (g.familia || g.subfamilia) {
       html += '<div style="font-size:10px;opacity:.75;margin-top:2px">' + escapeHtml(g.familia || '-') + ' / ' + escapeHtml(g.subfamilia || '-') + '</div>';
     }
+    html += '<div style="font-size:10px;opacity:.95;margin-top:4px;font-weight:700">' + _stkLabel + '</div>';
     html += '</div>';
     html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:18px;font-weight:800">' + totalStr + '</div><div style="font-size:9px;text-transform:uppercase;opacity:.9;letter-spacing:.4px">unidades</div></div>';
     html += '</div></div>';
