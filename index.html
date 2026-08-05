@@ -3396,7 +3396,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v405';
+const APP_VERSION = 'v406';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -4542,6 +4542,25 @@ function saveCanceled(){
 function contactKey(p, name, tipo){
   return tipo + '|' + p.province + '|' + p.name + '|' + name;
 }
+// v406 (2026-08-05): matcheo de localidad case-insensitive + startsWith.
+// Fix bug reportado por Mariano: filtro loc='Rosario' NO matcheaba altas SAP
+// con localidad='ROSARIO SUD' o 'Rosario Sur' porque la comparacion era
+// case-sensitive + strict equality. Ahora 'Rosario' matchea 'ROSARIO SUD',
+// 'Rosario Centro', 'ROSARIO', etc. Se usa en 4-5 filtros de altas SAP
+// dispersos (renderClients, updateStats, master clientes).
+function matchesLocalityFilter(aLoc, filterLoc){
+  if (!filterLoc) return true;
+  if (!aLoc) return false;
+  const a = String(aLoc).toUpperCase().trim();
+  const f = String(filterLoc).toUpperCase().trim();
+  if (!f) return true;
+  if (a === f) return true;
+  // startsWith(prefix + separador) para evitar false positives:
+  // 'RIO GRANDE'.startsWith('RIO') es true pero deberian ser distintos.
+  // Con separador ' ' (espacio), '/', o '-': 'ROSARIO SUD'.startsWith('ROSARIO ')
+  return a.startsWith(f + ' ') || a.startsWith(f + '/') || a.startsWith(f + '-') || f.startsWith(a + ' ');
+}
+window.matchesLocalityFilter = matchesLocalityFilter;
 function getClientState(key){
   if (contacted.has(key)) return 'habilitado';
   if (canceled.has(key)) return 'cancelado';
@@ -6224,7 +6243,7 @@ function updateStats(pts){
       if (!prov && (provFilter || locFilter)) return; // con filtro activo, sin prov no aplica
       if (prov && provFilter && prov !== provFilter) return;
       const aLoc = (a.localidadFinal || a.localidad || '').trim();
-      if (locFilter && aLoc !== locFilter) return;
+      if (locFilter && !matchesLocalityFilter(aLoc, locFilter)) return;
       const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
       if (prov && ptsCounted.has(prov + '|' + nombre.toLowerCase())) return;
       const hasGeo = (a.lat != null && a.lng != null);
@@ -6287,7 +6306,7 @@ function updateStats(pts){
     const _aProv = (a.provincia || '').toUpperCase().trim();
     if (_aProv && _leadsProvFilter && _aProv !== _leadsProvFilter) return false;
     const _aLoc = (a.localidadFinal || a.localidad || '').trim();
-    if (_leadsLocFilter && _aLoc !== _leadsLocFilter) return false;
+    if (_leadsLocFilter && !matchesLocalityFilter(_aLoc, _leadsLocFilter)) return false;
     return true;
   });
   // v395: LEADS card = 0 cuando el sub-filtro esta en CLIENTE EN SAP.
@@ -6383,7 +6402,7 @@ function updateContactSummary(){
       if (prov && provFilter && prov !== provFilter) return;
       if (!prov && provFilter) return;
       const aLoc = (a.localidadFinal || a.localidad || '').trim();
-      if (locFilter && aLoc !== locFilter) return;
+      if (locFilter && !matchesLocalityFilter(aLoc, locFilter)) return;
       const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
       if (prov && ptsCounted.has(prov + '|' + nombre.toLowerCase())) return;
       // v364+: mismo criterio state que renderClients para SAP altas.
@@ -6475,7 +6494,7 @@ function renderClients(pts){
       if (provFilter && prov !== provFilter) return;
       if (!prov && provFilter) return;
       const aLoc = (a.localidadFinal || a.localidad || '').trim();
-      if (locFilter && aLoc !== locFilter) return;
+      if (locFilter && !matchesLocalityFilter(aLoc, locFilter)) return;
       const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
       const dupKey = prov + '|' + nombre.toLowerCase();
       if (prov && alreadyIn.has(dupKey)) return;
@@ -9384,7 +9403,7 @@ function getContactedClientsFromFilter(pts){
     if (!prov) return;
     if (provFilter && prov !== provFilter) return;
     const aLoc = (a.localidadFinal || a.localidad || '').trim();
-    if (locFilter && aLoc !== locFilter) return;
+    if (locFilter && !matchesLocalityFilter(aLoc, locFilter)) return;
     const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
     if (seen.has(prov + '|' + nombre.toLowerCase())) return;
     items.push({
