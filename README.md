@@ -2917,7 +2917,7 @@ Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gere
 **Estado a 2026-07-23**:
 - ✅ **Fase 1.1** Firestore → BigQuery (7 collecciones + backfill)
 - ✅ **Fase 1.2** SAP → BigQuery (**9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, Deliveries, Returns)
-- ✅ **Fase 2** Modelo de datos: **22 vistas SQL curadas** (9 base + 3 deuda 2026-07-20 + 2 rendiciones 2026-07-22 + 3 campañas 2026-07-30 + 1 leads 2026-08-03 + 1 remitos 2026-08-03 + 1 ofertas/TOTAL 2026-08-04 + 1 conversion leads mensual 2026-08-04 + 1 leads contactos mensual 2026-08-04)
+- ✅ **Fase 2** Modelo de datos: **23 vistas SQL curadas** (9 base + 3 deuda 2026-07-20 + 2 rendiciones 2026-07-22 + 3 campañas 2026-07-30 + 1 leads 2026-08-03 + 1 remitos 2026-08-03 + 1 ofertas/TOTAL 2026-08-04 + 1 conversion leads mensual 2026-08-04 + 1 leads contactos mensual 2026-08-04 + 1 leads snapshot fin de mes 2026-08-04)
 - ✅ **Fase 3** Power BI Desktop → Service: **TABLERO SAR publicado en `Mi área de trabajo`**. Modelo con 12 vistas + `sap_items_raw` + `Vendedores` + `Origenes` + `Medidas` + `Date`. Páginas operativas: Desempeño-Pesca, Ventas, Pedidos, Visitas, **Facturación por Vendedor** (con Cobrado + Deuda), Backorder, Inventario.
 - ✅ **Fase 3.5** Distribución automática: **suscripción diaria a Mariano** ("Desempeño diario de ventas SAR - PESCA") @15:00 AR + refresh programado @14:30. Ver subsección abajo.
 - ✅ **Fase 3.6 (2026-07-21)** Deuda por vendedor de la app: 3 vistas + cards Cobrado/Deuda en hoja Facturación por Vendedor. Ver subsección "Vistas de deuda" abajo.
@@ -3054,6 +3054,53 @@ Pedido de Mariano: ver mes a mes cuántos LEADs fueron contactados (con o sin do
 4. Card individual "Contactos del mes" con `leads_contactados_total_mes` filtrada por vendor y mes actual + "% Conversión ever" con `pct_conversion_ever`.
 
 **Sin medidas DAX nuevas** — todos los cálculos vienen resueltos de la vista.
+
+### Vista Snapshot LEADs+SAP fin de mes (2026-08-04) — NUEVO
+
+Pedido de Mariano: tabla mes a mes que muestre "cómo estaba cada vendedor al cierre de cada mes" — cuántos LEADs tenía y cuántos Clientes SAP — **con las fotos congeladas** (si en septiembre convierte más leads, la foto de agosto NO cambia). Complementa las otras 2 vistas de leads: mientras `v_conversion_leads_mensual` y `v_leads_contactos_mensual` miden flujo (conversiones nuevas, contactos hechos), esta mide el **STOCK acumulado al fin del mes**.
+
+**Vista nueva** en `bigquery/views.sql`:
+
+| Vista | Granularidad | Columnas |
+|---|---|---|
+| `v_leads_snapshot_fin_mes` | 1 fila por `(mes, assigned_vendor)` | `mes (=último día del mes), assigned_vendor, leads, clientes_sap, total, pct_conversion` |
+
+**Cómo se reconstruye la historia**: para cada `(mes, documento)` toma el ÚLTIMO snapshot del documento con `timestamp < 1er día del mes M+1`. Con eso sabe cómo estaba cada lead al cierre. El resultado es una foto congelada: septiembre 2026 no cambia aunque en octubre 2026 convierta más leads.
+
+**Mes en curso vive**: al arrancar un nuevo mes, la fila `mes = fin de mes actual` va cambiando día a día hasta que termine. Recién el 1er día del mes siguiente queda congelada. Ejemplo: la fila `2026-08-31` hoy (2026-08-04) muestra la foto viva; va a cambiar cada vez que se marque una conversión o se cree un lead.
+
+**Snapshot 2026-08-04**:
+
+| Mes | Vendedor | LEADs | Clientes SAP | Total | % Conv |
+|---|---|---:|---:|---:|---:|
+| ago-26 (viva) | GONZALO DE LA ROSA | 134 | 46 | 180 | 26% |
+| ago-26 (viva) | SANTIAGO ESTEBAN | 97 | 15 | 112 | 13% |
+| ago-26 (viva) | MAURICIO GIL | 79 | 30 | 109 | 28% |
+| ago-26 (viva) | FEDERICO CASTELANELLI | 55 | 52 | 107 | 49% |
+| ago-26 (viva) | MARTIN BOIERO | 70 | 23 | 93 | 25% |
+| ago-26 (viva) | IOANNIS PALKOUDAKIS | 72 | 17 | 89 | 19% |
+| **jul-26 (congelada)** | **SANTIAGO ESTEBAN** | 96 | 14 | 110 | 13% |
+| jul-26 (congelada) | MAURICIO GIL | 76 | 30 | 106 | 28% |
+| jul-26 (congelada) | FEDERICO CASTELANELLI | 48 | 52 | 100 | 52% |
+| jul-26 (congelada) | MARTIN BOIERO | 68 | 23 | 91 | 25% |
+| jul-26 (congelada) | IOANNIS PALKOUDAKIS | 70 | 17 | 87 | 20% |
+| jul-26 (congelada) | GONZALO DE LA ROSA | 10 | 44 | 54 | 81% |
+
+**Deploy 2026-08-04**: `CREATE OR REPLACE VIEW v_leads_snapshot_fin_mes` aplicado en BQ.
+
+**Uso Power BI Desktop** — armar la tabla LEADs pedida por Mariano:
+1. **Get Data → BigQuery → v_leads_snapshot_fin_mes** → Load.
+2. Visual **Tabla** con columnas:
+   - VENDEDOR (`assigned_vendor`)
+   - LEADS (`leads`)
+   - CLIENTES SAP (`clientes_sap`)
+   - TOTAL (`total`)
+   - CONVERSION % (`pct_conversion`, formato Porcentaje 0 decimales)
+3. **Slicer**: `mes` (permite ver la foto del mes que quieras — jul-26, ago-26, sep-26…) + opcional `assigned_vendor`.
+4. Ordenar por `pct_conversion` descendente.
+5. Sin medidas DAX nuevas.
+
+**Nota**: los meses anteriores a julio 2026 tienen datos parciales (el sistema arrancó ese mes). Desde julio en adelante los snapshots son exactos.
 
 ### Vista REMITIDO (2026-08-03) — NUEVO
 
