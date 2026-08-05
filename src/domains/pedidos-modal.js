@@ -235,6 +235,96 @@ window.closeReviewDialog = function () {
   document.getElementById('review-modal').classList.remove('open');
 };
 
+// v409 (2026-08-05): modal con detalle de las lineas del pedido actual
+// que estan marcadas sinStock=true. Se abre desde el boton "Ver detalle"
+// que aparece al lado del subtotal "Sin stock" en el review dialog.
+window.openSinStockDetail = function () {
+  const key = window.currentOrderKey;
+  const ord = (key && orders[key]) || [];
+  const sinStock = ord.filter((l) => !!l.sinStock);
+  if (!sinStock.length) {
+    alert('No hay items sin stock en este pedido.');
+    return;
+  }
+  const fmt = (n) => '$' + Math.round(n).toLocaleString('es-AR');
+  let totalFaltantesU = 0;
+  let totalFaltantesM = 0;
+  let rowsHtml = '';
+  sinStock.forEach((l) => {
+    const q = parseFloat(l.qty) || 0;
+    const p = parseFloat(l.precio) || 0;
+    const faltantes = parseFloat(l.faltantesQty) || q;
+    const disponibles = q - faltantes;
+    const transito = parseFloat(l.transitoQty) || 0;
+    totalFaltantesU += faltantes;
+    totalFaltantesM += faltantes * p;
+    rowsHtml +=
+      '<div style="padding:10px 12px;border-bottom:1px solid #fef2f2;background:#fef2f2">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px">' +
+      '<div style="font-size:12px;font-weight:800;color:#7f1d1d">' +
+      escapeHtml(l.code) +
+      '</div>' +
+      '<div style="font-size:14px;font-weight:800;color:#991b1b">' +
+      Math.round(faltantes) +
+      ' u faltan</div>' +
+      '</div>' +
+      '<div style="font-size:11px;color:#475569;margin-bottom:6px">' +
+      escapeHtml(l.desc || '') +
+      '</div>' +
+      '<div style="display:flex;gap:10px;font-size:10px;color:#64748b;flex-wrap:wrap">' +
+      '<span>Pedido: <b style="color:#0f172a">' +
+      Math.round(q) +
+      ' u</b></span>' +
+      '<span>Disponibles: <b style="color:#166534">' +
+      Math.round(disponibles) +
+      ' u</b></span>' +
+      '<span>Faltantes: <b style="color:#991b1b">' +
+      Math.round(faltantes) +
+      ' u</b></span>' +
+      '<span>Importe faltante: <b style="color:#991b1b">' +
+      fmt(faltantes * p) +
+      '</b></span>' +
+      (transito > 0
+        ? '<span style="width:100%;margin-top:4px;color:#b45309">&#128666; ' +
+          Math.round(transito) +
+          ' u en tr&aacute;nsito (almac&eacute;n 12)</span>'
+        : '') +
+      '</div>' +
+      '</div>';
+  });
+  let modalEl = document.getElementById('sin-stock-detail-modal');
+  if (!modalEl) {
+    modalEl = document.createElement('div');
+    modalEl.id = 'sin-stock-detail-modal';
+    modalEl.className = 'modal-overlay';
+    modalEl.style.zIndex = '4200';
+    modalEl.onclick = function (e) {
+      if (e.target === modalEl) modalEl.classList.remove('open');
+    };
+    document.body.appendChild(modalEl);
+  }
+  modalEl.innerHTML =
+    '<div class="modal-box" style="width:min(500px,96vw);max-height:88vh;display:flex;flex-direction:column">' +
+    '<div class="modal-head" style="background:linear-gradient(135deg,#7f1d1d,#dc2626)">' +
+    '<div><h2>&#9888;&#65039; Items sin stock</h2><div class="subt">' +
+    sinStock.length +
+    ' producto' +
+    (sinStock.length === 1 ? '' : 's') +
+    ' &middot; ' +
+    Math.round(totalFaltantesU) +
+    ' unidades faltantes &middot; ' +
+    fmt(totalFaltantesM) +
+    '</div></div>' +
+    '<button class="modal-close" onclick="document.getElementById(\'sin-stock-detail-modal\').classList.remove(\'open\')">&times;</button>' +
+    '</div>' +
+    '<div style="overflow-y:auto;flex:1">' +
+    rowsHtml +
+    '</div>' +
+    '<div style="padding:10px 14px;border-top:1px solid #e2e8f0;background:#f8fafc;font-size:10px;color:#64748b;line-height:1.5">Las cantidades pedidas van completas a SAP. Admin decide al aprobar la Oferta qu&eacute; facturar hoy vs backorder. Info de almac&eacute;n 12 (tr&aacute;nsito) sirve para dar fecha estimada al cliente.</div>' +
+    '</div>';
+  modalEl.classList.add('open');
+};
+
 // Validaciones + abrir el confirm-dialog. Reemplaza al viejo
 // 'closeReviewDialog();openConfirmDialog()' que fallaba silenciosamente:
 // si algo faltaba, se cerraba el review y salia un alert nativo en un
@@ -796,7 +886,12 @@ function renderReviewLines() {
       noN +
       ' prod &middot; ' +
       noU +
-      ' u</span>' +
+      ' u' +
+      // v409 (2026-08-05): boton para abrir modal con detalle de las lineas
+      // sin stock. Util para el vendedor: ve rapido cuales SKUs faltan sin
+      // scrollear toda la lista.
+      ' <button onclick="openSinStockDetail()" title="Ver detalle de items sin stock" style="margin-left:6px;padding:2px 8px;border:1px solid #dc2626;border-radius:4px;background:transparent;color:#fca5a5;font-size:10px;font-weight:700;cursor:pointer">Ver detalle</button>' +
+      '</span>' +
       '<span style="color:#fca5a5;font-size:14px;font-weight:800">' +
       fmt(noM) +
       '</span>' +
