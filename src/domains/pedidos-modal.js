@@ -682,7 +682,22 @@ function renderReviewLines() {
     totalM += subtotal;
     const stockAvail = typeof hasStock === 'function' ? hasStock(l.code) : null;
     const noDisp = stockAvail === false;
-    if (noDisp) {
+    // v408 (2026-08-05): si la linea tiene faltantesQty (v407+ Excel import),
+    // el "Sin stock" cuenta SOLO las unidades sin cobertura, no la linea
+    // entera. Ejemplo: qty=5, stock=2, faltantesQty=3 -> Disponibles=2u,
+    // Sin stock=3u. Pedido de Mariano. Sino (linea pre-v407 o sin
+    // faltantesQty), se mantiene el comportamiento viejo: si noDisp, todo
+    // a "Sin stock"; sino todo a "Disponibles".
+    const _faltantes = parseFloat(l.faltantesQty) || 0;
+    if (_faltantes > 0 && _faltantes < q) {
+      const qOk = q - _faltantes;
+      okU += qOk;
+      okM += qOk * p;
+      okN++;
+      noU += _faltantes;
+      noM += _faltantes * p;
+      noN++;
+    } else if (noDisp || _faltantes >= q) {
       noU += q;
       noM += subtotal;
       noN++;
