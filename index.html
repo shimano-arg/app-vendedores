@@ -2183,6 +2183,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <option value="">- Seleccionar -</option>
             <option value="TRANSPORTISTA">Entregar a transportista</option>
             <option value="SUCURSAL">Envio a sucursal</option>
+            <option value="RETIRO_DEPOSITO">Retiro en el deposito</option>
           </select>
           <!-- Bloque campos TRANSPORTISTA -->
           <div id="rv-entrega-transp-block" style="display:none;margin-top:10px">
@@ -2197,6 +2198,17 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <div id="rv-entrega-sucursal-block" style="display:none;margin-top:10px">
             <label for="rv-sucursal-direccion" style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Direccion de entrega <span style="color:#dc2626">*</span></label>
             <input id="rv-sucursal-direccion" oninput="try{revalidateReviewSilently()}catch(e){}" type="text" placeholder="Ej: Av. Cabildo 4567, CABA" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff"/>
+          </div>
+          <!-- Bloque campos RETIRO_DEPOSITO (v397, 2026-08-04) -->
+          <div id="rv-entrega-retiro-block" style="display:none;margin-top:10px">
+            <label for="rv-retiro-nombre" style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Nombre del responsable <span style="color:#dc2626">*</span></label>
+            <input id="rv-retiro-nombre" oninput="try{revalidateReviewSilently()}catch(e){}" type="text" placeholder="Ej: Juan" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff;margin-bottom:8px"/>
+            <label for="rv-retiro-apellido" style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Apellido del responsable <span style="color:#dc2626">*</span></label>
+            <input id="rv-retiro-apellido" oninput="try{revalidateReviewSilently()}catch(e){}" type="text" placeholder="Ej: Perez" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff;margin-bottom:8px"/>
+            <label for="rv-retiro-dni" style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">DNI del responsable <span style="color:#dc2626">*</span></label>
+            <input id="rv-retiro-dni" oninput="try{revalidateReviewSilently()}catch(e){}" type="text" inputmode="numeric" placeholder="Ej: 30123456" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff;margin-bottom:8px"/>
+            <label for="rv-retiro-patente" style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Patente del vehiculo <span style="color:#dc2626">*</span></label>
+            <input id="rv-retiro-patente" oninput="try{revalidateReviewSilently()}catch(e){}" type="text" placeholder="Ej: AB123CD" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;color:#0f172a;outline:none;background:#fff;text-transform:uppercase"/>
           </div>
         </div>
         <div id="rv-discount"></div>
@@ -3362,7 +3374,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v396';
+const APP_VERSION = 'v397';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -10267,6 +10279,7 @@ window.viewPedido = function(stage, key, idx){
       const fe = c.formaEntrega;
       const feLabel = (fe.tipo === 'TRANSPORTISTA') ? 'Entregar a transportista'
                     : (fe.tipo === 'SUCURSAL') ? 'Envio a sucursal'
+                    : (fe.tipo === 'RETIRO_DEPOSITO') ? 'Retiro en el deposito'
                     : fe.tipo;
       infoHtml += '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e5e7eb;font-size:12px">';
       infoHtml += '<span style="color:#475569;font-weight:600">Forma de entrega</span>';
@@ -10298,6 +10311,21 @@ window.viewPedido = function(stage, key, idx){
           infoHtml += '<span style="font-weight:700;color:#0f172a;max-width:60%;text-align:right">' + escapeHtml(fe.sucursalDireccion) + '</span>';
           infoHtml += '</div>';
         }
+      } else if (fe.tipo === 'RETIRO_DEPOSITO') {
+        // v397 (2026-08-04): 4 lineas con los datos del responsable + patente vehiculo.
+        const _retiroFields = [
+          ['Nombre del responsable',   fe.retiroNombre],
+          ['Apellido del responsable', fe.retiroApellido],
+          ['DNI del responsable',      fe.retiroDni],
+          ['Patente del vehiculo',     fe.retiroPatente],
+        ];
+        _retiroFields.forEach(([lbl, val]) => {
+          if (!val) return;
+          infoHtml += '<div style="display:flex;justify-content:space-between;padding:5px 0 5px 14px;font-size:11px;color:#64748b">';
+          infoHtml += '<span>&middot; ' + escapeHtml(lbl) + '</span>';
+          infoHtml += '<span style="font-weight:700;color:#0f172a;max-width:60%;text-align:right">' + escapeHtml(val) + '</span>';
+          infoHtml += '</div>';
+        });
       }
     }
     // Tipo de cliente (si esta en el snapshot)
@@ -14519,6 +14547,11 @@ window.doConfirmPedido = function(){
   const transpDireccion = (document.getElementById('rv-transp-direccion') || {}).value || '';
   const clienteDireccion = (document.getElementById('rv-cliente-direccion') || {}).value || '';
   const sucursalDireccion = (document.getElementById('rv-sucursal-direccion') || {}).value || '';
+  // v397 (2026-08-04): 4 campos para forma de entrega RETIRO_DEPOSITO.
+  const retiroNombre = (document.getElementById('rv-retiro-nombre') || {}).value || '';
+  const retiroApellido = (document.getElementById('rv-retiro-apellido') || {}).value || '';
+  const retiroDni = (document.getElementById('rv-retiro-dni') || {}).value || '';
+  const retiroPatente = (document.getElementById('rv-retiro-patente') || {}).value || '';
   if (formaEntregaVal === 'TRANSPORTISTA') {
     if (!transpNombre.trim() || !transpDireccion.trim() || !clienteDireccion.trim()) {
       alert('Como elegiste "Entregar a transportista", tenes que completar NOMBRE + DIRECCION del transportista + DIRECCION DE ENTREGA AL CLIENTE.');
@@ -14529,6 +14562,13 @@ window.doConfirmPedido = function(){
   } else if (formaEntregaVal === 'SUCURSAL') {
     if (!sucursalDireccion.trim()) {
       alert('Como elegiste "Envio a sucursal", tenes que completar la DIRECCION DE ENTREGA.');
+      closeConfirmDialog();
+      try { openReviewDialog(); } catch(e) {}
+      return;
+    }
+  } else if (formaEntregaVal === 'RETIRO_DEPOSITO') {
+    if (!retiroNombre.trim() || !retiroApellido.trim() || !retiroDni.trim() || !retiroPatente.trim()) {
+      alert('Como elegiste "Retiro en el deposito", tenes que completar NOMBRE + APELLIDO + DNI + PATENTE del responsable.');
       closeConfirmDialog();
       try { openReviewDialog(); } catch(e) {}
       return;
@@ -14589,13 +14629,18 @@ window.doConfirmPedido = function(){
     // y en el modal de detalle. NO se envia al header SAP todavia - hay
     // que definir en que UDF/comentario meterlo con Ezequiel Mendoza.
     formaEntrega: {
-      tipo: formaEntregaVal,  // 'TRANSPORTISTA' | 'SUCURSAL'
+      tipo: formaEntregaVal,  // 'TRANSPORTISTA' | 'SUCURSAL' | 'RETIRO_DEPOSITO' (v397)
       transpNombre: (formaEntregaVal === 'TRANSPORTISTA') ? transpNombre.trim() : '',
       transpDireccion: (formaEntregaVal === 'TRANSPORTISTA') ? transpDireccion.trim() : '',
       // v273+: cuando es TRANSPORTISTA guardamos tambien la direccion final
       // donde el transportista entregara el pedido al cliente.
       clienteDireccion: (formaEntregaVal === 'TRANSPORTISTA') ? clienteDireccion.trim() : '',
       sucursalDireccion: (formaEntregaVal === 'SUCURSAL') ? sucursalDireccion.trim() : '',
+      // v397 (2026-08-04): 4 campos obligatorios para RETIRO_DEPOSITO.
+      retiroNombre:  (formaEntregaVal === 'RETIRO_DEPOSITO') ? retiroNombre.trim() : '',
+      retiroApellido:(formaEntregaVal === 'RETIRO_DEPOSITO') ? retiroApellido.trim() : '',
+      retiroDni:     (formaEntregaVal === 'RETIRO_DEPOSITO') ? retiroDni.trim() : '',
+      retiroPatente: (formaEntregaVal === 'RETIRO_DEPOSITO') ? retiroPatente.trim().toUpperCase() : '',
     },
     lines: ord.map(l => ({code: l.code, desc: l.desc, cat: l.cat||'', fam: l.fam||'', sub: l.sub||'', qty: parseFloat(l.qty)||0, precio: parseFloat(l.precio)||0, needsReview: !!l.needsReview})),
     // v280+: flag global si el pedido tiene AL MENOS 1 SKU con needsReview.
