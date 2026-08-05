@@ -1150,7 +1150,19 @@ window.openRendicionDetail = async function (rendId, notifId) {
         ' ' +
         escapeHtml(r.moneda || '') +
         '</div>';
-      h += '<div><b>Importe USD:</b> ' + (r.importeUsd || 0).toLocaleString('es-AR') + '</div>';
+      // v404 (2026-08-05): reemplazado "Importe USD" por "Fecha" DD.MM.YYYY.
+      const _fechaStr = (() => {
+        const d = r.createdAt && r.createdAt.toDate ? r.createdAt.toDate() : null;
+        if (!d) return '-';
+        return (
+          String(d.getDate()).padStart(2, '0') +
+          '.' +
+          String(d.getMonth() + 1).padStart(2, '0') +
+          '.' +
+          d.getFullYear()
+        );
+      })();
+      h += '<div><b>Fecha:</b> ' + _fechaStr + '</div>';
       h +=
         '<div style="grid-column:1/-1"><b>Observaciones:</b> ' +
         escapeHtml(r.observaciones || '') +
