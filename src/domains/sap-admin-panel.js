@@ -525,6 +525,22 @@ function buildEntregaSuffixForRemarks(pedido) {
     const direccion = (fe.sucursalDireccion || '').trim();
     return ' | Entrega SUCURSAL' + (direccion ? ': ' + direccion : '');
   }
+  // v397 (2026-08-04): retiro en el deposito con datos del responsable +
+  // patente del vehiculo -> van al Remarks del Sales Quotation para que
+  // Deposito los tenga cuando el responsable retire.
+  if (fe.tipo === 'RETIRO_DEPOSITO') {
+    const nombre = (fe.retiroNombre || '').trim();
+    const apellido = (fe.retiroApellido || '').trim();
+    const dni = (fe.retiroDni || '').trim();
+    const patente = (fe.retiroPatente || '').trim();
+    const partes = [];
+    if (nombre || apellido)
+      partes.push('Responsable: ' + [nombre, apellido].filter(Boolean).join(' '));
+    if (dni) partes.push('DNI: ' + dni);
+    if (patente) partes.push('Patente: ' + patente);
+    if (!partes.length) return ' | Entrega RETIRO_DEPOSITO';
+    return ' | Entrega RETIRO EN DEPOSITO | ' + partes.join(' | ');
+  }
   return ' | Entrega ' + String(fe.tipo);
 }
 

@@ -211,14 +211,20 @@ window.openReviewDialog = function (mode) {
     'rv-transp-direccion',
     'rv-cliente-direccion',
     'rv-sucursal-direccion',
+    'rv-retiro-nombre',
+    'rv-retiro-apellido',
+    'rv-retiro-dni',
+    'rv-retiro-patente',
   ].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
   const bTransp = document.getElementById('rv-entrega-transp-block');
   const bSucursal = document.getElementById('rv-entrega-sucursal-block');
+  const bRetiro = document.getElementById('rv-entrega-retiro-block');
   if (bTransp) bTransp.style.display = 'none';
   if (bSucursal) bSucursal.style.display = 'none';
+  if (bRetiro) bRetiro.style.display = 'none';
   renderReviewLines();
   renderReviewSuggestions();
   updateReviewFooter();
@@ -295,6 +301,13 @@ window.validateReviewAndPasarAPendientes = function () {
     const sucursalDireccion = (
       (document.getElementById('rv-sucursal-direccion') || {}).value || ''
     ).trim();
+    // v397 (2026-08-04): 4 campos para RETIRO_DEPOSITO.
+    const retiroNombre = ((document.getElementById('rv-retiro-nombre') || {}).value || '').trim();
+    const retiroApellido = (
+      (document.getElementById('rv-retiro-apellido') || {}).value || ''
+    ).trim();
+    const retiroDni = ((document.getElementById('rv-retiro-dni') || {}).value || '').trim();
+    const retiroPatente = ((document.getElementById('rv-retiro-patente') || {}).value || '').trim();
     if (feVal === 'TRANSPORTISTA') {
       // 3 campos obligatorios: nombre + direccion del transportista + direccion
       // de entrega FINAL al cliente (donde el transportista entrega).
@@ -324,6 +337,33 @@ window.validateReviewAndPasarAPendientes = function () {
       if (!sucursalDireccion) {
         showReviewError('Elegiste "Envio a sucursal": falta completar la DIRECCION DE ENTREGA.');
         const el = document.getElementById('rv-sucursal-direccion');
+        if (el) {
+          try {
+            el.focus();
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          } catch (_e) {}
+        }
+        return;
+      }
+    } else if (feVal === 'RETIRO_DEPOSITO') {
+      // v397 (2026-08-04): NOMBRE + APELLIDO + DNI + PATENTE del responsable.
+      if (!retiroNombre || !retiroApellido || !retiroDni || !retiroPatente) {
+        const faltantes = [];
+        if (!retiroNombre) faltantes.push('NOMBRE del responsable');
+        if (!retiroApellido) faltantes.push('APELLIDO del responsable');
+        if (!retiroDni) faltantes.push('DNI del responsable');
+        if (!retiroPatente) faltantes.push('PATENTE del vehiculo');
+        showReviewError(
+          'Elegiste "Retiro en el deposito": falta completar ' + faltantes.join(' + ') + '.'
+        );
+        const targetId = !retiroNombre
+          ? 'rv-retiro-nombre'
+          : !retiroApellido
+            ? 'rv-retiro-apellido'
+            : !retiroDni
+              ? 'rv-retiro-dni'
+              : 'rv-retiro-patente';
+        const el = document.getElementById(targetId);
         if (el) {
           try {
             el.focus();
@@ -940,8 +980,10 @@ window.onFormaEntregaChange = function () {
   const val = sel ? sel.value : '';
   const bTransp = document.getElementById('rv-entrega-transp-block');
   const bSucursal = document.getElementById('rv-entrega-sucursal-block');
+  const bRetiro = document.getElementById('rv-entrega-retiro-block');
   if (bTransp) bTransp.style.display = val === 'TRANSPORTISTA' ? '' : 'none';
   if (bSucursal) bSucursal.style.display = val === 'SUCURSAL' ? '' : 'none';
+  if (bRetiro) bRetiro.style.display = val === 'RETIRO_DEPOSITO' ? '' : 'none';
   // Al ocultarse un bloque, tambien limpiamos el value asi no queda
   // guardado si el vendedor cambia de opcion despues.
   if (val !== 'TRANSPORTISTA') {
@@ -955,6 +997,14 @@ window.onFormaEntregaChange = function () {
   if (val !== 'SUCURSAL') {
     const s = document.getElementById('rv-sucursal-direccion');
     if (s) s.value = '';
+  }
+  if (val !== 'RETIRO_DEPOSITO') {
+    ['rv-retiro-nombre', 'rv-retiro-apellido', 'rv-retiro-dni', 'rv-retiro-patente'].forEach(
+      (id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      }
+    );
   }
   try {
     revalidateReviewSilently();
@@ -980,6 +1030,12 @@ window.revalidateReviewSilently = function () {
   } else if (feVal === 'SUCURSAL') {
     const s = ((document.getElementById('rv-sucursal-direccion') || {}).value || '').trim();
     if (!s) return;
+  } else if (feVal === 'RETIRO_DEPOSITO') {
+    const n = ((document.getElementById('rv-retiro-nombre') || {}).value || '').trim();
+    const a = ((document.getElementById('rv-retiro-apellido') || {}).value || '').trim();
+    const d = ((document.getElementById('rv-retiro-dni') || {}).value || '').trim();
+    const p = ((document.getElementById('rv-retiro-patente') || {}).value || '').trim();
+    if (!n || !a || !d || !p) return;
   }
   // Todo OK: limpiar banner si estaba visible.
   try {
