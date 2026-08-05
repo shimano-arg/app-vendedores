@@ -351,21 +351,23 @@ const sapSL = {
   buildQuotationPayload(pedido) {
     const p = pedido;
     const cliSap = typeof sapGetClienteCode === 'function' ? sapGetClienteCode(p.clientName) : '';
+    // v405 (2026-08-05): fix SalesPersonCode vacio en la Oferta SAP.
+    // Preferir p.ownerVendor (guardado explicito en el pedido desde v405) sobre
+    // getVendorForKey (que busca POINTS[prov|loc] y falla para clientes SAP
+    // huerfanos sin POINT en la app). Reporte: Ioannis metio un pedido y en
+    // la Oferta 'Empleados de ventas' quedo vacio -> Santi no sabia de quien
+    // era. Antes: getVendorForKey('...') = '' -> slpCode = '' -> SAP muestra
+    // sin asignar. Ahora: usa el vendor del ownerUid guardado en Firestore.
+    // Pedidos pre-v405 sin ownerVendor caen al comportamiento viejo.
+    let _resolvedVendor = p.ownerVendor || '';
+    if (!_resolvedVendor && typeof getVendorForKey === 'function') {
+      _resolvedVendor = getVendorForKey(
+        p._fsKey ||
+          p.tipo + '|' + (p.province || '') + '|' + (p.locName || '') + '|' + (p.clientName || '')
+      );
+    }
     const slpCode =
-      typeof sapGetSlpCodeForVendor === 'function'
-        ? sapGetSlpCodeForVendor(
-            getVendorForKey(
-              p._fsKey ||
-                p.tipo +
-                  '|' +
-                  (p.province || '') +
-                  '|' +
-                  (p.locName || '') +
-                  '|' +
-                  (p.clientName || '')
-            )
-          )
-        : '';
+      typeof sapGetSlpCodeForVendor === 'function' ? sapGetSlpCodeForVendor(_resolvedVendor) : '';
     const docDateIso = p.finalizedAt || p.confirmedAt || new Date().toISOString();
     const docDate = docDateIso.slice(0, 10); // YYYY-MM-DD
     const dueDate = new Date(new Date(docDateIso).getTime() + 30 * 24 * 60 * 60 * 1000)

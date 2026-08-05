@@ -3396,7 +3396,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v404';
+const APP_VERSION = 'v405';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -14839,6 +14839,13 @@ window.doConfirmPedido = function(){
   const parts = currentOrderKey.split('|');
   const ownerUid = actingPartner ? actingPartner.uid : (currentUser ? currentUser.uid : null);
   const ownerEmail = actingPartner ? (actingPartner.email || '') : (currentUser ? currentUser.email : null);
+  // v405 (2026-08-05): guardar el vendor del owner en el pedido. Si soy VDI
+  // actuando en nombre de un VDE, el vendor es del VDE (actingPartner.vendor);
+  // sino es el mio (`assignedVendor` global). Esto permite que buildQuotationPayload
+  // resuelva el SlpCode correcto en SAP (antes usaba getVendorForKey que fallaba
+  // para clientes sin POINT en la app - resultaba en 'Empleado de ventas' vacio
+  // en la Oferta SAP y Santi no sabia de quien era el pedido).
+  const ownerVendor = actingPartner ? (actingPartner.vendor || '') : (assignedVendor || '');
   // Calcular snapshot del descuento al momento de confirmar.
   // INMUTABLE: cambios futuros a categorizacion del cliente o a la tabla
   // de descuentos NO afectan este pedido. El dashboard/targets usan
@@ -14864,6 +14871,9 @@ window.doConfirmPedido = function(){
   const docData = {
     ownerUid: ownerUid,
     ownerEmail: ownerEmail,
+    // v405: vendor del pedido (VDE dueno). Se usa en buildQuotationPayload
+    // para setear SalesPersonCode en la Oferta SAP.
+    ownerVendor: ownerVendor,
     // Auditoria: si fue cargado por un VDI en nombre de un VDE pareja.
     createdByUid: currentUser ? currentUser.uid : null,
     createdByEmail: currentUser ? (currentUser.email || '') : '',
