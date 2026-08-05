@@ -2942,6 +2942,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       <button class="tab-btn tab-action" data-tab="contactado-action" onclick="openVisitaModal('contacto')" title="Registrar contacto no presencial (WhatsApp / tel&eacute;fono / email)">Contactado</button>
       <button class="tab-btn" data-tab="rendiciones" onclick="setTab('rendiciones')" title="Rendiciones (en construccion)">Rendiciones <span class="tab-count" id="tab-rend-count" style="display:none">0</span></button>
       <button class="tab-btn" data-tab="altacli" onclick="setTab('altacli')" title="Alta de clientes (en construccion)">Alta clientes <span class="tab-count" id="tab-altacli-count" style="display:none">0</span></button>
+      <button class="tab-btn" data-tab="backorders" onclick="setTab('backorders')" title="Backorders por SKU y cliente (para avisar cuando llega mercaderia)">Backorders <span class="tab-count" id="tab-backorders-count" style="display:none">0</span></button>
       <button class="tab-btn active" id="tab-notif" data-tab="notif" onclick="setTab('notif')" title="Alertas y notificaciones">Notificaciones <span class="tab-count" id="tab-notif-count" style="display:none">0</span></button>
     </div>
     <div class="tab-pane" id="pane-locs" style="display:none">
@@ -3159,6 +3160,20 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <div id="ac-mias-list"></div>
       </div>
     </div>
+    <!-- v398+ (2026-08-05): tab BACKORDERS - buscador SKU + lista de clientes que lo pidieron -->
+    <div class="tab-pane" id="pane-backorders" style="display:none">
+      <h3 style="color:#7c2d12">&#128230; Backorders</h3>
+      <div style="font-size:11px;color:#64748b;margin-bottom:10px;line-height:1.5">
+        Cuando llegue mercaderia, buscas el <b>SKU</b> aca y ves que clientes lo pidieron con cuantas unidades para avisarles.<br>
+        Datos actualizados desde SAP cada 30 min. Solo pesca.
+      </div>
+      <div id="backorders-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <input id="backorders-search" oninput="onBackordersSearch()" type="text" placeholder="Buscar por SKU o codigo (ej: SN2000FJ)..." style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff"/>
+        <button onclick="clearBackordersSearch()" style="padding:9px 14px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer">Limpiar</button>
+      </div>
+      <div id="backorders-summary" style="margin-bottom:12px;padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:11px;color:#78350f"></div>
+      <div id="backorders-list" style="max-height:calc(100vh - 320px);overflow-y:auto"></div>
+    </div>
     <div class="tab-pane" id="pane-notif">
       <h3 style="color:#1e3a8a">&#128276; Alertas y tareas</h3>
       <div style="font-size:11px;color:#64748b;margin-bottom:10px;line-height:1.5">Derivaciones de tiendas y tareas/pendientes entre usuarios.</div>
@@ -3374,7 +3389,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v397';
+const APP_VERSION = 'v398';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -8609,10 +8624,12 @@ window.setTab = function(name){
   document.getElementById('pane-rutas').style.display = name === 'rutas' ? '' : 'none';
   document.getElementById('pane-rendiciones').style.display = name === 'rendiciones' ? '' : 'none';
   document.getElementById('pane-altacli').style.display = name === 'altacli' ? '' : 'none';
+  document.getElementById('pane-backorders').style.display = name === 'backorders' ? '' : 'none';
   document.getElementById('pane-notif').style.display = name === 'notif' ? '' : 'none';
   if (name === 'pedidos') renderPedidosTab();
   if (name === 'rutas') { ensureVisitsListener(); renderRutasTab(); }
   if (name === 'altacli') { populateAltaCliProvincias(); ensureAltaCliListener(); }
+  if (name === 'backorders') { ensureBackordersListener(); renderBackordersTab(); }
   if (name === 'rendiciones') {
     ensureRendicionesListener();
     renderMisRendiciones();
@@ -8626,6 +8643,139 @@ window.setTab = function(name){
     }
   }
   if (name === 'notif') { try { renderNotifsList(); populateTaskTargets(); } catch(e) {} }
+};
+
+// ============================================================
+// BACKORDERS (v398+, 2026-08-05): tab nueva para ver que SKUs tienen
+// backorder pendiente. Alimenta cuando llega mercaderia y el vendedor
+// necesita saber a quien avisarle. Data desde Firestore backorder_snapshot
+// (escrita por el cron BQ v_backorder_lineas cada 30 min).
+// Doc structure: {vendorKey, linesCount, lines: [{sku, producto, familia,
+// pendiente, precioUnitario, clienteCode, clienteNombre, clienteCiudad,
+// sqDocNum, sqDocDate, estado, ...}]}
+// ============================================================
+var backorderLines = [];               // aplanado: todas las lineas visibles al user
+var unsubBackorderSnapshot = null;      // listener onSnapshot a la coleccion
+var backordersSearchQuery = '';         // texto del buscador SKU
+window.ensureBackordersListener = function(){
+  if (unsubBackorderSnapshot) return;
+  if (!fbDb || !currentUser) return;
+  unsubBackorderSnapshot = fbDb.collection('backorder_snapshot').onSnapshot(qs => {
+    backorderLines = [];
+    // Filtro por rol: vendedor ve solo su doc; admin/gerente/interno ven todos.
+    const isPrivileged = (userRole === 'admin' || userRole === 'gerente' || userRole === 'interno' || userRole === 'viewer');
+    const myVendorSet = (typeof getMyAllowedVendorKeys === 'function') ? getMyAllowedVendorKeys() : null;
+    qs.forEach(doc => {
+      const d = doc.data() || {};
+      const vendorKey = d.vendorKey || '';
+      // Si soy vendedor no-privileged: solo mi doc.
+      if (!isPrivileged) {
+        if (!myVendorSet || !myVendorSet.has(vendorKey)) return;
+      }
+      const lines = Array.isArray(d.lines) ? d.lines : [];
+      lines.forEach(ln => backorderLines.push(Object.assign({vendorKey: vendorKey}, ln)));
+    });
+    // Re-render si estoy en el tab activo.
+    const pane = document.getElementById('pane-backorders');
+    if (pane && pane.style.display !== 'none') renderBackordersTab();
+    // Actualizar badge del tab.
+    const badge = document.getElementById('tab-backorders-count');
+    if (badge) {
+      const n = backorderLines.length;
+      badge.textContent = n;
+      badge.style.display = n > 0 ? '' : 'none';
+    }
+  }, err => console.warn('backorder_snapshot listener', err));
+};
+window.onBackordersSearch = function(){
+  const inp = document.getElementById('backorders-search');
+  backordersSearchQuery = (inp && inp.value || '').trim().toLowerCase();
+  renderBackordersTab();
+};
+window.clearBackordersSearch = function(){
+  const inp = document.getElementById('backorders-search');
+  if (inp) inp.value = '';
+  backordersSearchQuery = '';
+  renderBackordersTab();
+};
+window.renderBackordersTab = function(){
+  const list = document.getElementById('backorders-list');
+  const sum = document.getElementById('backorders-summary');
+  if (!list || !sum) return;
+  if (!backorderLines.length) {
+    sum.textContent = 'Sin datos de backorder (esperando primer sync BQ->Firestore).';
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:12px">Cuando el cron actualice los datos (cada 30 min) van a aparecer aca.</div>';
+    return;
+  }
+  // Agrupar por SKU. Cada grupo tiene: producto + total pendiente + clientes.
+  const q = backordersSearchQuery;
+  const skuMap = {};  // sku -> {producto, familia, subfamilia, totalPendiente, clientes: [{nombre, code, pendiente, precio, sqDocNum, sqDocDate}]}
+  backorderLines.forEach(ln => {
+    const sku = ln.sku || '';
+    if (q && !sku.toLowerCase().includes(q) && !(ln.producto || '').toLowerCase().includes(q)) return;
+    if (!skuMap[sku]) {
+      skuMap[sku] = {sku: sku, producto: ln.producto || '', familia: ln.familia || '', subfamilia: ln.subfamilia || '', totalPendiente: 0, clientes: []};
+    }
+    skuMap[sku].totalPendiente += (parseFloat(ln.pendiente) || 0);
+    skuMap[sku].clientes.push({
+      nombre: ln.clienteNombre || '',
+      code: ln.clienteCode || '',
+      ciudad: ln.clienteCiudad || '',
+      pendiente: parseFloat(ln.pendiente) || 0,
+      precio: parseFloat(ln.precioUnitario) || 0,
+      sqDocNum: ln.sqDocNum || 0,
+      sqDocDate: ln.sqDocDate || '',
+      vendorKey: ln.vendorKey || '',
+    });
+  });
+  const skus = Object.values(skuMap);
+  skus.sort((a,b) => b.totalPendiente - a.totalPendiente);
+  // Summary
+  const totalUnidades = skus.reduce((s,x) => s + x.totalPendiente, 0);
+  const totalClientes = new Set(backorderLines.filter(ln => !q || (ln.sku||'').toLowerCase().includes(q) || (ln.producto||'').toLowerCase().includes(q)).map(ln => ln.clienteCode)).size;
+  sum.innerHTML = '<b>' + skus.length + '</b> SKUs con backorder &middot; <b>' + Math.round(totalUnidades) + '</b> unidades pendientes &middot; <b>' + totalClientes + '</b> clientes'
+    + (q ? ' &middot; <i>filtro: "' + escapeHtml(q) + '"</i>' : '');
+  // Lista
+  if (!skus.length) {
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:12px">Sin resultados para "' + escapeHtml(q) + '"</div>';
+    return;
+  }
+  let html = '';
+  skus.slice(0, 100).forEach(g => {
+    // Ordenar clientes por unidades DESC.
+    g.clientes.sort((a,b) => b.pendiente - a.pendiente);
+    const totalStr = Math.round(g.totalPendiente);
+    html += '<div style="margin-bottom:12px;background:#fff;border:1.5px solid #e2e8f0;border-radius:8px;overflow:hidden">';
+    // Header del SKU
+    html += '<div style="padding:10px 14px;background:linear-gradient(135deg,#7c2d12,#c2410c);color:#fff">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">';
+    html += '<div style="flex:1;min-width:0">';
+    html += '<div style="font-size:13px;font-weight:800">' + escapeHtml(g.sku) + '</div>';
+    html += '<div style="font-size:11px;opacity:.9;margin-top:2px">' + escapeHtml(g.producto || '(sin descripcion)') + '</div>';
+    if (g.familia || g.subfamilia) {
+      html += '<div style="font-size:10px;opacity:.75;margin-top:2px">' + escapeHtml(g.familia || '-') + ' / ' + escapeHtml(g.subfamilia || '-') + '</div>';
+    }
+    html += '</div>';
+    html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:18px;font-weight:800">' + totalStr + '</div><div style="font-size:9px;text-transform:uppercase;opacity:.9;letter-spacing:.4px">unidades</div></div>';
+    html += '</div></div>';
+    // Clientes
+    html += '<div style="padding:0">';
+    g.clientes.forEach(c => {
+      html += '<div style="padding:8px 14px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:8px">';
+      html += '<div style="flex:1;min-width:0">';
+      html += '<div style="font-size:12px;font-weight:700;color:#0f172a">' + escapeHtml(c.nombre) + '</div>';
+      html += '<div style="font-size:10px;color:#64748b;margin-top:2px">' + escapeHtml(c.ciudad || '-') + ' &middot; SQ ' + c.sqDocNum + (c.sqDocDate ? ' &middot; ' + escapeHtml(c.sqDocDate) : '') + '</div>';
+      html += '</div>';
+      html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:14px;font-weight:800;color:#c2410c">' + Math.round(c.pendiente) + '</div><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px">unid</div></div>';
+      html += '</div>';
+    });
+    html += '</div>';
+    html += '</div>';
+  });
+  if (skus.length > 100) {
+    html += '<div style="padding:14px;text-align:center;color:#94a3b8;font-size:11px">Mostrando 100 de ' + skus.length + ' SKUs. Refina la busqueda para ver menos.</div>';
+  }
+  list.innerHTML = html;
 };
 
 // ============================================================
@@ -12109,7 +12259,7 @@ function applyRolePermissions(){
   // el resto ve todas). Solo se oculta para unassigned.
   document.getElementById('mis-camps-btn').style.display = (userRole !== 'unassigned') ? '' : 'none';
   // Activa listeners cross-collection segun rol
-  if (userRole !== 'unassigned') { ensureNotifsListener(); ensureRouteOverridesListener(); ensureTargetsListener(); ensureClientLocsListener(); ensureSapVendorsListener(); ensureClientMasterListener(); ensureAltaCliListener(); ensureRendicionesListener(); ensureVendorOverridesListener(); ensureStockSnapshotListener(); ensurePriceListListener(); ensureTemporalPriceListListener(); ensureApprovedAltasListener(); }
+  if (userRole !== 'unassigned') { ensureNotifsListener(); ensureRouteOverridesListener(); ensureTargetsListener(); ensureClientLocsListener(); ensureSapVendorsListener(); ensureClientMasterListener(); ensureAltaCliListener(); ensureRendicionesListener(); ensureVendorOverridesListener(); ensureStockSnapshotListener(); ensurePriceListListener(); ensureTemporalPriceListListener(); ensureApprovedAltasListener(); try { ensureBackordersListener(); } catch(e) { console.warn('ensureBackordersListener', e); } }
   // Si soy VDI, cargar las parejas VDE para habilitar "actuar en nombre de".
   if (userRole === 'interno') { try { loadMyExternalPartners(); } catch(e) { console.warn('loadMyExternalPartners', e); } }
   // Acceso denegado para unassigned
@@ -14305,6 +14455,7 @@ function detachFirebaseListeners(){
   n += off('unsubVisitsPartner', unsubVisitsPartner, () => unsubVisitsPartner = null);
   n += off('unsubMySentTasks', unsubMySentTasks, () => unsubMySentTasks = null);
   n += off('unsubAltaCliMine', unsubAltaCliMine, () => unsubAltaCliMine = null);
+  n += off('unsubBackorderSnapshot', unsubBackorderSnapshot, () => unsubBackorderSnapshot = null);
   n += off('unsubMisRendiciones', unsubMisRendiciones, () => unsubMisRendiciones = null);
   n += off('unsubTodasRendiciones', unsubTodasRendiciones, () => unsubTodasRendiciones = null);
   n += off('unsubSapConfig', unsubSapConfig, () => unsubSapConfig = null);

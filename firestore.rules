@@ -160,6 +160,17 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // v398+ (2026-08-05): backorder_snapshot escrito por el cron
+    // sync_sap_to_bigquery.py (BQ v_backorder_lineas -> Firestore).
+    // 1 doc por vendedor con array `lines` de SQ pendientes de despacho.
+    // Uso: nueva tab BACKORDERS de la app.
+    // Vendedores leen solo el suyo (filtro client-side); admin/gerente/interno
+    // pueden leer todos.
+    match /backorder_snapshot/{docId} {
+      allow read: if isReader();
+      allow write: if false;
+    }
+
     match /client_locations/{docId} {
       allow read: if isReader();
       allow create: if isAdminOrGerente() || isVendor() || isInterno();
