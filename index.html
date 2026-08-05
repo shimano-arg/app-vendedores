@@ -1662,7 +1662,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <button class="btn-analisis" id="analisis-btn" onclick="openExportAnalisis()" style="display:none" title="Formatos avanzados (Power BI / ML / ZIP fotos) - requiere PIN">Exportar para An&aacute;lisis</button>
     <button class="btn-export" onclick="_safeOpenExportFormatModal()" title="Elegir formato: Reportes Excel (uso operativo) o Dataset ZIP para pipelines de ML (solo admin/gerente)">Exportar a Excel</button>
     <button class="btn-seguimiento" id="seguimiento-btn" onclick="openSeguimientoModal()" style="display:none" title="Panel de gestion comercial para vendedores internos">Seguimiento</button>
-    <button class="btn-zonas" id="backorders-btn" onclick="setTab('backorders')" title="Backorders: cuando llega mercaderia ver quien la tenia pedida" style="background:#c2410c;color:#fff">Backorders <span id="backorders-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
+    <button class="btn-zonas" id="backorders-btn" onclick="openBackordersModal()" title="Backorders: cuando llega mercaderia ver quien la tenia pedida" style="background:#c2410c;color:#fff">Backorders <span id="backorders-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
   </div>
 </div>
 <div class="main-container">
@@ -3160,19 +3160,26 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <div id="ac-mias-list"></div>
       </div>
     </div>
-    <!-- v398+ (2026-08-05): tab BACKORDERS - buscador SKU + lista de clientes que lo pidieron -->
-    <div class="tab-pane" id="pane-backorders" style="display:none">
-      <h3 style="color:#7c2d12">&#128230; Backorders</h3>
-      <div style="font-size:11px;color:#64748b;margin-bottom:10px;line-height:1.5">
-        Cuando llegue mercaderia, buscas el <b>SKU</b> aca y ves que clientes lo pidieron con cuantas unidades para avisarles.<br>
-        Datos actualizados desde SAP cada 30 min. Solo pesca.
+    <!-- v402 (2026-08-05): Backorders convertido de tab-pane a modal fullscreen -->
+    <!-- (pedido de Mariano - mismo estilo que Master Clientes) -->
+    <div class="modal-overlay" id="backorders-modal" onclick="if(event.target===this)closeBackordersModal()">
+      <div class="modal-box mc-modal-box" style="width:min(1180px,98vw);display:flex;flex-direction:column">
+        <div class="modal-head" style="background:linear-gradient(135deg,#7c2d12,#c2410c)">
+          <div>
+            <h2>&#128230; Backorders</h2>
+            <div class="subt">Cuando llegue mercader&iacute;a, busc&aacute; el SKU y ve qu&eacute; clientes lo pidieron para avisarles. Datos SAP cada 30 min. Solo pesca.</div>
+          </div>
+          <button class="modal-close" onclick="closeBackordersModal()">&times;</button>
+        </div>
+        <div style="padding:14px;display:flex;flex-direction:column;gap:12px;flex:1;overflow:hidden">
+          <div id="backorders-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0">
+            <input id="backorders-search" oninput="onBackordersSearch()" type="text" placeholder="Buscar por SKU, codigo o cliente (ej: SN2000FJ o MUNDO ESTURION)..." style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff"/>
+            <button onclick="exportBackordersToExcel()" style="padding:9px 14px;border:1.5px solid #c2410c;border-radius:6px;background:#c2410c;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128190; Exportar</button>
+          </div>
+          <div id="backorders-summary" style="padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#78350f;flex-shrink:0"></div>
+          <div id="backorders-list" style="flex:1;overflow-y:auto"></div>
+        </div>
       </div>
-      <div id="backorders-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-        <input id="backorders-search" oninput="onBackordersSearch()" type="text" placeholder="Buscar por SKU, codigo o cliente (ej: SN2000FJ o MUNDO ESTURION)..." style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff"/>
-        <button onclick="clearBackordersSearch()" style="padding:9px 14px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer">Limpiar</button>
-      </div>
-      <div id="backorders-summary" style="margin-bottom:12px;padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:11px;color:#78350f"></div>
-      <div id="backorders-list" style="max-height:calc(100vh - 320px);overflow-y:auto"></div>
     </div>
     <div class="tab-pane" id="pane-notif">
       <h3 style="color:#1e3a8a">&#128276; Alertas y tareas</h3>
@@ -3389,7 +3396,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v400';
+const APP_VERSION = 'v403';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -8624,12 +8631,10 @@ window.setTab = function(name){
   document.getElementById('pane-rutas').style.display = name === 'rutas' ? '' : 'none';
   document.getElementById('pane-rendiciones').style.display = name === 'rendiciones' ? '' : 'none';
   document.getElementById('pane-altacli').style.display = name === 'altacli' ? '' : 'none';
-  document.getElementById('pane-backorders').style.display = name === 'backorders' ? '' : 'none';
   document.getElementById('pane-notif').style.display = name === 'notif' ? '' : 'none';
   if (name === 'pedidos') renderPedidosTab();
   if (name === 'rutas') { ensureVisitsListener(); renderRutasTab(); }
   if (name === 'altacli') { populateAltaCliProvincias(); ensureAltaCliListener(); }
-  if (name === 'backorders') { ensureBackordersListener(); renderBackordersTab(); }
   if (name === 'rendiciones') {
     ensureRendicionesListener();
     renderMisRendiciones();
@@ -8657,6 +8662,20 @@ window.setTab = function(name){
 var backorderLines = [];               // aplanado: todas las lineas visibles al user
 var unsubBackorderSnapshot = null;      // listener onSnapshot a la coleccion
 var backordersSearchQuery = '';         // texto del buscador SKU
+// v402 (2026-08-05): abrir/cerrar Backorders como modal fullscreen (pedido
+// de Mariano - antes era una tab dentro del sidebar). Al abrir, garantiza
+// listener + trigger render.
+window.openBackordersModal = function(){
+  const m = document.getElementById('backorders-modal');
+  if (!m) return;
+  m.classList.add('open');
+  try { ensureBackordersListener(); } catch(e) { console.warn('openBackordersModal listener', e); }
+  try { renderBackordersTab(); } catch(e) { console.warn('openBackordersModal render', e); }
+};
+window.closeBackordersModal = function(){
+  const m = document.getElementById('backorders-modal');
+  if (m) m.classList.remove('open');
+};
 window.ensureBackordersListener = function(){
   if (unsubBackorderSnapshot) return;
   if (!fbDb || !currentUser) return;
@@ -8675,9 +8694,9 @@ window.ensureBackordersListener = function(){
       const lines = Array.isArray(d.lines) ? d.lines : [];
       lines.forEach(ln => backorderLines.push(Object.assign({vendorKey: vendorKey}, ln)));
     });
-    // Re-render si estoy en el tab activo.
-    const pane = document.getElementById('pane-backorders');
-    if (pane && pane.style.display !== 'none') renderBackordersTab();
+    // v402: re-render si el modal Backorders esta abierto.
+    const modal = document.getElementById('backorders-modal');
+    if (modal && modal.classList.contains('open')) renderBackordersTab();
     // Actualizar badge del boton (v399: movido a controls row header).
     const n = backorderLines.length;
     ['tab-backorders-count', 'backorders-btn-count'].forEach(id => {
@@ -8699,6 +8718,55 @@ window.clearBackordersSearch = function(){
   if (inp) inp.value = '';
   backordersSearchQuery = '';
   renderBackordersTab();
+};
+// v401 (2026-08-05): exportar backorders filtrados a Excel. Respeta el
+// buscador actual (SKU/producto/clienteNombre) y el filtro role-based
+// que ya aplico ensureBackordersListener. Sheet unico con 1 fila por
+// linea (sku + cliente + unidades pendientes).
+window.exportBackordersToExcel = function(){
+  if (!backorderLines.length) {
+    alert('No hay backorders para exportar todavia. Espera al proximo sync (cada 30 min).');
+    return;
+  }
+  const q = backordersSearchQuery;
+  const rows = backorderLines.filter(ln => {
+    if (!q) return true;
+    return (ln.sku||'').toLowerCase().includes(q)
+        || (ln.producto||'').toLowerCase().includes(q)
+        || (ln.clienteNombre||'').toLowerCase().includes(q);
+  }).map(ln => ({
+    'SKU':              ln.sku || '',
+    'Producto':         ln.producto || '',
+    'Familia':          ln.familia || '',
+    'Subfamilia':       ln.subfamilia || '',
+    'Cliente':          ln.clienteNombre || '',
+    'CardCode':         ln.clienteCode || '',
+    'Ciudad':           ln.clienteCiudad || '',
+    'Vendedor':         ln.vendorKey || '',
+    'Unidades pendientes': Math.round(parseFloat(ln.pendiente) || 0),
+    'Precio unitario':  parseFloat(ln.precioUnitario) || 0,
+    'Importe pendiente': Math.round((parseFloat(ln.pendiente) || 0) * (parseFloat(ln.precioUnitario) || 0)),
+    'SQ Doc Num':       ln.sqDocNum || '',
+    'SQ Fecha':         ln.sqDocDate || '',
+    'Estado':           ln.estado || '',
+  }));
+  if (!rows.length) {
+    alert('No hay resultados para el filtro actual. Limpia la busqueda o cambia el termino.');
+    return;
+  }
+  try {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, 'Backorders');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const suffix = q ? ('_' + q.replace(/[^a-z0-9]/gi, '').slice(0, 20)) : '';
+    const filename = 'Backorders_' + dateStr + suffix + '.xlsx';
+    XLSX.writeFile(wb, filename);
+    if (typeof showSyncTag === 'function') showSyncTag('Exportado: ' + rows.length + ' lineas');
+  } catch(e) {
+    console.error('exportBackordersToExcel', e);
+    alert('Error al generar el Excel: ' + (e.message || e));
+  }
 };
 window.renderBackordersTab = function(){
   const list = document.getElementById('backorders-list');
@@ -8758,9 +8826,24 @@ window.renderBackordersTab = function(){
     // Ordenar clientes por unidades DESC.
     g.clientes.sort((a,b) => b.pendiente - a.pendiente);
     const totalStr = Math.round(g.totalPendiente);
+    // v403 (2026-08-05): pintar header segun disponibilidad de stock.
+    // Verde=whs 11 (venta), Amarillo=whs 12 (transito), Naranja=sin stock.
+    const _stkDisp = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(g.sku) || 0) : 0;
+    const _stkTran = (typeof getStockTransito === 'function') ? (getStockTransito(g.sku) || 0) : 0;
+    let _hdrGradient, _stkLabel;
+    if (_stkDisp > 0) {
+      _hdrGradient = 'linear-gradient(135deg,#166534,#16a34a)';
+      _stkLabel = '&#9989; ' + _stkDisp + ' disponibles en dep. 11';
+    } else if (_stkTran > 0) {
+      _hdrGradient = 'linear-gradient(135deg,#78350f,#d97706)';
+      _stkLabel = '&#128666; ' + _stkTran + ' en transito (dep. 12)';
+    } else {
+      _hdrGradient = 'linear-gradient(135deg,#7c2d12,#c2410c)';
+      _stkLabel = '&#9888;&#65039; sin stock en ningun deposito';
+    }
     html += '<div style="margin-bottom:12px;background:#fff;border:1.5px solid #e2e8f0;border-radius:8px;overflow:hidden">';
     // Header del SKU
-    html += '<div style="padding:10px 14px;background:linear-gradient(135deg,#7c2d12,#c2410c);color:#fff">';
+    html += '<div style="padding:10px 14px;background:' + _hdrGradient + ';color:#fff">';
     html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">';
     html += '<div style="flex:1;min-width:0">';
     html += '<div style="font-size:13px;font-weight:800">' + escapeHtml(g.sku) + '</div>';
@@ -8768,6 +8851,7 @@ window.renderBackordersTab = function(){
     if (g.familia || g.subfamilia) {
       html += '<div style="font-size:10px;opacity:.75;margin-top:2px">' + escapeHtml(g.familia || '-') + ' / ' + escapeHtml(g.subfamilia || '-') + '</div>';
     }
+    html += '<div style="font-size:10px;opacity:.95;margin-top:4px;font-weight:700">' + _stkLabel + '</div>';
     html += '</div>';
     html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:18px;font-weight:800">' + totalStr + '</div><div style="font-size:9px;text-transform:uppercase;opacity:.9;letter-spacing:.4px">unidades</div></div>';
     html += '</div></div>';
