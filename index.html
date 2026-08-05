@@ -3396,7 +3396,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v406';
+const APP_VERSION = 'v407';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -10041,14 +10041,19 @@ window.confirmExcelPedido = function(){
   //   1. l.precioExcel (si el Excel trae columna precio con valor valido) — PISA todo.
   //   2. getDefaultPrice(l.code) del catalogo/SAP como fallback.
   //   3. 0 si es needsReview (SKU no encontrado en catalogo).
-  // v347+ (2026-07-29) SPLIT POR STOCK:
-  //   - qty <= stock: 1 linea normal (sinStock=false).
-  //   - qty > stock y stock > 0: 2 lineas — verde con `stock` uds + roja
-  //     con `qty - stock` uds (sinStock=true). El vendedor ve pedido total
-  //     y admin ve la parte faltante resaltada al confirmar.
-  //   - stock === 0: 1 linea completa con sinStock=true (todo faltante).
-  //   - stock === null (sin datos): 1 linea normal (asumimos que hay - no
-  //     tenemos como probar lo contrario).
+  // v407 (2026-08-05): SIN SPLIT — respetar la qty del Excel tal cual.
+  // Pedido de Mariano: si carga 5 uds y hay 2 disponibles, la app debe
+  // guardar la linea con qty=5 (no dividir en verde=2 + roja=3 como
+  // hacia v347). SAP recibe la cantidad completa y admin en SAP se ocupa
+  // de asignar las disponibles al momento de aprobar la Oferta.
+  //
+  // Se conserva el flag sinStock (para el badge visual amarillo/rojo en
+  // el review) pero la cantidad es SIEMPRE la del Excel. El campo
+  // `faltantesQty` cuenta cuantas unidades exceden el stock disponible
+  // para el warning visual "FALTAN N" pero no divide la linea.
+  //
+  // v369+: stock disponible = whs 11 (venta directa). Transito = whs 12
+  // (adjunto como info por si el vendedor quiere avisar al cliente).
   let priceExcelCount = 0;
   let sinStockCount = 0;
   const outLines = [];
@@ -10062,7 +10067,12 @@ window.confirmExcelPedido = function(){
     } else {
       precio = (typeof getDefaultPrice === 'function') ? getDefaultPrice(l.code) : 0;
     }
-    const baseLine = {
+    const stk = l.needsReview ? null : (typeof getStockDisponibleVenta === 'function' ? getStockDisponibleVenta(l.code) : (typeof getStockQty === 'function' ? getStockQty(l.code) : null));
+    const transito = l.needsReview ? 0 : (typeof getStockTransito === 'function' ? getStockTransito(l.code) : 0);
+    const isSinStock = (stk != null) && (l.qty > stk);
+    const faltantes = isSinStock ? (l.qty - Math.max(stk, 0)) : 0;
+    if (isSinStock) sinStockCount++;
+    const line = {
       code: l.code,
       desc: l.desc,
       cat: l.cat || '',
@@ -10070,33 +10080,12 @@ window.confirmExcelPedido = function(){
       sub: l.sub || '',
       precio,
       needsReview: !!l.needsReview,
+      qty: l.qty,               // v407: qty original del Excel, sin recortar.
+      sinStock: isSinStock,     // flag visual (amarillo/rojo en review).
     };
-    // Split por stock. needsReview NO tiene sentido chequear stock (SKU
-    // no esta en catalogo) - dejamos qty como esta.
-    // v369+ (2026-07-31): usar disponible venta (whs 11) en vez del total
-    // (que suma whs 12 transito). Antes: SN2000FG con 0 en 11 y 180 en 12
-    // se marcaba como "stock=180" y NO splitea backorder. Ahora: stock=0 y
-    // toda la linea va roja. Adjuntamos transitoInfo para que la preview
-    // muestre "hay N en transito" al lado del rojo.
-    const stk = l.needsReview ? null : (typeof getStockDisponibleVenta === 'function' ? getStockDisponibleVenta(l.code) : (typeof getStockQty === 'function' ? getStockQty(l.code) : null));
-    const transito = l.needsReview ? 0 : (typeof getStockTransito === 'function' ? getStockTransito(l.code) : 0);
-    const withTransito = (opts) => Object.assign({}, baseLine, opts, transito > 0 ? {transitoQty: transito} : {});
-    if (stk == null) {
-      // Sin datos de stock -> asumimos que hay (comportamiento anterior).
-      outLines.push(withTransito({qty: l.qty, sinStock: false}));
-    } else if (l.qty <= stk) {
-      // Stock suficiente -> 1 linea normal.
-      outLines.push(withTransito({qty: l.qty, sinStock: false}));
-    } else if (stk > 0) {
-      // Stock parcial -> split en 2 lineas: verde (stock) + roja (faltante).
-      outLines.push(withTransito({qty: stk, sinStock: false}));
-      outLines.push(withTransito({qty: l.qty - stk, sinStock: true}));
-      sinStockCount++;
-    } else {
-      // Stock 0 -> 1 linea completa roja.
-      outLines.push(withTransito({qty: l.qty, sinStock: true}));
-      sinStockCount++;
-    }
+    if (faltantes > 0) line.faltantesQty = faltantes;
+    if (transito > 0) line.transitoQty = transito;
+    outLines.push(line);
   });
   orders[currentOrderKey] = outLines;
   try { saveOrders(); } catch(e){}
