@@ -1154,9 +1154,13 @@ window.openRendicionDetail = async function (rendId, notifId) {
       const _fechaStr = (() => {
         const d = r.createdAt && r.createdAt.toDate ? r.createdAt.toDate() : null;
         if (!d) return '-';
-        return String(d.getDate()).padStart(2, '0') + '.' +
-               String(d.getMonth() + 1).padStart(2, '0') + '.' +
-               d.getFullYear();
+        return (
+          String(d.getDate()).padStart(2, '0') +
+          '.' +
+          String(d.getMonth() + 1).padStart(2, '0') +
+          '.' +
+          d.getFullYear()
+        );
       })();
       h += '<div><b>Fecha:</b> ' + _fechaStr + '</div>';
       h +=
