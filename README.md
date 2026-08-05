@@ -2367,7 +2367,7 @@ Arriba de la tabla. Permite pre-autorizar emails antes del primer login.
 | Firestore Rules | (mismo) → Firestore → Rules | Edit security rules |
 | GitHub repo | https://github.com/shimano-arg/app-vendedores | Code |
 | GitHub Actions | (mismo) → Actions | Workflows |
-| GitHub Secrets | (mismo) → Settings → Secrets | `SAP_STOCK_CSV_URL` |
+| GitHub Secrets | (mismo) → Settings → Secrets | `FIREBASE_SERVICE_ACCOUNT`, `GMAIL_APP_PASSWORD`, `SAP_STOCK_CSV_URL` (legacy), `SYNC_BOT_PAT` (v399, PAT admin de Mariano para bypass branch protection en push automático de `stock.json`) |
 | GitHub Pages | (mismo) → Settings → Pages | Deploy URL |
 | Gemini API | https://generativelanguage.googleapis.com | OCR de tickets |
 | OSM Nominatim | https://nominatim.openstreetmap.org | Geocoding |
@@ -2712,8 +2712,11 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 
 ## 38) Roadmap / pendientes
 
-### Sprint actual
+### Sprint actual (2026-08-05)
 
+- [ ] **BUG Power Automate — flow "Cargar rendiciones aprobadas a SharePoint"**: los `Create file` + `List rows` están fuera del `For each 1` loop, así cada iteración reusa los mismos outputs y todos los items SharePoint terminan con los adjuntos (Excel + fotos) de la primera row. Ejemplo verificado 2026-08-05: item de Mauricio $218K FACTURA A adjunta `Rendiciones_federico.castelaneli@shimano.com.ar_FACTURA_A.xlsx` + fotos con timestamp `20260805153410448`. **Fix requerido en Power Automate (fuera del repo)**: mover `Create file` DENTRO del `Apply to each` del loop y usar `item()['Vendedor (email)']` / `item()['Tipo gasto']` para armar el nombre + los datos por iteración. Copilot integrado en Power Automate puede guiar el fix con el prompt: *"El Create file está fuera del For each 1 loop, así que cada iteración reusa el mismo archivo generado con los datos de la primera row"*. La corrida del 2026-08-05 15:27 confirmó que TablaSolicitudes/TablaGastos ya NO fallan (fix cron aplicado), pero el bug de asignación de adjuntos es independiente.
+- [ ] **GitHub Security Advisory — 1 vulnerability moderate**: `https://github.com/shimano-arg/app-vendedores/security/dependabot/1`. Detectada en el push del stock.json del 2026-08-05. No bloquea nada operativo pero revisar y bumpear la dep afectada (probablemente una transitiva de firebase-admin o similar).
+- [ ] **Verificar próximo cron rendiciones (Lun 10-ago 9am AR)**: primer envío programado post-fix del bug `TablaSolicitudes` (2026-08-05, commit `149c3d1`). Si el flow de Power Automate ya está fixeado antes del lunes, todo se procesa OK. Si no, los items siguen entrando con adjuntos mezclados.
 - [ ] Esperar respuesta de Ezequiel sobre UDFs + Serie 103 en PROD.
 - [ ] Esperar respuesta de Alejandro sobre CORS.
 - [ ] Esperar respuesta de Juan sobre usuario integración.
@@ -2730,6 +2733,32 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 - [ ] Telemetría de uso (qué pestañas se abren más, latencias).
 
 ### Hecho recientemente (✅)
+
+**Sesión maratónica 2026-08-04 → 2026-08-05 (v390 → v399 + 4 vistas BQ nuevas + backorders + fixes CI/cron):**
+
+*Vistas BigQuery nuevas (§40):*
+- [X] **`v_ofertas_lineas` con dedupe SQ** — investigación con Mariano detectó que Santiago Esteban tenía $68.54M inflados en julio por 3 SQ duplicadas de Ricardo Blanco Goitia + 2 de Esteban Quesada (100% items+cantidades idénticos). Fix: dedupe automático por `FARM_FINGERPRINT(items+cantidades)` particionado por `(card_code, año, mes, lines_hash)` manteniendo el `doc_entry` más reciente. Impacto global julio pesca: $557M → $463M (bajaron 23 SQ duplicadas). Santi julio: $68.54M → $31.48M. Verificado 0 duplicados remanentes con query de integridad.
+- [X] **`v_conversion_leads_mensual`** — serie mensual `stock_leads_inicio_mes → conversiones_mes → pct_conversion_mes` por vendedor. Reconstruye historia del `client_applications_raw_raw_changelog`. Julio 2026 arranca en 0 (sistema recién arrancó), agosto ya tiene datos completos.
+- [X] **`v_leads_contactos_mensual`** — depende de la feature v396 (botones ESTADO). Metricas mensuales: contactos con doc / sin doc / total distintos / convertidos ever (acumulativo). "Convertido ever" fue decisión explícita de Mariano (2026-08-04) vs "convertido mismo mes" — mide rendimiento real de los contactos hechos sin importar cuándo cierran.
+- [X] **`v_leads_snapshot_fin_mes`** — foto congelada al cierre de cada mes: `leads / clientes_sap / total / pct_conversion` por (mes, vendedor). Los meses cerrados NO cambian aunque después conviertan más. Ejemplo: Gonzalo jul-31 = 10 leads / 44 SAP / 81% congelado; ago-04 vivo = 134 leads / 46 SAP / 26%. Alimenta la tabla pedida por Mariano "quiero ver mes a mes cuántos leads/clientes tenía cada vendedor sin que se borren".
+
+*Auditoría duplicados por vendedor (2026-08-04):*
+- [X] Detectados duplicados en 4 vendedores además de Santi: **Federico** ($30.8M inflado — WEEKEND OUTDOOR x2), **Gonzalo** ($24.1M — MUNDO ESTURION x2 + MARIA AGUSTINA PRAT x2), **Mauricio** ($1.7M — SEBASTIAN VILLARREAL x2). Total 9 SQ descartadas ($94.4M inflado). Confirmado con Mariano que Gonzalo tenía CN de anulación en Mundo Esturion (SAP admin ya venía limpiando manualmente).
+
+*v390 → v394 (2026-08-04 tarde):* dedupe SAP ItemCodes, remove 3 cards $0, rename "HABILITADOS" → "CLIENTES EN SAP", fix contador card (revert v393 → v394).
+
+*v395 → v397 (2026-08-04 noche → 2026-08-05):*
+- [X] **v395 — Fix cards del sidebar respetan sub-filtro TODOS/CLIENTE EN SAP/LEADS**: `updateStats()` ahora lee `clientStateFilter` y ajusta las 4 cards superiores (LOCALIDADES/CLIENTES EN SAP/LEADS/TIENDAS) coherente con el listado. Antes quedaban fijas con totales globales.
+- [X] **v396 — 3 botones ESTADO en modal Alta SAP para follow-up de LEADs**: al tocar la card de un LEAD (sin CardCode), modal muestra "CONTACTADO - ENVIÓ DOCUMENTACIÓN" (verde) / "CONTACTADO - SIN DOCUMENTACIÓN AÚN" (ámbar) / "LEAD PARA ELIMINAR" (rojo, con confirm). Persiste `leadEstado + leadEstadoAt + leadEstadoBy` en Firestore. Badge de color en la card del sidebar. Firestore rules extendidas para permitir a vendedores actualizar SOLO los 4 campos del estado (deploy manual ejecutado 2026-08-04).
+- [X] **v397 — Forma de entrega "Retiro en el depósito" con 4 campos obligatorios**: nueva opción del dropdown FORMA DE ENTREGA. Al seleccionarla aparecen NOMBRE + APELLIDO + DNI del responsable + PATENTE del vehículo (uppercase auto). Se persiste en `formaEntrega` + va al Comments del Sales Quotation para que Depósito lo vea al aprobar.
+
+*v398 → v399 (2026-08-05 — BACKORDERS):*
+- [X] **v398 — Nueva sección BACKORDERS**: pedido de Mariano para saber a quién avisar cuando llega mercadería nueva ("habías pedido 10 unidades de SN2000FJ y ya llegaron ¿las querés?"). Pipeline BQ → Firestore: nueva `sync_backorder_snapshot_to_firestore()` en `scripts/sync_sap_to_bigquery.py` que JOIN-ea `v_backorder_lineas` con `client_applications` para obtener assignedVendor + filtra `is_pesca=TRUE` + agrupa por vendedor + escribe 1 doc por vendedor a `backorder_snapshot/{VENDOR_NORM}`. Integrado al cron cada 30 min. `firestore.rules` extendida para `backorder_snapshot`. Frontend con pane dedicado + buscador SKU + summary bar naranja + lista de SKUs (agrupados) con clientes ordenados por unidades DESC. Filter role-based: vendedor solo sus clientes, admin/gerente/interno ven todos. Data actual: 1160 líneas pesca en 7 vendedores.
+- [X] **v399 — UX Backorders + reubicación botones**: buscador extendido para matchear también por `clienteNombre` (además de SKU/producto). Placeholder actualizado. Botón **Zonas** movido del controls row al header top al lado de Targets (nuevo id `zonas-btn-top`). Botón **Backorders** (naranja `#c2410c`) puesto en el lugar libre. Tab-btn "Backorders" removida de la grilla — ahora solo se accede desde el botón nuevo con badge de conteo.
+
+*Fixes CI/cron/scripts:*
+- [X] **Fix workflow `sync-sap-catalog-stock.yml` post-branch-protection**: el bot `github-actions[bot]` no podía pushear `stock.json` a `main` porque la protection exige el check `test`. Fix: nuevo secret `SYNC_BOT_PAT` (fine-grained PAT admin de Mariano con permission `Contents: Read and write` en `app-vendedores`) usado en el `checkout` con `token: ${{ secrets.SYNC_BOT_PAT || secrets.GITHUB_TOKEN }}`. Como `enforce_admins=false`, pushes firmados por admin bypassean el check. Verificado 2026-08-05 con run `31013568224`: `main -> main a6492bf..0379899 stock.json actualizado y pusheado ✅`. Sin este fix el Inventario-Bot (Google Sheet consumidor via GitHub Pages) queda con snapshot viejo, aunque Firestore siempre se actualiza (el bug era solo el push del `stock.json` legacy).
+- [X] **Fix cron `send_rendiciones_email.py` para TablaSolicitudes/TablaGastos siempre**: bug reportado por Mariano 2026-08-05 via alerta Power Automate (7 fallos en la semana). El flow crasheaba con `No table was found with the name 'TablaSolicitudes'` cuando la semana no tenía solicitudes de recarga aprobadas (o simétricamente gastos). Fix: si `ws.max_row < 2` (solo header), agregar 1 fila placeholder vacía antes de crear la tabla — así la tabla existe siempre con el nombre correcto. Aplicado a ambas tablas por simetría. Verificado 2026-08-05 con `replay_ids` de 11 rendiciones específicas → Excel generado OK con ambas tablas. **Nota**: hay un segundo bug independiente en el flow de Power Automate (adjuntos duplicados) que requiere fix en el designer — ver sprint actual.
 
 **Sesión completa 2026-07-14 (v298 → v301 + BigQuery + PDFs):**
 
