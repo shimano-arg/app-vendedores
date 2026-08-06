@@ -1694,6 +1694,10 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
          `display:none` default; applyRolePermissions() los muestra si userRole === 'admin'. -->
     <button class="btn-zonas" id="backorders-btn" onclick="openBackordersModal()" title="Backorders SIN stock: los SKU con demanda que no podemos cubrir - urgentes de importar" style="background:#c2410c;color:#fff;display:none">Backorders <span id="backorders-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
     <button class="btn-zonas" id="asignacion-backorder-btn" onclick="openAsignacionBackorderModal()" title="Backorders CON stock: llego mercaderia, ver que clientes lo tenian pedido para avisarles" style="background:#166534;color:#fff;display:none">Asignaci&oacute;n Backorder <span id="asignacion-backorder-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
+    <!-- v422 (2026-08-06): FORECAST admin-only (whitelist emails en src/domains/forecast.js).
+         Modal compara ventas historicas (sku_ventas_snapshot BQ->Firestore) vs Sales Plan
+         cargado por el user + politica de inventario (promedio YTD x 3 meses). -->
+    <button class="btn-zonas" id="forecast-btn" onclick="openForecastModal()" title="FORECAST: proyeccion de necesidad vs pedidos Sales Plan (admin-only)" style="background:#7c3aed;color:#fff;display:none">Forecast</button>
   </div>
 </div>
 <div class="main-container">
@@ -3462,7 +3466,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v421';
+const APP_VERSION = 'v422';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12624,6 +12628,16 @@ function applyRolePermissions(){
   if (analisisBtnEl) {
     const isMarianoBtn = !!(currentUser && (currentUser.email || '').toLowerCase() === 'erbinomariano@gmail.com');
     analisisBtnEl.style.display = isMarianoBtn ? '' : 'none';
+  }
+  // v422 (2026-08-06): FORECAST admin-only (Mariano). Whitelist por email
+  // (corporativo + Gmail) - la logica canonica vive en src/domains/forecast.js
+  // (_canForecast); duplicamos aca para gatear el display del boton sin
+  // cargar el chunk lazy.
+  const forecastBtnEl = document.getElementById('forecast-btn');
+  if (forecastBtnEl) {
+    const em = (currentUser && (currentUser.email || '').toLowerCase()) || '';
+    const isForecastUser = em === 'mariano.erbino@shimano.com.ar' || em === 'erbinomariano@gmail.com';
+    forecastBtnEl.style.display = isForecastUser ? '' : 'none';
   }
   document.getElementById('campaigns-btn').style.display = isAdminOrGerente ? '' : 'none';
   document.getElementById('master-cli-btn').style.display = isAdminOrGerente ? '' : 'none';
