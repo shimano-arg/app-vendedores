@@ -3396,7 +3396,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v409';
+const APP_VERSION = 'v410';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -10305,7 +10305,15 @@ function renderPendientesList(){
     const k = (typeof contactKey === 'function') ? contactKey(fakePoint, it.clientName, it.tipo) : '';
     return clientMatchesQuery(it.clientName, it.locName, k, q);
   });
-  items.sort((a, b) => (b.conf.confirmedAt || '').localeCompare(a.conf.confirmedAt || ''));
+  // v410 (2026-08-06): guard defensivo. Si confirmedAt viene como Firestore
+  // Timestamp (ej doc restaurado via admin script), localeCompare crasheaba
+  // y no rendereaba nada. Coercion segura a string ISO.
+  items.sort((a, b) => {
+    const _tsA = a.conf.confirmedAt, _tsB = b.conf.confirmedAt;
+    const _sA = (typeof _tsA === 'string') ? _tsA : (_tsA && typeof _tsA.toDate === 'function' ? _tsA.toDate().toISOString() : (_tsA ? String(_tsA) : ''));
+    const _sB = (typeof _tsB === 'string') ? _tsB : (_tsB && typeof _tsB.toDate === 'function' ? _tsB.toDate().toISOString() : (_tsB ? String(_tsB) : ''));
+    return _sB.localeCompare(_sA);
+  });
   let html = '';
   items.forEach(it => {
     const lineCount = (it.conf.lines || []).length;
@@ -10388,7 +10396,15 @@ function renderConfirmadosList(){
     const k = (typeof contactKey === 'function') ? contactKey(fakePoint, it.clientName, it.tipo) : '';
     return clientMatchesQuery(it.clientName, it.locName, k, q);
   });
-  items.sort((a, b) => (b.conf.confirmedAt || '').localeCompare(a.conf.confirmedAt || ''));
+  // v410 (2026-08-06): guard defensivo. Si confirmedAt viene como Firestore
+  // Timestamp (ej doc restaurado via admin script), localeCompare crasheaba
+  // y no rendereaba nada. Coercion segura a string ISO.
+  items.sort((a, b) => {
+    const _tsA = a.conf.confirmedAt, _tsB = b.conf.confirmedAt;
+    const _sA = (typeof _tsA === 'string') ? _tsA : (_tsA && typeof _tsA.toDate === 'function' ? _tsA.toDate().toISOString() : (_tsA ? String(_tsA) : ''));
+    const _sB = (typeof _tsB === 'string') ? _tsB : (_tsB && typeof _tsB.toDate === 'function' ? _tsB.toDate().toISOString() : (_tsB ? String(_tsB) : ''));
+    return _sB.localeCompare(_sA);
+  });
   let html = '';
   items.forEach(it => {
     const lineCount = (it.conf.lines || []).length;
