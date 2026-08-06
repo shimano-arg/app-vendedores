@@ -1940,10 +1940,12 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <button class="zonas-tab-btn" data-zt="hist" onclick="setZonasTab('hist')">Historial</button>
         </div>
         <div style="padding:10px 14px;background:#fff;border-bottom:1px solid #e5e7eb;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="zonas-filters">
-          <!-- Toggle scope: por default Clientes-SAP (habilitados en SAP).
-               Tocar Masterfile-Base muestra TODOS los del padron historico. -->
+          <!-- v415 (2026-08-06): boton 'Masterfile-Base' removido del toolbar
+               Zonas por pedido de Mariano. Elemento queda en el DOM con
+               display:none para no romper setZonasScope si se llama por otro
+               camino. Scope default 'sap' mantiene comportamiento actual. -->
           <button id="zonas-scope-sap" onclick="setZonasScope('sap')" style="padding:6px 12px;border:none;border-radius:5px;background:#0c4a6e;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#9889; Clientes SAP</button>
-          <button id="zonas-scope-base" onclick="setZonasScope('base')" style="padding:6px 12px;border:none;border-radius:5px;background:#fff;color:#475569;border:1.5px solid #cbd5e1;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#128218; Masterfile-Base</button>
+          <button id="zonas-scope-base" onclick="setZonasScope('base')" style="display:none" data-scope="base">&#128218; Masterfile-Base</button>
           <button id="zonas-filter-unassigned" onclick="toggleZonasFilterUnassigned()" title="Muestra solo las tiendas / localidades / provincias que no tienen vendedor asignado" style="padding:6px 12px;border:1.5px solid #cbd5e1;border-radius:5px;background:#fff;color:#475569;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#128308; Solo sin asignar</button>
           <select id="zonas-prov-sel" onchange="renderZonasList()" style="padding:6px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px;min-width:160px">
             <option value="ALL">Todas las provincias</option>
@@ -3406,7 +3408,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v414';
+const APP_VERSION = 'v415';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
