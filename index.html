@@ -1689,7 +1689,11 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <button class="btn-analisis" id="analisis-btn" onclick="openExportAnalisis()" style="display:none" title="Formatos avanzados (Power BI / ML / ZIP fotos) - requiere PIN">Exportar para An&aacute;lisis</button>
     <button class="btn-export" onclick="_safeOpenExportFormatModal()" title="Elegir formato: Reportes Excel (uso operativo) o Dataset ZIP para pipelines de ML (solo admin/gerente)">Exportar a Excel</button>
     <button class="btn-seguimiento" id="seguimiento-btn" onclick="openSeguimientoModal()" style="display:none" title="Panel de gestion comercial para vendedores internos">Seguimiento</button>
-    <button class="btn-zonas" id="backorders-btn" onclick="openBackordersModal()" title="Backorders: cuando llega mercaderia ver quien la tenia pedida" style="background:#c2410c;color:#fff">Backorders <span id="backorders-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
+    <!-- v420 (2026-08-06): Backorders + Asignacion Backorder ambos gated a admin
+         (pedido del user - probamos con Mariano, si va bien lo abrimos a vendedores).
+         `display:none` default; applyRolePermissions() los muestra si userRole === 'admin'. -->
+    <button class="btn-zonas" id="backorders-btn" onclick="openBackordersModal()" title="Backorders SIN stock: los SKU con demanda que no podemos cubrir - urgentes de importar" style="background:#c2410c;color:#fff;display:none">Backorders <span id="backorders-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
+    <button class="btn-zonas" id="asignacion-backorder-btn" onclick="openAsignacionBackorderModal()" title="Backorders CON stock: llego mercaderia, ver que clientes lo tenian pedido para avisarles" style="background:#166534;color:#fff;display:none">Asignaci&oacute;n Backorder <span id="asignacion-backorder-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
   </div>
 </div>
 <div class="main-container">
@@ -3210,10 +3214,13 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <!-- (pedido de Mariano - mismo estilo que Master Clientes) -->
     <div class="modal-overlay" id="backorders-modal" onclick="if(event.target===this)closeBackordersModal()">
       <div class="modal-box mc-modal-box" style="width:min(1180px,98vw);display:flex;flex-direction:column">
-        <div class="modal-head" style="background:linear-gradient(135deg,#7c2d12,#c2410c)">
+        <!-- v420 (2026-08-06): header del modal es dinamico segun `backordersMode`.
+             Modo 'urgente' -> naranja + "Backorders" + copy urgente-importar.
+             Modo 'asignacion' -> verde + "Asignacion Backorder" + copy llegada-mercaderia. -->
+        <div class="modal-head" id="backorders-modal-head" style="background:linear-gradient(135deg,#7c2d12,#c2410c)">
           <div>
-            <h2>&#128230; Backorders</h2>
-            <div class="subt">Cuando llegue mercader&iacute;a, busc&aacute; el SKU y ve qu&eacute; clientes lo pidieron para avisarles. Datos SAP cada 30 min. Solo pesca.</div>
+            <h2 id="backorders-modal-title">&#128230; Backorders</h2>
+            <div class="subt" id="backorders-modal-subt">SKUs con demanda pendiente que no podemos cubrir - urgentes de importar. Datos SAP cada 30 min. Solo pesca.</div>
           </div>
           <button class="modal-close" onclick="closeBackordersModal()">&times;</button>
         </div>
@@ -3223,13 +3230,16 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <select id="backorders-mes-filter" onchange="onBackordersMesChange()" title="Filtrar por mes de la SQ" style="padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff;min-width:140px">
               <option value="">Todos los meses</option>
             </select>
-            <!-- v419 (2026-08-06): toggle "Solo sin stock" (default ON). Muestra solo
-                 SKUs sin stock en whs 11 ni whs 12 (naranja) = urgentes para importar.
-                 User destildea para ver el listado completo. -->
-            <label id="backorders-sinstock-label" title="Mostrar solo SKUs sin stock en ningun deposito (los urgentes de importar). Destildar para ver todos." style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #c2410c;border-radius:6px;background:#fff7ed;color:#7c2d12;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;user-select:none">
-              <input id="backorders-sinstock-filter" type="checkbox" checked onchange="onBackordersSinStockChange()" style="cursor:pointer;accent-color:#c2410c"/>
-              Solo sin stock
-            </label>
+            <!-- v420 (2026-08-06): select con 3 opciones (reemplaza el checkbox v419).
+                 Default es dinamico segun `backordersMode`:
+                 - mode='urgente' (Backorders) -> "sin" (sin stock en whs 11 ni 12)
+                 - mode='asignacion' (Asignacion Backorder) -> "con" (con stock en whs 11 o 12)
+                 - "todos" siempre disponible como override -->
+            <select id="backorders-stock-filter" onchange="onBackordersStockFilterChange()" title="Filtrar por stock disponible" style="padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff;min-width:190px;font-weight:700">
+              <option value="sin">Sin stock (para importar)</option>
+              <option value="con">Con stock (para asignar)</option>
+              <option value="todos">Todos (sin filtro)</option>
+            </select>
             <button onclick="exportBackordersToExcel()" style="padding:9px 14px;border:1.5px solid #c2410c;border-radius:6px;background:#c2410c;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128190; Exportar</button>
           </div>
           <div id="backorders-summary" style="padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#78350f;flex-shrink:0"></div>
@@ -3452,7 +3462,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v419';
+const APP_VERSION = 'v420';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -8805,22 +8815,77 @@ var backorderLines = [];               // aplanado: todas las lineas visibles al
 var unsubBackorderSnapshot = null;      // listener onSnapshot a la coleccion
 var backordersSearchQuery = '';         // texto del buscador SKU
 var backordersMesFilter = '';           // v411: filtro por mes YYYY-MM del sqDocDate
-var backordersSinStockFilter = true;    // v419: default ON - solo SKUs sin stock (urgentes de importar)
+var backordersStockFilter = 'sin';      // v420: 'sin' | 'con' | 'todos' - reemplaza v419 bool
+var backordersMode = 'urgente';         // v420: 'urgente' (Backorders) | 'asignacion' (Asignacion Backorder)
 // v402 (2026-08-05): abrir/cerrar Backorders como modal fullscreen (pedido
 // de Mariano - antes era una tab dentro del sidebar). Al abrir, garantiza
 // listener + trigger render.
+// v420 (2026-08-06): helper interno - aplica mode al modal (title, subt, color header,
+// default filter). Se llama desde openBackordersModal + openAsignacionBackorderModal.
+function _applyBackordersMode(mode){
+  backordersMode = mode;
+  const head = document.getElementById('backorders-modal-head');
+  const title = document.getElementById('backorders-modal-title');
+  const subt = document.getElementById('backorders-modal-subt');
+  const sel = document.getElementById('backorders-stock-filter');
+  if (mode === 'asignacion') {
+    backordersStockFilter = 'con';
+    if (head) head.style.background = 'linear-gradient(135deg,#14532d,#166534)';
+    if (title) title.innerHTML = '&#128233; Asignaci&oacute;n Backorder';
+    if (subt) subt.textContent = 'Llegó mercadería: buscá el SKU y ve qué clientes lo tenían pedido para avisarles. Datos SAP cada 30 min. Solo pesca.';
+  } else {
+    backordersStockFilter = 'sin';
+    if (head) head.style.background = 'linear-gradient(135deg,#7c2d12,#c2410c)';
+    if (title) title.innerHTML = '&#128230; Backorders';
+    if (subt) subt.textContent = 'SKUs con demanda pendiente que no podemos cubrir - urgentes de importar. Datos SAP cada 30 min. Solo pesca.';
+  }
+  if (sel) sel.value = backordersStockFilter;
+}
+// v420 (2026-08-06): recomputa counts para ambos botones (urgente + asignacion)
+// contando SKUs distintos (no lineas) en cada categoria segun stock actual.
+// Se llama desde ensureBackordersListener + desde el listener de stock_snapshot.
+function _updateBackorderButtonCounts(){
+  const bySku = {};  // sku -> {hasStock: bool}
+  backorderLines.forEach(ln => {
+    const sku = ln.sku || '';
+    if (!sku) return;
+    if (bySku[sku]) return;
+    const stkD = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(sku) || 0) : 0;
+    const stkT = (typeof getStockTransito === 'function') ? (getStockTransito(sku) || 0) : 0;
+    bySku[sku] = { hasStock: (stkD > 0 || stkT > 0) };
+  });
+  let cntUrgente = 0, cntAsig = 0;
+  Object.values(bySku).forEach(v => { v.hasStock ? cntAsig++ : cntUrgente++; });
+  const _paint = (id, n) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = n;
+    el.style.display = n > 0 ? '' : 'none';
+  };
+  _paint('backorders-btn-count', cntUrgente);
+  _paint('asignacion-backorder-btn-count', cntAsig);
+  // Tab count viejo (sidebar): mantiene el total historico por compat.
+  const tabEl = document.getElementById('tab-backorders-count');
+  if (tabEl) { tabEl.textContent = backorderLines.length; tabEl.style.display = backorderLines.length > 0 ? '' : 'none'; }
+}
 window.openBackordersModal = function(){
   const m = document.getElementById('backorders-modal');
   if (!m) return;
+  _applyBackordersMode('urgente');
   m.classList.add('open');
-  // v419: sincronizar checkbox "Solo sin stock" con el state actual del filtro.
-  // Preserva la eleccion del user entre aperturas del modal (default: true al primer load).
-  try {
-    const chk = document.getElementById('backorders-sinstock-filter');
-    if (chk) chk.checked = !!backordersSinStockFilter;
-  } catch(e) {}
   try { ensureBackordersListener(); } catch(e) { console.warn('openBackordersModal listener', e); }
   try { renderBackordersTab(); } catch(e) { console.warn('openBackordersModal render', e); }
+};
+// v420 (2026-08-06): mismo modal, mismo listener, mismo render. Solo cambia el
+// default filter ('con' en vez de 'sin') + titulo + color del header. La logica
+// de _passesFilters lee `backordersStockFilter` y aplica el filtro correcto.
+window.openAsignacionBackorderModal = function(){
+  const m = document.getElementById('backorders-modal');
+  if (!m) return;
+  _applyBackordersMode('asignacion');
+  m.classList.add('open');
+  try { ensureBackordersListener(); } catch(e) { console.warn('openAsignacionBackorderModal listener', e); }
+  try { renderBackordersTab(); } catch(e) { console.warn('openAsignacionBackorderModal render', e); }
 };
 window.closeBackordersModal = function(){
   const m = document.getElementById('backorders-modal');
@@ -8847,15 +8912,11 @@ window.ensureBackordersListener = function(){
     // v402: re-render si el modal Backorders esta abierto.
     const modal = document.getElementById('backorders-modal');
     if (modal && modal.classList.contains('open')) renderBackordersTab();
-    // Actualizar badge del boton (v399: movido a controls row header).
-    const n = backorderLines.length;
-    ['tab-backorders-count', 'backorders-btn-count'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) {
-        el.textContent = n;
-        el.style.display = n > 0 ? '' : 'none';
-      }
-    });
+    // v420: badges de ambos botones (urgente naranja + asignacion verde).
+    // Contadores separados: `backorders-btn-count` = SKUs sin stock (urgentes),
+    // `asignacion-backorder-btn-count` = SKUs con stock (para asignar).
+    // Fallback si STOCK_WAREHOUSE_BREAKDOWN no llego aun: todos suman a urgente.
+    try { _updateBackorderButtonCounts(); } catch(e){}
   }, err => console.warn('backorder_snapshot listener', err));
 };
 window.onBackordersSearch = function(){
@@ -8875,11 +8936,14 @@ window.onBackordersMesChange = function(){
   backordersMesFilter = (sel && sel.value || '').trim();
   renderBackordersTab();
 };
-// v419 (2026-08-06): toggle "Solo sin stock". Default ON al abrir el modal.
-// Filtra SKUs cuyo stock en whs 11 (venta) Y whs 12 (transito) es 0 = urgentes de importar.
-window.onBackordersSinStockChange = function(){
-  const chk = document.getElementById('backorders-sinstock-filter');
-  backordersSinStockFilter = !!(chk && chk.checked);
+// v420 (2026-08-06): select con 3 estados de filtro por stock. Reemplaza el checkbox v419.
+// 'sin' = solo SKUs sin stock en whs 11+12 (urgentes importar). Default en mode='urgente'.
+// 'con' = solo SKUs con stock en whs 11 o 12 (para asignar). Default en mode='asignacion'.
+// 'todos' = sin filtro por stock (mostrar todo).
+window.onBackordersStockFilterChange = function(){
+  const sel = document.getElementById('backorders-stock-filter');
+  const v = (sel && sel.value) || 'todos';
+  backordersStockFilter = (v === 'sin' || v === 'con') ? v : 'todos';
   renderBackordersTab();
 };
 // v401 (2026-08-05): exportar backorders filtrados a Excel. Respeta el
@@ -8893,12 +8957,24 @@ window.exportBackordersToExcel = function(){
   }
   const q = backordersSearchQuery;
   const mesF = backordersMesFilter;
+  const stkF = backordersStockFilter;
   const rows = backorderLines.filter(ln => {
     if (mesF && String(ln.sqDocDate || '').slice(0, 7) !== mesF) return false;
-    if (!q) return true;
-    return (ln.sku||'').toLowerCase().includes(q)
-        || (ln.producto||'').toLowerCase().includes(q)
-        || (ln.clienteNombre||'').toLowerCase().includes(q);
+    if (q) {
+      const skuHit = (ln.sku||'').toLowerCase().includes(q);
+      const prodHit = (ln.producto||'').toLowerCase().includes(q);
+      const cliHit = (ln.clienteNombre||'').toLowerCase().includes(q);
+      if (!skuHit && !prodHit && !cliHit) return false;
+    }
+    // v420: export respeta el filtro por stock actual (exporta lo mismo que se ve en pantalla).
+    if (stkF === 'sin' || stkF === 'con') {
+      const stkD = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(ln.sku) || 0) : 0;
+      const stkT = (typeof getStockTransito === 'function') ? (getStockTransito(ln.sku) || 0) : 0;
+      const hasStock = (stkD > 0 || stkT > 0);
+      if (stkF === 'sin' && hasStock) return false;
+      if (stkF === 'con' && !hasStock) return false;
+    }
+    return true;
   }).map(ln => ({
     'SKU':              ln.sku || '',
     'Producto':         ln.producto || '',
@@ -8975,12 +9051,16 @@ window.renderBackordersTab = function(){
       const cliHit = (ln.clienteNombre || '').toLowerCase().includes(q);
       if (!skuHit && !prodHit && !cliHit) return false;
     }
-    // v419: filtro "solo sin stock" (default ON). Descartar SKUs que tengan stock
-    // en whs 11 (venta) o whs 12 (transito). Los que quedan = urgentes de importar.
-    if (backordersSinStockFilter) {
+    // v420: filtro por stock 3-way (reemplaza v419 bool).
+    // 'sin' = ambos whs 11 y 12 en 0 (urgentes importar).
+    // 'con' = whs 11 O whs 12 con stock > 0 (para asignar a cliente).
+    // 'todos' = sin filtro.
+    if (backordersStockFilter === 'sin' || backordersStockFilter === 'con') {
       const _stkDisp = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(ln.sku) || 0) : 0;
       const _stkTran = (typeof getStockTransito === 'function') ? (getStockTransito(ln.sku) || 0) : 0;
-      if (_stkDisp > 0 || _stkTran > 0) return false;
+      const _hasStock = (_stkDisp > 0 || _stkTran > 0);
+      if (backordersStockFilter === 'sin' && _hasStock) return false;
+      if (backordersStockFilter === 'con' && !_hasStock) return false;
     }
     return true;
   };
@@ -12526,9 +12606,13 @@ function applyRolePermissions(){
   // Zonas, Analisis, Campañas, Master Clientes: admin + gerente.
   // v399 (2026-08-05): boton Zonas movido al header top (junto a Targets).
   // El id viejo `zonas-btn` fue reemplazado por `zonas-btn-top` en la fila
-  // superior; en su lugar aparece `backorders-btn` (naranja). Backorders
-  // es visible a TODOS los roles con acceso (vendedores + admin), asi que
-  // no necesita gating especifico aca.
+  // superior; en su lugar aparece `backorders-btn` (naranja).
+  // v420 (2026-08-06): Backorders + Asignacion Backorder ambos gated a
+  // admin-only (probamos con Mariano, si va bien lo abrimos a vendedores).
+  const bkBtn = document.getElementById('backorders-btn');
+  if (bkBtn) bkBtn.style.display = (userRole === 'admin') ? '' : 'none';
+  const asigBkBtn = document.getElementById('asignacion-backorder-btn');
+  if (asigBkBtn) asigBkBtn.style.display = (userRole === 'admin') ? '' : 'none';
   // v416 (2026-08-06): boton Zonas del header fue unificado con Master Clientes.
   // Se accede desde el modal Master Clientes -> boton 'Reasignar Zonas'.
   // El elemento zonas-btn-top queda forzado a display:none siempre.
@@ -13311,6 +13395,9 @@ function ensureStockSnapshotListener(){
     STOCK_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : null;
     // v417+: reflejar la salud SAP en el badge del header al recibir un snapshot nuevo.
     try { window._updateSapHealthBadge && window._updateSapHealthBadge(); } catch(e) {}
+    // v420+: cuando llega stock fresh, re-computar counts de los botones Backorder
+    // (algunos SKUs pueden haber pasado de urgente -> asignacion o viceversa).
+    try { if (typeof _updateBackorderButtonCounts === 'function') _updateBackorderButtonCounts(); } catch(e) {}
     _markStockMapLoaded();
     const total = Object.keys(STOCK_MAP).length;
     const ws = Object.values(STOCK_MAP).filter(v => v).length;
