@@ -3399,7 +3399,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v411';
+const APP_VERSION = 'v412';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -6251,14 +6251,20 @@ function updateStats(pts){
       if (prov && ptsCounted.has(prov + '|' + nombre.toLowerCase())) return;
       const hasGeo = (a.lat != null && a.lng != null);
       const hasAddr = !!(a.calle || a.address);
-      // Solo cuenta como habilitado si tiene PROVINCIA + direccion + geo.
-      // Sin alguno -> pendiente.
-      const isHab = !!(prov && hasGeo && hasAddr);
-      // v395: respetar stateFilter tambien en altas SAP huerfanas.
-      if (stateFilter === 'confirmados' && !isHab) return;
-      if (stateFilter === 'pendientes' && isHab) return;
+      // v412 (2026-08-06): fix card 'CLIENTES EN SAP' inflada. Alinear
+      // criterio con renderClients (panel): 'confirmados' EXCLUYE
+      // provisorios (alta rapida sin cardCodeSap) + EXCLUYE sin datos.
+      // Antes contaba cualquier alta con geo+addr aunque fuera provisorio
+      // -> card=686 vs panel=183 reportado por Mariano.
+      const isProvisorio = !a.cardCodeSap && !!a.manualSapPending;
+      const isSapConfirmed = !!a.cardCodeSap && hasGeo && hasAddr;
+      // Categorizar segun mismo criterio que renderClients:
+      //   confirmados = SAP con cardCode + geo + addr (excluye provisorios).
+      //   pendientes  = provisorios O SAP incompletos (sin geo/addr).
+      if (stateFilter === 'confirmados' && !isSapConfirmed) return;
+      if (stateFilter === 'pendientes' && isSapConfirmed) return;
       total++;
-      if (isHab) habilitados++; else pendientes++;
+      if (isSapConfirmed) habilitados++; else pendientes++;
       sapLocs.add((prov || '(sin provincia)') + '|' + (aLoc || '(sin localidad)'));
     });
     locsConTiendas += sapLocs.size;
