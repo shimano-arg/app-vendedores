@@ -1,0 +1,48 @@
+name: Deploy to GitHub Pages
+
+# Trigger: cada push a main + manual desde Actions.
+# Reemplaza al deploy "legacy" (branch push) que dejo de funcionar el
+# 2026-08-06 tras cambio de build_type: legacy -> workflow en Settings.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # Todo el repo se sirve tal cual (mismo comportamiento que legacy
+          # con .nojekyll). Archivos: index.html, app.bundle.js, chunks/,
+          # sw.js, geo.json, stock.json, logos, etc.
+          path: '.'
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
