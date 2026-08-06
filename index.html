@@ -3223,6 +3223,13 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
             <select id="backorders-mes-filter" onchange="onBackordersMesChange()" title="Filtrar por mes de la SQ" style="padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff;min-width:140px">
               <option value="">Todos los meses</option>
             </select>
+            <!-- v419 (2026-08-06): toggle "Solo sin stock" (default ON). Muestra solo
+                 SKUs sin stock en whs 11 ni whs 12 (naranja) = urgentes para importar.
+                 User destildea para ver el listado completo. -->
+            <label id="backorders-sinstock-label" title="Mostrar solo SKUs sin stock en ningun deposito (los urgentes de importar). Destildar para ver todos." style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #c2410c;border-radius:6px;background:#fff7ed;color:#7c2d12;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;user-select:none">
+              <input id="backorders-sinstock-filter" type="checkbox" checked onchange="onBackordersSinStockChange()" style="cursor:pointer;accent-color:#c2410c"/>
+              Solo sin stock
+            </label>
             <button onclick="exportBackordersToExcel()" style="padding:9px 14px;border:1.5px solid #c2410c;border-radius:6px;background:#c2410c;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128190; Exportar</button>
           </div>
           <div id="backorders-summary" style="padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#78350f;flex-shrink:0"></div>
@@ -3445,7 +3452,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v418';
+const APP_VERSION = 'v419';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -8798,6 +8805,7 @@ var backorderLines = [];               // aplanado: todas las lineas visibles al
 var unsubBackorderSnapshot = null;      // listener onSnapshot a la coleccion
 var backordersSearchQuery = '';         // texto del buscador SKU
 var backordersMesFilter = '';           // v411: filtro por mes YYYY-MM del sqDocDate
+var backordersSinStockFilter = true;    // v419: default ON - solo SKUs sin stock (urgentes de importar)
 // v402 (2026-08-05): abrir/cerrar Backorders como modal fullscreen (pedido
 // de Mariano - antes era una tab dentro del sidebar). Al abrir, garantiza
 // listener + trigger render.
@@ -8805,6 +8813,12 @@ window.openBackordersModal = function(){
   const m = document.getElementById('backorders-modal');
   if (!m) return;
   m.classList.add('open');
+  // v419: sincronizar checkbox "Solo sin stock" con el state actual del filtro.
+  // Preserva la eleccion del user entre aperturas del modal (default: true al primer load).
+  try {
+    const chk = document.getElementById('backorders-sinstock-filter');
+    if (chk) chk.checked = !!backordersSinStockFilter;
+  } catch(e) {}
   try { ensureBackordersListener(); } catch(e) { console.warn('openBackordersModal listener', e); }
   try { renderBackordersTab(); } catch(e) { console.warn('openBackordersModal render', e); }
 };
@@ -8859,6 +8873,13 @@ window.clearBackordersSearch = function(){
 window.onBackordersMesChange = function(){
   const sel = document.getElementById('backorders-mes-filter');
   backordersMesFilter = (sel && sel.value || '').trim();
+  renderBackordersTab();
+};
+// v419 (2026-08-06): toggle "Solo sin stock". Default ON al abrir el modal.
+// Filtra SKUs cuyo stock en whs 11 (venta) Y whs 12 (transito) es 0 = urgentes de importar.
+window.onBackordersSinStockChange = function(){
+  const chk = document.getElementById('backorders-sinstock-filter');
+  backordersSinStockFilter = !!(chk && chk.checked);
   renderBackordersTab();
 };
 // v401 (2026-08-05): exportar backorders filtrados a Excel. Respeta el
@@ -8945,7 +8966,7 @@ window.renderBackordersTab = function(){
   // Agrupar por SKU. Cada grupo tiene: producto + total pendiente + clientes.
   const q = backordersSearchQuery;
   const mesF = backordersMesFilter;
-  // v411: helper para chequear si un linea matchea todos los filtros (busqueda + mes).
+  // v411: helper para chequear si un linea matchea todos los filtros (busqueda + mes + sin-stock).
   const _passesFilters = (ln) => {
     if (mesF && String(ln.sqDocDate || '').slice(0, 7) !== mesF) return false;
     if (q) {
@@ -8953,6 +8974,13 @@ window.renderBackordersTab = function(){
       const prodHit = (ln.producto || '').toLowerCase().includes(q);
       const cliHit = (ln.clienteNombre || '').toLowerCase().includes(q);
       if (!skuHit && !prodHit && !cliHit) return false;
+    }
+    // v419: filtro "solo sin stock" (default ON). Descartar SKUs que tengan stock
+    // en whs 11 (venta) o whs 12 (transito). Los que quedan = urgentes de importar.
+    if (backordersSinStockFilter) {
+      const _stkDisp = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(ln.sku) || 0) : 0;
+      const _stkTran = (typeof getStockTransito === 'function') ? (getStockTransito(ln.sku) || 0) : 0;
+      if (_stkDisp > 0 || _stkTran > 0) return false;
     }
     return true;
   };
