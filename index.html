@@ -3174,6 +3174,9 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <div style="padding:14px;display:flex;flex-direction:column;gap:12px;flex:1;overflow:hidden">
           <div id="backorders-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0">
             <input id="backorders-search" oninput="onBackordersSearch()" type="text" placeholder="Buscar por SKU, codigo o cliente (ej: SN2000FJ o MUNDO ESTURION)..." style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff"/>
+            <select id="backorders-mes-filter" onchange="onBackordersMesChange()" title="Filtrar por mes de la SQ" style="padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff;min-width:140px">
+              <option value="">Todos los meses</option>
+            </select>
             <button onclick="exportBackordersToExcel()" style="padding:9px 14px;border:1.5px solid #c2410c;border-radius:6px;background:#c2410c;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128190; Exportar</button>
           </div>
           <div id="backorders-summary" style="padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#78350f;flex-shrink:0"></div>
@@ -3396,7 +3399,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v410';
+const APP_VERSION = 'v412';
 window.APP_VERSION = APP_VERSION;
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
@@ -6248,14 +6251,20 @@ function updateStats(pts){
       if (prov && ptsCounted.has(prov + '|' + nombre.toLowerCase())) return;
       const hasGeo = (a.lat != null && a.lng != null);
       const hasAddr = !!(a.calle || a.address);
-      // Solo cuenta como habilitado si tiene PROVINCIA + direccion + geo.
-      // Sin alguno -> pendiente.
-      const isHab = !!(prov && hasGeo && hasAddr);
-      // v395: respetar stateFilter tambien en altas SAP huerfanas.
-      if (stateFilter === 'confirmados' && !isHab) return;
-      if (stateFilter === 'pendientes' && isHab) return;
+      // v412 (2026-08-06): fix card 'CLIENTES EN SAP' inflada. Alinear
+      // criterio con renderClients (panel): 'confirmados' EXCLUYE
+      // provisorios (alta rapida sin cardCodeSap) + EXCLUYE sin datos.
+      // Antes contaba cualquier alta con geo+addr aunque fuera provisorio
+      // -> card=686 vs panel=183 reportado por Mariano.
+      const isProvisorio = !a.cardCodeSap && !!a.manualSapPending;
+      const isSapConfirmed = !!a.cardCodeSap && hasGeo && hasAddr;
+      // Categorizar segun mismo criterio que renderClients:
+      //   confirmados = SAP con cardCode + geo + addr (excluye provisorios).
+      //   pendientes  = provisorios O SAP incompletos (sin geo/addr).
+      if (stateFilter === 'confirmados' && !isSapConfirmed) return;
+      if (stateFilter === 'pendientes' && isSapConfirmed) return;
       total++;
-      if (isHab) habilitados++; else pendientes++;
+      if (isSapConfirmed) habilitados++; else pendientes++;
       sapLocs.add((prov || '(sin provincia)') + '|' + (aLoc || '(sin localidad)'));
     });
     locsConTiendas += sapLocs.size;
@@ -8681,6 +8690,7 @@ window.setTab = function(name){
 var backorderLines = [];               // aplanado: todas las lineas visibles al user
 var unsubBackorderSnapshot = null;      // listener onSnapshot a la coleccion
 var backordersSearchQuery = '';         // texto del buscador SKU
+var backordersMesFilter = '';           // v411: filtro por mes YYYY-MM del sqDocDate
 // v402 (2026-08-05): abrir/cerrar Backorders como modal fullscreen (pedido
 // de Mariano - antes era una tab dentro del sidebar). Al abrir, garantiza
 // listener + trigger render.
@@ -8738,6 +8748,12 @@ window.clearBackordersSearch = function(){
   backordersSearchQuery = '';
   renderBackordersTab();
 };
+// v411 (2026-08-06): filtro por mes YYYY-MM (extraido de sqDocDate).
+window.onBackordersMesChange = function(){
+  const sel = document.getElementById('backorders-mes-filter');
+  backordersMesFilter = (sel && sel.value || '').trim();
+  renderBackordersTab();
+};
 // v401 (2026-08-05): exportar backorders filtrados a Excel. Respeta el
 // buscador actual (SKU/producto/clienteNombre) y el filtro role-based
 // que ya aplico ensureBackordersListener. Sheet unico con 1 fila por
@@ -8748,7 +8764,9 @@ window.exportBackordersToExcel = function(){
     return;
   }
   const q = backordersSearchQuery;
+  const mesF = backordersMesFilter;
   const rows = backorderLines.filter(ln => {
+    if (mesF && String(ln.sqDocDate || '').slice(0, 7) !== mesF) return false;
     if (!q) return true;
     return (ln.sku||'').toLowerCase().includes(q)
         || (ln.producto||'').toLowerCase().includes(q)
@@ -8778,8 +8796,9 @@ window.exportBackordersToExcel = function(){
     const ws = XLSX.utils.json_to_sheet(rows);
     XLSX.utils.book_append_sheet(wb, ws, 'Backorders');
     const dateStr = new Date().toISOString().slice(0, 10);
-    const suffix = q ? ('_' + q.replace(/[^a-z0-9]/gi, '').slice(0, 20)) : '';
-    const filename = 'Backorders_' + dateStr + suffix + '.xlsx';
+    const suffixQ = q ? ('_' + q.replace(/[^a-z0-9]/gi, '').slice(0, 20)) : '';
+    const suffixM = mesF ? ('_mes-' + mesF) : '';
+    const filename = 'Backorders_' + dateStr + suffixM + suffixQ + '.xlsx';
     XLSX.writeFile(wb, filename);
     if (typeof showSyncTag === 'function') showSyncTag('Exportado: ' + rows.length + ' lineas');
   } catch(e) {
@@ -8796,18 +8815,44 @@ window.renderBackordersTab = function(){
     list.innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:12px">Cuando el cron actualice los datos (cada 30 min) van a aparecer aca.</div>';
     return;
   }
+  // v411 (2026-08-06): popular select de meses con YYYY-MM unicos del sqDocDate
+  // (ordenados DESC). Preserva la seleccion si sigue existiendo. Labels en es-AR.
+  const _mesSel = document.getElementById('backorders-mes-filter');
+  if (_mesSel) {
+    const mesesSet = new Set();
+    backorderLines.forEach(ln => {
+      const d = String(ln.sqDocDate || '').slice(0, 7);
+      if (/^\d{4}-\d{2}$/.test(d)) mesesSet.add(d);
+    });
+    const meses = Array.from(mesesSet).sort().reverse();
+    const _MESES_LBL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const curVal = _mesSel.value;
+    _mesSel.innerHTML = '<option value="">Todos los meses</option>' +
+      meses.map(m => {
+        const [yy, mm] = m.split('-');
+        return '<option value="' + m + '">' + _MESES_LBL[parseInt(mm,10)-1] + ' ' + yy + '</option>';
+      }).join('');
+    if (curVal && meses.indexOf(curVal) >= 0) _mesSel.value = curVal;
+    else backordersMesFilter = ''; // el mes previo desaparecio, resetear
+  }
   // Agrupar por SKU. Cada grupo tiene: producto + total pendiente + clientes.
   const q = backordersSearchQuery;
-  const skuMap = {};  // sku -> {producto, familia, subfamilia, totalPendiente, clientes: [{nombre, code, pendiente, precio, sqDocNum, sqDocDate}]}
-  backorderLines.forEach(ln => {
-    const sku = ln.sku || '';
-    // v399: buscador matchea SKU, producto O nombre del cliente.
+  const mesF = backordersMesFilter;
+  // v411: helper para chequear si un linea matchea todos los filtros (busqueda + mes).
+  const _passesFilters = (ln) => {
+    if (mesF && String(ln.sqDocDate || '').slice(0, 7) !== mesF) return false;
     if (q) {
-      const skuHit = sku.toLowerCase().includes(q);
+      const skuHit = (ln.sku || '').toLowerCase().includes(q);
       const prodHit = (ln.producto || '').toLowerCase().includes(q);
       const cliHit = (ln.clienteNombre || '').toLowerCase().includes(q);
-      if (!skuHit && !prodHit && !cliHit) return;
+      if (!skuHit && !prodHit && !cliHit) return false;
     }
+    return true;
+  };
+  const skuMap = {};  // sku -> {producto, familia, subfamilia, totalPendiente, clientes: [{nombre, code, pendiente, precio, sqDocNum, sqDocDate}]}
+  backorderLines.forEach(ln => {
+    if (!_passesFilters(ln)) return;
+    const sku = ln.sku || '';
     if (!skuMap[sku]) {
       skuMap[sku] = {sku: sku, producto: ln.producto || '', familia: ln.familia || '', subfamilia: ln.subfamilia || '', totalPendiente: 0, clientes: []};
     }
@@ -8827,14 +8872,16 @@ window.renderBackordersTab = function(){
   skus.sort((a,b) => b.totalPendiente - a.totalPendiente);
   // Summary
   const totalUnidades = skus.reduce((s,x) => s + x.totalPendiente, 0);
-  const totalClientes = new Set(backorderLines.filter(ln => {
-    if (!q) return true;
-    return (ln.sku||'').toLowerCase().includes(q)
-        || (ln.producto||'').toLowerCase().includes(q)
-        || (ln.clienteNombre||'').toLowerCase().includes(q);
-  }).map(ln => ln.clienteCode)).size;
+  const totalClientes = new Set(backorderLines.filter(_passesFilters).map(ln => ln.clienteCode)).size;
+  const _filtroBadges = [];
+  if (q) _filtroBadges.push('busqueda: "' + escapeHtml(q) + '"');
+  if (mesF) {
+    const [yy, mm] = mesF.split('-');
+    const _MESES_LBL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    _filtroBadges.push('mes: ' + _MESES_LBL[parseInt(mm,10)-1] + ' ' + yy);
+  }
   sum.innerHTML = '<b>' + skus.length + '</b> SKUs con backorder &middot; <b>' + Math.round(totalUnidades) + '</b> unidades pendientes &middot; <b>' + totalClientes + '</b> clientes'
-    + (q ? ' &middot; <i>filtro: "' + escapeHtml(q) + '"</i>' : '');
+    + (_filtroBadges.length ? ' &middot; <i>' + _filtroBadges.join(' &middot; ') + '</i>' : '');
   // Lista
   if (!skus.length) {
     list.innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:12px">Sin resultados para "' + escapeHtml(q) + '"</div>';
