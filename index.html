@@ -122,6 +122,20 @@ body{font-family:"Segoe UI",Calibri,Arial,sans-serif;background:#dbeafe;color:#1
 .role-badge.interno{background:#00A9E0}
 .role-badge.viewer{background:#6b7280}
 .role-badge.unassigned{background:#f59e0b}
+/* v417+ (2026-08-06): badges informativos del header (version app + estado SAP).
+   Diseño consistente con role-badge (mismo height 32px, tipografia similar). */
+.hdr-info-badges{display:flex;align-items:center;gap:6px;margin-left:6px}
+.hdr-info-badge{display:inline-flex;align-items:center;gap:5px;padding:0 10px;height:32px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.3px;box-sizing:border-box;line-height:1;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;user-select:none;white-space:nowrap;font-family:"Segoe UI",Calibri,Arial,sans-serif}
+.hdr-info-badge .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#9ca3af;flex-shrink:0}
+.hdr-info-badge.sap-ok{background:#dcfce7;color:#166534;border-color:#86efac}
+.hdr-info-badge.sap-ok .dot{background:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.18)}
+.hdr-info-badge.sap-warn{background:#fef3c7;color:#92400e;border-color:#fcd34d}
+.hdr-info-badge.sap-warn .dot{background:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,.18)}
+.hdr-info-badge.sap-err{background:#fee2e2;color:#991b1b;border-color:#fca5a5}
+.hdr-info-badge.sap-err .dot{background:#dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.18);animation:sapErrPulse 1.6s ease-in-out infinite}
+.hdr-info-badge.sap-unknown{background:#f1f5f9;color:#64748b;border-color:#cbd5e1}
+.hdr-info-badge.sap-unknown .dot{background:#9ca3af}
+@keyframes sapErrPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.25);opacity:.7}}
 body.role-viewer .client-card input[type=checkbox],
 body.role-viewer .contact-controls,
 body.role-viewer .btn-cancel,
@@ -1614,7 +1628,16 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
   <button class="header-hamburger" id="header-hamburger-btn" onclick="toggleMobileMenu()" aria-label="Menu" title="Abrir menu">&#9776;</button>
   <div class="header-logo-wrap"><img src="Shimano-Logo.png" alt="Shimano" class="header-logo" onclick="if(confirm('Recargar la aplicacion?'))location.reload()" title="Click para refrescar la app"/></div>
   <h1>MAPA DE VENTAS - ARGENTINA</h1>
-  <div class="header-badge" id="header-badge"><span id="user-role-badge" class="role-badge" style="display:none"></span></div>
+  <div class="header-badge" id="header-badge">
+    <span id="user-role-badge" class="role-badge" style="display:none"></span>
+    <!-- v417+ (2026-08-06): badges informativos siempre visibles.
+         Version = para no abrir DevTools/Console. SAP = salud del cron sync
+         de stock (proxy de conexion SAP). Ver logica en _updateSapHealthBadge. -->
+    <div class="hdr-info-badges">
+      <span class="hdr-info-badge" id="app-version-badge" title="Version de la app">v?</span>
+      <span class="hdr-info-badge sap-unknown" id="sap-health-badge" title="Estado de la sincronizacion con SAP"><span class="dot"></span><span id="sap-health-label">SAP ...</span></span>
+    </div>
+  </div>
   <div class="stats-bar" id="stats-bar-header">
     <div class="stat-box"><div class="num js-stat-loc" id="stat-loc">0</div><div class="lbl">Localidades</div></div>
     <div class="stat-box"><div class="num js-stat-c" id="stat-c" style="color:#10b981">0</div><div class="lbl">Clientes en SAP</div></div>
@@ -3417,8 +3440,69 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v416';
+const APP_VERSION = 'v417';
 window.APP_VERSION = APP_VERSION;
+
+// v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
+// Chip visible para no tener que abrir DevTools -> Console para leer que
+// version esta corriendo (util post-deploy y para diferenciar shell viejo
+// cacheado por SW vs shell fresh).
+try {
+  const _paintVerBadge = () => {
+    const el = document.getElementById('app-version-badge');
+    if (el) el.textContent = APP_VERSION;
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _paintVerBadge, { once: true });
+  } else {
+    _paintVerBadge();
+  }
+} catch(e) {}
+
+// v417+ (2026-08-06): badge de salud SAP en el header. Basado en la edad
+// del snapshot de stock en app_config/stock_snapshot.updatedAt, que se
+// refresca cada 30 min desde SAP Service Layer (cron sync-sap-catalog-stock.yml).
+// Umbrales: <45 min = OK (verde), 45-90 min = lento (amarillo),
+// >=90 min = down (rojo, 2+ ciclos perdidos). Sin data aun = gris.
+// Se re-evalua on-change del listener stock + cada 60s para reflejar aging.
+window._updateSapHealthBadge = function _updateSapHealthBadge() {
+  try {
+    const el = document.getElementById('sap-health-badge');
+    const lbl = document.getElementById('sap-health-label');
+    if (!el || !lbl) return;
+    const at = (typeof window.STOCK_UPDATED_AT === 'string') ? window.STOCK_UPDATED_AT
+             : (typeof STOCK_UPDATED_AT === 'string') ? STOCK_UPDATED_AT : null;
+    if (!at) {
+      el.className = 'hdr-info-badge sap-unknown';
+      lbl.textContent = 'SAP ...';
+      el.title = 'Sin datos aun (esperando primer snapshot de stock)';
+      return;
+    }
+    const ageMs = Date.now() - new Date(at).getTime();
+    const ageMin = Math.floor(ageMs / 60000);
+    const humanAge = ageMin < 60 ? (ageMin + ' min')
+                   : ageMin < 1440 ? (Math.floor(ageMin/60) + ' h ' + (ageMin%60) + ' min')
+                   : (Math.floor(ageMin/1440) + ' d ' + Math.floor((ageMin%1440)/60) + ' h');
+    let cls, txt;
+    if (ageMin < 45)      { cls = 'sap-ok';   txt = 'SAP OK'; }
+    else if (ageMin < 90) { cls = 'sap-warn'; txt = 'SAP lento'; }
+    else                  { cls = 'sap-err';  txt = 'SAP down'; }
+    el.className = 'hdr-info-badge ' + cls;
+    lbl.textContent = txt;
+    el.title = 'Ultimo sync SAP hace ' + humanAge + ' (' + at + '). Umbral: <45min OK / 45-90min lento / >=90min down. Fuente: app_config/stock_snapshot.updatedAt (cron cada 30 min).';
+  } catch(e) {}
+};
+try {
+  const _initSapBadge = () => {
+    try { window._updateSapHealthBadge(); } catch(e){}
+    setInterval(() => { try { window._updateSapHealthBadge(); } catch(e){} }, 60000);
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _initSapBadge, { once: true });
+  } else {
+    _initSapBadge();
+  }
+} catch(e) {}
 
 // v372+ (2026-08-02): wrapper defensivo del boton "Exportar a Excel".
 // Bug reportado en Sentry (iPhone Safari): "Can't find variable openExportFormatModal"
@@ -13192,6 +13276,8 @@ function ensureStockSnapshotListener(){
       STOCK_BACKORDER = {};
     }
     STOCK_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : null;
+    // v417+: reflejar la salud SAP en el badge del header al recibir un snapshot nuevo.
+    try { window._updateSapHealthBadge && window._updateSapHealthBadge(); } catch(e) {}
     _markStockMapLoaded();
     const total = Object.keys(STOCK_MAP).length;
     const ws = Object.values(STOCK_MAP).filter(v => v).length;
