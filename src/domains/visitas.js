@@ -1463,11 +1463,22 @@ function renderVisitasList() {
         '</div>';
     const gpsB = gpsBadgeHtml(v);
     if (gpsB) html += '<div class="vc-meta" style="margin-top:4px">' + gpsB + '</div>';
+    // v421 (2026-08-06): pedido del user - mostrar fecha exacta (dd/mm/yyyy) en vez de
+    // "MES ANIO". `v.fecha` es ISO string (ya usado en sort). Fallback a mes+anio para
+    // records viejos que no tengan `fecha` seteado (defensivo, aunque no se esperan).
+    let _fechaTxt = '';
+    if (v.fecha) {
+      const _d = new Date(v.fecha);
+      if (!isNaN(_d.getTime())) {
+        const _dd = String(_d.getDate()).padStart(2, '0');
+        const _mm = String(_d.getMonth() + 1).padStart(2, '0');
+        _fechaTxt = _dd + '/' + _mm + '/' + _d.getFullYear();
+      }
+    }
+    if (!_fechaTxt) _fechaTxt = (v.mes || '') + ' ' + (v.anio || '');
     html +=
       '</div><div class="vc-date" style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">' +
-      escapeHtml(v.mes || '') +
-      ' ' +
-      (v.anio || '');
+      escapeHtml(_fechaTxt);
     // v365+: boton ESTADO solo para contactos (no presencial). Abre modal con RESPONDIO / NO RESPONDIO / ELIMINAR.
     if (isContacto && canDeleteThis) {
       html +=
