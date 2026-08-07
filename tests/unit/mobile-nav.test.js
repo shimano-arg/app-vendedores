@@ -81,3 +81,29 @@ describe('Slot PEDIDO + cliente picker', () => {
     expect(HTML).toContain('function _selectPedidoCliente');
   });
 });
+
+describe('Hamburger + drawer', () => {
+  it('hamburger #mobile-header-hamburger existe', () => {
+    expect(HTML).toContain('id="mobile-header-hamburger"');
+  });
+  it('hamburger invoca openMobileDrawer', () => {
+    expect(HTML).toMatch(/id="mobile-header-hamburger"[^>]*onclick="openMobileDrawer\(\)"/);
+  });
+  it('drawer #mobile-drawer existe', () => {
+    expect(HTML).toContain('id="mobile-drawer"');
+  });
+  it('drawer tiene 4 opciones (rutas, rendiciones, altacli, notif)', () => {
+    const actions = ['rutas', 'rendiciones', 'altacli', 'notif'];
+    for (const a of actions) {
+      expect(HTML).toMatch(new RegExp(`data-drawer-action="${a}"`));
+    }
+  });
+  it('media (min-width:769px) oculta hamburger + drawer', () => {
+    expect(HTML).toMatch(/@media[^{]*min-width:\s*769px[\s\S]*?#mobile-header-hamburger[\s\S]*?display:\s*none/);
+  });
+  it('handlers openMobileDrawer/closeMobileDrawer/_updateHamburgerBadge existen', () => {
+    expect(HTML).toContain('function openMobileDrawer');
+    expect(HTML).toContain('function closeMobileDrawer');
+    expect(HTML).toContain('function _updateHamburgerBadge');
+  });
+});

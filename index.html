@@ -1566,6 +1566,31 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .suggest-row .sinfo{font-size:9px;color:#92400e;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-top:1px}
 .suggest-row .add-sg{background:#f59e0b;color:#fff;border:none;border-radius:4px;width:22px;height:22px;font-size:13px;font-weight:800;cursor:pointer;line-height:1}
 .suggest-row .add-sg:hover{background:#d97706}
+
+#mobile-header-hamburger{display:none;position:relative;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;color:#475569;cursor:pointer;padding:8px 10px;min-height:36px;align-items:center;justify-content:center;transition:.15s}
+#mobile-header-hamburger:hover{background:#f1f5f9;border-color:#cbd5e1}
+#mobile-header-hamburger #mob-hamburger-badge{position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:9px;min-width:16px;text-align:center;line-height:1.3}
+
+#mobile-drawer{position:fixed;inset:0;background:rgba(15,23,42,.6);backdrop-filter:blur(4px);display:none;z-index:10000}
+#mobile-drawer.open{display:block}
+#mobile-drawer .mdr-box{background:#fff;width:min(300px,80vw);height:100vh;box-shadow:2px 0 24px rgba(0,0,0,.3);animation:mdr-slide .25s ease-out;display:flex;flex-direction:column}
+@keyframes mdr-slide{from{transform:translateX(-100%)}to{transform:translateX(0)}}
+#mobile-drawer .mdr-head{background:linear-gradient(135deg,#0f172a,#334155);color:#fff;padding:16px 18px;display:flex;justify-content:space-between;align-items:center;font-weight:800;text-transform:uppercase;letter-spacing:.4px;padding-top:calc(16px + env(safe-area-inset-top,0))}
+#mobile-drawer .mdr-close{background:none;border:none;color:#fff;font-size:24px;cursor:pointer;line-height:1}
+#mobile-drawer .mdr-body{padding:12px 0;flex:1;overflow-y:auto;display:flex;flex-direction:column}
+.mdr-item{background:none;border:none;padding:14px 18px;display:flex;align-items:center;gap:14px;cursor:pointer;font-family:inherit;font-size:14px;color:#0f172a;text-align:left;border-bottom:1px solid #f1f5f9;transition:.1s;position:relative}
+.mdr-item:hover{background:#f8fafc}
+.mdr-item:active{background:#f1f5f9}
+.mdr-item .mdr-icon{font-size:22px}
+.mdr-item .mdr-label{font-weight:600;flex:1}
+.mdr-item .mdr-item-badge{background:#dc2626;color:#fff;font-size:10px;font-weight:800;padding:2px 7px;border-radius:9px;min-width:20px;text-align:center}
+
+@media (max-width: 768px) {
+  #mobile-header-hamburger { display: inline-flex; }
+}
+@media (min-width: 769px) {
+  #mobile-header-hamburger, #mobile-drawer { display: none !important; }
+}
 </style>
 </head>
 <body>
@@ -1727,6 +1752,10 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <button class="logout-btn" id="master-cli-btn" onclick="openMasterClientesPanel()" title="Cargar direcciones exactas de cada tienda" style="display:none">Master Clientes</button>
     <button class="logout-btn" id="admin-btn" onclick="openAdminPanel()" title="Gestion de usuarios" style="display:none">Usuarios</button>
     <button class="logout-btn" id="stock-btn" onclick="openProductMasterModal()" title="Buscador de productos: precio, stock y datos maestros de cualquier SKU" style="display:none">Productos</button>
+    <button id="mobile-header-hamburger" onclick="openMobileDrawer()" aria-label="Menú" title="Menú">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span id="mob-hamburger-badge" style="display:none">0</span>
+    </button>
     <button class="logout-btn" onclick="signOut()" title="Cerrar sesion">Salir</button>
   </div>
 </div>
@@ -8951,6 +8980,26 @@ function closePedidoClientePicker(){
   const el = document.getElementById('pedido-cliente-picker');
   if (el) el.classList.remove('open');
 }
+function openMobileDrawer(){
+  const d = document.getElementById('mobile-drawer');
+  if (d) { d.classList.add('open'); d.setAttribute('aria-hidden', 'false'); }
+}
+function closeMobileDrawer(){
+  const d = document.getElementById('mobile-drawer');
+  if (d) { d.classList.remove('open'); d.setAttribute('aria-hidden', 'true'); }
+}
+// Sincroniza el badge del hamburger con #tab-notif-count.
+// Se llama cada vez que se actualiza el contador de notificaciones.
+function _updateHamburgerBadge(){
+  const src = document.getElementById('tab-notif-count');
+  const hb = document.getElementById('mob-hamburger-badge');
+  const db = document.getElementById('mdr-notif-badge');
+  if (!src) return;
+  const n = parseInt(src.textContent || '0', 10);
+  const showHb = n > 0;
+  if (hb) { hb.style.display = showHb ? 'inline-block' : 'none'; hb.textContent = String(n); }
+  if (db) { db.style.display = showHb ? 'inline-block' : 'none'; db.textContent = String(n); }
+}
 function _renderPcpList(query){
   const list = document.getElementById('pcp-list');
   if (!list) return;
@@ -9008,6 +9057,15 @@ function _paintHerramientasDot(){
   syncFromSource(); // init
   new MutationObserver(syncFromSource).observe(source, { characterData: true, childList: true, subtree: true });
 })();
+
+// Wire hamburger badge updates (v429, Task 6)
+(function _wireHamburgerBadge(){
+  const source = document.getElementById('tab-notif-count');
+  if (!source) return;
+  _updateHamburgerBadge();
+  new MutationObserver(_updateHamburgerBadge).observe(source, { characterData: true, childList: true, subtree: true });
+})();
+
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     const m = document.getElementById('herramientas-modal');
@@ -9016,6 +9074,8 @@ document.addEventListener('keydown', (e) => {
     if (cs && cs.classList.contains('open')) closeCargarSheet();
     const pcp = document.getElementById('pedido-cliente-picker');
     if (pcp && pcp.classList.contains('open')) closePedidoClientePicker();
+    const d = document.getElementById('mobile-drawer');
+    if (d && d.classList.contains('open')) closeMobileDrawer();
   }
 });
 
@@ -9651,6 +9711,7 @@ function updateNotifsBadge(){
     tabCount.textContent = unread > 99 ? '99+' : unread.toString();
     tabCount.style.display = unread > 0 ? '' : 'none';
   }
+  _updateHamburgerBadge();
   // Si el pane de notificaciones esta visible, refrescar contadores de sub-tabs.
   const pane = document.getElementById('pane-notif');
   if (pane && pane.style.display !== 'none' && typeof updateNotifsTabCounts === 'function') {
@@ -15820,5 +15881,32 @@ if ('serviceWorker' in navigator) {
     <ul id="pcp-list" class="pcp-list" role="listbox"></ul>
   </div>
 </div>
+<aside id="mobile-drawer" onclick="if(event.target===this)closeMobileDrawer()" aria-hidden="true">
+  <div class="mdr-box">
+    <div class="mdr-head">
+      <span>Menú</span>
+      <button class="mdr-close" onclick="closeMobileDrawer()" aria-label="Cerrar">&times;</button>
+    </div>
+    <nav class="mdr-body">
+      <button class="mdr-item" data-drawer-action="rutas" onclick="closeMobileDrawer();setTab('rutas')">
+        <span class="mdr-icon">&#128662;</span>
+        <span class="mdr-label">Rutas</span>
+      </button>
+      <button class="mdr-item" data-drawer-action="rendiciones" onclick="closeMobileDrawer();setTab('rendiciones')">
+        <span class="mdr-icon">&#128176;</span>
+        <span class="mdr-label">Rendiciones</span>
+      </button>
+      <button class="mdr-item" data-drawer-action="altacli" onclick="closeMobileDrawer();setTab('altacli')">
+        <span class="mdr-icon">&#128100;</span>
+        <span class="mdr-label">Alta clientes</span>
+      </button>
+      <button class="mdr-item" data-drawer-action="notif" onclick="closeMobileDrawer();setTab('notif')">
+        <span class="mdr-icon">&#128276;</span>
+        <span class="mdr-label">Notificaciones</span>
+        <span class="mdr-item-badge" id="mdr-notif-badge" style="display:none">0</span>
+      </button>
+    </nav>
+  </div>
+</aside>
 </body>
 </html>
