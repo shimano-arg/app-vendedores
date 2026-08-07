@@ -46,3 +46,20 @@ describe('Bottom-nav handlers simples', () => {
     expect(HTML).toContain('function _updateHomeActiveState');
   });
 });
+
+describe('Slot CARGAR + sheet', () => {
+  it('slot cargar invoca openCargarSheet', () => {
+    expect(HTML).toMatch(/data-mnav-slot="cargar"[^>]*onclick="openCargarSheet\(\)"/);
+  });
+  it('sheet #cargar-sheet existe', () => {
+    expect(HTML).toContain('id="cargar-sheet"');
+  });
+  it('sheet tiene 2 acciones (visita, contacto)', () => {
+    expect(HTML).toMatch(/data-cargar-action="visita"/);
+    expect(HTML).toMatch(/data-cargar-action="contacto"/);
+  });
+  it('handlers openCargarSheet/closeCargarSheet existen', () => {
+    expect(HTML).toContain('function openCargarSheet');
+    expect(HTML).toContain('function closeCargarSheet');
+  });
+});

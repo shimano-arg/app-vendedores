@@ -988,6 +988,22 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 @media (min-width: 769px) {
   #mobile-bottom-nav { display: none !important; }
 }
+#cargar-sheet{position:fixed;inset:0;background:rgba(15,23,42,.6);backdrop-filter:blur(4px);display:none;align-items:flex-end;justify-content:center;z-index:10000;padding:0}
+#cargar-sheet.open{display:flex;animation:cs-fade .2s ease-out}
+@keyframes cs-fade{from{background:rgba(15,23,42,0)}to{background:rgba(15,23,42,.6)}}
+#cargar-sheet .cs-box{background:#fff;width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:16px 16px calc(24px + env(safe-area-inset-bottom,0)) 16px;box-shadow:0 -8px 24px rgba(0,0,0,.3);animation:cs-slide .25s ease-out}
+@keyframes cs-slide{from{transform:translateY(100%)}to{transform:translateY(0)}}
+#cargar-sheet .cs-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding:0 4px}
+#cargar-sheet .cs-title{font-weight:800;font-size:16px;color:#0f172a}
+#cargar-sheet .cs-close{background:none;border:none;font-size:26px;cursor:pointer;color:#64748b;line-height:1;padding:4px 8px}
+#cargar-sheet .cs-body{display:flex;flex-direction:column;gap:10px}
+#cargar-sheet .cs-cta{border:none;padding:16px 14px;border-radius:12px;cursor:pointer;display:flex;align-items:center;gap:14px;text-align:left;font-family:inherit;transition:.15s}
+#cargar-sheet .cs-cta:active{transform:scale(.98)}
+#cargar-sheet .cs-cta-icon{font-size:28px;flex-shrink:0}
+#cargar-sheet .cs-cta-label{font-weight:800;font-size:14px;text-transform:uppercase;letter-spacing:.3px;display:block}
+#cargar-sheet .cs-cta-sub{font-size:11px;opacity:.85;display:block;margin-top:2px}
+#cargar-sheet .cs-cta-visita{background:#1e40af;color:#fff}
+#cargar-sheet .cs-cta-contacto{background:#7c3aed;color:#fff}
 .mc-camp-card{background:#fffbeb;border:1.5px solid #f59e0b;border-radius:8px;margin-bottom:10px;overflow:hidden}
 .mc-camp-head{padding:10px 12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;background:linear-gradient(135deg,#fef3c7,#fde68a)}
 .mc-camp-head:hover{background:linear-gradient(135deg,#fde68a,#fcd34d)}
@@ -8901,6 +8917,14 @@ function closeHerramientasModal(){
   const m = document.getElementById('herramientas-modal');
   if (m) m.classList.remove('open');
 }
+function openCargarSheet(){
+  const el = document.getElementById('cargar-sheet');
+  if (el) el.classList.add('open');
+}
+function closeCargarSheet(){
+  const el = document.getElementById('cargar-sheet');
+  if (el) el.classList.remove('open');
+}
 function _paintHerramientasDot(){
   const badge = document.getElementById('tab-rend-count');
   const dot = document.getElementById('herr-btn-dot');
@@ -8929,6 +8953,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     const m = document.getElementById('herramientas-modal');
     if (m && m.classList.contains('open')) closeHerramientasModal();
+    const cs = document.getElementById('cargar-sheet');
+    if (cs && cs.classList.contains('open')) closeCargarSheet();
   }
 });
 
@@ -15693,12 +15719,32 @@ if ('serviceWorker' in navigator) {
   <button class="mnav-fab" data-mnav-slot="home" onclick="setTab('locs')" aria-label="Inicio (mapa)">
     <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"/></svg>
   </button>
-  <button class="mnav-btn" data-mnav-slot="cargar" aria-label="Cargar visita o contacto">
+  <button class="mnav-btn" data-mnav-slot="cargar" onclick="openCargarSheet()" aria-label="Cargar visita o contacto">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8M8 12h8"/></svg>
   </button>
   <button class="mnav-btn" data-mnav-slot="productos" onclick="openProductMasterModal()" aria-label="Buscar productos">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
   </button>
 </nav>
+<div id="cargar-sheet" onclick="if(event.target===this)closeCargarSheet()">
+  <div class="cs-box">
+    <div class="cs-head">
+      <div class="cs-title">¿Qué desea cargar?</div>
+      <button class="cs-close" onclick="closeCargarSheet()" aria-label="Cerrar">&times;</button>
+    </div>
+    <div class="cs-body">
+      <button class="cs-cta cs-cta-visita" data-cargar-action="visita" onclick="closeCargarSheet();openVisitaModal()">
+        <span class="cs-cta-icon">&#127978;</span>
+        <span class="cs-cta-label">Visita Presencial</span>
+        <span class="cs-cta-sub">Registrar visita a tienda con GPS</span>
+      </button>
+      <button class="cs-cta cs-cta-contacto" data-cargar-action="contacto" onclick="closeCargarSheet();openVisitaModal('contacto')">
+        <span class="cs-cta-icon">&#128241;</span>
+        <span class="cs-cta-label">Contacto No Presencial</span>
+        <span class="cs-cta-sub">WhatsApp / teléfono / email</span>
+      </button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
