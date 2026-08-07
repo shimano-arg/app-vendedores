@@ -972,6 +972,22 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .controls-right-group{display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap;justify-content:center}
 /* Boton mobile-only "Refrescar app". En desktop esta el ↻ en el mapa. */
 .btn-mobile-refresh{display:none}
+/* ==== v429: mobile bottom-nav ==== */
+#mobile-bottom-nav{display:none;position:fixed;left:12px;right:12px;bottom:12px;height:64px;background:#0f172a;border-radius:28px;box-shadow:0 8px 24px rgba(0,0,0,.35);align-items:center;justify-content:space-around;padding:0 8px;padding-bottom:env(safe-area-inset-bottom,0);z-index:9998}
+.mnav-btn{width:48px;height:48px;background:none;border:none;color:#f8fafc;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;border-radius:12px;transition:.15s;padding:0}
+.mnav-btn:active{background:rgba(255,255,255,.12);transform:scale(.92)}
+.mnav-fab{width:64px;height:64px;background:#fff;border:none;border-radius:50%;transform:translateY(-14px);box-shadow:0 6px 16px rgba(0,0,0,.4);color:#0f172a;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:.15s;padding:0}
+.mnav-fab:active{transform:translateY(-12px) scale(.96)}
+.mnav-fab.active{border:2px solid #00A9E0}
+
+@media (max-width: 768px) {
+  #main-tabs, .controls-right-group { display: none !important; }
+  #mobile-bottom-nav { display: flex; }
+  .main-container { padding-bottom: 88px; }
+}
+@media (min-width: 769px) {
+  #mobile-bottom-nav { display: none !important; }
+}
 .mc-camp-card{background:#fffbeb;border:1.5px solid #f59e0b;border-radius:8px;margin-bottom:10px;overflow:hidden}
 .mc-camp-head{padding:10px 12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;background:linear-gradient(135deg,#fef3c7,#fde68a)}
 .mc-camp-head:hover{background:linear-gradient(135deg,#fde68a,#fcd34d)}
@@ -3037,15 +3053,17 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
       <div class="stat-box"><div class="num js-stat-p" style="color:#f59e0b">0</div><div class="lbl">Leads</div></div>
       <div class="stat-box"><div class="num js-stat-t">0</div><div class="lbl">Tiendas</div></div>
     </div>
-    <div class="tabs">
-      <button class="tab-btn" data-tab="locs" onclick="setTab('locs')">Localidades <span class="tab-count" id="tab-loc-count">0</span></button>
-      <button class="tab-btn" data-tab="clients" onclick="setTab('clients')">Clientes <span class="tab-count" id="tab-cli-count">0</span></button>
-      <button class="tab-btn" data-tab="pedidos" onclick="setTab('pedidos')">Pedidos <span class="tab-count" id="tab-ped-count">0</span></button>
-      <button class="tab-btn" data-tab="rutas" onclick="setTab('rutas')">Rutas <span class="tab-count" id="tab-rutas-count">0</span></button>
-      <button class="tab-btn tab-action" data-tab="visita-action" onclick="openVisitaModal()" title="Abrir formulario de visita a tienda">Visita</button>
-      <button class="tab-btn tab-action" data-tab="contactado-action" onclick="openVisitaModal('contacto')" title="Registrar contacto no presencial (WhatsApp / tel&eacute;fono / email)">Contactado</button>
-      <button class="tab-btn" data-tab="altacli" onclick="setTab('altacli')" title="Alta de clientes (en construccion)">Alta clientes <span class="tab-count" id="tab-altacli-count" style="display:none">0</span></button>
-      <button class="tab-btn active" id="tab-notif" data-tab="notif" onclick="setTab('notif')" title="Alertas y notificaciones">Notificaciones <span class="tab-count" id="tab-notif-count" style="display:none">0</span></button>
+    <div id="main-tabs">
+      <div class="tabs">
+        <button class="tab-btn" data-tab="locs" onclick="setTab('locs')">Localidades <span class="tab-count" id="tab-loc-count">0</span></button>
+        <button class="tab-btn" data-tab="clients" onclick="setTab('clients')">Clientes <span class="tab-count" id="tab-cli-count">0</span></button>
+        <button class="tab-btn" data-tab="pedidos" onclick="setTab('pedidos')">Pedidos <span class="tab-count" id="tab-ped-count">0</span></button>
+        <button class="tab-btn" data-tab="rutas" onclick="setTab('rutas')">Rutas <span class="tab-count" id="tab-rutas-count">0</span></button>
+        <button class="tab-btn tab-action" data-tab="visita-action" onclick="openVisitaModal()" title="Abrir formulario de visita a tienda">Visita</button>
+        <button class="tab-btn tab-action" data-tab="contactado-action" onclick="openVisitaModal('contacto')" title="Registrar contacto no presencial (WhatsApp / tel&eacute;fono / email)">Contactado</button>
+        <button class="tab-btn" data-tab="altacli" onclick="setTab('altacli')" title="Alta de clientes (en construccion)">Alta clientes <span class="tab-count" id="tab-altacli-count" style="display:none">0</span></button>
+        <button class="tab-btn active" id="tab-notif" data-tab="notif" onclick="setTab('notif')" title="Alertas y notificaciones">Notificaciones <span class="tab-count" id="tab-notif-count" style="display:none">0</span></button>
+      </div>
     </div>
     <div class="tab-pane" id="pane-locs" style="display:none">
       <h3 id="sidebar-title">Localidades</h3>
@@ -15650,5 +15668,24 @@ if ('serviceWorker' in navigator) {
 }
 
 </script>
+<!-- v429: mobile bottom-nav. Solo visible en @media (max-width:768px).
+     Task 3 conecta handlers; este task solo el skeleton. -->
+<nav id="mobile-bottom-nav" aria-label="Navegación principal mobile">
+  <button class="mnav-btn" data-mnav-slot="pedido" aria-label="Nuevo pedido">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h6"/></svg>
+  </button>
+  <button class="mnav-btn" data-mnav-slot="dashboard" aria-label="Dashboard">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-6"/></svg>
+  </button>
+  <button class="mnav-fab" data-mnav-slot="home" aria-label="Inicio (mapa)">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"/></svg>
+  </button>
+  <button class="mnav-btn" data-mnav-slot="cargar" aria-label="Cargar visita o contacto">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8M8 12h8"/></svg>
+  </button>
+  <button class="mnav-btn" data-mnav-slot="productos" aria-label="Buscar productos">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+  </button>
+</nav>
 </body>
 </html>
