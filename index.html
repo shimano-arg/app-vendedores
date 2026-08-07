@@ -1692,8 +1692,8 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <!-- v420 (2026-08-06): Backorders + Asignacion Backorder ambos gated a admin
          (pedido del user - probamos con Mariano, si va bien lo abrimos a vendedores).
          `display:none` default; applyRolePermissions() los muestra si userRole === 'admin'. -->
-    <button class="btn-zonas" id="backorders-btn" onclick="openBackordersModal()" title="Backorders SIN stock: los SKU con demanda que no podemos cubrir - urgentes de importar" style="background:#c2410c;color:#fff;display:none">Backorders <span id="backorders-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
-    <button class="btn-zonas" id="asignacion-backorder-btn" onclick="openAsignacionBackorderModal()" title="Backorders CON stock: llego mercaderia, ver que clientes lo tenian pedido para avisarles" style="background:#166534;color:#fff;display:none">Asignaci&oacute;n Backorder <span id="asignacion-backorder-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
+    <button class="btn-zonas" id="backorders-btn" onclick="openBackordersModal()" title="Backorder Pendiente: SKUs con demanda que no podemos cubrir - urgentes de importar" style="background:#c2410c;color:#fff;display:none">Backorder Pendiente <span id="backorders-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
+    <button class="btn-zonas" id="asignacion-backorder-btn" onclick="openAsignacionBackorderModal()" title="Backorder Disponible: llego mercaderia, ver que clientes lo tenian pedido para avisarles" style="background:#166534;color:#fff;display:none">Backorder Disponible <span id="asignacion-backorder-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
     <!-- v422 (2026-08-06): FORECAST admin-only (whitelist emails en src/domains/forecast.js).
          Modal compara ventas historicas (sku_ventas_snapshot BQ->Firestore) vs Sales Plan
          cargado por el user + politica de inventario (promedio YTD x 3 meses). -->
@@ -3466,7 +3466,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v422';
+const APP_VERSION = 'v423';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -8835,12 +8835,12 @@ function _applyBackordersMode(mode){
   if (mode === 'asignacion') {
     backordersStockFilter = 'con';
     if (head) head.style.background = 'linear-gradient(135deg,#14532d,#166534)';
-    if (title) title.innerHTML = '&#128233; Asignaci&oacute;n Backorder';
+    if (title) title.innerHTML = '&#128233; Backorder Disponible';
     if (subt) subt.textContent = 'Llegó mercadería: buscá el SKU y ve qué clientes lo tenían pedido para avisarles. Datos SAP cada 30 min. Solo pesca.';
   } else {
     backordersStockFilter = 'sin';
     if (head) head.style.background = 'linear-gradient(135deg,#7c2d12,#c2410c)';
-    if (title) title.innerHTML = '&#128230; Backorders';
+    if (title) title.innerHTML = '&#128230; Backorder Pendiente';
     if (subt) subt.textContent = 'SKUs con demanda pendiente que no podemos cubrir - urgentes de importar. Datos SAP cada 30 min. Solo pesca.';
   }
   if (sel) sel.value = backordersStockFilter;
