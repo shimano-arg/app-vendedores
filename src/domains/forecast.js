@@ -1,3 +1,7 @@
+// @ts-nocheck
+// Globals leidos del entorno (declarados en index.html inline o bundle previo):
+// fbDb, currentUser, XLSX (cdn), escapeHtml. Mismo patron que otros dominios.
+//
 // FORECAST - modal admin-only (Mariano) que compara ventas historicas
 // (Firestore sku_ventas_snapshot, alimentado por sync BQ v_ventas_lineas
 // ventana 13m) vs Sales Plan cargado por el user via Excel + politica de
