@@ -8881,7 +8881,17 @@ window.setTab = function(name){
     }
   }
   if (name === 'notif') { try { renderNotifsList(); populateTaskTargets(); } catch(e) {} }
+  currentTab = name;
+  _updateHomeActiveState();
 };
+
+// v429: sincroniza el estado activo del FAB Home con currentTab.
+function _updateHomeActiveState(){
+  const fab = document.querySelector('.mnav-fab[data-mnav-slot="home"]');
+  if (!fab) return;
+  const active = (typeof currentTab === 'undefined' || currentTab === 'locs');
+  fab.classList.toggle('active', active);
+}
 
 function openHerramientasModal(){
   const m = document.getElementById('herramientas-modal');
@@ -11511,6 +11521,7 @@ let currentUser = null;
 // declaracion) y consulta vendorAllowed() -> getMyAllowedVendorKeys().
 var userRole = null;          // 'admin' | 'vendedor' | 'viewer' | 'interno' | 'unassigned'
 var assignedVendor = null;    // VENDOR.key cuando role=vendedor
+var currentTab = 'locs';      // v429: tab actual de main-tabs; usado por _updateHomeActiveState()
 let myWhatsappNumber = null;  // numero personal cargado por admin en panel Usuarios (formato wa.me: 5491126762031)
 let myRendicionesApproverUid = null; // uid del responsable de rendiciones asignado a mi cuenta
 let myRendicionesApproverEmail = null; // email cacheado (escrito por el bulk assign) - evita un read extra al directorio
@@ -12798,6 +12809,8 @@ function applyRolePermissions(){
       setTab('locs');
     }
   } catch(e) { console.warn('setTab inicial', e); }
+  // v429: inicializar el estado del FAB Home al arrancar la app
+  try { _updateHomeActiveState(); } catch(e) { console.warn('_updateHomeActiveState inicial', e); }
   // Targets button: solo gerencia (Mariano/Diego/Santi, gerente, o admin)
   document.getElementById('targets-btn').style.display = canManageTargets() ? '' : 'none';
   // Activa listeners cross-collection segun rol
@@ -15674,16 +15687,16 @@ if ('serviceWorker' in navigator) {
   <button class="mnav-btn" data-mnav-slot="pedido" aria-label="Nuevo pedido">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h6"/></svg>
   </button>
-  <button class="mnav-btn" data-mnav-slot="dashboard" aria-label="Dashboard">
+  <button class="mnav-btn" data-mnav-slot="dashboard" onclick="openDashboardModal()" aria-label="Dashboard">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-6"/></svg>
   </button>
-  <button class="mnav-fab" data-mnav-slot="home" aria-label="Inicio (mapa)">
+  <button class="mnav-fab" data-mnav-slot="home" onclick="setTab('locs')" aria-label="Inicio (mapa)">
     <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"/></svg>
   </button>
   <button class="mnav-btn" data-mnav-slot="cargar" aria-label="Cargar visita o contacto">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8M8 12h8"/></svg>
   </button>
-  <button class="mnav-btn" data-mnav-slot="productos" aria-label="Buscar productos">
+  <button class="mnav-btn" data-mnav-slot="productos" onclick="openProductMasterModal()" aria-label="Buscar productos">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
   </button>
 </nav>

@@ -31,3 +31,18 @@ describe('Mobile bottom-nav skeleton', () => {
     expect(HTML).toMatch(/@media[^{]*min-width:\s*769px[^{]*\{[^}]*#mobile-bottom-nav[\s\S]*?display:\s*none/);
   });
 });
+
+describe('Bottom-nav handlers simples', () => {
+  it('slot home invoca setTab(\'locs\')', () => {
+    expect(HTML).toMatch(/data-mnav-slot="home"[^>]*onclick="[^"]*setTab\('locs'\)/);
+  });
+  it('slot dashboard invoca openDashboardModal', () => {
+    expect(HTML).toMatch(/data-mnav-slot="dashboard"[^>]*onclick="openDashboardModal\(\)/);
+  });
+  it('slot productos invoca openProductMasterModal', () => {
+    expect(HTML).toMatch(/data-mnav-slot="productos"[^>]*onclick="openProductMasterModal\(\)/);
+  });
+  it('función _updateHomeActiveState existe', () => {
+    expect(HTML).toContain('function _updateHomeActiveState');
+  });
+});
