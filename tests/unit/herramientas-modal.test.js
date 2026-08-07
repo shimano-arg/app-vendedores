@@ -42,4 +42,9 @@ describe('Botón Herramientas consolidado', () => {
     expect(applyFnMatch).toBeTruthy();
     expect(applyFnMatch[0]).toMatch(/data-herr-action="camps"|herr-card-camps/);
   });
+
+  it('MutationObserver wire para dot está presente', () => {
+    expect(HTML).toContain('rd-sub-count-mias');
+    expect(HTML).toMatch(/MutationObserver[\s\S]{0,400}syncFromSource|_wireHerramientasDot/);
+  });
 });

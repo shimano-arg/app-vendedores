@@ -772,10 +772,6 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .filter-btn{padding:5px 10px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;color:#475569;font-size:11px;font-weight:600;cursor:pointer;transition:.15s;white-space:nowrap}
 .filter-btn:hover{border-color:#00A9E0;color:#00A9E0}
 .filter-btn.active{background:#00A9E0;border-color:#00A9E0;color:#fff}
-.btn-export{padding:7px 12px;border:none;border-radius:6px;background:#00A9E0;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(0,169,224,.3);transition:.15s;white-space:nowrap;flex-shrink:0}
-.btn-export:hover{background:#0284c7;box-shadow:0 2px 6px rgba(0,169,224,.45)}
-.btn-export:active{transform:translateY(1px)}
-.btn-export::before{content:"\2193";font-size:13px;font-weight:800}
 .btn-dashboard{padding:7px 12px;border:none;border-radius:6px;background:#7f1d1d;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(127,29,29,.35);transition:.15s;white-space:nowrap;flex-shrink:0}
 .btn-dashboard:hover{background:#991b1b;box-shadow:0 2px 6px rgba(127,29,29,.5)}
 .btn-dashboard:active{transform:translateY(1px)}
@@ -788,8 +784,6 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .btn-analisis:hover{background:#14532d;box-shadow:0 2px 6px rgba(22,101,52,.45)}
 .btn-analisis:active{transform:translateY(1px)}
 .btn-analisis::before{content:"\01F510";font-size:13px}
-.btn-mis-camps{padding:7px 12px;border:1.5px solid #f59e0b;border-radius:6px;background:#facc15;color:#78350f;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(245,158,11,.35);transition:.15s;white-space:nowrap;flex-shrink:0}
-.btn-mis-camps:hover{background:#fbbf24;box-shadow:0 2px 6px rgba(245,158,11,.5)}
 .btn-herramientas{padding:7px 12px;border:1.5px solid #f59e0b;border-radius:6px;background:#facc15;color:#78350f;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(245,158,11,.35);transition:.15s;white-space:nowrap;flex-shrink:0}
 .btn-herramientas::before{content:"\2699";font-size:14px}
 .btn-herramientas::after{content:"\25BE";font-size:9px;margin-left:2px}
@@ -978,9 +972,6 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .controls-right-group{display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap;justify-content:center}
 /* Boton mobile-only "Refrescar app". En desktop esta el ↻ en el mapa. */
 .btn-mobile-refresh{display:none}
-.btn-mis-camps:hover{background:#fde047;box-shadow:0 2px 6px rgba(245,158,11,.55)}
-.btn-mis-camps:active{transform:translateY(1px)}
-.btn-mis-camps::before{content:"\2605";font-size:13px}
 .mc-camp-card{background:#fffbeb;border:1.5px solid #f59e0b;border-radius:8px;margin-bottom:10px;overflow:hidden}
 .mc-camp-head{padding:10px 12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;background:linear-gradient(135deg,#fef3c7,#fde68a)}
 .mc-camp-head:hover{background:linear-gradient(135deg,#fde68a,#fcd34d)}
@@ -1127,21 +1118,16 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .tab-btn[data-tab=rutas] .tab-count{background:rgba(255,255,255,.3);color:#fff}
 .tab-btn[data-tab=rutas].active .tab-count{background:#00A9E0;color:#fff}
 /* --- Fila 3: AZUL MARINO --- */
-.tab-btn[data-tab=rendiciones],
 .tab-btn[data-tab=altacli],
 .tab-btn[data-tab=notif],
 .tab-btn.tab-action[data-tab=notif-action]{background:#1e3a8a;color:#fff;border-color:#1e3a8a;border-bottom-color:#1e40af;position:relative}
-.tab-btn[data-tab=rendiciones]:hover,
 .tab-btn[data-tab=altacli]:hover,
 .tab-btn[data-tab=notif]:hover,
 .tab-btn.tab-action[data-tab=notif-action]:hover{background:#1e40af;color:#fff}
-.tab-btn[data-tab=rendiciones].active,
 .tab-btn[data-tab=altacli].active,
 .tab-btn[data-tab=notif].active{background:#fff;color:#1e3a8a;border-color:#bfdbfe;border-bottom-color:#1e3a8a}
-.tab-btn[data-tab=rendiciones] .tab-count,
 .tab-btn[data-tab=altacli] .tab-count,
 .tab-btn[data-tab=notif] .tab-count{background:rgba(255,255,255,.3);color:#fff}
-.tab-btn[data-tab=rendiciones].active .tab-count,
 .tab-btn[data-tab=altacli].active .tab-count,
 .tab-btn[data-tab=notif].active .tab-count{background:#1e3a8a;color:#fff}
 .tab-btn.tab-action[data-tab=notif-action] .tab-count{background:#fff;color:#1e3a8a}
@@ -1263,7 +1249,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
      Excel) APILADOS uno debajo del otro en mobile (no en fila), para que se
      lean bien y el tap target sea cómodo. */
   .controls-right-group{width:100%;display:flex !important;flex-direction:column !important;gap:6px;margin-left:0}
-  .btn-export,.btn-dashboard,.btn-visita,.btn-analisis,.btn-mis-camps,.btn-zonas{width:100% !important;justify-content:center;padding:10px 12px;font-size:12px;font-weight:700;flex:initial;min-width:0;letter-spacing:.2px}
+  .btn-dashboard,.btn-visita,.btn-analisis,.btn-zonas{width:100% !important;justify-content:center;padding:10px 12px;font-size:12px;font-weight:700;flex:initial;min-width:0;letter-spacing:.2px}
   .main-container{flex-direction:column;height:auto;min-height:calc(100vh - 116px)}
   #map{display:none}
   .sidebar{width:100%;max-height:none;border-left:none;border-top:none;padding:12px 14px}
@@ -8895,6 +8881,22 @@ function _paintHerramientasDot(){
   dot.style.display = (n > 0) ? 'inline-block' : 'none';
   badge.classList.toggle('active', n > 0);
 }
+// v429: mantiene sincronizados #tab-rend-count (badge del modal Herramientas)
+// y #herr-btn-dot (dot rojo del botón) con el count de pendientes que escribe
+// src/domains/rendiciones.js:190-194 en #rd-sub-count-mias.
+(function _wireHerramientasDot(){
+  const source = document.getElementById('rd-sub-count-mias');
+  const dest = document.getElementById('tab-rend-count');
+  if (!source || !dest) return;
+  function syncFromSource(){
+    const raw = (source.textContent || '').trim();
+    const n = parseInt(raw, 10);
+    dest.textContent = (isNaN(n) || n <= 0) ? '0' : String(n);
+    _paintHerramientasDot();
+  }
+  syncFromSource(); // init
+  new MutationObserver(syncFromSource).observe(source, { characterData: true, childList: true, subtree: true });
+})();
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     const m = document.getElementById('herramientas-modal');
