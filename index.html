@@ -3229,22 +3229,32 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
           <button class="modal-close" onclick="closeBackordersModal()">&times;</button>
         </div>
         <div style="padding:14px;display:flex;flex-direction:column;gap:12px;flex:1;overflow:hidden">
+          <!-- v424 (2026-08-07): toolbar re-layouteado.
+               - Search: 1 fila propia (flex-basis 100%).
+               - Los 2 selects: mismo flex-basis + min-width -> exactamente el
+                 mismo ancho en cualquier viewport (antes uno era 140 y el otro
+                 190 por min-width distintos).
+               - Boton Exportar sacado del flex y puesto en su propio div
+                 con text-align:center -> queda centrado horizontalmente
+                 (mobile y desktop). -->
           <div id="backorders-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0">
-            <input id="backorders-search" oninput="onBackordersSearch()" type="text" placeholder="Buscar por SKU, codigo o cliente (ej: SN2000FJ o MUNDO ESTURION)..." style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff"/>
-            <select id="backorders-mes-filter" onchange="onBackordersMesChange()" title="Filtrar por mes de la SQ" style="padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff;min-width:140px">
+            <input id="backorders-search" oninput="onBackordersSearch()" type="text" placeholder="Buscar por SKU, codigo o cliente (ej: SN2000FJ o MUNDO ESTURION)..." style="flex:1 1 100%;min-width:200px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff"/>
+            <select id="backorders-mes-filter" onchange="onBackordersMesChange()" title="Filtrar por mes de la SQ" style="flex:1 1 260px;min-width:200px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff;font-weight:700">
               <option value="">Todos los meses</option>
             </select>
             <!-- v420 (2026-08-06): select con 3 opciones (reemplaza el checkbox v419).
                  Default es dinamico segun `backordersMode`:
-                 - mode='urgente' (Backorders) -> "sin" (sin stock en whs 11 ni 12)
-                 - mode='asignacion' (Asignacion Backorder) -> "con" (con stock en whs 11 o 12)
+                 - mode='urgente' (Backorder Pendiente) -> "sin" (sin stock en whs 11 ni 12)
+                 - mode='asignacion' (Backorder Disponible) -> "con" (con stock en whs 11 o 12)
                  - "todos" siempre disponible como override -->
-            <select id="backorders-stock-filter" onchange="onBackordersStockFilterChange()" title="Filtrar por stock disponible" style="padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff;min-width:190px;font-weight:700">
+            <select id="backorders-stock-filter" onchange="onBackordersStockFilterChange()" title="Filtrar por stock disponible" style="flex:1 1 260px;min-width:200px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff;font-weight:700">
               <option value="sin">Sin stock (para importar)</option>
               <option value="con">Con stock (para asignar)</option>
               <option value="todos">Todos (sin filtro)</option>
             </select>
-            <button onclick="exportBackordersToExcel()" style="padding:9px 14px;border:1.5px solid #c2410c;border-radius:6px;background:#c2410c;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128190; Exportar</button>
+          </div>
+          <div style="text-align:center;flex-shrink:0">
+            <button onclick="exportBackordersToExcel()" style="padding:9px 18px;border:1.5px solid #c2410c;border-radius:6px;background:#c2410c;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128190; Exportar</button>
           </div>
           <div id="backorders-summary" style="padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#78350f;flex-shrink:0"></div>
           <div id="backorders-list" style="flex:1;overflow-y:auto"></div>
@@ -3466,7 +3476,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v423';
+const APP_VERSION = 'v424';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
