@@ -87,7 +87,10 @@ function populateSegFilters() {
   const opts = ['<option value="ALL">Todos</option>'].concat(
     [...set]
       .sort()
-      .map((v) => '<option value="' + escapeAttr(v) + '">' + escapeHtml(displayVendorName(v)) + '</option>')
+      .map(
+        (v) =>
+          '<option value="' + escapeAttr(v) + '">' + escapeHtml(displayVendorName(v)) + '</option>'
+      )
   );
   sel.innerHTML = opts.join('');
   sel.value = set.has(cur) || cur === 'ALL' ? cur : 'ALL';
