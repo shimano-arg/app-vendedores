@@ -1,5 +1,9 @@
 # Archivos internos / sensibles - NO subir a GitHub
 BPs_Pesca_DTW_Ready.xlsx
+
+# v429+ (2026-08-07): SDD workspace (Subagent-Driven Development scratch).
+# Ledger + briefs + review packages. No debe subirse.
+.superpowers/
 SAP-EXPOE*.xlsx
 *.csv
 _*.md
