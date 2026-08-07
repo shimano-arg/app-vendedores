@@ -92,14 +92,17 @@ describe('Hamburger + drawer', () => {
   it('drawer #mobile-drawer existe', () => {
     expect(HTML).toContain('id="mobile-drawer"');
   });
-  it('drawer tiene 4 opciones (rutas, rendiciones, altacli, notif)', () => {
-    const actions = ['rutas', 'rendiciones', 'altacli', 'notif'];
+  it('drawer tiene 5 opciones (rutas, rendiciones, altacli, notif, herramientas)', () => {
+    const actions = ['rutas', 'rendiciones', 'altacli', 'notif', 'herramientas'];
     for (const a of actions) {
       expect(HTML).toMatch(new RegExp(`data-drawer-action="${a}"`));
     }
   });
   it('media (min-width:769px) oculta hamburger + drawer', () => {
     expect(HTML).toMatch(/@media[^{]*min-width:\s*769px[\s\S]*?#mobile-header-hamburger[\s\S]*?display:\s*none/);
+  });
+  it('drawer item herramientas invoca openHerramientasModal', () => {
+    expect(HTML).toMatch(/data-drawer-action="herramientas"[^>]*onclick="closeMobileDrawer\(\);openHerramientasModal\(\)"/);
   });
   it('handlers openMobileDrawer/closeMobileDrawer/_updateHamburgerBadge existen', () => {
     expect(HTML).toContain('function openMobileDrawer');
