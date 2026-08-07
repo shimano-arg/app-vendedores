@@ -171,6 +171,17 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // v42x+ (2026-08-06): sku_ventas_snapshot escrito por el cron
+    // sync_sap_to_bigquery.py (BQ v_ventas_lineas ventana 13m -> Firestore).
+    // 1 doc por SKU (~755) con map `meses` YYYY-MM -> {qty, ars} + familia/subfamilia.
+    // Uso: modal FORECAST (src/domains/forecast.js) admin-only. Solo admin lee
+    // porque son datos crudos de venta por SKU (competitivamente sensibles);
+    // no hay razon para exponerlos a vendedores o viewers.
+    match /sku_ventas_snapshot/{docId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     match /client_locations/{docId} {
       allow read: if isReader();
       allow create: if isAdminOrGerente() || isVendor() || isInterno();

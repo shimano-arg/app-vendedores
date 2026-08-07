@@ -82,6 +82,15 @@ const LAZY_CHUNKS = {
     'saveGmapsApiKey',
     'saveUserRole',
   ],
+  // v42x+ (2026-08-06): modal FORECAST admin-only. Compara ventas historicas
+  // (sku_ventas_snapshot BQ->Firestore) vs Sales Plan cargado por user (Excel
+  // SKU + Mes1..Mes6) + politica de inventario (promedio YTD x 3 meses).
+  forecast: [
+    'openForecastModal',
+    'closeForecastModal',
+    'onForecastSalesPlanFile',
+    'exportForecastExcel',
+  ],
 };
 
 function fmtSize(bytes) {

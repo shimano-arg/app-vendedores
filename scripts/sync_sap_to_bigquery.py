@@ -895,6 +895,144 @@ def sync_backorder_snapshot_to_firestore(bq_client: bigquery.Client,
     return written
 
 
+def _sanitize_sku_doc_id(sku: str) -> str:
+    """Firestore doc IDs no toleran '/', '.', '..'. Los SKUs SAP suelen ser
+    alfanumericos limpios pero por defensividad sanitizamos igual. Prefix
+    'SKU_' evita colisiones con otros patterns de doc id + facilita debug."""
+    s = str(sku or '').strip().upper()
+    for ch in ('/', '.', '\\', '#', '?', '[', ']', '*'):
+        s = s.replace(ch, '_')
+    return f'SKU_{s[:1400]}'
+
+
+def sync_sku_ventas_snapshot_to_firestore(bq_client: bigquery.Client,
+                                            db: firestore.Client,
+                                            dry_run: bool = False) -> int:
+    """v42x+ (2026-08-06): agrega v_ventas_lineas por (item_code, año, mes)
+    para los ultimos 13 meses y escribe a Firestore
+    `sku_ventas_snapshot/SKU_{item_code_saneado}` con la estructura:
+
+      {
+        sku:        'REEL4000FI',
+        itemName:   'STELLA 4000 FI',
+        familia:    'CARRETES',
+        subfamilia: 'STELLA',
+        meses: {
+          '2025-08': {qty: 20.0, ars: 500000.0},
+          '2025-09': {qty: 15.0, ars: 375000.0},
+          ...
+          '2026-08': {qty:  5.0, ars: 125000.0}
+        },
+        updatedAt: SERVER_TIMESTAMP
+      }
+
+    Alimenta el modal FORECAST (admin-only) que compara ventas historicas
+    vs Sales Plan cargado por el user + politica de inventario. El unico
+    lector desde el frontend es src/domains/forecast.js.
+
+    Diseño:
+      - 1 doc por SKU con array de meses adentro (~755 docs total para
+        grupo PESCA activo). Reduce reads del frontend (1 bulk get vs
+        755 x 13 = ~10k docs).
+      - Ventana de 13 meses para cubrir 12 completos + parcial del actual
+        (ej: en agosto, incluye agosto pasado como mes 13).
+      - familia/subfamilia usan ANY_VALUE — asumen invariancia por SKU
+        (si hay cambios de master, queda una arbitraria; aceptable).
+
+    Retorna cantidad de docs escritos.
+    """
+    log('[SKU_VENTAS] agregando v_ventas_lineas por (sku, año, mes) - ventana 13m...')
+    query = """
+    WITH lineas_13m AS (
+      SELECT
+        item_code,
+        item_name_catalogo,
+        familia,
+        subfamilia,
+        EXTRACT(YEAR  FROM doc_date) AS anio,
+        EXTRACT(MONTH FROM doc_date) AS mes,
+        cantidad,
+        importe_linea_ars
+      FROM `app-vendedores-shimano.shimano_app.v_ventas_lineas`
+      WHERE doc_date >= DATE_SUB(CURRENT_DATE('America/Argentina/Buenos_Aires'), INTERVAL 13 MONTH)
+        AND item_code IS NOT NULL
+        AND item_code != ''
+    ),
+    por_sku_mes AS (
+      SELECT
+        item_code,
+        ANY_VALUE(item_name_catalogo) AS item_name,
+        ANY_VALUE(familia)            AS familia,
+        ANY_VALUE(subfamilia)         AS subfamilia,
+        anio,
+        mes,
+        SUM(cantidad)                 AS cantidad_neta,
+        SUM(importe_linea_ars)        AS importe_ars_neto
+      FROM lineas_13m
+      GROUP BY item_code, anio, mes
+    )
+    SELECT
+      item_code,
+      ANY_VALUE(item_name)   AS item_name,
+      ANY_VALUE(familia)     AS familia,
+      ANY_VALUE(subfamilia)  AS subfamilia,
+      ARRAY_AGG(STRUCT(anio, mes, cantidad_neta, importe_ars_neto)) AS meses_arr
+    FROM por_sku_mes
+    GROUP BY item_code
+    """
+    rows = list(bq_client.query(query, location=BQ_LOCATION).result())
+    if not rows:
+        log('[SKU_VENTAS] 0 SKUs con ventas en los ultimos 13 meses (verificar v_ventas_lineas)')
+        return 0
+    if dry_run:
+        log(f'[SKU_VENTAS] DRY-RUN: {len(rows)} SKUs listos para escribir a Firestore')
+        return 0
+
+    coll = db.collection('sku_ventas_snapshot')
+    batch = db.batch()
+    written = 0
+    seen_ids = set()
+    for row in rows:
+        d = dict(row.items())
+        sku_original = str(d['item_code'] or '').strip()
+        if not sku_original:
+            continue
+        doc_id = _sanitize_sku_doc_id(sku_original)
+        seen_ids.add(doc_id)
+        meses = {}
+        for m in (d.get('meses_arr') or []):
+            key = f"{int(m['anio']):04d}-{int(m['mes']):02d}"
+            meses[key] = {
+                'qty': float(m['cantidad_neta'] or 0),
+                'ars': float(m['importe_ars_neto'] or 0),
+            }
+        payload = {
+            'sku':        sku_original,
+            'itemName':   d.get('item_name') or '',
+            'familia':    d.get('familia') or '',
+            'subfamilia': d.get('subfamilia') or '',
+            'meses':      meses,
+            'updatedAt':  firestore.SERVER_TIMESTAMP,
+        }
+        batch.set(coll.document(doc_id), payload)
+        written += 1
+        if written % 400 == 0:
+            batch.commit()
+            batch = db.batch()
+    if written % 400 != 0:
+        batch.commit()
+
+    # Cleanup: borrar docs de SKUs que ya no tienen ventas en los ultimos 13m
+    # (evita mostrar en FORECAST SKUs muertos con doc stale de hace >1 año).
+    deleted = 0
+    for doc in coll.stream():
+        if doc.id not in seen_ids:
+            doc.reference.delete()
+            deleted += 1
+    log(f'[SKU_VENTAS] {written} docs escritos, {deleted} docs stale eliminados')
+    return written
+
+
 def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
                                        db: firestore.Client,
                                        dry_run: bool = False) -> int:
@@ -1494,6 +1632,15 @@ def main():
         sync_backorder_snapshot_to_firestore(bq_client, db, dry_run=dry_run)
     except Exception as e:
         log(f'[BACKORDER] fallo (no bloqueante): {e}')
+
+    # === 12. SKU ventas snapshot (BQ -> Firestore) v42x+ (2026-08-06)
+    # Agrega v_ventas_lineas por (item_code, año, mes) ventana 13 meses y
+    # escribe 1 doc por SKU con array de meses a sku_ventas_snapshot.
+    # Alimenta el modal FORECAST admin-only (src/domains/forecast.js).
+    try:
+        sync_sku_ventas_snapshot_to_firestore(bq_client, db, dry_run=dry_run)
+    except Exception as e:
+        log(f'[SKU_VENTAS] fallo (no bloqueante): {e}')
 
     log('=== sync_sap_to_bigquery END OK ===')
 

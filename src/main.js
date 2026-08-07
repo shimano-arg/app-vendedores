@@ -93,6 +93,12 @@ installChunkStubs('admin-users', [
   'saveGmapsApiKey',
   'saveUserRole',
 ]);
+installChunkStubs('forecast', [
+  'openForecastModal',
+  'closeForecastModal',
+  'onForecastSalesPlanFile',
+  'exportForecastExcel',
+]);
 
 const phase0 = {
   version: 'v333',
