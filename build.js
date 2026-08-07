@@ -85,7 +85,7 @@ const LAZY_CHUNKS = {
   // v42x+ (2026-08-06): modal FORECAST admin-only. Compara ventas historicas
   // (sku_ventas_snapshot BQ->Firestore) vs Sales Plan cargado por user (Excel
   // SKU + Mes1..Mes6) + politica de inventario (promedio YTD x 3 meses).
-  'forecast': [
+  forecast: [
     'openForecastModal',
     'closeForecastModal',
     'onForecastSalesPlanFile',
