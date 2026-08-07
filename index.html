@@ -97,6 +97,10 @@ body{font-family:"Segoe UI",Calibri,Arial,sans-serif;background:#dbeafe;color:#1
 .header .logo-text{font-size:11px;font-weight:800;letter-spacing:3px;color:#fff;background:#00A9E0;padding:6px 14px;border-radius:4px;z-index:1}
 .header h1{font-size:20px;font-weight:700;letter-spacing:.5px}
 .header-badge{display:flex;align-items:center;z-index:2}
+/* v425 (2026-08-07): gate admin-only (Mariano) via clase toggeada por JS.
+   !important necesario para superar el display:flex del media query mobile
+   linea 738 que sino re-mostraba los chips en mobile a cualquier user. */
+.hdr-badge-hidden{display:none!important}
 .user-info{display:flex;align-items:center;gap:10px;font-size:11px;color:#475569;z-index:2;margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
 .user-info #user-email{display:none}
 .logout-btn{padding:10px 14px;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;color:#475569;font-size:10px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;min-height:36px;min-width:64px;text-align:center;display:inline-flex;align-items:center;justify-content:center;line-height:1.1;transition:.15s}
@@ -730,9 +734,15 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
 }
 @media (max-width:900px){
   .header{flex-wrap:wrap;padding:8px 12px;gap:6px;justify-content:center;align-items:center;position:relative}
-  /* Fila 1: hamburguesa a la izquierda + badge (opcional) al medio + logo a la derecha */
+  /* v425 (2026-08-07): en mobile los 3 chips (role/version/SAP) - visibles
+     solo a Mariano - caen a su PROPIA FILA debajo del titulo (order:5,
+     flex-basis:100%) en vez de meterse entre hamburguesa y logo (donde
+     rompian la visual apretando el title). Layout mobile queda:
+       Fila 1: hamburguesa + logo (derecha)
+       Fila 2: h1 title (order:4)
+       Fila 3: hdr-badge con los 3 chips centrados (order:5) - solo Mariano */
   .header-hamburger{display:inline-flex;order:1;flex:0 0 auto}
-  .header-badge{order:2;flex:1 1 auto;display:flex;align-items:center;justify-content:center;margin:0}
+  .header-badge{order:5;flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px;margin:4px 0 0}
   .header-logo-wrap{order:3;flex:0 0 auto;display:flex;align-items:center;margin-left:auto;margin-right:0}
   .header-logo{height:32px!important;width:90px!important;max-width:90px!important;min-width:0;object-fit:contain;display:block;flex:0 0 auto}
   .role-badge{display:flex!important;align-items:center!important;justify-content:center!important;text-align:center!important;width:96px!important;min-width:96px!important;max-width:140px!important;height:32px!important;padding:0!important;font-size:12px;font-weight:800;letter-spacing:.4px;text-indent:.4px;border-radius:6px;overflow:hidden;white-space:nowrap;box-sizing:border-box;margin:0!important;line-height:1!important;flex-shrink:0}
@@ -3476,7 +3486,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v424';
+const APP_VERSION = 'v425';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12580,10 +12590,24 @@ function applyRolePermissions(){
   // Badge: ADMIN solo el rol; resto solo PRIMER NOMBRE del usuario para que entre en mobile.
   const badge = document.getElementById('user-role-badge');
   badge.className = 'role-badge ' + userRole;
-  // v400 (2026-08-05): pedido de Mariano - ocultar el role-badge del header
-  // (mostraba "ADMIN" morado al lado del titulo "MAPA DE VENTAS - ARGENTINA").
-  // No aporta info util; el rol se ve implicito por los botones disponibles.
-  badge.style.display = 'none';
+  // v425 (2026-08-07): pedido de Mariano - los 3 chips del header
+  // (role-badge + version + SAP status) solo los ve Mariano admin. Para el
+  // resto ocultamos el contenedor #header-badge entero via CSS class que
+  // supera el !important del media query mobile (linea 738). Ademas en
+  // mobile el header-badge cae a su propia fila abajo del titulo para no
+  // romper la visual (ver .header-badge order en @media max-width:900px).
+  const _hdrBadgeContainer = document.getElementById('header-badge');
+  if (_hdrBadgeContainer) {
+    const _em = ((currentUser && (currentUser.email || '')) || '').toLowerCase();
+    const _isMarianoHdr = _em === 'mariano.erbino@shimano.com.ar' || _em === 'erbinomariano@gmail.com';
+    _hdrBadgeContainer.classList.toggle('hdr-badge-hidden', !_isMarianoHdr);
+    // Si es Mariano, mostrar el role-badge (ex-v400 lo ocultaba a todos).
+    // Para el resto queda oculto en cualquier caso porque el contenedor
+    // #header-badge esta hidden.
+    badge.style.display = _isMarianoHdr ? '' : 'none';
+  } else {
+    badge.style.display = 'none';
+  }
   function firstName(s){
     if (!s) return '';
     return s.toString().trim().split(/\s+/)[0].toUpperCase();
