@@ -109,6 +109,7 @@
       "currentOrderKey",
       "currentUser",
       "currentVendor",
+      "displayVendorName",
       "doConfirmPedido",
       "downloadBlob",
       "drawMarkers",

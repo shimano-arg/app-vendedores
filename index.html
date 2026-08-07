@@ -1675,7 +1675,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
   <select class="zone-select" id="zone-select">
     <option value="ALL">Todas las zonas</option>
     <option value="GONZALO DE LA ROSA">Z1 - Gonzalo De La Rosa (CABA + AMBA Norte/Oeste)</option>
-    <option value="FEDERICO CASTELANELLI">Z2 - Federico Castelanelli (AMBA Sur + BA Interior + Costa)</option>
+    <option value="FEDERICO CASTELANELLI">Z2 - Federico Castelaneli (AMBA Sur + BA Interior + Costa)</option>
     <option value="MARTIN BOIERO">Z4 - Martin Boiero (Cordoba + Cuyo + SF Oeste)</option>
     <option value="MAURICIO GIL">Z5 - Mauricio Gil (Litoral + Norte BA)</option>
     <option value="IOANNIS PALKOUDAKIS">Z6 - Ioannis Palkoudakis (Patagonia + Mendoza + apoyo Federico/Gonzalo)</option>
@@ -3486,7 +3486,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v425';
+const APP_VERSION = 'v426';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -3610,6 +3610,7 @@ if (!window.__phase0 || !window.__phase0.pure) {
   // 7 funciones byte-idénticas al inline (sin refactor de globales):
   window.normClientName    = _P.normClientName;
   window.titleCase         = _P.titleCase;
+  window.displayVendorName = _P.displayVendorName;  // v426: helper con override para Federico (typo historico)
   window.escapeHtml        = _P.escapeHtml;
   window.normTitle         = _P.normTitle;
   window._normalizeSearch  = _P.normalizeSearch;      // alias con guion bajo por compat con callers legacy
@@ -7939,7 +7940,7 @@ window.runMonthlyBackup = async function(){
         const pr = parseFloat(l.precio) || 0;
         pedRows.push({
           Fecha_confirmado: (p.confirmedAt || p.finalizedAt || '').slice(0, 10),
-          Vendedor: titleCase(vendor),
+          Vendedor: displayVendorName(vendor),
           Provincia: titleCase(prov),
           Localidad: loc,
           Cliente: cli,
@@ -8559,7 +8560,7 @@ function _exportLegacyFull(){
     let jul = 0, sem = 0, anu = 0;
     pedidoDetailRows.forEach(r => {
       if (r.Estado !== 'Confirmado') return;
-      if (titleCase(vendor) !== r.Vendedor) return;
+      if (displayVendorName(vendor) !== r.Vendedor) return;
       // parse date dd/mm/yyyy
       const parts = (r['Fecha confirmacion'] || '').split('/');
       if (parts.length !== 3) return;
@@ -8569,7 +8570,7 @@ function _exportLegacyFull(){
       if (iso >= '2027-01-01' && iso <= '2027-12-31') anu += r['Subtotal USD'];
     });
     targetsRows.push({
-      Vendedor: titleCase(vendor),
+      Vendedor: displayVendorName(vendor),
       'Target Jul 2026 USD': t.jul2026_usd,
       'Realizado Jul USD': fmt2(jul),
       '% cump Jul': t.jul2026_usd > 0 ? Math.round(jul/t.jul2026_usd*100) + '%' : '-',
@@ -14445,7 +14446,7 @@ window.saveZonasChanges = async function(){
     function vendorPlain(k){
       if (!k) return '(sin asignar)';
       if (k === '__DISTRIBUTOR__') return 'Distribuidor';
-      return titleCase(k);
+      return displayVendorName(k);
     }
     const lines = [];
     const maxShow = 5;

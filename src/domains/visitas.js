@@ -1363,7 +1363,7 @@ function populateVisitFilters() {
           '"' +
           (v === vendorCur ? ' selected' : '') +
           '>' +
-          escapeHtml(titleCase(v)) +
+          escapeHtml(displayVendorName(v)) +
           '</option>'
       )
       .join('');
@@ -1469,7 +1469,7 @@ function renderVisitasList() {
     let _fechaTxt = '';
     if (v.fecha) {
       const _d = new Date(v.fecha);
-      if (!isNaN(_d.getTime())) {
+      if (!Number.isNaN(_d.getTime())) {
         const _dd = String(_d.getDate()).padStart(2, '0');
         const _mm = String(_d.getMonth() + 1).padStart(2, '0');
         _fechaTxt = _dd + '/' + _mm + '/' + _d.getFullYear();
