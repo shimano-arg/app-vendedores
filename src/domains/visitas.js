@@ -1363,7 +1363,7 @@ function populateVisitFilters() {
           '"' +
           (v === vendorCur ? ' selected' : '') +
           '>' +
-          escapeHtml(titleCase(v)) +
+          escapeHtml(displayVendorName(v)) +
           '</option>'
       )
       .join('');

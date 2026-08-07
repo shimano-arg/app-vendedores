@@ -87,7 +87,7 @@ function populateSegFilters() {
   const opts = ['<option value="ALL">Todos</option>'].concat(
     [...set]
       .sort()
-      .map((v) => '<option value="' + escapeAttr(v) + '">' + escapeHtml(titleCase(v)) + '</option>')
+      .map((v) => '<option value="' + escapeAttr(v) + '">' + escapeHtml(displayVendorName(v)) + '</option>')
   );
   sel.innerHTML = opts.join('');
   sel.value = set.has(cur) || cur === 'ALL' ? cur : 'ALL';
@@ -600,7 +600,7 @@ function renderSegResumen(visits, pedidos) {
         : Infinity;
       const cardCls = lastDays > 7 ? 'yellow' : lastDays > 15 ? 'red' : '';
       html += '<div class="seg-vendor-card ' + cardCls + '">';
-      html += '<h4>' + escapeHtml(titleCase(vendor)) + '</h4>';
+      html += '<h4>' + escapeHtml(displayVendorName(vendor)) + '</h4>';
       html +=
         '<div class="vmetrics">' +
         '<div class="vm"><b>' +

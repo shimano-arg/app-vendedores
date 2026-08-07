@@ -1658,7 +1658,7 @@ window.sendRouteByWhatsApp = async function (rutaId) {
   // Armar mensaje
   let msg = '*Ruta ' + (ruta.numero || '') + ' - ' + (ruta.titulo || '') + '*\n';
   if (ruta.fecha) msg += 'Fecha: ' + fmtFechaCorta(ruta.fecha) + '\n';
-  msg += 'Vendedor: ' + titleCase(vendor) + '\n';
+  msg += 'Vendedor: ' + displayVendorName(vendor) + '\n';
   msg += orderedTiendas.length + ' tiendas en total';
   if (grupos.length > 1)
     msg += ' (dividido en ' + grupos.length + ' tramos por limite de Google Maps)';

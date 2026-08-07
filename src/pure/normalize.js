@@ -35,6 +35,39 @@ export function titleCase(s) {
 }
 
 /**
+ * Overrides display-only para vendor keys donde la clave canónica interna
+ * tiene un typo histórico que no se puede migrar sin romper datos
+ * históricos (Firestore + BQ + SAP SlpCode + email en Workspace).
+ *
+ * Federico: apellido real "Castelaneli" (1 L). El sistema completo usa
+ * "CASTELANELLI" (2 L) porque el email corporativo se dió de alta con
+ * typo hace años y todo lo demás se cascadeó: SAP SlpCode 54 name, todos
+ * los pedidos/visitas/targets en Firestore, snapshots BQ, etc. Cambiar
+ * la key requiere migración full + coordinación con IT (Google Workspace)
+ * y SEIDOR (SAP OSLP). Mientras tanto este mapping garantiza que el USER
+ * lo vea escrito correcto en la UI.
+ */
+/** @type {Record<string, string>} */
+const VENDOR_DISPLAY_OVERRIDES = {
+  'FEDERICO CASTELANELLI': 'Federico Castelaneli',
+};
+
+/**
+ * Devuelve el nombre human-readable de un vendor key. Aplica override
+ * si existe (ver VENDOR_DISPLAY_OVERRIDES) o fallback a titleCase().
+ * Usar SIEMPRE que se muestre un vendor al user (badges, listados, exports,
+ * dashboards). NUNCA para lógica interna (comparaciones, storage, matching).
+ * @param {unknown} vendorKey
+ * @returns {string}
+ */
+export function displayVendorName(vendorKey) {
+  if (vendorKey == null || vendorKey === '') return '';
+  const upper = String(vendorKey).toUpperCase().trim();
+  if (VENDOR_DISPLAY_OVERRIDES[upper]) return VENDOR_DISPLAY_OVERRIDES[upper];
+  return titleCase(vendorKey);
+}
+
+/**
  * HTML-escape para outputs innerHTML. Cubre &, <, >, ", '.
  * @param {unknown} s
  * @returns {string}

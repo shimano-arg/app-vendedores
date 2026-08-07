@@ -868,21 +868,21 @@ window.exportML = function () {
   const targetsLong = [];
   Object.entries(TARGETS_BY_VENDOR).forEach(([vendor, t]) => {
     targetsLong.push({
-      vendedor: titleCase(vendor),
+      vendedor: displayVendorName(vendor),
       periodo: 'Jul 2026',
       start_date: '2026-07-01',
       end_date: '2026-07-31',
       target_usd: t.jul2026_usd || 0,
     });
     targetsLong.push({
-      vendedor: titleCase(vendor),
+      vendedor: displayVendorName(vendor),
       periodo: 'Jul-Dic 2026',
       start_date: '2026-07-01',
       end_date: '2026-12-31',
       target_usd: t.julDic2026_usd || 0,
     });
     targetsLong.push({
-      vendedor: titleCase(vendor),
+      vendedor: displayVendorName(vendor),
       periodo: '2027',
       start_date: '2027-01-01',
       end_date: '2027-12-31',

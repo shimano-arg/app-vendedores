@@ -281,7 +281,7 @@ window.renderDashboard = function () {
   // Hello + selector de vendedor para admin/viewer
   const helloName =
     userRole === 'vendedor' && assignedVendor
-      ? titleCase(assignedVendor)
+      ? displayVendorName(assignedVendor)
       : currentUser.displayName || currentUser.email || 'Usuario';
   const scopeLabel =
     userRole === 'admin'

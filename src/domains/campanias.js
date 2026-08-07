@@ -473,7 +473,7 @@ function describeCampaignScope(camp) {
       values
         .map((k) => {
           const v = VENDORS.find((x) => x.key === k);
-          return v ? v.zone + ' ' + titleCase(k) : k;
+          return v ? v.zone + ' ' + displayVendorName(k) : k;
         })
         .join(', ')
     );

@@ -15,6 +15,7 @@ import { calcClientDiscount } from './pure/discount.js';
 import { findSapDuplicateForProvisorio } from './pure/duplicate.js';
 import { passesTypeFilter } from './pure/filters.js';
 import {
+  displayVendorName,
   escapeHtml,
   normalizeSearch,
   normClientName,
@@ -105,6 +106,7 @@ const phase0 = {
   pure: {
     normClientName,
     titleCase,
+    displayVendorName,
     escapeHtml,
     normTitle,
     normalizeSearch,
@@ -118,7 +120,14 @@ const phase0 = {
   sap: { createSapClient },
 };
 
-// @ts-expect-error — window augmentation runtime-only
-if (typeof window !== 'undefined') window.__phase0 = phase0;
+if (typeof window !== 'undefined') {
+  // @ts-expect-error — window augmentation runtime-only
+  window.__phase0 = phase0;
+  // v426 (2026-08-07): displayVendorName expuesto globalmente porque el
+  // inline de index.html tambien lo necesita (varios lugares que muestran
+  // titleCase(vendor) al user y ahora deben usar el helper con override).
+  // @ts-expect-error — augmentation runtime-only
+  window.displayVendorName = displayVendorName;
+}
 
 export default phase0;
