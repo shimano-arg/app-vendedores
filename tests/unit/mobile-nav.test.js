@@ -63,3 +63,21 @@ describe('Slot CARGAR + sheet', () => {
     expect(HTML).toContain('function closeCargarSheet');
   });
 });
+
+describe('Slot PEDIDO + cliente picker', () => {
+  it('slot pedido invoca openPedidoClientePicker', () => {
+    expect(HTML).toMatch(/data-mnav-slot="pedido"[^>]*onclick="openPedidoClientePicker\(\)"/);
+  });
+  it('picker #pedido-cliente-picker existe', () => {
+    expect(HTML).toContain('id="pedido-cliente-picker"');
+  });
+  it('picker tiene input search y lista', () => {
+    expect(HTML).toContain('id="pcp-search"');
+    expect(HTML).toContain('id="pcp-list"');
+  });
+  it('handlers openPedidoClientePicker/closePedidoClientePicker/_selectPedidoCliente existen', () => {
+    expect(HTML).toContain('function openPedidoClientePicker');
+    expect(HTML).toContain('function closePedidoClientePicker');
+    expect(HTML).toContain('function _selectPedidoCliente');
+  });
+});
