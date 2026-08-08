@@ -3615,7 +3615,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v435';
+const APP_VERSION = 'v436';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -9012,35 +9012,69 @@ function _renderPcpList(query){
   const list = document.getElementById('pcp-list');
   if (!list) return;
   const q = (query || '').trim().toLowerCase();
-  // POINTS son LOCALIDADES; cada una tiene arrays p.clients (SAP) + p.prospects
-  // (leads). Expandimos a un flat list de {name, tipo, province, locName} para
-  // que al elegir podamos llamar openClientMenu(name, tipo, province, locName)
-  // que ya muestra el submenu "Crear pedido manual" / "Cargar Excel".
-  let source = [];
+  // Fuente 1: POINTS (localidades con p.clients + p.prospects).
+  let points = [];
   try {
-    if (typeof POINTS !== 'undefined' && Array.isArray(POINTS)) source = POINTS;
-    else if (typeof window.POINTS !== 'undefined' && Array.isArray(window.POINTS)) source = window.POINTS;
+    if (typeof POINTS !== 'undefined' && Array.isArray(POINTS)) points = POINTS;
+    else if (typeof window.POINTS !== 'undefined' && Array.isArray(window.POINTS)) points = window.POINTS;
   } catch(e) {
-    if (typeof window.POINTS !== 'undefined' && Array.isArray(window.POINTS)) source = window.POINTS;
+    if (typeof window.POINTS !== 'undefined' && Array.isArray(window.POINTS)) points = window.POINTS;
   }
+  // Fuente 2: approvedAltasList (altas SAP con comercio/titular/fantasia).
+  // v436: sin esto el picker no encontraba "RED OROZA MULTIMARCA S.A" porque
+  // solo miraba p.clients (nombres cortos) y no los nombres comerciales de
+  // SAP. Espeja la lógica de renderClients() al inyectar altas.
+  let altas = [];
+  try {
+    if (typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList)) altas = approvedAltasList;
+    else if (typeof window.approvedAltasList !== 'undefined' && Array.isArray(window.approvedAltasList)) altas = window.approvedAltasList;
+  } catch(e) {
+    if (typeof window.approvedAltasList !== 'undefined' && Array.isArray(window.approvedAltasList)) altas = window.approvedAltasList;
+  }
+  const seen = new Set();
+  const _key = (n, p, l) => (p||'').toLowerCase()+'|'+(l||'').toLowerCase()+'|'+(n||'').toLowerCase();
   const flat = [];
-  for (const p of source) {
+  for (const p of points) {
     const province = p.province || '';
     const locName = p.name || '';
-    for (const cn of (p.clients || [])) flat.push({name: cn, tipo: 'C', province, locName});
-    for (const pn of (p.prospects || [])) flat.push({name: pn, tipo: 'P', province, locName});
+    for (const cn of (p.clients || [])) { flat.push({name: cn, tipo: 'C', province, locName, extra: ''}); seen.add(_key(cn, province, locName)); }
+    for (const pn of (p.prospects || [])) { flat.push({name: pn, tipo: 'P', province, locName, extra: ''}); seen.add(_key(pn, province, locName)); }
   }
+  for (const a of altas) {
+    if (!a) continue;
+    if (!a.cardCodeSap && !a.manualSapPending) continue; // igual criterio que renderClients
+    const name = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
+    const province = (a.provincia || '').toUpperCase();
+    const locName = a.localidadFinal || a.localidad || '';
+    const k = _key(name, province, locName);
+    if (seen.has(k)) continue;
+    const extra = [a.titular, a.fantasia, a.comercio, a.cardCodeSap].filter(Boolean).join(' | ');
+    flat.push({name, tipo: 'C', province, locName, extra, isAlta: true});
+    seen.add(k);
+  }
+  // Búsqueda multi-token (mismo helper que usa CLIENTES): match si TODOS los
+  // tokens aparecen en el haystack (nombre + localidad + provincia + comercio
+  // + titular + fantasía + cardCode).
+  const useTokens = (typeof matchesAllTokens === 'function');
   const items = flat
-    .filter(c => !q || (c.name || '').toLowerCase().includes(q) || (c.locName || '').toLowerCase().includes(q))
+    .filter(c => {
+      if (!q) return true;
+      const haystack = [c.name, c.locName, c.province, c.extra].filter(Boolean).join(' | ');
+      return useTokens ? matchesAllTokens(haystack, q) : haystack.toLowerCase().includes(q);
+    })
     .slice(0, 200);
   if (items.length === 0) {
     list.innerHTML = '<li class="pcp-empty">Sin resultados.</li>';
     return;
   }
-  list.innerHTML = items.map((c, idx) => {
+  list.innerHTML = items.map((c) => {
     const safe = (s) => String(s || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    const tipoLabel = c.tipo === 'P' ? '<span style="background:#fef3c7;color:#78350f;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:800;margin-left:6px">LEAD</span>' : '';
-    return `<li data-name="${safe(c.name)}" data-tipo="${c.tipo}" data-province="${safe(c.province)}" data-loc="${safe(c.locName)}" onclick="_selectPedidoCliente(this)" role="option">${escapeHtml(c.name)} <span style="color:#94a3b8;font-size:11px">- ${escapeHtml(c.locName)}</span>${tipoLabel}</li>`;
+    const tag = c.tipo === 'P'
+      ? '<span style="background:#fef3c7;color:#78350f;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:800;margin-left:6px">LEAD</span>'
+      : c.isAlta
+        ? '<span style="background:#dcfce7;color:#166534;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:800;margin-left:6px">SAP</span>'
+        : '';
+    return `<li data-name="${safe(c.name)}" data-tipo="${c.tipo}" data-province="${safe(c.province)}" data-loc="${safe(c.locName)}" onclick="_selectPedidoCliente(this)" role="option">${escapeHtml(c.name)} <span style="color:#94a3b8;font-size:11px">- ${escapeHtml(c.locName)}</span>${tag}</li>`;
   }).join('');
 }
 function _selectPedidoCliente(el){
