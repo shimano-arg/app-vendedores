@@ -784,24 +784,27 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .btn-analisis:hover{background:#14532d;box-shadow:0 2px 6px rgba(22,101,52,.45)}
 .btn-analisis:active{transform:translateY(1px)}
 .btn-analisis::before{content:"\01F510";font-size:13px}
-/* v430: botón Herramientas centrado, sin engranaje ni flecha. */
-.btn-herramientas{padding:7px 12px;border:1.5px solid #f59e0b;border-radius:6px;background:#facc15;color:#78350f;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 1px 3px rgba(245,158,11,.35);transition:.15s;white-space:nowrap;flex-shrink:0}
-.btn-herramientas:hover{background:#fde047;box-shadow:0 2px 6px rgba(245,158,11,.55)}
-.btn-herramientas:active{transform:translateY(1px)}
-#herramientas-modal{position:fixed;inset:0;background:rgba(15,23,42,.6);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:9999;padding:16px}
-#herramientas-modal.open{display:flex}
-#herramientas-modal .herr-box{background:#fff;border-radius:14px;width:min(520px,96vw);max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.4)}
-#herramientas-modal .herr-head{background:linear-gradient(135deg,#facc15,#f59e0b);color:#78350f;padding:16px 20px;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center;font-weight:800;text-transform:uppercase;letter-spacing:.4px}
-#herramientas-modal .herr-close{background:none;border:none;color:#78350f;font-size:22px;cursor:pointer;line-height:1}
-#herramientas-modal .herr-body{padding:16px;display:grid;grid-template-columns:1fr;gap:12px}
-@media(min-width:520px){#herramientas-modal .herr-body{grid-template-columns:repeat(3,1fr)}}
-.herr-card{padding:18px 14px;border:2px solid #e5e7eb;border-radius:10px;background:#f8fafc;cursor:pointer;text-align:center;transition:.15s;display:flex;flex-direction:column;align-items:center;gap:8px}
-.herr-card:hover{border-color:#f59e0b;background:#fffbeb;transform:translateY(-2px)}
-.herr-card .herr-icon{font-size:28px;line-height:1}
-.herr-card .herr-title{font-weight:800;font-size:13px;color:#0f172a;text-transform:uppercase;letter-spacing:.3px}
-.herr-card .herr-sub{font-size:11px;color:#64748b;line-height:1.3}
-.herr-card .herr-badge{background:#dc2626;color:#fff;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:800;margin-top:4px;display:none}
-.herr-card .herr-badge.active{display:inline-block}
+/* v431: revert Herramientas consolidacion. Botones individuales:
+   - .btn-mis-camps  (amarillo, Campañas Activas)
+   - .btn-export     (celeste, Exportar a Excel)
+   - .btn-rendiciones-top (rosa, Rendiciones - new)
+   - .btn-clientes   (verde, Clientes - new) */
+.btn-mis-camps{padding:7px 12px;border:1.5px solid #f59e0b;border-radius:6px;background:#facc15;color:#78350f;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 1px 3px rgba(245,158,11,.35);transition:.15s;white-space:nowrap;flex-shrink:0}
+.btn-mis-camps:hover{background:#fde047;box-shadow:0 2px 6px rgba(245,158,11,.55)}
+.btn-mis-camps:active{transform:translateY(1px)}
+.btn-mis-camps::before{content:"\2605";font-size:13px}
+.btn-export{padding:7px 12px;border:none;border-radius:6px;background:#00A9E0;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 1px 3px rgba(0,169,224,.3);transition:.15s;white-space:nowrap;flex-shrink:0}
+.btn-export:hover{background:#0284c7;box-shadow:0 2px 6px rgba(0,169,224,.45)}
+.btn-export:active{transform:translateY(1px)}
+.btn-export::before{content:"\2193";font-size:13px;font-weight:800}
+.btn-rendiciones-top{padding:7px 12px;border:none;border-radius:6px;background:#be185d;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 1px 3px rgba(190,24,93,.35);transition:.15s;white-space:nowrap;flex-shrink:0}
+.btn-rendiciones-top:hover{background:#9f1650;box-shadow:0 2px 6px rgba(190,24,93,.5)}
+.btn-rendiciones-top:active{transform:translateY(1px)}
+.btn-rendiciones-top::before{content:"\1F4B0";font-size:13px}
+.btn-clientes{padding:7px 12px;border:none;border-radius:6px;background:#166534;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 1px 3px rgba(22,101,52,.3);transition:.15s;white-space:nowrap;flex-shrink:0}
+.btn-clientes:hover{background:#14532d;box-shadow:0 2px 6px rgba(22,101,52,.5)}
+.btn-clientes:active{transform:translateY(1px)}
+.btn-clientes::before{content:"\1F464";font-size:13px}
 .btn-zonas{padding:7px 12px;border:none;border-radius:6px;background:#1e3a8a;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(30,58,138,.3);transition:.15s;white-space:nowrap;flex-shrink:0}
 .btn-zonas:hover{background:#1e40af;box-shadow:0 2px 6px rgba(30,58,138,.45)}
 /* SEGUIMIENTO: panel para vendedores internos (Santiago/Ioannis) y admin/gerente */
@@ -1302,7 +1305,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
      Excel) APILADOS uno debajo del otro en mobile (no en fila), para que se
      lean bien y el tap target sea cómodo. */
   .controls-right-group{width:100%;display:flex !important;flex-direction:column !important;gap:6px;margin-left:0}
-  .btn-dashboard,.btn-visita,.btn-analisis,.btn-zonas{width:100% !important;justify-content:center;padding:10px 12px;font-size:12px;font-weight:700;flex:initial;min-width:0;letter-spacing:.2px}
+  .btn-dashboard,.btn-visita,.btn-analisis,.btn-zonas,.btn-mis-camps,.btn-export,.btn-rendiciones-top,.btn-clientes,.btn-seguimiento{width:100% !important;justify-content:center;padding:10px 12px;font-size:12px;font-weight:700;flex:initial;min-width:0;letter-spacing:.2px}
   .main-container{flex-direction:column;height:auto;min-height:calc(100vh - 116px)}
   #map{display:none}
   .sidebar{width:100%;max-height:none;border-left:none;border-top:none;padding:12px 14px}
@@ -1725,9 +1728,11 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 </div>
 <style>@keyframes authSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}</style>
 <div class="header">
-  <!-- Boton hamburguesa: solo visible en mobile (<900px). Toggle del menu
-       dropdown con las acciones admin (Targets, Campañas, SAP, etc.). -->
-  <button class="header-hamburger" id="header-hamburger-btn" onclick="toggleMobileMenu()" aria-label="Menu" title="Abrir menu">&#9776;</button>
+  <!-- v431: hamburguesa unificada. En mobile abre directo el drawer nuevo
+       (openMobileDrawer). Antes toggleaba el dropdown viejo .user-info que
+       Mariano encontraba confuso ("se abre el viejo, tocar otra vez para
+       ver el nuevo"). Badge de notificaciones apilado arriba/derecha. -->
+  <button class="header-hamburger" id="header-hamburger-btn" onclick="openMobileDrawer()" aria-label="Menu" title="Abrir menu" style="position:relative">&#9776;<span id="mob-hamburger-badge" style="display:none;position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:9px;min-width:16px;text-align:center;line-height:1.3">0</span></button>
   <div class="header-logo-wrap"><img src="Shimano-Logo.png" alt="Shimano" class="header-logo" onclick="if(confirm('Recargar la aplicacion?'))location.reload()" title="Click para refrescar la app"/></div>
   <h1>MAPA DE VENTAS - ARGENTINA</h1>
   <div class="header-badge" id="header-badge">
@@ -1759,10 +1764,6 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <button class="logout-btn" id="master-cli-btn" onclick="openMasterClientesPanel()" title="Cargar direcciones exactas de cada tienda" style="display:none">Master Clientes</button>
     <button class="logout-btn" id="admin-btn" onclick="openAdminPanel()" title="Gestion de usuarios" style="display:none">Usuarios</button>
     <button class="logout-btn" id="stock-btn" onclick="openProductMasterModal()" title="Buscador de productos: precio, stock y datos maestros de cualquier SKU" style="display:none">Productos</button>
-    <button id="mobile-header-hamburger" onclick="openMobileDrawer()" aria-label="Menú" title="Menú">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-      <span id="mob-hamburger-badge" style="display:none">0</span>
-    </button>
     <button class="logout-btn" onclick="signOut()" title="Cerrar sesion">Salir</button>
   </div>
 </div>
@@ -1790,9 +1791,15 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
        romper el codigo que lee currentTypeFilter y type-select.value. -->
   <input type="hidden" id="type-select" value="ALL"/>
   <div class="controls-right-group">
-    <button class="btn-herramientas" id="herramientas-btn" onclick="openHerramientasModal()" title="Herramientas: Campa&ntilde;as activas, Exportar a Excel, Rendiciones">Herramientas <span id="herr-btn-dot" style="display:none;background:#dc2626;width:7px;height:7px;border-radius:50%;margin-left:6px"></span></button>
+    <!-- v431: revertida consolidacion "Herramientas". Los 3 vuelven a ser botones
+         individuales estilo Dashboard, mas nuevo "Clientes" que abre la tab
+         clientes/leads (equivalente a la vieja tab en el top toolbar). -->
+    <button class="btn-mis-camps" id="mis-camps-btn" onclick="openMisCampsModal()" style="display:none" title="Ver campa&ntilde;as activas y los SKU involucrados">Campa&ntilde;as Activas</button>
     <button class="btn-dashboard" id="dashboard-btn" onclick="openDashboardModal()" title="Abrir dashboard de ventas">Dashboard</button>
+    <button class="btn-clientes" id="clientes-top-btn" onclick="setTab('clients')" title="Ver lista de clientes SAP + Leads">Clientes</button>
+    <button class="btn-rendiciones-top" id="rendiciones-top-btn" onclick="setTab('rendiciones')" title="Rendiciones: mis gastos + aprobaciones">Rendiciones <span id="tab-rend-count" style="display:none;background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px">0</span></button>
     <button class="btn-analisis" id="analisis-btn" onclick="openExportAnalisis()" style="display:none" title="Formatos avanzados (Power BI / ML / ZIP fotos) - requiere PIN">Exportar para An&aacute;lisis</button>
+    <button class="btn-export" onclick="_safeOpenExportFormatModal()" title="Elegir formato: Reportes Excel (uso operativo) o Dataset ZIP para pipelines de ML (solo admin/gerente)">Exportar a Excel</button>
     <button class="btn-seguimiento" id="seguimiento-btn" onclick="openSeguimientoModal()" style="display:none" title="Panel de gestion comercial para vendedores internos">Seguimiento</button>
     <!-- v420 (2026-08-06): Backorders + Asignacion Backorder ambos gated a admin
          (pedido del user - probamos con Mariano, si va bien lo abrimos a vendedores).
@@ -1805,32 +1812,9 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <button class="btn-zonas" id="forecast-btn" onclick="openForecastModal()" title="FORECAST: proyeccion de necesidad vs pedidos Sales Plan (admin-only)" style="background:#7c3aed;color:#fff;display:none">Forecast</button>
   </div>
 </div>
-<div id="herramientas-modal" onclick="if(event.target===this)closeHerramientasModal()">
-  <div class="herr-box">
-    <div class="herr-head">
-      <span>Herramientas</span>
-      <button class="herr-close" onclick="closeHerramientasModal()" aria-label="Cerrar">&times;</button>
-    </div>
-    <div class="herr-body">
-      <div class="herr-card" data-herr-action="camps" id="herr-card-camps" style="display:none" onclick="closeHerramientasModal();openMisCampsModal()">
-        <div class="herr-icon">&#9733;</div>
-        <div class="herr-title">Campa&ntilde;as Activas</div>
-        <div class="herr-sub">SKUs y descuentos vigentes</div>
-      </div>
-      <div class="herr-card" data-herr-action="export" onclick="closeHerramientasModal();_safeOpenExportFormatModal()">
-        <div class="herr-icon">&#8681;</div>
-        <div class="herr-title">Exportar a Excel</div>
-        <div class="herr-sub">Reportes operativos + datasets</div>
-      </div>
-      <div class="herr-card" data-herr-action="rendiciones" onclick="closeHerramientasModal();setTab('rendiciones')">
-        <div class="herr-icon">&#128176;</div>
-        <div class="herr-title">Rendiciones</div>
-        <div class="herr-sub">Mis gastos + aprobaciones</div>
-        <span class="herr-badge" id="tab-rend-count">0</span>
-      </div>
-    </div>
-  </div>
-</div>
+<!-- v431: #herramientas-modal removido. Los 3 items volvieron a ser botones
+     individuales en el top toolbar (ver .btn-mis-camps / .btn-export /
+     .btn-rendiciones-top arriba). -->
 <div class="main-container">
   <div id="map"></div>
   <div class="click-debug" id="click-debug"></div>
@@ -3608,7 +3592,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v430';
+const APP_VERSION = 'v431';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -8959,14 +8943,8 @@ function _updateHomeActiveState(){
   fab.classList.toggle('active', active);
 }
 
-function openHerramientasModal(){
-  const m = document.getElementById('herramientas-modal');
-  if (m) m.classList.add('open');
-}
-function closeHerramientasModal(){
-  const m = document.getElementById('herramientas-modal');
-  if (m) m.classList.remove('open');
-}
+// v431: openHerramientasModal / closeHerramientasModal / _paintHerramientasDot
+// removidos. Los 3 items ahora son botones individuales en el top toolbar.
 function openCargarSheet(){
   const el = document.getElementById('cargar-sheet');
   if (el) el.classList.add('open');
@@ -9011,9 +8989,15 @@ function _renderPcpList(query){
   const list = document.getElementById('pcp-list');
   if (!list) return;
   const q = (query || '').trim().toLowerCase();
-  // Usar la misma source que renderPedidosTab. POINTS es el array global de tiendas
-  // (según CLAUDE.md regla #15).
-  const source = (typeof window.POINTS !== 'undefined' && Array.isArray(window.POINTS)) ? window.POINTS : [];
+  // v431 fix: POINTS es const script-scope, NO está en window. Chequear bare
+  // primero, después caer a window (por si algún build futuro lo expone).
+  let source = [];
+  try {
+    if (typeof POINTS !== 'undefined' && Array.isArray(POINTS)) source = POINTS;
+    else if (typeof window.POINTS !== 'undefined' && Array.isArray(window.POINTS)) source = window.POINTS;
+  } catch(e) {
+    if (typeof window.POINTS !== 'undefined' && Array.isArray(window.POINTS)) source = window.POINTS;
+  }
   const items = source
     .filter(p => {
       if (!q) return true;
@@ -9040,29 +9024,22 @@ function _selectPedidoCliente(name){
     if (typeof renderPedidosTab === 'function') renderPedidosTab();
   }
 }
-function _paintHerramientasDot(){
-  const badge = document.getElementById('tab-rend-count');
-  const dot = document.getElementById('herr-btn-dot');
-  if (!badge || !dot) return;
-  const n = parseInt(badge.textContent || '0', 10);
-  dot.style.display = (n > 0) ? 'inline-block' : 'none';
-  badge.classList.toggle('active', n > 0);
-}
-// v429: mantiene sincronizados #tab-rend-count (badge del modal Herramientas)
-// y #herr-btn-dot (dot rojo del botón) con el count de pendientes que escribe
+// v431: sincroniza el badge #tab-rend-count (ahora dentro del botón toolbar
+// .btn-rendiciones-top) con el count de pendientes que escribe
 // src/domains/rendiciones.js:190-194 en #rd-sub-count-mias.
-(function _wireHerramientasDot(){
+(function _wireRendicionesBadge(){
   const source = document.getElementById('rd-sub-count-mias');
   const dest = document.getElementById('tab-rend-count');
   if (!source || !dest) return;
-  function syncFromSource(){
+  function sync(){
     const raw = (source.textContent || '').trim();
     const n = parseInt(raw, 10);
-    dest.textContent = (isNaN(n) || n <= 0) ? '0' : String(n);
-    _paintHerramientasDot();
+    const show = !isNaN(n) && n > 0;
+    dest.textContent = show ? String(n) : '0';
+    dest.style.display = show ? 'inline-block' : 'none';
   }
-  syncFromSource(); // init
-  new MutationObserver(syncFromSource).observe(source, { characterData: true, childList: true, subtree: true });
+  sync();
+  new MutationObserver(sync).observe(source, { characterData: true, childList: true, subtree: true });
 })();
 
 // Wire hamburger badge updates (v429, Task 6)
@@ -9075,8 +9052,7 @@ function _paintHerramientasDot(){
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    const m = document.getElementById('herramientas-modal');
-    if (m && m.classList.contains('open')) closeHerramientasModal();
+    // v431: herramientas-modal removido; sacado del handler.
     const cs = document.getElementById('cargar-sheet');
     if (cs && cs.classList.contains('open')) closeCargarSheet();
     const pcp = document.getElementById('pedido-cliente-picker');
@@ -12892,9 +12868,19 @@ function applyRolePermissions(){
   // Para todo lo demas (mapa, master clientes, zonas, campañas, sap, analisis)
   // gerente tiene los mismos permisos que admin.
   const isAdminOrGerente = (userRole === 'admin' || userRole === 'gerente');
-  // Gate: Herramientas > Campañas Activas card (v429)
-  const herrCardCamps = document.getElementById('herr-card-camps');
-  if (herrCardCamps) herrCardCamps.style.display = (userRole !== 'unassigned') ? '' : 'none';
+  // v431: Campañas Activas volvió a ser botón individual en el top toolbar.
+  document.getElementById('mis-camps-btn').style.display = (userRole !== 'unassigned') ? '' : 'none';
+  // v431: Drawer mobile items con role gating (espejan a los .user-info del desktop).
+  const _setDrawer = (action, show) => {
+    const el = document.querySelector('.mdr-item[data-drawer-action="' + action + '"]');
+    if (el) el.style.display = show ? '' : 'none';
+  };
+  _setDrawer('productos', ['admin','gerente','vendedor','interno'].indexOf(userRole) >= 0);
+  _setDrawer('targets', typeof canManageTargets === 'function' && canManageTargets());
+  _setDrawer('campaigns', isAdminOrGerente);
+  _setDrawer('sap', ['admin','viewer','vendedor','gerente'].indexOf(userRole) >= 0);
+  _setDrawer('mastercli', isAdminOrGerente);
+  _setDrawer('admin', userRole === 'admin');
   // USUARIOS: SOLO admin.
   document.getElementById('admin-btn').style.display = (userRole === 'admin') ? '' : 'none';
   // PRODUCTOS (ex-Stock): buscador de master de productos. Read-only, util
@@ -15894,14 +15880,15 @@ if ('serviceWorker' in navigator) {
       <span>Menú</span>
       <button class="mdr-close" onclick="closeMobileDrawer()" aria-label="Cerrar">&times;</button>
     </div>
+    <!-- v431: drawer unificado. Rendiciones y Herramientas removidos (Rend
+         es ahora un botón top toolbar; Herramientas se deshizo en 3 buttons).
+         Agregados los items del .user-info viejo con role gates via
+         .mdr-item-role='admin'/'gerente'/'internal' -> applyRolePermissions
+         los muestra/oculta segun userRole. -->
     <nav class="mdr-body">
       <button class="mdr-item" data-drawer-action="rutas" onclick="closeMobileDrawer();setTab('rutas')">
         <span class="mdr-icon">&#128662;</span>
         <span class="mdr-label">Rutas</span>
-      </button>
-      <button class="mdr-item" data-drawer-action="rendiciones" onclick="closeMobileDrawer();setTab('rendiciones')">
-        <span class="mdr-icon">&#128176;</span>
-        <span class="mdr-label">Rendiciones</span>
       </button>
       <button class="mdr-item" data-drawer-action="altacli" onclick="closeMobileDrawer();setTab('altacli')">
         <span class="mdr-icon">&#128100;</span>
@@ -15912,9 +15899,33 @@ if ('serviceWorker' in navigator) {
         <span class="mdr-label">Notificaciones</span>
         <span class="mdr-item-badge" id="mdr-notif-badge" style="display:none">0</span>
       </button>
-      <button class="mdr-item" data-drawer-action="herramientas" onclick="closeMobileDrawer();openHerramientasModal()">
-        <span class="mdr-icon">&#128295;</span>
-        <span class="mdr-label">Herramientas</span>
+      <button class="mdr-item mdr-item-productos" data-drawer-action="productos" onclick="closeMobileDrawer();openProductMasterModal()">
+        <span class="mdr-icon">&#128209;</span>
+        <span class="mdr-label">Productos</span>
+      </button>
+      <button class="mdr-item mdr-item-targets" data-drawer-action="targets" onclick="closeMobileDrawer();openTargetsPanel()" style="display:none">
+        <span class="mdr-icon">&#127919;</span>
+        <span class="mdr-label">Targets</span>
+      </button>
+      <button class="mdr-item mdr-item-campaigns" data-drawer-action="campaigns" onclick="closeMobileDrawer();openCampaignsPanel()" style="display:none">
+        <span class="mdr-icon">&#127775;</span>
+        <span class="mdr-label">Campa&ntilde;as (admin)</span>
+      </button>
+      <button class="mdr-item mdr-item-sap" data-drawer-action="sap" onclick="closeMobileDrawer();openSapPanel()" style="display:none">
+        <span class="mdr-icon">&#128230;</span>
+        <span class="mdr-label">SAP</span>
+      </button>
+      <button class="mdr-item mdr-item-mastercli" data-drawer-action="mastercli" onclick="closeMobileDrawer();openMasterClientesPanel()" style="display:none">
+        <span class="mdr-icon">&#128193;</span>
+        <span class="mdr-label">Master Clientes</span>
+      </button>
+      <button class="mdr-item mdr-item-admin" data-drawer-action="admin" onclick="closeMobileDrawer();openAdminPanel()" style="display:none">
+        <span class="mdr-icon">&#128101;</span>
+        <span class="mdr-label">Usuarios</span>
+      </button>
+      <button class="mdr-item mdr-item-salir" data-drawer-action="salir" onclick="closeMobileDrawer();signOut()">
+        <span class="mdr-icon">&#128274;</span>
+        <span class="mdr-label">Salir</span>
       </button>
     </nav>
   </div>
