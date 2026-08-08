@@ -247,6 +247,35 @@ async function refreshCampaignsList() {
         ';font-weight:700;margin-top:3px">' +
         escapeHtml(scopeDesc) +
         '</div>';
+      // v438: SKUs desplegables con boton × por cada uno (solo en activas — en
+      // historicas es read-only). Feedback Mariano: "puse SKUs de mas y quiero
+      // sacar sin borrar toda la campaña".
+      if (Array.isArray(c.skus) && c.skus.length > 0) {
+        html +=
+          '<details class="cli-skus" style="margin-top:6px"><summary style="cursor:pointer;font-size:10px;color:#475569;user-select:none;font-weight:700">' +
+          (tab === 'active' ? 'Editar SKUs' : 'Ver SKUs') +
+          ' (' +
+          c.skus.length +
+          ')</summary>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;padding:6px 0;border-top:1px dashed #e2e8f0">';
+        c.skus.forEach((sku) => {
+          const skuSafe = escapeHtml(sku);
+          const skuAttr = escapeAttr(sku);
+          html +=
+            '<span style="background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:10px;font-family:monospace;display:inline-flex;align-items:center;gap:4px">' +
+            skuSafe;
+          if (tab === 'active') {
+            html +=
+              '<button onclick="removeSkuFromCampaign(\'' +
+              c._id +
+              "','" +
+              skuAttr +
+              '\')" title="Quitar este SKU de la campaña" style="background:#dc2626;color:#fff;border:none;border-radius:3px;padding:0 5px;font-size:11px;line-height:1.4;cursor:pointer;font-weight:700">×</button>';
+          }
+          html += '</span>';
+        });
+        html += '</div></details>';
+      }
       html += estadoLine + '</div>';
       // Boton: en active = finalizar; en history = eliminar definitivo.
       if (tab === 'active') {
@@ -301,6 +330,31 @@ window.finalizarCampaign = async function (id) {
   } catch (e) {
     console.error('finalizarCampaign', e);
     alert('Error: ' + (e.message || e));
+  }
+};
+
+// v438: quitar un SKU puntual de una campaña activa (para corregir cuando
+// se cargó de más). Usa arrayRemove atómico de Firestore. Solo admin/gerente
+// pueden ejecutar — el modal Campañas ya está gated por rol en openCampaignsPanel.
+window.removeSkuFromCampaign = async function (campId, sku) {
+  if (userRole !== 'admin' && userRole !== 'gerente') return;
+  if (!campId || !sku) return;
+  if (!confirm('Quitar el SKU "' + sku + '" de esta campaña?\n\nSe puede volver a agregar creando una campaña nueva.'))
+    return;
+  try {
+    if (typeof logOp === 'function')
+      logOp('remove_sku_campaign', 'campaign', campId, { sku });
+    await fbDb
+      .collection('campaigns')
+      .doc(campId)
+      .update({
+        skus: firebase.firestore.FieldValue.arrayRemove(sku),
+      });
+    await refreshCampaignsList();
+    showSyncTag('SKU eliminado de la campaña');
+  } catch (e) {
+    console.error('removeSkuFromCampaign', e);
+    alert('Error al quitar el SKU: ' + (e.message || e));
   }
 };
 
