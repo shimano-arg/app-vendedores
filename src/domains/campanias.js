@@ -339,11 +339,16 @@ window.finalizarCampaign = async function (id) {
 window.removeSkuFromCampaign = async function (campId, sku) {
   if (userRole !== 'admin' && userRole !== 'gerente') return;
   if (!campId || !sku) return;
-  if (!confirm('Quitar el SKU "' + sku + '" de esta campaña?\n\nSe puede volver a agregar creando una campaña nueva.'))
+  if (
+    !confirm(
+      'Quitar el SKU "' +
+        sku +
+        '" de esta campaña?\n\nSe puede volver a agregar creando una campaña nueva.'
+    )
+  )
     return;
   try {
-    if (typeof logOp === 'function')
-      logOp('remove_sku_campaign', 'campaign', campId, { sku });
+    if (typeof logOp === 'function') logOp('remove_sku_campaign', 'campaign', campId, { sku });
     await fbDb
       .collection('campaigns')
       .doc(campId)
