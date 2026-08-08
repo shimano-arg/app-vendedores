@@ -805,6 +805,11 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .btn-clientes:hover{background:#14532d;box-shadow:0 2px 6px rgba(22,101,52,.5)}
 .btn-clientes:active{transform:translateY(1px)}
 .btn-clientes::before{content:"\1F464";font-size:13px}
+/* v432: Alta clientes movido al top toolbar (antes vivía en el drawer). */
+.btn-alta-cli-top{padding:7px 12px;border:none;border-radius:6px;background:#475569;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 1px 3px rgba(71,85,105,.3);transition:.15s;white-space:nowrap;flex-shrink:0}
+.btn-alta-cli-top:hover{background:#334155;box-shadow:0 2px 6px rgba(71,85,105,.5)}
+.btn-alta-cli-top:active{transform:translateY(1px)}
+.btn-alta-cli-top::before{content:"\1F465";font-size:13px}
 .btn-zonas{padding:7px 12px;border:none;border-radius:6px;background:#1e3a8a;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(30,58,138,.3);transition:.15s;white-space:nowrap;flex-shrink:0}
 .btn-zonas:hover{background:#1e40af;box-shadow:0 2px 6px rgba(30,58,138,.45)}
 /* SEGUIMIENTO: panel para vendedores internos (Santiago/Ioannis) y admin/gerente */
@@ -1305,7 +1310,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
      Excel) APILADOS uno debajo del otro en mobile (no en fila), para que se
      lean bien y el tap target sea cómodo. */
   .controls-right-group{width:100%;display:flex !important;flex-direction:column !important;gap:6px;margin-left:0}
-  .btn-dashboard,.btn-visita,.btn-analisis,.btn-zonas,.btn-mis-camps,.btn-export,.btn-rendiciones-top,.btn-clientes,.btn-seguimiento{width:100% !important;justify-content:center;padding:10px 12px;font-size:12px;font-weight:700;flex:initial;min-width:0;letter-spacing:.2px}
+  .btn-dashboard,.btn-visita,.btn-analisis,.btn-zonas,.btn-mis-camps,.btn-export,.btn-rendiciones-top,.btn-clientes,.btn-alta-cli-top,.btn-seguimiento{width:100% !important;justify-content:center;padding:10px 12px;font-size:12px;font-weight:700;flex:initial;min-width:0;letter-spacing:.2px}
   .main-container{flex-direction:column;height:auto;min-height:calc(100vh - 116px)}
   #map{display:none}
   .sidebar{width:100%;max-height:none;border-left:none;border-top:none;padding:12px 14px}
@@ -1797,6 +1802,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <button class="btn-mis-camps" id="mis-camps-btn" onclick="openMisCampsModal()" style="display:none" title="Ver campa&ntilde;as activas y los SKU involucrados">Campa&ntilde;as Activas</button>
     <button class="btn-dashboard" id="dashboard-btn" onclick="openDashboardModal()" title="Abrir dashboard de ventas">Dashboard</button>
     <button class="btn-clientes" id="clientes-top-btn" onclick="setTab('clients')" title="Ver lista de clientes SAP + Leads">Clientes</button>
+    <button class="btn-alta-cli-top" id="alta-cli-top-btn" onclick="setTab('altacli')" title="Alta de clientes nuevos">Alta clientes</button>
     <button class="btn-rendiciones-top" id="rendiciones-top-btn" onclick="setTab('rendiciones')" title="Rendiciones: mis gastos + aprobaciones">Rendiciones <span id="tab-rend-count" style="display:none;background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px">0</span></button>
     <button class="btn-analisis" id="analisis-btn" onclick="openExportAnalisis()" style="display:none" title="Formatos avanzados (Power BI / ML / ZIP fotos) - requiere PIN">Exportar para An&aacute;lisis</button>
     <button class="btn-export" onclick="_safeOpenExportFormatModal()" title="Elegir formato: Reportes Excel (uso operativo) o Dataset ZIP para pipelines de ML (solo admin/gerente)">Exportar a Excel</button>
@@ -3592,7 +3598,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v431';
+const APP_VERSION = 'v432';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -8989,8 +8995,10 @@ function _renderPcpList(query){
   const list = document.getElementById('pcp-list');
   if (!list) return;
   const q = (query || '').trim().toLowerCase();
-  // v431 fix: POINTS es const script-scope, NO está en window. Chequear bare
-  // primero, después caer a window (por si algún build futuro lo expone).
+  // POINTS son LOCALIDADES; cada una tiene arrays p.clients (SAP) + p.prospects
+  // (leads). Expandimos a un flat list de {name, tipo, province, locName} para
+  // que al elegir podamos llamar openClientMenu(name, tipo, province, locName)
+  // que ya muestra el submenu "Crear pedido manual" / "Cargar Excel".
   let source = [];
   try {
     if (typeof POINTS !== 'undefined' && Array.isArray(POINTS)) source = POINTS;
@@ -8998,30 +9006,45 @@ function _renderPcpList(query){
   } catch(e) {
     if (typeof window.POINTS !== 'undefined' && Array.isArray(window.POINTS)) source = window.POINTS;
   }
-  const items = source
-    .filter(p => {
-      if (!q) return true;
-      const name = (p.name || p.tienda || p.nombre || '').toLowerCase();
-      return name.includes(q);
-    })
-    .slice(0, 100); // cap 100 para performance
+  const flat = [];
+  for (const p of source) {
+    const province = p.province || '';
+    const locName = p.name || '';
+    for (const cn of (p.clients || [])) flat.push({name: cn, tipo: 'C', province, locName});
+    for (const pn of (p.prospects || [])) flat.push({name: pn, tipo: 'P', province, locName});
+  }
+  const items = flat
+    .filter(c => !q || (c.name || '').toLowerCase().includes(q) || (c.locName || '').toLowerCase().includes(q))
+    .slice(0, 200);
   if (items.length === 0) {
     list.innerHTML = '<li class="pcp-empty">Sin resultados.</li>';
     return;
   }
-  list.innerHTML = items.map(p => {
-    const name = p.name || p.tienda || p.nombre || '(sin nombre)';
-    const safe = String(name).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    return `<li onclick="_selectPedidoCliente('${safe}')" role="option">${name}</li>`;
+  list.innerHTML = items.map((c, idx) => {
+    const safe = (s) => String(s || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    const tipoLabel = c.tipo === 'P' ? '<span style="background:#fef3c7;color:#78350f;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:800;margin-left:6px">LEAD</span>' : '';
+    return `<li data-name="${safe(c.name)}" data-tipo="${c.tipo}" data-province="${safe(c.province)}" data-loc="${safe(c.locName)}" onclick="_selectPedidoCliente(this)" role="option">${escapeHtml(c.name)} <span style="color:#94a3b8;font-size:11px">- ${escapeHtml(c.locName)}</span>${tipoLabel}</li>`;
   }).join('');
 }
-function _selectPedidoCliente(name){
+function _selectPedidoCliente(el){
+  // v432: acepta el <li> con dataset. Cierra picker y abre el menu de cliente
+  // existente (openClientMenu) que ya tiene "Crear pedido" + "Cargar Excel".
+  const name = el && el.dataset ? el.dataset.name : '';
+  const tipo = el && el.dataset ? el.dataset.tipo : 'C';
+  const province = el && el.dataset ? el.dataset.province : '';
+  const locName = el && el.dataset ? el.dataset.loc : '';
   closePedidoClientePicker();
-  setTab('pedidos');
-  const searchEl = document.getElementById('pedido-search');
-  if (searchEl) {
-    searchEl.value = name;
-    if (typeof renderPedidosTab === 'function') renderPedidosTab();
+  if (typeof openClientMenu === 'function' && name && province && locName) {
+    openClientMenu(name, tipo, province, locName);
+  } else {
+    // fallback defensivo por si openClientMenu no está en scope: caer a la tab
+    // Pedidos con el search prefilled (comportamiento pre-v432).
+    setTab('pedidos');
+    const searchEl = document.getElementById('pedido-search');
+    if (searchEl) {
+      searchEl.value = name;
+      if (typeof renderPedidosTab === 'function') renderPedidosTab();
+    }
   }
 }
 // v431: sincroniza el badge #tab-rend-count (ahora dentro del botón toolbar
@@ -15890,10 +15913,7 @@ if ('serviceWorker' in navigator) {
         <span class="mdr-icon">&#128662;</span>
         <span class="mdr-label">Rutas</span>
       </button>
-      <button class="mdr-item" data-drawer-action="altacli" onclick="closeMobileDrawer();setTab('altacli')">
-        <span class="mdr-icon">&#128100;</span>
-        <span class="mdr-label">Alta clientes</span>
-      </button>
+      <!-- v432: Alta clientes movido al top toolbar como botón individual. -->
       <button class="mdr-item" data-drawer-action="notif" onclick="closeMobileDrawer();setTab('notif')">
         <span class="mdr-icon">&#128276;</span>
         <span class="mdr-label">Notificaciones</span>
