@@ -1182,17 +1182,23 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .tab-btn[data-tab=rutas] .tab-count{background:rgba(255,255,255,.3);color:#fff}
 .tab-btn[data-tab=rutas].active .tab-count{background:#00A9E0;color:#fff}
 /* --- Fila 3: AZUL MARINO --- */
+/* v433: rendiciones agregada al esquema azul de la fila 3 (match visual con altacli/notif). */
 .tab-btn[data-tab=altacli],
+.tab-btn[data-tab=rendiciones],
 .tab-btn[data-tab=notif],
 .tab-btn.tab-action[data-tab=notif-action]{background:#1e3a8a;color:#fff;border-color:#1e3a8a;border-bottom-color:#1e40af;position:relative}
 .tab-btn[data-tab=altacli]:hover,
+.tab-btn[data-tab=rendiciones]:hover,
 .tab-btn[data-tab=notif]:hover,
 .tab-btn.tab-action[data-tab=notif-action]:hover{background:#1e40af;color:#fff}
 .tab-btn[data-tab=altacli].active,
+.tab-btn[data-tab=rendiciones].active,
 .tab-btn[data-tab=notif].active{background:#fff;color:#1e3a8a;border-color:#bfdbfe;border-bottom-color:#1e3a8a}
 .tab-btn[data-tab=altacli] .tab-count,
+.tab-btn[data-tab=rendiciones] .tab-count,
 .tab-btn[data-tab=notif] .tab-count{background:rgba(255,255,255,.3);color:#fff}
 .tab-btn[data-tab=altacli].active .tab-count,
+.tab-btn[data-tab=rendiciones].active .tab-count,
 .tab-btn[data-tab=notif].active .tab-count{background:#1e3a8a;color:#fff}
 .tab-btn.tab-action[data-tab=notif-action] .tab-count{background:#fff;color:#1e3a8a}
 .tab-count{background:#e2e8f0;color:#475569;font-size:10px;font-weight:800;padding:1px 7px;border-radius:10px;min-width:22px;text-align:center}
@@ -3602,7 +3608,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v433';
+const APP_VERSION = 'v434';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
