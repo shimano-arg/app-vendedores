@@ -97,11 +97,14 @@ describe('Hamburger unificado + drawer (v431)', () => {
   it('drawer #mobile-drawer existe', () => {
     expect(HTML).toContain('id="mobile-drawer"');
   });
-  it('drawer tiene items básicos (rutas, altacli, notif, salir)', () => {
-    const actions = ['rutas', 'altacli', 'notif', 'salir'];
+  it('drawer tiene items básicos (rutas, notif, salir)', () => {
+    const actions = ['rutas', 'notif', 'salir'];
     for (const a of actions) {
       expect(HTML).toMatch(new RegExp(`data-drawer-action="${a}"`));
     }
+  });
+  it('v432: drawer NO tiene mas altacli item (movido al top toolbar)', () => {
+    expect(HTML).not.toMatch(/data-drawer-action="altacli"/);
   });
   it('drawer tiene items admin gated por rol (productos, targets, campaigns, sap, mastercli, admin)', () => {
     const actions = ['productos', 'targets', 'campaigns', 'sap', 'mastercli', 'admin'];
@@ -142,6 +145,12 @@ describe('v431: revert Herramientas + botones individuales', () => {
   });
   it('nuevo botón .btn-clientes con setTab(clients)', () => {
     expect(HTML).toMatch(/<button[^>]*class="btn-clientes"[^>]*onclick="setTab\('clients'\)"/);
+  });
+  it('v432: nuevo botón .btn-alta-cli-top con setTab(altacli)', () => {
+    expect(HTML).toMatch(/<button[^>]*class="btn-alta-cli-top"[^>]*onclick="setTab\('altacli'\)"/);
+  });
+  it('v432: picker _selectPedidoCliente invoca openClientMenu (flujo Excel/Manual)', () => {
+    expect(HTML).toContain('openClientMenu(name, tipo, province, locName)');
   });
   it('applyRolePermissions gate #mis-camps-btn (revert al comportamiento pre-v429)', () => {
     expect(HTML).toMatch(
