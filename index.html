@@ -1012,6 +1012,10 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
   /* v432: .btn-rendiciones-top del top toolbar es SOLO mobile. En desktop
      Rendiciones vuelve a ser una tab en la tabs bar (restaurada v432). */
   .btn-rendiciones-top { display: none !important; }
+  /* v437: idem para .btn-clientes y .btn-alta-cli-top — en desktop hay
+     tabs equivalentes en la tabs bar (CLIENTES verde + ALTA CLIENTES azul).
+     Estos botones son SOLO para mobile donde la tabs bar está oculta. */
+  .btn-clientes, .btn-alta-cli-top { display: none !important; }
 }
 #cargar-sheet{position:fixed;inset:0;background:rgba(15,23,42,.6);backdrop-filter:blur(4px);display:none;align-items:flex-end;justify-content:center;z-index:10000;padding:0}
 #cargar-sheet.open{display:flex;animation:cs-fade .2s ease-out}
@@ -3615,7 +3619,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v436';
+const APP_VERSION = 'v437';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
