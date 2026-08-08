@@ -27,13 +27,17 @@ describe('Mobile bottom-nav skeleton', () => {
   });
 
   it('media queries mobile/desktop están presentes', () => {
-    expect(HTML).toMatch(/@media[^{]*max-width:\s*768px[^{]*\{[^}]*#main-tabs[\s\S]*?display:\s*none/);
-    expect(HTML).toMatch(/@media[^{]*min-width:\s*769px[^{]*\{[^}]*#mobile-bottom-nav[\s\S]*?display:\s*none/);
+    expect(HTML).toMatch(
+      /@media[^{]*max-width:\s*768px[^{]*\{[^}]*#main-tabs[\s\S]*?display:\s*none/
+    );
+    expect(HTML).toMatch(
+      /@media[^{]*min-width:\s*769px[^{]*\{[^}]*#mobile-bottom-nav[\s\S]*?display:\s*none/
+    );
   });
 });
 
 describe('Bottom-nav handlers simples', () => {
-  it('slot home invoca setTab(\'locs\')', () => {
+  it("slot home invoca setTab('locs')", () => {
     expect(HTML).toMatch(/data-mnav-slot="home"[^>]*onclick="[^"]*setTab\('locs'\)/);
   });
   it('slot dashboard invoca openDashboardModal', () => {
@@ -99,10 +103,14 @@ describe('Hamburger + drawer', () => {
     }
   });
   it('media (min-width:769px) oculta hamburger + drawer', () => {
-    expect(HTML).toMatch(/@media[^{]*min-width:\s*769px[\s\S]*?#mobile-header-hamburger[\s\S]*?display:\s*none/);
+    expect(HTML).toMatch(
+      /@media[^{]*min-width:\s*769px[\s\S]*?#mobile-header-hamburger[\s\S]*?display:\s*none/
+    );
   });
   it('drawer item herramientas invoca openHerramientasModal', () => {
-    expect(HTML).toMatch(/data-drawer-action="herramientas"[^>]*onclick="closeMobileDrawer\(\);openHerramientasModal\(\)"/);
+    expect(HTML).toMatch(
+      /data-drawer-action="herramientas"[^>]*onclick="closeMobileDrawer\(\);openHerramientasModal\(\)"/
+    );
   });
   it('handlers openMobileDrawer/closeMobileDrawer/_updateHamburgerBadge existen', () => {
     expect(HTML).toContain('function openMobileDrawer');

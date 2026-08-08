@@ -6,7 +6,9 @@ const HTML = readFileSync(join(process.cwd(), 'index.html'), 'utf8');
 
 describe('Botón Herramientas consolidado', () => {
   it('existe .btn-herramientas con onclick openHerramientasModal', () => {
-    expect(HTML).toMatch(/<button[^>]*class="btn-herramientas"[^>]*onclick="openHerramientasModal\(\)"/);
+    expect(HTML).toMatch(
+      /<button[^>]*class="btn-herramientas"[^>]*onclick="openHerramientasModal\(\)"/
+    );
   });
 
   it('modal #herramientas-modal existe', () => {
@@ -30,11 +32,15 @@ describe('Botón Herramientas consolidado', () => {
   });
 
   it('botón Exportar a Excel viejo fue eliminado del top toolbar', () => {
-    expect(HTML).not.toMatch(/<button[^>]*class="btn-export"[^>]*onclick="_safeOpenExportFormatModal\(\)"/);
+    expect(HTML).not.toMatch(
+      /<button[^>]*class="btn-export"[^>]*onclick="_safeOpenExportFormatModal\(\)"/
+    );
   });
 
   it('tab Rendiciones fue removida del top toolbar', () => {
-    expect(HTML).not.toMatch(/<button[^>]*data-tab="rendiciones"[^>]*onclick="setTab\('rendiciones'\)"/);
+    expect(HTML).not.toMatch(
+      /<button[^>]*data-tab="rendiciones"[^>]*onclick="setTab\('rendiciones'\)"/
+    );
   });
 
   it('applyRolePermissions gate la card Campañas Activas', () => {
