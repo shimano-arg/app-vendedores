@@ -1002,6 +1002,9 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 }
 @media (min-width: 769px) {
   #mobile-bottom-nav { display: none !important; }
+  /* v432: .btn-rendiciones-top del top toolbar es SOLO mobile. En desktop
+     Rendiciones vuelve a ser una tab en la tabs bar (restaurada v432). */
+  .btn-rendiciones-top { display: none !important; }
 }
 #cargar-sheet{position:fixed;inset:0;background:rgba(15,23,42,.6);backdrop-filter:blur(4px);display:none;align-items:flex-end;justify-content:center;z-index:10000;padding:0}
 #cargar-sheet.open{display:flex;animation:cs-fade .2s ease-out}
@@ -1803,7 +1806,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
     <button class="btn-dashboard" id="dashboard-btn" onclick="openDashboardModal()" title="Abrir dashboard de ventas">Dashboard</button>
     <button class="btn-clientes" id="clientes-top-btn" onclick="setTab('clients')" title="Ver lista de clientes SAP + Leads">Clientes</button>
     <button class="btn-alta-cli-top" id="alta-cli-top-btn" onclick="setTab('altacli')" title="Alta de clientes nuevos">Alta clientes</button>
-    <button class="btn-rendiciones-top" id="rendiciones-top-btn" onclick="setTab('rendiciones')" title="Rendiciones: mis gastos + aprobaciones">Rendiciones <span id="tab-rend-count" style="display:none;background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px">0</span></button>
+    <button class="btn-rendiciones-top" id="rendiciones-top-btn" onclick="setTab('rendiciones')" title="Rendiciones: mis gastos + aprobaciones">Rendiciones <span id="tab-rend-count-btn" style="display:none;background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px">0</span></button>
     <button class="btn-analisis" id="analisis-btn" onclick="openExportAnalisis()" style="display:none" title="Formatos avanzados (Power BI / ML / ZIP fotos) - requiere PIN">Exportar para An&aacute;lisis</button>
     <button class="btn-export" onclick="_safeOpenExportFormatModal()" title="Elegir formato: Reportes Excel (uso operativo) o Dataset ZIP para pipelines de ML (solo admin/gerente)">Exportar a Excel</button>
     <button class="btn-seguimiento" id="seguimiento-btn" onclick="openSeguimientoModal()" style="display:none" title="Panel de gestion comercial para vendedores internos">Seguimiento</button>
@@ -3118,6 +3121,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
         <button class="tab-btn tab-action" data-tab="visita-action" onclick="openVisitaModal()" title="Abrir formulario de visita a tienda">Visita</button>
         <button class="tab-btn tab-action" data-tab="contactado-action" onclick="openVisitaModal('contacto')" title="Registrar contacto no presencial (WhatsApp / tel&eacute;fono / email)">Contactado</button>
         <button class="tab-btn" data-tab="altacli" onclick="setTab('altacli')" title="Alta de clientes (en construccion)">Alta clientes <span class="tab-count" id="tab-altacli-count" style="display:none">0</span></button>
+        <button class="tab-btn" data-tab="rendiciones" onclick="setTab('rendiciones')" title="Rendiciones: mis gastos + aprobaciones">Rendiciones <span class="tab-count" id="tab-rend-count" style="display:none">0</span></button>
         <button class="tab-btn active" id="tab-notif" data-tab="notif" onclick="setTab('notif')" title="Alertas y notificaciones">Notificaciones <span class="tab-count" id="tab-notif-count" style="display:none">0</span></button>
       </div>
     </div>
@@ -3598,7 +3602,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v432';
+const APP_VERSION = 'v433';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -9047,19 +9051,25 @@ function _selectPedidoCliente(el){
     }
   }
 }
-// v431: sincroniza el badge #tab-rend-count (ahora dentro del botón toolbar
-// .btn-rendiciones-top) con el count de pendientes que escribe
-// src/domains/rendiciones.js:190-194 en #rd-sub-count-mias.
+// v431/v432: sincroniza AMBOS badges de Rendiciones:
+//   - #tab-rend-count (desktop): tab dentro del tabs bar (restaurada en v432).
+//   - #tab-rend-count-btn (mobile): botón .btn-rendiciones-top del toolbar.
+// Ambos escuchan #rd-sub-count-mias que escribe src/domains/rendiciones.js:190.
 (function _wireRendicionesBadge(){
   const source = document.getElementById('rd-sub-count-mias');
-  const dest = document.getElementById('tab-rend-count');
-  if (!source || !dest) return;
+  const dests = [
+    document.getElementById('tab-rend-count'),
+    document.getElementById('tab-rend-count-btn'),
+  ].filter(Boolean);
+  if (!source || dests.length === 0) return;
   function sync(){
     const raw = (source.textContent || '').trim();
     const n = parseInt(raw, 10);
     const show = !isNaN(n) && n > 0;
-    dest.textContent = show ? String(n) : '0';
-    dest.style.display = show ? 'inline-block' : 'none';
+    for (const d of dests) {
+      d.textContent = show ? String(n) : '0';
+      d.style.display = show ? 'inline-block' : 'none';
+    }
   }
   sync();
   new MutationObserver(sync).observe(source, { characterData: true, childList: true, subtree: true });
