@@ -84,37 +84,68 @@ describe('Slot PEDIDO + cliente picker', () => {
     expect(HTML).toContain('function closePedidoClientePicker');
     expect(HTML).toContain('function _selectPedidoCliente');
   });
+  it('v431: usa POINTS (bare) primero, window.POINTS como fallback', () => {
+    // Chequea que existe el patrón de typeof POINTS antes que window.POINTS.
+    expect(HTML).toMatch(/typeof POINTS !== 'undefined'/);
+  });
 });
 
-describe('Hamburger + drawer', () => {
-  it('hamburger #mobile-header-hamburger existe', () => {
-    expect(HTML).toContain('id="mobile-header-hamburger"');
-  });
-  it('hamburger invoca openMobileDrawer', () => {
-    expect(HTML).toMatch(/id="mobile-header-hamburger"[^>]*onclick="openMobileDrawer\(\)"/);
+describe('Hamburger unificado + drawer (v431)', () => {
+  it('#header-hamburger-btn abre el drawer directo (no dropdown viejo)', () => {
+    expect(HTML).toMatch(/id="header-hamburger-btn"[^>]*onclick="openMobileDrawer\(\)"/);
   });
   it('drawer #mobile-drawer existe', () => {
     expect(HTML).toContain('id="mobile-drawer"');
   });
-  it('drawer tiene 5 opciones (rutas, rendiciones, altacli, notif, herramientas)', () => {
-    const actions = ['rutas', 'rendiciones', 'altacli', 'notif', 'herramientas'];
+  it('drawer tiene items básicos (rutas, altacli, notif, salir)', () => {
+    const actions = ['rutas', 'altacli', 'notif', 'salir'];
     for (const a of actions) {
       expect(HTML).toMatch(new RegExp(`data-drawer-action="${a}"`));
     }
   });
-  it('media (min-width:769px) oculta hamburger + drawer', () => {
-    expect(HTML).toMatch(
-      /@media[^{]*min-width:\s*769px[\s\S]*?#mobile-header-hamburger[\s\S]*?display:\s*none/
-    );
+  it('drawer tiene items admin gated por rol (productos, targets, campaigns, sap, mastercli, admin)', () => {
+    const actions = ['productos', 'targets', 'campaigns', 'sap', 'mastercli', 'admin'];
+    for (const a of actions) {
+      expect(HTML).toMatch(new RegExp(`data-drawer-action="${a}"`));
+    }
   });
-  it('drawer item herramientas invoca openHerramientasModal', () => {
-    expect(HTML).toMatch(
-      /data-drawer-action="herramientas"[^>]*onclick="closeMobileDrawer\(\);openHerramientasModal\(\)"/
-    );
+  it('drawer NO tiene mas Herramientas item (revertido en v431)', () => {
+    expect(HTML).not.toMatch(/data-drawer-action="herramientas"/);
   });
   it('handlers openMobileDrawer/closeMobileDrawer/_updateHamburgerBadge existen', () => {
     expect(HTML).toContain('function openMobileDrawer');
     expect(HTML).toContain('function closeMobileDrawer');
     expect(HTML).toContain('function _updateHamburgerBadge');
+  });
+});
+
+describe('v431: revert Herramientas + botones individuales', () => {
+  it('modal #herramientas-modal fue eliminado', () => {
+    expect(HTML).not.toContain('id="herramientas-modal"');
+  });
+  it('funciones openHerramientasModal/closeHerramientasModal eliminadas', () => {
+    expect(HTML).not.toContain('function openHerramientasModal');
+    expect(HTML).not.toContain('function closeHerramientasModal');
+  });
+  it('botón .btn-mis-camps restaurado en top toolbar', () => {
+    expect(HTML).toMatch(/<button[^>]*class="btn-mis-camps"[^>]*onclick="openMisCampsModal\(\)"/);
+  });
+  it('botón .btn-export restaurado en top toolbar', () => {
+    expect(HTML).toMatch(
+      /<button[^>]*class="btn-export"[^>]*onclick="_safeOpenExportFormatModal\(\)"/
+    );
+  });
+  it('nuevo botón .btn-rendiciones-top con setTab(rendiciones)', () => {
+    expect(HTML).toMatch(
+      /<button[^>]*class="btn-rendiciones-top"[^>]*onclick="setTab\('rendiciones'\)"/
+    );
+  });
+  it('nuevo botón .btn-clientes con setTab(clients)', () => {
+    expect(HTML).toMatch(/<button[^>]*class="btn-clientes"[^>]*onclick="setTab\('clients'\)"/);
+  });
+  it('applyRolePermissions gate #mis-camps-btn (revert al comportamiento pre-v429)', () => {
+    expect(HTML).toMatch(
+      /getElementById\('mis-camps-btn'\)\.style\.display\s*=\s*\(userRole\s*!==\s*'unassigned'\)/
+    );
   });
 });
