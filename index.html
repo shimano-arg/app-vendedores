@@ -784,9 +784,8 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .btn-analisis:hover{background:#14532d;box-shadow:0 2px 6px rgba(22,101,52,.45)}
 .btn-analisis:active{transform:translateY(1px)}
 .btn-analisis::before{content:"\01F510";font-size:13px}
-.btn-herramientas{padding:7px 12px;border:1.5px solid #f59e0b;border-radius:6px;background:#facc15;color:#78350f;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(245,158,11,.35);transition:.15s;white-space:nowrap;flex-shrink:0}
-.btn-herramientas::before{content:"\2699";font-size:14px}
-.btn-herramientas::after{content:"\25BE";font-size:9px;margin-left:2px}
+/* v430: botón Herramientas centrado, sin engranaje ni flecha. */
+.btn-herramientas{padding:7px 12px;border:1.5px solid #f59e0b;border-radius:6px;background:#facc15;color:#78350f;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 1px 3px rgba(245,158,11,.35);transition:.15s;white-space:nowrap;flex-shrink:0}
 .btn-herramientas:hover{background:#fde047;box-shadow:0 2px 6px rgba(245,158,11,.55)}
 .btn-herramientas:active{transform:translateY(1px)}
 #herramientas-modal{position:fixed;inset:0;background:rgba(15,23,42,.6);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:9999;padding:16px}
@@ -973,7 +972,9 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 /* Boton mobile-only "Refrescar app". En desktop esta el ↻ en el mapa. */
 .btn-mobile-refresh{display:none}
 /* ==== v429: mobile bottom-nav ==== */
-#mobile-bottom-nav{display:none;position:fixed;left:12px;right:12px;bottom:12px;height:64px;background:#0f172a;border-radius:28px;box-shadow:0 8px 24px rgba(0,0,0,.35);align-items:center;justify-content:space-around;padding:0 8px;padding-bottom:env(safe-area-inset-bottom,0);z-index:9998}
+/* v430: edge-to-edge (bottom:0, sin margin) para que no se vea contenido
+   scrolleado por debajo; radius sólo top; padding-bottom respeta safe-area. */
+#mobile-bottom-nav{display:none;position:fixed;left:0;right:0;bottom:0;height:calc(72px + env(safe-area-inset-bottom,0));background:#0f172a;border-radius:20px 20px 0 0;box-shadow:0 -4px 16px rgba(0,0,0,.3);align-items:center;justify-content:space-around;padding:0 8px env(safe-area-inset-bottom,0) 8px;z-index:9998}
 .mnav-btn{width:48px;height:48px;background:none;border:none;color:#f8fafc;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;border-radius:12px;transition:.15s;padding:0}
 .mnav-btn:active{background:rgba(255,255,255,.12);transform:scale(.92)}
 .mnav-fab{width:64px;height:64px;background:#fff;border:none;border-radius:50%;transform:translateY(-14px);box-shadow:0 6px 16px rgba(0,0,0,.4);color:#0f172a;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:.15s;padding:0}
@@ -983,7 +984,13 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 @media (max-width: 768px) {
   #main-tabs, .controls-right-group { display: none !important; }
   #mobile-bottom-nav { display: flex; }
-  .main-container { padding-bottom: 88px; }
+  /* v430: padding-bottom = nav (72px) + safe-area + 12px gap para que el
+     último item scrollable quede bien por encima del nav opaco. */
+  .main-container { padding-bottom: calc(84px + env(safe-area-inset-bottom,0)); }
+  /* v430: los modales que abre el bottom-nav deben quedar POR ENCIMA del
+     nav (z-index 9998). #product-master-modal usa el z-index default de
+     .modal-overlay (3000) que quedaba tapado. Igualamos a 10001. */
+  .modal-overlay { z-index: 10001; }
 }
 @media (min-width: 769px) {
   #mobile-bottom-nav { display: none !important; }
@@ -3601,7 +3608,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v429';
+const APP_VERSION = 'v430';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
