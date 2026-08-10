@@ -16,12 +16,15 @@ Métricas incluidas (5 bloques):
   4) Top 5 SKUs del día (por monto).
 
 Fuente de datos: BigQuery
-  - v_facturas_sap        facturas SAP con doc_total, saldo, assigned_vendor
-  - v_ventas_lineas       líneas de ventas con item_code, cantidad, importe
+  - v_ventas_lineas       líneas de ventas con item_code, cantidad, importe,
+                          card_name, assigned_vendor, is_pesca flag
   - v_targets             targets mensuales por vendedor
 
-Filtro: excluye facturas canceladas (cancelled = tYES) y notas de crédito
-(v_facturas_sap ya trae solo doc_kind = INVOICE / TAX_INVOICE).
+Filtros de negocio (para matchear el Tablero SAR de Power BI):
+  - is_pesca = TRUE          excluye familia BIKE y no-catalogadas
+  - doc_kind IN ('INVOICE','TAX_INVOICE')  solo facturas (no notas de crédito
+                                            ni anticipos)
+  - v_ventas_lineas ya excluye canceladas por construcción.
 
 Env vars requeridas (GitHub Actions Secrets):
   FIREBASE_SERVICE_ACCOUNT   JSON del service account (misma cuenta con rol
@@ -158,22 +161,30 @@ def bq_client() -> bigquery.Client:
 
 
 def fetch_kpis(client: bigquery.Client) -> dict:
-    """Retorna un dict con las 5 métricas listas para render."""
-    log('[BQ] fetch KPIs...')
+    """Retorna un dict con las 5 métricas listas para render.
 
-    q_totales = """
+    Todas las queries filtran por is_pesca=TRUE + doc_kind IN ('INVOICE',
+    'TAX_INVOICE') para matchear el filtro del Tablero SAR de Power BI
+    (que excluye ventas de BIKE y notas de crédito).
+    """
+    log('[BQ] fetch KPIs (filtro is_pesca + INVOICE only)...')
+
+    # Filtro base repetido en todas las queries.
+    PESCA_FILTER = "is_pesca = TRUE AND doc_kind IN ('INVOICE','TAX_INVOICE')"
+
+    q_totales = f"""
         DECLARE hoy DATE DEFAULT CURRENT_DATE('America/Argentina/Buenos_Aires');
         SELECT
-          COUNTIF(doc_date = hoy) AS facturas_hoy,
-          ROUND(SUM(IF(doc_date = hoy, doc_total, 0)), 0) AS monto_hoy,
-          COUNTIF(doc_date >= DATE_TRUNC(hoy, MONTH)) AS facturas_mes,
-          ROUND(SUM(IF(doc_date >= DATE_TRUNC(hoy, MONTH), doc_total, 0)), 0) AS monto_mes,
-          ROUND(SUM(IF(doc_date >= DATE_TRUNC(hoy, MONTH), saldo_ars, 0)), 0) AS saldo_mes,
+          COUNT(DISTINCT IF(doc_date = hoy, doc_num, NULL)) AS facturas_hoy,
+          ROUND(SUM(IF(doc_date = hoy, importe_linea_ars, 0)), 0) AS monto_hoy,
+          COUNT(DISTINCT doc_num) AS facturas_mes,
+          ROUND(SUM(importe_linea_ars), 0) AS monto_mes,
+          ROUND(SUM(deuda_prorrateada_ars), 0) AS saldo_mes,
           EXTRACT(YEAR FROM hoy) AS anio,
           EXTRACT(MONTH FROM hoy) AS mes
-        FROM `app-vendedores-shimano.shimano_app.v_facturas_sap`
+        FROM `app-vendedores-shimano.shimano_app.v_ventas_lineas`
         WHERE doc_date >= DATE_TRUNC(hoy, MONTH)
-          AND COALESCE(cancelled, 'tNO') = 'tNO'
+          AND {PESCA_FILTER}
     """
     totales = dict(next(iter(client.query(q_totales).result())))
     log(f'  totales: {totales}')
@@ -187,35 +198,35 @@ def fetch_kpis(client: bigquery.Client) -> dict:
     target_ars = float(dict(target_row).get('target_ars') or 0) if target_row else 0
     log(f'  target mes: {target_ars}')
 
-    q_clientes = """
+    q_clientes = f"""
         DECLARE hoy DATE DEFAULT CURRENT_DATE('America/Argentina/Buenos_Aires');
         SELECT
           card_code,
-          COALESCE(card_name_bp, card_name_invoice, '(sin nombre)') AS cliente,
-          ROUND(SUM(doc_total), 0) AS monto,
-          COUNT(*) AS n_facturas
-        FROM `app-vendedores-shimano.shimano_app.v_facturas_sap`
-        WHERE doc_date = hoy AND COALESCE(cancelled, 'tNO') = 'tNO'
-        GROUP BY card_code, cliente
+          COALESCE(MAX(card_name), '(sin nombre)') AS cliente,
+          ROUND(SUM(importe_linea_ars), 0) AS monto,
+          COUNT(DISTINCT doc_num) AS n_facturas
+        FROM `app-vendedores-shimano.shimano_app.v_ventas_lineas`
+        WHERE doc_date = hoy AND {PESCA_FILTER}
+        GROUP BY card_code
         ORDER BY monto DESC LIMIT 5
     """
     top_clientes = [dict(r) for r in client.query(q_clientes).result()]
 
-    q_vendedores = """
+    q_vendedores = f"""
         DECLARE hoy DATE DEFAULT CURRENT_DATE('America/Argentina/Buenos_Aires');
         SELECT
           COALESCE(assigned_vendor, '(SIN ASIGNAR)') AS vendedor,
-          ROUND(SUM(IF(doc_date = hoy, doc_total, 0)), 0) AS monto_hoy,
-          ROUND(SUM(doc_total), 0) AS monto_mes,
-          COUNT(*) AS n_facturas_mes
-        FROM `app-vendedores-shimano.shimano_app.v_facturas_sap`
+          ROUND(SUM(IF(doc_date = hoy, importe_linea_ars, 0)), 0) AS monto_hoy,
+          ROUND(SUM(importe_linea_ars), 0) AS monto_mes,
+          COUNT(DISTINCT doc_num) AS n_facturas_mes
+        FROM `app-vendedores-shimano.shimano_app.v_ventas_lineas`
         WHERE doc_date >= DATE_TRUNC(hoy, MONTH)
-          AND COALESCE(cancelled, 'tNO') = 'tNO'
+          AND {PESCA_FILTER}
         GROUP BY vendedor ORDER BY monto_mes DESC LIMIT 10
     """
     ranking_vendedores = [dict(r) for r in client.query(q_vendedores).result()]
 
-    q_skus = """
+    q_skus = f"""
         DECLARE hoy DATE DEFAULT CURRENT_DATE('America/Argentina/Buenos_Aires');
         SELECT
           item_code AS sku,
@@ -224,7 +235,7 @@ def fetch_kpis(client: bigquery.Client) -> dict:
           ROUND(SUM(cantidad), 0) AS unidades,
           ROUND(SUM(importe_linea_ars), 0) AS monto_ars
         FROM `app-vendedores-shimano.shimano_app.v_ventas_lineas`
-        WHERE doc_date = hoy AND item_code IS NOT NULL AND doc_kind = 'INVOICE'
+        WHERE doc_date = hoy AND item_code IS NOT NULL AND {PESCA_FILTER}
         GROUP BY sku ORDER BY monto_ars DESC LIMIT 5
     """
     top_skus = [dict(r) for r in client.query(q_skus).result()]
@@ -358,7 +369,6 @@ def render_html(kpis: dict, logo_cid: str) -> str:
       <tr><td style="padding:28px 28px 8px">
         <div style="font-size:11px;font-weight:700;color:{SHIMANO_CYAN};letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px">Resumen diario</div>
         <h1 style="margin:0;font-size:24px;font-weight:800;color:{NAVY_DARK};line-height:1.2">Desempeño de ventas al {hoy.day}/{hoy.month:02d}</h1>
-        <p style="margin:8px 0 0;color:{MUTED};font-size:13px;line-height:1.5">Snapshot desde SAP B1 → BigQuery. Reemplaza al mail automático de Power BI con un resumen ejecutivo para lectura rápida.</p>
       </td></tr>
 
       <!-- KPI hero -->
