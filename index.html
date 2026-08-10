@@ -999,6 +999,15 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
      nav (z-index 9998). #product-master-modal usa el z-index default de
      .modal-overlay (3000) que quedaba tapado. Igualamos a 10001. */
   .modal-overlay { z-index: 10001; }
+  /* v440 (2026-08-10): ocultar el bottom-nav mobile cuando hay un modal
+     abierto. Feedback Mariano: en Visitas/Contactos el bottom-nav tapaba
+     el modal-footer con el boton "Enviar formulario" / "Registrar contacto"
+     (aunque el z-index del modal (10001) es mayor que el del nav (9998),
+     visualmente el nav queda igual apoyado sobre la parte inferior del
+     modal). Escondemos el nav mientras haya al menos un modal abierto —
+     hay una fila alternativa de acciones en el propio modal (Cancelar +
+     Enviar) que reemplaza al nav durante el flujo. */
+  body:has(.modal-overlay.open) #mobile-bottom-nav { display: none !important; }
   /* v435: pedido cliente picker full-screen en mobile (feedback Mariano
      "en modal queda raro"). Ocupa 100vh, sin margen ni radius, header
      sticky arriba, lista scrollea. */
@@ -3625,7 +3634,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v439';
+const APP_VERSION = 'v440';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -13550,20 +13559,24 @@ window.queryStockLive = function(code, btn){
         }
       });
       const total = disp + transito + otros;
-      // v377+ (2026-08-02): Stock Liberado = max(transito - backorder, 0).
+      // v440 (2026-08-10): reemplazamos "STOCK LIBERADO (transito - backorder)"
+      // (fórmula v377) por "LIBRE PARA VENDER (disp + transito - backorder)".
+      // Feedback Mariano: con la fórmula vieja, si hay más disponible que
+      // backorder pero sin tránsito el resultado quedaba 0, dando la falsa
+      // impresión de que no queda stock libre. Lo que realmente importa al
+      // vendedor es "cuánto puedo comprometer hoy sin pisar backorders
+      // existentes" — o sea el neto disp + transito - backorder.
       // Backorder = suma de RemainingOpenQuantity de SQ open del SKU (mismo
-      // criterio que la vista v_backorder_lineas en BQ). Si backorder cubre
-      // todo el transito, el "stock liberado" al llegar la mercaderia es 0
-      // (ya esta reservado para clientes).
+      // criterio que la vista v_backorder_lineas en BQ).
       const backorder = Number(STOCK_BACKORDER[k] || STOCK_BACKORDER[k.toUpperCase()] || 0);
-      const liberado = Math.max(transito - backorder, 0);
+      const libre = Math.max(disp + transito - backorder, 0);
       const lines = [
         '✅ DISPONIBLE venta (dep. 11): ' + disp + ' unidades',
         '🚚 EN TRANSITO (dep. 12): ' + transito + ' unidades',
       ];
       if (backorder > 0) {
         lines.push('🔒 BACKORDER (reservado a clientes): ' + backorder + ' unidades');
-        lines.push('🟢 STOCK LIBERADO (transito - backorder): ' + liberado + ' unidades');
+        lines.push('🟢 LIBRE PARA VENDER (disp + transito - backorder): ' + libre + ' unidades');
       }
       if (otros > 0) lines.push('⚠️ Otros almacenes: ' + otros + ' unidades (' + otrosDetalle.join(', ') + ')');
       lines.push('──────────────');
