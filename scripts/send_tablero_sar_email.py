@@ -170,14 +170,19 @@ def fetch_kpis(client: bigquery.Client) -> dict:
     log('[BQ] fetch KPIs (filtro is_pesca + INVOICE only)...')
 
     # Filtro base repetido en todas las queries.
-    PESCA_FILTER = "is_pesca = TRUE AND doc_kind IN ('INVOICE','TAX_INVOICE')"
+    # CREDIT_NOTE incluida: las notas de crédito ya vienen con signo negativo
+    # en importe_linea_ars → sumarlas resta del neto automáticamente. Sin
+    # ellas el mes queda ~355K arriba del PBI (que sí las descuenta).
+    PESCA_FILTER = "is_pesca = TRUE AND doc_kind IN ('INVOICE','TAX_INVOICE','CREDIT_NOTE')"
 
+    # Nota: el COUNT DISTINCT filtra a doc_kind = INVOICE para matchear el
+    # card "CANTIDAD DE PEDIDOS" del PBI (que no cuenta CN como pedidos).
     q_totales = f"""
         DECLARE hoy DATE DEFAULT CURRENT_DATE('America/Argentina/Buenos_Aires');
         SELECT
-          COUNT(DISTINCT IF(doc_date = hoy, doc_num, NULL)) AS facturas_hoy,
+          COUNT(DISTINCT IF(doc_date = hoy AND doc_kind = 'INVOICE', doc_num, NULL)) AS facturas_hoy,
           ROUND(SUM(IF(doc_date = hoy, importe_linea_ars, 0)), 0) AS monto_hoy,
-          COUNT(DISTINCT doc_num) AS facturas_mes,
+          COUNT(DISTINCT IF(doc_kind = 'INVOICE', doc_num, NULL)) AS facturas_mes,
           ROUND(SUM(importe_linea_ars), 0) AS monto_mes,
           ROUND(SUM(deuda_prorrateada_ars), 0) AS saldo_mes,
           EXTRACT(YEAR FROM hoy) AS anio,
@@ -466,9 +471,7 @@ def render_html(kpis: dict, logo_cid: str) -> str:
       <!-- Footer -->
       <tr><td style="padding:20px 28px 24px;border-top:1px solid #e5e7eb;background:#f8fafc;text-align:center">
         <div style="font-size:10px;color:{MUTED};line-height:1.5">
-          Este correo se genera automáticamente cada día hábil a las 17:00 ART.<br>
-          Datos: SAP B1 → BigQuery. Excluye facturas canceladas.<br>
-          Repo: <a href="https://github.com/shimano-arg/app-vendedores" style="color:{NAVY};text-decoration:none">shimano-arg/app-vendedores</a> · script: <code>scripts/send_tablero_sar_email.py</code>
+          Este correo se genera automáticamente cada día hábil a las 17:00 ART.
         </div>
       </td></tr>
 
