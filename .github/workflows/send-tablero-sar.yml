@@ -1,0 +1,74 @@
+name: Send Tablero SAR Email
+
+# Envio del resumen diario de ventas SAR (Shimano Argentina - PESCA).
+# Reemplaza el mail automatico de Power BI Subscription (template fijo)
+# por un HTML con branding Shimano + KPIs preview + CTA al report.
+#
+# Frecuencia: dias habiles (Lun-Vie) a las 17:00 hora Argentina.
+# 17:00 ART = 20:00 UTC. Cron: minuto 0, hora 20, cualquier dia/mes,
+# dias de semana 1-5 (Lun a Vie).
+#
+# Configuracion requerida (GitHub Secrets):
+#   FIREBASE_SERVICE_ACCOUNT  Misma SA JSON que sync_sap_to_bigquery.py
+#                             (rol BigQuery Data Viewer + Studio User).
+#   GMAIL_APP_PASSWORD        App password 16 chars de bot.shimano.pesca@gmail.com.
+#
+# Configuracion opcional (variables de repo o job env):
+#   POWERBI_REPORT_URL        URL del report Power BI para el boton CTA.
+#                             Default: https://app.powerbi.com/
+
+on:
+  schedule:
+    - cron: '0 20 * * 1-5'     # Lun-Vie 20 UTC = 17:00 hora Argentina
+  workflow_dispatch:           # boton "Run workflow" para forzar manualmente
+    inputs:
+      mail_to:
+        description: 'Override MAIL_TO (comma-separated). Vacio = usar default.'
+        type: string
+        required: false
+        default: ''
+      dry_run:
+        description: 'Solo generar el HTML como artefacto, no enviar mail'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: send-tablero-sar
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install google-cloud-bigquery google-auth
+
+      - name: Run send_tablero_sar_email
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_FROM: bot.shimano.pesca@gmail.com
+          MAIL_TO: ${{ inputs.mail_to != '' && inputs.mail_to || 'mariano.erbino@shimano.com.ar' }}
+          POWERBI_REPORT_URL: ${{ vars.POWERBI_REPORT_URL }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python scripts/send_tablero_sar_email.py
+
+      - name: Upload dry-run HTML artifact
+        if: ${{ inputs.dry_run == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dryrun-tablero-sar-html
+          path: _dryrun_tablero_sar.html
+          retention-days: 3
