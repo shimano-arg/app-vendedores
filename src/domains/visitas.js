@@ -1704,7 +1704,13 @@ function setVisitFormReadonly(readonly) {
       '<span style="color:#475569">Solo lectura</span><div style="display:flex;gap:8px"><button class="btn-cancel" onclick="resetVisitaForm();setVisitFormReadonly(false);setVisitaView(\'form\');">Nueva visita</button><button class="btn-confirm" style="background:#7c3aed" onclick="closeVisitaModal()">Cerrar</button></div>';
   } else {
     footer.innerHTML =
-      '<span style="color:#475569">Se guarda en la nube al enviar</span><div style="display:flex;gap:8px"><button class="btn-cancel" onclick="closeVisitaModal()">Cancelar</button><button class="btn-confirm" style="background:#7c3aed" onclick="submitVisita()">Enviar formulario</button></div>';
+      '<span style="color:#475569">Se guarda en la nube al enviar</span><div style="display:flex;gap:8px"><button class="btn-cancel" onclick="closeVisitaModal()">Cancelar</button><button class="btn-confirm" id="visita-submit-btn" style="background:#7c3aed" onclick="submitVisita()">Enviar formulario</button></div>';
+    // v439: re-aplicar el modo activo para restaurar el label del boton
+    // ("Registrar contacto" vs "Enviar formulario") + color, ya que el
+    // innerHTML anterior perdia el id="visita-submit-btn".
+    if (typeof applyVisitModeUI === 'function' && window.visitMode) {
+      applyVisitModeUI(window.visitMode);
+    }
   }
 }
 

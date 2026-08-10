@@ -1339,7 +1339,11 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
   .tab-count{font-size:9px;padding:1px 5px;min-width:18px}
   /* Modal goes (almost) full screen */
   .modal-overlay{padding:0;align-items:stretch}
-  .modal-box{width:100%!important;max-width:none;max-height:100vh;border-radius:0}
+  /* v439 (2026-08-10): 100dvh (no 100vh) para que el footer con el boton Enviar
+     no quede tapado por la barra de navegacion del browser mobile (Chrome/Safari
+     iOS y Android). Con 100vh el viewport incluye el area detras de la barra y
+     el footer queda fuera de pantalla al cargar visitas/contactados. */
+  .modal-box{width:100%!important;max-width:none;max-height:100dvh;height:100dvh;border-radius:0}
   .modal-head{padding:14px 16px}
   .modal-head h2{font-size:16px}
   .modal-head .subt{font-size:11px}
@@ -1378,7 +1382,9 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
   /* Inputs/selects >= 16px en mobile para evitar zoom automatico de iOS al focus */
   input[type=text],input[type=number],input[type=date],input[type=email],input[type=tel],input[type=search],select,textarea{font-size:16px!important}
   .ped-line{grid-template-columns:56px 1fr 56px 44px 22px;font-size:10px;gap:4px;padding:6px}
-  .modal-footer{flex-direction:column;align-items:stretch;gap:8px;padding:10px 14px}
+  /* v439: safe-area-inset-bottom para respetar el home indicator del iPhone
+     y evitar que el boton Enviar quede pegado al borde/tapado. */
+  .modal-footer{flex-direction:column;align-items:stretch;gap:8px;padding:10px 14px calc(10px + env(safe-area-inset-bottom))}
   .modal-footer > div:last-child{display:flex;gap:6px}
   .btn-confirm,.btn-cancel{flex:1;padding:11px 10px;font-size:11px}
   .confirm-box{width:96%;padding:16px 18px}
@@ -3619,7 +3625,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v438';
+const APP_VERSION = 'v439';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
