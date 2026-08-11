@@ -251,8 +251,8 @@ function buildSegAggregates(visits, pedidos) {
   const byVendor = {};
   set.forEach((v) => {
     byVendor[v] = {
-      visits: 0,        // solo presenciales (interactionType != 'contacto')
-      contactos: 0,     // v443: no presenciales (WhatsApp/tel/email)
+      visits: 0, // solo presenciales (interactionType != 'contacto')
+      contactos: 0, // v443: no presenciales (WhatsApp/tel/email)
       pedidos: 0,
       facturacion: 0,
       pendientesPedidos: 0,
