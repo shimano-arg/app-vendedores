@@ -3799,7 +3799,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v460';
+const APP_VERSION = 'v461';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11186,11 +11186,16 @@ window.waitlistPasarAPendientes = async function(){
       '¿Continuar con las cantidades ajustadas?'
     )) return;
   }
-  // Construir currentOrderKey + currentOrderClient para reutilizar el flujo.
-  const tipo = 'cliente';
+  // v461: usar orderKey() en vez de armar el string a mano. El resto de la
+  // app genera keys con formato 'C|prov|loc|nombre' (tipo='C' cliente,
+  // 'P' prospecto). Antes usaba 'cliente|...' -> el pedido pasaba a
+  // pending['cliente|...'] pero renderPendientesList filtraba por
+  // 'C|...' y no lo encontraba. Bug: el pedido se guardaba en Firestore
+  // pero no aparecia en la lista "Pendientes" del vendedor.
   const provNorm = (w.clientProvince || '').toUpperCase();
-  currentOrderKey = tipo + '|' + provNorm + '|' + (w.clientLocality || '') + '|' + w.clientName;
-  currentOrderClient = {name: w.clientName, tipo, province: provNorm, locName: w.clientLocality || ''};
+  const locName = w.clientLocality || '';
+  currentOrderKey = orderKey(w.clientName, provNorm, locName, 'C');
+  currentOrderClient = {name: w.clientName, tipo: 'C', province: provNorm, locName};
   // Cargar en orders[] usando el mismo mapping que confirmExcelPedido.
   const outLines = finalItems.map(l => {
     const precio = (typeof getDefaultPrice === 'function') ? getDefaultPrice(l.code) : 0;
