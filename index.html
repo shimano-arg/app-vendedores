@@ -3627,10 +3627,11 @@ body.can-revision .revision-btn{display:inline-flex}
                 <th style="text-align:left;padding:6px 8px">SKU</th>
                 <th style="text-align:left;padding:6px 8px">Producto</th>
                 <th style="text-align:right;padding:6px 8px" title="Stock deposito 11 + transito deposito 12">Stock total</th>
-                <th style="text-align:right;padding:6px 8px" title="RemainingOpenQuantity de Sales Quotations open del SKU">Backorder</th>
-                <th style="text-align:right;padding:6px 8px" title="Disponible = Stock total - Backorder">Disponible</th>
+                <th style="text-align:right;padding:6px 8px" title="RemainingOpenQuantity de Sales Quotations open del SKU">Backorder SAP</th>
+                <th style="text-align:right;padding:6px 8px" title="Stock total - Backorder SAP (snapshot con lag 5-30 min)">Disponible SAP</th>
+                <th style="text-align:right;padding:6px 8px" title="Disponible SAP - Pedidos pendientes app no transferidos aun. Corrige el delay del sync SAP.">Disponible app</th>
                 <th style="text-align:right;padding:6px 8px">Pedido cliente</th>
-                <th style="text-align:right;padding:6px 8px">Excedente</th>
+                <th style="text-align:right;padding:6px 8px" title="Pedido - Disponible app">Excedente</th>
               </tr>
             </thead>
             <tbody id="revision-rows"></tbody>
@@ -3800,7 +3801,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v462';
+const APP_VERSION = 'v463';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -10678,7 +10679,15 @@ async function parseRevisionExcelFile(file){
       const existing = parsed.find(x => x.code === canonicalCode);
       if (existing) { existing.qty += qty; continue; }
       const stk = _revisionStockFor(canonicalCode);
-      parsed.push({code: canonicalCode, desc, qty, stockTotal: stk.stockTotal, backorder: stk.backorder, disponible: stk.disponible, hasData: stk.hasData, needsReview: !prod});
+      // v463: precalcular disponibleApp = disponible - pending app no transferidos.
+      const pendingApp = _pendingAppDeSku(canonicalCode);
+      const dispApp = stk.hasData ? Math.max((stk.disponible || 0) - pendingApp, 0) : null;
+      parsed.push({
+        code: canonicalCode, desc, qty,
+        stockTotal: stk.stockTotal, backorder: stk.backorder,
+        disponible: stk.disponible, disponibleApp: dispApp, pendingApp,
+        hasData: stk.hasData, needsReview: !prod,
+      });
     }
     if (!parsed.length) throw new Error('No hay filas con datos despues del header.');
     _revisionParsed = parsed;
@@ -10693,7 +10702,9 @@ async function parseRevisionExcelFile(file){
 }
 function _revisionRenderPreview(parsed, detectedCliente, notFoundCount, zerosCount){
   const totalUnid = parsed.reduce((s, l) => s + l.qty, 0);
-  const excedidos = parsed.filter(l => l.hasData && l.qty > l.disponible).length;
+  // v463: excedente vs Disponible app (mas conservador). Cubre el delay del
+  // sync SAP + pedidos pendientes de la app que aun no llegaron a SAP.
+  const excedidos = parsed.filter(l => l.hasData && l.qty > l.disponibleApp).length;
   const sinData = parsed.filter(l => !l.hasData).length;
   // Stats con DOM safe (evita innerHTML con datos crudos).
   const statsEl = document.getElementById('revision-stats');
@@ -10730,8 +10741,8 @@ function _revisionRenderPreview(parsed, detectedCliente, notFoundCount, zerosCou
   const tbody = document.getElementById('revision-rows');
   while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
   parsed.slice(0, 500).forEach(l => {
-    const excede = l.hasData && l.qty > l.disponible;
-    const excedente = excede ? (l.qty - l.disponible) : 0;
+    const excede = l.hasData && l.qty > l.disponibleApp;
+    const excedente = excede ? (l.qty - l.disponibleApp) : 0;
     const tr = document.createElement('tr');
     tr.className = !l.hasData ? 'no-data' : (excede ? 'exceed' : '');
     const mk = (text, cls) => { const td = document.createElement('td'); if (cls) td.className = cls; td.textContent = text; return td; };
@@ -10740,6 +10751,11 @@ function _revisionRenderPreview(parsed, detectedCliente, notFoundCount, zerosCou
     tr.appendChild(mk(l.hasData ? l.stockTotal : '-', 'num'));
     tr.appendChild(mk(String(l.backorder || 0), 'num'));
     tr.appendChild(mk(l.hasData ? l.disponible : '-', 'num'));
+    // v463: nueva columna Disponible app.
+    const dispAppTxt = l.hasData
+      ? (l.pendingApp > 0 ? (l.disponibleApp + ' (−' + l.pendingApp + ' pend. app)') : String(l.disponibleApp))
+      : '-';
+    tr.appendChild(mk(dispAppTxt, 'num'));
     tr.appendChild(mk(l.qty, 'num'));
     tr.appendChild(mk(excede ? ('+' + excedente) : (l.hasData ? '0' : '-'), excede ? 'num exc-cell' : 'num'));
     tbody.appendChild(tr);
@@ -10747,7 +10763,7 @@ function _revisionRenderPreview(parsed, detectedCliente, notFoundCount, zerosCou
   if (parsed.length > 500) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
-    td.colSpan = 7; td.style.cssText = 'padding:8px;text-align:center;font-size:10px;color:#94a3b8;font-style:italic';
+    td.colSpan = 8; td.style.cssText = 'padding:8px;text-align:center;font-size:10px;color:#94a3b8;font-style:italic';
     td.textContent = '... y ' + (parsed.length - 500) + ' lineas mas';
     tr.appendChild(td); tbody.appendChild(tr);
   }
@@ -10762,14 +10778,16 @@ window.exportRevisionExcel = function(){
     'SKU': l.code,
     'Producto': l.desc,
     'Stock total (dep 11 + 12)': l.hasData ? l.stockTotal : 'N/A',
-    'Backorder': l.backorder || 0,
-    'Disponible (stock - backorder)': l.hasData ? l.disponible : 'N/A',
+    'Backorder SAP': l.backorder || 0,
+    'Disponible SAP': l.hasData ? l.disponible : 'N/A',
+    'Pendientes app (no transferidos)': l.pendingApp || 0,
+    'Disponible app': l.hasData ? l.disponibleApp : 'N/A',
     'Pedido cliente': l.qty,
-    'Excedente (pedido - disponible)': l.hasData ? Math.max(l.qty - l.disponible, 0) : 'N/A',
+    'Excedente vs Disponible app': l.hasData ? Math.max(l.qty - l.disponibleApp, 0) : 'N/A',
   }));
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows);
-  ws['!cols'] = [{wch:18},{wch:42},{wch:16},{wch:12},{wch:18},{wch:14},{wch:16}];
+  ws['!cols'] = [{wch:18},{wch:42},{wch:16},{wch:14},{wch:14},{wch:22},{wch:14},{wch:14},{wch:22}];
   XLSX.utils.book_append_sheet(wb, ws, 'Revision');
   const ts = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, 'Revision_pedido_' + ts + '.xlsx');
