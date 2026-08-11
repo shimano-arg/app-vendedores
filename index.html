@@ -3653,7 +3653,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v447';
+const APP_VERSION = 'v448';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11613,7 +11613,7 @@ window.zoomTo = function(lat, lon){
 window.toggleEnvioGratis = function(ev, key){
   if (ev) { ev.stopPropagation(); ev.preventDefault(); }
   const _em = ((currentUser && (currentUser.email || '')) || '').toLowerCase();
-  if (_em !== 'ioannis.palkoudakis@shimano.com.ar') return;
+  if (_em !== 'ioannis.plakoudakis@shimano.com.ar') return;
   if (!clientMeta[key]) clientMeta[key] = {};
   const next = !clientMeta[key].envioGratis;
   clientMeta[key].envioGratis = next;
@@ -13022,7 +13022,7 @@ function applyRolePermissions(){
   // v444: flag body.is-ioannis para gates de features exclusivas de Ioannis
   // (por ahora: boton "Envio gratis" en cada card de cliente).
   const _em = ((currentUser && (currentUser.email || '')) || '').toLowerCase();
-  document.body.classList.toggle('is-ioannis', _em === 'ioannis.palkoudakis@shimano.com.ar');
+  document.body.classList.toggle('is-ioannis', _em === 'ioannis.plakoudakis@shimano.com.ar');
   // Badge: ADMIN solo el rol; resto solo PRIMER NOMBRE del usuario para que entre en mobile.
   const badge = document.getElementById('user-role-badge');
   badge.className = 'role-badge ' + userRole;

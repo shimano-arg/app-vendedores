@@ -88,7 +88,7 @@ PESCA_SLP_CODES = [50, 51, 52, 53, 54, 55]
 SLP_TO_VENDOR = {
     50: {'name': 'GONZALO DE LA ROSA',     'email': 'gonzalo.de.la.rosa@shimano.com.ar'},
     51: {'name': 'MAURICIO GIL',           'email': 'mauricio.gil@shimano.com.ar'},
-    52: {'name': 'IOANNIS PALKOUDAKIS',    'email': 'ioannis.palkoudakis@shimano.com.ar'},
+    52: {'name': 'IOANNIS PALKOUDAKIS',    'email': 'ioannis.plakoudakis@shimano.com.ar'},
     53: {'name': 'SANTIAGO ESTEBAN',       'email': 'santiago.esteban@shimano.com.ar'},
     54: {'name': 'FEDERICO CASTELANELLI',  'email': 'federico.castelanelli@shimano.com.ar'},
     55: {'name': 'MARTIN BOIERO',          'email': 'martin.boiero@shimano.com.ar'},
