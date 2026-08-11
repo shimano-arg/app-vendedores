@@ -3685,7 +3685,7 @@ body.can-revision .revision-btn{display:inline-flex}
     <div class="modal-body" style="padding:22px 24px;max-height:82vh;overflow-y:auto;display:block">
       <div id="wcard-stats" style="background:#f0fdfa;border:1.5px solid #5eead4;border-radius:6px;padding:10px 12px;font-size:12px;color:#134e4a;line-height:1.5;margin-bottom:12px"></div>
       <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:6px">
-        <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:920px">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:1120px">
           <thead style="background:#0f172a;color:#fff;position:sticky;top:0">
             <tr>
               <th style="text-align:left;padding:6px 8px">SKU</th>
@@ -3695,8 +3695,11 @@ body.can-revision .revision-btn{display:inline-flex}
               <th style="text-align:right;padding:6px 8px" title="Stock total - Backorder SAP (segun snapshot SAP - tiene delay de sync)">Disponible SAP</th>
               <th style="text-align:right;padding:6px 8px" title="Disponible SAP - Pedidos Pendientes de la app no transferidos aun a SAP. Corrige el delay del sync SAP.">Disponible app</th>
               <th style="text-align:right;padding:6px 8px">Pedido</th>
+              <th style="text-align:right;padding:6px 8px" title="Precio unitario del catalogo/SAP">Precio $</th>
+              <th style="text-align:right;padding:6px 8px" title="qty * precio">Subtotal $</th>
               <th style="text-align:right;padding:6px 8px" title="Pedido - Disponible app">Excedente</th>
               <th style="text-align:right;padding:6px 8px" title="Diferencia respecto al Disponible al momento de crear el pedido">Cambio</th>
+              <th style="text-align:center;padding:6px 8px" title="Quitar producto de la lista">&nbsp;</th>
             </tr>
           </thead>
           <tbody id="wcard-rows"></tbody>
@@ -3801,7 +3804,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v464';
+const APP_VERSION = 'v467';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11108,32 +11111,36 @@ function _renderWaitlistCard(){
   //    la "presion" via Backorder inflado pero deciden ellos si arriesgan.
   const rows = [];
   let excedidos = 0;
-  (w.items || []).forEach(it => {
+  (w.items || []).forEach((it, idx) => {
     const stk = _revisionStockFor(it.code);
     const otros = _otrosPedidosEnEsperaDeSku(it.code, w._id);
     const pendingApp = _pendingAppDeSku(it.code);
     const backSap = stk.backorder || 0;
     const disp = stk.hasData ? Math.max((stk.stockTotal || 0) - backSap, 0) : null;
     const dispApp = stk.hasData ? Math.max((disp || 0) - pendingApp, 0) : null;
-    // v462: Excedente vs Disponible app (mas conservador, corrige delay SAP).
     const excede = stk.hasData && it.qty > dispApp;
     if (excede) excedidos++;
     const firstDisp = (it.firstDisponible != null) ? it.firstDisponible : null;
     const chg = (firstDisp != null && dispApp != null) ? (dispApp - firstDisp) : null;
+    // v467: precio del catalogo/SAP + subtotal $.
+    const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(it.code) || 0) : 0;
+    const subtotal = precio * (it.qty || 0);
     rows.push({
-      code: it.code, desc: it.desc, qty: it.qty,
+      idx, code: it.code, desc: it.desc, qty: it.qty,
       stockTotal: stk.stockTotal, backorderSap: backSap,
       otrosEspera: otros, pendingApp,
       disponible: disp, disponibleApp: dispApp,
       hasData: stk.hasData, excede,
-      chg,
+      chg, precio, subtotal,
     });
   });
   const statsEl = document.getElementById('wcard-stats');
   while (statsEl.firstChild) statsEl.removeChild(statsEl.firstChild);
   const totalUnid = rows.reduce((s, r) => s + r.qty, 0);
+  const totalArs = rows.reduce((s, r) => s + r.subtotal, 0);
+  const fmtArs = (n) => '$' + Math.round(n).toLocaleString('es-AR');
   const s1 = document.createElement('div');
-  s1.textContent = '✓ ' + rows.length + ' SKUs · ' + totalUnid + ' unidades pedidas';
+  s1.textContent = '✓ ' + rows.length + ' SKUs · ' + totalUnid + ' unidades pedidas · Total ' + fmtArs(totalArs);
   statsEl.appendChild(s1);
   if (excedidos > 0) {
     const s2 = document.createElement('div');
@@ -11144,6 +11151,7 @@ function _renderWaitlistCard(){
   const tbody = document.getElementById('wcard-rows');
   while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
   const mk = (text, cls) => { const td = document.createElement('td'); if (cls) td.className = cls; td.textContent = text; return td; };
+  const safeId = escapeAttr(w._id);
   rows.slice(0, 500).forEach(r => {
     const tr = document.createElement('tr');
     tr.className = !r.hasData ? 'no-data' : (r.excede ? 'exceed' : '');
@@ -11159,7 +11167,18 @@ function _renderWaitlistCard(){
       ? (r.pendingApp > 0 ? (r.disponibleApp + ' (−' + r.pendingApp + ' pend. app)') : String(r.disponibleApp))
       : '-';
     tr.appendChild(mk(dispAppTxt, 'num'));
-    tr.appendChild(mk(r.qty, 'num'));
+    // v467: qty editable inline. Input number con onchange que persiste.
+    const tdQty = document.createElement('td');
+    tdQty.className = 'num';
+    const inp = document.createElement('input');
+    inp.type = 'number'; inp.min = '1'; inp.step = '1'; inp.value = String(r.qty);
+    inp.style.cssText = 'width:60px;text-align:right;font-weight:700;padding:2px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:11px';
+    inp.setAttribute('data-idx', String(r.idx));
+    inp.onchange = () => waitlistUpdateItemQty(w._id, r.idx, parseInt(inp.value, 10) || 0);
+    tdQty.appendChild(inp);
+    tr.appendChild(tdQty);
+    tr.appendChild(mk(fmtArs(r.precio), 'num'));
+    tr.appendChild(mk(fmtArs(r.subtotal), 'num'));
     const excedente = r.excede ? (r.qty - r.disponibleApp) : 0;
     tr.appendChild(mk(r.excede ? ('+' + excedente) : (r.hasData ? '0' : '-'), r.excede ? 'num exc-cell' : 'num'));
     let chgTxt = '-', chgCls = 'num chg-none';
@@ -11169,6 +11188,17 @@ function _renderWaitlistCard(){
       else { chgTxt = '='; chgCls = 'num chg-none'; }
     }
     tr.appendChild(mk(chgTxt, chgCls));
+    // v467: boton X para quitar la fila (guardado inmediato).
+    const tdDel = document.createElement('td');
+    tdDel.style.textAlign = 'center';
+    const btnDel = document.createElement('button');
+    btnDel.type = 'button';
+    btnDel.textContent = '✕';
+    btnDel.title = 'Quitar este producto del pedido en espera';
+    btnDel.style.cssText = 'border:none;background:transparent;color:#dc2626;font-weight:800;cursor:pointer;font-size:14px;padding:2px 6px';
+    btnDel.onclick = () => waitlistRemoveItem(w._id, r.idx);
+    tdDel.appendChild(btnDel);
+    tr.appendChild(tdDel);
     tbody.appendChild(tr);
   });
   const canDelete = (currentUser && (
@@ -11190,6 +11220,65 @@ window.waitlistDeleteCurrent = async function(){
   } catch(e) {
     console.error('waitlistDelete', e);
     alert('Error borrando: ' + (e.message || e));
+  }
+};
+
+// v467: modificar qty de un item del pedido en espera. Persiste al toque.
+window.waitlistUpdateItemQty = async function(docId, idx, newQty){
+  const w = (revisionWaitlist || []).find(x => x._id === docId);
+  if (!w) return;
+  if (!Number.isFinite(newQty) || newQty < 1) {
+    alert('La cantidad debe ser 1 o mas. Si queres eliminar el producto, usa el boton X.');
+    _renderWaitlistCard(); // revierte al valor anterior
+    return;
+  }
+  const items = (w.items || []).map((it, i) => i === idx ? Object.assign({}, it, {qty: newQty}) : it);
+  try {
+    await fbDb.collection('revision_waitlist').doc(docId).update({
+      items,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    showSyncTag('Cantidad actualizada');
+  } catch(e) {
+    console.error('waitlistUpdateItemQty', e);
+    alert('Error guardando: ' + (e.message || e));
+    _renderWaitlistCard();
+  }
+};
+
+// v467: quitar un item del pedido en espera. Si queda vacio, offer borrar
+// todo el doc.
+window.waitlistRemoveItem = async function(docId, idx){
+  const w = (revisionWaitlist || []).find(x => x._id === docId);
+  if (!w) return;
+  const it = (w.items || [])[idx];
+  if (!it) return;
+  if (!confirm('Quitar ' + it.code + ' (' + it.qty + ' unidades) del pedido en espera?')) return;
+  const items = (w.items || []).filter((_, i) => i !== idx);
+  if (!items.length) {
+    if (!confirm('Este era el ultimo producto del pedido. Se va a borrar el pedido entero de la lista de espera. Confirmar?')) {
+      _renderWaitlistCard();
+      return;
+    }
+    try {
+      await fbDb.collection('revision_waitlist').doc(docId).delete();
+      showSyncTag('Pedido en espera borrado (sin productos)');
+      closeWaitlistCardModal();
+    } catch(e) {
+      console.error('waitlistRemoveItem delete', e);
+      alert('Error borrando: ' + (e.message || e));
+    }
+    return;
+  }
+  try {
+    await fbDb.collection('revision_waitlist').doc(docId).update({
+      items,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    showSyncTag('Producto quitado');
+  } catch(e) {
+    console.error('waitlistRemoveItem update', e);
+    alert('Error guardando: ' + (e.message || e));
   }
 };
 
