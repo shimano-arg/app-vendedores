@@ -461,11 +461,27 @@ def render_html(kpis: dict, logo_cid: str) -> str:
         </table>
       </td></tr>
 
-      <!-- CTA -->
+      <!-- CTA bulletproof: tabla + VML para Outlook desktop, fallback CSS
+           para el resto. Sin esto Outlook Web strippea el background del <a>
+           con padding y el "botón" aparece como texto plano. -->
       <tr><td style="padding:32px 28px 20px;text-align:center">
-        <a href="{POWERBI_REPORT_URL}" style="display:inline-block;background:{NAVY};color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:13px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;box-shadow:0 4px 12px rgba(31,56,100,.25)">
-          Abrir tablero completo en Power BI →
-        </a>
+        <!--[if mso]>
+        <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{POWERBI_REPORT_URL}" style="height:46px;v-text-anchor:middle;width:320px;" arcsize="17%" stroke="f" fillcolor="{NAVY}">
+          <w:anchorlock/>
+          <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;letter-spacing:0.5px;">ABRIR TABLERO EN POWER BI →</center>
+        </v:roundrect>
+        <![endif]-->
+        <!--[if !mso]><!-->
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;border-collapse:separate">
+          <tr>
+            <td align="center" bgcolor="{NAVY}" style="background:{NAVY};border-radius:8px;box-shadow:0 4px 12px rgba(31,56,100,.25)">
+              <a href="{POWERBI_REPORT_URL}" target="_blank" style="display:inline-block;padding:14px 32px;font-family:Arial,sans-serif;font-size:13px;font-weight:800;color:#ffffff;text-decoration:none;letter-spacing:.5px;text-transform:uppercase;border-radius:8px;background:{NAVY}">
+                Abrir tablero en Power BI →
+              </a>
+            </td>
+          </tr>
+        </table>
+        <!--<![endif]-->
       </td></tr>
 
       <!-- Footer -->
