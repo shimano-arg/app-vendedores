@@ -213,12 +213,22 @@ function getAllStoreEntries() {
     (POINTS || []).forEach((p) => {
       (p.clients || []).forEach((n) => {
         if (typeof isSapConfirmed === 'function' && !isSapConfirmed(p.province, p.name, n)) return;
+        // v447: usar getEffectiveVendorForClient para que el vendor mostrado
+        // (y el dropdown si el user es admin/gerente) refleje overrides ya
+        // aplicados en vendor_overrides (scope shop/loc/prov). Sin esto, el
+        // dropdown pre-selecciona p.vendor base y el override no se ve hasta
+        // recargar la app.
+        const effVendor =
+          typeof getEffectiveVendorForClient === 'function'
+            ? getEffectiveVendorForClient(p, n)
+            : p.vendor || '';
         out.push({
           nombre: n,
           localidad: p.name,
           provincia: p.province,
-          vendor: p.vendor || '',
+          vendor: effVendor,
           tipo: 'cliente',
+          isSapConfirmedFlag: true,
           locLat: p.lat,
           locLon: p.lon,
         });
@@ -1531,6 +1541,46 @@ window.saveMcProvisorioVendor = async function (fsId, selEl) {
   }
 };
 
+// v447 (2026-08-11): reasignar vendedor de un cliente SAP importado del
+// masterfile (tipo='cliente' en POINTS confirmados por isSapConfirmed).
+// Esos clientes NO viven en client_applications, entonces no se puede usar
+// saveMcProvisorioVendor. Escriben a vendor_overrides con scope='shop'
+// (misma coleccion que Panel Zonas para reasignaciones puntuales).
+// El listener global de vendor_overrides (index.html ~15021) refresca
+// vendorOverrides + re-dispara renderMasterClientesTable si el modal esta
+// abierto, asi que el dropdown queda actualizado sin reload.
+window.saveMcClienteSapVendor = async function (province, localityName, clientName, selEl) {
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente puede reasignar vendedor.');
+    return;
+  }
+  if (!province || !localityName || !clientName || !selEl) return;
+  const newVendor = (selEl.value || '').trim();
+  selEl.classList.add('saving');
+  try {
+    const docId = zonasKey('shop', province, localityName, clientName).replace(/[/\\]/g, '_');
+    const payload = {
+      scope: 'shop',
+      province: province,
+      localityName: localityName,
+      clientName: clientName,
+      newVendor: newVendor,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedByUid: currentUser ? currentUser.uid : '',
+      updatedByEmail: currentUser ? currentUser.email || '' : '',
+      updatedByDisplayName: currentUser ? currentUser.displayName || currentUser.email || '' : '',
+    };
+    await fbDb.collection('vendor_overrides').doc(docId).set(payload, { merge: false });
+    selEl.classList.toggle('has-value', !!newVendor);
+    showSyncTag(newVendor ? 'Vendedor asignado: ' + titleCase(newVendor) : 'Vendedor limpiado');
+  } catch (e) {
+    console.error('saveMcClienteSapVendor', e);
+    alert('Error asignando vendedor: ' + (e.message || e));
+  } finally {
+    selEl.classList.remove('saving');
+  }
+};
+
 // v293+: Vincular provisorio con BP de SAP.
 // Cuando el auto-match del cron (sync_sap_to_firestore.py > find_match)
 // falla (nombre normalizado difiere, provisorio sin CUIT, etc.), admin
@@ -2012,7 +2062,14 @@ window.renderMasterClientesTable = function () {
     // Panel Zonas (reasignacion masiva). Ahora se puede editar inline por
     // cliente. Reutiliza saveMcProvisorioVendor porque la funcion escribe
     // a client_applications/{fsId} sin importar si tiene cardCodeSap o no.
-    const canEditSapVendor = isSap && (userRole === 'admin' || userRole === 'gerente');
+    // v447 (2026-08-11): extendido a POINTS confirmados SAP (tipo='cliente'
+    // con isSapConfirmedFlag). Esos rows NO viven en client_applications,
+    // asi que usan saveMcClienteSapVendor que escribe a vendor_overrides
+    // scope='shop' (misma coleccion que Panel Zonas). Cualquier admin o
+    // gerente puede reasignar.
+    const isClienteSapImp = e.tipo === 'cliente' && !!e.isSapConfirmedFlag;
+    const canEditSapVendor =
+      (isSap || isClienteSapImp) && (userRole === 'admin' || userRole === 'gerente');
     // v315+: detector de duplicado SAP para las filas provisorias que aparecen
     // mezcladas en la vista normal. Rojo + badge.
     let dupSapV = null;
@@ -2140,15 +2197,27 @@ window.renderMasterClientesTable = function () {
     // vendedor tambien para SAP con cardCodeSap.
     if (canEditSapVendor) {
       // Vendedor editable via dropdown VDE+VDI. Autosave onchange.
+      // v447: handler distinto segun fuente. sap_alta escribe a
+      // client_applications (saveMcProvisorioVendor); POINT confirmado SAP
+      // escribe a vendor_overrides (saveMcClienteSapVendor). El resto del
+      // markup es el mismo.
       const safeFsId2 = escapeAttr(e.sapFsId || '');
+      const onchangeAttr = isSap
+        ? 'onchange="saveMcProvisorioVendor(\'' + safeFsId2 + '\', this)"'
+        : 'onchange="saveMcClienteSapVendor(\'' +
+          escapeAttr(e.provincia) +
+          "', '" +
+          escapeAttr(e.localidad) +
+          "', '" +
+          escapeAttr(e.nombre) +
+          '\', this)"';
       let vSel =
         '<td><select class="mc-cli-sel' +
         (e.vendor ? ' has-value' : '') +
         '" ' +
         'style="width:100%;font-size:11px" ' +
-        'onchange="saveMcProvisorioVendor(\'' +
-        safeFsId2 +
-        '\', this)">';
+        onchangeAttr +
+        '>';
       vSel += '<option value="">(sin vendedor)</option>';
       vSel += '<optgroup label="VDE (Vendedores externos)">';
       VENDORS.filter((v) => VDE_VENDOR_KEYS.has(v.key)).forEach((v) => {

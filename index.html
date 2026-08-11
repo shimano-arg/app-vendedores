@@ -3653,7 +3653,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v446';
+const APP_VERSION = 'v447';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -15040,6 +15040,15 @@ function ensureVendorOverridesListener(){
     // Si el modal esta abierto, re-render
     const modal = document.getElementById('zonas-modal');
     if (modal && modal.classList.contains('open')) renderZonasList();
+    // v447: si Master Clientes esta abierto, re-render tambien. Un cambio de
+    // vendor_overrides (reasignacion desde Master Clientes o Panel Zonas)
+    // debe reflejarse en la tabla sin recargar.
+    try {
+      const mcModal = document.getElementById('master-cli-modal');
+      if (mcModal && mcModal.classList.contains('open') && typeof renderMasterClientesTable === 'function') {
+        renderMasterClientesTable();
+      }
+    } catch(e) {}
     // Refrescar mapa y sidebars para reflejar los nuevos vendor keys
     try { if (typeof drawMarkers === 'function') drawMarkers(); } catch(e){}
     try { if (typeof restyleZoneLayers === 'function') restyleZoneLayers(); } catch(e){}
