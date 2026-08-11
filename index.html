@@ -1253,6 +1253,18 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .client-card .cli-envio-btn{display:none;position:absolute;bottom:32px;right:6px;padding:4px 9px;background:#1F3864;color:#fff;border:none;border-radius:4px;font-size:10px;font-weight:800;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;align-items:center;gap:4px;box-shadow:0 1px 3px rgba(31,56,100,.35);transition:.12s;z-index:2}
 body.is-ioannis .client-card .cli-envio-btn{display:inline-flex}
 body.is-ioannis .client-card{padding-bottom:60px}
+/* v451 (2026-08-11): boton Revision Excel oculto por default, visible solo
+   para whitelist de emails (Mariano, Ioannis, Santi, Pablo). El gate se aplica
+   en applyRolePermissions. */
+.revision-btn{display:none}
+body.can-revision .revision-btn{display:inline-flex}
+/* Fila roja para SKUs donde Pedido > Disponible en el modal Revision Excel. */
+#revision-rows tr.exceed td{background:#fef2f2;color:#991b1b;font-weight:700}
+#revision-rows tr.exceed td.exc-cell{background:#dc2626;color:#fff}
+#revision-rows tr td{padding:5px 8px;border-top:1px solid #f1f5f9}
+#revision-rows tr td.mono{font-family:monospace;font-size:10px}
+#revision-rows tr td.num{text-align:right;font-weight:600}
+#revision-rows tr.no-data td{background:#f8fafc;color:#94a3b8;font-style:italic}
 .client-card .cli-envio-btn:hover{background:#152744;transform:translateY(-1px);box-shadow:0 2px 6px rgba(31,56,100,.5)}
 .client-card .cli-envio-btn.active{background:#10b981;box-shadow:0 1px 3px rgba(16,185,129,.4)}
 .client-card .cli-envio-btn.active:hover{background:#059669;box-shadow:0 2px 6px rgba(16,185,129,.55)}
@@ -1870,6 +1882,11 @@ body.is-ioannis .client-card{padding-bottom:60px}
          Modal compara ventas historicas (sku_ventas_snapshot BQ->Firestore) vs Sales Plan
          cargado por el user + politica de inventario (promedio YTD x 3 meses). -->
     <button class="btn-zonas" id="forecast-btn" onclick="openForecastModal()" title="FORECAST: proyeccion de necesidad vs pedidos Sales Plan (admin-only)" style="background:#7c3aed;color:#fff;display:none">Forecast</button>
+    <!-- v451 (2026-08-11): boton REVISION Excel. Cargar Excel del cliente y ver
+         backorder + disponible + pedido por SKU. Solo lectura, no persiste. CSS
+         .revision-btn oculto por default; body.can-revision lo muestra
+         (whitelist Mariano/Ioannis/Santi/Pablo en applyRolePermissions). -->
+    <button class="revision-btn btn-zonas" id="revision-btn" onclick="openRevisionModal()" title="Revision Excel: ver backorder + disponible + pedido del cliente" style="background:#0f766e;color:#fff">&#128269; Revisi&oacute;n Excel</button>
   </div>
 </div>
 <!-- v431: #herramientas-modal removido. Los 3 items volvieron a ser botones
@@ -3563,6 +3580,54 @@ body.is-ioannis .client-card{padding-bottom:60px}
     </div>
   </div>
 </div>
+<!-- v451 (2026-08-11): Revision Excel - carga un Excel del cliente y muestra
+     stock disponible + backorder + cantidad pedida por SKU. Solo lectura, no
+     carga pedidos. Gated por whitelist de emails (body.can-revision). -->
+<div class="modal-overlay" id="revision-modal" onclick="if(event.target===this)closeRevisionModal()">
+  <div class="modal-box" style="width:min(1080px,98vw)">
+    <div class="modal-head" style="background:linear-gradient(135deg,#0f766e,#14b8a6)">
+      <div>
+        <h2>&#128269; Revisi&oacute;n de pedido vs Stock</h2>
+        <div class="subt">Subi el Excel del cliente. Ve backorder, disponible y comparalo con lo pedido antes de cargar el pedido real.</div>
+      </div>
+      <button class="modal-close" onclick="closeRevisionModal()">&times;</button>
+    </div>
+    <div class="modal-body" style="padding:22px 24px;max-height:82vh;overflow-y:auto;display:block">
+      <div id="revision-drop" class="stock-drop-zone" onclick="document.getElementById('revision-file-input').click()">
+        <div class="stock-drop-icon">&#128196;</div>
+        <div class="stock-drop-text">Arrastr&aacute; el Excel o clic para elegirlo</div>
+        <div class="stock-drop-hint">Formatos: .xlsx, .xls &middot; mismo template que "Cargar Pedido por Excel"</div>
+      </div>
+      <input id="revision-file-input" type="file" accept=".xlsx,.xls" style="display:none" onchange="onRevisionFileSelected(event)"/>
+      <div id="revision-preview" style="display:none;margin-top:14px">
+        <div id="revision-stats" style="background:#f0fdfa;border:1.5px solid #5eead4;border-radius:6px;padding:10px 12px;font-size:12px;color:#134e4a;line-height:1.5"></div>
+        <div id="revision-warnings" style="display:none;background:#fef3c7;border:1.5px solid #fcd34d;color:#78350f;border-radius:6px;padding:10px 12px;margin-top:8px;font-size:11px;line-height:1.5;max-height:160px;overflow-y:auto"></div>
+        <div style="margin-top:10px;overflow-x:auto;border:1px solid #e2e8f0;border-radius:6px">
+          <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:820px">
+            <thead style="background:#0f172a;color:#fff;position:sticky;top:0">
+              <tr>
+                <th style="text-align:left;padding:6px 8px">SKU</th>
+                <th style="text-align:left;padding:6px 8px">Producto</th>
+                <th style="text-align:right;padding:6px 8px" title="Stock deposito 11 + transito deposito 12">Stock total</th>
+                <th style="text-align:right;padding:6px 8px" title="RemainingOpenQuantity de Sales Quotations open del SKU">Backorder</th>
+                <th style="text-align:right;padding:6px 8px" title="Disponible = Stock total - Backorder">Disponible</th>
+                <th style="text-align:right;padding:6px 8px">Pedido cliente</th>
+                <th style="text-align:right;padding:6px 8px">Excedente</th>
+              </tr>
+            </thead>
+            <tbody id="revision-rows"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="revision-error" style="display:none;background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:12px;line-height:1.5"></div>
+      <div style="display:flex;gap:10px;justify-content:center;align-items:center;margin-top:20px;flex-wrap:wrap">
+        <button class="stock-action-btn cancel" onclick="closeRevisionModal()">Cerrar</button>
+        <button class="stock-action-btn publish" id="revision-export-btn" onclick="exportRevisionExcel()" disabled style="background:#0f766e">&#128196; Descargar revisi&oacute;n como Excel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay sec-modal" id="cv-modal" onclick="if(event.target===this)closeCVisita()">
   <div class="modal-box" style="width:min(540px,98vw)">
     <div class="modal-head" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">
@@ -3653,7 +3718,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v450';
+const APP_VERSION = 'v451';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -10399,6 +10464,231 @@ window.closeExcelPedidoModal = function(){
   _excelPedidoParsed = null;
 };
 
+// ==========================================================================
+// v451 (2026-08-11): REVISION EXCEL - solo lectura, no persiste pedidos.
+// Muestra por SKU: Stock total (dep 11 + 12), Backorder (SQ open),
+// Disponible (stock - backorder), Pedido cliente, Excedente.
+// Filas rojas cuando Pedido > Disponible. Reutiliza el parser de
+// parseExcelPedidoFile. Gated por whitelist emails (body.can-revision).
+// ==========================================================================
+var _revisionParsed = null;
+function _revisionCanUse(){
+  const em = ((currentUser && (currentUser.email || '')) || '').toLowerCase();
+  return document.body.classList.contains('can-revision') && em && (
+    em === 'mariano.erbino@shimano.com.ar' ||
+    em === 'ioannis.plakoudakis@shimano.com.ar' ||
+    em === 'santiago.esteban@shimano.com.ar' ||
+    em === 'pablo.gonzalez@shimano.com.ar'
+  );
+}
+window.openRevisionModal = function(){
+  if (!_revisionCanUse()) { alert('No tenes permisos para usar Revision Excel.'); return; }
+  document.getElementById('revision-modal').classList.add('open');
+  document.getElementById('revision-preview').style.display = 'none';
+  document.getElementById('revision-error').style.display = 'none';
+  document.getElementById('revision-export-btn').disabled = true;
+  _revisionParsed = null;
+  const drop = document.getElementById('revision-drop');
+  if (drop && !drop.dataset.dragInit) {
+    drop.dataset.dragInit = '1';
+    ['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => {
+      e.preventDefault(); e.stopPropagation(); drop.classList.add('dragover');
+    }));
+    ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => {
+      e.preventDefault(); e.stopPropagation(); drop.classList.remove('dragover');
+    }));
+    drop.addEventListener('drop', e => {
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) parseRevisionExcelFile(file);
+    });
+  }
+};
+window.closeRevisionModal = function(){
+  document.getElementById('revision-modal').classList.remove('open');
+  _revisionParsed = null;
+};
+window.onRevisionFileSelected = function(ev){
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  parseRevisionExcelFile(file);
+};
+function _revisionStockFor(sku){
+  const k = String(sku || '').toUpperCase().trim();
+  const whs = (typeof STOCK_WAREHOUSE_BREAKDOWN === 'object' && STOCK_WAREHOUSE_BREAKDOWN)
+    ? STOCK_WAREHOUSE_BREAKDOWN[k] || null : null;
+  const backorder = (typeof STOCK_BACKORDER === 'object' && STOCK_BACKORDER)
+    ? Number(STOCK_BACKORDER[k] || 0) : 0;
+  let stockTotal = null;
+  if (whs && (whs['11'] != null || whs['12'] != null)) {
+    stockTotal = Number(whs['11'] || 0) + Number(whs['12'] || 0);
+  } else if (typeof getStockQty === 'function') {
+    const q = getStockQty(sku);
+    if (q != null) stockTotal = Number(q);
+  }
+  const hasData = stockTotal != null;
+  const disponible = hasData ? Math.max(stockTotal - backorder, 0) : null;
+  return {stockTotal, backorder, disponible, hasData};
+}
+async function parseRevisionExcelFile(file){
+  const errEl = document.getElementById('revision-error');
+  errEl.style.display = 'none';
+  try {
+    if (typeof XLSX === 'undefined') throw new Error('La libreria XLSX no se cargo. Recarga la pagina.');
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (ext !== 'xlsx' && ext !== 'xls') throw new Error('Formato no soportado: ' + ext);
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type: 'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const aoa = XLSX.utils.sheet_to_json(ws, {header: 1, defval: ''});
+    if (!aoa.length) throw new Error('El archivo no tiene filas.');
+    const norm = s => String(s || '').toLowerCase().trim().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const SKU_NAMES = ['codigo sku','sku','codigo','code','item','itemcode','codigo articulo','codigo del articulo','cod','codigo sap','articulo'];
+    const QTY_NAMES = ['pedido','cantidad','quantity','qty','unidades','cant','u','u.','cant.','pedidos','unidades pedidas'];
+    let headerRowIdx = -1, kSkuIdx = -1, kQtyIdx = -1;
+    const maxScan = Math.min(aoa.length, 20);
+    for (let r = 0; r < maxScan; r++) {
+      const row = aoa[r] || [];
+      let sIdx = -1, qIdx = -1;
+      for (let c = 0; c < row.length; c++) {
+        const cn = norm(row[c]);
+        if (sIdx < 0 && SKU_NAMES.indexOf(cn) >= 0) sIdx = c;
+        if (qIdx < 0 && QTY_NAMES.indexOf(cn) >= 0) qIdx = c;
+      }
+      if (sIdx >= 0 && qIdx >= 0) { headerRowIdx = r; kSkuIdx = sIdx; kQtyIdx = qIdx; break; }
+    }
+    if (headerRowIdx < 0) {
+      const preview = aoa.slice(0, 6).map((r, i) => 'fila ' + (i + 1) + ': ' + r.slice(0, 10).join(' | ')).join('\n');
+      throw new Error('No encontre el header. Esperaba columnas tipo "Codigo" y "Pedido" (o "Cantidad").\n\nPrimeras filas:\n' + preview);
+    }
+    let detectedCliente = '';
+    const CLIENTE_LABELS = ['cliente','razon social','razon_social','nombre cliente','nombre del cliente','tienda'];
+    for (let r = 0; r < headerRowIdx; r++) {
+      const row = aoa[r] || [];
+      for (let c = 0; c < Math.min(row.length, 4); c++) {
+        if (CLIENTE_LABELS.indexOf(norm(row[c])) < 0) continue;
+        for (let c2 = c + 1; c2 < row.length; c2++) {
+          const v = row[c2];
+          if (v != null && String(v).trim() !== '') { detectedCliente = String(v).trim(); break; }
+        }
+        if (detectedCliente) break;
+      }
+      if (detectedCliente) break;
+    }
+    const parsed = [];
+    let notFoundCount = 0, zerosCount = 0;
+    for (let r = headerRowIdx + 1; r < aoa.length; r++) {
+      const row = aoa[r] || [];
+      const codeRaw = String(row[kSkuIdx] || '').trim();
+      if (!codeRaw) continue;
+      const qtyRaw = String(row[kQtyIdx] != null ? row[kQtyIdx] : '').trim();
+      const cleaned = qtyRaw.replace(/\./g, '').replace(',', '.').replace(/[^\d.\-]/g, '');
+      const qty = parseFloat(cleaned) || 0;
+      if (qty <= 0) { if (qtyRaw && qtyRaw !== '0') zerosCount++; continue; }
+      const codeLower = codeRaw.toLowerCase();
+      const prod = (typeof PRODUCTS !== 'undefined' && PRODUCTS)
+        ? PRODUCTS.find(p => (p.code || '').toLowerCase() === codeLower) : null;
+      const canonicalCode = prod ? prod.code : codeRaw;
+      const desc = prod ? (prod.desc || '') : '(SKU no encontrado en catalogo)';
+      if (!prod) notFoundCount++;
+      const existing = parsed.find(x => x.code === canonicalCode);
+      if (existing) { existing.qty += qty; continue; }
+      const stk = _revisionStockFor(canonicalCode);
+      parsed.push({code: canonicalCode, desc, qty, stockTotal: stk.stockTotal, backorder: stk.backorder, disponible: stk.disponible, hasData: stk.hasData, needsReview: !prod});
+    }
+    if (!parsed.length) throw new Error('No hay filas con datos despues del header.');
+    _revisionParsed = parsed;
+    _revisionRenderPreview(parsed, detectedCliente, notFoundCount, zerosCount);
+  } catch(e) {
+    console.error('parseRevisionExcelFile', e);
+    errEl.textContent = 'Error procesando el Excel: ' + (e.message || String(e));
+    errEl.style.display = '';
+    _revisionParsed = null;
+    document.getElementById('revision-export-btn').disabled = true;
+  }
+}
+function _revisionRenderPreview(parsed, detectedCliente, notFoundCount, zerosCount){
+  const totalUnid = parsed.reduce((s, l) => s + l.qty, 0);
+  const excedidos = parsed.filter(l => l.hasData && l.qty > l.disponible).length;
+  const sinData = parsed.filter(l => !l.hasData).length;
+  // Stats con DOM safe (evita innerHTML con datos crudos).
+  const statsEl = document.getElementById('revision-stats');
+  while (statsEl.firstChild) statsEl.removeChild(statsEl.firstChild);
+  if (detectedCliente) {
+    const d = document.createElement('div');
+    d.style.marginBottom = '6px';
+    const b = document.createElement('b'); b.textContent = 'Cliente Excel: '; d.appendChild(b);
+    d.appendChild(document.createTextNode(detectedCliente));
+    statsEl.appendChild(d);
+  }
+  const sumSpan = document.createElement('div');
+  const b1 = document.createElement('b'); b1.textContent = '✓ ' + parsed.length; sumSpan.appendChild(b1);
+  sumSpan.appendChild(document.createTextNode(' SKUs · '));
+  const b2 = document.createElement('b'); b2.textContent = String(totalUnid); sumSpan.appendChild(b2);
+  sumSpan.appendChild(document.createTextNode(' unidades pedidas'));
+  if (excedidos > 0) {
+    sumSpan.appendChild(document.createTextNode(' · '));
+    const s = document.createElement('span'); s.style.cssText = 'color:#991b1b;font-weight:700';
+    s.textContent = '⚠ ' + excedidos + ' con excedente'; sumSpan.appendChild(s);
+  }
+  if (sinData > 0) {
+    sumSpan.appendChild(document.createTextNode(' · '));
+    const s = document.createElement('span'); s.style.color = '#78350f';
+    s.textContent = sinData + ' sin datos de stock'; sumSpan.appendChild(s);
+  }
+  statsEl.appendChild(sumSpan);
+  const warnEl = document.getElementById('revision-warnings');
+  let warnText = '';
+  if (notFoundCount) warnText += '⚠ ' + notFoundCount + ' SKU(s) no estan en el catalogo Shimano. Se listan igual con stock N/A.';
+  if (zerosCount) warnText += (warnText ? ' ' : '') + zerosCount + ' fila(s) con cantidad invalida o 0 - ignoradas.';
+  if (warnText) { warnEl.textContent = warnText; warnEl.style.display = ''; } else warnEl.style.display = 'none';
+  // Render tabla con DOM safe (celdas con textContent).
+  const tbody = document.getElementById('revision-rows');
+  while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+  parsed.slice(0, 500).forEach(l => {
+    const excede = l.hasData && l.qty > l.disponible;
+    const excedente = excede ? (l.qty - l.disponible) : 0;
+    const tr = document.createElement('tr');
+    tr.className = !l.hasData ? 'no-data' : (excede ? 'exceed' : '');
+    const mk = (text, cls) => { const td = document.createElement('td'); if (cls) td.className = cls; td.textContent = text; return td; };
+    tr.appendChild(mk(l.code, 'mono'));
+    tr.appendChild(mk(l.desc, ''));
+    tr.appendChild(mk(l.hasData ? l.stockTotal : '-', 'num'));
+    tr.appendChild(mk(String(l.backorder || 0), 'num'));
+    tr.appendChild(mk(l.hasData ? l.disponible : '-', 'num'));
+    tr.appendChild(mk(l.qty, 'num'));
+    tr.appendChild(mk(excede ? ('+' + excedente) : (l.hasData ? '0' : '-'), excede ? 'num exc-cell' : 'num'));
+    tbody.appendChild(tr);
+  });
+  if (parsed.length > 500) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 7; td.style.cssText = 'padding:8px;text-align:center;font-size:10px;color:#94a3b8;font-style:italic';
+    td.textContent = '... y ' + (parsed.length - 500) + ' lineas mas';
+    tr.appendChild(td); tbody.appendChild(tr);
+  }
+  document.getElementById('revision-preview').style.display = '';
+  document.getElementById('revision-export-btn').disabled = false;
+}
+window.exportRevisionExcel = function(){
+  if (!_revisionParsed || !_revisionParsed.length) { alert('No hay datos parseados.'); return; }
+  if (typeof XLSX === 'undefined') { alert('La libreria XLSX no se cargo.'); return; }
+  const rows = _revisionParsed.map(l => ({
+    'SKU': l.code,
+    'Producto': l.desc,
+    'Stock total (dep 11 + 12)': l.hasData ? l.stockTotal : 'N/A',
+    'Backorder': l.backorder || 0,
+    'Disponible (stock - backorder)': l.hasData ? l.disponible : 'N/A',
+    'Pedido cliente': l.qty,
+    'Excedente (pedido - disponible)': l.hasData ? Math.max(l.qty - l.disponible, 0) : 'N/A',
+  }));
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:18},{wch:42},{wch:16},{wch:12},{wch:18},{wch:14},{wch:16}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Revision');
+  const ts = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, 'Revision_pedido_' + ts + '.xlsx');
+};
+
 // Genera y descarga un Excel template con 3 columnas: Codigo SKU,
 // Descripcion, Cantidad. Lo prefill con todos los SKUs del catalogo
 // (PRODUCTS) para que la tienda solo complete cantidades.
@@ -13023,6 +13313,19 @@ function applyRolePermissions(){
   // (por ahora: boton "Envio gratis" en cada card de cliente).
   const _em = ((currentUser && (currentUser.email || '')) || '').toLowerCase();
   document.body.classList.toggle('is-ioannis', _em === 'ioannis.plakoudakis@shimano.com.ar');
+  // v451: whitelist de emails para el boton "Revision Excel" del header.
+  // Cargar Excel del cliente + ver stock disponible + backorder + pedido.
+  // Whitelist: Mariano (admin), Ioannis + Santi (VDIs, arman pedidos de sus
+  // VDEs pareja), Pablo (gerente comercial). Puede ampliarse agregando emails
+  // al set. Runtime guard replicado en openRevisionModal por si alguien
+  // bypasea el CSS via devtools.
+  const REVISION_WHITELIST = new Set([
+    'mariano.erbino@shimano.com.ar',
+    'ioannis.plakoudakis@shimano.com.ar',
+    'santiago.esteban@shimano.com.ar',
+    'pablo.gonzalez@shimano.com.ar',
+  ]);
+  document.body.classList.toggle('can-revision', REVISION_WHITELIST.has(_em));
   // Badge: ADMIN solo el rol; resto solo PRIMER NOMBRE del usuario para que entre en mobile.
   const badge = document.getElementById('user-role-badge');
   badge.className = 'role-badge ' + userRole;
