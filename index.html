@@ -3690,11 +3690,11 @@ body.can-revision .revision-btn{display:inline-flex}
               <th style="text-align:left;padding:6px 8px">SKU</th>
               <th style="text-align:left;padding:6px 8px">Producto</th>
               <th style="text-align:right;padding:6px 8px" title="Stock deposito 11 + transito deposito 12">Stock total</th>
-              <th style="text-align:right;padding:6px 8px" title="Backorder SAP + otros pedidos en espera del mismo SKU">Backorder efectivo</th>
-              <th style="text-align:right;padding:6px 8px">Disponible</th>
+              <th style="text-align:right;padding:6px 8px" title="Backorder SAP + otros pedidos en espera del mismo SKU (informativo, NO resta al Disponible)">Backorder</th>
+              <th style="text-align:right;padding:6px 8px" title="Stock total - Backorder SAP (real disponible para vender ahora)">Disponible</th>
               <th style="text-align:right;padding:6px 8px">Pedido</th>
               <th style="text-align:right;padding:6px 8px">Excedente</th>
-              <th style="text-align:right;padding:6px 8px" title="Diferencia respecto al primer registro">Cambio</th>
+              <th style="text-align:right;padding:6px 8px" title="Diferencia respecto al Disponible al momento de crear el pedido">Cambio</th>
             </tr>
           </thead>
           <tbody id="wcard-rows"></tbody>
@@ -3799,7 +3799,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v457';
+const APP_VERSION = 'v458';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -10981,16 +10981,16 @@ function _renderWaitlistRows(){
   if (!arr.length) { emptyEl.style.display = ''; return; }
   emptyEl.style.display = 'none';
   arr.forEach(w => {
-    // Calcular excedentes en tiempo real (respetando otros pedidos en espera).
+    // v458: excedente = pedido > disponible REAL (stock - backorder SAP).
+    // No resta otros pedidos en espera (FIFO real: el primero que confirma
+    // gana). Muestra la presion pero no la aplica al calculo del excedente.
     let excedentes = 0;
     let totalUnid = 0;
     (w.items || []).forEach(it => {
       totalUnid += (it.qty || 0);
       const stk = _revisionStockFor(it.code);
       if (stk.hasData) {
-        const otros = _otrosPedidosEnEsperaDeSku(it.code, w._id);
-        const efectivoBack = (stk.backorder || 0) + otros;
-        const disp = Math.max((stk.stockTotal || 0) - efectivoBack, 0);
+        const disp = Math.max((stk.stockTotal || 0) - (stk.backorder || 0), 0);
         if (it.qty > disp) excedentes++;
       }
     });
@@ -11051,27 +11051,36 @@ function _renderWaitlistCard(){
   document.getElementById('wcard-title').textContent = 'Pedido en espera — ' + w.clientName;
   const ts = w.createdAt && w.createdAt.toDate ? w.createdAt.toDate().toLocaleString('es-AR') : 'sin fecha';
   document.getElementById('wcard-subt').textContent = (w.clientLocality || 's/loc') + ' · ' + (w.clientProvince || 's/prov') + ' · Vendor asignado: ' + (w.vendorAssigned || 'sin asignar') + ' · Cargado por ' + (w.ownerDisplayName || w.ownerEmail || '') + ' · ' + ts;
-  // Recalcular por SKU con backorder efectivo = SAP + otros en espera.
+  // v458 (2026-08-11): semantica corregida por feedback Mariano:
+  //  - Disponible = Stock - Backorder SAP (SIEMPRE, NO resta pedidos en espera).
+  //    Refleja lo que hay REAL disponible ahora en el snapshot SAP.
+  //  - Backorder = Backorder SAP + Otros pedidos en espera (informativo,
+  //    presion de FIFO). Con desglose "N (SAP X + espera Y)" si hay otros.
+  //  - Excedente = pedido - disponible real. Muestra si el pedido supera
+  //    lo que hay para vender AHORA - señal de que si el vendedor tarda
+  //    puede perder stock. La ALERTA al pasar a Pendientes usa la misma
+  //    logica (recalcula al momento contra disponible real).
+  //  - FIFO real: el que confirma primero se lleva el stock. Los otros ven
+  //    la "presion" via Backorder inflado pero deciden ellos si arriesgan.
   const rows = [];
   let excedidos = 0;
   (w.items || []).forEach(it => {
     const stk = _revisionStockFor(it.code);
     const otros = _otrosPedidosEnEsperaDeSku(it.code, w._id);
-    const efectivoBack = (stk.backorder || 0) + otros;
-    const disp = stk.hasData ? Math.max((stk.stockTotal || 0) - efectivoBack, 0) : null;
+    const backSap = stk.backorder || 0;
+    const disp = stk.hasData ? Math.max((stk.stockTotal || 0) - backSap, 0) : null;
     const excede = stk.hasData && it.qty > disp;
     if (excede) excedidos++;
     const firstDisp = (it.firstDisponible != null) ? it.firstDisponible : null;
     const chg = (firstDisp != null && disp != null) ? (disp - firstDisp) : null;
     rows.push({
       code: it.code, desc: it.desc, qty: it.qty,
-      stockTotal: stk.stockTotal, backorderSap: stk.backorder || 0,
-      otrosEspera: otros, backEfectivo: efectivoBack,
+      stockTotal: stk.stockTotal, backorderSap: backSap,
+      otrosEspera: otros,
       disponible: disp, hasData: stk.hasData, excede,
       chg,
     });
   });
-  // Stats.
   const statsEl = document.getElementById('wcard-stats');
   while (statsEl.firstChild) statsEl.removeChild(statsEl.firstChild);
   const totalUnid = rows.reduce((s, r) => s + r.qty, 0);
@@ -11081,10 +11090,9 @@ function _renderWaitlistCard(){
   if (excedidos > 0) {
     const s2 = document.createElement('div');
     s2.style.cssText = 'color:#991b1b;font-weight:700;margin-top:4px';
-    s2.textContent = '⚠ ' + excedidos + ' SKU(s) con excedente respecto al disponible efectivo (Stock − Backorder SAP − Otros pedidos en espera).';
+    s2.textContent = '⚠ ' + excedidos + ' SKU(s) con excedente respecto al Disponible real (Stock − Backorder SAP). Si otros pedidos en espera confirman antes, el disponible baja.';
     statsEl.appendChild(s2);
   }
-  // Tabla.
   const tbody = document.getElementById('wcard-rows');
   while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
   const mk = (text, cls) => { const td = document.createElement('td'); if (cls) td.className = cls; td.textContent = text; return td; };
@@ -11095,7 +11103,7 @@ function _renderWaitlistCard(){
     tr.appendChild(mk(r.desc, ''));
     tr.appendChild(mk(r.hasData ? r.stockTotal : '-', 'num'));
     const backTxt = (r.otrosEspera > 0)
-      ? (r.backEfectivo + ' (SAP ' + r.backorderSap + ' + espera ' + r.otrosEspera + ')')
+      ? ((r.backorderSap + r.otrosEspera) + ' (SAP ' + r.backorderSap + ' + espera ' + r.otrosEspera + ')')
       : String(r.backorderSap || 0);
     tr.appendChild(mk(backTxt, 'num'));
     tr.appendChild(mk(r.hasData ? r.disponible : '-', 'num'));
@@ -11111,7 +11119,6 @@ function _renderWaitlistCard(){
     tr.appendChild(mk(chgTxt, chgCls));
     tbody.appendChild(tr);
   });
-  // Toggle boton borrar segun permisos.
   const canDelete = (currentUser && (
     w.ownerUid === currentUser.uid ||
     userRole === 'admin' || userRole === 'gerente'
@@ -11140,13 +11147,14 @@ window.waitlistDeleteCurrent = async function(){
 window.waitlistPasarAPendientes = async function(){
   const w = _wcardCurrent;
   if (!w) return;
-  // Recalcular al momento de pasar (por si cambio algo desde que se abrio la card).
+  // v458: recalcular al momento contra Disponible REAL (stock - backorder SAP).
+  // NO descuenta otros pedidos en espera - FIFO real, el primero que confirma
+  // se lleva el stock. Los otros veran menos disponible cuando su pedido pase
+  // a Pendientes y esta funcion se ejecute.
   const ajustes = [];
   const finalItems = (w.items || []).map(it => {
     const stk = _revisionStockFor(it.code);
-    const otros = _otrosPedidosEnEsperaDeSku(it.code, w._id);
-    const efectivoBack = (stk.backorder || 0) + otros;
-    const disp = stk.hasData ? Math.max((stk.stockTotal || 0) - efectivoBack, 0) : null;
+    const disp = stk.hasData ? Math.max((stk.stockTotal || 0) - (stk.backorder || 0), 0) : null;
     let qtyFinal = it.qty;
     if (stk.hasData && it.qty > disp) {
       qtyFinal = disp;
