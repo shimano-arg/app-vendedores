@@ -3801,7 +3801,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v463';
+const APP_VERSION = 'v464';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11199,18 +11199,21 @@ window.waitlistDeleteCurrent = async function(){
 window.waitlistPasarAPendientes = async function(){
   const w = _wcardCurrent;
   if (!w) return;
-  // v462: recalcular al momento contra Disponible APP (Stock - Backorder SAP -
-  // Pending app no transferidos). Corrige el delay del sync SAP: si un pedido
-  // reciente todavia no llego al backorder SAP snapshot, igual se descuenta.
+  // v464: el ajuste se hace contra Disponible SAP (snapshot real), no
+  // contra Disponible app. FIFO real: quien confirma primero se lleva el
+  // stock segun lo que SAP dice AHORA. El Disponible app se sigue mostrando
+  // en la card como advertencia visual (rojo si negativo, columna "-N pend.
+  // app"), pero no bloquea el paso. Rationale Mariano: si otro pending app
+  // "gana la carrera" y ya se sincronizo a backorder SAP, ese cambio se
+  // refleja en Disponible SAP. El que llegue tarde vera el ajuste real.
   const ajustes = [];
   const finalItems = (w.items || []).map(it => {
     const stk = _revisionStockFor(it.code);
     const disp = stk.hasData ? Math.max((stk.stockTotal || 0) - (stk.backorder || 0), 0) : null;
-    const dispApp = stk.hasData ? Math.max(disp - _pendingAppDeSku(it.code), 0) : null;
     let qtyFinal = it.qty;
-    if (stk.hasData && it.qty > dispApp) {
-      qtyFinal = dispApp;
-      ajustes.push({code: it.code, desc: it.desc, pedido: it.qty, disponible: dispApp, primero: it.firstDisponible});
+    if (stk.hasData && it.qty > disp) {
+      qtyFinal = disp;
+      ajustes.push({code: it.code, desc: it.desc, pedido: it.qty, disponible: disp, primero: it.firstDisponible});
     }
     return {code: it.code, desc: it.desc, qty: qtyFinal, precioExcel: null, needsReview: false};
   }).filter(it => it.qty > 0); // sacar los que quedan en 0
@@ -11227,8 +11230,9 @@ window.waitlistPasarAPendientes = async function(){
     }).join('\n');
     const mas = ajustes.length > 8 ? '\n  ... y ' + (ajustes.length - 8) + ' mas' : '';
     if (!confirm(
-      'Se ajustaron ' + ajustes.length + ' SKU(s) a lo disponible.\n' +
-      'Backorder efectivo = SAP + otros pedidos en espera del mismo SKU.\n\n' +
+      'Se ajustaron ' + ajustes.length + ' SKU(s) al Disponible SAP actual.\n' +
+      '(Disponible SAP = Stock total - Backorder SAP. NO restamos otros\n' +
+      'pedidos en espera - el que confirma primero se lleva el stock.)\n\n' +
       lines + mas + '\n\n' +
       '¿Continuar con las cantidades ajustadas?'
     )) return;
