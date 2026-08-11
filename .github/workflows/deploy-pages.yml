@@ -27,6 +27,12 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
+        with:
+          # v456 (2026-08-11): enablement:true re-enable Pages si el status
+          # quedo `errored` (bug intermitente de GitHub Pages desde 2026-08-06).
+          # Sin esto el step falla con `HttpError: self-signed certificate`
+          # al hacer GET /repos/.../pages y prod queda atascado.
+          enablement: true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
