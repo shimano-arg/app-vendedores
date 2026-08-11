@@ -1265,6 +1265,23 @@ body.can-revision .revision-btn{display:inline-flex}
 #revision-rows tr td.mono{font-family:monospace;font-size:10px}
 #revision-rows tr td.num{text-align:right;font-weight:600}
 #revision-rows tr.no-data td{background:#f8fafc;color:#94a3b8;font-style:italic}
+/* v454: card individual + listado de pedidos en espera. */
+#wcard-rows tr.exceed td{background:#fef2f2;color:#991b1b;font-weight:700}
+#wcard-rows tr.exceed td.exc-cell{background:#dc2626;color:#fff}
+#wcard-rows tr td{padding:5px 8px;border-top:1px solid #f1f5f9}
+#wcard-rows tr td.mono{font-family:monospace;font-size:10px}
+#wcard-rows tr td.num{text-align:right;font-weight:600}
+#wcard-rows tr.no-data td{background:#f8fafc;color:#94a3b8;font-style:italic}
+#wcard-rows tr td.chg-neg{color:#dc2626;font-weight:700}
+#wcard-rows tr td.chg-pos{color:#059669;font-weight:700}
+#wcard-rows tr td.chg-none{color:#94a3b8}
+.waitlist-item{background:#fff;border:1.5px solid #e2e8f0;border-left:4px solid #7c3aed;border-radius:6px;padding:10px 14px;cursor:pointer;transition:.15s;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.waitlist-item:hover{background:#faf5ff;border-color:#a855f7;transform:translateX(2px)}
+.waitlist-item.has-exceed{border-left-color:#dc2626}
+.waitlist-item .wl-cli{font-size:13px;font-weight:800;color:#0f172a}
+.waitlist-item .wl-meta{font-size:10px;color:#64748b;margin-top:2px}
+.waitlist-item .wl-badge{background:#7c3aed;color:#fff;padding:3px 10px;border-radius:4px;font-size:10px;font-weight:800}
+.waitlist-item .wl-badge.exceed{background:#dc2626}
 .client-card .cli-envio-btn:hover{background:#152744;transform:translateY(-1px);box-shadow:0 2px 6px rgba(31,56,100,.5)}
 .client-card .cli-envio-btn.active{background:#10b981;box-shadow:0 1px 3px rgba(16,185,129,.4)}
 .client-card .cli-envio-btn.active:hover{background:#059669;box-shadow:0 2px 6px rgba(16,185,129,.55)}
@@ -1887,6 +1904,7 @@ body.can-revision .revision-btn{display:inline-flex}
          .revision-btn oculto por default; body.can-revision lo muestra
          (whitelist Mariano/Ioannis/Santi/Pablo en applyRolePermissions). -->
     <button class="revision-btn btn-zonas" id="revision-btn" onclick="openRevisionModal()" title="Revision Excel: ver backorder + disponible + pedido del cliente" style="background:#0f766e;color:#fff">Revisi&oacute;n Excel</button>
+    <button class="revision-btn btn-zonas" id="waitlist-btn" onclick="openWaitlistModal()" title="Pedidos en espera: cards pre-cargadas que se recalculan al abrirlas" style="background:#7c3aed;color:#fff">Pedidos en Espera <span id="waitlist-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
   </div>
 </div>
 <!-- v431: #herramientas-modal removido. Los 3 items volvieron a ser botones
@@ -3623,6 +3641,69 @@ body.can-revision .revision-btn{display:inline-flex}
       <div style="display:flex;gap:10px;justify-content:center;align-items:center;margin-top:20px;flex-wrap:wrap">
         <button class="stock-action-btn cancel" onclick="closeRevisionModal()">Cerrar</button>
         <button class="stock-action-btn publish" id="revision-export-btn" onclick="exportRevisionExcel()" disabled style="background:#0f766e">&#128196; Descargar revisi&oacute;n como Excel</button>
+        <button class="stock-action-btn publish" id="revision-wait-btn" onclick="revisionDejarRecalculando()" disabled style="background:#7c3aed">&#8987; Dejar recalculando</button>
+      </div>
+      <!-- v454: buscador de cliente destino para "Dejar recalculando". -->
+      <div id="revision-wait-cli-row" style="display:none;margin-top:14px;background:#faf5ff;border:1.5px solid #d8b4fe;border-radius:6px;padding:10px 12px">
+        <div style="font-size:11px;color:#6b21a8;font-weight:700;margin-bottom:4px">Elegi el cliente destino antes de dejar recalculando:</div>
+        <input id="revision-wait-cli-input" list="revision-wait-cli-list" placeholder="Buscar cliente por nombre..." style="width:100%;padding:8px 10px;font-size:12px;border:1.5px solid #a855f7;border-radius:5px" oninput="revisionOnClienteInput()"/>
+        <datalist id="revision-wait-cli-list"></datalist>
+        <div id="revision-wait-cli-info" style="font-size:10px;color:#7e22ce;margin-top:4px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- v454 (2026-08-11): modal LISTADO de pedidos en espera. -->
+<div class="modal-overlay" id="waitlist-modal" onclick="if(event.target===this)closeWaitlistModal()">
+  <div class="modal-box" style="width:min(920px,98vw)">
+    <div class="modal-head" style="background:linear-gradient(135deg,#5b21b6,#7c3aed)">
+      <div>
+        <h2>Pedidos en espera</h2>
+        <div class="subt">Cards pre-cargadas que se recalculan contra stock + backorder + otros pedidos en espera al abrirlas.</div>
+      </div>
+      <button class="modal-close" onclick="closeWaitlistModal()">&times;</button>
+    </div>
+    <div class="modal-body" style="padding:18px 20px;max-height:80vh;overflow-y:auto;display:block">
+      <div id="waitlist-empty" style="display:none;text-align:center;color:#94a3b8;padding:30px;font-size:13px">No hay pedidos en espera. Cargá uno desde <b>Revisi&oacute;n Excel &rarr; Dejar recalculando</b>.</div>
+      <div id="waitlist-rows" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- v454: modal CARD INDIVIDUAL con recalculo dinamico. -->
+<div class="modal-overlay" id="waitlist-card-modal" onclick="if(event.target===this)closeWaitlistCardModal()">
+  <div class="modal-box" style="width:min(1080px,98vw)">
+    <div class="modal-head" style="background:linear-gradient(135deg,#5b21b6,#7c3aed)">
+      <div>
+        <h2 id="wcard-title">Pedido en espera</h2>
+        <div class="subt" id="wcard-subt"></div>
+      </div>
+      <button class="modal-close" onclick="closeWaitlistCardModal()">&times;</button>
+    </div>
+    <div class="modal-body" style="padding:22px 24px;max-height:82vh;overflow-y:auto;display:block">
+      <div id="wcard-stats" style="background:#f0fdfa;border:1.5px solid #5eead4;border-radius:6px;padding:10px 12px;font-size:12px;color:#134e4a;line-height:1.5;margin-bottom:12px"></div>
+      <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:6px">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:920px">
+          <thead style="background:#0f172a;color:#fff;position:sticky;top:0">
+            <tr>
+              <th style="text-align:left;padding:6px 8px">SKU</th>
+              <th style="text-align:left;padding:6px 8px">Producto</th>
+              <th style="text-align:right;padding:6px 8px" title="Stock deposito 11 + transito deposito 12">Stock total</th>
+              <th style="text-align:right;padding:6px 8px" title="Backorder SAP + otros pedidos en espera del mismo SKU">Backorder efectivo</th>
+              <th style="text-align:right;padding:6px 8px">Disponible</th>
+              <th style="text-align:right;padding:6px 8px">Pedido</th>
+              <th style="text-align:right;padding:6px 8px">Excedente</th>
+              <th style="text-align:right;padding:6px 8px" title="Diferencia respecto al primer registro">Cambio</th>
+            </tr>
+          </thead>
+          <tbody id="wcard-rows"></tbody>
+        </table>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:center;align-items:center;margin-top:20px;flex-wrap:wrap">
+        <button class="stock-action-btn cancel" onclick="closeWaitlistCardModal()">Cerrar</button>
+        <button class="stock-action-btn cancel" id="wcard-delete-btn" onclick="waitlistDeleteCurrent()" style="background:#dc2626;color:#fff;display:none">&#128465; Borrar de espera</button>
+        <button class="stock-action-btn publish" id="wcard-pass-btn" onclick="waitlistPasarAPendientes()" style="background:#1e40af">&#8594; Pasar a Pendientes</button>
       </div>
     </div>
   </div>
@@ -3718,7 +3799,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v453';
+const APP_VERSION = 'v454';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -10689,6 +10770,402 @@ window.exportRevisionExcel = function(){
   XLSX.writeFile(wb, 'Revision_pedido_' + ts + '.xlsx');
 };
 
+// ==========================================================================
+// v454 (2026-08-11): PEDIDOS EN ESPERA (revision_waitlist).
+// Compartido entre los 4 users del whitelist Revision Excel. Recalculo
+// dinamico al abrir cada card: disponible = stock - backorder SAP -
+// suma de OTROS pedidos en espera del mismo SKU (FIFO implicito por
+// createdAt asc).
+// ==========================================================================
+// v454: revisionWaitlist + _unsubRevisionWaitlist con var (no let) para que
+// el binding llegue a window automaticamente y detachFirebaseListeners pueda
+// hacer off('_unsubRevisionWaitlist', ...) desde el inline. Patron CLAUDE.md #13.
+var revisionWaitlist = [];
+var _unsubRevisionWaitlist = null;
+var _wcardCurrent = null; // doc actualmente abierto en el modal card
+
+function ensureRevisionWaitlistListener(){
+  if (_unsubRevisionWaitlist) return;
+  if (!currentUser || !fbDb) return;
+  if (!document.body.classList.contains('can-revision')) return;
+  _unsubRevisionWaitlist = fbDb.collection('revision_waitlist')
+    .orderBy('createdAt', 'asc')
+    .onSnapshot(qs => {
+      const arr = [];
+      qs.forEach(d => arr.push(Object.assign({_id: d.id}, d.data() || {})));
+      revisionWaitlist = arr;
+      _updateWaitlistBadge();
+      // Si el modal listado o card estan abiertos, re-render.
+      const lm = document.getElementById('waitlist-modal');
+      if (lm && lm.classList.contains('open')) _renderWaitlistRows();
+      const cm = document.getElementById('waitlist-card-modal');
+      if (cm && cm.classList.contains('open') && _wcardCurrent) {
+        const updated = arr.find(x => x._id === _wcardCurrent._id);
+        if (updated) { _wcardCurrent = updated; _renderWaitlistCard(); }
+        else closeWaitlistCardModal(); // fue borrado por otro user
+      }
+    }, err => console.warn('[revision_waitlist] listener', err));
+}
+function _updateWaitlistBadge(){
+  const badge = document.getElementById('waitlist-btn-count');
+  if (!badge) return;
+  const n = (revisionWaitlist || []).length;
+  if (n > 0) { badge.textContent = String(n); badge.style.display = ''; }
+  else badge.style.display = 'none';
+}
+
+// Poblar datalist de clientes al abrir modal Revision (una sola vez).
+window.revisionOnClienteInput = function(){
+  const input = document.getElementById('revision-wait-cli-input');
+  const info = document.getElementById('revision-wait-cli-info');
+  const val = (input.value || '').trim();
+  if (!val) { info.textContent = ''; return; }
+  const match = _revisionResolveCliente(val);
+  if (match) {
+    info.textContent = '✓ ' + match.provincia + ' · ' + match.localidad + (match.cardCode ? ' · CardCode ' + match.cardCode : ' · sin CardCode SAP') + ' · vendor: ' + (match.vendor || 'sin asignar');
+    info.style.color = match.cardCode ? '#059669' : '#b45309';
+  } else {
+    info.textContent = '⚠ Cliente no encontrado en la app (buscar exacto por nombre).';
+    info.style.color = '#dc2626';
+  }
+};
+function _revisionResolveCliente(nombre){
+  const target = String(nombre || '').trim().toLowerCase();
+  if (!target || typeof POINTS === 'undefined') return null;
+  // Match exacto por nombre en POINTS + approvedAltasList.
+  for (const p of POINTS) {
+    for (const n of (p.clients || [])) {
+      if (n && n.toLowerCase() === target) {
+        const cardCode = (typeof sapGetClienteCode === 'function') ? (sapGetClienteCode(n) || '') : '';
+        const vendor = (typeof getEffectiveVendorForClient === 'function') ? getEffectiveVendorForClient(p, n) : (p.vendor || '');
+        return {nombre: n, provincia: p.province, localidad: p.name, cardCode, vendor};
+      }
+    }
+  }
+  const altas = (typeof approvedAltasList !== 'undefined') ? approvedAltasList : [];
+  for (const a of altas) {
+    const nom = a.comercio || a.fantasia || '';
+    if (nom && nom.toLowerCase() === target) {
+      return {
+        nombre: nom,
+        provincia: (a.provincia || '').toUpperCase(),
+        localidad: a.localidadFinal || a.localidad || '',
+        cardCode: a.cardCodeSap || '',
+        vendor: a.assignedVendor || '',
+      };
+    }
+  }
+  return null;
+}
+function _populateRevisionClienteDatalist(){
+  const list = document.getElementById('revision-wait-cli-list');
+  if (!list) return;
+  while (list.firstChild) list.removeChild(list.firstChild);
+  const names = new Set();
+  if (typeof POINTS !== 'undefined' && POINTS) {
+    POINTS.forEach(p => (p.clients || []).forEach(n => { if (n) names.add(n); }));
+  }
+  const altas = (typeof approvedAltasList !== 'undefined') ? approvedAltasList : [];
+  altas.forEach(a => {
+    const nom = a.comercio || a.fantasia || '';
+    if (nom) names.add(nom);
+  });
+  const arr = [...names].sort().slice(0, 3000); // limite razonable
+  arr.forEach(n => {
+    const opt = document.createElement('option');
+    opt.value = n;
+    list.appendChild(opt);
+  });
+}
+
+// Guarda el pedido actual del modal Revision a Firestore revision_waitlist.
+// Requiere que el usuario haya elegido cliente destino via el datalist.
+window.revisionDejarRecalculando = async function(){
+  if (!_revisionCanUse()) return;
+  if (!_revisionParsed || !_revisionParsed.length) { alert('No hay datos parseados.'); return; }
+  const input = document.getElementById('revision-wait-cli-input');
+  const cliRow = document.getElementById('revision-wait-cli-row');
+  // Si el buscador de cliente esta oculto, mostrarlo y esperar accion.
+  if (cliRow.style.display === 'none') {
+    _populateRevisionClienteDatalist();
+    cliRow.style.display = '';
+    input.focus();
+    return;
+  }
+  const nombre = (input.value || '').trim();
+  const cli = _revisionResolveCliente(nombre);
+  if (!cli) { alert('Elegi un cliente valido de la lista antes de dejar recalculando.'); input.focus(); return; }
+  const btn = document.getElementById('revision-wait-btn');
+  btn.disabled = true;
+  const originalTxt = btn.textContent;
+  btn.textContent = 'Guardando...';
+  try {
+    const items = _revisionParsed.map(l => ({
+      code: l.code,
+      desc: l.desc,
+      qty: l.qty,
+      firstStockTotal: l.hasData ? l.stockTotal : null,
+      firstBackorder: l.backorder || 0,
+      firstDisponible: l.hasData ? l.disponible : null,
+    }));
+    const payload = {
+      clientName: cli.nombre,
+      clientProvince: cli.provincia,
+      clientLocality: cli.localidad,
+      clientCardCode: cli.cardCode || '',
+      vendorAssigned: cli.vendor || '',
+      ownerUid: currentUser.uid,
+      ownerEmail: currentUser.email || '',
+      ownerDisplayName: currentUser.displayName || currentUser.email || '',
+      ownerVendor: (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '',
+      items,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    };
+    await fbDb.collection('revision_waitlist').add(payload);
+    showSyncTag('Pedido guardado en espera: ' + cli.nombre);
+    closeRevisionModal();
+  } catch(e) {
+    console.error('revisionDejarRecalculando', e);
+    alert('Error guardando en espera: ' + (e.message || e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalTxt;
+  }
+};
+
+// ---- MODAL LISTADO ----
+window.openWaitlistModal = function(){
+  if (!_revisionCanUse()) { alert('No tenes permisos.'); return; }
+  ensureRevisionWaitlistListener();
+  document.getElementById('waitlist-modal').classList.add('open');
+  _renderWaitlistRows();
+};
+window.closeWaitlistModal = function(){
+  document.getElementById('waitlist-modal').classList.remove('open');
+};
+function _renderWaitlistRows(){
+  const container = document.getElementById('waitlist-rows');
+  const emptyEl = document.getElementById('waitlist-empty');
+  const arr = revisionWaitlist || [];
+  while (container.firstChild) container.removeChild(container.firstChild);
+  if (!arr.length) { emptyEl.style.display = ''; return; }
+  emptyEl.style.display = 'none';
+  arr.forEach(w => {
+    // Calcular excedentes en tiempo real (respetando otros pedidos en espera).
+    let excedentes = 0;
+    let totalUnid = 0;
+    (w.items || []).forEach(it => {
+      totalUnid += (it.qty || 0);
+      const stk = _revisionStockFor(it.code);
+      if (stk.hasData) {
+        const otros = _otrosPedidosEnEsperaDeSku(it.code, w._id);
+        const efectivoBack = (stk.backorder || 0) + otros;
+        const disp = Math.max((stk.stockTotal || 0) - efectivoBack, 0);
+        if (it.qty > disp) excedentes++;
+      }
+    });
+    const item = document.createElement('div');
+    item.className = 'waitlist-item' + (excedentes > 0 ? ' has-exceed' : '');
+    item.onclick = () => openWaitlistCardModal(w._id);
+    const left = document.createElement('div');
+    const cli = document.createElement('div');
+    cli.className = 'wl-cli';
+    cli.textContent = w.clientName + ' (' + (w.clientLocality || 's/loc') + ', ' + (w.clientProvince || 's/prov') + ')';
+    left.appendChild(cli);
+    const meta = document.createElement('div');
+    meta.className = 'wl-meta';
+    const ts = w.createdAt && w.createdAt.toDate ? w.createdAt.toDate() : null;
+    const tsStr = ts ? ts.toLocaleString('es-AR') : 'sin fecha';
+    meta.textContent = 'Cargado por ' + (w.ownerDisplayName || w.ownerEmail || 'desconocido') + ' · ' + tsStr + ' · ' + (w.items || []).length + ' SKUs · ' + totalUnid + ' unidades';
+    left.appendChild(meta);
+    item.appendChild(left);
+    const badge = document.createElement('span');
+    badge.className = 'wl-badge' + (excedentes > 0 ? ' exceed' : '');
+    badge.textContent = excedentes > 0 ? ('⚠ ' + excedentes + ' con excedente') : 'OK';
+    item.appendChild(badge);
+    container.appendChild(item);
+  });
+}
+
+// Suma qty de OTROS pedidos en espera del mismo SKU (excluye el docId propio).
+function _otrosPedidosEnEsperaDeSku(sku, excludeDocId){
+  const arr = revisionWaitlist || [];
+  let total = 0;
+  arr.forEach(w => {
+    if (excludeDocId && w._id === excludeDocId) return;
+    (w.items || []).forEach(it => {
+      if (String(it.code || '').toLowerCase() === String(sku || '').toLowerCase()) {
+        total += (it.qty || 0);
+      }
+    });
+  });
+  return total;
+}
+
+// ---- MODAL CARD INDIVIDUAL ----
+window.openWaitlistCardModal = function(docId){
+  const arr = revisionWaitlist || [];
+  const w = arr.find(x => x._id === docId);
+  if (!w) { alert('Pedido en espera no encontrado (puede haber sido borrado).'); return; }
+  _wcardCurrent = w;
+  document.getElementById('waitlist-card-modal').classList.add('open');
+  _renderWaitlistCard();
+};
+window.closeWaitlistCardModal = function(){
+  document.getElementById('waitlist-card-modal').classList.remove('open');
+  _wcardCurrent = null;
+};
+function _renderWaitlistCard(){
+  const w = _wcardCurrent;
+  if (!w) return;
+  document.getElementById('wcard-title').textContent = 'Pedido en espera — ' + w.clientName;
+  const ts = w.createdAt && w.createdAt.toDate ? w.createdAt.toDate().toLocaleString('es-AR') : 'sin fecha';
+  document.getElementById('wcard-subt').textContent = (w.clientLocality || 's/loc') + ' · ' + (w.clientProvince || 's/prov') + ' · Vendor asignado: ' + (w.vendorAssigned || 'sin asignar') + ' · Cargado por ' + (w.ownerDisplayName || w.ownerEmail || '') + ' · ' + ts;
+  // Recalcular por SKU con backorder efectivo = SAP + otros en espera.
+  const rows = [];
+  let excedidos = 0;
+  (w.items || []).forEach(it => {
+    const stk = _revisionStockFor(it.code);
+    const otros = _otrosPedidosEnEsperaDeSku(it.code, w._id);
+    const efectivoBack = (stk.backorder || 0) + otros;
+    const disp = stk.hasData ? Math.max((stk.stockTotal || 0) - efectivoBack, 0) : null;
+    const excede = stk.hasData && it.qty > disp;
+    if (excede) excedidos++;
+    const firstDisp = (it.firstDisponible != null) ? it.firstDisponible : null;
+    const chg = (firstDisp != null && disp != null) ? (disp - firstDisp) : null;
+    rows.push({
+      code: it.code, desc: it.desc, qty: it.qty,
+      stockTotal: stk.stockTotal, backorderSap: stk.backorder || 0,
+      otrosEspera: otros, backEfectivo: efectivoBack,
+      disponible: disp, hasData: stk.hasData, excede,
+      chg,
+    });
+  });
+  // Stats.
+  const statsEl = document.getElementById('wcard-stats');
+  while (statsEl.firstChild) statsEl.removeChild(statsEl.firstChild);
+  const totalUnid = rows.reduce((s, r) => s + r.qty, 0);
+  const s1 = document.createElement('div');
+  s1.textContent = '✓ ' + rows.length + ' SKUs · ' + totalUnid + ' unidades pedidas';
+  statsEl.appendChild(s1);
+  if (excedidos > 0) {
+    const s2 = document.createElement('div');
+    s2.style.cssText = 'color:#991b1b;font-weight:700;margin-top:4px';
+    s2.textContent = '⚠ ' + excedidos + ' SKU(s) con excedente respecto al disponible efectivo (Stock − Backorder SAP − Otros pedidos en espera).';
+    statsEl.appendChild(s2);
+  }
+  // Tabla.
+  const tbody = document.getElementById('wcard-rows');
+  while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+  const mk = (text, cls) => { const td = document.createElement('td'); if (cls) td.className = cls; td.textContent = text; return td; };
+  rows.slice(0, 500).forEach(r => {
+    const tr = document.createElement('tr');
+    tr.className = !r.hasData ? 'no-data' : (r.excede ? 'exceed' : '');
+    tr.appendChild(mk(r.code, 'mono'));
+    tr.appendChild(mk(r.desc, ''));
+    tr.appendChild(mk(r.hasData ? r.stockTotal : '-', 'num'));
+    const backTxt = (r.otrosEspera > 0)
+      ? (r.backEfectivo + ' (SAP ' + r.backorderSap + ' + espera ' + r.otrosEspera + ')')
+      : String(r.backorderSap || 0);
+    tr.appendChild(mk(backTxt, 'num'));
+    tr.appendChild(mk(r.hasData ? r.disponible : '-', 'num'));
+    tr.appendChild(mk(r.qty, 'num'));
+    const excedente = r.excede ? (r.qty - r.disponible) : 0;
+    tr.appendChild(mk(r.excede ? ('+' + excedente) : (r.hasData ? '0' : '-'), r.excede ? 'num exc-cell' : 'num'));
+    let chgTxt = '-', chgCls = 'num chg-none';
+    if (r.chg != null) {
+      if (r.chg < 0) { chgTxt = String(r.chg); chgCls = 'num chg-neg'; }
+      else if (r.chg > 0) { chgTxt = '+' + r.chg; chgCls = 'num chg-pos'; }
+      else { chgTxt = '='; chgCls = 'num chg-none'; }
+    }
+    tr.appendChild(mk(chgTxt, chgCls));
+    tbody.appendChild(tr);
+  });
+  // Toggle boton borrar segun permisos.
+  const canDelete = (currentUser && (
+    w.ownerUid === currentUser.uid ||
+    userRole === 'admin' || userRole === 'gerente'
+  ));
+  document.getElementById('wcard-delete-btn').style.display = canDelete ? '' : 'none';
+}
+
+// Borrar pedido en espera (con confirmacion).
+window.waitlistDeleteCurrent = async function(){
+  const w = _wcardCurrent;
+  if (!w || !w._id) return;
+  if (!confirm('Borrar este pedido en espera de ' + w.clientName + '?\n\nEsta accion es irreversible.')) return;
+  try {
+    await fbDb.collection('revision_waitlist').doc(w._id).delete();
+    showSyncTag('Pedido en espera borrado');
+    closeWaitlistCardModal();
+  } catch(e) {
+    console.error('waitlistDelete', e);
+    alert('Error borrando: ' + (e.message || e));
+  }
+};
+
+// Pasar a Pendientes: recalcula, alerta con excedentes, ajusta cantidades a lo
+// disponible, y reutiliza el flujo confirmExcelPedido -> openReviewDialog.
+// Post-exito, borra el doc de revision_waitlist.
+window.waitlistPasarAPendientes = async function(){
+  const w = _wcardCurrent;
+  if (!w) return;
+  // Recalcular al momento de pasar (por si cambio algo desde que se abrio la card).
+  const ajustes = [];
+  const finalItems = (w.items || []).map(it => {
+    const stk = _revisionStockFor(it.code);
+    const otros = _otrosPedidosEnEsperaDeSku(it.code, w._id);
+    const efectivoBack = (stk.backorder || 0) + otros;
+    const disp = stk.hasData ? Math.max((stk.stockTotal || 0) - efectivoBack, 0) : null;
+    let qtyFinal = it.qty;
+    if (stk.hasData && it.qty > disp) {
+      qtyFinal = disp;
+      ajustes.push({code: it.code, desc: it.desc, pedido: it.qty, disponible: disp, primero: it.firstDisponible});
+    }
+    return {code: it.code, desc: it.desc, qty: qtyFinal, precioExcel: null, needsReview: false};
+  }).filter(it => it.qty > 0); // sacar los que quedan en 0
+  if (!finalItems.length) {
+    alert('No hay ninguna linea con cantidad disponible. Todos los SKUs pedidos superan el stock.');
+    return;
+  }
+  // Alerta si hubo ajustes.
+  if (ajustes.length) {
+    const lines = ajustes.slice(0, 8).map(a => {
+      let s = '  · ' + a.code + ': pedido ' + a.pedido + ' → ajustado a ' + a.disponible;
+      if (a.primero != null && a.primero > a.disponible) s += ' (primer revision: ' + a.primero + ')';
+      return s;
+    }).join('\n');
+    const mas = ajustes.length > 8 ? '\n  ... y ' + (ajustes.length - 8) + ' mas' : '';
+    if (!confirm(
+      'Se ajustaron ' + ajustes.length + ' SKU(s) a lo disponible.\n' +
+      'Backorder efectivo = SAP + otros pedidos en espera del mismo SKU.\n\n' +
+      lines + mas + '\n\n' +
+      '¿Continuar con las cantidades ajustadas?'
+    )) return;
+  }
+  // Construir currentOrderKey + currentOrderClient para reutilizar el flujo.
+  const tipo = 'cliente';
+  const provNorm = (w.clientProvince || '').toUpperCase();
+  currentOrderKey = tipo + '|' + provNorm + '|' + (w.clientLocality || '') + '|' + w.clientName;
+  currentOrderClient = {name: w.clientName, tipo, province: provNorm, locName: w.clientLocality || ''};
+  // Cargar en orders[] usando el mismo mapping que confirmExcelPedido.
+  const outLines = finalItems.map(l => {
+    const precio = (typeof getDefaultPrice === 'function') ? getDefaultPrice(l.code) : 0;
+    return {code: l.code, desc: l.desc, cat: '', fam: '', sub: '', precio, needsReview: false, qty: l.qty, sinStock: false};
+  });
+  orders[currentOrderKey] = outLines;
+  try { saveOrders(); } catch(e){}
+  // Borrar el doc de espera (ya lo estamos procesando).
+  try { await fbDb.collection('revision_waitlist').doc(w._id).delete(); }
+  catch(e) { console.warn('No pude borrar de waitlist:', e); /* seguir igual */ }
+  closeWaitlistCardModal();
+  closeWaitlistModal();
+  // Abrir modal "Revisa tu pedido" normal.
+  try { openReviewDialog('crear'); }
+  catch(e) { console.error('openReviewDialog from waitlist', e); alert('Pedido cargado en Pendientes pero no pudimos abrir Revisar. Andá a Pedidos > Crear.'); }
+};
+
 // Genera y descarga un Excel template con 3 columnas: Codigo SKU,
 // Descripcion, Cantidad. Lo prefill con todos los SKUs del catalogo
 // (PRODUCTS) para que la tienda solo complete cantidades.
@@ -13456,7 +13933,7 @@ function applyRolePermissions(){
   // Targets button: solo gerencia (Mariano/Diego/Santi, gerente, o admin)
   document.getElementById('targets-btn').style.display = canManageTargets() ? '' : 'none';
   // Activa listeners cross-collection segun rol
-  if (userRole !== 'unassigned') { ensureNotifsListener(); ensureRouteOverridesListener(); ensureTargetsListener(); ensureClientLocsListener(); ensureSapVendorsListener(); ensureClientMasterListener(); ensureAltaCliListener(); ensureRendicionesListener(); ensureVendorOverridesListener(); ensureStockSnapshotListener(); ensurePriceListListener(); ensureTemporalPriceListListener(); ensureApprovedAltasListener(); try { ensureBackordersListener(); } catch(e) { console.warn('ensureBackordersListener', e); } }
+  if (userRole !== 'unassigned') { ensureNotifsListener(); ensureRouteOverridesListener(); ensureTargetsListener(); ensureClientLocsListener(); ensureSapVendorsListener(); ensureClientMasterListener(); ensureAltaCliListener(); ensureRendicionesListener(); ensureVendorOverridesListener(); ensureStockSnapshotListener(); ensurePriceListListener(); ensureTemporalPriceListListener(); ensureApprovedAltasListener(); try { ensureBackordersListener(); } catch(e) { console.warn('ensureBackordersListener', e); } try { ensureRevisionWaitlistListener(); } catch(e) { console.warn('ensureRevisionWaitlistListener', e); } }
   // Si soy VDI, cargar las parejas VDE para habilitar "actuar en nombre de".
   if (userRole === 'interno') { try { loadMyExternalPartners(); } catch(e) { console.warn('loadMyExternalPartners', e); } }
   // Acceso denegado para unassigned
@@ -15683,6 +16160,7 @@ function detachFirebaseListeners(){
   n += off('unsubSegNotes', unsubSegNotes, () => unsubSegNotes = null);
   n += off('unsubSegStatus', unsubSegStatus, () => unsubSegStatus = null);
   n += off('_unsubAutoSendPedidos', _unsubAutoSendPedidos, () => _unsubAutoSendPedidos = null);
+  n += off('_unsubRevisionWaitlist', _unsubRevisionWaitlist, () => _unsubRevisionWaitlist = null);
   if (typeof _logT === 'function') _logT('detach: ' + n + ' listeners cerrados');
   return n;
 }
