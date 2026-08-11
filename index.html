@@ -822,6 +822,7 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .seg-stat .num{font-size:18px;font-weight:800;color:#0f172a}
 .seg-stat .lbl{font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-top:2px}
 .seg-stat.visitas .num{color:#7c3aed}
+.seg-stat.contactos .num{color:#0d9488}
 .seg-stat.pedidos .num{color:#0284c7}
 .seg-stat.fact .num{color:#16a34a}
 .seg-stat.pend .num{color:#f59e0b}
@@ -3641,7 +3642,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v442';
+const APP_VERSION = 'v443';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.

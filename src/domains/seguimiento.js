@@ -46,6 +46,14 @@ function segPedidoVendor(p) {
   return '';
 }
 
+// v443 (2026-08-11): distinguir visita presencial vs contacto no presencial
+// (WhatsApp/tel/email). El campo `interactionType` se setea en visitas.js al
+// abrir el modal (modo 'visita' vs 'contacto') y queda en el doc de Firestore.
+// Docs viejos sin ese campo se asumen 'visita' por defecto (retrocompat).
+function isContacto(v) {
+  return !!(v && v.interactionType === 'contacto');
+}
+
 window.openSeguimientoModal = async function () {
   if (!canViewSeguimiento()) {
     alert('Tu rol no tiene acceso a Seguimiento.');
@@ -243,7 +251,8 @@ function buildSegAggregates(visits, pedidos) {
   const byVendor = {};
   set.forEach((v) => {
     byVendor[v] = {
-      visits: 0,
+      visits: 0,        // solo presenciales (interactionType != 'contacto')
+      contactos: 0,     // v443: no presenciales (WhatsApp/tel/email)
       pedidos: 0,
       facturacion: 0,
       pendientesPedidos: 0,
@@ -255,7 +264,8 @@ function buildSegAggregates(visits, pedidos) {
   visits.forEach((v) => {
     const b = byVendor[v.vendor];
     if (!b) return;
-    b.visits++;
+    if (isContacto(v)) b.contactos++;
+    else b.visits++;
     if (v.tienda) b.clientsVisited.add(v.tienda + '|' + (v.localidad || ''));
     const d = (v.fecha || '').slice(0, 10);
     if (d && d > b.lastActivity) b.lastActivity = d;
@@ -563,13 +573,19 @@ function renderSegTopStats(visits, pedidos) {
   const pendientes = detectSegPendientes(visits, pedidos);
   const dead = detectSegSinMovimiento(visits, pedidos);
   const opps = detectSegOportunidades(visits, pedidos);
+  // v443: separar visitas presenciales de contactos no presenciales.
+  const visitasPres = visits.filter((v) => !isContacto(v)).length;
+  const contactos = visits.filter(isContacto).length;
   const conv = visits.length > 0 ? Math.round((conf / visits.length) * 100) : 0;
   const fmtMon = (n) => '$' + Math.round(n).toLocaleString('es-AR');
   const html =
     '' +
     '<div class="seg-stat visitas"><div class="num">' +
-    visits.length +
+    visitasPres +
     '</div><div class="lbl">Visitas</div></div>' +
+    '<div class="seg-stat contactos"><div class="num">' +
+    contactos +
+    '</div><div class="lbl">Contactos</div></div>' +
     '<div class="seg-stat pedidos"><div class="num">' +
     pedidos.length +
     '</div><div class="lbl">Pedidos</div></div>' +
@@ -613,6 +629,9 @@ function renderSegResumen(visits, pedidos) {
         b.visits +
         '</b>Visitas</div>' +
         '<div class="vm"><b>' +
+        b.contactos +
+        '</b>Contactos</div>' +
+        '<div class="vm"><b>' +
         b.pedidos +
         '</b>Pedidos</div>' +
         '<div class="vm"><b>$' +
@@ -655,8 +674,13 @@ function renderSegVisitas(visits) {
           escapeAttr(v.tienda || '') +
           '\')" title="Eliminar esta visita (admin/gerente)" style="margin-left:6px;padding:3px 8px;border:none;border-radius:4px;background:#dc2626;color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Borrar</button>'
         : '';
+    // v443: badge tipo (VISITA presencial vs CONTACTO no presencial).
+    const contacto = isContacto(v);
+    const tipoBadge = contacto
+      ? '<span style="display:inline-block;background:#ccfbf1;color:#0d5c56;font-size:8px;font-weight:800;padding:2px 5px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px;margin-left:6px">&#128172; Contacto</span>'
+      : '<span style="display:inline-block;background:#ede9fe;color:#5b21b6;font-size:8px;font-weight:800;padding:2px 5px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px;margin-left:6px">&#128663; Visita</span>';
     html += '<div class="seg-row" onclick="openSegTimeline(\'' + escapeAttr(k) + '\')">';
-    html += '<div>' + escapeHtml((v.fecha || '').slice(0, 10) || '-') + '</div>';
+    html += '<div>' + escapeHtml((v.fecha || '').slice(0, 10) || '-') + tipoBadge + '</div>';
     html += '<div>' + escapeHtml(titleCase(v.vendor || '')) + '</div>';
     html += '<div><b>' + escapeHtml(v.tienda || '-') + '</b></div>';
     html += '<div>' + escapeHtml(v.localidad || '-') + '</div>';
