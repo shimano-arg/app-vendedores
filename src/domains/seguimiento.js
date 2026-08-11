@@ -63,8 +63,11 @@ window.openSeguimientoModal = async function () {
   const desdeEl = document.getElementById('seg-fdesde');
   const hastaEl = document.getElementById('seg-fhasta');
   if (desdeEl && !desdeEl.value) {
+    // v441 (2026-08-11): default = primer día del mes en curso → hoy.
+    // Feedback Mariano: era hoy-90d, muy amplio; el equipo comercial mira
+    // seguimiento del mes vigente casi siempre.
     const now = new Date();
-    const desde = new Date(now.getTime() - 90 * 86400 * 1000);
+    const desde = new Date(now.getFullYear(), now.getMonth(), 1);
     desdeEl.value = desde.toISOString().slice(0, 10);
     hastaEl.value = now.toISOString().slice(0, 10);
   }
