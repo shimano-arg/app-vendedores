@@ -2006,6 +2006,13 @@ window.renderMasterClientesTable = function () {
     // desde el Master Clientes normal (no solo del modo Provisorios).
     const isProvisorio = isSap && !e.sapCardCode;
     const canEditProv302 = isProvisorio && (userRole === 'admin' || userRole === 'gerente');
+    // v446 (2026-08-11): dropdown de vendedor editable TAMBIEN para SAP
+    // registrados (con cardCodeSap), no solo provisorios. Antes el vendedor
+    // de un SAP registrado era texto plano y solo podia cambiarse desde
+    // Panel Zonas (reasignacion masiva). Ahora se puede editar inline por
+    // cliente. Reutiliza saveMcProvisorioVendor porque la funcion escribe
+    // a client_applications/{fsId} sin importar si tiene cardCodeSap o no.
+    const canEditSapVendor = isSap && (userRole === 'admin' || userRole === 'gerente');
     // v315+: detector de duplicado SAP para las filas provisorias que aparecen
     // mezcladas en la vista normal. Rojo + badge.
     let dupSapV = null;
@@ -2127,7 +2134,11 @@ window.renderMasterClientesTable = function () {
     } else {
       html += '<td>' + escapeHtml(titleCase(e.provincia)) + '</td>';
     }
-    if (canEditProv302) {
+    // v446: dropdown editable para TODOS los SAP (provisorios + registrados),
+    // no solo provisorios. canEditProv302 sigue habilitando la edicion del
+    // NOMBRE (solo provisorios), pero canEditSapVendor gate el dropdown de
+    // vendedor tambien para SAP con cardCodeSap.
+    if (canEditSapVendor) {
       // Vendedor editable via dropdown VDE+VDI. Autosave onchange.
       const safeFsId2 = escapeAttr(e.sapFsId || '');
       let vSel =
