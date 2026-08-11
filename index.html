@@ -3799,7 +3799,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v459';
+const APP_VERSION = 'v460';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -10787,6 +10787,11 @@ window.exportRevisionExcel = function(){
 var revisionWaitlist = [];
 var _unsubRevisionWaitlist = null;
 var _wcardCurrent = null; // doc actualmente abierto en el modal card
+// v460 (2026-08-11): id del doc en revision_waitlist que hay que borrar UNA VEZ
+// que doConfirmPedido termine exitosamente. Antes de v460 se borraba antes de
+// abrir el modal Revisar - si el vendedor cerraba sin confirmar, el pedido se
+// perdia. Ahora se conserva hasta que el pedido efectivamente pase a Pendientes.
+var _pendingWaitlistDelete = null;
 
 function ensureRevisionWaitlistListener(){
   if (_unsubRevisionWaitlist) return;
@@ -11193,9 +11198,11 @@ window.waitlistPasarAPendientes = async function(){
   });
   orders[currentOrderKey] = outLines;
   try { saveOrders(); } catch(e){}
-  // Borrar el doc de espera (ya lo estamos procesando).
-  try { await fbDb.collection('revision_waitlist').doc(w._id).delete(); }
-  catch(e) { console.warn('No pude borrar de waitlist:', e); /* seguir igual */ }
+  // v460: NO borrar el doc de espera todavia. Marcarlo como pendiente de borrar
+  // para que _origDoConfirm (wrapper mas abajo) lo elimine SOLO si el pedido
+  // llega efectivamente a Firestore. Si el vendedor cierra Revisar sin
+  // confirmar, el doc queda en la lista y no se pierde.
+  _pendingWaitlistDelete = w._id;
   closeWaitlistCardModal();
   closeWaitlistModal();
   // Abrir modal "Revisa tu pedido" normal.
@@ -16573,6 +16580,15 @@ window.doConfirmPedido = function(){
       savePending();
       delete orders[currentOrderKey];
       saveOrders();
+      // v460: si el pedido venia de un "Dejar recalculando" y llego OK a
+      // pedidos/{}, ahora si borrar el doc de revision_waitlist. Antes de
+      // v460 el delete se hacia ANTES de openReviewDialog -> si el vendedor
+      // cerraba Revisar sin confirmar, se perdia el pedido de ambos lados.
+      if (_pendingWaitlistDelete) {
+        const _widToDelete = _pendingWaitlistDelete;
+        _pendingWaitlistDelete = null;
+        fbDb.collection('revision_waitlist').doc(_widToDelete).delete().catch(e => console.warn('no pude borrar waitlist doc:', e));
+      }
       // Si fue creado en nombre de un VDE, notificar al VDE.
       if (actingPartner) {
         try {
