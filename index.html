@@ -3684,6 +3684,11 @@ body.can-revision .revision-btn{display:inline-flex}
     </div>
     <div class="modal-body" style="padding:22px 24px;max-height:82vh;overflow-y:auto;display:block">
       <div id="wcard-stats" style="background:#f0fdfa;border:1.5px solid #5eead4;border-radius:6px;padding:10px 12px;font-size:12px;color:#134e4a;line-height:1.5;margin-bottom:12px"></div>
+      <!-- v468: buscador para agregar productos nuevos al pedido en espera. -->
+      <div style="position:relative;margin-bottom:10px">
+        <input id="wcard-add-input" type="text" placeholder="🔍 Buscar producto por codigo o descripcion para agregar al pedido..." oninput="waitlistOnAddSearch()" onfocus="waitlistOnAddSearch()" onblur="setTimeout(waitlistHideAddDropdown, 200)" style="width:100%;padding:8px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:12px;outline:none"/>
+        <div id="wcard-add-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #cbd5e1;border-top:none;border-radius:0 0 6px 6px;max-height:260px;overflow-y:auto;z-index:5;box-shadow:0 4px 12px rgba(0,0,0,.08)"></div>
+      </div>
       <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:6px">
         <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:1120px">
           <thead style="background:#0f172a;color:#fff;position:sticky;top:0">
@@ -3804,7 +3809,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v467';
+const APP_VERSION = 'v468';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11136,16 +11141,46 @@ function _renderWaitlistCard(){
   });
   const statsEl = document.getElementById('wcard-stats');
   while (statsEl.firstChild) statsEl.removeChild(statsEl.firstChild);
-  const totalUnid = rows.reduce((s, r) => s + r.qty, 0);
-  const totalArs = rows.reduce((s, r) => s + r.subtotal, 0);
   const fmtArs = (n) => '$' + Math.round(n).toLocaleString('es-AR');
-  const s1 = document.createElement('div');
-  s1.textContent = '✓ ' + rows.length + ' SKUs · ' + totalUnid + ' unidades pedidas · Total ' + fmtArs(totalArs);
-  statsEl.appendChild(s1);
+  // v468: desglose disponibles vs sin stock (mismo patron que "Revisa tu pedido").
+  // Un SKU es "disponible" si qty <= disponibleApp; "sin stock" si excede.
+  // Los que no tienen data (hasData=false) se cuentan como disponibles por
+  // no bloquear el flujo (SAP resolvera).
+  const disp = { prods: 0, uds: 0, ars: 0 };
+  const nostk = { prods: 0, uds: 0, ars: 0 };
+  rows.forEach(r => {
+    if (r.excede) {
+      nostk.prods++; nostk.uds += r.qty; nostk.ars += r.subtotal;
+    } else {
+      disp.prods++; disp.uds += r.qty; disp.ars += r.subtotal;
+    }
+  });
+  const totalProds = disp.prods + nostk.prods;
+  const totalUnid = disp.uds + nostk.uds;
+  const totalArs = disp.ars + nostk.ars;
+  const box = document.createElement('div');
+  box.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:2px 12px;font-family:inherit';
+  function _row(dot, label, ars, color){
+    const l = document.createElement('div');
+    l.style.cssText = 'color:' + color + ';font-weight:700;font-size:12px;display:flex;align-items:center;gap:6px';
+    const c = document.createElement('span');
+    c.textContent = dot; c.style.cssText = 'font-size:9px;color:' + color;
+    l.appendChild(c);
+    const t = document.createElement('span'); t.textContent = label; l.appendChild(t);
+    box.appendChild(l);
+    const v = document.createElement('div');
+    v.style.cssText = 'color:' + color + ';font-weight:800;font-size:13px;text-align:right';
+    v.textContent = fmtArs(ars);
+    box.appendChild(v);
+  }
+  _row('●', 'Disponibles: ' + disp.prods + ' prod · ' + disp.uds + ' u', disp.ars, '#059669');
+  if (nostk.prods > 0) _row('●', 'Sin stock: ' + nostk.prods + ' prod · ' + nostk.uds + ' u', nostk.ars, '#dc2626');
+  _row(' ', 'Total pedido: ' + totalProds + ' prod · ' + totalUnid + ' u', totalArs, '#0f172a');
+  statsEl.appendChild(box);
   if (excedidos > 0) {
     const s2 = document.createElement('div');
-    s2.style.cssText = 'color:#991b1b;font-weight:700;margin-top:4px';
-    s2.textContent = '⚠ ' + excedidos + ' SKU(s) con excedente respecto al Disponible app (Stock − Backorder SAP − Pedidos pendientes app no transferidos).';
+    s2.style.cssText = 'color:#991b1b;font-weight:600;margin-top:6px;font-size:10.5px';
+    s2.textContent = '⚠ Los SKUs "sin stock" superan el Disponible app (Stock − Backorder SAP − Pedidos pendientes app no transferidos). Se veran en rojo abajo.';
     statsEl.appendChild(s2);
   }
   const tbody = document.getElementById('wcard-rows');
@@ -11279,6 +11314,110 @@ window.waitlistRemoveItem = async function(docId, idx){
   } catch(e) {
     console.error('waitlistRemoveItem update', e);
     alert('Error guardando: ' + (e.message || e));
+  }
+};
+
+// v468: buscador para agregar productos nuevos al pedido en espera.
+// Al escribir muestra un dropdown con matches del catalogo PRODUCTS
+// filtrados por code + desc + familia. Click en un match agrega con qty=1
+// (o incrementa si el SKU ya esta en el pedido).
+window.waitlistOnAddSearch = function(){
+  const input = document.getElementById('wcard-add-input');
+  const dd = document.getElementById('wcard-add-dropdown');
+  if (!input || !dd) return;
+  const q = (input.value || '').trim().toLowerCase();
+  if (!q || q.length < 2) { dd.style.display = 'none'; return; }
+  if (typeof PRODUCTS === 'undefined' || !PRODUCTS) { dd.style.display = 'none'; return; }
+  const matches = [];
+  const w = _wcardCurrent;
+  const skusEnPedido = new Set(((w && w.items) || []).map(i => (i.code || '').toLowerCase()));
+  for (const p of PRODUCTS) {
+    if (matches.length >= 30) break;
+    const code = (p.code || '').toLowerCase();
+    const desc = (p.desc || '').toLowerCase();
+    const fam = (p.fam || '').toLowerCase();
+    const sub = (p.sub || '').toLowerCase();
+    if (code.includes(q) || desc.includes(q) || fam.includes(q) || sub.includes(q)) {
+      matches.push(p);
+    }
+  }
+  while (dd.firstChild) dd.removeChild(dd.firstChild);
+  if (!matches.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:10px 12px;color:#94a3b8;font-size:11px;font-style:italic';
+    empty.textContent = 'Sin resultados para "' + q + '"';
+    dd.appendChild(empty);
+    dd.style.display = '';
+    return;
+  }
+  matches.forEach(p => {
+    const item = document.createElement('div');
+    item.style.cssText = 'padding:8px 12px;border-bottom:1px solid #f1f5f9;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:11px';
+    item.onmouseover = () => { item.style.background = '#f0f9ff'; };
+    item.onmouseout = () => { item.style.background = '#fff'; };
+    item.onclick = () => waitlistAddProduct(p.code);
+    const left = document.createElement('div');
+    left.style.flex = '1';
+    const codeEl = document.createElement('div');
+    codeEl.style.cssText = 'font-family:monospace;font-size:10px;color:#0f172a;font-weight:700';
+    codeEl.textContent = p.code;
+    const descEl = document.createElement('div');
+    descEl.style.cssText = 'font-size:10.5px;color:#334155;margin-top:2px';
+    descEl.textContent = p.desc || '(sin descripcion)';
+    left.appendChild(codeEl);
+    left.appendChild(descEl);
+    item.appendChild(left);
+    const right = document.createElement('div');
+    right.style.cssText = 'text-align:right';
+    if (skusEnPedido.has((p.code || '').toLowerCase())) {
+      const tag = document.createElement('span');
+      tag.style.cssText = 'background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:700';
+      tag.textContent = 'YA EN PEDIDO';
+      right.appendChild(tag);
+    } else {
+      const btn = document.createElement('span');
+      btn.style.cssText = 'background:#0f766e;color:#fff;padding:3px 10px;border-radius:3px;font-size:10px;font-weight:700';
+      btn.textContent = '+ Agregar';
+      right.appendChild(btn);
+    }
+    item.appendChild(right);
+    dd.appendChild(item);
+  });
+  dd.style.display = '';
+};
+window.waitlistHideAddDropdown = function(){
+  const dd = document.getElementById('wcard-add-dropdown');
+  if (dd) dd.style.display = 'none';
+};
+window.waitlistAddProduct = async function(sku){
+  const w = _wcardCurrent;
+  if (!w || !w._id) return;
+  const prod = (typeof PRODUCTS !== 'undefined' && PRODUCTS)
+    ? PRODUCTS.find(p => (p.code || '').toLowerCase() === (sku || '').toLowerCase()) : null;
+  if (!prod) { alert('No encontre ese SKU en el catalogo.'); return; }
+  const items = [...(w.items || [])];
+  const idx = items.findIndex(i => (i.code || '').toLowerCase() === (prod.code || '').toLowerCase());
+  if (idx >= 0) {
+    items[idx] = Object.assign({}, items[idx], {qty: (items[idx].qty || 0) + 1});
+  } else {
+    const stk = _revisionStockFor(prod.code);
+    items.push({
+      code: prod.code, desc: prod.desc, qty: 1,
+      firstStockTotal: stk.stockTotal, firstBackorder: stk.backorder || 0, firstDisponible: stk.disponible,
+    });
+  }
+  try {
+    await fbDb.collection('revision_waitlist').doc(w._id).update({
+      items,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    showSyncTag('Producto agregado: ' + prod.code);
+    const input = document.getElementById('wcard-add-input');
+    if (input) input.value = '';
+    waitlistHideAddDropdown();
+  } catch(e) {
+    console.error('waitlistAddProduct', e);
+    alert('Error agregando: ' + (e.message || e));
   }
 };
 
