@@ -351,21 +351,36 @@ const sapSL = {
   buildQuotationPayload(pedido) {
     const p = pedido;
     const cliSap = typeof sapGetClienteCode === 'function' ? sapGetClienteCode(p.clientName) : '';
-    // v405 (2026-08-05): fix SalesPersonCode vacio en la Oferta SAP.
-    // Preferir p.ownerVendor (guardado explicito en el pedido desde v405) sobre
-    // getVendorForKey (que busca POINTS[prov|loc] y falla para clientes SAP
-    // huerfanos sin POINT en la app). Reporte: Ioannis metio un pedido y en
-    // la Oferta 'Empleados de ventas' quedo vacio -> Santi no sabia de quien
-    // era. Antes: getVendorForKey('...') = '' -> slpCode = '' -> SAP muestra
-    // sin asignar. Ahora: usa el vendor del ownerUid guardado en Firestore.
-    // Pedidos pre-v405 sin ownerVendor caen al comportamiento viejo.
-    let _resolvedVendor = p.ownerVendor || '';
-    if (!_resolvedVendor && typeof getVendorForKey === 'function') {
+    // v445 (2026-08-11): resolver SalesPersonCode por el vendor del CLIENTE
+    // primero, con p.ownerVendor SOLO como fallback.
+    //
+    // Feedback Mariano: cuando un VDI (Santi/Ioannis) carga un pedido de un
+    // cliente que en el CRM es de un VDE (ej. MARIANO PESCA es de Mauricio),
+    // la Oferta SAP salia con SalesPersonCode del VDI → admin pensaba que la
+    // venta era del VDI cuando en realidad correspondia al VDE del cliente.
+    //
+    // Root cause: v405 (2026-08-05) invirtio la prioridad para arreglar el
+    // caso opuesto (Ioannis metia pedido y quedaba SlpCode vacio), poniendo
+    // p.ownerVendor primero. Pero ownerVendor es el vendor del USER QUE
+    // CARGA, no del cliente. Cuando el owner es VDI y el cliente tiene VDE
+    // asignado, se debe usar el VDE (fuente autoritativa por cliente).
+    //
+    // Nueva prioridad:
+    //   1. getVendorForKey(clientKey)  vendor asignado al CLIENTE (POINTS +
+    //      approvedAltasList). Autoritativo.
+    //   2. p.ownerVendor               fallback para clientes SAP huerfanos
+    //      donde POINTS y approvedAltasList no matchean (fix v405 preservado
+    //      para ese caso).
+    //   3. ''                          SAP muestra "sin asignar" y admin lo
+    //      resuelve al aprobar la Oferta.
+    let _resolvedVendor = '';
+    if (typeof getVendorForKey === 'function') {
       _resolvedVendor = getVendorForKey(
         p._fsKey ||
           p.tipo + '|' + (p.province || '') + '|' + (p.locName || '') + '|' + (p.clientName || '')
       );
     }
+    if (!_resolvedVendor) _resolvedVendor = p.ownerVendor || '';
     const slpCode =
       typeof sapGetSlpCodeForVendor === 'function' ? sapGetSlpCodeForVendor(_resolvedVendor) : '';
     const docDateIso = p.finalizedAt || p.confirmedAt || new Date().toISOString();
