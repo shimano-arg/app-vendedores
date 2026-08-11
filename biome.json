@@ -255,7 +255,8 @@
       "vendorInSeguimientoScope",
       "vendorLookup",
       "visitsCache",
-      "visitsCachePartner"
+      "visitsCachePartner",
+      "zonasKey"
     ]
   },
   "linter": {
