@@ -60,9 +60,11 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           MAIL_FROM: bot.shimano.pesca@gmail.com
-          # v465 (2026-08-11): agregados Pablo (gerencia AR), Santiago Beron
-          # (regional UY) y Diego Valsi (regional UY) al distribution list.
-          MAIL_TO: ${{ inputs.mail_to != '' && inputs.mail_to || 'mariano.erbino@shimano.com.ar,pablo.gonzalez@shimano.com.ar,santiago.beron@shimano.uy,diego.valsi@shimano.uy' }}
+          # v466 (2026-08-11): revertido v465. Pablo, Santi Beron y Diego
+          # pedidos por Mariano el mismo dia; no les gusto el formato.
+          # Vuelve solo a Mariano. Se puede reactivar el broadcast ampliando
+          # esta lista cuando se afine el mail.
+          MAIL_TO: ${{ inputs.mail_to != '' && inputs.mail_to || 'mariano.erbino@shimano.com.ar' }}
           POWERBI_REPORT_URL: ${{ vars.POWERBI_REPORT_URL }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: python scripts/send_tablero_sar_email.py
