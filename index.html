@@ -1228,7 +1228,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .contact-summary{color:#475569;font-weight:600}
 .contact-reset{padding:3px 10px;border:1px solid #cbd5e1;border-radius:4px;background:#fff;color:#475569;font-size:10px;font-weight:600;cursor:pointer;text-transform:uppercase;letter-spacing:.5px}
 .contact-reset:hover{background:#f1f5f9;color:#0f172a}
-.client-card{position:relative;display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;padding:8px 10px;padding-right:62px;background:#fff;border:1px solid #e5e7eb;border-left:3px solid #cbd5e1;border-radius:6px;cursor:pointer;transition:.15s}
+.client-card{position:relative;display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;padding:8px 10px 32px 10px;padding-right:62px;background:#fff;border:1px solid #e5e7eb;border-left:3px solid #cbd5e1;border-radius:6px;cursor:pointer;transition:.15s}
 .client-card:hover{background:#f8fafc}
 .client-card.contacted{background:#ecfdf5;border-color:#10b981;border-left-color:#10b981}
 .client-card.estado-habilitado{background:#ecfdf5;border-color:#10b981;border-left-color:#10b981}
@@ -1238,6 +1238,13 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .cli-state-badge.habilitado{background:#dcfce7;color:#166534}
 .cli-state-badge.cancelado{background:#fee2e2;color:#991b1b}
 .cli-state-badge.pendiente{background:#fef3c7;color:#92400e}
+/* v442: boton "Ver en mapa" dentro de la card, esquina inferior derecha.
+   Absoluto para no romper el layout del content de la card. */
+.client-card .cli-map-btn{position:absolute;bottom:6px;right:6px;padding:4px 9px;background:#00A9E0;color:#fff;border:none;border-radius:4px;font-size:10px;font-weight:800;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;display:inline-flex;align-items:center;gap:4px;box-shadow:0 1px 3px rgba(0,169,224,.35);transition:.12s;z-index:2}
+.client-card .cli-map-btn:hover{background:#0087b3;transform:translateY(-1px);box-shadow:0 2px 6px rgba(0,169,224,.5)}
+.client-card .cli-map-btn:active{transform:translateY(0)}
+.client-card .cli-map-btn[disabled]{background:#cbd5e1;color:#64748b;cursor:not-allowed;box-shadow:none}
+.client-card .cli-map-btn[disabled]:hover{background:#cbd5e1;transform:none}
 /* Bloque de acciones en modal del cliente */
 .client-data-block{background:#f8fafc;border:1.5px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin-bottom:12px}
 .client-data-block input:focus{border-color:#00A9E0;box-shadow:0 0 0 3px rgba(0,169,224,.15)}
@@ -3634,7 +3641,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v441';
+const APP_VERSION = 'v442';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -6924,6 +6931,13 @@ function renderClients(pts){
       html += '</div></div>';
       // Badge CAT en la esquina superior derecha (como antes).
       html += getClientCategoryBadgeHtml(it.point.province, it.point.name, it.name, {corner: true});
+      // v442: boton "Ver en mapa" — usa a.lat/a.lng (SAP alta geocodificada).
+      // Si el alta no tiene geo aun, el boton sale disabled con tooltip.
+      if (a.lat != null && a.lng != null) {
+        html += '<button class="cli-map-btn" onclick="viewOnMap(event, ' + a.lat + ', ' + a.lng + ')" title="Centrar en el mapa">&#128205; Ver en mapa</button>';
+      } else {
+        html += '<button class="cli-map-btn" disabled title="Este alta todavia no tiene ubicacion geocodificada">&#128205; Sin ubicaci&oacute;n</button>';
+      }
       html += '</div>';
       continue;
     }
@@ -7026,6 +7040,10 @@ function renderClients(pts){
     html += '</div></div>';
     // Badge de categoria comercial (P/A/B/C) en la esquina de la card
     html += getClientCategoryBadgeHtml(it.point.province, it.point.name, it.name, {corner: true});
+    // v442: boton "Ver en mapa" — usa it.point.lat/lon (POINTS ya geocodificados).
+    if (it.point.lat != null && it.point.lon != null) {
+      html += '<button class="cli-map-btn" onclick="viewOnMap(event, ' + it.point.lat + ', ' + it.point.lon + ')" title="Centrar en el mapa">&#128205; Ver en mapa</button>';
+    }
     html += '</div>';
   }
   if (!items.length) html = '<div style="color:#94a3b8;font-size:12px;padding:8px">Sin clientes para esta combinacion.</div>';
@@ -11559,6 +11577,31 @@ window.setClientStateFilter = function(f){
 
 window.zoomTo = function(lat, lon){
   map.flyTo([lat, lon], 11, {duration: .7});
+};
+
+// v442 (2026-08-11): "Ver en mapa" desde cada card del listado de clientes.
+// Desktop: cierra modal si esta abierto + flyTo + zoom 15 (cerca del cliente).
+// Mobile (< 900px): el mapa esta oculto (display:none del media query), asi que
+// abrimos Google Maps en pestana nueva con el pin de la coord — el vendedor lo
+// abre en el celular con su nav preferido y ve donde queda.
+window.viewOnMap = function(ev, lat, lon){
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  if (lat == null || lon == null || isNaN(lat) || isNaN(lon)) {
+    alert('Este cliente todavia no tiene ubicacion cargada.');
+    return;
+  }
+  const isMobile = window.matchMedia && window.matchMedia('(max-width:900px)').matches;
+  if (isMobile) {
+    window.open('https://www.google.com/maps?q=' + lat + ',' + lon, '_blank', 'noopener');
+    return;
+  }
+  // Desktop: cerrar el modal cliente si esta abierto para que el mapa quede visible.
+  try { if (typeof closeClientModal === 'function') closeClientModal(); } catch(e){}
+  try {
+    map.flyTo([lat, lon], 15, {duration: .7});
+    // Scroll al top para asegurar que el mapa este a la vista.
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  } catch(e){ console.warn('viewOnMap', e); }
 };
 
 function setFilter(f){
