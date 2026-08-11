@@ -60,6 +60,130 @@ window.exportMasterClientes = function () {
     return v ? v.label : vendorKey || '';
   }
 
+  // v450 (2026-08-11): indice de clasificacion desde visits. Para cada
+  // cliente, mergea los campos de clasificacion (tipo/tamano/fidelidad/
+  // especializacion/canalCompra/pop/tipoVenta/etc.) del formulario de
+  // visita/contactado. Politica: campo por campo, tomar el primer valor
+  // NO VACIO al recorrer docs de mas reciente a mas antiguo. Asi el usuario
+  // ve la clasificacion mas actualizada, pero si el ultimo contacto no llena
+  // un campo (contactos tienen menos campos que visitas), cae al anterior
+  // en vez de dejar vacio. Pedido de Mariano: "priorizar la ultima
+  // interaccion pero no perder info util de las anteriores".
+  const CLASSIF_FIELDS = [
+    'tipo',
+    'local',
+    'tamano',
+    'fidelidad',
+    'especializacion',
+    'canalCompra',
+    'relevancia',
+    'pop',
+    'necesidadPuntual',
+    'tipoVenta',
+    'ponderacionMostrado',
+    'ponderacionEcommerce',
+    'competencia',
+    'oportunidad',
+    'masVendido',
+    'masPreguntan',
+    'ayudaTienda',
+  ];
+  function _classifKey(prov, loc, tienda) {
+    return (
+      (prov || '').toString().toUpperCase().trim() +
+      '|' +
+      (loc || '').toString().trim() +
+      '|' +
+      (tienda || '').toString().trim()
+    );
+  }
+  function _classifTs(v) {
+    if (v && v.createdAt && v.createdAt.toMillis) return v.createdAt.toMillis();
+    if (v && v.fecha) return new Date(v.fecha).getTime() || 0;
+    return 0;
+  }
+  const classifIndex = new Map(); // key -> { last: {campos}, lastFecha, lastType, visitas, contactos }
+  if (typeof visitsCache !== 'undefined' && Array.isArray(visitsCache)) {
+    const byKey = new Map();
+    visitsCache.forEach((v) => {
+      if (!v) return;
+      const k = _classifKey(v.provincia, v.localidad, v.tienda);
+      if (!byKey.has(k)) byKey.set(k, []);
+      byKey.get(k).push(v);
+    });
+    byKey.forEach((arr, k) => {
+      arr.sort((a, b) => _classifTs(b) - _classifTs(a)); // desc por fecha
+      const merged = {};
+      arr.forEach((v) => {
+        CLASSIF_FIELDS.forEach((f) => {
+          if (merged[f] != null && merged[f] !== '' && merged[f] !== 0) return;
+          const val = v[f];
+          if (val != null && val !== '') merged[f] = val;
+        });
+      });
+      const latest = arr[0] || {};
+      classifIndex.set(k, {
+        merged,
+        lastFecha: latest.fecha || '',
+        lastType: latest.interactionType || (latest.espacio ? 'visita' : ''),
+        visitas: arr.filter((v) => v.interactionType !== 'contacto').length,
+        contactos: arr.filter((v) => v.interactionType === 'contacto').length,
+      });
+    });
+  }
+  function _classifRow(prov, loc, tienda) {
+    const entry = classifIndex.get(_classifKey(prov, loc, tienda));
+    if (!entry) {
+      return {
+        'Ultima interaccion': '',
+        'Tipo ultima interaccion': '',
+        'Total visitas': 0,
+        'Total contactos': 0,
+        'Tipo comercio': '',
+        Local: '',
+        Tamano: '',
+        Fidelidad: '',
+        Especializacion: '',
+        'Canal de compra': '',
+        Relevancia: '',
+        POP: '',
+        'Necesidad puntual': '',
+        'Tipo de venta': '',
+        'Ponderacion mostrador (%)': '',
+        'Ponderacion e-commerce (%)': '',
+        Competencia: '',
+        Oportunidad: '',
+        'Mas vendido': '',
+        'Mas preguntan': '',
+        'Ayuda tienda': '',
+      };
+    }
+    const m = entry.merged || {};
+    return {
+      'Ultima interaccion': entry.lastFecha,
+      'Tipo ultima interaccion': entry.lastType,
+      'Total visitas': entry.visitas,
+      'Total contactos': entry.contactos,
+      'Tipo comercio': m.tipo || '',
+      Local: m.local || '',
+      Tamano: m.tamano || '',
+      Fidelidad: m.fidelidad || '',
+      Especializacion: m.especializacion || '',
+      'Canal de compra': m.canalCompra || '',
+      Relevancia: m.relevancia != null ? m.relevancia : '',
+      POP: m.pop || '',
+      'Necesidad puntual': m.necesidadPuntual || '',
+      'Tipo de venta': m.tipoVenta || '',
+      'Ponderacion mostrador (%)': m.ponderacionMostrado != null ? m.ponderacionMostrado : '',
+      'Ponderacion e-commerce (%)': m.ponderacionEcommerce != null ? m.ponderacionEcommerce : '',
+      Competencia: m.competencia || '',
+      Oportunidad: m.oportunidad || '',
+      'Mas vendido': m.masVendido || '',
+      'Mas preguntan': m.masPreguntan || '',
+      'Ayuda tienda': m.ayudaTienda || '',
+    };
+  }
+
   // FILTRO SAP: solo se exportan los clientes HABILITADOS en SAP - los que
   // tienen cardCode + direccion. Esos son los que aparecen como verdes en
   // el mapa y se cuentan en el stat HABILITADOS. Antes el masterfile bajaba
@@ -108,24 +232,29 @@ window.exportMasterClientes = function () {
         const altaMatch = altas.find((a) => (a.comercio || a.fantasia || '') === name);
         if (altaMatch) cardCode = altaMatch.cardCodeSap || '';
       }
-      rows.push({
-        'CardCode SAP': cardCode,
-        'Nombre tienda': name,
-        'Alias (modal)': customName,
-        Tipo: 'Cliente actual',
-        Estado: estado,
-        Provincia: typeof titleCase === 'function' ? titleCase(province) : province,
-        'Localidad (mapa)': localityMap,
-        Departamento: dept,
-        'Vendedor externo (VDE)': vendor,
-        Zona: zone,
-        'Etiqueta zona': lookupVendorLabel(vendor),
-        'Asesor interno (VDI)': vdi,
-        Direccion: address,
-        'Localidad declarada': localityCust,
-        'Lat (geocode)': customLat || lat,
-        'Lng (geocode)': customLng || lon,
-      });
+      rows.push(
+        Object.assign(
+          {
+            'CardCode SAP': cardCode,
+            'Nombre tienda': name,
+            'Alias (modal)': customName,
+            Tipo: 'Cliente actual',
+            Estado: estado,
+            Provincia: typeof titleCase === 'function' ? titleCase(province) : province,
+            'Localidad (mapa)': localityMap,
+            Departamento: dept,
+            'Vendedor externo (VDE)': vendor,
+            Zona: zone,
+            'Etiqueta zona': lookupVendorLabel(vendor),
+            'Asesor interno (VDI)': vdi,
+            Direccion: address,
+            'Localidad declarada': localityCust,
+            'Lat (geocode)': customLat || lat,
+            'Lng (geocode)': customLng || lon,
+          },
+          _classifRow(province, localityMap, name)
+        )
+      );
     });
   });
   // Inyectar altas de client_applications (approvedAltasList):
@@ -165,24 +294,29 @@ window.exportMasterClientes = function () {
       const zone = lookupZone(vendor);
       const vdi = VDE_TO_VDI[vendor] || '';
       const loc = a.localidadFinal || a.localidad || '(sin localidad)';
-      rows.push({
-        'CardCode SAP': a.cardCodeSap || '',
-        'Nombre tienda': nombre,
-        'Alias (modal)': '',
-        Tipo: isProvisorio ? 'Provisorio (Alta rapida)' : 'Cliente actual',
-        Estado: isProvisorio ? 'Provisorio' : 'Habilitado',
-        Provincia: typeof titleCase === 'function' ? titleCase(prov) : prov,
-        'Localidad (mapa)': loc,
-        Departamento: '',
-        'Vendedor externo (VDE)': vendor,
-        Zona: zone,
-        'Etiqueta zona': lookupVendorLabel(vendor),
-        'Asesor interno (VDI)': vdi,
-        Direccion: a.calle || a.address || '',
-        'Localidad declarada': loc,
-        'Lat (geocode)': a.lat != null ? a.lat : '',
-        'Lng (geocode)': a.lng != null ? a.lng : '',
-      });
+      rows.push(
+        Object.assign(
+          {
+            'CardCode SAP': a.cardCodeSap || '',
+            'Nombre tienda': nombre,
+            'Alias (modal)': '',
+            Tipo: isProvisorio ? 'Provisorio (Alta rapida)' : 'Cliente actual',
+            Estado: isProvisorio ? 'Provisorio' : 'Habilitado',
+            Provincia: typeof titleCase === 'function' ? titleCase(prov) : prov,
+            'Localidad (mapa)': loc,
+            Departamento: '',
+            'Vendedor externo (VDE)': vendor,
+            Zona: zone,
+            'Etiqueta zona': lookupVendorLabel(vendor),
+            'Asesor interno (VDI)': vdi,
+            Direccion: a.calle || a.address || '',
+            'Localidad declarada': loc,
+            'Lat (geocode)': a.lat != null ? a.lat : '',
+            'Lng (geocode)': a.lng != null ? a.lng : '',
+          },
+          _classifRow(prov, loc, nombre)
+        )
+      );
     });
   }
 
@@ -225,6 +359,28 @@ window.exportMasterClientes = function () {
     { wch: 24 }, // Localidad declarada
     { wch: 14 }, // Lat
     { wch: 14 }, // Lng
+    // v450: clasificacion desde visits/contactos.
+    { wch: 14 }, // Ultima interaccion
+    { wch: 14 }, // Tipo ultima interaccion
+    { wch: 10 }, // Total visitas
+    { wch: 10 }, // Total contactos
+    { wch: 18 }, // Tipo comercio
+    { wch: 16 }, // Local
+    { wch: 12 }, // Tamano
+    { wch: 14 }, // Fidelidad
+    { wch: 20 }, // Especializacion
+    { wch: 20 }, // Canal de compra
+    { wch: 10 }, // Relevancia
+    { wch: 8 }, // POP
+    { wch: 26 }, // Necesidad puntual
+    { wch: 16 }, // Tipo de venta
+    { wch: 18 }, // Ponderacion mostrador
+    { wch: 18 }, // Ponderacion e-commerce
+    { wch: 26 }, // Competencia
+    { wch: 26 }, // Oportunidad
+    { wch: 22 }, // Mas vendido
+    { wch: 22 }, // Mas preguntan
+    { wch: 26 }, // Ayuda tienda
   ];
   XLSX.utils.book_append_sheet(wb, ws, 'Clientes habilitados SAP');
 
