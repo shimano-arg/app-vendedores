@@ -3799,7 +3799,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v455';
+const APP_VERSION = 'v457';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -10836,10 +10836,18 @@ window.revisionOnClienteInput = function(){
 function _revisionResolveCliente(nombre){
   const target = String(nombre || '').trim().toLowerCase();
   if (!target || typeof POINTS === 'undefined') return null;
-  // Match exacto por nombre en POINTS + approvedAltasList.
+  // v457 (2026-08-11): filtrar solo tiendas que efectivamente son clientes
+  // de la app (SAP-habilitado o LEAD/provisorio). NO tiendas del padron
+  // historico sin SAP y sin alta activa. Criterio:
+  //  - POINTS clients que pasan isSapConfirmed = tienen cardCode + direccion
+  //    cargados (aparecen verdes en el mapa).
+  //  - approvedAltasList con cardCodeSap (Cliente SAP registrado) O
+  //    manualSapPending (LEAD alta rapida pendiente).
+  // Match exacto por nombre en POINTS SAP-habilitados + approvedAltasList.
   for (const p of POINTS) {
     for (const n of (p.clients || [])) {
       if (n && n.toLowerCase() === target) {
+        if (typeof isSapConfirmed !== 'function' || !isSapConfirmed(p.province, p.name, n)) continue;
         const cardCode = (typeof sapGetClienteCode === 'function') ? (sapGetClienteCode(n) || '') : '';
         const vendor = (typeof getEffectiveVendorForClient === 'function') ? getEffectiveVendorForClient(p, n) : (p.vendor || '');
         return {nombre: n, provincia: p.province, localidad: p.name, cardCode, vendor};
@@ -10849,15 +10857,19 @@ function _revisionResolveCliente(nombre){
   const altas = (typeof approvedAltasList !== 'undefined') ? approvedAltasList : [];
   for (const a of altas) {
     const nom = a.comercio || a.fantasia || '';
-    if (nom && nom.toLowerCase() === target) {
-      return {
-        nombre: nom,
-        provincia: (a.provincia || '').toUpperCase(),
-        localidad: a.localidadFinal || a.localidad || '',
-        cardCode: a.cardCodeSap || '',
-        vendor: a.assignedVendor || '',
-      };
-    }
+    if (!nom || nom.toLowerCase() !== target) continue;
+    // Solo Cliente SAP (con cardCodeSap) o LEAD (manualSapPending && !cardCodeSap).
+    const esClienteSap = !!a.cardCodeSap;
+    const esLead = !!a.manualSapPending && !a.cardCodeSap;
+    if (!esClienteSap && !esLead) continue;
+    return {
+      nombre: nom,
+      provincia: (a.provincia || '').toUpperCase(),
+      localidad: a.localidadFinal || a.localidad || '',
+      cardCode: a.cardCodeSap || '',
+      vendor: a.assignedVendor || '',
+      esLead,
+    };
   }
   return null;
 }
@@ -10866,13 +10878,22 @@ function _populateRevisionClienteDatalist(){
   if (!list) return;
   while (list.firstChild) list.removeChild(list.firstChild);
   const names = new Set();
+  // v457: mismo filtro que _revisionResolveCliente - solo SAP-habilitados + LEADs.
   if (typeof POINTS !== 'undefined' && POINTS) {
-    POINTS.forEach(p => (p.clients || []).forEach(n => { if (n) names.add(n); }));
+    POINTS.forEach(p => (p.clients || []).forEach(n => {
+      if (!n) return;
+      if (typeof isSapConfirmed !== 'function' || !isSapConfirmed(p.province, p.name, n)) return;
+      names.add(n);
+    }));
   }
   const altas = (typeof approvedAltasList !== 'undefined') ? approvedAltasList : [];
   altas.forEach(a => {
     const nom = a.comercio || a.fantasia || '';
-    if (nom) names.add(nom);
+    if (!nom) return;
+    const esClienteSap = !!a.cardCodeSap;
+    const esLead = !!a.manualSapPending && !a.cardCodeSap;
+    if (!esClienteSap && !esLead) return;
+    names.add(nom);
   });
   const arr = [...names].sort().slice(0, 3000); // limite razonable
   arr.forEach(n => {
@@ -10898,7 +10919,11 @@ window.revisionDejarRecalculando = async function(){
   }
   const nombre = (input.value || '').trim();
   const cli = _revisionResolveCliente(nombre);
-  if (!cli) { alert('Elegi un cliente valido de la lista antes de dejar recalculando.'); input.focus(); return; }
+  if (!cli) {
+    alert('Cliente no valido.\n\nSolo se aceptan tiendas que sean Cliente SAP habilitado (cardCode + direccion) o LEAD (Alta Rapida pendiente de cargar a SAP). Verifica el nombre exacto de la lista.');
+    input.focus();
+    return;
+  }
   const btn = document.getElementById('revision-wait-btn');
   btn.disabled = true;
   const originalTxt = btn.textContent;
