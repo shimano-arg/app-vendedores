@@ -1246,6 +1246,17 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .client-card .cli-map-btn:active{transform:translateY(0)}
 .client-card .cli-map-btn[disabled]{background:#cbd5e1;color:#64748b;cursor:not-allowed;box-shadow:none}
 .client-card .cli-map-btn[disabled]:hover{background:#cbd5e1;transform:none}
+/* v444 (2026-08-11): boton "Envio gratis" arriba del "Ver en mapa".
+   SOLO visible para Ioannis (body.is-ioannis, seteado en applyRolePermissions).
+   Default azul marino oscuro; toggle verde cuando el cliente lo tiene marcado.
+   Ancho fijo mismo que cli-map-btn para alinear visualmente. */
+.client-card .cli-envio-btn{display:none;position:absolute;bottom:32px;right:6px;padding:4px 9px;background:#1F3864;color:#fff;border:none;border-radius:4px;font-size:10px;font-weight:800;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;align-items:center;gap:4px;box-shadow:0 1px 3px rgba(31,56,100,.35);transition:.12s;z-index:2}
+body.is-ioannis .client-card .cli-envio-btn{display:inline-flex}
+body.is-ioannis .client-card{padding-bottom:60px}
+.client-card .cli-envio-btn:hover{background:#152744;transform:translateY(-1px);box-shadow:0 2px 6px rgba(31,56,100,.5)}
+.client-card .cli-envio-btn.active{background:#10b981;box-shadow:0 1px 3px rgba(16,185,129,.4)}
+.client-card .cli-envio-btn.active:hover{background:#059669;box-shadow:0 2px 6px rgba(16,185,129,.55)}
+.client-card .cli-envio-btn:active{transform:translateY(0)}
 /* Bloque de acciones en modal del cliente */
 .client-data-block{background:#f8fafc;border:1.5px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin-bottom:12px}
 .client-data-block input:focus{border-color:#00A9E0;box-shadow:0 0 0 3px rgba(0,169,224,.15)}
@@ -3642,7 +3653,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v443';
+const APP_VERSION = 'v444';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -6939,6 +6950,14 @@ function renderClients(pts){
       } else {
         html += '<button class="cli-map-btn" disabled title="Este alta todavia no tiene ubicacion geocodificada">&#128205; Sin ubicaci&oacute;n</button>';
       }
+      // v444: boton "Envio gratis" para Ioannis (CSS-gated). La key usa el
+      // cardCodeSap como identificador estable — no depende de nombre ni geo.
+      {
+        const _sapKey = 'SAP|' + (a.cardCodeSap || a._fsId || '');
+        const _envio = !!(clientMeta[_sapKey] && clientMeta[_sapKey].envioGratis);
+        const _envTitle = _envio ? 'Tiene envio gratis - click para quitarlo' : 'Marcar como envio gratis';
+        html += '<button class="cli-envio-btn' + (_envio ? ' active' : '') + '" onclick="toggleEnvioGratis(event, \'' + escapeAttr(_sapKey) + '\')" title="' + _envTitle + '">&#128230; Env&iacute;o gratis</button>';
+      }
       html += '</div>';
       continue;
     }
@@ -7044,6 +7063,13 @@ function renderClients(pts){
     // v442: boton "Ver en mapa" — usa it.point.lat/lon (POINTS ya geocodificados).
     if (it.point.lat != null && it.point.lon != null) {
       html += '<button class="cli-map-btn" onclick="viewOnMap(event, ' + it.point.lat + ', ' + it.point.lon + ')" title="Centrar en el mapa">&#128205; Ver en mapa</button>';
+    }
+    // v444: boton "Envio gratis" arriba del "Ver en mapa". CSS gate lo esconde
+    // para todos menos Ioannis (body.is-ioannis). Estado desde clientMeta[k].envioGratis.
+    {
+      const _envio = !!(clientMeta[k] && clientMeta[k].envioGratis);
+      const _envTitle = _envio ? 'Tiene envio gratis - click para quitarlo' : 'Marcar como envio gratis';
+      html += '<button class="cli-envio-btn' + (_envio ? ' active' : '') + '" onclick="toggleEnvioGratis(event, \'' + escapeAttr(k) + '\')" title="' + _envTitle + '">&#128230; Env&iacute;o gratis</button>';
     }
     html += '</div>';
   }
@@ -11580,6 +11606,31 @@ window.zoomTo = function(lat, lon){
   map.flyTo([lat, lon], 11, {duration: .7});
 };
 
+// v444 (2026-08-11): toggle "Envio gratis" desde la card. Solo Ioannis puede
+// tocarlo — el CSS lo esconde para los demas roles (body.is-ioannis gate) y
+// esta funcion re-chequea por si alguien bypasea el CSS via devtools. Persiste
+// en clientMeta[key].envioGratis y saveClientMeta() sube al userData del user.
+window.toggleEnvioGratis = function(ev, key){
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  const _em = ((currentUser && (currentUser.email || '')) || '').toLowerCase();
+  if (_em !== 'ioannis.palkoudakis@shimano.com.ar') return;
+  if (!clientMeta[key]) clientMeta[key] = {};
+  const next = !clientMeta[key].envioGratis;
+  clientMeta[key].envioGratis = next;
+  // UI optimista: togglear la clase en el boton clickeado.
+  try {
+    const btn = ev && ev.currentTarget;
+    if (btn) {
+      btn.classList.toggle('active', next);
+      btn.setAttribute('title', next ? 'Tiene envio gratis - click para quitarlo' : 'Marcar como envio gratis');
+    }
+  } catch(e){}
+  try { saveClientMeta(); } catch(e){ console.error('saveClientMeta from envioGratis', e); }
+  try {
+    if (typeof showSyncTag === 'function') showSyncTag(next ? 'Envio gratis: ON' : 'Envio gratis: OFF');
+  } catch(e){}
+};
+
 // v442 (2026-08-11): "Ver en mapa" desde cada card del listado de clientes.
 // Desktop: cierra modal si esta abierto + flyTo + zoom 15 (cerca del cliente).
 // Mobile (< 900px): el mapa esta oculto (display:none del media query), asi que
@@ -12968,6 +13019,10 @@ async function fetchAndApplyRole(){
 function applyRolePermissions(){
   document.body.classList.remove('role-admin','role-vendedor','role-viewer','role-unassigned','role-interno');
   document.body.classList.add('role-' + userRole);
+  // v444: flag body.is-ioannis para gates de features exclusivas de Ioannis
+  // (por ahora: boton "Envio gratis" en cada card de cliente).
+  const _em = ((currentUser && (currentUser.email || '')) || '').toLowerCase();
+  document.body.classList.toggle('is-ioannis', _em === 'ioannis.palkoudakis@shimano.com.ar');
   // Badge: ADMIN solo el rol; resto solo PRIMER NOMBRE del usuario para que entre en mobile.
   const badge = document.getElementById('user-role-badge');
   badge.className = 'role-badge ' + userRole;
