@@ -463,20 +463,22 @@ def render_html(kpis: dict, logo_cid: str) -> str:
 
       <!-- CTA bulletproof: tabla + VML para Outlook desktop, fallback CSS
            para el resto. Sin esto Outlook Web strippea el background del <a>
-           con padding y el "botón" aparece como texto plano. -->
+           con padding y el "botón" aparece como texto plano. Además Outlook
+           Web fuerza color azul en los anchors — se compensa con <span> +
+           <font> + !important dentro del <a>. -->
       <tr><td style="padding:32px 28px 20px;text-align:center">
         <!--[if mso]>
         <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{POWERBI_REPORT_URL}" style="height:46px;v-text-anchor:middle;width:320px;" arcsize="17%" stroke="f" fillcolor="{NAVY}">
           <w:anchorlock/>
-          <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;letter-spacing:0.5px;">ABRIR TABLERO EN POWER BI →</center>
+          <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;letter-spacing:0.5px;">ABRIR TABLERO EN POWER BI &rarr;</center>
         </v:roundrect>
         <![endif]-->
         <!--[if !mso]><!-->
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;border-collapse:separate">
           <tr>
             <td align="center" bgcolor="{NAVY}" style="background:{NAVY};border-radius:8px;box-shadow:0 4px 12px rgba(31,56,100,.25)">
-              <a href="{POWERBI_REPORT_URL}" target="_blank" style="display:inline-block;padding:14px 32px;font-family:Arial,sans-serif;font-size:13px;font-weight:800;color:#ffffff;text-decoration:none;letter-spacing:.5px;text-transform:uppercase;border-radius:8px;background:{NAVY}">
-                Abrir tablero en Power BI →
+              <a href="{POWERBI_REPORT_URL}" target="_blank" style="display:inline-block;padding:14px 32px;font-family:Arial,sans-serif;font-size:13px;font-weight:800;color:#ffffff !important;text-decoration:none !important;letter-spacing:.5px;text-transform:uppercase;border-radius:8px;background:{NAVY};mso-hide:all">
+                <font color="#ffffff"><span style="color:#ffffff !important;text-decoration:none !important">ABRIR TABLERO EN POWER BI &rarr;</span></font>
               </a>
             </td>
           </tr>
