@@ -146,26 +146,38 @@ window.closeDashboardModal = function () {
   document.getElementById('dashboard-modal').classList.remove('open');
 };
 
-// Indice rapido (province, locName) -> vendor key
-// E2.h fix: pre-extracción el IIFE corría dentro del inline (línea 25782)
-// cuando POINTS ya existía (declarado en línea 3417 inline). Post-extracción
-// el bundle IIFE corre ANTES del inline → POINTS aún es undefined. Cambio a
-// lazy init: se construye la primera vez que getVendorForKey() se llama.
-let _pointToVendor = null;
-function getPointToVendorMap() {
-  if (!_pointToVendor) {
-    _pointToVendor = {};
-    POINTS.forEach((p) => {
-      _pointToVendor[p.province + '|' + p.name] = p.vendor || '';
-    });
-  }
-  return _pointToVendor;
-}
-
 function getVendorForKey(orderKeyStr) {
   // key = tipo|prov|locName|clientName
+  // v449 (2026-08-11): aplicar vendor_overrides en el lookup. Antes usaba
+  // una cache lazy con p.vendor BASE del POINT y JAMAS se invalidaba →
+  // tiendas reasignadas via Panel Zonas (scope='loc') o Master Clientes
+  // (scope='shop') quedaban devolviendo el vendor original del padron.
+  //
+  // Impacto del bug: cuando un VDI (Ioannis/Santi) carga un pedido de una
+  // tienda que en el CRM tiene override a un VDE, sap-service-layer.js
+  // buildQuotationPayload llamaba a getVendorForKey → veia el vendor viejo
+  // (o vacio) → caia al fallback p.ownerVendor (el VDI que carga) → SlpCode
+  // SAP quedaba con el VDI. Ejemplo real 2026-08-11: Ioannis carga pedido
+  // de una tienda reasignada a Gonzalo, SAP recibio SalesPersonCode 52
+  // (Ioannis) en vez de 50 (Gonzalo).
+  //
+  // Fix: usar getEffectiveVendorForClient(p, clientName) que respeta la
+  // cascada override scope='shop' > scope='loc' > scope='prov' >
+  // PROVINCE_VENDOR_OVERRIDE hardcode > p.vendor base. Es la MISMA cascada
+  // que usa el color del mapa y sidebar clients → cero divergencia. Sin
+  // cache: cada llamada mira vendorOverrides global (que ya vive en RAM,
+  // hidratado por su listener). Cero costo de invalidacion.
+  if (typeof POINTS === 'undefined' || !POINTS) return '';
   const parts = orderKeyStr.split('|');
-  return getPointToVendorMap()[parts[1] + '|' + parts[2]] || '';
+  const prov = parts[1] || '';
+  const locName = parts[2] || '';
+  const clientName = parts[3] || '';
+  const p = POINTS.find((pp) => pp.province === prov && pp.name === locName);
+  if (!p) return '';
+  if (typeof getEffectiveVendorForClient === 'function') {
+    return getEffectiveVendorForClient(p, clientName) || '';
+  }
+  return p.vendor || '';
 }
 
 window.renderDashboard = function () {
