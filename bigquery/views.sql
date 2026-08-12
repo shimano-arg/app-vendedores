@@ -762,6 +762,45 @@ WITH po_prox AS (
     AND COALESCE(po.cancelled, 'tNO') = 'tNO'
     AND SAFE_CAST(JSON_VALUE(line, '$.RemainingOpenQuantity') AS FLOAT64) > 0
   GROUP BY item_code
+),
+-- v474 (2026-08-12): SQs que tienen una Nota de Credito descendiente por
+-- la cadena SQ -> SO -> Invoice -> NC. Estas SQs, si tienen un duplicado
+-- del mismo cliente/total, inflan el backorder. Reportado por Mariano
+-- caso RICARDO FABIAN BLANCO GOITIA: SQ 25797 (48394) con NC 1810
+-- descendiente + SQ 25879 (48562) sin NC -> ambas open sumaban backorder
+-- x2. Fix: excluir del backorder la SQ con NC cuando hay duplicado.
+-- BaseType SAP B1: 13=Invoice, 17=SalesOrder, 23=Quotation.
+sqs_con_nc_descendiente AS (
+  SELECT DISTINCT SAFE_CAST(JSON_VALUE(so_line, '$.BaseEntry') AS INT64) AS sq_doc_entry
+  FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw` nc,
+  UNNEST(JSON_EXTRACT_ARRAY(nc.lines_json)) AS nc_line
+  JOIN `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv
+    ON inv.doc_entry = SAFE_CAST(JSON_VALUE(nc_line, '$.BaseEntry') AS INT64)
+    AND SAFE_CAST(JSON_VALUE(nc_line, '$.BaseType') AS INT64) = 13,
+  UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json)) AS inv_line
+  JOIN `app-vendedores-shimano.shimano_app.sap_orders_raw` so
+    ON so.doc_entry = SAFE_CAST(JSON_VALUE(inv_line, '$.BaseEntry') AS INT64)
+    AND SAFE_CAST(JSON_VALUE(inv_line, '$.BaseType') AS INT64) = 17,
+  UNNEST(JSON_EXTRACT_ARRAY(so.lines_json)) AS so_line
+  WHERE SAFE_CAST(JSON_VALUE(so_line, '$.BaseType') AS INT64) = 23
+    AND COALESCE(nc.cancelled, 'tNO') = 'tNO'
+),
+-- SQs que estan open + tienen NC descendiente + existe OTRA SQ open del
+-- mismo cliente con mismo doc_total en +/-15 dias. Esas son las que
+-- inflan y hay que excluir.
+sqs_a_excluir AS (
+  SELECT DISTINCT o1.doc_entry AS sq_doc_entry
+  FROM `app-vendedores-shimano.shimano_app.sap_quotations_raw` o1
+  JOIN `app-vendedores-shimano.shimano_app.sap_quotations_raw` o2
+    ON o1.card_code = o2.card_code
+    AND o1.doc_total = o2.doc_total
+    AND o1.doc_entry != o2.doc_entry
+    AND ABS(DATE_DIFF(o1.doc_date, o2.doc_date, DAY)) <= 15
+  WHERE o1.document_status = 'bost_Open'
+    AND o2.document_status = 'bost_Open'
+    AND COALESCE(o1.cancelled, 'tNO') = 'tNO'
+    AND COALESCE(o2.cancelled, 'tNO') = 'tNO'
+    AND o1.doc_entry IN (SELECT sq_doc_entry FROM sqs_con_nc_descendiente)
 )
 SELECT
   o.doc_entry                                                           AS sq_doc_entry,
@@ -810,7 +849,10 @@ LEFT JOIN po_prox po
   ON po.item_code = JSON_VALUE(line, '$.ItemCode')
 WHERE o.document_status = 'bost_Open'
   AND COALESCE(o.cancelled, 'tNO') = 'tNO'
-  AND SAFE_CAST(JSON_VALUE(line, '$.RemainingOpenQuantity') AS FLOAT64) > 0;
+  AND SAFE_CAST(JSON_VALUE(line, '$.RemainingOpenQuantity') AS FLOAT64) > 0
+  -- v474: excluir SQs duplicadas donde una tiene NC descendiente. Ver CTE
+  -- sqs_a_excluir arriba para el criterio completo.
+  AND o.doc_entry NOT IN (SELECT sq_doc_entry FROM sqs_a_excluir);
 
 
 -- ============================================================
