@@ -259,6 +259,17 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // v482 (2026-08-12): facturacion_snapshot escrito por el cron
+    // sync_sap_to_bigquery.py (BQ v_ventas_lineas -> Firestore).
+    // 1 doc por vendedor + __TOTAL__ nacional con {hoyArs, mesArs, anoArs}.
+    // Uso: cards del sidebar-left (Facturacion Diaria + Cumplimiento).
+    // Todos los readers pueden leer; el filtro por vendor se aplica
+    // client-side segun scope.
+    match /facturacion_snapshot/{docId} {
+      allow read: if isReader();
+      allow write: if false;
+    }
+
     // v454 (2026-08-11): revision_waitlist — pedidos "en espera" cargados
     // desde el modal Revision Excel. Compartido entre los 4 users del
     // whitelist (Mariano/Ioannis/Santi/Pablo = admin/gerente/interno).

@@ -3914,7 +3914,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v481';
+const APP_VERSION = 'v482';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -14627,7 +14627,7 @@ function applyRolePermissions(){
   // Targets button: solo gerencia (Mariano/Diego/Santi, gerente, o admin)
   document.getElementById('targets-btn').style.display = canManageTargets() ? '' : 'none';
   // Activa listeners cross-collection segun rol
-  if (userRole !== 'unassigned') { ensureNotifsListener(); ensureRouteOverridesListener(); ensureTargetsListener(); ensureClientLocsListener(); ensureSapVendorsListener(); ensureClientMasterListener(); ensureAltaCliListener(); ensureRendicionesListener(); ensureVendorOverridesListener(); ensureStockSnapshotListener(); ensurePriceListListener(); ensureTemporalPriceListListener(); ensureApprovedAltasListener(); try { ensureBackordersListener(); } catch(e) { console.warn('ensureBackordersListener', e); } try { ensureRevisionWaitlistListener(); } catch(e) { console.warn('ensureRevisionWaitlistListener', e); } }
+  if (userRole !== 'unassigned') { ensureNotifsListener(); ensureRouteOverridesListener(); ensureTargetsListener(); ensureClientLocsListener(); ensureSapVendorsListener(); ensureClientMasterListener(); ensureAltaCliListener(); ensureRendicionesListener(); ensureVendorOverridesListener(); ensureStockSnapshotListener(); ensurePriceListListener(); ensureTemporalPriceListListener(); ensureApprovedAltasListener(); try { ensureBackordersListener(); } catch(e) { console.warn('ensureBackordersListener', e); } try { ensureRevisionWaitlistListener(); } catch(e) { console.warn('ensureRevisionWaitlistListener', e); } try { ensureFacturacionSnapshotListener(); } catch(e) { console.warn('ensureFacturacionSnapshotListener', e); } }
   // Si soy VDI, cargar las parejas VDE para habilitar "actuar en nombre de".
   if (userRole === 'interno') { try { loadMyExternalPartners(); } catch(e) { console.warn('loadMyExternalPartners', e); } }
   // Acceso denegado para unassigned
@@ -14716,25 +14716,57 @@ function _moveButtonsToSidebarLeft(){
   dst.dataset.movedDone = '1';
 }
 
-// v481: calcula facturacion diaria + cumplimiento mensual usando data
-// local de la app (pedidos confirmed con netAmountArs). Cuando implementemos
-// el sync SAP -> Firestore de v_ventas_lineas (v482), esta funcion cambia
-// la fuente. Firma estable.
+// v482 (2026-08-12): listener del snapshot BQ -> Firestore de facturacion.
+// Popula FACTURACION_SNAPSHOT map. 1 entry por vendedor + '__TOTAL__'
+// nacional. Cada entry: {hoyArs, mesArs, anoArs, updatedAt}.
+var FACTURACION_SNAPSHOT = {};
+var _unsubFacturacionSnapshot = null;
+function ensureFacturacionSnapshotListener(){
+  if (_unsubFacturacionSnapshot) return;
+  if (!currentUser || !fbDb) return;
+  _unsubFacturacionSnapshot = fbDb.collection('facturacion_snapshot').onSnapshot(qs => {
+    FACTURACION_SNAPSHOT = {};
+    qs.forEach(d => { FACTURACION_SNAPSHOT[d.id] = d.data() || {}; });
+    try { if (typeof _updateSidebarLeftCards === 'function') _updateSidebarLeftCards(); } catch(e){}
+  }, err => console.warn('[facturacion_snapshot] listener', err));
+}
+
+// v481/v482: calcula facturacion diaria + cumplimiento mensual.
+// Fuente prioritaria: FACTURACION_SNAPSHOT (BQ v_ventas_lineas oficial post-SAP,
+// mismo numero que PowerBI). Fallback: data local (netAmountArs de confirmed)
+// si el snapshot no cargo todavia.
 function _computeFacturacionCumplimientoLocal(){
   const now = new Date();
   const y = now.getFullYear();
   const m = now.getMonth();
   const d = now.getDate();
+  // Scope por vendedor si soy vendedor/interno; nacional si admin/gerente.
+  const scopeVendor = (userRole === 'vendedor' || userRole === 'interno')
+    ? (assignedVendor || null) : null;
+  // Intento 1: usar FACTURACION_SNAPSHOT (BQ).
+  const snapshotKey = scopeVendor
+    ? scopeVendor.replace(/ /g, '_').replace(/\(|\)/g, '').toUpperCase()
+    : '__TOTAL__';
+  const snap = FACTURACION_SNAPSHOT[snapshotKey];
+  if (snap && (snap.hoyArs != null || snap.mesArs != null)) {
+    const targetMesArs = _getTargetMesArsPara(scopeVendor, y, m + 1);
+    const mesArs = Number(snap.mesArs || 0);
+    const cumplPct = targetMesArs > 0 ? Math.round(100 * mesArs / targetMesArs) : null;
+    return {
+      hoyArs: Number(snap.hoyArs || 0),
+      mesArs,
+      targetMesArs,
+      cumplPct,
+      source: 'snapshot',
+    };
+  }
+  // Fallback: data local (v481 comportamiento).
   const pad = n => String(n).padStart(2, '0');
   const hoyPrefix = y + '-' + pad(m + 1) + '-' + pad(d);
   const mesPrefix = y + '-' + pad(m + 1);
-  // Filter por vendedor scope si soy vendedor.
-  const scopeVendor = (userRole === 'vendedor' || userRole === 'interno')
-    ? (assignedVendor || null) : null;
   let hoyArs = 0, mesArs = 0;
   if (typeof confirmed === 'object' && confirmed) {
     Object.entries(confirmed).forEach(([key, list]) => {
-      // Si soy vendor scope, filtrar por key: 'C|prov|loc|nombre' -> lookup vendor via getVendorForKey.
       if (scopeVendor && typeof getVendorForKey === 'function') {
         const kv = getVendorForKey(key);
         if (kv !== scopeVendor) return;
@@ -14748,24 +14780,22 @@ function _computeFacturacionCumplimientoLocal(){
       });
     });
   }
-  // Target del mes: TARGETS_BY_VENDOR{vendor: {YYYY-MM: monto}} o similar.
-  // Uso getMonthlyTargetArs si esta disponible (dashboard.js exports).
-  let targetMesArs = 0;
-  if (typeof getMonthlyTargetArs === 'function') {
-    try {
-      if (scopeVendor) {
-        targetMesArs = getMonthlyTargetArs(scopeVendor, y, m + 1) || 0;
-      } else {
-        // Suma nacional para admin/gerente: sum sobre todos los vendedores.
-        const vendors = (typeof VENDORS !== 'undefined' && VENDORS) ? VENDORS.map(v => v.key) : [];
-        vendors.forEach(v => {
-          targetMesArs += (getMonthlyTargetArs(v, y, m + 1) || 0);
-        });
-      }
-    } catch(e) { console.warn('getMonthlyTargetArs', e); }
-  }
+  const targetMesArs = _getTargetMesArsPara(scopeVendor, y, m + 1);
   const cumplPct = targetMesArs > 0 ? Math.round(100 * mesArs / targetMesArs) : null;
-  return { hoyArs, mesArs, targetMesArs, cumplPct };
+  return { hoyArs, mesArs, targetMesArs, cumplPct, source: 'local' };
+}
+function _getTargetMesArsPara(scopeVendor, year, monthOneBased){
+  let target = 0;
+  if (typeof getMonthlyTargetArs !== 'function') return 0;
+  try {
+    if (scopeVendor) {
+      target = getMonthlyTargetArs(scopeVendor, year, monthOneBased) || 0;
+    } else {
+      const vendors = (typeof VENDORS !== 'undefined' && VENDORS) ? VENDORS.map(v => v.key) : [];
+      vendors.forEach(v => { target += (getMonthlyTargetArs(v, year, monthOneBased) || 0); });
+    }
+  } catch(e){}
+  return target;
 }
 function _updateSidebarLeftCards(){
   const factHoyEl = document.getElementById('slft-fact-hoy');
@@ -14773,10 +14803,12 @@ function _updateSidebarLeftCards(){
   const cumplPctEl = document.getElementById('slft-cumpl-pct');
   const cumplSubEl = document.getElementById('slft-cumpl-sub');
   if (!factHoyEl) return;
-  const { hoyArs, mesArs, targetMesArs, cumplPct } = _computeFacturacionCumplimientoLocal();
+  const { hoyArs, mesArs, targetMesArs, cumplPct, source } = _computeFacturacionCumplimientoLocal();
   const fmt = (n) => '$' + Math.round(n || 0).toLocaleString('es-AR');
   factHoyEl.textContent = fmt(hoyArs);
-  if (factHoySubEl) factHoySubEl.textContent = 'Mes: ' + fmt(mesArs);
+  // v482: mostrar fuente (SAP oficial vs local) para diagnostico.
+  const srcLabel = source === 'snapshot' ? 'SAP' : 'local';
+  if (factHoySubEl) factHoySubEl.textContent = 'Mes: ' + fmt(mesArs) + ' · ' + srcLabel;
   if (cumplPct == null) {
     cumplPctEl.textContent = '—';
     if (cumplSubEl) cumplSubEl.textContent = 'Sin target del mes';
@@ -16973,6 +17005,7 @@ function detachFirebaseListeners(){
   n += off('unsubSegStatus', unsubSegStatus, () => unsubSegStatus = null);
   n += off('_unsubAutoSendPedidos', _unsubAutoSendPedidos, () => _unsubAutoSendPedidos = null);
   n += off('_unsubRevisionWaitlist', _unsubRevisionWaitlist, () => _unsubRevisionWaitlist = null);
+  n += off('_unsubFacturacionSnapshot', _unsubFacturacionSnapshot, () => _unsubFacturacionSnapshot = null);
   if (typeof _logT === 'function') _logT('detach: ' + n + ' listeners cerrados');
   return n;
 }

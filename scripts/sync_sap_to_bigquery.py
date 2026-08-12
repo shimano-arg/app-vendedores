@@ -1319,6 +1319,122 @@ def _load_to_bq_with_schema(bq_client: bigquery.Client, table_id: str, rows: lis
     log(f'[BQ/{entity_name}] OK: {dest.num_rows} rows en la tabla despues del truncate+load')
 
 
+def sync_facturacion_snapshot_to_firestore(bq_client: bigquery.Client,
+                                             db: firestore.Client,
+                                             dry_run: bool = False) -> int:
+    """v482 (2026-08-12): agrega v_ventas_lineas por vendor + total nacional
+    y escribe a Firestore facturacion_snapshot/{VENDOR_NORM} con
+    {hoyArs, mesArs, anoArs, updatedAt}. Alimenta las 2 cards del
+    sidebar-left (Facturacion Diaria + Cumplimiento del mes).
+
+    Fuente = misma que PowerBI 'Facturacion Total' del usuario:
+        SUM(importe_linea_ars) WHERE is_pesca = TRUE
+
+    Escribe:
+      - 1 doc por vendor (assigned_vendor de v_ventas_lineas): VENDOR_NORM.
+      - 1 doc __TOTAL__ con la suma nacional (para admin/gerente scope).
+
+    Timezone: America/Argentina/Buenos_Aires para hoy/mes/año.
+    """
+    log('[FACTURACION] agregando v_ventas_lineas por vendor + total nacional...')
+    query = """
+    WITH facts AS (
+      SELECT
+        COALESCE(NULLIF(assigned_vendor, ''), '(SIN ASIGNAR)') AS vendor,
+        doc_date,
+        importe_linea_ars
+      FROM `app-vendedores-shimano.shimano_app.v_ventas_lineas`
+      WHERE is_pesca = TRUE
+        AND doc_date IS NOT NULL
+    )
+    SELECT
+      vendor,
+      SUM(CASE WHEN doc_date = CURRENT_DATE('America/Argentina/Buenos_Aires')
+              THEN importe_linea_ars ELSE 0 END) AS hoy_ars,
+      SUM(CASE WHEN doc_date >= DATE_TRUNC(CURRENT_DATE('America/Argentina/Buenos_Aires'), MONTH)
+              THEN importe_linea_ars ELSE 0 END) AS mes_ars,
+      SUM(CASE WHEN doc_date >= DATE_TRUNC(CURRENT_DATE('America/Argentina/Buenos_Aires'), YEAR)
+              THEN importe_linea_ars ELSE 0 END) AS ano_ars
+    FROM facts
+    GROUP BY vendor
+    """
+    rows = list(bq_client.query(query, location=BQ_LOCATION).result())
+    if not rows:
+        log('[FACTURACION] 0 filas (v_ventas_lineas vacia?)')
+        return 0
+
+    hoy_total = 0.0
+    mes_total = 0.0
+    ano_total = 0.0
+    per_vendor = []
+    for r in rows:
+        hoy = float(r.hoy_ars or 0)
+        mes = float(r.mes_ars or 0)
+        ano = float(r.ano_ars or 0)
+        hoy_total += hoy
+        mes_total += mes
+        ano_total += ano
+        per_vendor.append({
+            'vendor': r.vendor,
+            'hoyArs': hoy,
+            'mesArs': mes,
+            'anoArs': ano,
+        })
+
+    log(f'[FACTURACION] {len(per_vendor)} vendors procesados. '
+        f'Nacional: hoy=${hoy_total:,.0f} mes=${mes_total:,.0f} ano=${ano_total:,.0f}')
+
+    if dry_run:
+        for v in per_vendor:
+            log(f'  DRY-RUN {v["vendor"]}: hoy=${v["hoyArs"]:,.0f} '
+                f'mes=${v["mesArs"]:,.0f} ano=${v["anoArs"]:,.0f}')
+        log(f'  DRY-RUN __TOTAL__: hoy=${hoy_total:,.0f} '
+            f'mes=${mes_total:,.0f} ano=${ano_total:,.0f}')
+        return 0
+
+    coll = db.collection('facturacion_snapshot')
+    written = 0
+    for v in per_vendor:
+        vendor_norm = (v['vendor']
+                       .replace(' ', '_')
+                       .replace('(', '')
+                       .replace(')', '')
+                       .upper())
+        coll.document(vendor_norm).set({
+            'vendorKey': v['vendor'],
+            'hoyArs': v['hoyArs'],
+            'mesArs': v['mesArs'],
+            'anoArs': v['anoArs'],
+            'updatedAt': firestore.SERVER_TIMESTAMP,
+        })
+        written += 1
+
+    # Doc __TOTAL__ nacional para admin/gerente.
+    coll.document('__TOTAL__').set({
+        'vendorKey': '__TOTAL__',
+        'hoyArs': hoy_total,
+        'mesArs': mes_total,
+        'anoArs': ano_total,
+        'updatedAt': firestore.SERVER_TIMESTAMP,
+    })
+    written += 1
+
+    # Cleanup: borrar docs de vendedores que ya no aparecen (rotacion de equipo).
+    existing_ids = {(v['vendor']
+                     .replace(' ', '_')
+                     .replace('(', '')
+                     .replace(')', '')
+                     .upper()) for v in per_vendor}
+    existing_ids.add('__TOTAL__')
+    for doc in coll.stream():
+        if doc.id not in existing_ids:
+            doc.reference.delete()
+            log(f'[FACTURACION] cleanup: borrado doc {doc.id} (sin facturacion)')
+
+    log(f'[FACTURACION] {written} docs escritos a facturacion_snapshot')
+    return written
+
+
 # ============================================================
 # Main
 # ============================================================
@@ -1641,6 +1757,16 @@ def main():
         sync_sku_ventas_snapshot_to_firestore(bq_client, db, dry_run=dry_run)
     except Exception as e:
         log(f'[SKU_VENTAS] fallo (no bloqueante): {e}')
+
+    # === 13. Facturacion snapshot (BQ -> Firestore) v482 (2026-08-12)
+    # Agrega v_ventas_lineas por vendedor (hoy, mes actual, año actual) y
+    # escribe 1 doc por vendedor + __TOTAL__ nacional a facturacion_snapshot.
+    # Alimenta las 2 cards del sidebar-left (Facturacion Diaria + Cumplimiento).
+    # Fuente = misma que PowerBI (importe_linea_ars con is_pesca=TRUE).
+    try:
+        sync_facturacion_snapshot_to_firestore(bq_client, db, dry_run=dry_run)
+    except Exception as e:
+        log(f'[FACTURACION] fallo (no bloqueante): {e}')
 
     log('=== sync_sap_to_bigquery END OK ===')
 
