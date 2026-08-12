@@ -1238,6 +1238,12 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .slft-wl-badge{background:#f97316;color:#fff;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:800;white-space:nowrap}
 .slft-wl-badge.exceed{background:#dc2626}
 .slft-wl-badge.ok{background:#16a34a}
+/* v494: buscador del listado. */
+.slft-wl-search-row{position:relative;margin-bottom:8px;flex-shrink:0}
+.slft-wl-search-row input{width:100%;padding:6px 26px 6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:11.5px;font-family:inherit;background:#fff;color:#0f172a;outline:none;transition:border-color .15s}
+.slft-wl-search-row input:focus{border-color:#f97316;box-shadow:0 0 0 2px rgba(249,115,22,.15)}
+.slft-wl-search-row #slft-wl-clear{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:#94a3b8;font-size:18px;font-weight:800;cursor:pointer;line-height:1;padding:0 6px}
+.slft-wl-search-row #slft-wl-clear:hover{color:#dc2626}
 #map{flex:1;z-index:1;background:#eaf3f8}
 .sidebar{width:420px;background:#fff;overflow-y:auto;border-left:1px solid #e5e7eb;padding:14px 16px;display:flex;flex-direction:column}
 .sidebar h3{font-size:13px;color:#0f172a;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #00A9E0;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
@@ -2029,6 +2035,11 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
       <div class="slft-wl-hdr">
         <span>PEDIDOS EN ESPERA</span>
         <span class="slft-wl-count" id="slft-wl-count">0</span>
+      </div>
+      <!-- v494 (2026-08-12): buscador por cliente / localidad / provincia. -->
+      <div class="slft-wl-search-row">
+        <input type="search" id="slft-wl-search" placeholder="Buscar cliente, localidad o provincia..." autocomplete="off" spellcheck="false" />
+        <button type="button" id="slft-wl-clear" title="Limpiar" style="display:none">&times;</button>
       </div>
       <div id="slft-wl-empty" style="color:#94a3b8;font-size:11px;text-align:center;padding:14px 6px">Sin pedidos en espera.</div>
       <div id="slft-wl-rows"></div>
@@ -3958,7 +3969,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v493';
+const APP_VERSION = 'v494';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11032,21 +11043,50 @@ function _updateWaitlistBadge(){
 // Se muestra solo si el user tiene can-revision (whitelist) y hay >=1 pedido
 // en la coleccion. Click en item abre el modal card (mismo que la lista del
 // modal grande). Reusa el mismo calculo de excedentes que _renderWaitlistRows.
+// v494: filtro de texto para el buscador. Persiste hasta reload.
+var _slftWlSearch = '';
 function _renderWaitlistSidebar(){
   const cont = document.getElementById('sidebar-left-waitlist');
   const rows = document.getElementById('slft-wl-rows');
   const empty = document.getElementById('slft-wl-empty');
   const cnt = document.getElementById('slft-wl-count');
+  const clearBtn = document.getElementById('slft-wl-clear');
   if (!cont || !rows || !empty || !cnt) return;
   const canRevision = document.body.classList.contains('can-revision');
   if (!canRevision) { cont.style.display = 'none'; return; }
   cont.style.display = '';
+  // v494: enganchar handlers del buscador una sola vez (flag idempotente).
+  const inp = document.getElementById('slft-wl-search');
+  if (inp && !inp._wired) {
+    inp._wired = true;
+    inp.addEventListener('input', () => {
+      _slftWlSearch = inp.value || '';
+      _renderWaitlistSidebar();
+    });
+    if (clearBtn) clearBtn.addEventListener('click', () => {
+      inp.value = '';
+      _slftWlSearch = '';
+      _renderWaitlistSidebar();
+      inp.focus();
+    });
+  }
   const arr = revisionWaitlist || [];
-  cnt.textContent = String(arr.length);
+  const q = (_slftWlSearch || '').trim().toLowerCase();
+  const filtered = q ? arr.filter(w => {
+    const hay = (w.clientName || '') + ' ' + (w.clientLocality || '') + ' ' + (w.clientProvince || '');
+    return hay.toLowerCase().indexOf(q) >= 0;
+  }) : arr;
+  // Contador: si hay filtro, mostrar "N/Total"; si no, solo Total.
+  cnt.textContent = q ? (filtered.length + '/' + arr.length) : String(arr.length);
+  if (clearBtn) clearBtn.style.display = q ? '' : 'none';
   while (rows.firstChild) rows.removeChild(rows.firstChild);
-  if (!arr.length) { empty.style.display = ''; return; }
+  if (!filtered.length) {
+    empty.style.display = '';
+    empty.textContent = q ? 'Sin resultados para "' + _slftWlSearch + '".' : 'Sin pedidos en espera.';
+    return;
+  }
   empty.style.display = 'none';
-  arr.forEach(w => {
+  filtered.forEach(w => {
     let excedentes = 0;
     let totalUnid = 0;
     (w.items || []).forEach(it => {
