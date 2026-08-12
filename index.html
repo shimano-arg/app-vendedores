@@ -1180,12 +1180,14 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
    stat-boxes chatos arriba + grid 3x3 de botones. */
 .sidebar-left{display:none;width:420px;flex-shrink:0;background:#fff;border-right:1px solid #e5e7eb;padding:14px 16px;overflow-y:auto;flex-direction:column;gap:12px}
 @media (min-width: 901px) { .sidebar-left{display:flex} }
-/* Stat-boxes del sidebar-left: mismo look que #stats-bar-sidebar del derecho. */
+/* v485: Stat-boxes del sidebar-left compactados para IGUALAR el alto de
+   los del sidebar-right (que no tienen linea sub). num + lbl + sub
+   apretados. Font-size sub reducido a 7px. */
 .stats-bar-left{display:flex;width:100%;gap:6px;justify-content:space-between}
-.stats-bar-left .stat-box{flex:1 1 0;min-width:0;padding:6px 8px;text-align:center;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0}
-.stats-bar-left .stat-box .num{font-size:16px;font-weight:800;line-height:1.1;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.stats-bar-left .stat-box .lbl{font-size:8px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-top:2px}
-.stats-bar-left .stat-box .sub{font-size:8px;color:#94a3b8;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stats-bar-left .stat-box{flex:1 1 0;min-width:0;padding:4px 8px;text-align:center;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;min-width:64px}
+.stats-bar-left .stat-box .num{font-size:15px;font-weight:800;line-height:1.1;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stats-bar-left .stat-box .lbl{font-size:8px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-top:1px;line-height:1.1}
+.stats-bar-left .stat-box .sub{font-size:7px;color:#94a3b8;margin-top:0;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stats-bar-left .slft-stat-fact .num{color:#166534}
 .stats-bar-left .slft-stat-cumpl .num{color:#1e40af}
 /* Grid 3x3 de botones con colores por fila. */
@@ -3927,7 +3929,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v484';
+const APP_VERSION = 'v485';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -14701,6 +14703,19 @@ function _moveButtonsToSidebarLeft(){
   const dst = document.getElementById('sidebar-left-buttons');
   if (!dst) return;
   if (dst.dataset.movedDone === '1') return;
+  // v485: nombres limpios (sin emojis) para cada boton. Preserva los
+  // <span> internos (badges de conteo) porque estos van en el label.
+  const CLEAN_NAMES = {
+    'mis-camps-btn': 'Campañas',
+    'dashboard-btn': 'Dashboard',
+    'seguimiento-btn': 'Seguimiento',
+    'export-btn-inferred': 'Excel',
+    'backorders-btn': 'Backorder',
+    'asignacion-backorder-btn': 'SAP Asig.',
+    'forecast-btn': 'Forecast',
+    'revision-btn': 'Revisión',
+    'waitlist-btn': 'Espera',
+  };
   const orden = [
     'mis-camps-btn',            // Fila 1 - Campanas Activas
     'dashboard-btn',            // Fila 1 - Dashboard
@@ -14719,10 +14734,13 @@ function _moveButtonsToSidebarLeft(){
     if (!id) return;
     const el = document.getElementById(id);
     if (!el) return;
-    // Clone-and-replace vs mover directo: movemos directo asi mantiene onclick handlers.
-    // Marcamos el ORIGINAL con clase 'moved-to-sidebar-left' antes de mover para que el
-    // CSS del @media desktop lo oculte SI vuelve a aparecer en el top (por si hay
-    // re-inserciones dinamicas). No aplica porque lo movemos fisicamente, pero por defensa.
+    // v485: reemplazar innerHTML por nombre limpio + preservar spans de badge.
+    const cleanName = CLEAN_NAMES[id];
+    if (cleanName) {
+      const badges = Array.from(el.querySelectorAll(':scope > span'));
+      el.textContent = cleanName;
+      badges.forEach(b => el.appendChild(b));
+    }
     el.classList.add('moved-to-sidebar-left');
     dst.appendChild(el);
   });
