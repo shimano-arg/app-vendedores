@@ -3711,6 +3711,15 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
     </div>
     <div class="modal-body" style="padding:22px 24px;max-height:95vh;overflow-y:auto;display:block">
       <div id="wcard-stats" style="background:#f0fdfa;border:1.5px solid #5eead4;border-radius:6px;padding:10px 12px;font-size:12px;color:#134e4a;line-height:1.5;margin-bottom:12px"></div>
+      <!-- v477 (2026-08-12): SAP Asignado - Con Stock del cliente. SKUs que
+           el cliente ya tenia pedidos en Ofertas SAP open y ahora hay stock.
+           El vendedor le pregunta al cliente: "tenias esto pedido, llego,
+           ¿lo agregas al nuevo pedido, cancelamos o dejamos pendiente?". -->
+      <div id="wcard-sap-asignado" style="display:none;background:#f0fdf4;border:1.5px solid #86efac;border-radius:6px;padding:10px 12px;margin-bottom:12px">
+        <div style="font-size:12px;font-weight:800;color:#14532d;margin-bottom:6px">📩 SAP Asignado - Con Stock de este cliente</div>
+        <div style="font-size:10.5px;color:#166534;margin-bottom:8px">SKUs que este cliente tiene pedidos en Ofertas SAP open y que HOY tienen stock disponible. Pregúntale si los quiere agregar, cancelar o dejar pendientes.</div>
+        <div id="wcard-sap-asignado-rows" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
       <!-- v468: buscador para agregar productos nuevos al pedido en espera. -->
       <div style="position:relative;margin-bottom:10px">
         <input id="wcard-add-input" type="text" placeholder="🔍 Buscar producto por codigo o descripcion para agregar al pedido..." oninput="waitlistOnAddSearch()" onfocus="waitlistOnAddSearch()" onblur="setTimeout(waitlistHideAddDropdown, 200)" style="width:100%;padding:8px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:12px;outline:none"/>
@@ -3839,7 +3848,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v476';
+const APP_VERSION = 'v477';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11093,6 +11102,119 @@ function _otrosPedidosEnEsperaDeSku(sku, excludeDocId){
   });
   return total;
 }
+// v477 (2026-08-12): SKUs pendientes en Ofertas SAP open del cliente que
+// AHORA tienen stock disponible. Combina backorderLines (SAP snapshot) con
+// _revisionStockFor (stock actual). Cada item: {sku, producto, pendiente,
+// stockTotal, precio, sqDocNum, sqDocDate}.
+function _sapAsignadoConStockDeCliente(cardCode){
+  if (typeof backorderLines === 'undefined' || !backorderLines || !cardCode) return [];
+  const target = String(cardCode).trim();
+  const out = [];
+  for (const ln of backorderLines) {
+    if (String(ln.clienteCode || '').trim() !== target) continue;
+    const pendiente = parseFloat(ln.pendiente) || 0;
+    if (pendiente <= 0) continue;
+    const stk = _revisionStockFor(ln.sku);
+    if (!stk.hasData || (stk.stockTotal || 0) <= 0) continue;
+    out.push({
+      sku: ln.sku,
+      producto: ln.producto || '',
+      pendiente,
+      stockTotal: stk.stockTotal,
+      precio: parseFloat(ln.precioUnitario) || 0,
+      sqDocNum: ln.sqDocNum,
+      sqDocDate: ln.sqDocDate || '',
+    });
+  }
+  // Ordenar por SKU alfabetico para consistencia.
+  out.sort((a, b) => String(a.sku).localeCompare(String(b.sku)));
+  return out;
+}
+// v477: render de la seccion "SAP Asignado - Con Stock" en el modal card
+// espera. Se llama desde _renderWaitlistCard. Oculta la seccion si no hay
+// items para el cliente. Cada item tiene botones:
+//   - '+ Agregar' -> suma la qty pendiente al items[] del pedido en espera
+//     (crea nueva line o incrementa qty existente).
+//   - 'Ya esta en el pedido' -> tag informativo si el SKU ya esta.
+function _renderSapAsignadoConStock(w){
+  const container = document.getElementById('wcard-sap-asignado');
+  const rowsEl = document.getElementById('wcard-sap-asignado-rows');
+  if (!container || !rowsEl) return;
+  const items = _sapAsignadoConStockDeCliente(w.clientCardCode);
+  while (rowsEl.firstChild) rowsEl.removeChild(rowsEl.firstChild);
+  if (!items.length) { container.style.display = 'none'; return; }
+  container.style.display = '';
+  const skusEnPedido = new Set(((w.items) || []).map(i => (i.code || '').toLowerCase()));
+  const fmtArs = (n) => '$' + Math.round(n).toLocaleString('es-AR');
+  items.forEach(it => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid #bbf7d0;border-radius:5px;font-size:11px';
+    const left = document.createElement('div');
+    left.style.flex = '1';
+    const code = document.createElement('div');
+    code.style.cssText = 'font-family:monospace;font-weight:800;color:#0f172a;font-size:10.5px';
+    code.textContent = it.sku;
+    const desc = document.createElement('div');
+    desc.style.cssText = 'color:#334155;margin-top:1px;font-size:10.5px';
+    desc.textContent = it.producto;
+    const meta = document.createElement('div');
+    meta.style.cssText = 'color:#64748b;font-size:9.5px;margin-top:2px';
+    const fecha = it.sqDocDate ? (' · SQ #' + it.sqDocNum + ' del ' + it.sqDocDate) : (' · SQ #' + it.sqDocNum);
+    meta.textContent = 'Pendiente: ' + it.pendiente + ' u · Stock hoy: ' + it.stockTotal + ' u · Precio ' + fmtArs(it.precio) + fecha;
+    left.appendChild(code); left.appendChild(desc); left.appendChild(meta);
+    row.appendChild(left);
+    const right = document.createElement('div');
+    right.style.cssText = 'flex-shrink:0';
+    if (skusEnPedido.has((it.sku || '').toLowerCase())) {
+      const tag = document.createElement('span');
+      tag.style.cssText = 'background:#dbeafe;color:#1e40af;padding:5px 10px;border-radius:4px;font-size:10px;font-weight:700';
+      tag.textContent = 'YA EN PEDIDO';
+      right.appendChild(tag);
+    } else {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = '+ Agregar ' + it.pendiente + ' u';
+      btn.style.cssText = 'background:#166534;color:#fff;border:none;padding:6px 12px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
+      btn.onclick = () => waitlistAddProductWithQty(w._id, it.sku, it.pendiente);
+      right.appendChild(btn);
+    }
+    row.appendChild(right);
+    rowsEl.appendChild(row);
+  });
+}
+// v477: variante de waitlistAddProduct con qty custom (para agregar desde
+// SAP Asignado con la qty pendiente exacta de la SQ, no qty=1).
+window.waitlistAddProductWithQty = async function(docId, sku, qty){
+  const w = (revisionWaitlist || []).find(x => x._id === docId);
+  if (!w || !w._id) return;
+  const prod = (typeof PRODUCTS !== 'undefined' && PRODUCTS)
+    ? PRODUCTS.find(p => (p.code || '').toLowerCase() === (sku || '').toLowerCase()) : null;
+  const items = [...(w.items || [])];
+  const idx = items.findIndex(i => (i.code || '').toLowerCase() === (sku || '').toLowerCase());
+  if (idx >= 0) {
+    items[idx] = Object.assign({}, items[idx], {qty: (items[idx].qty || 0) + (qty || 1)});
+  } else {
+    const stk = _revisionStockFor(sku);
+    items.push({
+      code: prod ? prod.code : sku,
+      desc: prod ? prod.desc : (sku + ' (agregado desde SAP Asignado)'),
+      qty: qty || 1,
+      firstStockTotal: stk.stockTotal,
+      firstBackorder: stk.backorder || 0,
+      firstDisponible: stk.disponible,
+    });
+  }
+  try {
+    await fbDb.collection('revision_waitlist').doc(w._id).update({
+      items,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    showSyncTag('Agregado: ' + sku + ' (' + qty + ' u desde SAP Asignado)');
+  } catch(e) {
+    console.error('waitlistAddProductWithQty', e);
+    alert('Error agregando: ' + (e.message || e));
+  }
+};
 // v475 (2026-08-12): suma pendiente de un SKU para ESTE cliente en Ofertas
 // de Venta open en SAP. Fuente: backorderLines global (populado por
 // ensureBackordersListener con backorder_snapshot/{VENDOR}/lines). Si el
@@ -11153,6 +11275,8 @@ function _renderWaitlistCard(){
   document.getElementById('wcard-title').textContent = 'Pedido en espera — ' + w.clientName;
   const ts = w.createdAt && w.createdAt.toDate ? w.createdAt.toDate().toLocaleString('es-AR') : 'sin fecha';
   document.getElementById('wcard-subt').textContent = (w.clientLocality || 's/loc') + ' · ' + (w.clientProvince || 's/prov') + ' · Vendor asignado: ' + (w.vendorAssigned || 'sin asignar') + ' · Cargado por ' + (w.ownerDisplayName || w.ownerEmail || '') + ' · ' + ts;
+  // v477: render seccion "SAP Asignado - Con Stock" del cliente.
+  _renderSapAsignadoConStock(w);
   // v458 (2026-08-11): semantica corregida por feedback Mariano:
   //  - Disponible = Stock - Backorder SAP (SIEMPRE, NO resta pedidos en espera).
   //    Refleja lo que hay REAL disponible ahora en el snapshot SAP.
