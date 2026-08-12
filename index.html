@@ -1191,19 +1191,34 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 /* Grid 3x3 de botones con colores por fila. */
 .slft-btns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
 @media (min-width: 901px) { .controls-right-group .moved-to-sidebar-left{display:none !important} }
-.slft-btns > button{width:100%;padding:10px 4px;font-size:10.5px;font-weight:700;border:none;border-radius:5px;color:#fff;cursor:pointer;text-transform:uppercase;letter-spacing:.15px;text-align:center;line-height:1.2;min-height:46px;display:flex;align-items:center;justify-content:center;gap:3px;white-space:normal;word-break:break-word;overflow:hidden}
+/* v484: mismos colores + tamaño que .tab-btn del sidebar-right.
+   Usamos !important para pisar los background:XXX inline que traen los
+   botones movidos desde la controls-bar. */
+.slft-btns > button{width:100%;padding:8px 6px !important;font-size:12px !important;font-weight:700 !important;border:1px solid transparent !important;border-radius:6px 6px 0 0 !important;color:#fff !important;cursor:pointer;text-transform:uppercase;letter-spacing:.3px !important;text-align:center;line-height:1.2;min-height:0 !important;display:flex;align-items:center;justify-content:center;gap:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .slft-btns > button:disabled{opacity:.5;cursor:not-allowed}
-/* Fila 1 (verde) - primeros 3 botones. Mismo verde que LOCALIDADES/CLIENTES/PEDIDOS del sidebar-right. */
-.slft-btns > button:nth-child(1),.slft-btns > button:nth-child(2),.slft-btns > button:nth-child(3){background:#16a34a}
-.slft-btns > button:nth-child(1):hover,.slft-btns > button:nth-child(2):hover,.slft-btns > button:nth-child(3):hover{background:#15803d}
-/* Fila 2 (celeste) - botones 4-6. Mismo celeste que RUTAS/VISITA/CONTACTADO. */
-.slft-btns > button:nth-child(4),.slft-btns > button:nth-child(5),.slft-btns > button:nth-child(6){background:#0284c7}
-.slft-btns > button:nth-child(4):hover,.slft-btns > button:nth-child(5):hover,.slft-btns > button:nth-child(6):hover{background:#0369a1}
-/* Fila 3 (azul oscuro) - botones 7-9. Mismo azul que ALTA CLIENTES/RENDICIONES/NOTIFICACIONES. */
-.slft-btns > button:nth-child(7),.slft-btns > button:nth-child(8),.slft-btns > button:nth-child(9){background:#1e3a8a}
-.slft-btns > button:nth-child(7):hover,.slft-btns > button:nth-child(8):hover,.slft-btns > button:nth-child(9):hover{background:#1e40af}
-/* Sobreescribir cualquier badge/count que traigan los botones movidos (ej: waitlist-btn-count, backorders-btn-count) para que se vea consistente. */
-.slft-btns > button > span{background:rgba(255,255,255,.25) !important;padding:1px 6px !important;border-radius:9px !important;font-size:9px !important;margin-left:4px !important}
+/* Fila 1 VERDE - #166534 igual que tab-btn[data-tab=locs/clients/pedidos]. */
+.slft-btns > button:nth-child(1),
+.slft-btns > button:nth-child(2),
+.slft-btns > button:nth-child(3){background:#166534 !important;border-color:#166534 !important;border-bottom-color:#14532d !important}
+.slft-btns > button:nth-child(1):hover,
+.slft-btns > button:nth-child(2):hover,
+.slft-btns > button:nth-child(3):hover{background:#14532d !important}
+/* Fila 2 CELESTE - #00A9E0 igual que tab-btn[data-tab=rutas/visita/contactado]. */
+.slft-btns > button:nth-child(4),
+.slft-btns > button:nth-child(5),
+.slft-btns > button:nth-child(6){background:#00A9E0 !important;border-color:#00A9E0 !important;border-bottom-color:#0284c7 !important}
+.slft-btns > button:nth-child(4):hover,
+.slft-btns > button:nth-child(5):hover,
+.slft-btns > button:nth-child(6):hover{background:#0284c7 !important}
+/* Fila 3 AZUL MARINO - #1e3a8a igual que tab-btn[data-tab=altacli/rendiciones/notif]. */
+.slft-btns > button:nth-child(7),
+.slft-btns > button:nth-child(8),
+.slft-btns > button:nth-child(9){background:#1e3a8a !important;border-color:#1e3a8a !important;border-bottom-color:#1e40af !important}
+.slft-btns > button:nth-child(7):hover,
+.slft-btns > button:nth-child(8):hover,
+.slft-btns > button:nth-child(9):hover{background:#1e40af !important}
+/* Badge/count style consistente con .tab-count del sidebar-right. */
+.slft-btns > button > span{background:rgba(255,255,255,.3) !important;color:#fff !important;padding:1px 7px !important;border-radius:10px !important;font-size:10px !important;font-weight:800 !important;margin-left:4px !important;min-width:22px;text-align:center}
 #map{flex:1;z-index:1;background:#eaf3f8}
 .sidebar{width:420px;background:#fff;overflow-y:auto;border-left:1px solid #e5e7eb;padding:14px 16px;display:flex;flex-direction:column}
 .sidebar h3{font-size:13px;color:#0f172a;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #00A9E0;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
@@ -3912,7 +3927,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v483';
+const APP_VERSION = 'v484';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
