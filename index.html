@@ -3719,9 +3719,10 @@ body.can-revision .revision-btn{display:inline-flex}
               <th style="text-align:center;padding:6px 8px" title="Disponible SAP - Pedidos Pendientes de la app no transferidos aun a SAP. Corrige el delay del sync SAP.">Disponible app</th>
               <th style="text-align:center;padding:6px 8px">Pedido</th>
               <th style="text-align:center;padding:6px 8px" title="Precio unitario del catalogo/SAP">Precio</th>
-              <th style="text-align:center;padding:6px 8px" title="Lo que confirmas YA con seguridad = min(Pedido, Disponible app) x Precio">Subtotal (Confirmaci&oacute;n Inmediata)</th>
-              <th style="text-align:center;padding:6px 8px" title="Lo que queda pendiente de conseguir = max(Pedido - Disponible app, 0) x Precio">Subtotal (Pendiente)</th>
-              <th style="text-align:center;padding:6px 8px" title="Pedido - Disponible app">Excedente</th>
+              <th style="text-align:center;padding:6px 8px" title="Lo que confirmas YA con seguridad = min(Pedido, Disponible SAP) x Precio">Subtotal (Confirmaci&oacute;n Inmediata)</th>
+              <th style="text-align:center;padding:6px 8px" title="Lo que queda garantizado SI ESPERAS = min(Pedido, Disponible app) x Precio">Subtotal (Pendiente)</th>
+              <th style="text-align:center;padding:6px 8px" title="Lo que queda como backorder = max(Pedido - Disponible app, 0) x Precio">Backorder</th>
+              <th style="text-align:center;padding:6px 8px" title="Pedido - Disponible app (unidades que quedan como backorder)">Backorder Unidades</th>
               <th style="text-align:center;padding:6px 8px" title="Diferencia respecto al Disponible al momento de crear el pedido">Cambio</th>
               <th style="text-align:center;padding:6px 8px" title="Quitar producto de la lista">&nbsp;</th>
             </tr>
@@ -3828,7 +3829,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v471';
+const APP_VERSION = 'v472';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11146,70 +11147,94 @@ function _renderWaitlistCard(){
     if (excede) excedidos++;
     const firstDisp = (it.firstDisponible != null) ? it.firstDisponible : null;
     const chg = (firstDisp != null && dispApp != null) ? (dispApp - firstDisp) : null;
-    // v467: precio del catalogo/SAP + subtotal $.
-    // v470: dos subtotales. Confirmacion Inmediata = lo que confirmas YA con
-    // seguridad (min(qty, dispApp) * precio). Pendiente = lo que queda por
-    // conseguir (max(qty - dispApp, 0) * precio). Suman al total pedido.
+    // v472: 3 subtotales por SKU + backorder unidades.
+    //   Subtotal Confirmacion Inmediata = min(qty, DispSAP) * precio
+    //     -> lo que confirmas YA con seguridad.
+    //   Subtotal Pendiente = min(qty, DispApp) * precio
+    //     -> lo que te queda garantizado SI ESPERAS (menos que Inmediata
+    //        porque DispApp descuenta otros pending que pueden meterse).
+    //   Backorder = max(qty - DispApp, 0) * precio
+    //     -> valor de lo que queda como backorder si esperas.
+    //   Backorder Unidades = max(qty - DispApp, 0) (ex-Excedente).
+    // Los stats de arriba desglosan (Con Stock / Sin Stock) x (INMEDIATO /
+    // PENDIENTE) = 4 sumas.
     const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(it.code) || 0) : 0;
-    const dispCap = (dispApp != null) ? dispApp : (it.qty || 0);
-    const qtyConfirmable = Math.min(it.qty || 0, dispCap);
-    const qtyPendiente = Math.max((it.qty || 0) - dispCap, 0);
-    const subtotalConfirmable = precio * qtyConfirmable;
-    const subtotalPendiente = precio * qtyPendiente;
-    const subtotalTotal = subtotalConfirmable + subtotalPendiente;
+    const dispSap = (disp != null) ? disp : (it.qty || 0);
+    const dispAppCap = (dispApp != null) ? dispApp : (it.qty || 0);
+    const qty = it.qty || 0;
+    const qtyConSap = Math.min(qty, dispSap);
+    const qtySinSap = Math.max(qty - dispSap, 0);
+    const qtyConApp = Math.min(qty, dispAppCap);
+    const qtySinApp = Math.max(qty - dispAppCap, 0);
+    const subtConSap = qtyConSap * precio;
+    const subtSinSap = qtySinSap * precio;
+    const subtConApp = qtyConApp * precio;
+    const subtSinApp = qtySinApp * precio;
     rows.push({
-      idx, code: it.code, desc: it.desc, qty: it.qty,
+      idx, code: it.code, desc: it.desc, qty,
       stockTotal: stk.stockTotal, backorderSap: backSap,
       otrosEspera: otros, pendingApp,
       disponible: disp, disponibleApp: dispApp,
       hasData: stk.hasData, excede,
       chg, precio,
-      subtotal: subtotalTotal,
-      subtotalConfirmable, subtotalPendiente,
+      subtotal: subtConSap + subtSinSap,
+      subtConSap, subtSinSap, subtConApp, subtSinApp,
+      backorderUnidades: qtySinApp,
     });
   });
   const statsEl = document.getElementById('wcard-stats');
   while (statsEl.firstChild) statsEl.removeChild(statsEl.firstChild);
   const fmtArs = (n) => '$' + Math.round(n).toLocaleString('es-AR');
-  // v468: desglose disponibles vs sin stock (mismo patron que "Revisa tu pedido").
-  // Un SKU es "disponible" si qty <= disponibleApp; "sin stock" si excede.
-  // Los que no tienen data (hasData=false) se cuentan como disponibles por
-  // no bloquear el flujo (SAP resolvera).
-  const disp = { prods: 0, uds: 0, ars: 0 };
-  const nostk = { prods: 0, uds: 0, ars: 0 };
+  // v472: 4 stats desglosados (Con Stock / Sin Stock) x (INMEDIATO / PENDIENTE).
+  //   INMEDIATO = si el cliente confirma YA -> se compara con DispSAP.
+  //     Con Stock = suma de min(qty, DispSAP) * precio (entra en SAP).
+  //     Sin Stock = suma de max(qty - DispSAP, 0) * precio (queda backorder).
+  //   PENDIENTE = si el cliente espera -> se compara con DispApp (menor).
+  //     Con Stock = suma de min(qty, DispApp) * precio.
+  //     Sin Stock = suma de max(qty - DispApp, 0) * precio.
+  // Total pedido = Con + Sin (misma suma para INMEDIATO y PENDIENTE).
+  let sumConSap = 0, sumSinSap = 0, sumConApp = 0, sumSinApp = 0;
+  let totalUnid = 0;
   rows.forEach(r => {
-    if (r.excede) {
-      nostk.prods++; nostk.uds += r.qty; nostk.ars += r.subtotal;
-    } else {
-      disp.prods++; disp.uds += r.qty; disp.ars += r.subtotal;
-    }
+    sumConSap += r.subtConSap;
+    sumSinSap += r.subtSinSap;
+    sumConApp += r.subtConApp;
+    sumSinApp += r.subtSinApp;
+    totalUnid += r.qty;
   });
-  const totalProds = disp.prods + nostk.prods;
-  const totalUnid = disp.uds + nostk.uds;
-  const totalArs = disp.ars + nostk.ars;
+  const totalArs = sumConSap + sumSinSap;
   const box = document.createElement('div');
   box.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:2px 12px;font-family:inherit';
-  function _row(dot, label, ars, color){
+  function _row(label, ars, color, bold){
     const l = document.createElement('div');
-    l.style.cssText = 'color:' + color + ';font-weight:700;font-size:12px;display:flex;align-items:center;gap:6px';
-    const c = document.createElement('span');
-    c.textContent = dot; c.style.cssText = 'font-size:9px;color:' + color;
-    l.appendChild(c);
-    const t = document.createElement('span'); t.textContent = label; l.appendChild(t);
+    l.style.cssText = 'color:' + color + ';font-weight:' + (bold ? '800' : '700') + ';font-size:11.5px';
+    l.textContent = label;
     box.appendChild(l);
     const v = document.createElement('div');
-    v.style.cssText = 'color:' + color + ';font-weight:800;font-size:13px;text-align:right';
+    v.style.cssText = 'color:' + color + ';font-weight:800;font-size:12.5px;text-align:right';
     v.textContent = fmtArs(ars);
     box.appendChild(v);
   }
-  _row('●', 'Disponibles: ' + disp.prods + ' prod · ' + disp.uds + ' u', disp.ars, '#059669');
-  if (nostk.prods > 0) _row('●', 'Sin stock: ' + nostk.prods + ' prod · ' + nostk.uds + ' u', nostk.ars, '#dc2626');
-  _row(' ', 'Total pedido: ' + totalProds + ' prod · ' + totalUnid + ' u', totalArs, '#0f172a');
+  // INMEDIATO (si confirma YA).
+  _row('● Subtotal del pedido (Con Stock) — INMEDIATO', sumConSap, '#059669');
+  _row('● Subtotal del pedido (Sin Stock) — INMEDIATO', sumSinSap, '#dc2626');
+  // Separador visual.
+  const sep = document.createElement('div');
+  sep.style.cssText = 'grid-column:1 / -1;border-top:1px dashed #a7f3d0;margin:4px 0';
+  box.appendChild(sep);
+  // PENDIENTE (si espera).
+  _row('● Subtotal del pedido (Con Stock) — PENDIENTE', sumConApp, '#0891b2');
+  _row('● Subtotal del pedido (Sin Stock) — PENDIENTE', sumSinApp, '#b45309');
+  // Total.
+  const sep2 = document.createElement('div');
+  sep2.style.cssText = 'grid-column:1 / -1;border-top:1.5px solid #94a3b8;margin:4px 0';
+  box.appendChild(sep2);
+  _row('Total pedido: ' + rows.length + ' prod · ' + totalUnid + ' u', totalArs, '#0f172a', true);
   statsEl.appendChild(box);
   if (excedidos > 0) {
     const s2 = document.createElement('div');
     s2.style.cssText = 'color:#991b1b;font-weight:600;margin-top:6px;font-size:10.5px';
-    s2.textContent = '⚠ Los SKUs "sin stock" superan el Disponible app (Stock − Backorder SAP − Pedidos pendientes app no transferidos). Se veran en rojo abajo.';
+    s2.textContent = '⚠ ' + excedidos + ' SKU(s) con backorder respecto al Disponible app (si el cliente espera, esas unidades no van a entrar).';
     statsEl.appendChild(s2);
   }
   const tbody = document.getElementById('wcard-rows');
@@ -11241,24 +11266,32 @@ function _renderWaitlistCard(){
     inp.onchange = () => waitlistUpdateItemQty(w._id, r.idx, parseInt(inp.value, 10) || 0);
     tdQty.appendChild(inp);
     tr.appendChild(tdQty);
-    // v470: Precio sin '$' + dos subtotales (Confirmable + Pendiente).
+    // v470/v472: Precio sin '$' + 3 subtotales (Inmediata + Pendiente + Backorder).
     tr.appendChild(mk(Math.round(r.precio).toLocaleString('es-AR'), 'num'));
-    // Subtotal Confirmacion Inmediata (verde).
+    // Subtotal Confirmacion Inmediata (verde) = min(qty, DispSAP) x precio.
     const tdConf = document.createElement('td');
     tdConf.className = 'num';
-    tdConf.style.color = r.subtotalConfirmable > 0 ? '#059669' : '#94a3b8';
+    tdConf.style.color = r.subtConSap > 0 ? '#059669' : '#94a3b8';
     tdConf.style.fontWeight = '700';
-    tdConf.textContent = fmtArs(r.subtotalConfirmable);
+    tdConf.textContent = fmtArs(r.subtConSap);
     tr.appendChild(tdConf);
-    // Subtotal Pendiente (rojo si > 0).
+    // Subtotal Pendiente (ambar) = min(qty, DispApp) x precio.
     const tdPend = document.createElement('td');
     tdPend.className = 'num';
-    tdPend.style.color = r.subtotalPendiente > 0 ? '#dc2626' : '#94a3b8';
+    tdPend.style.color = r.subtConApp > 0 ? '#0891b2' : '#94a3b8';
     tdPend.style.fontWeight = '700';
-    tdPend.textContent = fmtArs(r.subtotalPendiente);
+    tdPend.textContent = fmtArs(r.subtConApp);
     tr.appendChild(tdPend);
-    const excedente = r.excede ? (r.qty - r.disponibleApp) : 0;
-    tr.appendChild(mk(r.excede ? ('+' + excedente) : (r.hasData ? '0' : '-'), r.excede ? 'num exc-cell' : 'num'));
+    // Backorder (rojo) = max(qty - DispApp, 0) x precio.
+    const tdBo = document.createElement('td');
+    tdBo.className = 'num';
+    tdBo.style.color = r.subtSinApp > 0 ? '#dc2626' : '#94a3b8';
+    tdBo.style.fontWeight = '700';
+    tdBo.textContent = fmtArs(r.subtSinApp);
+    tr.appendChild(tdBo);
+    // Backorder Unidades (ex-Excedente).
+    const backUds = r.backorderUnidades || 0;
+    tr.appendChild(mk(backUds > 0 ? ('+' + backUds) : (r.hasData ? '0' : '-'), backUds > 0 ? 'num exc-cell' : 'num'));
     let chgTxt = '-', chgCls = 'num chg-none';
     if (r.chg != null) {
       if (r.chg < 0) { chgTxt = String(r.chg); chgCls = 'num chg-neg'; }
