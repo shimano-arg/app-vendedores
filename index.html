@@ -1273,6 +1273,11 @@ body.is-ioannis .client-card{padding-bottom:60px}
    en applyRolePermissions. */
 .revision-btn{display:none}
 body.can-revision .revision-btn{display:inline-flex}
+/* v473: boton "Volver a lista de espera" en modal pedido pendiente,
+   solo para los 4 del whitelist Revision. */
+.pm-back-to-waitlist{display:none}
+body.can-revision .pm-back-to-waitlist{display:inline-flex}
+.pm-back-to-waitlist:hover{background:#7c3aed !important;color:#fff !important}
 /* Fila roja para SKUs donde Pedido > Disponible en el modal Revision Excel. */
 #revision-rows tr.exceed td{background:#fef2f2;color:#991b1b;font-weight:700}
 #revision-rows tr.exceed td.exc-cell{background:#dc2626;color:#fff}
@@ -3080,6 +3085,8 @@ body.can-revision .revision-btn{display:inline-flex}
         <div style="display:none;gap:8px" id="pm-actions-pending">
           <button class="btn-cancel" onclick="eliminarPendiente()">Eliminar</button>
           <button onclick="volverABorrador()" style="padding:9px 14px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;color:#475569;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Volver a borrador</button>
+          <!-- v473: solo visible para los 4 del whitelist Revision (body.can-revision). -->
+          <button class="pm-back-to-waitlist" onclick="volverAListaEspera()" style="padding:9px 14px;border:1.5px solid #7c3aed;border-radius:6px;background:#faf5ff;color:#7c3aed;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#8617; Volver a lista de espera</button>
           <button class="btn-confirm" onclick="confirmarDefinitivo()">Confirmar definitivo</button>
         </div>
         <!-- v283+: acciones para pedidos CONFIRMADOS. Solo se muestran a
@@ -3829,7 +3836,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v472';
+const APP_VERSION = 'v473';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -17120,6 +17127,104 @@ window.volverABorrador = async function(){
   showSyncTag('Pedido movido a borrador');
   closePedidoModal();
   setPedidoView('crear');
+};
+
+// v473 (2026-08-12): revierte un pedido de PENDIENTES a la LISTA DE ESPERA
+// de la app (revision_waitlist). Inverso de waitlistPasarAPendientes.
+// Solo para los 4 users del whitelist Revision (body.can-revision +
+// runtime guard).
+// Uso: el vendedor confirmo el pedido pero el cliente pidio "esperemos"
+// -> vuelve a la lista de espera compartida sin perder los items.
+window.volverAListaEspera = async function(){
+  if (!_revisionCanUse || !_revisionCanUse()) {
+    alert('Solo Mariano, Ioannis, Santi o Pablo pueden mover pedidos a la lista de espera.');
+    return;
+  }
+  if (!currentOrderClient || currentOrderClient.stage !== 'pending') return;
+  const key = currentOrderClient.viewKey, idx = currentOrderClient.viewIdx;
+  const list = pending[key] || [];
+  const entry = list[idx];
+  if (!entry) return;
+  const _sapDoc = entry.transferidoSAP && entry.transferidoSAP.docNum;
+  let confirmMsg = 'Mover el pedido de "' + currentOrderClient.name + '" a la lista de espera?\n\n';
+  confirmMsg += 'Los items van a quedar en PEDIDOS EN ESPERA (compartido entre Mariano/Ioannis/Santi/Pablo). El vendedor podra editar cantidades, agregar/quitar productos, y volver a Pendientes cuando el cliente confirme.';
+  if (_sapDoc) {
+    confirmMsg += '\n\n⚠ ATENCION: este pedido ya se transfirio a SAP (DocNum ' + _sapDoc + '). Moverlo aca NO elimina la Oferta de Venta en SAP - la SQ queda open. Cerrala a mano en SAP si es necesario.';
+  }
+  if (!confirm(confirmMsg)) return;
+  // Resolver vendor + cardCode del cliente para el doc de waitlist.
+  const parts = key.split('|');
+  const prov = parts[1] || '';
+  const locName = parts[2] || '';
+  const clientName = parts[3] || '';
+  let vendorAssigned = '';
+  let cardCode = '';
+  try {
+    const p = (typeof POINTS !== 'undefined' && POINTS) ? POINTS.find(pp => pp.province === prov && pp.name === locName) : null;
+    if (p && typeof getEffectiveVendorForClient === 'function') {
+      vendorAssigned = getEffectiveVendorForClient(p, clientName) || '';
+    } else {
+      vendorAssigned = entry.ownerVendor || '';
+    }
+    if (typeof sapGetClienteCode === 'function') cardCode = sapGetClienteCode(clientName) || '';
+  } catch(e) {
+    console.warn('volverAListaEspera resolve vendor/cardCode', e);
+  }
+  // Mapear lines del pedido a items del waitlist con firstStockTotal/etc.
+  const items = (entry.lines || []).map(l => {
+    const stk = (typeof _revisionStockFor === 'function') ? _revisionStockFor(l.code) : {stockTotal:null, backorder:0, disponible:null};
+    return {
+      code: l.code,
+      desc: l.desc || '',
+      qty: parseFloat(l.qty) || 0,
+      firstStockTotal: stk.stockTotal,
+      firstBackorder: stk.backorder || 0,
+      firstDisponible: stk.disponible,
+    };
+  }).filter(it => it.qty > 0);
+  if (!items.length) { alert('El pedido no tiene items validos para mover.'); return; }
+  try {
+    logOp('volver_a_lista_espera', 'pedido', currentOrderClient.name, {key, month: entry.month, items: items.length, sapDocNum: _sapDoc || null});
+  } catch(e){}
+  const payload = {
+    clientName, clientProvince: prov, clientLocality: locName,
+    clientCardCode: cardCode || '',
+    vendorAssigned: vendorAssigned || '',
+    ownerUid: currentUser.uid,
+    ownerEmail: currentUser.email || '',
+    ownerDisplayName: currentUser.displayName || currentUser.email || '',
+    ownerVendor: (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '',
+    items,
+    // v473: marca de que este waitlist doc vino de un pedido pending revertido.
+    fromPedidoFsId: entry._fsId || '',
+    fromPedidoMonth: entry.month || '',
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  // 1) Crear doc en revision_waitlist.
+  try {
+    await fbDb.collection('revision_waitlist').add(payload);
+  } catch(e) {
+    console.error('volverAListaEspera add waitlist', e);
+    alert('NO se pudo crear el pedido en la lista de espera: ' + (e.message || e) + '\n\nEl pedido pendiente NO se movio - sigue en Pendientes.');
+    return;
+  }
+  // 2) Borrar el pedido de Firestore (los items ya estan en waitlist).
+  if (entry._fsId && fbDb) {
+    try {
+      await fbDb.collection('pedidos').doc(entry._fsId).delete();
+    } catch(e) {
+      console.error('volverAListaEspera Firestore delete pedido', e);
+      alert('AVISO: se creo el waitlist pero NO se pudo borrar el pedido pendiente: ' + (e.message || e) + '\n\nRevisá manual - podés tener el pedido en 2 lados.');
+      return;
+    }
+  }
+  // 3) Limpiar local.
+  pending[key] = list.filter((_, i) => i !== idx);
+  if (!pending[key].length) delete pending[key];
+  savePending();
+  showSyncTag('Pedido movido a lista de espera');
+  closePedidoModal();
 };
 
 // v283+: revierte un pedido de CONFIRMADO a PENDIENTES. Solo admin/gerente.
