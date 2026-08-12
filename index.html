@@ -3929,7 +3929,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v486';
+const APP_VERSION = 'v487';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -14512,6 +14512,19 @@ function applyRolePermissions(){
     'pablo.gonzalez@shimano.com.ar',
   ]);
   document.body.classList.toggle('can-revision', REVISION_WHITELIST.has(_em));
+  // v487 (2026-08-12): whitelist para forzar la visibilidad de TODOS los
+  // botones del sidebar-left. Aunque el original tenga display:none por
+  // role gate, el proxy del sidebar-left se muestra igual. Emails:
+  //   - santiago.esteban@shimano.com.ar (VDI Santi)
+  //   - ioannis.plakoudakis@shimano.com.ar (VDI Ioannis)
+  //   - pablo.gonzalez@shimano.com.ar (gerente Pablo)
+  // Admin (Mariano) ya ve todo por rol, no hace falta agregarlo aca.
+  const FORCE_SIDEBAR_BTNS = new Set([
+    'santiago.esteban@shimano.com.ar',
+    'ioannis.plakoudakis@shimano.com.ar',
+    'pablo.gonzalez@shimano.com.ar',
+  ]);
+  document.body.classList.toggle('force-sidebar-btns-visible', FORCE_SIDEBAR_BTNS.has(_em));
   // Badge: ADMIN solo el rol; resto solo PRIMER NOMBRE del usuario para que entre en mobile.
   const badge = document.getElementById('user-role-badge');
   badge.className = 'role-badge ' + userRole;
@@ -14736,15 +14749,24 @@ function _moveButtonsToSidebarLeft(){
       const target = document.getElementById(id);
       if (target && typeof target.click === 'function') target.click();
     };
-    // Sync visibility con el original: si el original tiene display:none
-    // (por role gate), el proxy tambien. Poll ligero con MutationObserver.
+    // v486/v487: sync visibility con el original. Si el original tiene
+    // display:none (por role gate), el proxy tambien SE OCULTA... EXCEPTO
+    // si body tiene la clase 'force-sidebar-btns-visible' (Santi/Ioannis/
+    // Pablo whitelist v487) en cuyo caso el proxy siempre se muestra.
     const syncVisibility = () => {
+      if (document.body.classList.contains('force-sidebar-btns-visible')) {
+        btn.style.display = '';
+        return;
+      }
       const isHidden = orig.style.display === 'none';
       btn.style.display = isHidden ? 'none' : '';
     };
     syncVisibility();
     try {
       new MutationObserver(syncVisibility).observe(orig, { attributes: true, attributeFilter: ['style'] });
+      // v487: tambien observar cambios en la body class para reaccionar al
+      // toggle de force-sidebar-btns-visible (raro pero por defensa).
+      new MutationObserver(syncVisibility).observe(document.body, { attributes: true, attributeFilter: ['class'] });
     } catch(e){}
     dst.appendChild(btn);
   });
