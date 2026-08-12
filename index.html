@@ -3929,7 +3929,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v489';
+const APP_VERSION = 'v490';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -10618,6 +10618,14 @@ window.ccmCrearPedido = function(){
   if (!clientMenuContext) return;
   const {name, tipo, province, locName} = clientMenuContext;
   closeClientMenu();
+  // v490: si el user esta en whitelist Revision (Mariano/Ioannis/Santi/Pablo),
+  // redirigimos al modal de Revision con el cliente pre-seleccionado. El flujo
+  // nuevo obligatorio: Revision -> Dejar recalculando -> Lista de Espera ->
+  // Pasar a Pendientes. El resto del equipo sigue con el flow tradicional.
+  if (typeof _revisionCanUse === 'function' && _revisionCanUse()) {
+    openRevisionModal(name);
+    return;
+  }
   proceedToCreateOrder(name, tipo, province, locName);
 };
 
@@ -10636,6 +10644,14 @@ window.ccmCargarExcelPedido = function(){
   if (!clientMenuContext) return;
   const {name, tipo, province, locName} = clientMenuContext;
   closeClientMenu();
+  // v490: redirigir al modal de Revision con cliente pre-seleccionado si el
+  // user esta en whitelist Revision. El Excel se sube ahi mismo. El resto
+  // del equipo sigue con el flow tradicional (Cargar Pedido por Excel ->
+  // Revisar tu pedido -> Confirmar).
+  if (typeof _revisionCanUse === 'function' && _revisionCanUse()) {
+    openRevisionModal(name);
+    return;
+  }
   openExcelPedidoModal(name, tipo, province, locName);
 };
 
@@ -10692,7 +10708,7 @@ function _revisionCanUse(){
     em === 'pablo.gonzalez@shimano.com.ar'
   );
 }
-window.openRevisionModal = function(){
+window.openRevisionModal = function(preselectClient){
   if (!_revisionCanUse()) { alert('No tenes permisos para usar Revision Excel.'); return; }
   document.getElementById('revision-modal').classList.add('open');
   document.getElementById('revision-preview').style.display = 'none';
@@ -10700,7 +10716,18 @@ window.openRevisionModal = function(){
   document.getElementById('revision-export-btn').disabled = true;
   document.getElementById('revision-wait-btn').disabled = true;
   const cliRow0 = document.getElementById('revision-wait-cli-row');
-  if (cliRow0) cliRow0.style.display = 'none';
+  const cliInput0 = document.getElementById('revision-wait-cli-input');
+  // v490: si viene con cliente pre-seleccionado (desde ccmCrearPedido /
+  // ccmCargarExcelPedido), poblar el input + mostrar el row + resolver.
+  if (preselectClient && cliRow0 && cliInput0) {
+    _populateRevisionClienteDatalist();
+    cliInput0.value = preselectClient;
+    cliRow0.style.display = '';
+    if (typeof revisionOnClienteInput === 'function') revisionOnClienteInput();
+  } else if (cliRow0) {
+    cliRow0.style.display = 'none';
+    if (cliInput0) cliInput0.value = '';
+  }
   _revisionParsed = null;
   const drop = document.getElementById('revision-drop');
   if (drop && !drop.dataset.dragInit) {
