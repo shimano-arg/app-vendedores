@@ -1175,36 +1175,35 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 #stats-bar-sidebar .stat-box .lbl{font-size:8px}
 /* v471: flex:1 dinamico en vez de calc(100vh - 116px) fijo. */
 .main-container{display:flex;flex:1;min-height:0}
-/* v481: sidebar-left desktop-only (≥901px). Contiene 2 cards de KPI +
-   grid 3x3 de botones movidos desde .controls-right-group. */
-.sidebar-left{display:none;width:340px;flex-shrink:0;background:#fff;border-right:1px solid #e5e7eb;padding:14px 12px;overflow-y:auto;flex-direction:column;gap:12px}
+/* v481/v483: sidebar-left desktop-only (>=901px). Mismo formato/estilo
+   que .sidebar (derecho): width 420px, padding 14px 16px, border,
+   stat-boxes chatos arriba + grid 3x3 de botones. */
+.sidebar-left{display:none;width:420px;flex-shrink:0;background:#fff;border-right:1px solid #e5e7eb;padding:14px 16px;overflow-y:auto;flex-direction:column;gap:12px}
 @media (min-width: 901px) { .sidebar-left{display:flex} }
-.slft-cards{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.slft-card{padding:12px 10px;border-radius:8px;border:1.5px solid;display:flex;flex-direction:column;gap:2px;text-align:center}
-.slft-card-fact{background:#f0fdf4;border-color:#86efac}
-.slft-card-cumpl{background:#eff6ff;border-color:#93c5fd}
-.slft-card-lbl{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:#475569}
-.slft-card-value{font-size:20px;font-weight:900;color:#0f172a;line-height:1.1;margin-top:2px}
-.slft-card-fact .slft-card-value{color:#166534}
-.slft-card-cumpl .slft-card-value{color:#1e40af}
-.slft-card-sub{font-size:9px;color:#64748b;margin-top:2px}
+/* Stat-boxes del sidebar-left: mismo look que #stats-bar-sidebar del derecho. */
+.stats-bar-left{display:flex;width:100%;gap:6px;justify-content:space-between}
+.stats-bar-left .stat-box{flex:1 1 0;min-width:0;padding:6px 8px;text-align:center;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0}
+.stats-bar-left .stat-box .num{font-size:16px;font-weight:800;line-height:1.1;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stats-bar-left .stat-box .lbl{font-size:8px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-top:2px}
+.stats-bar-left .stat-box .sub{font-size:8px;color:#94a3b8;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stats-bar-left .slft-stat-fact .num{color:#166534}
+.stats-bar-left .slft-stat-cumpl .num{color:#1e40af}
+/* Grid 3x3 de botones con colores por fila. */
 .slft-btns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
-/* Ocultar los 9 botones movidos en su ubicacion original (arriba) SOLO en desktop.
-   Los classes se agregan dinamicamente al moverlos. */
 @media (min-width: 901px) { .controls-right-group .moved-to-sidebar-left{display:none !important} }
-/* Estilos de los botones cuando estan en el sidebar-left. Sobrescribimos
-   el ancho para que llenen la grid cell. Colores por fila via nth-child. */
-.slft-btns > button{width:100%;padding:9px 6px;font-size:10.5px;font-weight:700;border:none;border-radius:5px;color:#fff;cursor:pointer;text-transform:uppercase;letter-spacing:.15px;text-align:center;line-height:1.2;min-height:44px;display:flex;align-items:center;justify-content:center;gap:3px}
+.slft-btns > button{width:100%;padding:10px 4px;font-size:10.5px;font-weight:700;border:none;border-radius:5px;color:#fff;cursor:pointer;text-transform:uppercase;letter-spacing:.15px;text-align:center;line-height:1.2;min-height:46px;display:flex;align-items:center;justify-content:center;gap:3px;white-space:normal;word-break:break-word;overflow:hidden}
 .slft-btns > button:disabled{opacity:.5;cursor:not-allowed}
-/* Fila 1 (verde) - primeros 3 botones. */
+/* Fila 1 (verde) - primeros 3 botones. Mismo verde que LOCALIDADES/CLIENTES/PEDIDOS del sidebar-right. */
 .slft-btns > button:nth-child(1),.slft-btns > button:nth-child(2),.slft-btns > button:nth-child(3){background:#16a34a}
 .slft-btns > button:nth-child(1):hover,.slft-btns > button:nth-child(2):hover,.slft-btns > button:nth-child(3):hover{background:#15803d}
-/* Fila 2 (celeste) - botones 4-6. */
+/* Fila 2 (celeste) - botones 4-6. Mismo celeste que RUTAS/VISITA/CONTACTADO. */
 .slft-btns > button:nth-child(4),.slft-btns > button:nth-child(5),.slft-btns > button:nth-child(6){background:#0284c7}
 .slft-btns > button:nth-child(4):hover,.slft-btns > button:nth-child(5):hover,.slft-btns > button:nth-child(6):hover{background:#0369a1}
-/* Fila 3 (azul) - botones 7-9. */
+/* Fila 3 (azul oscuro) - botones 7-9. Mismo azul que ALTA CLIENTES/RENDICIONES/NOTIFICACIONES. */
 .slft-btns > button:nth-child(7),.slft-btns > button:nth-child(8),.slft-btns > button:nth-child(9){background:#1e3a8a}
 .slft-btns > button:nth-child(7):hover,.slft-btns > button:nth-child(8):hover,.slft-btns > button:nth-child(9):hover{background:#1e40af}
+/* Sobreescribir cualquier badge/count que traigan los botones movidos (ej: waitlist-btn-count, backorders-btn-count) para que se vea consistente. */
+.slft-btns > button > span{background:rgba(255,255,255,.25) !important;padding:1px 6px !important;border-radius:9px !important;font-size:9px !important;margin-left:4px !important}
 #map{flex:1;z-index:1;background:#eaf3f8}
 .sidebar{width:420px;background:#fff;overflow-y:auto;border-left:1px solid #e5e7eb;padding:14px 16px;display:flex;flex-direction:column}
 .sidebar h3{font-size:13px;color:#0f172a;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #00A9E0;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
@@ -1971,20 +1970,19 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
      individuales en el top toolbar (ver .btn-mis-camps / .btn-export /
      .btn-rendiciones-top arriba). -->
 <div class="main-container">
-  <!-- v481 (2026-08-12): sidebar-left desktop-only. 2 cards arriba
-       (Facturacion Diaria + Cumplimiento) + grid 3x3 con los 9 botones
-       principales movidos desde .controls-right-group. -->
+  <!-- v481/v483: sidebar-left desktop-only. Mismo formato que sidebar-right:
+       stat-boxes chatos arriba + grid 3x3 de botones. -->
   <aside class="sidebar-left" id="sidebar-left">
-    <div class="slft-cards">
-      <div class="slft-card slft-card-fact">
-        <div class="slft-card-lbl">Facturaci&oacute;n Diaria</div>
-        <div class="slft-card-value" id="slft-fact-hoy">$0</div>
-        <div class="slft-card-sub" id="slft-fact-hoy-sub">Sin datos</div>
+    <div id="stats-bar-sidebar-left" class="stats-bar-left">
+      <div class="stat-box slft-stat-fact">
+        <div class="num" id="slft-fact-hoy">$0</div>
+        <div class="lbl">Facturaci&oacute;n Diaria</div>
+        <div class="sub" id="slft-fact-hoy-sub">Sin datos</div>
       </div>
-      <div class="slft-card slft-card-cumpl">
-        <div class="slft-card-lbl">Cumplimiento</div>
-        <div class="slft-card-value" id="slft-cumpl-pct">0%</div>
-        <div class="slft-card-sub" id="slft-cumpl-sub">Sin target</div>
+      <div class="stat-box slft-stat-cumpl">
+        <div class="num" id="slft-cumpl-pct">&mdash;</div>
+        <div class="lbl">Cumplimiento</div>
+        <div class="sub" id="slft-cumpl-sub">Sin target</div>
       </div>
     </div>
     <div class="slft-btns" id="sidebar-left-buttons">
@@ -3914,7 +3912,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v482';
+const APP_VERSION = 'v483';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -14804,17 +14802,32 @@ function _updateSidebarLeftCards(){
   const cumplSubEl = document.getElementById('slft-cumpl-sub');
   if (!factHoyEl) return;
   const { hoyArs, mesArs, targetMesArs, cumplPct, source } = _computeFacturacionCumplimientoLocal();
+  // v483: formato compacto para que quepa en los stat-box chatos.
   const fmt = (n) => '$' + Math.round(n || 0).toLocaleString('es-AR');
+  const fmtCorto = (n) => {
+    n = Math.round(n || 0);
+    if (n >= 1e9) return '$' + (n / 1e9).toFixed(1) + 'B';
+    if (n >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return '$' + (n / 1e3).toFixed(0) + 'K';
+    return '$' + n;
+  };
   factHoyEl.textContent = fmt(hoyArs);
-  // v482: mostrar fuente (SAP oficial vs local) para diagnostico.
+  factHoyEl.title = 'Facturacion de HOY: ' + fmt(hoyArs);
   const srcLabel = source === 'snapshot' ? 'SAP' : 'local';
-  if (factHoySubEl) factHoySubEl.textContent = 'Mes: ' + fmt(mesArs) + ' · ' + srcLabel;
+  if (factHoySubEl) {
+    factHoySubEl.textContent = 'Mes: ' + fmtCorto(mesArs) + ' · ' + srcLabel;
+    factHoySubEl.title = 'Facturacion acumulada del mes: ' + fmt(mesArs);
+  }
   if (cumplPct == null) {
     cumplPctEl.textContent = '—';
     if (cumplSubEl) cumplSubEl.textContent = 'Sin target del mes';
   } else {
     cumplPctEl.textContent = cumplPct + '%';
-    if (cumplSubEl) cumplSubEl.textContent = 'Target: ' + fmt(targetMesArs);
+    cumplPctEl.title = 'Cumplimiento: ' + fmt(mesArs) + ' / target ' + fmt(targetMesArs);
+    if (cumplSubEl) {
+      cumplSubEl.textContent = 'Target: ' + fmtCorto(targetMesArs);
+      cumplSubEl.title = 'Target del mes: ' + fmt(targetMesArs);
+    }
     if (cumplPct >= 100) cumplPctEl.style.color = '#166534';
     else if (cumplPct >= 75) cumplPctEl.style.color = '#1e40af';
     else if (cumplPct >= 50) cumplPctEl.style.color = '#b45309';
