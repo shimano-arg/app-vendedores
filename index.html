@@ -3929,7 +3929,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v485';
+const APP_VERSION = 'v486';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -14703,46 +14703,50 @@ function _moveButtonsToSidebarLeft(){
   const dst = document.getElementById('sidebar-left-buttons');
   if (!dst) return;
   if (dst.dataset.movedDone === '1') return;
-  // v485: nombres limpios (sin emojis) para cada boton. Preserva los
-  // <span> internos (badges de conteo) porque estos van en el label.
-  const CLEAN_NAMES = {
-    'mis-camps-btn': 'Campañas',
-    'dashboard-btn': 'Dashboard',
-    'seguimiento-btn': 'Seguimiento',
-    'export-btn-inferred': 'Excel',
-    'backorders-btn': 'Backorder',
-    'asignacion-backorder-btn': 'SAP Asig.',
-    'forecast-btn': 'Forecast',
-    'revision-btn': 'Revisión',
-    'waitlist-btn': 'Espera',
-  };
-  const orden = [
-    'mis-camps-btn',            // Fila 1 - Campanas Activas
-    'dashboard-btn',            // Fila 1 - Dashboard
-    'seguimiento-btn',          // Fila 1 - Seguimiento
-    '_export_btn',              // Fila 2 - Exportar a Excel (sin id, hacemos lookup por class)
-    'backorders-btn',           // Fila 2 - Backorder
-    'asignacion-backorder-btn', // Fila 2 - SAP Asignado - Con Stock
-    'forecast-btn',             // Fila 3 - Forecast
-    'revision-btn',             // Fila 3 - Revision Excel
-    'waitlist-btn',             // Fila 3 - Lista de Espera
-  ];
+  // v486: en vez de MOVER los botones originales (que traen emojis + badges
+  // hardcoded en el HTML), CREO botones nuevos limpios que hacen click en
+  // los originales. Los originales se ocultan en desktop via CSS class
+  // moved-to-sidebar-left. En mobile los originales quedan visibles.
   const _exportBtn = document.querySelector('.controls-right-group .btn-export');
   if (_exportBtn && !_exportBtn.id) _exportBtn.id = 'export-btn-inferred';
-  const idsResueltos = orden.map(id => id === '_export_btn' ? (_exportBtn ? _exportBtn.id : null) : id);
-  idsResueltos.forEach(id => {
+  const orden = [
+    { id: 'mis-camps-btn',            label: 'Campañas' },
+    { id: 'dashboard-btn',            label: 'Dashboard' },
+    { id: 'seguimiento-btn',          label: 'Seguimiento' },
+    { id: _exportBtn ? _exportBtn.id : null, label: 'Excel' },
+    { id: 'backorders-btn',           label: 'Backorder' },
+    { id: 'asignacion-backorder-btn', label: 'SAP Asig.' },
+    { id: 'forecast-btn',             label: 'Forecast' },
+    { id: 'revision-btn',             label: 'Revisión' },
+    { id: 'waitlist-btn',             label: 'Espera' },
+  ];
+  orden.forEach(({ id, label }) => {
     if (!id) return;
-    const el = document.getElementById(id);
-    if (!el) return;
-    // v485: reemplazar innerHTML por nombre limpio + preservar spans de badge.
-    const cleanName = CLEAN_NAMES[id];
-    if (cleanName) {
-      const badges = Array.from(el.querySelectorAll(':scope > span'));
-      el.textContent = cleanName;
-      badges.forEach(b => el.appendChild(b));
-    }
-    el.classList.add('moved-to-sidebar-left');
-    dst.appendChild(el);
+    const orig = document.getElementById(id);
+    if (!orig) return;
+    // Ocultar el original en desktop.
+    orig.classList.add('moved-to-sidebar-left');
+    // Crear boton proxy limpio.
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = label;
+    btn.setAttribute('data-proxy-for', id);
+    // Al click: dispara click en el original (preserva TODA la logica, gates, etc).
+    btn.onclick = () => {
+      const target = document.getElementById(id);
+      if (target && typeof target.click === 'function') target.click();
+    };
+    // Sync visibility con el original: si el original tiene display:none
+    // (por role gate), el proxy tambien. Poll ligero con MutationObserver.
+    const syncVisibility = () => {
+      const isHidden = orig.style.display === 'none';
+      btn.style.display = isHidden ? 'none' : '';
+    };
+    syncVisibility();
+    try {
+      new MutationObserver(syncVisibility).observe(orig, { attributes: true, attributeFilter: ['style'] });
+    } catch(e){}
+    dst.appendChild(btn);
   });
   dst.dataset.movedDone = '1';
 }
