@@ -1268,9 +1268,11 @@ body.can-revision .revision-btn{display:inline-flex}
 /* v454: card individual + listado de pedidos en espera. */
 #wcard-rows tr.exceed td{background:#fef2f2;color:#991b1b;font-weight:700}
 #wcard-rows tr.exceed td.exc-cell{background:#dc2626;color:#fff}
-#wcard-rows tr td{padding:5px 8px;border-top:1px solid #f1f5f9}
-#wcard-rows tr td.mono{font-family:monospace;font-size:10px}
-#wcard-rows tr td.num{text-align:right;font-weight:600}
+/* v470: celdas centradas por default. */
+#wcard-rows tr td{padding:5px 8px;border-top:1px solid #f1f5f9;text-align:center}
+#wcard-rows tr td.mono{font-family:monospace;font-size:10px;text-align:center}
+#wcard-rows tr td.num{text-align:center;font-weight:600}
+#wcard-rows tr td.left-align{text-align:left}
 #wcard-rows tr.no-data td{background:#f8fafc;color:#94a3b8;font-style:italic}
 #wcard-rows tr td.chg-neg{color:#dc2626;font-weight:700}
 #wcard-rows tr td.chg-pos{color:#059669;font-weight:700}
@@ -3673,8 +3675,9 @@ body.can-revision .revision-btn{display:inline-flex}
 </div>
 
 <!-- v454: modal CARD INDIVIDUAL con recalculo dinamico. -->
+<!-- v470: agrandado ~30% (1080->1400 wide, 82vh->95vh height). -->
 <div class="modal-overlay" id="waitlist-card-modal" onclick="if(event.target===this)closeWaitlistCardModal()">
-  <div class="modal-box" style="width:min(1080px,98vw)">
+  <div class="modal-box" style="width:min(1400px,98vw)">
     <div class="modal-head" style="background:linear-gradient(135deg,#5b21b6,#7c3aed)">
       <div>
         <h2 id="wcard-title">Pedido en espera</h2>
@@ -3682,7 +3685,7 @@ body.can-revision .revision-btn{display:inline-flex}
       </div>
       <button class="modal-close" onclick="closeWaitlistCardModal()">&times;</button>
     </div>
-    <div class="modal-body" style="padding:22px 24px;max-height:82vh;overflow-y:auto;display:block">
+    <div class="modal-body" style="padding:22px 24px;max-height:95vh;overflow-y:auto;display:block">
       <div id="wcard-stats" style="background:#f0fdfa;border:1.5px solid #5eead4;border-radius:6px;padding:10px 12px;font-size:12px;color:#134e4a;line-height:1.5;margin-bottom:12px"></div>
       <!-- v468: buscador para agregar productos nuevos al pedido en espera. -->
       <div style="position:relative;margin-bottom:10px">
@@ -3690,20 +3693,21 @@ body.can-revision .revision-btn{display:inline-flex}
         <div id="wcard-add-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #cbd5e1;border-top:none;border-radius:0 0 6px 6px;max-height:260px;overflow-y:auto;z-index:5;box-shadow:0 4px 12px rgba(0,0,0,.08)"></div>
       </div>
       <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:6px">
-        <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:1120px">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:1360px">
           <thead style="background:#0f172a;color:#fff;position:sticky;top:0">
             <tr>
-              <th style="text-align:left;padding:6px 8px">SKU</th>
+              <th style="text-align:center;padding:6px 8px">SKU</th>
               <th style="text-align:left;padding:6px 8px">Producto</th>
-              <th style="text-align:right;padding:6px 8px" title="Stock deposito 11 + transito deposito 12">Stock total</th>
-              <th style="text-align:right;padding:6px 8px" title="Backorder SAP + otros pedidos en espera del mismo SKU (informativo, NO resta al Disponible)">Backorder</th>
-              <th style="text-align:right;padding:6px 8px" title="Stock total - Backorder SAP (segun snapshot SAP - tiene delay de sync)">Disponible SAP</th>
-              <th style="text-align:right;padding:6px 8px" title="Disponible SAP - Pedidos Pendientes de la app no transferidos aun a SAP. Corrige el delay del sync SAP.">Disponible app</th>
-              <th style="text-align:right;padding:6px 8px">Pedido</th>
-              <th style="text-align:right;padding:6px 8px" title="Precio unitario del catalogo/SAP">Precio $</th>
-              <th style="text-align:right;padding:6px 8px" title="qty * precio">Subtotal $</th>
-              <th style="text-align:right;padding:6px 8px" title="Pedido - Disponible app">Excedente</th>
-              <th style="text-align:right;padding:6px 8px" title="Diferencia respecto al Disponible al momento de crear el pedido">Cambio</th>
+              <th style="text-align:center;padding:6px 8px" title="Stock deposito 11 + transito deposito 12">Stock total</th>
+              <th style="text-align:center;padding:6px 8px" title="Backorder SAP + otros pedidos en espera del mismo SKU (informativo, NO resta al Disponible)">Backorder</th>
+              <th style="text-align:center;padding:6px 8px" title="Stock total - Backorder SAP (segun snapshot SAP - tiene delay de sync)">Disponible SAP</th>
+              <th style="text-align:center;padding:6px 8px" title="Disponible SAP - Pedidos Pendientes de la app no transferidos aun a SAP. Corrige el delay del sync SAP.">Disponible app</th>
+              <th style="text-align:center;padding:6px 8px">Pedido</th>
+              <th style="text-align:center;padding:6px 8px" title="Precio unitario del catalogo/SAP">Precio</th>
+              <th style="text-align:center;padding:6px 8px" title="Lo que confirmas YA con seguridad = min(Pedido, Disponible app) x Precio">Subtotal (Confirmaci&oacute;n Inmediata)</th>
+              <th style="text-align:center;padding:6px 8px" title="Lo que queda pendiente de conseguir = max(Pedido - Disponible app, 0) x Precio">Subtotal (Pendiente)</th>
+              <th style="text-align:center;padding:6px 8px" title="Pedido - Disponible app">Excedente</th>
+              <th style="text-align:center;padding:6px 8px" title="Diferencia respecto al Disponible al momento de crear el pedido">Cambio</th>
               <th style="text-align:center;padding:6px 8px" title="Quitar producto de la lista">&nbsp;</th>
             </tr>
           </thead>
@@ -3809,7 +3813,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v469';
+const APP_VERSION = 'v470';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11128,15 +11132,25 @@ function _renderWaitlistCard(){
     const firstDisp = (it.firstDisponible != null) ? it.firstDisponible : null;
     const chg = (firstDisp != null && dispApp != null) ? (dispApp - firstDisp) : null;
     // v467: precio del catalogo/SAP + subtotal $.
+    // v470: dos subtotales. Confirmacion Inmediata = lo que confirmas YA con
+    // seguridad (min(qty, dispApp) * precio). Pendiente = lo que queda por
+    // conseguir (max(qty - dispApp, 0) * precio). Suman al total pedido.
     const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(it.code) || 0) : 0;
-    const subtotal = precio * (it.qty || 0);
+    const dispCap = (dispApp != null) ? dispApp : (it.qty || 0);
+    const qtyConfirmable = Math.min(it.qty || 0, dispCap);
+    const qtyPendiente = Math.max((it.qty || 0) - dispCap, 0);
+    const subtotalConfirmable = precio * qtyConfirmable;
+    const subtotalPendiente = precio * qtyPendiente;
+    const subtotalTotal = subtotalConfirmable + subtotalPendiente;
     rows.push({
       idx, code: it.code, desc: it.desc, qty: it.qty,
       stockTotal: stk.stockTotal, backorderSap: backSap,
       otrosEspera: otros, pendingApp,
       disponible: disp, disponibleApp: dispApp,
       hasData: stk.hasData, excede,
-      chg, precio, subtotal,
+      chg, precio,
+      subtotal: subtotalTotal,
+      subtotalConfirmable, subtotalPendiente,
     });
   });
   const statsEl = document.getElementById('wcard-stats');
@@ -11191,7 +11205,7 @@ function _renderWaitlistCard(){
     const tr = document.createElement('tr');
     tr.className = !r.hasData ? 'no-data' : (r.excede ? 'exceed' : '');
     tr.appendChild(mk(r.code, 'mono'));
-    tr.appendChild(mk(r.desc, ''));
+    tr.appendChild(mk(r.desc, 'left-align'));
     tr.appendChild(mk(r.hasData ? r.stockTotal : '-', 'num'));
     const backTxt = (r.otrosEspera > 0)
       ? ((r.backorderSap + r.otrosEspera) + ' (Ofertas SAP: ' + r.backorderSap + ' · Espera app: ' + r.otrosEspera + ')')
@@ -11207,13 +11221,27 @@ function _renderWaitlistCard(){
     tdQty.className = 'num';
     const inp = document.createElement('input');
     inp.type = 'number'; inp.min = '1'; inp.step = '1'; inp.value = String(r.qty);
-    inp.style.cssText = 'width:60px;text-align:right;font-weight:700;padding:2px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:11px';
+    inp.style.cssText = 'width:60px;text-align:center;font-weight:700;padding:2px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:11px';
     inp.setAttribute('data-idx', String(r.idx));
     inp.onchange = () => waitlistUpdateItemQty(w._id, r.idx, parseInt(inp.value, 10) || 0);
     tdQty.appendChild(inp);
     tr.appendChild(tdQty);
-    tr.appendChild(mk(fmtArs(r.precio), 'num'));
-    tr.appendChild(mk(fmtArs(r.subtotal), 'num'));
+    // v470: Precio sin '$' + dos subtotales (Confirmable + Pendiente).
+    tr.appendChild(mk(Math.round(r.precio).toLocaleString('es-AR'), 'num'));
+    // Subtotal Confirmacion Inmediata (verde).
+    const tdConf = document.createElement('td');
+    tdConf.className = 'num';
+    tdConf.style.color = r.subtotalConfirmable > 0 ? '#059669' : '#94a3b8';
+    tdConf.style.fontWeight = '700';
+    tdConf.textContent = fmtArs(r.subtotalConfirmable);
+    tr.appendChild(tdConf);
+    // Subtotal Pendiente (rojo si > 0).
+    const tdPend = document.createElement('td');
+    tdPend.className = 'num';
+    tdPend.style.color = r.subtotalPendiente > 0 ? '#dc2626' : '#94a3b8';
+    tdPend.style.fontWeight = '700';
+    tdPend.textContent = fmtArs(r.subtotalPendiente);
+    tr.appendChild(tdPend);
     const excedente = r.excede ? (r.qty - r.disponibleApp) : 0;
     tr.appendChild(mk(r.excede ? ('+' + excedente) : (r.hasData ? '0' : '-'), r.excede ? 'num exc-cell' : 'num'));
     let chgTxt = '-', chgCls = 'num chg-none';
