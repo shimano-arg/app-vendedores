@@ -92,6 +92,20 @@
 .header-hamburger:hover{background:#f1f5f9;border-color:#94a3b8}
 .header-hamburger:active{transform:scale(.95)}
 
+/* v471: layout flex-column con altura fija = 100vh para eliminar scroll
+   vertical de la pagina principal en DESKTOP. Antes .main-container tenia
+   'height:calc(100vh - 116px)' asumiendo un header stack fijo, pero con
+   los botones nuevos (Revision Excel, Pedidos en Espera) el .controls
+   wrappea a 2 lineas y la suma real supera 116px -> el mapa sobresale
+   por abajo -> scroll. Ahora .header + .controls son flex-shrink:0 y
+   .main-container flex:1 - se ajusta dinamicamente sin importar cuantos
+   botones haya. Mobile mantiene scroll natural (media query mas abajo
+   pisa el overflow para permitir sidebar apilada). */
+@media (min-width: 901px) {
+  html,body{margin:0;padding:0;height:100vh;overflow:hidden}
+  body{display:flex;flex-direction:column}
+  body > .header, body > .controls, body > #main-tabs{flex-shrink:0}
+}
 body{font-family:"Segoe UI",Calibri,Arial,sans-serif;background:#dbeafe;color:#1e293b;touch-action:manipulation;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%}
 .header{background:#fff;color:#0f172a;padding:14px 28px;display:flex;align-items:center;gap:20px;border-bottom:1px solid #e5e7eb;box-shadow:0 1px 4px rgba(0,0,0,.04);position:relative;border-bottom-left-radius:22px;border-bottom-right-radius:22px}
 .header .logo-text{font-size:11px;font-weight:800;letter-spacing:3px;color:#fff;background:#00A9E0;padding:6px 14px;border-radius:4px;z-index:1}
@@ -1159,7 +1173,8 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 #stats-bar-sidebar .stat-box{flex:1 1 0;min-width:0;padding:6px 4px}
 #stats-bar-sidebar .stat-box .num{font-size:18px}
 #stats-bar-sidebar .stat-box .lbl{font-size:8px}
-.main-container{display:flex;height:calc(100vh - 116px)}
+/* v471: flex:1 dinamico en vez de calc(100vh - 116px) fijo. */
+.main-container{display:flex;flex:1;min-height:0}
 #map{flex:1;z-index:1;background:#eaf3f8}
 .sidebar{width:420px;background:#fff;overflow-y:auto;border-left:1px solid #e5e7eb;padding:14px 16px;display:flex;flex-direction:column}
 .sidebar h3{font-size:13px;color:#0f172a;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #00A9E0;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
@@ -3813,7 +3828,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v470';
+const APP_VERSION = 'v471';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
