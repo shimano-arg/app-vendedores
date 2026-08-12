@@ -1175,6 +1175,36 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 #stats-bar-sidebar .stat-box .lbl{font-size:8px}
 /* v471: flex:1 dinamico en vez de calc(100vh - 116px) fijo. */
 .main-container{display:flex;flex:1;min-height:0}
+/* v481: sidebar-left desktop-only (≥901px). Contiene 2 cards de KPI +
+   grid 3x3 de botones movidos desde .controls-right-group. */
+.sidebar-left{display:none;width:340px;flex-shrink:0;background:#fff;border-right:1px solid #e5e7eb;padding:14px 12px;overflow-y:auto;flex-direction:column;gap:12px}
+@media (min-width: 901px) { .sidebar-left{display:flex} }
+.slft-cards{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.slft-card{padding:12px 10px;border-radius:8px;border:1.5px solid;display:flex;flex-direction:column;gap:2px;text-align:center}
+.slft-card-fact{background:#f0fdf4;border-color:#86efac}
+.slft-card-cumpl{background:#eff6ff;border-color:#93c5fd}
+.slft-card-lbl{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:#475569}
+.slft-card-value{font-size:20px;font-weight:900;color:#0f172a;line-height:1.1;margin-top:2px}
+.slft-card-fact .slft-card-value{color:#166534}
+.slft-card-cumpl .slft-card-value{color:#1e40af}
+.slft-card-sub{font-size:9px;color:#64748b;margin-top:2px}
+.slft-btns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+/* Ocultar los 9 botones movidos en su ubicacion original (arriba) SOLO en desktop.
+   Los classes se agregan dinamicamente al moverlos. */
+@media (min-width: 901px) { .controls-right-group .moved-to-sidebar-left{display:none !important} }
+/* Estilos de los botones cuando estan en el sidebar-left. Sobrescribimos
+   el ancho para que llenen la grid cell. Colores por fila via nth-child. */
+.slft-btns > button{width:100%;padding:9px 6px;font-size:10.5px;font-weight:700;border:none;border-radius:5px;color:#fff;cursor:pointer;text-transform:uppercase;letter-spacing:.15px;text-align:center;line-height:1.2;min-height:44px;display:flex;align-items:center;justify-content:center;gap:3px}
+.slft-btns > button:disabled{opacity:.5;cursor:not-allowed}
+/* Fila 1 (verde) - primeros 3 botones. */
+.slft-btns > button:nth-child(1),.slft-btns > button:nth-child(2),.slft-btns > button:nth-child(3){background:#16a34a}
+.slft-btns > button:nth-child(1):hover,.slft-btns > button:nth-child(2):hover,.slft-btns > button:nth-child(3):hover{background:#15803d}
+/* Fila 2 (celeste) - botones 4-6. */
+.slft-btns > button:nth-child(4),.slft-btns > button:nth-child(5),.slft-btns > button:nth-child(6){background:#0284c7}
+.slft-btns > button:nth-child(4):hover,.slft-btns > button:nth-child(5):hover,.slft-btns > button:nth-child(6):hover{background:#0369a1}
+/* Fila 3 (azul) - botones 7-9. */
+.slft-btns > button:nth-child(7),.slft-btns > button:nth-child(8),.slft-btns > button:nth-child(9){background:#1e3a8a}
+.slft-btns > button:nth-child(7):hover,.slft-btns > button:nth-child(8):hover,.slft-btns > button:nth-child(9):hover{background:#1e40af}
 #map{flex:1;z-index:1;background:#eaf3f8}
 .sidebar{width:420px;background:#fff;overflow-y:auto;border-left:1px solid #e5e7eb;padding:14px 16px;display:flex;flex-direction:column}
 .sidebar h3{font-size:13px;color:#0f172a;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #00A9E0;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
@@ -1941,6 +1971,26 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
      individuales en el top toolbar (ver .btn-mis-camps / .btn-export /
      .btn-rendiciones-top arriba). -->
 <div class="main-container">
+  <!-- v481 (2026-08-12): sidebar-left desktop-only. 2 cards arriba
+       (Facturacion Diaria + Cumplimiento) + grid 3x3 con los 9 botones
+       principales movidos desde .controls-right-group. -->
+  <aside class="sidebar-left" id="sidebar-left">
+    <div class="slft-cards">
+      <div class="slft-card slft-card-fact">
+        <div class="slft-card-lbl">Facturaci&oacute;n Diaria</div>
+        <div class="slft-card-value" id="slft-fact-hoy">$0</div>
+        <div class="slft-card-sub" id="slft-fact-hoy-sub">Sin datos</div>
+      </div>
+      <div class="slft-card slft-card-cumpl">
+        <div class="slft-card-lbl">Cumplimiento</div>
+        <div class="slft-card-value" id="slft-cumpl-pct">0%</div>
+        <div class="slft-card-sub" id="slft-cumpl-sub">Sin target</div>
+      </div>
+    </div>
+    <div class="slft-btns" id="sidebar-left-buttons">
+      <!-- Los 9 botones se mueven aca via JS al load (ver moveButtonsToSidebarLeft). -->
+    </div>
+  </aside>
   <div id="map"></div>
   <div class="click-debug" id="click-debug"></div>
   <div class="sync-tag" id="sync-tag">Sincronizando...</div>
@@ -3864,7 +3914,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v480';
+const APP_VERSION = 'v481';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -14620,6 +14670,124 @@ function applyRolePermissions(){
       sel.value = currentVendor || 'ALL';
     }
   }
+  // v481: mover los 9 botones al sidebar-left (idempotente).
+  try { _moveButtonsToSidebarLeft(); } catch(e) { console.warn('moveButtonsToSidebarLeft', e); }
+  // v481: refrescar cards del sidebar-left al aplicar permissions.
+  try { _updateSidebarLeftCards(); } catch(e) { console.warn('updateSidebarLeftCards', e); }
+}
+
+// v481 (2026-08-12): mueve los 9 botones del top .controls-right-group al
+// sidebar-left en el orden especifico:
+//   Fila 1 (verde):   Campanas Activas, Dashboard, Seguimiento
+//   Fila 2 (celeste): Exportar a Excel, Backorder, SAP Asignado Con Stock
+//   Fila 3 (azul):    Forecast, Revision Excel, Lista de Espera
+// Idempotente: si ya se movieron, no hace nada. En desktop CSS oculta los
+// originales via class 'moved-to-sidebar-left'. En mobile los originales
+// permanecen visibles (media query < 901px).
+function _moveButtonsToSidebarLeft(){
+  const dst = document.getElementById('sidebar-left-buttons');
+  if (!dst) return;
+  if (dst.dataset.movedDone === '1') return;
+  const orden = [
+    'mis-camps-btn',            // Fila 1 - Campanas Activas
+    'dashboard-btn',            // Fila 1 - Dashboard
+    'seguimiento-btn',          // Fila 1 - Seguimiento
+    '_export_btn',              // Fila 2 - Exportar a Excel (sin id, hacemos lookup por class)
+    'backorders-btn',           // Fila 2 - Backorder
+    'asignacion-backorder-btn', // Fila 2 - SAP Asignado - Con Stock
+    'forecast-btn',             // Fila 3 - Forecast
+    'revision-btn',             // Fila 3 - Revision Excel
+    'waitlist-btn',             // Fila 3 - Lista de Espera
+  ];
+  const _exportBtn = document.querySelector('.controls-right-group .btn-export');
+  if (_exportBtn && !_exportBtn.id) _exportBtn.id = 'export-btn-inferred';
+  const idsResueltos = orden.map(id => id === '_export_btn' ? (_exportBtn ? _exportBtn.id : null) : id);
+  idsResueltos.forEach(id => {
+    if (!id) return;
+    const el = document.getElementById(id);
+    if (!el) return;
+    // Clone-and-replace vs mover directo: movemos directo asi mantiene onclick handlers.
+    // Marcamos el ORIGINAL con clase 'moved-to-sidebar-left' antes de mover para que el
+    // CSS del @media desktop lo oculte SI vuelve a aparecer en el top (por si hay
+    // re-inserciones dinamicas). No aplica porque lo movemos fisicamente, pero por defensa.
+    el.classList.add('moved-to-sidebar-left');
+    dst.appendChild(el);
+  });
+  dst.dataset.movedDone = '1';
+}
+
+// v481: calcula facturacion diaria + cumplimiento mensual usando data
+// local de la app (pedidos confirmed con netAmountArs). Cuando implementemos
+// el sync SAP -> Firestore de v_ventas_lineas (v482), esta funcion cambia
+// la fuente. Firma estable.
+function _computeFacturacionCumplimientoLocal(){
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const d = now.getDate();
+  const pad = n => String(n).padStart(2, '0');
+  const hoyPrefix = y + '-' + pad(m + 1) + '-' + pad(d);
+  const mesPrefix = y + '-' + pad(m + 1);
+  // Filter por vendedor scope si soy vendedor.
+  const scopeVendor = (userRole === 'vendedor' || userRole === 'interno')
+    ? (assignedVendor || null) : null;
+  let hoyArs = 0, mesArs = 0;
+  if (typeof confirmed === 'object' && confirmed) {
+    Object.entries(confirmed).forEach(([key, list]) => {
+      // Si soy vendor scope, filtrar por key: 'C|prov|loc|nombre' -> lookup vendor via getVendorForKey.
+      if (scopeVendor && typeof getVendorForKey === 'function') {
+        const kv = getVendorForKey(key);
+        if (kv !== scopeVendor) return;
+      }
+      (list || []).forEach(c => {
+        const dt = (c.finalizedAt || c.confirmedAt || '').slice(0, 10);
+        if (!dt) return;
+        const monto = (c.netAmountArs != null) ? c.netAmountArs : 0;
+        if (dt === hoyPrefix) hoyArs += monto;
+        if (dt.startsWith(mesPrefix)) mesArs += monto;
+      });
+    });
+  }
+  // Target del mes: TARGETS_BY_VENDOR{vendor: {YYYY-MM: monto}} o similar.
+  // Uso getMonthlyTargetArs si esta disponible (dashboard.js exports).
+  let targetMesArs = 0;
+  if (typeof getMonthlyTargetArs === 'function') {
+    try {
+      if (scopeVendor) {
+        targetMesArs = getMonthlyTargetArs(scopeVendor, y, m + 1) || 0;
+      } else {
+        // Suma nacional para admin/gerente: sum sobre todos los vendedores.
+        const vendors = (typeof VENDORS !== 'undefined' && VENDORS) ? VENDORS.map(v => v.key) : [];
+        vendors.forEach(v => {
+          targetMesArs += (getMonthlyTargetArs(v, y, m + 1) || 0);
+        });
+      }
+    } catch(e) { console.warn('getMonthlyTargetArs', e); }
+  }
+  const cumplPct = targetMesArs > 0 ? Math.round(100 * mesArs / targetMesArs) : null;
+  return { hoyArs, mesArs, targetMesArs, cumplPct };
+}
+function _updateSidebarLeftCards(){
+  const factHoyEl = document.getElementById('slft-fact-hoy');
+  const factHoySubEl = document.getElementById('slft-fact-hoy-sub');
+  const cumplPctEl = document.getElementById('slft-cumpl-pct');
+  const cumplSubEl = document.getElementById('slft-cumpl-sub');
+  if (!factHoyEl) return;
+  const { hoyArs, mesArs, targetMesArs, cumplPct } = _computeFacturacionCumplimientoLocal();
+  const fmt = (n) => '$' + Math.round(n || 0).toLocaleString('es-AR');
+  factHoyEl.textContent = fmt(hoyArs);
+  if (factHoySubEl) factHoySubEl.textContent = 'Mes: ' + fmt(mesArs);
+  if (cumplPct == null) {
+    cumplPctEl.textContent = '—';
+    if (cumplSubEl) cumplSubEl.textContent = 'Sin target del mes';
+  } else {
+    cumplPctEl.textContent = cumplPct + '%';
+    if (cumplSubEl) cumplSubEl.textContent = 'Target: ' + fmt(targetMesArs);
+    if (cumplPct >= 100) cumplPctEl.style.color = '#166534';
+    else if (cumplPct >= 75) cumplPctEl.style.color = '#1e40af';
+    else if (cumplPct >= 50) cumplPctEl.style.color = '#b45309';
+    else cumplPctEl.style.color = '#991b1b';
+  }
 }
 
 // Re-arma el dropdown de zonas para un VDI con N parejas VDE.
@@ -16933,6 +17101,8 @@ function attachFirebaseListeners(){
     } finally { suppressCloudSave = false; }
     if (typeof renderPedidosTab === 'function') renderPedidosTab();
     if (typeof drawMarkers === 'function') drawMarkers();
+    // v481: refrescar cards del sidebar-left (facturacion diaria + cumplimiento).
+    try { if (typeof _updateSidebarLeftCards === 'function') _updateSidebarLeftCards(); } catch(e){}
   }, err => console.error('pedidos own listener', err));
 
   // 3) pedidos de TODOS (para sugerencias cruzadas)
