@@ -1221,6 +1221,23 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .slft-btns > button:nth-child(9):hover{background:#1e40af !important}
 /* Badge/count style consistente con .tab-count del sidebar-right. */
 .slft-btns > button > span{background:rgba(255,255,255,.3) !important;color:#fff !important;padding:1px 7px !important;border-radius:10px !important;font-size:10px !important;font-weight:800 !important;margin-left:4px !important;min-width:22px;text-align:center}
+/* v493: listado inline de pedidos en espera bajo los botones del
+   sidebar-left. Mismo estilo del listado modal .waitlist-item pero
+   compactado (padding menor, sin badge full text). */
+.sidebar-left-waitlist{border-top:1px solid #e5e7eb;padding-top:12px;margin-top:4px;flex:1;overflow-y:auto;min-height:0;display:flex;flex-direction:column}
+.slft-wl-hdr{display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:800;color:#0f172a;text-transform:uppercase;letter-spacing:.5px;padding-bottom:8px;border-bottom:2px solid #f97316;margin-bottom:8px;flex-shrink:0}
+.slft-wl-count{background:#f97316;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:800;min-width:22px;text-align:center}
+#slft-wl-rows{flex:1;overflow-y:auto;min-height:0}
+.slft-wl-item{background:#fff;border:1px solid #e5e7eb;border-left:3px solid #f97316;border-radius:5px;padding:8px 10px;margin-bottom:6px;cursor:pointer;font-size:11px;line-height:1.35;transition:background .15s}
+.slft-wl-item:hover{background:#fef3c7}
+.slft-wl-item.has-exceed{border-left-color:#dc2626;background:#fef2f2}
+.slft-wl-item.has-exceed:hover{background:#fee2e2}
+.slft-wl-cli{font-weight:800;color:#0f172a;font-size:11.5px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.slft-wl-loc{color:#64748b;font-size:10px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.slft-wl-meta{color:#94a3b8;font-size:9.5px;display:flex;justify-content:space-between;gap:6px;align-items:center;flex-wrap:wrap}
+.slft-wl-badge{background:#f97316;color:#fff;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:800;white-space:nowrap}
+.slft-wl-badge.exceed{background:#dc2626}
+.slft-wl-badge.ok{background:#16a34a}
 #map{flex:1;z-index:1;background:#eaf3f8}
 .sidebar{width:420px;background:#fff;overflow-y:auto;border-left:1px solid #e5e7eb;padding:14px 16px;display:flex;flex-direction:column}
 .sidebar h3{font-size:13px;color:#0f172a;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #00A9E0;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
@@ -2004,6 +2021,17 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
     </div>
     <div class="slft-btns" id="sidebar-left-buttons">
       <!-- Los 9 botones se mueven aca via JS al load (ver moveButtonsToSidebarLeft). -->
+    </div>
+    <!-- v493 (2026-08-12): listado inline de pedidos en espera bajo los
+         botones. Solo visible si el user tiene can-revision (whitelist).
+         Click en item abre openWaitlistCardModal. -->
+    <div class="sidebar-left-waitlist" id="sidebar-left-waitlist" style="display:none">
+      <div class="slft-wl-hdr">
+        <span>PEDIDOS EN ESPERA</span>
+        <span class="slft-wl-count" id="slft-wl-count">0</span>
+      </div>
+      <div id="slft-wl-empty" style="color:#94a3b8;font-size:11px;text-align:center;padding:14px 6px">Sin pedidos en espera.</div>
+      <div id="slft-wl-rows"></div>
     </div>
   </aside>
   <div id="map"></div>
@@ -3930,7 +3958,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v492';
+const APP_VERSION = 'v493';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -10979,6 +11007,8 @@ function ensureRevisionWaitlistListener(){
       qs.forEach(d => arr.push(Object.assign({_id: d.id}, d.data() || {})));
       revisionWaitlist = arr;
       _updateWaitlistBadge();
+      // v493: refrescar listado inline del sidebar-left (si visible).
+      try { _renderWaitlistSidebar(); } catch(e){}
       // Si el modal listado o card estan abiertos, re-render.
       const lm = document.getElementById('waitlist-modal');
       if (lm && lm.classList.contains('open')) _renderWaitlistRows();
@@ -10997,6 +11027,69 @@ function _updateWaitlistBadge(){
   if (n > 0) { badge.textContent = String(n); badge.style.display = ''; }
   else badge.style.display = 'none';
 }
+
+// v493 (2026-08-12): render de la lista inline en el sidebar-left.
+// Se muestra solo si el user tiene can-revision (whitelist) y hay >=1 pedido
+// en la coleccion. Click en item abre el modal card (mismo que la lista del
+// modal grande). Reusa el mismo calculo de excedentes que _renderWaitlistRows.
+function _renderWaitlistSidebar(){
+  const cont = document.getElementById('sidebar-left-waitlist');
+  const rows = document.getElementById('slft-wl-rows');
+  const empty = document.getElementById('slft-wl-empty');
+  const cnt = document.getElementById('slft-wl-count');
+  if (!cont || !rows || !empty || !cnt) return;
+  const canRevision = document.body.classList.contains('can-revision');
+  if (!canRevision) { cont.style.display = 'none'; return; }
+  cont.style.display = '';
+  const arr = revisionWaitlist || [];
+  cnt.textContent = String(arr.length);
+  while (rows.firstChild) rows.removeChild(rows.firstChild);
+  if (!arr.length) { empty.style.display = ''; return; }
+  empty.style.display = 'none';
+  arr.forEach(w => {
+    let excedentes = 0;
+    let totalUnid = 0;
+    (w.items || []).forEach(it => {
+      totalUnid += (it.qty || 0);
+      const stk = _revisionStockFor(it.code);
+      if (stk.hasData) {
+        const disp = Math.max((stk.stockTotal || 0) - (stk.backorder || 0), 0);
+        const dispApp = Math.max(disp - _pendingAppDeSku(it.code), 0);
+        if (it.qty > dispApp) excedentes++;
+      }
+    });
+    const item = document.createElement('div');
+    item.className = 'slft-wl-item' + (excedentes > 0 ? ' has-exceed' : '');
+    item.onclick = () => openWaitlistCardModal(w._id);
+    const cli = document.createElement('div');
+    cli.className = 'slft-wl-cli';
+    cli.textContent = w.clientName || 'sin nombre';
+    item.appendChild(cli);
+    const loc = document.createElement('div');
+    loc.className = 'slft-wl-loc';
+    loc.textContent = (w.clientLocality || 's/loc') + ' · ' + (w.clientProvince || 's/prov');
+    item.appendChild(loc);
+    const meta = document.createElement('div');
+    meta.className = 'slft-wl-meta';
+    const ts = w.createdAt && w.createdAt.toDate ? w.createdAt.toDate() : null;
+    const tsStr = ts ? ts.toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit'}) + ' ' + ts.toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'}) : 'sin fecha';
+    const info = document.createElement('span');
+    info.textContent = tsStr + ' · ' + (w.items || []).length + ' SKU · ' + totalUnid + 'u';
+    meta.appendChild(info);
+    const badge = document.createElement('span');
+    if (excedentes > 0) {
+      badge.className = 'slft-wl-badge exceed';
+      badge.textContent = excedentes + ' exc.';
+    } else {
+      badge.className = 'slft-wl-badge ok';
+      badge.textContent = 'OK';
+    }
+    meta.appendChild(badge);
+    item.appendChild(meta);
+    rows.appendChild(item);
+  });
+}
+window._renderWaitlistSidebar = _renderWaitlistSidebar;
 
 // Poblar datalist de clientes al abrir modal Revision (una sola vez).
 window.revisionOnClienteInput = function(){
@@ -14659,6 +14752,17 @@ function applyRolePermissions(){
     'pablo.gonzalez@shimano.com.ar',
   ]);
   document.body.classList.toggle('can-revision', REVISION_WHITELIST.has(_em));
+  // v493: si el user es del whitelist, arrancar el listener (si no arranco
+  // ya) y refrescar el listado inline del sidebar-left.
+  try {
+    if (REVISION_WHITELIST.has(_em)) {
+      if (typeof ensureRevisionWaitlistListener === 'function') ensureRevisionWaitlistListener();
+      if (typeof _renderWaitlistSidebar === 'function') _renderWaitlistSidebar();
+    } else {
+      const c = document.getElementById('sidebar-left-waitlist');
+      if (c) c.style.display = 'none';
+    }
+  } catch(e) { console.warn('sidebar-left-waitlist init', e); }
   // v487 (2026-08-12): whitelist para forzar la visibilidad de TODOS los
   // botones del sidebar-left. Aunque el original tenga display:none por
   // role gate, el proxy del sidebar-left se muestra igual. Emails:
