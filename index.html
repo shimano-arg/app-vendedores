@@ -3832,8 +3832,9 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
       </div>
       <div style="display:flex;gap:10px;justify-content:center;align-items:center;margin-top:20px;flex-wrap:wrap">
         <button class="stock-action-btn cancel" onclick="closeWaitlistCardModal()">Cerrar</button>
-        <button class="stock-action-btn cancel" id="wcard-delete-btn" onclick="waitlistDeleteCurrent()" style="background:#dc2626;color:#fff;display:none">&#128465; Borrar de espera</button>
-        <button class="stock-action-btn publish" id="wcard-pass-btn" onclick="waitlistPasarAPendientes()" style="background:#1e40af">&#8594; Pasar a Pendientes</button>
+        <button class="stock-action-btn publish" id="wcard-export-btn" onclick="waitlistExportToExcel()" style="background:#0f766e;color:#fff">Descargar como Excel</button>
+        <button class="stock-action-btn cancel" id="wcard-delete-btn" onclick="waitlistDeleteCurrent()" style="background:#dc2626;color:#fff;display:none">Borrar de espera</button>
+        <button class="stock-action-btn publish" id="wcard-pass-btn" onclick="waitlistPasarAPendientes()" style="background:#1e40af;color:#fff">Pasar a Pendientes</button>
       </div>
     </div>
   </div>
@@ -3929,7 +3930,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v491';
+const APP_VERSION = 'v492';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11624,6 +11625,125 @@ function _renderWaitlistCard(){
   ));
   document.getElementById('wcard-delete-btn').style.display = canDelete ? '' : 'none';
 }
+
+// v492: exportar el pedido en espera actual a un XLSX con metadata +
+// tabla de productos + subtotales, mismo calculo que _renderWaitlistCard.
+window.waitlistExportToExcel = function(){
+  const w = _wcardCurrent;
+  if (!w) { alert('No hay pedido en espera abierto.'); return; }
+  if (typeof XLSX === 'undefined' || !XLSX || !XLSX.utils) {
+    alert('El motor Excel no cargo. Recargá la pagina y probá de nuevo.');
+    return;
+  }
+  const fmtArs = (n) => Math.round(n || 0);
+  const rows = [];
+  let sumConSap = 0, sumSinSap = 0, sumConApp = 0, sumSinApp = 0, totalUnid = 0;
+  (w.items || []).forEach((it, idx) => {
+    const stk = _revisionStockFor(it.code);
+    const otros = _otrosPedidosEnEsperaDeSku(it.code, w._id);
+    const pendingApp = _pendingAppDeSku(it.code);
+    const backSap = stk.backorder || 0;
+    const disp = stk.hasData ? Math.max((stk.stockTotal || 0) - backSap, 0) : null;
+    const dispApp = stk.hasData ? Math.max((disp || 0) - pendingApp, 0) : null;
+    const firstDisp = (it.firstDisponible != null) ? it.firstDisponible : null;
+    const chg = (firstDisp != null && dispApp != null) ? (dispApp - firstDisp) : null;
+    const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(it.code) || 0) : 0;
+    const dispSap = (disp != null) ? disp : (it.qty || 0);
+    const dispAppCap = (dispApp != null) ? dispApp : (it.qty || 0);
+    const qty = it.qty || 0;
+    const qtyConSap = Math.min(qty, dispSap);
+    const qtySinSap = Math.max(qty - dispSap, 0);
+    const qtyConApp = Math.min(qty, dispAppCap);
+    const qtySinApp = Math.max(qty - dispAppCap, 0);
+    const subtConSap = qtyConSap * precio;
+    const subtSinSap = qtySinSap * precio;
+    const subtConApp = qtyConApp * precio;
+    const subtSinApp = qtySinApp * precio;
+    const boCliente = _backorderClienteForSku(it.code, w.clientCardCode);
+    sumConSap += subtConSap;
+    sumSinSap += subtSinSap;
+    sumConApp += subtConApp;
+    sumSinApp += subtSinApp;
+    totalUnid += qty;
+    rows.push({
+      code: it.code, desc: it.desc, qty, precio,
+      stockTotal: stk.hasData ? (stk.stockTotal || 0) : null,
+      backorderTotal: (backSap + otros),
+      backorderSap: backSap,
+      esperaApp: otros,
+      backorderCliente: boCliente,
+      disponibleSap: disp,
+      disponibleApp: dispApp,
+      pendingApp,
+      subtConSap, subtConApp, subtSinApp,
+      backorderUnidades: qtySinApp,
+      cambio: chg,
+    });
+  });
+  const totalArs = sumConSap + sumSinSap;
+  const ts = w.createdAt && w.createdAt.toDate ? w.createdAt.toDate().toLocaleString('es-AR') : 'sin fecha';
+  const cargadoPor = w.ownerDisplayName || w.ownerEmail || '';
+  const aoa = [
+    ['Shimano - Pedido en espera'],
+    [],
+    ['Cliente', w.clientName || ''],
+    ['Card Code', w.clientCardCode || ''],
+    ['Localidad', w.clientLocality || ''],
+    ['Provincia', w.clientProvince || ''],
+    ['Vendor asignado', w.vendorAssigned || 'sin asignar'],
+    ['Cargado por', cargadoPor],
+    ['Fecha carga', ts],
+    ['ID pedido', w._id || ''],
+    [],
+    ['SKU', 'Producto', 'Cantidad', 'Precio',
+      'Stock Total', 'Backorder Total', 'Backorder SAP', 'Espera app',
+      'Backorder Cliente', 'Disponible SAP', 'Disponible App',
+      'Subtotal Confirmacion Inmediata', 'Subtotal Pendiente', 'Subtotal Backorder',
+      'Backorder Unidades', 'Cambio Disp App vs primer registro'],
+  ];
+  rows.forEach(r => {
+    aoa.push([
+      r.code, r.desc, r.qty, fmtArs(r.precio),
+      r.stockTotal != null ? r.stockTotal : '',
+      r.backorderTotal,
+      r.backorderSap,
+      r.esperaApp,
+      r.backorderCliente || 0,
+      r.disponibleSap != null ? r.disponibleSap : '',
+      r.disponibleApp != null ? r.disponibleApp : '',
+      fmtArs(r.subtConSap),
+      fmtArs(r.subtConApp),
+      fmtArs(r.subtSinApp),
+      r.backorderUnidades,
+      r.cambio != null ? r.cambio : '',
+    ]);
+  });
+  aoa.push([]);
+  aoa.push(['Subtotal Con Stock - INMEDIATO', '', '', '', '', '', '', '', '', '', '', fmtArs(sumConSap)]);
+  aoa.push(['Subtotal Sin Stock - INMEDIATO', '', '', '', '', '', '', '', '', '', '', '', '', fmtArs(sumSinSap)]);
+  aoa.push(['Subtotal Con Stock - PENDIENTE', '', '', '', '', '', '', '', '', '', '', '', fmtArs(sumConApp)]);
+  aoa.push(['Subtotal Sin Stock - PENDIENTE', '', '', '', '', '', '', '', '', '', '', '', '', fmtArs(sumSinApp)]);
+  aoa.push(['Total pedido', rows.length + ' productos', totalUnid + ' unidades', '', '', '', '', '', '', '', '', fmtArs(totalArs)]);
+  try {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [
+      {wch: 14}, {wch: 40}, {wch: 8}, {wch: 10},
+      {wch: 10}, {wch: 12}, {wch: 12}, {wch: 10},
+      {wch: 14}, {wch: 12}, {wch: 12},
+      {wch: 22}, {wch: 18}, {wch: 18}, {wch: 12}, {wch: 12},
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'Pedido en espera');
+    const cliSlug = (w.clientName || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').slice(0, 40);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const filename = 'Pedido_espera_' + cliSlug + '_' + dateStr + '.xlsx';
+    XLSX.writeFile(wb, filename);
+    if (typeof showSyncTag === 'function') showSyncTag('Excel exportado: ' + rows.length + ' productos');
+  } catch(e) {
+    console.error('waitlistExportToExcel', e);
+    alert('Error al generar el Excel: ' + (e.message || e));
+  }
+};
 
 // Borrar pedido en espera (con confirmacion).
 window.waitlistDeleteCurrent = async function(){
