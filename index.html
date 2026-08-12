@@ -3929,7 +3929,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v487';
+const APP_VERSION = 'v488';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -14726,9 +14726,9 @@ function _moveButtonsToSidebarLeft(){
     { id: 'mis-camps-btn',            label: 'Campañas' },
     { id: 'dashboard-btn',            label: 'Dashboard' },
     { id: 'seguimiento-btn',          label: 'Seguimiento' },
-    { id: _exportBtn ? _exportBtn.id : null, label: 'Excel' },
+    { id: _exportBtn ? _exportBtn.id : null, label: 'Exportar' },
     { id: 'backorders-btn',           label: 'Backorder' },
-    { id: 'asignacion-backorder-btn', label: 'SAP Asig.' },
+    { id: 'asignacion-backorder-btn', label: 'Stock Asig.' },
     { id: 'forecast-btn',             label: 'Forecast' },
     { id: 'revision-btn',             label: 'Revisión' },
     { id: 'waitlist-btn',             label: 'Espera' },
