@@ -1288,6 +1288,12 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 /* v454: card individual + listado de pedidos en espera. */
 #wcard-rows tr.exceed td{background:#fef2f2;color:#991b1b;font-weight:700}
 #wcard-rows tr.exceed td.exc-cell{background:#dc2626;color:#fff}
+/* v479: SKU pedido >= 80% del Disponible SAP -> amarillo (quebramos stock
+   para el resto de clientes que pidan lo mismo). */
+#wcard-rows tr.warn-quiebra td{background:#fef3c7;color:#78350f;font-weight:700}
+/* v479: SKU ya esta pedido en SAP Asignado - Con Stock del cliente -> rojo
+   fuerte (evitar duplicar el pedido, el cliente ya tiene esas unidades). */
+#wcard-rows tr.warn-duplicado td{background:#fecaca;color:#7f1d1d;font-weight:800}
 /* v470: celdas centradas por default. */
 #wcard-rows tr td{padding:5px 8px;border-top:1px solid #f1f5f9;text-align:center}
 #wcard-rows tr td.mono{font-family:monospace;font-size:10px;text-align:center}
@@ -3849,7 +3855,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v478';
+const APP_VERSION = 'v479';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11327,6 +11333,14 @@ function _renderWaitlistCard(){
     const subtSinApp = qtySinApp * precio;
     // v475: backorder de ESTE cliente para el SKU (Ofertas SAP open del cliente).
     const boCliente = _backorderClienteForSku(it.code, w.clientCardCode);
+    // v479: flags de warning:
+    //   - warnQuiebra: Pedido >= 80% Disponible SAP -> si se le asigna a
+    //     este cliente, quebramos stock para el resto. Amarillo.
+    //   - warnDuplicado: el SKU ya esta en SAP Asignado - Con Stock del
+    //     cliente (backorderCliente > 0 Y hay stock disponible ahora).
+    //     Evita duplicar el pedido. Rojo fuerte.
+    const warnQuiebra = stk.hasData && (dispSap || 0) > 0 && qty >= 0.8 * dispSap;
+    const warnDuplicado = boCliente > 0 && stk.hasData && (stk.stockTotal || 0) > 0;
     rows.push({
       idx, code: it.code, desc: it.desc, qty,
       stockTotal: stk.stockTotal, backorderSap: backSap,
@@ -11338,6 +11352,7 @@ function _renderWaitlistCard(){
       subtConSap, subtSinSap, subtConApp, subtSinApp,
       backorderUnidades: qtySinApp,
       backorderCliente: boCliente,
+      warnQuiebra, warnDuplicado,
     });
   });
   const statsEl = document.getElementById('wcard-stats');
@@ -11401,7 +11416,18 @@ function _renderWaitlistCard(){
   const safeId = escapeAttr(w._id);
   rows.slice(0, 500).forEach(r => {
     const tr = document.createElement('tr');
-    tr.className = !r.hasData ? 'no-data' : (r.excede ? 'exceed' : '');
+    // v479: prioridad de clases (mas urgente arriba):
+    //   1. warnDuplicado (rojo fuerte): ya lo tiene en SAP Asignado con stock.
+    //   2. exceed (rojo tinto): Pedido > Disponible app.
+    //   3. warnQuiebra (amarillo): Pedido >= 80% Disponible SAP.
+    //   4. no-data (gris): SKU sin snapshot.
+    //   5. sin clase: normal.
+    let cls = '';
+    if (r.warnDuplicado) cls = 'warn-duplicado';
+    else if (r.excede) cls = 'exceed';
+    else if (r.warnQuiebra) cls = 'warn-quiebra';
+    else if (!r.hasData) cls = 'no-data';
+    tr.className = cls;
     tr.appendChild(mk(r.code, 'mono'));
     tr.appendChild(mk(r.desc, 'left-align'));
     tr.appendChild(mk(r.hasData ? r.stockTotal : '-', 'num'));
