@@ -1332,7 +1332,7 @@ def sync_facturacion_snapshot_to_firestore(bq_client: bigquery.Client,
 
     Escribe:
       - 1 doc por vendor (assigned_vendor de v_ventas_lineas): VENDOR_NORM.
-      - 1 doc __TOTAL__ con la suma nacional (para admin/gerente scope).
+      - 1 doc TOTAL_NACIONAL con la suma nacional (para admin/gerente scope).
 
     Timezone: America/Argentina/Buenos_Aires para hoy/mes/año.
     """
@@ -1388,7 +1388,7 @@ def sync_facturacion_snapshot_to_firestore(bq_client: bigquery.Client,
         for v in per_vendor:
             log(f'  DRY-RUN {v["vendor"]}: hoy=${v["hoyArs"]:,.0f} '
                 f'mes=${v["mesArs"]:,.0f} ano=${v["anoArs"]:,.0f}')
-        log(f'  DRY-RUN __TOTAL__: hoy=${hoy_total:,.0f} '
+        log(f'  DRY-RUN TOTAL_NACIONAL: hoy=${hoy_total:,.0f} '
             f'mes=${mes_total:,.0f} ano=${ano_total:,.0f}')
         return 0
 
@@ -1409,9 +1409,9 @@ def sync_facturacion_snapshot_to_firestore(bq_client: bigquery.Client,
         })
         written += 1
 
-    # Doc __TOTAL__ nacional para admin/gerente.
-    coll.document('__TOTAL__').set({
-        'vendorKey': '__TOTAL__',
+    # Doc TOTAL_NACIONAL nacional para admin/gerente.
+    coll.document('TOTAL_NACIONAL').set({
+        'vendorKey': 'TOTAL_NACIONAL',
         'hoyArs': hoy_total,
         'mesArs': mes_total,
         'anoArs': ano_total,
@@ -1425,7 +1425,7 @@ def sync_facturacion_snapshot_to_firestore(bq_client: bigquery.Client,
                      .replace('(', '')
                      .replace(')', '')
                      .upper()) for v in per_vendor}
-    existing_ids.add('__TOTAL__')
+    existing_ids.add('TOTAL_NACIONAL')
     for doc in coll.stream():
         if doc.id not in existing_ids:
             doc.reference.delete()
@@ -1760,7 +1760,7 @@ def main():
 
     # === 13. Facturacion snapshot (BQ -> Firestore) v482 (2026-08-12)
     # Agrega v_ventas_lineas por vendedor (hoy, mes actual, año actual) y
-    # escribe 1 doc por vendedor + __TOTAL__ nacional a facturacion_snapshot.
+    # escribe 1 doc por vendedor + TOTAL_NACIONAL nacional a facturacion_snapshot.
     # Alimenta las 2 cards del sidebar-left (Facturacion Diaria + Cumplimiento).
     # Fuente = misma que PowerBI (importe_linea_ars con is_pesca=TRUE).
     try:

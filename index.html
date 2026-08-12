@@ -3929,7 +3929,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v488';
+const APP_VERSION = 'v489';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -14774,7 +14774,7 @@ function _moveButtonsToSidebarLeft(){
 }
 
 // v482 (2026-08-12): listener del snapshot BQ -> Firestore de facturacion.
-// Popula FACTURACION_SNAPSHOT map. 1 entry por vendedor + '__TOTAL__'
+// Popula FACTURACION_SNAPSHOT map. 1 entry por vendedor + 'TOTAL_NACIONAL'
 // nacional. Cada entry: {hoyArs, mesArs, anoArs, updatedAt}.
 var FACTURACION_SNAPSHOT = {};
 var _unsubFacturacionSnapshot = null;
@@ -14803,7 +14803,7 @@ function _computeFacturacionCumplimientoLocal(){
   // Intento 1: usar FACTURACION_SNAPSHOT (BQ).
   const snapshotKey = scopeVendor
     ? scopeVendor.replace(/ /g, '_').replace(/\(|\)/g, '').toUpperCase()
-    : '__TOTAL__';
+    : 'TOTAL_NACIONAL';
   const snap = FACTURACION_SNAPSHOT[snapshotKey];
   if (snap && (snap.hoyArs != null || snap.mesArs != null)) {
     const targetMesArs = _getTargetMesArsPara(scopeVendor, y, m + 1);
