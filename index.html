@@ -3809,7 +3809,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v468';
+const APP_VERSION = 'v469';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12536,14 +12536,40 @@ window.confirmarDefinitivo = function(){
   setPedidoView('confirmados');
 };
 
-window.eliminarPendiente = function(){
+window.eliminarPendiente = async function(){
+  // v469: consolidacion con la 2da def (linea ~16961) para evitar drift.
+  // Toca Firestore SIEMPRE con await; si falla alerta y NO limpia local
+  // (evita "pending fantasma" en globalPedidos que infla Disponible app).
   if (!currentOrderClient || currentOrderClient.stage !== 'pending') return;
   const key = currentOrderClient.viewKey, idx = currentOrderClient.viewIdx;
-  if (!confirm('Eliminar el pedido pendiente de "' + currentOrderClient.name + '"? No se puede deshacer.')) return;
   const list = pending[key] || [];
+  const entry = list[idx];
+  if (!entry) return;
+  // Warning si el pedido ya se transfirio a SAP - borrar el doc de Firestore
+  // NO elimina la Sales Quotation en SAP (queda open y sigue consumiendo
+  // backorder SAP hasta que se cierre a mano en SAP).
+  const _sapDoc = entry.transferidoSAP && entry.transferidoSAP.docNum;
+  let confirmMsg = 'Eliminar el pedido pendiente de "' + currentOrderClient.name + '"?\n\nNo se puede deshacer.';
+  if (_sapDoc) {
+    confirmMsg += '\n\n⚠ ATENCION: este pedido ya se transfirio a SAP (DocNum ' + _sapDoc + '). Borrar aca NO elimina la Oferta de Venta en SAP - la SQ queda open y sigue consumiendo backorder. Tenes que cerrarla a mano en SAP.';
+  }
+  if (!confirm(confirmMsg)) return;
+  if (typeof logOp === 'function') {
+    try { logOp('eliminar_pendiente', 'pedido', currentOrderClient.name, {key, month: entry.month || '', items: (entry.lines||[]).length, sapDocNum: _sapDoc || null}); } catch(e){}
+  }
+  if (entry._fsId && currentUser && fbDb) {
+    try {
+      await fbDb.collection('pedidos').doc(entry._fsId).delete();
+    } catch(e) {
+      console.error('eliminarPendiente Firestore delete', e);
+      alert('NO se pudo borrar en Firestore: ' + (e.message || e) + '\n\nEl pedido sigue en la base de datos y otros usuarios lo ven. Reintenta o pedile a admin/gerente que lo borre.');
+      return; // sin limpiar local
+    }
+  }
   pending[key] = list.filter((_, i) => i !== idx);
   if (!pending[key].length) delete pending[key];
   savePending();
+  showSyncTag('Pedido pendiente eliminado');
   closePedidoModal();
 };
 
@@ -16958,23 +16984,40 @@ window.confirmarDefinitivo = function(){
   setPedidoView('confirmados');
 };
 
-window.eliminarPendiente = function(){
+window.eliminarPendiente = async function(){
+  // v469: consolidacion con la 1ra def. await + alert al fallar + warning
+  // si ya se transfirio a SAP (SQ queda open, hay que cerrarla a mano).
   if (!currentOrderClient || currentOrderClient.stage !== 'pending') return;
   const key = currentOrderClient.viewKey, idx = currentOrderClient.viewIdx;
-  if (!confirm('Eliminar el pedido pendiente de "' + currentOrderClient.name + '"? No se puede deshacer.')) return;
   const list = pending[key] || [];
   const entry = list[idx];
-  logOp('eliminar_pendiente', 'pedido', currentOrderClient.name, {key, month: entry ? entry.month : '', items: entry ? (entry.lines||[]).length : 0});
-  if (entry && entry._fsId && currentUser) {
-    fbDb.collection('pedidos').doc(entry._fsId).delete().then(()=>showSyncTag('Pedido eliminado')).catch(e=>console.error('delete pending', e));
+  if (!entry) return;
+  const _sapDoc = entry.transferidoSAP && entry.transferidoSAP.docNum;
+  let confirmMsg = 'Eliminar el pedido pendiente de "' + currentOrderClient.name + '"?\n\nNo se puede deshacer.';
+  if (_sapDoc) {
+    confirmMsg += '\n\n⚠ ATENCION: este pedido ya se transfirio a SAP (DocNum ' + _sapDoc + '). Borrar aca NO elimina la Oferta de Venta en SAP - la SQ queda open y sigue consumiendo backorder. Tenes que cerrarla a mano en SAP.';
+  }
+  if (!confirm(confirmMsg)) return;
+  try { logOp('eliminar_pendiente', 'pedido', currentOrderClient.name, {key, month: entry.month || '', items: (entry.lines||[]).length, sapDocNum: _sapDoc || null}); } catch(e){}
+  if (entry._fsId && currentUser && fbDb) {
+    try {
+      await fbDb.collection('pedidos').doc(entry._fsId).delete();
+    } catch(e) {
+      console.error('eliminarPendiente Firestore delete', e);
+      alert('NO se pudo borrar en Firestore: ' + (e.message || e) + '\n\nEl pedido sigue en la base de datos y otros usuarios lo ven. Reintenta o pedile a admin/gerente que lo borre.');
+      return;
+    }
   }
   pending[key] = list.filter((_, i) => i !== idx);
   if (!pending[key].length) delete pending[key];
   savePending();
+  showSyncTag('Pedido pendiente eliminado');
   closePedidoModal();
 };
 
-window.volverABorrador = function(){
+window.volverABorrador = async function(){
+  // v469: await + alerta si falla el delete Firestore (para no dejar
+  // fantasma en globalPedidos que inflaria Disponible app).
   if (!currentOrderClient || currentOrderClient.stage !== 'pending') return;
   const key = currentOrderClient.viewKey, idx = currentOrderClient.viewIdx;
   const list = pending[key] || [];
@@ -16983,15 +17026,22 @@ window.volverABorrador = function(){
   if ((orders[key] || []).length) {
     if (!confirm('Ya existe un borrador en curso para este cliente. Reemplazarlo?')) return;
   }
-  logOp('volver_a_borrador', 'pedido', currentOrderClient.name, {key, month: entry.month, items: (entry.lines||[]).length});
-  if (entry._fsId && currentUser) {
-    fbDb.collection('pedidos').doc(entry._fsId).delete().catch(e=>console.error(e));
+  try { logOp('volver_a_borrador', 'pedido', currentOrderClient.name, {key, month: entry.month, items: (entry.lines||[]).length}); } catch(e){}
+  if (entry._fsId && currentUser && fbDb) {
+    try {
+      await fbDb.collection('pedidos').doc(entry._fsId).delete();
+    } catch(e) {
+      console.error('volverABorrador Firestore delete', e);
+      alert('NO se pudo borrar el pedido pendiente en Firestore: ' + (e.message || e) + '\n\nEl pedido sigue existiendo. El borrador local no se restauro para evitar duplicados. Reintenta.');
+      return;
+    }
   }
   orders[key] = (entry.lines || []).map(l => Object.assign({}, l, {qty: parseFloat(l.qty) || 0}));
   saveOrders();
   pending[key] = list.filter((_, i) => i !== idx);
   if (!pending[key].length) delete pending[key];
   savePending();
+  showSyncTag('Pedido movido a borrador');
   closePedidoModal();
   setPedidoView('crear');
 };
