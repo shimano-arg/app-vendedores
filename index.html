@@ -3723,9 +3723,18 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
            El vendedor le pregunta al cliente: "tenias esto pedido, llego,
            ¿lo agregas al nuevo pedido, cancelamos o dejamos pendiente?". -->
       <div id="wcard-sap-asignado" style="display:none;background:#f0fdf4;border:1.5px solid #86efac;border-radius:6px;padding:10px 12px;margin-bottom:12px">
-        <div style="font-size:12px;font-weight:800;color:#14532d;margin-bottom:6px">📩 SAP Asignado - Con Stock de este cliente</div>
-        <div style="font-size:10.5px;color:#166534;margin-bottom:8px">SKUs que este cliente tiene pedidos en Ofertas SAP open y que HOY tienen stock disponible. Pregúntale si los quiere agregar, cancelar o dejar pendientes.</div>
+        <div style="font-size:12px;font-weight:800;color:#14532d;margin-bottom:6px">📩 SAP Asignado - Con Stock de este cliente — SKUs YA en este pedido</div>
+        <div style="font-size:10.5px;color:#166534;margin-bottom:8px">SKUs del cliente en Ofertas SAP open (con stock hoy) que YA figuran en el pedido en espera.</div>
         <div id="wcard-sap-asignado-rows" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+      <!-- v480 (2026-08-12): segundo recuadro con los SKUs del cliente en SAP
+           Asignado - Con Stock que NO estan en el pedido actual. Cada uno con
+           boton '+' para agregarlos. Sirve para preguntarle a la tienda: "te
+           lo agrego parcial, completo o cancelamos". -->
+      <div id="wcard-sap-asignado-nuevos" style="display:none;background:#fefce8;border:1.5px solid #fde047;border-radius:6px;padding:10px 12px;margin-bottom:12px">
+        <div style="font-size:12px;font-weight:800;color:#713f12;margin-bottom:6px">📩 SAP Asignado - Con Stock de este cliente — SKUs que NO pidió en este pedido</div>
+        <div style="font-size:10.5px;color:#854d0e;margin-bottom:8px">SKUs del cliente en Ofertas SAP open (con stock hoy) que NO están en el pedido en espera. Preguntale si quiere agregarlos (parcial o completo) o cancelarlos.</div>
+        <div id="wcard-sap-asignado-nuevos-rows" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
       <!-- v468: buscador para agregar productos nuevos al pedido en espera. -->
       <div style="position:relative;margin-bottom:10px">
@@ -3855,7 +3864,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v479';
+const APP_VERSION = 'v480';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11137,25 +11146,27 @@ function _sapAsignadoConStockDeCliente(cardCode){
   out.sort((a, b) => String(a.sku).localeCompare(String(b.sku)));
   return out;
 }
-// v477: render de la seccion "SAP Asignado - Con Stock" en el modal card
-// espera. Se llama desde _renderWaitlistCard. Oculta la seccion si no hay
-// items para el cliente. Cada item tiene botones:
-//   - '+ Agregar' -> suma la qty pendiente al items[] del pedido en espera
-//     (crea nueva line o incrementa qty existente).
-//   - 'Ya esta en el pedido' -> tag informativo si el SKU ya esta.
+// v477/v480: render de las 2 secciones "SAP Asignado - Con Stock":
+//   - Recuadro verde: SKUs YA en el pedido (tag informativo azul).
+//   - Recuadro amarillo: SKUs que NO estan en el pedido (con boton +).
+// Se llama desde _renderWaitlistCard. Cada seccion se oculta si no tiene
+// items.
 function _renderSapAsignadoConStock(w){
-  const container = document.getElementById('wcard-sap-asignado');
-  const rowsEl = document.getElementById('wcard-sap-asignado-rows');
-  if (!container || !rowsEl) return;
+  const contYa = document.getElementById('wcard-sap-asignado');
+  const rowsYa = document.getElementById('wcard-sap-asignado-rows');
+  const contNuevos = document.getElementById('wcard-sap-asignado-nuevos');
+  const rowsNuevos = document.getElementById('wcard-sap-asignado-nuevos-rows');
+  if (!contYa || !rowsYa || !contNuevos || !rowsNuevos) return;
   const items = _sapAsignadoConStockDeCliente(w.clientCardCode);
-  while (rowsEl.firstChild) rowsEl.removeChild(rowsEl.firstChild);
-  if (!items.length) { container.style.display = 'none'; return; }
-  container.style.display = '';
+  while (rowsYa.firstChild) rowsYa.removeChild(rowsYa.firstChild);
+  while (rowsNuevos.firstChild) rowsNuevos.removeChild(rowsNuevos.firstChild);
+  if (!items.length) { contYa.style.display = 'none'; contNuevos.style.display = 'none'; return; }
   const skusEnPedido = new Set(((w.items) || []).map(i => (i.code || '').toLowerCase()));
   const fmtArs = (n) => '$' + Math.round(n).toLocaleString('es-AR');
-  items.forEach(it => {
+  function _makeRow(it, target, isYaEnPedido){
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid #bbf7d0;border-radius:5px;font-size:11px';
+    const borderColor = isYaEnPedido ? '#bbf7d0' : '#fef08a';
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid ' + borderColor + ';border-radius:5px;font-size:11px';
     const left = document.createElement('div');
     left.style.flex = '1';
     const code = document.createElement('div');
@@ -11172,7 +11183,7 @@ function _renderSapAsignadoConStock(w){
     row.appendChild(left);
     const right = document.createElement('div');
     right.style.cssText = 'flex-shrink:0';
-    if (skusEnPedido.has((it.sku || '').toLowerCase())) {
+    if (isYaEnPedido) {
       const tag = document.createElement('span');
       tag.style.cssText = 'background:#dbeafe;color:#1e40af;padding:5px 10px;border-radius:4px;font-size:10px;font-weight:700';
       tag.textContent = 'YA EN PEDIDO';
@@ -11181,13 +11192,21 @@ function _renderSapAsignadoConStock(w){
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = '+ Agregar ' + it.pendiente + ' u';
-      btn.style.cssText = 'background:#166534;color:#fff;border:none;padding:6px 12px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
+      btn.style.cssText = 'background:#ca8a04;color:#fff;border:none;padding:6px 12px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
       btn.onclick = () => waitlistAddProductWithQty(w._id, it.sku, it.pendiente);
       right.appendChild(btn);
     }
     row.appendChild(right);
-    rowsEl.appendChild(row);
+    target.appendChild(row);
+  }
+  let cntYa = 0, cntNuevos = 0;
+  items.forEach(it => {
+    const isYa = skusEnPedido.has((it.sku || '').toLowerCase());
+    if (isYa) { _makeRow(it, rowsYa, true); cntYa++; }
+    else { _makeRow(it, rowsNuevos, false); cntNuevos++; }
   });
+  contYa.style.display = cntYa > 0 ? '' : 'none';
+  contNuevos.style.display = cntNuevos > 0 ? '' : 'none';
 }
 // v477: variante de waitlistAddProduct con qty custom (para agregar desde
 // SAP Asignado con la qty pendiente exacta de la SQ, no qty=1).
