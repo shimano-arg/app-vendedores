@@ -3700,8 +3700,9 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 
 <!-- v454: modal CARD INDIVIDUAL con recalculo dinamico. -->
 <!-- v470: agrandado ~30% (1080->1400 wide, 82vh->95vh height). -->
+<!-- v478: +20% wide (1400->1680) + tope max altura de body (99vh). -->
 <div class="modal-overlay" id="waitlist-card-modal" onclick="if(event.target===this)closeWaitlistCardModal()">
-  <div class="modal-box" style="width:min(1400px,98vw)">
+  <div class="modal-box" style="width:min(1680px,98vw)">
     <div class="modal-head" style="background:linear-gradient(135deg,#5b21b6,#7c3aed)">
       <div>
         <h2 id="wcard-title">Pedido en espera</h2>
@@ -3709,7 +3710,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
       </div>
       <button class="modal-close" onclick="closeWaitlistCardModal()">&times;</button>
     </div>
-    <div class="modal-body" style="padding:22px 24px;max-height:95vh;overflow-y:auto;display:block">
+    <div class="modal-body" style="padding:22px 24px;max-height:99vh;overflow-y:auto;display:block">
       <div id="wcard-stats" style="background:#f0fdfa;border:1.5px solid #5eead4;border-radius:6px;padding:10px 12px;font-size:12px;color:#134e4a;line-height:1.5;margin-bottom:12px"></div>
       <!-- v477 (2026-08-12): SAP Asignado - Con Stock del cliente. SKUs que
            el cliente ya tenia pedidos en Ofertas SAP open y ahora hay stock.
@@ -3848,7 +3849,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v477';
+const APP_VERSION = 'v478';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
