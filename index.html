@@ -3958,7 +3958,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v495';
+const APP_VERSION = 'v496';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11340,11 +11340,29 @@ function _otrosPedidosEnEsperaDeSku(sku, excludeDocId){
 function _sapAsignadoConStockDeCliente(cardCode){
   if (typeof backorderLines === 'undefined' || !backorderLines || !cardCode) return [];
   const target = String(cardCode).trim();
+  // v496 (2026-08-12): filtrar SQs del MES ACTUAL. El vendedor esta
+  // creando una nueva SQ hoy - las SQ del mes en curso ya son "esta
+  // venta"; nos interesan solo las ANTERIORES para agrupar backorder
+  // viejo del cliente. Ej: hoy agosto -> mostrar julio, junio, mayo...
+  const now = new Date();
+  const currentYm = now.getFullYear() * 12 + now.getMonth();
   const out = [];
   for (const ln of backorderLines) {
     if (String(ln.clienteCode || '').trim() !== target) continue;
     const pendiente = parseFloat(ln.pendiente) || 0;
     if (pendiente <= 0) continue;
+    // Filtro por mes: parse manual para evitar timezone-shift de
+    // new Date('YYYY-MM-DD') (UTC medianoche puede dar dia anterior en AR).
+    const dateStr = String(ln.sqDocDate || '');
+    if (dateStr.length >= 7) {
+      const y = parseInt(dateStr.substring(0, 4), 10);
+      const mo = parseInt(dateStr.substring(5, 7), 10) - 1;
+      if (Number.isFinite(y) && Number.isFinite(mo)) {
+        const ym = y * 12 + mo;
+        if (ym >= currentYm) continue; // SQ del mes actual o futuro: skip
+      }
+    }
+    // Si sqDocDate esta vacio -> incluir por defensa (no ocultar data).
     const stk = _revisionStockFor(ln.sku);
     if (!stk.hasData || (stk.stockTotal || 0) <= 0) continue;
     out.push({
@@ -11392,10 +11410,24 @@ function _renderSapAsignadoConStock(w){
     desc.textContent = it.producto;
     const meta = document.createElement('div');
     meta.style.cssText = 'color:#64748b;font-size:9.5px;margin-top:2px';
-    const fecha = it.sqDocDate ? (' · SQ #' + it.sqDocNum + ' del ' + it.sqDocDate) : (' · SQ #' + it.sqDocNum);
-    meta.textContent = 'Pendiente: ' + it.pendiente + ' u · Stock hoy: ' + it.stockTotal + ' u · Precio ' + fmtArs(it.precio) + fecha;
+    // v496: sacamos SQ + fecha del meta - ahora van en un badge grande
+    // al lado (para identificacion rapida).
+    meta.textContent = 'Pendiente: ' + it.pendiente + ' u · Stock hoy: ' + it.stockTotal + ' u · Precio ' + fmtArs(it.precio);
     left.appendChild(code); left.appendChild(desc); left.appendChild(meta);
     row.appendChild(left);
+    // v496: badge grande con SQ# + fecha, para que el vendedor identifique
+    // rapido a que Sales Quotation vieja pertenece este backorder abierto.
+    const mid = document.createElement('div');
+    mid.style.cssText = 'flex-shrink:0;text-align:center;background:#f1f5f9;border:1.5px solid #cbd5e1;border-radius:6px;padding:6px 10px;min-width:110px';
+    const sqNum = document.createElement('div');
+    sqNum.style.cssText = 'font-weight:800;color:#0f172a;font-size:15px;line-height:1.15;letter-spacing:.3px';
+    sqNum.textContent = 'SQ #' + (it.sqDocNum || '?');
+    const sqDate = document.createElement('div');
+    sqDate.style.cssText = 'font-weight:700;color:#475569;font-size:11.5px;line-height:1.15;margin-top:2px;font-family:monospace';
+    sqDate.textContent = it.sqDocDate || 's/fecha';
+    mid.appendChild(sqNum);
+    mid.appendChild(sqDate);
+    row.appendChild(mid);
     const right = document.createElement('div');
     right.style.cssText = 'flex-shrink:0';
     if (isYaEnPedido) {
