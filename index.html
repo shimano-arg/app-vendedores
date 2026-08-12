@@ -3721,7 +3721,8 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
               <th style="text-align:center;padding:6px 8px">SKU</th>
               <th style="text-align:left;padding:6px 8px">Producto</th>
               <th style="text-align:center;padding:6px 8px" title="Stock deposito 11 + transito deposito 12">Stock total</th>
-              <th style="text-align:center;padding:6px 8px" title="Backorder SAP + otros pedidos en espera del mismo SKU (informativo, NO resta al Disponible)">Backorder</th>
+              <th style="text-align:center;padding:6px 8px" title="Backorder SAP TOTAL (todos los clientes) + otros pedidos en espera del mismo SKU. Informativo, NO resta al Disponible.">Backorder General</th>
+              <th style="text-align:center;padding:6px 8px" title="Backorder SAP de ESTE cliente (Ofertas de Venta open del cliente por este SKU). Suma qty pendiente.">Backorder Cliente</th>
               <th style="text-align:center;padding:6px 8px" title="Stock total - Backorder SAP (segun snapshot SAP - tiene delay de sync)">Disponible SAP</th>
               <th style="text-align:center;padding:6px 8px" title="Disponible SAP - Pedidos Pendientes de la app no transferidos aun a SAP. Corrige el delay del sync SAP.">Disponible app</th>
               <th style="text-align:center;padding:6px 8px">Pedido</th>
@@ -3836,7 +3837,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v473';
+const APP_VERSION = 'v475';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11090,6 +11091,23 @@ function _otrosPedidosEnEsperaDeSku(sku, excludeDocId){
   });
   return total;
 }
+// v475 (2026-08-12): suma pendiente de un SKU para ESTE cliente en Ofertas
+// de Venta open en SAP. Fuente: backorderLines global (populado por
+// ensureBackordersListener con backorder_snapshot/{VENDOR}/lines). Si el
+// listener no corrio todavia devuelve 0 - no bloquea.
+function _backorderClienteForSku(sku, cardCode){
+  if (typeof backorderLines === 'undefined' || !backorderLines) return 0;
+  if (!sku || !cardCode) return 0;
+  const target = String(sku || '').toLowerCase();
+  const targetCli = String(cardCode || '').trim();
+  let total = 0;
+  for (const ln of backorderLines) {
+    if (String(ln.sku || '').toLowerCase() !== target) continue;
+    if (String(ln.clienteCode || '').trim() !== targetCli) continue;
+    total += parseFloat(ln.pendiente) || 0;
+  }
+  return total;
+}
 // v462 (2026-08-11): suma qty de pedidos con stage='pending' NO transferidos
 // a SAP todavia. Corrige el delay entre confirmar en la app y que el sync
 // SAP -> BQ -> Firestore actualice el backorder SAP (5-30 min).
@@ -11117,6 +11135,9 @@ window.openWaitlistCardModal = function(docId){
   const w = arr.find(x => x._id === docId);
   if (!w) { alert('Pedido en espera no encontrado (puede haber sido borrado).'); return; }
   _wcardCurrent = w;
+  // v475: asegurar que backorderLines este hidratado para calcular
+  // "Backorder Cliente" del SKU. ensureBackordersListener es idempotente.
+  try { if (typeof ensureBackordersListener === 'function') ensureBackordersListener(); } catch(e){}
   document.getElementById('waitlist-card-modal').classList.add('open');
   _renderWaitlistCard();
 };
@@ -11177,6 +11198,8 @@ function _renderWaitlistCard(){
     const subtSinSap = qtySinSap * precio;
     const subtConApp = qtyConApp * precio;
     const subtSinApp = qtySinApp * precio;
+    // v475: backorder de ESTE cliente para el SKU (Ofertas SAP open del cliente).
+    const boCliente = _backorderClienteForSku(it.code, w.clientCardCode);
     rows.push({
       idx, code: it.code, desc: it.desc, qty,
       stockTotal: stk.stockTotal, backorderSap: backSap,
@@ -11187,6 +11210,7 @@ function _renderWaitlistCard(){
       subtotal: subtConSap + subtSinSap,
       subtConSap, subtSinSap, subtConApp, subtSinApp,
       backorderUnidades: qtySinApp,
+      backorderCliente: boCliente,
     });
   });
   const statsEl = document.getElementById('wcard-stats');
@@ -11258,6 +11282,17 @@ function _renderWaitlistCard(){
       ? ((r.backorderSap + r.otrosEspera) + ' (Ofertas SAP: ' + r.backorderSap + ' · Espera app: ' + r.otrosEspera + ')')
       : String(r.backorderSap || 0);
     tr.appendChild(mk(backTxt, 'num'));
+    // v475: Backorder Cliente (SAP open del cliente para este SKU). Fondo azul
+    // clarito si > 0 para destacar que este cliente ya tiene pedidos previos.
+    const tdBoCli = document.createElement('td');
+    tdBoCli.className = 'num';
+    tdBoCli.textContent = r.backorderCliente > 0 ? String(r.backorderCliente) : '0';
+    if (r.backorderCliente > 0) {
+      tdBoCli.style.background = '#dbeafe';
+      tdBoCli.style.color = '#1e3a8a';
+      tdBoCli.style.fontWeight = '800';
+    }
+    tr.appendChild(tdBoCli);
     tr.appendChild(mk(r.hasData ? r.disponible : '-', 'num'));
     const dispAppTxt = r.hasData
       ? (r.pendingApp > 0 ? (r.disponibleApp + ' (−' + r.pendingApp + ' pend. app)') : String(r.disponibleApp))
