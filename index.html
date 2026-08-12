@@ -2010,21 +2010,10 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
      individuales en el top toolbar (ver .btn-mis-camps / .btn-export /
      .btn-rendiciones-top arriba). -->
 <div class="main-container">
-  <!-- v481/v483: sidebar-left desktop-only. Mismo formato que sidebar-right:
-       stat-boxes chatos arriba + grid 3x3 de botones. -->
+  <!-- v481/v483: sidebar-left desktop-only. Mismo formato que sidebar-right.
+       v495 (2026-08-12): removidas las cards Facturacion Diaria + Cumplimiento
+       por pedido del user. Ahora arranca directo con los botones + listado. -->
   <aside class="sidebar-left" id="sidebar-left">
-    <div id="stats-bar-sidebar-left" class="stats-bar-left">
-      <div class="stat-box slft-stat-fact">
-        <div class="num" id="slft-fact-hoy">$0</div>
-        <div class="lbl">Facturaci&oacute;n Diaria</div>
-        <div class="sub" id="slft-fact-hoy-sub">Sin datos</div>
-      </div>
-      <div class="stat-box slft-stat-cumpl">
-        <div class="num" id="slft-cumpl-pct">&mdash;</div>
-        <div class="lbl">Cumplimiento</div>
-        <div class="sub" id="slft-cumpl-sub">Sin target</div>
-      </div>
-    </div>
     <div class="slft-btns" id="sidebar-left-buttons">
       <!-- Los 9 botones se mueven aca via JS al load (ver moveButtonsToSidebarLeft). -->
     </div>
@@ -3969,7 +3958,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v494';
+const APP_VERSION = 'v495';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
