@@ -3897,6 +3897,30 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   </div>
 </div>
 
+<!-- v504 (2026-08-13): modal ESTADO - vista unificada de LISTA DE ESPERA
+     / PENDIENTES / CONFIRMADOS SAP con 3 tabs y buscador. Reemplaza el
+     acceso a "Revision Excel" desde el sidebar-left (que ahora se llama
+     "Estado"). Desde aca se puede abrir el modal Revision Excel via
+     boton "+ Cargar pedido nuevo". -->
+<div class="modal-overlay" id="estado-modal" onclick="if(event.target===this)closeEstadoModal()">
+  <div class="modal-box" style="width:min(720px,98vw);max-height:92vh;display:flex;flex-direction:column">
+    <div class="modal-head" style="background:linear-gradient(135deg,#0f766e,#14b8a6)">
+      <div><h2>Estado de pedidos</h2><div class="subt">Vista consolidada: Lista de espera, Pendientes y Confirmados SAP.</div></div>
+      <button class="modal-close" onclick="closeEstadoModal()">&times;</button>
+    </div>
+    <div style="padding:14px 20px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:10px">
+      <div class="cli-filter-row" id="estado-filter-row">
+        <button class="cli-filter-btn active" data-estado-filter="espera" onclick="setEstadoTab('espera')">Lista de espera <span id="estado-cnt-espera">0</span></button>
+        <button class="cli-filter-btn" data-estado-filter="pendientes" onclick="setEstadoTab('pendientes')">Pendientes <span id="estado-cnt-pendientes">0</span></button>
+        <button class="cli-filter-btn" data-estado-filter="confirmados" onclick="setEstadoTab('confirmados')">Confirmados SAP <span id="estado-cnt-confirmados">0</span></button>
+      </div>
+      <input type="search" id="estado-search" placeholder="Buscar cliente, localidad, provincia..." autocomplete="off" style="width:100%;padding:8px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:12.5px;outline:none"/>
+      <div id="estado-actions" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+      <div id="estado-content" style="flex:1;overflow-y:auto;min-height:200px"></div>
+    </div>
+  </div>
+</div>
+
 <!-- v497 (2026-08-12): modal para cargar/actualizar fotos de una visita
      ya existente. Uso: cargar la visita rapido en el local (solo con GPS,
      sin fotos) y desde casa subir las fotos con calma. -->
@@ -4014,7 +4038,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v503';
+const APP_VERSION = 'v504';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11077,6 +11101,8 @@ function ensureRevisionWaitlistListener(){
       _updateWaitlistBadge();
       // v493: refrescar listado inline del sidebar-left (si visible).
       try { _renderWaitlistSidebar(); } catch(e){}
+      // v504: refrescar modal Estado si abierto.
+      try { if (typeof _reRenderEstadoIfOpen === 'function') _reRenderEstadoIfOpen(); } catch(e){}
       // Si el modal listado o card estan abiertos, re-render.
       const lm = document.getElementById('waitlist-modal');
       if (lm && lm.classList.contains('open')) _renderWaitlistRows();
@@ -11214,6 +11240,212 @@ function _renderWaitlistSidebar(){
   });
 }
 window._renderWaitlistSidebar = _renderWaitlistSidebar;
+
+// ============================================================
+// v504 (2026-08-13): modal ESTADO - vista unificada de pedidos.
+// 3 tabs: LISTA DE ESPERA (revision_waitlist) / PENDIENTES
+// (globalPedidos stage=pending) / CONFIRMADOS SAP (stage=confirmed
+// con transferidoSAP.docNum). Buscador por cliente/localidad/provincia.
+// Reemplaza el proxy 'Revision' del sidebar-left.
+// ============================================================
+var _estadoTab = 'espera';
+var _estadoSearch = '';
+window.openEstadoModal = function(){
+  ensureRevisionWaitlistListener();
+  const m = document.getElementById('estado-modal');
+  if (!m) return;
+  m.classList.add('open');
+  _renderEstadoList();
+};
+window.closeEstadoModal = function(){
+  const m = document.getElementById('estado-modal');
+  if (m) m.classList.remove('open');
+};
+window.setEstadoTab = function(t){
+  _estadoTab = t;
+  document.querySelectorAll('#estado-filter-row .cli-filter-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.estadoFilter === t);
+  });
+  _renderEstadoList();
+};
+function _estadoMatchesSearch(text){
+  const q = (_estadoSearch || '').trim().toLowerCase();
+  if (!q) return true;
+  return String(text || '').toLowerCase().indexOf(q) >= 0;
+}
+function _estadoGetPendientes(){
+  if (typeof globalPedidos === 'undefined' || !Array.isArray(globalPedidos)) return [];
+  return globalPedidos.filter(p =>
+    p && p.stage === 'pending' && !(p.transferidoSAP && p.transferidoSAP.docNum)
+  );
+}
+function _estadoGetConfirmados(){
+  if (typeof globalPedidos === 'undefined' || !Array.isArray(globalPedidos)) return [];
+  return globalPedidos.filter(p =>
+    p && p.stage === 'confirmed' && p.transferidoSAP && p.transferidoSAP.docNum
+  );
+}
+function _renderEstadoList(){
+  const content = document.getElementById('estado-content');
+  const actions = document.getElementById('estado-actions');
+  if (!content) return;
+  // Actualizar contadores.
+  const arrEspera = revisionWaitlist || [];
+  const arrPend = _estadoGetPendientes();
+  const arrConf = _estadoGetConfirmados();
+  const cE = document.getElementById('estado-cnt-espera');
+  const cP = document.getElementById('estado-cnt-pendientes');
+  const cC = document.getElementById('estado-cnt-confirmados');
+  if (cE) cE.textContent = String(arrEspera.length);
+  if (cP) cP.textContent = String(arrPend.length);
+  if (cC) cC.textContent = String(arrConf.length);
+  // Wire buscador una sola vez.
+  const inp = document.getElementById('estado-search');
+  if (inp && !inp._wired) {
+    inp._wired = true;
+    inp.addEventListener('input', () => {
+      _estadoSearch = inp.value || '';
+      _renderEstadoList();
+    });
+  }
+  // Actions row (solo LISTA DE ESPERA muestra "Cargar pedido nuevo").
+  while (actions.firstChild) actions.removeChild(actions.firstChild);
+  if (_estadoTab === 'espera') {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = '+ Cargar pedido nuevo (Revisión Excel)';
+    b.style.cssText = 'background:#7c3aed;color:#fff;border:none;padding:8px 14px;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.3px';
+    b.onclick = () => { closeEstadoModal(); if (typeof openRevisionModal === 'function') openRevisionModal(); };
+    actions.appendChild(b);
+  }
+  // Render list.
+  while (content.firstChild) content.removeChild(content.firstChild);
+  if (_estadoTab === 'espera') {
+    _renderEstadoEspera(content, arrEspera);
+  } else if (_estadoTab === 'pendientes') {
+    _renderEstadoPedidos(content, arrPend, 'pendientes');
+  } else {
+    _renderEstadoPedidos(content, arrConf, 'confirmados');
+  }
+}
+function _renderEstadoEspera(content, arr){
+  // Filtro + sort por orderNumber (misma logica que sidebar-left).
+  const filtered = arr.filter(w => _estadoMatchesSearch(
+    (w.clientName || '') + ' ' + (w.clientLocality || '') + ' ' + (w.clientProvince || '') + ' ' + (w.orderNumber || '')
+  ));
+  filtered.sort((a, b) => {
+    const na = a.orderNumber ? parseInt(String(a.orderNumber).replace(/\D/g,''), 10) : NaN;
+    const nb = b.orderNumber ? parseInt(String(b.orderNumber).replace(/\D/g,''), 10) : NaN;
+    const aH = Number.isFinite(na), bH = Number.isFinite(nb);
+    if (aH && bH) return na - nb;
+    if (aH) return -1;
+    if (bH) return 1;
+    return 0;
+  });
+  if (!filtered.length) {
+    const e = document.createElement('div');
+    e.style.cssText = 'padding:24px;text-align:center;color:#94a3b8;font-size:12px;font-style:italic';
+    e.textContent = arr.length ? 'Sin resultados para el filtro.' : 'No hay pedidos en la lista de espera.';
+    content.appendChild(e);
+    return;
+  }
+  filtered.forEach(w => {
+    const totalUnid = (w.items || []).reduce((s, it) => s + (it.qty || 0), 0);
+    const card = document.createElement('div');
+    card.style.cssText = 'background:#fff;border:1px solid #e5e7eb;border-left:4px solid #f97316;border-radius:6px;padding:10px 12px;margin-bottom:6px;cursor:pointer;transition:background .15s';
+    card.onmouseover = () => { card.style.background = '#fef3c7'; };
+    card.onmouseout = () => { card.style.background = '#fff'; };
+    card.onclick = () => { closeEstadoModal(); openWaitlistCardModal(w._id); };
+    const row1 = document.createElement('div');
+    row1.style.cssText = 'display:flex;align-items:center;gap:8px;font-weight:800;color:#0f172a;font-size:12.5px;margin-bottom:2px';
+    const name = document.createElement('span');
+    name.style.cssText = 'flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+    name.textContent = w.clientName || 'sin nombre';
+    row1.appendChild(name);
+    if (w.orderNumber) {
+      const chip = document.createElement('span');
+      chip.style.cssText = 'background:#0f172a;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.4px;flex-shrink:0';
+      chip.textContent = 'ORDEN ' + w.orderNumber;
+      row1.appendChild(chip);
+    }
+    card.appendChild(row1);
+    const row2 = document.createElement('div');
+    row2.style.cssText = 'color:#64748b;font-size:10.5px;margin-bottom:2px';
+    row2.textContent = (w.clientLocality || 's/loc') + ' · ' + (w.clientProvince || 's/prov');
+    card.appendChild(row2);
+    const row3 = document.createElement('div');
+    row3.style.cssText = 'color:#94a3b8;font-size:10px';
+    const ts = w.createdAt && w.createdAt.toDate ? w.createdAt.toDate() : null;
+    const tsStr = ts ? ts.toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit'}) + ' ' + ts.toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'}) : '';
+    row3.textContent = tsStr + ' · ' + (w.items || []).length + ' SKU · ' + totalUnid + ' u';
+    card.appendChild(row3);
+    content.appendChild(card);
+  });
+}
+function _renderEstadoPedidos(content, arr, tipo){
+  const filtered = arr.filter(p => _estadoMatchesSearch(
+    (p.clientName || '') + ' ' + (p.locName || p.locality || '') + ' ' + (p.province || '')
+  ));
+  filtered.sort((a, b) => {
+    const ta = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+    const tb = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+    return tb - ta; // mas nuevos primero
+  });
+  if (!filtered.length) {
+    const e = document.createElement('div');
+    e.style.cssText = 'padding:24px;text-align:center;color:#94a3b8;font-size:12px;font-style:italic';
+    e.textContent = arr.length
+      ? 'Sin resultados para el filtro.'
+      : (tipo === 'pendientes' ? 'No hay pedidos pendientes.' : 'No hay pedidos confirmados en SAP.');
+    content.appendChild(e);
+    return;
+  }
+  const borderColor = tipo === 'pendientes' ? '#f59e0b' : '#10b981';
+  filtered.forEach(p => {
+    const lines = p.lines || [];
+    const totalUnid = lines.reduce((s, l) => s + (parseFloat(l.qty) || 0), 0);
+    const card = document.createElement('div');
+    card.style.cssText = 'background:#fff;border:1px solid #e5e7eb;border-left:4px solid ' + borderColor + ';border-radius:6px;padding:10px 12px;margin-bottom:6px;cursor:pointer;transition:background .15s';
+    card.onmouseover = () => { card.style.background = '#f8fafc'; };
+    card.onmouseout = () => { card.style.background = '#fff'; };
+    card.onclick = () => {
+      closeEstadoModal();
+      if (typeof openPedido === 'function' && p.clientName) {
+        try { openPedido(p.province, p.locName || p.locality, p.clientName, p.id, tipo === 'pendientes' ? 'pending' : 'confirmed'); }
+        catch(e){ console.warn('openPedido from estado', e); }
+      }
+    };
+    const row1 = document.createElement('div');
+    row1.style.cssText = 'display:flex;align-items:center;gap:8px;font-weight:800;color:#0f172a;font-size:12.5px;margin-bottom:2px';
+    const name = document.createElement('span');
+    name.style.cssText = 'flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+    name.textContent = p.clientName || 'sin cliente';
+    row1.appendChild(name);
+    if (tipo === 'confirmados' && p.transferidoSAP && p.transferidoSAP.docNum) {
+      const chip = document.createElement('span');
+      chip.style.cssText = 'background:#10b981;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.4px;flex-shrink:0';
+      chip.textContent = 'SAP #' + p.transferidoSAP.docNum;
+      row1.appendChild(chip);
+    }
+    card.appendChild(row1);
+    const row2 = document.createElement('div');
+    row2.style.cssText = 'color:#64748b;font-size:10.5px;margin-bottom:2px';
+    row2.textContent = (p.locName || p.locality || 's/loc') + ' · ' + (p.province || 's/prov');
+    card.appendChild(row2);
+    const row3 = document.createElement('div');
+    row3.style.cssText = 'color:#94a3b8;font-size:10px';
+    const ts = p.createdAt && p.createdAt.toDate ? p.createdAt.toDate() : null;
+    const tsStr = ts ? ts.toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit', year:'2-digit'}) : '';
+    row3.textContent = tsStr + ' · ' + lines.length + ' SKU · ' + totalUnid + ' u';
+    card.appendChild(row3);
+    content.appendChild(card);
+  });
+}
+// Re-render del modal cuando cambia data en tiempo real.
+window._reRenderEstadoIfOpen = function(){
+  const m = document.getElementById('estado-modal');
+  if (m && m.classList.contains('open')) _renderEstadoList();
+};
 
 // ============================================================
 // v497 (2026-08-12): Cargar fotos a una visita ya existente.
@@ -15426,10 +15658,10 @@ function _moveButtonsToSidebarLeft(){
     { id: 'backorders-btn',           label: 'Backorder' },
     { id: 'asignacion-backorder-btn', label: 'Stock Asig.' },
     { id: 'forecast-btn',             label: 'Forecast' },
-    { id: 'revision-btn',             label: 'Revisión' },
+    { id: 'revision-btn',             label: 'Estado', overrideClick: () => window.openEstadoModal && window.openEstadoModal() },
     { id: 'waitlist-btn',             label: 'Espera' },
   ];
-  orden.forEach(({ id, label }) => {
+  orden.forEach(({ id, label, overrideClick }) => {
     if (!id) return;
     const orig = document.getElementById(id);
     if (!orig) return;
@@ -15440,11 +15672,15 @@ function _moveButtonsToSidebarLeft(){
     btn.type = 'button';
     btn.textContent = label;
     btn.setAttribute('data-proxy-for', id);
-    // Al click: dispara click en el original (preserva TODA la logica, gates, etc).
-    btn.onclick = () => {
-      const target = document.getElementById(id);
-      if (target && typeof target.click === 'function') target.click();
-    };
+    // v504: si el proxy tiene overrideClick, usarlo (para renombrar
+    // Revision -> Estado sin tocar el boton original). En mobile el
+    // boton original (oculto en desktop) sigue con su click historico.
+    btn.onclick = overrideClick
+      ? overrideClick
+      : () => {
+          const target = document.getElementById(id);
+          if (target && typeof target.click === 'function') target.click();
+        };
     // v486/v487: sync visibility con el original. Si el original tiene
     // display:none (por role gate), el proxy tambien SE OCULTA... EXCEPTO
     // si body tiene la clase 'force-sidebar-btns-visible' (Santi/Ioannis/
