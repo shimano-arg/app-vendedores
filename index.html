@@ -1246,6 +1246,8 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .slft-wl-badge{background:#f97316;color:#fff;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:800;white-space:nowrap}
 .slft-wl-badge.exceed{background:#dc2626}
 .slft-wl-badge.ok{background:#16a34a}
+/* v499: chip ORDEN N al lado del cliente en cada fila del sidebar. */
+.slft-wl-orden{display:inline-block;background:#0f172a;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.4px;vertical-align:middle;margin-left:4px}
 /* v494: buscador del listado. */
 .slft-wl-search-row{position:relative;margin-bottom:8px;flex-shrink:0}
 .slft-wl-search-row input{width:100%;padding:6px 26px 6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:11.5px;font-family:inherit;background:#fff;color:#0f172a;outline:none;transition:border-color .15s}
@@ -3789,12 +3791,16 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <button class="stock-action-btn publish" id="revision-export-btn" onclick="exportRevisionExcel()" disabled style="background:#0f766e;color:#fff">Descargar revisi&oacute;n como Excel</button>
         <button class="stock-action-btn publish" id="revision-wait-btn" onclick="revisionDejarRecalculando()" disabled style="background:#7c3aed;color:#fff">Dejar recalculando</button>
       </div>
-      <!-- v454: buscador de cliente destino para "Dejar recalculando". -->
+      <!-- v454: buscador de cliente destino para "Dejar recalculando".
+           v499 (2026-08-13): agrego numero de orden obligatorio. -->
       <div id="revision-wait-cli-row" style="display:none;margin-top:14px;background:#faf5ff;border:1.5px solid #d8b4fe;border-radius:6px;padding:10px 12px">
         <div style="font-size:11px;color:#6b21a8;font-weight:700;margin-bottom:4px">Elegi el cliente destino antes de dejar recalculando:</div>
         <input id="revision-wait-cli-input" list="revision-wait-cli-list" placeholder="Buscar cliente por nombre..." style="width:100%;padding:8px 10px;font-size:12px;border:1.5px solid #a855f7;border-radius:5px" oninput="revisionOnClienteInput()"/>
         <datalist id="revision-wait-cli-list"></datalist>
         <div id="revision-wait-cli-info" style="font-size:10px;color:#7e22ce;margin-top:4px"></div>
+        <div style="font-size:11px;color:#6b21a8;font-weight:700;margin-top:10px;margin-bottom:4px">N&uacute;mero de orden <span style="color:#dc2626">*</span></div>
+        <input id="revision-wait-orden-input" type="text" inputmode="numeric" placeholder="Ej: 11" maxlength="20" style="width:100%;padding:8px 10px;font-size:13px;font-weight:700;border:1.5px solid #a855f7;border-radius:5px;text-transform:uppercase"/>
+        <div style="font-size:10px;color:#7e22ce;margin-top:4px;font-style:italic">N&uacute;mero de la orden del cliente (aparecer&aacute; como "ORDEN N" en el listado).</div>
       </div>
     </div>
   </div>
@@ -4005,7 +4011,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v498';
+const APP_VERSION = 'v499';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -10823,6 +10829,18 @@ window.openRevisionModal = function(preselectClient){
 window.closeRevisionModal = function(){
   document.getElementById('revision-modal').classList.remove('open');
   _revisionParsed = null;
+  // v499: limpiar inputs de cliente + orden para que la proxima apertura
+  // arranque en blanco.
+  try {
+    const ci = document.getElementById('revision-wait-cli-input');
+    if (ci) ci.value = '';
+    const oi = document.getElementById('revision-wait-orden-input');
+    if (oi) oi.value = '';
+    const cr = document.getElementById('revision-wait-cli-row');
+    if (cr) cr.style.display = 'none';
+    const ii = document.getElementById('revision-wait-cli-info');
+    if (ii) ii.textContent = '';
+  } catch(e) {}
 };
 window.onRevisionFileSelected = function(ev){
   const file = ev.target.files && ev.target.files[0];
@@ -11140,6 +11158,14 @@ function _renderWaitlistSidebar(){
     const cli = document.createElement('div');
     cli.className = 'slft-wl-cli';
     cli.textContent = w.clientName || 'sin nombre';
+    // v499: chip ORDEN N al lado del nombre, si esta.
+    if (w.orderNumber) {
+      const badge = document.createElement('span');
+      badge.className = 'slft-wl-orden';
+      badge.textContent = 'ORDEN ' + w.orderNumber;
+      cli.appendChild(document.createTextNode(' '));
+      cli.appendChild(badge);
+    }
     item.appendChild(cli);
     const loc = document.createElement('div');
     loc.className = 'slft-wl-loc';
@@ -11463,6 +11489,15 @@ window.revisionDejarRecalculando = async function(){
     input.focus();
     return;
   }
+  // v499: numero de orden obligatorio para identificar el pedido
+  // en la lista de espera ("ORDEN 11").
+  const ordenInput = document.getElementById('revision-wait-orden-input');
+  const ordenNum = ((ordenInput && ordenInput.value) || '').trim().toUpperCase();
+  if (!ordenNum) {
+    alert('Falta el numero de orden.\n\nIngresa el numero de la orden del cliente (ej: 11) para poder identificar el pedido en la lista de espera.');
+    if (ordenInput) ordenInput.focus();
+    return;
+  }
   const btn = document.getElementById('revision-wait-btn');
   btn.disabled = true;
   const originalTxt = btn.textContent;
@@ -11486,12 +11521,13 @@ window.revisionDejarRecalculando = async function(){
       ownerEmail: currentUser.email || '',
       ownerDisplayName: currentUser.displayName || currentUser.email || '',
       ownerVendor: (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '',
+      orderNumber: ordenNum, // v499
       items,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     };
     await fbDb.collection('revision_waitlist').add(payload);
-    showSyncTag('Pedido guardado en espera: ' + cli.nombre);
+    showSyncTag('Pedido guardado en espera: ' + cli.nombre + ' (Orden ' + ordenNum + ')');
     closeRevisionModal();
   } catch(e) {
     console.error('revisionDejarRecalculando', e);
@@ -11539,7 +11575,9 @@ function _renderWaitlistRows(){
     const left = document.createElement('div');
     const cli = document.createElement('div');
     cli.className = 'wl-cli';
-    cli.textContent = w.clientName + ' (' + (w.clientLocality || 's/loc') + ', ' + (w.clientProvince || 's/prov') + ')';
+    // v499: incluir ORDEN N en el nombre si esta.
+    const _ord = w.orderNumber ? ' — ORDEN ' + w.orderNumber : '';
+    cli.textContent = w.clientName + _ord + ' (' + (w.clientLocality || 's/loc') + ', ' + (w.clientProvince || 's/prov') + ')';
     left.appendChild(cli);
     const meta = document.createElement('div');
     meta.className = 'wl-meta';
@@ -11782,7 +11820,9 @@ window.closeWaitlistCardModal = function(){
 function _renderWaitlistCard(){
   const w = _wcardCurrent;
   if (!w) return;
-  document.getElementById('wcard-title').textContent = 'Pedido en espera — ' + w.clientName;
+  // v499: incluir Orden N en el titulo del modal card si esta.
+  const _ordenTxt = w.orderNumber ? '  ·  ORDEN ' + w.orderNumber : '';
+  document.getElementById('wcard-title').textContent = 'Pedido en espera — ' + w.clientName + _ordenTxt;
   const ts = w.createdAt && w.createdAt.toDate ? w.createdAt.toDate().toLocaleString('es-AR') : 'sin fecha';
   document.getElementById('wcard-subt').textContent = (w.clientLocality || 's/loc') + ' · ' + (w.clientProvince || 's/prov') + ' · Vendor asignado: ' + (w.vendorAssigned || 'sin asignar') + ' · Cargado por ' + (w.ownerDisplayName || w.ownerEmail || '') + ' · ' + ts;
   // v477: render seccion "SAP Asignado - Con Stock" del cliente.
