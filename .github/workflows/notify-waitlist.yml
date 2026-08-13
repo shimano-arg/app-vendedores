@@ -1,0 +1,46 @@
+name: Notify Waitlist New (VDE cargas)
+
+# Corre cada 5 minutos. Lee revision_waitlist de Firestore, filtra los
+# docs sin notifiedEmailAt cuyo ownerEmail es un VDE (Gonzalo, Federico,
+# Mauricio, Martin) y manda un mail a Pablo (gerente) + pareja VDI
+# (Ioannis para Gonzalo/Federico, Santiago para Mauricio/Martin).
+# Los docs cargados por internos/admins se marcan como notifiedEmailSkipped
+# para no reintentar.
+#
+# Secrets requeridos (mismos que send-tablero-sar / send-rendiciones):
+#   FIREBASE_SERVICE_ACCOUNT   JSON del service account.
+#   GMAIL_APP_PASSWORD         App password de bot.shimano.pesca@gmail.com.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'      # cada 5 minutos
+  workflow_dispatch:            # boton "Run workflow" para probar manual
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notify-waitlist
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install firebase-admin
+
+      - name: Run notify_waitlist_new
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_FROM: bot.shimano.pesca@gmail.com
+        run: python scripts/notify_waitlist_new.py
