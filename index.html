@@ -1132,6 +1132,14 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .vf-toggle button{flex:1;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;color:#475569;font-size:12px;font-weight:800;text-transform:uppercase;cursor:pointer;letter-spacing:.4px;transition:.12s}
 .vf-toggle button:hover{border-color:#7c3aed;color:#7c3aed}
 .vf-toggle button.active{background:#7c3aed;border-color:#7c3aed;color:#fff}
+/* v498 (2026-08-12): chips multi-seleccion para form de visita/contacto.
+   Igual estilo que .vf-toggle pero flex-wrap y width auto para caber varias. */
+.vf-multi{display:flex;flex-wrap:wrap;gap:6px}
+.vf-multi button{padding:9px 14px;border:1.5px solid #cbd5e1;border-radius:6px;background:#fff;color:#475569;font-size:12px;font-weight:800;text-transform:uppercase;cursor:pointer;letter-spacing:.4px;transition:.12s;position:relative}
+.vf-multi button:hover{border-color:#7c3aed;color:#7c3aed}
+.vf-multi button.active{background:#7c3aed;border-color:#7c3aed;color:#fff}
+.vf-multi button.active::before{content:"\2713 ";font-weight:900;margin-right:4px}
+.vf-multi-hint{font-size:10.5px;color:#94a3b8;margin-top:4px;font-style:italic}
 .vf-pond-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .vf-pond-grid > div{display:flex;flex-direction:column;gap:3px}
 .vf-pond-grid span{font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px}
@@ -2667,25 +2675,29 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
             </select>
           </div>
           <div class="vf-row"><label>Local <span class="req">*</span></label><select id="vf-local" required><option value="">Seleccionar...</option><option>FISICO</option><option>ECOMMERCE</option></select></div>
-          <div class="vf-row"><label>Tipo de cliente <span class="req">*</span></label><select id="vf-tamano" required>
-            <option value="">Seleccionar...</option>
-            <option>GRANDE</option>
-            <option>MEDIANA</option>
-            <option>CHICA</option>
-            <option>MULTIRUBRO</option>
-            <option>MAYORISTA</option>
-            <option>LODGE</option>
-            <option>GUIA DE PESCA</option>
-            <option>VENTAS ESPECIALES</option>
-          </select></div>
+          <div class="vf-row"><label>Tipo de cliente <span class="req">*</span></label>
+            <div class="vf-multi" id="vf-tamano-multi">
+              <button type="button" data-v="GRANDE" onclick="toggleMulti('tamanos', this)">GRANDE</button>
+              <button type="button" data-v="MEDIANA" onclick="toggleMulti('tamanos', this)">MEDIANA</button>
+              <button type="button" data-v="CHICA" onclick="toggleMulti('tamanos', this)">CHICA</button>
+              <button type="button" data-v="MULTIRUBRO" onclick="toggleMulti('tamanos', this)">MULTIRUBRO</button>
+              <button type="button" data-v="MAYORISTA" onclick="toggleMulti('tamanos', this)">MAYORISTA</button>
+              <button type="button" data-v="LODGE" onclick="toggleMulti('tamanos', this)">LODGE</button>
+              <button type="button" data-v="GUIA DE PESCA" onclick="toggleMulti('tamanos', this)">GUIA DE PESCA</button>
+              <button type="button" data-v="VENTAS ESPECIALES" onclick="toggleMulti('tamanos', this)">VENTAS ESPECIALES</button>
+            </div>
+            <div class="vf-multi-hint">Podés elegir varias (ej. CHICA + MULTIRUBRO).</div>
+          </div>
           <div class="vf-row" id="vf-fidelidad-row"><label>Fidelidad <span class="req">*</span></label><select id="vf-fidelidad" required><option value="">Seleccionar...</option><option>ALTA</option><option>MEDIA</option><option>BAJA</option></select></div>
-          <div class="vf-row" id="vf-especializacion-row"><label>Especializaci&oacute;n por tipo de pesca <span class="req">*</span></label><select id="vf-especializacion" required>
-            <option value="">Seleccionar...</option>
-            <option>PREMIUM</option>
-            <option>AGUA DULCE</option>
-            <option>PESCA DE MAR</option>
-            <option>BAJA-GENERAL</option>
-          </select></div>
+          <div class="vf-row" id="vf-especializacion-row"><label>Especializaci&oacute;n por tipo de pesca <span class="req">*</span></label>
+            <div class="vf-multi" id="vf-especializacion-multi">
+              <button type="button" data-v="PREMIUM" onclick="toggleMulti('especializaciones', this)">PREMIUM</button>
+              <button type="button" data-v="AGUA DULCE" onclick="toggleMulti('especializaciones', this)">AGUA DULCE</button>
+              <button type="button" data-v="PESCA DE MAR" onclick="toggleMulti('especializaciones', this)">PESCA DE MAR</button>
+              <button type="button" data-v="BAJA-GENERAL" onclick="toggleMulti('especializaciones', this)">BAJA-GENERAL</button>
+            </div>
+            <div class="vf-multi-hint">Podés elegir varias (ej. AGUA DULCE + PESCA DE MAR).</div>
+          </div>
           <div class="vf-row"><label>Canal de compra <span class="req">*</span></label><select id="vf-canalcompra" required>
             <option value="">Seleccionar...</option>
             <option>PRESENCIAL</option>
@@ -2698,7 +2710,15 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
           <div class="vf-row" id="vf-pop-row"><label>POP <span class="req">*</span> <span class="vf-hint">(necesita material Shimano: cartel, bandera, ca&ntilde;ero, etc.)</span></label>
             <div class="vf-toggle" id="vf-pop"><button type="button" data-v="SI" onclick="setPop('SI')">S&iacute;</button><button type="button" data-v="NO" onclick="setPop('NO')">No</button></div>
           </div>
-          <div class="vf-row" id="vf-necesidad-wrap" style="display:none"><label>Necesidad puntual <span class="req">*</span></label><select id="vf-necesidad"><option value="">Seleccionar...</option><option>CA&Ntilde;ERO</option><option>CARTEL</option><option value="MOSTRADO">MOSTRADOR</option><option>OTROS</option></select></div>
+          <div class="vf-row" id="vf-necesidad-wrap" style="display:none"><label>Necesidad puntual <span class="req">*</span></label>
+            <div class="vf-multi" id="vf-necesidad-multi">
+              <button type="button" data-v="CA&Ntilde;ERO" onclick="toggleMulti('necesidades', this)">CA&Ntilde;ERO</button>
+              <button type="button" data-v="CARTEL" onclick="toggleMulti('necesidades', this)">CARTEL</button>
+              <button type="button" data-v="MOSTRADO" onclick="toggleMulti('necesidades', this)">MOSTRADOR</button>
+              <button type="button" data-v="OTROS" onclick="toggleMulti('necesidades', this)">OTROS</button>
+            </div>
+            <div class="vf-multi-hint">Podés elegir varias (ej. CA&Ntilde;ERO + CARTEL).</div>
+          </div>
           <div class="vf-row" id="vf-espacio-row"><label>Espacio <span class="vf-hint">(opcional &mdash; podés cargar las fotos ahora o después desde tu casa)</span></label>
             <div class="photo-grid" id="vf-espacio-grid"><label class="photo-cell add" id="vf-espacio-add"><input type="file" accept="image/*,image/heic,image/heif" multiple onchange="onEspacioPhotos(this)"/>+</label></div>
           </div>
@@ -3985,7 +4005,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v497';
+const APP_VERSION = 'v498';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
