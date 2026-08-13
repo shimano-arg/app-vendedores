@@ -1094,8 +1094,14 @@ def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
         AND JSON_VALUE(ln, '$.BaseEntry') IS NOT NULL
         AND COALESCE(o.cancelled, 'tNO') = 'tNO'
     ),
-    -- v505: DeliveryNote -> SO (BaseType=17 en DN referencia la SO padre).
+    -- v505/v506 (2026-08-13): DeliveryNote -> SO por 2 caminos posibles.
+    -- En Shimano el flujo dominante es SO -> Invoice -> DN (DN.BaseType=13
+    -- referencia Invoice), NO el clasico SO -> DN paralelo. Verificado en BQ:
+    -- BaseType=13 -> 62816 rows, BaseType=17 -> 3872, BaseType=23 -> 61.
+    -- Camino 1: DN.BaseType=17 -> SO directa (SO -> DN paralelo).
+    -- Camino 2: DN.BaseType=13 -> Invoice -> SO (flujo dominante Shimano).
     dn_to_so AS (
+      -- Camino 1: DN referencia SO directamente.
       SELECT DISTINCT
         d.doc_entry            AS dn_doc_entry,
         d.doc_num              AS dn_doc_num,
@@ -1103,7 +1109,30 @@ def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
         SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry') AS INT64) AS so_doc_entry
       FROM `app-vendedores-shimano.shimano_app.sap_deliveries_raw` d,
            UNNEST(JSON_QUERY_ARRAY(d.lines_json)) ln
-      WHERE JSON_VALUE(ln, '$.BaseType') = '17'  -- SO padre
+      WHERE JSON_VALUE(ln, '$.BaseType') = '17'
+        AND JSON_VALUE(ln, '$.BaseEntry') IS NOT NULL
+        AND COALESCE(d.cancelled, 'tNO') = 'tNO'
+      UNION DISTINCT
+      -- Camino 2: DN referencia Invoice; Invoice referencia SO.
+      SELECT DISTINCT
+        d.doc_entry            AS dn_doc_entry,
+        d.doc_num              AS dn_doc_num,
+        d.document_status      AS dn_status,
+        i_so.so_doc_entry
+      FROM `app-vendedores-shimano.shimano_app.sap_deliveries_raw` d,
+           UNNEST(JSON_QUERY_ARRAY(d.lines_json)) ln
+      INNER JOIN (
+        SELECT
+          i.doc_entry AS inv_doc_entry,
+          SAFE_CAST(JSON_VALUE(iln, '$.BaseEntry') AS INT64) AS so_doc_entry
+        FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` i,
+             UNNEST(JSON_QUERY_ARRAY(i.lines_json)) iln
+        WHERE JSON_VALUE(iln, '$.BaseType') = '17'
+          AND JSON_VALUE(iln, '$.BaseEntry') IS NOT NULL
+          AND COALESCE(i.cancelled, 'tNO') = 'tNO'
+      ) i_so
+        ON i_so.inv_doc_entry = SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry') AS INT64)
+      WHERE JSON_VALUE(ln, '$.BaseType') = '13'  -- Invoice
         AND JSON_VALUE(ln, '$.BaseEntry') IS NOT NULL
         AND COALESCE(d.cancelled, 'tNO') = 'tNO'
     ),
@@ -1164,6 +1193,12 @@ def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
       inv_doc_total,
       inv_paid_to_date,
       inv_status,
+      -- v506 (2026-08-13): REMITIDO YA NO es un estado del CASE principal.
+      -- Ahora el frontend muestra REMITIDO como chip SEPARADO cuando
+      -- sapEstadoDetalles.dnDocNum esta, junto al estado principal
+      -- (asi ves 'FACTURADO + REMITIDO' o 'COBRADO + REMITIDO'). Motivo:
+      -- en Shimano el DN se hace despues de la Invoice (BaseType=13),
+      -- entonces todo pedido facturado casi siempre tiene DN.
       CASE
         WHEN inv_doc_entry IS NOT NULL
              AND COALESCE(inv_paid_to_date, 0) >= COALESCE(inv_doc_total, 0)
@@ -1174,8 +1209,6 @@ def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
           THEN 'COBRADO_PARCIAL'
         WHEN inv_doc_entry IS NOT NULL
           THEN 'FACTURADO'
-        WHEN dn_doc_entry IS NOT NULL
-          THEN 'REMITIDO'
         WHEN so_doc_entry IS NOT NULL
           THEN 'ORDEN_VENTA'
         WHEN sq_cancelled = 'tYES' OR sq_status = 'bost_Close'
