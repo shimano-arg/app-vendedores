@@ -160,18 +160,102 @@ LOCALIDAD_ALIASES = {
     # cargada. NO cubierto con alias (requiere cambiar provincia).
     # ALSINA (BUENOS AIRES): ambiguo (Adolfo Alsina / Adolfo Gonzales Chaves).
     # No mapear -> queda NULL, pedido explicito del user.
+    # ============================================================
+    # v513 (2026-08-13): 44 aliases OK + 6 VERIFICAR extraidos de las 61
+    # combinaciones sin mapear. Provincia_app muchas veces esta mal cargada
+    # (ej. PALERMO en BA cuando es CABA); el destino usa la geografia real.
+    # ============================================================
+    # -- Barrios de CABA mal cargados como BUENOS AIRES --
+    ("BUENOS AIRES", "PALERMO"): {"prov_depto": "CIUDAD AUTONOMA DE BUENOS AIRES | COMUNA 14"},
+    ("BUENOS AIRES", "BELGRANO"): {"prov_depto": "CIUDAD AUTONOMA DE BUENOS AIRES | COMUNA 13"},
+    ("BUENOS AIRES", "FLORES"): {"prov_depto": "CIUDAD AUTONOMA DE BUENOS AIRES | COMUNA 7"},
+    ("BUENOS AIRES", "CAPITAL FEDERAL"): {"prov_depto": "CIUDAD AUTONOMA DE BUENOS AIRES | COMUNA 1"},
+    # -- BA fixes --
+    ("BUENOS AIRES", "CAMPANA"): {"prov_depto": "BUENOS AIRES | CAMPANA"},
+    ("BUENOS AIRES", "DON TORCUATO"): {"prov_depto": "BUENOS AIRES | TIGRE"},
+    ("BUENOS AIRES", "BOULOGNE"): {"prov_depto": "BUENOS AIRES | SAN ISIDRO"},
+    ("BUENOS AIRES", "SAN MARTIN"): {"prov_depto": "BUENOS AIRES | GENERAL SAN MARTIN"},
+    ("BUENOS AIRES", "VILLA TESEI"): {"prov_depto": "BUENOS AIRES | HURLINGHAM"},
+    ("BUENOS AIRES", "SAN NICOLAS"): {"prov_depto": "BUENOS AIRES | SAN NICOLAS"},
+    ("BUENOS AIRES", "ASCENSION GENERAL ARENALES"): {"prov_depto": "BUENOS AIRES | GENERAL ARENALES"},
+    # -- Mendoza --
+    ("MENDOZA", "MENDOZA CIUDAD"): {"prov_depto": "MENDOZA | CAPITAL"},
+    ("MENDOZA", "CAPITAL"): {"prov_depto": "MENDOZA | CAPITAL"},
+    # -- Tucuman --
+    ("TUCUMAN", "YERBA BUENA"): {"prov_depto": "TUCUMAN | YERBA BUENA"},
+    ("TUCUMAN", "SAN MIGUEL DEL TUCUMAN"): {"prov_depto": "TUCUMAN | CAPITAL"},
+    ("TUCUMAN", "SAN MIGUEL"): {"prov_depto": "TUCUMAN | CAPITAL"},
+    # -- Santa Fe (fixes por provincia mal cargada + typos) --
+    ("ENTRE RIOS", "SANTA FE DE LA VERA CRUZ"): {"prov_depto": "SANTA FE | LA CAPITAL"},
+    ("ENTRE RIOS", "VILLA CANAS"): {"prov_depto": "SANTA FE | GENERAL LOPEZ"},
+    ("ENTRE RIOS", "ESPERANZA"): {"prov_depto": "SANTA FE | LAS COLONIAS"},
+    ("SANTA FE", "GOBERNADOR CRESPO"): {"prov_depto": "SANTA FE | SAN JUSTO"},
+    ("SANTA FE", "HUMBERTO I"): {"prov_depto": "SANTA FE | CASTELLANOS"},
+    ("SANTA FE", "CAPITAN BERMUDEZ"): {"prov_depto": "SANTA FE | SAN LORENZO"},
+    ("SANTIAGO DEL ESTERO", "FRANCK"): {"prov_depto": "SANTA FE | LAS COLONIAS"},
+    ("ENTRE RIOS", "SAN NICOLAS DE LOS ARROYOS"): {"prov_depto": "BUENOS AIRES | SAN NICOLAS"},
+    # -- Cordoba --
+    ("CORDOBA", "CORRAL DE BUSTOS IFFLINGER"): {"prov_depto": "CORDOBA | MARCOS JUAREZ"},
+    ("CORDOBA", "SANTA ROSA DE RIO I"): {"prov_depto": "CORDOBA | RIO PRIMERO"},
+    ("CORDOBA", "VILLA CABRERA"): {"prov_depto": "CORDOBA | CAPITAL"},
+    ("CORDOBA", "CIUDAD DE CORDOBA NORTE"): {"prov_depto": "CORDOBA | CAPITAL"},
+    ("CORDOBA", "PARQUE SAN FRANCISCO"): {"prov_depto": "CORDOBA | CAPITAL"},
+    ("CORDOBA", "JOVITA"): {"prov_depto": "CORDOBA | GENERAL ROCA"},
+    # -- Misiones --
+    ("MISIONES", "PUERTO RICO"): {"prov_depto": "MISIONES | LIBERTADOR GENERAL SAN MARTIN"},
+    ("MISIONES", "EL DORADO"): {"prov_depto": "MISIONES | ELDORADO"},
+    ("MISIONES", "VILLA MERCEDES"): {"prov_depto": "SAN LUIS | GENERAL PEDERNERA"},
+    # -- Salta -> Jujuy fix --
+    ("SALTA", "PERICO"): {"prov_depto": "JUJUY | EL CARMEN"},
+    ("SAN JUAN", "PALPALA"): {"prov_depto": "JUJUY | PALPALA"},
+    ("SALTA", "CERILLOS"): {"prov_depto": "SALTA | CERRILLOS"},
+    # -- Chaco (typo + provincia mal) --
+    ("CHACO", "RESISITENCIA"): {"prov_depto": "CHACO | SAN FERNANDO"},
+    ("CHACO", "RESISTENCIA"): {"prov_depto": "CHACO | SAN FERNANDO"},
+    ("SANTIAGO DEL ESTERO", "RESISTENCIA"): {"prov_depto": "CHACO | SAN FERNANDO"},
+    # -- Formosa --
+    ("FORMOSA", "BARRIO NUEVA FORMOSA"): {"prov_depto": "FORMOSA | FORMOSA"},
+    # -- Santa Cruz --
+    ("SANTA CRUZ", "COMANDANTE LUIS PIEDRABUENA"): {"prov_depto": "SANTA CRUZ | CORPEN AIKE"},
+    # -- Rio Negro --
+    ("RIO NEGRO", "SAN ANTONIO"): {"prov_depto": "RIO NEGRO | SAN ANTONIO"},
+    ("RIO NEGRO", "GENERAL VILLEGAS"): {"prov_depto": "BUENOS AIRES | GENERAL VILLEGAS"},
+    # ============================================================
+    # v513 VERIFICAR (mapeo con menor confianza - reportar al user):
+    # ============================================================
+    ("ENTRE RIOS", "COLONIA CERRITO"): {"prov_depto": "ENTRE RIOS | VILLAGUAY"},
+    ("ENTRE RIOS", "SANTO TOME"): {"prov_depto": "SANTA FE | LA CAPITAL"},
+    ("BUENOS AIRES", "TIERRAS ALTAS"): {"prov_depto": "BUENOS AIRES | TIGRE"},
+    ("BUENOS AIRES", "BUENOS AIRES"): {"prov_depto": "CIUDAD AUTONOMA DE BUENOS AIRES | COMUNA 1"},
+    ("TIERRA DEL FUEGO", "TIERRA DEL FUEGO"): {"prov_depto": "TIERRA DEL FUEGO | USHUAIA"},
+    ("CHUBUT", "LAS LENGAS"): {"prov_depto": "CHUBUT | LANGUIÑEO"},
+    # ============================================================
+    # v513 OMITIDOS: (Paysandu Uruguay, Encarnacion + Cd del Este + SAN LUIS
+    # Misiones = Paraguay, Villa Gdor incompleto, Av del Libertador direccion,
+    # Piloto Avila desconocido, SAN JUAN|Paraguay pais)
+    # ============================================================
 }
 
 
 def norm_localidad(prov_norm: str, loc_raw: str) -> str:
-    """Normaliza localidad: upper + sin acentos + expandir GRAL/GRAL. + drop puntos.
-    Luego aplica alias manual SOLO si el destino es string (para aliases dict
-    con prov_depto explicito, el resolver es build_localidad_dept_table)."""
+    """Normaliza localidad: upper + sin acentos + drop puntos/parentesis/guiones
+    + colapsar espacios + expandir GRAL/CNEL/CMTE/GDOR/PTO/CD/CAP.
+    Luego aplica alias manual SOLO si el destino es string."""
     n = norm_str(loc_raw)
-    n = n.replace(".", " ")
+    # v513 (2026-08-13): drop parentesis y guiones para que
+    # "SAN FRANCISCO SOLANO (QUILMES)" y "CORRAL DE BUSTOS-IFFLINGER"
+    # normalicen a algo matcheable.
+    n = n.replace(".", " ").replace("(", " ").replace(")", " ").replace("-", " ")
     n = re.sub(r"\s+", " ", n).strip()
+    # Expansion de abreviaturas frecuentes en la app.
     n = re.sub(r"\bGRAL\b", "GENERAL", n)
     n = re.sub(r"\bCNEL\b", "CORONEL", n)
+    n = re.sub(r"\bCMTE\b", "COMANDANTE", n)
+    n = re.sub(r"\bGDOR\b", "GOBERNADOR", n)
+    n = re.sub(r"\bPTO\b", "PUERTO", n)
+    n = re.sub(r"\bCD\b", "CIUDAD", n)
+    n = re.sub(r"\bCAP\b", "CAPITAN", n)
+    n = re.sub(r"\s+", " ", n).strip()
     alias = LOCALIDAD_ALIASES.get((prov_norm, n))
     if isinstance(alias, str):
         return alias
@@ -181,10 +265,18 @@ def norm_localidad(prov_norm: str, loc_raw: str) -> str:
 def load_topo_departamentos() -> pd.DataFrame:
     print(f"[topo] cargando {TOPO_PATH.name}...")
     topo = json.loads(TOPO_PATH.read_text(encoding="utf-8"))
-    geoms = topo["objects"]["departamentos"]["geometries"]
+    # v513: aceptar 2 keys posibles ('departamentos' o 'departamentos-argentina').
+    objs = topo["objects"]
+    key = "departamentos" if "departamentos" in objs else "departamentos-argentina"
+    geoms = objs[key]["geometries"]
     rows = []
     for g in geoms:
         p = g.get("properties") or {}
+        # v513: si no viene prov_depto en properties, computarlo.
+        if "prov_depto" not in p:
+            p["prov_depto"] = f"{p['provincia']} | {p['departamento']}"
+        if "cabecera" not in p:
+            p["cabecera"] = p.get("departamento", "")
         prov_n = norm_prov_topo(p["provincia"])
         depto_n = norm_depto(prov_n, p["departamento"])
         rows.append(
