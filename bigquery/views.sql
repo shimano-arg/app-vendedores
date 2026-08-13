@@ -2257,3 +2257,121 @@ LEFT JOIN sum_lines_sq slp ON slp.doc_entry = sq.doc_entry
 LEFT JOIN items it ON it.item_code = JSON_VALUE(line, '$.ItemCode')
 LEFT JOIN cliente_app ca ON ca.card_code = sq.card_code
 WHERE COALESCE(sq.cancelled, 'tNO') = 'tNO';
+
+
+-- ============================================================
+-- V_LEADS_DETALLE (2026-08-13)
+-- ============================================================
+-- 1 fila POR SOCIO (LEAD o CLIENTE_SAP), con provincia+localidad para
+-- pintar el mapa de Argentina en Power BI (verde = todos SAP en la
+-- localidad, amarillo = al menos 1 LEAD).
+--
+-- Fuente: client_applications_raw_raw_latest (Firestore -> BQ). Es la
+-- MISMA fuente que ya usan v_leads_snapshot_fin_mes y
+-- v_leads_vs_clientes_por_vendedor, por lo que la reconciliacion cierra
+-- por construccion.
+--
+-- Nota importante (por que NO se puede sacar de OCRD / sap_bp_raw):
+--   Los LEADs no viven en el maestro SAP OCRD (nunca facturaron). Viven
+--   solo en la coleccion Firestore client_applications (que se sync a
+--   BQ como client_applications_raw_raw_latest). Ademas sap_bp_raw.state
+--   esta NULL en el sync actual - la geografia solo esta en el JSON de
+--   Firestore ($.provincia + $.localidad).
+--
+-- Clasificacion (IDENTICA a v_leads_vs_clientes_por_vendedor):
+--   status='approved' AND assignedVendor NOT LIKE 'ADMIN_%'  (baseline)
+--   CLIENTE_SAP: cardCodeSap IS NOT NULL AND cardCodeSap != ''
+--   LEAD:        manualSapPending = 'true'
+--                AND (cardCodeSap IS NULL OR cardCodeSap = '')
+--   OTRO:        el resto (docs viejos pre-v290 sin flag) -> se descartan
+--                por WHERE tipo IN ('CLIENTE_SAP','LEAD').
+--
+-- Normalizacion provincia (canonizada igual que v_ventas_lineas.provincia_cliente
+-- y dim_Region_Geo del modelo PBI):
+--   CIUDAD AUTÓNOMA DE BUENOS AIRES / CAPITAL FEDERAL / CIUDAD DE BUENOS AIRES -> CABA
+--   CÓRDOBA -> CORDOBA
+--   ENTRE RÍOS -> ENTRE RIOS
+--   TUCUMÁN -> TUCUMAN
+--   RÍO NEGRO -> RIO NEGRO
+--   NEUQUÉN  -> NEUQUEN
+--   '(SIN PROVINCIA)' / '' -> NULL
+--   resto: UPPER(TRIM(x))
+--
+-- Columnas:
+--   card_code        -> cardCodeSap si es CLIENTE_SAP; sino 'LEAD_<document_id>'
+--                       para que sea unico y no colisione con codes SAP.
+--   card_name        -> fantasia si esta, sino comercio (razon social).
+--   tipo             -> 'LEAD' | 'CLIENTE_SAP'
+--   provincia        -> normalizada como arriba.
+--   localidad        -> localidadFinal (asignada por admin/vendedor al aprobar)
+--                       con fallback a localidad (la que puso el que cargo el
+--                       alta). NULL si ninguna esta cargada.
+--   assigned_vendor  -> assignedVendor de la app; '(SIN ASIGNAR)' si vacio.
+--
+-- Uso Power BI (TABLERO SAR):
+--   1) Relacion N:1 con dim_Region_Geo por provincia+localidad (o crear
+--      un tabla puente si hay localidades duplicadas entre provincias).
+--   2) Medida sugerida para pintar el mapa por departamento:
+--        [Color Depto] =
+--          VAR nLeads = CALCULATE(COUNTROWS(v_leads_detalle), tipo="LEAD")
+--          RETURN IF(nLeads > 0, "AMARILLO", "VERDE")
+--      Aplicar sobre visual mapa (custom color por medida).
+--   3) Reconciliacion (obligatoria antes de dar por bueno):
+--        Ver bigquery/reconciliacion_leads_detalle.sql.
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_leads_detalle` AS
+WITH base AS (
+  SELECT
+    document_id,
+    NULLIF(JSON_VALUE(data, '$.cardCodeSap'), '')       AS card_code_sap,
+    COALESCE(
+      NULLIF(JSON_VALUE(data, '$.fantasia'), ''),
+      NULLIF(JSON_VALUE(data, '$.comercio'), '')
+    )                                                    AS card_name,
+    JSON_VALUE(data, '$.status')                        AS status,
+    JSON_VALUE(data, '$.manualSapPending')              AS manual_sap_pending,
+    UPPER(TRIM(JSON_VALUE(data, '$.provincia')))        AS provincia_raw,
+    JSON_VALUE(data, '$.localidadFinal')                AS localidad_final,
+    JSON_VALUE(data, '$.localidad')                     AS localidad_libre,
+    IFNULL(NULLIF(JSON_VALUE(data, '$.assignedVendor'), ''), '(SIN ASIGNAR)')
+                                                        AS assigned_vendor
+  FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+  WHERE JSON_VALUE(data, '$.status') = 'approved'
+    AND (JSON_VALUE(data, '$.assignedVendor') IS NULL
+         OR NOT STARTS_WITH(JSON_VALUE(data, '$.assignedVendor'), 'ADMIN_'))
+),
+clasificado AS (
+  SELECT
+    COALESCE(card_code_sap, CONCAT('LEAD_', document_id)) AS card_code,
+    card_name,
+    CASE
+      WHEN card_code_sap IS NOT NULL AND card_code_sap != ''            THEN 'CLIENTE_SAP'
+      WHEN manual_sap_pending = 'true'
+           AND (card_code_sap IS NULL OR card_code_sap = '')            THEN 'LEAD'
+      ELSE 'OTRO'
+    END AS tipo,
+    CASE
+      WHEN provincia_raw IN ('CIUDAD AUTÓNOMA DE BUENOS AIRES',
+                             'CAPITAL FEDERAL',
+                             'CIUDAD DE BUENOS AIRES')                  THEN 'CABA'
+      WHEN provincia_raw = 'CÓRDOBA'                                    THEN 'CORDOBA'
+      WHEN provincia_raw = 'ENTRE RÍOS'                                 THEN 'ENTRE RIOS'
+      WHEN provincia_raw = 'TUCUMÁN'                                    THEN 'TUCUMAN'
+      WHEN provincia_raw = 'RÍO NEGRO'                                  THEN 'RIO NEGRO'
+      WHEN provincia_raw = 'NEUQUÉN'                                    THEN 'NEUQUEN'
+      WHEN provincia_raw IN ('(SIN PROVINCIA)', '')                     THEN NULL
+      ELSE provincia_raw
+    END AS provincia,
+    NULLIF(TRIM(COALESCE(localidad_final, localidad_libre)), '')        AS localidad,
+    assigned_vendor
+  FROM base
+)
+SELECT
+  card_code,
+  card_name,
+  tipo,
+  provincia,
+  localidad,
+  assigned_vendor
+FROM clasificado
+WHERE tipo IN ('CLIENTE_SAP', 'LEAD');
