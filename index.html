@@ -4014,7 +4014,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v502';
+const APP_VERSION = 'v503';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12369,17 +12369,33 @@ window.waitlistOnAddSearch = function(){
     left.appendChild(codeEl);
     left.appendChild(descEl);
     item.appendChild(left);
-    // v502 (2026-08-13): badge DISPONIBLE/NO DISPONIBLE segun stock del
-    // almacen 11 (deposito central). Antes los vendedores agregaban el SKU
-    // y recien veian rojo en la fila si no habia stock. Ahora se ve directo
-    // en el dropdown, antes de agregar.
+    // v502/v503 (2026-08-13): badge DISPONIBLE/NO DISPONIBLE segun stock
+    // del almacen 11 (deposito central). Fuente prioritaria:
+    // STOCK_WAREHOUSE_BREAKDOWN[sku][11]. Si el SKU no esta en el breakdown
+    // pero SI aparece en el snapshot (getStockQty != null), asumimos NO
+    // DISPONIBLE (el master de productos ya marca "SIN STOCK" en ese caso).
+    // Solo mostramos SIN DATOS si el SKU no existe en ningun snapshot.
     const stkMid = document.createElement('div');
     stkMid.style.cssText = 'flex-shrink:0;min-width:110px;text-align:center';
+    const codeUpper = String(p.code || '').toUpperCase().trim();
     const whs = (typeof STOCK_WAREHOUSE_BREAKDOWN === 'object' && STOCK_WAREHOUSE_BREAKDOWN)
-      ? STOCK_WAREHOUSE_BREAKDOWN[String(p.code || '').toUpperCase().trim()] || null : null;
-    const stk11 = whs ? Number(whs['11'] || 0) : null;
+      ? STOCK_WAREHOUSE_BREAKDOWN[codeUpper] || null : null;
+    let stk11 = null;
+    let inSnapshot = false;
+    if (whs && whs['11'] != null) {
+      stk11 = Number(whs['11']) || 0;
+      inSnapshot = true;
+    } else if (typeof getStockQty === 'function') {
+      const total = getStockQty(p.code);
+      if (total != null) {
+        // Snapshot tiene el SKU pero sin breakdown por warehouse -> asumimos
+        // 0 en almacen 11 (mismo criterio que el master "SIN STOCK").
+        inSnapshot = true;
+        stk11 = 0;
+      }
+    }
     const stkBadge = document.createElement('span');
-    if (stk11 == null) {
+    if (!inSnapshot) {
       stkBadge.style.cssText = 'background:#e2e8f0;color:#475569;padding:3px 10px;border-radius:3px;font-size:10px;font-weight:800;letter-spacing:.3px';
       stkBadge.textContent = 'SIN DATOS';
     } else if (stk11 > 0) {
