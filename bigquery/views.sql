@@ -2368,6 +2368,10 @@ clasificado AS (
       WHEN provincia_raw IN ('CIUDAD AUTÓNOMA DE BUENOS AIRES',
                              'CAPITAL FEDERAL',
                              'CIUDAD DE BUENOS AIRES')                  THEN 'CABA'
+      -- v512 (2026-08-13): fix provincia mal cargada como codigo INDEC.
+      -- '2' o '02' -> CABA (permite que MONSERRAT resuelva a COMUNA 1
+      -- via alias del script build_geo_localidad_departamento.py).
+      WHEN provincia_raw IN ('2', '02')                                 THEN 'CABA'
       WHEN provincia_raw = 'CÓRDOBA'                                    THEN 'CORDOBA'
       WHEN provincia_raw = 'ENTRE RÍOS'                                 THEN 'ENTRE RIOS'
       WHEN provincia_raw = 'TUCUMÁN'                                    THEN 'TUCUMAN'
@@ -2422,6 +2426,24 @@ enriched AS (
   LEFT JOIN `app-vendedores-shimano.shimano_app.geo_localidad_departamento` gld
     ON gld.provincia_norm = g.provincia_norm
    AND gld.localidad_norm = g.localidad_norm
+),
+-- v512 (2026-08-13): fallback CABA. Si el socio tiene provincia=CABA
+-- pero no matcheo una localidad conocida, asignamos COMUNA 1 como
+-- placeholder porque la app no carga comuna. Sin este fallback los
+-- CABA sin localidad quedaban sin pintar en el mapa.
+final AS (
+  SELECT
+    card_code, card_name, tipo, provincia, localidad, assigned_vendor,
+    CASE
+      WHEN prov_depto IS NULL AND provincia = 'CABA' THEN 'COMUNA 1'
+      ELSE departamento
+    END AS departamento,
+    CASE
+      WHEN prov_depto IS NULL AND provincia = 'CABA'
+        THEN 'CIUDAD AUTONOMA DE BUENOS AIRES | COMUNA 1'
+      ELSE prov_depto
+    END AS prov_depto
+  FROM enriched
 )
 SELECT
   card_code,
@@ -2432,4 +2454,4 @@ SELECT
   departamento,
   prov_depto,
   assigned_vendor
-FROM enriched;
+FROM final;
