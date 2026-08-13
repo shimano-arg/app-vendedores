@@ -120,7 +120,11 @@ def norm_prov_topo(prov_raw: str) -> str:
 # Se agregan a geo_localidad_departamento como filas extra que apuntan a la
 # localidad canonica.
 # ============================================================
-# (provincia_norm, localidad_variante_norm) -> localidad_canonica_georef_norm
+# (provincia_norm, localidad_variante_norm) -> DESTINO.
+# DESTINO puede ser:
+#   - string: nombre de localidad canonica en Georef (busca en merged).
+#   - dict {"prov_depto": "X | Y"}: fuerza el prov_depto directo del TopoJSON
+#     (para casos donde Georef no trae la localidad o el dedup escoge otro).
 LOCALIDAD_ALIASES = {
     ("SANTA FE", "SANTA FE DE LA VERA CRUZ"): "SANTA FE",
     ("SANTA FE", "ROSARIO SUD"): "ROSARIO",
@@ -134,20 +138,44 @@ LOCALIDAD_ALIASES = {
     ("CHACO", "SAENZ PENA"): "PRESIDENCIA ROQUE SAENZ PENA",
     ("JUJUY", "JUJUY"): "SAN SALVADOR DE JUJUY",
     ("CORDOBA", "BARRIO CENTRO NORTE"): "CORDOBA",
-    # HAEDO esta en Buenos Aires (partido MORON), no CABA - fix provincia mal cargada.
-    # Este caso NO lo cubrimos con alias (requiere cambiar la provincia); lo dejamos NULL.
+    # v512 (2026-08-13): 8 aliases nuevos + fixes CABA reportados por Mariano.
+    # Georef no trae SALADILLO ni BOLIVAR como localidad exacta -> forzamos
+    # con prov_depto directo. Los otros usan la canonica de Georef.
+    ("BUENOS AIRES", "SALADILLO"): {"prov_depto": "BUENOS AIRES | SALADILLO"},
+    ("BUENOS AIRES", "BOLIVAR"): {"prov_depto": "BUENOS AIRES | BOLIVAR"},
+    ("BUENOS AIRES", "GENERAL MADARIAGA"): "GENERAL JUAN MADARIAGA",
+    # SAN FRANCISCO SOLANO existe en Georef con 2 deptos (ALMIRANTE BROWN y
+    # QUILMES). El sufijo "(QUILMES)" en la app aclara cual. Forzamos QUILMES.
+    ("BUENOS AIRES", "SAN FRANCISCO SOLANO QUILMES"): {"prov_depto": "BUENOS AIRES | QUILMES"},
+    # La Plata con sufijos zona/calle -> LA PLATA.
+    ("BUENOS AIRES", "LA PLATA SUDESTE CALLE 50 AMBAS VEREDAS"): {"prov_depto": "BUENOS AIRES | LA PLATA"},
+    ("BUENOS AIRES", "LA PLATA NOROESTE CALLE 50"): {"prov_depto": "BUENOS AIRES | LA PLATA"},
+    ("BUENOS AIRES", "BALNEARIO CLAROMECO"): "CLAROMECO",
+    # "El Cruce" es Florencio Varela (barrio historico entre FV y Berazategui,
+    # generalmente asignado a FV).
+    ("BUENOS AIRES", "BARRIO EL CRUCE"): {"prov_depto": "BUENOS AIRES | FLORENCIO VARELA"},
+    # MONSERRAT (barrio historico) -> CABA COMUNA 1.
+    ("CABA", "MONSERRAT"): "MONSERRAT",
+    # HAEDO esta en Buenos Aires (partido MORON), no CABA - fix provincia mal
+    # cargada. NO cubierto con alias (requiere cambiar provincia).
+    # ALSINA (BUENOS AIRES): ambiguo (Adolfo Alsina / Adolfo Gonzales Chaves).
+    # No mapear -> queda NULL, pedido explicito del user.
 }
 
 
 def norm_localidad(prov_norm: str, loc_raw: str) -> str:
     """Normaliza localidad: upper + sin acentos + expandir GRAL/GRAL. + drop puntos.
-    Luego aplica alias manual si esta en LOCALIDAD_ALIASES."""
+    Luego aplica alias manual SOLO si el destino es string (para aliases dict
+    con prov_depto explicito, el resolver es build_localidad_dept_table)."""
     n = norm_str(loc_raw)
     n = n.replace(".", " ")
     n = re.sub(r"\s+", " ", n).strip()
     n = re.sub(r"\bGRAL\b", "GENERAL", n)
     n = re.sub(r"\bCNEL\b", "CORONEL", n)
-    return LOCALIDAD_ALIASES.get((prov_norm, n), n)
+    alias = LOCALIDAD_ALIASES.get((prov_norm, n))
+    if isinstance(alias, str):
+        return alias
+    return n
 
 
 def load_topo_departamentos() -> pd.DataFrame:
@@ -235,32 +263,61 @@ def build_localidad_dept_table(
     ).drop_duplicates(subset=["provincia_norm", "localidad_norm"], keep="first")
     print(f"[merge] dedup por (prov,loc): {len(merged)} rows base")
 
-    # Insertar filas EXTRA por cada alias: la variante norm que la app usa
-    # apunta al mismo prov_depto que la localidad canonica de Georef.
+    # Insertar filas EXTRA por cada alias. 2 tipos:
+    #   1. alias -> string canonica: la variante apunta al mismo prov_depto
+    #      que la canonica en Georef.
+    #   2. alias -> dict {"prov_depto": "X | Y"}: forzar el prov_depto directo
+    #      del TopoJSON (para casos donde Georef no lo tiene o el dedup
+    #      escogio otro depto).
     extra_rows = []
-    for (prov_n, variant_norm), canonical_norm in LOCALIDAD_ALIASES.items():
-        # Buscar el prov_depto de la canonica en la tabla base.
-        canonical_row = merged[
-            (merged["provincia_norm"] == prov_n)
-            & (merged["localidad_norm"] == norm_str(canonical_norm))
-        ]
-        if canonical_row.empty:
-            # La canonica misma no matchea? Skip con warning.
-            print(f"[alias WARN] canonica no encontrada para {prov_n}|{variant_norm}->{canonical_norm}")
-            continue
-        base = canonical_row.iloc[0]
-        extra_rows.append(
-            {
-                "provincia_norm": prov_n,
-                "localidad_norm": variant_norm,  # ya viene norm por LOCALIDAD_ALIASES key
-                "provincia_original": base["provincia_original"],
-                "localidad_original": f"(alias) {variant_norm}",
-                "departamento_original": base["departamento_original"],
-                "provincia": base["provincia"],
-                "departamento": base["departamento"],
-                "prov_depto": base["prov_depto"],
-            }
-        )
+    for (prov_n, variant_norm), target in LOCALIDAD_ALIASES.items():
+        if isinstance(target, dict):
+            # Buscar el registro TopoJSON por prov_depto para preservar
+            # provincia/departamento canonicos del TopoJSON.
+            pd_target = target.get("prov_depto")
+            if not pd_target:
+                print(f"[alias WARN] alias dict sin prov_depto: {prov_n}|{variant_norm}")
+                continue
+            topo_row = deptos_topo[deptos_topo["prov_depto"] == pd_target]
+            if topo_row.empty:
+                print(f"[alias WARN] prov_depto no existe en TopoJSON: {pd_target} ({prov_n}|{variant_norm})")
+                continue
+            trow = topo_row.iloc[0]
+            extra_rows.append(
+                {
+                    "provincia_norm": prov_n,
+                    "localidad_norm": variant_norm,
+                    "provincia_original": trow["provincia"],
+                    "localidad_original": f"(alias directo) {variant_norm}",
+                    "departamento_original": trow["departamento"],
+                    "provincia": trow["provincia"],
+                    "departamento": trow["departamento"],
+                    "prov_depto": trow["prov_depto"],
+                }
+            )
+        else:
+            # String: apunta a una canonica de Georef que ya deberia estar en merged.
+            canonical_norm = target
+            canonical_row = merged[
+                (merged["provincia_norm"] == prov_n)
+                & (merged["localidad_norm"] == norm_str(canonical_norm))
+            ]
+            if canonical_row.empty:
+                print(f"[alias WARN] canonica no encontrada para {prov_n}|{variant_norm}->{canonical_norm}")
+                continue
+            base = canonical_row.iloc[0]
+            extra_rows.append(
+                {
+                    "provincia_norm": prov_n,
+                    "localidad_norm": variant_norm,
+                    "provincia_original": base["provincia_original"],
+                    "localidad_original": f"(alias) {variant_norm}",
+                    "departamento_original": base["departamento_original"],
+                    "provincia": base["provincia"],
+                    "departamento": base["departamento"],
+                    "prov_depto": base["prov_depto"],
+                }
+            )
     if extra_rows:
         extra = pd.DataFrame(extra_rows)
         merged = pd.concat([merged, extra], ignore_index=True).drop_duplicates(
