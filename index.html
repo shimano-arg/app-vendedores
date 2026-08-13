@@ -4105,7 +4105,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v523';
+const APP_VERSION = 'v524';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12772,23 +12772,20 @@ function _renderWaitlistCard(){
 
 // v492: exportar el pedido en espera actual a un XLSX con metadata +
 // tabla de productos + subtotales, mismo calculo que _renderWaitlistCard.
-// v522 (2026-08-13): exporta solo los items del pedido actual que ya
-// tienen stock disponible en el deposito 11, usando el template
-// Shimano oficial (mismo formato que "Template por cliente" de Stock
-// Asig.). Nombre: STOCK ASIGNADO. <CLIENTE>.xlsx.
+// v522/v524 (2026-08-13): exporta los SKUs del cliente que estan como
+// "SAP Asignado - Con Stock" (backorder open en SAP con stock disponible
+// AHORA). Es el subset que el cliente ya tiene pedido en ofertas SAP
+// abiertas Y ademas hay stock para entregar. Usa el template Shimano
+// oficial. Nombre: STOCK ASIGNADO. <CLIENTE>.xlsx.
 window.waitlistExportStockAsignado = async function(){
   const w = _wcardCurrent;
   if (!w) { alert('No hay pedido en espera abierto.'); return; }
   if (typeof ExcelJS === 'undefined') { alert('ExcelJS todavia no cargo. Reintenta en 2 segundos.'); return; }
-  const stockDisp = (sku) => {
-    if (typeof getStockDisponibleVenta === 'function') return getStockDisponibleVenta(sku) || 0;
-    const whs = (typeof STOCK_WAREHOUSE_BREAKDOWN === 'object' && STOCK_WAREHOUSE_BREAKDOWN)
-      ? STOCK_WAREHOUSE_BREAKDOWN[String(sku||'').toUpperCase().trim()] : null;
-    return whs ? Number(whs['11'] || 0) : 0;
-  };
-  const items = (w.items || []).filter(it => stockDisp(it.code) > 0);
+  // v524: fuente = SAP Asignado con stock del cliente (backorderLines
+  // filtrado con stock disponible), NO los items del pedido actual.
+  const items = _sapAsignadoConStockDeCliente(w.clientCardCode);
   if (!items.length) {
-    alert('El pedido no tiene SKUs con stock disponible en dep. 11 para exportar.');
+    alert('El cliente no tiene SKUs asignados en SAP con stock disponible en dep. 11.\n\n(Fuente: backorderLines - solo lineas de SQ open con stock > 0.)');
     return;
   }
   const btn = document.getElementById('wcard-export-stkasig-btn');
@@ -12806,21 +12803,19 @@ window.waitlistExportStockAsignado = async function(){
       PRODUCTS.forEach(p => productMap.set(String(p.code||'').toUpperCase().trim(), p));
     }
     items.forEach(it => {
-      const sku = String(it.code || '').toUpperCase().trim();
+      const sku = String(it.sku || '').toUpperCase().trim();
       const p = productMap.get(sku) || {};
-      const disp = stockDisp(sku);
-      const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(it.code) || 0) : 0;
       const row = ws.getRow(rowIdx);
       row.height = 40;
-      row.getCell(1).value = disp > 0 ? 'Disponible' : 'Sin stock';
+      row.getCell(1).value = 'Disponible'; // por construccion son disponibles
       row.getCell(2).value = p.fam || '';
       row.getCell(3).value = p.sub || '';
       row.getCell(4).value = '';
-      row.getCell(5).value = it.code || '';
-      row.getCell(6).value = it.desc || (p.desc || '');
-      row.getCell(7).value = precio || null;
+      row.getCell(5).value = it.sku || '';
+      row.getCell(6).value = it.producto || (p.desc || '');
+      row.getCell(7).value = it.precio || null;
       row.getCell(8).value = null;
-      row.getCell(9).value = it.qty || null;
+      row.getCell(9).value = it.pendiente || null; // qty pendiente en SAP
       row.getCell(10).value = { formula: 'I' + rowIdx + '*G' + rowIdx };
       for (let ci = 1; ci <= 10; ci++) {
         const c = row.getCell(ci);
@@ -12839,7 +12834,7 @@ window.waitlistExportStockAsignado = async function(){
     const a = document.createElement('a');
     a.href = url; a.download = filename; document.body.appendChild(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 200);
-    if (typeof showSyncTag === 'function') showSyncTag('Exportado: ' + items.length + ' SKU con stock');
+    if (typeof showSyncTag === 'function') showSyncTag('Exportado: ' + items.length + ' SKU asignados con stock');
   } catch(e) {
     console.error('waitlistExportStockAsignado', e);
     alert('Error generando el Excel: ' + (e.message || e));
