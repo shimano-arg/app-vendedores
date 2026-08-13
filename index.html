@@ -4014,7 +4014,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v501';
+const APP_VERSION = 'v502';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12369,8 +12369,30 @@ window.waitlistOnAddSearch = function(){
     left.appendChild(codeEl);
     left.appendChild(descEl);
     item.appendChild(left);
+    // v502 (2026-08-13): badge DISPONIBLE/NO DISPONIBLE segun stock del
+    // almacen 11 (deposito central). Antes los vendedores agregaban el SKU
+    // y recien veian rojo en la fila si no habia stock. Ahora se ve directo
+    // en el dropdown, antes de agregar.
+    const stkMid = document.createElement('div');
+    stkMid.style.cssText = 'flex-shrink:0;min-width:110px;text-align:center';
+    const whs = (typeof STOCK_WAREHOUSE_BREAKDOWN === 'object' && STOCK_WAREHOUSE_BREAKDOWN)
+      ? STOCK_WAREHOUSE_BREAKDOWN[String(p.code || '').toUpperCase().trim()] || null : null;
+    const stk11 = whs ? Number(whs['11'] || 0) : null;
+    const stkBadge = document.createElement('span');
+    if (stk11 == null) {
+      stkBadge.style.cssText = 'background:#e2e8f0;color:#475569;padding:3px 10px;border-radius:3px;font-size:10px;font-weight:800;letter-spacing:.3px';
+      stkBadge.textContent = 'SIN DATOS';
+    } else if (stk11 > 0) {
+      stkBadge.style.cssText = 'background:#dcfce7;color:#166534;padding:3px 10px;border-radius:3px;font-size:10px;font-weight:800;letter-spacing:.3px';
+      stkBadge.textContent = 'DISPONIBLE · ' + stk11 + ' u';
+    } else {
+      stkBadge.style.cssText = 'background:#fee2e2;color:#991b1b;padding:3px 10px;border-radius:3px;font-size:10px;font-weight:800;letter-spacing:.3px';
+      stkBadge.textContent = 'NO DISPONIBLE';
+    }
+    stkMid.appendChild(stkBadge);
+    item.appendChild(stkMid);
     const right = document.createElement('div');
-    right.style.cssText = 'text-align:right';
+    right.style.cssText = 'text-align:right;flex-shrink:0';
     if (skusEnPedido.has((p.code || '').toLowerCase())) {
       const tag = document.createElement('span');
       tag.style.cssText = 'background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:700';
