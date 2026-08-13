@@ -4105,7 +4105,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v520';
+const APP_VERSION = 'v521';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -9977,7 +9977,18 @@ async function _buildStockAsigBufferConTemplate(clienteNombre, clienteCode, mesF
       ? STOCK_WAREHOUSE_BREAKDOWN[String(sku||'').toUpperCase().trim()] : null;
     return whs ? Number(whs['11'] || 0) : 0;
   };
-  const products = (typeof PRODUCTS !== 'undefined' && PRODUCTS) ? PRODUCTS : [];
+  const productsAll = (typeof PRODUCTS !== 'undefined' && PRODUCTS) ? PRODUCTS : [];
+  // v521 (2026-08-13): filtrar SOLO productos con stock disponible en dep. 11.
+  // Antes se incluia el catalogo completo (~2450 SKUs) y el autofilter
+  // ocultaba los sin stock; ahora directamente no van al archivo.
+  // Excepcion: si el SKU tiene qty backorder pendiente para el cliente
+  // (backCli.has(sku)), se incluye igual aunque no tenga stock (para que el
+  // vendedor lo vea explicito en el pedido).
+  const products = productsAll.filter(p => {
+    const sku = String(p.code || '').toUpperCase().trim();
+    if (backCli.has(sku)) return true;
+    return stockDisp(sku) > 0;
+  });
   // Insertar rows a partir de la 6. Alto ~40px para que descripciones largas
   // entren en 2 lineas (v511, ejemplo user row 58).
   let rowIdx = 6;
