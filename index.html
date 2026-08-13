@@ -4072,7 +4072,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v510';
+const APP_VERSION = 'v511';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -9945,7 +9945,8 @@ async function _buildStockAsigBufferConTemplate(clienteNombre, clienteCode, mesF
     return whs ? Number(whs['11'] || 0) : 0;
   };
   const products = (typeof PRODUCTS !== 'undefined' && PRODUCTS) ? PRODUCTS : [];
-  // Insertar rows a partir de la 6.
+  // Insertar rows a partir de la 6. Alto ~40px para que descripciones largas
+  // entren en 2 lineas (v511, ejemplo user row 58).
   let rowIdx = 6;
   products.forEach(p => {
     const sku = String(p.code || '').toUpperCase().trim();
@@ -9954,20 +9955,49 @@ async function _buildStockAsigBufferConTemplate(clienteNombre, clienteCode, mesF
     const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(p.code) || 0) : 0;
     const qtyBack = backCli.get(sku) || 0;
     const row = ws.getRow(rowIdx);
-    row.getCell(1).value = dispTxt;              // A: Disponibilidad
-    row.getCell(2).value = p.fam || '';          // B: Familia
-    row.getCell(3).value = p.sub || '';          // C: Tipo
-    row.getCell(4).value = '';                   // D: Modelo (no separado)
-    row.getCell(5).value = p.code || '';         // E: Codigo
-    row.getCell(6).value = p.desc || '';         // F: Descripcion
-    row.getCell(7).value = precio || null;       // G: Precio VTA
-    row.getCell(8).value = null;                 // H: Precio publico (n/a)
-    row.getCell(9).value = qtyBack > 0 ? qtyBack : null; // I: PEDIDO
-    row.getCell(10).value = { formula: 'I' + rowIdx + '*G' + rowIdx }; // J: TOTAL
+    row.height = 40;  // v511: alto fijo para todas las filas de productos.
+    row.getCell(1).value = dispTxt;
+    row.getCell(2).value = p.fam || '';
+    row.getCell(3).value = p.sub || '';
+    row.getCell(4).value = '';
+    row.getCell(5).value = p.code || '';
+    row.getCell(6).value = p.desc || '';
+    row.getCell(7).value = precio || null;
+    row.getCell(8).value = null;
+    row.getCell(9).value = qtyBack > 0 ? qtyBack : null;
+    row.getCell(10).value = { formula: 'I' + rowIdx + '*G' + rowIdx };
+    // Wrap text + alineacion vertical center para todas las celdas.
+    for (let ci = 1; ci <= 10; ci++) {
+      const c = row.getCell(ci);
+      c.alignment = { vertical: 'middle', horizontal: (ci === 6 ? 'left' : 'center'), wrapText: true };
+    }
     rowIdx++;
   });
-  // Ajustar SUM del total (I2 ya tiene =SUM(J6:J1005), extender si hace falta).
   const lastRow = rowIdx - 1;
+  // v511: autofilter que excluye VACIOS en columna I (PEDIDO). Rango: A5:J<lastRow>.
+  // ExcelJS: autoFilter con filterButton y columnFilters.
+  ws.autoFilter = {
+    from: { row: 5, column: 1 },
+    to:   { row: lastRow, column: 10 },
+    columns: [
+      { filterButton: true, colId: 0 },
+      { filterButton: true, colId: 1 },
+      { filterButton: true, colId: 2 },
+      { filterButton: true, colId: 3 },
+      { filterButton: true, colId: 4 },
+      { filterButton: true, colId: 5 },
+      { filterButton: true, colId: 6 },
+      { filterButton: true, colId: 7 },
+      // v511: PEDIDO (colId 8, columna I) - filtro custom que excluye blanks.
+      {
+        filterButton: true,
+        colId: 8,
+        customFilters: [{ val: ' ', operator: 'greaterThan' }],
+      },
+      { filterButton: true, colId: 9 },
+    ],
+  };
+  // Ajustar SUM del total.
   const totalCell = ws.getCell('I2');
   totalCell.value = { formula: 'SUM(J6:J' + Math.max(lastRow, 1005) + ')' };
   const out = await wb.xlsx.writeBuffer();
