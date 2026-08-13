@@ -33,6 +33,10 @@
 <script defer src="https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.3/dist/polygon-clipping.umd.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<!-- v510 (2026-08-13): ExcelJS para preservar el logo y formato del template oficial
+     Shimano (SheetJS Community pierde imagenes al re-escribir). Solo se usa para el
+     export "Template Stock Asig. por cliente"; el resto sigue con SheetJS. -->
+<script defer src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -3904,9 +3908,9 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
      Dinsport"). Precarga la columna PEDIDO con las qty del backorder open
      del cliente elegido. Nombre archivo: "STOCK ASIG. <CLIENTE>.xlsx". -->
 <div class="modal-overlay" id="export-stock-asig-modal" onclick="if(event.target===this)closeExportStockAsigCliente()">
-  <div class="modal-box" style="width:min(520px,98vw)">
+  <div class="modal-box" style="width:min(560px,98vw)">
     <div class="modal-head" style="background:linear-gradient(135deg,#166534,#15803d)">
-      <div><h2>Template Stock Asig. por cliente</h2><div class="subt">Genera un Excel con formato "Lista de Precios Shimano" y pre-carga las cantidades asignadas al cliente.</div></div>
+      <div><h2>Template Stock Asig. por cliente</h2><div class="subt">Genera un Excel con formato "Lista de Precios Shimano" oficial y pre-carga las cantidades asignadas al cliente.</div></div>
       <button class="modal-close" onclick="closeExportStockAsigCliente()">&times;</button>
     </div>
     <div style="padding:14px 18px">
@@ -3914,9 +3918,14 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
       <input id="export-stock-asig-cli-input" list="export-stock-asig-cli-list" placeholder="Buscar cliente por nombre... (dejar vacio = TODOS los clientes en ZIP)" style="width:100%;padding:8px 12px;border:1.5px solid #86efac;border-radius:6px;font-size:12.5px;outline:none"/>
       <datalist id="export-stock-asig-cli-list"></datalist>
       <div id="export-stock-asig-cli-info" style="font-size:10.5px;color:#166534;margin-top:6px;font-style:italic"></div>
+      <label style="display:block;font-size:11.5px;color:#166534;font-weight:800;margin-bottom:6px;margin-top:14px;text-transform:uppercase;letter-spacing:.4px">Mes de la SQ (opcional):</label>
+      <select id="export-stock-asig-mes-select" style="width:100%;padding:8px 12px;border:1.5px solid #86efac;border-radius:6px;font-size:12.5px;outline:none;background:#fff">
+        <option value="">Todos los meses</option>
+      </select>
+      <div style="font-size:10.5px;color:#64748b;margin-top:4px;font-style:italic">Si eligís un mes, solo se cargan las unidades de SQs con esa fecha (ej: julio 2026 = pedidos del cliente para julio).</div>
     </div>
-    <div class="modal-footer" style="justify-content:flex-end">
-      <button class="btn-cancel" onclick="closeExportStockAsigCliente()">Cancelar</button>
+    <div class="modal-footer" style="justify-content:center;gap:12px">
+      <button class="btn-cancel" onclick="closeExportStockAsigCliente()" style="background:#dc2626;color:#fff;border-color:#dc2626">Cancelar</button>
       <button class="btn-confirm" id="btn-export-stock-asig-go" onclick="submitExportStockAsigCliente()" style="background:#166534">Descargar Excel</button>
     </div>
   </div>
@@ -4063,7 +4072,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v509';
+const APP_VERSION = 'v510';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -9836,7 +9845,7 @@ window.exportBackordersToExcel = function(){
 // que tenga backorder open.
 // ============================================================
 window.openExportStockAsigCliente = function(){
-  if (typeof XLSX === 'undefined') { alert('La libreria XLSX no se cargo.'); return; }
+  if (typeof ExcelJS === 'undefined') { alert('La libreria ExcelJS todavia no cargo. Reintenta en 2 segundos.'); return; }
   if (!backorderLines || !backorderLines.length) {
     alert('No hay backorders sincronizados aun. Espera al proximo sync (~5 min).');
     return;
@@ -9861,6 +9870,27 @@ window.openExportStockAsigCliente = function(){
     const info = document.getElementById('export-stock-asig-cli-info');
     if (info) info.textContent = arr.length + ' cliente(s) con backorder open.';
   }
+  // v510: poblar dropdown de meses (YYYY-MM) presentes en el backorder actual.
+  const mesSel = document.getElementById('export-stock-asig-mes-select');
+  if (mesSel) {
+    // Reset options.
+    while (mesSel.options.length > 1) mesSel.remove(1);
+    const meses = new Set();
+    backorderLines.forEach(ln => {
+      const s = String(ln.sqDocDate || '');
+      if (s.length >= 7) meses.add(s.substring(0, 7));
+    });
+    const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    [...meses].sort().reverse().forEach(m => {
+      const [yy, mm] = m.split('-');
+      const label = MESES_ES[parseInt(mm, 10) - 1] + ' ' + yy;
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = label;
+      mesSel.appendChild(opt);
+    });
+    mesSel.value = '';
+  }
   const inp = document.getElementById('export-stock-asig-cli-input');
   if (inp) { inp.value = ''; inp.focus(); }
   const m = document.getElementById('export-stock-asig-modal');
@@ -9870,114 +9900,110 @@ window.closeExportStockAsigCliente = function(){
   const m = document.getElementById('export-stock-asig-modal');
   if (m) m.classList.remove('open');
 };
-// Helper: dado un cliente (nombre + cardCode) construye 1 workbook Excel
-// con formato "Lista de Precios Shimano <MES>" + sheet "Datos de entrega".
-// La columna PEDIDO se precarga con las qty del backorder open del cliente.
-function _buildStockAsigWorkbook(clienteNombre, clienteCode, cardCUIT){
-  const MESES = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
-  const now = new Date();
-  const mesLabel = MESES[now.getMonth()] + String(now.getFullYear()).slice(-2);
-  const sheetName = 'LISTA DE PRECIOS SHIMANO ' + mesLabel;
-  const products = (typeof PRODUCTS !== 'undefined' && PRODUCTS) ? PRODUCTS : [];
-  // Backorder del cliente: sku -> unidades pendientes.
-  const backCli = new Map();
+// v510: cache del template Excel base (fetch una vez).
+var _stockAsigTemplateBuffer = null;
+async function _loadStockAsigTemplate(){
+  if (_stockAsigTemplateBuffer) return _stockAsigTemplateBuffer;
+  const r = await fetch('templates/stock_asig_template.xlsx');
+  if (!r.ok) throw new Error('No pude cargar templates/stock_asig_template.xlsx: HTTP ' + r.status);
+  _stockAsigTemplateBuffer = await r.arrayBuffer();
+  return _stockAsigTemplateBuffer;
+}
+// Helper: dado cliente + mes filtro, popula el template Excel con:
+//   - C3 = nombre del cliente
+//   - C4 = CardCode (o CUIT si lo tenemos)
+//   - Rows 6+ = productos con qty del backorder (opcional filtrado por mes)
+// Devuelve un ArrayBuffer del xlsx generado (para descarga o zip).
+async function _buildStockAsigBufferConTemplate(clienteNombre, clienteCode, mesFiltro){
+  const buffer = await _loadStockAsigTemplate();
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  const ws = wb.worksheets[0]; // 'LISTA DE PRECIOS SHIMANO AGO26'
+  // Setear cliente + cardCode.
+  const cliCell = ws.getCell('C3');
+  cliCell.value = clienteNombre || '';
+  const cuitCell = ws.getCell('C4');
+  cuitCell.value = clienteCode || '';
+  // Backorder del cliente (opcionalmente filtrado por YYYY-MM).
   const norm = String(clienteNombre || '').toLowerCase().trim();
+  const backCli = new Map(); // sku -> unidades
   (backorderLines || []).forEach(ln => {
     if ((ln.clienteNombre || '').toLowerCase().trim() !== norm) return;
+    if (mesFiltro) {
+      const d = String(ln.sqDocDate || '');
+      if (d.substring(0, 7) !== mesFiltro) return;
+    }
     const sku = String(ln.sku || '').toUpperCase().trim();
     const q = parseFloat(ln.pendiente) || 0;
     if (q > 0) backCli.set(sku, (backCli.get(sku) || 0) + q);
   });
-  // Stock disponible venta (whs 11): para columna Disponibilidad.
+  // Stock del almacen 11 -> columna Disponibilidad.
   const stockDisp = (sku) => {
     if (typeof getStockDisponibleVenta === 'function') return getStockDisponibleVenta(sku) || 0;
     const whs = (typeof STOCK_WAREHOUSE_BREAKDOWN === 'object' && STOCK_WAREHOUSE_BREAKDOWN)
       ? STOCK_WAREHOUSE_BREAKDOWN[String(sku||'').toUpperCase().trim()] : null;
     return whs ? Number(whs['11'] || 0) : 0;
   };
-  // Construccion aoa - copia layout de "Back Order Disponible Dinsport".
-  const aoa = [];
-  // Row 1: VER CATALOGO + Total Pedido header.
-  aoa.push(['VER CATALOGO SHIMANO', null, null, null, null, null, null, null, 'Total Pedido', null]);
-  // Row 2: fórmula SUM (la seteamos como cell luego para que Excel la parse).
-  aoa.push([null, null, null, null, null, null, null, null, null, null]);
-  // Row 3: CLIENTE con nombre.
-  aoa.push(['CLIENTE', clienteNombre || '', null, null, null, null, null, null, null, null]);
-  // Row 4: CUIT.
-  aoa.push(['CUIT', cardCUIT || '', null, null, null, null, null, null, null, null]);
-  // Row 5: headers.
-  aoa.push([
-    'Disponibilidad', 'Familia', 'Tipo', 'Modelo', 'Codigo', 'Descripcion',
-    'PRECIO VTA SHIMANO $ (SIN IVA)', 'PRECIO VENTA PUBLICO $ (MINIMO PUBLICACION)',
-    'PEDIDO', 'TOTAL $',
-  ]);
-  // Rows 6+: productos.
+  const products = (typeof PRODUCTS !== 'undefined' && PRODUCTS) ? PRODUCTS : [];
+  // Insertar rows a partir de la 6.
+  let rowIdx = 6;
   products.forEach(p => {
     const sku = String(p.code || '').toUpperCase().trim();
     const disp = stockDisp(sku);
     const dispTxt = disp > 0 ? 'Disponible' : 'Sin stock';
     const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(p.code) || 0) : 0;
     const qtyBack = backCli.get(sku) || 0;
-    aoa.push([
-      dispTxt,
-      p.fam || '',
-      p.sub || '',
-      '',  // Modelo (no lo tenemos separado)
-      p.code || '',
-      p.desc || '',
-      precio || null,
-      null,  // Precio publico (no lo tenemos)
-      qtyBack > 0 ? qtyBack : null,
-      null,  // TOTAL - fórmula por fila abajo
-    ]);
+    const row = ws.getRow(rowIdx);
+    row.getCell(1).value = dispTxt;              // A: Disponibilidad
+    row.getCell(2).value = p.fam || '';          // B: Familia
+    row.getCell(3).value = p.sub || '';          // C: Tipo
+    row.getCell(4).value = '';                   // D: Modelo (no separado)
+    row.getCell(5).value = p.code || '';         // E: Codigo
+    row.getCell(6).value = p.desc || '';         // F: Descripcion
+    row.getCell(7).value = precio || null;       // G: Precio VTA
+    row.getCell(8).value = null;                 // H: Precio publico (n/a)
+    row.getCell(9).value = qtyBack > 0 ? qtyBack : null; // I: PEDIDO
+    row.getCell(10).value = { formula: 'I' + rowIdx + '*G' + rowIdx }; // J: TOTAL
+    rowIdx++;
   });
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  // Formulas: por cada fila de producto (row idx 6..N), TOTAL $ = I*G.
-  // Nota: SheetJS usa 1-based en cell refs.
-  const nRows = products.length;
-  const lastDataRow = 5 + nRows;
-  ws['I2'] = { t: 'n', f: 'SUM(J6:J' + lastDataRow + ')' };
-  for (let i = 6; i <= lastDataRow; i++) {
-    ws['J' + i] = { t: 'n', f: 'I' + i + '*G' + i };
-  }
-  ws['!cols'] = [
-    {wch:14},{wch:20},{wch:22},{wch:22},{wch:16},{wch:60},
-    {wch:20},{wch:22},{wch:10},{wch:14},
-  ];
-  XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
-  // Sheet 2: Datos de entrega (placeholders vacios).
-  const entrega = [
-    ['Nombre del transporte', ''],
-    ['Domicilio de Entrega (direccion, localidad)', ''],
-    ['Domicilio comercial (final cliente)', ''],
-    ['Telefono', ''],
-    ['Horario de Recepcion', ''],
-    ['Contacto', ''],
-  ];
-  const wsEntrega = XLSX.utils.aoa_to_sheet(entrega);
-  wsEntrega['!cols'] = [{wch:45},{wch:50}];
-  XLSX.utils.book_append_sheet(wb, wsEntrega, 'Datos de entrega');
-  return wb;
+  // Ajustar SUM del total (I2 ya tiene =SUM(J6:J1005), extender si hace falta).
+  const lastRow = rowIdx - 1;
+  const totalCell = ws.getCell('I2');
+  totalCell.value = { formula: 'SUM(J6:J' + Math.max(lastRow, 1005) + ')' };
+  const out = await wb.xlsx.writeBuffer();
+  return out;
 }
 window.submitExportStockAsigCliente = async function(){
   const inp = document.getElementById('export-stock-asig-cli-input');
+  const mesSel = document.getElementById('export-stock-asig-mes-select');
   const nombre = ((inp && inp.value) || '').trim();
+  const mesFiltro = (mesSel && mesSel.value) || '';
   const btn = document.getElementById('btn-export-stock-asig-go');
-  if (btn) btn.disabled = true;
+  if (btn) { btn.disabled = true; btn.textContent = 'Generando...'; }
   try {
+    if (typeof ExcelJS === 'undefined') { alert('ExcelJS todavia no cargo. Reintenta en 2 segundos.'); return; }
     if (nombre) {
       // 1 cliente elegido.
       const norm = nombre.toLowerCase();
-      const matches = (backorderLines || []).filter(ln => (ln.clienteNombre || '').toLowerCase().trim() === norm);
+      const matches = (backorderLines || []).filter(ln => {
+        if ((ln.clienteNombre || '').toLowerCase().trim() !== norm) return false;
+        if (mesFiltro && String(ln.sqDocDate || '').substring(0, 7) !== mesFiltro) return false;
+        return true;
+      });
       if (!matches.length) {
-        alert('No hay backorder open para ese cliente. Verifica el nombre exacto (usa la lista de sugerencias).');
+        alert('No hay backorder open para ese cliente' + (mesFiltro ? ' en el mes ' + mesFiltro : '') + '. Verifica el nombre exacto (usa la lista de sugerencias).');
         return;
       }
       const cardCode = matches[0].clienteCode || '';
-      const wb = _buildStockAsigWorkbook(nombre, cardCode, '');
+      const arrBuf = await _buildStockAsigBufferConTemplate(nombre, cardCode, mesFiltro);
       const safe = nombre.replace(/[^A-Za-z0-9 ]+/g, '').trim().slice(0, 60);
-      XLSX.writeFile(wb, 'STOCK ASIG. ' + safe + '.xlsx');
+      const mesSuf = mesFiltro ? ' ' + mesFiltro : '';
+      const filename = 'STOCK ASIG. ' + safe + mesSuf + '.xlsx';
+      const blob = new Blob([arrBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 200);
       if (typeof showSyncTag === 'function') showSyncTag('Excel generado: ' + safe);
       closeExportStockAsigCliente();
     } else {
@@ -9985,29 +10011,27 @@ window.submitExportStockAsigCliente = async function(){
       if (typeof JSZip === 'undefined') { alert('La libreria JSZip no se cargo.'); return; }
       const clientes = new Map();
       (backorderLines || []).forEach(ln => {
+        if (mesFiltro && String(ln.sqDocDate || '').substring(0, 7) !== mesFiltro) return;
         const n = (ln.clienteNombre || '').trim();
         if (!n) return;
         if (!clientes.has(n)) clientes.set(n, ln.clienteCode || '');
       });
-      if (!clientes.size) { alert('No hay clientes con backorder open.'); return; }
+      if (!clientes.size) { alert('No hay clientes con backorder open' + (mesFiltro ? ' en el mes ' + mesFiltro : '') + '.'); return; }
       if (!confirm('Se van a generar ' + clientes.size + ' Excels (uno por cliente) en un ZIP. Puede tardar unos segundos. ¿Continuar?')) return;
       const zip = new JSZip();
       let i = 0;
       for (const [n, code] of clientes) {
-        const wb = _buildStockAsigWorkbook(n, code, '');
-        const xlsxBin = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+        const arrBuf = await _buildStockAsigBufferConTemplate(n, code, mesFiltro);
         const safe = n.replace(/[^A-Za-z0-9 ]+/g, '').trim().slice(0, 60);
-        zip.file('STOCK ASIG. ' + safe + '.xlsx', xlsxBin);
+        zip.file('STOCK ASIG. ' + safe + '.xlsx', arrBuf);
         i++;
       }
       const dateStr = new Date().toISOString().slice(0, 10);
+      const mesSuf = mesFiltro ? ' ' + mesFiltro : ' ' + dateStr;
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       const url = URL.createObjectURL(zipBlob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = 'STOCK ASIG. TODOS ' + dateStr + '.zip';
-      document.body.appendChild(a);
-      a.click();
+      a.href = url; a.download = 'STOCK ASIG. TODOS' + mesSuf + '.zip'; document.body.appendChild(a); a.click();
       setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 200);
       if (typeof showSyncTag === 'function') showSyncTag('ZIP generado: ' + i + ' clientes');
       closeExportStockAsigCliente();
@@ -10016,7 +10040,7 @@ window.submitExportStockAsigCliente = async function(){
     console.error('submitExportStockAsigCliente', e);
     alert('Error generando el Excel: ' + (e.message || e));
   } finally {
-    if (btn) btn.disabled = false;
+    if (btn) { btn.disabled = false; btn.textContent = 'Descargar Excel'; }
   }
 };
 
