@@ -1037,14 +1037,15 @@ def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
                                        db: firestore.Client,
                                        dry_run: bool = False) -> int:
     """v378+ (2026-08-02): para cada pedido de Firestore con transferidoSAP.docNum,
-    deriva el estado macro del flujo SAP (SQ open -> SO -> Invoice -> Cobrada)
+    deriva el estado macro del flujo SAP (SQ open -> SO -> DN -> Invoice -> Cobrada)
     y escribe `sapEstado` + `sapEstadoDetalles` + `sapEstadoUpdatedAt` de vuelta
     al doc de Firestore. El vendedor ve un badge en la card CONFIRMADOS con
     el estado actual sin tener que preguntarle al admin.
 
-    Estados:
+    Estados (v505 agrego REMITIDO, 2026-08-13):
       - OFERTA_VENTA       SQ abierta (bost_Open), sin SO copiada aun.
-      - ORDEN_VENTA        SO creada a partir de la SQ, sin factura aun.
+      - ORDEN_VENTA        SO creada a partir de la SQ, sin DN ni factura aun.
+      - REMITIDO           DeliveryNote creada, sin Invoice aun.
       - FACTURADO          Invoice creada, paid_to_date = 0.
       - COBRADO_PARCIAL    Invoice con 0 < paid_to_date < doc_total.
       - COBRADO_COMPLETO   Invoice con paid_to_date >= doc_total.
@@ -1088,6 +1089,19 @@ def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
         AND JSON_VALUE(ln, '$.BaseEntry') IS NOT NULL
         AND COALESCE(o.cancelled, 'tNO') = 'tNO'
     ),
+    -- v505: DeliveryNote -> SO (BaseType=17 en DN referencia la SO padre).
+    dn_to_so AS (
+      SELECT DISTINCT
+        d.doc_entry            AS dn_doc_entry,
+        d.doc_num              AS dn_doc_num,
+        d.document_status      AS dn_status,
+        SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry') AS INT64) AS so_doc_entry
+      FROM `app-vendedores-shimano.shimano_app.sap_deliveries_raw` d,
+           UNNEST(JSON_QUERY_ARRAY(d.lines_json)) ln
+      WHERE JSON_VALUE(ln, '$.BaseType') = '17'  -- SO padre
+        AND JSON_VALUE(ln, '$.BaseEntry') IS NOT NULL
+        AND COALESCE(d.cancelled, 'tNO') = 'tNO'
+    ),
     -- Para cada Invoice, extraer los BaseEntry (SO DocEntry) que factura.
     inv_to_so AS (
       SELECT DISTINCT
@@ -1103,8 +1117,8 @@ def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
         AND JSON_VALUE(ln, '$.BaseEntry') IS NOT NULL
         AND COALESCE(i.cancelled, 'tNO') = 'tNO'
     ),
-    -- Agregar por SQ: 1 fila por SQ, con la SO mas reciente + Invoice mas reciente.
-    -- Si la SQ genero N SOs (raro pero pasa), tomamos la de mayor doc_entry.
+    -- Agregar por SQ: 1 fila por SQ, con la SO mas reciente + DN mas
+    -- reciente + Invoice mas reciente. Si N SOs/DNs/Invoices, ANY_VALUE.
     sq_agg AS (
       SELECT
         sq.sq_doc_entry,
@@ -1112,18 +1126,20 @@ def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
         sq.sq_status,
         sq.sq_cancelled,
         sq.sq_doc_date,
-        -- Info de la SO copiada (si existe)
         ANY_VALUE(so.so_doc_entry) AS so_doc_entry,
         ANY_VALUE(so.so_doc_num)   AS so_doc_num,
         ANY_VALUE(so.so_status)    AS so_status,
-        -- Info de la Invoice (si existe)
-        ANY_VALUE(inv.inv_doc_entry)   AS inv_doc_entry,
-        ANY_VALUE(inv.inv_doc_num)     AS inv_doc_num,
-        ANY_VALUE(inv.inv_doc_total)   AS inv_doc_total,
+        ANY_VALUE(dn.dn_doc_entry) AS dn_doc_entry,
+        ANY_VALUE(dn.dn_doc_num)   AS dn_doc_num,
+        ANY_VALUE(dn.dn_status)    AS dn_status,
+        ANY_VALUE(inv.inv_doc_entry)    AS inv_doc_entry,
+        ANY_VALUE(inv.inv_doc_num)      AS inv_doc_num,
+        ANY_VALUE(inv.inv_doc_total)    AS inv_doc_total,
         ANY_VALUE(inv.inv_paid_to_date) AS inv_paid_to_date,
-        ANY_VALUE(inv.inv_status)      AS inv_status
+        ANY_VALUE(inv.inv_status)       AS inv_status
       FROM sq_base sq
-      LEFT JOIN so_to_sq so ON so.sq_doc_entry = sq.sq_doc_entry
+      LEFT JOIN so_to_sq so  ON so.sq_doc_entry  = sq.sq_doc_entry
+      LEFT JOIN dn_to_so dn  ON dn.so_doc_entry  = so.so_doc_entry
       LEFT JOIN inv_to_so inv ON inv.so_doc_entry = so.so_doc_entry
       GROUP BY sq.sq_doc_entry, sq.sq_doc_num, sq.sq_status, sq.sq_cancelled, sq.sq_doc_date
     )
@@ -1135,6 +1151,9 @@ def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
       so_doc_entry,
       so_doc_num,
       so_status,
+      dn_doc_entry,
+      dn_doc_num,
+      dn_status,
       inv_doc_entry,
       inv_doc_num,
       inv_doc_total,
@@ -1150,6 +1169,8 @@ def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
           THEN 'COBRADO_PARCIAL'
         WHEN inv_doc_entry IS NOT NULL
           THEN 'FACTURADO'
+        WHEN dn_doc_entry IS NOT NULL
+          THEN 'REMITIDO'
         WHEN so_doc_entry IS NOT NULL
           THEN 'ORDEN_VENTA'
         WHEN sq_cancelled = 'tYES' OR sq_status = 'bost_Close'
@@ -1178,6 +1199,10 @@ def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
             'soDocEntry': int(d['so_doc_entry']) if d['so_doc_entry'] is not None else None,
             'soDocNum': int(d['so_doc_num']) if d['so_doc_num'] is not None else None,
             'soStatus': d['so_status'],
+            # v505: Delivery Note (REMITIDO)
+            'dnDocEntry': int(d['dn_doc_entry']) if d.get('dn_doc_entry') is not None else None,
+            'dnDocNum': int(d['dn_doc_num']) if d.get('dn_doc_num') is not None else None,
+            'dnStatus': d.get('dn_status'),
             'invoiceDocEntry': int(d['inv_doc_entry']) if d['inv_doc_entry'] is not None else None,
             'invoiceDocNum': int(d['inv_doc_num']) if d['inv_doc_num'] is not None else None,
             'invoiceTotal': float(d['inv_doc_total']) if d['inv_doc_total'] is not None else None,
