@@ -2384,13 +2384,14 @@ clasificado AS (
     assigned_vendor
   FROM base
 ),
--- v2: normalizar localidad + provincia para JOIN con geo_localidad_departamento.
+-- v2/v513: normalizar localidad + provincia para JOIN con geo_localidad_departamento.
 -- MISMA transformacion que scripts/build_geo_localidad_departamento.py:
 --   1. UPPER + strip accents (NFD + \p{Mn})
---   2. drop puntos ("."   -> " ")
+--   2. drop puntos, parentesis, guiones (-> espacio)
 --   3. colapsar espacios
---   4. expandir abreviaturas: \bGRAL\b -> GENERAL, \bCNEL\b -> CORONEL
--- Sin este pipeline "Gral. Rodriguez" nunca matcheara con "GENERAL RODRIGUEZ".
+--   4. expandir abreviaturas: GRAL/CNEL/CMTE/GDOR/PTO/CD/CAP
+-- Sin este pipeline "SAN FRANCISCO SOLANO (QUILMES)" o "Cmte. Piedrabuena"
+-- nunca matchean con la tabla alias.
 con_geo AS (
   SELECT
     c.card_code, c.card_name, c.tipo,
@@ -2399,20 +2400,38 @@ con_geo AS (
       REGEXP_REPLACE(NORMALIZE(UPPER(c.provincia), NFD), r'\p{Mn}', ''),
       r'\s+', ' '
     )                                                                    AS provincia_norm,
-    -- Localidad: strip accents, drop dots, colapsar espacios, expandir GRAL/CNEL.
-    TRIM(REGEXP_REPLACE(
+    -- Localidad: strip accents + drop puntos/parentesis/guiones + colapsar
+    -- espacios + expandir GRAL/CNEL/CMTE/GDOR/PTO/CD/CAP.
+    TRIM(
       REGEXP_REPLACE(
         REGEXP_REPLACE(
           REGEXP_REPLACE(
-            REPLACE(NORMALIZE(UPPER(c.localidad), NFD), '.', ' '),
-            r'\p{Mn}', ''
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(
+                REGEXP_REPLACE(
+                  REGEXP_REPLACE(
+                    REGEXP_REPLACE(
+                      REGEXP_REPLACE(
+                        REGEXP_REPLACE(NORMALIZE(UPPER(c.localidad), NFD), r'[.()\-]', ' '),
+                        r'\p{Mn}', ''
+                      ),
+                      r'\s+', ' '
+                    ),
+                    r'\bGRAL\b', 'GENERAL'
+                  ),
+                  r'\bCNEL\b', 'CORONEL'
+                ),
+                r'\bCMTE\b', 'COMANDANTE'
+              ),
+              r'\bGDOR\b', 'GOBERNADOR'
+            ),
+            r'\bPTO\b', 'PUERTO'
           ),
-          r'\s+', ' '
+          r'\bCD\b', 'CIUDAD'
         ),
-        r'\bGRAL\b', 'GENERAL'
-      ),
-      r'\bCNEL\b', 'CORONEL'
-    ))                                                                   AS localidad_norm
+        r'\bCAP\b', 'CAPITAN'
+      )
+    )                                                                   AS localidad_norm
   FROM clasificado c
   WHERE c.tipo IN ('CLIENTE_SAP', 'LEAD')
 ),
