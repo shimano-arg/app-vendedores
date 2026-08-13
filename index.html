@@ -3886,6 +3886,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
       </div>
       <div style="display:flex;gap:10px;justify-content:center;align-items:center;margin-top:20px;flex-wrap:wrap">
         <button class="stock-action-btn cancel" onclick="closeWaitlistCardModal()">Cerrar</button>
+        <button class="stock-action-btn publish" id="wcard-edit-orden-btn" onclick="waitlistEditOrden()" style="background:#0f172a;color:#fff">Editar orden</button>
         <button class="stock-action-btn publish" id="wcard-export-btn" onclick="waitlistExportToExcel()" style="background:#0f766e;color:#fff">Descargar como Excel</button>
         <button class="stock-action-btn cancel" id="wcard-delete-btn" onclick="waitlistDeleteCurrent()" style="background:#dc2626;color:#fff;display:none">Borrar de espera</button>
         <button class="stock-action-btn publish" id="wcard-pass-btn" onclick="waitlistPasarAPendientes()" style="background:#1e40af;color:#fff">Pasar a Pendientes</button>
@@ -4011,7 +4012,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v499';
+const APP_VERSION = 'v500';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12055,6 +12056,12 @@ function _renderWaitlistCard(){
     userRole === 'admin' || userRole === 'gerente'
   ));
   document.getElementById('wcard-delete-btn').style.display = canDelete ? '' : 'none';
+  // v500: mismo criterio de permiso para editar orden.
+  const editOrdenBtn = document.getElementById('wcard-edit-orden-btn');
+  if (editOrdenBtn) {
+    editOrdenBtn.style.display = canDelete ? '' : 'none';
+    editOrdenBtn.textContent = w.orderNumber ? ('Editar orden (' + w.orderNumber + ')') : 'Asignar orden';
+  }
 }
 
 // v492: exportar el pedido en espera actual a un XLSX con metadata +
@@ -12173,6 +12180,41 @@ window.waitlistExportToExcel = function(){
   } catch(e) {
     console.error('waitlistExportToExcel', e);
     alert('Error al generar el Excel: ' + (e.message || e));
+  }
+};
+
+// v500 (2026-08-13): editar el numero de orden de un pedido en espera
+// existente. Prompt simple porque es un input trivial. Permisos: owner
+// del doc o admin/gerente.
+window.waitlistEditOrden = async function(){
+  const w = _wcardCurrent;
+  if (!w || !w._id) return;
+  const canEdit = (currentUser && (
+    w.ownerUid === currentUser.uid ||
+    userRole === 'admin' || userRole === 'gerente'
+  ));
+  if (!canEdit) { alert('Solo el dueño o admin/gerente puede editar la orden.'); return; }
+  const current = w.orderNumber || '';
+  const nuevo = prompt(
+    'Numero de orden para el pedido de "' + w.clientName + '":\n\n' +
+    (current ? '(Actual: ' + current + ')' : '(Sin orden asignada aun)') +
+    '\n\nDejar vacio y OK para quitarlo.',
+    current
+  );
+  if (nuevo === null) return; // cancelado
+  const nuevoNorm = String(nuevo || '').trim().toUpperCase();
+  if (nuevoNorm === (current || '').toUpperCase()) return; // sin cambios
+  try {
+    await fbDb.collection('revision_waitlist').doc(w._id).update({
+      orderNumber: nuevoNorm,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    showSyncTag(nuevoNorm ? ('Orden actualizada: ' + nuevoNorm) : 'Orden quitada');
+    // El listener onSnapshot va a re-renderear el card automaticamente
+    // (via _wcardCurrent = updated en ensureRevisionWaitlistListener).
+  } catch(e) {
+    console.error('waitlistEditOrden', e);
+    alert('Error guardando: ' + (e.message || e));
   }
 };
 
