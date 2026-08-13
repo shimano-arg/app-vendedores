@@ -4038,7 +4038,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v506';
+const APP_VERSION = 'v507';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12747,49 +12747,24 @@ window.waitlistAddProduct = async function(sku){
   }
 };
 
-// Pasar a Pendientes: recalcula, alerta con excedentes, ajusta cantidades a lo
-// disponible, y reutiliza el flujo confirmExcelPedido -> openReviewDialog.
-// Post-exito, borra el doc de revision_waitlist.
+// Pasar a Pendientes: pasa las qty EXACTAS del pedido (sin ajustar) al
+// flujo confirmExcelPedido -> openReviewDialog. El SKU excedente aparece
+// como backorder en la revision (columna Backorder Unidades) y termina
+// como backorder en SAP tambien. Post-exito, borra el doc de
+// revision_waitlist.
 window.waitlistPasarAPendientes = async function(){
   const w = _wcardCurrent;
   if (!w) return;
-  // v464: el ajuste se hace contra Disponible SAP (snapshot real), no
-  // contra Disponible app. FIFO real: quien confirma primero se lleva el
-  // stock segun lo que SAP dice AHORA. El Disponible app se sigue mostrando
-  // en la card como advertencia visual (rojo si negativo, columna "-N pend.
-  // app"), pero no bloquea el paso. Rationale Mariano: si otro pending app
-  // "gana la carrera" y ya se sincronizo a backorder SAP, ese cambio se
-  // refleja en Disponible SAP. El que llegue tarde vera el ajuste real.
-  const ajustes = [];
-  const finalItems = (w.items || []).map(it => {
-    const stk = _revisionStockFor(it.code);
-    const disp = stk.hasData ? Math.max((stk.stockTotal || 0) - (stk.backorder || 0), 0) : null;
-    let qtyFinal = it.qty;
-    if (stk.hasData && it.qty > disp) {
-      qtyFinal = disp;
-      ajustes.push({code: it.code, desc: it.desc, pedido: it.qty, disponible: disp, primero: it.firstDisponible});
-    }
-    return {code: it.code, desc: it.desc, qty: qtyFinal, precioExcel: null, needsReview: false};
-  }).filter(it => it.qty > 0); // sacar los que quedan en 0
+  // v507 (2026-08-13): respetar EXACTO las qty del pedido. Antes ajustabamos
+  // al Disponible SAP (v464), pero el user quiere que las qty pasen tal cual
+  // - lo excedente queda como backorder en SAP. La info visual de excedente
+  // ya se ve en la columna Backorder Unidades del card modal antes de pasar.
+  const finalItems = (w.items || [])
+    .map(it => ({code: it.code, desc: it.desc, qty: it.qty || 0, precioExcel: null, needsReview: false}))
+    .filter(it => it.qty > 0);
   if (!finalItems.length) {
-    alert('No hay ninguna linea con cantidad disponible. Todos los SKUs pedidos superan el stock.');
+    alert('No hay ninguna linea con qty > 0 en el pedido. Agrega o corrige unidades antes de pasar a Pendientes.');
     return;
-  }
-  // Alerta si hubo ajustes.
-  if (ajustes.length) {
-    const lines = ajustes.slice(0, 8).map(a => {
-      let s = '  · ' + a.code + ': pedido ' + a.pedido + ' → ajustado a ' + a.disponible;
-      if (a.primero != null && a.primero > a.disponible) s += ' (primer revision: ' + a.primero + ')';
-      return s;
-    }).join('\n');
-    const mas = ajustes.length > 8 ? '\n  ... y ' + (ajustes.length - 8) + ' mas' : '';
-    if (!confirm(
-      'Se ajustaron ' + ajustes.length + ' SKU(s) al Disponible SAP actual.\n' +
-      '(Disponible SAP = Stock total - Backorder SAP. NO restamos otros\n' +
-      'pedidos en espera - el que confirma primero se lleva el stock.)\n\n' +
-      lines + mas + '\n\n' +
-      '¿Continuar con las cantidades ajustadas?'
-    )) return;
   }
   // v461: usar orderKey() en vez de armar el string a mano. El resto de la
   // app genera keys con formato 'C|prov|loc|nombre' (tipo='C' cliente,
