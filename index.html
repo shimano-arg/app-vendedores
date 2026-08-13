@@ -3611,10 +3611,9 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
               <option value="">Todos los meses</option>
             </select>
             <!-- v420 (2026-08-06): select con 3 opciones (reemplaza el checkbox v419).
-                 Default es dinamico segun `backordersMode`:
-                 - mode='urgente' (Backorder Pendiente) -> "sin" (sin stock en whs 11 ni 12)
-                 - mode='asignacion' (Backorder Disponible) -> "con" (con stock en whs 11 o 12)
-                 - "todos" siempre disponible como override -->
+                 v523 (2026-08-13): oculto en mode='asignacion' porque el modal
+                 SAP Asignado - Con Stock por definicion muestra solo con stock.
+                 El otro filtro sigue disponible via el modal Backorder. -->
             <select id="backorders-stock-filter" onchange="onBackordersStockFilterChange()" title="Filtrar por stock disponible" style="flex:1 1 260px;min-width:200px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff;font-weight:700">
               <option value="sin">Sin stock (para importar)</option>
               <option value="con">Con stock (para asignar)</option>
@@ -3622,8 +3621,8 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
             </select>
           </div>
           <div style="text-align:center;flex-shrink:0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-            <button onclick="exportBackordersToExcel()" style="padding:9px 18px;border:1.5px solid #c2410c;border-radius:6px;background:#c2410c;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128190; Exportar lista plana</button>
-            <button id="btn-export-stock-asig-cliente" onclick="openExportStockAsigCliente()" style="padding:9px 18px;border:1.5px solid #166534;border-radius:6px;background:#166534;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128203; Template por cliente</button>
+            <button id="btn-export-lista-plana" onclick="exportBackordersToExcel()" style="padding:9px 18px;border:1.5px solid #c2410c;border-radius:6px;background:#c2410c;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128190; Exportar todo</button>
+            <button id="btn-export-stock-asig-cliente" onclick="openExportStockAsigCliente()" style="padding:9px 18px;border:1.5px solid #166534;border-radius:6px;background:#166534;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128203; Exportar Stock Asignado</button>
           </div>
           <div id="backorders-summary" style="padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#78350f;flex-shrink:0"></div>
           <div id="backorders-list" style="flex:1;overflow-y:auto"></div>
@@ -4106,7 +4105,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v522';
+const APP_VERSION = 'v523';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -9697,7 +9696,11 @@ function _applyBackordersMode(mode){
     if (subt) subt.textContent = 'SKUs con demanda pendiente que no podemos cubrir - urgentes de importar. Datos SAP cada 30 min. Solo pesca.';
   }
   if (sel) sel.value = backordersStockFilter;
-  // v509: boton "Template por cliente" visible solo en modo asignacion.
+  // v523: en mode='asignacion' el select de filtro por stock queda oculto
+  // (el modal SAP Asignado - Con Stock por definicion muestra solo con
+  // stock; el filtro sin stock esta en el modal Backorder aparte).
+  if (sel) sel.style.display = (mode === 'asignacion') ? 'none' : '';
+  // v509: boton "Exportar Stock Asignado" visible solo en modo asignacion.
   const tplBtn = document.getElementById('btn-export-stock-asig-cliente');
   if (tplBtn) tplBtn.style.display = (mode === 'asignacion') ? '' : 'none';
 }
