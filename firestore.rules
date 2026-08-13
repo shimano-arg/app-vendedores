@@ -275,12 +275,16 @@ service cloud.firestore {
     // whitelist (Mariano/Ioannis/Santi/Pablo = admin/gerente/interno).
     // Read: cualquier reader (los 4 son admin/gerente/interno, todos readers).
     // Create: cualquier reader con ownerUid = auth.uid.
-    // Update/Delete: owner o admin/gerente.
+    // v514 (2026-08-13): Update/Delete abierto a cualquier reader (antes
+    // solo owner o admin/gerente). Motivo: los VDIs (Santi/Ioannis) cargan
+    // pedidos en nombre de los VDEs (Federico/Gonzalo/...) via Revision
+    // Excel; cuando el VDE editaba qty o cambiaba orden desde su sesion,
+    // Firestore bloqueaba porque el ownerUid era del VDI. La lista de
+    // espera es colaborativa por naturaleza -> cualquier reader edita.
     match /revision_waitlist/{docId} {
       allow read: if isReader();
       allow create: if isReader() && request.resource.data.ownerUid == request.auth.uid;
-      allow update, delete: if isAdminOrGerente()
-        || (request.auth != null && resource.data.ownerUid == request.auth.uid);
+      allow update, delete: if isReader();
     }
   }
 }
