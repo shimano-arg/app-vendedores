@@ -4072,7 +4072,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v516';
+const APP_VERSION = 'v517';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11084,13 +11084,14 @@ window.closeExcelPedidoModal = function(){
 // ==========================================================================
 var _revisionParsed = null;
 function _revisionCanUse(){
+  // v517 (2026-08-13): abrimos a TODOS los users @shimano.com.ar y
+  // @shimano.uy (VDIs, VDEs, admin, gerente, regional UY). Antes solo
+  // whitelist Mariano/Ioannis/Santi/Pablo -> los VDEs (Federico/Gonzalo/
+  // Mauricio/Martin) veian el modal viejo "Cargar pedido por Excel" al
+  // hacer doble-click en cliente y no podian abrir la lista de espera.
   const em = ((currentUser && (currentUser.email || '')) || '').toLowerCase();
-  return document.body.classList.contains('can-revision') && em && (
-    em === 'mariano.erbino@shimano.com.ar' ||
-    em === 'ioannis.plakoudakis@shimano.com.ar' ||
-    em === 'santiago.esteban@shimano.com.ar' ||
-    em === 'pablo.gonzalez@shimano.com.ar'
-  );
+  if (!em) return false;
+  return em.endsWith('@shimano.com.ar') || em.endsWith('@shimano.uy');
 }
 window.openRevisionModal = function(preselectClient){
   if (!_revisionCanUse()) { alert('No tenes permisos para usar Revision Excel.'); return; }
@@ -15739,13 +15740,11 @@ function applyRolePermissions(){
   // VDEs pareja), Pablo (gerente comercial). Puede ampliarse agregando emails
   // al set. Runtime guard replicado en openRevisionModal por si alguien
   // bypasea el CSS via devtools.
-  const REVISION_WHITELIST = new Set([
-    'mariano.erbino@shimano.com.ar',
-    'ioannis.plakoudakis@shimano.com.ar',
-    'santiago.esteban@shimano.com.ar',
-    'pablo.gonzalez@shimano.com.ar',
-  ]);
-  document.body.classList.toggle('can-revision', REVISION_WHITELIST.has(_em));
+  // v517 (2026-08-13): can-revision para TODOS los users @shimano.
+  // Antes whitelist de 4 (Mariano/Ioannis/Santi/Pablo). Ahora cualquier
+  // email @shimano.com.ar o @shimano.uy activa la clase.
+  const _canRevision = !!_em && (_em.endsWith('@shimano.com.ar') || _em.endsWith('@shimano.uy'));
+  document.body.classList.toggle('can-revision', _canRevision);
   // v516 (2026-08-13): TODOS los users arrancan el listener + ven el
   // listado inline del sidebar-left. Antes solo el whitelist Revision.
   try {
