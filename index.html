@@ -2699,14 +2699,14 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
             <div class="vf-toggle" id="vf-pop"><button type="button" data-v="SI" onclick="setPop('SI')">S&iacute;</button><button type="button" data-v="NO" onclick="setPop('NO')">No</button></div>
           </div>
           <div class="vf-row" id="vf-necesidad-wrap" style="display:none"><label>Necesidad puntual <span class="req">*</span></label><select id="vf-necesidad"><option value="">Seleccionar...</option><option>CA&Ntilde;ERO</option><option>CARTEL</option><option value="MOSTRADO">MOSTRADOR</option><option>OTROS</option></select></div>
-          <div class="vf-row" id="vf-espacio-row"><label>Espacio <span class="vf-hint">(hasta 8 fotos)</span></label>
+          <div class="vf-row" id="vf-espacio-row"><label>Espacio <span class="vf-hint">(opcional &mdash; podés cargar las fotos ahora o después desde tu casa)</span></label>
             <div class="photo-grid" id="vf-espacio-grid"><label class="photo-cell add" id="vf-espacio-add"><input type="file" accept="image/*,image/heic,image/heif" multiple onchange="onEspacioPhotos(this)"/>+</label></div>
           </div>
           <div class="vf-row"><label>Oportunidad <span class="vf-hint">(algo que el due&ntilde;o mencion&oacute; para mejorar)</span></label><textarea id="vf-oportunidad" rows="2"></textarea></div>
           <div class="vf-row"><label>Lo m&aacute;s vendido Shimano</label><textarea id="vf-masvendido" rows="2"></textarea></div>
           <div class="vf-row"><label>Lo que m&aacute;s preguntan de Shimano <span class="vf-hint">(nuevos lanzamientos, l&iacute;neas espec&iacute;ficas, etc.)</span></label><textarea id="vf-maspreguntan" rows="2"></textarea></div>
           <div class="vf-row"><label>Ayuda a tienda <span class="vf-hint">(qu&eacute; necesita el due&ntilde;o de nosotros)</span></label><textarea id="vf-ayuda" rows="2"></textarea></div>
-          <div class="vf-row" id="vf-frente-row"><label><span id="vf-frente-label">Frente del local</span> <span class="vf-hint" id="vf-frente-hint">(opcional - 1 foto)</span></label>
+          <div class="vf-row" id="vf-frente-row"><label><span id="vf-frente-label">Frente del local</span> <span class="vf-hint" id="vf-frente-hint">(opcional &mdash; podés cargar la foto ahora o después desde tu casa)</span></label>
             <div class="photo-grid" id="vf-frente-grid"><label class="photo-cell add"><input type="file" accept="image/*,image/heic,image/heif" onchange="onFrentePhoto(this)"/>+</label></div>
           </div>
           <div class="vf-row" id="vf-tipoventa-row"><label>Tipo de venta <span class="req">*</span></label><select id="vf-tipoventa" required onchange="onTipoVentaChange()"><option value="">Seleccionar...</option><option value="MOSTRADO">MOSTRADOR</option><option value="ECOMMERCE">ECOMMERCE</option><option value="AMBOS">AMBOS</option></select></div>
@@ -3868,6 +3868,33 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   </div>
 </div>
 
+<!-- v497 (2026-08-12): modal para cargar/actualizar fotos de una visita
+     ya existente. Uso: cargar la visita rapido en el local (solo con GPS,
+     sin fotos) y desde casa subir las fotos con calma. -->
+<div class="modal-overlay" id="visit-add-photos-modal" onclick="if(event.target===this)closeVisitAddPhotos()">
+  <div class="modal-box" style="width:min(560px,98vw)">
+    <div class="modal-head" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">
+      <div><h2>&#128247; Cargar fotos a la visita</h2><div class="subt" id="vap-subt">Elegí las fotos y guardá para adjuntarlas a esta visita ya registrada.</div></div>
+      <button class="modal-close" onclick="closeVisitAddPhotos()">&times;</button>
+    </div>
+    <div style="padding:14px 18px;max-height:60vh;overflow-y:auto">
+      <div class="vf-row"><label>Frente del local <span class="vf-hint">(opcional &mdash; 1 foto)</span></label>
+        <div class="photo-grid" id="vap-frente-grid"></div>
+      </div>
+      <div class="vf-row"><label>Espacio <span class="vf-hint">(opcional &mdash; hasta 8 fotos)</span></label>
+        <div class="photo-grid" id="vap-espacio-grid"></div>
+      </div>
+      <div id="vap-status" style="margin-top:10px;font-size:11px;color:#64748b"></div>
+    </div>
+    <div class="modal-footer">
+      <span style="color:#475569;font-size:11px">Las fotos se comprimen antes de subir</span>
+      <div style="display:flex;gap:8px">
+        <button class="btn-cancel" onclick="closeVisitAddPhotos()">Cancelar</button>
+        <button class="btn-confirm" id="vap-submit-btn" style="background:#7c3aed" onclick="submitVisitAddPhotos()">Guardar fotos</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay sec-modal" id="cv-modal" onclick="if(event.target===this)closeCVisita()">
   <div class="modal-box" style="width:min(540px,98vw)">
     <div class="modal-head" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">
@@ -3958,7 +3985,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v496';
+const APP_VERSION = 'v497';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11119,6 +11146,196 @@ function _renderWaitlistSidebar(){
   });
 }
 window._renderWaitlistSidebar = _renderWaitlistSidebar;
+
+// ============================================================
+// v497 (2026-08-12): Cargar fotos a una visita ya existente.
+// Permite al vendedor cargar la visita rapido en el local (solo GPS, sin
+// fotos) y despues desde casa subir las fotos con calma. Botones en cada
+// visit-card del listado de visitas.
+// ============================================================
+var _vapCurrentVisitId = null;
+var _vapState = { frentePhoto: null, espacioPhotos: [] };
+window.openVisitAddPhotos = function(visitId){
+  const list = (typeof visitsCache !== 'undefined' && Array.isArray(visitsCache)) ? visitsCache : [];
+  const v = list.find(x => x.id === visitId);
+  if (!v) { alert('Visita no encontrada.'); return; }
+  // Permisos: solo owner o admin/gerente pueden editar fotos.
+  const _isOwner = (typeof currentUser !== 'undefined' && currentUser && v.ownerUid === currentUser.uid);
+  const _isAdm = (typeof userRole !== 'undefined' && (userRole === 'admin' || userRole === 'gerente'));
+  if (!_isOwner && !_isAdm) { alert('Solo el dueño de la visita puede cargar fotos.'); return; }
+  _vapCurrentVisitId = visitId;
+  _vapState = {
+    frentePhoto: v.frenteLocal || null,
+    espacioPhotos: Array.isArray(v.espacio) ? [...v.espacio] : [],
+  };
+  document.getElementById('vap-subt').textContent =
+    'Tienda: ' + (v.tienda || '?') + ' · ' + (v.localidad || '') + ' / ' + (v.provincia || '');
+  document.getElementById('vap-status').textContent = '';
+  _vapRenderGrids();
+  document.getElementById('visit-add-photos-modal').classList.add('open');
+};
+window.closeVisitAddPhotos = function(){
+  document.getElementById('visit-add-photos-modal').classList.remove('open');
+  _vapCurrentVisitId = null;
+  _vapState = { frentePhoto: null, espacioPhotos: [] };
+};
+function _vapRenderGrids(){
+  const gFrente = document.getElementById('vap-frente-grid');
+  const gEsp = document.getElementById('vap-espacio-grid');
+  if (!gFrente || !gEsp) return;
+  // Frente: 1 foto max.
+  if (_vapState.frentePhoto) {
+    gFrente.innerHTML =
+      '<div class="photo-cell"><img src="' + _vapState.frentePhoto + '" alt=""/>' +
+      '<button type="button" class="rm" onclick="vapRemoveFrente()">&times;</button></div>';
+  } else {
+    gFrente.innerHTML =
+      '<label class="photo-cell add"><input type="file" accept="image/*,image/heic,image/heif" onchange="vapOnFrentePhoto(this)"/>+</label>';
+  }
+  // Espacio: hasta 8.
+  const cells = _vapState.espacioPhotos.map((p, i) =>
+    '<div class="photo-cell"><img src="' + p + '" alt=""/>' +
+    '<button type="button" class="rm" onclick="vapRemoveEspacio(' + i + ')">&times;</button></div>'
+  ).join('');
+  const addBtn = _vapState.espacioPhotos.length < 8
+    ? '<label class="photo-cell add"><input type="file" accept="image/*,image/heic,image/heif" multiple onchange="vapOnEspacioPhotos(this)"/>+</label>'
+    : '';
+  gEsp.innerHTML = cells + addBtn;
+}
+window.vapOnFrentePhoto = async function(inp){
+  const f = inp.files && inp.files[0];
+  if (!f) return;
+  try {
+    _vapState.frentePhoto = await window.compressImage(f, 700, 0.6);
+    _vapRenderGrids();
+  } catch(e) {
+    console.error('vapOnFrentePhoto', e);
+    alert('No se pudo procesar la foto: ' + (e.message || e));
+  }
+};
+window.vapRemoveFrente = function(){
+  _vapState.frentePhoto = null;
+  _vapRenderGrids();
+};
+window.vapOnEspacioPhotos = async function(inp){
+  const files = Array.from(inp.files || []);
+  for (const f of files) {
+    if (_vapState.espacioPhotos.length >= 8) {
+      alert('Maximo 8 fotos de espacio. Borra alguna con la X para agregar mas.');
+      break;
+    }
+    try {
+      const b64 = await window.compressImage(f, 500, 0.5);
+      _vapState.espacioPhotos.push(b64);
+    } catch(e) {
+      console.error('vapOnEspacioPhotos', e);
+    }
+  }
+  _vapRenderGrids();
+};
+window.vapRemoveEspacio = function(idx){
+  _vapState.espacioPhotos.splice(idx, 1);
+  _vapRenderGrids();
+};
+window.submitVisitAddPhotos = async function(){
+  const docId = _vapCurrentVisitId;
+  if (!docId) { alert('Sesion invalida.'); return; }
+  const payload = {
+    frenteLocal: _vapState.frentePhoto || '',
+    espacio: _vapState.espacioPhotos || [],
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    photosUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  // Guard: chequear que no exceda el limite de 1 MB por doc de Firestore.
+  try {
+    // Cargar el doc actual para estimar el tamaño total.
+    const cur = (typeof visitsCache !== 'undefined' && Array.isArray(visitsCache))
+      ? visitsCache.find(x => x.id === docId) : null;
+    const merged = Object.assign({}, cur || {}, payload, { updatedAt: null, photosUpdatedAt: null });
+    const size = new Blob([JSON.stringify(merged)]).size;
+    if (size > 950 * 1024) {
+      const mb = (size / 1024 / 1024).toFixed(2);
+      alert('Las fotos hacen que la visita pese ' + mb + ' MB. Firestore permite maximo 1 MB por doc.\n\nBorrá alguna foto con la X y volvé a intentar.');
+      return;
+    }
+  } catch(e) { console.warn('size guard vap', e); }
+  const btn = document.getElementById('vap-submit-btn');
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Guardando...';
+  document.getElementById('vap-status').textContent = 'Subiendo fotos...';
+  try {
+    await fbDb.collection('visits').doc(docId).update(payload);
+    if (typeof showSyncTag === 'function') showSyncTag('Fotos actualizadas');
+    closeVisitAddPhotos();
+  } catch(e) {
+    console.error('submitVisitAddPhotos', e);
+    alert('Error guardando: ' + (e.message || e));
+    document.getElementById('vap-status').textContent = 'Error: ' + (e.message || e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+};
+
+// Wrapper de renderVisitasList: despues del render original inyecta un
+// boton "Agregar fotos" en cada .visit-card del owner (solo visitas
+// presenciales - los contactos no tienen fotos).
+(function _wrapRenderVisitasList(){
+  const _tryWrap = () => {
+    if (typeof window.renderVisitasList !== 'function' || window.renderVisitasList._vapWrapped) return false;
+    const _orig = window.renderVisitasList;
+    window.renderVisitasList = function(){
+      const r = _orig.apply(this, arguments);
+      try { _augmentVisitCards(); } catch(e) { console.warn('_augmentVisitCards', e); }
+      return r;
+    };
+    window.renderVisitasList._vapWrapped = true;
+    return true;
+  };
+  if (!_tryWrap()) {
+    // renderVisitasList vive en el bundle - puede no estar listo al parse
+    // del inline script. Reintentamos post-load.
+    const _int = setInterval(() => { if (_tryWrap()) clearInterval(_int); }, 200);
+    setTimeout(() => clearInterval(_int), 10000);
+  }
+})();
+function _augmentVisitCards(){
+  const list = document.getElementById('visitas-list');
+  if (!list) return;
+  const cache = (typeof visitsCache !== 'undefined' && Array.isArray(visitsCache)) ? visitsCache : [];
+  const cards = list.querySelectorAll('.visit-card');
+  cards.forEach(card => {
+    if (card._vapAugmented) return;
+    // Extraer visitId del onclick="viewVisit('ID')".
+    const oc = card.getAttribute('onclick') || '';
+    const m = oc.split("viewVisit('");
+    if (m.length < 2) return;
+    const visitId = m[1].split("'")[0];
+    if (!visitId) return;
+    const v = cache.find(x => x.id === visitId);
+    if (!v) return;
+    // Solo mostrar el boton en visitas presenciales (no contactos) del owner
+    // o si es admin/gerente.
+    if (v.interactionType === 'contacto') return;
+    const _isOwner = (typeof currentUser !== 'undefined' && currentUser && v.ownerUid === currentUser.uid);
+    const _isAdm = (typeof userRole !== 'undefined' && (userRole === 'admin' || userRole === 'gerente'));
+    if (!_isOwner && !_isAdm) return;
+    const actionsWrap = card.querySelector('.vc-date');
+    if (!actionsWrap) return;
+    // Chequeo idempotente: no duplicar boton.
+    if (actionsWrap.querySelector('.vap-add-btn')) { card._vapAugmented = true; return; }
+    const btn = document.createElement('button');
+    btn.className = 'vap-add-btn';
+    const hasFotos = (v.frenteLocal || (Array.isArray(v.espacio) && v.espacio.length));
+    btn.textContent = hasFotos ? '📷 Editar fotos' : '📷 Agregar fotos';
+    btn.title = 'Cargar / actualizar las fotos de esta visita';
+    btn.style.cssText = 'background:#7c3aed;color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;order:-1';
+    btn.onclick = (ev) => { ev.stopPropagation(); openVisitAddPhotos(visitId); };
+    actionsWrap.appendChild(btn);
+    card._vapAugmented = true;
+  });
+}
 
 // Poblar datalist de clientes al abrir modal Revision (una sola vez).
 window.revisionOnClienteInput = function(){
