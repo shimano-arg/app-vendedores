@@ -4038,7 +4038,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v504';
+const APP_VERSION = 'v505';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11416,7 +11416,7 @@ function _renderEstadoPedidos(content, arr, tipo){
       }
     };
     const row1 = document.createElement('div');
-    row1.style.cssText = 'display:flex;align-items:center;gap:8px;font-weight:800;color:#0f172a;font-size:12.5px;margin-bottom:2px';
+    row1.style.cssText = 'display:flex;align-items:center;gap:8px;font-weight:800;color:#0f172a;font-size:12.5px;margin-bottom:2px;flex-wrap:wrap';
     const name = document.createElement('span');
     name.style.cssText = 'flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
     name.textContent = p.clientName || 'sin cliente';
@@ -11426,6 +11426,10 @@ function _renderEstadoPedidos(content, arr, tipo){
       chip.style.cssText = 'background:#10b981;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.4px;flex-shrink:0';
       chip.textContent = 'SAP #' + p.transferidoSAP.docNum;
       row1.appendChild(chip);
+      // v505: badge del estado macro SAP (OFERTA / ORDEN / REMITIDO /
+      // FACTURADO / COBRADO). Se popula via sync cada 30 min.
+      const estadoChip = _sapEstadoBadge(p.sapEstado, p.sapEstadoDetalles);
+      if (estadoChip) row1.appendChild(estadoChip);
     }
     card.appendChild(row1);
     const row2 = document.createElement('div');
@@ -11441,6 +11445,44 @@ function _renderEstadoPedidos(content, arr, tipo){
     content.appendChild(card);
   });
 }
+// v505 (2026-08-13): badge del estado SAP macro (sapEstado). El sync
+// sync_pedido_estados_to_firestore corre cada 30 min y setea `sapEstado`
+// en cada doc de pedidos. Estados posibles: OFERTA_VENTA / ORDEN_VENTA /
+// REMITIDO / FACTURADO / COBRADO_PARCIAL / COBRADO_COMPLETO / CERRADO.
+function _sapEstadoBadge(estado, detalles){
+  if (!estado) return null;
+  const map = {
+    OFERTA_VENTA:     { text: 'OFERTA',      bg: '#dbeafe', fg: '#1e40af' },
+    ORDEN_VENTA:      { text: 'ORDEN',       bg: '#fef3c7', fg: '#78350f' },
+    REMITIDO:         { text: 'REMITIDO',    bg: '#e0e7ff', fg: '#3730a3' },
+    FACTURADO:        { text: 'FACTURADO',   bg: '#fce7f3', fg: '#9d174d' },
+    COBRADO_PARCIAL:  { text: 'COBRADO PARCIAL', bg: '#fef3c7', fg: '#92400e' },
+    COBRADO_COMPLETO: { text: 'COBRADO',     bg: '#dcfce7', fg: '#166534' },
+    CERRADO:          { text: 'CERRADO',     bg: '#e2e8f0', fg: '#475569' },
+  };
+  const c = map[estado] || { text: estado, bg: '#e2e8f0', fg: '#475569' };
+  const chip = document.createElement('span');
+  chip.style.cssText = 'background:' + c.bg + ';color:' + c.fg + ';padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.4px;flex-shrink:0';
+  chip.textContent = c.text;
+  // Tooltip con detalle (SO#, DN#, Invoice#, %cobrado).
+  const d = detalles || {};
+  const parts = [];
+  if (d.sqDocNum) parts.push('SQ #' + d.sqDocNum);
+  if (d.soDocNum) parts.push('SO #' + d.soDocNum);
+  if (d.dnDocNum) parts.push('DN #' + d.dnDocNum);
+  if (d.invoiceDocNum) {
+    let inv = 'Factura #' + d.invoiceDocNum;
+    if (d.invoiceTotal && d.invoicePaidToDate != null) {
+      const pct = Math.round(100 * (d.invoicePaidToDate / d.invoiceTotal));
+      inv += ' (' + pct + '% cobrado)';
+    }
+    parts.push(inv);
+  }
+  if (parts.length) chip.title = parts.join(' · ');
+  return chip;
+}
+window._sapEstadoBadge = _sapEstadoBadge;
+
 // Re-render del modal cuando cambia data en tiempo real.
 window._reRenderEstadoIfOpen = function(){
   const m = document.getElementById('estado-modal');
