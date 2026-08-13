@@ -3928,6 +3928,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <button class="stock-action-btn cancel" onclick="closeWaitlistCardModal()">Cerrar</button>
         <button class="stock-action-btn publish" id="wcard-edit-orden-btn" onclick="waitlistEditOrden()" style="background:#0f172a;color:#fff">Editar orden</button>
         <button class="stock-action-btn publish" id="wcard-export-btn" onclick="waitlistExportToExcel()" style="background:#0f766e;color:#fff">Descargar como Excel</button>
+        <button class="stock-action-btn publish" id="wcard-export-stkasig-btn" onclick="waitlistExportStockAsignado()" style="background:#166534;color:#fff" title="Exporta solo los SKU del pedido que ya tienen stock en el deposito 11 (formato template Shimano)">Exportar Stock Asignado</button>
         <button class="stock-action-btn cancel" id="wcard-delete-btn" onclick="waitlistDeleteCurrent()" style="background:#dc2626;color:#fff;display:none">Borrar de espera</button>
         <button class="stock-action-btn publish" id="wcard-pass-btn" onclick="waitlistPasarAPendientes()" style="background:#1e40af;color:#fff">Pasar a Pendientes</button>
       </div>
@@ -4105,7 +4106,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v521';
+const APP_VERSION = 'v522';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12768,6 +12769,82 @@ function _renderWaitlistCard(){
 
 // v492: exportar el pedido en espera actual a un XLSX con metadata +
 // tabla de productos + subtotales, mismo calculo que _renderWaitlistCard.
+// v522 (2026-08-13): exporta solo los items del pedido actual que ya
+// tienen stock disponible en el deposito 11, usando el template
+// Shimano oficial (mismo formato que "Template por cliente" de Stock
+// Asig.). Nombre: STOCK ASIGNADO. <CLIENTE>.xlsx.
+window.waitlistExportStockAsignado = async function(){
+  const w = _wcardCurrent;
+  if (!w) { alert('No hay pedido en espera abierto.'); return; }
+  if (typeof ExcelJS === 'undefined') { alert('ExcelJS todavia no cargo. Reintenta en 2 segundos.'); return; }
+  const stockDisp = (sku) => {
+    if (typeof getStockDisponibleVenta === 'function') return getStockDisponibleVenta(sku) || 0;
+    const whs = (typeof STOCK_WAREHOUSE_BREAKDOWN === 'object' && STOCK_WAREHOUSE_BREAKDOWN)
+      ? STOCK_WAREHOUSE_BREAKDOWN[String(sku||'').toUpperCase().trim()] : null;
+    return whs ? Number(whs['11'] || 0) : 0;
+  };
+  const items = (w.items || []).filter(it => stockDisp(it.code) > 0);
+  if (!items.length) {
+    alert('El pedido no tiene SKUs con stock disponible en dep. 11 para exportar.');
+    return;
+  }
+  const btn = document.getElementById('wcard-export-stkasig-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Generando...'; }
+  try {
+    const buffer = await _loadStockAsigTemplate();
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buffer);
+    const ws = wb.worksheets[0];
+    ws.getCell('C3').value = w.clientName || '';
+    ws.getCell('C4').value = w.clientCardCode || '';
+    let rowIdx = 6;
+    const productMap = new Map();
+    if (typeof PRODUCTS !== 'undefined' && PRODUCTS) {
+      PRODUCTS.forEach(p => productMap.set(String(p.code||'').toUpperCase().trim(), p));
+    }
+    items.forEach(it => {
+      const sku = String(it.code || '').toUpperCase().trim();
+      const p = productMap.get(sku) || {};
+      const disp = stockDisp(sku);
+      const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(it.code) || 0) : 0;
+      const row = ws.getRow(rowIdx);
+      row.height = 40;
+      row.getCell(1).value = disp > 0 ? 'Disponible' : 'Sin stock';
+      row.getCell(2).value = p.fam || '';
+      row.getCell(3).value = p.sub || '';
+      row.getCell(4).value = '';
+      row.getCell(5).value = it.code || '';
+      row.getCell(6).value = it.desc || (p.desc || '');
+      row.getCell(7).value = precio || null;
+      row.getCell(8).value = null;
+      row.getCell(9).value = it.qty || null;
+      row.getCell(10).value = { formula: 'I' + rowIdx + '*G' + rowIdx };
+      for (let ci = 1; ci <= 10; ci++) {
+        const c = row.getCell(ci);
+        c.alignment = { vertical: 'middle', horizontal: (ci === 6 ? 'left' : 'center'), wrapText: true };
+      }
+      rowIdx++;
+    });
+    const lastRow = rowIdx - 1;
+    ws.autoFilter = { from: { row: 5, column: 1 }, to: { row: lastRow, column: 10 } };
+    ws.getCell('I2').value = { formula: 'SUM(J6:J' + Math.max(lastRow, 1005) + ')' };
+    const out = await wb.xlsx.writeBuffer();
+    const safe = (w.clientName || 'cliente').replace(/[^A-Za-z0-9 ]+/g, '').trim().slice(0, 60);
+    const filename = 'STOCK ASIGNADO. ' + safe + '.xlsx';
+    const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 200);
+    if (typeof showSyncTag === 'function') showSyncTag('Exportado: ' + items.length + ' SKU con stock');
+  } catch(e) {
+    console.error('waitlistExportStockAsignado', e);
+    alert('Error generando el Excel: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Exportar Stock Asignado'; }
+  }
+};
+
 window.waitlistExportToExcel = function(){
   const w = _wcardCurrent;
   if (!w) { alert('No hay pedido en espera abierto.'); return; }
