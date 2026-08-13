@@ -3799,15 +3799,23 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <button class="stock-action-btn publish" id="revision-wait-btn" onclick="revisionDejarRecalculando()" disabled style="background:#7c3aed;color:#fff">Dejar recalculando</button>
       </div>
       <!-- v454: buscador de cliente destino para "Dejar recalculando".
-           v499 (2026-08-13): agrego numero de orden obligatorio. -->
+           v499: numero de orden (v518: ahora 100% automatico, sin input).
+           v518 (2026-08-13): remuevo input Numero de orden (era automatico
+           siempre) y agrego dropdown Forma de entrega para que el vendedor
+           lo cargue desde ya. Al pasar a Pendientes se prellena en Revisar. -->
       <div id="revision-wait-cli-row" style="display:none;margin-top:14px;background:#faf5ff;border:1.5px solid #d8b4fe;border-radius:6px;padding:10px 12px">
         <div style="font-size:11px;color:#6b21a8;font-weight:700;margin-bottom:4px">Elegi el cliente destino antes de dejar recalculando:</div>
         <input id="revision-wait-cli-input" list="revision-wait-cli-list" placeholder="Buscar cliente por nombre..." style="width:100%;padding:8px 10px;font-size:12px;border:1.5px solid #a855f7;border-radius:5px" oninput="revisionOnClienteInput()"/>
         <datalist id="revision-wait-cli-list"></datalist>
         <div id="revision-wait-cli-info" style="font-size:10px;color:#7e22ce;margin-top:4px"></div>
-        <div style="font-size:11px;color:#6b21a8;font-weight:700;margin-top:10px;margin-bottom:4px">N&uacute;mero de orden <span style="color:#dc2626">*</span></div>
-        <input id="revision-wait-orden-input" type="text" inputmode="numeric" placeholder="Auto: siguiente disponible" maxlength="20" style="width:100%;padding:8px 10px;font-size:13px;font-weight:700;border:1.5px solid #a855f7;border-radius:5px;text-transform:uppercase"/>
-        <div style="font-size:10px;color:#7e22ce;margin-top:4px;font-style:italic">Si lo dejás vacío se asigna automático (último + 1). Podés sobrescribirlo con otro número.</div>
+        <div style="font-size:11px;color:#6b21a8;font-weight:700;margin-top:10px;margin-bottom:4px">Forma de entrega <span style="color:#dc2626">*</span></div>
+        <select id="revision-wait-entrega-select" style="width:100%;padding:8px 10px;font-size:13px;font-weight:600;color:#0f172a;border:1.5px solid #a855f7;border-radius:5px;background:#fff;outline:none">
+          <option value="">- Seleccionar -</option>
+          <option value="TRANSPORTISTA">Entregar a transportista</option>
+          <option value="SUCURSAL">Env&iacute;o a sucursal</option>
+          <option value="RETIRO_DEPOSITO">Retiro en el dep&oacute;sito</option>
+        </select>
+        <div style="font-size:10px;color:#7e22ce;margin-top:4px;font-style:italic">Los datos espec&iacute;ficos del transporte/sucursal/DNI se completan al pasar a Pendientes.</div>
       </div>
     </div>
   </div>
@@ -4072,7 +4080,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v517';
+const APP_VERSION = 'v518';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11137,8 +11145,9 @@ window.closeRevisionModal = function(){
   try {
     const ci = document.getElementById('revision-wait-cli-input');
     if (ci) ci.value = '';
-    const oi = document.getElementById('revision-wait-orden-input');
-    if (oi) oi.value = '';
+    // v518: reset del select forma de entrega (reemplazo del orden input).
+    const ei = document.getElementById('revision-wait-entrega-select');
+    if (ei) ei.value = '';
     const cr = document.getElementById('revision-wait-cli-row');
     if (cr) cr.style.display = 'none';
     const ii = document.getElementById('revision-wait-cli-info');
@@ -12060,22 +12069,11 @@ window.revisionDejarRecalculando = async function(){
   if (!_revisionParsed || !_revisionParsed.length) { alert('No hay datos parseados.'); return; }
   const input = document.getElementById('revision-wait-cli-input');
   const cliRow = document.getElementById('revision-wait-cli-row');
-  const ordenInput = document.getElementById('revision-wait-orden-input');
-  // v515 (2026-08-13): calcular next orden = max(orderNumber existente) + 1.
-  // Usa parseInt sobre orderNumber para tolerar prefijos textuales.
-  const nextOrden = (() => {
-    let max = 0;
-    (revisionWaitlist || []).forEach(w => {
-      const n = parseInt(String(w.orderNumber || '').replace(/\D/g, ''), 10);
-      if (Number.isFinite(n) && n > max) max = n;
-    });
-    return String(max + 1);
-  })();
-  // Si el buscador de cliente esta oculto, mostrarlo y prellenar orden.
+  const entregaSel = document.getElementById('revision-wait-entrega-select');
+  // Si el buscador de cliente esta oculto, mostrarlo y esperar accion.
   if (cliRow.style.display === 'none') {
     _populateRevisionClienteDatalist();
     cliRow.style.display = '';
-    if (ordenInput && !ordenInput.value.trim()) ordenInput.value = nextOrden;
     input.focus();
     return;
   }
@@ -12086,16 +12084,26 @@ window.revisionDejarRecalculando = async function(){
     input.focus();
     return;
   }
-  // v499: numero de orden obligatorio para identificar el pedido en la
-  // lista de espera. v515: si esta vacio, autoasigna next = max+1.
-  // v501: sanitizar - si el user tipeo "ORDEN 28" o "ORDEN N° 28", quedarnos
-  // solo con el numero.
-  let ordenNum = ((ordenInput && ordenInput.value) || '').trim().toUpperCase();
-  ordenNum = ordenNum.replace(/^ORDEN\s*(N[°º]?\s*)?/i, '').trim();
-  if (!ordenNum) ordenNum = nextOrden; // v515 auto-asignacion
+  // v518: forma de entrega obligatoria. Elimina input Numero de orden
+  // (siempre auto = max + 1). El detalle del transportista/sucursal/DNI
+  // se completa al pasar a Pendientes en el modal Revisar.
+  const deliveryMethod = ((entregaSel && entregaSel.value) || '').trim();
+  if (!deliveryMethod) {
+    alert('Falta la forma de entrega.\n\nElegi una opcion (Transportista / Sucursal / Retiro en deposito) para que el vendedor sepa como coordinar cuando el pedido pase a Pendientes.');
+    if (entregaSel) entregaSel.focus();
+    return;
+  }
+  // v515/v518: auto-asignar numero de orden = max(existente) + 1.
+  const ordenNum = (() => {
+    let max = 0;
+    (revisionWaitlist || []).forEach(w => {
+      const n = parseInt(String(w.orderNumber || '').replace(/\D/g, ''), 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    });
+    return String(max + 1);
+  })();
   if (!ordenNum) {
-    alert('Falta el numero de orden.\n\nIngresa el numero de la orden del cliente (ej: 11) para poder identificar el pedido en la lista de espera.');
-    if (ordenInput) ordenInput.focus();
+    alert('No se pudo calcular el numero de orden. Refresca la pagina y reintentá.');
     return;
   }
   const btn = document.getElementById('revision-wait-btn');
@@ -12121,7 +12129,8 @@ window.revisionDejarRecalculando = async function(){
       ownerEmail: currentUser.email || '',
       ownerDisplayName: currentUser.displayName || currentUser.email || '',
       ownerVendor: (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '',
-      orderNumber: ordenNum, // v499
+      orderNumber: ordenNum, // v499 (v515 auto-asignado)
+      deliveryMethod: deliveryMethod, // v518: TRANSPORTISTA / SUCURSAL / RETIRO_DEPOSITO
       items,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -13082,6 +13091,18 @@ window.waitlistPasarAPendientes = async function(){
   // Abrir modal "Revisa tu pedido" normal.
   try { openReviewDialog('crear'); }
   catch(e) { console.error('openReviewDialog from waitlist', e); alert('Pedido cargado en Pendientes pero no pudimos abrir Revisar. Andá a Pedidos > Crear.'); }
+  // v518: prellenar el select "Forma de entrega" del modal Revisar con
+  // el deliveryMethod guardado. onFormaEntregaChange dispara la
+  // visualizacion del bloque correcto (transportista/sucursal/retiro).
+  try {
+    if (w.deliveryMethod) {
+      const sel = document.getElementById('rv-forma-entrega');
+      if (sel) {
+        sel.value = w.deliveryMethod;
+        if (typeof onFormaEntregaChange === 'function') onFormaEntregaChange();
+      }
+    }
+  } catch(e) { console.warn('prefill deliveryMethod', e); }
 };
 
 // Genera y descarga un Excel template con 3 columnas: Codigo SKU,
