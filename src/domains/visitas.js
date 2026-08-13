@@ -16,7 +16,20 @@
 // ============================================================
 // VISITA - formulario y persistencia
 // ============================================================
-let visitState = { relevancia: 0, pop: '', espacioPhotos: [], frentePhoto: null };
+// v498 (2026-08-12): tamanos / especializaciones / necesidades ahora son
+// arrays multi-seleccion (hay tiendas que venden de todo y necesitan
+// mas de una etiqueta). Los campos legacy `tamano`, `especializacion`,
+// `necesidadPuntual` se siguen escribiendo con comma-join para compat
+// con lectores viejos.
+let visitState = {
+  relevancia: 0,
+  pop: '',
+  espacioPhotos: [],
+  frentePhoto: null,
+  tamanos: [],
+  especializaciones: [],
+  necesidades: [],
+};
 if (typeof window.visitsCache === 'undefined') window.visitsCache = [];
 
 // ============================================================
@@ -441,10 +454,10 @@ function applyVisitModeUI(mode) {
   // Quitar 'required' en modo contacto para que submit no falle por validacion.
   const selFid = document.getElementById('vf-fidelidad');
   const selTV = document.getElementById('vf-tipoventa');
-  const selEsp = document.getElementById('vf-especializacion');
   if (selFid) selFid.required = !isContacto;
   if (selTV) selTV.required = !isContacto;
-  if (selEsp) selEsp.required = !isContacto;
+  // v498: `vf-especializacion` es ahora `#vf-especializacion-multi` (chips).
+  // La validacion required la maneja submitVisita mirando visitState.especializaciones.
   // v313+: Forma de contacto (llamada / whatsapp / SMS) solo en modo contacto.
   const rowFC = document.getElementById('vf-forma-contacto-row');
   if (rowFC) rowFC.style.display = isContacto ? '' : 'none';
@@ -477,9 +490,19 @@ window.onClickNuevaVisitaTab = function () {
 
 function resetVisitaForm() {
   document.getElementById('visita-form').reset();
-  visitState = { relevancia: 0, pop: '', espacioPhotos: [], frentePhoto: null };
+  visitState = {
+    relevancia: 0,
+    pop: '',
+    espacioPhotos: [],
+    frentePhoto: null,
+    tamanos: [],
+    especializaciones: [],
+    necesidades: [],
+  };
   document.querySelectorAll('.vf-likert button').forEach((b) => b.classList.remove('active'));
   document.querySelectorAll('#vf-pop button').forEach((b) => b.classList.remove('active'));
+  // v498: limpiar chips multi-seleccion.
+  document.querySelectorAll('.vf-multi button').forEach((b) => b.classList.remove('active'));
   document.getElementById('vf-necesidad-wrap').style.display = 'none';
   document.getElementById('vf-pond-wrap').style.display = 'none';
   const gi = document.getElementById('vf-gps-info');
@@ -487,6 +510,23 @@ function resetVisitaForm() {
   refreshEspacioGrid();
   refreshFrenteGrid();
 }
+
+// v498: toggle chip multi-seleccion. field es la key de visitState
+// (tamanos / especializaciones / necesidades). Toggle add/remove el
+// valor y sincroniza la clase .active del boton.
+window.toggleMulti = function (field, btn) {
+  if (!btn || !btn.dataset || !visitState[field]) return;
+  const val = btn.dataset.v;
+  const arr = visitState[field];
+  const idx = arr.indexOf(val);
+  if (idx >= 0) {
+    arr.splice(idx, 1);
+    btn.classList.remove('active');
+  } else {
+    arr.push(val);
+    btn.classList.add('active');
+  }
+};
 
 function populateVisitaLocalidades() {
   // v298+ (2026-07-14, pedido vendedores): el vendedor busca DIRECTO por
@@ -949,7 +989,14 @@ window.setPop = function (v) {
     .querySelectorAll('#vf-pop button')
     .forEach((b) => b.classList.toggle('active', b.dataset.v === v));
   document.getElementById('vf-necesidad-wrap').style.display = v === 'SI' ? '' : 'none';
-  if (v !== 'SI') document.getElementById('vf-necesidad').value = '';
+  // v498: al pasar POP=NO limpiar el multi de necesidades para no enviar
+  // basura al submit.
+  if (v !== 'SI') {
+    visitState.necesidades = [];
+    document
+      .querySelectorAll('#vf-necesidad-multi button')
+      .forEach((b) => b.classList.remove('active'));
+  }
 };
 
 window.onTipoVentaChange = function () {
@@ -1072,20 +1119,23 @@ window.submitVisita = async function () {
   if (window.visitMode === 'contacto' && !readField('vf-formaContacto'))
     errors.push('Forma de contacto');
   if (!readField('vf-local')) errors.push('Local');
-  if (!readField('vf-tamano')) errors.push('Tamano');
+  // v498: Tipo de cliente ahora es multi (visitState.tamanos array).
+  if (!(visitState.tamanos && visitState.tamanos.length)) errors.push('Tipo de cliente');
   // v339+: Fidelidad + POP + Tipo de venta ocultos en modo contacto (no aplican).
   const _isContacto = window.visitMode === 'contacto';
   if (!_isContacto && !readField('vf-fidelidad')) errors.push('Fidelidad');
-  // v358: fix — Especializacion solo obligatorio en visita presencial.
-  // v357 oculto el campo en modo contacto pero olvide sacarlo de la
-  // validacion JS de submit → alert "Faltan completar: Especializacion..."
-  // aunque el campo estuviera invisible.
-  if (!_isContacto && !readField('vf-especializacion'))
+  // v498: Especializacion ahora es multi (visitState.especializaciones array).
+  if (!_isContacto && !(visitState.especializaciones && visitState.especializaciones.length))
     errors.push('Especializacion por tipo de pesca');
   if (!readField('vf-canalcompra')) errors.push('Canal de compra');
   if (!visitState.relevancia) errors.push('Relevancia');
   if (!_isContacto && !visitState.pop) errors.push('POP');
-  if (!_isContacto && visitState.pop === 'SI' && !readField('vf-necesidad'))
+  // v498: Necesidad puntual ahora es multi (visitState.necesidades array).
+  if (
+    !_isContacto &&
+    visitState.pop === 'SI' &&
+    !(visitState.necesidades && visitState.necesidades.length)
+  )
     errors.push('Necesidad puntual');
   // Frente del local: OPCIONAL (antes era obligatorio para vendedor externo;
   // ahora se puede saltar siempre - el vendedor decide si toma la foto).
@@ -1182,13 +1232,20 @@ window.submitVisita = async function () {
     tienda: tienda,
     tipo: readField('vf-tipo'),
     local: readField('vf-local'),
-    tamano: readField('vf-tamano'),
+    // v498: campos multi. Legacy `tamano/especializacion/necesidadPuntual`
+    // se persisten como comma-join para compat con lectores viejos; nuevo
+    // campo array `tamanos/especializaciones/necesidades` para consumidores
+    // que quieran filtrar por categoria individual.
+    tamano: (visitState.tamanos || []).join(', '),
+    tamanos: [...(visitState.tamanos || [])],
     fidelidad: readField('vf-fidelidad'),
-    especializacion: readField('vf-especializacion'),
+    especializacion: (visitState.especializaciones || []).join(', '),
+    especializaciones: [...(visitState.especializaciones || [])],
     canalCompra: readField('vf-canalcompra'),
     relevancia: visitState.relevancia,
     pop: visitState.pop,
-    necesidadPuntual: visitState.pop === 'SI' ? readField('vf-necesidad') : '',
+    necesidadPuntual: visitState.pop === 'SI' ? (visitState.necesidades || []).join(', ') : '',
+    necesidades: visitState.pop === 'SI' ? [...(visitState.necesidades || [])] : [],
     espacio: visitState.espacioPhotos,
     oportunidad: readField('vf-oportunidad'),
     masVendido: readField('vf-masvendido'),
@@ -1740,11 +1797,35 @@ window.viewVisit = function (visitId) {
   const _fcEl = document.getElementById('vf-formaContacto');
   if (_fcEl) _fcEl.value = v.formaContacto || '';
   document.getElementById('vf-local').value = v.local || '';
-  document.getElementById('vf-tamano').value = v.tamano || '';
+  // v498: campos multi. Usa `tamanos/especializaciones/necesidades` arrays si
+  // existen; fallback al string legacy `tamano/especializacion/necesidadPuntual`
+  // splitteando por coma para docs anteriores.
+  const _readMulti = (arrField, strField) => {
+    if (Array.isArray(v[arrField]) && v[arrField].length) return v[arrField];
+    const s = (v[strField] || '').trim();
+    if (!s) return [];
+    return s
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+  };
+  visitState.tamanos = _readMulti('tamanos', 'tamano');
+  visitState.especializaciones = _readMulti('especializaciones', 'especializacion');
+  visitState.necesidades = _readMulti('necesidades', 'necesidadPuntual');
+  const _paintMulti = (contId, values) => {
+    const cont = document.getElementById(contId);
+    if (!cont) return;
+    cont.querySelectorAll('button').forEach((b) => {
+      const isOn = values.indexOf(b.dataset.v) >= 0;
+      b.classList.toggle('active', isOn);
+    });
+  };
+  _paintMulti('vf-tamano-multi', visitState.tamanos);
+  _paintMulti('vf-especializacion-multi', visitState.especializaciones);
+  _paintMulti('vf-necesidad-multi', visitState.necesidades);
   document.getElementById('vf-fidelidad').value = v.fidelidad || '';
   if (v.relevancia) setLikert(v.relevancia);
   if (v.pop) setPop(v.pop);
-  if (v.necesidadPuntual) document.getElementById('vf-necesidad').value = v.necesidadPuntual;
   visitState.espacioPhotos = [...(v.espacio || [])];
   refreshEspacioGrid();
   document.getElementById('vf-oportunidad').value = v.oportunidad || '';
