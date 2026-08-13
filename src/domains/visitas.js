@@ -1244,10 +1244,8 @@ window.submitVisita = async function () {
     canalCompra: readField('vf-canalcompra'),
     relevancia: visitState.relevancia,
     pop: visitState.pop,
-    necesidadPuntual:
-      visitState.pop === 'SI' ? (visitState.necesidades || []).join(', ') : '',
-    necesidades:
-      visitState.pop === 'SI' ? [...(visitState.necesidades || [])] : [],
+    necesidadPuntual: visitState.pop === 'SI' ? (visitState.necesidades || []).join(', ') : '',
+    necesidades: visitState.pop === 'SI' ? [...(visitState.necesidades || [])] : [],
     espacio: visitState.espacioPhotos,
     oportunidad: readField('vf-oportunidad'),
     masVendido: readField('vf-masvendido'),
@@ -1806,7 +1804,10 @@ window.viewVisit = function (visitId) {
     if (Array.isArray(v[arrField]) && v[arrField].length) return v[arrField];
     const s = (v[strField] || '').trim();
     if (!s) return [];
-    return s.split(',').map((x) => x.trim()).filter(Boolean);
+    return s
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
   };
   visitState.tamanos = _readMulti('tamanos', 'tamano');
   visitState.especializaciones = _readMulti('especializaciones', 'especializacion');
