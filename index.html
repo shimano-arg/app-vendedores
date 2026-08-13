@@ -3806,8 +3806,8 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <datalist id="revision-wait-cli-list"></datalist>
         <div id="revision-wait-cli-info" style="font-size:10px;color:#7e22ce;margin-top:4px"></div>
         <div style="font-size:11px;color:#6b21a8;font-weight:700;margin-top:10px;margin-bottom:4px">N&uacute;mero de orden <span style="color:#dc2626">*</span></div>
-        <input id="revision-wait-orden-input" type="text" inputmode="numeric" placeholder="Ej: 11" maxlength="20" style="width:100%;padding:8px 10px;font-size:13px;font-weight:700;border:1.5px solid #a855f7;border-radius:5px;text-transform:uppercase"/>
-        <div style="font-size:10px;color:#7e22ce;margin-top:4px;font-style:italic">N&uacute;mero de la orden del cliente (aparecer&aacute; como "ORDEN N" en el listado).</div>
+        <input id="revision-wait-orden-input" type="text" inputmode="numeric" placeholder="Auto: siguiente disponible" maxlength="20" style="width:100%;padding:8px 10px;font-size:13px;font-weight:700;border:1.5px solid #a855f7;border-radius:5px;text-transform:uppercase"/>
+        <div style="font-size:10px;color:#7e22ce;margin-top:4px;font-style:italic">Si lo dejás vacío se asigna automático (último + 1). Podés sobrescribirlo con otro número.</div>
       </div>
     </div>
   </div>
@@ -4072,7 +4072,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v514';
+const APP_VERSION = 'v515';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12058,10 +12058,22 @@ window.revisionDejarRecalculando = async function(){
   if (!_revisionParsed || !_revisionParsed.length) { alert('No hay datos parseados.'); return; }
   const input = document.getElementById('revision-wait-cli-input');
   const cliRow = document.getElementById('revision-wait-cli-row');
-  // Si el buscador de cliente esta oculto, mostrarlo y esperar accion.
+  const ordenInput = document.getElementById('revision-wait-orden-input');
+  // v515 (2026-08-13): calcular next orden = max(orderNumber existente) + 1.
+  // Usa parseInt sobre orderNumber para tolerar prefijos textuales.
+  const nextOrden = (() => {
+    let max = 0;
+    (revisionWaitlist || []).forEach(w => {
+      const n = parseInt(String(w.orderNumber || '').replace(/\D/g, ''), 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    });
+    return String(max + 1);
+  })();
+  // Si el buscador de cliente esta oculto, mostrarlo y prellenar orden.
   if (cliRow.style.display === 'none') {
     _populateRevisionClienteDatalist();
     cliRow.style.display = '';
+    if (ordenInput && !ordenInput.value.trim()) ordenInput.value = nextOrden;
     input.focus();
     return;
   }
@@ -12072,13 +12084,13 @@ window.revisionDejarRecalculando = async function(){
     input.focus();
     return;
   }
-  // v499: numero de orden obligatorio para identificar el pedido
-  // en la lista de espera ("ORDEN 11").
-  const ordenInput = document.getElementById('revision-wait-orden-input');
+  // v499: numero de orden obligatorio para identificar el pedido en la
+  // lista de espera. v515: si esta vacio, autoasigna next = max+1.
   // v501: sanitizar - si el user tipeo "ORDEN 28" o "ORDEN N° 28", quedarnos
-  // solo con el numero. Evita el bug "ORDEN ORDEN 28" en el listado.
+  // solo con el numero.
   let ordenNum = ((ordenInput && ordenInput.value) || '').trim().toUpperCase();
   ordenNum = ordenNum.replace(/^ORDEN\s*(N[°º]?\s*)?/i, '').trim();
+  if (!ordenNum) ordenNum = nextOrden; // v515 auto-asignacion
   if (!ordenNum) {
     alert('Falta el numero de orden.\n\nIngresa el numero de la orden del cliente (ej: 11) para poder identificar el pedido en la lista de espera.');
     if (ordenInput) ordenInput.focus();
