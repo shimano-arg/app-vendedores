@@ -2308,16 +2308,30 @@ WHERE COALESCE(sq.cancelled, 'tNO') = 'tNO';
 --                       alta). NULL si ninguna esta cargada.
 --   assigned_vendor  -> assignedVendor de la app; '(SIN ASIGNAR)' si vacio.
 --
+-- v2 (2026-08-13): agrego departamento + prov_depto via JOIN con la tabla
+-- geo_localidad_departamento (construida por
+-- scripts/build_geo_localidad_departamento.py cruzando Georef del Estado
+-- + TopoJSON de 525 deptos). Permite pintar mapa por departamento en PBI.
+--
 -- Uso Power BI (TABLERO SAR):
---   1) Relacion N:1 con dim_Region_Geo por provincia+localidad (o crear
---      un tabla puente si hay localidades duplicadas entre provincias).
---   2) Medida sugerida para pintar el mapa por departamento:
+--   1) Relacion N:1 con topo_departamentos por prov_depto (o dim_Region_Geo
+--      si ya cruzas por prov_depto en el modelo).
+--   2) Medida para pintar el mapa por departamento:
 --        [Color Depto] =
 --          VAR nLeads = CALCULATE(COUNTROWS(v_leads_detalle), tipo="LEAD")
 --          RETURN IF(nLeads > 0, "AMARILLO", "VERDE")
 --      Aplicar sobre visual mapa (custom color por medida).
 --   3) Reconciliacion (obligatoria antes de dar por bueno):
 --        Ver bigquery/reconciliacion_leads_detalle.sql.
+--
+-- NORMALIZACION LOCALIDAD (matchear con geo_localidad_departamento):
+--   UPPER(strip_accents(TRIM(localidad))) sobre localidadFinal ?? localidad.
+--   Match exacto por (provincia_norm, localidad_norm). Sin match -> depto NULL.
+--
+-- Cobertura esperada: la tabla geo_localidad_departamento matchea 99.8%
+-- de las 4037 localidades de Georef contra el vocabulario del TopoJSON.
+-- Los residuales (LEZAMA, GENERAL JUAN FACUNDO QUIROGA, etc.) son deptos
+-- nuevos post-TopoJSON o zonas sin representacion cartografica (Antartida).
 -- ============================================================
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_leads_detalle` AS
 WITH base AS (
@@ -2365,6 +2379,49 @@ clasificado AS (
     NULLIF(TRIM(COALESCE(localidad_final, localidad_libre)), '')        AS localidad,
     assigned_vendor
   FROM base
+),
+-- v2: normalizar localidad + provincia para JOIN con geo_localidad_departamento.
+-- MISMA transformacion que scripts/build_geo_localidad_departamento.py:
+--   1. UPPER + strip accents (NFD + \p{Mn})
+--   2. drop puntos ("."   -> " ")
+--   3. colapsar espacios
+--   4. expandir abreviaturas: \bGRAL\b -> GENERAL, \bCNEL\b -> CORONEL
+-- Sin este pipeline "Gral. Rodriguez" nunca matcheara con "GENERAL RODRIGUEZ".
+con_geo AS (
+  SELECT
+    c.card_code, c.card_name, c.tipo,
+    c.provincia, c.localidad, c.assigned_vendor,
+    REGEXP_REPLACE(
+      REGEXP_REPLACE(NORMALIZE(UPPER(c.provincia), NFD), r'\p{Mn}', ''),
+      r'\s+', ' '
+    )                                                                    AS provincia_norm,
+    -- Localidad: strip accents, drop dots, colapsar espacios, expandir GRAL/CNEL.
+    TRIM(REGEXP_REPLACE(
+      REGEXP_REPLACE(
+        REGEXP_REPLACE(
+          REGEXP_REPLACE(
+            REPLACE(NORMALIZE(UPPER(c.localidad), NFD), '.', ' '),
+            r'\p{Mn}', ''
+          ),
+          r'\s+', ' '
+        ),
+        r'\bGRAL\b', 'GENERAL'
+      ),
+      r'\bCNEL\b', 'CORONEL'
+    ))                                                                   AS localidad_norm
+  FROM clasificado c
+  WHERE c.tipo IN ('CLIENTE_SAP', 'LEAD')
+),
+enriched AS (
+  SELECT
+    g.card_code, g.card_name, g.tipo,
+    g.provincia, g.localidad, g.assigned_vendor,
+    gld.departamento_topo AS departamento,
+    gld.prov_depto        AS prov_depto
+  FROM con_geo g
+  LEFT JOIN `app-vendedores-shimano.shimano_app.geo_localidad_departamento` gld
+    ON gld.provincia_norm = g.provincia_norm
+   AND gld.localidad_norm = g.localidad_norm
 )
 SELECT
   card_code,
@@ -2372,6 +2429,7 @@ SELECT
   tipo,
   provincia,
   localidad,
+  departamento,
+  prov_depto,
   assigned_vendor
-FROM clasificado
-WHERE tipo IN ('CLIENTE_SAP', 'LEAD');
+FROM enriched;
