@@ -4038,7 +4038,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v505';
+const APP_VERSION = 'v506';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11426,10 +11426,22 @@ function _renderEstadoPedidos(content, arr, tipo){
       chip.style.cssText = 'background:#10b981;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.4px;flex-shrink:0';
       chip.textContent = 'SAP #' + p.transferidoSAP.docNum;
       row1.appendChild(chip);
-      // v505: badge del estado macro SAP (OFERTA / ORDEN / REMITIDO /
-      // FACTURADO / COBRADO). Se popula via sync cada 30 min.
+      // v505/v506: badge del estado macro SAP (OFERTA / ORDEN / FACTURADO /
+      // COBRADO / CERRADO). Se popula via sync cada 30 min.
       const estadoChip = _sapEstadoBadge(p.sapEstado, p.sapEstadoDetalles);
       if (estadoChip) row1.appendChild(estadoChip);
+      // v506: chip REMITIDO SEPARADO (si el pedido tiene DN registrada).
+      // Aparece adicional al estado principal - permite ver "FACTURADO +
+      // REMITIDO" o "COBRADO + REMITIDO". El sync popula dnDocNum solo
+      // cuando existe una DeliveryNote linkeada.
+      const dnDocNum = p.sapEstadoDetalles && p.sapEstadoDetalles.dnDocNum;
+      if (dnDocNum) {
+        const dnChip = document.createElement('span');
+        dnChip.style.cssText = 'background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.4px;flex-shrink:0';
+        dnChip.textContent = 'REMITIDO';
+        dnChip.title = 'Delivery Note #' + dnDocNum;
+        row1.appendChild(dnChip);
+      }
     }
     card.appendChild(row1);
     const row2 = document.createElement('div');
