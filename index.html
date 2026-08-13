@@ -2603,9 +2603,12 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
              Solo se muestra si hay al menos 1 item sin stock - sino oculto. -->
         <div id="rv-stock-split" style="display:none;margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px"></div>
       </div>
-      <div class="modal-footer" style="justify-content:space-between;gap:12px">
+      <div class="modal-footer" style="justify-content:space-between;gap:12px;flex-wrap:wrap">
         <button class="btn-cancel" style="background:#fff;color:#475569;border:1.5px solid #cbd5e1" onclick="closeReviewDialog()">Volver a editar</button>
-        <button class="btn-confirm" onclick="validateReviewAndPasarAPendientes()">Pasar a Pendientes</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-confirm" style="background:#f97316" onclick="reviewDejarEnEspera()" title="Guardar en Lista de Espera para revisar despues sin ir a Pendientes">Dejar en Espera</button>
+          <button class="btn-confirm" onclick="validateReviewAndPasarAPendientes()">Pasar a Pendientes</button>
+        </div>
       </div>
     </div>
   </div>
@@ -4102,7 +4105,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v519';
+const APP_VERSION = 'v520';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11032,14 +11035,11 @@ window.ccmCrearPedido = function(){
   if (!clientMenuContext) return;
   const {name, tipo, province, locName} = clientMenuContext;
   closeClientMenu();
-  // v490: si el user esta en whitelist Revision (Mariano/Ioannis/Santi/Pablo),
-  // redirigimos al modal de Revision con el cliente pre-seleccionado. El flujo
-  // nuevo obligatorio: Revision -> Dejar recalculando -> Lista de Espera ->
-  // Pasar a Pendientes. El resto del equipo sigue con el flow tradicional.
-  if (typeof _revisionCanUse === 'function' && _revisionCanUse()) {
-    openRevisionModal(name);
-    return;
-  }
+  // v520 (2026-08-13): Crear pedido = flujo manual SKU-by-SKU siempre.
+  // Antes redirigia a openRevisionModal para el whitelist Revision. Ahora
+  // ese flow queda para "Cargar Pedido por Excel" (ccmCargarExcelPedido).
+  // Crear pedido -> modal viejo con buscador SKU, cargas manuales, luego
+  // Revisar y desde ahi eleg is Pasar a Pendientes o Dejar en Espera.
   proceedToCreateOrder(name, tipo, province, locName);
 };
 
@@ -13133,6 +13133,97 @@ window.waitlistAddProduct = async function(sku){
 // como backorder en la revision (columna Backorder Unidades) y termina
 // como backorder en SAP tambien. Post-exito, borra el doc de
 // revision_waitlist.
+// v520 (2026-08-13): "Dejar en Espera" desde el modal Revisar. Guarda el
+// pedido cargado manualmente (SKU-by-SKU) en revision_waitlist en vez de
+// pasarlo a Pendientes. Reusa el mismo layout de campos (forma de entrega +
+// deliveryDetails) y auto-calcula el numero de orden.
+window.reviewDejarEnEspera = async function(){
+  if (!currentOrderClient || !currentOrderKey) { alert('No hay pedido activo.'); return; }
+  const items = orders[currentOrderKey] || [];
+  if (!items.length) { alert('El pedido no tiene productos.'); return; }
+  // Validar forma de entrega (mismo select del modal Revisar).
+  const feSel = document.getElementById('rv-forma-entrega');
+  const deliveryMethod = ((feSel && feSel.value) || '').trim();
+  if (!deliveryMethod) {
+    alert('Falta la forma de entrega.\n\nElegi una opcion antes de dejar en espera.');
+    if (feSel) feSel.focus();
+    return;
+  }
+  const _v = (id) => (document.getElementById(id)?.value || '').trim();
+  const deliveryDetails = {};
+  if (deliveryMethod === 'TRANSPORTISTA') {
+    const tn = _v('rv-transp-nombre'), td = _v('rv-transp-direccion'), cd = _v('rv-cliente-direccion');
+    if (!tn || !td || !cd) { alert('Faltan datos del transportista.'); return; }
+    deliveryDetails.transportistaNombre = tn;
+    deliveryDetails.transportistaDireccion = td;
+    deliveryDetails.clienteDireccion = cd;
+  } else if (deliveryMethod === 'SUCURSAL') {
+    const sd = _v('rv-sucursal-direccion');
+    if (!sd) { alert('Falta la direccion de la sucursal.'); return; }
+    deliveryDetails.sucursalDireccion = sd;
+  } else if (deliveryMethod === 'RETIRO_DEPOSITO') {
+    const rn = _v('rv-retiro-nombre'), ra = _v('rv-retiro-apellido');
+    const rd = _v('rv-retiro-dni'), rp = _v('rv-retiro-patente');
+    if (!rn || !ra || !rd || !rp) { alert('Faltan datos del retiro.'); return; }
+    deliveryDetails.retiroNombre = rn;
+    deliveryDetails.retiroApellido = ra;
+    deliveryDetails.retiroDni = rd;
+    deliveryDetails.retiroPatente = rp.toUpperCase();
+  }
+  // Auto-numero de orden.
+  const ordenNum = (() => {
+    let max = 0;
+    (revisionWaitlist || []).forEach(w => {
+      const n = parseInt(String(w.orderNumber || '').replace(/\D/g, ''), 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    });
+    return String(max + 1);
+  })();
+  // Resolver cardCode + vendor del cliente (best-effort).
+  const cardCode = (typeof sapGetClienteCode === 'function') ? (sapGetClienteCode(currentOrderClient.name) || '') : '';
+  const vendorAssigned = (typeof getEffectiveVendorForClient === 'function' && typeof POINTS !== 'undefined')
+    ? (() => {
+        const p = (POINTS || []).find(x => (x.name || '') === currentOrderClient.locName && (x.province || '').toUpperCase() === (currentOrderClient.province || '').toUpperCase());
+        return p ? (getEffectiveVendorForClient(p, currentOrderClient.name) || '') : '';
+      })()
+    : '';
+  const payload = {
+    clientName: currentOrderClient.name,
+    clientProvince: currentOrderClient.province,
+    clientLocality: currentOrderClient.locName,
+    clientCardCode: cardCode,
+    vendorAssigned: vendorAssigned,
+    ownerUid: currentUser.uid,
+    ownerEmail: currentUser.email || '',
+    ownerDisplayName: currentUser.displayName || currentUser.email || '',
+    ownerVendor: (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '',
+    orderNumber: ordenNum,
+    deliveryMethod: deliveryMethod,
+    deliveryDetails: deliveryDetails,
+    items: items.map(l => ({
+      code: l.code, desc: l.desc, qty: parseFloat(l.qty) || 0,
+      firstStockTotal: null, firstBackorder: null, firstDisponible: null,
+    })),
+    source: 'crear-manual', // v520: para distinguir del origen Revision Excel
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  try {
+    await fbDb.collection('revision_waitlist').add(payload);
+    showSyncTag('Pedido dejado en Espera (ORDEN ' + ordenNum + ')');
+    // Limpiar el borrador del pedido actual + cerrar review + volver al mapa.
+    delete orders[currentOrderKey];
+    try { saveOrders(); } catch(e){}
+    currentOrderKey = null;
+    currentOrderClient = null;
+    if (typeof closeReviewDialog === 'function') closeReviewDialog();
+    if (typeof closePedidoModal === 'function') closePedidoModal();
+  } catch(e) {
+    console.error('reviewDejarEnEspera', e);
+    alert('Error guardando en Espera: ' + (e.message || e));
+  }
+};
+
 window.waitlistPasarAPendientes = async function(){
   const w = _wcardCurrent;
   if (!w) return;
