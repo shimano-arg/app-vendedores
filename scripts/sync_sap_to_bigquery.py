@@ -1076,6 +1076,11 @@ def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
     ),
     -- Para cada SO, extraer todos los BaseEntry (SQ DocEntry) que copio.
     -- Una SO puede referenciar N SQs distintas (parcial fulfillment).
+    -- v505 fix (2026-08-13): BaseType='23' (Quotation), NO '17' (SO).
+    -- El bug historico dejaba TODAS las SO sin match contra su SQ padre ->
+    -- todos los pedidos aparecian como OFERTA_VENTA aunque hubiesen sido
+    -- convertidos a SO/DN/Invoice. Verificado con BQ: sap_orders_raw
+    -- lines_json.BaseType = '23' en 100% de los casos con BaseEntry.
     so_to_sq AS (
       SELECT DISTINCT
         o.doc_entry            AS so_doc_entry,
@@ -1085,7 +1090,7 @@ def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
         SAFE_CAST(JSON_VALUE(ln, '$.BaseEntry') AS INT64) AS sq_doc_entry
       FROM `app-vendedores-shimano.shimano_app.sap_orders_raw` o,
            UNNEST(JSON_QUERY_ARRAY(o.lines_json)) ln
-      WHERE JSON_VALUE(ln, '$.BaseType') = '17'  -- Quotation
+      WHERE JSON_VALUE(ln, '$.BaseType') = '23'  -- Quotation
         AND JSON_VALUE(ln, '$.BaseEntry') IS NOT NULL
         AND COALESCE(o.cancelled, 'tNO') = 'tNO'
     ),
