@@ -1240,14 +1240,16 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .slft-wl-item:hover{background:#fef3c7}
 .slft-wl-item.has-exceed{border-left-color:#dc2626;background:#fef2f2}
 .slft-wl-item.has-exceed:hover{background:#fee2e2}
-.slft-wl-cli{font-weight:800;color:#0f172a;font-size:11.5px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* v501: cliente a la izq, chip ORDEN empujado al costado derecho. */
+.slft-wl-cli{font-weight:800;color:#0f172a;font-size:11.5px;margin-bottom:2px;display:flex;align-items:center;gap:6px;min-width:0}
+.slft-wl-cli-name{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .slft-wl-loc{color:#64748b;font-size:10px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .slft-wl-meta{color:#94a3b8;font-size:9.5px;display:flex;justify-content:space-between;gap:6px;align-items:center;flex-wrap:wrap}
 .slft-wl-badge{background:#f97316;color:#fff;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:800;white-space:nowrap}
 .slft-wl-badge.exceed{background:#dc2626}
 .slft-wl-badge.ok{background:#16a34a}
 /* v499: chip ORDEN N al lado del cliente en cada fila del sidebar. */
-.slft-wl-orden{display:inline-block;background:#0f172a;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.4px;vertical-align:middle;margin-left:4px}
+.slft-wl-orden{display:inline-block;background:#0f172a;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.4px;vertical-align:middle;flex-shrink:0}
 /* v494: buscador del listado. */
 .slft-wl-search-row{position:relative;margin-bottom:8px;flex-shrink:0}
 .slft-wl-search-row input{width:100%;padding:6px 26px 6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:11.5px;font-family:inherit;background:#fff;color:#0f172a;outline:none;transition:border-color .15s}
@@ -4012,7 +4014,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v500';
+const APP_VERSION = 'v501';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11127,10 +11129,27 @@ function _renderWaitlistSidebar(){
   }
   const arr = revisionWaitlist || [];
   const q = (_slftWlSearch || '').trim().toLowerCase();
-  const filtered = q ? arr.filter(w => {
+  const filteredRaw = q ? arr.filter(w => {
     const hay = (w.clientName || '') + ' ' + (w.clientLocality || '') + ' ' + (w.clientProvince || '');
     return hay.toLowerCase().indexOf(q) >= 0;
   }) : arr;
+  // v501: ordenar por orderNumber numerico ascendente (42, 43, 44...).
+  // Los que no tienen orden se muestran al final. Los que tienen texto
+  // no-numerico se ordenan lexico. Nota: no mutamos revisionWaitlist,
+  // usamos una copia.
+  const filtered = filteredRaw.slice().sort((a, b) => {
+    const na = a.orderNumber ? parseInt(String(a.orderNumber).replace(/\D/g, ''), 10) : NaN;
+    const nb = b.orderNumber ? parseInt(String(b.orderNumber).replace(/\D/g, ''), 10) : NaN;
+    const aHas = Number.isFinite(na);
+    const bHas = Number.isFinite(nb);
+    if (aHas && bHas) return na - nb;
+    if (aHas) return -1;
+    if (bHas) return 1;
+    // ninguno tiene orden -> desempate por createdAt asc.
+    const ta = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+    const tb = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+    return ta - tb;
+  });
   // Contador: si hay filtro, mostrar "N/Total"; si no, solo Total.
   cnt.textContent = q ? (filtered.length + '/' + arr.length) : String(arr.length);
   if (clearBtn) clearBtn.style.display = q ? '' : 'none';
@@ -11158,13 +11177,15 @@ function _renderWaitlistSidebar(){
     item.onclick = () => openWaitlistCardModal(w._id);
     const cli = document.createElement('div');
     cli.className = 'slft-wl-cli';
-    cli.textContent = w.clientName || 'sin nombre';
-    // v499: chip ORDEN N al lado del nombre, si esta.
+    const cliName = document.createElement('span');
+    cliName.className = 'slft-wl-cli-name';
+    cliName.textContent = w.clientName || 'sin nombre';
+    cli.appendChild(cliName);
+    // v499/v501: chip ORDEN N alineado al costado derecho.
     if (w.orderNumber) {
       const badge = document.createElement('span');
       badge.className = 'slft-wl-orden';
       badge.textContent = 'ORDEN ' + w.orderNumber;
-      cli.appendChild(document.createTextNode(' '));
       cli.appendChild(badge);
     }
     item.appendChild(cli);
@@ -11493,7 +11514,10 @@ window.revisionDejarRecalculando = async function(){
   // v499: numero de orden obligatorio para identificar el pedido
   // en la lista de espera ("ORDEN 11").
   const ordenInput = document.getElementById('revision-wait-orden-input');
-  const ordenNum = ((ordenInput && ordenInput.value) || '').trim().toUpperCase();
+  // v501: sanitizar - si el user tipeo "ORDEN 28" o "ORDEN N° 28", quedarnos
+  // solo con el numero. Evita el bug "ORDEN ORDEN 28" en el listado.
+  let ordenNum = ((ordenInput && ordenInput.value) || '').trim().toUpperCase();
+  ordenNum = ordenNum.replace(/^ORDEN\s*(N[°º]?\s*)?/i, '').trim();
   if (!ordenNum) {
     alert('Falta el numero de orden.\n\nIngresa el numero de la orden del cliente (ej: 11) para poder identificar el pedido en la lista de espera.');
     if (ordenInput) ordenInput.focus();
@@ -12202,7 +12226,10 @@ window.waitlistEditOrden = async function(){
     current
   );
   if (nuevo === null) return; // cancelado
-  const nuevoNorm = String(nuevo || '').trim().toUpperCase();
+  // v501: sanitizar prefijo "ORDEN" / "ORDEN N°" que el user pudo copiar
+  // del chip de la lista. Quedarse solo con el numero.
+  let nuevoNorm = String(nuevo || '').trim().toUpperCase();
+  nuevoNorm = nuevoNorm.replace(/^ORDEN\s*(N[°º]?\s*)?/i, '').trim();
   if (nuevoNorm === (current || '').toUpperCase()) return; // sin cambios
   try {
     await fbDb.collection('revision_waitlist').doc(w._id).update({
