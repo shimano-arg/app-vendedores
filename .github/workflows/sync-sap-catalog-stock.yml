@@ -16,13 +16,17 @@ name: Sync SAP Catalog + Stock (Service Layer)
 
 on:
   schedule:
-    # Cada 30 min, DESFASADO (:13 y :43) para evitar el throttling de
-    # GitHub Actions en :00/:30 (documentado como picos de carga globales
-    # donde muchos scheduled workflows compiten). Con *0/*30 GitHub estaba
-    # skippeando la mitad de las corridas (verificado 2026-07-02: 6 runs
-    # en 15hs en vez de 30). Con :13/:43 sube la probabilidad de que
-    # respete el intervalo real.
-    - cron: '13,43 * * * *'
+    # v508 (2026-08-13): cada 5 min. Antes cada 30 min (:13/:43). Cada
+    # corrida tarda ~4-5 min - CABE en la ventana con concurrency guard
+    # (si aun corre, la nueva se skipea). Desfasado en :02/:07/:12/:17/...
+    # (offset :02) para evitar picos de GitHub Actions en :00/:05 exactos.
+    #
+    # Impacto:
+    #   - SAP SL: ~6x mas requests/hora al Service Layer. Consultar con
+    #     David si SAP-B1 lo soporta sostenido (baseline ~30 req/corrida).
+    #   - GH Actions minutos: 5 min * 12 = 60 min/hora * 24 = 1440 min/dia.
+    #     Repo publico -> unlimited. Repo privado -> excede free tier.
+    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
   workflow_dispatch:
     inputs:
       dry_run:
