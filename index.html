@@ -4072,7 +4072,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v515';
+const APP_VERSION = 'v516';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11366,7 +11366,9 @@ var _pendingWaitlistDelete = null;
 function ensureRevisionWaitlistListener(){
   if (_unsubRevisionWaitlist) return;
   if (!currentUser || !fbDb) return;
-  if (!document.body.classList.contains('can-revision')) return;
+  // v516 (2026-08-13): gate can-revision removido - todos los users
+  // pueden leer la lista compartida (rules Firestore permiten a cualquier
+  // reader). Antes solo el whitelist iniciaba el listener.
   _unsubRevisionWaitlist = fbDb.collection('revision_waitlist')
     .orderBy('createdAt', 'asc')
     .onSnapshot(qs => {
@@ -11410,8 +11412,7 @@ function _renderWaitlistSidebar(){
   const cnt = document.getElementById('slft-wl-count');
   const clearBtn = document.getElementById('slft-wl-clear');
   if (!cont || !rows || !empty || !cnt) return;
-  const canRevision = document.body.classList.contains('can-revision');
-  if (!canRevision) { cont.style.display = 'none'; return; }
+  // v516: listado visible para todos los users. Antes gate can-revision.
   cont.style.display = '';
   // v494: enganchar handlers del buscador una sola vez (flag idempotente).
   const inp = document.getElementById('slft-wl-search');
@@ -15745,30 +15746,21 @@ function applyRolePermissions(){
     'pablo.gonzalez@shimano.com.ar',
   ]);
   document.body.classList.toggle('can-revision', REVISION_WHITELIST.has(_em));
-  // v493: si el user es del whitelist, arrancar el listener (si no arranco
-  // ya) y refrescar el listado inline del sidebar-left.
+  // v516 (2026-08-13): TODOS los users arrancan el listener + ven el
+  // listado inline del sidebar-left. Antes solo el whitelist Revision.
   try {
-    if (REVISION_WHITELIST.has(_em)) {
-      if (typeof ensureRevisionWaitlistListener === 'function') ensureRevisionWaitlistListener();
-      if (typeof _renderWaitlistSidebar === 'function') _renderWaitlistSidebar();
-    } else {
-      const c = document.getElementById('sidebar-left-waitlist');
-      if (c) c.style.display = 'none';
-    }
+    if (typeof ensureRevisionWaitlistListener === 'function') ensureRevisionWaitlistListener();
+    if (typeof _renderWaitlistSidebar === 'function') _renderWaitlistSidebar();
   } catch(e) { console.warn('sidebar-left-waitlist init', e); }
   // v487 (2026-08-12): whitelist para forzar la visibilidad de TODOS los
-  // botones del sidebar-left. Aunque el original tenga display:none por
-  // role gate, el proxy del sidebar-left se muestra igual. Emails:
-  //   - santiago.esteban@shimano.com.ar (VDI Santi)
-  //   - ioannis.plakoudakis@shimano.com.ar (VDI Ioannis)
-  //   - pablo.gonzalez@shimano.com.ar (gerente Pablo)
-  // Admin (Mariano) ya ve todo por rol, no hace falta agregarlo aca.
-  const FORCE_SIDEBAR_BTNS = new Set([
-    'santiago.esteban@shimano.com.ar',
-    'ioannis.plakoudakis@shimano.com.ar',
-    'pablo.gonzalez@shimano.com.ar',
-  ]);
-  document.body.classList.toggle('force-sidebar-btns-visible', FORCE_SIDEBAR_BTNS.has(_em));
+  // v516 (2026-08-13): TODOS los users ven la misma interfaz en desktop.
+  // Antes solo el whitelist Santi/Ioannis/Pablo forzaba visibilidad de
+  // botones (Mariano ya los ve por rol admin). Ahora activamos siempre
+  // la clase para que los VDEs (Federico/Gonzalo/Mauricio/Martin) tambien
+  // vean todos los botones del sidebar-left proxy en desktop.
+  // Nota: cada boton mantiene su role gate al click - la accion adentro
+  // sigue restringida si el user no tiene permisos.
+  document.body.classList.add('force-sidebar-btns-visible');
   // Badge: ADMIN solo el rol; resto solo PRIMER NOMBRE del usuario para que entre en mobile.
   const badge = document.getElementById('user-role-badge');
   badge.className = 'role-badge ' + userRole;
