@@ -3809,13 +3809,35 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <datalist id="revision-wait-cli-list"></datalist>
         <div id="revision-wait-cli-info" style="font-size:10px;color:#7e22ce;margin-top:4px"></div>
         <div style="font-size:11px;color:#6b21a8;font-weight:700;margin-top:10px;margin-bottom:4px">Forma de entrega <span style="color:#dc2626">*</span></div>
-        <select id="revision-wait-entrega-select" style="width:100%;padding:8px 10px;font-size:13px;font-weight:600;color:#0f172a;border:1.5px solid #a855f7;border-radius:5px;background:#fff;outline:none">
+        <select id="revision-wait-entrega-select" onchange="onRevisionEntregaChange()" style="width:100%;padding:8px 10px;font-size:13px;font-weight:600;color:#0f172a;border:1.5px solid #a855f7;border-radius:5px;background:#fff;outline:none">
           <option value="">- Seleccionar -</option>
           <option value="TRANSPORTISTA">Entregar a transportista</option>
           <option value="SUCURSAL">Env&iacute;o a sucursal</option>
           <option value="RETIRO_DEPOSITO">Retiro en el dep&oacute;sito</option>
         </select>
-        <div style="font-size:10px;color:#7e22ce;margin-top:4px;font-style:italic">Los datos espec&iacute;ficos del transporte/sucursal/DNI se completan al pasar a Pendientes.</div>
+        <!-- v519 (2026-08-13): campos condicionales por forma de entrega. -->
+        <div id="rwe-transp-block" style="display:none;margin-top:10px">
+          <label style="font-size:11px;font-weight:700;color:#6b21a8;display:block;margin-bottom:4px">Nombre del transportista <span style="color:#dc2626">*</span></label>
+          <input id="rwe-transp-nombre" type="text" placeholder="Ej: Cruz del Sur, Andreani, etc." style="width:100%;padding:8px 10px;border:1.5px solid #a855f7;border-radius:5px;font-size:13px;color:#0f172a;outline:none;background:#fff;margin-bottom:8px"/>
+          <label style="font-size:11px;font-weight:700;color:#6b21a8;display:block;margin-bottom:4px">Direcci&oacute;n del transportista <span style="color:#dc2626">*</span></label>
+          <input id="rwe-transp-direccion" type="text" placeholder="Ej: Av. Corrientes 1234, CABA" style="width:100%;padding:8px 10px;border:1.5px solid #a855f7;border-radius:5px;font-size:13px;color:#0f172a;outline:none;background:#fff;margin-bottom:8px"/>
+          <label style="font-size:11px;font-weight:700;color:#6b21a8;display:block;margin-bottom:4px">Direcci&oacute;n de entrega al cliente <span style="color:#dc2626">*</span></label>
+          <input id="rwe-cliente-direccion" type="text" placeholder="Ej: Av. Belgrano 4567 (destino final)" style="width:100%;padding:8px 10px;border:1.5px solid #a855f7;border-radius:5px;font-size:13px;color:#0f172a;outline:none;background:#fff"/>
+        </div>
+        <div id="rwe-sucursal-block" style="display:none;margin-top:10px">
+          <label style="font-size:11px;font-weight:700;color:#6b21a8;display:block;margin-bottom:4px">Direcci&oacute;n de entrega <span style="color:#dc2626">*</span></label>
+          <input id="rwe-sucursal-direccion" type="text" placeholder="Ej: Av. Cabildo 4567, CABA" style="width:100%;padding:8px 10px;border:1.5px solid #a855f7;border-radius:5px;font-size:13px;color:#0f172a;outline:none;background:#fff"/>
+        </div>
+        <div id="rwe-retiro-block" style="display:none;margin-top:10px">
+          <label style="font-size:11px;font-weight:700;color:#6b21a8;display:block;margin-bottom:4px">Nombre del responsable <span style="color:#dc2626">*</span></label>
+          <input id="rwe-retiro-nombre" type="text" placeholder="Ej: Juan" style="width:100%;padding:8px 10px;border:1.5px solid #a855f7;border-radius:5px;font-size:13px;color:#0f172a;outline:none;background:#fff;margin-bottom:8px"/>
+          <label style="font-size:11px;font-weight:700;color:#6b21a8;display:block;margin-bottom:4px">Apellido del responsable <span style="color:#dc2626">*</span></label>
+          <input id="rwe-retiro-apellido" type="text" placeholder="Ej: Perez" style="width:100%;padding:8px 10px;border:1.5px solid #a855f7;border-radius:5px;font-size:13px;color:#0f172a;outline:none;background:#fff;margin-bottom:8px"/>
+          <label style="font-size:11px;font-weight:700;color:#6b21a8;display:block;margin-bottom:4px">DNI del responsable <span style="color:#dc2626">*</span></label>
+          <input id="rwe-retiro-dni" type="text" inputmode="numeric" placeholder="Ej: 30123456" style="width:100%;padding:8px 10px;border:1.5px solid #a855f7;border-radius:5px;font-size:13px;color:#0f172a;outline:none;background:#fff;margin-bottom:8px"/>
+          <label style="font-size:11px;font-weight:700;color:#6b21a8;display:block;margin-bottom:4px">Patente del veh&iacute;culo <span style="color:#dc2626">*</span></label>
+          <input id="rwe-retiro-patente" type="text" placeholder="Ej: AB123CD" style="width:100%;padding:8px 10px;border:1.5px solid #a855f7;border-radius:5px;font-size:13px;color:#0f172a;outline:none;background:#fff;text-transform:uppercase"/>
+        </div>
       </div>
     </div>
   </div>
@@ -4080,7 +4102,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v518';
+const APP_VERSION = 'v519';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11145,9 +11167,19 @@ window.closeRevisionModal = function(){
   try {
     const ci = document.getElementById('revision-wait-cli-input');
     if (ci) ci.value = '';
-    // v518: reset del select forma de entrega (reemplazo del orden input).
+    // v518/v519: reset del select forma de entrega + campos condicionales.
     const ei = document.getElementById('revision-wait-entrega-select');
     if (ei) ei.value = '';
+    ['rwe-transp-nombre','rwe-transp-direccion','rwe-cliente-direccion',
+     'rwe-sucursal-direccion','rwe-retiro-nombre','rwe-retiro-apellido',
+     'rwe-retiro-dni','rwe-retiro-patente'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    ['rwe-transp-block','rwe-sucursal-block','rwe-retiro-block'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
     const cr = document.getElementById('revision-wait-cli-row');
     if (cr) cr.style.display = 'none';
     const ii = document.getElementById('revision-wait-cli-info');
@@ -11978,6 +12010,21 @@ function _augmentVisitCards(){
 }
 
 // Poblar datalist de clientes al abrir modal Revision (una sola vez).
+// v519: toggle de bloques de campos segun forma de entrega elegida.
+window.onRevisionEntregaChange = function(){
+  const sel = document.getElementById('revision-wait-entrega-select');
+  const val = (sel && sel.value) || '';
+  const blocks = {
+    'TRANSPORTISTA': 'rwe-transp-block',
+    'SUCURSAL': 'rwe-sucursal-block',
+    'RETIRO_DEPOSITO': 'rwe-retiro-block',
+  };
+  Object.entries(blocks).forEach(([k, id]) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = (k === val) ? '' : 'none';
+  });
+};
+
 window.revisionOnClienteInput = function(){
   const input = document.getElementById('revision-wait-cli-input');
   const info = document.getElementById('revision-wait-cli-info');
@@ -12084,14 +12131,49 @@ window.revisionDejarRecalculando = async function(){
     input.focus();
     return;
   }
-  // v518: forma de entrega obligatoria. Elimina input Numero de orden
-  // (siempre auto = max + 1). El detalle del transportista/sucursal/DNI
-  // se completa al pasar a Pendientes en el modal Revisar.
+  // v518/v519: forma de entrega obligatoria + campos condicionales por
+  // tipo. El detalle completo se carga aca y se prellena en el modal
+  // Revisar al pasar a Pendientes.
   const deliveryMethod = ((entregaSel && entregaSel.value) || '').trim();
   if (!deliveryMethod) {
-    alert('Falta la forma de entrega.\n\nElegi una opcion (Transportista / Sucursal / Retiro en deposito) para que el vendedor sepa como coordinar cuando el pedido pase a Pendientes.');
+    alert('Falta la forma de entrega.\n\nElegi una opcion (Transportista / Sucursal / Retiro en deposito).');
     if (entregaSel) entregaSel.focus();
     return;
+  }
+  // v519: validar campos por tipo + armar deliveryDetails.
+  const _v = (id) => (document.getElementById(id)?.value || '').trim();
+  const deliveryDetails = {};
+  if (deliveryMethod === 'TRANSPORTISTA') {
+    const tn = _v('rwe-transp-nombre');
+    const td = _v('rwe-transp-direccion');
+    const cd = _v('rwe-cliente-direccion');
+    if (!tn || !td || !cd) {
+      alert('Faltan datos del transportista.\n\nCompleta: Nombre + Direccion del transportista + Direccion de entrega al cliente.');
+      return;
+    }
+    deliveryDetails.transportistaNombre = tn;
+    deliveryDetails.transportistaDireccion = td;
+    deliveryDetails.clienteDireccion = cd;
+  } else if (deliveryMethod === 'SUCURSAL') {
+    const sd = _v('rwe-sucursal-direccion');
+    if (!sd) {
+      alert('Falta la direccion de entrega de la sucursal.');
+      return;
+    }
+    deliveryDetails.sucursalDireccion = sd;
+  } else if (deliveryMethod === 'RETIRO_DEPOSITO') {
+    const rn = _v('rwe-retiro-nombre');
+    const ra = _v('rwe-retiro-apellido');
+    const rd = _v('rwe-retiro-dni');
+    const rp = _v('rwe-retiro-patente');
+    if (!rn || !ra || !rd || !rp) {
+      alert('Faltan datos del retiro.\n\nCompleta: Nombre + Apellido + DNI + Patente del responsable.');
+      return;
+    }
+    deliveryDetails.retiroNombre = rn;
+    deliveryDetails.retiroApellido = ra;
+    deliveryDetails.retiroDni = rd;
+    deliveryDetails.retiroPatente = rp.toUpperCase();
   }
   // v515/v518: auto-asignar numero de orden = max(existente) + 1.
   const ordenNum = (() => {
@@ -12131,6 +12213,7 @@ window.revisionDejarRecalculando = async function(){
       ownerVendor: (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '',
       orderNumber: ordenNum, // v499 (v515 auto-asignado)
       deliveryMethod: deliveryMethod, // v518: TRANSPORTISTA / SUCURSAL / RETIRO_DEPOSITO
+      deliveryDetails: deliveryDetails, // v519: campos especificos segun deliveryMethod
       items,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -13091,15 +13174,29 @@ window.waitlistPasarAPendientes = async function(){
   // Abrir modal "Revisa tu pedido" normal.
   try { openReviewDialog('crear'); }
   catch(e) { console.error('openReviewDialog from waitlist', e); alert('Pedido cargado en Pendientes pero no pudimos abrir Revisar. Andá a Pedidos > Crear.'); }
-  // v518: prellenar el select "Forma de entrega" del modal Revisar con
-  // el deliveryMethod guardado. onFormaEntregaChange dispara la
-  // visualizacion del bloque correcto (transportista/sucursal/retiro).
+  // v518/v519: prellenar el select "Forma de entrega" del modal Revisar
+  // + los campos condicionales (transportista/sucursal/retiro) con los
+  // datos que el vendedor ya cargo en Revision Excel.
   try {
     if (w.deliveryMethod) {
       const sel = document.getElementById('rv-forma-entrega');
       if (sel) {
         sel.value = w.deliveryMethod;
         if (typeof onFormaEntregaChange === 'function') onFormaEntregaChange();
+      }
+      const d = w.deliveryDetails || {};
+      const setV = (id, v) => { const e = document.getElementById(id); if (e && v) e.value = v; };
+      if (w.deliveryMethod === 'TRANSPORTISTA') {
+        setV('rv-transp-nombre', d.transportistaNombre);
+        setV('rv-transp-direccion', d.transportistaDireccion);
+        setV('rv-cliente-direccion', d.clienteDireccion);
+      } else if (w.deliveryMethod === 'SUCURSAL') {
+        setV('rv-sucursal-direccion', d.sucursalDireccion);
+      } else if (w.deliveryMethod === 'RETIRO_DEPOSITO') {
+        setV('rv-retiro-nombre', d.retiroNombre);
+        setV('rv-retiro-apellido', d.retiroApellido);
+        setV('rv-retiro-dni', d.retiroDni);
+        setV('rv-retiro-patente', d.retiroPatente);
       }
     }
   } catch(e) { console.warn('prefill deliveryMethod', e); }
