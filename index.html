@@ -4104,7 +4104,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v525';
+const APP_VERSION = 'v526';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12779,19 +12779,31 @@ function _renderWaitlistCard(){
 //      (qty pendiente en la SQ open del cliente).
 //      Filas = _sapAsignadoConStockDeCliente (backorder SAP del cliente).
 // Precios y subtotales con formato de moneda ARS.
-window.waitlistExportTodo = function(){
+window.waitlistExportTodo = async function(){
   const w = _wcardCurrent;
   if (!w) { alert('No hay pedido en espera abierto.'); return; }
-  if (typeof XLSX === 'undefined' || !XLSX || !XLSX.utils) {
-    alert('El motor Excel no cargo. Recargá la pagina y probá.');
+  // v526: usamos ExcelJS (no SheetJS Community) para poder aplicar
+  // color de fondo + font blanco en encabezados. SheetJS Community
+  // no soporta styling; ExcelJS ya viene cargado desde v510.
+  if (typeof ExcelJS === 'undefined') {
+    alert('ExcelJS todavia no cargo. Reintenta en 2 segundos.');
     return;
   }
   const btn = document.getElementById('wcard-export-todo-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Generando...'; }
   try {
+    const wb = new ExcelJS.Workbook();
+    const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF074F69' } };
+    const HEADER_FONT = { color: { argb: 'FFFFFFFF' }, bold: true };
+    const CENTER = { vertical: 'middle', horizontal: 'center' };
     // ------ Hoja 1: PEDIDO ACTUAL ------
-    const aoa1 = [
-      ['SKU', 'Producto', 'Unidades pedidas', 'Precio', 'Subtotal'],
+    const ws1 = wb.addWorksheet('PEDIDO ACTUAL');
+    ws1.columns = [
+      { header: 'SKU', width: 16 },
+      { header: 'Producto', width: 55 },
+      { header: 'Unidades pedidas', width: 18 },
+      { header: 'Precio', width: 14 },
+      { header: 'Subtotal', width: 16 },
     ];
     (w.items || []).forEach(it => {
       const stk = _revisionStockFor(it.code);
@@ -12799,27 +12811,28 @@ window.waitlistExportTodo = function(){
       const dispSap = stk.hasData ? Math.max((stk.stockTotal || 0) - backSap, 0) : (it.qty || 0);
       const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(it.code) || 0) : 0;
       const qty = it.qty || 0;
-      // Subtotal (Confirmacion Inmediata) = min(qty, dispSap) * precio.
       const qtyConSap = Math.min(qty, dispSap);
       const subtotal = qtyConSap * precio;
-      aoa1.push([it.code || '', it.desc || '', qty, precio || 0, subtotal || 0]);
+      ws1.addRow([it.code || '', it.desc || '', qty, precio || 0, subtotal || 0]);
     });
-    const ws1 = XLSX.utils.aoa_to_sheet(aoa1);
-    ws1['!cols'] = [{wch: 16}, {wch: 55}, {wch: 16}, {wch: 14}, {wch: 16}];
-    // Formato moneda ARS para columnas D (Precio) y E (Subtotal).
-    const nItems = (w.items || []).length;
-    for (let i = 2; i <= nItems + 1; i++) {
-      const cD = ws1['D' + i]; if (cD && typeof cD.v === 'number') cD.z = '"$"#,##0';
-      const cE = ws1['E' + i]; if (cE && typeof cE.v === 'number') cE.z = '"$"#,##0';
+    // Encabezado: fondo #074F69 + font blanco bold + centrado.
+    const h1 = ws1.getRow(1);
+    h1.eachCell((cell) => { cell.fill = HEADER_FILL; cell.font = HEADER_FONT; cell.alignment = CENTER; });
+    // Data rows: centrado + formato moneda en Precio (col 4) y Subtotal (col 5).
+    for (let r = 2; r <= ws1.rowCount; r++) {
+      const row = ws1.getRow(r);
+      for (let c = 1; c <= 5; c++) row.getCell(c).alignment = CENTER;
+      row.getCell(4).numFmt = '"$"#,##0';
+      row.getCell(5).numFmt = '"$"#,##0';
     }
     // ------ Hoja 2: CONFIRMACION BACKORDER ------
-    // Cada linea del backorder SAP del cliente. Stock disponible como
-    // texto (Disponible/No disponible) - no numero, pedido explicito.
-    const asigItems = _sapAsignadoConStockDeCliente(w.clientCardCode);
-    // Ademas incluir todas las lineas de backorder del cliente (incluso
-    // sin stock) para que el vendedor vea el universo completo. Es lo
-    // que "tenia pedidas de ese SKU en el otro pedido ya habia hecho".
-    // Fuente: backorderLines filtrado por clienteCode.
+    const ws2 = wb.addWorksheet('CONFIRMACION BACKORDER');
+    ws2.columns = [
+      { header: 'SKU', width: 16 },
+      { header: 'Producto', width: 55 },
+      { header: 'Stock disponible', width: 18 },
+      { header: 'Unidades pedidas', width: 18 },
+    ];
     const backCliAll = [];
     if (typeof backorderLines !== 'undefined' && backorderLines && w.clientCardCode) {
       const target = String(w.clientCardCode).trim();
@@ -12836,28 +12849,31 @@ window.waitlistExportTodo = function(){
         ? STOCK_WAREHOUSE_BREAKDOWN[String(sku||'').toUpperCase().trim()] : null;
       return whs ? Number(whs['11'] || 0) : 0;
     };
-    const aoa2 = [
-      ['SKU', 'Producto', 'Stock disponible', 'Unidades pedidas'],
-    ];
     backCliAll.forEach(ln => {
       const disp = stockDisp11(ln.sku);
-      aoa2.push([
+      ws2.addRow([
         ln.sku || '',
         ln.producto || '',
         disp > 0 ? 'DISPONIBLE' : 'NO DISPONIBLE',
         parseFloat(ln.pendiente) || 0,
       ]);
     });
-    const ws2 = XLSX.utils.aoa_to_sheet(aoa2);
-    ws2['!cols'] = [{wch: 16}, {wch: 55}, {wch: 16}, {wch: 16}];
-    // Ensamblar workbook.
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws1, 'PEDIDO ACTUAL');
-    XLSX.utils.book_append_sheet(wb, ws2, 'CONFIRMACION BACKORDER');
+    const h2 = ws2.getRow(1);
+    h2.eachCell((cell) => { cell.fill = HEADER_FILL; cell.font = HEADER_FONT; cell.alignment = CENTER; });
+    for (let r = 2; r <= ws2.rowCount; r++) {
+      const row = ws2.getRow(r);
+      for (let c = 1; c <= 4; c++) row.getCell(c).alignment = CENTER;
+    }
+    // ------ Descarga ------
+    const out = await wb.xlsx.writeBuffer();
     const cliSlug = (w.clientName || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').slice(0, 40);
     const orden = w.orderNumber ? ('_orden' + w.orderNumber) : '';
     const filename = 'Pedido_' + cliSlug + orden + '.xlsx';
-    XLSX.writeFile(wb, filename);
+    const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 200);
     if (typeof showSyncTag === 'function') showSyncTag('Excel exportado');
   } catch(e) {
     console.error('waitlistExportTodo', e);
