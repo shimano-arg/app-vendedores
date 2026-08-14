@@ -3926,8 +3926,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
       <div style="display:flex;gap:10px;justify-content:center;align-items:center;margin-top:20px;flex-wrap:wrap">
         <button class="stock-action-btn cancel" onclick="closeWaitlistCardModal()">Cerrar</button>
         <button class="stock-action-btn publish" id="wcard-edit-orden-btn" onclick="waitlistEditOrden()" style="background:#0f172a;color:#fff">Editar orden</button>
-        <button class="stock-action-btn publish" id="wcard-export-btn" onclick="waitlistExportToExcel()" style="background:#0f766e;color:#fff">Descargar como Excel</button>
-        <button class="stock-action-btn publish" id="wcard-export-stkasig-btn" onclick="waitlistExportStockAsignado()" style="background:#166534;color:#fff" title="Exporta solo los SKU del pedido que ya tienen stock en el deposito 11 (formato template Shimano)">Exportar Stock Asignado</button>
+        <button class="stock-action-btn publish" id="wcard-export-todo-btn" onclick="waitlistExportTodo()" style="background:#0f766e;color:#fff" title="Excel con 2 hojas: PEDIDO ACTUAL (los items del pedido) + CONFIRMACION BACKORDER (SKUs asignados del cliente en SAP con estado disponible/no)">Exportar todo</button>
         <button class="stock-action-btn cancel" id="wcard-delete-btn" onclick="waitlistDeleteCurrent()" style="background:#dc2626;color:#fff;display:none">Borrar de espera</button>
         <button class="stock-action-btn publish" id="wcard-pass-btn" onclick="waitlistPasarAPendientes()" style="background:#1e40af;color:#fff">Pasar a Pendientes</button>
       </div>
@@ -4105,7 +4104,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v524';
+const APP_VERSION = 'v525';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12770,13 +12769,106 @@ function _renderWaitlistCard(){
   }
 }
 
-// v492: exportar el pedido en espera actual a un XLSX con metadata +
-// tabla de productos + subtotales, mismo calculo que _renderWaitlistCard.
-// v522/v524 (2026-08-13): exporta los SKUs del cliente que estan como
-// "SAP Asignado - Con Stock" (backorder open en SAP con stock disponible
-// AHORA). Es el subset que el cliente ya tiene pedido en ofertas SAP
-// abiertas Y ademas hay stock para entregar. Usa el template Shimano
-// oficial. Nombre: STOCK ASIGNADO. <CLIENTE>.xlsx.
+// v525 (2026-08-14): unifica los 2 botones (Descargar como Excel +
+// Exportar Stock Asignado) en uno solo "Exportar todo" que genera un
+// XLSX con 2 hojas simples:
+//   1. "PEDIDO ACTUAL": SKU / Producto / Unidades pedidas / Precio /
+//      Subtotal (Confirmacion Inmediata). Filas = w.items.
+//   2. "CONFIRMACION BACKORDER": SKU / Producto / Stock disponible
+//      (texto DISPONIBLE/NO DISPONIBLE, sin numero) / Unidades pedidas
+//      (qty pendiente en la SQ open del cliente).
+//      Filas = _sapAsignadoConStockDeCliente (backorder SAP del cliente).
+// Precios y subtotales con formato de moneda ARS.
+window.waitlistExportTodo = function(){
+  const w = _wcardCurrent;
+  if (!w) { alert('No hay pedido en espera abierto.'); return; }
+  if (typeof XLSX === 'undefined' || !XLSX || !XLSX.utils) {
+    alert('El motor Excel no cargo. Recargá la pagina y probá.');
+    return;
+  }
+  const btn = document.getElementById('wcard-export-todo-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Generando...'; }
+  try {
+    // ------ Hoja 1: PEDIDO ACTUAL ------
+    const aoa1 = [
+      ['SKU', 'Producto', 'Unidades pedidas', 'Precio', 'Subtotal'],
+    ];
+    (w.items || []).forEach(it => {
+      const stk = _revisionStockFor(it.code);
+      const backSap = stk.backorder || 0;
+      const dispSap = stk.hasData ? Math.max((stk.stockTotal || 0) - backSap, 0) : (it.qty || 0);
+      const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(it.code) || 0) : 0;
+      const qty = it.qty || 0;
+      // Subtotal (Confirmacion Inmediata) = min(qty, dispSap) * precio.
+      const qtyConSap = Math.min(qty, dispSap);
+      const subtotal = qtyConSap * precio;
+      aoa1.push([it.code || '', it.desc || '', qty, precio || 0, subtotal || 0]);
+    });
+    const ws1 = XLSX.utils.aoa_to_sheet(aoa1);
+    ws1['!cols'] = [{wch: 16}, {wch: 55}, {wch: 16}, {wch: 14}, {wch: 16}];
+    // Formato moneda ARS para columnas D (Precio) y E (Subtotal).
+    const nItems = (w.items || []).length;
+    for (let i = 2; i <= nItems + 1; i++) {
+      const cD = ws1['D' + i]; if (cD && typeof cD.v === 'number') cD.z = '"$"#,##0';
+      const cE = ws1['E' + i]; if (cE && typeof cE.v === 'number') cE.z = '"$"#,##0';
+    }
+    // ------ Hoja 2: CONFIRMACION BACKORDER ------
+    // Cada linea del backorder SAP del cliente. Stock disponible como
+    // texto (Disponible/No disponible) - no numero, pedido explicito.
+    const asigItems = _sapAsignadoConStockDeCliente(w.clientCardCode);
+    // Ademas incluir todas las lineas de backorder del cliente (incluso
+    // sin stock) para que el vendedor vea el universo completo. Es lo
+    // que "tenia pedidas de ese SKU en el otro pedido ya habia hecho".
+    // Fuente: backorderLines filtrado por clienteCode.
+    const backCliAll = [];
+    if (typeof backorderLines !== 'undefined' && backorderLines && w.clientCardCode) {
+      const target = String(w.clientCardCode).trim();
+      backorderLines.forEach(ln => {
+        if (String(ln.clienteCode || '').trim() !== target) return;
+        const pend = parseFloat(ln.pendiente) || 0;
+        if (pend <= 0) return;
+        backCliAll.push(ln);
+      });
+    }
+    const stockDisp11 = (sku) => {
+      if (typeof getStockDisponibleVenta === 'function') return getStockDisponibleVenta(sku) || 0;
+      const whs = (typeof STOCK_WAREHOUSE_BREAKDOWN === 'object' && STOCK_WAREHOUSE_BREAKDOWN)
+        ? STOCK_WAREHOUSE_BREAKDOWN[String(sku||'').toUpperCase().trim()] : null;
+      return whs ? Number(whs['11'] || 0) : 0;
+    };
+    const aoa2 = [
+      ['SKU', 'Producto', 'Stock disponible', 'Unidades pedidas'],
+    ];
+    backCliAll.forEach(ln => {
+      const disp = stockDisp11(ln.sku);
+      aoa2.push([
+        ln.sku || '',
+        ln.producto || '',
+        disp > 0 ? 'DISPONIBLE' : 'NO DISPONIBLE',
+        parseFloat(ln.pendiente) || 0,
+      ]);
+    });
+    const ws2 = XLSX.utils.aoa_to_sheet(aoa2);
+    ws2['!cols'] = [{wch: 16}, {wch: 55}, {wch: 16}, {wch: 16}];
+    // Ensamblar workbook.
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws1, 'PEDIDO ACTUAL');
+    XLSX.utils.book_append_sheet(wb, ws2, 'CONFIRMACION BACKORDER');
+    const cliSlug = (w.clientName || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').slice(0, 40);
+    const orden = w.orderNumber ? ('_orden' + w.orderNumber) : '';
+    const filename = 'Pedido_' + cliSlug + orden + '.xlsx';
+    XLSX.writeFile(wb, filename);
+    if (typeof showSyncTag === 'function') showSyncTag('Excel exportado');
+  } catch(e) {
+    console.error('waitlistExportTodo', e);
+    alert('Error generando el Excel: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Exportar todo'; }
+  }
+};
+
+// v492 (legacy, ya no invocado post-v525 - reemplazado por waitlistExportTodo).
+// Se mantiene por si algun handler o test antiguo lo llama.
 window.waitlistExportStockAsignado = async function(){
   const w = _wcardCurrent;
   if (!w) { alert('No hay pedido en espera abierto.'); return; }
