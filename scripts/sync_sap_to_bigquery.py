@@ -1592,9 +1592,12 @@ def main():
         'ItemWarehouseInfoCollection', 'ItemPrices',
         'Valid', 'Frozen', 'CreateDate', 'UpdateDate',
     ]
-    # v527 (2026-08-14): intentar con UDFs; si SL responde 400 (UDF con otro
-    # nombre en este SAP), fallback al select base sin UDFs. flatten_item
-    # tolera .get() sin key -> queda '' y usa solo el catalogo local.
+    # v527/v530 (2026-08-14): intentar con UDFs; si SL responde 400 (UDF con
+    # otro nombre en este SAP), fallback al select base sin UDFs.
+    # NOTA v530: sl_fetch_all hace sys.exit(4) en HTTP 400 (levanta SystemExit,
+    # no Exception). Capturamos BaseException para no perder el fallback.
+    # Confirmado prod 2026-08-14: los UDFs no se llaman U_CATEGORIA/U_FAMILIA/
+    # U_SUBFAMILIA en este SAP - los UDFs reales hay que consultarlos a David.
     item_select = item_select_base + ['U_CATEGORIA', 'U_FAMILIA', 'U_SUBFAMILIA']
     try:
         items = sl_fetch_all(
@@ -1603,7 +1606,7 @@ def main():
             filter_expr=f"ItemsGroupCode eq {pesca_code}",
             max_docs=max_docs,
         )
-    except Exception as e:
+    except (Exception, SystemExit) as e:
         log(f'[ITEMS] fallo con UDFs (probable nombre distinto en SAP): {e}')
         log('[ITEMS] reintentando sin UDFs (fallback a catalogo local solo)')
         items = sl_fetch_all(
