@@ -4104,7 +4104,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v526';
+const APP_VERSION = 'v528';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12795,75 +12795,110 @@ window.waitlistExportTodo = async function(){
     const wb = new ExcelJS.Workbook();
     const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF074F69' } };
     const HEADER_FONT = { color: { argb: 'FFFFFFFF' }, bold: true };
+    const TOTAL_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF166534' } };
+    const TOTAL_FONT = { color: { argb: 'FFFFFFFF' }, bold: true, size: 14 };
     const CENTER = { vertical: 'middle', horizontal: 'center' };
-    // ------ Hoja 1: PEDIDO ACTUAL ------
-    const ws1 = wb.addWorksheet('PEDIDO ACTUAL');
-    ws1.columns = [
-      { header: 'SKU', width: 16 },
-      { header: 'Producto', width: 55 },
-      { header: 'Unidades pedidas', width: 18 },
-      { header: 'Precio', width: 14 },
-      { header: 'Subtotal', width: 16 },
-    ];
-    (w.items || []).forEach(it => {
-      const stk = _revisionStockFor(it.code);
-      const backSap = stk.backorder || 0;
-      const dispSap = stk.hasData ? Math.max((stk.stockTotal || 0) - backSap, 0) : (it.qty || 0);
-      const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(it.code) || 0) : 0;
-      const qty = it.qty || 0;
-      const qtyConSap = Math.min(qty, dispSap);
-      const subtotal = qtyConSap * precio;
-      ws1.addRow([it.code || '', it.desc || '', qty, precio || 0, subtotal || 0]);
-    });
-    // Encabezado: fondo #074F69 + font blanco bold + centrado.
-    const h1 = ws1.getRow(1);
-    h1.eachCell((cell) => { cell.fill = HEADER_FILL; cell.font = HEADER_FONT; cell.alignment = CENTER; });
-    // Data rows: centrado + formato moneda en Precio (col 4) y Subtotal (col 5).
-    for (let r = 2; r <= ws1.rowCount; r++) {
-      const row = ws1.getRow(r);
-      for (let c = 1; c <= 5; c++) row.getCell(c).alignment = CENTER;
-      row.getCell(4).numFmt = '"$"#,##0';
-      row.getCell(5).numFmt = '"$"#,##0';
-    }
-    // ------ Hoja 2: CONFIRMACION BACKORDER ------
-    const ws2 = wb.addWorksheet('CONFIRMACION BACKORDER');
-    ws2.columns = [
-      { header: 'SKU', width: 16 },
-      { header: 'Producto', width: 55 },
-      { header: 'Stock disponible', width: 18 },
-      { header: 'Unidades pedidas', width: 18 },
-    ];
-    const backCliAll = [];
-    if (typeof backorderLines !== 'undefined' && backorderLines && w.clientCardCode) {
-      const target = String(w.clientCardCode).trim();
-      backorderLines.forEach(ln => {
-        if (String(ln.clienteCode || '').trim() !== target) return;
-        const pend = parseFloat(ln.pendiente) || 0;
-        if (pend <= 0) return;
-        backCliAll.push(ln);
-      });
-    }
     const stockDisp11 = (sku) => {
       if (typeof getStockDisponibleVenta === 'function') return getStockDisponibleVenta(sku) || 0;
       const whs = (typeof STOCK_WAREHOUSE_BREAKDOWN === 'object' && STOCK_WAREHOUSE_BREAKDOWN)
         ? STOCK_WAREHOUSE_BREAKDOWN[String(sku||'').toUpperCase().trim()] : null;
       return whs ? Number(whs['11'] || 0) : 0;
     };
-    backCliAll.forEach(ln => {
-      const disp = stockDisp11(ln.sku);
-      ws2.addRow([
-        ln.sku || '',
-        ln.producto || '',
-        disp > 0 ? 'DISPONIBLE' : 'NO DISPONIBLE',
-        parseFloat(ln.pendiente) || 0,
-      ]);
+    // ============================================================
+    // Hoja 1: PEDIDO ACTUAL
+    // v528 (2026-08-14): fila 1 con TOTAL DEL PEDIDO + valor merged.
+    // Row 2 = encabezados. Row 3+ = data.
+    // ============================================================
+    const ws1 = wb.addWorksheet('PEDIDO ACTUAL');
+    // Preparar data + calcular total.
+    const rows1 = [];
+    let total1 = 0;
+    (w.items || []).forEach(it => {
+      const stk = _revisionStockFor(it.code);
+      const backSap = stk.backorder || 0;
+      const dispSap = stk.hasData ? Math.max((stk.stockTotal || 0) - backSap, 0) : (it.qty || 0);
+      const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(it.code) || 0) : 0;
+      const qty = it.qty || 0;
+      const subtotal = Math.min(qty, dispSap) * precio;
+      total1 += subtotal;
+      rows1.push([it.code || '', it.desc || '', qty, precio || 0, subtotal || 0]);
     });
-    const h2 = ws2.getRow(1);
-    h2.eachCell((cell) => { cell.fill = HEADER_FILL; cell.font = HEADER_FONT; cell.alignment = CENTER; });
-    for (let r = 2; r <= ws2.rowCount; r++) {
-      const row = ws2.getRow(r);
-      for (let c = 1; c <= 4; c++) row.getCell(c).alignment = CENTER;
+    // Anchos de columnas.
+    ws1.columns = [
+      { width: 16 }, { width: 55 }, { width: 18 }, { width: 14 }, { width: 18 },
+    ];
+    // Row 1: TOTAL DEL PEDIDO.
+    ws1.mergeCells('A1:D1');
+    ws1.getCell('A1').value = 'TOTAL DEL PEDIDO';
+    ws1.getCell('A1').fill = TOTAL_FILL;
+    ws1.getCell('A1').font = TOTAL_FONT;
+    ws1.getCell('A1').alignment = { vertical: 'middle', horizontal: 'right' };
+    ws1.getCell('E1').value = total1 || 0;
+    ws1.getCell('E1').fill = TOTAL_FILL;
+    ws1.getCell('E1').font = TOTAL_FONT;
+    ws1.getCell('E1').alignment = CENTER;
+    ws1.getCell('E1').numFmt = '"$"#,##0';
+    ws1.getRow(1).height = 24;
+    // Row 2: encabezados.
+    const HEAD1 = ['SKU', 'Producto', 'Unidades pedidas', 'Precio', 'Subtotal'];
+    HEAD1.forEach((h, i) => { const c = ws1.getCell(2, i + 1); c.value = h; c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = CENTER; });
+    // Row 3+: data.
+    rows1.forEach((r, idx) => {
+      const row = ws1.getRow(idx + 3);
+      r.forEach((v, ci) => row.getCell(ci + 1).value = v);
+      for (let c = 1; c <= 5; c++) row.getCell(c).alignment = CENTER;
+      row.getCell(4).numFmt = '"$"#,##0';
+      row.getCell(5).numFmt = '"$"#,##0';
+    });
+    // ============================================================
+    // Hoja 2: CONFIRMACION BACKORDER
+    // v528: solo productos DISPONIBLES + columnas Precio + Subtotal
+    // + row 1 con TOTAL DEL PEDIDO (backorder). Row 2 = encabezados.
+    // ============================================================
+    const ws2 = wb.addWorksheet('CONFIRMACION BACKORDER');
+    const rows2 = [];
+    let total2 = 0;
+    if (typeof backorderLines !== 'undefined' && backorderLines && w.clientCardCode) {
+      const target = String(w.clientCardCode).trim();
+      backorderLines.forEach(ln => {
+        if (String(ln.clienteCode || '').trim() !== target) return;
+        const pend = parseFloat(ln.pendiente) || 0;
+        if (pend <= 0) return;
+        // v528: solo productos disponibles.
+        const disp = stockDisp11(ln.sku);
+        if (disp <= 0) return;
+        const precio = parseFloat(ln.precioUnitario) || 0;
+        const subtotal = pend * precio;
+        total2 += subtotal;
+        rows2.push([ln.sku || '', ln.producto || '', 'DISPONIBLE', pend, precio || 0, subtotal || 0]);
+      });
     }
+    ws2.columns = [
+      { width: 16 }, { width: 55 }, { width: 16 }, { width: 18 }, { width: 14 }, { width: 18 },
+    ];
+    // Row 1: TOTAL DEL PEDIDO (backorder).
+    ws2.mergeCells('A1:E1');
+    ws2.getCell('A1').value = 'TOTAL DEL PEDIDO';
+    ws2.getCell('A1').fill = TOTAL_FILL;
+    ws2.getCell('A1').font = TOTAL_FONT;
+    ws2.getCell('A1').alignment = { vertical: 'middle', horizontal: 'right' };
+    ws2.getCell('F1').value = total2 || 0;
+    ws2.getCell('F1').fill = TOTAL_FILL;
+    ws2.getCell('F1').font = TOTAL_FONT;
+    ws2.getCell('F1').alignment = CENTER;
+    ws2.getCell('F1').numFmt = '"$"#,##0';
+    ws2.getRow(1).height = 24;
+    // Row 2: encabezados.
+    const HEAD2 = ['SKU', 'Producto', 'Stock disponible', 'Unidades pedidas', 'Precio', 'Subtotal'];
+    HEAD2.forEach((h, i) => { const c = ws2.getCell(2, i + 1); c.value = h; c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = CENTER; });
+    // Row 3+: data.
+    rows2.forEach((r, idx) => {
+      const row = ws2.getRow(idx + 3);
+      r.forEach((v, ci) => row.getCell(ci + 1).value = v);
+      for (let c = 1; c <= 6; c++) row.getCell(c).alignment = CENTER;
+      row.getCell(5).numFmt = '"$"#,##0';
+      row.getCell(6).numFmt = '"$"#,##0';
+    });
     // ------ Descarga ------
     const out = await wb.xlsx.writeBuffer();
     const cliSlug = (w.clientName || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').slice(0, 40);
