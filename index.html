@@ -3622,7 +3622,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
           </div>
           <div style="text-align:center;flex-shrink:0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
             <button id="btn-export-lista-plana" onclick="exportBackordersToExcel()" style="padding:9px 18px;border:1.5px solid #c2410c;border-radius:6px;background:#c2410c;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128190; Exportar todo</button>
-            <button id="btn-export-stock-asig-cliente" onclick="openExportStockAsigCliente()" style="padding:9px 18px;border:1.5px solid #166534;border-radius:6px;background:#166534;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128203; Exportar Stock Asignado</button>
+            <button id="btn-export-stock-asig-cliente" onclick="openExportStockAsigCliente()" style="padding:9px 18px;border:1.5px solid #166534;border-radius:6px;background:#166534;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128203; Exportar Stock Asignado por cliente</button>
           </div>
           <div id="backorders-summary" style="padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#78350f;flex-shrink:0"></div>
           <div id="backorders-list" style="flex:1;overflow-y:auto"></div>
@@ -4104,7 +4104,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v528';
+const APP_VERSION = 'v529';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -9812,15 +9812,23 @@ window.onBackordersStockFilterChange = function(){
 // buscador actual (SKU/producto/clienteNombre) y el filtro role-based
 // que ya aplico ensureBackordersListener. Sheet unico con 1 fila por
 // linea (sku + cliente + unidades pendientes).
-window.exportBackordersToExcel = function(){
+// v529 (2026-08-14): "Exportar todo" del modal Backorder/SAP Asignado
+// usa el mismo formato v528 (banda verde TOTAL DEL PEDIDO fila 1 +
+// encabezados #074F69 blanco bold fila 2 + centrado + moneda ARS via
+// ExcelJS). Antes generaba lista plana con SheetJS.
+window.exportBackordersToExcel = async function(){
   if (!backorderLines.length) {
-    alert('No hay backorders para exportar todavia. Espera al proximo sync (cada 30 min).');
+    alert('No hay backorders para exportar todavia. Espera al proximo sync.');
+    return;
+  }
+  if (typeof ExcelJS === 'undefined') {
+    alert('ExcelJS todavia no cargo. Reintenta en 2 segundos.');
     return;
   }
   const q = backordersSearchQuery;
   const mesF = backordersMesFilter;
   const stkF = backordersStockFilter;
-  const rows = backorderLines.filter(ln => {
+  const filtered = backorderLines.filter(ln => {
     if (mesF && String(ln.sqDocDate || '').slice(0, 7) !== mesF) return false;
     if (q) {
       const skuHit = (ln.sku||'').toLowerCase().includes(q);
@@ -9828,7 +9836,6 @@ window.exportBackordersToExcel = function(){
       const cliHit = (ln.clienteNombre||'').toLowerCase().includes(q);
       if (!skuHit && !prodHit && !cliHit) return false;
     }
-    // v420: export respeta el filtro por stock actual (exporta lo mismo que se ve en pantalla).
     if (stkF === 'sin' || stkF === 'con') {
       const stkD = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(ln.sku) || 0) : 0;
       const stkT = (typeof getStockTransito === 'function') ? (getStockTransito(ln.sku) || 0) : 0;
@@ -9837,35 +9844,81 @@ window.exportBackordersToExcel = function(){
       if (stkF === 'con' && !hasStock) return false;
     }
     return true;
-  }).map(ln => ({
-    'SKU':              ln.sku || '',
-    'Producto':         ln.producto || '',
-    'Familia':          ln.familia || '',
-    'Subfamilia':       ln.subfamilia || '',
-    'Cliente':          ln.clienteNombre || '',
-    'CardCode':         ln.clienteCode || '',
-    'Ciudad':           ln.clienteCiudad || '',
-    'Vendedor':         ln.vendorKey || '',
-    'Unidades pendientes': Math.round(parseFloat(ln.pendiente) || 0),
-    'Precio unitario':  parseFloat(ln.precioUnitario) || 0,
-    'Importe pendiente': Math.round((parseFloat(ln.pendiente) || 0) * (parseFloat(ln.precioUnitario) || 0)),
-    'SQ Doc Num':       ln.sqDocNum || '',
-    'SQ Fecha':         ln.sqDocDate || '',
-    'Estado':           ln.estado || '',
-  }));
-  if (!rows.length) {
+  });
+  if (!filtered.length) {
     alert('No hay resultados para el filtro actual. Limpia la busqueda o cambia el termino.');
     return;
   }
   try {
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(rows);
-    XLSX.utils.book_append_sheet(wb, ws, 'Backorders');
+    const wb = new ExcelJS.Workbook();
+    const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF074F69' } };
+    const HEADER_FONT = { color: { argb: 'FFFFFFFF' }, bold: true };
+    const TOTAL_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF166534' } };
+    const TOTAL_FONT = { color: { argb: 'FFFFFFFF' }, bold: true, size: 14 };
+    const CENTER = { vertical: 'middle', horizontal: 'center' };
+    const ws = wb.addWorksheet('Backorders');
+    // Data + total.
+    const rows = [];
+    let total = 0;
+    filtered.forEach(ln => {
+      const qty = Math.round(parseFloat(ln.pendiente) || 0);
+      const precio = parseFloat(ln.precioUnitario) || 0;
+      const importe = Math.round(qty * precio);
+      total += importe;
+      rows.push([
+        ln.sku || '',
+        ln.producto || '',
+        ln.clienteNombre || '',
+        ln.clienteCiudad || '',
+        ln.vendorKey || '',
+        qty,
+        precio,
+        importe,
+        ln.sqDocNum || '',
+        ln.sqDocDate || '',
+      ]);
+    });
+    ws.columns = [
+      { width: 16 }, { width: 55 }, { width: 32 }, { width: 20 }, { width: 22 },
+      { width: 14 }, { width: 14 }, { width: 16 }, { width: 12 }, { width: 14 },
+    ];
+    // Row 1: TOTAL DEL PEDIDO.
+    ws.mergeCells('A1:G1');
+    ws.getCell('A1').value = 'TOTAL DEL PEDIDO';
+    ws.getCell('A1').fill = TOTAL_FILL;
+    ws.getCell('A1').font = TOTAL_FONT;
+    ws.getCell('A1').alignment = { vertical: 'middle', horizontal: 'right' };
+    ws.getCell('H1').value = total || 0;
+    ws.getCell('H1').fill = TOTAL_FILL;
+    ws.getCell('H1').font = TOTAL_FONT;
+    ws.getCell('H1').alignment = CENTER;
+    ws.getCell('H1').numFmt = '"$"#,##0';
+    ws.mergeCells('I1:J1');
+    ws.getCell('I1').fill = TOTAL_FILL;
+    ws.getRow(1).height = 24;
+    // Row 2: encabezados.
+    const HEAD = ['SKU', 'Producto', 'Cliente', 'Ciudad', 'Vendedor',
+                  'Unidades pendientes', 'Precio unitario', 'Importe pendiente',
+                  'SQ Doc Num', 'SQ Fecha'];
+    HEAD.forEach((h, i) => { const c = ws.getCell(2, i + 1); c.value = h; c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = CENTER; });
+    // Row 3+: data.
+    rows.forEach((r, idx) => {
+      const row = ws.getRow(idx + 3);
+      r.forEach((v, ci) => row.getCell(ci + 1).value = v);
+      for (let c = 1; c <= 10; c++) row.getCell(c).alignment = CENTER;
+      row.getCell(7).numFmt = '"$"#,##0'; // Precio unitario
+      row.getCell(8).numFmt = '"$"#,##0'; // Importe pendiente
+    });
+    const out = await wb.xlsx.writeBuffer();
     const dateStr = new Date().toISOString().slice(0, 10);
     const suffixQ = q ? ('_' + q.replace(/[^a-z0-9]/gi, '').slice(0, 20)) : '';
     const suffixM = mesF ? ('_mes-' + mesF) : '';
     const filename = 'Backorders_' + dateStr + suffixM + suffixQ + '.xlsx';
-    XLSX.writeFile(wb, filename);
+    const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 200);
     if (typeof showSyncTag === 'function') showSyncTag('Exportado: ' + rows.length + ' lineas');
   } catch(e) {
     console.error('exportBackordersToExcel', e);
@@ -9950,103 +10003,81 @@ async function _loadStockAsigTemplate(){
 //   - C4 = CardCode (o CUIT si lo tenemos)
 //   - Rows 6+ = productos con qty del backorder (opcional filtrado por mes)
 // Devuelve un ArrayBuffer del xlsx generado (para descarga o zip).
+// v529 (2026-08-14): reemplaza el template Shimano oficial por el formato
+// v528 unificado (banda verde TOTAL DEL PEDIDO fila 1 + encabezado #074F69
+// blanco bold fila 2 + moneda ARS + centrado). Solo productos DISPONIBLES
+// (con o sin backorder del cliente).
 async function _buildStockAsigBufferConTemplate(clienteNombre, clienteCode, mesFiltro){
-  const buffer = await _loadStockAsigTemplate();
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
-  const ws = wb.worksheets[0]; // 'LISTA DE PRECIOS SHIMANO AGO26'
-  // Setear cliente + cardCode.
-  const cliCell = ws.getCell('C3');
-  cliCell.value = clienteNombre || '';
-  const cuitCell = ws.getCell('C4');
-  cuitCell.value = clienteCode || '';
-  // Backorder del cliente (opcionalmente filtrado por YYYY-MM).
-  const norm = String(clienteNombre || '').toLowerCase().trim();
-  const backCli = new Map(); // sku -> unidades
-  (backorderLines || []).forEach(ln => {
-    if ((ln.clienteNombre || '').toLowerCase().trim() !== norm) return;
-    if (mesFiltro) {
-      const d = String(ln.sqDocDate || '');
-      if (d.substring(0, 7) !== mesFiltro) return;
-    }
-    const sku = String(ln.sku || '').toUpperCase().trim();
-    const q = parseFloat(ln.pendiente) || 0;
-    if (q > 0) backCli.set(sku, (backCli.get(sku) || 0) + q);
-  });
-  // Stock del almacen 11 -> columna Disponibilidad.
+  const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF074F69' } };
+  const HEADER_FONT = { color: { argb: 'FFFFFFFF' }, bold: true };
+  const TOTAL_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF166534' } };
+  const TOTAL_FONT = { color: { argb: 'FFFFFFFF' }, bold: true, size: 14 };
+  const CENTER = { vertical: 'middle', horizontal: 'center' };
   const stockDisp = (sku) => {
     if (typeof getStockDisponibleVenta === 'function') return getStockDisponibleVenta(sku) || 0;
     const whs = (typeof STOCK_WAREHOUSE_BREAKDOWN === 'object' && STOCK_WAREHOUSE_BREAKDOWN)
       ? STOCK_WAREHOUSE_BREAKDOWN[String(sku||'').toUpperCase().trim()] : null;
     return whs ? Number(whs['11'] || 0) : 0;
   };
-  const productsAll = (typeof PRODUCTS !== 'undefined' && PRODUCTS) ? PRODUCTS : [];
-  // v521 (2026-08-13): filtrar SOLO productos con stock disponible en dep. 11.
-  // Antes se incluia el catalogo completo (~2450 SKUs) y el autofilter
-  // ocultaba los sin stock; ahora directamente no van al archivo.
-  // Excepcion: si el SKU tiene qty backorder pendiente para el cliente
-  // (backCli.has(sku)), se incluye igual aunque no tenga stock (para que el
-  // vendedor lo vea explicito en el pedido).
-  const products = productsAll.filter(p => {
-    const sku = String(p.code || '').toUpperCase().trim();
-    if (backCli.has(sku)) return true;
-    return stockDisp(sku) > 0;
-  });
-  // Insertar rows a partir de la 6. Alto ~40px para que descripciones largas
-  // entren en 2 lineas (v511, ejemplo user row 58).
-  let rowIdx = 6;
-  products.forEach(p => {
-    const sku = String(p.code || '').toUpperCase().trim();
-    const disp = stockDisp(sku);
-    const dispTxt = disp > 0 ? 'Disponible' : 'Sin stock';
-    const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(p.code) || 0) : 0;
-    const qtyBack = backCli.get(sku) || 0;
-    const row = ws.getRow(rowIdx);
-    row.height = 40;  // v511: alto fijo para todas las filas de productos.
-    row.getCell(1).value = dispTxt;
-    row.getCell(2).value = p.fam || '';
-    row.getCell(3).value = p.sub || '';
-    row.getCell(4).value = '';
-    row.getCell(5).value = p.code || '';
-    row.getCell(6).value = p.desc || '';
-    row.getCell(7).value = precio || null;
-    row.getCell(8).value = null;
-    row.getCell(9).value = qtyBack > 0 ? qtyBack : null;
-    row.getCell(10).value = { formula: 'I' + rowIdx + '*G' + rowIdx };
-    // Wrap text + alineacion vertical center para todas las celdas.
-    for (let ci = 1; ci <= 10; ci++) {
-      const c = row.getCell(ci);
-      c.alignment = { vertical: 'middle', horizontal: (ci === 6 ? 'left' : 'center'), wrapText: true };
+  // Backorder del cliente (opcionalmente filtrado por YYYY-MM). Este es el
+  // universo del cliente: SKUs pendientes en SQ open. Solo incluimos los
+  // que tengan stock disponible en dep. 11.
+  const norm = String(clienteNombre || '').toLowerCase().trim();
+  const rows = [];
+  let total = 0;
+  (backorderLines || []).forEach(ln => {
+    if ((ln.clienteNombre || '').toLowerCase().trim() !== norm) return;
+    if (mesFiltro) {
+      const d = String(ln.sqDocDate || '');
+      if (d.substring(0, 7) !== mesFiltro) return;
     }
-    rowIdx++;
+    const pend = parseFloat(ln.pendiente) || 0;
+    if (pend <= 0) return;
+    const disp = stockDisp(ln.sku);
+    if (disp <= 0) return; // solo disponibles
+    const precio = parseFloat(ln.precioUnitario) || 0;
+    const subtotal = pend * precio;
+    total += subtotal;
+    rows.push([ln.sku || '', ln.producto || '', 'DISPONIBLE', pend, precio || 0, subtotal || 0]);
   });
-  const lastRow = rowIdx - 1;
-  // v511: autofilter que excluye VACIOS en columna I (PEDIDO). Rango: A5:J<lastRow>.
-  // ExcelJS: autoFilter con filterButton y columnFilters.
-  ws.autoFilter = {
-    from: { row: 5, column: 1 },
-    to:   { row: lastRow, column: 10 },
-    columns: [
-      { filterButton: true, colId: 0 },
-      { filterButton: true, colId: 1 },
-      { filterButton: true, colId: 2 },
-      { filterButton: true, colId: 3 },
-      { filterButton: true, colId: 4 },
-      { filterButton: true, colId: 5 },
-      { filterButton: true, colId: 6 },
-      { filterButton: true, colId: 7 },
-      // v511: PEDIDO (colId 8, columna I) - filtro custom que excluye blanks.
-      {
-        filterButton: true,
-        colId: 8,
-        customFilters: [{ val: ' ', operator: 'greaterThan' }],
-      },
-      { filterButton: true, colId: 9 },
-    ],
-  };
-  // Ajustar SUM del total.
-  const totalCell = ws.getCell('I2');
-  totalCell.value = { formula: 'SUM(J6:J' + Math.max(lastRow, 1005) + ')' };
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('CONFIRMACION BACKORDER');
+  ws.columns = [
+    { width: 16 }, { width: 55 }, { width: 16 }, { width: 18 }, { width: 14 }, { width: 18 },
+  ];
+  // Row 1: TOTAL DEL PEDIDO.
+  ws.mergeCells('A1:E1');
+  ws.getCell('A1').value = 'TOTAL DEL PEDIDO';
+  ws.getCell('A1').fill = TOTAL_FILL;
+  ws.getCell('A1').font = TOTAL_FONT;
+  ws.getCell('A1').alignment = { vertical: 'middle', horizontal: 'right' };
+  ws.getCell('F1').value = total || 0;
+  ws.getCell('F1').fill = TOTAL_FILL;
+  ws.getCell('F1').font = TOTAL_FONT;
+  ws.getCell('F1').alignment = CENTER;
+  ws.getCell('F1').numFmt = '"$"#,##0';
+  ws.getRow(1).height = 24;
+  // Row 2: encabezados + cliente/cardCode arriba en el nombre de la hoja?
+  // Mejor: row 2 = "Cliente: X (CardCode: Y)" para info; row 3 = headers;
+  // row 4+ = data. Asi el cliente ve a quien va el pedido.
+  const infoCell = ws.getCell('A2');
+  const infoTxt = 'Cliente: ' + (clienteNombre || '') + (clienteCode ? '  ·  CardCode: ' + clienteCode : '');
+  ws.mergeCells('A2:F2');
+  infoCell.value = infoTxt;
+  infoCell.alignment = { vertical: 'middle', horizontal: 'center' };
+  infoCell.font = { italic: true, color: { argb: 'FF475569' } };
+  ws.getRow(2).height = 18;
+  // Row 3: encabezados.
+  const HEAD = ['SKU', 'Producto', 'Stock disponible', 'Unidades pedidas', 'Precio', 'Subtotal'];
+  HEAD.forEach((h, i) => { const c = ws.getCell(3, i + 1); c.value = h; c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = CENTER; });
+  // Row 4+: data.
+  rows.forEach((r, idx) => {
+    const row = ws.getRow(idx + 4);
+    r.forEach((v, ci) => row.getCell(ci + 1).value = v);
+    for (let c = 1; c <= 6; c++) row.getCell(c).alignment = CENTER;
+    row.getCell(5).numFmt = '"$"#,##0';
+    row.getCell(6).numFmt = '"$"#,##0';
+  });
   const out = await wb.xlsx.writeBuffer();
   return out;
 }
