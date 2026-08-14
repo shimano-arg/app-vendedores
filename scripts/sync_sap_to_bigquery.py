@@ -467,8 +467,21 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
     last_purchase = None
     avg_std = cost_avg
     # v289+: buscar la categorizacion cat/fam/sub del catalogo pesca.
+    # v527 (2026-08-14): fallback a UDFs de SAP (U_CATEGORIA/U_FAMILIA/
+    # U_SUBFAMILIA de OITM Ficha Tecnica Pesca) cuando el SKU no esta en
+    # index.html PRODUCTS. Antes ~92 SKUs quedaban con cat/fam/sub vacios
+    # aunque SAP los tenia cargados (ej: CVC70H con SUBFAMILIA "FW Casting"
+    # en SAP salia "SIN SUBFAMILIA" en Power BI).
     cat_all = get_local_categorization()
     _cat_map = cat_all.get(item.get('ItemCode') or '', {})
+    _cat_local = (_cat_map.get('cat') or '').strip()
+    _fam_local = (_cat_map.get('fam') or '').strip()
+    _sub_local = (_cat_map.get('sub') or '').strip()
+    # UDFs SAP (fallback). Si vienen None (UDF no existe con ese nombre),
+    # queda '' y no hay side-effect.
+    _cat_sap = (item.get('U_CATEGORIA') or '').strip() if item.get('U_CATEGORIA') else ''
+    _fam_sap = (item.get('U_FAMILIA') or '').strip() if item.get('U_FAMILIA') else ''
+    _sub_sap = (item.get('U_SUBFAMILIA') or '').strip() if item.get('U_SUBFAMILIA') else ''
     return {
         'item_code': item.get('ItemCode'),
         'item_name': item.get('ItemName'),
@@ -486,13 +499,14 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
         # tener siempre un valor razonable.
         'cost_last_purchase_ars': last_purchase,
         'cost_avg_ars': avg_std,
-        # v289+: categorizacion del catalogo pesca (Reels/Cañas/Lineas etc.)
-        # tomada del CSV inline en index.html. SAP solo tiene ItemsGroupCode
-        # (PESCA); la sub-categorizacion viene del catalogo cargado por producto.
-        # Power BI usa cat = Familia y fam = Subfamilia en el treemap.
-        'cat': _cat_map.get('cat', ''),
-        'fam': _cat_map.get('fam', ''),
-        'sub': _cat_map.get('sub', ''),
+        # v289/v527: categorizacion prioridad = catalogo local (index.html
+        # PRODUCTS) -> UDFs SAP OITM (fallback). Los SKUs cargados en
+        # index.html mantienen la categorizacion curada (mas fina, con
+        # sub-familia comercial); los que solo estan en SAP toman los
+        # valores del maestro.
+        'cat': _cat_local or _cat_sap,
+        'fam': _fam_local or _fam_sap,
+        'sub': _sub_local or _sub_sap,
         '_sync_timestamp': sync_ts,
     }
 
@@ -1568,17 +1582,36 @@ def main():
     #   .StandardAveragePrice  - precio promedio ponderado por deposito
     #   .Committed             - comprometido
     # Los extraemos en flatten_item() desde ese array.
-    item_select = [
+    # v527 (2026-08-14): pedimos UDFs U_CATEGORIA / U_FAMILIA / U_SUBFAMILIA
+    # de OITM (Ficha Tecnica Pesca) para usar como fallback cuando el
+    # catalogo local (index.html PRODUCTS) no tiene el SKU. Si los UDFs
+    # reales tienen otro nombre, SL responde 400 - en ese caso hay que
+    # ajustar los nombres consultando a David.
+    item_select_base = [
         'ItemCode', 'ItemName', 'ForeignName', 'ItemsGroupCode',
         'ItemWarehouseInfoCollection', 'ItemPrices',
         'Valid', 'Frozen', 'CreateDate', 'UpdateDate',
     ]
-    items = sl_fetch_all(
-        cfg, session, '/b1s/v1/Items', 'ITEMS',
-        select_fields=item_select,
-        filter_expr=f"ItemsGroupCode eq {pesca_code}",
-        max_docs=max_docs,
-    )
+    # v527 (2026-08-14): intentar con UDFs; si SL responde 400 (UDF con otro
+    # nombre en este SAP), fallback al select base sin UDFs. flatten_item
+    # tolera .get() sin key -> queda '' y usa solo el catalogo local.
+    item_select = item_select_base + ['U_CATEGORIA', 'U_FAMILIA', 'U_SUBFAMILIA']
+    try:
+        items = sl_fetch_all(
+            cfg, session, '/b1s/v1/Items', 'ITEMS',
+            select_fields=item_select,
+            filter_expr=f"ItemsGroupCode eq {pesca_code}",
+            max_docs=max_docs,
+        )
+    except Exception as e:
+        log(f'[ITEMS] fallo con UDFs (probable nombre distinto en SAP): {e}')
+        log('[ITEMS] reintentando sin UDFs (fallback a catalogo local solo)')
+        items = sl_fetch_all(
+            cfg, session, '/b1s/v1/Items', 'ITEMS',
+            select_fields=item_select_base,
+            filter_expr=f"ItemsGroupCode eq {pesca_code}",
+            max_docs=max_docs,
+        )
     item_rows = [flatten_item(it, PESCA_PRICE_LIST_NUM, sync_ts) for it in items]
     load_to_bq(bq_client, BQ_TABLE_ITEMS, item_rows, 'ITEMS', dry_run=dry_run)
 
