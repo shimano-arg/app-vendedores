@@ -4104,7 +4104,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v533';
+const APP_VERSION = 'v534';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -13207,6 +13207,14 @@ window.waitlistUpdateItemQty = async function(docId, idx, newQty){
     return;
   }
   const items = (w.items || []).map((it, i) => i === idx ? Object.assign({}, it, {qty: newQty}) : it);
+  // v534 (2026-08-18) CRITICAL RACE FIX: mutar el cache local (w.items y
+  // _wcardCurrent.items) ANTES del await Firestore. Sin esto, si el user
+  // cambia 3 qty seguidos, cada handler lee w.items ORIGINAL (sin los cambios
+  // previos porque el onSnapshot todavia no llego). Los 3 updates chocan en
+  // Firestore y gana el ultimo -> los cambios 1 y 2 se pierden. Bug reportado
+  // 2026-08-18 por Mariano (Battistoni ORDEN 31).
+  if (w) w.items = items;
+  if (_wcardCurrent && _wcardCurrent._id === docId) _wcardCurrent.items = items;
   try {
     await fbDb.collection('revision_waitlist').doc(docId).update({
       items,
