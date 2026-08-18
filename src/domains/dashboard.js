@@ -719,91 +719,10 @@ window.renderDashboard = function () {
   // $0 permanentemente y es ruido visual. Se mantienen las cards SAP
   // (que si tienen data real) y las cards de campañas.
 
-  // === v367+: Card SAP ACUMULADO ANUAL — YTD facturado real SAP ===
-  if (dashboardVendorForTargets) {
-    const sapYtd = getSapSnapshotYtd(dashboardVendorForTargets, now.getFullYear(), now.getMonth());
-    const ytdInfoSap = getCumulativeTargetArs(
-      dashboardVendorForTargets,
-      now.getFullYear(),
-      now.getMonth()
-    );
-    html += '<div class="dash-card" style="border:2px solid #0284c7;background:#f0f9ff">';
-    html +=
-      '<h4 style="color:#0c4a6e">&#128202; SAP - Acumulado anual <span class="sub" style="color:#0369a1">' +
-      yPrefix +
-      ' YTD &middot; facturado real (v_facturas_sap neto)</span></h4>';
-    if (sapYtd) {
-      const facSapY = sapYtd.facturadoArsNeto;
-      const unidSapY = sapYtd.unidadesNeto;
-      html += '<div class="tgt-grid">';
-      html +=
-        '<div class="tgt-stat"><div class="num">' +
-        fmtNum(unidSapY) +
-        '</div><div class="lbl">Unidades SAP</div></div>';
-      html +=
-        '<div class="tgt-stat money"><div class="num">' +
-        fmtMoney(facSapY) +
-        '</div><div class="lbl">Facturado SAP ARS</div></div>';
-      if (ytdInfoSap && ytdInfoSap.monthsAssigned > 0) {
-        html +=
-          '<div class="tgt-stat target"><div class="num">' +
-          fmtMoney(ytdInfoSap.sum) +
-          '</div><div class="lbl">Target acumulado</div></div>';
-        const pctSapY = ytdInfoSap.sum > 0 ? Math.round((facSapY / ytdInfoSap.sum) * 100) : 0;
-        const pctSapYClamp = Math.min(100, Math.max(0, pctSapY));
-        html +=
-          '<div class="tgt-stat"><div class="num" style="color:' +
-          (pctSapY >= 100 ? '#10b981' : pctSapY >= 70 ? '#f59e0b' : '#dc2626') +
-          '">' +
-          pctSapY +
-          '%</div><div class="lbl">Cumplimiento</div></div>';
-        html += '</div>';
-        html +=
-          '<div class="tgt-bar"><div class="tgt-bar-fill ' +
-          tgtBarCls(pctSapY) +
-          '" style="width:' +
-          pctSapYClamp +
-          '%"></div></div>';
-        html +=
-          '<div class="tgt-meta"><span>' +
-          fmtMoney(facSapY) +
-          ' / ' +
-          fmtMoney(ytdInfoSap.sum) +
-          '</span><span><b>' +
-          pctSapY +
-          '%</b></span></div>';
-      } else {
-        html += '</div>';
-      }
-      html +=
-        '<div style="font-size:10px;color:#075985;margin-top:6px">Datos SAP de ' +
-        sapYtd.mesesConDatos +
-        ' mes' +
-        (sapYtd.mesesConDatos === 1 ? '' : 'es') +
-        ' facturado' +
-        (sapYtd.mesesConDatos === 1 ? '' : 's') +
-        ' en ' +
-        yPrefix +
-        '.</div>';
-    } else {
-      html +=
-        '<div class="tgt-msg">Sin datos SAP para ' +
-        escapeHtml(titleCase(dashboardVendorForTargets)) +
-        ' en ' +
-        yPrefix +
-        '.</div>';
-    }
-    html += '</div>';
-  }
-
-  // v390.1 (2026-08-04): removida card "Acumulado anual · pedidos de la app"
-  // (Mariano) — mismo motivo que la de "Mes en curso": muestra siempre $0
-  // porque la mayoria de los pedidos van directo a SAP, no via la app.
-
-  // v390.1 (2026-08-04): removida card "Target Jul-Dic 2026 · Segundo semestre"
-  // (Mariano) — usaba semestreMoneyArs de pedidos de la app, que siempre da $0
-  // porque los pedidos van directo a SAP. La info util (facturado vs target)
-  // ya aparece en la card SAP - ACUMULADO ANUAL que si usa data real.
+  // v537 (2026-08-18): removida card SAP - Acumulado anual (Mariano). Solo
+  // quedan SAP - Mes en curso + Campanias activas.
+  // v390.1 (2026-08-04): removidas "Acumulado anual · pedidos app" y "Target
+  // Jul-Dic segundo semestre" por dar $0 (pedidos van directo a SAP, no app).
 
   // Campañas activas
   html += '<div class="dash-card">';
