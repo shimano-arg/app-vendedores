@@ -250,6 +250,25 @@ function renderProductPicker() {
 }
 window.renderProductPicker = renderProductPicker;
 
+// v542: chequea si el cliente actual ya tiene el SKU asignado (backorder SAP
+// con stock disponible). Devuelve false si el user cancelo el confirm — en
+// ese caso no se debe agregar la linea.
+function _checkAsigDuplicadoCliente(code) {
+  try {
+    if (!currentOrderClient || !currentOrderClient.name) return true;
+    if (typeof window.sapGetClienteCode !== 'function') return true;
+    if (typeof window._sapAsigMatchParaCliente !== 'function') return true;
+    const cardCode = window.sapGetClienteCode(currentOrderClient.name);
+    if (!cardCode) return true;
+    const match = window._sapAsigMatchParaCliente(cardCode, code);
+    if (!match) return true;
+    return window._confirmDuplicadoAsig(match); // true=agregar, false=cancelar
+  } catch (e) {
+    console.warn('_checkAsigDuplicadoCliente', e);
+    return true; // fail-open: si falla la validacion, no bloquear
+  }
+}
+
 function addToOrder(code) {
   if (!currentOrderKey || currentOrderKey === '__readonly__') return;
   if (currentOrderKey === '__pending__') {
@@ -260,6 +279,7 @@ function addToOrder(code) {
     if (existing) {
       existing.qty = (parseFloat(existing.qty) || 0) + 1;
     } else {
+      if (!_checkAsigDuplicadoCliente(code)) return; // v542
       const prod = PRODUCTS.find((p) => p.code === code);
       if (!prod) return;
       entry.lines.push({
@@ -286,6 +306,7 @@ function addToOrder(code) {
   if (existing) {
     existing.qty = (parseFloat(existing.qty) || 0) + 1;
   } else {
+    if (!_checkAsigDuplicadoCliente(code)) return; // v542
     const prod = PRODUCTS.find((p) => p.code === code);
     if (!prod) return;
     ord.push({
