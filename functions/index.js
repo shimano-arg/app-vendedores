@@ -22,6 +22,7 @@ import { runDailyBackup } from './core/backup-core.js';
 // usa dentro de dailyFirestoreBackup para instanciar FirestoreAdminClient.
 // Cargarlo top-level exhausta el timeout de 10s del "backend spec analysis"
 // del deploy de Firebase Functions. Lazy dynamic import inside la function.
+import { syncSapInvoices } from './core/invoice-sync-core.js';
 import { handleSapProxy } from './core/sap-proxy-core.js';
 
 if (!getApps().length) initializeApp();
@@ -90,6 +91,64 @@ export const sapProxy = onCall(
  *  3. Cloud Scheduler + Firestore API habilitadas.
  * Alerta: configurar log-based metric sobre "dailyFirestoreBackup failed".
  */
+/**
+ * syncSapInvoicesToApp — scheduled cada 15 min (E2 del plan BO/ASIG).
+ * En SHADOW MODE (default): lee Invoices SAP, resuelve lineage Invoice->SO->SQ,
+ * matchea con pedidos-app por transferidoSAP.docEntry. NO modifica pedidos.
+ * Escribe log de resultado a `sap_sync_log/{isoTimestamp}` para inspeccion.
+ * Cursor persistido en `app_config/sap_sync_state.lastInvoiceDocEntry`.
+ *
+ * Modo se cambia editando `app_config/sap_sync_state.mode` a 'active' en E5.
+ */
+export const syncSapInvoicesToApp = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 15 minutes',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 1,
+    memory: '512MiB',
+    timeoutSeconds: 300,
+    secrets: [SAP_SL_PASSWORD],
+  },
+  async () => {
+    const db = getFirestore();
+    const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+    const sapCfg = sapCfgSnap.data() || {};
+    const sl = sapCfg.serviceLayer || {};
+    if (!sl.url || !sl.companyDB) {
+      console.warn('syncSapInvoicesToApp: sap_integration.serviceLayer incompleto, skip');
+      return;
+    }
+    const result = await syncSapInvoices({
+      fetch: globalThis.fetch,
+      sapConfig: {
+        url: sl.url,
+        companyDB: sl.companyDB,
+        userName: sl.username || sl.userName,
+        password: SAP_SL_PASSWORD.value(),
+      },
+      fbDb: db,
+      log: (msg, extra) => console.log(msg, extra || {}),
+    });
+    // Audit log: 1 doc por corrida. Retention se puede sumar despues (30d TTL).
+    const logId = new Date().toISOString().replace(/[:.]/g, '-');
+    await db
+      .collection('sap_sync_log')
+      .doc(logId)
+      .set({
+        ranAt: new Date().toISOString(),
+        ...result,
+      });
+    console.log('syncSapInvoicesToApp summary', {
+      mode: result.mode,
+      invoicesRead: result.invoicesRead,
+      matches: result.matches.length,
+      orphans: result.orphans.length,
+      errors: result.errors.length,
+    });
+  }
+);
+
 export const dailyFirestoreBackup = onSchedule(
   {
     region: REGION,

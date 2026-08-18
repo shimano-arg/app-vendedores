@@ -234,9 +234,19 @@ service cloud.firestore {
     // - resto (gemini, google_maps, price_list*, product_catalog_meta,
     //   stock_snapshot, users_directory): reader (todos necesitan).
     match /app_config/{docId} {
-      allow read: if (docId == 'sap_integration' && isAdminOrGerente())
-                  || (docId != 'sap_integration' && isReader());
+      // v542 E2: sap_sync_state es info operativa del sync SAP Invoices ->
+      // pedidos-app. Solo admin/gerente para no exponer cursores/estado a
+      // vendedores que no la necesitan.
+      allow read: if (docId in ['sap_integration', 'sap_sync_state'] && isAdminOrGerente())
+                  || (!(docId in ['sap_integration', 'sap_sync_state']) && isReader());
       allow write: if isAdmin();
+    }
+
+    // v542 E2: audit log del sync SAP Invoices. Escrito por Cloud Function
+    // (Admin SDK, bypass rules). Lectura para admin/gerente (monitoring).
+    match /sap_sync_log/{logId} {
+      allow read: if isAdminOrGerente();
+      allow write: if false; // solo CF via Admin SDK
     }
 
     match /seguimiento_notes/{noteId} {
