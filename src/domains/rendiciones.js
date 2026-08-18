@@ -585,8 +585,14 @@ async function uploadRendicionFotoToStorage(dataUrl, ownerUid) {
   const putPromise = ref.put(blob);
   const timeoutPromise = new Promise((_resolve, reject) => {
     setTimeout(() => {
-      try { putPromise.cancel?.(); } catch(_e) {}
-      reject(new Error('Timeout: la subida de la foto tardo mas de 60 segundos. Verifica tu conexion y reintenta.'));
+      try {
+        putPromise.cancel?.();
+      } catch (_e) {}
+      reject(
+        new Error(
+          'Timeout: la subida de la foto tardo mas de 60 segundos. Verifica tu conexion y reintenta.'
+        )
+      );
     }, 60000);
   });
   const snap = await Promise.race([putPromise, timeoutPromise]);
