@@ -4104,7 +4104,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v532';
+const APP_VERSION = 'v533';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -13244,6 +13244,15 @@ window.waitlistRemoveItem = async function(docId, idx){
     }
     return;
   }
+  // v533 (2026-08-18): optimistic update. Actualiza cache local + re-renderiza
+  // el card antes del await Firestore, asi la X quita el item al instante sin
+  // esperar el onSnapshot (200-500ms).
+  const wLocal = revisionWaitlist.find(x => x._id === docId);
+  if (wLocal) wLocal.items = items;
+  if (_wcardCurrent && _wcardCurrent._id === docId) {
+    _wcardCurrent.items = items;
+    try { _renderWaitlistCard(); } catch(e){}
+  }
   try {
     await fbDb.collection('revision_waitlist').doc(docId).update({
       items,
@@ -13383,15 +13392,33 @@ window.waitlistAddProduct = async function(sku){
       firstStockTotal: stk.stockTotal, firstBackorder: stk.backorder || 0, firstDisponible: stk.disponible,
     });
   }
+  // v533 (2026-08-18): optimistic update. La UI refleja el cambio al instante
+  // sin esperar el onSnapshot de Firestore (200-500ms). Ademas MANTIENE el
+  // buscador abierto con la query intacta para permitir agregar varios SKU
+  // en serie (antes limpiaba input + cerraba dropdown -> user tenia que
+  // escribir "CATANA" de nuevo por cada SKU).
+  const wLocal = revisionWaitlist.find(x => x._id === w._id);
+  if (wLocal) wLocal.items = items;
+  if (_wcardCurrent && _wcardCurrent._id === w._id) {
+    _wcardCurrent.items = items;
+    try { _renderWaitlistCard(); } catch(e){}
+  }
+  // Mantener foco + dropdown abierto SIEMPRE (no esperar el await Firestore).
+  // El onblur del input (setTimeout hide, 200ms) puede dispararse por el click
+  // en el item. Re-focus + re-render inmediato antes que el hide se ejecute.
+  const input = document.getElementById('wcard-add-input');
+  if (input) {
+    setTimeout(() => {
+      input.focus();
+      try { if (typeof waitlistOnAddSearch === 'function') waitlistOnAddSearch(); } catch(e){}
+    }, 250);
+  }
   try {
     await fbDb.collection('revision_waitlist').doc(w._id).update({
       items,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
     showSyncTag('Producto agregado: ' + prod.code);
-    const input = document.getElementById('wcard-add-input');
-    if (input) input.value = '';
-    waitlistHideAddDropdown();
   } catch(e) {
     console.error('waitlistAddProduct', e);
     alert('Error agregando: ' + (e.message || e));
