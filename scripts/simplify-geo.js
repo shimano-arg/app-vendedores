@@ -104,9 +104,17 @@ function countCoords(fc) {
   let n = 0;
   const walk = (g) => {
     if (!g) return;
-    if (g.type === 'Polygon') g.coordinates.forEach((r) => (n += r.length));
-    else if (g.type === 'MultiPolygon')
-      g.coordinates.forEach((p) => p.forEach((r) => (n += r.length)));
+    if (g.type === 'Polygon') {
+      g.coordinates.forEach((r) => {
+        n += r.length;
+      });
+    } else if (g.type === 'MultiPolygon') {
+      g.coordinates.forEach((p) => {
+        p.forEach((r) => {
+          n += r.length;
+        });
+      });
+    }
   };
   fc.features.forEach((f) => walk(f.geometry));
   return n;

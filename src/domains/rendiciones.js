@@ -113,11 +113,32 @@ async function extractTicketDataWithGemini(dataUrl) {
       temperature: 0.1,
     },
   };
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  // v539 (2026-08-18): timeout de 45s al fetch de Gemini. Sin timeout, si el
+  // endpoint colgaba (API key vencida, rate limit, red rota) el spinner
+  // "Analizando ticket con IA..." quedaba pegado para siempre y el user
+  // no podia cargar la rendicion. Con AbortController + setTimeout, si el
+  // fetch tarda >45s el catch de runRendGastoOcr atrapa el AbortError y
+  // muestra el mensaje "No se pudieron extraer los datos - Completa manual".
+  const ctrl = new AbortController();
+  const timeoutId = setTimeout(() => ctrl.abort(), 45000);
+  let r;
+  try {
+    r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    clearTimeout(timeoutId);
+    if (e && e.name === 'AbortError') {
+      throw new Error(
+        'Gemini tardo mas de 45s en responder. Completa el formulario manualmente y envia el gasto.'
+      );
+    }
+    throw e;
+  }
+  clearTimeout(timeoutId);
   if (!r.ok) {
     const errTxt = await r.text();
     throw new Error('Gemini API ' + r.status + ': ' + errTxt.slice(0, 200));
@@ -557,7 +578,24 @@ async function uploadRendicionFotoToStorage(dataUrl, ownerUid) {
   const ts = Date.now();
   const path = 'rendiciones/' + (ownerUid || 'anonimo') + '/' + ts + '_ticket.' + ext;
   const ref = firebase.storage().ref(path);
-  const snap = await ref.put(blob);
+  // v539 (2026-08-18): timeout 60s al upload Storage. Firebase Storage put no
+  // soporta AbortController directo pero Promise.race con setTimeout resuelve
+  // el bloqueo. Sin timeout el boton "Subiendo foto..." quedaba pegado
+  // infinito si Storage colgaba (red rota / rules deny / foto muy grande).
+  const putPromise = ref.put(blob);
+  const timeoutPromise = new Promise((_resolve, reject) => {
+    setTimeout(() => {
+      try {
+        putPromise.cancel?.();
+      } catch (_e) {}
+      reject(
+        new Error(
+          'Timeout: la subida de la foto tardo mas de 60 segundos. Verifica tu conexion y reintenta.'
+        )
+      );
+    }, 60000);
+  });
+  const snap = await Promise.race([putPromise, timeoutPromise]);
   return await snap.ref.getDownloadURL();
 }
 
