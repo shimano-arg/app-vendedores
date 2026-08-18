@@ -139,6 +139,15 @@ window.setDashboardMonth = function (v) {
 };
 window.openDashboardModal = function () {
   document.getElementById('dashboard-modal').classList.add('open');
+  // v538 (2026-08-18): defensivo — activar listener de campania_snapshot al
+  // abrir el modal por si la auto-invocacion inicial de ensureListeners()
+  // corrio antes de que fbDb/currentUser estuvieran listos. Es idempotente:
+  // si ya activo, sale por el guard `if (_unsubCampaniaSnapshot) return`.
+  try {
+    if (typeof window.ensureCampaniaSnapshotListener === 'function') {
+      window.ensureCampaniaSnapshotListener();
+    }
+  } catch (_e) {}
   renderDashboard();
 };
 

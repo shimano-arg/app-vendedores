@@ -4104,7 +4104,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v537';
+const APP_VERSION = 'v538';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -16565,6 +16565,9 @@ function ensureCampaniaSnapshotListener(){
   _unsubCampaniaSnapshot = fbDb.collection('campania_snapshot').onSnapshot(qs => {
     CAMPANIA_SNAPSHOT = {};
     qs.forEach(d => { CAMPANIA_SNAPSHOT[d.id] = d.data() || {}; });
+    // v538 (2026-08-18): log defensivo para confirmar activacion del listener
+    // (bug diagnosticado: el listener no se activaba en el init inicial).
+    console.log('[campania_snapshot] listener OK -', Object.keys(CAMPANIA_SNAPSHOT).length, 'docs');
     try { if (typeof renderDashboard === 'function') renderDashboard(); } catch(e){}
   }, err => console.warn('[campania_snapshot] listener', err));
 }
