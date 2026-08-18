@@ -4104,7 +4104,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v534';
+const APP_VERSION = 'v535';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -13323,43 +13323,53 @@ window.waitlistOnAddSearch = function(){
     left.appendChild(codeEl);
     left.appendChild(descEl);
     item.appendChild(left);
-    // v502/v503 (2026-08-13): badge DISPONIBLE/NO DISPONIBLE segun stock
-    // del almacen 11 (deposito central). Fuente prioritaria:
-    // STOCK_WAREHOUSE_BREAKDOWN[sku][11]. Si el SKU no esta en el breakdown
-    // pero SI aparece en el snapshot (getStockQty != null), asumimos NO
-    // DISPONIBLE (el master de productos ya marca "SIN STOCK" en ese caso).
-    // Solo mostramos SIN DATOS si el SKU no existe en ningun snapshot.
+    // v535 (2026-08-18): 5 mini-badges por SKU en el dropdown del buscador.
+    // Antes solo mostraba un unico DISPONIBLE/NO DISPONIBLE (v502/v503).
+    // Fuentes de dato:
+    //   DISP     = STOCK_WAREHOUSE_BREAKDOWN[sku][11] (deposito central)
+    //   TRANS    = STOCK_WAREHOUSE_BREAKDOWN[sku][12] (mercaderia en transito)
+    //   PEND SAP = SUM(backorderLines where sku match) - suma de Ofertas SAP abiertas
+    //   ASIG     = min(PEND SAP, DISP)  - lo que ya esta pedido pero tiene stock
+    //   BO       = max(PEND SAP - DISP, 0) - lo que ya esta pedido pero sin stock
+    //   ESPERA   = SUM(revisionWaitlist.items[i].qty where code match) - Lista de Espera app
     const stkMid = document.createElement('div');
-    stkMid.style.cssText = 'flex-shrink:0;min-width:110px;text-align:center';
+    stkMid.style.cssText = 'flex-shrink:0;display:flex;gap:4px;align-items:center;flex-wrap:nowrap';
     const codeUpper = String(p.code || '').toUpperCase().trim();
-    const whs = (typeof STOCK_WAREHOUSE_BREAKDOWN === 'object' && STOCK_WAREHOUSE_BREAKDOWN)
-      ? STOCK_WAREHOUSE_BREAKDOWN[codeUpper] || null : null;
-    let stk11 = null;
-    let inSnapshot = false;
-    if (whs && whs['11'] != null) {
-      stk11 = Number(whs['11']) || 0;
-      inSnapshot = true;
-    } else if (typeof getStockQty === 'function') {
-      const total = getStockQty(p.code);
-      if (total != null) {
-        // Snapshot tiene el SKU pero sin breakdown por warehouse -> asumimos
-        // 0 en almacen 11 (mismo criterio que el master "SIN STOCK").
-        inSnapshot = true;
-        stk11 = 0;
+    const disp = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(p.code) || 0) : 0;
+    const trans = (typeof getStockTransito === 'function') ? (getStockTransito(p.code) || 0) : 0;
+    let pendSap = 0;
+    if (typeof backorderLines !== 'undefined' && Array.isArray(backorderLines)) {
+      for (const ln of backorderLines) {
+        if (String(ln.sku || '').toUpperCase().trim() === codeUpper) {
+          pendSap += Number(ln.pendiente || ln.qty || 0) || 0;
+        }
       }
     }
-    const stkBadge = document.createElement('span');
-    if (!inSnapshot) {
-      stkBadge.style.cssText = 'background:#e2e8f0;color:#475569;padding:3px 10px;border-radius:3px;font-size:10px;font-weight:800;letter-spacing:.3px';
-      stkBadge.textContent = 'SIN DATOS';
-    } else if (stk11 > 0) {
-      stkBadge.style.cssText = 'background:#dcfce7;color:#166534;padding:3px 10px;border-radius:3px;font-size:10px;font-weight:800;letter-spacing:.3px';
-      stkBadge.textContent = 'DISPONIBLE · ' + stk11 + ' u';
-    } else {
-      stkBadge.style.cssText = 'background:#fee2e2;color:#991b1b;padding:3px 10px;border-radius:3px;font-size:10px;font-weight:800;letter-spacing:.3px';
-      stkBadge.textContent = 'NO DISPONIBLE';
+    const asig = Math.min(pendSap, disp);
+    const bo = Math.max(pendSap - disp, 0);
+    let espera = 0;
+    if (typeof revisionWaitlist !== 'undefined' && Array.isArray(revisionWaitlist)) {
+      for (const wl of revisionWaitlist) {
+        for (const it of (wl.items || [])) {
+          if (String(it.code || '').toUpperCase().trim() === codeUpper) {
+            espera += Number(it.qty || 0) || 0;
+          }
+        }
+      }
     }
-    stkMid.appendChild(stkBadge);
+    const _mkBadge = (label, val, bg, fg, isMuted) => {
+      const b = document.createElement('span');
+      const bgUse = isMuted ? '#f1f5f9' : bg;
+      const fgUse = isMuted ? '#94a3b8' : fg;
+      b.style.cssText = 'background:' + bgUse + ';color:' + fgUse + ';padding:2px 6px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:.2px;min-width:44px;text-align:center;line-height:1.3';
+      b.innerHTML = '<div style="font-size:8px;opacity:.8;font-weight:700">' + label + '</div><div style="font-size:11px">' + val + '</div>';
+      return b;
+    };
+    stkMid.appendChild(_mkBadge('DISP',   disp,   '#dcfce7', '#166534', disp === 0));
+    stkMid.appendChild(_mkBadge('TRAN',   trans,  '#dbeafe', '#1e40af', trans === 0));
+    stkMid.appendChild(_mkBadge('ASIG',   asig,   '#fef3c7', '#78350f', asig === 0));
+    stkMid.appendChild(_mkBadge('BO',     bo,     '#fee2e2', '#991b1b', bo === 0));
+    stkMid.appendChild(_mkBadge('ESPERA', espera, '#ede9fe', '#5b21b6', espera === 0));
     item.appendChild(stkMid);
     const right = document.createElement('div');
     right.style.cssText = 'text-align:right;flex-shrink:0';
