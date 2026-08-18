@@ -4104,7 +4104,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v529';
+const APP_VERSION = 'v531';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12488,6 +12488,16 @@ window.waitlistAddProductWithQty = async function(docId, sku, qty){
       firstBackorder: stk.backorder || 0,
       firstDisponible: stk.disponible,
     });
+  }
+  // v531 (2026-08-18): optimistic update. Antes esperaba el snapshot
+  // Firestore (200-500ms) para renderear -> UX percibido como "no
+  // funciona" y el vendedor refrescaba. Ahora actualizamos _wcardCurrent
+  // + re-render local INMEDIATO; el snapshot despues re-confirma.
+  const wLocal = revisionWaitlist.find(x => x._id === w._id);
+  if (wLocal) wLocal.items = items;
+  if (_wcardCurrent && _wcardCurrent._id === w._id) {
+    _wcardCurrent.items = items;
+    try { _renderWaitlistCard(); } catch(e){}
   }
   try {
     await fbDb.collection('revision_waitlist').doc(w._id).update({
