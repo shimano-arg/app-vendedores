@@ -4104,7 +4104,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v531';
+const APP_VERSION = 'v532';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -16369,7 +16369,7 @@ function applyRolePermissions(){
   // Targets button: solo gerencia (Mariano/Diego/Santi, gerente, o admin)
   document.getElementById('targets-btn').style.display = canManageTargets() ? '' : 'none';
   // Activa listeners cross-collection segun rol
-  if (userRole !== 'unassigned') { ensureNotifsListener(); ensureRouteOverridesListener(); ensureTargetsListener(); ensureClientLocsListener(); ensureSapVendorsListener(); ensureClientMasterListener(); ensureAltaCliListener(); ensureRendicionesListener(); ensureVendorOverridesListener(); ensureStockSnapshotListener(); ensurePriceListListener(); ensureTemporalPriceListListener(); ensureApprovedAltasListener(); try { ensureBackordersListener(); } catch(e) { console.warn('ensureBackordersListener', e); } try { ensureRevisionWaitlistListener(); } catch(e) { console.warn('ensureRevisionWaitlistListener', e); } try { ensureFacturacionSnapshotListener(); } catch(e) { console.warn('ensureFacturacionSnapshotListener', e); } }
+  if (userRole !== 'unassigned') { ensureNotifsListener(); ensureRouteOverridesListener(); ensureTargetsListener(); ensureClientLocsListener(); ensureSapVendorsListener(); ensureClientMasterListener(); ensureAltaCliListener(); ensureRendicionesListener(); ensureVendorOverridesListener(); ensureStockSnapshotListener(); ensurePriceListListener(); ensureTemporalPriceListListener(); ensureApprovedAltasListener(); try { ensureBackordersListener(); } catch(e) { console.warn('ensureBackordersListener', e); } try { ensureRevisionWaitlistListener(); } catch(e) { console.warn('ensureRevisionWaitlistListener', e); } try { ensureFacturacionSnapshotListener(); } catch(e) { console.warn('ensureFacturacionSnapshotListener', e); } try { ensureCampaniaSnapshotListener(); } catch(e) { console.warn('ensureCampaniaSnapshotListener', e); } }
   // Si soy VDI, cargar las parejas VDE para habilitar "actuar en nombre de".
   if (userRole === 'interno') { try { loadMyExternalPartners(); } catch(e) { console.warn('loadMyExternalPartners', e); } }
   // Acceso denegado para unassigned
@@ -16504,6 +16504,24 @@ function ensureFacturacionSnapshotListener(){
     qs.forEach(d => { FACTURACION_SNAPSHOT[d.id] = d.data() || {}; });
     try { if (typeof _updateSidebarLeftCards === 'function') _updateSidebarLeftCards(); } catch(e){}
   }, err => console.warn('[facturacion_snapshot] listener', err));
+}
+
+// v532 (2026-08-18): listener del snapshot BQ -> Firestore de campanias.
+// Popula CAMPANIA_SNAPSHOT map (1 doc por campaign_id). Cada entry:
+// {realizadoQty, realizadoArs, pctCumplimiento, lineasFacturadas, activa, ...}.
+// Alimenta la card 'Campanias activas' del Dashboard con facturado REAL SAP
+// (v_campanias_progreso). Antes usaba globalPedidos que da $0 porque los
+// pedidos van directo a SAP y no via la app. Match 1:1 con Power BI.
+var CAMPANIA_SNAPSHOT = {};
+var _unsubCampaniaSnapshot = null;
+function ensureCampaniaSnapshotListener(){
+  if (_unsubCampaniaSnapshot) return;
+  if (!currentUser || !fbDb) return;
+  _unsubCampaniaSnapshot = fbDb.collection('campania_snapshot').onSnapshot(qs => {
+    CAMPANIA_SNAPSHOT = {};
+    qs.forEach(d => { CAMPANIA_SNAPSHOT[d.id] = d.data() || {}; });
+    try { if (typeof renderDashboard === 'function') renderDashboard(); } catch(e){}
+  }, err => console.warn('[campania_snapshot] listener', err));
 }
 
 // v481/v482: calcula facturacion diaria + cumplimiento mensual.
@@ -18796,6 +18814,7 @@ function detachFirebaseListeners(){
   n += off('_unsubAutoSendPedidos', _unsubAutoSendPedidos, () => _unsubAutoSendPedidos = null);
   n += off('_unsubRevisionWaitlist', _unsubRevisionWaitlist, () => _unsubRevisionWaitlist = null);
   n += off('_unsubFacturacionSnapshot', _unsubFacturacionSnapshot, () => _unsubFacturacionSnapshot = null);
+  n += off('_unsubCampaniaSnapshot', _unsubCampaniaSnapshot, () => _unsubCampaniaSnapshot = null);
   if (typeof _logT === 'function') _logT('detach: ' + n + ' listeners cerrados');
   return n;
 }

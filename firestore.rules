@@ -270,6 +270,17 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // v532 (2026-08-18): campania_snapshot escrito por el cron
+    // sync_sap_to_bigquery.py (BQ v_campanias_progreso -> Firestore).
+    // 1 doc por campania con {realizadoQty, realizadoArs, pctCumplimiento, ...}.
+    // Alimenta la card 'Campanias activas' del Dashboard con facturado REAL SAP
+    // (antes usaba globalPedidos = $0 permanente porque los pedidos van directo
+    // a SAP y no via la app).
+    match /campania_snapshot/{docId} {
+      allow read: if isReader();
+      allow write: if false;
+    }
+
     // v454 (2026-08-11): revision_waitlist — pedidos "en espera" cargados
     // desde el modal Revision Excel. Compartido entre los 4 users del
     // whitelist (Mariano/Ioannis/Santi/Pablo = admin/gerente/interno).

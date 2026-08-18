@@ -1047,6 +1047,95 @@ def sync_sku_ventas_snapshot_to_firestore(bq_client: bigquery.Client,
     return written
 
 
+def sync_campania_snapshot_to_firestore(bq_client: bigquery.Client,
+                                          db: firestore.Client,
+                                          dry_run: bool = False) -> int:
+    """v532+ (2026-08-18): agrega v_campanias_progreso a Firestore
+    `campania_snapshot/{campaign_id}` para que el Dashboard app muestre
+    facturado REAL SAP en la card 'Campanias activas' (antes usaba
+    globalPedidos que da $0 porque los pedidos van directo a SAP).
+
+    Match 1:1 con lo que Power BI ve en la hoja CAMPANIAS del TABLERO SAR.
+
+    Payload:
+      {
+        campaignId, name, familia, subfamilia,
+        realizadoQty, realizadoArs,
+        lineasFacturadas, pctCumplimiento,
+        targetType, targetAmount,
+        startDate, endDate, activa,
+        updatedAt
+      }
+    """
+    log('[CAMPANIA_SNAP] agregando v_campanias_progreso a Firestore campania_snapshot...')
+    query = """
+    SELECT
+      campaign_id,
+      name,
+      familia,
+      subfamilia,
+      target_type,
+      target_amount,
+      start_date,
+      end_date,
+      realizado_qty,
+      realizado_ars,
+      lineas_facturadas,
+      pct_cumplimiento,
+      activa
+    FROM `app-vendedores-shimano.shimano_app.v_campanias_progreso`
+    """
+    rows = list(bq_client.query(query, location=BQ_LOCATION).result())
+    if not rows:
+        log('[CAMPANIA_SNAP] 0 campanias en v_campanias_progreso')
+        return 0
+    if dry_run:
+        log(f'[CAMPANIA_SNAP] DRY-RUN: {len(rows)} campanias listas para escribir')
+        return 0
+
+    coll = db.collection('campania_snapshot')
+    batch = db.batch()
+    written = 0
+    seen_ids = set()
+    for row in rows:
+        d = dict(row.items())
+        cid = str(d['campaign_id'] or '').strip()
+        if not cid:
+            continue
+        seen_ids.add(cid)
+        payload = {
+            'campaignId':       cid,
+            'name':             d.get('name') or '',
+            'familia':          d.get('familia') or '',
+            'subfamilia':       d.get('subfamilia') or '',
+            'targetType':       d.get('target_type') or '',
+            'targetAmount':     float(d.get('target_amount') or 0),
+            'startDate':        str(d.get('start_date') or ''),
+            'endDate':          str(d.get('end_date') or ''),
+            'realizadoQty':     float(d.get('realizado_qty') or 0),
+            'realizadoArs':     float(d.get('realizado_ars') or 0),
+            'lineasFacturadas': int(d.get('lineas_facturadas') or 0),
+            'pctCumplimiento':  float(d.get('pct_cumplimiento') or 0) if d.get('pct_cumplimiento') is not None else None,
+            'activa':           bool(d.get('activa')),
+            'updatedAt':        firestore.SERVER_TIMESTAMP,
+        }
+        batch.set(coll.document(cid), payload)
+        written += 1
+        if written % 400 == 0:
+            batch.commit()
+            batch = db.batch()
+    if written % 400 != 0:
+        batch.commit()
+
+    deleted = 0
+    for doc in coll.stream():
+        if doc.id not in seen_ids:
+            doc.reference.delete()
+            deleted += 1
+    log(f'[CAMPANIA_SNAP] {written} docs escritos, {deleted} docs stale eliminados')
+    return written
+
+
 def sync_pedido_estados_to_firestore(bq_client: bigquery.Client,
                                        db: firestore.Client,
                                        dry_run: bool = False) -> int:
@@ -1866,6 +1955,16 @@ def main():
         sync_facturacion_snapshot_to_firestore(bq_client, db, dry_run=dry_run)
     except Exception as e:
         log(f'[FACTURACION] fallo (no bloqueante): {e}')
+
+    # === 14. Campania snapshot (BQ -> Firestore) v532 (2026-08-18)
+    # Agrega v_campanias_progreso a Firestore campania_snapshot para que la
+    # card 'Campanias activas' del Dashboard app muestre facturado REAL SAP
+    # (antes usaba globalPedidos = solo pedidos via app = $0 permanente).
+    # Match 1:1 con Power BI hoja CAMPANIAS.
+    try:
+        sync_campania_snapshot_to_firestore(bq_client, db, dry_run=dry_run)
+    except Exception as e:
+        log(f'[CAMPANIA_SNAP] fallo (no bloqueante): {e}')
 
     log('=== sync_sap_to_bigquery END OK ===')
 
