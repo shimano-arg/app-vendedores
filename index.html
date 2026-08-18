@@ -4104,7 +4104,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v535';
+const APP_VERSION = 'v536';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -17135,24 +17135,43 @@ window.queryStockLive = function(code, btn){
         }
       });
       const total = disp + transito + otros;
-      // v440 (2026-08-10): reemplazamos "STOCK LIBERADO (transito - backorder)"
-      // (fórmula v377) por "LIBRE PARA VENDER (disp + transito - backorder)".
-      // Feedback Mariano: con la fórmula vieja, si hay más disponible que
-      // backorder pero sin tránsito el resultado quedaba 0, dando la falsa
-      // impresión de que no queda stock libre. Lo que realmente importa al
-      // vendedor es "cuánto puedo comprometer hoy sin pisar backorders
-      // existentes" — o sea el neto disp + transito - backorder.
-      // Backorder = suma de RemainingOpenQuantity de SQ open del SKU (mismo
-      // criterio que la vista v_backorder_lineas en BQ).
-      const backorder = Number(STOCK_BACKORDER[k] || STOCK_BACKORDER[k.toUpperCase()] || 0);
-      const libre = Math.max(disp + transito - backorder, 0);
+      // v440 (2026-08-10): "LIBRE PARA VENDER (disp + transito - backorder)".
+      // v536 (2026-08-18): desglose backorder segun feedback Mariano:
+      //   pendSAP = STOCK_BACKORDER[k] = SUM(RemainingOpenQuantity de SQ open)
+      //   STOCK ASIGNADO = min(pendSAP, disp)  -> pedido CON stock respaldando
+      //   BACKORDER      = max(pendSAP-disp,0) -> pedido SIN stock respaldando
+      //   ESPERA APP     = SUM(qty de revisionWaitlist con code=sku)
+      // Antes solo mostraba backorder total (sin separar asignado vs sin stock)
+      // ni ESPERA APP (Lista de Espera de la app).
+      const pendSap = Number(STOCK_BACKORDER[k] || STOCK_BACKORDER[k.toUpperCase()] || 0);
+      const asignado = Math.min(pendSap, disp);
+      const backorder = Math.max(pendSap - disp, 0);
+      let esperaApp = 0;
+      if (typeof revisionWaitlist !== 'undefined' && Array.isArray(revisionWaitlist)) {
+        for (const wl of revisionWaitlist) {
+          for (const it of (wl.items || [])) {
+            if (String(it.code || '').toUpperCase().trim() === k) {
+              esperaApp += Number(it.qty || 0) || 0;
+            }
+          }
+        }
+      }
+      const libre = Math.max(disp + transito - pendSap, 0);
       const lines = [
         '✅ DISPONIBLE venta (dep. 11): ' + disp + ' unidades',
         '🚚 EN TRANSITO (dep. 12): ' + transito + ' unidades',
       ];
+      if (asignado > 0) {
+        lines.push('📦 STOCK ASIGNADO (pedido con stock): ' + asignado + ' unidades');
+      }
       if (backorder > 0) {
-        lines.push('🔒 BACKORDER (reservado a clientes): ' + backorder + ' unidades');
-        lines.push('🟢 LIBRE PARA VENDER (disp + transito - backorder): ' + libre + ' unidades');
+        lines.push('🔒 BACKORDER (pedido sin stock): ' + backorder + ' unidades');
+      }
+      if (esperaApp > 0) {
+        lines.push('⏳ ESPERA APP (Lista de Espera): ' + esperaApp + ' unidades');
+      }
+      if (pendSap > 0) {
+        lines.push('🟢 LIBRE PARA VENDER (disp + transito - pend SAP): ' + libre + ' unidades');
       }
       if (otros > 0) lines.push('⚠️ Otros almacenes: ' + otros + ' unidades (' + otrosDetalle.join(', ') + ')');
       lines.push('──────────────');
