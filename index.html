@@ -4104,7 +4104,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v542';
+const APP_VERSION = 'v543';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -14604,17 +14604,31 @@ function getCurrentPendingEntry(){
 function persistPendingEntry(entry){
   savePending();
   if (entry && entry._fsId && currentUser) {
-    // E1 (v541): al persistir cambios sobre lines[], reenriquecer los campos
-    // del schema nuevo si faltan (por si la line fue creada/editada localmente
-    // sin ellos). qtyOpen se recalcula = qty (todavia legacy, sin logica BO/ASIG).
+    // E1 (v541) + E4A (v543): al persistir cambios sobre lines[], reenriquecer
+    // los campos del schema nuevo. state se re-evalua segun DISP actual EXCEPTO
+    // para estados "avanzados" (ASIG/invoiced/cancelled/recycled) que se respetan.
+    // qtyOpen se recalcula = qty - qtyInvoiced - qtyCancelled - qtyRecycled.
+    const _LOCKED_STATES = ['ASIG', 'invoiced', 'cancelled', 'recycled'];
     const _linesEnriched = (entry.lines || []).map(l => {
       const _qty = parseFloat(l.qty) || 0;
       const _precio = parseFloat(l.precio) || 0;
+      const _prevState = l.state;
+      const _qtyInv = parseFloat(l.qtyInvoiced) || 0;
+      const _qtyCan = parseFloat(l.qtyCancelled) || 0;
+      const _qtyRec = parseFloat(l.qtyRecycled) || 0;
+      const _qtyOpen = Math.max(_qty - _qtyInv - _qtyCan - _qtyRec, 0);
+      let _state;
+      if (_prevState && _LOCKED_STATES.includes(_prevState)) {
+        _state = _prevState;
+      } else {
+        const _disp = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(l.code) || 0) : 0;
+        _state = (_qtyOpen > 0 && _disp >= _qtyOpen) ? 'confirmed' : 'BO';
+      }
       return Object.assign({
-        qtyOpen: _qty, qtyInvoiced: 0, qtyCancelled: 0, qtyRecycled: 0,
-        state: 'legacy', asigAt: null, recycledIntoPedidoId: null,
+        qtyInvoiced: 0, qtyCancelled: 0, qtyRecycled: 0,
+        asigAt: null, recycledIntoPedidoId: null,
         priceAtCreation: _precio,
-      }, l, { qtyOpen: _qty }); // qty puede haber cambiado, siempre qtyOpen=qty en legacy
+      }, l, { qtyOpen: _qtyOpen, state: _state });
     });
     fbDb.collection('pedidos').doc(entry._fsId).update({lines: _linesEnriched, updatedAt: firebase.firestore.FieldValue.serverTimestamp()}).catch(e=>console.error('update pending lines', e));
   }
@@ -19279,17 +19293,21 @@ window.doConfirmPedido = function(){
       retiroDni:     (formaEntregaVal === 'RETIRO_DEPOSITO') ? retiroDni.trim() : '',
       retiroPatente: (formaEntregaVal === 'RETIRO_DEPOSITO') ? retiroPatente.trim().toUpperCase() : '',
     },
-    // E1 (v541): campos nuevos por linea para migracion BO/ASIG desde app.
-    // qtyOpen arranca == qty. state='legacy' hasta cutover E5 (ignora la logica nueva).
-    // priceAtCreation guarda el precio del catalogo al momento de crear el pedido.
+    // E1 (v541) + E4A (v543): campos nuevos por linea BO/ASIG desde app.
+    // v543: state inicial segun DISP dep 11 al momento de crear:
+    //   - DISP >= qty (y qty>0) -> 'confirmed' (con stock, potencial SQ a SAP)
+    //   - resto -> 'BO' (sin stock, queda en app hasta que entre y pase a ASIG)
+    // qtyOpen arranca == qty. priceAtCreation audita el precio historico.
     lines: ord.map(l => {
       const _qty = parseFloat(l.qty) || 0;
       const _precio = parseFloat(l.precio) || 0;
+      const _disp = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(l.code) || 0) : 0;
+      const _state = (_qty > 0 && _disp >= _qty) ? 'confirmed' : 'BO';
       return {
         code: l.code, desc: l.desc, cat: l.cat||'', fam: l.fam||'', sub: l.sub||'',
         qty: _qty, precio: _precio, needsReview: !!l.needsReview,
         qtyOpen: _qty, qtyInvoiced: 0, qtyCancelled: 0, qtyRecycled: 0,
-        state: 'legacy', asigAt: null, recycledIntoPedidoId: null,
+        state: _state, asigAt: null, recycledIntoPedidoId: null,
         priceAtCreation: _precio,
       };
     }),
