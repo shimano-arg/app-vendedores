@@ -813,55 +813,62 @@ window.renderDashboard = function () {
       '<div style="font-size:11px;color:#94a3b8">No hay campa&ntilde;as activas en este momento.</div>';
   } else {
     activeCamps.forEach((c) => {
-      // Progreso GLOBAL de la campaña: suma los confirmados de TODOS los
-      // vendedores asignados al scope (no solo del que esta mirando).
-      // Si la campaña FX 1000u va para gonzalo+federico y Fede lleva 200 y
-      // Gonzalo 500, ambos ven 700/1000 = 70% en su dashboard.
-      // Usa globalPedidos (todos los pedidos de todos los users), no
-      // 'confirmed' (que para un vendedor solo trae los propios).
-      const passesCampScope = (function () {
-        const scope = (c && c.scope) || 'all';
-        if (scope === 'all') return null; // sin filtro
-        const values = c.scopeValues || [];
-        if (scope === 'vendor') {
-          const vSet = new Set(values);
-          return (p) => vSet.has(getVendorForKey(p.key || ''));
-        }
-        if (scope === 'province') {
-          const pSet = new Set(values);
-          return (p) => pSet.has(p.province || '');
-        }
-        return null;
-      })();
+      // v532 (2026-08-18): fuente prioritaria = window.CAMPANIA_SNAPSHOT (BQ
+      // v_campanias_progreso -> Firestore, refresh cada 15min). Trae facturado
+      // REAL SAP con match 1:1 vs Power BI. Fallback: globalPedidos (solo
+      // pedidos via app) para campanias creadas post-ultimo sync.
+      const snap = window.CAMPANIA_SNAPSHOT ? window.CAMPANIA_SNAPSHOT[c.id] : null;
       let prog = 0;
-      (globalPedidos || []).forEach((p) => {
-        if (p.stage !== 'confirmed') return;
-        if (passesCampScope && !passesCampScope(p)) return;
-        const dt = (p.confirmedAt || '').slice(0, 10);
-        if (dt < c.startDate || dt > c.endDate) return;
-        (p.lines || []).forEach((l) => {
-          // Nuevo formato: matchea por SKU code (skus array).
-          // Fallback al viejo formato (filterType=familia/subfamilia/categoria).
-          let matches;
-          if (Array.isArray(c.skus) && c.skus.length) {
-            matches = c.skus.includes(l.code);
-          } else {
-            matches =
-              c.filterType === 'familia'
-                ? (c.filterValues || []).includes(l.fam)
-                : c.filterType === 'subfamilia'
-                  ? (c.filterValues || []).includes(l.sub)
-                  : c.filterType === 'categoria'
-                    ? (c.filterValues || []).includes(l.cat)
-                    : false;
+      let usaSap = false;
+      if (snap && (snap.realizadoArs > 0 || snap.realizadoQty > 0)) {
+        prog =
+          c.targetType === 'money'
+            ? Number(snap.realizadoArs || 0)
+            : Number(snap.realizadoQty || 0);
+        usaSap = true;
+      } else {
+        // Fallback: pedidos via app (comportamiento pre-v532).
+        const passesCampScope = (function () {
+          const scope = (c && c.scope) || 'all';
+          if (scope === 'all') return null;
+          const values = c.scopeValues || [];
+          if (scope === 'vendor') {
+            const vSet = new Set(values);
+            return (p) => vSet.has(getVendorForKey(p.key || ''));
           }
-          if (!matches) return;
-          const q = parseFloat(l.qty) || 0;
-          const pr = parseFloat(l.precio) || 0;
-          if (c.targetType === 'money') prog += q * pr;
-          else prog += q;
+          if (scope === 'province') {
+            const pSet = new Set(values);
+            return (p) => pSet.has(p.province || '');
+          }
+          return null;
+        })();
+        (globalPedidos || []).forEach((p) => {
+          if (p.stage !== 'confirmed') return;
+          if (passesCampScope && !passesCampScope(p)) return;
+          const dt = (p.confirmedAt || '').slice(0, 10);
+          if (dt < c.startDate || dt > c.endDate) return;
+          (p.lines || []).forEach((l) => {
+            let matches;
+            if (Array.isArray(c.skus) && c.skus.length) {
+              matches = c.skus.includes(l.code);
+            } else {
+              matches =
+                c.filterType === 'familia'
+                  ? (c.filterValues || []).includes(l.fam)
+                  : c.filterType === 'subfamilia'
+                    ? (c.filterValues || []).includes(l.sub)
+                    : c.filterType === 'categoria'
+                      ? (c.filterValues || []).includes(l.cat)
+                      : false;
+            }
+            if (!matches) return;
+            const q = parseFloat(l.qty) || 0;
+            const pr = parseFloat(l.precio) || 0;
+            if (c.targetType === 'money') prog += q * pr;
+            else prog += q;
+          });
         });
-      });
+      }
       const pct = c.targetAmount > 0 ? Math.min(100, Math.round((prog / c.targetAmount) * 100)) : 0;
       const target =
         c.targetType === 'money' ? fmtMoney(c.targetAmount) : fmtNum(c.targetAmount) + ' unid.';
@@ -898,11 +905,15 @@ window.renderDashboard = function () {
         '" style="width:' +
         pct +
         '%"></div></div>';
+      const badgeSap = usaSap
+        ? '<span style="color:#0284c7;font-size:9px;font-weight:800;margin-left:6px">SAP</span>'
+        : '<span style="color:#94a3b8;font-size:9px;font-weight:600;margin-left:6px">pedidos app</span>';
       html +=
         '<div class="camp-meta"><span>' +
         progFmt +
         ' / ' +
         target +
+        badgeSap +
         '</span><span>' +
         pct +
         '%</span></div>';
