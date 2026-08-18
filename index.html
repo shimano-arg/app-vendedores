@@ -4104,7 +4104,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v540';
+const APP_VERSION = 'v541';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -14570,7 +14570,19 @@ function getCurrentPendingEntry(){
 function persistPendingEntry(entry){
   savePending();
   if (entry && entry._fsId && currentUser) {
-    fbDb.collection('pedidos').doc(entry._fsId).update({lines: entry.lines, updatedAt: firebase.firestore.FieldValue.serverTimestamp()}).catch(e=>console.error('update pending lines', e));
+    // E1 (v541): al persistir cambios sobre lines[], reenriquecer los campos
+    // del schema nuevo si faltan (por si la line fue creada/editada localmente
+    // sin ellos). qtyOpen se recalcula = qty (todavia legacy, sin logica BO/ASIG).
+    const _linesEnriched = (entry.lines || []).map(l => {
+      const _qty = parseFloat(l.qty) || 0;
+      const _precio = parseFloat(l.precio) || 0;
+      return Object.assign({
+        qtyOpen: _qty, qtyInvoiced: 0, qtyCancelled: 0, qtyRecycled: 0,
+        state: 'legacy', asigAt: null, recycledIntoPedidoId: null,
+        priceAtCreation: _precio,
+      }, l, { qtyOpen: _qty }); // qty puede haber cambiado, siempre qtyOpen=qty en legacy
+    });
+    fbDb.collection('pedidos').doc(entry._fsId).update({lines: _linesEnriched, updatedAt: firebase.firestore.FieldValue.serverTimestamp()}).catch(e=>console.error('update pending lines', e));
   }
 }
 // Backwards-compat
@@ -19233,7 +19245,20 @@ window.doConfirmPedido = function(){
       retiroDni:     (formaEntregaVal === 'RETIRO_DEPOSITO') ? retiroDni.trim() : '',
       retiroPatente: (formaEntregaVal === 'RETIRO_DEPOSITO') ? retiroPatente.trim().toUpperCase() : '',
     },
-    lines: ord.map(l => ({code: l.code, desc: l.desc, cat: l.cat||'', fam: l.fam||'', sub: l.sub||'', qty: parseFloat(l.qty)||0, precio: parseFloat(l.precio)||0, needsReview: !!l.needsReview})),
+    // E1 (v541): campos nuevos por linea para migracion BO/ASIG desde app.
+    // qtyOpen arranca == qty. state='legacy' hasta cutover E5 (ignora la logica nueva).
+    // priceAtCreation guarda el precio del catalogo al momento de crear el pedido.
+    lines: ord.map(l => {
+      const _qty = parseFloat(l.qty) || 0;
+      const _precio = parseFloat(l.precio) || 0;
+      return {
+        code: l.code, desc: l.desc, cat: l.cat||'', fam: l.fam||'', sub: l.sub||'',
+        qty: _qty, precio: _precio, needsReview: !!l.needsReview,
+        qtyOpen: _qty, qtyInvoiced: 0, qtyCancelled: 0, qtyRecycled: 0,
+        state: 'legacy', asigAt: null, recycledIntoPedidoId: null,
+        priceAtCreation: _precio,
+      };
+    }),
     // v280+: flag global si el pedido tiene AL MENOS 1 SKU con needsReview.
     // Permite al admin filtrar/priorizar pedidos con SKUs para revisar.
     hasSkusToReview: (ord || []).some(l => !!l.needsReview),
@@ -19260,6 +19285,11 @@ window.doConfirmPedido = function(){
       return _discountSnapshot ? _discountSnapshot.pctTotal : 0;
     })(),
     discountSnapshot: _discountSnapshot,
+    // E1 (v541): schema BO/ASIG desde app. Los sync SAP (E2) escribiran aca.
+    schemaVersion: 2,
+    sapLinkage: { soDocEntry: null, lastInvoiceDocEntry: null, lastSyncAt: null },
+    closedAt: null,
+    closedReason: null,
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
   if (currentUser) {
