@@ -635,8 +635,12 @@ function allClientNamesFromPoints() {
   const set = new Set();
   if (typeof POINTS !== 'undefined' && Array.isArray(POINTS)) {
     POINTS.forEach((p) => {
-      (p.clients || []).forEach((n) => set.add(n));
-      (p.prospects || []).forEach((n) => set.add(n));
+      (p.clients || []).forEach((n) => {
+        set.add(n);
+      });
+      (p.prospects || []).forEach((n) => {
+        set.add(n);
+      });
     });
   }
   return [...set].sort((a, b) => a.localeCompare(b, 'es'));

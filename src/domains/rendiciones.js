@@ -1267,7 +1267,11 @@ window.approveRendicion = async function (rendId, notifId) {
     // refrescar para ver la rendicion pasar a APROBADA porque el
     // snapshot Firestore llega despues del render. Ahora actualizamos
     // los caches locales y re-renderamos inmediato.
-    const localApproved = { status: 'approved', approvedBy: currentUser.uid, approvedByEmail: currentUser.email || '' };
+    const localApproved = {
+      status: 'approved',
+      approvedBy: currentUser.uid,
+      approvedByEmail: currentUser.email || '',
+    };
     if (typeof todasRendiciones !== 'undefined' && todasRendiciones) {
       const t = todasRendiciones.find((r) => (r._fsId || r.id) === rendId);
       if (t) Object.assign(t, localApproved);
@@ -1276,8 +1280,12 @@ window.approveRendicion = async function (rendId, notifId) {
       const m = misRendiciones.find((r) => (r._fsId || r.id) === rendId);
       if (m) Object.assign(m, localApproved);
     }
-    try { renderTodasRendiciones(); } catch(_e){}
-    try { if (typeof renderMisRendiciones === 'function') renderMisRendiciones(); } catch(_e){}
+    try {
+      renderTodasRendiciones();
+    } catch (_e) {}
+    try {
+      if (typeof renderMisRendiciones === 'function') renderMisRendiciones();
+    } catch (_e) {}
     await fbDb
       .collection('rendiciones')
       .doc(rendId)
@@ -1328,7 +1336,12 @@ window.rejectRendicion = async function (rendId, notifId) {
   }
   try {
     // v531: optimistic update (idem approveRendicion).
-    const localRejected = { status: 'rejected', rejectedBy: currentUser.uid, rejectedByEmail: currentUser.email || '', rejectedReason: reason.trim() };
+    const localRejected = {
+      status: 'rejected',
+      rejectedBy: currentUser.uid,
+      rejectedByEmail: currentUser.email || '',
+      rejectedReason: reason.trim(),
+    };
     if (typeof todasRendiciones !== 'undefined' && todasRendiciones) {
       const t = todasRendiciones.find((r) => (r._fsId || r.id) === rendId);
       if (t) Object.assign(t, localRejected);
@@ -1337,8 +1350,12 @@ window.rejectRendicion = async function (rendId, notifId) {
       const m = misRendiciones.find((r) => (r._fsId || r.id) === rendId);
       if (m) Object.assign(m, localRejected);
     }
-    try { renderTodasRendiciones(); } catch(_e){}
-    try { if (typeof renderMisRendiciones === 'function') renderMisRendiciones(); } catch(_e){}
+    try {
+      renderTodasRendiciones();
+    } catch (_e) {}
+    try {
+      if (typeof renderMisRendiciones === 'function') renderMisRendiciones();
+    } catch (_e) {}
     await fbDb
       .collection('rendiciones')
       .doc(rendId)
