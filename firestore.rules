@@ -237,8 +237,10 @@ service cloud.firestore {
       // v542 E2: sap_sync_state es info operativa del sync SAP Invoices ->
       // pedidos-app. Solo admin/gerente para no exponer cursores/estado a
       // vendedores que no la necesitan.
-      allow read: if (docId in ['sap_integration', 'sap_sync_state'] && isAdminOrGerente())
-                  || (!(docId in ['sap_integration', 'sap_sync_state']) && isReader());
+      // E3 stock_snapshot_shadow_v3: shadow del snapshot app-source, admin/gerente
+      // (info operacional del sync, no relevante a vendedores hasta cutover E5).
+      allow read: if (docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3'] && isAdminOrGerente())
+                  || (!(docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3']) && isReader());
       allow write: if isAdmin();
     }
 

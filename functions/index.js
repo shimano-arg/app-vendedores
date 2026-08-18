@@ -15,6 +15,7 @@
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { defineSecret } from 'firebase-functions/params';
+import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { runDailyBackup } from './core/backup-core.js';
@@ -23,6 +24,7 @@ import { runDailyBackup } from './core/backup-core.js';
 // Cargarlo top-level exhausta el timeout de 10s del "backend spec analysis"
 // del deploy de Firebase Functions. Lazy dynamic import inside la function.
 import { syncSapInvoices } from './core/invoice-sync-core.js';
+import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
 import { handleSapProxy } from './core/sap-proxy-core.js';
 
 if (!getApps().length) initializeApp();
@@ -145,6 +147,41 @@ export const syncSapInvoicesToApp = onSchedule(
       matches: result.matches.length,
       orphans: result.orphans.length,
       errors: result.errors.length,
+    });
+  }
+);
+
+/**
+ * onPedidoWriteRecalcSnapshot — trigger on-write pedidos/{id} (E3 del plan BO/ASIG).
+ * HYBRID MODE: coexiste con SAP-source (sync_sap_to_firestore.py:571-642).
+ * Escribe keys paralelos backorderBySkuApp / asigBySkuApp / asigByClientSkuApp:
+ *   - Modo shadow (default): a app_config/stock_snapshot_shadow_v3
+ *   - Modo active (E5): a app_config/stock_snapshot (sin pisar keys SAP-source)
+ * Modo se cambia via app_config/sap_sync_state.mode (mismo flag que E2).
+ */
+export const onPedidoWriteRecalcSnapshot = onDocumentWritten(
+  {
+    region: REGION,
+    document: 'pedidos/{pedidoId}',
+    retry: false,
+    memory: '256MiB',
+    timeoutSeconds: 60,
+  },
+  async (event) => {
+    const beforeData = event.data?.before?.data() ?? null;
+    const afterData = event.data?.after?.data() ?? null;
+    const affectedSkus = extractAffectedSkus(beforeData, afterData);
+    if (!affectedSkus.size) return; // pedido sin lines app-source relevantes
+    const db = getFirestore();
+    const r = await recalcSnapshotForSkus(
+      { fbDb: db, log: (msg, extra) => console.log(msg, extra || {}) },
+      affectedSkus
+    );
+    console.log('onPedidoWriteRecalcSnapshot done', {
+      pedidoId: event.params.pedidoId,
+      mode: r.mode,
+      skus: r.skusRecalculated,
+      snapshotDoc: r.snapshotDoc,
     });
   }
 );
