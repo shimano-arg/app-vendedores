@@ -4104,7 +4104,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v539';
+const APP_VERSION = 'v540';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12797,10 +12797,16 @@ function _renderWaitlistCard(){
     tr.appendChild(tdDel);
     tbody.appendChild(tr);
   });
-  const canDelete = (currentUser && (
-    w.ownerUid === currentUser.uid ||
-    userRole === 'admin' || userRole === 'gerente'
-  ));
+  // v540 (2026-08-18): abierto delete a cualquier usuario autenticado @shimano.
+  // Antes: solo owner del doc + admin/gerente. Problema: los VDE no eran owner
+  // (los docs los crea el VDI Santi/Ioannis al cargar el pedido en espera del
+  // Excel), entonces si el VDE se equivocaba no podia borrar su propio pedido
+  // — tenia que pedir a admin. Rules Firestore v514 ya permiten delete a
+  // cualquier isReader(), solo faltaba abrir el gate del frontend.
+  const canDelete = !!(
+    currentUser &&
+    /@shimano\.(com\.ar|uy)$/i.test(currentUser.email || '')
+  );
   document.getElementById('wcard-delete-btn').style.display = canDelete ? '' : 'none';
   // v500: mismo criterio de permiso para editar orden.
   const editOrdenBtn = document.getElementById('wcard-edit-orden-btn');
