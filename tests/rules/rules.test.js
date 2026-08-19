@@ -378,16 +378,55 @@ describe('/app_config', () => {
 // ============================================================
 describe('/client_applications', () => {
   beforeEach(async () => {
+    // ca-vendor: creado por vendor (ownerUid), assignedVendor NO seteado.
+    // Vendor lee via ownerUid (Mis solicitudes). Otros vendors NO leen.
     await seedDoc('client_applications/ca-vendor', { ownerUid: UID.vendor, status: 'approved' });
     await seedDoc('client_applications/ca-with-sap', {
       ownerUid: UID.vendor,
       status: 'approved',
       cardCodeSap: 'C1',
     });
+    // v548: docs para probar la nueva rule.
+    await seedDoc('client_applications/ca-assigned-to-vendor', {
+      ownerUid: UID.admin,
+      assignedVendor: 'VDE_GONZALO',
+      status: 'approved',
+    });
+    await seedDoc('client_applications/ca-assigned-to-other', {
+      ownerUid: UID.admin,
+      assignedVendor: 'VDE_OTRO',
+      status: 'approved',
+    });
+    await seedDoc('client_applications/ca-huerfano', {
+      ownerUid: UID.admin,
+      status: 'approved',
+      // sin assignedVendor
+    });
   });
-  it('reader lee alta', async () => {
-    await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-vendor')));
+  it('viewer lee cualquier alta (backward compat)', async () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.viewer), 'client_applications', 'ca-vendor')));
+    await assertSucceeds(getDoc(doc(authedDb(UID.viewer), 'client_applications', 'ca-huerfano')));
+  });
+  it('v548: vendor SÍ lee alta que él creó (ownerUid, para Mis solicitudes)', async () => {
+    await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-vendor')));
+  });
+  it('v548: vendor SÍ lee alta asignada a él (assignedVendor==myVendor)', async () => {
+    await assertSucceeds(
+      getDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-assigned-to-vendor'))
+    );
+  });
+  it('v548: vendor NO lee alta asignada a otro vendor', async () => {
+    await assertFails(
+      getDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-assigned-to-other'))
+    );
+  });
+  it('v548: vendor NO lee alta huérfana (sin assignedVendor, no fue creada por él)', async () => {
+    await assertFails(getDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-huerfano')));
+  });
+  it('v548: admin/gerente/interno SÍ leen alta huérfana', async () => {
+    await assertSucceeds(getDoc(doc(authedDb(UID.admin), 'client_applications', 'ca-huerfano')));
+    await assertSucceeds(getDoc(doc(authedDb(UID.gerente), 'client_applications', 'ca-huerfano')));
+    await assertSucceeds(getDoc(doc(authedDb(UID.interno), 'client_applications', 'ca-huerfano')));
   });
   it('vendor crea alta propia', async () => {
     await assertSucceeds(

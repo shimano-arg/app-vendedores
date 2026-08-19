@@ -115,8 +115,14 @@ export async function seedCanonicalRoles() {
   await clearTestEnv();
   await seedRole(UID.admin, 'admin');
   await seedRole(UID.gerente, 'gerente');
-  await seedRole(UID.vendor, 'vendedor', { internalPartnerUid: UID.internoPartnered });
-  await seedRole(UID.vendorOther, 'vendedor');
+  // v548: vendor field necesario para myVendorKey() en rules de
+  // client_applications. Cada vendor tiene su "vendor key" (matchea
+  // POINTS[i].vendor y client_applications.assignedVendor).
+  await seedRole(UID.vendor, 'vendedor', {
+    internalPartnerUid: UID.internoPartnered,
+    vendor: 'VDE_GONZALO',
+  });
+  await seedRole(UID.vendorOther, 'vendedor', { vendor: 'VDE_OTRO' });
   await seedRole(UID.interno, 'interno');
   await seedRole(UID.internoPartnered, 'interno');
   await seedRole(UID.viewer, 'viewer');
