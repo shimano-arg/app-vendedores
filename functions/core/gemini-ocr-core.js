@@ -195,9 +195,10 @@ export async function runGeminiOcr(deps, auth, input) {
         message: `Gemini tardo mas de ${Math.round(timeoutMs / 1000)}s. Reintentar o completar manual.`,
       };
     }
+    const errAny = /** @type {any} */ (e);
     throw {
       code: 'internal',
-      message: 'fetch a Gemini fallo: ' + /** @type {any} */ ((e).message || e),
+      message: 'fetch a Gemini fallo: ' + (errAny.message || errAny),
     };
   }
   clearTimeout(timeoutId);
