@@ -135,24 +135,39 @@ async function loadOpenPedidos(deps) {
 
 /**
  * Aplica el update al snapshot doc para los SKUs dados.
- * Usa dotted-field paths para no pisar el resto del documento.
+ *
+ * BUG FIX 2026-08-19: el Admin SDK JS trata dotted paths en `.set(x, {merge:true})`
+ * como nombres literales de campo (no anida). Antes escribiamos claves como
+ * `backorderBySkuApp.SKU1` que quedaban planas en el doc → los lectores no
+ * las encontraban en `d.backorderBySkuApp`. Ahora armamos nested maps y
+ * confiamos en `merge: true` para hacer deep merge de los sub-maps (SKUs
+ * NO tocados en el recalc actual quedan intactos).
  * @param {SnapshotDeps} deps
  * @param {string} snapshotDocPath
  * @param {Map<string, {bo: number, asig: number, asigByClient: Map<string, number>}>} perSku
  */
 async function writeSnapshot(deps, snapshotDocPath, perSku) {
   if (!perSku.size) return;
-  /** @type {Record<string, any>} */
-  const update = {};
+  /** @type {Record<string, number>} */
+  const backorderBySkuApp = {};
+  /** @type {Record<string, number>} */
+  const asigBySkuApp = {};
+  /** @type {Record<string, number>} */
+  const asigByClientSkuApp = {};
   for (const [sku, agg] of perSku) {
-    update[`backorderBySkuApp.${sku}`] = agg.bo;
-    update[`asigBySkuApp.${sku}`] = agg.asig;
+    backorderBySkuApp[sku] = agg.bo;
+    asigBySkuApp[sku] = agg.asig;
     for (const [cc, qty] of agg.asigByClient) {
-      update[`asigByClientSkuApp.${cc}::${sku}`] = qty;
+      asigByClientSkuApp[`${cc}::${sku}`] = qty;
     }
   }
-  update.updatedAtApp = new Date().toISOString();
-  update.sourceApp = 'app_pedidos_v3';
+  const update = {
+    backorderBySkuApp,
+    asigBySkuApp,
+    asigByClientSkuApp,
+    updatedAtApp: new Date().toISOString(),
+    sourceApp: 'app_pedidos_v3',
+  };
   await deps.fbDb.doc(snapshotDocPath).set(update, { merge: true });
 }
 
