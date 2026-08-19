@@ -4114,7 +4114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v550';
+const APP_VERSION = 'v551';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -16881,7 +16881,7 @@ function applyRolePermissions(){
   // Targets button: solo gerencia (Mariano/Diego/Santi, gerente, o admin)
   document.getElementById('targets-btn').style.display = canManageTargets() ? '' : 'none';
   // Activa listeners cross-collection segun rol
-  if (userRole !== 'unassigned') { ensureNotifsListener(); ensureRouteOverridesListener(); ensureTargetsListener(); ensureClientLocsListener(); ensureSapVendorsListener(); ensureClientMasterListener(); ensureAltaCliListener(); ensureRendicionesListener(); ensureVendorOverridesListener(); ensureStockSnapshotListener(); ensurePriceListListener(); ensureTemporalPriceListListener(); ensureApprovedAltasListener(); try { ensureBackordersListener(); } catch(e) { console.warn('ensureBackordersListener', e); } try { ensureRevisionWaitlistListener(); } catch(e) { console.warn('ensureRevisionWaitlistListener', e); } try { ensureFacturacionSnapshotListener(); } catch(e) { console.warn('ensureFacturacionSnapshotListener', e); } try { ensureCampaniaSnapshotListener(); } catch(e) { console.warn('ensureCampaniaSnapshotListener', e); } }
+  if (userRole !== 'unassigned') { ensureNotifsListener(); ensureRouteOverridesListener(); ensureTargetsListener(); ensureClientLocsListener(); ensureSapVendorsListener(); ensureClientMasterListener(); ensureAltaCliListener(); ensureRendicionesListener(); ensureVendorOverridesListener(); ensureStockSnapshotListener(); ensureStockSnapshotAppListener(); ensurePriceListListener(); ensureTemporalPriceListListener(); ensureApprovedAltasListener(); try { ensureBackordersListener(); } catch(e) { console.warn('ensureBackordersListener', e); } try { ensureRevisionWaitlistListener(); } catch(e) { console.warn('ensureRevisionWaitlistListener', e); } try { ensureFacturacionSnapshotListener(); } catch(e) { console.warn('ensureFacturacionSnapshotListener', e); } try { ensureCampaniaSnapshotListener(); } catch(e) { console.warn('ensureCampaniaSnapshotListener', e); } }
   // Si soy VDI, cargar las parejas VDE para habilitar "actuar en nombre de".
   if (userRole === 'interno') { try { loadMyExternalPartners(); } catch(e) { console.warn('loadMyExternalPartners', e); } }
   // Acceso denegado para unassigned
@@ -17286,6 +17286,9 @@ function ensureProductCatalogListener(){
 // tiempo real para actualizar STOCK_MAP.
 let _stockParsedPayload = null;        // {stock, totalSkus, withStock, withoutStock}
 let unsubStockSnapshot = null;
+// v551+ (bugfix E5 UI merge): listener separado para stock_snapshot_app
+// (doc que E3 escribe en active mode, NO tocado por sync_sap_to_firestore.py).
+let unsubStockSnapshotApp = null;
 
 // =====================================================================
 // MASTER DE PRODUCTOS - buscador visual (v239+)
@@ -17867,12 +17870,10 @@ function ensureStockSnapshotListener(){
     } else {
       STOCK_BACKORDER = {};
     }
-    // v548+ (E5 UI merge): app-source BO/ASIG escritos por E3 en active mode.
-    // Nested map directo (no JSON string, escala inicial es chica <100 SKUs).
-    // Si el snapshot es pre-cutover o rollback a shadow, quedan vacios.
-    STOCK_BACKORDER_APP = (d.backorderBySkuApp && typeof d.backorderBySkuApp === 'object') ? d.backorderBySkuApp : {};
-    STOCK_ASIG_APP = (d.asigBySkuApp && typeof d.asigBySkuApp === 'object') ? d.asigBySkuApp : {};
-    STOCK_ASIG_BY_CLIENT_APP = (d.asigByClientSkuApp && typeof d.asigByClientSkuApp === 'object') ? d.asigByClientSkuApp : {};
+    // v551+ (bugfix): los keys app-source YA NO se leen desde stock_snapshot
+    // (fueron movidos a `stock_snapshot_app` doc separado porque
+    // sync_sap_to_firestore.py hace SET full replace cada 30 min y pisaba
+    // cualquier campo que le agregaramos). Ver ensureStockSnapshotAppListener().
     STOCK_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : null;
     // v417+: reflejar la salud SAP en el badge del header al recibir un snapshot nuevo.
     try { window._updateSapHealthBadge && window._updateSapHealthBadge(); } catch(e) {}
@@ -17887,6 +17888,27 @@ function ensureStockSnapshotListener(){
       try { renderProductPicker(); } catch(e){}
     }
   }, err => console.warn('stock snapshot listener', err));
+}
+
+// v551+ (bugfix E5 UI merge): listener separado a `stock_snapshot_app`.
+// E3 (CF onPedidoWriteRecalcSnapshot) escribe aca en active mode. NO se
+// toca desde sync_sap_to_firestore.py, asi que los campos app-source
+// persisten. Popula STOCK_BACKORDER_APP / STOCK_ASIG_APP / STOCK_ASIG_BY_CLIENT_APP.
+function ensureStockSnapshotAppListener(){
+  if (unsubStockSnapshotApp || !currentUser || !fbDb) return;
+  unsubStockSnapshotApp = fbDb.collection('app_config').doc('stock_snapshot_app').onSnapshot(snap => {
+    if (!snap.exists) {
+      STOCK_BACKORDER_APP = {}; STOCK_ASIG_APP = {}; STOCK_ASIG_BY_CLIENT_APP = {};
+      return;
+    }
+    const d = snap.data() || {};
+    STOCK_BACKORDER_APP = (d.backorderBySkuApp && typeof d.backorderBySkuApp === 'object') ? d.backorderBySkuApp : {};
+    STOCK_ASIG_APP = (d.asigBySkuApp && typeof d.asigBySkuApp === 'object') ? d.asigBySkuApp : {};
+    STOCK_ASIG_BY_CLIENT_APP = (d.asigByClientSkuApp && typeof d.asigByClientSkuApp === 'object') ? d.asigByClientSkuApp : {};
+    console.log('[stock_snapshot_app] updated: bo=' + Object.keys(STOCK_BACKORDER_APP).length
+      + ' asig=' + Object.keys(STOCK_ASIG_APP).length
+      + ' asigByClient=' + Object.keys(STOCK_ASIG_BY_CLIENT_APP).length);
+  }, err => console.warn('stock_snapshot_app listener', err));
 }
 
 // =====================================================================
@@ -19354,6 +19376,7 @@ function detachFirebaseListeners(){
   n += off('unsubSapConfig', unsubSapConfig, () => unsubSapConfig = null);
   n += off('unsubProductCatalog', unsubProductCatalog, () => unsubProductCatalog = null);
   n += off('unsubStockSnapshot', unsubStockSnapshot, () => unsubStockSnapshot = null);
+  n += off('unsubStockSnapshotApp', unsubStockSnapshotApp, () => unsubStockSnapshotApp = null);
   n += off('unsubPriceList', unsubPriceList, () => unsubPriceList = null);
   n += off('unsubTemporalPriceList', unsubTemporalPriceList, () => unsubTemporalPriceList = null);
   n += off('unsubVendorOverrides', unsubVendorOverrides, () => unsubVendorOverrides = null);

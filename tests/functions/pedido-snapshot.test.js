@@ -191,7 +191,7 @@ describe('recalcSnapshotForSkus — shadow', () => {
     expect(fbDb._writes.every((w) => w.path === 'app_config/stock_snapshot_shadow_v3')).toBe(true);
   });
 
-  it('active mode escribe a stock_snapshot', async () => {
+  it('active mode escribe a stock_snapshot_app (doc separado)', async () => {
     const fbDb = makeFakeFbDb({
       syncState: { mode: 'active' },
       pedidos: [
@@ -208,7 +208,7 @@ describe('recalcSnapshotForSkus — shadow', () => {
     const deps = { fbDb, log: vi.fn() };
     const r = await recalcSnapshotForSkus(deps, new Set(['X']));
     expect(r.mode).toBe('active');
-    expect(r.snapshotDoc).toBe('app_config/stock_snapshot');
+    expect(r.snapshotDoc).toBe('app_config/stock_snapshot_app');
     // Solo escribe keys nuevos (backorderBySkuApp, asigBySkuApp, asigByClientSkuApp)
     // — NO pisa backorderBySku (SAP-source).
     // Post-fix 2026-08-19: nested maps (no dotted paths, que el Admin SDK

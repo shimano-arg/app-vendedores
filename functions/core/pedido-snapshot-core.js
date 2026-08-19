@@ -24,7 +24,12 @@
  */
 
 const SYNC_STATE_DOC = 'app_config/sap_sync_state';
-const SNAPSHOT_DOC_ACTIVE = 'app_config/stock_snapshot';
+// v551+ (2026-08-19) fix bug arquitectural: sync_sap_to_firestore.py (cron
+// externo cada 30 min) hace SET full replace sobre `stock_snapshot` pisando
+// cualquier campo que le agreguemos con merge:true. Solucion: en active mode
+// escribimos a un doc SEPARADO `stock_snapshot_app` que nadie mas toca.
+// La UI listenea ambos docs y hace el merge en lectura.
+const SNAPSHOT_DOC_ACTIVE = 'app_config/stock_snapshot_app';
 const SNAPSHOT_DOC_SHADOW = 'app_config/stock_snapshot_shadow_v3';
 const OPEN_STATES = new Set(['BO', 'ASIG']);
 
