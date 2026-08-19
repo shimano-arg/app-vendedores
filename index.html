@@ -4114,7 +4114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v547';
+const APP_VERSION = 'v548';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -4375,6 +4375,17 @@ let STOCK_WAREHOUSE_BREAKDOWN = {};
 //   Stock Liberado = max(transito(whs 12) - backorder, 0)
 // Formato: {SKU: qty}. SKUs sin backorder NO estan en el map (equivale a 0).
 let STOCK_BACKORDER = {};
+// v548+ (2026-08-19) E5 UI merge: app-source (post-cutover mode='active').
+// Escritos por CF onPedidoWriteRecalcSnapshot cuando VDEs escriben pedidos.
+// Disjuntos con SAP-source por construccion (E4C filtra state='confirmed'
+// antes de mandar a SAP -> BO/ASIG nunca aparecen como SQ), asi que el
+// merge en la UI es suma directa sin dedup.
+//   - STOCK_BACKORDER_APP[sku] = suma qtyOpen de lineas state='BO' en pedidos-app open
+//   - STOCK_ASIG_APP[sku] = idem state='ASIG'
+//   - STOCK_ASIG_BY_CLIENT_APP['CARDCODE::SKU'] = idem por cliente (para modal reciclado)
+let STOCK_BACKORDER_APP = {};
+let STOCK_ASIG_APP = {};
+let STOCK_ASIG_BY_CLIENT_APP = {};
 let STOCK_UPDATED_AT = null;
 // Flag O(1) para que hasStock() no tenga que hacer Object.keys(STOCK_MAP)
 // en cada llamada. Antes: con 10.657 SKUs y el picker filtrando por
@@ -11252,6 +11263,11 @@ function _revisionStockFor(sku){
     ? STOCK_WAREHOUSE_BREAKDOWN[k] || null : null;
   const backorder = (typeof STOCK_BACKORDER === 'object' && STOCK_BACKORDER)
     ? Number(STOCK_BACKORDER[k] || 0) : 0;
+  // v548+ E5 UI merge: app-source BO/ASIG (disjuntos con SAP por E4C filter).
+  const backorderApp = (typeof STOCK_BACKORDER_APP === 'object' && STOCK_BACKORDER_APP)
+    ? Number(STOCK_BACKORDER_APP[k] || 0) : 0;
+  const asigApp = (typeof STOCK_ASIG_APP === 'object' && STOCK_ASIG_APP)
+    ? Number(STOCK_ASIG_APP[k] || 0) : 0;
   let stockTotal = null;
   if (whs && (whs['11'] != null || whs['12'] != null)) {
     stockTotal = Number(whs['11'] || 0) + Number(whs['12'] || 0);
@@ -11260,8 +11276,11 @@ function _revisionStockFor(sku){
     if (q != null) stockTotal = Number(q);
   }
   const hasData = stockTotal != null;
+  // Disponible sigue restando solo SAP-BO (reserva SAP real). App-ASIG es una
+  // reserva "phantom" (no en SAP hasta que se recicle), no la restamos aca
+  // para no romper la formula usada en muchos lados. Ver E5 UI merge doc.
   const disponible = hasData ? Math.max(stockTotal - backorder, 0) : null;
-  return {stockTotal, backorder, disponible, hasData};
+  return {stockTotal, backorder, backorderApp, asigApp, disponible, hasData};
 }
 async function parseRevisionExcelFile(file){
   const errEl = document.getElementById('revision-error');
@@ -12416,57 +12435,33 @@ window.isE4BEnabled = function(){
     return userRole === 'admin' || userRole === 'gerente';
   } catch(e){ return false; }
 };
-// Cache in-memory de asigByClientSkuApp -> {cardCode -> [{sku, qty}]}. Se
-// rehidrata en openWaitlistCardModal (fresh cada apertura del modal).
-window._E4B_ASIG_CACHE = null;
-window._e4bFetchAsigApp = async function(){
-  if (!window.isE4BEnabled() || !fbDb) { window._E4B_ASIG_CACHE = null; return null; }
-  try {
-    // v542 E3 escribe en shadow_v3 mientras mode='shadow'. Cutover E5 pasa a
-    // stock_snapshot. Intentamos shadow primero; si vacio caemos a prod.
-    let snap = await fbDb.collection('app_config').doc('stock_snapshot_shadow_v3').get();
-    let d = snap.exists ? (snap.data() || {}) : {};
-    let raw = d.asigByClientSkuApp;
-    if (!raw || (typeof raw === 'object' && !Object.keys(raw).length)) {
-      // fallback prod snapshot (post-E5 cutover el key se popula aca)
-      const snap2 = await fbDb.collection('app_config').doc('stock_snapshot').get();
-      const d2 = snap2.exists ? (snap2.data() || {}) : {};
-      raw = d2.asigByClientSkuApp;
-    }
-    // asigByClientSkuApp: mapa flat con key "CARDCODE::SKU" -> qty.
-    // Puede venir como object o string JSON (mismo pattern que backorderBySku).
-    let map = {};
-    if (typeof raw === 'string') { try { map = JSON.parse(raw) || {}; } catch(e){ map = {}; } }
-    else if (raw && typeof raw === 'object') { map = raw; }
-    // Reagrupar por cardCode para lookup O(1) en render.
-    const byClient = {};
-    for (const key of Object.keys(map)) {
-      const qty = Number(map[key]) || 0;
-      if (qty <= 0) continue;
-      const sepIdx = key.indexOf('::');
-      if (sepIdx < 0) continue;
-      const cc = key.substring(0, sepIdx).trim();
-      const sku = key.substring(sepIdx + 2).trim();
-      if (!cc || !sku) continue;
-      if (!byClient[cc]) byClient[cc] = [];
-      byClient[cc].push({ sku, qty });
-    }
-    // Sort SKUs alfa dentro de cada cliente.
-    for (const cc of Object.keys(byClient)) {
-      byClient[cc].sort((a, b) => a.sku.localeCompare(b.sku));
-    }
-    window._E4B_ASIG_CACHE = byClient;
-    return byClient;
-  } catch(e) {
-    console.warn('[E4B] no pude leer asigByClientSkuApp:', e && e.message);
-    window._E4B_ASIG_CACHE = null;
-    return null;
-  }
-};
+// v548 E5 UI merge: leemos del listener global STOCK_ASIG_BY_CLIENT_APP en
+// vez del fetch on-demand a shadow_v3. Post-cutover E3 escribe a
+// stock_snapshot (que ya listeneamos), asi que la data esta siempre fresh
+// sin latencia extra. En pre-cutover (shadow) el global esta vacio -> return [].
 window._e4bAsigDelCliente = function(cardCode){
-  if (!window.isE4BEnabled() || !window._E4B_ASIG_CACHE || !cardCode) return [];
-  return window._E4B_ASIG_CACHE[String(cardCode).trim()] || [];
+  if (!window.isE4BEnabled() || !cardCode) return [];
+  const cc = String(cardCode).trim();
+  const map = (typeof STOCK_ASIG_BY_CLIENT_APP === 'object' && STOCK_ASIG_BY_CLIENT_APP)
+    ? STOCK_ASIG_BY_CLIENT_APP : {};
+  const out = [];
+  const prefix = cc + '::';
+  for (const key of Object.keys(map)) {
+    if (!key.startsWith(prefix)) continue;
+    const qty = Number(map[key]) || 0;
+    if (qty <= 0) continue;
+    const sku = key.substring(prefix.length).trim();
+    if (!sku) continue;
+    out.push({ sku, qty });
+  }
+  out.sort((a, b) => a.sku.localeCompare(b.sku));
+  return out;
 };
+// Deprecated (v548): _e4bFetchAsigApp era fetch on-demand a shadow_v3.
+// Ahora leemos del listener global. Se mantiene como no-op para no romper
+// llamadas viejas del openWaitlistCardModal.
+window._e4bFetchAsigApp = async function(){ return null; };
+window._E4B_ASIG_CACHE = null; // legacy, no se usa mas
 // v542: helper generico para alertar al agregar SKU cuando cliente ya tiene
 // ASIG del mismo. Devuelve el match {sku, pendiente, sqDocDate, sqDocNum} o null.
 // Se llama desde waitlistAddProduct (inline) y addToOrder (bundle via window).
@@ -12701,15 +12696,9 @@ window.openWaitlistCardModal = function(docId){
   try { if (typeof ensureBackordersListener === 'function') ensureBackordersListener(); } catch(e){}
   document.getElementById('waitlist-card-modal').classList.add('open');
   _renderWaitlistCard();
-  // v545 E4B step 1: si el piloto esta activo, fetch on-demand del shadow
-  // snapshot y re-render de la seccion cuando llegue (no bloquea el modal).
-  if (window.isE4BEnabled && window.isE4BEnabled()) {
-    window._e4bFetchAsigApp().then(() => {
-      if (_wcardCurrent && _wcardCurrent._id === docId) {
-        try { _renderSapAsignadoConStock(_wcardCurrent); } catch(e){}
-      }
-    });
-  }
+  // v548 E5 UI merge: la data app-source ahora esta en el listener global
+  // STOCK_ASIG_BY_CLIENT_APP (via stock_snapshot en active mode). Ya no hace
+  // falta fetch on-demand — _renderE4BAsigApp lee sync del global.
 };
 window.closeWaitlistCardModal = function(){
   document.getElementById('waitlist-card-modal').classList.remove('open');
@@ -17476,6 +17465,11 @@ window.queryStockLive = function(code, btn){
       const pendSap = Number(STOCK_BACKORDER[k] || STOCK_BACKORDER[k.toUpperCase()] || 0);
       const asignado = Math.min(pendSap, disp);
       const backorder = Math.max(pendSap - disp, 0);
+      // v548+ E5 UI merge: app-source (post-cutover). Disjuntos con SAP-source
+      // por E4C filter (lineas state='BO'/'ASIG' nunca fueron a SAP), asi que
+      // el desglose real es: SAP-BO + APP-BO (sin stock) y SAP-ASIG + APP-ASIG.
+      const backorderApp = Number(STOCK_BACKORDER_APP[k] || 0);
+      const asigApp = Number(STOCK_ASIG_APP[k] || 0);
       let esperaApp = 0;
       if (typeof revisionWaitlist !== 'undefined' && Array.isArray(revisionWaitlist)) {
         for (const wl of revisionWaitlist) {
@@ -17491,11 +17485,15 @@ window.queryStockLive = function(code, btn){
         '✅ DISPONIBLE venta (dep. 11): ' + disp + ' unidades',
         '🚚 EN TRANSITO (dep. 12): ' + transito + ' unidades',
       ];
-      if (asignado > 0) {
-        lines.push('📦 STOCK ASIGNADO (pedido con stock): ' + asignado + ' unidades');
+      if (asignado > 0 || asigApp > 0) {
+        const asigTotal = asignado + asigApp;
+        const desglose = asigApp > 0 ? ' (SAP ' + asignado + ' + APP ' + asigApp + ')' : '';
+        lines.push('📦 STOCK ASIGNADO (pedido con stock): ' + asigTotal + ' unidades' + desglose);
       }
-      if (backorder > 0) {
-        lines.push('🔒 BACKORDER (pedido sin stock): ' + backorder + ' unidades');
+      if (backorder > 0 || backorderApp > 0) {
+        const boTotal = backorder + backorderApp;
+        const desglose = backorderApp > 0 ? ' (SAP ' + backorder + ' + APP ' + backorderApp + ')' : '';
+        lines.push('🔒 BACKORDER (pedido sin stock): ' + boTotal + ' unidades' + desglose);
       }
       if (esperaApp > 0) {
         lines.push('⏳ ESPERA APP (Lista de Espera): ' + esperaApp + ' unidades');
@@ -17718,6 +17716,12 @@ function ensureStockSnapshotListener(){
     } else {
       STOCK_BACKORDER = {};
     }
+    // v548+ (E5 UI merge): app-source BO/ASIG escritos por E3 en active mode.
+    // Nested map directo (no JSON string, escala inicial es chica <100 SKUs).
+    // Si el snapshot es pre-cutover o rollback a shadow, quedan vacios.
+    STOCK_BACKORDER_APP = (d.backorderBySkuApp && typeof d.backorderBySkuApp === 'object') ? d.backorderBySkuApp : {};
+    STOCK_ASIG_APP = (d.asigBySkuApp && typeof d.asigBySkuApp === 'object') ? d.asigBySkuApp : {};
+    STOCK_ASIG_BY_CLIENT_APP = (d.asigByClientSkuApp && typeof d.asigByClientSkuApp === 'object') ? d.asigByClientSkuApp : {};
     STOCK_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : null;
     // v417+: reflejar la salud SAP en el badge del header al recibir un snapshot nuevo.
     try { window._updateSapHealthBadge && window._updateSapHealthBadge(); } catch(e) {}
