@@ -111,7 +111,10 @@ def show_stock_snapshot_shadow(db):
     if isinstance(asig_cli, str):
         try: asig_cli = json.loads(asig_cli)
         except Exception: asig_cli = {}
-    print(f"  updatedAt: {_fmt_ts(d.get('updatedAt'))}")
+    print(f"  updatedAtApp: {_fmt_ts(d.get('updatedAtApp'))}")
+    print(f"  sourceApp: {d.get('sourceApp', '-')}")
+    if d.get("backfilledAt"):
+        print(f"  backfilledAt: {_fmt_ts(d.get('backfilledAt'))} by {d.get('backfilledBy', '?')}")
     print(f"  backorderBySkuApp: {len(bo)} SKUs, total qty={sum(int(v or 0) for v in bo.values())}")
     print(f"  asigBySkuApp:      {len(asig)} SKUs, total qty={sum(int(v or 0) for v in asig.values())}")
     print(f"  asigByClientSkuApp: {len(asig_cli)} claves cliente::sku, "
