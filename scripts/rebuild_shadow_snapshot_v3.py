@@ -160,14 +160,17 @@ def main():
     print("\n[APPLY] Nested maps escritos OK.")
 
     # 2. Borrar orphan flat keys.
+    # IMPORTANTE: Firestore trata dots en keys de .update() como field paths
+    # nested. Para borrar un campo TOP-LEVEL cuyo nombre contiene puntos
+    # (residuo del bug pre-fix), hay que wrappearlo con backticks segun la
+    # syntax oficial de field paths de Firestore: `\`fieldName.with.dots\``.
     if orphans:
         from firebase_admin.firestore import DELETE_FIELD
-        # Firestore soporta batch de 500 field deletes en un update.
         for i in range(0, len(orphans), 400):
             batch = orphans[i:i + 400]
-            update = {k: DELETE_FIELD for k in batch}
+            update = {f"`{k}`": DELETE_FIELD for k in batch}
             ref.update(update)
-        print(f"[APPLY] {len(orphans)} orphan flat keys borrados.")
+        print(f"[APPLY] {len(orphans)} orphan flat keys borrados (backtick escape).")
     else:
         print("[APPLY] Sin orphan flat keys — nada que limpiar.")
 
