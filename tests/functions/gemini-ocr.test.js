@@ -45,7 +45,8 @@ function makeGeminiResponse(parsed) {
 }
 
 const validInput = () => ({
-  imageBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQMAAAAl21bKAAAAA1BMVEUAAACnej3aAAAAAXRSTlMAQObYZgAAAApJREFUCNdjYAAAAAIAAeIhvDMAAAAASUVORK5CYII=',
+  imageBase64:
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQMAAAAl21bKAAAAA1BMVEUAAACnej3aAAAAAXRSTlMAQObYZgAAAApJREFUCNdjYAAAAAIAAeIhvDMAAAAASUVORK5CYII=',
   mimeType: 'image/png',
 });
 
@@ -62,9 +63,9 @@ describe('runGeminiOcr — auth', () => {
 
   it('auth sin email → unauthenticated', async () => {
     const deps = makeDeps();
-    await expect(
-      runGeminiOcr(deps, { uid: 'u1', email: '' }, validInput())
-    ).rejects.toMatchObject({ code: 'unauthenticated' });
+    await expect(runGeminiOcr(deps, { uid: 'u1', email: '' }, validInput())).rejects.toMatchObject({
+      code: 'unauthenticated',
+    });
   });
 
   it('auth con email fuera de @shimano → permission-denied', async () => {
@@ -87,11 +88,7 @@ describe('runGeminiOcr — auth', () => {
 
   it('@shimano.uy → OK', async () => {
     const deps = makeDeps();
-    const res = await runGeminiOcr(
-      deps,
-      { uid: 'u1', email: 'santi@shimano.uy' },
-      validInput()
-    );
+    const res = await runGeminiOcr(deps, { uid: 'u1', email: 'santi@shimano.uy' }, validInput());
     expect(res.importe).toBe(12500.5);
   });
 });
@@ -109,9 +106,9 @@ describe('runGeminiOcr — config', () => {
 describe('runGeminiOcr — input validation', () => {
   it('sin imageBase64 → invalid-argument', async () => {
     const deps = makeDeps();
-    await expect(
-      runGeminiOcr(deps, validAuth(), { mimeType: 'image/png' })
-    ).rejects.toMatchObject({ code: 'invalid-argument' });
+    await expect(runGeminiOcr(deps, validAuth(), { mimeType: 'image/png' })).rejects.toMatchObject({
+      code: 'invalid-argument',
+    });
   });
 
   it('mimeType no soportado → invalid-argument', async () => {

@@ -128,7 +128,10 @@ export async function runGeminiOcr(deps, auth, input) {
 
   // 2) Config validation
   if (!deps.apiKey) {
-    throw { code: 'failed-precondition', message: 'GEMINI_API_KEY no configurado en Secret Manager' };
+    throw {
+      code: 'failed-precondition',
+      message: 'GEMINI_API_KEY no configurado en Secret Manager',
+    };
   }
 
   // 3) Input validation
@@ -144,7 +147,10 @@ export async function runGeminiOcr(deps, auth, input) {
   }
   // Validar base64 rapido — rechaza data URLs con prefijo, chars invalidos.
   if (!/^[A-Za-z0-9+/=]+$/.test(imageBase64)) {
-    throw { code: 'invalid-argument', message: 'imageBase64 debe ser base64 puro (sin data: prefix)' };
+    throw {
+      code: 'invalid-argument',
+      message: 'imageBase64 debe ser base64 puro (sin data: prefix)',
+    };
   }
 
   const log = deps.log || (() => {});
@@ -189,7 +195,10 @@ export async function runGeminiOcr(deps, auth, input) {
         message: `Gemini tardo mas de ${Math.round(timeoutMs / 1000)}s. Reintentar o completar manual.`,
       };
     }
-    throw { code: 'internal', message: 'fetch a Gemini fallo: ' + (/** @type {any} */ (e).message || e) };
+    throw {
+      code: 'internal',
+      message: 'fetch a Gemini fallo: ' + /** @type {any} */ ((e).message || e),
+    };
   }
   clearTimeout(timeoutId);
 
@@ -214,7 +223,10 @@ export async function runGeminiOcr(deps, auth, input) {
   try {
     parsed = JSON.parse(text);
   } catch (_e) {
-    throw { code: 'internal', message: 'Gemini devolvio JSON invalido: ' + String(text).slice(0, 150) };
+    throw {
+      code: 'internal',
+      message: 'Gemini devolvio JSON invalido: ' + String(text).slice(0, 150),
+    };
   }
 
   log('[gemini] ocr ok', { uid: auth.uid, importe: parsed.importe, tipoGasto: parsed.tipoGasto });

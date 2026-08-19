@@ -52,7 +52,10 @@ async function extractTicketDataWithGemini(dataUrl) {
   // el spinner "Analizando ticket con IA..." queda pegado para siempre.
   const CALL_TIMEOUT_MS = 60000;
   const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('Timeout de 60s esperando respuesta del OCR. Completa manual.')), CALL_TIMEOUT_MS);
+    setTimeout(
+      () => reject(new Error('Timeout de 60s esperando respuesta del OCR. Completa manual.')),
+      CALL_TIMEOUT_MS
+    );
   });
 
   let res;
@@ -62,7 +65,9 @@ async function extractTicketDataWithGemini(dataUrl) {
     const code = e && e.code ? String(e.code) : '';
     const msg = e && e.message ? String(e.message) : String(e);
     if (code === 'functions/deadline-exceeded' || /Timeout de 60s/.test(msg)) {
-      throw new Error('Gemini tardo demasiado. Completa el formulario manualmente y envia el gasto.');
+      throw new Error(
+        'Gemini tardo demasiado. Completa el formulario manualmente y envia el gasto.'
+      );
     }
     if (code === 'functions/unauthenticated' || code === 'functions/permission-denied') {
       throw new Error('Sesion expirada o sin permisos. Cerra y volve a entrar a la app.');
