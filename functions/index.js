@@ -23,6 +23,7 @@ import { runDailyBackup } from './core/backup-core.js';
 // usa dentro de dailyFirestoreBackup para instanciar FirestoreAdminClient.
 // Cargarlo top-level exhausta el timeout de 10s del "backend spec analysis"
 // del deploy de Firebase Functions. Lazy dynamic import inside la function.
+import { updateAsigLineState } from './core/asig-recycle-core.js';
 import { runFifoAssign } from './core/fifo-assign-core.js';
 import { syncSapInvoices } from './core/invoice-sync-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
@@ -221,6 +222,43 @@ export const onStockChangeFIFOAssign = onDocumentWritten(
       promotions: r.promotions.length,
       errors: r.errors.length,
     });
+  }
+);
+
+/**
+ * updateAsigLineState — callable HTTPS (E4B step 2 del plan BO/ASIG).
+ * Cliente lo invoca con firebase.functions().httpsCallable('updateAsigLineState')
+ * ({sourcePedidoId, sourceLineIndex, qty, action, targetPedidoId?}).
+ *
+ * Muta una linea state='ASIG' de un pedido-app a 'recycled' (cliente lo quiere
+ * en pedido nuevo) o 'cancelled' (cliente lo libera). Transaccional.
+ *
+ * Auth: caller debe estar autenticado como @shimano.com.ar o @shimano.uy
+ * (validacion dentro del core). Usa Admin SDK (bypass rules) porque el pedido
+ * source puede ser de otro VDE.
+ */
+export const updateAsigLineStateCF = onCall(
+  {
+    region: REGION,
+    cors: true,
+    enforceAppCheck: false,
+  },
+  async (request) => {
+    const db = getFirestore();
+    try {
+      return await updateAsigLineState(
+        { fbDb: db, log: (msg, extra) => console.log(msg, extra || {}) },
+        request.auth ? { uid: request.auth.uid, email: request.auth.token?.email || '' } : null,
+        request.data
+      );
+    } catch (e) {
+      if (e && typeof e === 'object' && 'code' in e && 'message' in e) {
+        const err = /** @type {{code: string, message: string}} */ (e);
+        throw new HttpsError(/** @type {any} */ (err.code), err.message);
+      }
+      console.error('updateAsigLineStateCF unexpected error', e);
+      throw new HttpsError('internal', 'Error interno updateAsigLineState');
+    }
   }
 );
 
