@@ -232,6 +232,95 @@ async function findPedidosBySqDocEntry(deps, sqDocEntries) {
 }
 
 /**
+ * Aplica un match Invoice->pedido: incrementa qtyInvoiced en las lineas
+ * correspondientes, recalcula qtyOpen, marca state='invoiced' si qtyOpen<=0,
+ * cierra el pedido si TODAS las lineas quedaron cerradas.
+ *
+ * IDEMPOTENCIA: cada pedido lleva sapLinkage.appliedInvoiceDocEntries[]. Si
+ * este invoiceDocEntry ya esta, retorna null (skip). Sin esta guardia, un
+ * rerun de la CF (o un reprocesamiento manual) duplicaria qtyInvoiced.
+ *
+ * MATCHING POR SKU: SAP puede tener varias lineas con el mismo itemCode en
+ * una Invoice (poco frecuente pero posible). Sumamos todas antes de asignar
+ * a la (unica) linea del pedido con ese code.
+ *
+ * ATOMICIDAD: read-then-update sin transaccion. Race window: si dos ticks
+ * simultaneos leen la misma pedido antes de escribir, uno pisa al otro. La
+ * chance es baja (CF single-instance por defecto) pero real. Mejora futura:
+ * runTransaction. Por ahora la guardia de appliedInvoiceDocEntries mitiga
+ * el double-count si detectamos el race post-facto.
+ *
+ * @param {InvoiceSyncDeps} deps
+ * @param {SyncMatch} match
+ * @returns {Promise<{ closed: boolean } | null>} null si skip por idempotencia
+ */
+export async function applyInvoiceMatch(deps, match) {
+  const pedidoRef = deps.fbDb.collection('pedidos').doc(match.pedidoAppId);
+  const snap = await pedidoRef.get();
+  if (!snap.exists) return null;
+  const data = snap.data() || {};
+  const sapLinkage = data.sapLinkage || {};
+  const applied = Array.isArray(sapLinkage.appliedInvoiceDocEntries)
+    ? sapLinkage.appliedInvoiceDocEntries
+    : [];
+  if (applied.includes(match.invoiceDocEntry)) return null; // idempotent
+
+  // Sumar qty por itemCode (SAP puede tener multiples lineas mismo SKU).
+  /** @type {Map<string, number>} */
+  const invoicedByCode = new Map();
+  for (const il of match.lines || []) {
+    const code = String(il.itemCode || '').toUpperCase();
+    if (!code) continue;
+    invoicedByCode.set(code, (invoicedByCode.get(code) || 0) + (Number(il.qty) || 0));
+  }
+
+  const lines = Array.isArray(data.lines) ? [...data.lines] : [];
+  let anyLineChanged = false;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (!l || !l.code) continue;
+    const up = String(l.code).toUpperCase();
+    const invNow = invoicedByCode.get(up);
+    if (!invNow) continue;
+    const qty = Number(l.qty) || 0;
+    const already = Number(l.qtyInvoiced) || 0;
+    const cancelled = Number(l.qtyCancelled) || 0;
+    const recycled = Number(l.qtyRecycled) || 0;
+    const newInvoiced = already + invNow;
+    const qtyOpen = Math.max(qty - newInvoiced - cancelled - recycled, 0);
+    /** @type {Record<string, any>} */
+    const patch = { qtyInvoiced: newInvoiced, qtyOpen };
+    if (qtyOpen <= 0 && l.state !== 'invoiced' && l.state !== 'cancelled') {
+      patch.state = 'invoiced';
+    }
+    lines[i] = Object.assign({}, l, patch);
+    anyLineChanged = true;
+  }
+  if (!anyLineChanged) return null;
+
+  const nowIso = new Date().toISOString();
+  const anyStillOpen = lines.some((l) => (Number(l && l.qtyOpen) || 0) > 0);
+  /** @type {Record<string, any>} */
+  const update = {
+    lines,
+    updatedAt: nowIso,
+    sapLinkage: Object.assign({}, sapLinkage, {
+      lastInvoiceDocEntry: match.invoiceDocEntry,
+      lastSyncAt: nowIso,
+      appliedInvoiceDocEntries: [...applied, match.invoiceDocEntry],
+    }),
+  };
+  let closed = false;
+  if (!anyStillOpen && !data.closedAt) {
+    update.closedAt = nowIso;
+    update.closedReason = 'all_invoiced';
+    closed = true;
+  }
+  await pedidoRef.update(update);
+  return { closed };
+}
+
+/**
  * Ejecuta un run del sync.
  * @param {InvoiceSyncDeps} deps
  * @returns {Promise<SyncResult>}
@@ -350,10 +439,28 @@ export async function syncSapInvoices(deps) {
       }
     }
 
-    // 4) En modo 'active', aplicar. En 'shadow', no.
+    // 4) En modo 'active' (E5 cutover), aplicar los matches a los pedidos.
+    // Idempotencia: cada linea del pedido trackea sapLinkage.appliedInvoiceDocEntries
+    // -> un rerun no duplica qtyInvoiced. Errores individuales van a errors[]
+    // sin abortar el batch (los pedidos que si aplican quedan actualizados;
+    // los que fallan quedan intactos y no vuelven a intentarse hasta que la
+    // Invoice reaparezca — no reaparece porque el cursor ya avanzo).
     if (mode === 'active') {
-      // TODO E5: aplicar qtyInvoiced += qty, cerrar pedido si todas cerradas.
-      log('syncSapInvoices active mode — apply not implemented yet, treating as shadow', {});
+      for (const match of matches) {
+        try {
+          const applied = await applyInvoiceMatch(deps, match);
+          if (applied)
+            log('applyInvoiceMatch OK', {
+              pedidoAppId: match.pedidoAppId,
+              invoiceDocEntry: match.invoiceDocEntry,
+              closed: applied.closed,
+            });
+        } catch (e) {
+          errors.push(
+            `applyInvoiceMatch pedidoAppId=${match.pedidoAppId} invoice=${match.invoiceDocEntry}: ${String(e)}`
+          );
+        }
+      }
     }
 
     // 5) Escribir cursor
