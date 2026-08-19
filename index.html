@@ -4114,7 +4114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v548';
+const APP_VERSION = 'v549';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12593,16 +12593,128 @@ function _renderE4BAsigApp(w){
     desc.textContent = prod ? (prod.desc || '') : '(sin catalogo)';
     const meta = document.createElement('div');
     meta.style.cssText = 'color:#64748b;font-size:9.5px;margin-top:2px';
-    meta.textContent = 'ASIG app-source · ' + it.qty + ' u pendiente reciclar/liberar';
+    meta.textContent = 'ASIG app-source · ' + it.qty + ' u pendiente';
     left.appendChild(code); left.appendChild(desc); left.appendChild(meta);
     row.appendChild(left);
     const tag = document.createElement('span');
-    tag.style.cssText = 'flex-shrink:0;background:#dbeafe;color:#1e40af;padding:5px 10px;border-radius:4px;font-size:10px;font-weight:700';
-    tag.textContent = 'APP · ' + it.qty + ' u';
+    tag.style.cssText = 'flex-shrink:0;background:#dbeafe;color:#1e40af;padding:4px 8px;border-radius:4px;font-size:10px;font-weight:700';
+    tag.textContent = it.qty + ' u APP';
     row.appendChild(tag);
+    // v549 E4B step 2: botones Aceptar (reciclar a waitlist actual) /
+    // Rechazar (cancelar). Cada click hace fetch de pedidos ASIG del cliente,
+    // corre FIFO oldest-first para consumir la qty pedida, y llama al CF por
+    // cada linea que muta.
+    const btnAcc = document.createElement('button');
+    btnAcc.type = 'button';
+    btnAcc.textContent = '✓ Aceptar';
+    btnAcc.style.cssText = 'flex-shrink:0;background:#166534;color:#fff;border:none;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
+    btnAcc.onclick = () => _e4bHandleAsigAction(w, it, 'recycled');
+    row.appendChild(btnAcc);
+    const btnRej = document.createElement('button');
+    btnRej.type = 'button';
+    btnRej.textContent = '✗ Rechazar';
+    btnRej.style.cssText = 'flex-shrink:0;background:#991b1b;color:#fff;border:none;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
+    btnRej.onclick = () => _e4bHandleAsigAction(w, it, 'cancelled');
+    row.appendChild(btnRej);
     rows.appendChild(row);
   }
   cont.style.display = '';
+}
+// v549 E4B step 2: handler de click Aceptar/Rechazar en el piloto E4B.
+// Fetch pedidos del cliente con lineas ASIG del sku, FIFO oldest-first,
+// invoca updateAsigLineStateCF por linea hasta consumir la qty pedida.
+// Post-recycle: agrega SKU a la waitlist actual (waitlistAddProductWithQty).
+async function _e4bHandleAsigAction(w, it, action){
+  if (!window.isE4BEnabled || !window.isE4BEnabled()) return;
+  if (!w || !w.clientCardCode || !it || !it.sku) return;
+  const actionLabel = action === 'recycled' ? 'RECICLAR' : 'RECHAZAR';
+  const qtyStr = prompt(actionLabel + ' cuantas unidades de ' + it.sku + '?\n(max ' + it.qty + ' u; cancelar para abortar)', String(it.qty));
+  if (!qtyStr) return;
+  const qtyRequested = parseInt(qtyStr, 10);
+  if (!Number.isFinite(qtyRequested) || qtyRequested <= 0 || qtyRequested > it.qty) {
+    alert('qty invalida (debe ser entre 1 y ' + it.qty + ')');
+    return;
+  }
+  try {
+    // Fetch pedidos del cliente con lineas ASIG del sku. FIFO por createdAt.
+    const snap = await fbDb.collection('pedidos')
+      .where('clientCardCode', '==', w.clientCardCode)
+      .where('closedAt', '==', null)
+      .get();
+    /** @type {{pedidoId: string, lineIndex: number, qtyOpen: number, createdAtMs: number}[]} */
+    const targets = [];
+    const skuUp = String(it.sku).toUpperCase();
+    snap.forEach(doc => {
+      const d = doc.data() || {};
+      const lines = Array.isArray(d.lines) ? d.lines : [];
+      for (let i = 0; i < lines.length; i++) {
+        const l = lines[i];
+        if (!l || !l.code) continue;
+        if (String(l.code).toUpperCase() !== skuUp) continue;
+        if (l.state !== 'ASIG') continue;
+        const qOpen = Number(l.qtyOpen) || 0;
+        if (qOpen <= 0) continue;
+        let createdAtMs = 0;
+        if (d.createdAt) {
+          if (typeof d.createdAt.toMillis === 'function') createdAtMs = d.createdAt.toMillis();
+          else if (typeof d.createdAt === 'string') createdAtMs = new Date(d.createdAt).getTime() || 0;
+          else if (typeof d.createdAt === 'number') createdAtMs = d.createdAt;
+        }
+        targets.push({pedidoId: doc.id, lineIndex: i, qtyOpen: qOpen, createdAtMs});
+      }
+    });
+    targets.sort((a, b) => a.createdAtMs - b.createdAtMs || a.pedidoId.localeCompare(b.pedidoId));
+    if (!targets.length) {
+      alert('No encontre lineas ASIG del cliente para ' + it.sku + '. Puede que ya se hayan cerrado.');
+      return;
+    }
+    // FIFO consume: para cada target, tomar min(remaining, line.qtyOpen).
+    let remaining = qtyRequested;
+    let totalApplied = 0;
+    const cf = firebase.functions().httpsCallable('updateAsigLineStateCF');
+    for (const t of targets) {
+      if (remaining <= 0) break;
+      const take = Math.min(remaining, t.qtyOpen);
+      try {
+        const payload = {
+          sourcePedidoId: t.pedidoId,
+          sourceLineIndex: t.lineIndex,
+          qty: take,
+          action,
+        };
+        if (action === 'recycled' && w._id) payload.targetPedidoId = w._id;
+        const res = await cf(payload);
+        if (res && res.data && res.data.success) {
+          totalApplied += take;
+          remaining -= take;
+        } else {
+          console.warn('[E4B] CF respuesta inesperada', res);
+          break;
+        }
+      } catch(e) {
+        console.error('[E4B] CF error', e);
+        alert('Error ejecutando ' + actionLabel + ': ' + (e.message || e));
+        break;
+      }
+    }
+    if (!totalApplied) {
+      alert('Nada aplicado. Revisar consola.');
+      return;
+    }
+    // Si fue recycle: agregar SKU a la waitlist actual (equivalente a un pedido nuevo).
+    if (action === 'recycled' && typeof waitlistAddProductWithQty === 'function') {
+      try { await waitlistAddProductWithQty(w._id, it.sku, totalApplied); }
+      catch(e) { console.warn('[E4B] waitlist add fallo (recycle ya aplicado):', e); alert('Reciclado OK pero fallo el add a la waitlist. Agrega manualmente: ' + it.sku + ' x ' + totalApplied); }
+    }
+    if (typeof showSyncTag === 'function') {
+      showSyncTag(actionLabel + ' OK: ' + it.sku + ' x ' + totalApplied + ' u');
+    }
+    // Re-render (aunque el listener del snapshot ya deberia disparar en breve).
+    try { _renderE4BAsigApp(w); } catch(e){}
+  } catch(e) {
+    console.error('[E4B] handler action', e);
+    alert('Error: ' + (e.message || e));
+  }
 }
 // v477: variante de waitlistAddProduct con qty custom (para agregar desde
 // SAP Asignado con la qty pendiente exacta de la SQ, no qty=1).
