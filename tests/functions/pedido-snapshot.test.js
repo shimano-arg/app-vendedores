@@ -211,10 +211,12 @@ describe('recalcSnapshotForSkus — shadow', () => {
     expect(r.snapshotDoc).toBe('app_config/stock_snapshot');
     // Solo escribe keys nuevos (backorderBySkuApp, asigBySkuApp, asigByClientSkuApp)
     // — NO pisa backorderBySku (SAP-source).
+    // Post-fix 2026-08-19: nested maps (no dotted paths, que el Admin SDK
+    // trata literal). merge:true hace deep merge de los sub-maps.
     const write = fbDb._writes[0];
-    expect(write.data['asigBySkuApp.X']).toBe(3);
-    expect(write.data['backorderBySkuApp.X']).toBe(0);
-    expect(write.data['asigByClientSkuApp.C001::X']).toBe(3);
+    expect(write.data.asigBySkuApp.X).toBe(3);
+    expect(write.data.backorderBySkuApp.X).toBe(0);
+    expect(write.data.asigByClientSkuApp['C001::X']).toBe(3);
     expect(write.data.backorderBySku).toBeUndefined(); // NO tocar key SAP-source
   });
 
@@ -245,7 +247,7 @@ describe('recalcSnapshotForSkus — shadow', () => {
     const deps = { fbDb, log: vi.fn() };
     await recalcSnapshotForSkus(deps, new Set(['A', 'B']));
     expect(fbDb._writes).toHaveLength(1);
-    expect(fbDb._writes[0].data['backorderBySkuApp.A']).toBe(2);
-    expect(fbDb._writes[0].data['asigBySkuApp.B']).toBe(3);
+    expect(fbDb._writes[0].data.backorderBySkuApp.A).toBe(2);
+    expect(fbDb._writes[0].data.asigBySkuApp.B).toBe(3);
   });
 });
