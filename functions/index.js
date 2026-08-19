@@ -25,6 +25,7 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { updateAsigLineState } from './core/asig-recycle-core.js';
 import { runDailyBackup } from './core/backup-core.js';
 import { runFifoAssign } from './core/fifo-assign-core.js';
+import { runGeminiOcr } from './core/gemini-ocr-core.js';
 import { syncSapInvoices } from './core/invoice-sync-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
 import { handleSapProxy } from './core/sap-proxy-core.js';
@@ -32,6 +33,10 @@ import { handleSapProxy } from './core/sap-proxy-core.js';
 if (!getApps().length) initializeApp();
 
 const SAP_SL_PASSWORD = defineSecret('SAP_SL_PASSWORD');
+// v551: Gemini API key movida de Firestore (app_config/gemini) a Secret
+// Manager. Antes la key era legible por cualquier @shimano user con
+// DevTools. Ahora vive solo en el CF geminiOcrProxy.
+const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY');
 const REGION = 'southamerica-east1';
 const PROJECT_ID = process.env.GCLOUD_PROJECT || 'app-vendedores-shimano';
 const BACKUP_BUCKET = `${PROJECT_ID}-backups`;
@@ -258,6 +263,58 @@ export const updateAsigLineStateCF = onCall(
       }
       console.error('updateAsigLineStateCF unexpected error', e);
       throw new HttpsError('internal', 'Error interno updateAsigLineState');
+    }
+  }
+);
+
+/**
+ * geminiOcrProxy — callable HTTPS (v551 SECURITY).
+ * Cliente lo invoca con
+ *   firebase.app().functions('southamerica-east1').httpsCallable('geminiOcrProxy')
+ *   ({imageBase64, mimeType}).
+ *
+ * Motivo del cambio: hasta v550 el frontend leia la API key de Gemini
+ * desde app_config/gemini y fetcheaba directo a
+ * generativelanguage.googleapis.com. Cualquier @shimano user con
+ * DevTools podia exfiltrar la key. v551 mueve la key a Secret Manager
+ * y proxeya la llamada.
+ *
+ * Auth: caller debe estar autenticado como @shimano.com.ar o @shimano.uy
+ * (validacion dentro del core). Cualquier reader vale — VDEs necesitan
+ * OCRizar tickets como parte del flujo de rendiciones.
+ *
+ * Memory 512MiB + timeout 60s: Gemini 2.5 flash suele responder <10s
+ * en imagenes de ticket estandar (~1-2 MB base64). El default de
+ * onCall (256MiB, 60s) tambien alcanza pero subimos memory por si el
+ * JSON.parse del response con imagenes grandes pica.
+ */
+export const geminiOcrProxy = onCall(
+  {
+    region: REGION,
+    secrets: [GEMINI_API_KEY],
+    cors: true,
+    enforceAppCheck: false,
+    memory: '512MiB',
+    timeoutSeconds: 60,
+  },
+  async (request) => {
+    try {
+      return await runGeminiOcr(
+        {
+          fetch: globalThis.fetch,
+          apiKey: GEMINI_API_KEY.value(),
+          log: (msg, extra) => console.log(msg, extra || {}),
+        },
+        request.auth ? { uid: request.auth.uid, email: request.auth.token?.email || '' } : null,
+        request.data
+      );
+    } catch (e) {
+      if (e && typeof e === 'object' && 'code' in e && 'message' in e) {
+        const err = /** @type {{code: string, message: string}} */ (e);
+        throw new HttpsError(/** @type {any} */ (err.code), err.message);
+      }
+      console.error('geminiOcrProxy unexpected error', e);
+      throw new HttpsError('internal', 'Error interno geminiOcrProxy');
     }
   }
 );

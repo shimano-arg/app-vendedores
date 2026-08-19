@@ -5,11 +5,9 @@
 // discontinuos separados por SAP domain stubs) como parte de E2.o (e2b-perf 2026-07-28).
 // ULTIMO dominio grande a extraer.
 //
-// KNOWN BUG preservado verbatim: geminiApiKeyCache se reasigna sin prefix en
-// saveGeminiApiKey/deleteGeminiApiKey, pero la declaración `let geminiApiKeyCache`
-// vive en rendiciones.js bundle (extraída en E2.e). Las reasignaciones desde
-// este bundle admin-users afectan un binding local distinto que rendiciones.js
-// NO ve → cache no se invalida cross-módulo. TODO E6: promover a window.geminiApiKeyCache.
+// v551 (2026-08-19) SECURITY: eliminado el KNOWN BUG del geminiApiKeyCache
+// cross-module. La key ya no vive en Firestore ni cachea nada frontend —
+// se movio a Secret Manager y se accede via callable geminiOcrProxy.
 //
 // Cross-scope state: usersCache, gmapsApiKeyCache, totpSetupState (let local al bundle,
 // compartidos intra-bundle). PROTECTED_ADMIN_EMAILS (const dentro de openAdminPanel).
@@ -120,108 +118,33 @@ window.removeAllowedEmail = async function (docId) {
 };
 
 // === Seccion Gemini API Key (admin) ===
-function renderGeminiConfigSection(data) {
+function renderGeminiConfigSection(_data) {
   const el = document.getElementById('gemini-config-section');
   if (!el) return;
-  const hasKey = data && data.apiKey;
-  const masked = hasKey ? data.apiKey.slice(0, 4) + '••••••••••' + data.apiKey.slice(-4) : '';
-  const updatedBy = (data && data.updatedBy) || '';
-  const updatedAt =
-    data && data.updatedAt && data.updatedAt.toDate
-      ? data.updatedAt.toDate().toLocaleString('es-AR')
-      : '';
-  let html = '<div style="text-align:center;margin-bottom:10px">';
-  html +=
-    '<div style="font-size:12px;font-weight:800;color:#5b21b6">Gemini API Key (OCR de tickets)</div>';
-  html +=
-    '<div style="font-size:10px;color:#64748b;margin-top:2px">La usan los vendedores cuando suben una foto de ticket para auto-completar los campos del form de gastos.</div>';
-  html += '</div>';
-  if (hasKey) {
-    html +=
-      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;justify-content:center">';
-    html +=
-      '<span style="font-family:Consolas,monospace;font-size:11px;background:#fff;border:1px solid #ddd6fe;border-radius:4px;padding:4px 8px;color:#5b21b6">' +
-      escapeHtml(masked) +
-      '</span>';
-    html +=
-      '<span style="font-size:10px;color:#64748b">Cargada por ' +
-      escapeHtml(updatedBy || 'admin') +
-      (updatedAt ? ' (' + escapeHtml(updatedAt) + ')' : '') +
-      '</span>';
-    html += '</div>';
-  } else {
-    html +=
-      '<div style="font-size:11px;color:#94a3b8;margin-bottom:10px;text-align:center">Aun no se cargo ninguna API key. Los vendedores no van a poder usar el OCR.</div>';
-  }
-  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">';
-  html +=
-    '<button class="app-btn-pill app-btn-violet" onclick="saveGeminiApiKey()">' +
-    (hasKey ? 'Cambiar key' : 'Cargar key') +
-    '</button>';
-  if (hasKey)
-    html +=
-      '<button class="app-btn-pill app-btn-red" onclick="deleteGeminiApiKey()">Borrar</button>';
-  html += '</div>';
-  el.innerHTML = html;
+  // v551 (2026-08-19) SECURITY: la key vive en Secret Manager, no en
+  // Firestore. La UI de admin ya no permite cargar/borrar desde el
+  // navegador porque eso volveria a exponer la key a cualquier reader.
+  // Reemplazado el panel viejo por instrucciones de CLI. Sin inputs de
+  // usuario en el HTML, solo texto fijo.
+  const cliInstructions =
+    '<div style="text-align:center;margin-bottom:10px">' +
+    '<div style="font-size:12px;font-weight:800;color:#5b21b6">Gemini API Key (OCR de tickets)</div>' +
+    '<div style="font-size:10px;color:#64748b;margin-top:2px">v551 SECURITY: la key vive en Secret Manager. Se administra por CLI, no por este panel.</div>' +
+    '</div>' +
+    '<div style="font-family:Consolas,monospace;font-size:10px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:4px;padding:10px;color:#5b21b6;line-height:1.5">' +
+    '# Ver estado del secret<br>' +
+    'firebase functions:secrets:access GEMINI_API_KEY<br><br>' +
+    '# Rotar key<br>' +
+    'firebase functions:secrets:set GEMINI_API_KEY<br>' +
+    'firebase deploy --only functions:geminiOcrProxy' +
+    '</div>';
+  // eslint-disable-next-line no-unsanitized/property
+  el.innerHTML = cliInstructions;
 }
 
-window.saveGeminiApiKey = async function () {
-  if (userRole !== 'admin') return;
-  const raw = prompt('Pega aca la API key de Gemini (formato AQ.Ab... o AIzaSy...):', '');
-  if (raw === null) return;
-  const key = raw.trim();
-  if (!key) {
-    alert('Vacia.');
-    return;
-  }
-  if (key.length < 20) {
-    alert('La key parece muy corta. Revisa que la pegaste completa.');
-    return;
-  }
-  try {
-    await fbDb
-      .collection('app_config')
-      .doc('gemini')
-      .set(
-        {
-          apiKey: key,
-          updatedBy: currentUser.email || '',
-          updatedByUid: currentUser.uid,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-    geminiApiKeyCache = key; // refrescar cache local
-    showSyncTag('API key guardada');
-    try {
-      openAdminPanel();
-    } catch (_e) {}
-  } catch (e) {
-    console.error('saveGeminiApiKey', e);
-    alert('Error: ' + (e.message || e));
-  }
-};
-
-window.deleteGeminiApiKey = async function () {
-  if (userRole !== 'admin') return;
-  if (
-    !confirm(
-      'Borrar la API key de Gemini? Los vendedores no van a poder usar el OCR hasta que cargues una nueva.'
-    )
-  )
-    return;
-  try {
-    await fbDb.collection('app_config').doc('gemini').delete();
-    geminiApiKeyCache = null;
-    showSyncTag('API key borrada');
-    try {
-      openAdminPanel();
-    } catch (_e) {}
-  } catch (e) {
-    console.error('deleteGeminiApiKey', e);
-    alert('Error: ' + (e.message || e));
-  }
-};
+// v551: saveGeminiApiKey + deleteGeminiApiKey eliminados. La key vive
+// en Secret Manager, no en Firestore. Se administra por CLI. Ver
+// renderGeminiConfigSection para las instrucciones.
 
 // ============================================================
 // GOOGLE MAPS Geocoding API - mejor cobertura en AR rural que OSM
