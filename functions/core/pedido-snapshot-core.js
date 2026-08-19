@@ -153,27 +153,30 @@ async function loadOpenPedidos(deps) {
  */
 async function writeSnapshot(deps, snapshotDocPath, perSku) {
   if (!perSku.size) return;
-  /** @type {Record<string, number>} */
-  const backorderBySkuApp = {};
-  /** @type {Record<string, number>} */
-  const asigBySkuApp = {};
-  /** @type {Record<string, number>} */
-  const asigByClientSkuApp = {};
+  // v554+ (bugfix): NO usar `set({field: {}}, {merge: true})` con maps vacios
+  // porque el Admin SDK JS pisa el field entero con {} — deja el mapa vacio
+  // (perdemos keys previas). Solucion: usar `update()` con dotted paths, que
+  // hace merge nested correcto en Firestore. Como el doc debe existir para
+  // update, primero garantizamos su existencia con un set base minimalista.
+  const ref = deps.fbDb.doc(snapshotDocPath);
+  await ref.set(
+    {
+      sourceApp: 'app_pedidos_v3',
+      updatedAtApp: new Date().toISOString(),
+    },
+    { merge: true }
+  );
+  /** @type {Record<string, any>} */
+  const update = {};
   for (const [sku, agg] of perSku) {
-    backorderBySkuApp[sku] = agg.bo;
-    asigBySkuApp[sku] = agg.asig;
+    update[`backorderBySkuApp.${sku}`] = agg.bo;
+    update[`asigBySkuApp.${sku}`] = agg.asig;
     for (const [cc, qty] of agg.asigByClient) {
-      asigByClientSkuApp[`${cc}::${sku}`] = qty;
+      update[`asigByClientSkuApp.${cc}::${sku}`] = qty;
     }
   }
-  const update = {
-    backorderBySkuApp,
-    asigBySkuApp,
-    asigByClientSkuApp,
-    updatedAtApp: new Date().toISOString(),
-    sourceApp: 'app_pedidos_v3',
-  };
-  await deps.fbDb.doc(snapshotDocPath).set(update, { merge: true });
+  update.updatedAtApp = new Date().toISOString();
+  await ref.update(update);
 }
 
 /**

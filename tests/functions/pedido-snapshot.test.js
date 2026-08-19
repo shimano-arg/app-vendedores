@@ -28,6 +28,12 @@ function makeFakeFbDb(initialState = {}) {
           store.snapshots[path] = { ...(store.snapshots[path] || {}), ...data };
           writes.push({ type: 'set', path, data, opts });
         },
+        async update(data) {
+          // Fake update: guarda tal cual con keys dotted paths (los tests aserten
+          // directamente sobre esas keys). Suficiente para verificar el shape.
+          store.snapshots[path] = { ...(store.snapshots[path] || {}), ...data };
+          writes.push({ type: 'update', path, data });
+        },
       };
     },
     collection(name) {
@@ -209,15 +215,21 @@ describe('recalcSnapshotForSkus — shadow', () => {
     const r = await recalcSnapshotForSkus(deps, new Set(['X']));
     expect(r.mode).toBe('active');
     expect(r.snapshotDoc).toBe('app_config/stock_snapshot_app');
-    // Solo escribe keys nuevos (backorderBySkuApp, asigBySkuApp, asigByClientSkuApp)
-    // — NO pisa backorderBySku (SAP-source).
-    // Post-fix 2026-08-19: nested maps (no dotted paths, que el Admin SDK
-    // trata literal). merge:true hace deep merge de los sub-maps.
-    const write = fbDb._writes[0];
-    expect(write.data.asigBySkuApp.X).toBe(3);
-    expect(write.data.backorderBySkuApp.X).toBe(0);
-    expect(write.data.asigByClientSkuApp['C001::X']).toBe(3);
-    expect(write.data.backorderBySku).toBeUndefined(); // NO tocar key SAP-source
+    // v554+ (bugfix): usamos update() con dotted paths para evitar que
+    // set({field:{}},merge) pise el mapa entero cuando esta vacio. Los tests
+    // asertan sobre las keys dotted que llegan al update.
+    // Hay 2 writes: (1) set base sourceApp+updatedAtApp, (2) update dotted paths.
+    const writes = fbDb._writes;
+    expect(writes.length).toBeGreaterThanOrEqual(2);
+    const updateWrite = writes.find((w) => w.type === 'update');
+    expect(updateWrite).toBeTruthy();
+    expect(updateWrite.data['asigBySkuApp.X']).toBe(3);
+    expect(updateWrite.data['backorderBySkuApp.X']).toBe(0);
+    expect(updateWrite.data['asigByClientSkuApp.C001::X']).toBe(3);
+    // NO tocar key SAP-source (backorderBySku). Ni set ni update la mencionan.
+    const setWrite = writes.find((w) => w.type === 'set');
+    expect(setWrite.data.backorderBySku).toBeUndefined();
+    expect(updateWrite.data.backorderBySku).toBeUndefined();
   });
 
   it('sin SKUs afectados: no escribe nada', async () => {
@@ -246,8 +258,11 @@ describe('recalcSnapshotForSkus — shadow', () => {
     });
     const deps = { fbDb, log: vi.fn() };
     await recalcSnapshotForSkus(deps, new Set(['A', 'B']));
-    expect(fbDb._writes).toHaveLength(1);
-    expect(fbDb._writes[0].data.backorderBySkuApp.A).toBe(2);
-    expect(fbDb._writes[0].data.asigBySkuApp.B).toBe(3);
+    // v554+ (bugfix): 2 writes ahora (set base + update dotted). Ambos SKUs
+    // en el mismo update batch.
+    expect(fbDb._writes).toHaveLength(2);
+    const updateWrite = fbDb._writes.find((w) => w.type === 'update');
+    expect(updateWrite.data['backorderBySkuApp.A']).toBe(2);
+    expect(updateWrite.data['asigBySkuApp.B']).toBe(3);
   });
 });
