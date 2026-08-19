@@ -112,6 +112,37 @@ function ensureSapAutoSendListener() {
               // al objeto antes de armar payload (lo necesita buildQuotationPayload).
               const pedidoConFsId = Object.assign({ _fsId: fsId }, p);
               const payload = sapSL.buildQuotationPayload(pedidoConFsId);
+              // v544 E4C (2026-08-19): si el pedido esta 100% en BO (sin lineas
+              // con stock), buildQuotationPayload devuelve DocumentLines=[].
+              // NO enviar a SAP - marcar como 'app_only' para que el listener
+              // no re-procese y quede visible que existe pero no hay SQ SAP
+              // aun. Cuando entre stock (FIFO E4.5) y el cliente recicle en
+              // pedido nuevo (E4B), ese nuevo pedido va a SAP con las lineas
+              // recicladas ya como state='confirmed'.
+              if (!payload.DocumentLines || payload.DocumentLines.length === 0) {
+                await docRef.update({
+                  transferidoSAP: {
+                    via: 'app_only',
+                    reason: 'all_lines_bo',
+                    docEntry: null,
+                    docNum: null,
+                    transferredAt: new Date().toISOString(),
+                    transferredBy: 'auto/' + ((currentUser && currentUser.email) || ''),
+                    sapDocRange: null,
+                    batchId: null,
+                  },
+                  sendingSapLock: firebase.firestore.FieldValue.delete(),
+                });
+                console.log(
+                  '[SAP auto] app_only',
+                  fsId,
+                  p.clientName,
+                  '- 100% lineas BO, sin envio a SAP'
+                );
+                if (typeof showSyncTag === 'function')
+                  showSyncTag('Pedido en BO app-only: ' + p.clientName);
+                return;
+              }
               const r = await sapSL.createQuotation(payload);
               if (r.ok) {
                 await docRef.update({
