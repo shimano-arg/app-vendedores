@@ -22,6 +22,11 @@ service cloud.firestore {
     function role() {
       return get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role;
     }
+    // v548: vendor name asignado al VDE (matchea POINTS[i].vendor y
+    // client_applications.assignedVendor). null si no tiene.
+    function myVendorKey() {
+      return get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.vendor;
+    }
     function isAdmin() { return request.auth != null && role() == 'admin'; }
     function isViewer() { return request.auth != null && role() == 'viewer'; }
     function isVendor() { return request.auth != null && role() == 'vendedor'; }
@@ -199,7 +204,22 @@ service cloud.firestore {
     }
 
     match /client_applications/{docId} {
-      allow read: if isReader();
+      // v548: restringir visibilidad de leads/altas a VDE por assignedVendor.
+      // Antes: cualquier isReader() veia TODOS los docs (VDE veian leads
+      // sin asignar + leads de otros VDEs). Ahora:
+      //   - admin/gerente/viewer/interno: ven todo (backward compat).
+      //   - vendedor: ve solo si assignedVendor == su vendor key OR fue
+      //     creador del doc (ownerUid, necesario para tab "Mis solicitudes"
+      //     en notificaciones.js:113 que query .where('ownerUid','==',uid)).
+      // Interno (VDI) queda con acceso amplio server-side; filtro por
+      // partner-vendors se hace client-side en getMyAllowedVendorKeys().
+      // Full enforcement server-side de interno requeriria denormalizar
+      // partner list en roles/{uid} — TODO post-v548.
+      allow read: if isAdminOrGerente() || isViewer() || isInterno()
+                   || (isVendor() && (
+                        resource.data.assignedVendor == myVendorKey()
+                        || resource.data.ownerUid == request.auth.uid
+                      ));
       allow create: if (request.auth != null && request.resource.data.ownerUid == request.auth.uid)
                  || (request.resource.data.submittedByPublicForm == true
                      && request.resource.data.comercio is string

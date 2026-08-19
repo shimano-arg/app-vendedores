@@ -4114,7 +4114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v549';
+const APP_VERSION = 'v550';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -4673,8 +4673,23 @@ var unsubApprovedAltas = null;
 
 function ensureApprovedAltasListener(){
   if (unsubApprovedAltas || !currentUser || !fbDb) return;
-  unsubApprovedAltas = fbDb.collection('client_applications')
-    .where('status', '==', 'approved')
+  // v548: para vendedor filtramos server-side por assignedVendor. Las rules
+  // solo dejan leer docs donde assignedVendor == roles/{uid}.vendor (o
+  // ownerUid == uid, cubierto por unsubAltaCliMine). Sin el .where explicito
+  // el snapshot fallaria completo. Si el vendedor no tiene assignedVendor
+  // seteado (nuevo, sin migrar), no armamos listener (nada que mostrar).
+  // Admin/gerente/viewer/interno siguen viendo todo (rules permiten).
+  let q = fbDb.collection('client_applications').where('status', '==', 'approved');
+  if (userRole === 'vendedor') {
+    if (!assignedVendor) {
+      console.log('[approvedAltas] vendedor sin assignedVendor, listener NO se crea');
+      approvedAltasList = [];
+      approvedAltasByLoc = {};
+      return;
+    }
+    q = q.where('assignedVendor', '==', assignedVendor);
+  }
+  unsubApprovedAltas = q
     .onSnapshot(qs => {
       approvedAltasByLoc = {};
       approvedAltasList = [];
@@ -6249,7 +6264,14 @@ function drawSapAltaPins(){
     if (!a) return;
     if (!a.cardCodeSap && !a.manualSapPending) return;
     const effVendor = getEffectiveVendorForSapAlta(a);
-    if (effSet && effVendor && !effSet.has(effVendor)) return;
+    // v548: si hay filtro de vendor activo (VDE/VDI logeado), un alta sin
+    // effVendor NO se muestra (antes: se colaba). Solo admin/gerente ven
+    // pines huerfanos. Los readers con effSet null (admin/gerente/viewer)
+    // pasan directo.
+    if (effSet) {
+      if (!effVendor) return;
+      if (!effSet.has(effVendor)) return;
+    }
     const nombre = a.comercio || a.fantasia || ('SAP ' + (a.cardCodeSap || '').slice(0, 8));
     const direccion = a.calle || a.address || '';
     const localidad = a.localidadFinal || a.localidad || '';
@@ -6778,7 +6800,11 @@ function filteredPoints(){
       if (!pointMatches && approvedAltasByLoc) {
         const key = (p.province || '').toUpperCase() + '|' + p.name;
         const altas = approvedAltasByLoc[key] || [];
-        if (altas.some(a => effSet.has(a.assignedVendor || ''))) pointMatches = true;
+        // v548: solo cuentan altas CON assignedVendor. Antes: (a.assignedVendor || '')
+        // convertia null a '' y effSet.has('') es false pero el codigo daba
+        // vuelta a la logica y colaba altas huerfanas en algunos edge cases.
+        // Ahora explicito: sin assignedVendor la alta no aporta match.
+        if (altas.some(a => a.assignedVendor && effSet.has(a.assignedVendor))) pointMatches = true;
       }
       if (!pointMatches) return false;
     }
@@ -7025,7 +7051,10 @@ function updateStats(pts){
     (approvedAltasList || []).forEach(a => {
       if (!a) return;
     if (!a.cardCodeSap && !a.manualSapPending) return;
-      if (sapEffSet && a.assignedVendor && !sapEffSet.has(a.assignedVendor)) return;
+      // v548: alta sin assignedVendor NO visible para vendedores/VDIs
+      // (antes se colaba). Admin/gerente/viewer tienen sapEffSet=null y
+      // saltan el bloque.
+      if (sapEffSet) { if (!a.assignedVendor) return; if (!sapEffSet.has(a.assignedVendor)) return; }
       const prov = (a.provincia || '').toUpperCase().trim();
       // Si no hay provincia (Excel SAP sin columna State), igual la
       // contamos como PENDIENTE para que el admin vea que hay datos
@@ -7099,7 +7128,9 @@ function updateStats(pts){
     // Filtro vendor: si hay set de vendors activo y el alta tiene assignedVendor
     // fuera del set, se excluye. Altas sin assignedVendor cuentan en todos
     // (mismo criterio que el bloque de sapLocs mas arriba).
-    if (_leadsVendSet && a.assignedVendor && !_leadsVendSet.has(a.assignedVendor)) return false;
+    // v548: alta sin assignedVendor NO cuenta como lead visible para
+    // vendedores/VDIs (antes se colaba en la card LEADS del header).
+    if (_leadsVendSet) { if (!a.assignedVendor) return false; if (!_leadsVendSet.has(a.assignedVendor)) return false; }
     const _aProv = (a.provincia || '').toUpperCase().trim();
     if (_aProv && _leadsProvFilter && _aProv !== _leadsProvFilter) return false;
     const _aLoc = (a.localidadFinal || a.localidad || '').trim();
@@ -7192,7 +7223,10 @@ function updateContactSummary(){
     (approvedAltasList || []).forEach(a => {
       if (!a) return;
       if (!a.cardCodeSap && !a.manualSapPending) return;
-      if (sapEffSet && a.assignedVendor && !sapEffSet.has(a.assignedVendor)) return;
+      // v548: alta sin assignedVendor NO visible para vendedores/VDIs
+      // (antes se colaba). Admin/gerente/viewer tienen sapEffSet=null y
+      // saltan el bloque.
+      if (sapEffSet) { if (!a.assignedVendor) return; if (!sapEffSet.has(a.assignedVendor)) return; }
       const prov = (a.provincia || '').toUpperCase().trim();
       const isProvisorio = !a.cardCodeSap && !!a.manualSapPending;
       if (!prov && !isProvisorio && (provFilter || locFilter)) return;
@@ -7277,7 +7311,10 @@ function renderClients(pts){
     (approvedAltasList || []).forEach(a => {
       if (!a) return;
       if (!a.cardCodeSap && !a.manualSapPending) return;
-      if (sapEffSet && a.assignedVendor && !sapEffSet.has(a.assignedVendor)) return;
+      // v548: alta sin assignedVendor NO visible para vendedores/VDIs
+      // (antes se colaba). Admin/gerente/viewer tienen sapEffSet=null y
+      // saltan el bloque.
+      if (sapEffSet) { if (!a.assignedVendor) return; if (!sapEffSet.has(a.assignedVendor)) return; }
       const prov = (a.provincia || '').toUpperCase().trim();
       // v293+: provisorio de Alta Rapida (manualSapPending && !cardCodeSap) es
       // el mismo criterio que getProvisoriosList() usa para el KPI PENDIENTES.
@@ -10824,7 +10861,8 @@ function getContactedClientsFromFilter(pts){
   (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).forEach(a => {
     if (!a) return;
     if (!a.cardCodeSap && !a.manualSapPending) return;
-    if (sapEffSet && a.assignedVendor && !sapEffSet.has(a.assignedVendor)) return;
+    // v548: alta sin assignedVendor NO visible para vendedores/VDIs.
+    if (sapEffSet) { if (!a.assignedVendor) return; if (!sapEffSet.has(a.assignedVendor)) return; }
     const prov = (a.provincia || '').toUpperCase().trim();
     if (!prov) return;
     if (provFilter && prov !== provFilter) return;
@@ -14556,7 +14594,8 @@ function buildPedidoVisibleKeysSet(){
       if (!nombre || !prov || !loc) return;
       if (currentProvince !== 'ALL' && prov !== currentProvince) return;
       if (currentLocality !== 'ALL' && loc !== currentLocality) return;
-      if (effSet && a.assignedVendor && !effSet.has(a.assignedVendor)) return;
+      // v548: alta sin assignedVendor NO visible para vendedores/VDIs.
+      if (effSet) { if (!a.assignedVendor) return; if (!effSet.has(a.assignedVendor)) return; }
       // Las altas se cargan a pedido con tipo='C' (cliente actual) por
       // convencion - cuando entran a SAP dejan de ser prospectos.
       visibleKeys.add(orderKey(nombre, prov, loc, 'C'));
