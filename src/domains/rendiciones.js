@@ -30,130 +30,56 @@
 // La API key se carga desde Firestore (collection app_config, doc 'gemini',
 // campo 'apiKey'). Se cachea en memoria al primer uso. El admin la configura
 // desde el Panel Usuarios -> seccion "Gemini API Key".
-let geminiApiKeyCache = null;
-async function getGeminiApiKey() {
-  if (geminiApiKeyCache) return geminiApiKeyCache;
-  try {
-    const snap = await fbDb.collection('app_config').doc('gemini').get();
-    if (snap.exists) {
-      const d = snap.data() || {};
-      if (d.apiKey) {
-        geminiApiKeyCache = d.apiKey;
-        return d.apiKey;
-      }
-    }
-  } catch (e) {
-    console.warn('getGeminiApiKey', e);
-  }
-  return null;
-}
-const GEMINI_MODEL = 'gemini-2.5-flash';
-const GEMINI_OCR_PROMPT =
-  'Sos un asistente que extrae datos de tickets/facturas argentinos para el sistema de rendiciones de Shimano Argentina. ' +
-  'Analiza la imagen y devuelve EXCLUSIVAMENTE un JSON valido con los siguientes campos (sin texto adicional fuera del JSON). ' +
-  'Si un campo no se puede determinar, usa null. Para los campos con opciones cerradas, devolve EXACTAMENTE uno de los valores listados (case-sensitive).\\n\\n' +
-  'Esquema:\\n' +
-  '{\\n' +
-  '  "numeroTicket": "string - numero del comprobante (si no se ve, SIN_NUMERO)",\\n' +
-  '  "descripcion": "uno de: COMBUSTIBLE | COMIDA | HOSPEDAJE | PEAJE | TRASLADO | OTROS",\\n' +
-  '  "modoPago": "uno de: RECARGABLE | CORPORATIVA | EFECTIVO",\\n' +
-  '  "moneda": "uno de: PESOS | DOLARES | OTRAS MONEDAS",\\n' +
-  '  "tipoGasto": "uno de: GASTO CON COMPROBANTE | GASTO SIN COMPROBANTE | FACTURA A",\\n' +
-  '  "importe": "numero con decimales (el TOTAL final del ticket, NO subtotales)",\\n' +
-  '  "importeUsd": "numero o null (solo si el ticket esta en USD)",\\n' +
-  '  "divisionGasto": "uno de: GASTO LOCAL | GASTO REGIONAL",\\n' +
-  '  "observaciones": "string libre - CUIT del proveedor, items principales, contexto util"\\n' +
-  '}\\n\\n' +
-  'Reglas para DESCRIPCION:\\n' +
-  '- Estaciones de servicio (YPF, Shell, Axion, Puma) -> COMBUSTIBLE\\n' +
-  '- Restaurantes, bares, kioscos de comida -> COMIDA\\n' +
-  '- Hoteles, hostels, apart -> HOSPEDAJE\\n' +
-  '- Cabinas de peaje en autopistas -> PEAJE\\n' +
-  '- Pasajes de tren/colectivo/avion, Uber, taxi, estacionamiento -> TRASLADO\\n' +
-  '- Resto -> OTROS\\n\\n' +
-  'Reglas para TIPO DE GASTO (categoria tributaria argentina):\\n' +
-  '- Si es una FACTURA A (dice claramente "FACTURA A" o "RESPONSABLE INSCRIPTO") -> FACTURA A\\n' +
-  '- Si es ticket fiscal, factura B o C, o cualquier comprobante valido -> GASTO CON COMPROBANTE\\n' +
-  '- Si no hay comprobante formal (solo recibo manual) -> GASTO SIN COMPROBANTE\\n\\n' +
-  'Reglas para MODO DE PAGO:\\n' +
-  '- Si el ticket dice tarjeta corporativa, Visa Corporate, etc -> CORPORATIVA\\n' +
-  '- Si dice tarjeta recargable, tarjeta prepaga -> RECARGABLE\\n' +
-  '- Si es efectivo o cash -> EFECTIVO\\n' +
-  '- Si no se ve claro, default EFECTIVO\\n\\n' +
-  'Reglas para MONEDA:\\n' +
-  '- Si esta en $ AR / ARS / pesos -> PESOS\\n' +
-  '- Si esta en U$D / USD / dolares -> DOLARES\\n' +
-  '- Otra cosa -> OTRAS MONEDAS\\n\\n' +
-  'Para DIVISION GASTO: por defecto GASTO LOCAL salvo que el contexto sugiera otra cosa.';
-
+// v551 (2026-08-19) SECURITY: API key de Gemini movida de Firestore
+// (app_config/gemini) a Secret Manager. Frontend nunca ve la key —
+// invoca geminiOcrProxy (functions/index.js) que la usa server-side.
+// GEMINI_MODEL + prompt viven en functions/core/gemini-ocr-core.js.
 async function extractTicketDataWithGemini(dataUrl) {
   // dataUrl: 'data:image/jpeg;base64,...'
-  const apiKey = await getGeminiApiKey();
-  if (!apiKey)
-    throw new Error(
-      'La API key de Gemini no esta cargada. Pedile a Mariano que la configure en Panel Usuarios.'
-    );
   const m = /^data:(image\/\w+);base64,(.+)$/.exec(dataUrl || '');
   if (!m) throw new Error('Formato de imagen invalido');
-  const mimeType = m[1],
-    b64 = m[2];
-  const url =
-    'https://generativelanguage.googleapis.com/v1beta/models/' +
-    GEMINI_MODEL +
-    ':generateContent?key=' +
-    apiKey;
-  const body = {
-    contents: [
-      {
-        parts: [{ text: GEMINI_OCR_PROMPT }, { inline_data: { mime_type: mimeType, data: b64 } }],
-      },
-    ],
-    generationConfig: {
-      response_mime_type: 'application/json',
-      temperature: 0.1,
-    },
-  };
-  // v539 (2026-08-18): timeout de 45s al fetch de Gemini. Sin timeout, si el
-  // endpoint colgaba (API key vencida, rate limit, red rota) el spinner
-  // "Analizando ticket con IA..." quedaba pegado para siempre y el user
-  // no podia cargar la rendicion. Con AbortController + setTimeout, si el
-  // fetch tarda >45s el catch de runRendGastoOcr atrapa el AbortError y
-  // muestra el mensaje "No se pudieron extraer los datos - Completa manual".
-  const ctrl = new AbortController();
-  const timeoutId = setTimeout(() => ctrl.abort(), 45000);
-  let r;
+  const mimeType = m[1];
+  const imageBase64 = m[2];
+
+  // Region matchea el deploy del CF (southamerica-east1). Sin region
+  // firebase.functions() default us-central1 y da 404. Ver
+  // src/sap-client.js:47-56 para el analisis del pattern.
+  const callable = firebase.app().functions('southamerica-east1').httpsCallable('geminiOcrProxy');
+
+  // Timeout client-side de 60s como red final. El CF interno tiene su
+  // propio timeoutMs=45s al fetch de Gemini + timeoutSeconds=60 al onCall.
+  // Sin este race, si la red entre browser y CF muere durante el request
+  // el spinner "Analizando ticket con IA..." queda pegado para siempre.
+  const CALL_TIMEOUT_MS = 60000;
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(
+      () => reject(new Error('Timeout de 60s esperando respuesta del OCR. Completa manual.')),
+      CALL_TIMEOUT_MS
+    );
+  });
+
+  let res;
   try {
-    r = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
+    res = await Promise.race([callable({ imageBase64, mimeType }), timeoutPromise]);
   } catch (e) {
-    clearTimeout(timeoutId);
-    if (e && e.name === 'AbortError') {
+    const code = e && e.code ? String(e.code) : '';
+    const msg = e && e.message ? String(e.message) : String(e);
+    if (code === 'functions/deadline-exceeded' || /Timeout de 60s/.test(msg)) {
       throw new Error(
-        'Gemini tardo mas de 45s en responder. Completa el formulario manualmente y envia el gasto.'
+        'Gemini tardo demasiado. Completa el formulario manualmente y envia el gasto.'
       );
     }
-    throw e;
+    if (code === 'functions/unauthenticated' || code === 'functions/permission-denied') {
+      throw new Error('Sesion expirada o sin permisos. Cerra y volve a entrar a la app.');
+    }
+    if (code === 'functions/failed-precondition') {
+      throw new Error('El OCR no esta configurado en el servidor. Avisale a Mariano.');
+    }
+    throw new Error('OCR fallo: ' + msg);
   }
-  clearTimeout(timeoutId);
-  if (!r.ok) {
-    const errTxt = await r.text();
-    throw new Error('Gemini API ' + r.status + ': ' + errTxt.slice(0, 200));
-  }
-  const data = await r.json();
-  const cand = data && data.candidates && data.candidates[0];
-  if (!cand) throw new Error('Gemini no devolvio candidatos');
-  const text =
-    cand.content && cand.content.parts && cand.content.parts[0] && cand.content.parts[0].text;
-  if (!text) throw new Error('Gemini devolvio respuesta vacia');
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch (_e) {
-    throw new Error('Gemini devolvio JSON invalido: ' + text.slice(0, 150));
+  const parsed = res && res.data;
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('OCR devolvio respuesta invalida');
   }
   return parsed;
 }

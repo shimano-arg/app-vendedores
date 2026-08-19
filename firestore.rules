@@ -251,7 +251,12 @@ service cloud.firestore {
     // - sap_integration: contiene creds SAP → SOLO admin+gerente (los únicos
     //   que envían pedidos vía SL desde browser). E5 mueve las creds a
     //   Secret Manager y esta rule podrá cerrarse aún más.
-    // - resto (gemini, google_maps, price_list*, product_catalog_meta,
+    // - v551: gemini también cerrado a admin+gerente. Antes era isReader()
+    //   (todos los @shimano leían la API key). Ahora la key vive en Secret
+    //   Manager (Cloud Function geminiOcrProxy) y el doc en Firestore queda
+    //   como legacy vacío. Cerrar la rule evita que un doc con key vieja/
+    //   duplicada sea legible por un VDE. Post-deploy borrar el doc entero.
+    // - resto (google_maps, price_list*, product_catalog_meta,
     //   stock_snapshot, users_directory): reader (todos necesitan).
     match /app_config/{docId} {
       // v542 E2: sap_sync_state es info operativa del sync SAP Invoices ->
@@ -259,8 +264,8 @@ service cloud.firestore {
       // vendedores que no la necesitan.
       // E3 stock_snapshot_shadow_v3: shadow del snapshot app-source, admin/gerente
       // (info operacional del sync, no relevante a vendedores hasta cutover E5).
-      allow read: if (docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3'] && isAdminOrGerente())
-                  || (!(docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3']) && isReader());
+      allow read: if (docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3', 'gemini'] && isAdminOrGerente())
+                  || (!(docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3', 'gemini']) && isReader());
       allow write: if isAdmin();
     }
 

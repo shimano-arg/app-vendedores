@@ -362,8 +362,17 @@ describe('/app_config', () => {
     await assertFails(getDoc(doc(anonDb(), 'app_config', 'sap_integration')));
   });
 
-  it('vendedor SÍ lee otros docs de app_config (preserved para gemini/stock/etc)', async () => {
-    await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'app_config', 'gemini')));
+  it('v551: vendedor NO lee app_config/gemini (key movida a Secret Manager)', async () => {
+    await assertFails(getDoc(doc(authedDb(UID.vendor), 'app_config', 'gemini')));
+  });
+  it('v551: interno NO lee app_config/gemini', async () => {
+    await assertFails(getDoc(doc(authedDb(UID.interno), 'app_config', 'gemini')));
+  });
+  it('v551: admin/gerente SÍ leen app_config/gemini (para revisar doc legacy)', async () => {
+    await assertSucceeds(getDoc(doc(authedDb(UID.admin), 'app_config', 'gemini')));
+    await assertSucceeds(getDoc(doc(authedDb(UID.gerente), 'app_config', 'gemini')));
+  });
+  it('vendedor SÍ lee otros docs de app_config (preserved para stock/etc)', async () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'app_config', 'stock_snapshot')));
   });
   it('solo admin puede write en app_config', async () => {

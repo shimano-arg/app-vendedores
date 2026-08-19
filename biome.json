@@ -127,7 +127,6 @@
       "firebase",
       "flashSaved",
       "fsSetValue",
-      "geminiApiKeyCache",
       "generarRutasVendor",
       "geocodeClientAddress",
       "getActingVendorPartner",
