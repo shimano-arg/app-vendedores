@@ -3936,7 +3936,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <button class="stock-action-btn cancel" onclick="closeWaitlistCardModal()">Cerrar</button>
         <button class="stock-action-btn publish" id="wcard-edit-orden-btn" onclick="waitlistEditOrden()" style="background:#0f172a;color:#fff">Editar orden</button>
         <button class="stock-action-btn publish" id="wcard-export-todo-btn" onclick="waitlistExportTodo()" style="background:#0f766e;color:#fff" title="Excel con 2 hojas: PEDIDO ACTUAL (los items del pedido) + CONFIRMACION BACKORDER (SKUs asignados del cliente en SAP con estado disponible/no)">Exportar todo</button>
-        <button class="stock-action-btn publish" id="wcard-archivo-cliente-btn" onclick="waitlistExportArchivoCliente()" style="background:#0369a1;color:#fff" title="Igual que Exportar todo pero reemplaza la columna 'Unidades pedidas' por 'Disponible SAP' (lo que efectivamente hay en SAP para cada SKU)">Archivo cliente</button>
+        <button class="stock-action-btn publish" id="wcard-archivo-cliente-btn" onclick="waitlistExportArchivoCliente()" style="background:#0369a1;color:#fff" title="Excel para mandar al cliente: columna 'Pedido' (lo que pidio integro, sin cap por stock disponible) + subtotales sin recorte">Archivo cliente</button>
         <button class="stock-action-btn cancel" id="wcard-delete-btn" onclick="waitlistDeleteCurrent()" style="background:#dc2626;color:#fff;display:none">Borrar de espera</button>
         <button class="stock-action-btn publish" id="wcard-pass-btn" onclick="waitlistPasarAPendientes()" style="background:#1e40af;color:#fff">Pasar a Pendientes</button>
       </div>
@@ -4114,7 +4114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v546';
+const APP_VERSION = 'v547';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -13116,16 +13116,18 @@ window.waitlistExportTodo = async function(){
   }
 };
 
-// v546 (2026-08-19): "Archivo cliente" — variante de waitlistExportTodo que
-// reemplaza la columna "Unidades pedidas" por "Disponible SAP" en las 2
-// hojas del Excel. Uso: mandarle al cliente lo que efectivamente hay en
-// SAP para cada SKU (no lo que pidio). Subtotales recalculados con la
-// cantidad disponible SAP * precio.
-//   Hoja 1 (PEDIDO ACTUAL): SKU / Producto / Disponible SAP / Precio /
-//     Subtotal. Disponible SAP = _revisionStockFor(sku).disponible (o 0
-//     si no hay data).
-//   Hoja 2 (CONFIRMACION BACKORDER): SKU / Producto / Stock disponible /
-//     Disponible SAP / Precio / Subtotal. Disponible SAP = stockDisp11.
+// v547 (2026-08-19): "Archivo cliente" — variante de waitlistExportTodo
+// pensada para mandar al cliente. Diferencias vs "Exportar todo":
+//   Hoja 1 (PEDIDO ACTUAL): columna "Pedido" (= it.qty, el valor del
+//     input editable "Pedido" del modal). Subtotal = qty * precio SIN
+//     cap por dispSap — muestra el valor total pedido, no lo confirmable
+//     inmediato. "Exportar todo" cap a min(qty, dispSap) para uso
+//     interno; aca queremos que el cliente vea lo que pidio integro.
+//   Hoja 2 (CONFIRMACION BACKORDER): columna "Pedido" (= qty pendiente
+//     SQ open del cliente, mismo que Exportar todo). Se filtra a
+//     productos con stock disp dep 11 para no listar lineas
+//     inentregables.
+// Filename: ArchivoCliente_<cliente>_ordenN.xlsx.
 window.waitlistExportArchivoCliente = async function(){
   const w = _wcardCurrent;
   if (!w) { alert('No hay pedido en espera abierto.'); return; }
@@ -13149,20 +13151,20 @@ window.waitlistExportArchivoCliente = async function(){
       return whs ? Number(whs['11'] || 0) : 0;
     };
     // ============================================================
-    // Hoja 1: PEDIDO ACTUAL (columna "Disponible SAP" en lugar de
-    // "Unidades pedidas"). Subtotal = dispSap * precio.
+    // Hoja 1: PEDIDO ACTUAL (columna "Pedido" = it.qty, mismo valor
+    // que muestra el input editable "Pedido" del modal). Subtotal =
+    // qty * precio (sin cap por dispSap — es doc para el cliente,
+    // muestra el valor total pedido, no lo confirmable inmediato).
     // ============================================================
     const ws1 = wb.addWorksheet('PEDIDO ACTUAL');
     const rows1 = [];
     let total1 = 0;
     (w.items || []).forEach(it => {
-      const stk = _revisionStockFor(it.code);
-      const backSap = stk.backorder || 0;
-      const dispSap = stk.hasData ? Math.max((stk.stockTotal || 0) - backSap, 0) : 0;
+      const qty = it.qty || 0;
       const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(it.code) || 0) : 0;
-      const subtotal = dispSap * precio;
+      const subtotal = qty * precio;
       total1 += subtotal;
-      rows1.push([it.code || '', it.desc || '', dispSap, precio || 0, subtotal || 0]);
+      rows1.push([it.code || '', it.desc || '', qty, precio || 0, subtotal || 0]);
     });
     ws1.columns = [
       { width: 16 }, { width: 55 }, { width: 18 }, { width: 14 }, { width: 18 },
@@ -13178,7 +13180,7 @@ window.waitlistExportArchivoCliente = async function(){
     ws1.getCell('E1').alignment = CENTER;
     ws1.getCell('E1').numFmt = '"$"#,##0';
     ws1.getRow(1).height = 24;
-    const HEAD1 = ['SKU', 'Producto', 'Disponible SAP', 'Precio', 'Subtotal'];
+    const HEAD1 = ['SKU', 'Producto', 'Pedido', 'Precio', 'Subtotal'];
     HEAD1.forEach((h, i) => { const c = ws1.getCell(2, i + 1); c.value = h; c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = CENTER; });
     rows1.forEach((r, idx) => {
       const row = ws1.getRow(idx + 3);
@@ -13188,8 +13190,10 @@ window.waitlistExportArchivoCliente = async function(){
       row.getCell(5).numFmt = '"$"#,##0';
     });
     // ============================================================
-    // Hoja 2: CONFIRMACION BACKORDER (columna "Disponible SAP" en
-    // lugar de "Unidades pedidas"). Subtotal = dispSap * precio.
+    // Hoja 2: CONFIRMACION BACKORDER (columna "Pedido" = qty pendiente
+    // en la SQ open del cliente, mismo que "Exportar todo"). Se sigue
+    // filtrando por productos con stock disponible en dep 11 para no
+    // mandar al cliente lineas que no puede recibir.
     // ============================================================
     const ws2 = wb.addWorksheet('CONFIRMACION BACKORDER');
     const rows2 = [];
@@ -13203,9 +13207,9 @@ window.waitlistExportArchivoCliente = async function(){
         const disp = stockDisp11(ln.sku);
         if (disp <= 0) return;
         const precio = parseFloat(ln.precioUnitario) || 0;
-        const subtotal = disp * precio;
+        const subtotal = pend * precio;
         total2 += subtotal;
-        rows2.push([ln.sku || '', ln.producto || '', 'DISPONIBLE', disp, precio || 0, subtotal || 0]);
+        rows2.push([ln.sku || '', ln.producto || '', 'DISPONIBLE', pend, precio || 0, subtotal || 0]);
       });
     }
     ws2.columns = [
@@ -13222,7 +13226,7 @@ window.waitlistExportArchivoCliente = async function(){
     ws2.getCell('F1').alignment = CENTER;
     ws2.getCell('F1').numFmt = '"$"#,##0';
     ws2.getRow(1).height = 24;
-    const HEAD2 = ['SKU', 'Producto', 'Stock disponible', 'Disponible SAP', 'Precio', 'Subtotal'];
+    const HEAD2 = ['SKU', 'Producto', 'Stock disponible', 'Pedido', 'Precio', 'Subtotal'];
     HEAD2.forEach((h, i) => { const c = ws2.getCell(2, i + 1); c.value = h; c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = CENTER; });
     rows2.forEach((r, idx) => {
       const row = ws2.getRow(idx + 3);
