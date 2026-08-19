@@ -3894,6 +3894,15 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <div style="font-size:10.5px;color:#854d0e;margin-bottom:8px">SKUs del cliente en Ofertas SAP open (con stock hoy) que NO están en el pedido en espera. Preguntale si quiere agregarlos (parcial o completo) o cancelarlos.</div>
         <div id="wcard-sap-asignado-nuevos-rows" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
+      <!-- v545 E4B step 1: seccion PILOTO admin/gerente — ASIG desde app-source
+           (pedidos-app state='ASIG'). Solo visible con
+           localStorage.e4b_enabled='1' Y admin/gerente. Sin botones aun
+           (step 2 sumara Aceptar reciclar / Rechazar liberar via CFs). -->
+      <div id="wcard-e4b-asig-app" style="display:none;background:#eff6ff;border:1.5px dashed #3b82f6;border-radius:6px;padding:10px 12px;margin-bottom:12px">
+        <div style="font-size:12px;font-weight:800;color:#1e40af;margin-bottom:6px">📱 SAP Asignado - APP (piloto) — SKUs asignados desde pedidos-app</div>
+        <div style="font-size:10.5px;color:#1e3a8a;margin-bottom:8px">PILOTO admin/gerente: lineas de pedidos-app del cliente con state='ASIG' (E4.5 promocion FIFO desde BO). Todavia no incluye botones de reciclado — solo display. Fuente: <code>stock_snapshot_shadow_v3.asigByClientSkuApp</code> en shadow, <code>stock_snapshot.asigByClientSkuApp</code> en cutover E5.</div>
+        <div id="wcard-e4b-asig-app-rows" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
       <!-- v468: buscador para agregar productos nuevos al pedido en espera. -->
       <div style="position:relative;margin-bottom:10px">
         <input id="wcard-add-input" type="text" placeholder="🔍 Buscar producto por codigo o descripcion para agregar al pedido..." oninput="waitlistOnAddSearch()" onfocus="waitlistOnAddSearch()" onblur="setTimeout(waitlistHideAddDropdown, 200)" style="width:100%;padding:8px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:12px;outline:none"/>
@@ -4104,7 +4113,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v544';
+const APP_VERSION = 'v545';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12394,6 +12403,69 @@ function _sapAsignadoConStockDeCliente(cardCode){
   return out;
 }
 window._sapAsignadoConStockDeCliente = _sapAsignadoConStockDeCliente; // v542
+// v545 E4B step 1: feature flag piloto para mostrar ASIG app-source. Toggle
+// admin: `localStorage.setItem('e4b_enabled','1')` + reload. Gateado a
+// admin/gerente porque el read de stock_snapshot_shadow_v3 requiere ese rol
+// (rules). Si un vendedor lo activa, el fetch tira permission-denied y la
+// seccion queda oculta.
+window.isE4BEnabled = function(){
+  try {
+    if (localStorage.getItem('e4b_enabled') !== '1') return false;
+    if (typeof userRole === 'undefined') return false;
+    return userRole === 'admin' || userRole === 'gerente';
+  } catch(e){ return false; }
+};
+// Cache in-memory de asigByClientSkuApp -> {cardCode -> [{sku, qty}]}. Se
+// rehidrata en openWaitlistCardModal (fresh cada apertura del modal).
+window._E4B_ASIG_CACHE = null;
+window._e4bFetchAsigApp = async function(){
+  if (!window.isE4BEnabled() || !fbDb) { window._E4B_ASIG_CACHE = null; return null; }
+  try {
+    // v542 E3 escribe en shadow_v3 mientras mode='shadow'. Cutover E5 pasa a
+    // stock_snapshot. Intentamos shadow primero; si vacio caemos a prod.
+    let snap = await fbDb.collection('app_config').doc('stock_snapshot_shadow_v3').get();
+    let d = snap.exists ? (snap.data() || {}) : {};
+    let raw = d.asigByClientSkuApp;
+    if (!raw || (typeof raw === 'object' && !Object.keys(raw).length)) {
+      // fallback prod snapshot (post-E5 cutover el key se popula aca)
+      const snap2 = await fbDb.collection('app_config').doc('stock_snapshot').get();
+      const d2 = snap2.exists ? (snap2.data() || {}) : {};
+      raw = d2.asigByClientSkuApp;
+    }
+    // asigByClientSkuApp: mapa flat con key "CARDCODE::SKU" -> qty.
+    // Puede venir como object o string JSON (mismo pattern que backorderBySku).
+    let map = {};
+    if (typeof raw === 'string') { try { map = JSON.parse(raw) || {}; } catch(e){ map = {}; } }
+    else if (raw && typeof raw === 'object') { map = raw; }
+    // Reagrupar por cardCode para lookup O(1) en render.
+    const byClient = {};
+    for (const key of Object.keys(map)) {
+      const qty = Number(map[key]) || 0;
+      if (qty <= 0) continue;
+      const sepIdx = key.indexOf('::');
+      if (sepIdx < 0) continue;
+      const cc = key.substring(0, sepIdx).trim();
+      const sku = key.substring(sepIdx + 2).trim();
+      if (!cc || !sku) continue;
+      if (!byClient[cc]) byClient[cc] = [];
+      byClient[cc].push({ sku, qty });
+    }
+    // Sort SKUs alfa dentro de cada cliente.
+    for (const cc of Object.keys(byClient)) {
+      byClient[cc].sort((a, b) => a.sku.localeCompare(b.sku));
+    }
+    window._E4B_ASIG_CACHE = byClient;
+    return byClient;
+  } catch(e) {
+    console.warn('[E4B] no pude leer asigByClientSkuApp:', e && e.message);
+    window._E4B_ASIG_CACHE = null;
+    return null;
+  }
+};
+window._e4bAsigDelCliente = function(cardCode){
+  if (!window.isE4BEnabled() || !window._E4B_ASIG_CACHE || !cardCode) return [];
+  return window._E4B_ASIG_CACHE[String(cardCode).trim()] || [];
+};
 // v542: helper generico para alertar al agregar SKU cuando cliente ya tiene
 // ASIG del mismo. Devuelve el match {sku, pendiente, sqDocDate, sqDocNum} o null.
 // Se llama desde waitlistAddProduct (inline) y addToOrder (bundle via window).
@@ -12494,6 +12566,47 @@ function _renderSapAsignadoConStock(w){
   });
   contYa.style.display = cntYa > 0 ? '' : 'none';
   contNuevos.style.display = cntNuevos > 0 ? '' : 'none';
+  // v545 E4B step 1: seccion PILOTO admin/gerente — ASIG desde app-source.
+  try { _renderE4BAsigApp(w); } catch(e){ console.warn('[E4B] render fallo:', e && e.message); }
+}
+// v545 E4B step 1: render piloto ASIG app-source. Solo si feature flag on
+// (isE4BEnabled) y el cache tiene entradas para el cliente. Sin botones aun.
+function _renderE4BAsigApp(w){
+  const cont = document.getElementById('wcard-e4b-asig-app');
+  const rows = document.getElementById('wcard-e4b-asig-app-rows');
+  if (!cont || !rows) return;
+  if (!window.isE4BEnabled || !window.isE4BEnabled()) { cont.style.display = 'none'; return; }
+  const list = window._e4bAsigDelCliente(w && w.clientCardCode);
+  while (rows.firstChild) rows.removeChild(rows.firstChild);
+  if (!list || !list.length) { cont.style.display = 'none'; return; }
+  const prodByCode = {};
+  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
+    for (const p of PRODUCTS) prodByCode[(p.code || '').toUpperCase()] = p;
+  }
+  for (const it of list) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid #bfdbfe;border-radius:5px;font-size:11px';
+    const left = document.createElement('div');
+    left.style.flex = '1';
+    const code = document.createElement('div');
+    code.style.cssText = 'font-family:monospace;font-weight:800;color:#0f172a;font-size:10.5px';
+    code.textContent = it.sku;
+    const prod = prodByCode[(it.sku || '').toUpperCase()];
+    const desc = document.createElement('div');
+    desc.style.cssText = 'color:#334155;margin-top:1px;font-size:10.5px';
+    desc.textContent = prod ? (prod.desc || '') : '(sin catalogo)';
+    const meta = document.createElement('div');
+    meta.style.cssText = 'color:#64748b;font-size:9.5px;margin-top:2px';
+    meta.textContent = 'ASIG app-source · ' + it.qty + ' u pendiente reciclar/liberar';
+    left.appendChild(code); left.appendChild(desc); left.appendChild(meta);
+    row.appendChild(left);
+    const tag = document.createElement('span');
+    tag.style.cssText = 'flex-shrink:0;background:#dbeafe;color:#1e40af;padding:5px 10px;border-radius:4px;font-size:10px;font-weight:700';
+    tag.textContent = 'APP · ' + it.qty + ' u';
+    row.appendChild(tag);
+    rows.appendChild(row);
+  }
+  cont.style.display = '';
 }
 // v477: variante de waitlistAddProduct con qty custom (para agregar desde
 // SAP Asignado con la qty pendiente exacta de la SQ, no qty=1).
@@ -12587,6 +12700,15 @@ window.openWaitlistCardModal = function(docId){
   try { if (typeof ensureBackordersListener === 'function') ensureBackordersListener(); } catch(e){}
   document.getElementById('waitlist-card-modal').classList.add('open');
   _renderWaitlistCard();
+  // v545 E4B step 1: si el piloto esta activo, fetch on-demand del shadow
+  // snapshot y re-render de la seccion cuando llegue (no bloquea el modal).
+  if (window.isE4BEnabled && window.isE4BEnabled()) {
+    window._e4bFetchAsigApp().then(() => {
+      if (_wcardCurrent && _wcardCurrent._id === docId) {
+        try { _renderSapAsignadoConStock(_wcardCurrent); } catch(e){}
+      }
+    });
+  }
 };
 window.closeWaitlistCardModal = function(){
   document.getElementById('waitlist-card-modal').classList.remove('open');
