@@ -149,12 +149,20 @@ def show_stock_snapshot_prod(db):
 
 
 def show_fifo_assignment_log(db, n):
-    _print_header(f"stock_assignment_log_shadow (E4.5 onStockChangeFIFOAssign) — ultimas {n}")
-    docs = sorted(db.collection("stock_assignment_log_shadow").stream(),
-                  key=lambda d: d.id, reverse=True)[:n]
-    if not docs:
-        print("  (sin logs — CF E4.5 nunca disparo o sin deltas positivos)")
-        return
+    """E4.5 escribe a stock_assignment_log (active) o stock_assignment_log_shadow
+    (shadow). Chequea ambas para dar la imagen completa post-cutover."""
+    for col_name in ("stock_assignment_log", "stock_assignment_log_shadow"):
+        suffix = " (active)" if col_name == "stock_assignment_log" else " (shadow)"
+        _print_header(f"{col_name}{suffix} — ultimas {n}")
+        docs = sorted(db.collection(col_name).stream(),
+                      key=lambda d: d.id, reverse=True)[:n]
+        if not docs:
+            print(f"  (sin logs en {col_name})")
+            continue
+        _print_fifo_docs(docs)
+
+
+def _print_fifo_docs(docs):
     for doc in docs:
         d = doc.to_dict() or {}
         promotions = d.get("promotions") or []
