@@ -15,6 +15,7 @@
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { defineSecret } from 'firebase-functions/params';
+import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { runDailyBackup } from './core/backup-core.js';
@@ -22,6 +23,8 @@ import { runDailyBackup } from './core/backup-core.js';
 // usa dentro de dailyFirestoreBackup para instanciar FirestoreAdminClient.
 // Cargarlo top-level exhausta el timeout de 10s del "backend spec analysis"
 // del deploy de Firebase Functions. Lazy dynamic import inside la function.
+import { syncSapInvoices } from './core/invoice-sync-core.js';
+import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
 import { handleSapProxy } from './core/sap-proxy-core.js';
 
 if (!getApps().length) initializeApp();
@@ -90,6 +93,99 @@ export const sapProxy = onCall(
  *  3. Cloud Scheduler + Firestore API habilitadas.
  * Alerta: configurar log-based metric sobre "dailyFirestoreBackup failed".
  */
+/**
+ * syncSapInvoicesToApp — scheduled cada 15 min (E2 del plan BO/ASIG).
+ * En SHADOW MODE (default): lee Invoices SAP, resuelve lineage Invoice->SO->SQ,
+ * matchea con pedidos-app por transferidoSAP.docEntry. NO modifica pedidos.
+ * Escribe log de resultado a `sap_sync_log/{isoTimestamp}` para inspeccion.
+ * Cursor persistido en `app_config/sap_sync_state.lastInvoiceDocEntry`.
+ *
+ * Modo se cambia editando `app_config/sap_sync_state.mode` a 'active' en E5.
+ */
+export const syncSapInvoicesToApp = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 15 minutes',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 1,
+    memory: '512MiB',
+    timeoutSeconds: 300,
+    secrets: [SAP_SL_PASSWORD],
+  },
+  async () => {
+    const db = getFirestore();
+    const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+    const sapCfg = sapCfgSnap.data() || {};
+    const sl = sapCfg.serviceLayer || {};
+    if (!sl.url || !sl.companyDB) {
+      console.warn('syncSapInvoicesToApp: sap_integration.serviceLayer incompleto, skip');
+      return;
+    }
+    const result = await syncSapInvoices({
+      fetch: globalThis.fetch,
+      sapConfig: {
+        url: sl.url,
+        companyDB: sl.companyDB,
+        userName: sl.username || sl.userName,
+        password: SAP_SL_PASSWORD.value(),
+      },
+      fbDb: db,
+      log: (msg, extra) => console.log(msg, extra || {}),
+    });
+    // Audit log: 1 doc por corrida. Retention se puede sumar despues (30d TTL).
+    const logId = new Date().toISOString().replace(/[:.]/g, '-');
+    await db
+      .collection('sap_sync_log')
+      .doc(logId)
+      .set({
+        ranAt: new Date().toISOString(),
+        ...result,
+      });
+    console.log('syncSapInvoicesToApp summary', {
+      mode: result.mode,
+      invoicesRead: result.invoicesRead,
+      matches: result.matches.length,
+      orphans: result.orphans.length,
+      errors: result.errors.length,
+    });
+  }
+);
+
+/**
+ * onPedidoWriteRecalcSnapshot — trigger on-write pedidos/{id} (E3 del plan BO/ASIG).
+ * HYBRID MODE: coexiste con SAP-source (sync_sap_to_firestore.py:571-642).
+ * Escribe keys paralelos backorderBySkuApp / asigBySkuApp / asigByClientSkuApp:
+ *   - Modo shadow (default): a app_config/stock_snapshot_shadow_v3
+ *   - Modo active (E5): a app_config/stock_snapshot (sin pisar keys SAP-source)
+ * Modo se cambia via app_config/sap_sync_state.mode (mismo flag que E2).
+ */
+export const onPedidoWriteRecalcSnapshot = onDocumentWritten(
+  {
+    region: REGION,
+    document: 'pedidos/{pedidoId}',
+    retry: false,
+    memory: '256MiB',
+    timeoutSeconds: 60,
+  },
+  async (event) => {
+    const beforeData = event.data?.before?.data() ?? null;
+    const afterData = event.data?.after?.data() ?? null;
+    const affectedSkus = extractAffectedSkus(beforeData, afterData);
+    if (!affectedSkus.size) return; // pedido sin lines app-source relevantes
+    const db = getFirestore();
+    const r = await recalcSnapshotForSkus(
+      { fbDb: db, log: (msg, extra) => console.log(msg, extra || {}) },
+      affectedSkus
+    );
+    console.log('onPedidoWriteRecalcSnapshot done', {
+      pedidoId: event.params.pedidoId,
+      mode: r.mode,
+      skus: r.skusRecalculated,
+      snapshotDoc: r.snapshotDoc,
+    });
+  }
+);
+
 export const dailyFirestoreBackup = onSchedule(
   {
     region: REGION,
