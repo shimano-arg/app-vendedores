@@ -23,6 +23,7 @@ import { runDailyBackup } from './core/backup-core.js';
 // usa dentro de dailyFirestoreBackup para instanciar FirestoreAdminClient.
 // Cargarlo top-level exhausta el timeout de 10s del "backend spec analysis"
 // del deploy de Firebase Functions. Lazy dynamic import inside la function.
+import { runFifoAssign } from './core/fifo-assign-core.js';
 import { syncSapInvoices } from './core/invoice-sync-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
 import { handleSapProxy } from './core/sap-proxy-core.js';
@@ -182,6 +183,43 @@ export const onPedidoWriteRecalcSnapshot = onDocumentWritten(
       mode: r.mode,
       skus: r.skusRecalculated,
       snapshotDoc: r.snapshotDoc,
+    });
+  }
+);
+
+/**
+ * onStockChangeFIFOAssign — trigger on-write app_config/stock_snapshot (E4.5).
+ * Cuando el sync_sap_to_firestore.py actualiza warehouseBreakdown (cada 30 min),
+ * detecta SKUs con delta positivo en dep 11 y corre FIFO estricto para
+ * promover lineas de pedidos-app de state='BO' a state='ASIG'.
+ *
+ * Modo controlado por app_config/sap_sync_state.mode (mismo flag que E2/E3):
+ *   - 'shadow' (default): loguea a stock_assignment_log_shadow, NO modifica pedidos
+ *   - 'active' (E5): modifica pedidos.lines[i].state='ASIG' + asigAt=now
+ */
+export const onStockChangeFIFOAssign = onDocumentWritten(
+  {
+    region: REGION,
+    document: 'app_config/stock_snapshot',
+    retry: false,
+    memory: '512MiB',
+    timeoutSeconds: 300,
+  },
+  async (event) => {
+    const before = event.data?.before?.data() ?? null;
+    const after = event.data?.after?.data() ?? null;
+    if (!after) return; // delete, no-op
+    const db = getFirestore();
+    const r = await runFifoAssign(
+      { fbDb: db, log: (msg, extra) => console.log(msg, extra || {}) },
+      before,
+      after
+    );
+    console.log('onStockChangeFIFOAssign done', {
+      mode: r.mode,
+      skusChecked: r.skusChecked,
+      promotions: r.promotions.length,
+      errors: r.errors.length,
     });
   }
 );

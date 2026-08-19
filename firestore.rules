@@ -251,6 +251,18 @@ service cloud.firestore {
       allow write: if false; // solo CF via Admin SDK
     }
 
+    // v544 E4.5: audit log del FIFO auto-assign BO->ASIG. Escrito por CF
+    // onStockChangeFIFOAssign. Lectura admin/gerente. Shadow y active
+    // usan collections separadas hasta cutover E5.
+    match /stock_assignment_log/{logId} {
+      allow read: if isAdminOrGerente();
+      allow write: if false;
+    }
+    match /stock_assignment_log_shadow/{logId} {
+      allow read: if isAdminOrGerente();
+      allow write: if false;
+    }
+
     match /seguimiento_notes/{noteId} {
       allow read: if isSeguimientoUser();
       allow create: if isSeguimientoUser()

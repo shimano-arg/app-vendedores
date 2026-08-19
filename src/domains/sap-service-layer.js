@@ -397,7 +397,20 @@ const sapSL = {
     // mismo ItemCode. Bug reportado: SANDOVAL cargo SLXC70HASA 2 veces sin
     // darse cuenta. Fix: agrupar por ItemCode sumando quantities antes de
     // enviar, en vez de fallar el pedido entero.
-    const rawLines = (p.lines || []).map((l) => ({
+    //
+    // v544 E4C (2026-08-19): filtrar por line.state antes de mapear. Solo
+    // lineas con state='confirmed' (con stock DISP al confirmar el pedido)
+    // van a SAP como SQ. Lineas 'BO' (sin stock) NO se envian - quedan solo
+    // en la app hasta que entre stock y pasen a 'ASIG' (via FIFO E4.5).
+    // Fallback: pedidos legacy (state undefined o 'legacy') se envian TODAS
+    // las lineas para preservar comportamiento pre-E4A (los 56 pedidos
+    // migrados en E1 no tienen state real).
+    const _isLegacyState = (s) => !s || s === 'legacy';
+    const filteredLines = (p.lines || []).filter((l) => {
+      if (_isLegacyState(l.state)) return true; // pedido pre-v543, mandar todo
+      return l.state === 'confirmed';
+    });
+    const rawLines = filteredLines.map((l) => ({
       ItemCode:
         typeof sapGetProductCode === 'function' ? sapGetProductCode(l.code) || l.code : l.code,
       Quantity: parseFloat(l.qty) || 0,
