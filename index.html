@@ -4114,7 +4114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v563';
+const APP_VERSION = 'v564';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -19753,6 +19753,14 @@ window.doConfirmPedido = function(){
     total:        _disc.total,
     calculatedAt: new Date().toISOString(),
   } : null;
+  // v564 (2026-08-20): resolver cardCode SAP desde el clientName para que
+  // el circuito BO/ASIG (asigByClientSkuApp[cardCode::sku]) pueda matchear
+  // al cliente. Sin este field, los VDEs no ven la seccion "Backorder
+  // asignado (app)" en el modal cliente aunque las CFs corran automatico.
+  // Mismo pattern usado en volverAListaEspera (linea ~20041).
+  const _clientCardCode = (typeof sapGetClienteCode === 'function')
+    ? (sapGetClienteCode(parts[3]) || '')
+    : '';
   const docData = {
     ownerUid: ownerUid,
     ownerEmail: ownerEmail,
@@ -19767,6 +19775,8 @@ window.doConfirmPedido = function(){
     stage: 'pending',
     key: currentOrderKey,
     tipo: parts[0], province: parts[1], locName: parts[2], clientName: parts[3],
+    // v564: cardCode SAP resuelto arriba. Fundamental para BO/ASIG.
+    clientCardCode: _clientCardCode,
     month: monthLabel, monthIdx: mesIdx, year: parseInt(anio),
     confirmedAt: new Date().toISOString(),
     // Condicion de pago seleccionada por el vendedor. Va al UDF U_TipoGasto
