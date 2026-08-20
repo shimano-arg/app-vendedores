@@ -168,7 +168,8 @@ window.onRendAttach = async function (input) {
   try {
     // Si es imagen, comprimir. Si es excel/pdf, guardar tal cual (base64 sin compresion)
     if (f.type && f.type.startsWith('image/')) {
-      rdSolicitudAdj = { name: f.name, type: f.type, data: await compressImage(f, 1400, 0.78) };
+      // v562: 1400/0.78 -> 1000/0.7, mismo motivo que onRendFotoTicket.
+      rdSolicitudAdj = { name: f.name, type: f.type, data: await compressImage(f, 1000, 0.7) };
     } else {
       const reader = new FileReader();
       rdSolicitudAdj = await new Promise((resolve, reject) => {
@@ -179,6 +180,12 @@ window.onRendAttach = async function (input) {
     }
   } catch (e) {
     console.warn('rend attach', e);
+    alert(
+      'No se pudo procesar el adjunto (posible falta de memoria si es una ' +
+        'foto grande). Probá con un archivo mas chico.'
+    );
+    input.value = '';
+    return;
   }
   input.value = '';
   refreshRendAdjGrid();
@@ -210,10 +217,22 @@ function refreshRendAdjGrid() {
 window.onRendFotoTicket = async function (input) {
   const f = input.files && input.files[0];
   if (!f) return;
+  // v562 (2026-08-20): baja compresion 1400/0.78 -> 1000/0.7 (~200 KB) para
+  // evitar OOM en dispositivos modestos (Federico reporto tab crash + "espacio
+  // insuficiente" del sistema al enviar rendicion — kill del proceso web
+  // durante decode del bitmap 12MP). OCR sigue funcionando bien con 1000px.
+  // Try/catch con mensaje explicito al usuario en vez de warn silencioso.
   try {
-    rdGastoFoto = await compressImage(f, 1400, 0.78);
+    rdGastoFoto = await compressImage(f, 1000, 0.7);
   } catch (e) {
     console.warn('foto ticket', e);
+    alert(
+      'No se pudo procesar la foto (posible falta de memoria). Probá sacarla ' +
+        'de nuevo con la app "Camara" (no HDR/RAW) y volvé a intentarlo, o ' +
+        'usá una foto mas chica.'
+    );
+    input.value = '';
+    return;
   }
   input.value = '';
   refreshRendFotoGrid();
