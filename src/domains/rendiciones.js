@@ -128,8 +128,14 @@ function ensureRendicionesListener() {
         misRendiciones = [];
         qs.forEach((d) => misRendiciones.push(Object.assign({ _fsId: d.id }, d.data())));
         misRendiciones.sort((a, b) => {
-          const ta = a.createdAt ? (a.createdAt.toMillis ? a.createdAt.toMillis() : 0) : 0;
-          const tb = b.createdAt ? (b.createdAt.toMillis ? b.createdAt.toMillis() : 0) : 0;
+          // v563 (2026-08-20): docs recien agregados con `serverTimestamp()`
+          // pendiente aparecen en el snapshot local con `createdAt=null` antes
+          // de que el server confirme. Fallback Infinity los ordena arriba
+          // (son los mas nuevos). Antes: fallback 0 los mandaba al final →
+          // Federico reporto que tenia que refrescar para ver la rendicion
+          // recien enviada.
+          const ta = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : Infinity;
+          const tb = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : Infinity;
           return tb - ta;
         });
         const pane = document.getElementById('rd-pane-mias');
@@ -771,8 +777,10 @@ function ensureTodasRendicionesListener() {
       qs.forEach((d) => todasRendiciones.push(Object.assign({ _fsId: d.id }, d.data())));
       // Ordenar por fecha desc.
       todasRendiciones.sort((a, b) => {
-        const ta = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate().getTime() : 0;
-        const tb = b.createdAt && b.createdAt.toDate ? b.createdAt.toDate().getTime() : 0;
+        // v563: mismo fix que misRendiciones — fallback Infinity para docs
+        // con serverTimestamp() pendiente.
+        const ta = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate().getTime() : Infinity;
+        const tb = b.createdAt && b.createdAt.toDate ? b.createdAt.toDate().getTime() : Infinity;
         return tb - ta;
       });
       // Actualizar contadores por estado.
