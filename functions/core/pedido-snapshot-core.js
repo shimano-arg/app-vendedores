@@ -156,7 +156,7 @@ async function loadOpenPedidos(deps) {
  * NO tocados en el recalc actual quedan intactos).
  * @param {SnapshotDeps} deps
  * @param {string} snapshotDocPath
- * @param {Map<string, {bo: number, asig: number, asigByClient: Map<string, number>}>} perSku
+ * @param {Map<string, {bo: number, asig: number, asigByClient: Map<string, number>, boByClient: Map<string, number>}>} perSku
  */
 async function writeSnapshot(deps, snapshotDocPath, perSku) {
   if (!perSku.size) return;
@@ -252,7 +252,7 @@ export async function recalcSnapshotForSkus(deps, affectedSkus) {
   const snapshotDoc = mode === 'active' ? SNAPSHOT_DOC_ACTIVE : SNAPSHOT_DOC_SHADOW;
   const pedidos = await loadOpenPedidos(deps);
 
-  /** @type {Map<string, {bo: number, asig: number, asigByClient: Map<string, number>}>} */
+  /** @type {Map<string, {bo: number, asig: number, asigByClient: Map<string, number>, boByClient: Map<string, number>}>} */
   const perSku = new Map();
   /** @type {Record<string, {bo: number, asig: number}>} */
   const totals = {};
