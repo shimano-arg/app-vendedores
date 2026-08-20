@@ -4114,7 +4114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v554';
+const APP_VERSION = 'v555';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12709,7 +12709,10 @@ async function _e4bHandleAsigAction(w, it, action){
     // FIFO consume: para cada target, tomar min(remaining, line.qtyOpen).
     let remaining = qtyRequested;
     let totalApplied = 0;
-    const cf = firebase.functions().httpsCallable('updateAsigLineStateCF');
+    // v555 (re-fix — se perdio en el rebase v554): firebase.functions() usa
+    // region default us-central1 y da 404 CORS. Nuestras CFs estan en
+    // southamerica-east1. Mismo pattern que rendiciones.js:47.
+    const cf = firebase.app().functions('southamerica-east1').httpsCallable('updateAsigLineStateCF');
     for (const t of targets) {
       if (remaining <= 0) break;
       const take = Math.min(remaining, t.qtyOpen);
