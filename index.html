@@ -3907,6 +3907,16 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <div style="font-size:10.5px;color:#1e3a8a;margin-bottom:8px">Cuando entra stock, el sistema promueve automaticamente los pedidos abiertos del cliente a "asignado". Aceptar = agregar la reserva al pedido nuevo (recomendado). Rechazar = liberar el stock para otros clientes en cola FIFO.</div>
         <div id="wcard-e4b-asig-app-rows" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
+      <!-- v567: seccion "Backorder pendiente (app)" — lineas state='BO' del
+           cliente esperando reposicion de stock. Cuando entre stock del SKU,
+           E4.5 FIFO va a promover BO -> ASIG y la fila pasa a la seccion
+           azul de arriba con los botones Aceptar/Rechazar. Sin botones aca
+           porque no hay accion aplicable — solo esperar. -->
+      <div id="wcard-e4b-bo-app" style="display:none;background:#fef2f2;border:1.5px dashed #f87171;border-radius:6px;padding:10px 12px;margin-bottom:12px">
+        <div style="font-size:12px;font-weight:800;color:#991b1b;margin-bottom:6px">⏳ Backorder pendiente (app) — SKUs sin stock que este cliente pidio</div>
+        <div style="font-size:10.5px;color:#7f1d1d;margin-bottom:8px">Estas lineas estan esperando reposicion de stock. Cuando entre stock del SKU, el sistema las promueve automaticamente a "asignado" y aparecen arriba con los botones Aceptar / Rechazar.</div>
+        <div id="wcard-e4b-bo-app-rows" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
       <!-- v468: buscador para agregar productos nuevos al pedido en espera. -->
       <div style="position:relative;margin-bottom:10px">
         <input id="wcard-add-input" type="text" placeholder="🔍 Buscar producto por codigo o descripcion para agregar al pedido..." oninput="waitlistOnAddSearch()" onfocus="waitlistOnAddSearch()" onblur="setTimeout(waitlistHideAddDropdown, 200)" style="width:100%;padding:8px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:12px;outline:none"/>
@@ -4118,7 +4128,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v566';
+const APP_VERSION = 'v568';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -4387,9 +4397,12 @@ let STOCK_BACKORDER = {};
 //   - STOCK_BACKORDER_APP[sku] = suma qtyOpen de lineas state='BO' en pedidos-app open
 //   - STOCK_ASIG_APP[sku] = idem state='ASIG'
 //   - STOCK_ASIG_BY_CLIENT_APP['CARDCODE::SKU'] = idem por cliente (para modal reciclado)
+//   - STOCK_BO_BY_CLIENT_APP['CARDCODE::SKU'] = suma qtyOpen state='BO' por cliente
+//     (v567 — para mostrar en el modal cliente qué SKUs esperan reposición)
 let STOCK_BACKORDER_APP = {};
 let STOCK_ASIG_APP = {};
 let STOCK_ASIG_BY_CLIENT_APP = {};
+let STOCK_BO_BY_CLIENT_APP = {};
 let STOCK_UPDATED_AT = null;
 // Flag O(1) para que hasStock() no tenga que hacer Object.keys(STOCK_MAP)
 // en cada llamada. Antes: con 10.657 SKUs y el picker filtrando por
@@ -11520,6 +11533,10 @@ var _wcardCurrent = null; // doc actualmente abierto en el modal card
 // abrir el modal Revisar - si el vendedor cerraba sin confirmar, el pedido se
 // perdia. Ahora se conserva hasta que el pedido efectivamente pase a Pendientes.
 var _pendingWaitlistDelete = null;
+// v568: cuando pasamos a Pendientes pero quedan items sin dispSap, en vez de
+// borrar el waitlist doc lo actualizamos para dejar solo esos items pendientes.
+// Estructura: { id: waitlistDocId, keepItems: [items] }.
+var _pendingWaitlistUpdate = null;
 
 function ensureRevisionWaitlistListener(){
   if (_unsubRevisionWaitlist) return;
@@ -12610,6 +12627,69 @@ function _renderSapAsignadoConStock(w){
   contNuevos.style.display = cntNuevos > 0 ? '' : 'none';
   // v545 E4B step 1: seccion PILOTO admin/gerente — ASIG desde app-source.
   try { _renderE4BAsigApp(w); } catch(e){ console.warn('[E4B] render fallo:', e && e.message); }
+  // v567: seccion "Backorder pendiente (app)" — lineas state='BO' del cliente.
+  try { _renderE4BBoApp(w); } catch(e){ console.warn('[E4B BO] render fallo:', e && e.message); }
+}
+// v567: devuelve array [{sku, qty}] desde STOCK_BO_BY_CLIENT_APP.
+// Mismo pattern que _e4bAsigDelCliente.
+window._e4bBoDelCliente = function(cardCode){
+  if (!window.isE4BEnabled() || !cardCode) return [];
+  const cc = String(cardCode).trim();
+  const map = (typeof STOCK_BO_BY_CLIENT_APP === 'object' && STOCK_BO_BY_CLIENT_APP)
+    ? STOCK_BO_BY_CLIENT_APP : {};
+  const out = [];
+  const prefix = cc + '::';
+  for (const key of Object.keys(map)) {
+    if (!key.startsWith(prefix)) continue;
+    const qty = Number(map[key]) || 0;
+    if (qty <= 0) continue;
+    const sku = key.substring(prefix.length).trim();
+    if (!sku) continue;
+    out.push({ sku, qty });
+  }
+  out.sort((a, b) => a.sku.localeCompare(b.sku));
+  return out;
+};
+// v567: render seccion "Backorder pendiente (app)". Sin botones — no hay
+// accion aplicable (solo esperar reposicion de stock). Muestra SKU, desc,
+// qty pendiente. Cuando entre stock, E4.5 FIFO promueve BO -> ASIG y la
+// fila desaparece de aca y aparece en la seccion azul de _renderE4BAsigApp.
+function _renderE4BBoApp(w){
+  const cont = document.getElementById('wcard-e4b-bo-app');
+  const rows = document.getElementById('wcard-e4b-bo-app-rows');
+  if (!cont || !rows) return;
+  if (!window.isE4BEnabled || !window.isE4BEnabled()) { cont.style.display = 'none'; return; }
+  const list = window._e4bBoDelCliente(w && w.clientCardCode);
+  while (rows.firstChild) rows.removeChild(rows.firstChild);
+  if (!list || !list.length) { cont.style.display = 'none'; return; }
+  const prodByCode = {};
+  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
+    for (const p of PRODUCTS) prodByCode[(p.code || '').toUpperCase()] = p;
+  }
+  for (const it of list) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid #fca5a5;border-radius:5px;font-size:11px';
+    const left = document.createElement('div');
+    left.style.flex = '1';
+    const code = document.createElement('div');
+    code.style.cssText = 'font-family:monospace;font-weight:800;color:#0f172a;font-size:10.5px';
+    code.textContent = it.sku;
+    const prod = prodByCode[(it.sku || '').toUpperCase()];
+    const desc = document.createElement('div');
+    desc.style.cssText = 'color:#334155;margin-top:1px;font-size:10.5px';
+    desc.textContent = prod ? (prod.desc || '') : '(sin catalogo)';
+    const meta = document.createElement('div');
+    meta.style.cssText = 'color:#64748b;font-size:9.5px;margin-top:2px';
+    meta.textContent = 'BO app-source · esperando reposicion de stock';
+    left.appendChild(code); left.appendChild(desc); left.appendChild(meta);
+    row.appendChild(left);
+    const tag = document.createElement('span');
+    tag.style.cssText = 'flex-shrink:0;background:#fecaca;color:#991b1b;padding:4px 8px;border-radius:4px;font-size:10px;font-weight:700';
+    tag.textContent = it.qty + ' u pend.';
+    row.appendChild(tag);
+    rows.appendChild(row);
+  }
+  cont.style.display = '';
 }
 // v545 E4B step 1: render piloto ASIG app-source. Solo si feature flag on
 // (isE4BEnabled) y el cache tiene entradas para el cliente. Sin botones aun.
@@ -14009,16 +14089,42 @@ window.reviewDejarEnEspera = async function(){
 window.waitlistPasarAPendientes = async function(){
   const w = _wcardCurrent;
   if (!w) return;
-  // v507 (2026-08-13): respetar EXACTO las qty del pedido. Antes ajustabamos
-  // al Disponible SAP (v464), pero el user quiere que las qty pasen tal cual
-  // - lo excedente queda como backorder en SAP. La info visual de excedente
-  // ya se ve en la columna Backorder Unidades del card modal antes de pasar.
-  const finalItems = (w.items || [])
-    .map(it => ({code: it.code, desc: it.desc, qty: it.qty || 0, precioExcel: null, needsReview: false}))
-    .filter(it => it.qty > 0);
+  // v568 (2026-08-20): cap por Disponible SAP. Los items con dispSap=0 quedan
+  // en la lista de espera (backorder futuro); los items con dispSap < qty se
+  // pasan con qty capado a dispSap. Los subtotales del modal Revisar ahora
+  // coinciden con los subtotales de la lista de espera.
+  //
+  // Historial:
+  //   v464: capaba por dispSap.
+  //   v507 (2026-08-13): user pidio pasar qty exacto (excedente = backorder SAP).
+  //   v568 (2026-08-20): user pidio revertir — no debe agregar SKUs sin dispSap
+  //     al pedido nuevo. Los que no caben quedan en el waitlist como reserva.
+  const _dispSapFor = (sku) => (typeof getStockDisponibleVenta === 'function')
+    ? (getStockDisponibleVenta(sku) || 0) : 0;
+  const finalItems = [];
+  const skippedItems = []; // items con dispSap=0 → quedan en el waitlist
+  for (const it of (w.items || [])) {
+    const qtyPedida = Number(it.qty) || 0;
+    if (qtyPedida <= 0) continue;
+    const disp = _dispSapFor(it.code);
+    const qtyPasa = Math.max(0, Math.min(qtyPedida, disp));
+    if (qtyPasa <= 0) {
+      skippedItems.push(it);
+      continue;
+    }
+    finalItems.push({code: it.code, desc: it.desc, qty: qtyPasa, precioExcel: null, needsReview: false});
+  }
   if (!finalItems.length) {
-    alert('No hay ninguna linea con qty > 0 en el pedido. Agrega o corrige unidades antes de pasar a Pendientes.');
+    alert('Ninguna linea tiene Disponible SAP > 0. El pedido queda en la lista de espera hasta que entre stock.');
     return;
+  }
+  if (skippedItems.length) {
+    const msg = skippedItems.length + ' SKU(s) sin Disponible SAP quedaran en la lista de espera '
+              + '(no se pasan al pedido nuevo):\n\n'
+              + skippedItems.slice(0, 15).map(it => '  - ' + it.code + ' (' + (it.qty||0) + ' u pedidas)').join('\n')
+              + (skippedItems.length > 15 ? '\n  ... y ' + (skippedItems.length - 15) + ' mas' : '')
+              + '\n\nContinuar?';
+    if (!confirm(msg)) return;
   }
   // v461: usar orderKey() en vez de armar el string a mano. El resto de la
   // app genera keys con formato 'C|prov|loc|nombre' (tipo='C' cliente,
@@ -14041,7 +14147,17 @@ window.waitlistPasarAPendientes = async function(){
   // para que _origDoConfirm (wrapper mas abajo) lo elimine SOLO si el pedido
   // llega efectivamente a Firestore. Si el vendedor cierra Revisar sin
   // confirmar, el doc queda en la lista y no se pierde.
-  _pendingWaitlistDelete = w._id;
+  //
+  // v568: si hay items sin dispSap → en vez de borrar, ACTUALIZAR el waitlist
+  // doc para dejar solo esos items pendientes de stock. Si no hay skippedItems
+  // → borrar como antes.
+  if (skippedItems.length) {
+    _pendingWaitlistUpdate = { id: w._id, keepItems: skippedItems };
+    _pendingWaitlistDelete = null;
+  } else {
+    _pendingWaitlistDelete = w._id;
+    _pendingWaitlistUpdate = null;
+  }
   closeWaitlistCardModal();
   closeWaitlistModal();
   // Abrir modal "Revisa tu pedido" normal.
@@ -17965,21 +18081,26 @@ function ensureStockSnapshotAppListener(){
   if (unsubStockSnapshotApp || !currentUser || !fbDb) return;
   unsubStockSnapshotApp = fbDb.collection('app_config').doc('stock_snapshot_app').onSnapshot(snap => {
     if (!snap.exists) {
-      STOCK_BACKORDER_APP = {}; STOCK_ASIG_APP = {}; STOCK_ASIG_BY_CLIENT_APP = {};
+      STOCK_BACKORDER_APP = {}; STOCK_ASIG_APP = {}; STOCK_ASIG_BY_CLIENT_APP = {}; STOCK_BO_BY_CLIENT_APP = {};
       return;
     }
     const d = snap.data() || {};
     STOCK_BACKORDER_APP = (d.backorderBySkuApp && typeof d.backorderBySkuApp === 'object') ? d.backorderBySkuApp : {};
     STOCK_ASIG_APP = (d.asigBySkuApp && typeof d.asigBySkuApp === 'object') ? d.asigBySkuApp : {};
     STOCK_ASIG_BY_CLIENT_APP = (d.asigByClientSkuApp && typeof d.asigByClientSkuApp === 'object') ? d.asigByClientSkuApp : {};
+    STOCK_BO_BY_CLIENT_APP = (d.backorderByClientSkuApp && typeof d.backorderByClientSkuApp === 'object') ? d.backorderByClientSkuApp : {};
     console.log('[stock_snapshot_app] updated: bo=' + Object.keys(STOCK_BACKORDER_APP).length
       + ' asig=' + Object.keys(STOCK_ASIG_APP).length
-      + ' asigByClient=' + Object.keys(STOCK_ASIG_BY_CLIENT_APP).length);
+      + ' asigByClient=' + Object.keys(STOCK_ASIG_BY_CLIENT_APP).length
+      + ' boByClient=' + Object.keys(STOCK_BO_BY_CLIENT_APP).length);
     // v555+ (bugfix UX): re-render piloto E4B si el modal esta abierto —
     // asi cuando el user hace Aceptar/Rechazar y la CF muta, el listener
     // llega el update y la seccion desaparece automatico.
     if (_wcardCurrent && typeof _renderE4BAsigApp === 'function') {
       try { _renderE4BAsigApp(_wcardCurrent); } catch(e){}
+    }
+    if (_wcardCurrent && typeof _renderE4BBoApp === 'function') {
+      try { _renderE4BBoApp(_wcardCurrent); } catch(e){}
     }
   }, err => console.warn('stock_snapshot_app listener', err));
 }
@@ -19885,6 +20006,14 @@ window.doConfirmPedido = function(){
         const _widToDelete = _pendingWaitlistDelete;
         _pendingWaitlistDelete = null;
         fbDb.collection('revision_waitlist').doc(_widToDelete).delete().catch(e => console.warn('no pude borrar waitlist doc:', e));
+      } else if (_pendingWaitlistUpdate) {
+        // v568: preservar los items sin dispSap en el waitlist doc en vez de borrar.
+        const _update = _pendingWaitlistUpdate;
+        _pendingWaitlistUpdate = null;
+        fbDb.collection('revision_waitlist').doc(_update.id).update({
+          items: _update.keepItems,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        }).catch(e => console.warn('no pude actualizar waitlist doc con skipped items:', e));
       }
       // Si fue creado en nombre de un VDE, notificar al VDE.
       if (actingPartner) {
