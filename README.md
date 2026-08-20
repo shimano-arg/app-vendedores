@@ -806,6 +806,54 @@ Estado de un item pendiente o oportunidad. Permite cerrar manualmente un pendien
 }
 ```
 
+### 8.bis) Schema BO/ASIG (plan Backorder/Stock Asignado desde app, 2026-08-18 → 2026-08-20)
+
+Extensión del modelo de datos activa desde v543. Convive con el path histórico SAP-source (`sync_sap_to_firestore.py` sigue escribiendo `stock_snapshot.backorderBySku`).
+
+**Extensión de `pedidos/{id}`** (schemaVersion=2):
+
+```
+{
+  schemaVersion: 2,
+  clientCardCode: "C30718510291",  // v564: fundamental para el matcheo BO/ASIG
+  sapLinkage: {
+    soDocEntry: null,
+    lastInvoiceDocEntry: null,
+    lastSyncAt: null,
+    appliedInvoiceDocEntries: []  // idempotencia E2 syncSapInvoicesToApp
+  },
+  closedAt: null,               // se llena al cerrar el pedido
+  closedReason: null,           // 'all_invoiced' | 'all_recycled_or_cancelled_or_invoiced' | 'ttl_expired'
+  lines: [{
+    code, desc, qty, precio,
+    qtyOpen,                    // arranca == qty, se resta con invoiced/cancelled/recycled/expired
+    qtyInvoiced,                // sumado por E2 syncSapInvoicesToApp
+    qtyCancelled,               // desde botón ✗ Rechazar
+    qtyRecycled,                // desde botón ✓ Aceptar
+    qtyExpired,                 // desde E7 TTL 30d
+    state,                      // 'legacy' | 'confirmed' | 'BO' | 'ASIG' | 'invoiced' | 'cancelled' | 'recycled' | 'expired'
+    asigAt,                     // ISO cuando pasó BO → ASIG (por E4.5 FIFO)
+    expiredAt,                  // ISO cuando pasó ASIG → expired (por E7 TTL)
+    recycledIntoPedidoId,       // id del pedido nuevo al que se recicló
+    priceAtCreation,            // precio histórico al momento de crear
+  }]
+}
+```
+
+**Colecciones nuevas**:
+
+| Colección / Doc | Escrito por | Contenido | Read |
+|---|---|---|---|
+| `app_config/sap_sync_state` | admin (via `scripts/e5_toggle.py`) | `{mode: 'shadow'|'active', lastInvoiceDocEntry, lastRunAt}`. Flag central del cutover E5 (activado 2026-08-19 13:20). | admin/gerente |
+| `app_config/stock_snapshot_app` | `onPedidoWriteRecalcSnapshot` (E3) | `{backorderBySkuApp, asigBySkuApp, asigByClientSkuApp[cardCode::sku], updatedAtApp}`. Doc separado del `stock_snapshot` SAP-source para evitar que el cron externo lo pise. | isReader |
+| `app_config/stock_snapshot_shadow_v3` | `onPedidoWriteRecalcSnapshot` en shadow mode | Igual estructura, para test previo al cutover. | admin/gerente |
+| `sap_sync_log/{isoTimestamp}` | `syncSapInvoicesToApp` (E2) | `{matches, orphans, cursorBefore, cursorAfter, mode}`. Trazabilidad de qué Invoices matchean con qué pedido-app. | admin/gerente |
+| `stock_assignment_log/{isoTimestamp}` | `onStockChangeFIFOAssign` (E4.5) active | `{skusChecked, assignments[{pedidoId, sku, qty}], mode}`. Trazabilidad de promociones BO → ASIG. | admin/gerente |
+| `stock_assignment_log_shadow/{isoTimestamp}` | idem en shadow mode | Igual estructura. | admin/gerente |
+| `asig_ttl_log/{isoTimestamp}` | `expireAsigLinesTTLCF` (E7) | `{ttlDays: 30, pedidosScanned, expiredLines[{pedidoId, sku, qty}], pedidosClosed, errors}`. Ejecuta diario 03:00 ARG. | admin/gerente |
+
+**Feature flag frontend**: `window.isE4BEnabled()` — habilitada para todos los roles desde v560; kill switch per-browser con `localStorage.setItem('e4b_disabled','1')`.
+
 ---
 
 ## 9) Firestore Security Rules
@@ -834,6 +882,13 @@ Reglas vigentes (versión actual). Resumen de qué puede hacer cada rol:
 | `operations_log` | admin / viewer | autenticado crea (userUid == auth.uid), nadie update/delete |
 | `seguimiento_notes` (NUEVO v209+) | `isSeguimientoUser()` (admin/gerente/interno) | `isSeguimientoUser()` crea/update/delete |
 | `seguimiento_status` (NUEVO v209+) | `isSeguimientoUser()` | `isSeguimientoUser()` crea/update/delete |
+| `app_config/sap_sync_state` (BO/ASIG v541+) | admin/gerente | admin (via `scripts/e5_toggle.py`) |
+| `app_config/stock_snapshot_app` (BO/ASIG v551+) | `isReader()` (misma que `stock_snapshot`) | admin SDK bypass (CF `onPedidoWriteRecalcSnapshot`) |
+| `app_config/stock_snapshot_shadow_v3` (BO/ASIG v542+) | admin/gerente | admin SDK bypass (CF E3 en shadow mode) |
+| `sap_sync_log` (BO/ASIG v542+) | admin/gerente | admin SDK bypass (CF `syncSapInvoicesToApp`) |
+| `stock_assignment_log` (BO/ASIG v544+) | admin/gerente | admin SDK bypass (CF `onStockChangeFIFOAssign`) |
+| `stock_assignment_log_shadow` (BO/ASIG v544+) | admin/gerente | admin SDK bypass (CF E4.5 en shadow mode) |
+| `asig_ttl_log` (BO/ASIG v561+) | admin/gerente | admin SDK bypass (CF `expireAsigLinesTTLCF`) |
 
 Helper `isMyPartnerVDE(targetUid)`: para que un VDI pueda actuar en nombre de un VDE solo si el VDE tiene a ese VDI como `internalPartnerUid`. Esto bloquea que un VDI cualquiera cargue pedidos a nombre de cualquier VDE.
 
@@ -2474,11 +2529,24 @@ firebase deploy --only firestore:rules --project=app-vendedores-shimano
 # Storage Rules (sección 9, subsección Cloud Storage Security Rules)
 firebase deploy --only storage --project=app-vendedores-shimano
 
-# Cloud Functions (sapProxy + dailyFirestoreBackup)
+# Cloud Functions (8 activas, todas en southamerica-east1)
 firebase deploy --only functions --project=app-vendedores-shimano
 # O una function específica:
 firebase deploy --only functions:sapProxy --project=app-vendedores-shimano
 ```
+
+**Cloud Functions activas** (2026-08-20):
+
+| Función | Tipo | Trigger | Uso |
+|---|---|---|---|
+| `sapProxy` | onCall | invocado desde `src/sap-client.js` | Proxy autenticado @shimano al SAP Service Layer (login → forward → logout). Evita exponer credenciales SAP al browser. |
+| `geminiOcrProxy` | onCall | invocado desde `src/domains/rendiciones.js` | Proxy OCR Gemini para tickets de rendiciones. API key en Secret Manager (`GEMINI_API_KEY`). |
+| `syncSapInvoicesToApp` | onSchedule | cada 15 min | E2 del plan BO/ASIG: lee Invoices SAP, resuelve lineage Invoice→SO→SQ, matchea con pedidos-app por `transferidoSAP.docEntry`, cierra líneas y actualiza `qtyInvoiced`. Escribe log en `sap_sync_log`. |
+| `onPedidoWriteRecalcSnapshot` | onDocumentWritten `pedidos/{id}` | on-write pedidos | E3 del plan BO/ASIG: recalcula `backorderBySkuApp`, `asigBySkuApp`, `asigByClientSkuApp` a partir de los pedidos-app en `stock_snapshot_app` (doc separado que no pisa el snapshot SAP-source). |
+| `onStockChangeFIFOAssign` | onDocumentWritten `app_config/stock_snapshot` | on-write snapshot | E4.5 del plan BO/ASIG: cuando entra stock nuevo (dep 11 sube), corre FIFO estricto sobre pedidos-app con `state='BO'` y promueve a `state='ASIG'` en orden `createdAt` ascendente. |
+| `updateAsigLineStateCF` | onCall | botones ✓ Aceptar / ✗ Rechazar del modal cliente (E4B) | Muta línea `state='ASIG'` de un pedido-app a `'recycled'` o `'cancelled'` transaccionalmente. Idempotente. Cierra pedido si todas las líneas cierran. |
+| `expireAsigLinesTTLCF` | onSchedule | diaria 03:00 America/Argentina/Buenos_Aires | E7 del plan BO/ASIG: expira líneas `state='ASIG'` con `asigAt > 30 días` → `state='expired'` + libera stock. Audit doc en `asig_ttl_log`. |
+| `dailyFirestoreBackup` | onSchedule | diaria | Backup completo a Cloud Storage (para restore en caso de corrupción). |
 
 ### Legacy: build Python del HTML (deprecated)
 
