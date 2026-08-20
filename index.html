@@ -1371,6 +1371,10 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #revision-rows tr td.num{text-align:right;font-weight:600}
 #revision-rows tr.no-data td{background:#f8fafc;color:#94a3b8;font-style:italic}
 /* v454: card individual + listado de pedidos en espera. */
+/* v566: fondo amarillo pastel en la columna Disponible SAP para distinguirla
+   rapido. Definida ANTES de las reglas de warning para que warnings ganen por
+   orden de definicion en filas problemáticas (exceed/warn-quiebra/no-data). */
+#wcard-rows tr td.disp-sap-col{background:#fef9c3}
 #wcard-rows tr.exceed td{background:#fef2f2;color:#991b1b;font-weight:700}
 #wcard-rows tr.exceed td.exc-cell{background:#dc2626;color:#fff}
 /* v479: SKU pedido >= 80% del Disponible SAP -> amarillo (quebramos stock
@@ -3917,7 +3921,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
               <th style="text-align:center;padding:6px 8px" title="Stock deposito 11 + transito deposito 12">Stock total</th>
               <th style="text-align:center;padding:6px 8px" title="Backorder SAP TOTAL (todos los clientes) + otros pedidos en espera del mismo SKU. Informativo, NO resta al Disponible.">Backorder General</th>
               <th style="text-align:center;padding:6px 8px" title="Backorder SAP de ESTE cliente (Ofertas de Venta open del cliente por este SKU). Suma qty pendiente.">Backorder Cliente</th>
-              <th style="text-align:center;padding:6px 8px" title="Stock total - Backorder SAP (segun snapshot SAP - tiene delay de sync)">Disponible SAP</th>
+              <th style="text-align:center;padding:6px 8px;background:#fef9c3;color:#78350f" title="Stock total - Backorder SAP (segun snapshot SAP - tiene delay de sync)">Disponible SAP</th>
               <th style="text-align:center;padding:6px 8px" title="Disponible SAP - Pedidos Pendientes de la app no transferidos aun a SAP. Corrige el delay del sync SAP.">Disponible app</th>
               <th style="text-align:center;padding:6px 8px">Pedido</th>
               <th style="text-align:center;padding:6px 8px" title="Precio unitario del catalogo/SAP">Precio</th>
@@ -4114,7 +4118,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v565';
+const APP_VERSION = 'v566';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -13039,7 +13043,11 @@ function _renderWaitlistCard(){
       tdBoCli.style.fontWeight = '800';
     }
     tr.appendChild(tdBoCli);
-    tr.appendChild(mk(r.hasData ? r.disponible : '-', 'num'));
+    // v566: fondo amarillo pastel en la columna Disponible SAP para
+    // distinguirla rapido. Warnings de fila (exceed, warn-quiebra,
+    // warn-duplicado, no-data) ganan por especificidad CSS.
+    const tdDispSap = mk(r.hasData ? r.disponible : '-', 'num disp-sap-col');
+    tr.appendChild(tdDispSap);
     const dispAppTxt = r.hasData
       ? (r.pendingApp > 0 ? (r.disponibleApp + ' (−' + r.pendingApp + ' pend. app)') : String(r.disponibleApp))
       : '-';
