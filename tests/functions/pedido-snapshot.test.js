@@ -22,6 +22,10 @@ function makeFakeFbDb(initialState = {}) {
           if (path === 'app_config/sap_sync_state') {
             return { exists: !!store.syncState, data: () => store.syncState || {} };
           }
+          // v558+: snapshot doc reads (para stale key cleanup)
+          if (store.snapshots[path]) {
+            return { exists: true, data: () => store.snapshots[path] };
+          }
           return { exists: false, data: () => ({}) };
         },
         async set(data, opts) {

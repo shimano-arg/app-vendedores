@@ -46,6 +46,7 @@ const OPEN_STATES = new Set(['BO', 'ASIG']);
  *
  * @typedef {Object} SnapshotDeps
  * @property {any} fbDb Firestore Admin instance.
+ * @property {any} [FieldValue] Firestore FieldValue class (for FieldValue.delete()).
  * @property {(msg: string, extra?: Record<string, unknown>) => void} [log]
  */
 
@@ -158,6 +159,12 @@ async function writeSnapshot(deps, snapshotDocPath, perSku) {
   // (perdemos keys previas). Solucion: usar `update()` con dotted paths, que
   // hace merge nested correcto en Firestore. Como el doc debe existir para
   // update, primero garantizamos su existencia con un set base minimalista.
+  //
+  // v558+ (bugfix stale keys): para asigByClientSkuApp, si un cliente ANTES
+  // contribuia al SKU pero AHORA no (todas sus lineas se reciclaron/cancelaron),
+  // la key vieja persiste con qty stale porque solo escribimos las que estan
+  // en el aggregate. Fix: leer snapshot actual y borrar (DELETE_FIELD) las
+  // claves cc::sku para SKUs procesados que ya no aparecen en el aggregate.
   const ref = deps.fbDb.doc(snapshotDocPath);
   await ref.set(
     {
@@ -166,13 +173,38 @@ async function writeSnapshot(deps, snapshotDocPath, perSku) {
     },
     { merge: true }
   );
+  // Leer snapshot actual para detectar claves cc::sku a borrar.
+  const currentSnap = await ref.get();
+  const currentData = currentSnap.exists ? currentSnap.data() || {} : {};
+  const currentAsigByClient =
+    (currentData.asigByClientSkuApp && typeof currentData.asigByClientSkuApp === 'object'
+      ? currentData.asigByClientSkuApp
+      : {}) || {};
+  const FieldValue = deps.FieldValue || (deps.fbDb.constructor && deps.fbDb.constructor.FieldValue);
   /** @type {Record<string, any>} */
   const update = {};
   for (const [sku, agg] of perSku) {
     update[`backorderBySkuApp.${sku}`] = agg.bo;
     update[`asigBySkuApp.${sku}`] = agg.asig;
+    // Nuevos valores: escribir las claves cc::sku que aparecen en el aggregate.
+    const clientesEnAgg = new Set();
     for (const [cc, qty] of agg.asigByClient) {
       update[`asigByClientSkuApp.${cc}::${sku}`] = qty;
+      clientesEnAgg.add(cc);
+    }
+    // Stale cleanup: para el SKU actual, buscar claves cc::sku existentes que
+    // NO aparecen en el aggregate nuevo → borrarlas con FieldValue.delete().
+    const skuSuffix = `::${sku}`;
+    for (const key of Object.keys(currentAsigByClient)) {
+      if (!key.endsWith(skuSuffix)) continue;
+      const cc = key.substring(0, key.length - skuSuffix.length);
+      if (clientesEnAgg.has(cc)) continue; // sigue vigente, ya escrito arriba
+      if (FieldValue && typeof FieldValue.delete === 'function') {
+        update[`asigByClientSkuApp.${key}`] = FieldValue.delete();
+      } else {
+        // Fallback: si no tenemos FieldValue disponible, escribir 0.
+        update[`asigByClientSkuApp.${key}`] = 0;
+      }
     }
   }
   update.updatedAtApp = new Date().toISOString();
