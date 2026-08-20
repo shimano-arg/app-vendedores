@@ -3699,6 +3699,21 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
       <div><h2 id="ccm-name">-</h2><div class="subt" id="ccm-meta"></div></div>
       <button class="modal-close" onclick="closeClientMenu()" title="Cerrar">&times;</button>
     </div>
+    <!-- v570: seccion "Backorder pendiente (app)" en el menu rapido del cliente
+         (este es el modal que se abre PRIMERO al tocar un cliente, antes de
+         "Crear pedido"). Aparece solo si el cliente tiene lineas state='BO' en
+         pedidos-app abiertos. Sin botones (accion es solo esperar reposicion). -->
+    <div id="ccm-e4b-bo-app" style="display:none;background:#fef2f2;border:1.5px dashed #f87171;border-radius:6px;padding:10px 12px;margin:14px 18px 4px">
+      <div style="font-size:12px;font-weight:800;color:#991b1b;margin-bottom:6px">⏳ Backorder pendiente (app) — SKUs sin stock que este cliente pidio</div>
+      <div style="font-size:10.5px;color:#7f1d1d;margin-bottom:8px">Cuando entre stock del SKU, el sistema los promueve automaticamente a "asignado".</div>
+      <div id="ccm-e4b-bo-app-rows" style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto"></div>
+    </div>
+    <!-- v570: seccion "Backorder asignado (app)" — SKUs con stock reservados. -->
+    <div id="ccm-e4b-asig-app" style="display:none;background:#eff6ff;border:1.5px dashed #3b82f6;border-radius:6px;padding:10px 12px;margin:6px 18px 4px">
+      <div style="font-size:12px;font-weight:800;color:#1e40af;margin-bottom:6px">📱 Backorder asignado (app) — SKUs con stock que este cliente tiene reservados</div>
+      <div style="font-size:10.5px;color:#1e3a8a;margin-bottom:8px">Al armar un pedido nuevo aparecen los botones ✓ Aceptar / ✗ Rechazar.</div>
+      <div id="ccm-e4b-asig-app-rows" style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto"></div>
+    </div>
     <div class="ccm-opts">
       <div class="ccm-opt" onclick="ccmOpenUltimaVisita()">
         <div class="ccm-opt-icon">&#128197;</div>
@@ -4144,7 +4159,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v569';
+const APP_VERSION = 'v570';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11226,8 +11241,64 @@ window.openClientMenu = function(name, tipo, province, locName){
   clientMenuContext = {name, tipo, province, locName};
   document.getElementById('ccm-name').textContent = name;
   document.getElementById('ccm-meta').innerHTML = '<span>' + escapeHtml(locName) + ' / ' + escapeHtml(titleCase(province)) + '</span>';
+  // v570: render secciones Backorder pendiente/asignado app para este cliente.
+  try { _renderClientMenuBoAndAsigApp(name); } catch(e){ console.warn('[ccm-e4b] render:', e && e.message); }
   document.getElementById('client-menu-modal').classList.add('open');
 };
+
+function _renderClientMenuBoAndAsigApp(clientName){
+  const boCont = document.getElementById('ccm-e4b-bo-app');
+  const boRows = document.getElementById('ccm-e4b-bo-app-rows');
+  const asigCont = document.getElementById('ccm-e4b-asig-app');
+  const asigRows = document.getElementById('ccm-e4b-asig-app-rows');
+  if (!boCont || !boRows || !asigCont || !asigRows) return;
+  boCont.style.display = 'none';
+  asigCont.style.display = 'none';
+  while (boRows.firstChild) boRows.removeChild(boRows.firstChild);
+  while (asigRows.firstChild) asigRows.removeChild(asigRows.firstChild);
+  if (!window.isE4BEnabled || !window.isE4BEnabled()) return;
+  const cardCode = (typeof sapGetClienteCode === 'function')
+    ? (sapGetClienteCode(clientName) || '') : '';
+  if (!cardCode) return;
+  const boList = window._e4bBoDelCliente ? window._e4bBoDelCliente(cardCode) : [];
+  const asigList = window._e4bAsigDelCliente ? window._e4bAsigDelCliente(cardCode) : [];
+  const prodByCode = {};
+  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
+    for (const p of PRODUCTS) prodByCode[(p.code || '').toUpperCase()] = p;
+  }
+  function _makeRow(sku, qty, colors) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid ' + colors.border + ';border-radius:5px;font-size:11px';
+    const left = document.createElement('div');
+    left.style.flex = '1';
+    const code = document.createElement('div');
+    code.style.cssText = 'font-family:monospace;font-weight:800;color:#0f172a;font-size:10.5px';
+    code.textContent = sku;
+    const prod = prodByCode[(sku || '').toUpperCase()];
+    const desc = document.createElement('div');
+    desc.style.cssText = 'color:#334155;margin-top:1px;font-size:10.5px';
+    desc.textContent = prod ? (prod.desc || '') : '(sin catalogo)';
+    left.appendChild(code);
+    left.appendChild(desc);
+    row.appendChild(left);
+    const tag = document.createElement('span');
+    tag.style.cssText = 'flex-shrink:0;background:' + colors.tagBg + ';color:' + colors.tagFg + ';padding:4px 8px;border-radius:4px;font-size:10px;font-weight:700';
+    tag.textContent = qty + ' u';
+    row.appendChild(tag);
+    return row;
+  }
+  if (boList && boList.length) {
+    const cols = { border: '#fca5a5', tagBg: '#fecaca', tagFg: '#991b1b' };
+    for (const it of boList) boRows.appendChild(_makeRow(it.sku, it.qty, cols));
+    boCont.style.display = '';
+  }
+  if (asigList && asigList.length) {
+    const cols = { border: '#bfdbfe', tagBg: '#dbeafe', tagFg: '#1e40af' };
+    for (const it of asigList) asigRows.appendChild(_makeRow(it.sku, it.qty, cols));
+    asigCont.style.display = '';
+  }
+}
+window._renderClientMenuBoAndAsigApp = _renderClientMenuBoAndAsigApp;
 window.closeClientMenu = function(){
   document.getElementById('client-menu-modal').classList.remove('open');
   clientMenuContext = null;
@@ -18188,6 +18259,13 @@ function ensureStockSnapshotAppListener(){
       const cm = document.getElementById('client-modal');
       if (cm && cm.classList.contains('open')) {
         try { _renderClientModalBoAndAsigApp(currentClientModalOriginalName); } catch(e){}
+      }
+    }
+    // v570: re-render seccion en el client-menu-modal (menu rapido) si esta abierto
+    if (typeof _renderClientMenuBoAndAsigApp === 'function' && typeof clientMenuContext !== 'undefined' && clientMenuContext && clientMenuContext.name) {
+      const cmm = document.getElementById('client-menu-modal');
+      if (cmm && cmm.classList.contains('open')) {
+        try { _renderClientMenuBoAndAsigApp(clientMenuContext.name); } catch(e){}
       }
     }
   }, err => console.warn('stock_snapshot_app listener', err));
