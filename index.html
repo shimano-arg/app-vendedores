@@ -2610,8 +2610,12 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
       <div class="modal-footer" style="justify-content:space-between;gap:12px;flex-wrap:wrap">
         <button class="btn-cancel" style="background:#fff;color:#475569;border:1.5px solid #cbd5e1" onclick="closeReviewDialog()">Volver a editar</button>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn-confirm" style="background:#f97316" onclick="reviewDejarEnEspera()" title="Guardar en Lista de Espera para revisar despues sin ir a Pendientes">Dejar en Espera</button>
-          <button class="btn-confirm" onclick="validateReviewAndPasarAPendientes()">Pasar a Pendientes</button>
+          <!-- v571: swap estilos. Flujo default es Crear pedido -> LISTA DE ESPERA
+               -> Pendientes -> Confirmados. "Dejar en Espera" pasa a primario
+               (verde grande). "Pasar a Pendientes" queda como opcion avanzada
+               (naranja mas chico) que salta la espera. -->
+          <button class="btn-confirm" onclick="reviewDejarEnEspera()" title="RECOMENDADO. Guarda en Lista de Espera para revisar despues (flujo normal: espera -> pendientes -> confirmados)">Dejar en Espera</button>
+          <button class="btn-confirm" style="background:#f97316" onclick="validateReviewAndPasarAPendientes()" title="Salta Lista de Espera y va directo a Pendientes. Solo para casos donde el pedido ya esta 100% revisado.">Ir directo a Pendientes</button>
         </div>
       </div>
     </div>
@@ -4159,7 +4163,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v570';
+const APP_VERSION = 'v571';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
