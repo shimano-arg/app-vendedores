@@ -23,6 +23,7 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 // Cargarlo top-level exhausta el timeout de 10s del "backend spec analysis"
 // del deploy de Firebase Functions. Lazy dynamic import inside la function.
 import { updateAsigLineState } from './core/asig-recycle-core.js';
+import { expireAsigLinesTTL } from './core/asig-ttl-core.js';
 import { runDailyBackup } from './core/backup-core.js';
 import { runFifoAssign } from './core/fifo-assign-core.js';
 import { runGeminiOcr } from './core/gemini-ocr-core.js';
@@ -316,6 +317,39 @@ export const geminiOcrProxy = onCall(
       console.error('geminiOcrProxy unexpected error', e);
       throw new HttpsError('internal', 'Error interno geminiOcrProxy');
     }
+  }
+);
+
+/**
+ * expireAsigLinesTTL — cron diario 03:00 America/Argentina/Buenos_Aires (E7).
+ * Libera lineas state='ASIG' con asigAt > 30 dias. Mueve a state='expired',
+ * qtyExpired += qty, qtyOpen = 0. Cierra pedido si quedan todas las lineas
+ * en 0. Escribe audit doc en `asig_ttl_log/{isoTimestamp}`.
+ *
+ * Efecto sistema: E3 dispara automatico por los pedido writes; stock queda
+ * liberado y proximo tick E4.5 puede reasignar a otros clientes en FIFO.
+ */
+export const expireAsigLinesTTLCF = onSchedule(
+  {
+    region: REGION,
+    schedule: '0 3 * * *',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 1,
+    memory: '256MiB',
+    timeoutSeconds: 300,
+  },
+  async () => {
+    const db = getFirestore();
+    const r = await expireAsigLinesTTL({
+      fbDb: db,
+      log: (msg, extra) => console.log(msg, extra || {}),
+    });
+    console.log('expireAsigLinesTTLCF summary', {
+      pedidosScanned: r.pedidosScanned,
+      linesExpired: r.expiredLines.length,
+      pedidosClosed: r.pedidosClosed,
+      errors: r.errors.length,
+    });
   }
 );
 

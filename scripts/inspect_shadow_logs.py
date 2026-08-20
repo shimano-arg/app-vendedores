@@ -209,7 +209,30 @@ def main():
     show_stock_snapshot_shadow(db)
     show_stock_snapshot_prod(db)
     show_fifo_assignment_log(db, args.limit)
+    show_asig_ttl_log(db, args.limit)
     print()
+
+
+def show_asig_ttl_log(db, n):
+    """E7: audit de expiraciones diarias de ASIG > 30d (CF expireAsigLinesTTLCF)."""
+    _print_header(f"asig_ttl_log (E7 expiraciones ASIG > 30d) — ultimas {n}")
+    docs = sorted(db.collection("asig_ttl_log").stream(),
+                  key=lambda d: d.id, reverse=True)[:n]
+    if not docs:
+        print("  (sin corridas — CF diaria no disparo aun)")
+        return
+    for doc in docs:
+        d = doc.to_dict() or {}
+        expired = d.get("expiredLines") or []
+        print(
+            f"\n  [{doc.id}] scanned={d.get('pedidosScanned', 0)} "
+            f"expired={len(expired)} pedidosClosed={d.get('pedidosClosed', 0)} "
+            f"errors={len(d.get('errors') or [])}"
+        )
+        for l in expired[:5]:
+            print(f"    -> pedido={l.get('pedidoId')} sku={l.get('sku')} qty={l.get('qty')} cliente={l.get('clientCardCode')}")
+        if len(expired) > 5:
+            print(f"    ...(+{len(expired) - 5} lineas mas)")
 
 
 if __name__ == "__main__":
