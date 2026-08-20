@@ -3341,6 +3341,22 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
           <h3>Historial de compra</h3>
           <div id="cm-history"></div>
         </div>
+        <!-- v569: seccion "Backorder pendiente (app)" en el modal cliente
+             general. Muestra SKUs que este cliente tiene en state='BO' esperando
+             reposicion de stock. Se puebla desde STOCK_BO_BY_CLIENT_APP. Solo
+             visible si hay data para este cliente. -->
+        <div class="modal-section" id="cm-e4b-bo-app" style="display:none">
+          <h3 style="color:#991b1b">⏳ Backorder pendiente (app)</h3>
+          <div style="font-size:10.5px;color:#7f1d1d;margin-bottom:8px">SKUs que este cliente pidio y estan esperando reposicion de stock. Cuando entre stock, el sistema los promueve automaticamente a "asignado".</div>
+          <div id="cm-e4b-bo-app-rows" style="display:flex;flex-direction:column;gap:6px"></div>
+        </div>
+        <!-- v569: seccion "Backorder asignado (app)" — SKUs con stock ya
+             reservados (state='ASIG') para este cliente. -->
+        <div class="modal-section" id="cm-e4b-asig-app" style="display:none">
+          <h3 style="color:#1e40af">📱 Backorder asignado (app)</h3>
+          <div style="font-size:10.5px;color:#1e3a8a;margin-bottom:8px">SKUs con stock que este cliente tiene reservados. Al armar un pedido nuevo aparecen los botones ✓ Aceptar / ✗ Rechazar.</div>
+          <div id="cm-e4b-asig-app-rows" style="display:flex;flex-direction:column;gap:6px"></div>
+        </div>
         <div class="modal-section reco">
           <h3>Seccion recomendados</h3>
           <div id="cm-reco"></div>
@@ -4128,7 +4144,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v568';
+const APP_VERSION = 'v569';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -7769,9 +7785,74 @@ function openClientModal(clientName, tipo, province, localityName){
   } else {
     recoEl.innerHTML = '<div class="no-data">Todavía no hay suficiente historial de pedidos en ' + titleCase(province) + ' para sugerir SKUs (necesitamos al menos ' + SUGGESTIONS_MIN_PEERS + ' casas que hayan pedido el mismo SKU).</div>';
   }
+  // v569: renderizar secciones BO/ASIG (app) para el cliente si tiene cardCode
+  // SAP resuelto. Se poblan desde STOCK_BO_BY_CLIENT_APP / STOCK_ASIG_BY_CLIENT_APP.
+  try { _renderClientModalBoAndAsigApp(clientName); } catch(e){ console.warn('[cm-e4b] render:', e && e.message); }
+
   document.getElementById('client-modal').classList.add('open');
 }
 window.openClientModal = openClientModal;
+
+// v569: renderiza las 2 secciones app-source (BO + ASIG) en el modal cliente.
+// Resuelve cardCode desde el nombre con sapGetClienteCode. Si no hay cardCode
+// o no hay data, oculta ambos contenedores.
+function _renderClientModalBoAndAsigApp(clientName){
+  const boCont = document.getElementById('cm-e4b-bo-app');
+  const boRows = document.getElementById('cm-e4b-bo-app-rows');
+  const asigCont = document.getElementById('cm-e4b-asig-app');
+  const asigRows = document.getElementById('cm-e4b-asig-app-rows');
+  if (!boCont || !boRows || !asigCont || !asigRows) return;
+  // Ocultar ambos por default
+  boCont.style.display = 'none';
+  asigCont.style.display = 'none';
+  while (boRows.firstChild) boRows.removeChild(boRows.firstChild);
+  while (asigRows.firstChild) asigRows.removeChild(asigRows.firstChild);
+  if (!window.isE4BEnabled || !window.isE4BEnabled()) return;
+  // Resolver cardCode desde el nombre. Si falla, no podemos matchear.
+  const cardCode = (typeof sapGetClienteCode === 'function')
+    ? (sapGetClienteCode(clientName) || '') : '';
+  if (!cardCode) return;
+  // Fetch listas
+  const boList = window._e4bBoDelCliente ? window._e4bBoDelCliente(cardCode) : [];
+  const asigList = window._e4bAsigDelCliente ? window._e4bAsigDelCliente(cardCode) : [];
+  // Catalogo local para desc
+  const prodByCode = {};
+  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
+    for (const p of PRODUCTS) prodByCode[(p.code || '').toUpperCase()] = p;
+  }
+  // Helper para armar rows (mismo estilo que _renderE4BBoApp en modal Pedido en Espera)
+  function _makeRow(sku, qty, colors) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid ' + colors.border + ';border-radius:5px;font-size:11px';
+    const left = document.createElement('div');
+    left.style.flex = '1';
+    const code = document.createElement('div');
+    code.style.cssText = 'font-family:monospace;font-weight:800;color:#0f172a;font-size:10.5px';
+    code.textContent = sku;
+    const prod = prodByCode[(sku || '').toUpperCase()];
+    const desc = document.createElement('div');
+    desc.style.cssText = 'color:#334155;margin-top:1px;font-size:10.5px';
+    desc.textContent = prod ? (prod.desc || '') : '(sin catalogo)';
+    left.appendChild(code); left.appendChild(desc);
+    row.appendChild(left);
+    const tag = document.createElement('span');
+    tag.style.cssText = 'flex-shrink:0;background:' + colors.tagBg + ';color:' + colors.tagFg + ';padding:4px 8px;border-radius:4px;font-size:10px;font-weight:700';
+    tag.textContent = qty + ' u';
+    row.appendChild(tag);
+    return row;
+  }
+  if (boList && boList.length) {
+    const cols = { border: '#fca5a5', tagBg: '#fecaca', tagFg: '#991b1b' };
+    for (const it of boList) boRows.appendChild(_makeRow(it.sku, it.qty, cols));
+    boCont.style.display = '';
+  }
+  if (asigList && asigList.length) {
+    const cols = { border: '#bfdbfe', tagBg: '#dbeafe', tagFg: '#1e40af' };
+    for (const it of asigList) asigRows.appendChild(_makeRow(it.sku, it.qty, cols));
+    asigCont.style.display = '';
+  }
+}
+window._renderClientModalBoAndAsigApp = _renderClientModalBoAndAsigApp;
 
 function closeClientModal(){
   document.getElementById('client-modal').classList.remove('open');
@@ -18101,6 +18182,13 @@ function ensureStockSnapshotAppListener(){
     }
     if (_wcardCurrent && typeof _renderE4BBoApp === 'function') {
       try { _renderE4BBoApp(_wcardCurrent); } catch(e){}
+    }
+    // v569: re-render seccion en el modal cliente general si esta abierto
+    if (typeof _renderClientModalBoAndAsigApp === 'function' && typeof currentClientModalOriginalName !== 'undefined' && currentClientModalOriginalName) {
+      const cm = document.getElementById('client-modal');
+      if (cm && cm.classList.contains('open')) {
+        try { _renderClientModalBoAndAsigApp(currentClientModalOriginalName); } catch(e){}
+      }
     }
   }, err => console.warn('stock_snapshot_app listener', err));
 }
