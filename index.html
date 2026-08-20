@@ -4114,7 +4114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v557';
+const APP_VERSION = 'v559';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -16727,6 +16727,41 @@ async function fetchAndApplyRole(){
   applyRolePermissions();
 }
 
+// v559+ (bugfix bootstrap): idempotente + defensivo. Cada ensureXxxListener
+// esta wrapped en try/catch para que una excepcion no frene las siguientes.
+// Se puede llamar N veces sin costo (cada ensureXxx tiene early-return si
+// el listener ya esta attachado). Llamado desde applyRolePermissions() y
+// desde visibilitychange (para re-atachar si el user cambio de tab y volvio).
+function ensureAllListeners(){
+  const _try = (name, fn) => { try { fn(); } catch(e) { console.warn('ensureAllListeners', name, e && e.message); } };
+  _try('notifs', () => ensureNotifsListener());
+  _try('routeOverrides', () => ensureRouteOverridesListener());
+  _try('targets', () => ensureTargetsListener());
+  _try('clientLocs', () => ensureClientLocsListener());
+  _try('sapVendors', () => ensureSapVendorsListener());
+  _try('clientMaster', () => ensureClientMasterListener());
+  _try('altaCli', () => ensureAltaCliListener());
+  _try('rendiciones', () => ensureRendicionesListener());
+  _try('vendorOverrides', () => ensureVendorOverridesListener());
+  _try('stockSnapshot', () => ensureStockSnapshotListener());
+  _try('stockSnapshotApp', () => ensureStockSnapshotAppListener());
+  _try('priceList', () => ensurePriceListListener());
+  _try('temporalPriceList', () => ensureTemporalPriceListListener());
+  _try('approvedAltas', () => ensureApprovedAltasListener());
+  _try('backorders', () => ensureBackordersListener());
+  _try('revisionWaitlist', () => ensureRevisionWaitlistListener());
+  _try('facturacionSnapshot', () => ensureFacturacionSnapshotListener());
+  _try('campaniaSnapshot', () => ensureCampaniaSnapshotListener());
+}
+// v559+: re-atachar listeners al volver a la tab (Firestore auto-desconecta
+// cuando la tab pierde foco por mucho tiempo). Idempotente.
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && typeof userRole !== 'undefined' && userRole && userRole !== 'unassigned') {
+      try { ensureAllListeners(); } catch(e) {}
+    }
+  });
+}
 function applyRolePermissions(){
   document.body.classList.remove('role-admin','role-vendedor','role-viewer','role-unassigned','role-interno');
   document.body.classList.add('role-' + userRole);
@@ -16889,8 +16924,13 @@ function applyRolePermissions(){
   try { _updateHomeActiveState(); } catch(e) { console.warn('_updateHomeActiveState inicial', e); }
   // Targets button: solo gerencia (Mariano/Diego/Santi, gerente, o admin)
   document.getElementById('targets-btn').style.display = canManageTargets() ? '' : 'none';
-  // Activa listeners cross-collection segun rol
-  if (userRole !== 'unassigned') { ensureNotifsListener(); ensureRouteOverridesListener(); ensureTargetsListener(); ensureClientLocsListener(); ensureSapVendorsListener(); ensureClientMasterListener(); ensureAltaCliListener(); ensureRendicionesListener(); ensureVendorOverridesListener(); ensureStockSnapshotListener(); ensureStockSnapshotAppListener(); ensurePriceListListener(); ensureTemporalPriceListListener(); ensureApprovedAltasListener(); try { ensureBackordersListener(); } catch(e) { console.warn('ensureBackordersListener', e); } try { ensureRevisionWaitlistListener(); } catch(e) { console.warn('ensureRevisionWaitlistListener', e); } try { ensureFacturacionSnapshotListener(); } catch(e) { console.warn('ensureFacturacionSnapshotListener', e); } try { ensureCampaniaSnapshotListener(); } catch(e) { console.warn('ensureCampaniaSnapshotListener', e); } }
+  // Activa listeners cross-collection segun rol.
+  // v559+ (bugfix bootstrap): TODAS las ensures wrapped en try/catch. Antes,
+  // si una tiraba excepcion (ej: race con Firestore init), las siguientes
+  // no se ejecutaban -> listeners caidos -> STOCK_ASIG_BY_CLIENT_APP siempre
+  // vacio, prices stale, etc. Ver descubrimiento durante test piloto E4B
+  // (Mariano vio listeners=null aunque el user estaba logueado).
+  if (userRole !== 'unassigned') { ensureAllListeners(); }
   // Si soy VDI, cargar las parejas VDE para habilitar "actuar en nombre de".
   if (userRole === 'interno') { try { loadMyExternalPartners(); } catch(e) { console.warn('loadMyExternalPartners', e); } }
   // Acceso denegado para unassigned
