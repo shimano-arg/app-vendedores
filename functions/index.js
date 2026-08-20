@@ -13,7 +13,7 @@
  */
 
 import { getApps, initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { defineSecret } from 'firebase-functions/params';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
@@ -181,7 +181,7 @@ export const onPedidoWriteRecalcSnapshot = onDocumentWritten(
     if (!affectedSkus.size) return; // pedido sin lines app-source relevantes
     const db = getFirestore();
     const r = await recalcSnapshotForSkus(
-      { fbDb: db, log: (msg, extra) => console.log(msg, extra || {}) },
+      { fbDb: db, FieldValue, log: (msg, extra) => console.log(msg, extra || {}) },
       affectedSkus
     );
     console.log('onPedidoWriteRecalcSnapshot done', {
