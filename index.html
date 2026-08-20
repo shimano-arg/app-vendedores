@@ -4114,7 +4114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v556';
+const APP_VERSION = 'v557';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12847,6 +12847,12 @@ window.openWaitlistCardModal = function(docId){
   // v475: asegurar que backorderLines este hidratado para calcular
   // "Backorder Cliente" del SKU. ensureBackordersListener es idempotente.
   try { if (typeof ensureBackordersListener === 'function') ensureBackordersListener(); } catch(e){}
+  // v557+ (bugfix bootstrap): applyRolePermissions() a veces no dispara los
+  // ensureXxxListener() del cluster inicial (session stale u orden). Los
+  // idempotentes se pueden llamar aca sin costo — garantiza que E4B piloto
+  // y stock_snapshot_app tengan listeners activos cuando abrimos el modal.
+  try { if (typeof ensureStockSnapshotAppListener === 'function') ensureStockSnapshotAppListener(); } catch(e){}
+  try { if (typeof ensureStockSnapshotListener === 'function') ensureStockSnapshotListener(); } catch(e){}
   document.getElementById('waitlist-card-modal').classList.add('open');
   _renderWaitlistCard();
   // v548 E5 UI merge: la data app-source ahora esta en el listener global
