@@ -288,6 +288,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // v561 E7 TTL: audit log de expiraciones diarias de ASIG > 30d.
+    // Escrito por CF expireAsigLinesTTLCF (Admin SDK). Lectura admin/gerente.
+    match /asig_ttl_log/{logId} {
+      allow read: if isAdminOrGerente();
+      allow write: if false;
+    }
+
     match /seguimiento_notes/{noteId} {
       allow read: if isSeguimientoUser();
       allow create: if isSeguimientoUser()
