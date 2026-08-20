@@ -4128,7 +4128,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v567';
+const APP_VERSION = 'v568';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -11533,6 +11533,10 @@ var _wcardCurrent = null; // doc actualmente abierto en el modal card
 // abrir el modal Revisar - si el vendedor cerraba sin confirmar, el pedido se
 // perdia. Ahora se conserva hasta que el pedido efectivamente pase a Pendientes.
 var _pendingWaitlistDelete = null;
+// v568: cuando pasamos a Pendientes pero quedan items sin dispSap, en vez de
+// borrar el waitlist doc lo actualizamos para dejar solo esos items pendientes.
+// Estructura: { id: waitlistDocId, keepItems: [items] }.
+var _pendingWaitlistUpdate = null;
 
 function ensureRevisionWaitlistListener(){
   if (_unsubRevisionWaitlist) return;
@@ -14085,16 +14089,42 @@ window.reviewDejarEnEspera = async function(){
 window.waitlistPasarAPendientes = async function(){
   const w = _wcardCurrent;
   if (!w) return;
-  // v507 (2026-08-13): respetar EXACTO las qty del pedido. Antes ajustabamos
-  // al Disponible SAP (v464), pero el user quiere que las qty pasen tal cual
-  // - lo excedente queda como backorder en SAP. La info visual de excedente
-  // ya se ve en la columna Backorder Unidades del card modal antes de pasar.
-  const finalItems = (w.items || [])
-    .map(it => ({code: it.code, desc: it.desc, qty: it.qty || 0, precioExcel: null, needsReview: false}))
-    .filter(it => it.qty > 0);
+  // v568 (2026-08-20): cap por Disponible SAP. Los items con dispSap=0 quedan
+  // en la lista de espera (backorder futuro); los items con dispSap < qty se
+  // pasan con qty capado a dispSap. Los subtotales del modal Revisar ahora
+  // coinciden con los subtotales de la lista de espera.
+  //
+  // Historial:
+  //   v464: capaba por dispSap.
+  //   v507 (2026-08-13): user pidio pasar qty exacto (excedente = backorder SAP).
+  //   v568 (2026-08-20): user pidio revertir — no debe agregar SKUs sin dispSap
+  //     al pedido nuevo. Los que no caben quedan en el waitlist como reserva.
+  const _dispSapFor = (sku) => (typeof getStockDisponibleVenta === 'function')
+    ? (getStockDisponibleVenta(sku) || 0) : 0;
+  const finalItems = [];
+  const skippedItems = []; // items con dispSap=0 → quedan en el waitlist
+  for (const it of (w.items || [])) {
+    const qtyPedida = Number(it.qty) || 0;
+    if (qtyPedida <= 0) continue;
+    const disp = _dispSapFor(it.code);
+    const qtyPasa = Math.max(0, Math.min(qtyPedida, disp));
+    if (qtyPasa <= 0) {
+      skippedItems.push(it);
+      continue;
+    }
+    finalItems.push({code: it.code, desc: it.desc, qty: qtyPasa, precioExcel: null, needsReview: false});
+  }
   if (!finalItems.length) {
-    alert('No hay ninguna linea con qty > 0 en el pedido. Agrega o corrige unidades antes de pasar a Pendientes.');
+    alert('Ninguna linea tiene Disponible SAP > 0. El pedido queda en la lista de espera hasta que entre stock.');
     return;
+  }
+  if (skippedItems.length) {
+    const msg = skippedItems.length + ' SKU(s) sin Disponible SAP quedaran en la lista de espera '
+              + '(no se pasan al pedido nuevo):\n\n'
+              + skippedItems.slice(0, 15).map(it => '  - ' + it.code + ' (' + (it.qty||0) + ' u pedidas)').join('\n')
+              + (skippedItems.length > 15 ? '\n  ... y ' + (skippedItems.length - 15) + ' mas' : '')
+              + '\n\nContinuar?';
+    if (!confirm(msg)) return;
   }
   // v461: usar orderKey() en vez de armar el string a mano. El resto de la
   // app genera keys con formato 'C|prov|loc|nombre' (tipo='C' cliente,
@@ -14117,7 +14147,17 @@ window.waitlistPasarAPendientes = async function(){
   // para que _origDoConfirm (wrapper mas abajo) lo elimine SOLO si el pedido
   // llega efectivamente a Firestore. Si el vendedor cierra Revisar sin
   // confirmar, el doc queda en la lista y no se pierde.
-  _pendingWaitlistDelete = w._id;
+  //
+  // v568: si hay items sin dispSap → en vez de borrar, ACTUALIZAR el waitlist
+  // doc para dejar solo esos items pendientes de stock. Si no hay skippedItems
+  // → borrar como antes.
+  if (skippedItems.length) {
+    _pendingWaitlistUpdate = { id: w._id, keepItems: skippedItems };
+    _pendingWaitlistDelete = null;
+  } else {
+    _pendingWaitlistDelete = w._id;
+    _pendingWaitlistUpdate = null;
+  }
   closeWaitlistCardModal();
   closeWaitlistModal();
   // Abrir modal "Revisa tu pedido" normal.
@@ -19966,6 +20006,14 @@ window.doConfirmPedido = function(){
         const _widToDelete = _pendingWaitlistDelete;
         _pendingWaitlistDelete = null;
         fbDb.collection('revision_waitlist').doc(_widToDelete).delete().catch(e => console.warn('no pude borrar waitlist doc:', e));
+      } else if (_pendingWaitlistUpdate) {
+        // v568: preservar los items sin dispSap en el waitlist doc en vez de borrar.
+        const _update = _pendingWaitlistUpdate;
+        _pendingWaitlistUpdate = null;
+        fbDb.collection('revision_waitlist').doc(_update.id).update({
+          items: _update.keepItems,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        }).catch(e => console.warn('no pude actualizar waitlist doc con skipped items:', e));
       }
       // Si fue creado en nombre de un VDE, notificar al VDE.
       if (actingPartner) {
