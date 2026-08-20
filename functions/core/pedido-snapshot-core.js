@@ -88,7 +88,10 @@ export async function readSyncMode(deps) {
 
 /**
  * Suma qtyOpen por state para un SKU dado, iterando pedidos abiertos.
- * Retorna { bo, asig, asigByClient: Map<cardCode, qty> }.
+ * Retorna { bo, asig, asigByClient, boByClient }.
+ * v567 (2026-08-20): agregado boByClient para poder mostrar en el modal
+ * cliente qué SKUs tiene esperando reposición de stock (paralelo a la
+ * seccion asig).
  * @param {PedidoDoc[]} pedidos
  * @param {string} sku
  */
@@ -96,6 +99,7 @@ export function aggregateForSku(pedidos, sku) {
   let bo = 0;
   let asig = 0;
   const asigByClient = new Map();
+  const boByClient = new Map();
   const skuUp = String(sku).toUpperCase();
   for (const p of pedidos) {
     if (p.closedAt) continue; // pedido cerrado no cuenta
@@ -106,15 +110,17 @@ export function aggregateForSku(pedidos, sku) {
       if (!OPEN_STATES.has(l.state)) continue;
       const q = Number(l.qtyOpen || 0);
       if (q <= 0) continue;
-      if (l.state === 'BO') bo += q;
-      else if (l.state === 'ASIG') {
+      const cc = String(p.clientCardCode || '').trim();
+      if (l.state === 'BO') {
+        bo += q;
+        if (cc) boByClient.set(cc, (boByClient.get(cc) || 0) + q);
+      } else if (l.state === 'ASIG') {
         asig += q;
-        const cc = String(p.clientCardCode || '').trim();
         if (cc) asigByClient.set(cc, (asigByClient.get(cc) || 0) + q);
       }
     }
   }
-  return { bo, asig, asigByClient };
+  return { bo, asig, asigByClient, boByClient };
 }
 
 /**
@@ -180,30 +186,50 @@ async function writeSnapshot(deps, snapshotDocPath, perSku) {
     (currentData.asigByClientSkuApp && typeof currentData.asigByClientSkuApp === 'object'
       ? currentData.asigByClientSkuApp
       : {}) || {};
+  const currentBoByClient =
+    (currentData.backorderByClientSkuApp && typeof currentData.backorderByClientSkuApp === 'object'
+      ? currentData.backorderByClientSkuApp
+      : {}) || {};
   const FieldValue = deps.FieldValue || (deps.fbDb.constructor && deps.fbDb.constructor.FieldValue);
   /** @type {Record<string, any>} */
   const update = {};
   for (const [sku, agg] of perSku) {
     update[`backorderBySkuApp.${sku}`] = agg.bo;
     update[`asigBySkuApp.${sku}`] = agg.asig;
-    // Nuevos valores: escribir las claves cc::sku que aparecen en el aggregate.
-    const clientesEnAgg = new Set();
+    // asigByClient: escribir claves cc::sku vigentes.
+    const clientesAsigEnAgg = new Set();
     for (const [cc, qty] of agg.asigByClient) {
       update[`asigByClientSkuApp.${cc}::${sku}`] = qty;
-      clientesEnAgg.add(cc);
+      clientesAsigEnAgg.add(cc);
     }
-    // Stale cleanup: para el SKU actual, buscar claves cc::sku existentes que
-    // NO aparecen en el aggregate nuevo → borrarlas con FieldValue.delete().
+    // v567: boByClient — mismo pattern que asigByClient. Poblado para poder
+    // mostrar en el modal cliente qué SKUs tiene esperando reposición.
+    const clientesBoEnAgg = new Set();
+    for (const [cc, qty] of agg.boByClient) {
+      update[`backorderByClientSkuApp.${cc}::${sku}`] = qty;
+      clientesBoEnAgg.add(cc);
+    }
+    // Stale cleanup asigByClient: claves cc::sku existentes NO en aggregate → delete.
     const skuSuffix = `::${sku}`;
     for (const key of Object.keys(currentAsigByClient)) {
       if (!key.endsWith(skuSuffix)) continue;
       const cc = key.substring(0, key.length - skuSuffix.length);
-      if (clientesEnAgg.has(cc)) continue; // sigue vigente, ya escrito arriba
+      if (clientesAsigEnAgg.has(cc)) continue;
       if (FieldValue && typeof FieldValue.delete === 'function') {
         update[`asigByClientSkuApp.${key}`] = FieldValue.delete();
       } else {
-        // Fallback: si no tenemos FieldValue disponible, escribir 0.
         update[`asigByClientSkuApp.${key}`] = 0;
+      }
+    }
+    // Stale cleanup boByClient: mismo pattern.
+    for (const key of Object.keys(currentBoByClient)) {
+      if (!key.endsWith(skuSuffix)) continue;
+      const cc = key.substring(0, key.length - skuSuffix.length);
+      if (clientesBoEnAgg.has(cc)) continue;
+      if (FieldValue && typeof FieldValue.delete === 'function') {
+        update[`backorderByClientSkuApp.${key}`] = FieldValue.delete();
+      } else {
+        update[`backorderByClientSkuApp.${key}`] = 0;
       }
     }
   }

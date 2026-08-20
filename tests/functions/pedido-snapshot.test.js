@@ -160,6 +160,28 @@ describe('aggregateForSku', () => {
     const r = aggregateForSku(pedidos, 'X');
     expect(r.asigByClient.get('C1')).toBe(7);
   });
+
+  it('v567: boByClient traquea state=BO por cardCode', () => {
+    const pedidos = [
+      { clientCardCode: 'C001', closedAt: null, lines: [{ code: 'X', qtyOpen: 5, state: 'BO' }] },
+      { clientCardCode: 'C002', closedAt: null, lines: [{ code: 'X', qtyOpen: 3, state: 'BO' }] },
+      { clientCardCode: 'C001', closedAt: null, lines: [{ code: 'X', qtyOpen: 2, state: 'BO' }] },
+    ];
+    const r = aggregateForSku(pedidos, 'X');
+    expect(r.bo).toBe(10);
+    expect(r.boByClient.get('C001')).toBe(7);
+    expect(r.boByClient.get('C002')).toBe(3);
+  });
+
+  it('v567: boByClient ignora ASIG y viceversa', () => {
+    const pedidos = [
+      { clientCardCode: 'C001', closedAt: null, lines: [{ code: 'X', qtyOpen: 5, state: 'BO' }] },
+      { clientCardCode: 'C001', closedAt: null, lines: [{ code: 'X', qtyOpen: 3, state: 'ASIG' }] },
+    ];
+    const r = aggregateForSku(pedidos, 'X');
+    expect(r.boByClient.get('C001')).toBe(5);
+    expect(r.asigByClient.get('C001')).toBe(3);
+  });
 });
 
 describe('readSyncMode', () => {
@@ -234,6 +256,29 @@ describe('recalcSnapshotForSkus — shadow', () => {
     const setWrite = writes.find((w) => w.type === 'set');
     expect(setWrite.data.backorderBySku).toBeUndefined();
     expect(updateWrite.data.backorderBySku).toBeUndefined();
+  });
+
+  it('v567: active mode escribe backorderByClientSkuApp[cc::sku] para state=BO', async () => {
+    const fbDb = makeFakeFbDb({
+      syncState: { mode: 'active' },
+      pedidos: [
+        {
+          id: 'P1',
+          data: {
+            clientCardCode: 'C30718204905',
+            closedAt: null,
+            lines: [{ code: 'SN2500HGFG', qtyOpen: 4, state: 'BO' }],
+          },
+        },
+      ],
+    });
+    const deps = { fbDb, log: vi.fn() };
+    await recalcSnapshotForSkus(deps, new Set(['SN2500HGFG']));
+    const updateWrite = fbDb._writes.find((w) => w.type === 'update');
+    expect(updateWrite.data['backorderBySkuApp.SN2500HGFG']).toBe(4);
+    expect(updateWrite.data['backorderByClientSkuApp.C30718204905::SN2500HGFG']).toBe(4);
+    // El sku esta en BO, no en ASIG → asig por cliente NO se toca
+    expect(updateWrite.data['asigByClientSkuApp.C30718204905::SN2500HGFG']).toBeUndefined();
   });
 
   it('sin SKUs afectados: no escribe nada', async () => {

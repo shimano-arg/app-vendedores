@@ -3907,6 +3907,16 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <div style="font-size:10.5px;color:#1e3a8a;margin-bottom:8px">Cuando entra stock, el sistema promueve automaticamente los pedidos abiertos del cliente a "asignado". Aceptar = agregar la reserva al pedido nuevo (recomendado). Rechazar = liberar el stock para otros clientes en cola FIFO.</div>
         <div id="wcard-e4b-asig-app-rows" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
+      <!-- v567: seccion "Backorder pendiente (app)" — lineas state='BO' del
+           cliente esperando reposicion de stock. Cuando entre stock del SKU,
+           E4.5 FIFO va a promover BO -> ASIG y la fila pasa a la seccion
+           azul de arriba con los botones Aceptar/Rechazar. Sin botones aca
+           porque no hay accion aplicable — solo esperar. -->
+      <div id="wcard-e4b-bo-app" style="display:none;background:#fef2f2;border:1.5px dashed #f87171;border-radius:6px;padding:10px 12px;margin-bottom:12px">
+        <div style="font-size:12px;font-weight:800;color:#991b1b;margin-bottom:6px">⏳ Backorder pendiente (app) — SKUs sin stock que este cliente pidio</div>
+        <div style="font-size:10.5px;color:#7f1d1d;margin-bottom:8px">Estas lineas estan esperando reposicion de stock. Cuando entre stock del SKU, el sistema las promueve automaticamente a "asignado" y aparecen arriba con los botones Aceptar / Rechazar.</div>
+        <div id="wcard-e4b-bo-app-rows" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
       <!-- v468: buscador para agregar productos nuevos al pedido en espera. -->
       <div style="position:relative;margin-bottom:10px">
         <input id="wcard-add-input" type="text" placeholder="🔍 Buscar producto por codigo o descripcion para agregar al pedido..." oninput="waitlistOnAddSearch()" onfocus="waitlistOnAddSearch()" onblur="setTimeout(waitlistHideAddDropdown, 200)" style="width:100%;padding:8px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:12px;outline:none"/>
@@ -4118,7 +4128,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v566';
+const APP_VERSION = 'v567';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -4387,9 +4397,12 @@ let STOCK_BACKORDER = {};
 //   - STOCK_BACKORDER_APP[sku] = suma qtyOpen de lineas state='BO' en pedidos-app open
 //   - STOCK_ASIG_APP[sku] = idem state='ASIG'
 //   - STOCK_ASIG_BY_CLIENT_APP['CARDCODE::SKU'] = idem por cliente (para modal reciclado)
+//   - STOCK_BO_BY_CLIENT_APP['CARDCODE::SKU'] = suma qtyOpen state='BO' por cliente
+//     (v567 — para mostrar en el modal cliente qué SKUs esperan reposición)
 let STOCK_BACKORDER_APP = {};
 let STOCK_ASIG_APP = {};
 let STOCK_ASIG_BY_CLIENT_APP = {};
+let STOCK_BO_BY_CLIENT_APP = {};
 let STOCK_UPDATED_AT = null;
 // Flag O(1) para que hasStock() no tenga que hacer Object.keys(STOCK_MAP)
 // en cada llamada. Antes: con 10.657 SKUs y el picker filtrando por
@@ -12610,6 +12623,69 @@ function _renderSapAsignadoConStock(w){
   contNuevos.style.display = cntNuevos > 0 ? '' : 'none';
   // v545 E4B step 1: seccion PILOTO admin/gerente — ASIG desde app-source.
   try { _renderE4BAsigApp(w); } catch(e){ console.warn('[E4B] render fallo:', e && e.message); }
+  // v567: seccion "Backorder pendiente (app)" — lineas state='BO' del cliente.
+  try { _renderE4BBoApp(w); } catch(e){ console.warn('[E4B BO] render fallo:', e && e.message); }
+}
+// v567: devuelve array [{sku, qty}] desde STOCK_BO_BY_CLIENT_APP.
+// Mismo pattern que _e4bAsigDelCliente.
+window._e4bBoDelCliente = function(cardCode){
+  if (!window.isE4BEnabled() || !cardCode) return [];
+  const cc = String(cardCode).trim();
+  const map = (typeof STOCK_BO_BY_CLIENT_APP === 'object' && STOCK_BO_BY_CLIENT_APP)
+    ? STOCK_BO_BY_CLIENT_APP : {};
+  const out = [];
+  const prefix = cc + '::';
+  for (const key of Object.keys(map)) {
+    if (!key.startsWith(prefix)) continue;
+    const qty = Number(map[key]) || 0;
+    if (qty <= 0) continue;
+    const sku = key.substring(prefix.length).trim();
+    if (!sku) continue;
+    out.push({ sku, qty });
+  }
+  out.sort((a, b) => a.sku.localeCompare(b.sku));
+  return out;
+};
+// v567: render seccion "Backorder pendiente (app)". Sin botones — no hay
+// accion aplicable (solo esperar reposicion de stock). Muestra SKU, desc,
+// qty pendiente. Cuando entre stock, E4.5 FIFO promueve BO -> ASIG y la
+// fila desaparece de aca y aparece en la seccion azul de _renderE4BAsigApp.
+function _renderE4BBoApp(w){
+  const cont = document.getElementById('wcard-e4b-bo-app');
+  const rows = document.getElementById('wcard-e4b-bo-app-rows');
+  if (!cont || !rows) return;
+  if (!window.isE4BEnabled || !window.isE4BEnabled()) { cont.style.display = 'none'; return; }
+  const list = window._e4bBoDelCliente(w && w.clientCardCode);
+  while (rows.firstChild) rows.removeChild(rows.firstChild);
+  if (!list || !list.length) { cont.style.display = 'none'; return; }
+  const prodByCode = {};
+  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
+    for (const p of PRODUCTS) prodByCode[(p.code || '').toUpperCase()] = p;
+  }
+  for (const it of list) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid #fca5a5;border-radius:5px;font-size:11px';
+    const left = document.createElement('div');
+    left.style.flex = '1';
+    const code = document.createElement('div');
+    code.style.cssText = 'font-family:monospace;font-weight:800;color:#0f172a;font-size:10.5px';
+    code.textContent = it.sku;
+    const prod = prodByCode[(it.sku || '').toUpperCase()];
+    const desc = document.createElement('div');
+    desc.style.cssText = 'color:#334155;margin-top:1px;font-size:10.5px';
+    desc.textContent = prod ? (prod.desc || '') : '(sin catalogo)';
+    const meta = document.createElement('div');
+    meta.style.cssText = 'color:#64748b;font-size:9.5px;margin-top:2px';
+    meta.textContent = 'BO app-source · esperando reposicion de stock';
+    left.appendChild(code); left.appendChild(desc); left.appendChild(meta);
+    row.appendChild(left);
+    const tag = document.createElement('span');
+    tag.style.cssText = 'flex-shrink:0;background:#fecaca;color:#991b1b;padding:4px 8px;border-radius:4px;font-size:10px;font-weight:700';
+    tag.textContent = it.qty + ' u pend.';
+    row.appendChild(tag);
+    rows.appendChild(row);
+  }
+  cont.style.display = '';
 }
 // v545 E4B step 1: render piloto ASIG app-source. Solo si feature flag on
 // (isE4BEnabled) y el cache tiene entradas para el cliente. Sin botones aun.
@@ -17965,21 +18041,26 @@ function ensureStockSnapshotAppListener(){
   if (unsubStockSnapshotApp || !currentUser || !fbDb) return;
   unsubStockSnapshotApp = fbDb.collection('app_config').doc('stock_snapshot_app').onSnapshot(snap => {
     if (!snap.exists) {
-      STOCK_BACKORDER_APP = {}; STOCK_ASIG_APP = {}; STOCK_ASIG_BY_CLIENT_APP = {};
+      STOCK_BACKORDER_APP = {}; STOCK_ASIG_APP = {}; STOCK_ASIG_BY_CLIENT_APP = {}; STOCK_BO_BY_CLIENT_APP = {};
       return;
     }
     const d = snap.data() || {};
     STOCK_BACKORDER_APP = (d.backorderBySkuApp && typeof d.backorderBySkuApp === 'object') ? d.backorderBySkuApp : {};
     STOCK_ASIG_APP = (d.asigBySkuApp && typeof d.asigBySkuApp === 'object') ? d.asigBySkuApp : {};
     STOCK_ASIG_BY_CLIENT_APP = (d.asigByClientSkuApp && typeof d.asigByClientSkuApp === 'object') ? d.asigByClientSkuApp : {};
+    STOCK_BO_BY_CLIENT_APP = (d.backorderByClientSkuApp && typeof d.backorderByClientSkuApp === 'object') ? d.backorderByClientSkuApp : {};
     console.log('[stock_snapshot_app] updated: bo=' + Object.keys(STOCK_BACKORDER_APP).length
       + ' asig=' + Object.keys(STOCK_ASIG_APP).length
-      + ' asigByClient=' + Object.keys(STOCK_ASIG_BY_CLIENT_APP).length);
+      + ' asigByClient=' + Object.keys(STOCK_ASIG_BY_CLIENT_APP).length
+      + ' boByClient=' + Object.keys(STOCK_BO_BY_CLIENT_APP).length);
     // v555+ (bugfix UX): re-render piloto E4B si el modal esta abierto —
     // asi cuando el user hace Aceptar/Rechazar y la CF muta, el listener
     // llega el update y la seccion desaparece automatico.
     if (_wcardCurrent && typeof _renderE4BAsigApp === 'function') {
       try { _renderE4BAsigApp(_wcardCurrent); } catch(e){}
+    }
+    if (_wcardCurrent && typeof _renderE4BBoApp === 'function') {
+      try { _renderE4BBoApp(_wcardCurrent); } catch(e){}
     }
   }, err => console.warn('stock_snapshot_app listener', err));
 }
