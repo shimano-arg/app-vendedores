@@ -3899,8 +3899,8 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
            localStorage.e4b_enabled='1' Y admin/gerente. Sin botones aun
            (step 2 sumara Aceptar reciclar / Rechazar liberar via CFs). -->
       <div id="wcard-e4b-asig-app" style="display:none;background:#eff6ff;border:1.5px dashed #3b82f6;border-radius:6px;padding:10px 12px;margin-bottom:12px">
-        <div style="font-size:12px;font-weight:800;color:#1e40af;margin-bottom:6px">📱 SAP Asignado - APP (piloto) — SKUs asignados desde pedidos-app</div>
-        <div style="font-size:10.5px;color:#1e3a8a;margin-bottom:8px">PILOTO admin/gerente: lineas de pedidos-app del cliente con state='ASIG' (E4.5 promocion FIFO desde BO). Todavia no incluye botones de reciclado — solo display. Fuente: <code>stock_snapshot_shadow_v3.asigByClientSkuApp</code> en shadow, <code>stock_snapshot.asigByClientSkuApp</code> en cutover E5.</div>
+        <div style="font-size:12px;font-weight:800;color:#1e40af;margin-bottom:6px">📱 Backorder asignado (app) — SKUs con stock que este cliente tiene reservados</div>
+        <div style="font-size:10.5px;color:#1e3a8a;margin-bottom:8px">Cuando entra stock, el sistema promueve automaticamente los pedidos abiertos del cliente a "asignado". Aceptar = agregar la reserva al pedido nuevo (recomendado). Rechazar = liberar el stock para otros clientes en cola FIFO.</div>
         <div id="wcard-e4b-asig-app-rows" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
       <!-- v468: buscador para agregar productos nuevos al pedido en espera. -->
@@ -4114,7 +4114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v559';
+const APP_VERSION = 'v560';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12461,16 +12461,20 @@ function _sapAsignadoConStockDeCliente(cardCode){
   return out;
 }
 window._sapAsignadoConStockDeCliente = _sapAsignadoConStockDeCliente; // v542
-// v545 E4B step 1: feature flag piloto para mostrar ASIG app-source. Toggle
-// admin: `localStorage.setItem('e4b_enabled','1')` + reload. Gateado a
-// admin/gerente porque el read de stock_snapshot_shadow_v3 requiere ese rol
-// (rules). Si un vendedor lo activa, el fetch tira permission-denied y la
-// seccion queda oculta.
+// v560 (produccion): E4B habilitado para TODOS los roles utiles (admin,
+// gerente, vendedor, interno). Antes era piloto gateado por localStorage +
+// admin/gerente only. Ahora esta en produccion — cualquier usuario que abre
+// un modal cliente ve las lineas ASIG app-source disponibles a reciclar/rechazar.
+// Rules: stock_snapshot_app cae en el catch-all isReader() de app_config,
+// asi que VDEs lo leen OK. La CF updateAsigLineStateCF valida @shimano email
+// en su propio auth check (asig-recycle-core.js), no depende del gate frontend.
+// Escape hatch: `localStorage.setItem('e4b_disabled','1')` para apagar per-browser
+// si aparece algun bug critico en produccion (no requiere deploy).
 window.isE4BEnabled = function(){
   try {
-    if (localStorage.getItem('e4b_enabled') !== '1') return false;
+    if (localStorage.getItem('e4b_disabled') === '1') return false;
     if (typeof userRole === 'undefined') return false;
-    return userRole === 'admin' || userRole === 'gerente';
+    return userRole === 'admin' || userRole === 'gerente' || userRole === 'vendedor' || userRole === 'interno';
   } catch(e){ return false; }
 };
 // v548 E5 UI merge: leemos del listener global STOCK_ASIG_BY_CLIENT_APP en
