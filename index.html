@@ -4114,7 +4114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v555';
+const APP_VERSION = 'v556';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -17911,6 +17911,12 @@ function ensureStockSnapshotAppListener(){
     console.log('[stock_snapshot_app] updated: bo=' + Object.keys(STOCK_BACKORDER_APP).length
       + ' asig=' + Object.keys(STOCK_ASIG_APP).length
       + ' asigByClient=' + Object.keys(STOCK_ASIG_BY_CLIENT_APP).length);
+    // v555+ (bugfix UX): re-render piloto E4B si el modal esta abierto —
+    // asi cuando el user hace Aceptar/Rechazar y la CF muta, el listener
+    // llega el update y la seccion desaparece automatico.
+    if (_wcardCurrent && typeof _renderE4BAsigApp === 'function') {
+      try { _renderE4BAsigApp(_wcardCurrent); } catch(e){}
+    }
   }, err => console.warn('stock_snapshot_app listener', err));
 }
 
