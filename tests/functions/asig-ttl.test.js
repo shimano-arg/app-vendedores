@@ -45,7 +45,6 @@ function makeFakeFbDb(pedidos = []) {
       return { doc: () => ({ async set() {}, async update() {} }) };
     },
     doc(path) {
-      const self = this;
       return {
         _path: path,
         async get() {

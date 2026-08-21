@@ -445,12 +445,20 @@ window.exportPreciosStock = function () {
     return;
   }
   showSyncTag('Generando Excel precios + stock...');
-  // Helper de formato de stock para que sea legible en Excel.
+  // v574 (2026-08-21): pedido de Mariano — mostrar UNIDADES numericas
+  // exactas del deposito 11 (venta) en vez de "Disponible"/"Sin stock".
+  // Usa getStockDisponibleVenta que lee STOCK_WAREHOUSE_BREAKDOWN[sku]['11'].
+  // Retorna '' (celda vacia) cuando no hay dato de stock (snapshot no cargado
+  // aun); 0 si el SKU no tiene stock. Los numeros permiten sort/filter/sum en
+  // Excel — no perdemos el estado "no dato" vs "0 unidades" gracias al ''.
   function fmtStock(sku) {
-    const v = typeof hasStock === 'function' ? hasStock(sku) : null;
-    if (v === true) return 'Disponible';
-    if (v === false) return 'Sin stock';
-    return 'Sin dato';
+    const fn =
+      typeof window !== 'undefined' && typeof window.getStockDisponibleVenta === 'function'
+        ? window.getStockDisponibleVenta
+        : null;
+    const v = fn ? fn(sku) : null;
+    if (v == null) return '';
+    return Number(v) || 0;
   }
   function fmtPrecio(sku) {
     const p = typeof PRICE_LIST_MAP === 'object' && PRICE_LIST_MAP ? PRICE_LIST_MAP[sku] : null;

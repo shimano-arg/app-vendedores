@@ -16,7 +16,6 @@ function makeFakeFbDb(pedidos = []) {
       };
     },
     doc(path) {
-      const self = this;
       return {
         _path: path,
         async get() {
