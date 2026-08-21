@@ -89,17 +89,21 @@ function ensureSapAutoSendListener() {
               // se creaba la oferta duplicada en SAP. Fix: transaction Firestore que
               // reserva el envio CROSS-SESSION escribiendo un lock sendingSapLock antes
               // de llamar createQuotation. Solo un session gana la reserva.
+              // v577 (2026-08-21): timeout stale lock aumentado a 300s (5 min).
+              // Antes 60s. Bug real 2026-08-21: 2 admins concurrentes (Ioannis
+              // + Jonatan) crearon 2 Ofertas en SAP (#2000079 con 10 lineas +
+              // #2000080 con 24 lineas) para el mismo pedido porque
+              // sapSL.createQuotation tardo >60s → segundo admin considero
+              // stale al lock y tambien ejecuto. SAP Service Layer puede
+              // tardar minutos bajo carga; 5 min es margen razonable.
               await fbDb.runTransaction(async (tx) => {
                 const snap = await tx.get(docRef);
                 if (!snap.exists) throw new Error('DOC_GONE');
                 const data = snap.data() || {};
                 if (data.transferidoSAP) throw new Error('ALREADY_SENT');
-                // Lock stale-safe: si otro session tomo el lock hace <60 seg,
-                // respetamos. Si tiene mas de 60 seg asumimos que crasheo y
-                // podemos re-intentar. En happy path el lock se libera en <10 seg.
                 if (data.sendingSapLock && data.sendingSapLock.at) {
                   const lockAgeMs = Date.now() - data.sendingSapLock.at;
-                  if (lockAgeMs < 60000)
+                  if (lockAgeMs < 300000)
                     throw new Error(
                       'OTHER_SESSION_LOCK:' + (data.sendingSapLock.sessionId || 'unknown')
                     );
@@ -145,27 +149,72 @@ function ensureSapAutoSendListener() {
               }
               const r = await sapSL.createQuotation(payload);
               if (r.ok) {
-                await docRef.update({
-                  // No tocamos stage - se queda como 'confirmed' para que el
-                  // pedido siga visible en Pedidos > Confirmados. SAP > Ya
-                  // Transferidos lo detecta via transferidoSAP.transferredAt.
-                  transferidoSAP: {
-                    via: 'service_layer_auto',
-                    docEntry: r.body.DocEntry || null,
-                    docNum: r.body.DocNum || null,
-                    transferredAt: new Date().toISOString(),
-                    transferredBy: 'auto/' + ((currentUser && currentUser.email) || ''),
-                    sapDocRange: String(r.body.DocNum || ''),
-                    batchId: 'SL-AUTO-' + Date.now(),
-                  },
-                  // Liberar el lock (ya no hace falta - transferidoSAP protege).
-                  sendingSapLock: firebase.firestore.FieldValue.delete(),
+                // v577 (2026-08-21): DOUBLE-CHECK post-createQuotation. Si
+                // otra sesion gano la carrera (escribio transferidoSAP mientras
+                // esta sesion estaba en createQuotation), NO overwrite — dejar
+                // el docNum del winner y loguear WARNING con el docNum stale
+                // para que admin borre la SQ duplicada en SAP manualmente.
+                // Ambas sesiones habran creado una SQ; solo una queda registrada.
+                const myNewDocNum = r.body.DocNum || null;
+                const myNewDocEntry = r.body.DocEntry || null;
+                let winnerDocNum = null;
+                await fbDb.runTransaction(async (tx) => {
+                  const snap = await tx.get(docRef);
+                  const data = snap.data() || {};
+                  if (data.transferidoSAP && data.transferidoSAP.docNum) {
+                    // Otra sesion ya escribio. Guardamos el winner y NO overwrite.
+                    winnerDocNum = data.transferidoSAP.docNum;
+                    // Liberar solo el lock si aun apunta a esta sesion.
+                    if (data.sendingSapLock && data.sendingSapLock.sessionId === mySessionId) {
+                      tx.update(docRef, {
+                        sendingSapLock: firebase.firestore.FieldValue.delete(),
+                      });
+                    }
+                    return;
+                  }
+                  // Somos el winner: escribir transferidoSAP + liberar lock.
+                  tx.update(docRef, {
+                    transferidoSAP: {
+                      via: 'service_layer_auto',
+                      docEntry: myNewDocEntry,
+                      docNum: myNewDocNum,
+                      transferredAt: new Date().toISOString(),
+                      transferredBy: 'auto/' + ((currentUser && currentUser.email) || ''),
+                      sapDocRange: String(myNewDocNum || ''),
+                      batchId: 'SL-AUTO-' + Date.now(),
+                    },
+                    sendingSapLock: firebase.firestore.FieldValue.delete(),
+                  });
                 });
-                console.log('[SAP auto] OK', fsId, p.clientName, '-> DocNum', r.body.DocNum);
-                if (typeof showSyncTag === 'function')
-                  showSyncTag(
-                    'Auto-enviado: ' + p.clientName + ' (#' + (r.body.DocNum || '?') + ')'
+                if (winnerDocNum && winnerDocNum !== myNewDocNum) {
+                  // Race real: 2 SQs creadas para el mismo pedido.
+                  console.error(
+                    '[SAP auto] DUPLICATE SQ CREATED',
+                    fsId,
+                    p.clientName,
+                    '- app registro #' +
+                      winnerDocNum +
+                      ' (otra sesion), pero esta sesion tambien creo #' +
+                      myNewDocNum +
+                      '. BORRAR #' +
+                      myNewDocNum +
+                      ' MANUALMENTE EN SAP.'
                   );
+                  if (typeof showSyncTag === 'function')
+                    showSyncTag(
+                      'ALERTA: SQ duplicada en SAP para ' +
+                        p.clientName +
+                        ' - borrar #' +
+                        myNewDocNum +
+                        ' manual'
+                    );
+                } else {
+                  console.log('[SAP auto] OK', fsId, p.clientName, '-> DocNum', myNewDocNum);
+                  if (typeof showSyncTag === 'function')
+                    showSyncTag(
+                      'Auto-enviado: ' + p.clientName + ' (#' + (myNewDocNum || '?') + ')'
+                    );
+                }
               } else {
                 console.warn('[SAP auto] FAILED', fsId, p.clientName, '-', r.error);
                 // Liberar el lock para que se pueda reintentar (manual o auto).
