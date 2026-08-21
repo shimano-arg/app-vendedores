@@ -4164,7 +4164,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v578';
+const APP_VERSION = 'v579';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -13534,8 +13534,19 @@ window.waitlistExportTodo = async function(){
     const TOTAL_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF166534' } };
     const TOTAL_FONT = { color: { argb: 'FFFFFFFF' }, bold: true, size: 14 };
     const CENTER = { vertical: 'middle', horizontal: 'center' };
+    // v579 (2026-08-21): usar `_revisionStockFor(sku).disponible` que resta
+    // el backorder SAP (Ofertas open del sistema). Antes usaba
+    // getStockDisponibleVenta que solo devolvia stock fisico dep 11 sin
+    // restar reservas SAP. Ejemplo: stock=10, backorderSAP=8 -> disponible=2.
+    // Si el cliente pide 5, el Excel exporta min(5, 2) = 2. Coincide con la
+    // columna "Disponible SAP" (amarilla) del modal Pedido en Espera.
+    // Nota: Espera app (informativa) NO resta stock — no genera reserva SAP.
     const stockDisp11 = (sku) => {
-      if (typeof getStockDisponibleVenta === 'function') return getStockDisponibleVenta(sku) || 0;
+      if (typeof _revisionStockFor === 'function') {
+        const stk = _revisionStockFor(sku);
+        return stk && stk.hasData ? Number(stk.disponible || 0) : 0;
+      }
+      // Fallback: si _revisionStockFor no esta disponible, usar stock fisico crudo.
       const whs = (typeof STOCK_WAREHOUSE_BREAKDOWN === 'object' && STOCK_WAREHOUSE_BREAKDOWN)
         ? STOCK_WAREHOUSE_BREAKDOWN[String(sku||'').toUpperCase().trim()] : null;
       return whs ? Number(whs['11'] || 0) : 0;
@@ -13684,8 +13695,19 @@ window.waitlistExportArchivoCliente = async function(){
     const TOTAL_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF166534' } };
     const TOTAL_FONT = { color: { argb: 'FFFFFFFF' }, bold: true, size: 14 };
     const CENTER = { vertical: 'middle', horizontal: 'center' };
+    // v579 (2026-08-21): usar `_revisionStockFor(sku).disponible` que resta
+    // el backorder SAP (Ofertas open del sistema). Antes usaba
+    // getStockDisponibleVenta que solo devolvia stock fisico dep 11 sin
+    // restar reservas SAP. Ejemplo: stock=10, backorderSAP=8 -> disponible=2.
+    // Si el cliente pide 5, el Excel exporta min(5, 2) = 2. Coincide con la
+    // columna "Disponible SAP" (amarilla) del modal Pedido en Espera.
+    // Nota: Espera app (informativa) NO resta stock — no genera reserva SAP.
     const stockDisp11 = (sku) => {
-      if (typeof getStockDisponibleVenta === 'function') return getStockDisponibleVenta(sku) || 0;
+      if (typeof _revisionStockFor === 'function') {
+        const stk = _revisionStockFor(sku);
+        return stk && stk.hasData ? Number(stk.disponible || 0) : 0;
+      }
+      // Fallback: si _revisionStockFor no esta disponible, usar stock fisico crudo.
       const whs = (typeof STOCK_WAREHOUSE_BREAKDOWN === 'object' && STOCK_WAREHOUSE_BREAKDOWN)
         ? STOCK_WAREHOUSE_BREAKDOWN[String(sku||'').toUpperCase().trim()] : null;
       return whs ? Number(whs['11'] || 0) : 0;
