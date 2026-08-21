@@ -4164,7 +4164,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v575';
+const APP_VERSION = 'v577';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -10384,20 +10384,16 @@ window.renderBackordersTab = function(){
       const cliHit = (ln.clienteNombre || '').toLowerCase().includes(q);
       if (!skuHit && !prodHit && !cliHit) return false;
     }
-    // v420: filtro por stock 3-way (reemplaza v419 bool).
-    // 'sin' = ambos whs 11 y 12 en 0 (urgentes importar).
-    // 'con' = whs 11 O whs 12 con stock > 0 (para asignar a cliente).
-    // 'todos' = sin filtro.
-    if (backordersStockFilter === 'sin' || backordersStockFilter === 'con') {
-      const _stkDisp = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(ln.sku) || 0) : 0;
-      const _stkTran = (typeof getStockTransito === 'function') ? (getStockTransito(ln.sku) || 0) : 0;
-      const _hasStock = (_stkDisp > 0 || _stkTran > 0);
-      if (backordersStockFilter === 'sin' && _hasStock) return false;
-      if (backordersStockFilter === 'con' && !_hasStock) return false;
-    }
+    // v576: NO filtramos por stock aca — recolectamos TODOS los candidatos
+    // (SAP + APP-BO + APP-ASIG) sin importar stock, y despues aplicamos cap
+    // FIFO en fase 2 para calcular qtyAsignada + qtyBackorder por linea.
+    // Filtrar el modo (STOCK ASIG. vs BACKORDER) al final segun qty resultante.
     return true;
   };
-  const skuMap = {};  // sku -> {producto, familia, subfamilia, totalPendiente, clientes: [{nombre, code, pendiente, precio, sqDocNum, sqDocDate, source}]}
+  // v576: skuMap enriquecido — cada cliente lleva source ('sap'|'app'),
+  // state (solo APP: 'BO'|'ASIG'), pendiente original, y despues del cap FIFO:
+  // qtyAsignada + qtyBackorder.
+  const skuMap = {};
   backorderLines.forEach(ln => {
     if (!_passesFilters(ln)) return;
     const sku = ln.sku || '';
@@ -10415,43 +10411,30 @@ window.renderBackordersTab = function(){
       sqDocDate: ln.sqDocDate || '',
       vendorKey: ln.vendorKey || '',
       source: 'sap',
+      state: null,
     });
   });
-  // v572: unificar SAP + APP en el mismo modal segun modo.
-  //   mode='urgente' (Backorder) -> SAP filter='sin' + APP state='BO'
-  //   mode='asignacion' (STOCK ASIG.) -> SAP filter='con' + APP state='ASIG'
-  // Las lineas app-source vienen de pedidos-app con closedAt=null. La qty
-  // real pendiente es qtyOpen. El "SQ" equivalente aca es la orderNumber
-  // del pedido o su docId corto.
-  const _appLineTargetState = (backordersMode === 'asignacion') ? 'ASIG' : 'BO';
+  // v576: recolectar APP lines (BO + ASIG). Antes se filtraba por modo con
+  // _appLineTargetState, ahora traemos ambas y el cap FIFO decide donde van.
   if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
-    // Cache de PRODUCTS para descripcion (para SKUs que no vinieron por SAP).
     const _prodByCode = {};
     if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
       for (const p of PRODUCTS) _prodByCode[(p.code || '').toUpperCase()] = p;
     }
     for (const p of globalPedidos) {
-      // Solo pedidos abiertos (sin closedAt). globalPedidos no trae closedAt,
-      // pero podemos filtrar por stage: los que estan 'confirmed'/'legacy'
-      // no aplican al circuito. La CF E3 solo cuenta pedidos abiertos, asi
-      // que confiamos en el filtro por state de la linea.
       if (!p || !Array.isArray(p.lines)) continue;
       for (const l of p.lines) {
         if (!l || !l.code) continue;
-        if (l.state !== _appLineTargetState) continue;
+        if (l.state !== 'BO' && l.state !== 'ASIG') continue;
         const qtyOpen = Number(l.qtyOpen || 0);
         if (qtyOpen <= 0) continue;
         const sku = String(l.code).toUpperCase();
-        // Filtros de busqueda/mes: aplican al append tambien.
-        // q (definido en el scope de renderBackordersTab) es backordersSearchQuery
-        // lowercased. Usamos el outer q para el matcheo por texto.
         if (q) {
           const skuHit = sku.toLowerCase().includes(q);
           const prodHit = String(l.desc || '').toLowerCase().includes(q);
           const cliHit = String(p.clientName || '').toLowerCase().includes(q);
           if (!skuHit && !prodHit && !cliHit) continue;
         }
-        // Mes: usamos p.confirmedAt (ISO) para matchear yyyy-mm
         if (mesF) {
           const d = String(p.confirmedAt || '').slice(0, 7);
           if (d !== mesF) continue;
@@ -10461,8 +10444,6 @@ window.renderBackordersTab = function(){
           skuMap[sku] = {sku: sku, producto: prod.desc || l.desc || '', familia: prod.fam || '', subfamilia: prod.sub || '', totalPendiente: 0, clientes: []};
         }
         skuMap[sku].totalPendiente += qtyOpen;
-        // Resolver cardCode: si el pedido no lo tiene guardado (legacy),
-        // intentar con sapGetClienteCode(clientName).
         const cardCode = (typeof sapGetClienteCode === 'function') ? (sapGetClienteCode(p.clientName || '') || '') : '';
         skuMap[sku].clientes.push({
           nombre: p.clientName || '',
@@ -10474,13 +10455,64 @@ window.renderBackordersTab = function(){
           sqDocDate: String(p.confirmedAt || '').slice(0, 10),
           vendorKey: p.ownerVendor || '',
           source: 'app',
+          state: l.state,
           pedidoId: p._fsId || '',
           pedidoOrden: p.orderNumber || null,
         });
       }
     }
   }
-  const skus = Object.values(skuMap);
+  // v576 FASE 2 — Cap FIFO estricto por SKU.
+  //
+  // Regla (durante transicion SAP -> APP): SAP siempre gana a APP-BO (para
+  // ir agotando las Ofertas SAP viejas antes de que APP tome control). Dentro
+  // de cada source, orden por fecha ascendente (mas viejo gana).
+  //
+  // Excepcion: lineas APP-ASIG ya fueron promovidas por E4.5 FIFO y estan
+  // "reservadas" — consumen stock primero, sin competir. Aparecen siempre en
+  // STOCK ASIG. con su qty completa.
+  //
+  // Post-cap: cada cliente tiene qtyAsignada (lo que puede recibir HOY con
+  // stock disp) + qtyBackorder (lo que le falta). El modo del modal decide
+  // cual se muestra.
+  Object.values(skuMap).forEach(g => {
+    const dispSap = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(g.sku) || 0) : 0;
+    let restante = dispSap;
+    // Paso 1: APP-ASIG consume primero (reservado por E4.5, no compite).
+    for (const c of g.clientes) {
+      if (c.source === 'app' && c.state === 'ASIG') {
+        c.qtyAsignada = c.pendiente;
+        c.qtyBackorder = 0;
+        restante -= c.pendiente;
+      }
+    }
+    if (restante < 0) restante = 0;
+    // Paso 2: competidores (SAP + APP-BO) ordenados FIFO.
+    const competidores = g.clientes.filter(c => !(c.source === 'app' && c.state === 'ASIG'));
+    competidores.sort((a, b) => {
+      // SAP siempre primero (transicion). Cuando ya no queden SAP, solo hay APP-BO.
+      if (a.source !== b.source) return a.source === 'sap' ? -1 : 1;
+      // Dentro de mismo source, fecha ascendente (mas viejo gana).
+      return (a.sqDocDate || '').localeCompare(b.sqDocDate || '');
+    });
+    for (const c of competidores) {
+      const asignable = Math.min(c.pendiente, Math.max(0, restante));
+      c.qtyAsignada = asignable;
+      c.qtyBackorder = c.pendiente - asignable;
+      restante -= asignable;
+    }
+  });
+  // v576 FASE 3 — Filtrar clientes por modo y ajustar qty display.
+  //   'asignacion' (STOCK ASIG.) -> mostrar solo clientes con qtyAsignada > 0
+  //   'urgente' (BACKORDER)      -> mostrar solo clientes con qtyBackorder > 0
+  Object.values(skuMap).forEach(g => {
+    const isAsig = (backordersMode === 'asignacion');
+    g.clientes = g.clientes.filter(c => (isAsig ? c.qtyAsignada : c.qtyBackorder) > 0);
+    g.clientes.forEach(c => { c.pendiente = isAsig ? c.qtyAsignada : c.qtyBackorder; });
+    g.totalPendiente = g.clientes.reduce((s, c) => s + (c.pendiente || 0), 0);
+  });
+  // v576: eliminar SKUs vacios post-cap (todos los clientes filtrados por modo).
+  const skus = Object.values(skuMap).filter(g => g.clientes && g.clientes.length > 0);
   skus.sort((a,b) => b.totalPendiente - a.totalPendiente);
   // Summary
   const totalUnidades = skus.reduce((s,x) => s + x.totalPendiente, 0);
