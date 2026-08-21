@@ -18,9 +18,9 @@
 let cfTargetType = 'units';
 window.setTargetType = function (t) {
   cfTargetType = t;
-  document
-    .querySelectorAll('.tt-btn')
-    .forEach((b) => b.classList.toggle('active', b.dataset.tt === t));
+  document.querySelectorAll('.tt-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.tt === t);
+  });
   document.getElementById('cf-target-amount').placeholder = t === 'money' ? '100000' : '100';
 };
 
@@ -115,11 +115,15 @@ window.onCampSubfamiliaChange = function () {
 };
 
 window.selectAllSkus = function () {
-  document.querySelectorAll('.cf-sku-check').forEach((cb) => (cb.checked = true));
+  document.querySelectorAll('.cf-sku-check').forEach((cb) => {
+    cb.checked = true;
+  });
   updateSkuCounter();
 };
 window.clearAllSkus = function () {
-  document.querySelectorAll('.cf-sku-check').forEach((cb) => (cb.checked = false));
+  document.querySelectorAll('.cf-sku-check').forEach((cb) => {
+    cb.checked = false;
+  });
   updateSkuCounter();
 };
 window.updateSkuCounter = function () {
@@ -367,9 +371,9 @@ window.removeSkuFromCampaign = async function (campId, sku) {
 let cfScope = 'all';
 window.setCampScope = function (s) {
   cfScope = s;
-  document
-    .querySelectorAll('.scope-btn')
-    .forEach((b) => b.classList.toggle('active', b.dataset.scope === s));
+  document.querySelectorAll('.scope-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.scope === s);
+  });
   document.getElementById('cf-scope-provinces').style.display = s === 'province' ? '' : 'none';
   document.getElementById('cf-scope-vendors').style.display = s === 'vendor' ? '' : 'none';
   if (s === 'province') populateScopeProvinces();

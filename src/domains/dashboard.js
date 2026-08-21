@@ -84,6 +84,11 @@ function getSapSnapshotFor(vendorKey, year, month) {
 }
 
 // Helper: suma YTD del vendedor (todos los meses del año hasta el mes actual, 0-11 inclusive).
+// v580 (2026-08-21): usar importeLineasArsNeto (sin IVA) en vez de
+// facturadoArsNeto (con IVA). Bug reportado por Mariano: app mostraba $40.3M
+// para Santiago (con IVA) mientras PowerBI mostraba $33.3M (sin IVA). El
+// target esta definido sin IVA, entonces el % cumplimiento estaba
+// sobreestimado. Coincide 21% de diferencia = IVA.
 function _getSapSnapshotYtd(vendorKey, year, monthUpTo) {
   if (!vendorKey || !window.sapSnapshotCache) return null;
   let facturado = 0,
@@ -93,7 +98,7 @@ function _getSapSnapshotYtd(vendorKey, year, monthUpTo) {
   for (let m = 0; m <= monthUpTo; m++) {
     const snap = getSapSnapshotFor(vendorKey, year, m);
     if (snap) {
-      facturado += Number(snap.facturadoArsNeto || 0);
+      facturado += Number(snap.importeLineasArsNeto || 0);
       unidades += Number(snap.unidadesNeto || 0);
       ncs += Number(snap.ncsArs || 0);
       mesesConDatos++;
@@ -458,7 +463,9 @@ window.renderDashboard = function () {
       const s = byV[v.key];
       // v374+: usa mes seleccionado
       const sapSnap = getSapSnapshotFor(v.key, selYear, selMonthIdx);
-      const facSap = sapSnap ? Number(sapSnap.facturadoArsNeto || 0) : 0;
+      // v580: importeLineasArsNeto (sin IVA) para matchear PowerBI y comparar
+      // contra target (que tambien esta sin IVA).
+      const facSap = sapSnap ? Number(sapSnap.importeLineasArsNeto || 0) : 0;
       const unidSap = sapSnap ? Number(sapSnap.unidadesNeto || 0) : 0;
       // moneyForRank = SAP si hay snapshot; sino cae a pedidos app.
       const moneyForRank = sapSnap ? facSap : s.money;
@@ -652,9 +659,10 @@ window.renderDashboard = function () {
       MESES[selMonthIdx] +
       ' ' +
       selYear +
-      ' &middot; facturado real (v_facturas_sap neto)</span></h4>';
+      ' &middot; importe l&iacute;neas SAP sin IVA (matches PowerBI)</span></h4>';
     if (sapSnapMes) {
-      const facSap = Number(sapSnapMes.facturadoArsNeto || 0);
+      // v580: importeLineasArsNeto (sin IVA) para matchear PowerBI.
+      const facSap = Number(sapSnapMes.importeLineasArsNeto || 0);
       const unidSap = Number(sapSnapMes.unidadesNeto || 0);
       const ncsSap = Number(sapSnapMes.ncsArs || 0);
       html += '<div class="tgt-grid">';
