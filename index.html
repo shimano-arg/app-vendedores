@@ -4163,7 +4163,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v571';
+const APP_VERSION = 'v572';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -9882,17 +9882,32 @@ function _applyBackordersMode(mode){
 // contando SKUs distintos (no lineas) en cada categoria segun stock actual.
 // Se llama desde ensureBackordersListener + desde el listener de stock_snapshot.
 function _updateBackorderButtonCounts(){
-  const bySku = {};  // sku -> {hasStock: bool}
+  // v572: contar SKUs distintos de las 2 fuentes.
+  //   Backorder (urgente) = SAP SKUs SIN stock + APP SKUs con state='BO' (unique).
+  //   STOCK ASIG. = SAP SKUs CON stock + APP SKUs con state='ASIG' (unique).
+  const skusUrgente = new Set();
+  const skusAsig = new Set();
   backorderLines.forEach(ln => {
     const sku = ln.sku || '';
     if (!sku) return;
-    if (bySku[sku]) return;
     const stkD = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(sku) || 0) : 0;
     const stkT = (typeof getStockTransito === 'function') ? (getStockTransito(sku) || 0) : 0;
-    bySku[sku] = { hasStock: (stkD > 0 || stkT > 0) };
+    if (stkD > 0 || stkT > 0) skusAsig.add(sku);
+    else skusUrgente.add(sku);
   });
-  let cntUrgente = 0, cntAsig = 0;
-  Object.values(bySku).forEach(v => { v.hasStock ? cntAsig++ : cntUrgente++; });
+  if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+    for (const p of globalPedidos) {
+      if (!p || !Array.isArray(p.lines)) continue;
+      for (const l of p.lines) {
+        if (!l || !l.code || Number(l.qtyOpen || 0) <= 0) continue;
+        const sku = String(l.code).toUpperCase();
+        if (l.state === 'BO') skusUrgente.add(sku);
+        else if (l.state === 'ASIG') skusAsig.add(sku);
+      }
+    }
+  }
+  const cntUrgente = skusUrgente.size;
+  const cntAsig = skusAsig.size;
   const _paint = (id, n) => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -10381,7 +10396,7 @@ window.renderBackordersTab = function(){
     }
     return true;
   };
-  const skuMap = {};  // sku -> {producto, familia, subfamilia, totalPendiente, clientes: [{nombre, code, pendiente, precio, sqDocNum, sqDocDate}]}
+  const skuMap = {};  // sku -> {producto, familia, subfamilia, totalPendiente, clientes: [{nombre, code, pendiente, precio, sqDocNum, sqDocDate, source}]}
   backorderLines.forEach(ln => {
     if (!_passesFilters(ln)) return;
     const sku = ln.sku || '';
@@ -10398,13 +10413,83 @@ window.renderBackordersTab = function(){
       sqDocNum: ln.sqDocNum || 0,
       sqDocDate: ln.sqDocDate || '',
       vendorKey: ln.vendorKey || '',
+      source: 'sap',
     });
   });
+  // v572: unificar SAP + APP en el mismo modal segun modo.
+  //   mode='urgente' (Backorder) -> SAP filter='sin' + APP state='BO'
+  //   mode='asignacion' (STOCK ASIG.) -> SAP filter='con' + APP state='ASIG'
+  // Las lineas app-source vienen de pedidos-app con closedAt=null. La qty
+  // real pendiente es qtyOpen. El "SQ" equivalente aca es la orderNumber
+  // del pedido o su docId corto.
+  const _appLineTargetState = (backordersMode === 'asignacion') ? 'ASIG' : 'BO';
+  if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+    // Cache de PRODUCTS para descripcion (para SKUs que no vinieron por SAP).
+    const _prodByCode = {};
+    if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
+      for (const p of PRODUCTS) _prodByCode[(p.code || '').toUpperCase()] = p;
+    }
+    for (const p of globalPedidos) {
+      // Solo pedidos abiertos (sin closedAt). globalPedidos no trae closedAt,
+      // pero podemos filtrar por stage: los que estan 'confirmed'/'legacy'
+      // no aplican al circuito. La CF E3 solo cuenta pedidos abiertos, asi
+      // que confiamos en el filtro por state de la linea.
+      if (!p || !Array.isArray(p.lines)) continue;
+      for (const l of p.lines) {
+        if (!l || !l.code) continue;
+        if (l.state !== _appLineTargetState) continue;
+        const qtyOpen = Number(l.qtyOpen || 0);
+        if (qtyOpen <= 0) continue;
+        const sku = String(l.code).toUpperCase();
+        // Filtros de busqueda/mes: aplican al append tambien.
+        // q (definido en el scope de renderBackordersTab) es backordersSearchQuery
+        // lowercased. Usamos el outer q para el matcheo por texto.
+        if (q) {
+          const skuHit = sku.toLowerCase().includes(q);
+          const prodHit = String(l.desc || '').toLowerCase().includes(q);
+          const cliHit = String(p.clientName || '').toLowerCase().includes(q);
+          if (!skuHit && !prodHit && !cliHit) continue;
+        }
+        // Mes: usamos p.confirmedAt (ISO) para matchear yyyy-mm
+        if (mesF) {
+          const d = String(p.confirmedAt || '').slice(0, 7);
+          if (d !== mesF) continue;
+        }
+        if (!skuMap[sku]) {
+          const prod = _prodByCode[sku] || {};
+          skuMap[sku] = {sku: sku, producto: prod.desc || l.desc || '', familia: prod.fam || '', subfamilia: prod.sub || '', totalPendiente: 0, clientes: []};
+        }
+        skuMap[sku].totalPendiente += qtyOpen;
+        // Resolver cardCode: si el pedido no lo tiene guardado (legacy),
+        // intentar con sapGetClienteCode(clientName).
+        const cardCode = (typeof sapGetClienteCode === 'function') ? (sapGetClienteCode(p.clientName || '') || '') : '';
+        skuMap[sku].clientes.push({
+          nombre: p.clientName || '',
+          code: cardCode,
+          ciudad: p.locName || '',
+          pendiente: qtyOpen,
+          precio: parseFloat(l.precio || l.priceAtCreation || 0) || 0,
+          sqDocNum: 0,
+          sqDocDate: String(p.confirmedAt || '').slice(0, 10),
+          vendorKey: p.ownerVendor || '',
+          source: 'app',
+          pedidoId: p._fsId || '',
+          pedidoOrden: p.orderNumber || null,
+        });
+      }
+    }
+  }
   const skus = Object.values(skuMap);
   skus.sort((a,b) => b.totalPendiente - a.totalPendiente);
   // Summary
   const totalUnidades = skus.reduce((s,x) => s + x.totalPendiente, 0);
-  const totalClientes = new Set(backorderLines.filter(_passesFilters).map(ln => ln.clienteCode)).size;
+  // v572: contar clientes distintos de las 2 fuentes (SAP + APP) tras filtros.
+  const _cliSet = new Set();
+  skus.forEach(g => (g.clientes || []).forEach(c => {
+    const k = c.code || c.nombre || '';
+    if (k) _cliSet.add(k);
+  }));
+  const totalClientes = _cliSet.size;
   const _filtroBadges = [];
   if (q) _filtroBadges.push('busqueda: "' + escapeHtml(q) + '"');
   if (mesF) {
@@ -10456,10 +10541,27 @@ window.renderBackordersTab = function(){
     // Clientes
     html += '<div style="padding:0">';
     g.clientes.forEach(c => {
+      // v572: badge SAP/APP para diferenciar fuente. Meta line cambia segun source:
+      //   SAP: "SAP · OFERTA DE VENTA #NNN · fecha"
+      //   APP: "APP · Orden N · fecha"  (pedido cargado en la app)
+      const isApp = c.source === 'app';
+      const badgeBg = isApp ? '#dbeafe' : '#dcfce7';
+      const badgeFg = isApp ? '#1e40af' : '#166534';
+      const badgeLbl = isApp ? '📱 APP' : '🏢 SAP';
+      let metaText;
+      if (isApp) {
+        const ordenLbl = c.pedidoOrden ? ('Orden ' + c.pedidoOrden) : (c.pedidoId ? ('Pedido ' + String(c.pedidoId).slice(0, 6)) : '');
+        metaText = escapeHtml(c.ciudad || '-') + ' · ' + escapeHtml(badgeLbl) + (ordenLbl ? ' · ' + escapeHtml(ordenLbl) : '') + (c.sqDocDate ? ' · ' + escapeHtml(c.sqDocDate) : '');
+      } else {
+        metaText = escapeHtml(c.ciudad || '-') + ' · ' + escapeHtml(badgeLbl) + ' · OFERTA DE VENTA #' + c.sqDocNum + (c.sqDocDate ? ' · ' + escapeHtml(c.sqDocDate) : '');
+      }
       html += '<div style="padding:8px 14px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:8px">';
       html += '<div style="flex:1;min-width:0">';
-      html += '<div style="font-size:12px;font-weight:700;color:#0f172a">' + escapeHtml(c.nombre) + '</div>';
-      html += '<div style="font-size:10px;color:#64748b;margin-top:2px">' + escapeHtml(c.ciudad || '-') + ' &middot; SQ ' + c.sqDocNum + (c.sqDocDate ? ' &middot; ' + escapeHtml(c.sqDocDate) : '') + '</div>';
+      html += '<div style="font-size:12px;font-weight:700;color:#0f172a;display:flex;align-items:center;gap:6px">';
+      html += '<span style="background:' + badgeBg + ';color:' + badgeFg + ';padding:2px 6px;border-radius:4px;font-size:9.5px;font-weight:800;flex-shrink:0">' + badgeLbl + '</span>';
+      html += '<span>' + escapeHtml(c.nombre) + '</span>';
+      html += '</div>';
+      html += '<div style="font-size:10px;color:#64748b;margin-top:2px">' + metaText + '</div>';
       html += '</div>';
       html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:14px;font-weight:800;color:#c2410c">' + Math.round(c.pendiente) + '</div><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px">unid</div></div>';
       html += '</div>';
