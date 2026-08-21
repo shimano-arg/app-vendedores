@@ -474,7 +474,9 @@ window.openAdminPanel = async function () {
   try {
     const aeQs = await fbDb.collection('allowed_emails').get();
     const allowedList = [];
-    aeQs.forEach((d) => allowedList.push(Object.assign({ _id: d.id }, d.data())));
+    aeQs.forEach((d) => {
+      allowedList.push(Object.assign({ _id: d.id }, d.data()));
+    });
     renderAllowedEmailsSection(allowedList);
   } catch (e) {
     console.warn('load allowed_emails', e);
