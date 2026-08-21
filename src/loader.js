@@ -60,8 +60,7 @@ export function installChunkStubs(chunkName, exportNames) {
     // No sobreescribir si el chunk ya está cargado (defensivo).
     if (_loaded[chunkName]) continue;
     // @ts-expect-error — window augmentation runtime-only
-    window[name] = function () {
-      const args = arguments;
+    window[name] = function (...args) {
       return loadChunk(chunkName).then(() => {
         const fn = window[name];
         // Sanity check: post-load, window[name] debe ser la implementación real,

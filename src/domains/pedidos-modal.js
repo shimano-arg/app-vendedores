@@ -770,32 +770,62 @@ function renderReviewLines() {
     const subtotal = q * p;
     totalU += q;
     totalM += subtotal;
+    // v581 (2026-08-21): usar _revisionStockFor(sku).disponible (misma logica
+    // que Lista de Espera modal) para que los subtotales Disponibles / Sin
+    // stock del modal Revisar coincidan con los del modal Pedido en Espera.
+    // Antes usaba hasStock(sku) que solo mira stock fisico > 0, sin restar
+    // backorder SAP → subtotales inconsistentes entre modales. Bug reportado
+    // por Mariano 2026-08-21: LA LOMITA OUTDOORS SRL orden 78, Lista
+    // mostraba Con Stock=$5.218k, Sin Stock=$14.839k; Revisar mostraba
+    // Disponibles=$6.571k, Sin stock=$13.486k → diferencia $1.353k por
+    // ítems con backorder que hasStock no descontaba.
     const stockAvail = typeof hasStock === 'function' ? hasStock(l.code) : null;
-    const noDisp = stockAvail === false;
+    let dispReal = null;
+    const _rsFn =
+      typeof window !== 'undefined' && typeof window._revisionStockFor === 'function'
+        ? window._revisionStockFor
+        : null;
+    if (_rsFn) {
+      const stk = _rsFn(l.code);
+      if (stk && stk.hasData) dispReal = Number(stk.disponible || 0);
+    }
     // v408 (2026-08-05): si la linea tiene faltantesQty (v407+ Excel import),
     // el "Sin stock" cuenta SOLO las unidades sin cobertura, no la linea
-    // entera. Ejemplo: qty=5, stock=2, faltantesQty=3 -> Disponibles=2u,
-    // Sin stock=3u. Pedido de Mariano. Sino (linea pre-v407 o sin
-    // faltantesQty), se mantiene el comportamiento viejo: si noDisp, todo
-    // a "Sin stock"; sino todo a "Disponibles".
+    // entera. Se mantiene por compat, pero si tenemos dispReal, ese gana.
     const _faltantes = parseFloat(l.faltantesQty) || 0;
-    if (_faltantes > 0 && _faltantes < q) {
-      const qOk = q - _faltantes;
-      okU += qOk;
-      okM += qOk * p;
-      okN++;
-      noU += _faltantes;
-      noM += _faltantes * p;
-      noN++;
-    } else if (noDisp || _faltantes >= q) {
-      noU += q;
-      noM += subtotal;
-      noN++;
+    // Regla nueva v581:
+    //   - Si dispReal >= q  → todo Disponibles.
+    //   - Si dispReal > 0 y < q → split: dispReal a Disponibles, (q-dispReal) a Sin stock.
+    //   - Si dispReal == 0 (o null y hasStock=false) → todo Sin stock.
+    //   - Si dispReal null (sin datos) → caer al comportamiento viejo con hasStock.
+    let goesToOk = 0;
+    let goesToNo = 0;
+    if (dispReal != null) {
+      goesToOk = Math.min(q, Math.max(0, dispReal));
+      goesToNo = Math.max(q - dispReal, 0);
+    } else if (_faltantes > 0 && _faltantes < q) {
+      goesToOk = q - _faltantes;
+      goesToNo = _faltantes;
+    } else if (stockAvail === false || _faltantes >= q) {
+      goesToNo = q;
     } else {
-      okU += q;
-      okM += subtotal;
-      okN++;
+      goesToOk = q;
     }
+    if (goesToOk > 0) {
+      okU += goesToOk;
+      okM += goesToOk * p;
+      // okN incrementa como "producto disponible" si al menos una parte lo esta.
+      if (goesToNo === 0) okN++;
+    }
+    if (goesToNo > 0) {
+      noU += goesToNo;
+      noM += goesToNo * p;
+      noN++;
+      // Si tambien hay disponible parcial, contamos como producto tambien en ok.
+      if (goesToOk > 0) okN++;
+    }
+    // Preservar noDisp para uso posterior (dot indicator abajo).
+    const noDisp = dispReal != null ? dispReal === 0 : stockAvail === false;
     // v280+: linea con needsReview (SKU cargado por Excel que no matcheo con
     // el catalogo) - pinta en amarillo con badge REVISAR EN SAP asi el
     // vendedor / admin lo ve claro antes de confirmar el pedido.
