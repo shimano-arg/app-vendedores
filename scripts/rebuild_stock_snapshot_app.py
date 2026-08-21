@@ -50,9 +50,15 @@ def aggregate_from_pedidos(db):
     }
     docs = list(db.collection("pedidos").stream())
     stats["pedidos_total"] = len(docs)
+    stats["pedidos_sin_transferido_skip"] = 0
     for doc in docs:
         d = doc.to_dict() or {}
         if d.get("closedAt"):
+            continue
+        # v578 (2026-08-21): solo pedidos procesados por auto-send cuentan
+        # para backorder (mirror del filter en aggregateForSku).
+        if not d.get("transferidoSAP"):
+            stats["pedidos_sin_transferido_skip"] += 1
             continue
         stats["pedidos_open"] += 1
         cc = str(d.get("clientCardCode") or "").strip()
@@ -105,7 +111,8 @@ def main():
     bo, asig, asig_cli, bo_cli, stats = aggregate_from_pedidos(db)
     print("Stats agregacion pedidos:")
     print(f"  pedidos total: {stats['pedidos_total']}")
-    print(f"  pedidos open (closedAt==null): {stats['pedidos_open']}")
+    print(f"  pedidos open + transferidoSAP: {stats['pedidos_open']}")
+    print(f"  pedidos open pero SIN transferidoSAP (v578 skip): {stats['pedidos_sin_transferido_skip']}")
     print(f"  lines totales: {stats['lines_seen']}")
     print(f"  lines BO contabilizadas: {stats['lines_bo']}")
     print(f"  lines ASIG contabilizadas: {stats['lines_asig']}")

@@ -112,16 +112,19 @@ describe('aggregateForSku', () => {
       {
         clientCardCode: 'C001',
         closedAt: null,
+        transferidoSAP: { via: 'service_layer_auto' },
         lines: [{ code: 'SKU-X', qtyOpen: 5, state: 'BO' }],
       },
       {
         clientCardCode: 'C002',
         closedAt: null,
+        transferidoSAP: { via: 'service_layer_auto' },
         lines: [{ code: 'SKU-X', qtyOpen: 3, state: 'ASIG' }],
       },
       {
         clientCardCode: 'C003',
         closedAt: null,
+        transferidoSAP: { via: 'service_layer_auto' },
         lines: [{ code: 'SKU-X', qtyOpen: 2, state: 'ASIG' }],
       },
     ];
@@ -134,8 +137,16 @@ describe('aggregateForSku', () => {
 
   it('excluye pedidos cerrados', () => {
     const pedidos = [
-      { closedAt: '2026-08-01', lines: [{ code: 'X', qtyOpen: 5, state: 'BO' }] },
-      { closedAt: null, lines: [{ code: 'X', qtyOpen: 3, state: 'BO' }] },
+      {
+        closedAt: '2026-08-01',
+        transferidoSAP: { via: 'service_layer_auto' },
+        lines: [{ code: 'X', qtyOpen: 5, state: 'BO' }],
+      },
+      {
+        closedAt: null,
+        transferidoSAP: { via: 'service_layer_auto' },
+        lines: [{ code: 'X', qtyOpen: 3, state: 'BO' }],
+      },
     ];
     const r = aggregateForSku(pedidos, 'X');
     expect(r.bo).toBe(3);
@@ -143,9 +154,21 @@ describe('aggregateForSku', () => {
 
   it('excluye state=legacy y state=confirmed', () => {
     const pedidos = [
-      { closedAt: null, lines: [{ code: 'X', qtyOpen: 10, state: 'legacy' }] },
-      { closedAt: null, lines: [{ code: 'X', qtyOpen: 20, state: 'confirmed' }] },
-      { closedAt: null, lines: [{ code: 'X', qtyOpen: 5, state: 'BO' }] },
+      {
+        closedAt: null,
+        transferidoSAP: { via: 'service_layer_auto' },
+        lines: [{ code: 'X', qtyOpen: 10, state: 'legacy' }],
+      },
+      {
+        closedAt: null,
+        transferidoSAP: { via: 'service_layer_auto' },
+        lines: [{ code: 'X', qtyOpen: 20, state: 'confirmed' }],
+      },
+      {
+        closedAt: null,
+        transferidoSAP: { via: 'service_layer_auto' },
+        lines: [{ code: 'X', qtyOpen: 5, state: 'BO' }],
+      },
     ];
     const r = aggregateForSku(pedidos, 'X');
     expect(r.bo).toBe(5);
@@ -154,8 +177,18 @@ describe('aggregateForSku', () => {
 
   it('acumula ASIG del mismo cliente en varios pedidos', () => {
     const pedidos = [
-      { clientCardCode: 'C1', closedAt: null, lines: [{ code: 'X', qtyOpen: 3, state: 'ASIG' }] },
-      { clientCardCode: 'C1', closedAt: null, lines: [{ code: 'X', qtyOpen: 4, state: 'ASIG' }] },
+      {
+        clientCardCode: 'C1',
+        closedAt: null,
+        transferidoSAP: { via: 'service_layer_auto' },
+        lines: [{ code: 'X', qtyOpen: 3, state: 'ASIG' }],
+      },
+      {
+        clientCardCode: 'C1',
+        closedAt: null,
+        transferidoSAP: { via: 'service_layer_auto' },
+        lines: [{ code: 'X', qtyOpen: 4, state: 'ASIG' }],
+      },
     ];
     const r = aggregateForSku(pedidos, 'X');
     expect(r.asigByClient.get('C1')).toBe(7);
@@ -163,9 +196,24 @@ describe('aggregateForSku', () => {
 
   it('v567: boByClient traquea state=BO por cardCode', () => {
     const pedidos = [
-      { clientCardCode: 'C001', closedAt: null, lines: [{ code: 'X', qtyOpen: 5, state: 'BO' }] },
-      { clientCardCode: 'C002', closedAt: null, lines: [{ code: 'X', qtyOpen: 3, state: 'BO' }] },
-      { clientCardCode: 'C001', closedAt: null, lines: [{ code: 'X', qtyOpen: 2, state: 'BO' }] },
+      {
+        clientCardCode: 'C001',
+        closedAt: null,
+        transferidoSAP: { via: 'service_layer_auto' },
+        lines: [{ code: 'X', qtyOpen: 5, state: 'BO' }],
+      },
+      {
+        clientCardCode: 'C002',
+        closedAt: null,
+        transferidoSAP: { via: 'service_layer_auto' },
+        lines: [{ code: 'X', qtyOpen: 3, state: 'BO' }],
+      },
+      {
+        clientCardCode: 'C001',
+        closedAt: null,
+        transferidoSAP: { via: 'service_layer_auto' },
+        lines: [{ code: 'X', qtyOpen: 2, state: 'BO' }],
+      },
     ];
     const r = aggregateForSku(pedidos, 'X');
     expect(r.bo).toBe(10);
@@ -175,12 +223,54 @@ describe('aggregateForSku', () => {
 
   it('v567: boByClient ignora ASIG y viceversa', () => {
     const pedidos = [
-      { clientCardCode: 'C001', closedAt: null, lines: [{ code: 'X', qtyOpen: 5, state: 'BO' }] },
-      { clientCardCode: 'C001', closedAt: null, lines: [{ code: 'X', qtyOpen: 3, state: 'ASIG' }] },
+      {
+        clientCardCode: 'C001',
+        closedAt: null,
+        transferidoSAP: { via: 'service_layer_auto' },
+        lines: [{ code: 'X', qtyOpen: 5, state: 'BO' }],
+      },
+      {
+        clientCardCode: 'C001',
+        closedAt: null,
+        transferidoSAP: { via: 'service_layer_auto' },
+        lines: [{ code: 'X', qtyOpen: 3, state: 'ASIG' }],
+      },
     ];
     const r = aggregateForSku(pedidos, 'X');
     expect(r.boByClient.get('C001')).toBe(5);
     expect(r.asigByClient.get('C001')).toBe(3);
+  });
+
+  it('v578: pedido sin transferidoSAP se skippea (solo pedidos ya enviados a SAP cuentan)', () => {
+    const pedidos = [
+      // Sin transferidoSAP → NO cuenta (bug CARNADAS LOBERIA)
+      { clientCardCode: 'C1', closedAt: null, lines: [{ code: 'X', qtyOpen: 10, state: 'BO' }] },
+      {
+        clientCardCode: 'C1',
+        closedAt: null,
+        transferidoSAP: null,
+        lines: [{ code: 'X', qtyOpen: 20, state: 'BO' }],
+      },
+      // Con transferidoSAP → SI cuenta
+      {
+        clientCardCode: 'C2',
+        closedAt: null,
+        transferidoSAP: { via: 'service_layer_auto' },
+        lines: [{ code: 'X', qtyOpen: 5, state: 'BO' }],
+      },
+      // via='app_only' (100% BO, no fue a SAP pero fue procesado) → SI cuenta
+      {
+        clientCardCode: 'C3',
+        closedAt: null,
+        transferidoSAP: { via: 'app_only', reason: 'all_lines_bo' },
+        lines: [{ code: 'X', qtyOpen: 3, state: 'BO' }],
+      },
+    ];
+    const r = aggregateForSku(pedidos, 'X');
+    expect(r.bo).toBe(8); // 5 + 3, NO los 10 ni 20 sin transferidoSAP
+    expect(r.boByClient.get('C1')).toBeUndefined();
+    expect(r.boByClient.get('C2')).toBe(5);
+    expect(r.boByClient.get('C3')).toBe(3);
   });
 });
 
@@ -208,6 +298,7 @@ describe('recalcSnapshotForSkus — shadow', () => {
           data: {
             clientCardCode: 'C001',
             closedAt: null,
+            transferidoSAP: { via: 'service_layer_auto' },
             lines: [{ code: 'SKU-X', qtyOpen: 5, state: 'BO' }],
           },
         },
@@ -232,6 +323,7 @@ describe('recalcSnapshotForSkus — shadow', () => {
           data: {
             clientCardCode: 'C001',
             closedAt: null,
+            transferidoSAP: { via: 'service_layer_auto' },
             lines: [{ code: 'X', qtyOpen: 3, state: 'ASIG' }],
           },
         },
@@ -267,6 +359,7 @@ describe('recalcSnapshotForSkus — shadow', () => {
           data: {
             clientCardCode: 'C30718204905',
             closedAt: null,
+            transferidoSAP: { via: 'service_layer_auto' },
             lines: [{ code: 'SN2500HGFG', qtyOpen: 4, state: 'BO' }],
           },
         },
@@ -297,6 +390,7 @@ describe('recalcSnapshotForSkus — shadow', () => {
           data: {
             clientCardCode: 'C1',
             closedAt: null,
+            transferidoSAP: { via: 'service_layer_auto' },
             lines: [
               { code: 'A', qtyOpen: 2, state: 'BO' },
               { code: 'B', qtyOpen: 3, state: 'ASIG' },

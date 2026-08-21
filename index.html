@@ -4164,7 +4164,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v577';
+const APP_VERSION = 'v578';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -10423,6 +10423,13 @@ window.renderBackordersTab = function(){
     }
     for (const p of globalPedidos) {
       if (!p || !Array.isArray(p.lines)) continue;
+      // v578 (2026-08-21): solo pedidos procesados por auto-send cuentan para
+      // BACKORDER/STOCK ASIG. Pedidos pendientes de envio a SAP (banner
+      // amarillo "Aun no transferido") NO deben generar backorder — la logica
+      // es que solo lo que ya paso por el proceso de confirmar+enviar cuenta
+      // como demanda real que necesita reposicion. Bug reportado por Mariano
+      // 2026-08-21: CARNADAS LOBERIA sin transferidoSAP aparecia en BACKORDER.
+      if (!p.transferidoSAP) continue;
       for (const l of p.lines) {
         if (!l || !l.code) continue;
         if (l.state !== 'BO' && l.state !== 'ASIG') continue;

@@ -43,6 +43,7 @@ const OPEN_STATES = new Set(['BO', 'ASIG']);
  * @property {string} clientCardCode
  * @property {PedidoLine[]} lines
  * @property {any} closedAt
+ * @property {any} [transferidoSAP] Objeto con via/docNum/docEntry o null si aun no se envio a SAP.
  *
  * @typedef {Object} SnapshotDeps
  * @property {any} fbDb Firestore Admin instance.
@@ -103,6 +104,11 @@ export function aggregateForSku(pedidos, sku) {
   const skuUp = String(sku).toUpperCase();
   for (const p of pedidos) {
     if (p.closedAt) continue; // pedido cerrado no cuenta
+    // v578 (2026-08-21): solo pedidos procesados por auto-send cuentan.
+    // Pedidos pendientes de envio a SAP (transferidoSAP=null) NO deben
+    // generar backorder. Bug reportado por Mariano: CARNADAS LOBERIA sin
+    // transferidoSAP aparecia en backorderByClientSkuApp.
+    if (!p.transferidoSAP) continue;
     const lines = p.lines || [];
     for (const l of lines) {
       if (!l || !l.code) continue;
@@ -140,6 +146,7 @@ async function loadOpenPedidos(deps) {
       clientCardCode: data.clientCardCode || '',
       lines: Array.isArray(data.lines) ? data.lines : [],
       closedAt: data.closedAt,
+      transferidoSAP: data.transferidoSAP || null,
     });
   });
   return out;
