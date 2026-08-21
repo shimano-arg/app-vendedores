@@ -452,8 +452,10 @@ window.exportPreciosStock = function () {
   // aun); 0 si el SKU no tiene stock. Los numeros permiten sort/filter/sum en
   // Excel — no perdemos el estado "no dato" vs "0 unidades" gracias al ''.
   function fmtStock(sku) {
-    const fn = typeof window !== 'undefined' && typeof window.getStockDisponibleVenta === 'function'
-      ? window.getStockDisponibleVenta : null;
+    const fn =
+      typeof window !== 'undefined' && typeof window.getStockDisponibleVenta === 'function'
+        ? window.getStockDisponibleVenta
+        : null;
     const v = fn ? fn(sku) : null;
     if (v == null) return '';
     return Number(v) || 0;
