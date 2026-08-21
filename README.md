@@ -859,6 +859,15 @@ Resultado del FIFO:
 
 **No se toca SAP** cuando se asigna por FIFO en la app (decisión Mariano 2026-08-21). El modal STOCK ASIG. es informativo. La reserva real en SAP se sigue haciendo cuando el vendedor factura por el flujo tradicional.
 
+**Solo pedidos con `transferidoSAP != null` cuentan para BACKORDER/STOCK ASIG.** (v578 2026-08-21). Los pedidos pendientes de auto-send (banner amarillo "Aún no transferido a SAP") NO generan backorder — la lógica es que solo lo que ya pasó por el proceso de confirmar+enviar cuenta como demanda real que necesita reposición. Excepción: `via='app_only'` (100% BO, procesado pero sin SQ SAP) SÍ cuenta.
+
+**Consistencia entre modales** (v581 2026-08-21):
+- Modal **Pedido en Espera** (Lista de Espera) usa `_revisionStockFor(sku).disponible = stock − backorderSAP`.
+- Modal **Revisar** (post "Pasar a Pendientes") también usa `_revisionStockFor(sku).disponible` (antes usaba `hasStock(sku)` boolean — daba split distinto entre "Disponibles/Sin stock").
+- "Archivo Cliente" export (Excel al cliente) usa la misma fórmula. Los 3 modales/exports deben mostrar los mismos números.
+
+**Dashboard usa `importeLineasArsNeto` (sin IVA)** — no `facturadoArsNeto` (con IVA). Target definido sin IVA → cumplimiento correcto matches PowerBI (v580 2026-08-21).
+
 ### 8.bis) Schema BO/ASIG (plan Backorder/Stock Asignado desde app, 2026-08-18 → 2026-08-20)
 
 Extensión del modelo de datos activa desde v543. Convive con el path histórico SAP-source (`sync_sap_to_firestore.py` sigue escribiendo `stock_snapshot.backorderBySku`).
@@ -906,6 +915,34 @@ Extensión del modelo de datos activa desde v543. Convive con el path histórico
 | `asig_ttl_log/{isoTimestamp}` | `expireAsigLinesTTLCF` (E7) | `{ttlDays: 30, pedidosScanned, expiredLines[{pedidoId, sku, qty}], pedidosClosed, errors}`. Ejecuta diario 03:00 ARG. | admin/gerente |
 
 **Feature flag frontend**: `window.isE4BEnabled()` — habilitada para todos los roles desde v560; kill switch per-browser con `localStorage.setItem('e4b_disabled','1')`.
+
+### 8.bis.2) Scripts de mantenimiento BO/ASIG (Python)
+
+Todos idempotentes, `--dry-run` default salvo indicación contraria. Requieren `~/Downloads/app-vendedores-shimano-firebase-adminsdk-fbsvc-71fc15072e.json`.
+
+| Script | Uso | Cuándo correr |
+|---|---|---|
+| `scripts/inspect_shadow_logs.py` | Resume estado `sap_sync_state`, últimas N corridas E2/E3/E4.5/E7. | Diagnóstico rápido del pipeline BO/ASIG. |
+| `scripts/list_bo_pedidos.py` | Lista pedidos-app con `state='BO'`, indica cuáles ya tienen stock disponible (candidatos a promoción FIFO E4.5). | Ver qué pedidos están esperando reposición. |
+| `scripts/list_asig_clients.py` | Ranking clientes con ASIG activo en `stock_snapshot_app.asigByClientSkuApp`. Con `--sku CODE` filtra por SKU. | Ver quién tiene stock reservado. |
+| `scripts/rebuild_stock_snapshot_app.py --apply` | Rebuild completo de `stock_snapshot_app` con los 4 keys (`backorderBySkuApp`, `asigBySkuApp`, `asigByClientSkuApp`, `backorderByClientSkuApp`). Aplica filter `transferidoSAP != null`. | Post-deploy de CF `onPedidoWriteRecalcSnapshot` para poblar el snapshot sin esperar activity orgánica. |
+| `scripts/migrate_waitlist_to_pedidos_bo.py --apply` | Convierte waitlist docs con items backorder a pedidos con líneas `state='BO'`. IDs hardcoded en `WAITLIST_IDS`. | Cleanup de waitlist stragglers de eras previas (v568). |
+
+### 8.bis.3) Deploys manuales requeridos (checklist)
+
+Cuando cambia código de Cloud Functions o del schema BO/ASIG, correr en este orden desde `C:\Users\shimano.sandbox\Desktop\APP VENDEDORES`:
+
+```powershell
+# 1. Deploy la CF que cambió
+firebase deploy --only functions:onPedidoWriteRecalcSnapshot
+# (o functions:updateAsigLineStateCF / functions:expireAsigLinesTTLCF / etc.)
+
+# 2. Rebuild snapshot para popular datos inmediato (sin esperar CF)
+python scripts/rebuild_stock_snapshot_app.py --apply
+
+# 3. Verificar
+python scripts/inspect_shadow_logs.py
+```
 
 ---
 
