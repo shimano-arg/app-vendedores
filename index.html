@@ -1371,10 +1371,6 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #revision-rows tr td.num{text-align:right;font-weight:600}
 #revision-rows tr.no-data td{background:#f8fafc;color:#94a3b8;font-style:italic}
 /* v454: card individual + listado de pedidos en espera. */
-/* v566: fondo amarillo pastel en la columna Disponible SAP para distinguirla
-   rapido. Definida ANTES de las reglas de warning para que warnings ganen por
-   orden de definicion en filas problemáticas (exceed/warn-quiebra/no-data). */
-#wcard-rows tr td.disp-sap-col{background:#fef9c3}
 #wcard-rows tr.exceed td{background:#fef2f2;color:#991b1b;font-weight:700}
 #wcard-rows tr.exceed td.exc-cell{background:#dc2626;color:#fff}
 /* v479: SKU pedido >= 80% del Disponible SAP -> amarillo (quebramos stock
@@ -1389,6 +1385,11 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #wcard-rows tr td.num{text-align:center;font-weight:600}
 #wcard-rows tr td.left-align{text-align:left}
 #wcard-rows tr.no-data td{background:#f8fafc;color:#94a3b8;font-style:italic}
+/* v575 (2026-08-21): fondo amarillo pastel en columna Disponible SAP con
+   !important — GANA sobre las reglas de warning (exceed/warn-quiebra/
+   warn-duplicado/no-data) para que la columna clave siempre quede visible
+   sin importar el estado de la fila. Pedido explicito de Mariano. */
+#wcard-rows tr td.disp-sap-col{background:#fef9c3 !important}
 #wcard-rows tr td.chg-neg{color:#dc2626;font-weight:700}
 #wcard-rows tr td.chg-pos{color:#059669;font-weight:700}
 #wcard-rows tr td.chg-none{color:#94a3b8}
@@ -4163,7 +4164,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v574';
+const APP_VERSION = 'v575';
 window.APP_VERSION = APP_VERSION;
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.

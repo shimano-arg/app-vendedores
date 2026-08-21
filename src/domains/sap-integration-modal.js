@@ -124,7 +124,11 @@ function processSapClientes(rows) {
   if (!rows || !rows.length) return out;
   // App: nombres unicos de clientes desde POINTS
   const appNames = new Set();
-  (POINTS || []).forEach((p) => (p.clients || []).forEach((n) => appNames.add(n)));
+  (POINTS || []).forEach((p) => {
+    (p.clients || []).forEach((n) => {
+      appNames.add(n);
+    });
+  });
   // Indexar por nombre normalizado
   const appByKey = new Map();
   appNames.forEach((n) => {

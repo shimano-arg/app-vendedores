@@ -116,7 +116,9 @@ function countCoords(fc) {
       });
     }
   };
-  fc.features.forEach((f) => walk(f.geometry));
+  fc.features.forEach((f) => {
+    walk(f.geometry);
+  });
   return n;
 }
 

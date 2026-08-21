@@ -39,7 +39,9 @@ function listenCampaigns() {
   window.unsubCampaigns = fbDb.collection('campaigns').onSnapshot(
     (qs) => {
       window.campaignsCache = [];
-      qs.forEach((d) => campaignsCache.push(Object.assign({ id: d.id }, d.data())));
+      qs.forEach((d) => {
+        campaignsCache.push(Object.assign({ id: d.id }, d.data()));
+      });
       if (document.getElementById('dashboard-modal').classList.contains('open')) renderDashboard();
       const mc = document.getElementById('mis-camps-modal');
       if (mc && mc.classList.contains('open')) renderMisCamps();
@@ -82,7 +84,7 @@ function getSapSnapshotFor(vendorKey, year, month) {
 }
 
 // Helper: suma YTD del vendedor (todos los meses del año hasta el mes actual, 0-11 inclusive).
-function getSapSnapshotYtd(vendorKey, year, monthUpTo) {
+function _getSapSnapshotYtd(vendorKey, year, monthUpTo) {
   if (!vendorKey || !window.sapSnapshotCache) return null;
   let facturado = 0,
     unidades = 0,
@@ -213,13 +215,13 @@ window.renderDashboard = function () {
   const effectiveVendor = userRole === 'vendedor' ? assignedVendor : dashboardVendorFilter;
 
   // Stats agregados sobre confirmed (que ya estan filtrados al rol)
-  let monthUnits = 0,
-    monthMoneyArs = 0;
-  let yearUnits = 0,
-    yearMoneyArs = 0;
+  let _monthUnits = 0,
+    _monthMoneyArs = 0;
+  let _yearUnits = 0,
+    _yearMoneyArs = 0;
   // Para los targets del master (convertidos a ARS al renderizar)
   let _julioMoneyArs = 0; // Jul 2026 facturado
-  let semestreMoneyArs = 0; // Jul-Dic 2026
+  let _semestreMoneyArs = 0; // Jul-Dic 2026
   let _anual2027MoneyArs = 0; // todo 2027
   const productAgg = {};
   const clientAgg = {};
@@ -250,8 +252,8 @@ window.renderDashboard = function () {
         const pr = parseFloat(l.precio) || 0;
         const m = q * pr * factor;
         if (inYear) {
-          yearUnits += q;
-          yearMoneyArs += m;
+          _yearUnits += q;
+          _yearMoneyArs += m;
           if (!productAgg[l.code])
             productAgg[l.code] = { qty: 0, money: 0, desc: l.desc || l.code };
           productAgg[l.code].qty += q;
@@ -261,11 +263,11 @@ window.renderDashboard = function () {
           clientAgg[clientName].money += m;
         }
         if (inMonth) {
-          monthUnits += q;
-          monthMoneyArs += m;
+          _monthUnits += q;
+          _monthMoneyArs += m;
         }
         if (inJul2026) _julioMoneyArs += m;
-        if (inSemestre) semestreMoneyArs += m;
+        if (inSemestre) _semestreMoneyArs += m;
         if (inAnual2027) _anual2027MoneyArs += m;
       });
     });
