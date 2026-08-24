@@ -274,19 +274,35 @@ export async function applyInvoiceMatch(deps, match) {
     invoicedByCode.set(code, (invoicedByCode.get(code) || 0) + (Number(il.qty) || 0));
   }
 
+  // Estados que NO reciben invoice: la linea nunca viajo a SAP como parte de
+  // este SQ (BO/ASIG) o fue explicitamente removida (cancelled/recycled).
+  // Aplica al escenario post-split (E2/E3) donde un pedido puede tener 2
+  // lineas del mismo SKU: {qty:70, state:'confirmed'} + {qty:30, state:'BO'}.
+  // Sin este skip, un invoice por 70 se aplicaria a AMBAS lineas duplicando
+  // qtyInvoiced (bug latente pre-split, unmasked por E2/E3).
+  const SKIP_STATES = new Set(['BO', 'ASIG', 'cancelled', 'recycled']);
+
   const lines = Array.isArray(data.lines) ? [...data.lines] : [];
+  /** @type {Map<string, number>} */
+  const remaining = new Map(invoicedByCode);
   let anyLineChanged = false;
+
+  // Pass 1: consumir contra qtyOpen (invoicing normal).
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
     if (!l || !l.code) continue;
+    if (SKIP_STATES.has(l.state)) continue;
     const up = String(l.code).toUpperCase();
-    const invNow = invoicedByCode.get(up);
-    if (!invNow) continue;
+    const rem = remaining.get(up) || 0;
+    if (rem <= 0) continue;
     const qty = Number(l.qty) || 0;
     const already = Number(l.qtyInvoiced) || 0;
     const cancelled = Number(l.qtyCancelled) || 0;
     const recycled = Number(l.qtyRecycled) || 0;
-    const newInvoiced = already + invNow;
+    const openBefore = Math.max(qty - already - cancelled - recycled, 0);
+    if (openBefore <= 0) continue; // pass 2 maneja overflow
+    const applyQty = Math.min(rem, openBefore);
+    const newInvoiced = already + applyQty;
     const qtyOpen = Math.max(qty - newInvoiced - cancelled - recycled, 0);
     /** @type {Record<string, any>} */
     const patch = { qtyInvoiced: newInvoiced, qtyOpen };
@@ -294,8 +310,28 @@ export async function applyInvoiceMatch(deps, match) {
       patch.state = 'invoiced';
     }
     lines[i] = Object.assign({}, l, patch);
+    remaining.set(up, rem - applyQty);
     anyLineChanged = true;
   }
+
+  // Pass 2: overflow (notas de credito / ajustes). Aplica lo que sobre a la
+  // primera linea eligible con el mismo code que ya haya sido invoiced.
+  // Preserva el comportamiento historico donde un invoice adicional post-cierre
+  // suma a qtyInvoiced aunque exceda qty (auditoria de ajustes).
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (!l || !l.code) continue;
+    if (SKIP_STATES.has(l.state)) continue;
+    const up = String(l.code).toUpperCase();
+    const rem = remaining.get(up) || 0;
+    if (rem <= 0) continue;
+    const already = Number(l.qtyInvoiced) || 0;
+    const newInvoiced = already + rem;
+    lines[i] = Object.assign({}, l, { qtyInvoiced: newInvoiced });
+    remaining.set(up, 0);
+    anyLineChanged = true;
+  }
+
   if (!anyLineChanged) return null;
 
   const nowIso = new Date().toISOString();

@@ -868,6 +868,8 @@ Resultado del FIFO:
 
 **Dashboard usa `importeLineasArsNeto` (sin IVA)** — no `facturadoArsNeto` (con IVA). Target definido sin IVA → cumplimiento correcto matches PowerBI (v580 2026-08-21).
 
+**Invoice matching solo aplica a líneas eligibles** (v600 E1 2026-08-24). Bajo la nueva semántica BO/ASIG, líneas con `state ∈ {BO, ASIG, cancelled, recycled}` NUNCA reciben `qtyInvoiced` desde `syncSapInvoicesToApp` — nunca viajaron a SAP como este SQ. `applyInvoiceMatch` usa consume-as-you-go (Pass 1: qty contra `openBefore`; Pass 2: overflow para notas de crédito) sobre líneas `state ∈ {confirmed, invoiced, legacy}`. Prerequisito para split de línea (E2/E3 del `PLAN_BACKORDER_SPLIT.md`) — sin este fix, pedidos con 2 líneas del mismo SKU (`{qty:70,'confirmed'} + {qty:30,'BO'}`) recibirían el invoice duplicado en ambas.
+
 ### 8.bis) Schema BO/ASIG (plan Backorder/Stock Asignado desde app, 2026-08-18 → 2026-08-20)
 
 Extensión del modelo de datos activa desde v543. Convive con el path histórico SAP-source (`sync_sap_to_firestore.py` sigue escribiendo `stock_snapshot.backorderBySku`).
@@ -2631,7 +2633,7 @@ firebase deploy --only functions:sapProxy --project=app-vendedores-shimano
 |---|---|---|---|
 | `sapProxy` | onCall | invocado desde `src/sap-client.js` | Proxy autenticado @shimano al SAP Service Layer (login → forward → logout). Evita exponer credenciales SAP al browser. |
 | `geminiOcrProxy` | onCall | invocado desde `src/domains/rendiciones.js` | Proxy OCR Gemini para tickets de rendiciones. API key en Secret Manager (`GEMINI_API_KEY`). |
-| `syncSapInvoicesToApp` | onSchedule | cada 15 min | E2 del plan BO/ASIG: lee Invoices SAP, resuelve lineage Invoice→SO→SQ, matchea con pedidos-app por `transferidoSAP.docEntry`, cierra líneas y actualiza `qtyInvoiced`. Escribe log en `sap_sync_log`. |
+| `syncSapInvoicesToApp` | onSchedule | cada 15 min | E2 del plan BO/ASIG: lee Invoices SAP, resuelve lineage Invoice→SO→SQ, matchea con pedidos-app por `transferidoSAP.docEntry`, cierra líneas y actualiza `qtyInvoiced`. Escribe log en `sap_sync_log`. **v600 E1 (2026-08-24)**: `applyInvoiceMatch` skipea líneas con `state ∈ {BO, ASIG, cancelled, recycled}` (nunca viajaron a SAP como este SQ). Consume qty por línea (2-pass: openBefore + overflow). Prepara terreno para split de línea E2/E3. |
 | `onPedidoWriteRecalcSnapshot` | onDocumentWritten `pedidos/{id}` | on-write pedidos | E3 del plan BO/ASIG: recalcula `backorderBySkuApp`, `asigBySkuApp`, `asigByClientSkuApp` a partir de los pedidos-app en `stock_snapshot_app` (doc separado que no pisa el snapshot SAP-source). |
 | `onStockChangeFIFOAssign` | onDocumentWritten `app_config/stock_snapshot` | on-write snapshot | E4.5 del plan BO/ASIG: cuando entra stock nuevo (dep 11 sube), corre FIFO estricto sobre pedidos-app con `state='BO'` y promueve a `state='ASIG'` en orden `createdAt` ascendente. |
 | `updateAsigLineStateCF` | onCall | botones ✓ Aceptar / ✗ Rechazar del modal cliente (E4B) | Muta línea `state='ASIG'` de un pedido-app a `'recycled'` o `'cancelled'` transaccionalmente. Idempotente. Cierra pedido si todas las líneas cierran. |
