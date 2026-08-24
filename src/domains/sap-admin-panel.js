@@ -1252,13 +1252,15 @@ function renderPedidoCard(p, status) {
     (s, l) => s + (parseFloat(l.qty) || 0) * (parseFloat(l.precio) || 0),
     0
   );
+  // v605 E5: contar SKUs UNICOS (no lineas). Ver comment en L1401 para contexto.
+  const _uniqueSkusCount = new Set(lines.map((l) => l && l.code).filter(Boolean)).size;
   html +=
     '<div class="sap-card-meta">' +
     (p.month || '-') +
     ' &middot; ' +
-    lines.length +
+    _uniqueSkusCount +
     ' SKU' +
-    (lines.length === 1 ? '' : 's') +
+    (_uniqueSkusCount === 1 ? '' : 's') +
     ' &middot; ' +
     Math.round(totUnits) +
     ' uds &middot; $' +
@@ -1396,11 +1398,14 @@ function renderBloqueadoGroup(g) {
     // Usamos onchange (no onclick) y label wrapper, mismo patron que listos.
     // El span tiene flex:1 por el CSS de .sap-bloqueado-ped span, asi que el
     // label tambien para que el click area cubra todo.
+    // v605 E5: contar SKUs UNICOS (no lineas). Con v600 split, un pedido puede
+    // tener 2 lineas del mismo SKU {confirmed + BO} — la anterior contaba 2.
+    const _uniqueSkus = new Set((p.lines || []).map((l) => l && l.code).filter(Boolean)).size;
     const metaText =
       '<b>' +
       escapeHtml(p.month || '-') +
       '</b> &middot; ' +
-      (p.lines || []).length +
+      _uniqueSkus +
       ' SKUs &middot; ' +
       Math.round(u) +
       ' uds &middot; $' +

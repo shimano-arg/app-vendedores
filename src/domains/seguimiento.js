@@ -1034,7 +1034,8 @@ window.openSegTimeline = function (clientKey) {
           ' / ' +
           units.toFixed(0) +
           ' u / ' +
-          (p.lines || []).length +
+          // v605 E5: SKUs unicos (con v600 split, un SKU puede aparecer en 2 lineas)
+          new Set((p.lines || []).map((l) => l && l.code).filter(Boolean)).size +
           ' SKU(s)',
       });
     });
