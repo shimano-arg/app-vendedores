@@ -347,6 +347,9 @@ describe('syncSapInvoices — shadow mode', () => {
 });
 
 describe('applyInvoiceMatch (E5 active mode)', () => {
+  // v600 E1 (2026-08-24): B es 'confirmed' (no 'BO'). Bajo la nueva semantica
+  // post-split, lineas BO nunca reciben invoice — nunca viajaron a SAP como
+  // parte de este SQ. Tests dedicados al skip BO estan mas abajo.
   function _pedido(overrides = {}) {
     return {
       id: 'P1',
@@ -370,7 +373,7 @@ describe('applyInvoiceMatch (E5 active mode)', () => {
             qtyCancelled: 0,
             qtyRecycled: 0,
             qtyOpen: 5,
-            state: 'BO',
+            state: 'confirmed',
           },
         ],
         sapLinkage: {},
@@ -403,7 +406,7 @@ describe('applyInvoiceMatch (E5 active mode)', () => {
     expect(p.lines[0].state).toBe('invoiced');
     expect(p.lines[1].qtyInvoiced).toBe(3);
     expect(p.lines[1].qtyOpen).toBe(2);
-    expect(p.lines[1].state).toBe('BO'); // no cambio: qtyOpen>0
+    expect(p.lines[1].state).toBe('confirmed'); // no cambio: qtyOpen>0
     expect(p.sapLinkage.appliedInvoiceDocEntries).toEqual([3001]);
     expect(p.sapLinkage.lastInvoiceDocEntry).toBe(3001);
     expect(p.closedAt).toBeNull();
@@ -530,7 +533,11 @@ describe('applyInvoiceMatch (E5 active mode)', () => {
                 qtyCancelled: 2,
                 qtyRecycled: 3,
                 qtyOpen: 5,
-                state: 'BO',
+                // v600 E1: cambiado de 'BO' a 'confirmed'. Bajo nueva semantica
+                // lineas BO no reciben invoice. El intent del test es validar
+                // el calculo qtyOpen = qty - invoiced - cancelled - recycled,
+                // que aplica igual con state 'confirmed'.
+                state: 'confirmed',
               },
             ],
             sapLinkage: {},
@@ -555,6 +562,288 @@ describe('applyInvoiceMatch (E5 active mode)', () => {
     const p = fbDb._store.pedidos[0].data;
     expect(p.lines[0].qtyOpen).toBe(0);
     expect(p.lines[0].state).toBe('invoiced');
+  });
+
+  // ============================================================
+  // v600 E1 (2026-08-24): tests split de linea + skip BO/ASIG
+  // ============================================================
+
+  it('SPLIT: pedido con 2 lineas mismo SKU (confirmed + BO), invoice cubre confirmed -> solo confirmed invoiced', async () => {
+    // Escenario post-E2/E3: cliente pidio 100 de SKU-X, disp al confirmar era
+    // 70. Split creo 2 lineas: {qty:70, state:'confirmed'} y {qty:30, state:'BO'}.
+    // El SQ mandado a SAP fue solo por 70 (linea confirmed). Ahora llega invoice
+    // por 70 -> solo la linea confirmed debe recibir el invoice.
+    const fbDb = makeFakeFbDb({
+      pedidos: [
+        {
+          id: 'P_SPLIT',
+          data: {
+            clientCardCode: 'C001',
+            closedAt: null,
+            lines: [
+              {
+                code: 'SKU-X',
+                qty: 70,
+                qtyInvoiced: 0,
+                qtyCancelled: 0,
+                qtyRecycled: 0,
+                qtyOpen: 70,
+                state: 'confirmed',
+              },
+              {
+                code: 'SKU-X',
+                qty: 30,
+                qtyInvoiced: 0,
+                qtyCancelled: 0,
+                qtyRecycled: 0,
+                qtyOpen: 30,
+                state: 'BO',
+              },
+            ],
+            sapLinkage: {},
+          },
+        },
+      ],
+    });
+    const deps = { fbDb, log: vi.fn() };
+    const match = {
+      invoiceDocEntry: 4001,
+      invoiceDocNum: 1,
+      invoiceDocDate: '',
+      cardCode: 'C001',
+      sqDocEntry: 999,
+      soDocEntry: 888,
+      pedidoAppId: 'P_SPLIT',
+      lines: [{ itemCode: 'SKU-X', qty: 70, lineNum: 0 }],
+    };
+    const r = await applyInvoiceMatch(deps, match);
+    // Pedido no cerrado: la linea BO sigue abierta (30 qtyOpen).
+    expect(r).toEqual({ closed: false });
+    const p = fbDb._store.pedidos[0].data;
+    // Linea confirmed (index 0): totalmente invoiced.
+    expect(p.lines[0].qtyInvoiced).toBe(70);
+    expect(p.lines[0].qtyOpen).toBe(0);
+    expect(p.lines[0].state).toBe('invoiced');
+    // Linea BO (index 1): INTACTA. NO recibe invoice.
+    expect(p.lines[1].qtyInvoiced).toBe(0);
+    expect(p.lines[1].qtyOpen).toBe(30);
+    expect(p.lines[1].state).toBe('BO');
+  });
+
+  it('SPLIT: 2 lineas confirmed mismo SKU, invoice parcial reparte FIFO', async () => {
+    // Caso: 2 lineas confirmed del mismo SKU (ej: 2 productos agregados por
+    // separado con el mismo code). Invoice parcial debe repartir consumiendo
+    // en orden de aparicion (FIFO por lineIndex).
+    const fbDb = makeFakeFbDb({
+      pedidos: [
+        {
+          id: 'P_MULTI',
+          data: {
+            clientCardCode: 'C001',
+            closedAt: null,
+            lines: [
+              {
+                code: 'SKU-Y',
+                qty: 50,
+                qtyInvoiced: 0,
+                qtyCancelled: 0,
+                qtyRecycled: 0,
+                qtyOpen: 50,
+                state: 'confirmed',
+              },
+              {
+                code: 'SKU-Y',
+                qty: 20,
+                qtyInvoiced: 0,
+                qtyCancelled: 0,
+                qtyRecycled: 0,
+                qtyOpen: 20,
+                state: 'confirmed',
+              },
+            ],
+            sapLinkage: {},
+          },
+        },
+      ],
+    });
+    const deps = { fbDb, log: vi.fn() };
+    const match = {
+      invoiceDocEntry: 4002,
+      invoiceDocNum: 1,
+      invoiceDocDate: '',
+      cardCode: 'C001',
+      sqDocEntry: 999,
+      soDocEntry: 888,
+      pedidoAppId: 'P_MULTI',
+      lines: [{ itemCode: 'SKU-Y', qty: 60, lineNum: 0 }],
+    };
+    await applyInvoiceMatch(deps, match);
+    const p = fbDb._store.pedidos[0].data;
+    // Primera linea consume 50 (openBefore=50, applyQty=min(60,50)=50).
+    expect(p.lines[0].qtyInvoiced).toBe(50);
+    expect(p.lines[0].qtyOpen).toBe(0);
+    expect(p.lines[0].state).toBe('invoiced');
+    // Segunda linea consume el remaining 10.
+    expect(p.lines[1].qtyInvoiced).toBe(10);
+    expect(p.lines[1].qtyOpen).toBe(10);
+    expect(p.lines[1].state).toBe('confirmed');
+  });
+
+  it('SPLIT: invoice sobre linea BO unica (edge case hybrid mode) -> NO se aplica', async () => {
+    // Escenario hybrid: SAP-source genera invoice para un SKU que en el
+    // pedido-app quedo state='BO'. Bajo nueva semantica: la linea BO no
+    // recibe el invoice (nunca viajo a SAP como este SQ). El invoice queda
+    // "orphan" desde la perspectiva del pedido-app — se logea pero no se
+    // aplica. Comportamiento intencional.
+    const fbDb = makeFakeFbDb({
+      pedidos: [
+        {
+          id: 'P_BO_ONLY',
+          data: {
+            clientCardCode: 'C001',
+            closedAt: null,
+            lines: [
+              {
+                code: 'SKU-Z',
+                qty: 20,
+                qtyInvoiced: 0,
+                qtyCancelled: 0,
+                qtyRecycled: 0,
+                qtyOpen: 20,
+                state: 'BO',
+              },
+            ],
+            sapLinkage: {},
+          },
+        },
+      ],
+    });
+    const deps = { fbDb, log: vi.fn() };
+    const match = {
+      invoiceDocEntry: 4003,
+      invoiceDocNum: 1,
+      invoiceDocDate: '',
+      cardCode: 'C001',
+      sqDocEntry: 999,
+      soDocEntry: 888,
+      pedidoAppId: 'P_BO_ONLY',
+      lines: [{ itemCode: 'SKU-Z', qty: 20, lineNum: 0 }],
+    };
+    const r = await applyInvoiceMatch(deps, match);
+    // No hubo cambios en lineas -> return null (idempotencia natural).
+    expect(r).toBeNull();
+    const p = fbDb._store.pedidos[0].data;
+    expect(p.lines[0].qtyInvoiced).toBe(0);
+    expect(p.lines[0].state).toBe('BO');
+  });
+
+  it('SPLIT: overflow (nota de credito) sobre confirmed con hermana BO -> solo confirmed', async () => {
+    // Caso overflow: linea A confirmed ya invoiced 70. Llega ajuste por 5
+    // adicionales (credit note / correccion). Debe aplicar a A, NO a la
+    // hermana BO aunque tenga el mismo code.
+    const fbDb = makeFakeFbDb({
+      pedidos: [
+        {
+          id: 'P_OVERFLOW',
+          data: {
+            clientCardCode: 'C001',
+            closedAt: null,
+            lines: [
+              {
+                code: 'SKU-W',
+                qty: 70,
+                qtyInvoiced: 70,
+                qtyCancelled: 0,
+                qtyRecycled: 0,
+                qtyOpen: 0,
+                state: 'invoiced',
+              },
+              {
+                code: 'SKU-W',
+                qty: 30,
+                qtyInvoiced: 0,
+                qtyCancelled: 0,
+                qtyRecycled: 0,
+                qtyOpen: 30,
+                state: 'BO',
+              },
+            ],
+            sapLinkage: {},
+          },
+        },
+      ],
+    });
+    const deps = { fbDb, log: vi.fn() };
+    const match = {
+      invoiceDocEntry: 4004,
+      invoiceDocNum: 1,
+      invoiceDocDate: '',
+      cardCode: 'C001',
+      sqDocEntry: 999,
+      soDocEntry: 888,
+      pedidoAppId: 'P_OVERFLOW',
+      lines: [{ itemCode: 'SKU-W', qty: 5, lineNum: 0 }],
+    };
+    await applyInvoiceMatch(deps, match);
+    const p = fbDb._store.pedidos[0].data;
+    // Linea invoiced recibe el overflow (75 total, > qty=70).
+    expect(p.lines[0].qtyInvoiced).toBe(75);
+    // Linea BO INTACTA.
+    expect(p.lines[1].qtyInvoiced).toBe(0);
+    expect(p.lines[1].qtyOpen).toBe(30);
+    expect(p.lines[1].state).toBe('BO');
+  });
+
+  it('SPLIT: linea ASIG tampoco recibe invoice (mismo skip que BO)', async () => {
+    const fbDb = makeFakeFbDb({
+      pedidos: [
+        {
+          id: 'P_ASIG',
+          data: {
+            clientCardCode: 'C001',
+            closedAt: null,
+            lines: [
+              {
+                code: 'SKU-V',
+                qty: 40,
+                qtyInvoiced: 0,
+                qtyCancelled: 0,
+                qtyRecycled: 0,
+                qtyOpen: 40,
+                state: 'confirmed',
+              },
+              {
+                code: 'SKU-V',
+                qty: 10,
+                qtyInvoiced: 0,
+                qtyCancelled: 0,
+                qtyRecycled: 0,
+                qtyOpen: 10,
+                state: 'ASIG',
+              },
+            ],
+            sapLinkage: {},
+          },
+        },
+      ],
+    });
+    const deps = { fbDb, log: vi.fn() };
+    const match = {
+      invoiceDocEntry: 4005,
+      invoiceDocNum: 1,
+      invoiceDocDate: '',
+      cardCode: 'C001',
+      sqDocEntry: 999,
+      soDocEntry: 888,
+      pedidoAppId: 'P_ASIG',
+      lines: [{ itemCode: 'SKU-V', qty: 40, lineNum: 0 }],
+    };
+    await applyInvoiceMatch(deps, match);
+    const p = fbDb._store.pedidos[0].data;
+    expect(p.lines[0].qtyInvoiced).toBe(40);
+    expect(p.lines[0].state).toBe('invoiced');
+    expect(p.lines[1].qtyInvoiced).toBe(0);
+    expect(p.lines[1].state).toBe('ASIG');
   });
 
   it('no re-abre pedido ya cerrado (idempotencia dura)', async () => {
