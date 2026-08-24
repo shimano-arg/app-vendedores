@@ -39,7 +39,7 @@ jobs:
         # v610 (2026-08-24): pin google-cloud-firestore<2.29.0. La 2.29.0
         # (release 2026-08-24) URL-encodes '(default)' → error "Invalid database
         # id %28default%29". Rompio los 4 workflows Python simultaneamente ~22:00 UTC.
-        run: pip install firebase-admin "google-cloud-firestore<2.29"
+        run: pip install firebase-admin "google-cloud-firestore<2.29" "google-cloud-core<2.7" "google-api-core<2.35"
 
       - name: Run notify_waitlist_new
         env:
