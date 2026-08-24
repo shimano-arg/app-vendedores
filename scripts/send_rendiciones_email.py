@@ -538,19 +538,12 @@ def send_email(xlsx_bytes: bytes, count: int) -> None:
         die("GMAIL_APP_PASSWORD vacio. Setear el secret en GitHub.")
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     subject = f"[Shimano App] Rendiciones aprobadas - {today_str} ({count} pendientes)"
+    # v609 (2026-08-24): body simplificado a pedido de Mariano. Antes tenia
+    # explicacion de las hojas del Excel; ahora solo el mensaje corto.
     body = (
-        f"Hola Mariano,\n\n"
-        f"Adjunto el Excel con las {count} rendiciones aprobadas pendientes de notificar.\n"
-        f"Las hojas son:\n"
-        f"  - Gastos: AGRUPADO por (vendedor, tipo de gasto). Una fila por dupla con\n"
-        f"    el importe total sumado y la lista de fotos concatenada. Es la que lee\n"
-        f"    Power Automate para crear los items en SharePoint con sus adjuntos.\n"
-        f"  - Detalle: una fila por gasto individual (vista ungroupeada). Solo para\n"
-        f"    auditoria - permite ver linea por linea cualquier monto.\n"
-        f"  - Solicitudes: anticipos / recargas (sin agrupar - cada uno es independiente).\n\n"
-        f"Este mail se manda automaticamente cada Lunes y Miercoles a las 9 AM (AR).\n"
-        f"Una vez recibido, las rendiciones se marcan como notificadas y no vuelven a salir.\n\n"
-        f"-- Shimano App Vendedores"
+        "Buenas Marian/Die,\n\n"
+        "aca estan las rendiciones aprobadas por Pablo y que necesitan validacion.\n\n"
+        "-- Shimano App Vendedores"
     )
     msg = EmailMessage()
     msg["Subject"] = subject
