@@ -4164,7 +4164,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v601';
+const APP_VERSION = 'v602';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24): feature flag para split de linea al crear/editar pedido.
@@ -18451,86 +18451,125 @@ function ensureStockSnapshotAppListener(){
   }, err => console.warn('stock_snapshot_app listener', err));
 }
 
-// v600 E1 (2026-08-24): diagnostico de overlap entre las 2 fuentes de backorder.
+// v600 E1 (2026-08-24) — v601 (2026-08-24): diagnostico STRICT de duplicacion.
 //
-// Contexto: SAP-source (`STOCK_BACKORDER`, escrito por sync_sap_to_firestore.py
-// cada 30 min) y APP-source (`STOCK_BACKORDER_APP`, escrito por CF E3
-// onPedidoWriteRecalcSnapshot on-write) deben ser DISJUNTAS por diseño (E4C
-// filtra state='confirmed' antes de mandar a SAP, entonces lineas BO nunca
-// generan SQ SAP). Con el split de v600 E2/E3, un pedido {30 confirmed + 10 BO}
-// deberia tener:
-//   - SAP-source: SQ de 30 → aparece como stock asignado si disp>=30, sino BO puro
-//   - APP-source: 10 → BO puro por la linea residual
-// Ninguno cuenta las mismas unidades del otro.
+// v601 primer intento: comparaba totales SKU-agregados entre SAP-source y
+// APP-source → generaba muchisimos falsos positivos (156 SKUs "en overlap"
+// en la auditoria porque mismo SKU aparecia en pedidos de clientes distintos).
 //
-// Cuando algun SKU aparece en AMBAS fuentes con qty>0, es INDICATIVO (no prueba)
-// de posible duplicacion. Casos legitimos:
-//   - Pedido con {30 confirmed + 10 BO} y SQ open en SAP (30 SAP + 10 APP = 40u
-//     demanda total real). El display separa asignado vs backorder por stock disp.
-//   - Otro pedido de otro cliente con la misma SKU en BO puro (10 APP suma como BO).
-// Caso ilegitimo (duplicacion real):
-//   - Alguien creo manualmente en SAP una segunda SQ por los 10u faltantes del
-//     mismo cliente → SAP-source suma 40, APP-source suma 10, la suma directa
-//     en tooltip (index.html:18159) mostraria 50 (10 duplicados).
+// v602: strict check. La UNICA duplicacion real posible hoy es:
+//   Pedido-app con 2+ lineas del MISMO SKU y estados mixtos:
+//   al menos 1 en {'confirmed','invoiced'} (cuenta en SAP-source) +
+//   al menos 1 en {'BO','ASIG'} (cuenta en APP-source).
+// Escenario que lo produce: v600 flag ON split de linea (`splitPedidoLine`
+// parte qty=100/disp=70 → {70 confirmed, 30 BO} para el mismo pedido).
 //
-// Este helper: (1) invocado desde ambos listeners tras update, (2) loguea warn
-// solo si hay overlap para no llenar la consola, (3) tambien expuesto como
-// window.diagBackorderOverlap() para inspeccion manual desde consola.
+// El E1 (`applyInvoiceMatch` skipea BO/ASIG) hace inocuo este caso PARA LA
+// CONCILIACION de facturas, pero la UI del sumario (index.html:18159
+// `boTotal = backorder + backorderApp`) todavia suma como si fueran
+// independientes → duplicaria en display.
+//
+// Este helper itera globalPedidos (cargado por unsubPedidosAll listener) y
+// reporta pedidos con estas duplicaciones. Barato: es un scan sobre ~60-80
+// pedidos.
 function _diagBackorderOverlap(trigger){
   try {
-    const sap = STOCK_BACKORDER || {};
-    const app = STOCK_BACKORDER_APP || {};
-    const sapKeys = Object.keys(sap);
-    const appKeys = Object.keys(app);
-    if (!sapKeys.length || !appKeys.length) return;
-    const overlaps = [];
-    for (const k of appKeys) {
-      const ku = String(k).toUpperCase();
-      const appQ = Number(app[k]) || 0;
-      if (appQ <= 0) continue;
-      const sapQ = Number(sap[ku] || sap[k]) || 0;
-      if (sapQ <= 0) continue;
-      overlaps.push({ sku: ku, sapQty: sapQ, appQty: appQ, naiveSum: sapQ + appQ });
+    if (typeof globalPedidos === 'undefined' || !Array.isArray(globalPedidos)) return;
+    const SAP_STATES = new Set(['confirmed', 'invoiced']);
+    const APP_STATES = new Set(['BO', 'ASIG']);
+    const strictDups = [];
+    for (const p of globalPedidos) {
+      if (!p || !p.transferidoSAP) continue;
+      const bySku = new Map();
+      for (let i = 0; i < (p.lines || []).length; i++) {
+        const l = p.lines[i];
+        if (!l || !l.code) continue;
+        const qtyOpen = Number(l.qtyOpen != null ? l.qtyOpen : l.qty) || 0;
+        if (qtyOpen <= 0) continue;
+        const skuUp = String(l.code).toUpperCase();
+        let group = bySku.get(skuUp);
+        if (!group) { group = []; bySku.set(skuUp, group); }
+        group.push({ lineIndex: i, state: l.state, qtyOpen });
+      }
+      for (const [sku, group] of bySku.entries()) {
+        if (group.length < 2) continue;
+        const hasSap = group.some(g => SAP_STATES.has(g.state));
+        const hasApp = group.some(g => APP_STATES.has(g.state));
+        if (!hasSap || !hasApp) continue;
+        strictDups.push({
+          pedidoId: p._fsId,
+          clientName: p.clientName || '',
+          sku,
+          sapQty: group.filter(g => SAP_STATES.has(g.state)).reduce((a, g) => a + g.qtyOpen, 0),
+          appQty: group.filter(g => APP_STATES.has(g.state)).reduce((a, g) => a + g.qtyOpen, 0),
+          lines: group,
+        });
+      }
     }
-    if (overlaps.length === 0) return;
-    overlaps.sort((a, b) => b.naiveSum - a.naiveSum);
-    console.warn('[BO-overlap][' + (trigger || 'manual') + '] ' + overlaps.length +
-      ' SKU(s) en ambas fuentes. Ejecuta window.diagBackorderOverlap() para detalles.',
-      overlaps.slice(0, 3));
-    return overlaps;
+    if (strictDups.length === 0) return;
+    strictDups.sort((a, b) => (b.sapQty + b.appQty) - (a.sapQty + a.appQty));
+    console.warn('[BO-dup-strict][' + (trigger || 'manual') + '] ' + strictDups.length +
+      ' linea(s) duplicada(s) en pedidos-app. Ejecuta window.diagBackorderOverlap() para detalles.',
+      strictDups.slice(0, 3));
+    return strictDups;
   } catch (e) {
-    console.warn('[BO-overlap] diag failed', e);
+    console.warn('[BO-dup-strict] diag failed', e);
   }
 }
 // Expone manual para debug desde consola. Uso:
-//   window.diagBackorderOverlap()  → array de {sku, sapQty, appQty, naiveSum}
-//   window.diagBackorderOverlap(true)  → tambien loguea tabla con clientes
-window.diagBackorderOverlap = function(withClients){
-  const overlaps = _diagBackorderOverlap('manual') || [];
-  if (!overlaps.length) {
-    console.log('[BO-overlap] OK: cero overlap SAP+APP detectado.');
-    return overlaps;
+//   window.diagBackorderOverlap()      → array de duplicados strict
+//   window.diagBackorderOverlap(true)  → tambien loguea overlaps LOOSE por cliente+SKU
+window.diagBackorderOverlap = function(withLoose){
+  const strictDups = _diagBackorderOverlap('manual') || [];
+  if (strictDups.length === 0) {
+    console.log('[BO-dup-strict] OK: cero duplicaciones strict. El invariante se cumple.');
+  } else {
+    console.log('[BO-dup-strict] ' + strictDups.length + ' pedido(s) con duplicacion definitiva:');
+    console.table(strictDups.map(d => ({
+      pedidoId: d.pedidoId,
+      clientName: d.clientName,
+      sku: d.sku,
+      sapQty: d.sapQty,
+      appQty: d.appQty,
+    })));
   }
-  console.table(overlaps);
-  if (withClients) {
-    const boByClient = STOCK_BO_BY_CLIENT_APP || {};
-    const clientEntries = [];
-    for (const key of Object.keys(boByClient)) {
-      const q = Number(boByClient[key]) || 0;
-      if (q <= 0) continue;
-      const parts = key.split('::');
-      if (parts.length !== 2) continue;
-      const sku = parts[1].toUpperCase();
-      if (overlaps.some(o => o.sku === sku)) {
-        clientEntries.push({ cardCode: parts[0], sku, appQty: q });
+  if (withLoose) {
+    // LOOSE: mismo cardCode+sku en ambas fuentes (usando STOCK_BO_BY_CLIENT_APP
+    // y backorderLines SAP-per-client via backorder_snapshot).
+    const sapByCardSku = new Map();
+    try {
+      if (typeof backorderLines !== 'undefined' && Array.isArray(backorderLines)) {
+        for (const l of backorderLines) {
+          const cc = String(l.clienteCode || '').trim();
+          const sku = String(l.sku || '').toUpperCase().trim();
+          if (!cc || !sku) continue;
+          const q = Number(l.pendiente) || 0;
+          if (q <= 0) continue;
+          const k = cc + '::' + sku;
+          sapByCardSku.set(k, (sapByCardSku.get(k) || 0) + q);
+        }
       }
+    } catch(e) {}
+    const appByCardSku = STOCK_BO_BY_CLIENT_APP || {};
+    const looseOverlaps = [];
+    for (const key of Object.keys(appByCardSku)) {
+      const appQ = Number(appByCardSku[key]) || 0;
+      if (appQ <= 0) continue;
+      const sapQ = sapByCardSku.get(key) || 0;
+      if (sapQ <= 0) continue;
+      const parts = key.split('::');
+      looseOverlaps.push({ cardCode: parts[0], sku: parts[1], sapQty: sapQ, appQty: appQ });
     }
-    if (clientEntries.length) {
-      console.log('[BO-overlap] Detalle por cliente (APP-source):');
-      console.table(clientEntries);
+    if (looseOverlaps.length) {
+      looseOverlaps.sort((a, b) => (b.sapQty + b.appQty) - (a.sapQty + a.appQty));
+      console.log('[BO-overlap-loose] ' + looseOverlaps.length +
+        ' pares (cardCode, sku) presentes en ambas fuentes (posible, no seguro):');
+      console.table(looseOverlaps);
+    } else {
+      console.log('[BO-overlap-loose] OK: cero overlaps por cliente+SKU.');
     }
   }
-  return overlaps;
+  return strictDups;
 };
 
 // =====================================================================
