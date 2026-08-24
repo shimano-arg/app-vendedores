@@ -4164,7 +4164,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v606';
+const APP_VERSION = 'v607';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24): feature flag para split de linea al crear/editar pedido.
@@ -15242,8 +15242,17 @@ window.viewPedido = function(stage, key, idx){
   document.getElementById('pm-actions-pending').style.display = (stage === 'pending') ? 'flex' : 'none';
   // v283+: mostrar boton "Volver a Pendientes" para admin/gerente en modo
   // confirmed. Vendedores no lo ven (proteccion contra reverse accidental).
+  // v607 (2026-08-24): tambien mostrar a vendedores cuando el pedido es
+  // via='app_only' (100% BO auto-confirmado en v607). No hay SQ SAP para
+  // tocar → editar es inocuo. Chequeo del pedido activo:
+  let _canRevertAsAppOnly = false;
+  try {
+    const _cList = confirmed[currentOrderClient && currentOrderClient.viewKey] || [];
+    const _cEntry = _cList[currentOrderClient && currentOrderClient.viewIdx];
+    _canRevertAsAppOnly = !!(_cEntry && _cEntry.transferidoSAP && _cEntry.transferidoSAP.via === 'app_only');
+  } catch(_e) {}
   const canRevertConfirmed = (stage === 'confirmed')
-    && (userRole === 'admin' || userRole === 'gerente');
+    && ((userRole === 'admin' || userRole === 'gerente') || _canRevertAsAppOnly);
   const actionsConfirmedEl = document.getElementById('pm-actions-confirmed');
   if (actionsConfirmedEl) actionsConfirmedEl.style.display = canRevertConfirmed ? 'flex' : 'none';
   document.getElementById('pm-saved-tag').textContent = stage === 'pending' ? 'Pendiente - editable' : 'Confirmado';
@@ -20491,6 +20500,37 @@ window.doConfirmPedido = function(){
       savePending();
       delete orders[currentOrderKey];
       saveOrders();
+      // v607 (2026-08-24): auto-confirm si TODAS las lineas son state='BO'.
+      // Estos pedidos no van a SAP como SQ (E4C filter skipea 100% BO en
+      // sap-auto-send). Sin auto-confirm, quedan atascados en pending hasta
+      // que el vendedor clickee "CONFIRMAR DEFINITIVO" manualmente — muchos
+      // se olvidan (o el precio=0 los frena) y los items no aparecen en
+      // Backorder App hasta el confirm manual. Fix: replica la logica de
+      // sap-auto-send-listener.js:126-148 (via='app_only') aca directamente.
+      // El pedido salta de "en cola pending" a "confirmed 100% BO app_only"
+      // en un solo paso. Vendedor puede revertir con volverAPendientes
+      // (v607b relaja el guard admin/gerente para via='app_only').
+      const _allBo = (docData.lines || []).length > 0 && (docData.lines || []).every(l => l && l.state === 'BO');
+      if (_allBo) {
+        const _nowIso = new Date().toISOString();
+        fbDb.collection('pedidos').doc(ref.id).update({
+          stage: 'confirmed',
+          finalizedAt: _nowIso,
+          transferidoSAP: {
+            via: 'app_only',
+            reason: 'all_lines_bo',
+            docEntry: null,
+            docNum: null,
+            transferredAt: _nowIso,
+            transferredBy: 'auto/confirm-on-save/' + (currentUser.email || ''),
+            sapDocRange: null,
+            batchId: null,
+          },
+        }).then(() => {
+          console.log('[auto-confirm 100% BO]', ref.id, currentOrderClient && currentOrderClient.name);
+          try { showSyncTag('Pedido 100% BO auto-confirmado (sin SAP)'); } catch(_e){}
+        }).catch(e => console.warn('auto-confirm 100% BO fallo:', e));
+      }
       // v460: si el pedido venia de un "Dejar recalculando" y llego OK a
       // pedidos/{}, ahora si borrar el doc de revision_waitlist. Antes de
       // v460 el delete se hacia ANTES de openReviewDialog -> si el vendedor
@@ -20796,14 +20836,19 @@ window.volverAListaEspera = async function(){
 // en Firestore para que la app lo trate como pending.
 window.volverAPendientes = async function(){
   if (!currentOrderClient || currentOrderClient.stage !== 'confirmed') return;
-  if (userRole !== 'admin' && userRole !== 'gerente') {
-    alert('Solo admin/gerente pueden revertir un pedido confirmado.');
-    return;
-  }
   const key = currentOrderClient.viewKey, idx = currentOrderClient.viewIdx;
   const list = confirmed[key] || [];
   const entry = list[idx];
   if (!entry) return;
+  // v607 (2026-08-24): permiso relajado para pedidos via='app_only' (100% BO
+  // auto-confirmados en v607). No hay SQ SAP para tocar → cualquier user puede
+  // revertir para editar. Para pedidos con SQ SAP real (via='service_layer_auto'),
+  // se mantiene el guard admin/gerente porque tocar SAP requiere permisos.
+  const _isAppOnly = !!(entry.transferidoSAP && entry.transferidoSAP.via === 'app_only');
+  if (!_isAppOnly && userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin/gerente pueden revertir un pedido confirmado con SQ en SAP.');
+    return;
+  }
   const wasTransferred = !!(entry.transferidoSAP && (entry.transferidoSAP.docNum || entry.transferidoSAP.docEntry));
   const _sapDocEntry = wasTransferred ? (entry.transferidoSAP.docEntry || null) : null;
   const _sapDocNum = wasTransferred ? (entry.transferidoSAP.docNum || entry.transferidoSAP.docEntry) : null;
