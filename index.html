@@ -4164,8 +4164,22 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v581';
+const APP_VERSION = 'v600';
 window.APP_VERSION = APP_VERSION;
+
+// v600 E7 (2026-08-24): feature flag para split de linea al crear/editar pedido.
+// Default OFF durante rollout piloto. Activar per-user con:
+//   localStorage.setItem('split_enabled', '1')
+// Desactivar con:
+//   localStorage.removeItem('split_enabled')
+// Cuando el flag esta ON, `splitPedidoLine` y `reenrichPedidoLine` (bundle
+// src/pure/pedido-split.js) parten una linea cuando 0 < disp < qty en
+// {qty:disp, state:'confirmed'} + {qty:qty-disp, state:'BO'}. Cuando esta OFF,
+// se mantiene el comportamiento legacy todo-o-nada.
+window.isPedidoSplitEnabled = function(){
+  try { return localStorage.getItem('split_enabled') === '1'; }
+  catch (_e) { return false; }
+};
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
 // Chip visible para no tener que abrir DevTools -> Console para leer que
@@ -15451,28 +15465,43 @@ function persistPendingEntry(entry){
     // los campos del schema nuevo. state se re-evalua segun DISP actual EXCEPTO
     // para estados "avanzados" (ASIG/invoiced/cancelled/recycled) que se respetan.
     // qtyOpen se recalcula = qty - qtyInvoiced - qtyCancelled - qtyRecycled.
-    const _LOCKED_STATES = ['ASIG', 'invoiced', 'cancelled', 'recycled'];
-    const _linesEnriched = (entry.lines || []).map(l => {
-      const _qty = parseFloat(l.qty) || 0;
-      const _precio = parseFloat(l.precio) || 0;
-      const _prevState = l.state;
-      const _qtyInv = parseFloat(l.qtyInvoiced) || 0;
-      const _qtyCan = parseFloat(l.qtyCancelled) || 0;
-      const _qtyRec = parseFloat(l.qtyRecycled) || 0;
-      const _qtyOpen = Math.max(_qty - _qtyInv - _qtyCan - _qtyRec, 0);
-      let _state;
-      if (_prevState && _LOCKED_STATES.includes(_prevState)) {
-        _state = _prevState;
-      } else {
-        const _disp = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(l.code) || 0) : 0;
-        _state = (_qtyOpen > 0 && _disp >= _qtyOpen) ? 'confirmed' : 'BO';
-      }
-      return Object.assign({
-        qtyInvoiced: 0, qtyCancelled: 0, qtyRecycled: 0,
-        asigAt: null, recycledIntoPedidoId: null,
-        priceAtCreation: _precio,
-      }, l, { qtyOpen: _qtyOpen, state: _state });
-    });
+    // v600 E3 (2026-08-24): SPLIT DE LINEA. Cuando el flag esta ON y una linea
+    // BO tiene stock parcial nuevo, se parte en {confirmed disp} + {BO restante}.
+    // Estados LOCKED y 'confirmed' se preservan (no se re-splittean). Delega a
+    // src/pure/pedido-split.js reenrichPedidoLine (fn pura testeable).
+    const _reenrichFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.reenrichPedidoLine);
+    let _linesEnriched;
+    if (_reenrichFn) {
+      const _opts = {
+        getDisp: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : null,
+        flagEnabled: (typeof window.isPedidoSplitEnabled === 'function') ? window.isPedidoSplitEnabled() : false,
+      };
+      _linesEnriched = (entry.lines || []).flatMap(l => _reenrichFn(l, _opts));
+    } else {
+      // Fallback (bundle no cargado): legacy inline. No deberia pasar en prod.
+      const _LOCKED_STATES = ['ASIG', 'invoiced', 'cancelled', 'recycled'];
+      _linesEnriched = (entry.lines || []).map(l => {
+        const _qty = parseFloat(l.qty) || 0;
+        const _precio = parseFloat(l.precio) || 0;
+        const _prevState = l.state;
+        const _qtyInv = parseFloat(l.qtyInvoiced) || 0;
+        const _qtyCan = parseFloat(l.qtyCancelled) || 0;
+        const _qtyRec = parseFloat(l.qtyRecycled) || 0;
+        const _qtyOpen = Math.max(_qty - _qtyInv - _qtyCan - _qtyRec, 0);
+        let _state;
+        if (_prevState && _LOCKED_STATES.includes(_prevState)) {
+          _state = _prevState;
+        } else {
+          const _disp = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(l.code) || 0) : 0;
+          _state = (_qtyOpen > 0 && _disp >= _qtyOpen) ? 'confirmed' : 'BO';
+        }
+        return Object.assign({
+          qtyInvoiced: 0, qtyCancelled: 0, qtyRecycled: 0,
+          asigAt: null, recycledIntoPedidoId: null,
+          priceAtCreation: _precio,
+        }, l, { qtyOpen: _qtyOpen, state: _state });
+      });
+    }
     fbDb.collection('pedidos').doc(entry._fsId).update({lines: _linesEnriched, updatedAt: firebase.firestore.FieldValue.serverTimestamp()}).catch(e=>console.error('update pending lines', e));
   }
 }
@@ -20250,22 +20279,35 @@ window.doConfirmPedido = function(){
       retiroPatente: (formaEntregaVal === 'RETIRO_DEPOSITO') ? retiroPatente.trim().toUpperCase() : '',
     },
     // E1 (v541) + E4A (v543): campos nuevos por linea BO/ASIG desde app.
-    // v543: state inicial segun DISP dep 11 al momento de crear:
-    //   - DISP >= qty (y qty>0) -> 'confirmed' (con stock, potencial SQ a SAP)
-    //   - resto -> 'BO' (sin stock, queda en app hasta que entre y pase a ASIG)
+    // v543: state inicial segun DISP dep 11 al momento de crear.
+    // v600 E2 (2026-08-24): SPLIT DE LINEA. Cuando 0 < disp < qty, la linea
+    // se parte en {qty:disp, state:'confirmed'} + {qty:qty-disp, state:'BO'}.
+    // La confirmed viaja a SAP como SQ; la BO queda como Backorder App. Gate
+    // por feature flag `window.isPedidoSplitEnabled()` (default false → legacy
+    // todo-o-nada). Rollout gradual: activar per-user con
+    // `localStorage.setItem('split_enabled','1')`.
     // qtyOpen arranca == qty. priceAtCreation audita el precio historico.
-    lines: ord.map(l => {
+    // Toda la logica esta en src/pure/pedido-split.js (fn pura testeable).
+    lines: ord.flatMap(l => {
+      const _splitFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.splitPedidoLine);
+      if (_splitFn) {
+        return _splitFn(l, {
+          getDisp: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : null,
+          flagEnabled: (typeof window.isPedidoSplitEnabled === 'function') ? window.isPedidoSplitEnabled() : false,
+        });
+      }
+      // Fallback (bundle no cargado): legacy inline. No deberia pasar en prod.
       const _qty = parseFloat(l.qty) || 0;
       const _precio = parseFloat(l.precio) || 0;
       const _disp = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(l.code) || 0) : 0;
       const _state = (_qty > 0 && _disp >= _qty) ? 'confirmed' : 'BO';
-      return {
+      return [{
         code: l.code, desc: l.desc, cat: l.cat||'', fam: l.fam||'', sub: l.sub||'',
         qty: _qty, precio: _precio, needsReview: !!l.needsReview,
         qtyOpen: _qty, qtyInvoiced: 0, qtyCancelled: 0, qtyRecycled: 0,
         state: _state, asigAt: null, recycledIntoPedidoId: null,
         priceAtCreation: _precio,
-      };
+      }];
     }),
     // v280+: flag global si el pedido tiene AL MENOS 1 SKU con needsReview.
     // Permite al admin filtrar/priorizar pedidos con SKUs para revisar.
