@@ -4164,7 +4164,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v602';
+const APP_VERSION = 'v603';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24): feature flag para split de linea al crear/editar pedido.
@@ -20575,31 +20575,70 @@ window.confirmarDefinitivo = function(){
 window.eliminarPendiente = async function(){
   // v469: consolidacion con la 1ra def. await + alert al fallar + warning
   // si ya se transfirio a SAP (SQ queda open, hay que cerrarla a mano).
+  // v603 (2026-08-24): edge case - si el pedido pendiente tiene transferidoSAP,
+  // ofrecer cancel SQ automatico igual que volverAPendientes.
   if (!currentOrderClient || currentOrderClient.stage !== 'pending') return;
   const key = currentOrderClient.viewKey, idx = currentOrderClient.viewIdx;
   const list = pending[key] || [];
   const entry = list[idx];
   if (!entry) return;
-  const _sapDoc = entry.transferidoSAP && entry.transferidoSAP.docNum;
+  const _sapDocNum = entry.transferidoSAP && entry.transferidoSAP.docNum;
+  const _sapDocEntry = entry.transferidoSAP && entry.transferidoSAP.docEntry;
+  const _canAutoCancelSap = !!_sapDocEntry &&
+    entry.transferidoSAP && entry.transferidoSAP.via !== 'app_only' &&
+    (userRole === 'admin' || userRole === 'gerente') &&
+    typeof sapSL !== 'undefined' && typeof sapSL.cancelQuotation === 'function' &&
+    typeof sapSL.isEnabled === 'function' && sapSL.isEnabled();
+
   let confirmMsg = 'Eliminar el pedido pendiente de "' + currentOrderClient.name + '"?\n\nNo se puede deshacer.';
-  if (_sapDoc) {
-    confirmMsg += '\n\n⚠ ATENCION: este pedido ya se transfirio a SAP (DocNum ' + _sapDoc + '). Borrar aca NO elimina la Oferta de Venta en SAP - la SQ queda open y sigue consumiendo backorder. Tenes que cerrarla a mano en SAP.';
+  let shouldCancelSap = false;
+  if (_sapDocNum && _canAutoCancelSap) {
+    confirmMsg += '\n\n⚠ Este pedido tiene SQ SAP #' + _sapDocNum + ' asociada.\n'
+        + 'Al aceptar se va a CANCELAR la SQ en SAP automaticamente para evitar\n'
+        + 'huerfano (backorder SAP inflado). Si SAP rechaza, el delete se aborta.';
+    shouldCancelSap = true;
+  } else if (_sapDocNum) {
+    confirmMsg += '\n\n⚠ ATENCION: este pedido ya se transfirio a SAP (DocNum ' + _sapDocNum + '). Borrar aca NO elimina la Oferta de Venta en SAP - la SQ queda open y sigue consumiendo backorder. Tenes que cerrarla a mano en SAP.';
   }
   if (!confirm(confirmMsg)) return;
-  try { logOp('eliminar_pendiente', 'pedido', currentOrderClient.name, {key, month: entry.month || '', items: (entry.lines||[]).length, sapDocNum: _sapDoc || null}); } catch(e){}
+
+  // v603: cancelar SQ ANTES de tocar Firestore.
+  if (shouldCancelSap) {
+    try {
+      const cancelRes = await sapSL.cancelQuotation(_sapDocEntry);
+      if (!cancelRes || !cancelRes.ok) {
+        const errMsg = (cancelRes && cancelRes.error) || 'error desconocido';
+        alert('NO se pudo cancelar la SQ #' + _sapDocNum + ' en SAP:\n\n' + errMsg +
+          '\n\nEl pedido NO se elimino en la app (para evitar inconsistencia).');
+        logOp('eliminar_pendiente_fail', 'pedido', currentOrderClient.name, {
+          key, sapDocNum: _sapDocNum, error: errMsg,
+        });
+        return;
+      }
+      logOp('sap_sq_cancelled', 'pedido', currentOrderClient.name, {
+        key, sapDocEntry: _sapDocEntry, sapDocNum: _sapDocNum, trigger: 'eliminarPendiente',
+      });
+    } catch(e) {
+      console.error('cancelQuotation error', e);
+      alert('Error llamando sapSL.cancelQuotation: ' + (e.message || e) + '\n\nEl pedido NO se elimino.');
+      return;
+    }
+  }
+
+  try { logOp('eliminar_pendiente', 'pedido', currentOrderClient.name, {key, month: entry.month || '', items: (entry.lines||[]).length, sapDocNum: _sapDocNum || null, sapCancelled: shouldCancelSap}); } catch(e){}
   if (entry._fsId && currentUser && fbDb) {
     try {
       await fbDb.collection('pedidos').doc(entry._fsId).delete();
     } catch(e) {
       console.error('eliminarPendiente Firestore delete', e);
-      alert('NO se pudo borrar en Firestore: ' + (e.message || e) + '\n\nEl pedido sigue en la base de datos y otros usuarios lo ven. Reintenta o pedile a admin/gerente que lo borre.');
+      alert('NO se pudo borrar en Firestore: ' + (e.message || e) + '\n\nEl pedido sigue en la base de datos y otros usuarios lo ven. Reintenta o pedile a admin/gerente que lo borre.' + (shouldCancelSap ? '\n\nATENCION: la SQ SAP #' + _sapDocNum + ' YA se cancelo, hay inconsistencia. Chequea con Santi.' : ''));
       return;
     }
   }
   pending[key] = list.filter((_, i) => i !== idx);
   if (!pending[key].length) delete pending[key];
   savePending();
-  showSyncTag('Pedido pendiente eliminado');
+  showSyncTag('Pedido pendiente eliminado' + (shouldCancelSap ? ' + SQ #' + _sapDocNum + ' cancelada' : ''));
   closePedidoModal();
 };
 
@@ -20742,7 +20781,7 @@ window.volverAListaEspera = async function(){
 // se avisa al usuario que la Sales Quotation en SAP NO se elimina - eso
 // hay que hacerlo manualmente desde SAP. Aca solo revertimos el estado
 // en Firestore para que la app lo trate como pending.
-window.volverAPendientes = function(){
+window.volverAPendientes = async function(){
   if (!currentOrderClient || currentOrderClient.stage !== 'confirmed') return;
   if (userRole !== 'admin' && userRole !== 'gerente') {
     alert('Solo admin/gerente pueden revertir un pedido confirmado.');
@@ -20753,19 +20792,66 @@ window.volverAPendientes = function(){
   const entry = list[idx];
   if (!entry) return;
   const wasTransferred = !!(entry.transferidoSAP && (entry.transferidoSAP.docNum || entry.transferidoSAP.docEntry));
+  const _sapDocEntry = wasTransferred ? (entry.transferidoSAP.docEntry || null) : null;
+  const _sapDocNum = wasTransferred ? (entry.transferidoSAP.docNum || entry.transferidoSAP.docEntry) : null;
+  // v603 (2026-08-24): permitir cancelar la SQ SAP automaticamente para evitar
+  // huerfanos (SQ open en SAP sin pedido-app matcheando). Requiere:
+  //   - via SL directo (no via='app_only' que nunca creo SQ)
+  //   - docEntry conocido (fallback a docNum solo displays)
+  //   - sapSL.cancelQuotation disponible (bundle v603+)
+  const _canAutoCancelSap = wasTransferred && _sapDocEntry &&
+    entry.transferidoSAP.via !== 'app_only' &&
+    typeof sapSL !== 'undefined' && typeof sapSL.cancelQuotation === 'function' &&
+    typeof sapSL.isEnabled === 'function' && sapSL.isEnabled();
+
   let msg = 'Revertir el pedido de "' + currentOrderClient.name + '" (' + entry.month + ') a PENDIENTES?\n\n'
           + 'Va a salir de "Confirmados" y volver a "Pendientes" donde se puede editar.';
-  if (wasTransferred) {
-    const docNum = entry.transferidoSAP.docNum || entry.transferidoSAP.docEntry;
-    msg += '\n\n⚠ IMPORTANTE: este pedido YA se transfirio a SAP como Sales Quotation #' + docNum + '.\n'
+  let shouldCancelSap = false;
+  if (wasTransferred && _canAutoCancelSap) {
+    msg += '\n\n⚠ Este pedido YA se transfirio a SAP como Sales Quotation #' + _sapDocNum + '.\n'
+        +  'Al aceptar, se va a CANCELAR la SQ en SAP automaticamente para evitar\n'
+        +  'que quede huerfana (backorder SAP inflado). Si SAP rechaza el cancel,\n'
+        +  'el revert se aborta y hay que resolverlo manual.\n\n'
+        +  'Aceptar (OK) = revert + cancel SQ en SAP\n'
+        +  'Cancelar (X) = no hacer nada';
+    shouldCancelSap = true;
+  } else if (wasTransferred) {
+    msg += '\n\n⚠ IMPORTANTE: este pedido YA se transfirio a SAP como Sales Quotation #' + _sapDocNum + '.\n'
+        +  'El cancel automatico NO esta disponible (via=app_only o SL apagado).\n'
         +  'Al revertirlo, la Quotation en SAP NO se elimina automaticamente. Tenes que ir a SAP\n'
         +  'y cancelarla manualmente para evitar duplicados.';
   }
   if (!confirm(msg)) return;
+
+  // v603: cancelar SQ en SAP ANTES de tocar Firestore. Si falla, abortar.
+  if (shouldCancelSap) {
+    try {
+      const cancelRes = await sapSL.cancelQuotation(_sapDocEntry);
+      if (!cancelRes || !cancelRes.ok) {
+        const errMsg = (cancelRes && cancelRes.error) || 'error desconocido';
+        alert('NO se pudo cancelar la SQ #' + _sapDocNum + ' en SAP:\n\n' + errMsg +
+          '\n\nEl pedido NO se revirtio en la app (para evitar inconsistencia).\n' +
+          'Chequealo con Santi. Opciones: (1) reintentar; (2) cancelar la SQ manual en SAP y despues revertir.');
+        logOp('revertir_a_pendiente_fail', 'pedido', currentOrderClient.name, {
+          key, sapDocNum: _sapDocNum, error: errMsg,
+        });
+        return;
+      }
+      logOp('sap_sq_cancelled', 'pedido', currentOrderClient.name, {
+        key, sapDocEntry: _sapDocEntry, sapDocNum: _sapDocNum,
+      });
+    } catch(e) {
+      console.error('cancelQuotation error', e);
+      alert('Error llamando sapSL.cancelQuotation: ' + (e.message || e) + '\n\nEl pedido NO se revirtio.');
+      return;
+    }
+  }
+
   logOp('revertir_a_pendiente', 'pedido', currentOrderClient.name, {
     key, month: entry.month, items: (entry.lines||[]).length,
     wasTransferred: wasTransferred,
-    sapDocNum: wasTransferred ? (entry.transferidoSAP.docNum || entry.transferidoSAP.docEntry) : null,
+    sapDocNum: _sapDocNum,
+    sapCancelled: shouldCancelSap,
   });
   // Firestore: cambiar stage -> pending y limpiar finalizedAt + transferidoSAP.
   if (entry._fsId && currentUser) {
@@ -20777,13 +20863,17 @@ window.volverAPendientes = function(){
       updateData.transferidoSAP = firebase.firestore.FieldValue.delete();
       updateData.revertedFromConfirmedAt = new Date().toISOString();
       updateData.revertedBy = currentUser.email || '';
-      updateData.previousSapDocNum = entry.transferidoSAP.docNum || entry.transferidoSAP.docEntry || null;
+      updateData.previousSapDocNum = _sapDocNum;
+      if (shouldCancelSap) updateData.previousSapDocEntryCancelled = _sapDocEntry;
     }
     fbDb.collection('pedidos').doc(entry._fsId).update(updateData)
       .then(() => {
-        showSyncTag('Pedido revertido a Pendientes' + (wasTransferred ? ' (SAP Quotation #' + (entry.transferidoSAP.docNum || entry.transferidoSAP.docEntry) + ' NO se elimino)' : ''));
+        const suffix = wasTransferred
+          ? (shouldCancelSap ? ' + SQ #' + _sapDocNum + ' cancelada en SAP' : ' (SQ #' + _sapDocNum + ' NO se elimino de SAP)')
+          : '';
+        showSyncTag('Pedido revertido a Pendientes' + suffix);
       })
-      .catch(e => { console.error('revertir a pending', e); alert('Error revertiendo el pedido: ' + (e.message || e)); });
+      .catch(e => { console.error('revertir a pending', e); alert('Error revertiendo el pedido en Firestore: ' + (e.message || e) + '\n\nATENCION: si arriba se cancelo la SQ en SAP, hay inconsistencia. Chequea con Santi.'); });
   }
   // Local fallback: mover del array confirmed al pending.
   if (!pending[key]) pending[key] = [];
