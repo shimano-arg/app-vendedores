@@ -4164,7 +4164,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v600';
+const APP_VERSION = 'v601';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24): feature flag para split de linea al crear/editar pedido.
@@ -18391,6 +18391,8 @@ function ensureStockSnapshotListener(){
     // v420+: cuando llega stock fresh, re-computar counts de los botones Backorder
     // (algunos SKUs pueden haber pasado de urgente -> asignacion o viceversa).
     try { if (typeof _updateBackorderButtonCounts === 'function') _updateBackorderButtonCounts(); } catch(e) {}
+    // v600 E1 (2026-08-24): diagnostico de overlap SAP+APP backorder tras update SAP.
+    try { if (typeof _diagBackorderOverlap === 'function') _diagBackorderOverlap('sap-source-update'); } catch(e) {}
     _markStockMapLoaded();
     const total = Object.keys(STOCK_MAP).length;
     const ws = Object.values(STOCK_MAP).filter(v => v).length;
@@ -18421,6 +18423,8 @@ function ensureStockSnapshotAppListener(){
       + ' asig=' + Object.keys(STOCK_ASIG_APP).length
       + ' asigByClient=' + Object.keys(STOCK_ASIG_BY_CLIENT_APP).length
       + ' boByClient=' + Object.keys(STOCK_BO_BY_CLIENT_APP).length);
+    // v600 E1 (2026-08-24): diagnostico de overlap SAP+APP tras update APP.
+    try { if (typeof _diagBackorderOverlap === 'function') _diagBackorderOverlap('app-source-update'); } catch(e) {}
     // v555+ (bugfix UX): re-render piloto E4B si el modal esta abierto —
     // asi cuando el user hace Aceptar/Rechazar y la CF muta, el listener
     // llega el update y la seccion desaparece automatico.
@@ -18446,6 +18450,88 @@ function ensureStockSnapshotAppListener(){
     }
   }, err => console.warn('stock_snapshot_app listener', err));
 }
+
+// v600 E1 (2026-08-24): diagnostico de overlap entre las 2 fuentes de backorder.
+//
+// Contexto: SAP-source (`STOCK_BACKORDER`, escrito por sync_sap_to_firestore.py
+// cada 30 min) y APP-source (`STOCK_BACKORDER_APP`, escrito por CF E3
+// onPedidoWriteRecalcSnapshot on-write) deben ser DISJUNTAS por diseño (E4C
+// filtra state='confirmed' antes de mandar a SAP, entonces lineas BO nunca
+// generan SQ SAP). Con el split de v600 E2/E3, un pedido {30 confirmed + 10 BO}
+// deberia tener:
+//   - SAP-source: SQ de 30 → aparece como stock asignado si disp>=30, sino BO puro
+//   - APP-source: 10 → BO puro por la linea residual
+// Ninguno cuenta las mismas unidades del otro.
+//
+// Cuando algun SKU aparece en AMBAS fuentes con qty>0, es INDICATIVO (no prueba)
+// de posible duplicacion. Casos legitimos:
+//   - Pedido con {30 confirmed + 10 BO} y SQ open en SAP (30 SAP + 10 APP = 40u
+//     demanda total real). El display separa asignado vs backorder por stock disp.
+//   - Otro pedido de otro cliente con la misma SKU en BO puro (10 APP suma como BO).
+// Caso ilegitimo (duplicacion real):
+//   - Alguien creo manualmente en SAP una segunda SQ por los 10u faltantes del
+//     mismo cliente → SAP-source suma 40, APP-source suma 10, la suma directa
+//     en tooltip (index.html:18159) mostraria 50 (10 duplicados).
+//
+// Este helper: (1) invocado desde ambos listeners tras update, (2) loguea warn
+// solo si hay overlap para no llenar la consola, (3) tambien expuesto como
+// window.diagBackorderOverlap() para inspeccion manual desde consola.
+function _diagBackorderOverlap(trigger){
+  try {
+    const sap = STOCK_BACKORDER || {};
+    const app = STOCK_BACKORDER_APP || {};
+    const sapKeys = Object.keys(sap);
+    const appKeys = Object.keys(app);
+    if (!sapKeys.length || !appKeys.length) return;
+    const overlaps = [];
+    for (const k of appKeys) {
+      const ku = String(k).toUpperCase();
+      const appQ = Number(app[k]) || 0;
+      if (appQ <= 0) continue;
+      const sapQ = Number(sap[ku] || sap[k]) || 0;
+      if (sapQ <= 0) continue;
+      overlaps.push({ sku: ku, sapQty: sapQ, appQty: appQ, naiveSum: sapQ + appQ });
+    }
+    if (overlaps.length === 0) return;
+    overlaps.sort((a, b) => b.naiveSum - a.naiveSum);
+    console.warn('[BO-overlap][' + (trigger || 'manual') + '] ' + overlaps.length +
+      ' SKU(s) en ambas fuentes. Ejecuta window.diagBackorderOverlap() para detalles.',
+      overlaps.slice(0, 3));
+    return overlaps;
+  } catch (e) {
+    console.warn('[BO-overlap] diag failed', e);
+  }
+}
+// Expone manual para debug desde consola. Uso:
+//   window.diagBackorderOverlap()  → array de {sku, sapQty, appQty, naiveSum}
+//   window.diagBackorderOverlap(true)  → tambien loguea tabla con clientes
+window.diagBackorderOverlap = function(withClients){
+  const overlaps = _diagBackorderOverlap('manual') || [];
+  if (!overlaps.length) {
+    console.log('[BO-overlap] OK: cero overlap SAP+APP detectado.');
+    return overlaps;
+  }
+  console.table(overlaps);
+  if (withClients) {
+    const boByClient = STOCK_BO_BY_CLIENT_APP || {};
+    const clientEntries = [];
+    for (const key of Object.keys(boByClient)) {
+      const q = Number(boByClient[key]) || 0;
+      if (q <= 0) continue;
+      const parts = key.split('::');
+      if (parts.length !== 2) continue;
+      const sku = parts[1].toUpperCase();
+      if (overlaps.some(o => o.sku === sku)) {
+        clientEntries.push({ cardCode: parts[0], sku, appQty: q });
+      }
+    }
+    if (clientEntries.length) {
+      console.log('[BO-overlap] Detalle por cliente (APP-source):');
+      console.table(clientEntries);
+    }
+  }
+  return overlaps;
+};
 
 // =====================================================================
 // Lista de Precios SAP - upload manual (modal "Precios") - solo admin
