@@ -180,6 +180,27 @@ const sapSL = {
     });
   },
 
+  // v603 (2026-08-24): cancela una Sales Quotation en SAP.
+  // Endpoint SL: POST /b1s/v1/Quotations({docEntry})/Cancel (sin body).
+  // La SQ queda marcada Cancelled='tYES' + DocumentStatus='bost_Close'.
+  //
+  // Uso: cuando el vendedor elimina/revierte un pedido confirmed en la app,
+  // llamar cancelQuotation ANTES de tocar Firestore. Si SAP falla, abortar
+  // el delete/revert para evitar split brain (app clean + SAP dirty).
+  //
+  // Roles: solo admin/gerente. El sap-proxy-core.js:23 whitelist WRITE lo
+  // permite. Vendedor comun no puede llamar (ni deberia — volverAPendientes
+  // ya restringe a admin/gerente, index.html:20747).
+  async cancelQuotation(docEntry) {
+    const de = parseInt(docEntry, 10);
+    if (!de || Number.isNaN(de)) {
+      return { ok: false, error: 'docEntry invalido: ' + docEntry, status: 0 };
+    }
+    return this.fetchWithSession('/b1s/v1/Quotations(' + de + ')/Cancel', {
+      method: 'POST',
+    });
+  },
+
   // Whs a EXCLUIR cuando sumamos stock total (no son vendibles):
   //   '05' MARKETING, '06' DEVOLUCIONES.
   // Todos los demas (01 ANDREANI, 02/10/11/12 MERCADERIA, 03 ZONA FRANCA,
