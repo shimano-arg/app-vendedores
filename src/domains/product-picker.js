@@ -159,8 +159,14 @@ function renderProductPicker() {
     let cls = 'prod-row';
     if (inOrder.has(p.code)) cls += ' in-order';
     if (inCamp) cls += ' in-camp';
-    const curLine = currentLines.find((l) => l.code === p.code);
-    const curQty = curLine ? Math.round(parseFloat(curLine.qty) || 0) : 0;
+    // v605 E5: sumar qty de TODAS las lineas del mismo code. Con v600 split,
+    // el pedido puede tener 2 lineas del mismo SKU ({confirmed:70, BO:30});
+    // el stepper debe mostrar 100 (total pedido), no 70 (solo confirmed).
+    const curQty = Math.round(
+      currentLines
+        .filter((l) => l && l.code === p.code)
+        .reduce((s, l) => s + (parseFloat(l.qty) || 0), 0)
+    );
     const campTitle = inCamp ? 'Producto en campaña activa: ' + campMap.get(p.code).join(', ') : '';
     const campBadge = inCamp
       ? '<span class="camp-badge" title="' + escapeAttr(campTitle) + '">★ CAMP</span>'
