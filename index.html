@@ -4164,7 +4164,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v605';
+const APP_VERSION = 'v606';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24): feature flag para split de linea al crear/editar pedido.
@@ -9897,18 +9897,21 @@ function _applyBackordersMode(mode){
 // contando SKUs distintos (no lineas) en cada categoria segun stock actual.
 // Se llama desde ensureBackordersListener + desde el listener de stock_snapshot.
 function _updateBackorderButtonCounts(){
-  // v572: contar SKUs distintos de las 2 fuentes.
+  // v572 + v606: contar SKUs distintos.
   //   Backorder (urgente) = SAP SKUs SIN stock + APP SKUs con state='BO' (unique).
-  //   STOCK ASIG. = SAP SKUs CON stock + APP SKUs con state='ASIG' (unique).
+  //   STOCK ASIG. (v606, 2026-08-24) = SOLO APP SKUs con state='ASIG' (unique).
+  //     Antes incluia SAP SKUs con stock (semantica "puedo despachar hoy"), pero
+  //     eso confundia porque STOCK ASIG. deberia significar "eran BO y ahora
+  //     tienen stock", no "cualquier SQ SAP con stock". Reportado por Mariano.
   const skusUrgente = new Set();
   const skusAsig = new Set();
   backorderLines.forEach(ln => {
     const sku = ln.sku || '';
     if (!sku) return;
     const stkD = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(sku) || 0) : 0;
-    const stkT = (typeof getStockTransito === 'function') ? (getStockTransito(sku) || 0) : 0;
-    if (stkD > 0 || stkT > 0) skusAsig.add(sku);
-    else skusUrgente.add(sku);
+    // v606: SAP-source ya NO cuenta para STOCK ASIG. Solo cuenta para BACKORDER
+    // cuando no tiene stock (SQs urgentes sin reposicion).
+    if (stkD <= 0) skusUrgente.add(sku);
   });
   if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
     for (const p of globalPedidos) {
@@ -10524,12 +10527,22 @@ window.renderBackordersTab = function(){
     }
   });
   // v576 FASE 3 — Filtrar clientes por modo y ajustar qty display.
-  //   'asignacion' (STOCK ASIG.) -> mostrar solo clientes con qtyAsignada > 0
-  //   'urgente' (BACKORDER)      -> mostrar solo clientes con qtyBackorder > 0
+  //   'asignacion' (STOCK ASIG.) -> v606 SOLO APP-source state='ASIG' (genuinos
+  //     promovidos del backorder por CF E4.5). Antes incluia SAP-source con
+  //     stock disp (semantica "puedo despachar hoy"), pero eso confundia porque
+  //     STOCK ASIG. deberia significar "eran BO y ahora tienen stock", no
+  //     "cualquier SQ SAP con stock". Reportado por Mariano 2026-08-24 (ANA
+  //     LORENA FUENTES con SQ 2000089 aparecia en STOCK ASIG sin haber sido BO).
+  //   'urgente' (BACKORDER)      -> mostrar clientes con qtyBackorder > 0 (SAP + APP-BO).
   Object.values(skuMap).forEach(g => {
     const isAsig = (backordersMode === 'asignacion');
-    g.clientes = g.clientes.filter(c => (isAsig ? c.qtyAsignada : c.qtyBackorder) > 0);
-    g.clientes.forEach(c => { c.pendiente = isAsig ? c.qtyAsignada : c.qtyBackorder; });
+    if (isAsig) {
+      g.clientes = g.clientes.filter(c => c.source === 'app' && c.state === 'ASIG');
+      g.clientes.forEach(c => { c.pendiente = c.qtyAsignada; });
+    } else {
+      g.clientes = g.clientes.filter(c => c.qtyBackorder > 0);
+      g.clientes.forEach(c => { c.pendiente = c.qtyBackorder; });
+    }
     g.totalPendiente = g.clientes.reduce((s, c) => s + (c.pendiente || 0), 0);
   });
   // v576: eliminar SKUs vacios post-cap (todos los clientes filtrados por modo).
