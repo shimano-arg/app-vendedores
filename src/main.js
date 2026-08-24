@@ -22,6 +22,7 @@ import {
   normTitle,
   titleCase,
 } from './pure/normalize.js';
+import { reenrichPedidoLine, splitPedidoLine } from './pure/pedido-split.js';
 import { matchSkuFromTitle } from './pure/product-match.js';
 import { matchesAllTokens } from './pure/search.js';
 import { createSapClient } from './sap-client.js';
@@ -115,6 +116,8 @@ const phase0 = {
     findSapDuplicateForProvisorio,
     matchSkuFromTitle,
     passesTypeFilter,
+    splitPedidoLine,
+    reenrichPedidoLine,
   },
   sentry: { applySentryUserContext },
   sap: { createSapClient },
