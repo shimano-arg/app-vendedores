@@ -749,6 +749,16 @@ function renderReviewLines() {
     const desc = (l.desc || '').toLowerCase();
     return code.indexOf(searchQuery) >= 0 || desc.indexOf(searchQuery) >= 0;
   };
+  // v604 E4 (2026-08-24): pre-pass para detectar SKUs con multiples lineas
+  // (splitteados por v600). Se usa para mostrar badge "1/2, 2/2" y facilitar
+  // que el vendedor entienda que son partes de una misma demanda.
+  const _skuCounts = {};
+  const _skuIndex = {};
+  for (const l of ord) {
+    if (!l || !l.code) continue;
+    const k = String(l.code).toUpperCase();
+    _skuCounts[k] = (_skuCounts[k] || 0) + 1;
+  }
   // Lines
   let html = '';
   let totalU = 0,
@@ -848,7 +858,77 @@ function renderReviewLines() {
         ? ' style="background:#fef2f2;border-color:#fecaca"'
         : '';
     html += '<div class="review-line"' + lineStyle + '>';
-    html += '<div class="rl-code">' + dot + escapeHtml(l.code) + '</div>';
+    // v604 E4 (2026-08-24): badge de state por linea. Solo aplica en
+    // pending-confirm (los borradores no tienen state todavia). Ayuda a
+    // entender que va a SAP vs. queda como BO en app, especialmente cuando
+    // el flag v600 split_enabled genera 2 lineas del mismo SKU.
+    let badgeState = '';
+    let badgeSplitCount = '';
+    if (reviewMode === 'pending-confirm' && l.state) {
+      const _stateStyles = {
+        confirmed: {
+          bg: '#dcfce7',
+          color: '#15803d',
+          label: '&rarr; SAP',
+          title: 'Va a SAP como Sales Quotation',
+        },
+        BO: {
+          bg: '#fed7aa',
+          color: '#c2410c',
+          label: 'BACKORDER',
+          title: 'Sin stock — queda como backorder en la app hasta que entre mercaderia',
+        },
+        ASIG: {
+          bg: '#e9d5ff',
+          color: '#7e22ce',
+          label: 'ASIG',
+          title: 'Stock asignado (entro mercaderia para esta linea que estaba en backorder)',
+        },
+        invoiced: {
+          bg: '#e5e7eb',
+          color: '#374151',
+          label: 'FACTURADO',
+          title: 'Facturado por SAP',
+        },
+        cancelled: { bg: '#f3f4f6', color: '#6b7280', label: 'CANCELADO', title: 'Cancelado' },
+        recycled: {
+          bg: '#f3f4f6',
+          color: '#6b7280',
+          label: 'RECICLADO',
+          title: 'Reciclado a otro pedido',
+        },
+      };
+      const _st = _stateStyles[l.state];
+      if (_st) {
+        badgeState =
+          ' <span title="' +
+          _st.title +
+          '" style="color:' +
+          _st.color +
+          ';font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.4px;background:' +
+          _st.bg +
+          ';padding:1px 5px;border-radius:3px;margin-left:4px">' +
+          _st.label +
+          '</span>';
+      }
+      // Indicador split "1/N" cuando hay multiples lineas del mismo SKU.
+      const _kUp = String(l.code).toUpperCase();
+      if (_skuCounts[_kUp] > 1) {
+        _skuIndex[_kUp] = (_skuIndex[_kUp] || 0) + 1;
+        badgeSplitCount =
+          ' <span title="Linea ' +
+          _skuIndex[_kUp] +
+          ' de ' +
+          _skuCounts[_kUp] +
+          ' del mismo SKU (splitteada por stock parcial)"' +
+          ' style="color:#1e40af;font-weight:700;font-size:9px;background:#dbeafe;padding:1px 5px;border-radius:3px;margin-left:4px">' +
+          _skuIndex[_kUp] +
+          '/' +
+          _skuCounts[_kUp] +
+          '</span>';
+      }
+    }
+    html += '<div class="rl-code">' + dot + escapeHtml(l.code) + badgeSplitCount + '</div>';
     const badgeReview = needsReview
       ? ' <span style="color:#b45309;font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.4px;background:#fde68a;padding:1px 5px;border-radius:3px">&#128269; revisar en sap</span>'
       : '';
@@ -856,7 +936,13 @@ function renderReviewLines() {
       !needsReview && noDisp
         ? ' <span style="color:#dc2626;font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.4px">&middot; sin stock</span>'
         : '';
-    html += '<div class="rl-name">' + escapeHtml(l.desc) + badgeReview + badgeNoStock + '</div>';
+    html +=
+      '<div class="rl-name">' +
+      escapeHtml(l.desc) +
+      badgeState +
+      badgeReview +
+      badgeNoStock +
+      '</div>';
     html +=
       '<input type="number" min="0" step="any" value="' +
       p +
