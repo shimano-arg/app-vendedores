@@ -1102,6 +1102,18 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
             base_payload.pop('localidadFinal', None)
         if not provincia_final:
             base_payload.pop('provincia', None)
+        # v608 (2026-08-24): mismo guard para calle + codigoPostal. Antes:
+        # `calle` se escribia SIEMPRE con bp.get('Address','') aunque SAP
+        # tenga Address vacio -> destruia la direccion manual que el admin
+        # cargo desde Master Clientes -> Direcciones. Reportado por Mariano
+        # 2026-08-24 ("completo los campos, dice guardado, y al refrescar
+        # queda vacio otra vez"). Root cause: este cron corre cada 5 min
+        # (sync-sap-catalog-stock.yml), asi que basta con <5 min entre save
+        # y refresh para ver el bug.
+        if not (bp.get('Address', '') or '').strip():
+            base_payload.pop('calle', None)
+        if not (bp.get('ZipCode', '') or '').strip():
+            base_payload.pop('codigoPostal', None)
 
         match = find_match(bp, existing_apps)
 
