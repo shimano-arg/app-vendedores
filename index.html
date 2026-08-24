@@ -2025,6 +2025,22 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
          (whitelist Mariano/Ioannis/Santi/Pablo en applyRolePermissions). -->
     <button class="revision-btn btn-zonas" id="revision-btn" onclick="openRevisionModal()" title="Revision Excel: ver backorder + disponible + pedido del cliente" style="background:#0f766e;color:#fff">Revisi&oacute;n Excel</button>
     <button class="revision-btn btn-zonas" id="waitlist-btn" onclick="openWaitlistModal()" title="Pedidos en espera: cards pre-cargadas que se recalculan al abrirlas" style="background:#7c3aed;color:#fff">Pedidos en Espera <span id="waitlist-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
+    <!-- v611 (2026-08-24): PANEL DE CONTROL - visible SOLO Mariano (admin +
+         email whitelist). Runtime guard replicado en openPanelControl(). -->
+    <button class="btn-zonas" id="panel-control-btn" onclick="openPanelControl()" title="Panel de Control: estado de salud + KPIs para anticipar problemas (solo Mariano)" style="background:#0f172a;color:#fff;display:none">Panel de Control</button>
+  </div>
+</div>
+
+<!-- v611 (2026-08-24): Modal Panel de Control. Contenido renderizado por
+     src/domains/panel-control.js (bundle). -->
+<div class="modal-overlay" id="panel-control-modal" onclick="if(event.target===this)closePanelControl()" style="z-index:1200">
+  <div class="modal" style="width:min(1100px,95vw);max-height:92vh;display:flex;flex-direction:column;background:#f8fafc">
+    <div style="padding:14px 20px;background:#0f172a;color:#fff;display:flex;align-items:center;gap:12px;border-radius:6px 6px 0 0">
+      <h2 style="margin:0;font-size:16px;font-weight:800;flex:1">&#128295; Panel de Control</h2>
+      <button onclick="renderPanelControl()" style="background:#334155;color:#fff;border:none;padding:6px 12px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#8635; Refrescar</button>
+      <button onclick="closePanelControl()" style="background:transparent;color:#fff;border:none;font-size:22px;cursor:pointer;padding:0 6px;line-height:1">&times;</button>
+    </div>
+    <div id="panel-control-body" style="flex:1;overflow:auto;background:#f8fafc"></div>
   </div>
 </div>
 <!-- v431: #herramientas-modal removido. Los 3 items volvieron a ser botones
@@ -4164,7 +4180,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v607';
+const APP_VERSION = 'v611';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24): feature flag para split de linea al crear/editar pedido.
@@ -17293,6 +17309,13 @@ function applyRolePermissions(){
     const _em = ((currentUser && (currentUser.email || '')) || '').toLowerCase();
     const _isMarianoHdr = _em === 'mariano.erbino@shimano.com.ar' || _em === 'erbinomariano@gmail.com';
     _hdrBadgeContainer.classList.toggle('hdr-badge-hidden', !_isMarianoHdr);
+    // v611 (2026-08-24): boton PANEL DE CONTROL solo para Mariano admin
+    // (double gate: email whitelist + role admin). Runtime guard replicado
+    // en openPanelControl() por si alguien bypasea el CSS via devtools.
+    const _panelBtn = document.getElementById('panel-control-btn');
+    if (_panelBtn) {
+      _panelBtn.style.display = (_isMarianoHdr && userRole === 'admin') ? '' : 'none';
+    }
     // Si es Mariano, mostrar el role-badge (ex-v400 lo ocultaba a todos).
     // Para el resto queda oculto en cualquier caso porque el contenedor
     // #header-badge esta hidden.
