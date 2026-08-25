@@ -4199,7 +4199,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v634';
+const APP_VERSION = 'v635';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -20205,14 +20205,35 @@ function _misCampsGraficosData(){
     });
   });
   const skuSet = new Set(Object.keys(skuRanges));
-  // v634 (2026-08-25): calcular AMBAS metricas simultaneas para que Mariano
-  // pueda comparar en el header y elegir cual visualizar. Facturadas =
-  // qtyInvoiced (matchea PowerBI). Pedidas = qty (todo lo confirmado, incluye
-  // BO/ASIG/SQ open pendientes de invoice).
+  // v635 (2026-08-25): Facturadas = CAMPANIA_SNAPSHOT[cid].detalle (BQ
+  // v_campanias_ventas_detalle → Firestore cada 15 min via sync_sap_to_bigquery).
+  // Match 1:1 con PowerBI (incluye SQs SAP fuera de la app, no requiere lineage
+  // desde la app). Antes usaba pedido.lines[].qtyInvoiced que solo cuenta
+  // pedidos originados en la app.
+  //
+  // Pedidas = pedido.lines[].qty de globalPedidos (todo confirmado, incluye
+  // BO/ASIG/SQ open, matchea comportamiento anterior).
   const bySkuFact = {};
   const bySkuTiendaFact = {};
   const bySkuPed = {};
   const bySkuTiendaPed = {};
+  // Facturadas desde CAMPANIA_SNAPSHOT (BQ snapshot).
+  const campSnap = (typeof CAMPANIA_SNAPSHOT === 'object' && CAMPANIA_SNAPSHOT) ? CAMPANIA_SNAPSHOT : {};
+  for (const c of camps) {
+    const snap = campSnap[c.id || c._fsId];
+    if (!snap || !Array.isArray(snap.detalle)) continue;
+    for (const d of snap.detalle) {
+      if (!d || !d.sku) continue;
+      const sku = String(d.sku).toUpperCase();
+      const tienda = d.tienda || d.cardCode || '(sin tienda)';
+      const cantidad = Number(d.cantidad) || 0;
+      if (cantidad <= 0) continue;
+      bySkuFact[sku] = (bySkuFact[sku] || 0) + cantidad;
+      const kSkuTienda = sku + '::' + tienda;
+      bySkuTiendaFact[kSkuTienda] = (bySkuTiendaFact[kSkuTienda] || 0) + cantidad;
+    }
+  }
+  // Pedidas desde globalPedidos.
   const pedidos = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [];
   for (const p of pedidos) {
     if (!p || p.stage !== 'confirmed') continue;
@@ -20230,16 +20251,10 @@ function _misCampsGraficosData(){
       }
       if (!inRange) continue;
       const qty = Number(l.qty) || 0;
-      const qtyInv = Number(l.qtyInvoiced) || 0;
+      if (qty <= 0) continue;
+      bySkuPed[sku] = (bySkuPed[sku] || 0) + qty;
       const kSkuTienda = sku + '::' + tienda;
-      if (qty > 0) {
-        bySkuPed[sku] = (bySkuPed[sku] || 0) + qty;
-        bySkuTiendaPed[kSkuTienda] = (bySkuTiendaPed[kSkuTienda] || 0) + qty;
-      }
-      if (qtyInv > 0) {
-        bySkuFact[sku] = (bySkuFact[sku] || 0) + qtyInv;
-        bySkuTiendaFact[kSkuTienda] = (bySkuTiendaFact[kSkuTienda] || 0) + qtyInv;
-      }
+      bySkuTiendaPed[kSkuTienda] = (bySkuTiendaPed[kSkuTienda] || 0) + qty;
     }
   }
   return {
