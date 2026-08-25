@@ -1,0 +1,267 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  canViewPanel,
+  computeAgeMinutes,
+  computeBackorderTotals,
+  computeHealthStatus,
+  computePedidosBreakdown,
+  computeStrictOverlap,
+  filterOpsLogRecent,
+  formatAgeLabel,
+} from '../../src/pure/panel-metrics.js';
+
+describe('canViewPanel — gate estricto', () => {
+  it.each([
+    ['mariano.erbino@shimano.com.ar', 'admin', true],
+    ['erbinomariano@gmail.com', 'admin', true],
+    ['MARIANO.erbino@SHIMANO.com.ar', 'admin', true], // case insensitive
+    ['mariano.erbino@shimano.com.ar', 'vendedor', false], // role gate
+    ['mariano.erbino@shimano.com.ar', 'gerente', false],
+    ['santi@shimano.com.ar', 'admin', false], // email gate
+    ['', 'admin', false],
+    [null, 'admin', false],
+  ])('email=%s role=%s → %s', (email, role, expected) => {
+    const user = email != null ? { email } : null;
+    expect(canViewPanel(user, role)).toBe(expected);
+  });
+
+  it('user null retorna false', () => {
+    expect(canViewPanel(null, 'admin')).toBe(false);
+    expect(canViewPanel(undefined, 'admin')).toBe(false);
+  });
+});
+
+describe('computeAgeMinutes + formatAgeLabel', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-24T20:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('null/undefined → null', () => {
+    expect(computeAgeMinutes(null)).toBeNull();
+    expect(computeAgeMinutes(undefined)).toBeNull();
+    expect(computeAgeMinutes('')).toBeNull();
+  });
+
+  it('invalido → null', () => {
+    expect(computeAgeMinutes('not-a-date')).toBeNull();
+  });
+
+  it('5 min atras → 5', () => {
+    expect(computeAgeMinutes('2026-08-24T19:55:00Z')).toBe(5);
+  });
+
+  it('date object funciona igual', () => {
+    expect(computeAgeMinutes(new Date('2026-08-24T19:55:00Z'))).toBe(5);
+  });
+
+  it('futuro (clock skew) → 0 minimo', () => {
+    expect(computeAgeMinutes('2026-08-24T20:05:00Z')).toBe(0);
+  });
+
+  it('formatAgeLabel: variantes', () => {
+    expect(formatAgeLabel(null)).toBe('sin datos');
+    expect(formatAgeLabel('2026-08-24T19:59:30Z')).toBe('hace <1 min');
+    expect(formatAgeLabel('2026-08-24T19:55:00Z')).toBe('hace 5 min');
+    expect(formatAgeLabel('2026-08-24T18:00:00Z')).toBe('hace 2.0h');
+    expect(formatAgeLabel('2026-08-23T20:00:00Z')).toBe('hace 1.0d');
+  });
+});
+
+describe('computeHealthStatus — semaforo', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-24T20:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  const th = { greenMaxMinutes: 30, yellowMaxMinutes: 120 };
+
+  it('sin timestamp → unknown', () => {
+    expect(computeHealthStatus(null, th)).toBe('unknown');
+    expect(computeHealthStatus('', th)).toBe('unknown');
+  });
+
+  it('reciente (5 min) → green', () => {
+    expect(computeHealthStatus('2026-08-24T19:55:00Z', th)).toBe('green');
+  });
+
+  it('borderline green (30 min exact) → green', () => {
+    expect(computeHealthStatus('2026-08-24T19:30:00Z', th)).toBe('green');
+  });
+
+  it('un poco viejo (45 min) → yellow', () => {
+    expect(computeHealthStatus('2026-08-24T19:15:00Z', th)).toBe('yellow');
+  });
+
+  it('borderline yellow (120 min exact) → yellow', () => {
+    expect(computeHealthStatus('2026-08-24T18:00:00Z', th)).toBe('yellow');
+  });
+
+  it('viejo (3h) → red', () => {
+    expect(computeHealthStatus('2026-08-24T17:00:00Z', th)).toBe('red');
+  });
+});
+
+describe('computePedidosBreakdown', () => {
+  it('array vacio → todo cero', () => {
+    expect(computePedidosBreakdown([])).toEqual({
+      total: 0,
+      borrador: 0,
+      pending: 0,
+      confirmed: 0,
+      withTransferSap: 0,
+      viaAppOnly: 0,
+      closed: 0,
+    });
+  });
+
+  it('cuenta por stage + closedAt + via app_only', () => {
+    const pedidos = [
+      { stage: 'pending' },
+      { stage: 'pending', transferidoSAP: { docNum: 100 } },
+      { stage: 'confirmed', transferidoSAP: { via: 'service_layer_auto', docNum: 200 } },
+      { stage: 'confirmed', transferidoSAP: { via: 'app_only' } },
+      { stage: 'confirmed', closedAt: '2026-08-24T10:00:00Z' },
+      { stage: 'crear' },
+    ];
+    expect(computePedidosBreakdown(pedidos)).toEqual({
+      total: 6,
+      borrador: 1,
+      pending: 2,
+      confirmed: 2, // el closedAt no cuenta como confirmed activo
+      withTransferSap: 3,
+      viaAppOnly: 1,
+      closed: 1,
+    });
+  });
+
+  it('input no-array → todo cero', () => {
+    expect(computePedidosBreakdown(null)).toMatchObject({ total: 0 });
+    expect(computePedidosBreakdown(undefined)).toMatchObject({ total: 0 });
+  });
+});
+
+describe('computeBackorderTotals', () => {
+  it('vacio → 0/0', () => {
+    expect(computeBackorderTotals({}, {})).toEqual({
+      sapQtyTotal: 0,
+      sapSkuCount: 0,
+      appQtyTotal: 0,
+      appSkuCount: 0,
+    });
+  });
+
+  it('suma qty y cuenta SKUs con qty>0 (ignora 0/negativos)', () => {
+    const sap = { A: 10, B: 5, C: 0, D: -2 };
+    const app = { X: 3, Y: 7 };
+    expect(computeBackorderTotals(sap, app)).toEqual({
+      sapQtyTotal: 15,
+      sapSkuCount: 2,
+      appQtyTotal: 10,
+      appSkuCount: 2,
+    });
+  });
+
+  it('null inputs → 0/0', () => {
+    expect(computeBackorderTotals(null, null)).toEqual({
+      sapQtyTotal: 0,
+      sapSkuCount: 0,
+      appQtyTotal: 0,
+      appSkuCount: 0,
+    });
+  });
+});
+
+describe('computeStrictOverlap — misma logica que _diagBackorderOverlap runtime', () => {
+  it('sin pedidos → 0', () => {
+    expect(computeStrictOverlap([])).toEqual({
+      strictDupsCount: 0,
+      strictDupsPedidoIds: [],
+    });
+  });
+
+  it('pedido sin transferidoSAP no cuenta', () => {
+    const pedidos = [
+      {
+        _fsId: 'P1',
+        lines: [
+          { code: 'X', state: 'confirmed', qtyOpen: 70 },
+          { code: 'X', state: 'BO', qtyOpen: 30 },
+        ],
+      },
+    ];
+    expect(computeStrictOverlap(pedidos).strictDupsCount).toBe(0);
+  });
+
+  it('pedido con 2 lineas mismo SKU + mix confirmed/BO → 1 dup', () => {
+    const pedidos = [
+      {
+        _fsId: 'P1',
+        transferidoSAP: { docNum: 100 },
+        lines: [
+          { code: 'X', state: 'confirmed', qtyOpen: 70 },
+          { code: 'X', state: 'BO', qtyOpen: 30 },
+        ],
+      },
+    ];
+    const r = computeStrictOverlap(pedidos);
+    expect(r.strictDupsCount).toBe(1);
+    expect(r.strictDupsPedidoIds).toEqual(['P1']);
+  });
+
+  it('pedido con 2 lineas mismo SKU pero misma clase (2 confirmed) no cuenta', () => {
+    const pedidos = [
+      {
+        _fsId: 'P1',
+        transferidoSAP: { docNum: 100 },
+        lines: [
+          { code: 'X', state: 'confirmed', qtyOpen: 70 },
+          { code: 'X', state: 'confirmed', qtyOpen: 30 },
+        ],
+      },
+    ];
+    expect(computeStrictOverlap(pedidos).strictDupsCount).toBe(0);
+  });
+
+  it('varios pedidos → cuenta cada uno una vez aunque tenga N SKUs duplicados', () => {
+    const pedidos = [
+      {
+        _fsId: 'P1',
+        transferidoSAP: { docNum: 100 },
+        lines: [
+          { code: 'X', state: 'confirmed', qtyOpen: 70 },
+          { code: 'X', state: 'BO', qtyOpen: 30 },
+          { code: 'Y', state: 'confirmed', qtyOpen: 5 },
+          { code: 'Y', state: 'BO', qtyOpen: 5 },
+        ],
+      },
+      {
+        _fsId: 'P2',
+        transferidoSAP: { docNum: 101 },
+        lines: [
+          { code: 'Z', state: 'confirmed', qtyOpen: 10 },
+          { code: 'Z', state: 'ASIG', qtyOpen: 5 },
+        ],
+      },
+    ];
+    const r = computeStrictOverlap(pedidos);
+    expect(r.strictDupsCount).toBe(2);
+    expect(r.strictDupsPedidoIds.sort()).toEqual(['P1', 'P2']);
+  });
+});
+
+describe('filterOpsLogRecent', () => {
+  it('vacio → []', () => {
+    expect(filterOpsLogRecent([])).toEqual([]);
+    expect(filterOpsLogRecent(null)).toEqual([]);
+  });
+
+  it('respeta limit', () => {
+    const arr = Array.from({ length: 50 }, (_, i) => ({ id: i }));
+    expect(filterOpsLogRecent(arr, 20)).toHaveLength(20);
+    expect(filterOpsLogRecent(arr, 5)).toHaveLength(5);
+    expect(filterOpsLogRecent(arr)).toHaveLength(20); // default 20
+  });
+});

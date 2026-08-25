@@ -22,6 +22,16 @@ import {
   normTitle,
   titleCase,
 } from './pure/normalize.js';
+import {
+  canViewPanel,
+  computeAgeMinutes,
+  computeBackorderTotals,
+  computeHealthStatus,
+  computePedidosBreakdown,
+  computeStrictOverlap,
+  filterOpsLogRecent,
+  formatAgeLabel,
+} from './pure/panel-metrics.js';
 import { reenrichPedidoLine, splitPedidoLine } from './pure/pedido-split.js';
 import { matchSkuFromTitle } from './pure/product-match.js';
 import { matchesAllTokens } from './pure/search.js';
@@ -46,6 +56,7 @@ import './domains/sap-integration-modal.js'; // ensureSapVendorsListener al logi
 import './domains/sap-service-layer.js'; // sapSL objeto usado por sap-auto-send
 import './domains/sap-auto-send-listener.js'; // ensureSapAutoSendListener reactivo
 import './domains/sap-admin-panel.js'; // listenSapMaps + ensureSapConfigListener al login
+import './domains/panel-control.js'; // v611 PANEL DE CONTROL (Mariano-only)
 
 // === Chunks lazy (E3): stubs proxy que hacen loadChunk + re-invoke ===
 // Cada entrada { chunkName: [exportNames] } genera stubs window.foo que al primer
@@ -118,6 +129,14 @@ const phase0 = {
     passesTypeFilter,
     splitPedidoLine,
     reenrichPedidoLine,
+    canViewPanel,
+    computeHealthStatus,
+    computeAgeMinutes,
+    formatAgeLabel,
+    computePedidosBreakdown,
+    computeBackorderTotals,
+    computeStrictOverlap,
+    filterOpsLogRecent,
   },
   sentry: { applySentryUserContext },
   sap: { createSapClient },
