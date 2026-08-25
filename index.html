@@ -4184,7 +4184,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v621';
+const APP_VERSION = 'v622';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -4564,16 +4564,51 @@ window.getStockDisponibleVenta = getStockDisponibleVenta;
 // completa aunque otro cliente tenia SQ open por parte del stock, generando
 // promise-what-you-cant-deliver.
 //
-// Formula: max(dep11 - backorderSAP, 0)
+// Formula v621: max(dep11 - backorderSAP, 0)
 //   dep11 = stock vendible fisico HOY (excluye dep 12 transito)
 //   backorderSAP = STOCK_BACKORDER[sku] (suma qty pendiente de todas las SQs
 //                  open en SAP para este SKU)
+//
+// v622 (2026-08-25): cerrar ventana de 5 min entre sap-auto-send y proximo sync
+// SAP→Firestore. Ademas de STOCK_BACKORDER (poblado por cron cada 5 min),
+// contar SQs SAP creadas recientemente (transferredAt > stock_snapshot.updatedAt)
+// que aun no aparecen en STOCK_BACKORDER. Se leen de globalPedidos (real-time
+// via onSnapshot listener).
+//
+// Formula v622: max(dep11 - backorderSAP - backorderSAP_pending, 0)
+//   backorderSAP_pending = suma qtyOpen de lineas state='confirmed' en pedidos
+//                          con transferidoSAP.via='service_layer_auto' y
+//                          transferredAt > STOCK_UPDATED_AT.
 function getStockDisponibleVentaNetSap(sku){
   const raw = getStockDisponibleVenta(sku);
   if (raw == null) return null;
+  const skuUp = String(sku).toUpperCase().trim();
   const boSap = (typeof STOCK_BACKORDER === 'object' && STOCK_BACKORDER)
-    ? Number(STOCK_BACKORDER[String(sku).toUpperCase().trim()] || 0) : 0;
-  return Math.max(raw - boSap, 0);
+    ? Number(STOCK_BACKORDER[skuUp] || 0) : 0;
+  // v622: pending SAP backorder — SQs recien creadas aun no en STOCK_BACKORDER.
+  let boSapPending = 0;
+  try {
+    const stockUpdIso = (typeof STOCK_UPDATED_AT !== 'undefined') ? STOCK_UPDATED_AT : null;
+    const stockUpdTs = stockUpdIso ? new Date(stockUpdIso).getTime() : 0;
+    const gp = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [];
+    for (const p of gp) {
+      if (!p || !p.transferidoSAP) continue;
+      if (p.transferidoSAP.via !== 'service_layer_auto') continue;
+      if (p.closedAt) continue;
+      const trAt = p.transferidoSAP.transferredAt;
+      if (!trAt) continue;
+      const ts = new Date(trAt).getTime();
+      if (!(ts > stockUpdTs)) continue; // ya reflejado en el sync (o clock skew)
+      for (const l of p.lines || []) {
+        if (!l || !l.code) continue;
+        if (String(l.code).toUpperCase() !== skuUp) continue;
+        if (l.state !== 'confirmed') continue;
+        const qtyOpen = Number(l.qtyOpen != null ? l.qtyOpen : l.qty) || 0;
+        if (qtyOpen > 0) boSapPending += qtyOpen;
+      }
+    }
+  } catch (_e) {}
+  return Math.max(raw - boSap - boSapPending, 0);
 }
 window.getStockDisponibleVentaNetSap = getStockDisponibleVentaNetSap;
 
