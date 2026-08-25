@@ -2042,10 +2042,7 @@ window.renderMasterClientesTable = function () {
         RETIRO_DEPOSITO: 'Retiro depósito',
       };
       const _tipoLbl = _tipoLabels[_dd.tipo] || _dd.tipo;
-      const _tooltip = [
-        'Datos de entrega guardados:',
-        'Tipo: ' + _tipoLbl,
-      ];
+      const _tooltip = ['Datos de entrega guardados:', 'Tipo: ' + _tipoLbl];
       if (_dd.tipo === 'TRANSPORTISTA') {
         if (_dd.transpNombre) _tooltip.push('Transportista: ' + _dd.transpNombre);
         if (_dd.transpDireccion) _tooltip.push('Dir. transporte: ' + _dd.transpDireccion);
@@ -2054,7 +2051,9 @@ window.renderMasterClientesTable = function () {
         if (_dd.sucursalDireccion) _tooltip.push('Dir. sucursal: ' + _dd.sucursalDireccion);
       } else if (_dd.tipo === 'RETIRO_DEPOSITO') {
         if (_dd.retiroNombre || _dd.retiroApellido)
-          _tooltip.push('Responsable: ' + (_dd.retiroNombre || '') + ' ' + (_dd.retiroApellido || ''));
+          _tooltip.push(
+            'Responsable: ' + (_dd.retiroNombre || '') + ' ' + (_dd.retiroApellido || '')
+          );
         if (_dd.retiroDni) _tooltip.push('DNI: ' + _dd.retiroDni);
         if (_dd.retiroPatente) _tooltip.push('Patente: ' + _dd.retiroPatente);
       }
