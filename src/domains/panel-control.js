@@ -224,6 +224,60 @@ function _renderInfraSection() {
       ? 'SAP SL fallando. Error: ' + (sl.errorMessage || 'unknown')
       : 'Health check pasivo: login SAP SL cada 5 min. Verde <3s latencia; amarillo >3s o 1 fail; rojo 2+ fails consecutivos.';
 
+  // v625: card Firestore Quota. Lee app_config/firestore_quota (escrito por
+  // scripts/sync_firestore_quota.py cada 30 min via Cloud Monitoring API).
+  // Muestra worst % de uso vs free tier (reads/writes/deletes/storage).
+  const fsqDoc = window.FIRESTORE_QUOTA || null;
+  const fsq = p.summarizeFirestoreQuota
+    ? p.summarizeFirestoreQuota(fsqDoc)
+    : {
+        status: 'unknown',
+        healthColor: 'unknown',
+        readsPct: 0,
+        writesPct: 0,
+        deletesPct: 0,
+        storagePct: 0,
+        worstPct: 0,
+        syncedAgoLabel: 'sin datos',
+      };
+  let fsqMain;
+  let fsqSub;
+  let fsqTooltip;
+  if (fsq.status === 'ok') {
+    fsqMain = fsq.worstPct + '% peor uso';
+    fsqSub =
+      'R ' +
+      fsq.readsPct +
+      '% · W ' +
+      fsq.writesPct +
+      '% · D ' +
+      fsq.deletesPct +
+      '% · S ' +
+      fsq.storagePct +
+      '% · sync ' +
+      fsq.syncedAgoLabel;
+    fsqTooltip =
+      'Uso Firestore 24h vs free tier (reads 50k, writes 20k, deletes 20k, storage 1GB). ' +
+      'Verde <50%, amarillo <80%, rojo >80%. ' +
+      'Reads: ' +
+      fsq.reads24h +
+      ' · Writes: ' +
+      fsq.writes24h +
+      ' · Deletes: ' +
+      fsq.deletes24h +
+      ' · Storage: ' +
+      Math.round((fsq.storageBytes / 1048576) * 10) / 10 +
+      ' MB';
+  } else if (fsq.status === 'error') {
+    fsqMain = 'sync error';
+    fsqSub = fsq.syncedAgoLabel;
+    fsqTooltip = fsq.errorMessage || 'error desconocido';
+  } else {
+    fsqMain = 'sin datos';
+    fsqSub = 'esperando primer cron (~30 min)';
+    fsqTooltip = 'Requiere Cloud Monitoring API + rol monitoring.viewer en el SA';
+  }
+
   // v614 iter 4: card CF Invoice Sync. Lee app_config/sap_sync_state (escrito
   // por CF syncSapInvoicesToApp cada 15 min). Reemplaza el placeholder iter 1.
   const sapState = window.SAP_SYNC_STATE || null;
@@ -250,6 +304,7 @@ function _renderInfraSection() {
       _hCard('GitHub Actions', gh.healthColor, ghMain, ghSub, ghTooltip) +
       _hCard('Sentry Issues', sentry.healthColor, sentryMain, sentrySub, sentryTooltip) +
       _hCard('Sentry Rate Spike', spikeStatus, spikeMain, spikeSub, spikeTooltip) +
+      _hCard('Firestore Quota', fsq.healthColor, fsqMain, fsqSub, fsqTooltip) +
       _hCard('CF Invoice Sync', cfStatus, cfLabel, cfSub, cfTooltip)
   );
 }

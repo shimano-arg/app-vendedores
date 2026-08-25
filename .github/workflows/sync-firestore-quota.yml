@@ -1,0 +1,49 @@
+name: Sync Firestore Quota
+
+# v625 (2026-08-25): panel de control PR B. Syncea uso Firestore (reads/writes/
+# deletes 24h + storage bytes) desde Cloud Monitoring API a Firestore
+# (app_config/firestore_quota) para que el Panel de Control (Mariano-only)
+# muestre uso vs free tier y anticipe cortes por cuota o billing spike.
+#
+# Requiere:
+#   - Cloud Monitoring API habilitada en el proyecto GCP
+#   - FIREBASE_SERVICE_ACCOUNT con rol `roles/monitoring.viewer`
+#     (agregar via `gcloud projects add-iam-policy-binding <PROJECT> \
+#       --member serviceAccount:<SA_EMAIL> --role roles/monitoring.viewer`)
+#
+# Si falta el rol → 403 → script escribe status=error con el detalle. Panel
+# muestra card en rojo con el error, no crashea.
+
+on:
+  schedule:
+    - cron: '7,37 * * * *'  # cada 30 min desfasado del resto (sentry :3,18,33,48 · gh-actions :00,05,10...)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-firestore-quota
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        # v610 pins google-cloud-firestore/core/api-core: regresion Google 2026-08-24 sigue vigente.
+        # google-cloud-monitoring nuevo para v625 (Cloud Monitoring API client).
+        run: pip install firebase-admin "google-cloud-firestore<2.29" "google-cloud-core<2.7" "google-api-core<2.35" google-cloud-monitoring
+
+      - name: Run sync
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: python scripts/sync_firestore_quota.py

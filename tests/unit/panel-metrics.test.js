@@ -9,6 +9,7 @@ import {
   computeStrictOverlap,
   filterOpsLogRecent,
   formatAgeLabel,
+  summarizeFirestoreQuota,
   summarizeGhActionsStatus,
   summarizeSapSlHealth,
   summarizeSentryStatus,
@@ -514,5 +515,112 @@ describe('filterOpsLogRecent', () => {
     expect(filterOpsLogRecent(arr, 20)).toHaveLength(20);
     expect(filterOpsLogRecent(arr, 5)).toHaveLength(5);
     expect(filterOpsLogRecent(arr)).toHaveLength(20); // default 20
+  });
+});
+
+describe('summarizeFirestoreQuota', () => {
+  const FT = { reads: 50000, writes: 20000, deletes: 20000, storageBytes: 1073741824 };
+
+  it('doc null → unknown/sin datos', () => {
+    const r = summarizeFirestoreQuota(null);
+    expect(r.status).toBe('unknown');
+    expect(r.healthColor).toBe('unknown');
+    expect(r.reads24h).toBe(0);
+    expect(r.syncedAgoLabel).toBe('sin datos');
+  });
+
+  it('status ok + uso <50% → green', () => {
+    const doc = {
+      status: 'ok',
+      reads24h: 10000,
+      writes24h: 5000,
+      deletes24h: 1000,
+      storageBytes: 100000000,
+      freeTier: FT,
+      syncedAt: new Date().toISOString(),
+    };
+    const r = summarizeFirestoreQuota(doc);
+    expect(r.healthColor).toBe('green');
+    expect(r.readsPct).toBe(20);
+    expect(r.writesPct).toBe(25);
+    expect(r.worstPct).toBe(25);
+  });
+
+  it('reads 60% + resto bajo → yellow (worst > 50%)', () => {
+    const doc = {
+      status: 'ok',
+      reads24h: 30000,
+      writes24h: 1000,
+      deletes24h: 100,
+      storageBytes: 1000,
+      freeTier: FT,
+      syncedAt: new Date().toISOString(),
+    };
+    const r = summarizeFirestoreQuota(doc);
+    expect(r.readsPct).toBe(60);
+    expect(r.healthColor).toBe('yellow');
+  });
+
+  it('writes 90% → red', () => {
+    const doc = {
+      status: 'ok',
+      reads24h: 1000,
+      writes24h: 18000,
+      deletes24h: 100,
+      storageBytes: 1000,
+      freeTier: FT,
+      syncedAt: new Date().toISOString(),
+    };
+    const r = summarizeFirestoreQuota(doc);
+    expect(r.writesPct).toBe(90);
+    expect(r.healthColor).toBe('red');
+    expect(r.worstPct).toBe(90);
+  });
+
+  it('storage 95% → red aunque el resto sea bajo', () => {
+    const doc = {
+      status: 'ok',
+      reads24h: 100,
+      writes24h: 100,
+      deletes24h: 100,
+      storageBytes: Math.floor(1073741824 * 0.95),
+      freeTier: FT,
+      syncedAt: new Date().toISOString(),
+    };
+    const r = summarizeFirestoreQuota(doc);
+    expect(r.storagePct).toBeCloseTo(95, 0);
+    expect(r.healthColor).toBe('red');
+  });
+
+  it('status error → healthColor unknown + errorMessage propagado', () => {
+    const doc = {
+      status: 'error',
+      reads24h: 0,
+      writes24h: 0,
+      deletes24h: 0,
+      storageBytes: 0,
+      freeTier: FT,
+      syncedAt: new Date().toISOString(),
+      errorMessage: 'PermissionDenied: monitoring.viewer missing',
+    };
+    const r = summarizeFirestoreQuota(doc);
+    expect(r.status).toBe('error');
+    expect(r.healthColor).toBe('unknown');
+    expect(r.errorMessage).toContain('PermissionDenied');
+  });
+
+  it('freeTier ausente → usa defaults', () => {
+    const doc = {
+      status: 'ok',
+      reads24h: 25000,
+      writes24h: 0,
+      deletes24h: 0,
+      storageBytes: 0,
+      syncedAt: new Date().toISOString(),
+    };
+    const r = summarizeFirestoreQuota(doc);
+    // 25000 / 50000 default = 50%
+    expect(r.readsPct).toBe(50);
+    expect(r.healthColor).toBe('green');
   });
 });
