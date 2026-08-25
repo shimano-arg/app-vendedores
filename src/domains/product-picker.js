@@ -141,6 +141,16 @@ function renderProductPicker() {
   }
   const inOrder = new Set(currentLines.map((l) => l.code));
   const campMap = getActiveCampaignSkusForCurrentOrder();
+  // v617 (2026-08-25): resolver cardCode del cliente actual para poder mostrar
+  // badges ASIG (stock asignado) y BO (backorder) por SKU. Cuando el vendedor
+  // esta armando un pedido, ver "este cliente ya tiene 3u ASIG de este SKU" o
+  // "5u en BO" es info critica que evita duplicar demanda.
+  const _clientCardCode =
+    currentOrderClient && currentOrderClient.name && typeof window.sapGetClienteCode === 'function'
+      ? window.sapGetClienteCode(currentOrderClient.name) || ''
+      : '';
+  const _asigByClient = (typeof window !== 'undefined' && window.STOCK_ASIG_BY_CLIENT_APP) || {};
+  const _boByClient = (typeof window !== 'undefined' && window.STOCK_BO_BY_CLIENT_APP) || {};
   const filt = PRODUCTS.filter((p) => {
     if (cat !== 'ALL' && p.cat !== cat) return false;
     if (fam !== 'ALL' && p.fam !== fam) return false;
@@ -171,6 +181,31 @@ function renderProductPicker() {
     const campBadge = inCamp
       ? '<span class="camp-badge" title="' + escapeAttr(campTitle) + '">★ CAMP</span>'
       : '';
+    // v617: badges ASIG (violeta) y BO (naranja) del cliente actual para este SKU.
+    // Ayuda a evitar duplicar demanda del mismo cliente.
+    let asigBadge = '';
+    let boBadge = '';
+    if (_clientCardCode) {
+      const _key = _clientCardCode + '::' + String(p.code).toUpperCase();
+      const _asigQty = Number(_asigByClient[_key]) || 0;
+      const _boQty = Number(_boByClient[_key]) || 0;
+      if (_asigQty > 0) {
+        asigBadge =
+          ' <span style="background:#7c3aed;color:#fff;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:800;vertical-align:middle" title="Cliente tiene ' +
+          _asigQty +
+          'u en STOCK ASIGNADO (fue backorder, entro stock). Confirmar puede duplicar demanda.">&#127919; ASIG ' +
+          _asigQty +
+          '</span>';
+      }
+      if (_boQty > 0) {
+        boBadge =
+          ' <span style="background:#f97316;color:#fff;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:800;vertical-align:middle" title="Cliente tiene ' +
+          _boQty +
+          'u en BACKORDER APP (pedido sin stock). Agregar puede duplicar.">&#128227; BO ' +
+          _boQty +
+          '</span>';
+      }
+    }
     // Si ya hay cantidad, mostrar stepper [-][n][+] para poder subir, bajar o tipear directo.
     let ctrlHtml;
     if (curQty > 0) {
@@ -239,7 +274,14 @@ function renderProductPicker() {
       '\')"' +
       (inCamp ? ' title="' + escapeAttr(campTitle) + '"' : '') +
       '>';
-    html += '<div class="code">' + stockDot + escapeHtml(p.code) + campBadge + '</div>';
+    html +=
+      '<div class="code">' +
+      stockDot +
+      escapeHtml(p.code) +
+      campBadge +
+      asigBadge +
+      boBadge +
+      '</div>';
     html += '<div><div class="pdesc">' + escapeHtml(p.desc) + '</div>';
     html +=
       '<div class="pcat"><span>' +

@@ -3237,6 +3237,10 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <div style="display:flex;flex-direction:column;gap:2px"><span>Pedido guardado automaticamente</span><span id="pm-saved-tag" style="color:#475569">Sin cambios</span></div>
         <div style="display:flex;gap:8px" id="pm-actions-edit">
           <button class="btn-cancel" id="pm-cancel" onclick="cancelPedido()">Cancelar pedido</button>
+          <!-- v617 (2026-08-25): boton "Enviar a lista de espera" desde borrador.
+               Solo whitelist can-revision (Mariano/Ioannis/Santi/Pablo). Guarda
+               items en revision_waitlist SIN pasar por Pendientes. -->
+          <button class="pm-back-to-waitlist" onclick="enviarBorradorAListaEspera()" style="padding:9px 14px;border:1.5px solid #7c3aed;border-radius:6px;background:#faf5ff;color:#7c3aed;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&rarr; Enviar a lista de espera</button>
           <button class="btn-confirm" id="pm-confirm" onclick="onClickConfirmPedido()">Vista preliminar</button>
         </div>
         <div style="display:none;gap:8px" id="pm-actions-pending">
@@ -4180,7 +4184,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v616';
+const APP_VERSION = 'v617';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24): feature flag para split de linea al crear/editar pedido.
@@ -20932,6 +20936,80 @@ window.volverAListaEspera = async function(){
   if (!pending[key].length) delete pending[key];
   savePending();
   showSyncTag('Pedido movido a lista de espera');
+  closePedidoModal();
+};
+
+// v617 (2026-08-25): enviar un BORRADOR (orders[key]) directo a la lista de
+// espera SIN pasar por Pendientes ni crear pedido en Firestore. Version
+// simplificada de volverAListaEspera para el flujo Crear Pedido manual.
+// Solo whitelist Revision (Mariano/Ioannis/Santi/Pablo).
+window.enviarBorradorAListaEspera = async function(){
+  if (!_revisionCanUse || !_revisionCanUse()) {
+    alert('Solo Mariano, Ioannis, Santi o Pablo pueden mover pedidos a la lista de espera.');
+    return;
+  }
+  if (!currentOrderKey || !currentOrderClient) return;
+  const items = (orders[currentOrderKey] || []).map(l => {
+    const stk = (typeof _revisionStockFor === 'function') ? _revisionStockFor(l.code) : {stockTotal:null, backorder:0, disponible:null};
+    return {
+      code: l.code,
+      desc: l.desc || '',
+      qty: parseFloat(l.qty) || 0,
+      firstStockTotal: stk.stockTotal,
+      firstBackorder: stk.backorder || 0,
+      firstDisponible: stk.disponible,
+    };
+  }).filter(it => it.qty > 0);
+  if (!items.length) { alert('El pedido esta vacio. Agrega productos antes de moverlo a la lista de espera.'); return; }
+  const confirmMsg = 'Mover el pedido de "' + currentOrderClient.name + '" (' + items.length + ' items) a la lista de espera?\n\n'
+    + 'Los items van a quedar en PEDIDOS EN ESPERA (compartido entre Mariano/Ioannis/Santi/Pablo).\n'
+    + 'Se puede editar cantidades, agregar/quitar productos, y despues confirmarlo desde ahi.';
+  if (!confirm(confirmMsg)) return;
+  const parts = currentOrderKey.split('|');
+  const prov = parts[1] || '';
+  const locName = parts[2] || '';
+  const clientName = parts[3] || '';
+  let vendorAssigned = '';
+  let cardCode = '';
+  try {
+    const p = (typeof POINTS !== 'undefined' && POINTS) ? POINTS.find(pp => pp.province === prov && pp.name === locName) : null;
+    if (p && typeof getEffectiveVendorForClient === 'function') {
+      vendorAssigned = getEffectiveVendorForClient(p, clientName) || '';
+    } else {
+      vendorAssigned = (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '';
+    }
+    if (typeof sapGetClienteCode === 'function') cardCode = sapGetClienteCode(clientName) || '';
+  } catch(e) {
+    console.warn('enviarBorradorAListaEspera resolve vendor/cardCode', e);
+  }
+  try {
+    logOp('enviar_borrador_a_lista_espera', 'pedido', currentOrderClient.name, {key: currentOrderKey, items: items.length});
+  } catch(_e){}
+  const payload = {
+    clientName, clientProvince: prov, clientLocality: locName,
+    clientCardCode: cardCode || '',
+    vendorAssigned: vendorAssigned || '',
+    ownerUid: currentUser ? currentUser.uid : '',
+    ownerEmail: currentUser ? (currentUser.email || '') : '',
+    ownerDisplayName: currentUser ? (currentUser.displayName || currentUser.email || '') : '',
+    ownerVendor: (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '',
+    items,
+    // Marca de que vino de un borrador directo (vs volverAListaEspera de un pending revertido).
+    fromBorrador: true,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  try {
+    await fbDb.collection('revision_waitlist').add(payload);
+  } catch(e) {
+    console.error('enviarBorradorAListaEspera add waitlist', e);
+    alert('NO se pudo crear el pedido en la lista de espera: ' + (e.message || e) + '\n\nEl borrador NO se movio - sigue en el modal.');
+    return;
+  }
+  // Limpiar el borrador local.
+  delete orders[currentOrderKey];
+  saveOrders();
+  showSyncTag('Borrador movido a lista de espera');
   closePedidoModal();
 };
 
