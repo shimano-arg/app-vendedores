@@ -62,6 +62,7 @@ firebase-debug.*.log
 firestore-debug.log
 ui-debug.log
 deploy.log
+deploy-*.log
 functions/lib/
 functions/node_modules/
 
