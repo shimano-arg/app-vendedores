@@ -4184,21 +4184,33 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v619';
+const APP_VERSION = 'v620';
 window.APP_VERSION = APP_VERSION;
 
-// v600 E7 (2026-08-24): feature flag para split de linea al crear/editar pedido.
-// Default OFF durante rollout piloto. Activar per-user con:
-//   localStorage.setItem('split_enabled', '1')
-// Desactivar con:
+// v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
+// Split de linea al crear/editar pedido. Ahora ON POR DEFAULT.
+// Cuando splitPedidoLine y reenrichPedidoLine (bundle src/pure/pedido-split.js)
+// detectan 0 < disp < qty, parten la linea en:
+//   {qty:disp, state:'confirmed'} → viaja a SAP como SQ
+//   {qty:qty-disp, state:'BO'}    → queda como backorder en la app
+//
+// Kill switch: si aparece un problema critico, cualquier user puede desactivar
+// el split en su browser con:
+//   localStorage.setItem('split_enabled', '0')
+// Y volver a activar (opcional, ya es default):
 //   localStorage.removeItem('split_enabled')
-// Cuando el flag esta ON, `splitPedidoLine` y `reenrichPedidoLine` (bundle
-// src/pure/pedido-split.js) parten una linea cuando 0 < disp < qty en
-// {qty:disp, state:'confirmed'} + {qty:qty-disp, state:'BO'}. Cuando esta OFF,
-// se mantiene el comportamiento legacy todo-o-nada.
+//
+// Activado global a pedido de Mariano 2026-08-25: bug reportado con pedido
+// CHALPAC S.A. donde 2u de 22CATPRII420 quedaron 100% BO (disp=1 al confirmar)
+// cuando lo esperado era 1u a SAP + 1u BO. Con flag ON este caso se maneja
+// automatico. E5 auditoria previa (v605) verifico que el resto del codebase
+// es split-safe.
 window.isPedidoSplitEnabled = function(){
-  try { return localStorage.getItem('split_enabled') === '1'; }
-  catch (_e) { return false; }
+  try {
+    const v = localStorage.getItem('split_enabled');
+    if (v === '0') return false; // kill switch explicito
+    return true; // default ON desde v620
+  } catch (_e) { return true; } // default ON aun sin localStorage
 };
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
