@@ -714,6 +714,12 @@ window.doConfirmDefinitivoFromReview = function () {
   setPedidoView('confirmados');
 };
 
+// v629: expose a window. Los inline onchange="renderReviewLines()" del
+// mismo modulo se resuelven como funciones globales al fire del evento;
+// sin window.* el browser tira ReferenceError. Sentry issue reportado
+// 2026-08-25 (27 events, 1 mes en prod). Otras fns del modulo llamadas
+// via inline (setOrderQty, setOrderPrice, removeFromOrder) ya estan
+// exposed en product-picker.js.
 function renderReviewLines() {
   let ord;
   if (reviewMode === 'pending-confirm') {
@@ -1439,5 +1445,6 @@ function closePedidoModal() {
   renderPedidosTab();
 }
 window.closePedidoModal = closePedidoModal;
+window.renderReviewLines = renderReviewLines;
 
 // Los window.foo = foo; ya están al final del bloque verbatim.
