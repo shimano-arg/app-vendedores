@@ -1,0 +1,46 @@
+name: Sync GitHub Actions Status
+
+# v612 (2026-08-24): panel de control iter 2. Syncea el estado de los
+# workflows del propio repo a Firestore (app_config/gh_actions_status)
+# para que el Panel de Control (Mariano-only) muestre semaforo verde/rojo.
+#
+# Usa el github.token built-in (permission actions:read) + FIREBASE_SERVICE_ACCOUNT
+# (secret existente). No requiere secretos nuevos.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # cada 5 min
+  workflow_dispatch:
+
+permissions:
+  actions: read  # para /repos/OWNER/REPO/actions/runs
+  contents: read
+
+concurrency:
+  group: sync-gh-actions-status
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        # v610 pins: la regresion de google-cloud-core 2.7.0 sigue rompiendo
+        # Firestore writes desde Python. Aplicar los mismos pins que los otros
+        # workflows Python hasta que google publique el fix upstream.
+        run: pip install firebase-admin "google-cloud-firestore<2.29" "google-cloud-core<2.7" "google-api-core<2.35" requests
+
+      - name: Run sync
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: python scripts/sync_gh_actions_status.py

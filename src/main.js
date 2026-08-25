@@ -31,6 +31,7 @@ import {
   computeStrictOverlap,
   filterOpsLogRecent,
   formatAgeLabel,
+  summarizeGhActionsStatus,
 } from './pure/panel-metrics.js';
 import { reenrichPedidoLine, splitPedidoLine } from './pure/pedido-split.js';
 import { matchSkuFromTitle } from './pure/product-match.js';
@@ -137,6 +138,7 @@ const phase0 = {
     computeBackorderTotals,
     computeStrictOverlap,
     filterOpsLogRecent,
+    summarizeGhActionsStatus,
   },
   sentry: { applySentryUserContext },
   sap: { createSapClient },

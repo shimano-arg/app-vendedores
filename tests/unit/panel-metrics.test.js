@@ -8,6 +8,7 @@ import {
   computeStrictOverlap,
   filterOpsLogRecent,
   formatAgeLabel,
+  summarizeGhActionsStatus,
 } from '../../src/pure/panel-metrics.js';
 
 describe('canViewPanel — gate estricto', () => {
@@ -249,6 +250,69 @@ describe('computeStrictOverlap — misma logica que _diagBackorderOverlap runtim
     const r = computeStrictOverlap(pedidos);
     expect(r.strictDupsCount).toBe(2);
     expect(r.strictDupsPedidoIds.sort()).toEqual(['P1', 'P2']);
+  });
+});
+
+describe('summarizeGhActionsStatus — iter 2', () => {
+  it('doc null/vacio → unknown', () => {
+    expect(summarizeGhActionsStatus(null).healthColor).toBe('unknown');
+    expect(summarizeGhActionsStatus({}).healthColor).toBe('unknown');
+    expect(summarizeGhActionsStatus({ workflows: {} }).healthColor).toBe('green'); // sin críticos = green por defecto
+  });
+
+  it('todos criticos success → green', () => {
+    const doc = {
+      workflows: {
+        A: { isCritical: true, lastRunConclusion: 'success', lastRunStatus: 'completed' },
+        B: { isCritical: true, lastRunConclusion: 'success', lastRunStatus: 'completed' },
+        C: { isCritical: false, lastRunConclusion: 'failure' }, // no critico, no cuenta
+      },
+    };
+    const s = summarizeGhActionsStatus(doc);
+    expect(s.healthColor).toBe('green');
+    expect(s.criticalFailingCount).toBe(0);
+    expect(s.totalWorkflows).toBe(3);
+    expect(s.criticalWorkflows).toHaveLength(2);
+  });
+
+  it('1 de 5 criticos failing → yellow (ratio 20%)', () => {
+    const doc = {
+      workflows: {
+        A: { isCritical: true, lastRunConclusion: 'success' },
+        B: { isCritical: true, lastRunConclusion: 'success' },
+        C: { isCritical: true, lastRunConclusion: 'success' },
+        D: { isCritical: true, lastRunConclusion: 'success' },
+        E: { isCritical: true, lastRunConclusion: 'failure' },
+      },
+    };
+    const s = summarizeGhActionsStatus(doc);
+    expect(s.healthColor).toBe('yellow');
+    expect(s.criticalFailingCount).toBe(1);
+  });
+
+  it('2 de 3 criticos failing → red (ratio 67%)', () => {
+    const doc = {
+      workflows: {
+        A: { isCritical: true, lastRunConclusion: 'failure' },
+        B: { isCritical: true, lastRunConclusion: 'failure' },
+        C: { isCritical: true, lastRunConclusion: 'success' },
+      },
+    };
+    const s = summarizeGhActionsStatus(doc);
+    expect(s.healthColor).toBe('red');
+    expect(s.criticalFailingCount).toBe(2);
+  });
+
+  it('failing workflows aparecen primero en criticalWorkflows[]', () => {
+    const doc = {
+      workflows: {
+        A: { isCritical: true, lastRunConclusion: 'success' },
+        Z: { isCritical: true, lastRunConclusion: 'failure' },
+      },
+    };
+    const s = summarizeGhActionsStatus(doc);
+    expect(s.criticalWorkflows[0].name).toBe('Z'); // failing primero
+    expect(s.criticalWorkflows[1].name).toBe('A');
   });
 });
 
