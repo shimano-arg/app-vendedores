@@ -174,6 +174,19 @@ function _renderInfraSection() {
     sentryTooltip = 'Placeholder';
   }
 
+  // v614 iter 4: card CF Invoice Sync. Lee app_config/sap_sync_state (escrito
+  // por CF syncSapInvoicesToApp cada 15 min). Reemplaza el placeholder iter 1.
+  const sapState = window.SAP_SYNC_STATE || null;
+  const cfLastRun = sapState ? sapState.lastRunAt : null;
+  const cfMode = sapState ? sapState.mode || 'shadow' : null;
+  const cfStatus = p.computeHealthStatus
+    ? p.computeHealthStatus(cfLastRun, { greenMaxMinutes: 30, yellowMaxMinutes: 60 })
+    : 'unknown';
+  const cfLabel = p.formatAgeLabel ? p.formatAgeLabel(cfLastRun) : 'sin datos';
+  const cfSub = cfMode ? 'CF syncSapInvoicesToApp · mode=' + cfMode : 'esperando primer run';
+  const cfTooltip =
+    'Ultima ejecucion de la CF syncSapInvoicesToApp (sincroniza Invoices SAP → pedidos-app). Cron 15 min. Verde <30min, amarillo <1h, rojo >1h.';
+
   return _sectionWrap(
     'Infraestructura',
     _hCard(
@@ -184,7 +197,8 @@ function _renderInfraSection() {
       'Ultima actualizacion del stock (dep 11 disp + backorderBySku). Verde <30min, amarillo <2h, rojo >2h.'
     ) +
       _hCard('GitHub Actions', gh.healthColor, ghMain, ghSub, ghTooltip) +
-      _hCard('Sentry Issues', sentry.healthColor, sentryMain, sentrySub, sentryTooltip)
+      _hCard('Sentry Issues', sentry.healthColor, sentryMain, sentrySub, sentryTooltip) +
+      _hCard('CF Invoice Sync', cfStatus, cfLabel, cfSub, cfTooltip)
   );
 }
 
