@@ -4184,7 +4184,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v622';
+const APP_VERSION = 'v623';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -4470,7 +4470,11 @@ let STOCK_WAREHOUSE_BREAKDOWN = {};
 // SQ open). Se usa para computar "Stock Liberado" en el alert de busqueda:
 //   Stock Liberado = max(transito(whs 12) - backorder, 0)
 // Formato: {SKU: qty}. SKUs sin backorder NO estan en el map (equivale a 0).
-let STOCK_BACKORDER = {};
+// v623 (2026-08-25): cambiado let → var para exponer al bundle IIFE via
+// window.STOCK_BACKORDER (Panel de Control lo lee). Mismo pattern que
+// v614b hizo con currentUser. Sin este cambio window.STOCK_* = undefined
+// y el panel muestra "sin datos" / 0 para todos los KPIs.
+var STOCK_BACKORDER = {};
 // v548+ (2026-08-19) E5 UI merge: app-source (post-cutover mode='active').
 // Escritos por CF onPedidoWriteRecalcSnapshot cuando VDEs escriben pedidos.
 // Disjuntos con SAP-source por construccion (E4C filtra state='confirmed'
@@ -4481,11 +4485,11 @@ let STOCK_BACKORDER = {};
 //   - STOCK_ASIG_BY_CLIENT_APP['CARDCODE::SKU'] = idem por cliente (para modal reciclado)
 //   - STOCK_BO_BY_CLIENT_APP['CARDCODE::SKU'] = suma qtyOpen state='BO' por cliente
 //     (v567 — para mostrar en el modal cliente qué SKUs esperan reposición)
-let STOCK_BACKORDER_APP = {};
-let STOCK_ASIG_APP = {};
-let STOCK_ASIG_BY_CLIENT_APP = {};
-let STOCK_BO_BY_CLIENT_APP = {};
-let STOCK_UPDATED_AT = null;
+var STOCK_BACKORDER_APP = {};
+var STOCK_ASIG_APP = {};
+var STOCK_ASIG_BY_CLIENT_APP = {};
+var STOCK_BO_BY_CLIENT_APP = {};
+var STOCK_UPDATED_AT = null;
 // Flag O(1) para que hasStock() no tenga que hacer Object.keys(STOCK_MAP)
 // en cada llamada. Antes: con 10.657 SKUs y el picker filtrando por
 // disponibles = 10657 llamadas × 10657 keys = ~113M ops => la app se
@@ -8981,7 +8985,9 @@ window.deleteVisitPhotosForMonth = async function(){
 };
 
 // Log de operaciones: ops cache + helper
-let opsLogCache = [];
+// v623 (2026-08-25): var (no let) para exponer al bundle como window.opsLogCache.
+// Panel de Control lee esta cache para el bloque "Actividad reciente".
+var opsLogCache = [];
 let unsubOpsLog = null;
 function listenOpsLog(){
   if (unsubOpsLog) { unsubOpsLog(); unsubOpsLog = null; }
@@ -16182,7 +16188,10 @@ let unsubUserData = null;
 let unsubPedidosOwn = null;
 let unsubPedidosAll = null;
 let suppressCloudSave = false;
-let globalPedidos = [];
+// v623 (2026-08-25): var (no let) para exponer al bundle como window.globalPedidos.
+// Panel de Control lo lee para computePedidosBreakdown + computeStrictOverlap.
+// v622 tambien lo lee para computar backorderSAP pending (SQs recientes).
+var globalPedidos = [];
 const ADMIN_BOOTSTRAP_EMAIL = 'bot.shimano.pesca@gmail.com';
 
 function showSyncTag(msg, timeoutMs){
