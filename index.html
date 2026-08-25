@@ -4199,7 +4199,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v633';
+const APP_VERSION = 'v634';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -20205,8 +20205,14 @@ function _misCampsGraficosData(){
     });
   });
   const skuSet = new Set(Object.keys(skuRanges));
-  const bySku = {};
-  const bySkuTienda = {};
+  // v634 (2026-08-25): calcular AMBAS metricas simultaneas para que Mariano
+  // pueda comparar en el header y elegir cual visualizar. Facturadas =
+  // qtyInvoiced (matchea PowerBI). Pedidas = qty (todo lo confirmado, incluye
+  // BO/ASIG/SQ open pendientes de invoice).
+  const bySkuFact = {};
+  const bySkuTiendaFact = {};
+  const bySkuPed = {};
+  const bySkuTiendaPed = {};
   const pedidos = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [];
   for (const p of pedidos) {
     if (!p || p.stage !== 'confirmed') continue;
@@ -20223,18 +20229,24 @@ function _misCampsGraficosData(){
         if (dateIso >= r.start && dateIso <= r.end) { inRange = true; break; }
       }
       if (!inRange) continue;
-      // v633 (2026-08-25): usar qtyInvoiced (facturado real, matchea PowerBI/SAP)
-      // en vez de qty (pedido bruto). Mariano reporto delta 406 vs 314 vs PowerBI
-      // — 92u diferencia son BO/ASIG/SQ open aun no facturadas. qtyInvoiced es
-      // poblada por CF syncSapInvoicesToApp que corre cada 15 min.
+      const qty = Number(l.qty) || 0;
       const qtyInv = Number(l.qtyInvoiced) || 0;
-      if (qtyInv <= 0) continue;
-      bySku[sku] = (bySku[sku] || 0) + qtyInv;
       const kSkuTienda = sku + '::' + tienda;
-      bySkuTienda[kSkuTienda] = (bySkuTienda[kSkuTienda] || 0) + qtyInv;
+      if (qty > 0) {
+        bySkuPed[sku] = (bySkuPed[sku] || 0) + qty;
+        bySkuTiendaPed[kSkuTienda] = (bySkuTiendaPed[kSkuTienda] || 0) + qty;
+      }
+      if (qtyInv > 0) {
+        bySkuFact[sku] = (bySkuFact[sku] || 0) + qtyInv;
+        bySkuTiendaFact[kSkuTienda] = (bySkuTiendaFact[kSkuTienda] || 0) + qtyInv;
+      }
     }
   }
-  return { bySku, bySkuTienda, campsCount: camps.length };
+  return {
+    bySkuFact, bySkuTiendaFact,
+    bySkuPed, bySkuTiendaPed,
+    campsCount: camps.length,
+  };
 }
 
 function _misCampsChartHtml(entries, colorHex){
@@ -20262,11 +20274,18 @@ function _misCampsChartHtml(entries, colorHex){
   return parts.join('');
 }
 
+// v634: toggle Facturadas vs Pedidas. Default = Facturadas (matchea PowerBI).
+// Si no hay data facturada, auto-flip a Pedidas para que Mariano vea algo.
+var _misCampsGraficosMetric = 'fact'; // 'fact' | 'ped'
+window.setMisCampsGraficosMetric = function(m){
+  _misCampsGraficosMetric = (m === 'ped') ? 'ped' : 'fact';
+  renderMisCampsGraficos();
+};
+
 function renderMisCampsGraficos(){
   const cont = document.getElementById('mis-camps-graficos-content');
   if (!cont) return;
   const data = _misCampsGraficosData();
-  const skuEntries = Object.entries(data.bySku).map(([sku, v]) => ({label: sku, value: v})).sort((a, b) => b.value - a.value);
   if (data.campsCount === 0) {
     cont.textContent = 'No hay campanas activas para graficar.';
     cont.style.padding = '30px';
@@ -20277,6 +20296,20 @@ function renderMisCampsGraficos(){
   cont.style.padding = '';
   cont.style.textAlign = '';
   cont.style.color = '';
+  // Auto-flip: si el user pidio Facturadas pero no hay data, mostrar Pedidas
+  // con warning banner (evita modal vacio si el sync SAP Invoice esta atrasado).
+  const factHasData = Object.keys(data.bySkuFact).length > 0;
+  const pedHasData = Object.keys(data.bySkuPed).length > 0;
+  let usingMetric = _misCampsGraficosMetric;
+  let autoFlipped = false;
+  if (usingMetric === 'fact' && !factHasData && pedHasData) {
+    usingMetric = 'ped';
+    autoFlipped = true;
+  }
+  const bySku = usingMetric === 'fact' ? data.bySkuFact : data.bySkuPed;
+  const bySkuTienda = usingMetric === 'fact' ? data.bySkuTiendaFact : data.bySkuTiendaPed;
+  const metricLabel = usingMetric === 'fact' ? 'facturadas' : 'pedidas';
+  const skuEntries = Object.entries(bySku).map(([sku, v]) => ({label: sku, value: v})).sort((a, b) => b.value - a.value);
   if (!skuEntries.length) {
     cont.textContent = 'Todavia no hay pedidos confirmados con SKUs de las ' + data.campsCount + ' campanas activas dentro de sus rangos de fecha.';
     cont.style.padding = '30px';
@@ -20284,12 +20317,12 @@ function renderMisCampsGraficos(){
     cont.style.color = '#94a3b8';
     return;
   }
-  const selectedSku = (_misCampsGraficosSelectedSku && data.bySku[_misCampsGraficosSelectedSku])
+  const selectedSku = (_misCampsGraficosSelectedSku && bySku[_misCampsGraficosSelectedSku])
     ? _misCampsGraficosSelectedSku
     : skuEntries[0].label;
   _misCampsGraficosSelectedSku = selectedSku;
   const tiendaEntries = [];
-  Object.entries(data.bySkuTienda).forEach(([k, v]) => {
+  Object.entries(bySkuTienda).forEach(([k, v]) => {
     const sepIdx = k.indexOf('::');
     if (sepIdx < 0) return;
     const sku = k.slice(0, sepIdx);
@@ -20298,7 +20331,8 @@ function renderMisCampsGraficos(){
   });
   tiendaEntries.sort((a, b) => b.value - a.value);
 
-  const totalUnits = skuEntries.reduce((s, e) => s + e.value, 0);
+  const totalFact = Object.values(data.bySkuFact).reduce((s, v) => s + v, 0);
+  const totalPed = Object.values(data.bySkuPed).reduce((s, v) => s + v, 0);
   const skuOptions = skuEntries.map(e => {
     const sel = e.label === selectedSku ? ' selected' : '';
     return '<option value="' + escapeAttr(e.label) + '"' + sel + '>' + escapeHtml(e.label) + ' (' + e.value + ' u)</option>';
@@ -20308,18 +20342,35 @@ function renderMisCampsGraficos(){
     ? '<div style="font-size:10px;color:#94a3b8;text-align:center;margin-top:6px">(mostrando top 30 de ' + skuEntries.length + ')</div>'
     : '';
   const chart2Html = _misCampsChartHtml(tiendaEntries, '#b45309');
-  // Header/summary is safe (no user-supplied content). Cada value viene de
-  // .value (number) o del escapeHtml(e.label) en _misCampsChartHtml.
+  // Toggle buttons
+  const btnBase = 'padding:5px 12px;border:1.5px solid #b45309;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px';
+  const btnFactStyle = btnBase + ';border-radius:5px 0 0 5px;' + (usingMetric === 'fact' ? 'background:#b45309;color:#fff' : 'background:#fff;color:#b45309');
+  const btnPedStyle = btnBase + ';border-radius:0 5px 5px 0;border-left:none;' + (usingMetric === 'ped' ? 'background:#b45309;color:#fff' : 'background:#fff;color:#b45309');
+  const autoFlipBanner = autoFlipped
+    ? '<div style="background:#fef3c7;border:1px solid #fde68a;color:#92400e;font-size:11px;padding:8px 12px;border-radius:5px;margin-bottom:12px"><b>Nota:</b> no hay unidades facturadas todavia (sync SAP Invoice cada 15 min). Mostrando <b>Pedidas</b>.</div>'
+    : '';
   cont.innerHTML =
     '<div style="padding:16px 22px">' +
+      autoFlipBanner +
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">' +
         '<div style="font-size:11px;color:#64748b">' +
-          '<b>' + data.campsCount + '</b> campanas activas &middot; <b>' + skuEntries.length + '</b> SKUs facturados &middot; total <b>' + totalUnits.toLocaleString('es-AR') + '</b> unidades facturadas' +
+          '<b>' + data.campsCount + '</b> campanas activas &middot; total ' +
+          '<b>' + totalFact.toLocaleString('es-AR') + '</b> facturadas &middot; ' +
+          '<b>' + totalPed.toLocaleString('es-AR') + '</b> pedidas' +
+          (totalPed > totalFact ? ' <span style="color:#94a3b8">(delta ' + (totalPed - totalFact).toLocaleString('es-AR') + 'u pendiente Invoice)</span>' : '') +
         '</div>' +
-        '<button type="button" onclick="exportMisCampsGraficosExcel()" title="Exportar unidades por SKU + tiendas a XLSX" style="padding:6px 12px;border:1.5px solid #166534;border-radius:5px;background:#166534;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128203; Exportar Excel</button>' +
+        '<div style="display:flex;gap:8px;align-items:center">' +
+          '<div style="display:flex">' +
+            '<button type="button" onclick="setMisCampsGraficosMetric(\'fact\')" style="' + btnFactStyle + '">Facturadas</button>' +
+            '<button type="button" onclick="setMisCampsGraficosMetric(\'ped\')" style="' + btnPedStyle + '">Pedidas</button>' +
+          '</div>' +
+          '<button type="button" onclick="exportMisCampsGraficosExcel()" title="Exportar a XLSX (ambas metricas)" style="padding:6px 12px;border:1.5px solid #166534;border-radius:5px;background:#166534;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128203; Excel</button>' +
+        '</div>' +
       '</div>' +
       '<div style="margin-bottom:24px">' +
-        '<h4 style="margin:0 0 10px 0;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#92400e">Unidades facturadas por SKU (qtyInvoiced &mdash; coincide con PowerBI)</h4>' +
+        '<h4 style="margin:0 0 10px 0;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#92400e">Unidades ' + metricLabel + ' por SKU' +
+          (usingMetric === 'fact' ? ' (matchea PowerBI)' : ' (incluye BO/ASIG/SQ open)') +
+        '</h4>' +
         chart1Html + chart1More +
       '</div>' +
       '<div>' +
@@ -20334,56 +20385,65 @@ function renderMisCampsGraficos(){
     '</div>';
 }
 
-// v633: export a Excel de los 2 datasets del modal graficos. Hoja 1 = SKU
-// aggregate, Hoja 2 = (SKU, tienda) detalle. Mismo criterio de la vista
-// (facturado / qtyInvoiced, matchea PowerBI).
+// v634: export a Excel con AMBAS metricas (Facturadas + Pedidas) para que
+// Mariano compare como en PowerBI. 2 hojas: "Por SKU" y "Por SKU y Tienda",
+// cada fila con ambas columnas.
 window.exportMisCampsGraficosExcel = function(){
   if (typeof XLSX === 'undefined') { alert('La libreria XLSX no se cargo.'); return; }
   const data = _misCampsGraficosData();
-  const skuEntries = Object.entries(data.bySku).map(([sku, v]) => ({sku, unidades: Math.round(v)})).sort((a, b) => b.unidades - a.unidades);
-  const detalle = [];
-  Object.entries(data.bySkuTienda).forEach(([k, v]) => {
+  const _prodByCode = {};
+  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
+    for (const p of PRODUCTS) _prodByCode[(p.code || '').toUpperCase()] = p;
+  }
+  // Union de SKUs entre facturadas y pedidas.
+  const allSkus = new Set([...Object.keys(data.bySkuFact), ...Object.keys(data.bySkuPed)]);
+  const skuSheetRows = [...allSkus].map(sku => {
+    const p = _prodByCode[sku] || null;
+    const fact = Math.round(data.bySkuFact[sku] || 0);
+    const ped = Math.round(data.bySkuPed[sku] || 0);
+    return {
+      SKU: sku,
+      Descripcion: p ? (p.desc || '') : '',
+      Familia: p ? (p.fam || '') : '',
+      Subfamilia: p ? (p.sub || '') : '',
+      'Unidades facturadas': fact,
+      'Unidades pedidas': ped,
+      'Delta (pedidas-facturadas)': ped - fact,
+    };
+  }).sort((a, b) => b['Unidades facturadas'] - a['Unidades facturadas'] || b['Unidades pedidas'] - a['Unidades pedidas']);
+  // Detalle por (SKU, tienda): union de keys y matchear.
+  const allKeys = new Set([...Object.keys(data.bySkuTiendaFact), ...Object.keys(data.bySkuTiendaPed)]);
+  const detalle = [...allKeys].map(k => {
     const sepIdx = k.indexOf('::');
-    if (sepIdx < 0) return;
+    if (sepIdx < 0) return null;
     const sku = k.slice(0, sepIdx);
     const tienda = k.slice(sepIdx + 2);
-    // Enriquecer con desc del producto si esta en PRODUCTS.
-    const prod = (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS))
-      ? PRODUCTS.find(p => (p.code || '').toUpperCase() === sku)
-      : null;
-    detalle.push({
-      SKU: sku,
-      Descripcion: prod ? (prod.desc || '') : '',
-      Familia: prod ? (prod.fam || '') : '',
-      Subfamilia: prod ? (prod.sub || '') : '',
-      Tienda: tienda,
-      'Unidades facturadas': Math.round(v),
-    });
-  });
-  detalle.sort((a, b) => (a.SKU || '').localeCompare(b.SKU || '') || (b['Unidades facturadas'] || 0) - (a['Unidades facturadas'] || 0));
-  const skuSheetRows = skuEntries.map(e => {
-    const prod = (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS))
-      ? PRODUCTS.find(p => (p.code || '').toUpperCase() === e.sku)
-      : null;
+    const p = _prodByCode[sku] || null;
+    const fact = Math.round(data.bySkuTiendaFact[k] || 0);
+    const ped = Math.round(data.bySkuTiendaPed[k] || 0);
     return {
-      SKU: e.sku,
-      Descripcion: prod ? (prod.desc || '') : '',
-      Familia: prod ? (prod.fam || '') : '',
-      Subfamilia: prod ? (prod.sub || '') : '',
-      'Unidades facturadas': e.unidades,
+      SKU: sku,
+      Descripcion: p ? (p.desc || '') : '',
+      Familia: p ? (p.fam || '') : '',
+      Subfamilia: p ? (p.sub || '') : '',
+      Tienda: tienda,
+      'Unidades facturadas': fact,
+      'Unidades pedidas': ped,
+      'Delta': ped - fact,
     };
-  });
+  }).filter(x => x !== null)
+    .sort((a, b) => (a.SKU || '').localeCompare(b.SKU || '') || b['Unidades facturadas'] - a['Unidades facturadas']);
   const wb = XLSX.utils.book_new();
   const ws1 = XLSX.utils.json_to_sheet(skuSheetRows);
-  ws1['!cols'] = [{wch:16},{wch:50},{wch:18},{wch:18},{wch:20}];
+  ws1['!cols'] = [{wch:16},{wch:50},{wch:18},{wch:18},{wch:18},{wch:18},{wch:20}];
   XLSX.utils.book_append_sheet(wb, ws1, 'Por SKU');
   const ws2 = XLSX.utils.json_to_sheet(detalle);
-  ws2['!cols'] = [{wch:16},{wch:50},{wch:18},{wch:18},{wch:40},{wch:20}];
+  ws2['!cols'] = [{wch:16},{wch:50},{wch:18},{wch:18},{wch:40},{wch:18},{wch:18},{wch:14}];
   XLSX.utils.book_append_sheet(wb, ws2, 'Por SKU y Tienda');
   const stamp = new Date().toISOString().slice(0, 10);
-  const filename = 'campanias-activas-facturado-' + stamp + '.xlsx';
+  const filename = 'campanias-activas-' + stamp + '.xlsx';
   XLSX.writeFile(wb, filename);
-  try { if (typeof logOp === 'function') logOp('export_camps_graficos_xlsx', 'campaigns', filename, {campsCount: data.campsCount, skus: skuEntries.length}); } catch(_e){}
+  try { if (typeof logOp === 'function') logOp('export_camps_graficos_xlsx', 'campaigns', filename, {campsCount: data.campsCount, skus: skuSheetRows.length}); } catch(_e){}
 };
 window.renderMisCampsGraficos = renderMisCampsGraficos;
 
