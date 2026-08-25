@@ -2014,6 +2014,7 @@ window.renderMasterClientesTable = function () {
     // approvedAltasList (savedAddr es la calle/address actual guardada).
     let savedAddr = '';
     let curTipo = '';
+    let defaultDelivery = null;
     if (isSap) {
       const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(
         (x) => x._fsId === e.sapFsId
@@ -2024,6 +2025,46 @@ window.renderMasterClientesTable = function () {
       const saved = clientMasterCache.get(id);
       savedAddr = saved && saved.address ? saved.address : '';
       curTipo = (saved && saved.cliTipo) || '';
+      // v630: defaultDelivery vive en client_master (solo POINTS por ahora;
+      // SAP altas se agregan cuando el vendedor confirma un pedido para ese
+      // cliente y clientLocId matchea con el nombre real).
+      defaultDelivery = saved && saved.defaultDelivery ? saved.defaultDelivery : null;
+    }
+    // v630: badge + tooltip con datos de entrega guardados. Si el vendedor
+    // ya cargo un pedido para este cliente, aparece el icono 📦 con detalle.
+    // Al abrir un nuevo pedido, los inputs vienen pre-cargados (openReviewDialog).
+    let deliveryBadge = '';
+    if (defaultDelivery && defaultDelivery.tipo) {
+      const _dd = defaultDelivery;
+      const _tipoLabels = {
+        TRANSPORTISTA: 'Transportista',
+        SUCURSAL: 'Sucursal',
+        RETIRO_DEPOSITO: 'Retiro depósito',
+      };
+      const _tipoLbl = _tipoLabels[_dd.tipo] || _dd.tipo;
+      const _tooltip = [
+        'Datos de entrega guardados:',
+        'Tipo: ' + _tipoLbl,
+      ];
+      if (_dd.tipo === 'TRANSPORTISTA') {
+        if (_dd.transpNombre) _tooltip.push('Transportista: ' + _dd.transpNombre);
+        if (_dd.transpDireccion) _tooltip.push('Dir. transporte: ' + _dd.transpDireccion);
+        if (_dd.clienteDireccion) _tooltip.push('Dir. entrega cliente: ' + _dd.clienteDireccion);
+      } else if (_dd.tipo === 'SUCURSAL') {
+        if (_dd.sucursalDireccion) _tooltip.push('Dir. sucursal: ' + _dd.sucursalDireccion);
+      } else if (_dd.tipo === 'RETIRO_DEPOSITO') {
+        if (_dd.retiroNombre || _dd.retiroApellido)
+          _tooltip.push('Responsable: ' + (_dd.retiroNombre || '') + ' ' + (_dd.retiroApellido || ''));
+        if (_dd.retiroDni) _tooltip.push('DNI: ' + _dd.retiroDni);
+        if (_dd.retiroPatente) _tooltip.push('Patente: ' + _dd.retiroPatente);
+      }
+      _tooltip.push('', '(Se actualiza automatico con cada pedido nuevo)');
+      deliveryBadge =
+        '<div style="margin-top:4px;display:inline-block;padding:2px 8px;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:4px;font-size:9.5px;font-weight:700" title="' +
+        escapeAttr(_tooltip.join('\n')) +
+        '">📦 ENTREGA: ' +
+        escapeHtml(_tipoLbl.toUpperCase()) +
+        '</div>';
     }
     const isDirty = mcPendingChanges[id] != null;
     const inputCls = 'mc-addr-input' + (cur ? ' has-value' : '');
@@ -2135,6 +2176,7 @@ window.renderMasterClientesTable = function () {
         '<div class="mc-meta" style="margin-top:4px">' +
         tagHtml +
         '</div>' +
+        deliveryBadge +
         '</td>';
     } else {
       html +=
@@ -2144,7 +2186,9 @@ window.renderMasterClientesTable = function () {
         renamedHint +
         '<div class="mc-meta">' +
         tagHtml +
-        '</div></td>';
+        '</div>' +
+        deliveryBadge +
+        '</td>';
     }
     // Localidad: editable INPUT para SAP altas (asi el admin puede completar
     // las que vienen como "(sin localidad)" sin recargar). Para POINTS la

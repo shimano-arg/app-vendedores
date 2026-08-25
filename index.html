@@ -4184,7 +4184,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v629';
+const APP_VERSION = 'v630';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -20750,6 +20750,25 @@ window.doConfirmPedido = function(){
       savePending();
       delete orders[currentOrderKey];
       saveOrders();
+      // v630 (2026-08-25): guardar formaEntrega como default del cliente en
+      // client_master.defaultDelivery para que el proximo pedido venga
+      // pre-cargado (pedido Mariano — reducir friccion vendedores). Modo Y:
+      // ultimo uso gana. Auto-save fire-and-forget, no bloquea.
+      try {
+        if (currentOrderClient && currentOrderClient.name && docData.formaEntrega && docData.formaEntrega.tipo) {
+          const _cliDocId = (typeof clientLocId === 'function')
+            ? clientLocId(currentOrderClient.province || '', currentOrderClient.locName || '', currentOrderClient.name || '')
+            : '';
+          if (_cliDocId) {
+            fbDb.collection('client_master').doc(_cliDocId).set({
+              defaultDelivery: Object.assign({}, docData.formaEntrega, {
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedBy: (currentUser && currentUser.email) || '',
+              }),
+            }, { merge: true }).catch(e => console.warn('save defaultDelivery', e));
+          }
+        }
+      } catch(_e){ console.warn('defaultDelivery save exception', _e); }
       // v607 (2026-08-24): auto-confirm si TODAS las lineas son state='BO'.
       // Estos pedidos no van a SAP como SQ (E4C filter skipea 100% BO en
       // sap-auto-send). Sin auto-confirm, quedan atascados en pending hasta

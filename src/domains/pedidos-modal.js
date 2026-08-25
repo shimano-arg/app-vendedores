@@ -225,6 +225,52 @@ window.openReviewDialog = function (mode) {
   if (bTransp) bTransp.style.display = 'none';
   if (bSucursal) bSucursal.style.display = 'none';
   if (bRetiro) bRetiro.style.display = 'none';
+  // v630 (2026-08-25): pre-fill inputs de forma de entrega desde
+  // client_master.defaultDelivery si el cliente ya tiene datos guardados.
+  // Reduce friccion para vendedores que cargan pedidos del mismo cliente
+  // repetidamente. Si el vendedor cambia algo, el save (index.html:20743+)
+  // pisa el default con el nuevo valor (modo Y: ultimo uso gana).
+  // Si hay flow desde Excel Review, ese prefill (index.html:14602+) corre
+  // DESPUES de openReviewDialog y sobreescribe si tiene datos frescos.
+  try {
+    if (
+      typeof currentOrderClient !== 'undefined' &&
+      currentOrderClient &&
+      currentOrderClient.name &&
+      typeof window.clientLocId === 'function' &&
+      typeof window.clientMasterCache !== 'undefined'
+    ) {
+      const _cliDocId = window.clientLocId(
+        currentOrderClient.province || '',
+        currentOrderClient.locName || '',
+        currentOrderClient.name || ''
+      );
+      const _cmData = _cliDocId ? window.clientMasterCache.get(_cliDocId) : null;
+      const _dd = _cmData && _cmData.defaultDelivery;
+      if (_dd && _dd.tipo && feSel) {
+        feSel.value = _dd.tipo;
+        if (typeof window.onFormaEntregaChange === 'function') window.onFormaEntregaChange();
+        const _setV = (id, v) => {
+          const el = document.getElementById(id);
+          if (el && v) el.value = v;
+        };
+        if (_dd.tipo === 'TRANSPORTISTA') {
+          _setV('rv-transp-nombre', _dd.transpNombre);
+          _setV('rv-transp-direccion', _dd.transpDireccion);
+          _setV('rv-cliente-direccion', _dd.clienteDireccion);
+        } else if (_dd.tipo === 'SUCURSAL') {
+          _setV('rv-sucursal-direccion', _dd.sucursalDireccion);
+        } else if (_dd.tipo === 'RETIRO_DEPOSITO') {
+          _setV('rv-retiro-nombre', _dd.retiroNombre);
+          _setV('rv-retiro-apellido', _dd.retiroApellido);
+          _setV('rv-retiro-dni', _dd.retiroDni);
+          _setV('rv-retiro-patente', _dd.retiroPatente);
+        }
+      }
+    }
+  } catch (_e) {
+    console.warn('prefill defaultDelivery from client_master', _e);
+  }
   renderReviewLines();
   renderReviewSuggestions();
   updateReviewFooter();
