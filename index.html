@@ -4184,7 +4184,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v630';
+const APP_VERSION = 'v631';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -9992,36 +9992,38 @@ function _applyBackordersMode(mode){
 // contando SKUs distintos (no lineas) en cada categoria segun stock actual.
 // Se llama desde ensureBackordersListener + desde el listener de stock_snapshot.
 function _updateBackorderButtonCounts(){
-  // v627 (2026-08-25): revierte v619 SKU-level classification. Mariano semantic:
-  //   STOCK ASIG. = SKU que fue BO antes y ahora tiene stock (promovido via FIFO
-  //                 a state='ASIG'). Solo APP-source con state='ASIG' cuenta.
-  //   BACKORDER   = SKU esperando stock. SAP-source pending SQs + APP-source
-  //                 state='BO'. TAMBIEN incluye APP state='ASIG' si dispSap=0
-  //                 (edge case: FIFO promovio pero stock ya no esta).
+  // v631 (2026-08-25): re-implementa SKU-level classification (revert de
+  // v627/v628). Mariano feedback definitivo:
+  //   BACKORDER  = SKUs con dispSap=0 (SIN stock, urgente importar). Todos
+  //                los clientes/lineas demandando el SKU aparecen.
+  //   STOCK ASIG = SKUs con dispSap>0 (CON stock, listo para asignar).
+  //                Todos los clientes/lineas demandando el SKU aparecen.
   //
-  // Bug reportado por Mariano 2026-08-25: pedidos recien enviados a SAP
-  // aparecian en STOCK ASIG solo porque el SKU tenia stock. Confuso — no
-  // era una "asignacion" real, era simplemente "SQ nueva con stock".
-  //
-  // Cambio vs v619: SAP-source ya NO va nunca a STOCK ASIG (no sabemos si
-  // fueron BO antes). APP-source va a ASIG solo si state='ASIG' genuino.
+  // Diferencia con v619: usa getStockDisponibleVenta (fix v627 fallback a 0
+  // en vez de getStockQty). Bug reportado: BACKORDER mostraba SKUs con stock
+  // porque el filter era state-level, no SKU-level.
   const skusUrgente = new Set();
   const skusAsig = new Set();
+  const _hasStock = (sku) => {
+    const stkD = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(sku) || 0) : 0;
+    return stkD > 0;
+  };
   backorderLines.forEach(ln => {
     const sku = ln.sku || '';
     if (!sku) return;
-    skusUrgente.add(sku);
+    if (_hasStock(sku)) skusAsig.add(sku);
+    else skusUrgente.add(sku);
   });
   if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
     for (const p of globalPedidos) {
       if (!p || !Array.isArray(p.lines)) continue;
-      if (!p.transferidoSAP) continue; // mismo filter que renderBackordersTab
+      if (!p.transferidoSAP) continue; // v578: solo pedidos procesados
       for (const l of p.lines) {
         if (!l || !l.code || Number(l.qtyOpen || 0) <= 0) continue;
         if (l.state !== 'BO' && l.state !== 'ASIG') continue;
         const sku = String(l.code).toUpperCase();
-        if (l.state === 'ASIG') skusAsig.add(sku);
-        else skusUrgente.add(sku); // state === 'BO'
+        if (_hasStock(sku)) skusAsig.add(sku);
+        else skusUrgente.add(sku);
       }
     }
   }
@@ -10627,29 +10629,23 @@ window.renderBackordersTab = function(){
       restante -= asignable;
     }
   });
-  // v627 (2026-08-25): revierte v619 SKU-level. Mariano semantic:
-  //   'asignacion' (STOCK ASIG.) -> SOLO clientes APP-source con state='ASIG'
-  //     (linea que ANTES fue BO y ahora tiene stock, promovida via FIFO E4.5).
-  //     SAP-source NO entra aca (no sabemos si fueron BO antes).
-  //   'urgente' (BACKORDER) -> Clientes APP-source state='BO' + TODOS los
-  //     SAP-source pending. Basicamente todo lo que espera stock/factura.
+  // v631 (2026-08-25): re-implementa SKU-level filter (revert de v627/v628).
+  // Mariano feedback definitivo:
+  //   'asignacion' (STOCK ASIG.) -> SOLO SKUs con dispSap > 0. TODOS los
+  //     clientes con demanda de ese SKU aparecen (SAP + APP-BO + APP-ASIG).
+  //   'urgente' (BACKORDER) -> SOLO SKUs con dispSap = 0. Idem clientes.
   //
-  // Bug reportado por Mariano 2026-08-25: pedidos recien enviados a SAP con
-  // SKU con stock aparecian en STOCK ASIG. Confuso — no eran una asignacion
-  // real, solo SQs nuevas. Ahora STOCK ASIG requiere state='ASIG' genuino.
+  // Bug reportado 2026-08-25 con screenshot: BACKORDER mostraba SKUs con
+  // stock porque v628 saco el filtro SKU-level. Ahora vuelve.
   Object.values(skuMap).forEach(g => {
     const isAsig = (backordersMode === 'asignacion');
-    g.clientes = g.clientes.filter(c => {
-      if ((c.pendiente || 0) <= 0) return false;
-      if (isAsig) {
-        // STOCK ASIG: solo APP state='ASIG' genuino (FIFO promotion).
-        return c.source === 'app' && c.state === 'ASIG';
-      }
-      // BACKORDER: SAP-source + APP state='BO'.
-      if (c.source === 'sap') return true;
-      if (c.source === 'app' && c.state === 'BO') return true;
-      return false;
-    });
+    const dispSap = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(g.sku) || 0) : 0;
+    const skuHasStock = dispSap > 0;
+    if (isAsig !== skuHasStock) {
+      g.clientes = []; // SKU no corresponde a este modal
+    } else {
+      g.clientes = g.clientes.filter(c => (c.pendiente || 0) > 0);
+    }
     g.totalPendiente = g.clientes.reduce((s, c) => s + (c.pendiente || 0), 0);
   });
   // v576: eliminar SKUs vacios post-cap (todos los clientes filtrados por modo).
