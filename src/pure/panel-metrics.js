@@ -318,3 +318,112 @@ export function summarizeSentryStatus(sentryDoc) {
     errorMessage: sentryDoc.errorMessage || null,
   };
 }
+
+/**
+ * Resume estado del health check SAP SL (`app_config/sap_sl_health`).
+ * Escrito por CF checkSapSlHealthCF cada 5 min.
+ *
+ * @param {any} doc doc completo o null
+ * @returns {{
+ *   status: 'ok' | 'error' | 'unknown',
+ *   healthColor: 'green' | 'yellow' | 'red' | 'unknown',
+ *   latencyLabel: string,
+ *   ageLabel: string,
+ *   consecutiveFailures: number,
+ *   firstFailureAgoLabel: string,
+ *   errorMessage: string | null,
+ * }}
+ */
+export function summarizeSapSlHealth(doc) {
+  if (!doc) {
+    return {
+      status: 'unknown',
+      healthColor: 'unknown',
+      latencyLabel: 'sin datos',
+      ageLabel: 'sin datos',
+      consecutiveFailures: 0,
+      firstFailureAgoLabel: '',
+      errorMessage: null,
+    };
+  }
+  const status = doc.status || 'unknown';
+  const consecutive = Number(doc.consecutiveFailures) || 0;
+  const latencyMs = Number(doc.latencyMs) || 0;
+
+  /** @type {'green' | 'yellow' | 'red' | 'unknown'} */
+  let healthColor;
+  if (status === 'ok' && latencyMs < 3000) healthColor = 'green';
+  else if (status === 'ok')
+    healthColor = 'yellow'; // ok pero lento (>3s)
+  else if (consecutive === 1)
+    healthColor = 'yellow'; // 1 fail aislado
+  else if (consecutive > 1)
+    healthColor = 'red'; // 2+ consecutivos
+  else healthColor = 'unknown';
+
+  const latencyLabel =
+    latencyMs > 0
+      ? latencyMs < 1000
+        ? latencyMs + 'ms'
+        : (latencyMs / 1000).toFixed(1) + 's'
+      : 'sin datos';
+  return {
+    status,
+    healthColor,
+    latencyLabel,
+    ageLabel: formatAgeLabel(doc.lastCheckAt),
+    consecutiveFailures: consecutive,
+    firstFailureAgoLabel: doc.firstFailureAt ? formatAgeLabel(doc.firstFailureAt) : '',
+    errorMessage: doc.errorMessage || null,
+  };
+}
+
+/**
+ * Compara errorCount de doc Sentry actual vs promedio 24h para detectar spike.
+ * Doc puede incluir field `errorCountHistory` = [{hourIso, count}, ...] (last 24h).
+ *
+ * @param {any} sentryDoc
+ * @returns {{
+ *   currentHourErrors: number,
+ *   avg24hHourly: number,
+ *   spikeRatio: number,
+ *   spikeAlert: 'green' | 'yellow' | 'red',
+ * }}
+ */
+export function computeSentryRateSpike(sentryDoc) {
+  if (!sentryDoc || !Array.isArray(sentryDoc.errorCountHistory)) {
+    return {
+      currentHourErrors: 0,
+      avg24hHourly: 0,
+      spikeRatio: 0,
+      spikeAlert: 'green',
+    };
+  }
+  const history = sentryDoc.errorCountHistory;
+  if (!history.length) {
+    return { currentHourErrors: 0, avg24hHourly: 0, spikeRatio: 0, spikeAlert: 'green' };
+  }
+  // Ultimo bucket = hora actual (approx).
+  const current = Number(history[history.length - 1].count) || 0;
+  // Promedio de los 23 previos (excluyendo el actual).
+  const priorHours = history.slice(0, -1);
+  const sumPrior = priorHours.reduce(
+    (/** @type {number} */ s, /** @type {any} */ h) => s + (Number(h.count) || 0),
+    0
+  );
+  const avg = priorHours.length ? sumPrior / priorHours.length : 0;
+  const ratio = avg > 0 ? current / avg : current > 0 ? Infinity : 0;
+  /** @type {'green' | 'yellow' | 'red'} */
+  let alert = 'green';
+  // Solo alerta si hay minimo de eventos (evitar spikes falsos con 0→1).
+  if (current >= 3) {
+    if (ratio > 5) alert = 'red';
+    else if (ratio > 2) alert = 'yellow';
+  }
+  return {
+    currentHourErrors: current,
+    avg24hHourly: Number(avg.toFixed(2)),
+    spikeRatio: Number.isFinite(ratio) ? Number(ratio.toFixed(2)) : 0,
+    spikeAlert: alert,
+  };
+}

@@ -174,6 +174,36 @@ function _renderInfraSection() {
     sentryTooltip = 'Placeholder';
   }
 
+  // v616 iter 5: card SAP Service Layer health. Lee app_config/sap_sl_health
+  // (escrito por CF checkSapSlHealthCF cada 5 min). Detecta SL down antes de
+  // que se caiga el flujo confirmar pedido -> sap-auto-send.
+  const slDoc = window.SAP_SL_HEALTH || null;
+  const sl = p.summarizeSapSlHealth
+    ? p.summarizeSapSlHealth(slDoc)
+    : {
+        status: 'unknown',
+        healthColor: 'unknown',
+        latencyLabel: 'sin datos',
+        ageLabel: 'sin datos',
+        consecutiveFailures: 0,
+      };
+  const slMain =
+    sl.status === 'ok'
+      ? sl.latencyLabel
+      : sl.status === 'error'
+        ? sl.consecutiveFailures + ' fails consec.'
+        : 'sin datos';
+  const slSub =
+    'checked ' +
+    sl.ageLabel +
+    (sl.consecutiveFailures > 0 && sl.firstFailureAgoLabel
+      ? ' · caido desde ' + sl.firstFailureAgoLabel
+      : '');
+  const slTooltip =
+    sl.status === 'error'
+      ? 'SAP SL fallando. Error: ' + (sl.errorMessage || 'unknown')
+      : 'Health check pasivo: login SAP SL cada 5 min. Verde <3s latencia; amarillo >3s o 1 fail; rojo 2+ fails consecutivos.';
+
   // v614 iter 4: card CF Invoice Sync. Lee app_config/sap_sync_state (escrito
   // por CF syncSapInvoicesToApp cada 15 min). Reemplaza el placeholder iter 1.
   const sapState = window.SAP_SYNC_STATE || null;
@@ -196,6 +226,7 @@ function _renderInfraSection() {
       'sync_sap_to_firestore.py cada 5 min',
       'Ultima actualizacion del stock (dep 11 disp + backorderBySku). Verde <30min, amarillo <2h, rojo >2h.'
     ) +
+      _hCard('SAP Service Layer', sl.healthColor, slMain, slSub, slTooltip) +
       _hCard('GitHub Actions', gh.healthColor, ghMain, ghSub, ghTooltip) +
       _hCard('Sentry Issues', sentry.healthColor, sentryMain, sentrySub, sentryTooltip) +
       _hCard('CF Invoice Sync', cfStatus, cfLabel, cfSub, cfTooltip)

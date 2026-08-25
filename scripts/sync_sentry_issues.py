@@ -114,6 +114,44 @@ def fetch_unresolved_issues(session: requests.Session) -> list:
     return resp.json()
 
 
+def fetch_error_count_history(session: requests.Session) -> list:
+    """v616 iter 5: cuenta events por hora las ultimas 24h para tendencia.
+
+    Sentry `/events-stats/` retorna serie temporal. Devolvemos list de
+    {hourIso, count}. Silenciamos errores porque el field es opcional en el doc.
+    """
+    url = f"{SENTRY_API_BASE}/organizations/{SENTRY_ORG}/events-stats/"
+    params = {
+        "query": f"event.type:error project:{SENTRY_PROJECT}",
+        "statsPeriod": "24h",
+        "interval": "1h",
+        "yAxis": "count()",
+    }
+    try:
+        resp = session.get(url, params=params, timeout=30)
+        if resp.status_code != 200:
+            print(f"[sentry-sync] warn: events-stats {resp.status_code}", file=sys.stderr)
+            return []
+        body = resp.json()
+        # Response shape: {"data": [[timestamp_epoch, [{"count": N}]], ...]}
+        raw = body.get("data") or []
+        out = []
+        for entry in raw:
+            if not isinstance(entry, list) or len(entry) < 2:
+                continue
+            ts_epoch = entry[0]
+            slots = entry[1]
+            count = 0
+            if isinstance(slots, list) and slots:
+                count = int(slots[0].get("count", 0) or 0)
+            hour_iso = datetime.fromtimestamp(ts_epoch, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+            out.append({"hourIso": hour_iso, "count": count})
+        return out
+    except Exception as e:
+        print(f"[sentry-sync] warn: events-stats fetch failed: {e}", file=sys.stderr)
+        return []
+
+
 def summarize(issues: list) -> dict:
     """Extrae summary + top issues."""
     by_level = Counter()
@@ -166,15 +204,19 @@ def main() -> int:
         return 0  # no fallar el workflow por errores de Sentry (el panel muestra el estado)
 
     summary = summarize(issues)
+    # v616 iter 5: agregar errorCountHistory (24h en buckets 1h) para
+    # que el panel calcule spike ratio via computeSentryRateSpike.
+    error_count_history = fetch_error_count_history(session)
     payload = {
         "status": "ok",
         **summary,
+        "errorCountHistory": error_count_history,
         "syncedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "errorMessage": None,
     }
     db.collection("app_config").document("sentry_issues").set(payload)
     print(f"[sentry-sync] wrote sentry_issues: {summary['totalUnresolved']} unresolved, "
-          f"levels={summary['byLevel']}")
+          f"levels={summary['byLevel']}, history={len(error_count_history)} buckets")
     return 0
 
 
