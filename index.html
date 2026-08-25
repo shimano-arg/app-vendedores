@@ -4184,7 +4184,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v620';
+const APP_VERSION = 'v621';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -4556,6 +4556,26 @@ function getStockDisponibleVenta(sku){
   return Number(whs['11'] || 0);
 }
 window.getStockDisponibleVenta = getStockDisponibleVenta;
+
+// v621 (2026-08-25): version NETA del disponible — descuenta backorder SAP
+// (SQs open que ya prometieron unidades a otros clientes). Usar en splitPedidoLine
+// al confirmar/editar, para no prometer al nuevo cliente unidades comprometidas
+// en SQs viejas. Bug reportado por Mariano: pedidos entraban a SAP con qty
+// completa aunque otro cliente tenia SQ open por parte del stock, generando
+// promise-what-you-cant-deliver.
+//
+// Formula: max(dep11 - backorderSAP, 0)
+//   dep11 = stock vendible fisico HOY (excluye dep 12 transito)
+//   backorderSAP = STOCK_BACKORDER[sku] (suma qty pendiente de todas las SQs
+//                  open en SAP para este SKU)
+function getStockDisponibleVentaNetSap(sku){
+  const raw = getStockDisponibleVenta(sku);
+  if (raw == null) return null;
+  const boSap = (typeof STOCK_BACKORDER === 'object' && STOCK_BACKORDER)
+    ? Number(STOCK_BACKORDER[String(sku).toUpperCase().trim()] || 0) : 0;
+  return Math.max(raw - boSap, 0);
+}
+window.getStockDisponibleVentaNetSap = getStockDisponibleVentaNetSap;
 
 // v369+: stock EN TRANSITO — solo warehouse 12. Retorna 0 si no hay o null si no hay datos.
 function getStockTransito(sku){
@@ -15567,7 +15587,9 @@ function persistPendingEntry(entry){
     let _linesEnriched;
     if (_reenrichFn) {
       const _opts = {
-        getDisp: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : null,
+        // v621 (2026-08-25): usar version NET del disponible (descuenta SAP backorder)
+        // para no prometer al cliente unidades comprometidas en SQs SAP viejas de otros.
+        getDisp: (typeof getStockDisponibleVentaNetSap === 'function') ? getStockDisponibleVentaNetSap : (typeof getStockDisponibleVenta === 'function' ? getStockDisponibleVenta : null),
         flagEnabled: (typeof window.isPedidoSplitEnabled === 'function') ? window.isPedidoSplitEnabled() : false,
       };
       _linesEnriched = (entry.lines || []).flatMap(l => _reenrichFn(l, _opts));
@@ -20606,7 +20628,9 @@ window.doConfirmPedido = function(){
       const _splitFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.splitPedidoLine);
       if (_splitFn) {
         return _splitFn(l, {
-          getDisp: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : null,
+          // v621 (2026-08-25): usar version NET del disponible (descuenta SAP backorder)
+          // para no prometer al cliente unidades comprometidas en SQs SAP viejas de otros.
+          getDisp: (typeof getStockDisponibleVentaNetSap === 'function') ? getStockDisponibleVentaNetSap : (typeof getStockDisponibleVenta === 'function' ? getStockDisponibleVenta : null),
           flagEnabled: (typeof window.isPedidoSplitEnabled === 'function') ? window.isPedidoSplitEnabled() : false,
         });
       }
