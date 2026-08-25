@@ -1,0 +1,46 @@
+name: Sync Sentry Issues
+
+# v613 (2026-08-24): panel de control iter 3. Syncea unresolved issues de
+# Sentry a Firestore (app_config/sentry_issues) para que el Panel de Control
+# (Mariano-only) muestre estado de errores runtime capturados en la app.
+#
+# Requiere secret SENTRY_AUTH_TOKEN (crear en sentry.io/settings/account/api/auth-tokens/
+# con scopes event:read + org:read). Si el secret no esta seteado, el script
+# escribe un doc "not_configured" y el panel muestra banner claro con
+# instrucciones. Cron sigue corriendo sin fallar.
+
+on:
+  schedule:
+    - cron: '3,18,33,48 * * * *'  # cada 15 min desfasado del sync GH Actions (:00 :05 :10...)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-sentry-issues
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        # v610 pins google-cloud-firestore/core/api-core: regresion Google 2026-08-24 sigue vigente.
+        run: pip install firebase-admin "google-cloud-firestore<2.29" "google-cloud-core<2.7" "google-api-core<2.35" requests
+
+      - name: Run sync
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG_SLUG: shimano
+          SENTRY_PROJECT_SLUG: app-vendedores
+        run: python scripts/sync_sentry_issues.py
