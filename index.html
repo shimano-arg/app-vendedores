@@ -4180,7 +4180,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v613';
+const APP_VERSION = 'v614';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24): feature flag para split de linea al crear/editar pedido.
@@ -17247,6 +17247,7 @@ function ensureAllListeners(){
   _try('stockSnapshotApp', () => ensureStockSnapshotAppListener());
   _try('ghActionsStatus', () => ensureGhActionsStatusListener());
   _try('sentryStatus', () => ensureSentryStatusListener());
+  _try('sapSyncState', () => ensureSapSyncStateListener());
   _try('priceList', () => ensurePriceListListener());
   _try('temporalPriceList', () => ensureTemporalPriceListListener());
   _try('approvedAltas', () => ensureApprovedAltasListener());
@@ -17885,6 +17886,24 @@ function ensureSentryStatusListener() {
       try { window.renderPanelControl(); } catch(_e){}
     }
   }, err => console.warn('sentry_issues listener', err));
+}
+
+// v614 iter 4 (2026-08-24): listener del doc sap_sync_state escrito por CF
+// syncSapInvoicesToApp cada 15 min. Alimenta card CF Invoice Sync del Panel.
+let unsubSapSyncState = null;
+window.SAP_SYNC_STATE = null;
+function ensureSapSyncStateListener() {
+  if (unsubSapSyncState || !currentUser || !fbDb) return;
+  const em = (currentUser.email || '').toLowerCase();
+  const isMariano = em === 'mariano.erbino@shimano.com.ar' || em === 'erbinomariano@gmail.com';
+  if (!isMariano || userRole !== 'admin') return;
+  unsubSapSyncState = fbDb.collection('app_config').doc('sap_sync_state').onSnapshot(snap => {
+    window.SAP_SYNC_STATE = snap.exists ? snap.data() : null;
+    const modal = document.getElementById('panel-control-modal');
+    if (modal && modal.classList.contains('open') && typeof window.renderPanelControl === 'function') {
+      try { window.renderPanelControl(); } catch(_e){}
+    }
+  }, err => console.warn('sap_sync_state listener', err));
 }
 
 // =====================================================================
@@ -20126,6 +20145,7 @@ function detachFirebaseListeners(){
   n += off('unsubStockSnapshotApp', unsubStockSnapshotApp, () => unsubStockSnapshotApp = null);
   n += off('unsubGhActionsStatus', unsubGhActionsStatus, () => unsubGhActionsStatus = null);
   n += off('unsubSentryStatus', unsubSentryStatus, () => unsubSentryStatus = null);
+  n += off('unsubSapSyncState', unsubSapSyncState, () => unsubSapSyncState = null);
   n += off('unsubPriceList', unsubPriceList, () => unsubPriceList = null);
   n += off('unsubTemporalPriceList', unsubTemporalPriceList, () => unsubTemporalPriceList = null);
   n += off('unsubVendorOverrides', unsubVendorOverrides, () => unsubVendorOverrides = null);
