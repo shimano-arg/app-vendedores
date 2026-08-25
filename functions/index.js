@@ -28,9 +28,9 @@ import { runDailyBackup } from './core/backup-core.js';
 import { runFifoAssign } from './core/fifo-assign-core.js';
 import { runGeminiOcr } from './core/gemini-ocr-core.js';
 import { syncSapInvoices } from './core/invoice-sync-core.js';
-import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
 import { handleSapProxy } from './core/sap-proxy-core.js';
+import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
 
 if (!getApps().length) initializeApp();
 
