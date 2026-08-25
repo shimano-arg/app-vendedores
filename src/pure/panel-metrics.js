@@ -427,3 +427,86 @@ export function computeSentryRateSpike(sentryDoc) {
     spikeAlert: alert,
   };
 }
+
+/**
+ * v625: summarize Firestore quota doc (app_config/firestore_quota).
+ *
+ * Compara uso 24h vs free tier limits. Health color:
+ * - green: max(ratio) <= 0.5 (menos de 50% en TODAS las metricas)
+ * - yellow: max(ratio) <= 0.8
+ * - red: cualquiera > 80%
+ * - unknown: sin doc, sin sync, o status=error
+ *
+ * @param {any} quotaDoc
+ * @returns {{
+ *   status: 'ok' | 'error' | 'unknown',
+ *   healthColor: 'green' | 'yellow' | 'red' | 'unknown',
+ *   reads24h: number,
+ *   writes24h: number,
+ *   deletes24h: number,
+ *   storageBytes: number,
+ *   readsPct: number,
+ *   writesPct: number,
+ *   deletesPct: number,
+ *   storagePct: number,
+ *   worstPct: number,
+ *   syncedAgoLabel: string,
+ *   errorMessage: string | null,
+ * }}
+ */
+export function summarizeFirestoreQuota(quotaDoc) {
+  if (!quotaDoc) {
+    return {
+      status: 'unknown',
+      healthColor: 'unknown',
+      reads24h: 0,
+      writes24h: 0,
+      deletes24h: 0,
+      storageBytes: 0,
+      readsPct: 0,
+      writesPct: 0,
+      deletesPct: 0,
+      storagePct: 0,
+      worstPct: 0,
+      syncedAgoLabel: 'sin datos',
+      errorMessage: null,
+    };
+  }
+  const status = quotaDoc.status || 'unknown';
+  const ft = quotaDoc.freeTier || {};
+  const readsQ = Number(ft.reads) || 50000;
+  const writesQ = Number(ft.writes) || 20000;
+  const deletesQ = Number(ft.deletes) || 20000;
+  const storageQ = Number(ft.storageBytes) || 1073741824;
+  const reads = Number(quotaDoc.reads24h) || 0;
+  const writes = Number(quotaDoc.writes24h) || 0;
+  const deletes = Number(quotaDoc.deletes24h) || 0;
+  const storage = Number(quotaDoc.storageBytes) || 0;
+  const readsPct = readsQ > 0 ? reads / readsQ : 0;
+  const writesPct = writesQ > 0 ? writes / writesQ : 0;
+  const deletesPct = deletesQ > 0 ? deletes / deletesQ : 0;
+  const storagePct = storageQ > 0 ? storage / storageQ : 0;
+  const worst = Math.max(readsPct, writesPct, deletesPct, storagePct);
+  /** @type {'green' | 'yellow' | 'red' | 'unknown'} */
+  let health = 'unknown';
+  if (status === 'ok') {
+    if (worst <= 0.5) health = 'green';
+    else if (worst <= 0.8) health = 'yellow';
+    else health = 'red';
+  }
+  return {
+    status,
+    healthColor: health,
+    reads24h: reads,
+    writes24h: writes,
+    deletes24h: deletes,
+    storageBytes: storage,
+    readsPct: Number((readsPct * 100).toFixed(1)),
+    writesPct: Number((writesPct * 100).toFixed(1)),
+    deletesPct: Number((deletesPct * 100).toFixed(1)),
+    storagePct: Number((storagePct * 100).toFixed(1)),
+    worstPct: Number((worst * 100).toFixed(1)),
+    syncedAgoLabel: formatAgeLabel(quotaDoc.syncedAt),
+    errorMessage: quotaDoc.errorMessage || null,
+  };
+}
