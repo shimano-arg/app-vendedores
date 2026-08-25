@@ -4184,7 +4184,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v617';
+const APP_VERSION = 'v618';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24): feature flag para split de linea al crear/editar pedido.
@@ -15309,25 +15309,45 @@ window.viewPedido = function(stage, key, idx){
       const pr = parseFloat(l.precio) || 0;
       totalU += q;
       subtotalCalc += q * pr;
-      const isSinStock = !!l.sinStock;
+      // v618 (2026-08-25): unificar sinStock legacy con state='BO' del schema v543+.
+      // Bug reportado por Mariano: pedido CHALPAC S.A. mostraba linea 22CATPRII420
+      // qty=2 en el modal Confirmado como si estuviera OK, pero la linea era
+      // state='BO' → NO se envio a SAP (E4C filter). El modal no lo distinguia
+      // visualmente y parecia diff SAP↔app. Ahora badge BACKORDER + row style
+      // rojo tenue para lineas BO/ASIG que quedaron en la app.
+      const isBoLine = l.state === 'BO';
+      const isAsigLine = l.state === 'ASIG';
+      const isInvoicedLine = l.state === 'invoiced';
+      const isSinStock = !!l.sinStock || isBoLine;
       // v408: si la linea trae faltantesQty (v407+ Excel), contar solo las
       // unidades faltantes reales. Sino, la qty completa (comportamiento viejo).
       if (isSinStock) sinStockUnits += (parseFloat(l.faltantesQty) || q);
       // Estilo condicional: fondo rojo tenue + border rojo si sin stock.
       const rowStyle = isSinStock
         ? 'grid-template-columns:70px 1fr 70px 50px;background:#fee2e2;border-left:3px solid #dc2626'
-        : 'grid-template-columns:70px 1fr 70px 50px';
-      const qtyColor = isSinStock ? '#991b1b' : '#166534';
+        : isAsigLine
+          ? 'grid-template-columns:70px 1fr 70px 50px;background:#f3e8ff;border-left:3px solid #7c3aed'
+          : 'grid-template-columns:70px 1fr 70px 50px';
+      const qtyColor = isSinStock ? '#991b1b' : (isAsigLine ? '#6b21a8' : '#166534');
       // v369+: si la linea sin stock tiene transitoQty (unidades en almacen 12
       // que van a llegar), mostrar badge extra ambar "🚚 N EN TRANSITO" al lado
       // del rojo — asi el vendedor sabe que el backorder no es "sin fecha",
       // hay mercaderia en camino que se puede reservar.
       let codeExtra = '';
-      if (isSinStock) {
+      if (isBoLine) {
+        // v618: badge BACKORDER APP (mas informativo que SIN STOCK generico).
+        codeExtra = ' <span style="background:#c2410c;color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Linea state=BO: NO se envio a SAP porque no habia stock al confirmar. Queda como backorder en la app hasta que entre stock (CF FIFO promueve a ASIG).">BACKORDER APP</span>';
+      } else if (isAsigLine) {
+        codeExtra = ' <span style="background:#7c3aed;color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Linea state=ASIG: stock asignado (fue BO, entro mercaderia). Espera aceptacion o reciclado.">ASIG</span>';
+      } else if (isInvoicedLine) {
+        codeExtra = ' <span style="background:#4b5563;color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Linea state=invoiced: facturada por SAP.">FACTURADO</span>';
+      } else if (isSinStock) {
+        // Legacy sinStock (v347+, pedidos pre-v543 sin state field).
         codeExtra = ' <span style="background:#dc2626;color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Sin stock disponible venta (whs 11) al confirmar">SIN STOCK</span>';
-        if (l.transitoQty && l.transitoQty > 0) {
-          codeExtra += ' <span style="background:#f59e0b;color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Hay unidades en almacen 12 (transito) que van a entrar - sirve para backorder con fecha estimada">&#128666; ' + l.transitoQty + ' EN TRANSITO</span>';
-        }
+      }
+      // v369+: transito badge extra si aplica (independiente de BO/sinStock).
+      if (isSinStock && l.transitoQty && l.transitoQty > 0) {
+        codeExtra += ' <span style="background:#f59e0b;color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Hay unidades en almacen 12 (transito) que van a entrar - sirve para backorder con fecha estimada">&#128666; ' + l.transitoQty + ' EN TRANSITO</span>';
       }
       html += '<div class="ped-line" style="' + rowStyle + '">';
       html += '<div class="pcode">' + escapeHtml(l.code) + codeExtra + '</div>';
