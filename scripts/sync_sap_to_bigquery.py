@@ -1093,6 +1093,40 @@ def sync_campania_snapshot_to_firestore(bq_client: bigquery.Client,
         log(f'[CAMPANIA_SNAP] DRY-RUN: {len(rows)} campanias listas para escribir')
         return 0
 
+    # v635 (2026-08-25): tambien fetchear v_campanias_ventas_detalle agregado
+    # por (campaign_id, item_code, card_code, card_name) para popular el chart
+    # de Graficos en el modal Campanas Activas. Cada campaign_snapshot doc
+    # incluye array 'detalle' con {sku, cardCode, tienda, cantidad, importe}.
+    detalle_query = """
+    SELECT
+      campaign_id,
+      item_code,
+      card_code,
+      card_name,
+      SUM(cantidad)          AS cantidad,
+      SUM(importe_linea_ars) AS importe_ars
+    FROM `app-vendedores-shimano.shimano_app.v_campanias_ventas_detalle`
+    GROUP BY campaign_id, item_code, card_code, card_name
+    ORDER BY campaign_id, cantidad DESC
+    """
+    detalle_rows = list(bq_client.query(detalle_query, location=BQ_LOCATION).result())
+    detalle_by_cid = {}
+    for row in detalle_rows:
+        d = dict(row.items())
+        cid = str(d['campaign_id'] or '').strip()
+        if not cid:
+            continue
+        if cid not in detalle_by_cid:
+            detalle_by_cid[cid] = []
+        detalle_by_cid[cid].append({
+            'sku': str(d.get('item_code') or ''),
+            'cardCode': str(d.get('card_code') or ''),
+            'tienda': str(d.get('card_name') or ''),
+            'cantidad': float(d.get('cantidad') or 0),
+            'importeArs': float(d.get('importe_ars') or 0),
+        })
+    log(f'[CAMPANIA_SNAP] detalle: {sum(len(v) for v in detalle_by_cid.values())} lineas en {len(detalle_by_cid)} campanias')
+
     coll = db.collection('campania_snapshot')
     batch = db.batch()
     written = 0
@@ -1117,6 +1151,8 @@ def sync_campania_snapshot_to_firestore(bq_client: bigquery.Client,
             'lineasFacturadas': int(d.get('lineas_facturadas') or 0),
             'pctCumplimiento':  float(d.get('pct_cumplimiento') or 0) if d.get('pct_cumplimiento') is not None else None,
             'activa':           bool(d.get('activa')),
+            # v635: array detalle para el modal Graficos.
+            'detalle':          detalle_by_cid.get(cid, []),
             'updatedAt':        firestore.SERVER_TIMESTAMP,
         }
         batch.set(coll.document(cid), payload)
