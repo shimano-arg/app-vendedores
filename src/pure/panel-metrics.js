@@ -129,6 +129,7 @@ export function computePedidosBreakdown(globalPedidos) {
 export function computeBackorderTotals(stockBackorder, stockBackorderApp) {
   const sap = stockBackorder || {};
   const app = stockBackorderApp || {};
+  /** @param {Record<string, number>} obj */
   const _sum = (obj) => {
     let s = 0;
     let n = 0;
@@ -176,8 +177,8 @@ export function computeStrictOverlap(globalPedidos) {
     }
     for (const group of bySku.values()) {
       if (group.length < 2) continue;
-      const hasSap = group.some((g) => SAP_STATES.has(g.state));
-      const hasApp = group.some((g) => APP_STATES.has(g.state));
+      const hasSap = group.some((/** @type {any} */ g) => SAP_STATES.has(g.state));
+      const hasApp = group.some((/** @type {any} */ g) => APP_STATES.has(g.state));
       if (hasSap && hasApp) {
         dupPedidoIds.add(p._fsId || p.id || 'unknown');
         break;
