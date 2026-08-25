@@ -2746,6 +2746,15 @@ window.saveMcAddr = async function (docId, btn) {
           }
         }
       }
+      // v626: marcar como edit manual para que sync_sap_to_firestore.py
+      // (cron 5 min) NO pise provincia/localidad. Mismo marker que usan
+      // saveMcProvisorioProvincia/Localidad. Root cause del bug reportado
+      // 2026-08-25: el user cargaba provincia desde tab SAP, refrescaba,
+      // y al minuto/s el sync SAP la volvia a vaciar porque el doc no
+      // tenia provinciaLocSource='manual'.
+      if (locChanged || provChanged) {
+        updatePayload.provinciaLocSource = 'manual';
+      }
       // Si la direccion / localidad / provincia cambiaron, limpiar lat/lng
       // para re-geocodificar con los datos nuevos.
       if (addrChanged || locChanged || provChanged) {
