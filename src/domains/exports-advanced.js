@@ -721,7 +721,7 @@ window.exportPowerBI = function () {
   const dimC = [];
   POINTS.forEach((p) => {
     const vm = vendorLookup[p.vendor];
-    p.clients.forEach((n) =>
+    p.clients.forEach((n) => {
       dimC.push({
         cliente: n,
         tipo: 'Cliente actual',
@@ -730,9 +730,9 @@ window.exportPowerBI = function () {
         departamento: p.dept || '',
         vendedor_key: p.vendor || '',
         zona: vm ? vm.zone : '',
-      })
-    );
-    p.prospects.forEach((n) =>
+      });
+    });
+    p.prospects.forEach((n) => {
       dimC.push({
         cliente: n,
         tipo: 'Prospecto',
@@ -741,8 +741,8 @@ window.exportPowerBI = function () {
         departamento: p.dept || '',
         vendedor_key: p.vendor || '',
         zona: vm ? vm.zone : '',
-      })
-    );
+      });
+    });
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dimC), 'Dim_Cliente');
 
@@ -835,7 +835,7 @@ window.exportML = function () {
   const universe = [];
   POINTS.forEach((p) => {
     const vm = vendorLookup[p.vendor];
-    p.clients.forEach((n) =>
+    p.clients.forEach((n) => {
       universe.push({
         cliente: n,
         tipo: 'cliente_actual',
@@ -846,9 +846,9 @@ window.exportML = function () {
         zona: vm ? vm.zone : '',
         lat: p.lat,
         lon: p.lon,
-      })
-    );
-    p.prospects.forEach((n) =>
+      });
+    });
+    p.prospects.forEach((n) => {
       universe.push({
         cliente: n,
         tipo: 'prospecto',
@@ -859,8 +859,8 @@ window.exportML = function () {
         zona: vm ? vm.zone : '',
         lat: p.lat,
         lon: p.lon,
-      })
-    );
+      });
+    });
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(universe), 'universo_clientes');
 
