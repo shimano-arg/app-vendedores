@@ -42,5 +42,5 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG_SLUG: shimano
-          SENTRY_PROJECT_SLUG: app-vendedores
+          SENTRY_PROJECT_SLUG: javascript
         run: python scripts/sync_sentry_issues.py
