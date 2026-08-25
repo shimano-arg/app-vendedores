@@ -262,3 +262,59 @@ export function summarizeGhActionsStatus(ghDoc) {
     syncedAgoLabel: formatAgeLabel(ghDoc.syncedAt),
   };
 }
+
+/**
+ * Resume estado de Sentry issues doc (`app_config/sentry_issues`).
+ * Escrito por scripts/sync_sentry_issues.py cada 15 min.
+ *
+ * @param {any} sentryDoc doc completo o null si listener no llego
+ * @returns {{
+ *   status: 'ok' | 'not_configured' | 'error' | 'unknown',
+ *   healthColor: 'green' | 'yellow' | 'red' | 'unknown',
+ *   totalUnresolved: number,
+ *   errorCount: number,
+ *   warningCount: number,
+ *   recentIssues: any[],
+ *   syncedAgoLabel: string,
+ *   errorMessage: string | null,
+ * }}
+ */
+export function summarizeSentryStatus(sentryDoc) {
+  if (!sentryDoc) {
+    return {
+      status: 'unknown',
+      healthColor: 'unknown',
+      totalUnresolved: 0,
+      errorCount: 0,
+      warningCount: 0,
+      recentIssues: [],
+      syncedAgoLabel: 'sin datos',
+      errorMessage: null,
+    };
+  }
+  const status = sentryDoc.status || 'unknown';
+  const byLevel = sentryDoc.byLevel || {};
+  const errorCount = Number(byLevel.error || byLevel.fatal || 0);
+  const warningCount = Number(byLevel.warning || 0);
+  const total = Number(sentryDoc.totalUnresolved || 0);
+
+  /** @type {'green' | 'yellow' | 'red' | 'unknown'} */
+  let healthColor = 'green';
+  if (status === 'not_configured') healthColor = 'unknown';
+  else if (status === 'error')
+    healthColor = 'yellow'; // sync fallando pero no rompe app
+  else if (errorCount > 5) healthColor = 'red';
+  else if (errorCount > 0 || warningCount > 10) healthColor = 'yellow';
+  else healthColor = 'green';
+
+  return {
+    status,
+    healthColor,
+    totalUnresolved: total,
+    errorCount,
+    warningCount,
+    recentIssues: Array.isArray(sentryDoc.recentIssues) ? sentryDoc.recentIssues : [],
+    syncedAgoLabel: formatAgeLabel(sentryDoc.syncedAt),
+    errorMessage: sentryDoc.errorMessage || null,
+  };
+}

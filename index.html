@@ -4180,7 +4180,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v612';
+const APP_VERSION = 'v613';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24): feature flag para split de linea al crear/editar pedido.
@@ -17246,6 +17246,7 @@ function ensureAllListeners(){
   _try('stockSnapshot', () => ensureStockSnapshotListener());
   _try('stockSnapshotApp', () => ensureStockSnapshotAppListener());
   _try('ghActionsStatus', () => ensureGhActionsStatusListener());
+  _try('sentryStatus', () => ensureSentryStatusListener());
   _try('priceList', () => ensurePriceListListener());
   _try('temporalPriceList', () => ensureTemporalPriceListListener());
   _try('approvedAltas', () => ensureApprovedAltasListener());
@@ -17866,6 +17867,24 @@ function ensureGhActionsStatusListener() {
       try { window.renderPanelControl(); } catch(_e){}
     }
   }, err => console.warn('gh_actions_status listener', err));
+}
+
+// v613 iter 3 (2026-08-24): listener del doc sentry_issues escrito por
+// scripts/sync_sentry_issues.py cada 15 min. Mismo gate Mariano-admin.
+let unsubSentryStatus = null;
+window.SENTRY_STATUS = null;
+function ensureSentryStatusListener() {
+  if (unsubSentryStatus || !currentUser || !fbDb) return;
+  const em = (currentUser.email || '').toLowerCase();
+  const isMariano = em === 'mariano.erbino@shimano.com.ar' || em === 'erbinomariano@gmail.com';
+  if (!isMariano || userRole !== 'admin') return;
+  unsubSentryStatus = fbDb.collection('app_config').doc('sentry_issues').onSnapshot(snap => {
+    window.SENTRY_STATUS = snap.exists ? snap.data() : null;
+    const modal = document.getElementById('panel-control-modal');
+    if (modal && modal.classList.contains('open') && typeof window.renderPanelControl === 'function') {
+      try { window.renderPanelControl(); } catch(_e){}
+    }
+  }, err => console.warn('sentry_issues listener', err));
 }
 
 // =====================================================================
@@ -20106,6 +20125,7 @@ function detachFirebaseListeners(){
   n += off('unsubStockSnapshot', unsubStockSnapshot, () => unsubStockSnapshot = null);
   n += off('unsubStockSnapshotApp', unsubStockSnapshotApp, () => unsubStockSnapshotApp = null);
   n += off('unsubGhActionsStatus', unsubGhActionsStatus, () => unsubGhActionsStatus = null);
+  n += off('unsubSentryStatus', unsubSentryStatus, () => unsubSentryStatus = null);
   n += off('unsubPriceList', unsubPriceList, () => unsubPriceList = null);
   n += off('unsubTemporalPriceList', unsubTemporalPriceList, () => unsubTemporalPriceList = null);
   n += off('unsubVendorOverrides', unsubVendorOverrides, () => unsubVendorOverrides = null);

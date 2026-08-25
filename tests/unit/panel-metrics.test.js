@@ -9,6 +9,7 @@ import {
   filterOpsLogRecent,
   formatAgeLabel,
   summarizeGhActionsStatus,
+  summarizeSentryStatus,
 } from '../../src/pure/panel-metrics.js';
 
 describe('canViewPanel — gate estricto', () => {
@@ -313,6 +314,89 @@ describe('summarizeGhActionsStatus — iter 2', () => {
     const s = summarizeGhActionsStatus(doc);
     expect(s.criticalWorkflows[0].name).toBe('Z'); // failing primero
     expect(s.criticalWorkflows[1].name).toBe('A');
+  });
+});
+
+describe('summarizeSentryStatus — iter 3', () => {
+  it('doc null → unknown', () => {
+    const s = summarizeSentryStatus(null);
+    expect(s.status).toBe('unknown');
+    expect(s.healthColor).toBe('unknown');
+    expect(s.totalUnresolved).toBe(0);
+  });
+
+  it('status=not_configured → unknown color + retorna errorMessage', () => {
+    const s = summarizeSentryStatus({
+      status: 'not_configured',
+      errorMessage: 'SENTRY_AUTH_TOKEN no seteado',
+      totalUnresolved: 0,
+      byLevel: {},
+      recentIssues: [],
+      syncedAt: '2026-08-24T20:00:00Z',
+    });
+    expect(s.status).toBe('not_configured');
+    expect(s.healthColor).toBe('unknown');
+    expect(s.errorMessage).toContain('SENTRY_AUTH_TOKEN');
+  });
+
+  it('status=error → yellow (sync fallo, app OK)', () => {
+    const s = summarizeSentryStatus({
+      status: 'error',
+      errorMessage: 'Sentry auth failed (403)',
+    });
+    expect(s.healthColor).toBe('yellow');
+  });
+
+  it('sin errores → green', () => {
+    const s = summarizeSentryStatus({
+      status: 'ok',
+      byLevel: {},
+      totalUnresolved: 0,
+      recentIssues: [],
+      syncedAt: '2026-08-24T20:00:00Z',
+    });
+    expect(s.healthColor).toBe('green');
+  });
+
+  it('1-5 errores o >10 warnings → yellow', () => {
+    expect(
+      summarizeSentryStatus({
+        status: 'ok',
+        byLevel: { error: 3, warning: 2 },
+      }).healthColor
+    ).toBe('yellow');
+    expect(
+      summarizeSentryStatus({
+        status: 'ok',
+        byLevel: { warning: 15 },
+      }).healthColor
+    ).toBe('yellow');
+  });
+
+  it('>5 errores → red', () => {
+    const s = summarizeSentryStatus({
+      status: 'ok',
+      byLevel: { error: 10, warning: 20 },
+      totalUnresolved: 30,
+      recentIssues: [],
+    });
+    expect(s.healthColor).toBe('red');
+    expect(s.errorCount).toBe(10);
+    expect(s.warningCount).toBe(20);
+  });
+
+  it('recentIssues preservado', () => {
+    const issues = [
+      { id: '1', title: 'Test error', level: 'error', count: 5 },
+      { id: '2', title: 'Test warn', level: 'warning', count: 2 },
+    ];
+    const s = summarizeSentryStatus({
+      status: 'ok',
+      byLevel: { error: 1, warning: 1 },
+      totalUnresolved: 2,
+      recentIssues: issues,
+    });
+    expect(s.recentIssues).toEqual(issues);
   });
 });
 

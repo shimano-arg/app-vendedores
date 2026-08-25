@@ -134,6 +134,46 @@ function _renderInfraSection() {
           .join('\n')
       : 'Todos los workflows criticos OK';
 
+  // v613 iter 3: card Sentry issues. Lee de window.SENTRY_STATUS. Doc escrito
+  // cada 15 min por scripts/sync_sentry_issues.py via workflow sync-sentry-issues.yml.
+  const sentryDoc = window.SENTRY_STATUS || null;
+  const sentry = p.summarizeSentryStatus
+    ? p.summarizeSentryStatus(sentryDoc)
+    : {
+        status: 'unknown',
+        healthColor: 'unknown',
+        totalUnresolved: 0,
+        errorCount: 0,
+        warningCount: 0,
+        syncedAgoLabel: 'sin datos',
+      };
+  let sentryMain;
+  let sentrySub;
+  let sentryTooltip;
+  if (sentry.status === 'not_configured') {
+    sentryMain = 'no configurado';
+    sentrySub = 'requiere SENTRY_AUTH_TOKEN';
+    sentryTooltip =
+      sentry.errorMessage || 'Crear token en sentry.io/settings/account/api/auth-tokens/';
+  } else if (sentry.status === 'error') {
+    sentryMain = 'sync error';
+    sentrySub = sentry.syncedAgoLabel;
+    sentryTooltip = sentry.errorMessage || 'error desconocido';
+  } else if (sentry.status === 'ok') {
+    sentryMain = sentry.totalUnresolved + ' unresolved';
+    sentrySub =
+      sentry.errorCount +
+      ' errors / ' +
+      sentry.warningCount +
+      ' warnings · ' +
+      sentry.syncedAgoLabel;
+    sentryTooltip = 'Ultimas 24h no resueltos. Panel muestra top 20 abajo.';
+  } else {
+    sentryMain = 'sin sync';
+    sentrySub = 'esperando primer cron (~15 min)';
+    sentryTooltip = 'Placeholder';
+  }
+
   return _sectionWrap(
     'Infraestructura',
     _hCard(
@@ -144,14 +184,97 @@ function _renderInfraSection() {
       'Ultima actualizacion del stock (dep 11 disp + backorderBySku). Verde <30min, amarillo <2h, rojo >2h.'
     ) +
       _hCard('GitHub Actions', gh.healthColor, ghMain, ghSub, ghTooltip) +
-      _hCard(
-        'Cloud Functions',
-        'unknown',
-        'pendiente (iter 3)',
-        'Last invocations',
-        'Placeholder para iter 3'
-      )
+      _hCard('Sentry Issues', sentry.healthColor, sentryMain, sentrySub, sentryTooltip)
   );
+}
+
+/**
+ * Renderiza tabla de top Sentry issues cuando hay datos.
+ */
+function _renderSentryDetail() {
+  const p = _pure();
+  const sentryDoc = window.SENTRY_STATUS || null;
+  if (!sentryDoc) return '';
+  const s = p.summarizeSentryStatus ? p.summarizeSentryStatus(sentryDoc) : null;
+  if (!s) return '';
+
+  // Si esta not_configured o error, mostrar banner con el mensaje.
+  if (s.status === 'not_configured' || s.status === 'error') {
+    const bannerColor = s.status === 'error' ? '#fef2f2' : '#f8fafc';
+    const borderColor = s.status === 'error' ? '#fecaca' : '#e2e8f0';
+    const textColor = s.status === 'error' ? '#991b1b' : '#475569';
+    return (
+      '<div class="pc-section" style="margin-bottom:24px">' +
+      '<h3 style="margin:0 0 12px 0;font-size:14px;color:#0f172a;font-weight:800;text-transform:uppercase;letter-spacing:.5px">Sentry</h3>' +
+      '<div style="background:' +
+      bannerColor +
+      ';border:1px solid ' +
+      borderColor +
+      ';border-radius:6px;padding:12px 16px;font-size:12px;color:' +
+      textColor +
+      '">' +
+      '<b>' +
+      (s.status === 'error' ? 'Sync Error' : 'No configurado') +
+      '</b><br>' +
+      _escHtml(s.errorMessage || '') +
+      '</div></div>'
+    );
+  }
+  if (s.status !== 'ok' || !s.recentIssues.length) return '';
+
+  let html =
+    '<div class="pc-section" style="margin-bottom:24px">' +
+    '<h3 style="margin:0 0 12px 0;font-size:14px;color:#0f172a;font-weight:800;text-transform:uppercase;letter-spacing:.5px">Sentry — Top issues (24h)</h3>' +
+    '<div style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden">' +
+    '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
+    '<thead><tr style="background:#f1f5f9">' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Nivel</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Titulo</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Ocurrencias</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Usuarios</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Ultima vez</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Link</th>' +
+    '</tr></thead><tbody>';
+  for (const it of s.recentIssues) {
+    const lvl = String(it.level || 'unknown').toLowerCase();
+    let lvlColor = HEALTH_COLORS.unknown;
+    if (lvl === 'error' || lvl === 'fatal') lvlColor = HEALTH_COLORS.red;
+    else if (lvl === 'warning') lvlColor = HEALTH_COLORS.yellow;
+    else if (lvl === 'info') lvlColor = HEALTH_COLORS.green;
+    const ageLabel = p.formatAgeLabel ? p.formatAgeLabel(it.lastSeen) : '-';
+    const urlHtml = it.permalink
+      ? '<a href="' +
+        _escHtml(it.permalink) +
+        '" target="_blank" rel="noopener" style="color:#1e40af;text-decoration:underline">' +
+        _escHtml(it.shortId || 'ver') +
+        '</a>'
+      : '-';
+    html +=
+      '<tr style="border-top:1px solid #f1f5f9">' +
+      '<td style="padding:5px 8px;color:' +
+      lvlColor +
+      ';font-weight:700;text-transform:uppercase">' +
+      _escHtml(lvl) +
+      '</td>' +
+      '<td style="padding:5px 8px;color:#0f172a;font-weight:500;max-width:400px">' +
+      _escHtml(it.title || '-') +
+      '</td>' +
+      '<td style="padding:5px 8px;color:#64748b">' +
+      it.count +
+      '</td>' +
+      '<td style="padding:5px 8px;color:#64748b">' +
+      it.userCount +
+      '</td>' +
+      '<td style="padding:5px 8px;color:#64748b">' +
+      _escHtml(ageLabel) +
+      '</td>' +
+      '<td style="padding:5px 8px">' +
+      urlHtml +
+      '</td>' +
+      '</tr>';
+  }
+  html += '</tbody></table></div></div>';
+  return html;
 }
 
 /**
@@ -380,6 +503,7 @@ window.renderPanelControl = function () {
   let html = '<div style="padding:16px 20px">';
   html += _renderInfraSection();
   html += _renderGhActionsDetail();
+  html += _renderSentryDetail();
   html += _renderPedidosSection();
   html += _renderBackorderSection();
   html += _renderOpsLogSection();
