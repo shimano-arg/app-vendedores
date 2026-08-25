@@ -4184,7 +4184,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v618';
+const APP_VERSION = 'v619';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24): feature flag para split de linea al crear/editar pedido.
@@ -9917,30 +9917,38 @@ function _applyBackordersMode(mode){
 // contando SKUs distintos (no lineas) en cada categoria segun stock actual.
 // Se llama desde ensureBackordersListener + desde el listener de stock_snapshot.
 function _updateBackorderButtonCounts(){
-  // v572 + v606: contar SKUs distintos.
-  //   Backorder (urgente) = SAP SKUs SIN stock + APP SKUs con state='BO' (unique).
-  //   STOCK ASIG. (v606, 2026-08-24) = SOLO APP SKUs con state='ASIG' (unique).
-  //     Antes incluia SAP SKUs con stock (semantica "puedo despachar hoy"), pero
-  //     eso confundia porque STOCK ASIG. deberia significar "eran BO y ahora
-  //     tienen stock", no "cualquier SQ SAP con stock". Reportado por Mariano.
+  // v619 (2026-08-25): SKU-level classification matching user mental model.
+  //   BACKORDER (urgente) = SKUs con dispSap = 0 (SIN stock, urgente importar)
+  //   STOCK ASIG. = SKUs con dispSap > 0 (tienen stock, avisar clientes que esperaban)
+  //
+  // Cambio vs v606: STOCK ASIG ya no filtra por state='ASIG' genuino. Ahora
+  // cualquier SKU con dispSap > 0 Y demanda APP-source (state BO/ASIG con
+  // qtyOpen>0) aparece. Coherente con el modal.
+  //
+  // Bug reportado por Mariano 2026-08-25: 22CATPRII420 (dispSap=1) aparecia
+  // en BACKORDER porque CHALPAC pidio 2 y solo 1 asignable → el modal daba
+  // qtyBackorder=1. Ahora el SKU va directo a STOCK ASIG porque tiene stock.
   const skusUrgente = new Set();
   const skusAsig = new Set();
+  const _hasStock = (sku) => {
+    const stkD = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(sku) || 0) : 0;
+    return stkD > 0;
+  };
   backorderLines.forEach(ln => {
     const sku = ln.sku || '';
     if (!sku) return;
-    const stkD = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(sku) || 0) : 0;
-    // v606: SAP-source ya NO cuenta para STOCK ASIG. Solo cuenta para BACKORDER
-    // cuando no tiene stock (SQs urgentes sin reposicion).
-    if (stkD <= 0) skusUrgente.add(sku);
+    if (_hasStock(sku)) skusAsig.add(sku);
+    else skusUrgente.add(sku);
   });
   if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
     for (const p of globalPedidos) {
       if (!p || !Array.isArray(p.lines)) continue;
       for (const l of p.lines) {
         if (!l || !l.code || Number(l.qtyOpen || 0) <= 0) continue;
+        if (l.state !== 'BO' && l.state !== 'ASIG') continue;
         const sku = String(l.code).toUpperCase();
-        if (l.state === 'BO') skusUrgente.add(sku);
-        else if (l.state === 'ASIG') skusAsig.add(sku);
+        if (_hasStock(sku)) skusAsig.add(sku);
+        else skusUrgente.add(sku);
       }
     }
   }
@@ -10546,22 +10554,34 @@ window.renderBackordersTab = function(){
       restante -= asignable;
     }
   });
-  // v576 FASE 3 — Filtrar clientes por modo y ajustar qty display.
-  //   'asignacion' (STOCK ASIG.) -> v606 SOLO APP-source state='ASIG' (genuinos
-  //     promovidos del backorder por CF E4.5). Antes incluia SAP-source con
-  //     stock disp (semantica "puedo despachar hoy"), pero eso confundia porque
-  //     STOCK ASIG. deberia significar "eran BO y ahora tienen stock", no
-  //     "cualquier SQ SAP con stock". Reportado por Mariano 2026-08-24 (ANA
-  //     LORENA FUENTES con SQ 2000089 aparecia en STOCK ASIG sin haber sido BO).
-  //   'urgente' (BACKORDER)      -> mostrar clientes con qtyBackorder > 0 (SAP + APP-BO).
+  // v619 FASE 3 — Split SKU-level (matches user mental model, 2026-08-25):
+  //   'asignacion' (STOCK ASIG.) -> SKUs con dispSap > 0 (hay stock para avisar
+  //     a los clientes que lo tenian pedido). Ademas historicamente v606: solo
+  //     APP-source state='ASIG' genuinos entraban aca. Ahora es SKU-level:
+  //     TODOS los clientes APP con demanda del SKU aparecen si dispSap > 0.
+  //   'urgente' (BACKORDER) -> SKUs con dispSap = 0 (sin stock, urgentes de
+  //     importar). Muestra todos los clientes APP con demanda pendiente + los
+  //     SAP-source pending.
+  //
+  // Bug reportado por Mariano 2026-08-25: 22CATPRII420 (dispSap=1, CHALPAC
+  // pidio 2u) aparecia en BACKORDER con card verde "1 disponible en dep 11"
+  // — confuso porque el SKU SI tiene stock, solo que insuficiente. Ahora
+  // aparece en STOCK ASIG (SKU con stock, avisar). El backorder aparece
+  // solo si dispSap = 0.
   Object.values(skuMap).forEach(g => {
     const isAsig = (backordersMode === 'asignacion');
-    if (isAsig) {
-      g.clientes = g.clientes.filter(c => c.source === 'app' && c.state === 'ASIG');
-      g.clientes.forEach(c => { c.pendiente = c.qtyAsignada; });
+    const dispSap = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(g.sku) || 0) : 0;
+    const skuHasStock = dispSap > 0;
+    // SKU-level filter: si tiene stock va a ASIG, sino a BACKORDER.
+    // Dentro del modal correspondiente, mostrar TODOS los clientes con demanda.
+    if (isAsig !== skuHasStock) {
+      g.clientes = []; // este SKU no corresponde a este modal
     } else {
-      g.clientes = g.clientes.filter(c => c.qtyBackorder > 0);
-      g.clientes.forEach(c => { c.pendiente = c.qtyBackorder; });
+      // Filtrar solo clientes con demanda relevante (pendiente > 0).
+      // Para ASIG: mostrar la pendiente original (lo que el cliente pidio).
+      // Para BACKORDER: idem.
+      g.clientes = g.clientes.filter(c => (c.pendiente || 0) > 0);
+      // No modificar c.pendiente — mostrar la qty original pedida.
     }
     g.totalPendiente = g.clientes.reduce((s, c) => s + (c.pendiente || 0), 0);
   });
