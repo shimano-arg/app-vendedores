@@ -4180,7 +4180,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v611';
+const APP_VERSION = 'v612';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24): feature flag para split de linea al crear/editar pedido.
@@ -17245,6 +17245,7 @@ function ensureAllListeners(){
   _try('vendorOverrides', () => ensureVendorOverridesListener());
   _try('stockSnapshot', () => ensureStockSnapshotListener());
   _try('stockSnapshotApp', () => ensureStockSnapshotAppListener());
+  _try('ghActionsStatus', () => ensureGhActionsStatusListener());
   _try('priceList', () => ensurePriceListListener());
   _try('temporalPriceList', () => ensureTemporalPriceListListener());
   _try('approvedAltas', () => ensureApprovedAltasListener());
@@ -17845,6 +17846,27 @@ let unsubStockSnapshot = null;
 // v551+ (bugfix E5 UI merge): listener separado para stock_snapshot_app
 // (doc que E3 escribe en active mode, NO tocado por sync_sap_to_firestore.py).
 let unsubStockSnapshotApp = null;
+
+// v612 iter 2 (2026-08-24): listener del doc gh_actions_status escrito por
+// scripts/sync_gh_actions_status.py cada 5 min. Alimenta el Panel de Control
+// (Mariano-only). Se activa solo para Mariano admin — no gastamos snapshot
+// reads en usuarios que no lo van a ver.
+let unsubGhActionsStatus = null;
+window.GH_ACTIONS_STATUS = null;
+function ensureGhActionsStatusListener() {
+  if (unsubGhActionsStatus || !currentUser || !fbDb) return;
+  const em = (currentUser.email || '').toLowerCase();
+  const isMariano = em === 'mariano.erbino@shimano.com.ar' || em === 'erbinomariano@gmail.com';
+  if (!isMariano || userRole !== 'admin') return;
+  unsubGhActionsStatus = fbDb.collection('app_config').doc('gh_actions_status').onSnapshot(snap => {
+    window.GH_ACTIONS_STATUS = snap.exists ? snap.data() : null;
+    // Re-render panel si esta abierto para que refresque en vivo.
+    const modal = document.getElementById('panel-control-modal');
+    if (modal && modal.classList.contains('open') && typeof window.renderPanelControl === 'function') {
+      try { window.renderPanelControl(); } catch(_e){}
+    }
+  }, err => console.warn('gh_actions_status listener', err));
+}
 
 // =====================================================================
 // MASTER DE PRODUCTOS - buscador visual (v239+)
@@ -20083,6 +20105,7 @@ function detachFirebaseListeners(){
   n += off('unsubProductCatalog', unsubProductCatalog, () => unsubProductCatalog = null);
   n += off('unsubStockSnapshot', unsubStockSnapshot, () => unsubStockSnapshot = null);
   n += off('unsubStockSnapshotApp', unsubStockSnapshotApp, () => unsubStockSnapshotApp = null);
+  n += off('unsubGhActionsStatus', unsubGhActionsStatus, () => unsubGhActionsStatus = null);
   n += off('unsubPriceList', unsubPriceList, () => unsubPriceList = null);
   n += off('unsubTemporalPriceList', unsubTemporalPriceList, () => unsubTemporalPriceList = null);
   n += off('unsubVendorOverrides', unsubVendorOverrides, () => unsubVendorOverrides = null);

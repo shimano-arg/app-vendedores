@@ -104,6 +104,36 @@ function _renderInfraSection() {
     ? p.computeHealthStatus(stockUpd, { greenMaxMinutes: 30, yellowMaxMinutes: 120 })
     : 'unknown';
   const stockLabel = p.formatAgeLabel ? p.formatAgeLabel(stockUpd) : 'sin datos';
+
+  // v612 iter 2: card GitHub Actions status. Lee de window.GH_ACTIONS_STATUS
+  // (populado por listener en index.html). Doc escrito cada 5 min por
+  // scripts/sync_gh_actions_status.py via workflow sync-gh-actions-status.yml.
+  const ghDoc = window.GH_ACTIONS_STATUS || null;
+  const gh = p.summarizeGhActionsStatus
+    ? p.summarizeGhActionsStatus(ghDoc)
+    : {
+        healthColor: 'unknown',
+        totalWorkflows: 0,
+        criticalFailingCount: 0,
+        syncedAgoLabel: 'sin datos',
+      };
+  const ghMain = ghDoc
+    ? gh.criticalFailingCount === 0
+      ? '0 fallando'
+      : gh.criticalFailingCount + ' fallando'
+    : 'sin sync todavia';
+  const ghSub = ghDoc
+    ? gh.totalWorkflows + ' workflows · sync ' + gh.syncedAgoLabel
+    : 'esperando primer cron (~5 min)';
+  const ghTooltip =
+    gh.criticalFailingCount > 0
+      ? 'Workflows criticos fallando:\n' +
+        gh.criticalWorkflows
+          .filter((w) => w.conclusion === 'failure')
+          .map((w) => '- ' + w.name)
+          .join('\n')
+      : 'Todos los workflows criticos OK';
+
   return _sectionWrap(
     'Infraestructura',
     _hCard(
@@ -113,21 +143,85 @@ function _renderInfraSection() {
       'sync_sap_to_firestore.py cada 5 min',
       'Ultima actualizacion del stock (dep 11 disp + backorderBySku). Verde <30min, amarillo <2h, rojo >2h.'
     ) +
-      _hCard(
-        'GitHub Actions',
-        'unknown',
-        'pendiente (iter 2)',
-        'CF sync + card en v612',
-        'Placeholder para iter 2'
-      ) +
+      _hCard('GitHub Actions', gh.healthColor, ghMain, ghSub, ghTooltip) +
       _hCard(
         'Cloud Functions',
         'unknown',
-        'pendiente (iter 2)',
+        'pendiente (iter 3)',
         'Last invocations',
-        'Placeholder para iter 2'
+        'Placeholder para iter 3'
       )
   );
+}
+
+/**
+ * Renderiza detalle de workflows criticos como lista debajo del panel principal.
+ * Solo se muestra si hay al menos 1 workflow con datos.
+ */
+function _renderGhActionsDetail() {
+  const p = _pure();
+  const ghDoc = window.GH_ACTIONS_STATUS || null;
+  if (!ghDoc || !ghDoc.workflows) return '';
+  const gh = p.summarizeGhActionsStatus ? p.summarizeGhActionsStatus(ghDoc) : null;
+  if (!gh || !gh.criticalWorkflows.length) return '';
+
+  let html =
+    '<div class="pc-section" style="margin-bottom:24px">' +
+    '<h3 style="margin:0 0 12px 0;font-size:14px;color:#0f172a;font-weight:800;text-transform:uppercase;letter-spacing:.5px">Workflows criticos</h3>' +
+    '<div style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden">' +
+    '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
+    '<thead><tr style="background:#f1f5f9">' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Workflow</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Estado</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Ultima ejecucion</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Fallos recientes</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Link</th>' +
+    '</tr></thead><tbody>';
+  for (const w of gh.criticalWorkflows) {
+    let statusColor = HEALTH_COLORS.green;
+    let statusLabel = 'OK';
+    if (w.conclusion === 'failure') {
+      statusColor = HEALTH_COLORS.red;
+      statusLabel = 'FAILURE';
+    } else if (w.status === 'in_progress' || w.status === 'queued') {
+      statusColor = HEALTH_COLORS.yellow;
+      statusLabel = String(w.status).toUpperCase();
+    } else if (w.conclusion) {
+      statusLabel = String(w.conclusion).toUpperCase();
+    }
+    const ageLabel = p.formatAgeLabel ? p.formatAgeLabel(w.lastRunAt) : '-';
+    const urlHtml = w.url
+      ? '<a href="' +
+        _escHtml(w.url) +
+        '" target="_blank" rel="noopener" style="color:#1e40af;text-decoration:underline">ver</a>'
+      : '-';
+    html +=
+      '<tr style="border-top:1px solid #f1f5f9">' +
+      '<td style="padding:5px 8px;color:#0f172a;font-weight:600">' +
+      _escHtml(w.name) +
+      '</td>' +
+      '<td style="padding:5px 8px"><span style="color:' +
+      statusColor +
+      ';font-weight:800">&#9679; ' +
+      _escHtml(statusLabel) +
+      '</span></td>' +
+      '<td style="padding:5px 8px;color:#64748b">' +
+      _escHtml(ageLabel) +
+      '</td>' +
+      '<td style="padding:5px 8px;color:' +
+      (w.recentFailures > 5 ? '#dc2626' : w.recentFailures > 0 ? '#d97706' : '#64748b') +
+      ';font-weight:' +
+      (w.recentFailures > 0 ? '700' : '400') +
+      '">' +
+      w.recentFailures +
+      ' / 20 ult.</td>' +
+      '<td style="padding:5px 8px">' +
+      urlHtml +
+      '</td>' +
+      '</tr>';
+  }
+  html += '</tbody></table></div></div>';
+  return html;
 }
 
 function _renderPedidosSection() {
@@ -285,6 +379,7 @@ window.renderPanelControl = function () {
   if (!body) return;
   let html = '<div style="padding:16px 20px">';
   html += _renderInfraSection();
+  html += _renderGhActionsDetail();
   html += _renderPedidosSection();
   html += _renderBackorderSection();
   html += _renderOpsLogSection();

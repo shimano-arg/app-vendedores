@@ -201,3 +201,64 @@ export function filterOpsLogRecent(opsLogCache, limit = 20) {
   if (!Array.isArray(opsLogCache)) return [];
   return opsLogCache.slice(0, limit);
 }
+
+/**
+ * Resume estado de GitHub Actions doc (`app_config/gh_actions_status`).
+ * Vino escrito por scripts/sync_gh_actions_status.py cada 5 min.
+ *
+ * @param {any} ghDoc doc completo o null si listener aun no llegó
+ * @returns {{
+ *   healthColor: 'green' | 'yellow' | 'red' | 'unknown',
+ *   totalWorkflows: number,
+ *   criticalFailingCount: number,
+ *   criticalWorkflows: any[],
+ *   syncedAgoLabel: string,
+ * }}
+ */
+export function summarizeGhActionsStatus(ghDoc) {
+  if (!ghDoc || !ghDoc.workflows) {
+    return {
+      healthColor: 'unknown',
+      totalWorkflows: 0,
+      criticalFailingCount: 0,
+      criticalWorkflows: [],
+      syncedAgoLabel: formatAgeLabel(ghDoc ? ghDoc.syncedAt : null),
+    };
+  }
+  const wfs = ghDoc.workflows || {};
+  const critical = [];
+  let failing = 0;
+  for (const name of Object.keys(wfs)) {
+    const w = wfs[name] || {};
+    if (!w.isCritical) continue;
+    critical.push({
+      name,
+      status: w.lastRunStatus,
+      conclusion: w.lastRunConclusion,
+      lastRunAt: w.lastRunAt,
+      url: w.lastRunUrl,
+      recentFailures: w.recentFailures || 0,
+    });
+    if (w.lastRunConclusion === 'failure') failing++;
+  }
+  critical.sort((a, b) => {
+    // Failing primero, despues por nombre.
+    if (a.conclusion === 'failure' && b.conclusion !== 'failure') return -1;
+    if (a.conclusion !== 'failure' && b.conclusion === 'failure') return 1;
+    return a.name.localeCompare(b.name);
+  });
+  const totalCritical = critical.length || 1;
+  const failRatio = failing / totalCritical;
+  /** @type {'green' | 'yellow' | 'red' | 'unknown'} */
+  let healthColor = 'green';
+  if (failing === 0) healthColor = 'green';
+  else if (failRatio < 0.4) healthColor = 'yellow';
+  else healthColor = 'red';
+  return {
+    healthColor,
+    totalWorkflows: Object.keys(wfs).length,
+    criticalFailingCount: failing,
+    criticalWorkflows: critical,
+    syncedAgoLabel: formatAgeLabel(ghDoc.syncedAt),
+  };
+}
