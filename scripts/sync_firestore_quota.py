@@ -177,13 +177,26 @@ def main() -> int:
 
     try:
         mon_client, project_name = init_monitoring(sa_dict)
-        reads = sum_delta_metric(mon_client, project_name, "firestore.googleapis.com/document/read_count")
-        writes = sum_delta_metric(mon_client, project_name, "firestore.googleapis.com/document/write_count")
-        deletes = sum_delta_metric(mon_client, project_name, "firestore.googleapis.com/document/delete_count")
-        storage = latest_gauge_metric(mon_client, project_name, "firestore.googleapis.com/document/storage_bytes")
     except Exception as e:
         write_error(db, f"{type(e).__name__}: {str(e)[:400]}")
-        return 0  # no fallar el workflow
+        return 0
+
+    # v625 iter 2: cada metric aislado. Si Cloud Monitoring no expone alguno
+    # (ej. storage_bytes no existe siempre segun edition Firestore), seguimos
+    # con los demas y escribimos 0 en el campo faltante. Antes: el 1er fail
+    # abortaba todo el sync y el panel quedaba sin datos aunque 3/4 metrics
+    # funcionaran.
+    def _safe(name, fn):
+        try:
+            return fn()
+        except Exception as ex:
+            print(f"[fs-quota-sync] warn: {name} skipped: {type(ex).__name__}: {str(ex)[:200]}", file=sys.stderr)
+            return 0
+
+    reads = _safe("reads", lambda: sum_delta_metric(mon_client, project_name, "firestore.googleapis.com/document/read_count"))
+    writes = _safe("writes", lambda: sum_delta_metric(mon_client, project_name, "firestore.googleapis.com/document/write_count"))
+    deletes = _safe("deletes", lambda: sum_delta_metric(mon_client, project_name, "firestore.googleapis.com/document/delete_count"))
+    storage = _safe("storage", lambda: latest_gauge_metric(mon_client, project_name, "firestore.googleapis.com/document/storage_bytes"))
 
     payload = {
         "status": "ok",
