@@ -4199,7 +4199,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v632';
+const APP_VERSION = 'v633';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -20223,11 +20223,15 @@ function _misCampsGraficosData(){
         if (dateIso >= r.start && dateIso <= r.end) { inRange = true; break; }
       }
       if (!inRange) continue;
-      const qty = Number(l.qty) || 0;
-      if (qty <= 0) continue;
-      bySku[sku] = (bySku[sku] || 0) + qty;
+      // v633 (2026-08-25): usar qtyInvoiced (facturado real, matchea PowerBI/SAP)
+      // en vez de qty (pedido bruto). Mariano reporto delta 406 vs 314 vs PowerBI
+      // — 92u diferencia son BO/ASIG/SQ open aun no facturadas. qtyInvoiced es
+      // poblada por CF syncSapInvoicesToApp que corre cada 15 min.
+      const qtyInv = Number(l.qtyInvoiced) || 0;
+      if (qtyInv <= 0) continue;
+      bySku[sku] = (bySku[sku] || 0) + qtyInv;
       const kSkuTienda = sku + '::' + tienda;
-      bySkuTienda[kSkuTienda] = (bySkuTienda[kSkuTienda] || 0) + qty;
+      bySkuTienda[kSkuTienda] = (bySkuTienda[kSkuTienda] || 0) + qtyInv;
     }
   }
   return { bySku, bySkuTienda, campsCount: camps.length };
@@ -20308,11 +20312,14 @@ function renderMisCampsGraficos(){
   // .value (number) o del escapeHtml(e.label) en _misCampsChartHtml.
   cont.innerHTML =
     '<div style="padding:16px 22px">' +
-      '<div style="font-size:11px;color:#64748b;margin-bottom:14px">' +
-        '<b>' + data.campsCount + '</b> campanas activas &middot; <b>' + skuEntries.length + '</b> SKUs con ventas confirmadas &middot; total <b>' + totalUnits.toLocaleString('es-AR') + '</b> unidades' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">' +
+        '<div style="font-size:11px;color:#64748b">' +
+          '<b>' + data.campsCount + '</b> campanas activas &middot; <b>' + skuEntries.length + '</b> SKUs facturados &middot; total <b>' + totalUnits.toLocaleString('es-AR') + '</b> unidades facturadas' +
+        '</div>' +
+        '<button type="button" onclick="exportMisCampsGraficosExcel()" title="Exportar unidades por SKU + tiendas a XLSX" style="padding:6px 12px;border:1.5px solid #166534;border-radius:5px;background:#166534;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128203; Exportar Excel</button>' +
       '</div>' +
       '<div style="margin-bottom:24px">' +
-        '<h4 style="margin:0 0 10px 0;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#92400e">Unidades vendidas por SKU</h4>' +
+        '<h4 style="margin:0 0 10px 0;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#92400e">Unidades facturadas por SKU (qtyInvoiced &mdash; coincide con PowerBI)</h4>' +
         chart1Html + chart1More +
       '</div>' +
       '<div>' +
@@ -20326,6 +20333,58 @@ function renderMisCampsGraficos(){
       '</div>' +
     '</div>';
 }
+
+// v633: export a Excel de los 2 datasets del modal graficos. Hoja 1 = SKU
+// aggregate, Hoja 2 = (SKU, tienda) detalle. Mismo criterio de la vista
+// (facturado / qtyInvoiced, matchea PowerBI).
+window.exportMisCampsGraficosExcel = function(){
+  if (typeof XLSX === 'undefined') { alert('La libreria XLSX no se cargo.'); return; }
+  const data = _misCampsGraficosData();
+  const skuEntries = Object.entries(data.bySku).map(([sku, v]) => ({sku, unidades: Math.round(v)})).sort((a, b) => b.unidades - a.unidades);
+  const detalle = [];
+  Object.entries(data.bySkuTienda).forEach(([k, v]) => {
+    const sepIdx = k.indexOf('::');
+    if (sepIdx < 0) return;
+    const sku = k.slice(0, sepIdx);
+    const tienda = k.slice(sepIdx + 2);
+    // Enriquecer con desc del producto si esta en PRODUCTS.
+    const prod = (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS))
+      ? PRODUCTS.find(p => (p.code || '').toUpperCase() === sku)
+      : null;
+    detalle.push({
+      SKU: sku,
+      Descripcion: prod ? (prod.desc || '') : '',
+      Familia: prod ? (prod.fam || '') : '',
+      Subfamilia: prod ? (prod.sub || '') : '',
+      Tienda: tienda,
+      'Unidades facturadas': Math.round(v),
+    });
+  });
+  detalle.sort((a, b) => (a.SKU || '').localeCompare(b.SKU || '') || (b['Unidades facturadas'] || 0) - (a['Unidades facturadas'] || 0));
+  const skuSheetRows = skuEntries.map(e => {
+    const prod = (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS))
+      ? PRODUCTS.find(p => (p.code || '').toUpperCase() === e.sku)
+      : null;
+    return {
+      SKU: e.sku,
+      Descripcion: prod ? (prod.desc || '') : '',
+      Familia: prod ? (prod.fam || '') : '',
+      Subfamilia: prod ? (prod.sub || '') : '',
+      'Unidades facturadas': e.unidades,
+    };
+  });
+  const wb = XLSX.utils.book_new();
+  const ws1 = XLSX.utils.json_to_sheet(skuSheetRows);
+  ws1['!cols'] = [{wch:16},{wch:50},{wch:18},{wch:18},{wch:20}];
+  XLSX.utils.book_append_sheet(wb, ws1, 'Por SKU');
+  const ws2 = XLSX.utils.json_to_sheet(detalle);
+  ws2['!cols'] = [{wch:16},{wch:50},{wch:18},{wch:18},{wch:40},{wch:20}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Por SKU y Tienda');
+  const stamp = new Date().toISOString().slice(0, 10);
+  const filename = 'campanias-activas-facturado-' + stamp + '.xlsx';
+  XLSX.writeFile(wb, filename);
+  try { if (typeof logOp === 'function') logOp('export_camps_graficos_xlsx', 'campaigns', filename, {campsCount: data.campsCount, skus: skuEntries.length}); } catch(_e){}
+};
 window.renderMisCampsGraficos = renderMisCampsGraficos;
 
 // Borrado de campaña (solo admin / gerente). Util para limpiar campañas
