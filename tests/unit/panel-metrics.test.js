@@ -5,10 +5,12 @@ import {
   computeBackorderTotals,
   computeHealthStatus,
   computePedidosBreakdown,
+  computeSentryRateSpike,
   computeStrictOverlap,
   filterOpsLogRecent,
   formatAgeLabel,
   summarizeGhActionsStatus,
+  summarizeSapSlHealth,
   summarizeSentryStatus,
 } from '../../src/pure/panel-metrics.js';
 
@@ -397,6 +399,107 @@ describe('summarizeSentryStatus — iter 3', () => {
       recentIssues: issues,
     });
     expect(s.recentIssues).toEqual(issues);
+  });
+});
+
+describe('summarizeSapSlHealth — iter 5', () => {
+  it('doc null → unknown', () => {
+    const s = summarizeSapSlHealth(null);
+    expect(s.status).toBe('unknown');
+    expect(s.healthColor).toBe('unknown');
+  });
+
+  it('status=ok + latencia baja → green', () => {
+    const s = summarizeSapSlHealth({
+      status: 'ok',
+      latencyMs: 500,
+      lastCheckAt: '2026-08-25T10:00:00Z',
+      consecutiveFailures: 0,
+      firstFailureAt: null,
+    });
+    expect(s.healthColor).toBe('green');
+    expect(s.latencyLabel).toBe('500ms');
+  });
+
+  it('status=ok + latencia alta → yellow (SL lento)', () => {
+    const s = summarizeSapSlHealth({
+      status: 'ok',
+      latencyMs: 5000,
+      lastCheckAt: '2026-08-25T10:00:00Z',
+      consecutiveFailures: 0,
+      firstFailureAt: null,
+    });
+    expect(s.healthColor).toBe('yellow');
+    expect(s.latencyLabel).toBe('5.0s');
+  });
+
+  it('1 fail aislado → yellow', () => {
+    const s = summarizeSapSlHealth({
+      status: 'error',
+      consecutiveFailures: 1,
+      firstFailureAt: '2026-08-25T09:55:00Z',
+      errorMessage: 'network',
+    });
+    expect(s.healthColor).toBe('yellow');
+  });
+
+  it('2+ fails consecutivos → red', () => {
+    const s = summarizeSapSlHealth({
+      status: 'error',
+      consecutiveFailures: 3,
+      firstFailureAt: '2026-08-25T09:00:00Z',
+      errorMessage: 'auth denied',
+    });
+    expect(s.healthColor).toBe('red');
+    expect(s.consecutiveFailures).toBe(3);
+  });
+});
+
+describe('computeSentryRateSpike — iter 5', () => {
+  it('sin historial → green + 0', () => {
+    expect(computeSentryRateSpike(null)).toEqual({
+      currentHourErrors: 0,
+      avg24hHourly: 0,
+      spikeRatio: 0,
+      spikeAlert: 'green',
+    });
+    expect(computeSentryRateSpike({}).spikeAlert).toBe('green');
+    expect(computeSentryRateSpike({ errorCountHistory: [] }).spikeAlert).toBe('green');
+  });
+
+  it('current baja + promedio bajo → green', () => {
+    const doc = {
+      errorCountHistory: [
+        { hourIso: '09:00', count: 0 },
+        { hourIso: '10:00', count: 0 },
+        { hourIso: '11:00', count: 1 },
+      ],
+    };
+    expect(computeSentryRateSpike(doc).spikeAlert).toBe('green'); // <3 current
+  });
+
+  it('spike 3x promedio con >=3 events → yellow', () => {
+    const history = Array.from({ length: 23 }, (_, i) => ({ hourIso: 'h' + i, count: 2 }));
+    history.push({ hourIso: 'now', count: 6 }); // 3x el promedio de 2
+    const r = computeSentryRateSpike({ errorCountHistory: history });
+    expect(r.currentHourErrors).toBe(6);
+    expect(r.avg24hHourly).toBe(2);
+    expect(r.spikeRatio).toBe(3);
+    expect(r.spikeAlert).toBe('yellow');
+  });
+
+  it('spike 10x promedio → red', () => {
+    const history = Array.from({ length: 23 }, (_, i) => ({ hourIso: 'h' + i, count: 2 }));
+    history.push({ hourIso: 'now', count: 25 });
+    const r = computeSentryRateSpike({ errorCountHistory: history });
+    expect(r.spikeAlert).toBe('red');
+  });
+
+  it('current alto pero promedio 0 → todavia alert', () => {
+    const history = Array.from({ length: 23 }, () => ({ count: 0 }));
+    history.push({ count: 10 });
+    const r = computeSentryRateSpike({ errorCountHistory: history });
+    expect(r.spikeAlert).toBe('red'); // infinite ratio counts as red
   });
 });
 

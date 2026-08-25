@@ -4180,7 +4180,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v615';
+const APP_VERSION = 'v616';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24): feature flag para split de linea al crear/editar pedido.
@@ -17252,6 +17252,7 @@ function ensureAllListeners(){
   _try('ghActionsStatus', () => ensureGhActionsStatusListener());
   _try('sentryStatus', () => ensureSentryStatusListener());
   _try('sapSyncState', () => ensureSapSyncStateListener());
+  _try('sapSlHealth', () => ensureSapSlHealthListener());
   _try('priceList', () => ensurePriceListListener());
   _try('temporalPriceList', () => ensureTemporalPriceListListener());
   _try('approvedAltas', () => ensureApprovedAltasListener());
@@ -17908,6 +17909,25 @@ function ensureSapSyncStateListener() {
       try { window.renderPanelControl(); } catch(_e){}
     }
   }, err => console.warn('sap_sync_state listener', err));
+}
+
+// v616 iter 5 (2026-08-25): listener del doc sap_sl_health escrito por CF
+// checkSapSlHealthCF cada 5 min. Alimenta card SAP Service Layer del Panel
+// (leading indicator — detecta SL down antes que rompan flujos).
+let unsubSapSlHealth = null;
+window.SAP_SL_HEALTH = null;
+function ensureSapSlHealthListener() {
+  if (unsubSapSlHealth || !currentUser || !fbDb) return;
+  const em = (currentUser.email || '').toLowerCase();
+  const isMariano = em === 'mariano.erbino@shimano.com.ar' || em === 'erbinomariano@gmail.com';
+  if (!isMariano || userRole !== 'admin') return;
+  unsubSapSlHealth = fbDb.collection('app_config').doc('sap_sl_health').onSnapshot(snap => {
+    window.SAP_SL_HEALTH = snap.exists ? snap.data() : null;
+    const modal = document.getElementById('panel-control-modal');
+    if (modal && modal.classList.contains('open') && typeof window.renderPanelControl === 'function') {
+      try { window.renderPanelControl(); } catch(_e){}
+    }
+  }, err => console.warn('sap_sl_health listener', err));
 }
 
 // =====================================================================
@@ -20150,6 +20170,7 @@ function detachFirebaseListeners(){
   n += off('unsubGhActionsStatus', unsubGhActionsStatus, () => unsubGhActionsStatus = null);
   n += off('unsubSentryStatus', unsubSentryStatus, () => unsubSentryStatus = null);
   n += off('unsubSapSyncState', unsubSapSyncState, () => unsubSapSyncState = null);
+  n += off('unsubSapSlHealth', unsubSapSlHealth, () => unsubSapSlHealth = null);
   n += off('unsubPriceList', unsubPriceList, () => unsubPriceList = null);
   n += off('unsubTemporalPriceList', unsubTemporalPriceList, () => unsubTemporalPriceList = null);
   n += off('unsubVendorOverrides', unsubVendorOverrides, () => unsubVendorOverrides = null);

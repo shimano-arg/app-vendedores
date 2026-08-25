@@ -28,10 +28,12 @@ import {
   computeBackorderTotals,
   computeHealthStatus,
   computePedidosBreakdown,
+  computeSentryRateSpike,
   computeStrictOverlap,
   filterOpsLogRecent,
   formatAgeLabel,
   summarizeGhActionsStatus,
+  summarizeSapSlHealth,
   summarizeSentryStatus,
 } from './pure/panel-metrics.js';
 import { reenrichPedidoLine, splitPedidoLine } from './pure/pedido-split.js';
@@ -141,6 +143,8 @@ const phase0 = {
     filterOpsLogRecent,
     summarizeGhActionsStatus,
     summarizeSentryStatus,
+    summarizeSapSlHealth,
+    computeSentryRateSpike,
   },
   sentry: { applySentryUserContext },
   sap: { createSapClient },

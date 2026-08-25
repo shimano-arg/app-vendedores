@@ -30,6 +30,7 @@ import { runGeminiOcr } from './core/gemini-ocr-core.js';
 import { syncSapInvoices } from './core/invoice-sync-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
 import { handleSapProxy } from './core/sap-proxy-core.js';
+import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
 
 if (!getApps().length) initializeApp();
 
@@ -350,6 +351,47 @@ export const expireAsigLinesTTLCF = onSchedule(
       pedidosClosed: r.pedidosClosed,
       errors: r.errors.length,
     });
+  }
+);
+
+// v616 (2026-08-25): Panel de Control iter 5 — health check pasivo SAP SL.
+// Pinguea /Login cada 5 min + mide latencia. Escribe app_config/sap_sl_health.
+export const checkSapSlHealthCF = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 5 minutes',
+    secrets: [SAP_SL_PASSWORD],
+    retryCount: 0,
+    memory: '256MiB',
+    timeoutSeconds: 60,
+  },
+  async () => {
+    const db = getFirestore();
+    const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+    const sapCfg = sapCfgSnap.data() || {};
+    const sl = sapCfg.serviceLayer || {};
+    if (!sl.url || !sl.companyDB) {
+      console.warn('checkSapSlHealthCF skip: sap_integration.serviceLayer no configurado');
+      return;
+    }
+    try {
+      await runSapSlHealthCheck({
+        fbDb: db,
+        fetch: globalThis.fetch,
+        sapConfig: {
+          url: sl.url,
+          companyDB: sl.companyDB,
+          userName: sl.username || sl.userName,
+          password: SAP_SL_PASSWORD.value(),
+        },
+        log: (msg, extra) => console.log(msg, extra || {}),
+      });
+    } catch (e) {
+      // No hacer throw: si el health check falla, el propio error queda escrito
+      // en el doc por runSapSlHealthCheck. Un throw solo llenaria CF errors log
+      // sin agregar valor.
+      console.warn('checkSapSlHealthCF unexpected error:', e);
+    }
   }
 );
 
