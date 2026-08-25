@@ -2805,13 +2805,28 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <div><h2 id="mis-camps-title">Campa&ntilde;as Activas</h2><div class="subt" id="mis-camps-subt">Tocá una campa&ntilde;a para ver los SKU involucrados.</div></div>
         <button class="modal-close" onclick="closeMisCampsModal()">&times;</button>
       </div>
-      <div style="padding:10px 22px 0;background:#fffbeb;border-bottom:1px solid #fde68a;display:flex;justify-content:center">
+      <div style="padding:10px 22px 0;background:#fffbeb;border-bottom:1px solid #fde68a;display:flex;justify-content:center;align-items:center;gap:12px">
         <div style="display:flex;gap:4px;background:#fef3c7;border-radius:6px;padding:3px">
           <button type="button" id="mc-tab-active" class="mc-cli-tab-btn active" onclick="setMisCampsTab('active')" style="padding:6px 14px;border:none;border-radius:4px;background:#fff;color:#92400e;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 1px 2px rgba(0,0,0,.08)">Activas <span id="mc-tab-active-count" style="background:#b45309;color:#fff;border-radius:9px;padding:1px 7px;font-size:10px;margin-left:4px">0</span></button>
           <button type="button" id="mc-tab-history" class="mc-cli-tab-btn" onclick="setMisCampsTab('history')" style="padding:6px 14px;border:none;border-radius:4px;background:transparent;color:#92400e;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Hist&oacute;ricas <span id="mc-tab-history-count" style="background:#a3a3a3;color:#fff;border-radius:9px;padding:1px 7px;font-size:10px;margin-left:4px">0</span></button>
         </div>
+        <!-- v632: boton Graficos para ver 2 charts (SKU/tienda) de campanias activas -->
+        <button type="button" id="mc-graficos-btn" onclick="openMisCampsGraficos()" title="Ver graficos de unidades vendidas por SKU y por tienda" style="padding:6px 12px;border:1.5px solid #b45309;border-radius:6px;background:#b45309;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 1px 2px rgba(180,83,9,.35)">&#128200; Gr&aacute;ficos</button>
       </div>
       <div class="users-wrap" id="mis-camps-content"></div>
+    </div>
+  </div>
+  <!-- v632 (2026-08-25): Modal de graficos para Campanas Activas. Muestra
+       2 charts: unidades por SKU (todas las campanias activas agregadas) +
+       unidades por tienda (filtrable por SKU). Data desde globalPedidos con
+       stage='confirmed', dentro del rango de fechas de cada campana. -->
+  <div class="modal-overlay" id="mis-camps-graficos-modal" onclick="if(event.target===this)closeMisCampsGraficos()">
+    <div class="modal-box" style="width:min(920px,98vw);max-height:92vh;display:flex;flex-direction:column">
+      <div class="modal-head" style="background:linear-gradient(135deg,#b45309,#f59e0b)">
+        <div><h2>&#128200; Gr&aacute;ficos de Campa&ntilde;as Activas</h2><div class="subt">Unidades vendidas por SKU y por tienda (pedidos confirmados dentro del rango de cada campa&ntilde;a).</div></div>
+        <button class="modal-close" onclick="closeMisCampsGraficos()">&times;</button>
+      </div>
+      <div class="users-wrap" id="mis-camps-graficos-content" style="overflow-y:auto"></div>
     </div>
   </div>
   <!-- SEGUIMIENTO: panel para vendedores internos (Santiago / Ioannis) y admin/gerente.
@@ -4184,7 +4199,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v631';
+const APP_VERSION = 'v632';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -20154,6 +20169,164 @@ function renderMisCamps(){
   cont.innerHTML = html;
 }
 window.renderMisCamps = renderMisCamps;
+
+// v632 (2026-08-25): Graficos generales de campanias activas. Chart 1:
+// unidades por SKU. Chart 2: tiendas por SKU seleccionado. Todo strings
+// user-supplied pasan por escapeHtml/escapeAttr — mismo pattern que el
+// resto de la app (regla CLAUDE.md).
+var _misCampsGraficosSelectedSku = null;
+window.openMisCampsGraficos = function(){
+  document.getElementById('mis-camps-graficos-modal').classList.add('open');
+  _misCampsGraficosSelectedSku = null;
+  renderMisCampsGraficos();
+};
+window.closeMisCampsGraficos = function(){
+  document.getElementById('mis-camps-graficos-modal').classList.remove('open');
+};
+window.onMisCampsGraficosSkuChange = function(sel){
+  _misCampsGraficosSelectedSku = (sel && sel.value) || null;
+  renderMisCampsGraficos();
+};
+
+function _misCampsGraficosData(){
+  const today = new Date().toISOString().slice(0, 10);
+  const isVend = (userRole === 'vendedor' && assignedVendor);
+  let camps = (campaignsCache || [])
+    .filter(c => !c.archivedManually && c.startDate && c.endDate && c.startDate <= today && c.endDate >= today);
+  if (isVend) camps = camps.filter(c => (typeof isCampaignApplicableToVendor === 'function') ? isCampaignApplicableToVendor(c, assignedVendor) : true);
+  const skuRanges = {};
+  camps.forEach(c => {
+    const skuList = Array.isArray(c.skus) ? c.skus : (Array.isArray(c.filterValues) ? c.filterValues : []);
+    skuList.forEach(code => {
+      if (!code) return;
+      const k = String(code).toUpperCase();
+      if (!skuRanges[k]) skuRanges[k] = [];
+      skuRanges[k].push({start: c.startDate, end: c.endDate});
+    });
+  });
+  const skuSet = new Set(Object.keys(skuRanges));
+  const bySku = {};
+  const bySkuTienda = {};
+  const pedidos = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [];
+  for (const p of pedidos) {
+    if (!p || p.stage !== 'confirmed') continue;
+    const dateIso = (p.confirmedAt || p.createdAt || '').toString().slice(0, 10);
+    if (!dateIso) continue;
+    const tienda = p.clientName || '(sin tienda)';
+    for (const l of (p.lines || [])) {
+      if (!l || !l.code) continue;
+      const sku = String(l.code).toUpperCase();
+      if (!skuSet.has(sku)) continue;
+      const ranges = skuRanges[sku] || [];
+      let inRange = false;
+      for (const r of ranges) {
+        if (dateIso >= r.start && dateIso <= r.end) { inRange = true; break; }
+      }
+      if (!inRange) continue;
+      const qty = Number(l.qty) || 0;
+      if (qty <= 0) continue;
+      bySku[sku] = (bySku[sku] || 0) + qty;
+      const kSkuTienda = sku + '::' + tienda;
+      bySkuTienda[kSkuTienda] = (bySkuTienda[kSkuTienda] || 0) + qty;
+    }
+  }
+  return { bySku, bySkuTienda, campsCount: camps.length };
+}
+
+function _misCampsChartHtml(entries, colorHex){
+  if (!entries.length) {
+    return '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:12px">Sin datos.</div>';
+  }
+  const max = entries.reduce((m, e) => Math.max(m, e.value), 0) || 1;
+  const clr = colorHex || '#f59e0b';
+  const parts = ['<div style="display:flex;flex-direction:column;gap:6px;padding:8px 4px">'];
+  entries.forEach(e => {
+    const pct = Math.round((e.value / max) * 100);
+    parts.push(
+      '<div style="display:grid;grid-template-columns:200px 1fr 80px;gap:8px;align-items:center;font-size:11.5px">',
+      '<div style="font-weight:700;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeAttr(e.label) + '">',
+      escapeHtml(e.label),
+      '</div>',
+      '<div style="background:#f1f5f9;border-radius:4px;height:20px;overflow:hidden">',
+      '<div style="width:' + pct + '%;height:100%;background:' + clr + ';border-radius:4px"></div>',
+      '</div>',
+      '<div style="text-align:right;font-weight:800;color:#0f172a">' + Math.round(e.value).toLocaleString('es-AR') + '</div>',
+      '</div>'
+    );
+  });
+  parts.push('</div>');
+  return parts.join('');
+}
+
+function renderMisCampsGraficos(){
+  const cont = document.getElementById('mis-camps-graficos-content');
+  if (!cont) return;
+  const data = _misCampsGraficosData();
+  const skuEntries = Object.entries(data.bySku).map(([sku, v]) => ({label: sku, value: v})).sort((a, b) => b.value - a.value);
+  if (data.campsCount === 0) {
+    cont.textContent = 'No hay campanas activas para graficar.';
+    cont.style.padding = '30px';
+    cont.style.textAlign = 'center';
+    cont.style.color = '#92400e';
+    return;
+  }
+  cont.style.padding = '';
+  cont.style.textAlign = '';
+  cont.style.color = '';
+  if (!skuEntries.length) {
+    cont.textContent = 'Todavia no hay pedidos confirmados con SKUs de las ' + data.campsCount + ' campanas activas dentro de sus rangos de fecha.';
+    cont.style.padding = '30px';
+    cont.style.textAlign = 'center';
+    cont.style.color = '#94a3b8';
+    return;
+  }
+  const selectedSku = (_misCampsGraficosSelectedSku && data.bySku[_misCampsGraficosSelectedSku])
+    ? _misCampsGraficosSelectedSku
+    : skuEntries[0].label;
+  _misCampsGraficosSelectedSku = selectedSku;
+  const tiendaEntries = [];
+  Object.entries(data.bySkuTienda).forEach(([k, v]) => {
+    const sepIdx = k.indexOf('::');
+    if (sepIdx < 0) return;
+    const sku = k.slice(0, sepIdx);
+    const tienda = k.slice(sepIdx + 2);
+    if (sku === selectedSku) tiendaEntries.push({label: tienda, value: v});
+  });
+  tiendaEntries.sort((a, b) => b.value - a.value);
+
+  const totalUnits = skuEntries.reduce((s, e) => s + e.value, 0);
+  const skuOptions = skuEntries.map(e => {
+    const sel = e.label === selectedSku ? ' selected' : '';
+    return '<option value="' + escapeAttr(e.label) + '"' + sel + '>' + escapeHtml(e.label) + ' (' + e.value + ' u)</option>';
+  }).join('');
+  const chart1Html = _misCampsChartHtml(skuEntries.slice(0, 30), '#f59e0b');
+  const chart1More = skuEntries.length > 30
+    ? '<div style="font-size:10px;color:#94a3b8;text-align:center;margin-top:6px">(mostrando top 30 de ' + skuEntries.length + ')</div>'
+    : '';
+  const chart2Html = _misCampsChartHtml(tiendaEntries, '#b45309');
+  // Header/summary is safe (no user-supplied content). Cada value viene de
+  // .value (number) o del escapeHtml(e.label) en _misCampsChartHtml.
+  cont.innerHTML =
+    '<div style="padding:16px 22px">' +
+      '<div style="font-size:11px;color:#64748b;margin-bottom:14px">' +
+        '<b>' + data.campsCount + '</b> campanas activas &middot; <b>' + skuEntries.length + '</b> SKUs con ventas confirmadas &middot; total <b>' + totalUnits.toLocaleString('es-AR') + '</b> unidades' +
+      '</div>' +
+      '<div style="margin-bottom:24px">' +
+        '<h4 style="margin:0 0 10px 0;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#92400e">Unidades vendidas por SKU</h4>' +
+        chart1Html + chart1More +
+      '</div>' +
+      '<div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:12px;flex-wrap:wrap">' +
+          '<h4 style="margin:0;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#92400e">Tiendas que compraron el SKU seleccionado</h4>' +
+          '<select onchange="onMisCampsGraficosSkuChange(this)" style="padding:6px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:11px;font-weight:700;font-family:inherit;min-width:200px">' +
+            skuOptions +
+          '</select>' +
+        '</div>' +
+        chart2Html +
+      '</div>' +
+    '</div>';
+}
+window.renderMisCampsGraficos = renderMisCampsGraficos;
 
 // Borrado de campaña (solo admin / gerente). Util para limpiar campañas
 // de prueba. Action irreversible - hace .delete() en /campaigns/{id}.
