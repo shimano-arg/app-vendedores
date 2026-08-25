@@ -174,6 +174,26 @@ function _renderInfraSection() {
     sentryTooltip = 'Placeholder';
   }
 
+  // v624: card Sentry Rate Spike. Detecta error rate spike hora actual vs
+  // promedio 24h. Solo tiene sentido cuando sentry esta 'ok' — sino la card
+  // sale gris ("sin datos") como el resto. Renderiza SIEMPRE (aun con 0
+  // errores es informativo). Requiere sentryDoc.errorCountHistory (buckets
+  // por hora, populado por scripts/sync_sentry_issues.py v616).
+  const spike =
+    p.computeSentryRateSpike && sentry.status === 'ok'
+      ? p.computeSentryRateSpike(sentryDoc)
+      : { currentHourErrors: 0, avg24hHourly: 0, spikeRatio: 0, spikeAlert: 'unknown' };
+  const spikeStatus = sentry.status === 'ok' ? spike.spikeAlert : 'unknown';
+  const spikeMain = sentry.status === 'ok' ? spike.currentHourErrors + ' err/h' : 'sin datos';
+  const spikeSub =
+    sentry.status === 'ok'
+      ? 'avg 24h ' + spike.avg24hHourly + '/h · ratio ' + spike.spikeRatio + 'x'
+      : 'requiere Sentry ok';
+  const spikeTooltip =
+    'Errores Sentry hora actual vs promedio 24h. ' +
+    'Verde: normal. Amarillo: >2x avg. Rojo: >5x avg. ' +
+    'Solo alerta si hay >=3 errores/h (evita falsos positivos con 0->1).';
+
   // v616 iter 5: card SAP Service Layer health. Lee app_config/sap_sl_health
   // (escrito por CF checkSapSlHealthCF cada 5 min). Detecta SL down antes de
   // que se caiga el flujo confirmar pedido -> sap-auto-send.
@@ -229,6 +249,7 @@ function _renderInfraSection() {
       _hCard('SAP Service Layer', sl.healthColor, slMain, slSub, slTooltip) +
       _hCard('GitHub Actions', gh.healthColor, ghMain, ghSub, ghTooltip) +
       _hCard('Sentry Issues', sentry.healthColor, sentryMain, sentrySub, sentryTooltip) +
+      _hCard('Sentry Rate Spike', spikeStatus, spikeMain, spikeSub, spikeTooltip) +
       _hCard('CF Invoice Sync', cfStatus, cfLabel, cfSub, cfTooltip)
   );
 }
