@@ -289,3 +289,32 @@ git push -u origin dev                       # recrea dev remota
 **Rama `main` intacta**: nunca `git checkout main` + edit + commit + push. `main` se toca SOLO via merge de PR + `git pull` para sincronizar local.
 
 **Riesgo residual**: si hay CI checks en el PR y fallan, el `--squash` no completa hasta que pasen. Auditar `gh pr checks` antes de asumir deploy exitoso.
+
+## 21. Interacciones gestuales pasan por apple-design skill (2026-08-26)
+
+**Regla**: cualquier interacción con **drag, swipe, sheet** (modal que abre/cierra con transición), **scroll con snap**, o **transición con "peso"** (bounce, elastic, spring feel) DEBE pasar por la skill `apple-design` antes de darse por hecha.
+
+**Ubicación skill**: `.agents/skills/apple-design/SKILL.md` (o vía symlink `.claude/skills/apple-design/SKILL.md`). Clasificación de qué se hace vanilla vs con `motion/mini` en `CLASSIFICATION.md` al lado. Medición real del peso del lib en `MOTION_BUNDLE_MEASURED.md`.
+
+**Por qué**: la app se usa 100% desde celular; el feel gestual es lo que separa "app nativa" de "web feo". Sin este gate consistente cada modal termina con su propia curva bezier improvisada, cada sheet abre distinto, cada botón responde con un timing diferente. El costo es 3.1 KB gzipped de `motion/mini` (aprobado por Mariano 2026-08-26) para el 5% de casos que requieren spring lib (§4 damping/response + §5 velocity handoff). El 85% restante es CSS + Pointer Events + rAF puros.
+
+**Cómo aplicar** (checklist antes de escribir código de una interacción):
+
+1. **Feedback en pointerdown, no en click** (§1). Botón highlight instantáneo. `transform: scale(0.97)` con `transition: 100ms ease-out`.
+2. **1:1 tracking en drag** (§2). `setPointerCapture` + tracking desde el offset donde el user agarró, nunca desde el centro.
+3. **Interruptibilidad** (§3). Nunca lockear input durante transición. Al reinterrumpir, animación arranca desde valor **live** (leer transform actual), no desde target. Para reversals mid-flight → `motion/mini` con `animate()` (spring re-target automático).
+4. **Springs con damping/response** (§4). Default `bounce: 0, duration: 0.4` para UI normal. `bounce: 0.2, duration: 0.4` **solo cuando la interacción cargó momentum** (flick, drag release). Nunca bounce en fade-in.
+5. **Velocity handoff al soltar drag** (§5). Pasar `velocity: pxPerSec` al `animate()` post-drag. Sin esto, el seam entre drag y post-drag se ve como "brick wall".
+6. **Momentum projection** (§6). `v/1000 * 0.998 / 0.002` = posición proyectada. Snap al target más cercano a esa posición, no al release point.
+7. **Spatial consistency** (§7). Enter/exit por la misma ruta. `transform-origin` en el trigger, no en el centro del elemento.
+8. **Rubber-banding en boundaries** (§9). Fórmula `(overshoot * dim * 0.55) / (dim + 0.55 * abs(overshoot))`.
+9. **backdrop-filter blur + saturate** (§12) para chrome (headers, sheets). Nunca fondos opacos que cortan la continuidad.
+10. **`prefers-reduced-motion` respeto** (§14). Springs → opacity fade + `transform: none !important`.
+11. **Vibration API + audio sync** (§13) para actions críticos (commit, snap, error). Solo si el user afirmó el gesto.
+12. **Typography size-specific tracking** (§15). `letter-spacing` negativo en display large, `0` en body, positivo en small. `clamp()` para size responsive.
+
+**Downgrade explícito**: si por alguna razón (bundle constraint, tiempo) no se aplica un punto, dejar comentario `// apple-design skill §X sugiere Y pero downgrade a Z por REASON` en el código. Sin nota, el punto se considera pendiente y se pilla en el próximo audit.
+
+**Auditoría periódica**: cuando se implementen features nuevas con interacción gestual, correr `grep -rn "// apple-design skill" src/ index.html` para ver los downgrades acumulados y decidir si vale la pena upgrade. Cero interacciones gestuales nuevas sin al menos §1 (feedback pointerdown) + §7 (spatial consistency) + §14 (reduced motion).
+
+**Cuándo NO usar la skill**: interacciones que no son gestuales (form validation, alerts, redirects, table sort). La skill es sobre **movimiento físico**, no sobre UI en general.
