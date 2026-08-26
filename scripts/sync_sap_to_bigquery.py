@@ -1637,6 +1637,105 @@ def sync_facturacion_snapshot_to_firestore(bq_client: bigquery.Client,
     return written
 
 
+def sync_dashboard_visuales_to_firestore(bq_client: bigquery.Client,
+                                           db: firestore.Client,
+                                           dry_run: bool = False) -> int:
+    """v641 (2026-08-26): agrega v_ventas_lineas para popular dashboard_visuales
+    doc con topSkus (SUM cantidad por SKU del mes actual) + facturacionDiaria
+    (running total ARS por dia del mes actual).
+
+    Fuente = misma que PowerBI: is_pesca=TRUE, sin IVA (importe_linea_ars).
+
+    Escribe 1 solo doc: dashboard_visuales/global con {
+      mesLabel: 'YYYY-MM',
+      topSkus: [{sku, nombre, familia, subfamilia, cantidad, importeArs}, ...],
+      facturacionDiaria: [{fecha, importeArs, importeAcumulado}, ...],
+      updatedAt
+    }
+    """
+    log('[DASHBOARD_VIS] agregando v_ventas_lineas topSkus + facturacionDiaria...')
+
+    # Top SKUs vendidos en el mes actual (ordenado por cantidad desc, top 30).
+    top_query = """
+    SELECT
+      item_code                 AS sku,
+      MAX(item_name_catalogo)   AS nombre,
+      MAX(familia)              AS familia,
+      MAX(subfamilia)           AS subfamilia,
+      SUM(cantidad)             AS cantidad,
+      SUM(importe_linea_ars)    AS importe_ars
+    FROM `app-vendedores-shimano.shimano_app.v_ventas_lineas`
+    WHERE is_pesca = TRUE
+      AND doc_date IS NOT NULL
+      AND doc_date >= DATE_TRUNC(CURRENT_DATE('America/Argentina/Buenos_Aires'), MONTH)
+      AND doc_date <= CURRENT_DATE('America/Argentina/Buenos_Aires')
+      AND item_code IS NOT NULL AND item_code <> ''
+    GROUP BY item_code
+    ORDER BY cantidad DESC
+    LIMIT 30
+    """
+    top_rows = list(bq_client.query(top_query, location=BQ_LOCATION).result())
+    top_skus = []
+    for r in top_rows:
+        d = dict(r.items())
+        top_skus.append({
+            'sku': str(d.get('sku') or ''),
+            'nombre': str(d.get('nombre') or ''),
+            'familia': str(d.get('familia') or ''),
+            'subfamilia': str(d.get('subfamilia') or ''),
+            'cantidad': float(d.get('cantidad') or 0),
+            'importeArs': float(d.get('importe_ars') or 0),
+        })
+
+    # Facturacion diaria del mes actual (sumada por dia, luego running total en Python).
+    daily_query = """
+    SELECT
+      doc_date                  AS fecha,
+      SUM(importe_linea_ars)    AS importe_ars
+    FROM `app-vendedores-shimano.shimano_app.v_ventas_lineas`
+    WHERE is_pesca = TRUE
+      AND doc_date IS NOT NULL
+      AND doc_date >= DATE_TRUNC(CURRENT_DATE('America/Argentina/Buenos_Aires'), MONTH)
+      AND doc_date <= CURRENT_DATE('America/Argentina/Buenos_Aires')
+    GROUP BY doc_date
+    ORDER BY doc_date
+    """
+    daily_rows = list(bq_client.query(daily_query, location=BQ_LOCATION).result())
+    facturacion_diaria = []
+    running = 0.0
+    for r in daily_rows:
+        d = dict(r.items())
+        imp = float(d.get('importe_ars') or 0)
+        running += imp
+        facturacion_diaria.append({
+            'fecha': str(d.get('fecha') or ''),
+            'importeArs': imp,
+            'importeAcumulado': running,
+        })
+
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo as _ZI
+    _now = _dt.now(_ZI('America/Argentina/Buenos_Aires'))
+    mes_label = _now.strftime('%Y-%m')
+
+    log(f'[DASHBOARD_VIS] {len(top_skus)} SKUs top + {len(facturacion_diaria)} dias facturacion. '
+        f'Acumulado mes {mes_label}: ${running:,.0f}')
+
+    if dry_run:
+        log('[DASHBOARD_VIS] DRY-RUN: no escribo a Firestore')
+        return 0
+
+    payload = {
+        'mesLabel':          mes_label,
+        'topSkus':           top_skus,
+        'facturacionDiaria': facturacion_diaria,
+        'updatedAt':         firestore.SERVER_TIMESTAMP,
+    }
+    db.collection('dashboard_visuales').document('global').set(payload)
+    log('[DASHBOARD_VIS] doc dashboard_visuales/global escrito')
+    return 1
+
+
 # ============================================================
 # Main
 # ============================================================
@@ -2001,6 +2100,16 @@ def main():
         sync_campania_snapshot_to_firestore(bq_client, db, dry_run=dry_run)
     except Exception as e:
         log(f'[CAMPANIA_SNAP] fallo (no bloqueante): {e}')
+
+    # === 15. Dashboard Visuales (BQ -> Firestore) v641 (2026-08-26)
+    # Popula dashboard_visuales/global con topSkus (SUM cantidad por SKU del
+    # mes actual) + facturacionDiaria (running total ARS por dia del mes).
+    # Alimenta el tab Visuales del Dashboard app (v640). Fuente is_pesca=TRUE
+    # (matchea PowerBI). Sin IVA.
+    try:
+        sync_dashboard_visuales_to_firestore(bq_client, db, dry_run=dry_run)
+    except Exception as e:
+        log(f'[DASHBOARD_VIS] fallo (no bloqueante): {e}')
 
     log('=== sync_sap_to_bigquery END OK ===')
 

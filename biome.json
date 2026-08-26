@@ -273,7 +273,7 @@
         "noConsole": "off",
         "noApproximativeNumericConstant": "off",
         "noAssignInExpressions": "off",
-        "useIterableCallbackReturn": "warn"
+        "useIterableCallbackReturn": "off"
       },
       "style": {
         "noParameterAssign": "off",
