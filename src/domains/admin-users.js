@@ -121,25 +121,24 @@ window.removeAllowedEmail = async function (docId) {
 function renderGeminiConfigSection(_data) {
   const el = document.getElementById('gemini-config-section');
   if (!el) return;
-  // v551 (2026-08-19) SECURITY: la key vive en Secret Manager, no en
-  // Firestore. La UI de admin ya no permite cargar/borrar desde el
-  // navegador porque eso volveria a exponer la key a cualquier reader.
-  // Reemplazado el panel viejo por instrucciones de CLI. Sin inputs de
-  // usuario en el HTML, solo texto fijo.
-  const cliInstructions =
-    '<div style="text-align:center;margin-bottom:10px">' +
-    '<div style="font-size:12px;font-weight:800;color:#5b21b6">Gemini API Key (OCR de tickets)</div>' +
-    '<div style="font-size:10px;color:#64748b;margin-top:2px">v551 SECURITY: la key vive en Secret Manager. Se administra por CLI, no por este panel.</div>' +
-    '</div>' +
-    '<div style="font-family:Consolas,monospace;font-size:10px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:4px;padding:10px;color:#5b21b6;line-height:1.5">' +
-    '# Ver estado del secret<br>' +
-    'firebase functions:secrets:access GEMINI_API_KEY<br><br>' +
-    '# Rotar key<br>' +
-    'firebase functions:secrets:set GEMINI_API_KEY<br>' +
-    'firebase deploy --only functions:geminiOcrProxy' +
-    '</div>';
-  // eslint-disable-next-line no-unsanitized/property
-  el.innerHTML = cliInstructions;
+  // v551 (2026-08-19) SECURITY: la key vive en Secret Manager, no en Firestore.
+  // v639 (2026-08-26): UX simplificado por pedido Mariano — sin instrucciones
+  // CLI en el panel, solo un banner explicando donde vive la key.
+  // Se administra por CLI (firebase functions:secrets:set GEMINI_API_KEY).
+  el.textContent = '';
+  const wrap = document.createElement('div');
+  wrap.style.cssText =
+    'text-align:center;padding:14px 12px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:6px';
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:12px;font-weight:800;color:#5b21b6;margin-bottom:6px';
+  title.textContent = 'Gemini API Key (OCR de tickets)';
+  const msg = document.createElement('div');
+  msg.style.cssText = 'font-size:11px;color:#64748b';
+  // Icono candado + texto. textContent es safe (no HTML parsing).
+  msg.textContent = '🔒 Guardado por seguridad en Google Secret Manager';
+  wrap.appendChild(title);
+  wrap.appendChild(msg);
+  el.appendChild(wrap);
 }
 
 // v551: saveGeminiApiKey + deleteGeminiApiKey eliminados. La key vive
