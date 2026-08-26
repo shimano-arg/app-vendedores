@@ -17,7 +17,7 @@
 // Cuando se cambie la version, bumpear CACHE_VERSION para invalidar cache viejo.
 // El activate event borra caches con nombres distintos al vigente.
 
-const CACHE_VERSION = 'v679';
+const CACHE_VERSION = 'v680';
 const STATIC_CACHE = 'shimano-static-' + CACHE_VERSION;
 const HTML_CACHE = 'shimano-html-' + CACHE_VERSION;
 
@@ -110,11 +110,29 @@ self.addEventListener('fetch', event => {
     event.respondWith(
       fetch(req)
         .then(resp => {
-          const respClone = resp.clone();
-          caches.open(HTML_CACHE).then(c => c.put(req, respClone)).catch(()=>{});
+          // v680 DEFENSIVE: solo cachear si es realmente HTML. Un race
+          // condition o CDN mal configurado puede devolver text/css en
+          // una request navigate -> sin este check el cache guarda
+          // basura y el proximo load muestra CSS renderizado como texto
+          // en la pantalla (bug reportado por Mariano 2026-08-26).
+          const ct = (resp.headers.get('content-type') || '').toLowerCase();
+          if (resp.ok && (ct.includes('text/html') || ct === '')) {
+            const respClone = resp.clone();
+            caches.open(HTML_CACHE).then(c => c.put(req, respClone)).catch(()=>{});
+          }
           return resp;
         })
-        .catch(() => caches.match(req).then(c => c || caches.match('./index.html')))
+        .catch(() => caches.match(req).then(c => {
+          // v680 DEFENSIVE: validar que el cached response sea HTML antes
+          // de servirlo. Si el cache tiene basura (CSS/JS guardado como
+          // HTML por bug previo), ignorar y devolver el fallback fijo.
+          if (c) {
+            const ct = (c.headers.get('content-type') || '').toLowerCase();
+            if (ct.includes('text/html') || ct === '') return c;
+            console.warn('[sw] HTML cache corrupted (ct=' + ct + '), fallback');
+          }
+          return caches.match('./index.html');
+        }))
     );
     return;
   }
