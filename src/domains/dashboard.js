@@ -196,12 +196,49 @@ function getVendorForKey(orderKeyStr) {
   return p.vendor || '';
 }
 
+// v640 (2026-08-26): tabs dashboard. Default 'targets' (contenido historico).
+if (typeof window.dashboardTab === 'undefined') window.dashboardTab = 'targets';
+window.setDashboardTab = function (t) {
+  const valid = new Set(['targets', 'visuales', 'visitas', 'finanzas']);
+  window.dashboardTab = valid.has(t) ? t : 'targets';
+  ['targets', 'visuales', 'visitas', 'finanzas'].forEach((k) => {
+    const btn = document.getElementById('dash-tab-' + k);
+    if (!btn) return;
+    if (k === window.dashboardTab) {
+      btn.style.background = '#fff';
+      btn.style.boxShadow = '0 1px 2px rgba(0,0,0,.08)';
+    } else {
+      btn.style.background = 'transparent';
+      btn.style.boxShadow = 'none';
+    }
+  });
+  const subt = document.getElementById('dashboard-subt');
+  if (subt) {
+    const labels = {
+      targets: 'Resumen de pedidos confirmados, targets y campanas.',
+      visuales: 'Top SKUs vendidos + evolucion de facturacion diaria.',
+      visitas: 'Cantidad de visitas y contactados por vendedor.',
+      finanzas: 'Panel financiero (en diseno).',
+    };
+    subt.textContent = labels[window.dashboardTab] || '';
+  }
+  renderDashboard();
+};
+
 window.renderDashboard = function () {
   const el = document.getElementById('dashboard-content');
   if (!currentUser) {
-    el.innerHTML = '<div class="no-data">Esperando login...</div>';
+    el.textContent = 'Esperando login...';
+    el.className = 'users-wrap no-data';
     return;
   }
+  el.className = 'users-wrap';
+  // v640: delegar a renderer por tab.
+  const tab = window.dashboardTab || 'targets';
+  if (tab === 'visuales') { renderDashboardVisuales(el); return; }
+  if (tab === 'visitas') { renderDashboardVisitas(el); return; }
+  if (tab === 'finanzas') { renderDashboardFinanzas(el); return; }
+  // 'targets' = default = contenido historico (todo lo que viene abajo).
   const now = new Date();
   // v374+: mes seleccionado (default = mes actual)
   let selYear = now.getFullYear();
@@ -868,3 +905,216 @@ window.renderDashboard = function () {
 // getVendorForKey: llamada desde ~7 lugares del inline (líneas 10787, 21336, 22096, 22167, 22204, 22238, 27150 pre-E2.h).
 window.listenCampaigns = listenCampaigns;
 window.getVendorForKey = getVendorForKey;
+
+// v640 (2026-08-26): renderers para tabs Visuales, Visitas, Finanzas.
+function _dashChartBars(entries, colorHex) {
+  if (!entries.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:20px;text-align:center;color:#94a3b8;font-size:12px';
+    empty.textContent = 'Sin datos.';
+    return empty;
+  }
+  const max = entries.reduce((m, e) => Math.max(m, e.value), 0) || 1;
+  const clr = colorHex || '#0284a0';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:8px 4px';
+  entries.forEach((e) => {
+    const pct = Math.round((e.value / max) * 100);
+    const row = document.createElement('div');
+    row.style.cssText = 'display:grid;grid-template-columns:200px 1fr 90px;gap:8px;align-items:center;font-size:11.5px';
+    const lbl = document.createElement('div');
+    lbl.style.cssText = 'font-weight:700;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    lbl.title = e.label;
+    lbl.textContent = e.label;
+    const barContainer = document.createElement('div');
+    barContainer.style.cssText = 'background:#f1f5f9;border-radius:4px;height:20px;overflow:hidden';
+    const bar = document.createElement('div');
+    bar.style.cssText = 'width:' + pct + '%;height:100%;background:' + clr + ';border-radius:4px';
+    barContainer.appendChild(bar);
+    const val = document.createElement('div');
+    val.style.cssText = 'text-align:right;font-weight:800;color:#0f172a';
+    val.textContent = e.valueLabel != null
+      ? e.valueLabel
+      : Math.round(e.value).toLocaleString('es-AR');
+    row.appendChild(lbl);
+    row.appendChild(barContainer);
+    row.appendChild(val);
+    wrap.appendChild(row);
+  });
+  return wrap;
+}
+
+function _dashSectionTitle(text, color) {
+  const h = document.createElement('h4');
+  h.style.cssText = 'margin:0 0 10px 0;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:' + (color || '#0284a0');
+  h.textContent = text;
+  return h;
+}
+
+function _dashInfo(text, color) {
+  const d = document.createElement('div');
+  d.style.cssText = 'font-size:11px;color:' + (color || '#64748b') + ';margin-bottom:14px';
+  d.textContent = text;
+  return d;
+}
+
+function renderDashboardVisuales(el) {
+  el.textContent = '';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'padding:16px 22px';
+  const dv = (typeof window.DASHBOARD_VISUALES === 'object') ? window.DASHBOARD_VISUALES : null;
+  if (!dv) {
+    const info = document.createElement('div');
+    info.style.cssText = 'text-align:center;padding:30px;color:#94a3b8;font-size:12px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:6px';
+    info.textContent = 'Aun no hay data de visuales. El sync SAP -> BigQuery corre cada 30 min y popula la coleccion dashboard_visuales.';
+    wrap.appendChild(info);
+    el.appendChild(wrap);
+    return;
+  }
+  const topSkus = Array.isArray(dv.topSkus) ? dv.topSkus : [];
+  const skuEntries = topSkus.slice(0, 20).map((s) => ({
+    label: (s.nombre || s.sku || '').slice(0, 60),
+    value: Number(s.cantidad) || 0,
+  }));
+  wrap.appendChild(_dashSectionTitle('Top SKUs mas vendidos (unidades, ' + (dv.mesLabel || 'mes actual') + ')'));
+  wrap.appendChild(_dashChartBars(skuEntries, '#0284a0'));
+  const daily = Array.isArray(dv.facturacionDiaria) ? dv.facturacionDiaria : [];
+  const spacer = document.createElement('div');
+  spacer.style.cssText = 'height:24px';
+  wrap.appendChild(spacer);
+  wrap.appendChild(_dashSectionTitle('Facturacion Acumulada (' + (dv.mesLabel || 'mes actual') + ')', '#0284a0'));
+  if (!daily.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:20px;text-align:center;color:#94a3b8;font-size:12px';
+    empty.textContent = 'Sin datos diarios.';
+    wrap.appendChild(empty);
+  } else {
+    const w = 800, h = 260, padL = 60, padR = 20, padT = 20, padB = 40;
+    const innerW = w - padL - padR, innerH = h - padT - padB;
+    const maxY = daily.reduce((m, d) => Math.max(m, Number(d.importeAcumulado) || 0), 0) || 1;
+    const pts = daily.map((d, i) => {
+      const x = padL + (i / Math.max(daily.length - 1, 1)) * innerW;
+      const y = padT + innerH - ((Number(d.importeAcumulado) || 0) / maxY) * innerH;
+      return { x, y, fecha: d.fecha, val: Number(d.importeAcumulado) || 0 };
+    });
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    svg.setAttribute('width', '100%');
+    svg.style.background = '#f8fafc';
+    svg.style.border = '1px solid #e2e8f0';
+    svg.style.borderRadius = '6px';
+    for (let g = 0; g <= 5; g++) {
+      const yg = padT + (g / 5) * innerH;
+      const line = document.createElementNS(svgNS, 'line');
+      line.setAttribute('x1', padL); line.setAttribute('x2', w - padR);
+      line.setAttribute('y1', yg); line.setAttribute('y2', yg);
+      line.setAttribute('stroke', '#e2e8f0'); line.setAttribute('stroke-width', '1');
+      svg.appendChild(line);
+      const val = maxY * (1 - g / 5);
+      const txt = document.createElementNS(svgNS, 'text');
+      txt.setAttribute('x', padL - 6); txt.setAttribute('y', yg + 4);
+      txt.setAttribute('text-anchor', 'end'); txt.setAttribute('font-size', '9');
+      txt.setAttribute('fill', '#64748b');
+      txt.textContent = '$' + Math.round(val / 1000).toLocaleString('es-AR') + 'k';
+      svg.appendChild(txt);
+    }
+    const pathD = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p.x + ',' + p.y).join(' ');
+    const path = document.createElementNS(svgNS, 'path');
+    path.setAttribute('d', pathD);
+    path.setAttribute('stroke', '#0284a0'); path.setAttribute('stroke-width', '2');
+    path.setAttribute('fill', 'none');
+    svg.appendChild(path);
+    pts.forEach((p) => {
+      const c = document.createElementNS(svgNS, 'circle');
+      c.setAttribute('cx', p.x); c.setAttribute('cy', p.y);
+      c.setAttribute('r', '3'); c.setAttribute('fill', '#0284a0');
+      const tit = document.createElementNS(svgNS, 'title');
+      tit.textContent = p.fecha + ': $' + Math.round(p.val).toLocaleString('es-AR');
+      c.appendChild(tit);
+      svg.appendChild(c);
+    });
+    pts.forEach((p, i) => {
+      if (i % Math.max(Math.floor(pts.length / 6), 1) !== 0 && i !== pts.length - 1) return;
+      const txt = document.createElementNS(svgNS, 'text');
+      txt.setAttribute('x', p.x); txt.setAttribute('y', h - padB + 14);
+      txt.setAttribute('text-anchor', 'middle'); txt.setAttribute('font-size', '9');
+      txt.setAttribute('fill', '#64748b');
+      txt.textContent = (p.fecha || '').slice(5);
+      svg.appendChild(txt);
+    });
+    wrap.appendChild(svg);
+    const totalDiv = document.createElement('div');
+    totalDiv.style.cssText = 'font-size:11px;color:#64748b;margin-top:8px;text-align:right';
+    const last = pts[pts.length - 1];
+    totalDiv.textContent = 'Total acumulado: $' + Math.round(last.val).toLocaleString('es-AR');
+    wrap.appendChild(totalDiv);
+  }
+  el.appendChild(wrap);
+}
+
+function renderDashboardVisitas(el) {
+  el.textContent = '';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'padding:16px 22px';
+  const visits = (typeof visitsCache !== 'undefined' && Array.isArray(visitsCache)) ? visitsCache : [];
+  const now = new Date();
+  const ym = (typeof dashboardSelectedMonth === 'string' && /^\d{4}-\d{2}$/.test(dashboardSelectedMonth))
+    ? dashboardSelectedMonth
+    : now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const byVendor = {};
+  const byVendorContactados = {};
+  for (const v of visits) {
+    if (!v) continue;
+    let fecha = '';
+    if (v.ts && typeof v.ts.toDate === 'function') {
+      const d = v.ts.toDate();
+      fecha = d.toISOString().slice(0, 10);
+    } else if (typeof v.ts === 'string') {
+      fecha = v.ts.slice(0, 10);
+    } else if (typeof v.at === 'string') {
+      fecha = v.at.slice(0, 10);
+    }
+    if (!fecha.startsWith(ym)) continue;
+    const vendor = (v.vendor || v.assignedVendor || v.ownerVendor || '(sin vendedor)').toString();
+    byVendor[vendor] = (byVendor[vendor] || 0) + 1;
+    if (v.contacted || v.contactado) {
+      byVendorContactados[vendor] = (byVendorContactados[vendor] || 0) + 1;
+    }
+  }
+  const vendors = Object.keys(byVendor).sort((a, b) => (byVendor[b] || 0) - (byVendor[a] || 0));
+  const totalVisitas = Object.values(byVendor).reduce((s, v) => s + v, 0);
+  const totalContactados = Object.values(byVendorContactados).reduce((s, v) => s + v, 0);
+  wrap.appendChild(_dashInfo(
+    'Mes: ' + ym + '  ·  ' + vendors.length + ' vendedores  ·  ' + totalVisitas + ' visitas  ·  ' + totalContactados + ' contactados'
+  ));
+  wrap.appendChild(_dashSectionTitle('Visitas por vendedor'));
+  wrap.appendChild(_dashChartBars(
+    vendors.map((v) => ({ label: v, value: byVendor[v] })),
+    '#0284a0'
+  ));
+  const spacer = document.createElement('div');
+  spacer.style.cssText = 'height:24px';
+  wrap.appendChild(spacer);
+  wrap.appendChild(_dashSectionTitle('Contactados por vendedor', '#166534'));
+  wrap.appendChild(_dashChartBars(
+    vendors.map((v) => ({ label: v, value: byVendorContactados[v] || 0 })),
+    '#22c55e'
+  ));
+  el.appendChild(wrap);
+}
+
+function renderDashboardFinanzas(el) {
+  el.textContent = '';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'padding:30px;text-align:center;color:#64748b;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:6px;margin:16px 22px';
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:14px;font-weight:800;color:#0c4a6e;margin-bottom:8px';
+  title.textContent = 'Panel Finanzas';
+  const msg = document.createElement('div');
+  msg.style.cssText = 'font-size:11px';
+  msg.textContent = 'Diseno pendiente. Contarme que metricas queres ver y las armo.';
+  wrap.appendChild(title);
+  wrap.appendChild(msg);
+  el.appendChild(wrap);
+}
