@@ -1462,15 +1462,22 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
    §15 (typography tracking size-specific). Scoped al modal para NO tocar
    los otros 52 modales hasta que Mariano de OK visual. */
 
-/* §14 (reduced motion) - GLOBAL defensivo. Users con vestibular disorders
-   ven cross-fades en vez de springs/slides. Cross-cutting concern. */
+/* §14 (reduced motion) - GLOBAL defensivo. v652: mas suave (cross-fades
+   cortos en vez de kill completo). Version original v650 con 0.01ms mataba
+   las animaciones apple-design incluso en Windows con "Efectos visuales OFF"
+   (default en muchas PCs por performance). */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.15s !important;
-    scroll-behavior: auto !important;
+  #campaigns-modal .modal-box {
+    animation-name: appleModalSlideInReduced !important;
+    animation-duration: 180ms !important;
   }
+  #campaigns-modal.modal-overlay.open {
+    animation-duration: 180ms !important;
+  }
+}
+@keyframes appleModalSlideInReduced {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 /* §12 backdrop-filter + §5 open transition uniforme + spatial consistency §7.
@@ -4296,7 +4303,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v651';
+const APP_VERSION = 'v652';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
