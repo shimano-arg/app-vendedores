@@ -5,7 +5,7 @@ function makeFbDb(initial) {
   const store = { doc: initial || null };
   return {
     _store: store,
-    doc(path) {
+    doc(_path) {
       return {
         async get() {
           return { exists: !!store.doc, data: () => store.doc || {} };

@@ -65,7 +65,12 @@ function sanitizeForPath(s) {
 // Descargar todas las fotos de visitas en un ZIP organizado por vendedor / tienda / fecha
 window.exportPhotosZip = async function () {
   // v679 PERF Fase 3: JSZip lazy on-demand
-  try { await window.loadJSZip(); } catch (e) { alert('No se pudo cargar JSZip: ' + e.message); return; }
+  try {
+    await window.loadJSZip();
+  } catch (e) {
+    alert('No se pudo cargar JSZip: ' + e.message);
+    return;
+  }
   if (!visitsCache || !visitsCache.length) {
     alert('No hay visitas registradas.');
     return;

@@ -123,9 +123,15 @@ if (typeof window !== 'undefined') {
   window.loadExternalLib = loadExternalLib;
   // Shorthand para las 3 libs mas usadas
   // @ts-expect-error
-  window.loadExcelJS = () => loadExternalLib('https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js', 'ExcelJS');
+  window.loadExcelJS = () =>
+    loadExternalLib('https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js', 'ExcelJS');
   // @ts-expect-error
-  window.loadJSZip = () => loadExternalLib('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js', 'JSZip');
+  window.loadJSZip = () =>
+    loadExternalLib('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js', 'JSZip');
   // @ts-expect-error
-  window.loadPolygonClipping = () => loadExternalLib('https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.3/dist/polygon-clipping.umd.min.js', 'polygonClipping');
+  window.loadPolygonClipping = () =>
+    loadExternalLib(
+      'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.3/dist/polygon-clipping.umd.min.js',
+      'polygonClipping'
+    );
 }
