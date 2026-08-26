@@ -1484,8 +1484,14 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 
 
 /* v678 (2026-08-26) PERF Fase 2: apple-design CSS extraido a
-   ./styles/apple-design.css - cargado como <link> despues del </style>.
-   Baja el HTML de ~2 MB a ~1.2 MB y permite caching independiente. */
+   ./styles/apple-design.css - cargado como link stylesheet despues
+   del cierre de este bloque style. Baja el HTML de ~2 MB a ~1.2 MB
+   y permite caching independiente.
+   v681 fix: el comentario original tenia el string literal de la
+   closing tag de style dentro del CSS -> parser HTML lo interpretaba
+   como cierre real del style block, dejando todo el CSS legacy
+   (post-linea 1487) como texto plano en el body. Bug reportado por
+   Mariano con screenshot 2026-08-26. */
 
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
@@ -4261,7 +4267,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v680';
+const APP_VERSION = 'v681';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
