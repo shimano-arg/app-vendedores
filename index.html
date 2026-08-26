@@ -18,6 +18,32 @@
 <link rel="apple-touch-icon" sizes="512x512" href="icon-512-v3.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192-v3.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512-v3.png">
+
+<!-- v677 (2026-08-26) PERF: preconnect a CDNs criticos para reducir TCP+TLS
+     handshake latency. Inicia el handshake apenas parsea el HTML head,
+     antes de que se necesiten. Impacto: -100 a -400ms por CDN en cold
+     connection. crossorigin necesario para gstatic (Firebase) porque el
+     script tag usa crossorigin (matching mode). -->
+<link rel="preconnect" href="https://unpkg.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+<link rel="preconnect" href="https://js.sentry-cdn.com" crossorigin>
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://www.google.com" crossorigin>
+
+<!-- v677 PERF: preload del app.bundle.js (2.4 MB, el mas grande de los
+     blocking). Descarga arranca inmediato en paralelo con Firebase/Leaflet
+     en vez de esperar a que el parser llegue al <script> blocking al final
+     del <head>. Impacto grande en conexiones lentas (mobile 4G). -->
+<link rel="preload" href="./app.bundle.js" as="script">
+
+<!-- v677 PERF: preload de Leaflet + Firebase (los siguientes mas pesados) -->
+<link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script" crossorigin>
+<link rel="preload" href="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js" as="script" crossorigin>
+<link rel="preload" href="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js" as="script" crossorigin>
+
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <!-- v352: markercluster para agrupar los ~1000 pines de tiendas en burbujas
@@ -10302,7 +10328,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v676';
+const APP_VERSION = 'v677';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
