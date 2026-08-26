@@ -4223,7 +4223,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v643';
+const APP_VERSION = 'v644';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -10933,10 +10933,16 @@ function renderBackordersGraficos(){
   const chart2More = skuEntries.length > 30
     ? '<div style="font-size:10px;color:#94a3b8;text-align:center;margin-top:6px">(top 30 de ' + skuEntries.length + ' SKUs)</div>'
     : '';
-  // v642: dropdown de vendedor. Popula de data.vendors + resalta seleccionado.
+  // v642 + v643b: dropdown de vendedor. Popula de VENDORS global (union con
+  // data.vendors por si aparece alguno huerfano). Antes: solo data.vendors —
+  // quedaba vacio en algunos scopes sin data.
   const _selVendor = _backordersGraficosVendor || 'ALL';
+  const _allBoVendors = new Set(data.vendors || []);
+  if (typeof VENDORS !== 'undefined' && Array.isArray(VENDORS)) {
+    VENDORS.forEach(v => { if (v && v.key) _allBoVendors.add(v.key); });
+  }
   const vendorOpts = ['<option value="ALL"' + (_selVendor === 'ALL' ? ' selected' : '') + '>Todos los vendedores</option>']
-    .concat((data.vendors || []).map(v => {
+    .concat([...(_allBoVendors)].sort().map(v => {
       const sel = v === _selVendor ? ' selected' : '';
       const vinfo = (typeof VENDORS !== 'undefined' && Array.isArray(VENDORS)) ? VENDORS.find(x => x.key === v) : null;
       const label = vinfo ? (vinfo.zone + ' - ' + (typeof titleCase === 'function' ? titleCase(v) : v)) : v;
@@ -20666,9 +20672,17 @@ function renderMisCampsGraficos(){
         '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
           '<select onchange="setMisCampsGraficosVendor(this.value)" title="Filtrar por vendedor" style="padding:5px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:11px;font-weight:700;font-family:inherit;min-width:180px">' +
             (function(){
+              // v643b: usar VENDORS global (union con data.vendors por si aparece
+              // alguno huerfano). Antes: solo data.vendors — quedaba vacio si el
+              // sync BQ no popularizo el field vendor todavia.
               const cur = _misCampsGraficosVendor || 'ALL';
+              const _all = new Set(data.vendors || []);
+              if (typeof VENDORS !== 'undefined' && Array.isArray(VENDORS)) {
+                VENDORS.forEach(v => { if (v && v.key) _all.add(v.key); });
+              }
+              const sorted = [...(_all)].sort();
               const opts = ['<option value="ALL"' + (cur === 'ALL' ? ' selected' : '') + '>Todos los vendedores</option>'];
-              (data.vendors || []).forEach(v => {
+              sorted.forEach(v => {
                 const vinfo = (typeof VENDORS !== 'undefined' && Array.isArray(VENDORS)) ? VENDORS.find(x => x.key === v) : null;
                 const label = vinfo ? (vinfo.zone + ' - ' + (typeof titleCase === 'function' ? titleCase(v) : v)) : v;
                 opts.push('<option value="' + escapeAttr(v) + '"' + (v === cur ? ' selected' : '') + '>' + escapeHtml(label) + '</option>');
