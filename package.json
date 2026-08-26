@@ -26,5 +26,8 @@
     "puppeteer-core": "^25.4.0",
     "typescript": "^5.6.3",
     "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "motion": "^13.1.1"
   }
 }
