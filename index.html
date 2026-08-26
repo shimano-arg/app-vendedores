@@ -4214,7 +4214,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v637';
+const APP_VERSION = 'v638';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -10789,7 +10789,17 @@ window.closeBackordersGraficos = function(){
 };
 
 function _backordersGraficosData(){
-  // SAP-source (backorderLines cargado por listener SAP).
+  // v638 (2026-08-26): respetar backordersMode para que graficos matcheen
+  // el modal actual. urgente=BACKORDER (SKUs con dispSap=0), asignacion=
+  // STOCK ASIG (SKUs con dispSap>0). Mismo SKU-level filter que
+  // renderBackordersTab (v631).
+  const isAsig = (typeof backordersMode !== 'undefined' && backordersMode === 'asignacion');
+  const _skuMatches = (sku) => {
+    const dispSap = (typeof getStockDisponibleVenta === 'function')
+      ? (getStockDisponibleVenta(sku) || 0)
+      : 0;
+    return isAsig ? (dispSap > 0) : (dispSap === 0);
+  };
   const byCliente = {};
   const bySku = {};
   const _bl = (typeof backorderLines !== 'undefined' && Array.isArray(backorderLines)) ? backorderLines : [];
@@ -10797,14 +10807,13 @@ function _backordersGraficosData(){
     if (!ln) continue;
     const qty = Number(ln.pendiente) || 0;
     if (qty <= 0) continue;
-    const tienda = (ln.clienteNombre || '').trim() || (ln.clienteCode || '(sin tienda)');
     const sku = (ln.sku || '').toUpperCase();
     if (!sku) continue;
+    if (!_skuMatches(sku)) continue;
+    const tienda = (ln.clienteNombre || '').trim() || (ln.clienteCode || '(sin tienda)');
     byCliente[tienda] = (byCliente[tienda] || 0) + qty;
     bySku[sku] = (bySku[sku] || 0) + qty;
   }
-  // APP-source (globalPedidos state='BO' o 'ASIG' con qtyOpen>0). Mismo filter
-  // que renderBackordersTab: solo pedidos con transferidoSAP.
   const _gp = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [];
   for (const p of _gp) {
     if (!p || !Array.isArray(p.lines)) continue;
@@ -10816,11 +10825,12 @@ function _backordersGraficosData(){
       const qty = Number(l.qtyOpen) || 0;
       if (qty <= 0) continue;
       const sku = String(l.code).toUpperCase();
+      if (!_skuMatches(sku)) continue;
       byCliente[tienda] = (byCliente[tienda] || 0) + qty;
       bySku[sku] = (bySku[sku] || 0) + qty;
     }
   }
-  return { byCliente, bySku };
+  return { byCliente, bySku, isAsig };
 }
 
 function _backordersChartHtml(entries, colorHex){
@@ -10852,10 +10862,30 @@ function renderBackordersGraficos(){
   const cont = document.getElementById('backorders-graficos-content');
   if (!cont) return;
   const data = _backordersGraficosData();
+  // v638: modal header/labels segun modo (BACKORDER urgente vs STOCK ASIG).
+  const isAsig = !!data.isAsig;
+  const modalHead = document.querySelector('#backorders-graficos-modal .modal-head');
+  if (modalHead) {
+    modalHead.style.background = isAsig
+      ? 'linear-gradient(135deg,#166534,#22c55e)'
+      : 'linear-gradient(135deg,#c2410c,#f97316)';
+    const h2 = modalHead.querySelector('h2');
+    const subt = modalHead.querySelector('.subt');
+    if (h2) h2.innerHTML = '&#128200; Gr&aacute;ficos de ' + (isAsig ? 'STOCK ASIG.' : 'Backorder');
+    if (subt) subt.textContent = isAsig
+      ? 'Top clientes y top SKUs con stock ya asignado listo para avisar.'
+      : 'Top clientes y top SKUs con mas unidades pendientes (SAP + APP).';
+  }
+  const barColor = isAsig ? '#166534' : '#c2410c';
+  const barColor2 = isAsig ? '#22c55e' : '#f97316';
+  const titleColor = isAsig ? '#166534' : '#c2410c';
+  const totalWord = isAsig ? 'stock asignado' : 'backorder';
+  const skuTitle = isAsig ? 'Top SKUs con m&aacute;s stock asignado' : 'Top SKUs con m&aacute;s backorder';
+  const cliTitle = isAsig ? 'Top clientes con m&aacute;s stock asignado' : 'Top clientes con m&aacute;s backorder';
   const clienteEntries = Object.entries(data.byCliente).map(([lbl, v]) => ({label: lbl, value: v})).sort((a, b) => b.value - a.value);
   const skuEntries = Object.entries(data.bySku).map(([lbl, v]) => ({label: lbl, value: v})).sort((a, b) => b.value - a.value);
   if (!clienteEntries.length && !skuEntries.length) {
-    cont.textContent = 'No hay backorder para graficar.';
+    cont.textContent = isAsig ? 'No hay stock asignado para graficar.' : 'No hay backorder para graficar.';
     cont.style.padding = '30px';
     cont.style.textAlign = 'center';
     cont.style.color = '#94a3b8';
@@ -10865,11 +10895,11 @@ function renderBackordersGraficos(){
   cont.style.textAlign = '';
   cont.style.color = '';
   const totalUnits = clienteEntries.reduce((s, e) => s + e.value, 0);
-  const chart1Html = _backordersChartHtml(clienteEntries.slice(0, 30), '#c2410c');
+  const chart1Html = _backordersChartHtml(clienteEntries.slice(0, 30), barColor);
   const chart1More = clienteEntries.length > 30
     ? '<div style="font-size:10px;color:#94a3b8;text-align:center;margin-top:6px">(top 30 de ' + clienteEntries.length + ' clientes)</div>'
     : '';
-  const chart2Html = _backordersChartHtml(skuEntries.slice(0, 30), '#f97316');
+  const chart2Html = _backordersChartHtml(skuEntries.slice(0, 30), barColor2);
   const chart2More = skuEntries.length > 30
     ? '<div style="font-size:10px;color:#94a3b8;text-align:center;margin-top:6px">(top 30 de ' + skuEntries.length + ' SKUs)</div>'
     : '';
@@ -10877,16 +10907,16 @@ function renderBackordersGraficos(){
     '<div style="padding:16px 22px">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">' +
         '<div style="font-size:11px;color:#64748b">' +
-          '<b>' + clienteEntries.length + '</b> clientes &middot; <b>' + skuEntries.length + '</b> SKUs &middot; total <b>' + totalUnits.toLocaleString('es-AR') + '</b> unidades en backorder' +
+          '<b>' + clienteEntries.length + '</b> clientes &middot; <b>' + skuEntries.length + '</b> SKUs &middot; total <b>' + totalUnits.toLocaleString('es-AR') + '</b> unidades en ' + totalWord +
         '</div>' +
         '<button type="button" onclick="exportBackordersGraficosExcel()" title="Exportar clientes + SKUs a XLSX" style="padding:6px 12px;border:1.5px solid #166534;border-radius:5px;background:#166534;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128203; Excel</button>' +
       '</div>' +
       '<div style="margin-bottom:24px">' +
-        '<h4 style="margin:0 0 10px 0;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#c2410c">Top clientes con m&aacute;s backorder</h4>' +
+        '<h4 style="margin:0 0 10px 0;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:' + titleColor + '">' + cliTitle + '</h4>' +
         chart1Html + chart1More +
       '</div>' +
       '<div>' +
-        '<h4 style="margin:0 0 10px 0;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#c2410c">Top SKUs con m&aacute;s backorder</h4>' +
+        '<h4 style="margin:0 0 10px 0;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:' + titleColor + '">' + skuTitle + '</h4>' +
         chart2Html + chart2More +
       '</div>' +
     '</div>';
@@ -10921,9 +10951,10 @@ window.exportBackordersGraficosExcel = function(){
   ws2['!cols'] = [{wch:16},{wch:50},{wch:18},{wch:18},{wch:20}];
   XLSX.utils.book_append_sheet(wb, ws2, 'Por SKU');
   const stamp = new Date().toISOString().slice(0, 10);
-  const filename = 'backorder-graficos-' + stamp + '.xlsx';
+  const prefix = data.isAsig ? 'stock-asig-graficos-' : 'backorder-graficos-';
+  const filename = prefix + stamp + '.xlsx';
   XLSX.writeFile(wb, filename);
-  try { if (typeof logOp === 'function') logOp('export_backorders_graficos_xlsx', 'backorders', filename, {clientes: clienteRows.length, skus: skuRows.length}); } catch(_e){}
+  try { if (typeof logOp === 'function') logOp('export_backorders_graficos_xlsx', 'backorders', filename, {mode: data.isAsig ? 'asig' : 'backorder', clientes: clienteRows.length, skus: skuRows.length}); } catch(_e){}
 };
 
 // ============================================================
