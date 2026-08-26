@@ -1483,7 +1483,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 /* v653 (2026-08-26) apple-design REDISEÑO VISUAL COMPLETO del modal
    #campaigns-modal. Piloto minimalista iOS/macOS.
    Cambios: paleta neutra blanco/gris + tipografia system + botones pill
-   Apple blue #007aff + cards con sombra suave + spacing generoso.
+   Apple blue #49A2DA + cards con sombra suave + spacing generoso.
    Se preserva SOLO la funcionalidad — todo el look visual cambia.
    Scope: solo #campaigns-modal. Los otros 52 modales sin tocar. */
 
@@ -1589,8 +1589,8 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 }
 #campaigns-modal .cf-grid input:focus,
 #campaigns-modal .cf-grid select:focus {
-  border-color: #007aff !important;
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15) !important;
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
 }
 
 /* Segmented control (target-toggle + scope-toggle): pill-shape gris */
@@ -1615,9 +1615,9 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 }
 #campaigns-modal .tt-btn:hover { background: rgba(0, 0, 0, 0.04) !important; }
 #campaigns-modal .tt-btn.active {
-  background: #ffffff !important;
-  color: #1d1d1f !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  background: #49A2DA !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(73, 162, 218, 0.35);
 }
 
 #campaigns-modal .scope-toggle { gap: 6px !important; }
@@ -1635,14 +1635,14 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 }
 #campaigns-modal .scope-btn:hover { background: #f5f5f7 !important; }
 #campaigns-modal .scope-btn.active {
-  background: #007aff !important;
-  border-color: #007aff !important;
+  background: #49A2DA !important;
+  border-color: #49A2DA !important;
   color: #ffffff !important;
 }
 
 /* Botón primary "Crear campaña" - pill Apple blue */
 #campaigns-modal .btn-camp {
-  background: #007aff !important;
+  background: #49A2DA !important;
   color: #ffffff !important;
   border: none !important;
   border-radius: 980px !important;
@@ -1653,9 +1653,9 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   text-transform: none !important;
   cursor: pointer;
   transition: background 150ms ease-out, transform 100ms ease-out;
-  box-shadow: 0 1px 2px rgba(0, 122, 255, 0.15);
+  box-shadow: 0 1px 2px rgba(73, 162, 218, 0.25);
 }
-#campaigns-modal .btn-camp:hover { background: #0071e3 !important; }
+#campaigns-modal .btn-camp:hover { background: #3A8CC0 !important; }
 #campaigns-modal .btn-camp:active { transform: scale(0.97); }
 
 /* SKU list: bordes suaves */
@@ -1698,7 +1698,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   height: 6px !important;
 }
 #campaigns-modal .camp-bar-fill {
-  background: #007aff !important;
+  background: #49A2DA !important;
   border-radius: 999px !important;
 }
 #campaigns-modal .camp-bar-fill.done { background: #34c759 !important; }
@@ -4471,7 +4471,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v653';
+const APP_VERSION = 'v654';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
