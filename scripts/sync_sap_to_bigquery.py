@@ -1097,12 +1097,15 @@ def sync_campania_snapshot_to_firestore(bq_client: bigquery.Client,
     # por (campaign_id, item_code, card_code, card_name) para popular el chart
     # de Graficos en el modal Campanas Activas. Cada campaign_snapshot doc
     # incluye array 'detalle' con {sku, cardCode, tienda, cantidad, importe}.
+    # v642 (2026-08-26): agregar assigned_vendor para permitir filtro por vendedor
+    # en el modal Graficos frontend.
     detalle_query = """
     SELECT
       campaign_id,
       item_code,
       card_code,
       card_name,
+      MAX(assigned_vendor)   AS vendor,
       SUM(cantidad)          AS cantidad,
       SUM(importe_linea_ars) AS importe_ars
     FROM `app-vendedores-shimano.shimano_app.v_campanias_ventas_detalle`
@@ -1122,6 +1125,7 @@ def sync_campania_snapshot_to_firestore(bq_client: bigquery.Client,
             'sku': str(d.get('item_code') or ''),
             'cardCode': str(d.get('card_code') or ''),
             'tienda': str(d.get('card_name') or ''),
+            'vendor': str(d.get('vendor') or ''),
             'cantidad': float(d.get('cantidad') or 0),
             'importeArs': float(d.get('importe_ars') or 0),
         })
