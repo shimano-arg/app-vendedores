@@ -6695,6 +6695,382 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #waitlist-card-modal .stock-action-btn.publish[style*="#0f172a"] { background: #1d1d1f !important; }
 #waitlist-card-modal .stock-action-btn.publish[style*="#0f172a"]:hover:not(:disabled) { background: #2f2f33 !important; }
 
+/* ============================================================
+   v670 (2026-08-26) apple-design REDISEÑO VISUAL:
+   1) confirmed-cards en tab Pedidos vistas PENDIENTES + CONFIRMADOS
+      (v665 solo cubrio la vista CREAR con .pedido-client-card)
+   2) modal Reasignacion de zonas (#zonas-modal)
+   ============================================================
+   */
+
+/* ==== .confirmed-card en #pane-pedidos (vistas PENDIENTES + CONFIRMADOS) ==== */
+/* Vista PENDIENTES: renderPendientesList setea inline
+   border-left-color:#d97706 + cc-month background:#d97706 (naranja).
+   Vista CONFIRMADOS: CSS default border-left:#166534 verde + cc-month verde.
+   Ambos casos usan .confirmed-card. */
+#pane-pedidos .confirmed-card {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-left: 3px solid #34c759 !important;
+  border-radius: 10px !important;
+  padding: 12px 14px !important;
+  margin-bottom: 8px !important;
+  transition: transform 100ms ease-out, box-shadow 150ms ease-out !important;
+}
+#pane-pedidos .confirmed-card:hover {
+  background: #ffffff !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+}
+/* Pendientes (border-left-color inline #d97706) - naranja Apple */
+#pane-pedidos .confirmed-card[style*="border-left-color:#d97706"] {
+  border-left-color: #ff9500 !important;
+}
+#pane-pedidos .confirmed-card .cc-name {
+  color: #1d1d1f !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+/* cc-month badge: verde default o naranja inline #d97706 - pills translucent */
+#pane-pedidos .confirmed-card .cc-month {
+  background: rgba(52, 199, 89, 0.14) !important;
+  color: #248a3d !important;
+  border-radius: 999px !important;
+  padding: 3px 10px !important;
+  font-size: 9.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+}
+#pane-pedidos .confirmed-card .cc-month[style*="background:#d97706"] {
+  background: rgba(255, 149, 0, 0.14) !important;
+  color: #a86200 !important;
+}
+#pane-pedidos .confirmed-card .cc-meta {
+  color: #86868b !important;
+  font-size: 10.5px !important;
+  font-weight: 500 !important;
+}
+#pane-pedidos .confirmed-card .cc-summary {
+  color: #248a3d !important;
+  font-size: 10.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+}
+#pane-pedidos .confirmed-card .cc-summary[style*="color:#d97706"] {
+  color: #a86200 !important;
+}
+/* cc-sap-estado badges (OFERTA/ORDEN/FACTURADO/COBRADO_PARCIAL/etc) -> pills apple */
+#pane-pedidos .confirmed-card .cc-sap-estado {
+  border-radius: 999px !important;
+  padding: 3px 10px !important;
+  font-size: 9.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+}
+#pane-pedidos .confirmed-card .cc-sap-estado.est-oferta {
+  background: rgba(255, 149, 0, 0.14) !important;
+  color: #a86200 !important;
+}
+#pane-pedidos .confirmed-card .cc-sap-estado.est-orden {
+  background: rgba(73, 162, 218, 0.14) !important;
+  color: #2b6f96 !important;
+}
+#pane-pedidos .confirmed-card .cc-sap-estado.est-facturado {
+  background: rgba(175, 82, 222, 0.14) !important;
+  color: #7c2fb3 !important;
+}
+#pane-pedidos .confirmed-card .cc-sap-estado.est-cobrado-parcial {
+  background: rgba(255, 149, 0, 0.18) !important;
+  color: #a86200 !important;
+}
+
+/* Empty state cuando no hay pedidos */
+#pane-pedidos #pedidos-content > div[style*="background:#f8fafc"] {
+  background: #f5f5f7 !important;
+  border-radius: 12px !important;
+  color: #86868b !important;
+  font-size: 13px !important;
+  padding: 20px 16px !important;
+}
+
+/* ==== #zonas-modal (Reasignacion de zonas) ==== */
+#zonas-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#zonas-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#zonas-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+#zonas-modal .modal-head {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#zonas-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#zonas-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#zonas-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#zonas-modal .modal-close:hover { color: #1d1d1f !important; }
+
+/* Tabs bar (bg violeta #faf5ff) */
+#zonas-modal .modal-body > div:first-child[style*="background:#faf5ff"] {
+  background: #f5f5f7 !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 12px 20px !important;
+  gap: 6px !important;
+}
+/* Tabs POR TIENDA / POR LOCALIDAD / POR PROVINCIA / HISTORIAL */
+#zonas-modal .zonas-tab-btn {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 8px 14px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out;
+}
+#zonas-modal .zonas-tab-btn:hover {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-color: #86868b !important;
+}
+#zonas-modal .zonas-tab-btn.active {
+  background: #af52de !important;
+  color: #ffffff !important;
+  border-color: #af52de !important;
+}
+
+/* Filters row (bg white con border bottom) */
+#zonas-modal #zonas-filters {
+  background: #ffffff !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 12px 20px !important;
+  gap: 10px !important;
+}
+/* Boton CLIENTES SAP (bg #0c4a6e) */
+#zonas-modal #zonas-scope-sap {
+  background: #1d1d1f !important;
+  color: #ffffff !important;
+  border-radius: 999px !important;
+  padding: 8px 14px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  border: none !important;
+  transition: background 150ms ease-out;
+}
+#zonas-modal #zonas-scope-sap:hover { background: #2f2f33 !important; }
+/* Boton SOLO SIN ASIGNAR */
+#zonas-modal #zonas-filter-unassigned {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 8px 14px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out;
+}
+#zonas-modal #zonas-filter-unassigned:hover {
+  background: rgba(255, 59, 48, 0.06) !important;
+  color: #ff3b30 !important;
+  border-color: rgba(255, 59, 48, 0.25) !important;
+}
+/* Filters select + search Apple pill */
+#zonas-modal #zonas-prov-sel,
+#zonas-modal #zonas-loc-sel,
+#zonas-modal #zonas-search {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+}
+#zonas-modal #zonas-prov-sel:focus,
+#zonas-modal #zonas-loc-sel:focus,
+#zonas-modal #zonas-search:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+/* Zonas pending info span */
+#zonas-modal #zonas-pending-info {
+  color: #af52de !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+}
+
+/* Zonas content: tabla con TIENDA / UBICACION / ASIGNACION ACTUAL / REASIGNAR */
+#zonas-modal #zonas-content { background: #ffffff !important; padding: 16px 20px !important; }
+#zonas-modal #zonas-content table {
+  background: #ffffff !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+  width: 100%;
+}
+#zonas-modal #zonas-content th {
+  background: #f5f5f7 !important;
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  padding: 12px 14px !important;
+  text-align: left !important;
+  border-bottom: 1px solid #e5e5ea !important;
+}
+#zonas-modal #zonas-content td {
+  padding: 12px 14px !important;
+  border-bottom: 1px solid #f5f5f7 !important;
+  vertical-align: middle;
+  color: #1d1d1f !important;
+  font-size: 12.5px !important;
+}
+#zonas-modal #zonas-content tr:hover td { background: #fafafa !important; }
+/* Selects reasignar en filas */
+#zonas-modal #zonas-content select {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 8px !important;
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+}
+#zonas-modal #zonas-content select:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+
+/* Badges de asignacion actual (VDE/VDI/LEAD/SAP): pills translucent Apple */
+#zonas-modal #zonas-content [style*="background:#93c5fd"],
+#zonas-modal #zonas-content [style*="background:#dbeafe"] {
+  background: rgba(73, 162, 218, 0.18) !important;
+  color: #2b6f96 !important;
+  border-radius: 999px !important;
+  padding: 3px 10px !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: -0.01em !important;
+}
+#zonas-modal #zonas-content [style*="background:#fed7aa"],
+#zonas-modal #zonas-content [style*="background:#fef3c7"] {
+  background: rgba(255, 149, 0, 0.18) !important;
+  color: #a86200 !important;
+  border-radius: 999px !important;
+  padding: 3px 10px !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: -0.01em !important;
+}
+#zonas-modal #zonas-content [style*="background:#ddd6fe"],
+#zonas-modal #zonas-content [style*="background:#e9d5ff"] {
+  background: rgba(175, 82, 222, 0.18) !important;
+  color: #7c2fb3 !important;
+  border-radius: 999px !important;
+  padding: 3px 10px !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: -0.01em !important;
+}
+
+/* Footer con botones Exportar / Refrescar / Guardar */
+#zonas-modal .modal-body > div:last-child {
+  background: #f5f5f7 !important;
+  border-top: 1px solid #e5e5ea !important;
+  padding: 14px 20px !important;
+}
+#zonas-modal .zonas-action-btn {
+  border-radius: 999px !important;
+  padding: 10px 18px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+/* Exportar mapeo (bg teal #0f766e inline) - pill teal Apple */
+#zonas-modal .zonas-action-btn[style*="#0f766e"] {
+  background: #14b8a6 !important;
+  color: #ffffff !important;
+}
+#zonas-modal .zonas-action-btn[style*="#0f766e"]:hover { background: #0d9488 !important; }
+/* Refrescar mapa */
+#zonas-modal .zonas-action-btn.refresh {
+  background: rgba(73, 162, 218, 0.14) !important;
+  color: #2b6f96 !important;
+  border: 1px solid rgba(73, 162, 218, 0.28) !important;
+}
+#zonas-modal .zonas-action-btn.refresh:hover {
+  background: rgba(73, 162, 218, 0.22) !important;
+}
+/* Guardar cambios */
+#zonas-modal .zonas-action-btn.save {
+  background: #34c759 !important;
+  color: #ffffff !important;
+}
+#zonas-modal .zonas-action-btn.save:hover:not(:disabled) { background: #2ba64a !important; }
+#zonas-modal .zonas-action-btn.save:disabled {
+  background: #e5e5ea !important;
+  color: #86868b !important;
+  cursor: not-allowed;
+}
+#zonas-modal .zonas-action-btn:active:not(:disabled) { transform: scale(0.97) !important; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  #zonas-modal.modal-overlay.open .modal-box {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -9463,7 +9839,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v669';
+const APP_VERSION = 'v670';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
