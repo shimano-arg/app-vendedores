@@ -5769,6 +5769,198 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   }
 }
 
+/* ============================================================
+   v667 (2026-08-26) apple-design REDISEÑO VISUAL modal
+   Graficos STOCK ASIG. / Graficos Backorder
+   (mismo #backorders-graficos-modal en 2 modos)
+   ============================================================
+   Header inline gradient cambia por JS: verde (#166534->#22c55e)
+   para STOCK ASIG, naranja (#c2410c->#f97316) para BACKORDER.
+   Preservamos la semantica del color en el boton EXCEL + barras
+   pero el chrome (header/box/typography) pasa a Apple estandar.
+   */
+
+#backorders-graficos-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#backorders-graficos-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#backorders-graficos-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+
+/* Header: JS setea inline gradient (verde asig o naranja backorder)
+   -> white con h2 negro. attribute selector vence inline JS. */
+#backorders-graficos-modal .modal-head,
+#backorders-graficos-modal .modal-head[style] {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#backorders-graficos-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#backorders-graficos-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#backorders-graficos-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#backorders-graficos-modal .modal-close:hover { color: #1d1d1f !important; }
+
+/* Body wrap */
+#backorders-graficos-modal .users-wrap { background: #ffffff !important; }
+#backorders-graficos-modal #backorders-graficos-content > div[style*="padding:16px 22px"] {
+  padding: 20px 24px !important;
+}
+
+/* Stats line "N clientes · M SKUs · total X unidades..." */
+#backorders-graficos-modal #backorders-graficos-content div[style*="color:#64748b"] {
+  color: #86868b !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+}
+#backorders-graficos-modal #backorders-graficos-content div[style*="color:#64748b"] b {
+  color: #1d1d1f !important;
+  font-weight: 600 !important;
+}
+
+/* Selector vendedor: pill Apple */
+#backorders-graficos-modal #backorders-graficos-content select {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  text-transform: none !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+}
+#backorders-graficos-modal #backorders-graficos-content select:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+
+/* Boton EXCEL: pill verde Apple (era verde #166534 pesado uppercase 800) */
+#backorders-graficos-modal button[onclick*="exportBackordersGraficos"] {
+  background: #34c759 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#backorders-graficos-modal button[onclick*="exportBackordersGraficos"]:hover { background: #2ba64a !important; }
+#backorders-graficos-modal button[onclick*="exportBackordersGraficos"]:active { transform: scale(0.97) !important; }
+
+/* h4 titulo seccion "TOP CLIENTES CON MAS..." - preserva color por modo
+   pero apple typography (lowercase 13px 600 tracking -0.015em) */
+#backorders-graficos-modal h4[style*="color:#c2410c"] {
+  color: #c2410c !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+  text-transform: none !important;
+  margin: 0 0 12px 0 !important;
+}
+#backorders-graficos-modal h4[style*="color:#166534"] {
+  color: #248a3d !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+  text-transform: none !important;
+  margin: 0 0 12px 0 !important;
+}
+
+/* Chart rows (grid-template-columns:220px 1fr 80px):
+   - label izq negro apple
+   - barra track gris Apple pill
+   - barra fill color semantico pill
+   - numero derecha */
+#backorders-graficos-modal #backorders-graficos-content div[style*="grid-template-columns:220px"] {
+  font-size: 12px !important;
+  gap: 12px !important;
+  padding: 4px 0 !important;
+}
+/* Label izquierdo (nombre tienda / SKU) */
+#backorders-graficos-modal #backorders-graficos-content div[style*="grid-template-columns:220px"] > div[style*="font-weight:700"] {
+  color: #1d1d1f !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+}
+/* Track de la barra (background:#f1f5f9) - pill gris Apple */
+#backorders-graficos-modal #backorders-graficos-content div[style*="background:#f1f5f9"] {
+  background: #f5f5f7 !important;
+  border-radius: 999px !important;
+  height: 16px !important;
+  overflow: hidden !important;
+}
+/* Fill de la barra (background inline color hex) - pill radius 999px */
+#backorders-graficos-modal #backorders-graficos-content div[style*="background:#f1f5f9"] > div {
+  border-radius: 999px !important;
+  height: 100% !important;
+  transition: width 300ms ease-out;
+}
+/* Numero derecho (text-align:right;font-weight:800) - tabular nums Apple */
+#backorders-graficos-modal #backorders-graficos-content div[style*="grid-template-columns:220px"] > div[style*="text-align:right"] {
+  color: #1d1d1f !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Empty state "Sin datos" */
+#backorders-graficos-modal #backorders-graficos-content div[style*="text-align:center"][style*="color:#94a3b8"] {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+}
+
+/* Footer note "(top 30 de N clientes)" */
+#backorders-graficos-modal #backorders-graficos-content div[style*="color:#94a3b8"][style*="text-align:center"][style*="margin-top:6px"] {
+  color: #86868b !important;
+  font-size: 11px !important;
+  font-style: normal !important;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  #backorders-graficos-modal.modal-overlay.open .modal-box {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -8537,7 +8729,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v666';
+const APP_VERSION = 'v667';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
