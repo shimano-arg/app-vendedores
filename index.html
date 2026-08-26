@@ -3000,6 +3000,220 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   }
 }
 
+/* ============================================================
+   v659 (2026-08-26) apple-design REDISEÑO VISUAL top bar +
+   filter bar (persistent chrome de la app)
+   ============================================================
+   Scope: .header + .controls (los 2 bloques del top strip).
+   NO toca .controls-right-group (los 9 botones colored del grid
+   quedan como estan - fuera del pedido del user).
+
+   Mejoras UX propuestas:
+   - Header: mantiene white bg, pero titulo con tracking Apple + role
+     badge sistema pill (era violeta bold), version badge simplificada,
+     SAP health con dot mas legible.
+   - Botones header (TARGETS/CAMPAÑAS/SAP/MASTER CLIENTES/USUARIOS/
+     PRODUCTOS/SALIR): pills iOS con hover subtle en vez de bordes
+     grises pesados. Salir queda diferenciado como destructive.
+   - Stats bar (Localidades/Clientes SAP/Leads/Tiendas): cards Apple
+     con numero tracking -0.03em, label uppercase gris tracking 0.06em.
+   - Controls: fondo azul pastel (#dbeafe) -> gris Apple (#f5f5f7).
+     Labels uppercase gris system. Selects pill 10px con focus ring
+     celeste. Panel de Control button: dark pill (era bloque negro
+     con bordes rectos).
+   */
+
+/* HEADER: mantener bg blanco, tune tipografia + border-radius */
+.header {
+  padding: 12px 24px !important;
+  gap: 16px !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  box-shadow: none !important;
+  border-bottom-left-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+}
+.header h1 {
+  color: #1d1d1f !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif !important;
+}
+.header-logo { height: 30px !important; }
+
+/* Role badge (ADMIN/VENDEDOR/etc): pill sistema */
+.role-badge {
+  border-radius: 999px !important;
+  height: 26px !important;
+  width: auto !important;
+  min-width: 74px !important;
+  padding: 0 12px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+}
+.role-badge.admin { background: rgba(175, 82, 222, 0.14) !important; color: #7c2fb3 !important; }
+.role-badge.vendedor { background: rgba(73, 162, 218, 0.14) !important; color: #2b6f96 !important; }
+.role-badge.interno { background: rgba(73, 162, 218, 0.14) !important; color: #2b6f96 !important; }
+.role-badge.viewer { background: rgba(134, 134, 139, 0.14) !important; color: #4a4a4f !important; }
+.role-badge.unassigned { background: rgba(255, 149, 0, 0.14) !important; color: #a86200 !important; }
+
+/* Info badges (version + SAP health) */
+.hdr-info-badge {
+  height: 26px !important;
+  padding: 0 10px !important;
+  border-radius: 999px !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+  background: #f5f5f7 !important;
+  color: #86868b !important;
+  border: 1px solid #e5e5ea !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+}
+.hdr-info-badge .dot { width: 6px !important; height: 6px !important; }
+.hdr-info-badge.sap-ok { background: rgba(52, 199, 89, 0.10) !important; color: #248a3d !important; border-color: rgba(52, 199, 89, 0.28) !important; }
+.hdr-info-badge.sap-ok .dot { background: #34c759 !important; box-shadow: 0 0 0 2px rgba(52, 199, 89, 0.20) !important; }
+.hdr-info-badge.sap-warn { background: rgba(255, 149, 0, 0.10) !important; color: #a86200 !important; border-color: rgba(255, 149, 0, 0.28) !important; }
+.hdr-info-badge.sap-warn .dot { background: #ff9500 !important; box-shadow: 0 0 0 2px rgba(255, 149, 0, 0.20) !important; }
+.hdr-info-badge.sap-err { background: rgba(255, 59, 48, 0.10) !important; color: #d92e26 !important; border-color: rgba(255, 59, 48, 0.28) !important; }
+.hdr-info-badge.sap-err .dot { background: #ff3b30 !important; box-shadow: 0 0 0 2px rgba(255, 59, 48, 0.20) !important; }
+.hdr-info-badge.sap-unknown { background: #f5f5f7 !important; color: #86868b !important; border-color: #e5e5ea !important; }
+.hdr-info-badge.sap-unknown .dot { background: #b0b0b8 !important; box-shadow: none !important; }
+
+/* Botones header (TARGETS/CAMPAÑAS/SAP/MASTER CLIENTES/USUARIOS/PRODUCTOS/SALIR):
+   pills iOS con hover subtle. Salir es destructive (rojo Apple). */
+.user-info .logout-btn {
+  background: transparent !important;
+  color: #1d1d1f !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 6px 14px !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  min-height: 32px !important;
+  min-width: auto !important;
+  transition: all 150ms ease-out !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+}
+.user-info .logout-btn:hover {
+  background: #f5f5f7 !important;
+  border-color: #86868b !important;
+  color: #1d1d1f !important;
+}
+.user-info .logout-btn:active { transform: scale(0.97) !important; }
+/* Salir: destructive */
+.user-info .logout-btn[onclick*="signOut"] {
+  color: #86868b !important;
+  border-color: transparent !important;
+}
+.user-info .logout-btn[onclick*="signOut"]:hover {
+  background: rgba(255, 59, 48, 0.08) !important;
+  color: #ff3b30 !important;
+  border-color: rgba(255, 59, 48, 0.25) !important;
+}
+
+/* Stats bar (Localidades/Clientes SAP/Leads/Tiendas) */
+.stats-bar { gap: 8px !important; }
+.stats-bar .stat-box {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 10px !important;
+  padding: 6px 12px !important;
+  min-width: 68px !important;
+  box-shadow: none !important;
+  transition: transform 150ms ease-out, border-color 150ms ease-out;
+}
+.stats-bar .stat-box:hover { border-color: #d2d2d7 !important; transform: translateY(-1px); }
+.stats-bar .stat-box .num {
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.03em !important;
+  color: #1d1d1f !important;
+  line-height: 1.1 !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif !important;
+}
+/* Preservar acentos color: verde SAP, naranja Leads (via inline style existente) */
+.stats-bar .stat-box .num[style*="#10b981"] { color: #34c759 !important; }
+.stats-bar .stat-box .num[style*="#f59e0b"] { color: #ff9500 !important; }
+.stats-bar .stat-box .lbl {
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  color: #86868b !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  margin-top: 2px !important;
+}
+
+/* CONTROLS: fondo azul pastel -> gris Apple */
+.controls {
+  background: #f5f5f7 !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 10px 24px !important;
+  gap: 10px !important;
+  border-bottom-left-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+}
+.controls > label {
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+}
+
+/* Selects Zona/Provincia/Localidad: pill Apple con focus ring celeste */
+.controls select.zone-select,
+.controls select.zone-select.small {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+}
+.controls select.zone-select:focus,
+.controls select.zone-select.small:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+
+/* Panel de Control button: dark pill Apple (era rectangulo negro plano).
+   Solo visible para Mariano. */
+#panel-control-btn.btn-zonas {
+  background: #1d1d1f !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#panel-control-btn.btn-zonas:hover { background: #2f2f33 !important; }
+#panel-control-btn.btn-zonas:active { transform: scale(0.97) !important; }
+
+/* Header hamburger (mobile) tambien Apple-ify */
+.header-hamburger {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  color: #1d1d1f !important;
+}
+.header-hamburger:hover { background: #f5f5f7 !important; border-color: #86868b !important; }
+
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -5768,7 +5982,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v658';
+const APP_VERSION = 'v659';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
