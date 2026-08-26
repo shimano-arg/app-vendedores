@@ -17,7 +17,7 @@
 // Cuando se cambie la version, bumpear CACHE_VERSION para invalidar cache viejo.
 // El activate event borra caches con nombres distintos al vigente.
 
-const CACHE_VERSION = 'v671';
+const CACHE_VERSION = 'v678';
 const STATIC_CACHE = 'shimano-static-' + CACHE_VERSION;
 const HTML_CACHE = 'shimano-html-' + CACHE_VERSION;
 
@@ -36,6 +36,10 @@ const STATIC_ASSETS = [
   // index.html tiene <script src="./app.bundle.js"> blocking; sin este
   // asset cacheado, offline no arranca.
   './app.bundle.js',
+  // v678+ (2026-08-26): apple-design CSS extraido de index.html a archivo
+  // aparte. Cargado como <link rel="stylesheet"> blocking despues del <style>
+  // legacy. Cachearlo garantiza offline con estilos apple-design intactos.
+  './styles/apple-design.css',
   // v333+ (E3 code splitting): chunks lazy cargados on-demand por
   // window.loadChunk(name). Cachearlos aquí garantiza offline funcional
   // para exports + admin panel después de la primera apertura online.
