@@ -4199,7 +4199,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v635';
+const APP_VERSION = 'v636';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -20148,7 +20148,13 @@ function renderMisCamps(){
       const safeName = escapeAttr(c.name || 'Campaña');
       actionsHtml = '<button onclick="event.stopPropagation();deleteMisCampaign(\'' + safeId + '\', \'' + safeName + '\')" title="Eliminar esta campaña (irreversible)" style="background:#dc2626;color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;margin-right:8px">&#128465; Eliminar</button>';
     }
-    html += actionsHtml + '<div class="mc-camp-arrow" id="mc-arrow-' + idx + '">&#9654;</div>';
+    // v636 (2026-08-25): wrap actions + arrow en un container flex para
+    // alinear boton "Eliminar" y flecha ▶ de forma consistente entre cards.
+    // Antes: 3 flex children con space-between distribuia inconsistente.
+    html += '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">' +
+      actionsHtml +
+      '<div class="mc-camp-arrow" id="mc-arrow-' + idx + '">&#9654;</div>' +
+      '</div>';
     html += '</div>';
     html += '<div class="mc-camp-body" id="mc-body-' + idx + '">';
     if (!skuList.length) {
