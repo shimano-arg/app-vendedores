@@ -4223,8 +4223,127 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v647';
+const APP_VERSION = 'v648';
 window.APP_VERSION = APP_VERSION;
+
+// v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
+// vendedores no se dan cuenta que hay version nueva y siguen usando cache
+// vieja. Cada 15 min (+ al startup) fetcheamos index.html sin cache y
+// extraemos APP_VERSION del HTML remoto. Si difiere del local, popup
+// con boton "REFRESCAR AHORA" que fuerza reload con cache bust.
+//
+// Dismiss: boton "Despues" oculta popup por 1 hora (localStorage timestamp).
+// Al proximo check si sigue mismatch → popup vuelve.
+(function initVersionCheck(){
+  const CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 min
+  const DISMISS_MS = 60 * 60 * 1000;         // 1 hora
+  const DISMISS_KEY = 'app_version_alert_dismissed_until';
+
+  function _isDismissed(){
+    try {
+      const until = parseInt(localStorage.getItem(DISMISS_KEY) || '0', 10);
+      return Date.now() < until;
+    } catch(_e){ return false; }
+  }
+
+  function _showVersionAlert(remoteVer){
+    // No mostrar si ya se dismisseo hace poco.
+    if (_isDismissed()) return;
+    // Si ya esta el modal abierto (double-trigger), skip.
+    if (document.getElementById('version-alert-modal')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'version-alert-modal';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px';
+
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:12px;max-width:400px;width:100%;padding:22px;box-shadow:0 20px 40px rgba(0,0,0,0.3);text-align:center;font-family:inherit';
+
+    const icon = document.createElement('div');
+    icon.style.cssText = 'font-size:36px;margin-bottom:8px';
+    icon.textContent = '🔄';
+
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size:16px;font-weight:800;color:#0f172a;margin-bottom:8px';
+    title.textContent = 'Tu version esta desactualizada';
+
+    const msg = document.createElement('div');
+    msg.style.cssText = 'font-size:12.5px;color:#475569;line-height:1.5;margin-bottom:16px';
+    msg.textContent = 'Estas usando ' + APP_VERSION + ' pero la ultima es ' + remoteVer + '. Refresca la app para ver los ultimos cambios.';
+
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:8px;justify-content:center;flex-wrap:wrap';
+
+    const btnRefresh = document.createElement('button');
+    btnRefresh.type = 'button';
+    btnRefresh.style.cssText = 'background:#0284a0;color:#fff;border:none;border-radius:6px;padding:10px 20px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px';
+    btnRefresh.textContent = 'Refrescar ahora';
+    btnRefresh.onclick = function(){
+      // Cache bust: unregister SW + reload. Similar a "Forzar actualizacion".
+      try {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(regs => {
+            Promise.all(regs.map(r => r.unregister())).finally(() => {
+              // Limpiar cache antes de reload.
+              if ('caches' in window) {
+                caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))).finally(() => {
+                  location.reload();
+                });
+              } else {
+                location.reload();
+              }
+            });
+          });
+        } else {
+          location.reload();
+        }
+      } catch(_e){
+        location.reload();
+      }
+    };
+
+    const btnLater = document.createElement('button');
+    btnLater.type = 'button';
+    btnLater.style.cssText = 'background:#e2e8f0;color:#475569;border:none;border-radius:6px;padding:10px 20px;font-size:12px;font-weight:700;cursor:pointer';
+    btnLater.textContent = 'Despues';
+    btnLater.onclick = function(){
+      try { localStorage.setItem(DISMISS_KEY, String(Date.now() + DISMISS_MS)); } catch(_e){}
+      overlay.remove();
+    };
+
+    btnRow.appendChild(btnRefresh);
+    btnRow.appendChild(btnLater);
+    box.appendChild(icon);
+    box.appendChild(title);
+    box.appendChild(msg);
+    box.appendChild(btnRow);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  }
+
+  async function _checkRemoteVersion(){
+    try {
+      const resp = await fetch('./index.html?_v=' + Date.now(), { cache: 'no-store' });
+      if (!resp.ok) return;
+      const html = await resp.text();
+      const m = html.match(/const APP_VERSION\s*=\s*['"]([^'"]+)['"]/);
+      if (!m) return;
+      const remoteVer = m[1];
+      if (remoteVer && remoteVer !== APP_VERSION) {
+        console.log('[version-check] mismatch local=' + APP_VERSION + ' remote=' + remoteVer);
+        _showVersionAlert(remoteVer);
+      }
+    } catch(_e){
+      // Sin red o error - silent.
+    }
+  }
+
+  // Check inicial despues de 30s (dar tiempo al load). Luego cada 15 min.
+  setTimeout(_checkRemoteVersion, 30 * 1000);
+  setInterval(_checkRemoteVersion, CHECK_INTERVAL_MS);
+  // Expose para debug manual desde consola.
+  window._checkAppVersion = _checkRemoteVersion;
+})();
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
 // Split de linea al crear/editar pedido. Ahora ON POR DEFAULT.
