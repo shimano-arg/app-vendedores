@@ -90,3 +90,4 @@ __pycache__/
 
 # Backups locales (ej: geo.json.bak generado por scripts/simplify-geo.js)
 *.bak
+_motion_probe/
