@@ -7071,6 +7071,142 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   }
 }
 
+/* ============================================================
+   v673 (2026-08-26) apple-design REDISEÑO VISUAL:
+   modal #contacto-estado-modal (Estado del contacto)
+   ============================================================
+   Modal chico con 3 botones destructive-scale (verde/gris/rojo)
+   para marcar el resultado de un contacto no presencial:
+   RESPONDIO / NO RESPONDIO / ELIMINAR.
+   */
+
+#contacto-estado-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#contacto-estado-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#contacto-estado-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+/* Header teal (#0f766e->#14b8a6) -> white con h2 negro */
+#contacto-estado-modal .modal-head {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#contacto-estado-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 20px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#contacto-estado-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#contacto-estado-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#contacto-estado-modal .modal-close:hover { color: #1d1d1f !important; }
+
+/* Body */
+#contacto-estado-modal .modal-box > div:nth-child(2) {
+  padding: 20px 24px !important;
+  gap: 10px !important;
+}
+
+/* Info block "MUNDO AVENTURA S A GILEZ..." */
+#contacto-estado-modal #ce-modal-info {
+  background: #f5f5f7 !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 12px !important;
+  color: #1d1d1f !important;
+  font-size: 12px !important;
+  line-height: 1.6 !important;
+  padding: 14px 16px !important;
+}
+
+/* 3 botones acción (RESPONDIO verde / NO RESPONDIO gris / ELIMINAR rojo) */
+#contacto-estado-modal #ce-btn-respondio,
+#contacto-estado-modal #ce-btn-no-respondio,
+#contacto-estado-modal button[onclick*="deleteContactoFromEstadoModal"] {
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  border: none !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+  text-align: left !important;
+}
+/* RESPONDIO - verde Apple */
+#contacto-estado-modal #ce-btn-respondio {
+  background: #34c759 !important;
+}
+#contacto-estado-modal #ce-btn-respondio:hover { background: #2ba64a !important; }
+/* NO RESPONDIO - gris Apple neutral */
+#contacto-estado-modal #ce-btn-no-respondio {
+  background: #86868b !important;
+}
+#contacto-estado-modal #ce-btn-no-respondio:hover { background: #6d6d72 !important; }
+/* ELIMINAR - rojo Apple */
+#contacto-estado-modal button[onclick*="deleteContactoFromEstadoModal"] {
+  background: #ff3b30 !important;
+}
+#contacto-estado-modal button[onclick*="deleteContactoFromEstadoModal"]:hover {
+  background: #d92e26 !important;
+}
+#contacto-estado-modal #ce-btn-respondio:active,
+#contacto-estado-modal #ce-btn-no-respondio:active,
+#contacto-estado-modal button[onclick*="deleteContactoFromEstadoModal"]:active {
+  transform: scale(0.98) !important;
+}
+
+/* Boton Cerrar (bottom right) */
+#contacto-estado-modal button[onclick*="closeContactoEstadoModal"]:not(.modal-close) {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 8px 18px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out !important;
+}
+#contacto-estado-modal button[onclick*="closeContactoEstadoModal"]:not(.modal-close):hover {
+  background: #f5f5f7 !important;
+  color: #1d1d1f !important;
+  border-color: #86868b !important;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  #contacto-estado-modal.modal-overlay.open .modal-box {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -9839,7 +9975,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v672';
+const APP_VERSION = 'v673';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
