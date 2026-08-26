@@ -6666,7 +6666,44 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   font-size: 12px !important;
   vertical-align: middle;
 }
-#waitlist-card-modal tbody tr:hover td { background: #fafafa !important; }
+/* v674 (2026-08-26) Row hover azul oscuro con contraste blanco - Mariano pidio
+   destacar bien la fila que el mouse esta sobrevolando. Antes gris sutil. */
+#waitlist-card-modal tbody tr:hover td,
+#waitlist-card-modal tbody tr:hover td[style] {
+  background: #1e3a8a !important;
+  color: #ffffff !important;
+  border-bottom-color: #1e3a8a !important;
+}
+/* Texto interno de celdas (SKU rojo, Producto negro, meta gris, valores
+   $XXX verdes/celestes/rojos inline) -> forzar blanco en hover */
+#waitlist-card-modal tbody tr:hover td *,
+#waitlist-card-modal tbody tr:hover td [style*="color:"] {
+  color: #ffffff !important;
+}
+/* Input de Pedido: mantener bg blanco con texto negro (necesita ser editable
+   y legible) */
+#waitlist-card-modal tbody tr:hover td input[type="number"],
+#waitlist-card-modal tbody tr:hover td input[type="text"] {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-color: #ffffff !important;
+}
+/* Badges rojos Backorder Unidades (+5/+10) - mantener background rojo con
+   texto blanco (ya tiene buen contraste sobre azul oscuro) */
+#waitlist-card-modal tbody tr:hover td [style*="background:#dc2626"],
+#waitlist-card-modal tbody tr:hover td [style*="background:#ef4444"],
+#waitlist-card-modal tbody tr:hover td [style*="background:#b91c1c"] {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+}
+/* Boton X rojo para quitar - mantener visible con outline blanco */
+#waitlist-card-modal tbody tr:hover td button {
+  color: #ffffff !important;
+  background: transparent !important;
+}
+#waitlist-card-modal tbody tr:hover td button:hover {
+  color: #ff6b6b !important;
+}
 /* Botones bottom (Cerrar / Editar orden / etc) */
 #waitlist-card-modal .stock-action-btn {
   border-radius: 999px !important;
@@ -9975,7 +10012,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v673';
+const APP_VERSION = 'v674';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
