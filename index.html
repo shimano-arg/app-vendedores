@@ -4223,7 +4223,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v644';
+const APP_VERSION = 'v645';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -4699,10 +4699,15 @@ VENDORS.forEach(v => vendorLookup[v.key] = v);
 // Con ~500 polygonos y ~1000 markers superpuestos, SVG re-pinta cada path en cada frame de zoom → lag.
 // Canvas dibuja todo en un solo paint. Trade-off: eventos click en polygonos usan hit-testing manual (Leaflet ya lo maneja).
 const map = L.map('map', {preferCanvas: true, zoomControl: true, minZoom: 4, maxZoom: 14, maxBounds: [[-22, -76], [-56, -52]], maxBoundsViscosity: 0.7}).setView([-38, -64], 4);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; OSM | CARTO',
-  subdomains: 'abcd',
-  maxZoom: 18
+// v645 (2026-08-26): switch de CARTO basemaps a OpenStreetMap directo.
+// CARTO cambio politica: ahora requiere API key para uso comercial y muestra
+// watermark "API KEY REQUIRED" sobre todo el mapa. OSM es gratis y sin
+// restricciones para uso razonable (tenemos <500 usuarios activos/mes,
+// muy debajo del limite fair-use OSM).
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  subdomains: 'abc',
+  maxZoom: 19
 }).addTo(map);
 
 // Boton "Forzar actualizacion" debajo del zoom. Limpia caches del SW +
