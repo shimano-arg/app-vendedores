@@ -4223,7 +4223,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v645';
+const APP_VERSION = 'v646';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -20504,6 +20504,13 @@ function _misCampsGraficosData(){
   const vendorSet = new Set();
   // v642: filtro vendor client-side.
   const vendorFilter = (_misCampsGraficosVendor && _misCampsGraficosVendor !== 'ALL') ? _misCampsGraficosVendor : null;
+  // v646 (2026-08-26): DEDUPE cross-campaign. Bug reportado: chart mostraba
+  // 4x mas unidades que PowerBI porque las 4 campanias activas comparten los
+  // mismos SKUs (todas CATANA). Mi query BQ escribe el detalle DENTRO de cada
+  // campaign_snapshot doc, entonces al iterar las 4 campanias sumaba la misma
+  // venta 4 veces. Fix: dedupear por (sku, cardCode) — cada venta a un cliente
+  // se cuenta 1 sola vez sin importar cuantas campanias la incluyan.
+  const seenFactSkuCard = new Set();
   // Facturadas desde CAMPANIA_SNAPSHOT (BQ snapshot).
   const campSnap = (typeof CAMPANIA_SNAPSHOT === 'object' && CAMPANIA_SNAPSHOT) ? CAMPANIA_SNAPSHOT : {};
   for (const c of camps) {
@@ -20516,6 +20523,11 @@ function _misCampsGraficosData(){
       if (vendorFilter && dvendor !== vendorFilter) continue;
       const sku = String(d.sku).toUpperCase();
       const tienda = d.tienda || d.cardCode || '(sin tienda)';
+      // v646: dedupe cross-campaign por (sku, cardCode) - la MISMA venta esta
+      // en el detalle de cada campania que la contiene, no la contamos N veces.
+      const dedupeKey = sku + '||' + (d.cardCode || tienda);
+      if (seenFactSkuCard.has(dedupeKey)) continue;
+      seenFactSkuCard.add(dedupeKey);
       const cantidad = Number(d.cantidad) || 0;
       if (cantidad <= 0) continue;
       bySkuFact[sku] = (bySkuFact[sku] || 0) + cantidad;
