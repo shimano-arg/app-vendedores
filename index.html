@@ -3683,10 +3683,25 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
           <div style="text-align:center;flex-shrink:0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
             <button id="btn-export-lista-plana" onclick="exportBackordersToExcel()" style="padding:9px 18px;border:1.5px solid #c2410c;border-radius:6px;background:#c2410c;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128190; Exportar todo</button>
             <button id="btn-export-stock-asig-cliente" onclick="openExportStockAsigCliente()" style="padding:9px 18px;border:1.5px solid #166534;border-radius:6px;background:#166534;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128203; Exportar Stock Asignado por cliente</button>
+            <!-- v637 (2026-08-26): boton Graficos - top clientes + top SKUs por backorder pendiente -->
+            <button id="btn-backorders-graficos" onclick="openBackordersGraficos()" title="Ver graficos de top clientes + top SKUs con mas backorder" style="padding:9px 18px;border:1.5px solid #b45309;border-radius:6px;background:#b45309;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128200; Gr&aacute;ficos</button>
           </div>
           <div id="backorders-summary" style="padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#78350f;flex-shrink:0"></div>
           <div id="backorders-list" style="flex:1;overflow-y:auto"></div>
         </div>
+      </div>
+    </div>
+    <!-- v637 (2026-08-26): Modal de graficos de Backorder. Muestra 2 charts:
+         top clientes con mas unidades backorder + top SKUs. Data desde
+         backorderLines (SAP-source) + globalPedidos state='BO' (APP-source),
+         mismo filtro que renderBackordersTab. -->
+    <div class="modal-overlay" id="backorders-graficos-modal" onclick="if(event.target===this)closeBackordersGraficos()">
+      <div class="modal-box" style="width:min(920px,98vw);max-height:92vh;display:flex;flex-direction:column">
+        <div class="modal-head" style="background:linear-gradient(135deg,#c2410c,#f97316)">
+          <div><h2>&#128200; Gr&aacute;ficos de Backorder</h2><div class="subt">Top clientes y top SKUs con m&aacute;s unidades pendientes (SAP + APP).</div></div>
+          <button class="modal-close" onclick="closeBackordersGraficos()">&times;</button>
+        </div>
+        <div class="users-wrap" id="backorders-graficos-content" style="overflow-y:auto"></div>
       </div>
     </div>
     <div class="tab-pane" id="pane-notif">
@@ -4199,7 +4214,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v636';
+const APP_VERSION = 'v637';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -10758,6 +10773,157 @@ window.renderBackordersTab = function(){
     html += '<div style="padding:14px;text-align:center;color:#94a3b8;font-size:11px">Mostrando 100 de ' + skus.length + ' SKUs. Refina la busqueda para ver menos.</div>';
   }
   list.innerHTML = html;
+};
+
+// v637 (2026-08-26): Graficos generales de Backorder. Chart 1: top clientes
+// con mas unidades pendientes. Chart 2: top SKUs con mas unidades pendientes.
+// Data source: backorderLines (SAP-source pending SQs) + globalPedidos state='BO'
+// (APP-source). Mismo filtro que renderBackordersTab: solo pedidos con
+// transferidoSAP. Bars HTML/CSS puro sin lib externa.
+window.openBackordersGraficos = function(){
+  document.getElementById('backorders-graficos-modal').classList.add('open');
+  renderBackordersGraficos();
+};
+window.closeBackordersGraficos = function(){
+  document.getElementById('backorders-graficos-modal').classList.remove('open');
+};
+
+function _backordersGraficosData(){
+  // SAP-source (backorderLines cargado por listener SAP).
+  const byCliente = {};
+  const bySku = {};
+  const _bl = (typeof backorderLines !== 'undefined' && Array.isArray(backorderLines)) ? backorderLines : [];
+  for (const ln of _bl) {
+    if (!ln) continue;
+    const qty = Number(ln.pendiente) || 0;
+    if (qty <= 0) continue;
+    const tienda = (ln.clienteNombre || '').trim() || (ln.clienteCode || '(sin tienda)');
+    const sku = (ln.sku || '').toUpperCase();
+    if (!sku) continue;
+    byCliente[tienda] = (byCliente[tienda] || 0) + qty;
+    bySku[sku] = (bySku[sku] || 0) + qty;
+  }
+  // APP-source (globalPedidos state='BO' o 'ASIG' con qtyOpen>0). Mismo filter
+  // que renderBackordersTab: solo pedidos con transferidoSAP.
+  const _gp = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [];
+  for (const p of _gp) {
+    if (!p || !Array.isArray(p.lines)) continue;
+    if (!p.transferidoSAP) continue;
+    const tienda = (p.clientName || '').trim() || '(sin tienda)';
+    for (const l of p.lines) {
+      if (!l || !l.code) continue;
+      if (l.state !== 'BO' && l.state !== 'ASIG') continue;
+      const qty = Number(l.qtyOpen) || 0;
+      if (qty <= 0) continue;
+      const sku = String(l.code).toUpperCase();
+      byCliente[tienda] = (byCliente[tienda] || 0) + qty;
+      bySku[sku] = (bySku[sku] || 0) + qty;
+    }
+  }
+  return { byCliente, bySku };
+}
+
+function _backordersChartHtml(entries, colorHex){
+  if (!entries.length) {
+    return '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:12px">Sin datos.</div>';
+  }
+  const max = entries.reduce((m, e) => Math.max(m, e.value), 0) || 1;
+  const clr = colorHex || '#c2410c';
+  const parts = ['<div style="display:flex;flex-direction:column;gap:6px;padding:8px 4px">'];
+  entries.forEach(e => {
+    const pct = Math.round((e.value / max) * 100);
+    parts.push(
+      '<div style="display:grid;grid-template-columns:220px 1fr 80px;gap:8px;align-items:center;font-size:11.5px">',
+      '<div style="font-weight:700;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeAttr(e.label) + '">',
+      escapeHtml(e.label),
+      '</div>',
+      '<div style="background:#f1f5f9;border-radius:4px;height:20px;overflow:hidden">',
+      '<div style="width:' + pct + '%;height:100%;background:' + clr + ';border-radius:4px"></div>',
+      '</div>',
+      '<div style="text-align:right;font-weight:800;color:#0f172a">' + Math.round(e.value).toLocaleString('es-AR') + '</div>',
+      '</div>'
+    );
+  });
+  parts.push('</div>');
+  return parts.join('');
+}
+
+function renderBackordersGraficos(){
+  const cont = document.getElementById('backorders-graficos-content');
+  if (!cont) return;
+  const data = _backordersGraficosData();
+  const clienteEntries = Object.entries(data.byCliente).map(([lbl, v]) => ({label: lbl, value: v})).sort((a, b) => b.value - a.value);
+  const skuEntries = Object.entries(data.bySku).map(([lbl, v]) => ({label: lbl, value: v})).sort((a, b) => b.value - a.value);
+  if (!clienteEntries.length && !skuEntries.length) {
+    cont.textContent = 'No hay backorder para graficar.';
+    cont.style.padding = '30px';
+    cont.style.textAlign = 'center';
+    cont.style.color = '#94a3b8';
+    return;
+  }
+  cont.style.padding = '';
+  cont.style.textAlign = '';
+  cont.style.color = '';
+  const totalUnits = clienteEntries.reduce((s, e) => s + e.value, 0);
+  const chart1Html = _backordersChartHtml(clienteEntries.slice(0, 30), '#c2410c');
+  const chart1More = clienteEntries.length > 30
+    ? '<div style="font-size:10px;color:#94a3b8;text-align:center;margin-top:6px">(top 30 de ' + clienteEntries.length + ' clientes)</div>'
+    : '';
+  const chart2Html = _backordersChartHtml(skuEntries.slice(0, 30), '#f97316');
+  const chart2More = skuEntries.length > 30
+    ? '<div style="font-size:10px;color:#94a3b8;text-align:center;margin-top:6px">(top 30 de ' + skuEntries.length + ' SKUs)</div>'
+    : '';
+  cont.innerHTML =
+    '<div style="padding:16px 22px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">' +
+        '<div style="font-size:11px;color:#64748b">' +
+          '<b>' + clienteEntries.length + '</b> clientes &middot; <b>' + skuEntries.length + '</b> SKUs &middot; total <b>' + totalUnits.toLocaleString('es-AR') + '</b> unidades en backorder' +
+        '</div>' +
+        '<button type="button" onclick="exportBackordersGraficosExcel()" title="Exportar clientes + SKUs a XLSX" style="padding:6px 12px;border:1.5px solid #166534;border-radius:5px;background:#166534;color:#fff;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128203; Excel</button>' +
+      '</div>' +
+      '<div style="margin-bottom:24px">' +
+        '<h4 style="margin:0 0 10px 0;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#c2410c">Top clientes con m&aacute;s backorder</h4>' +
+        chart1Html + chart1More +
+      '</div>' +
+      '<div>' +
+        '<h4 style="margin:0 0 10px 0;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#c2410c">Top SKUs con m&aacute;s backorder</h4>' +
+        chart2Html + chart2More +
+      '</div>' +
+    '</div>';
+}
+window.renderBackordersGraficos = renderBackordersGraficos;
+
+window.exportBackordersGraficosExcel = function(){
+  if (typeof XLSX === 'undefined') { alert('La libreria XLSX no se cargo.'); return; }
+  const data = _backordersGraficosData();
+  const _prodByCode = {};
+  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
+    for (const p of PRODUCTS) _prodByCode[(p.code || '').toUpperCase()] = p;
+  }
+  const clienteRows = Object.entries(data.byCliente)
+    .map(([tienda, v]) => ({Tienda: tienda, 'Unidades backorder': Math.round(v)}))
+    .sort((a, b) => b['Unidades backorder'] - a['Unidades backorder']);
+  const skuRows = Object.entries(data.bySku).map(([sku, v]) => {
+    const p = _prodByCode[sku] || null;
+    return {
+      SKU: sku,
+      Descripcion: p ? (p.desc || '') : '',
+      Familia: p ? (p.fam || '') : '',
+      Subfamilia: p ? (p.sub || '') : '',
+      'Unidades backorder': Math.round(v),
+    };
+  }).sort((a, b) => b['Unidades backorder'] - a['Unidades backorder']);
+  const wb = XLSX.utils.book_new();
+  const ws1 = XLSX.utils.json_to_sheet(clienteRows);
+  ws1['!cols'] = [{wch:40},{wch:20}];
+  XLSX.utils.book_append_sheet(wb, ws1, 'Por Cliente');
+  const ws2 = XLSX.utils.json_to_sheet(skuRows);
+  ws2['!cols'] = [{wch:16},{wch:50},{wch:18},{wch:18},{wch:20}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Por SKU');
+  const stamp = new Date().toISOString().slice(0, 10);
+  const filename = 'backorder-graficos-' + stamp + '.xlsx';
+  XLSX.writeFile(wb, filename);
+  try { if (typeof logOp === 'function') logOp('export_backorders_graficos_xlsx', 'backorders', filename, {clientes: clienteRows.length, skus: skuRows.length}); } catch(_e){}
 };
 
 // ============================================================
