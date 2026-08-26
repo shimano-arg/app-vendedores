@@ -5961,6 +5961,290 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   }
 }
 
+/* ============================================================
+   v668 (2026-08-26) apple-design REDISEÑO VISUAL:
+   1) modal Que queres exportar? (#export-modal)
+   2) modal Panel de Control (#panel-control-modal)
+   ============================================================
+   */
+
+/* ==== #export-modal (Que queres exportar?) ==== */
+#export-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#export-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#export-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+#export-modal .modal-head {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#export-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#export-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#export-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#export-modal .modal-close:hover { color: #1d1d1f !important; }
+
+/* Export options: cards con hover Apple */
+#export-modal .export-options { padding: 20px 24px !important; gap: 10px !important; background: #f5f5f7 !important; }
+#export-modal .exp-opt {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  gap: 14px !important;
+  transition: transform 100ms ease-out, box-shadow 150ms ease-out, border-color 150ms ease-out !important;
+}
+#export-modal .exp-opt:hover {
+  background: #ffffff !important;
+  border-color: #d2d2d7 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+#export-modal .exp-opt:active { transform: scale(0.99) !important; }
+/* Exp-icon: preserva color inline, radius 10px, tamaño levemente menor */
+#export-modal .exp-icon {
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 10px !important;
+  font-size: 22px !important;
+}
+#export-modal .exp-body h3 {
+  color: #1d1d1f !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+  margin-bottom: 3px !important;
+}
+#export-modal .exp-body p {
+  color: #86868b !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+  letter-spacing: -0.01em;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  #export-modal.modal-overlay.open .modal-box {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
+/* ==== #panel-control-modal (Mariano-only) ==== */
+#panel-control-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#panel-control-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+/* Modal container (NO usa .modal-box sino .modal) - override inline styles */
+#panel-control-modal.modal-overlay.open .modal {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #f5f5f7 !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+  overflow: hidden;
+}
+/* Header dark (JS setea inline bg #0f172a) - mantenemos dark pero apple typography */
+#panel-control-modal .modal > div:first-child[style*="background:#0f172a"] {
+  background: #1d1d1f !important;
+  border-radius: 16px 16px 0 0 !important;
+  padding: 16px 24px !important;
+  color: #ffffff !important;
+  border-bottom: none !important;
+}
+#panel-control-modal .modal > div:first-child h2 {
+  color: #ffffff !important;
+  font-size: 17px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+  margin: 0 !important;
+}
+/* Boton REFRESCAR pill dark */
+#panel-control-modal .modal > div:first-child button[onclick*="renderPanelControl"] {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.20) !important;
+  border-radius: 999px !important;
+  padding: 6px 14px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: background 150ms ease-out;
+}
+#panel-control-modal .modal > div:first-child button[onclick*="renderPanelControl"]:hover {
+  background: rgba(255, 255, 255, 0.22) !important;
+}
+/* Boton close × */
+#panel-control-modal .modal > div:first-child button[onclick*="closePanelControl"] {
+  color: rgba(255, 255, 255, 0.7) !important;
+  font-size: 22px !important;
+  transition: color 150ms ease-out;
+}
+#panel-control-modal .modal > div:first-child button[onclick*="closePanelControl"]:hover {
+  color: #ffffff !important;
+}
+
+/* Body */
+#panel-control-modal #panel-control-body {
+  background: #f5f5f7 !important;
+  padding: 20px 24px !important;
+}
+
+/* Sections h3 "INFRAESTRUCTURA", "WORKFLOWS CRITICOS", "PEDIDOS" - uppercase gris sistema */
+#panel-control-modal .pc-section h3 {
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  margin: 0 0 10px 0 !important;
+}
+#panel-control-modal .pc-section { margin-bottom: 24px !important; }
+#panel-control-modal .pc-section > div[style*="display:flex"] { gap: 10px !important; }
+
+/* Cards (.pc-card) - override inline styles bg/border/radius */
+#panel-control-modal .pc-card {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+  transition: transform 150ms ease-out;
+}
+#panel-control-modal .pc-card:hover { transform: translateY(-1px); }
+/* Card title uppercase small gris */
+#panel-control-modal .pc-card div[style*="color:#475569"][style*="text-transform:uppercase"] {
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+}
+/* Card main value (20-24px, color:#0f172a por default, o color inline por semantica) */
+#panel-control-modal .pc-card div[style*="font-size:20px"],
+#panel-control-modal .pc-card div[style*="font-size:24px"] {
+  color: #1d1d1f !important;
+  font-size: 24px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.03em !important;
+  line-height: 1.1 !important;
+  margin-bottom: 4px !important;
+}
+/* Semantic colors preservados en inline styles */
+#panel-control-modal .pc-card div[style*="color:#dc2626"] { color: #ff3b30 !important; }
+#panel-control-modal .pc-card div[style*="color:#c2410c"] { color: #ff9500 !important; }
+#panel-control-modal .pc-card div[style*="color:#166534"] { color: #34c759 !important; }
+#panel-control-modal .pc-card div[style*="color:#1e40af"] { color: #49A2DA !important; }
+/* Card subtext (11px #64748b) */
+#panel-control-modal .pc-card div[style*="color:#64748b"] {
+  color: #86868b !important;
+  font-size: 11.5px !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.01em !important;
+  line-height: 1.4 !important;
+}
+
+/* Tables inside pc-section (WORKFLOWS CRITICOS, SENTRY TOP ISSUES) */
+#panel-control-modal .pc-section table {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 12px !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  overflow: hidden;
+  width: 100%;
+  font-size: 12px !important;
+}
+#panel-control-modal .pc-section th {
+  background: #f5f5f7 !important;
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  padding: 12px 14px !important;
+  text-align: left !important;
+  border-bottom: 1px solid #e5e5ea !important;
+}
+#panel-control-modal .pc-section td {
+  color: #1d1d1f !important;
+  font-size: 12px !important;
+  padding: 12px 14px !important;
+  border-bottom: 1px solid #f5f5f7 !important;
+  vertical-align: middle;
+}
+#panel-control-modal .pc-section tr:last-child td { border-bottom: none !important; }
+/* Status SUCCESS verde Apple, ERROR rojo Apple */
+#panel-control-modal .pc-section td[style*="color:#10b981"],
+#panel-control-modal .pc-section td [style*="color:#10b981"],
+#panel-control-modal .pc-section td[style*="color:#16a34a"],
+#panel-control-modal .pc-section td [style*="color:#16a34a"] {
+  color: #248a3d !important;
+  font-weight: 600 !important;
+}
+#panel-control-modal .pc-section td[style*="color:#dc2626"],
+#panel-control-modal .pc-section td [style*="color:#dc2626"] {
+  color: #d92e26 !important;
+  font-weight: 600 !important;
+}
+#panel-control-modal .pc-section td[style*="color:#f59e0b"],
+#panel-control-modal .pc-section td [style*="color:#f59e0b"] {
+  color: #a86200 !important;
+  font-weight: 600 !important;
+}
+/* Links en tabla */
+#panel-control-modal .pc-section td a {
+  color: #49A2DA !important;
+  text-decoration: none;
+  transition: color 150ms ease-out;
+}
+#panel-control-modal .pc-section td a:hover {
+  color: #3A8CC0 !important;
+  text-decoration: underline;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  #panel-control-modal.modal-overlay.open .modal {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -8729,7 +9013,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v667';
+const APP_VERSION = 'v668';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
