@@ -7244,6 +7244,193 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   }
 }
 
+/* ============================================================
+   v675 (2026-08-26) apple-design BASE UNIVERSAL para modales
+   ============================================================
+   Aplica a TODOS los .modal-overlay + .modal-box + .modal-head sin
+   selector ID especifico. Cubre los ~28 modales que no tenian override
+   individual (audit, backup, ca-detail, client-modal, cr/cu/cv,
+   email-link/pwd, excel-pedido, export-analisis/month/stock-asig,
+   force-totp/totp-gate/totp-setup, mc-sap, mis-camps-graficos,
+   password-gate, precios, review, rpm-picker, ruta-personalizada,
+   sap-integration, seg-timeline, stock, tienda, vincular-sap,
+   visit-add-photos).
+
+   IMPORTANTE: los overrides ID-specific existentes (v650-v673) ganan
+   por specificity (0,1,0 + !important) sobre este base (0,1,0/0,2,0
+   + !important). No rompe modales ya customizados.
+   */
+
+.modal-overlay {
+  background: rgba(0, 0, 0, 0.35) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+}
+.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+/* Global .modal-head reset - todos los modales sin override ID-specific
+   pierden su gradient inline (JS + HTML inline styles) por attribute selector */
+.modal-overlay .modal-head[style*="linear-gradient"],
+.modal-overlay .modal-head[style*="background:"] {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+.modal-overlay .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 20px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+.modal-overlay .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em !important;
+}
+.modal-overlay .modal-head .subt b[style*="color:#fca5a5"] { color: #ff3b30 !important; }
+.modal-overlay .modal-close {
+  color: #86868b !important;
+  background: transparent !important;
+  border: none !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+.modal-overlay .modal-close:hover { color: #1d1d1f !important; }
+
+/* Modal footer base */
+.modal-overlay .modal-footer {
+  background: #f5f5f7 !important;
+  border-top: 1px solid #e5e5ea !important;
+  padding: 14px 22px !important;
+  color: #86868b !important;
+  font-size: 11px !important;
+}
+
+/* Botones estandar btn-confirm / btn-cancel (usados en varios modales
+   sin override ID-specific). Preserva verde/rojo apple pill. */
+.modal-overlay .btn-confirm {
+  background: #34c759 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+.modal-overlay .btn-confirm:hover:not(:disabled) { background: #2ba64a !important; }
+.modal-overlay .btn-confirm:active:not(:disabled) { transform: scale(0.97) !important; }
+.modal-overlay .btn-confirm:disabled {
+  background: #e5e5ea !important;
+  color: #86868b !important;
+  cursor: not-allowed;
+}
+.modal-overlay .btn-cancel {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: all 150ms ease-out !important;
+}
+.modal-overlay .btn-cancel:hover {
+  background: rgba(255, 59, 48, 0.08) !important;
+  color: #ff3b30 !important;
+  border-color: rgba(255, 59, 48, 0.25) !important;
+}
+
+/* Reduced motion universal */
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay.open .modal-box {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
+/* ============================================================
+   v675 - Toast sync-tag + Access denied overlay
+   ============================================================ */
+
+/* Sync tag (toast "Sincronizando...") */
+.sync-tag {
+  background: rgba(29, 29, 31, 0.92) !important;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  color: #ffffff !important;
+  padding: 10px 18px !important;
+  border-radius: 999px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  text-transform: none !important;
+  letter-spacing: -0.01em !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24), 0 2px 6px rgba(0, 0, 0, 0.12) !important;
+  bottom: 20px !important;
+  left: 20px !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+}
+
+/* Access denied overlay ("Acceso pendiente") */
+.access-denied {
+  background: rgba(0, 0, 0, 0.55) !important;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+.access-denied .ad-box {
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  padding: 32px 28px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+}
+.access-denied h3 {
+  color: #1d1d1f !important;
+  font-size: 20px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+  margin-bottom: 8px !important;
+}
+.access-denied p {
+  color: #86868b !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+  letter-spacing: -0.01em !important;
+  margin-bottom: 20px !important;
+}
+.access-denied .logout-btn {
+  background: #ff3b30 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 10px 22px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: background 150ms ease-out;
+}
+.access-denied .logout-btn:hover { background: #d92e26 !important; }
+
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -10012,7 +10199,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v674';
+const APP_VERSION = 'v675';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
