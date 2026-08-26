@@ -3463,6 +3463,280 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   letter-spacing: 0.02em !important;
 }
 
+/* ============================================================
+   v661 (2026-08-26) apple-design REDISEÑO VISUAL sidebar derecho
+   (.sidebar - stats + tab grid 3x3 + Alertas y Tareas panel)
+   ============================================================
+   Scope: .sidebar + hijos (.tabs, .tab-btn, .notif-tabs-bar,
+   .ntab-btn, notif panel). Los stats cards ya estan Apple-ified
+   por v659 (.stats-bar .stat-box es global y aplica).
+
+   Mejoras UX propuestas:
+   - Sidebar right: mismo tratamiento visual que sidebar-left para
+     consistencia. Mirror simetrico left-right en color coding.
+   - Grid 3x3 tabs (Localidades/Clientes/Pedidos verde, Rutas/Visita/
+     Contactado celeste, Alta cli/Rendiciones/Notif azul): pills
+     translucent Apple manteniendo agrupacion semantica.
+   - Estado active: pill se rellena solido con el color del row +
+     texto blanco (era "invertido" con bg blanco + borde color).
+   - Sub-tabs Alertas y Tareas (RECIBIDAS/REALIZADAS/CREAR TAREA/
+     ENVIADAS): notif-tabs-bar fondo rosa/rojo -> gris Apple, ntab
+     underline celeste Shimano en vez de rojo.
+   - Notif count badge: rojo Apple #ff3b30 pill (era #dc2626).
+   - Empty state emoji + texto sistema.
+   - Marcar todas leidas: pill verde Apple.
+   */
+
+.sidebar {
+  background: #ffffff !important;
+  border-left: 1px solid #e5e5ea !important;
+  padding: 16px 16px !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+}
+.sidebar h3 {
+  color: #1d1d1f !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+  text-transform: none !important;
+  padding-bottom: 8px !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  margin-bottom: 12px !important;
+}
+.sidebar .tabs { gap: 8px !important; margin-bottom: 14px !important; }
+
+/* Tab buttons: reset todos los estilos legacy */
+.sidebar .tab-btn {
+  padding: 12px 8px !important;
+  border: 1px solid transparent !important;
+  border-bottom: 1px solid transparent !important;
+  border-radius: 12px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  min-height: 42px !important;
+  transition: transform 100ms ease-out, background 150ms ease-out !important;
+  box-shadow: none !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+}
+.sidebar .tab-btn:active { transform: scale(0.97) !important; }
+
+/* Fila 1 - VERDE (Localidades / Clientes / Pedidos) */
+.sidebar .tab-btn[data-tab=locs],
+.sidebar .tab-btn[data-tab=clients],
+.sidebar .tab-btn[data-tab=pedidos] {
+  background: rgba(52, 199, 89, 0.12) !important;
+  color: #248a3d !important;
+  border-color: rgba(52, 199, 89, 0.25) !important;
+}
+.sidebar .tab-btn[data-tab=locs]:hover,
+.sidebar .tab-btn[data-tab=clients]:hover,
+.sidebar .tab-btn[data-tab=pedidos]:hover {
+  background: rgba(52, 199, 89, 0.22) !important;
+  color: #248a3d !important;
+}
+.sidebar .tab-btn[data-tab=locs].active,
+.sidebar .tab-btn[data-tab=clients].active,
+.sidebar .tab-btn[data-tab=pedidos].active {
+  background: #34c759 !important;
+  color: #ffffff !important;
+  border-color: #34c759 !important;
+}
+
+/* Fila 2 - CELESTE (Rutas / Visita / Contactado / Dashboard) */
+.sidebar .tab-btn[data-tab=rutas],
+.sidebar .tab-btn.tab-action[data-tab=visita-action],
+.sidebar .tab-btn.tab-action[data-tab=contactado-action],
+.sidebar .tab-btn.tab-action[data-tab=dashboard-action] {
+  background: rgba(73, 162, 218, 0.14) !important;
+  color: #2b6f96 !important;
+  border-color: rgba(73, 162, 218, 0.28) !important;
+}
+.sidebar .tab-btn[data-tab=rutas]:hover,
+.sidebar .tab-btn.tab-action[data-tab=visita-action]:hover,
+.sidebar .tab-btn.tab-action[data-tab=contactado-action]:hover,
+.sidebar .tab-btn.tab-action[data-tab=dashboard-action]:hover {
+  background: rgba(73, 162, 218, 0.24) !important;
+  color: #2b6f96 !important;
+}
+.sidebar .tab-btn[data-tab=rutas].active {
+  background: #49A2DA !important;
+  color: #ffffff !important;
+  border-color: #49A2DA !important;
+}
+
+/* Fila 3 - INDIGO (Alta clientes / Rendiciones / Notificaciones) */
+.sidebar .tab-btn[data-tab=altacli],
+.sidebar .tab-btn[data-tab=rendiciones],
+.sidebar .tab-btn[data-tab=notif],
+.sidebar .tab-btn.tab-action[data-tab=notif-action] {
+  background: rgba(88, 86, 214, 0.14) !important;
+  color: #3a2ea3 !important;
+  border-color: rgba(88, 86, 214, 0.28) !important;
+}
+.sidebar .tab-btn[data-tab=altacli]:hover,
+.sidebar .tab-btn[data-tab=rendiciones]:hover,
+.sidebar .tab-btn[data-tab=notif]:hover,
+.sidebar .tab-btn.tab-action[data-tab=notif-action]:hover {
+  background: rgba(88, 86, 214, 0.24) !important;
+  color: #3a2ea3 !important;
+}
+.sidebar .tab-btn[data-tab=altacli].active,
+.sidebar .tab-btn[data-tab=rendiciones].active,
+.sidebar .tab-btn[data-tab=notif].active {
+  background: #5856d6 !important;
+  color: #ffffff !important;
+  border-color: #5856d6 !important;
+}
+
+/* Tab count badges dentro de tab-btn */
+.sidebar .tab-btn .tab-count {
+  background: rgba(0, 0, 0, 0.12) !important;
+  color: inherit !important;
+  padding: 1px 7px !important;
+  border-radius: 999px !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  margin-left: 4px !important;
+  min-width: 22px !important;
+}
+.sidebar .tab-btn.active .tab-count {
+  background: rgba(255, 255, 255, 0.28) !important;
+  color: #ffffff !important;
+}
+
+/* Pane notif (Alertas y Tareas): titulo + subtitulo */
+#pane-notif h3 {
+  color: #1d1d1f !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em !important;
+  border-bottom: none !important;
+  padding-bottom: 4px !important;
+  margin-bottom: 4px !important;
+}
+#pane-notif > div[style*="color:#64748b"] {
+  color: #86868b !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+  margin-bottom: 14px !important;
+}
+
+/* Sub-tabs bar (RECIBIDAS/REALIZADAS/CREAR TAREA/ENVIADAS):
+   fondo rosa/rojo -> gris Apple, underline celeste */
+#pane-notif .notif-tabs-bar {
+  background: #f5f5f7 !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  border-radius: 10px 10px 0 0 !important;
+  padding: 0 4px !important;
+  gap: 2px !important;
+}
+#pane-notif .ntab-btn {
+  color: #86868b !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  padding: 12px 10px !important;
+  border-bottom: 2px solid transparent !important;
+  border-radius: 0 !important;
+  transition: color 150ms ease-out, border-color 150ms ease-out;
+  background: none !important;
+}
+#pane-notif .ntab-btn:hover { color: #1d1d1f !important; background: none !important; }
+#pane-notif .ntab-btn.active {
+  color: #49A2DA !important;
+  border-bottom-color: #49A2DA !important;
+  background: none !important;
+}
+/* Sub-tabs mobile grid areas: override los border-left/top color rojo */
+@media (max-width: 700px) {
+  #pane-notif .ntab-btn[data-ntab=recibidas],
+  #pane-notif .ntab-btn[data-ntab=enviadas],
+  #pane-notif .ntab-btn[data-ntab=realizadas] {
+    border-left-color: #e5e5ea !important;
+    border-top-color: #e5e5ea !important;
+  }
+}
+
+/* Count badges dentro de sub-tabs: pill rojo Apple */
+#pane-notif .ntab-count {
+  background: #ff3b30 !important;
+  color: #ffffff !important;
+  border-radius: 999px !important;
+  padding: 1px 7px !important;
+  font-size: 9px !important;
+  font-weight: 700 !important;
+  min-width: 16px !important;
+}
+/* Zero state: gris subtle (override el inline style #94a3b8 con display:none) */
+#pane-notif .ntab-count.zero,
+#pane-notif .ntab-count:empty { display: none !important; }
+
+/* Empty state (No tenes alertas) */
+#pane-notif .notif-empty {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  padding: 40px 20px !important;
+  letter-spacing: -0.01em;
+}
+
+/* Boton "Marcar todas como leidas": pill verde Apple */
+#pane-notif #notifs-footer {
+  border-top: 1px solid #e5e5ea !important;
+  padding-top: 14px !important;
+  margin-top: 16px !important;
+}
+#pane-notif .qmodal-btn.primary {
+  background: #34c759 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#pane-notif .qmodal-btn.primary:hover { background: #2ba64a !important; }
+#pane-notif .qmodal-btn.primary:active { transform: scale(0.97) !important; }
+
+/* Inputs / selects / textarea del form "Crear tarea": Apple pill */
+#pane-notif input[type="text"],
+#pane-notif select,
+#pane-notif textarea {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 9px 12px !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+}
+#pane-notif input:focus,
+#pane-notif select:focus,
+#pane-notif textarea:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+/* Info banner "Crear tarea" (azul light) -> white con accent celeste */
+#pane-notif #notifs-pane-crear > div[style*="background:#eff6ff"] {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-left: 3px solid #49A2DA !important;
+  border-radius: 10px !important;
+  color: #1d1d1f !important;
+  padding: 12px 14px !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+}
+
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -6231,7 +6505,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v660';
+const APP_VERSION = 'v661';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
