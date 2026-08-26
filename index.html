@@ -4223,8 +4223,127 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v646';
+const APP_VERSION = 'v649';
 window.APP_VERSION = APP_VERSION;
+
+// v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
+// vendedores no se dan cuenta que hay version nueva y siguen usando cache
+// vieja. Cada 15 min (+ al startup) fetcheamos index.html sin cache y
+// extraemos APP_VERSION del HTML remoto. Si difiere del local, popup
+// con boton "REFRESCAR AHORA" que fuerza reload con cache bust.
+//
+// Dismiss: boton "Despues" oculta popup por 1 hora (localStorage timestamp).
+// Al proximo check si sigue mismatch → popup vuelve.
+(function initVersionCheck(){
+  const CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 min
+  const DISMISS_MS = 60 * 60 * 1000;         // 1 hora
+  const DISMISS_KEY = 'app_version_alert_dismissed_until';
+
+  function _isDismissed(){
+    try {
+      const until = parseInt(localStorage.getItem(DISMISS_KEY) || '0', 10);
+      return Date.now() < until;
+    } catch(_e){ return false; }
+  }
+
+  function _showVersionAlert(remoteVer){
+    // No mostrar si ya se dismisseo hace poco.
+    if (_isDismissed()) return;
+    // Si ya esta el modal abierto (double-trigger), skip.
+    if (document.getElementById('version-alert-modal')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'version-alert-modal';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px';
+
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:12px;max-width:400px;width:100%;padding:22px;box-shadow:0 20px 40px rgba(0,0,0,0.3);text-align:center;font-family:inherit';
+
+    const icon = document.createElement('div');
+    icon.style.cssText = 'font-size:36px;margin-bottom:8px';
+    icon.textContent = '🔄';
+
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size:16px;font-weight:800;color:#0f172a;margin-bottom:8px';
+    title.textContent = 'Tu version esta desactualizada';
+
+    const msg = document.createElement('div');
+    msg.style.cssText = 'font-size:12.5px;color:#475569;line-height:1.5;margin-bottom:16px';
+    msg.textContent = 'Estas usando ' + APP_VERSION + ' pero la ultima es ' + remoteVer + '. Refresca la app para ver los ultimos cambios.';
+
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:8px;justify-content:center;flex-wrap:wrap';
+
+    const btnRefresh = document.createElement('button');
+    btnRefresh.type = 'button';
+    btnRefresh.style.cssText = 'background:#0284a0;color:#fff;border:none;border-radius:6px;padding:10px 20px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px';
+    btnRefresh.textContent = 'Refrescar ahora';
+    btnRefresh.onclick = function(){
+      // Cache bust: unregister SW + reload. Similar a "Forzar actualizacion".
+      try {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(regs => {
+            Promise.all(regs.map(r => r.unregister())).finally(() => {
+              // Limpiar cache antes de reload.
+              if ('caches' in window) {
+                caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))).finally(() => {
+                  location.reload();
+                });
+              } else {
+                location.reload();
+              }
+            });
+          });
+        } else {
+          location.reload();
+        }
+      } catch(_e){
+        location.reload();
+      }
+    };
+
+    const btnLater = document.createElement('button');
+    btnLater.type = 'button';
+    btnLater.style.cssText = 'background:#e2e8f0;color:#475569;border:none;border-radius:6px;padding:10px 20px;font-size:12px;font-weight:700;cursor:pointer';
+    btnLater.textContent = 'Despues';
+    btnLater.onclick = function(){
+      try { localStorage.setItem(DISMISS_KEY, String(Date.now() + DISMISS_MS)); } catch(_e){}
+      overlay.remove();
+    };
+
+    btnRow.appendChild(btnRefresh);
+    btnRow.appendChild(btnLater);
+    box.appendChild(icon);
+    box.appendChild(title);
+    box.appendChild(msg);
+    box.appendChild(btnRow);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  }
+
+  async function _checkRemoteVersion(){
+    try {
+      const resp = await fetch('./index.html?_v=' + Date.now(), { cache: 'no-store' });
+      if (!resp.ok) return;
+      const html = await resp.text();
+      const m = html.match(/const APP_VERSION\s*=\s*['"]([^'"]+)['"]/);
+      if (!m) return;
+      const remoteVer = m[1];
+      if (remoteVer && remoteVer !== APP_VERSION) {
+        console.log('[version-check] mismatch local=' + APP_VERSION + ' remote=' + remoteVer);
+        _showVersionAlert(remoteVer);
+      }
+    } catch(_e){
+      // Sin red o error - silent.
+    }
+  }
+
+  // Check inicial despues de 30s (dar tiempo al load). Luego cada 15 min.
+  setTimeout(_checkRemoteVersion, 30 * 1000);
+  setInterval(_checkRemoteVersion, CHECK_INTERVAL_MS);
+  // Expose para debug manual desde consola.
+  window._checkAppVersion = _checkRemoteVersion;
+})();
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
 // Split de linea al crear/editar pedido. Ahora ON POR DEFAULT.
@@ -20417,7 +20536,13 @@ function renderMisCamps(){
     if (userRole === 'admin' || userRole === 'gerente') {
       const safeId = escapeAttr(c._fsId || c.id || '');
       const safeName = escapeAttr(c.name || 'Campaña');
-      actionsHtml = '<button onclick="event.stopPropagation();deleteMisCampaign(\'' + safeId + '\', \'' + safeName + '\')" title="Eliminar esta campaña (irreversible)" style="background:#dc2626;color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;margin-right:8px">&#128465; Eliminar</button>';
+      // v647: boton "Agregar SKU" para meter un SKU olvidado a una campana activa.
+      // Solo en tab activas (historicas ya cerraron; sin sentido editar).
+      const addBtnHtml = (tab === 'active')
+        ? '<button onclick="event.stopPropagation();addSkuToMisCampaign(\'' + safeId + '\', \'' + safeName + '\')" title="Agregar un SKU olvidado a esta campana" style="background:#166534;color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer">&#43; Agregar SKU</button>'
+        : '';
+      actionsHtml = addBtnHtml +
+        '<button onclick="event.stopPropagation();deleteMisCampaign(\'' + safeId + '\', \'' + safeName + '\')" title="Eliminar esta campaña (irreversible)" style="background:#dc2626;color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer">&#128465; Eliminar</button>';
     }
     // v636 (2026-08-25): wrap actions + arrow en un container flex para
     // alinear boton "Eliminar" y flecha ▶ de forma consistente entre cards.
@@ -20742,6 +20867,64 @@ window.exportMisCampsGraficosExcel = function(){
   if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
     for (const p of PRODUCTS) _prodByCode[(p.code || '').toUpperCase()] = p;
   }
+  // v649 (2026-08-26): construir lookup por (sku, tienda) de provincia +
+  // localidad iterando CAMPANIA_SNAPSHOT.detalle (dedupe cross-campaign como
+  // v646). Para APP-source (Pedidas) usar globalPedidos: mapear cliente ->
+  // point para obtener province/name del padron.
+  const metaByKey = {}; // "SKU::TIENDA" -> {provincia, localidad}
+  const _campsMeta = (function(){
+    const today = new Date().toISOString().slice(0, 10);
+    const isVend = (userRole === 'vendedor' && assignedVendor);
+    let cs = (campaignsCache || []).filter(c => !c.archivedManually && c.startDate && c.endDate && c.startDate <= today && c.endDate >= today);
+    if (isVend) cs = cs.filter(c => (typeof isCampaignApplicableToVendor === 'function') ? isCampaignApplicableToVendor(c, assignedVendor) : true);
+    return cs;
+  })();
+  const seenMeta = new Set();
+  const campSnap2 = (typeof CAMPANIA_SNAPSHOT === 'object' && CAMPANIA_SNAPSHOT) ? CAMPANIA_SNAPSHOT : {};
+  for (const c of _campsMeta) {
+    const snap = campSnap2[c.id || c._fsId];
+    if (!snap || !Array.isArray(snap.detalle)) continue;
+    for (const d of snap.detalle) {
+      if (!d || !d.sku) continue;
+      const sku = String(d.sku).toUpperCase();
+      const tienda = d.tienda || d.cardCode || '(sin tienda)';
+      const key = sku + '::' + tienda;
+      if (seenMeta.has(key)) continue;
+      seenMeta.add(key);
+      metaByKey[key] = { provincia: d.provincia || '', localidad: d.localidad || '' };
+    }
+  }
+  // Fallback APP-source: para tiendas que aparecen solo en Pedidas, mapear
+  // desde POINTS (nombre cliente -> province+locName).
+  if (typeof POINTS !== 'undefined' && Array.isArray(POINTS)) {
+    for (const p of POINTS) {
+      const _clients = (p.clients || []).concat(p.prospects || []);
+      for (const n of _clients) {
+        // Reverse lookup - no cambiamos keys existentes.
+        // Sabemos: n = clientName, p.province, p.name (locName).
+        // metaByKey keys son SKU::clientName. Guardar por tienda global.
+        // Actually solo para lookup - metaByTienda:
+      }
+    }
+  }
+  // Simpler: metaByTienda lookup para el fallback.
+  const metaByTiendaFallback = {};
+  if (typeof POINTS !== 'undefined' && Array.isArray(POINTS)) {
+    for (const p of POINTS) {
+      const nombres = (p.clients || []).concat(p.prospects || []);
+      for (const n of nombres) {
+        if (!metaByTiendaFallback[n]) {
+          metaByTiendaFallback[n] = { provincia: p.province || '', localidad: p.name || '' };
+        }
+      }
+    }
+  }
+  function _lookupMeta(sku, tienda){
+    const k = sku + '::' + tienda;
+    if (metaByKey[k] && (metaByKey[k].provincia || metaByKey[k].localidad)) return metaByKey[k];
+    return metaByTiendaFallback[tienda] || { provincia: '', localidad: '' };
+  }
+
   // Union de SKUs entre facturadas y pedidas.
   const allSkus = new Set([...Object.keys(data.bySkuFact), ...Object.keys(data.bySkuPed)]);
   const skuSheetRows = [...allSkus].map(sku => {
@@ -20758,7 +20941,7 @@ window.exportMisCampsGraficosExcel = function(){
       'Delta (pedidas-facturadas)': ped - fact,
     };
   }).sort((a, b) => b['Unidades facturadas'] - a['Unidades facturadas'] || b['Unidades pedidas'] - a['Unidades pedidas']);
-  // Detalle por (SKU, tienda): union de keys y matchear.
+  // Detalle por (SKU, tienda) — v649: agrega Provincia + Localidad.
   const allKeys = new Set([...Object.keys(data.bySkuTiendaFact), ...Object.keys(data.bySkuTiendaPed)]);
   const detalle = [...allKeys].map(k => {
     const sepIdx = k.indexOf('::');
@@ -20766,6 +20949,7 @@ window.exportMisCampsGraficosExcel = function(){
     const sku = k.slice(0, sepIdx);
     const tienda = k.slice(sepIdx + 2);
     const p = _prodByCode[sku] || null;
+    const meta = _lookupMeta(sku, tienda);
     const fact = Math.round(data.bySkuTiendaFact[k] || 0);
     const ped = Math.round(data.bySkuTiendaPed[k] || 0);
     return {
@@ -20774,6 +20958,8 @@ window.exportMisCampsGraficosExcel = function(){
       Familia: p ? (p.fam || '') : '',
       Subfamilia: p ? (p.sub || '') : '',
       Tienda: tienda,
+      Provincia: meta.provincia || '',
+      Localidad: meta.localidad || '',
       'Unidades facturadas': fact,
       'Unidades pedidas': ped,
       'Delta': ped - fact,
@@ -20785,7 +20971,8 @@ window.exportMisCampsGraficosExcel = function(){
   ws1['!cols'] = [{wch:16},{wch:50},{wch:18},{wch:18},{wch:18},{wch:18},{wch:20}];
   XLSX.utils.book_append_sheet(wb, ws1, 'Por SKU');
   const ws2 = XLSX.utils.json_to_sheet(detalle);
-  ws2['!cols'] = [{wch:16},{wch:50},{wch:18},{wch:18},{wch:40},{wch:18},{wch:18},{wch:14}];
+  // Cols: SKU, Descripcion, Familia, Subfamilia, Tienda, Provincia, Localidad, Facturadas, Pedidas, Delta
+  ws2['!cols'] = [{wch:16},{wch:50},{wch:18},{wch:18},{wch:40},{wch:22},{wch:22},{wch:18},{wch:18},{wch:14}];
   XLSX.utils.book_append_sheet(wb, ws2, 'Por SKU y Tienda');
   const stamp = new Date().toISOString().slice(0, 10);
   const filename = 'campanias-activas-' + stamp + '.xlsx';
@@ -20793,6 +20980,53 @@ window.exportMisCampsGraficosExcel = function(){
   try { if (typeof logOp === 'function') logOp('export_camps_graficos_xlsx', 'campaigns', filename, {campsCount: data.campsCount, skus: skuSheetRows.length}); } catch(_e){}
 };
 window.renderMisCampsGraficos = renderMisCampsGraficos;
+
+// v647 (2026-08-26): agregar SKU olvidado a una campana activa.
+// Solo admin/gerente. Prompt con validacion contra PRODUCTS (SKU debe existir
+// en catalogo). Escritura update({skus: [...existing, newSku]}) — dedupe
+// automatico (no agrega si ya esta). El listener de campaigns repinta solo.
+window.addSkuToMisCampaign = async function(fsId, name){
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente puede editar campanas.');
+    return;
+  }
+  if (!fsId) return;
+  const camp = (campaignsCache || []).find(x => (x.id || x._fsId) === fsId);
+  if (!camp) { alert('No encontre la campana en cache. Recargar la app.'); return; }
+  const raw = prompt('SKU a agregar a la campana "' + (name || fsId) + '":\n\n'
+    + '(Debe existir en el catalogo. Ej: CAT4000HGFE)');
+  if (!raw) return;
+  const sku = raw.trim().toUpperCase();
+  if (!sku) return;
+  // Validar contra PRODUCTS.
+  const prodExists = (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS))
+    ? PRODUCTS.some(p => (p.code || '').toUpperCase() === sku)
+    : true; // si no hay catalogo cargado, no validar
+  if (!prodExists) {
+    if (!confirm('El SKU "' + sku + '" NO esta en el catalogo actual (PRODUCTS).\n\n'
+      + 'Puede ser que sea un SKU valido pero no cargado, o un typo.\n\n'
+      + 'Agregarlo igual?')) return;
+  }
+  const currentSkus = Array.isArray(camp.skus) ? camp.skus.slice() : [];
+  if (currentSkus.some(s => (s || '').toUpperCase() === sku)) {
+    alert('El SKU "' + sku + '" ya esta en esta campana.');
+    return;
+  }
+  currentSkus.push(sku);
+  try {
+    await fbDb.collection('campaigns').doc(fsId).update({
+      skus: currentSkus,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: (currentUser && currentUser.email) || '',
+    });
+    showSyncTag('SKU ' + sku + ' agregado a ' + (name || 'campana'));
+    // Listener repinta solo. Renderizamos por las dudas.
+    try { renderMisCamps(); } catch(_e){}
+  } catch(e) {
+    console.error('addSkuToMisCampaign', e);
+    alert('Error agregando SKU: ' + (e.message || e));
+  }
+};
 
 // Borrado de campaña (solo admin / gerente). Util para limpiar campañas
 // de prueba. Action irreversible - hace .delete() en /campaigns/{id}.
