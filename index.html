@@ -4223,7 +4223,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v646';
+const APP_VERSION = 'v647';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -20417,7 +20417,13 @@ function renderMisCamps(){
     if (userRole === 'admin' || userRole === 'gerente') {
       const safeId = escapeAttr(c._fsId || c.id || '');
       const safeName = escapeAttr(c.name || 'Campaña');
-      actionsHtml = '<button onclick="event.stopPropagation();deleteMisCampaign(\'' + safeId + '\', \'' + safeName + '\')" title="Eliminar esta campaña (irreversible)" style="background:#dc2626;color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;margin-right:8px">&#128465; Eliminar</button>';
+      // v647: boton "Agregar SKU" para meter un SKU olvidado a una campana activa.
+      // Solo en tab activas (historicas ya cerraron; sin sentido editar).
+      const addBtnHtml = (tab === 'active')
+        ? '<button onclick="event.stopPropagation();addSkuToMisCampaign(\'' + safeId + '\', \'' + safeName + '\')" title="Agregar un SKU olvidado a esta campana" style="background:#166534;color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer">&#43; Agregar SKU</button>'
+        : '';
+      actionsHtml = addBtnHtml +
+        '<button onclick="event.stopPropagation();deleteMisCampaign(\'' + safeId + '\', \'' + safeName + '\')" title="Eliminar esta campaña (irreversible)" style="background:#dc2626;color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer">&#128465; Eliminar</button>';
     }
     // v636 (2026-08-25): wrap actions + arrow en un container flex para
     // alinear boton "Eliminar" y flecha ▶ de forma consistente entre cards.
@@ -20793,6 +20799,53 @@ window.exportMisCampsGraficosExcel = function(){
   try { if (typeof logOp === 'function') logOp('export_camps_graficos_xlsx', 'campaigns', filename, {campsCount: data.campsCount, skus: skuSheetRows.length}); } catch(_e){}
 };
 window.renderMisCampsGraficos = renderMisCampsGraficos;
+
+// v647 (2026-08-26): agregar SKU olvidado a una campana activa.
+// Solo admin/gerente. Prompt con validacion contra PRODUCTS (SKU debe existir
+// en catalogo). Escritura update({skus: [...existing, newSku]}) — dedupe
+// automatico (no agrega si ya esta). El listener de campaigns repinta solo.
+window.addSkuToMisCampaign = async function(fsId, name){
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente puede editar campanas.');
+    return;
+  }
+  if (!fsId) return;
+  const camp = (campaignsCache || []).find(x => (x.id || x._fsId) === fsId);
+  if (!camp) { alert('No encontre la campana en cache. Recargar la app.'); return; }
+  const raw = prompt('SKU a agregar a la campana "' + (name || fsId) + '":\n\n'
+    + '(Debe existir en el catalogo. Ej: CAT4000HGFE)');
+  if (!raw) return;
+  const sku = raw.trim().toUpperCase();
+  if (!sku) return;
+  // Validar contra PRODUCTS.
+  const prodExists = (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS))
+    ? PRODUCTS.some(p => (p.code || '').toUpperCase() === sku)
+    : true; // si no hay catalogo cargado, no validar
+  if (!prodExists) {
+    if (!confirm('El SKU "' + sku + '" NO esta en el catalogo actual (PRODUCTS).\n\n'
+      + 'Puede ser que sea un SKU valido pero no cargado, o un typo.\n\n'
+      + 'Agregarlo igual?')) return;
+  }
+  const currentSkus = Array.isArray(camp.skus) ? camp.skus.slice() : [];
+  if (currentSkus.some(s => (s || '').toUpperCase() === sku)) {
+    alert('El SKU "' + sku + '" ya esta en esta campana.');
+    return;
+  }
+  currentSkus.push(sku);
+  try {
+    await fbDb.collection('campaigns').doc(fsId).update({
+      skus: currentSkus,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: (currentUser && currentUser.email) || '',
+    });
+    showSyncTag('SKU ' + sku + ' agregado a ' + (name || 'campana'));
+    // Listener repinta solo. Renderizamos por las dudas.
+    try { renderMisCamps(); } catch(_e){}
+  } catch(e) {
+    console.error('addSkuToMisCampaign', e);
+    alert('Error agregando SKU: ' + (e.message || e));
+  }
+};
 
 // Borrado de campaña (solo admin / gerente). Util para limpiar campañas
 // de prueba. Action irreversible - hace .delete() en /campaigns/{id}.
