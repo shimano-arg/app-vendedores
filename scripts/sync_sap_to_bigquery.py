@@ -1097,20 +1097,41 @@ def sync_campania_snapshot_to_firestore(bq_client: bigquery.Client,
     # por (campaign_id, item_code, card_code, card_name) para popular el chart
     # de Graficos en el modal Campanas Activas. Cada campaign_snapshot doc
     # incluye array 'detalle' con {sku, cardCode, tienda, cantidad, importe}.
-    # v642 (2026-08-26): agregar assigned_vendor para permitir filtro por vendedor
-    # en el modal Graficos frontend.
+    # v643 (2026-08-26): BYPASSAR el scope filter de v_campanias_ventas_detalle
+    # (que solo incluye ventas de vendors en scope_values). Bug reportado:
+    # PowerBI "Top 10 productos" chart no aplica scope y muestra 87u de
+    # CATC3000HGFE (incluye COSTILLA cliente de Santi VDI). Mi sync mostraba
+    # solo 60u porque Santi no estaba en scope_values (campanias suelen ser
+    # scope=vendor con solo VDEs).
+    #
+    # Solucion: query directo a v_ventas_lineas JOIN campaigns_raw solo por
+    # SKU + fecha, ignorando scope. Asi el chart Graficos muestra TODAS las
+    # ventas del SKU en el rango (matchea PowerBI sin filtro vendor).
+    # Los totales de la campana (realizadoQty/realizadoArs) siguen usando
+    # v_campanias_progreso que respeta scope (para no inflar cumplimiento).
     detalle_query = """
+    WITH c AS (
+      SELECT
+        campaign_id, start_date, end_date,
+        ARRAY(SELECT JSON_EXTRACT_SCALAR(sku) FROM UNNEST(JSON_EXTRACT_ARRAY(skus_json)) sku) AS skus
+      FROM `app-vendedores-shimano.shimano_app.campaigns_raw`
+      WHERE JSON_EXTRACT_ARRAY(skus_json) IS NOT NULL
+    )
     SELECT
-      campaign_id,
-      item_code,
-      card_code,
-      card_name,
-      MAX(assigned_vendor)   AS vendor,
-      SUM(cantidad)          AS cantidad,
-      SUM(importe_linea_ars) AS importe_ars
-    FROM `app-vendedores-shimano.shimano_app.v_campanias_ventas_detalle`
-    GROUP BY campaign_id, item_code, card_code, card_name
-    ORDER BY campaign_id, cantidad DESC
+      c.campaign_id            AS campaign_id,
+      v.item_code              AS item_code,
+      v.card_code              AS card_code,
+      v.card_name              AS card_name,
+      MAX(v.assigned_vendor)   AS vendor,
+      SUM(v.cantidad)          AS cantidad,
+      SUM(v.importe_linea_ars) AS importe_ars
+    FROM c
+    JOIN `app-vendedores-shimano.shimano_app.v_ventas_lineas` v
+      ON v.item_code IN UNNEST(c.skus)
+     AND v.doc_date BETWEEN c.start_date AND c.end_date
+    WHERE v.is_pesca = TRUE
+    GROUP BY c.campaign_id, v.item_code, v.card_code, v.card_name
+    ORDER BY c.campaign_id, cantidad DESC
     """
     detalle_rows = list(bq_client.query(detalle_query, location=BQ_LOCATION).result())
     detalle_by_cid = {}
