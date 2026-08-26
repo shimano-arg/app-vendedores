@@ -265,11 +265,11 @@ window.exportMasterClientes = function () {
   //     que el gerente esta gestionando, no solo los cerrados en SAP.
   //     Los provisorios pueden no tener direccion todavia -> se aceptan igual.
   const seen = new Set();
-  rows.forEach((r) =>
+  rows.forEach((r) => {
     seen.add(
       (r.Provincia || '').toString().toUpperCase() + '|' + (r['Nombre tienda'] || '').toLowerCase()
-    )
-  );
+    );
+  });
   if (typeof approvedAltasList !== 'undefined' && approvedAltasList.length) {
     approvedAltasList.forEach((a) => {
       if (!a) return;
@@ -1328,7 +1328,9 @@ window.exportTargetsZonas = async function () {
     if (l !== 0) return l;
     return (r1['NOMBRE COMERCIAL'] || '').localeCompare(r2['NOMBRE COMERCIAL'] || '');
   });
-  rows.forEach((r, i) => (r['NRO CTE'] = i + 1));
+  rows.forEach((r, i) => {
+    r['NRO CTE'] = i + 1;
+  });
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = [
