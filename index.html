@@ -8726,7 +8726,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
              (display:none) para preservar el handler + renderSapClientesTab
              por si se necesita restaurar. Mismo patron que 'Zonas' en v416. -->
         <button class="sap-tab" data-sap-tab="clientes" onclick="switchSapTab('clientes')" style="display:none" data-legacy="v418">Mapeo Clientes</button>
-        <button class="sap-tab" data-sap-tab="productos" onclick="switchSapTab('productos')">Mapeo Productos</button>
+        <button class="sap-tab" data-sap-tab="productos" onclick="switchSapTab('productos')" style="display:none" data-legacy="v671">Mapeo Productos</button>
         <button class="sap-tab" data-sap-tab="servicelayer" onclick="switchSapTab('servicelayer')">&#128279; Service Layer</button>
         <button class="sap-tab" data-sap-tab="config" onclick="switchSapTab('config')">Configuraci&oacute;n</button>
       </div>
@@ -9839,7 +9839,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v670';
+const APP_VERSION = 'v671';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

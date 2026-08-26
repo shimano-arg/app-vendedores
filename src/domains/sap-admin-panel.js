@@ -98,10 +98,15 @@ window.openSapPanel = function () {
   if (!window.unsubSapClients || !window.unsubSapProducts) listenSapMaps();
   ensureSapConfigListener();
   // Vendedor solo ve pedidos pendientes y transferidos (no mapeo de clientes/productos).
+  // v671 (2026-08-26): respetar data-legacy — el `else` de abajo pisaba el
+  // `style="display:none"` inline de tabs legacy (Mapeo Clientes v418, Mapeo
+  // Productos v671) que Mariano pidio ocultar. Ahora si tiene data-legacy
+  // queda oculto para TODOS los roles, no solo vendedor.
   const isVend = userRole === 'vendedor';
   document.querySelectorAll('.sap-tab').forEach((b) => {
     const t = b.dataset.sapTab;
-    if (isVend && (t === 'clientes' || t === 'productos')) b.style.display = 'none';
+    if (b.hasAttribute('data-legacy')) b.style.display = 'none';
+    else if (isVend && (t === 'clientes' || t === 'productos')) b.style.display = 'none';
     else b.style.display = '';
   });
   switchSapTab('pendientes');
