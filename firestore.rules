@@ -337,6 +337,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // v641 (2026-08-26): dashboard_visuales/global escrito por el cron
+    // sync_sap_to_bigquery.py (BQ v_ventas_lineas -> Firestore) cada 30 min.
+    // Contiene topSkus + facturacionDiaria del mes actual. Alimenta el tab
+    // Visuales del Dashboard (v640). Read para cualquier isReader (los VDEs
+    // ven charts globales de la empresa).
+    match /dashboard_visuales/{docId} {
+      allow read: if isReader();
+      allow write: if false;
+    }
+
     // v454 (2026-08-11): revision_waitlist — pedidos "en espera" cargados
     // desde el modal Revision Excel. Compartido entre los 4 users del
     // whitelist (Mariano/Ioannis/Santi/Pablo = admin/gerente/interno).

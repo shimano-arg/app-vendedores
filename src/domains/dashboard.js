@@ -155,6 +155,12 @@ window.openDashboardModal = function () {
       window.ensureCampaniaSnapshotListener();
     }
   } catch (_e) {}
+  // v641: mismo defensivo para dashboard_visuales listener.
+  try {
+    if (typeof window.ensureDashboardVisualesListener === 'function') {
+      window.ensureDashboardVisualesListener();
+    }
+  } catch (_e) {}
   renderDashboard();
 };
 

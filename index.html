@@ -4223,7 +4223,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v640';
+const APP_VERSION = 'v641';
 window.APP_VERSION = APP_VERSION;
 
 // v600 E7 (2026-08-24) → v620 E7 activacion global (2026-08-25):
@@ -17594,6 +17594,7 @@ function ensureAllListeners(){
   _try('revisionWaitlist', () => ensureRevisionWaitlistListener());
   _try('facturacionSnapshot', () => ensureFacturacionSnapshotListener());
   _try('campaniaSnapshot', () => ensureCampaniaSnapshotListener());
+  _try('dashboardVisuales', () => ensureDashboardVisualesListener());
 }
 // v559+: re-atachar listeners al volver a la tab (Firestore auto-desconecta
 // cuando la tab pierde foco por mucho tiempo). Idempotente.
@@ -17935,6 +17936,26 @@ function ensureCampaniaSnapshotListener(){
     console.log('[campania_snapshot] listener OK -', Object.keys(CAMPANIA_SNAPSHOT).length, 'docs');
     try { if (typeof renderDashboard === 'function') renderDashboard(); } catch(e){}
   }, err => console.warn('[campania_snapshot] listener', err));
+}
+
+// v641 (2026-08-26): listener del doc dashboard_visuales/global escrito por
+// sync_sap_to_bigquery.py sync_dashboard_visuales_to_firestore cada 30 min.
+// Alimenta el tab Visuales del Dashboard (top SKUs + facturacion acumulada).
+var DASHBOARD_VISUALES = null;
+var _unsubDashboardVisuales = null;
+function ensureDashboardVisualesListener(){
+  if (_unsubDashboardVisuales) return;
+  if (!currentUser || !fbDb) return;
+  _unsubDashboardVisuales = fbDb.collection('dashboard_visuales').doc('global').onSnapshot(snap => {
+    DASHBOARD_VISUALES = snap.exists ? snap.data() : null;
+    window.DASHBOARD_VISUALES = DASHBOARD_VISUALES;
+    console.log('[dashboard_visuales] listener OK -',
+      DASHBOARD_VISUALES ? ((DASHBOARD_VISUALES.topSkus || []).length + ' skus, ' + (DASHBOARD_VISUALES.facturacionDiaria || []).length + ' dias') : 'sin doc');
+    try {
+      const dm = document.getElementById('dashboard-modal');
+      if (dm && dm.classList.contains('open') && typeof renderDashboard === 'function') renderDashboard();
+    } catch(_e){}
+  }, err => console.warn('[dashboard_visuales] listener', err));
 }
 
 // v481/v482: calcula facturacion diaria + cumplimiento mensual.
@@ -20833,6 +20854,7 @@ function detachFirebaseListeners(){
   n += off('_unsubRevisionWaitlist', _unsubRevisionWaitlist, () => _unsubRevisionWaitlist = null);
   n += off('_unsubFacturacionSnapshot', _unsubFacturacionSnapshot, () => _unsubFacturacionSnapshot = null);
   n += off('_unsubCampaniaSnapshot', _unsubCampaniaSnapshot, () => _unsubCampaniaSnapshot = null);
+  n += off('_unsubDashboardVisuales', _unsubDashboardVisuales, () => _unsubDashboardVisuales = null);
   if (typeof _logT === 'function') _logT('detach: ' + n + ' listeners cerrados');
   return n;
 }
