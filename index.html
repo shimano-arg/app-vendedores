@@ -3896,6 +3896,518 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 }
 .leaflet-control-attribution a { color: #49A2DA !important; }
 
+/* ============================================================
+   v663 (2026-08-26) apple-design REDISEÑO VISUAL batch de 8 modales
+   ============================================================
+   Modales: #mis-camps-modal, #dashboard-modal, #seguimiento-modal,
+   #export-format-modal, #backorders-modal (usado tambien por
+   "SAP Asignado - Con Stock" que reusa el mismo div), #estado-modal,
+   #waitlist-modal, #forecast-modal.
+   Total 8 IDs pero cubre 9 features (backorders div reusado).
+
+   Estrategia: bloque compartido para overlay+box+head+close (7
+   modales estandar) + overrides especificos por modal para
+   elementos internos unicos (tabs, cards, filters, etc). Forecast
+   tratado aparte por tener estructura DOM injectada dinamicamente
+   con inline styles hardcoded (no usa .modal-box / .modal-head).
+   */
+
+/* ==== BLOQUE COMPARTIDO (7 modales estandar) ==== */
+#mis-camps-modal.modal-overlay,
+#dashboard-modal.modal-overlay,
+#seguimiento-modal.modal-overlay,
+#export-format-modal.modal-overlay,
+#backorders-modal.modal-overlay,
+#estado-modal.modal-overlay,
+#waitlist-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#mis-camps-modal.modal-overlay.open,
+#dashboard-modal.modal-overlay.open,
+#seguimiento-modal.modal-overlay.open,
+#export-format-modal.modal-overlay.open,
+#backorders-modal.modal-overlay.open,
+#estado-modal.modal-overlay.open,
+#waitlist-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#mis-camps-modal.modal-overlay.open .modal-box,
+#dashboard-modal.modal-overlay.open .modal-box,
+#seguimiento-modal.modal-overlay.open .modal-box,
+#export-format-modal.modal-overlay.open .modal-box,
+#backorders-modal.modal-overlay.open .modal-box,
+#estado-modal.modal-overlay.open .modal-box,
+#waitlist-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+#mis-camps-modal .modal-head,
+#dashboard-modal .modal-head,
+#seguimiento-modal .modal-head,
+#export-format-modal .modal-head,
+#backorders-modal .modal-head,
+#estado-modal .modal-head,
+#waitlist-modal .modal-head {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#mis-camps-modal .modal-head h2,
+#dashboard-modal .modal-head h2,
+#seguimiento-modal .modal-head h2,
+#export-format-modal .modal-head h2,
+#backorders-modal .modal-head h2,
+#estado-modal .modal-head h2,
+#waitlist-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#mis-camps-modal .modal-head .subt,
+#dashboard-modal .modal-head .subt,
+#seguimiento-modal .modal-head .subt,
+#export-format-modal .modal-head .subt,
+#backorders-modal .modal-head .subt,
+#estado-modal .modal-head .subt,
+#waitlist-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#mis-camps-modal .modal-close,
+#dashboard-modal .modal-close,
+#seguimiento-modal .modal-close,
+#export-format-modal .modal-close,
+#backorders-modal .modal-close,
+#estado-modal .modal-close,
+#waitlist-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#mis-camps-modal .modal-close:hover,
+#dashboard-modal .modal-close:hover,
+#seguimiento-modal .modal-close:hover,
+#export-format-modal .modal-close:hover,
+#backorders-modal .modal-close:hover,
+#estado-modal .modal-close:hover,
+#waitlist-modal .modal-close:hover { color: #1d1d1f !important; }
+
+/* Reduced motion para los 7 */
+@media (prefers-reduced-motion: reduce) {
+  #mis-camps-modal.modal-overlay.open .modal-box,
+  #dashboard-modal.modal-overlay.open .modal-box,
+  #seguimiento-modal.modal-overlay.open .modal-box,
+  #export-format-modal.modal-overlay.open .modal-box,
+  #backorders-modal.modal-overlay.open .modal-box,
+  #estado-modal.modal-overlay.open .modal-box,
+  #waitlist-modal.modal-overlay.open .modal-box {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
+/* ==== OVERRIDES ESPECIFICOS POR MODAL ==== */
+
+/* --- #mis-camps-modal (Campañas Activas) --- */
+/* Tabs Activas/Historicas/Graficos: pills segmented control */
+#mis-camps-modal button[onclick*="setMisCampsTab"] {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out;
+}
+#mis-camps-modal button[onclick*="setMisCampsTab"]:hover { background: #f5f5f7 !important; }
+#mis-camps-modal button[onclick*="setMisCampsTab"].active {
+  background: #49A2DA !important;
+  color: #ffffff !important;
+  border-color: #49A2DA !important;
+}
+/* Cards de campaña con acciones */
+#mis-camps-modal button[onclick*="openMisCampsGraficos"] {
+  background: #af52de !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+}
+
+/* --- #dashboard-modal (Dashboard de ventas) --- */
+/* Tabs TARGETS/VISUALES/VISITAS/FINANZAS */
+#dashboard-modal button[onclick*="setDashboardTab"],
+#dashboard-modal .dsh-tab-btn {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out;
+}
+#dashboard-modal .dsh-tab-btn:hover,
+#dashboard-modal button[onclick*="setDashboardTab"]:hover { background: #f5f5f7 !important; }
+#dashboard-modal .dsh-tab-btn.active,
+#dashboard-modal button[onclick*="setDashboardTab"].active {
+  background: #49A2DA !important;
+  color: #ffffff !important;
+  border-color: #49A2DA !important;
+}
+/* Filter selects dentro de dashboard */
+#dashboard-modal select,
+#dashboard-modal input[type="text"],
+#dashboard-modal input[type="date"] {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 9px 12px !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+#dashboard-modal select:focus,
+#dashboard-modal input:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+/* Cards de vendedor con ranking bars */
+#dashboard-modal .rank-card,
+#dashboard-modal [class*="rank"] {
+  border-radius: 12px !important;
+}
+
+/* --- #seguimiento-modal (Seguimiento) --- */
+/* Filter row inputs/selects */
+#seguimiento-modal select,
+#seguimiento-modal input[type="text"],
+#seguimiento-modal input[type="date"] {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 9px 12px !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+#seguimiento-modal select:focus,
+#seguimiento-modal input:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+/* Boton APLICAR pill verde Apple */
+#seguimiento-modal button[onclick*="applySeguimiento"] {
+  background: #34c759 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 10px 22px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+}
+#seguimiento-modal button[onclick*="applySeguimiento"]:hover { background: #2ba64a !important; }
+/* Sub-tabs RESUMEN/VISITAS/PEDIDOS/PENDIENTES/etc: segmented style */
+#seguimiento-modal button[onclick*="setSeguimientoSubtab"],
+#seguimiento-modal button[onclick*="setSegSubtab"] {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 8px 14px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out;
+}
+#seguimiento-modal button[onclick*="setSegSubtab"].active,
+#seguimiento-modal button[onclick*="setSeguimientoSubtab"].active {
+  background: #14b8a6 !important;
+  color: #ffffff !important;
+  border-color: #14b8a6 !important;
+}
+/* Vendor cards con border-left teal */
+#seguimiento-modal .seg-vendor-card,
+#seguimiento-modal [class*="vendor-card"] {
+  border-left: 3px solid #14b8a6 !important;
+  border-radius: 12px !important;
+}
+
+/* --- #export-format-modal (Exportar datos) --- */
+/* 2 opciones XLS/ZIP como cards clickeables */
+#export-format-modal .modal-body > div,
+#export-format-modal [class*="fmt-card"],
+#export-format-modal [onclick*="openExport"] {
+  border-radius: 14px !important;
+  transition: all 150ms ease-out;
+}
+#export-format-modal [class*="fmt-card"]:hover,
+#export-format-modal [onclick*="openExport"]:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* --- #backorders-modal (Backorder + SAP Asignado) --- */
+/* Search input + selects filtros */
+#backorders-modal input[type="text"],
+#backorders-modal input[type="search"],
+#backorders-modal select {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 10px 14px !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+#backorders-modal input:focus,
+#backorders-modal select:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+/* Botones Exportar/Graficos */
+#backorders-modal button[onclick*="exportBackorders"],
+#backorders-modal button[onclick*="openBackorderGraficos"],
+#backorders-modal button[onclick*="exportBackorderStockAsig"] {
+  border-radius: 999px !important;
+  padding: 9px 16px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  border: none !important;
+  color: #ffffff !important;
+  transition: background 150ms ease-out;
+}
+#backorders-modal button[onclick*="exportBackorders"] { background: #c2410c !important; }
+#backorders-modal button[onclick*="exportBackorders"]:hover { background: #9a3412 !important; }
+#backorders-modal button[onclick*="openBackorderGraficos"] { background: #c2410c !important; }
+#backorders-modal button[onclick*="openBackorderGraficos"]:hover { background: #9a3412 !important; }
+#backorders-modal button[onclick*="exportBackorderStockAsig"] { background: #166534 !important; }
+#backorders-modal button[onclick*="exportBackorderStockAsig"]:hover { background: #14532d !important; }
+/* Info stats banner (276 SKUs...) */
+#backorders-modal [id*="stats"],
+#backorders-modal [id*="info"] {
+  border-radius: 10px !important;
+}
+/* Cards de backorder SKU y sub-rows de clientes */
+#backorders-modal [class*="bo-sku"],
+#backorders-modal [class*="bo-card"] {
+  border-radius: 10px !important;
+}
+
+/* --- #estado-modal (Estado de pedidos) --- */
+/* Filter buttons Lista de espera / Pendientes / Confirmados SAP */
+#estado-modal .cli-filter-btn {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 8px 14px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out;
+}
+#estado-modal .cli-filter-btn:hover { background: #f5f5f7 !important; }
+#estado-modal .cli-filter-btn.active {
+  background: #14b8a6 !important;
+  color: #ffffff !important;
+  border-color: #14b8a6 !important;
+}
+#estado-modal .cli-filter-btn[data-estado-filter="confirmados"].active {
+  background: #49A2DA !important;
+  border-color: #49A2DA !important;
+}
+#estado-modal .cli-filter-btn[data-estado-filter="pendientes"].active {
+  background: #ff9500 !important;
+  border-color: #ff9500 !important;
+}
+/* Search input */
+#estado-modal input[type="text"],
+#estado-modal input[type="search"] {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 10px 14px !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+#estado-modal input:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+/* Cards de pedido con border-left color por estado */
+#estado-modal [class*="pedido-card"],
+#estado-modal [class*="order-card"] {
+  border-radius: 12px !important;
+}
+/* Badges SAP #2000052, COBRADO, REMITIDO, FACTURADO, CERRADO, ORDEN */
+#estado-modal [class*="badge"],
+#estado-modal [class*="tag"] {
+  border-radius: 999px !important;
+  padding: 3px 10px !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+}
+
+/* --- #waitlist-modal (Pedidos en espera) --- */
+/* Cards de pedido: white con border-left y hover apple */
+#waitlist-modal [class*="waitlist-item"],
+#waitlist-modal [class*="wl-item"] {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-left: 3px solid #af52de !important;
+  border-radius: 10px !important;
+  padding: 12px 14px !important;
+  margin-bottom: 8px !important;
+  transition: transform 100ms ease-out, box-shadow 150ms ease-out !important;
+}
+#waitlist-modal [class*="waitlist-item"]:hover,
+#waitlist-modal [class*="wl-item"]:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+#waitlist-modal [class*="has-exceed"] { border-left-color: #ff3b30 !important; background: #ffffff !important; }
+/* Badge "5 con excedente" pill rojo Apple / "OK" pill violeta */
+#waitlist-modal [class*="wl-badge"] {
+  background: rgba(255, 59, 48, 0.14) !important;
+  color: #d92e26 !important;
+  border-radius: 999px !important;
+  padding: 4px 10px !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+}
+#waitlist-modal [class*="wl-badge"].ok {
+  background: rgba(175, 82, 222, 0.14) !important;
+  color: #7c2fb3 !important;
+}
+
+/* --- #forecast-modal (dinamico, sin estructura .modal-box) --- */
+/* Overlay */
+#forecast-modal {
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  background: rgba(0, 0, 0, 0.35) !important;
+}
+/* Contenedor interno (el div con inset:1vh 1vw + background:#fff) */
+#forecast-modal > div {
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+}
+/* Header negro -> blanco */
+#forecast-modal > div > div:first-child[style*="background:#0f172a"] {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#forecast-modal > div > div:first-child > div:first-child > div:first-child {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#forecast-modal #forecast-subtitle {
+  color: #86868b !important;
+  opacity: 1 !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.01em;
+}
+/* Botones del header (Exportar Excel, Cerrar) */
+#forecast-modal #forecast-export-btn {
+  background: #34c759 !important;
+  border-radius: 999px !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  letter-spacing: -0.01em !important;
+  padding: 9px 16px !important;
+  border: none !important;
+}
+#forecast-modal #forecast-export-btn:disabled { background: #e5e5ea !important; color: #86868b !important; opacity: 1 !important; }
+#forecast-modal #forecast-export-btn:not(:disabled):hover { background: #2ba64a !important; }
+#forecast-modal button[onclick="closeForecastModal()"] {
+  background: transparent !important;
+  color: #1d1d1f !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  letter-spacing: -0.01em !important;
+  padding: 8px 14px !important;
+}
+#forecast-modal button[onclick="closeForecastModal()"]:hover { background: #f5f5f7 !important; border-color: #86868b !important; }
+/* Toolbar row (segundo div con background:#f8fafc) */
+#forecast-modal > div > div:nth-child(2) {
+  background: #f5f5f7 !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 14px 22px !important;
+}
+#forecast-modal > div > div:nth-child(2) > label[style*="background:#0d9488"] {
+  background: #49A2DA !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  letter-spacing: -0.01em !important;
+}
+#forecast-modal #forecast-hint {
+  color: #86868b !important;
+  font-size: 12px !important;
+  line-height: 1.5;
+}
+#forecast-modal #forecast-hint b { color: #1d1d1f !important; font-weight: 600 !important; }
+#forecast-modal #forecast-stats { color: #86868b !important; }
+/* Body */
+#forecast-modal #forecast-body {
+  background: #ffffff !important;
+}
+#forecast-modal #forecast-body > div[style*="color:#94a3b8"] {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+}
+/* Reduced motion forecast */
+@media (prefers-reduced-motion: reduce) {
+  #forecast-modal > div {
+    animation: none !important;
+    transform: none !important;
+  }
+}
+
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -6664,7 +7176,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v662';
+const APP_VERSION = 'v663';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
