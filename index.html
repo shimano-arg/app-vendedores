@@ -9839,7 +9839,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v671';
+const APP_VERSION = 'v672';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -26243,6 +26243,14 @@ function _misCampsGraficosData(){
   const bySkuPed = {};
   const bySkuTiendaPed = {};
   const vendorSet = new Set();
+  // v672 (2026-08-26): capturar meta {provincia, localidad} por tienda en el
+  // momento de armar los datos. Antes exportMisCampsGraficosExcel reconstruia
+  // el meta desde cero via _lookupMeta que caia a metaByTiendaFallback (nombre
+  // en POINTS) — pero muchas tiendas SAP no matchean con POINTS.clients por
+  // diferencia de naming (card_name vs nombre app). Ahora guardamos meta
+  // directo desde cada fuente (snap.detalle o point.province/name). Esto
+  // garantiza que Provincia/Localidad no queden vacias en el Excel.
+  const metaByTienda = {};
   // v642: filtro vendor client-side.
   const vendorFilter = (_misCampsGraficosVendor && _misCampsGraficosVendor !== 'ALL') ? _misCampsGraficosVendor : null;
   // v646 (2026-08-26): DEDUPE cross-campaign. Bug reportado: chart mostraba
@@ -26274,6 +26282,16 @@ function _misCampsGraficosData(){
       bySkuFact[sku] = (bySkuFact[sku] || 0) + cantidad;
       const kSkuTienda = sku + '::' + tienda;
       bySkuTiendaFact[kSkuTienda] = (bySkuTiendaFact[kSkuTienda] || 0) + cantidad;
+      // v672: capturar meta desde snapshot. Si el snap trae provincia/localidad
+      // (v649+) las usamos. Si no, quedan vacios acá — el fallback POINTS del
+      // ciclo "Pedidas" abajo puede completarlos si la tienda tambien está en
+      // la app. Y el fallback approvedAltasList al final cubre casos SAP-only.
+      if (!metaByTienda[tienda] || (!metaByTienda[tienda].provincia && !metaByTienda[tienda].localidad)) {
+        metaByTienda[tienda] = {
+          provincia: (d.provincia || '').trim(),
+          localidad: (d.localidad || '').trim(),
+        };
+      }
     }
   }
   // Pedidas desde globalPedidos.
@@ -26307,6 +26325,45 @@ function _misCampsGraficosData(){
       bySkuPed[sku] = (bySkuPed[sku] || 0) + qty;
       const kSkuTienda = sku + '::' + tienda;
       bySkuTiendaPed[kSkuTienda] = (bySkuTiendaPed[kSkuTienda] || 0) + qty;
+      // v672: capturar meta desde el pedido app (p.province + p.locName). Solo
+      // completar si aun no tenemos meta para esa tienda (no pisar snapshot).
+      if (!metaByTienda[tienda] || (!metaByTienda[tienda].provincia && !metaByTienda[tienda].localidad)) {
+        metaByTienda[tienda] = {
+          provincia: (p.province || '').trim(),
+          localidad: (p.locName || '').trim(),
+        };
+      }
+    }
+  }
+  // v672: fallback final desde approvedAltasList por nombre normalizado.
+  // Cubre tiendas provisorias (alta rapida) que no estan en POINTS y para
+  // las cuales el snapshot BQ no trae city (bp.city null para BPs sin alta SAP).
+  const _normStr = s => (s || '').toString().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+  if (typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList)) {
+    const altaByName = {};
+    for (const a of approvedAltasList) {
+      if (!a) continue;
+      const names = [a.comercio, a.titular, a.fantasia].filter(Boolean);
+      for (const n of names) {
+        const nk = _normStr(n);
+        if (nk && !altaByName[nk]) {
+          altaByName[nk] = {
+            provincia: (a.provincia || '').trim(),
+            localidad: (a.localidadFinal || a.localidad || '').trim(),
+          };
+        }
+      }
+    }
+    for (const tienda in bySkuTiendaFact) {} // noop, ensure defined
+    const _allTiendasSet = new Set();
+    Object.keys(bySkuTiendaFact).forEach(k => { const i = k.indexOf('::'); if (i >= 0) _allTiendasSet.add(k.slice(i + 2)); });
+    Object.keys(bySkuTiendaPed).forEach(k => { const i = k.indexOf('::'); if (i >= 0) _allTiendasSet.add(k.slice(i + 2)); });
+    for (const t of _allTiendasSet) {
+      if (metaByTienda[t] && (metaByTienda[t].provincia || metaByTienda[t].localidad)) continue;
+      const nk = _normStr(t);
+      if (altaByName[nk]) {
+        metaByTienda[t] = altaByName[nk];
+      }
     }
   }
   return {
@@ -26314,6 +26371,7 @@ function _misCampsGraficosData(){
     bySkuPed, bySkuTiendaPed,
     campsCount: camps.length,
     vendors: [...vendorSet].sort(),
+    metaByTienda, // v672: {tienda -> {provincia, localidad}} para export Excel
   };
 }
 
@@ -26483,62 +26541,14 @@ window.exportMisCampsGraficosExcel = function(){
   if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
     for (const p of PRODUCTS) _prodByCode[(p.code || '').toUpperCase()] = p;
   }
-  // v649 (2026-08-26): construir lookup por (sku, tienda) de provincia +
-  // localidad iterando CAMPANIA_SNAPSHOT.detalle (dedupe cross-campaign como
-  // v646). Para APP-source (Pedidas) usar globalPedidos: mapear cliente ->
-  // point para obtener province/name del padron.
-  const metaByKey = {}; // "SKU::TIENDA" -> {provincia, localidad}
-  const _campsMeta = (function(){
-    const today = new Date().toISOString().slice(0, 10);
-    const isVend = (userRole === 'vendedor' && assignedVendor);
-    let cs = (campaignsCache || []).filter(c => !c.archivedManually && c.startDate && c.endDate && c.startDate <= today && c.endDate >= today);
-    if (isVend) cs = cs.filter(c => (typeof isCampaignApplicableToVendor === 'function') ? isCampaignApplicableToVendor(c, assignedVendor) : true);
-    return cs;
-  })();
-  const seenMeta = new Set();
-  const campSnap2 = (typeof CAMPANIA_SNAPSHOT === 'object' && CAMPANIA_SNAPSHOT) ? CAMPANIA_SNAPSHOT : {};
-  for (const c of _campsMeta) {
-    const snap = campSnap2[c.id || c._fsId];
-    if (!snap || !Array.isArray(snap.detalle)) continue;
-    for (const d of snap.detalle) {
-      if (!d || !d.sku) continue;
-      const sku = String(d.sku).toUpperCase();
-      const tienda = d.tienda || d.cardCode || '(sin tienda)';
-      const key = sku + '::' + tienda;
-      if (seenMeta.has(key)) continue;
-      seenMeta.add(key);
-      metaByKey[key] = { provincia: d.provincia || '', localidad: d.localidad || '' };
-    }
-  }
-  // Fallback APP-source: para tiendas que aparecen solo en Pedidas, mapear
-  // desde POINTS (nombre cliente -> province+locName).
-  if (typeof POINTS !== 'undefined' && Array.isArray(POINTS)) {
-    for (const p of POINTS) {
-      const _clients = (p.clients || []).concat(p.prospects || []);
-      for (const n of _clients) {
-        // Reverse lookup - no cambiamos keys existentes.
-        // Sabemos: n = clientName, p.province, p.name (locName).
-        // metaByKey keys son SKU::clientName. Guardar por tienda global.
-        // Actually solo para lookup - metaByTienda:
-      }
-    }
-  }
-  // Simpler: metaByTienda lookup para el fallback.
-  const metaByTiendaFallback = {};
-  if (typeof POINTS !== 'undefined' && Array.isArray(POINTS)) {
-    for (const p of POINTS) {
-      const nombres = (p.clients || []).concat(p.prospects || []);
-      for (const n of nombres) {
-        if (!metaByTiendaFallback[n]) {
-          metaByTiendaFallback[n] = { provincia: p.province || '', localidad: p.name || '' };
-        }
-      }
-    }
-  }
-  function _lookupMeta(sku, tienda){
-    const k = sku + '::' + tienda;
-    if (metaByKey[k] && (metaByKey[k].provincia || metaByKey[k].localidad)) return metaByKey[k];
-    return metaByTiendaFallback[tienda] || { provincia: '', localidad: '' };
+  // v672 (2026-08-26): meta {tienda -> {provincia, localidad}} viene armado
+  // desde _misCampsGraficosData que lo captura al vuelo de las 3 fuentes
+  // (snapshot BQ + globalPedidos + approvedAltasList por nombre normalizado).
+  // Antes reconstruia el lookup aca desde cero y perdia matches cuando el
+  // snapshot no traia city y POINTS no matcheaba por naming diferente.
+  const metaByTienda = data.metaByTienda || {};
+  function _lookupMeta(_sku, tienda){
+    return metaByTienda[tienda] || { provincia: '', localidad: '' };
   }
 
   // Union de SKUs entre facturadas y pedidas.
