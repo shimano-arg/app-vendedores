@@ -3737,6 +3737,165 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   line-height: 1.5 !important;
 }
 
+/* ============================================================
+   v662 (2026-08-26) apple-design REDISEÑO VISUAL controles mapa
+   + performance hint para pan/zoom chunky
+   ============================================================
+   Scope: #map + .leaflet-* + .marker-cluster-*.
+   NO cambia layers/tiles/polygons ni ninguna logica de Leaflet.
+
+   Perf hint (contain + will-change):
+   Aisla el #map como capa independiente al compositor. Cuando el
+   sidebar o los modales repintan, el mapa no re-layout ni re-paint;
+   el compositor de la GPU solo mueve el layer ya rasterizado.
+   Mariano reporto pan/zoom chunky post-v661 - este hint deberia
+   estabilizar el frame rate del arrastre sin cambiar comportamiento.
+
+   Mejoras UX propuestas:
+   - Botones Leaflet (zoom +/-, refresh, geocode, recalc): pill Apple
+     con borde sistema #e5e5ea, hover gris subtle. Era el default
+     Leaflet con borde negro y look 2011.
+   - Popups: white radius 12px + shadow Apple + tipografia SF Pro
+     (era 8px + Segoe UI).
+   - Cluster circles (66/49/519 grandes clusters de vendedores):
+     colores translucent Apple con borde subtle (era saturados
+     verde brillante / amarillo / naranja del default plugin).
+   */
+
+/* PERF: aislar mapa como capa compositor. Ayuda pan/zoom. */
+#map {
+  will-change: transform;
+  contain: layout paint style;
+}
+
+/* Botones Leaflet (zoom + custom) - pill Apple */
+.leaflet-bar {
+  border: 1px solid #e5e5ea !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+  background: #ffffff !important;
+  overflow: hidden;
+}
+.leaflet-bar a,
+.leaflet-bar a:link,
+.leaflet-bar a:visited {
+  background: #ffffff !important;
+  border: none !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  width: 32px !important;
+  height: 32px !important;
+  line-height: 32px !important;
+  font-size: 16px !important;
+  font-weight: 500 !important;
+  transition: background 150ms ease-out !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+}
+.leaflet-bar a:last-child { border-bottom: none !important; }
+.leaflet-bar a:hover {
+  background: #f5f5f7 !important;
+  color: #1d1d1f !important;
+}
+.leaflet-bar a:active { background: #e5e5ea !important; }
+/* Disable Leaflet's grey-out on the last button */
+.leaflet-bar a.leaflet-disabled {
+  background: #ffffff !important;
+  color: #b0b0b8 !important;
+  cursor: not-allowed;
+}
+
+/* Zoom control specifically: reset text-decoration on the + / - */
+.leaflet-control-zoom-in,
+.leaflet-control-zoom-out {
+  text-decoration: none !important;
+  font-weight: 600 !important;
+  font-size: 18px !important;
+}
+
+/* Custom controls (refresh app, geocode pins, recalc outlines):
+   overrides al inline style hardcoded en RefreshAppControl.onAdd */
+.leaflet-bar.refresh-app-bar a,
+.leaflet-bar.geocode-pins-bar a,
+.leaflet-bar.recalc-outlines-bar a {
+  color: #1d1d1f !important;
+}
+
+/* Popups: white card Apple */
+.leaflet-popup-content-wrapper {
+  background: #ffffff !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06) !important;
+  padding: 4px !important;
+}
+.leaflet-popup-content {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+  line-height: 1.45 !important;
+  margin: 10px 12px !important;
+  letter-spacing: -0.01em;
+}
+.leaflet-popup-tip {
+  background: #ffffff !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06) !important;
+}
+.leaflet-popup-close-button {
+  color: #86868b !important;
+  font-size: 20px !important;
+  padding: 6px 8px 0 0 !important;
+  transition: color 150ms ease-out;
+}
+.leaflet-popup-close-button:hover { color: #1d1d1f !important; }
+
+/* Marker clusters: colores translucent Apple.
+   Los circles del plugin (.marker-cluster-small/medium/large) usan un div
+   externo (color de fondo suave) + div interno (numero). Overrideamos ambos. */
+.marker-cluster {
+  background-clip: padding-box;
+  border-radius: 50% !important;
+  transition: transform 150ms ease-out;
+}
+.marker-cluster:hover { transform: scale(1.05); }
+.marker-cluster div {
+  border-radius: 50% !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  font-size: 12px !important;
+  letter-spacing: -0.02em !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100% !important;
+  width: 100% !important;
+  margin: 0 !important;
+  line-height: 1 !important;
+  padding: 0 !important;
+}
+/* Small: <10 markers - verde Apple translucent */
+.marker-cluster-small { background-color: rgba(52, 199, 89, 0.25) !important; }
+.marker-cluster-small div { background-color: rgba(52, 199, 89, 0.90) !important; }
+/* Medium: 10-100 - naranja Apple translucent */
+.marker-cluster-medium { background-color: rgba(255, 149, 0, 0.25) !important; }
+.marker-cluster-medium div { background-color: rgba(255, 149, 0, 0.90) !important; }
+/* Large: >100 - rojo Apple translucent */
+.marker-cluster-large { background-color: rgba(255, 59, 48, 0.25) !important; }
+.marker-cluster-large div { background-color: rgba(255, 59, 48, 0.90) !important; }
+
+/* Attribution "Leaflet | © OpenStreetMap" en la esquina */
+.leaflet-control-attribution {
+  background: rgba(255, 255, 255, 0.85) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #86868b !important;
+  font-size: 10px !important;
+  padding: 3px 8px !important;
+  border-radius: 6px 0 0 0 !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+}
+.leaflet-control-attribution a { color: #49A2DA !important; }
+
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -6505,7 +6664,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v661';
+const APP_VERSION = 'v662';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
