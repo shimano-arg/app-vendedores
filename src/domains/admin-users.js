@@ -127,7 +127,8 @@ function renderGeminiConfigSection(_data) {
   // Se administra por CLI (firebase functions:secrets:set GEMINI_API_KEY).
   el.textContent = '';
   const wrap = document.createElement('div');
-  wrap.style.cssText = 'text-align:center;padding:14px 12px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:6px';
+  wrap.style.cssText =
+    'text-align:center;padding:14px 12px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:6px';
   const title = document.createElement('div');
   title.style.cssText = 'font-size:12px;font-weight:800;color:#5b21b6;margin-bottom:6px';
   title.textContent = 'Gemini API Key (OCR de tickets)';
