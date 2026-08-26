@@ -2141,6 +2141,421 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   border-color: rgba(255, 59, 48, 0.2) !important;
 }
 
+/* ============================================================
+   v657 (2026-08-26) apple-design REDISEÑO VISUAL modal #admin-modal
+   ============================================================
+   Mismo tratamiento sistemico que campaigns + targets + master-cli.
+   Mejoras UX proactivas (skill: "PROPONER MEJORAS SI CONSIDERAS
+   QUE SON NECESARIAS, NO ES OBLIGATORIO"):
+   - Las 4 secciones (allowed-emails/gemini/gmaps/bulk-approver)
+     unificadas en cards blancas con borde suave. Antes tenian 4
+     backgrounds distintos (azul/violeta/verde/magenta) que hacian
+     el panel visualmente ruidoso. Ahora se diferencian por el titulo
+     de seccion (uppercase system label style) y por el color del
+     boton primario (celeste/verde/violeta), no por el fondo.
+   - Section titles pasan a estilo "system label" (uppercase gray
+     con tracking) como en iOS Settings.
+   - Email pills: X pasa de rojo saturado permanente a gris subtle
+     que se pone rojo solo en hover.
+   - Boton "PROTEGIDO" pasa de violeta con candado a pill gris subtle
+     (menos "shouty", mas info-only).
+   - Save button: celeste Shimano pill (era verde fuerte).
+   - Eliminar user button: gris subtle → rojo en hover (era rojo
+     permanente que competia visualmente con Save).
+   - Danger zone: apple-style destructive card, no border rojo grueso.
+   Scope: solo #admin-modal. */
+
+#admin-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#admin-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#admin-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+#admin-modal .modal-head {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#admin-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#admin-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#admin-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#admin-modal .modal-close:hover { color: #1d1d1f !important; }
+
+/* Body: gris fondo con card blanco para tabla */
+#admin-modal .users-wrap {
+  background: #f5f5f7 !important;
+  padding: 20px 24px !important;
+}
+
+/* Secciones config (allowed emails, gemini, gmaps, bulk approver):
+   unificar en cards blancas. Override background/border inline. */
+#admin-modal #allowed-emails-section,
+#admin-modal #gemini-config-section,
+#admin-modal #gmaps-config-section,
+#admin-modal #bulk-approver-section {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 14px !important;
+  padding: 18px 20px !important;
+  margin-bottom: 12px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+/* Gemini section: el wrap interno tenia su propio bg violeta -> reset */
+#admin-modal #gemini-config-section > div {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+}
+
+/* Section titles: override colores brand por sistema label uppercase gris.
+   Diferenciacion visual pasa a estar en el boton primario, no en el titulo. */
+#admin-modal #allowed-emails-section [style*="color:#1e40af"],
+#admin-modal #gemini-config-section [style*="color:#5b21b6"],
+#admin-modal #gmaps-config-section [style*="color:#065f46"],
+#admin-modal #bulk-approver-section [style*="color:#a21caf"] {
+  color: #1d1d1f !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+  text-transform: none !important;
+}
+
+/* Section descriptions (todos usan color #64748b inline) */
+#admin-modal .users-wrap [style*="color:#64748b"] {
+  color: #86868b !important;
+  font-size: 12px !important;
+  letter-spacing: -0.01em !important;
+  line-height: 1.5 !important;
+}
+
+/* Empty states dentro de secciones (color #94a3b8) */
+#admin-modal .users-wrap [style*="color:#94a3b8"] {
+  color: #86868b !important;
+  font-style: normal !important;
+}
+
+/* Email pills (allowed emails): white con borde suave, X gris->rojo en hover */
+#admin-modal #allowed-emails-section > div[style*="flex-wrap:wrap"] > div {
+  background: #ffffff !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 5px 6px 5px 12px !important;
+  font-size: 12px !important;
+  color: #1d1d1f !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+  transition: border-color 150ms ease-out;
+}
+#admin-modal #allowed-emails-section > div[style*="flex-wrap:wrap"] > div:hover {
+  border-color: #86868b !important;
+}
+#admin-modal #allowed-emails-section button[onclick^="removeAllowedEmail"] {
+  background: transparent !important;
+  color: #86868b !important;
+  border: none !important;
+  width: 20px !important;
+  height: 20px !important;
+  border-radius: 50% !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
+  transition: all 150ms ease-out;
+}
+#admin-modal #allowed-emails-section button[onclick^="removeAllowedEmail"]:hover {
+  background: rgba(255, 59, 48, 0.12) !important;
+  color: #ff3b30 !important;
+}
+
+/* Masked key display (gmaps) */
+#admin-modal #gmaps-config-section [style*="Consolas"] {
+  background: #f5f5f7 !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 8px !important;
+  color: #1d1d1f !important;
+  font-size: 12px !important;
+  padding: 6px 12px !important;
+  font-family: 'SF Mono', Consolas, Menlo, monospace !important;
+}
+
+/* Bulk approver select: pill style con focus ring celeste */
+#admin-modal #bulk-approver-select {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 9px 12px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+#admin-modal #bulk-approver-select:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+
+/* Pill buttons: override colores brand por paleta Apple/Shimano */
+#admin-modal .app-btn-pill {
+  border-radius: 999px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  padding: 8px 16px !important;
+  transition: transform 100ms ease-out, background 150ms ease-out, box-shadow 150ms ease-out;
+}
+#admin-modal .app-btn-pill:hover {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.10) !important;
+  transform: none !important;
+}
+#admin-modal .app-btn-pill:active { transform: scale(0.97) !important; }
+/* Add allowed email: celeste Shimano (era azul oscuro) */
+#admin-modal .app-btn-pill.app-btn-blue { background: #49A2DA !important; }
+#admin-modal .app-btn-pill.app-btn-blue:hover { background: #3A8CC0 !important; }
+/* Gmaps save/change: verde Apple (era teal saturado) */
+#admin-modal .app-btn-pill.app-btn-cyan { background: #34c759 !important; }
+#admin-modal .app-btn-pill.app-btn-cyan:hover { background: #2ba64a !important; }
+/* Gmaps delete: rojo Apple */
+#admin-modal .app-btn-pill.app-btn-red { background: #ff3b30 !important; }
+#admin-modal .app-btn-pill.app-btn-red:hover { background: #d92e26 !important; }
+/* Bulk approver + password + 2FA: violeta Apple (era violeta oscuro saturado) */
+#admin-modal .app-btn-pill.app-btn-violet { background: #af52de !important; }
+#admin-modal .app-btn-pill.app-btn-violet:hover { background: #9040c0 !important; }
+
+/* Tabla usuarios: wrap en white card con sticky header */
+#admin-modal .users-wrap > div[style*="overflow-x:auto"] {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 14px !important;
+  overflow-x: auto;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  margin-bottom: 12px;
+}
+#admin-modal .users-table { font-size: 13px !important; }
+#admin-modal .users-table th {
+  background: #f5f5f7 !important;
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  padding: 12px 14px !important;
+  border-bottom: 1px solid #e5e5ea !important;
+}
+#admin-modal .users-table td {
+  padding: 12px 14px !important;
+  border-bottom: 1px solid #f5f5f7 !important;
+  vertical-align: middle;
+  color: #1d1d1f !important;
+}
+#admin-modal .users-table tr:last-child td { border-bottom: none !important; }
+#admin-modal .users-table tr:hover td { background: #fafafa !important; }
+
+/* Selects en tabla (rol, vendor, pareja, approver) */
+#admin-modal .users-table select,
+#admin-modal .users-card select {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 8px !important;
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+#admin-modal .users-table select:focus,
+#admin-modal .users-card select:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+
+/* WhatsApp input */
+#admin-modal .wa-input {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 8px !important;
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+#admin-modal .wa-input:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+
+/* Save btn en tabla: pill celeste Shimano */
+#admin-modal .users-table .save-btn,
+#admin-modal .users-card .save-btn {
+  background: #49A2DA !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 7px 14px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out;
+}
+#admin-modal .users-table .save-btn:hover,
+#admin-modal .users-card .save-btn:hover { background: #3A8CC0 !important; }
+#admin-modal .users-table .save-btn:active,
+#admin-modal .users-card .save-btn:active { transform: scale(0.97); }
+#admin-modal .users-table .save-btn:disabled,
+#admin-modal .users-card .save-btn:disabled {
+  background: #e5e5ea !important;
+  color: #86868b !important;
+}
+
+/* Eliminar btn: gris subtle -> rojo en hover (menos "shouty") */
+#admin-modal .users-table .rm-user-btn,
+#admin-modal .users-card .rm-user-btn {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 6px 12px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out;
+}
+#admin-modal .users-table .rm-user-btn:hover,
+#admin-modal .users-card .rm-user-btn:hover {
+  background: rgba(255, 59, 48, 0.08) !important;
+  color: #ff3b30 !important;
+  border-color: rgba(255, 59, 48, 0.25) !important;
+}
+
+/* "PROTEGIDO" y "(VOS)" badges: pill gris subtle en vez de violeta bold */
+#admin-modal .users-table td [style*="color:#7c3aed"],
+#admin-modal .users-card [style*="color:#7c3aed"] {
+  color: #86868b !important;
+  background: #f5f5f7 !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 999px !important;
+  padding: 2px 8px !important;
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  margin-left: 6px;
+  display: inline-block;
+}
+
+/* Mobile card (uc-*): mismo look card blanco con accent celeste */
+#admin-modal .users-card {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-left: 3px solid #49A2DA !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+#admin-modal .users-card .uc-email {
+  color: #1d1d1f !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+#admin-modal .users-card .uc-name {
+  color: #86868b !important;
+  font-size: 12px !important;
+}
+#admin-modal .users-card .uc-row label {
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.05em !important;
+}
+
+/* Danger zone: apple-style destructive card, borde sutil rojo (no grueso) */
+#admin-modal .danger-zone {
+  background: #ffffff !important;
+  border: 1px solid rgba(255, 59, 48, 0.25) !important;
+  border-radius: 14px !important;
+  padding: 18px 20px !important;
+  margin-top: 20px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+#admin-modal .danger-zone h4 {
+  color: #ff3b30 !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.015em !important;
+  text-transform: none !important;
+  margin-bottom: 6px !important;
+}
+#admin-modal .danger-zone p {
+  color: #1d1d1f !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  line-height: 1.5 !important;
+  margin-bottom: 14px !important;
+}
+#admin-modal .danger-btn {
+  background: #ff3b30 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 10px 22px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out;
+  width: auto !important;
+}
+#admin-modal .danger-btn:hover {
+  background: #d92e26 !important;
+  box-shadow: 0 2px 6px rgba(255, 59, 48, 0.25) !important;
+}
+#admin-modal .danger-btn:active { transform: scale(0.97) !important; }
+
+/* Reduced motion (apple-design skill §14): mismo alternate keyframe con
+   opacity-only. NO killear animation-duration a 0.01ms sino sustituir
+   por variant reducida (Windows "Efectos visuales OFF" nos pego en v651). */
+@media (prefers-reduced-motion: reduce) {
+  #admin-modal.modal-overlay.open .modal-box {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -4909,7 +5324,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v656';
+const APP_VERSION = 'v657';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
