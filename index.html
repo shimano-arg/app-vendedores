@@ -1455,6 +1455,72 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 .modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,.55);z-index:3000;display:none;align-items:center;justify-content:center;padding:20px}
 .modal-overlay.open{display:flex}
 .modal-box{background:#fff;border-radius:10px;width:min(900px,96vw);max-height:90vh;overflow:hidden;box-shadow:0 12px 36px rgba(0,0,0,.35);display:flex;flex-direction:column}
+
+/* v650 (2026-08-26) apple-design skill piloto: modal #campaigns-modal.
+   Aplica items #1 (reduced-motion global), #2 (backdrop-filter overlay),
+   #4 (feedback pointerdown cards), §5 (open transition curva Apple),
+   §15 (typography tracking size-specific). Scoped al modal para NO tocar
+   los otros 52 modales hasta que Mariano de OK visual. */
+
+/* §14 (reduced motion) - GLOBAL defensivo. Users con vestibular disorders
+   ven cross-fades en vez de springs/slides. Cross-cutting concern. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.15s !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* §12 backdrop-filter + §5 open transition uniforme + spatial consistency §7.
+   Curva cubic-bezier(0.32, 0.72, 0, 1) es la "Apple ease-out" clasica. */
+#campaigns-modal.modal-overlay {
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  opacity: 0;
+  transition: opacity 250ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+#campaigns-modal.modal-overlay.open {
+  opacity: 1;
+}
+#campaigns-modal .modal-box {
+  transform: translateY(20px) scale(0.98);
+  opacity: 0;
+  transition:
+    transform 350ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 250ms cubic-bezier(0.32, 0.72, 0, 1);
+  transform-origin: center bottom;
+  /* §15 typography: tracking negativo en display large (h2 del head), 0 en body */
+  letter-spacing: 0;
+}
+#campaigns-modal.modal-overlay.open .modal-box {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+#campaigns-modal .modal-head h2 {
+  letter-spacing: -0.015em; /* §15: display type: tracking negativo */
+}
+/* §4 §12: chrome translucido del head - se ve el content debajo scrolling */
+#campaigns-modal .modal-head {
+  background: linear-gradient(135deg, rgba(180, 83, 9, 0.92), rgba(245, 158, 11, 0.92));
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+/* §1 §4 feedback pointerdown en cards clickables. Escala 0.98 = ~2% shrink,
+   apenas perceptible pero comunica "toque registrado". 100ms es lo min-max
+   para que se vea sin lag. */
+#campaigns-modal .camp-card {
+  transition: transform 120ms cubic-bezier(0.32, 0.72, 0, 1),
+              box-shadow 120ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+#campaigns-modal .camp-card:active {
+  transform: scale(0.98);
+}
+#campaigns-modal .camp-card:hover {
+  box-shadow: 0 4px 12px rgba(180, 83, 9, 0.12);
+}
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -4223,7 +4289,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v649';
+const APP_VERSION = 'v650';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
