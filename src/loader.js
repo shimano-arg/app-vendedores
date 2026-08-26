@@ -81,3 +81,57 @@ if (typeof window !== 'undefined') {
   // @ts-expect-error
   window.__chunksLoaded = _loaded;
 }
+
+// v679 (2026-08-26) PERF Fase 3: lazy loader para libs externas CDN
+// (ExcelJS, JSZip, polygonClipping). Similar patron que loadChunk pero
+// para <script src=cdn-url> con check de global existente.
+//
+// Uso:
+//   await window.loadExternalLib(
+//     'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js',
+//     'ExcelJS'
+//   );
+//   const wb = new ExcelJS.Workbook();
+//
+// Idempotente + dedup: llamadas concurrentes comparten Promise.
+const _extLoaded = Object.create(null); // {url: true}
+const _extPending = Object.create(null); // {url: Promise}
+export function loadExternalLib(url, globalName) {
+  if (globalName && typeof window[globalName] !== 'undefined') return Promise.resolve();
+  if (_extLoaded[url]) return Promise.resolve();
+  if (_extPending[url]) return _extPending[url];
+  const p = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = url;
+    s.crossOrigin = 'anonymous';
+    s.onload = () => {
+      _extLoaded[url] = true;
+      resolve();
+    };
+    s.onerror = () => {
+      delete _extPending[url];
+      reject(new Error('loadExternalLib: failed to load ' + url));
+    };
+    document.head.appendChild(s);
+  });
+  _extPending[url] = p;
+  return p;
+}
+
+if (typeof window !== 'undefined') {
+  // @ts-expect-error
+  window.loadExternalLib = loadExternalLib;
+  // Shorthand para las 3 libs mas usadas
+  // @ts-expect-error
+  window.loadExcelJS = () =>
+    loadExternalLib('https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js', 'ExcelJS');
+  // @ts-expect-error
+  window.loadJSZip = () =>
+    loadExternalLib('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js', 'JSZip');
+  // @ts-expect-error
+  window.loadPolygonClipping = () =>
+    loadExternalLib(
+      'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.3/dist/polygon-clipping.umd.min.js',
+      'polygonClipping'
+    );
+}
