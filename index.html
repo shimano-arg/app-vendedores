@@ -6245,6 +6245,456 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   }
 }
 
+/* ============================================================
+   v669 (2026-08-26) apple-design REDISEÑO VISUAL:
+   1) modal Crear pedido (#pedido-modal)
+   2) modal Revision de pedido vs Stock (#revision-modal)
+   3) modal Pedido en espera (#waitlist-card-modal)
+   ============================================================
+   */
+
+/* ==== BLOQUE COMPARTIDO reset overlay+box+head para 3 modales ==== */
+#pedido-modal.modal-overlay,
+#revision-modal.modal-overlay,
+#waitlist-card-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#pedido-modal.modal-overlay.open,
+#revision-modal.modal-overlay.open,
+#waitlist-card-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#pedido-modal.modal-overlay.open .modal-box,
+#revision-modal.modal-overlay.open .modal-box,
+#waitlist-card-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+#pedido-modal .modal-head,
+#revision-modal .modal-head,
+#waitlist-card-modal .modal-head {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#pedido-modal .modal-head h2,
+#revision-modal .modal-head h2,
+#waitlist-card-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#pedido-modal .modal-head .subt,
+#revision-modal .modal-head .subt,
+#waitlist-card-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#pedido-modal .modal-close,
+#revision-modal .modal-close,
+#waitlist-card-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#pedido-modal .modal-close:hover,
+#revision-modal .modal-close:hover,
+#waitlist-card-modal .modal-close:hover { color: #1d1d1f !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  #pedido-modal.modal-overlay.open .modal-box,
+  #revision-modal.modal-overlay.open .modal-box,
+  #waitlist-card-modal.modal-overlay.open .modal-box {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
+/* ==== #pedido-modal (Crear pedido) ==== */
+/* Filter row: selects + search Apple pill */
+#pedido-modal .filter-row select,
+#pedido-modal .filter-row input[type="text"] {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+}
+#pedido-modal .filter-row select:focus,
+#pedido-modal .filter-row input:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+/* Stock filter buttons Todos/Disponibles/No disp */
+#pedido-modal .pm-stock-btn {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 6px 12px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out;
+}
+#pedido-modal .pm-stock-btn:hover { background: #f5f5f7 !important; color: #1d1d1f !important; }
+#pedido-modal .pm-stock-btn.active { background: #49A2DA !important; color: #ffffff !important; border-color: #49A2DA !important; }
+#pedido-modal .pm-stock-btn.ok.active { background: #34c759 !important; border-color: #34c759 !important; }
+#pedido-modal .pm-stock-btn.no.active { background: #ff3b30 !important; border-color: #ff3b30 !important; }
+
+/* Modal footer */
+#pedido-modal .modal-footer {
+  background: #f5f5f7 !important;
+  border-top: 1px solid #e5e5ea !important;
+  padding: 16px 24px !important;
+}
+#pedido-modal .modal-footer > div span { color: #86868b !important; font-size: 11px !important; }
+/* Botones Cancelar / Enviar a lista de espera / Vista preliminar */
+#pedido-modal .btn-cancel {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: all 150ms ease-out !important;
+}
+#pedido-modal .btn-cancel:hover {
+  background: rgba(255, 59, 48, 0.08) !important;
+  color: #ff3b30 !important;
+  border-color: rgba(255, 59, 48, 0.25) !important;
+}
+#pedido-modal .btn-confirm {
+  background: #34c759 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#pedido-modal .btn-confirm:hover { background: #2ba64a !important; }
+#pedido-modal .btn-confirm:active { transform: scale(0.97) !important; }
+#pedido-modal .pm-back-to-waitlist {
+  background: transparent !important;
+  color: #af52de !important;
+  border: 1px solid #af52de !important;
+  border-radius: 999px !important;
+  padding: 10px 18px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out !important;
+}
+#pedido-modal .pm-back-to-waitlist:hover { background: rgba(175, 82, 222, 0.08) !important; }
+
+/* ==== #revision-modal (Revision Excel) ==== */
+#revision-modal .modal-body { padding: 24px !important; background: #f5f5f7 !important; }
+/* Stock drop zone: Apple card */
+#revision-modal .stock-drop-zone {
+  background: #ffffff !important;
+  border: 2px dashed #d2d2d7 !important;
+  border-radius: 14px !important;
+  padding: 40px 24px !important;
+  transition: all 150ms ease-out !important;
+}
+#revision-modal .stock-drop-zone:hover,
+#revision-modal .stock-drop-zone.dragover {
+  background: rgba(73, 162, 218, 0.04) !important;
+  border-color: #49A2DA !important;
+  border-style: solid !important;
+}
+#revision-modal .stock-drop-text {
+  color: #1d1d1f !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+}
+#revision-modal .stock-drop-hint {
+  color: #86868b !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+}
+/* Stats banner + warnings + error inline */
+#revision-modal #revision-stats {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-left: 3px solid #14b8a6 !important;
+  border-radius: 12px !important;
+  color: #1d1d1f !important;
+  padding: 14px 16px !important;
+}
+#revision-modal #revision-warnings {
+  background: rgba(255, 149, 0, 0.08) !important;
+  border: 1px solid rgba(255, 149, 0, 0.28) !important;
+  border-radius: 12px !important;
+  color: #a86200 !important;
+}
+#revision-modal #revision-error {
+  background: rgba(255, 59, 48, 0.08) !important;
+  border: 1px solid rgba(255, 59, 48, 0.28) !important;
+  border-radius: 12px !important;
+  color: #d92e26 !important;
+}
+/* Cliente destino block (bg violeta) */
+#revision-modal #revision-wait-cli-row {
+  background: rgba(175, 82, 222, 0.05) !important;
+  border: 1px solid rgba(175, 82, 222, 0.28) !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+}
+#revision-modal #revision-wait-cli-row div[style*="color:#6b21a8"] {
+  color: #7c2fb3 !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+#revision-modal #revision-wait-cli-input,
+#revision-modal #revision-wait-entrega-select {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+}
+#revision-modal #revision-wait-cli-input:focus,
+#revision-modal #revision-wait-entrega-select:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+/* Tabla revision: dark header apple */
+#revision-modal table {
+  background: #ffffff !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+#revision-modal thead {
+  background: #1d1d1f !important;
+}
+#revision-modal thead th {
+  background: #1d1d1f !important;
+  color: #ffffff !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  padding: 12px 10px !important;
+}
+#revision-modal tbody td {
+  padding: 10px !important;
+  border-bottom: 1px solid #f5f5f7 !important;
+  color: #1d1d1f !important;
+  font-size: 12px !important;
+}
+/* Botones bottom Cerrar/Descargar/Dejar recalculando (stock-action-btn) */
+#revision-modal .stock-action-btn {
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: all 150ms ease-out !important;
+}
+#revision-modal .stock-action-btn.cancel {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+}
+#revision-modal .stock-action-btn.cancel:hover {
+  background: rgba(255, 59, 48, 0.08) !important;
+  color: #ff3b30 !important;
+  border-color: rgba(255, 59, 48, 0.25) !important;
+}
+#revision-modal .stock-action-btn.publish {
+  color: #ffffff !important;
+  border: none !important;
+}
+/* Boton "Descargar revision" (inline background:#0f766e teal) */
+#revision-modal .stock-action-btn.publish[style*="#0f766e"] { background: #14b8a6 !important; }
+#revision-modal .stock-action-btn.publish[style*="#0f766e"]:hover:not(:disabled) { background: #0d9488 !important; }
+/* Boton "Dejar recalculando" (inline background:#7c3aed violeta) */
+#revision-modal .stock-action-btn.publish[style*="#7c3aed"] { background: #af52de !important; }
+#revision-modal .stock-action-btn.publish[style*="#7c3aed"]:hover:not(:disabled) { background: #9040c0 !important; }
+#revision-modal .stock-action-btn.publish:disabled { background: #e5e5ea !important; color: #86868b !important; cursor: not-allowed; }
+
+/* ==== #waitlist-card-modal (Pedido en espera) ==== */
+#waitlist-card-modal .modal-body { padding: 24px !important; background: #f5f5f7 !important; }
+/* Stats banner (bg teal light) - subtotales verde/rojo INMEDIATO/PENDIENTE */
+#waitlist-card-modal #wcard-stats {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-left: 3px solid #14b8a6 !important;
+  border-radius: 12px !important;
+  color: #1d1d1f !important;
+  padding: 14px 18px !important;
+  font-size: 13px !important;
+}
+/* SAP Asignado - Con Stock section (bg green light) */
+#waitlist-card-modal #wcard-sap-asignado {
+  background: rgba(52, 199, 89, 0.06) !important;
+  border: 1px solid rgba(52, 199, 89, 0.28) !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+}
+#waitlist-card-modal #wcard-sap-asignado div[style*="color:#14532d"] {
+  color: #248a3d !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+#waitlist-card-modal #wcard-sap-asignado div[style*="color:#166534"] { color: #86868b !important; font-size: 11.5px !important; }
+/* SAP Asignado nuevos (bg amarillo light) */
+#waitlist-card-modal #wcard-sap-asignado-nuevos {
+  background: rgba(255, 149, 0, 0.06) !important;
+  border: 1px solid rgba(255, 149, 0, 0.28) !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+}
+#waitlist-card-modal #wcard-sap-asignado-nuevos div[style*="color:#713f12"] {
+  color: #a86200 !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+#waitlist-card-modal #wcard-sap-asignado-nuevos div[style*="color:#854d0e"] { color: #86868b !important; font-size: 11.5px !important; }
+/* E4B ASIG (bg azul light) */
+#waitlist-card-modal #wcard-e4b-asig-app {
+  background: rgba(73, 162, 218, 0.06) !important;
+  border: 1px solid rgba(73, 162, 218, 0.28) !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+}
+#waitlist-card-modal #wcard-e4b-asig-app div[style*="color:#1e40af"] {
+  color: #2b6f96 !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+#waitlist-card-modal #wcard-e4b-asig-app div[style*="color:#1e3a8a"] { color: #86868b !important; font-size: 11.5px !important; }
+/* E4B BO (bg rojo light) */
+#waitlist-card-modal #wcard-e4b-bo-app {
+  background: rgba(255, 59, 48, 0.05) !important;
+  border: 1px solid rgba(255, 59, 48, 0.28) !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+}
+#waitlist-card-modal #wcard-e4b-bo-app div[style*="color:#991b1b"] {
+  color: #d92e26 !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+#waitlist-card-modal #wcard-e4b-bo-app div[style*="color:#7f1d1d"] { color: #86868b !important; font-size: 11.5px !important; }
+
+/* Search input add producto */
+#waitlist-card-modal #wcard-add-input {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 10px 14px !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+}
+#waitlist-card-modal #wcard-add-input:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+#waitlist-card-modal #wcard-add-dropdown {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 0 0 10px 10px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Tabla wcard: dark header apple */
+#waitlist-card-modal table {
+  background: #ffffff !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+#waitlist-card-modal thead {
+  background: #1d1d1f !important;
+}
+#waitlist-card-modal thead th {
+  background: #1d1d1f !important;
+  color: #ffffff !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  padding: 12px 8px !important;
+}
+#waitlist-card-modal thead th[style*="background:#fef9c3"] {
+  background: rgba(255, 149, 0, 0.35) !important;
+  color: #ffffff !important;
+}
+#waitlist-card-modal tbody td {
+  padding: 10px 8px !important;
+  border-bottom: 1px solid #f5f5f7 !important;
+  color: #1d1d1f !important;
+  font-size: 12px !important;
+  vertical-align: middle;
+}
+#waitlist-card-modal tbody tr:hover td { background: #fafafa !important; }
+/* Botones bottom (Cerrar / Editar orden / etc) */
+#waitlist-card-modal .stock-action-btn {
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: all 150ms ease-out !important;
+}
+#waitlist-card-modal .stock-action-btn.cancel {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+}
+#waitlist-card-modal .stock-action-btn.cancel:hover {
+  background: rgba(255, 59, 48, 0.08) !important;
+  color: #ff3b30 !important;
+  border-color: rgba(255, 59, 48, 0.25) !important;
+}
+#waitlist-card-modal .stock-action-btn.publish {
+  color: #ffffff !important;
+  border: none !important;
+}
+#waitlist-card-modal .stock-action-btn.publish[style*="#0f172a"] { background: #1d1d1f !important; }
+#waitlist-card-modal .stock-action-btn.publish[style*="#0f172a"]:hover:not(:disabled) { background: #2f2f33 !important; }
+
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -9013,7 +9463,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v668';
+const APP_VERSION = 'v669';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
