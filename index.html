@@ -1480,61 +1480,229 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   to   { opacity: 1; }
 }
 
-/* §12 backdrop-filter + §5 open transition uniforme + spatial consistency §7.
-   Curva cubic-bezier(0.32, 0.72, 0, 1) es la "Apple ease-out" clasica.
-   v651 (2026-08-26): usar @keyframes en vez de transition. Fix bug: cuando
-   display cambia none->flex + opacity 0->1 en el mismo frame, browser skipea
-   la transition. Animation dispara al render y garantiza el efecto. */
-@keyframes appleOverlayFadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
+/* v653 (2026-08-26) apple-design REDISEÑO VISUAL COMPLETO del modal
+   #campaigns-modal. Piloto minimalista iOS/macOS.
+   Cambios: paleta neutra blanco/gris + tipografia system + botones pill
+   Apple blue #007aff + cards con sombra suave + spacing generoso.
+   Se preserva SOLO la funcionalidad — todo el look visual cambia.
+   Scope: solo #campaigns-modal. Los otros 52 modales sin tocar. */
+
+/* Overlay + apertura con curva Apple */
+@keyframes appleOverlayFadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes appleModalSlideIn {
-  from {
-    transform: translateY(30px) scale(0.94);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-  }
+  from { transform: translateY(30px) scale(0.94); opacity: 0; }
+  to   { transform: translateY(0) scale(1); opacity: 1; }
 }
 #campaigns-modal.modal-overlay {
-  background: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(16px) saturate(150%);
-  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
 }
 #campaigns-modal.modal-overlay.open {
   animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
 }
+
+/* Modal box: white, rounded corners, soft shadow */
 #campaigns-modal.modal-overlay.open .modal-box {
   animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
   transform-origin: center bottom;
-  /* §15 typography: tracking negativo en display large (h2 del head), 0 en body */
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
   letter-spacing: 0;
 }
-#campaigns-modal .modal-head h2 {
-  letter-spacing: -0.015em; /* §15: display type: tracking negativo */
-}
-/* §4 §12: chrome translucido del head - se ve el content debajo scrolling */
+
+/* Head: white with subtle bottom border, no gradient */
 #campaigns-modal .modal-head {
-  background: linear-gradient(135deg, rgba(180, 83, 9, 0.92), rgba(245, 158, 11, 0.92));
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
-/* §1 §4 feedback pointerdown en cards clickables. Escala 0.98 = ~2% shrink,
-   apenas perceptible pero comunica "toque registrado". 100ms es lo min-max
-   para que se vea sin lag. */
+#campaigns-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important; /* Apple display tracking */
+  margin-bottom: 4px !important;
+}
+#campaigns-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#campaigns-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#campaigns-modal .modal-close:hover {
+  color: #1d1d1f !important;
+}
+
+/* users-wrap (body): generous padding + neutral bg */
+#campaigns-modal .users-wrap {
+  background: #f5f5f7 !important;
+  padding: 24px 28px !important;
+}
+
+/* Form: white card with soft border, no orange */
+#campaigns-modal .camp-form {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 14px !important;
+  padding: 20px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+#campaigns-modal .camp-form h4 {
+  color: #86868b !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  margin-bottom: 14px !important;
+}
+#campaigns-modal .cf-grid { gap: 14px !important; }
+#campaigns-modal .cf-grid > div { gap: 6px !important; }
+#campaigns-modal .cf-grid label {
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.05em !important;
+  text-transform: uppercase !important;
+}
+#campaigns-modal .cf-grid input,
+#campaigns-modal .cf-grid select {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 8px !important;
+  padding: 9px 12px !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+#campaigns-modal .cf-grid input:focus,
+#campaigns-modal .cf-grid select:focus {
+  border-color: #007aff !important;
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15) !important;
+}
+
+/* Segmented control (target-toggle + scope-toggle): pill-shape gris */
+#campaigns-modal .target-toggle {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  background: #f5f5f7 !important;
+  padding: 2px !important;
+  overflow: hidden;
+}
+#campaigns-modal .tt-btn {
+  background: transparent !important;
+  color: #1d1d1f !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em !important;
+  text-transform: none !important;
+  padding: 8px 12px !important;
+  border-radius: 8px !important;
+  border: none !important;
+  transition: background 180ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+#campaigns-modal .tt-btn:hover { background: rgba(0, 0, 0, 0.04) !important; }
+#campaigns-modal .tt-btn.active {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+}
+
+#campaigns-modal .scope-toggle { gap: 6px !important; }
+#campaigns-modal .scope-btn {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  padding: 9px 8px !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  transition: all 150ms ease-out;
+}
+#campaigns-modal .scope-btn:hover { background: #f5f5f7 !important; }
+#campaigns-modal .scope-btn.active {
+  background: #007aff !important;
+  border-color: #007aff !important;
+  color: #ffffff !important;
+}
+
+/* Botón primary "Crear campaña" - pill Apple blue */
+#campaigns-modal .btn-camp {
+  background: #007aff !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 980px !important;
+  padding: 12px 28px !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  cursor: pointer;
+  transition: background 150ms ease-out, transform 100ms ease-out;
+  box-shadow: 0 1px 2px rgba(0, 122, 255, 0.15);
+}
+#campaigns-modal .btn-camp:hover { background: #0071e3 !important; }
+#campaigns-modal .btn-camp:active { transform: scale(0.97); }
+
+/* SKU list: bordes suaves */
+#campaigns-modal .sku-list {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  background: #ffffff !important;
+}
+
+/* Campanias section - cards white con shadow, no naranja */
 #campaigns-modal .camp-card {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  margin-bottom: 10px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   transition: transform 120ms cubic-bezier(0.32, 0.72, 0, 1),
-              box-shadow 120ms cubic-bezier(0.32, 0.72, 0, 1);
-}
-#campaigns-modal .camp-card:active {
-  transform: scale(0.98);
+              box-shadow 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 #campaigns-modal .camp-card:hover {
-  box-shadow: 0 4px 12px rgba(180, 83, 9, 0.12);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
+#campaigns-modal .camp-card:active { transform: scale(0.98); }
+#campaigns-modal .camp-card h5 {
+  color: #1d1d1f !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+  margin-bottom: 6px !important;
+}
+#campaigns-modal .camp-card .cm-period {
+  color: #86868b !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+}
+#campaigns-modal .camp-bar {
+  background: #f5f5f7 !important;
+  border-radius: 999px !important;
+  height: 6px !important;
+}
+#campaigns-modal .camp-bar-fill {
+  background: #007aff !important;
+  border-radius: 999px !important;
+}
+#campaigns-modal .camp-bar-fill.done { background: #34c759 !important; }
+#campaigns-modal .camp-meta { color: #86868b !important; font-weight: 500 !important; }
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -4303,7 +4471,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v652';
+const APP_VERSION = 'v653';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
