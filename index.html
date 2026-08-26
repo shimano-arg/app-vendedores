@@ -52,17 +52,17 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-<!-- defer: polygon-clipping solo se necesita para los contornos de zonas
-     (corre via requestIdleCallback). xlsx y jszip solo para export/import.
-     Marcar como defer evita que bloqueen el parser del HTML durante la carga
-     inicial; se ejecutan despues del DOMContentLoaded en orden. -->
-<script defer src="https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.3/dist/polygon-clipping.umd.min.js"></script>
+<!-- v679 (2026-08-26) PERF Fase 3: 3 libs pesadas cargadas ON-DEMAND en vez
+     de <script defer> al initial load:
+       - polygon-clipping (~50 KB): solo para outlines de zonas admin
+       - jszip (~90 KB): solo para export ZIP DTW
+       - exceljs (~1.1 MB): solo para template Stock Asig con logo
+     Total ahorrado del initial load: ~1.24 MB.
+     Cargados via window.loadPolygonClipping() / loadJSZip() / loadExcelJS()
+     al primer uso. Cache dedup: llamadas concurrentes comparten Promise.
+     xlsx (SheetJS ~800 KB) SIGUE con defer porque tiene 220+ callers,
+     riesgo alto de romper si se convierte a lazy sin auditar cada uno. -->
 <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<!-- v510 (2026-08-13): ExcelJS para preservar el logo y formato del template oficial
-     Shimano (SheetJS Community pierde imagenes al re-escribir). Solo se usa para el
-     export "Template Stock Asig. por cliente"; el resto sigue con SheetJS. -->
-<script defer src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -4261,7 +4261,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v678';
+const APP_VERSION = 'v679';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -6144,8 +6144,24 @@ function _buildVendorOutlinesCache(){
       }
     }
   } catch(e) { console.warn('[outlines] no se pudo leer cache:', e); }
+  // v679 PERF Fase 3: polygon-clipping ahora lazy on-demand. Al primer login
+  // sin cache, la lib se carga en background y cuando termina se invalida el
+  // cache + rebuild via requestIdleCallback. User ve mapa inmediato sin
+  // contornos zonales; aparecen ~200ms despues cuando la lib carga.
   if (typeof polygonClipping === 'undefined') {
-    console.warn('[outlines] polygon-clipping no cargo, sin contornos');
+    console.warn('[outlines] polygon-clipping no cargo aun - cargando en background');
+    if (window.loadPolygonClipping) {
+      window.loadPolygonClipping().then(() => {
+        _vendorOutlinesCache = null; // invalidar para forzar rebuild
+        if (typeof requestIdleCallback === 'function') {
+          requestIdleCallback(() => {
+            if (typeof drawVendorOutlines === 'function') {
+              try { drawVendorOutlines(); } catch(e) { console.warn('[outlines] rebuild fail', e); }
+            }
+          });
+        }
+      }).catch(e => console.warn('[outlines] polygon-clipping load failed', e));
+    }
     _vendorOutlinesCache = {};
     return _vendorOutlinesCache;
   }
@@ -8854,7 +8870,8 @@ function _bkExtractPhotos(doc){
 
 window.runFullBackup = async function(){
   if (userRole !== 'admin' && userRole !== 'gerente') { alert('Solo admin o gerente.'); return; }
-  if (typeof JSZip === 'undefined') { alert('La libreria de ZIP no se cargo.'); return; }
+  // v679 PERF Fase 3: JSZip lazy on-demand
+  try { await window.loadJSZip(); } catch (e) { alert('No se pudo cargar JSZip: ' + e.message); return; }
   const resumenEl = document.getElementById('bk-resumen');
   resumenEl.innerHTML = '<div style="background:#f0f9ff;border:1px solid #7dd3fc;border-radius:6px;padding:14px;font-size:12px;color:#0c4a6e"><b>Iniciando backup TOTAL...</b><br>Vamos a leer todas las colecciones de Firestore y empaquetar las fotos en un ZIP. <b>NO cierres esta pestana.</b></div>';
   const zip = new JSZip();
@@ -10333,10 +10350,8 @@ window.exportBackordersToExcel = async function(){
     alert('No hay backorders para exportar todavia. Espera al proximo sync.');
     return;
   }
-  if (typeof ExcelJS === 'undefined') {
-    alert('ExcelJS todavia no cargo. Reintenta en 2 segundos.');
-    return;
-  }
+  // v679 PERF Fase 3: ExcelJS ahora carga on-demand
+  try { await window.loadExcelJS(); } catch (e) { alert('No se pudo cargar ExcelJS: ' + e.message); return; }
   const q = backordersSearchQuery;
   const mesF = backordersMesFilter;
   const stkF = backordersStockFilter;
@@ -10445,8 +10460,9 @@ window.exportBackordersToExcel = async function(){
 // Si el user deja vacio el input -> genera un ZIP con 1 Excel por cliente
 // que tenga backorder open.
 // ============================================================
-window.openExportStockAsigCliente = function(){
-  if (typeof ExcelJS === 'undefined') { alert('La libreria ExcelJS todavia no cargo. Reintenta en 2 segundos.'); return; }
+window.openExportStockAsigCliente = async function(){
+  // v679 PERF Fase 3: precargar ExcelJS ANTES de abrir el modal (el submit lo requiere)
+  try { await window.loadExcelJS(); } catch (e) { alert('No se pudo cargar ExcelJS: ' + e.message); return; }
   if (!backorderLines || !backorderLines.length) {
     alert('No hay backorders sincronizados aun. Espera al proximo sync (~5 min).');
     return;
@@ -10601,7 +10617,8 @@ window.submitExportStockAsigCliente = async function(){
   const btn = document.getElementById('btn-export-stock-asig-go');
   if (btn) { btn.disabled = true; btn.textContent = 'Generando...'; }
   try {
-    if (typeof ExcelJS === 'undefined') { alert('ExcelJS todavia no cargo. Reintenta en 2 segundos.'); return; }
+    // v679 PERF Fase 3: ExcelJS lazy - garantiza que este cargado antes de usarlo
+    try { await window.loadExcelJS(); } catch (e) { alert('No se pudo cargar ExcelJS: ' + e.message); return; }
     if (nombre) {
       // 1 cliente elegido.
       const norm = nombre.toLowerCase();
@@ -10628,7 +10645,8 @@ window.submitExportStockAsigCliente = async function(){
       closeExportStockAsigCliente();
     } else {
       // TODOS -> ZIP con 1 Excel por cliente.
-      if (typeof JSZip === 'undefined') { alert('La libreria JSZip no se cargo.'); return; }
+      // v679 PERF Fase 3: JSZip lazy on-demand
+      try { await window.loadJSZip(); } catch (e) { alert('No se pudo cargar JSZip: ' + e.message); return; }
       const clientes = new Map();
       (backorderLines || []).forEach(ln => {
         if (mesFiltro && String(ln.sqDocDate || '').substring(0, 7) !== mesFiltro) return;
@@ -14070,13 +14088,8 @@ function _renderWaitlistCard(){
 window.waitlistExportTodo = async function(){
   const w = _wcardCurrent;
   if (!w) { alert('No hay pedido en espera abierto.'); return; }
-  // v526: usamos ExcelJS (no SheetJS Community) para poder aplicar
-  // color de fondo + font blanco en encabezados. SheetJS Community
-  // no soporta styling; ExcelJS ya viene cargado desde v510.
-  if (typeof ExcelJS === 'undefined') {
-    alert('ExcelJS todavia no cargo. Reintenta en 2 segundos.');
-    return;
-  }
+  // v679 PERF Fase 3: ExcelJS lazy on-demand
+  try { await window.loadExcelJS(); } catch (e) { alert('No se pudo cargar ExcelJS: ' + e.message); return; }
   const btn = document.getElementById('wcard-export-todo-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Generando...'; }
   try {
@@ -14234,10 +14247,8 @@ window.waitlistExportTodo = async function(){
 window.waitlistExportArchivoCliente = async function(){
   const w = _wcardCurrent;
   if (!w) { alert('No hay pedido en espera abierto.'); return; }
-  if (typeof ExcelJS === 'undefined') {
-    alert('ExcelJS todavia no cargo. Reintenta en 2 segundos.');
-    return;
-  }
+  // v679 PERF Fase 3: ExcelJS lazy on-demand
+  try { await window.loadExcelJS(); } catch (e) { alert('No se pudo cargar ExcelJS: ' + e.message); return; }
   const btn = document.getElementById('wcard-archivo-cliente-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Generando...'; }
   try {
@@ -14377,7 +14388,8 @@ window.waitlistExportArchivoCliente = async function(){
 window.waitlistExportStockAsignado = async function(){
   const w = _wcardCurrent;
   if (!w) { alert('No hay pedido en espera abierto.'); return; }
-  if (typeof ExcelJS === 'undefined') { alert('ExcelJS todavia no cargo. Reintenta en 2 segundos.'); return; }
+  // v679 PERF Fase 3: ExcelJS lazy on-demand
+  try { await window.loadExcelJS(); } catch (e) { alert('No se pudo cargar ExcelJS: ' + e.message); return; }
   // v524: fuente = SAP Asignado con stock del cliente (backorderLines
   // filtrado con stock disponible), NO los items del pedido actual.
   const items = _sapAsignadoConStockDeCliente(w.clientCardCode);
