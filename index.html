@@ -1703,6 +1703,185 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 }
 #campaigns-modal .camp-bar-fill.done { background: #34c759 !important; }
 #campaigns-modal .camp-meta { color: #86868b !important; font-weight: 500 !important; }
+
+/* v655 (2026-08-26) apple-design REDISEÑO VISUAL MODAL #targets-modal.
+   Mismo tratamiento que #campaigns-modal: paleta blanco/gris + celeste
+   Shimano #49A2DA en estados activos + typography system-ui + pill buttons.
+   Scope: solo #targets-modal. */
+#targets-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#targets-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#targets-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+#targets-modal .modal-head {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#targets-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#targets-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#targets-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#targets-modal .modal-close:hover { color: #1d1d1f !important; }
+
+/* Body */
+#targets-modal .targets-modal-body {
+  background: #f5f5f7 !important;
+  padding: 20px 24px !important;
+}
+
+/* Filter row: 2 dropdowns con Apple style */
+#targets-modal .targets-filter-row {
+  gap: 12px !important;
+  margin-bottom: 16px !important;
+}
+#targets-modal .targets-filter-row select {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 10px 14px !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+#targets-modal .targets-filter-row select:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+
+/* Tabla wrap: card blanca */
+#targets-modal #tgt-table-wrap {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 14px !important;
+  overflow: hidden !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+/* Tabla */
+#targets-modal .targets-table th {
+  background: #f5f5f7 !important;
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  padding: 12px 14px !important;
+  border-bottom: 1px solid #e5e5ea !important;
+}
+#targets-modal .targets-table td {
+  padding: 8px 14px !important;
+  border-bottom: 1px solid #f5f5f7 !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+}
+#targets-modal .targets-table tr:last-child td { border-bottom: none !important; }
+#targets-modal .targets-table tr.month-current td {
+  background: rgba(73, 162, 218, 0.06) !important;
+  font-weight: 600 !important;
+}
+#targets-modal .targets-table input.tgt-input {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 8px !important;
+  padding: 8px 12px !important;
+  font-size: 13px !important;
+  font-family: -apple-system, ui-monospace, 'SF Mono', monospace !important;
+  font-weight: 500 !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+#targets-modal .targets-table input.tgt-input:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+#targets-modal .targets-table input.tgt-input.changed {
+  border-color: #f59e0b !important;
+  background: #fffbeb !important;
+}
+#targets-modal .targets-table input.tgt-input.saving {
+  border-color: #49A2DA !important;
+  background: rgba(73, 162, 218, 0.06) !important;
+}
+#targets-modal .targets-table input.tgt-input.saved {
+  border-color: #34c759 !important;
+  background: #f0fdf4 !important;
+}
+
+/* Badges: Apple pill style */
+#targets-modal .tgt-state-badge {
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  padding: 4px 10px !important;
+  border-radius: 999px !important;
+  letter-spacing: 0.02em !important;
+}
+#targets-modal .tgt-state-badge.asignado {
+  background: rgba(52, 199, 89, 0.15) !important;
+  color: #248a3d !important;
+}
+#targets-modal .tgt-state-badge.sin {
+  background: rgba(245, 158, 11, 0.12) !important;
+  color: #a86200 !important;
+}
+
+/* Botones footer */
+#targets-modal .qmodal-btn {
+  padding: 10px 22px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  border-radius: 980px !important;
+  transition: background 150ms ease-out, transform 100ms ease-out, border-color 150ms ease-out;
+}
+#targets-modal .qmodal-btn:active { transform: scale(0.97); }
+#targets-modal .qmodal-btn.primary {
+  background: #49A2DA !important;
+  color: #ffffff !important;
+  border: none !important;
+  box-shadow: 0 1px 2px rgba(73, 162, 218, 0.25);
+}
+#targets-modal .qmodal-btn.primary:hover { background: #3A8CC0 !important; }
+#targets-modal .qmodal-btn.cancel,
+#targets-modal .qmodal-btn.secondary {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border: 1px solid #d2d2d7 !important;
+}
+#targets-modal .qmodal-btn.cancel:hover,
+#targets-modal .qmodal-btn.secondary:hover { background: #f5f5f7 !important; }
+
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -4471,7 +4650,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v654';
+const APP_VERSION = 'v655';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
