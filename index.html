@@ -5290,6 +5290,1787 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   }
 }
 
+/* ============================================================
+   v666 (2026-08-26) apple-design REDISEÑO VISUAL:
+   1) tab Rendiciones (#pane-rendiciones)
+   2) tab Alta clientes (#pane-altacli)
+   3) modal Formulario Visita / Registro Contacto (#visita-modal)
+   4) modal Localidad (#localidad-modal)
+   ============================================================
+   */
+
+/* ==== #pane-rendiciones (sidebar-right tab) ==== */
+#pane-rendiciones h3 {
+  color: #1d1d1f !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em !important;
+  border-bottom: none !important;
+  padding-bottom: 4px !important;
+  margin-bottom: 10px !important;
+  text-transform: none !important;
+}
+/* Sub-tabs SOLICITAR/RENDIR/MIS/TODAS - segmented control */
+#pane-rendiciones .rd-subtab-btn {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 8px 10px !important;
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  margin-bottom: 0 !important;
+  transition: all 150ms ease-out;
+}
+#pane-rendiciones .rd-subtab-btn:hover { background: #f5f5f7 !important; color: #1d1d1f !important; }
+#pane-rendiciones .rd-subtab-btn.active {
+  background: #be185d !important;
+  color: #ffffff !important;
+  border-color: #be185d !important;
+}
+/* Form labels + inputs */
+#pane-rendiciones label,
+#pane-rendiciones .vf-row label {
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+}
+#pane-rendiciones .vf-row input,
+#pane-rendiciones .vf-row select,
+#pane-rendiciones .vf-row textarea,
+#pane-rendiciones input[type="text"],
+#pane-rendiciones input[type="number"],
+#pane-rendiciones input[type="date"],
+#pane-rendiciones input[type="email"],
+#pane-rendiciones select,
+#pane-rendiciones textarea {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+}
+#pane-rendiciones .vf-row input:focus,
+#pane-rendiciones .vf-row select:focus,
+#pane-rendiciones .vf-row textarea:focus,
+#pane-rendiciones input:focus,
+#pane-rendiciones select:focus,
+#pane-rendiciones textarea:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+
+/* ==== #pane-altacli (sidebar-right tab) ==== */
+#pane-altacli h3 {
+  color: #1d1d1f !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em !important;
+  border-bottom: none !important;
+  padding-bottom: 4px !important;
+  margin-bottom: 10px !important;
+  text-transform: none !important;
+}
+/* Sub-tabs ALTA RAPIDA / MIS SOLICITUDES */
+#pane-altacli .ac-subtab-btn {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 10px 12px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  margin-bottom: 0 !important;
+  transition: all 150ms ease-out;
+}
+#pane-altacli .ac-subtab-btn:hover { background: #f5f5f7 !important; color: #1d1d1f !important; }
+#pane-altacli .ac-subtab-btn.active {
+  background: #49A2DA !important;
+  color: #ffffff !important;
+  border-color: #49A2DA !important;
+}
+/* Info banner amarillo "Alta rapida (provisoria)" */
+#pane-altacli [style*="background:#fef3c7"],
+#pane-altacli [style*="background:#fefce8"] {
+  background: rgba(255, 149, 0, 0.08) !important;
+  border: 1px solid rgba(255, 149, 0, 0.28) !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  color: #1d1d1f !important;
+}
+#pane-altacli [style*="background:#fef3c7"] [style*="color:#92400e"],
+#pane-altacli [style*="background:#fef3c7"] [style*="color:#78350f"] {
+  color: #a86200 !important;
+}
+/* Form labels + inputs */
+#pane-altacli label,
+#pane-altacli .vf-row label {
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+}
+#pane-altacli .vf-row input,
+#pane-altacli .vf-row select,
+#pane-altacli .vf-row textarea,
+#pane-altacli input[type="text"],
+#pane-altacli input[type="tel"],
+#pane-altacli input[type="email"],
+#pane-altacli input[type="number"],
+#pane-altacli select,
+#pane-altacli textarea {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+}
+#pane-altacli input:focus,
+#pane-altacli select:focus,
+#pane-altacli textarea:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+/* Boton "Enviar solicitud" o similar submits dentro del pane */
+#pane-altacli .btn-confirm,
+#pane-altacli button[onclick*="submit"] {
+  background: #49A2DA !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+}
+#pane-altacli .btn-confirm:hover { background: #3A8CC0 !important; }
+
+/* ==== #visita-modal (Formulario Visita / Registro Contacto) ==== */
+#visita-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#visita-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#visita-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+/* Header: JS setea inline gradient (violeta o teal) - overrideamos a white */
+#visita-modal .modal-head,
+#visita-modal #visita-modal-head[style] {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#visita-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#visita-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#visita-modal .modal-head .subt b[style*="color:#fca5a5"] { color: #ff3b30 !important; }
+#visita-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#visita-modal .modal-close:hover { color: #1d1d1f !important; }
+/* Sub-tabs Nueva/Mis */
+#visita-modal .visita-tabs {
+  background: #f5f5f7 !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 0 24px !important;
+  gap: 4px !important;
+}
+#visita-modal .vt-btn {
+  background: none !important;
+  color: #86868b !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  padding: 14px 16px !important;
+  border-bottom: 2px solid transparent !important;
+  transition: color 150ms ease-out, border-color 150ms ease-out;
+}
+#visita-modal .vt-btn:hover { color: #1d1d1f !important; background: none !important; }
+#visita-modal .vt-btn.active {
+  color: #49A2DA !important;
+  border-bottom-color: #49A2DA !important;
+  background: none !important;
+}
+/* Visita body */
+#visita-modal .visita-body { padding: 20px 24px !important; background: #ffffff !important; }
+/* Form labels */
+#visita-modal .vf-row label {
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+}
+#visita-modal .vf-row .req { color: #ff3b30 !important; font-weight: 700 !important; }
+#visita-modal .vf-row .vf-hint {
+  color: #86868b !important;
+  font-size: 10.5px !important;
+  font-weight: 400 !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+}
+/* Inputs / selects / textarea */
+#visita-modal .vf-row input,
+#visita-modal .vf-row select,
+#visita-modal .vf-row textarea,
+#visita-modal .fs-input {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+}
+#visita-modal .vf-row input:focus,
+#visita-modal .vf-row select:focus,
+#visita-modal .vf-row textarea:focus,
+#visita-modal .fs-input:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+/* vf-multi chips (GRANDE/MEDIANA/CHICA/AGUA DULCE/etc) */
+#visita-modal .vf-multi { gap: 8px !important; }
+#visita-modal .vf-multi button {
+  background: transparent !important;
+  color: #1d1d1f !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 8px 14px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out;
+}
+#visita-modal .vf-multi button:hover {
+  background: #f5f5f7 !important;
+  border-color: #86868b !important;
+  color: #1d1d1f !important;
+}
+#visita-modal .vf-multi button.active {
+  background: #49A2DA !important;
+  border-color: #49A2DA !important;
+  color: #ffffff !important;
+}
+#visita-modal .vf-multi button.active::before {
+  content: "" !important;
+  margin: 0 !important;
+}
+#visita-modal .vf-multi-hint { color: #86868b !important; font-style: normal !important; font-size: 10.5px !important; }
+/* Modal footer con submit + cancel */
+#visita-modal .modal-footer {
+  background: #f5f5f7 !important;
+  border-top: 1px solid #e5e5ea !important;
+  padding: 16px 24px !important;
+}
+#visita-modal .modal-footer > span { color: #86868b !important; font-size: 11px !important; }
+/* Botones Cancelar / Enviar formulario / Registrar contacto */
+#visita-modal .btn-cancel {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: all 150ms ease-out !important;
+}
+#visita-modal .btn-cancel:hover {
+  background: rgba(255, 59, 48, 0.08) !important;
+  color: #ff3b30 !important;
+  border-color: rgba(255, 59, 48, 0.25) !important;
+}
+/* Boton submit "Enviar formulario" (violeta) / "Registrar contacto" (teal).
+   JS setea inline background. Override con !important + attribute selector. */
+#visita-modal #visita-submit-btn {
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  border: none !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#visita-modal #visita-submit-btn[style*="#7c3aed"] { background: #af52de !important; }
+#visita-modal #visita-submit-btn[style*="#7c3aed"]:hover { background: #9040c0 !important; }
+#visita-modal #visita-submit-btn[style*="#0d9488"] { background: #14b8a6 !important; }
+#visita-modal #visita-submit-btn[style*="#0d9488"]:hover { background: #0d9488 !important; }
+#visita-modal #visita-submit-btn:active { transform: scale(0.97) !important; }
+/* Visit filters (Mis visitas tab) - selects pill */
+#visita-modal .visit-filters select {
+  border-radius: 10px !important;
+  border: 1px solid #d2d2d7 !important;
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  color: #1d1d1f !important;
+}
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  #visita-modal.modal-overlay.open .modal-box {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
+/* ==== #localidad-modal (modal al tocar una localidad) ==== */
+#localidad-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#localidad-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#localidad-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+/* Header teal -> white con h2 negro */
+#localidad-modal .modal-head {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#localidad-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#localidad-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#localidad-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#localidad-modal .modal-close:hover { color: #1d1d1f !important; }
+/* Body */
+#localidad-modal .users-wrap { padding: 20px 24px !important; background: #ffffff !important; }
+#localidad-modal #lcm-content {
+  color: #1d1d1f !important;
+  font-size: 13px !important;
+}
+/* Cards de tienda dentro del listado */
+#localidad-modal #lcm-content > div {
+  border-radius: 10px !important;
+  transition: transform 100ms ease-out, box-shadow 150ms ease-out !important;
+}
+/* Badges dentro del listado (PROVISORIO naranja, SAP azul) */
+#localidad-modal #lcm-content [style*="background:#f59e0b"],
+#localidad-modal #lcm-content [style*="background:#facc15"] {
+  background: rgba(255, 149, 0, 0.18) !important;
+  color: #a86200 !important;
+  border-radius: 999px !important;
+  padding: 3px 10px !important;
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: -0.01em !important;
+}
+#localidad-modal #lcm-content [style*="background:#dbeafe"],
+#localidad-modal #lcm-content [style*="background:#93c5fd"] {
+  background: rgba(73, 162, 218, 0.18) !important;
+  color: #2b6f96 !important;
+  border-radius: 999px !important;
+  padding: 3px 10px !important;
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: -0.01em !important;
+}
+/* Footer con CERRAR */
+#localidad-modal .modal-footer {
+  background: #f5f5f7 !important;
+  border-top: 1px solid #e5e5ea !important;
+  padding: 14px 24px !important;
+}
+#localidad-modal .btn-cancel {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: all 150ms ease-out !important;
+}
+#localidad-modal .btn-cancel:hover {
+  background: rgba(255, 59, 48, 0.08) !important;
+  color: #ff3b30 !important;
+  border-color: rgba(255, 59, 48, 0.25) !important;
+}
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  #localidad-modal.modal-overlay.open .modal-box {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
+/* ============================================================
+   v667 (2026-08-26) apple-design REDISEÑO VISUAL modal
+   Graficos STOCK ASIG. / Graficos Backorder
+   (mismo #backorders-graficos-modal en 2 modos)
+   ============================================================
+   Header inline gradient cambia por JS: verde (#166534->#22c55e)
+   para STOCK ASIG, naranja (#c2410c->#f97316) para BACKORDER.
+   Preservamos la semantica del color en el boton EXCEL + barras
+   pero el chrome (header/box/typography) pasa a Apple estandar.
+   */
+
+#backorders-graficos-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#backorders-graficos-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#backorders-graficos-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+
+/* Header: JS setea inline gradient (verde asig o naranja backorder)
+   -> white con h2 negro. attribute selector vence inline JS. */
+#backorders-graficos-modal .modal-head,
+#backorders-graficos-modal .modal-head[style] {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#backorders-graficos-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#backorders-graficos-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#backorders-graficos-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#backorders-graficos-modal .modal-close:hover { color: #1d1d1f !important; }
+
+/* Body wrap */
+#backorders-graficos-modal .users-wrap { background: #ffffff !important; }
+#backorders-graficos-modal #backorders-graficos-content > div[style*="padding:16px 22px"] {
+  padding: 20px 24px !important;
+}
+
+/* Stats line "N clientes · M SKUs · total X unidades..." */
+#backorders-graficos-modal #backorders-graficos-content div[style*="color:#64748b"] {
+  color: #86868b !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+}
+#backorders-graficos-modal #backorders-graficos-content div[style*="color:#64748b"] b {
+  color: #1d1d1f !important;
+  font-weight: 600 !important;
+}
+
+/* Selector vendedor: pill Apple */
+#backorders-graficos-modal #backorders-graficos-content select {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  text-transform: none !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+}
+#backorders-graficos-modal #backorders-graficos-content select:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+
+/* Boton EXCEL: pill verde Apple (era verde #166534 pesado uppercase 800) */
+#backorders-graficos-modal button[onclick*="exportBackordersGraficos"] {
+  background: #34c759 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#backorders-graficos-modal button[onclick*="exportBackordersGraficos"]:hover { background: #2ba64a !important; }
+#backorders-graficos-modal button[onclick*="exportBackordersGraficos"]:active { transform: scale(0.97) !important; }
+
+/* h4 titulo seccion "TOP CLIENTES CON MAS..." - preserva color por modo
+   pero apple typography (lowercase 13px 600 tracking -0.015em) */
+#backorders-graficos-modal h4[style*="color:#c2410c"] {
+  color: #c2410c !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+  text-transform: none !important;
+  margin: 0 0 12px 0 !important;
+}
+#backorders-graficos-modal h4[style*="color:#166534"] {
+  color: #248a3d !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+  text-transform: none !important;
+  margin: 0 0 12px 0 !important;
+}
+
+/* Chart rows (grid-template-columns:220px 1fr 80px):
+   - label izq negro apple
+   - barra track gris Apple pill
+   - barra fill color semantico pill
+   - numero derecha */
+#backorders-graficos-modal #backorders-graficos-content div[style*="grid-template-columns:220px"] {
+  font-size: 12px !important;
+  gap: 12px !important;
+  padding: 4px 0 !important;
+}
+/* Label izquierdo (nombre tienda / SKU) */
+#backorders-graficos-modal #backorders-graficos-content div[style*="grid-template-columns:220px"] > div[style*="font-weight:700"] {
+  color: #1d1d1f !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+}
+/* Track de la barra (background:#f1f5f9) - pill gris Apple */
+#backorders-graficos-modal #backorders-graficos-content div[style*="background:#f1f5f9"] {
+  background: #f5f5f7 !important;
+  border-radius: 999px !important;
+  height: 16px !important;
+  overflow: hidden !important;
+}
+/* Fill de la barra (background inline color hex) - pill radius 999px */
+#backorders-graficos-modal #backorders-graficos-content div[style*="background:#f1f5f9"] > div {
+  border-radius: 999px !important;
+  height: 100% !important;
+  transition: width 300ms ease-out;
+}
+/* Numero derecho (text-align:right;font-weight:800) - tabular nums Apple */
+#backorders-graficos-modal #backorders-graficos-content div[style*="grid-template-columns:220px"] > div[style*="text-align:right"] {
+  color: #1d1d1f !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Empty state "Sin datos" */
+#backorders-graficos-modal #backorders-graficos-content div[style*="text-align:center"][style*="color:#94a3b8"] {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+}
+
+/* Footer note "(top 30 de N clientes)" */
+#backorders-graficos-modal #backorders-graficos-content div[style*="color:#94a3b8"][style*="text-align:center"][style*="margin-top:6px"] {
+  color: #86868b !important;
+  font-size: 11px !important;
+  font-style: normal !important;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  #backorders-graficos-modal.modal-overlay.open .modal-box {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
+/* ============================================================
+   v668 (2026-08-26) apple-design REDISEÑO VISUAL:
+   1) modal Que queres exportar? (#export-modal)
+   2) modal Panel de Control (#panel-control-modal)
+   ============================================================
+   */
+
+/* ==== #export-modal (Que queres exportar?) ==== */
+#export-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#export-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#export-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+#export-modal .modal-head {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#export-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#export-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#export-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#export-modal .modal-close:hover { color: #1d1d1f !important; }
+
+/* Export options: cards con hover Apple */
+#export-modal .export-options { padding: 20px 24px !important; gap: 10px !important; background: #f5f5f7 !important; }
+#export-modal .exp-opt {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  gap: 14px !important;
+  transition: transform 100ms ease-out, box-shadow 150ms ease-out, border-color 150ms ease-out !important;
+}
+#export-modal .exp-opt:hover {
+  background: #ffffff !important;
+  border-color: #d2d2d7 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+#export-modal .exp-opt:active { transform: scale(0.99) !important; }
+/* Exp-icon: preserva color inline, radius 10px, tamaño levemente menor */
+#export-modal .exp-icon {
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 10px !important;
+  font-size: 22px !important;
+}
+#export-modal .exp-body h3 {
+  color: #1d1d1f !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+  margin-bottom: 3px !important;
+}
+#export-modal .exp-body p {
+  color: #86868b !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+  letter-spacing: -0.01em;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  #export-modal.modal-overlay.open .modal-box {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
+/* ==== #panel-control-modal (Mariano-only) ==== */
+#panel-control-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#panel-control-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+/* Modal container (NO usa .modal-box sino .modal) - override inline styles */
+#panel-control-modal.modal-overlay.open .modal {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #f5f5f7 !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+  overflow: hidden;
+}
+/* Header dark (JS setea inline bg #0f172a) - mantenemos dark pero apple typography */
+#panel-control-modal .modal > div:first-child[style*="background:#0f172a"] {
+  background: #1d1d1f !important;
+  border-radius: 16px 16px 0 0 !important;
+  padding: 16px 24px !important;
+  color: #ffffff !important;
+  border-bottom: none !important;
+}
+#panel-control-modal .modal > div:first-child h2 {
+  color: #ffffff !important;
+  font-size: 17px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+  margin: 0 !important;
+}
+/* Boton REFRESCAR pill dark */
+#panel-control-modal .modal > div:first-child button[onclick*="renderPanelControl"] {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.20) !important;
+  border-radius: 999px !important;
+  padding: 6px 14px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: background 150ms ease-out;
+}
+#panel-control-modal .modal > div:first-child button[onclick*="renderPanelControl"]:hover {
+  background: rgba(255, 255, 255, 0.22) !important;
+}
+/* Boton close × */
+#panel-control-modal .modal > div:first-child button[onclick*="closePanelControl"] {
+  color: rgba(255, 255, 255, 0.7) !important;
+  font-size: 22px !important;
+  transition: color 150ms ease-out;
+}
+#panel-control-modal .modal > div:first-child button[onclick*="closePanelControl"]:hover {
+  color: #ffffff !important;
+}
+
+/* Body */
+#panel-control-modal #panel-control-body {
+  background: #f5f5f7 !important;
+  padding: 20px 24px !important;
+}
+
+/* Sections h3 "INFRAESTRUCTURA", "WORKFLOWS CRITICOS", "PEDIDOS" - uppercase gris sistema */
+#panel-control-modal .pc-section h3 {
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  margin: 0 0 10px 0 !important;
+}
+#panel-control-modal .pc-section { margin-bottom: 24px !important; }
+#panel-control-modal .pc-section > div[style*="display:flex"] { gap: 10px !important; }
+
+/* Cards (.pc-card) - override inline styles bg/border/radius */
+#panel-control-modal .pc-card {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+  transition: transform 150ms ease-out;
+}
+#panel-control-modal .pc-card:hover { transform: translateY(-1px); }
+/* Card title uppercase small gris */
+#panel-control-modal .pc-card div[style*="color:#475569"][style*="text-transform:uppercase"] {
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+}
+/* Card main value (20-24px, color:#0f172a por default, o color inline por semantica) */
+#panel-control-modal .pc-card div[style*="font-size:20px"],
+#panel-control-modal .pc-card div[style*="font-size:24px"] {
+  color: #1d1d1f !important;
+  font-size: 24px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.03em !important;
+  line-height: 1.1 !important;
+  margin-bottom: 4px !important;
+}
+/* Semantic colors preservados en inline styles */
+#panel-control-modal .pc-card div[style*="color:#dc2626"] { color: #ff3b30 !important; }
+#panel-control-modal .pc-card div[style*="color:#c2410c"] { color: #ff9500 !important; }
+#panel-control-modal .pc-card div[style*="color:#166534"] { color: #34c759 !important; }
+#panel-control-modal .pc-card div[style*="color:#1e40af"] { color: #49A2DA !important; }
+/* Card subtext (11px #64748b) */
+#panel-control-modal .pc-card div[style*="color:#64748b"] {
+  color: #86868b !important;
+  font-size: 11.5px !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.01em !important;
+  line-height: 1.4 !important;
+}
+
+/* Tables inside pc-section (WORKFLOWS CRITICOS, SENTRY TOP ISSUES) */
+#panel-control-modal .pc-section table {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 12px !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  overflow: hidden;
+  width: 100%;
+  font-size: 12px !important;
+}
+#panel-control-modal .pc-section th {
+  background: #f5f5f7 !important;
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  padding: 12px 14px !important;
+  text-align: left !important;
+  border-bottom: 1px solid #e5e5ea !important;
+}
+#panel-control-modal .pc-section td {
+  color: #1d1d1f !important;
+  font-size: 12px !important;
+  padding: 12px 14px !important;
+  border-bottom: 1px solid #f5f5f7 !important;
+  vertical-align: middle;
+}
+#panel-control-modal .pc-section tr:last-child td { border-bottom: none !important; }
+/* Status SUCCESS verde Apple, ERROR rojo Apple */
+#panel-control-modal .pc-section td[style*="color:#10b981"],
+#panel-control-modal .pc-section td [style*="color:#10b981"],
+#panel-control-modal .pc-section td[style*="color:#16a34a"],
+#panel-control-modal .pc-section td [style*="color:#16a34a"] {
+  color: #248a3d !important;
+  font-weight: 600 !important;
+}
+#panel-control-modal .pc-section td[style*="color:#dc2626"],
+#panel-control-modal .pc-section td [style*="color:#dc2626"] {
+  color: #d92e26 !important;
+  font-weight: 600 !important;
+}
+#panel-control-modal .pc-section td[style*="color:#f59e0b"],
+#panel-control-modal .pc-section td [style*="color:#f59e0b"] {
+  color: #a86200 !important;
+  font-weight: 600 !important;
+}
+/* Links en tabla */
+#panel-control-modal .pc-section td a {
+  color: #49A2DA !important;
+  text-decoration: none;
+  transition: color 150ms ease-out;
+}
+#panel-control-modal .pc-section td a:hover {
+  color: #3A8CC0 !important;
+  text-decoration: underline;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  #panel-control-modal.modal-overlay.open .modal {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
+/* ============================================================
+   v669 (2026-08-26) apple-design REDISEÑO VISUAL:
+   1) modal Crear pedido (#pedido-modal)
+   2) modal Revision de pedido vs Stock (#revision-modal)
+   3) modal Pedido en espera (#waitlist-card-modal)
+   ============================================================
+   */
+
+/* ==== BLOQUE COMPARTIDO reset overlay+box+head para 3 modales ==== */
+#pedido-modal.modal-overlay,
+#revision-modal.modal-overlay,
+#waitlist-card-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#pedido-modal.modal-overlay.open,
+#revision-modal.modal-overlay.open,
+#waitlist-card-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#pedido-modal.modal-overlay.open .modal-box,
+#revision-modal.modal-overlay.open .modal-box,
+#waitlist-card-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+#pedido-modal .modal-head,
+#revision-modal .modal-head,
+#waitlist-card-modal .modal-head {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#pedido-modal .modal-head h2,
+#revision-modal .modal-head h2,
+#waitlist-card-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#pedido-modal .modal-head .subt,
+#revision-modal .modal-head .subt,
+#waitlist-card-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#pedido-modal .modal-close,
+#revision-modal .modal-close,
+#waitlist-card-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#pedido-modal .modal-close:hover,
+#revision-modal .modal-close:hover,
+#waitlist-card-modal .modal-close:hover { color: #1d1d1f !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  #pedido-modal.modal-overlay.open .modal-box,
+  #revision-modal.modal-overlay.open .modal-box,
+  #waitlist-card-modal.modal-overlay.open .modal-box {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
+/* ==== #pedido-modal (Crear pedido) ==== */
+/* Filter row: selects + search Apple pill */
+#pedido-modal .filter-row select,
+#pedido-modal .filter-row input[type="text"] {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+}
+#pedido-modal .filter-row select:focus,
+#pedido-modal .filter-row input:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+/* Stock filter buttons Todos/Disponibles/No disp */
+#pedido-modal .pm-stock-btn {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 6px 12px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out;
+}
+#pedido-modal .pm-stock-btn:hover { background: #f5f5f7 !important; color: #1d1d1f !important; }
+#pedido-modal .pm-stock-btn.active { background: #49A2DA !important; color: #ffffff !important; border-color: #49A2DA !important; }
+#pedido-modal .pm-stock-btn.ok.active { background: #34c759 !important; border-color: #34c759 !important; }
+#pedido-modal .pm-stock-btn.no.active { background: #ff3b30 !important; border-color: #ff3b30 !important; }
+
+/* Modal footer */
+#pedido-modal .modal-footer {
+  background: #f5f5f7 !important;
+  border-top: 1px solid #e5e5ea !important;
+  padding: 16px 24px !important;
+}
+#pedido-modal .modal-footer > div span { color: #86868b !important; font-size: 11px !important; }
+/* Botones Cancelar / Enviar a lista de espera / Vista preliminar */
+#pedido-modal .btn-cancel {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: all 150ms ease-out !important;
+}
+#pedido-modal .btn-cancel:hover {
+  background: rgba(255, 59, 48, 0.08) !important;
+  color: #ff3b30 !important;
+  border-color: rgba(255, 59, 48, 0.25) !important;
+}
+#pedido-modal .btn-confirm {
+  background: #34c759 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#pedido-modal .btn-confirm:hover { background: #2ba64a !important; }
+#pedido-modal .btn-confirm:active { transform: scale(0.97) !important; }
+#pedido-modal .pm-back-to-waitlist {
+  background: transparent !important;
+  color: #af52de !important;
+  border: 1px solid #af52de !important;
+  border-radius: 999px !important;
+  padding: 10px 18px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out !important;
+}
+#pedido-modal .pm-back-to-waitlist:hover { background: rgba(175, 82, 222, 0.08) !important; }
+
+/* ==== #revision-modal (Revision Excel) ==== */
+#revision-modal .modal-body { padding: 24px !important; background: #f5f5f7 !important; }
+/* Stock drop zone: Apple card */
+#revision-modal .stock-drop-zone {
+  background: #ffffff !important;
+  border: 2px dashed #d2d2d7 !important;
+  border-radius: 14px !important;
+  padding: 40px 24px !important;
+  transition: all 150ms ease-out !important;
+}
+#revision-modal .stock-drop-zone:hover,
+#revision-modal .stock-drop-zone.dragover {
+  background: rgba(73, 162, 218, 0.04) !important;
+  border-color: #49A2DA !important;
+  border-style: solid !important;
+}
+#revision-modal .stock-drop-text {
+  color: #1d1d1f !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+}
+#revision-modal .stock-drop-hint {
+  color: #86868b !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+}
+/* Stats banner + warnings + error inline */
+#revision-modal #revision-stats {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-left: 3px solid #14b8a6 !important;
+  border-radius: 12px !important;
+  color: #1d1d1f !important;
+  padding: 14px 16px !important;
+}
+#revision-modal #revision-warnings {
+  background: rgba(255, 149, 0, 0.08) !important;
+  border: 1px solid rgba(255, 149, 0, 0.28) !important;
+  border-radius: 12px !important;
+  color: #a86200 !important;
+}
+#revision-modal #revision-error {
+  background: rgba(255, 59, 48, 0.08) !important;
+  border: 1px solid rgba(255, 59, 48, 0.28) !important;
+  border-radius: 12px !important;
+  color: #d92e26 !important;
+}
+/* Cliente destino block (bg violeta) */
+#revision-modal #revision-wait-cli-row {
+  background: rgba(175, 82, 222, 0.05) !important;
+  border: 1px solid rgba(175, 82, 222, 0.28) !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+}
+#revision-modal #revision-wait-cli-row div[style*="color:#6b21a8"] {
+  color: #7c2fb3 !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+#revision-modal #revision-wait-cli-input,
+#revision-modal #revision-wait-entrega-select {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+}
+#revision-modal #revision-wait-cli-input:focus,
+#revision-modal #revision-wait-entrega-select:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+/* Tabla revision: dark header apple */
+#revision-modal table {
+  background: #ffffff !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+#revision-modal thead {
+  background: #1d1d1f !important;
+}
+#revision-modal thead th {
+  background: #1d1d1f !important;
+  color: #ffffff !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  padding: 12px 10px !important;
+}
+#revision-modal tbody td {
+  padding: 10px !important;
+  border-bottom: 1px solid #f5f5f7 !important;
+  color: #1d1d1f !important;
+  font-size: 12px !important;
+}
+/* Botones bottom Cerrar/Descargar/Dejar recalculando (stock-action-btn) */
+#revision-modal .stock-action-btn {
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: all 150ms ease-out !important;
+}
+#revision-modal .stock-action-btn.cancel {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+}
+#revision-modal .stock-action-btn.cancel:hover {
+  background: rgba(255, 59, 48, 0.08) !important;
+  color: #ff3b30 !important;
+  border-color: rgba(255, 59, 48, 0.25) !important;
+}
+#revision-modal .stock-action-btn.publish {
+  color: #ffffff !important;
+  border: none !important;
+}
+/* Boton "Descargar revision" (inline background:#0f766e teal) */
+#revision-modal .stock-action-btn.publish[style*="#0f766e"] { background: #14b8a6 !important; }
+#revision-modal .stock-action-btn.publish[style*="#0f766e"]:hover:not(:disabled) { background: #0d9488 !important; }
+/* Boton "Dejar recalculando" (inline background:#7c3aed violeta) */
+#revision-modal .stock-action-btn.publish[style*="#7c3aed"] { background: #af52de !important; }
+#revision-modal .stock-action-btn.publish[style*="#7c3aed"]:hover:not(:disabled) { background: #9040c0 !important; }
+#revision-modal .stock-action-btn.publish:disabled { background: #e5e5ea !important; color: #86868b !important; cursor: not-allowed; }
+
+/* ==== #waitlist-card-modal (Pedido en espera) ==== */
+#waitlist-card-modal .modal-body { padding: 24px !important; background: #f5f5f7 !important; }
+/* Stats banner (bg teal light) - subtotales verde/rojo INMEDIATO/PENDIENTE */
+#waitlist-card-modal #wcard-stats {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-left: 3px solid #14b8a6 !important;
+  border-radius: 12px !important;
+  color: #1d1d1f !important;
+  padding: 14px 18px !important;
+  font-size: 13px !important;
+}
+/* SAP Asignado - Con Stock section (bg green light) */
+#waitlist-card-modal #wcard-sap-asignado {
+  background: rgba(52, 199, 89, 0.06) !important;
+  border: 1px solid rgba(52, 199, 89, 0.28) !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+}
+#waitlist-card-modal #wcard-sap-asignado div[style*="color:#14532d"] {
+  color: #248a3d !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+#waitlist-card-modal #wcard-sap-asignado div[style*="color:#166534"] { color: #86868b !important; font-size: 11.5px !important; }
+/* SAP Asignado nuevos (bg amarillo light) */
+#waitlist-card-modal #wcard-sap-asignado-nuevos {
+  background: rgba(255, 149, 0, 0.06) !important;
+  border: 1px solid rgba(255, 149, 0, 0.28) !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+}
+#waitlist-card-modal #wcard-sap-asignado-nuevos div[style*="color:#713f12"] {
+  color: #a86200 !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+#waitlist-card-modal #wcard-sap-asignado-nuevos div[style*="color:#854d0e"] { color: #86868b !important; font-size: 11.5px !important; }
+/* E4B ASIG (bg azul light) */
+#waitlist-card-modal #wcard-e4b-asig-app {
+  background: rgba(73, 162, 218, 0.06) !important;
+  border: 1px solid rgba(73, 162, 218, 0.28) !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+}
+#waitlist-card-modal #wcard-e4b-asig-app div[style*="color:#1e40af"] {
+  color: #2b6f96 !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+#waitlist-card-modal #wcard-e4b-asig-app div[style*="color:#1e3a8a"] { color: #86868b !important; font-size: 11.5px !important; }
+/* E4B BO (bg rojo light) */
+#waitlist-card-modal #wcard-e4b-bo-app {
+  background: rgba(255, 59, 48, 0.05) !important;
+  border: 1px solid rgba(255, 59, 48, 0.28) !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+}
+#waitlist-card-modal #wcard-e4b-bo-app div[style*="color:#991b1b"] {
+  color: #d92e26 !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+#waitlist-card-modal #wcard-e4b-bo-app div[style*="color:#7f1d1d"] { color: #86868b !important; font-size: 11.5px !important; }
+
+/* Search input add producto */
+#waitlist-card-modal #wcard-add-input {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 10px 14px !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+}
+#waitlist-card-modal #wcard-add-input:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+#waitlist-card-modal #wcard-add-dropdown {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 0 0 10px 10px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Tabla wcard: dark header apple */
+#waitlist-card-modal table {
+  background: #ffffff !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+#waitlist-card-modal thead {
+  background: #1d1d1f !important;
+}
+#waitlist-card-modal thead th {
+  background: #1d1d1f !important;
+  color: #ffffff !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  padding: 12px 8px !important;
+}
+#waitlist-card-modal thead th[style*="background:#fef9c3"] {
+  background: rgba(255, 149, 0, 0.35) !important;
+  color: #ffffff !important;
+}
+#waitlist-card-modal tbody td {
+  padding: 10px 8px !important;
+  border-bottom: 1px solid #f5f5f7 !important;
+  color: #1d1d1f !important;
+  font-size: 12px !important;
+  vertical-align: middle;
+}
+#waitlist-card-modal tbody tr:hover td { background: #fafafa !important; }
+/* Botones bottom (Cerrar / Editar orden / etc) */
+#waitlist-card-modal .stock-action-btn {
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: all 150ms ease-out !important;
+}
+#waitlist-card-modal .stock-action-btn.cancel {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+}
+#waitlist-card-modal .stock-action-btn.cancel:hover {
+  background: rgba(255, 59, 48, 0.08) !important;
+  color: #ff3b30 !important;
+  border-color: rgba(255, 59, 48, 0.25) !important;
+}
+#waitlist-card-modal .stock-action-btn.publish {
+  color: #ffffff !important;
+  border: none !important;
+}
+#waitlist-card-modal .stock-action-btn.publish[style*="#0f172a"] { background: #1d1d1f !important; }
+#waitlist-card-modal .stock-action-btn.publish[style*="#0f172a"]:hover:not(:disabled) { background: #2f2f33 !important; }
+
+/* ============================================================
+   v670 (2026-08-26) apple-design REDISEÑO VISUAL:
+   1) confirmed-cards en tab Pedidos vistas PENDIENTES + CONFIRMADOS
+      (v665 solo cubrio la vista CREAR con .pedido-client-card)
+   2) modal Reasignacion de zonas (#zonas-modal)
+   ============================================================
+   */
+
+/* ==== .confirmed-card en #pane-pedidos (vistas PENDIENTES + CONFIRMADOS) ==== */
+/* Vista PENDIENTES: renderPendientesList setea inline
+   border-left-color:#d97706 + cc-month background:#d97706 (naranja).
+   Vista CONFIRMADOS: CSS default border-left:#166534 verde + cc-month verde.
+   Ambos casos usan .confirmed-card. */
+#pane-pedidos .confirmed-card {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-left: 3px solid #34c759 !important;
+  border-radius: 10px !important;
+  padding: 12px 14px !important;
+  margin-bottom: 8px !important;
+  transition: transform 100ms ease-out, box-shadow 150ms ease-out !important;
+}
+#pane-pedidos .confirmed-card:hover {
+  background: #ffffff !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+}
+/* Pendientes (border-left-color inline #d97706) - naranja Apple */
+#pane-pedidos .confirmed-card[style*="border-left-color:#d97706"] {
+  border-left-color: #ff9500 !important;
+}
+#pane-pedidos .confirmed-card .cc-name {
+  color: #1d1d1f !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+/* cc-month badge: verde default o naranja inline #d97706 - pills translucent */
+#pane-pedidos .confirmed-card .cc-month {
+  background: rgba(52, 199, 89, 0.14) !important;
+  color: #248a3d !important;
+  border-radius: 999px !important;
+  padding: 3px 10px !important;
+  font-size: 9.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+}
+#pane-pedidos .confirmed-card .cc-month[style*="background:#d97706"] {
+  background: rgba(255, 149, 0, 0.14) !important;
+  color: #a86200 !important;
+}
+#pane-pedidos .confirmed-card .cc-meta {
+  color: #86868b !important;
+  font-size: 10.5px !important;
+  font-weight: 500 !important;
+}
+#pane-pedidos .confirmed-card .cc-summary {
+  color: #248a3d !important;
+  font-size: 10.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+}
+#pane-pedidos .confirmed-card .cc-summary[style*="color:#d97706"] {
+  color: #a86200 !important;
+}
+/* cc-sap-estado badges (OFERTA/ORDEN/FACTURADO/COBRADO_PARCIAL/etc) -> pills apple */
+#pane-pedidos .confirmed-card .cc-sap-estado {
+  border-radius: 999px !important;
+  padding: 3px 10px !important;
+  font-size: 9.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+}
+#pane-pedidos .confirmed-card .cc-sap-estado.est-oferta {
+  background: rgba(255, 149, 0, 0.14) !important;
+  color: #a86200 !important;
+}
+#pane-pedidos .confirmed-card .cc-sap-estado.est-orden {
+  background: rgba(73, 162, 218, 0.14) !important;
+  color: #2b6f96 !important;
+}
+#pane-pedidos .confirmed-card .cc-sap-estado.est-facturado {
+  background: rgba(175, 82, 222, 0.14) !important;
+  color: #7c2fb3 !important;
+}
+#pane-pedidos .confirmed-card .cc-sap-estado.est-cobrado-parcial {
+  background: rgba(255, 149, 0, 0.18) !important;
+  color: #a86200 !important;
+}
+
+/* Empty state cuando no hay pedidos */
+#pane-pedidos #pedidos-content > div[style*="background:#f8fafc"] {
+  background: #f5f5f7 !important;
+  border-radius: 12px !important;
+  color: #86868b !important;
+  font-size: 13px !important;
+  padding: 20px 16px !important;
+}
+
+/* ==== #zonas-modal (Reasignacion de zonas) ==== */
+#zonas-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#zonas-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#zonas-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+#zonas-modal .modal-head {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#zonas-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#zonas-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#zonas-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#zonas-modal .modal-close:hover { color: #1d1d1f !important; }
+
+/* Tabs bar (bg violeta #faf5ff) */
+#zonas-modal .modal-body > div:first-child[style*="background:#faf5ff"] {
+  background: #f5f5f7 !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 12px 20px !important;
+  gap: 6px !important;
+}
+/* Tabs POR TIENDA / POR LOCALIDAD / POR PROVINCIA / HISTORIAL */
+#zonas-modal .zonas-tab-btn {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 8px 14px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out;
+}
+#zonas-modal .zonas-tab-btn:hover {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-color: #86868b !important;
+}
+#zonas-modal .zonas-tab-btn.active {
+  background: #af52de !important;
+  color: #ffffff !important;
+  border-color: #af52de !important;
+}
+
+/* Filters row (bg white con border bottom) */
+#zonas-modal #zonas-filters {
+  background: #ffffff !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 12px 20px !important;
+  gap: 10px !important;
+}
+/* Boton CLIENTES SAP (bg #0c4a6e) */
+#zonas-modal #zonas-scope-sap {
+  background: #1d1d1f !important;
+  color: #ffffff !important;
+  border-radius: 999px !important;
+  padding: 8px 14px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  border: none !important;
+  transition: background 150ms ease-out;
+}
+#zonas-modal #zonas-scope-sap:hover { background: #2f2f33 !important; }
+/* Boton SOLO SIN ASIGNAR */
+#zonas-modal #zonas-filter-unassigned {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 8px 14px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out;
+}
+#zonas-modal #zonas-filter-unassigned:hover {
+  background: rgba(255, 59, 48, 0.06) !important;
+  color: #ff3b30 !important;
+  border-color: rgba(255, 59, 48, 0.25) !important;
+}
+/* Filters select + search Apple pill */
+#zonas-modal #zonas-prov-sel,
+#zonas-modal #zonas-loc-sel,
+#zonas-modal #zonas-search {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+}
+#zonas-modal #zonas-prov-sel:focus,
+#zonas-modal #zonas-loc-sel:focus,
+#zonas-modal #zonas-search:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+/* Zonas pending info span */
+#zonas-modal #zonas-pending-info {
+  color: #af52de !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+}
+
+/* Zonas content: tabla con TIENDA / UBICACION / ASIGNACION ACTUAL / REASIGNAR */
+#zonas-modal #zonas-content { background: #ffffff !important; padding: 16px 20px !important; }
+#zonas-modal #zonas-content table {
+  background: #ffffff !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+  width: 100%;
+}
+#zonas-modal #zonas-content th {
+  background: #f5f5f7 !important;
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  padding: 12px 14px !important;
+  text-align: left !important;
+  border-bottom: 1px solid #e5e5ea !important;
+}
+#zonas-modal #zonas-content td {
+  padding: 12px 14px !important;
+  border-bottom: 1px solid #f5f5f7 !important;
+  vertical-align: middle;
+  color: #1d1d1f !important;
+  font-size: 12.5px !important;
+}
+#zonas-modal #zonas-content tr:hover td { background: #fafafa !important; }
+/* Selects reasignar en filas */
+#zonas-modal #zonas-content select {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 8px !important;
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+}
+#zonas-modal #zonas-content select:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+
+/* Badges de asignacion actual (VDE/VDI/LEAD/SAP): pills translucent Apple */
+#zonas-modal #zonas-content [style*="background:#93c5fd"],
+#zonas-modal #zonas-content [style*="background:#dbeafe"] {
+  background: rgba(73, 162, 218, 0.18) !important;
+  color: #2b6f96 !important;
+  border-radius: 999px !important;
+  padding: 3px 10px !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: -0.01em !important;
+}
+#zonas-modal #zonas-content [style*="background:#fed7aa"],
+#zonas-modal #zonas-content [style*="background:#fef3c7"] {
+  background: rgba(255, 149, 0, 0.18) !important;
+  color: #a86200 !important;
+  border-radius: 999px !important;
+  padding: 3px 10px !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: -0.01em !important;
+}
+#zonas-modal #zonas-content [style*="background:#ddd6fe"],
+#zonas-modal #zonas-content [style*="background:#e9d5ff"] {
+  background: rgba(175, 82, 222, 0.18) !important;
+  color: #7c2fb3 !important;
+  border-radius: 999px !important;
+  padding: 3px 10px !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: -0.01em !important;
+}
+
+/* Footer con botones Exportar / Refrescar / Guardar */
+#zonas-modal .modal-body > div:last-child {
+  background: #f5f5f7 !important;
+  border-top: 1px solid #e5e5ea !important;
+  padding: 14px 20px !important;
+}
+#zonas-modal .zonas-action-btn {
+  border-radius: 999px !important;
+  padding: 10px 18px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+/* Exportar mapeo (bg teal #0f766e inline) - pill teal Apple */
+#zonas-modal .zonas-action-btn[style*="#0f766e"] {
+  background: #14b8a6 !important;
+  color: #ffffff !important;
+}
+#zonas-modal .zonas-action-btn[style*="#0f766e"]:hover { background: #0d9488 !important; }
+/* Refrescar mapa */
+#zonas-modal .zonas-action-btn.refresh {
+  background: rgba(73, 162, 218, 0.14) !important;
+  color: #2b6f96 !important;
+  border: 1px solid rgba(73, 162, 218, 0.28) !important;
+}
+#zonas-modal .zonas-action-btn.refresh:hover {
+  background: rgba(73, 162, 218, 0.22) !important;
+}
+/* Guardar cambios */
+#zonas-modal .zonas-action-btn.save {
+  background: #34c759 !important;
+  color: #ffffff !important;
+}
+#zonas-modal .zonas-action-btn.save:hover:not(:disabled) { background: #2ba64a !important; }
+#zonas-modal .zonas-action-btn.save:disabled {
+  background: #e5e5ea !important;
+  color: #86868b !important;
+  cursor: not-allowed;
+}
+#zonas-modal .zonas-action-btn:active:not(:disabled) { transform: scale(0.97) !important; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  #zonas-modal.modal-overlay.open .modal-box {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -6945,7 +8726,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
              (display:none) para preservar el handler + renderSapClientesTab
              por si se necesita restaurar. Mismo patron que 'Zonas' en v416. -->
         <button class="sap-tab" data-sap-tab="clientes" onclick="switchSapTab('clientes')" style="display:none" data-legacy="v418">Mapeo Clientes</button>
-        <button class="sap-tab" data-sap-tab="productos" onclick="switchSapTab('productos')">Mapeo Productos</button>
+        <button class="sap-tab" data-sap-tab="productos" onclick="switchSapTab('productos')" style="display:none" data-legacy="v671">Mapeo Productos</button>
         <button class="sap-tab" data-sap-tab="servicelayer" onclick="switchSapTab('servicelayer')">&#128279; Service Layer</button>
         <button class="sap-tab" data-sap-tab="config" onclick="switchSapTab('config')">Configuraci&oacute;n</button>
       </div>
@@ -8058,7 +9839,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v665';
+const APP_VERSION = 'v671';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
