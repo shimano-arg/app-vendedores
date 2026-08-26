@@ -1109,6 +1109,9 @@ def sync_campania_snapshot_to_firestore(bq_client: bigquery.Client,
     # ventas del SKU en el rango (matchea PowerBI sin filtro vendor).
     # Los totales de la campana (realizadoQty/realizadoArs) siguen usando
     # v_campanias_progreso que respeta scope (para no inflar cumplimiento).
+    # v649 (2026-08-26): agregar provincia + localidad (bp.city) para el Excel
+    # export del modal Graficos. LEFT JOIN a sap_bps_raw para localidad — best
+    # effort, si el BP no tiene MailCity queda null.
     detalle_query = """
     WITH c AS (
       SELECT
@@ -1118,17 +1121,21 @@ def sync_campania_snapshot_to_firestore(bq_client: bigquery.Client,
       WHERE JSON_EXTRACT_ARRAY(skus_json) IS NOT NULL
     )
     SELECT
-      c.campaign_id            AS campaign_id,
-      v.item_code              AS item_code,
-      v.card_code              AS card_code,
-      v.card_name              AS card_name,
-      MAX(v.assigned_vendor)   AS vendor,
-      SUM(v.cantidad)          AS cantidad,
-      SUM(v.importe_linea_ars) AS importe_ars
+      c.campaign_id                      AS campaign_id,
+      v.item_code                        AS item_code,
+      v.card_code                        AS card_code,
+      v.card_name                        AS card_name,
+      MAX(v.assigned_vendor)             AS vendor,
+      MAX(v.provincia_cliente)           AS provincia,
+      MAX(bp.city)                       AS localidad,
+      SUM(v.cantidad)                    AS cantidad,
+      SUM(v.importe_linea_ars)           AS importe_ars
     FROM c
     JOIN `app-vendedores-shimano.shimano_app.v_ventas_lineas` v
       ON v.item_code IN UNNEST(c.skus)
      AND v.doc_date BETWEEN c.start_date AND c.end_date
+    LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bps_raw` bp
+      ON bp.card_code = v.card_code
     WHERE v.is_pesca = TRUE
     GROUP BY c.campaign_id, v.item_code, v.card_code, v.card_name
     ORDER BY c.campaign_id, cantidad DESC
@@ -1147,6 +1154,8 @@ def sync_campania_snapshot_to_firestore(bq_client: bigquery.Client,
             'cardCode': str(d.get('card_code') or ''),
             'tienda': str(d.get('card_name') or ''),
             'vendor': str(d.get('vendor') or ''),
+            'provincia': str(d.get('provincia') or ''),
+            'localidad': str(d.get('localidad') or ''),
             'cantidad': float(d.get('cantidad') or 0),
             'importeArs': float(d.get('importe_ars') or 0),
         })

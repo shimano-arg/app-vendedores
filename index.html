@@ -4223,7 +4223,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v648';
+const APP_VERSION = 'v649';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -20867,6 +20867,64 @@ window.exportMisCampsGraficosExcel = function(){
   if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
     for (const p of PRODUCTS) _prodByCode[(p.code || '').toUpperCase()] = p;
   }
+  // v649 (2026-08-26): construir lookup por (sku, tienda) de provincia +
+  // localidad iterando CAMPANIA_SNAPSHOT.detalle (dedupe cross-campaign como
+  // v646). Para APP-source (Pedidas) usar globalPedidos: mapear cliente ->
+  // point para obtener province/name del padron.
+  const metaByKey = {}; // "SKU::TIENDA" -> {provincia, localidad}
+  const _campsMeta = (function(){
+    const today = new Date().toISOString().slice(0, 10);
+    const isVend = (userRole === 'vendedor' && assignedVendor);
+    let cs = (campaignsCache || []).filter(c => !c.archivedManually && c.startDate && c.endDate && c.startDate <= today && c.endDate >= today);
+    if (isVend) cs = cs.filter(c => (typeof isCampaignApplicableToVendor === 'function') ? isCampaignApplicableToVendor(c, assignedVendor) : true);
+    return cs;
+  })();
+  const seenMeta = new Set();
+  const campSnap2 = (typeof CAMPANIA_SNAPSHOT === 'object' && CAMPANIA_SNAPSHOT) ? CAMPANIA_SNAPSHOT : {};
+  for (const c of _campsMeta) {
+    const snap = campSnap2[c.id || c._fsId];
+    if (!snap || !Array.isArray(snap.detalle)) continue;
+    for (const d of snap.detalle) {
+      if (!d || !d.sku) continue;
+      const sku = String(d.sku).toUpperCase();
+      const tienda = d.tienda || d.cardCode || '(sin tienda)';
+      const key = sku + '::' + tienda;
+      if (seenMeta.has(key)) continue;
+      seenMeta.add(key);
+      metaByKey[key] = { provincia: d.provincia || '', localidad: d.localidad || '' };
+    }
+  }
+  // Fallback APP-source: para tiendas que aparecen solo en Pedidas, mapear
+  // desde POINTS (nombre cliente -> province+locName).
+  if (typeof POINTS !== 'undefined' && Array.isArray(POINTS)) {
+    for (const p of POINTS) {
+      const _clients = (p.clients || []).concat(p.prospects || []);
+      for (const n of _clients) {
+        // Reverse lookup - no cambiamos keys existentes.
+        // Sabemos: n = clientName, p.province, p.name (locName).
+        // metaByKey keys son SKU::clientName. Guardar por tienda global.
+        // Actually solo para lookup - metaByTienda:
+      }
+    }
+  }
+  // Simpler: metaByTienda lookup para el fallback.
+  const metaByTiendaFallback = {};
+  if (typeof POINTS !== 'undefined' && Array.isArray(POINTS)) {
+    for (const p of POINTS) {
+      const nombres = (p.clients || []).concat(p.prospects || []);
+      for (const n of nombres) {
+        if (!metaByTiendaFallback[n]) {
+          metaByTiendaFallback[n] = { provincia: p.province || '', localidad: p.name || '' };
+        }
+      }
+    }
+  }
+  function _lookupMeta(sku, tienda){
+    const k = sku + '::' + tienda;
+    if (metaByKey[k] && (metaByKey[k].provincia || metaByKey[k].localidad)) return metaByKey[k];
+    return metaByTiendaFallback[tienda] || { provincia: '', localidad: '' };
+  }
+
   // Union de SKUs entre facturadas y pedidas.
   const allSkus = new Set([...Object.keys(data.bySkuFact), ...Object.keys(data.bySkuPed)]);
   const skuSheetRows = [...allSkus].map(sku => {
@@ -20883,7 +20941,7 @@ window.exportMisCampsGraficosExcel = function(){
       'Delta (pedidas-facturadas)': ped - fact,
     };
   }).sort((a, b) => b['Unidades facturadas'] - a['Unidades facturadas'] || b['Unidades pedidas'] - a['Unidades pedidas']);
-  // Detalle por (SKU, tienda): union de keys y matchear.
+  // Detalle por (SKU, tienda) — v649: agrega Provincia + Localidad.
   const allKeys = new Set([...Object.keys(data.bySkuTiendaFact), ...Object.keys(data.bySkuTiendaPed)]);
   const detalle = [...allKeys].map(k => {
     const sepIdx = k.indexOf('::');
@@ -20891,6 +20949,7 @@ window.exportMisCampsGraficosExcel = function(){
     const sku = k.slice(0, sepIdx);
     const tienda = k.slice(sepIdx + 2);
     const p = _prodByCode[sku] || null;
+    const meta = _lookupMeta(sku, tienda);
     const fact = Math.round(data.bySkuTiendaFact[k] || 0);
     const ped = Math.round(data.bySkuTiendaPed[k] || 0);
     return {
@@ -20899,6 +20958,8 @@ window.exportMisCampsGraficosExcel = function(){
       Familia: p ? (p.fam || '') : '',
       Subfamilia: p ? (p.sub || '') : '',
       Tienda: tienda,
+      Provincia: meta.provincia || '',
+      Localidad: meta.localidad || '',
       'Unidades facturadas': fact,
       'Unidades pedidas': ped,
       'Delta': ped - fact,
@@ -20910,7 +20971,8 @@ window.exportMisCampsGraficosExcel = function(){
   ws1['!cols'] = [{wch:16},{wch:50},{wch:18},{wch:18},{wch:18},{wch:18},{wch:20}];
   XLSX.utils.book_append_sheet(wb, ws1, 'Por SKU');
   const ws2 = XLSX.utils.json_to_sheet(detalle);
-  ws2['!cols'] = [{wch:16},{wch:50},{wch:18},{wch:18},{wch:40},{wch:18},{wch:18},{wch:14}];
+  // Cols: SKU, Descripcion, Familia, Subfamilia, Tienda, Provincia, Localidad, Facturadas, Pedidas, Delta
+  ws2['!cols'] = [{wch:16},{wch:50},{wch:18},{wch:18},{wch:40},{wch:22},{wch:22},{wch:18},{wch:18},{wch:14}];
   XLSX.utils.book_append_sheet(wb, ws2, 'Por SKU y Tienda');
   const stamp = new Date().toISOString().slice(0, 10);
   const filename = 'campanias-activas-' + stamp + '.xlsx';
