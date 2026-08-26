@@ -4408,6 +4408,482 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   }
 }
 
+/* ============================================================
+   v664 (2026-08-26) apple-design REDISEÑO VISUAL:
+   1) tab Clientes del sidebar-right (#pane-clients)
+   2) modal Alta SAP (#sap-alta-info-modal, DOM injected)
+   ============================================================
+   Scope acotado: solo #pane-clients + #sap-alta-info-modal. No
+   afecta otras tabs del sidebar ni ningun otro modal.
+   */
+
+/* ==== #pane-clients (tab Clientes dentro del sidebar-right) ==== */
+
+/* Title "Clientes (vista nacional)" */
+#pane-clients h3#clients-title {
+  color: #1d1d1f !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em !important;
+  border-bottom: none !important;
+  padding-bottom: 4px !important;
+  margin-bottom: 8px !important;
+  text-transform: none !important;
+}
+
+/* Contact controls: "718 / 738 habilitados" + boton LIMPIAR */
+#pane-clients .contact-controls {
+  background: #f5f5f7 !important;
+  border-radius: 10px !important;
+  padding: 8px 12px !important;
+  margin-bottom: 10px !important;
+  font-size: 12px !important;
+}
+#pane-clients .contact-summary {
+  color: #86868b !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+}
+#pane-clients .contact-reset {
+  background: #ffffff !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  color: #1d1d1f !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  padding: 5px 12px !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out;
+}
+#pane-clients .contact-reset:hover {
+  background: #f5f5f7 !important;
+  border-color: #86868b !important;
+  color: #1d1d1f !important;
+}
+
+/* Filter buttons Todos / Cliente en SAP / Leads */
+#pane-clients .cli-filter-btn {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 8px 12px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out;
+}
+#pane-clients .cli-filter-btn:hover { background: #f5f5f7 !important; color: #1d1d1f !important; }
+#pane-clients .cli-filter-btn.active {
+  background: #49A2DA !important;
+  color: #ffffff !important;
+  border-color: #49A2DA !important;
+}
+#pane-clients .cli-filter-btn[data-cli-filter="confirmados"].active {
+  background: #34c759 !important;
+  border-color: #34c759 !important;
+}
+#pane-clients .cli-filter-btn[data-cli-filter="pendientes"].active {
+  background: #ff9500 !important;
+  border-color: #ff9500 !important;
+}
+
+/* Search input */
+#pane-clients .ped-search,
+#pane-clients #cli-search {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 10px 14px !important;
+  font-size: 12.5px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+#pane-clients .ped-search:focus,
+#pane-clients #cli-search:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+
+/* Client cards: white con hover translateY */
+#pane-clients .client-card {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-left: 3px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 10px 62px 32px 12px !important;
+  margin-bottom: 8px !important;
+  transition: transform 100ms ease-out, box-shadow 150ms ease-out, border-color 150ms ease-out !important;
+}
+#pane-clients .client-card:hover {
+  background: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+}
+#pane-clients .client-card.contacted,
+#pane-clients .client-card.estado-habilitado {
+  background: #ffffff !important;
+  border-left-color: #34c759 !important;
+  border-color: #e5e5ea !important;
+}
+#pane-clients .client-card.estado-cancelado {
+  background: #ffffff !important;
+  border-left-color: #ff3b30 !important;
+  border-color: #e5e5ea !important;
+  opacity: 0.85;
+}
+#pane-clients .client-card.estado-cancelado .client-name { color: #d92e26 !important; }
+
+/* Client name */
+#pane-clients .client-card .client-name {
+  color: #1d1d1f !important;
+  font-weight: 600 !important;
+  font-size: 12.5px !important;
+  letter-spacing: -0.015em !important;
+}
+
+/* Cli state badges (SAP EN MAPA, LEAD, CONTACTADO...) */
+#pane-clients .cli-state-badge {
+  border-radius: 999px !important;
+  padding: 3px 9px !important;
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+}
+#pane-clients .cli-state-badge.habilitado {
+  background: rgba(52, 199, 89, 0.14) !important;
+  color: #248a3d !important;
+}
+#pane-clients .cli-state-badge.cancelado {
+  background: rgba(255, 59, 48, 0.14) !important;
+  color: #d92e26 !important;
+}
+#pane-clients .cli-state-badge.pendiente {
+  background: rgba(255, 149, 0, 0.14) !important;
+  color: #a86200 !important;
+}
+/* Custom badges dentro de la card (SAP EN MAPA verde, LEAD amarillo, CONTACTADO naranja) */
+#pane-clients .client-card [style*="background:#166534"],
+#pane-clients .client-card [style*="background:#16a34a"] {
+  background: rgba(52, 199, 89, 0.14) !important;
+  color: #248a3d !important;
+  border-radius: 999px !important;
+  padding: 3px 9px !important;
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: -0.01em !important;
+}
+#pane-clients .client-card [style*="background:#f59e0b"],
+#pane-clients .client-card [style*="background:#facc15"] {
+  background: rgba(255, 149, 0, 0.14) !important;
+  color: #a86200 !important;
+  border-radius: 999px !important;
+  padding: 3px 9px !important;
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: -0.01em !important;
+}
+#pane-clients .client-card [style*="background:#d97706"],
+#pane-clients .client-card [style*="background:#ea580c"] {
+  background: rgba(255, 149, 0, 0.16) !important;
+  color: #a86200 !important;
+  border-radius: 999px !important;
+  padding: 3px 9px !important;
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: -0.01em !important;
+}
+
+/* Boton "VER EN MAPA" dentro de la card - pill celeste Shimano */
+#pane-clients .client-card .cli-map-btn {
+  background: #49A2DA !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 5px 12px !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#pane-clients .client-card .cli-map-btn:hover {
+  background: #3A8CC0 !important;
+  transform: none !important;
+  box-shadow: 0 1px 3px rgba(73, 162, 218, 0.25) !important;
+}
+#pane-clients .client-card .cli-map-btn:active { transform: scale(0.97) !important; }
+#pane-clients .client-card .cli-map-btn[disabled] {
+  background: #e5e5ea !important;
+  color: #86868b !important;
+  box-shadow: none !important;
+}
+/* Boton "Envio gratis" (Ioannis) */
+#pane-clients .client-card .cli-envio-btn {
+  border-radius: 999px !important;
+  padding: 5px 12px !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+}
+
+
+/* ==== #sap-alta-info-modal (modal Alta SAP - DOM injected) ==== */
+#sap-alta-info-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#sap-alta-info-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#sap-alta-info-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+/* Header verde gradient -> white con h2 negro */
+#sap-alta-info-modal .modal-head {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#sap-alta-info-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#sap-alta-info-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#sap-alta-info-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#sap-alta-info-modal .modal-close:hover { color: #1d1d1f !important; }
+
+/* Body wrap */
+#sap-alta-info-modal .users-wrap {
+  padding: 20px 24px !important;
+}
+
+/* Info block (Titular/Direccion/Localidad/Vendedor/Mapa) */
+#sap-alta-info-modal .users-wrap > div[style*="background:#f1f5f9"] {
+  background: #f5f5f7 !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  color: #1d1d1f !important;
+  font-size: 12.5px !important;
+  line-height: 1.7 !important;
+  margin-bottom: 16px !important;
+}
+#sap-alta-info-modal .users-wrap > div[style*="background:#f1f5f9"] b {
+  color: #1d1d1f !important;
+  font-weight: 600 !important;
+}
+#sap-alta-info-modal .users-wrap > div[style*="background:#f1f5f9"] span[style*="color:#166534"] {
+  color: #248a3d !important;
+  font-weight: 500 !important;
+}
+#sap-alta-info-modal .users-wrap > div[style*="background:#f1f5f9"] span[style*="color:#92400e"] {
+  color: #a86200 !important;
+  font-weight: 500 !important;
+}
+
+/* Label "NOMBRE DEL LOCAL / FANTASIA" */
+#sap-alta-info-modal .users-wrap > label[style*="color:#475569"] {
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  margin-bottom: 4px !important;
+}
+/* Hint "Marca del comercio..." */
+#sap-alta-info-modal .users-wrap > div[style*="color:#94a3b8"] {
+  color: #86868b !important;
+  font-size: 11px !important;
+  margin-bottom: 8px !important;
+}
+#sap-alta-info-modal .users-wrap > div[style*="color:#94a3b8"] b { color: #1d1d1f !important; font-weight: 600 !important; }
+
+/* Input fantasia */
+#sap-alta-info-modal #sai-fantasia-input {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 10px 14px !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+  margin-bottom: 16px !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+}
+#sap-alta-info-modal #sai-fantasia-input:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+
+/* Section "ESTADO DEL LEAD" (background:#f8fafc, border:#e2e8f0) */
+#sap-alta-info-modal .users-wrap > div[style*="background:#f8fafc"] {
+  background: #f5f5f7 !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  margin-bottom: 16px !important;
+}
+#sap-alta-info-modal .users-wrap > div[style*="background:#f8fafc"] > div:first-child {
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  margin-bottom: 8px !important;
+}
+/* 3 botones LEAD ESTADO - preservar color semantica pero apple-ify */
+#sap-alta-info-modal button[onclick*="setLeadEstado"] {
+  border-radius: 12px !important;
+  padding: 12px 14px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  border: none !important;
+  color: #ffffff !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+  box-shadow: none !important;
+}
+#sap-alta-info-modal button[onclick*="contactado_con_doc"] { background: #34c759 !important; }
+#sap-alta-info-modal button[onclick*="contactado_con_doc"]:hover { background: #2ba64a !important; }
+#sap-alta-info-modal button[onclick*="contactado_sin_doc"] { background: #ff9500 !important; }
+#sap-alta-info-modal button[onclick*="contactado_sin_doc"]:hover { background: #d97706 !important; }
+#sap-alta-info-modal button[onclick*="'eliminar'"] { background: #ff3b30 !important; }
+#sap-alta-info-modal button[onclick*="'eliminar'"]:hover { background: #d92e26 !important; }
+#sap-alta-info-modal button[onclick*="setLeadEstado"]:active { transform: scale(0.98) !important; }
+
+/* Section precaucion (background:#fef3c7) - solo admin */
+#sap-alta-info-modal .users-wrap > div[style*="background:#fef3c7"] {
+  background: rgba(255, 149, 0, 0.08) !important;
+  border: 1px solid rgba(255, 149, 0, 0.28) !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  margin-bottom: 16px !important;
+}
+#sap-alta-info-modal #sai-precaucion-reason {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+}
+#sap-alta-info-modal #sai-precaucion-reason:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+/* Titulo "Cliente con precaución" y subtitulo */
+#sap-alta-info-modal .users-wrap > div[style*="background:#fef3c7"] div[style*="color:#92400e"] {
+  color: #a86200 !important;
+  font-weight: 600 !important;
+  font-size: 12.5px !important;
+  letter-spacing: -0.015em !important;
+}
+#sap-alta-info-modal .users-wrap > div[style*="background:#fef3c7"] div[style*="color:#78350f"] {
+  color: #a86200 !important;
+  font-size: 11px !important;
+  line-height: 1.4 !important;
+}
+
+/* Botones abajo: Guardar, Editar direccion, Cerrar */
+#sap-alta-info-modal .btn-confirm {
+  background: #34c759 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#sap-alta-info-modal .btn-confirm:hover { background: #2ba64a !important; box-shadow: none !important; }
+#sap-alta-info-modal .btn-confirm:active { transform: scale(0.97) !important; }
+
+/* Boton "Editar direccion" (outlined blue) */
+#sap-alta-info-modal button[onclick*="openSapAltaAddressModal"] {
+  background: #ffffff !important;
+  color: #49A2DA !important;
+  border: 1px solid #49A2DA !important;
+  border-radius: 999px !important;
+  padding: 10px 18px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: all 150ms ease-out !important;
+}
+#sap-alta-info-modal button[onclick*="openSapAltaAddressModal"]:hover {
+  background: rgba(73, 162, 218, 0.08) !important;
+}
+#sap-alta-info-modal button[onclick*="openSapAltaAddressModal"]:active { transform: scale(0.97) !important; }
+
+/* Boton "Cerrar" (btn-cancel rojo -> apple destructive subtle) */
+#sap-alta-info-modal .btn-cancel {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: all 150ms ease-out !important;
+}
+#sap-alta-info-modal .btn-cancel:hover {
+  background: rgba(255, 59, 48, 0.08) !important;
+  color: #ff3b30 !important;
+  border-color: rgba(255, 59, 48, 0.25) !important;
+}
+#sap-alta-info-modal .btn-cancel:active { transform: scale(0.97) !important; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  #sap-alta-info-modal.modal-overlay.open .modal-box {
+    animation: appleModalSlideInReduced 180ms ease-out forwards !important;
+    transform: none !important;
+  }
+}
+
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -7176,7 +7652,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v663';
+const APP_VERSION = 'v664';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
