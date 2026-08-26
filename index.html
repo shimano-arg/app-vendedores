@@ -1882,6 +1882,265 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #targets-modal .qmodal-btn.cancel:hover,
 #targets-modal .qmodal-btn.secondary:hover { background: #f5f5f7 !important; }
 
+/* v656 (2026-08-26) apple-design REDISEÑO VISUAL modal #master-cli-modal.
+   Mismo tratamiento que campaigns + targets. Extra mejoras UX:
+   - Botones de action row (Provisorios/SAP/Reasignar) unificados en color
+   - Delete icon (rojo saturado) -> gris que se pone rojo solo en hover
+   - Botón GUARDAR con estados: blanco default, celeste cuando hay cambios,
+     verde cuando se guardó
+   - Filas con más padding vertical para respirar */
+#master-cli-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#master-cli-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#master-cli-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+}
+#master-cli-modal .modal-head {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 28px !important;
+}
+#master-cli-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+}
+#master-cli-modal .modal-head .subt {
+  color: #86868b !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em;
+}
+#master-cli-modal .modal-close {
+  color: #86868b !important;
+  font-size: 26px !important;
+  transition: color 150ms ease-out;
+}
+#master-cli-modal .modal-close:hover { color: #1d1d1f !important; }
+
+/* Toolbar: gris con borde inferior sutil */
+#master-cli-modal .mc-toolbar {
+  background: #f5f5f7 !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 14px 24px !important;
+  gap: 10px !important;
+}
+#master-cli-modal .mc-toolbar select,
+#master-cli-modal .mc-toolbar input {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 9px 12px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+#master-cli-modal .mc-toolbar select:focus,
+#master-cli-modal .mc-toolbar input:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+}
+
+/* Botones action row: Provisorios/SAP/Reasignar. Sugerencia: unificar en
+   pills con misma familia visual. Los 3 usan celeste Shimano como base
+   pero se diferencian por icono + contador. Estados activo mas claros. */
+#master-cli-modal .mc-prov-btn {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 980px !important;
+  padding: 8px 14px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, border-color 150ms ease-out, transform 100ms ease-out;
+}
+#master-cli-modal .mc-prov-btn:hover { background: #f5f5f7 !important; box-shadow: none !important; }
+#master-cli-modal .mc-prov-btn:active { transform: scale(0.97); }
+#master-cli-modal .mc-prov-btn.active,
+#master-cli-modal #mc-prov-toggle-btn.active {
+  background: #49A2DA !important;
+  color: #ffffff !important;
+  border-color: #49A2DA !important;
+}
+/* SAP button - green Apple */
+#master-cli-modal #mc-sap-only-btn:not(.active) { border-color: #34c759 !important; color: #248a3d !important; }
+#master-cli-modal #mc-sap-only-btn.active { background: #34c759 !important; color: #ffffff !important; border-color: #34c759 !important; }
+/* Reasignar Zonas - purple accent (no active state) */
+#master-cli-modal #mc-reasignar-zonas-btn { border-color: #af52de !important; color: #7c2fb3 !important; background: #ffffff !important; }
+#master-cli-modal #mc-reasignar-zonas-btn:hover { background: #f5f0f9 !important; }
+/* Counter pill dentro del boton */
+#master-cli-modal .mc-prov-count {
+  background: rgba(0, 0, 0, 0.08) !important;
+  color: inherit !important;
+  min-width: 22px !important;
+  height: 20px !important;
+  border-radius: 999px !important;
+  padding: 0 8px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+}
+#master-cli-modal .mc-prov-btn.active .mc-prov-count {
+  background: rgba(255, 255, 255, 0.25) !important;
+  color: #ffffff !important;
+}
+
+/* Stats bar (Con dirección / Sin dirección / Total filtrado) */
+#master-cli-modal .mc-stats {
+  background: #ffffff !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 12px 24px !important;
+  color: #1d1d1f !important;
+}
+#master-cli-modal .mc-stats span {
+  background: #f5f5f7 !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 999px !important;
+  padding: 4px 12px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #1d1d1f !important;
+}
+#master-cli-modal .mc-stats span.ok {
+  background: rgba(52, 199, 89, 0.12) !important;
+  border-color: rgba(52, 199, 89, 0.25) !important;
+  color: #248a3d !important;
+}
+
+/* Body: gris fondo, tabla con card blanca */
+#master-cli-modal .mc-body {
+  background: #f5f5f7 !important;
+  padding: 20px 24px !important;
+}
+
+/* Tabla */
+#master-cli-modal .mc-table {
+  background: #ffffff !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+  border: 1px solid #e5e5ea !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+#master-cli-modal .mc-table th {
+  background: #f5f5f7 !important;
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  padding: 12px 14px !important;
+  border-bottom: 1px solid #e5e5ea !important;
+}
+#master-cli-modal .mc-table td {
+  padding: 12px 14px !important; /* mas aire (era 6px) */
+  border-bottom: 1px solid #f5f5f7 !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+}
+#master-cli-modal .mc-table tr:hover td { background: #fafafa !important; }
+#master-cli-modal .mc-name {
+  color: #1d1d1f !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+#master-cli-modal .mc-meta {
+  color: #86868b !important;
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  margin-top: 2px !important;
+}
+#master-cli-modal .mc-tag {
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  padding: 3px 9px !important;
+  border-radius: 999px !important;
+  letter-spacing: 0.02em !important;
+  text-transform: uppercase !important;
+}
+#master-cli-modal .mc-tag.cli { background: rgba(52, 199, 89, 0.12) !important; color: #248a3d !important; }
+#master-cli-modal .mc-tag.pro { background: rgba(255, 149, 0, 0.14) !important; color: #a86200 !important; }
+#master-cli-modal .mc-tag.prov { background: rgba(175, 82, 222, 0.12) !important; color: #7c2fb3 !important; }
+
+/* Inputs (address, localidad, etc): sin fondo rojo, borde suave */
+#master-cli-modal .mc-addr-input,
+#master-cli-modal .mc-cli-sel {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 8px !important;
+  padding: 8px 12px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+#master-cli-modal .mc-addr-input.has-value,
+#master-cli-modal .mc-cli-sel.has-value {
+  background: rgba(52, 199, 89, 0.06) !important;
+  border-color: rgba(52, 199, 89, 0.3) !important;
+}
+#master-cli-modal .mc-addr-input:focus,
+#master-cli-modal .mc-cli-sel:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+
+/* Boton GUARDAR: blanco con borde default, celeste cuando cambio, verde cuando saved */
+#master-cli-modal .mc-save-btn {
+  background: #ffffff !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 999px !important;
+  padding: 6px 14px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out;
+}
+#master-cli-modal .mc-save-btn:hover { background: #f5f5f7 !important; color: #1d1d1f !important; }
+#master-cli-modal .mc-save-btn.changed {
+  background: #49A2DA !important;
+  color: #ffffff !important;
+  border-color: #49A2DA !important;
+  animation: none !important;
+  box-shadow: 0 1px 3px rgba(73, 162, 218, 0.25);
+}
+#master-cli-modal .mc-save-btn.changed:hover { background: #3A8CC0 !important; }
+
+/* Delete button (rojo saturado) -> gris subtle, red on hover */
+#master-cli-modal button[onclick*="deleteMcEntry"] {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid transparent !important;
+  padding: 6px 10px !important;
+  border-radius: 999px !important;
+  transition: all 150ms ease-out;
+}
+#master-cli-modal button[onclick*="deleteMcEntry"]:hover {
+  color: #ff3b30 !important;
+  background: rgba(255, 59, 48, 0.08) !important;
+  border-color: rgba(255, 59, 48, 0.2) !important;
+}
+
 .modal-head{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
 .modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
@@ -4650,7 +4909,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v655';
+const APP_VERSION = 'v656';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
