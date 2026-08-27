@@ -4270,7 +4270,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v697';
+const APP_VERSION = 'v698';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12051,8 +12051,18 @@ window.openClientMenu = function(name, tipo, province, locName){
 
 function _renderClientMenuBoAndAsigApp(clientName){
   const boCont = document.getElementById('ccm-e4b-bo-app');
-  const boRows = document.getElementById('ccm-e4b-bo-app-rows');
   const asigCont = document.getElementById('ccm-e4b-asig-app');
+  // v698 (2026-08-27): Mariano pidio no mostrar BO/ASIG en el menu rapido
+  // del cliente. Si quiere ver eso va a los modales dedicados (Backorder
+  // global / SAP Asignado - Con Stock). El menu rapido queda limpio con
+  // acciones (Ultima interaccion, ver compras, crear pedido, etc).
+  if (boCont) boCont.style.display = 'none';
+  if (asigCont) asigCont.style.display = 'none';
+  return;
+  // Legacy code intentionally unreachable. Preservado por si se decide
+  // reactivar. No se ejecuta.
+  // eslint-disable-next-line no-unreachable
+  const boRows = document.getElementById('ccm-e4b-bo-app-rows');
   const asigRows = document.getElementById('ccm-e4b-asig-app-rows');
   if (!boCont || !boRows || !asigCont || !asigRows) return;
   boCont.style.display = 'none';
