@@ -329,8 +329,51 @@ function _renderInfraSection() {
       _hCard('Sentry Issues', sentry.healthColor, sentryMain, sentrySub, sentryTooltip) +
       _hCard('Sentry Rate Spike', spikeStatus, spikeMain, spikeSub, spikeTooltip) +
       _hCard('Firestore Quota', fsq.healthColor, fsqMain, fsqSub, fsqTooltip) +
-      _hCard('CF Invoice Sync', cfStatus, cfLabel, cfSub, cfTooltip)
+      _hCard('CF Invoice Sync', cfStatus, cfLabel, cfSub, cfTooltip) +
+      _renderCollectionsGrowthCard(p)
   );
+}
+
+// v686 (2026-08-27) Card "Growth Colecciones" - anticipa crecimiento
+// descontrolado antes de que consuma el free tier Firestore Storage (1GB) o
+// infle reads/writes por accion (visits + opsLog crecen lineal).
+function _renderCollectionsGrowthCard(p) {
+  const growthDoc = window.COLLECTIONS_GROWTH || null;
+  // v685 pattern: fetch defensivo si el listener no corrio aun.
+  if (!growthDoc && typeof window.fbDb !== 'undefined' && window.fbDb) {
+    try {
+      window.fbDb.collection('app_config').doc('collections_growth').get().then((snap) => {
+        if (snap && snap.exists) {
+          window.COLLECTIONS_GROWTH = snap.data();
+          if (typeof window.renderPanelControl === 'function') window.renderPanelControl();
+        }
+      }).catch((err) => console.warn('[panel-control] collections_growth fetch fail', err));
+    } catch (_e) {}
+    try {
+      if (typeof window.ensureCollectionsGrowthListener === 'function') {
+        window.ensureCollectionsGrowthListener();
+      }
+    } catch (_e) {}
+  }
+  const g = p.summarizeCollectionsGrowth
+    ? p.summarizeCollectionsGrowth(growthDoc)
+    : { healthColor: 'unknown', totalMB: 0, storagePct: 0, topBySize: [], worstCollection: '', worstDelta: 0, syncedAgoLabel: 'sin datos' };
+
+  let mainText, subText, tooltip;
+  if (!growthDoc) {
+    mainText = 'sin datos';
+    subText = 'esperando primer cron (~6h)';
+    tooltip = 'Cron sync_collections_growth.py corre cada 6h. Cuenta docs por coleccion + delta desde ultimo sync + estima total bytes.';
+  } else {
+    mainText = g.totalMB + ' MB';
+    const top1 = g.topBySize[0];
+    const topLabel = top1 ? (top1.name + ' ' + top1.count) : '-';
+    subText = topLabel + ' · worst +' + g.worstDelta + ' (' + (g.worstCollection || '-') + ') · sync ' + g.syncedAgoLabel;
+    tooltip = 'Total ~' + g.totalMB + ' MB de ' + Math.round(g.freeTierBytes / 1024 / 1024) + ' MB free tier (' + g.storagePct + '%). '
+      + 'Top por size: ' + g.topBySize.map((e) => e.name + ' ' + e.count).join(', ') + '. '
+      + 'Worst growth: ' + (g.worstCollection || '-') + ' +' + g.worstDelta + ' desde ultimo sync.';
+  }
+  return _hCard('Growth Colecciones', g.healthColor, mainText, subText, tooltip);
 }
 
 /**

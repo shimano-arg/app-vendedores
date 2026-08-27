@@ -510,3 +510,78 @@ export function summarizeFirestoreQuota(quotaDoc) {
     errorMessage: quotaDoc.errorMessage || null,
   };
 }
+
+/**
+ * v686 (2026-08-27) Summarize Collections Growth doc para card del Panel.
+ * Input: doc app_config/collections_growth escrito por sync_collections_growth.py.
+ *
+ * Retorna: worst collection por delta7d, total bytes estimados, % free tier
+ * storage, top 3 collections por size, top 3 por delta.
+ *
+ * Health:
+ *   - red si totalBytes > 80% free tier o worst delta > 500 docs/6h
+ *   - yellow si totalBytes > 50% free tier o worst delta > 100 docs/6h
+ *   - green sino
+ *   - unknown si no hay doc
+ *
+ * @param {object|null} growthDoc - {collections, freeTierBytes, totalBytesAllCollections, worstGrowthCollection, worstGrowthDelta7d, syncedAt, status}
+ */
+export function summarizeCollectionsGrowth(growthDoc) {
+  if (!growthDoc || !growthDoc.collections) {
+    return {
+      status: 'unknown',
+      healthColor: 'unknown',
+      totalBytes: 0,
+      totalMB: 0,
+      freeTierBytes: 1073741824,
+      storagePct: 0,
+      topBySize: [],
+      topByDelta: [],
+      worstCollection: '',
+      worstDelta: 0,
+      syncedAgoLabel: 'sin datos',
+    };
+  }
+  const cols = growthDoc.collections || {};
+  const freeTier = Number(growthDoc.freeTierBytes) || 1073741824;
+  const total = Number(growthDoc.totalBytesAllCollections) || 0;
+  const totalMB = Number((total / 1024 / 1024).toFixed(1));
+  const storagePct = freeTier > 0 ? total / freeTier : 0;
+
+  const entries = Object.entries(cols).map(([name, m]) => ({
+    name,
+    count: Number(m.count) || 0,
+    avgBytesDoc: Number(m.avgBytesDoc) || 0,
+    totalBytes: Number(m.totalBytes) || 0,
+    delta7d: Number(m.delta7d) || 0,
+  }));
+
+  const topBySize = entries
+    .filter((e) => e.totalBytes > 0)
+    .sort((a, b) => b.totalBytes - a.totalBytes)
+    .slice(0, 3);
+
+  const topByDelta = entries
+    .filter((e) => e.delta7d > 0)
+    .sort((a, b) => b.delta7d - a.delta7d)
+    .slice(0, 3);
+
+  const worst = Number(growthDoc.worstGrowthDelta7d) || 0;
+  let health = 'green';
+  if (storagePct > 0.8 || worst > 500) health = 'red';
+  else if (storagePct > 0.5 || worst > 100) health = 'yellow';
+
+  return {
+    status: growthDoc.status || 'ok',
+    healthColor: health,
+    totalBytes: total,
+    totalMB,
+    freeTierBytes: freeTier,
+    storagePct: Number((storagePct * 100).toFixed(2)),
+    topBySize,
+    topByDelta,
+    worstCollection: String(growthDoc.worstGrowthCollection || ''),
+    worstDelta: worst,
+    syncedAgoLabel: formatAgeLabel(growthDoc.syncedAt),
+  };
+}

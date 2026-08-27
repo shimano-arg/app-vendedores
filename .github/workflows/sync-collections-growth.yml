@@ -1,0 +1,42 @@
+name: Sync Collections Growth
+
+# v686 (2026-08-27): Panel de Control card "Growth Colecciones". Cuenta docs
+# por coleccion critica + delta vs sync previo + estima total bytes. Anticipa
+# growth descontrolado antes de que consuma el free tier de Firestore Storage
+# (1 GB) o infle reads/writes.
+#
+# Corre cada 6h (4 x dia) para tener delta granular sin gastar mucho.
+# Aggregate count() = 1 read por coleccion + sample de 20 docs = ~13 * 21 = 273
+# reads por corrida. Insignificante.
+
+on:
+  schedule:
+    - cron: '15 */6 * * *'  # cada 6h a xx:15
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-collections-growth
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install firebase-admin
+
+      - name: Run sync
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: python scripts/sync_collections_growth.py
