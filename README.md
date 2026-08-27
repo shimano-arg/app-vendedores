@@ -7819,3 +7819,56 @@ app_config/sap_integration.serviceLayer:
 
 **Etapa 2 pendiente**: auditoría de reglas Firestore con skill `firebase-security-rules-auditor` (Update Bypass, hasOnly/diff sin ownership, Authority source checks). Budget 12 turnos. Gate: score >= 4, zero critical/major.
 
+### 48.1) v689 UX fix mensaje botón (PR #348)
+
+Post-v688, el botón "Probar conexion (Login)" en tab Service Layer devolvía "login legacy deshabilitado (v688)" seguido de "Causas frecuentes: CORS no habilitado, pedir a Alejandro Caracchi" — contradictorio y desactualizado.
+
+**Fix**:
+- Renombrado botón: "Probar conexion (Login)" → "Probar conexion (sapProxy)"
+- Handler cambiado: en vez de `sapSL.login()` legacy (siempre stub error), hace `sapSL.getStock('CAC58MH2UR', 'ALL')` vía sapProxy CF. Retorna OK si el path completo (CF + Secret Manager + SL server + IP whitelist) responde.
+- Mensaje de error rejuvenecido con causas del path v688 (CF caída, Secret Manager rotado, SL down, IP fuera de whitelist). Sin mencionar Alejandro Caracchi ni CORS legacy.
+- Texto "Seguridad" actualizado: refleja que password vive en Secret Manager server-side.
+
+### 48.2) v690 SECURITY: cerrar leak que reponía password en Firestore (PR #349)
+
+**Bug crítico encontrado tras v688**: `saveSlConfig()` incluía el input password en el payload que se escribía a Firestore. Cada click en "Guardar configuracion" **repoblaba `serviceLayer.password`** con lo que hubiera en el input (incluso autofill del browser). Anulaba el hardening en un solo click.
+
+Reproducido en vivo: post-merge v688 el campo estaba vacío, Mariano abrió el tab Service Layer, el browser autopobló el input con 9 chars, click Guardar → doc Firestore repoblado.
+
+**Fix**:
+- `saveSlConfig()` NO incluye más `password` en el payload
+- Además hace `serviceLayer.password: FieldValue.delete()` en cada save — defensa en profundidad, cualquier save borra explícitamente el campo
+- UI: **input password eliminado**, reemplazado por texto readonly: **"🔒 Gestionada por Secret Manager (server-side, no editable)"**
+- Rotación de password: via Firebase Console → Secret Manager → SAP_SL_PASSWORD (no más desde UI)
+
+### 48.3) v690.1: crons GH Actions leen password de env (PR #350)
+
+**Consecuencia inesperada del hardening**: al borrar `serviceLayer.password` de Firestore, los 2 workflows Python que corren cada 5min y cada N horas no podían loggearse más al SAP Service Layer:
+- `sync-sap-catalog-stock` (cada 5min → `stock.json` + product_catalog + warehouse breakdown)
+- `sync-sap-to-bigquery` (cron periódico → tablas ventas SAP a BQ)
+
+**Fix**:
+- Scripts Python (`sync_sap_to_firestore.py`, `sync_sap_to_bigquery.py`): `get_sl_config()` lee `os.environ['SAP_SL_PASSWORD']` primero, fallback a Firestore por compat legacy. Si ninguna fuente tiene password → `[SKIP]` exit 0 (no fail workflow).
+- Workflows YAML: pasan `SAP_SL_PASSWORD: ${{ secrets.SAP_SL_PASSWORD }}` como env var
+- **Requiere GH Secret**: `SAP_SL_PASSWORD` seteado en repo Settings → Secrets → Actions (valor copiado desde GCP Secret Manager)
+
+**Verificado**: cron manual post-merge (`gh workflow run sync-sap-catalog-stock.yml`) → log `[info] password source: env(SAP_SL_PASSWORD)` → success sync. Breakdown por warehouse en app funciona normal.
+
+### 48.4) Estado final post-cierre Etapa 1 (2026-08-27 tarde)
+
+Password `SAP_SL_PASSWORD`:
+- ❌ Firestore (`app_config/sap_integration.serviceLayer.password`): **campo eliminado** (no vacío — key inexistente)
+- ✓ GCP Secret Manager (para sapProxy CF, invocada desde browser): intacta
+- ✓ GH Actions Secret (para crons Python, invocada desde CI): copia de la anterior
+- ⚠ Git history (commits `eb07f01`, `6209126`): password vieja sigue visible en repo público — pendiente decisión rewrite history con BFG
+
+Callers post-hardening:
+- Browser cliente → sapProxy CF (Secret Manager) ✓
+- Cron GH Actions → SAP SL directo con env var (GH Secret) ✓
+- Botón "Probar conexion" en UI → sapProxy CF (health check) ✓
+- Botón "Sincronizar stock ahora" en UI → sapProxy CF ✓
+- Envío pedidos (createQuotation) → sapProxy CF ✓
+- Cancelación pedidos (cancelQuotation) → sapProxy CF ✓
+- Ex-botón login legacy directo browser→SAP: **eliminado**
+
+
