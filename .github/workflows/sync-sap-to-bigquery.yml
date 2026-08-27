@@ -84,6 +84,7 @@ jobs:
       - name: Run sync
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          SAP_SL_PASSWORD: ${{ secrets.SAP_SL_PASSWORD }}
           DRY_RUN: ${{ inputs.dry_run }}
           SL_INSECURE: ${{ inputs.sl_insecure }}
           SL_MAX_DOCS: ${{ inputs.max_docs }}

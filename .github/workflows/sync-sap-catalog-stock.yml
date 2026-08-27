@@ -13,6 +13,10 @@ name: Sync SAP Catalog + Stock (Service Layer)
 #
 # Secrets requeridos:
 #   FIREBASE_SERVICE_ACCOUNT   Mismo JSON usado por send-rendiciones-email.
+#   SAP_SL_PASSWORD            v690 hardening: password SL server-side. Antes se
+#                              leia de app_config/sap_integration.serviceLayer.password
+#                              en Firestore (leak potencial admin+gerente via DevTools).
+#                              Setear via Settings > Secrets > Actions.
 
 on:
   schedule:
@@ -86,6 +90,7 @@ jobs:
       - name: Run sync
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          SAP_SL_PASSWORD: ${{ secrets.SAP_SL_PASSWORD }}
           DRY_RUN: ${{ inputs.dry_run }}
           SL_INSECURE: ${{ inputs.sl_insecure }}
           SL_MAX_ITEMS: ${{ inputs.max_items }}

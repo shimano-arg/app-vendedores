@@ -184,7 +184,11 @@ def init_bigquery(sa_data: dict) -> bigquery.Client:
 
 
 def get_sl_config(db: firestore.Client) -> dict:
-    """Lee app_config/sap_integration.serviceLayer de Firestore."""
+    """Lee config SL de Firestore + password del env (GH Secret).
+
+    v690 hardening: password vive en GH Actions Secret `SAP_SL_PASSWORD`.
+    Fallback a Firestore solo por compatibilidad legacy.
+    """
     snap = db.collection('app_config').document('sap_integration').get()
     if not snap.exists:
         log('[FATAL] app_config/sap_integration no existe')
@@ -194,16 +198,22 @@ def get_sl_config(db: firestore.Client) -> dict:
     if not sl.get('enabled'):
         log('[SKIP] serviceLayer.enabled = false. No corro sync.')
         sys.exit(0)
-    required = ('url', 'companyDB', 'username', 'password')
-    missing = [k for k in required if not sl.get(k)]
+    required_fs = ('url', 'companyDB', 'username')
+    missing = [k for k in required_fs if not sl.get(k)]
     if missing:
-        log(f'[SKIP] Faltan credenciales SL en Firestore: {missing}')
+        log(f'[SKIP] Faltan campos SL en Firestore: {missing}')
         sys.exit(0)
+    password = os.environ.get('SAP_SL_PASSWORD') or sl.get('password') or ''
+    if not password:
+        log('[SKIP] Password no disponible (ni env SAP_SL_PASSWORD ni Firestore).')
+        sys.exit(0)
+    src = 'env(SAP_SL_PASSWORD)' if os.environ.get('SAP_SL_PASSWORD') else 'firestore(legacy)'
+    log(f'[info] password source: {src}')
     return {
         'url': sl['url'].rstrip('/'),
         'companyDB': sl['companyDB'],
         'username': sl['username'],
-        'password': sl['password'],
+        'password': password,
     }
 
 
