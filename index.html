@@ -4269,7 +4269,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v692';
+const APP_VERSION = 'v693';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13464,25 +13464,98 @@ window.isE4BEnabled = function(){
     return userRole === 'admin' || userRole === 'gerente' || userRole === 'vendedor' || userRole === 'interno';
   } catch(e){ return false; }
 };
-// v548 E5 UI merge: leemos del listener global STOCK_ASIG_BY_CLIENT_APP en
-// vez del fetch on-demand a shadow_v3. Post-cutover E3 escribe a
-// stock_snapshot (que ya listeneamos), asi que la data esta siempre fresh
-// sin latencia extra. En pre-cutover (shadow) el global esta vacio -> return [].
+// v693 (2026-08-27): CALCULO VIRTUAL con FIFO cap, igual que renderBackordersTab.
+// Antes leia del cache STOCK_ASIG_BY_CLIENT_APP que es populado por la CF
+// onPedidoWriteRecalcSnapshot cuando promueve BO -> ASIG. Si la CF no promueve
+// (bug reportado 2026-08-27: 407 clientes con BO pero 0 con ASIG), el cache
+// queda vacio y el modal individual "Pedido en espera" no muestra nada aunque
+// el modal Global "SAP Asignado - Con Stock" si muestre lineas.
+//
+// Fix: calcular qtyAsignada virtual desde globalPedidos + backorderLines +
+// stock disp, replicando el FIFO cap del modal Global. Consistente.
 window._e4bAsigDelCliente = function(cardCode){
   if (!window.isE4BEnabled() || !cardCode) return [];
   const cc = String(cardCode).trim();
-  const map = (typeof STOCK_ASIG_BY_CLIENT_APP === 'object' && STOCK_ASIG_BY_CLIENT_APP)
-    ? STOCK_ASIG_BY_CLIENT_APP : {};
-  const out = [];
-  const prefix = cc + '::';
-  for (const key of Object.keys(map)) {
-    if (!key.startsWith(prefix)) continue;
-    const qty = Number(map[key]) || 0;
-    if (qty <= 0) continue;
-    const sku = key.substring(prefix.length).trim();
-    if (!sku) continue;
-    out.push({ sku, qty });
+  const globPed = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [];
+  const backLines = (typeof backorderLines !== 'undefined' && Array.isArray(backorderLines)) ? backorderLines : [];
+  const getStk = (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : null;
+  const getCard = (typeof sapGetClienteCode === 'function') ? sapGetClienteCode : null;
+  if (!getStk || !getCard) return [];
+  // Paso 1: identificar SKUs pedidos por este cliente en state BO o ASIG.
+  const skusDelCliente = new Set();
+  for (const p of globPed) {
+    if (!p || !p.transferidoSAP || !Array.isArray(p.lines)) continue;
+    const pCardCode = getCard(p.clientName || '') || '';
+    if (pCardCode !== cc) continue;
+    for (const l of p.lines) {
+      if (!l) continue;
+      if (l.state !== 'BO' && l.state !== 'ASIG') continue;
+      if ((l.qtyOpen || 0) <= 0) continue;
+      skusDelCliente.add(String(l.code || '').toUpperCase());
+    }
   }
+  // Paso 2: para cada SKU con stock disp, FIFO cap para ver qty del cliente actual.
+  const out = [];
+  skusDelCliente.forEach(sku => {
+    const dispSap = getStk(sku) || 0;
+    if (dispSap <= 0) return; // sin stock: todos siguen en BO, cliente sin ASIG virtual
+    const candidates = [];
+    // Backorder lines SAP-source del SKU.
+    for (const ln of backLines) {
+      if (String(ln.sku || '').toUpperCase() !== sku) continue;
+      candidates.push({
+        source: 'sap',
+        state: null,
+        cardCode: ln.clienteCode || '',
+        pendiente: parseFloat(ln.pendiente) || 0,
+        sqDocDate: ln.sqDocDate || '',
+      });
+    }
+    // App-source: recorrer todos los pedidos con line BO/ASIG del SKU.
+    for (const p of globPed) {
+      if (!p || !p.transferidoSAP || !Array.isArray(p.lines)) continue;
+      const pCardCode = getCard(p.clientName || '') || '';
+      for (const l of p.lines) {
+        if (!l || String(l.code || '').toUpperCase() !== sku) continue;
+        if (l.state !== 'BO' && l.state !== 'ASIG') continue;
+        const qtyOpen = Number(l.qtyOpen || 0);
+        if (qtyOpen <= 0) continue;
+        candidates.push({
+          source: 'app',
+          state: l.state,
+          cardCode: pCardCode,
+          pendiente: qtyOpen,
+          sqDocDate: String(p.confirmedAt || '').slice(0, 10),
+        });
+      }
+    }
+    // FIFO cap.
+    let restante = dispSap;
+    let miClienteQty = 0;
+    // Paso 1: APP-ASIG consume primero (reservado por E4.5).
+    for (const c of candidates) {
+      if (c.source === 'app' && c.state === 'ASIG') {
+        const asignable = Math.min(c.pendiente, Math.max(0, restante));
+        if (c.cardCode === cc) miClienteQty += asignable;
+        restante -= asignable;
+      }
+    }
+    if (restante < 0) restante = 0;
+    // Paso 2: SAP + APP-BO ordenados FIFO por fecha (SAP gana a APP-BO).
+    const competidores = candidates.filter(c => !(c.source === 'app' && c.state === 'ASIG'));
+    competidores.sort((a, b) => {
+      if (a.source !== b.source) return a.source === 'sap' ? -1 : 1;
+      return (a.sqDocDate || '').localeCompare(b.sqDocDate || '');
+    });
+    for (const c of competidores) {
+      const asignable = Math.min(c.pendiente, Math.max(0, restante));
+      if (c.cardCode === cc) miClienteQty += asignable;
+      restante -= asignable;
+    }
+    if (miClienteQty > 0) {
+      out.push({ sku, qty: Math.round(miClienteQty) });
+    }
+  });
   out.sort((a, b) => a.sku.localeCompare(b.sku));
   return out;
 };
