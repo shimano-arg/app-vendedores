@@ -331,9 +331,78 @@ function _renderInfraSection() {
       _hCard('Firestore Quota', fsq.healthColor, fsqMain, fsqSub, fsqTooltip) +
       _hCard('CF Invoice Sync', cfStatus, cfLabel, cfSub, cfTooltip) +
       _renderCollectionsGrowthCard(p) +
+      _renderStorageUsageCard(p) +
+      _renderCfHealthCard(p) +
       _renderStuckPendingCard(p) +
       _renderDeadProvisoriosCard(p)
   );
+}
+
+// v687 Fase E2 (2026-08-27) Card "Storage" - Firebase Storage bytes vs free tier (5GB)
+function _renderStorageUsageCard(p) {
+  const doc = window.STORAGE_USAGE || null;
+  if (!doc && typeof window.fbDb !== 'undefined' && window.fbDb) {
+    try {
+      window.fbDb.collection('app_config').doc('storage_usage').get().then((snap) => {
+        if (snap && snap.exists) {
+          window.STORAGE_USAGE = snap.data();
+          if (typeof window.renderPanelControl === 'function') window.renderPanelControl();
+        }
+      }).catch(() => {});
+    } catch (_e) {}
+  }
+  const s = p.summarizeStorageUsage
+    ? p.summarizeStorageUsage(doc)
+    : { healthColor: 'unknown', totalGB: 0, totalMB: 0, storagePct: 0, topFolders: [], syncedAgoLabel: 'sin datos' };
+  let mainText, subText, tooltip;
+  if (!doc) {
+    mainText = 'sin datos';
+    subText = 'esperando primer cron (~24h)';
+    tooltip = 'Cron sync_storage_usage.py corre 1x/dia (03:30 UTC). Suma bytes de buckets user-data + top folders.';
+  } else {
+    mainText = s.totalGB > 0 ? (s.totalGB + ' GB') : (s.totalMB + ' MB');
+    const top1 = s.topFolders[0];
+    subText = top1 ? (top1.path + ' ' + Math.round(top1.bytes / 1024 / 1024) + ' MB · sync ' + s.syncedAgoLabel) : ('sync ' + s.syncedAgoLabel);
+    tooltip = 'Total ' + s.totalGB + ' GB / 5 GB free tier (' + s.storagePct + '%). Top folders:\n'
+      + s.topFolders.map((f) => '- ' + f.path + ': ' + Math.round(f.bytes / 1024 / 1024) + ' MB (' + f.blobs + ' blobs)').join('\n');
+  }
+  return _hCard('Storage', s.healthColor, mainText, subText, tooltip);
+}
+
+// v687 Fase E4 (2026-08-27) Card "CF Health" - errors + p95 latency por CF
+function _renderCfHealthCard(p) {
+  const doc = window.CF_HEALTH || null;
+  if (!doc && typeof window.fbDb !== 'undefined' && window.fbDb) {
+    try {
+      window.fbDb.collection('app_config').doc('cf_health').get().then((snap) => {
+        if (snap && snap.exists) {
+          window.CF_HEALTH = snap.data();
+          if (typeof window.renderPanelControl === 'function') window.renderPanelControl();
+        }
+      }).catch(() => {});
+    } catch (_e) {}
+  }
+  const c = p.summarizeCfHealth
+    ? p.summarizeCfHealth(doc)
+    : { healthColor: 'unknown', totalFunctions: 0, worstFunction: '', worstErrors24h: 0, totalErrors24h: 0, topByErrors: [], slowest: [], errorMessage: null, syncedAgoLabel: 'sin datos' };
+  let mainText, subText, tooltip;
+  if (!doc || c.status === 'error') {
+    mainText = 'sin datos';
+    subText = c.errorMessage
+      ? ('error: ' + String(c.errorMessage).slice(0, 40))
+      : 'esperando primer cron (~1h)';
+    tooltip = c.errorMessage
+      ? ('SA falta rol logging.viewer. gcloud projects add-iam-policy-binding <PROJ> --member serviceAccount:<SA_EMAIL> --role roles/logging.viewer\n\nError raw: ' + c.errorMessage)
+      : 'Cron sync_cf_health.py corre cada hora via Cloud Logging API. Requiere Cloud Logging API + rol monitoring.viewer/logging.viewer en el SA.';
+  } else {
+    mainText = c.totalErrors24h + ' err/24h';
+    subText = c.totalFunctions + ' CFs · ' + (c.slowest[0] ? ('p95 ' + c.slowest[0].name + ' ' + Math.round(c.slowest[0].p95Ms) + 'ms') : 'sin p95') + ' · sync ' + c.syncedAgoLabel;
+    tooltip = 'Cloud Functions health ultimas 24h. Top por errors:\n'
+      + c.topByErrors.map((f) => '- ' + f.name + ': ' + f.errors24h + ' err, ' + f.invocations24h + ' inv, p95 ' + f.p95Ms + 'ms').join('\n')
+      + '\n\nTop por latencia (slowest p95):\n'
+      + c.slowest.map((f) => '- ' + f.name + ': p95 ' + f.p95Ms + 'ms').join('\n');
+  }
+  return _hCard('CF Health', c.healthColor, mainText, subText, tooltip);
 }
 
 // v686 Fase E3 (2026-08-27) Card "Pedidos Stuck" - pedidos con stage=pending

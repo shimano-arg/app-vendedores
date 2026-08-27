@@ -694,3 +694,98 @@ export function findDeadProvisorios(applications, now, thresholdDays) {
     top5: dead.slice(0, 5),
   };
 }
+
+/**
+ * v687 Fase E2 (2026-08-27) Summarize Cloud Storage usage doc.
+ * Input: app_config/storage_usage escrito por sync_storage_usage.py.
+ * Health: red >80% free tier, yellow >50%, green sino.
+ */
+export function summarizeStorageUsage(doc) {
+  if (!doc) {
+    return {
+      status: 'unknown',
+      healthColor: 'unknown',
+      totalGB: 0,
+      storagePct: 0,
+      topFolders: [],
+      buckets: [],
+      syncedAgoLabel: 'sin datos',
+    };
+  }
+  const total = Number(doc.totalBytes) || 0;
+  const freeTier = Number(doc.freeTierBytes) || 5 * 1024 * 1024 * 1024;
+  const pct = freeTier > 0 ? total / freeTier : 0;
+  let health = 'green';
+  if (pct > 0.8) health = 'red';
+  else if (pct > 0.5) health = 'yellow';
+  return {
+    status: doc.status || 'ok',
+    healthColor: health,
+    totalGB: Number(doc.totalGB) || Number((total / 1024 / 1024 / 1024).toFixed(3)),
+    totalMB: Number((total / 1024 / 1024).toFixed(1)),
+    storagePct: Number((pct * 100).toFixed(1)),
+    topFolders: Array.isArray(doc.topFolders) ? doc.topFolders : [],
+    buckets: Array.isArray(doc.buckets) ? doc.buckets : [],
+    syncedAgoLabel: formatAgeLabel(doc.syncedAt),
+  };
+}
+
+/**
+ * v687 Fase E4 (2026-08-27) Summarize CF health doc (errors + p95 por funcion).
+ * Health del card:
+ *   - red si hay alguna funcion en red o worstErrors24h > 20
+ *   - yellow si alguna yellow o worstErrors > 5
+ *   - green sino
+ *   - unknown si status=error o sin datos
+ */
+export function summarizeCfHealth(doc) {
+  if (!doc || doc.status === 'error') {
+    return {
+      status: doc && doc.status === 'error' ? 'error' : 'unknown',
+      healthColor: 'unknown',
+      totalFunctions: 0,
+      worstFunction: '',
+      worstErrors24h: 0,
+      totalErrors24h: 0,
+      topByErrors: [],
+      slowest: [],
+      errorMessage: (doc && doc.errorMessage) || null,
+      syncedAgoLabel: doc ? formatAgeLabel(doc.syncedAt) : 'sin datos',
+    };
+  }
+  const funcs = doc.functions || {};
+  const entries = Object.entries(funcs).map(([name, f]) => ({
+    name,
+    errors24h: Number(f.errors24h) || 0,
+    invocations24h: Number(f.invocations24h) || 0,
+    p95Ms: Number(f.p95Ms) || 0,
+    healthColor: f.healthColor || 'green',
+  }));
+  const totalErrors = entries.reduce((s, e) => s + e.errors24h, 0);
+  const topByErrors = entries
+    .filter((e) => e.errors24h > 0)
+    .sort((a, b) => b.errors24h - a.errors24h)
+    .slice(0, 5);
+  const slowest = entries
+    .filter((e) => e.p95Ms > 0)
+    .sort((a, b) => b.p95Ms - a.p95Ms)
+    .slice(0, 5);
+  const worstErrors = Number(doc.worstErrors24h) || 0;
+  let health = 'green';
+  const anyRed = entries.some((e) => e.healthColor === 'red');
+  const anyYellow = entries.some((e) => e.healthColor === 'yellow');
+  if (anyRed || worstErrors > 20) health = 'red';
+  else if (anyYellow || worstErrors > 5) health = 'yellow';
+  return {
+    status: doc.status || 'ok',
+    healthColor: health,
+    totalFunctions: entries.length,
+    worstFunction: String(doc.worstFunction || ''),
+    worstErrors24h: worstErrors,
+    totalErrors24h: totalErrors,
+    topByErrors,
+    slowest,
+    errorMessage: null,
+    syncedAgoLabel: formatAgeLabel(doc.syncedAt),
+  };
+}

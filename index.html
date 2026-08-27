@@ -4269,7 +4269,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v686';
+const APP_VERSION = 'v687';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17809,6 +17809,8 @@ function ensureAllListeners(){
   _try('sapSlHealth', () => ensureSapSlHealthListener());
   _try('firestoreQuota', () => ensureFirestoreQuotaListener());
   _try('collectionsGrowth', () => window.ensureCollectionsGrowthListener && window.ensureCollectionsGrowthListener());
+  _try('storageUsage', () => window.ensureStorageUsageListener && window.ensureStorageUsageListener());
+  _try('cfHealth', () => window.ensureCfHealthListener && window.ensureCfHealthListener());
   _try('priceList', () => ensurePriceListListener());
   _try('temporalPriceList', () => ensureTemporalPriceListListener());
   _try('approvedAltas', () => ensureApprovedAltasListener());
@@ -18545,6 +18547,42 @@ window.ensureCollectionsGrowthListener = function(){
       try { window.renderPanelControl(); } catch(_e){}
     }
   }, err => console.warn('collections_growth listener', err));
+};
+
+// v687 (2026-08-27) Fase E2 - listener Cloud Storage usage
+window.STORAGE_USAGE = null;
+var unsubStorageUsage = null;
+window.ensureStorageUsageListener = function(){
+  if (unsubStorageUsage) return;
+  if (!fbDb || !currentUser) return;
+  const em = (currentUser.email || '').toLowerCase();
+  const isMariano = em === 'mariano.erbino@shimano.com.ar' || em === 'erbinomariano@gmail.com';
+  if (!isMariano || userRole !== 'admin') return;
+  unsubStorageUsage = fbDb.collection('app_config').doc('storage_usage').onSnapshot(snap => {
+    window.STORAGE_USAGE = snap.exists ? snap.data() : null;
+    const modal = document.getElementById('panel-control-modal');
+    if (modal && modal.classList.contains('open') && typeof window.renderPanelControl === 'function') {
+      try { window.renderPanelControl(); } catch(_e){}
+    }
+  }, err => console.warn('storage_usage listener', err));
+};
+
+// v687 (2026-08-27) Fase E4 - listener CF health (errors + p95 latency)
+window.CF_HEALTH = null;
+var unsubCfHealth = null;
+window.ensureCfHealthListener = function(){
+  if (unsubCfHealth) return;
+  if (!fbDb || !currentUser) return;
+  const em = (currentUser.email || '').toLowerCase();
+  const isMariano = em === 'mariano.erbino@shimano.com.ar' || em === 'erbinomariano@gmail.com';
+  if (!isMariano || userRole !== 'admin') return;
+  unsubCfHealth = fbDb.collection('app_config').doc('cf_health').onSnapshot(snap => {
+    window.CF_HEALTH = snap.exists ? snap.data() : null;
+    const modal = document.getElementById('panel-control-modal');
+    if (modal && modal.classList.contains('open') && typeof window.renderPanelControl === 'function') {
+      try { window.renderPanelControl(); } catch(_e){}
+    }
+  }, err => console.warn('cf_health listener', err));
 };
 
 // =====================================================================
@@ -21268,6 +21306,8 @@ function detachFirebaseListeners(){
   n += off('unsubSapSlHealth', unsubSapSlHealth, () => unsubSapSlHealth = null);
   n += off('unsubFirestoreQuota', unsubFirestoreQuota, () => unsubFirestoreQuota = null);
   n += off('unsubCollectionsGrowth', unsubCollectionsGrowth, () => unsubCollectionsGrowth = null);
+  n += off('unsubStorageUsage', unsubStorageUsage, () => unsubStorageUsage = null);
+  n += off('unsubCfHealth', unsubCfHealth, () => unsubCfHealth = null);
   n += off('unsubPriceList', unsubPriceList, () => unsubPriceList = null);
   n += off('unsubTemporalPriceList', unsubTemporalPriceList, () => unsubTemporalPriceList = null);
   n += off('unsubVendorOverrides', unsubVendorOverrides, () => unsubVendorOverrides = null);

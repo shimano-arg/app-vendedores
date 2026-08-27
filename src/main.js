@@ -34,11 +34,13 @@ import {
   findDeadProvisorios,
   findStuckPendingPedidos,
   formatAgeLabel,
+  summarizeCfHealth,
   summarizeCollectionsGrowth,
   summarizeFirestoreQuota,
   summarizeGhActionsStatus,
   summarizeSapSlHealth,
   summarizeSentryStatus,
+  summarizeStorageUsage,
 } from './pure/panel-metrics.js';
 import { reenrichPedidoLine, splitPedidoLine } from './pure/pedido-split.js';
 import { matchSkuFromTitle } from './pure/product-match.js';
@@ -153,6 +155,8 @@ const phase0 = {
     summarizeCollectionsGrowth,
     findStuckPendingPedidos,
     findDeadProvisorios,
+    summarizeStorageUsage,
+    summarizeCfHealth,
   },
   sentry: { applySentryUserContext },
   sap: { createSapClient },
