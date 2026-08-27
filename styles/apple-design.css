@@ -6160,3 +6160,400 @@
   padding: 40px 20px !important;
 }
 
+/* ============================================================
+   v683 (2026-08-27) apple-design REDISEÑO VISUAL:
+   pane Rutas (#pane-rutas) - lista + vista detalle
+   ============================================================ */
+
+#pane-rutas h3 {
+  color: #1d1d1f !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em !important;
+  border-bottom: none !important;
+  padding-bottom: 4px !important;
+  margin-bottom: 10px !important;
+  text-transform: none !important;
+}
+#pane-rutas #rmode-reco,
+#pane-rutas #rmode-pers {
+  background: transparent !important;
+  color: #86868b !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out !important;
+}
+#pane-rutas #rmode-reco:hover,
+#pane-rutas #rmode-pers:hover {
+  background: #f5f5f7 !important;
+  color: #1d1d1f !important;
+}
+#pane-rutas #rmode-reco.active {
+  background: #49A2DA !important;
+  color: #ffffff !important;
+  border-color: #49A2DA !important;
+}
+#pane-rutas #rmode-pers.active {
+  background: #af52de !important;
+  color: #ffffff !important;
+  border-color: #af52de !important;
+}
+#pane-rutas #ruta-reco-controls {
+  background: #f5f5f7 !important;
+  border: 1px solid #e5e5ea !important;
+  border-radius: 10px !important;
+  padding: 3px !important;
+  gap: 2px !important;
+}
+#pane-rutas #rt-mes,
+#pane-rutas #rt-hist {
+  background: transparent !important;
+  color: #86868b !important;
+  border: none !important;
+  border-radius: 8px !important;
+  padding: 8px 10px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: all 150ms ease-out !important;
+}
+#pane-rutas #rt-mes:hover,
+#pane-rutas #rt-hist:hover {
+  color: #1d1d1f !important;
+  background: rgba(255, 255, 255, 0.6) !important;
+}
+#pane-rutas #rt-mes.active,
+#pane-rutas #rt-hist.active {
+  background: #ffffff !important;
+  color: #248a3d !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+#pane-rutas .rt-recalc-btn {
+  background: #49A2DA !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 8px 14px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+}
+#pane-rutas .rt-recalc-btn:hover { background: #3A8CC0 !important; }
+#pane-rutas #ruta-pers-controls button {
+  background: #af52de !important;
+  color: #ffffff !important;
+  border-radius: 999px !important;
+  padding: 10px 20px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+#pane-rutas #ruta-pers-controls button:hover { background: #9040c0 !important; }
+
+#pane-rutas #rutas-filters select,
+#pane-rutas .ruta-filter-row select {
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 10px 14px !important;
+  font-size: 13px !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+}
+#pane-rutas #rutas-filters select:focus,
+#pane-rutas .ruta-filter-row select:focus {
+  border-color: #49A2DA !important;
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.20) !important;
+  outline: none !important;
+}
+
+#pane-rutas .ruta-summary {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-left: 3px solid #49A2DA !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  color: #1d1d1f !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+}
+#pane-rutas .ruta-summary b { color: #1d1d1f !important; font-weight: 600 !important; }
+
+#pane-rutas .ruta-card {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-left: 3px solid #d2d2d7 !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  margin-bottom: 10px !important;
+  transition: transform 100ms ease-out, box-shadow 150ms ease-out !important;
+}
+#pane-rutas .ruta-card:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+}
+#pane-rutas .ruta-card.progress { border-left-color: #ff9500 !important; }
+#pane-rutas .ruta-card.completa {
+  border-left-color: #34c759 !important;
+  background: #ffffff !important;
+}
+#pane-rutas .ruta-card.reagendados {
+  border-left-color: #ff9500 !important;
+  background: #ffffff !important;
+}
+#pane-rutas .ruta-num {
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+}
+#pane-rutas .ruta-status {
+  color: #1d1d1f !important;
+  background: #f5f5f7 !important;
+  border-radius: 999px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  padding: 3px 10px !important;
+  letter-spacing: -0.01em !important;
+}
+#pane-rutas .ruta-card.completa .ruta-status {
+  background: rgba(52, 199, 89, 0.14) !important;
+  color: #248a3d !important;
+}
+#pane-rutas .ruta-card.progress .ruta-status {
+  background: rgba(255, 149, 0, 0.14) !important;
+  color: #a86200 !important;
+}
+#pane-rutas .ruta-title {
+  color: #1d1d1f !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+  margin-bottom: 3px !important;
+}
+#pane-rutas .ruta-meta {
+  color: #86868b !important;
+  font-size: 11px !important;
+  margin-bottom: 8px !important;
+}
+#pane-rutas .ruta-progress-bar {
+  background: #f5f5f7 !important;
+  border-radius: 999px !important;
+  height: 6px !important;
+}
+#pane-rutas .ruta-progress-fill {
+  background: #49A2DA !important;
+  border-radius: 999px !important;
+}
+#pane-rutas .ruta-card.completa .ruta-progress-fill { background: #34c759 !important; }
+#pane-rutas .ruta-progress-label {
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+}
+
+#pane-rutas .ruta-fecha-badge {
+  border-radius: 999px !important;
+  padding: 3px 10px !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  background: rgba(73, 162, 218, 0.14) !important;
+  color: #2b6f96 !important;
+}
+#pane-rutas .ruta-fecha-badge.hoy {
+  background: rgba(255, 149, 0, 0.14) !important;
+  color: #a86200 !important;
+}
+#pane-rutas .ruta-fecha-badge.atrasada {
+  background: rgba(255, 59, 48, 0.14) !important;
+  color: #d92e26 !important;
+}
+#pane-rutas .ruta-fecha-badge.futura {
+  background: rgba(73, 162, 218, 0.14) !important;
+  color: #2b6f96 !important;
+}
+#pane-rutas .ruta-fecha-badge.reagendados {
+  background: rgba(255, 149, 0, 0.14) !important;
+  color: #a86200 !important;
+}
+
+/* Vista detalle */
+#pane-rutas .ruta-back-btn {
+  background: none !important;
+  border: none !important;
+  color: #49A2DA !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: -0.01em !important;
+  padding: 6px 0 !important;
+  transition: color 150ms ease-out !important;
+}
+#pane-rutas .ruta-back-btn:hover { color: #3A8CC0 !important; }
+#pane-rutas .ruta-detalle-head {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-left: 3px solid #49A2DA !important;
+  border-radius: 12px !important;
+  padding: 16px 18px !important;
+  color: #1d1d1f !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+#pane-rutas .ruta-detalle-head .rdh-num {
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  opacity: 1 !important;
+}
+#pane-rutas .ruta-detalle-head .rdh-title {
+  color: #1d1d1f !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+  margin-top: 4px !important;
+}
+#pane-rutas .ruta-detalle-head .rdh-meta {
+  color: #86868b !important;
+  font-size: 12px !important;
+  margin-top: 8px !important;
+  opacity: 1 !important;
+}
+#pane-rutas .ruta-wa-btn {
+  background: #25d366 !important;
+  border: none !important;
+  color: #ffffff !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#pane-rutas .ruta-wa-btn:hover { background: #1eb956 !important; }
+#pane-rutas .ruta-wa-btn:active { transform: scale(0.98) !important; }
+
+#pane-rutas .ruta-tienda {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  border-left: 3px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 14px 16px !important;
+  margin-bottom: 8px !important;
+  transition: transform 100ms ease-out, box-shadow 150ms ease-out !important;
+}
+#pane-rutas .ruta-tienda:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+#pane-rutas .ruta-tienda.visited {
+  background: #ffffff !important;
+  border-color: #e5e5ea !important;
+  border-left-color: #34c759 !important;
+}
+#pane-rutas .ruta-tienda.pending { border-left-color: #d2d2d7 !important; }
+#pane-rutas .ruta-tienda.reagendada {
+  background: #ffffff !important;
+  border-color: #e5e5ea !important;
+  border-left-color: #ff9500 !important;
+}
+#pane-rutas .ruta-tienda.derivada {
+  background: #ffffff !important;
+  border-color: #e5e5ea !important;
+  border-left-color: #ffcc00 !important;
+}
+#pane-rutas .ruta-tienda-num {
+  color: #86868b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em !important;
+}
+#pane-rutas .ruta-tienda-name {
+  color: #1d1d1f !important;
+  font-size: 13.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+#pane-rutas .ruta-tienda-loc {
+  color: #86868b !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+}
+#pane-rutas .ruta-tienda-tag {
+  border-radius: 999px !important;
+  padding: 3px 10px !important;
+  font-size: 9.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+}
+#pane-rutas .ruta-tienda-tag.visited {
+  background: rgba(52, 199, 89, 0.14) !important;
+  color: #248a3d !important;
+}
+#pane-rutas .ruta-tienda-tag.pending {
+  background: rgba(255, 149, 0, 0.14) !important;
+  color: #a86200 !important;
+}
+#pane-rutas .ruta-tienda-tag.reagendada {
+  background: rgba(255, 149, 0, 0.14) !important;
+  color: #a86200 !important;
+}
+#pane-rutas .ruta-tienda-tag.derivada {
+  background: rgba(255, 204, 0, 0.20) !important;
+  color: #8f6d00 !important;
+}
+#pane-rutas .ruta-tienda-visit-meta {
+  color: #248a3d !important;
+  font-size: 10.5px !important;
+  font-weight: 500 !important;
+}
+#pane-rutas .ruta-tienda-reagenda-meta {
+  color: #a86200 !important;
+  font-size: 10.5px !important;
+  font-weight: 500 !important;
+}
+#pane-rutas .ruta-tienda-btn {
+  border-radius: 999px !important;
+  padding: 10px 16px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#pane-rutas .ruta-tienda-btn.primary {
+  background: #49A2DA !important;
+  color: #ffffff !important;
+}
+#pane-rutas .ruta-tienda-btn.primary:hover { background: #3A8CC0 !important; }
+#pane-rutas .ruta-tienda-btn.outline {
+  background: #ffffff !important;
+  color: #34c759 !important;
+  border: 1px solid #34c759 !important;
+}
+#pane-rutas .ruta-tienda-btn.outline:hover {
+  background: rgba(52, 199, 89, 0.08) !important;
+}
+#pane-rutas .ruta-tienda-btn:active { transform: scale(0.97) !important; }
+
