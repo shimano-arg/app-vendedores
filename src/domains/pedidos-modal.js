@@ -1185,14 +1185,17 @@ function renderReviewLines() {
   // como SUGERENCIA (auto-calculo) pero el vendedor puede editarla.
   const discEl = document.getElementById('rv-discount');
   if (discEl) {
-    if (!ord.length || totalM <= 0) {
+    // v699 (2026-08-27): base de descuento = disponibles (okM), no total (totalM).
+    // Backorder no se factura, no descuenta. Si okM=0 (todo BO), no mostrar seccion.
+    const discountBaseM = okM;
+    if (!ord.length || discountBaseM <= 0) {
       discEl.innerHTML = '';
       return;
     }
     const cd = getCurrentOrderClientData();
     const formaPagoSel = document.getElementById('rv-forma-pago');
     const formaPago = formaPagoSel ? formaPagoSel.value : '';
-    const d = calcClientDiscount(cd, totalM, formaPago);
+    const d = calcClientDiscount(cd, discountBaseM, formaPago);
     // Valor actual del input (preservar entre re-renders si el user tipeo).
     // Si no hay valor tipeado, sugerir el auto-calculado.
     const currentInput = document.getElementById('rv-manual-discount');
@@ -1202,8 +1205,8 @@ function renderReviewLines() {
       currentValue !== '' && currentValue != null ? currentValue : String(suggested);
     let body = '';
     body +=
-      '<div class="rd-line"><span>Subtotal pedido</span><span class="rd-money">$' +
-      Math.round(totalM).toLocaleString('es-AR') +
+      '<div class="rd-line"><span>Subtotal disponibles</span><span class="rd-money">$' +
+      Math.round(discountBaseM).toLocaleString('es-AR') +
       '</span></div>';
     if (d.hasAny) {
       const tipoLbl = d.tipo ? 'Tipo ' + d.tipo : 'Sin tipo';
@@ -1248,10 +1251,11 @@ function renderReviewLines() {
       escapeAttr(inputValue) +
       '" style="width:80px;padding:6px 8px;border:1.5px solid #86efac;border-radius:5px;font-size:13px;font-weight:800;text-align:right;color:#166534" onchange="renderReviewLines()"/>' +
       '</div>';
-    // Calculo del total con el descuento MANUAL (lo que va a SAP).
+    // v699: total con descuento manual calculado sobre disponibles (no total).
+    // El backorder queda sin descuento porque no se factura ahora.
     const manualPct = parseFloat(inputValue) || 0;
-    const manualMonto = totalM * (manualPct / 100);
-    const totalConDesc = totalM - manualMonto;
+    const manualMonto = discountBaseM * (manualPct / 100);
+    const totalConDesc = discountBaseM - manualMonto;
     body +=
       '<div class="rd-line"><span class="rd-total">Total con descuento manual</span><span class="rd-total">$' +
       Math.round(totalConDesc).toLocaleString('es-AR') +
