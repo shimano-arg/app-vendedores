@@ -1338,6 +1338,20 @@ function renderMcProvisoriosTable() {
           escapeHtml(titleCase(v.key)) +
           '</option>';
       });
+      // v696: grupo Dirección Shimano.
+      if (typeof DIR_VENDOR_KEYS !== 'undefined' && DIR_VENDOR_KEYS.size) {
+        vendSel += '</optgroup><optgroup label="DIR (Dirección Shimano)">';
+        VENDORS.filter((v) => DIR_VENDOR_KEYS.has(v.key)).forEach((v) => {
+          vendSel +=
+            '<option value="' +
+            escapeAttr(v.key) +
+            '"' +
+            (v.key === vendKey ? ' selected' : '') +
+            '>' +
+            escapeHtml(titleCase(v.key)) +
+            '</option>';
+        });
+      }
       vendSel +=
         '</optgroup></select>' +
         (owner
@@ -2284,6 +2298,20 @@ window.renderMasterClientesTable = function () {
           escapeHtml(titleCase(v.key)) +
           '</option>';
       });
+      // v696: grupo Dirección Shimano.
+      if (typeof DIR_VENDOR_KEYS !== 'undefined' && DIR_VENDOR_KEYS.size) {
+        vSel += '</optgroup><optgroup label="DIR (Dirección Shimano)">';
+        VENDORS.filter((v) => DIR_VENDOR_KEYS.has(v.key)).forEach((v) => {
+          vSel +=
+            '<option value="' +
+            escapeAttr(v.key) +
+            '"' +
+            (v.key === e.vendor ? ' selected' : '') +
+            '>' +
+            escapeHtml(titleCase(v.key)) +
+            '</option>';
+        });
+      }
       vSel += '</optgroup></select></td>';
       html += vSel;
     } else {
