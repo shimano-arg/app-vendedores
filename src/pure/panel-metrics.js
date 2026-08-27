@@ -524,7 +524,7 @@ export function summarizeFirestoreQuota(quotaDoc) {
  *   - green sino
  *   - unknown si no hay doc
  *
- * @param {object|null} growthDoc - {collections, freeTierBytes, totalBytesAllCollections, worstGrowthCollection, worstGrowthDelta7d, syncedAt, status}
+ * @param {any} growthDoc - {collections, freeTierBytes, totalBytesAllCollections, worstGrowthCollection, worstGrowthDelta7d, syncedAt, status}
  */
 export function summarizeCollectionsGrowth(growthDoc) {
   if (!growthDoc || !growthDoc.collections) {
@@ -590,7 +590,7 @@ export function summarizeCollectionsGrowth(growthDoc) {
  * v686 Fase E3 (2026-08-27) Detecta pedidos "stuck" en pending por muchos dias
  * (indica que el vendedor no cerro el flow con Confirmar Definitivamente).
  *
- * @param {Array<{stage?:string, confirmedAt?:any, finalizedAt?:any, transferidoSAP?:any, clientName?:string, ownerVendor?:string}>} pedidos - globalPedidos array
+ * @param {Array<any>} pedidos - globalPedidos array
  * @param {Date} now - fecha actual (para test determinista)
  * @param {number} thresholdDays - default 7 dias
  */
@@ -644,7 +644,7 @@ export function findStuckPendingPedidos(pedidos, now, thresholdDays) {
  * cardCodeSap hace muchos dias - probablemente dead entries que deberian
  * cerrarse.
  *
- * @param {Array<{cardCodeSap?:string, manualSapPending?:boolean, createdAt?:any, comercio?:string, titular?:string, provincia?:string, ownerEmail?:string}>} applications
+ * @param {Array<any>} applications
  * @param {Date} now
  * @param {number} thresholdDays - default 30
  */
@@ -699,6 +699,7 @@ export function findDeadProvisorios(applications, now, thresholdDays) {
  * v687 Fase E2 (2026-08-27) Summarize Cloud Storage usage doc.
  * Input: app_config/storage_usage escrito por sync_storage_usage.py.
  * Health: red >80% free tier, yellow >50%, green sino.
+ * @param {any} doc
  */
 export function summarizeStorageUsage(doc) {
   if (!doc) {
@@ -737,6 +738,7 @@ export function summarizeStorageUsage(doc) {
  *   - yellow si alguna yellow o worstErrors > 5
  *   - green sino
  *   - unknown si status=error o sin datos
+ * @param {any} doc
  */
 export function summarizeCfHealth(doc) {
   if (!doc || doc.status === 'error') {
