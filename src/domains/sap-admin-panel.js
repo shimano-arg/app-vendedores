@@ -657,12 +657,10 @@ function renderSapServiceLayer() {
   h +=
     '<div><label style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Password</label>';
   h +=
-    '<input id="sl-pass" type="password" placeholder="..." value="' +
-    escapeAttr(cfg.password) +
-    '" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px;font-family:Consolas,monospace"/></div>';
+    '<div style="width:100%;padding:8px 10px;border:1.5px dashed #cbd5e1;border-radius:5px;font-size:11px;color:#64748b;background:#f8fafc">&#128274; Gestionada por Secret Manager (server-side, no editable)</div></div>';
   h += '</div>';
   h +=
-    '<div style="font-size:10px;color:#94a3b8;margin-top:8px"><b>Seguridad (v688):</b> la password vive SOLO en Secret Manager server-side (Cloud Function sapProxy). El campo password de este form ya no se usa - se mantiene por compatibilidad de UI pero la app opera con la credencial del CF. Rotacion via Firebase Console > Secret Manager.</div>';
+    '<div style="font-size:10px;color:#94a3b8;margin-top:8px"><b>Seguridad (v690):</b> la password vive SOLO en Secret Manager server-side (Cloud Function sapProxy). El input password fue removido: cualquier save de config borra el campo password del doc Firestore automaticamente (defensa en profundidad). Rotacion: Firebase Console > Secret Manager > SAP_SL_PASSWORD.</div>';
   // Botones - clase sl-actions para poder aplicar media query mobile
   // (all 100% width + apilados) sin tocar el desktop.
   h += '<div class="sl-actions" style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">';
@@ -682,29 +680,36 @@ window.saveSlConfig = async function () {
     alert('Solo admin puede guardar.');
     return;
   }
+  // v690 HARDENING: NO incluir password. La password vive SOLO en Secret Manager
+  // server-side (Cloud Function sapProxy). Escribir el campo desde el input rompe
+  // el hardening de v688 (repobla Firestore con la credencial expuesta a admins).
   const sl = {
     enabled: document.getElementById('sl-enabled').checked,
     url: document.getElementById('sl-url').value.trim(),
     companyDB: document.getElementById('sl-company').value.trim(),
     username: document.getElementById('sl-user').value.trim(),
-    password: document.getElementById('sl-pass').value,
   };
   if (sl.enabled && (!sl.url || !sl.companyDB || !sl.username)) {
     alert('Si vas a habilitar Service Layer, completá URL + CompanyDB + Usuario al menos.');
     return;
   }
   try {
+    // v690 HARDENING: escribir campos permitidos individualmente + DELETE_FIELD
+    // sobre serviceLayer.password. Cualquier save de config borra explícitamente
+    // el campo password del doc, defensa en profundidad contra saves accidentales
+    // (bug pre-v690 que anulaba el hardening v688).
     await fbDb
       .collection('app_config')
       .doc('sap_integration')
-      .set(
-        {
-          serviceLayer: sl,
-          serviceLayerUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          serviceLayerUpdatedBy: currentUser.email || '',
-        },
-        { merge: true }
-      );
+      .update({
+        'serviceLayer.enabled': sl.enabled,
+        'serviceLayer.url': sl.url,
+        'serviceLayer.companyDB': sl.companyDB,
+        'serviceLayer.username': sl.username,
+        'serviceLayer.password': firebase.firestore.FieldValue.delete(),
+        serviceLayerUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        serviceLayerUpdatedBy: currentUser.email || '',
+      });
     showSyncTag('Config Service Layer guardada');
     // Forzar reload de la config en el cliente
     sapSL.sessionAt = 0;
