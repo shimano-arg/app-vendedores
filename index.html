@@ -4269,7 +4269,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v693';
+const APP_VERSION = 'v694';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13317,7 +13317,32 @@ window.revisionDejarRecalculando = async function(){
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     };
-    await fbDb.collection('revision_waitlist').add(payload);
+    const docRef = await fbDb.collection('revision_waitlist').add(payload);
+    // v694 (2026-08-27): update optimista para reactividad inmediata.
+    // Antes: se confiaba en el listener onSnapshot para propagar el nuevo doc
+    // a revisionWaitlist. La latencia server-round-trip hacia que el user
+    // tuviera que refrescar la app para ver el pedido nuevo en sidebar/modal.
+    // Ahora: pusheamos al array local con _id ya conocido + timestamp local
+    // y forzamos re-render de todas las vistas. El listener despues sobreescribe
+    // con la version server-authoritative (idempotente por _id).
+    try {
+      const optimistic = Object.assign({}, payload, {
+        _id: docRef.id,
+        // Firestore Timestamp shim: renderers hacen .toDate() en createdAt.
+        createdAt: { toDate: () => new Date() },
+        updatedAt: { toDate: () => new Date() },
+      });
+      const existsIdx = revisionWaitlist.findIndex(w => w._id === docRef.id);
+      if (existsIdx < 0) revisionWaitlist.push(optimistic);
+      _updateWaitlistBadge();
+      if (typeof _renderWaitlistSidebar === 'function') _renderWaitlistSidebar();
+      if (typeof _renderWaitlistRows === 'function') {
+        try { _renderWaitlistRows(); } catch(_e){}
+      }
+      if (typeof _reRenderEstadoIfOpen === 'function') {
+        try { _reRenderEstadoIfOpen(); } catch(_e){}
+      }
+    } catch(_e){ console.warn('optimistic waitlist update fallo (no bloquea)', _e); }
     showSyncTag('Pedido guardado en espera: ' + cli.nombre + ' (Orden ' + ordenNum + ')');
     closeRevisionModal();
   } catch(e) {
