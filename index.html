@@ -4269,7 +4269,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v691';
+const APP_VERSION = 'v692';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10983,6 +10983,13 @@ window.renderBackordersTab = function(){
       // v691: mostrar qty segun modo. STOCK ASIG. -> c.qtyAsignada. BACKORDER -> c.qtyBackorder.
       const _qtyShow = _isAsigMode ? (c.qtyAsignada || 0) : (c.qtyBackorder || 0);
       html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:14px;font-weight:800;color:#c2410c">' + Math.round(_qtyShow) + '</div><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px">unid</div></div>';
+      // v692: boton ELIMINAR para lineas BO app-source (state='BO' + source='app').
+      // No aparece en SAP (esas se cancelan desde SAP) ni en ASIG (esas tienen
+      // aceptar/rechazar en el modal Pedido en Espera).
+      if (!_isAsigMode && c.source === 'app' && c.state === 'BO' && c.pedidoId) {
+        const _clienteEsc = String(c.nombre || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        html += '<button onclick="window.deleteBackorderAppLine(\'' + c.pedidoId + '\',\'' + escapeAttr(g.sku) + '\',\'' + _clienteEsc + '\',' + Math.round(c.pendiente) + ')" title="Eliminar esta linea del pedido (permanente)" style="flex-shrink:0;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">&#128465; ELIMINAR</button>';
+      }
       html += '</div>';
     });
     html += '</div>';
@@ -10992,6 +10999,67 @@ window.renderBackordersTab = function(){
     html += '<div style="padding:14px;text-align:center;color:#94a3b8;font-size:11px">Mostrando 100 de ' + skus.length + ' SKUs. Refina la busqueda para ver menos.</div>';
   }
   list.innerHTML = html;
+};
+
+// v692 (2026-08-27): elimina una linea BO app-source de un pedido.
+// Solo aplica a lineas con state='BO' + source='app' (las SAP van por SAP,
+// las ASIG tienen aceptar/rechazar en Pedido en Espera).
+// Filtra por code+state='BO' en pedido.lines y hace update completo del array.
+// El listener de globalPedidos refresca el modal Backorder automatico.
+window.deleteBackorderAppLine = async function(pedidoId, sku, clienteNombre, qty){
+  if (!pedidoId || !sku) return;
+  const msg = 'Eliminar la linea ' + sku + ' (' + qty + ' unid) del pedido de "' + clienteNombre + '"?\n\n' +
+              'Esta accion es PERMANENTE. La linea sale del backorder y el cliente\n' +
+              'pierde el reclamo sobre este SKU. Si el cliente vuelve a pedirlo, hay\n' +
+              'que cargarlo en un pedido nuevo.';
+  if (!confirm(msg)) return;
+  try {
+    // Buscar el pedido en cache local para filtrar sus lineas.
+    let p = null;
+    if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+      p = globalPedidos.find(pp => pp && pp._fsId === pedidoId);
+    }
+    if (!p || !Array.isArray(p.lines)) {
+      // Fallback: fetch directo si no esta en cache.
+      const snap = await fbDb.collection('pedidos').doc(pedidoId).get();
+      if (!snap.exists) { alert('No se encontro el pedido en Firestore.'); return; }
+      p = snap.data() || {};
+      if (!Array.isArray(p.lines)) { alert('Pedido sin lineas.'); return; }
+    }
+    // v692: filtrar la primera linea BO con ese SKU. Si hay multiples BO del mismo
+    // SKU en el mismo pedido (raro, no deberia pasar), elimina solo una por click.
+    let removed = false;
+    const newLines = p.lines.filter(l => {
+      if (removed) return true;
+      if (l && String(l.code).toUpperCase() === String(sku).toUpperCase() && l.state === 'BO') {
+        removed = true;
+        return false;
+      }
+      return true;
+    });
+    if (!removed) {
+      alert('No se encontro la linea ' + sku + ' con state=BO en el pedido.\n\nQuizas otro admin ya la elimino, o E4.5 la promovio a ASIG. Refresca el modal.');
+      return;
+    }
+    await fbDb.collection('pedidos').doc(pedidoId).update({
+      lines: newLines,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    if (typeof showSyncTag === 'function') showSyncTag('Linea eliminada del pedido');
+    // Audit log opcional.
+    try {
+      if (typeof logOp === 'function') logOp('pedido_line_delete', 'pedidos/' + pedidoId, sku, {
+        sku: sku,
+        qty: qty,
+        cliente: clienteNombre,
+        state: 'BO',
+        source: 'backorder-modal',
+      });
+    } catch(_e){}
+  } catch(e){
+    console.error('deleteBackorderAppLine', e);
+    alert('Error eliminando la linea: ' + (e.message || e));
+  }
 };
 
 // v637 (2026-08-26): Graficos generales de Backorder. Chart 1: top clientes
@@ -13552,8 +13620,18 @@ window._e4bBoDelCliente = function(cardCode){
 // accion aplicable (solo esperar reposicion de stock). Muestra SKU, desc,
 // qty pendiente. Cuando entre stock, E4.5 FIFO promueve BO -> ASIG y la
 // fila desaparece de aca y aparece en la seccion azul de _renderE4BAsigApp.
+//
+// v692 (2026-08-27): la seccion BO no se muestra en "Pedido en espera" del
+// cliente (solicitud de Mariano). El BO app-source es visible SOLO en el
+// modal Backorder global (que ahora tiene boton ELIMINAR por linea).
+// Se mantiene el elemento oculto para no romper el DOM ni los listeners.
 function _renderE4BBoApp(w){
   const cont = document.getElementById('wcard-e4b-bo-app');
+  if (cont) cont.style.display = 'none';
+  return;
+  // Legacy code intentionally unreachable: preservado por si mas adelante
+  // se quiere reactivar la seccion. No se ejecuta.
+  // eslint-disable-next-line no-unreachable
   const rows = document.getElementById('wcard-e4b-bo-app-rows');
   if (!cont || !rows) return;
   if (!window.isE4BEnabled || !window.isE4BEnabled()) { cont.style.display = 'none'; return; }
