@@ -4270,7 +4270,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v698';
+const APP_VERSION = 'v699';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -21825,9 +21825,25 @@ window.doConfirmPedido = function(){
   // netAmountArs como "monto real de la operacion". El payload a SAP sigue
   // yendo SIN descuento - SAP recalcula al ingresar.
   const _subtotalArs = (ord || []).reduce((s, l) => s + (parseFloat(l.qty)||0) * (parseFloat(l.precio)||0), 0);
+  // v699 (2026-08-27): calcular subtotal disponibles (con stock) por separado.
+  // El descuento solo se aplica sobre disponibles - los BO no llevan descuento
+  // porque no se facturan hoy. Coincide con lo que muestra el modal Review.
+  const _getDispFn = (typeof getStockDisponibleVentaNetSap === 'function')
+    ? getStockDisponibleVentaNetSap
+    : (typeof getStockDisponibleVenta === 'function' ? getStockDisponibleVenta : null);
+  const _subtotalDispArs = (ord || []).reduce((s, l) => {
+    const _q = parseFloat(l.qty) || 0;
+    const _p = parseFloat(l.precio) || 0;
+    if (!_getDispFn) return s + _q * _p; // fallback: contar todo como disponible
+    const _disp = _getDispFn(l.code) || 0;
+    const _dispQty = Math.min(_q, Math.max(0, _disp));
+    return s + _dispQty * _p;
+  }, 0);
+  const _subtotalBackorderArs = _subtotalArs - _subtotalDispArs;
   const _cmDocId = clientLocId(parts[1], parts[2], parts[3]);
   const _cmData = (typeof clientMasterCache !== 'undefined' && clientMasterCache.get) ? clientMasterCache.get(_cmDocId) : null;
-  const _disc = (typeof calcClientDiscount === 'function') ? calcClientDiscount(_cmData, _subtotalArs, condicionVal) : null;
+  // v699: base del descuento auto-calc = disponibles, no total.
+  const _disc = (typeof calcClientDiscount === 'function') ? calcClientDiscount(_cmData, _subtotalDispArs, condicionVal) : null;
   const _discountSnapshot = _disc ? {
     cliTipo:      _disc.tipo  || '',
     volBracket:   _disc.vol   || '',
@@ -21934,13 +21950,18 @@ window.doConfirmPedido = function(){
     // auto-calculado del _discountSnapshot y se envia a SAP como DiscountPercent
     // en el payload SL. Fallback al auto-calc si el input no existe (safety).
     subtotalArs: Math.round(_subtotalArs),
+    // v699 (2026-08-27): netAmountArs = disponibles_con_descuento + backorder_sin_descuento
+    // El descuento aplica solo a lo que se factura HOY (disponibles). Backorder pasa
+    // integro porque cuando se active (stock nuevo), se factura por separado sin descuento
+    // que quede colgado.
     netAmountArs: (() => {
       const _manualEl = document.getElementById('rv-manual-discount');
       if (_manualEl) {
         const _manualPct = parseFloat(_manualEl.value) || 0;
-        return Math.round(_subtotalArs * (1 - _manualPct / 100));
+        const _dispNeto = _subtotalDispArs * (1 - _manualPct / 100);
+        return Math.round(_dispNeto + _subtotalBackorderArs);
       }
-      return _discountSnapshot ? Math.round(_discountSnapshot.total) : Math.round(_subtotalArs);
+      return _discountSnapshot ? Math.round(_discountSnapshot.total + _subtotalBackorderArs) : Math.round(_subtotalArs);
     })(),
     discountPct: (() => {
       const _manualEl = document.getElementById('rv-manual-discount');
