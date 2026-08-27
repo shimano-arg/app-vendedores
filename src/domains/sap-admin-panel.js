@@ -662,14 +662,14 @@ function renderSapServiceLayer() {
     '" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px;font-family:Consolas,monospace"/></div>';
   h += '</div>';
   h +=
-    '<div style="font-size:10px;color:#94a3b8;margin-top:8px"><b>Seguridad:</b> la password se guarda en Firestore con merge - solo admin puede leerla. Cuando este la integracion al 100%, vamos a mover esto a una variable de entorno encriptada.</div>';
+    '<div style="font-size:10px;color:#94a3b8;margin-top:8px"><b>Seguridad (v688):</b> la password vive SOLO en Secret Manager server-side (Cloud Function sapProxy). El campo password de este form ya no se usa - se mantiene por compatibilidad de UI pero la app opera con la credencial del CF. Rotacion via Firebase Console > Secret Manager.</div>';
   // Botones - clase sl-actions para poder aplicar media query mobile
   // (all 100% width + apilados) sin tocar el desktop.
   h += '<div class="sl-actions" style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">';
   h +=
     '<button class="sap-btn primary" style="background:#0284c7" onclick="saveSlConfig()">&#128190; Guardar configuracion</button>';
   h +=
-    '<button class="sap-btn" style="background:#fff;border:1.5px solid #cbd5e1;color:#475569" onclick="testSlConnection()">&#128268; Probar conexion (Login)</button>';
+    '<button class="sap-btn" style="background:#fff;border:1.5px solid #cbd5e1;color:#475569" onclick="testSlConnection()">&#128268; Probar conexion (sapProxy)</button>';
   h +=
     '<button class="sap-btn" style="background:#fff;border:1.5px solid #cbd5e1;color:#475569" onclick="testSlStock()">&#128230; Probar stock SKU prueba</button>';
   h += '</div>';
@@ -718,20 +718,17 @@ window.saveSlConfig = async function () {
 window.testSlConnection = async function () {
   const out = document.getElementById('sl-test-result');
   out.innerHTML =
-    '<div style="background:#dbeafe;border:1px solid #93c5fd;color:#1e3a8a;border-radius:5px;padding:10px;font-size:12px">Conectando al Service Layer...</div>';
-  // Asegurarnos de guardar antes de probar
-  await saveSlConfig();
-  sapSL.sessionAt = 0;
-  const r = await sapSL.login();
-  if (r.ok) {
-    out.innerHTML =
-      '<div style="background:#dcfce7;border:1.5px solid #86efac;color:#166534;border-radius:5px;padding:12px;font-size:12px"><b>&#10003; Login OK</b><br>La cookie de sesion quedo seteada en el browser. Las proximas requests van a usarla automaticamente.</div>';
-  } else {
-    out.innerHTML =
-      '<div style="background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:5px;padding:12px;font-size:12px"><b>&#10006; Error de login</b><br>' +
-      escapeHtml(r.error || 'desconocido') +
-      '<br><br><b>Causas frecuentes:</b><br>&middot; CORS no habilitado en el server (pedir a Alejandro Caracchi).<br>&middot; Credenciales mal cargadas.<br>&middot; CompanyDB incorrecta (debe ser exactamente SHIMANO_SAU).<br>&middot; Usuario sin licencia para acceder via Service Layer.</div>';
-  }
+    '<div style="background:#dbeafe;border:1px solid #93c5fd;color:#1e3a8a;border-radius:5px;padding:10px;font-size:12px">Probando SAP Service Layer via sapProxy...</div>';
+  const r = await sapSL.getStock('CAC58MH2UR', 'ALL');
+  const cause =
+    '&middot; sapProxy CF caida (chequear Firebase Console > Functions logs).<br>&middot; Secret Manager SAP_SL_PASSWORD rotado sin actualizar CF.<br>&middot; SL server SAP down.<br>&middot; IP CF fuera del whitelist SAP.';
+  const okHtml =
+    '<div style="background:#dcfce7;border:1.5px solid #86efac;color:#166534;border-radius:5px;padding:12px;font-size:12px"><b>&#10003; SAP OK via sapProxy</b><br>Endpoint SL respondio correctamente. La app puede sincronizar stock, catalogo y enviar pedidos.</div>';
+  const errHtml =
+    '<div style="background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:5px;padding:12px;font-size:12px"><b>&#10006; Error SAP</b><br>' +
+    escapeHtml(r.error || 'desconocido') +
+    '<br><br><b>Causas frecuentes:</b><br>' + cause + '</div>';
+  out.innerHTML = r.ok ? okHtml : errHtml;
 };
 
 window.testSlStock = async function () {
