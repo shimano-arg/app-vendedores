@@ -4269,7 +4269,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v690';
+const APP_VERSION = 'v691';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10864,16 +10864,30 @@ window.renderBackordersTab = function(){
   //
   // Bug reportado 2026-08-25 con screenshot: BACKORDER mostraba SKUs con
   // stock porque v628 saco el filtro SKU-level. Ahora vuelve.
+  // v691 (2026-08-27): fix bug modal STOCK ASIG. mostraba totales de pendiente
+  // en vez de qtyAsignada por FIFO. Ej: SKU con 2 disp + 58 pendientes en 12
+  // clientes -> mostraba "58 UNIDADES" y "10, 10, 10..." por cliente. Correcto:
+  // "2 UNIDADES" y solo el primer cliente con "2 unid asignadas", el resto pasa
+  // a BACKORDER. Bug reportado por Mariano 2026-08-27.
   Object.values(skuMap).forEach(g => {
     const isAsig = (backordersMode === 'asignacion');
     const dispSap = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(g.sku) || 0) : 0;
     const skuHasStock = dispSap > 0;
     if (isAsig !== skuHasStock) {
       g.clientes = []; // SKU no corresponde a este modal
+    } else if (isAsig) {
+      // modo STOCK ASIG.: solo clientes con qtyAsignada > 0. Mostrar qtyAsignada.
+      g.clientes = g.clientes.filter(c => (c.qtyAsignada || 0) > 0);
     } else {
-      g.clientes = g.clientes.filter(c => (c.pendiente || 0) > 0);
+      // modo BACKORDER: solo clientes con qtyBackorder > 0. Mostrar qtyBackorder.
+      g.clientes = g.clientes.filter(c => (c.qtyBackorder || 0) > 0);
     }
-    g.totalPendiente = g.clientes.reduce((s, c) => s + (c.pendiente || 0), 0);
+    // Total segun modo: suma qtyAsignada en STOCK ASIG., qtyBackorder en BACKORDER.
+    if (isAsig) {
+      g.totalPendiente = g.clientes.reduce((s, c) => s + (c.qtyAsignada || 0), 0);
+    } else {
+      g.totalPendiente = g.clientes.reduce((s, c) => s + (c.qtyBackorder || 0), 0);
+    }
   });
   // v576: eliminar SKUs vacios post-cap (todos los clientes filtrados por modo).
   const skus = Object.values(skuMap).filter(g => g.clientes && g.clientes.length > 0);
@@ -10903,8 +10917,14 @@ window.renderBackordersTab = function(){
   }
   let html = '';
   skus.slice(0, 100).forEach(g => {
-    // Ordenar clientes por unidades DESC.
-    g.clientes.sort((a,b) => b.pendiente - a.pendiente);
+    // v691: ordenar clientes por unidades DESC segun modo (qtyAsignada en STOCK ASIG.,
+    // qtyBackorder en BACKORDER). Antes ordenaba por pendiente original.
+    const _isAsigMode = (backordersMode === 'asignacion');
+    g.clientes.sort((a,b) => {
+      const qa = _isAsigMode ? (a.qtyAsignada || 0) : (a.qtyBackorder || 0);
+      const qb = _isAsigMode ? (b.qtyAsignada || 0) : (b.qtyBackorder || 0);
+      return qb - qa;
+    });
     const totalStr = Math.round(g.totalPendiente);
     // v403 (2026-08-05): pintar header segun disponibilidad de stock.
     // Verde=whs 11 (venta), Amarillo=whs 12 (transito), Naranja=sin stock.
@@ -10960,7 +10980,9 @@ window.renderBackordersTab = function(){
       html += '</div>';
       html += '<div style="font-size:10px;color:#64748b;margin-top:2px">' + metaText + '</div>';
       html += '</div>';
-      html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:14px;font-weight:800;color:#c2410c">' + Math.round(c.pendiente) + '</div><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px">unid</div></div>';
+      // v691: mostrar qty segun modo. STOCK ASIG. -> c.qtyAsignada. BACKORDER -> c.qtyBackorder.
+      const _qtyShow = _isAsigMode ? (c.qtyAsignada || 0) : (c.qtyBackorder || 0);
+      html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:14px;font-weight:800;color:#c2410c">' + Math.round(_qtyShow) + '</div><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px">unid</div></div>';
       html += '</div>';
     });
     html += '</div>';
