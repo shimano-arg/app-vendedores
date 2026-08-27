@@ -4270,7 +4270,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v696';
+const APP_VERSION = 'v697';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -4282,20 +4282,15 @@ window.APP_VERSION = APP_VERSION;
 // Dismiss: boton "Despues" oculta popup por 1 hora (localStorage timestamp).
 // Al proximo check si sigue mismatch → popup vuelve.
 (function initVersionCheck(){
-  const CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 min
-  const DISMISS_MS = 60 * 60 * 1000;         // 1 hora
-  const DISMISS_KEY = 'app_version_alert_dismissed_until';
-
-  function _isDismissed(){
-    try {
-      const until = parseInt(localStorage.getItem(DISMISS_KEY) || '0', 10);
-      return Date.now() < until;
-    } catch(_e){ return false; }
-  }
+  // v697 (2026-08-27): pedido de Mariano - "si o si a TODOS". Cambios:
+  //   - Intervalo 15 min -> 3 min (detección más rápida post-deploy)
+  //   - Check inmediato al startup (era después de 30s)
+  //   - Sin botón "Despues" (no dismiss): el modal es bloqueante hasta refrescar.
+  // El vendedor DEBE actualizar para seguir usando la app - no se puede evitar
+  // arrastrar bugs por usar cache viejo indefinidamente.
+  const CHECK_INTERVAL_MS = 3 * 60 * 1000; // 3 min
 
   function _showVersionAlert(remoteVer){
-    // No mostrar si ya se dismisseo hace poco.
-    if (_isDismissed()) return;
     // Si ya esta el modal abierto (double-trigger), skip.
     if (document.getElementById('version-alert-modal')) return;
 
@@ -4312,11 +4307,11 @@ window.APP_VERSION = APP_VERSION;
 
     const title = document.createElement('div');
     title.style.cssText = 'font-size:16px;font-weight:800;color:#0f172a;margin-bottom:8px';
-    title.textContent = 'Tu version esta desactualizada';
+    title.textContent = 'Nueva version disponible';
 
     const msg = document.createElement('div');
     msg.style.cssText = 'font-size:12.5px;color:#475569;line-height:1.5;margin-bottom:16px';
-    msg.textContent = 'Estas usando ' + APP_VERSION + ' pero la ultima es ' + remoteVer + '. Refresca la app para ver los ultimos cambios.';
+    msg.innerHTML = 'Estas usando <b>' + APP_VERSION + '</b> pero la ultima es <b>' + remoteVer + '</b>.<br><br>Actualizá ahora para no perder los últimos cambios ni arrastrar bugs de la versión vieja.';
 
     const btnRow = document.createElement('div');
     btnRow.style.cssText = 'display:flex;gap:8px;justify-content:center;flex-wrap:wrap';
@@ -4349,17 +4344,9 @@ window.APP_VERSION = APP_VERSION;
       }
     };
 
-    const btnLater = document.createElement('button');
-    btnLater.type = 'button';
-    btnLater.style.cssText = 'background:#e2e8f0;color:#475569;border:none;border-radius:6px;padding:10px 20px;font-size:12px;font-weight:700;cursor:pointer';
-    btnLater.textContent = 'Despues';
-    btnLater.onclick = function(){
-      try { localStorage.setItem(DISMISS_KEY, String(Date.now() + DISMISS_MS)); } catch(_e){}
-      overlay.remove();
-    };
-
+    // v697: sin boton "Despues". Mariano pidio bloqueante para forzar
+    // actualizacion en todos los users. El unico camino es refrescar.
     btnRow.appendChild(btnRefresh);
-    btnRow.appendChild(btnLater);
     box.appendChild(icon);
     box.appendChild(title);
     box.appendChild(msg);
@@ -4385,8 +4372,9 @@ window.APP_VERSION = APP_VERSION;
     }
   }
 
-  // Check inicial despues de 30s (dar tiempo al load). Luego cada 15 min.
-  setTimeout(_checkRemoteVersion, 30 * 1000);
+  // v697: check inmediato al startup (era despues de 30s). Luego cada 3 min.
+  // Detecta post-deploy en <3min sin depender que el user recargue manual.
+  setTimeout(_checkRemoteVersion, 5 * 1000);  // 5s post-load para dejar bootear
   setInterval(_checkRemoteVersion, CHECK_INTERVAL_MS);
   // Expose para debug manual desde consola.
   window._checkAppVersion = _checkRemoteVersion;
