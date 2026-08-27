@@ -1,0 +1,30 @@
+name: Sync Storage Usage
+
+# v687 (2026-08-27): Panel Control card "Storage" - anticipa Firebase Storage
+# free tier hit (5 GB). Enumera buckets user data + suma bytes + top folders.
+# Cron 1x/dia (list_blobs es caro con muchos objetos).
+
+on:
+  schedule:
+    - cron: '30 3 * * *'  # 03:30 UTC diario
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-storage-usage
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install firebase-admin google-cloud-storage
+      - env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: python scripts/sync_storage_usage.py

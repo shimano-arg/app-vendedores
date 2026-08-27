@@ -510,3 +510,284 @@ export function summarizeFirestoreQuota(quotaDoc) {
     errorMessage: quotaDoc.errorMessage || null,
   };
 }
+
+/**
+ * v686 (2026-08-27) Summarize Collections Growth doc para card del Panel.
+ * Input: doc app_config/collections_growth escrito por sync_collections_growth.py.
+ *
+ * Retorna: worst collection por delta7d, total bytes estimados, % free tier
+ * storage, top 3 collections por size, top 3 por delta.
+ *
+ * Health:
+ *   - red si totalBytes > 80% free tier o worst delta > 500 docs/6h
+ *   - yellow si totalBytes > 50% free tier o worst delta > 100 docs/6h
+ *   - green sino
+ *   - unknown si no hay doc
+ *
+ * @param {any} growthDoc - {collections, freeTierBytes, totalBytesAllCollections, worstGrowthCollection, worstGrowthDelta7d, syncedAt, status}
+ */
+export function summarizeCollectionsGrowth(growthDoc) {
+  if (!growthDoc || !growthDoc.collections) {
+    return {
+      status: 'unknown',
+      healthColor: 'unknown',
+      totalBytes: 0,
+      totalMB: 0,
+      freeTierBytes: 1073741824,
+      storagePct: 0,
+      topBySize: [],
+      topByDelta: [],
+      worstCollection: '',
+      worstDelta: 0,
+      syncedAgoLabel: 'sin datos',
+    };
+  }
+  const cols = growthDoc.collections || {};
+  const freeTier = Number(growthDoc.freeTierBytes) || 1073741824;
+  const total = Number(growthDoc.totalBytesAllCollections) || 0;
+  const totalMB = Number((total / 1024 / 1024).toFixed(1));
+  const storagePct = freeTier > 0 ? total / freeTier : 0;
+
+  const entries = Object.entries(cols).map(([name, m]) => ({
+    name,
+    count: Number(m.count) || 0,
+    avgBytesDoc: Number(m.avgBytesDoc) || 0,
+    totalBytes: Number(m.totalBytes) || 0,
+    delta7d: Number(m.delta7d) || 0,
+  }));
+
+  const topBySize = entries
+    .filter((e) => e.totalBytes > 0)
+    .sort((a, b) => b.totalBytes - a.totalBytes)
+    .slice(0, 3);
+
+  const topByDelta = entries
+    .filter((e) => e.delta7d > 0)
+    .sort((a, b) => b.delta7d - a.delta7d)
+    .slice(0, 3);
+
+  const worst = Number(growthDoc.worstGrowthDelta7d) || 0;
+  let health = 'green';
+  if (storagePct > 0.8 || worst > 500) health = 'red';
+  else if (storagePct > 0.5 || worst > 100) health = 'yellow';
+
+  return {
+    status: growthDoc.status || 'ok',
+    healthColor: health,
+    totalBytes: total,
+    totalMB,
+    freeTierBytes: freeTier,
+    storagePct: Number((storagePct * 100).toFixed(2)),
+    topBySize,
+    topByDelta,
+    worstCollection: String(growthDoc.worstGrowthCollection || ''),
+    worstDelta: worst,
+    syncedAgoLabel: formatAgeLabel(growthDoc.syncedAt),
+  };
+}
+
+/**
+ * v686 Fase E3 (2026-08-27) Detecta pedidos "stuck" en pending por muchos dias
+ * (indica que el vendedor no cerro el flow con Confirmar Definitivamente).
+ *
+ * @param {Array<any>} pedidos - globalPedidos array
+ * @param {Date} now - fecha actual (para test determinista)
+ * @param {number} thresholdDays - default 7 dias
+ */
+export function findStuckPendingPedidos(pedidos, now, thresholdDays) {
+  const th = thresholdDays || 7;
+  const nowTs = now && now.getTime ? now.getTime() : Date.now();
+  const threshMs = th * 24 * 60 * 60 * 1000;
+  const list = Array.isArray(pedidos) ? pedidos : [];
+  const stuck = [];
+  for (const p of list) {
+    if (!p || p.stage !== 'pending') continue;
+    // Si ya se transfirio a SAP, no cuenta (aunque siga en pending por bug).
+    if (p.transferidoSAP && p.transferidoSAP.transferredAt) continue;
+    const ts = p.confirmedAt || p.finalizedAt || p.createdAt;
+    if (!ts) continue;
+    let d = null;
+    if (typeof ts === 'string') {
+      d = new Date(ts);
+    } else if (ts && typeof ts.toDate === 'function') {
+      try {
+        d = ts.toDate();
+      } catch (_e) {
+        d = null;
+      }
+    }
+    if (!d || Number.isNaN(d.getTime())) continue;
+    const ageMs = nowTs - d.getTime();
+    if (ageMs < threshMs) continue;
+    const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+    stuck.push({
+      clientName: String(p.clientName || '-'),
+      ownerVendor: String(p.ownerVendor || '-'),
+      ageDays,
+      confirmedAt: d.toISOString().slice(0, 10),
+    });
+  }
+  stuck.sort((a, b) => b.ageDays - a.ageDays);
+  let health = 'green';
+  if (stuck.length >= 10) health = 'red';
+  else if (stuck.length >= 3) health = 'yellow';
+  return {
+    healthColor: health,
+    count: stuck.length,
+    thresholdDays: th,
+    top5: stuck.slice(0, 5),
+  };
+}
+
+/**
+ * v686 Fase E3 (2026-08-27) Detecta provisorios (client_applications) sin
+ * cardCodeSap hace muchos dias - probablemente dead entries que deberian
+ * cerrarse.
+ *
+ * @param {Array<any>} applications
+ * @param {Date} now
+ * @param {number} thresholdDays - default 30
+ */
+export function findDeadProvisorios(applications, now, thresholdDays) {
+  const th = thresholdDays || 30;
+  const nowTs = now && now.getTime ? now.getTime() : Date.now();
+  const threshMs = th * 24 * 60 * 60 * 1000;
+  const list = Array.isArray(applications) ? applications : [];
+  const dead = [];
+  for (const a of list) {
+    if (!a) continue;
+    // Un provisorio = tiene manualSapPending=true Y no tiene cardCodeSap.
+    if (a.cardCodeSap) continue;
+    if (!a.manualSapPending) continue;
+    const ts = a.createdAt;
+    if (!ts) continue;
+    let d = null;
+    if (typeof ts === 'string') {
+      d = new Date(ts);
+    } else if (ts && typeof ts.toDate === 'function') {
+      try {
+        d = ts.toDate();
+      } catch (_e) {
+        d = null;
+      }
+    }
+    if (!d || Number.isNaN(d.getTime())) continue;
+    const ageMs = nowTs - d.getTime();
+    if (ageMs < threshMs) continue;
+    const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+    dead.push({
+      comercio: String(a.comercio || a.titular || '-'),
+      provincia: String(a.provincia || '-'),
+      ageDays,
+      createdAt: d.toISOString().slice(0, 10),
+      ownerEmail: String(a.ownerEmail || '-'),
+    });
+  }
+  dead.sort((a, b) => b.ageDays - a.ageDays);
+  let health = 'green';
+  if (dead.length >= 20) health = 'red';
+  else if (dead.length >= 5) health = 'yellow';
+  return {
+    healthColor: health,
+    count: dead.length,
+    thresholdDays: th,
+    top5: dead.slice(0, 5),
+  };
+}
+
+/**
+ * v687 Fase E2 (2026-08-27) Summarize Cloud Storage usage doc.
+ * Input: app_config/storage_usage escrito por sync_storage_usage.py.
+ * Health: red >80% free tier, yellow >50%, green sino.
+ * @param {any} doc
+ */
+export function summarizeStorageUsage(doc) {
+  if (!doc) {
+    return {
+      status: 'unknown',
+      healthColor: 'unknown',
+      totalGB: 0,
+      storagePct: 0,
+      topFolders: [],
+      buckets: [],
+      syncedAgoLabel: 'sin datos',
+    };
+  }
+  const total = Number(doc.totalBytes) || 0;
+  const freeTier = Number(doc.freeTierBytes) || 5 * 1024 * 1024 * 1024;
+  const pct = freeTier > 0 ? total / freeTier : 0;
+  let health = 'green';
+  if (pct > 0.8) health = 'red';
+  else if (pct > 0.5) health = 'yellow';
+  return {
+    status: doc.status || 'ok',
+    healthColor: health,
+    totalGB: Number(doc.totalGB) || Number((total / 1024 / 1024 / 1024).toFixed(3)),
+    totalMB: Number((total / 1024 / 1024).toFixed(1)),
+    storagePct: Number((pct * 100).toFixed(1)),
+    topFolders: Array.isArray(doc.topFolders) ? doc.topFolders : [],
+    buckets: Array.isArray(doc.buckets) ? doc.buckets : [],
+    syncedAgoLabel: formatAgeLabel(doc.syncedAt),
+  };
+}
+
+/**
+ * v687 Fase E4 (2026-08-27) Summarize CF health doc (errors + p95 por funcion).
+ * Health del card:
+ *   - red si hay alguna funcion en red o worstErrors24h > 20
+ *   - yellow si alguna yellow o worstErrors > 5
+ *   - green sino
+ *   - unknown si status=error o sin datos
+ * @param {any} doc
+ */
+export function summarizeCfHealth(doc) {
+  if (!doc || doc.status === 'error') {
+    return {
+      status: doc && doc.status === 'error' ? 'error' : 'unknown',
+      healthColor: 'unknown',
+      totalFunctions: 0,
+      worstFunction: '',
+      worstErrors24h: 0,
+      totalErrors24h: 0,
+      topByErrors: [],
+      slowest: [],
+      errorMessage: (doc && doc.errorMessage) || null,
+      syncedAgoLabel: doc ? formatAgeLabel(doc.syncedAt) : 'sin datos',
+    };
+  }
+  const funcs = doc.functions || {};
+  const entries = Object.entries(funcs).map(([name, f]) => ({
+    name,
+    errors24h: Number(f.errors24h) || 0,
+    invocations24h: Number(f.invocations24h) || 0,
+    p95Ms: Number(f.p95Ms) || 0,
+    healthColor: f.healthColor || 'green',
+  }));
+  const totalErrors = entries.reduce((s, e) => s + e.errors24h, 0);
+  const topByErrors = entries
+    .filter((e) => e.errors24h > 0)
+    .sort((a, b) => b.errors24h - a.errors24h)
+    .slice(0, 5);
+  const slowest = entries
+    .filter((e) => e.p95Ms > 0)
+    .sort((a, b) => b.p95Ms - a.p95Ms)
+    .slice(0, 5);
+  const worstErrors = Number(doc.worstErrors24h) || 0;
+  let health = 'green';
+  const anyRed = entries.some((e) => e.healthColor === 'red');
+  const anyYellow = entries.some((e) => e.healthColor === 'yellow');
+  if (anyRed || worstErrors > 20) health = 'red';
+  else if (anyYellow || worstErrors > 5) health = 'yellow';
+  return {
+    status: doc.status || 'ok',
+    healthColor: health,
+    totalFunctions: entries.length,
+    worstFunction: String(doc.worstFunction || ''),
+    worstErrors24h: worstErrors,
+    totalErrors24h: totalErrors,
+    topByErrors,
+    slowest,
+    errorMessage: null,
+    syncedAgoLabel: formatAgeLabel(doc.syncedAt),
+  };
+}

@@ -329,8 +329,286 @@ function _renderInfraSection() {
       _hCard('Sentry Issues', sentry.healthColor, sentryMain, sentrySub, sentryTooltip) +
       _hCard('Sentry Rate Spike', spikeStatus, spikeMain, spikeSub, spikeTooltip) +
       _hCard('Firestore Quota', fsq.healthColor, fsqMain, fsqSub, fsqTooltip) +
-      _hCard('CF Invoice Sync', cfStatus, cfLabel, cfSub, cfTooltip)
+      _hCard('CF Invoice Sync', cfStatus, cfLabel, cfSub, cfTooltip) +
+      _renderCollectionsGrowthCard(p) +
+      _renderStorageUsageCard(p) +
+      _renderCfHealthCard(p) +
+      _renderStuckPendingCard(p) +
+      _renderDeadProvisoriosCard(p)
   );
+}
+
+// v687 Fase E2 (2026-08-27) Card "Storage" - Firebase Storage bytes vs free tier (5GB)
+function _renderStorageUsageCard(p) {
+  const doc = window.STORAGE_USAGE || null;
+  if (!doc && typeof window.fbDb !== 'undefined' && window.fbDb) {
+    try {
+      window.fbDb
+        .collection('app_config')
+        .doc('storage_usage')
+        .get()
+        .then((snap) => {
+          if (snap && snap.exists) {
+            window.STORAGE_USAGE = snap.data();
+            if (typeof window.renderPanelControl === 'function') window.renderPanelControl();
+          }
+        })
+        .catch(() => {});
+    } catch (_e) {}
+  }
+  const s = p.summarizeStorageUsage
+    ? p.summarizeStorageUsage(doc)
+    : {
+        healthColor: 'unknown',
+        totalGB: 0,
+        totalMB: 0,
+        storagePct: 0,
+        topFolders: [],
+        syncedAgoLabel: 'sin datos',
+      };
+  let mainText, subText, tooltip;
+  if (!doc) {
+    mainText = 'sin datos';
+    subText = 'esperando primer cron (~24h)';
+    tooltip =
+      'Cron sync_storage_usage.py corre 1x/dia (03:30 UTC). Suma bytes de buckets user-data + top folders.';
+  } else {
+    mainText = s.totalGB > 0 ? s.totalGB + ' GB' : s.totalMB + ' MB';
+    const top1 = s.topFolders[0];
+    subText = top1
+      ? top1.path + ' ' + Math.round(top1.bytes / 1024 / 1024) + ' MB · sync ' + s.syncedAgoLabel
+      : 'sync ' + s.syncedAgoLabel;
+    tooltip =
+      'Total ' +
+      s.totalGB +
+      ' GB / 5 GB free tier (' +
+      s.storagePct +
+      '%). Top folders:\n' +
+      s.topFolders
+        .map(
+          (f) =>
+            '- ' + f.path + ': ' + Math.round(f.bytes / 1024 / 1024) + ' MB (' + f.blobs + ' blobs)'
+        )
+        .join('\n');
+  }
+  return _hCard('Storage', s.healthColor, mainText, subText, tooltip);
+}
+
+// v687 Fase E4 (2026-08-27) Card "CF Health" - errors + p95 latency por CF
+function _renderCfHealthCard(p) {
+  const doc = window.CF_HEALTH || null;
+  if (!doc && typeof window.fbDb !== 'undefined' && window.fbDb) {
+    try {
+      window.fbDb
+        .collection('app_config')
+        .doc('cf_health')
+        .get()
+        .then((snap) => {
+          if (snap && snap.exists) {
+            window.CF_HEALTH = snap.data();
+            if (typeof window.renderPanelControl === 'function') window.renderPanelControl();
+          }
+        })
+        .catch(() => {});
+    } catch (_e) {}
+  }
+  const c = p.summarizeCfHealth
+    ? p.summarizeCfHealth(doc)
+    : {
+        healthColor: 'unknown',
+        totalFunctions: 0,
+        worstFunction: '',
+        worstErrors24h: 0,
+        totalErrors24h: 0,
+        topByErrors: [],
+        slowest: [],
+        errorMessage: null,
+        syncedAgoLabel: 'sin datos',
+      };
+  let mainText, subText, tooltip;
+  if (!doc || c.status === 'error') {
+    mainText = 'sin datos';
+    subText = c.errorMessage
+      ? 'error: ' + String(c.errorMessage).slice(0, 40)
+      : 'esperando primer cron (~1h)';
+    tooltip = c.errorMessage
+      ? 'SA falta rol logging.viewer. gcloud projects add-iam-policy-binding <PROJ> --member serviceAccount:<SA_EMAIL> --role roles/logging.viewer\n\nError raw: ' +
+        c.errorMessage
+      : 'Cron sync_cf_health.py corre cada hora via Cloud Logging API. Requiere Cloud Logging API + rol monitoring.viewer/logging.viewer en el SA.';
+  } else {
+    mainText = c.totalErrors24h + ' err/24h';
+    subText =
+      c.totalFunctions +
+      ' CFs · ' +
+      (c.slowest[0]
+        ? 'p95 ' + c.slowest[0].name + ' ' + Math.round(c.slowest[0].p95Ms) + 'ms'
+        : 'sin p95') +
+      ' · sync ' +
+      c.syncedAgoLabel;
+    tooltip =
+      'Cloud Functions health ultimas 24h. Top por errors:\n' +
+      c.topByErrors
+        .map(
+          (f) =>
+            '- ' +
+            f.name +
+            ': ' +
+            f.errors24h +
+            ' err, ' +
+            f.invocations24h +
+            ' inv, p95 ' +
+            f.p95Ms +
+            'ms'
+        )
+        .join('\n') +
+      '\n\nTop por latencia (slowest p95):\n' +
+      c.slowest.map((f) => '- ' + f.name + ': p95 ' + f.p95Ms + 'ms').join('\n');
+  }
+  return _hCard('CF Health', c.healthColor, mainText, subText, tooltip);
+}
+
+// v686 Fase E3 (2026-08-27) Card "Pedidos Stuck" - pedidos con stage=pending
+// hace mas de 7 dias sin cerrar. Los vendedores dejan el flow a mitad de
+// camino y quedan pendientes visibles pero no procesados.
+function _renderStuckPendingCard(p) {
+  const pedidos = Array.isArray(window.globalPedidos) ? window.globalPedidos : [];
+  const now = new Date();
+  const stuck = p.findStuckPendingPedidos
+    ? p.findStuckPendingPedidos(pedidos, now, 7)
+    : { healthColor: 'unknown', count: 0, top5: [] };
+  const mainText = stuck.count + ' pedido' + (stuck.count === 1 ? '' : 's');
+  let subText;
+  if (stuck.count === 0) {
+    subText = 'sin pendientes viejos';
+  } else {
+    const top = stuck.top5[0];
+    subText =
+      'mas viejo: ' +
+      top.clientName.slice(0, 26) +
+      ' (' +
+      top.ageDays +
+      'd, ' +
+      top.ownerVendor.split(' ')[0] +
+      ')';
+  }
+  const tooltip =
+    stuck.count === 0
+      ? 'Sin pedidos en stage=pending hace mas de 7 dias. Sano.'
+      : 'Pedidos stage=pending hace >' +
+        stuck.thresholdDays +
+        ' dias sin cerrar (vendedor toco Vista preliminar pero no confirmo definitivamente). Top 5:\n' +
+        stuck.top5
+          .map((x) => '- ' + x.clientName + ' (' + x.ageDays + 'd, ' + x.ownerVendor + ')')
+          .join('\n');
+  return _hCard('Pedidos Stuck (>7d)', stuck.healthColor, mainText, subText, tooltip);
+}
+
+// v686 Fase E3 (2026-08-27) Card "Provisorios Muertos" - client_applications
+// sin cardCodeSap hace mas de 30 dias. Candidates para cerrar/archivar.
+function _renderDeadProvisoriosCard(p) {
+  const apps = Array.isArray(window.approvedAltasList) ? window.approvedAltasList : [];
+  const now = new Date();
+  const dead = p.findDeadProvisorios
+    ? p.findDeadProvisorios(apps, now, 30)
+    : { healthColor: 'unknown', count: 0, top5: [] };
+  const mainText = dead.count + ' provisorio' + (dead.count === 1 ? '' : 's');
+  let subText;
+  if (dead.count === 0) {
+    subText = 'sin provisorios muertos';
+  } else {
+    const top = dead.top5[0];
+    subText =
+      'mas viejo: ' + top.comercio.slice(0, 24) + ' (' + top.ageDays + 'd, ' + top.provincia + ')';
+  }
+  const tooltip =
+    dead.count === 0
+      ? 'Sin provisorios abandonados. Sano.'
+      : 'Provisorios (manualSapPending=true, sin cardCodeSap) hace >' +
+        dead.thresholdDays +
+        ' dias. Candidates para cerrar. Top 5:\n' +
+        dead.top5
+          .map(
+            (x) =>
+              '- ' + x.comercio + ' (' + x.ageDays + 'd, ' + x.provincia + ', ' + x.ownerEmail + ')'
+          )
+          .join('\n');
+  return _hCard('Provisorios Muertos (>30d)', dead.healthColor, mainText, subText, tooltip);
+}
+
+// v686 (2026-08-27) Card "Growth Colecciones" - anticipa crecimiento
+// descontrolado antes de que consuma el free tier Firestore Storage (1GB) o
+// infle reads/writes por accion (visits + opsLog crecen lineal).
+function _renderCollectionsGrowthCard(p) {
+  const growthDoc = window.COLLECTIONS_GROWTH || null;
+  // v685 pattern: fetch defensivo si el listener no corrio aun.
+  if (!growthDoc && typeof window.fbDb !== 'undefined' && window.fbDb) {
+    try {
+      window.fbDb
+        .collection('app_config')
+        .doc('collections_growth')
+        .get()
+        .then((snap) => {
+          if (snap && snap.exists) {
+            window.COLLECTIONS_GROWTH = snap.data();
+            if (typeof window.renderPanelControl === 'function') window.renderPanelControl();
+          }
+        })
+        .catch((err) => console.warn('[panel-control] collections_growth fetch fail', err));
+    } catch (_e) {}
+    try {
+      if (typeof window.ensureCollectionsGrowthListener === 'function') {
+        window.ensureCollectionsGrowthListener();
+      }
+    } catch (_e) {}
+  }
+  const g = p.summarizeCollectionsGrowth
+    ? p.summarizeCollectionsGrowth(growthDoc)
+    : {
+        healthColor: 'unknown',
+        totalMB: 0,
+        storagePct: 0,
+        topBySize: [],
+        worstCollection: '',
+        worstDelta: 0,
+        syncedAgoLabel: 'sin datos',
+      };
+
+  let mainText, subText, tooltip;
+  if (!growthDoc) {
+    mainText = 'sin datos';
+    subText = 'esperando primer cron (~6h)';
+    tooltip =
+      'Cron sync_collections_growth.py corre cada 6h. Cuenta docs por coleccion + delta desde ultimo sync + estima total bytes.';
+  } else {
+    mainText = g.totalMB + ' MB';
+    const top1 = g.topBySize[0];
+    const topLabel = top1 ? top1.name + ' ' + top1.count : '-';
+    subText =
+      topLabel +
+      ' · worst +' +
+      g.worstDelta +
+      ' (' +
+      (g.worstCollection || '-') +
+      ') · sync ' +
+      g.syncedAgoLabel;
+    tooltip =
+      'Total ~' +
+      g.totalMB +
+      ' MB de ' +
+      Math.round(g.freeTierBytes / 1024 / 1024) +
+      ' MB free tier (' +
+      g.storagePct +
+      '%). ' +
+      'Top por size: ' +
+      g.topBySize.map((e) => e.name + ' ' + e.count).join(', ') +
+      '. ' +
+      'Worst growth: ' +
+      (g.worstCollection || '-') +
+      ' +' +
+      g.worstDelta +
+      ' desde ultimo sync.';
+  }
+  return _hCard('Growth Colecciones', g.healthColor, mainText, subText, tooltip);
 }
 
 /**

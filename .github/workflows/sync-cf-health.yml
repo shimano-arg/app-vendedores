@@ -1,0 +1,33 @@
+name: Sync CF Health
+
+# v687 (2026-08-27): Panel Control card "CF Health" - errors 24h + p95 latency
+# por Cloud Function. Anticipa cuando SAP degrada y CFs empiezan a timeout.
+# Requiere Cloud Logging API + SA con roles/logging.viewer:
+#   gcloud projects add-iam-policy-binding <PROJECT> \
+#     --member serviceAccount:<SA_EMAIL> --role roles/logging.viewer
+# Si falta el rol -> status=error, Panel muestra card gris con warning tooltip.
+
+on:
+  schedule:
+    - cron: '23 * * * *'  # cada hora a xx:23
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-cf-health
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install firebase-admin google-cloud-logging
+      - env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: python scripts/sync_cf_health.py
