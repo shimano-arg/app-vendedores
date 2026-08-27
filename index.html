@@ -4269,7 +4269,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v694';
+const APP_VERSION = 'v695';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15891,11 +15891,20 @@ function renderConfirmadosList(){
   // Armar items completos antes de filtrar - usamos los items para popular
   // los dropdowns de filtros con las opciones disponibles.
   const allItems = [];
+  // v695 (2026-08-27): incluir pedidos "huérfanos" cuya key no matchea
+  // ninguna key computada por POINTS/approvedAltas. Puede pasar cuando el
+  // pedido se guardó con province mal (ej. '2' en vez de 'CAPITAL FEDERAL')
+  // o con clientLocality/clientProvince vacías. Antes esos pedidos quedaban
+  // invisibles hasta corregir manualmente. Ahora los mostramos con badge
+  // amarillo "sin catalogo" para que el admin los pueda revisar.
   Object.entries(confirmed).forEach(([k, list]) => {
-    if (!visibleKeys.has(k)) return;
     const parts = k.split('|');
+    const isOrphan = !visibleKeys.has(k);
     (list || []).forEach((c, idx) => {
-      allItems.push({key: k, idx, tipo: parts[0], prov: parts[1], locName: parts[2], clientName: parts[3], conf: c});
+      allItems.push({
+        key: k, idx, tipo: parts[0], prov: parts[1], locName: parts[2], clientName: parts[3],
+        conf: c, orphan: isOrphan,
+      });
     });
   });
   // Poblar dropdowns. Conservamos el valor seleccionado actual si sigue valido.
@@ -15942,6 +15951,11 @@ function renderConfirmadosList(){
     html += '<div class="cc-head"><div class="cc-name">' + escapeHtml(it.clientName) + '</div><div class="cc-month">' + escapeHtml(it.conf.month) + '</div></div>';
     html += '<div class="cc-meta">' + escapeHtml(it.locName) + ' / ' + escapeHtml(titleCase(it.prov)) + '</div>';
     html += '<div class="cc-summary">' + lineCount + ' productos &middot; ' + units + ' unidades &middot; ' + (it.conf.confirmedAt ? new Date(it.conf.confirmedAt).toLocaleDateString() : '') + '</div>';
+    // v695: badge amarillo si el pedido es huerfano (no matchea POINTS/altas).
+    // Se muestra ANTES del badge SAP para que sea visible.
+    if (it.orphan) {
+      html += '<div style="display:inline-block;background:#fef3c7;color:#92400e;font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px;margin-top:4px">&#9888;&#65039; sin cat&aacute;logo (revisar province/localidad)</div>';
+    }
     // v378+ (2026-08-02): badge de estado SAP (OFERTA/ORDEN/FACTURADO/COBRADO/CERRADO).
     // Solo aparece si el pedido fue transferido a SAP (tiene transferidoSAP.docNum).
     // El estado se actualiza cada 30 min via sync_pedido_estados_to_firestore.
