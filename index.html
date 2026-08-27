@@ -4269,7 +4269,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v693';
+const APP_VERSION = 'v695';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13317,7 +13317,32 @@ window.revisionDejarRecalculando = async function(){
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     };
-    await fbDb.collection('revision_waitlist').add(payload);
+    const docRef = await fbDb.collection('revision_waitlist').add(payload);
+    // v694 (2026-08-27): update optimista para reactividad inmediata.
+    // Antes: se confiaba en el listener onSnapshot para propagar el nuevo doc
+    // a revisionWaitlist. La latencia server-round-trip hacia que el user
+    // tuviera que refrescar la app para ver el pedido nuevo en sidebar/modal.
+    // Ahora: pusheamos al array local con _id ya conocido + timestamp local
+    // y forzamos re-render de todas las vistas. El listener despues sobreescribe
+    // con la version server-authoritative (idempotente por _id).
+    try {
+      const optimistic = Object.assign({}, payload, {
+        _id: docRef.id,
+        // Firestore Timestamp shim: renderers hacen .toDate() en createdAt.
+        createdAt: { toDate: () => new Date() },
+        updatedAt: { toDate: () => new Date() },
+      });
+      const existsIdx = revisionWaitlist.findIndex(w => w._id === docRef.id);
+      if (existsIdx < 0) revisionWaitlist.push(optimistic);
+      _updateWaitlistBadge();
+      if (typeof _renderWaitlistSidebar === 'function') _renderWaitlistSidebar();
+      if (typeof _renderWaitlistRows === 'function') {
+        try { _renderWaitlistRows(); } catch(_e){}
+      }
+      if (typeof _reRenderEstadoIfOpen === 'function') {
+        try { _reRenderEstadoIfOpen(); } catch(_e){}
+      }
+    } catch(_e){ console.warn('optimistic waitlist update fallo (no bloquea)', _e); }
     showSyncTag('Pedido guardado en espera: ' + cli.nombre + ' (Orden ' + ordenNum + ')');
     closeRevisionModal();
   } catch(e) {
@@ -15866,11 +15891,20 @@ function renderConfirmadosList(){
   // Armar items completos antes de filtrar - usamos los items para popular
   // los dropdowns de filtros con las opciones disponibles.
   const allItems = [];
+  // v695 (2026-08-27): incluir pedidos "huérfanos" cuya key no matchea
+  // ninguna key computada por POINTS/approvedAltas. Puede pasar cuando el
+  // pedido se guardó con province mal (ej. '2' en vez de 'CAPITAL FEDERAL')
+  // o con clientLocality/clientProvince vacías. Antes esos pedidos quedaban
+  // invisibles hasta corregir manualmente. Ahora los mostramos con badge
+  // amarillo "sin catalogo" para que el admin los pueda revisar.
   Object.entries(confirmed).forEach(([k, list]) => {
-    if (!visibleKeys.has(k)) return;
     const parts = k.split('|');
+    const isOrphan = !visibleKeys.has(k);
     (list || []).forEach((c, idx) => {
-      allItems.push({key: k, idx, tipo: parts[0], prov: parts[1], locName: parts[2], clientName: parts[3], conf: c});
+      allItems.push({
+        key: k, idx, tipo: parts[0], prov: parts[1], locName: parts[2], clientName: parts[3],
+        conf: c, orphan: isOrphan,
+      });
     });
   });
   // Poblar dropdowns. Conservamos el valor seleccionado actual si sigue valido.
@@ -15917,6 +15951,11 @@ function renderConfirmadosList(){
     html += '<div class="cc-head"><div class="cc-name">' + escapeHtml(it.clientName) + '</div><div class="cc-month">' + escapeHtml(it.conf.month) + '</div></div>';
     html += '<div class="cc-meta">' + escapeHtml(it.locName) + ' / ' + escapeHtml(titleCase(it.prov)) + '</div>';
     html += '<div class="cc-summary">' + lineCount + ' productos &middot; ' + units + ' unidades &middot; ' + (it.conf.confirmedAt ? new Date(it.conf.confirmedAt).toLocaleDateString() : '') + '</div>';
+    // v695: badge amarillo si el pedido es huerfano (no matchea POINTS/altas).
+    // Se muestra ANTES del badge SAP para que sea visible.
+    if (it.orphan) {
+      html += '<div style="display:inline-block;background:#fef3c7;color:#92400e;font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px;margin-top:4px">&#9888;&#65039; sin cat&aacute;logo (revisar province/localidad)</div>';
+    }
     // v378+ (2026-08-02): badge de estado SAP (OFERTA/ORDEN/FACTURADO/COBRADO/CERRADO).
     // Solo aparece si el pedido fue transferido a SAP (tiene transferidoSAP.docNum).
     // El estado se actualiza cada 30 min via sync_pedido_estados_to_firestore.
