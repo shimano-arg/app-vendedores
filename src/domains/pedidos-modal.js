@@ -401,6 +401,49 @@ window.validateReviewAndPasarAPendientes = function () {
       showReviewError('El pedido esta vacio. Agregua productos antes de pasar a Pendientes.');
       return;
     }
+    // 1.5) v692: bloquear si el cliente tiene lineas ASIG sin resolver en otros
+    // pedidos. Force resolver aceptar/rechazar antes de tomar un pedido nuevo.
+    // Solo aplica cuando currentOrderClient tiene un nombre valido y hay pedidos
+    // previos del mismo cliente con state='ASIG'.
+    try {
+      const cliName = (currentOrderClient && currentOrderClient.name) || '';
+      const cliCardCode = (cliName && typeof sapGetClienteCode === 'function')
+        ? (sapGetClienteCode(cliName) || '')
+        : '';
+      const currentPedidoId = (currentOrderClient && currentOrderClient._fsId) || null;
+      if (
+        cliCardCode
+        && typeof globalPedidos !== 'undefined'
+        && Array.isArray(globalPedidos)
+      ) {
+        let asigCount = 0;
+        let asigPedidos = 0;
+        globalPedidos.forEach((p) => {
+          if (!p || !Array.isArray(p.lines)) return;
+          if (p._fsId === currentPedidoId) return; // saltar el pedido actual
+          const pCardCode = (typeof sapGetClienteCode === 'function')
+            ? (sapGetClienteCode(p.clientName || '') || '')
+            : '';
+          if (pCardCode !== cliCardCode) return;
+          const asigLinesOfP = p.lines.filter((l) => l && l.state === 'ASIG');
+          if (asigLinesOfP.length > 0) {
+            asigPedidos++;
+            asigCount += asigLinesOfP.length;
+          }
+        });
+        if (asigCount > 0) {
+          showReviewError(
+            'Este cliente tiene ' + asigCount + ' linea(s) con STOCK ASIGNADO sin resolver en '
+            + asigPedidos + ' pedido(s) anterior(es). '
+            + 'Abri "Pedido en espera" del cliente desde el mapa, aceptalas o rechazalas primero, '
+            + 'y despues volve a confirmar este pedido.'
+          );
+          return;
+        }
+      }
+    } catch (_e) {
+      console.warn('[pedido] validacion ASIG previa fallo (no bloquea):', _e);
+    }
     // 2) Forma de pago obligatoria.
     const fpSel = document.getElementById('rv-forma-pago');
     const fpVal = fpSel && fpSel.value ? fpSel.value : '';
