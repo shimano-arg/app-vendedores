@@ -7785,3 +7785,37 @@ Post-merge, GitHub Pages tarda ~1 min en desplegar. El SW stale-while-revalidate
 | Pending app no transferidos | `globalPedidos` filtrado por `stage='pending' && !transferidoSAP.docNum` | Real-time |
 | SAP Asignado - Con Stock del cliente | intersect `backorderLines[cliente]` con `_revisionStockFor(sku).stockTotal > 0` | Real-time backorderLines / 30min stock |
 
+## 48) v688 SECURITY HARDENING SAP credential (2026-08-27)
+
+Eliminó el único caller cliente de `app_config/sap_integration.serviceLayer.password` en Firestore. Post-merge (PR #347), la app opera 100% vía `sapProxy` Cloud Function con password en Secret Manager.
+
+**Contexto**: Seidor confirmó que NO puede rotar la password ni crear usuario nuevo. Este PR es el máximo blindaje viable sin cooperación externa.
+
+**Cambios (`src/domains/sap-service-layer.js`)**:
+- `loadConfig()` ya no cachea `password` en `this.config` (solo `enabled, url, companyDB, username`)
+- `login()` → stub que devuelve `{ok: false, error: 'login legacy deshabilitado (v688)...'}`
+- `ensureSession()` → retorna siempre `{ok: true}` (session tracking vive server-side en la CF)
+- `fetchWithSession()` → solo usa cloud client. Sin fallback legacy. Si el bundle no carga, devuelve error explícito `'sapProxy no disponible. Recargá la app o contactá a Mariano.'`
+
+**Estado Firestore post-hardening** (verificado 2026-08-27 12:52 ART):
+```
+app_config/sap_integration.serviceLayer:
+  companyDB: 'SHIMANO_SAU'
+  enabled: True
+  password: '' ← VACÍO (borrado accidentalmente por save UI, no repoblado)
+  url: 'https://shimano-sap.seidor.com.ar:50000'
+  username: 'APP_VENDEDORES'
+```
+
+**Gate ejecutable verde**:
+- Deploy v688 to GitHub Pages: success (workflow 33090806381)
+- Test & Lint: 104/104 pass (workflow 33090806570)
+- Real SAP sync post-deploy: `✓ Stock actualizado: 10.758 SKUs (3.409 con stock) - 27/8/2026, 01:20:42`
+- Password Firestore post-sync: sigue vacío
+
+**Path legacy muerto de facto**: el botón "Probar conexion (Login)" en tab Service Layer (browser → SAP directo) devuelve HTTP 400 desde 2026-08 aprox. Seidor cerró CORS del server SAP. Ese path ya no es viable ni con password, solo el sapProxy CF sirve.
+
+**Riesgo residual (pendiente decisión)**: la password vieja está en el git history del repo público en commits `eb07f01` (docs cierre Fase 0) y `6209126` (v330 sapSL rutea via CF). Eliminar requiere rewrite history con BFG, que rompe forks y PRs abiertas. Riesgo bajo si Seidor no rotea + la password no da acceso público (necesita también IP whitelist / dominio corp). Decisión aparte.
+
+**Etapa 2 pendiente**: auditoría de reglas Firestore con skill `firebase-security-rules-auditor` (Update Bypass, hasOnly/diff sin ownership, Authority source checks). Budget 12 turnos. Gate: score >= 4, zero critical/major.
+
