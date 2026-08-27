@@ -4267,7 +4267,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v681';
+const APP_VERSION = 'v682';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -22389,6 +22389,14 @@ if ('serviceWorker' in navigator) {
       <button class="mdr-item" data-drawer-action="rutas" onclick="closeMobileDrawer();setTab('rutas')">
         <span class="mdr-icon">&#128662;</span>
         <span class="mdr-label">Rutas</span>
+      </button>
+      <!-- v682 (2026-08-26): boton "Pedidos" mobile-only. Abre el modal Estado de
+           pedidos filtrado a Confirmados SAP (los que ya ingresaron al ERP).
+           Pedido de Mariano para que los vendedores vean rapido sus confirmados
+           desde mobile sin abrir el sidebar-right tab Pedidos. -->
+      <button class="mdr-item" data-drawer-action="pedidos" onclick="closeMobileDrawer();openEstadoModal();setTimeout(function(){window.setEstadoTab&&window.setEstadoTab('confirmados')},50)">
+        <span class="mdr-icon">&#128230;</span>
+        <span class="mdr-label">Pedidos confirmados SAP</span>
       </button>
       <!-- v432: Alta clientes movido al top toolbar como botón individual. -->
       <button class="mdr-item" data-drawer-action="notif" onclick="closeMobileDrawer();setTab('notif')">
