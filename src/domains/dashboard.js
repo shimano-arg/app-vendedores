@@ -982,13 +982,44 @@ function renderDashboardVisuales(el) {
   wrap.style.cssText = 'padding:16px 22px';
   const dv = typeof window.DASHBOARD_VISUALES === 'object' ? window.DASHBOARD_VISUALES : null;
   if (!dv) {
+    // v684 FIX (2026-08-27): en vez de mostrar solo el mensaje "Aun no hay
+    // data...", intentamos primero un fetch directo del doc (el listener puede
+    // no haber corrido aun o ser reciente). Si el fetch trae data, seteamos
+    // window.DASHBOARD_VISUALES y re-renderamos.
     const info = document.createElement('div');
     info.style.cssText =
       'text-align:center;padding:30px;color:#94a3b8;font-size:12px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:6px';
-    info.textContent =
-      'Aun no hay data de visuales. El sync SAP -> BigQuery corre cada 30 min y popula la coleccion dashboard_visuales.';
+    info.textContent = 'Cargando visuales...';
     wrap.appendChild(info);
     el.appendChild(wrap);
+    // Fetch defensivo: leer el doc directo (bypass del listener que puede no
+    // haber corrido). Si trae data, seteamos y re-renderamos.
+    if (typeof fbDb !== 'undefined' && fbDb) {
+      fbDb
+        .collection('dashboard_visuales')
+        .doc('global')
+        .get()
+        .then((snap) => {
+          if (snap && snap.exists) {
+            window.DASHBOARD_VISUALES = snap.data();
+            renderDashboardVisuales(el); // re-render
+          } else {
+            info.textContent =
+              'Aun no hay data de visuales. El sync SAP -> BigQuery corre cada 30 min y popula la coleccion dashboard_visuales.';
+          }
+        })
+        .catch((err) => {
+          console.warn('[dashboard-visuales] fetch fail', err);
+          info.textContent =
+            'Error cargando visuales: ' + (err.message || err) + '. Revisa la consola.';
+        });
+    }
+    // Tambien re-activar el listener por si acaso
+    try {
+      if (typeof window.ensureDashboardVisualesListener === 'function') {
+        window.ensureDashboardVisualesListener();
+      }
+    } catch (_e) {}
     return;
   }
   const topSkus = Array.isArray(dv.topSkus) ? dv.topSkus : [];
@@ -1108,10 +1139,20 @@ function renderDashboardVisitas(el) {
   const byVendorContactados = {};
   for (const v of visits) {
     if (!v) continue;
+    // v684 FIX (2026-08-27): las visits reales tienen campo `fecha` (YYYY-MM-DD)
+    // y `createdAt` (timestamp), NO `ts` ni `at` como asumia el codigo anterior.
+    // El campo `interactionType === 'contacto'` marca contactos no presenciales
+    // (vs 'visita' o undefined = visita presencial default).
     let fecha = '';
-    if (v.ts && typeof v.ts.toDate === 'function') {
-      const d = v.ts.toDate();
+    if (typeof v.fecha === 'string' && v.fecha.length >= 10) {
+      fecha = v.fecha.slice(0, 10);
+    } else if (v.createdAt && typeof v.createdAt.toDate === 'function') {
+      const d = v.createdAt.toDate();
       fecha = d.toISOString().slice(0, 10);
+    } else if (typeof v.createdAt === 'string') {
+      fecha = v.createdAt.slice(0, 10);
+    } else if (v.ts && typeof v.ts.toDate === 'function') {
+      fecha = v.ts.toDate().toISOString().slice(0, 10);
     } else if (typeof v.ts === 'string') {
       fecha = v.ts.slice(0, 10);
     } else if (typeof v.at === 'string') {
@@ -1120,7 +1161,8 @@ function renderDashboardVisitas(el) {
     if (!fecha.startsWith(ym)) continue;
     const vendor = (v.vendor || v.assignedVendor || v.ownerVendor || '(sin vendedor)').toString();
     byVendor[vendor] = (byVendor[vendor] || 0) + 1;
-    if (v.contacted || v.contactado) {
+    // Contactado no presencial: interactionType === 'contacto'
+    if (v.interactionType === 'contacto' || v.contacted || v.contactado) {
       byVendorContactados[vendor] = (byVendorContactados[vendor] || 0) + 1;
     }
   }

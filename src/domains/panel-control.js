@@ -227,7 +227,31 @@ function _renderInfraSection() {
   // v625: card Firestore Quota. Lee app_config/firestore_quota (escrito por
   // scripts/sync_firestore_quota.py cada 30 min via Cloud Monitoring API).
   // Muestra worst % de uso vs free tier (reads/writes/deletes/storage).
+  // v685 FIX (2026-08-27): si el listener no habia corrido aun (timing race
+  // al abrir Panel), disparar fetch directo + re-invocar listener + re-render
+  // al recibir. Antes se veia "sin datos - esperando primer cron (~30 min)"
+  // aunque el doc existiera con status: ok.
   const fsqDoc = window.FIRESTORE_QUOTA || null;
+  if (!fsqDoc && typeof fbDb !== 'undefined' && fbDb) {
+    try {
+      fbDb
+        .collection('app_config')
+        .doc('firestore_quota')
+        .get()
+        .then((snap) => {
+          if (snap && snap.exists) {
+            window.FIRESTORE_QUOTA = snap.data();
+            if (typeof window.renderPanelControl === 'function') window.renderPanelControl();
+          }
+        })
+        .catch((err) => console.warn('[panel-control] firestore_quota fetch fail', err));
+    } catch (_e) {}
+    try {
+      if (typeof window.ensureFirestoreQuotaListener === 'function') {
+        window.ensureFirestoreQuotaListener();
+      }
+    } catch (_e) {}
+  }
   const fsq = p.summarizeFirestoreQuota
     ? p.summarizeFirestoreQuota(fsqDoc)
     : {
