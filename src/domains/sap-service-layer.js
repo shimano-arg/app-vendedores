@@ -40,11 +40,17 @@
 // Las credenciales se guardan en Firestore (admin lee/escribe).
 // El cookie B1SESSION se guarda en memoria (no en Firestore).
 const sapSL = {
-  config: null, // {url, companyDB, username, password, enabled}
+  // v688 HARDENING (2026-08-27): campo `password` removido del config cache.
+  // La password vive solo en Secret Manager (CF sapProxy). El cliente ya no
+  // lee ni cachea la credencial. loadConfig() ignora sl.password aunque el
+  // doc todavía lo tenga hasta que se borre en Turno 6.
+  config: null, // {url, companyDB, username, enabled}
   sessionAt: 0, // timestamp del ultimo login OK
   sessionTtlMs: 25 * 60 * 1000, // SAP B1 SL default: 30 min. usamos 25 para refresh anticipado.
 
-  // Carga la config desde sapConfigCache (que ya tiene listener en Firestore)
+  // Carga la config desde sapConfigCache (que ya tiene listener en Firestore).
+  // v688: NO cachea password — el campo Firestore va a ser borrado y la lectura
+  // no debe funcionar aunque exista. Cloud proxy es el único path.
   loadConfig() {
     const sl = sapConfigCache && sapConfigCache.serviceLayer ? sapConfigCache.serviceLayer : {};
     this.config = {
@@ -52,7 +58,6 @@ const sapSL = {
       url: sl.url || '',
       companyDB: sl.companyDB || '',
       username: sl.username || '',
-      password: sl.password || '',
     };
     return this.config;
   },
@@ -62,54 +67,32 @@ const sapSL = {
     return this.config.enabled && this.config.url && this.config.companyDB && this.config.username;
   },
 
-  // POST /Login. Devuelve {ok, error}.
-  // No retornamos el cookie a JS porque va en headers HttpOnly. El browser lo
-  // maneja automaticamente si la request usa credentials:'include'.
+  // v688 HARDENING (2026-08-27): login() legacy eliminado. Antes hacía
+  // POST /Login directo al SL desde el browser con `cfg.password` leído
+  // de Firestore. Ese path exponía la credencial al cliente y ya no se
+  // usaba en producción (todos con useCloudProxy=true). Cloud proxy hace
+  // el login server-side con la password en Secret Manager.
+  //
+  // Se mantiene el stub que devuelve error para que si algún caller viejo
+  // lo llama por accidente, falle explícito en vez de silenciosamente.
   async login() {
-    this.loadConfig();
-    const cfg = this.config;
-    if (!cfg.url) return { ok: false, error: 'URL del Service Layer no configurada' };
-    const endpoint = cfg.url.replace(/\/$/, '') + '/b1s/v1/Login';
-    try {
-      const resp = await fetch(endpoint, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          CompanyDB: cfg.companyDB,
-          UserName: cfg.username,
-          Password: cfg.password,
-        }),
-      });
-      if (!resp.ok) {
-        let detail = '';
-        try {
-          const j = await resp.json();
-          detail = (j.error && j.error.message && j.error.message.value) || '';
-        } catch (_e) {}
-        return { ok: false, error: 'HTTP ' + resp.status + (detail ? ' - ' + detail : '') };
-      }
-      this.sessionAt = Date.now();
-      return { ok: true };
-    } catch (e) {
-      // Error de red, CORS bloqueado, certificado, etc.
-      return { ok: false, error: 'Error de red o CORS: ' + (e.message || String(e)) };
-    }
+    return {
+      ok: false,
+      error: 'login legacy deshabilitado (v688). Todas las llamadas SL van via sapProxy CF.',
+    };
   },
 
   async ensureSession() {
-    if (Date.now() - this.sessionAt < this.sessionTtlMs) return { ok: true };
-    return this.login();
+    // v688: siempre delega al cloud client. El session tracking vive en la CF.
+    return { ok: true };
   },
 
-  // Wrapper de fetch que: 1) asegura sesion, 2) hace request, 3) si tira 401
-  // re-loguea y reintenta una vez.
-  //
-  // Fase 0 E2.b step 3 (v330): si useCloudProxy=true rutea via
-  // sapProxy Cloud Function (creds en Secret Manager server-side).
-  // Si false, cae al fetch directo legacy (creds en Firestore, lo que
-  // E5 vino a cerrar). Flag por si hay que rollback rápido sin
-  // redeploy — flip a false y la app vuelve al modo legacy inmediato.
+  // v688 HARDENING (2026-08-27): fallback legacy eliminado. Antes, si el
+  // bundle no cargaba `__phase0.sap.createSapClient`, caía a fetch directo
+  // con `cfg.password` (leído de Firestore). Ahora devuelve error explícito.
+  // El bundle es blocking en el <head> — si no cargó, la app entera está
+  // rota, no solo SL. Este cambio elimina el único caller cliente de la
+  // credencial de Firestore.
   useCloudProxy: true,
   _cloudClient: null, // lazy singleton
   _getCloudClient() {
@@ -124,52 +107,16 @@ const sapSL = {
     return this._cloudClient;
   },
   async fetchWithSession(path, options) {
-    // Nueva ruta: sapProxy Cloud Function.
-    if (this.useCloudProxy) {
-      const client = this._getCloudClient();
-      if (client) return client.fetchWithSession(path, options);
-      // Bundle no cargó — fallback al legacy con warning.
-      console.warn('[sapSL] cloud client no disponible, fallback a fetch directo');
-    }
-    // Legacy: fetch directo al SL con creds de Firestore.
-    const cfg = this.config;
-    const url = path.startsWith('http') ? path : cfg.url.replace(/\/$/, '') + path;
-    let s = await this.ensureSession();
-    if (!s.ok) return { ok: false, error: s.error, status: 0 };
-    const opts = Object.assign({ credentials: 'include' }, options || {});
-    opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
-    let resp;
-    try {
-      resp = await fetch(url, opts);
-    } catch (e) {
-      return { ok: false, error: 'Network/CORS: ' + (e.message || e), status: 0 };
-    }
-    if (resp.status === 401) {
-      // sesion expirada -> re-login y reintentar 1 vez
-      s = await this.login();
-      if (!s.ok) return { ok: false, error: 'Re-login fallido: ' + s.error, status: 401 };
-      try {
-        resp = await fetch(url, opts);
-      } catch (e) {
-        return { ok: false, error: 'Network/CORS retry: ' + (e.message || e), status: 0 };
-      }
-    }
-    let body = null;
-    try {
-      body = await resp.json();
-    } catch (_e) {
-      body = null;
-    }
-    if (!resp.ok) {
-      const detail = (body && body.error && body.error.message && body.error.message.value) || '';
+    const client = this._getCloudClient();
+    if (!client) {
+      console.error('[sapSL] cloud client no disponible. Bundle no cargó?');
       return {
         ok: false,
-        error: 'HTTP ' + resp.status + (detail ? ' - ' + detail : ''),
-        status: resp.status,
-        body,
+        error: 'sapProxy no disponible. Recargá la app o contactá a Mariano.',
+        status: 0,
       };
     }
-    return { ok: true, body, status: resp.status };
+    return client.fetchWithSession(path, options);
   },
 
   // Crea una Sales Quotation. Recibe el payload ya armado en JSON.
