@@ -330,8 +330,57 @@ function _renderInfraSection() {
       _hCard('Sentry Rate Spike', spikeStatus, spikeMain, spikeSub, spikeTooltip) +
       _hCard('Firestore Quota', fsq.healthColor, fsqMain, fsqSub, fsqTooltip) +
       _hCard('CF Invoice Sync', cfStatus, cfLabel, cfSub, cfTooltip) +
-      _renderCollectionsGrowthCard(p)
+      _renderCollectionsGrowthCard(p) +
+      _renderStuckPendingCard(p) +
+      _renderDeadProvisoriosCard(p)
   );
+}
+
+// v686 Fase E3 (2026-08-27) Card "Pedidos Stuck" - pedidos con stage=pending
+// hace mas de 7 dias sin cerrar. Los vendedores dejan el flow a mitad de
+// camino y quedan pendientes visibles pero no procesados.
+function _renderStuckPendingCard(p) {
+  const pedidos = Array.isArray(window.globalPedidos) ? window.globalPedidos : [];
+  const now = new Date();
+  const stuck = p.findStuckPendingPedidos
+    ? p.findStuckPendingPedidos(pedidos, now, 7)
+    : { healthColor: 'unknown', count: 0, top5: [] };
+  let mainText = stuck.count + ' pedido' + (stuck.count === 1 ? '' : 's');
+  let subText;
+  if (stuck.count === 0) {
+    subText = 'sin pendientes viejos';
+  } else {
+    const top = stuck.top5[0];
+    subText = 'mas viejo: ' + top.clientName.slice(0, 26) + ' (' + top.ageDays + 'd, ' + top.ownerVendor.split(' ')[0] + ')';
+  }
+  const tooltip = stuck.count === 0
+    ? 'Sin pedidos en stage=pending hace mas de 7 dias. Sano.'
+    : 'Pedidos stage=pending hace >' + stuck.thresholdDays + ' dias sin cerrar (vendedor toco Vista preliminar pero no confirmo definitivamente). Top 5:\n' +
+      stuck.top5.map((x) => '- ' + x.clientName + ' (' + x.ageDays + 'd, ' + x.ownerVendor + ')').join('\n');
+  return _hCard('Pedidos Stuck (>7d)', stuck.healthColor, mainText, subText, tooltip);
+}
+
+// v686 Fase E3 (2026-08-27) Card "Provisorios Muertos" - client_applications
+// sin cardCodeSap hace mas de 30 dias. Candidates para cerrar/archivar.
+function _renderDeadProvisoriosCard(p) {
+  const apps = Array.isArray(window.approvedAltasList) ? window.approvedAltasList : [];
+  const now = new Date();
+  const dead = p.findDeadProvisorios
+    ? p.findDeadProvisorios(apps, now, 30)
+    : { healthColor: 'unknown', count: 0, top5: [] };
+  let mainText = dead.count + ' provisorio' + (dead.count === 1 ? '' : 's');
+  let subText;
+  if (dead.count === 0) {
+    subText = 'sin provisorios muertos';
+  } else {
+    const top = dead.top5[0];
+    subText = 'mas viejo: ' + top.comercio.slice(0, 24) + ' (' + top.ageDays + 'd, ' + top.provincia + ')';
+  }
+  const tooltip = dead.count === 0
+    ? 'Sin provisorios abandonados. Sano.'
+    : 'Provisorios (manualSapPending=true, sin cardCodeSap) hace >' + dead.thresholdDays + ' dias. Candidates para cerrar. Top 5:\n' +
+      dead.top5.map((x) => '- ' + x.comercio + ' (' + x.ageDays + 'd, ' + x.provincia + ', ' + x.ownerEmail + ')').join('\n');
+  return _hCard('Provisorios Muertos (>30d)', dead.healthColor, mainText, subText, tooltip);
 }
 
 // v686 (2026-08-27) Card "Growth Colecciones" - anticipa crecimiento

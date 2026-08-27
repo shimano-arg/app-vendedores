@@ -585,3 +585,112 @@ export function summarizeCollectionsGrowth(growthDoc) {
     syncedAgoLabel: formatAgeLabel(growthDoc.syncedAt),
   };
 }
+
+/**
+ * v686 Fase E3 (2026-08-27) Detecta pedidos "stuck" en pending por muchos dias
+ * (indica que el vendedor no cerro el flow con Confirmar Definitivamente).
+ *
+ * @param {Array<{stage?:string, confirmedAt?:any, finalizedAt?:any, transferidoSAP?:any, clientName?:string, ownerVendor?:string}>} pedidos - globalPedidos array
+ * @param {Date} now - fecha actual (para test determinista)
+ * @param {number} thresholdDays - default 7 dias
+ */
+export function findStuckPendingPedidos(pedidos, now, thresholdDays) {
+  const th = thresholdDays || 7;
+  const nowTs = now && now.getTime ? now.getTime() : Date.now();
+  const threshMs = th * 24 * 60 * 60 * 1000;
+  const list = Array.isArray(pedidos) ? pedidos : [];
+  const stuck = [];
+  for (const p of list) {
+    if (!p || p.stage !== 'pending') continue;
+    // Si ya se transfirio a SAP, no cuenta (aunque siga en pending por bug).
+    if (p.transferidoSAP && p.transferidoSAP.transferredAt) continue;
+    const ts = p.confirmedAt || p.finalizedAt || p.createdAt;
+    if (!ts) continue;
+    let d = null;
+    if (typeof ts === 'string') {
+      d = new Date(ts);
+    } else if (ts && typeof ts.toDate === 'function') {
+      try {
+        d = ts.toDate();
+      } catch (_e) {
+        d = null;
+      }
+    }
+    if (!d || Number.isNaN(d.getTime())) continue;
+    const ageMs = nowTs - d.getTime();
+    if (ageMs < threshMs) continue;
+    const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+    stuck.push({
+      clientName: String(p.clientName || '-'),
+      ownerVendor: String(p.ownerVendor || '-'),
+      ageDays,
+      confirmedAt: d.toISOString().slice(0, 10),
+    });
+  }
+  stuck.sort((a, b) => b.ageDays - a.ageDays);
+  let health = 'green';
+  if (stuck.length >= 10) health = 'red';
+  else if (stuck.length >= 3) health = 'yellow';
+  return {
+    healthColor: health,
+    count: stuck.length,
+    thresholdDays: th,
+    top5: stuck.slice(0, 5),
+  };
+}
+
+/**
+ * v686 Fase E3 (2026-08-27) Detecta provisorios (client_applications) sin
+ * cardCodeSap hace muchos dias - probablemente dead entries que deberian
+ * cerrarse.
+ *
+ * @param {Array<{cardCodeSap?:string, manualSapPending?:boolean, createdAt?:any, comercio?:string, titular?:string, provincia?:string, ownerEmail?:string}>} applications
+ * @param {Date} now
+ * @param {number} thresholdDays - default 30
+ */
+export function findDeadProvisorios(applications, now, thresholdDays) {
+  const th = thresholdDays || 30;
+  const nowTs = now && now.getTime ? now.getTime() : Date.now();
+  const threshMs = th * 24 * 60 * 60 * 1000;
+  const list = Array.isArray(applications) ? applications : [];
+  const dead = [];
+  for (const a of list) {
+    if (!a) continue;
+    // Un provisorio = tiene manualSapPending=true Y no tiene cardCodeSap.
+    if (a.cardCodeSap) continue;
+    if (!a.manualSapPending) continue;
+    const ts = a.createdAt;
+    if (!ts) continue;
+    let d = null;
+    if (typeof ts === 'string') {
+      d = new Date(ts);
+    } else if (ts && typeof ts.toDate === 'function') {
+      try {
+        d = ts.toDate();
+      } catch (_e) {
+        d = null;
+      }
+    }
+    if (!d || Number.isNaN(d.getTime())) continue;
+    const ageMs = nowTs - d.getTime();
+    if (ageMs < threshMs) continue;
+    const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+    dead.push({
+      comercio: String(a.comercio || a.titular || '-'),
+      provincia: String(a.provincia || '-'),
+      ageDays,
+      createdAt: d.toISOString().slice(0, 10),
+      ownerEmail: String(a.ownerEmail || '-'),
+    });
+  }
+  dead.sort((a, b) => b.ageDays - a.ageDays);
+  let health = 'green';
+  if (dead.length >= 20) health = 'red';
+  else if (dead.length >= 5) health = 'yellow';
+  return {
+    healthColor: health,
+    count: dead.length,
+    thresholdDays: th,
+    top5: dead.slice(0, 5),
+  };
+}
