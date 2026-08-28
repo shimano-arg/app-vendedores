@@ -28,6 +28,9 @@
  * @typedef {Object} PedidoLike
  * @property {any} [closedAt]
  * @property {Array<any>} [lines]
+ * @property {string} [clientCardCode]
+ * @property {string} [_fsId]
+ * @property {string} [_id]
  */
 
 /**
