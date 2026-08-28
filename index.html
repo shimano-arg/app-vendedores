@@ -4310,7 +4310,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v716';
+const APP_VERSION = 'v717';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13890,18 +13890,44 @@ function _renderE4BAsigApp(w){
     : [];
   while (rows.firstChild) rows.removeChild(rows.firstChild);
   if (!asigLines.length) { cont.style.display = 'none'; return; }
+  // v717 (2026-08-28): resolver desc desde PRODUCTS por code si it.desc esta
+  // vacio + set de SKUs presentes en el pedido actual para pintar la row en
+  // amarillo si el SKU repetido (asi el vendedor lo detecta rapido).
+  const prodByCode = {};
+  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
+    for (const p of PRODUCTS) prodByCode[(p.code || '').toUpperCase()] = p;
+  }
+  const currentItemSkus = new Set();
+  if (w && Array.isArray(w.items)) {
+    for (const it of w.items) {
+      if (it && it.code) currentItemSkus.add(String(it.code).toUpperCase());
+    }
+  }
   for (const it of asigLines) {
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid #bfdbfe;border-radius:5px;font-size:11px;flex-wrap:wrap';
+    const _skuUp = String(it.code || '').toUpperCase();
+    const _repeatedInPedido = currentItemSkus.has(_skuUp);
+    // v717: fondo amarillo si el mismo SKU ya esta en el pedido actual
+    // (el cliente lo pidio otra vez sabiendo que ya tenia ASIG).
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:' + (_repeatedInPedido ? '#fef3c7' : '#fff') + ';border:1px solid ' + (_repeatedInPedido ? '#fbbf24' : '#bfdbfe') + ';border-radius:5px;font-size:11px;flex-wrap:wrap';
     const left = document.createElement('div');
     left.style.flex = '1';
     left.style.minWidth = '220px';
     const code = document.createElement('div');
     code.style.cssText = 'font-family:monospace;font-weight:800;color:#0f172a;font-size:10.5px';
-    code.textContent = it.code;
+    code.textContent = it.code + (_repeatedInPedido ? '  ⚠ TAMBIEN EN EL PEDIDO ACTUAL' : '');
+    if (_repeatedInPedido) code.style.color = '#92400e';
     const desc = document.createElement('div');
     desc.style.cssText = 'color:#334155;margin-top:1px;font-size:10.5px';
-    desc.textContent = it.desc || '(sin catalogo)';
+    // v717: fallback a lookup en PRODUCTS por code cuando it.desc esta vacio.
+    // Si tampoco esta en PRODUCTS, no mostrar nada (evita "(sin catalogo)").
+    const _prod = prodByCode[_skuUp];
+    const _desc = it.desc || (_prod && _prod.desc) || '';
+    if (_desc) {
+      desc.textContent = _desc;
+    } else {
+      desc.style.display = 'none';
+    }
     const meta = document.createElement('div');
     meta.style.cssText = 'color:#64748b;font-size:9.5px;margin-top:2px';
     // v705.1: distinguir ASIG firme (state=ASIG) vs virtual (state=BO+stock).
