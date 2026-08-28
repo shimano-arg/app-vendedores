@@ -4113,7 +4113,9 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
               <th style="text-align:center;padding:6px 8px" title="Stock fisico completo en deposito 11">Stock completo (dep 11)</th>
               <th style="text-align:center;padding:6px 8px" title="Unidades comprometidas en pedidos-app open (confirmed + BO + ASIG). Hover: breakdown por state.">Unidades reservadas</th>
               <th style="text-align:center;padding:6px 8px;background:#fef9c3;color:#78350f" title="Stock realmente disponible = Stock completo - Unidades reservadas. Es lo que podes prometer al cliente HOY.">Libre para la venta</th>
-              <th style="text-align:center;padding:6px 8px">Pedido</th>
+              <th style="text-align:center;padding:6px 8px" title="Cantidad original que pidio el cliente">Pedido</th>
+              <!-- v716 (2026-08-28): nueva columna Pedido Final = min(Pedido, Libre). -->
+              <th style="text-align:center;padding:6px 8px;background:#dbeafe;color:#1e40af" title="Pedido Final = min(Pedido, Libre para la venta). Es lo que efectivamente va a SAP como confirmed. El resto cae en Backorder.">Pedido Final</th>
               <th style="text-align:center;padding:6px 8px" title="Precio unitario del catalogo/SAP">Precio</th>
               <th style="text-align:center;padding:6px 8px" title="Lo que confirmas YA con seguridad = min(Pedido, Libre) x Precio">Subtotal (Confirmaci&oacute;n Inmediata)</th>
               <th style="text-align:center;padding:6px 8px" title="Igual a Subtotal Confirmacion Inmediata en esta version (v702). Se mantiene la columna para no romper exports.">Subtotal (Pendiente)</th>
@@ -4308,7 +4310,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v715';
+const APP_VERSION = 'v716';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14429,10 +14431,18 @@ function _renderWaitlistCard(){
     tr.appendChild(mk(r.desc, 'left-align'));
     // v702 (2026-08-28): Stock completo (dep 11).
     tr.appendChild(mk(r.hasData ? r.stockTotal : '-', 'num'));
-    // v713.1 (2026-08-28): Unidades reservadas + Libre para la venta desde
-    // la perspectiva del cliente actual. Reservadas = las de ESTE cliente.
-    // Libre = fisico - reservas de OTROS clientes (las suyas siguen "libres para el").
-    // Si yaEnOtroPedido.length > 0 -> alerta visual (repite SKU).
+    // v716 (2026-08-28): Mariano pidio consistencia con STOCK ASIG modal (que
+    // muestra TOTAL reservado). Cambios respecto v714:
+    // - Unidades Reservadas = TOTAL comprometido (todos los clientes) — antes
+    //   solo mostraba las del cliente actual (por eso daba 0 para SKUs que
+    //   solo tienen reservas de otros).
+    // - Libre para la venta = r.disponible = stock - reservas total = matches
+    //   el disponibleReal usado por el split flow.
+    // - porCli.reservadasPorCliente sigue vivo para el badge repeat-sku +
+    //   boton Fusionar (info del cliente actual). Solo cambia el DISPLAY.
+    const desg = (r.hasData && typeof window.getStockDesglose === 'function')
+      ? window.getStockDesglose(r.code)
+      : { fisico: 0, comprometido: 0, real: 0, breakdown: { confirmed: 0, BO: 0, ASIG: 0 } };
     const porCli = (r.hasData && typeof window.getStockPorCliente === 'function')
       ? window.getStockPorCliente(r.code, w.clientCardCode || '')
       : { fisico: 0, reservadasPorCliente: 0, reservadasPorOtros: 0, libreParaCliente: 0, disponibleReal: 0, yaEnOtroPedido: [] };
@@ -14440,23 +14450,26 @@ function _renderWaitlistCard(){
     // Filtrar pedidos que no sean el actual (w._id) para no contar la misma linea que estamos viendo.
     const yaEnOtroFiltrado = yaEnOtro.filter(x => x && x.pedidoId !== w._id);
     r._yaEnOtroPedido = yaEnOtroFiltrado;
+    // Unidades Reservadas: TOTAL (matches STOCK ASIG modal).
     const tdReserv = document.createElement('td');
     tdReserv.className = 'num';
-    tdReserv.textContent = r.hasData ? String(porCli.reservadasPorCliente || 0) : '-';
-    if (r.hasData && porCli.reservadasPorCliente > 0) {
-      tdReserv.title = 'Reservadas por ESTE cliente: ' + porCli.reservadasPorCliente + ' u\\n(en ' + yaEnOtroFiltrado.length + ' pedido(s) anterior(es))';
+    tdReserv.textContent = r.hasData ? String(desg.comprometido || 0) : '-';
+    if (r.hasData && desg.comprometido > 0) {
+      tdReserv.title = 'Total reservadas: ' + desg.comprometido + ' u\\n' +
+        'confirmed ' + desg.breakdown.confirmed + ' · BO ' + desg.breakdown.BO + ' · ASIG ' + desg.breakdown.ASIG + '\\n' +
+        'De ESTE cliente: ' + porCli.reservadasPorCliente + ' u · De OTROS: ' + porCli.reservadasPorOtros + ' u';
       tdReserv.style.background = '#e0e7ff';
       tdReserv.style.color = '#3730a3';
       tdReserv.style.fontWeight = '800';
     }
     tr.appendChild(tdReserv);
-    // Libre para la venta = stock fisico - reservas de OTROS clientes.
-    // Las del mismo cliente cuentan "libres" (son suyas). Fondo amarillo pastel.
+    // Libre para la venta = stock fisico - reservas TOTAL. Matches el
+    // disponibleReal usado por el split flow al confirmar.
     const tdLibre = document.createElement('td');
     tdLibre.className = 'num disp-sap-col';
-    tdLibre.textContent = r.hasData ? String(porCli.libreParaCliente || 0) : '-';
+    tdLibre.textContent = r.hasData ? String(r.disponible || 0) : '-';
     if (r.hasData) {
-      tdLibre.title = 'Libre para ' + (w.clientName || 'este cliente') + ': ' + porCli.libreParaCliente + ' u\\n(fisico ' + porCli.fisico + ' - reservas de otros clientes ' + porCli.reservadasPorOtros + ')';
+      tdLibre.title = 'Libre para la venta: ' + (r.disponible || 0) + ' u\\n(stock fisico ' + r.stockTotal + ' - reservadas total ' + desg.comprometido + ')';
     }
     tr.appendChild(tdLibre);
     // v713.1: Alerta visual cuando el SKU se repite - resaltar fila y marcar summary.
@@ -14496,6 +14509,21 @@ function _renderWaitlistCard(){
     inp.onchange = () => waitlistUpdateItemQty(w._id, r.idx, parseInt(inp.value, 10) || 0);
     tdQty.appendChild(inp);
     tr.appendChild(tdQty);
+    // v716 (2026-08-28): Pedido Final = min(Pedido, Libre para la venta).
+    // Es la qty efectiva que va a SAP como confirmed. El resto cae en BO.
+    const pedidoFinal = Math.max(0, Math.min(Number(r.qty) || 0, Number(r.disponible) || 0));
+    const tdFinal = document.createElement('td');
+    tdFinal.className = 'num';
+    tdFinal.textContent = r.hasData ? String(pedidoFinal) : '-';
+    tdFinal.title = r.hasData
+      ? 'Pedido Final = min(Pedido ' + r.qty + ', Libre ' + r.disponible + ') = ' + pedidoFinal + ' u\\nEs lo que va a SAP como confirmed.'
+      : '';
+    if (r.hasData && pedidoFinal > 0) {
+      tdFinal.style.background = '#dbeafe';
+      tdFinal.style.color = '#1e40af';
+      tdFinal.style.fontWeight = '800';
+    }
+    tr.appendChild(tdFinal);
     // v470/v472: Precio sin '$' + 3 subtotales (Inmediata + Pendiente + Backorder).
     tr.appendChild(mk(Math.round(r.precio).toLocaleString('es-AR'), 'num'));
     // Subtotal Confirmacion Inmediata (verde) = min(qty, DispSAP) x precio.
