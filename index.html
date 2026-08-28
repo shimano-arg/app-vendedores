@@ -4311,7 +4311,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v719';
+const APP_VERSION = 'v720';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -11133,6 +11133,18 @@ window.deleteBackorderAppLine = async function(pedidoId, sku, clienteNombre, qty
       alert('No se encontro la linea ' + sku + ' con state=' + st + ' en el pedido.\n\nQuizas otro admin ya la elimino, o el state cambio (BO<->ASIG por FIFO). Refresca el modal.');
       return;
     }
+    // v720 (2026-08-28): OPTIMISTIC UPDATE. Antes esperaba el snapshot Firestore
+    // (200-500ms) para ver el cambio en el modal. Ahora updated globalPedidos
+    // localmente + renderBackordersTab inmediato, el snapshot despues confirma.
+    if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+      const localP = globalPedidos.find(pp => pp && pp._fsId === pedidoId);
+      if (localP) localP.lines = newLines;
+    }
+    // Re-render inmediato del modal Backorder si esta abierto.
+    try {
+      const bm = document.getElementById('backorders-modal');
+      if (bm && bm.classList.contains('open') && typeof renderBackordersTab === 'function') renderBackordersTab();
+    } catch(_e){}
     await fbDb.collection('pedidos').doc(pedidoId).update({
       lines: newLines,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -22318,6 +22330,12 @@ function attachFirebaseListeners(){
       if (wm && wm.classList.contains('open') && typeof _renderWaitlistRows === 'function') _renderWaitlistRows();
       const cm = document.getElementById('waitlist-card-modal');
       if (cm && cm.classList.contains('open') && _wcardCurrent && typeof _renderWaitlistCard === 'function') _renderWaitlistCard();
+      // v720 (2026-08-28): re-render modal Backorder + STOCK ASIG si estan abiertos.
+      // Antes Mariano tenia que refrescar la app entera despues de tocar Eliminar
+      // porque el listener solo actualizaba globalPedidos pero no re-renderizaba
+      // los modales. Ahora la UI se actualiza instantaneamente post-delete.
+      const bm = document.getElementById('backorders-modal');
+      if (bm && bm.classList.contains('open') && typeof renderBackordersTab === 'function') renderBackordersTab();
     } catch(e) { console.warn('refresh waitlist post pedidos snapshot', e); }
   }, err => console.error('pedidos all listener', err));
 }
