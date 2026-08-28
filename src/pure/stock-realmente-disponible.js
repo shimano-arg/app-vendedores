@@ -93,10 +93,11 @@ export function getStockDesglose(sku, deps) {
     for (const l of lines) {
       if (!l || !l.code) continue;
       if (String(l.code).toUpperCase() !== skuUp) continue;
-      if (!STATES_QUE_RESERVAN.has(l.state)) continue;
+      const st = /** @type {'confirmed'|'BO'|'ASIG'} */ (l.state);
+      if (!STATES_QUE_RESERVAN.has(st)) continue;
       const qtyOpen = Number(l.qtyOpen) || 0;
       if (qtyOpen <= 0) continue;
-      breakdown[l.state] = (breakdown[l.state] || 0) + qtyOpen;
+      breakdown[st] = (breakdown[st] || 0) + qtyOpen;
     }
   }
   const comprometido = breakdown.confirmed + breakdown.BO + breakdown.ASIG;
