@@ -1,0 +1,5825 @@
+{
+  "timestamp": "2026-08-28T12:02:20.046584+00:00",
+  "resumen": {
+    "total_lines": 1489,
+    "total_pendiente": 4413.0,
+    "unique_sqs": 129,
+    "unique_clientes": 94,
+    "unique_skus": 414
+  },
+  "dup_intra_sap": [
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "FXC70MC2",
+      "producto": "\"Shimano Fx — Caña Casting Multipropósito 7'0\"\" (2.13m) — 2 tramos — Potencia Medium (M) — Señuelo 7-28 gr\"",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 100.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "FXC70MC2",
+          "producto": "\"Shimano Fx — Caña Casting Multipropósito 7'0\"\" (2.13m) — 2 tramos — Potencia Medium (M) — Señuelo 7-28 gr\"",
+          "familia": "CAÑAS",
+          "subfamilia": "Multi Purpose",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 50.0,
+          "precio": 23000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "FXC70MC2",
+          "producto": "\"Shimano Fx — Caña Casting Multipropósito 7'0\"\" (2.13m) — 2 tramos — Potencia Medium (M) — Señuelo 7-28 gr\"",
+          "familia": "CAÑAS",
+          "subfamilia": "Multi Purpose",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 50.0,
+          "precio": 23000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "22CATPRII420",
+      "producto": "Shimano Catana — Caña Telescópica Pejerrey 4.20m — 5 secciones — Peso de lance 30-60 gr",
+      "num_sqs": 2,
+      "sqs": [
+        25938,
+        2000051
+      ],
+      "total_pendiente": 60.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "22CATPRII420",
+          "producto": "Shimano Catana — Caña Telescópica Pejerrey 4.20m — 5 secciones — Peso de lance 30-60 gr",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Telescopic",
+          "sqDocNum": 2000051,
+          "sqDocDate": "2026-08-12T00:00:00+00:00",
+          "pendiente": 40.0,
+          "precio": 107000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "22CATPRII420",
+          "producto": "Shimano Catana — Caña Telescópica Pejerrey 4.20m — 5 secciones — Peso de lance 30-60 gr",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Telescopic",
+          "sqDocNum": 25938,
+          "sqDocDate": "2026-07-24T00:00:00+00:00",
+          "pendiente": 20.0,
+          "precio": 107000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C33716739649",
+      "clienteNombre": "MUNDO ESTURION S.R.L.",
+      "sku": "CAPSH2401",
+      "producto": "Gorra Shimano - Color Gris y Negro - Con parche color marrón",
+      "num_sqs": 2,
+      "sqs": [
+        25801,
+        2000044
+      ],
+      "total_pendiente": 40.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C33716739649",
+          "clienteNombre": "MUNDO ESTURION S.R.L.",
+          "sku": "CAPSH2401",
+          "producto": "Gorra Shimano - Color Gris y Negro - Con parche color marrón",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25801,
+          "sqDocDate": "2026-07-16T00:00:00+00:00",
+          "pendiente": 20.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C33716739649",
+          "clienteNombre": "MUNDO ESTURION S.R.L.",
+          "sku": "CAPSH2401",
+          "producto": "Gorra Shimano - Color Gris y Negro - Con parche color marrón",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000044,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 20.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C33716739649",
+      "clienteNombre": "MUNDO ESTURION S.R.L.",
+      "sku": "CAPSH2402",
+      "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+      "num_sqs": 2,
+      "sqs": [
+        25801,
+        2000044
+      ],
+      "total_pendiente": 40.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C33716739649",
+          "clienteNombre": "MUNDO ESTURION S.R.L.",
+          "sku": "CAPSH2402",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25801,
+          "sqDocDate": "2026-07-16T00:00:00+00:00",
+          "pendiente": 20.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C33716739649",
+          "clienteNombre": "MUNDO ESTURION S.R.L.",
+          "sku": "CAPSH2402",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000044,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 20.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C33716739649",
+      "clienteNombre": "MUNDO ESTURION S.R.L.",
+      "sku": "FX2000FC",
+      "producto": "Shimano FX FC — Tamaño 2000 — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        25801,
+        2000044
+      ],
+      "total_pendiente": 40.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C33716739649",
+          "clienteNombre": "MUNDO ESTURION S.R.L.",
+          "sku": "FX2000FC",
+          "producto": "Shimano FX FC — Tamaño 2000 — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 25801,
+          "sqDocDate": "2026-07-16T00:00:00+00:00",
+          "pendiente": 20.0,
+          "precio": 31000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C33716739649",
+          "clienteNombre": "MUNDO ESTURION S.R.L.",
+          "sku": "FX2000FC",
+          "producto": "Shimano FX FC — Tamaño 2000 — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000044,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 20.0,
+          "precio": 31000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "CVC66H2CSA",
+      "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_sqs": 3,
+      "sqs": [
+        25841,
+        2000006,
+        2000015
+      ],
+      "total_pendiente": 36.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "CVC66H2CSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 25841,
+          "sqDocDate": "2026-07-20T00:00:00+00:00",
+          "pendiente": 12.0,
+          "precio": 66000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "CVC66H2CSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 2000006,
+          "sqDocDate": "2026-07-27T00:00:00+00:00",
+          "pendiente": 12.0,
+          "precio": 66000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "CVC66H2CSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 2000015,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 12.0,
+          "precio": 66000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C27293820622",
+      "clienteNombre": "MARIA AGUSTINA PRAT",
+      "sku": "CVC66H2CSA",
+      "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        25714,
+        2000003
+      ],
+      "total_pendiente": 31.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C27293820622",
+          "clienteNombre": "MARIA AGUSTINA PRAT",
+          "sku": "CVC66H2CSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 2000003,
+          "sqDocDate": "2026-07-08T00:00:00+00:00",
+          "pendiente": 20.0,
+          "precio": 64000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C27293820622",
+          "clienteNombre": "MARIA AGUSTINA PRAT",
+          "sku": "CVC66H2CSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 25714,
+          "sqDocDate": "2026-07-08T00:00:00+00:00",
+          "pendiente": 11.0,
+          "precio": 66000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "9691",
+      "producto": "Gorra Shimano - Color Azul - Logo bordado color Blanco",
+      "num_sqs": 2,
+      "sqs": [
+        25879,
+        2000025
+      ],
+      "total_pendiente": 30.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "9691",
+          "producto": "Gorra Shimano - Color Azul - Logo bordado color Blanco",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25879,
+          "sqDocDate": "2026-07-21T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 15000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "9691",
+          "producto": "Gorra Shimano - Color Azul - Logo bordado color Blanco",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000025,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 20.0,
+          "precio": 15000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CAPSH1802",
+      "producto": "Gorra Shimano - Color Negro - Logo bordado color Cyan",
+      "num_sqs": 2,
+      "sqs": [
+        25879,
+        2000025
+      ],
+      "total_pendiente": 30.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CAPSH1802",
+          "producto": "Gorra Shimano - Color Negro - Logo bordado color Cyan",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25879,
+          "sqDocDate": "2026-07-21T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 12000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CAPSH1802",
+          "producto": "Gorra Shimano - Color Negro - Logo bordado color Cyan",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000025,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 20.0,
+          "precio": 12000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CAPSH2401",
+      "producto": "Gorra Shimano - Color Gris y Negro - Con parche color marrón",
+      "num_sqs": 2,
+      "sqs": [
+        25879,
+        2000025
+      ],
+      "total_pendiente": 30.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CAPSH2401",
+          "producto": "Gorra Shimano - Color Gris y Negro - Con parche color marrón",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25879,
+          "sqDocDate": "2026-07-21T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CAPSH2401",
+          "producto": "Gorra Shimano - Color Gris y Negro - Con parche color marrón",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000025,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 20.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CAPSH2402",
+      "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+      "num_sqs": 2,
+      "sqs": [
+        25879,
+        2000025
+      ],
+      "total_pendiente": 30.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CAPSH2402",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25879,
+          "sqDocDate": "2026-07-21T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CAPSH2402",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000025,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 20.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CAPSH2404",
+      "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Negro - Logo bordado",
+      "num_sqs": 2,
+      "sqs": [
+        25879,
+        2000025
+      ],
+      "total_pendiente": 30.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CAPSH2404",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Negro - Logo bordado",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25879,
+          "sqDocDate": "2026-07-21T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CAPSH2404",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Negro - Logo bordado",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000025,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 20.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "CLC66H2PY",
+      "producto": "\"Shimano Clarus - Caña de  Casting  6'6\"\"- 2 tramos - Potencia Heavy (H)  30 lb - Señuelo 12-35 g - Acción Rápida\"",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 20.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CLC66H2PY",
+          "producto": "\"Shimano Clarus - Caña de  Casting  6'6\"\"- 2 tramos - Potencia Heavy (H)  30 lb - Señuelo 12-35 g - Acción Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 34000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CLC66H2PY",
+          "producto": "\"Shimano Clarus - Caña de  Casting  6'6\"\"- 2 tramos - Potencia Heavy (H)  30 lb - Señuelo 12-35 g - Acción Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 34000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "CLC66MH2PY",
+      "producto": "\"Shimano Clarus - Caña de Casting  6'6\"\" - 2 tramos - Potencia Medium Heavy (MH)  25 lb - Señuelo 10-30 g - Acción Rápida\"",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 20.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CLC66MH2PY",
+          "producto": "\"Shimano Clarus - Caña de Casting  6'6\"\" - 2 tramos - Potencia Medium Heavy (MH)  25 lb - Señuelo 10-30 g - Acción Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 34000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CLC66MH2PY",
+          "producto": "\"Shimano Clarus - Caña de Casting  6'6\"\" - 2 tramos - Potencia Medium Heavy (MH)  25 lb - Señuelo 10-30 g - Acción Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 34000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "CLC70H2PY",
+      "producto": "\"Shimano Clarus - Caña de Casting  7'0\"\" - 2 tramos - Potencia Heavy (H) 30 lb -  Señuelo 12-40 g - Acción Rápida\"",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 20.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CLC70H2PY",
+          "producto": "\"Shimano Clarus - Caña de Casting  7'0\"\" - 2 tramos - Potencia Heavy (H) 30 lb -  Señuelo 12-40 g - Acción Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 34000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CLC70H2PY",
+          "producto": "\"Shimano Clarus - Caña de Casting  7'0\"\" - 2 tramos - Potencia Heavy (H) 30 lb -  Señuelo 12-40 g - Acción Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 34000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "CVC66MH4SACO",
+      "producto": "Shimano Convergence — Caña de Casting TRAVEL  6´6´´ - 4 partes - Potencia Medium Heavy (MH) 7-20 lb - Señuelo 7-28 g - Acción Fast",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 20.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CVC66MH4SACO",
+          "producto": "Shimano Convergence — Caña de Casting TRAVEL  6´6´´ - 4 partes - Potencia Medium Heavy (MH) 7-20 lb - Señuelo 7-28 g - Acción Fast",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 66000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 2.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CVC66MH4SACO",
+          "producto": "Shimano Convergence — Caña de Casting TRAVEL  6´6´´ - 4 partes - Potencia Medium Heavy (MH) 7-20 lb - Señuelo 7-28 g - Acción Fast",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 66000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 2.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "FX2000FC",
+      "producto": "Shimano FX FC — Tamaño 2000 — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        25879,
+        2000025
+      ],
+      "total_pendiente": 20.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "FX2000FC",
+          "producto": "Shimano FX FC — Tamaño 2000 — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 25879,
+          "sqDocDate": "2026-07-21T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 31000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "FX2000FC",
+          "producto": "Shimano FX FC — Tamaño 2000 — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000025,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 31000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "SLXXT151XGA",
+      "producto": "Shimano SLX XT A — Tamaño 151XG — Manija izquierda — Reel Baitcasting Low Profile",
+      "num_sqs": 2,
+      "sqs": [
+        25938,
+        2000051
+      ],
+      "total_pendiente": 13.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "SLXXT151XGA",
+          "producto": "Shimano SLX XT A — Tamaño 151XG — Manija izquierda — Reel Baitcasting Low Profile",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 2000051,
+          "sqDocDate": "2026-08-12T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 138000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "SLXXT151XGA",
+          "producto": "Shimano SLX XT A — Tamaño 151XG — Manija izquierda — Reel Baitcasting Low Profile",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 25938,
+          "sqDocDate": "2026-07-24T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 138000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C27293820622",
+      "clienteNombre": "MARIA AGUSTINA PRAT",
+      "sku": "FX2000FC",
+      "producto": "Shimano FX FC — Tamaño 2000 — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        25714,
+        2000003
+      ],
+      "total_pendiente": 12.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C27293820622",
+          "clienteNombre": "MARIA AGUSTINA PRAT",
+          "sku": "FX2000FC",
+          "producto": "Shimano FX FC — Tamaño 2000 — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000003,
+          "sqDocDate": "2026-07-08T00:00:00+00:00",
+          "pendiente": 6.0,
+          "precio": 30000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C27293820622",
+          "clienteNombre": "MARIA AGUSTINA PRAT",
+          "sku": "FX2000FC",
+          "producto": "Shimano FX FC — Tamaño 2000 — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 25714,
+          "sqDocDate": "2026-07-08T00:00:00+00:00",
+          "pendiente": 6.0,
+          "precio": 31000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20269003996",
+      "clienteNombre": "GERARDO ANDRES BIANCHINI",
+      "sku": "CAPSH2402",
+      "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+      "num_sqs": 2,
+      "sqs": [
+        25728,
+        2000012
+      ],
+      "total_pendiente": 12.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20269003996",
+          "clienteNombre": "GERARDO ANDRES BIANCHINI",
+          "sku": "CAPSH2402",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000012,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 6.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20269003996",
+          "clienteNombre": "GERARDO ANDRES BIANCHINI",
+          "sku": "CAPSH2402",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25728,
+          "sqDocDate": "2026-07-10T00:00:00+00:00",
+          "pendiente": 6.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "21100300300E",
+      "producto": "Powerpro Regular - 30 Lb x 300 Yardas - Color Verde - Made in USA",
+      "num_sqs": 2,
+      "sqs": [
+        25879,
+        2000025
+      ],
+      "total_pendiente": 12.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "21100300300E",
+          "producto": "Powerpro Regular - 30 Lb x 300 Yardas - Color Verde - Made in USA",
+          "familia": "LINEAS",
+          "subfamilia": "POWER PRO",
+          "sqDocNum": 25879,
+          "sqDocDate": "2026-07-21T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 39000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "21100300300E",
+          "producto": "Powerpro Regular - 30 Lb x 300 Yardas - Color Verde - Made in USA",
+          "familia": "LINEAS",
+          "subfamilia": "POWER PRO",
+          "sqDocNum": 2000025,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 10.0,
+          "precio": 39000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "CVC70H",
+      "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Heavy (H) 15-40 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_sqs": 3,
+      "sqs": [
+        25841,
+        2000006,
+        2000015
+      ],
+      "total_pendiente": 11.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "CVC70H",
+          "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Heavy (H) 15-40 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 25841,
+          "sqDocDate": "2026-07-20T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 73000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "CVC70H",
+          "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Heavy (H) 15-40 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 2000006,
+          "sqDocDate": "2026-07-27T00:00:00+00:00",
+          "pendiente": 4.0,
+          "precio": 73000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "CVC70H",
+          "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Heavy (H) 15-40 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 2000015,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 6.0,
+          "precio": 73000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "CIS151HGC",
+      "producto": "Shimano CAIUS C (2024) — Tamaño 151HG — Manija izquierda — Reel Baitcasting Low Profile",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 10.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CIS151HGC",
+          "producto": "Shimano CAIUS C (2024) — Tamaño 151HG — Manija izquierda — Reel Baitcasting Low Profile",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 5.0,
+          "precio": 90000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CIS151HGC",
+          "producto": "Shimano CAIUS C (2024) — Tamaño 151HG — Manija izquierda — Reel Baitcasting Low Profile",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 5.0,
+          "precio": 90000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "CU301HGK",
+      "producto": "Shimano CURADO K — Tamaño 301HG — Manija izquierda — Reel Baitcasting Low Profile",
+      "num_sqs": 2,
+      "sqs": [
+        26247,
+        26248
+      ],
+      "total_pendiente": 10.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "CU301HGK",
+          "producto": "Shimano CURADO K — Tamaño 301HG — Manija izquierda — Reel Baitcasting Low Profile",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 26248,
+          "sqDocDate": "2026-08-10T00:00:00+00:00",
+          "pendiente": 5.0,
+          "precio": 259000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "CU301HGK",
+          "producto": "Shimano CURADO K — Tamaño 301HG — Manija izquierda — Reel Baitcasting Low Profile",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 26247,
+          "sqDocDate": "2026-08-10T00:00:00+00:00",
+          "pendiente": 5.0,
+          "precio": 259000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C33716739649",
+      "clienteNombre": "MUNDO ESTURION S.R.L.",
+      "sku": "CVC66H2CSA",
+      "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        25801,
+        2000044
+      ],
+      "total_pendiente": 9.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C33716739649",
+          "clienteNombre": "MUNDO ESTURION S.R.L.",
+          "sku": "CVC66H2CSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 25801,
+          "sqDocDate": "2026-07-16T00:00:00+00:00",
+          "pendiente": 5.0,
+          "precio": 66000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C33716739649",
+          "clienteNombre": "MUNDO ESTURION S.R.L.",
+          "sku": "CVC66H2CSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 2000044,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 4.0,
+          "precio": 66000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CLC66HAR",
+      "producto": "Shimano Clarus - Caña de Casting  6´6´´ - 1 tramo - Potencia Heavy (H)  15-30 lb - Señuelo 20-50 g - Acción Moderada Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        25879,
+        2000025
+      ],
+      "total_pendiente": 9.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CLC66HAR",
+          "producto": "Shimano Clarus - Caña de Casting  6´6´´ - 1 tramo - Potencia Heavy (H)  15-30 lb - Señuelo 20-50 g - Acción Moderada Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 25879,
+          "sqDocDate": "2026-07-21T00:00:00+00:00",
+          "pendiente": 4.0,
+          "precio": 34000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CLC66HAR",
+          "producto": "Shimano Clarus - Caña de Casting  6´6´´ - 1 tramo - Potencia Heavy (H)  15-30 lb - Señuelo 20-50 g - Acción Moderada Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000025,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 5.0,
+          "precio": 34000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CVC66H2CSA",
+      "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        25879,
+        2000025
+      ],
+      "total_pendiente": 9.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CVC66H2CSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 25879,
+          "sqDocDate": "2026-07-21T00:00:00+00:00",
+          "pendiente": 4.0,
+          "precio": 66000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CVC66H2CSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 2000025,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 5.0,
+          "precio": 66000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CVC66HCSA",
+      "producto": "Shimano Convergence — Caña de Casting 1,98m — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        25879,
+        2000025
+      ],
+      "total_pendiente": 9.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CVC66HCSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 25879,
+          "sqDocDate": "2026-07-21T00:00:00+00:00",
+          "pendiente": 4.0,
+          "precio": 70000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CVC66HCSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 2000025,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 5.0,
+          "precio": 70000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CVC70H",
+      "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Heavy (H) 15-40 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        25879,
+        2000025
+      ],
+      "total_pendiente": 9.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CVC70H",
+          "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Heavy (H) 15-40 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 25879,
+          "sqDocDate": "2026-07-21T00:00:00+00:00",
+          "pendiente": 4.0,
+          "precio": 73000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CVC70H",
+          "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Heavy (H) 15-40 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 2000025,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 5.0,
+          "precio": 73000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "SHMTECHLGREENM",
+      "producto": "Remera Shimano Manga larga - Color Verde Claro - Talle Medium - Protección solar UPF50+",
+      "num_sqs": 2,
+      "sqs": [
+        25938,
+        2000077
+      ],
+      "total_pendiente": 8.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "SHMTECHLGREENM",
+          "producto": "Remera Shimano Manga larga - Color Verde Claro - Talle Medium - Protección solar UPF50+",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000077,
+          "sqDocDate": "2026-08-21T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 29000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 4.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "SHMTECHLGREENM",
+          "producto": "Remera Shimano Manga larga - Color Verde Claro - Talle Medium - Protección solar UPF50+",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25938,
+          "sqDocDate": "2026-07-24T00:00:00+00:00",
+          "pendiente": 5.0,
+          "precio": 29000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 4.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30714272817",
+      "clienteNombre": "WEEKEND OUTDOOR S.R.L.",
+      "sku": "SPM14000XTD",
+      "producto": "Shimano SPEEDMASTER XTD — Tamaño 14000 — Agua salada — Reel Frontal Surfcasting - Color Negro",
+      "num_sqs": 2,
+      "sqs": [
+        25753,
+        2000057
+      ],
+      "total_pendiente": 7.0,
+      "lines": [
+        {
+          "vendor": "FEDERICO CASTELANELLI",
+          "cardCode": "C30714272817",
+          "clienteNombre": "WEEKEND OUTDOOR S.R.L.",
+          "sku": "SPM14000XTD",
+          "producto": "Shimano SPEEDMASTER XTD — Tamaño 14000 — Agua salada — Reel Frontal Surfcasting - Color Negro",
+          "familia": "REEL",
+          "subfamilia": "Spinning Surfcasting",
+          "sqDocNum": 25753,
+          "sqDocDate": "2026-07-13T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 212000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "FEDERICO CASTELANELLI",
+          "cardCode": "C30714272817",
+          "clienteNombre": "WEEKEND OUTDOOR S.R.L.",
+          "sku": "SPM14000XTD",
+          "producto": "Shimano SPEEDMASTER XTD — Tamaño 14000 — Agua salada — Reel Frontal Surfcasting - Color Negro",
+          "familia": "REEL",
+          "subfamilia": "Spinning Surfcasting",
+          "sqDocNum": 2000057,
+          "sqDocDate": "2026-08-18T00:00:00+00:00",
+          "pendiente": 5.0,
+          "precio": 212000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "SHC3000HGFJ",
+      "producto": "Shimano SAHARA FJ (2022) — Tamaño C3000HG — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        2000006,
+        2000015
+      ],
+      "total_pendiente": 7.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "SHC3000HGFJ",
+          "producto": "Shimano SAHARA FJ (2022) — Tamaño C3000HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000006,
+          "sqDocDate": "2026-07-27T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 91000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "SHC3000HGFJ",
+          "producto": "Shimano SAHARA FJ (2022) — Tamaño C3000HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000015,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 4.0,
+          "precio": 91000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C27184733760",
+      "clienteNombre": "MARISA VIVIANA LUJAN IANUNZIO",
+      "sku": "TMCX74HSABR",
+      "producto": "\"Shimano Teramar — Caña de Casting 7'4\"\" (3m) — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 21-56 gr — Acción Extra Rápida\"",
+      "num_sqs": 2,
+      "sqs": [
+        25806,
+        26232
+      ],
+      "total_pendiente": 7.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C27184733760",
+          "clienteNombre": "MARISA VIVIANA LUJAN IANUNZIO",
+          "sku": "TMCX74HSABR",
+          "producto": "\"Shimano Teramar — Caña de Casting 7'4\"\" (3m) — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 21-56 gr — Acción Extra Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 26232,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 5.0,
+          "precio": 130000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C27184733760",
+          "clienteNombre": "MARISA VIVIANA LUJAN IANUNZIO",
+          "sku": "TMCX74HSABR",
+          "producto": "\"Shimano Teramar — Caña de Casting 7'4\"\" (3m) — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 21-56 gr — Acción Extra Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 25806,
+          "sqDocDate": "2026-07-16T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 126000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20084809919",
+      "clienteNombre": "FERNANDO ANTONIO URQUIOLA",
+      "sku": "NAS4000XGFD",
+      "producto": "Shimano NASCI FD (2026) — Tamaño 4000XG — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        26536,
+        2000063
+      ],
+      "total_pendiente": 6.0,
+      "lines": [
+        {
+          "vendor": "FEDERICO CASTELANELLI",
+          "cardCode": "C20084809919",
+          "clienteNombre": "FERNANDO ANTONIO URQUIOLA",
+          "sku": "NAS4000XGFD",
+          "producto": "Shimano NASCI FD (2026) — Tamaño 4000XG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000063,
+          "sqDocDate": "2026-08-19T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 136000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 1.0
+        },
+        {
+          "vendor": "FEDERICO CASTELANELLI",
+          "cardCode": "C20084809919",
+          "clienteNombre": "FERNANDO ANTONIO URQUIOLA",
+          "sku": "NAS4000XGFD",
+          "producto": "Shimano NASCI FD (2026) — Tamaño 4000XG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 26536,
+          "sqDocDate": "2026-08-24T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 136000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 1.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20084809919",
+      "clienteNombre": "FERNANDO ANTONIO URQUIOLA",
+      "sku": "SE2500HGFJ",
+      "producto": "Shimano SEDONA FJ (2023) — Tamaño 2500HG — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        26536,
+        2000063
+      ],
+      "total_pendiente": 6.0,
+      "lines": [
+        {
+          "vendor": "FEDERICO CASTELANELLI",
+          "cardCode": "C20084809919",
+          "clienteNombre": "FERNANDO ANTONIO URQUIOLA",
+          "sku": "SE2500HGFJ",
+          "producto": "Shimano SEDONA FJ (2023) — Tamaño 2500HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000063,
+          "sqDocDate": "2026-08-19T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 82000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 3.0
+        },
+        {
+          "vendor": "FEDERICO CASTELANELLI",
+          "cardCode": "C20084809919",
+          "clienteNombre": "FERNANDO ANTONIO URQUIOLA",
+          "sku": "SE2500HGFJ",
+          "producto": "Shimano SEDONA FJ (2023) — Tamaño 2500HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 26536,
+          "sqDocDate": "2026-08-24T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 82000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 3.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "SHMHOODLGREENL",
+      "producto": "Remera Shimano Manga larga con cuello y capucha Color Verde Claro - Talle Large - Protección solar UPF50+",
+      "num_sqs": 2,
+      "sqs": [
+        25938,
+        2000077
+      ],
+      "total_pendiente": 6.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "SHMHOODLGREENL",
+          "producto": "Remera Shimano Manga larga con cuello y capucha Color Verde Claro - Talle Large - Protección solar UPF50+",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000077,
+          "sqDocDate": "2026-08-21T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 38000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 3.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "SHMHOODLGREENL",
+          "producto": "Remera Shimano Manga larga con cuello y capucha Color Verde Claro - Talle Large - Protección solar UPF50+",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25938,
+          "sqDocDate": "2026-07-24T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 38000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 3.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C27293820622",
+      "clienteNombre": "MARIA AGUSTINA PRAT",
+      "sku": "SN2000FG",
+      "producto": "Shimano SIENNA FG — Tamaño 2000 — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        25714,
+        2000003
+      ],
+      "total_pendiente": 6.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C27293820622",
+          "clienteNombre": "MARIA AGUSTINA PRAT",
+          "sku": "SN2000FG",
+          "producto": "Shimano SIENNA FG — Tamaño 2000 — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000003,
+          "sqDocDate": "2026-07-08T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 43000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 169.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C27293820622",
+          "clienteNombre": "MARIA AGUSTINA PRAT",
+          "sku": "SN2000FG",
+          "producto": "Shimano SIENNA FG — Tamaño 2000 — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 25714,
+          "sqDocDate": "2026-07-08T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 45000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 169.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "SUC70MHASLA",
+      "producto": "Shimano Sellus — Caña de Casting  7´0´´ (2.10m) — 1 tramo — Potencia Medium Heavy (MH) 12-25 — Señuelo 14-50 gr — Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 6.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "SUC70MHASLA",
+          "producto": "Shimano Sellus — Caña de Casting  7´0´´ (2.10m) — 1 tramo — Potencia Medium Heavy (MH) 12-25 — Señuelo 14-50 gr — Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 46000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "SUC70MHASLA",
+          "producto": "Shimano Sellus — Caña de Casting  7´0´´ (2.10m) — 1 tramo — Potencia Medium Heavy (MH) 12-25 — Señuelo 14-50 gr — Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 46000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "CU151XGM",
+      "producto": "Shimano CURADO M (2025) — Tamaño 151XG — Manija izquierda — Reel Baitcasting Low Profile",
+      "num_sqs": 2,
+      "sqs": [
+        26247,
+        26248
+      ],
+      "total_pendiente": 6.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "CU151XGM",
+          "producto": "Shimano CURADO M (2025) — Tamaño 151XG — Manija izquierda — Reel Baitcasting Low Profile",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 26248,
+          "sqDocDate": "2026-08-10T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 223000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "CU151XGM",
+          "producto": "Shimano CURADO M (2025) — Tamaño 151XG — Manija izquierda — Reel Baitcasting Low Profile",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 26247,
+          "sqDocDate": "2026-08-10T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 223000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "SUC66MHA",
+      "producto": "Shimano Sellus — Caña de Casting  6´6´´ (1.98m) — 1 tramo — Potencia Medium Heavy (MH) 10-20 — Señuelo 14-50 gr — Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        2000006,
+        2000015
+      ],
+      "total_pendiente": 6.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "SUC66MHA",
+          "producto": "Shimano Sellus — Caña de Casting  6´6´´ (1.98m) — 1 tramo — Potencia Medium Heavy (MH) 10-20 — Señuelo 14-50 gr — Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000006,
+          "sqDocDate": "2026-07-27T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 46000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "SUC66MHA",
+          "producto": "Shimano Sellus — Caña de Casting  6´6´´ (1.98m) — 1 tramo — Potencia Medium Heavy (MH) 10-20 — Señuelo 14-50 gr — Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000015,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 46000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20254802019",
+      "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+      "sku": "CDC72HSA",
+      "producto": "\"Shimano Curado — Caña de Casting 7'2\"\" — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 14-42 gr - Acción Rápida\"",
+      "num_sqs": 2,
+      "sqs": [
+        26241,
+        2000013
+      ],
+      "total_pendiente": 6.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CDC72HSA",
+          "producto": "\"Shimano Curado — Caña de Casting 7'2\"\" — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 14-42 gr - Acción Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 26241,
+          "sqDocDate": "2026-08-09T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 149000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CDC72HSA",
+          "producto": "\"Shimano Curado — Caña de Casting 7'2\"\" — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 14-42 gr - Acción Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000013,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 149000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20254802019",
+      "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+      "sku": "CVC66H2CSA",
+      "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_sqs": 3,
+      "sqs": [
+        25834,
+        26241,
+        2000013
+      ],
+      "total_pendiente": 6.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CVC66H2CSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 26241,
+          "sqDocDate": "2026-08-09T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 66000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CVC66H2CSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 2000013,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 66000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CVC66H2CSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 25834,
+          "sqDocDate": "2026-07-20T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 66000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20254802019",
+      "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+      "sku": "CVC66HCSA",
+      "producto": "Shimano Convergence — Caña de Casting 1,98m — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_sqs": 3,
+      "sqs": [
+        25834,
+        26241,
+        2000013
+      ],
+      "total_pendiente": 6.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CVC66HCSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 26241,
+          "sqDocDate": "2026-08-09T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 70000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CVC66HCSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 2000013,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 70000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CVC66HCSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 25834,
+          "sqDocDate": "2026-07-20T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 70000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20254802019",
+      "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+      "sku": "CVC70H",
+      "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Heavy (H) 15-40 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_sqs": 3,
+      "sqs": [
+        25834,
+        26241,
+        2000013
+      ],
+      "total_pendiente": 6.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CVC70H",
+          "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Heavy (H) 15-40 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 26241,
+          "sqDocDate": "2026-08-09T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 73000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CVC70H",
+          "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Heavy (H) 15-40 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 2000013,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 73000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CVC70H",
+          "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Heavy (H) 15-40 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 25834,
+          "sqDocDate": "2026-07-20T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 73000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "25ALX140XTC",
+      "producto": "Shimano AERLEX XTC — Tamaño 14000 — Agua salada — Reel  Frontal Surfcasting - Color negro",
+      "num_sqs": 2,
+      "sqs": [
+        25938,
+        2000077
+      ],
+      "total_pendiente": 5.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "25ALX140XTC",
+          "producto": "Shimano AERLEX XTC — Tamaño 14000 — Agua salada — Reel  Frontal Surfcasting - Color negro",
+          "familia": "REEL",
+          "subfamilia": "Spinning Surfcasting",
+          "sqDocNum": 2000077,
+          "sqDocDate": "2026-08-21T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 145000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "25ALX140XTC",
+          "producto": "Shimano AERLEX XTC — Tamaño 14000 — Agua salada — Reel  Frontal Surfcasting - Color negro",
+          "familia": "REEL",
+          "subfamilia": "Spinning Surfcasting",
+          "sqDocNum": 25938,
+          "sqDocDate": "2026-07-24T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 145000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C33716739649",
+      "clienteNombre": "MUNDO ESTURION S.R.L.",
+      "sku": "TMCX70HSA",
+      "producto": "\"Shimano Teramar — Caña de Casting 7'0\"\" (2.1m) — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 21-56 gr — Acción Extra Rápida\"",
+      "num_sqs": 2,
+      "sqs": [
+        25801,
+        2000044
+      ],
+      "total_pendiente": 5.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C33716739649",
+          "clienteNombre": "MUNDO ESTURION S.R.L.",
+          "sku": "TMCX70HSA",
+          "producto": "\"Shimano Teramar — Caña de Casting 7'0\"\" (2.1m) — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 21-56 gr — Acción Extra Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 25801,
+          "sqDocDate": "2026-07-16T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 115000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C33716739649",
+          "clienteNombre": "MUNDO ESTURION S.R.L.",
+          "sku": "TMCX70HSA",
+          "producto": "\"Shimano Teramar — Caña de Casting 7'0\"\" (2.1m) — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 21-56 gr — Acción Extra Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000044,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 115000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C33716739649",
+      "clienteNombre": "MUNDO ESTURION S.R.L.",
+      "sku": "TMCX72HSABR",
+      "producto": "\"Shimano Teramar — Caña de Casting 7'2\"\" (2.7m) — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 21-56 gr — Peso 219 gr — Acción Extra Rápida\"",
+      "num_sqs": 2,
+      "sqs": [
+        25801,
+        2000044
+      ],
+      "total_pendiente": 5.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C33716739649",
+          "clienteNombre": "MUNDO ESTURION S.R.L.",
+          "sku": "TMCX72HSABR",
+          "producto": "\"Shimano Teramar — Caña de Casting 7'2\"\" (2.7m) — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 21-56 gr — Peso 219 gr — Acción Extra Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 25801,
+          "sqDocDate": "2026-07-16T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 127000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C33716739649",
+          "clienteNombre": "MUNDO ESTURION S.R.L.",
+          "sku": "TMCX72HSABR",
+          "producto": "\"Shimano Teramar — Caña de Casting 7'2\"\" (2.7m) — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 21-56 gr — Peso 219 gr — Acción Extra Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000044,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 127000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "CVC66HCSA",
+      "producto": "Shimano Convergence — Caña de Casting 1,98m — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        25841,
+        2000015
+      ],
+      "total_pendiente": 5.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "CVC66HCSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 25841,
+          "sqDocDate": "2026-07-20T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 70000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "CVC66HCSA",
+          "producto": "Shimano Convergence — Caña de Casting 1,98m — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 2000015,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 70000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "SLXC66MASA",
+      "producto": "Shimano Slx A — Caña de Casting 6´6´´ (1.98m) — 1 tramo — Potencia Medium (M) 8-17 lb — Señuelo 10-28 gr — Acción Extra Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        25841,
+        2000006
+      ],
+      "total_pendiente": 5.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "SLXC66MASA",
+          "producto": "Shimano Slx A — Caña de Casting 6´6´´ (1.98m) — 1 tramo — Potencia Medium (M) 8-17 lb — Señuelo 10-28 gr — Acción Extra Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 25841,
+          "sqDocDate": "2026-07-20T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 95000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 24.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "SLXC66MASA",
+          "producto": "Shimano Slx A — Caña de Casting 6´6´´ (1.98m) — 1 tramo — Potencia Medium (M) 8-17 lb — Señuelo 10-28 gr — Acción Extra Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000006,
+          "sqDocDate": "2026-07-27T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 95000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 24.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "EXGC66HBAR",
+      "producto": "Shimano Exage 2026 - Cañas de Casting 6´6´´ - 1 tramo - Potencia Heavy (H) 15-30 lb - Señuelo 10,5-42 g -  Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        25879,
+        2000025
+      ],
+      "total_pendiente": 5.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "EXGC66HBAR",
+          "producto": "Shimano Exage 2026 - Cañas de Casting 6´6´´ - 1 tramo - Potencia Heavy (H) 15-30 lb - Señuelo 10,5-42 g -  Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 25879,
+          "sqDocDate": "2026-07-21T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 78000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "EXGC66HBAR",
+          "producto": "Shimano Exage 2026 - Cañas de Casting 6´6´´ - 1 tramo - Potencia Heavy (H) 15-30 lb - Señuelo 10,5-42 g -  Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000025,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 78000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "EXGC70HBAR",
+      "producto": "Shimano Exage 2026 - Cañas de Casting 7´0´´ - 1 tramo - Potencia Heavy (H) 15-30 lb - Señuelo 10.5-42 g -  Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        25879,
+        2000025
+      ],
+      "total_pendiente": 5.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "EXGC70HBAR",
+          "producto": "Shimano Exage 2026 - Cañas de Casting 7´0´´ - 1 tramo - Potencia Heavy (H) 15-30 lb - Señuelo 10.5-42 g -  Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 25879,
+          "sqDocDate": "2026-07-21T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 80000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "EXGC70HBAR",
+          "producto": "Shimano Exage 2026 - Cañas de Casting 7´0´´ - 1 tramo - Potencia Heavy (H) 15-30 lb - Señuelo 10.5-42 g -  Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000025,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 80000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "SHMHOODLGREENM",
+      "producto": "Remera Shimano Manga larga con cuello y capucha Color Verde Claro - Talle Medium - Protección solar UPF50+",
+      "num_sqs": 2,
+      "sqs": [
+        25938,
+        2000077
+      ],
+      "total_pendiente": 4.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "SHMHOODLGREENM",
+          "producto": "Remera Shimano Manga larga con cuello y capucha Color Verde Claro - Talle Medium - Protección solar UPF50+",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000077,
+          "sqDocDate": "2026-08-21T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 38000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 3.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "SHMHOODLGREENM",
+          "producto": "Remera Shimano Manga larga con cuello y capucha Color Verde Claro - Talle Medium - Protección solar UPF50+",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25938,
+          "sqDocDate": "2026-07-24T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 38000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 3.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C33716739649",
+      "clienteNombre": "MUNDO ESTURION S.R.L.",
+      "sku": "TMCX74HSABR",
+      "producto": "\"Shimano Teramar — Caña de Casting 7'4\"\" (3m) — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 21-56 gr — Acción Extra Rápida\"",
+      "num_sqs": 2,
+      "sqs": [
+        25801,
+        2000044
+      ],
+      "total_pendiente": 4.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C33716739649",
+          "clienteNombre": "MUNDO ESTURION S.R.L.",
+          "sku": "TMCX74HSABR",
+          "producto": "\"Shimano Teramar — Caña de Casting 7'4\"\" (3m) — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 21-56 gr — Acción Extra Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 25801,
+          "sqDocDate": "2026-07-16T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 130000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C33716739649",
+          "clienteNombre": "MUNDO ESTURION S.R.L.",
+          "sku": "TMCX74HSABR",
+          "producto": "\"Shimano Teramar — Caña de Casting 7'4\"\" (3m) — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 21-56 gr — Acción Extra Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000044,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 3.0,
+          "precio": 130000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "STS4500",
+      "producto": "Shimano Stimula — Caña Telescópica Pejerrey 4.50m — 4 secciones — Peso de lance 40-100 g",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 4.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "STS4500",
+          "producto": "Shimano Stimula — Caña Telescópica Pejerrey 4.50m — 4 secciones — Peso de lance 40-100 g",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Telescopic",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 62000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "STS4500",
+          "producto": "Shimano Stimula — Caña Telescópica Pejerrey 4.50m — 4 secciones — Peso de lance 40-100 g",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Telescopic",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 62000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "SUC56MA",
+      "producto": "Shimano Sellus — Caña de Casting  5´6´´ (1.68m) — 1 tramo — Potencia Medium (M) 10-17 lb  — Señuelo 8-20 gr — Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 4.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "SUC56MA",
+          "producto": "Shimano Sellus — Caña de Casting  5´6´´ (1.68m) — 1 tramo — Potencia Medium (M) 10-17 lb  — Señuelo 8-20 gr — Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 46000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "SUC56MA",
+          "producto": "Shimano Sellus — Caña de Casting  5´6´´ (1.68m) — 1 tramo — Potencia Medium (M) 10-17 lb  — Señuelo 8-20 gr — Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 46000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "SUC56MHA",
+      "producto": "Shimano Sellus — Caña de Casting 5´6´´ (1.68m) — 1 tramo — Potencia Medium Heavy (MH) 10-25 lb — Señuelo 10-35 gr — Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 4.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "SUC56MHA",
+          "producto": "Shimano Sellus — Caña de Casting 5´6´´ (1.68m) — 1 tramo — Potencia Medium Heavy (MH) 10-25 lb — Señuelo 10-35 gr — Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 46000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "SUC56MHA",
+          "producto": "Shimano Sellus — Caña de Casting 5´6´´ (1.68m) — 1 tramo — Potencia Medium Heavy (MH) 10-25 lb — Señuelo 10-35 gr — Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 46000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "SUC58MHA",
+      "producto": "Shimano Sellus — Caña de Casting 5´8´´ (1.74m) — 1 tramo — Potencia Medium Heavy (MH) 10-25 lb— Señuelo 10-35 gr — Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 4.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "SUC58MHA",
+          "producto": "Shimano Sellus — Caña de Casting 5´8´´ (1.74m) — 1 tramo — Potencia Medium Heavy (MH) 10-25 lb— Señuelo 10-35 gr — Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 46000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "SUC58MHA",
+          "producto": "Shimano Sellus — Caña de Casting 5´8´´ (1.74m) — 1 tramo — Potencia Medium Heavy (MH) 10-25 lb— Señuelo 10-35 gr — Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 46000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "SUC60MH2APY",
+      "producto": "Shimano Sellus — Caña de Casting 6´0´´ (1.80m) — 2 tramos - Potencia Medium Heavy (MH) 12-25 lb - Señuelo 10-35g - Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 4.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "SUC60MH2APY",
+          "producto": "Shimano Sellus — Caña de Casting 6´0´´ (1.80m) — 2 tramos - Potencia Medium Heavy (MH) 12-25 lb - Señuelo 10-35g - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 49000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "SUC60MH2APY",
+          "producto": "Shimano Sellus — Caña de Casting 6´0´´ (1.80m) — 2 tramos - Potencia Medium Heavy (MH) 12-25 lb - Señuelo 10-35g - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 49000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "CU300K",
+      "producto": "Shimano CURADO K — Tamaño 300 — Manija derecha — Reel Baitcasting Low Profile",
+      "num_sqs": 2,
+      "sqs": [
+        2000006,
+        2000015
+      ],
+      "total_pendiente": 4.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "CU300K",
+          "producto": "Shimano CURADO K — Tamaño 300 — Manija derecha — Reel Baitcasting Low Profile",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 2000006,
+          "sqDocDate": "2026-07-27T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 259000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "CU300K",
+          "producto": "Shimano CURADO K — Tamaño 300 — Manija derecha — Reel Baitcasting Low Profile",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 2000015,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 259000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "CU301K",
+      "producto": "Shimano CURADO K — Tamaño 301 — Manija izquierda — Reel Baitcasting Low Profile",
+      "num_sqs": 2,
+      "sqs": [
+        2000006,
+        2000015
+      ],
+      "total_pendiente": 4.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "CU301K",
+          "producto": "Shimano CURADO K — Tamaño 301 — Manija izquierda — Reel Baitcasting Low Profile",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 2000006,
+          "sqDocDate": "2026-07-27T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 259000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "CU301K",
+          "producto": "Shimano CURADO K — Tamaño 301 — Manija izquierda — Reel Baitcasting Low Profile",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 2000015,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 259000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "MIR4000XGA",
+      "producto": "Shimano MIRAVEL A (2026) — Tamaño 4000XG - Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        25841,
+        2000006
+      ],
+      "total_pendiente": 4.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "MIR4000XGA",
+          "producto": "Shimano MIRAVEL A (2026) — Tamaño 4000XG - Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 25841,
+          "sqDocDate": "2026-07-20T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 157000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "MIR4000XGA",
+          "producto": "Shimano MIRAVEL A (2026) — Tamaño 4000XG - Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000006,
+          "sqDocDate": "2026-07-27T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 157000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "ULT2500HGD",
+      "producto": "Shimano ULTEGRA D — Tamaño 2500HG — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        25841,
+        2000006
+      ],
+      "total_pendiente": 4.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "ULT2500HGD",
+          "producto": "Shimano ULTEGRA D — Tamaño 2500HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 25841,
+          "sqDocDate": "2026-07-20T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 164000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 10.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "ULT2500HGD",
+          "producto": "Shimano ULTEGRA D — Tamaño 2500HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000006,
+          "sqDocDate": "2026-07-27T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 164000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 10.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "ULT4000XGD",
+      "producto": "Shimano ULTEGRA D — Tamaño 4000XG — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        25841,
+        2000006
+      ],
+      "total_pendiente": 4.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "ULT4000XGD",
+          "producto": "Shimano ULTEGRA D — Tamaño 4000XG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 25841,
+          "sqDocDate": "2026-07-20T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 176000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 2.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "ULT4000XGD",
+          "producto": "Shimano ULTEGRA D — Tamaño 4000XG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000006,
+          "sqDocDate": "2026-07-27T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 176000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 2.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "ULTC3000XGD",
+      "producto": "Shimano ULTEGRA D — Tamaño C3000XG — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        25841,
+        2000006
+      ],
+      "total_pendiente": 4.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "ULTC3000XGD",
+          "producto": "Shimano ULTEGRA D — Tamaño C3000XG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 25841,
+          "sqDocDate": "2026-07-20T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 167000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "ULTC3000XGD",
+          "producto": "Shimano ULTEGRA D — Tamaño C3000XG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000006,
+          "sqDocDate": "2026-07-27T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 167000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20330164787",
+      "clienteNombre": "DANIEL ALEJANDRO BATTISTONI",
+      "sku": "CVL401",
+      "producto": "Shimano CORVALUS — Tamaño 401 — Manija izquierda — Agua salada — Reel Convencional Round (Perfil redondo)",
+      "num_sqs": 2,
+      "sqs": [
+        26028,
+        2000108
+      ],
+      "total_pendiente": 4.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20330164787",
+          "clienteNombre": "DANIEL ALEJANDRO BATTISTONI",
+          "sku": "CVL401",
+          "producto": "Shimano CORVALUS — Tamaño 401 — Manija izquierda — Agua salada — Reel Convencional Round (Perfil redondo)",
+          "familia": "REEL",
+          "subfamilia": "Conventional Round Reels",
+          "sqDocNum": 2000108,
+          "sqDocDate": "2026-08-27T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 109000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 15.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20330164787",
+          "clienteNombre": "DANIEL ALEJANDRO BATTISTONI",
+          "sku": "CVL401",
+          "producto": "Shimano CORVALUS — Tamaño 401 — Manija izquierda — Agua salada — Reel Convencional Round (Perfil redondo)",
+          "familia": "REEL",
+          "subfamilia": "Conventional Round Reels",
+          "sqDocNum": 26028,
+          "sqDocDate": "2026-07-29T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 109000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 15.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20254802019",
+      "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+      "sku": "CVC70MH",
+      "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Medium Heavy (MH) 12-25 lb — Señuelo 14-42 gr - Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        26241,
+        2000013
+      ],
+      "total_pendiente": 4.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CVC70MH",
+          "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Medium Heavy (MH) 12-25 lb — Señuelo 14-42 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 26241,
+          "sqDocDate": "2026-08-09T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 67000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CVC70MH",
+          "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Medium Heavy (MH) 12-25 lb — Señuelo 14-42 gr - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000013,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 67000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CDC72HSA",
+      "producto": "\"Shimano Curado — Caña de Casting 7'2\"\" — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 14-42 gr - Acción Rápida\"",
+      "num_sqs": 2,
+      "sqs": [
+        25879,
+        2000025
+      ],
+      "total_pendiente": 4.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CDC72HSA",
+          "producto": "\"Shimano Curado — Caña de Casting 7'2\"\" — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 14-42 gr - Acción Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 25879,
+          "sqDocDate": "2026-07-21T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 149000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20351155354",
+          "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+          "sku": "CDC72HSA",
+          "producto": "\"Shimano Curado — Caña de Casting 7'2\"\" — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 14-42 gr - Acción Rápida\"",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000025,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 149000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30714272817",
+      "clienteNombre": "WEEKEND OUTDOOR S.R.L.",
+      "sku": "044990",
+      "producto": "Shimano GRAPPLER BB — Tamaño 151HG — Manija izquierda — Reel Baitcasting Low Profile - Agua Salada",
+      "num_sqs": 2,
+      "sqs": [
+        25753,
+        2000057
+      ],
+      "total_pendiente": 3.0,
+      "lines": [
+        {
+          "vendor": "FEDERICO CASTELANELLI",
+          "cardCode": "C30714272817",
+          "clienteNombre": "WEEKEND OUTDOOR S.R.L.",
+          "sku": "044990",
+          "producto": "Shimano GRAPPLER BB — Tamaño 151HG — Manija izquierda — Reel Baitcasting Low Profile - Agua Salada",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 25753,
+          "sqDocDate": "2026-07-13T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 210000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "FEDERICO CASTELANELLI",
+          "cardCode": "C30714272817",
+          "clienteNombre": "WEEKEND OUTDOOR S.R.L.",
+          "sku": "044990",
+          "producto": "Shimano GRAPPLER BB — Tamaño 151HG — Manija izquierda — Reel Baitcasting Low Profile - Agua Salada",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 2000057,
+          "sqDocDate": "2026-08-18T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 210000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "PLM58RE0200150Y",
+      "producto": "Multifilamento KAIRIKI 8 hebras - Color Amarillo - 150M -  20LB - Made in Japan",
+      "num_sqs": 2,
+      "sqs": [
+        25938,
+        2000077
+      ],
+      "total_pendiente": 3.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "PLM58RE0200150Y",
+          "producto": "Multifilamento KAIRIKI 8 hebras - Color Amarillo - 150M -  20LB - Made in Japan",
+          "familia": "LINEAS",
+          "subfamilia": "KAIRIKI",
+          "sqDocNum": 2000077,
+          "sqDocDate": "2026-08-21T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 21000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "PLM58RE0200150Y",
+          "producto": "Multifilamento KAIRIKI 8 hebras - Color Amarillo - 150M -  20LB - Made in Japan",
+          "familia": "LINEAS",
+          "subfamilia": "KAIRIKI",
+          "sqDocNum": 25938,
+          "sqDocDate": "2026-07-24T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 21000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "SHC3000HGFJ",
+      "producto": "Shimano SAHARA FJ (2022) — Tamaño C3000HG — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        25938,
+        2000051
+      ],
+      "total_pendiente": 3.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "SHC3000HGFJ",
+          "producto": "Shimano SAHARA FJ (2022) — Tamaño C3000HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000051,
+          "sqDocDate": "2026-08-12T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 91000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "SHC3000HGFJ",
+          "producto": "Shimano SAHARA FJ (2022) — Tamaño C3000HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 25938,
+          "sqDocDate": "2026-07-24T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 91000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "NAS2500HGFD",
+      "producto": "Shimano NASCI FD (2026) — Tamaño 2500HG — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        26247,
+        26248
+      ],
+      "total_pendiente": 3.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "NAS2500HGFD",
+          "producto": "Shimano NASCI FD (2026) — Tamaño 2500HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 26248,
+          "sqDocDate": "2026-08-10T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 127000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30710852762",
+          "clienteNombre": "REBORN SRL",
+          "sku": "NAS2500HGFD",
+          "producto": "Shimano NASCI FD (2026) — Tamaño 2500HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 26247,
+          "sqDocDate": "2026-08-10T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 127000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20341316201",
+      "clienteNombre": "FERNANDO NADIR PERALTA",
+      "sku": "9691",
+      "producto": "Gorra Shimano - Color Azul - Logo bordado color Blanco",
+      "num_sqs": 2,
+      "sqs": [
+        25717,
+        2000054
+      ],
+      "total_pendiente": 3.0,
+      "lines": [
+        {
+          "vendor": "MARTIN BOIERO",
+          "cardCode": "C20341316201",
+          "clienteNombre": "FERNANDO NADIR PERALTA",
+          "sku": "9691",
+          "producto": "Gorra Shimano - Color Azul - Logo bordado color Blanco",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000054,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 15000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MARTIN BOIERO",
+          "cardCode": "C20341316201",
+          "clienteNombre": "FERNANDO NADIR PERALTA",
+          "sku": "9691",
+          "producto": "Gorra Shimano - Color Azul - Logo bordado color Blanco",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25717,
+          "sqDocDate": "2026-07-08T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 15000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20341316201",
+      "clienteNombre": "FERNANDO NADIR PERALTA",
+      "sku": "CAPSH1802",
+      "producto": "Gorra Shimano - Color Negro - Logo bordado color Cyan",
+      "num_sqs": 2,
+      "sqs": [
+        25717,
+        2000054
+      ],
+      "total_pendiente": 3.0,
+      "lines": [
+        {
+          "vendor": "MARTIN BOIERO",
+          "cardCode": "C20341316201",
+          "clienteNombre": "FERNANDO NADIR PERALTA",
+          "sku": "CAPSH1802",
+          "producto": "Gorra Shimano - Color Negro - Logo bordado color Cyan",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000054,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 12000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MARTIN BOIERO",
+          "cardCode": "C20341316201",
+          "clienteNombre": "FERNANDO NADIR PERALTA",
+          "sku": "CAPSH1802",
+          "producto": "Gorra Shimano - Color Negro - Logo bordado color Cyan",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25717,
+          "sqDocDate": "2026-07-08T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 12000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20341316201",
+      "clienteNombre": "FERNANDO NADIR PERALTA",
+      "sku": "CAPSH2401",
+      "producto": "Gorra Shimano - Color Gris y Negro - Con parche color marrón",
+      "num_sqs": 2,
+      "sqs": [
+        25717,
+        2000054
+      ],
+      "total_pendiente": 3.0,
+      "lines": [
+        {
+          "vendor": "MARTIN BOIERO",
+          "cardCode": "C20341316201",
+          "clienteNombre": "FERNANDO NADIR PERALTA",
+          "sku": "CAPSH2401",
+          "producto": "Gorra Shimano - Color Gris y Negro - Con parche color marrón",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000054,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MARTIN BOIERO",
+          "cardCode": "C20341316201",
+          "clienteNombre": "FERNANDO NADIR PERALTA",
+          "sku": "CAPSH2401",
+          "producto": "Gorra Shimano - Color Gris y Negro - Con parche color marrón",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25717,
+          "sqDocDate": "2026-07-08T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20341316201",
+      "clienteNombre": "FERNANDO NADIR PERALTA",
+      "sku": "CAPSH2402",
+      "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+      "num_sqs": 2,
+      "sqs": [
+        25717,
+        2000054
+      ],
+      "total_pendiente": 3.0,
+      "lines": [
+        {
+          "vendor": "MARTIN BOIERO",
+          "cardCode": "C20341316201",
+          "clienteNombre": "FERNANDO NADIR PERALTA",
+          "sku": "CAPSH2402",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000054,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MARTIN BOIERO",
+          "cardCode": "C20341316201",
+          "clienteNombre": "FERNANDO NADIR PERALTA",
+          "sku": "CAPSH2402",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25717,
+          "sqDocDate": "2026-07-08T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20341316201",
+      "clienteNombre": "FERNANDO NADIR PERALTA",
+      "sku": "CAPSH2404",
+      "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Negro - Logo bordado",
+      "num_sqs": 2,
+      "sqs": [
+        25717,
+        2000054
+      ],
+      "total_pendiente": 3.0,
+      "lines": [
+        {
+          "vendor": "MARTIN BOIERO",
+          "cardCode": "C20341316201",
+          "clienteNombre": "FERNANDO NADIR PERALTA",
+          "sku": "CAPSH2404",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Negro - Logo bordado",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000054,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MARTIN BOIERO",
+          "cardCode": "C20341316201",
+          "clienteNombre": "FERNANDO NADIR PERALTA",
+          "sku": "CAPSH2404",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Negro - Logo bordado",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25717,
+          "sqDocDate": "2026-07-08T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20341316201",
+      "clienteNombre": "FERNANDO NADIR PERALTA",
+      "sku": "TECHNIUM",
+      "producto": "Lentes de sol - Modelo TECHNIUM -  Marco Grilamid TR90 superliviano - Lentes antirrayas polarizados azul - Protección UV400",
+      "num_sqs": 2,
+      "sqs": [
+        25717,
+        2000054
+      ],
+      "total_pendiente": 3.0,
+      "lines": [
+        {
+          "vendor": "MARTIN BOIERO",
+          "cardCode": "C20341316201",
+          "clienteNombre": "FERNANDO NADIR PERALTA",
+          "sku": "TECHNIUM",
+          "producto": "Lentes de sol - Modelo TECHNIUM -  Marco Grilamid TR90 superliviano - Lentes antirrayas polarizados azul - Protección UV400",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000054,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 2.0,
+          "precio": 43000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MARTIN BOIERO",
+          "cardCode": "C20341316201",
+          "clienteNombre": "FERNANDO NADIR PERALTA",
+          "sku": "TECHNIUM",
+          "producto": "Lentes de sol - Modelo TECHNIUM -  Marco Grilamid TR90 superliviano - Lentes antirrayas polarizados azul - Protección UV400",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25717,
+          "sqDocDate": "2026-07-08T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 43000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20254802019",
+      "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+      "sku": "SLXC66MHASA",
+      "producto": "Shimano Slx A— Caña de Casting 6´6´´ (1.98m) — 1 tramo — Potencia Medium Heavy (MH) 10-20 lb— Señuelo 14-42 gr —  Acción Rápida",
+      "num_sqs": 3,
+      "sqs": [
+        26241,
+        2000013,
+        2000036
+      ],
+      "total_pendiente": 3.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "SLXC66MHASA",
+          "producto": "Shimano Slx A— Caña de Casting 6´6´´ (1.98m) — 1 tramo — Potencia Medium Heavy (MH) 10-20 lb— Señuelo 14-42 gr —  Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000036,
+          "sqDocDate": "2026-08-10T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 95000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "SLXC66MHASA",
+          "producto": "Shimano Slx A— Caña de Casting 6´6´´ (1.98m) — 1 tramo — Potencia Medium Heavy (MH) 10-20 lb— Señuelo 14-42 gr —  Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 26241,
+          "sqDocDate": "2026-08-09T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 95000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "SLXC66MHASA",
+          "producto": "Shimano Slx A— Caña de Casting 6´6´´ (1.98m) — 1 tramo — Potencia Medium Heavy (MH) 10-20 lb— Señuelo 14-42 gr —  Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000013,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 95000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20084809919",
+      "clienteNombre": "FERNANDO ANTONIO URQUIOLA",
+      "sku": "CDCX610HSA",
+      "producto": "Shimano Curado — Caña de Casting 6'10 — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 14-42 gr - Acción Extra Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        26536,
+        2000063
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "FEDERICO CASTELANELLI",
+          "cardCode": "C20084809919",
+          "clienteNombre": "FERNANDO ANTONIO URQUIOLA",
+          "sku": "CDCX610HSA",
+          "producto": "Shimano Curado — Caña de Casting 6'10 — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 14-42 gr - Acción Extra Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000063,
+          "sqDocDate": "2026-08-19T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 142000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 2.0
+        },
+        {
+          "vendor": "FEDERICO CASTELANELLI",
+          "cardCode": "C20084809919",
+          "clienteNombre": "FERNANDO ANTONIO URQUIOLA",
+          "sku": "CDCX610HSA",
+          "producto": "Shimano Curado — Caña de Casting 6'10 — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 14-42 gr - Acción Extra Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 26536,
+          "sqDocDate": "2026-08-24T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 142000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 2.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "CU151XGM",
+      "producto": "Shimano CURADO M (2025) — Tamaño 151XG — Manija izquierda — Reel Baitcasting Low Profile",
+      "num_sqs": 2,
+      "sqs": [
+        25938,
+        2000051
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "CU151XGM",
+          "producto": "Shimano CURADO M (2025) — Tamaño 151XG — Manija izquierda — Reel Baitcasting Low Profile",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 2000051,
+          "sqDocDate": "2026-08-12T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 223000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "CU151XGM",
+          "producto": "Shimano CURADO M (2025) — Tamaño 151XG — Manija izquierda — Reel Baitcasting Low Profile",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 25938,
+          "sqDocDate": "2026-07-24T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 223000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "NAS4000XGFD",
+      "producto": "Shimano NASCI FD (2026) — Tamaño 4000XG — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        25938,
+        2000077
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "NAS4000XGFD",
+          "producto": "Shimano NASCI FD (2026) — Tamaño 4000XG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000077,
+          "sqDocDate": "2026-08-21T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 136000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 1.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "NAS4000XGFD",
+          "producto": "Shimano NASCI FD (2026) — Tamaño 4000XG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 25938,
+          "sqDocDate": "2026-07-24T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 136000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 1.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "SHMHOODLGREY2XL",
+      "producto": "Remera Shimano Manga larga con cuello y capucha Color Verde Claro - Talle 2XL - Protección solar UPF50+",
+      "num_sqs": 2,
+      "sqs": [
+        25938,
+        2000077
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "SHMHOODLGREY2XL",
+          "producto": "Remera Shimano Manga larga con cuello y capucha Color Verde Claro - Talle 2XL - Protección solar UPF50+",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000077,
+          "sqDocDate": "2026-08-21T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 38000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 1.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "SHMHOODLGREY2XL",
+          "producto": "Remera Shimano Manga larga con cuello y capucha Color Verde Claro - Talle 2XL - Protección solar UPF50+",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25938,
+          "sqDocDate": "2026-07-24T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 38000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 1.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "SPM14000XTD",
+      "producto": "Shimano SPEEDMASTER XTD — Tamaño 14000 — Agua salada — Reel Frontal Surfcasting - Color Negro",
+      "num_sqs": 2,
+      "sqs": [
+        25938,
+        2000077
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "SPM14000XTD",
+          "producto": "Shimano SPEEDMASTER XTD — Tamaño 14000 — Agua salada — Reel Frontal Surfcasting - Color Negro",
+          "familia": "REEL",
+          "subfamilia": "Spinning Surfcasting",
+          "sqDocNum": 2000077,
+          "sqDocDate": "2026-08-21T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 212000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30718510291",
+          "clienteNombre": "BROBRO SA",
+          "sku": "SPM14000XTD",
+          "producto": "Shimano SPEEDMASTER XTD — Tamaño 14000 — Agua salada — Reel Frontal Surfcasting - Color Negro",
+          "familia": "REEL",
+          "subfamilia": "Spinning Surfcasting",
+          "sqDocNum": 25938,
+          "sqDocDate": "2026-07-24T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 212000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C27293820622",
+      "clienteNombre": "MARIA AGUSTINA PRAT",
+      "sku": "TECHNIUM",
+      "producto": "Lentes de sol - Modelo TECHNIUM -  Marco Grilamid TR90 superliviano - Lentes antirrayas polarizados azul - Protección UV400",
+      "num_sqs": 2,
+      "sqs": [
+        25714,
+        2000003
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C27293820622",
+          "clienteNombre": "MARIA AGUSTINA PRAT",
+          "sku": "TECHNIUM",
+          "producto": "Lentes de sol - Modelo TECHNIUM -  Marco Grilamid TR90 superliviano - Lentes antirrayas polarizados azul - Protección UV400",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000003,
+          "sqDocDate": "2026-07-08T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 42000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C27293820622",
+          "clienteNombre": "MARIA AGUSTINA PRAT",
+          "sku": "TECHNIUM",
+          "producto": "Lentes de sol - Modelo TECHNIUM -  Marco Grilamid TR90 superliviano - Lentes antirrayas polarizados azul - Protección UV400",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 25714,
+          "sqDocDate": "2026-07-08T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 43000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "9691",
+      "producto": "Gorra Shimano - Color Azul - Logo bordado color Blanco",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "9691",
+          "producto": "Gorra Shimano - Color Azul - Logo bordado color Blanco",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 15000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "9691",
+          "producto": "Gorra Shimano - Color Azul - Logo bordado color Blanco",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 15000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "BALTICA20LG",
+      "producto": "BOLSO BALTICA - Tamaño Grande - Incluye 4 cajas 3700",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "BALTICA20LG",
+          "producto": "BOLSO BALTICA - Tamaño Grande - Incluye 4 cajas 3700",
+          "familia": "FG",
+          "subfamilia": "BOLSOS",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 97000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "BALTICA20LG",
+          "producto": "BOLSO BALTICA - Tamaño Grande - Incluye 4 cajas 3700",
+          "familia": "FG",
+          "subfamilia": "BOLSOS",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 97000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "CAPSH1802",
+      "producto": "Gorra Shimano - Color Negro - Logo bordado color Cyan",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CAPSH1802",
+          "producto": "Gorra Shimano - Color Negro - Logo bordado color Cyan",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 12000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CAPSH1802",
+          "producto": "Gorra Shimano - Color Negro - Logo bordado color Cyan",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 12000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "CAPSH2401",
+      "producto": "Gorra Shimano - Color Gris y Negro - Con parche color marrón",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CAPSH2401",
+          "producto": "Gorra Shimano - Color Gris y Negro - Con parche color marrón",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CAPSH2401",
+          "producto": "Gorra Shimano - Color Gris y Negro - Con parche color marrón",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "CAPSH2402",
+      "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CAPSH2402",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CAPSH2402",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "CAPSH2403",
+      "producto": "Gorra Shimano - Tipo Trucker - Color Azul - Logo bordado",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CAPSH2403",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Azul - Logo bordado",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CAPSH2403",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Azul - Logo bordado",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "CAPSH2404",
+      "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Negro - Logo bordado",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CAPSH2404",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Negro - Logo bordado",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CAPSH2404",
+          "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Negro - Logo bordado",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 11000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "CAT4000HGF",
+      "producto": "Shimano CATANA F (2026) — Tamaño 4000HG — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CAT4000HGF",
+          "producto": "Shimano CATANA F (2026) — Tamaño 4000HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 73000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CAT4000HGF",
+          "producto": "Shimano CATANA F (2026) — Tamaño 4000HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 73000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "CATC3000HGF",
+      "producto": "Shimano CATANA F (2026) — Tamaño C3000HG — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CATC3000HGF",
+          "producto": "Shimano CATANA F (2026) — Tamaño C3000HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 68000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "CATC3000HGF",
+          "producto": "Shimano CATANA F (2026) — Tamaño C3000HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 68000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "LUGC22",
+      "producto": "Mochila SHIMANO BLACKMOON EXTRA LARGE (46x29x45cm) - Incluye cobertor de lluvia - Gran Capacidad de almacenaje",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "LUGC22",
+          "producto": "Mochila SHIMANO BLACKMOON EXTRA LARGE (46x29x45cm) - Incluye cobertor de lluvia - Gran Capacidad de almacenaje",
+          "familia": "FG",
+          "subfamilia": "BOLSOS",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 117000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "LUGC22",
+          "producto": "Mochila SHIMANO BLACKMOON EXTRA LARGE (46x29x45cm) - Incluye cobertor de lluvia - Gran Capacidad de almacenaje",
+          "familia": "FG",
+          "subfamilia": "BOLSOS",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 117000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "NEX4000HGFJ",
+      "producto": "Shimano NEXAVE FJ (2026) — Tamaño 4000HG — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "NEX4000HGFJ",
+          "producto": "Shimano NEXAVE FJ (2026) — Tamaño 4000HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 70000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "NEX4000HGFJ",
+          "producto": "Shimano NEXAVE FJ (2026) — Tamaño 4000HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 70000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "NEXC5000HGFJ",
+      "producto": "Shimano NEXAVE FJ (2026) — Tamaño C5000HG — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "NEXC5000HGFJ",
+          "producto": "Shimano NEXAVE FJ (2026) — Tamaño C5000HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 70000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "NEXC5000HGFJ",
+          "producto": "Shimano NEXAVE FJ (2026) — Tamaño C5000HG — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 70000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C30711930392",
+      "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+      "sku": "SLXDC151HG",
+      "producto": "Shimano SLX DC — Tamaño 151HG — Manija izquierda — Sistema DC (Control Digital) — Reel Baitcasting Low Profile",
+      "num_sqs": 2,
+      "sqs": [
+        26403,
+        2000042
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "SLXDC151HG",
+          "producto": "Shimano SLX DC — Tamaño 151HG — Manija izquierda — Sistema DC (Control Digital) — Reel Baitcasting Low Profile",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 26403,
+          "sqDocDate": "2026-08-14T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 227000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "GONZALO DE LA ROSA",
+          "cardCode": "C30711930392",
+          "clienteNombre": "PESCAR.INFO SHOP S.R.L.",
+          "sku": "SLXDC151HG",
+          "producto": "Shimano SLX DC — Tamaño 151HG — Manija izquierda — Sistema DC (Control Digital) — Reel Baitcasting Low Profile",
+          "familia": "REEL",
+          "subfamilia": "Baitcasting Low Profile",
+          "sqDocNum": 2000042,
+          "sqDocDate": "2026-08-11T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 227000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20254802019",
+      "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+      "sku": "26ZODIAS1610MH",
+      "producto": "Shimano Zodias (modelo 2026) — Caña de Casting 2.08m (6´10´´) — 1 tramo - Potencia Heavy (MH) 10-20 lb - Señuelos 10-30 g",
+      "num_sqs": 2,
+      "sqs": [
+        26241,
+        2000013
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "26ZODIAS1610MH",
+          "producto": "Shimano Zodias (modelo 2026) — Caña de Casting 2.08m (6´10´´) — 1 tramo - Potencia Heavy (MH) 10-20 lb - Señuelos 10-30 g",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 26241,
+          "sqDocDate": "2026-08-09T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 236000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "26ZODIAS1610MH",
+          "producto": "Shimano Zodias (modelo 2026) — Caña de Casting 2.08m (6´10´´) — 1 tramo - Potencia Heavy (MH) 10-20 lb - Señuelos 10-30 g",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000013,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 236000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20254802019",
+      "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+      "sku": "275639",
+      "producto": "Shimano Zodias (modelo 2026) — Caña de Casting 1.98m (6´6´´) — 1 tramo - Potencia Medium Heavy (MH) 12-25 lb - Señuelo 14-56 g  166H-SB",
+      "num_sqs": 2,
+      "sqs": [
+        26241,
+        2000013
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "275639",
+          "producto": "Shimano Zodias (modelo 2026) — Caña de Casting 1.98m (6´6´´) — 1 tramo - Potencia Medium Heavy (MH) 12-25 lb - Señuelo 14-56 g  166H-SB",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 26241,
+          "sqDocDate": "2026-08-09T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 227000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "275639",
+          "producto": "Shimano Zodias (modelo 2026) — Caña de Casting 1.98m (6´6´´) — 1 tramo - Potencia Medium Heavy (MH) 12-25 lb - Señuelo 14-56 g  166H-SB",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 2000013,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 227000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20254802019",
+      "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+      "sku": "ASPIRE",
+      "producto": "Lentes de sol - Modelo ASPIRE - Lentes Polarizados Gris Oscuro Antirayas - Protección UV400 - Marco TR90 camuflado",
+      "num_sqs": 2,
+      "sqs": [
+        26241,
+        2000013
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "ASPIRE",
+          "producto": "Lentes de sol - Modelo ASPIRE - Lentes Polarizados Gris Oscuro Antirayas - Protección UV400 - Marco TR90 camuflado",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 26241,
+          "sqDocDate": "2026-08-09T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 39000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "ASPIRE",
+          "producto": "Lentes de sol - Modelo ASPIRE - Lentes Polarizados Gris Oscuro Antirayas - Protección UV400 - Marco TR90 camuflado",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000013,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 39000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20254802019",
+      "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+      "sku": "CONQUEST",
+      "producto": "Lentes de sol - Modelo CONQUEST -  Marco Grilamid TR90 superliviano",
+      "num_sqs": 2,
+      "sqs": [
+        26241,
+        2000013
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CONQUEST",
+          "producto": "Lentes de sol - Modelo CONQUEST -  Marco Grilamid TR90 superliviano",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 26241,
+          "sqDocDate": "2026-08-09T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 39000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CONQUEST",
+          "producto": "Lentes de sol - Modelo CONQUEST -  Marco Grilamid TR90 superliviano",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000013,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 39000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20254802019",
+      "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+      "sku": "CVC66MH4SACO",
+      "producto": "Shimano Convergence — Caña de Casting TRAVEL  6´6´´ - 4 partes - Potencia Medium Heavy (MH) 7-20 lb - Señuelo 7-28 g - Acción Fast",
+      "num_sqs": 2,
+      "sqs": [
+        2000013,
+        2000069
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CVC66MH4SACO",
+          "producto": "Shimano Convergence — Caña de Casting TRAVEL  6´6´´ - 4 partes - Potencia Medium Heavy (MH) 7-20 lb - Señuelo 7-28 g - Acción Fast",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 2000069,
+          "sqDocDate": "2026-08-20T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 66000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 2.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "CVC66MH4SACO",
+          "producto": "Shimano Convergence — Caña de Casting TRAVEL  6´6´´ - 4 partes - Potencia Medium Heavy (MH) 7-20 lb - Señuelo 7-28 g - Acción Fast",
+          "familia": "CAÑAS",
+          "subfamilia": "",
+          "sqDocNum": 2000013,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 66000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 2.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20254802019",
+      "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+      "sku": "FXS66MHC2",
+      "producto": "\"Shimano Fx — Caña Spinning Multipropósito 6'6\"\" (1.98m) — 2 tramos — Potencia Medium Heavy (MH) — Señuelo 7-21 gr — Mango EVA\"",
+      "num_sqs": 2,
+      "sqs": [
+        26241,
+        2000013
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "FXS66MHC2",
+          "producto": "\"Shimano Fx — Caña Spinning Multipropósito 6'6\"\" (1.98m) — 2 tramos — Potencia Medium Heavy (MH) — Señuelo 7-21 gr — Mango EVA\"",
+          "familia": "CAÑAS",
+          "subfamilia": "Multi Purpose",
+          "sqDocNum": 26241,
+          "sqDocDate": "2026-08-09T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 20000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "FXS66MHC2",
+          "producto": "\"Shimano Fx — Caña Spinning Multipropósito 6'6\"\" (1.98m) — 2 tramos — Potencia Medium Heavy (MH) — Señuelo 7-21 gr — Mango EVA\"",
+          "familia": "CAÑAS",
+          "subfamilia": "Multi Purpose",
+          "sqDocNum": 2000013,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 20000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20254802019",
+      "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+      "sku": "TECHNIUM",
+      "producto": "Lentes de sol - Modelo TECHNIUM -  Marco Grilamid TR90 superliviano - Lentes antirrayas polarizados azul - Protección UV400",
+      "num_sqs": 2,
+      "sqs": [
+        26241,
+        2000013
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "TECHNIUM",
+          "producto": "Lentes de sol - Modelo TECHNIUM -  Marco Grilamid TR90 superliviano - Lentes antirrayas polarizados azul - Protección UV400",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 26241,
+          "sqDocDate": "2026-08-09T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 43000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C20254802019",
+          "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+          "sku": "TECHNIUM",
+          "producto": "Lentes de sol - Modelo TECHNIUM -  Marco Grilamid TR90 superliviano - Lentes antirrayas polarizados azul - Protección UV400",
+          "familia": "FG",
+          "subfamilia": "INDUMENTARIA",
+          "sqDocNum": 2000013,
+          "sqDocDate": "2026-08-04T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 43000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C27184733760",
+      "clienteNombre": "MARISA VIVIANA LUJAN IANUNZIO",
+      "sku": "SLXC60MHASA",
+      "producto": "Shimano Slx A — Caña de Casting 6´0´´ (1.83m) — 1 tramo — Potencia Medium Heavy (MH) 12-25 lb — Señuelo 10-35 gr — Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        25806,
+        26232
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C27184733760",
+          "clienteNombre": "MARISA VIVIANA LUJAN IANUNZIO",
+          "sku": "SLXC60MHASA",
+          "producto": "Shimano Slx A — Caña de Casting 6´0´´ (1.83m) — 1 tramo — Potencia Medium Heavy (MH) 12-25 lb — Señuelo 10-35 gr — Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 26232,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 95000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "MAURICIO GIL",
+          "cardCode": "C27184733760",
+          "clienteNombre": "MARISA VIVIANA LUJAN IANUNZIO",
+          "sku": "SLXC60MHASA",
+          "producto": "Shimano Slx A — Caña de Casting 6´0´´ (1.83m) — 1 tramo — Potencia Medium Heavy (MH) 12-25 lb — Señuelo 10-35 gr — Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW Casting",
+          "sqDocNum": 25806,
+          "sqDocDate": "2026-07-16T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 92000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20306661230",
+      "clienteNombre": "ROBERTO ANGEL TOLABA",
+      "sku": "EXGTVC66M4AR",
+      "producto": "Shimano Exage 2026 — Caña Travel — Casting - 4 tramos - Potencia Medium (M) 8-15 lb - Señuelo 7-14g - Acción rápida",
+      "num_sqs": 2,
+      "sqs": [
+        26223,
+        26240
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20306661230",
+          "clienteNombre": "ROBERTO ANGEL TOLABA",
+          "sku": "EXGTVC66M4AR",
+          "producto": "Shimano Exage 2026 — Caña Travel — Casting - 4 tramos - Potencia Medium (M) 8-15 lb - Señuelo 7-14g - Acción rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW TRAVEL",
+          "sqDocNum": 26240,
+          "sqDocDate": "2026-08-09T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 78000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20306661230",
+          "clienteNombre": "ROBERTO ANGEL TOLABA",
+          "sku": "EXGTVC66M4AR",
+          "producto": "Shimano Exage 2026 — Caña Travel — Casting - 4 tramos - Potencia Medium (M) 8-15 lb - Señuelo 7-14g - Acción rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "FW TRAVEL",
+          "sqDocNum": 26223,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 78000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20306661230",
+      "clienteNombre": "ROBERTO ANGEL TOLABA",
+      "sku": "EXGTVS90M4CH",
+      "producto": "Shimano Exage 2026 — Caña Travel — Spinning - 4 tramos - Potencia Medium (M) 10-17 lb - Señuelo 10.5-42g - Acción Rápida",
+      "num_sqs": 2,
+      "sqs": [
+        26223,
+        26240
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20306661230",
+          "clienteNombre": "ROBERTO ANGEL TOLABA",
+          "sku": "EXGTVS90M4CH",
+          "producto": "Shimano Exage 2026 — Caña Travel — Spinning - 4 tramos - Potencia Medium (M) 10-17 lb - Señuelo 10.5-42g - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "SW TRAVEL",
+          "sqDocNum": 26240,
+          "sqDocDate": "2026-08-09T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 84000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20306661230",
+          "clienteNombre": "ROBERTO ANGEL TOLABA",
+          "sku": "EXGTVS90M4CH",
+          "producto": "Shimano Exage 2026 — Caña Travel — Spinning - 4 tramos - Potencia Medium (M) 10-17 lb - Señuelo 10.5-42g - Acción Rápida",
+          "familia": "CAÑAS",
+          "subfamilia": "SW TRAVEL",
+          "sqDocNum": 26223,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 84000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    },
+    {
+      "cardCode": "C20306661230",
+      "clienteNombre": "ROBERTO ANGEL TOLABA",
+      "sku": "NEX1000FJ",
+      "producto": "Shimano NEXAVE FJ (2026) — Tamaño 1000 — Reel Spinning",
+      "num_sqs": 2,
+      "sqs": [
+        26223,
+        26240
+      ],
+      "total_pendiente": 2.0,
+      "lines": [
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20306661230",
+          "clienteNombre": "ROBERTO ANGEL TOLABA",
+          "sku": "NEX1000FJ",
+          "producto": "Shimano NEXAVE FJ (2026) — Tamaño 1000 — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 26240,
+          "sqDocDate": "2026-08-09T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 67000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        },
+        {
+          "vendor": "SANTIAGO ESTEBAN",
+          "cardCode": "C20306661230",
+          "clienteNombre": "ROBERTO ANGEL TOLABA",
+          "sku": "NEX1000FJ",
+          "producto": "Shimano NEXAVE FJ (2026) — Tamaño 1000 — Reel Spinning",
+          "familia": "REEL",
+          "subfamilia": "SPINNING",
+          "sqDocNum": 26223,
+          "sqDocDate": "2026-08-07T00:00:00+00:00",
+          "pendiente": 1.0,
+          "precio": 67000.0,
+          "estado": "SIN ASIGNAR",
+          "stockActual": 0.0
+        }
+      ]
+    }
+  ],
+  "antiguedad": {
+    "0-30d": {
+      "count": 668,
+      "pendiente": 1822.0
+    },
+    "30-90d": {
+      "count": 821,
+      "pendiente": 2591.0
+    },
+    "90-180d": {
+      "count": 0,
+      "pendiente": 0
+    },
+    "180-365d": {
+      "count": 0,
+      "pendiente": 0
+    },
+    ">365d": {
+      "count": 0,
+      "pendiente": 0
+    },
+    "sin_fecha": {
+      "count": 0,
+      "pendiente": 0
+    }
+  },
+  "dup_mes_vs_mes": [
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "22CATPRII420",
+      "producto": "Shimano Catana — Caña Telescópica Pejerrey 4.20m — 5 secciones — Peso de lance 30-60 gr",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 60.0,
+      "por_mes": {
+        "2026-08": 40.0,
+        "2026-07": 20.0
+      }
+    },
+    {
+      "cardCode": "C33716739649",
+      "clienteNombre": "MUNDO ESTURION S.R.L.",
+      "sku": "CAPSH2401",
+      "producto": "Gorra Shimano - Color Gris y Negro - Con parche color marrón",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 40.0,
+      "por_mes": {
+        "2026-07": 20.0,
+        "2026-08": 20.0
+      }
+    },
+    {
+      "cardCode": "C33716739649",
+      "clienteNombre": "MUNDO ESTURION S.R.L.",
+      "sku": "CAPSH2402",
+      "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 40.0,
+      "por_mes": {
+        "2026-07": 20.0,
+        "2026-08": 20.0
+      }
+    },
+    {
+      "cardCode": "C33716739649",
+      "clienteNombre": "MUNDO ESTURION S.R.L.",
+      "sku": "FX2000FC",
+      "producto": "Shimano FX FC — Tamaño 2000 — Reel Spinning",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 40.0,
+      "por_mes": {
+        "2026-07": 20.0,
+        "2026-08": 20.0
+      }
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "CVC66H2CSA",
+      "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 36.0,
+      "por_mes": {
+        "2026-07": 24.0,
+        "2026-08": 12.0
+      }
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "9691",
+      "producto": "Gorra Shimano - Color Azul - Logo bordado color Blanco",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 30.0,
+      "por_mes": {
+        "2026-07": 10.0,
+        "2026-08": 20.0
+      }
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CAPSH1802",
+      "producto": "Gorra Shimano - Color Negro - Logo bordado color Cyan",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 30.0,
+      "por_mes": {
+        "2026-07": 10.0,
+        "2026-08": 20.0
+      }
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CAPSH2401",
+      "producto": "Gorra Shimano - Color Gris y Negro - Con parche color marrón",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 30.0,
+      "por_mes": {
+        "2026-07": 10.0,
+        "2026-08": 20.0
+      }
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CAPSH2402",
+      "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 30.0,
+      "por_mes": {
+        "2026-07": 10.0,
+        "2026-08": 20.0
+      }
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CAPSH2404",
+      "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Negro - Logo bordado",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 30.0,
+      "por_mes": {
+        "2026-07": 10.0,
+        "2026-08": 20.0
+      }
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "FX2000FC",
+      "producto": "Shimano FX FC — Tamaño 2000 — Reel Spinning",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 20.0,
+      "por_mes": {
+        "2026-07": 10.0,
+        "2026-08": 10.0
+      }
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "SLXXT151XGA",
+      "producto": "Shimano SLX XT A — Tamaño 151XG — Manija izquierda — Reel Baitcasting Low Profile",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 13.0,
+      "por_mes": {
+        "2026-08": 10.0,
+        "2026-07": 3.0
+      }
+    },
+    {
+      "cardCode": "C20269003996",
+      "clienteNombre": "GERARDO ANDRES BIANCHINI",
+      "sku": "CAPSH2402",
+      "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 12.0,
+      "por_mes": {
+        "2026-08": 6.0,
+        "2026-07": 6.0
+      }
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "21100300300E",
+      "producto": "Powerpro Regular - 30 Lb x 300 Yardas - Color Verde - Made in USA",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 12.0,
+      "por_mes": {
+        "2026-07": 2.0,
+        "2026-08": 10.0
+      }
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "CVC70H",
+      "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Heavy (H) 15-40 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 11.0,
+      "por_mes": {
+        "2026-07": 5.0,
+        "2026-08": 6.0
+      }
+    },
+    {
+      "cardCode": "C33716739649",
+      "clienteNombre": "MUNDO ESTURION S.R.L.",
+      "sku": "CVC66H2CSA",
+      "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 9.0,
+      "por_mes": {
+        "2026-07": 5.0,
+        "2026-08": 4.0
+      }
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CLC66HAR",
+      "producto": "Shimano Clarus - Caña de Casting  6´6´´ - 1 tramo - Potencia Heavy (H)  15-30 lb - Señuelo 20-50 g - Acción Moderada Rápida",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 9.0,
+      "por_mes": {
+        "2026-07": 4.0,
+        "2026-08": 5.0
+      }
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CVC66H2CSA",
+      "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 9.0,
+      "por_mes": {
+        "2026-07": 4.0,
+        "2026-08": 5.0
+      }
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CVC66HCSA",
+      "producto": "Shimano Convergence — Caña de Casting 1,98m — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 9.0,
+      "por_mes": {
+        "2026-07": 4.0,
+        "2026-08": 5.0
+      }
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CVC70H",
+      "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Heavy (H) 15-40 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 9.0,
+      "por_mes": {
+        "2026-07": 4.0,
+        "2026-08": 5.0
+      }
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "SHMTECHLGREENM",
+      "producto": "Remera Shimano Manga larga - Color Verde Claro - Talle Medium - Protección solar UPF50+",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 8.0,
+      "por_mes": {
+        "2026-08": 3.0,
+        "2026-07": 5.0
+      }
+    },
+    {
+      "cardCode": "C30714272817",
+      "clienteNombre": "WEEKEND OUTDOOR S.R.L.",
+      "sku": "SPM14000XTD",
+      "producto": "Shimano SPEEDMASTER XTD — Tamaño 14000 — Agua salada — Reel Frontal Surfcasting - Color Negro",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 7.0,
+      "por_mes": {
+        "2026-07": 2.0,
+        "2026-08": 5.0
+      }
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "SHC3000HGFJ",
+      "producto": "Shimano SAHARA FJ (2022) — Tamaño C3000HG — Reel Spinning",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 7.0,
+      "por_mes": {
+        "2026-07": 3.0,
+        "2026-08": 4.0
+      }
+    },
+    {
+      "cardCode": "C27184733760",
+      "clienteNombre": "MARISA VIVIANA LUJAN IANUNZIO",
+      "sku": "TMCX74HSABR",
+      "producto": "\"Shimano Teramar — Caña de Casting 7'4\"\" (3m) — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 21-56 gr — Acción Extra Rápida\"",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 7.0,
+      "por_mes": {
+        "2026-08": 5.0,
+        "2026-07": 2.0
+      }
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "SHMHOODLGREENL",
+      "producto": "Remera Shimano Manga larga con cuello y capucha Color Verde Claro - Talle Large - Protección solar UPF50+",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 6.0,
+      "por_mes": {
+        "2026-08": 3.0,
+        "2026-07": 3.0
+      }
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "SUC66MHA",
+      "producto": "Shimano Sellus — Caña de Casting  6´6´´ (1.98m) — 1 tramo — Potencia Medium Heavy (MH) 10-20 — Señuelo 14-50 gr — Acción Rápida",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 6.0,
+      "por_mes": {
+        "2026-07": 3.0,
+        "2026-08": 3.0
+      }
+    },
+    {
+      "cardCode": "C20254802019",
+      "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+      "sku": "CVC66H2CSA",
+      "producto": "Shimano Convergence — Caña de Casting 1,98m — 2 tramos — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 6.0,
+      "por_mes": {
+        "2026-08": 4.0,
+        "2026-07": 2.0
+      }
+    },
+    {
+      "cardCode": "C20254802019",
+      "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+      "sku": "CVC66HCSA",
+      "producto": "Shimano Convergence — Caña de Casting 1,98m — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 6.0,
+      "por_mes": {
+        "2026-08": 4.0,
+        "2026-07": 2.0
+      }
+    },
+    {
+      "cardCode": "C20254802019",
+      "clienteNombre": "FEDERICO ORLANDO RODRIGUEZ",
+      "sku": "CVC70H",
+      "producto": "Shimano Convergence — Caña de Casting 2.1m — 1 tramo — Potencia Heavy (H) 15-40 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 6.0,
+      "por_mes": {
+        "2026-08": 4.0,
+        "2026-07": 2.0
+      }
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "25ALX140XTC",
+      "producto": "Shimano AERLEX XTC — Tamaño 14000 — Agua salada — Reel  Frontal Surfcasting - Color negro",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 5.0,
+      "por_mes": {
+        "2026-08": 2.0,
+        "2026-07": 3.0
+      }
+    },
+    {
+      "cardCode": "C33716739649",
+      "clienteNombre": "MUNDO ESTURION S.R.L.",
+      "sku": "TMCX70HSA",
+      "producto": "\"Shimano Teramar — Caña de Casting 7'0\"\" (2.1m) — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 21-56 gr — Acción Extra Rápida\"",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 5.0,
+      "por_mes": {
+        "2026-07": 2.0,
+        "2026-08": 3.0
+      }
+    },
+    {
+      "cardCode": "C33716739649",
+      "clienteNombre": "MUNDO ESTURION S.R.L.",
+      "sku": "TMCX72HSABR",
+      "producto": "\"Shimano Teramar — Caña de Casting 7'2\"\" (2.7m) — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 21-56 gr — Peso 219 gr — Acción Extra Rápida\"",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 5.0,
+      "por_mes": {
+        "2026-07": 2.0,
+        "2026-08": 3.0
+      }
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "CVC66HCSA",
+      "producto": "Shimano Convergence — Caña de Casting 1,98m — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 30-60 gr - Acción Rápida",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 5.0,
+      "por_mes": {
+        "2026-07": 2.0,
+        "2026-08": 3.0
+      }
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "EXGC66HBAR",
+      "producto": "Shimano Exage 2026 - Cañas de Casting 6´6´´ - 1 tramo - Potencia Heavy (H) 15-30 lb - Señuelo 10,5-42 g -  Acción Rápida",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 5.0,
+      "por_mes": {
+        "2026-07": 2.0,
+        "2026-08": 3.0
+      }
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "EXGC70HBAR",
+      "producto": "Shimano Exage 2026 - Cañas de Casting 7´0´´ - 1 tramo - Potencia Heavy (H) 15-30 lb - Señuelo 10.5-42 g -  Acción Rápida",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 5.0,
+      "por_mes": {
+        "2026-07": 2.0,
+        "2026-08": 3.0
+      }
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "SHMHOODLGREENM",
+      "producto": "Remera Shimano Manga larga con cuello y capucha Color Verde Claro - Talle Medium - Protección solar UPF50+",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 4.0,
+      "por_mes": {
+        "2026-08": 1.0,
+        "2026-07": 3.0
+      }
+    },
+    {
+      "cardCode": "C33716739649",
+      "clienteNombre": "MUNDO ESTURION S.R.L.",
+      "sku": "TMCX74HSABR",
+      "producto": "\"Shimano Teramar — Caña de Casting 7'4\"\" (3m) — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 21-56 gr — Acción Extra Rápida\"",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 4.0,
+      "por_mes": {
+        "2026-07": 1.0,
+        "2026-08": 3.0
+      }
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "CU300K",
+      "producto": "Shimano CURADO K — Tamaño 300 — Manija derecha — Reel Baitcasting Low Profile",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 4.0,
+      "por_mes": {
+        "2026-07": 2.0,
+        "2026-08": 2.0
+      }
+    },
+    {
+      "cardCode": "C30710852762",
+      "clienteNombre": "REBORN SRL",
+      "sku": "CU301K",
+      "producto": "Shimano CURADO K — Tamaño 301 — Manija izquierda — Reel Baitcasting Low Profile",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 4.0,
+      "por_mes": {
+        "2026-07": 2.0,
+        "2026-08": 2.0
+      }
+    },
+    {
+      "cardCode": "C20330164787",
+      "clienteNombre": "DANIEL ALEJANDRO BATTISTONI",
+      "sku": "CVL401",
+      "producto": "Shimano CORVALUS — Tamaño 401 — Manija izquierda — Agua salada — Reel Convencional Round (Perfil redondo)",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 4.0,
+      "por_mes": {
+        "2026-08": 2.0,
+        "2026-07": 2.0
+      }
+    },
+    {
+      "cardCode": "C20351155354",
+      "clienteNombre": "RICARDO FABIAN BLANCO GOITIA",
+      "sku": "CDC72HSA",
+      "producto": "\"Shimano Curado — Caña de Casting 7'2\"\" — 1 tramo — Potencia Heavy (H) 15-30 lb — Señuelo 14-42 gr - Acción Rápida\"",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 4.0,
+      "por_mes": {
+        "2026-07": 2.0,
+        "2026-08": 2.0
+      }
+    },
+    {
+      "cardCode": "C30714272817",
+      "clienteNombre": "WEEKEND OUTDOOR S.R.L.",
+      "sku": "044990",
+      "producto": "Shimano GRAPPLER BB — Tamaño 151HG — Manija izquierda — Reel Baitcasting Low Profile - Agua Salada",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 3.0,
+      "por_mes": {
+        "2026-07": 2.0,
+        "2026-08": 1.0
+      }
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "PLM58RE0200150Y",
+      "producto": "Multifilamento KAIRIKI 8 hebras - Color Amarillo - 150M -  20LB - Made in Japan",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 3.0,
+      "por_mes": {
+        "2026-08": 1.0,
+        "2026-07": 2.0
+      }
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "SHC3000HGFJ",
+      "producto": "Shimano SAHARA FJ (2022) — Tamaño C3000HG — Reel Spinning",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 3.0,
+      "por_mes": {
+        "2026-08": 2.0,
+        "2026-07": 1.0
+      }
+    },
+    {
+      "cardCode": "C20341316201",
+      "clienteNombre": "FERNANDO NADIR PERALTA",
+      "sku": "9691",
+      "producto": "Gorra Shimano - Color Azul - Logo bordado color Blanco",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 3.0,
+      "por_mes": {
+        "2026-08": 1.0,
+        "2026-07": 2.0
+      }
+    },
+    {
+      "cardCode": "C20341316201",
+      "clienteNombre": "FERNANDO NADIR PERALTA",
+      "sku": "CAPSH1802",
+      "producto": "Gorra Shimano - Color Negro - Logo bordado color Cyan",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 3.0,
+      "por_mes": {
+        "2026-08": 1.0,
+        "2026-07": 2.0
+      }
+    },
+    {
+      "cardCode": "C20341316201",
+      "clienteNombre": "FERNANDO NADIR PERALTA",
+      "sku": "CAPSH2401",
+      "producto": "Gorra Shimano - Color Gris y Negro - Con parche color marrón",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 3.0,
+      "por_mes": {
+        "2026-08": 1.0,
+        "2026-07": 2.0
+      }
+    },
+    {
+      "cardCode": "C20341316201",
+      "clienteNombre": "FERNANDO NADIR PERALTA",
+      "sku": "CAPSH2402",
+      "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Azul - con parche",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 3.0,
+      "por_mes": {
+        "2026-08": 1.0,
+        "2026-07": 2.0
+      }
+    },
+    {
+      "cardCode": "C20341316201",
+      "clienteNombre": "FERNANDO NADIR PERALTA",
+      "sku": "CAPSH2404",
+      "producto": "Gorra Shimano - Tipo Trucker - Color Verde y Negro - Logo bordado",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 3.0,
+      "por_mes": {
+        "2026-08": 1.0,
+        "2026-07": 2.0
+      }
+    },
+    {
+      "cardCode": "C20341316201",
+      "clienteNombre": "FERNANDO NADIR PERALTA",
+      "sku": "TECHNIUM",
+      "producto": "Lentes de sol - Modelo TECHNIUM -  Marco Grilamid TR90 superliviano - Lentes antirrayas polarizados azul - Protección UV400",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 3.0,
+      "por_mes": {
+        "2026-08": 2.0,
+        "2026-07": 1.0
+      }
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "CU151XGM",
+      "producto": "Shimano CURADO M (2025) — Tamaño 151XG — Manija izquierda — Reel Baitcasting Low Profile",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 2.0,
+      "por_mes": {
+        "2026-08": 1.0,
+        "2026-07": 1.0
+      }
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "NAS4000XGFD",
+      "producto": "Shimano NASCI FD (2026) — Tamaño 4000XG — Reel Spinning",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 2.0,
+      "por_mes": {
+        "2026-08": 1.0,
+        "2026-07": 1.0
+      }
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "SHMHOODLGREY2XL",
+      "producto": "Remera Shimano Manga larga con cuello y capucha Color Verde Claro - Talle 2XL - Protección solar UPF50+",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 2.0,
+      "por_mes": {
+        "2026-08": 1.0,
+        "2026-07": 1.0
+      }
+    },
+    {
+      "cardCode": "C30718510291",
+      "clienteNombre": "BROBRO SA",
+      "sku": "SPM14000XTD",
+      "producto": "Shimano SPEEDMASTER XTD — Tamaño 14000 — Agua salada — Reel Frontal Surfcasting - Color Negro",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 2.0,
+      "por_mes": {
+        "2026-08": 1.0,
+        "2026-07": 1.0
+      }
+    },
+    {
+      "cardCode": "C27184733760",
+      "clienteNombre": "MARISA VIVIANA LUJAN IANUNZIO",
+      "sku": "SLXC60MHASA",
+      "producto": "Shimano Slx A — Caña de Casting 6´0´´ (1.83m) — 1 tramo — Potencia Medium Heavy (MH) 12-25 lb — Señuelo 10-35 gr — Acción Rápida",
+      "num_meses": 2,
+      "meses": [
+        "2026-07",
+        "2026-08"
+      ],
+      "spread_meses": 1,
+      "total_pendiente": 2.0,
+      "por_mes": {
+        "2026-08": 1.0,
+        "2026-07": 1.0
+      }
+    }
+  ],
+  "clientes_inactivos": null,
+  "skus_discontinuados": null
+}
