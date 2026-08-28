@@ -4132,8 +4132,11 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
       <div style="display:flex;gap:10px;justify-content:center;align-items:center;margin-top:20px;flex-wrap:wrap">
         <button class="stock-action-btn cancel" onclick="closeWaitlistCardModal()">Cerrar</button>
         <button class="stock-action-btn publish" id="wcard-edit-orden-btn" onclick="waitlistEditOrden()" style="background:#0f172a;color:#fff">Editar orden</button>
-        <button class="stock-action-btn publish" id="wcard-export-todo-btn" onclick="waitlistExportTodo()" style="background:#0f766e;color:#fff" title="Excel con 2 hojas: PEDIDO ACTUAL (los items del pedido) + CONFIRMACION BACKORDER (SKUs asignados del cliente en SAP con estado disponible/no)">Exportar todo</button>
-        <button class="stock-action-btn publish" id="wcard-archivo-cliente-btn" onclick="waitlistExportArchivoCliente()" style="background:#0369a1;color:#fff" title="Excel para mandar al cliente: columna 'Pedido' = min(cantidad pedida, disponible SAP) — refleja lo que le vamos a entregar. Filas sin dispSap se omiten.">Archivo cliente</button>
+        <!-- v723 (2026-08-28): rename mas claro segun Mariano.
+             Exportar todo -> Exportar pedido original (el pedido cargado tal cual).
+             Archivo cliente -> Exportar pedido para enviar al cliente (solo lo entregable). -->
+        <button class="stock-action-btn publish" id="wcard-export-todo-btn" onclick="waitlistExportTodo()" style="background:#0f766e;color:#fff" title="Excel con 2 hojas: PEDIDO ACTUAL (los items del pedido tal cual el cliente pidio) + CONFIRMACION BACKORDER (SKUs asignados del cliente en SAP con estado disponible/no)">Exportar pedido original</button>
+        <button class="stock-action-btn publish" id="wcard-archivo-cliente-btn" onclick="waitlistExportArchivoCliente()" style="background:#0369a1;color:#fff" title="Excel para mandar al cliente: columna 'Pedido' = min(cantidad pedida, disponible SAP) — refleja lo que le vamos a entregar. Filas sin dispSap se omiten.">Exportar pedido para enviar al cliente</button>
         <button class="stock-action-btn cancel" id="wcard-delete-btn" onclick="waitlistDeleteCurrent()" style="background:#dc2626;color:#fff;display:none">Borrar de espera</button>
         <button class="stock-action-btn publish" id="wcard-pass-btn" onclick="waitlistPasarAPendientes()" style="background:#1e40af;color:#fff">Pasar a Pendientes</button>
       </div>
@@ -4311,7 +4314,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v722';
+const APP_VERSION = 'v723';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
