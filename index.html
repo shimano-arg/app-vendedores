@@ -686,7 +686,7 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
 .targets-table{width:100%;border-collapse:collapse;font-size:12px}
 .targets-table th{background:#f1f5f9;padding:8px 10px;text-align:left;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569;border-bottom:2px solid #cbd5e1}
 .targets-table td{padding:6px 10px;border-bottom:1px solid #e5e7eb;vertical-align:middle}
-.targets-table input.tgt-input{width:100%;padding:7px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px;text-align:right;font-family:ui-monospace,Menlo,monospace;outline:none}
+.targets-table input.tgt-input{width:100%;min-width:110px;box-sizing:border-box;padding:8px 12px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:13.5px;text-align:right;font-family:ui-monospace,Menlo,monospace;outline:none;letter-spacing:.2px}
 .targets-table input.tgt-input:focus{border-color:#0284c7}
 .targets-table input.tgt-input.changed{border-color:#f59e0b;background:#fffbeb}
 .targets-table input.tgt-input.saving{border-color:#0284c7;background:#eff6ff;opacity:.7}
@@ -2416,7 +2416,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
     </div>
   </div>
   <div class="modal-overlay" id="targets-modal" onclick="if(event.target===this)closeTargetsPanel()">
-    <div class="modal-box" style="width:min(680px,98vw)">
+    <div class="modal-box" style="width:min(920px,98vw)">
       <div class="modal-head" style="background:linear-gradient(135deg,#0c4a6e,#0284c7)">
         <div><h2>Targets mensuales</h2><div class="subt">Carga el objetivo de facturaci&oacute;n en ARS para cada mes y vendedor.</div></div>
         <button class="modal-close" onclick="closeTargetsPanel()">&times;</button>
@@ -4287,7 +4287,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v706';
+const APP_VERSION = 'v707';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
