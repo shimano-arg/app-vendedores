@@ -4287,7 +4287,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v705';
+const APP_VERSION = 'v706';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13856,7 +13856,9 @@ function _renderE4BAsigApp(w){
     desc.textContent = it.desc || '(sin catalogo)';
     const meta = document.createElement('div');
     meta.style.cssText = 'color:#64748b;font-size:9.5px;margin-top:2px';
-    meta.textContent = 'ASIG · ' + it.qtyOpen + ' u · pedido ' + String(it.pedidoId).slice(0, 6);
+    // v705.1: distinguir ASIG firme (state=ASIG) vs virtual (state=BO+stock).
+    const _lbl = it.isVirtualAsig ? 'BO+stock disp (ASIG virtual)' : 'ASIG';
+    meta.textContent = _lbl + ' · ' + it.qtyOpen + ' u · pedido ' + String(it.pedidoId).slice(0, 6);
     left.appendChild(code); left.appendChild(desc); left.appendChild(meta);
     row.appendChild(left);
     const tag = document.createElement('span');
@@ -15314,6 +15316,11 @@ window._findAsigDelCliente = function(clientName, clientCardCode){
   if (typeof globalPedidos === 'undefined' || !Array.isArray(globalPedidos)) return out;
   const cc = String(clientCardCode || '').trim();
   const cn = String(clientName || '').trim().toUpperCase();
+  // v705.1 (2026-08-28): incluir state='ASIG' Y state='BO' con stock disponible.
+  // Los 62 pedidos migrados hoy siguen state='BO' hasta que E4.5 (CF onStockChange
+  // FIFOAssign) los promueva a ASIG. La UI STOCK ASIG los muestra igual via FIFO
+  // virtual — por consistencia, esta seccion tambien.
+  const getStk = (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : null;
   for (const p of globalPedidos) {
     if (!p || p.closedAt) continue;
     // Match por cardCode (preferido) o clientName (fallback).
@@ -15323,9 +15330,22 @@ window._findAsigDelCliente = function(clientName, clientCardCode){
     if (!cc && cn && pCN !== cn) continue;
     const lines = Array.isArray(p.lines) ? p.lines : [];
     lines.forEach((l, idx) => {
-      if (!l || l.state !== 'ASIG') return;
+      if (!l) return;
       const qo = Number(l.qtyOpen) || 0;
       if (qo <= 0) return;
+      let isVirtualAsig = false;
+      if (l.state === 'ASIG') {
+        // Reserva firme por E4.5.
+      } else if (l.state === 'BO') {
+        // Virtual ASIG solo si el SKU tiene stock disponible dep 11 (evita
+        // mostrar todo el backorder pendiente sin stock — eso NO es "asignado").
+        if (!getStk) return;
+        const stk = getStk(l.code) || 0;
+        if (stk <= 0) return;
+        isVirtualAsig = true;
+      } else {
+        return;
+      }
       out.push({
         pedidoId: p._fsId || p._id || '',
         pedidoOrden: p.orderNumber || null,
@@ -15334,6 +15354,8 @@ window._findAsigDelCliente = function(clientName, clientCardCode){
         desc: l.desc || '',
         qtyOpen: qo,
         priceAtCreation: Number(l.priceAtCreation || l.precio || 0),
+        state: l.state,
+        isVirtualAsig,
       });
     });
   }
