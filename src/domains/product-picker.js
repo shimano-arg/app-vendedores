@@ -239,12 +239,44 @@ function renderProductPicker() {
     // el vendedor asuma "hay 180 unidades disponibles" cuando en realidad
     // esas 180 estan en transito y hay 0 vendibles hoy.
     const stockSt = hasStock(p.code);
-    const disp =
+    // v705 (2026-08-28): usar getStockRealmenteDisponible (fisico - compromisos-app
+    // confirmed+BO+ASIG) para que el picker refleje el stock que el vendedor
+    // realmente puede prometer, no el fisico crudo. Antes usaba
+    // getStockDisponibleVenta (fisico dep 11 raw) → el vendedor podia ver 45u
+    // cuando en realidad ya habia 40u comprometidas y solo quedaban 5u libres.
+    const dispReal =
+      typeof window.getStockRealmenteDisponible === 'function'
+        ? window.getStockRealmenteDisponible(p.code)
+        : null;
+    const dispFisico =
       typeof window.getStockDisponibleVenta === 'function'
         ? window.getStockDisponibleVenta(p.code)
         : null;
+    const disp = dispReal != null ? dispReal : dispFisico;
     const trans =
       typeof window.getStockTransito === 'function' ? window.getStockTransito(p.code) : null;
+    // v705: badge visible con el nro de unidades disponibles REAL (max amarillo
+    // pastel) al lado del stockDot. Ayuda al vendedor a decidir la qty sin abrir
+    // tooltips.
+    let dispBadge = '';
+    if (disp != null && disp > 0) {
+      const dispBadgeTitle =
+        dispFisico != null && dispFisico !== disp
+          ? 'Disponible REAL: ' +
+            disp +
+            ' u (fisico dep 11: ' +
+            dispFisico +
+            ' - reservado: ' +
+            (dispFisico - disp) +
+            ')'
+          : 'Disponible: ' + disp + ' u';
+      dispBadge =
+        ' <span style="background:#fef9c3;color:#78350f;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:800;vertical-align:middle;border:1px solid #fde68a" title="' +
+        escapeAttr(dispBadgeTitle) +
+        '">' +
+        disp +
+        ' libres</span>';
+    }
     let stockDot = '';
     if (stockSt === true && disp != null && disp === 0 && trans != null && trans > 0) {
       // Ambar: 0 disponible pero N en transito -> se puede prometer con fecha estimada.
@@ -253,11 +285,15 @@ function renderProductPicker() {
         trans +
         ' unidades en transito (deposito 12) — se puede vender como backorder"></span>';
     } else if (stockSt === true) {
+      // v705: tooltip enriquecido con desglose fisico vs real.
       const t =
         disp != null
-          ? 'Disponible venta (dep. 11): ' +
+          ? 'Disponible real (fisico - compromisos-app): ' +
             disp +
             ' uds' +
+            (dispFisico != null && dispFisico !== disp
+              ? ' (fisico dep 11: ' + dispFisico + ', reservado: ' + (dispFisico - disp) + ')'
+              : '') +
             (trans > 0 ? ' + ' + trans + ' en transito' : '')
           : 'Disponible en depositos vendibles';
       stockDot = '<span class="stock-dot ok" title="' + escapeAttr(t) + '"></span>';
@@ -278,6 +314,7 @@ function renderProductPicker() {
       '<div class="code">' +
       stockDot +
       escapeHtml(p.code) +
+      dispBadge +
       campBadge +
       asigBadge +
       boBadge +
