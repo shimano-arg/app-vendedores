@@ -581,25 +581,9 @@ window.exportToExcel = function () {
   //     propio si eligio su nombre en el dropdown de zonas).
   //   admin / gerente / viewer: ven todo el listado (null = sin filtro).
   const allowedByRole = {
-    // v709 (2026-08-28): agregar BACKORDER, STOCK_ASIG, PEDIDOS_MES.
-    vendedor: new Set([
-      'VENTAS',
-      'VISITAS',
-      'RUTAS',
-      'MASTER',
-      'BACKORDER',
-      'STOCK_ASIG',
-      'PEDIDOS_MES',
-    ]),
-    interno: new Set([
-      'VENTAS',
-      'VISITAS',
-      'RUTAS',
-      'MASTER',
-      'BACKORDER',
-      'STOCK_ASIG',
-      'PEDIDOS_MES',
-    ]),
+    // v711 (2026-08-28): VENTAS y RUTAS eliminados del UI por pedido de Mariano.
+    vendedor: new Set(['VISITAS', 'MASTER', 'BACKORDER', 'STOCK_ASIG', 'PEDIDOS_MES']),
+    interno: new Set(['VISITAS', 'MASTER', 'BACKORDER', 'STOCK_ASIG', 'PEDIDOS_MES']),
   };
   const allowed = allowedByRole[userRole] || null; // null = ver todo
   document.querySelectorAll('#export-modal .exp-opt').forEach((el) => {
@@ -1052,11 +1036,10 @@ async function exportRendicionesForMonth(anio, monthIdx) {
     });
     row.height = ROW_H;
     row.alignment = { vertical: 'middle', wrapText: true };
-    // Embeber foto del ticket si existe. v308+: preferir base64 embebido
-    // (fotoTicket / adjunto) por compat, sino usar fotoTicketUrl como HYPERLINK.
-    // A nivel Excel un dataURL base64 se puede insertar como imagen inline,
-    // mientras que una URL de Storage se agrega como link clickeable (el
-    // usuario abre en el browser sin necesidad de que Excel descargue).
+    // v711 (2026-08-28): SIEMPRE embeber la foto (no dejar hyperlink).
+    // Antes: si fotoTicketUrl (Storage), quedaba como hyperlink Abrir ticket.
+    // Ahora: fetch del URL + convertir a arrayBuffer + embeber igual que dataURL.
+    // Fallback a hyperlink solo si el fetch falla (CORS, red, etc).
     const fotoSrc = r.fotoTicket || r.adjunto || '';
     if (fotoSrc && typeof fotoSrc === 'string' && fotoSrc.startsWith('data:image/')) {
       try {
@@ -1078,17 +1061,33 @@ async function exportRendicionesForMonth(anio, monthIdx) {
         console.warn('embebiendo foto rendicion', it.id, e);
       }
     } else if (r.fotoTicketUrl && typeof r.fotoTicketUrl === 'string') {
-      // Docs nuevos (v308+): foto en Storage, insertamos como hyperlink.
+      // v711 (2026-08-28): fetch la foto desde Storage y embeberla como imagen.
       try {
-        const cell = row.getCell(FOTO_COL_IDX + 1);
-        cell.value = {
-          text: 'Abrir ticket',
-          hyperlink: r.fotoTicketUrl,
-          tooltip: 'Abrir la foto del ticket en el browser',
-        };
-        cell.font = { color: { argb: 'FF0563C1' }, underline: true };
+        const resp = await fetch(r.fotoTicketUrl);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const contentType = resp.headers.get('content-type') || 'image/jpeg';
+        let ext = contentType.split('/')[1] || 'jpeg';
+        ext = ext.split(';')[0].trim().toLowerCase();
+        if (ext === 'jpg') ext = 'jpeg';
+        const buf = await resp.arrayBuffer();
+        const imageId = wb.addImage({ buffer: buf, extension: ext });
+        ws.addImage(imageId, {
+          tl: { col: FOTO_COL_IDX + 0.1, row: row.number - 1 + 0.1 },
+          ext: { width: IMG_W, height: IMG_H },
+          editAs: 'oneCell',
+        });
       } catch (e) {
-        console.warn('hyperlink foto rendicion', it.id, e);
+        // Fallback: si el fetch falla (CORS, red), dejar hyperlink como antes.
+        console.warn('fetch foto rendicion fallo, dejo hyperlink', it.id, e);
+        try {
+          const cell = row.getCell(FOTO_COL_IDX + 1);
+          cell.value = {
+            text: 'Abrir ticket',
+            hyperlink: r.fotoTicketUrl,
+            tooltip: 'Abrir la foto del ticket en el browser (fetch fallo)',
+          };
+          cell.font = { color: { argb: 'FF0563C1' }, underline: true };
+        } catch (_e2) {}
       }
     }
   }
