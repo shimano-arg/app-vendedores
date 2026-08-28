@@ -4314,7 +4314,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v723';
+const APP_VERSION = 'v724';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10983,6 +10983,30 @@ window.renderBackordersTab = function(){
       // modo BACKORDER: solo clientes con qtyBackorder > 0. Mostrar qtyBackorder.
       g.clientes = g.clientes.filter(c => (c.qtyBackorder || 0) > 0);
     }
+    // v724 (2026-08-28): consolidar duplicados por cliente (cardCode + nombre).
+    // Mariano: 'LUIS ZYSMAN con 1 u y 11 u' deberian mostrarse como una sola
+    // linea de 12 u. Ocurre cuando el mismo cliente tiene 2+ pedidos-app open
+    // con el mismo SKU (dups heredados de migracion o split v600).
+    // Se consolidan DESPUES del FIFO cap (para que qtyAsignada+qtyBackorder
+    // reflejen la asignacion correcta por linea). Se preservan los pedidoIds
+    // para que Eliminar cancele TODAS las lineas del cliente para ese SKU.
+    const byKeyC = {};
+    for (const c of g.clientes) {
+      const k = (c.code || c.nombre || '(sin key)').toUpperCase();
+      if (!byKeyC[k]) {
+        byKeyC[k] = Object.assign({}, c, {
+          pendiente: 0,
+          qtyAsignada: 0,
+          qtyBackorder: 0,
+          pedidoIds: [],
+        });
+      }
+      byKeyC[k].pendiente += Number(c.pendiente) || 0;
+      byKeyC[k].qtyAsignada += Number(c.qtyAsignada) || 0;
+      byKeyC[k].qtyBackorder += Number(c.qtyBackorder) || 0;
+      if (c.pedidoId) byKeyC[k].pedidoIds.push({ pedidoId: c.pedidoId, state: c.state, qty: Number(c.pendiente) || 0 });
+    }
+    g.clientes = Object.values(byKeyC);
     // Total segun modo: suma qtyAsignada en STOCK ASIG., qtyBackorder en BACKORDER.
     if (isAsig) {
       g.totalPendiente = g.clientes.reduce((s, c) => s + (c.qtyAsignada || 0), 0);
@@ -11100,12 +11124,19 @@ window.renderBackordersTab = function(){
       // BACKORDER: elimina lineas state='BO' (libera reclamo del cliente).
       // STOCK ASIG: elimina lineas state='ASIG' (libera stock reservado que se
       // ofrece al siguiente vendedor). Antes solo BACKORDER tenia este boton.
-      if (c.source === 'app' && (c.state === 'BO' || c.state === 'ASIG') && c.pedidoId) {
+      // v724 (2026-08-28): boton Eliminar en entradas CONSOLIDADAS.
+      // Si el cliente tiene N pedidoIds del mismo SKU (dups o split), cancelamos
+      // TODOS via window.deleteAllBackorderAppLinesForClient. Antes se cancelaba
+      // solo el pedidoId de la ultima linea agregada al skuMap.clientes.
+      const _pedidoIdsForCancel = Array.isArray(c.pedidoIds) ? c.pedidoIds : (c.pedidoId ? [{ pedidoId: c.pedidoId, state: c.state, qty: c.pendiente }] : []);
+      if (c.source === 'app' && _pedidoIdsForCancel.length > 0) {
         const _clienteEsc = String(c.nombre || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-        const _lblTitle = c.state === 'ASIG'
-          ? 'Eliminar esta reserva ASIG y liberar stock al siguiente vendedor (permanente)'
-          : 'Eliminar esta linea del pedido (permanente)';
-        html += '<button onclick="window.deleteBackorderAppLine(\'' + c.pedidoId + '\',\'' + escapeAttr(g.sku) + '\',\'' + _clienteEsc + '\',' + Math.round(c.pendiente) + ',\'' + c.state + '\')" title="' + _lblTitle + '" style="flex-shrink:0;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">&#128465; ELIMINAR</button>';
+        const _stateAny = _pedidoIdsForCancel[0].state;
+        const _lblTitle = _stateAny === 'ASIG'
+          ? 'Eliminar todas las reservas ASIG del cliente para este SKU (' + _pedidoIdsForCancel.length + ' linea/s, ' + Math.round(c.pendiente) + ' u total). Libera el stock. Permanente.'
+          : 'Eliminar todas las lineas del cliente para este SKU (' + _pedidoIdsForCancel.length + ' linea/s, ' + Math.round(c.pendiente) + ' u total). Permanente.';
+        const _payload = JSON.stringify(_pedidoIdsForCancel).replace(/'/g, "&#39;").replace(/"/g, '&quot;');
+        html += '<button onclick=\'window.deleteAllBackorderAppLinesForClient("' + escapeAttr(g.sku) + '","' + _clienteEsc + '",' + Math.round(c.pendiente) + ',' + _payload + ')\' title="' + _lblTitle + '" style="flex-shrink:0;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">&#128465; ELIMINAR' + (_pedidoIdsForCancel.length > 1 ? ' (' + _pedidoIdsForCancel.length + ')' : '') + '</button>';
       }
       html += '</div>';
     });
@@ -11124,6 +11155,71 @@ window.renderBackordersTab = function(){
 // para aceptar state='BO' o 'ASIG'. BO: libera el reclamo del cliente. ASIG:
 // libera stock reservado que se ofrece al siguiente vendedor. targetState default
 // 'BO' para compat con callers viejos que no pasan el 5to param.
+// v724 (2026-08-28): cancela TODAS las lineas app-source de un cliente para un
+// SKU dado. Se llama desde el boton Eliminar de las entradas consolidadas del
+// modal Backorder/StockAsig. entries = [{pedidoId, state, qty}, ...]. Un solo
+// confirm() al principio, luego cancela cada linea via deleteBackorderAppLine.
+window.deleteAllBackorderAppLinesForClient = async function(sku, clienteNombre, totalQty, entries){
+  if (!Array.isArray(entries) || !entries.length) return;
+  const stAny = entries[0].state || 'BO';
+  const msg = 'Eliminar ' + totalQty + ' u de ' + sku + ' del cliente "' + clienteNombre + '"?\n\n' +
+              (entries.length > 1 ? 'Involucra ' + entries.length + ' linea(s) en distintos pedidos.\n' : '') +
+              'Esta accion es PERMANENTE. Las unidades se liberan al pool general.\n' +
+              (stAny === 'ASIG' ? 'Al ser ASIG, se libera stock al siguiente vendedor.\n' : '');
+  if (!confirm(msg)) return;
+  let ok = 0, fail = 0;
+  for (const e of entries) {
+    try {
+      // Llamar sin el confirm interno (usamos un flag). Reimplementamos aca la logica
+      // basica para saltar el confirm del helper original.
+      const ref = fbDb.collection('pedidos').doc(e.pedidoId);
+      const snap = await ref.get();
+      if (!snap.exists) { fail++; continue; }
+      const d = snap.data() || {};
+      const lines = Array.isArray(d.lines) ? d.lines.slice() : [];
+      let modIdx = -1;
+      for (let i = 0; i < lines.length; i++) {
+        const l = lines[i];
+        if (!l) continue;
+        if (String(l.code || '').toUpperCase() !== String(sku).toUpperCase()) continue;
+        if (l.state !== e.state) continue;
+        modIdx = i;
+        lines[i] = Object.assign({}, l, {
+          qtyOpen: 0,
+          qtyCancelled: (Number(l.qtyCancelled) || 0) + (Number(l.qtyOpen) || 0),
+          state: 'cancelled',
+          cancelledAt: new Date().toISOString(),
+          cancelledFrom: e.state === 'ASIG' ? 'stock-asig-modal' : 'backorder-modal',
+        });
+        break;
+      }
+      if (modIdx < 0) { fail++; continue; }
+      // Optimistic local update.
+      if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+        const lp = globalPedidos.find(pp => pp && pp._fsId === e.pedidoId);
+        if (lp) lp.lines = lines;
+      }
+      await ref.update({
+        lines: lines,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      ok++;
+    } catch (err) {
+      console.error('deleteAllBackorderAppLinesForClient linea', e.pedidoId, err);
+      fail++;
+    }
+  }
+  // Re-render inmediato.
+  try {
+    const bm = document.getElementById('backorders-modal');
+    if (bm && bm.classList.contains('open') && typeof renderBackordersTab === 'function') renderBackordersTab();
+  } catch(_e){}
+  if (typeof showSyncTag === 'function') {
+    showSyncTag((stAny === 'ASIG' ? 'ASIG' : 'BO') + ' eliminadas: ' + ok + '/' + entries.length + ' lineas');
+  }
+  if (fail > 0) alert(fail + ' linea(s) no se pudieron eliminar. Refresca y reintenta.');
+};
+
 window.deleteBackorderAppLine = async function(pedidoId, sku, clienteNombre, qty, targetState){
   if (!pedidoId || !sku) return;
   const st = (targetState === 'ASIG') ? 'ASIG' : 'BO';
