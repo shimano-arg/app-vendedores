@@ -407,23 +407,19 @@ window.validateReviewAndPasarAPendientes = function () {
     // previos del mismo cliente con state='ASIG'.
     try {
       const cliName = (currentOrderClient && currentOrderClient.name) || '';
-      const cliCardCode = (cliName && typeof sapGetClienteCode === 'function')
-        ? (sapGetClienteCode(cliName) || '')
-        : '';
+      const cliCardCode =
+        cliName && typeof sapGetClienteCode === 'function' ? sapGetClienteCode(cliName) || '' : '';
       const currentPedidoId = (currentOrderClient && currentOrderClient._fsId) || null;
-      if (
-        cliCardCode
-        && typeof globalPedidos !== 'undefined'
-        && Array.isArray(globalPedidos)
-      ) {
+      if (cliCardCode && typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
         let asigCount = 0;
         let asigPedidos = 0;
         globalPedidos.forEach((p) => {
           if (!p || !Array.isArray(p.lines)) return;
           if (p._fsId === currentPedidoId) return; // saltar el pedido actual
-          const pCardCode = (typeof sapGetClienteCode === 'function')
-            ? (sapGetClienteCode(p.clientName || '') || '')
-            : '';
+          const pCardCode =
+            typeof sapGetClienteCode === 'function'
+              ? sapGetClienteCode(p.clientName || '') || ''
+              : '';
           if (pCardCode !== cliCardCode) return;
           const asigLinesOfP = p.lines.filter((l) => l && l.state === 'ASIG');
           if (asigLinesOfP.length > 0) {
@@ -433,10 +429,13 @@ window.validateReviewAndPasarAPendientes = function () {
         });
         if (asigCount > 0) {
           showReviewError(
-            'Este cliente tiene ' + asigCount + ' linea(s) con STOCK ASIGNADO sin resolver en '
-            + asigPedidos + ' pedido(s) anterior(es). '
-            + 'Abri "Pedido en espera" del cliente desde el mapa, aceptalas o rechazalas primero, '
-            + 'y despues volve a confirmar este pedido.'
+            'Este cliente tiene ' +
+              asigCount +
+              ' linea(s) con STOCK ASIGNADO sin resolver en ' +
+              asigPedidos +
+              ' pedido(s) anterior(es). ' +
+              'Abri "Pedido en espera" del cliente desde el mapa, aceptalas o rechazalas primero, ' +
+              'y despues volve a confirmar este pedido.'
           );
           return;
         }

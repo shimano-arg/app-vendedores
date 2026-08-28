@@ -732,7 +732,9 @@ window.testSlConnection = async function () {
   const errHtml =
     '<div style="background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:5px;padding:12px;font-size:12px"><b>&#10006; Error SAP</b><br>' +
     escapeHtml(r.error || 'desconocido') +
-    '<br><br><b>Causas frecuentes:</b><br>' + cause + '</div>';
+    '<br><br><b>Causas frecuentes:</b><br>' +
+    cause +
+    '</div>';
   out.innerHTML = r.ok ? okHtml : errHtml;
 };
 
