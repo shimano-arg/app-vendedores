@@ -3518,6 +3518,17 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <select id="pcf-mes" onchange="renderPedidosTab()"><option value="">Todos los meses</option></select>
         <select id="pcf-tienda" onchange="renderPedidosTab()"><option value="">Todas las tiendas</option></select>
         <select id="pcf-anio" onchange="renderPedidosTab()"><option value="">Todos los a&ntilde;os</option></select>
+        <!-- v703 (2026-08-28): filtro por estado SAP del pedido. -->
+        <select id="pcf-estado" onchange="renderPedidosTab()">
+          <option value="">Todos los estados</option>
+          <option value="OFERTA_VENTA">Oferta</option>
+          <option value="ORDEN_VENTA">Orden</option>
+          <option value="REMITIDO">Remitido</option>
+          <option value="FACTURADO">Facturado</option>
+          <option value="COBRADO">Cobrado (cualquier)</option>
+          <option value="COBRADO_PARCIAL">Cobrado parcial</option>
+          <option value="COBRADO_COMPLETO">Cobrado completo</option>
+        </select>
       </div>
       <div id="pedidos-content"></div>
     </div>
@@ -4276,7 +4287,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v702';
+const APP_VERSION = 'v703';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -16145,24 +16156,48 @@ function renderConfirmadosList(){
     });
   });
   // Poblar dropdowns. Conservamos el valor seleccionado actual si sigue valido.
-  function repopulate(selId, options, label){
+  // v703 (2026-08-28): defaultValue permite pre-seleccionar (ej mes/año actual)
+  // en la primera carga. Solo aplica si no hay valor previo del user.
+  function repopulate(selId, options, label, defaultValue){
     const sel = document.getElementById(selId);
     if (!sel) return '';
     const cur = sel.value;
     const opts = Array.from(new Set(options.filter(Boolean))).sort();
     sel.innerHTML = '<option value="">' + label + '</option>' +
       opts.map(o => '<option value="' + escapeAttr(String(o)) + '">' + escapeHtml(String(o)) + '</option>').join('');
-    if (opts.indexOf(cur) >= 0) sel.value = cur;
+    if (opts.indexOf(cur) >= 0) {
+      sel.value = cur;
+    } else if (defaultValue && opts.indexOf(String(defaultValue)) >= 0 && !sel.dataset.userTouched) {
+      sel.value = String(defaultValue);
+    }
+    // Marcar como tocado para no re-forzar el default despues del primer render.
+    sel.addEventListener('change', () => { sel.dataset.userTouched = '1'; }, { once: true });
     return sel.value;
   }
-  const fMes = repopulate('pcf-mes', allItems.map(it => it.conf.month || ''), 'Todos los meses');
+  // v703: default mes/año actual (Argentina) en la primera carga.
+  const _MESES_LBL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const _now = new Date();
+  const _mesActual = _MESES_LBL[_now.getMonth()];
+  const _anioActual = String(_now.getFullYear());
+  const fMes = repopulate('pcf-mes', allItems.map(it => it.conf.month || ''), 'Todos los meses', _mesActual);
   const fTienda = repopulate('pcf-tienda', allItems.map(it => it.clientName || ''), 'Todas las tiendas');
-  const fAnio = repopulate('pcf-anio', allItems.map(it => it.conf.year || ''), 'Todos los años');
+  const fAnio = repopulate('pcf-anio', allItems.map(it => it.conf.year || ''), 'Todos los años', _anioActual);
+  const fEstado = (document.getElementById('pcf-estado') || {}).value || '';
   // Aplicar filtros + search.
   let items = allItems;
   if (fMes) items = items.filter(it => (it.conf.month || '') === fMes);
   if (fTienda) items = items.filter(it => (it.clientName || '') === fTienda);
   if (fAnio) items = items.filter(it => String(it.conf.year || '') === fAnio);
+  // v703: filtro estado SAP. 'COBRADO' agrupa PARCIAL + COMPLETO. 'REMITIDO' es
+  // un estado que aun no lo trackea el sync SAP (proxy: pedidos con delivery
+  // pero sin invoice); por ahora matchea 0 items — placeholder para futuro.
+  if (fEstado) {
+    items = items.filter(it => {
+      const est = String(it.conf.sapEstado || '').toUpperCase();
+      if (fEstado === 'COBRADO') return est === 'COBRADO_PARCIAL' || est === 'COBRADO_COMPLETO';
+      return est === fEstado;
+    });
+  }
   const q = getPedidoSearchQuery();
   if (q) items = items.filter(it => {
     // Busqueda ampliada: matchea contra clientName (titular/comercio) +
