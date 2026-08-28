@@ -4311,7 +4311,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v721';
+const APP_VERSION = 'v722';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10787,6 +10787,12 @@ window.renderBackordersTab = function(){
   const list = document.getElementById('backorders-list');
   const sum = document.getElementById('backorders-summary');
   if (!list || !sum) return;
+  // v721.1 (2026-08-28): preservar scroll position antes del innerHTML =.
+  // Sin esto: cuando el user elimina una linea, el scroll se pierde y el card
+  // parece 'desaparecer' porque despues del re-sort (por totalPendiente DESC)
+  // el card cae a otra posicion. Ahora scroll se mantiene → user ve donde el
+  // card se movio.
+  const _prevScrollTop = list.scrollTop;
   // v700 (2026-08-28): removido el early return "sin datos de backorder" que
   // dependia de backorderLines (SAP-source). Ahora la fuente unica es APP-source
   // (globalPedidos state=BO/ASIG). El placeholder "sin data" se muestra al final
@@ -11107,6 +11113,8 @@ window.renderBackordersTab = function(){
     html += '<div style="padding:14px;text-align:center;color:#94a3b8;font-size:11px">Mostrando 100 de ' + skus.length + ' SKUs. Refina la busqueda para ver menos.</div>';
   }
   list.innerHTML = html;
+  // v721.1: restaurar scroll para que el user vea que el card se movio, no que desaparecio.
+  try { list.scrollTop = _prevScrollTop; } catch(_e){}
 };
 
 // v702 (2026-08-28): elimina una linea app-source de un pedido. Extiende v692
