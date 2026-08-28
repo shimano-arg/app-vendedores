@@ -3930,8 +3930,8 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
                 <th style="text-align:left;padding:6px 8px">Producto</th>
                 <th style="text-align:right;padding:6px 8px" title="Stock deposito 11 + transito deposito 12">Stock total</th>
                 <th style="text-align:right;padding:6px 8px" title="RemainingOpenQuantity de Sales Quotations open del SKU">Backorder SAP</th>
-                <th style="text-align:right;padding:6px 8px" title="Stock total - Backorder SAP (snapshot con lag 5-30 min)">Disponible SAP</th>
-                <th style="text-align:right;padding:6px 8px" title="Disponible SAP - Pedidos pendientes app no transferidos aun. Corrige el delay del sync SAP.">Disponible app</th>
+                <th style="text-align:right;padding:6px 8px" title="v701: Stock realmente disponible = Stock fisico - compromisos-app (confirmed+BO+ASIG en pedidos-app open). Es lo que realmente podes prometer al cliente.">Disponible</th>
+                <th style="text-align:right;padding:6px 8px" title="Disponible - Pedidos pendientes app no transferidos aun. Corrige el delay del sync SAP.">Disponible app</th>
                 <th style="text-align:right;padding:6px 8px">Pedido cliente</th>
                 <th style="text-align:right;padding:6px 8px" title="Pedido - Disponible app">Excedente</th>
               </tr>
@@ -4073,8 +4073,8 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
               <th style="text-align:center;padding:6px 8px" title="Stock deposito 11 + transito deposito 12">Stock total</th>
               <th style="text-align:center;padding:6px 8px" title="Backorder SAP TOTAL (todos los clientes) + otros pedidos en espera del mismo SKU. Informativo, NO resta al Disponible.">Backorder General</th>
               <th style="text-align:center;padding:6px 8px" title="Backorder SAP de ESTE cliente (Ofertas de Venta open del cliente por este SKU). Suma qty pendiente.">Backorder Cliente</th>
-              <th style="text-align:center;padding:6px 8px;background:#fef9c3;color:#78350f" title="Stock total - Backorder SAP (segun snapshot SAP - tiene delay de sync)">Disponible SAP</th>
-              <th style="text-align:center;padding:6px 8px" title="Disponible SAP - Pedidos Pendientes de la app no transferidos aun a SAP. Corrige el delay del sync SAP.">Disponible app</th>
+              <th style="text-align:center;padding:6px 8px;background:#fef9c3;color:#78350f" title="v701: Stock realmente disponible = Stock fisico - compromisos-app (confirmed+BO+ASIG en pedidos-app open).">Disponible</th>
+              <th style="text-align:center;padding:6px 8px" title="Disponible - Pedidos Pendientes de la app no transferidos aun. Corrige el delay del sync SAP.">Disponible app</th>
               <th style="text-align:center;padding:6px 8px">Pedido</th>
               <th style="text-align:center;padding:6px 8px" title="Precio unitario del catalogo/SAP">Precio</th>
               <th style="text-align:center;padding:6px 8px" title="Lo que confirmas YA con seguridad = min(Pedido, Disponible SAP) x Precio">Subtotal (Confirmaci&oacute;n Inmediata)</th>
@@ -4270,7 +4270,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v700';
+const APP_VERSION = 'v701';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -4404,6 +4404,41 @@ window.isPedidoSplitEnabled = function(){
     if (v === '0') return false; // kill switch explicito
     return true; // default ON desde v620
   } catch (_e) { return true; } // default ON aun sin localStorage
+};
+
+// v701 (2026-08-28): STOCK REALMENTE DISPONIBLE.
+// Mariano decidio 2026-08-28 que la app sea dueña del stock: al confirmar
+// un pedido, esas unidades quedan comprometidas y NO se ofrecen al siguiente
+// vendedor. Idem para BO/ASIG open. Fuente: pure/stock-realmente-disponible.js.
+//
+// Formula: max(0, stockFisico(sku) - Σ qtyOpen de lineas en pedidos-app open
+//           con state IN ('confirmed','BO','ASIG'))
+//
+// Reemplaza el uso de getStockDisponibleVenta y getStockDisponibleVentaNetSap
+// en el confirm flow (splitPedidoLine + reenrichPedidoLine). Deprecacion
+// gradual: las 2 funciones viejas siguen existiendo para UI que aun no migro,
+// pero el confirm flow YA no las usa como fuente de verdad.
+window.getStockRealmenteDisponible = function(sku){
+  const _fn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.getStockRealmenteDisponible;
+  if (!_fn) {
+    // Fallback bundle no cargado: usa el disponible viejo (menos preciso pero funcional).
+    if (typeof getStockDisponibleVentaNetSap === 'function') return getStockDisponibleVentaNetSap(sku) || 0;
+    if (typeof getStockDisponibleVenta === 'function') return getStockDisponibleVenta(sku) || 0;
+    return 0;
+  }
+  return _fn(sku, {
+    getStockFisico: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
+    pedidos: (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
+  });
+};
+
+window.getStockDesglose = function(sku){
+  const _fn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.getStockDesglose;
+  if (!_fn) return { fisico: 0, comprometido: 0, real: 0, breakdown: { confirmed: 0, BO: 0, ASIG: 0 } };
+  return _fn(sku, {
+    getStockFisico: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
+    pedidos: (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
+  });
 };
 
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
@@ -12289,11 +12324,19 @@ function _revisionStockFor(sku){
     if (q != null) stockTotal = Number(q);
   }
   const hasData = stockTotal != null;
-  // Disponible sigue restando solo SAP-BO (reserva SAP real). App-ASIG es una
-  // reserva "phantom" (no en SAP hasta que se recicle), no la restamos aca
-  // para no romper la formula usada en muchos lados. Ver E5 UI merge doc.
-  const disponible = hasData ? Math.max(stockTotal - backorder, 0) : null;
-  return {stockTotal, backorder, backorderApp, asigApp, disponible, hasData};
+  // v701 (2026-08-28): `disponible` ahora ES el stock realmente disponible
+  // (resta compromisos-app: confirmed+BO+ASIG). Fuente de verdad post-migracion
+  // 100% SAP→APP. Los 30 sitios del codebase que usan `.disponible` reciben
+  // automaticamente el valor correcto sin cambiar cada llamada.
+  //
+  // `disponibleLegacy` = calculo viejo (stockTotal - SAP backorder) para
+  // referencia/debug. `dispReal` = alias explicito.
+  const disponibleLegacy = hasData ? Math.max(stockTotal - backorder, 0) : null;
+  const dispReal = (typeof window.getStockRealmenteDisponible === 'function' && hasData)
+    ? Math.max(window.getStockRealmenteDisponible(k), 0)
+    : disponibleLegacy;
+  const disponible = dispReal;
+  return {stockTotal, backorder, backorderApp, asigApp, disponible, disponibleLegacy, dispReal, hasData};
 }
 async function parseRevisionExcelFile(file){
   const errEl = document.getElementById('revision-error');
@@ -15168,8 +15211,199 @@ window.reviewDejarEnEspera = async function(){
   }
 };
 
+// v701 (2026-08-28): busca lineas ASIG open del cliente en pedidos-app.
+// Devuelve array de {pedidoId, lineIndex, code, desc, qtyOpen, priceAtCreation}
+// para las lineas ASIG con qtyOpen > 0 del cliente cardCode dado.
+window._findAsigDelCliente = function(clientName, clientCardCode){
+  const out = [];
+  if (typeof globalPedidos === 'undefined' || !Array.isArray(globalPedidos)) return out;
+  const cc = String(clientCardCode || '').trim();
+  const cn = String(clientName || '').trim().toUpperCase();
+  for (const p of globalPedidos) {
+    if (!p || p.closedAt) continue;
+    // Match por cardCode (preferido) o clientName (fallback).
+    const pCC = String(p.clientCardCode || '').trim();
+    const pCN = String(p.clientName || '').trim().toUpperCase();
+    if (cc && pCC && pCC !== cc) continue;
+    if (!cc && cn && pCN !== cn) continue;
+    const lines = Array.isArray(p.lines) ? p.lines : [];
+    lines.forEach((l, idx) => {
+      if (!l || l.state !== 'ASIG') return;
+      const qo = Number(l.qtyOpen) || 0;
+      if (qo <= 0) return;
+      out.push({
+        pedidoId: p._fsId || p._id || '',
+        pedidoOrden: p.orderNumber || null,
+        lineIndex: idx,
+        code: l.code,
+        desc: l.desc || '',
+        qtyOpen: qo,
+        priceAtCreation: Number(l.priceAtCreation || l.precio || 0),
+      });
+    });
+  }
+  return out;
+};
+
+// v701 (2026-08-28): abre modal ASIG obligatorio. Bloquea el pasaje a
+// Pendientes hasta que el vendedor resuelva TODAS las lineas ASIG con una
+// de 3 opciones por linea: Eliminar / Agregar completo / Agregar parcial.
+// onDone(mods) se llama con el array de modificaciones que hay que aplicar.
+window._showAsigResolveModal = function(w, asigLines, onDone){
+  // Crear overlay dinamico si no existe.
+  let overlay = document.getElementById('asig-resolve-modal');
+  if (overlay) overlay.remove();
+  overlay = document.createElement('div');
+  overlay.id = 'asig-resolve-modal';
+  overlay.className = 'modal-overlay open';
+  const box = document.createElement('div');
+  box.className = 'modal-box mc-modal-box';
+  box.style.cssText = 'width:min(760px,96vw);max-height:90vh;display:flex;flex-direction:column';
+  // Estado: {[lineKey]: {action:'delete'|'full'|'partial'|null, partialQty:number}}
+  const state = {};
+  const keyOf = (l) => l.pedidoId + '::' + l.lineIndex;
+  asigLines.forEach(l => { state[keyOf(l)] = { action: null, partialQty: l.qtyOpen }; });
+
+  const render = () => {
+    let html = '';
+    html += '<div class="modal-head" style="background:linear-gradient(135deg,#7c3aed,#a855f7)">';
+    html += '<div><h2>&#128274; Stock Asignado del Cliente</h2>';
+    html += '<div class="subt">Este cliente tiene ' + asigLines.length + ' linea(s) con stock ya asignado. Resolve cada una antes de pasar a Pendientes.</div>';
+    html += '</div>';
+    html += '<button class="modal-close" onclick="window._closeAsigResolveModal()">&times;</button>';
+    html += '</div>';
+    html += '<div style="padding:14px;overflow-y:auto;flex:1">';
+    asigLines.forEach((l, i) => {
+      const k = keyOf(l);
+      const st = state[k];
+      const done = !!st.action;
+      html += '<div style="border:1.5px solid ' + (done ? '#86efac' : '#e2e8f0') + ';border-radius:8px;padding:12px;margin-bottom:10px;background:' + (done ? '#f0fdf4' : '#fff') + '">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">';
+      html += '<div><div style="font-weight:700;font-size:13px">' + escapeHtml(l.code) + '</div>';
+      html += '<div style="font-size:11px;color:#64748b">' + escapeHtml(l.desc) + '</div></div>';
+      html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:20px;font-weight:800;color:#7c3aed">' + l.qtyOpen + '</div><div style="font-size:9px;color:#94a3b8;text-transform:uppercase">asignadas</div></div>';
+      html += '</div>';
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">';
+      html += '<button onclick="window._asigLineChoose(' + i + ',\'delete\')" style="background:' + (st.action==='delete'?'#dc2626':'#fee2e2') + ';color:' + (st.action==='delete'?'#fff':'#991b1b') + ';border:1px solid #fca5a5;border-radius:5px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer">&#128465; Eliminar</button>';
+      html += '<button onclick="window._asigLineChoose(' + i + ',\'full\')" style="background:' + (st.action==='full'?'#16a34a':'#dcfce7') + ';color:' + (st.action==='full'?'#fff':'#166534') + ';border:1px solid #86efac;border-radius:5px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer">&#10003; Agregar completo (' + l.qtyOpen + ')</button>';
+      html += '<button onclick="window._asigLineChoose(' + i + ',\'partial\')" style="background:' + (st.action==='partial'?'#0284c7':'#dbeafe') + ';color:' + (st.action==='partial'?'#fff':'#1e40af') + ';border:1px solid #93c5fd;border-radius:5px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer">&#9998; Parcial</button>';
+      if (st.action === 'partial') {
+        html += '<input type="number" min="1" max="' + l.qtyOpen + '" value="' + st.partialQty + '" oninput="window._asigLinePartialQty(' + i + ', this.value)" style="width:70px;padding:4px 6px;border:1px solid #93c5fd;border-radius:4px;font-size:12px">';
+        html += '<span style="font-size:10px;color:#64748b">agregar / quedan ' + (l.qtyOpen - st.partialQty) + '</span>';
+      }
+      html += '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+    // Footer
+    const resueltas = Object.values(state).filter(s => s.action).length;
+    const total = asigLines.length;
+    const allDone = resueltas === total;
+    html += '<div style="padding:12px 16px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center">';
+    html += '<div style="font-size:12px;color:#64748b">Resueltas: <b style="color:' + (allDone?'#16a34a':'#dc2626') + '">' + resueltas + '/' + total + '</b></div>';
+    html += '<button onclick="window._asigResolveApply()" ' + (allDone?'':'disabled') + ' style="background:' + (allDone?'#1e40af':'#94a3b8') + ';color:#fff;border:0;border-radius:6px;padding:10px 18px;font-size:13px;font-weight:700;cursor:' + (allDone?'pointer':'not-allowed') + '">Continuar a Pendientes &rarr;</button>';
+    html += '</div>';
+    box.innerHTML = html;
+  };
+  window._asigLineChoose = (idx, action) => {
+    const l = asigLines[idx];
+    state[keyOf(l)].action = action;
+    if (action !== 'partial') state[keyOf(l)].partialQty = l.qtyOpen;
+    render();
+  };
+  window._asigLinePartialQty = (idx, val) => {
+    const n = Math.max(1, Math.min(asigLines[idx].qtyOpen, parseInt(val, 10) || 1));
+    state[keyOf(asigLines[idx])].partialQty = n;
+    render();
+  };
+  window._asigResolveApply = () => {
+    const mods = asigLines.map(l => {
+      const st = state[keyOf(l)];
+      return {
+        pedidoId: l.pedidoId, lineIndex: l.lineIndex, code: l.code,
+        priceAtCreation: l.priceAtCreation, desc: l.desc, qtyOpen: l.qtyOpen,
+        action: st.action, qtyToAdd: st.action === 'full' ? l.qtyOpen : (st.action === 'partial' ? st.partialQty : 0),
+        qtyRemaining: st.action === 'full' ? 0 : (st.action === 'partial' ? (l.qtyOpen - st.partialQty) : 0),
+      };
+    });
+    window._closeAsigResolveModal();
+    if (typeof onDone === 'function') onDone(mods);
+  };
+  window._closeAsigResolveModal = () => { const el = document.getElementById('asig-resolve-modal'); if (el) el.remove(); };
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  render();
+};
+
 window.waitlistPasarAPendientes = async function(){
   const w = _wcardCurrent;
+  if (!w) return;
+  // v701 (2026-08-28): gate obligatorio ASIG del cliente antes de continuar.
+  // Si el cliente tiene lineas state='ASIG' con qtyOpen>0 en algun pedido-app
+  // open, mostrar modal con 3 opciones por linea. Sin resolver todo, aborta.
+  try {
+    const cardCode = (typeof sapGetClienteCode === 'function') ? (sapGetClienteCode(w.clientName) || '') : '';
+    const asigLines = (typeof window._findAsigDelCliente === 'function') ? window._findAsigDelCliente(w.clientName, cardCode) : [];
+    if (asigLines.length > 0) {
+      window._showAsigResolveModal(w, asigLines, async (mods) => {
+        // Aplicar mods a Firestore antes de retomar el flujo.
+        try {
+          if (fbDb && mods.length) {
+            const batch = fbDb.batch();
+            for (const m of mods) {
+              if (!m.pedidoId) continue;
+              const ref = fbDb.collection('pedidos').doc(m.pedidoId);
+              const snap = await ref.get();
+              const d = snap.data() || {};
+              const lines = Array.isArray(d.lines) ? d.lines.slice() : [];
+              if (!lines[m.lineIndex]) continue;
+              const l = Object.assign({}, lines[m.lineIndex]);
+              if (m.action === 'delete') {
+                l.qtyOpen = 0;
+                l.qtyCancelled = (Number(l.qtyCancelled) || 0) + m.qtyOpen;
+                l.state = 'cancelled';
+              } else if (m.action === 'full') {
+                l.qtyOpen = 0;
+                l.qtyRecycled = (Number(l.qtyRecycled) || 0) + m.qtyOpen;
+                l.state = 'recycled';
+              } else if (m.action === 'partial') {
+                l.qtyOpen = m.qtyRemaining;
+                l.qtyRecycled = (Number(l.qtyRecycled) || 0) + m.qtyToAdd;
+                // state sigue ASIG si queda qtyOpen; sino recycled.
+                l.state = m.qtyRemaining > 0 ? 'ASIG' : 'recycled';
+              }
+              lines[m.lineIndex] = l;
+              batch.update(ref, { lines: lines });
+            }
+            await batch.commit();
+          }
+        } catch (e) { console.error('asig resolve batch', e); alert('Error aplicando cambios ASIG: ' + (e.message || e)); return; }
+        // Agregar al waitlist items las lineas ASIG que se eligieron full/partial.
+        // Se hacen visibles como items del pedido nuevo que se va a crear.
+        const w2 = _wcardCurrent;
+        if (!w2) return;
+        if (!Array.isArray(w2.items)) w2.items = [];
+        mods.forEach(m => {
+          if (m.action === 'full' || m.action === 'partial') {
+            // Ver si ya hay item con el mismo code, sino agregar.
+            const existing = w2.items.find(it => (it.code||'').toUpperCase() === (m.code||'').toUpperCase());
+            if (existing) existing.qty = (Number(existing.qty)||0) + m.qtyToAdd;
+            else w2.items.push({ code: m.code, desc: m.desc, qty: m.qtyToAdd });
+          }
+        });
+        // Continuar con el flujo original.
+        window._waitlistPasarAPendientesContinuar(w2);
+      });
+      return; // El continuar lo llama el callback del modal.
+    }
+  } catch (e) { console.warn('waitlistPasarAPendientes ASIG gate', e); }
+  // Sin ASIG del cliente: flujo original.
+  window._waitlistPasarAPendientesContinuar(w);
+};
+
+// v701 (2026-08-28): cuerpo original de waitlistPasarAPendientes movido a
+// funcion aparte para que el gate ASIG pueda invocarlo tras resolver el modal.
+window._waitlistPasarAPendientesContinuar = function(w){
   if (!w) return;
   // v573 (2026-08-21): pasar TODOS los items al pedido nuevo con qty exacta.
   //   - Items con dispSap >= qty -> pedidos.add() les marca state='confirmed'
@@ -16264,9 +16498,12 @@ function persistPendingEntry(entry){
     let _linesEnriched;
     if (_reenrichFn) {
       const _opts = {
-        // v621 (2026-08-25): usar version NET del disponible (descuenta SAP backorder)
-        // para no prometer al cliente unidades comprometidas en SQs SAP viejas de otros.
-        getDisp: (typeof getStockDisponibleVentaNetSap === 'function') ? getStockDisponibleVentaNetSap : (typeof getStockDisponibleVenta === 'function' ? getStockDisponibleVenta : null),
+        // v701 (2026-08-28): usar getStockRealmenteDisponible que resta compromisos
+        // de pedidos-app open (confirmed+BO+ASIG). Mariano decidio 2026-08-28 que la
+        // app sea dueña del stock. Fallback a NetSap/Venta si el bundle no cargo.
+        getDisp: (typeof window.getStockRealmenteDisponible === 'function')
+          ? window.getStockRealmenteDisponible
+          : ((typeof getStockDisponibleVentaNetSap === 'function') ? getStockDisponibleVentaNetSap : (typeof getStockDisponibleVenta === 'function' ? getStockDisponibleVenta : null)),
         flagEnabled: (typeof window.isPedidoSplitEnabled === 'function') ? window.isPedidoSplitEnabled() : false,
       };
       _linesEnriched = (entry.lines || []).flatMap(l => _reenrichFn(l, _opts));
@@ -21912,9 +22149,12 @@ window.doConfirmPedido = function(){
       const _splitFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.splitPedidoLine);
       if (_splitFn) {
         return _splitFn(l, {
-          // v621 (2026-08-25): usar version NET del disponible (descuenta SAP backorder)
-          // para no prometer al cliente unidades comprometidas en SQs SAP viejas de otros.
-          getDisp: (typeof getStockDisponibleVentaNetSap === 'function') ? getStockDisponibleVentaNetSap : (typeof getStockDisponibleVenta === 'function' ? getStockDisponibleVenta : null),
+          // v701 (2026-08-28): usar getStockRealmenteDisponible que resta compromisos
+          // de pedidos-app open (confirmed+BO+ASIG). Mariano decidio 2026-08-28 que la
+          // app sea dueña del stock. Fallback a NetSap/Venta si el bundle no cargo.
+          getDisp: (typeof window.getStockRealmenteDisponible === 'function')
+            ? window.getStockRealmenteDisponible
+            : ((typeof getStockDisponibleVentaNetSap === 'function') ? getStockDisponibleVentaNetSap : (typeof getStockDisponibleVenta === 'function' ? getStockDisponibleVenta : null)),
           flagEnabled: (typeof window.isPedidoSplitEnabled === 'function') ? window.isPedidoSplitEnabled() : false,
         });
       }

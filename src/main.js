@@ -45,6 +45,10 @@ import {
 import { reenrichPedidoLine, splitPedidoLine } from './pure/pedido-split.js';
 import { matchSkuFromTitle } from './pure/product-match.js';
 import { matchesAllTokens } from './pure/search.js';
+import {
+  getStockDesglose,
+  getStockRealmenteDisponible,
+} from './pure/stock-realmente-disponible.js';
 import { createSapClient } from './sap-client.js';
 import { applySentryUserContext } from './sentry.js';
 // Dominios que quedan en el shell (side-effect imports, cada uno registra window.foo).
@@ -139,6 +143,8 @@ const phase0 = {
     passesTypeFilter,
     splitPedidoLine,
     reenrichPedidoLine,
+    getStockRealmenteDisponible,
+    getStockDesglose,
     canViewPanel,
     computeHealthStatus,
     computeAgeMinutes,
