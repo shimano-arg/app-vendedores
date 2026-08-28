@@ -47,6 +47,7 @@ import { matchSkuFromTitle } from './pure/product-match.js';
 import { matchesAllTokens } from './pure/search.js';
 import {
   getStockDesglose,
+  getStockPorCliente,
   getStockRealmenteDisponible,
 } from './pure/stock-realmente-disponible.js';
 import { createSapClient } from './sap-client.js';
@@ -145,6 +146,7 @@ const phase0 = {
     reenrichPedidoLine,
     getStockRealmenteDisponible,
     getStockDesglose,
+    getStockPorCliente,
     canViewPanel,
     computeHealthStatus,
     computeAgeMinutes,

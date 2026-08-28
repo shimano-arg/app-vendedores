@@ -1405,6 +1405,15 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 /* v479: SKU ya esta pedido en SAP Asignado - Con Stock del cliente -> rojo
    fuerte (evitar duplicar el pedido, el cliente ya tiene esas unidades). */
 #wcard-rows tr.warn-duplicado td{background:#fecaca;color:#7f1d1d;font-weight:800}
+/* v713.1 (2026-08-28): SKU repetido - el mismo cliente ya tiene ese SKU
+   reservado en un pedido anterior (state=BO/ASIG/confirmed open). Naranja
+   suave para llamar la atencion sin bloquear. Prioridad inferior a exceed
+   y warn-duplicado (rojos) porque puede ser intencional (cliente quiere mas). */
+#wcard-rows tr.repeat-sku td{background:#fff7ed;color:#9a3412;font-weight:700}
+#wcard-rows tr.repeat-sku.exceed td, #wcard-rows tr.repeat-sku.warn-duplicado td{
+  background:#fef2f2;
+  color:#991b1b;
+}
 /* v470: celdas centradas por default. */
 #wcard-rows tr td{padding:5px 8px;border-top:1px solid #f1f5f9;text-align:center}
 #wcard-rows tr td.mono{font-family:monospace;font-size:10px;text-align:center}
@@ -4299,7 +4308,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v713';
+const APP_VERSION = 'v714';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -4465,6 +4474,18 @@ window.getStockDesglose = function(sku){
   const _fn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.getStockDesglose;
   if (!_fn) return { fisico: 0, comprometido: 0, real: 0, breakdown: { confirmed: 0, BO: 0, ASIG: 0 } };
   return _fn(sku, {
+    getStockFisico: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
+    pedidos: (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
+  });
+};
+
+// v713.1 (2026-08-28): desglose por cliente. Reservadas por ESTE cliente vs OTROS.
+// Sirve para calcular "libre para la venta desde la perspectiva del cliente"
+// donde las reservas del MISMO cliente NO cuentan como stock ajeno.
+window.getStockPorCliente = function(sku, cardCode){
+  const _fn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.getStockPorCliente;
+  if (!_fn) return { fisico: 0, reservadasPorCliente: 0, reservadasPorOtros: 0, libreParaCliente: 0, disponibleReal: 0, yaEnOtroPedido: [] };
+  return _fn(sku, cardCode, {
     getStockFisico: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
     pedidos: (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
   });
@@ -14286,6 +14307,15 @@ function _renderWaitlistCard(){
     sumConApp += r.subtConApp;
     sumSinApp += r.subtSinApp;
     totalUnid += r.qty;
+    // v713.1: pre-computar yaEnOtroPedido para poder mostrar el summary
+    // ANTES del render de la tabla (el render también lo re-computa).
+    if (r.hasData && typeof window.getStockPorCliente === 'function' && w && w.clientCardCode) {
+      const _pc = window.getStockPorCliente(r.code, w.clientCardCode);
+      r._yaEnOtroPedido = (Array.isArray(_pc.yaEnOtroPedido) ? _pc.yaEnOtroPedido : [])
+        .filter(x => x && x.pedidoId !== w._id);
+    } else {
+      r._yaEnOtroPedido = [];
+    }
   });
   const totalArs = sumConSap + sumSinSap;
   const box = document.createElement('div');
@@ -14322,6 +14352,16 @@ function _renderWaitlistCard(){
     s2.textContent = '⚠ ' + excedidos + ' SKU(s) con backorder respecto al Disponible app (si el cliente espera, esas unidades no van a entrar).';
     statsEl.appendChild(s2);
   }
+  // v713.1 (2026-08-28): alerta cuando el cliente repite SKUs que ya tenia
+  // reservados en pedidos anteriores. rows tienen r._yaEnOtroPedido setado
+  // en el loop de render (más abajo). Contar cuantos.
+  const repetidos = rows.filter(r => r._yaEnOtroPedido && r._yaEnOtroPedido.length > 0).length;
+  if (repetidos > 0) {
+    const s3 = document.createElement('div');
+    s3.style.cssText = 'color:#9a3412;background:#fff7ed;border-left:3px solid #f97316;padding:6px 10px;font-weight:700;margin-top:6px;font-size:11px;border-radius:4px';
+    s3.textContent = '🔁 ' + repetidos + ' SKU(s) que este cliente YA TENIA en pedidos anteriores (marcados con ⚠). Puede ser duplicado (se olvidó del pedido previo) o refuerzo intencional. Confirma con el cliente antes de pasar a Pendientes.';
+    statsEl.appendChild(s3);
+  }
   const tbody = document.getElementById('wcard-rows');
   while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
   const mk = (text, cls) => { const td = document.createElement('td'); if (cls) td.className = cls; td.textContent = text; return td; };
@@ -14344,25 +14384,50 @@ function _renderWaitlistCard(){
     tr.appendChild(mk(r.desc, 'left-align'));
     // v702 (2026-08-28): Stock completo (dep 11).
     tr.appendChild(mk(r.hasData ? r.stockTotal : '-', 'num'));
-    // v702: Unidades reservadas (compromisos-app confirmed+BO+ASIG) con
-    // tooltip breakdown. Fuente: window.getStockDesglose.
-    const desg = (r.hasData && typeof window.getStockDesglose === 'function')
-      ? window.getStockDesglose(r.code)
-      : { comprometido: 0, breakdown: { confirmed: 0, BO: 0, ASIG: 0 } };
+    // v713.1 (2026-08-28): Unidades reservadas + Libre para la venta desde
+    // la perspectiva del cliente actual. Reservadas = las de ESTE cliente.
+    // Libre = fisico - reservas de OTROS clientes (las suyas siguen "libres para el").
+    // Si yaEnOtroPedido.length > 0 -> alerta visual (repite SKU).
+    const porCli = (r.hasData && typeof window.getStockPorCliente === 'function')
+      ? window.getStockPorCliente(r.code, w.clientCardCode || '')
+      : { fisico: 0, reservadasPorCliente: 0, reservadasPorOtros: 0, libreParaCliente: 0, disponibleReal: 0, yaEnOtroPedido: [] };
+    const yaEnOtro = Array.isArray(porCli.yaEnOtroPedido) ? porCli.yaEnOtroPedido : [];
+    // Filtrar pedidos que no sean el actual (w._id) para no contar la misma linea que estamos viendo.
+    const yaEnOtroFiltrado = yaEnOtro.filter(x => x && x.pedidoId !== w._id);
+    r._yaEnOtroPedido = yaEnOtroFiltrado;
     const tdReserv = document.createElement('td');
     tdReserv.className = 'num';
-    tdReserv.textContent = r.hasData ? String(desg.comprometido || 0) : '-';
-    if (r.hasData && desg.comprometido > 0) {
-      tdReserv.title = 'confirmed: ' + desg.breakdown.confirmed + ' · BO: ' + desg.breakdown.BO + ' · ASIG: ' + desg.breakdown.ASIG;
+    tdReserv.textContent = r.hasData ? String(porCli.reservadasPorCliente || 0) : '-';
+    if (r.hasData && porCli.reservadasPorCliente > 0) {
+      tdReserv.title = 'Reservadas por ESTE cliente: ' + porCli.reservadasPorCliente + ' u\\n(en ' + yaEnOtroFiltrado.length + ' pedido(s) anterior(es))';
       tdReserv.style.background = '#e0e7ff';
       tdReserv.style.color = '#3730a3';
       tdReserv.style.fontWeight = '800';
     }
     tr.appendChild(tdReserv);
-    // v702: Libre para la venta = Stock completo - Reservadas. Fondo amarillo
-    // pastel para destacar la columna clave. Warnings de fila ganan por CSS.
-    const tdLibre = mk(r.hasData ? r.disponible : '-', 'num disp-sap-col');
+    // Libre para la venta = stock fisico - reservas de OTROS clientes.
+    // Las del mismo cliente cuentan "libres" (son suyas). Fondo amarillo pastel.
+    const tdLibre = document.createElement('td');
+    tdLibre.className = 'num disp-sap-col';
+    tdLibre.textContent = r.hasData ? String(porCli.libreParaCliente || 0) : '-';
+    if (r.hasData) {
+      tdLibre.title = 'Libre para ' + (w.clientName || 'este cliente') + ': ' + porCli.libreParaCliente + ' u\\n(fisico ' + porCli.fisico + ' - reservas de otros clientes ' + porCli.reservadasPorOtros + ')';
+    }
     tr.appendChild(tdLibre);
+    // v713.1: Alerta visual cuando el SKU se repite - resaltar fila y marcar summary.
+    if (yaEnOtroFiltrado.length > 0) {
+      // Agregar clase visual "repeat-sku" para pintar fondo suave anaranjado.
+      tr.classList.add('repeat-sku');
+      // Marcar el codigo con un badge.
+      const codeTd = tr.firstChild; // primera td es el SKU
+      if (codeTd) {
+        const badge = document.createElement('span');
+        badge.textContent = ' ⚠';
+        badge.title = 'El cliente ya tiene ' + porCli.reservadasPorCliente + ' u de ' + r.code + ' reservadas en ' + yaEnOtroFiltrado.length + ' pedido(s) anterior(es). Puede ser duplicado.';
+        badge.style.cssText = 'color:#d97706;font-weight:900;cursor:help';
+        codeTd.appendChild(badge);
+      }
+    }
     // v467: qty editable inline. Input number con onchange que persiste.
     const tdQty = document.createElement('td');
     tdQty.className = 'num';
