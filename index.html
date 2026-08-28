@@ -4270,7 +4270,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v699';
+const APP_VERSION = 'v700';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10280,32 +10280,14 @@ window.closeBackordersModal = function(){
   if (m) m.classList.remove('open');
 };
 window.ensureBackordersListener = function(){
-  if (unsubBackorderSnapshot) return;
-  if (!fbDb || !currentUser) return;
-  unsubBackorderSnapshot = fbDb.collection('backorder_snapshot').onSnapshot(qs => {
-    backorderLines = [];
-    // Filtro por rol: vendedor ve solo su doc; admin/gerente/interno ven todos.
-    const isPrivileged = (userRole === 'admin' || userRole === 'gerente' || userRole === 'interno' || userRole === 'viewer');
-    const myVendorSet = (typeof getMyAllowedVendorKeys === 'function') ? getMyAllowedVendorKeys() : null;
-    qs.forEach(doc => {
-      const d = doc.data() || {};
-      const vendorKey = d.vendorKey || '';
-      // Si soy vendedor no-privileged: solo mi doc.
-      if (!isPrivileged) {
-        if (!myVendorSet || !myVendorSet.has(vendorKey)) return;
-      }
-      const lines = Array.isArray(d.lines) ? d.lines : [];
-      lines.forEach(ln => backorderLines.push(Object.assign({vendorKey: vendorKey}, ln)));
-    });
-    // v402: re-render si el modal Backorders esta abierto.
-    const modal = document.getElementById('backorders-modal');
-    if (modal && modal.classList.contains('open')) renderBackordersTab();
-    // v420: badges de ambos botones (urgente naranja + asignacion verde).
-    // Contadores separados: `backorders-btn-count` = SKUs sin stock (urgentes),
-    // `asignacion-backorder-btn-count` = SKUs con stock (para asignar).
-    // Fallback si STOCK_WAREHOUSE_BREAKDOWN no llego aun: todos suman a urgente.
-    try { _updateBackorderButtonCounts(); } catch(e){}
-  }, err => console.warn('backorder_snapshot listener', err));
+  // v700 (2026-08-28): apagado del path SAP-source. Migracion masiva SAP -> APP
+  // completada (129 SQs -> pedidos-app sinteticos, 62 nuevos + 67 pre-existentes).
+  // La fuente unica de BO/ASIG ahora es globalPedidos.lines con state='BO'/'ASIG'.
+  // Este listener queda como no-op: backorderLines siempre = []. Todos los 15
+  // lugares que iteran backorderLines quedan automaticamente no-op sin tocar
+  // codigo. Ver memory project_bo_migration_100_app.md.
+  backorderLines = [];
+  return;
 };
 window.onBackordersSearch = function(){
   const inp = document.getElementById('backorders-search');
@@ -10683,11 +10665,10 @@ window.renderBackordersTab = function(){
   const list = document.getElementById('backorders-list');
   const sum = document.getElementById('backorders-summary');
   if (!list || !sum) return;
-  if (!backorderLines.length) {
-    sum.textContent = 'Sin datos de backorder (esperando primer sync BQ->Firestore).';
-    list.innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:12px">Cuando el cron actualice los datos (cada 30 min) van a aparecer aca.</div>';
-    return;
-  }
+  // v700 (2026-08-28): removido el early return "sin datos de backorder" que
+  // dependia de backorderLines (SAP-source). Ahora la fuente unica es APP-source
+  // (globalPedidos state=BO/ASIG). El placeholder "sin data" se muestra al final
+  // si NO hay pedidos-app con BO/ASIG open, no si SAP esta vacio.
   // v411 (2026-08-06): popular select de meses con YYYY-MM unicos del sqDocDate
   // (ordenados DESC). Preserva la seleccion si sigue existiendo. Labels en es-AR.
   const _mesSel = document.getElementById('backorders-mes-filter');
@@ -10901,7 +10882,19 @@ window.renderBackordersTab = function(){
     + (_filtroBadges.length ? ' &middot; <i>' + _filtroBadges.join(' &middot; ') + '</i>' : '');
   // Lista
   if (!skus.length) {
-    list.innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:12px">Sin resultados para "' + escapeHtml(q) + '"</div>';
+    // v700: mensaje contextual segun si hay query. Antes solo mostraba "Sin resultados"
+    // asumiendo que siempre habia query. Con la migracion SAP->APP el caso "sin data
+    // en absoluto" es real (ej. cero pedidos-app con BO/ASIG open). escapeHtml sigue
+    // sanitizando el query del user antes de interpolar (mismo patron del codigo original).
+    let _msg;
+    if (q) {
+      _msg = 'Sin resultados para "' + escapeHtml(q) + '"';
+    } else if (backordersMode === 'asignacion') {
+      _msg = 'Sin stock asignado pendiente.';
+    } else {
+      _msg = 'Sin backorder pendiente.';
+    }
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:12px">' + _msg + '</div>';
     return;
   }
   let html = '';
