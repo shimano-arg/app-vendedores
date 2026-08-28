@@ -3737,10 +3737,13 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
             </select>
           </div>
           <div style="text-align:center;flex-shrink:0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-            <button id="btn-export-lista-plana" onclick="exportBackordersToExcel()" style="padding:9px 18px;border:1.5px solid #c2410c;border-radius:6px;background:#c2410c;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128190; Exportar todo</button>
-            <button id="btn-export-stock-asig-cliente" onclick="openExportStockAsigCliente()" style="padding:9px 18px;border:1.5px solid #166534;border-radius:6px;background:#166534;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128203; Exportar Stock Asignado por cliente</button>
-            <!-- v637 (2026-08-26): boton Graficos - top clientes + top SKUs por backorder pendiente -->
-            <button id="btn-backorders-graficos" onclick="openBackordersGraficos()" title="Ver graficos de top clientes + top SKUs con mas backorder" style="padding:9px 18px;border:1.5px solid #b45309;border-radius:6px;background:#b45309;color:#fff;font-size:12px;font-weight:700;cursor:pointer">&#128200; Gr&aacute;ficos</button>
+            <!-- v702 (2026-08-28): uniformar los 3 botones del toolbar. Antes tenian
+                 colores distintos (naranja/verde/ambar) que rompian consistencia
+                 visual. Ahora todos usan la paleta primary del app (azul slate).
+                 Los emojis mantienen distincion funcional. -->
+            <button id="btn-export-lista-plana" onclick="exportBackordersToExcel()" style="padding:9px 18px;border:1.5px solid #1e293b;border-radius:6px;background:#1e293b;color:#fff;font-size:12px;font-weight:700;cursor:pointer;min-width:160px">&#128190; Exportar todo</button>
+            <button id="btn-export-stock-asig-cliente" onclick="openExportStockAsigCliente()" style="padding:9px 18px;border:1.5px solid #1e293b;border-radius:6px;background:#1e293b;color:#fff;font-size:12px;font-weight:700;cursor:pointer;min-width:160px">&#128203; Exportar Stock Asignado por cliente</button>
+            <button id="btn-backorders-graficos" onclick="openBackordersGraficos()" title="Ver graficos de top clientes + top SKUs con mas backorder" style="padding:9px 18px;border:1.5px solid #1e293b;border-radius:6px;background:#1e293b;color:#fff;font-size:12px;font-weight:700;cursor:pointer;min-width:160px">&#128200; Gr&aacute;ficos</button>
           </div>
           <div id="backorders-summary" style="padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#78350f;flex-shrink:0"></div>
           <div id="backorders-list" style="flex:1;overflow-y:auto"></div>
@@ -4068,20 +4071,23 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:1360px">
           <thead style="background:#0f172a;color:#fff;position:sticky;top:0">
             <tr>
+              <!-- v702 (2026-08-28): reestructura de columnas por pedido de Mariano.
+                   Sacadas: Backorder General, Backorder Cliente, Disponible app.
+                   Renombradas: Stock total -> Stock completo (dep 11).
+                                Disponible -> Libre para la venta.
+                   Nueva: Unidades reservadas (breakdown confirmed+BO+ASIG). -->
               <th style="text-align:center;padding:6px 8px">SKU</th>
               <th style="text-align:left;padding:6px 8px">Producto</th>
-              <th style="text-align:center;padding:6px 8px" title="Stock deposito 11 + transito deposito 12">Stock total</th>
-              <th style="text-align:center;padding:6px 8px" title="Backorder SAP TOTAL (todos los clientes) + otros pedidos en espera del mismo SKU. Informativo, NO resta al Disponible.">Backorder General</th>
-              <th style="text-align:center;padding:6px 8px" title="Backorder SAP de ESTE cliente (Ofertas de Venta open del cliente por este SKU). Suma qty pendiente.">Backorder Cliente</th>
-              <th style="text-align:center;padding:6px 8px;background:#fef9c3;color:#78350f" title="v701: Stock realmente disponible = Stock fisico - compromisos-app (confirmed+BO+ASIG en pedidos-app open).">Disponible</th>
-              <th style="text-align:center;padding:6px 8px" title="Disponible - Pedidos Pendientes de la app no transferidos aun. Corrige el delay del sync SAP.">Disponible app</th>
+              <th style="text-align:center;padding:6px 8px" title="Stock fisico completo en deposito 11">Stock completo (dep 11)</th>
+              <th style="text-align:center;padding:6px 8px" title="Unidades comprometidas en pedidos-app open (confirmed + BO + ASIG). Hover: breakdown por state.">Unidades reservadas</th>
+              <th style="text-align:center;padding:6px 8px;background:#fef9c3;color:#78350f" title="Stock realmente disponible = Stock completo - Unidades reservadas. Es lo que podes prometer al cliente HOY.">Libre para la venta</th>
               <th style="text-align:center;padding:6px 8px">Pedido</th>
               <th style="text-align:center;padding:6px 8px" title="Precio unitario del catalogo/SAP">Precio</th>
-              <th style="text-align:center;padding:6px 8px" title="Lo que confirmas YA con seguridad = min(Pedido, Disponible SAP) x Precio">Subtotal (Confirmaci&oacute;n Inmediata)</th>
-              <th style="text-align:center;padding:6px 8px" title="Lo que queda garantizado SI ESPERAS = min(Pedido, Disponible app) x Precio">Subtotal (Pendiente)</th>
-              <th style="text-align:center;padding:6px 8px" title="Lo que queda como backorder = max(Pedido - Disponible app, 0) x Precio">Backorder</th>
-              <th style="text-align:center;padding:6px 8px" title="Pedido - Disponible app (unidades que quedan como backorder)">Backorder Unidades</th>
-              <th style="text-align:center;padding:6px 8px" title="Diferencia respecto al Disponible al momento de crear el pedido">Cambio</th>
+              <th style="text-align:center;padding:6px 8px" title="Lo que confirmas YA con seguridad = min(Pedido, Libre) x Precio">Subtotal (Confirmaci&oacute;n Inmediata)</th>
+              <th style="text-align:center;padding:6px 8px" title="Igual a Subtotal Confirmacion Inmediata en esta version (v702). Se mantiene la columna para no romper exports.">Subtotal (Pendiente)</th>
+              <th style="text-align:center;padding:6px 8px" title="Lo que queda como backorder = max(Pedido - Libre, 0) x Precio">Backorder</th>
+              <th style="text-align:center;padding:6px 8px" title="Pedido - Libre (unidades que quedan como backorder)">Backorder Unidades</th>
+              <th style="text-align:center;padding:6px 8px" title="Diferencia respecto al Libre al momento de crear el pedido">Cambio</th>
               <th style="text-align:center;padding:6px 8px" title="Quitar producto de la lista">&nbsp;</th>
             </tr>
           </thead>
@@ -4270,7 +4276,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v701';
+const APP_VERSION = 'v702';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -11000,12 +11006,16 @@ window.renderBackordersTab = function(){
       // v691: mostrar qty segun modo. STOCK ASIG. -> c.qtyAsignada. BACKORDER -> c.qtyBackorder.
       const _qtyShow = _isAsigMode ? (c.qtyAsignada || 0) : (c.qtyBackorder || 0);
       html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:14px;font-weight:800;color:#c2410c">' + Math.round(_qtyShow) + '</div><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px">unid</div></div>';
-      // v692: boton ELIMINAR para lineas BO app-source (state='BO' + source='app').
-      // No aparece en SAP (esas se cancelan desde SAP) ni en ASIG (esas tienen
-      // aceptar/rechazar en el modal Pedido en Espera).
-      if (!_isAsigMode && c.source === 'app' && c.state === 'BO' && c.pedidoId) {
+      // v702 (2026-08-28): boton ELIMINAR para lineas app-source en AMBOS modos.
+      // BACKORDER: elimina lineas state='BO' (libera reclamo del cliente).
+      // STOCK ASIG: elimina lineas state='ASIG' (libera stock reservado que se
+      // ofrece al siguiente vendedor). Antes solo BACKORDER tenia este boton.
+      if (c.source === 'app' && (c.state === 'BO' || c.state === 'ASIG') && c.pedidoId) {
         const _clienteEsc = String(c.nombre || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-        html += '<button onclick="window.deleteBackorderAppLine(\'' + c.pedidoId + '\',\'' + escapeAttr(g.sku) + '\',\'' + _clienteEsc + '\',' + Math.round(c.pendiente) + ')" title="Eliminar esta linea del pedido (permanente)" style="flex-shrink:0;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">&#128465; ELIMINAR</button>';
+        const _lblTitle = c.state === 'ASIG'
+          ? 'Eliminar esta reserva ASIG y liberar stock al siguiente vendedor (permanente)'
+          : 'Eliminar esta linea del pedido (permanente)';
+        html += '<button onclick="window.deleteBackorderAppLine(\'' + c.pedidoId + '\',\'' + escapeAttr(g.sku) + '\',\'' + _clienteEsc + '\',' + Math.round(c.pendiente) + ',\'' + c.state + '\')" title="' + _lblTitle + '" style="flex-shrink:0;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">&#128465; ELIMINAR</button>';
       }
       html += '</div>';
     });
@@ -11018,17 +11028,22 @@ window.renderBackordersTab = function(){
   list.innerHTML = html;
 };
 
-// v692 (2026-08-27): elimina una linea BO app-source de un pedido.
-// Solo aplica a lineas con state='BO' + source='app' (las SAP van por SAP,
-// las ASIG tienen aceptar/rechazar en Pedido en Espera).
-// Filtra por code+state='BO' en pedido.lines y hace update completo del array.
-// El listener de globalPedidos refresca el modal Backorder automatico.
-window.deleteBackorderAppLine = async function(pedidoId, sku, clienteNombre, qty){
+// v702 (2026-08-28): elimina una linea app-source de un pedido. Extiende v692
+// para aceptar state='BO' o 'ASIG'. BO: libera el reclamo del cliente. ASIG:
+// libera stock reservado que se ofrece al siguiente vendedor. targetState default
+// 'BO' para compat con callers viejos que no pasan el 5to param.
+window.deleteBackorderAppLine = async function(pedidoId, sku, clienteNombre, qty, targetState){
   if (!pedidoId || !sku) return;
-  const msg = 'Eliminar la linea ' + sku + ' (' + qty + ' unid) del pedido de "' + clienteNombre + '"?\n\n' +
-              'Esta accion es PERMANENTE. La linea sale del backorder y el cliente\n' +
-              'pierde el reclamo sobre este SKU. Si el cliente vuelve a pedirlo, hay\n' +
-              'que cargarlo en un pedido nuevo.';
+  const st = (targetState === 'ASIG') ? 'ASIG' : 'BO';
+  const msg = st === 'ASIG'
+    ? 'Eliminar la reserva ASIG de ' + sku + ' (' + qty + ' unid) del pedido de "' + clienteNombre + '"?\n\n' +
+      'Esta accion es PERMANENTE. Las unidades se liberan al siguiente vendedor.\n' +
+      'El cliente pierde el reclamo sobre este SKU. Si vuelve a pedirlo, hay que\n' +
+      'cargarlo en un pedido nuevo.'
+    : 'Eliminar la linea ' + sku + ' (' + qty + ' unid) del pedido de "' + clienteNombre + '"?\n\n' +
+      'Esta accion es PERMANENTE. La linea sale del backorder y el cliente\n' +
+      'pierde el reclamo sobre este SKU. Si el cliente vuelve a pedirlo, hay\n' +
+      'que cargarlo en un pedido nuevo.';
   if (!confirm(msg)) return;
   try {
     // Buscar el pedido en cache local para filtrar sus lineas.
@@ -11043,34 +11058,34 @@ window.deleteBackorderAppLine = async function(pedidoId, sku, clienteNombre, qty
       p = snap.data() || {};
       if (!Array.isArray(p.lines)) { alert('Pedido sin lineas.'); return; }
     }
-    // v692: filtrar la primera linea BO con ese SKU. Si hay multiples BO del mismo
-    // SKU en el mismo pedido (raro, no deberia pasar), elimina solo una por click.
+    // Filtrar la primera linea con ese SKU y state==st. Si hay multiples del mismo
+    // SKU+state en el mismo pedido (raro, no deberia pasar), elimina solo una por click.
     let removed = false;
     const newLines = p.lines.filter(l => {
       if (removed) return true;
-      if (l && String(l.code).toUpperCase() === String(sku).toUpperCase() && l.state === 'BO') {
+      if (l && String(l.code).toUpperCase() === String(sku).toUpperCase() && l.state === st) {
         removed = true;
         return false;
       }
       return true;
     });
     if (!removed) {
-      alert('No se encontro la linea ' + sku + ' con state=BO en el pedido.\n\nQuizas otro admin ya la elimino, o E4.5 la promovio a ASIG. Refresca el modal.');
+      alert('No se encontro la linea ' + sku + ' con state=' + st + ' en el pedido.\n\nQuizas otro admin ya la elimino, o el state cambio (BO<->ASIG por FIFO). Refresca el modal.');
       return;
     }
     await fbDb.collection('pedidos').doc(pedidoId).update({
       lines: newLines,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
-    if (typeof showSyncTag === 'function') showSyncTag('Linea eliminada del pedido');
+    if (typeof showSyncTag === 'function') showSyncTag(st === 'ASIG' ? 'Reserva ASIG eliminada' : 'Linea eliminada del pedido');
     // Audit log opcional.
     try {
       if (typeof logOp === 'function') logOp('pedido_line_delete', 'pedidos/' + pedidoId, sku, {
         sku: sku,
         qty: qty,
         cliente: clienteNombre,
-        state: 'BO',
-        source: 'backorder-modal',
+        state: st,
+        source: st === 'ASIG' ? 'stock-asig-modal' : 'backorder-modal',
       });
     } catch(_e){}
   } catch(e){
@@ -14216,31 +14231,27 @@ function _renderWaitlistCard(){
     tr.className = cls;
     tr.appendChild(mk(r.code, 'mono'));
     tr.appendChild(mk(r.desc, 'left-align'));
+    // v702 (2026-08-28): Stock completo (dep 11).
     tr.appendChild(mk(r.hasData ? r.stockTotal : '-', 'num'));
-    const backTxt = (r.otrosEspera > 0)
-      ? ((r.backorderSap + r.otrosEspera) + ' (Ofertas SAP: ' + r.backorderSap + ' · Espera app: ' + r.otrosEspera + ')')
-      : String(r.backorderSap || 0);
-    tr.appendChild(mk(backTxt, 'num'));
-    // v475: Backorder Cliente (SAP open del cliente para este SKU). Fondo azul
-    // clarito si > 0 para destacar que este cliente ya tiene pedidos previos.
-    const tdBoCli = document.createElement('td');
-    tdBoCli.className = 'num';
-    tdBoCli.textContent = r.backorderCliente > 0 ? String(r.backorderCliente) : '0';
-    if (r.backorderCliente > 0) {
-      tdBoCli.style.background = '#dbeafe';
-      tdBoCli.style.color = '#1e3a8a';
-      tdBoCli.style.fontWeight = '800';
+    // v702: Unidades reservadas (compromisos-app confirmed+BO+ASIG) con
+    // tooltip breakdown. Fuente: window.getStockDesglose.
+    const desg = (r.hasData && typeof window.getStockDesglose === 'function')
+      ? window.getStockDesglose(r.code)
+      : { comprometido: 0, breakdown: { confirmed: 0, BO: 0, ASIG: 0 } };
+    const tdReserv = document.createElement('td');
+    tdReserv.className = 'num';
+    tdReserv.textContent = r.hasData ? String(desg.comprometido || 0) : '-';
+    if (r.hasData && desg.comprometido > 0) {
+      tdReserv.title = 'confirmed: ' + desg.breakdown.confirmed + ' · BO: ' + desg.breakdown.BO + ' · ASIG: ' + desg.breakdown.ASIG;
+      tdReserv.style.background = '#e0e7ff';
+      tdReserv.style.color = '#3730a3';
+      tdReserv.style.fontWeight = '800';
     }
-    tr.appendChild(tdBoCli);
-    // v566: fondo amarillo pastel en la columna Disponible SAP para
-    // distinguirla rapido. Warnings de fila (exceed, warn-quiebra,
-    // warn-duplicado, no-data) ganan por especificidad CSS.
-    const tdDispSap = mk(r.hasData ? r.disponible : '-', 'num disp-sap-col');
-    tr.appendChild(tdDispSap);
-    const dispAppTxt = r.hasData
-      ? (r.pendingApp > 0 ? (r.disponibleApp + ' (−' + r.pendingApp + ' pend. app)') : String(r.disponibleApp))
-      : '-';
-    tr.appendChild(mk(dispAppTxt, 'num'));
+    tr.appendChild(tdReserv);
+    // v702: Libre para la venta = Stock completo - Reservadas. Fondo amarillo
+    // pastel para destacar la columna clave. Warnings de fila ganan por CSS.
+    const tdLibre = mk(r.hasData ? r.disponible : '-', 'num disp-sap-col');
+    tr.appendChild(tdLibre);
     // v467: qty editable inline. Input number con onchange que persiste.
     const tdQty = document.createElement('td');
     tdQty.className = 'num';
