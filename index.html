@@ -2191,32 +2191,19 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <button class="modal-close" onclick="closeExportDialog()">&times;</button>
       </div>
       <div class="export-options">
-        <div class="exp-opt" data-exp-kind="VENTAS" onclick="closeExportDialog();showMonthPicker('VENTAS')">
-          <div class="exp-icon" style="background:#166534">&#128202;</div>
-          <div class="exp-body">
-            <h3>Ventas</h3>
-            <p>Pedidos confirmados del periodo: cliente, vendedor, productos, cantidades, ARS.</p>
-          </div>
-        </div>
+        <!-- v711 (2026-08-28): VENTAS y RUTAS eliminados por pedido de Mariano. -->
         <div class="exp-opt" data-exp-kind="VISITAS" onclick="closeExportDialog();showMonthPicker('VISITAS')">
           <div class="exp-icon" style="background:#7c3aed">&#128197;</div>
           <div class="exp-body">
             <h3>Visitas y Contactos</h3>
-            <p>Detalle de visitas presenciales y contactos no presenciales (WhatsApp/Tel/SMS): fecha, vendedor, tienda, forma de contacto, resultado, relevancia, POP.</p>
+            <p>Detalle de visitas presenciales y contactos no presenciales (WhatsApp/Tel/SMS) con fotos del frente embebidas.</p>
           </div>
         </div>
         <div class="exp-opt" data-exp-kind="RENDICIONES" onclick="closeExportDialog();showMonthPicker('RENDICIONES')">
           <div class="exp-icon" style="background:#f59e0b">&#128181;</div>
           <div class="exp-body">
             <h3>Rendiciones</h3>
-            <p>Gastos rendidos y anticipos del periodo: tipo, monto, estado, aprobador.</p>
-          </div>
-        </div>
-        <div class="exp-opt" data-exp-kind="RUTAS" onclick="closeExportDialog();showMonthPicker('RUTAS')">
-          <div class="exp-icon" style="background:#00A9E0">&#128663;</div>
-          <div class="exp-body">
-            <h3>Rutas</h3>
-            <p>Rutas asignadas del periodo por vendedor: tiendas, fecha, derivaciones, reagendas.</p>
+            <p>Gastos rendidos y anticipos del periodo con fotos de tickets embebidas.</p>
           </div>
         </div>
         <div class="exp-opt" data-exp-kind="ALTAS" onclick="closeExportDialog();showMonthPicker('ALTAS')">
@@ -4312,7 +4299,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v710';
+const APP_VERSION = 'v711';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
