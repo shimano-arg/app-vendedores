@@ -4287,7 +4287,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v703';
+const APP_VERSION = 'v704';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13832,54 +13832,127 @@ function _renderE4BAsigApp(w){
   const cont = document.getElementById('wcard-e4b-asig-app');
   const rows = document.getElementById('wcard-e4b-asig-app-rows');
   if (!cont || !rows) return;
-  if (!window.isE4BEnabled || !window.isE4BEnabled()) { cont.style.display = 'none'; return; }
-  const list = window._e4bAsigDelCliente(w && w.clientCardCode);
+  // v704 (2026-08-28): usar _findAsigDelCliente (linea real, no virtual FIFO) y
+  // mostrar 3 opciones inline por linea: Eliminar / Agregar completo / Agregar
+  // parcial. Antes solo Aceptar/Rechazar via CF y bajo flag isE4BEnabled().
+  // Ahora visible siempre que el cliente tenga lineas ASIG open — permite al
+  // vendedor gestionar sin esperar al modal obligatorio de Pasar a Pendientes.
+  const asigLines = (typeof window._findAsigDelCliente === 'function')
+    ? window._findAsigDelCliente(w && w.clientName, w && w.clientCardCode)
+    : [];
   while (rows.firstChild) rows.removeChild(rows.firstChild);
-  if (!list || !list.length) { cont.style.display = 'none'; return; }
-  const prodByCode = {};
-  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
-    for (const p of PRODUCTS) prodByCode[(p.code || '').toUpperCase()] = p;
-  }
-  for (const it of list) {
+  if (!asigLines.length) { cont.style.display = 'none'; return; }
+  for (const it of asigLines) {
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid #bfdbfe;border-radius:5px;font-size:11px';
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid #bfdbfe;border-radius:5px;font-size:11px;flex-wrap:wrap';
     const left = document.createElement('div');
     left.style.flex = '1';
+    left.style.minWidth = '220px';
     const code = document.createElement('div');
     code.style.cssText = 'font-family:monospace;font-weight:800;color:#0f172a;font-size:10.5px';
-    code.textContent = it.sku;
-    const prod = prodByCode[(it.sku || '').toUpperCase()];
+    code.textContent = it.code;
     const desc = document.createElement('div');
     desc.style.cssText = 'color:#334155;margin-top:1px;font-size:10.5px';
-    desc.textContent = prod ? (prod.desc || '') : '(sin catalogo)';
+    desc.textContent = it.desc || '(sin catalogo)';
     const meta = document.createElement('div');
     meta.style.cssText = 'color:#64748b;font-size:9.5px;margin-top:2px';
-    meta.textContent = 'ASIG app-source · ' + it.qty + ' u pendiente';
+    meta.textContent = 'ASIG · ' + it.qtyOpen + ' u · pedido ' + String(it.pedidoId).slice(0, 6);
     left.appendChild(code); left.appendChild(desc); left.appendChild(meta);
     row.appendChild(left);
     const tag = document.createElement('span');
-    tag.style.cssText = 'flex-shrink:0;background:#dbeafe;color:#1e40af;padding:4px 8px;border-radius:4px;font-size:10px;font-weight:700';
-    tag.textContent = it.qty + ' u APP';
+    tag.style.cssText = 'flex-shrink:0;background:#dbeafe;color:#1e40af;padding:4px 8px;border-radius:4px;font-size:10.5px;font-weight:800';
+    tag.textContent = it.qtyOpen + ' u';
     row.appendChild(tag);
-    // v549 E4B step 2: botones Aceptar (reciclar a waitlist actual) /
-    // Rechazar (cancelar). Cada click hace fetch de pedidos ASIG del cliente,
-    // corre FIFO oldest-first para consumir la qty pedida, y llama al CF por
-    // cada linea que muta.
-    const btnAcc = document.createElement('button');
-    btnAcc.type = 'button';
-    btnAcc.textContent = '✓ Aceptar';
-    btnAcc.style.cssText = 'flex-shrink:0;background:#166534;color:#fff;border:none;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
-    btnAcc.onclick = () => _e4bHandleAsigAction(w, it, 'recycled');
-    row.appendChild(btnAcc);
-    const btnRej = document.createElement('button');
-    btnRej.type = 'button';
-    btnRej.textContent = '✗ Rechazar';
-    btnRej.style.cssText = 'flex-shrink:0;background:#991b1b;color:#fff;border:none;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
-    btnRej.onclick = () => _e4bHandleAsigAction(w, it, 'cancelled');
-    row.appendChild(btnRej);
+    // v704: 3 opciones inline por linea. Mismo patron que modal ASIG obligatorio.
+    const btnDel = document.createElement('button');
+    btnDel.type = 'button';
+    btnDel.textContent = '🗑 Eliminar';
+    btnDel.style.cssText = 'flex-shrink:0;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
+    btnDel.onclick = () => _asigInlineResolve(w, it, 'delete');
+    row.appendChild(btnDel);
+    const btnFull = document.createElement('button');
+    btnFull.type = 'button';
+    btnFull.textContent = '✓ Agregar completo (' + it.qtyOpen + ')';
+    btnFull.style.cssText = 'flex-shrink:0;background:#dcfce7;color:#166534;border:1px solid #86efac;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
+    btnFull.onclick = () => _asigInlineResolve(w, it, 'full');
+    row.appendChild(btnFull);
+    const btnPart = document.createElement('button');
+    btnPart.type = 'button';
+    btnPart.textContent = '✎ Parcial';
+    btnPart.style.cssText = 'flex-shrink:0;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
+    btnPart.onclick = () => _asigInlineResolve(w, it, 'partial');
+    row.appendChild(btnPart);
     rows.appendChild(row);
   }
   cont.style.display = '';
+  // v704: actualizar copy del banner para reflejar las 3 opciones nuevas.
+  const title = cont.querySelector('div[style*="font-weight:800"]');
+  if (title) title.textContent = '📱 Stock Asignado del cliente — decide qué hacer con cada línea';
+  const subt = cont.querySelectorAll('div[style*="font-size:10.5px"]')[0];
+  if (subt) subt.textContent = 'El cliente tiene ' + asigLines.length + ' línea(s) con stock asignado. Eliminar libera el stock. Agregar completo mueve las unidades al pedido actual. Parcial pide cuántas de las asignadas van al pedido.';
+}
+
+// v704 (2026-08-28): handler inline para las 3 opciones de una linea ASIG.
+// Aplica el cambio directo a Firestore (sin CF) y agrega la porcion completa/
+// parcial al waitlist. Mismo comportamiento que el modal ASIG obligatorio de
+// waitlistPasarAPendientes (v701) pero disparado desde la seccion azul del
+// modal Pedido en Espera, sin bloquear al vendedor.
+async function _asigInlineResolve(w, it, action){
+  if (!w || !it || !it.pedidoId) return;
+  let qtyToAdd = 0;
+  let qtyRemaining = it.qtyOpen;
+  if (action === 'full') {
+    qtyToAdd = it.qtyOpen;
+    qtyRemaining = 0;
+  } else if (action === 'partial') {
+    const raw = prompt('¿Cuántas de las ' + it.qtyOpen + ' unidades ASIG de ' + it.code + ' agregar al pedido?\n(el resto queda ASIG para el próximo pedido)', String(it.qtyOpen));
+    if (!raw) return;
+    const n = parseInt(raw, 10);
+    if (!Number.isFinite(n) || n <= 0 || n > it.qtyOpen) { alert('Cantidad inválida. Debe ser entre 1 y ' + it.qtyOpen); return; }
+    qtyToAdd = n;
+    qtyRemaining = it.qtyOpen - n;
+  } else if (action === 'delete') {
+    if (!confirm('Eliminar la reserva ASIG de ' + it.code + ' (' + it.qtyOpen + ' u)?\n\nLibera el stock al siguiente vendedor. Es PERMANENTE.')) return;
+  }
+  try {
+    const ref = fbDb.collection('pedidos').doc(it.pedidoId);
+    const snap = await ref.get();
+    const d = snap.data() || {};
+    const lines = Array.isArray(d.lines) ? d.lines.slice() : [];
+    if (!lines[it.lineIndex]) { alert('Linea no encontrada. Refresca el modal.'); return; }
+    const l = Object.assign({}, lines[it.lineIndex]);
+    if (action === 'delete') {
+      l.qtyOpen = 0;
+      l.qtyCancelled = (Number(l.qtyCancelled) || 0) + it.qtyOpen;
+      l.state = 'cancelled';
+    } else if (action === 'full') {
+      l.qtyOpen = 0;
+      l.qtyRecycled = (Number(l.qtyRecycled) || 0) + qtyToAdd;
+      l.state = 'recycled';
+    } else if (action === 'partial') {
+      l.qtyOpen = qtyRemaining;
+      l.qtyRecycled = (Number(l.qtyRecycled) || 0) + qtyToAdd;
+      l.state = qtyRemaining > 0 ? 'ASIG' : 'recycled';
+    }
+    lines[it.lineIndex] = l;
+    await ref.update({ lines: lines, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    // Agregar la porcion consumida al waitlist actual (full/partial).
+    // Reusa waitlistAddProductWithQty (v477) que persiste a Firestore y
+    // re-renderea el card local con optimistic update.
+    if ((action === 'full' || action === 'partial') && qtyToAdd > 0 && w && w._id) {
+      try { await window.waitlistAddProductWithQty(w._id, it.code, qtyToAdd); }
+      catch(e) { console.warn('_asigInlineResolve waitlist add fallo:', e); }
+    }
+    if (typeof showSyncTag === 'function') {
+      const lbl = action === 'delete' ? 'ASIG eliminado' : (action === 'full' ? 'Agregado completo' : 'Agregado parcial ' + qtyToAdd);
+      showSyncTag(lbl + ': ' + it.code);
+    }
+    // Re-render la seccion de ASIG del cliente.
+    try { _renderE4BAsigApp(w); } catch(_e){}
+  } catch(e) {
+    console.error('_asigInlineResolve', e);
+    alert('Error: ' + (e.message || e));
+  }
 }
 // v549 E4B step 2: handler de click Aceptar/Rechazar en el piloto E4B.
 // Fetch pedidos del cliente con lineas ASIG del sku, FIFO oldest-first,
