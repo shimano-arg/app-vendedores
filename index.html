@@ -4311,7 +4311,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v718';
+const APP_VERSION = 'v719';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14456,8 +14456,13 @@ function _renderWaitlistCard(){
     tr.className = cls;
     tr.appendChild(mk(r.code, 'mono'));
     tr.appendChild(mk(r.desc, 'left-align'));
-    // v702 (2026-08-28): Stock completo (dep 11).
-    tr.appendChild(mk(r.hasData ? r.stockTotal : '-', 'num'));
+    // v719 (2026-08-28): Stock completo (dep 11) — usar getStockDisponibleVenta
+    // que es whs 11 SOLO, no whs11+whs12. Antes se mostraba r.stockTotal que
+    // sumaba transit y no matcheaba con el modal STOCK ASIG (que solo cuenta dep 11).
+    const stockDep11Only = (r.hasData && typeof getStockDisponibleVenta === 'function')
+      ? (getStockDisponibleVenta(r.code) || 0)
+      : r.stockTotal;
+    tr.appendChild(mk(r.hasData ? stockDep11Only : '-', 'num'));
     // v716 (2026-08-28): Mariano pidio consistencia con STOCK ASIG modal (que
     // muestra TOTAL reservado). Cambios respecto v714:
     // - Unidades Reservadas = TOTAL comprometido (todos los clientes) — antes
@@ -14477,13 +14482,23 @@ function _renderWaitlistCard(){
     // Filtrar pedidos que no sean el actual (w._id) para no contar la misma linea que estamos viendo.
     const yaEnOtroFiltrado = yaEnOtro.filter(x => x && x.pedidoId !== w._id);
     r._yaEnOtroPedido = yaEnOtroFiltrado;
-    // Unidades Reservadas: TOTAL (matches STOCK ASIG modal).
+    // v719 (2026-08-28): Unidades Reservadas capadas al stock físico dep 11.
+    // Matches el modal STOCK ASIG que solo muestra unidades con backing real.
+    // Antes: desg.comprometido = 50 para STC66HC2 aunque solo 4 tienen stock.
+    // Ahora: min(comprometido, stockDep11) = min(50, 4) = 4 ✓.
+    const reservadasBacked = r.hasData
+      ? Math.min(desg.comprometido || 0, stockDep11Only || 0)
+      : 0;
+    const demandaSinBacking = r.hasData
+      ? Math.max((desg.comprometido || 0) - reservadasBacked, 0)
+      : 0;
     const tdReserv = document.createElement('td');
     tdReserv.className = 'num';
-    tdReserv.textContent = r.hasData ? String(desg.comprometido || 0) : '-';
-    if (r.hasData && desg.comprometido > 0) {
-      tdReserv.title = 'Total reservadas: ' + desg.comprometido + ' u\\n' +
-        'confirmed ' + desg.breakdown.confirmed + ' · BO ' + desg.breakdown.BO + ' · ASIG ' + desg.breakdown.ASIG + '\\n' +
+    tdReserv.textContent = r.hasData ? String(reservadasBacked) : '-';
+    if (r.hasData && reservadasBacked > 0) {
+      tdReserv.title = 'Reservadas con stock backing: ' + reservadasBacked + ' u\\n' +
+        'Demanda total (BO+ASIG+confirmed): ' + desg.comprometido + ' u\\n' +
+        (demandaSinBacking > 0 ? 'Demanda SIN stock (backorder puro): ' + demandaSinBacking + ' u\\n' : '') +
         'De ESTE cliente: ' + porCli.reservadasPorCliente + ' u · De OTROS: ' + porCli.reservadasPorOtros + ' u';
       tdReserv.style.background = '#e0e7ff';
       tdReserv.style.color = '#3730a3';
