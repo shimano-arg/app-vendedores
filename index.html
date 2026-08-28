@@ -4311,7 +4311,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v720';
+const APP_VERSION = 'v721';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10413,34 +10413,68 @@ window.onBackordersStockFilterChange = function(){
 // encabezados #074F69 blanco bold fila 2 + centrado + moneda ARS via
 // ExcelJS). Antes generaba lista plana con SheetJS.
 window.exportBackordersToExcel = async function(){
-  if (!backorderLines.length) {
-    alert('No hay backorders para exportar todavia. Espera al proximo sync.');
-    return;
-  }
-  // v679 PERF Fase 3: ExcelJS ahora carga on-demand
-  try { await window.loadExcelJS(); } catch (e) { alert('No se pudo cargar ExcelJS: ' + e.message); return; }
+  // v720.1 (2026-08-28): reescrito para usar globalPedidos (APP-source) en vez
+  // de backorderLines. Desde v700 la migracion SAP->APP dejo backorderLines
+  // siempre vacio, entonces el export siempre daba 'No hay backorders'.
+  // Ahora itera lineas state=BO (backorder) o state=ASIG con qty > 0 de pedidos
+  // abiertos, respeta el modo del modal (urgente=sin stock, asignacion=con stock).
+  const isAsigMode = (typeof backordersMode !== 'undefined' && backordersMode === 'asignacion');
   const q = backordersSearchQuery;
   const mesF = backordersMesFilter;
-  const stkF = backordersStockFilter;
-  const filtered = backorderLines.filter(ln => {
-    if (mesF && String(ln.sqDocDate || '').slice(0, 7) !== mesF) return false;
-    if (q) {
-      const skuHit = (ln.sku||'').toLowerCase().includes(q);
-      const prodHit = (ln.producto||'').toLowerCase().includes(q);
-      const cliHit = (ln.clienteNombre||'').toLowerCase().includes(q);
-      if (!skuHit && !prodHit && !cliHit) return false;
+  // v679 PERF Fase 3: ExcelJS ahora carga on-demand
+  try { await window.loadExcelJS(); } catch (e) { alert('No se pudo cargar ExcelJS: ' + e.message); return; }
+  const prodByCode = {};
+  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
+    for (const p of PRODUCTS) prodByCode[(p.code || '').toUpperCase()] = p;
+  }
+  const filtered = [];
+  if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+    for (const p of globalPedidos) {
+      if (!p || p.closedAt) continue;
+      const lines = Array.isArray(p.lines) ? p.lines : [];
+      for (const l of lines) {
+        if (!l || !l.code) continue;
+        if (l.state !== 'BO' && l.state !== 'ASIG') continue;
+        const qty = Number(l.qtyOpen) || 0;
+        if (qty <= 0) continue;
+        const skuUp = String(l.code).toUpperCase();
+        // Filtrar por modo del modal.
+        const stkD = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(skuUp) || 0) : 0;
+        const stkT = (typeof getStockTransito === 'function') ? (getStockTransito(skuUp) || 0) : 0;
+        const hasStock = (stkD > 0 || stkT > 0);
+        if (isAsigMode && !hasStock) continue;
+        if (!isAsigMode && hasStock) continue;
+        // Filtro mes (por confirmedAt/createdAt).
+        if (mesF) {
+          const dt = String(p.confirmedAt || p.createdAt || '').slice(0, 7);
+          if (dt !== mesF) continue;
+        }
+        // Filtro busqueda.
+        const prod = prodByCode[skuUp];
+        const producto = l.desc || (prod && prod.desc) || '';
+        const cliente = p.clientName || '';
+        if (q) {
+          const skuHit = skuUp.toLowerCase().includes(q);
+          const prodHit = producto.toLowerCase().includes(q);
+          const cliHit = cliente.toLowerCase().includes(q);
+          if (!skuHit && !prodHit && !cliHit) continue;
+        }
+        filtered.push({
+          sku: l.code,
+          producto,
+          clienteNombre: cliente,
+          clienteCiudad: p.clientLocality || p.locName || '',
+          vendorKey: p.vendedor || p.vendorAssigned || p.vendor || '',
+          pendiente: qty,
+          precioUnitario: Number(l.priceAtCreation || l.precio || 0),
+          sqDocNum: (p.transferidoSAP && p.transferidoSAP.docNum) || '',
+          sqDocDate: String(p.confirmedAt || p.createdAt || '').slice(0, 10),
+        });
+      }
     }
-    if (stkF === 'sin' || stkF === 'con') {
-      const stkD = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(ln.sku) || 0) : 0;
-      const stkT = (typeof getStockTransito === 'function') ? (getStockTransito(ln.sku) || 0) : 0;
-      const hasStock = (stkD > 0 || stkT > 0);
-      if (stkF === 'sin' && hasStock) return false;
-      if (stkF === 'con' && !hasStock) return false;
-    }
-    return true;
-  });
+  }
   if (!filtered.length) {
-    alert('No hay resultados para el filtro actual. Limpia la busqueda o cambia el termino.');
+    alert('No hay backorders para exportar en la seleccion actual.');
     return;
   }
   try {
