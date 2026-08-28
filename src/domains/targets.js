@@ -183,12 +183,12 @@ function renderTargetsTable() {
   const nowY = new Date().getFullYear();
   let html =
     '<table class="targets-table"><thead><tr>' +
-    '<th style="width:20%">Mes</th>' +
-    '<th style="width:18%">Reel</th>' +
-    '<th style="width:18%">Cañas</th>' +
-    '<th style="width:18%">Líneas</th>' +
-    '<th style="width:14%;background:#f0f9ff">Total mes</th>' +
-    '<th style="width:12%">Estado</th>' +
+    '<th style="width:12%">Mes</th>' +
+    '<th style="width:19%">Reel</th>' +
+    '<th style="width:19%">Cañas</th>' +
+    '<th style="width:19%">Líneas</th>' +
+    '<th style="width:18%;background:#f0f9ff">Total mes</th>' +
+    '<th style="width:13%">Estado</th>' +
     '</tr></thead><tbody>';
   for (let m = 0; m < 12; m++) {
     const id = targetDocId(vendor, year, m);
