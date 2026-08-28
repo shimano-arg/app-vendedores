@@ -4308,7 +4308,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v714';
+const APP_VERSION = 'v715';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14002,6 +14002,51 @@ async function _asigInlineResolve(w, it, action){
     alert('Error: ' + (e.message || e));
   }
 }
+
+// v714.1 (2026-08-28): fusiona todas las lineas ASIG/BO+stock del cliente
+// para un SKU dado al pedido actual. Usa _findAsigDelCliente para obtener
+// las lineas reales del cliente + filtra por SKU + aplica _asigInlineResolve
+// con action='full' a cada una. Efecto: las qty se suman al pedido actual
+// (waitlistAddProductWithQty) y las lineas viejas quedan state=recycled.
+window._fusionarAsigDelSkuAlPedido = async function(w, sku){
+  if (!w || !w._id || !sku) return;
+  const cardCode = w.clientCardCode || '';
+  const asigLines = (typeof window._findAsigDelCliente === 'function')
+    ? window._findAsigDelCliente(w.clientName, cardCode)
+    : [];
+  const matches = asigLines.filter(l => String(l.code || '').toUpperCase() === String(sku).toUpperCase());
+  if (!matches.length) {
+    alert('No encontre lineas ASIG/BO del cliente para ' + sku + '.\\n\\nQuizas ya fueron consumidas o el snapshot esta desactualizado.');
+    return;
+  }
+  const totalQty = matches.reduce((s, x) => s + (Number(x.qtyOpen) || 0), 0);
+  const pedidosDeOrigen = matches.length;
+  const msg = 'FUSIONAR: agregar ' + totalQty + ' u de ' + sku + ' al pedido actual.\\n\\n' +
+              'Provienen de ' + pedidosDeOrigen + ' pedido(s) anterior(es) del cliente.\\n' +
+              'Esas lineas viejas quedan como recycled (permanente).\\n\\n' +
+              'Continuar?';
+  if (!confirm(msg)) return;
+  try {
+    let ok = 0;
+    for (const it of matches) {
+      try {
+        // _asigInlineResolve es local al inline script scope; accesible desde
+        // esta closure. No usar window.* porque no esta expuesto ahi.
+        await _asigInlineResolve(w, it, 'full');
+        ok++;
+      } catch (e) {
+        console.warn('fusionar linea fallo', it.pedidoId, e);
+      }
+    }
+    if (typeof showSyncTag === 'function') {
+      showSyncTag('Fusion ' + sku + ': ' + ok + '/' + matches.length + ' lineas + ' + totalQty + ' u al pedido');
+    }
+  } catch (e) {
+    console.error('_fusionarAsigDelSkuAlPedido', e);
+    alert('Error: ' + (e.message || e));
+  }
+};
+
 // v549 E4B step 2: handler de click Aceptar/Rechazar en el piloto E4B.
 // Fetch pedidos del cliente con lineas ASIG del sku, FIFO oldest-first,
 // invoca updateAsigLineStateCF por linea hasta consumir la qty pedida.
@@ -14426,6 +14471,19 @@ function _renderWaitlistCard(){
         badge.title = 'El cliente ya tiene ' + porCli.reservadasPorCliente + ' u de ' + r.code + ' reservadas en ' + yaEnOtroFiltrado.length + ' pedido(s) anterior(es). Puede ser duplicado.';
         badge.style.cssText = 'color:#d97706;font-weight:900;cursor:help';
         codeTd.appendChild(badge);
+        // v714.1 (2026-08-28): boton Fusionar. Suma las reservadasPorCliente al
+        // pedido actual (waitlistAddProductWithQty) y marca las lineas viejas
+        // ASIG/BO como recycled en Firestore (via _fusionarAsigDelSkuAlPedido).
+        const btnFusionar = document.createElement('button');
+        btnFusionar.type = 'button';
+        btnFusionar.textContent = '🔁 Fusionar (+' + porCli.reservadasPorCliente + ')';
+        btnFusionar.title = 'Consolidar las ' + porCli.reservadasPorCliente + ' u que el cliente ya tenia asignadas de ' + r.code + ' en este pedido. Las lineas viejas quedan como recycled.';
+        btnFusionar.style.cssText = 'margin-left:6px;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:800;cursor:pointer';
+        btnFusionar.onclick = (ev) => {
+          ev.stopPropagation();
+          window._fusionarAsigDelSkuAlPedido(w, r.code);
+        };
+        codeTd.appendChild(btnFusionar);
       }
     }
     // v467: qty editable inline. Input number con onchange que persiste.
