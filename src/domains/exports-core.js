@@ -581,8 +581,25 @@ window.exportToExcel = function () {
   //     propio si eligio su nombre en el dropdown de zonas).
   //   admin / gerente / viewer: ven todo el listado (null = sin filtro).
   const allowedByRole = {
-    vendedor: new Set(['VENTAS', 'VISITAS', 'RUTAS', 'MASTER']),
-    interno: new Set(['VENTAS', 'VISITAS', 'RUTAS', 'MASTER']),
+    // v709 (2026-08-28): agregar BACKORDER, STOCK_ASIG, PEDIDOS_MES.
+    vendedor: new Set([
+      'VENTAS',
+      'VISITAS',
+      'RUTAS',
+      'MASTER',
+      'BACKORDER',
+      'STOCK_ASIG',
+      'PEDIDOS_MES',
+    ]),
+    interno: new Set([
+      'VENTAS',
+      'VISITAS',
+      'RUTAS',
+      'MASTER',
+      'BACKORDER',
+      'STOCK_ASIG',
+      'PEDIDOS_MES',
+    ]),
   };
   const allowed = allowedByRole[userRole] || null; // null = ver todo
   document.querySelectorAll('#export-modal .exp-opt').forEach((el) => {
@@ -605,6 +622,9 @@ const EXPORT_TYPE_LABELS = {
   RENDICIONES: 'Rendiciones',
   RUTAS: 'Rutas',
   ALTAS: 'Altas de clientes',
+  BACKORDER: 'Backorder',
+  STOCK_ASIG: 'Stock Asignado',
+  PEDIDOS_MES: 'Pedidos del mes',
 };
 
 window.showMonthPicker = function (tipo) {
@@ -653,6 +673,9 @@ window.confirmMonthPicker = function () {
     else if (tipo === 'RENDICIONES') exportRendicionesForMonth(anio, monthIdx);
     else if (tipo === 'RUTAS') exportRutasForMonth(anio, monthIdx);
     else if (tipo === 'ALTAS') exportAltasForMonth(anio, monthIdx);
+    else if (tipo === 'BACKORDER') exportBackorderForMonth(anio, monthIdx);
+    else if (tipo === 'STOCK_ASIG') exportStockAsigForMonth(anio, monthIdx);
+    else if (tipo === 'PEDIDOS_MES') exportPedidosMesForMonth(anio, monthIdx);
     else alert('Tipo desconocido: ' + tipo);
   } catch (e) {
     console.error('export ' + tipo, e);
@@ -1227,6 +1250,191 @@ async function exportAltasForMonth(anio, monthIdx) {
   const fname = 'Shimano_Altas_' + periodLabel(anio, monthIdx) + '.xlsx';
   downloadXlsx(fname, [{ name: 'Altas de clientes', rows }]);
   showSyncTag('Export Altas listo (' + rows.length + ' solicitudes)', 2400);
+}
+
+// =====================================================================
+// v709 (2026-08-28): 3 exports nuevos pedidos por Mariano.
+// - BACKORDER: lineas state=BO open por mes de createdAt del pedido.
+// - STOCK_ASIG: lineas ASIG open (o BO+stock disp) por mes de createdAt.
+// - PEDIDOS_MES: TODOS los pedidos creados en el mes/anio (cualquier stage).
+// Fuente: globalPedidos (lo que la app ya tiene en memoria).
+// Filter mes/año: sobre createdAt del pedido. monthIdx=null -> año entero.
+// =====================================================================
+function _pedidoMonthYear(p) {
+  const ca = p.createdAt;
+  if (!ca) return { y: null, m: null };
+  let dt = null;
+  if (typeof ca === 'string') dt = new Date(ca);
+  else if (typeof ca.toDate === 'function') {
+    try {
+      dt = ca.toDate();
+    } catch (_e) {}
+  } else if (typeof ca === 'number') dt = new Date(ca);
+  if (!dt || Number.isNaN(dt.getTime())) return { y: null, m: null };
+  return { y: dt.getFullYear(), m: dt.getMonth() };
+}
+
+function _iteratePedidosMes(anio, monthIdx) {
+  const arr =
+    typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos) ? globalPedidos : [];
+  return arr.filter((p) => {
+    if (!p) return false;
+    const { y, m } = _pedidoMonthYear(p);
+    if (y == null) return false;
+    if (y !== anio) return false;
+    if (monthIdx !== null && m !== monthIdx) return false;
+    return true;
+  });
+}
+
+async function exportBackorderForMonth(anio, monthIdx) {
+  showSyncTag('Generando export de Backorder...');
+  const rows = [];
+  const pedidos = _iteratePedidosMes(anio, monthIdx);
+  for (const p of pedidos) {
+    if (p.closedAt) continue;
+    const lines = Array.isArray(p.lines) ? p.lines : [];
+    lines.forEach((l, idx) => {
+      if (!l || l.state !== 'BO') return;
+      const qo = Number(l.qtyOpen) || 0;
+      if (qo <= 0) return;
+      rows.push({
+        Fecha_Pedido: p.createdAt
+          ? typeof p.createdAt === 'string'
+            ? p.createdAt.slice(0, 10)
+            : new Date(p.createdAt.toDate ? p.createdAt.toDate() : p.createdAt)
+                .toISOString()
+                .slice(0, 10)
+          : '',
+        Mes: p.month || '',
+        Cliente: p.clientName || '',
+        CardCode: p.clientCardCode || '',
+        Provincia: p.clientProvince || '',
+        Localidad: p.clientLocality || '',
+        Vendedor: p.vendedor || p.vendorAssigned || '',
+        SKU: l.code || '',
+        Producto: l.desc || l.name || '',
+        Cantidad_Pedida: Number(l.qty) || 0,
+        Cantidad_Pendiente_BO: qo,
+        Precio_Unit_ARS: Number(l.priceAtCreation || l.precio || 0),
+        Subtotal_BO_ARS: Math.round(qo * (Number(l.priceAtCreation || l.precio || 0) || 0)),
+        Pedido_ID: p._fsId || '',
+        Linea_Idx: idx,
+        SQ_DocNum: p.transferidoSAP ? p.transferidoSAP.docNum || '' : '',
+      });
+    });
+  }
+  rows.sort((a, b) => (a.Cliente || '').localeCompare(b.Cliente || ''));
+  const fname = 'Shimano_Backorder_' + periodLabel(anio, monthIdx) + '.xlsx';
+  downloadXlsx(fname, [{ name: 'Backorder', rows }]);
+  showSyncTag('Export Backorder listo (' + rows.length + ' lineas)', 2400);
+}
+
+async function exportStockAsigForMonth(anio, monthIdx) {
+  showSyncTag('Generando export de Stock Asignado...');
+  const rows = [];
+  const pedidos = _iteratePedidosMes(anio, monthIdx);
+  const getStk =
+    typeof window !== 'undefined' && typeof window.getStockDisponibleVenta === 'function'
+      ? window.getStockDisponibleVenta
+      : null;
+  for (const p of pedidos) {
+    if (p.closedAt) continue;
+    const lines = Array.isArray(p.lines) ? p.lines : [];
+    lines.forEach((l, idx) => {
+      if (!l) return;
+      const qo = Number(l.qtyOpen) || 0;
+      if (qo <= 0) return;
+      let virtual = false;
+      if (l.state === 'ASIG') {
+        // ok reserva firme
+      } else if (l.state === 'BO') {
+        // virtual solo si hay stock disp
+        if (!getStk) return;
+        const stk = getStk(l.code) || 0;
+        if (stk <= 0) return;
+        virtual = true;
+      } else {
+        return;
+      }
+      rows.push({
+        Fecha_Pedido: p.createdAt
+          ? typeof p.createdAt === 'string'
+            ? p.createdAt.slice(0, 10)
+            : new Date(p.createdAt.toDate ? p.createdAt.toDate() : p.createdAt)
+                .toISOString()
+                .slice(0, 10)
+          : '',
+        Mes: p.month || '',
+        Cliente: p.clientName || '',
+        CardCode: p.clientCardCode || '',
+        Provincia: p.clientProvince || '',
+        Localidad: p.clientLocality || '',
+        Vendedor: p.vendedor || p.vendorAssigned || '',
+        SKU: l.code || '',
+        Producto: l.desc || l.name || '',
+        Cantidad_Reservada: qo,
+        Estado_Real: virtual ? 'BO_con_stock_(virtual_ASIG)' : 'ASIG',
+        Precio_Unit_ARS: Number(l.priceAtCreation || l.precio || 0),
+        Subtotal_Reservado_ARS: Math.round(qo * (Number(l.priceAtCreation || l.precio || 0) || 0)),
+        Pedido_ID: p._fsId || '',
+        Linea_Idx: idx,
+      });
+    });
+  }
+  rows.sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
+  const fname = 'Shimano_StockAsignado_' + periodLabel(anio, monthIdx) + '.xlsx';
+  downloadXlsx(fname, [{ name: 'Stock Asignado', rows }]);
+  showSyncTag('Export Stock Asignado listo (' + rows.length + ' lineas)', 2400);
+}
+
+async function exportPedidosMesForMonth(anio, monthIdx) {
+  showSyncTag('Generando export de Pedidos del mes...');
+  const rows = [];
+  const pedidos = _iteratePedidosMes(anio, monthIdx);
+  for (const p of pedidos) {
+    const lines = Array.isArray(p.lines) ? p.lines : [];
+    if (!lines.length) continue;
+    const fecha = p.createdAt
+      ? typeof p.createdAt === 'string'
+        ? p.createdAt.slice(0, 10)
+        : new Date(p.createdAt.toDate ? p.createdAt.toDate() : p.createdAt)
+            .toISOString()
+            .slice(0, 10)
+      : '';
+    lines.forEach((l, idx) => {
+      if (!l) return;
+      const qty = Number(l.qty) || 0;
+      const precio = Number(l.priceAtCreation || l.precio || 0);
+      rows.push({
+        Fecha_Pedido: fecha,
+        Mes: p.month || '',
+        Stage: p.stage || '',
+        Cliente: p.clientName || '',
+        CardCode: p.clientCardCode || '',
+        Provincia: p.clientProvince || '',
+        Localidad: p.clientLocality || '',
+        Vendedor: p.vendedor || p.vendorAssigned || '',
+        SKU: l.code || '',
+        Producto: l.desc || l.name || '',
+        Cantidad: qty,
+        Cantidad_Open: Number(l.qtyOpen) || 0,
+        Cantidad_Invoiced: Number(l.qtyInvoiced) || 0,
+        Cantidad_Cancelled: Number(l.qtyCancelled) || 0,
+        Estado_Linea: l.state || '',
+        Precio_Unit_ARS: precio,
+        Subtotal_ARS: Math.round(qty * precio),
+        Cerrado: p.closedAt ? 'SI' : 'NO',
+        Pedido_ID: p._fsId || '',
+        Linea_Idx: idx,
+        SQ_DocNum: p.transferidoSAP ? p.transferidoSAP.docNum || '' : '',
+      });
+    });
+  }
+  rows.sort((a, b) => (a.Fecha_Pedido || '').localeCompare(b.Fecha_Pedido || ''));
+  const fname = 'Shimano_PedidosDelMes_' + periodLabel(anio, monthIdx) + '.xlsx';
+  downloadXlsx(fname, [{ name: 'Pedidos', rows }]);
+  showSyncTag('Export Pedidos del mes listo (' + rows.length + ' lineas)', 2400);
 }
 
 // Exportar para Analisis: protegido con PIN

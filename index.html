@@ -2240,6 +2240,29 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
             <p>Lista completa de SKUs con precio actual en ARS y estado de stock (W11). Util para revisar disponibilidad y reposicion. Tomado del snapshot vigente de la app.</p>
           </div>
         </div>
+        <!-- v709 (2026-08-28): 3 exportaciones nuevas pedidas por Mariano.
+             Todas filtran por mes de createdAt del pedido. -->
+        <div class="exp-opt" data-exp-kind="BACKORDER" onclick="closeExportDialog();showMonthPicker('BACKORDER')">
+          <div class="exp-icon" style="background:#c2410c">&#128230;</div>
+          <div class="exp-body">
+            <h3>Backorder</h3>
+            <p>Lineas state=BO open en pedidos-app del periodo: cliente, SKU, cantidad pendiente, vendedor asignado, fecha pedido, precio.</p>
+          </div>
+        </div>
+        <div class="exp-opt" data-exp-kind="STOCK_ASIG" onclick="closeExportDialog();showMonthPicker('STOCK_ASIG')">
+          <div class="exp-icon" style="background:#7c3aed">&#127919;</div>
+          <div class="exp-body">
+            <h3>Stock Asignado</h3>
+            <p>Lineas ASIG (o BO con stock virtual) del periodo: cliente, SKU, cantidad reservada, vendedor, pedido, precio.</p>
+          </div>
+        </div>
+        <div class="exp-opt" data-exp-kind="PEDIDOS_MES" onclick="closeExportDialog();showMonthPicker('PEDIDOS_MES')">
+          <div class="exp-icon" style="background:#1e40af">&#128220;</div>
+          <div class="exp-body">
+            <h3>Pedidos del mes</h3>
+            <p>Todos los pedidos creados en el mes/anio (independiente del stage): cliente, vendedor, fecha, SKUs, unidades, ARS por linea, estado.</p>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -4287,7 +4310,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v708';
+const APP_VERSION = 'v709';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
