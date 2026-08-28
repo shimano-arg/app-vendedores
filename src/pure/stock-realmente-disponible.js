@@ -74,6 +74,74 @@ export function getStockRealmenteDisponible(sku, deps) {
 }
 
 /**
+ * Calcula el desglose por cliente: cuanto del stock esta reservado por ESTE
+ * cliente vs por OTROS. Para la UI del modal Pedido en Espera donde el
+ * "libre para la venta" se calcula desde la perspectiva del cliente actual:
+ * las reservas del mismo cliente NO cuentan como "ocupando stock ajeno".
+ *
+ * v713.1 (2026-08-28): pedido de Mariano — si REBORN tiene 6u ASIG y pide
+ * 2 mas, quiero ver:
+ *   - reservadasPorCliente: 6 (las de el mismo)
+ *   - libreParaCliente: 6 (fisico - reservas de OTROS = 6 - 0 = 6)
+ *   - Pero al confirmar, el disponible REAL sigue siendo 0 (fisico - TODAS
+ *     las reservas = 6 - 6 = 0). Sus 2u nuevas caen en BO.
+ *
+ * @param {string} sku
+ * @param {string} cardCode CardCode del cliente actual
+ * @param {StockRealDeps} deps
+ * @returns {{fisico: number, reservadasPorCliente: number, reservadasPorOtros: number, libreParaCliente: number, disponibleReal: number, yaEnOtroPedido: {pedidoId: string, qtyOpen: number, state: string}[]}}
+ */
+export function getStockPorCliente(sku, cardCode, deps) {
+  const skuUp = String(sku || '').toUpperCase();
+  const ccUp = String(cardCode || '').trim();
+  const fisico = skuUp ? Number(deps.getStockFisico(skuUp)) || 0 : 0;
+  const empty = {
+    fisico,
+    reservadasPorCliente: 0,
+    reservadasPorOtros: 0,
+    libreParaCliente: fisico,
+    disponibleReal: fisico,
+    yaEnOtroPedido: [],
+  };
+  if (!skuUp || !ccUp) return empty;
+
+  let reservadasPorCliente = 0;
+  let reservadasPorOtros = 0;
+  const yaEnOtroPedido = [];
+  const pedidos = Array.isArray(deps.pedidos) ? deps.pedidos : [];
+  for (const p of pedidos) {
+    if (!p || p.closedAt) continue;
+    const pCC = String(p.clientCardCode || '').trim();
+    const lines = Array.isArray(p.lines) ? p.lines : [];
+    for (const l of lines) {
+      if (!l || !l.code) continue;
+      if (String(l.code).toUpperCase() !== skuUp) continue;
+      if (!STATES_QUE_RESERVAN.has(l.state)) continue;
+      const qtyOpen = Number(l.qtyOpen) || 0;
+      if (qtyOpen <= 0) continue;
+      if (pCC === ccUp) {
+        reservadasPorCliente += qtyOpen;
+        yaEnOtroPedido.push({
+          pedidoId: p._fsId || p._id || '',
+          qtyOpen,
+          state: l.state,
+        });
+      } else {
+        reservadasPorOtros += qtyOpen;
+      }
+    }
+  }
+  return {
+    fisico,
+    reservadasPorCliente,
+    reservadasPorOtros,
+    libreParaCliente: Math.max(0, fisico - reservadasPorOtros),
+    disponibleReal: Math.max(0, fisico - reservadasPorCliente - reservadasPorOtros),
+    yaEnOtroPedido,
+  };
+}
+
+/**
  * Calcula el desglose (fisico, comprometido, real) para mostrar en UI.
  *
  * @param {string} sku
