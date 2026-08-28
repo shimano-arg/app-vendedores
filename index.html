@@ -4299,7 +4299,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v712';
+const APP_VERSION = 'v713';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -16187,18 +16187,30 @@ function buildPedidoVisibleKeysSet(){
 function renderPendientesList(){
   const visibleKeys = buildPedidoVisibleKeysSet();
   let items = [];
-  // v708 (2026-08-28): incluir pedidos "huérfanos" cuya key no matchea ninguna
-  // key computada por POINTS/approvedAltas. Mismo fix que v695 aplicó a
-  // renderConfirmadosList — antes esos pedidos quedaban invisibles en el tab
-  // Pendientes aunque el modal 'Estado de pedidos' los mostraba (glared por
-  // Mariano 2026-08-28 con PESCA PLANET y EL GRINGO PESCADOR).
-  Object.entries(pending).forEach(([k, list]) => {
-    const parts = k.split('|');
-    const isOrphan = !visibleKeys.has(k);
-    (list || []).forEach((c, idx) => {
-      items.push({key: k, idx, tipo: parts[0], prov: parts[1], locName: parts[2], clientName: parts[3], conf: c, orphan: isOrphan});
+  // v713 (2026-08-28): LEER DIRECTO de globalPedidos (Firestore) en vez de
+  // Object.entries(pending) (localStorage). El cache de localStorage tenia
+  // entradas basura con keys 'undefined|undefined|...' cuando el pedido se
+  // habia guardado sin clientProvince/Locality — mostraba "undefined - undefined"
+  // en la lista. Mismo pattern que _estadoGetPendientes() del modal Estado
+  // de pedidos > Pendientes que ya lo hacia bien desde el principio.
+  if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+    globalPedidos.forEach(p => {
+      if (!p) return;
+      if (p.stage !== 'pending') return;
+      if (p.transferidoSAP && p.transferidoSAP.docNum) return;
+      const tipo = p.tipo || 'C';
+      const prov = p.province || '';
+      const locName = p.locName || '';
+      const clientName = p.clientName || '';
+      const key = tipo + '|' + prov + '|' + locName + '|' + clientName;
+      const isOrphan = !visibleKeys.has(key);
+      items.push({
+        key, idx: 0, tipo, prov, locName, clientName,
+        conf: p, orphan: isOrphan,
+        _fsId: p._fsId,
+      });
     });
-  });
+  }
   const q = getPedidoSearchQuery();
   if (q) items = items.filter(it => {
     // Busqueda ampliada: matchea contra clientName (titular/comercio) +
