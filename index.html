@@ -3760,11 +3760,13 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
             <select id="backorders-mes-filter" onchange="onBackordersMesChange()" title="Filtrar por mes de la SQ" style="flex:1 1 260px;min-width:200px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff;font-weight:700">
               <option value="">Todos los meses</option>
             </select>
-            <!-- v420 (2026-08-06): select con 3 opciones (reemplaza el checkbox v419).
-                 v523 (2026-08-13): oculto en mode='asignacion' porque el modal
-                 SAP Asignado - Con Stock por definicion muestra solo con stock.
-                 El otro filtro sigue disponible via el modal Backorder. -->
-            <select id="backorders-stock-filter" onchange="onBackordersStockFilterChange()" title="Filtrar por stock disponible" style="flex:1 1 260px;min-width:200px;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:13px;outline:none;background:#fff;font-weight:700">
+            <!-- v710 (2026-08-28): filtro 'Sin/Con/Todos stock' REMOVIDO por pedido
+                 de Mariano. Antes: v420 lo agrego como select con 3 opciones,
+                 v523 lo escondio en mode='asignacion'. Ahora se elimina del DOM
+                 en ambos modos. La logica sigue viva en JS (backordersStockFilter):
+                 _applyBackordersMode setea 'sin' en modo urgente y 'con' en modo
+                 asignacion automaticamente. El user ya no puede overridear. -->
+            <select id="backorders-stock-filter" onchange="onBackordersStockFilterChange()" style="display:none">
               <option value="sin">Sin stock (para importar)</option>
               <option value="con">Con stock (para asignar)</option>
               <option value="todos">Todos (sin filtro)</option>
@@ -4310,7 +4312,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v709';
+const APP_VERSION = 'v710';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
