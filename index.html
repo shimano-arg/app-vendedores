@@ -4299,7 +4299,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v711';
+const APP_VERSION = 'v712';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -11081,18 +11081,31 @@ window.deleteBackorderAppLine = async function(pedidoId, sku, clienteNombre, qty
       p = snap.data() || {};
       if (!Array.isArray(p.lines)) { alert('Pedido sin lineas.'); return; }
     }
-    // Filtrar la primera linea con ese SKU y state==st. Si hay multiples del mismo
-    // SKU+state en el mismo pedido (raro, no deberia pasar), elimina solo una por click.
-    let removed = false;
-    const newLines = p.lines.filter(l => {
-      if (removed) return true;
+    // v712 (2026-08-28): en vez de FILTRAR la linea (perdiendo auditoria),
+    // marcar la linea con state='cancelled' + qtyCancelled += qtyOpen. Mismo
+    // pattern que _asigInlineResolve (v704) para unificar el comportamiento
+    // entre el modal Backorder/StockAsig y el modal Pedido en Espera > seccion
+    // ASIG. Mariano pidio consistencia 2026-08-28 para tener auditoria de que
+    // vendedor cancelo que linea. state='cancelled' + qtyOpen=0 hace que
+    // getStockRealmenteDisponible ya no reste (STATES_QUE_RESERVAN no incluye
+    // cancelled).
+    let modIdx = -1;
+    const newLines = p.lines.map((l, idx) => {
+      if (modIdx >= 0) return l;
       if (l && String(l.code).toUpperCase() === String(sku).toUpperCase() && l.state === st) {
-        removed = true;
-        return false;
+        modIdx = idx;
+        const qo = Number(l.qtyOpen) || 0;
+        return Object.assign({}, l, {
+          qtyOpen: 0,
+          qtyCancelled: (Number(l.qtyCancelled) || 0) + qo,
+          state: 'cancelled',
+          cancelledAt: new Date().toISOString(),
+          cancelledFrom: st === 'ASIG' ? 'stock-asig-modal' : 'backorder-modal',
+        });
       }
-      return true;
+      return l;
     });
-    if (!removed) {
+    if (modIdx < 0) {
       alert('No se encontro la linea ' + sku + ' con state=' + st + ' en el pedido.\n\nQuizas otro admin ya la elimino, o el state cambio (BO<->ASIG por FIFO). Refresca el modal.');
       return;
     }
