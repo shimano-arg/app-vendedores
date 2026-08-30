@@ -1540,10 +1540,17 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   .controls > select.zone-select{grid-column:span 1}
   .filter-btns{flex-wrap:wrap;width:100%;justify-content:space-between}
   .filter-btn{flex:1;min-width:0;padding:6px 6px;font-size:11px}
-  .stats-bar{margin:6px 0 0;width:100%;justify-content:space-between;gap:4px;flex-wrap:nowrap;order:5}
-  .stat-box{flex:1 1 0;min-width:0;padding:4px 4px;background:#f8fafc;border:1px solid #e2e8f0}
-  .stat-box .num{font-size:14px;line-height:1}
-  .stat-box .lbl{font-size:7px;letter-spacing:.2px;display:block;margin-top:2px}
+  /* v730 (2026-08-29): stat cards mobile — vertica-centrar contenido + min-height
+     uniforme + wrap seguro del label. Antes: "CLIENTES EN SAP" hacia wrap a 2
+     lineas y esa card quedaba mas alta que las demas (visualmente desalineado,
+     numero pegado arriba). Ahora: display:flex column con justify:center hace
+     que num+lbl queden vertica-centrados; align-items:stretch del parent (default)
+     + min-height fijo garantiza mismo alto para todas. overflow:hidden previene
+     que el texto sobresalga del border. */
+  .stats-bar{margin:6px 0 0;width:100%;justify-content:space-between;gap:4px;flex-wrap:nowrap;order:5;align-items:stretch}
+  .stat-box{flex:1 1 0;min-width:0;padding:6px 4px;background:#f8fafc;border:1px solid #e2e8f0;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:52px;overflow:hidden;text-align:center}
+  .stat-box .num{font-size:14px;line-height:1;text-align:center;width:100%}
+  .stat-box .lbl{font-size:7px;letter-spacing:.2px;display:block;margin-top:2px;text-align:center;line-height:1.15;width:100%;overflow-wrap:break-word;word-break:break-word;hyphens:auto}
   /* MOBILE (<=900px): invertimos - la stats-bar va en el header como antes.
      La copia de la sidebar se esconde. */
   #stats-bar-header{display:flex}
@@ -4314,7 +4321,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v729';
+const APP_VERSION = 'v730';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
