@@ -1136,8 +1136,10 @@ function renderDashboardVisitas(el) {
   let _justAttachedVisits = false;
   if (
     (typeof window.unsubVisits === 'undefined' || window.unsubVisits === null) &&
-    typeof currentUser !== 'undefined' && currentUser &&
-    typeof fbDb !== 'undefined' && fbDb
+    typeof currentUser !== 'undefined' &&
+    currentUser &&
+    typeof fbDb !== 'undefined' &&
+    fbDb
   ) {
     _justAttachedVisits = true;
     let q;
@@ -1155,7 +1157,11 @@ function renderDashboardVisitas(el) {
           if (cont) renderDashboardVisitas(cont);
         }
         const listPane = document.getElementById('visita-pane-list');
-        if (listPane && listPane.style.display !== 'none' && typeof window.renderVisitasList === 'function') {
+        if (
+          listPane &&
+          listPane.style.display !== 'none' &&
+          typeof window.renderVisitasList === 'function'
+        ) {
           window.renderVisitasList();
         }
       },
@@ -1166,7 +1172,8 @@ function renderDashboardVisitas(el) {
     typeof visitsCache !== 'undefined' && Array.isArray(visitsCache) ? visitsCache : [];
   if (_justAttachedVisits && visits.length === 0) {
     const loading = document.createElement('div');
-    loading.style.cssText = 'text-align:center;padding:20px;color:#94a3b8;font-size:12px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:6px;margin-bottom:12px';
+    loading.style.cssText =
+      'text-align:center;padding:20px;color:#94a3b8;font-size:12px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:6px;margin-bottom:12px';
     loading.textContent = 'Cargando visitas...';
     wrap.appendChild(loading);
     el.appendChild(wrap);
