@@ -1539,6 +1539,12 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   .header .logo-text{font-size:10px;padding:5px 10px;letter-spacing:2px}
   /* Botones admin del header: mas compactos para que entren mas en cada fila. */
   .user-info .logout-btn{padding:6px 4px !important;font-size:10px !important;font-weight:700 !important;letter-spacing:.15px !important;min-height:30px !important}
+  /* v736 (2026-08-30): FAB WhatsApp + boton Dark Mode ocultos en mobile.
+     Motivo: FAB WhatsApp queda tapado por la barra inferior del browser mobile
+     (Chrome address bar + tab strip); Dark Mode todavia esta en construccion y
+     no hace falta ocuparse en mobile hasta que sea prioridad. */
+  #wa-fab{display:none !important}
+  #dark-mode-btn{display:none !important}
   .controls{padding:6px 10px;gap:5px;flex-wrap:wrap;overflow-x:visible}
   .controls label{font-size:9px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.3px;margin-bottom:-2px;display:none}
   select.zone-select{min-width:0;max-width:none;width:100%;font-size:12px}
@@ -2037,6 +2043,10 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
     <button class="logout-btn" id="master-cli-btn" onclick="openMasterClientesPanel()" title="Cargar direcciones exactas de cada tienda" style="display:none">Master Clientes</button>
     <button class="logout-btn" id="admin-btn" onclick="openAdminPanel()" title="Gestion de usuarios" style="display:none">Usuarios</button>
     <button class="logout-btn" id="stock-btn" onclick="openProductMasterModal()" title="Buscador de productos: precio, stock y datos maestros de cualquier SKU" style="display:none">Productos</button>
+    <!-- v736 (2026-08-30): Dark Mode placeholder. Click abre modal "En construccion".
+         Oculto en mobile (@media max-width:700px). Full implementacion cuando Mariano
+         apruebe el plan de refactor de colores a CSS variables. -->
+    <button class="logout-btn" id="dark-mode-btn" onclick="openDarkModeModal()" title="Modo oscuro (proximamente)" style="padding:6px 10px;gap:4px" aria-label="Modo oscuro"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><span>Dark</span></button>
     <button class="logout-btn" onclick="signOut()" title="Cerrar sesion">Salir</button>
   </div>
 </div>
@@ -4341,7 +4351,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v735';
+const APP_VERSION = 'v736';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13663,6 +13673,15 @@ window.openDepositoModal = function(){
 };
 window.closeDepositoModal = function(){
   const m = document.getElementById('deposito-modal');
+  if (m) m.classList.remove('open');
+};
+// v736 (2026-08-30): modal "Dark Mode" placeholder. Full implementacion pendiente.
+window.openDarkModeModal = function(){
+  const m = document.getElementById('dark-mode-modal');
+  if (m) m.classList.add('open');
+};
+window.closeDarkModeModal = function(){
+  const m = document.getElementById('dark-mode-modal');
   if (m) m.classList.remove('open');
 };
 function _renderWaitlistRows(){
@@ -23579,6 +23598,32 @@ if ('serviceWorker' in navigator) {
       </p>
       <div style="background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:8px;padding:12px 14px;font-size:11.5px;color:#64748b;line-height:1.5;text-align:left">
         <b style="color:#334155">Estado de la integración:</b> reunión de kickoff técnico con el partner logístico (SETUP WMS) agendada para <b>martes 2026-09-02</b>. Post-reunión se define timeline de sandbox + go-live. Estimado 8-10 días de desarrollo una vez recibidas las credenciales.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- v736 (2026-08-30): modal "Dark Mode" placeholder. Full implementacion pendiente
+     - requiere refactor de cientos de colores hardcoded en inline styles y CSS
+     a CSS variables + paleta oscura disenada. Estimado 4-8 hs. Por ahora solo
+     avisa "En construccion". Boton oculto en mobile via @media. -->
+<div class="modal-overlay" id="dark-mode-modal" onclick="if(event.target===this)closeDarkModeModal()">
+  <div class="modal-box" style="width:min(480px,94vw)">
+    <div class="modal-head" style="background:linear-gradient(135deg,#1e293b,#0f172a)">
+      <div>
+        <h2>Modo oscuro</h2>
+        <div class="subt">Cambiar la paleta de la app a tema oscuro</div>
+      </div>
+      <button class="modal-close" onclick="closeDarkModeModal()" aria-label="Cerrar">&times;</button>
+    </div>
+    <div style="padding:28px 24px;text-align:center">
+      <div style="font-size:56px;line-height:1;margin-bottom:14px" aria-hidden="true">🌙</div>
+      <h3 style="margin:0 0 10px;font-size:16px;font-weight:800;color:#0f172a;letter-spacing:.4px;text-transform:uppercase">En construcción</h3>
+      <p style="margin:0 0 16px;font-size:13px;color:#475569;line-height:1.5">
+        Acá vas a poder <b>cambiar la app a tema oscuro</b> con un click. La preferencia queda guardada por usuario/dispositivo.
+      </p>
+      <div style="background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:8px;padding:12px 14px;font-size:11.5px;color:#64748b;line-height:1.5;text-align:left">
+        <b style="color:#334155">Estado del feature:</b> requiere refactor de cientos de colores hardcoded a CSS variables + diseño de paleta oscura completa. Estimado <b>4-8 horas de dev</b>. Se planifica como feature dedicada cuando sea prioridad.
       </div>
     </div>
   </div>
