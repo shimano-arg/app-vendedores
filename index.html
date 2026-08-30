@@ -162,17 +162,19 @@
   --bg-muted: #334155;
   --text-primary: #f1f5f9;
   --text-secondary: #cbd5e1;
-  --text-muted: #94a3b8;
+  --text-muted: #cbd5e1;                /* v745 E4 WCAG: era #94a3b8 (4.04 fail vs bg-elevated). Ahora 6.97 pass. */
   --text-disabled: #64748b;
   --text-inverse: #0f172a;
-  --border-default: #334155;
+  --border-default: #475569;            /* v745 E4 WCAG: era #334155 = igual a bg-elevated (1.0 fail). Ahora visible. */
   --border-subtle: #1e293b;
-  --border-strong: #475569;
-  --color-success: #22c55e;
+  --border-strong: #64748b;             /* v745 E4: era #475569, ahora mas visible sobre bg-elevated. */
+  --color-success: #4ade80;             /* v745 E4 WCAG: era #22c55e (4.0 sub-AA vs success-bg). Ahora 5.99 pass. */
+  --color-success-bg: #14532d;          /* v745 E4: re-agregado post-codemod que lo removio accidentalmente. */
   --color-warning: #fbbf24;
   --color-warning-bg: #78350f;
-  --color-danger: #f87171;
-  --color-danger-strong: #dc2626;
+  --color-danger: #fca5a5;              /* v745 E4 WCAG: era #f87171 (3.62 sub-AA vs danger-bg). Ahora 5.99 pass. */
+  --color-danger-bg: #7f1d1d;           /* v745 E4: re-agregado post-codemod. */
+  --color-danger-strong: #fca5a5;       /* v745 E4 WCAG: era #dc2626 (2.07 fail vs danger-bg). Ahora igual a color-danger. */
   --color-accent-violet: #a78bfa;
   --focus-ring: #38bdf8;
   --shadow-md: 0 4px 8px rgba(0,0,0,.5);
@@ -233,6 +235,16 @@ body, .modal-box, .modal-overlay, .header, .controls, input, select, textarea, b
 :root:not([data-theme]) #dark-mode-btn svg#theme-icon-light { display: inline-flex !important; }
 [data-theme="light"] #dark-mode-btn svg#theme-icon-dark,
 :root:not([data-theme]) #dark-mode-btn svg#theme-icon-dark { display: none !important; }
+
+/* v745 E4: toggle button icon rotate anim on toggle. */
+#dark-mode-btn svg { transition: transform .3s cubic-bezier(.4, 0, .2, 1); }
+#dark-mode-btn:hover svg { transform: rotate(20deg); }
+#dark-mode-btn:active svg { transform: rotate(-15deg) scale(.9); }
+@media (prefers-reduced-motion: reduce) {
+  #dark-mode-btn svg { transition: none; }
+  #dark-mode-btn:hover svg { transform: none; }
+  #dark-mode-btn:active svg { transform: none; }
+}
 
 /* v739+: overrides adicionales por class-name (los attribute selectors solo
    pisan inline styles; las clases CSS definidas mas arriba en el <style>
@@ -5013,7 +5025,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v744';
+const APP_VERSION = 'v745';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
