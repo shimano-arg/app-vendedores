@@ -2262,18 +2262,24 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         </div>
         <!-- v709 (2026-08-28): 3 exportaciones nuevas pedidas por Mariano.
              Todas filtran por mes de createdAt del pedido. -->
-        <div class="exp-opt" data-exp-kind="BACKORDER" onclick="closeExportDialog();showMonthPicker('BACKORDER')">
+        <!-- v737 (2026-08-30): BACKORDER y STOCK_ASIG dejan de filtrar por
+             mes de createdAt (bug reportado por Mariano: los 62 pedidos
+             migrados el 2026-08-28 tienen createdAt de fechas viejas del
+             SAP SQ original, entonces exportar "Backorder Agosto" salia
+             vacio). Ahora es SNAPSHOT ACTUAL - todas las lineas BO/ASIG
+             open independiente de cuando se creo el pedido. -->
+        <div class="exp-opt" data-exp-kind="BACKORDER" onclick="closeExportDialog();exportBackorderAll()">
           <div class="exp-icon" style="background:#c2410c">&#128230;</div>
           <div class="exp-body">
-            <h3>Backorder</h3>
-            <p>Lineas state=BO open en pedidos-app del periodo: cliente, SKU, cantidad pendiente, vendedor asignado, fecha pedido, precio.</p>
+            <h3>Backorder (snapshot actual)</h3>
+            <p>Lineas state=BO open en TODOS los pedidos-app: cliente, SKU, cantidad pendiente, vendedor asignado, fecha del pedido original, precio. Sin filtro de mes - snapshot del estado actual (incluye pedidos migrados desde SAP).</p>
           </div>
         </div>
-        <div class="exp-opt" data-exp-kind="STOCK_ASIG" onclick="closeExportDialog();showMonthPicker('STOCK_ASIG')">
+        <div class="exp-opt" data-exp-kind="STOCK_ASIG" onclick="closeExportDialog();exportStockAsigAll()">
           <div class="exp-icon" style="background:#7c3aed">&#127919;</div>
           <div class="exp-body">
-            <h3>Stock Asignado</h3>
-            <p>Lineas ASIG (o BO con stock virtual) del periodo: cliente, SKU, cantidad reservada, vendedor, pedido, precio.</p>
+            <h3>Stock Asignado (snapshot actual)</h3>
+            <p>Lineas ASIG (o BO con stock virtual) de TODOS los pedidos-app: cliente, SKU, cantidad reservada, vendedor, pedido, precio. Sin filtro de mes - snapshot del estado actual.</p>
           </div>
         </div>
         <div class="exp-opt" data-exp-kind="PEDIDOS_MES" onclick="closeExportDialog();showMonthPicker('PEDIDOS_MES')">
@@ -4351,7 +4357,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v736';
+const APP_VERSION = 'v737';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

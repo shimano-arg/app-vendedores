@@ -1387,6 +1387,167 @@ async function exportStockAsigForMonth(anio, monthIdx) {
   showSyncTag('Export Stock Asignado listo (' + rows.length + ' lineas)', 2400);
 }
 
+// v737 (2026-08-30): SNAPSHOT ACTUAL de todos los backorders open (sin filtro
+// de mes). Motivo: los 62 pedidos migrados desde SAP el 2026-08-28 tienen
+// createdAt de fechas viejas del SAP SQ original, entonces el export por mes
+// no los incluia. Version "current status" que itera globalPedidos completo.
+window.exportBackorderAll = async function () {
+  showSyncTag('Generando export de Backorder (snapshot actual)...');
+  const rows = [];
+  const arr =
+    typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos) ? globalPedidos : [];
+  let totalPedidosOpen = 0;
+  for (const p of arr) {
+    if (!p || p.closedAt) continue;
+    totalPedidosOpen++;
+    const lines = Array.isArray(p.lines) ? p.lines : [];
+    lines.forEach((l, idx) => {
+      if (!l || l.state !== 'BO') return;
+      const qo = Number(l.qtyOpen) || 0;
+      if (qo <= 0) return;
+      rows.push({
+        Fecha_Pedido: p.createdAt
+          ? typeof p.createdAt === 'string'
+            ? p.createdAt.slice(0, 10)
+            : new Date(p.createdAt.toDate ? p.createdAt.toDate() : p.createdAt)
+                .toISOString()
+                .slice(0, 10)
+          : '',
+        Mes: p.month || '',
+        Cliente: p.clientName || '',
+        CardCode: p.clientCardCode || '',
+        Provincia: p.clientProvince || '',
+        Localidad: p.clientLocality || '',
+        Vendedor: p.vendedor || p.vendorAssigned || '',
+        SKU: l.code || '',
+        Producto: l.desc || l.name || '',
+        Cantidad_Pedida: Number(l.qty) || 0,
+        Cantidad_Pendiente_BO: qo,
+        Precio_Unit_ARS: Number(l.priceAtCreation || l.precio || 0),
+        Subtotal_BO_ARS: Math.round(qo * (Number(l.priceAtCreation || l.precio || 0) || 0)),
+        Pedido_ID: p._fsId || '',
+        Linea_Idx: idx,
+        SQ_DocNum: p.transferidoSAP ? p.transferidoSAP.docNum || '' : '',
+        Origen: p.migrationSource || 'app',
+      });
+    });
+  }
+  if (rows.length === 0) {
+    alert(
+      'Export Backorder vacio. Diagnostico:\n' +
+        '- Total pedidos en globalPedidos: ' +
+        arr.length +
+        '\n' +
+        '- Pedidos abiertos (sin closedAt): ' +
+        totalPedidosOpen +
+        '\n' +
+        '- Lineas state=BO con qtyOpen>0: 0\n\n' +
+        'Posibles causas:\n' +
+        '1. No hay backorder abierto ahora mismo (todo confirmed o cerrado)\n' +
+        '2. Los pedidos tienen closedAt seteado por error\n' +
+        '3. Las lineas BO tienen qtyOpen=0 (ya despachadas via ASIG->closed)'
+    );
+    showSyncTag('Export Backorder: 0 lineas (ver alerta)', 3000);
+    return;
+  }
+  rows.sort((a, b) => (a.Cliente || '').localeCompare(b.Cliente || ''));
+  const today = new Date().toISOString().slice(0, 10);
+  const fname = 'Shimano_Backorder_Snapshot_' + today + '.xlsx';
+  downloadXlsx(fname, [{ name: 'Backorder', rows }]);
+  showSyncTag('Export Backorder listo (' + rows.length + ' lineas)', 2400);
+};
+
+// v737: SNAPSHOT ACTUAL de todo el Stock Asignado (sin filtro de mes). Mismo
+// motivo que exportBackorderAll.
+window.exportStockAsigAll = async function () {
+  showSyncTag('Generando export de Stock Asignado (snapshot actual)...');
+  const rows = [];
+  const arr =
+    typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos) ? globalPedidos : [];
+  const getStk =
+    typeof window !== 'undefined' && typeof window.getStockDisponibleVenta === 'function'
+      ? window.getStockDisponibleVenta
+      : null;
+  let totalPedidosOpen = 0;
+  let asigCount = 0;
+  let boWithStockCount = 0;
+  for (const p of arr) {
+    if (!p || p.closedAt) continue;
+    totalPedidosOpen++;
+    const lines = Array.isArray(p.lines) ? p.lines : [];
+    lines.forEach((l, idx) => {
+      if (!l) return;
+      const qo = Number(l.qtyOpen) || 0;
+      if (qo <= 0) return;
+      let virtual = false;
+      if (l.state === 'ASIG') {
+        asigCount++;
+      } else if (l.state === 'BO') {
+        if (!getStk) return;
+        const stk = getStk(l.code) || 0;
+        if (stk <= 0) return;
+        virtual = true;
+        boWithStockCount++;
+      } else {
+        return;
+      }
+      rows.push({
+        Fecha_Pedido: p.createdAt
+          ? typeof p.createdAt === 'string'
+            ? p.createdAt.slice(0, 10)
+            : new Date(p.createdAt.toDate ? p.createdAt.toDate() : p.createdAt)
+                .toISOString()
+                .slice(0, 10)
+          : '',
+        Mes: p.month || '',
+        Cliente: p.clientName || '',
+        CardCode: p.clientCardCode || '',
+        Provincia: p.clientProvince || '',
+        Localidad: p.clientLocality || '',
+        Vendedor: p.vendedor || p.vendorAssigned || '',
+        SKU: l.code || '',
+        Producto: l.desc || l.name || '',
+        Cantidad_Reservada: qo,
+        Estado_Real: virtual ? 'BO_con_stock_(virtual_ASIG)' : 'ASIG',
+        Precio_Unit_ARS: Number(l.priceAtCreation || l.precio || 0),
+        Subtotal_Reservado_ARS: Math.round(qo * (Number(l.priceAtCreation || l.precio || 0) || 0)),
+        Pedido_ID: p._fsId || '',
+        Linea_Idx: idx,
+        SQ_DocNum: p.transferidoSAP ? p.transferidoSAP.docNum || '' : '',
+        Origen: p.migrationSource || 'app',
+      });
+    });
+  }
+  if (rows.length === 0) {
+    alert(
+      'Export Stock Asignado vacio. Diagnostico:\n' +
+        '- Total pedidos en globalPedidos: ' +
+        arr.length +
+        '\n' +
+        '- Pedidos abiertos (sin closedAt): ' +
+        totalPedidosOpen +
+        '\n' +
+        '- Lineas state=ASIG con qtyOpen>0: ' +
+        asigCount +
+        '\n' +
+        '- Lineas state=BO con stock disponible (virtual ASIG): ' +
+        boWithStockCount +
+        '\n\n' +
+        'Posibles causas:\n' +
+        '1. No hay stock asignado ahora mismo\n' +
+        '2. Todo el stock esta pendiente sin asignar (mode BO puro sin stock)\n' +
+        '3. Los pedidos tienen closedAt seteado'
+    );
+    showSyncTag('Export Stock Asig: 0 lineas (ver alerta)', 3000);
+    return;
+  }
+  rows.sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
+  const today = new Date().toISOString().slice(0, 10);
+  const fname = 'Shimano_StockAsignado_Snapshot_' + today + '.xlsx';
+  downloadXlsx(fname, [{ name: 'Stock Asignado', rows }]);
+  showSyncTag('Export Stock Asignado listo (' + rows.length + ' lineas)', 2400);
+};
+
 async function exportPedidosMesForMonth(anio, monthIdx) {
   showSyncTag('Generando export de Pedidos del mes...');
   const rows = [];
