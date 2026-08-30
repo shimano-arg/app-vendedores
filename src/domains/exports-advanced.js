@@ -1052,8 +1052,11 @@ window.exportDatasetZip = async function () {
     _updateExportProgress('Cargando JSZip...', 10);
     await _ensureJSZipLoaded();
 
-    // 1) Fetch 10 colecciones Firestore en paralelo + stock.json
-    _updateExportProgress('Leyendo Firestore (10 colecciones)...', 20);
+    // 1) Fetch 13 colecciones Firestore en paralelo + stock.json.
+    // v732 (2026-08-29): + sap_snapshot, facturacion_snapshot, backorder_snapshot
+    // (antes excluidos; ahora fuente de verdad de facturacion real SAP + demand
+    // supression + agregados diarios listos-para-benchmark).
+    _updateExportProgress('Leyendo Firestore (13 colecciones)...', 20);
     const firestoreEntries = [
       ['pedidos', fbDb.collection('pedidos').get()],
       ['visitas', fbDb.collection('visits').get()],
@@ -1065,6 +1068,9 @@ window.exportDatasetZip = async function () {
       ['vendor_overrides', fbDb.collection('vendor_overrides').get()],
       ['custom_routes', fbDb.collection('custom_routes').get()],
       ['seguimiento_notes', fbDb.collection('seguimiento_notes').get()],
+      ['sap_snapshot', fbDb.collection('sap_snapshot').get()],
+      ['facturacion_snapshot', fbDb.collection('facturacion_snapshot').get()],
+      ['backorder_snapshot', fbDb.collection('backorder_snapshot').get()],
     ];
     const promises = firestoreEntries.map(([, p]) => p);
     promises.push(_fetchStockJson());
@@ -1199,13 +1205,10 @@ window.exportDatasetZip = async function () {
       useCaseMatrix: useCaseWithStats,
       exclusions: {
         note: 'Datos sensibles y binarios excluidos del export.',
-        excludedCollections: [
-          'roles',
-          'app_config',
-          'sap_snapshot',
-          'notifications',
-          'operations_log',
-        ],
+        // v732 (2026-08-29): sap_snapshot ya NO se excluye (agregado como fuente
+        // de verdad de facturacion real). facturacion_snapshot y backorder_snapshot
+        // tampoco eran parte de esta lista pero ahora son incluidas explicitamente.
+        excludedCollections: ['roles', 'app_config', 'notifications', 'operations_log'],
         excludedFields: [
           'visits.frenteLocal (fotos base64)',
           'visits.espacio[] (fotos base64)',

@@ -521,6 +521,98 @@ export const DATASET_SCHEMAS = {
       { col: 'created_at', type: 'iso8601', desc: '' },
     ],
   },
+  // v732 (2026-08-29): 3 snapshots BQ->Firestore ahora incluidos en el dataset ML.
+  // Antes estaban en excludedCollections del manifest. Racional: son fuente de
+  // verdad de facturacion REAL SAP (neto NCs), demand-supression (backorders)
+  // y agregados diarios listos-para-benchmark.
+  sap_snapshot: {
+    name: 'sap_snapshot.csv',
+    source: 'firestore',
+    collection: 'sap_snapshot',
+    rowMode: 'one_per_doc',
+    columns: [
+      { col: 'doc_id', type: 'string', desc: 'Firestore doc ID (VENDOR_NORM_YYYY_MM)' },
+      {
+        col: 'vendor_key',
+        type: 'string',
+        desc: 'nombre del vendedor tal cual viene de SAP (sin normalizar)',
+      },
+      { col: 'anio', type: 'integer', desc: 'anio calendario' },
+      { col: 'mes', type: 'integer', desc: '1-12' },
+      {
+        col: 'facturado_ars_neto',
+        type: 'number',
+        desc: 'facturas - NCs ARS (con IVA cargado en el importe)',
+      },
+      { col: 'facturado_ars_bruto', type: 'number', desc: 'facturas + NCs sumadas ARS bruto' },
+      { col: 'ncs_ars', type: 'number', desc: 'monto de notas de credito ARS' },
+      { col: 'facturas_count', type: 'integer', desc: '' },
+      { col: 'ncs_count', type: 'integer', desc: '' },
+      { col: 'unidades_neto', type: 'number', desc: 'sum(qty) facturas - sum(qty) NCs' },
+      {
+        col: 'importe_lineas_ars_neto',
+        type: 'number',
+        desc: 'sum importes de linea (sin IVA); usar este campo para modelos de negocio - facturado_ars_neto incluye IVA y sobreestima',
+      },
+      { col: 'updated_at', type: 'iso8601', desc: 'timestamp del sync BQ->Firestore' },
+    ],
+  },
+  facturacion_snapshot: {
+    name: 'facturacion_snapshot.csv',
+    source: 'firestore',
+    collection: 'facturacion_snapshot',
+    rowMode: 'one_per_doc',
+    columns: [
+      { col: 'doc_id', type: 'string', desc: 'Firestore doc ID (VENDOR_NORM o TOTAL_NACIONAL)' },
+      {
+        col: 'vendor_key',
+        type: 'string',
+        desc: 'nombre canonico del vendedor - TOTAL_NACIONAL para el rollup nacional',
+      },
+      { col: 'hoy_ars', type: 'number', desc: 'facturacion del dia actual ARS' },
+      { col: 'mes_ars', type: 'number', desc: 'facturacion MTD del mes actual ARS' },
+      { col: 'ano_ars', type: 'number', desc: 'facturacion YTD del anio actual ARS' },
+      { col: 'updated_at', type: 'iso8601', desc: 'timestamp del ultimo sync' },
+    ],
+  },
+  backorder_snapshot: {
+    name: 'backorder_snapshot.csv',
+    source: 'firestore',
+    collection: 'backorder_snapshot',
+    rowMode: 'one_per_line',
+    columns: [
+      {
+        col: 'doc_id',
+        type: 'string',
+        desc: 'Firestore doc ID (VENDOR_NORM); un doc = un vendedor, replicado en cada linea',
+      },
+      { col: 'vendor_key', type: 'string', desc: 'nombre del vendedor sin normalizar' },
+      {
+        col: 'lines_count',
+        type: 'integer',
+        desc: 'cantidad total de lineas en el snapshot del vendedor (replicado en cada row para joins)',
+      },
+      { col: 'updated_at', type: 'iso8601', desc: '' },
+      { col: 'sku', type: 'string', desc: 'SKU del producto en backorder (solo PESCA)' },
+      { col: 'producto', type: 'string', desc: 'nombre del producto' },
+      { col: 'familia', type: 'string', desc: '' },
+      { col: 'subfamilia', type: 'string', desc: '' },
+      { col: 'pendiente', type: 'number', desc: 'unidades pendientes de despacho (backorder)' },
+      { col: 'pedido', type: 'number', desc: 'unidades pedidas originalmente en la SQ' },
+      {
+        col: 'stock_actual',
+        type: 'integer',
+        desc: 'stock disponible del SKU al momento del snapshot',
+      },
+      { col: 'precio_unitario', type: 'number', desc: 'precio unitario ARS' },
+      { col: 'cliente_code', type: 'string', desc: 'cardCode SAP del cliente' },
+      { col: 'cliente_nombre', type: 'string', desc: '' },
+      { col: 'cliente_ciudad', type: 'string', desc: '' },
+      { col: 'sq_doc_num', type: 'integer', desc: 'numero de Sales Quotation SAP' },
+      { col: 'sq_doc_date', type: 'iso8601', desc: 'fecha de la SQ' },
+      { col: 'estado', type: 'string', desc: 'estado del backorder segun SAP' },
+    ],
+  },
 };
 
 // ============================================================
@@ -961,6 +1053,77 @@ export function buildProductoRowsFromStockJson(stockJson) {
 // Dispatcher: mapa collection -> row builder
 // ============================================================
 
+// v732: builders para los 3 snapshots BQ->Firestore.
+
+/** @param {any} doc @returns {unknown[][]} */
+export function buildSapSnapshotRows(doc) {
+  return [
+    [
+      doc._id,
+      doc.vendorKey,
+      doc.anio,
+      doc.mes,
+      doc.facturadoArsNeto,
+      doc.facturadoArsBruto,
+      doc.ncsArs,
+      doc.facturasCount,
+      doc.ncsCount,
+      doc.unidadesNeto,
+      doc.importeLineasArsNeto,
+      doc.updatedAt,
+    ],
+  ];
+}
+
+/** @param {any} doc @returns {unknown[][]} */
+export function buildFacturacionSnapshotRows(doc) {
+  return [[doc._id, doc.vendorKey, doc.hoyArs, doc.mesArs, doc.anoArs, doc.updatedAt]];
+}
+
+/** @param {any} doc @returns {unknown[][]} */
+export function buildBackorderSnapshotRows(doc) {
+  const header = [doc._id, doc.vendorKey, doc.linesCount, doc.updatedAt];
+  const lines = Array.isArray(doc.lines) ? doc.lines : [];
+  if (!lines.length) {
+    return [
+      header.concat([
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+      ]),
+    ];
+  }
+  return lines.map((/** @type {any} */ l) =>
+    header.concat([
+      l ? l.sku : null,
+      l ? l.producto : null,
+      l ? l.familia : null,
+      l ? l.subfamilia : null,
+      l ? l.pendiente : null,
+      l ? l.pedido : null,
+      l ? l.stockActual : null,
+      l ? l.precioUnitario : null,
+      l ? l.clienteCode : null,
+      l ? l.clienteNombre : null,
+      l ? l.clienteCiudad : null,
+      l ? l.sqDocNum : null,
+      l ? l.sqDocDate : null,
+      l ? l.estado : null,
+    ])
+  );
+}
+
 /** @type {Record<string, (doc: any) => unknown[][]>} */
 export const ROW_BUILDERS = {
   pedidos: buildPedidoRows,
@@ -973,4 +1136,8 @@ export const ROW_BUILDERS = {
   vendor_overrides: buildVendorOverrideRows,
   custom_routes: buildCustomRouteRows,
   seguimiento_notes: buildSeguimientoNoteRows,
+  // v732: 3 snapshots BQ->Firestore.
+  sap_snapshot: buildSapSnapshotRows,
+  facturacion_snapshot: buildFacturacionSnapshotRows,
+  backorder_snapshot: buildBackorderSnapshotRows,
 };
