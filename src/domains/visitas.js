@@ -1465,20 +1465,20 @@ function renderVisitasList() {
     const isContacto = v.interactionType === 'contacto';
     const iBadge = isContacto
       ? '<span style="display:inline-block;background:#ccfbf1;color:#0f766e;border:1px solid #5eead4;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#128241; Contacto</span>'
-      : '<span style="display:inline-block;background:#ede9fe;color:#5b21b6;border:1px solid #c4b5fd;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#128100; Visita</span>';
+      : '<span style="display:inline-block;background:#ede9fe;color:var(--color-accent-violet);border:1px solid #c4b5fd;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#128100; Visita</span>';
     // v365+: badge de resultado del contacto no presencial (respondio / no respondio / sin marcar).
     // Solo aplica a interactionType === 'contacto'; para visitas presenciales no tiene sentido.
     let resBadge = '';
     if (isContacto) {
       if (v.contactoResultado === 'respondio') {
         resBadge =
-          '<span style="display:inline-block;background:#dcfce7;color:#166534;border:1px solid #86efac;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#9989; Respondio</span>';
+          '<span style="display:inline-block;background:var(--color-success-bg);color:var(--color-success);border:1px solid #86efac;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#9989; Respondio</span>';
       } else if (v.contactoResultado === 'no_respondio') {
         resBadge =
-          '<span style="display:inline-block;background:#e2e8f0;color:#475569;border:1px solid #cbd5e1;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#10060; No respondio</span>';
+          '<span style="display:inline-block;background:var(--border-subtle);color:var(--text-secondary);border:1px solid var(--border-default);padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#10060; No respondio</span>';
       } else {
         resBadge =
-          '<span style="display:inline-block;background:#fef3c7;color:#78350f;border:1px solid #fcd34d;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#8987; Sin marcar</span>';
+          '<span style="display:inline-block;background:var(--color-warning-bg);color:#78350f;border:1px solid #fcd34d;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#8987; Sin marcar</span>';
       }
     }
     html +=
@@ -1507,7 +1507,7 @@ function renderVisitasList() {
       '/5</div>';
     if (v.pop === 'SI')
       html +=
-        '<div class="vc-meta" style="color:#7c3aed">POP: ' +
+        '<div class="vc-meta" style="color:var(--color-accent-violet)">POP: ' +
         escapeHtml(v.necesidadPuntual || '') +
         '</div>';
     if ((v.espacio || []).length || v.frenteLocal)
@@ -1550,7 +1550,7 @@ function renderVisitasList() {
         escapeAttr(v.id) +
         "','" +
         escapeAttr(v.tienda || '') +
-        '\')" title="Eliminar esta visita" style="background:#dc2626;color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Eliminar</button>';
+        '\')" title="Eliminar esta visita" style="background:var(--color-danger);color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Eliminar</button>';
     }
     html += '</div>';
     html += '</div></div>';
@@ -1638,9 +1638,9 @@ window.openContactoEstadoModal = function (visitId) {
     const forma = v.formaContacto ? ' &middot; via ' + escapeHtml(v.formaContacto) : '';
     const cur =
       v.contactoResultado === 'respondio'
-        ? '<b style="color:#166534">Respondio</b>'
+        ? '<b style="color:var(--color-success)">Respondio</b>'
         : v.contactoResultado === 'no_respondio'
-          ? '<b style="color:#475569">No respondio</b>'
+          ? '<b style="color:var(--text-secondary)">No respondio</b>'
           : '<b style="color:#78350f">Sin marcar</b>';
     info.innerHTML =
       '<b>' +
@@ -1758,10 +1758,10 @@ function setVisitFormReadonly(readonly) {
   const footer = document.getElementById('visita-footer');
   if (readonly) {
     footer.innerHTML =
-      '<span style="color:#475569">Solo lectura</span><div style="display:flex;gap:8px"><button class="btn-cancel" onclick="resetVisitaForm();setVisitFormReadonly(false);setVisitaView(\'form\');">Nueva visita</button><button class="btn-confirm" style="background:#7c3aed" onclick="closeVisitaModal()">Cerrar</button></div>';
+      '<span style="color:var(--text-secondary)">Solo lectura</span><div style="display:flex;gap:8px"><button class="btn-cancel" onclick="resetVisitaForm();setVisitFormReadonly(false);setVisitaView(\'form\');">Nueva visita</button><button class="btn-confirm" style="background:var(--color-accent-violet)" onclick="closeVisitaModal()">Cerrar</button></div>';
   } else {
     footer.innerHTML =
-      '<span style="color:#475569">Se guarda en la nube al enviar</span><div style="display:flex;gap:8px"><button class="btn-cancel" onclick="closeVisitaModal()">Cancelar</button><button class="btn-confirm" id="visita-submit-btn" style="background:#7c3aed" onclick="submitVisita()">Enviar formulario</button></div>';
+      '<span style="color:var(--text-secondary)">Se guarda en la nube al enviar</span><div style="display:flex;gap:8px"><button class="btn-cancel" onclick="closeVisitaModal()">Cancelar</button><button class="btn-confirm" id="visita-submit-btn" style="background:var(--color-accent-violet)" onclick="submitVisita()">Enviar formulario</button></div>';
     // v439: re-aplicar el modo activo para restaurar el label del boton
     // ("Registrar contacto" vs "Enviar formulario") + color, ya que el
     // innerHTML anterior perdia el id="visita-submit-btn".
@@ -1853,7 +1853,7 @@ window.viewVisit = function (visitId) {
       const acc = v.gpsAccuracy != null ? v.gpsAccuracy + ' m' : '';
       const at = v.gpsCapturedAt ? new Date(v.gpsCapturedAt).toLocaleString() : '';
       let body =
-        '<label>Verificaci&oacute;n GPS</label><div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px;font-size:11px;color:#334155;line-height:1.5">';
+        '<label>Verificaci&oacute;n GPS</label><div style="background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;padding:10px;font-size:11px;color:var(--text-secondary);line-height:1.5">';
       body += badge ? badge + '<br>' : '';
       if (lat && lon)
         body +=
@@ -1882,7 +1882,10 @@ window.viewVisit = function (visitId) {
           lon +
           '" target="_blank" style="color:#0284a0;font-weight:700">Ver punto en Google Maps &rarr;</a>';
       if (v.gpsError)
-        body += '<br><span style="color:#991b1b">Error: ' + escapeHtml(v.gpsError) + '</span>';
+        body +=
+          '<br><span style="color:var(--color-danger-strong)">Error: ' +
+          escapeHtml(v.gpsError) +
+          '</span>';
       body += '</div>';
       gi.innerHTML = body;
     } else {

@@ -668,13 +668,13 @@ function renderAltaCliMisSolicitudes() {
     html += '<div><span class="ac-app-status">' + stLbl + '</span>';
     if (a.status === 'pending_approval') {
       html +=
-        ' <span style="font-size:10px;color:#64748b;margin-left:6px">' +
+        ' <span style="font-size:10px;color:var(--text-muted);margin-left:6px">' +
         apCount +
         '/2 aprobaciones</span>';
     }
     if (a.status === 'rejected' && a.rejectedReason) {
       html +=
-        '<div style="font-size:10px;color:#991b1b;margin-top:4px"><b>Motivo:</b> ' +
+        '<div style="font-size:10px;color:var(--color-danger-strong);margin-top:4px"><b>Motivo:</b> ' +
         escapeHtml(a.rejectedReason) +
         '</div>';
     }
@@ -693,7 +693,7 @@ function renderAltaCliMisSolicitudes() {
         safeId +
         "', " +
         safeName +
-        ')" style="background:#fee2e2;color:#991b1b;border:1.5px solid #fca5a5;border-radius:5px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer">&#128465; Eliminar</button>';
+        ')" style="background:var(--color-danger-bg);color:var(--color-danger-strong);border:1.5px solid #fca5a5;border-radius:5px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer">&#128465; Eliminar</button>';
       html += '</div>';
     }
     html += '</div>';
@@ -750,7 +750,8 @@ window.openClientApplicationDetail = async function (appId, notifId) {
     }
     const a = Object.assign({ _id: appId }, snap.data());
     const c = document.getElementById('ca-detail-content');
-    let h = '<div style="padding:18px 20px;font-size:12px;color:#0f172a;line-height:1.6">';
+    let h =
+      '<div style="padding:18px 20px;font-size:12px;color:var(--text-primary);line-height:1.6">';
     h +=
       '<h4 style="font-size:12px;color:#0891b2;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding-bottom:5px;border-bottom:1.5px solid #67e8f9">Comercio</h4>';
     h += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px 14px">';
@@ -787,17 +788,17 @@ window.openClientApplicationDetail = async function (appId, notifId) {
     h += '<div style="display:flex;flex-wrap:wrap;gap:8px">';
     if (a.constanciaArca)
       h +=
-        '<div style="text-align:center"><div style="font-size:9px;color:#475569;margin-bottom:3px;font-weight:700;text-transform:uppercase">ARCA</div><img src="' +
+        '<div style="text-align:center"><div style="font-size:9px;color:var(--text-secondary);margin-bottom:3px;font-weight:700;text-transform:uppercase">ARCA</div><img src="' +
         a.constanciaArca +
         '" id="ca-arca-img" class="task-img-thumb" style="width:90px;height:90px" onclick="openImgViewer(\'ca-arca-img\')"/></div>';
     if (a.constanciaIIBB)
       h +=
-        '<div style="text-align:center"><div style="font-size:9px;color:#475569;margin-bottom:3px;font-weight:700;text-transform:uppercase">IIBB</div><img src="' +
+        '<div style="text-align:center"><div style="font-size:9px;color:var(--text-secondary);margin-bottom:3px;font-weight:700;text-transform:uppercase">IIBB</div><img src="' +
         a.constanciaIIBB +
         '" id="ca-iibb-img" class="task-img-thumb" style="width:90px;height:90px" onclick="openImgViewer(\'ca-iibb-img\')"/></div>';
     (a.fotosLocal || []).forEach((f, i) => {
       h +=
-        '<div style="text-align:center"><div style="font-size:9px;color:#475569;margin-bottom:3px;font-weight:700;text-transform:uppercase">Local ' +
+        '<div style="text-align:center"><div style="font-size:9px;color:var(--text-secondary);margin-bottom:3px;font-weight:700;text-transform:uppercase">Local ' +
         (i + 1) +
         '</div><img src="' +
         f +
@@ -817,14 +818,14 @@ window.openClientApplicationDetail = async function (appId, notifId) {
       Object.keys(a.approvals).forEach((uid) => {
         const ap = a.approvals[uid];
         h +=
-          '<div style="font-size:10px;color:#15803d;margin-left:8px">&#10003; ' +
+          '<div style="font-size:10px;color:var(--color-success);margin-left:8px">&#10003; ' +
           escapeHtml(ap.email || uid) +
           '</div>';
       });
     }
     if (a.status === 'rejected') {
       h +=
-        '<div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:4px;padding:8px;margin-top:8px;color:#991b1b"><b>RECHAZADA</b> por ' +
+        '<div style="background:var(--color-danger-bg);border:1px solid #fca5a5;border-radius:4px;padding:8px;margin-top:8px;color:var(--color-danger-strong)"><b>RECHAZADA</b> por ' +
         escapeHtml(a.rejectedByEmail || '') +
         '. Motivo: ' +
         escapeHtml(a.rejectedReason || '-') +
@@ -846,19 +847,19 @@ window.openClientApplicationDetail = async function (appId, notifId) {
       h +=
         '<h4 style="font-size:12px;color:#0891b2;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px;padding-bottom:5px;border-bottom:1.5px solid #67e8f9">Datos del aprobador</h4>';
       h +=
-        '<div style="display:grid;grid-template-columns:1fr;gap:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px">';
+        '<div style="display:grid;grid-template-columns:1fr;gap:8px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;padding:12px">';
       h +=
-        '<div><label style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">CardCode SAP B1 <span style="color:#dc2626">*</span></label>';
+        '<div><label style="font-size:11px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:4px">CardCode SAP B1 <span style="color:var(--color-danger)">*</span></label>';
       h +=
         '<input id="ca-cardcode" type="text" placeholder="C-12345 / dejar vacio si todavia no se creo el BP" value="' +
         escapeAttr(preCardCode) +
-        '" style="width:100%;padding:7px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px;font-family:Consolas,monospace;font-weight:700"/>';
+        '" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-default);border-radius:5px;font-size:12px;font-family:Consolas,monospace;font-weight:700"/>';
       h +=
-        '<div style="font-size:10px;color:#94a3b8;margin-top:3px">Sin CardCode la tienda aparece en el mapa pero no se puede crear pedido (DTW lo necesita).</div></div>';
+        '<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Sin CardCode la tienda aparece en el mapa pero no se puede crear pedido (DTW lo necesita).</div></div>';
       h +=
-        '<div><label style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Asignar a vendedor <span style="color:#dc2626">*</span></label>';
+        '<div><label style="font-size:11px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:4px">Asignar a vendedor <span style="color:var(--color-danger)">*</span></label>';
       h +=
-        '<select id="ca-vendor" style="width:100%;padding:7px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px;background:#fff">';
+        '<select id="ca-vendor" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-default);border-radius:5px;font-size:12px;background:var(--bg-elevated)">';
       h += '<option value="">- Elegir vendedor -</option>';
       h += '<optgroup label="Vendedores externos (VDE)">';
       VENDORS.filter((v) => VDE_VENDOR_KEYS.has(v.key)).forEach((v) => {
@@ -894,22 +895,22 @@ window.openClientApplicationDetail = async function (appId, notifId) {
       h += '</optgroup>';
       h += '</select>';
       h +=
-        '<div style="font-size:10px;color:#94a3b8;margin-top:3px">El vendedor elegido va a ver la tienda en su mapa para crear pedidos.</div></div>';
+        '<div style="font-size:10px;color:var(--text-muted);margin-top:3px">El vendedor elegido va a ver la tienda en su mapa para crear pedidos.</div></div>';
       h +=
-        '<div><label style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Localidad final (como aparece en el mapa)</label>';
+        '<div><label style="font-size:11px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:4px">Localidad final (como aparece en el mapa)</label>';
       h +=
         '<input id="ca-loc-final" type="text" placeholder="' +
         escapeAttr(a.localidad || '') +
         '" value="' +
         escapeAttr(preLoc) +
-        '" style="width:100%;padding:7px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px"/>';
+        '" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-default);border-radius:5px;font-size:12px"/>';
       h +=
-        '<div style="font-size:10px;color:#94a3b8;margin-top:3px">Si la localidad declarada por el vendedor (' +
+        '<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Si la localidad declarada por el vendedor (' +
         escapeHtml(a.localidad || '-') +
         ') no matchea con el mapa, ajustala aca.</div></div>';
       h += '</div>';
       h +=
-        '<div style="display:flex;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid #e5e7eb">';
+        '<div style="display:flex;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border-subtle)">';
       h +=
         '<button class="qmodal-btn primary" style="flex:1" onclick="approveClientApplication(\'' +
         escapeAttr(appId) +
@@ -925,7 +926,7 @@ window.openClientApplicationDetail = async function (appId, notifId) {
       h += '</div>';
     } else if (iAlreadyApproved) {
       h +=
-        '<div style="background:#dcfce7;border:1px solid #86efac;border-radius:4px;padding:8px;margin-top:14px;color:#166534;text-align:center;font-weight:700">&#10003; Ya aprobaste esta solicitud</div>';
+        '<div style="background:var(--color-success-bg);border:1px solid #86efac;border-radius:4px;padding:8px;margin-top:14px;color:var(--color-success);text-align:center;font-weight:700">&#10003; Ya aprobaste esta solicitud</div>';
     }
     h += '</div>';
     c.innerHTML = h;
@@ -1175,7 +1176,7 @@ function notifItemHtml(n, opts) {
     } else if (n.status === 'done' && n.doneAt) {
       const da = n.doneAt.toDate ? n.doneAt.toDate() : new Date(n.doneAt);
       h +=
-        '<div style="font-size:10px;color:#15803d;margin-top:6px;font-weight:600">&#10003; Completada el ' +
+        '<div style="font-size:10px;color:var(--color-success);margin-top:6px;font-weight:600">&#10003; Completada el ' +
         da.toLocaleString('es-AR') +
         '</div>';
     }
@@ -1274,7 +1275,7 @@ function notifItemHtml(n, opts) {
         escapeAttr(n._fsId) +
         '\')">Contactar</button>';
       h +=
-        '<button class="btn-read" style="background:#fff;color:#475569;border:1.5px solid #cbd5e1;margin-left:6px" onclick="markNotifRead(\'' +
+        '<button class="btn-read" style="background:var(--bg-elevated);color:var(--text-secondary);border:1.5px solid var(--border-default);margin-left:6px" onclick="markNotifRead(\'' +
         escapeAttr(n._fsId) +
         '\')" title="Solo marcar como leida (sin cargar visita)">Solo marcar leida</button>';
       h += '</div>';
@@ -1286,7 +1287,7 @@ function notifItemHtml(n, opts) {
   if (!opts.readonly) {
     h += '<div class="notif-item-actions" style="margin-top:6px;justify-content:flex-end">';
     h +=
-      '<button class="btn-read" style="background:#fee2e2;color:#991b1b;border:1.5px solid #fca5a5;font-weight:700" onclick="deleteNotif(\'' +
+      '<button class="btn-read" style="background:var(--color-danger-bg);color:var(--color-danger-strong);border:1.5px solid #fca5a5;font-weight:700" onclick="deleteNotif(\'' +
       escapeAttr(n._fsId) +
       '\')" title="Eliminar esta notificacion">&#128465; Eliminar</button>';
     h += '</div>';
@@ -1321,9 +1322,9 @@ function renderNotifsList() {
   const nPend = pendientes.length;
   let html = '';
   html +=
-    '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;margin-bottom:8px;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:6px">';
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;margin-bottom:8px;background:var(--bg-muted);border:1px solid var(--border-default);border-radius:6px">';
   html +=
-    '<div style="font-size:11px;color:#334155;font-weight:600">' +
+    '<div style="font-size:11px;color:var(--text-secondary);font-weight:600">' +
     nPend +
     ' pendiente' +
     (nPend === 1 ? '' : 's') +
@@ -1443,7 +1444,7 @@ function renderMySentTasks() {
     if (isDone && n.doneAt) {
       const da = n.doneAt.toDate ? n.doneAt.toDate() : new Date(n.doneAt);
       html +=
-        '<span style="color:#15803d;font-weight:700">&#10003; Marcada ' +
+        '<span style="color:var(--color-success);font-weight:700">&#10003; Marcada ' +
         da.toLocaleString('es-AR') +
         '</span>';
     }

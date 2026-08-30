@@ -682,7 +682,7 @@ function renderSapClientes() {
 
   if (!filtered.length) {
     html +=
-      '<div style="text-align:center;color:#94a3b8;padding:30px;font-size:12px">Sin resultados.</div>';
+      '<div style="text-align:center;color:var(--text-muted);padding:30px;font-size:12px">Sin resultados.</div>';
   } else {
     html +=
       '<table class="sap-table"><thead><tr><th style="width:55%">Tienda (App)</th><th style="width:35%">Codigo SAP</th><th style="width:10%"></th></tr></thead><tbody>';
@@ -709,7 +709,7 @@ function renderSapClientes() {
     html += '</tbody></table>';
     if (filtered.length > 500)
       html +=
-        '<div style="text-align:center;color:#94a3b8;font-size:11px;padding:14px">Mostrando primeros 500 de ' +
+        '<div style="text-align:center;color:var(--text-muted);font-size:11px;padding:14px">Mostrando primeros 500 de ' +
         filtered.length +
         '. Usa el buscador para refinar.</div>';
   }
@@ -866,7 +866,7 @@ function renderSapProductos() {
 
   let html = '';
   html +=
-    '<div class="sap-info" style="background:#ecfdf5;border-color:#86efac;color:#15803d"><b>&#10003; Verificado contra SAP de David (junio 2026).</b> 660/666 SKUs tienen codigo identico en ambos sistemas. Los codigos numericos con ceros a la izquierda (ej. <code>032737</code>) se envian a SAP como <code>32737</code> automaticamente. Solo cargar mapeo aca si SAP usa un codigo realmente distinto al del master.</div>';
+    '<div class="sap-info" style="background:#ecfdf5;border-color:#86efac;color:var(--color-success)"><b>&#10003; Verificado contra SAP de David (junio 2026).</b> 660/666 SKUs tienen codigo identico en ambos sistemas. Los codigos numericos con ceros a la izquierda (ej. <code>032737</code>) se envian a SAP como <code>32737</code> automaticamente. Solo cargar mapeo aca si SAP usa un codigo realmente distinto al del master.</div>';
   html += '<div class="sap-stats">';
   html +=
     '<div class="sap-stat"><div class="n">' +
@@ -894,7 +894,7 @@ function renderSapProductos() {
 
   if (!filtered.length) {
     html +=
-      '<div style="text-align:center;color:#94a3b8;padding:30px;font-size:12px">Sin resultados.</div>';
+      '<div style="text-align:center;color:var(--text-muted);padding:30px;font-size:12px">Sin resultados.</div>';
   } else {
     html +=
       '<table class="sap-table"><thead><tr><th style="width:18%">Codigo App</th><th style="width:42%">Descripcion</th><th style="width:30%">Material SAP</th><th style="width:10%"></th></tr></thead><tbody>';
@@ -905,7 +905,7 @@ function renderSapProductos() {
       html +=
         '<tr><td><b>' +
         codeSafe +
-        '</b><div style="font-size:9px;color:#94a3b8">' +
+        '</b><div style="font-size:9px;color:var(--text-muted)">' +
         escapeHtml(p.fam || '') +
         (p.sub ? ' / ' + escapeHtml(p.sub) : '') +
         '</div></td>';
@@ -926,7 +926,7 @@ function renderSapProductos() {
     html += '</tbody></table>';
     if (filtered.length > 500)
       html +=
-        '<div style="text-align:center;color:#94a3b8;font-size:11px;padding:14px">Mostrando primeros 500 de ' +
+        '<div style="text-align:center;color:var(--text-muted);font-size:11px;padding:14px">Mostrando primeros 500 de ' +
         filtered.length +
         '. Usa el buscador para refinar.</div>';
   }

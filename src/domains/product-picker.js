@@ -191,7 +191,7 @@ function renderProductPicker() {
       const _boQty = Number(_boByClient[_key]) || 0;
       if (_asigQty > 0) {
         asigBadge =
-          ' <span style="background:#7c3aed;color:#fff;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:800;vertical-align:middle" title="Cliente tiene ' +
+          ' <span style="background:var(--color-accent-violet);color:#fff;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:800;vertical-align:middle" title="Cliente tiene ' +
           _asigQty +
           'u en STOCK ASIGNADO (fue backorder, entro stock). Confirmar puede duplicar demanda.">&#127919; ASIG ' +
           _asigQty +
@@ -281,7 +281,7 @@ function renderProductPicker() {
     if (stockSt === true && disp != null && disp === 0 && trans != null && trans > 0) {
       // Ambar: 0 disponible pero N en transito -> se puede prometer con fecha estimada.
       stockDot =
-        '<span class="stock-dot" style="background:#f59e0b" title="0 disponible en deposito 11 pero ' +
+        '<span class="stock-dot" style="background:var(--color-warning)" title="0 disponible en deposito 11 pero ' +
         trans +
         ' unidades en transito (deposito 12) — se puede vender como backorder"></span>';
     } else if (stockSt === true) {

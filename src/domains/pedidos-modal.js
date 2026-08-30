@@ -310,24 +310,24 @@ window.openSinStockDetail = function () {
       '<div style="font-size:12px;font-weight:800;color:#7f1d1d">' +
       escapeHtml(l.code) +
       '</div>' +
-      '<div style="font-size:14px;font-weight:800;color:#991b1b">' +
+      '<div style="font-size:14px;font-weight:800;color:var(--color-danger-strong)">' +
       Math.round(faltantes) +
       ' u faltan</div>' +
       '</div>' +
-      '<div style="font-size:11px;color:#475569;margin-bottom:6px">' +
+      '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">' +
       escapeHtml(l.desc || '') +
       '</div>' +
-      '<div style="display:flex;gap:10px;font-size:10px;color:#64748b;flex-wrap:wrap">' +
-      '<span>Pedido: <b style="color:#0f172a">' +
+      '<div style="display:flex;gap:10px;font-size:10px;color:var(--text-muted);flex-wrap:wrap">' +
+      '<span>Pedido: <b style="color:var(--text-primary)">' +
       Math.round(q) +
       ' u</b></span>' +
-      '<span>Disponibles: <b style="color:#166534">' +
+      '<span>Disponibles: <b style="color:var(--color-success)">' +
       Math.round(disponibles) +
       ' u</b></span>' +
-      '<span>Faltantes: <b style="color:#991b1b">' +
+      '<span>Faltantes: <b style="color:var(--color-danger-strong)">' +
       Math.round(faltantes) +
       ' u</b></span>' +
-      '<span>Importe faltante: <b style="color:#991b1b">' +
+      '<span>Importe faltante: <b style="color:var(--color-danger-strong)">' +
       fmt(faltantes * p) +
       '</b></span>' +
       (transito > 0
@@ -366,7 +366,7 @@ window.openSinStockDetail = function () {
     '<div style="overflow-y:auto;flex:1">' +
     rowsHtml +
     '</div>' +
-    '<div style="padding:10px 14px;border-top:1px solid #e2e8f0;background:#f8fafc;font-size:10px;color:#64748b;line-height:1.5">Las cantidades pedidas van completas a SAP. Admin decide al aprobar la Oferta qu&eacute; facturar hoy vs backorder. Info de almac&eacute;n 12 (tr&aacute;nsito) sirve para dar fecha estimada al cliente.</div>' +
+    '<div style="padding:10px 14px;border-top:1px solid var(--border-subtle);background:var(--bg-secondary);font-size:10px;color:var(--text-muted);line-height:1.5">Las cantidades pedidas van completas a SAP. Admin decide al aprobar la Oferta qu&eacute; facturar hoy vs backorder. Info de almac&eacute;n 12 (tr&aacute;nsito) sirve para dar fecha estimada al cliente.</div>' +
     '</div>';
   modalEl.classList.add('open');
 };
@@ -621,7 +621,7 @@ function showReviewError(msg) {
     el = document.createElement('div');
     el.id = 'rv-error-banner';
     el.style.cssText =
-      'background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:6px;padding:10px 12px;margin:10px 0;font-size:12px;font-weight:600;line-height:1.5';
+      'background:var(--color-danger-bg);border:1.5px solid #fca5a5;color:var(--color-danger-strong);border-radius:6px;padding:10px 12px;margin:10px 0;font-size:12px;font-weight:600;line-height:1.5';
     // Poner el banner cerca del footer (arriba del boton).
     const footer = document.querySelector('#review-modal .modal-footer');
     if (footer && footer.parentNode) footer.parentNode.insertBefore(el, footer);
@@ -639,11 +639,11 @@ function updateReviewFooter() {
   const footer = document.querySelector('#review-modal .modal-footer');
   if (reviewMode === 'pending-confirm') {
     footer.innerHTML =
-      '<button class="btn-cancel" style="background:#fff;color:#475569;border:1.5px solid #cbd5e1" onclick="closeReviewDialog()">Volver a editar</button>' +
+      '<button class="btn-cancel" style="background:var(--bg-elevated);color:var(--text-secondary);border:1.5px solid var(--border-default)" onclick="closeReviewDialog()">Volver a editar</button>' +
       '<button class="btn-confirm" onclick="doConfirmDefinitivoFromReview()">Confirmar y enviar a Confirmados</button>';
   } else {
     footer.innerHTML =
-      '<button class="btn-cancel" style="background:#fff;color:#475569;border:1.5px solid #cbd5e1" onclick="closeReviewDialog()">Volver a editar</button>' +
+      '<button class="btn-cancel" style="background:var(--bg-elevated);color:var(--text-secondary);border:1.5px solid var(--border-default)" onclick="closeReviewDialog()">Volver a editar</button>' +
       '<button class="btn-confirm" onclick="validateReviewAndPasarAPendientes()">Pasar a Pendientes</button>';
   }
 }
@@ -935,9 +935,9 @@ function renderReviewLines() {
     // vendedor / admin lo ve claro antes de confirmar el pedido.
     const needsReview = !!l.needsReview;
     const dot = needsReview
-      ? '<span title="Revisar en SAP" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-right:6px;vertical-align:middle"></span>'
+      ? '<span title="Revisar en SAP" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-warning);margin-right:6px;vertical-align:middle"></span>'
       : noDisp
-        ? '<span title="Sin stock" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#dc2626;margin-right:6px;vertical-align:middle"></span>'
+        ? '<span title="Sin stock" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-danger);margin-right:6px;vertical-align:middle"></span>'
         : stockAvail === true
           ? '<span title="Disponible" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#16a34a;margin-right:6px;vertical-align:middle"></span>'
           : '';
@@ -947,7 +947,7 @@ function renderReviewLines() {
     if (!matchesSearch(l)) return;
     visibleN++;
     const lineStyle = needsReview
-      ? ' style="background:#fef3c7;border-color:#fcd34d"'
+      ? ' style="background:var(--color-warning-bg);border-color:#fcd34d"'
       : noDisp
         ? ' style="background:#fef2f2;border-color:#fecaca"'
         : '';
@@ -1028,7 +1028,7 @@ function renderReviewLines() {
       : '';
     const badgeNoStock =
       !needsReview && noDisp
-        ? ' <span style="color:#dc2626;font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.4px">&middot; sin stock</span>'
+        ? ' <span style="color:var(--color-danger);font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.4px">&middot; sin stock</span>'
         : '';
     html +=
       '<div class="rl-name">' +
@@ -1081,7 +1081,7 @@ function renderReviewLines() {
   if (noN > 0 && okN > 0) {
     totalsHtml =
       '<div style="display:flex;flex-direction:column;gap:8px;width:100%">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid #334155">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--border-strong)">' +
       '<span style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#86efac"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#16a34a"></span>Disponibles &middot; ' +
       okN +
       ' prod &middot; ' +
@@ -1091,8 +1091,8 @@ function renderReviewLines() {
       fmt(okM) +
       '</span>' +
       '</div>' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid #334155">' +
-      '<span style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#fca5a5"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#dc2626"></span>Sin stock &middot; ' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--border-strong)">' +
+      '<span style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#fca5a5"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-danger)"></span>Sin stock &middot; ' +
       noN +
       ' prod &middot; ' +
       noU +
@@ -1100,7 +1100,7 @@ function renderReviewLines() {
       // v409 (2026-08-05): boton para abrir modal con detalle de las lineas
       // sin stock. Util para el vendedor: ve rapido cuales SKUs faltan sin
       // scrollear toda la lista.
-      ' <button onclick="openSinStockDetail()" title="Ver detalle de items sin stock" style="margin-left:6px;padding:2px 8px;border:1px solid #dc2626;border-radius:4px;background:transparent;color:#fca5a5;font-size:10px;font-weight:700;cursor:pointer">Ver detalle</button>' +
+      ' <button onclick="openSinStockDetail()" title="Ver detalle de items sin stock" style="margin-left:6px;padding:2px 8px;border:1px solid var(--color-danger);border-radius:4px;background:transparent;color:#fca5a5;font-size:10px;font-weight:700;cursor:pointer">Ver detalle</button>' +
       '</span>' +
       '<span style="color:#fca5a5;font-size:14px;font-weight:800">' +
       fmt(noM) +
@@ -1155,13 +1155,13 @@ function renderReviewLines() {
         ' u</div>' +
         '</div>' +
         '<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:8px;padding:10px 12px">' +
-        '<div style="display:flex;align-items:center;gap:6px;font-size:10px;font-weight:800;color:#991b1b;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">' +
-        '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#dc2626"></span>Subtotal no disp.' +
+        '<div style="display:flex;align-items:center;gap:6px;font-size:10px;font-weight:800;color:var(--color-danger-strong);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">' +
+        '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-danger)"></span>Subtotal no disp.' +
         '</div>' +
-        '<div style="font-size:16px;font-weight:800;color:#dc2626">' +
+        '<div style="font-size:16px;font-weight:800;color:var(--color-danger)">' +
         fmt(noM) +
         '</div>' +
-        '<div style="font-size:10px;color:#991b1b;margin-top:2px">' +
+        '<div style="font-size:10px;color:var(--color-danger-strong);margin-top:2px">' +
         noN +
         ' producto' +
         (noN === 1 ? '' : 's') +
@@ -1245,10 +1245,10 @@ function renderReviewLines() {
     // INPUT editable del descuento total. Envia a SAP como DiscountPercent.
     body +=
       '<div class="rd-line" style="margin-top:8px;padding:10px;background:#ecfdf5;border:1.5px solid #86efac;border-radius:6px">' +
-      '<span style="font-weight:800;color:#166534">&#128176; Descuento total (%) <span style="color:#dc2626">*</span></span>' +
+      '<span style="font-weight:800;color:var(--color-success)">&#128176; Descuento total (%) <span style="color:var(--color-danger)">*</span></span>' +
       '<input type="number" id="rv-manual-discount" min="0" max="100" step="0.01" value="' +
       escapeAttr(inputValue) +
-      '" style="width:80px;padding:6px 8px;border:1.5px solid #86efac;border-radius:5px;font-size:13px;font-weight:800;text-align:right;color:#166534" onchange="renderReviewLines()"/>' +
+      '" style="width:80px;padding:6px 8px;border:1.5px solid #86efac;border-radius:5px;font-size:13px;font-weight:800;text-align:right;color:var(--color-success)" onchange="renderReviewLines()"/>' +
       '</div>';
     // v699: total con descuento manual calculado sobre disponibles (no total).
     // El backorder queda sin descuento porque no se factura ahora.
@@ -1262,7 +1262,7 @@ function renderReviewLines() {
       Math.round(manualMonto).toLocaleString('es-AR') +
       '</span></span></div>';
     body +=
-      '<div class="rd-warn" style="background:#dcfce7;border-color:#86efac;color:#166534">&#128712; El descuento manual se envia a SAP como DiscountPercent (campo Descuento % en OQUT). El vendedor confirma este numero.</div>';
+      '<div class="rd-warn" style="background:var(--color-success-bg);border-color:#86efac;color:var(--color-success)">&#128712; El descuento manual se envia a SAP como DiscountPercent (campo Descuento % en OQUT). El vendedor confirma este numero.</div>';
     discEl.innerHTML =
       '<div class="review-discount"><div class="rd-head"><span>&#128176; Descuento del pedido</span></div>' +
       body +
@@ -1402,7 +1402,7 @@ window.openConfirmDialog = function () {
     (document.getElementById('rv-forma-pago') && document.getElementById('rv-forma-pago').value) ||
     '';
   const fpLine = formaPagoYaElegida
-    ? '<br><span style="font-size:11px;color:#475569">Forma de pago: <b>' +
+    ? '<br><span style="font-size:11px;color:var(--text-secondary)">Forma de pago: <b>' +
       escapeHtml(formaPagoYaElegida) +
       '</b></span>'
     : '';
@@ -1428,7 +1428,7 @@ window.openConfirmDialog = function () {
   document.getElementById('cd-text').innerHTML =
     'Desea confirmar el pedido de <b>' +
     escapeHtml(clientName || '(sin nombre)') +
-    '</b>?<br><span style="font-size:11px;color:#64748b">Seleccione el mes/a&ntilde;o:</span>' +
+    '</b>?<br><span style="font-size:11px;color:var(--text-muted)">Seleccione el mes/a&ntilde;o:</span>' +
     fpLine;
   // Selector "Crear en nombre de" para VDI con parejas VDE.
   try {

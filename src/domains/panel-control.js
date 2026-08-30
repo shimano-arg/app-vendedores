@@ -50,16 +50,16 @@ function _hCard(title, status, mainText, subText, tooltip) {
   return (
     '<div class="pc-card" title="' +
     _escHtml(tooltip || '') +
-    '" style="background:#fff;border:1.5px solid #e2e8f0;border-radius:8px;padding:14px 16px;min-width:200px;flex:1">' +
+    '" style="background:var(--bg-elevated);border:1.5px solid var(--border-subtle);border-radius:8px;padding:14px 16px;min-width:200px;flex:1">' +
     '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
     _healthDot(status) +
-    '<div style="font-size:10.5px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px">' +
+    '<div style="font-size:10.5px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px">' +
     _escHtml(title) +
     '</div></div>' +
-    '<div style="font-size:20px;font-weight:800;color:#0f172a;margin-bottom:2px">' +
+    '<div style="font-size:20px;font-weight:800;color:var(--text-primary);margin-bottom:2px">' +
     _escHtml(mainText) +
     '</div>' +
-    '<div style="font-size:11px;color:#64748b">' +
+    '<div style="font-size:11px;color:var(--text-muted)">' +
     _escHtml(subText) +
     '</div>' +
     '</div>'
@@ -69,8 +69,8 @@ function _hCard(title, status, mainText, subText, tooltip) {
 function _kpiCard(title, mainText, subText, color) {
   const c = color || '#0f172a';
   return (
-    '<div class="pc-card" style="background:#fff;border:1.5px solid #e2e8f0;border-radius:8px;padding:14px 16px;min-width:200px;flex:1">' +
-    '<div style="font-size:10.5px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">' +
+    '<div class="pc-card" style="background:var(--bg-elevated);border:1.5px solid var(--border-subtle);border-radius:8px;padding:14px 16px;min-width:200px;flex:1">' +
+    '<div style="font-size:10.5px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">' +
     _escHtml(title) +
     '</div>' +
     '<div style="font-size:24px;font-weight:800;color:' +
@@ -78,7 +78,7 @@ function _kpiCard(title, mainText, subText, color) {
     ';margin-bottom:2px">' +
     _escHtml(mainText) +
     '</div>' +
-    '<div style="font-size:11px;color:#64748b">' +
+    '<div style="font-size:11px;color:var(--text-muted)">' +
     _escHtml(subText) +
     '</div>' +
     '</div>'
@@ -88,7 +88,7 @@ function _kpiCard(title, mainText, subText, color) {
 function _sectionWrap(title, cardsHtml) {
   return (
     '<div class="pc-section" style="margin-bottom:24px">' +
-    '<h3 style="margin:0 0 12px 0;font-size:14px;color:#0f172a;font-weight:800;text-transform:uppercase;letter-spacing:.5px">' +
+    '<h3 style="margin:0 0 12px 0;font-size:14px;color:var(--text-primary);font-weight:800;text-transform:uppercase;letter-spacing:.5px">' +
     _escHtml(title) +
     '</h3>' +
     '<div style="display:flex;gap:12px;flex-wrap:wrap">' +
@@ -628,7 +628,7 @@ function _renderSentryDetail() {
     const textColor = s.status === 'error' ? '#991b1b' : '#475569';
     return (
       '<div class="pc-section" style="margin-bottom:24px">' +
-      '<h3 style="margin:0 0 12px 0;font-size:14px;color:#0f172a;font-weight:800;text-transform:uppercase;letter-spacing:.5px">Sentry</h3>' +
+      '<h3 style="margin:0 0 12px 0;font-size:14px;color:var(--text-primary);font-weight:800;text-transform:uppercase;letter-spacing:.5px">Sentry</h3>' +
       '<div style="background:' +
       bannerColor +
       ';border:1px solid ' +
@@ -647,16 +647,16 @@ function _renderSentryDetail() {
 
   let html =
     '<div class="pc-section" style="margin-bottom:24px">' +
-    '<h3 style="margin:0 0 12px 0;font-size:14px;color:#0f172a;font-weight:800;text-transform:uppercase;letter-spacing:.5px">Sentry — Top issues (24h)</h3>' +
-    '<div style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden">' +
+    '<h3 style="margin:0 0 12px 0;font-size:14px;color:var(--text-primary);font-weight:800;text-transform:uppercase;letter-spacing:.5px">Sentry — Top issues (24h)</h3>' +
+    '<div style="border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">' +
     '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
-    '<thead><tr style="background:#f1f5f9">' +
-    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Nivel</th>' +
-    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Titulo</th>' +
-    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Ocurrencias</th>' +
-    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Usuarios</th>' +
-    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Ultima vez</th>' +
-    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Link</th>' +
+    '<thead><tr style="background:var(--bg-muted)">' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:var(--text-secondary)">Nivel</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:var(--text-secondary)">Titulo</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:var(--text-secondary)">Ocurrencias</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:var(--text-secondary)">Usuarios</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:var(--text-secondary)">Ultima vez</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:var(--text-secondary)">Link</th>' +
     '</tr></thead><tbody>';
   for (const it of s.recentIssues) {
     const lvl = String(it.level || 'unknown').toLowerCase();
@@ -679,16 +679,16 @@ function _renderSentryDetail() {
       ';font-weight:700;text-transform:uppercase">' +
       _escHtml(lvl) +
       '</td>' +
-      '<td style="padding:5px 8px;color:#0f172a;font-weight:500;max-width:400px">' +
+      '<td style="padding:5px 8px;color:var(--text-primary);font-weight:500;max-width:400px">' +
       _escHtml(it.title || '-') +
       '</td>' +
-      '<td style="padding:5px 8px;color:#64748b">' +
+      '<td style="padding:5px 8px;color:var(--text-muted)">' +
       it.count +
       '</td>' +
-      '<td style="padding:5px 8px;color:#64748b">' +
+      '<td style="padding:5px 8px;color:var(--text-muted)">' +
       it.userCount +
       '</td>' +
-      '<td style="padding:5px 8px;color:#64748b">' +
+      '<td style="padding:5px 8px;color:var(--text-muted)">' +
       _escHtml(ageLabel) +
       '</td>' +
       '<td style="padding:5px 8px">' +
@@ -713,15 +713,15 @@ function _renderGhActionsDetail() {
 
   let html =
     '<div class="pc-section" style="margin-bottom:24px">' +
-    '<h3 style="margin:0 0 12px 0;font-size:14px;color:#0f172a;font-weight:800;text-transform:uppercase;letter-spacing:.5px">Workflows criticos</h3>' +
-    '<div style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden">' +
+    '<h3 style="margin:0 0 12px 0;font-size:14px;color:var(--text-primary);font-weight:800;text-transform:uppercase;letter-spacing:.5px">Workflows criticos</h3>' +
+    '<div style="border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden">' +
     '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
-    '<thead><tr style="background:#f1f5f9">' +
-    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Workflow</th>' +
-    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Estado</th>' +
-    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Ultima ejecucion</th>' +
-    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Fallos recientes</th>' +
-    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Link</th>' +
+    '<thead><tr style="background:var(--bg-muted)">' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:var(--text-secondary)">Workflow</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:var(--text-secondary)">Estado</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:var(--text-secondary)">Ultima ejecucion</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:var(--text-secondary)">Fallos recientes</th>' +
+    '<th style="text-align:left;padding:6px 8px;font-weight:700;color:var(--text-secondary)">Link</th>' +
     '</tr></thead><tbody>';
   for (const w of gh.criticalWorkflows) {
     let statusColor = HEALTH_COLORS.green;
@@ -743,7 +743,7 @@ function _renderGhActionsDetail() {
       : '-';
     html +=
       '<tr style="border-top:1px solid #f1f5f9">' +
-      '<td style="padding:5px 8px;color:#0f172a;font-weight:600">' +
+      '<td style="padding:5px 8px;color:var(--text-primary);font-weight:600">' +
       _escHtml(w.name) +
       '</td>' +
       '<td style="padding:5px 8px"><span style="color:' +
@@ -751,7 +751,7 @@ function _renderGhActionsDetail() {
       ';font-weight:800">&#9679; ' +
       _escHtml(statusLabel) +
       '</span></td>' +
-      '<td style="padding:5px 8px;color:#64748b">' +
+      '<td style="padding:5px 8px;color:var(--text-muted)">' +
       _escHtml(ageLabel) +
       '</td>' +
       '<td style="padding:5px 8px;color:' +
@@ -855,19 +855,19 @@ function _renderOpsLogSection() {
   const recent = p.filterOpsLogRecent ? p.filterOpsLogRecent(cache, 20) : cache.slice(0, 20);
   let html =
     '<div class="pc-section" style="margin-bottom:24px">' +
-    '<h3 style="margin:0 0 12px 0;font-size:14px;color:#0f172a;font-weight:800;text-transform:uppercase;letter-spacing:.5px">Actividad reciente (opsLog)</h3>';
+    '<h3 style="margin:0 0 12px 0;font-size:14px;color:var(--text-primary);font-weight:800;text-transform:uppercase;letter-spacing:.5px">Actividad reciente (opsLog)</h3>';
   if (!recent.length) {
     html +=
-      '<div style="color:#94a3b8;font-size:12px;padding:12px;background:#f8fafc;border-radius:6px">Sin ops registrados en los ultimos 2000 eventos.</div>';
+      '<div style="color:var(--text-muted);font-size:12px;padding:12px;background:var(--bg-secondary);border-radius:6px">Sin ops registrados en los ultimos 2000 eventos.</div>';
   } else {
     html +=
-      '<div style="max-height:260px;overflow:auto;border:1px solid #e2e8f0;border-radius:6px">' +
+      '<div style="max-height:260px;overflow:auto;border:1px solid var(--border-subtle);border-radius:6px">' +
       '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
-      '<thead><tr style="background:#f1f5f9;position:sticky;top:0">' +
-      '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Timestamp</th>' +
-      '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Usuario</th>' +
-      '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Accion</th>' +
-      '<th style="text-align:left;padding:6px 8px;font-weight:700;color:#475569">Entidad</th>' +
+      '<thead><tr style="background:var(--bg-muted);position:sticky;top:0">' +
+      '<th style="text-align:left;padding:6px 8px;font-weight:700;color:var(--text-secondary)">Timestamp</th>' +
+      '<th style="text-align:left;padding:6px 8px;font-weight:700;color:var(--text-secondary)">Usuario</th>' +
+      '<th style="text-align:left;padding:6px 8px;font-weight:700;color:var(--text-secondary)">Accion</th>' +
+      '<th style="text-align:left;padding:6px 8px;font-weight:700;color:var(--text-secondary)">Entidad</th>' +
       '</tr></thead><tbody>';
     for (const op of recent) {
       let ts = '-';
@@ -881,16 +881,16 @@ function _renderOpsLogSection() {
       const userShort = String(op.userEmail || '-').split('@')[0];
       html +=
         '<tr style="border-top:1px solid #f1f5f9">' +
-        '<td style="padding:5px 8px;color:#64748b;font-family:monospace">' +
+        '<td style="padding:5px 8px;color:var(--text-muted);font-family:monospace">' +
         _escHtml(ts) +
         '</td>' +
-        '<td style="padding:5px 8px;color:#475569">' +
+        '<td style="padding:5px 8px;color:var(--text-secondary)">' +
         _escHtml(userShort) +
         '</td>' +
-        '<td style="padding:5px 8px;color:#0f172a;font-weight:600">' +
+        '<td style="padding:5px 8px;color:var(--text-primary);font-weight:600">' +
         _escHtml(op.action || '-') +
         '</td>' +
-        '<td style="padding:5px 8px;color:#64748b">' +
+        '<td style="padding:5px 8px;color:var(--text-muted)">' +
         _escHtml((op.entityType || '') + ' / ' + (op.entityName || '')) +
         '</td>' +
         '</tr>';
@@ -931,7 +931,7 @@ window.renderPanelControl = function () {
   html += _renderBackorderSection();
   html += _renderOpsLogSection();
   html +=
-    '<div style="text-align:right;font-size:10.5px;color:#94a3b8;margin-top:8px">Renderizado ' +
+    '<div style="text-align:right;font-size:10.5px;color:var(--text-muted);margin-top:8px">Renderizado ' +
     _escHtml(new Date().toLocaleTimeString('es-AR')) +
     ' - Click "Refrescar" para actualizar</div>';
   html += '</div>';

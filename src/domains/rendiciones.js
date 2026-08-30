@@ -207,7 +207,7 @@ function refreshRendAdjGrid() {
     const isImg = rdSolicitudAdj.type && rdSolicitudAdj.type.startsWith('image/');
     const preview = isImg
       ? '<img src="' + rdSolicitudAdj.data + '"/>'
-      : '<div style="font-size:9px;text-align:center;padding:14px 4px;color:#475569;word-break:break-all">&#128196;<br>' +
+      : '<div style="font-size:9px;text-align:center;padding:14px 4px;color:var(--text-secondary);word-break:break-all">&#128196;<br>' +
         escapeHtml(rdSolicitudAdj.name) +
         '</div>';
     grid.innerHTML =
@@ -268,7 +268,7 @@ async function runRendGastoOcr(isManualRetry) {
     fillRendGastoFormFromOcr(data);
     if (statusEl) {
       statusEl.innerHTML =
-        '<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:5px;padding:8px 10px;font-size:11px;color:#78350f">' +
+        '<div style="background:var(--color-warning-bg);border:1px solid #fcd34d;border-radius:5px;padding:8px 10px;font-size:11px;color:#78350f">' +
         '<b>&#9888; Revisa los campos</b> autocompletados antes de enviar. La IA puede equivocarse, sobre todo en montos, numero de ticket y descripcion. ' +
         '<button type="button" onclick="reRunRendGastoOcr()" style="background:#0891b2;color:#fff;border:none;border-radius:3px;padding:3px 8px;font-size:10px;font-weight:800;cursor:pointer;margin-left:6px">Re-analizar</button>' +
         '</div>';
@@ -278,7 +278,7 @@ async function runRendGastoOcr(isManualRetry) {
     console.error('OCR error', e);
     if (statusEl) {
       statusEl.innerHTML =
-        '<div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:5px;padding:8px 10px;font-size:11px;color:#991b1b">' +
+        '<div style="background:var(--color-danger-bg);border:1px solid #fca5a5;border-radius:5px;padding:8px 10px;font-size:11px;color:var(--color-danger-strong)">' +
         '<b>No se pudieron extraer los datos.</b> Compleí el form manualmente.<br>' +
         '<span style="font-size:10px;opacity:.8">Detalle: ' +
         escapeHtml(String(e.message || e).slice(0, 120)) +
@@ -748,7 +748,7 @@ function renderMisRendiciones() {
     html += '<div><span class="rd-status">' + stLbl + '</span></div>';
     if (r.status === 'rejected' && r.rejectedReason)
       html +=
-        '<div style="font-size:10px;color:#991b1b;margin-top:4px"><b>Motivo:</b> ' +
+        '<div style="font-size:10px;color:var(--color-danger-strong);margin-top:4px"><b>Motivo:</b> ' +
         escapeHtml(r.rejectedReason) +
         '</div>';
     html +=
@@ -912,12 +912,12 @@ function renderTodasRendiciones() {
     html += '<div><span class="rd-status">' + stLbl + '</span></div>';
     if (r.status === 'rejected' && r.rejectedReason)
       html +=
-        '<div style="font-size:10px;color:#991b1b;margin-top:4px"><b>Motivo:</b> ' +
+        '<div style="font-size:10px;color:var(--color-danger-strong);margin-top:4px"><b>Motivo:</b> ' +
         escapeHtml(r.rejectedReason) +
         '</div>';
     if (r.status === 'approved' && r.approvedByEmail)
       html +=
-        '<div style="font-size:10px;color:#166534;margin-top:4px"><b>Aprobada por:</b> ' +
+        '<div style="font-size:10px;color:var(--color-success);margin-top:4px"><b>Aprobada por:</b> ' +
         escapeHtml(r.approvedByEmail) +
         '</div>';
     html +=
@@ -1124,7 +1124,8 @@ window.openRendicionDetail = async function (rendId, notifId) {
     }
     const r = Object.assign({ _id: rendId }, snap.data());
     const c = document.getElementById('ca-detail-content');
-    let h = '<div style="padding:18px 20px;font-size:12px;color:#0f172a;line-height:1.6">';
+    let h =
+      '<div style="padding:18px 20px;font-size:12px;color:var(--text-primary);line-height:1.6">';
     h +=
       '<h4 style="font-size:12px;color:#be185d;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding-bottom:5px;border-bottom:1.5px solid #fbcfe8">Datos</h4>';
     if (r.tipo === 'gasto') {
@@ -1166,7 +1167,7 @@ window.openRendicionDetail = async function (rendId, notifId) {
         h +=
           '<div style="margin-top:10px"><b>Ticket:</b><br><img src="' +
           _tSrc +
-          '" id="rd-ticket-img" style="max-width:300px;border-radius:6px;border:1px solid #e5e7eb;cursor:pointer" onclick="openImgViewer(\'rd-ticket-img\')"/></div>';
+          '" id="rd-ticket-img" style="max-width:300px;border-radius:6px;border:1px solid var(--border-subtle);cursor:pointer" onclick="openImgViewer(\'rd-ticket-img\')"/></div>';
     } else {
       h += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px 14px">';
       h +=
@@ -1196,7 +1197,7 @@ window.openRendicionDetail = async function (rendId, notifId) {
           h +=
             '<img src="' +
             r.adjunto.data +
-            '" id="rd-adj-img" style="max-width:300px;border-radius:6px;border:1px solid #e5e7eb;cursor:pointer" onclick="openImgViewer(\'rd-adj-img\')"/>';
+            '" id="rd-adj-img" style="max-width:300px;border-radius:6px;border:1px solid var(--border-subtle);cursor:pointer" onclick="openImgViewer(\'rd-adj-img\')"/>';
         else
           h +=
             '<a href="' +
@@ -1208,26 +1209,26 @@ window.openRendicionDetail = async function (rendId, notifId) {
       }
     }
     h +=
-      '<div style="margin-top:12px;font-size:11px;color:#64748b">Vendedor: <b>' +
+      '<div style="margin-top:12px;font-size:11px;color:var(--text-muted)">Vendedor: <b>' +
       escapeHtml(r.ownerName || r.ownerEmail || '') +
       '</b></div>';
     if (r.status === 'rejected')
       h +=
-        '<div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:4px;padding:8px;margin-top:8px;color:#991b1b"><b>RECHAZADA</b> por ' +
+        '<div style="background:var(--color-danger-bg);border:1px solid #fca5a5;border-radius:4px;padding:8px;margin-top:8px;color:var(--color-danger-strong)"><b>RECHAZADA</b> por ' +
         escapeHtml(r.rejectedByEmail || '') +
         '. Motivo: ' +
         escapeHtml(r.rejectedReason || '-') +
         '</div>';
     if (r.status === 'approved')
       h +=
-        '<div style="background:#dcfce7;border:1px solid #86efac;border-radius:4px;padding:8px;margin-top:8px;color:#166534"><b>APROBADA</b> por ' +
+        '<div style="background:var(--color-success-bg);border:1px solid #86efac;border-radius:4px;padding:8px;margin-top:8px;color:var(--color-success)"><b>APROBADA</b> por ' +
         escapeHtml(r.approvedByEmail || '') +
         '</div>';
     // Autorizacion: soy el approverUid guardado en el doc, o admin.
     const iAmApprover = r.approverUid === currentUser.uid || userRole === 'admin';
     if (r.status === 'pending_approval' && iAmApprover) {
       h +=
-        '<div style="display:flex;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid #e5e7eb">';
+        '<div style="display:flex;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border-subtle)">';
       h +=
         '<button class="qmodal-btn primary" style="flex:1" onclick="approveRendicion(\'' +
         escapeAttr(rendId) +

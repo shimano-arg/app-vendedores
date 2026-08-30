@@ -843,9 +843,9 @@ function renderRutasPersonalizadas() {
         (fechaCls === 'hoy' ? ' &middot; HOY' : '') +
         '</span>'
       : '';
-    html += '<div class="ruta-card" style="border-left:4px solid #7c3aed">';
+    html += '<div class="ruta-card" style="border-left:4px solid var(--color-accent-violet)">';
     html +=
-      '<div class="ruta-card-head"><div class="ruta-num" style="background:#7c3aed">Personalizada</div><div class="ruta-status">' +
+      '<div class="ruta-card-head"><div class="ruta-num" style="background:var(--color-accent-violet)">Personalizada</div><div class="ruta-status">' +
       tiendas.length +
       ' tiendas</div></div>';
     html += '<div class="ruta-title">' + escapeHtml(r.name || '(sin nombre)') + '</div>';
@@ -856,11 +856,11 @@ function renderRutasPersonalizadas() {
     html +=
       '<button onclick="editRutaPersonalizada(\'' +
       safeId +
-      '\')" style="background:#7c3aed;color:#fff;border:none;border-radius:5px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer">Ver / Editar</button>';
+      '\')" style="background:var(--color-accent-violet);color:#fff;border:none;border-radius:5px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer">Ver / Editar</button>';
     html +=
       '<button onclick="deleteRutaPersonalizada(\'' +
       safeId +
-      '\')" style="background:#fee2e2;color:#991b1b;border:1.5px solid #fca5a5;border-radius:5px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer">&#128465; Eliminar</button>';
+      '\')" style="background:var(--color-danger-bg);color:var(--color-danger-strong);border:1.5px solid #fca5a5;border-radius:5px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer">&#128465; Eliminar</button>';
     html += '</div>';
     html += '</div>';
   });
@@ -911,24 +911,24 @@ function refreshRpmTiendasList() {
   if (cnt) cnt.textContent = _rpmTiendas.length;
   if (!_rpmTiendas.length) {
     cont.innerHTML =
-      '<div style="font-size:11px;color:#94a3b8;padding:8px;background:#f1f5f9;border-radius:5px;text-align:center">Toc&aacute; <b>+ Agregar tienda</b> para sumar las primeras.</div>';
+      '<div style="font-size:11px;color:var(--text-muted);padding:8px;background:var(--bg-muted);border-radius:5px;text-align:center">Toc&aacute; <b>+ Agregar tienda</b> para sumar las primeras.</div>';
     return;
   }
   let html = '';
   _rpmTiendas.forEach((t, idx) => {
     html +=
-      '<div style="display:flex;align-items:center;gap:6px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:5px;padding:6px 8px">';
+      '<div style="display:flex;align-items:center;gap:6px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:5px;padding:6px 8px">';
     html +=
-      '<div style="background:#7c3aed;color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex-shrink:0">' +
+      '<div style="background:var(--color-accent-violet);color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex-shrink:0">' +
       (idx + 1) +
       '</div>';
     html += '<div style="flex:1;min-width:0">';
     html +=
-      '<div style="font-size:12px;font-weight:700;color:#0f172a">' +
+      '<div style="font-size:12px;font-weight:700;color:var(--text-primary)">' +
       escapeHtml(t.clientName || '') +
       '</div>';
     html +=
-      '<div style="font-size:10px;color:#64748b">' +
+      '<div style="font-size:10px;color:var(--text-muted)">' +
       escapeHtml(t.locName || '') +
       ' / ' +
       escapeHtml(titleCase(t.prov || '')) +
@@ -938,16 +938,16 @@ function refreshRpmTiendasList() {
       html +=
         '<button onclick="moveRpmTienda(' +
         idx +
-        ',-1)" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:14px" title="Subir">&uarr;</button>';
+        ',-1)" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:14px" title="Subir">&uarr;</button>';
     if (idx < _rpmTiendas.length - 1)
       html +=
         '<button onclick="moveRpmTienda(' +
         idx +
-        ',1)" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:14px" title="Bajar">&darr;</button>';
+        ',1)" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:14px" title="Bajar">&darr;</button>';
     html +=
       '<button onclick="removeRpmTienda(' +
       idx +
-      ')" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:16px" title="Quitar">&times;</button>';
+      ')" style="background:none;border:none;color:var(--color-danger);cursor:pointer;font-size:16px" title="Quitar">&times;</button>';
     html += '</div>';
   });
   cont.innerHTML = html;
@@ -1031,7 +1031,7 @@ window.renderRpmPickerList = function () {
   const cont = document.getElementById('rpm-picker-list');
   if (!filtered.length) {
     cont.innerHTML =
-      '<div style="padding:18px;color:#94a3b8;text-align:center;font-size:12px">No hay tiendas que coincidan.</div>';
+      '<div style="padding:18px;color:var(--text-muted);text-align:center;font-size:12px">No hay tiendas que coincidan.</div>';
     return;
   }
   let html = '';
@@ -1040,7 +1040,7 @@ window.renderRpmPickerList = function () {
     const safeLoc = escapeAttr(it.locName);
     const safeName = escapeAttr(it.clientName);
     const provBadge = it.isProvisorio
-      ? ' <span style="background:#f59e0b;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px;margin-left:4px">PROVISORIO</span>'
+      ? ' <span style="background:var(--color-warning);color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px;margin-left:4px">PROVISORIO</span>'
       : '';
     html +=
       '<div onclick="addRpmTienda(\'' +
@@ -1053,12 +1053,12 @@ window.renderRpmPickerList = function () {
       (it.isProvisorio ? '1' : '0') +
       '\')" style="padding:9px 11px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:12px" onmouseover="this.style.background=\'#ecfdf5\'" onmouseout="this.style.background=\'\'">';
     html +=
-      '<div style="font-weight:700;color:#0f172a">' +
+      '<div style="font-weight:700;color:var(--text-primary)">' +
       escapeHtml(it.clientName) +
       provBadge +
       '</div>';
     html +=
-      '<div style="font-size:10px;color:#64748b">' +
+      '<div style="font-size:10px;color:var(--text-muted)">' +
       escapeHtml(it.locName) +
       ' / ' +
       escapeHtml(titleCase(it.prov)) +
@@ -1067,7 +1067,7 @@ window.renderRpmPickerList = function () {
   });
   if (filtered.length > 200)
     html +=
-      '<div style="padding:8px;font-size:10px;color:#94a3b8;text-align:center">Mostrando los primeros 200. Refin&aacute; la b&uacute;squeda.</div>';
+      '<div style="padding:8px;font-size:10px;color:var(--text-muted);text-align:center">Mostrando los primeros 200. Refin&aacute; la b&uacute;squeda.</div>';
   cont.innerHTML = html;
 };
 
@@ -1287,7 +1287,7 @@ function renderRutaDetalle() {
     html += '<div class="' + cls + '">';
     if (!visited && t.derivada) {
       html +=
-        '<div class="ruta-tienda-reagenda-meta" style="color:#92400e">&#9889; Esperando contacto del VDI' +
+        '<div class="ruta-tienda-reagenda-meta" style="color:var(--color-warning)">&#9889; Esperando contacto del VDI' +
         (t.derivadaA ? ' (' + escapeHtml(t.derivadaA) + ')' : '') +
         (t.derivadaAt ? ' &middot; derivada el ' + escapeHtml(t.derivadaAt) : '') +
         '</div>';
@@ -1337,7 +1337,7 @@ function renderRutaDetalle() {
         tNomJson +
         ')">Cargar visita</button>';
       html +=
-        '<button class="ruta-tienda-btn outline" style="margin-top:6px;background:#fff;border:1.5px solid #0f766e;color:#0f766e" onclick="event.stopPropagation();marcarTiendaContactada(' +
+        '<button class="ruta-tienda-btn outline" style="margin-top:6px;background:var(--bg-elevated);border:1.5px solid #0f766e;color:#0f766e" onclick="event.stopPropagation();marcarTiendaContactada(' +
         tLocJson +
         ', ' +
         tProvJson +

@@ -227,25 +227,25 @@ function _renderModalShell() {
   };
   el.innerHTML =
     '' +
-    '<div style="position:absolute;inset:1vh 1vw;background:#fff;border-radius:10px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.35)">' +
+    '<div style="position:absolute;inset:1vh 1vw;background:var(--bg-elevated);border-radius:10px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.35)">' +
     '<div style="padding:12px 18px;background:#0f172a;color:#fff;display:flex;align-items:center;gap:12px">' +
     '<div style="flex:1">' +
     '<div style="font-size:16px;font-weight:800;letter-spacing:.5px">FORECAST</div>' +
     '<div id="forecast-subtitle" style="font-size:11px;opacity:.8;margin-top:2px">Cargar Sales Plan para ver la proyeccion vs politica de inventario (3 meses)</div>' +
     '</div>' +
-    '<button id="forecast-export-btn" onclick="exportForecastExcel()" disabled style="padding:8px 14px;background:#166534;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;opacity:.5">Exportar Excel</button>' +
+    '<button id="forecast-export-btn" onclick="exportForecastExcel()" disabled style="padding:8px 14px;background:var(--color-success);color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;opacity:.5">Exportar Excel</button>' +
     '<button onclick="closeForecastModal()" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:700">Cerrar</button>' +
     '</div>' +
-    '<div style="padding:12px 18px;background:#f8fafc;border-bottom:1px solid #e2e8f0;display:flex;flex-wrap:wrap;gap:14px;align-items:center">' +
+    '<div style="padding:12px 18px;background:var(--bg-secondary);border-bottom:1px solid var(--border-subtle);display:flex;flex-wrap:wrap;gap:14px;align-items:center">' +
     '<label style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;background:#0d9488;color:#fff;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer">' +
     '<span>Cargar Sales Plan (.xlsx)</span>' +
     '<input type="file" accept=".xlsx,.xls" style="display:none" onchange="onForecastSalesPlanFile(event)"/>' +
     '</label>' +
-    '<div id="forecast-hint" style="font-size:11px;color:#64748b;max-width:520px">Excel esperado: primera columna <b>SKU</b>, luego 6 columnas con las unidades pedidas mes a mes para los proximos 6 meses. Los headers de los meses pueden ser cualquier nombre (Mes1..Mes6, ago-26..ene-27, etc).</div>' +
-    '<div id="forecast-stats" style="margin-left:auto;font-size:11px;color:#475569;font-weight:600"></div>' +
+    '<div id="forecast-hint" style="font-size:11px;color:var(--text-muted);max-width:520px">Excel esperado: primera columna <b>SKU</b>, luego 6 columnas con las unidades pedidas mes a mes para los proximos 6 meses. Los headers de los meses pueden ser cualquier nombre (Mes1..Mes6, ago-26..ene-27, etc).</div>' +
+    '<div id="forecast-stats" style="margin-left:auto;font-size:11px;color:var(--text-secondary);font-weight:600"></div>' +
     '</div>' +
     '<div id="forecast-body" style="flex:1;overflow:auto;padding:0">' +
-    '<div style="padding:60px 20px;text-align:center;color:#94a3b8;font-size:14px">Esperando archivo Sales Plan...</div>' +
+    '<div style="padding:60px 20px;text-align:center;color:var(--text-muted);font-size:14px">Esperando archivo Sales Plan...</div>' +
     '</div>' +
     '</div>';
   document.body.appendChild(el);
@@ -257,7 +257,7 @@ function _renderTable(rows) {
   if (!body) return;
   if (!rows || !rows.length) {
     body.innerHTML =
-      '<div style="padding:60px 20px;text-align:center;color:#94a3b8">Sales Plan vacio o sin filas validas.</div>';
+      '<div style="padding:60px 20px;text-align:center;color:var(--text-muted)">Sales Plan vacio o sin filas validas.</div>';
     return;
   }
   const fmt = (n) =>
@@ -274,7 +274,7 @@ function _renderTable(rows) {
       (r) =>
         '' +
         '<tr' +
-        (r.hasHistoria ? '' : ' style="background:#fef3c7"') +
+        (r.hasHistoria ? '' : ' style="background:var(--color-warning-bg)"') +
         '>' +
         '<td style="padding:6px 10px;font-family:monospace;font-size:11px;white-space:nowrap">' +
         escapeHtmlSafe(r.sku) +
@@ -291,7 +291,7 @@ function _renderTable(rows) {
         '<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600">' +
         fmt(r.pedido6m) +
         '</td>' +
-        '<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;color:#64748b">' +
+        '<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-muted)">' +
         fmt(r.promedio) +
         '</td>' +
         '<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums">' +
