@@ -4341,7 +4341,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v734';
+const APP_VERSION = 'v735';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13654,6 +13654,17 @@ window.openWaitlistModal = function(){
 window.closeWaitlistModal = function(){
   document.getElementById('waitlist-modal').classList.remove('open');
 };
+// v735 (2026-08-30): modal "Deposito" placeholder de la futura integracion con WMS SETUP.
+// Ver Brief_Reunion_SETUP_Integracion.docx + reunion 2026-09-02. Post-integracion
+// aca va a mostrar timeline de estados (Picking/Armado/Despachado/Entregado) por pedido.
+window.openDepositoModal = function(){
+  const m = document.getElementById('deposito-modal');
+  if (m) m.classList.add('open');
+};
+window.closeDepositoModal = function(){
+  const m = document.getElementById('deposito-modal');
+  if (m) m.classList.remove('open');
+};
 function _renderWaitlistRows(){
   const container = document.getElementById('waitlist-rows');
   const emptyEl = document.getElementById('waitlist-empty');
@@ -19085,7 +19096,11 @@ function _moveButtonsToSidebarLeft(){
     { id: 'asignacion-backorder-btn', label: 'Stock Asig.' },
     { id: 'forecast-btn',             label: 'Forecast' },
     { id: 'revision-btn',             label: 'Estado', overrideClick: () => window.openEstadoModal && window.openEstadoModal() },
-    { id: 'waitlist-btn',             label: 'Espera' },
+    // v735 (2026-08-30): "Espera" -> "Deposito". El slot se reutiliza como placeholder
+    // de la futura integracion con WMS SETUP (ver reunion 2026-09-02 + Brief_Reunion_SETUP_Integracion.docx).
+    // Por ahora abre un modal "En construccion". El waitlist-btn original queda vivo
+    // en el DOM (la lista "PEDIDOS EN ESPERA" del sidebar sigue funcionando).
+    { id: 'waitlist-btn',             label: 'Depósito', overrideClick: () => window.openDepositoModal && window.openDepositoModal() },
   ];
   orden.forEach(({ id, label, overrideClick }) => {
     if (!id) return;
@@ -23539,6 +23554,35 @@ if ('serviceWorker' in navigator) {
     </nav>
   </div>
 </aside>
+
+<!-- v735 (2026-08-30): modal "Deposito" placeholder de la futura integracion con WMS SETUP.
+     Cuando este funcionando la integracion (post reunion 2026-09-02 - ver
+     Brief_Reunion_SETUP_Integracion.docx) aca va a mostrar timeline
+     Picking -> Armado -> Despachado -> Entregado por pedido. Por ahora solo muestra
+     "En construccion". -->
+<div class="modal-overlay" id="deposito-modal" onclick="if(event.target===this)closeDepositoModal()">
+  <div class="modal-box" style="width:min(560px,94vw)">
+    <div class="modal-head" style="background:linear-gradient(135deg,#0f4c81,#1e40af)">
+      <div>
+        <h2>Depósito</h2>
+        <div class="subt">Estado logístico en tiempo real de cada pedido</div>
+      </div>
+      <button class="modal-close" onclick="closeDepositoModal()" aria-label="Cerrar">&times;</button>
+    </div>
+    <div style="padding:28px 24px;text-align:center">
+      <div style="font-size:56px;line-height:1;margin-bottom:14px" aria-hidden="true">🚧</div>
+      <h3 style="margin:0 0 10px;font-size:16px;font-weight:800;color:#1e40af;letter-spacing:.4px;text-transform:uppercase">En construcción</h3>
+      <p style="margin:0 0 16px;font-size:13px;color:#475569;line-height:1.5">
+        Acá vas a ver el <b>estado en tiempo real de cada pedido en el depósito</b>:
+        PICKING → ARMADO → DESPACHADO → ENTREGADO, con guía del transportista
+        y fecha estimada de entrega.
+      </p>
+      <div style="background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:8px;padding:12px 14px;font-size:11.5px;color:#64748b;line-height:1.5;text-align:left">
+        <b style="color:#334155">Estado de la integración:</b> reunión de kickoff técnico con el partner logístico (SETUP WMS) agendada para <b>martes 2026-09-02</b>. Post-reunión se define timeline de sandbox + go-live. Estimado 8-10 días de desarrollo una vez recibidas las credenciales.
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- v728 (2026-08-29): FAB WhatsApp fijo en toda la app. Abre WhatsApp Web
      sin destino especifico; el user despues elige a quien escribirle.
