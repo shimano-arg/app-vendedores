@@ -206,6 +206,11 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
 .users-table{width:100%;border-collapse:collapse;font-size:12px}
 .users-table th{background:#f8fafc;padding:8px 10px;text-align:left;font-weight:700;color:#475569;border-bottom:2px solid #00A9E0;font-size:11px;text-transform:uppercase;letter-spacing:.4px}
 .users-table td{padding:8px 10px;border-bottom:1px solid #e5e7eb;vertical-align:middle}
+/* v733 (2026-08-30): columna WhatsApp forzada a min-width 150px para que el
+   numero completo (ej. 5491126762031, 13 digitos) entre sin truncarse. Antes
+   la columna colapsaba porque el <td> no tenia width fijo y el input :100% no
+   forzaba minimo. */
+.users-table th.wa-col,.users-table td.wa-col{min-width:150px}
 .users-table select,.users-card select{padding:5px 8px;border:1.5px solid #cbd5e1;border-radius:4px;font-size:11px;font-weight:600;color:#0f172a;outline:none;font-family:inherit;max-width:100%;background:#fff}
 .users-table td:last-child,.users-card .uc-actions{display:flex;flex-direction:column;gap:4px;align-items:stretch;min-width:100px}
 .users-table .save-btn,.users-card .save-btn{padding:7px 10px;border:none;border-radius:5px;background:#166534;color:#fff;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;width:100%;margin:0}
@@ -4334,7 +4339,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v732';
+const APP_VERSION = 'v733';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
