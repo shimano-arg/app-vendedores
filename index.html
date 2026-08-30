@@ -13,6 +13,21 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Shimano">
+<!-- v738 (2026-08-30): init inline de theme ANTES de cualquier <link> o <style>
+     para prevenir FOUC (Flash Of Unstyled Content). Lee localStorage
+     shimano_theme; fallback a OS preference (prefers-color-scheme). El
+     Firestore sync corre luego on onAuthStateChanged si detecta discrepancia. -->
+<script>
+(function(){
+  try {
+    var stored = localStorage.getItem('shimano_theme');
+    var theme = (stored === 'dark' || stored === 'light')
+      ? stored
+      : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', theme);
+  } catch(e) {}
+})();
+</script>
 <link rel="apple-touch-icon" sizes="180x180" href="icon-180-v3.png">
 <link rel="apple-touch-icon" sizes="192x192" href="icon-192-v3.png">
 <link rel="apple-touch-icon" sizes="512x512" href="icon-512-v3.png">
@@ -105,6 +120,124 @@
 
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
+
+/* ========================================================================
+   v738 (2026-08-30) DARK MODE — CSS variables + strategic overrides
+   ========================================================================
+   Approach: hybrid — CSS vars para elementos estructurales (body, modales,
+   inputs, cards) + attribute selectors [style*="background:#XXX"] para
+   pisar los inline styles hardcoded top-15 sin refactorizarlos todos.
+   Es pragmatico: coverage ~80% del app sin tener que tocar los 4147
+   colores. Ver PLAN_DARK_MODE.md para plan de refactor completo (E2 shifts).
+*/
+:root {
+  --bg-base: #ffffff;
+  --bg-secondary: #f8fafc;
+  --bg-elevated: #ffffff;
+  --bg-input: #ffffff;
+  --bg-muted: #f1f5f9;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --text-disabled: #94a3b8;
+  --text-inverse: #ffffff;
+  --border-default: #cbd5e1;
+  --border-subtle: #e5e7eb;
+  --border-strong: #94a3b8;
+  --brand-shimano-blue: #00A9E0;
+  --color-success: #166534;
+  --color-warning: #d97706;
+  --color-warning-bg: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-strong: #991b1b;
+  --color-accent-violet: #7c3aed;
+  --focus-ring: #00A9E0;
+  --shadow-md: 0 4px 8px rgba(0,0,0,.1);
+}
+[data-theme="dark"] {
+  --bg-base: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-elevated: #334155;
+  --bg-input: #1e293b;
+  --bg-muted: #334155;
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-disabled: #64748b;
+  --text-inverse: #0f172a;
+  --border-default: #334155;
+  --border-subtle: #1e293b;
+  --border-strong: #475569;
+  --color-success: #22c55e;
+  --color-warning: #fbbf24;
+  --color-warning-bg: #78350f;
+  --color-danger: #f87171;
+  --color-danger-strong: #dc2626;
+  --color-accent-violet: #a78bfa;
+  --focus-ring: #38bdf8;
+  --shadow-md: 0 4px 8px rgba(0,0,0,.5);
+}
+/* Transitions suaves al togglear tema. Respeta prefers-reduced-motion. */
+body, .modal-box, .modal-overlay, .header, .controls, input, select, textarea, button {
+  transition: background-color .2s ease-out, color .2s ease-out, border-color .2s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  body, .modal-box, .modal-overlay, .header, .controls, input, select, textarea, button {
+    transition: none;
+  }
+}
+
+/* ===== DARK MODE — overrides estructurales de background/color =====
+   Estos selectors pisan los inline styles hardcoded via attribute matching.
+   Cubren los patrones mas frecuentes del app (background:#fff/#f8fafc/#f1f5f9,
+   color:#0f172a/#475569, border:#cbd5e1/#e5e7eb). Los que no matchean
+   quedan hardcoded (edge cases para iterar en E2 del plan). */
+[data-theme="dark"] body { background: var(--bg-base); color: var(--text-primary); }
+[data-theme="dark"] .header { background: linear-gradient(135deg, #1e293b, #334155) !important; }
+[data-theme="dark"] .controls { background: var(--bg-secondary) !important; }
+[data-theme="dark"] .modal-overlay { background: rgba(0,0,0,.72) !important; }
+[data-theme="dark"] .modal-box { background: var(--bg-elevated) !important; color: var(--text-primary); }
+[data-theme="dark"] .users-wrap, [data-theme="dark"] .users-card { background: var(--bg-secondary) !important; color: var(--text-primary); }
+[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  background: var(--bg-input) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+[data-theme="dark"] input::placeholder, [data-theme="dark"] textarea::placeholder { color: var(--text-muted) !important; }
+
+/* Overrides de inline styles frecuentes — attribute selector pisa specificity de inline. */
+[data-theme="dark"] [style*="background:#fff"]:not([style*="background:#ffff"]),
+[data-theme="dark"] [style*="background:#ffffff"],
+[data-theme="dark"] [style*="background:white"] { background: var(--bg-elevated) !important; }
+[data-theme="dark"] [style*="background:#f8fafc"] { background: var(--bg-secondary) !important; }
+[data-theme="dark"] [style*="background:#f1f5f9"] { background: var(--bg-muted) !important; }
+[data-theme="dark"] [style*="background:#e2e8f0"] { background: #334155 !important; }
+
+[data-theme="dark"] [style*="color:#0f172a"] { color: var(--text-primary) !important; }
+[data-theme="dark"] [style*="color:#1e293b"] { color: var(--text-primary) !important; }
+[data-theme="dark"] [style*="color:#334155"] { color: var(--text-secondary) !important; }
+[data-theme="dark"] [style*="color:#475569"] { color: var(--text-secondary) !important; }
+[data-theme="dark"] [style*="color:#64748b"] { color: var(--text-muted) !important; }
+[data-theme="dark"] [style*="color:#94a3b8"] { color: var(--text-muted) !important; }
+
+[data-theme="dark"] [style*="border:1px solid #e5e7eb"],
+[data-theme="dark"] [style*="border:1px solid #cbd5e1"],
+[data-theme="dark"] [style*="border:1.5px solid #cbd5e1"] { border-color: var(--border-default) !important; }
+
+/* Toggle button icon rotation en dark. */
+[data-theme="dark"] #dark-mode-btn svg#theme-icon-light { display: none !important; }
+[data-theme="dark"] #dark-mode-btn svg#theme-icon-dark { display: inline-flex !important; }
+[data-theme="light"] #dark-mode-btn svg#theme-icon-light,
+:root:not([data-theme]) #dark-mode-btn svg#theme-icon-light { display: inline-flex !important; }
+[data-theme="light"] #dark-mode-btn svg#theme-icon-dark,
+:root:not([data-theme]) #dark-mode-btn svg#theme-icon-dark { display: none !important; }
+
+/* ========================================================================
+   FIN DARK MODE block
+   ======================================================================== */
+
 /* ===== Splash screen al iniciar ===== */
 #splash{position:fixed;inset:0;background:#fff;z-index:100000;display:flex;align-items:center;justify-content:center;animation:splashFade 3.2s ease forwards;padding:24px;overflow:hidden}
 @keyframes splashFade{0%{opacity:1}82%{opacity:1}100%{opacity:0;visibility:hidden;pointer-events:none}}
@@ -1539,10 +1672,10 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   .header .logo-text{font-size:10px;padding:5px 10px;letter-spacing:2px}
   /* Botones admin del header: mas compactos para que entren mas en cada fila. */
   .user-info .logout-btn{padding:6px 4px !important;font-size:10px !important;font-weight:700 !important;letter-spacing:.15px !important;min-height:30px !important}
-  /* v736 (2026-08-30): FAB WhatsApp + boton Dark Mode ocultos en mobile.
-     Motivo: FAB WhatsApp queda tapado por la barra inferior del browser mobile
-     (Chrome address bar + tab strip); Dark Mode todavia esta en construccion y
-     no hace falta ocuparse en mobile hasta que sea prioridad. */
+  /* v736 (2026-08-30): FAB WhatsApp oculto en mobile (queda tapado por la
+     barra inferior del browser). v738: el boton Dark Mode SIGUE oculto en
+     mobile por ahora — el header mobile es apretado y el user puede togglear
+     desde desktop; la preferencia se sincroniza cross-device via Firestore. */
   #wa-fab{display:none !important}
   #dark-mode-btn{display:none !important}
   .controls{padding:6px 10px;gap:5px;flex-wrap:wrap;overflow-x:visible}
@@ -2043,10 +2176,11 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
     <button class="logout-btn" id="master-cli-btn" onclick="openMasterClientesPanel()" title="Cargar direcciones exactas de cada tienda" style="display:none">Master Clientes</button>
     <button class="logout-btn" id="admin-btn" onclick="openAdminPanel()" title="Gestion de usuarios" style="display:none">Usuarios</button>
     <button class="logout-btn" id="stock-btn" onclick="openProductMasterModal()" title="Buscador de productos: precio, stock y datos maestros de cualquier SKU" style="display:none">Productos</button>
-    <!-- v736 (2026-08-30): Dark Mode placeholder. Click abre modal "En construccion".
-         Oculto en mobile (@media max-width:700px). Full implementacion cuando Mariano
-         apruebe el plan de refactor de colores a CSS variables. -->
-    <button class="logout-btn" id="dark-mode-btn" onclick="openDarkModeModal()" title="Modo oscuro (proximamente)" style="padding:6px 10px;gap:4px" aria-label="Modo oscuro"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><span>Dark</span></button>
+    <!-- v738 (2026-08-30): Dark Mode toggle REAL. Reemplaza el placeholder v736.
+         Click togglea data-theme=light|dark en <html>, persiste en localStorage
+         + Firestore (per decision Mariano en PLAN_DARK_MODE.md seccion 10).
+         Icon dinamico via CSS (theme-icon-light / theme-icon-dark). -->
+    <button class="logout-btn" id="dark-mode-btn" onclick="toggleDarkMode()" title="Cambiar modo claro/oscuro" style="padding:6px 10px;gap:4px" aria-label="Cambiar tema"><svg xmlns="http://www.w3.org/2000/svg" id="theme-icon-light" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><svg xmlns="http://www.w3.org/2000/svg" id="theme-icon-dark" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="display:none"><path d="M12 3v2m0 14v2m9-9h-2M5 12H3m14.66-5.66l-1.41 1.41M6.34 17.66l-1.41 1.41m0-13.32l1.41 1.41m11.32 11.32l1.41-1.41M15 12a3 3 0 11-6 0 3 3 0 016 0z" fill="none" stroke="currentColor" stroke-width="2"/></svg><span id="theme-label">Dark</span></button>
     <button class="logout-btn" onclick="signOut()" title="Cerrar sesion">Salir</button>
   </div>
 </div>
@@ -4357,7 +4491,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v737';
+const APP_VERSION = 'v738';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13681,15 +13815,51 @@ window.closeDepositoModal = function(){
   const m = document.getElementById('deposito-modal');
   if (m) m.classList.remove('open');
 };
-// v736 (2026-08-30): modal "Dark Mode" placeholder. Full implementacion pendiente.
-window.openDarkModeModal = function(){
-  const m = document.getElementById('dark-mode-modal');
-  if (m) m.classList.add('open');
+// v738 (2026-08-30): Dark Mode toggle REAL. Reemplaza openDarkModeModal
+// placeholder de v736. Decisiones (PLAN_DARK_MODE.md seccion 10):
+// - Firestore sync SI: userData/{uid}.themePreference para cross-device.
+// - Default users nuevos: respetar OS preference (prefers-color-scheme).
+// - Storage precedence: localStorage > Firestore > OS. Toggle manual siempre gana.
+// El init inline en <head> lee localStorage y setea data-theme antes de que
+// renderee el body (previene FOUC). Este bloque agrega el toggle handler +
+// el sync a Firestore cuando el user se loguea.
+const THEME_STORAGE_KEY = 'shimano_theme';
+window.toggleDarkMode = function(){
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  const next = current === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  try { localStorage.setItem(THEME_STORAGE_KEY, next); } catch(e) {}
+  const label = document.getElementById('theme-label');
+  if (label) label.textContent = next === 'dark' ? 'Light' : 'Dark';
+  // Sync a Firestore para cross-device (fire-and-forget, no bloquea UI).
+  if (typeof currentUser !== 'undefined' && currentUser && typeof fbDb !== 'undefined' && fbDb) {
+    fbDb.collection('userData').doc(currentUser.uid)
+      .set({ themePreference: next, themeUpdatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
+      .catch(e => console.warn('theme sync failed', e));
+  }
 };
-window.closeDarkModeModal = function(){
-  const m = document.getElementById('dark-mode-modal');
-  if (m) m.classList.remove('open');
+// Aplicar theme del user al login si Firestore tiene una preferencia distinta
+// del localStorage local. localStorage gana pero si es la primera vez en este
+// device y Firestore ya tiene preferencia (seteada desde otro device), usarla.
+window.applyThemeFromUserData = function(userDataDoc){
+  try {
+    const fsPref = userDataDoc && userDataDoc.themePreference;
+    if (fsPref !== 'dark' && fsPref !== 'light') return;
+    const lsPref = localStorage.getItem(THEME_STORAGE_KEY);
+    if (lsPref === 'dark' || lsPref === 'light') return; // localStorage gana
+    // Sin preferencia local -> aplicar la de Firestore.
+    document.documentElement.setAttribute('data-theme', fsPref);
+    localStorage.setItem(THEME_STORAGE_KEY, fsPref);
+    const label = document.getElementById('theme-label');
+    if (label) label.textContent = fsPref === 'dark' ? 'Light' : 'Dark';
+  } catch(e) {}
 };
+// Init label sync (el init inline seteo data-theme pero no el label).
+(function initThemeLabel(){
+  const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+  const label = document.getElementById('theme-label');
+  if (label) label.textContent = currentTheme === 'dark' ? 'Light' : 'Dark';
+})();
 function _renderWaitlistRows(){
   const container = document.getElementById('waitlist-rows');
   const emptyEl = document.getElementById('waitlist-empty');
@@ -22441,6 +22611,9 @@ function attachFirebaseListeners(){
       } finally { suppressCloudSave = false; }
       if (typeof drawMarkers === 'function') drawMarkers();
       if (typeof restyleZoneLayers === 'function') restyleZoneLayers();
+      // v738: cross-device theme sync. Solo aplica si el user local no tiene
+      // preferencia en localStorage (localStorage precedence).
+      if (typeof window.applyThemeFromUserData === 'function') window.applyThemeFromUserData(data);
     }, err => console.error('userData listener', err));
   }
 
