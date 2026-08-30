@@ -234,6 +234,143 @@ body, .modal-box, .modal-overlay, .header, .controls, input, select, textarea, b
 [data-theme="light"] #dark-mode-btn svg#theme-icon-dark,
 :root:not([data-theme]) #dark-mode-btn svg#theme-icon-dark { display: none !important; }
 
+/* v739+: overrides adicionales por class-name (los attribute selectors solo
+   pisan inline styles; las clases CSS definidas mas arriba en el <style>
+   necesitan overrides explicitos por class). */
+
+/* Header top-right buttons (Salir, Usuarios, Productos, SAP, etc.) */
+[data-theme="dark"] .logout-btn {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+[data-theme="dark"] .logout-btn:hover {
+  background: var(--bg-muted) !important;
+  border-color: var(--border-strong) !important;
+}
+
+/* Stats bar header (461 LOCALIDADES, 226 CLIENTES EN SAP, etc.) */
+[data-theme="dark"] .stat-box {
+  background: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+}
+[data-theme="dark"] .stat-box .num { color: var(--text-primary) !important; }
+[data-theme="dark"] .stat-box .lbl { color: var(--text-secondary) !important; }
+
+/* Info badges del header (v738, SAP OK/warn/err) - default state */
+[data-theme="dark"] .hdr-info-badge {
+  background: var(--bg-muted) !important;
+  color: var(--text-secondary) !important;
+  border-color: var(--border-default) !important;
+}
+/* Semantic states (sap-ok/warn/err) mantienen colores pero suavizados en dark */
+[data-theme="dark"] .hdr-info-badge.sap-ok { background: #14532d !important; color: #4ade80 !important; border-color: #22c55e !important; }
+[data-theme="dark"] .hdr-info-badge.sap-warn { background: #78350f !important; color: #fbbf24 !important; border-color: #f59e0b !important; }
+[data-theme="dark"] .hdr-info-badge.sap-err { background: #7f1d1d !important; color: #f87171 !important; border-color: #dc2626 !important; }
+[data-theme="dark"] .hdr-info-badge.sap-unknown { background: var(--bg-muted) !important; color: var(--text-muted) !important; }
+
+/* Users cards (Panel Usuarios) */
+[data-theme="dark"] .users-card {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+[data-theme="dark"] .users-table th {
+  background: var(--bg-secondary) !important;
+  color: var(--text-secondary) !important;
+}
+[data-theme="dark"] .users-table td {
+  border-color: var(--border-subtle) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Export dialog cards (exp-opt) */
+[data-theme="dark"] .exp-opt {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+[data-theme="dark"] .exp-opt:hover { background: var(--bg-muted) !important; }
+[data-theme="dark"] .exp-opt h3 { color: var(--text-primary) !important; }
+[data-theme="dark"] .exp-opt p { color: var(--text-secondary) !important; }
+
+/* Tab buttons (top nav) */
+[data-theme="dark"] .tab-btn {
+  color: var(--text-secondary) !important;
+}
+[data-theme="dark"] .tab-btn.active {
+  color: var(--brand-shimano-blue) !important;
+}
+
+/* Waitlist cards (PEDIDOS EN ESPERA en sidebar-left) */
+[data-theme="dark"] [class*="waitlist"] > *,
+[data-theme="dark"] .revision-item {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+
+/* Sidebar left panels genericos - override background blanco/gray */
+[data-theme="dark"] aside, [data-theme="dark"] .sidebar, [data-theme="dark"] #sidebar-left {
+  background: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Overrides adicionales de inline styles pastel (color-50/color-100 Tailwind) */
+[data-theme="dark"] [style*="background:#f0fdf4"], /* green-50 */
+[data-theme="dark"] [style*="background:#ecfdf5"], /* emerald-50 */
+[data-theme="dark"] [style*="background:#eff6ff"], /* blue-50 */
+[data-theme="dark"] [style*="background:#ede9fe"], /* violet-100 */
+[data-theme="dark"] [style*="background:#e0e7ff"], /* indigo-100 */
+[data-theme="dark"] [style*="background:#f3e8ff"], /* fuchsia-100 */
+[data-theme="dark"] [style*="background:#dcfce7"], /* green-100 */
+[data-theme="dark"] [style*="background:#bae6fd"], /* sky-200 */
+[data-theme="dark"] [style*="background:#e0f2fe"], /* sky-100 */
+[data-theme="dark"] [style*="background:#fef3c7"], /* amber-100 */
+[data-theme="dark"] [style*="background:#fee2e2"], /* red-100 */
+[data-theme="dark"] [style*="background:#dbeafe"]  /* blue-100 */ {
+  background: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Sidebar-left pill buttons - los proxy buttons creados por el bootstrap */
+[data-theme="dark"] #sidebar-left-buttons button,
+[data-theme="dark"] .side-btn-proxy {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+
+/* Text color overrides adicionales (bg-slate-900 texts que quedan invisibles en dark) */
+[data-theme="dark"] [style*="color:#166534"] { color: var(--color-success) !important; }
+[data-theme="dark"] [style*="color:#dc2626"] { color: var(--color-danger) !important; }
+[data-theme="dark"] [style*="color:#7c3aed"] { color: var(--color-accent-violet) !important; }
+[data-theme="dark"] [style*="color:#92400e"] { color: var(--color-warning) !important; }
+[data-theme="dark"] [style*="color:#991b1b"] { color: var(--color-danger) !important; }
+
+/* Right sidebar (Alertas y tareas, buttons de acceso rapido) */
+[data-theme="dark"] #sidebar-right, [data-theme="dark"] .right-panel {
+  background: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+[data-theme="dark"] #sidebar-right button, [data-theme="dark"] .right-panel button {
+  color: var(--text-primary) !important;
+}
+
+/* Modales - inputs dentro del modal ya cubiertos, pero labels/divs sueltos: */
+[data-theme="dark"] .modal-box h1,
+[data-theme="dark"] .modal-box h2,
+[data-theme="dark"] .modal-box h3,
+[data-theme="dark"] .modal-box label,
+[data-theme="dark"] .modal-box p:not(.subt) { color: var(--text-primary) !important; }
+[data-theme="dark"] .modal-box .subt { color: var(--text-secondary) !important; }
+[data-theme="dark"] .modal-head { background: linear-gradient(135deg, #1e293b, #0f172a) !important; }
+
+/* Buttons genericos dentro de modales - preservar colores semanticos pero mejorar contraste */
+[data-theme="dark"] .btn-cancel { background: var(--color-danger) !important; color: #fff !important; }
+[data-theme="dark"] .btn-confirm { background: var(--color-success) !important; color: #fff !important; }
+[data-theme="dark"] .danger-btn { background: var(--color-danger) !important; color: #fff !important; }
+
 /* ========================================================================
    FIN DARK MODE block
    ======================================================================== */
@@ -4491,7 +4628,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v739';
+const APP_VERSION = 'v740';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
