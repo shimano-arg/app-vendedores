@@ -361,26 +361,20 @@ Reportar al final del sub-fase con: colores refactorizados count / files touched
 
 ---
 
-## 10. Decisiones que necesitan tu input
+## 10. Decisiones tomadas (2026-08-30, Mariano)
 
-Antes de arrancar E0, necesito que confirmes:
+| Pregunta | Decision |
+|---|---|
+| Firestore sync de la preferencia (cross-device) | **SI** - sync a `userData/{uid}.themePreference`. Mejor UX cross-device. |
+| Default para users nuevos | **Respetar OS preference** (`prefers-color-scheme`). Pattern moderno. |
+| Timing arranque E0 | **Despues de la reunion SETUP** (miercoles 2026-09-03+). Prioridad: no distraer la reunion. |
+| Modo de ejecucion | **Ralph Loop autonomous**. Gates auto-verificables. Revision al final de cada fase. |
 
-1. **¿Firestore sync sí o no?** (cross-device dark mode preference)
-   - Sí: mejor UX, pero requiere leer userData en onAuthStateChanged (ya lo hacemos, es +1 field)
-   - No: solo localStorage. Cada device es independiente. Más simple.
-
-2. **¿Default para users nuevos?** (los que nunca tocaron el toggle)
-   - Light siempre: conservador, no sorprende
-   - Respetar OS preference: moderno, la mayoría de apps hoy hacen esto
-   - Dark siempre: agresivo, muchos users prefieren light
-
-3. **¿Comenzar E0 esta semana o después de la reunión SETUP del martes?**
-   - Antes: podés ir dando OK a fases mientras estás con otras cosas
-   - Después: te libera la cabeza para la reunión SETUP + implementación logística
-
-4. **¿Ejecutamos en modo Ralph Loop (autonomous) o interactive (paso a paso conmigo)?**
-   - Ralph Loop: yo ejecuto sub-fases sin pedir OK entre cada una, gates se auto-verifican
-   - Interactive: te muestro cada sub-fase antes de commitear
+**Proximos pasos concretos:**
+1. Reunion SETUP martes 2026-09-02 (ver `Brief_Reunion_SETUP_Integracion.md`)
+2. Post-reunion evaluar si integracion SETUP es prioridad inmediata o no
+3. Si SETUP no bloquea: arrancar E0 (audit final + mockups) via Ralph Loop
+4. Prompt del loop vive en `Desktop\Notas\LOOP_PROMPT_DARK_MODE.md`
 
 ---
 
