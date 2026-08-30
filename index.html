@@ -549,6 +549,134 @@ body, .modal-box, .modal-overlay, .header, .controls, input, select, textarea, b
   border-color: var(--border-strong) !important;
 }
 
+/* v742: fixes de contraste especificos reportados por Mariano en screenshot v741.
+   Los overrides anteriores no lograban contraste suficiente en:
+   1. Header buttons blending con el gradient del header (mismo tono)
+   2. .tab-btn del sidebar-right (solo color override, faltaba bg)
+   3. .slft-wl-cli/loc/meta (hijos de PEDIDOS EN ESPERA cards con color hardcoded)
+   4. .stat-box (los numeros y labels no se veian)
+   Estrategia v742: (a) bg mas oscuro para elementos ON header (contraste bg-input
+   vs header gradient), (b) child text colors explicitos con selectores directos
+   (mas especificos que [class*="wl-"] wildcard).
+*/
+
+/* Header buttons - forzar bg-secondary (mas oscuro que bg-elevated) para
+   contrastar contra el gradient del header (que va de bg-secondary a bg-elevated).
+   Selectores altamente especificos para pisar TODAS las base rules. */
+[data-theme="dark"] .header .logout-btn,
+[data-theme="dark"] .user-info .logout-btn,
+[data-theme="dark"] body .logout-btn {
+  background: var(--bg-input) !important;  /* #1e293b - mas oscuro que header */
+  color: var(--text-primary) !important;   /* #f1f5f9 - blanco slate */
+  border: 1px solid var(--border-strong) !important;  /* borde mas fuerte */
+}
+[data-theme="dark"] .header .logout-btn:hover,
+[data-theme="dark"] .user-info .logout-btn:hover,
+[data-theme="dark"] body .logout-btn:hover {
+  background: var(--bg-muted) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--brand-shimano-blue) !important;
+}
+
+/* Header title y ADMIN/version/SAP badges - forzar contraste */
+[data-theme="dark"] .header h1 {
+  color: var(--text-primary) !important;
+}
+[data-theme="dark"] .role-badge {
+  filter: brightness(1.2);
+}
+
+/* Right sidebar tab-btn - v740 solo tocaba color, faltaba bg y border */
+[data-theme="dark"] .tab-btn {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+[data-theme="dark"] .tab-btn:hover {
+  background: var(--bg-muted) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--brand-shimano-blue) !important;
+}
+[data-theme="dark"] .tab-btn.active {
+  background: var(--bg-secondary) !important;
+  color: var(--brand-shimano-blue) !important;
+  border-bottom-color: var(--brand-shimano-blue) !important;
+}
+
+/* PEDIDOS EN ESPERA cards - fix explicito de child texts (hardcoded en base) */
+[data-theme="dark"] .slft-wl-item {
+  background: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+}
+[data-theme="dark"] .slft-wl-item.has-exceed {
+  background: var(--bg-elevated) !important;
+  border-left-color: var(--color-danger) !important;
+}
+[data-theme="dark"] .slft-wl-item:hover {
+  background: var(--bg-muted) !important;
+}
+[data-theme="dark"] .slft-wl-cli,
+[data-theme="dark"] .slft-wl-cli-name {
+  color: var(--text-primary) !important;  /* nombre cliente - primario */
+}
+[data-theme="dark"] .slft-wl-loc {
+  color: var(--text-secondary) !important;  /* localidad - secundario */
+}
+[data-theme="dark"] .slft-wl-meta {
+  color: var(--text-muted) !important;  /* fecha/SKU count - muted */
+}
+[data-theme="dark"] .slft-wl-hdr {
+  color: var(--text-primary) !important;
+}
+[data-theme="dark"] .slft-wl-count {
+  background: var(--color-warning) !important;
+  color: var(--text-inverse) !important;
+}
+[data-theme="dark"] #slft-wl-empty {
+  color: var(--text-muted) !important;
+}
+[data-theme="dark"] .slft-wl-orden {
+  background: var(--bg-muted) !important;
+  color: var(--text-primary) !important;
+}
+[data-theme="dark"] .slft-wl-search-row input {
+  background: var(--bg-input) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+
+/* Stats bar - fix explicito (v740 debia funcionar pero por si acaso reforzamos) */
+[data-theme="dark"] .stat-box {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border-default) !important;
+  color: var(--text-primary) !important;
+}
+[data-theme="dark"] .stat-box .num {
+  color: var(--text-primary) !important;
+}
+[data-theme="dark"] .stat-box .lbl {
+  color: var(--text-secondary) !important;
+}
+/* Los stat-box con num de color especifico (verde/naranja) preservar color */
+[data-theme="dark"] .stat-box .num[style*="color"] {
+  /* dejar color inline - es semantico verde/naranja/rojo */
+}
+
+/* Right sidebar container background */
+[data-theme="dark"] #stats-bar-sidebar {
+  background: var(--bg-secondary) !important;
+}
+[data-theme="dark"] .stats-bar-left {
+  background: var(--bg-secondary) !important;
+}
+
+/* Alertas y tareas panel (right sidebar bottom) - typography */
+[data-theme="dark"] [id*="notif"] > *:not(button),
+[data-theme="dark"] .notif-list,
+[data-theme="dark"] .notif-empty {
+  color: var(--text-primary) !important;
+}
+
 /* ========================================================================
    FIN DARK MODE block
    ======================================================================== */
@@ -4806,7 +4934,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v741';
+const APP_VERSION = 'v742';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
