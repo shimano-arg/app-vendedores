@@ -824,7 +824,9 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .btn-dashboard{padding:7px 12px;border:none;border-radius:6px;background:#7f1d1d;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(127,29,29,.35);transition:.15s;white-space:nowrap;flex-shrink:0}
 .btn-dashboard:hover{background:#991b1b;box-shadow:0 2px 6px rgba(127,29,29,.5)}
 .btn-dashboard:active{transform:translateY(1px)}
-.btn-dashboard::before{content:"\01F4CA";font-size:13px}
+/* v734 (2026-08-30): removido emoji \01F4CA (chart bar) — Mariano reporto
+   que rendizaba como cajones en algunos fonts. Mismo motivo aplico a
+   .btn-clientes / .btn-alta-cli-top / .btn-rendiciones-top / .btn-seguimiento. */
 .btn-visita{padding:7px 12px;border:none;border-radius:6px;background:#7c3aed;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(124,58,237,.3);transition:.15s;white-space:nowrap;flex-shrink:0}
 .btn-visita:hover{background:#5b21b6;box-shadow:0 2px 6px rgba(124,58,237,.45)}
 .btn-visita:active{transform:translateY(1px)}
@@ -849,23 +851,23 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .btn-rendiciones-top{padding:7px 12px;border:none;border-radius:6px;background:#be185d;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 1px 3px rgba(190,24,93,.35);transition:.15s;white-space:nowrap;flex-shrink:0}
 .btn-rendiciones-top:hover{background:#9f1650;box-shadow:0 2px 6px rgba(190,24,93,.5)}
 .btn-rendiciones-top:active{transform:translateY(1px)}
-.btn-rendiciones-top::before{content:"\1F4B0";font-size:13px}
+/* v734: emoji \1F4B0 removido (ver comment btn-dashboard). */
 .btn-clientes{padding:7px 12px;border:none;border-radius:6px;background:#166534;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 1px 3px rgba(22,101,52,.3);transition:.15s;white-space:nowrap;flex-shrink:0}
 .btn-clientes:hover{background:#14532d;box-shadow:0 2px 6px rgba(22,101,52,.5)}
 .btn-clientes:active{transform:translateY(1px)}
-.btn-clientes::before{content:"\1F464";font-size:13px}
+/* v734: emoji \1F464 removido (ver comment btn-dashboard). */
 /* v432: Alta clientes movido al top toolbar (antes vivía en el drawer). */
 .btn-alta-cli-top{padding:7px 12px;border:none;border-radius:6px;background:#475569;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 1px 3px rgba(71,85,105,.3);transition:.15s;white-space:nowrap;flex-shrink:0}
 .btn-alta-cli-top:hover{background:#334155;box-shadow:0 2px 6px rgba(71,85,105,.5)}
 .btn-alta-cli-top:active{transform:translateY(1px)}
-.btn-alta-cli-top::before{content:"\1F465";font-size:13px}
+/* v734: emoji \1F465 removido (ver comment btn-dashboard). */
 .btn-zonas{padding:7px 12px;border:none;border-radius:6px;background:#1e3a8a;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 3px rgba(30,58,138,.3);transition:.15s;white-space:nowrap;flex-shrink:0}
 .btn-zonas:hover{background:#1e40af;box-shadow:0 2px 6px rgba(30,58,138,.45)}
 /* SEGUIMIENTO: panel para vendedores internos (Santiago/Ioannis) y admin/gerente */
 .btn-seguimiento{padding:7px 12px;border:none;border-radius:6px;background:#0d9488;color:#fff;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 1px 3px rgba(13,148,136,.35);transition:.15s;white-space:nowrap;flex-shrink:0}
 .btn-seguimiento:hover{background:#0f766e;box-shadow:0 2px 6px rgba(13,148,136,.5)}
 .btn-seguimiento:active{transform:translateY(1px)}
-.btn-seguimiento::before{content:"\01F4CA";font-size:13px}
+/* v734: emoji \01F4CA removido (ver comment btn-dashboard). */
 .seg-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:8px 0 14px}
 .seg-stat{background:#fff;border:1.5px solid #e5e7eb;border-radius:8px;padding:10px 12px;text-align:center}
 .seg-stat .num{font-size:18px;font-weight:800;color:#0f172a}
@@ -4339,7 +4341,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v733';
+const APP_VERSION = 'v734';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
