@@ -207,16 +207,12 @@ if (typeof window.dashboardTab === 'undefined') window.dashboardTab = 'targets';
 window.setDashboardTab = function (t) {
   const valid = new Set(['targets', 'visuales', 'visitas', 'finanzas']);
   window.dashboardTab = valid.has(t) ? t : 'targets';
+  // v731: Apple-style segmented control — toggling via classList.active
+  // (los estilos viven en .dash-tab-btn / .dash-tab-btn.active, no inline).
   ['targets', 'visuales', 'visitas', 'finanzas'].forEach((k) => {
     const btn = document.getElementById('dash-tab-' + k);
     if (!btn) return;
-    if (k === window.dashboardTab) {
-      btn.style.background = '#fff';
-      btn.style.boxShadow = '0 1px 2px rgba(0,0,0,.08)';
-    } else {
-      btn.style.background = 'transparent';
-      btn.style.boxShadow = 'none';
-    }
+    btn.classList.toggle('active', k === window.dashboardTab);
   });
   const subt = document.getElementById('dashboard-subt');
   if (subt) {

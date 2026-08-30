@@ -2978,15 +2978,28 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <div><h2>Dashboard de ventas</h2><div class="subt" id="dashboard-subt">Resumen de pedidos confirmados, targets y campañas.</div></div>
         <button class="modal-close" onclick="closeDashboardModal()">&times;</button>
       </div>
-      <!-- v640 (2026-08-26): tabs Targets / Visuales / Visitas / Finanzas -->
-      <div style="padding:10px 22px 0;background:#e0f2fe;border-bottom:1px solid #7dd3fc;display:flex;justify-content:center;gap:12px">
-        <div style="display:flex;gap:4px;background:#bae6fd;border-radius:6px;padding:3px">
+      <!-- v640 (2026-08-26): tabs Targets / Visuales / Visitas / Finanzas.
+           v731 (2026-08-29): Apple-style segmented control. Contenedor pill gray
+           iOS-like con boton activo en white + soft shadow. HTML mucho mas limpio
+           (sin inline styles gigantes) — los estilos viven en la clase .dash-tab-btn.
+           Toggling del estado activo por classList en setDashboardTab. -->
+      <style>
+        .dash-tabs-wrap{padding:14px 22px 12px;background:#fff;border-bottom:1px solid #f2f2f7;display:flex;justify-content:center}
+        .dash-tabs-segment{display:inline-flex;gap:2px;background:#f2f2f7;border-radius:9px;padding:3px}
+        .dash-tab-btn{padding:6px 16px;border:none;border-radius:7px;background:transparent;color:rgba(60,60,67,.6);font-size:13px;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;cursor:pointer;transition:background 200ms ease-out,color 200ms ease-out,transform 150ms ease-out;-webkit-tap-highlight-color:transparent;letter-spacing:-.01em}
+        .dash-tab-btn:hover:not(.active){color:#1c1c1e}
+        .dash-tab-btn:active{transform:scale(.96)}
+        .dash-tab-btn.active{background:#fff;color:#1c1c1e;box-shadow:0 3px 8px rgba(0,0,0,.04),0 1px 2px rgba(0,0,0,.06)}
+        @media (prefers-reduced-motion:reduce){.dash-tab-btn{transition:none}.dash-tab-btn:active{transform:none}}
+      </style>
+      <div class="dash-tabs-wrap">
+        <div class="dash-tabs-segment">
           <!-- v685 (2026-08-27): onclick con guard window.setDashboardTab&& para no crashear si
                el bundle no cargo (bug Sentry ReferenceError con 4 ocurrencias). -->
-          <button type="button" id="dash-tab-targets" class="dash-tab-btn" onclick="window.setDashboardTab&&setDashboardTab('targets')" style="padding:7px 14px;border:none;border-radius:4px;background:#fff;color:#0c4a6e;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;box-shadow:0 1px 2px rgba(0,0,0,.08)">Targets</button>
-          <button type="button" id="dash-tab-visuales" class="dash-tab-btn" onclick="window.setDashboardTab&&setDashboardTab('visuales')" style="padding:7px 14px;border:none;border-radius:4px;background:transparent;color:#0c4a6e;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Visuales</button>
-          <button type="button" id="dash-tab-visitas" class="dash-tab-btn" onclick="window.setDashboardTab&&setDashboardTab('visitas')" style="padding:7px 14px;border:none;border-radius:4px;background:transparent;color:#0c4a6e;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Visitas</button>
-          <button type="button" id="dash-tab-finanzas" class="dash-tab-btn" onclick="window.setDashboardTab&&setDashboardTab('finanzas')" style="padding:7px 14px;border:none;border-radius:4px;background:transparent;color:#0c4a6e;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Finanzas</button>
+          <button type="button" id="dash-tab-targets" class="dash-tab-btn active" onclick="window.setDashboardTab&&setDashboardTab('targets')">Targets</button>
+          <button type="button" id="dash-tab-visuales" class="dash-tab-btn" onclick="window.setDashboardTab&&setDashboardTab('visuales')">Visuales</button>
+          <button type="button" id="dash-tab-visitas" class="dash-tab-btn" onclick="window.setDashboardTab&&setDashboardTab('visitas')">Visitas</button>
+          <button type="button" id="dash-tab-finanzas" class="dash-tab-btn" onclick="window.setDashboardTab&&setDashboardTab('finanzas')">Finanzas</button>
         </div>
       </div>
       <div class="users-wrap" id="dashboard-content" style="overflow-y:auto"></div>
@@ -4321,7 +4334,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v730';
+const APP_VERSION = 'v731';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
