@@ -167,6 +167,8 @@ Refactor sistemático de cada dominio, reemplazando colores hardcoded por CSS va
 
 **Sub-fases (cada una es 1 commit independiente):**
 
+**Nota bumps (2026-08-30):** v738 se uso para el Dark Mode hybrid funcional shipped early, y v739+ se estan usando para bug fixes urgentes. Los bumps de la tabla abajo son ORIENTATIVOS - al arrancar E0 real (post-SETUP), reasignar bumps a los siguientes disponibles.
+
 | Sub | Scope | Bump |
 |---|---|---|
 | E2.a | Header + sidebar-left + mapa base (mapa panel, filtros, badges) | v739 |
