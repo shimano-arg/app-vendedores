@@ -218,7 +218,7 @@ function renderTargetsTable() {
       MESES[m] +
       '</b>' +
       (isCurrent
-        ? ' <span style="font-size:9px;color:#92400e;font-weight:700">(mes actual)</span>'
+        ? ' <span style="font-size:9px;color:var(--color-warning);font-weight:700">(mes actual)</span>'
         : '') +
       '</td>';
     TARGET_FAMILIES.forEach((f) => {
@@ -243,7 +243,7 @@ function renderTargetsTable() {
   }
   html += '</tbody></table>';
   html +=
-    '<div style="font-size:11px;color:#64748b;margin-top:10px;line-height:1.5"><b>Tip:</b> carg&aacute; el target de cada familia (Reel / Ca&ntilde;as / L&iacute;neas) y el <b>Total mes</b> se calcula solo. Los valores se <b>guardan solos</b> al terminar de escribir (~1 segundo).</div>';
+    '<div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.5"><b>Tip:</b> carg&aacute; el target de cada familia (Reel / Ca&ntilde;as / L&iacute;neas) y el <b>Total mes</b> se calcula solo. Los valores se <b>guardan solos</b> al terminar de escribir (~1 segundo).</div>';
   document.getElementById('tgt-table-wrap').innerHTML = html;
   document.getElementById('tgt-save-btn').textContent = 'Guardar Targets';
   document.getElementById('tgt-save-btn').disabled = false;

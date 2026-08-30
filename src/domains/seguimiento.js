@@ -672,20 +672,20 @@ function renderSegVisitas(visits) {
           escapeAttr(v.id) +
           "','" +
           escapeAttr(v.tienda || '') +
-          '\')" title="Eliminar esta visita (admin/gerente)" style="margin-left:6px;padding:3px 8px;border:none;border-radius:4px;background:#dc2626;color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Borrar</button>'
+          '\')" title="Eliminar esta visita (admin/gerente)" style="margin-left:6px;padding:3px 8px;border:none;border-radius:4px;background:var(--color-danger);color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Borrar</button>'
         : '';
     // v443: badge tipo (VISITA presencial vs CONTACTO no presencial).
     const contacto = isContacto(v);
     const tipoBadge = contacto
       ? '<span style="display:inline-block;background:#ccfbf1;color:#0d5c56;font-size:8px;font-weight:800;padding:2px 5px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px;margin-left:6px">&#128172; Contacto</span>'
-      : '<span style="display:inline-block;background:#ede9fe;color:#5b21b6;font-size:8px;font-weight:800;padding:2px 5px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px;margin-left:6px">&#128663; Visita</span>';
+      : '<span style="display:inline-block;background:#ede9fe;color:var(--color-accent-violet);font-size:8px;font-weight:800;padding:2px 5px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px;margin-left:6px">&#128663; Visita</span>';
     html += '<div class="seg-row" onclick="openSegTimeline(\'' + escapeAttr(k) + '\')">';
     html += '<div>' + escapeHtml((v.fecha || '').slice(0, 10) || '-') + tipoBadge + '</div>';
     html += '<div>' + escapeHtml(titleCase(v.vendor || '')) + '</div>';
     html += '<div><b>' + escapeHtml(v.tienda || '-') + '</b></div>';
     html += '<div>' + escapeHtml(v.localidad || '-') + '</div>';
     html +=
-      '<div style="color:#475569">' +
+      '<div style="color:var(--text-secondary)">' +
       escapeHtml((v.comentario || v.observaciones || '').slice(0, 140)) +
       (v.proximaAccion
         ? '<br><span style="color:#0d9488;font-weight:700">Proxima: ' +
@@ -753,7 +753,7 @@ function renderSegPedidos(pedidos) {
           escapeAttr(p._fsId) +
           "','" +
           escapeAttr(p.clientName || '') +
-          '\')" title="Eliminar este pedido del historial (admin/gerente)" style="margin-left:8px;padding:3px 8px;border:none;border-radius:4px;background:#dc2626;color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Borrar</button>'
+          '\')" title="Eliminar este pedido del historial (admin/gerente)" style="margin-left:8px;padding:3px 8px;border:none;border-radius:4px;background:var(--color-danger);color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Borrar</button>'
         : '';
     html += '<div class="seg-row" onclick="openSegTimeline(\'' + escapeAttr(k) + '\')">';
     html += '<div>' + escapeHtml(dt || '-') + '</div>';
@@ -761,7 +761,7 @@ function renderSegPedidos(pedidos) {
     html +=
       '<div><b>' +
       escapeHtml(p.clientName || '-') +
-      '</b><br><span style="font-size:10px;color:#94a3b8">' +
+      '</b><br><span style="font-size:10px;color:var(--text-muted)">' +
       escapeHtml(p.locName || '') +
       '</span></div>';
     html += '<div>' + units.toFixed(0) + ' u</div>';
@@ -837,7 +837,7 @@ function renderSegPendientes(items) {
         escapeAttr(it.pedidoFsId) +
         "','" +
         escapeAttr(it.client || '') +
-        '\')" title="Eliminar el pedido pendiente del historial (admin/gerente)" style="margin-left:6px;padding:3px 8px;border:none;border-radius:4px;background:#dc2626;color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Borrar pedido</button>';
+        '\')" title="Eliminar el pedido pendiente del historial (admin/gerente)" style="margin-left:6px;padding:3px 8px;border:none;border-radius:4px;background:var(--color-danger);color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Borrar pedido</button>';
     } else if (it.kind === 'visit-no-order' && isSegUser) {
       actionBtn =
         ' <button onclick="event.stopPropagation();setSegStatus(\'' +
@@ -857,11 +857,13 @@ function renderSegPendientes(items) {
     html +=
       '<div><b>' +
       escapeHtml(it.client || '-') +
-      '</b><br><span style="font-size:10px;color:#94a3b8">' +
+      '</b><br><span style="font-size:10px;color:var(--text-muted)">' +
       escapeHtml(it.loc || '') +
       '</span></div>';
     html +=
-      '<div style="font-size:10px;color:#64748b">' + escapeHtml(it.ultimaAccion || '-') + '</div>';
+      '<div style="font-size:10px;color:var(--text-muted)">' +
+      escapeHtml(it.ultimaAccion || '-') +
+      '</div>';
     html +=
       '<div><b>' +
       escapeHtml(it.problema || '-') +
@@ -898,10 +900,10 @@ function renderSegDead(items) {
     html +=
       '<div><b>' +
       escapeHtml(it.client || '-') +
-      '</b><br><span style="font-size:10px;color:#94a3b8">' +
+      '</b><br><span style="font-size:10px;color:var(--text-muted)">' +
       escapeHtml(it.loc || '') +
       '</span></div>';
-    html += '<div><b style="color:#dc2626">' + it.daysAgo + 'd</b></div>';
+    html += '<div><b style="color:var(--color-danger)">' + it.daysAgo + 'd</b></div>';
     html +=
       '<div>Visita: ' +
       escapeHtml(it.lastVisit || '-') +
@@ -930,7 +932,7 @@ function renderSegDuplas(duplas) {
   const arr = Object.values(duplas);
   if (!arr.length) return '<div class="seg-empty">No hay duplas con actividad en el rango.</div>';
   let html =
-    '<div style="font-size:11px;color:#64748b;margin-bottom:8px;font-weight:700;padding:8px 12px;background:#f0fdfa;border-left:3px solid #0d9488;border-radius:5px">Tasa de conversion visita &rarr; pedido = pedidos confirmados / visitas. Es la metrica clave para evaluar si las visitas generan negocio real.</div>';
+    '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;font-weight:700;padding:8px 12px;background:#f0fdfa;border-left:3px solid #0d9488;border-radius:5px">Tasa de conversion visita &rarr; pedido = pedidos confirmados / visitas. Es la metrica clave para evaluar si las visitas generan negocio real.</div>';
   arr.sort((a, b) => (b.fact || 0) - (a.fact || 0));
   arr.forEach((d) => {
     const conv = d.visitas ? Math.round((d.pedidosConf / d.visitas) * 100) : 0;
@@ -1068,9 +1070,9 @@ window.openSegTimeline = function (clientKey) {
   html += '</div>';
   const curStatus = segStatusCache[clientKey] || '';
   html +=
-    '<div style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:10px 12px;margin-top:14px;border-radius:6px">';
+    '<div style="background:var(--bg-secondary);border-top:1px solid var(--border-subtle);padding:10px 12px;margin-top:14px;border-radius:6px">';
   html +=
-    '<div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px">Estado de seguimiento interno (no afecta visita ni pedido original)</div>';
+    '<div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px">Estado de seguimiento interno (no afecta visita ni pedido original)</div>';
   html += '<div class="seg-status-row">';
   [
     ['pendiente', 'Marcar pendiente'],
@@ -1092,7 +1094,7 @@ window.openSegTimeline = function (clientKey) {
   html += '</div></div>';
   html += '<div class="seg-note-form">';
   html +=
-    '<div style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.3px;margin-bottom:5px">Nota interna entre interno y externo (no modifica la visita)</div>';
+    '<div style="font-size:11px;font-weight:700;color:var(--color-warning);text-transform:uppercase;letter-spacing:.3px;margin-bottom:5px">Nota interna entre interno y externo (no modifica la visita)</div>';
   html +=
     '<textarea id="seg-note-input" placeholder="Ej: revisado, lo llamo mañana para cerrar reposicion"></textarea>';
   html += '<button onclick="saveSegNote(\'' + escapeAttr(clientKey) + '\')">Guardar nota</button>';

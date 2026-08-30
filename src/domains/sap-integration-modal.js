@@ -270,11 +270,11 @@ window.runSapIntegrationPreview = function () {
   function table(title, headers, rowsArr, cls) {
     let s = '<div class="sap-int-section"><h4>' + title + ' (' + rowsArr.length + ')</h4>';
     if (!rowsArr.length) {
-      s += '<div style="font-size:11px;color:#94a3b8;padding:8px">Sin datos.</div></div>';
+      s += '<div style="font-size:11px;color:var(--text-muted);padding:8px">Sin datos.</div></div>';
       return s;
     }
     s +=
-      '<div style="max-height:240px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:4px"><table class="sap-int-preview-table"><thead><tr>';
+      '<div style="max-height:240px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:4px"><table class="sap-int-preview-table"><thead><tr>';
     headers.forEach((h) => (s += '<th>' + h + '</th>'));
     s += '</tr></thead><tbody>';
     rowsArr.slice(0, 200).forEach((r) => {
@@ -285,7 +285,7 @@ window.runSapIntegrationPreview = function () {
     s += '</tbody></table></div>';
     if (rowsArr.length > 200)
       s +=
-        '<div style="font-size:10px;color:#94a3b8;text-align:center;padding:4px">Mostrando primeros 200 de ' +
+        '<div style="font-size:10px;color:var(--text-muted);text-align:center;padding:4px">Mostrando primeros 200 de ' +
         rowsArr.length +
         '. El "Aplicar" procesa todos.</div>';
     s += '</div>';
@@ -348,7 +348,7 @@ window.runSapIntegrationPreview = function () {
     (pro ? pro.matches.length : 0) +
     (ven ? ven.matches.length : 0);
   html +=
-    '<div style="display:flex;justify-content:space-between;gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid #e2e8f0">';
+    '<div style="display:flex;justify-content:space-between;gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid var(--border-subtle)">';
   html +=
     '<button class="sap-btn secondary" onclick="downloadSapIntegrationReport()" title="Descarga un CSV con todos los matches y sin-match para revisar / archivar">Descargar reporte CSV</button>';
   html +=

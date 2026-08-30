@@ -33,11 +33,11 @@ function renderAllowedEmailsSection(allowedList) {
   let html = '<div style="text-align:center;margin-bottom:10px">';
   html += '<div style="font-size:12px;font-weight:800;color:#1e40af">Emails pre-autorizados</div>';
   html +=
-    '<div style="font-size:10px;color:#64748b;margin-top:2px">Si un vendedor usa Gmail personal (no @shimano.com.ar), agregalo aca antes que intente loguear. Los emails @shimano.com.ar y los admins hardcoded ya estan autorizados automaticamente.</div>';
+    '<div style="font-size:10px;color:var(--text-muted);margin-top:2px">Si un vendedor usa Gmail personal (no @shimano.com.ar), agregalo aca antes que intente loguear. Los emails @shimano.com.ar y los admins hardcoded ya estan autorizados automaticamente.</div>';
   html += '</div>';
   if (!allowedList.length) {
     html +=
-      '<div style="font-size:11px;color:#94a3b8;text-align:center;padding:6px 0 10px">No hay emails pre-autorizados todavia.</div>';
+      '<div style="font-size:11px;color:var(--text-muted);text-align:center;padding:6px 0 10px">No hay emails pre-autorizados todavia.</div>';
   } else {
     html +=
       '<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:10px">';
@@ -45,12 +45,12 @@ function renderAllowedEmailsSection(allowedList) {
       const label = escapeHtml(ae.email || ae._id);
       const note = ae.note ? ' &middot; ' + escapeHtml(ae.note) : '';
       html +=
-        '<div style="display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid #bfdbfe;border-radius:14px;padding:3px 4px 3px 10px;font-size:11px;color:#1e40af;font-weight:600">' +
+        '<div style="display:inline-flex;align-items:center;gap:6px;background:var(--bg-elevated);border:1px solid #bfdbfe;border-radius:14px;padding:3px 4px 3px 10px;font-size:11px;color:#1e40af;font-weight:600">' +
         label +
         note +
         '<button onclick="removeAllowedEmail(\'' +
         escapeAttr(ae._id) +
-        '\')" title="Quitar autorizacion" style="background:#dc2626;color:#fff;border:none;border-radius:50%;width:18px;height:18px;font-size:11px;cursor:pointer;line-height:1">&times;</button>' +
+        '\')" title="Quitar autorizacion" style="background:var(--color-danger);color:#fff;border:none;border-radius:50%;width:18px;height:18px;font-size:11px;cursor:pointer;line-height:1">&times;</button>' +
         '</div>';
     });
     html += '</div>';
@@ -130,10 +130,11 @@ function renderGeminiConfigSection(_data) {
   wrap.style.cssText =
     'text-align:center;padding:14px 12px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:6px';
   const title = document.createElement('div');
-  title.style.cssText = 'font-size:12px;font-weight:800;color:#5b21b6;margin-bottom:6px';
+  title.style.cssText =
+    'font-size:12px;font-weight:800;color:var(--color-accent-violet);margin-bottom:6px';
   title.textContent = 'Gemini API Key (OCR de tickets)';
   const msg = document.createElement('div');
-  msg.style.cssText = 'font-size:11px;color:#64748b';
+  msg.style.cssText = 'font-size:11px;color:var(--text-muted)';
   // Icono candado + texto. textContent es safe (no HTML parsing).
   msg.textContent = '🔒 Guardado por seguridad en Google Secret Manager';
   wrap.appendChild(title);
@@ -182,24 +183,24 @@ function renderGmapsConfigSection(data) {
   html +=
     '<div style="font-size:12px;font-weight:800;color:#065f46">Google Maps API Key (geocoding)</div>';
   html +=
-    '<div style="font-size:10px;color:#64748b;margin-top:2px">Convierte direcciones a coordenadas con mucha mejor precisión que OSM (sobre todo en localidades chicas). Costo gratis hasta 40.000 requests/mes.</div>';
+    '<div style="font-size:10px;color:var(--text-muted);margin-top:2px">Convierte direcciones a coordenadas con mucha mejor precisión que OSM (sobre todo en localidades chicas). Costo gratis hasta 40.000 requests/mes.</div>';
   html += '</div>';
   if (hasKey) {
     html +=
       '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;justify-content:center">';
     html +=
-      '<span style="font-family:Consolas,monospace;font-size:11px;background:#fff;border:1px solid #6ee7b7;border-radius:4px;padding:4px 8px;color:#065f46">' +
+      '<span style="font-family:Consolas,monospace;font-size:11px;background:var(--bg-elevated);border:1px solid #6ee7b7;border-radius:4px;padding:4px 8px;color:#065f46">' +
       escapeHtml(masked) +
       '</span>';
     html +=
-      '<span style="font-size:10px;color:#64748b">Cargada por ' +
+      '<span style="font-size:10px;color:var(--text-muted)">Cargada por ' +
       escapeHtml(updatedBy || 'admin') +
       (updatedAt ? ' (' + escapeHtml(updatedAt) + ')' : '') +
       '</span>';
     html += '</div>';
   } else {
     html +=
-      '<div style="font-size:11px;color:#94a3b8;margin-bottom:10px;text-align:center">Sin API key. Geocoding usa OpenStreetMap (gratis pero peor cobertura en AR rural).</div>';
+      '<div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;text-align:center">Sin API key. Geocoding usa OpenStreetMap (gratis pero peor cobertura en AR rural).</div>';
   }
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">';
   html +=
@@ -290,24 +291,24 @@ function renderBulkApproverSection() {
   html +=
     '<div style="font-size:12px;font-weight:800;color:#a21caf">Aprobador de Rendiciones - asignacion masiva</div>';
   html +=
-    '<div style="font-size:10px;color:#64748b;margin-top:2px">Aplica el mismo responsable a TODOS los vendedores de un solo click. Util cuando un gerente comercial centraliza la aprobacion.</div>';
+    '<div style="font-size:10px;color:var(--text-muted);margin-top:2px">Aplica el mismo responsable a TODOS los vendedores de un solo click. Util cuando un gerente comercial centraliza la aprobacion.</div>';
   html += '</div>';
   if (!candidates.length) {
     html +=
-      '<div style="font-size:11px;color:#94a3b8;text-align:center;padding:6px 0">No hay usuarios con rol admin / gerente / interno. Primero asigna un rol a alguien.</div>';
+      '<div style="font-size:11px;color:var(--text-muted);text-align:center;padding:6px 0">No hay usuarios con rol admin / gerente / interno. Primero asigna un rol a alguien.</div>';
     el.innerHTML = html;
     return;
   }
   if (!vendedores.length) {
     html +=
-      '<div style="font-size:11px;color:#94a3b8;text-align:center;padding:6px 0">No hay usuarios con rol vendedor todavia.</div>';
+      '<div style="font-size:11px;color:var(--text-muted);text-align:center;padding:6px 0">No hay usuarios con rol vendedor todavia.</div>';
     el.innerHTML = html;
     return;
   }
   html +=
     '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center">';
   html +=
-    '<select id="bulk-approver-select" style="padding:8px 10px;border:1.5px solid #f0abfc;border-radius:6px;font-size:12px;background:#fff;font-family:inherit;flex:1;max-width:340px">';
+    '<select id="bulk-approver-select" style="padding:8px 10px;border:1.5px solid #f0abfc;border-radius:6px;font-size:12px;background:var(--bg-elevated);font-family:inherit;flex:1;max-width:340px">';
   html += '<option value="">- Elegir aprobador -</option>';
   candidates.forEach((u) => {
     const lbl = (u.displayName || u.email || u._uid) + ' (' + u.role + ')';
@@ -538,9 +539,9 @@ window.openAdminPanel = async function () {
     let cardsHtml = '';
     if (!usersCache.length) {
       tableHtml =
-        '<tr><td colspan="6" style="color:#94a3b8;text-align:center;padding:18px">No hay usuarios todavia. Esperan que ingresen con Google.</td></tr>';
+        '<tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:18px">No hay usuarios todavia. Esperan que ingresen con Google.</td></tr>';
       cardsHtml =
-        '<div style="color:#94a3b8;font-size:12px;text-align:center;padding:18px">No hay usuarios todavia. Esperan que ingresen con Google.</div>';
+        '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:18px">No hay usuarios todavia. Esperan que ingresen con Google.</div>';
     } else {
       // Admins primarios protegidos: no se pueden eliminar (Mariano + bot corporativo)
       const PROTECTED_ADMIN_EMAILS = ['bot.shimano.pesca@gmail.com', 'erbinomariano@gmail.com'];
@@ -596,19 +597,19 @@ window.openAdminPanel = async function () {
                 const label = u.displayName ? u.displayName.split(/\s+/)[0] : u.email || '';
                 return (
                   escapeHtml(label) +
-                  ' <span style="color:#94a3b8">(' +
+                  ' <span style="color:var(--text-muted)">(' +
                   escapeHtml(u.email || '') +
                   ')</span>'
                 );
               })
               .join('<br>');
             parejaCell =
-              '<div style="font-size:10px;color:#0f172a;line-height:1.5"><div style="font-size:9px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">Vendedores externos vinculados (auto)</div>' +
+              '<div style="font-size:10px;color:var(--text-primary);line-height:1.5"><div style="font-size:9px;font-weight:800;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">Vendedores externos vinculados (auto)</div>' +
               list +
               '</div>';
           } else {
             parejaCell =
-              '<div style="font-size:10px;color:#94a3b8;font-style:italic">Aun ningun vendedor lo tiene como pareja</div>';
+              '<div style="font-size:10px;color:var(--text-muted);font-style:italic">Aun ningun vendedor lo tiene como pareja</div>';
           }
           // input oculto para que saveUserRole no pise el valor del rol = interno (no aplica internalPartnerUid)
           parejaCell += '<input type="hidden" class="internal-sel" value=""/>';
@@ -633,17 +634,17 @@ window.openAdminPanel = async function () {
             '</select>';
         }
         const youTag = isSelf
-          ? ' <span style="color:#7c3aed;font-size:9px;font-weight:800">(VOS)</span>'
+          ? ' <span style="color:var(--color-accent-violet);font-size:9px;font-weight:800">(VOS)</span>'
           : '';
         const protectedTag =
           isProtected && !isSelf
-            ? ' <span style="color:#7c3aed;font-size:9px;font-weight:800" title="Admin protegido - no se puede eliminar">&#128274; PROTEGIDO</span>'
+            ? ' <span style="color:var(--color-accent-violet);font-size:9px;font-weight:800" title="Admin protegido - no se puede eliminar">&#128274; PROTEGIDO</span>'
             : '';
         const waVal = d.whatsapp || '';
         const waInputHtml =
           '<input type="tel" class="wa-input" placeholder="ej. 5491126762031" value="' +
           escapeAttr(waVal) +
-          '" style="width:100%;padding:5px 7px;border:1.5px solid #cbd5e1;border-radius:4px;font-size:11px;font-family:inherit;outline:none;background:#fff" title="Numero WhatsApp completo con codigo de pais (sin + ni espacios). Se usa al enviar la ruta."/>';
+          '" style="width:100%;padding:5px 7px;border:1.5px solid var(--border-default);border-radius:4px;font-size:11px;font-family:inherit;outline:none;background:var(--bg-elevated)" title="Numero WhatsApp completo con codigo de pais (sin + ni espacios). Se usa al enviar la ruta."/>';
         // Dropdown 'Responsable de rendiciones'
         const curApproverUid = d.rendicionesApproverUid || '';
         let rendApproverOptions = '<option value="">- Sin asignar -</option>';
@@ -875,7 +876,7 @@ window.openTotpSetup = async function (uid, email) {
   }
   if (curEnabled && curSecret) {
     c.innerHTML =
-      '<div style="background:#dcfce7;border:1px solid #86efac;border-radius:6px;padding:12px;font-size:12px;color:#166534;text-align:center">' +
+      '<div style="background:var(--color-success-bg);border:1px solid #86efac;border-radius:6px;padding:12px;font-size:12px;color:var(--color-success);text-align:center">' +
       '<b>&#10003; 2FA ya está activo</b> para este usuario.' +
       '<br><span style="font-size:11px">Si lo perdió o cambió de celular, podés generarle uno nuevo (el anterior queda invalidado).</span>' +
       '</div>' +
@@ -916,7 +917,7 @@ window.generateNewTotp = async function (uid, email) {
   totpSetupState = { uid: uid, email: email, secret: secret, otpauth: otpauth };
   const c = document.getElementById('totp-setup-content');
   c.innerHTML =
-    '<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;padding:12px;font-size:11px;color:#78350f;margin-bottom:14px">' +
+    '<div style="background:var(--color-warning-bg);border:1px solid #fcd34d;border-radius:6px;padding:12px;font-size:11px;color:#78350f;margin-bottom:14px">' +
     '<b>Pasos para activar:</b><br>' +
     '1. El usuario instala <b>Google Authenticator</b> en su celular.<br>' +
     '2. Toca "Agregar" / "+" en la app.<br>' +
@@ -925,17 +926,17 @@ window.generateNewTotp = async function (uid, email) {
     '5. Lo escribe en el input de abajo para confirmar y activar.' +
     '</div>';
   c.innerHTML +=
-    '<div style="text-align:center;margin-bottom:14px"><div id="totp-qr-container" style="display:inline-block;background:#fff;padding:10px;border:1px solid #e5e7eb;border-radius:6px">Generando QR...</div></div>';
+    '<div style="text-align:center;margin-bottom:14px"><div id="totp-qr-container" style="display:inline-block;background:var(--bg-elevated);padding:10px;border:1px solid var(--border-subtle);border-radius:6px">Generando QR...</div></div>';
   c.innerHTML +=
-    '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px;text-align:center;margin-bottom:14px">' +
-    '<div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Secret (carga manual si el QR falla)</div>' +
-    '<div style="font-family:Consolas,monospace;font-size:13px;font-weight:800;color:#5b21b6;word-break:break-all;letter-spacing:.1em">' +
+    '<div style="background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;padding:10px;text-align:center;margin-bottom:14px">' +
+    '<div style="font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Secret (carga manual si el QR falla)</div>' +
+    '<div style="font-family:Consolas,monospace;font-size:13px;font-weight:800;color:var(--color-accent-violet);word-break:break-all;letter-spacing:.1em">' +
     escapeHtml(secret) +
     '</div>' +
     '</div>';
   c.innerHTML +=
-    '<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:5px">Código de verificación de Google Authenticator</label>' +
-    '<input type="text" id="totp-confirm-input" inputmode="numeric" maxlength="7" placeholder="000000" style="width:100%;padding:10px 12px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:18px;text-align:center;letter-spacing:.3em;font-weight:800"/></div>';
+    '<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:5px">Código de verificación de Google Authenticator</label>' +
+    '<input type="text" id="totp-confirm-input" inputmode="numeric" maxlength="7" placeholder="000000" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-default);border-radius:5px;font-size:18px;text-align:center;letter-spacing:.3em;font-weight:800"/></div>';
   c.innerHTML +=
     '<div style="display:flex;gap:8px;justify-content:center"><button class="app-btn-pill app-btn-violet" onclick="confirmTotpSetup()">Verificar y activar</button>' +
     '<button class="app-btn-pill app-btn-red" onclick="closeTotpSetupModal()">Cancelar</button></div>';
@@ -959,7 +960,7 @@ window.generateNewTotp = async function (uid, email) {
     const box = document.getElementById('totp-qr-container');
     if (box)
       box.innerHTML =
-        '<div style="font-size:11px;color:#991b1b;padding:14px">No se pudo cargar la librería QR. Usa el secret manual para configurar.</div>';
+        '<div style="font-size:11px;color:var(--color-danger-strong);padding:14px">No se pudo cargar la librería QR. Usa el secret manual para configurar.</div>';
   }
 };
 

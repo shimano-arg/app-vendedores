@@ -60,7 +60,7 @@ window.onCampFamiliaChange = function () {
   if (!fam) {
     subSel.innerHTML = '<option value="">Seleccionar familia primero...</option>';
     document.getElementById('cf-skus').innerHTML =
-      '<div style="color:#94a3b8;font-size:11px;padding:14px;text-align:center">Seleccione familia y subfamilia primero</div>';
+      '<div style="color:var(--text-muted);font-size:11px;padding:14px;text-align:center">Seleccione familia y subfamilia primero</div>';
     updateSkuCounter();
     return;
   }
@@ -77,7 +77,7 @@ window.onCampFamiliaChange = function () {
       .map((s) => '<option value="' + escapeHtml(s) + '">' + escapeHtml(s) + '</option>')
       .join('');
   document.getElementById('cf-skus').innerHTML =
-    '<div style="color:#94a3b8;font-size:11px;padding:14px;text-align:center">Seleccione una subfamilia</div>';
+    '<div style="color:var(--text-muted);font-size:11px;padding:14px;text-align:center">Seleccione una subfamilia</div>';
   updateSkuCounter();
 };
 
@@ -87,14 +87,14 @@ window.onCampSubfamiliaChange = function () {
   const container = document.getElementById('cf-skus');
   if (!fam || !sub) {
     container.innerHTML =
-      '<div style="color:#94a3b8;font-size:11px;padding:14px;text-align:center">Seleccione una subfamilia</div>';
+      '<div style="color:var(--text-muted);font-size:11px;padding:14px;text-align:center">Seleccione una subfamilia</div>';
     updateSkuCounter();
     return;
   }
   const matched = PRODUCTS.filter((p) => p.fam === fam && p.sub === sub);
   if (!matched.length) {
     container.innerHTML =
-      '<div style="color:#94a3b8;font-size:11px;padding:14px;text-align:center">No hay SKUs para esta combinacion.</div>';
+      '<div style="color:var(--text-muted);font-size:11px;padding:14px;text-align:center">No hay SKUs para esta combinacion.</div>';
     updateSkuCounter();
     return;
   }
@@ -192,7 +192,7 @@ async function refreshCampaignsList() {
           ? 'Todavia no hay campa&ntilde;as terminadas. Cuando una campa&ntilde;a llegue a su fecha final o la finalices manualmente, aparece aca.'
           : 'No hay campa&ntilde;as activas. Crea una arriba o revisa "Hist&oacute;ricas".';
       listEl.innerHTML =
-        '<div style="font-size:11px;color:#94a3b8;padding:14px;background:#f8fafc;border-radius:6px;text-align:center">' +
+        '<div style="font-size:11px;color:var(--text-muted);padding:14px;background:var(--bg-secondary);border-radius:6px;text-align:center">' +
         msg +
         '</div>';
       return;
@@ -232,7 +232,9 @@ async function refreshCampaignsList() {
       }
       html +=
         '<div class="camp-list-item"' +
-        (tab === 'history' ? ' style="opacity:.85;background:#f8fafc;border-color:#e2e8f0"' : '') +
+        (tab === 'history'
+          ? ' style="opacity:.85;background:var(--bg-secondary);border-color:var(--border-subtle)"'
+          : '') +
         '>';
       html += '<div style="flex:1"><div class="cli-name">' + escapeHtml(c.name) + '</div>';
       html +=
@@ -256,17 +258,17 @@ async function refreshCampaignsList() {
       // sacar sin borrar toda la campaña".
       if (Array.isArray(c.skus) && c.skus.length > 0) {
         html +=
-          '<details class="cli-skus" style="margin-top:6px"><summary style="cursor:pointer;font-size:10px;color:#475569;user-select:none;font-weight:700">' +
+          '<details class="cli-skus" style="margin-top:6px"><summary style="cursor:pointer;font-size:10px;color:var(--text-secondary);user-select:none;font-weight:700">' +
           (tab === 'active' ? 'Editar SKUs' : 'Ver SKUs') +
           ' (' +
           c.skus.length +
           ')</summary>' +
-          '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;padding:6px 0;border-top:1px dashed #e2e8f0">';
+          '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;padding:6px 0;border-top:1px dashed var(--border-subtle)">';
         c.skus.forEach((sku) => {
           const skuSafe = escapeHtml(sku);
           const skuAttr = escapeAttr(sku);
           html +=
-            '<span style="background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:10px;font-family:monospace;display:inline-flex;align-items:center;gap:4px">' +
+            '<span style="background:var(--bg-muted);padding:2px 6px;border-radius:4px;font-size:10px;font-family:monospace;display:inline-flex;align-items:center;gap:4px">' +
             skuSafe;
           if (tab === 'active') {
             html +=
@@ -274,7 +276,7 @@ async function refreshCampaignsList() {
               c._id +
               "','" +
               skuAttr +
-              '\')" title="Quitar este SKU de la campaña" style="background:#dc2626;color:#fff;border:none;border-radius:3px;padding:0 5px;font-size:11px;line-height:1.4;cursor:pointer;font-weight:700">×</button>';
+              '\')" title="Quitar este SKU de la campaña" style="background:var(--color-danger);color:#fff;border:none;border-radius:3px;padding:0 5px;font-size:11px;line-height:1.4;cursor:pointer;font-weight:700">×</button>';
           }
           html += '</span>';
         });
@@ -286,7 +288,7 @@ async function refreshCampaignsList() {
         html +=
           '<button class="cli-del" onclick="finalizarCampaign(\'' +
           c._id +
-          '\')" title="Finalizar campa&ntilde;a manualmente (queda en Hist&oacute;ricas)" style="background:#f59e0b">&#9201;</button>';
+          '\')" title="Finalizar campa&ntilde;a manualmente (queda en Hist&oacute;ricas)" style="background:var(--color-warning)">&#9201;</button>';
       } else {
         html +=
           '<button class="cli-del" onclick="deleteCampaign(\'' +
@@ -299,7 +301,7 @@ async function refreshCampaignsList() {
   } catch (e) {
     console.error('refreshCampaignsList', e);
     listEl.innerHTML =
-      '<div style="color:#dc2626;font-size:11px">Error: ' + (e.message || e) + '</div>';
+      '<div style="color:var(--color-danger);font-size:11px">Error: ' + (e.message || e) + '</div>';
   }
 }
 

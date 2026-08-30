@@ -654,7 +654,7 @@ async function parseMcSapFile(file) {
       '<b>&#128203; Filas en el archivo SAP:</b> ' +
       _mcSapParsedRows.length +
       '<br>' +
-      '<b style="color:#166534">&#10003; Matches exactos:</b> ' +
+      '<b style="color:var(--color-success)">&#10003; Matches exactos:</b> ' +
       exactN +
       ' tiendas (datos SAP van a sobreescribir)<br>' +
       '<b style="color:#9a3412">~ Matches por similitud (fuzzy):</b> ' +
@@ -663,7 +663,7 @@ async function parseMcSapFile(file) {
       '<b style="color:#1e40af">&#10133; NUEVAS - se van a crear en el mapa:</b> ' +
       newN +
       ' tiendas<br>' +
-      '<b style="color:#475569">&#128203; Tiendas matcheadas se marcan como <i>habilitadas</i> para crear pedidos directamente.</b>';
+      '<b style="color:var(--text-secondary)">&#128203; Tiendas matcheadas se marcan como <i>habilitadas</i> para crear pedidos directamente.</b>';
     prevEl.style.display = '';
     // Mostrar las fuzzy + nuevas para que el usuario revise antes de aplicar
     const fuzzyList = _mcSapMatched.filter((m) => m.matchType === 'fuzzy');
@@ -1120,13 +1120,13 @@ function renderMcProvisoriosTable() {
 
   const total = getProvisoriosList().length;
   const statsHtml =
-    '<span style="background:#ede9fe;color:#5b21b6;border-color:#c4b5fd">&#9889; Provisorios (Alta Rapida): ' +
+    '<span style="background:#ede9fe;color:var(--color-accent-violet);border-color:#c4b5fd">&#9889; Provisorios (Alta Rapida): ' +
     total +
     '</span>' +
     '<span>Filtrados: ' +
     items.length +
     '</span>' +
-    '<span style="background:#fef3c7;color:#92400e;border-color:#fde68a">Falta cargar a SAP manualmente</span>';
+    '<span style="background:var(--color-warning-bg);color:var(--color-warning);border-color:#fde68a">Falta cargar a SAP manualmente</span>';
   document.getElementById('mc-stats').innerHTML = statsHtml;
 
   if (!items.length) {
@@ -1182,7 +1182,7 @@ function renderMcProvisoriosTable() {
     const dupSap =
       typeof findSapDuplicateForProvisorio === 'function' ? findSapDuplicateForProvisorio(a) : null;
     const rowBg = dupSap ? '#fee2e2' : '#fffbeb';
-    const rowBorder = dupSap ? 'border-left:4px solid #dc2626;' : '';
+    const rowBorder = dupSap ? 'border-left:4px solid var(--color-danger);' : '';
     const dupTitle = dupSap
       ? 'POSIBLE DUPLICADO SAP: ' +
         (dupSap.comercio || dupSap.fantasia || '?') +
@@ -1201,7 +1201,7 @@ function renderMcProvisoriosTable() {
     // v315+: badge de duplicado (si aplica). Se agrega en la meta al lado
     // del badge PROVISORIO amarillo, en rojo llamativo.
     const dupBadge = dupSap
-      ? '<span style="background:#dc2626;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;margin-left:6px" title="' +
+      ? '<span style="background:var(--color-danger);color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;margin-left:6px" title="' +
         escapeAttr(dupTitle) +
         '">&#9888; DUPLICADO SAP ' +
         escapeHtml(dupSap.cardCodeSap || '') +
@@ -1210,7 +1210,7 @@ function renderMcProvisoriosTable() {
     if (canEditProv) {
       html +=
         '<td>' +
-        '<input type="text" class="mc-addr-input has-value" style="font-weight:800;font-size:12.5px;color:#0f172a" ' +
+        '<input type="text" class="mc-addr-input has-value" style="font-weight:800;font-size:12.5px;color:var(--text-primary)" ' +
         'value="' +
         escapeAttr(nombre) +
         '" ' +
@@ -1224,10 +1224,14 @@ function renderMcProvisoriosTable() {
         '<div class="mc-meta" style="margin-top:4px"><span class="mc-tag prov">&#9889; PROVISORIO</span>' +
         dupBadge +
         (dueno
-          ? '<span style="font-size:10px;color:#64748b">Dueno: ' + escapeHtml(dueno) + '</span>'
+          ? '<span style="font-size:10px;color:var(--text-muted)">Dueno: ' +
+            escapeHtml(dueno) +
+            '</span>'
           : '') +
         (tel
-          ? '<span style="font-size:10px;color:#64748b"> &middot; ' + escapeHtml(tel) + '</span>'
+          ? '<span style="font-size:10px;color:var(--text-muted)"> &middot; ' +
+            escapeHtml(tel) +
+            '</span>'
           : '') +
         (cuit
           ? '<span style="font-size:10px;color:#0369a1;font-weight:600"> &middot; CUIT ' +
@@ -1245,10 +1249,14 @@ function renderMcProvisoriosTable() {
         '<div class="mc-meta"><span class="mc-tag prov">&#9889; PROVISORIO</span>' +
         dupBadge +
         (dueno
-          ? '<span style="font-size:10px;color:#64748b">Dueno: ' + escapeHtml(dueno) + '</span>'
+          ? '<span style="font-size:10px;color:var(--text-muted)">Dueno: ' +
+            escapeHtml(dueno) +
+            '</span>'
           : '') +
         (tel
-          ? '<span style="font-size:10px;color:#64748b"> &middot; ' + escapeHtml(tel) + '</span>'
+          ? '<span style="font-size:10px;color:var(--text-muted)"> &middot; ' +
+            escapeHtml(tel) +
+            '</span>'
           : '') +
         (cuit
           ? '<span style="font-size:10px;color:#0369a1;font-weight:600"> &middot; CUIT ' +
@@ -1355,7 +1363,7 @@ function renderMcProvisoriosTable() {
       vendSel +=
         '</optgroup></select>' +
         (owner
-          ? '<div style="font-size:10px;color:#64748b;margin-top:4px">Alta: ' +
+          ? '<div style="font-size:10px;color:var(--text-muted);margin-top:4px">Alta: ' +
             escapeHtml(owner) +
             '</div>'
           : '') +
@@ -1363,15 +1371,19 @@ function renderMcProvisoriosTable() {
       html += vendSel;
     } else {
       html +=
-        '<td><div style="font-weight:700;color:#334155">' +
+        '<td><div style="font-weight:700;color:var(--text-secondary)">' +
         escapeHtml(vendLabel) +
         '</div>' +
-        (owner ? '<div style="font-size:10px;color:#64748b">' + escapeHtml(owner) + '</div>' : '') +
+        (owner
+          ? '<div style="font-size:10px;color:var(--text-muted)">' + escapeHtml(owner) + '</div>'
+          : '') +
         '</td>';
     }
     html +=
-      '<td style="font-size:11px;color:#334155">' + escapeHtml(dir || '(sin direccion)') + '</td>';
-    html += '<td style="font-size:11px;color:#64748b">' + fecha + '</td>';
+      '<td style="font-size:11px;color:var(--text-secondary)">' +
+      escapeHtml(dir || '(sin direccion)') +
+      '</td>';
+    html += '<td style="font-size:11px;color:var(--text-muted)">' + fecha + '</td>';
     if (userRole === 'admin') {
       html +=
         '<td>' +
@@ -1383,14 +1395,14 @@ function renderMcProvisoriosTable() {
         '\')">&#128279; Vincular con SAP</button>' +
         '</td>';
     } else {
-      html += '<td style="font-size:10px;color:#94a3b8;text-align:center">(admin)</td>';
+      html += '<td style="font-size:10px;color:var(--text-muted);text-align:center">(admin)</td>';
     }
     html += '</tr>';
   });
   html += '</tbody></table>';
   if (items.length > MAX)
     html +=
-      '<div style="text-align:center;color:#94a3b8;font-size:11px;padding:12px">Mostrando ' +
+      '<div style="text-align:center;color:var(--text-muted);font-size:11px;padding:12px">Mostrando ' +
       MAX +
       ' de ' +
       items.length +
@@ -1639,7 +1651,11 @@ window.openVincularSapModal = function (fsId) {
       ' / ' +
       escapeHtml(prov) +
       (cuit ? ' &middot; CUIT ' + escapeHtml(cuit) : '') +
-      (dir ? '<br><span style="font-size:11px;color:#92400e">' + escapeHtml(dir) + '</span>' : '');
+      (dir
+        ? '<br><span style="font-size:11px;color:var(--color-warning)">' +
+          escapeHtml(dir) +
+          '</span>'
+        : '');
   }
   const search = document.getElementById('vsm-search');
   if (search) {
@@ -1700,7 +1716,7 @@ window.renderVincularSapList = function () {
   if (cntEl) cntEl.textContent = filtered.length + ' de ' + bps.length + ' BPs SAP';
   if (!filtered.length) {
     listEl.innerHTML =
-      '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:12px">' +
+      '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">' +
       (bps.length === 0
         ? 'No hay BPs SAP sincronizados todavia. Cargalo primero en SAP y espera al proximo sync (cada 30 min).'
         : 'Ningun BP SAP coincide con la busqueda.') +
@@ -1733,11 +1749,11 @@ window.renderVincularSapList = function () {
       ';cursor:pointer">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
       '<div style="flex:1;min-width:0">' +
-      '<div style="font-weight:700;color:#0f172a;font-size:12.5px">' +
+      '<div style="font-weight:700;color:var(--text-primary);font-size:12.5px">' +
       escapeHtml(nombre) +
       cuitMatchBadge +
       '</div>' +
-      '<div style="font-size:10.5px;color:#64748b;margin-top:2px">' +
+      '<div style="font-size:10.5px;color:var(--text-muted);margin-top:2px">' +
       '<span style="background:#dbeafe;color:#1e3a8a;padding:1px 5px;border-radius:3px;font-weight:600">SAP ' +
       escapeHtml(cc) +
       '</span> ' +
@@ -1755,7 +1771,7 @@ window.renderVincularSapList = function () {
   });
   if (filtered.length > MAX) {
     html +=
-      '<div style="padding:10px;text-align:center;color:#94a3b8;font-size:10px">Mostrando ' +
+      '<div style="padding:10px;text-align:center;color:var(--text-muted);font-size:10px">Mostrando ' +
       MAX +
       ' de ' +
       filtered.length +
@@ -1961,7 +1977,7 @@ window.renderMasterClientesTable = function () {
     entries.length +
     '</span>' +
     (Object.keys(mcPendingChanges).length
-      ? '<span style="background:#fef3c7;color:#92400e;border-color:#fde68a">Cambios sin guardar: ' +
+      ? '<span style="background:var(--color-warning-bg);color:var(--color-warning);border-color:#fde68a">Cambios sin guardar: ' +
         Object.keys(mcPendingChanges).length +
         '</span>'
       : '');
@@ -2100,7 +2116,7 @@ window.renderMasterClientesTable = function () {
     const displayName = _customName || e.nombre;
     const renamedHint =
       _customName && _customName !== e.nombre
-        ? '<div style="font-size:9px;color:#94a3b8;font-weight:500" title="Nombre original">orig: ' +
+        ? '<div style="font-size:9px;color:var(--text-muted);font-weight:500" title="Nombre original">orig: ' +
           escapeHtml(e.nombre) +
           '</div>'
         : '';
@@ -2136,7 +2152,7 @@ window.renderMasterClientesTable = function () {
       }
     }
     const dupBadgeV = dupSapV
-      ? ' <span style="background:#dc2626;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;margin-left:6px" title="POSIBLE DUPLICADO SAP: ' +
+      ? ' <span style="background:var(--color-danger);color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;margin-left:6px" title="POSIBLE DUPLICADO SAP: ' +
         escapeAttr(dupSapV.comercio || dupSapV.fantasia || '?') +
         ' (' +
         escapeAttr(dupSapV.cardCodeSap || '') +
@@ -2144,7 +2160,9 @@ window.renderMasterClientesTable = function () {
         escapeHtml(dupSapV.cardCodeSap || '') +
         '</span>'
       : '';
-    const rowStyleV = dupSapV ? ' style="background:#fee2e2;border-left:4px solid #dc2626"' : '';
+    const rowStyleV = dupSapV
+      ? ' style="background:var(--color-danger-bg);border-left:4px solid var(--color-danger)"'
+      : '';
     let tagHtml;
     if (isSap) {
       if (e.sapCardCode) {
@@ -2154,7 +2172,7 @@ window.renderMasterClientesTable = function () {
           '</span>';
       } else {
         tagHtml =
-          '<span class="mc-tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d">&#9889; PROVISORIO</span>' +
+          '<span class="mc-tag" style="background:var(--color-warning-bg);color:var(--color-warning);border:1px solid #fcd34d">&#9889; PROVISORIO</span>' +
           dupBadgeV;
       }
     } else {
@@ -2175,7 +2193,7 @@ window.renderMasterClientesTable = function () {
       const safeFsId = escapeAttr(e.sapFsId || '');
       html +=
         '<td>' +
-        '<input type="text" class="mc-addr-input has-value" style="font-weight:800;font-size:12.5px;color:#0f172a" ' +
+        '<input type="text" class="mc-addr-input has-value" style="font-weight:800;font-size:12.5px;color:var(--text-primary)" ' +
         'value="' +
         escapeAttr(displayName) +
         '" ' +
@@ -2366,13 +2384,13 @@ window.renderMasterClientesTable = function () {
       JSON.stringify(e.nombre).replace(/"/g, '&quot;') +
       ",'" +
       escapeAttr(isSap ? e.sapFsId : '') +
-      '\')" style="background:#dc2626;color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px" title="Eliminar tienda">&#128465;</button></div></td>';
+      '\')" style="background:var(--color-danger);color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px" title="Eliminar tienda">&#128465;</button></div></td>';
     html += '</tr>';
   });
   html += '</tbody></table>';
   if (entries.length > MAX)
     html +=
-      '<div style="text-align:center;color:#94a3b8;font-size:11px;padding:12px">Mostrando ' +
+      '<div style="text-align:center;color:var(--text-muted);font-size:11px;padding:12px">Mostrando ' +
       MAX +
       ' de ' +
       entries.length +
@@ -2448,7 +2466,8 @@ window.saveClientCategoriaFromModal = async function (fieldName, sel) {
     update[fieldName] = newVal;
     await fbDb.collection('client_master').doc(docId).set(update, { merge: true });
     if (status) {
-      status.innerHTML = '<span style="color:#166534">&#10003; Categorizacion guardada</span>';
+      status.innerHTML =
+        '<span style="color:var(--color-success)">&#10003; Categorizacion guardada</span>';
       setTimeout(() => {
         if (status.innerHTML.indexOf('Categorizacion') >= 0) status.innerHTML = '';
       }, 2200);
@@ -2457,7 +2476,7 @@ window.saveClientCategoriaFromModal = async function (fieldName, sel) {
     console.error('saveClientCategoriaFromModal', e);
     if (status)
       status.innerHTML =
-        '<span style="color:#991b1b">Error guardando: ' +
+        '<span style="color:var(--color-danger-strong)">Error guardando: ' +
         escapeHtml(e.message || String(e)) +
         '</span>';
     const cmData = clientMasterCache.get(docId) || {};

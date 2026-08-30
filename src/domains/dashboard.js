@@ -366,7 +366,7 @@ window.renderDashboard = function () {
         ? 'Vista viewer'
         : 'Tus pedidos confirmados';
   html +=
-    '<div style="font-size:11px;color:#64748b;margin-bottom:10px"><b style="color:#0f172a">' +
+    '<div style="font-size:11px;color:var(--text-muted);margin-bottom:10px"><b style="color:var(--text-primary)">' +
     escapeHtml(helloName) +
     '</b> &middot; ' +
     scopeLabel +
@@ -389,7 +389,7 @@ window.renderDashboard = function () {
     html +=
       '<label style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#075985;display:block;margin-bottom:4px">Filtrar por vendedor</label>';
     html +=
-      '<select onchange="setDashboardVendor(this.value)" style="width:100%;padding:7px 10px;border:1.5px solid #7dd3fc;border-radius:5px;font-size:12px;font-weight:600;color:#0f172a;outline:none;background:#fff;font-family:inherit">';
+      '<select onchange="setDashboardVendor(this.value)" style="width:100%;padding:7px 10px;border:1.5px solid #7dd3fc;border-radius:5px;font-size:12px;font-weight:600;color:var(--text-primary);outline:none;background:var(--bg-elevated);font-family:inherit">';
     html +=
       '<option value="ALL"' +
       (dashboardVendorFilter === 'ALL' ? ' selected' : '') +
@@ -413,11 +413,11 @@ window.renderDashboard = function () {
 
   // v374+: selector de mes (visible para todos los roles). Rango: mes actual + 11 anteriores.
   html +=
-    '<div class="dash-card" style="background:#fef3c7;border-color:#fcd34d;padding:10px 12px;margin-bottom:10px">';
+    '<div class="dash-card" style="background:var(--color-warning-bg);border-color:#fcd34d;padding:10px 12px;margin-bottom:10px">';
   html +=
     '<label style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#78350f;display:block;margin-bottom:4px">Mes a mostrar (solo afecta al bloque MES)</label>';
   html +=
-    '<select onchange="setDashboardMonth(this.value)" style="width:100%;padding:7px 10px;border:1.5px solid #fcd34d;border-radius:5px;font-size:12px;font-weight:600;color:#0f172a;outline:none;background:#fff;font-family:inherit">';
+    '<select onchange="setDashboardMonth(this.value)" style="width:100%;padding:7px 10px;border:1.5px solid #fcd34d;border-radius:5px;font-size:12px;font-weight:600;color:var(--text-primary);outline:none;background:var(--bg-elevated);font-family:inherit">';
   html +=
     '<option value="current"' +
     (dashboardSelectedMonth == null ? ' selected' : '') +
@@ -611,7 +611,7 @@ window.renderDashboard = function () {
       const rankLabel = '#' + (idx + 1);
       const isLeader = idx === 0 && it.pct != null && it.pct > 0;
       html +=
-        '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;margin-bottom:8px;border-left:4px solid ' +
+        '<div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px;padding:10px 12px;margin-bottom:8px;border-left:4px solid ' +
         ledColor +
         '">';
       html +=
@@ -624,7 +624,7 @@ window.renderDashboard = function () {
         (isLeader ? ' &middot; &#127942; LIDER DEL MES' : '') +
         '</div>';
       html +=
-        '<div style="font-size:13px;font-weight:800;color:#0f172a;margin-top:2px">' +
+        '<div style="font-size:13px;font-weight:800;color:var(--text-primary);margin-top:2px">' +
         it.zone +
         ' &middot; ' +
         escapeHtml(it.label) +
@@ -639,7 +639,7 @@ window.renderDashboard = function () {
           '%</div>';
       } else {
         html +=
-          '<div style="font-size:9px;font-weight:700;color:#94a3b8;background:#f1f5f9;padding:4px 8px;border-radius:4px;align-self:flex-start">SIN TARGET</div>';
+          '<div style="font-size:9px;font-weight:700;color:var(--text-muted);background:var(--bg-muted);padding:4px 8px;border-radius:4px;align-self:flex-start">SIN TARGET</div>';
       }
       html += '</div>';
       if (it.target != null && it.target > 0) {
@@ -651,18 +651,18 @@ window.renderDashboard = function () {
           pctClamp +
           '%"></div></div>';
         html +=
-          '<div style="display:flex;justify-content:space-between;font-size:10px;color:#475569;margin-top:3px;font-weight:600"><span>' +
+          '<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-secondary);margin-top:3px;font-weight:600"><span>' +
           fmtMoney(it.moneyForRank) +
           ' / ' +
           fmtMoney(it.target) +
           '</span>' +
           (it.hasSap
             ? '<span style="color:#0284c7;font-weight:800">SAP</span>'
-            : '<span style="color:#94a3b8">pedidos app</span>') +
+            : '<span style="color:var(--text-muted)">pedidos app</span>') +
           '</div>';
       } else {
         html +=
-          '<div style="font-size:11px;color:#475569;font-weight:600;margin-top:2px">Facturado: <b style="color:#0f172a">' +
+          '<div style="font-size:11px;color:var(--text-secondary);font-weight:600;margin-top:2px">Facturado: <b style="color:var(--text-primary)">' +
           fmtMoney(it.moneyForRank) +
           '</b> ' +
           (it.hasSap
@@ -671,19 +671,19 @@ window.renderDashboard = function () {
           '</div>';
       }
       html +=
-        '<div style="display:flex;gap:14px;margin-top:6px;font-size:10px;color:#64748b;flex-wrap:wrap">';
-      html += '<span><b style="color:#0f172a">' + it.orders + '</b> pedidos app</span>';
+        '<div style="display:flex;gap:14px;margin-top:6px;font-size:10px;color:var(--text-muted);flex-wrap:wrap">';
+      html += '<span><b style="color:var(--text-primary)">' + it.orders + '</b> pedidos app</span>';
       html +=
-        '<span><b style="color:#0f172a">' +
+        '<span><b style="color:var(--text-primary)">' +
         fmtNum(it.hasSap ? it.unidSap : it.units) +
         '</b> uds' +
         (it.hasSap ? ' SAP' : '') +
         '</span>';
-      html += '<span><b style="color:#0f172a">' + it.visits + '</b> visitas</span>';
+      html += '<span><b style="color:var(--text-primary)">' + it.visits + '</b> visitas</span>';
       html += '</div></div>';
     });
     html +=
-      '<div style="font-size:10px;color:#94a3b8;text-align:center;margin-top:8px">Tip: elegí un vendedor en el filtro de arriba para ver su dashboard detallado (target acumulado anual, campañas, etc.)</div>';
+      '<div style="font-size:10px;color:var(--text-muted);text-align:center;margin-top:8px">Tip: elegí un vendedor en el filtro de arriba para ver su dashboard detallado (target acumulado anual, campañas, etc.)</div>';
     html += '</div>';
 
     el.innerHTML = html;
@@ -755,7 +755,7 @@ window.renderDashboard = function () {
       }
       if (ncsSap < 0) {
         html +=
-          '<div style="font-size:11px;color:#78350f;background:#fef3c7;padding:6px 10px;border-radius:4px;margin-top:6px">Incluye ' +
+          '<div style="font-size:11px;color:#78350f;background:var(--color-warning-bg);padding:6px 10px;border-radius:4px;margin-top:6px">Incluye ' +
           sapSnapMes.ncsCount +
           ' nota' +
           (sapSnapMes.ncsCount === 1 ? '' : 's') +
@@ -796,7 +796,7 @@ window.renderDashboard = function () {
   html += '<h4>Campa&ntilde;as activas</h4>';
   if (!activeCamps.length) {
     html +=
-      '<div style="font-size:11px;color:#94a3b8">No hay campa&ntilde;as activas en este momento.</div>';
+      '<div style="font-size:11px;color:var(--text-muted)">No hay campa&ntilde;as activas en este momento.</div>';
   } else {
     activeCamps.forEach((c) => {
       // v532 (2026-08-18): fuente prioritaria = window.CAMPANIA_SNAPSHOT (BQ
@@ -893,7 +893,7 @@ window.renderDashboard = function () {
         '%"></div></div>';
       const badgeSap = usaSap
         ? '<span style="color:#0284c7;font-size:9px;font-weight:800;margin-left:6px">SAP</span>'
-        : '<span style="color:#94a3b8;font-size:9px;font-weight:600;margin-left:6px">pedidos app</span>';
+        : '<span style="color:var(--text-muted);font-size:9px;font-weight:600;margin-left:6px">pedidos app</span>';
       html +=
         '<div class="camp-meta"><span>' +
         progFmt +
@@ -921,7 +921,7 @@ window.getVendorForKey = getVendorForKey;
 function _dashChartBars(entries, colorHex) {
   if (!entries.length) {
     const empty = document.createElement('div');
-    empty.style.cssText = 'padding:20px;text-align:center;color:#94a3b8;font-size:12px';
+    empty.style.cssText = 'padding:20px;text-align:center;color:var(--text-muted);font-size:12px';
     empty.textContent = 'Sin datos.';
     return empty;
   }
@@ -936,16 +936,17 @@ function _dashChartBars(entries, colorHex) {
       'display:grid;grid-template-columns:200px 1fr 90px;gap:8px;align-items:center;font-size:11.5px';
     const lbl = document.createElement('div');
     lbl.style.cssText =
-      'font-weight:700;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      'font-weight:700;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
     lbl.title = e.label;
     lbl.textContent = e.label;
     const barContainer = document.createElement('div');
-    barContainer.style.cssText = 'background:#f1f5f9;border-radius:4px;height:20px;overflow:hidden';
+    barContainer.style.cssText =
+      'background:var(--bg-muted);border-radius:4px;height:20px;overflow:hidden';
     const bar = document.createElement('div');
     bar.style.cssText = 'width:' + pct + '%;height:100%;background:' + clr + ';border-radius:4px';
     barContainer.appendChild(bar);
     const val = document.createElement('div');
-    val.style.cssText = 'text-align:right;font-weight:800;color:#0f172a';
+    val.style.cssText = 'text-align:right;font-weight:800;color:var(--text-primary)';
     val.textContent =
       e.valueLabel != null ? e.valueLabel : Math.round(e.value).toLocaleString('es-AR');
     row.appendChild(lbl);
@@ -984,7 +985,7 @@ function renderDashboardVisuales(el) {
     // window.DASHBOARD_VISUALES y re-renderamos.
     const info = document.createElement('div');
     info.style.cssText =
-      'text-align:center;padding:30px;color:#94a3b8;font-size:12px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:6px';
+      'text-align:center;padding:30px;color:var(--text-muted);font-size:12px;background:var(--bg-secondary);border:1px dashed var(--border-default);border-radius:6px';
     info.textContent = 'Cargando visuales...';
     wrap.appendChild(info);
     el.appendChild(wrap);
@@ -1036,7 +1037,7 @@ function renderDashboardVisuales(el) {
   );
   if (!daily.length) {
     const empty = document.createElement('div');
-    empty.style.cssText = 'padding:20px;text-align:center;color:#94a3b8;font-size:12px';
+    empty.style.cssText = 'padding:20px;text-align:center;color:var(--text-muted);font-size:12px';
     empty.textContent = 'Sin datos diarios.';
     wrap.appendChild(empty);
   } else {
@@ -1112,7 +1113,8 @@ function renderDashboardVisuales(el) {
     });
     wrap.appendChild(svg);
     const totalDiv = document.createElement('div');
-    totalDiv.style.cssText = 'font-size:11px;color:#64748b;margin-top:8px;text-align:right';
+    totalDiv.style.cssText =
+      'font-size:11px;color:var(--text-muted);margin-top:8px;text-align:right';
     const last = pts[pts.length - 1];
     totalDiv.textContent = 'Total acumulado: $' + Math.round(last.val).toLocaleString('es-AR');
     wrap.appendChild(totalDiv);
@@ -1169,7 +1171,7 @@ function renderDashboardVisitas(el) {
   if (_justAttachedVisits && visits.length === 0) {
     const loading = document.createElement('div');
     loading.style.cssText =
-      'text-align:center;padding:20px;color:#94a3b8;font-size:12px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:6px;margin-bottom:12px';
+      'text-align:center;padding:20px;color:var(--text-muted);font-size:12px;background:var(--bg-secondary);border:1px dashed var(--border-default);border-radius:6px;margin-bottom:12px';
     loading.textContent = 'Cargando visitas...';
     wrap.appendChild(loading);
     el.appendChild(wrap);
@@ -1251,7 +1253,7 @@ function renderDashboardFinanzas(el) {
   el.textContent = '';
   const wrap = document.createElement('div');
   wrap.style.cssText =
-    'padding:30px;text-align:center;color:#64748b;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:6px;margin:16px 22px';
+    'padding:30px;text-align:center;color:var(--text-muted);background:var(--bg-secondary);border:1px dashed var(--border-default);border-radius:6px;margin:16px 22px';
   const title = document.createElement('div');
   title.style.cssText = 'font-size:14px;font-weight:800;color:#0c4a6e;margin-bottom:8px';
   title.textContent = 'Panel Finanzas';

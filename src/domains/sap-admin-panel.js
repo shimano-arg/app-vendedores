@@ -169,7 +169,7 @@ function renderSapConfig() {
   if (!body) return;
   if (userRole !== 'admin' && userRole !== 'viewer') {
     body.innerHTML =
-      '<div style="padding:18px;color:#94a3b8;text-align:center">Solo admin/viewer pueden ver la configuracion de la integracion SAP.</div>';
+      '<div style="padding:18px;color:var(--text-muted);text-align:center">Solo admin/viewer pueden ver la configuracion de la integracion SAP.</div>';
     return;
   }
   const isAdmin = userRole === 'admin';
@@ -186,9 +186,9 @@ function renderSapConfig() {
     'Estos valores se aplican al ZIP DTW que se genera desde &laquo;Pendientes&raquo;. Los UDFs <code>U_AppOrigen</code>, <code>U_AppOrderId</code> y <code>U_AppBatchId</code> ya se llenan automaticamente con cada export. Aca solo configuras la <b>serie numerica</b> que cargo Eliana.' +
     '</div>' +
     // --- Series APP ID ---
-    '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px 16px;margin-bottom:14px">' +
-    '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569;margin-bottom:4px">Serie APP en SAP</div>' +
-    '<div style="font-size:11px;color:#64748b;line-height:1.5;margin-bottom:10px">' +
+    '<div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px;padding:14px 16px;margin-bottom:14px">' +
+    '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);margin-bottom:4px">Serie APP en SAP</div>' +
+    '<div style="font-size:11px;color:var(--text-muted);line-height:1.5;margin-bottom:10px">' +
     'Pedile a Eliana el <b>ID numerico</b> de la serie "APP" que creo para los pedidos importados desde la app (no el nombre &laquo;APP&raquo;, el numero/codigo asignado en la tabla NNM1). Si lo dejas vacio, DTW va a usar la serie default del usuario que importa.' +
     '</div>' +
     '<div class="sap-series-row" style="display:flex;gap:8px;align-items:center">' +
@@ -196,23 +196,23 @@ function renderSapConfig() {
     escapeAttr(seriesId) +
     '" ' +
     (isAdmin ? '' : 'disabled') +
-    ' style="flex:1;padding:9px 12px;border:1.5px solid #cbd5e1;border-radius:6px;font-family:Consolas,monospace;font-size:14px;font-weight:700;color:#0c4a6e"/>' +
+    ' style="flex:1;padding:9px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-family:Consolas,monospace;font-size:14px;font-weight:700;color:#0c4a6e"/>' +
     (isAdmin
       ? '<button class="app-btn-pill app-btn-cyan sap-series-save-btn" onclick="saveSapAppSeries()">Guardar</button>'
       : '') +
     '</div>' +
     (updatedAt
-      ? '<div style="margin-top:8px;font-size:10px;color:#94a3b8">Ultimo cambio: ' +
+      ? '<div style="margin-top:8px;font-size:10px;color:var(--text-muted)">Ultimo cambio: ' +
         escapeHtml(updatedAt) +
         ' por ' +
         escapeHtml(updatedBy) +
         '</div>'
-      : '<div style="margin-top:8px;font-size:10px;color:#94a3b8;font-style:italic">Sin configurar todavia.</div>') +
+      : '<div style="margin-top:8px;font-size:10px;color:var(--text-muted);font-style:italic">Sin configurar todavia.</div>') +
     '</div>' +
     // --- Auto-envio via Service Layer ---
-    '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px 16px;margin-bottom:14px">' +
-    '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569;margin-bottom:4px">Auto-envio a SAP via Service Layer</div>' +
-    '<div style="font-size:11px;color:#64748b;line-height:1.5;margin-bottom:10px">' +
+    '<div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px;padding:14px 16px;margin-bottom:14px">' +
+    '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);margin-bottom:4px">Auto-envio a SAP via Service Layer</div>' +
+    '<div style="font-size:11px;color:var(--text-muted);line-height:1.5;margin-bottom:10px">' +
     'Si esta tildado, cada pedido que un vendedor <b>CONFIRMA</b> se manda automaticamente a SAP como Sales Quotation - sin tener que ir a Pendientes y tildar manualmente. <br><br>' +
     '<b>Requisitos para que funcione:</b><br>' +
     '&bull; Service Layer habilitado y conectado (tab anterior).<br>' +
@@ -222,7 +222,7 @@ function renderSapConfig() {
     '</div>' +
     '<label style="display:flex;align-items:center;gap:10px;cursor:' +
     (isAdmin ? 'pointer' : 'not-allowed') +
-    ';font-size:12px;font-weight:700;color:#0f172a">' +
+    ';font-size:12px;font-weight:700;color:var(--text-primary)">' +
     '<input type="checkbox" id="sap-auto-send-input" ' +
     (autoSendSL ? 'checked' : '') +
     ' ' +
@@ -236,12 +236,12 @@ function renderSapConfig() {
     '</label>' +
     '</div>' +
     // --- Constantes ---
-    '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px 16px;margin-bottom:14px">' +
-    '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569;margin-bottom:8px">UDFs que se completan automaticamente</div>' +
+    '<div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px;padding:14px 16px;margin-bottom:14px">' +
+    '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);margin-bottom:8px">UDFs que se completan automaticamente</div>' +
     '<table style="width:100%;font-size:11px;border-collapse:collapse">' +
-    '<tr style="background:#f8fafc"><td style="padding:7px 10px;font-family:Consolas,monospace;font-weight:700;color:#5b21b6;border-bottom:1px solid #e2e8f0">U_AppOrigen</td><td style="padding:7px 10px;border-bottom:1px solid #e2e8f0">Constante: <code>SHIMANO_APP_VENDEDORES</code></td></tr>' +
-    '<tr><td style="padding:7px 10px;font-family:Consolas,monospace;font-weight:700;color:#5b21b6;border-bottom:1px solid #e2e8f0">U_AppOrderId</td><td style="padding:7px 10px;border-bottom:1px solid #e2e8f0">ID Firestore del pedido (~28 chars). Tambien se copia a <code>NumAtCard</code> como backup legible.</td></tr>' +
-    '<tr style="background:#f8fafc"><td style="padding:7px 10px;font-family:Consolas,monospace;font-weight:700;color:#5b21b6">U_AppBatchId</td><td style="padding:7px 10px">ID unico del lote de export: <code>BATCH-YYYYMMDD-HHMMSS-XXXX</code>. Todos los pedidos de un mismo ZIP comparten este ID.</td></tr>' +
+    '<tr style="background:var(--bg-secondary)"><td style="padding:7px 10px;font-family:Consolas,monospace;font-weight:700;color:var(--color-accent-violet);border-bottom:1px solid var(--border-subtle)">U_AppOrigen</td><td style="padding:7px 10px;border-bottom:1px solid var(--border-subtle)">Constante: <code>SHIMANO_APP_VENDEDORES</code></td></tr>' +
+    '<tr><td style="padding:7px 10px;font-family:Consolas,monospace;font-weight:700;color:var(--color-accent-violet);border-bottom:1px solid var(--border-subtle)">U_AppOrderId</td><td style="padding:7px 10px;border-bottom:1px solid var(--border-subtle)">ID Firestore del pedido (~28 chars). Tambien se copia a <code>NumAtCard</code> como backup legible.</td></tr>' +
+    '<tr style="background:var(--bg-secondary)"><td style="padding:7px 10px;font-family:Consolas,monospace;font-weight:700;color:var(--color-accent-violet)">U_AppBatchId</td><td style="padding:7px 10px">ID unico del lote de export: <code>BATCH-YYYYMMDD-HHMMSS-XXXX</code>. Todos los pedidos de un mismo ZIP comparten este ID.</td></tr>' +
     '</table>' +
     '</div>' +
     // --- Sincronizar catalogo de productos desde SAP ---
@@ -251,7 +251,7 @@ function renderSapConfig() {
       let catalogInfo = '';
       if (typeof _lastAppliedCatalogBatch !== 'undefined' && _lastAppliedCatalogBatch) {
         catalogInfo =
-          '<b style="color:#166534">&#10003; Catalogo sincronizado</b> - ' +
+          '<b style="color:var(--color-success)">&#10003; Catalogo sincronizado</b> - ' +
           (PRODUCTS ? PRODUCTS.length.toLocaleString('es-AR') : 0) +
           ' SKUs en memoria. Ultimo batch: <code>' +
           escapeHtml(String(_lastAppliedCatalogBatch)) +
@@ -263,22 +263,22 @@ function renderSapConfig() {
           ' SKUs).';
       }
       return (
-        '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:14px 16px;margin-bottom:14px">' +
-        '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#475569;margin-bottom:4px">Catalogo de productos</div>' +
-        '<div style="font-size:11px;color:#64748b;line-height:1.5;margin-bottom:10px">' +
+        '<div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px;padding:14px 16px;margin-bottom:14px">' +
+        '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);margin-bottom:4px">Catalogo de productos</div>' +
+        '<div style="font-size:11px;color:var(--text-muted);line-height:1.5;margin-bottom:10px">' +
         'Descarga TODOS los items activos del maestro de articulos de SAP (Ventas &gt; Datos Maestros &gt; Articulos) y los guarda en Firestore. La app usa este catalogo en el picker de productos al crear pedidos. Corre cuando cargan articulos nuevos en SAP.' +
         '</div>' +
-        '<div id="sap-catalog-status" style="font-size:11px;color:#64748b;margin-bottom:10px">' +
+        '<div id="sap-catalog-status" style="font-size:11px;color:var(--text-muted);margin-bottom:10px">' +
         catalogInfo +
         '</div>' +
         (isAdmin
           ? '<button class="app-btn-pill" style="background:#0d9488;color:#fff;padding:10px 18px;border:none;border-radius:6px;cursor:pointer;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:11px" onclick="syncSapCatalog()">&#128260; Sincronizar catalogo desde SAP</button>'
-          : '<div style="font-size:11px;color:#94a3b8">Solo admin puede sincronizar</div>') +
+          : '<div style="font-size:11px;color:var(--text-muted)">Solo admin puede sincronizar</div>') +
         '</div>'
       );
     })() +
     // --- Estado integracion ---
-    '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px 14px;font-size:11px;color:#15803d;line-height:1.6">' +
+    '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px 14px;font-size:11px;color:var(--color-success);line-height:1.6">' +
     '<b>Checklist integracion SAP</b><br>' +
     '&#10003; UDFs creados en ORDR por Eliana (' +
     (Object.keys(cfg).length ? '11/06/2026' : '11/06/2026') +
@@ -600,7 +600,7 @@ function renderSapServiceLayer() {
   if (!body) return;
   const cfg = sapSL.loadConfig();
   const enabled = !!cfg.enabled;
-  let h = '<div style="padding:18px 22px;font-size:13px;color:#0f172a">';
+  let h = '<div style="padding:18px 22px;font-size:13px;color:var(--text-primary)">';
   h +=
     '<div style="background:#dbeafe;border:1px solid #93c5fd;border-radius:8px;padding:14px;margin-bottom:18px;font-size:12px;color:#1e3a8a;line-height:1.6">';
   h += '<b>&#128279; Que es el Service Layer?</b><br>';
@@ -634,42 +634,42 @@ function renderSapServiceLayer() {
   h += '</div>';
   // Form de configuracion
   h +=
-    '<h4 style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#475569;margin:18px 0 10px">Datos de conexion</h4>';
+    '<h4 style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);margin:18px 0 10px">Datos de conexion</h4>';
   h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
   h +=
-    '<div><label style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">URL del Service Layer</label>';
+    '<div><label style="font-size:11px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:4px">URL del Service Layer</label>';
   h +=
     '<input id="sl-url" type="text" placeholder="https://shimano-sap.seidor.com.ar:50000" value="' +
     escapeAttr(cfg.url || 'https://shimano-sap.seidor.com.ar:50000') +
-    '" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px;font-family:Consolas,monospace"/></div>';
+    '" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:5px;font-size:12px;font-family:Consolas,monospace"/></div>';
   h +=
-    '<div><label style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Company DB</label>';
+    '<div><label style="font-size:11px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:4px">Company DB</label>';
   h +=
     '<input id="sl-company" type="text" placeholder="SHIMANO_SAU" value="' +
     escapeAttr(cfg.companyDB || 'SHIMANO_SAU') +
-    '" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px;font-family:Consolas,monospace"/></div>';
+    '" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:5px;font-size:12px;font-family:Consolas,monospace"/></div>';
   h +=
-    '<div><label style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Usuario (UserName)</label>';
+    '<div><label style="font-size:11px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:4px">Usuario (UserName)</label>';
   h +=
     '<input id="sl-user" type="text" placeholder="APP_VENDEDORES" value="' +
     escapeAttr(cfg.username) +
-    '" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:12px;font-family:Consolas,monospace"/></div>';
+    '" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:5px;font-size:12px;font-family:Consolas,monospace"/></div>';
   h +=
-    '<div><label style="font-size:11px;font-weight:700;color:#475569;display:block;margin-bottom:4px">Password</label>';
+    '<div><label style="font-size:11px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:4px">Password</label>';
   h +=
-    '<div style="width:100%;padding:8px 10px;border:1.5px dashed #cbd5e1;border-radius:5px;font-size:11px;color:#64748b;background:#f8fafc">&#128274; Gestionada por Secret Manager (server-side, no editable)</div></div>';
+    '<div style="width:100%;padding:8px 10px;border:1.5px dashed var(--border-default);border-radius:5px;font-size:11px;color:var(--text-muted);background:var(--bg-secondary)">&#128274; Gestionada por Secret Manager (server-side, no editable)</div></div>';
   h += '</div>';
   h +=
-    '<div style="font-size:10px;color:#94a3b8;margin-top:8px"><b>Seguridad (v690):</b> la password vive SOLO en Secret Manager server-side (Cloud Function sapProxy). El input password fue removido: cualquier save de config borra el campo password del doc Firestore automaticamente (defensa en profundidad). Rotacion: Firebase Console > Secret Manager > SAP_SL_PASSWORD.</div>';
+    '<div style="font-size:10px;color:var(--text-muted);margin-top:8px"><b>Seguridad (v690):</b> la password vive SOLO en Secret Manager server-side (Cloud Function sapProxy). El input password fue removido: cualquier save de config borra el campo password del doc Firestore automaticamente (defensa en profundidad). Rotacion: Firebase Console > Secret Manager > SAP_SL_PASSWORD.</div>';
   // Botones - clase sl-actions para poder aplicar media query mobile
   // (all 100% width + apilados) sin tocar el desktop.
   h += '<div class="sl-actions" style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">';
   h +=
     '<button class="sap-btn primary" style="background:#0284c7" onclick="saveSlConfig()">&#128190; Guardar configuracion</button>';
   h +=
-    '<button class="sap-btn" style="background:#fff;border:1.5px solid #cbd5e1;color:#475569" onclick="testSlConnection()">&#128268; Probar conexion (sapProxy)</button>';
+    '<button class="sap-btn" style="background:var(--bg-elevated);border:1.5px solid var(--border-default);color:var(--text-secondary)" onclick="testSlConnection()">&#128268; Probar conexion (sapProxy)</button>';
   h +=
-    '<button class="sap-btn" style="background:#fff;border:1.5px solid #cbd5e1;color:#475569" onclick="testSlStock()">&#128230; Probar stock SKU prueba</button>';
+    '<button class="sap-btn" style="background:var(--bg-elevated);border:1.5px solid var(--border-default);color:var(--text-secondary)" onclick="testSlStock()">&#128230; Probar stock SKU prueba</button>';
   h += '</div>';
   h += '<div id="sl-test-result" style="margin-top:14px"></div>';
   body.innerHTML = h;
@@ -728,9 +728,9 @@ window.testSlConnection = async function () {
   const cause =
     '&middot; sapProxy CF caida (chequear Firebase Console > Functions logs).<br>&middot; Secret Manager SAP_SL_PASSWORD rotado sin actualizar CF.<br>&middot; SL server SAP down.<br>&middot; IP CF fuera del whitelist SAP.';
   const okHtml =
-    '<div style="background:#dcfce7;border:1.5px solid #86efac;color:#166534;border-radius:5px;padding:12px;font-size:12px"><b>&#10003; SAP OK via sapProxy</b><br>Endpoint SL respondio correctamente. La app puede sincronizar stock, catalogo y enviar pedidos.</div>';
+    '<div style="background:var(--color-success-bg);border:1.5px solid #86efac;color:var(--color-success);border-radius:5px;padding:12px;font-size:12px"><b>&#10003; SAP OK via sapProxy</b><br>Endpoint SL respondio correctamente. La app puede sincronizar stock, catalogo y enviar pedidos.</div>';
   const errHtml =
-    '<div style="background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:5px;padding:12px;font-size:12px"><b>&#10006; Error SAP</b><br>' +
+    '<div style="background:var(--color-danger-bg);border:1.5px solid #fca5a5;color:var(--color-danger-strong);border-radius:5px;padding:12px;font-size:12px"><b>&#10006; Error SAP</b><br>' +
     escapeHtml(r.error || 'desconocido') +
     '<br><br><b>Causas frecuentes:</b><br>' +
     cause +
@@ -757,16 +757,18 @@ window.testSlStock = async function () {
         .join(' &middot; ');
       if (rows)
         breakdown =
-          '<br><small style="color:#166534">Desglose (whs con stock): ' + rows + '</small>';
+          '<br><small style="color:var(--color-success)">Desglose (whs con stock): ' +
+          rows +
+          '</small>';
       const excl = Object.entries(r.byWhs).filter(([w, q]) => q > 0 && !sapSL._isSalesWarehouse(w));
       if (excl.length)
         breakdown +=
-          '<br><small style="color:#92400e">Excluidos (Marketing/Devoluciones): ' +
+          '<br><small style="color:var(--color-warning)">Excluidos (Marketing/Devoluciones): ' +
           excl.map(([w, q]) => 'W' + w + ': ' + q).join(' &middot; ') +
           '</small>';
     }
     out.innerHTML =
-      '<div style="background:#dcfce7;border:1.5px solid #86efac;color:#166534;border-radius:5px;padding:12px;font-size:13px"><b>&#10003; Stock obtenido</b><br>SKU: <code>' +
+      '<div style="background:var(--color-success-bg);border:1.5px solid #86efac;color:var(--color-success);border-radius:5px;padding:12px;font-size:13px"><b>&#10003; Stock obtenido</b><br>SKU: <code>' +
       escapeHtml(sku) +
       '</code><br>Total vendible: <b>' +
       r.qty +
@@ -775,7 +777,7 @@ window.testSlStock = async function () {
       '</div>';
   } else {
     out.innerHTML =
-      '<div style="background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:5px;padding:12px;font-size:12px"><b>&#10006; Error consultando stock</b><br>' +
+      '<div style="background:var(--color-danger-bg);border:1.5px solid #fca5a5;color:var(--color-danger-strong);border-radius:5px;padding:12px;font-size:12px"><b>&#10006; Error consultando stock</b><br>' +
       escapeHtml(r.error || 'desconocido') +
       '</div>';
   }
@@ -1163,7 +1165,7 @@ function renderSapPedidos() {
       ' con CardCode asignado</span></div>';
     if (!listos.length) {
       html +=
-        '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:18px">Ningun pedido listo todavia. Asigna codigos SAP a las tiendas en la seccion de abajo y van a aparecer aca automaticamente.</div>';
+        '<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:18px">Ningun pedido listo todavia. Asigna codigos SAP a las tiendas en la seccion de abajo y van a aparecer aca automaticamente.</div>';
     } else {
       listos.forEach((p) => {
         html += renderPedidoCard(p, 'listo');
@@ -1182,7 +1184,7 @@ function renderSapPedidos() {
       ' sin CardCode</span></div>';
     if (!bloqueados.length) {
       html +=
-        '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:18px">No hay tiendas pendientes de alta. Todo cliente con pedido confirmado ya tiene CardCode asignado.</div>';
+        '<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:18px">No hay tiendas pendientes de alta. Todo cliente con pedido confirmado ya tiene CardCode asignado.</div>';
     } else {
       Object.values(bloqueadosByTienda)
         .sort((a, b) => b.pedidos.length - a.pedidos.length)
@@ -1193,7 +1195,7 @@ function renderSapPedidos() {
   } else {
     if (!matching.length) {
       html +=
-        '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:30px">Aun no hay pedidos transferidos a SAP.</div>';
+        '<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:30px">Aun no hay pedidos transferidos a SAP.</div>';
     } else {
       matching.forEach((p) => {
         html += renderPedidoCard(p, 'transferido');
