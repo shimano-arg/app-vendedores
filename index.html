@@ -371,6 +371,184 @@ body, .modal-box, .modal-overlay, .header, .controls, input, select, textarea, b
 [data-theme="dark"] .btn-confirm { background: var(--color-success) !important; color: #fff !important; }
 [data-theme="dark"] .danger-btn { background: var(--color-danger) !important; color: #fff !important; }
 
+/* v741: pass masivo - CSS classes con hardcoded light bg no cubiertas antes.
+   Grep de audit encontro 100+ clases. Estas son las mas visibles/usadas
+   agrupadas por prefijo semantico. Todas mapean a bg-elevated + text-primary
+   + border-default con !important para pisar la definicion base. */
+
+/* Header base (bg:#fff hardcoded a nivel de class, no inline) */
+[data-theme="dark"] .header {
+  background: linear-gradient(135deg, #1e293b, #334155) !important;
+  color: var(--text-primary) !important;
+  border-bottom-color: var(--border-default) !important;
+}
+
+/* Auth/login screens (auth-overlay + password gate) */
+[data-theme="dark"] .auth-box,
+[data-theme="dark"] .auth-btn,
+[data-theme="dark"] .auth-logo,
+[data-theme="dark"] .password-gate-box,
+[data-theme="dark"] .password-gate-logo {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+
+/* Rutas panel cards */
+[data-theme="dark"] .ruta-card,
+[data-theme="dark"] .ruta-tienda,
+[data-theme="dark"] .ruta-status,
+[data-theme="dark"] .ruta-progress-bar {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+
+/* Custom confirm modals (qmodal) */
+[data-theme="dark"] .qmodal-box,
+[data-theme="dark"] .qmodal-opt {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+[data-theme="dark"] .qmodal-foot {
+  background: var(--bg-secondary) !important;
+  border-top-color: var(--border-default) !important;
+}
+
+/* Alta clientes (.ac-* prefix) */
+[data-theme="dark"] .ac-subtab-btn,
+[data-theme="dark"] .ac-app-card,
+[data-theme="dark"] .ac-section-title,
+[data-theme="dark"] .ac-row input,
+[data-theme="dark"] .ac-row select,
+[data-theme="dark"] .ac-row textarea {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+[data-theme="dark"] .ac-subtab-btn.active {
+  background: var(--bg-secondary) !important;
+  color: var(--brand-shimano-blue) !important;
+}
+
+/* Rendiciones (.rd-* prefix) */
+[data-theme="dark"] .rd-subtab-btn,
+[data-theme="dark"] .rd-mias-card {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+
+/* Notificaciones panel */
+[data-theme="dark"] .notif-item {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+
+/* Client contact modal (.ccm-* prefix) */
+[data-theme="dark"] .ccm-opt,
+[data-theme="dark"] .ccm-opt-icon {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+
+/* Client detail sections (cv-, cu-, cr-) */
+[data-theme="dark"] .cv-section,
+[data-theme="dark"] .cu-pedido,
+[data-theme="dark"] .cr-product {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+
+/* SAP + Master Clientes inputs */
+[data-theme="dark"] .sap-input,
+[data-theme="dark"] .sap-int-col,
+[data-theme="dark"] .sap-int-file-info,
+[data-theme="dark"] .mc-addr-input,
+[data-theme="dark"] .mc-prov-count {
+  background: var(--bg-input) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+
+/* Sync tag (toast bottom-right que muestra "Conectado a la nube") */
+[data-theme="dark"] .sync-tag {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+
+/* Splash screen bg (starts white, transitions out). Dejamos que quede light
+   porque el splash es 3.2s y despues se hace fade-out - forzar dark hace
+   flash weird. Mantiene el logo Shimano visible. */
+[data-theme="dark"] #splash {
+  background: var(--bg-elevated) !important;
+}
+
+/* Auth overlay backdrop (behind login) */
+[data-theme="dark"] #auth-overlay {
+  background: var(--bg-base) !important;
+}
+
+/* Waitlist cards (los cards visibles del sidebar-left "PEDIDOS EN ESPERA")
+   por si el selector generico [class*="waitlist"] no matchee (el .revision-item
+   es la clase real de esos cards, verificar). */
+[data-theme="dark"] .revision-item,
+[data-theme="dark"] .wl-card,
+[data-theme="dark"] [class*="wl-"] {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+
+/* Product picker modal (buscador de SKUs) */
+[data-theme="dark"] .pp-item,
+[data-theme="dark"] .pp-list,
+[data-theme="dark"] .pp-search,
+[data-theme="dark"] [class*="pp-"] {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+
+/* Panel de Control (Mariano-only, importante que se vea OK) */
+[data-theme="dark"] .pc-card,
+[data-theme="dark"] .pc-widget,
+[data-theme="dark"] [class*="pc-"] {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+
+/* Any label element (formularios) */
+[data-theme="dark"] label {
+  color: var(--text-secondary) !important;
+}
+
+/* Tables genericas fuera de .users-table */
+[data-theme="dark"] table th {
+  background: var(--bg-secondary) !important;
+  color: var(--text-secondary) !important;
+  border-color: var(--border-default) !important;
+}
+[data-theme="dark"] table td {
+  color: var(--text-primary) !important;
+  border-color: var(--border-subtle) !important;
+}
+
+/* Hover states genericos para elementos que ahora son dark */
+[data-theme="dark"] .exp-opt:hover,
+[data-theme="dark"] .ccm-opt:hover,
+[data-theme="dark"] .ruta-card:hover,
+[data-theme="dark"] .notif-item:hover {
+  background: var(--bg-muted) !important;
+  border-color: var(--border-strong) !important;
+}
+
 /* ========================================================================
    FIN DARK MODE block
    ======================================================================== */
@@ -4628,7 +4806,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v740';
+const APP_VERSION = 'v741';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
