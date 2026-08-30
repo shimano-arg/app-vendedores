@@ -35,10 +35,13 @@ describe('artifacts en repo root', () => {
     // Pre-E2: ~44 KB. Post-E2 completo: 2.23 MB (bundle único).
     // Post-E3 (3 chunks lazy): shell 1.89 MB + 3 chunks 358 KB total.
     // Reducción del shell: ~15% en E3 fase 1. Chunks futuros reducirán más.
-    // Techo 2.5 MB deja margen para dominios que aún no fueron split.
+    // v732 (2026-08-29): techo subido 2.5 MB -> 3 MB. 3 nuevos schemas ML
+    // (sap_snapshot + facturacion_snapshot + backorder_snapshot) pusieron
+    // el bundle a 2.5 MB. Manteniendo la practica establecida en CLAUDE.md
+    // rule #16: subir el ceiling cuando la extraccion legitima lo requiere.
     const size = statSync(BUNDLE).size;
     expect(size).toBeGreaterThan(20_000);
-    expect(size).toBeLessThan(2_500_000);
+    expect(size).toBeLessThan(3_000_000);
   });
 
   it('E3: chunks/*.js existen y cada uno < 400 KB (assert del plan)', () => {
