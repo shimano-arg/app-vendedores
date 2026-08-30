@@ -4491,7 +4491,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v738';
+const APP_VERSION = 'v739';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -22688,6 +22688,14 @@ function attachFirebaseListeners(){
         tipo: d.tipo, province: d.province, locName: d.locName, clientName: d.clientName,
         month: d.month, monthIdx: d.monthIdx, year: d.year,
         confirmedAt: d.confirmedAt, finalizedAt: d.finalizedAt || null,
+        // v739 (2026-08-30): agregados a la proyeccion para que exportBackorderAll
+        // y exportStockAsigAll (v737) puedan leerlos. Antes daban vacio los
+        // campos Fecha_Pedido/CardCode/Vendedor porque no estaban en la copia.
+        createdAt: d.createdAt || null,
+        clientCardCode: d.clientCardCode || '',
+        ownerVendor: d.ownerVendor || '',
+        closedAt: d.closedAt || null,
+        migrationSource: d.migrationSource || null,
         lines: d.lines || [],
         transferidoSAP: d.transferidoSAP || null,
         // v378+ (2026-08-02): estado macro del pedido en el flujo SAP.
