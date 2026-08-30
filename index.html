@@ -1424,7 +1424,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
    !important — GANA sobre las reglas de warning (exceed/warn-quiebra/
    warn-duplicado/no-data) para que la columna clave siempre quede visible
    sin importar el estado de la fila. Pedido explicito de Mariano. */
-#wcard-rows tr td.disp-sap-col{background:#fef9c3 !important}
+#wcard-rows tr td.disp-sap-col{background:#dcfce7 !important;color:#14532d}
 #wcard-rows tr td.chg-neg{color:#dc2626;font-weight:700}
 #wcard-rows tr td.chg-pos{color:#059669;font-weight:700}
 #wcard-rows tr td.chg-none{color:#94a3b8}
@@ -4111,7 +4111,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
               <th style="text-align:left;padding:6px 8px">Producto</th>
               <th style="text-align:center;padding:6px 8px" title="Stock fisico completo en deposito 11">Stock completo (dep 11)</th>
               <th style="text-align:center;padding:6px 8px" title="Unidades comprometidas en pedidos-app open (confirmed + BO + ASIG). Hover: breakdown por state.">Unidades reservadas</th>
-              <th style="text-align:center;padding:6px 8px;background:#fef9c3;color:#78350f" title="Stock realmente disponible = Stock completo - Unidades reservadas. Es lo que podes prometer al cliente HOY.">Libre para la venta</th>
+              <th style="text-align:center;padding:6px 8px;background:#dcfce7;color:#14532d" title="Stock realmente disponible = Stock completo - Unidades reservadas. Es lo que podes prometer al cliente HOY.">Libre para la venta</th>
               <!-- v726 (2026-08-28): rename Pedido -> Pedido Original para diferenciarla claramente de Pedido Final. -->
               <th style="text-align:center;padding:6px 8px" title="Cantidad ORIGINAL que pidio el cliente (antes del split contra stock disponible)">Pedido Original</th>
               <!-- v716 (2026-08-28): nueva columna Pedido Final = min(Pedido, Libre). -->
@@ -4314,7 +4314,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v726';
+const APP_VERSION = 'v727';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
