@@ -2519,7 +2519,8 @@ Arriba de la tabla. Permite pre-autorizar emails antes del primer login.
 | GitHub Secrets | (mismo) → Settings → Secrets | `FIREBASE_SERVICE_ACCOUNT`, `GMAIL_APP_PASSWORD`, `SAP_STOCK_CSV_URL` (legacy), `SYNC_BOT_PAT` (v399, PAT admin de Mariano para bypass branch protection en push automático de `stock.json`) |
 | GitHub Pages | (mismo) → Settings → Pages | Deploy URL |
 | Gemini API | https://generativelanguage.googleapis.com | OCR de tickets |
-| OSM Nominatim | https://nominatim.openstreetmap.org | Geocoding |
+| **Google Maps Geocoding API** | https://maps.googleapis.com/maps/api/geocode/json | Geocoder PRIMARIO (fallback: OSM Nominatim). Doc Firestore: `app_config/google_maps.apiKey`. Key vive en GCP project "My First Project" (personal, NO en `app-vendedores-shimano`) → billing personal. Restringida (2026-08-29) por HTTP referrer a `https://shimano-arg.github.io/*` + API restriction a solo Geocoding API. **TODO futuro:** migrar la key al project de Shimano para desacoplar de cuenta personal. |
+| OSM Nominatim | https://nominatim.openstreetmap.org | Geocoding fallback (usado si la key Google falla o no esta seteada) |
 | **SAP Service Layer** | **https://shimano-sap.seidor.com.ar:50000** | **API REST SAP B1** |
 | SEIDOR Freshdesk | https://seidorb1arg.freshdesk.com | Tickets de soporte |
 | **SharePoint team SAR** | **https://teamshimano.sharepoint.com/teams/SLA_int_00002** | **Lista "ANTICIPO Y RENDICION DE GASTO"** (Admin/Finanzas) |
@@ -2846,6 +2847,7 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 ### Secrets
 
 - **API Keys** (Gemini): en `app_config/gemini` (solo admin lee/escribe). Eventualmente migrar a Firebase Functions con env vars.
+- **Google Maps API key**: en `app_config/google_maps.apiKey` (leible por cualquier `isReader()` — no critico porque la key esta restringida en GCP Console). Restricciones aplicadas 2026-08-29: (1) HTTP referrer a `https://shimano-arg.github.io/*`, (2) API restriction a solo **Geocoding API** (blast radius minimo si se filtra: Geocoding ~USD 5/1000 requests vs Places USD 17-32/1000 o Route Optimization mucho mas). Key vive en GCP project "My First Project" (personal de Mariano); TODO futuro: migrar a project `app-vendedores-shimano` para desacoplar billing/ownership de cuenta personal.
 - **Service Layer password**: en `app_config/sap_integration.serviceLayer.password`. Solo admin lee/escribe vía Firestore rules. Mejor a futuro: variable de entorno de Cloud Function.
 
 ---
