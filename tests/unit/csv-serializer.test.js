@@ -263,7 +263,9 @@ describe('computeNullRates', () => {
 // DATASET_SCHEMAS — sanidad estructural
 // ============================================================
 describe('DATASET_SCHEMAS', () => {
-  it('tiene las 11 colecciones esperadas', () => {
+  it('tiene las 14 colecciones esperadas', () => {
+    // v732 (2026-08-29): +sap_snapshot, +facturacion_snapshot, +backorder_snapshot
+    // (3 snapshots BQ->Firestore que antes estaban excluidos del export ML).
     const expected = [
       'pedidos',
       'visitas',
@@ -276,6 +278,9 @@ describe('DATASET_SCHEMAS', () => {
       'vendor_overrides',
       'custom_routes',
       'seguimiento_notes',
+      'sap_snapshot',
+      'facturacion_snapshot',
+      'backorder_snapshot',
     ];
     expect(Object.keys(DATASET_SCHEMAS).sort()).toEqual(expected.sort());
   });
