@@ -157,7 +157,7 @@ Nivel de calidad: **1/10**. No lo hacemos.
 - Panel de Control admin se ve OK en ambos modos
 - Contrast ratio verificado con browser DevTools
 
-**Bumps:** v737
+**Bumps:** v738
 
 ---
 
@@ -169,14 +169,14 @@ Refactor sistemático de cada dominio, reemplazando colores hardcoded por CSS va
 
 | Sub | Scope | Bump |
 |---|---|---|
-| E2.a | Header + sidebar-left + mapa base (mapa panel, filtros, badges) | v738 |
-| E2.b | Modales de pedidos (waitlist, pedido-en-espera, confirmación) | v739 |
-| E2.c | Master Clientes + Alta Cliente + Estado | v740 |
-| E2.d | Rendiciones + Rutas + Visitas | v741 |
-| E2.e | Panel Usuarios + configs SAP/Gemini + admin | v742 |
-| E2.f | Notificaciones + Backorder + Stock Asig + Seguimiento | v743 |
-| E2.g | Dashboard (tabs + charts + facturación) | v744 |
-| E2.h | Exports + Forecast + Deposito modal | v745 |
+| E2.a | Header + sidebar-left + mapa base (mapa panel, filtros, badges) | v739 |
+| E2.b | Modales de pedidos (waitlist, pedido-en-espera, confirmación) | v740 |
+| E2.c | Master Clientes + Alta Cliente + Estado | v741 |
+| E2.d | Rendiciones + Rutas + Visitas | v742 |
+| E2.e | Panel Usuarios + configs SAP/Gemini + admin | v743 |
+| E2.f | Notificaciones + Backorder + Stock Asig + Seguimiento | v744 |
+| E2.g | Dashboard (tabs + charts + facturación) | v745 |
+| E2.h | Exports + Forecast + Deposito modal | v746 |
 
 **Gate por sub-fase:**
 1. Screenshot light + dark de la vista principal de esa sub-fase
@@ -197,7 +197,7 @@ Refactor sistemático de cada dominio, reemplazando colores hardcoded por CSS va
 
 **Gate:** navegación completa por app en dark mode sin elementos rotos/ilegibles.
 
-**Bumps:** v746
+**Bumps:** v747
 
 ---
 
@@ -213,7 +213,7 @@ Refactor sistemático de cada dominio, reemplazando colores hardcoded por CSS va
 
 **Gate:** cero issues WCAG AA + funciona en 4 browsers principales.
 
-**Bumps:** v747
+**Bumps:** v748
 
 ---
 
@@ -224,9 +224,9 @@ Refactor sistemático de cada dominio, reemplazando colores hardcoded por CSS va
 - Notificación in-app a users: "🌙 Nuevo: modo oscuro. Toggle arriba a la derecha."
 - Monitor 1 semana: Sentry + feedback vía WhatsApp
 - Si estable → cerrar plan
-- Si issues → v748 con fixes
+- Si issues → v750 con fixes
 
-**Bumps:** v748 (rollout comm) + posibles fixes
+**Bumps:** v749 (rollout comm) + posibles fixes
 
 ---
 
