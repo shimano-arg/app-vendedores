@@ -670,6 +670,85 @@ body, .modal-box, .modal-overlay, .header, .controls, input, select, textarea, b
   background: var(--bg-secondary) !important;
 }
 
+/* v744 PLAN_DARK_MODE E3: assets + edge cases finales.
+   1. Custom scrollbars para dark mode (webkit + firefox).
+   2. Overlays semantic-first.
+   3. Focus outline visible en dark.
+   4. Selection color legible en dark. */
+
+/* Scrollbars custom - Webkit (Chrome/Edge/Safari) */
+[data-theme="dark"] ::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+  background: var(--bg-secondary);
+}
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 6px;
+  border: 2px solid var(--bg-secondary);
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+[data-theme="dark"] ::-webkit-scrollbar-corner {
+  background: var(--bg-secondary);
+}
+/* Firefox */
+[data-theme="dark"] * {
+  scrollbar-color: var(--border-strong) var(--bg-secondary);
+  scrollbar-width: thin;
+}
+
+/* Focus outline visible en dark (para keyboard nav accessibility) */
+[data-theme="dark"] *:focus-visible {
+  outline: 2px solid var(--focus-ring) !important;
+  outline-offset: 2px;
+}
+
+/* Text selection color legible en dark */
+[data-theme="dark"] ::selection {
+  background: var(--brand-shimano-blue);
+  color: var(--text-inverse);
+}
+
+/* Leaflet controls (zoom +/- + attribution) adaptados a dark */
+[data-theme="dark"] .leaflet-control-zoom a,
+[data-theme="dark"] .leaflet-bar a {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+[data-theme="dark"] .leaflet-control-zoom a:hover,
+[data-theme="dark"] .leaflet-bar a:hover {
+  background: var(--bg-muted) !important;
+}
+[data-theme="dark"] .leaflet-control-attribution {
+  background: rgba(30, 41, 59, 0.85) !important;
+  color: var(--text-secondary) !important;
+}
+[data-theme="dark"] .leaflet-control-attribution a {
+  color: var(--brand-shimano-blue) !important;
+}
+
+/* Shimano logos - forzar bg blanco/pill en dark para mantener brand
+   recognition. Los usuarios asocian el logo con fondo claro; invertir
+   colores rompe la identidad. Mejor mantenerlo como badge blanco. */
+[data-theme="dark"] .auth-logo,
+[data-theme="dark"] .password-gate-logo,
+[data-theme="dark"] .header-logo-wrap {
+  background: #ffffff !important;
+  padding: 6px 10px !important;
+  border-radius: 6px !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,.4) !important;
+}
+/* header-logo-wrap no tiene padding por default - agregarlo solo en dark */
+[data-theme="dark"] .header-logo-wrap {
+  padding: 4px 8px !important;
+}
+
 /* Alertas y tareas panel (right sidebar bottom) - typography */
 [data-theme="dark"] [id*="notif"] > *:not(button),
 [data-theme="dark"] .notif-list,
@@ -4934,7 +5013,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v743';
+const APP_VERSION = 'v744';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -5569,11 +5648,29 @@ const map = L.map('map', {preferCanvas: true, zoomControl: true, minZoom: 4, max
 // watermark "API KEY REQUIRED" sobre todo el mapa. OSM es gratis y sin
 // restricciones para uso razonable (tenemos <500 usuarios activos/mes,
 // muy debajo del limite fair-use OSM).
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  subdomains: 'abc',
-  maxZoom: 19
-}).addTo(map);
+// v744 (2026-08-30) PLAN_DARK_MODE E3: swap dinamico de tiles segun tema.
+// Light: OpenStreetMap standard. Dark: CartoDB Dark Matter (free tier).
+// El swap corre en init + en cada toggle (via applyThemeTilesSwap invocada
+// desde toggleDarkMode).
+window._mapTileLayer = null;
+window.applyThemeTilesSwap = function() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const url = isDark
+    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+    : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const attribution = isDark
+    ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  if (window._mapTileLayer) {
+    try { map.removeLayer(window._mapTileLayer); } catch(e){}
+  }
+  window._mapTileLayer = L.tileLayer(url, {
+    attribution: attribution,
+    subdomains: isDark ? 'abcd' : 'abc',
+    maxZoom: 19
+  }).addTo(map);
+};
+window.applyThemeTilesSwap();
 
 // Boton "Forzar actualizacion" debajo del zoom. Limpia caches del SW +
 // unregister + reload con cache-bust. Asi los vendedores se aseguran de
@@ -14274,6 +14371,10 @@ window.toggleDarkMode = function(){
   try { localStorage.setItem(THEME_STORAGE_KEY, next); } catch(e) {}
   const label = document.getElementById('theme-label');
   if (label) label.textContent = next === 'dark' ? 'Light' : 'Dark';
+  // v744 E3: swap tile layer del mapa segun tema (OSM light vs CartoDB dark).
+  if (typeof window.applyThemeTilesSwap === 'function') {
+    try { window.applyThemeTilesSwap(); } catch(e) { console.warn('tile swap failed', e); }
+  }
   // Sync a Firestore para cross-device (fire-and-forget, no bloquea UI).
   if (typeof currentUser !== 'undefined' && currentUser && typeof fbDb !== 'undefined' && fbDb) {
     fbDb.collection('userData').doc(currentUser.uid)
@@ -14295,6 +14396,10 @@ window.applyThemeFromUserData = function(userDataDoc){
     localStorage.setItem(THEME_STORAGE_KEY, fsPref);
     const label = document.getElementById('theme-label');
     if (label) label.textContent = fsPref === 'dark' ? 'Light' : 'Dark';
+    // v744 E3: swap tile del mapa tambien en cross-device sync.
+    if (typeof window.applyThemeTilesSwap === 'function') {
+      try { window.applyThemeTilesSwap(); } catch(e) {}
+    }
   } catch(e) {}
 };
 // Init label sync (el init inline seteo data-theme pero no el label).
