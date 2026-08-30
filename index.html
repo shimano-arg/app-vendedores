@@ -4314,7 +4314,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v727';
+const APP_VERSION = 'v728';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18337,6 +18337,8 @@ fbAuth.onAuthStateChanged(async user => {
     // Recien ahora la home es visible: ocultamos overlay y mostramos chip user.
     document.getElementById('auth-overlay').classList.add('hidden');
     document.getElementById('user-info').style.display = 'flex';
+    // v728: FAB WhatsApp visible cuando el user esta plenamente logueado.
+    { const waFab = document.getElementById('wa-fab'); if (waFab) waFab.style.display = 'flex'; }
     showSyncTag('Conectado a la nube', 2400);
     attachFirebaseListeners();
   } else {
@@ -18345,6 +18347,8 @@ fbAuth.onAuthStateChanged(async user => {
     document.getElementById('auth-overlay').classList.remove('hidden');
     document.getElementById('access-denied').classList.add('hidden');
     document.getElementById('user-info').style.display = 'none';
+    // v728: ocultar FAB WhatsApp al logout.
+    { const waFab = document.getElementById('wa-fab'); if (waFab) waFab.style.display = 'none'; }
     document.body.classList.remove('role-admin','role-vendedor','role-viewer','role-unassigned');
     userRole = null; assignedVendor = null;
     detachFirebaseListeners();
@@ -23508,5 +23512,25 @@ if ('serviceWorker' in navigator) {
     </nav>
   </div>
 </aside>
+
+<!-- v728 (2026-08-29): FAB WhatsApp fijo en toda la app. Abre WhatsApp Web
+     sin destino especifico; el user despues elige a quien escribirle.
+     display:none al inicio; se muestra cuando currentUser esta seteado
+     (ver onAuthStateChanged). z-index alto pero debajo del auth-overlay
+     (z=10000) para que quede tapado durante el flujo de login. -->
+<a id="wa-fab"
+   href="https://web.whatsapp.com/"
+   target="_blank"
+   rel="noopener noreferrer"
+   aria-label="Abrir WhatsApp"
+   title="Abrir WhatsApp Web"
+   style="display:none;position:fixed;bottom:40px;right:24px;width:56px;height:56px;border-radius:50%;background:#25D366;box-shadow:0 4px 12px rgba(0,0,0,.24),0 2px 4px rgba(0,0,0,.12);z-index:9990;align-items:center;justify-content:center;text-decoration:none;transition:transform .15s ease-out,box-shadow .15s ease-out"
+   onmouseover="this.style.transform='scale(1.08)';this.style.boxShadow='0 6px 16px rgba(0,0,0,.32),0 3px 6px rgba(0,0,0,.16)'"
+   onmouseout="this.style.transform='scale(1)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.24),0 2px 4px rgba(0,0,0,.12)'">
+  <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 32 32" fill="#fff" aria-hidden="true">
+    <path d="M16.003 3.2c-7.09 0-12.856 5.762-12.856 12.85 0 2.267.594 4.48 1.72 6.428L3.2 28.8l6.492-1.7a12.83 12.83 0 0 0 6.31 1.61h.005c7.09 0 12.856-5.763 12.856-12.85 0-3.435-1.338-6.66-3.767-9.088A12.766 12.766 0 0 0 16.003 3.2zm.003 2.16c2.85 0 5.529 1.11 7.545 3.127a10.61 10.61 0 0 1 3.127 7.55c0 5.896-4.796 10.69-10.694 10.69h-.005a10.66 10.66 0 0 1-5.437-1.489l-.39-.232-4.052 1.061 1.08-3.945-.254-.404a10.62 10.62 0 0 1-1.632-5.681c.002-5.895 4.797-10.69 10.712-10.677zm-3.86 5.802c-.223 0-.585.083-.891.416-.306.334-1.17 1.142-1.17 2.787 0 1.644 1.198 3.234 1.365 3.457.168.223 2.316 3.703 5.719 5.043 2.828 1.114 3.404.892 4.017.836.614-.056 1.98-.808 2.259-1.588.278-.78.278-1.45.195-1.588-.083-.14-.306-.223-.64-.39-.335-.167-1.98-.976-2.286-1.087-.306-.111-.529-.167-.752.167-.223.334-.863 1.087-1.058 1.31-.195.223-.39.251-.724.083-.334-.167-1.412-.52-2.688-1.66-.994-.887-1.665-1.98-1.86-2.314-.195-.334-.02-.514.147-.68.15-.15.334-.39.502-.585.167-.195.223-.334.334-.557.111-.223.056-.418-.028-.585-.083-.167-.752-1.812-1.03-2.481-.271-.652-.548-.563-.751-.575-.194-.011-.417-.014-.64-.014z"/>
+  </svg>
+</a>
+
 </body>
 </html>
