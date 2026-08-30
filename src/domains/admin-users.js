@@ -691,7 +691,7 @@ window.openAdminPanel = async function () {
         tableHtml += '<td><select class="role-sel">' + roleOptions + '</select></td>';
         tableHtml += '<td><select class="vendor-sel">' + vendorOptions + '</select></td>';
         tableHtml += '<td>' + parejaCell + '</td>';
-        tableHtml += '<td>' + waInputHtml + '</td>';
+        tableHtml += '<td class="wa-col">' + waInputHtml + '</td>';
         tableHtml += '<td>' + rendApproverHtml + '</td>';
         tableHtml += '<td>' + pwdBtnHtml + '</td>';
         tableHtml += '<td>' + totpBtnHtml + '</td>';
@@ -771,7 +771,7 @@ window.openAdminPanel = async function () {
     const thead = document.querySelector('#users-table thead tr');
     if (thead)
       thead.innerHTML =
-        '<th>Email</th><th>Nombre</th><th>Rol</th><th>Vendedor</th><th>Pareja interno</th><th>WhatsApp</th><th>Resp. rendiciones</th><th>Pass</th><th>2FA</th><th></th>';
+        '<th>Email</th><th>Nombre</th><th>Rol</th><th>Vendedor</th><th>Pareja interno</th><th class="wa-col">WhatsApp</th><th>Resp. rendiciones</th><th>Pass</th><th>2FA</th><th></th>';
   } catch (e) {
     console.error('openAdminPanel', e);
     alert('Error cargando usuarios: ' + (e.message || e));
