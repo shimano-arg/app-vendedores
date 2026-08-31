@@ -745,6 +745,20 @@ body, .modal-box, .modal-overlay, .header, .controls, input, select, textarea, b
   color: var(--brand-shimano-blue) !important;
 }
 
+/* v749 (2026-08-31): CSS filter para tile OSM en dark mode. Reemplaza el
+   tile swap CartoDB Dark Matter (v744) que ahora exige API key
+   ("API KEY REQUIRED" watermark). El filter invierte colores + rota
+   hue 180deg + suaviza saturacion = tile oscuro visualmente consistente
+   sin depender de otro tileserver. Preserva colores de las provincias
+   (poligonos SVG overlay, no afectados por filter sobre .leaflet-tile). */
+[data-theme="dark"] .leaflet-tile {
+  filter: invert(1) hue-rotate(180deg) brightness(0.95) saturate(0.85);
+}
+/* Restaurar zoom controls que serian doble-invertidos si no los excluyo */
+[data-theme="dark"] .leaflet-control-zoom {
+  filter: none;
+}
+
 /* Shimano logos - forzar bg blanco/pill en dark para mantener brand
    recognition. Los usuarios asocian el logo con fondo claro; invertir
    colores rompe la identidad. Mejor mantenerlo como badge blanco. */
@@ -4506,7 +4520,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
       </div>
     </div>
     <div class="tab-pane" id="pane-notif">
-      <h3 style="color:#1e3a8a">&#128276; Alertas y tareas</h3>
+      <h3 style="color:var(--text-primary)">&#128276; Alertas y tareas</h3>
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;line-height:1.5">Derivaciones de tiendas y tareas/pendientes entre usuarios.</div>
       <div class="notif-tabs-bar">
         <button class="ntab-btn active" data-ntab="recibidas" onclick="setNotifsTab('recibidas')">Recibidas <span class="ntab-count" id="ntab-recibidas-count">0</span></button>
@@ -5025,7 +5039,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v747';
+const APP_VERSION = 'v749';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -5660,27 +5674,23 @@ const map = L.map('map', {preferCanvas: true, zoomControl: true, minZoom: 4, max
 // watermark "API KEY REQUIRED" sobre todo el mapa. OSM es gratis y sin
 // restricciones para uso razonable (tenemos <500 usuarios activos/mes,
 // muy debajo del limite fair-use OSM).
-// v744 (2026-08-30) PLAN_DARK_MODE E3: swap dinamico de tiles segun tema.
-// Light: OpenStreetMap standard. Dark: CartoDB Dark Matter (free tier).
-// El swap corre en init + en cada toggle (via applyThemeTilesSwap invocada
-// desde toggleDarkMode).
+// v749 (2026-08-31): dark mode tiles con CSS filter sobre OSM en vez de
+// tile swap. Antes (v744) usaba CartoDB Dark Matter pero ahora exige API key
+// (watermark "API KEY REQUIRED" reportado por Mariano). Approach nuevo:
+// siempre servimos OSM standard + CSS filter en dark mode que invierte
+// colores + hue-rotate 180 + saturate para simular tile oscuro. Ventajas:
+// zero dependencia externa nueva, zero API key, funciona offline via SW,
+// consistente con el policy CartoDB post-cambio.
 window._mapTileLayer = null;
 window.applyThemeTilesSwap = function() {
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  const url = isDark
-    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-    : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-  const attribution = isDark
-    ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-    : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
-  if (window._mapTileLayer) {
-    try { map.removeLayer(window._mapTileLayer); } catch(e){}
+  // Solo instanciar el layer una vez. El "swap" ahora es puramente CSS.
+  if (!window._mapTileLayer) {
+    window._mapTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      subdomains: 'abc',
+      maxZoom: 19
+    }).addTo(map);
   }
-  window._mapTileLayer = L.tileLayer(url, {
-    attribution: attribution,
-    subdomains: isDark ? 'abcd' : 'abc',
-    maxZoom: 19
-  }).addTo(map);
 };
 window.applyThemeTilesSwap();
 
