@@ -346,26 +346,100 @@ WHERE inv.cancelled = 'tNO';
 --   3. Regex heuristica por item_name
 --   4. Si es huerfano (not is_in_master) -> 'SIN CATALOGO'
 -- ============================================================
+-- v756+ (2026-08-31, Mariano pedido): agregada inferencia de subfamilia_norm
+-- por serie/tipo cuando fam SAP esta vacio. Ademas fix familia MONOFILAMENTO
+-- (TEC60035PB antes caia en SIN CATALOGO). 108 SKUs pesca antes sin subfamilia
+-- ahora clasificados 100%. Regla de oro: si SAP trae cat/fam/sub, se usan;
+-- solo cuando vienen vacios se infiere por keyword del item_name.
+-- Ver comentario cabecera arriba para historia completa.
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_sap_items_enriched` AS
 SELECT
   it.*,
+  -- =========================================================================
+  -- FAMILIA
+  -- =========================================================================
   CASE
     WHEN it.cat IS NOT NULL AND it.cat != '' THEN it.cat
-    -- Overrides manuales conocidos
+    -- Overrides manuales por item_code (edge cases historicos)
     WHEN it.item_code IN ('CVC66H2CSA','CVC66MH2','CVC66MH4SACO','FXPR410','12843-01','55CRT12524') THEN 'CAÑAS'
     WHEN it.item_code = '471512' THEN 'FG'
-    -- Heuristica por nombre
+    -- FG PRE-CHECK: atrapa casos ambiguos que matchearian REEL/CAÑAS
+    -- (ej. "Cobertor de reel" contiene ' reel ', "KIT BAITCAST" contiene
+    -- BAITCAST, "Grasa para Reels" contiene REEL, "Reel Center Shirt"
+    -- contiene REEL, etc.). Debe ir ANTES de los regex CAÑAS/REEL.
     WHEN REGEXP_CONTAINS(UPPER(it.item_name),
-      r'CA(N|Ñ)A|SOJOURN|CRUZAR|PEJERREY|CONVERGENCE|TELESC|NRX|G\.LOOMIS|TIP ASQ|SOLARA|CLARUS') THEN 'CAÑAS'
+      r'GRASA|LUBRIC|PERMALUB|WATER.REPELLANT|COBERTOR|SLAT WALL|WINDOW STICKER|TECHNICAL MATT|RUBBER MATT|LINE DISPLAY 40|SUNGLASSES DISPLAY|SUNGLASSES FLOOR|SUNGLASSES CABINET|CABINET SUNGLASSES|BAGS.*CLOTHING DISPLAY|LEDGE RUNNER|REEL CENTER|MESH CAP|PROMO SHIRT|SHIMANO PROMO') THEN 'FG'
+    -- Heuristica por nombre (extendida con series de caña + monofilamento)
     WHEN REGEXP_CONTAINS(UPPER(it.item_name),
-      r'REEL |SPINNING REEL|BAITCAST|BAITCASTING|FRONTAL|SPINNING FRONTAL') THEN 'REEL'
+      r'CA(N|Ñ)A|SOJOURN|CRUZAR|PEJERREY|CONVERGENCE|TELESC|NRX|G\.LOOMIS|TIP ASQ|SOLARA|CLARUS|SCORPION|POISON ADRENA|WORLD SHAULA|ZODIAS|SAGUARO|EXAGE|ALIVIO SURF|STIMULA|CAIUS') THEN 'CAÑAS'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name),
+      r'REEL |SPINNING REEL|BAITCASTING|FRONTAL|SPINNING FRONTAL|STELLA|BEASTMASTER|STRADIC') THEN 'REEL'
     WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'COMBO') THEN 'COMBO'
     WHEN REGEXP_CONTAINS(UPPER(it.item_name),
-      r'POWER ?PRO| LINE | LINEA|SEDAL|NYLON|FLUOROCARB|LEADER|MULTIFILAMENTO') THEN 'LINEAS'
+      r'MONOFILAMENTO|TECHNIUM|POWER ?PRO|KAIRIKI| LINE | LINEA|SEDAL|NYLON|FLUOROCARB|LEADER|MULTIFILAMENTO') THEN 'LINEAS'
     WHEN REGEXP_CONTAINS(UPPER(it.item_name),
-      r'STICKER|BANNER|RUBBER MATT|PROMO|BUFF|GORRA|SOMBRERO|REMERA|BANDANA|KIT |BOLSA|CAJA|NECESER|CAMPING|ESTUCHE|LENTE|POLARIZADO| CAP | SHIRT|SHIMANO PROMO|PINZA|TIJERA|BOX|BAG|DISPLAY|DISP |CORTADOR|CUCHILLO|BOGAGRIP|ROD DISPLAY|FLOOR|COUNTER') THEN 'FG'
+      r'STICKER|BANNER|PROMO|BUFF|GORRA|SOMBRERO|REMERA|BANDANA|KIT |BOLSA|CAJA|NECESER|CAMPING|ESTUCHE|LENTE|POLARIZADO| CAP | SHIRT|SHIMANO PROMO|PINZA|TIJERA|BOX|BAG|DISPLAY|DISP |CORTADOR|CUCHILLO|BOGAGRIP|ROD DISPLAY|FLOOR|COUNTER|GUANTE| HOOD|SPEEDMASTER|TACKLE BOX') THEN 'FG'
     ELSE it.cat
-  END                                       AS familia_norm
+  END AS familia_norm,
+
+  -- =========================================================================
+  -- SUBFAMILIA (nuevo v756+, inferencia por serie/tipo si fam SAP vacio)
+  -- =========================================================================
+  CASE
+    -- Priority 1: SAP fam siempre gana si esta populada (regla de oro)
+    WHEN it.fam IS NOT NULL AND it.fam != '' THEN it.fam
+
+    -- Override manual: "Rod Display combo" (20COMBORODDISP) -> DISPLAY
+    WHEN it.item_code = '20COMBORODDISP' THEN 'DISPLAY'
+
+    -- CAÑAS por serie
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'WORLD SHAULA') THEN 'WORLD SHAULA'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'POISON ADRENA') THEN 'POISON ADRENA'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'ZODIAS') THEN 'ZODIAS'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'SOJOURN') THEN 'SOJOURN'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'SAGUARO') THEN 'SAGUARO'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'SOLARA') THEN 'SOLARA'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'CONVERGENCE') THEN 'CONVERGENCE'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'CRUZAR') THEN 'CRUZAR'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'ALIVIO SURF') THEN 'ALIVIO SURF'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'EXAGE') THEN 'EXAGE'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'SCORPION') THEN 'SCORPION'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'FX PEJERREY') THEN 'FX PEJERREY'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'NEXAVE PEJERREY') THEN 'NEXAVE PEJERREY'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'STIMULA') THEN 'STIMULA'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'CLARUS') THEN 'CLARUS'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'CAIUS') THEN 'CAIUS'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'G\.LOOMIS|\bNRX\b|TIP ASQ') THEN 'G.LOOMIS/NRX'
+
+    -- REEL por serie
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'STELLA') THEN 'STELLA'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'BEASTMASTER') THEN 'BEASTMASTER'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'STRADIC') THEN 'STRADIC'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'CURADO') THEN 'CURADO'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'\bSLX\b') THEN 'SLX'
+    -- REEL fallback por tipo
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'SPINNING SALT|SPINNING SW|REEL SPINNING SALTWATER') THEN 'SPINNING SALT WATER'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'REEL SPINNING|SPINNING REEL') THEN 'SPINNING'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'BAITCASTING') THEN 'BAITCASTING'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'REEL FRONTAL SURFCASTING|FRONTAL SURFCASTING|SURFCASTING') THEN 'SURFCASTING'
+
+    -- LINEAS
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'MONOFILAMENTO|TECHNIUM') THEN 'MONOFILAMENTO'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'POWER ?PRO') THEN 'POWER PRO'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'KAIRIKI') THEN 'KAIRIKI'
+
+    -- FG POP (material exhibicion, no-venta) - antes que INDUMENTARIA/LENTES/etc
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'SLAT WALL|WINDOW STICKER|BANNER|RUBBER MATT|TECHNICAL MATT|MESH FLOOR|COUNTER DISPLAY|FLOOR DISPLAY|LINE DISPLAY|SUNGLASSES DISPLAY|SUNGLASSES FLOOR|SUNGLASSES CABINET|CABINET SUNGLASSES|BAGS.*CLOTHING DISPLAY|ROD DISPLAY|CTR DISPLAY|WINDOWS STICKER|\bDISPLAY\b') THEN 'POP'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'GRASA|LUBRIC|PERMALUB|WATER.REPELLANT') THEN 'LUBRICANTES'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'PINZA|TIJERA|CUCHILLO|BOGAGRIP|CORTADOR') THEN 'HERRAMIENTAS'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'LENTES|SUNGLASS|POLARIZADO|SPEEDMASTER') THEN 'LENTES'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'CAJA|TACKLE BOX|HD TACKLE') THEN 'CAJAS'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'REMERA|SHIRT|BUFF|GORRA|SOMBRERO|BANDANA| CAP | HOOD |GUANTE|MESH CAP') THEN 'INDUMENTARIA'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'COBERTOR') THEN 'ACCESORIOS'
+    WHEN REGEXP_CONTAINS(UPPER(it.item_name), r'LEDGE RUNNER|SEÑUELOS TROLLING|SENUELOS TROLLING') THEN 'SEÑUELO SW'
+
+    ELSE it.fam
+  END AS subfamilia_norm
 FROM `app-vendedores-shimano.shimano_app.sap_items_raw` it;
 
 
@@ -441,7 +515,7 @@ SELECT
   it.item_name,
   it.foreign_name,
   it.familia_norm                                                     AS familia,
-  it.fam                                                              AS subfamilia,
+  it.subfamilia_norm                                                    AS subfamilia,
   it.sub                                                              AS sub_subfamilia,
   it.valid,
   it.frozen,
@@ -514,17 +588,19 @@ LEFT JOIN po_open_agg         po ON it.item_code = po.item_code;
 -- ============================================================
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_inventario_por_warehouse` AS
 WITH items_parsed AS (
+  -- v756+ (2026-08-31): source cambiado a v_sap_items_enriched para acceso a
+  -- familia_norm + subfamilia_norm (antes sap_items_raw directo, faltaban).
   SELECT
     it.*,
     PARSE_JSON(it.stock_by_warehouse_json, wide_number_mode => 'round') AS whs_json
-  FROM `app-vendedores-shimano.shimano_app.sap_items_raw` it
+  FROM `app-vendedores-shimano.shimano_app.v_sap_items_enriched` it
   WHERE it.stock_by_warehouse_json IS NOT NULL
 )
 SELECT
   ip.item_code,
   ip.item_name,
-  ip.cat                                                              AS familia,
-  ip.fam                                                              AS subfamilia,
+  ip.familia_norm                                                     AS familia,
+  ip.subfamilia_norm                                                    AS subfamilia,
   whs_code                                                            AS warehouse_code,
   -- JSON subscripting json[key] SI acepta expresion dinamica (a diferencia
   -- de JSON_VALUE path). LAX_FLOAT64 tolera valores que vengan como string.
@@ -700,7 +776,7 @@ SELECT
     'a�o','año'),
     '�',     '')                                                    AS item_name_catalogo,
   it.familia_norm                                                       AS familia,
-  it.fam                                                                AS subfamilia,
+  it.subfamilia_norm                                                    AS subfamilia,
   it.sub                                                                AS sub_subfamilia,
   -- is_pesca = TRUE si el SKU existe en sap_items_raw (grupo 102 PESCA).
   -- Permite filtrar en PBI para vistas PESCA-solo vs Shimano-entera.
@@ -840,7 +916,7 @@ SELECT
     'a�o','año'),
     '�',     '')                                                        AS producto,
   it.familia_norm                                                       AS familia,
-  it.fam                                                                AS subfamilia,
+  it.subfamilia_norm                                                    AS subfamilia,
   it.item_code IS NOT NULL                                              AS is_pesca,
   it.stock_total_sellable                                               AS stock_actual,
   SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)                  AS pedido,
@@ -1992,7 +2068,7 @@ items AS (
   SELECT
     item_code,
     familia_norm                 AS familia,
-    fam                          AS subfamilia,
+    subfamilia_norm              AS subfamilia,
     item_code IS NOT NULL        AS is_pesca
   FROM `app-vendedores-shimano.shimano_app.v_sap_items_enriched`
 ),
@@ -2199,7 +2275,7 @@ cliente_app AS (
   GROUP BY card_code
 ),
 items AS (
-  SELECT item_code, familia_norm AS familia, fam AS subfamilia, item_code IS NOT NULL AS is_pesca
+  SELECT item_code, familia_norm AS familia, subfamilia_norm              AS subfamilia, item_code IS NOT NULL AS is_pesca
   FROM `app-vendedores-shimano.shimano_app.v_sap_items_enriched`
 ),
 sum_lines_sq AS (
