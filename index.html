@@ -754,15 +754,40 @@ body, .modal-box, .modal-overlay, .header, .controls, input, select, textarea, b
    default para h3 sin color explicito. */
 [data-theme="dark"] h1,
 [data-theme="dark"] h2,
-[data-theme="dark"] h3 {
-  color: #f1f5f9 !important;
+[data-theme="dark"] h3,
+[data-theme="dark"] h4,
+[data-theme="dark"] h5,
+[data-theme="dark"] h6 {
+  color: #ffffff !important;
+}
+/* v754 (2026-08-31): FIX PERSISTENTE contraste titulos dark mode. Mariano
+   reporto 4x que titulos aparecen "oscuros" pese al blanket rule anterior.
+   Root cause probable: inline style="color:var(--text-primary)" en h3 puntuales
+   (ej. #128276; Alertas y tareas) mas cascade de .sidebar h3 con
+   --text-primary. Aunque !important deberia ganar, agregamos capa
+   ultra-defensiva con selector high-specificity que ataca los contenedores
+   especificos + fuerza white en TODOS los headers dentro de tab-panes y
+   sidebar. NO usa var() para evitar cualquier cadena de overrides. */
+html[data-theme="dark"] .sidebar h1,
+html[data-theme="dark"] .sidebar h2,
+html[data-theme="dark"] .sidebar h3,
+html[data-theme="dark"] .sidebar h4,
+html[data-theme="dark"] .tab-pane h1,
+html[data-theme="dark"] .tab-pane h2,
+html[data-theme="dark"] .tab-pane h3,
+html[data-theme="dark"] .tab-pane h4,
+html[data-theme="dark"] .tab-pane [style*="color:var(--text-primary)"],
+html[data-theme="dark"] .tab-pane [style*="color:#1e3a8a"],
+html[data-theme="dark"] .tab-pane [style*="color:#1e40af"],
+html[data-theme="dark"] .tab-pane [style*="color:#0f172a"] {
+  color: #ffffff !important;
 }
 /* Excepciones: h3 dentro de containers con background colored (green/red
    solid) deben mantener text-inverse para readability. */
 [data-theme="dark"] [style*="background:var(--color-danger)"] h3,
 [data-theme="dark"] [style*="background:var(--color-success)"] h3,
 [data-theme="dark"] .modal-head h3 {
-  color: #fff !important;
+  color: #ffffff !important;
 }
 
 /* v749 (2026-08-31): CSS filter para tile OSM en dark mode. Reemplaza el
@@ -5059,7 +5084,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v753';
+const APP_VERSION = 'v754';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
