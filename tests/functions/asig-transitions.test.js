@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   detectAsigTransitions,
   writeTransitionsBatch,
@@ -21,7 +21,10 @@ describe('detectAsigTransitions', () => {
 
   it('detecta ASIG -> confirmed', () => {
     const before = { ...baseMeta, lines: [{ code: 'SKU1', qty: 10, qtyOpen: 10, state: 'ASIG' }] };
-    const after = { ...baseMeta, lines: [{ code: 'SKU1', qty: 10, qtyOpen: 10, state: 'confirmed' }] };
+    const after = {
+      ...baseMeta,
+      lines: [{ code: 'SKU1', qty: 10, qtyOpen: 10, state: 'confirmed' }],
+    };
     const r = detectAsigTransitions('P1', before, after);
     expect(r).toHaveLength(1);
     expect(r[0]).toMatchObject({
@@ -38,7 +41,10 @@ describe('detectAsigTransitions', () => {
 
   it('detecta ASIG -> cancelled', () => {
     const before = { ...baseMeta, lines: [{ code: 'SKU2', qty: 5, qtyOpen: 5, state: 'ASIG' }] };
-    const after = { ...baseMeta, lines: [{ code: 'SKU2', qty: 5, qtyOpen: 5, state: 'cancelled' }] };
+    const after = {
+      ...baseMeta,
+      lines: [{ code: 'SKU2', qty: 5, qtyOpen: 5, state: 'cancelled' }],
+    };
     const r = detectAsigTransitions('P1', before, after);
     expect(r).toHaveLength(1);
     expect(r[0].fromState).toBe('ASIG');
@@ -74,22 +80,31 @@ describe('detectAsigTransitions', () => {
   });
 
   it('ignora cambios que no involucran ASIG', () => {
-    const before = { ...baseMeta, lines: [{ code: 'SKU6', qty: 1, qtyOpen: 1, state: 'confirmed' }] };
+    const before = {
+      ...baseMeta,
+      lines: [{ code: 'SKU6', qty: 1, qtyOpen: 1, state: 'confirmed' }],
+    };
     const after = { ...baseMeta, lines: [{ code: 'SKU6', qty: 1, qtyOpen: 0, state: 'invoiced' }] };
     expect(detectAsigTransitions('P1', before, after)).toEqual([]);
   });
 
   it('detecta multiples transiciones en el mismo pedido', () => {
-    const before = { ...baseMeta, lines: [
-      { code: 'SKU1', qty: 10, qtyOpen: 10, state: 'ASIG' },
-      { code: 'SKU2', qty: 5, qtyOpen: 5, state: 'ASIG' },
-      { code: 'SKU3', qty: 3, qtyOpen: 3, state: 'BO' },
-    ]};
-    const after = { ...baseMeta, lines: [
-      { code: 'SKU1', qty: 10, qtyOpen: 10, state: 'confirmed' },
-      { code: 'SKU2', qty: 5, qtyOpen: 5, state: 'cancelled' },
-      { code: 'SKU3', qty: 3, qtyOpen: 3, state: 'BO' },  // sin cambio
-    ]};
+    const before = {
+      ...baseMeta,
+      lines: [
+        { code: 'SKU1', qty: 10, qtyOpen: 10, state: 'ASIG' },
+        { code: 'SKU2', qty: 5, qtyOpen: 5, state: 'ASIG' },
+        { code: 'SKU3', qty: 3, qtyOpen: 3, state: 'BO' },
+      ],
+    };
+    const after = {
+      ...baseMeta,
+      lines: [
+        { code: 'SKU1', qty: 10, qtyOpen: 10, state: 'confirmed' },
+        { code: 'SKU2', qty: 5, qtyOpen: 5, state: 'cancelled' },
+        { code: 'SKU3', qty: 3, qtyOpen: 3, state: 'BO' }, // sin cambio
+      ],
+    };
     const r = detectAsigTransitions('P1', before, after);
     expect(r).toHaveLength(2);
     expect(r[0].sku).toBe('SKU1');
@@ -99,14 +114,20 @@ describe('detectAsigTransitions', () => {
   });
 
   it('detecta linea eliminada del array (assume cancelled)', () => {
-    const before = { ...baseMeta, lines: [
-      { code: 'SKU1', qty: 10, qtyOpen: 10, state: 'ASIG' },
-      { code: 'SKU2', qty: 5, qtyOpen: 5, state: 'ASIG' },
-    ]};
-    const after = { ...baseMeta, lines: [
-      { code: 'SKU1', qty: 10, qtyOpen: 10, state: 'ASIG' },
-      // SKU2 eliminada
-    ]};
+    const before = {
+      ...baseMeta,
+      lines: [
+        { code: 'SKU1', qty: 10, qtyOpen: 10, state: 'ASIG' },
+        { code: 'SKU2', qty: 5, qtyOpen: 5, state: 'ASIG' },
+      ],
+    };
+    const after = {
+      ...baseMeta,
+      lines: [
+        { code: 'SKU1', qty: 10, qtyOpen: 10, state: 'ASIG' },
+        // SKU2 eliminada
+      ],
+    };
     const r = detectAsigTransitions('P1', before, after);
     expect(r).toHaveLength(1);
     expect(r[0].sku).toBe('SKU2');
@@ -182,8 +203,32 @@ describe('writeTransitionsBatch', () => {
     const FieldValue = { serverTimestamp: () => 'STAMP' };
 
     const transitions = [
-      { pedidoId: 'P1', lineIdx: 0, sku: 'SKU1', fromState: 'ASIG', toState: 'confirmed', qty: 10, clientCardCode: 'C1', clientName: 'CLI', vendor: 'V', province: 'BA', locName: 'L' },
-      { pedidoId: 'P1', lineIdx: 1, sku: 'SKU2', fromState: 'ASIG', toState: 'cancelled', qty: 5, clientCardCode: 'C1', clientName: 'CLI', vendor: 'V', province: 'BA', locName: 'L' },
+      {
+        pedidoId: 'P1',
+        lineIdx: 0,
+        sku: 'SKU1',
+        fromState: 'ASIG',
+        toState: 'confirmed',
+        qty: 10,
+        clientCardCode: 'C1',
+        clientName: 'CLI',
+        vendor: 'V',
+        province: 'BA',
+        locName: 'L',
+      },
+      {
+        pedidoId: 'P1',
+        lineIdx: 1,
+        sku: 'SKU2',
+        fromState: 'ASIG',
+        toState: 'cancelled',
+        qty: 5,
+        clientCardCode: 'C1',
+        clientName: 'CLI',
+        vendor: 'V',
+        province: 'BA',
+        locName: 'L',
+      },
     ];
 
     const n = await writeTransitionsBatch({ fbDb, FieldValue }, transitions);

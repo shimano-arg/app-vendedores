@@ -95,14 +95,21 @@ export function detectAsigTransitions(pedidoId, before, after) {
     // Caso: linea eliminada del array (after doesn't have this idx).
     if (b && !a) {
       if (bState === ASIG_STATE) {
-        transitions.push(_makeTransition({
-          pedidoId, lineIdx: i,
-          sku: String(b.code || ''),
-          clientCardCode, clientName, vendor, province, locName,
-          fromState: ASIG_STATE,
-          toState: 'cancelled',  // asume cancelacion cuando desaparece
-          qty: Number(b.qtyOpen) || 0,
-        }));
+        transitions.push(
+          _makeTransition({
+            pedidoId,
+            lineIdx: i,
+            sku: String(b.code || ''),
+            clientCardCode,
+            clientName,
+            vendor,
+            province,
+            locName,
+            fromState: ASIG_STATE,
+            toState: 'cancelled', // asume cancelacion cuando desaparece
+            qty: Number(b.qtyOpen) || 0,
+          })
+        );
       }
       continue;
     }
@@ -111,14 +118,21 @@ export function detectAsigTransitions(pedidoId, before, after) {
     if (!b && a) {
       // Solo trackear si la nueva linea entra directo a ASIG (raro pero posible).
       if (aState === ASIG_STATE) {
-        transitions.push(_makeTransition({
-          pedidoId, lineIdx: i,
-          sku: String(a.code || ''),
-          clientCardCode, clientName, vendor, province, locName,
-          fromState: 'new',  // no habia estado previo
-          toState: ASIG_STATE,
-          qty: Number(a.qtyOpen) || 0,
-        }));
+        transitions.push(
+          _makeTransition({
+            pedidoId,
+            lineIdx: i,
+            sku: String(a.code || ''),
+            clientCardCode,
+            clientName,
+            vendor,
+            province,
+            locName,
+            fromState: 'new', // no habia estado previo
+            toState: ASIG_STATE,
+            qty: Number(a.qtyOpen) || 0,
+          })
+        );
       }
       continue;
     }
@@ -127,15 +141,22 @@ export function detectAsigTransitions(pedidoId, before, after) {
     if (b && a && bState !== aState) {
       // Solo trackear cambios que involucren ASIG (entrada o salida).
       if (bState !== ASIG_STATE && aState !== ASIG_STATE) continue;
-      transitions.push(_makeTransition({
-        pedidoId, lineIdx: i,
-        sku: String((a.code || b.code) || ''),
-        clientCardCode, clientName, vendor, province, locName,
-        fromState: bState || 'unknown',
-        toState: aState || 'unknown',
-        // qty = qtyOpen antes de la transicion (lo que "salio" de ASIG)
-        qty: bState === ASIG_STATE ? (Number(b.qtyOpen) || 0) : (Number(a.qtyOpen) || 0),
-      }));
+      transitions.push(
+        _makeTransition({
+          pedidoId,
+          lineIdx: i,
+          sku: String(a.code || b.code || ''),
+          clientCardCode,
+          clientName,
+          vendor,
+          province,
+          locName,
+          fromState: bState || 'unknown',
+          toState: aState || 'unknown',
+          // qty = qtyOpen antes de la transicion (lo que "salio" de ASIG)
+          qty: bState === ASIG_STATE ? Number(b.qtyOpen) || 0 : Number(a.qtyOpen) || 0,
+        })
+      );
     }
     // Cambios de qtyOpen dentro del mismo state (ej. ASIG parcial) NO se
     // trackean en MVP. Se podria agregar en v2 si hace falta granularidad.
@@ -177,11 +198,11 @@ export async function writeTransitionsBatch(deps, transitions) {
   if (!transitions.length) return 0;
   const { fbDb, FieldValue, log } = deps;
   const nowIso = new Date().toISOString();
-  const month = nowIso.slice(0, 7);  // 'YYYY-MM'
+  const month = nowIso.slice(0, 7); // 'YYYY-MM'
   const batch = fbDb.batch();
   const coll = fbDb.collection('asig_transitions');
   for (const t of transitions) {
-    const ref = coll.doc();  // auto-id
+    const ref = coll.doc(); // auto-id
     batch.set(ref, {
       ...t,
       month,

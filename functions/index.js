@@ -23,14 +23,14 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 // Cargarlo top-level exhausta el timeout de 10s del "backend spec analysis"
 // del deploy de Firebase Functions. Lazy dynamic import inside la function.
 import { updateAsigLineState } from './core/asig-recycle-core.js';
+// v750 (2026-08-31): tracking de transiciones ASIG para analytics mes-a-mes.
+import { detectAsigTransitions, writeTransitionsBatch } from './core/asig-transitions-core.js';
 import { expireAsigLinesTTL } from './core/asig-ttl-core.js';
 import { runDailyBackup } from './core/backup-core.js';
 import { runFifoAssign } from './core/fifo-assign-core.js';
 import { runGeminiOcr } from './core/gemini-ocr-core.js';
 import { syncSapInvoices } from './core/invoice-sync-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
-// v750 (2026-08-31): tracking de transiciones ASIG para analytics mes-a-mes.
-import { detectAsigTransitions, writeTransitionsBatch } from './core/asig-transitions-core.js';
 import { handleSapProxy } from './core/sap-proxy-core.js';
 import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
 
@@ -223,11 +223,7 @@ export const onPedidoWriteTrackAsigTransitions = onDocumentWritten(
     try {
       const beforeData = event.data?.before?.data() ?? null;
       const afterData = event.data?.after?.data() ?? null;
-      const transitions = detectAsigTransitions(
-        event.params.pedidoId,
-        beforeData,
-        afterData
-      );
+      const transitions = detectAsigTransitions(event.params.pedidoId, beforeData, afterData);
       if (!transitions.length) return;
       const db = getFirestore();
       const n = await writeTransitionsBatch(
