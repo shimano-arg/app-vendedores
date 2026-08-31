@@ -745,24 +745,24 @@ body, .modal-box, .modal-overlay, .header, .controls, input, select, textarea, b
   color: var(--brand-shimano-blue) !important;
 }
 
-/* v751 (2026-08-31): defensive blanket - todos los h1/h2/h3 dentro de
-   containers dark ahora fuerzan text-primary si el inline style hardcoded
-   quedo con un color oscuro (indigo-700/#1e40af, indigo-800/#1e3a8a, etc).
-   Los codemod anteriores solo cubrieron top-40 semantic; estos indigo se
-   escaparon. Este selector con !important + [style*=""] los pisa todos. */
-[data-theme="dark"] h1[style*="color:#1e40af"],
-[data-theme="dark"] h2[style*="color:#1e40af"],
-[data-theme="dark"] h3[style*="color:#1e40af"],
-[data-theme="dark"] h1[style*="color:#1e3a8a"],
-[data-theme="dark"] h2[style*="color:#1e3a8a"],
-[data-theme="dark"] h3[style*="color:#1e3a8a"],
-[data-theme="dark"] h1[style*="color:#1d4ed8"],
-[data-theme="dark"] h2[style*="color:#1d4ed8"],
-[data-theme="dark"] h3[style*="color:#1d4ed8"],
-[data-theme="dark"] .right-panel h3,
-[data-theme="dark"] .tab-pane h3,
-[data-theme="dark"] #pane-notif h3 {
-  color: var(--text-primary) !important;
+/* v752 (2026-08-31): NUCLEAR - fuerza color LITERAL en TODOS los h1/h2/h3
+   del app en dark mode. Mariano reporto que h3 en tab-panes seguian sin
+   contraste incluso con overrides previos. Root cause probable: alguna
+   inheritance chain o cache raro. Solucion: color:#f1f5f9 literal en TODOS
+   los h1/h2/h3 con specificity alta y !important. Zero riesgo — h3 con
+   colores semanticos (danger/success) tienen su propio color, este es
+   default para h3 sin color explicito. */
+[data-theme="dark"] h1,
+[data-theme="dark"] h2,
+[data-theme="dark"] h3 {
+  color: #f1f5f9 !important;
+}
+/* Excepciones: h3 dentro de containers con background colored (green/red
+   solid) deben mantener text-inverse para readability. */
+[data-theme="dark"] [style*="background:var(--color-danger)"] h3,
+[data-theme="dark"] [style*="background:var(--color-success)"] h3,
+[data-theme="dark"] .modal-head h3 {
+  color: #fff !important;
 }
 
 /* v749 (2026-08-31): CSS filter para tile OSM en dark mode. Reemplaza el
@@ -5059,7 +5059,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v751';
+const APP_VERSION = 'v752';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
