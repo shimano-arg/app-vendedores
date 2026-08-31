@@ -69,6 +69,7 @@ const ASIG_STATE = 'ASIG';
  * @returns {AsigTransition[]}
  */
 export function detectAsigTransitions(pedidoId, before, after) {
+  /** @type {AsigTransition[]} */
   const transitions = [];
   if (!pedidoId) return transitions;
   // Si el doc es nuevo (before null) o eliminado (after null), tratar defensively.
