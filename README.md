@@ -1369,6 +1369,8 @@ Carga de gastos del vendedor con OCR automático:
 5. Se guarda en `rendiciones/{docId}` con `status: pending_approval`.
 6. El aprobador (configurado en `roles/{vde}.rendicionesApproverUid`) la aprueba o rechaza.
 
+**Validación importe > 0 (v758+, 2026-08-31):** `submitRendSolicitud` y `submitRendGasto` (`src/domains/rendiciones.js`) rechazan importe ≤ 0 con alert antes del save. Fix root cause del Power Automate fail (`OpenApiOperationParameterTypeConversionFailed`) — ver §16-bis "Errores conocidos".
+
 ### Tipos de gasto
 
 Combustible, peajes, alojamiento, comidas, varios.
@@ -1671,6 +1673,12 @@ Chequear en **Code view** del `Create item 1` que no haya `outputs('Create_item'
 - **Document Library aparece como "ドキュメント"** (japonés): es el OneDrive normal, bug conocido de localización de Microsoft Connectors. Funciona sin problema.
 - **Configure run after tolerante**: cuando un mail tiene solo gastos, `TablaSolicitudes` no existe → `List rows Solicitudes` falla con `NotFound`. Y viceversa. Ambos `List rows` deben tener `is successful + has failed + is skipped` marcado. El `Apply to each Solicitud` también debe tener `has failed + is skipped` respecto a `For each 1` (que puede fallar si `TablaGastos` no existe).
 - **File lock 502 del Excel Online**: si aparece `List rows failed: BadGateway (502)`, chequear que el archivo Excel no esté abierto en Excel Desktop / Excel Online / Teams. El nombre único de v3 previene esto pero puede pasar si alguien abre el archivo cacheado.
+
+### Errores conocidos (agregar acá al aparecer nuevos)
+
+- **`OpenApiOperationParameterTypeConversionFailed` en Create item 1** (Mariano reportó 2026-08-31): el step falla con `Input parameter 'item/Importe' is required to be of type 'Number/double'. The runtime value """ ...`. **Causa:** una solicitud aprobada tiene `importe=0` o vacío; SharePoint column Importe es Number/double y rechaza `""`. **Doble red de seguridad implementada:**
+  1. **Frontend (v758+)**: `submitRendSolicitud` + `submitRendGasto` en `src/domains/rendiciones.js` rechazan importe ≤ 0 antes del save. Bloquea el bug en la fuente.
+  2. **Flow Power Automate defensivo**: en Create item 1 → campo Importe cambiar la expression a `if(empty(items('Apply_to_each_Solicitud')?['Importe']), 0, items('Apply_to_each_Solicitud')?['Importe'])`. Cubre data legacy o cargas bulk que salteen el frontend.
 
 ### Estado actual del flow
 
@@ -2327,6 +2335,26 @@ https://raw.githubusercontent.com/shimano-arg/app-vendedores/main/stock.json
 (No usa GitHub Pages: los builds Jekyll venían fallando y el CDN cachea 10 min. `raw.githubusercontent` sirve directo del branch, ~30 seg de propagación y sin build.)
 
 El script Apps Script hace `UrlFetchApp.fetch` con `?t=${Date.now()}` para bustear cache. Ver historial de commits para el código completo.
+
+### Monitoreo del sync SAP → BigQuery (v757+)
+
+Sync corre en GitHub Actions cada **30 min** (`.github/workflows/sync-sap-to-bigquery.yml`, cron `:08,:38`). Antes era cada 15 min pero como cada run dura 33-37 min, la concurrency guard skipeaba 50% de las corridas → intervalo real ya era 30 min. Explicitar el cron a 30 min reduce load del GH scheduler y evita skips en weekends.
+
+**Vista `v_sync_health` en BigQuery** (`bigquery/views.sql`): expone timestamp de última sync + status semaforico. Alimenta un card en el TABLERO SAR (Power BI) para hacer explícito cuando la data está stale.
+
+```sql
+SELECT * FROM `app-vendedores-shimano.shimano_app.v_sync_health`
+-- Devuelve:
+--   last_sync_local  (America/Argentina/Buenos_Aires)
+--   minutes_since_last_sync
+--   status  ('OK' <45min, 'WARN' <120min, 'STALE' ≥120min)
+--   freshest_table / stalest_table
+--   max_doc_num_invoice, max_doc_date_invoice
+```
+
+**Cómo agregar al TABLERO SAR:** Get Data → BigQuery → `v_sync_health` → crear card con `status` + formato condicional verde/amarillo/rojo. Otro card con `last_sync_local` formato "DD/MM HH:mm". Cuando el card se ponga en amarillo o rojo, la data no está fresca — antes de sacar conclusiones, forzar manual sync desde GitHub Actions o esperar el próximo cron.
+
+**Motivación**: 2026-08-31 el sync se colgó 4.5h (cron scheduler skipeó runs en weekend). Mariano actualizó tablero y no vio facturas frescas (18876 Battistoni facturada ese día). Sin indicador visible, no era evidente que la data estaba stale.
 
 ---
 
