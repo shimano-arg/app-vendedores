@@ -1,9 +1,24 @@
 # Plan Dark Mode — Refactor a CSS variables + paleta oscura
 
 **Fecha de armado:** 2026-08-30
+**Fecha de cierre:** 2026-08-31
 **Owner:** Mariano Erbino
 **Estimación revisada:** 20-40 hs (2 semanas part-time o 1 semana full-time)
-**Estado:** propuesta armada, esperando OK Mariano para arrancar E0
+**Tiempo real ejecutado:** ~1 día (compressed, mismo día 2026-08-30/31)
+**Estado:** ✅ **COMPLETADO** — E0 a E5 shipped v736-v746
+
+**Timeline final:**
+- v736 (2026-08-30): placeholder button + modal "En construcción"
+- v738 (2026-08-30): E1 - infra CSS vars + toggle real + FOUC prevention
+- v740-v742 (2026-08-30): iterations de contraste con overrides class-based
+- v743 (2026-08-30): E2 - codemod 1964 hex hardcoded -> var(--token) semantic
+- v744 (2026-08-30): E3 - assets + edge cases (Leaflet tiles, scrollbars, logos)
+- v745 (2026-08-30): E4 - WCAG AA audit programatico + fixes + docs README §36
+- v746 (2026-08-31): E5 - rollout announcement one-time modal + monitoring hooks
+
+**Tooling reusable creado:**
+- `scripts/dark_mode_codemod.py` (E2)
+- `scripts/dark_mode_contrast_audit.py` (E4)
 
 ---
 
