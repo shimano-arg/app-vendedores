@@ -6557,3 +6557,26 @@
 }
 #pane-rutas .ruta-tienda-btn:active { transform: scale(0.97) !important; }
 
+/* ============================================================================
+   v756 (2026-08-31): DARK MODE overrides para titulos de tab-panes.
+   Root cause del bug de contraste que Mariano reporto 5x:
+   apple-design.css tiene rules con `color: #1d1d1f !important` en
+   .sidebar h3, #pane-notif h3, #pane-clients h3#clients-title, #pane-pedidos
+   h3, #pane-rendiciones h3, #pane-altacli h3, #pane-rutas h3. Estas rules
+   tienen specificity de ID que GANA sobre el nuclear rule del inline
+   [data-theme="dark"] h3 (specificity 0,1,1 vs 1,0,1). Por eso todos los
+   h3 de tab-panes seguian dark en dark mode aunque el blanket estuviera OK.
+   Fix: overrides con matching specificity + [data-theme="dark"] prefix.
+   ============================================================================ */
+html[data-theme="dark"] .sidebar h3,
+html[data-theme="dark"] #pane-notif h3,
+html[data-theme="dark"] #pane-clients h3,
+html[data-theme="dark"] #pane-clients h3#clients-title,
+html[data-theme="dark"] #pane-pedidos h3,
+html[data-theme="dark"] #pane-rendiciones h3,
+html[data-theme="dark"] #pane-altacli h3,
+html[data-theme="dark"] #pane-rutas h3,
+html[data-theme="dark"] #pane-locs h3 {
+  color: #ffffff !important;
+}
+
