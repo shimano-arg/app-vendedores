@@ -293,7 +293,15 @@ FROM invoices_and_cns inv
 LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
   ON inv.card_code = bp.card_code
 LEFT JOIN cliente_app ca
-  ON ca.card_code = inv.card_code;
+  ON ca.card_code = inv.card_code
+-- v748 (2026-08-31): filtro estricto cancelled='tNO'. Antes: la vista devolvia
+-- TODOS los docs (incluyendo tYES y los cancellation docs con CANCELED='').
+-- Downstream consumers (Power BI, dashboards, TABLERO SAR) tenian que aplicar
+-- el filtro cada vez y algunos usaban `cancelled <> 'tYES'` que deja pasar los
+-- cancellation docs con flag vacio. Efecto: Anglers agosto 2026 se veia con
+-- $16.562.000 en vez de los $3.312.400 reales. Ahora el filtro es centralizado
+-- aca: solo docs validos (tNO) - excluye tYES y los cancellation docs (CANCELED='').
+WHERE inv.cancelled = 'tNO';
 
 
 -- ============================================================
@@ -724,7 +732,13 @@ LEFT JOIN prov_lookup prov
   ON prov.card_code = inv.card_code
 LEFT JOIN cliente_app ca
   ON ca.card_code = inv.card_code
-WHERE COALESCE(inv.cancelled, 'tNO') = 'tNO';
+-- v748 (2026-08-31): filtro estricto cancelled='tNO'. Antes: COALESCE(cancelled,'tNO')='tNO'
+-- que trataba NULL/vacio como 'tNO' -> incluia los documentos de CANCELACION
+-- (SAP crea un doc espejo con CANCELED='' cuando anula una factura). Efecto
+-- del bug: Anglers (CardCode C33651833669) agosto 2026 sumaba $16.562.000 con
+-- 5 docs cuando la unica valida es DocNum 18840 = $3.312.400. Los DocNum
+-- 18824/26/28/39 tienen CANCELED='' y deben excluirse igual que las tYES.
+WHERE inv.cancelled = 'tNO';
 
 
 -- ============================================================
