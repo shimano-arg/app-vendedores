@@ -80,7 +80,12 @@ window.onClickConfirmPedido = function () {
     openConfirmDialog();
     return;
   }
-  openReviewDialog();
+  // v755 (2026-08-31): Vista Preliminar del flow "Crear pedido" desde cliente
+  // debe ser READ-ONLY. Solo "Volver a editar" — sin "Pasar a Pendientes".
+  // Mariano insistio: para pasar a Pendientes desde aca, el vendedor debe
+  // usar "Enviar a lista de espera" (desde picker) y luego pasar desde la
+  // lista de espera. Waitlist/excel siguen con mode='crear' (con boton).
+  openReviewDialog('crear-view-only');
 };
 
 window.cancelPedido = function () {
@@ -174,7 +179,7 @@ window.cancelPedido = function () {
     showSyncTag('Pedido cancelado (' + nItems + ' items eliminados)');
 };
 
-let reviewMode = 'crear'; // 'crear' | 'pending-confirm'
+let reviewMode = 'crear'; // 'crear' | 'crear-view-only' | 'pending-confirm'
 
 window.openReviewDialog = function (mode) {
   reviewMode = mode || 'crear';
@@ -185,6 +190,7 @@ window.openReviewDialog = function (mode) {
     if (!entry) return;
     lines = entry.lines || [];
   } else {
+    // 'crear' + 'crear-view-only' comparten load path (leen de orders[]).
     if (!currentOrderKey || currentOrderKey === '__readonly__') return;
     lines = orders[currentOrderKey] || [];
   }
@@ -637,13 +643,18 @@ window.showReviewError = showReviewError;
 
 function updateReviewFooter() {
   const footer = document.querySelector('#review-modal .modal-footer');
+  const backBtn =
+    '<button class="btn-cancel" style="background:var(--bg-elevated);color:var(--text-secondary);border:1.5px solid var(--border-default)" onclick="closeReviewDialog()">Volver a editar</button>';
   if (reviewMode === 'pending-confirm') {
     footer.innerHTML =
-      '<button class="btn-cancel" style="background:var(--bg-elevated);color:var(--text-secondary);border:1.5px solid var(--border-default)" onclick="closeReviewDialog()">Volver a editar</button>' +
+      backBtn +
       '<button class="btn-confirm" onclick="doConfirmDefinitivoFromReview()">Confirmar y enviar a Confirmados</button>';
+  } else if (reviewMode === 'crear-view-only') {
+    // v755: flow "Crear pedido" desde cliente. Solo Volver — sin submit.
+    footer.innerHTML = backBtn;
   } else {
     footer.innerHTML =
-      '<button class="btn-cancel" style="background:var(--bg-elevated);color:var(--text-secondary);border:1.5px solid var(--border-default)" onclick="closeReviewDialog()">Volver a editar</button>' +
+      backBtn +
       '<button class="btn-confirm" onclick="validateReviewAndPasarAPendientes()">Pasar a Pendientes</button>';
   }
 }
