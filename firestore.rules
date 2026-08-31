@@ -74,14 +74,22 @@ service cloud.firestore {
             && request.resource.data.createdByUid == request.auth.uid
             && request.resource.data.onBehalfOf == true
             && isMyPartnerVDE(request.resource.data.ownerUid));
+      // v747 (2026-08-31): relajada la rule de update/delete para internos.
+      // Antes: internos solo podian update pedidos donde eran ownerUid
+      // (onBehalfOf=false) o createdByUid (onBehalfOf=true). Bug reportado
+      // por Santi (interno): al pasar un pedido de "lista de espera" a
+      // "pendientes", el flow ASIG resolve (index.html:16685) hace batch
+      // update sobre multiples pedidos de otros vendedores para cancelar/
+      // reciclar sus lineas ASIG. Como interno no era owner de esos otros
+      // pedidos, la batch fallaba con "Missing or insufficient permissions".
+      // Ahora: internos pueden update cualquier pedido (blanket). Justificacion:
+      // los 2 internos (Santi/Ioannis) estan en whitelist confiable, ya
+      // pueden crear pedidos on-behalf-of vendedores, y necesitan poder
+      // resolver ASIG lines cross-vendor para el flow waitlist. VDEs siguen
+      // restringidos a sus propios pedidos.
       allow update, delete: if isAdminOrGerente()
-        || (isVendor() && resource.data.ownerUid == request.auth.uid)
-        || (isInterno()
-            && resource.data.ownerUid == request.auth.uid
-            && resource.data.onBehalfOf == false)
-        || (isInterno()
-            && resource.data.createdByUid == request.auth.uid
-            && resource.data.onBehalfOf == true);
+        || isInterno()
+        || (isVendor() && resource.data.ownerUid == request.auth.uid);
     }
 
     match /campaigns/{campaignId} {
