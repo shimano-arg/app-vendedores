@@ -2850,7 +2850,7 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 - **Google Maps API key**: en `app_config/google_maps.apiKey` (leible por cualquier `isReader()` — TODOS los users autenticados, no solo admin). Restricciones aplicadas 2026-08-29: (1) HTTP referrer a `https://shimano-arg.github.io/*`, (2) API restriction a solo **Geocoding API** (blast radius minimo si se filtra: Geocoding ~USD 5/1000 requests vs Places USD 17-32/1000 o Route Optimization mucho mas). Key vive en GCP project "My First Project" (personal de Mariano); TODO futuro: migrar a project `app-vendedores-shimano` para desacoplar billing/ownership de cuenta personal. **Decision consciente 2026-08-30 (Mariano):** NO cerrar la rule a admin/gerente-only (como Gemini). Motivo: `getGmapsApiKey()` es llamada por vendedores desde `src/domains/notificaciones.js:294` (Alta Rapida en el campo) y `index.html:7083` (editar direccion alta SAP); cerrar la rule los degradaria a OSM Nominatim fallback (peor precision en localidades chicas del interior). Path arquitectonico correcto para el futuro si se quiere cerrar exposicion: Cloud Function `geocodeProxy` (matcheando pattern de Gemini v551 `geminiOcrProxy`) con secret `GOOGLE_MAPS_API_KEY` en Secret Manager. Estimado 3-5 hs de trabajo. Trade-off actual: exposicion vs latencia/CF cost/precision degradation en VDE.
 - **Service Layer password**: en `app_config/sap_integration.serviceLayer.password`. Solo admin lee/escribe vía Firestore rules. Mejor a futuro: variable de entorno de Cloud Function.
 
-### Sistema de Dark Mode (v738-v745, PLAN_DARK_MODE.md ejecutado)
+### Sistema de Dark Mode (v738-v756, PLAN_DARK_MODE.md ejecutado + hotfixes contraste titulos)
 
 **Arquitectura:**
 - **25 CSS variables semánticas** definidas en `:root` (light) y `[data-theme="dark"] { ... }` (dark). Naming semantic-first (`--text-primary`, `--bg-elevated`, `--color-success`), no color-first.
@@ -2866,6 +2866,9 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 - **v743:** PLAN E2 codemod — `scripts/dark_mode_codemod.py` reemplazó 1964 hex hardcoded del top-40 semantic por `var(--token)` en 22 files (index.html: 2799 → 1424 hex remaining, **-49%**). Coverage → 99%.
 - **v744:** PLAN E3 assets: Leaflet dark tiles (CartoDB Dark Matter swap), scrollbars custom, focus outline, text selection, Shimano logos preservados como badges blancos.
 - **v745:** PLAN E4 WCAG AA audit programático (`scripts/dark_mode_contrast_audit.py`). Post-fixes: **dark 24/26 pass** (2 fails son borders sutiles intencionales), **light 16/26 pass** (10 fails son borders + text-disabled + brand-shimano-blue, todos intencionales).
+- **v749-v752:** iterations sobre h3 titulos de tab-panes reportados por Mariano como sin contraste. Blanket rules `[data-theme="dark"] h1,h2,h3 { color: #f1f5f9 !important }` en el `<style>` inline. Aparentemente insuficientes segun reportes visuales del user.
+- **v754:** blanket rules ampliadas a h1-h6 + capa high-specificity `html[data-theme="dark"] .sidebar/.tab-pane`. "Localidades (vista nacional)" empezo a funcionar; el resto (Alta clientes, Notificaciones, Pedidos, Rendiciones, Rutas, Clientes) siguio sin contraste.
+- **v756:** **ROOT CAUSE encontrado.** `styles/apple-design.css` tiene 7 rules con `color: #1d1d1f !important` en h3 de tab-panes especificos (`.sidebar h3`, `#pane-notif h3`, `#pane-clients h3#clients-title`, `#pane-pedidos h3`, `#pane-rendiciones h3`, `#pane-altacli h3`, `#pane-rutas h3`). Specificity de ID (0,1,0,1) GANABA sobre los nuclear rules inline (0,0,1,1) — por eso `#pane-locs h3` (sin override de ID) funcionaba pero el resto no. Fix: agregado bloque `html[data-theme="dark"] #pane-XXX h3 { color: #ffffff !important }` al final de `apple-design.css` con matching specificity (0,1,1,1 beats 0,1,0,1) + cargado despues del bloque original. Root cause aplicable a cualquier futuro override dark: **si un archivo CSS externo tiene rules con !important + ID selectors, los blanket rules del `<style>` inline NO ganan.**
 
 **Assets no automatizables:**
 - Shimano logo: preservado como pill blanca en dark (invertir colores rompe brand — Shimano blue en white es identity).
@@ -2886,6 +2889,7 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 2. Si necesitás un color no cubierto, agregar como nuevo var (light + dark values) en el bloque `:root` / `[data-theme="dark"]` del `<style>` de `index.html`.
 3. Correr `python scripts/dark_mode_contrast_audit.py` post-cambio para verificar WCAG AA.
 4. Testear ambos temas con toggle antes de mergear.
+5. **CRITICO (learned v756):** si agregás una regla en `styles/apple-design.css` con `!important` + selector con ID (`#pane-X ...`), agregá SIEMPRE el override dark mode en el bloque al final del mismo archivo. Los blanket rules `[data-theme="dark"] h3` del `<style>` inline NO ganan contra IDs con `!important` — necesitan matching specificity via `html[data-theme="dark"] #pane-X h3`.
 
 ---
 
