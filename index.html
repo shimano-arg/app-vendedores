@@ -5084,7 +5084,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v758';
+const APP_VERSION = 'v759';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -16594,11 +16594,31 @@ window._findAsigDelCliente = function(clientName, clientCardCode){
   const getStk = (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : null;
   for (const p of globalPedidos) {
     if (!p || p.closedAt) continue;
-    // Match por cardCode (preferido) o clientName (fallback).
+    // v759 (2026-08-31): FIX bug filtro cliente demasiado permisivo.
+    // Antes: `if (cc && pCC && pCC !== cc) continue;` — si el pedido no tenia
+    // cardCode (pedido huerfano), NO se excluia y aparecia en el resultado
+    // para todo cliente consultado. Mariano reporto (Quesada) que 2 SKUs
+    // CVC66MH4SACO + CDC60HSAA salian para todos los clientes.
+    // Ahora: strict matching. Si el request tiene cardCode, el pedido tambien
+    // debe tenerlo y matchear exacto. Fallback a clientName solo si NINGUNO
+    // tiene cardCode (pedidos legacy pre-cardCode).
     const pCC = String(p.clientCardCode || '').trim();
     const pCN = String(p.clientName || '').trim().toUpperCase();
-    if (cc && pCC && pCC !== cc) continue;
-    if (!cc && cn && pCN !== cn) continue;
+    if (cc) {
+      // Request con cardCode: pedido debe tener mismo cardCode.
+      if (pCC) {
+        if (pCC !== cc) continue;
+      } else {
+        // Pedido huerfano (sin cardCode): fallback a clientName solo si matchea.
+        if (!cn || !pCN || pCN !== cn) continue;
+      }
+    } else if (cn) {
+      // Request sin cardCode (raro): solo matchear por clientName.
+      if (!pCN || pCN !== cn) continue;
+    } else {
+      // Request sin cc ni cn: nunca incluir (defensive).
+      continue;
+    }
     const lines = Array.isArray(p.lines) ? p.lines : [];
     lines.forEach((l, idx) => {
       if (!l) return;
