@@ -417,6 +417,20 @@ window.submitRendSolicitud = async function () {
     alert('Faltan: ' + errors.join(', '));
     return;
   }
+  // v758 (2026-08-31): importe debe ser > 0. El type=number required de HTML5
+  // acepta "0" como valor valido y parseFloat lo convierte a 0. Cuando el flow
+  // Power Automate "Cargar rendiciones aprobadas a SharePoint" recibe importe=0
+  // en el paso Create item 1 falla con OpenApiOperationParameterTypeConversion
+  // (SharePoint column es Number/double, no acepta "" que es como se serializa
+  // 0 en algunos formatos de Excel table). Ademas, una solicitud con importe=0
+  // no tiene sentido de negocio - siempre hay un monto a solicitar/rendir.
+  const importeNum = parseFloat(read('rd-importe'));
+  if (!isFinite(importeNum) || importeNum <= 0) {
+    alert('El importe tiene que ser mayor a 0. Cargalo antes de enviar.');
+    const el = document.getElementById('rd-importe');
+    if (el) el.focus();
+    return;
+  }
   // v308+: Diego (director) auto-aprueba. Mismo patron que submitRendGasto.
   const selfApprove = isSelfApproverForRendiciones();
   let approver;
@@ -449,7 +463,7 @@ window.submitRendSolicitud = async function () {
     solicitadoPor: read('rd-solicitadoPor'),
     motivo: read('rd-motivo'),
     tipoOperacion: read('rd-tipoOp'),
-    importe: parseFloat(read('rd-importe')) || 0,
+    importe: importeNum,
     moneda: read('rd-moneda'),
     observaciones: read('rd-obs'),
     estadoSolicitud: read('rd-estado'),
@@ -573,6 +587,15 @@ window.submitRendGasto = async function () {
     alert('Faltan: ' + errors.join(', '));
     return;
   }
+  // v758 (2026-08-31): mismo check que submitRendSolicitud. Importe > 0 obligatorio
+  // porque Power Automate SharePoint column es Number/double y falla con 0/vacio.
+  const importeGastoNum = parseFloat(read('rg-importe'));
+  if (!isFinite(importeGastoNum) || importeGastoNum <= 0) {
+    alert('El importe tiene que ser mayor a 0. Cargalo antes de enviar.');
+    const el = document.getElementById('rg-importe');
+    if (el) el.focus();
+    return;
+  }
   // v308+: Diego (y otros directores del area en SELF_APPROVE_RENDICIONES_EMAILS)
   // rinde directo sin approver externo. La rendicion queda status='approved'
   // desde el submit y no se notifica a nadie mas.
@@ -598,7 +621,7 @@ window.submitRendGasto = async function () {
     )
       return;
   }
-  const importe = parseFloat(read('rg-importe')) || 0;
+  const importe = importeGastoNum;
   const importeUsd = parseFloat(read('rg-importeUsd')) || 0;
   // v308+: la foto del ticket ahora se sube a Firebase Storage (no embebida
   // base64 en Firestore). Guardamos solo la URL en fotoTicketUrl para que:
