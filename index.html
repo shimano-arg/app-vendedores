@@ -745,6 +745,26 @@ body, .modal-box, .modal-overlay, .header, .controls, input, select, textarea, b
   color: var(--brand-shimano-blue) !important;
 }
 
+/* v751 (2026-08-31): defensive blanket - todos los h1/h2/h3 dentro de
+   containers dark ahora fuerzan text-primary si el inline style hardcoded
+   quedo con un color oscuro (indigo-700/#1e40af, indigo-800/#1e3a8a, etc).
+   Los codemod anteriores solo cubrieron top-40 semantic; estos indigo se
+   escaparon. Este selector con !important + [style*=""] los pisa todos. */
+[data-theme="dark"] h1[style*="color:#1e40af"],
+[data-theme="dark"] h2[style*="color:#1e40af"],
+[data-theme="dark"] h3[style*="color:#1e40af"],
+[data-theme="dark"] h1[style*="color:#1e3a8a"],
+[data-theme="dark"] h2[style*="color:#1e3a8a"],
+[data-theme="dark"] h3[style*="color:#1e3a8a"],
+[data-theme="dark"] h1[style*="color:#1d4ed8"],
+[data-theme="dark"] h2[style*="color:#1d4ed8"],
+[data-theme="dark"] h3[style*="color:#1d4ed8"],
+[data-theme="dark"] .right-panel h3,
+[data-theme="dark"] .tab-pane h3,
+[data-theme="dark"] #pane-notif h3 {
+  color: var(--text-primary) !important;
+}
+
 /* v749 (2026-08-31): CSS filter para tile OSM en dark mode. Reemplaza el
    tile swap CartoDB Dark Matter (v744) que ahora exige API key
    ("API KEY REQUIRED" watermark). El filter invierte colores + rota
@@ -953,10 +973,10 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
 .ruta-wa-btn{margin-top:10px;background:#25d366;color:#fff;border:none;border-radius:6px;padding:10px 14px;font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;width:100%;box-shadow:0 1px 3px rgba(37,211,102,.4);transition:.15s}
 .ruta-wa-btn:hover{background:#1da851;box-shadow:0 2px 6px rgba(37,211,102,.6)}
 .ruta-wa-btn:active{transform:translateY(1px)}
-.ruta-fecha-badge{display:inline-block;font-size:10px;font-weight:800;padding:3px 8px;border-radius:4px;background:#dbeafe;color:#1e40af;text-transform:uppercase;letter-spacing:.4px;margin-top:4px}
+.ruta-fecha-badge{display:inline-block;font-size:10px;font-weight:800;padding:3px 8px;border-radius:4px;background:#dbeafe;color:var(--text-primary);text-transform:uppercase;letter-spacing:.4px;margin-top:4px}
 .ruta-fecha-badge.hoy{background:var(--color-warning-bg);color:var(--color-warning)}
 .ruta-fecha-badge.atrasada{background:var(--color-danger-bg);color:var(--color-danger-strong)}
-.ruta-fecha-badge.futura{background:#dbeafe;color:#1e40af}
+.ruta-fecha-badge.futura{background:#dbeafe;color:var(--text-primary)}
 .ruta-fecha-badge.reagendados{background:var(--color-warning-bg);color:var(--color-warning)}
 .ruta-card.reagendados{border-left-color:#f59e0b;background:#fffbeb}
 .ruta-tienda.reagendada{background:#fffbeb;border-color:#fde68a;border-left:4px solid #f59e0b}
@@ -1086,7 +1106,7 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
 .rd-mias-card.approved .rd-status{background:var(--color-success-bg);color:var(--color-success)}
 .rd-mias-card.rejected .rd-status{background:var(--color-danger-bg);color:var(--color-danger-strong)}
 .rd-tipo-tag{font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px;background:#fce7f3;color:#9d174d;text-transform:uppercase;letter-spacing:.2px;margin-right:5px}
-.ocr-spinner{display:inline-block;width:14px;height:14px;border:2px solid #93c5fd;border-top-color:#1e40af;border-radius:50%;animation:ocr-spin 1s linear infinite}
+.ocr-spinner{display:inline-block;width:14px;height:14px;border:2px solid #93c5fd;border-top-color:var(--text-primary);border-radius:50%;animation:ocr-spin 1s linear infinite}
 @keyframes ocr-spin{to{transform:rotate(360deg)}}
 .notif-badge{position:absolute;top:-6px;right:-6px;background:var(--color-danger);color:#fff;border-radius:10px;min-width:18px;height:18px;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 5px;border:2px solid #fff}
 .notif-list{padding:0;max-height:60vh;overflow-y:auto}
@@ -1307,7 +1327,7 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
 .sap-tag.pendiente{background:var(--color-warning-bg);color:var(--color-warning)}
 .sap-tag.transferido{background:#d1fae5;color:#065f46}
 .sap-tag.listo{background:var(--color-success-bg);color:var(--color-success)}
-.sap-tag.manual{background:#dbeafe;color:#1e40af}
+.sap-tag.manual{background:#dbeafe;color:var(--text-primary)}
 .sap-card.listo{border-left-color:#10b981}
 .sap-section-head{margin-top:18px;display:flex;align-items:center;gap:10px;padding-bottom:8px;margin-bottom:10px;border-bottom:2px solid var(--border-subtle);flex-wrap:wrap}
 .sap-section-head .sec-title{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px}
@@ -1560,7 +1580,7 @@ select.zone-select:focus{box-shadow:0 0 0 3px rgba(0,169,224,.18)}
 .seg-stat.pend .num{color:var(--color-warning)}
 .seg-stat.opp .num{color:#0d9488}
 .seg-stat.dead .num{color:var(--color-danger)}
-.seg-stat.conv .num{color:#1e40af}
+.seg-stat.conv .num{color:var(--text-primary)}
 .seg-tabs{display:flex;gap:4px;flex-wrap:wrap;background:var(--bg-muted);border-radius:6px;padding:3px;margin-bottom:12px}
 .seg-tab{flex:1;min-width:90px;padding:7px 10px;border:none;border-radius:4px;background:transparent;color:var(--text-secondary);font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px}
 .seg-tab.active{background:var(--bg-elevated);color:var(--text-primary);box-shadow:0 1px 2px rgba(0,0,0,.08)}
@@ -1915,7 +1935,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .stats-bar-left .stat-box .lbl{font-size:8px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-top:1px;line-height:1.1}
 .stats-bar-left .stat-box .sub{font-size:7px;color:var(--text-muted);margin-top:0;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stats-bar-left .slft-stat-fact .num{color:var(--color-success)}
-.stats-bar-left .slft-stat-cumpl .num{color:#1e40af}
+.stats-bar-left .slft-stat-cumpl .num{color:var(--text-primary)}
 /* Grid 3x3 de botones con colores por fila. */
 .slft-btns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
 @media (min-width: 901px) { .controls-right-group .moved-to-sidebar-left{display:none !important} }
@@ -1941,7 +1961,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 /* Fila 3 AZUL MARINO - #1e3a8a igual que tab-btn[data-tab=altacli/rendiciones/notif]. */
 .slft-btns > button:nth-child(7),
 .slft-btns > button:nth-child(8),
-.slft-btns > button:nth-child(9){background:#1e3a8a !important;border-color:#1e3a8a !important;border-bottom-color:#1e40af !important}
+.slft-btns > button:nth-child(9){background:#1e3a8a !important;border-color:#1e3a8a !important;border-bottom-color:var(--text-primary) !important}
 .slft-btns > button:nth-child(7):hover,
 .slft-btns > button:nth-child(8):hover,
 .slft-btns > button:nth-child(9):hover{background:#1e40af !important}
@@ -2021,7 +2041,7 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .tab-btn[data-tab=altacli],
 .tab-btn[data-tab=rendiciones],
 .tab-btn[data-tab=notif],
-.tab-btn.tab-action[data-tab=notif-action]{background:#1e3a8a;color:#fff;border-color:#1e3a8a;border-bottom-color:#1e40af;position:relative}
+.tab-btn.tab-action[data-tab=notif-action]{background:#1e3a8a;color:#fff;border-color:#1e3a8a;border-bottom-color:var(--text-primary);position:relative}
 .tab-btn[data-tab=altacli]:hover,
 .tab-btn[data-tab=rendiciones]:hover,
 .tab-btn[data-tab=notif]:hover,
@@ -2159,7 +2179,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 .client-card .client-name{font-size:12px;font-weight:700;color:var(--text-primary);word-break:break-word}
 .client-card .client-meta{font-size:10px;color:var(--text-muted);margin-top:2px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .client-card .badge-tipo{padding:1px 7px;border-radius:8px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.5px}
-.client-card .badge-tipo.cli{background:#dbeafe;color:#1e40af}
+.client-card .badge-tipo.cli{background:#dbeafe;color:var(--text-primary)}
 .client-card .badge-tipo.pro{background:var(--color-warning-bg);color:var(--color-warning)}
 .client-card.contacted .badge-tipo{opacity:.65}
 .loc-card{margin-bottom:8px;padding:10px 12px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-left:3px solid var(--brand-shimano-blue);border-radius:6px;cursor:pointer;transition:.15s}
@@ -3056,7 +3076,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
              el stock de todos los SKUs via Service Layer, y se propaga a
              todos los usuarios via Firestore. -->
         <div id="pm-master-sync-block" style="background:#eff6ff;border:1px solid #93c5fd;border-radius:6px;padding:10px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-          <div style="flex:1;min-width:200px;font-size:11px;color:#1e40af;line-height:1.4">
+          <div style="flex:1;min-width:200px;font-size:11px;color:var(--text-primary);line-height:1.4">
             <b>Stock actualizado:</b> <span id="pm-master-stock-updated-at">-</span><br>
             <span style="font-size:10px;color:var(--text-muted)">Actualizacion automatica cada 30 min desde CSV. Si necesitas fresco al instante, tocá el boton (~2 min via Service Layer).</span>
           </div>
@@ -4192,7 +4212,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <!-- v569: seccion "Backorder asignado (app)" — SKUs con stock ya
              reservados (state='ASIG') para este cliente. -->
         <div class="modal-section" id="cm-e4b-asig-app" style="display:none">
-          <h3 style="color:#1e40af">📱 Backorder asignado (app)</h3>
+          <h3 style="color:var(--text-primary)">📱 Backorder asignado (app)</h3>
           <div style="font-size:10.5px;color:#1e3a8a;margin-bottom:8px">SKUs con stock que este cliente tiene reservados. Al armar un pedido nuevo aparecen los botones ✓ Aceptar / ✗ Rechazar.</div>
           <div id="cm-e4b-asig-app-rows" style="display:flex;flex-direction:column;gap:6px"></div>
         </div>
@@ -4350,7 +4370,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <div class="ac-row"><label>Foto del ticket / factura <span class="vf-hint">(opcional)</span></label>
           <div class="photo-grid" id="rd-foto-grid">
             <label class="photo-cell add" style="background:#fce7f3;border-color:#f9a8d4;color:#9d174d;font-size:10px;font-weight:800;letter-spacing:.3px"><input type="file" accept="image/*" capture="environment" style="display:none" onchange="onRendFotoTicket(this)"/>&#128247; SACAR<br>FOTO</label>
-            <label class="photo-cell add" style="background:#dbeafe;border-color:#93c5fd;color:#1e40af;font-size:10px;font-weight:800;letter-spacing:.3px"><input type="file" accept="image/*" style="display:none" onchange="onRendFotoTicket(this)"/>&#128194; ELEGIR<br>DE GALERÍA</label>
+            <label class="photo-cell add" style="background:#dbeafe;border-color:#93c5fd;color:var(--text-primary);font-size:10px;font-weight:800;letter-spacing:.3px"><input type="file" accept="image/*" style="display:none" onchange="onRendFotoTicket(this)"/>&#128194; ELEGIR<br>DE GALERÍA</label>
           </div>
           <div id="rd-ocr-status" style="margin-top:8px;display:none"></div>
         </div>
@@ -4536,7 +4556,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
           <div class="notif-list" id="notifs-realizadas-list"></div>
         </div>
         <div id="notifs-pane-crear" style="display:none">
-          <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:11px;color:#1e40af">
+          <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:11px;color:var(--text-primary)">
             Mand&aacute; una tarea o aviso a otro usuario de la app. Puede adjuntar im&aacute;genes (hasta 5).
           </div>
           <div class="vf-row" style="margin-bottom:10px"><label style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);display:block;margin-bottom:4px">Destinatario <span class="req">*</span></label>
@@ -4580,7 +4600,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
     </div>
     <!-- v570: seccion "Backorder asignado (app)" — SKUs con stock reservados. -->
     <div id="ccm-e4b-asig-app" style="display:none;background:#eff6ff;border:1.5px dashed #3b82f6;border-radius:6px;padding:10px 12px;margin:6px 18px 4px">
-      <div style="font-size:12px;font-weight:800;color:#1e40af;margin-bottom:6px">📱 Backorder asignado (app) — SKUs con stock que este cliente tiene reservados</div>
+      <div style="font-size:12px;font-weight:800;color:var(--text-primary);margin-bottom:6px">📱 Backorder asignado (app) — SKUs con stock que este cliente tiene reservados</div>
       <div style="font-size:10.5px;color:#1e3a8a;margin-bottom:8px">Al armar un pedido nuevo aparecen los botones ✓ Aceptar / ✗ Rechazar.</div>
       <div id="ccm-e4b-asig-app-rows" style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto"></div>
     </div>
@@ -4804,7 +4824,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
            localStorage.e4b_enabled='1' Y admin/gerente. Sin botones aun
            (step 2 sumara Aceptar reciclar / Rechazar liberar via CFs). -->
       <div id="wcard-e4b-asig-app" style="display:none;background:#eff6ff;border:1.5px dashed #3b82f6;border-radius:6px;padding:10px 12px;margin-bottom:12px">
-        <div style="font-size:12px;font-weight:800;color:#1e40af;margin-bottom:6px">📱 Backorder asignado (app) — SKUs con stock que este cliente tiene reservados</div>
+        <div style="font-size:12px;font-weight:800;color:var(--text-primary);margin-bottom:6px">📱 Backorder asignado (app) — SKUs con stock que este cliente tiene reservados</div>
         <div style="font-size:10.5px;color:#1e3a8a;margin-bottom:8px">Cuando entra stock, el sistema promueve automaticamente los pedidos abiertos del cliente a "asignado". Aceptar = agregar la reserva al pedido nuevo (recomendado). Rechazar = liberar el stock para otros clientes en cola FIFO.</div>
         <div id="wcard-e4b-asig-app-rows" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
@@ -4840,7 +4860,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
               <!-- v726 (2026-08-28): rename Pedido -> Pedido Original para diferenciarla claramente de Pedido Final. -->
               <th style="text-align:center;padding:6px 8px" title="Cantidad ORIGINAL que pidio el cliente (antes del split contra stock disponible)">Pedido Original</th>
               <!-- v716 (2026-08-28): nueva columna Pedido Final = min(Pedido, Libre). -->
-              <th style="text-align:center;padding:6px 8px;background:#dbeafe;color:#1e40af" title="Pedido Final = min(Pedido Original, Libre para la venta). Es lo que efectivamente va a SAP como confirmed. El resto cae en Backorder App.">Pedido Final</th>
+              <th style="text-align:center;padding:6px 8px;background:#dbeafe;color:var(--text-primary)" title="Pedido Final = min(Pedido Original, Libre para la venta). Es lo que efectivamente va a SAP como confirmed. El resto cae en Backorder App.">Pedido Final</th>
               <th style="text-align:center;padding:6px 8px" title="Precio unitario del catalogo/SAP">Precio</th>
               <!-- v718 (2026-08-28): renombre a "Subtotal Final" (matches Pedido Final). -->
               <th style="text-align:center;padding:6px 8px;background:var(--color-success-bg);color:var(--color-success)" title="Subtotal Final = Pedido Final x Precio. Es lo que efectivamente se va a facturar (lo que va a SAP como confirmed).">Subtotal Final</th>
@@ -5039,7 +5059,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v750';
+const APP_VERSION = 'v751';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14785,7 +14805,7 @@ function _renderSapAsignadoConStock(w){
     right.style.cssText = 'flex-shrink:0';
     if (isYaEnPedido) {
       const tag = document.createElement('span');
-      tag.style.cssText = 'background:#dbeafe;color:#1e40af;padding:5px 10px;border-radius:4px;font-size:10px;font-weight:700';
+      tag.style.cssText = 'background:#dbeafe;color:var(--text-primary);padding:5px 10px;border-radius:4px;font-size:10px;font-weight:700';
       tag.textContent = 'YA EN PEDIDO';
       right.appendChild(tag);
     } else {
@@ -14945,7 +14965,7 @@ function _renderE4BAsigApp(w){
     left.appendChild(code); left.appendChild(desc); left.appendChild(meta);
     row.appendChild(left);
     const tag = document.createElement('span');
-    tag.style.cssText = 'flex-shrink:0;background:#dbeafe;color:#1e40af;padding:4px 8px;border-radius:4px;font-size:10.5px;font-weight:800';
+    tag.style.cssText = 'flex-shrink:0;background:#dbeafe;color:var(--text-primary);padding:4px 8px;border-radius:4px;font-size:10.5px;font-weight:800';
     tag.textContent = it.qtyOpen + ' u';
     row.appendChild(tag);
     // v704: 3 opciones inline por linea. Mismo patron que modal ASIG obligatorio.
@@ -14964,7 +14984,7 @@ function _renderE4BAsigApp(w){
     const btnPart = document.createElement('button');
     btnPart.type = 'button';
     btnPart.textContent = '✎ Parcial';
-    btnPart.style.cssText = 'flex-shrink:0;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
+    btnPart.style.cssText = 'flex-shrink:0;background:#dbeafe;color:var(--text-primary);border:1px solid #93c5fd;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
     btnPart.onclick = () => _asigInlineResolve(w, it, 'partial');
     row.appendChild(btnPart);
     rows.appendChild(row);
@@ -15541,7 +15561,7 @@ function _renderWaitlistCard(){
         btnFusionar.type = 'button';
         btnFusionar.textContent = '🔁 Fusionar (+' + porCli.reservadasPorCliente + ')';
         btnFusionar.title = 'Consolidar las ' + porCli.reservadasPorCliente + ' u que el cliente ya tenia asignadas de ' + r.code + ' en este pedido. Las lineas viejas quedan como recycled.';
-        btnFusionar.style.cssText = 'margin-left:6px;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:800;cursor:pointer';
+        btnFusionar.style.cssText = 'margin-left:6px;background:#dbeafe;color:var(--text-primary);border:1px solid #93c5fd;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:800;cursor:pointer';
         btnFusionar.onclick = (ev) => {
           ev.stopPropagation();
           window._fusionarAsigDelSkuAlPedido(w, r.code);
@@ -16364,7 +16384,7 @@ window.waitlistOnAddSearch = function(){
     right.style.cssText = 'text-align:right;flex-shrink:0';
     if (skusEnPedido.has((p.code || '').toLowerCase())) {
       const tag = document.createElement('span');
-      tag.style.cssText = 'background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:700';
+      tag.style.cssText = 'background:#dbeafe;color:var(--text-primary);padding:2px 8px;border-radius:3px;font-size:9px;font-weight:700';
       tag.textContent = 'YA EN PEDIDO';
       right.appendChild(tag);
     } else {
@@ -21809,7 +21829,7 @@ function getEffectiveVendorForClient(p, clientName){
 
 function vendorLabel(vendorKey){
   if (!vendorKey) return '<span class="vendor-pill">Sin asignar</span>';
-  if (vendorKey === '__DISTRIBUTOR__') return '<span class="vendor-pill" style="background:#dbeafe;color:#1e40af;border-color:#bfdbfe">Distribuidor</span>';
+  if (vendorKey === '__DISTRIBUTOR__') return '<span class="vendor-pill" style="background:#dbeafe;color:var(--text-primary);border-color:#bfdbfe">Distribuidor</span>';
   // VDE: Mauricio, Martin, Gonzalo, Federico
   if (VDE_VENDOR_KEYS.has(vendorKey)) {
     const vde = VENDORS.find(v => v.key === vendorKey);
@@ -24413,7 +24433,7 @@ if ('serviceWorker' in navigator) {
     </div>
     <div style="padding:28px 24px;text-align:center">
       <div style="font-size:56px;line-height:1;margin-bottom:14px" aria-hidden="true">🚧</div>
-      <h3 style="margin:0 0 10px;font-size:16px;font-weight:800;color:#1e40af;letter-spacing:.4px;text-transform:uppercase">En construcción</h3>
+      <h3 style="margin:0 0 10px;font-size:16px;font-weight:800;color:var(--text-primary);letter-spacing:.4px;text-transform:uppercase">En construcción</h3>
       <p style="margin:0 0 16px;font-size:13px;color:var(--text-secondary);line-height:1.5">
         Acá vas a ver el <b>estado en tiempo real de cada pedido en el depósito</b>:
         PICKING → ARMADO → DESPACHADO → ENTREGADO, con guía del transportista
