@@ -17,15 +17,18 @@ name: Sync SAP to BigQuery
 
 on:
   schedule:
-    # v508 (2026-08-13): cada 15 min. Antes cada 30 min. NO se puede bajar
-    # a 5 min porque cada corrida tarda 15-35 min (7 endpoints SAP + BQ +
-    # sync a Firestore). Con intervalo menor a la duracion, la concurrency
-    # guard skipearia todas las corridas intermedias -> intervalo real
-    # nunca menor a la duracion promedio.
+    # v757 (2026-08-31): vuelta a cada 30 min (era cada 15 desde v508).
+    # Motivo: los weekends GitHub Actions cron scheduler skipea runs cuando
+    # el runner esta saturado — el 2026-08-31 hubo un gap de 4.5 horas sin
+    # sync (Mariano reporto facturas ausentes en tablero SAR). Con intervalo
+    # de 15 min contra runs de 33-37 min, la concurrency guard skipea 100%
+    # de las alternantes; el intervalo real efectivo era ~30 min anyway.
+    # Volver a 30 min explicito reduce load del GH scheduler + hace explicito
+    # el intervalo real.
     #
-    # Offset :08/:23/:38/:53 para NO chocar con sync-sap-catalog-stock
-    # (que corre en :02/:07/:12/:17/... cada 5 min - v508).
-    - cron: '8,23,38,53 * * * *'
+    # Offset :08/:38 para NO chocar con sync-sap-catalog-stock (que corre en
+    # :02/:07/:12/:17/... cada 5 min).
+    - cron: '8,38 * * * *'
   workflow_dispatch:
     inputs:
       dry_run:

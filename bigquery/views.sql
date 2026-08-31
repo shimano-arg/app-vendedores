@@ -2564,3 +2564,80 @@ SELECT
   prov_depto,
   assigned_vendor
 FROM final;
+
+
+-- ============================================================
+-- View: v_sync_health
+-- ============================================================
+-- v757+ (2026-08-31, Mariano pedido): expone timestamp del ultimo sync SAP y
+-- calcula minutos desde el ultimo sync + status semaforico. Alimenta un card
+-- en el TABLERO SAR para hacer explicito cuando la data esta stale.
+--
+-- Motivacion: el 2026-08-31 el sync SAP -> BQ se colgo ~4.5 horas (GH Actions
+-- cron scheduler skipeo runs en el weekend). Mariano actualizo el tablero y
+-- no vio facturas nuevas (ej. 18876 Battistoni facturada ese dia). Sin
+-- indicador de "last sync" no era evidente que la data no estaba fresh.
+--
+-- Semaforo:
+--   OK    (verde)   minutes_since_sync < 45
+--   WARN  (amarillo) 45 <= minutes_since_sync < 120
+--   STALE (rojo)    minutes_since_sync >= 120
+-- Umbrales alineados con el cron cada 30 min: 45min = 1.5x del intervalo
+-- (tolera 1 skip); 120min = 4x = ya requiere atencion.
+--
+-- Uso Power BI (TABLERO SAR):
+--   - Nuevo card en la portada del tablero con:
+--     "ULTIMA SYNC SAP: {last_sync_local} ({minutes_since_sync} min - {status})"
+--   - Formato condicional del card: verde/amarillo/rojo por status.
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_sync_health` AS
+WITH sync_ts_per_table AS (
+  SELECT 'sap_invoices_raw'   AS table_name, MAX(_sync_timestamp) AS last_sync FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw`
+  UNION ALL
+  SELECT 'sap_credit_notes_raw',              MAX(_sync_timestamp) FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw`
+  UNION ALL
+  SELECT 'sap_quotations_raw',                MAX(_sync_timestamp) FROM `app-vendedores-shimano.shimano_app.sap_quotations_raw`
+  UNION ALL
+  SELECT 'sap_orders_raw',                    MAX(_sync_timestamp) FROM `app-vendedores-shimano.shimano_app.sap_orders_raw`
+  UNION ALL
+  SELECT 'sap_deliveries_raw',                MAX(_sync_timestamp) FROM `app-vendedores-shimano.shimano_app.sap_deliveries_raw`
+  UNION ALL
+  SELECT 'sap_returns_raw',                   MAX(_sync_timestamp) FROM `app-vendedores-shimano.shimano_app.sap_returns_raw`
+  UNION ALL
+  SELECT 'sap_items_raw',                     MAX(_sync_timestamp) FROM `app-vendedores-shimano.shimano_app.sap_items_raw`
+  UNION ALL
+  SELECT 'sap_bp_raw',                        MAX(_sync_timestamp) FROM `app-vendedores-shimano.shimano_app.sap_bp_raw`
+),
+agg AS (
+  SELECT
+    MAX(last_sync)                                             AS last_sync_utc,
+    MIN(last_sync)                                             AS oldest_sync_utc,
+    -- Cual tabla se sincronizo ultima (para diagnosticar cuando un endpoint SAP falla)
+    ARRAY_AGG(table_name ORDER BY last_sync DESC LIMIT 1)[SAFE_OFFSET(0)] AS freshest_table,
+    ARRAY_AGG(table_name ORDER BY last_sync ASC  LIMIT 1)[SAFE_OFFSET(0)] AS stalest_table
+  FROM sync_ts_per_table
+),
+inv_stats AS (
+  SELECT
+    MAX(SAFE_CAST(doc_num AS INT64))     AS max_doc_num_invoice,
+    MAX(doc_date)                        AS max_doc_date_invoice
+  FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw`
+)
+SELECT
+  agg.last_sync_utc,
+  agg.oldest_sync_utc,
+  DATETIME(agg.last_sync_utc, 'America/Argentina/Buenos_Aires')  AS last_sync_local,
+  agg.freshest_table,
+  agg.stalest_table,
+  TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), agg.last_sync_utc,   MINUTE) AS minutes_since_last_sync,
+  TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), agg.oldest_sync_utc, MINUTE) AS minutes_since_oldest_sync,
+  -- Semaforo basado en minutes_since_last_sync (cuando corrio el sync ultima vez)
+  -- NO en oldest (algunas tablas se refrescan menos frecuentemente por design)
+  CASE
+    WHEN TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), agg.last_sync_utc, MINUTE) < 45  THEN 'OK'
+    WHEN TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), agg.last_sync_utc, MINUTE) < 120 THEN 'WARN'
+    ELSE 'STALE'
+  END                                                                AS status,
+  inv_stats.max_doc_num_invoice,
+  inv_stats.max_doc_date_invoice
+FROM agg, inv_stats;
