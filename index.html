@@ -5025,7 +5025,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v745';
+const APP_VERSION = 'v746';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14420,6 +14420,58 @@ window.applyThemeFromUserData = function(userDataDoc){
   const label = document.getElementById('theme-label');
   if (label) label.textContent = currentTheme === 'dark' ? 'Light' : 'Dark';
 })();
+
+// v746 (2026-08-31) PLAN_DARK_MODE E5: rollout announcement one-time modal.
+// Storage: localStorage 'shimano_darkmode_announced'=1 + Firestore
+// userData/{uid}.hasSeenDarkModeAnnouncement=true. Ambos deben estar
+// vacios para mostrar (defensa contra spam: si ANY dice "visto", skip).
+// Ademas skip si el user ya toggeo dark mode manualmente (localStorage
+// shimano_theme setted) - claramente descubrio el toggle por su cuenta.
+const DARK_ANNOUNCEMENT_KEY = 'shimano_darkmode_announced';
+
+window.showDarkModeAnnouncementIfEligible = function(userDataDoc) {
+  try {
+    // Check 1: ya se anuncio localmente
+    if (localStorage.getItem(DARK_ANNOUNCEMENT_KEY) === '1') return;
+    // Check 2: Firestore dice que ya lo vio en algun device
+    if (userDataDoc && userDataDoc.hasSeenDarkModeAnnouncement === true) {
+      // Sync back to local para no re-checkear en cada login
+      try { localStorage.setItem(DARK_ANNOUNCEMENT_KEY, '1'); } catch(_) {}
+      return;
+    }
+    // Check 3: user ya descubrio el toggle solo (setted a light o dark manual)
+    if (localStorage.getItem(THEME_STORAGE_KEY)) return;
+    // OK, mostrar modal despues de que la UI renderee. 600ms delay para no
+    // atropellar splash + sync inicial.
+    setTimeout(() => {
+      const m = document.getElementById('dark-mode-announcement-modal');
+      if (m) m.classList.add('open');
+    }, 600);
+  } catch(e) { console.warn('darkmode announcement check', e); }
+};
+
+window.dismissDarkModeAnnouncement = function() {
+  const m = document.getElementById('dark-mode-announcement-modal');
+  if (m) m.classList.remove('open');
+  try { localStorage.setItem(DARK_ANNOUNCEMENT_KEY, '1'); } catch(_) {}
+  // Persist a Firestore para cross-device (mismo pattern que theme sync)
+  if (typeof currentUser !== 'undefined' && currentUser && typeof fbDb !== 'undefined' && fbDb) {
+    fbDb.collection('userData').doc(currentUser.uid)
+      .set({ hasSeenDarkModeAnnouncement: true, darkModeAnnouncementSeenAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
+      .catch(e => console.warn('dm announcement persist', e));
+  }
+};
+
+window.tryDarkModeFromAnnouncement = function() {
+  // Toggleare a dark, marcar como visto, y cerrar modal.
+  try {
+    if (typeof toggleDarkMode === 'function' &&
+        document.documentElement.getAttribute('data-theme') !== 'dark') {
+      toggleDarkMode();
+    }
+  } catch(e) { console.warn('toggle from announcement', e); }
+  dismissDarkModeAnnouncement();
+};
 function _renderWaitlistRows(){
   const container = document.getElementById('waitlist-rows');
   const emptyEl = document.getElementById('waitlist-empty');
@@ -23145,6 +23197,14 @@ function attachFirebaseListeners(){
           });
         }
         if (doc.id === currentUser.uid && data.orders) myOrders = data.orders;
+        // v738/v746: theme sync + rollout announcement cuando encontramos
+        // el doc del user logueado (admin/viewer branch tambien).
+        if (doc.id === currentUser.uid) {
+          if (typeof window.applyThemeFromUserData === 'function') window.applyThemeFromUserData(data);
+          if (typeof window.showDarkModeAnnouncementIfEligible === 'function') {
+            window.showDarkModeAnnouncementIfEligible(data);
+          }
+        }
       });
       suppressCloudSave = true;
       try {
@@ -23174,6 +23234,12 @@ function attachFirebaseListeners(){
       // v738: cross-device theme sync. Solo aplica si el user local no tiene
       // preferencia en localStorage (localStorage precedence).
       if (typeof window.applyThemeFromUserData === 'function') window.applyThemeFromUserData(data);
+      // v746 E5: dark mode rollout announcement one-time. Trigger dentro del
+      // listener para que se dispare post-login con userData ya cargado. La
+      // funcion es idempotente (checkea localStorage + Firestore antes de mostrar).
+      if (typeof window.showDarkModeAnnouncementIfEligible === 'function') {
+        window.showDarkModeAnnouncementIfEligible(data);
+      }
     }, err => console.error('userData listener', err));
   }
 
@@ -24371,6 +24437,36 @@ if ('serviceWorker' in navigator) {
       </p>
       <div style="background:var(--bg-muted);border:1px dashed var(--border-default);border-radius:8px;padding:12px 14px;font-size:11.5px;color:var(--text-muted);line-height:1.5;text-align:left">
         <b style="color:var(--text-secondary)">Estado del feature:</b> requiere refactor de cientos de colores hardcoded a CSS variables + diseño de paleta oscura completa. Estimado <b>4-8 horas de dev</b>. Se planifica como feature dedicada cuando sea prioridad.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- v746 (2026-08-31) PLAN_DARK_MODE E5: rollout announcement modal.
+     One-time notification a users que no vieron el anuncio de dark mode.
+     Se muestra 1 sola vez por user (userData.hasSeenDarkModeAnnouncement=true
+     en Firestore + localStorage). Trigger: onAuthStateChanged post-login,
+     600ms delay (para que la UI ya este renderizada). -->
+<div class="modal-overlay" id="dark-mode-announcement-modal" onclick="if(event.target===this)dismissDarkModeAnnouncement()">
+  <div class="modal-box" style="width:min(480px,94vw)">
+    <div class="modal-head" style="background:linear-gradient(135deg,#1e293b,#0f172a)">
+      <div>
+        <h2>Nuevo: Modo oscuro</h2>
+        <div class="subt">Cambio de tema disponible en el header</div>
+      </div>
+      <button class="modal-close" onclick="dismissDarkModeAnnouncement()" aria-label="Cerrar">&times;</button>
+    </div>
+    <div style="padding:28px 24px;text-align:center">
+      <div style="font-size:56px;line-height:1;margin-bottom:14px" aria-hidden="true">🌙</div>
+      <p style="margin:0 0 12px;font-size:14px;color:var(--text-primary);line-height:1.5;font-weight:600">
+        La app ahora tiene modo oscuro.
+      </p>
+      <p style="margin:0 0 18px;font-size:13px;color:var(--text-secondary);line-height:1.5">
+        Cambiá entre claro y oscuro con el botón <b>Dark</b> arriba a la derecha, junto a Salir. Tu preferencia se guarda por dispositivo y se sincroniza automáticamente con tus otros dispositivos.
+      </p>
+      <div style="display:flex;gap:10px;justify-content:center;margin-top:20px;flex-wrap:wrap">
+        <button onclick="tryDarkModeFromAnnouncement()" style="padding:10px 20px;border:none;border-radius:8px;background:#1e293b;color:#f1f5f9;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.3px">Probar ahora</button>
+        <button onclick="dismissDarkModeAnnouncement()" style="padding:10px 20px;border:1.5px solid var(--border-default);border-radius:8px;background:transparent;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer">Más tarde</button>
       </div>
     </div>
   </div>
