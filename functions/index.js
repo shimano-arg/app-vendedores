@@ -23,6 +23,8 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 // Cargarlo top-level exhausta el timeout de 10s del "backend spec analysis"
 // del deploy de Firebase Functions. Lazy dynamic import inside la function.
 import { updateAsigLineState } from './core/asig-recycle-core.js';
+// v750 (2026-08-31): tracking de transiciones ASIG para analytics mes-a-mes.
+import { detectAsigTransitions, writeTransitionsBatch } from './core/asig-transitions-core.js';
 import { expireAsigLinesTTL } from './core/asig-ttl-core.js';
 import { runDailyBackup } from './core/backup-core.js';
 import { runFifoAssign } from './core/fifo-assign-core.js';
@@ -192,6 +194,53 @@ export const onPedidoWriteRecalcSnapshot = onDocumentWritten(
       skus: r.skusRecalculated,
       snapshotDoc: r.snapshotDoc,
     });
+  }
+);
+
+/**
+ * v750 (2026-08-31): onPedidoWriteTrackAsigTransitions - trigger on-write
+ * pedidos/{id} para trackear transiciones de state en lines que involucran
+ * ASIG. Escribe records a asig_transitions/{auto-id} para analytics mes-a-mes.
+ *
+ * Objetivo negocio (pedido Mariano): al fin de cada mes poder ver de las
+ * unidades que estaban en ASIG, cuantas se concretaron (confirmed/invoiced)
+ * vs se eliminaron (cancelled/recycled), para evaluar ROI del flow backorder.
+ *
+ * Logica pura en functions/core/asig-transitions-core.js (testeable sin CF).
+ * Este wrapper solo hace plumbing: extraer before/after, llamar detect + write.
+ * Fire-and-forget: si falla no propaga (retry:false) para no bloquear otros
+ * triggers en el mismo evento.
+ */
+export const onPedidoWriteTrackAsigTransitions = onDocumentWritten(
+  {
+    region: REGION,
+    document: 'pedidos/{pedidoId}',
+    retry: false,
+    memory: '256MiB',
+    timeoutSeconds: 30,
+  },
+  async (event) => {
+    try {
+      const beforeData = event.data?.before?.data() ?? null;
+      const afterData = event.data?.after?.data() ?? null;
+      const transitions = detectAsigTransitions(event.params.pedidoId, beforeData, afterData);
+      if (!transitions.length) return;
+      const db = getFirestore();
+      const n = await writeTransitionsBatch(
+        { fbDb: db, FieldValue, log: (msg, extra) => console.log(msg, extra || {}) },
+        transitions
+      );
+      console.log('onPedidoWriteTrackAsigTransitions done', {
+        pedidoId: event.params.pedidoId,
+        written: n,
+      });
+    } catch (e) {
+      console.error('onPedidoWriteTrackAsigTransitions error', {
+        pedidoId: event.params.pedidoId,
+        error: e?.message || String(e),
+      });
+      // No relanzar - fire-and-forget para no bloquear otros triggers.
+    }
   }
 );
 

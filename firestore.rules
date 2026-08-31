@@ -303,6 +303,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // v750 (2026-08-31): tracking de transiciones de state en lines pedidos-app.
+    // Escrito por CF onPedidoWriteTrackAsigTransitions (Admin SDK, bypassea rules).
+    // Objetivo: analytics mes-a-mes de conversion ASIG -> confirmed/invoiced vs
+    // cancelled/recycled. Alimenta view BQ v_asig_conversion_monthly.
+    // Read admin/gerente para queries desde Dashboard o Power BI. Write false.
+    match /asig_transitions/{transitionId} {
+      allow read: if isAdminOrGerente();
+      allow write: if false;
+    }
+
     match /seguimiento_notes/{noteId} {
       allow read: if isSeguimientoUser();
       allow create: if isSeguimientoUser()
