@@ -5059,7 +5059,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v752';
+const APP_VERSION = 'v753';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -5688,7 +5688,7 @@ VENDORS.forEach(v => vendorLookup[v.key] = v);
 // preferCanvas: true — renderiza polygonos (provincias + departamentos + zonas) en <canvas> en vez de SVG.
 // Con ~500 polygonos y ~1000 markers superpuestos, SVG re-pinta cada path en cada frame de zoom → lag.
 // Canvas dibuja todo en un solo paint. Trade-off: eventos click en polygonos usan hit-testing manual (Leaflet ya lo maneja).
-const map = L.map('map', {preferCanvas: true, zoomControl: true, minZoom: 4, maxZoom: 14, maxBounds: [[-22, -76], [-56, -52]], maxBoundsViscosity: 0.7}).setView([-38, -64], 4);
+const map = L.map('map', {preferCanvas: true, zoomControl: true, minZoom: 4, maxZoom: 14, maxBounds: [[-22, -76], [-56, -52]], maxBoundsViscosity: 0.7}).setView([-38, -64], 5);
 // v645 (2026-08-26): switch de CARTO basemaps a OpenStreetMap directo.
 // CARTO cambio politica: ahora requiere API key para uso comercial y muestra
 // watermark "API KEY REQUIRED" sobre todo el mapa. OSM es gratis y sin
@@ -18295,7 +18295,9 @@ function getFilteredBounds(){
 
 function recenter(){
   if (currentVendor === 'ALL' && currentProvince === 'ALL' && currentLocality === 'ALL') {
-    map.setView([-38, -64], 4);
+    // v753 (2026-08-31): zoom 5 en vez de 4 - Argentina fills viewport
+    // en vez de mostrar toda Sudamerica muy chico. Pedido Mariano.
+    map.setView([-38, -64], 5);
     return;
   }
   if (currentLocality !== 'ALL') {
