@@ -514,19 +514,23 @@ def build_excel(rendiciones):
     for i, w in enumerate(widths_s):
         ws_s.column_dimensions[chr(65 + i)].width = w
     # Tabla con nombre tambien en Solicitudes (mismo motivo: Power Automate).
-    # Fix 2026-08-05: si la semana no tuvo solicitudes de recarga, ws_s.max_row=1
-    # (solo header) -> antes NO se creaba la tabla -> el flow Power Automate
-    # "Cargar rendiciones aprobadas a SharePoint" fallaba con "No table was
-    # found with the name 'TablaSolicitudes'". Ahora agregamos 1 fila
-    # placeholder vacia para que la tabla exista siempre. Power Automate
-    # itera 0 filas utiles (todos los campos vacios) sin romper.
-    if ws_s.max_row < 2:
-        ws_s.append([""] * len(hdr_s))
-    last_col_letter_s = get_column_letter(len(hdr_s))
-    table_ref_s = f"A1:{last_col_letter_s}{ws_s.max_row}"
-    tab_s = Table(displayName="TablaSolicitudes", ref=table_ref_s)
-    tab_s.tableStyleInfo = TableStyleInfo(name="TableStyleMedium4", showRowStripes=True)
-    ws_s.add_table(tab_s)
+    # v760 (2026-09-01): FIX del "fix" 2026-08-05. El fix original agregaba una
+    # fila placeholder vacia asumiendo que Power Automate iteraba 0 filas
+    # utiles. FALSO — PA itera esa fila con todos los campos vacios y trata de
+    # crear un item basura en SharePoint, que falla con BadRequest
+    # ("No se encontro el usuario especificado" — porque Solicitado por Claims
+    # es un People field y "" no es un usuario valido). Sintoma: replay con
+    # solo gastos siempre fallaba.
+    # Nuevo approach: si no hay solicitudes reales, NO crear la tabla. El flow
+    # Power Automate tiene `Configure run after` tolerante en `List rows
+    # Solicitudes` (`is successful + has failed + is skipped`) desde el fix
+    # original — eso maneja el `NotFound` gracefully.
+    if ws_s.max_row >= 2:
+        last_col_letter_s = get_column_letter(len(hdr_s))
+        table_ref_s = f"A1:{last_col_letter_s}{ws_s.max_row}"
+        tab_s = Table(displayName="TablaSolicitudes", ref=table_ref_s)
+        tab_s.tableStyleInfo = TableStyleInfo(name="TableStyleMedium4", showRowStripes=True)
+        ws_s.add_table(tab_s)
 
     buf = io.BytesIO()
     wb.save(buf)
