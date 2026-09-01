@@ -5084,7 +5084,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v762';
+const APP_VERSION = 'v763';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -20807,22 +20807,22 @@ window.queryStockLive = function(code, btn){
         }
       });
       const total = disp + transito + otros;
-      // v440 (2026-08-10): "LIBRE PARA VENDER (disp + transito - backorder)".
-      // v536 (2026-08-18): desglose backorder segun feedback Mariano:
-      //   pendSAP = STOCK_BACKORDER[k] = SUM(RemainingOpenQuantity de SQ open)
-      //   STOCK ASIGNADO = min(pendSAP, disp)  -> pedido CON stock respaldando
-      //   BACKORDER      = max(pendSAP-disp,0) -> pedido SIN stock respaldando
-      //   ESPERA APP     = SUM(qty de revisionWaitlist con code=sku)
-      // Antes solo mostraba backorder total (sin separar asignado vs sin stock)
-      // ni ESPERA APP (Lista de Espera de la app).
-      const pendSap = Number(STOCK_BACKORDER[k] || STOCK_BACKORDER[k.toUpperCase()] || 0);
-      const asignado = Math.min(pendSap, disp);
-      const backorder = Math.max(pendSap - disp, 0);
-      // v548+ E5 UI merge: app-source (post-cutover). Disjuntos con SAP-source
-      // por E4C filter (lineas state='BO'/'ASIG' nunca fueron a SAP), asi que
-      // el desglose real es: SAP-BO + APP-BO (sin stock) y SAP-ASIG + APP-ASIG.
-      const backorderApp = Number(STOCK_BACKORDER_APP[k] || 0);
-      const asigApp = Number(STOCK_ASIG_APP[k] || 0);
+      // v763 (2026-09-01): rediseño de la vista de stock segun Mariano.
+      //   YA NO existe "backorder SAP" (SQ open no se muestra mas como concepto
+      //   propio — todos los pedidos viven en la app). Solo mostramos:
+      //   - DISPONIBLE (dep. 11)
+      //   - EN TRANSITO (dep. 12)
+      //   - UNIDADES RESERVADAS: app-source asignados (state='ASIG')
+      //   - PENDIENTE SIN STOCK: app-source backorder (state='BO'), solo > 0
+      //     si DISPONIBLE = 0. Si llega stock, el CF onStockChangeFIFOAssign
+      //     convierte pending -> reservado, asi que si disp > 0 no deberia
+      //     haber pending (edge case: race entre sync stock y CF FIFO).
+      //   - ESPERA APP (Lista de Espera de vendedores)
+      //   - LIBRE PARA LA VENTA = max(DISPONIBLE - UNIDADES RESERVADAS, 0)
+      //     Ejemplo Mariano: 25 disp - 10 reservadas = 15 libre.
+      //     No cuenta transito porque no esta vendible aun.
+      const reservado = Number(STOCK_ASIG_APP[k] || 0);
+      const pendienteSinStock = Number(STOCK_BACKORDER_APP[k] || 0);
       let esperaApp = 0;
       if (typeof revisionWaitlist !== 'undefined' && Array.isArray(revisionWaitlist)) {
         for (const wl of revisionWaitlist) {
@@ -20833,27 +20833,28 @@ window.queryStockLive = function(code, btn){
           }
         }
       }
-      const libre = Math.max(disp + transito - pendSap, 0);
+      const libre = Math.max(disp - reservado, 0);
       const lines = [
-        '✅ DISPONIBLE venta (dep. 11): ' + disp + ' unidades',
+        '✅ DISPONIBLE (dep. 11): ' + disp + ' unidades',
         '🚚 EN TRANSITO (dep. 12): ' + transito + ' unidades',
       ];
-      if (asignado > 0 || asigApp > 0) {
-        const asigTotal = asignado + asigApp;
-        const desglose = asigApp > 0 ? ' (SAP ' + asignado + ' + APP ' + asigApp + ')' : '';
-        lines.push('📦 STOCK ASIGNADO (pedido con stock): ' + asigTotal + ' unidades' + desglose);
+      if (reservado > 0) {
+        lines.push('🔒 UNIDADES RESERVADAS (pedido con stock): ' + reservado + ' unidades');
       }
-      if (backorder > 0 || backorderApp > 0) {
-        const boTotal = backorder + backorderApp;
-        const desglose = backorderApp > 0 ? ' (SAP ' + backorder + ' + APP ' + backorderApp + ')' : '';
-        lines.push('🔒 BACKORDER (pedido sin stock): ' + boTotal + ' unidades' + desglose);
+      // PENDIENTE SIN STOCK solo se muestra si hay pending Y no hay disp
+      // (regla explicita Mariano: no puede haber pending si hay stock disponible;
+      // si aparece esta config, es un edge case de race condition que hay que
+      // resolver via CF FIFO).
+      if (pendienteSinStock > 0 && disp === 0) {
+        lines.push('🔴 PENDIENTE SIN STOCK (pedido sin stock): ' + pendienteSinStock + ' unidades');
+      } else if (pendienteSinStock > 0 && disp > 0) {
+        // Edge case defensivo: hay stock disponible Y pending. Mostrar warning.
+        lines.push('⚠️ PENDIENTE SIN STOCK: ' + pendienteSinStock + ' unidades (revisar — hay stock disponible, CF FIFO no corrio aun)');
       }
       if (esperaApp > 0) {
         lines.push('⏳ ESPERA APP (Lista de Espera): ' + esperaApp + ' unidades');
       }
-      if (pendSap > 0) {
-        lines.push('🟢 LIBRE PARA VENDER (disp + transito - pend SAP): ' + libre + ' unidades');
-      }
+      lines.push('🟢 LIBRE PARA LA VENTA (disp - reservadas): ' + libre + ' unidades');
       if (otros > 0) lines.push('⚠️ Otros almacenes: ' + otros + ' unidades (' + otrosDetalle.join(', ') + ')');
       lines.push('──────────────');
       lines.push('Total: ' + total + ' unidades');
