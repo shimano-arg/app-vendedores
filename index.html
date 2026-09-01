@@ -5084,7 +5084,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v766';
+const APP_VERSION = 'v767';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15550,12 +15550,20 @@ function _renderWaitlistCard(){
     // Filtrar pedidos que no sean el actual (w._id) para no contar la misma linea que estamos viendo.
     const yaEnOtroFiltrado = yaEnOtro.filter(x => x && x.pedidoId !== w._id);
     r._yaEnOtroPedido = yaEnOtroFiltrado;
-    // v719 (2026-08-28): Unidades Reservadas capadas al stock físico dep 11.
-    // Matches el modal STOCK ASIG que solo muestra unidades con backing real.
-    // Antes: desg.comprometido = 50 para STC66HC2 aunque solo 4 tienen stock.
-    // Ahora: min(comprometido, stockDep11) = min(50, 4) = 4 ✓.
+    // v767 (2026-09-01): UNIDADES RESERVADAS = solo state='ASIG'.
+    // Bug reportado por Mariano: la columna mostraba desg.comprometido =
+    // confirmed + BO + ASIG (6u para CAC70MH2UR) pero el modal STOCK ASIGNADO
+    // filtrado por ese SKU decia 0u. Inconsistencia porque el modal STOCK
+    // ASIG solo muestra state='ASIG'.
+    // Ahora ambos usan la misma fuente: desg.breakdown.ASIG. Matches tambien
+    // con la definicion v763 del alert de stock (UNIDADES RESERVADAS = ASIG)
+    // y con la formula v766 de LIBRE PARA LA VENTA (dep11 - reservadas_ASIG).
+    // Los state='confirmed' (enviado a SAP) y 'BO' (sin stock) NO se cuentan
+    // aca — se muestran en sus columnas propias (backorder = BO, y confirmed
+    // se ve implicito en el pedido final).
+    const asigOnly = (desg.breakdown && desg.breakdown.ASIG) || 0;
     const reservadasBacked = r.hasData
-      ? Math.min(desg.comprometido || 0, stockDep11Only || 0)
+      ? Math.min(asigOnly, stockDep11Only || 0)
       : 0;
     const demandaSinBacking = r.hasData
       ? Math.max((desg.comprometido || 0) - reservadasBacked, 0)
@@ -15564,9 +15572,11 @@ function _renderWaitlistCard(){
     tdReserv.className = 'num';
     tdReserv.textContent = r.hasData ? String(reservadasBacked) : '-';
     if (r.hasData && reservadasBacked > 0) {
-      tdReserv.title = 'Reservadas con stock backing: ' + reservadasBacked + ' u\\n' +
-        'Demanda total (BO+ASIG+confirmed): ' + desg.comprometido + ' u\\n' +
-        (demandaSinBacking > 0 ? 'Demanda SIN stock (backorder puro): ' + demandaSinBacking + ' u\\n' : '') +
+      // v767: tooltip alineado con la nueva definicion (solo ASIG).
+      tdReserv.title = 'Unidades Reservadas (state=ASIG): ' + reservadasBacked + ' u\\n' +
+        'Breakdown: ASIG ' + ((desg.breakdown && desg.breakdown.ASIG) || 0) +
+        ' u · BO ' + ((desg.breakdown && desg.breakdown.BO) || 0) +
+        ' u · confirmed ' + ((desg.breakdown && desg.breakdown.confirmed) || 0) + ' u\\n' +
         'De ESTE cliente: ' + porCli.reservadasPorCliente + ' u · De OTROS: ' + porCli.reservadasPorOtros + ' u';
       tdReserv.style.background = '#e0e7ff';
       tdReserv.style.color = '#3730a3';
