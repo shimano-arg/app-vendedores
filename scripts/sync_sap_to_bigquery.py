@@ -104,6 +104,15 @@ BQ_TABLE_DELIVERIES      = f'{BQ_PROJECT}.{BQ_DATASET}.sap_deliveries_raw'
 # v_remitos_lineas queda inflada por las devoluciones (mismo bug conceptual
 # que Credit Notes en v_facturas_sap v367).
 BQ_TABLE_RETURNS         = f'{BQ_PROJECT}.{BQ_DATASET}.sap_returns_raw'
+# v765+ (2026-09-01): entradas de mercaderia al deposito. Mariano pedido para
+# medir "unidades recibidas mes" y contrastar contra backorder.
+#   PDN = PurchaseDeliveryNotes = OPDN/PDN1 (recepcion contra Purchase Order)
+#   IGN = InventoryGenEntries   = OIGN/IGN1 (entrada de inventario sin OC —
+#         ajustes, transferencias, produccion, etc.)
+# Ambas son entradas fisicas al warehouse. La vista v_entradas_stock las
+# UNIONa y agrega familia via join a v_sap_items_enriched.
+BQ_TABLE_PDN             = f'{BQ_PROJECT}.{BQ_DATASET}.sap_purchase_delivery_notes_raw'
+BQ_TABLE_IGN             = f'{BQ_PROJECT}.{BQ_DATASET}.sap_inventory_gen_entries_raw'
 BQ_TABLE_TARGETS         = f'{BQ_PROJECT}.{BQ_DATASET}.targets_raw'
 BQ_TABLE_CAMPAIGNS       = f'{BQ_PROJECT}.{BQ_DATASET}.campaigns_raw'
 
@@ -2022,6 +2031,45 @@ def main():
     )
     return_rows = [flatten_doc(r, 'RETURN', sync_ts) for r in returns]
     load_to_bq(bq_client, BQ_TABLE_RETURNS, return_rows, 'RETURNS', dry_run=dry_run)
+
+    # === 8b. PurchaseDeliveryNotes (v765+, 2026-09-01) — Mariano pedido.
+    # Recepciones de mercaderia contra Purchase Order (OPDN/PDN1 en SAP B1).
+    # Cada linea tiene ItemCode, Quantity recibida, WarehouseCode destino, y
+    # LineTotal. Es la MEJOR fuente para "unidades recibidas mes" fisicas al
+    # deposito, distinto de qty_incoming (POs abiertas = futuro embarque).
+    # Endpoint: /b1s/v1/PurchaseDeliveryNotes. Schema doc marketing igual a
+    # Invoices/Orders/Deliveries — flatten_doc generico funciona.
+    # Volumen esperado: bajo-medio (una recepcion por embarque, ~30-50/mes).
+    # Ventana propia 12 meses (misma logica que Deliveries).
+    pdn_history_months = min(12, history_months)
+    pdn_since_dt = datetime.now(timezone.utc) - timedelta(days=pdn_history_months * 31)
+    pdn_since_iso = pdn_since_dt.strftime('%Y-%m-%d')
+    log(f'[SL/PDN] ventana propia: {pdn_since_iso} ({pdn_history_months} meses)')
+    pdns = sl_fetch_all(
+        cfg, session, '/b1s/v1/PurchaseDeliveryNotes', 'PURCHASE_DELIVERY_NOTES',
+        select_fields=doc_select,
+        filter_expr=f"DocDate ge '{pdn_since_iso}'",
+        max_docs=max_docs,
+    )
+    pdn_rows = [flatten_doc(d, 'PURCHASE_DELIVERY_NOTE', sync_ts) for d in pdns]
+    load_to_bq(bq_client, BQ_TABLE_PDN, pdn_rows, 'PURCHASE_DELIVERY_NOTES', dry_run=dry_run)
+
+    # === 8c. InventoryGenEntries (v765+, 2026-09-01) — Mariano pedido.
+    # Entradas de inventario SIN Purchase Order (OIGN/IGN1 en SAP B1). Usadas
+    # para ajustes manuales, transferencias entre depositos, produccion, etc.
+    # Aporta al total de "unidades recibidas mes" ademas de PDN.
+    # Endpoint: /b1s/v1/InventoryGenEntries. Schema mas simple que docs
+    # marketing (sin CardCode etc.) pero flatten_doc lo maneja porque los
+    # campos faltantes quedan None.
+    # Volumen esperado: bajo (~10-20/mes).
+    igns = sl_fetch_all(
+        cfg, session, '/b1s/v1/InventoryGenEntries', 'INVENTORY_GEN_ENTRIES',
+        select_fields=doc_select,
+        filter_expr=f"DocDate ge '{pdn_since_iso}'",
+        max_docs=max_docs,
+    )
+    ign_rows = [flatten_doc(d, 'INVENTORY_GEN_ENTRY', sync_ts) for d in igns]
+    load_to_bq(bq_client, BQ_TABLE_IGN, ign_rows, 'INVENTORY_GEN_ENTRIES', dry_run=dry_run)
 
     # === 7. Targets mensuales (Firestore -> BigQuery)
     # Coleccion `targets` en Firestore (una fila por vendedor+ano+mes).

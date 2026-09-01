@@ -281,6 +281,153 @@ WHERE ba.state IN ('BO', 'ASIG')
 --        Expanded = Table.ExpandTableColumn(Joined, "Inv", {"stock_total_sellable", "qty_incoming"})
 --      in Expanded
 --
+-- =============================================================================
+-- VISTA: v_entradas_stock
+-- =============================================================================
+-- Mariano pedido 2026-09-01. Unidades fisicas RECIBIDAS al deposito, con
+-- granularidad SKU + fecha + warehouse. Sirve para contrastar contra el
+-- backorder de la app en el reporte mensual.
+--
+-- Fuentes:
+--   1. sap_purchase_delivery_notes_raw (OPDN/PDN1) — recepciones contra
+--      Purchase Order. Fuente principal, alto volumen.
+--   2. sap_inventory_gen_entries_raw (OIGN/IGN1) — entradas SIN OC
+--      (ajustes de inventario, transferencias, produccion). Complementaria.
+--
+-- Ambas sincronizadas por scripts/sync_sap_to_bigquery.py (v765+, 2026-09-01),
+-- ventana 12 meses.
+--
+-- IMPORTANTE:
+-- - Excluimos cancelled='tYES' (documentos anulados).
+-- - Warehouse 05 (Marketing) y 06 (Devoluciones) NO son "vendibles" pero
+--   pueden recibir entradas (samples, devoluciones ingresadas al stock).
+--   Se deja el warehouse crudo — el consumer decide si filtrarlos.
+-- - familia via JOIN v_sap_items_enriched (mismo pattern que v_ventas_lineas).
+-- =============================================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_entradas_stock` AS
+WITH pdn_lines AS (
+  SELECT
+    'PDN' AS tipo_doc,             -- Purchase Delivery Note (GRPO)
+    d.doc_entry,
+    d.doc_num,
+    d.doc_date                     AS fecha_entrada,
+    d.card_code                    AS proveedor_code,
+    d.card_name                    AS proveedor_nombre,
+    JSON_VALUE(ln, '$.ItemCode')   AS sku,
+    JSON_VALUE(ln, '$.ItemDescription') AS descripcion,
+    SAFE_CAST(JSON_VALUE(ln, '$.Quantity') AS FLOAT64)  AS cantidad_recibida,
+    JSON_VALUE(ln, '$.WarehouseCode') AS warehouse,
+    SAFE_CAST(JSON_VALUE(ln, '$.LineTotal') AS FLOAT64) AS importe_linea,
+    JSON_VALUE(ln, '$.Currency')   AS moneda,
+    d._sync_timestamp
+  FROM `app-vendedores-shimano.shimano_app.sap_purchase_delivery_notes_raw` d,
+       UNNEST(JSON_QUERY_ARRAY(d.lines_json)) AS ln
+  WHERE COALESCE(d.cancelled, 'tNO') = 'tNO'
+),
+ign_lines AS (
+  SELECT
+    'IGN' AS tipo_doc,             -- Inventory Gen Entry (entrada sin OC)
+    d.doc_entry,
+    d.doc_num,
+    d.doc_date                     AS fecha_entrada,
+    d.card_code                    AS proveedor_code,   -- puede ser NULL en IGN
+    d.card_name                    AS proveedor_nombre, -- puede ser NULL en IGN
+    JSON_VALUE(ln, '$.ItemCode')   AS sku,
+    JSON_VALUE(ln, '$.ItemDescription') AS descripcion,
+    SAFE_CAST(JSON_VALUE(ln, '$.Quantity') AS FLOAT64)  AS cantidad_recibida,
+    JSON_VALUE(ln, '$.WarehouseCode') AS warehouse,
+    SAFE_CAST(JSON_VALUE(ln, '$.LineTotal') AS FLOAT64) AS importe_linea,
+    JSON_VALUE(ln, '$.Currency')   AS moneda,
+    d._sync_timestamp
+  FROM `app-vendedores-shimano.shimano_app.sap_inventory_gen_entries_raw` d,
+       UNNEST(JSON_QUERY_ARRAY(d.lines_json)) AS ln
+  WHERE COALESCE(d.cancelled, 'tNO') = 'tNO'
+),
+unioned AS (
+  SELECT * FROM pdn_lines
+  UNION ALL
+  SELECT * FROM ign_lines
+)
+SELECT
+  u.tipo_doc,
+  u.doc_entry,
+  u.doc_num,
+  u.fecha_entrada,
+  -- Mes canonico para agrupar en Power BI ('YYYY-MM')
+  FORMAT_DATE('%Y-%m', u.fecha_entrada) AS mes,
+  EXTRACT(YEAR FROM u.fecha_entrada)  AS anio,
+  EXTRACT(MONTH FROM u.fecha_entrada) AS mes_idx,
+  u.sku,
+  COALESCE(u.descripcion, it.item_name) AS descripcion,
+  it.familia_norm    AS familia,
+  it.subfamilia_norm AS subfamilia,
+  (it.items_group_code = 102) AS is_pesca,
+  u.cantidad_recibida,
+  u.warehouse,
+  (u.warehouse IN ('05', '06')) AS is_warehouse_no_vendible,
+  u.importe_linea,
+  u.moneda,
+  u.proveedor_code,
+  u.proveedor_nombre,
+  u._sync_timestamp
+FROM unioned u
+LEFT JOIN `app-vendedores-shimano.shimano_app.v_sap_items_enriched` it
+  ON it.item_code = u.sku
+WHERE u.sku IS NOT NULL
+  AND u.cantidad_recibida > 0;
+
+
+-- QUERIES DE VALIDACION v_entradas_stock:
+
+-- E1: Unidades recibidas mes actual
+-- SELECT mes, COUNT(*) AS n_lineas, ROUND(SUM(cantidad_recibida), 0) AS unidades
+-- FROM `app-vendedores-shimano.shimano_app.v_entradas_stock`
+-- WHERE is_pesca = TRUE
+-- GROUP BY mes ORDER BY mes DESC LIMIT 12;
+
+-- E2: Recibido por familia (mes actual)
+-- SELECT familia, ROUND(SUM(cantidad_recibida), 0) AS unidades
+-- FROM `app-vendedores-shimano.shimano_app.v_entradas_stock`
+-- WHERE is_pesca = TRUE AND mes = FORMAT_DATE('%Y-%m', CURRENT_DATE())
+-- GROUP BY familia ORDER BY unidades DESC;
+
+-- E3: Contraste backorder vs recibido del mes (indicador clave para negocio)
+-- SELECT
+--   'BACKORDER (BO)' AS metric, ROUND(SUM(qty_open), 0) AS unidades
+-- FROM `app-vendedores-shimano.shimano_app.v_backorder_app`
+-- WHERE state = 'BO'
+-- UNION ALL
+-- SELECT
+--   'RECIBIDO MES actual' AS metric, ROUND(SUM(cantidad_recibida), 0) AS unidades
+-- FROM `app-vendedores-shimano.shimano_app.v_entradas_stock`
+-- WHERE is_pesca = TRUE AND mes = FORMAT_DATE('%Y-%m', CURRENT_DATE());
+
+
+-- =============================================================================
+-- MEDIDA "Unidades Recibidas Mes" para Power BI (DAX)
+-- =============================================================================
+-- En Power BI, crear una medida en la tabla v_entradas_stock:
+--
+--   Unidades Recibidas Mes =
+--     CALCULATE(
+--       SUM('v_entradas_stock'[cantidad_recibida]),
+--       'v_entradas_stock'[is_pesca] = TRUE,
+--       DATESINPERIOD(
+--         'v_entradas_stock'[fecha_entrada],
+--         MAX('v_entradas_stock'[fecha_entrada]),
+--         -1, MONTH
+--       )
+--     )
+--
+-- O version simple filtrada por slicer de mes:
+--
+--   Unidades Recibidas =
+--     SUM('v_entradas_stock'[cantidad_recibida])
+--
+-- Y en el visual filtrar por mes usando el campo `mes` (STRING 'YYYY-MM') o
+-- las columnas anio/mes_idx.
+
+
 -- Historico CONFIRMADO vs LIBERADO desde el changelog Firestore:
 --   Query pattern (ejemplo, mes agosto 2026):
 --
