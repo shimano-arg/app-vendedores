@@ -6,8 +6,8 @@ name: Send Rendiciones Aprobadas
 #
 # Lee de Firestore las rendiciones con status='approved' Y notifiedAt=null
 # (las que aun no se mandaron), genera un Excel y lo envia por mail a
-# mariano.erbino@shimano.com.ar (v761 2026-09-01: temporalmente sin diego.valsi
-# mientras se prueba fix v760 del flow Power Automate — re-agregar cuando estable)
+# mariano.erbino@shimano.com.ar + diego.valsi@shimano.uy (v762 2026-09-01: re-agregado
+# tras estabilizar fix v760/v761 + fixes flow Power Automate)
 # desde bot.shimano.pesca@gmail.com.
 #
 # Configuracion previa requerida (GitHub Secrets):
@@ -68,11 +68,13 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           MAIL_FROM: bot.shimano.pesca@gmail.com
-          # v761 (2026-09-01): TEMPORALMENTE removido diego.valsi@shimano.uy mientras
-          # Mariano prueba fixes del flow Power Automate (bug fila dummy Solicitudes
-          # v760). RE-AGREGAR CUANDO EL FLOW ESTE ESTABLE. Historia: v609 (2026-08-24)
-          # se agrego. smtplib.send_message parsea comma-separated correctamente.
-          MAIL_TO: mariano.erbino@shimano.com.ar
+          # v762 (2026-09-01): re-agregado diego.valsi@shimano.uy despues de estabilizar
+          # los fixes v760+v761 + fixes en el flow Power Automate (if empty Importe,
+          # coalesce json'[]' en Apply to each Solicitud, run-after tolerante en For each 1).
+          # Historia: v609 (2026-08-24) se agrego originalmente. v761 lo removio TEMP
+          # mientras testeaba. Ahora volvemos al estado normal.
+          # smtplib.send_message parsea comma-separated correctamente.
+          MAIL_TO: mariano.erbino@shimano.com.ar,diego.valsi@shimano.uy
           FORCE_SEND: ${{ inputs.force }}
           SKIP_MARK: ${{ inputs.skip_mark }}
           REPLAY_IDS: ${{ inputs.replay_ids }}
