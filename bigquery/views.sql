@@ -85,6 +85,13 @@ WHERE operation <> 'DELETE';
 -- El campo needs_review permite filtrar los SKUs "REVISAR EN SAP"
 -- (los que se cargaron por Excel sin match en el catalogo).
 -- ============================================================
+-- v764 (2026-09-01): extendida para exponer state, qty_open, qty_invoiced,
+-- qty_cancelled, qty (la original se llamaba solo `cantidad`). Necesarios para
+-- v_backorder_app (ver bigquery/backorder_app.sql) y para el tablero SAR post
+-- migracion backorder SAP -> APP.
+--
+-- BACKWARDS COMPAT: `cantidad` se preserva como alias de qty para no romper
+-- reportes existentes. Nuevas queries deben usar qty + los tracking fields.
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_pedidos_lines` AS
 SELECT
   p.document_id                                                       AS pedido_id,
@@ -94,8 +101,18 @@ SELECT
   JSON_VALUE(line_json, '$.cat')                                      AS categoria,
   JSON_VALUE(line_json, '$.fam')                                      AS familia,
   JSON_VALUE(line_json, '$.sub')                                      AS subfamilia,
+  -- Cantidad original pedida (backwards compat: `cantidad` = `qty`)
   SAFE_CAST(JSON_VALUE(line_json, '$.qty') AS FLOAT64)                AS cantidad,
+  SAFE_CAST(JSON_VALUE(line_json, '$.qty') AS FLOAT64)                AS qty,
+  -- v764: tracking granular por linea (open/invoiced/cancelled)
+  SAFE_CAST(JSON_VALUE(line_json, '$.qtyOpen') AS FLOAT64)            AS qty_open,
+  SAFE_CAST(JSON_VALUE(line_json, '$.qtyInvoiced') AS FLOAT64)        AS qty_invoiced,
+  SAFE_CAST(JSON_VALUE(line_json, '$.qtyCancelled') AS FLOAT64)       AS qty_cancelled,
+  -- v764: state a nivel LINEA (BO/ASIG/confirmed/cancelled/recycled/invoiced).
+  -- OJO: `stage` es a nivel PEDIDO (pending/confirmed/invoiced/closed) — distinto.
+  JSON_VALUE(line_json, '$.state')                                    AS state,
   SAFE_CAST(JSON_VALUE(line_json, '$.precio') AS FLOAT64)             AS precio_unitario,
+  SAFE_CAST(JSON_VALUE(line_json, '$.priceAtCreation') AS FLOAT64)    AS price_at_creation,
   SAFE_CAST(JSON_VALUE(line_json, '$.qty') AS FLOAT64)
     * SAFE_CAST(JSON_VALUE(line_json, '$.precio') AS FLOAT64)         AS subtotal_linea,
   COALESCE(SAFE_CAST(JSON_VALUE(line_json, '$.needsReview') AS BOOL), FALSE) AS needs_review,
@@ -105,13 +122,17 @@ SELECT
   JSON_VALUE(p.data, '$.province')                                    AS provincia,
   JSON_VALUE(p.data, '$.locName')                                     AS localidad,
   JSON_VALUE(p.data, '$.clientName')                                  AS cliente_nombre,
+  JSON_VALUE(p.data, '$.clientCardCode')                              AS cliente_code,
   JSON_VALUE(p.data, '$.ownerUid')                                    AS owner_uid,
   JSON_VALUE(p.data, '$.ownerEmail')                                  AS owner_email,
+  JSON_VALUE(p.data, '$.ownerVendor')                                 AS vendor,
   JSON_VALUE(p.data, '$.month')                                       AS mes_label,
   SAFE_CAST(JSON_VALUE(p.data, '$.monthIdx') AS INT64)                AS mes_idx,
   SAFE_CAST(JSON_VALUE(p.data, '$.year') AS INT64)                    AS anio,
   SAFE_CAST(JSON_VALUE(p.data, '$.confirmedAt') AS TIMESTAMP)         AS confirmed_at,
-  JSON_VALUE(p.data, '$.condicionPago')                               AS condicion_pago
+  JSON_VALUE(p.data, '$.condicionPago')                               AS condicion_pago,
+  -- v764: closedAt para poder filtrar pedidos abiertos en un pass
+  JSON_VALUE(p.data, '$.closedAt')                                    AS closed_at_str
 FROM `app-vendedores-shimano.shimano_app.pedidos_raw_raw_latest` p,
 UNNEST(JSON_EXTRACT_ARRAY(p.data, '$.lines')) AS line_json WITH OFFSET AS line_idx
 WHERE p.operation <> 'DELETE';
