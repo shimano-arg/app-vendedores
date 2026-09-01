@@ -141,7 +141,13 @@ normalized_clients AS (
     ) AS name_norm
   FROM `app-vendedores-shimano.shimano_app.v_leads_detalle` ld
   WHERE ld.card_code IS NOT NULL
-    AND ld.tipo = 'CLIENTE_SAP'  -- Solo clientes reales, no leads (leads no tienen card_code SAP)
+    -- v2 (2026-09-01): incluir tambien LEADs (card_code tipo 'LEAD_xxx').
+    -- Motivo: muchas visitas a tiendas legitimas que aun no fueron altas
+    -- oficiales en SAP existen como LEAD. Antes se excluian y quedaban en
+    -- sin_match. El card_code LEAD_xxx sigue siendo un identificador estable
+    -- que Power BI puede joinear (LEFT JOIN card_code) para el reporte de
+    -- "sin visita ni contacto". Cuando el LEAD se convierte a cliente SAP,
+    -- el score sube y el match_type mejora automaticamente.
 ),
 normalized_clients_tokens AS (
   SELECT
@@ -222,7 +228,11 @@ level1_exact AS (
     c.card_code,
     c.card_name,
     'exacto' AS match_type,
-    1.00 AS score
+    -- v2 (2026-09-01): penalty 0.15 al score si es LEAD, para que un SAP con
+    -- boost de localidad (contenido +0.10) siempre le gane a un LEAD exacto sin
+    -- contexto de localidad. Ejemplo: LEAD "PIRACUA" (1.00-0.15=0.85) vs SAP
+    -- "PIRACUA - BERNAL" (contenido con loc match = 0.95). SAP gana.
+    CASE WHEN c.card_code LIKE 'LEAD_%' THEN 0.85 ELSE 1.00 END AS score
   FROM normalized_visits_tokens v
   JOIN normalized_clients_tokens c
     ON v.name_norm = c.name_norm
@@ -244,11 +254,12 @@ level2_contain AS (
     c.card_code,
     c.card_name,
     'contenido' AS match_type,
+    -- v2: mismo penalty -0.15 si LEAD (SAP-first policy).
     CASE
       WHEN v.provincia = c.provincia AND v.localidad = c.localidad THEN 0.95
       WHEN v.provincia = c.provincia THEN 0.90
       ELSE 0.85
-    END AS score
+    END - CASE WHEN c.card_code LIKE 'LEAD_%' THEN 0.15 ELSE 0.0 END AS score
   FROM normalized_visits_tokens v
   JOIN normalized_clients_tokens c
     ON (
@@ -261,12 +272,11 @@ level2_contain AS (
     )
    AND v.name_norm != c.name_norm  -- Excluir exactos (ya matcheados en level 1)
   -- Excluir visitas ya matcheadas en niveles anteriores
-  WHERE NOT EXISTS (
-    SELECT 1 FROM overrides_join o WHERE o.visita_id = v.visita_id
-  )
-    AND NOT EXISTS (
-    SELECT 1 FROM level1_exact l WHERE l.visita_id = v.visita_id
-  )
+  -- v2: NO excluir visitas ya matcheadas en niveles anteriores. Dejar que
+  -- todos los candidatos compitan en all_candidates. El ROW_NUMBER en ranked
+  -- decide por score final (con penalty LEAD ya aplicado). Motivo: antes un
+  -- LEAD con exacto (score 0.85 post-penalty) bloqueaba al SAP con contenido
+  -- (score 0.95) porque level2 se excluia. Ahora ambos van y SAP gana.
 ),
 
 -- =========================================================================
@@ -301,6 +311,7 @@ level3_jaccard AS (
     c.card_name,
     'fuzzy' AS match_type,
     -- Score = jaccard + boost si aplica, cap 0.99 (reservado 1.00 para exacto/override)
+    -- v2: penalty -0.15 si LEAD para prioridad SAP.
     LEAST(
       0.99,
       jscore.jaccard_score +
@@ -308,7 +319,7 @@ level3_jaccard AS (
         WHEN v.provincia = c.provincia AND v.localidad = c.localidad THEN 0.10
         WHEN v.provincia = c.provincia THEN 0.05
         ELSE 0.00
-      END
+      END - CASE WHEN c.card_code LIKE 'LEAD_%' THEN 0.15 ELSE 0.0 END
     ) AS score
   FROM level3_visit_client_pairs pairs
   JOIN normalized_visits_tokens v USING (visita_id)
@@ -323,10 +334,7 @@ level3_jaccard AS (
   WHERE jscore.jaccard_score >= 0.60
     AND ARRAY_LENGTH(v.tokens) > 0
     AND ARRAY_LENGTH(c.tokens) > 0
-    -- Excluir visitas ya matcheadas en niveles anteriores
-    AND NOT EXISTS (SELECT 1 FROM overrides_join o WHERE o.visita_id = v.visita_id)
-    AND NOT EXISTS (SELECT 1 FROM level1_exact l WHERE l.visita_id = v.visita_id)
-    AND NOT EXISTS (SELECT 1 FROM level2_contain l WHERE l.visita_id = v.visita_id)
+  -- v2: NO excluir por nivel anterior (ver comentario en level2_contain).
 ),
 
 -- =========================================================================
@@ -361,7 +369,17 @@ ranked AS (
     ac.*,
     ROW_NUMBER() OVER (
       PARTITION BY ac.visita_id
-      ORDER BY ac.score DESC, ac.card_code  -- desempate deterministic por card_code
+      ORDER BY
+        -- v2 (2026-09-01): ROUND para eliminar floating point precision issues.
+        -- Sin ROUND, LEAD score 0.9500000000000001 le ganaba a SAP 0.95 exacto
+        -- por 1e-16 aunque el CASE SAP-first debía romper el tie.
+        ROUND(ac.score, 2) DESC,
+        -- En tie de score, preferir SAP (card_code LIKE 'C%') sobre LEAD.
+        -- Mariano: SAP es fuente de verdad; leads son negocios en proceso de alta.
+        -- Ejemplo: PIRACUA (BERNAL) → LEAD "PIRACUA" (0.95) vs SAP "PIRACUA -
+        -- BERNAL" (contenido 0.95 con boost loc) → SAP gana.
+        CASE WHEN ac.card_code LIKE 'LEAD_%' THEN 1 ELSE 0 END,
+        ac.card_code  -- desempate final deterministic
     ) AS rn
   FROM all_candidates ac
 ),
