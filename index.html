@@ -5084,7 +5084,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v763';
+const APP_VERSION = 'v766';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15362,7 +15362,22 @@ function _renderWaitlistCard(){
     const otros = _otrosPedidosEnEsperaDeSku(it.code, w._id);
     const pendingApp = _pendingAppDeSku(it.code);
     const backSap = stk.backorder || 0;
-    const disp = stk.hasData ? Math.max((stk.stockTotal || 0) - backSap, 0) : null;
+    // v766 (2026-09-01): FIX bug reportado por Mariano — "Libre para la venta"
+    // mostraba stockTotal(dep11+dep12) - backorder_SAP = 86 - 14 = 72 aunque
+    // el vendedor no puede prometer las 80u en TRANSITO. La regla nueva
+    // (consistente con v763 del alert de stock):
+    //   LIBRE PARA LA VENTA = max(DISPONIBLE dep 11 - UNIDADES RESERVADAS, 0)
+    //   UNIDADES RESERVADAS = SUM(qtyOpen) state='ASIG' (STOCK_ASIG_APP[sku])
+    // dep 12 (transito) NO cuenta porque no esta vendible aun; se muestra
+    // aparte como info (columna EN TRANSITO en el alert).
+    const dep11 = (typeof getStockDisponibleVenta === 'function')
+      ? (getStockDisponibleVenta(it.code) || 0)
+      : 0;
+    const reservadasAsig = stk.asigApp || 0;
+    const disp = stk.hasData ? Math.max(dep11 - reservadasAsig, 0) : null;
+    // dispApp = descontamos ademas pedidos en Espera (pendingApp) para el
+    // caso "si el vendedor tarda, otros pedidos-en-espera pueden agarrar
+    // el stock primero via FIFO al confirmar".
     const dispApp = stk.hasData ? Math.max((disp || 0) - pendingApp, 0) : null;
     const excede = stk.hasData && it.qty > dispApp;
     if (excede) excedidos++;
@@ -15558,13 +15573,14 @@ function _renderWaitlistCard(){
       tdReserv.style.fontWeight = '800';
     }
     tr.appendChild(tdReserv);
-    // Libre para la venta = stock fisico - reservas TOTAL. Matches el
-    // disponibleReal usado por el split flow al confirmar.
+    // Libre para la venta = max(dep11 - reservadas_ASIG, 0). v766 (2026-09-01):
+    // Fix bug — antes usaba stockTotal(dep11+dep12) inflando "libre" con
+    // unidades en transito no vendibles. Ahora consistente con v763 del alert.
     const tdLibre = document.createElement('td');
     tdLibre.className = 'num disp-sap-col';
     tdLibre.textContent = r.hasData ? String(r.disponible || 0) : '-';
     if (r.hasData) {
-      tdLibre.title = 'Libre para la venta: ' + (r.disponible || 0) + ' u\\n(stock fisico ' + r.stockTotal + ' - reservadas total ' + desg.comprometido + ')';
+      tdLibre.title = 'Libre para la venta: ' + (r.disponible || 0) + ' u\\n(disp. dep 11: ' + stockDep11Only + ' - reservadas ASIG: ' + reservadasBacked + ')';
     }
     tr.appendChild(tdLibre);
     // v713.1: Alerta visual cuando el SKU se repite - resaltar fila y marcar summary.
