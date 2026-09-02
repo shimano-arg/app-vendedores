@@ -5084,7 +5084,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v771';
+const APP_VERSION = 'v772';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10939,7 +10939,14 @@ function _renderPcpList(query){
     const k = _key(name, province, locName);
     if (seen.has(k)) continue;
     const extra = [a.titular, a.fantasia, a.comercio, a.cardCodeSap].filter(Boolean).join(' | ');
-    flat.push({name, tipo: 'C', province, locName, extra, isAlta: true});
+    // v772 (2026-09-02): FIX bug — antes todas las altas iban con tipo='C'
+    // aunque NO tuvieran cardCodeSap real (solo manualSapPending). Eso hacia
+    // que las altas provisorias (PROVISORIO badge naranja) se colaran como
+    // clientes SAP y no fueran filtradas por v771. Ahora: solo cardCodeSap
+    // real = tipo 'C'. Provisorio (manualSapPending sin cardCodeSap) = 'P'
+    // -> filtrado del picker por v771.
+    const tipoAlta = a.cardCodeSap ? 'C' : 'P';
+    flat.push({name, tipo: tipoAlta, province, locName, extra, isAlta: true});
     seen.add(k);
   }
   // Búsqueda multi-token (mismo helper que usa CLIENTES): match si TODOS los
