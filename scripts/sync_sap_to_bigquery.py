@@ -2092,14 +2092,17 @@ def main():
     # los deja como null automaticamente. Los campos importantes viven en las
     # DocumentLines: ItemCode, Quantity, WarehouseCode (=ToWhsCode destino),
     # FromWarehouseCode (origen).
+    # v768.1: endpoint corregido de /InventoryTransfers a /StockTransfers.
+    # Primer intento fallo con "HTTP 400 - Unrecognized resource path".
+    # Segun doc SAP B1 SL, OWTR/WTR1 se expone como /StockTransfers.
     wtrs = sl_fetch_all(
-        cfg, session, '/b1s/v1/InventoryTransfers', 'INVENTORY_TRANSFERS',
+        cfg, session, '/b1s/v1/StockTransfers', 'STOCK_TRANSFERS',
         select_fields=doc_select,
         filter_expr=f"DocDate ge '{pdn_since_iso}'",
         max_docs=max_docs,
     )
-    wtr_rows = [flatten_doc(d, 'INVENTORY_TRANSFER', sync_ts) for d in wtrs]
-    load_to_bq(bq_client, BQ_TABLE_INV_TRANSFERS, wtr_rows, 'INVENTORY_TRANSFERS', dry_run=dry_run)
+    wtr_rows = [flatten_doc(d, 'STOCK_TRANSFER', sync_ts) for d in wtrs]
+    load_to_bq(bq_client, BQ_TABLE_INV_TRANSFERS, wtr_rows, 'STOCK_TRANSFERS', dry_run=dry_run)
 
     # === 7. Targets mensuales (Firestore -> BigQuery)
     # Coleccion `targets` en Firestore (una fila por vendedor+ano+mes).
