@@ -2106,24 +2106,32 @@ def main():
     #         default en muchos endpoints. Sin expand, el JSON viene sin
     #         `DocumentLines` y flatten_doc guarda lines_json=null, con lo
     #         que UNNEST(lines_json) en la vista da 0 filas.
+    # v768.6: StockTransferLines tambien invalido. Approach: probar sin expand
+    # y ver las keys del primer doc para descubrir el nombre real del nav
+    # property (o si ya viene inline sin expand). Log de keys en el primer doc.
     wtrs = sl_fetch_all(
         cfg, session, '/b1s/v1/StockTransfers', 'STOCK_TRANSFERS',
-        select_fields=None,  # full schema, evita rechazo por campo invalido
-        # v768.5: DocumentLines invalido para StockTransfer; el nav property
-        # correcto es StockTransferLines. flatten_doc lee doc.get('DocumentLines')
-        # que devuelve None si no existe; el load_to_bq ok con lines_json=null,
-        # pero la vista UNNEST no encuentra lines -> 0 filas. Solucion: en el
-        # flatten_doc especifico para WTR, mapear StockTransferLines a
-        # DocumentLines antes de guardarlo. Aqui expandimos con el nombre real.
-        expand_fields=['StockTransferLines'],
+        select_fields=None,
         filter_expr=f"DocDate ge '{pdn_since_iso}'",
         max_docs=max_docs,
     )
-    # v768.5: WTR usa StockTransferLines en vez de DocumentLines. Alias antes
-    # del flatten para que la logica generica encuentre las lines.
-    for w in wtrs:
-        if 'StockTransferLines' in w and 'DocumentLines' not in w:
-            w['DocumentLines'] = w.pop('StockTransferLines')
+    if wtrs:
+        first_keys = sorted(wtrs[0].keys())
+        log(f'[DEBUG/STOCK_TRANSFERS] primer doc keys ({len(first_keys)}): {first_keys}')
+    # Buscar nav property de lines: probar varios nombres conocidos
+    lines_candidates = ['DocumentLines', 'StockTransferLines', 'Lines', 'InventoryTransferLines']
+    lines_key = None
+    if wtrs:
+        for cand in lines_candidates:
+            if cand in wtrs[0]:
+                lines_key = cand
+                break
+        log(f'[DEBUG/STOCK_TRANSFERS] nav property lines detectada: {lines_key}')
+    # Alias lo que sea que traiga a DocumentLines para que flatten_doc lo agarre
+    if lines_key and lines_key != 'DocumentLines':
+        for w in wtrs:
+            if lines_key in w:
+                w['DocumentLines'] = w.pop(lines_key)
     wtr_rows = [flatten_doc(d, 'STOCK_TRANSFER', sync_ts) for d in wtrs]
     load_to_bq(bq_client, BQ_TABLE_INV_TRANSFERS, wtr_rows, 'STOCK_TRANSFERS', dry_run=dry_run)
 
