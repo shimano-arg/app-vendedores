@@ -2093,11 +2093,21 @@ def main():
     # DocumentLines: ItemCode, Quantity, WarehouseCode (=ToWhsCode destino),
     # FromWarehouseCode (origen).
     # v768.1: endpoint corregido de /InventoryTransfers a /StockTransfers.
-    # Primer intento fallo con "HTTP 400 - Unrecognized resource path".
-    # Segun doc SAP B1 SL, OWTR/WTR1 se expone como /StockTransfers.
+    # v768.2: doc_select propio (schema mas chico que docs marketing —
+    #         OWTR no tiene DocDueDate/DocCurrency/DocTotal/PaidToDate/etc.,
+    #         solo campos basicos + DocumentLines con From/ToWarehouseCode).
+    wtr_select = [
+        'DocEntry', 'DocNum', 'DocDate',
+        'DocumentStatus', 'Cancelled',
+        'CardCode', 'CardName',        # opcionales, pueden ser null
+        'Comments', 'JournalMemo',
+        'Series',
+        'CreationDate', 'UpdateDate',
+        'DocumentLines',
+    ]
     wtrs = sl_fetch_all(
         cfg, session, '/b1s/v1/StockTransfers', 'STOCK_TRANSFERS',
-        select_fields=doc_select,
+        select_fields=wtr_select,
         filter_expr=f"DocDate ge '{pdn_since_iso}'",
         max_docs=max_docs,
     )
