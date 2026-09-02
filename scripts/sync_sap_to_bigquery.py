@@ -272,7 +272,8 @@ def resolve_pesca_group_code(cfg: dict, session: requests.Session) -> int:
 # Fetch desde SL (paginado + retry en 401)
 # ============================================================
 def sl_fetch_all(cfg, session, path_base, entity_name,
-                 select_fields=None, filter_expr=None, max_docs=0):
+                 select_fields=None, filter_expr=None, max_docs=0,
+                 expand_fields=None):
     """
     Itera un endpoint OData con @odata.nextLink hasta agotar todas las paginas.
     Devuelve la lista completa de docs (dicts).
@@ -283,6 +284,9 @@ def sl_fetch_all(cfg, session, path_base, entity_name,
       select_fields: lista de campos para $select
       filter_expr: expresion $filter
       max_docs: cap de docs para debug (0 = sin cap)
+      expand_fields: lista de navigation properties para $expand (ej.
+        ['DocumentLines']). Necesario cuando el schema no incluye
+        DocumentLines por default (caso StockTransfers v768.4).
     """
     parts = [path_base]
     query = []
@@ -290,6 +294,8 @@ def sl_fetch_all(cfg, session, path_base, entity_name,
         query.append(f"$filter={filter_expr}")
     if select_fields:
         query.append(f"$select={','.join(select_fields)}")
+    if expand_fields:
+        query.append(f"$expand={','.join(expand_fields)}")
     if query:
         parts.append('?' + '&'.join(query))
     url_path = ''.join(parts)
@@ -2094,15 +2100,16 @@ def main():
     # FromWarehouseCode (origen).
     # v768.1: endpoint corregido de /InventoryTransfers a /StockTransfers.
     # v768.2: doc_select propio (fallo — 'DocDueDate' invalid).
-    # v768.3: sin $select (fetch full schema). El schema de OWTR/WTR1 en SL
-    #         rechaza campos comunes de docs marketing (DocDueDate, Cancelled,
-    #         etc.) y no vale la pena adivinar campo por campo (cada retry
-    #         cuesta 45 min de sync). Fetch full + flatten_doc extrae solo
-    #         los que existen. Trade-off: transferencia mas grande, pero
-    #         volumen esperado bajo (~50-100 WTR/mes) asi que ok.
+    # v768.3: sin $select (fallo — trae 65 docs pero SIN DocumentLines).
+    # v768.4: full schema + $expand=DocumentLines. En SL de SAP B1,
+    #         DocumentLines es un navigation property que NO se incluye por
+    #         default en muchos endpoints. Sin expand, el JSON viene sin
+    #         `DocumentLines` y flatten_doc guarda lines_json=null, con lo
+    #         que UNNEST(lines_json) en la vista da 0 filas.
     wtrs = sl_fetch_all(
         cfg, session, '/b1s/v1/StockTransfers', 'STOCK_TRANSFERS',
         select_fields=None,  # full schema, evita rechazo por campo invalido
+        expand_fields=['DocumentLines'],  # v768.4: forzar expand de lines
         filter_expr=f"DocDate ge '{pdn_since_iso}'",
         max_docs=max_docs,
     )
