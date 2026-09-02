@@ -25,13 +25,13 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { updateAsigLineState } from './core/asig-recycle-core.js';
 // v750 (2026-08-31): tracking de transiciones ASIG para analytics mes-a-mes.
 import { detectAsigTransitions, writeTransitionsBatch } from './core/asig-transitions-core.js';
-// v774 (2026-09-02): notif email al enviar oferta a SAP (pedido Mariano).
-import { buildEmailContent, sendEmail, shouldNotify } from './core/notify-quotation-sent-core.js';
 import { expireAsigLinesTTL } from './core/asig-ttl-core.js';
 import { runDailyBackup } from './core/backup-core.js';
 import { runFifoAssign } from './core/fifo-assign-core.js';
 import { runGeminiOcr } from './core/gemini-ocr-core.js';
 import { syncSapInvoices } from './core/invoice-sync-core.js';
+// v774 (2026-09-02): notif email al enviar oferta a SAP (pedido Mariano).
+import { buildEmailContent, sendEmail, shouldNotify } from './core/notify-quotation-sent-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
 import { handleSapProxy } from './core/sap-proxy-core.js';
 import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
