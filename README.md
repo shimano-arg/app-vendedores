@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v416](#41-changelog-v300--v397)
+41. [Changelog v300 → v776](#41-changelog-v300--v776)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4666,7 +4666,7 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v427
+## 41) Changelog v300 → v776
 
 ### v776 (2026-09-02)
 
@@ -4677,6 +4677,128 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 - **Mismatch código↔rules**: el comentario del código dice "v342+ (2026-07-28): vendedores + interno pueden editar direccion + localidad" pero las rules nunca se actualizaron cuando se dio ese permiso al UI. Los admin/gerente/interno funcionaban por el primer branch de la rule (`isAdminOrGerente() || isInterno()`), los vendedores caían al whitelist restrictivo.
 - **Fix** (`firestore.rules:239-260`): extendida la whitelist a `['leadEstado', 'leadEstadoAt', 'leadEstadoBy', 'calle', 'localidad', 'localidadFinal', 'lat', 'lng', 'geoDisplay', 'geoPrecision', 'geoProvider', 'geoAt', 'updatedAt', 'updatedBy']`. Deploy inmediato via `firebase deploy --only firestore:rules`. Los campos sensibles (comercio, titular, cuit, cardCodeSap, assignedVendor, precaucion*) siguen restringidos a admin/gerente/interno.
 - **Alcance del cambio**: seguro — solo agregan campos de dirección + auditoría al whitelist de update. No amplían quién puede leer (`allow read` intacto), no permiten create ni delete extra, y bloquean cualquier update que toque campos fuera de la whitelist. Un vendedor no puede escalar privilegios via este endpoint.
+
+### v775 (2026-09-02)
+
+**Modal "Revisión de pedido vs Stock" del flujo Cargar pedido por Excel: nuevas columnas alineadas al schema de "Pedido en Espera".**
+
+- Feedback Mariano: al tocar `Pedidos → Cargar pedido por Excel` el modal mostraba columnas viejas (`Backorder SAP`, etc.) en vez de las que se usan en Pedidos en Espera. Confuso para el equipo.
+- Fix: renombrado el modal (`index.html:4710`) + reescrito `_revisionRenderPreview` (`index.html:13522`) con headers `Cliente | SKU | Descripción | Pedido | Confirmado | En espera | Precio | Total`. Consistente con la vista `Pedido en Espera`.
+
+### v774 (2026-09-02)
+
+**Cloud Function `onQuotationSentNotify` — email a santiago.beron@shimano.uy cuando se envía una oferta a SAP.**
+
+- Feedback Mariano: cada vez que la app envíe una oferta a SAP notificar a Santiago con el cliente + docNum + total.
+- Trigger `onDocumentWritten` en `pedidos/{id}` (`functions/index.js`). Detecta transición `transferidoSAP.docNum` de vacío → valor y `via === 'service_layer_auto'` (excluye `app_only` que no va a SAP).
+- Core inyectable en `functions/core/notify-quotation-sent-core.js` — `shouldNotify()`, `buildEmailContent()`, `sendEmail()` con SMTP Gmail vía nodemailer. Secret `GMAIL_APP_PASSWORD` en Secret Manager (mismo app password que rendiciones).
+- Manual setup pendiente por Mariano: `gcloud secrets create GMAIL_APP_PASSWORD` + IAM grant + `firebase deploy --only functions:onQuotationSentNotify`.
+
+### v773 (2026-09-02)
+
+**Filtrar LEADs y provisorios pendientes en la sidebar Pedidos > Crear.**
+
+- Post v771/v772, seguía apareciendo un LEAD en el picker por bug en `renderCrearList` (sidebar — distinto de `renderPedidoClientePicker`). Fix: filter `it.tipo === 'P'` + `it.sapAlta.manualSapPending && !cardCodeSap` para excluir provisorios y altas sin cardCode aún.
+
+### v770 → v772 (2026-09-01)
+
+**Bloqueo de creación/carga de pedidos para LEADs (sin código SAP).**
+
+- Feedback Mariano: "los LEAD no se les pueda cargar pedidos, ni carga por excel ni crear pedido manual, solo los clientes con código SAP se les puede cargar un pedido".
+- **v769**: guard en el path `Cargar Excel` y en `renderCrearList` (bloquea si `tipoAlta === 'P'` sin `cardCodeSap`).
+- **v770**: guard adicional en `_selectPedidoCliente` (`index.html:10970`) para el tab Pedidos > Crear — muestra alert bloqueante si LEAD.
+- **v771**: los LEADs directamente no aparecen en el picker (Mariano prefirió esta UX).
+- **v772**: fix bug del propio v771 — las altas provisorias sin `cardCodeSap` quedaban marcadas como `tipo='C'`. Corregido a `tipoAlta = a.cardCodeSap ? 'C' : 'P'`.
+
+### v768.1 → v768.7 (2026-08-31 → 2026-09-01, sync SAP StockTransfers)
+
+**Agregar `InventoryTransfers` (OWTR) al sync SAP → BQ para capturar los arribos dep 07 → dep 11.**
+
+- Root cause investigada: solo 4 unidades pesca recibidas dep 11 en 12 meses según los datos, imposible → el sync no capturaba los transfers internos. Fix: `scripts/sync_sap_to_bigquery.py` agrega paso 8d.
+- Chain de errores SAP Service Layer resueltos iterativamente:
+  - `v768.1`: `/InventoryTransfers` no existe → `/StockTransfers`.
+  - `v768.2`: `DocDueDate` no válido en `$select` → quitado.
+  - `v768.3`: 65 docs sin líneas → agregado `$expand=DocumentLines`.
+  - `v768.4`/`v768.5`: `DocumentLines` no es la nav property real → `StockTransferLines`.
+  - `v768.6`: debug log para descubrir keys reales del payload.
+  - `v768.7`: alias final `StockTransferLines → DocumentLines` post-fetch para reutilizar el downstream.
+- `bigquery/backorder_app.sql` extendido con `v_entradas_stock` con flag `is_arribo_dep11` (transfers desde dep 07/12 con destino dep 11).
+
+### v766 → v767 (2026-08-31)
+
+**Modal Waitlist: fix cálculo Libre para la venta + Unidades Reservadas.**
+
+- **v766** (fix libre): mostraba 72 unidades cuando el real era 0. Root cause: `disp = stockTotal - backorder_SAP` sumaba dep11 + dep12 (tránsito, no vendible). Fix: `disp = dep11 - reservadas_ASIG`.
+- **v767** (fix reservadas): "UNIDADES RESERVADAS" mostraba confirmados + BO + ASIG (6u) pero al abrir "Stock Asignado" no había nada. Fix: usar `desg.breakdown.ASIG` solo (no confirmed ni BO).
+
+### v764 → v765 (2026-08-30 → 2026-09-01, backorder migración BQ)
+
+**Migrar backorder de SAP a APP en Power BI.**
+
+- Contexto: los SQ SAP se están discontinuando (v764.5 = 62 SQs oficina migrados a pedidos-app sintéticos como fuente de verdad, 985 líneas / 2974u).
+- Nuevo archivo `bigquery/backorder_app.sql` (500+ líneas): `v_backorder_app` desde `state='BO'|'ASIG'` de pedidos, y **shim** `v_backorder_lineas_v2` con mismo shape que la view SAP para migración zero-change en Power BI.
+
+### v763 (2026-08-30)
+
+**Rediseño vista stock del SKU: dep 11 – reservadas, excluir tránsito.**
+
+- Feedback Mariano: la métrica "stock alerta" sumaba dep 11 + dep 12 (tránsito) → daba números irreales. Nueva fórmula alineada con Waitlist: `dep11 - reservadas_ASIG`, con desglose visible.
+
+### v758 → v762 (2026-08-30 → 2026-08-31, rendiciones)
+
+- **v758**: validación `Number.isFinite(importeNum) && importeNum > 0` en frontend antes de submit para evitar BadRequest en Power Automate.
+- **v759**: fix `_findAsigDelCliente` — pedidos huérfanos colaban por filtro laxo de cliente. Match estricto por `card_code`.
+- **v760**: fix email — no imprimir fila dummy vacía en la sección Solicitudes cuando el batch estaba vacío.
+- **v761/v762**: toggle diego.valsi en el `MAIL_TO` de rendiciones aprobadas (removido en v761 temp, re-agregado en v762).
+
+### v757 (2026-08-31)
+
+**Sync SAP cada 30min + `v_sync_health` + inferencia `subfamilia_norm` para 108 SKUs pesca.**
+
+- GH Actions cron cambiado a 30min (antes 1h) con concurrency guard (skip si run previo overlapping).
+- Nueva view BQ `v_sync_health` con freshness de última corrida (para tablero staleness SAR).
+- `v_sap_items_enriched` infiere `subfamilia_norm` para 108 SKUs pesca que en SAP no tienen subfamilia asignada.
+
+### v749 → v756 (2026-08-31, dark mode contraste fixes)
+
+**Fix persistente de contraste en Dark Mode.**
+
+- Iteraciones sobre `h3` titles en tab-panes que quedaban invisibles con `color:#1e40af`.
+- **v749**: alerta y tareas invisibles + CartoDB tiles requerían API key.
+- **v751/v752**: nuclear rule `h1/h2/h3` con color literal blanco.
+- **v754**: force pure white en headers de tab-panes + sidebar.
+- **v755**: "Vista Preliminar" de Crear pedido pasa a read-only (sin botón "Pasar a Pendientes").
+- **v756** (ROOT CAUSE): `apple-design.css` tenía reglas ID + `!important` que ganaban cascade sobre las nuclear rules del dark mode. Fix: overrides dark al final del mismo archivo.
+
+### v736 → v746 (2026-08-30 → 2026-08-31, Plan Dark Mode E0 → E5)
+
+**Ejecución del PLAN_DARK_MODE.md completo en 1 día — dark mode funcional shipped.**
+
+- **v736**: FAB WhatsApp oculto en mobile + botón Dark Mode placeholder.
+- **v738**: Dark Mode FUNCIONAL (hybrid CSS vars + inline style overrides).
+- **v740 → v742**: pass masivo de contraste (100+ CSS classes) + fixes específicos post-screenshot Mariano.
+- **v743** (E2): codemod que reemplaza 1964 hex hardcoded → `var(--token)`.
+- **v744** (E3): assets + edge cases (login-bg, iconos, gradients).
+- **v745** (E4): audit WCAG AA (24/26 pass en dark) + polish + docs.
+- **v746** (E5): rollout announcement + PLAN COMPLETADO. Toggle + Firestore cross-device sync + tooling reusable (codemod + audit scripts). Guía mantenimiento en README §36.
+
+### v727 → v735 (2026-08-28 → 2026-08-30, UX+ops pass)
+
+- **v727**: columna Libre para la venta amarillo → verde.
+- **v728**: FAB WhatsApp circular fixed bottom-right en toda la app.
+- **v729**: fix Dashboard tab Visitas lazy-init + docs firestore rules re-deploy.
+- **v730**: mobile stat cards vertical-centrados + audit botones destructivos.
+- **v731**: Apple-style segmented control en tabs Dashboard.
+- **v732**: dataset ML export incluye `sap_snapshot + facturacion_snapshot + backorder_snapshot`.
+- **v733**: fix columna WhatsApp truncada en Panel Usuarios (min-width 150px).
+- **v734**: quitar emojis rotos de 5 botones del top toolbar.
+- **v735**: botón "Espera" renombrado a "Depósito" con modal "En construcción".
+- **v737**/**v739**: fixes exports Backorder + Stock Asignado que se descargaban vacíos (schema mismatch resuelto).
+- **v747**: rule pedidos update para internos — resolve ASIG cross-vendor.
+- **v750**: CF `onPedidoWriteTrackAsigTransitions` — analytics conversion ASIG mes-a-mes.
+- **v753**: mapa arranca con zoom 5 (Argentina full-viewport) en vez de 4.
+
+> **Gap documental v447 → v726**: sesiones intermedias no re-documentadas aquí para no diluir. Ver `git log --oneline main` para el histórico completo entre agosto 2026 y esta fecha.
 
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
 
