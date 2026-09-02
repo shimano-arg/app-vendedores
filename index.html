@@ -4730,14 +4730,18 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
           <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:820px">
             <thead style="background:#0f172a;color:#fff;position:sticky;top:0">
               <tr>
+                <!-- v774 (2026-09-02): columnas alineadas con modal "Pedido en Espera"
+                     (v766+v767). Reemplaza el schema viejo (Stock total dep11+12,
+                     Backorder SAP, Disponible, Disponible app, Excedente) que ya
+                     no aplica desde la migracion backorder SAP -> APP. -->
                 <th style="text-align:left;padding:6px 8px">SKU</th>
                 <th style="text-align:left;padding:6px 8px">Producto</th>
-                <th style="text-align:right;padding:6px 8px" title="Stock deposito 11 + transito deposito 12">Stock total</th>
-                <th style="text-align:right;padding:6px 8px" title="RemainingOpenQuantity de Sales Quotations open del SKU">Backorder SAP</th>
-                <th style="text-align:right;padding:6px 8px" title="v701: Stock realmente disponible = Stock fisico - compromisos-app (confirmed+BO+ASIG en pedidos-app open). Es lo que realmente podes prometer al cliente.">Disponible</th>
-                <th style="text-align:right;padding:6px 8px" title="Disponible - Pedidos pendientes app no transferidos aun. Corrige el delay del sync SAP.">Disponible app</th>
+                <th style="text-align:right;padding:6px 8px" title="Stock fisico en el deposito 11 vendible. NO incluye dep 12 transito.">Stock completo (dep 11)</th>
+                <th style="text-align:right;padding:6px 8px" title="Unidades reservadas a otros clientes (state=ASIG en pedidos-app). Consistente con el modal STOCK ASIGNADO.">Unidades reservadas</th>
+                <th style="text-align:right;padding:6px 8px;background:var(--color-success-bg);color:#14532d" title="Stock completo (dep 11) - Unidades reservadas. Es lo que podes prometer al cliente HOY.">Libre para la venta</th>
                 <th style="text-align:right;padding:6px 8px">Pedido cliente</th>
-                <th style="text-align:right;padding:6px 8px" title="Pedido - Disponible app">Excedente</th>
+                <th style="text-align:right;padding:6px 8px;background:#dbeafe;color:var(--text-primary)" title="Pedido Final = min(Pedido cliente, Libre para la venta). Lo que efectivamente va a SAP como confirmed. El resto cae en Backorder App.">Pedido final</th>
+                <th style="text-align:right;padding:6px 8px" title="Cantidad que queda en backorder = max(Pedido cliente - Libre para la venta, 0).">Backorder unidades</th>
               </tr>
             </thead>
             <tbody id="revision-rows"></tbody>
@@ -5084,7 +5088,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v773';
+const APP_VERSION = 'v775';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13519,26 +13523,39 @@ function _revisionRenderPreview(parsed, detectedCliente, notFoundCount, zerosCou
   if (zerosCount) warnText += (warnText ? ' ' : '') + zerosCount + ' fila(s) con cantidad invalida o 0 - ignoradas.';
   if (warnText) { warnEl.textContent = warnText; warnEl.style.display = ''; } else warnEl.style.display = 'none';
   // Render tabla con DOM safe (celdas con textContent).
+  // v774 (2026-09-02): schema nuevo alineado con "Pedido en Espera" (v766+v767).
+  //   Stock completo (dep 11)  = getStockDisponibleVenta(sku) — solo dep 11
+  //   Unidades reservadas      = min(desg.breakdown.ASIG, stockDep11)
+  //   Libre para la venta      = max(dep11 - reservadas, 0)
+  //   Pedido cliente           = l.qty (del Excel)
+  //   Pedido final             = min(qty, libreParaVenta)
+  //   Backorder unidades       = max(qty - libreParaVenta, 0)
   const tbody = document.getElementById('revision-rows');
   while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
   parsed.slice(0, 500).forEach(l => {
-    const excede = l.hasData && l.qty > l.disponibleApp;
-    const excedente = excede ? (l.qty - l.disponibleApp) : 0;
+    const dep11 = (l.hasData && typeof getStockDisponibleVenta === 'function')
+      ? (getStockDisponibleVenta(l.code) || 0)
+      : 0;
+    const desg = (l.hasData && typeof window.getStockDesglose === 'function')
+      ? window.getStockDesglose(l.code)
+      : { breakdown: { ASIG: 0 } };
+    const asigOnly = (desg.breakdown && desg.breakdown.ASIG) || 0;
+    const reservadas = l.hasData ? Math.min(asigOnly, dep11) : 0;
+    const libre = l.hasData ? Math.max(dep11 - reservadas, 0) : 0;
+    const pedidoFinal = l.hasData ? Math.min(l.qty, libre) : l.qty;
+    const backorderUnidades = l.hasData ? Math.max(l.qty - libre, 0) : 0;
+    const excede = l.hasData && backorderUnidades > 0;
     const tr = document.createElement('tr');
     tr.className = !l.hasData ? 'no-data' : (excede ? 'exceed' : '');
     const mk = (text, cls) => { const td = document.createElement('td'); if (cls) td.className = cls; td.textContent = text; return td; };
     tr.appendChild(mk(l.code, 'mono'));
     tr.appendChild(mk(l.desc, ''));
-    tr.appendChild(mk(l.hasData ? l.stockTotal : '-', 'num'));
-    tr.appendChild(mk(String(l.backorder || 0), 'num'));
-    tr.appendChild(mk(l.hasData ? l.disponible : '-', 'num'));
-    // v463: nueva columna Disponible app.
-    const dispAppTxt = l.hasData
-      ? (l.pendingApp > 0 ? (l.disponibleApp + ' (−' + l.pendingApp + ' pend. app)') : String(l.disponibleApp))
-      : '-';
-    tr.appendChild(mk(dispAppTxt, 'num'));
+    tr.appendChild(mk(l.hasData ? dep11 : '-', 'num'));
+    tr.appendChild(mk(l.hasData ? reservadas : '-', 'num'));
+    tr.appendChild(mk(l.hasData ? libre : '-', 'num'));
     tr.appendChild(mk(l.qty, 'num'));
-    tr.appendChild(mk(excede ? ('+' + excedente) : (l.hasData ? '0' : '-'), excede ? 'num exc-cell' : 'num'));
+    tr.appendChild(mk(l.hasData ? pedidoFinal : '-', 'num'));
+    tr.appendChild(mk(excede ? ('+' + backorderUnidades) : (l.hasData ? '0' : '-'), excede ? 'num exc-cell' : 'num'));
     tbody.appendChild(tr);
   });
   if (parsed.length > 500) {
