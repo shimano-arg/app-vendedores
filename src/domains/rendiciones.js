@@ -425,7 +425,7 @@ window.submitRendSolicitud = async function () {
   // 0 en algunos formatos de Excel table). Ademas, una solicitud con importe=0
   // no tiene sentido de negocio - siempre hay un monto a solicitar/rendir.
   const importeNum = parseFloat(read('rd-importe'));
-  if (!isFinite(importeNum) || importeNum <= 0) {
+  if (!Number.isFinite(importeNum) || importeNum <= 0) {
     alert('El importe tiene que ser mayor a 0. Cargalo antes de enviar.');
     const el = document.getElementById('rd-importe');
     if (el) el.focus();
@@ -590,7 +590,7 @@ window.submitRendGasto = async function () {
   // v758 (2026-08-31): mismo check que submitRendSolicitud. Importe > 0 obligatorio
   // porque Power Automate SharePoint column es Number/double y falla con 0/vacio.
   const importeGastoNum = parseFloat(read('rg-importe'));
-  if (!isFinite(importeGastoNum) || importeGastoNum <= 0) {
+  if (!Number.isFinite(importeGastoNum) || importeGastoNum <= 0) {
     alert('El importe tiene que ser mayor a 0. Cargalo antes de enviar.');
     const el = document.getElementById('rg-importe');
     if (el) el.focus();
