@@ -2109,10 +2109,21 @@ def main():
     wtrs = sl_fetch_all(
         cfg, session, '/b1s/v1/StockTransfers', 'STOCK_TRANSFERS',
         select_fields=None,  # full schema, evita rechazo por campo invalido
-        expand_fields=['DocumentLines'],  # v768.4: forzar expand de lines
+        # v768.5: DocumentLines invalido para StockTransfer; el nav property
+        # correcto es StockTransferLines. flatten_doc lee doc.get('DocumentLines')
+        # que devuelve None si no existe; el load_to_bq ok con lines_json=null,
+        # pero la vista UNNEST no encuentra lines -> 0 filas. Solucion: en el
+        # flatten_doc especifico para WTR, mapear StockTransferLines a
+        # DocumentLines antes de guardarlo. Aqui expandimos con el nombre real.
+        expand_fields=['StockTransferLines'],
         filter_expr=f"DocDate ge '{pdn_since_iso}'",
         max_docs=max_docs,
     )
+    # v768.5: WTR usa StockTransferLines en vez de DocumentLines. Alias antes
+    # del flatten para que la logica generica encuentre las lines.
+    for w in wtrs:
+        if 'StockTransferLines' in w and 'DocumentLines' not in w:
+            w['DocumentLines'] = w.pop('StockTransferLines')
     wtr_rows = [flatten_doc(d, 'STOCK_TRANSFER', sync_ts) for d in wtrs]
     load_to_bq(bq_client, BQ_TABLE_INV_TRANSFERS, wtr_rows, 'STOCK_TRANSFERS', dry_run=dry_run)
 
