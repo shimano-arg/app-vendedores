@@ -288,13 +288,14 @@ export const onQuotationSentNotify = onDocumentWritten(
   },
   async (event) => {
     try {
-      const beforeData = event.data?.before?.data() ?? null;
-      const afterData = event.data?.after?.data() ?? null;
+      const beforeData = /** @type {any} */ (event.data?.before?.data() ?? null);
+      const afterData = /** @type {any} */ (event.data?.after?.data() ?? null);
       if (!shouldNotify(beforeData, afterData)) return;
 
       const { subject, text, html } = buildEmailContent(event.params.pedidoId, afterData);
 
       // Lazy import de nodemailer para no cargarlo si el trigger no dispara.
+      // @ts-ignore — nodemailer no tiene types built-in en este proyecto
       const nodemailerMod = await import('nodemailer');
       const nodemailer = nodemailerMod.default || nodemailerMod;
 

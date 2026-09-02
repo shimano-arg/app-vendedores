@@ -19,6 +19,15 @@
  */
 
 /**
+ * @typedef {Object} TransferidoSAP
+ * @property {string|number} [docNum]
+ * @property {string|number} [docEntry]
+ * @property {string} [via]
+ * @property {string} [transferredAt]
+ * @property {string} [transferredBy]
+ */
+
+/**
  * @typedef {Object} PedidoData
  * @property {string} [clientName]
  * @property {string} [clientCardCode]
@@ -29,7 +38,7 @@
  * @property {number} [orderNumber]
  * @property {number} [totalAmountArs]
  * @property {any[]} [lines]
- * @property {Object} [transferidoSAP]
+ * @property {TransferidoSAP} [transferidoSAP]
  */
 
 /**
@@ -108,6 +117,9 @@ export function buildEmailContent(pedidoId, pedido) {
   return { subject, text, html };
 }
 
+/**
+ * @param {any} s
+ */
 function escapeHtml(s) {
   return String(s || '')
     .replace(/&/g, '&amp;')
