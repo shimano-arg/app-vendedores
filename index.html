@@ -5084,7 +5084,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v767';
+const APP_VERSION = 'v769';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13160,6 +13160,14 @@ window.closeClientMenu = function(){
 window.ccmCrearPedido = function(){
   if (!clientMenuContext) return;
   const {name, tipo, province, locName} = clientMenuContext;
+  // v769 (2026-09-02): bloquear creacion de pedido a LEADs. Solo clientes
+  // con alta SAP (tipo='C') pueden recibir pedidos. Prospectos (tipo='P')
+  // primero deben ser dados de alta oficial en SAP por administracion.
+  // Mismo guard en ccmCargarExcelPedido para el flow Excel.
+  if (tipo !== 'C') {
+    alert('Este cliente es un LEAD y no tiene alta en SAP por lo cual no se le puede cargar un pedido.\n\nPara habilitarlo, pedile a administracion que lo de de alta oficial en SAP.');
+    return;
+  }
   closeClientMenu();
   // v520 (2026-08-13): Crear pedido = flujo manual SKU-by-SKU siempre.
   // Antes redirigia a openRevisionModal para el whitelist Revision. Ahora
@@ -13183,6 +13191,11 @@ let _excelPedidoParsed = null; // [{code, desc, qty}] post-parseo
 window.ccmCargarExcelPedido = function(){
   if (!clientMenuContext) return;
   const {name, tipo, province, locName} = clientMenuContext;
+  // v769 (2026-09-02): mismo guard que ccmCrearPedido. Bloquear LEADs.
+  if (tipo !== 'C') {
+    alert('Este cliente es un LEAD y no tiene alta en SAP por lo cual no se le puede cargar un pedido.\n\nPara habilitarlo, pedile a administracion que lo de de alta oficial en SAP.');
+    return;
+  }
   closeClientMenu();
   // v490: redirigir al modal de Revision con cliente pre-seleccionado si el
   // user esta en whitelist Revision. El Excel se sube ahi mismo. El resto
