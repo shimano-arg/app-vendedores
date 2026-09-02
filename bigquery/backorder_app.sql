@@ -282,27 +282,37 @@ WHERE ba.state IN ('BO', 'ASIG')
 --      in Expanded
 --
 -- =============================================================================
--- VISTA: v_entradas_stock
+-- VISTA: v_entradas_stock (v2, 2026-09-02)
 -- =============================================================================
--- Mariano pedido 2026-09-01. Unidades fisicas RECIBIDAS al deposito, con
--- granularidad SKU + fecha + warehouse. Sirve para contrastar contra el
--- backorder de la app en el reporte mensual.
+-- Mariano pedido. Unidades fisicas ARRIBADAS al deposito, con granularidad
+-- SKU + fecha + warehouse destino. Sirve para contrastar contra el backorder
+-- de la app en el reporte mensual.
+--
+-- REGLA NEGOCIO: "entrada de stock" = arribo al warehouse 11 (DISPONIBLE
+-- vendible), sin importar el tipo de doc que lo genero.
 --
 -- Fuentes:
---   1. sap_purchase_delivery_notes_raw (OPDN/PDN1) — recepciones contra
---      Purchase Order. Fuente principal, alto volumen.
---   2. sap_inventory_gen_entries_raw (OIGN/IGN1) — entradas SIN OC
---      (ajustes de inventario, transferencias, produccion). Complementaria.
+--   1. sap_purchase_delivery_notes_raw (OPDN/PDN1) — recepciones contra OC.
+--      Vacio en Shimano (no usa este flow).
+--   2. sap_inventory_gen_entries_raw (OIGN/IGN1) — entradas SIN OC (ajustes,
+--      importaciones al 07). El destino inicial suele NO ser 11.
+--   3. sap_inventory_transfers_raw (OWTR/WTR1) — movimientos entre depositos.
+--      La mayoria de "entradas al 11" viene por aca (transfer 07->11 tras
+--      importacion).
 --
--- Ambas sincronizadas por scripts/sync_sap_to_bigquery.py (v765+, 2026-09-01),
+-- Todas sincronizadas por scripts/sync_sap_to_bigquery.py (v765/v768+),
 -- ventana 12 meses.
 --
--- IMPORTANTE:
--- - Excluimos cancelled='tYES' (documentos anulados).
--- - Warehouse 05 (Marketing) y 06 (Devoluciones) NO son "vendibles" pero
---   pueden recibir entradas (samples, devoluciones ingresadas al stock).
---   Se deja el warehouse crudo — el consumer decide si filtrarlos.
--- - familia via JOIN v_sap_items_enriched (mismo pattern que v_ventas_lineas).
+-- COLUMNA CLAVE: `is_arribo_dep11` (BOOL). La medida "Unidades Recibidas Mes"
+-- de Power BI DEBE filtrar por is_arribo_dep11 = TRUE para evitar doble
+-- conteo. Ejemplo: 5u llegan al 07 via IGN (is_arribo_dep11=FALSE) y despues
+-- se transfieren al 11 via WTR (is_arribo_dep11=TRUE). Solo la segunda suma.
+--
+-- OTRAS COLUMNAS UTILES:
+-- - `warehouse_destino` = warehouse donde termina la unidad (WTR.ToWhsCode o
+--   IGN/PDN.WarehouseCode).
+-- - `warehouse_origen` = solo para WTR (WTR.FromWhsCode); NULL para IGN/PDN.
+-- - `is_warehouse_no_vendible` = destino in (05, 06) — marketing / devoluciones.
 -- =============================================================================
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_entradas_stock` AS
 WITH pdn_lines AS (
@@ -316,7 +326,8 @@ WITH pdn_lines AS (
     JSON_VALUE(ln, '$.ItemCode')   AS sku,
     JSON_VALUE(ln, '$.ItemDescription') AS descripcion,
     SAFE_CAST(JSON_VALUE(ln, '$.Quantity') AS FLOAT64)  AS cantidad_recibida,
-    JSON_VALUE(ln, '$.WarehouseCode') AS warehouse,
+    JSON_VALUE(ln, '$.WarehouseCode') AS warehouse_destino,
+    CAST(NULL AS STRING)           AS warehouse_origen,
     SAFE_CAST(JSON_VALUE(ln, '$.LineTotal') AS FLOAT64) AS importe_linea,
     JSON_VALUE(ln, '$.Currency')   AS moneda,
     d._sync_timestamp
@@ -335,7 +346,8 @@ ign_lines AS (
     JSON_VALUE(ln, '$.ItemCode')   AS sku,
     JSON_VALUE(ln, '$.ItemDescription') AS descripcion,
     SAFE_CAST(JSON_VALUE(ln, '$.Quantity') AS FLOAT64)  AS cantidad_recibida,
-    JSON_VALUE(ln, '$.WarehouseCode') AS warehouse,
+    JSON_VALUE(ln, '$.WarehouseCode') AS warehouse_destino,
+    CAST(NULL AS STRING)           AS warehouse_origen,
     SAFE_CAST(JSON_VALUE(ln, '$.LineTotal') AS FLOAT64) AS importe_linea,
     JSON_VALUE(ln, '$.Currency')   AS moneda,
     d._sync_timestamp
@@ -343,10 +355,32 @@ ign_lines AS (
        UNNEST(JSON_QUERY_ARRAY(d.lines_json)) AS ln
   WHERE COALESCE(d.cancelled, 'tNO') = 'tNO'
 ),
+wtr_lines AS (
+  SELECT
+    'WTR' AS tipo_doc,             -- Inventory Transfer (movimiento entre whs)
+    d.doc_entry,
+    d.doc_num,
+    d.doc_date                     AS fecha_entrada,
+    CAST(NULL AS STRING)           AS proveedor_code,   -- WTR no tiene proveedor
+    CAST(NULL AS STRING)           AS proveedor_nombre,
+    JSON_VALUE(ln, '$.ItemCode')   AS sku,
+    JSON_VALUE(ln, '$.ItemDescription') AS descripcion,
+    SAFE_CAST(JSON_VALUE(ln, '$.Quantity') AS FLOAT64)  AS cantidad_recibida,
+    JSON_VALUE(ln, '$.WarehouseCode') AS warehouse_destino,  -- ToWhsCode
+    JSON_VALUE(ln, '$.FromWarehouseCode') AS warehouse_origen,
+    SAFE_CAST(JSON_VALUE(ln, '$.LineTotal') AS FLOAT64) AS importe_linea,
+    JSON_VALUE(ln, '$.Currency')   AS moneda,
+    d._sync_timestamp
+  FROM `app-vendedores-shimano.shimano_app.sap_inventory_transfers_raw` d,
+       UNNEST(JSON_QUERY_ARRAY(d.lines_json)) AS ln
+  WHERE COALESCE(d.cancelled, 'tNO') = 'tNO'
+),
 unioned AS (
   SELECT * FROM pdn_lines
   UNION ALL
   SELECT * FROM ign_lines
+  UNION ALL
+  SELECT * FROM wtr_lines
 )
 SELECT
   u.tipo_doc,
@@ -363,8 +397,13 @@ SELECT
   it.subfamilia_norm AS subfamilia,
   (it.items_group_code = 102) AS is_pesca,
   u.cantidad_recibida,
-  u.warehouse,
-  (u.warehouse IN ('05', '06')) AS is_warehouse_no_vendible,
+  u.warehouse_destino,
+  u.warehouse_origen,
+  -- FLAG CLAVE: arribo al warehouse 11 (DISPONIBLE vendible). La medida
+  -- "Unidades Recibidas Mes" filtra por esta columna = TRUE para evitar
+  -- doble conteo (IGN al 07 + WTR 07->11 = solo cuenta el WTR).
+  (u.warehouse_destino = '11') AS is_arribo_dep11,
+  (u.warehouse_destino IN ('05', '06')) AS is_warehouse_no_vendible,
   u.importe_linea,
   u.moneda,
   u.proveedor_code,
@@ -406,12 +445,17 @@ WHERE u.sku IS NOT NULL
 -- =============================================================================
 -- MEDIDA "Unidades Recibidas Mes" para Power BI (DAX)
 -- =============================================================================
+-- CRITICO: filtrar por `is_arribo_dep11 = TRUE` para contar solo arribos al
+-- warehouse 11 (DISPONIBLE vendible). Sin ese filtro se doble-contarian los
+-- WTR (07->11) porque el IGN inicial al 07 tambien aparece en la tabla.
+--
 -- En Power BI, crear una medida en la tabla v_entradas_stock:
 --
 --   Unidades Recibidas Mes =
 --     CALCULATE(
 --       SUM('v_entradas_stock'[cantidad_recibida]),
 --       'v_entradas_stock'[is_pesca] = TRUE,
+--       'v_entradas_stock'[is_arribo_dep11] = TRUE,       -- <-- CRITICO
 --       DATESINPERIOD(
 --         'v_entradas_stock'[fecha_entrada],
 --         MAX('v_entradas_stock'[fecha_entrada]),
@@ -419,13 +463,20 @@ WHERE u.sku IS NOT NULL
 --       )
 --     )
 --
--- O version simple filtrada por slicer de mes:
+-- Version simple filtrada por slicer de mes:
 --
 --   Unidades Recibidas =
---     SUM('v_entradas_stock'[cantidad_recibida])
+--     CALCULATE(
+--       SUM('v_entradas_stock'[cantidad_recibida]),
+--       'v_entradas_stock'[is_arribo_dep11] = TRUE
+--     )
 --
 -- Y en el visual filtrar por mes usando el campo `mes` (STRING 'YYYY-MM') o
 -- las columnas anio/mes_idx.
+--
+-- Para trazabilidad (ver todos los movimientos, incluyendo entradas a 07 que
+-- despues se transfieren al 11), NO aplicar el filtro is_arribo_dep11 y usar
+-- las columnas tipo_doc + warehouse_destino + warehouse_origen.
 
 
 -- Historico CONFIRMADO vs LIBERADO desde el changelog Firestore:

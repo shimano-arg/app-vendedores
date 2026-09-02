@@ -113,6 +113,14 @@ BQ_TABLE_RETURNS         = f'{BQ_PROJECT}.{BQ_DATASET}.sap_returns_raw'
 # UNIONa y agrega familia via join a v_sap_items_enriched.
 BQ_TABLE_PDN             = f'{BQ_PROJECT}.{BQ_DATASET}.sap_purchase_delivery_notes_raw'
 BQ_TABLE_IGN             = f'{BQ_PROJECT}.{BQ_DATASET}.sap_inventory_gen_entries_raw'
+# v768+ (2026-09-02): InventoryTransfers (OWTR/WTR1). Detectado en validacion
+# post-v765: Shimano registra importaciones al dep 07 via IGN y despues las
+# transfiere al dep 11 (vendible) via InventoryTransfer. Sin capturar WTR,
+# v_entradas_stock reportaba 0 unidades a dep 11 en meses donde SI hubo
+# entradas fisicas. WTR es la fuente real de "recibido al dep 11".
+# Definicion negocio: "entrada de stock" = arribo al warehouse 11, sin
+# importar el tipo de doc que lo genero.
+BQ_TABLE_INV_TRANSFERS   = f'{BQ_PROJECT}.{BQ_DATASET}.sap_inventory_transfers_raw'
 BQ_TABLE_TARGETS         = f'{BQ_PROJECT}.{BQ_DATASET}.targets_raw'
 BQ_TABLE_CAMPAIGNS       = f'{BQ_PROJECT}.{BQ_DATASET}.campaigns_raw'
 
@@ -2070,6 +2078,28 @@ def main():
     )
     ign_rows = [flatten_doc(d, 'INVENTORY_GEN_ENTRY', sync_ts) for d in igns]
     load_to_bq(bq_client, BQ_TABLE_IGN, ign_rows, 'INVENTORY_GEN_ENTRIES', dry_run=dry_run)
+
+    # === 8d. InventoryTransfers (v768+, 2026-09-02) — Mariano pedido.
+    # Movimientos entre depositos (OWTR/WTR1). Alimenta la definicion negocio
+    # "entrada de stock" = arribo al warehouse 11. Ejemplo tipico Shimano:
+    # importacion llega al dep 07 via IGN, despues se transfiere al 11 via WTR.
+    # v_entradas_stock cuenta el arribo al 11 (WTR con ToWhsCode='11') como la
+    # entrada real; el IGN al 07 queda en la tabla con flag pero no suma a
+    # "unidades recibidas mes" para evitar doble conteo.
+    # Volumen esperado: bajo-medio (~50-100 WTR/mes).
+    # Ventana propia 12 meses (misma logica que PDN/IGN).
+    # NOTA schema: InventoryTransfers NO tiene CardCode/CardName; flatten_doc
+    # los deja como null automaticamente. Los campos importantes viven en las
+    # DocumentLines: ItemCode, Quantity, WarehouseCode (=ToWhsCode destino),
+    # FromWarehouseCode (origen).
+    wtrs = sl_fetch_all(
+        cfg, session, '/b1s/v1/InventoryTransfers', 'INVENTORY_TRANSFERS',
+        select_fields=doc_select,
+        filter_expr=f"DocDate ge '{pdn_since_iso}'",
+        max_docs=max_docs,
+    )
+    wtr_rows = [flatten_doc(d, 'INVENTORY_TRANSFER', sync_ts) for d in wtrs]
+    load_to_bq(bq_client, BQ_TABLE_INV_TRANSFERS, wtr_rows, 'INVENTORY_TRANSFERS', dry_run=dry_run)
 
     # === 7. Targets mensuales (Firestore -> BigQuery)
     # Coleccion `targets` en Firestore (una fila por vendedor+ano+mes).
