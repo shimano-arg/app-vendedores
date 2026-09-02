@@ -5084,7 +5084,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v770';
+const APP_VERSION = 'v771';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10946,7 +10946,12 @@ function _renderPcpList(query){
   // tokens aparecen en el haystack (nombre + localidad + provincia + comercio
   // + titular + fantasía + cardCode).
   const useTokens = (typeof matchesAllTokens === 'function');
+  // v771 (2026-09-02): filtrar LEADs (tipo='P') del picker de Pedidos > Crear.
+  // Mariano pedido: solo clientes con alta SAP pueden recibir pedidos. Los
+  // LEADs directamente NO aparecen aca (mas limpio). Si el vendedor quiere
+  // ver leads los ve en la tab Clientes filtrando por LEAD.
   const items = flat
+    .filter(c => c.tipo === 'C')
     .filter(c => {
       if (!q) return true;
       const haystack = [c.name, c.locName, c.province, c.extra].filter(Boolean).join(' | ');
