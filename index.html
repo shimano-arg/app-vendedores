@@ -5084,7 +5084,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v769';
+const APP_VERSION = 'v770';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10974,6 +10974,14 @@ function _selectPedidoCliente(el){
   const tipo = el && el.dataset ? el.dataset.tipo : 'C';
   const province = el && el.dataset ? el.dataset.province : '';
   const locName = el && el.dataset ? el.dataset.loc : '';
+  // v770 (2026-09-02): guard LEAD desde el tab Pedidos > Crear. Si el
+  // vendedor busca un cliente y selecciona un LEAD, saltar alert antes
+  // de abrir el menu. Refuerzo del guard en ccmCrearPedido/ccmCargarExcelPedido
+  // (v769) — con este el LEAD ni siquiera abre el menu con las opciones.
+  if (tipo !== 'C') {
+    alert('Este cliente es un LEAD y no se le puede cargar un pedido.\n\nPara habilitarlo, pedile a administracion que lo de de alta oficial en SAP.');
+    return;
+  }
   closePedidoClientePicker();
   if (typeof openClientMenu === 'function' && name && province && locName) {
     openClientMenu(name, tipo, province, locName);
