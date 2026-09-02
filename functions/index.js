@@ -25,6 +25,8 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { updateAsigLineState } from './core/asig-recycle-core.js';
 // v750 (2026-08-31): tracking de transiciones ASIG para analytics mes-a-mes.
 import { detectAsigTransitions, writeTransitionsBatch } from './core/asig-transitions-core.js';
+// v774 (2026-09-02): notif email al enviar oferta a SAP (pedido Mariano).
+import { buildEmailContent, sendEmail, shouldNotify } from './core/notify-quotation-sent-core.js';
 import { expireAsigLinesTTL } from './core/asig-ttl-core.js';
 import { runDailyBackup } from './core/backup-core.js';
 import { runFifoAssign } from './core/fifo-assign-core.js';
@@ -41,6 +43,11 @@ const SAP_SL_PASSWORD = defineSecret('SAP_SL_PASSWORD');
 // Manager. Antes la key era legible por cualquier @shimano user con
 // DevTools. Ahora vive solo en el CF geminiOcrProxy.
 const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY');
+// v774 (2026-09-02): app password de bot.shimano.pesca@gmail.com para
+// notif SMTP al enviar ofertas a SAP. MISMO app password que usa
+// send_rendiciones_email.py en GitHub Actions (GMAIL_APP_PASSWORD secret
+// del repo) — copiar a Secret Manager con `gcloud secrets create ...`.
+const GMAIL_APP_PASSWORD = defineSecret('GMAIL_APP_PASSWORD');
 const REGION = 'southamerica-east1';
 const PROJECT_ID = process.env.GCLOUD_PROJECT || 'app-vendedores-shimano';
 const BACKUP_BUCKET = `${PROJECT_ID}-backups`;
@@ -240,6 +247,85 @@ export const onPedidoWriteTrackAsigTransitions = onDocumentWritten(
         error: e?.message || String(e),
       });
       // No relanzar - fire-and-forget para no bloquear otros triggers.
+    }
+  }
+);
+
+/**
+ * v774 (2026-09-02): onQuotationSentNotify — trigger on-write pedidos/{id}
+ * que envia email a santiago.beron@shimano.uy cuando un pedido efectivamente
+ * se envia como Sales Quotation a SAP (transferidoSAP.docNum de null a valor
+ * Y via='service_layer_auto', excluye 'app_only' que NO va a SAP).
+ *
+ * Pedido explicito Mariano: cada oferta que ingrese desde la app a SAP debe
+ * generar notificacion automatica para tracking de Santiago Beron.
+ *
+ * Idempotencia: solo dispara cuando docNum pasa de null a valor. Si el
+ * pedido se actualiza N veces despues sin tocar transferidoSAP, no reenvia.
+ * Si se limpia (volverAPendientes) y vuelve, si notifica (comportamiento
+ * esperado: re-envio del pedido).
+ *
+ * Fire-and-forget: falla del SMTP no rompe nada, solo se loguea.
+ *
+ * REQUIERE: secret GMAIL_APP_PASSWORD cargado en Secret Manager. Copiar
+ * desde el GitHub Actions secret con:
+ *   gcloud secrets create GMAIL_APP_PASSWORD --data-file=- \
+ *     --replication-policy=automatic --project=app-vendedores-shimano
+ *   (pegar el password de 16 chars y Ctrl+D)
+ * Y darle acceso al SA de Functions:
+ *   gcloud secrets add-iam-policy-binding GMAIL_APP_PASSWORD \
+ *     --member=serviceAccount:<sa>@app-vendedores-shimano.iam.gserviceaccount.com \
+ *     --role=roles/secretmanager.secretAccessor
+ */
+export const onQuotationSentNotify = onDocumentWritten(
+  {
+    region: REGION,
+    document: 'pedidos/{pedidoId}',
+    retry: false,
+    memory: '256MiB',
+    timeoutSeconds: 30,
+    secrets: [GMAIL_APP_PASSWORD],
+  },
+  async (event) => {
+    try {
+      const beforeData = event.data?.before?.data() ?? null;
+      const afterData = event.data?.after?.data() ?? null;
+      if (!shouldNotify(beforeData, afterData)) return;
+
+      const { subject, text, html } = buildEmailContent(event.params.pedidoId, afterData);
+
+      // Lazy import de nodemailer para no cargarlo si el trigger no dispara.
+      const nodemailerMod = await import('nodemailer');
+      const nodemailer = nodemailerMod.default || nodemailerMod;
+
+      const result = await sendEmail(
+        {
+          nodemailer,
+          gmailUser: 'bot.shimano.pesca@gmail.com',
+          gmailAppPassword: GMAIL_APP_PASSWORD.value(),
+          recipient: 'santiago.beron@shimano.uy',
+        },
+        subject,
+        text,
+        html
+      );
+      if (result.ok) {
+        console.log('onQuotationSentNotify email enviado', {
+          pedidoId: event.params.pedidoId,
+          docNum: afterData?.transferidoSAP?.docNum,
+          cliente: afterData?.clientName,
+        });
+      } else {
+        console.error('onQuotationSentNotify FAIL email', {
+          pedidoId: event.params.pedidoId,
+          error: result.error,
+        });
+      }
+    } catch (e) {
+      console.error('onQuotationSentNotify error', {
+        pedidoId: event.params.pedidoId,
+        error: e?.message || String(e),
+      });
     }
   }
 );
