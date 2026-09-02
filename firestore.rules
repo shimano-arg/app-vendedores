@@ -236,10 +236,26 @@ service cloud.firestore {
       // v396 (2026-08-04): permitir a cualquier reader (vendedor incluido)
       // updatear SOLO los campos de estado del LEAD (leadEstado + auditoria).
       // Los demas campos siguen restringidos a admin/gerente/interno.
+      // v776 (2026-09-02): fix bug reportado por Mariano — vendedores tocaban
+      // "Editar direccion" (openSapAltaAddressModal en index.html:7785, con
+      // comentario "v342+: vendedores + interno pueden editar direccion +
+      // localidad") pero al confirmar Firestore rechazaba porque la whitelist
+      // no incluia esos campos. Ahora extiendo la whitelist con los campos
+      // que el flow de editar direccion + geocoding escribe:
+      //   calle, localidad, localidadFinal, lat, lng, geoDisplay,
+      //   geoPrecision, geoProvider, geoAt, updatedBy.
+      // Restos (comercio, titular, cuit, cardCodeSap, precaucion*) siguen
+      // restringidos a admin/gerente/interno.
       allow update: if isAdminOrGerente() || isInterno()
                      || (isReader()
                          && request.resource.data.diff(resource.data).affectedKeys()
-                            .hasOnly(['leadEstado', 'leadEstadoAt', 'leadEstadoBy', 'updatedAt']));
+                            .hasOnly([
+                              'leadEstado', 'leadEstadoAt', 'leadEstadoBy',
+                              'calle', 'localidad', 'localidadFinal',
+                              'lat', 'lng',
+                              'geoDisplay', 'geoPrecision', 'geoProvider', 'geoAt',
+                              'updatedAt', 'updatedBy'
+                            ]));
       allow delete: if isAdminOrGerente()
         || (request.auth != null
             && resource.data.ownerUid == request.auth.uid

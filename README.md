@@ -4668,6 +4668,16 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v427
 
+### v776 (2026-09-02)
+
+**Fix Firestore rules: vendedores podían tipear "Editar dirección" pero al confirmar `permission-denied`.**
+
+- **Feedback Mariano**: los vendedores al tocar "editar direccion" en el modal de un cliente SAP los deja tipear pero al confirmar les tira `permissions error`. UX rota (confusa) para el flujo que se supone habilitado desde v342.
+- **Root cause**: `firestore.rules` `match /client_applications/{docId}` — la rule de update para `isReader()` (vendedores) tenía whitelist `hasOnly(['leadEstado', 'leadEstadoAt', 'leadEstadoBy', 'updatedAt'])`. Pero `openSapAltaAddressModal` (index.html:7785) escribe `{calle, lat, lng, updatedAt, updatedBy}` + opcionalmente `{localidad, localidadFinal}` + post-geocode `{geoDisplay, geoPrecision, geoProvider, geoAt}`. Todos rechazados por la rule.
+- **Mismatch código↔rules**: el comentario del código dice "v342+ (2026-07-28): vendedores + interno pueden editar direccion + localidad" pero las rules nunca se actualizaron cuando se dio ese permiso al UI. Los admin/gerente/interno funcionaban por el primer branch de la rule (`isAdminOrGerente() || isInterno()`), los vendedores caían al whitelist restrictivo.
+- **Fix** (`firestore.rules:239-260`): extendida la whitelist a `['leadEstado', 'leadEstadoAt', 'leadEstadoBy', 'calle', 'localidad', 'localidadFinal', 'lat', 'lng', 'geoDisplay', 'geoPrecision', 'geoProvider', 'geoAt', 'updatedAt', 'updatedBy']`. Deploy inmediato via `firebase deploy --only firestore:rules`. Los campos sensibles (comercio, titular, cuit, cardCodeSap, assignedVendor, precaucion*) siguen restringidos a admin/gerente/interno.
+- **Alcance del cambio**: seguro — solo agregan campos de dirección + auditoría al whitelist de update. No amplían quién puede leer (`allow read` intacto), no permiten create ni delete extra, y bloquean cualquier update que toque campos fuera de la whitelist. Un vendedor no puede escalar privilegios via este endpoint.
+
 Solo las versiones nuevas — el histórico anterior está en la última entrada de la sección 38 (Hecho recientemente) y al pie del documento.
 
 ### v417 → v427 (2026-08-06 → 2026-08-07, sesión maratónica post-outage GH)
