@@ -5084,7 +5084,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v772';
+const APP_VERSION = 'v773';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12910,6 +12910,19 @@ function renderCrearList(){
       return false;
     });
   }
+  // v773 (2026-09-02): filtrar LEADs/provisorios del listado Pedidos>Crear.
+  // Mariano pedido: solo clientes con alta SAP oficial pueden recibir pedidos.
+  // Los provisorios (manualSapPending sin cardCodeSap) y prospects
+  // (tipo='P' de map/points) NO deben aparecer. Los que si aparecen son:
+  // - it.tipo='C' (cliente SAP directo del map)
+  // - it.sapAlta con cardCodeSap real (alta oficial)
+  items = items.filter(it => {
+    // Descartar prospects del map (tipo='P')
+    if (it.tipo === 'P') return false;
+    // Descartar alta provisorias (manualSapPending sin cardCodeSap)
+    if (it.sapAlta && it.sapAlta.manualSapPending && !it.sapAlta.cardCodeSap) return false;
+    return true;
+  });
   items.sort((a, b) => a.name.localeCompare(b.name));
   let html = '';
   // Helper para chequear si el cliente tiene flag de precaucion. Match
