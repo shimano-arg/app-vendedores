@@ -2093,21 +2093,16 @@ def main():
     # DocumentLines: ItemCode, Quantity, WarehouseCode (=ToWhsCode destino),
     # FromWarehouseCode (origen).
     # v768.1: endpoint corregido de /InventoryTransfers a /StockTransfers.
-    # v768.2: doc_select propio (schema mas chico que docs marketing —
-    #         OWTR no tiene DocDueDate/DocCurrency/DocTotal/PaidToDate/etc.,
-    #         solo campos basicos + DocumentLines con From/ToWarehouseCode).
-    wtr_select = [
-        'DocEntry', 'DocNum', 'DocDate',
-        'DocumentStatus', 'Cancelled',
-        'CardCode', 'CardName',        # opcionales, pueden ser null
-        'Comments', 'JournalMemo',
-        'Series',
-        'CreationDate', 'UpdateDate',
-        'DocumentLines',
-    ]
+    # v768.2: doc_select propio (fallo — 'DocDueDate' invalid).
+    # v768.3: sin $select (fetch full schema). El schema de OWTR/WTR1 en SL
+    #         rechaza campos comunes de docs marketing (DocDueDate, Cancelled,
+    #         etc.) y no vale la pena adivinar campo por campo (cada retry
+    #         cuesta 45 min de sync). Fetch full + flatten_doc extrae solo
+    #         los que existen. Trade-off: transferencia mas grande, pero
+    #         volumen esperado bajo (~50-100 WTR/mes) asi que ok.
     wtrs = sl_fetch_all(
         cfg, session, '/b1s/v1/StockTransfers', 'STOCK_TRANSFERS',
-        select_fields=wtr_select,
+        select_fields=None,  # full schema, evita rechazo por campo invalido
         filter_expr=f"DocDate ge '{pdn_since_iso}'",
         max_docs=max_docs,
     )
