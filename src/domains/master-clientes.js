@@ -1384,18 +1384,36 @@ function renderMcProvisoriosTable() {
       escapeHtml(dir || '(sin direccion)') +
       '</td>';
     html += '<td style="font-size:11px;color:var(--text-muted)">' + fecha + '</td>';
+    // v778+: boton Eliminar visible para todos los roles (usa deleteMcEntry
+    // que dispatchea a client_applications.delete via sapFsId). Vincular con
+    // SAP sigue siendo admin-only. Layout: flex row para acomodar ambos.
+    const delBtn =
+      '<button type="button" ' +
+      'style="background:var(--color-danger);color:#fff;padding:6px 8px;font-size:10px;font-weight:800;border:none;border-radius:4px;cursor:pointer;text-transform:uppercase;letter-spacing:.3px" ' +
+      'title="Eliminar provisorio" ' +
+      'onclick="deleteMcEntry(\'sap:' +
+      safeId +
+      "'," +
+      JSON.stringify(nombre).replace(/"/g, '&quot;') +
+      ",'" +
+      safeId +
+      '\')">&#128465;</button>';
     if (userRole === 'admin') {
       html +=
-        '<td>' +
+        '<td><div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center">' +
         '<button type="button" class="mc-save-btn" ' +
         'style="background:#0e7490;color:#fff;padding:6px 8px;font-size:10px;font-weight:700;border:none;border-radius:4px;cursor:pointer;white-space:nowrap" ' +
         'title="Buscar el BP de SAP correspondiente y vincularlo (setea cardCodeSap y saca el provisorio de No confirmados)" ' +
         'onclick="openVincularSapModal(\'' +
         safeId +
         '\')">&#128279; Vincular con SAP</button>' +
-        '</td>';
+        delBtn +
+        '</div></td>';
     } else {
-      html += '<td style="font-size:10px;color:var(--text-muted);text-align:center">(admin)</td>';
+      html +=
+        '<td><div style="display:flex;gap:4px;justify-content:center">' +
+        delBtn +
+        '</div></td>';
     }
     html += '</tr>';
   });
@@ -2675,18 +2693,33 @@ window.pedidoDiscountFactor = pedidoDiscountFactor;
 //  - POINTS legacy: borra el doc en client_master (limpia direccion) y
 //    avisa que el nombre queda en el padron historico hasta el proximo
 //    rebuild del Excel.
+// v778+: abierto a todos los roles autenticados (admin/gerente/vendedor/
+// interno/viewer). Firestore rules siguen protegiendo BPs con cardCodeSap
+// (solo admin/gerente puede borrarlos).
 window.deleteMcEntry = async function (docId, nombre, sapFsId) {
-  if (userRole !== 'admin' && userRole !== 'gerente') {
-    alert('Solo admin o gerente puede eliminar tiendas.');
+  if (!currentUser || !userRole || userRole === 'unassigned') {
+    alert('Necesitas estar autenticado para eliminar.');
     return;
   }
   const safeName = nombre || 'esta tienda';
+  const canDeleteSap = userRole === 'admin' || userRole === 'gerente';
   if (sapFsId) {
     // Es un alta SAP - tiene su propio doc en client_applications.
     const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(
       (x) => x._fsId === sapFsId
     );
     const hasSapCode = !!(alta && alta.cardCodeSap);
+    // Gate: solo admin/gerente puede borrar altas ya cargadas a SAP B1.
+    // Coincide con las Firestore Rules (delete de client_applications con
+    // cardCodeSap requiere isAdminOrGerente).
+    if (hasSapCode && !canDeleteSap) {
+      alert(
+        'Este cliente ya esta cargado en SAP (cardCode ' +
+          alta.cardCodeSap +
+          '). Solo admin o gerente puede eliminarlo.'
+      );
+      return;
+    }
     const warn = hasSapCode
       ? '\n\nATENCION: esta tienda esta cargada en SAP (cardCode ' +
         alta.cardCodeSap +
