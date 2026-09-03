@@ -4667,7 +4667,19 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v778
+## 41) Changelog v300 → v779
+
+### v779 (2026-09-03)
+
+**Dark mode DESKTOP-ONLY — deshabilitado en mobile.**
+
+- **Contexto** (Mariano): la app se usa 100% desde celular por los VDE. Dark mode fue diseñado para desktop (v736-v746) y el header mobile es demasiado apretado para el toggle. Desde v738 el botón ya estaba oculto por CSS en `@media (max-width: 768px)`, pero el theme init inline seguía aplicando dark si (a) el user había activado dark desde desktop (sync Firestore) o (b) el OS del celular estaba en dark mode. Resultado: usuarios en celular con dark aplicado sin poder togglear.
+- **Cambio 1 — Inline init (`index.html:20`)**: detector self-contained de mobile (UA phone regex + `matchMedia('(max-width:768px)')`) ANTES de leer localStorage/OS. Si mobile → `data-theme='light'` y `return`. Corta antes de que se aplique cualquier preferencia dark.
+- **Cambio 2 — `toggleDarkMode` (`index.html:14497`)**: nuevo helper `window.isDarkModeAllowed()` gatea la función. En mobile no-op (defensa dura por si alguien llama desde consola).
+- **Cambio 3 — `applyThemeFromUserData` (`index.html:14518`)**: mismo gate. Si un desktop-user activó dark y sincronizó a Firestore, el mobile-user con la misma cuenta NO recibe dark — se ignora la preferencia de Firestore en mobile.
+- **Cambio 4 — `showDarkModeAnnouncementIfEligible` (`index.html:14550`)**: mismo gate. No mostrar el modal de anuncio de dark mode en mobile.
+- **Bump**: `APP_VERSION` + `CACHE_VERSION` v778 → v779. Bundle sin cambios (todo el patch es en index.html inline).
+- **Testing**: unit 308/308 + smoke 25/25 verde. Manual E2E pendiente: abrir la app en un phone real con `shimano_theme='dark'` en localStorage o OS en dark → debe ver light theme; el botón dark mode oculto.
 
 ### v778 (2026-09-03)
 
