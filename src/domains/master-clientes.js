@@ -1411,9 +1411,7 @@ function renderMcProvisoriosTable() {
         '</div></td>';
     } else {
       html +=
-        '<td><div style="display:flex;gap:4px;justify-content:center">' +
-        delBtn +
-        '</div></td>';
+        '<td><div style="display:flex;gap:4px;justify-content:center">' + delBtn + '</div></td>';
     }
     html += '</tr>';
   });
