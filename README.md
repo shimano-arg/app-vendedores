@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v777](#41-changelog-v300--v777)
+41. [Changelog v300 → v780](#41-changelog-v300--v780)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4667,7 +4667,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v779
+## 41) Changelog v300 → v780
+
+### v780 (2026-09-03)
+
+**Pipeline BQ Bike v2: 8 UDFs OITM (marca/categoria/clase/mss/subcategoria/modelo/ciclo_producto/costo_articulo_usd) + telemetría Pesca lista 11.**
+
+- **Bloqueante COWORK**: en v777 las columnas `cat/fam/sub` de `sap_items_bike_raw` venían NULL para los 9.896 items. Causa: `flatten_item_bike()` no las poblaba (Bike NO tiene solapa "Ficha Técnica Pesca" — usa UDFs generales sin prefijo `U_P_`, verificados por COWORK contra OITM con >83% cobertura).
+- **Nuevo dict `BIKE_UDF_MAP`** (`sync_sap_to_bigquery.py`): mapea 8 UDFs SAP → nombres BQ (`U_MARCA→marca`, `U_CATEG→categoria`, `U_CLASS→clase`, `U_MSS→mss`, `U_CATEGORIA→subcategoria`, `U_MODELCD→modelo`, `U_CICLO_PROD→ciclo_producto`, `U_COS_ART_USD→costo_articulo_usd`).
+- **Nueva función `probe_bike_udfs(cfg, session, group_code)`**: testea cada UDF individual con `GET /Items?$top=1&$select=ItemCode,U_X` antes de armar el `$select` principal. Los que responden 200 se agregan; los rechazados con HTTP 400 quedan out (columnas NULL, schema explícito las mantiene). Motivación: SL ya rechazó UDFs de Pesca antes (v527/v530 con `U_FAMILIA`) → probe individual evita perder TODOS los UDFs si uno falla. Costo: 8 requests `$top=1` al inicio del pass = ~4 seg extra.
+- **`flatten_item_bike()` extendido**: extrae los 8 UDFs — strings pasan por `strip()+None si empty`, `costo_articulo_usd` por `_safe_float()`.
+- **Schema BQ extendido**: 7 STRING NULLABLE + 1 FLOAT64 NULLABLE (`costo_articulo_usd`).
+- **`v_inventario_bike` reescrita**: reemplazados los placeholders `familia/subfamilia/categoria` (v777 `CAST(NULL AS STRING)`) por las 8 columnas reales de UDFs. `v_inventario_bike_por_warehouse` agrega las 4 más útiles: `marca, categoria, subcategoria, modelo`.
+- **Nuevas queries validación 8-10** en `bigquery/bike.sql`: cobertura UDFs, cross-check `costo_articulo_usd` vs `costo_usd` (price list 7) para saber si divergen, distribución de valores por `categoria` (~5 esperados).
+- **Telemetría fix bonus Pesca (Tarea 2a COWORK)**: nuevo log `[pesca-costo-ars/probe] N/773 items PESCA con precio en lista 11 (COSTO ARTICULO ARS, X.X%)` en el pass Pesca. Zero-risk (solo log, no cambia pipeline). COWORK pidió verificar cobertura **antes** de aplicar el fix bonus. Post-próximo sync, con el número real, COWORK decide + coordina el aviso al equipo (la card de valor de inventario Pesca va a pasar de mostrar precio venta a mostrar costo — número baja fuerte, alguien lo va a notar).
 
 ### v779 (2026-09-03)
 

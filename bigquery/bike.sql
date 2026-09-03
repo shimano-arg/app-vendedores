@@ -26,15 +26,18 @@ CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_inventario_bike` AS
 SELECT
     item_code,
     item_name,
-    -- v777: Bike no tiene categorizacion cargada en el catalogo local
-    -- (index.html PRODUCTS es Pesca-only) ni UDFs de SAP. Los campos
-    -- fam/sub/cat no existen en sap_items_bike_raw. Cuando se defina
-    -- categorizacion para Bike (Mariano/COWORK), agregar al pipeline y
-    -- exponer aca. Por ahora placeholders NULL para mantener el shape
-    -- consistente con v_inventario (Pesca) — Power BI puede castear.
-    CAST(NULL AS STRING) AS familia,
-    CAST(NULL AS STRING) AS subfamilia,
-    CAST(NULL AS STRING) AS categoria,
+    -- v778: categorizacion Bike desde UDFs OITM. Bike NO tiene solapa
+    -- Ficha Tecnica Pesca (donde viven U_P_FAMILIA/etc). Usa UDFs
+    -- generales sin prefijo U_P_. La decision de que UDF es "familia"
+    -- para el modelo Power BI se toma del lado modelo (arrastrar el
+    -- campo). Los 8 UDFs se exponen aca con nombres semanticos.
+    marca,
+    categoria,           -- U_CATEG: nivel alto — ~5 valores distintos
+    clase,               -- U_CLASS: ~64 valores
+    mss,                 -- U_MSS: ~56 valores
+    subcategoria,        -- U_CATEGORIA: nivel fino — ~114 valores
+    modelo,              -- U_MODELCD: ~1.603 valores
+    ciclo_producto,      -- U_CICLO_PROD: activo/discontinuado/etc
     -- Stock por warehouse: warehouse 10 es vendible, 02 es transito.
     -- COALESCE a 0 porque no todos los items tienen todos los warehouses
     -- configurados en OITW — si SAP no reporta la clave "10" para un
@@ -50,9 +53,13 @@ SELECT
     stock_total_sellable,
     -- Costos y precio venta. cost_avg_ars y cost_usd tipados FLOAT64
     -- desde el schema explicito en el pipeline (no dependen de autodetect).
-    cost_avg_ars   AS costo_promedio_ars,
-    cost_usd       AS costo_usd,
-    price_bike_usd AS precio_venta_usd,
+    -- v778: costo_articulo_usd es una 2da fuente de costo USD desde UDF
+    -- U_COS_ART_USD, independiente de price list 7. Sirve para cross-check
+    -- contra la valuacion.
+    cost_avg_ars       AS costo_promedio_ars,
+    cost_usd           AS costo_usd,
+    costo_articulo_usd,
+    price_bike_usd     AS precio_venta_usd,
     valid,
     frozen,
     _sync_timestamp
@@ -74,8 +81,13 @@ CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_inventario_bike_por
 SELECT
     i.item_code,
     i.item_name,
-    CAST(NULL AS STRING) AS familia,      -- ver comment en v_inventario_bike
-    CAST(NULL AS STRING) AS subfamilia,
+    -- v778: categorizacion desde UDFs OITM (mismo comentario que
+    -- v_inventario_bike). Se agregan las 4 mas utiles para filtrar
+    -- del lado modelo (marca, categoria, subcategoria, modelo).
+    i.marca,
+    i.categoria,
+    i.subcategoria,
+    i.modelo,
     k AS warehouse_code,
     -- JSON_QUERY(x, '$."k"') no acepta path dinamico; usamos PARSE_JSON
     -- + subscript operator con el string key.
@@ -144,3 +156,37 @@ WHERE i.stock_by_warehouse_json IS NOT NULL;
 -- FROM `app-vendedores-shimano.shimano_app.v_inventario_bike`
 -- WHERE stock_deposito > 0;
 -- Esperado: valor_inventario_costo_ars > 0 (el bug de Pesca no se replica).
+
+-- 8) v778: Cobertura UDFs OITM Bike (esperado post-probe: >83% cada uno
+--    segun conteo COWORK; excepto U_PARTCD/U_COLOR que no incluimos).
+-- SELECT
+--   COUNT(*) AS n_items,
+--   COUNTIF(marca IS NOT NULL) AS con_marca,
+--   COUNTIF(categoria IS NOT NULL) AS con_categoria,
+--   COUNTIF(clase IS NOT NULL) AS con_clase,
+--   COUNTIF(mss IS NOT NULL) AS con_mss,
+--   COUNTIF(subcategoria IS NOT NULL) AS con_subcategoria,
+--   COUNTIF(modelo IS NOT NULL) AS con_modelo,
+--   COUNTIF(ciclo_producto IS NOT NULL) AS con_ciclo_producto,
+--   COUNTIF(costo_articulo_usd IS NOT NULL) AS con_costo_articulo_usd
+-- FROM `app-vendedores-shimano.shimano_app.v_inventario_bike`;
+
+-- 9) v778: cross-check U_COS_ART_USD vs cost_usd (price list 7).
+--    Ambos deberian estar cerca en items donde hay data. Si divergen
+--    mucho, la fuente correcta puede ser una u otra.
+-- SELECT
+--   COUNT(*) AS n_items_ambos,
+--   ROUND(AVG(costo_articulo_usd - costo_usd), 4) AS avg_diff_udf_minus_list,
+--   ROUND(STDDEV(costo_articulo_usd - costo_usd), 4) AS stddev_diff,
+--   ROUND(SUM(stock_deposito * costo_articulo_usd), 0) AS valor_stock_udf_usd,
+--   ROUND(SUM(stock_deposito * costo_usd), 0) AS valor_stock_list_usd
+-- FROM `app-vendedores-shimano.shimano_app.v_inventario_bike`
+-- WHERE stock_deposito > 0
+--   AND costo_articulo_usd IS NOT NULL
+--   AND costo_usd IS NOT NULL;
+
+-- 10) v778: distribucion de valores en categoria (5 esperados por COWORK).
+-- SELECT categoria, COUNT(*) AS n_items
+-- FROM `app-vendedores-shimano.shimano_app.v_inventario_bike`
+-- GROUP BY categoria
+-- ORDER BY n_items DESC;

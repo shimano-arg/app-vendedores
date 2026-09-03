@@ -163,6 +163,37 @@ BIKE_PRICE_LIST_COSTO_ARS = 11
 BIKE_SALES_WHS = {'10'}       # deposito de venta (unica fuente vendible)
 BIKE_TRANSITO_WHS = '02'      # transito — se guarda en columna aparte, NO suma vendible
 
+# v778 (2026-09-03): UDFs de OITM para categorizacion Bike. Verificados por
+# COWORK contra SAP: Bike NO tiene solapa "Ficha Tecnica Pesca" (donde viven
+# U_P_FAMILIA/U_P_SUBFAMILIA/U_P_CATEGORIA que usa Pesca). Bike usa UDFs
+# generales SIN prefijo U_P_. Todos poblados a >83% en los 9.896 items del
+# grupo 100. El mapeo BQ (nombre_udf → nombre_columna) es:
+#   U_MARCA        -> marca              (marca comercial: Shimano, Rockrider, etc.)
+#   U_CATEG        -> categoria          (nivel alto — 5 valores distintos)
+#   U_CLASS        -> clase              (64 valores)
+#   U_MSS          -> mss                (56 valores)
+#   U_CATEGORIA    -> subcategoria       (nivel fino — 114 valores)
+#   U_MODELCD      -> modelo             (1.603 valores)
+#   U_CICLO_PROD   -> ciclo_producto     (activo/discontinuado/etc)
+#   U_COS_ART_USD  -> costo_articulo_usd (2da fuente de costo USD independiente
+#                     de price list 7 — para cross-check con la valuacion)
+# Dict ordenado — el probe los va a testear en este orden. La decision de que
+# UDF es "familia" queda del lado Power BI (COWORK arrastra el campo que
+# quiera al modelo). U_P_FAMILIA (Pesca) SIGUE siendo la fuente de familia
+# para el pipeline Pesca; NO se mezcla con estos.
+BIKE_UDF_MAP = {
+    'U_MARCA':        'marca',
+    'U_CATEG':        'categoria',
+    'U_CLASS':        'clase',
+    'U_MSS':          'mss',
+    'U_CATEGORIA':    'subcategoria',
+    'U_MODELCD':      'modelo',
+    'U_CICLO_PROD':   'ciclo_producto',
+    'U_COS_ART_USD':  'costo_articulo_usd',
+}
+# Solo este UDF es numerico (costo). El resto son strings.
+BIKE_UDF_NUMERIC = {'U_COS_ART_USD'}
+
 # Ventana historica default (meses). El env HISTORY_MONTHS puede overridear.
 # v289 iter5 (2026-07-10): bajamos de 24 -> 12. PESCA arranco venta directa hace
 # ~1 mes; 12 meses cubre estacionalidad y corta ~50% del volumen de invoices/
@@ -299,6 +330,48 @@ def resolve_pesca_group_code(cfg: dict, session: requests.Session) -> int:
         log("[FATAL] no existe un grupo llamado 'PESCA' en SAP")
         sys.exit(6)
     return int(arr[0]['Number'])
+
+
+def probe_bike_udfs(cfg: dict, session: requests.Session, group_code: int) -> list:
+    """v778 (2026-09-03): probe individual de UDFs OITM disponibles en SL para Bike.
+
+    SL a veces rechaza UDFs con HTTP 400 "Property 'U_X' of 'Item' is invalid"
+    aunque el campo exista en OITM (Ficha Tecnica). Ya lo vimos con U_FAMILIA
+    en Pesca (v527/v530). Para no perder TODOS los UDFs si uno solo falla,
+    testeamos cada uno individualmente con un GET /Items?$top=1&$select=... .
+    Los que responden 200 se agregan al $select del fetch principal; los que
+    fallan quedan out y sus columnas van null en la tabla (schema explicito
+    las mantiene existentes).
+
+    Devuelve lista de UDFs que respondieron OK, en el orden de BIKE_UDF_MAP.
+    Loguea claramente cuales pasaron y cuales no.
+
+    Costo del probe: 8 requests HTTP con $top=1 = ~4 seg. Se corre una vez
+    al inicio del pass Bike (no en cada pagina).
+    """
+    working = []
+    rejected = []
+    for udf in BIKE_UDF_MAP.keys():
+        path = f"/b1s/v1/Items?$filter=ItemsGroupCode eq {group_code}&$select=ItemCode,{udf}&$top=1"
+        try:
+            resp = session.get(f"{cfg['url']}{path}", timeout=30)
+        except Exception as e:
+            log(f'[UDF-probe] {udf}: excepcion {type(e).__name__} - skip')
+            rejected.append(udf)
+            continue
+        if resp.status_code == 200:
+            working.append(udf)
+        else:
+            try:
+                err = resp.json().get('error', {}).get('message', {}).get('value', '')
+            except Exception:
+                err = resp.text[:120]
+            log(f'[UDF-probe] {udf}: HTTP {resp.status_code} - {err[:100]}')
+            rejected.append(udf)
+    log(f'[UDF-probe] BIKE UDFs OK ({len(working)}/{len(BIKE_UDF_MAP)}): {working}')
+    if rejected:
+        log(f'[UDF-probe] BIKE UDFs RECHAZADOS: {rejected}')
+    return working
 
 
 def resolve_bike_group_code(cfg: dict, session: requests.Session) -> int:
@@ -689,7 +762,25 @@ def flatten_item_bike(item: dict, sync_ts: str) -> dict:
         item.get('ItemPrices'), BIKE_PRICE_LIST_COSTO_USD, expected_currency='USD',
     )
 
-    return {
+    # === UDFs OITM Bike (v778, 2026-09-03) ===
+    # Los 8 UDFs se extraen si vinieron en el $select (definido por
+    # probe_bike_udfs). Si no vinieron, .get() devuelve None y la columna
+    # queda null. El schema BQ explicito las mantiene siempre.
+    # Strings: strip + None si empty. Numeric: _safe_float.
+    def _strip_or_none(x):
+        if x is None:
+            return None
+        s = str(x).strip()
+        return s if s else None
+    udf_cols = {}
+    for udf_name, col_name in BIKE_UDF_MAP.items():
+        raw = item.get(udf_name)
+        if udf_name in BIKE_UDF_NUMERIC:
+            udf_cols[col_name] = _safe_float(raw)
+        else:
+            udf_cols[col_name] = _strip_or_none(raw)
+
+    row = {
         'item_code': item.get('ItemCode'),
         'item_name': item.get('ItemName'),
         'foreign_name': item.get('ForeignName'),
@@ -702,12 +793,16 @@ def flatten_item_bike(item: dict, sync_ts: str) -> dict:
         'stock_total_sellable': int(round(stock_sellable)),
         'stock_transito': int(round(stock_transito)),
         'stock_by_warehouse_json': json.dumps(whs_stock, default=str) if whs_stock else None,
-        # Precio + costos (todos como price lists, no como campos del Item).
+        # Precio + costos desde price lists (SL rechaza campos costo a nivel Item).
         'price_bike_usd': price_venta_usd,
         'cost_avg_ars': cost_ars,
         'cost_usd': cost_usd,
         '_sync_timestamp': sync_ts,
     }
+    # Merge de UDFs (marca, categoria, clase, mss, subcategoria, modelo,
+    # ciclo_producto, costo_articulo_usd).
+    row.update(udf_cols)
+    return row
 
 
 def flatten_doc(doc: dict, doc_type: str, sync_ts: str) -> dict:
@@ -2075,6 +2170,21 @@ def main():
     item_rows = [flatten_item(it, PESCA_PRICE_LIST_NUM, sync_ts) for it in items]
     load_to_bq(bq_client, BQ_TABLE_ITEMS, item_rows, 'ITEMS', dry_run=dry_run)
 
+    # v778 (2026-09-03): telemetria pre-fix bonus para Pesca. COWORK pidio
+    # verificar que items Pesca tengan precio cargado en lista 11 (COSTO
+    # ARTICULO ARS) antes de aplicar el mismo mecanismo que Bike para
+    # arreglar el bug de valor_inventario_costo=0 en el tablero Pesca.
+    # Zero-risk (solo un log, no cambia el pipeline). Con el numero real
+    # COWORK decide si aplicar el fix bonus.
+    n_pesca_costo_ars = 0
+    for it in items:
+        for ip in (it.get('ItemPrices') or []):
+            if ip.get('PriceList') == BIKE_PRICE_LIST_COSTO_ARS:
+                n_pesca_costo_ars += 1
+                break
+    pct = (100 * n_pesca_costo_ars / len(items)) if items else 0
+    log(f'[pesca-costo-ars/probe] {n_pesca_costo_ars}/{len(items)} items PESCA con precio en lista {BIKE_PRICE_LIST_COSTO_ARS} (COSTO ARTICULO ARS, {pct:.1f}%) — pending OK COWORK para aplicar fix bonus')
+
     # === 2b. Items BIKE (v777, 2026-09-03) — pass paralelo al de PESCA
     # Diseño: pipeline aditivo, NO toca sap_items_raw ni el tablero Pesca.
     # - Grupo BIKE (codigo 100) via lookup dinamico con fallback hardcoded.
@@ -2088,13 +2198,16 @@ def main():
     #   STRING cuando venia todo null.
     bike_code = resolve_bike_group_code(cfg, session)
     log(f'[grupo] BIKE = {bike_code}')
-    # Mismo $select base que Pesca — sin UDFs (Bike no tiene los U_CATEGORIA/
-    # U_FAMILIA/U_SUBFAMILIA de Ficha Tecnica Pesca).
+    # v778: probe individual de UDFs OITM Bike. Los que respondan 200 al SL
+    # se agregan al $select. Los rechazados quedan como null en la tabla
+    # (schema explicito mantiene las columnas siempre — evita re-migrar
+    # schema si un UDF nuevo se rehabilita en SAP).
+    bike_working_udfs = probe_bike_udfs(cfg, session, bike_code)
     bike_item_select = [
         'ItemCode', 'ItemName', 'ForeignName', 'ItemsGroupCode',
         'ItemWarehouseInfoCollection', 'ItemPrices',
         'Valid', 'Frozen', 'CreateDate', 'UpdateDate',
-    ]
+    ] + bike_working_udfs
     bike_items = sl_fetch_all(
         cfg, session, '/b1s/v1/Items', 'ITEMS_BIKE',
         select_fields=bike_item_select,
@@ -2102,9 +2215,11 @@ def main():
         max_docs=max_docs,
     )
     bike_rows = [flatten_item_bike(it, sync_ts) for it in bike_items]
-    # Schema explicito: fuerza FLOAT64 NULLABLE en las columnas monetarias
-    # aunque el batch entero venga null (evita el bug autodetect que hace
-    # STRING inference cuando no puede determinar el tipo).
+    # Schema explicito: fuerza tipos aunque el batch entero venga null
+    # (evita el bug autodetect que hace STRING inference cuando no puede
+    # determinar el tipo). Todos los UDFs quedan como columnas del schema
+    # aunque el probe los haya rechazado — asi el shape es estable y el
+    # tablero Power BI no se rompe.
     bike_items_schema = [
         bigquery.SchemaField('item_code', 'STRING'),
         bigquery.SchemaField('item_name', 'STRING'),
@@ -2120,6 +2235,16 @@ def main():
         bigquery.SchemaField('price_bike_usd', 'FLOAT64'),
         bigquery.SchemaField('cost_avg_ars', 'FLOAT64'),
         bigquery.SchemaField('cost_usd', 'FLOAT64'),
+        # UDFs OITM (v778): 7 strings + 1 float. Orden coherente con
+        # BIKE_UDF_MAP en el header del script.
+        bigquery.SchemaField('marca', 'STRING'),
+        bigquery.SchemaField('categoria', 'STRING'),
+        bigquery.SchemaField('clase', 'STRING'),
+        bigquery.SchemaField('mss', 'STRING'),
+        bigquery.SchemaField('subcategoria', 'STRING'),
+        bigquery.SchemaField('modelo', 'STRING'),
+        bigquery.SchemaField('ciclo_producto', 'STRING'),
+        bigquery.SchemaField('costo_articulo_usd', 'FLOAT64'),
         bigquery.SchemaField('_sync_timestamp', 'STRING'),
     ]
     _load_to_bq_with_schema(
