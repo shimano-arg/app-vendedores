@@ -203,7 +203,13 @@ service cloud.firestore {
 
     match /client_master/{docId} {
       allow read: if isReader();
-      allow write: if isAdminOrGerente();
+      allow create, update: if isAdminOrGerente();
+      // v778+: cualquier reader puede borrar la direccion guardada de un
+      // cliente (limpieza colaborativa desde Master Clientes-Direcciones).
+      // Solo borra client_master (address del cliente), NO borra el cliente
+      // del padron POINTS ni del BP en SAP. Restringido a isReader() para
+      // que solo cuentas autenticadas del equipo lo puedan hacer.
+      allow delete: if isReader();
     }
 
     match /allowed_emails/{docId} {
@@ -256,9 +262,14 @@ service cloud.firestore {
                               'geoDisplay', 'geoPrecision', 'geoProvider', 'geoAt',
                               'updatedAt', 'updatedBy'
                             ]));
+      // v778+: cualquier reader puede borrar un provisorio (client_applications
+      // sin cardCodeSap) desde Master Clientes-Direcciones. Antes solo el
+      // owner o admin/gerente. Ahora VDE/VDI pueden limpiar duplicados de
+      // Alta Rapida sin depender del admin. Docs con cardCodeSap (BPs SAP
+      // ya cargados) siguen protegidos: solo admin/gerente los borra para
+      // evitar dejar pedidos huerfanos.
       allow delete: if isAdminOrGerente()
-        || (request.auth != null
-            && resource.data.ownerUid == request.auth.uid
+        || (isReader()
             && (!('cardCodeSap' in resource.data) || resource.data.cardCodeSap == null));
     }
 

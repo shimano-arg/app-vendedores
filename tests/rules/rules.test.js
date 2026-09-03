@@ -458,6 +458,25 @@ describe('/client_applications', () => {
       updateDoc(doc(authedDb(UID.interno), 'client_applications', 'ca-vendor'), { status: 'x' })
     );
   });
+  // v778+: cualquier reader puede borrar un provisorio SIN cardCodeSap
+  // (limpieza colaborativa desde Master Clientes-Direcciones). Antes solo
+  // owner o admin/gerente.
+  it('v778: vendor puede borrar provisorio propio SIN cardCodeSap', async () => {
+    await assertSucceeds(deleteDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-vendor')));
+  });
+  it('v778: vendor puede borrar provisorio asignado a el (readable) SIN cardCodeSap', async () => {
+    await assertSucceeds(
+      deleteDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-assigned-to-vendor'))
+    );
+  });
+  it('v778: interno puede borrar provisorio SIN cardCodeSap', async () => {
+    await assertSucceeds(
+      deleteDoc(doc(authedDb(UID.interno), 'client_applications', 'ca-huerfano'))
+    );
+  });
+  it('v778: vendor sigue SIN poder borrar alta CON cardCodeSap', async () => {
+    await assertFails(deleteDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-with-sap')));
+  });
 });
 
 // ============================================================
@@ -483,6 +502,18 @@ describe('colecciones admin+gerente write', () => {
       await assertFails(setDoc(doc(authedDb(UID.interno), col, 'w2'), { foo: 5 }));
     });
   }
+
+  // v778+: client_master.delete es ahora isReader (todos los roles). Se
+  // sigue restringiendo create/update a admin/gerente (el loop de arriba
+  // cubre eso con setDoc). Este test cubre delete.
+  it('v778: client_master.delete permitido a vendor/interno/viewer (limpieza direccion)', async () => {
+    await seedDoc('client_master/cm-vendor', { address: 'x' });
+    await seedDoc('client_master/cm-interno', { address: 'y' });
+    await seedDoc('client_master/cm-viewer', { address: 'z' });
+    await assertSucceeds(deleteDoc(doc(authedDb(UID.vendor), 'client_master', 'cm-vendor')));
+    await assertSucceeds(deleteDoc(doc(authedDb(UID.interno), 'client_master', 'cm-interno')));
+    await assertSucceeds(deleteDoc(doc(authedDb(UID.viewer), 'client_master', 'cm-viewer')));
+  });
 
   it('client_locations: vendor/interno pueden crear pero no update/delete', async () => {
     await seedDoc('client_locations/loc1', { addr: 'x' });

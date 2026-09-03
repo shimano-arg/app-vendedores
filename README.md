@@ -216,6 +216,7 @@ Shimano Argentina necesita gestionar la operación de **4 vendedores externos (V
 [X] **Cards SAP: localidad y provincia en línea separada** (v321). Antes badges + localidad + provincia iban todos en la misma línea `client-meta`; con CardCodes largos o localidades extensas se apretaba y la provincia bajaba sola (roto visual). Ahora `client-meta` se divide en 2 divs consecutivos: fila 1 con badges (SAP EN MAPA + SAP/PROVISORIO), fila 2 con Localidad / Provincia. Layout consistente sin importar largo de los datos (v321+)
 [X] **Notificaciones: botón "Marcar todas como leídas"** (v322). En la tab Recibidas, un header nuevo arriba de la lista muestra `N pendientes` + botón teal. Al apretar: confirm previo (con el N para evitar accidentes con 280+ ops) → **batch write en Firestore** (loops de 400 ops por batch, respeta límite de 500). El listener `onSnapshot` limpia la lista al toque. Reversible una por una desde tab "Realizadas" (v322+)
 [X] **Performance: geometrías del mapa lazy-loaded** (v323). Las constantes `DEPT_GEO` (1.37 MB, 527 departamentos) y `PROV_GEO` (400 KB, 24 provincias) se extrajeron a `geo.json` externo (1.56 MB). El HTML principal baja de **3.74 MB → 2.01 MB (-46%)**. Al arranque las variables son `{features: []}` vacías; un `fetch('./geo.json')` async las popula y re-renderiza `deptLayer`/`provLayer`/`vendorProvinces`/outlines. Login más rápido (menos parseo JS bloqueante). SW pre-cachea `geo.json` al instalar para que la segunda carga sea instant (v323+)
+[X] **Master Clientes-Direcciones: delete abierto a todos los roles** (v778). Antes solo admin/gerente podían borrar tiendas desde el modal — vendedores/internos veían `(admin)` en la columna ACCIÓN del tab Provisorios y el botón 🗑 del tab SAP les alertaba "Solo admin o gerente". Ahora: (1) tab **Provisorios** muestra 🗑 Eliminar visible para todos (junto al "Vincular con SAP" del admin); (2) `deleteMcEntry` acepta cualquier rol autenticado; (3) Firestore Rules relajadas — `client_master.delete = isReader()`, `client_applications.delete = isReader() && no cardCodeSap`. Los BPs ya cargados a SAP (con `cardCodeSap`) siguen protegidos: solo admin/gerente los borra (evita pedidos huérfanos). Rationale: los 565 provisorios de Alta Rápida acumulan duplicados que hoy dependen del admin para limpiar; los vendedores pueden hacer el mantenimiento de sus propias filas (v778+)
 ```
 
 ### Bloqueantes externos para el lanzamiento
@@ -4666,7 +4667,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v777
+## 41) Changelog v300 → v778
+
+### v778 (2026-09-03)
+
+**Master Clientes-Direcciones: delete abierto a todos los roles (admin/gerente/vendedor/interno/viewer).**
+
+- **Contexto** (Mariano): la columna ACCIÓN del tab **Provisorios** mostraba `(admin)` para no-admins — vendedores no podían borrar sus propias filas de Alta Rápida ni duplicados. Con 565 provisorios acumulados, la limpieza dependía enteramente del admin. Requerimiento: "quiero que todos (admin, gerente, vendedores) puedan eliminar un cliente desde MASTER CLIENTES-DIRECCIONES".
+- **UI (src/domains/master-clientes.js `renderMcProvisoriosTable`)**: en la columna ACCIÓN ahora se pinta un botón 🗑 rojo visible para todos. Admin sigue viendo también el botón teal "🔗 Vincular con SAP" (side-by-side). Non-admin ve solo el 🗑. El botón despacha a `deleteMcEntry('sap:<fsId>', nombre, fsId)` — mismo dispatcher que el tab SAP.
+- **JS gate (src/domains/master-clientes.js `deleteMcEntry`)**: la guarda `if (userRole !== 'admin' && userRole !== 'gerente')` se relajó a `if (!currentUser || !userRole || userRole === 'unassigned')`. Cualquier rol autenticado puede llamar. Se conserva un check extra: si `hasSapCode && !canDeleteSap` → alert "Solo admin o gerente puede eliminarlo" (protege BPs ya cargados a SAP).
+- **Firestore Rules (firestore.rules)**:
+  - `client_master`: split de `allow write: if isAdminOrGerente()` en `allow create, update: if isAdminOrGerente()` + `allow delete: if isReader()`. Crear/editar sigue restringido; borrar la dirección guardada se abre a cualquier reader.
+  - `client_applications`: la clause `allow delete` se extiende — antes solo `isAdminOrGerente()` o el owner (con no-cardCodeSap). Ahora: `isAdminOrGerente() || (isReader() && no cardCodeSap)`. Cualquier reader autorizado puede borrar un provisorio sin cardCodeSap, sin importar quién lo creó. Con cardCodeSap sigue siendo admin/gerente-only (evita orfanato de pedidos).
+- **Tests nuevos (tests/rules/rules.test.js)**: 4 tests nuevos en `/client_applications` (vendor borra propio, vendor borra asignado, interno borra huérfano, vendor NO borra con cardCodeSap) + 1 test nuevo en `colecciones admin+gerente write` para `client_master.delete` cross-role. Suite total: **109 passed**.
+- **Deploy**: rules deployadas a prod con `firebase deploy --only firestore:rules`. App v778 pusheada a `dev` + PR squash-merge a `main` (GitHub Pages auto-deploy). Bundle regenerado con `node build.js` (2.45 MB shell + 4 chunks).
 
 ### v777 (2026-09-03)
 
