@@ -16,10 +16,24 @@
 <!-- v738 (2026-08-30): init inline de theme ANTES de cualquier <link> o <style>
      para prevenir FOUC (Flash Of Unstyled Content). Lee localStorage
      shimano_theme; fallback a OS preference (prefers-color-scheme). El
-     Firestore sync corre luego on onAuthStateChanged si detecta discrepancia. -->
+     Firestore sync corre luego on onAuthStateChanged si detecta discrepancia.
+     v779 (2026-09-03): dark mode DESHABILITADO en mobile — se detecta UA +
+     viewport <= 768px y se fuerza 'light' regardless de localStorage/OS/
+     Firestore. Ver applyThemeFromUserData + toggleDarkMode (mismo gate). -->
 <script>
 (function(){
   try {
+    // Mobile detector self-contained (isMobileBrowser esta definido mas
+    // abajo, no lo podemos llamar aca). Mismo criterio: UA de telefono OR
+    // viewport chico.
+    var ua = (navigator && navigator.userAgent) || '';
+    var isPhoneUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+    var isSmallVp = window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+    var isMobile = isPhoneUA || isSmallVp;
+    if (isMobile) {
+      document.documentElement.setAttribute('data-theme', 'light');
+      return;
+    }
     var stored = localStorage.getItem('shimano_theme');
     var theme = (stored === 'dark' || stored === 'light')
       ? stored
@@ -5088,7 +5102,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v778';
+const APP_VERSION = 'v779';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14494,7 +14508,25 @@ window.closeDepositoModal = function(){
 // renderee el body (previene FOUC). Este bloque agrega el toggle handler +
 // el sync a Firestore cuando el user se loguea.
 const THEME_STORAGE_KEY = 'shimano_theme';
+// v779: dark mode desktop-only. Helper para gatear todas las funciones de
+// theme; en mobile, siempre light. isMobileBrowser esta definido mas abajo
+// pero al momento en que se llama toggleDarkMode/applyThemeFromUserData
+// ya esta disponible (post-load).
+window.isDarkModeAllowed = function(){
+  try {
+    if (typeof isMobileBrowser === 'function') return !isMobileBrowser();
+  } catch(e) {}
+  // Fallback si isMobileBrowser no esta cargado aun.
+  var ua = (navigator && navigator.userAgent) || '';
+  if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)) return false;
+  if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) return false;
+  return true;
+};
 window.toggleDarkMode = function(){
+  // v779: en mobile el boton esta oculto por CSS pero por defensa dura
+  // tambien bloqueamos el handler. Si alguien llama toggleDarkMode()
+  // manualmente desde la consola en un phone, no pasa nada.
+  if (!window.isDarkModeAllowed()) return;
   const current = document.documentElement.getAttribute('data-theme') || 'light';
   const next = current === 'light' ? 'dark' : 'light';
   document.documentElement.setAttribute('data-theme', next);
@@ -14517,6 +14549,9 @@ window.toggleDarkMode = function(){
 // device y Firestore ya tiene preferencia (seteada desde otro device), usarla.
 window.applyThemeFromUserData = function(userDataDoc){
   try {
+    // v779: en mobile NO aplicamos preferencia de Firestore. El user pudo
+    // haber elegido 'dark' desde desktop, pero en mobile siempre light.
+    if (!window.isDarkModeAllowed()) return;
     const fsPref = userDataDoc && userDataDoc.themePreference;
     if (fsPref !== 'dark' && fsPref !== 'light') return;
     const lsPref = localStorage.getItem(THEME_STORAGE_KEY);
@@ -14549,6 +14584,8 @@ const DARK_ANNOUNCEMENT_KEY = 'shimano_darkmode_announced';
 
 window.showDarkModeAnnouncementIfEligible = function(userDataDoc) {
   try {
+    // v779: en mobile no anunciamos dark mode (no lo pueden usar).
+    if (!window.isDarkModeAllowed()) return;
     // Check 1: ya se anuncio localmente
     if (localStorage.getItem(DARK_ANNOUNCEMENT_KEY) === '1') return;
     // Check 2: Firestore dice que ya lo vio en algun device
