@@ -78,6 +78,10 @@ BQ_LOCATION = 'southamerica-east1'
 
 BQ_TABLE_BP         = f'{BQ_PROJECT}.{BQ_DATASET}.sap_bp_raw'
 BQ_TABLE_ITEMS      = f'{BQ_PROJECT}.{BQ_DATASET}.sap_items_raw'
+# v777 (2026-09-03): tabla paralela para Bike (grupo 100). NO reemplaza
+# sap_items_raw — es aditivo. El tablero Pesca en produccion sigue
+# leyendo sap_items_raw sin cambios.
+BQ_TABLE_ITEMS_BIKE = f'{BQ_PROJECT}.{BQ_DATASET}.sap_items_bike_raw'
 BQ_TABLE_INVOICES   = f'{BQ_PROJECT}.{BQ_DATASET}.sap_invoices_raw'
 BQ_TABLE_CREDIT_NOTES = f'{BQ_PROJECT}.{BQ_DATASET}.sap_credit_notes_raw'
 BQ_TABLE_QUOTATIONS = f'{BQ_PROJECT}.{BQ_DATASET}.sap_quotations_raw'
@@ -129,6 +133,35 @@ PESCA_PRICE_LIST_NUM = 12
 
 # Warehouses no vendibles (misma logica): 05 Marketing, 06 Devoluciones.
 NON_SALES_WHS = {'05', '06'}
+
+# ============================================================
+# BIKE (v777, 2026-09-03): pipeline paralelo al de PESCA.
+# Diseño confirmado por COWORK/Mariano post-diagnostico Q1-Q4.
+# ============================================================
+# Codigo del grupo BIKE en SAP (OITB). Fallback hardcodeado — el lookup
+# dinamico (resolve_bike_group_code) lo verifica por nombre 'BIKE', pero
+# si algun user lo renombra en SAP el sync no se cae en silencio.
+BIKE_ITEMS_GROUP_CODE_FALLBACK = 100
+
+# Price lists Bike (confirmadas contra OITB en SAP):
+#   Lista  2  "VENTAS PUBLICO"      USD    6.811 items — precio de venta base
+#   Lista  7  "COSTO ARTICULO"      USD    5.381 items — costo unitario USD (cross-check)
+#   Lista 11  "COSTO ARTICULO ARS"  ARS    5.386 items — costo unitario ARS (valuacion inventario)
+# En este SAP el costo NO se carga como campo del Item (StandardAveragePrice
+# viene null); se carga como price list. Mismo mecanismo que
+# price_pesca_ars: iteramos ItemPrices[] y filtramos por (PriceList,
+# Currency).
+BIKE_PRICE_LIST_VENTA_USD = 2
+BIKE_PRICE_LIST_COSTO_USD = 7
+BIKE_PRICE_LIST_COSTO_ARS = 11
+
+# Warehouses Bike (whitelist confirmada — 148.678 lineas de venta
+# analizadas por COWORK: hasta jul-2026 salia del 01, desde ago-2026 el
+# 100% del 10). Lista blanca de UN warehouse es mas robusta que lista
+# negra: si aparece un warehouse nuevo, no se cuela solo en stock
+# vendible.
+BIKE_SALES_WHS = {'10'}       # deposito de venta (unica fuente vendible)
+BIKE_TRANSITO_WHS = '02'      # transito — se guarda en columna aparte, NO suma vendible
 
 # Ventana historica default (meses). El env HISTORY_MONTHS puede overridear.
 # v289 iter5 (2026-07-10): bajamos de 24 -> 12. PESCA arranco venta directa hace
@@ -265,6 +298,28 @@ def resolve_pesca_group_code(cfg: dict, session: requests.Session) -> int:
     if not arr:
         log("[FATAL] no existe un grupo llamado 'PESCA' en SAP")
         sys.exit(6)
+    return int(arr[0]['Number'])
+
+
+def resolve_bike_group_code(cfg: dict, session: requests.Session) -> int:
+    """v777: lookup dinamico del ItemsGroupCode del grupo BIKE.
+
+    Con fallback hardcodeado a BIKE_ITEMS_GROUP_CODE_FALLBACK (100).
+    A diferencia de resolve_pesca_group_code (que hace sys.exit(6) si no
+    encuentra), aca fallamos abierto — el codigo 100 esta verificado
+    contra 3.729 SKUs facturados y es estable. Si un user renombra el
+    grupo en SAP (nombre es texto libre), el sync sigue andando en vez
+    de caerse en silencio. Loguea warning para que quede visible.
+    """
+    path = "/b1s/v1/ItemGroups?$filter=GroupName eq 'BIKE'&$select=Number,GroupName"
+    resp = session.get(f"{cfg['url']}{path}", timeout=30)
+    if not resp.ok:
+        log(f"[WARN] lookup BIKE HTTP {resp.status_code} — fallback a codigo {BIKE_ITEMS_GROUP_CODE_FALLBACK}")
+        return BIKE_ITEMS_GROUP_CODE_FALLBACK
+    arr = resp.json().get('value', []) or []
+    if not arr:
+        log(f"[WARN] no existe grupo llamado 'BIKE' en SAP — fallback a codigo {BIKE_ITEMS_GROUP_CODE_FALLBACK}")
+        return BIKE_ITEMS_GROUP_CODE_FALLBACK
     return int(arr[0]['Number'])
 
 
@@ -540,6 +595,117 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
         'cat': _cat_local or _cat_sap,
         'fam': _fam_local or _fam_sap,
         'sub': _sub_local or _sub_sap,
+        '_sync_timestamp': sync_ts,
+    }
+
+
+def _find_price_by_list_currency(item_prices, price_list_num, expected_currency=None):
+    """v777: helper para pescar Price de ItemPrices[] filtrando por lista + moneda.
+
+    En Bike las listas son mixtas de moneda (ej lista 11 = 5.386 filas ARS
+    + 100 filas USD; lista 2 = 6.811 USD + 28 ARS). No podemos asumir
+    moneda por numero de lista — hay que verificar Currency por fila.
+
+    Si expected_currency=None, devuelve el primer Price que matchee la
+    lista sin filtrar moneda (para el caso donde no importa).
+
+    Devuelve tupla (price_float, currency_str) o (None, None) si no
+    matchea nada.
+    """
+    def _safe_float(x):
+        try:
+            return float(x) if x is not None else None
+        except (TypeError, ValueError):
+            return None
+    for ip in (item_prices or []):
+        if ip.get('PriceList') != price_list_num:
+            continue
+        curr = ip.get('Currency')
+        if expected_currency and curr != expected_currency:
+            continue
+        p = _safe_float(ip.get('Price'))
+        if p is not None:
+            return (p, curr)
+    return (None, None)
+
+
+def flatten_item_bike(item: dict, sync_ts: str) -> dict:
+    """v777 (2026-09-03): aplana un Item de SAP grupo BIKE para BQ.
+
+    Diferencias vs flatten_item() (Pesca):
+    - stock_total_sellable = suma SOLO del warehouse 10 (whitelist), en
+      vez de "todos excepto 05/06" (blacklist). Justificacion COWORK:
+      Bike vende solo desde el 10, tener whitelist evita que warehouses
+      nuevos se cuelen automaticamente.
+    - stock_transito: nueva columna, valor del warehouse 02, guardado
+      SEPARADO del vendible (no se suma).
+    - price_bike_usd: de ItemPrices[] con PriceList=2 y Currency='USD'
+      (la lista 2 base de venta tiene 6.811 items USD + 28 ARS, filtramos
+      USD para no meter excepciones al modelo).
+    - cost_avg_ars: de ItemPrices[] con PriceList=11 y Currency='ARS'
+      (5.386 items, valuacion inventario al costo en pesos).
+    - cost_usd: de ItemPrices[] con PriceList=7 (COSTO ARTICULO USD,
+      5.381 items, control cruzado).
+    - stock_by_warehouse_json: mismo formato que Pesca ({wh: qty}).
+    - NO trae cat/fam/sub — Bike no tiene el catalogo local de PESCA en
+      index.html PRODUCTS ni los UDFs U_CATEGORIA/U_FAMILIA/U_SUBFAMILIA.
+      Si mas adelante se define categorizacion para Bike, se agrega.
+    - NO trae cost_last_purchase_ars — descartado explicito por COWORK.
+    """
+    def _safe_float(x):
+        try:
+            return float(x) if x is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    # === Stock por warehouse ===
+    stock_sellable = 0.0
+    stock_transito = 0.0
+    whs_stock = {}
+    for w in (item.get('ItemWarehouseInfoCollection') or []):
+        whs_code = w.get('WarehouseCode') or ''
+        try:
+            qty = float(w.get('InStock') or 0)
+        except (TypeError, ValueError):
+            qty = 0.0
+        whs_stock[whs_code] = qty
+        if whs_code in BIKE_SALES_WHS:
+            stock_sellable += qty
+        if whs_code == BIKE_TRANSITO_WHS:
+            stock_transito += qty
+
+    # === Precio de venta (USD) ===
+    price_venta_usd, _ = _find_price_by_list_currency(
+        item.get('ItemPrices'), BIKE_PRICE_LIST_VENTA_USD, expected_currency='USD',
+    )
+
+    # === Costo ARS (para valuacion inventario en pesos) ===
+    cost_ars, _ = _find_price_by_list_currency(
+        item.get('ItemPrices'), BIKE_PRICE_LIST_COSTO_ARS, expected_currency='ARS',
+    )
+
+    # === Costo USD (control cruzado) ===
+    cost_usd, _ = _find_price_by_list_currency(
+        item.get('ItemPrices'), BIKE_PRICE_LIST_COSTO_USD, expected_currency='USD',
+    )
+
+    return {
+        'item_code': item.get('ItemCode'),
+        'item_name': item.get('ItemName'),
+        'foreign_name': item.get('ForeignName'),
+        'items_group_code': item.get('ItemsGroupCode'),
+        'valid': item.get('Valid'),
+        'frozen': item.get('Frozen'),
+        'create_date': item.get('CreateDate'),
+        'update_date': item.get('UpdateDate'),
+        # Stock: solo warehouse 10 es vendible; el 02 se guarda aparte.
+        'stock_total_sellable': int(round(stock_sellable)),
+        'stock_transito': int(round(stock_transito)),
+        'stock_by_warehouse_json': json.dumps(whs_stock, default=str) if whs_stock else None,
+        # Precio + costos (todos como price lists, no como campos del Item).
+        'price_bike_usd': price_venta_usd,
+        'cost_avg_ars': cost_ars,
+        'cost_usd': cost_usd,
         '_sync_timestamp': sync_ts,
     }
 
@@ -1908,6 +2074,58 @@ def main():
         )
     item_rows = [flatten_item(it, PESCA_PRICE_LIST_NUM, sync_ts) for it in items]
     load_to_bq(bq_client, BQ_TABLE_ITEMS, item_rows, 'ITEMS', dry_run=dry_run)
+
+    # === 2b. Items BIKE (v777, 2026-09-03) — pass paralelo al de PESCA
+    # Diseño: pipeline aditivo, NO toca sap_items_raw ni el tablero Pesca.
+    # - Grupo BIKE (codigo 100) via lookup dinamico con fallback hardcoded.
+    # - Costo desde price lists (ARS list 11, USD list 7) — en este SAP el
+    #   costo no se carga como campo del Item.
+    # - Precio venta desde price list 2 (USD).
+    # - Stock vendible: whitelist warehouse 10 (unica fuente Bike).
+    # - Stock transito: columna aparte (warehouse 02).
+    # - Schema explicito FLOAT64 NULLABLE para los 3 campos monetarios,
+    #   evita el bug del autodetect que en Pesca tipo cost_avg_ars como
+    #   STRING cuando venia todo null.
+    bike_code = resolve_bike_group_code(cfg, session)
+    log(f'[grupo] BIKE = {bike_code}')
+    # Mismo $select base que Pesca — sin UDFs (Bike no tiene los U_CATEGORIA/
+    # U_FAMILIA/U_SUBFAMILIA de Ficha Tecnica Pesca).
+    bike_item_select = [
+        'ItemCode', 'ItemName', 'ForeignName', 'ItemsGroupCode',
+        'ItemWarehouseInfoCollection', 'ItemPrices',
+        'Valid', 'Frozen', 'CreateDate', 'UpdateDate',
+    ]
+    bike_items = sl_fetch_all(
+        cfg, session, '/b1s/v1/Items', 'ITEMS_BIKE',
+        select_fields=bike_item_select,
+        filter_expr=f"ItemsGroupCode eq {bike_code}",
+        max_docs=max_docs,
+    )
+    bike_rows = [flatten_item_bike(it, sync_ts) for it in bike_items]
+    # Schema explicito: fuerza FLOAT64 NULLABLE en las columnas monetarias
+    # aunque el batch entero venga null (evita el bug autodetect que hace
+    # STRING inference cuando no puede determinar el tipo).
+    bike_items_schema = [
+        bigquery.SchemaField('item_code', 'STRING'),
+        bigquery.SchemaField('item_name', 'STRING'),
+        bigquery.SchemaField('foreign_name', 'STRING'),
+        bigquery.SchemaField('items_group_code', 'INT64'),
+        bigquery.SchemaField('valid', 'STRING'),
+        bigquery.SchemaField('frozen', 'STRING'),
+        bigquery.SchemaField('create_date', 'STRING'),
+        bigquery.SchemaField('update_date', 'STRING'),
+        bigquery.SchemaField('stock_total_sellable', 'INT64'),
+        bigquery.SchemaField('stock_transito', 'INT64'),
+        bigquery.SchemaField('stock_by_warehouse_json', 'STRING'),
+        bigquery.SchemaField('price_bike_usd', 'FLOAT64'),
+        bigquery.SchemaField('cost_avg_ars', 'FLOAT64'),
+        bigquery.SchemaField('cost_usd', 'FLOAT64'),
+        bigquery.SchemaField('_sync_timestamp', 'STRING'),
+    ]
+    _load_to_bq_with_schema(
+        bq_client, BQ_TABLE_ITEMS_BIKE, bike_rows, 'ITEMS_BIKE',
+        schema=bike_items_schema, dry_run=dry_run,
+    )
 
     # === 3. Invoices (ultimos 24 meses)
     doc_select_invoices = [

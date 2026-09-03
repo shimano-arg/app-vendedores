@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v776](#41-changelog-v300--v776)
+41. [Changelog v300 → v777](#41-changelog-v300--v777)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4666,7 +4666,26 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v776
+## 41) Changelog v300 → v777
+
+### v777 (2026-09-03)
+
+**Pipeline BQ Bike: `sap_items_bike_raw` + `v_inventario_bike` + `v_inventario_bike_por_warehouse`.**
+
+- **Contexto** (COWORK/Mariano): la tabla `sap_items_raw` traía solo grupo 102 (Pesca) — 773 filas. El tablero Power BI de Bike (en construcción) quedaba sin stock, sin costo, sin nombres, para 3.729 SKUs facturados. El filtro estaba hardcodeado en `sync_sap_to_bigquery.py:1897` (`ItemsGroupCode eq {pesca_code}`).
+- **Diagnóstico Q4 clave**: en este SAP el costo NO se carga como campo del Item (`StandardAveragePrice`, `LastPurchasePrice` → null o HTTP 400). Se carga como **price list**: lista 11 "COSTO ARTICULO ARS" (5.386 items) y lista 7 "COSTO ARTICULO" USD (5.381 items). Mismo mecanismo que `price_pesca_ars` (lista 12).
+- **Cambios en `scripts/sync_sap_to_bigquery.py`** (pipeline ADITIVO, no toca Pesca):
+  - Nuevas constantes: `BIKE_ITEMS_GROUP_CODE_FALLBACK=100`, `BIKE_PRICE_LIST_VENTA_USD=2`, `BIKE_PRICE_LIST_COSTO_USD=7`, `BIKE_PRICE_LIST_COSTO_ARS=11`, `BIKE_SALES_WHS={'10'}`, `BIKE_TRANSITO_WHS='02'`.
+  - Nueva tabla `BQ_TABLE_ITEMS_BIKE = sap_items_bike_raw`.
+  - `resolve_bike_group_code()`: lookup dinámico `GroupName eq 'BIKE'` con fallback hardcoded a 100 (fail-open — si un user renombra el grupo en SAP el sync sigue andando).
+  - `_find_price_by_list_currency()`: helper que pesca `Price` de `ItemPrices[]` filtrando por lista + moneda (en Bike las listas son mixtas — lista 2 tiene 6.811 USD + 28 ARS, lista 11 tiene 5.386 ARS + 100 USD; hay que filtrar por Currency para no meter excepciones al modelo).
+  - `flatten_item_bike()`: nueva función paralela a `flatten_item()`. Diferencias: `stock_total_sellable = warehouse 10 solo` (whitelist en vez de blacklist), `stock_transito = warehouse 02` columna aparte, `price_bike_usd/cost_avg_ars/cost_usd` desde price lists, sin cat/fam/sub (Bike no tiene catálogo local ni UDFs de Ficha Técnica Pesca), sin `cost_last_purchase_ars` (descartado por COWORK).
+  - Segundo pass en `main()` después del load de Pesca (línea 2076): fetch items grupo Bike + schema explícito FLOAT64 NULLABLE para los 3 campos monetarios (evita el bug del autodetect que en Pesca tipó `cost_avg_ars` como STRING cuando venía todo null).
+- **Nuevo archivo `bigquery/bike.sql`** con 2 vistas + queries de validación:
+  - `v_inventario_bike`: una fila por item, columnas `stock_deposito` (WH 10 con COALESCE 0), `stock_transito` (WH 02), `costo_promedio_ars`, `costo_usd`, `precio_venta_usd`.
+  - `v_inventario_bike_por_warehouse`: una fila por item × warehouse, `JSON_KEYS` + `UNNEST` para desarmar el JSON del lado BQ (Power Query se rompe por timeout al parsearlo del lado modelo). Fallback comentado con UNNEST literal por si `JSON_KEYS` falla.
+- **Pending Mariano OK** (comentado en bike.sql): si los items de Pesca también tienen precio cargado en la lista 11, el mismo fix aplicado a `sap_items_raw` arregla el bug de "valor inventario costo = 0" en el tablero Pesca. NO aplicado en esta versión — esperando confirmación.
+- **Validación (correr después del primer sync + deploy de views)**: queries incluidos en `bigquery/bike.sql` — count items (~7.000), grupo único (100), Pesca intacta (773), sum stock deposito+tránsito > 0, warehouses distintos incluye 10 y 02, cobertura de costo ARS/USD, valuación inventario > 0.
 
 ### v776 (2026-09-02)
 
