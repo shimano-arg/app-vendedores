@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v805](#41-changelog-v300--v805)
+41. [Changelog v300 → v813](#41-changelog-v300--v813)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4670,7 +4670,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v812
+## 41) Changelog v300 → v813
+
+### v813 (2026-09-04) — fix layout modal Vincular LEAD ↔ Alta SAP
+
+**Fix visual — sin cambios de comportamiento.**
+
+- El modal Vincular LEAD ↔ Alta SAP se veía desprolijo: las 2 secciones (LEAD + Alta SAP) + status + preview aparecían distribuidas en **2 columnas asimétricas** en vez de apiladas verticalmente al centro.
+- **Root cause**: `.modal-body` global (index.html:2269) tiene `display:grid;grid-template-columns:1fr 1fr` por default. Todos los modales que usan esta clase heredan un grid 2-col. El inline `text-align:center` que puse en v803 no override `display:grid` → los hijos caían en las 2 columnas del grid.
+- **Fix**: agregar `display:block` al inline style del modal-body del lead-merge. Ahora los hijos se apilan vertical y `text-align:center` funciona correctamente.
+- **Ajustes visuales adicionales**:
+  - Padding modal-body 24×28 (antes 20).
+  - Selects con `max-width:560px` (antes 520), padding vertical 9px (antes 8), fondo `--bg-elevated` para consistencia dark mode.
+  - Status text con color muted + margin 20px.
+  - Preview con margin-top 20px para separar de secciones.
+- **Bump**: `APP_VERSION` + `CACHE_VERSION` v812 → v813. Bundle sin cambios (patch inline HTML).
+- **Tests**: unit 308/308 verde.
 
 ### v812 (2026-09-04) — docs §50 Tablero Fujita/Gambera + §49 SETUP update
 
