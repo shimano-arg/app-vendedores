@@ -17,7 +17,7 @@
 // Cuando se cambie la version, bumpear CACHE_VERSION para invalidar cache viejo.
 // El activate event borra caches con nombres distintos al vigente.
 
-const CACHE_VERSION = 'v810';
+const CACHE_VERSION = 'v811';
 const STATIC_CACHE = 'shimano-static-' + CACHE_VERSION;
 const HTML_CACHE = 'shimano-html-' + CACHE_VERSION;
 
@@ -52,6 +52,9 @@ const STATIC_ASSETS = [
   // v810 (2026-09-04) Loop iter 7: PANEL DE CONTROL admin-only (Mariano).
   // Health + KPIs + Sentry + GH Actions detail. 939 LOC on-demand.
   './chunks/panel-control.js',
+  // v811 (2026-09-04) Loop iter 8: SEGUIMIENTO (visitas + notas + timeline).
+  // 1174 LOC on-demand. Listeners attach dentro de openSeguimientoModal.
+  './chunks/seguimiento.js',
 ];
 
 self.addEventListener('install', event => {
