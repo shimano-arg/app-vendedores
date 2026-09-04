@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v795](#41-changelog-v300--v795)
+41. [Changelog v300 → v796](#41-changelog-v300--v796)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,25 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v795
+## 41) Changelog v300 → v796
+
+### v796 (2026-09-04)
+
+**Overrides manuales de geolocalización por card_code — 20 clientes SAR pesca que caían en blanco en el mapa (Mariano pedido).**
+
+- **Problema**: 20 clientes/leads del tablero SAR pesca tenían `departamento` vacío (o provincia mal cargada) en la fuente Firestore, por lo que `prov_depto` quedaba NULL y no se ubicaban en el mapa del tablero Power BI.
+- **Solución (no toca SAP ni forms de la app)**: tabla nueva `geo_overrides_clientes` con `(card_code, provincia, departamento, localidad)` que hace LEFT JOIN en `v_leads_detalle` con COALESCE — el override pisa los valores base cuando existe.
+- **Recálculo de `prov_depto`**: cuando hay override, se computa como `override.provincia || ' | ' || override.departamento`. Sin override, se mantiene el valor del JOIN con `geo_localidad_departamento`.
+- **Archivos**:
+  - `bigquery/geo_overrides.sql` (nuevo): `CREATE OR REPLACE TABLE geo_overrides_clientes` con seed inline de las 20 filas. Idempotente. Documenta cómo agregar más overrides (editar la lista de STRUCT + re-deployar la tabla, la vista NO hay que re-deployar porque el JOIN es dinámico).
+  - `bigquery/views.sql` (modificado): nuevo CTE `enriched_with_override` en `v_leads_detalle` después de `enriched`. LEFT JOIN por `card_code`.
+- **Validación post-deploy** (corrida 2026-09-04):
+  - `geo_overrides_clientes`: 20 rows / 20 card_codes distintos ✓
+  - 0 overrides huérfanos (todos matchean con un card_code existente) ✓
+  - Los 20 tienen `prov_depto` no null con formato `'PROVINCIA | DEPTO'` ✓
+  - `v_leads_detalle`: 792 rows / 8 vendedores / **0 con `prov_depto` NULL** ✓
+- **Totales por vendedor**: sin cambio (el override no toca `assigned_vendor`, solo la geolocalización).
+- Bump `APP_VERSION` + `CACHE_VERSION` v795 → v796. Bundle sin cambios.
 
 ### v795 (2026-09-04)
 
