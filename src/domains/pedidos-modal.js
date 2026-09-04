@@ -917,9 +917,11 @@ function renderReviewLines() {
       // Los BO NO deben restar porque cuando llegue stock la CF FIFO los
       // promueve a ASIG. Solo ASIG resta (stock realmente comprometido).
       if (stk && stk.hasData) {
-        const _dep11 = typeof getStockDisponibleVenta === 'function'
-          ? Number(getStockDisponibleVenta(l.code) || 0)
-          : 0;
+        const _gsdvFn =
+          typeof window !== 'undefined' && typeof window.getStockDisponibleVenta === 'function'
+            ? window.getStockDisponibleVenta
+            : null;
+        const _dep11 = _gsdvFn ? Number(_gsdvFn(l.code) || 0) : 0;
         const _asig = Number(stk.asigApp || 0);
         dispReal = Math.max(_dep11 - _asig, 0);
       }
