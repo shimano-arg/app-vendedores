@@ -3995,18 +3995,22 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         </div>
         <button class="modal-close" onclick="closeLeadMergeModal()">&times;</button>
       </div>
-      <div class="modal-body" style="padding:24px 20px;text-align:center">
-        <div id="lead-merge-status" style="margin-bottom:16px;font-size:12px;text-align:center"></div>
-        <div style="margin:0 auto 16px auto;max-width:520px;text-align:center">
+      <div class="modal-body" style="padding:24px 28px;display:block;text-align:center">
+        <!-- v809 (2026-09-04): FIX layout modal. El .modal-body default es
+             display:grid;grid-template-columns:1fr 1fr (index.html:2269) que
+             partia el contenido en 2 columnas desordenadas. Aca overrideamos
+             a display:block para stackear vertical y aplicar text-align:center. -->
+        <div id="lead-merge-status" style="margin:0 auto 20px auto;font-size:12px;color:var(--text-secondary)"></div>
+        <div style="margin:0 auto 18px auto;max-width:560px">
           <label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);margin-bottom:6px;text-align:center">1) LEAD provisorio (se conserva &mdash; mantiene las visitas)</label>
-          <select id="lead-merge-lead-select" style="width:100%;padding:8px 10px;border:1px solid var(--border-strong);border-radius:6px;font-size:13px;text-align:center;text-align-last:center"></select>
+          <select id="lead-merge-lead-select" style="width:100%;padding:9px 12px;border:1px solid var(--border-strong);border-radius:6px;font-size:13px;background:var(--bg-elevated);text-align:center;text-align-last:center"></select>
         </div>
-        <div style="margin:0 auto 16px auto;max-width:520px;text-align:center">
+        <div style="margin:0 auto 18px auto;max-width:560px">
           <label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);margin-bottom:6px;text-align:center">2) Alta SAP (se elimina; su cardCode va al LEAD)</label>
-          <select id="lead-merge-sap-select" style="width:100%;padding:8px 10px;border:1px solid var(--border-strong);border-radius:6px;font-size:13px;text-align:center;text-align-last:center"></select>
-          <div style="font-size:10.5px;color:var(--text-secondary);margin-top:6px;text-align:center">Al elegir un LEAD se filtran las altas SAP con nombre similar (mismo prov + 4+ chars en com&uacute;n) en el grupo "Sugerencias".</div>
+          <select id="lead-merge-sap-select" style="width:100%;padding:9px 12px;border:1px solid var(--border-strong);border-radius:6px;font-size:13px;background:var(--bg-elevated);text-align:center;text-align-last:center"></select>
+          <div style="font-size:10.5px;color:var(--text-secondary);margin-top:6px;text-align:center;line-height:1.4">Al elegir un LEAD se filtran las altas SAP con nombre similar (mismo prov + 4+ chars en com&uacute;n) en el grupo "Sugerencias".</div>
         </div>
-        <div id="lead-merge-preview" style="max-width:640px;margin:0 auto"></div>
+        <div id="lead-merge-preview" style="max-width:640px;margin:20px auto 0 auto"></div>
         <div style="margin-top:24px;display:flex;justify-content:center;gap:12px;flex-wrap:wrap">
           <button class="btn-cancel" onclick="closeLeadMergeModal()">Cancelar</button>
           <button id="lead-merge-confirm-btn" class="btn-confirm" style="background:#059669" onclick="confirmLeadMerge()">Fusionar</button>
@@ -5167,7 +5171,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v812';
+const APP_VERSION = 'v813';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
