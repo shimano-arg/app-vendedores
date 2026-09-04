@@ -17,7 +17,7 @@
 // Cuando se cambie la version, bumpear CACHE_VERSION para invalidar cache viejo.
 // El activate event borra caches con nombres distintos al vigente.
 
-const CACHE_VERSION = 'v809';
+const CACHE_VERSION = 'v810';
 const STATIC_CACHE = 'shimano-static-' + CACHE_VERSION;
 const HTML_CACHE = 'shimano-html-' + CACHE_VERSION;
 
@@ -49,6 +49,9 @@ const STATIC_ASSETS = [
   // v422+ (2026-08-06): modal FORECAST admin-only (Mariano). Snapshot BQ
   // sku_ventas_snapshot + Sales Plan uploaded + politica inventario.
   './chunks/forecast.js',
+  // v810 (2026-09-04) Loop iter 7: PANEL DE CONTROL admin-only (Mariano).
+  // Health + KPIs + Sentry + GH Actions detail. 939 LOC on-demand.
+  './chunks/panel-control.js',
 ];
 
 self.addEventListener('install', event => {

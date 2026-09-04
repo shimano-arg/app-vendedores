@@ -4670,7 +4670,28 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v809
+## 41) Changelog v300 → v810
+
+### v810 (2026-09-04) — Loop Engineering iter 7 📦: chunk lazy panel-control (-80 KB shell)
+
+**PANEL DE CONTROL (Mariano-only) extraído del shell a chunk lazy. Shell: 2.46 → 2.38 MB.**
+
+- **Pivot vs plan**: el plan iter 7 targeteaba `targets`, pero al inspeccionar todos los dominios (targets, campanias, dashboard, notificaciones), TODOS tienen listeners `onSnapshot` al login que deben quedar en shell. Extraerlos requiere refactor (split domain en `-core` shell + `-modal` chunk), riesgo alto autónomo. Pivoté a `panel-control` (v611+, admin-only): 939 LOC, cero listeners at login, solo usa `window.__phase0.pure` para render, botón de trigger visible solo a Mariano.
+- **Cambios**:
+  1. `build.js` LAZY_CHUNKS: agregada entry `'panel-control': ['openPanelControl', 'closePanelControl', 'renderPanelControl']`.
+  2. `src/main.js`: removido `import './domains/panel-control.js'` estático, agregado `installChunkStubs('panel-control', [...])`.
+  3. `sw.js` STATIC_ASSETS: agregado `./chunks/panel-control.js` para cache offline.
+- **Bundle deltas**:
+  - Shell: **2.46 MB → 2.38 MB (-80 KB)**
+  - Nuevo chunk: `chunks/panel-control.js` 97.6 KB
+  - Total: 3.10 MB (misma cifra, solo redistribuido)
+- **Fluidez arranque cold**: Mariano abre panel-control ~1x/día → los otros usuarios NUNCA descargan estos 97 KB. Federico BA interior + Martin Cuyo + Mauricio Litoral + Santi NOA arrancan más rápido en 3G/4G rural.
+- **Trigger de carga**: click en `#panel-control-btn` (index.html:2865) → stub proxy dispara `loadChunk('panel-control')` → real fns toman over. Modal se abre normalmente.
+- **Safety net**: 9 callers de `window.renderPanelControl()` en index.html (auto-refresh on GH Actions/Sentry snapshot updates) todos gateados por `modal.classList.contains('open')` — el chunk solo se dispara si Mariano ya abrió el panel.
+- **Tests**: 337 unit + 25 smoke (bundle-runtime) verde. Sin regresión.
+- **Bump**: APP_VERSION+CACHE_VERSION v809 → v810.
+
+
 
 ### v809 (2026-09-04) — Loop Engineering iter 6 ⚡: getStockPorCliente memoization (−99.6%)
 

@@ -91,6 +91,12 @@ const LAZY_CHUNKS = {
     'onForecastSalesPlanFile',
     'exportForecastExcel',
   ],
+  // v810 (2026-09-04) Loop iter 7: PANEL DE CONTROL Mariano-only (v611+).
+  // 939 LOC de metricas/health/KPIs que solo abre 1 usuario, on-demand.
+  // Cero listeners at login → 100% seguro lazy. Stubs proxy: si el modal
+  // esta open y algo llama renderPanelControl antes del load, el stub
+  // dispara loadChunk + re-invoke automatico.
+  'panel-control': ['openPanelControl', 'closePanelControl', 'renderPanelControl'],
 };
 
 function fmtSize(bytes) {
