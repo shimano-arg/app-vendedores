@@ -74,7 +74,10 @@ import './domains/sap-integration-modal.js'; // ensureSapVendorsListener al logi
 import './domains/sap-service-layer.js'; // sapSL objeto usado por sap-auto-send
 import './domains/sap-auto-send-listener.js'; // ensureSapAutoSendListener reactivo
 import './domains/sap-admin-panel.js'; // listenSapMaps + ensureSapConfigListener al login
-import './domains/panel-control.js'; // v611 PANEL DE CONTROL (Mariano-only)
+
+// v810 (Loop iter 7): panel-control extraido a chunk lazy (Mariano-only, on-demand).
+// Stubs registrados abajo. NO importar aca — el chunk se carga cuando Mariano
+// clickea "Panel de Control" en el header.
 
 // === Chunks lazy (E3): stubs proxy que hacen loadChunk + re-invoke ===
 // Cada entrada { chunkName: [exportNames] } genera stubs window.foo que al primer
@@ -130,6 +133,7 @@ installChunkStubs('forecast', [
   'onForecastSalesPlanFile',
   'exportForecastExcel',
 ]);
+installChunkStubs('panel-control', ['openPanelControl', 'closePanelControl', 'renderPanelControl']);
 
 const phase0 = {
   version: 'v333',
