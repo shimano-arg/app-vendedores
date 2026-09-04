@@ -5108,7 +5108,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v785';
+const APP_VERSION = 'v786';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15192,6 +15192,20 @@ function _renderE4BAsigApp(w){
     ? window._findAsigDelCliente(w && w.clientName, w && w.clientCardCode)
     : [];
   while (rows.firstChild) rows.removeChild(rows.firstChild);
+  // v786 (2026-09-04): distinguir "snapshot no cargado" vs "cliente sin ASIG".
+  // Antes: si el modal se abria antes de que llegara el snapshot pedidos (200-800ms
+  // post-login o post-reconnect), la seccion aparecia vacia sin explicacion — el
+  // vendedor no sabia si estaba cargando o si genuinamente no habia ASIG. Ahora
+  // muestra "Cargando..." mientras espera; el listener onSnapshot re-renderea
+  // cuando llega la data.
+  if (!window._pedidosSnapshotLoaded) {
+    const loading = document.createElement('div');
+    loading.style.cssText = 'padding:12px;text-align:center;color:var(--text-muted);font-size:11px;font-style:italic';
+    loading.textContent = 'Cargando reservas del cliente desde SAP...';
+    rows.appendChild(loading);
+    cont.style.display = '';
+    return;
+  }
   if (!asigLines.length) { cont.style.display = 'none'; return; }
   // v717 (2026-08-28): resolver desc desde PRODUCTS por code si it.desc esta
   // vacio + set de SKUs presentes en el pedido actual para pintar la row en
@@ -15315,6 +15329,24 @@ async function _asigInlineResolve(w, it, action){
     }
     lines[it.lineIndex] = l;
     await ref.update({ lines: lines, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    // v786 (2026-09-04): optimistic update de globalPedidos para que el proximo
+    // render vea la mutacion INMEDIATO (sin esperar el snapshot round-trip que
+    // tarda 200-800ms). Sin esto, Fusionar/Agregar/Eliminar dejaba el top
+    // summary + fila de la tabla mostrando datos stale — "cliente YA TENIA N
+    // SKUs" + boton Fusionar seguian visibles aunque ya se habia consumido.
+    // Bug reportado por Mariano 2026-09-04: "toco Fusionar y no detecta el
+    // cambio arriba". Sin este optimistic, el listener onSnapshot recien corrige
+    // al llegar del server; con esto, el UI se ve consistente instantaneo.
+    try {
+      if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+        const _gp = globalPedidos.find(x => (x._fsId || x._id) === it.pedidoId);
+        if (_gp && Array.isArray(_gp.lines) && _gp.lines[it.lineIndex]) {
+          const _newLines = _gp.lines.slice();
+          _newLines[it.lineIndex] = l;
+          _gp.lines = _newLines;
+        }
+      }
+    } catch(_e) { console.warn('optimistic globalPedidos update', _e); }
     // Agregar la porcion consumida al waitlist actual (full/partial).
     // Reusa waitlistAddProductWithQty (v477) que persiste a Firestore y
     // re-renderea el card local con optimistic update.
@@ -23662,6 +23694,11 @@ function attachFirebaseListeners(){
   listenOpsLog();
   listenSapMaps();
   unsubPedidosAll = fbDb.collection('pedidos').onSnapshot(qs => {
+    // v786 (2026-09-04): flag para distinguir "no cargado aun" vs "cargado
+    // pero vacio" en renders que iteran globalPedidos (ej: _renderE4BAsigApp).
+    // Sin esto, el modal Pedido en Espera mostraba secciones vacias mientras
+    // el snapshot todavia no habia llegado — se veia como "no aparece nada".
+    window._pedidosSnapshotLoaded = true;
     globalPedidos = [];
     qs.forEach(doc => {
       const d = doc.data();

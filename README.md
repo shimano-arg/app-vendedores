@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v785](#41-changelog-v300--v785)
+41. [Changelog v300 → v786](#41-changelog-v300--v785)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v785
+## 41) Changelog v300 → v786
+
+### v786 (2026-09-04)
+
+**Modal Pedido en Espera: fix Fusionar no actualiza top summary + placeholder "cargando" para seccion ASIG cliente.**
+
+- **Bug 1 reportado por Mariano 2026-09-04**: al tocar botón **🔁 Fusionar** en una fila de la tabla del modal Pedido en Espera, el SKU se agregaba al pedido pero el top summary NO detectaba el cambio (seguía mostrando "🔁 4 SKU(s) que este cliente YA TENIA en pedidos anteriores" + rows amarillas con botones Fusionar aunque ya se había consumido).
+  - **Root cause**: `_asigInlineResolve()` mutaba las líneas del pedido en Firestore (state='recycled') pero `globalPedidos` local seguía stale hasta que el onSnapshot listener de `/pedidos` fire (200-800ms de round-trip). Como `_renderWaitlistCard()` se llamaba INMEDIATO desde `waitlistAddProductWithQty` (via optimistic waitlist update), la re-render leía `globalPedidos` viejo → `getStockPorCliente` devolvía `reservadasPorCliente` desactualizado → top summary + row highlights seguían con datos viejos por 500ms hasta que el snapshot corrigiera.
+  - **Fix**: optimistic update de `globalPedidos` dentro de `_asigInlineResolve` — después del `ref.update` a Firestore, aplicamos la misma mutación (`state`, `qtyOpen`, `qtyCancelled`/`qtyRecycled`) al item local en `globalPedidos`. Ahora la primera re-render ya ve la mutación → summary + rows consistentes instantáneamente. El snapshot listener después confirma con la versión server-authoritative (idempotente).
+
+- **Bug 2 reportado por Mariano 2026-09-04**: "no aparecen los SKUs para agregar/eliminar/parcial o tarda muchísimo en cargar".
+  - **Root cause**: la sección `wcard-e4b-asig-app` (Stock Asignado del cliente con 3 botones por línea) se ocultaba con `display:none` cuando `_findAsigDelCliente` devolvía array vacío. Pero también devolvía vacío si `globalPedidos` no había cargado todavía (primer render post-modal-open puede ejecutarse antes de que llegue el snapshot). El vendedor veía la sección vacía y no sabía si estaba cargando o si genuinamente no había ASIG.
+  - **Fix**: nuevo flag `window._pedidosSnapshotLoaded` seteado a `true` cuando el snapshot listener de `/pedidos` fire por primera vez. En `_renderE4BAsigApp`: si `!_pedidosSnapshotLoaded` mostrar placeholder "Cargando reservas del cliente desde SAP..." en vez de ocultar. Cuando el snapshot llega, el listener re-renderea el modal automáticamente y el placeholder es reemplazado por las líneas reales (o se oculta la sección si no hay ASIG).
+
+- **Bump**: `APP_VERSION` + `CACHE_VERSION` v785 → v786. Bundle sin cambios (patch inline).
+- **Tests**: unit 308/308 verde. No hay tests de rules/functions afectados.
 
 ### v785 (2026-09-04)
 
