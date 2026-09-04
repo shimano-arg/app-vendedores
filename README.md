@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v784](#41-changelog-v300--v784)
+41. [Changelog v300 → v785](#41-changelog-v300--v785)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v784
+## 41) Changelog v300 → v785
+
+### v785 (2026-09-04)
+
+**Datos de entrega persistidos por cliente + prefill en flow Revision Excel + fix rules VDE.**
+
+- **Pedido Mariano 2026-09-04**: cuando un vendedor carga un pedido a un cliente, los datos de entrega (transportista + dirección, sucursal, o retiro) tienen que quedar guardados. Al próximo pedido para el mismo cliente, los campos aparecen precargados. Si el cliente cambia el destino, el vendedor los edita a mano como siempre.
+- **Estado previo (v630, 2026-08-25)**: la lectura desde `client_master.defaultDelivery` ya se hacía en `openReviewDialog` (pedidos-modal.js:234-279), y el save fire-and-forget existía en el flow de pedido pending (index.html:24007). **PERO** las Firestore Rules `client_master.create/update` estaban restringidas a admin/gerente, así que el save **fallaba silencioso** para todos los VDEs (el `.catch` swallow del error). En la práctica, la feature nunca funcionó para el 90% de los usuarios (los vendedores, que son quienes cargan pedidos).
+- **Fix v785 — 3 partes**:
+
+  1. **Firestore Rules (`firestore.rules:204-228`)**: `client_master.create/update` ahora acepta `isReader()` cuando el único campo tocado es `defaultDelivery` (whitelist pattern, mismo estilo que v776 en `client_applications`). Los demás campos (address, cliTipo, addressExplicit, etc) siguen restringidos a admin/gerente. +5 tests de rules (`vendor crea con defaultDelivery`, `vendor update solo defaultDelivery`, `vendor NO puede crear con address`, etc). Suite rules: 114 passed.
+
+  2. **Prefill Revision Excel Waitlist (`index.html:14310`)**: nueva función `_prefillRweFromClientMaster(match)` que se llama desde `revisionOnClienteInput`. Cuando el vendedor busca un cliente en el picker de "Dejar recalculando", si el cliente ya tiene `defaultDelivery` guardado, se autopoblan los `rwe-*` fields (Forma de entrega + campos condicionales). Guard con `_lastRwePrefilledDocId` para no re-pisar cambios manuales en cada keystroke del buscador. Feedback visual en el info line: "· datos de entrega precargados".
+
+  3. **Save al guardar waitlist (`index.html:14615`, `index.html:16843`)**: nueva helper `_saveDefaultDeliveryFromWaitlist(prov, loc, nombre, method, details)` que persiste en `client_master.defaultDelivery` fire-and-forget después del `revision_waitlist.add()` — cubre ambos flows (Revision Excel + `reviewDejarEnEspera` desde Revisar). Mapea la estructura `deliveryDetails.{transportistaNombre, transportistaDireccion, ...}` del waitlist a la estructura `{transpNombre, transpDireccion, ...}` de `client_master.defaultDelivery` (mismos datos, keys distintas por historia).
+
+- **Modo Y: último uso gana**. Si el vendedor edita los datos manualmente para un destino distinto, ese nuevo valor pisa el default guardado y queda como el nuevo default para el próximo pedido.
+- **Los altas provisorias (LEADs sin cardCode)** también funcionan porque `client_master` usa `docId = clientLocId(prov, loc, nombre)`, independiente del cardCode.
+- **Bump**: `APP_VERSION` + `CACHE_VERSION` v784 → v785. Bundle sin cambios (patch inline).
+- **Tests**: unit 308/308 verde, rules 114/114 verde.
+- **⚠ Deploy manual pendiente**: `firebase deploy --only firestore:rules` para que la nueva rule de `client_master` esté activa en prod. Sin este paso, la feature sigue rota para VDEs (rules bloquean el write).
 
 ### v784 (2026-09-04)
 

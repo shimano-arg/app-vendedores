@@ -515,6 +515,48 @@ describe('colecciones admin+gerente write', () => {
     await assertSucceeds(deleteDoc(doc(authedDb(UID.viewer), 'client_master', 'cm-viewer')));
   });
 
+  // v785 (2026-09-04): vendor/interno pueden crear/updatear SOLO defaultDelivery
+  // (persistencia de datos de entrega por cliente). Los demas campos siguen
+  // restringidos a admin/gerente.
+  it('v785: vendor puede crear client_master con SOLO defaultDelivery', async () => {
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'client_master', 'cm-vendor-new'), {
+        defaultDelivery: { tipo: 'TRANSPORTISTA', transpNombre: 'Cruz del Sur' },
+      })
+    );
+  });
+  it('v785: interno puede crear client_master con SOLO defaultDelivery', async () => {
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.interno), 'client_master', 'cm-interno-new'), {
+        defaultDelivery: { tipo: 'SUCURSAL', sucursalDireccion: 'Av 123' },
+      })
+    );
+  });
+  it('v785: vendor NO puede crear client_master con defaultDelivery + otros campos', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'client_master', 'cm-vendor-mixed'), {
+        defaultDelivery: { tipo: 'RETIRO_DEPOSITO' },
+        address: 'hack',
+      })
+    );
+  });
+  it('v785: vendor puede updatear defaultDelivery de client_master existente', async () => {
+    await seedDoc('client_master/cm-existing', { address: 'x', cliTipo: 'A' });
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'client_master', 'cm-existing'), {
+        defaultDelivery: { tipo: 'TRANSPORTISTA', transpNombre: 'Andreani' },
+      })
+    );
+  });
+  it('v785: vendor NO puede updatear address de client_master (sigue admin/gerente-only)', async () => {
+    await seedDoc('client_master/cm-existing2', { address: 'x' });
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'client_master', 'cm-existing2'), {
+        address: 'hack',
+      })
+    );
+  });
+
   it('client_locations: vendor/interno pueden crear pero no update/delete', async () => {
     await seedDoc('client_locations/loc1', { addr: 'x' });
     await assertSucceeds(

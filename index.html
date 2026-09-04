@@ -5108,7 +5108,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v784';
+const APP_VERSION = 'v785';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14307,14 +14307,100 @@ window.onRevisionEntregaChange = function(){
   });
 };
 
+// v785 (2026-09-04): trackea el ultimo cliente al que le prefillamos los rwe-*
+// fields para no re-pisar cambios manuales del vendedor en cada keystroke.
+// Se resetea a null cuando el input de cliente queda vacio.
+let _lastRwePrefilledDocId = null;
+
+// v785: mapea la estructura deliveryDetails del waitlist a la estructura
+// defaultDelivery de client_master (mismos datos, keys distintas). Usado
+// tanto para leer defaultDelivery en el prefill como para escribir cuando
+// se guarda un nuevo waitlist.
+function _makeDefaultDeliveryFromWaitlist(deliveryMethod, deliveryDetails){
+  const d = deliveryDetails || {};
+  const out = { tipo: deliveryMethod || '' };
+  if (deliveryMethod === 'TRANSPORTISTA') {
+    out.transpNombre = d.transportistaNombre || '';
+    out.transpDireccion = d.transportistaDireccion || '';
+    out.clienteDireccion = d.clienteDireccion || '';
+  } else if (deliveryMethod === 'SUCURSAL') {
+    out.sucursalDireccion = d.sucursalDireccion || '';
+  } else if (deliveryMethod === 'RETIRO_DEPOSITO') {
+    out.retiroNombre = d.retiroNombre || '';
+    out.retiroApellido = d.retiroApellido || '';
+    out.retiroDni = d.retiroDni || '';
+    out.retiroPatente = d.retiroPatente || '';
+  }
+  return out;
+}
+
+// v785: guarda los datos de entrega del cliente en client_master.defaultDelivery
+// (fire-and-forget). Igual al pattern v630 del pedido pending pero desde el
+// waitlist (Revision Excel + Dejar en Espera). Modo Y: ultimo uso gana.
+function _saveDefaultDeliveryFromWaitlist(clientProvincia, clientLocalidad, clientNombre, deliveryMethod, deliveryDetails){
+  try {
+    if (!clientNombre || !deliveryMethod) return;
+    if (typeof clientLocId !== 'function' || !fbDb) return;
+    const docId = clientLocId(clientProvincia || '', clientLocalidad || '', clientNombre || '');
+    if (!docId) return;
+    const dd = _makeDefaultDeliveryFromWaitlist(deliveryMethod, deliveryDetails);
+    fbDb.collection('client_master').doc(docId).set({
+      defaultDelivery: Object.assign({}, dd, {
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: (currentUser && currentUser.email) || '',
+      }),
+    }, { merge: true }).catch(e => console.warn('save defaultDelivery from waitlist', e));
+  } catch(_e) { console.warn('_saveDefaultDeliveryFromWaitlist', _e); }
+}
+
+// v785: precarga los inputs rwe-* del bloque "Dejar recalculando" con los
+// datos de entrega guardados en client_master.defaultDelivery del cliente
+// resolvido. Solo pisa si el vendedor NO habia elegido nada aun (no
+// sobrescribe cambios manuales). Devuelve true si prefilleo.
+function _prefillRweFromClientMaster(match){
+  try {
+    if (!match || !match.nombre) return false;
+    if (typeof clientLocId !== 'function' || typeof clientMasterCache === 'undefined') return false;
+    const docId = clientLocId(match.provincia || '', match.localidad || '', match.nombre);
+    if (!docId) return false;
+    if (_lastRwePrefilledDocId === docId) return false;
+    const cm = clientMasterCache.get(docId);
+    const dd = cm && cm.defaultDelivery;
+    if (!dd || !dd.tipo) return false;
+    const sel = document.getElementById('revision-wait-entrega-select');
+    if (!sel) return false;
+    if (sel.value && sel.value !== dd.tipo) return false;
+    _lastRwePrefilledDocId = docId;
+    sel.value = dd.tipo;
+    if (typeof onRevisionEntregaChange === 'function') onRevisionEntregaChange();
+    const setV = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+    if (dd.tipo === 'TRANSPORTISTA') {
+      setV('rwe-transp-nombre', dd.transpNombre);
+      setV('rwe-transp-direccion', dd.transpDireccion);
+      setV('rwe-cliente-direccion', dd.clienteDireccion);
+    } else if (dd.tipo === 'SUCURSAL') {
+      setV('rwe-sucursal-direccion', dd.sucursalDireccion);
+    } else if (dd.tipo === 'RETIRO_DEPOSITO') {
+      setV('rwe-retiro-nombre', dd.retiroNombre);
+      setV('rwe-retiro-apellido', dd.retiroApellido);
+      setV('rwe-retiro-dni', dd.retiroDni);
+      setV('rwe-retiro-patente', dd.retiroPatente);
+    }
+    return true;
+  } catch(_e) { console.warn('_prefillRweFromClientMaster', _e); return false; }
+}
+
 window.revisionOnClienteInput = function(){
   const input = document.getElementById('revision-wait-cli-input');
   const info = document.getElementById('revision-wait-cli-info');
   const val = (input.value || '').trim();
-  if (!val) { info.textContent = ''; return; }
+  if (!val) { info.textContent = ''; _lastRwePrefilledDocId = null; return; }
   const match = _revisionResolveCliente(val);
   if (match) {
-    info.textContent = '✓ ' + match.provincia + ' · ' + match.localidad + (match.cardCode ? ' · CardCode ' + match.cardCode : ' · sin CardCode SAP') + ' · vendor: ' + (match.vendor || 'sin asignar');
+    // v785: precargar datos de entrega si el cliente tiene guardado en
+    // client_master.defaultDelivery (pedido Mariano — reducir friccion).
+    const prefilled = _prefillRweFromClientMaster(match);
+    info.textContent = '✓ ' + match.provincia + ' · ' + match.localidad + (match.cardCode ? ' · CardCode ' + match.cardCode : ' · sin CardCode SAP') + ' · vendor: ' + (match.vendor || 'sin asignar') + (prefilled ? ' · datos de entrega precargados' : '');
     info.style.color = match.cardCode ? '#059669' : '#b45309';
   } else {
     info.textContent = '⚠ Cliente no encontrado en la app (buscar exacto por nombre).';
@@ -14526,6 +14612,10 @@ window.revisionDejarRecalculando = async function(){
         try { _reRenderEstadoIfOpen(); } catch(_e){}
       }
     } catch(_e){ console.warn('optimistic waitlist update fallo (no bloquea)', _e); }
+    // v785 (2026-09-04): persistir datos de entrega como default del cliente
+    // para que el proximo pedido/waitlist venga precargado (pedido Mariano).
+    // Fire-and-forget, no bloquea el flow.
+    _saveDefaultDeliveryFromWaitlist(cli.provincia, cli.localidad, cli.nombre, deliveryMethod, deliveryDetails);
     showSyncTag('Pedido guardado en espera: ' + cli.nombre + ' (Orden ' + ordenNum + ')');
     closeRevisionModal();
   } catch(e) {
@@ -16750,6 +16840,10 @@ window.reviewDejarEnEspera = async function(){
   };
   try {
     await fbDb.collection('revision_waitlist').add(payload);
+    // v785 (2026-09-04): persistir datos de entrega como default del cliente
+    // igual que en el flow Revision Excel — asi el proximo pedido/waitlist
+    // viene precargado sin importar cual de los 2 paths se uso.
+    _saveDefaultDeliveryFromWaitlist(currentOrderClient.province, currentOrderClient.locName, currentOrderClient.name, deliveryMethod, deliveryDetails);
     showSyncTag('Pedido dejado en Espera (ORDEN ' + ordenNum + ')');
     // Limpiar el borrador del pedido actual + cerrar review + volver al mapa.
     delete orders[currentOrderKey];
