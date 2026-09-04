@@ -2557,6 +2557,37 @@ enriched AS (
     ON gld.provincia_norm = g.provincia_norm
    AND gld.localidad_norm = g.localidad_norm
 ),
+-- v796 (2026-09-04, Mariano): override manual por card_code. LEFT JOIN
+-- opcional con geo_overrides_clientes — si existe una fila para el
+-- card_code, sus valores pisan provincia/departamento/localidad y se
+-- recalcula prov_depto como override.provincia || ' | ' || override.departamento.
+-- Objetivo: corregir clientes/leads que caen en blanco en el mapa del
+-- tablero SAR pesca sin tocar SAP ni los forms de la app.
+-- Ver bigquery/geo_overrides.sql para la lista de overrides + como
+-- agregar mas.
+-- El JOIN es LEFT y COALESCE — la vista sigue funcionando aunque la
+-- tabla geo_overrides_clientes este vacia. NO afecta assigned_vendor,
+-- asi que los totales por vendedor no cambian (solo se mueve la
+-- ubicacion en el mapa).
+enriched_with_override AS (
+  SELECT
+    e.card_code, e.card_name, e.tipo, e.assigned_vendor,
+    COALESCE(ov.provincia,    e.provincia)    AS provincia,
+    COALESCE(ov.localidad,    e.localidad)    AS localidad,
+    COALESCE(ov.departamento, e.departamento) AS departamento,
+    -- Cuando hay override, recalcular prov_depto con los valores nuevos.
+    -- Cuando no hay override, mantener el prov_depto del JOIN con
+    -- geo_localidad_departamento (puede ser null si no matcheo — el
+    -- fallback CABA en `final` lo captura para provincia=CABA).
+    CASE
+      WHEN ov.card_code IS NOT NULL
+        THEN CONCAT(ov.provincia, ' | ', ov.departamento)
+      ELSE e.prov_depto
+    END AS prov_depto
+  FROM enriched e
+  LEFT JOIN `app-vendedores-shimano.shimano_app.geo_overrides_clientes` ov
+    ON ov.card_code = e.card_code
+),
 -- v512 (2026-08-13): fallback CABA. Si el socio tiene provincia=CABA
 -- pero no matcheo una localidad conocida, asignamos COMUNA 1 como
 -- placeholder porque la app no carga comuna. Sin este fallback los
@@ -2573,7 +2604,7 @@ final AS (
         THEN 'CIUDAD AUTONOMA DE BUENOS AIRES | COMUNA 1'
       ELSE prov_depto
     END AS prov_depto
-  FROM enriched
+  FROM enriched_with_override
 )
 SELECT
   card_code,
