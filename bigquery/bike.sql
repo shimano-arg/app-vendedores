@@ -26,17 +26,21 @@ CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_inventario_bike` AS
 SELECT
     item_code,
     item_name,
-    -- v778: categorizacion Bike desde UDFs OITM. Bike NO tiene solapa
-    -- Ficha Tecnica Pesca (donde viven U_P_FAMILIA/etc). Usa UDFs
-    -- generales sin prefijo U_P_. La decision de que UDF es "familia"
-    -- para el modelo Power BI se toma del lado modelo (arrastrar el
-    -- campo). Los 8 UDFs se exponen aca con nombres semanticos.
-    marca,
-    categoria,           -- U_CATEG: nivel alto — ~5 valores distintos
-    clase,               -- U_CLASS: ~64 valores
-    mss,                 -- U_MSS: ~56 valores
-    subcategoria,        -- U_CATEGORIA: nivel fino — ~114 valores
+    -- v782 (2026-09-04): categorizacion Bike desde UDFs OITM. La jerarquia
+    -- de producto real (confirmada COWORK contra data): mss (tipo/rubro)
+    -- -> subcategoria (familia) -> clase (disciplina). marca corta
+    -- transversalmente. clasificacion_abc es ORTOGONAL (rotacion, no
+    -- producto) — no usar como nivel de jerarquia.
+    --
+    -- Bike NO tiene solapa Ficha Tecnica Pesca (donde viven U_P_FAMILIA
+    -- etc). Usa UDFs generales sin prefijo U_P_.
+    marca,               -- U_MARCA: SHIMANO 6.745 | LAZER 1.031 | PRO 697
+    mss,                 -- U_MSS: tipo/rubro. SHOES 1.748 | APPAREL 711 | COMPONENTES 377
+    subcategoria,        -- U_CATEGORIA: familia. ZAPATILLAS 1.754 | CASCOS 972 | GUANTES 361
+    clase,               -- U_CLASS: disciplina. ROAD 1.741 | MTB 970 | GRAVEL 126
     modelo,              -- U_MODELCD: ~1.603 valores
+    clasificacion_abc,   -- U_CATEG: A/B/C/D + vacios. NO es categoria de
+                         -- producto — es clasificacion ABC de rotacion.
     ciclo_producto,      -- U_CICLO_PROD: activo/discontinuado/etc
     -- Stock por warehouse: warehouse 10 es vendible, 02 es transito.
     -- COALESCE a 0 porque no todos los items tienen todos los warehouses
@@ -53,11 +57,14 @@ SELECT
     stock_total_sellable,
     -- Costos y precio venta. cost_avg_ars y cost_usd tipados FLOAT64
     -- desde el schema explicito en el pipeline (no dependen de autodetect).
-    -- v778: costo_articulo_usd es una 2da fuente de costo USD desde UDF
-    -- U_COS_ART_USD, independiente de price list 7. Sirve para cross-check
-    -- contra la valuacion.
-    cost_avg_ars       AS costo_promedio_ars,
-    cost_usd           AS costo_usd,
+    cost_avg_ars       AS costo_promedio_ars,   -- price list 11 (COSTO ARTICULO ARS)
+    cost_usd           AS costo_usd,             -- price list 7 (COSTO ARTICULO USD) — FUENTE DE VERDAD para valuacion USD
+    -- v782 (2026-09-04): DESCARTADO por COWORK — carga manual inconsistente.
+    -- Analisis contra 526 items con ambas fuentes: ratio 6%-123% del cost_usd
+    -- (p10=0.063, p50=0.363, p90=1.231). En decil superior SUPERA al landed
+    -- cost (imposible si fuera FOB). Ni factor de conversion, ni criterio
+    -- recuperable. NO usar para valuacion ni COALESCE(cost_usd,
+    -- costo_articulo_usd). Se mantiene expuesto SOLO para drill-down manual.
     costo_articulo_usd,
     price_bike_usd     AS precio_venta_usd,
     valid,
@@ -81,11 +88,13 @@ CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_inventario_bike_por
 SELECT
     i.item_code,
     i.item_name,
-    -- v778: categorizacion desde UDFs OITM (mismo comentario que
-    -- v_inventario_bike). Se agregan las 4 mas utiles para filtrar
-    -- del lado modelo (marca, categoria, subcategoria, modelo).
+    -- v782 (2026-09-04): jerarquia real de producto (marca + mss +
+    -- subcategoria + modelo). Se quita `categoria` (U_CATEG) porque
+    -- COWORK confirmo que NO es categoria de producto sino ABC de
+    -- rotacion — expuesta en v_inventario_bike como clasificacion_abc,
+    -- fuera de esta vista wide para no confundir el modelo.
     i.marca,
-    i.categoria,
+    i.mss,
     i.subcategoria,
     i.modelo,
     k AS warehouse_code,

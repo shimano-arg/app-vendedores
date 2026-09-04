@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v782](#41-changelog-v300--v782)
+41. [Changelog v300 → v784](#41-changelog-v300--v784)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,35 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v782
+## 41) Changelog v300 → v784
+
+### v784 (2026-09-04)
+
+**Pipeline BQ Bike v3 — fix bonus Pesca + rename `categoria`→`clasificacion_abc` + fix encoding UTF-8. Cierra el trabajo Bike (post-COWORK review).**
+
+- **Fix bonus Pesca (Decisión 1 COWORK aprobada)**: `flatten_item()` (`sync_sap_to_bigquery.py`) ahora puebla `cost_avg_ars` desde price list 11 "COSTO ARTICULO ARS" con `Currency='ARS'` (mismo mecanismo que Bike). Confirmado COWORK: 773/773 items Pesca (100%) tienen precio en lista 11. El fallback al weighted average `StandardAveragePrice` queda por retrocompat (siempre da null en este SAP, sin side-effect). **Impacto tablero Pesca**: la columna `sap_items_raw.cost_avg_ars` pasa de 0% cobertura a 100%. NO hay que avisar al equipo — COWORK verificó que la card "valor de inventario" del tablero Pesca se calcula con `price_pesca_ars * stock` (no con `cost_avg_ars`), así que poblar el costo NO cambia números visibles. Habilita futuros tableros/análisis de margen sobre Pesca.
+
+- **Rename `categoria`→`clasificacion_abc` (Decisión 2 COWORK)**: `BIKE_UDF_MAP['U_CATEG']` en `sync_sap_to_bigquery.py` cambia el nombre destino de `'categoria'` a `'clasificacion_abc'`. Motivación: COWORK verificó contra data que U_CATEG NO es categoría de producto (5 valores A/B/C/D + vacíos + "-") — es clasificación ABC de rotación. Nombrarla `categoria` inducía al error de armar la jerarquía de producto con ella. Schema BQ actualizado, `v_inventario_bike` renombra la columna, `v_inventario_bike_por_warehouse` la quita (no aplica a la vista wide).
+
+- **Jerarquía real de producto documentada en `bike.sql`**: comment header actualizado con la lectura de COWORK contra data — `mss` (tipo: SHOES/APPAREL/COMPONENTES) → `subcategoria` (familia: ZAPATILLAS/CASCOS/GUANTES) → `clase` (disciplina: ROAD/MTB/GRAVEL). `marca` corta transversalmente. `clasificacion_abc` es ortogonal (no jerarquía).
+
+- **`costo_articulo_usd` marcado como DESCARTADO**: comment explícito en `v_inventario_bike` con el análisis de COWORK contra 526 items con ambas fuentes cargadas: ratio 6%-123% del `cost_usd` (p10=0.063, p50=0.363, p90=1.231). En el decil superior SUPERA al landed cost, imposible si fuera FOB. Ni factor de conversión, ni criterio recuperable. **NO usar para valuación ni COALESCE(cost_usd, costo_articulo_usd)**. Se mantiene expuesto solo para drill-down manual.
+
+- **Fix encoding UTF-8 (bug reportado COWORK)**: `sl_fetch_all()` línea ~455 agrega `resp.encoding = 'utf-8'` antes de `resp.json()`. Root cause: SAP SL responde JSON con chars UTF-8 (Ó, Ñ, acentos en `item_name` + UDFs `clase/subcategoria/marca`) pero NO siempre declara `charset=utf-8` en Content-Type → `requests` default a ISO-8859-1 y decodificaba mal. Ejemplo reportado: "MULTIPROPÓSITO" salía como "MULTIPROPÃSITO" en `v_inventario_bike.clase`. Aplica a todas las entidades SAP (Items Pesca+Bike, BPs, Invoices, etc.) — cualquier texto SAP con acentos se va a ver correctamente en próximo sync.
+
+- Bump `APP_VERSION` + `CACHE_VERSION` v783 → v784.
+
+### v783 (2026-09-04)
+
+**Fix VDI dropdown ZONA: fallback hardcoded para las zonas de apoyo (Santi + Ioannis).**
+
+- **Bug reportado por Santi 2026-09-04**: al abrir la app como VDI, el dropdown ZONA solo mostraba "Z7 - Santiago Esteban (NOA + NEA + Cuyo norte + apoyo Mauricio/Martin)" — no aparecían Z4 Martin ni Z5 Mauricio, así que no podía filtrar el mapa por las zonas de sus parejas.
+- **Root cause**: `getMyAllowedVendorKeys()` (index.html:12488) para role `interno` armaba el set solo desde `myExternalPartners` (query `roles.where('internalPartnerUid','==',currentUser.uid)`) + `assignedVendor`. Cuando los VDEs pareja (Mauricio, Martin) no tienen `internalPartnerUid` seteado en `/roles/{uid}`, el set queda con solo la propia zona del VDI.
+- **Fix**: fallback vía `VENDOR_INCLUDES_OTHERS` (map hardcoded que ya existía en index.html:12519 con `IOANNIS PALKOUDAKIS → [FEDERICO, GONZALO]` y `SANTIAGO ESTEBAN → [MAURICIO, MARTIN]`). Si `assignedVendor` matchea una key del map, se agregan las zonas hardcoded al set. Es el mismo patrón que ya usaban `getEffectiveVendorSet` (para expansión al filtrar) y `getSeguimientoExternalSet` (fallback admin/gerente).
+- Aplicado en dos lugares por consistencia: `getMyAllowedVendorKeys` (afecta dropdown ZONA + filtro mapa) y `getSeguimientoExternalSet` (afecta panel Seguimiento).
+- **Bump**: `APP_VERSION` + `CACHE_VERSION` v782 → v783. Bundle sin cambios (patch inline).
+- **Tests**: 308/308 verde. Los tests unitarios de listeners no cubren esta ruta (es lógica de scope de rol, no un listener).
+- **Nota data hygiene**: el fix es defensivo, pero Mariano debería igual chequear en Admin → Usuarios que Mauricio y Martin tengan `internalPartnerUid = Santi.uid` para que la escritura on-behalf-of (crear pedidos/visitas en nombre de) funcione. El fix solo cubre la visibilidad del mapa/dropdown; la escritura on-behalf-of usa `isMyPartnerVDE()` en las Firestore Rules que sí requiere el link real en Firestore.
 
 ### v782 (2026-09-04)
 

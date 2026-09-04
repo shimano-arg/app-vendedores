@@ -169,21 +169,29 @@ BIKE_TRANSITO_WHS = '02'      # transito — se guarda en columna aparte, NO sum
 # generales SIN prefijo U_P_. Todos poblados a >83% en los 9.896 items del
 # grupo 100. El mapeo BQ (nombre_udf → nombre_columna) es:
 #   U_MARCA        -> marca              (marca comercial: Shimano, Rockrider, etc.)
-#   U_CATEG        -> categoria          (nivel alto — 5 valores distintos)
-#   U_CLASS        -> clase              (64 valores)
-#   U_MSS          -> mss                (56 valores)
-#   U_CATEGORIA    -> subcategoria       (nivel fino — 114 valores)
+#   U_CATEG        -> clasificacion_abc  (v782: NO es categoria de producto,
+#                     es clasificacion ABC de rotacion. Valores: A/B/C/D +
+#                     vacios/"-". Renombrado por COWORK 2026-09-04 para
+#                     evitar que se use como jerarquia de producto.)
+#   U_CLASS        -> clase              (jerarquia PRODUCTO: disciplina.
+#                     Ej: ROAD 1.741 | MTB 970 | GRAVEL 126)
+#   U_MSS          -> mss                (jerarquia PRODUCTO: tipo/rubro.
+#                     Ej: SHOES 1.748 | APPAREL 711 | COMPONENTES 377)
+#   U_CATEGORIA    -> subcategoria       (jerarquia PRODUCTO: familia.
+#                     Ej: ZAPATILLAS 1.754 | CASCOS 972 | GUANTES 361)
 #   U_MODELCD      -> modelo             (1.603 valores)
 #   U_CICLO_PROD   -> ciclo_producto     (activo/discontinuado/etc)
-#   U_COS_ART_USD  -> costo_articulo_usd (2da fuente de costo USD independiente
-#                     de price list 7 — para cross-check con la valuacion)
-# Dict ordenado — el probe los va a testear en este orden. La decision de que
-# UDF es "familia" queda del lado Power BI (COWORK arrastra el campo que
-# quiera al modelo). U_P_FAMILIA (Pesca) SIGUE siendo la fuente de familia
-# para el pipeline Pesca; NO se mezcla con estos.
+#   U_COS_ART_USD  -> costo_articulo_usd (v782: DESCARTADO por COWORK —
+#                     carga manual inconsistente, ratio 6%-123% del cost_usd
+#                     de price list 7, en algunos casos SUPERA al landed
+#                     cost. Se mantiene expuesto para drill-down pero NO
+#                     usar para valuacion ni COALESCE.)
+# Dict ordenado — el probe los va a testear en este orden. La jerarquia
+# real de producto es: mss (tipo) -> subcategoria (familia) -> clase
+# (disciplina). marca corta transversalmente. clasificacion_abc es ortogonal.
 BIKE_UDF_MAP = {
     'U_MARCA':        'marca',
-    'U_CATEG':        'categoria',
+    'U_CATEG':        'clasificacion_abc',
     'U_CLASS':        'clase',
     'U_MSS':          'mss',
     'U_CATEGORIA':    'subcategoria',
@@ -452,6 +460,14 @@ def sl_fetch_all(cfg, session, path_base, entity_name,
                 detail = resp.text[:200]
             log(f'[FATAL/{entity_name}] HTTP {resp.status_code} - {detail}. Path: {url_path}')
             sys.exit(4)
+        # v782 (2026-09-04): forzar UTF-8 antes de resp.json(). SAP SL
+        # responde JSON con chars UTF-8 (Ó, Ñ, acentos en item_name/UDFs
+        # de clase, subcategoria, marca) pero NO siempre declara
+        # `charset=utf-8` en Content-Type → requests default a ISO-8859-1
+        # y decodifica mal. Reportado por COWORK: "MULTIPROPÓSITO" salia
+        # como "MULTIPROPÃSITO" en v_inventario_bike.clase. Aplica a
+        # todos los endpoints que traen texto (Items, BP, etc).
+        resp.encoding = 'utf-8'
         body = resp.json()
         page_docs = body.get('value', []) or []
         docs.extend(page_docs)
@@ -620,9 +636,21 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
                 except (TypeError, ValueError):
                     pass
             break
-    # v289 iter2: costo por unidad. Si no hay stock ni costo por warehouse,
-    # queda None y Power BI lo trata como faltante (skip en Valor Inventario Costo).
-    cost_avg = (weighted_cost_num / weighted_cost_den) if weighted_cost_den > 0 else None
+    # v782 (2026-09-04): fix bonus Pesca — poblar cost_avg_ars desde price
+    # list 11 "COSTO ARTICULO ARS" (mismo mecanismo que Bike v777). En este
+    # SAP el costo NO se carga como campo del Item (StandardAveragePrice
+    # viene null → weighted_cost queda null → hasta v781 sap_items_raw.
+    # cost_avg_ars era 100% null y el tablero Pesca mostraba
+    # valor_inventario_costo_ars = 0). Verificado COWORK 2026-09-04: los
+    # 773/773 items Pesca tienen precio en lista 11 (100% cobertura). El
+    # fallback al weighted average queda por si en algun momento SAP
+    # empieza a exponer StandardAveragePrice a nivel warehouse (backward
+    # compat, sin side-effect actual porque siempre da None).
+    cost_from_list11, _ = _find_price_by_list_currency(
+        item.get('ItemPrices'), BIKE_PRICE_LIST_COSTO_ARS, expected_currency='ARS',
+    )
+    weighted_cost_avg = (weighted_cost_num / weighted_cost_den) if weighted_cost_den > 0 else None
+    cost_avg = cost_from_list11 if cost_from_list11 is not None else weighted_cost_avg
     # last_purchase queda para compat con el schema (siempre None hasta que
     # este SAP exponga LastPurchasePrice o algun campo equivalente).
     last_purchase = None
@@ -2236,9 +2264,11 @@ def main():
         bigquery.SchemaField('cost_avg_ars', 'FLOAT64'),
         bigquery.SchemaField('cost_usd', 'FLOAT64'),
         # UDFs OITM (v778): 7 strings + 1 float. Orden coherente con
-        # BIKE_UDF_MAP en el header del script.
+        # BIKE_UDF_MAP en el header del script. v782: `categoria` renombrada
+        # a `clasificacion_abc` (COWORK confirmo que U_CATEG = ABC de
+        # rotacion, no categoria de producto).
         bigquery.SchemaField('marca', 'STRING'),
-        bigquery.SchemaField('categoria', 'STRING'),
+        bigquery.SchemaField('clasificacion_abc', 'STRING'),
         bigquery.SchemaField('clase', 'STRING'),
         bigquery.SchemaField('mss', 'STRING'),
         bigquery.SchemaField('subcategoria', 'STRING'),
