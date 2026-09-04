@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v788](#41-changelog-v300--v785)
+41. [Changelog v300 → v789](#41-changelog-v300--v785)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,23 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v788
+## 41) Changelog v300 → v789
+
+### v789 (2026-09-04)
+
+**Modal Pedido en Espera: panel "Stock asignado del cliente" partido en 2 subsecciones (accionable + info).**
+
+- **Pedido Mariano 2026-09-04**: "que muestre BACKORDER y otra parte que muestre STOCK ASIGNADO, hoy muestra solo BO. Osea lo que tenía como backorder y ahora ingresó stock y se transformó en stock asignado, así los vendedores agregar/eliminar/agregar parcial todo".
+- **Cambio v788 → v789**: el panel `<details>` info-only de v788 se rompe en 2 (o 3) subsecciones dentro del mismo `<details>`:
+
+  1. **✓ STOCK ASIGNADO** (verde, **accionable**): líneas con `state='ASIG'` O `(state='BO' AND stock físico dep11 > 0)`. Cada línea tiene los 3 botones **Eliminar** / **Agregar completo (N)** / **Parcial** que llaman `_asigInlineResolve(w, it, action)`. Esta es la data que el vendedor puede consumir YA.
+  2. **⏳ BACKORDER** (rojo, info-only): líneas con `state='BO' AND stock=0`. Sin botones — no hay que hacer, esperar reposición. Tabla compacta SKU · Producto · Qty · Orden.
+  3. **📤 Enviado a SAP** (azul, colapsable, info-only): líneas con `state='confirmed'` — ya en SAP como Sales Quotation esperando factura. Colapsado por default. Sólo aparece si hay ≥1 línea.
+
+- **Redundancia eliminada**: la sección azul E4B (`wcard-e4b-asig-app`) que mostraba las mismas ASIG accionables ahora se oculta con `display:none` en el render (`_renderE4BAsigApp` retorna early). Se preserva la función para no romper callers (`_asigInlineResolve` la sigue llamando post-mutación, es no-op).
+- **Reactivo con optimistic updates**: cuando el vendedor toca Eliminar/Agregar/Parcial, `_asigInlineResolve` mutea Firestore + optimistic update de `globalPedidos` (v786) → el próximo render del panel refleja el cambio instantáneo (BO+stock que se consumió pasa a `recycled` y desaparece de STOCK ASIGNADO).
+- **Bump**: `APP_VERSION` + `CACHE_VERSION` v788 → v789. Bundle sin cambios (patch inline).
+- **Tests**: unit 308/308 verde.
 
 ### v788 (2026-09-04)
 

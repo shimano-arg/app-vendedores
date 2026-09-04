@@ -5117,7 +5117,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v788';
+const APP_VERSION = 'v789';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15186,13 +15186,16 @@ function _renderE4BBoApp(w){
   }
   cont.style.display = '';
 }
-// v545 E4B step 1: render piloto ASIG app-source. Solo si feature flag on
-// (isE4BEnabled) y el cache tiene entradas para el cliente. Sin botones aun.
-// v788 (2026-09-04): render info-only con TODAS las lineas open del cliente
-// (state IN 'ASIG','BO','confirmed', qtyOpen>0), sin filtros de stock/fecha.
-// Pedido Mariano 2026-09-04: el vendedor necesita ver el panorama completo
-// del cliente al preparar un nuevo pedido — que tiene en SAP, que espera stock,
-// que ya se envio a facturar — para no duplicar ni promesas contradictorias.
+// v789 (2026-09-04): render en 2 subsecciones:
+//   1) STOCK ASIGNADO (accionable): state='ASIG' O (state='BO' con stock fisico
+//      dep11 > 0). Cada linea con botones Eliminar/Agregar completo/Parcial que
+//      llaman _asigInlineResolve — misma logica que la seccion azul E4B pero
+//      absorbida aca para tener todo junto en el mismo panel.
+//   2) BACKORDER (info-only): state='BO' con stock=0. Sin acciones (no hay que
+//      hacer — hay que esperar reposicion de stock).
+// Pedido Mariano 2026-09-04: "muestre BACKORDER y otra parte STOCK ASIGNADO,
+// hoy muestra solo BO". La distincion clave es "stock fisico ya llego?": si si
+// -> el vendedor puede consumirlo YA, si no -> queda esperando FIFO.
 function _renderClienteAllOpenLines(w){
   const cont = document.getElementById('wcard-cliente-open-lines');
   const summary = document.getElementById('wcard-cliente-open-lines-summary');
@@ -15200,7 +15203,7 @@ function _renderClienteAllOpenLines(w){
   if (!cont || !summary || !body) return;
   const cc = String((w && w.clientCardCode) || '').trim();
   if (!cc) {
-    summary.textContent = '📋 Stock asignado del cliente — sin cardCode SAP (LEAD)';
+    summary.textContent = '📋 Stock asignado / Backorder del cliente — sin cardCode SAP (LEAD)';
     while (body.firstChild) body.removeChild(body.firstChild);
     const empty = document.createElement('div');
     empty.style.cssText = 'padding:8px 0;color:var(--text-muted);font-size:11px;font-style:italic';
@@ -15209,7 +15212,7 @@ function _renderClienteAllOpenLines(w){
     return;
   }
   if (!window._pedidosSnapshotLoaded || typeof globalPedidos === 'undefined' || !Array.isArray(globalPedidos)) {
-    summary.textContent = '📋 Cargando stock asignado del cliente...';
+    summary.textContent = '📋 Cargando stock asignado / backorder del cliente...';
     while (body.firstChild) body.removeChild(body.firstChild);
     return;
   }
@@ -15217,82 +15220,217 @@ function _renderClienteAllOpenLines(w){
   if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
     for (const p of PRODUCTS) prodByCode[(p.code || '').toUpperCase()] = p;
   }
-  const rows = [];
+  const getStk = (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : null;
+  // Clasificar en 3 buckets: asignado (accionable), backorder (info), enviadoSap (info).
+  const asignadoRows = [];
+  const backorderRows = [];
+  const enviadoSapRows = [];
   for (const p of globalPedidos) {
     if (!p || p.closedAt) continue;
     if (String(p.clientCardCode || '').trim() !== cc) continue;
     if (p._id === w._id || p._fsId === w._id) continue;
+    const pedidoId = p._fsId || p._id || '';
+    const orderNumber = p.orderNumber || null;
     const lines = Array.isArray(p.lines) ? p.lines : [];
     for (let idx = 0; idx < lines.length; idx++) {
       const l = lines[idx];
       if (!l || !l.code) continue;
-      if (!['ASIG', 'BO', 'confirmed'].includes(l.state)) continue;
       const qo = Number(l.qtyOpen) || 0;
       if (qo <= 0) continue;
-      rows.push({
-        pedidoId: p._fsId || p._id || '',
-        orderNumber: p.orderNumber || null,
-        code: l.code,
-        desc: l.desc || (prodByCode[(l.code || '').toUpperCase()]?.desc) || '',
-        qtyOpen: qo,
-        state: l.state,
-      });
+      const desc = l.desc || (prodByCode[(l.code || '').toUpperCase()]?.desc) || '';
+      const row = {
+        pedidoId, orderNumber, lineIndex: idx,
+        code: l.code, desc, qtyOpen: qo, state: l.state,
+        // priceAtCreation por si _asigInlineResolve lo necesita.
+        priceAtCreation: Number(l.priceAtCreation || l.precio || 0),
+      };
+      if (l.state === 'ASIG') {
+        asignadoRows.push(row);
+      } else if (l.state === 'BO') {
+        const stk = getStk ? (getStk(l.code) || 0) : 0;
+        if (stk > 0) {
+          row.isVirtualAsig = true;
+          asignadoRows.push(row);
+        } else {
+          backorderRows.push(row);
+        }
+      } else if (l.state === 'confirmed') {
+        enviadoSapRows.push(row);
+      }
     }
   }
-  rows.sort((a, b) => String(a.code).localeCompare(String(b.code)) || (a.pedidoId || '').localeCompare(b.pedidoId || ''));
-  const totalU = rows.reduce((s, r) => s + r.qtyOpen, 0);
-  const uniqueSkus = new Set(rows.map(r => r.code));
-  summary.textContent = rows.length === 0
-    ? '📋 Stock asignado del cliente — sin líneas open (todo cerrado o facturado)'
-    : '📋 Mostrar stock asignado del cliente (' + uniqueSkus.size + ' SKU / ' + totalU + ' u en ' + rows.length + ' línea/s)';
-  while (body.firstChild) body.removeChild(body.firstChild);
-  if (rows.length === 0) return;
-  // Tabla compacta info-only. Sin botones — se manejan desde otras secciones
-  // (Fusionar, Eliminar/Agregar/Parcial de la seccion azul).
-  const table = document.createElement('table');
-  table.style.cssText = 'width:100%;border-collapse:collapse;font-size:11px;margin-top:6px';
-  const thead = document.createElement('thead');
-  thead.innerHTML = '<tr style="background:#e2e8f0"><th style="text-align:left;padding:5px 8px">SKU</th><th style="text-align:left;padding:5px 8px">Producto</th><th style="text-align:right;padding:5px 8px">Qty open</th><th style="text-align:center;padding:5px 8px">Estado</th><th style="text-align:left;padding:5px 8px">Orden</th></tr>';
-  table.appendChild(thead);
-  const tbody = document.createElement('tbody');
-  const stateColor = { ASIG: '#059669', BO: '#b45309', confirmed: '#1e40af' };
-  const stateLabel = { ASIG: 'ASIG', BO: 'BO', confirmed: 'ENVIADO SAP' };
-  for (const r of rows) {
-    const tr = document.createElement('tr');
-    tr.style.cssText = 'border-bottom:1px solid #e2e8f0';
-    const tdSku = document.createElement('td');
-    tdSku.style.cssText = 'padding:5px 8px;font-family:monospace;font-weight:800';
-    tdSku.textContent = r.code;
-    const tdDesc = document.createElement('td');
-    tdDesc.style.cssText = 'padding:5px 8px;color:var(--text-secondary)';
-    tdDesc.textContent = r.desc || '(sin descripcion)';
-    const tdQty = document.createElement('td');
-    tdQty.style.cssText = 'padding:5px 8px;text-align:right;font-weight:700';
-    tdQty.textContent = String(r.qtyOpen);
-    const tdState = document.createElement('td');
-    tdState.style.cssText = 'padding:5px 8px;text-align:center';
-    const tag = document.createElement('span');
-    tag.textContent = stateLabel[r.state] || r.state;
-    tag.style.cssText = 'padding:2px 8px;border-radius:10px;font-size:9.5px;font-weight:800;background:' + (stateColor[r.state] || '#64748b') + ';color:#fff;letter-spacing:.3px';
-    tdState.appendChild(tag);
-    const tdOrd = document.createElement('td');
-    tdOrd.style.cssText = 'padding:5px 8px;color:var(--text-muted);font-size:10px';
-    tdOrd.textContent = r.orderNumber ? ('ORDEN ' + r.orderNumber) : String(r.pedidoId).slice(0, 8);
-    tr.appendChild(tdSku); tr.appendChild(tdDesc); tr.appendChild(tdQty); tr.appendChild(tdState); tr.appendChild(tdOrd);
-    tbody.appendChild(tr);
+  const _sortRows = (a, b) => String(a.code).localeCompare(String(b.code)) || (a.pedidoId || '').localeCompare(b.pedidoId || '');
+  asignadoRows.sort(_sortRows);
+  backorderRows.sort(_sortRows);
+  enviadoSapRows.sort(_sortRows);
+  const totalAsig = asignadoRows.reduce((s, r) => s + r.qtyOpen, 0);
+  const totalBo = backorderRows.reduce((s, r) => s + r.qtyOpen, 0);
+  const totalEnviado = enviadoSapRows.reduce((s, r) => s + r.qtyOpen, 0);
+  const totalRows = asignadoRows.length + backorderRows.length + enviadoSapRows.length;
+  if (totalRows === 0) {
+    summary.textContent = '📋 Stock asignado / Backorder del cliente — sin líneas open';
+    while (body.firstChild) body.removeChild(body.firstChild);
+    return;
   }
-  table.appendChild(tbody);
-  body.appendChild(table);
-  const foot = document.createElement('div');
-  foot.style.cssText = 'margin-top:6px;font-size:10px;color:var(--text-muted);font-style:italic;line-height:1.4';
-  foot.textContent = 'ASIG = reserva firme con stock. BO = pedido pendiente sin stock. ENVIADO SAP = ya facturable en SAP. Para consolidar al pedido actual, usa Fusionar en la fila o los botones Eliminar/Agregar/Parcial de la sección azul.';
-  body.appendChild(foot);
+  summary.textContent = '📋 Mostrar stock asignado (' + asignadoRows.length + ') + backorder (' + backorderRows.length + ')' +
+    (enviadoSapRows.length ? ' + enviado SAP (' + enviadoSapRows.length + ')' : '') +
+    ' del cliente';
+  while (body.firstChild) body.removeChild(body.firstChild);
+
+  // ============ SUBSECCION 1: STOCK ASIGNADO (accionable) ============
+  const asigBox = document.createElement('div');
+  asigBox.style.cssText = 'margin-bottom:10px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:6px;padding:10px 12px';
+  const asigTitle = document.createElement('div');
+  asigTitle.style.cssText = 'font-size:12px;font-weight:800;color:#14532d;margin-bottom:4px';
+  asigTitle.textContent = '✓ STOCK ASIGNADO — ' + asignadoRows.length + ' línea/s · ' + totalAsig + ' u';
+  asigBox.appendChild(asigTitle);
+  const asigDesc = document.createElement('div');
+  asigDesc.style.cssText = 'font-size:10.5px;color:#166534;margin-bottom:8px;line-height:1.4';
+  asigDesc.textContent = 'Reservas del cliente CON stock físico disponible ahora. Elegí qué hacer con cada línea: eliminar libera el stock para otros; agregar completo mueve las unidades al pedido actual; parcial pide cuántas.';
+  asigBox.appendChild(asigDesc);
+  if (asignadoRows.length === 0) {
+    const emptyMsg = document.createElement('div');
+    emptyMsg.style.cssText = 'padding:6px 0;color:var(--text-muted);font-size:11px;font-style:italic';
+    emptyMsg.textContent = 'Sin líneas con stock asignado hoy (todo lo del cliente está en backorder esperando reposición).';
+    asigBox.appendChild(emptyMsg);
+  } else {
+    for (const it of asignadoRows) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg-elevated);border:1px solid #bbf7d0;border-radius:5px;font-size:11px;flex-wrap:wrap;margin-bottom:6px';
+      const left = document.createElement('div');
+      left.style.cssText = 'flex:1;min-width:200px';
+      const code = document.createElement('div');
+      code.style.cssText = 'font-family:monospace;font-weight:800;color:var(--text-primary);font-size:10.5px';
+      code.textContent = it.code;
+      const desc = document.createElement('div');
+      desc.style.cssText = 'color:var(--text-secondary);margin-top:1px;font-size:10.5px';
+      if (it.desc) desc.textContent = it.desc; else desc.style.display = 'none';
+      const meta = document.createElement('div');
+      meta.style.cssText = 'color:var(--text-muted);font-size:9.5px;margin-top:2px';
+      const lbl = it.isVirtualAsig ? 'BO + stock disp (virtual ASIG)' : 'ASIG';
+      meta.textContent = lbl + ' · ' + it.qtyOpen + ' u · ' + (it.orderNumber ? ('ORDEN ' + it.orderNumber) : ('pedido ' + String(it.pedidoId).slice(0, 6)));
+      left.appendChild(code); left.appendChild(desc); left.appendChild(meta);
+      row.appendChild(left);
+      const tag = document.createElement('span');
+      tag.style.cssText = 'flex-shrink:0;background:#dcfce7;color:#14532d;padding:4px 8px;border-radius:4px;font-size:10.5px;font-weight:800';
+      tag.textContent = it.qtyOpen + ' u';
+      row.appendChild(tag);
+      const btnDel = document.createElement('button');
+      btnDel.type = 'button';
+      btnDel.textContent = '🗑 Eliminar';
+      btnDel.style.cssText = 'flex-shrink:0;background:var(--color-danger-bg);color:var(--color-danger-strong);border:1px solid #fca5a5;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
+      btnDel.onclick = () => _asigInlineResolve(w, it, 'delete');
+      row.appendChild(btnDel);
+      const btnFull = document.createElement('button');
+      btnFull.type = 'button';
+      btnFull.textContent = '✓ Agregar completo (' + it.qtyOpen + ')';
+      btnFull.style.cssText = 'flex-shrink:0;background:var(--color-success-bg);color:var(--color-success);border:1px solid #86efac;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
+      btnFull.onclick = () => _asigInlineResolve(w, it, 'full');
+      row.appendChild(btnFull);
+      const btnPart = document.createElement('button');
+      btnPart.type = 'button';
+      btnPart.textContent = '✎ Parcial';
+      btnPart.style.cssText = 'flex-shrink:0;background:#dbeafe;color:var(--text-primary);border:1px solid #93c5fd;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
+      btnPart.onclick = () => _asigInlineResolve(w, it, 'partial');
+      row.appendChild(btnPart);
+      asigBox.appendChild(row);
+    }
+  }
+  body.appendChild(asigBox);
+
+  // ============ SUBSECCION 2: BACKORDER PENDIENTE (info-only) ============
+  const boBox = document.createElement('div');
+  boBox.style.cssText = 'margin-bottom:10px;background:#fef2f2;border:1.5px solid #fca5a5;border-radius:6px;padding:10px 12px';
+  const boTitle = document.createElement('div');
+  boTitle.style.cssText = 'font-size:12px;font-weight:800;color:var(--color-danger-strong);margin-bottom:4px';
+  boTitle.textContent = '⏳ BACKORDER — ' + backorderRows.length + ' línea/s · ' + totalBo + ' u';
+  boBox.appendChild(boTitle);
+  const boDesc = document.createElement('div');
+  boDesc.style.cssText = 'font-size:10.5px;color:#7f1d1d;margin-bottom:8px;line-height:1.4';
+  boDesc.textContent = 'Pedidos del cliente SIN stock hoy (esperando reposición). Cuando llegue mercadería, el sistema promueve a "asignado" automáticamente (FIFO por fecha de pedido) y aparecen arriba con los botones.';
+  boBox.appendChild(boDesc);
+  if (backorderRows.length === 0) {
+    const emptyMsg = document.createElement('div');
+    emptyMsg.style.cssText = 'padding:6px 0;color:var(--text-muted);font-size:11px;font-style:italic';
+    emptyMsg.textContent = 'Sin líneas en backorder — todo lo del cliente tiene stock asignado o ya se facturó.';
+    boBox.appendChild(emptyMsg);
+  } else {
+    const table = document.createElement('table');
+    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:11px';
+    const thead = document.createElement('thead');
+    thead.innerHTML = '<tr style="background:#fee2e2;color:#7f1d1d"><th style="text-align:left;padding:5px 8px">SKU</th><th style="text-align:left;padding:5px 8px">Producto</th><th style="text-align:right;padding:5px 8px">Qty</th><th style="text-align:left;padding:5px 8px">Orden</th></tr>';
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    for (const r of backorderRows) {
+      const tr = document.createElement('tr');
+      tr.style.cssText = 'border-bottom:1px solid #fecaca';
+      const tdSku = document.createElement('td');
+      tdSku.style.cssText = 'padding:5px 8px;font-family:monospace;font-weight:800';
+      tdSku.textContent = r.code;
+      const tdDesc = document.createElement('td');
+      tdDesc.style.cssText = 'padding:5px 8px;color:var(--text-secondary)';
+      tdDesc.textContent = r.desc || '(sin descripcion)';
+      const tdQty = document.createElement('td');
+      tdQty.style.cssText = 'padding:5px 8px;text-align:right;font-weight:700';
+      tdQty.textContent = String(r.qtyOpen);
+      const tdOrd = document.createElement('td');
+      tdOrd.style.cssText = 'padding:5px 8px;color:var(--text-muted);font-size:10px';
+      tdOrd.textContent = r.orderNumber ? ('ORDEN ' + r.orderNumber) : String(r.pedidoId).slice(0, 8);
+      tr.appendChild(tdSku); tr.appendChild(tdDesc); tr.appendChild(tdQty); tr.appendChild(tdOrd);
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    boBox.appendChild(table);
+  }
+  body.appendChild(boBox);
+
+  // ============ SUBSECCION 3: ENVIADO A SAP (info-only, colapsable) ============
+  if (enviadoSapRows.length > 0) {
+    const sapBox = document.createElement('details');
+    sapBox.style.cssText = 'margin-bottom:4px;background:#eff6ff;border:1.5px solid #93c5fd;border-radius:6px;padding:0';
+    const sapSum = document.createElement('summary');
+    sapSum.style.cssText = 'cursor:pointer;padding:8px 12px;font-size:11px;font-weight:800;color:#1e40af;user-select:none';
+    sapSum.textContent = '📤 Enviado a SAP — ' + enviadoSapRows.length + ' línea/s · ' + totalEnviado + ' u (click para ver)';
+    sapBox.appendChild(sapSum);
+    const sapContent = document.createElement('div');
+    sapContent.style.cssText = 'padding:0 12px 10px 12px';
+    const sapDesc = document.createElement('div');
+    sapDesc.style.cssText = 'font-size:10px;color:#1e3a8a;margin-bottom:6px;line-height:1.4;font-style:italic';
+    sapDesc.textContent = 'Líneas del cliente ya confirmadas en SAP como Sales Quotation, esperando factura. No accionable desde acá.';
+    sapContent.appendChild(sapDesc);
+    for (const r of enviadoSapRows) {
+      const line = document.createElement('div');
+      line.style.cssText = 'font-size:11px;padding:3px 0;color:var(--text-secondary)';
+      const codeSpan = document.createElement('span');
+      codeSpan.style.cssText = 'font-family:monospace;font-weight:800;color:var(--text-primary)';
+      codeSpan.textContent = r.code;
+      line.appendChild(codeSpan);
+      line.appendChild(document.createTextNode(' · ' + (r.desc || '(sin desc)') + ' · '));
+      const qtyB = document.createElement('b');
+      qtyB.textContent = r.qtyOpen + ' u';
+      line.appendChild(qtyB);
+      if (r.orderNumber) line.appendChild(document.createTextNode(' · ORDEN ' + r.orderNumber));
+      sapContent.appendChild(line);
+    }
+    sapBox.appendChild(sapContent);
+    body.appendChild(sapBox);
+  }
 }
 
 function _renderE4BAsigApp(w){
   const cont = document.getElementById('wcard-e4b-asig-app');
   const rows = document.getElementById('wcard-e4b-asig-app-rows');
   if (!cont || !rows) return;
+  // v789 (2026-09-04): esta seccion azul quedo redundante — su contenido fue
+  // absorbido por la nueva seccion "Stock asignado / Backorder" (subseccion
+  // verde con los mismos botones Eliminar/Agregar completo/Parcial). Ocultamos
+  // el contenedor para no duplicar info. Se preserva la fn para no romper
+  // callers (ver ademas _asigInlineResolve line 15330 y line 15474 en el
+  // codigo E4B). Puede eliminarse en un cleanup futuro.
+  cont.style.display = 'none';
+  while (rows.firstChild) rows.removeChild(rows.firstChild);
+  return;
+  // eslint-disable-next-line no-unreachable
   // v704 (2026-08-28): usar _findAsigDelCliente (linea real, no virtual FIFO) y
   // mostrar 3 opciones inline por linea: Eliminar / Agregar completo / Agregar
   // parcial. Antes solo Aceptar/Rechazar via CF y bajo flag isE4BEnabled().
