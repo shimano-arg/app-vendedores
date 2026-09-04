@@ -43,6 +43,7 @@ import {
   summarizeStorageUsage,
 } from './pure/panel-metrics.js';
 import { reenrichPedidoLine, splitPedidoLine } from './pure/pedido-split.js';
+import { reportCriticalErrorPure } from './pure/report-critical-error.js';
 import { matchSkuFromTitle } from './pure/product-match.js';
 import { matchesAllTokens } from './pure/search.js';
 import {
@@ -144,6 +145,7 @@ const phase0 = {
     passesTypeFilter,
     splitPedidoLine,
     reenrichPedidoLine,
+    reportCriticalErrorPure,
     getStockRealmenteDisponible,
     getStockDesglose,
     getStockPorCliente,
