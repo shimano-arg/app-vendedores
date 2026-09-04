@@ -55,7 +55,8 @@
 export function reportCriticalErrorPure(err, opts, deps) {
   const op = String((opts && opts.op) || 'unknown');
   const extra = (opts && opts.extra) || {};
-  const userMsg = (opts && opts.userMsg) || ('No pude ' + op.replace(/-/g, ' ') + '. Reintentá en un momento.');
+  const userMsg =
+    (opts && opts.userMsg) || 'No pude ' + op.replace(/-/g, ' ') + '. Reintentá en un momento.';
   const silent = !!(opts && opts.silent);
 
   // 1. console.error real (no warn — es error de verdad).

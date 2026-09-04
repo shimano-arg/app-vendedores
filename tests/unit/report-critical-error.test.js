@@ -23,7 +23,11 @@ describe('reportCriticalErrorPure', () => {
   it('llama a Sentry.captureException con tags op + source + extra enriquecido', () => {
     const deps = makeDeps();
     const err = new Error('boom');
-    reportCriticalErrorPure(err, { op: 'save-default-delivery', extra: { cliDocId: 'X|Y|Z' } }, deps);
+    reportCriticalErrorPure(
+      err,
+      { op: 'save-default-delivery', extra: { cliDocId: 'X|Y|Z' } },
+      deps
+    );
     expect(deps.sentry.captureException).toHaveBeenCalledWith(err, {
       tags: { op: 'save-default-delivery', source: 'reportCriticalError' },
       extra: {
@@ -38,7 +42,7 @@ describe('reportCriticalErrorPure', () => {
     const deps = makeDeps();
     reportCriticalErrorPure(new Error('x'), { op: 'notif-vde-partner' }, deps);
     expect(deps.showErrorToast).toHaveBeenCalledWith(
-      'No pude notif vde partner. Reintentá en un momento.',
+      'No pude notif vde partner. Reintentá en un momento.'
     );
   });
 
@@ -47,7 +51,7 @@ describe('reportCriticalErrorPure', () => {
     reportCriticalErrorPure(
       new Error('x'),
       { op: 'auto-confirm-100bo', userMsg: 'Mensaje custom' },
-      deps,
+      deps
     );
     expect(deps.showErrorToast).toHaveBeenCalledWith('Mensaje custom');
   });
@@ -63,7 +67,7 @@ describe('reportCriticalErrorPure', () => {
   it('sentry null (loader no cargó) NO rompe el flow — console + toast siguen', () => {
     const deps = makeDeps({ sentry: null });
     expect(() =>
-      reportCriticalErrorPure(new Error('x'), { op: 'dm-announcement-persist' }, deps),
+      reportCriticalErrorPure(new Error('x'), { op: 'dm-announcement-persist' }, deps)
     ).not.toThrow();
     expect(deps.console.error).toHaveBeenCalledTimes(1);
     expect(deps.showErrorToast).toHaveBeenCalledTimes(1);
@@ -78,7 +82,7 @@ describe('reportCriticalErrorPure', () => {
       },
     });
     expect(() =>
-      reportCriticalErrorPure(new Error('x'), { op: 'waitlist-update-skipped' }, deps),
+      reportCriticalErrorPure(new Error('x'), { op: 'waitlist-update-skipped' }, deps)
     ).not.toThrow();
     // Toast igual se muestra.
     expect(deps.showErrorToast).toHaveBeenCalledTimes(1);
@@ -91,7 +95,7 @@ describe('reportCriticalErrorPure', () => {
       }),
     });
     expect(() =>
-      reportCriticalErrorPure(new Error('x'), { op: 'notif-vde-partner' }, deps),
+      reportCriticalErrorPure(new Error('x'), { op: 'notif-vde-partner' }, deps)
     ).not.toThrow();
     // Console + Sentry igual se llamaron.
     expect(deps.console.error).toHaveBeenCalledTimes(1);
@@ -104,7 +108,7 @@ describe('reportCriticalErrorPure', () => {
     expect(deps.console.error).toHaveBeenCalledWith('[unknown]', expect.any(Error), {});
     expect(deps.sentry.captureException).toHaveBeenCalledWith(
       expect.any(Error),
-      expect.objectContaining({ tags: expect.objectContaining({ op: 'unknown' }) }),
+      expect.objectContaining({ tags: expect.objectContaining({ op: 'unknown' }) })
     );
   });
 
@@ -115,7 +119,7 @@ describe('reportCriticalErrorPure', () => {
       expect.any(Error),
       expect.objectContaining({
         extra: expect.objectContaining({ userEmail: null }),
-      }),
+      })
     );
   });
 
@@ -123,7 +127,7 @@ describe('reportCriticalErrorPure', () => {
     const deps = makeDeps();
     reportCriticalErrorPure(new Error('x'), { op: 'save-default-delivery-waitlist' }, deps);
     expect(deps.showErrorToast).toHaveBeenCalledWith(
-      'No pude save default delivery waitlist. Reintentá en un momento.',
+      'No pude save default delivery waitlist. Reintentá en un momento.'
     );
   });
 });
