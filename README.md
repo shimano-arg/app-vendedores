@@ -4670,7 +4670,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v806
+## 41) Changelog v300 → v807
+
+### v807 (2026-09-04) — Loop Engineering iter 4 🧹: purge legacy dead functions (-83 LOC)
+
+**3 funciones legacy marcadas explícitamente como "ya no invocado" borradas de `index.html`.**
+
+- **Contexto**: iter 4 del Loop Engineering. El plan pedía purgar comentarios pre-v600 sin valor. Al inspeccionar, la ganancia grande estaba en funciones enteras marcadas "(legacy, ya no invocado post-vXXX)" que colgaban del monolito. Los comentarios de estilo "vNNN: antes hacíamos X" en su mayoría documentan bugs históricos o edge cases y se preservan (regla del plan).
+- **Funciones eliminadas**:
+  1. `waitlistExportStockAsignado` (index.html:16651, ~70 LOC) — marcada `v492 (legacy, ya no invocado post-v525 - reemplazado por waitlistExportTodo)`. 0 callers verificados en index.html + src/.
+  2. `_loadStockAsigTemplate` + `_stockAsigTemplateBuffer` var (~9 LOC) — solo era usado por (1).
+  3. `_e4bFetchAsigApp` no-op stub + `_E4B_ASIG_CACHE` legacy null (~5 LOC) — marcada `Deprecated (v548): ahora leemos del listener global`. 0 callers.
+- **Deltas**: `index.html` -83 LOC (25350→25267). Bundle intacto (funciones estaban en el monolito, no en el bundle).
+- **Bump**: APP_VERSION+CACHE_VERSION v806 → v807.
+- **Nota scope**: el plan pedía ~200 LOC. Se prefirió delivery de 83 LOC de dead code REAL (funciones enteras verificadas dead) sobre alcanzar el número deletando comentarios que documentan bugs (regla plan: "preservar los que documentan bugs históricos o edge cases"). Comentarios noise (326 prefijos `// vNNN`) quedan para un iter futuro si se decide priorizar noise-reduction sobre risk.
+- **Gate cumplido**: suite unit `319/319 verde`. Grep `waitlistExportStockAsignado|_loadStockAsigTemplate|_e4bFetchAsigApp|_E4B_ASIG_CACHE = 0` en repo entero ✓.
 
 ### v806 (2026-09-04) — Loop Engineering iter 3 🧹: kill dead code post-return
 
