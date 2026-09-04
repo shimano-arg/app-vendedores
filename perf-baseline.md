@@ -7,20 +7,21 @@ Baseline de performance para el flujo Pedido en Espera. Generado por
 
 ## Última corrida
 
-- **Fecha (UTC)**: 2026-09-04T18:53:56.018Z
+- **Fecha (UTC)**: 2026-09-04T19:48:01.618Z
 - **Commit**: `local`
 - **Runs**: 5 (median calculado sobre estos)
 - **Iteraciones por run**: 1000
 - **Fixture**: 500 pedidos-app, 200 SKUs, 30 clientes
-- **Total bench time**: 2128 ms (gate <10.000 ms)
+- **Total bench time**: 2166 ms (gate <10.000 ms)
 
 ## Resultados
 
 | Función | n_runs | median (ms) | p95 (ms) | max (ms) | µs por iter |
 |---|---|---|---|---|---|
-| getStockPorCliente (diverse sku,cc) | 5 | 141.7324 | 165.1821 | 165.1821 | 146.83 |
-| getStockPorCliente (repeat same sku,cc) | 5 | 142.5263 | 145.8615 | 145.8615 | 142.58 |
-| getStockRealmenteDisponible (diverse sku) | 5 | 131.2748 | 139.672 | 139.672 | 132.75 |
+| getStockPorCliente (diverse sku,cc) | 5 | 148.5405 | 168.7149 | 168.7149 | 150.57 |
+| getStockPorCliente (repeat same sku,cc) | 5 | 141.721 | 155.2619 | 155.2619 | 144.04 |
+| getStockPorClienteMemo (repeat + cache) | 5 | 0.4613 | 1.1638 | 1.1638 | 0.64 |
+| getStockRealmenteDisponible (diverse sku) | 5 | 135.0494 | 144.9518 | 144.9518 | 136.18 |
 
 ## Interpretación
 

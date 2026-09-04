@@ -4670,7 +4670,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v808
+## 41) Changelog v300 → v809
+
+### v809 (2026-09-04) — Loop Engineering iter 6 ⚡: getStockPorCliente memoization (−99.6%)
+
+**Cache WeakMap para `getStockPorCliente` — bench mide reducción de 144.04 µs → 0.64 µs/call en repeat scenario (target del plan era −60%, obtenido −99.6%).**
+
+- **Contexto**: iter 6 del Loop Engineering. `_renderWaitlistCard` llama `window.getStockPorCliente(sku, cardCode)` en un loop por SKU (30-50 por cliente) y en cada tick de UI (edit qty, agregar SKU). Sin cache, cada call itera todo `globalPedidos` (500+ pedidos en clientes grandes). Bench iter 1 baseline: 142 µs/call.
+- **Estrategia**:
+  1. `WeakMap<pedidosArray, Map<key, {result, ts}>>` — key = `sku|cardCode|fisico`. Cuando `globalPedidos` se reemplaza por nueva ref (Firestore onSnapshot), el WeakMap se GC automáticamente.
+  2. Sub-cache keyed por `sku|cardCode|fisico` — incluir `fisico` invalida al cambiar stock snapshot.
+  3. TTL 5s como safety net contra mutación in-place de `globalPedidos` (v786 optimistic update lo hace). Entries con edad > 5s se recomputan.
+- **Arquitectura**: nueva fn `getStockPorClienteMemo` en `src/pure/stock-realmente-disponible.js` con misma API. Runtime `window.getStockPorCliente` en index.html:5344 ahora delega a la memo version (fallback a no-memo si el bundle no cargó todavía — edge case bootstrap).
+- **Bench results (500 pedidos × 200 SKUs × 30 clientes)**:
+  - `getStockPorCliente (diverse)`: 150.57 µs/call (peor caso, sin memo hit)
+  - `getStockPorCliente (repeat, no-memo)`: 144.04 µs/call
+  - `getStockPorClienteMemo (repeat + cache)`: **0.64 µs/call ← 99.6% reducción**
+- **Tests**: `tests/unit/stock-por-cliente-memo.test.js` con 9 casos (cache hit, miss por cardCode/sku/fisico, invalidación pedidos ref, TTL safety, deps null, sku vacío).
+- **Suite**: 337/337 verde (328 + 9 nuevos).
+- **Bump**: APP_VERSION+CACHE_VERSION v808 → v809.
+
+
 
 ### v808 (2026-09-04) — Loop Engineering iter 5 ✨: loading skeleton para panel Stock Asignado / Backorder
 

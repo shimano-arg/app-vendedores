@@ -50,6 +50,7 @@ import { matchesAllTokens } from './pure/search.js';
 import {
   getStockDesglose,
   getStockPorCliente,
+  getStockPorClienteMemo,
   getStockRealmenteDisponible,
 } from './pure/stock-realmente-disponible.js';
 import { createSapClient } from './sap-client.js';
@@ -151,6 +152,7 @@ const phase0 = {
     getStockRealmenteDisponible,
     getStockDesglose,
     getStockPorCliente,
+    getStockPorClienteMemo,
     canViewPanel,
     computeHealthStatus,
     computeAgeMinutes,
