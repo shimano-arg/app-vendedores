@@ -4670,7 +4670,25 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v811
+## 41) Changelog v300 → v812
+
+### v812 (2026-09-04) — docs §50 Tablero Fujita/Gambera + §49 SETUP update
+
+**Docs-only. Sin cambios de código.**
+
+- Nueva sección **§50 Tablero Fujita/Gambera — cobranzas + e-checks + crédito + margen — PENDIENTE probes SL + definiciones Finanzas**. Documenta la exploración read-only del 2026-09-04 con evidencia:
+  - Estado por requerimiento (5 items de Fujita + 2 bonus)
+  - Verificaciones ya hechas contra BQ (`credit_line` 100% NULL, `GrossBuyPrice` 99.85%, gap 56x entre `v_deuda_facturas_detalle` fishing-only y `v_facturas_sap` completa)
+  - 9 preguntas priorizadas para Guillermo (Finanzas)
+  - 6 probes SL live pendientes de dispatch
+  - Backlog priorizado en 3 sprints
+  - 4 riesgos flageados antes de comprometer features con Fujita
+  - Links a `INFORME_COBRANZAS_2026-09-04.md` + `FOLLOW_UP_FUJITA_2026-09-05.md` en `Desktop\BIKE DASHBOARD\`
+- Update **§49 SETUP**: "sin novedades del proveedor. Sigue pendiente. Retomar cuando lleguen los endpoints."
+- **Prioridades activas** en la app-vendedores para retomar: §49 (SETUP CRM) + §50 (Tablero Fujita). Ambas son iniciativas de dirección.
+- Bump: APP_VERSION+CACHE_VERSION v811 → v812.
+
+
 
 ### v811 (2026-09-04) — Loop Engineering iter 8 📦: chunk lazy seguimiento (-130 KB shell)
 
@@ -8919,4 +8937,115 @@ Alcance: **consulta de estado en tiempo casi real** vía polling / webhook. NO e
 6. Rollout gradual: 10% de pedidos primero, monitorear rate limits + coherencia de estados vs realidad, escalar al 100%.
 
 **Cuándo replantear**: si SETUP dice "no tenemos endpoint, hay que desarrollarlo y son 3 meses + $X", evaluar alternativa (ej: query directa a la BD de SETUP, export CSV diario, integración vía SAP si es que SETUP alimenta a SAP también, etc).
+
+**Estado 2026-09-04**: sin novedades de SETUP. Sigue pendiente. Retomar cuando lleguen los endpoints.
+
+---
+
+## 50) Tablero Fujita/Gambera — cobranzas + e-checks + crédito + margen — PENDIENTE probes SL + definiciones Finanzas
+
+**Estado 2026-09-04**: exploración read-only completada, informe entregado, arranque planificado para 2026-09-05. Sin código armado del lado nuestro aún.
+
+Junto con §49 (SETUP), es una de las **2 iniciativas grandes pendientes** de arrancar. Prioridad ALTA de dirección — pedido explícito de Yutaka Fujita (director) y Guillermo Gambera (finanzas).
+
+### 50.1 Objetivo
+
+Construir un tablero de Power BI con visibilidad de **crédito y cobranzas Bike + Fishing** (universo completo, no una sola división) alimentado por el mismo pipeline SAP → BigQuery que ya usan los otros tableros. Tres menús principales:
+
+1. **Aged report de e-checks**: cliente + datos del cheque + importe + fecha de pago + fecha REAL de acreditación
+2. **Métrica de velocidad** e-check: días entre recepción y acreditación efectiva
+3. **Sales & Gross Profit** por SKU / modelo / cliente (visión de margen)
+
+Bonus operativo pedido por Gambera:
+4. **Credit limits** por cliente (CreditLine + CurrentAccountBalance + MaxCommitment de SAP BusinessPartners)
+5. **AR aging** completo Bike + Fishing (buckets 0-30/31-60/61-90/>90) — hoy `v_deuda_facturas_detalle` tiene filtro Fishing hardcoded, dejando afuera Bike y ~98% del saldo real.
+
+### 50.2 Estado por requerimiento (verificado 2026-09-04)
+
+| # | Requerimiento | Estado | Bloqueante |
+|---|---|---|---|
+| 1 | Aged e-checks | ❌ NO se puede hoy | Falta `/IncomingPayments` en el pipeline (cero data de pagos en BQ) |
+| 2 | Fecha real de acreditación | ❌ NO | Falta `/Deposits` **Y** decisión de Finanzas sobre cuál de las 3 fechas cuenta (DueDate cheque / DepositDate / conciliación bancaria) |
+| 3 | Velocidad e-checks | ❌ NO | Depende de #1 + #2 |
+| 4 | Credit limits | ⚠ Parcial | `credit_line` y `current_account_balance` = 100% NULL en `sap_bp_raw` (2409 BPs activos). El sync SL no los trae en el `$select` actual. Fix: 30 min |
+| 5 | Sales & Gross Profit | ✅ SÍ | `GrossBuyPrice` presente en 99.85% de líneas 12m (verificado en `sap_invoices_raw.lines_json`). Falta escribir vista + Power BI |
+| 6 | AR aging Bike+Fishing | ✅ SÍ | `v_facturas_sap` ya sirve. Falta buckets + Power BI |
+| 7 | Fix `v_deuda_facturas_detalle` | ✅ SÍ, 1-2 hs | Sacar filtro Fishing hardcoded + cambiar INNER JOIN a app_clients por LEFT JOIN |
+
+### 50.3 Verificaciones ya hechas 2026-09-04 (evidencia)
+
+- **Dataset shimano_app** NO tiene ni una tabla de pagos, cheques ni depósitos (`bq ls` completo — cero matches para `payments`, `checks`, `deposits`, `bank`).
+- **v_deuda_facturas_detalle** tiene `WHERE assigned_vendor IN ('GONZALO DE LA ROSA', 'MAURICIO GIL', 'IOANNIS PALKOUDAKIS', 'SANTIAGO ESTEBAN', 'FEDERICO CASTELANELLI', 'MARTIN BOIERO')` hardcoded en el SQL de la vista, más INNER JOIN con `client_applications` — deja afuera Bike y clientes sin alta en app.
+- **v_facturas_sap** sin filtro división ni vendedor, solo `cancelled='tNO'`. Universo completo abierto: 64 clientes, 1,063 millones ARS de saldo, 84 rows. Contra la vista fishing-only: 9 clientes, 18.9 millones ARS. Gap 56x.
+- **`sap_invoices_raw.lines_json`**: `GrossBuyPrice > 0` en 99.85% (66,847 / 66,949 líneas 12m). `StockPrice > 0` en 0.00% — no viene del SL, no usar.
+- **Sync pipeline**: `.github/workflows/sync-sap-to-bigquery.yml` corre `'8,38 * * * *'` (cada 30 min UTC). Último sync verificado 2026-09-04 19:49 UTC (data fresh). Fresh a las 16:30 ART = data de la corrida 15:38 → **20-30 min de antigüedad como peor caso**.
+- **Endpoints SL usados hoy**: `Login`, `BusinessPartners` ($select sin CreditLine/CurrentAccountBalance/MaxCommitment), `Items`, `Invoices` (con lines_json), `Quotations`, `Orders`, `PurchaseOrders`, `DeliveryNotes`, `Returns`, `CreditNotes`, `InventoryGenEntries`, `InventoryTransfers`. **NO usa**: `/IncomingPayments`, `/Deposits`, `/BankStatements`, `/Checks`.
+
+### 50.4 Preguntas a GUILLERMO (Finanzas) — antes de diseñar features
+
+Sin las respuestas de estas preguntas hay features que no se pueden construir:
+
+1. **¿Cuál de las 3 fechas cuenta como "acreditación"?** DueDate del cheque / DepositDate / fecha bancaria conciliada. Las 3 dan métricas de velocidad muy distintas.
+2. **¿Distinguen echeq de cheque físico en la carga SAP?** ¿Por serie / BankCode / UDF / nada? Si es "nada" → cambio de proceso administrativo antes de código.
+3. **¿La conciliación bancaria se hace en SAP?** Si no, la fecha de acreditación real no está en el sistema.
+4. **¿Alcance del AR?** Solo abierto o incluye histórico cerrado. Solo activos o incluye dados de baja con deuda.
+5. **¿Umbrales de mora?** X días vencido = mora. Y días = gestión judicial. ¿Monto también?
+6. **¿Cómo fijan credit limits?** SAP (`CreditLine`) / Excel / fórmula. Si no es SAP → hay que hacer ingest paralelo.
+7. **¿Tolerancia de frescura?** El schedule actual da 20-30 min de antigüedad a las 16:30 ART. ¿OK o necesitan <15 min?
+8. **¿Aging buckets estándar?** 0-30/31-60/61-90/>90 o convención propia.
+9. **¿Moneda del tablero?** Solo ARS o separan USD.
+
+### 50.5 Probes live que hay que dispatchar contra SAP (con Guille mirando idealmente)
+
+Requieren dispatch de workflow con `SAP_SL_PASSWORD` accesible. Ordenados por prioridad:
+
+- **S1**: probe `/IncomingPayments?$top=3` → confirma endpoint responde + esquema real de un pago
+- **S2**: probe `$expand=PaymentChecks` dentro de IncomingPayments → confirma que la colección viene poblada + qué campos trae + si hay UDFs
+- **S3**: probe `/Deposits?$top=3` → confirma endpoint + link `CheckKey ↔ Deposit` → **crítico**: si <60% de cheques tienen depósito, la métrica de velocidad no es representativa
+- **S4**: probe `/BankStatements` — solo si Q3 confirma que concilian en SAP
+- **S5**: probe `/BusinessPartners('CARDCODE')?$select=CreditLine,CurrentAccountBalance,MaxCommitment` con 2-3 clientes conocidos → confirma si los campos tienen datos reales o son NULL en la instancia
+- **S6**: contar `/IncomingPayments?$count=true` total + últimos 12m + `/Deposits?$count=true` → dimensiona pipeline
+
+**Herramienta**: escribir `scripts/probe_sap_payments.py` reusando patrón de `probe_sap_deliveries.py` + workflow `probe-sap-payments.yml` (workflow_dispatch) con `SAP_SL_PASSWORD` como env. NO se creó todavía — arranca cuando Mariano OK.
+
+### 50.6 Backlog priorizado
+
+**Sprint 1 (2-3 días) — sin dependencias externas, arranca ya**:
+- [ ] Fix `v_deuda_facturas_detalle`: quitar filtro Fishing hardcoded + LEFT JOIN a app_clients (1-2 hs)
+- [ ] Vista nueva `v_ar_aging_bike_fishing` sobre `v_facturas_sap` con buckets 0-30/31-60/61-90/>90 (1-2 días)
+- [ ] Vista nueva `v_ventas_margen_lineas` (SKU + cliente + margen ARS y %) usando `GrossBuyPrice` (2-3 días)
+- [ ] Escribir `scripts/probe_sap_payments.py` LISTO para dispatch (1 hs)
+- [ ] Power BI: menú "AR Aging" + menú "Sales & Gross Profit" con las 2 vistas nuevas
+- [ ] Demo #1 a Fujita con lo hecho (validar look & feel antes de invertir en features grandes)
+
+**Sprint 2 (1 semana) — mínimo cambio al pipeline**:
+- [ ] Fix `$select` de BusinessPartners en `scripts/sync_sap_to_bigquery.py`: agregar `CreditLine, CurrentAccountBalance, MaxCommitment` (30 min código + 30 min sync + eyeball data)
+- [ ] Menú "Credit Limits" en Power BI (si S5 confirma que hay data real en SAP)
+
+**Sprint 3 (2-3 semanas) — features grandes de e-checks**:
+- [ ] Dispatch S1-S6 con Guille mirando (probe live)
+- [ ] Meeting Guille + admin: convenciones de carga (echeq/físico, conciliación)
+- [ ] Si probe muestra data válida: agregar `/IncomingPayments` con `$expand=PaymentChecks,PaymentInvoices` al `scripts/sync_sap_to_bigquery.py` (1-2 días)
+- [ ] Agregar `/Deposits` al pipeline (1 día)
+- [ ] Vistas `v_echeques_agedreport` + `v_echeques_velocidad` (2-3 días)
+- [ ] Menú "E-Checks Aging" + "Velocidad de Acreditación" en Power BI
+
+### 50.7 Riesgos flageados a Fujita/Gambera antes de comprometer features
+
+1. **Riesgo carga admin**: si administración no linkea religiosamente `Deposits.CheckKey ↔ PaymentChecks.CheckKey`, la métrica de velocidad va a tener denominadores rotos. Descartar con probe S3 antes de comprometer.
+2. **Riesgo definición**: "fecha real de acreditación" es ambiguo (3 fechas). Si Fujita esperaba la fecha bancaria y Finanzas trabaja con DueDate, hay mismatch de expectativas — resolver antes del primer demo.
+3. **Riesgo freshness**: schedule actual da 20-30 min de antigüedad a las 16:30 ART. Si esperan <15 min hay que cambiar cron (y aguantar el trade-off con el weekend skip del scheduler documentado en v757).
+4. **Riesgo credit limits**: si SAP no los tiene poblados (S5 lo confirma), hay que buscar fuente alternativa (Excel de Finanzas, etc.) y hacer ingest paralelo. Proyecto propio.
+
+### 50.8 Docs de referencia
+
+- **Informe completo de exploración**: `C:\Users\shimano.sandbox\Desktop\BIKE DASHBOARD\INFORME_COBRANZAS_2026-09-04.md` (365 líneas)
+- **Follow-up con checklist de mañana**: `C:\Users\shimano.sandbox\Desktop\BIKE DASHBOARD\FOLLOW_UP_FUJITA_2026-09-05.md` (preguntas Guille + probes SAP + backlog priorizado)
+- **Pipeline actual**: `Desktop\APP VENDEDORES\scripts\sync_sap_to_bigquery.py` (2,684 LOC)
+- **Workflow del sync**: `Desktop\APP VENDEDORES\.github\workflows\sync-sap-to-bigquery.yml`
+- **Vistas cobranza actuales** (SQL con `bq show --view shimano_app.<name>`):
+  - `v_facturas_sap` — universo completo Bike+Fishing, sin filtro división/vendedor
+  - `v_deuda_facturas_detalle` — filtro Fishing hardcoded (a corregir)
+  - `v_facturado_cobrado_deuda_por_vendedor` — mismo filtro Fishing
+  - `v_deuda_por_vendedor`
 
