@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v803](#41-changelog-v300--v803)
+41. [Changelog v300 → v804](#41-changelog-v300--v804)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4670,7 +4670,30 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v803
+## 41) Changelog v300 → v804
+
+### v804 (2026-09-04) — Loop Engineering iter 1: bench harness
+
+**Bench reproducible para `getStockPorCliente` — establece baseline perf pre-memoization (iter 6).**
+
+- **Contexto**: Plan Loop Engineering (Plan_Loop_APP_VENDEDORES_v802.pdf) Fase 1 iter 1. Sin cambios funcionales — solo agrega herramienta de medición para poder comparar antes/después de la memoization que viene en iter 6.
+- **Nuevo `scripts/bench-waitlist.mjs`**:
+  - Genera fixture reproducible con seed determinística (xorshift32): 500 pedidos-app, 200 SKUs, 30 clientes, mix realista de states (40% confirmed, 30% BO, 15% ASIG, 10% invoiced, 5% cancelled).
+  - Corre 3 escenarios:
+    - `getStockPorCliente` con (sku, cardCode) diversos (peor caso realista).
+    - `getStockPorCliente` con mismo (sku, cardCode) repetido (el que iter 6 va a memoizar).
+    - `getStockRealmenteDisponible` sin filtro cliente (referencia).
+  - 5 runs × 1000 iteraciones cada uno. Median + p95 + max.
+  - Total <10s (gate del plan cumplido: **corre en ~2.1s**).
+  - Escribe `perf-baseline.md` con tabla + fixture metadata + commit sha.
+- **Nuevo `perf-baseline.md`** en la raíz del repo. Registro official de los números. Se sobreescribe en cada corrida. **Baseline v804**:
+  - `getStockPorCliente (diverse)`: median 141.7 ms/run (1000 calls) = 142 µs/call.
+  - `getStockPorCliente (repeat)`: median 142.5 ms/run = mismo costo que diverse → **confirma que hoy NO hay cache**.
+  - `getStockRealmenteDisponible (diverse)`: median 131.3 ms/run.
+- **Objetivo iter 6 (post-memoization)**: `repeat` debe caer a ≥60% menos (<57 ms/run). `diverse` queda igual.
+- **TODO documentado en el .md** (fuera scope iter 1): bench de `_renderWaitlistCard` (~1.664 líneas, requiere jsdom).
+- **Sin impacto en producción**: solo archivos nuevos + bump versión. Bundle sin cambios.
+- Bump `APP_VERSION` + `CACHE_VERSION` v803 → v804.
 
 ### v803 (2026-09-04)
 
