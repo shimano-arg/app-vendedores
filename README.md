@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v799](#41-changelog-v300--v799)
+41. [Changelog v300 → v800](#41-changelog-v300--v800)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,37 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v799
+## 41) Changelog v300 → v800
+
+### v800 (2026-09-04)
+
+**Auto-merge LEAD ↔ SAP en el sync (fuzzy matching) — cumple la promesa que Mariano hizo al equipo por email.**
+
+- **Contexto**: en v799 dejamos el botón manual "Vincular LEAD ↔ SAP" en Master Clientes. Mariano prometió al equipo que **"el sistema va a tomar el mismo registro"** — o sea, automático sin intervención. Para cumplir esa promesa, el sync SAP tiene que detectar el LEAD correspondiente sin depender de nombre/CUIT exacto.
+- **Cambio en `sync_sap_to_firestore.py::find_match()`**: nueva 4ta pasada con **fuzzy matching** usando `difflib.SequenceMatcher` (stdlib, sin deps nuevas):
+  1. Match por `cardCodeSap` (exacto) — existente.
+  2. Match por CUIT normalizado — existente.
+  3. Match por nombre normalizado exacto — existente.
+  4. **NUEVO**: fuzzy match. Requiere `provincia` exacta + ratio Ratcliff-Obershelp ≥ **`FUZZY_THRESHOLD = 0.90`** (90% similaridad). Solo contra provisorios (sin `cardCodeSap`).
+- **Umbral 90% conservador**: reduce falsos positivos casi a cero. Testeado mentalmente contra casos reales:
+  - "EL DELTA PESCA" vs "EL DELTA PESCA CAZA CAMPING" → ~0.86 (no matchea, seguridad).
+  - "PIRACUA" vs "PIRACUA BERNAL" → ~0.75 (no matchea).
+  - "PIRACUA BERNAL" vs "PIRACUA BERNAL SRL" → ~0.93 (matchea, correcto).
+  - "TIENDA X" vs "TIENDA Y" → ~0.86 (no matchea, seguridad).
+- **Audit obligatorio**: cada auto-merge fuzzy escribe a `lead_merge_log` con:
+  - `by: 'sync_sap_to_firestore.py/auto_fuzzy'`
+  - `fuzzyScore: 0.9X` (score exacto)
+  - `fuzzyField: 'comercio' | 'fantasia' | 'razonSocial'`
+  - `trigger: 'auto'`
+  - Todos los datos del LEAD y del BP SAP para auditar/revertir.
+- **Log de "casi-match" (60-90%)**: si el fuzzy no llega al umbral pero pasa 60%, se loguea a nivel INFO para diagnóstico. NO se hace merge. Sirve para calibrar el umbral en el futuro si aparecen casos que no matchean.
+- **Preserva todo lo bueno del flow existente**: `assignedVendor` del LEAD (el gerente lo asignó), `fantasia` del LEAD (nombre comercial real), `ownerUid` (quién lo cargó originalmente). El fsId del LEAD se mantiene → las visitas siguen asociadas.
+- **Reversible**: si algún fuzzy match resulta ser un falso positivo, el admin puede consultar `lead_merge_log` en Firestore (o `bq query stock_assignment_log` cuando esté en BQ) y revertir el merge manualmente.
+- **Botón manual v799 sigue disponible**: como fallback para casos donde el fuzzy no pasó el umbral (60-90% "casi match") o cuando el sync no detectó ningún candidato.
+- **Cómo ver el resultado**: en el próximo sync (cron 30min), buscar en los logs:
+  - `[bp/fuzzy] MATCH bp=... -> lead=... score=0.9XX` → auto-merge aplicado.
+  - `[bp/fuzzy] casi-match (no auto-merge) bp=... -> lead=... score=0.7XX` → sugerencia (admin puede confirmar con botón).
+- Bump `APP_VERSION` + `CACHE_VERSION` v799 → v800.
 
 ### v799 (2026-09-04)
 

@@ -910,35 +910,112 @@ def load_existing_client_applications(db: firestore.Client) -> list:
     return out
 
 
-def find_match(bp: dict, existing_apps: list):
+# v800 (2026-09-04, Mariano promesa email al equipo): fuzzy matching como 4ta
+# pasada. Cuando el sync no matchea BP → LEAD por CardCode/CUIT/nombre exacto,
+# aplica SequenceMatcher (stdlib difflib) sobre comercio/fantasia/razonSocial
+# del LEAD normalizado vs CardName del BP. Requiere:
+#   - Mismo provincia (exacta, normalizada).
+#   - Ratio ≥ FUZZY_THRESHOLD (default 0.90 = 90% similaridad).
+#   - LEAD debe ser provisorio (sin cardCodeSap ya asignado; para no re-match
+#     un cliente SAP existente contra otro BP).
+# Auto-merge: si matchea, entra al mismo flow PROV → CONF que ya existía
+# (update in-place preservando el fsId del LEAD para no perder visitas).
+# Umbral 90% es conservador — reduce falsos positivos casi a cero. Cada
+# fuzzy-match se loguea con score exacto para auditoría.
+FUZZY_THRESHOLD = 0.90
+
+
+def _fuzzy_similar(a: str, b: str) -> float:
+    """Ratio de similaridad 0-1 entre dos strings normalizados usando
+    SequenceMatcher (algoritmo Ratcliff-Obershelp, stdlib difflib)."""
+    if not a or not b:
+        return 0.0
+    from difflib import SequenceMatcher
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def find_match(bp: dict, existing_apps: list, log_fuzzy: bool = True):
     """
     Busca un doc en client_applications que matchee con el BP:
       1. Por cardCodeSap (mas confiable)
       2. Por cuit normalizado (solo digitos)
-      3. Fallback: por nombre normalizado (comercio o fantasia, uppercase+trim)
+      3. Por nombre normalizado exacto (comercio/fantasia/razonSocial)
+      4. Fuzzy match por nombre + provincia exacta (v800+, ratio >= FUZZY_THRESHOLD)
+         SOLO contra provisorios (LEADs sin cardCodeSap) para preservar visitas.
     Retorna el dict del doc (con __id, __ref) o None.
     """
     bp_cardcode = (bp.get('CardCode') or '').strip()
     bp_cuit = _norm_cuit(bp.get('FederalTaxID', ''))
     bp_name_norm = _norm_name(bp.get('CardName', ''))
-    # 1. Match por cardCodeSap
+    # 1. Match por cardCodeSap (exacto).
     if bp_cardcode:
         for app in existing_apps:
             if (app.get('cardCodeSap') or '').strip() == bp_cardcode:
                 return app
-    # 2. Match por CUIT
+    # 2. Match por CUIT (exacto).
     if bp_cuit:
         for app in existing_apps:
             app_cuit = _norm_cuit(app.get('cuit', '') or app.get('cuitCliente', ''))
             if app_cuit and app_cuit == bp_cuit:
                 return app
-    # 3. Match por nombre normalizado (comercio o fantasia)
+    # 3. Match por nombre normalizado exacto (comercio, fantasia, razonSocial).
     if bp_name_norm:
         for app in existing_apps:
             for field in ('comercio', 'fantasia', 'razonSocial'):
                 val_norm = _norm_name(app.get(field, ''))
                 if val_norm and val_norm == bp_name_norm:
                     return app
+    # 4. Fuzzy match (v800+): SOLO contra provisorios (sin cardCodeSap).
+    # Requiere: mismo provincia (normalizada) + ratio >= FUZZY_THRESHOLD.
+    # Objetivo: cubrir casos como LEAD "El Delta Pesca" vs BP "GONZALEZ GARCIA
+    # SRL" (razon social) cuando el vendedor puso el nombre comercial en el
+    # LEAD y SAP tiene la razon social. Sin fuzzy, el sync crea cliente nuevo
+    # y hay que borrar el LEAD manual (perdiendo visitas).
+    if bp_name_norm:
+        bp_prov = _norm_name(bp.get('U_SH_PCIA') or bp.get('Province') or '')
+        # Fallback: si BP no trae provincia directa, mirar BPAddresses[0].State
+        if not bp_prov:
+            for addr in (bp.get('BPAddresses') or []):
+                p = _norm_name(addr.get('State') or addr.get('State1') or '')
+                if p:
+                    bp_prov = p
+                    break
+        best = None
+        best_score = 0.0
+        best_field = ''
+        for app in existing_apps:
+            # Solo provisorios (sin cardCode). Los ya-cardCoded matchean por 1.
+            if (app.get('cardCodeSap') or '').strip():
+                continue
+            app_prov = _norm_name(app.get('provincia') or '')
+            # Provincia exacta requerida. Si el BP no tiene provincia detectada,
+            # no fuzzy (evita mergear clientes de provincias distintas).
+            if not bp_prov or not app_prov or app_prov != bp_prov:
+                continue
+            for field in ('comercio', 'fantasia', 'razonSocial'):
+                val_norm = _norm_name(app.get(field, ''))
+                if not val_norm:
+                    continue
+                score = _fuzzy_similar(val_norm, bp_name_norm)
+                if score > best_score:
+                    best_score = score
+                    best = app
+                    best_field = field
+        if best is not None and best_score >= FUZZY_THRESHOLD:
+            if log_fuzzy:
+                log(f'[bp/fuzzy] MATCH bp={bp_cardcode!r} bp_name={bp_name_norm!r} '
+                    f'-> lead={best.get("__id")!r} lead_{best_field}={_norm_name(best.get(best_field))!r} '
+                    f'score={best_score:.3f} prov={bp_prov!r}')
+            # Mark en el match para que upsert loguee auditoría enriquecida.
+            best['__fuzzy_matched'] = True
+            best['__fuzzy_score'] = best_score
+            best['__fuzzy_field'] = best_field
+            return best
+        elif best is not None and log_fuzzy:
+            # Log de "casi match" (60-90%) para diagnostico. NO merge.
+            if best_score >= 0.60:
+                log(f'[bp/fuzzy] casi-match (no auto-merge) bp={bp_cardcode!r} bp_name={bp_name_norm!r} '
+                    f'-> lead={best.get("__id")!r} score={best_score:.3f} (umbral {FUZZY_THRESHOLD})')
     return None
 
 
@@ -1187,12 +1264,43 @@ def upsert_bp_pesca_to_firestore(db: firestore.Client,
         if was_provisorio:
             # CASO 1: provisorio -> confirmado. Pisar datos SAP pero preservar
             # vendedor que el gerente pueda haber asignado antes.
+            # v800+: si el match vino por fuzzy, agregar audit fields al payload
+            # (para poder auditar/revertir desde lead_merge_log).
+            was_fuzzy = bool(match.get('__fuzzy_matched'))
+            if was_fuzzy:
+                base_payload['mergedFromCardCode'] = cardcode
+                base_payload['mergedAt'] = firestore.SERVER_TIMESTAMP
+                base_payload['mergedBy'] = 'sync_sap_to_firestore.py/fuzzy_match'
+                base_payload['mergedFuzzyScore'] = float(match.get('__fuzzy_score') or 0)
+                base_payload['mergedFuzzyField'] = str(match.get('__fuzzy_field') or '')
             if dry_run:
-                log(f'[DRY_RUN/bp] PROV->CONF {match["__id"]} ({cardname}) -> cardCodeSap={cardcode}')
+                log(f'[DRY_RUN/bp] PROV->CONF {match["__id"]} ({cardname}) -> cardCodeSap={cardcode}'
+                    + (f' [FUZZY score={match.get("__fuzzy_score"):.3f}]' if was_fuzzy else ''))
             else:
                 match['__ref'].set(base_payload, merge=True)
+                # v800: escribir audit log a lead_merge_log para trazabilidad
+                # (mismo pattern que el boton manual v799).
+                if was_fuzzy:
+                    try:
+                        log_id = datetime.now(timezone.utc).isoformat().replace(':', '-').replace('.', '-') + '_' + cardcode
+                        db.collection('lead_merge_log').document(log_id).set({
+                            'ranAt': firestore.SERVER_TIMESTAMP,
+                            'by': 'sync_sap_to_firestore.py/auto_fuzzy',
+                            'leadFsId': match['__id'],
+                            'leadComercio': match.get('comercio') or match.get('fantasia') or '',
+                            'leadProvincia': match.get('provincia') or '',
+                            'leadLocalidad': match.get('localidad') or '',
+                            'sapCardCode': cardcode,
+                            'sapComercio': cardname,
+                            'fuzzyScore': float(match.get('__fuzzy_score') or 0),
+                            'fuzzyField': str(match.get('__fuzzy_field') or ''),
+                            'trigger': 'auto',
+                        })
+                    except Exception as e:
+                        log(f'[WARN/bp] audit lead_merge_log fallo (no bloqueante): {e}')
             stats['updated_prov_to_conf'] += 1
-            log(f'[bp] PROV->CONF {match["__id"]} ({cardname}) cardCodeSap={cardcode}')
+            log(f'[bp] PROV->CONF {match["__id"]} ({cardname}) cardCodeSap={cardcode}'
+                + (f' [AUTO-FUZZY {match.get("__fuzzy_score"):.3f}]' if was_fuzzy else ''))
         else:
             # CASO 2: ya estaba habilitado - solo actualizar datos SAP.
             # No tocamos createdAt ni approvals ni assignedVendor.
