@@ -203,7 +203,19 @@ service cloud.firestore {
 
     match /client_master/{docId} {
       allow read: if isReader();
-      allow create, update: if isAdminOrGerente();
+      // v785+ (2026-09-04): cualquier reader puede crear/updatear SOLO el
+      // campo `defaultDelivery` (persistencia de datos de entrega por cliente,
+      // pedido Mariano: reducir friccion vendedores). La v630 tenia el codigo
+      // client-side (index.html:24007) pero fallaba silencioso para VDEs
+      // porque esta rule solo permitia admin/gerente. Los demas campos
+      // (address, addressExplicit, cliTipo, etc) siguen restringidos.
+      allow create: if isAdminOrGerente()
+        || (isReader()
+            && request.resource.data.keys().hasOnly(['defaultDelivery']));
+      allow update: if isAdminOrGerente()
+        || (isReader()
+            && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['defaultDelivery']));
       // v778+: cualquier reader puede borrar la direccion guardada de un
       // cliente (limpieza colaborativa desde Master Clientes-Direcciones).
       // Solo borra client_master (address del cliente), NO borra el cliente
