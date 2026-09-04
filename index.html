@@ -5157,7 +5157,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v801';
+const APP_VERSION = 'v802';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18790,12 +18790,20 @@ function persistPendingEntry(entry){
     let _linesEnriched;
     if (_reenrichFn) {
       const _opts = {
-        // v701 (2026-08-28): usar getStockRealmenteDisponible que resta compromisos
-        // de pedidos-app open (confirmed+BO+ASIG). Mariano decidio 2026-08-28 que la
-        // app sea dueña del stock. Fallback a NetSap/Venta si el bundle no cargo.
-        getDisp: (typeof window.getStockRealmenteDisponible === 'function')
-          ? window.getStockRealmenteDisponible
-          : ((typeof getStockDisponibleVentaNetSap === 'function') ? getStockDisponibleVentaNetSap : (typeof getStockDisponibleVenta === 'function' ? getStockDisponibleVenta : null)),
+        // v802 (2026-09-04): mismo criterio v797 aplicado a reenrichPedidoLine.
+        // Formula liberal (dep11 - ASIG) alineada con el modal Revisar. Los
+        // BO viejos no restan — la CF FIFO los promociona automaticamente al
+        // proximo arribo. Ver comentario en el split principal (~line 24494).
+        getDisp: function(sku){
+          const _gsdvFn = (typeof window.getStockDisponibleVenta === 'function')
+            ? window.getStockDisponibleVenta : null;
+          if (!_gsdvFn) return 0;
+          const _dep11 = Number(_gsdvFn(sku) || 0);
+          const _asig = (typeof STOCK_ASIG_APP === 'object' && STOCK_ASIG_APP)
+            ? Number(STOCK_ASIG_APP[String(sku || '').toUpperCase().trim()] || 0)
+            : 0;
+          return Math.max(_dep11 - _asig, 0);
+        },
         flagEnabled: (typeof window.isPedidoSplitEnabled === 'function') ? window.isPedidoSplitEnabled() : false,
       };
       _linesEnriched = (entry.lines || []).flatMap(l => _reenrichFn(l, _opts));
@@ -24488,12 +24496,28 @@ window.doConfirmPedido = function(){
       const _splitFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.splitPedidoLine);
       if (_splitFn) {
         return _splitFn(l, {
-          // v701 (2026-08-28): usar getStockRealmenteDisponible que resta compromisos
-          // de pedidos-app open (confirmed+BO+ASIG). Mariano decidio 2026-08-28 que la
-          // app sea dueña del stock. Fallback a NetSap/Venta si el bundle no cargo.
-          getDisp: (typeof window.getStockRealmenteDisponible === 'function')
-            ? window.getStockRealmenteDisponible
-            : ((typeof getStockDisponibleVentaNetSap === 'function') ? getStockDisponibleVentaNetSap : (typeof getStockDisponibleVenta === 'function' ? getStockDisponibleVenta : null)),
+          // v802 (2026-09-04, bug reportado por Santi): alinear la formula
+          // que decide state='confirmed' vs 'BO' al mismo criterio del modal
+          // Revisar (v797): dep11 - reservadasASIG. Los BO viejos NO restan
+          // — cuando llegue stock, la CF FIFO (v798) los va a promocionar
+          // automaticamente a ASIG. Antes v701 usaba getStockRealmenteDisponible
+          // que restaba tambien confirmed+BO, provocando que el modal mostrara
+          // "$6.357k Con Stock" pero SAP recibiera solo "$3.482k" (bug reportado
+          // por Santi: la mitad quedaba como BO app aunque el vendedor via
+          // "Con Stock" en el modal).
+          // Filosofia coherente con v797+v798: si hay stock fisico libre
+          // (dep11 - ASIG), lo prometemos como SQ a SAP. Los BO viejos los
+          // atiende la CF FIFO al proximo arribo.
+          getDisp: function(sku){
+            const _gsdvFn = (typeof window.getStockDisponibleVenta === 'function')
+              ? window.getStockDisponibleVenta : null;
+            if (!_gsdvFn) return 0;
+            const _dep11 = Number(_gsdvFn(sku) || 0);
+            const _asig = (typeof STOCK_ASIG_APP === 'object' && STOCK_ASIG_APP)
+              ? Number(STOCK_ASIG_APP[String(sku || '').toUpperCase().trim()] || 0)
+              : 0;
+            return Math.max(_dep11 - _asig, 0);
+          },
           flagEnabled: (typeof window.isPedidoSplitEnabled === 'function') ? window.isPedidoSplitEnabled() : false,
         });
       }

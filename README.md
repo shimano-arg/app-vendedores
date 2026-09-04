@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v801](#41-changelog-v300--v801)
+41. [Changelog v300 → v802](#41-changelog-v300--v802)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4669,7 +4669,25 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v801
+## 41) Changelog v300 → v802
+
+### v802 (2026-09-04)
+
+**Fix inconsistencia entre modal Revisar y crear pedido (Santi reportó $6.357k Con Stock pero SAP recibió $3.482k).**
+
+- **Root cause**: 2 fórmulas distintas de "disponible" en el mismo flow:
+  - Modal Revisar (v797, `pedidos-modal.js:918`): `max(dep11 - reservadasASIG, 0)` — solo ASIG resta (fórmula liberal).
+  - `splitPedidoLine` al crear pedido (v701, `index.html:24494`): `getStockRealmenteDisponible()` = `max(dep11 - confirmed - BO - ASIG, 0)` — todos los estados restan (fórmula restrictiva).
+- **Efecto**: el modal decía "Con Stock $6.357k" pero al pasar a Pendientes, ~$2.875k caían a state='BO' automáticamente (los BOs viejos aún no promocionados restaban del stock disponible). Santi veía que se prometía en el modal más de lo que realmente iba a SAP.
+- **Fix (Opción A alineación al modal, filosofía v797)**: `splitPedidoLine` y `reenrichPedidoLine` ahora usan `dep11 - asigApp` (misma fórmula del modal). Los BO viejos NO restan del stock disponible del pedido nuevo — cuando llegue mercadería, la CF FIFO (v798) los promociona automáticamente.
+- **Justificación**: v797 + v798 + v802 forman un stack coherente. Si hay stock físico libre después de descontar solo ASIG, la app lo promete al vendedor y viaja como SQ a SAP. Los BO viejos son responsabilidad del pipeline FIFO, no del pedido nuevo.
+- **Riesgo residual (bajo)**: race condition si múltiples vendedores toman stock simultáneo antes del próximo sync. Mitigado por el snapshot cada 30 min + CF FIFO promocionando al recibir stock.
+- **Cambios**:
+  - `index.html:24487-24509` (splitPedidoLine call en crear pedido).
+  - `index.html:18789-18814` (reenrichPedidoLine call en editar pedido pendiente).
+  - Fórmula inline en ambos, mismo pattern que el modal Revisar. `getStockRealmenteDisponible` sigue disponible (window-scope) para otros consumers legacy que no forman parte del flow crear/editar pedido.
+- **Validación esperada**: en un pedido con SKUs que tenían BO viejos con stock disponible, el modal Revisar y el envío a SAP deben coincidir en unidades y monto (misma fórmula).
+- Bump `APP_VERSION` + `CACHE_VERSION` v801 → v802.
 
 ### v801 (2026-09-04)
 
