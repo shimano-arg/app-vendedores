@@ -5157,7 +5157,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v806';
+const APP_VERSION = 'v807';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -11786,15 +11786,6 @@ window.closeExportStockAsigCliente = function(){
   const m = document.getElementById('export-stock-asig-modal');
   if (m) m.classList.remove('open');
 };
-// v510: cache del template Excel base (fetch una vez).
-var _stockAsigTemplateBuffer = null;
-async function _loadStockAsigTemplate(){
-  if (_stockAsigTemplateBuffer) return _stockAsigTemplateBuffer;
-  const r = await fetch('templates/stock_asig_template.xlsx');
-  if (!r.ok) throw new Error('No pude cargar templates/stock_asig_template.xlsx: HTTP ' + r.status);
-  _stockAsigTemplateBuffer = await r.arrayBuffer();
-  return _stockAsigTemplateBuffer;
-}
 // Helper: dado cliente + mes filtro, popula el template Excel con:
 //   - C3 = nombre del cliente
 //   - C4 = CardCode (o CUIT si lo tenemos)
@@ -15259,11 +15250,6 @@ window._e4bAsigDelCliente = function(cardCode){
   out.sort((a, b) => a.sku.localeCompare(b.sku));
   return out;
 };
-// Deprecated (v548): _e4bFetchAsigApp era fetch on-demand a shadow_v3.
-// Ahora leemos del listener global. Se mantiene como no-op para no romper
-// llamadas viejas del openWaitlistCardModal.
-window._e4bFetchAsigApp = async function(){ return null; };
-window._E4B_ASIG_CACHE = null; // legacy, no se usa mas
 // v542: helper generico para alertar al agregar SKU cuando cliente ya tiene
 // ASIG del mismo. Devuelve el match {sku, pendiente, sqDocDate, sqDocNum} o null.
 // Se llama desde waitlistAddProduct (inline) y addToOrder (bundle via window).
@@ -16645,75 +16631,6 @@ window.waitlistExportArchivoCliente = async function(){
     alert('Error generando el Excel: ' + (e.message || e));
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Archivo cliente'; }
-  }
-};
-
-// v492 (legacy, ya no invocado post-v525 - reemplazado por waitlistExportTodo).
-// Se mantiene por si algun handler o test antiguo lo llama.
-window.waitlistExportStockAsignado = async function(){
-  const w = _wcardCurrent;
-  if (!w) { alert('No hay pedido en espera abierto.'); return; }
-  // v679 PERF Fase 3: ExcelJS lazy on-demand
-  try { await window.loadExcelJS(); } catch (e) { alert('No se pudo cargar ExcelJS: ' + e.message); return; }
-  // v524: fuente = SAP Asignado con stock del cliente (backorderLines
-  // filtrado con stock disponible), NO los items del pedido actual.
-  const items = _sapAsignadoConStockDeCliente(w.clientCardCode);
-  if (!items.length) {
-    alert('El cliente no tiene SKUs asignados en SAP con stock disponible en dep. 11.\n\n(Fuente: backorderLines - solo lineas de SQ open con stock > 0.)');
-    return;
-  }
-  const btn = document.getElementById('wcard-export-stkasig-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Generando...'; }
-  try {
-    const buffer = await _loadStockAsigTemplate();
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buffer);
-    const ws = wb.worksheets[0];
-    ws.getCell('C3').value = w.clientName || '';
-    ws.getCell('C4').value = w.clientCardCode || '';
-    let rowIdx = 6;
-    const productMap = new Map();
-    if (typeof PRODUCTS !== 'undefined' && PRODUCTS) {
-      PRODUCTS.forEach(p => productMap.set(String(p.code||'').toUpperCase().trim(), p));
-    }
-    items.forEach(it => {
-      const sku = String(it.sku || '').toUpperCase().trim();
-      const p = productMap.get(sku) || {};
-      const row = ws.getRow(rowIdx);
-      row.height = 40;
-      row.getCell(1).value = 'Disponible'; // por construccion son disponibles
-      row.getCell(2).value = p.fam || '';
-      row.getCell(3).value = p.sub || '';
-      row.getCell(4).value = '';
-      row.getCell(5).value = it.sku || '';
-      row.getCell(6).value = it.producto || (p.desc || '');
-      row.getCell(7).value = it.precio || null;
-      row.getCell(8).value = null;
-      row.getCell(9).value = it.pendiente || null; // qty pendiente en SAP
-      row.getCell(10).value = { formula: 'I' + rowIdx + '*G' + rowIdx };
-      for (let ci = 1; ci <= 10; ci++) {
-        const c = row.getCell(ci);
-        c.alignment = { vertical: 'middle', horizontal: (ci === 6 ? 'left' : 'center'), wrapText: true };
-      }
-      rowIdx++;
-    });
-    const lastRow = rowIdx - 1;
-    ws.autoFilter = { from: { row: 5, column: 1 }, to: { row: lastRow, column: 10 } };
-    ws.getCell('I2').value = { formula: 'SUM(J6:J' + Math.max(lastRow, 1005) + ')' };
-    const out = await wb.xlsx.writeBuffer();
-    const safe = (w.clientName || 'cliente').replace(/[^A-Za-z0-9 ]+/g, '').trim().slice(0, 60);
-    const filename = 'STOCK ASIGNADO. ' + safe + '.xlsx';
-    const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename; document.body.appendChild(a); a.click();
-    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 200);
-    if (typeof showSyncTag === 'function') showSyncTag('Exportado: ' + items.length + ' SKU asignados con stock');
-  } catch(e) {
-    console.error('waitlistExportStockAsignado', e);
-    alert('Error generando el Excel: ' + (e.message || e));
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Exportar Stock Asignado'; }
   }
 };
 
