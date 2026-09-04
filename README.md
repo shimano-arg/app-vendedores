@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v787](#41-changelog-v300--v785)
+41. [Changelog v300 → v788](#41-changelog-v300--v785)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,24 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v787
+## 41) Changelog v300 → v788
+
+### v788 (2026-09-04)
+
+**Modal Pedido en Espera: nueva sección "Mostrar stock asignado del cliente" siempre visible.**
+
+- **Pedido Mariano 2026-09-04**: "no puedo ver los SKU que tiene en Stock Asignado ese cliente, poner un botón MOSTRAR o que aparezcan directo".
+- **Contexto**: las secciones existentes (`wcard-sap-asignado`, `wcard-sap-asignado-nuevos`, `wcard-e4b-asig-app`) tienen filtros estrictos (stock físico > 0, SAP backorder solo meses anteriores, etc). Cuando cualquiera de esos filtros falla, la sección se oculta y el vendedor no ve las líneas open del cliente aunque existan.
+- **Fix**: nueva sección **`<details>` colapsable** debajo del top summary con `📋 Mostrar stock asignado del cliente (N SKU / N u en N línea/s)`. Abierta por default. Muestra tabla compacta info-only con TODAS las líneas open del cliente sin filtros de stock/fecha:
+  - Columnas: SKU · Producto · Qty open · Estado · Orden.
+  - Estados: **ASIG** (verde — reserva firme con stock), **BO** (ámbar — pendiente sin stock), **ENVIADO SAP** (azul — `confirmed`, facturable en SAP).
+  - Ordenado por SKU + pedidoId.
+  - Excluye el pedido actual (para no duplicar info visual).
+- **Info-only, sin botones**: las acciones (Fusionar, Eliminar, Agregar, Parcial) siguen viviendo en la sección azul `wcard-e4b-asig-app` y en la fila de la tabla. Este panel es para diagnóstico: "qué tiene el cliente open ahora, en cualquier estado".
+- **LEAD sin cardCode**: muestra mensaje explicativo ("todavía no tiene cardCode SAP, cuando se apruebe el alta van a aparecer acá").
+- **Snapshot no cargado**: muestra "Cargando stock asignado del cliente..." (mismo patrón que v786 para `_renderE4BAsigApp`).
+- **Bump**: `APP_VERSION` + `CACHE_VERSION` v787 → v788. Bundle sin cambios (patch inline).
+- **Tests**: unit 308/308 verde.
 
 ### v787 (2026-09-04)
 
