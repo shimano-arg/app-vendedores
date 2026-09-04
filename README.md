@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v789](#41-changelog-v300--v785)
+41. [Changelog v300 → v790](#41-changelog-v300--v790)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,17 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v789
+## 41) Changelog v300 → v790
+
+### v790 (2026-09-04)
+
+**Fix bonus Pesca v2: sacar filtro `Currency='ARS'` + telemetría de distribución de currency en lista 11.**
+
+- **Root cause post-v784**: la validación mostró `sap_items_raw.cost_avg_ars` con solo 2/409 items poblados en vez de 773 esperados. El probe `pesca-costo-ars` reportaba 100% cobertura porque cuenta items con `PriceList=11` sin filtrar moneda, pero mi fix de v784 aplicaba `_find_price_by_list_currency(prices, 11, expected_currency='ARS')` — solo 2 items Pesca tienen la lista 11 con Currency=ARS, los otros 771 la tienen en otra moneda (probablemente USD, dado que Bike la usa mixto).
+- **Fix**: `flatten_item()` (`sync_sap_to_bigquery.py`) ahora llama `_find_price_by_list_currency(prices, 11, expected_currency=None)` — acepta cualquier currency. Captura la currency devuelta para telemetría.
+- **Telemetría extendida**: `[pesca-costo-ars/probe]` ahora emite además `[pesca-costo-ars/currency] distribucion por Currency en lista 11: ARS=X, USD=Y, EUR=Z, (vacio)=W` con los conteos reales. Con esa distribución COWORK/Contabilidad decide si hay que convertir a ARS con `doc_rate` en Power BI o si el valor puede quedar nativo.
+- **Impacto en la semántica**: la columna `cost_avg_ars` en `sap_items_raw` puede ahora contener valores en moneda distinta de ARS. Esto es aceptable porque (a) ningún visual del tablero Pesca la consume hoy (COWORK confirmó que la card "valor inventario" se calcula con `price_pesca_ars * stock`, no con `cost_avg_ars`), y (b) la telemetría del log dice qué moneda tiene cada batch. Cuando se defina un tablero que sí use este costo, se aplicará la conversión FX adecuada del lado del modelo.
+- Bump `APP_VERSION` + `CACHE_VERSION` v789 → v790. Bundle sin cambios.
 
 ### v789 (2026-09-04)
 

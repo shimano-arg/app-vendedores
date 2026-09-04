@@ -637,17 +637,20 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
                     pass
             break
     # v782 (2026-09-04): fix bonus Pesca — poblar cost_avg_ars desde price
-    # list 11 "COSTO ARTICULO ARS" (mismo mecanismo que Bike v777). En este
-    # SAP el costo NO se carga como campo del Item (StandardAveragePrice
-    # viene null → weighted_cost queda null → hasta v781 sap_items_raw.
-    # cost_avg_ars era 100% null y el tablero Pesca mostraba
-    # valor_inventario_costo_ars = 0). Verificado COWORK 2026-09-04: los
-    # 773/773 items Pesca tienen precio en lista 11 (100% cobertura). El
-    # fallback al weighted average queda por si en algun momento SAP
-    # empieza a exponer StandardAveragePrice a nivel warehouse (backward
-    # compat, sin side-effect actual porque siempre da None).
-    cost_from_list11, _ = _find_price_by_list_currency(
-        item.get('ItemPrices'), BIKE_PRICE_LIST_COSTO_ARS, expected_currency='ARS',
+    # list 11 "COSTO ARTICULO ARS" (mismo mecanismo que Bike v777).
+    # v790 (2026-09-04): SIN filtro por Currency (era 'ARS'). Motivo:
+    # validacion post-v784 mostro que sap_items_raw.cost_avg_ars quedaba
+    # 2/409 poblados en vez de 773 esperados. El probe pesca-costo-ars
+    # cuenta items con PriceList=11 sin filtrar moneda (100% cobertura),
+    # pero cuando aplicamos filtro Currency='ARS' cae a 2 items → los
+    # otros 771 tienen la lista 11 cargada en OTRA moneda (probablemente
+    # USD, dado que Bike la usa mixto). Aceptamos cualquier currency
+    # ahora; la telemetria de pesca-costo-ars/probe reporta la
+    # distribucion real para que COWORK/Contabilidad decida si hay que
+    # convertir a ARS con doc_rate en Power BI o si el valor puede quedar
+    # nativo (ver log post-v790).
+    cost_from_list11, cost_currency = _find_price_by_list_currency(
+        item.get('ItemPrices'), BIKE_PRICE_LIST_COSTO_ARS, expected_currency=None,
     )
     weighted_cost_avg = (weighted_cost_num / weighted_cost_den) if weighted_cost_den > 0 else None
     cost_avg = cost_from_list11 if cost_from_list11 is not None else weighted_cost_avg
@@ -2202,16 +2205,25 @@ def main():
     # verificar que items Pesca tengan precio cargado en lista 11 (COSTO
     # ARTICULO ARS) antes de aplicar el mismo mecanismo que Bike para
     # arreglar el bug de valor_inventario_costo=0 en el tablero Pesca.
-    # Zero-risk (solo un log, no cambia el pipeline). Con el numero real
-    # COWORK decide si aplicar el fix bonus.
+    # v790 (2026-09-04): extendido con distribucion por Currency. La
+    # validacion post-v784 mostro que 771/773 items Pesca tienen la
+    # lista 11 en OTRA currency (no ARS) — el fix con filtro Currency='ARS'
+    # solo pobla 2 items. Necesitamos saber que currency tienen esos
+    # 771 items para decidir si convertir con doc_rate o dejar nativo.
     n_pesca_costo_ars = 0
+    currency_counts: dict = {}
     for it in items:
         for ip in (it.get('ItemPrices') or []):
             if ip.get('PriceList') == BIKE_PRICE_LIST_COSTO_ARS:
                 n_pesca_costo_ars += 1
+                curr = (ip.get('Currency') or '').strip() or '(vacio)'
+                currency_counts[curr] = currency_counts.get(curr, 0) + 1
                 break
     pct = (100 * n_pesca_costo_ars / len(items)) if items else 0
-    log(f'[pesca-costo-ars/probe] {n_pesca_costo_ars}/{len(items)} items PESCA con precio en lista {BIKE_PRICE_LIST_COSTO_ARS} (COSTO ARTICULO ARS, {pct:.1f}%) — pending OK COWORK para aplicar fix bonus')
+    log(f'[pesca-costo-ars/probe] {n_pesca_costo_ars}/{len(items)} items PESCA con precio en lista {BIKE_PRICE_LIST_COSTO_ARS} (COSTO ARTICULO ARS, {pct:.1f}%)')
+    if currency_counts:
+        curr_str = ', '.join(f'{c}={n}' for c, n in sorted(currency_counts.items(), key=lambda x: -x[1]))
+        log(f'[pesca-costo-ars/currency] distribucion por Currency en lista 11: {curr_str}')
 
     # === 2b. Items BIKE (v777, 2026-09-03) — pass paralelo al de PESCA
     # Diseño: pipeline aditivo, NO toca sap_items_raw ni el tablero Pesca.
