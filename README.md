@@ -68,12 +68,12 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v794](#41-changelog-v300--v794)
+41. [Changelog v300 → v795](#41-changelog-v300--v795)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
 45. [E2.b performance + code splitting (rama `e2b-perf`)](#45-e2b-performance--code-splitting-rama-e2b-perf)
-46. [Handoff Bike Pipeline — retomar acá (2026-09-03)](#46-handoff-bike-pipeline--retomar-acá-2026-09-03)
+46. [Bike Pipeline BQ + BO/ASIG desde app — CERRADO 2026-09-04](#46-bike-pipeline-bq--boasig-desde-app--cerrado-2026-09-04)
 
 ---
 
@@ -4668,7 +4668,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v794
+## 41) Changelog v300 → v795
+
+### v795 (2026-09-04)
+
+**Docs: README §46 reescrita como cierre del trabajo Bike Pipeline + tabla completa de vistas BQ para BO/ASIG (desde app).**
+
+- La §46 vieja ("Handoff Bike Pipeline — retomar acá") era una lista de pendientes. Todos resueltos: la reescribo como cierre.
+- Nueva §46.1: tabla con **todas** las vistas BQ disponibles agrupadas por tema (Inventario Bike / Inventario Pesca / Backorder+ASIG desde app / Entradas stock).
+- Nueva §46.2: naming convention completa de columnas de costo por tabla, resuelta en v794 sin ambigüedad. Aclara que `cost_usd` en Bike ≠ `cost_list11_usd` en Pesca — salen de listas SAP distintas (7 vs 11).
+- Nueva §46.3: decisiones ancladas por COWORK (whitelist WH 10, currency por fila, clasificacion_abc no es categoría, etc).
+- Nueva §46.4: dato para Compras (TC lista 11 desactualizado, inventario Bike subvaluado ~9.9%).
+- Nueva §46.5: mapa de archivos clave con líneas de referencia.
+- Nueva §46.6: workaround PowerShell 5.1 para deployar SQL (UTF-8 sin BOM).
+- Bump `APP_VERSION` + `CACHE_VERSION` v794 → v795. Bundle sin cambios.
 
 ### v794 (2026-09-04)
 
@@ -8333,117 +8346,117 @@ Callers post-hardening:
 - Ex-botón login legacy directo browser→SAP: **eliminado**
 
 
-## 46) Handoff Bike Pipeline — retomar acá (2026-09-03)
+## 46) Bike Pipeline BQ + BO/ASIG desde app — CERRADO 2026-09-04
 
-**Contexto**: sesión intensa con COWORK y Mariano armando el pipeline BQ para el tablero Power BI de la división Bike. En orden cronológico se hicieron v777, v778 (por otro), v779 (por otro), v780. Esta sección documenta el estado exacto para retomar sin perder contexto.
+**Estado**: CERRADO. Todas las decisiones ancladas por COWORK. Última versión: **v794**.
 
-### 46.1 Qué está deployado y funcionando
+### 46.1 Vistas BigQuery disponibles
 
-**Código en `main` (v780)**:
+#### Inventario Bike (nuevo, v777-v794)
 
-- `scripts/sync_sap_to_bigquery.py`:
-  - Segundo pass Bike después del de Pesca (~línea 2076).
-  - Nueva función `resolve_bike_group_code()` con lookup dinámico `GroupName eq 'BIKE'` + fallback hardcoded a 100 (fail-open).
-  - Nueva función `probe_bike_udfs(cfg, session, group_code)` que testea cada UDF individual con `GET /Items?$top=1&$select=ItemCode,U_X`. Los que responden 200 se agregan al `$select` principal; los rechazados quedan out.
-  - Nueva función `flatten_item_bike()` con lógica específica:
-    - Stock vendible = warehouse 10 SOLO (whitelist).
-    - Stock tránsito = warehouse 02 columna aparte.
-    - `price_bike_usd` desde price list 2 (USD).
-    - `cost_avg_ars` desde price list 11 (COSTO ARTICULO ARS).
-    - `cost_usd` desde price list 7 (COSTO ARTICULO USD).
-    - 8 UDFs OITM: `marca, categoria, clase, mss, subcategoria, modelo, ciclo_producto, costo_articulo_usd`.
-  - Nueva constante `BIKE_UDF_MAP` con el mapeo UDF SAP → columna BQ.
-  - Nueva constante `BQ_TABLE_ITEMS_BIKE = sap_items_bike_raw`.
-  - Schema explícito con 22 columnas (7 STRING + 2 INT64 + 5 FLOAT64 + 8 UDF).
-  - Log nuevo `[pesca-costo-ars/probe] N/773 items PESCA con precio en lista 11` en el pass Pesca (zero-risk telemetría para decidir fix bonus).
+| Vista | Filas típicas | Fuente | Uso |
+|---|---|---|---|
+| `sap_items_bike_raw` | ~9.896 items grupo 100 | SAP SL `/Items` (sync 30min) | Tabla base Bike |
+| `v_inventario_bike` | 1 fila por item | `sap_items_bike_raw` | Cards KPI + tabla resumen Power BI |
+| `v_inventario_bike_por_warehouse` | 1 fila por item × warehouse | `sap_items_bike_raw` con JSON_KEYS | Breakdown por depósito |
 
-- `bigquery/bike.sql`:
-  - `v_inventario_bike` con las 8 columnas UDF (reemplazó placeholders `familia/subfamilia/categoria` de v777).
-  - `v_inventario_bike_por_warehouse` con 4 UDFs para filtrar (`marca, categoria, subcategoria, modelo`).
-  - 10 queries de validación comentadas al pie (Q1-Q10).
+Archivo: `bigquery/bike.sql`.
 
-- `bigquery/validate_bike_q{4,5,6,7}.sql`: archivos de referencia para validación (usados en v777, sirven para futuro).
+#### Inventario Pesca (existente, v794 fix costo)
 
-**Tabla BQ populada (validado post-v777, próximo sync post-v780 va a poblar los UDFs)**:
-- `sap_items_bike_raw`: 9.896 items grupo 100.
-- Cobertura precio+costo (v777): 5.386 cost ARS / 5.448 cost USD / 6.833 precio venta.
-- Valuación al costo Bike: **$7.697.734.042 ARS** (Pesca sigue en $0 por bug conocido).
+| Vista/Tabla | Filas típicas | Notas |
+|---|---|---|
+| `sap_items_raw` | 773 items grupo 102 | Post-v794: `cost_avg_ars` (Currency=ARS, 2 items) + `cost_list11_usd` (Currency=USD, ~771 items) |
+| `v_inventario` | 773 items Pesca | Consumida por tablero Pesca en producción |
 
-### 46.2 Pendientes explícitos — orden de prioridad
+#### Backorder / Stock Asignado — desde la APP (v764-v794)
 
-1. **VALIDAR post-sync v780** (el sync corre cada 30 min o disparalo con `gh workflow run sync-sap-to-bigquery.yml`):
+**Fuente de verdad**: colección `pedidos` en Firestore (campo `state`). Las SQ SAP se están discontinuando.
 
-   a. Buscar en el log del sync:
-   ```powershell
-   gh run list --workflow=sync-sap-to-bigquery.yml --limit 1 --json databaseId --jq '.[0].databaseId' | ForEach-Object { gh run view $_ --log | Select-String "UDF-probe|pesca-costo-ars" }
-   ```
+| Vista | Rol | Archivo |
+|---|---|---|
+| **`v_backorder_app`** | Todas las líneas de pedidos abiertos (`closedAt IS NULL`) con `state` expuesto. Consumer filtra. | `bigquery/backorder_app.sql` |
+| **`v_backorder_lineas_v2`** | Shim con **mismo shape** que la vieja `v_backorder_lineas` SAP. Filtra `state IN ('BO','ASIG')`. Mapea `state='BO'→'SIN ASIGNAR'`, `state='ASIG'→'ASIGNADO'`. **Este es el que consume Power BI** (migración zero-change). | `bigquery/backorder_app.sql` |
+| `v_pedidos_lines` | Vista base sobre `pedidos_raw_raw_latest`. Expone `state`, `qty_open`, `qty_invoiced`, `qty_cancelled`. Fuente de `v_backorder_app`. | `bigquery/views.sql` |
+| `v_backorder_lineas` | **Vieja** (SAP quotations). Se está discontinuando. NO usar. | `bigquery/views.sql` |
+| `v_entradas_stock` | Arribos de mercadería al depósito 11 (unidades recibidas por mes). | `bigquery/backorder_app.sql` |
 
-   - `[UDF-probe] BIKE UDFs OK (X/8): [...]` → cuántos UDFs pasaron. Si <8, los que fallaron quedan columna vacía. Reportar a COWORK cuáles fallaron para resolver por otra vía.
-   - `[pesca-costo-ars/probe] N/773 items PESCA con precio en lista 11 (X.X%)` → el número clave para decidir fix bonus.
+**Criterios de negocio** (Mariano confirmó 2026-09-01):
+- STOCK ASIGNADO = `SUM(qty_open) WHERE state='ASIG'`
+- BACKORDER (puro) = `SUM(qty_open) WHERE state='BO'`
+- CONFIRMADO = `state IN ('confirmed','invoiced')`
+- LIBERADO/ELIMINADO = `state IN ('cancelled','recycled')`
 
-   b. Re-deployar las views (v_inventario_bike cambió de shape con los UDFs):
-   ```powershell
-   Get-Content bigquery/bike.sql -Raw | bq query --use_legacy_sql=false --location=southamerica-east1 --project_id=app-vendedores-shimano
-   ```
+**Reposición/ETA** (`prox_embarque_date`, `qty_incoming`): siguen viviendo en SAP (`sap_purchase_orders_raw`). Se joinean por sku en `v_backorder_lineas_v2`.
 
-   c. Validar cobertura UDFs:
-   ```powershell
-   bq query --use_legacy_sql=false --location=southamerica-east1 --project_id=app-vendedores-shimano 'SELECT COUNT(*) AS n_items, COUNTIF(marca IS NOT NULL) AS con_marca, COUNTIF(categoria IS NOT NULL) AS con_categoria, COUNTIF(clase IS NOT NULL) AS con_clase, COUNTIF(mss IS NOT NULL) AS con_mss, COUNTIF(subcategoria IS NOT NULL) AS con_subcategoria, COUNTIF(modelo IS NOT NULL) AS con_modelo, COUNTIF(ciclo_producto IS NOT NULL) AS con_ciclo_producto, COUNTIF(costo_articulo_usd IS NOT NULL) AS con_costo_articulo_usd FROM `app-vendedores-shimano.shimano_app.v_inventario_bike`'
-   ```
+**Stock disponible**: sigue en `v_inventario.stock_total_sellable` (SAP). No se toca.
 
-   Esperado (COWORK contra OITM):
-   - marca: 9.586 / 9.896 (~97%)
-   - categoria (U_CATEG): 8.731 / 9.896 (~88%)
-   - clase: 8.539 / 9.896 (~86%)
-   - mss: 8.671 / 9.896 (~88%)
-   - subcategoria (U_CATEGORIA): 8.658 / 9.896 (~87%)
-   - modelo: 8.330 / 9.896 (~84%)
-   - ciclo_producto: 9.896 / 9.896 (100%)
-   - costo_articulo_usd: 8.609 / 9.896 (~87%)
+### 46.2 Naming convention de columnas de costo (resuelto v794)
 
-   d. Cross-check `costo_articulo_usd` (UDF) vs `costo_usd` (price list 7):
-   ```powershell
-   bq query --use_legacy_sql=false --location=southamerica-east1 --project_id=app-vendedores-shimano 'SELECT COUNT(*) AS n_items_ambos, ROUND(AVG(costo_articulo_usd - costo_usd), 4) AS avg_diff_udf_minus_list, ROUND(SUM(stock_deposito * costo_articulo_usd), 0) AS valor_stock_udf_usd, ROUND(SUM(stock_deposito * costo_usd), 0) AS valor_stock_list_usd FROM `app-vendedores-shimano.shimano_app.v_inventario_bike` WHERE stock_deposito > 0 AND costo_articulo_usd IS NOT NULL AND costo_usd IS NOT NULL'
-   ```
+Cada tabla tiene sus columnas con nombres explícitos que dicen de qué **price list SAP** salen. No confundir entre tablas:
 
-   Si `avg_diff ≈ 0` y `valor_stock_udf` ≈ `valor_stock_list` → las 2 fuentes coinciden. Si divergen mucho, hay tema en SAP y hay que investigar cuál es la fuente correcta.
+| Tabla | Columna | Fuente SAP | Cobertura |
+|---|---|---|---|
+| `sap_items_bike_raw` | `cost_avg_ars` | Price list **11** COSTO ARTICULO ARS (Currency=ARS) | ~5.386 items |
+| `sap_items_bike_raw` | `cost_usd` | Price list **7** COSTO ARTICULO USD (Currency=USD) | ~5.381 items |
+| `sap_items_bike_raw` | `price_bike_usd` | Price list **2** VENTAS PUBLICO (Currency=USD, filtro estricto) | ~6.833 items |
+| `sap_items_bike_raw` | `costo_articulo_usd` | UDF `U_COS_ART_USD` | **NO usar** para valuación (data inconsistente) |
+| `sap_items_raw` (Pesca) | `cost_avg_ars` | Price list **11** COSTO ARTICULO ARS (Currency=ARS) | 2 items (raro) |
+| `sap_items_raw` (Pesca) | `cost_list11_usd` | Price list **11** con Currency=USD | ~771 items |
+| `sap_items_raw` (Pesca) | `price_pesca_ars` | Price list **12** VENTAS PESCA | 773 items |
 
-2. **DECIDIR fix bonus Pesca** (pending explicit OK COWORK):
-   - Con el número del `[pesca-costo-ars/probe]`:
-     - Si N > 500 (>65% cobertura) → COWORK da OK + avisa al equipo comercial + aplico el fix. Cambio: `sap_items_raw` pasa a leer `cost_avg_ars` desde price list 11 (mismo mecanismo que Bike). Impacto: card "valor inventario" Pesca pasa de mostrar precio venta a mostrar costo → número baja fuerte.
-     - Si N < 100 → items Pesca no tienen esa lista cargada. Investigar fuente alternativa (¿otra lista? ¿UDF Pesca específico?).
+**Ojo**: `cost_usd` en Bike ≠ `cost_list11_usd` en Pesca. Salen de listas SAP distintas. El día que se crucen tablas, usar los nombres explícitos.
 
-3. **Fix bug SAP Warehouse 97** (no bloqueante, Logística lo está resolviendo):
-   - WH 97 muestra sum_qty ~500 mil millones de unidades (dato absurdo).
-   - No afecta `v_inventario_bike` porque whitelist es solo WH 10.
-   - Aparece en `v_inventario_bike_por_warehouse` (que es por diseño). Power BI puede filtrar `warehouse_code NOT IN ('97')` si molesta.
+**TC en Power BI**: el pipeline devuelve valores **crudos en su moneda nativa** sin convertir. Power BI aplica FX del lado modelo con `doc_rate` (mismo patrón que `target_usd`).
 
-4. **Sync workflow anterior colgado** (run 33802021271, disparado ~15:26 ARG hace horas):
-   - Sigue in_progress por timeout SAP en DeliveryNotes o algún fetch posterior a Bike.
-   - No afecta a Bike (ya se cargó antes del cuelgue).
-   - Va a fallar solo por timeout GH Actions eventualmente. No requiere acción.
+### 46.3 Decisiones ancladas (COWORK)
 
-### 46.3 Decisiones ancladas (contexto para retomar)
+- **Costo NO vive en campos del Item** (`StandardAveragePrice`/`LastPurchasePrice` null en este SAP). Vive como price list.
+- **Bike NO tiene solapa "Ficha Técnica Pesca"**. Los UDFs `U_P_FAMILIA/U_P_SUBFAMILIA/U_P_CATEGORIA` son exclusivos de Pesca. Bike usa UDFs generales sin prefijo.
+- **Stock vendible Bike = SOLO warehouse 10** (whitelist, no blacklist). Warehouse 02 (tránsito) en columna separada.
+- **`clasificacion_abc`** (U_CATEG) NO es categoría de producto — es ABC de rotación. Renombrada para evitar confusión.
+- **Jerarquía real de producto Bike**: `mss` (tipo) → `subcategoria` (familia) → `clase` (disciplina). `marca` corta transversalmente.
+- **`costo_articulo_usd` DESCARTADO**: ratio 6-123% del `cost_usd`, no es FOB, carga manual inconsistente. Expuesto solo para drill-down.
+- **Currency por fila** de `ItemPrices`, no por número de lista. `_find_price_by_list_currency()` filtra por `(lista, moneda)` estricto.
+- **Encoding UTF-8**: `resp.encoding='utf-8'` en `sl_fetch_all()` para arreglar mojibake (MULTIPROPÃSITO → MULTIPROPÓSITO).
+- **BO/ASIG desde APP**: la app es la fuente de verdad, las SQ SAP se discontinúan. `v_backorder_lineas_v2` es el shim para migración zero-change en Power BI.
 
-- **Costo Bike vive en price lists, NO en campos del Item.** SL no expone `StandardAveragePrice` ni `LastPurchasePrice` a nivel Item en este SAP (HTTP 400). El costo se carga en lista 11 (ARS) y lista 7 (USD). Mismo mecanismo que `price_pesca_ars` (lista 12).
-- **Bike NO tiene solapa "Ficha Técnica Pesca".** Los UDFs `U_P_FAMILIA/U_P_SUBFAMILIA/U_P_CATEGORIA` son EXCLUSIVOS de Pesca. Bike usa UDFs generales sin prefijo `U_P_`.
-- **Stock vendible Bike = SOLO warehouse 10** (whitelist). Warehouse 02 (tránsito) va en columna separada. Warehouses nuevos NO se cuelan solos al sellable.
-- **Precio Bike NO se convierte a ARS** en el pipeline. Se guarda en USD (`price_bike_usd`). Tipo de cambio se aplica del lado Power BI con `doc_rate` de facturas.
-- **NO tocar** `sap_items_raw`, `v_inventario`, ni el pipeline Pesca. Todo lo Bike es aditivo (`sap_items_bike_raw`, `v_inventario_bike*`).
-- **Currency por fila de ItemPrices**, no por número de lista. Lista 2 tiene 6.811 USD + 28 ARS; lista 11 tiene 5.386 ARS + 100 USD. `_find_price_by_list_currency()` filtra por (lista, moneda) para no meter excepciones.
+### 46.4 Dato pendiente para Compras (NO fix del pipeline)
 
-### 46.4 Archivos clave
+**TC implícito** de la lista 11 Bike (ARS) = **1.365** vs `doc_rate` de facturas SAP = **1.482** (sep 2026). Inventario Bike valuado al costo ARS está **subvaluado ~9.9%**:
+- Al costo ARS nativo: **$7.697.734.042**
+- Al costo USD × doc_rate: **$8.458.459.000**
+- Diferencia: **$760.724.958**
 
-| Archivo | Qué contiene |
+COWORK maneja la corrección en el modelo si hace falta. Dato para llevar a Compras (lista 11 desactualizada vs FX real).
+
+### 46.5 Archivos clave
+
+| Archivo | Contenido |
 |---|---|
-| `scripts/sync_sap_to_bigquery.py` | Pipeline. Bike vive líneas 131-197 (constantes), 260-320 (probe/resolve), 543-660 (flatten), 2076-2140 (pass en main). |
-| `bigquery/bike.sql` | 2 vistas Bike + 10 queries validación comentadas. |
-| `bigquery/validate_bike_q{4,5,6,7}.sql` | Archivos individuales para correr con `Get-Content ... \| bq query`. |
-| `README.md` §41 v777, v780 | Changelog completo del trabajo. |
+| `scripts/sync_sap_to_bigquery.py` | Pipeline. Constantes Bike líneas 131-197. `probe_bike_udfs()` línea ~335. `resolve_bike_group_code()` línea ~380. `flatten_item_bike()` línea ~560. Pass en `main()` línea ~2270. Fix Pesca `flatten_item()` línea ~640. |
+| `bigquery/bike.sql` | `v_inventario_bike` + `v_inventario_bike_por_warehouse` + 10 queries de validación comentadas. |
+| `bigquery/backorder_app.sql` | `v_backorder_app` + `v_backorder_lineas_v2` (shim) + `v_entradas_stock`. |
+| `bigquery/views.sql` | `v_pedidos_lines` (base para v_backorder_app) + resto de vistas Pesca. |
+| `bigquery/validate_bike_q{4,5,6,7}.sql` | Archivos de validación (compatibles con workaround PS 5.1 UTF-8). |
 
-### 46.5 Contactos y decisores
+### 46.6 Cómo re-deployar las vistas desde Windows PowerShell
 
-- **COWORK** (autor del brief inicial + review Q1-Q4): tiene acceso completo a SAP, define shape del pipeline. Aprueba fix bonus Pesca.
-- **Mariano** (jefe): supervisa, comunica con equipo comercial cuando cambian números del tablero (ej. fix bonus Pesca).
-- **Logística Shimano AR**: resolviendo el problema del WH 97 en OITW.
+PS 5.1 rompe `Get-Content | bq query` por BOM UTF-16. Workaround:
+
+```powershell
+$sql = [System.IO.File]::ReadAllText("bigquery\bike.sql")
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText("$env:TEMP\_deploy.sql", $sql, $utf8NoBom)
+cmd.exe /c "bq query --use_legacy_sql=false --location=southamerica-east1 --project_id=app-vendedores-shimano < $env:TEMP\_deploy.sql"
+Remove-Item "$env:TEMP\_deploy.sql"
+```
+
+Documentado en memoria `feedback_bq_query_ps51_encoding.md`.
+
+### 46.7 Contactos
+
+- **COWORK**: arma el tablero Power BI Bike + review de shape. Acceso completo a SAP.
+- **Mariano** (jefe): supervisa, comunica cambios al equipo comercial.
+- **Logística Shimano AR**: resolvió el problema del WH 97 (~500 mil M unidades absurdas, no afecta `v_inventario_bike` por whitelist WH 10).
 
