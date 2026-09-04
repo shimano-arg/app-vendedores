@@ -701,10 +701,15 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
         # en Pesca). Preserva la semantica ARS del nombre. Fallback a
         # weighted_cost_avg por backward compat (null en este SAP).
         'cost_avg_ars': avg_std,
-        # v792+: cost_usd = price list 11 SOLO con Currency=USD (~771 items
-        # en Pesca, verificado por COWORK). Columna nueva. El TC lo aplica
-        # Power BI si necesita valuacion en ARS.
-        'cost_usd': cost_usd,
+        # v794 (2026-09-04): renombrada de cost_usd → cost_list11_usd para
+        # evitar colision de nombres con sap_items_bike_raw.cost_usd (que
+        # viene de price list 7, no de la 11). Verificado por COWORK contra
+        # el modelo Bike: la lista 7 cubre 99.1% de los items Bike con
+        # stock, la lista 11 USD solo aporta ~100 items ya cubiertos por
+        # la 7 → no vale agregar cost_list11_usd a Bike. En Pesca es la
+        # unica fuente USD (lista 7 no cargada), asi que el nombre explicito
+        # cost_list11_usd deja claro de que lista sale.
+        'cost_list11_usd': cost_usd,
         # v289/v527: categorizacion prioridad = catalogo local (index.html
         # PRODUCTS) -> UDFs SAP OITM (fallback). Los SKUs cargados en
         # index.html mantienen la categorizacion curada (mas fina, con
