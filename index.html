@@ -4887,6 +4887,15 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <div style="font-size:10.5px;color:#7f1d1d;margin-bottom:8px">Estas lineas estan esperando reposicion de stock. Cuando entre stock del SKU, el sistema las promueve automaticamente a "asignado" y aparecen arriba con los botones Aceptar / Rechazar.</div>
         <div id="wcard-e4b-bo-app-rows" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
+      <!-- v788 (2026-09-04): seccion siempre-visible con TODO el stock asignado
+           del cliente (state IN 'ASIG','BO','confirmed', qtyOpen>0), sin filtros
+           de stock/fecha. Info pura, sin acciones. Colapsable con <details>.
+           Pedido Mariano 2026-09-04: "no puedo ver los SKU que tiene en Stock
+           Asignado ese cliente, poner un boton MOSTRAR o que aparezcan directo". -->
+      <details id="wcard-cliente-open-lines" style="margin-bottom:12px;background:#f8fafc;border:1.5px solid #cbd5e1;border-radius:6px;padding:0" open>
+        <summary id="wcard-cliente-open-lines-summary" style="cursor:pointer;padding:10px 12px;font-size:12px;font-weight:800;color:var(--text-primary);user-select:none;list-style:none">📋 Cargando stock asignado del cliente...</summary>
+        <div id="wcard-cliente-open-lines-body" style="padding:0 12px 10px 12px"></div>
+      </details>
       <!-- v468: buscador para agregar productos nuevos al pedido en espera. -->
       <div style="position:relative;margin-bottom:10px">
         <input id="wcard-add-input" type="text" placeholder="🔍 Buscar producto por codigo o descripcion para agregar al pedido..." oninput="waitlistOnAddSearch()" onfocus="waitlistOnAddSearch()" onblur="setTimeout(waitlistHideAddDropdown, 200)" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12px;outline:none"/>
@@ -5108,7 +5117,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v787';
+const APP_VERSION = 'v788';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15179,6 +15188,107 @@ function _renderE4BBoApp(w){
 }
 // v545 E4B step 1: render piloto ASIG app-source. Solo si feature flag on
 // (isE4BEnabled) y el cache tiene entradas para el cliente. Sin botones aun.
+// v788 (2026-09-04): render info-only con TODAS las lineas open del cliente
+// (state IN 'ASIG','BO','confirmed', qtyOpen>0), sin filtros de stock/fecha.
+// Pedido Mariano 2026-09-04: el vendedor necesita ver el panorama completo
+// del cliente al preparar un nuevo pedido — que tiene en SAP, que espera stock,
+// que ya se envio a facturar — para no duplicar ni promesas contradictorias.
+function _renderClienteAllOpenLines(w){
+  const cont = document.getElementById('wcard-cliente-open-lines');
+  const summary = document.getElementById('wcard-cliente-open-lines-summary');
+  const body = document.getElementById('wcard-cliente-open-lines-body');
+  if (!cont || !summary || !body) return;
+  const cc = String((w && w.clientCardCode) || '').trim();
+  if (!cc) {
+    summary.textContent = '📋 Stock asignado del cliente — sin cardCode SAP (LEAD)';
+    while (body.firstChild) body.removeChild(body.firstChild);
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:8px 0;color:var(--text-muted);font-size:11px;font-style:italic';
+    empty.textContent = 'Este cliente todavia no tiene cardCode SAP (es un LEAD). Cuando se apruebe el alta y empiece a acumular pedidos SAP, van a aparecer aca.';
+    body.appendChild(empty);
+    return;
+  }
+  if (!window._pedidosSnapshotLoaded || typeof globalPedidos === 'undefined' || !Array.isArray(globalPedidos)) {
+    summary.textContent = '📋 Cargando stock asignado del cliente...';
+    while (body.firstChild) body.removeChild(body.firstChild);
+    return;
+  }
+  const prodByCode = {};
+  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
+    for (const p of PRODUCTS) prodByCode[(p.code || '').toUpperCase()] = p;
+  }
+  const rows = [];
+  for (const p of globalPedidos) {
+    if (!p || p.closedAt) continue;
+    if (String(p.clientCardCode || '').trim() !== cc) continue;
+    if (p._id === w._id || p._fsId === w._id) continue;
+    const lines = Array.isArray(p.lines) ? p.lines : [];
+    for (let idx = 0; idx < lines.length; idx++) {
+      const l = lines[idx];
+      if (!l || !l.code) continue;
+      if (!['ASIG', 'BO', 'confirmed'].includes(l.state)) continue;
+      const qo = Number(l.qtyOpen) || 0;
+      if (qo <= 0) continue;
+      rows.push({
+        pedidoId: p._fsId || p._id || '',
+        orderNumber: p.orderNumber || null,
+        code: l.code,
+        desc: l.desc || (prodByCode[(l.code || '').toUpperCase()]?.desc) || '',
+        qtyOpen: qo,
+        state: l.state,
+      });
+    }
+  }
+  rows.sort((a, b) => String(a.code).localeCompare(String(b.code)) || (a.pedidoId || '').localeCompare(b.pedidoId || ''));
+  const totalU = rows.reduce((s, r) => s + r.qtyOpen, 0);
+  const uniqueSkus = new Set(rows.map(r => r.code));
+  summary.textContent = rows.length === 0
+    ? '📋 Stock asignado del cliente — sin líneas open (todo cerrado o facturado)'
+    : '📋 Mostrar stock asignado del cliente (' + uniqueSkus.size + ' SKU / ' + totalU + ' u en ' + rows.length + ' línea/s)';
+  while (body.firstChild) body.removeChild(body.firstChild);
+  if (rows.length === 0) return;
+  // Tabla compacta info-only. Sin botones — se manejan desde otras secciones
+  // (Fusionar, Eliminar/Agregar/Parcial de la seccion azul).
+  const table = document.createElement('table');
+  table.style.cssText = 'width:100%;border-collapse:collapse;font-size:11px;margin-top:6px';
+  const thead = document.createElement('thead');
+  thead.innerHTML = '<tr style="background:#e2e8f0"><th style="text-align:left;padding:5px 8px">SKU</th><th style="text-align:left;padding:5px 8px">Producto</th><th style="text-align:right;padding:5px 8px">Qty open</th><th style="text-align:center;padding:5px 8px">Estado</th><th style="text-align:left;padding:5px 8px">Orden</th></tr>';
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  const stateColor = { ASIG: '#059669', BO: '#b45309', confirmed: '#1e40af' };
+  const stateLabel = { ASIG: 'ASIG', BO: 'BO', confirmed: 'ENVIADO SAP' };
+  for (const r of rows) {
+    const tr = document.createElement('tr');
+    tr.style.cssText = 'border-bottom:1px solid #e2e8f0';
+    const tdSku = document.createElement('td');
+    tdSku.style.cssText = 'padding:5px 8px;font-family:monospace;font-weight:800';
+    tdSku.textContent = r.code;
+    const tdDesc = document.createElement('td');
+    tdDesc.style.cssText = 'padding:5px 8px;color:var(--text-secondary)';
+    tdDesc.textContent = r.desc || '(sin descripcion)';
+    const tdQty = document.createElement('td');
+    tdQty.style.cssText = 'padding:5px 8px;text-align:right;font-weight:700';
+    tdQty.textContent = String(r.qtyOpen);
+    const tdState = document.createElement('td');
+    tdState.style.cssText = 'padding:5px 8px;text-align:center';
+    const tag = document.createElement('span');
+    tag.textContent = stateLabel[r.state] || r.state;
+    tag.style.cssText = 'padding:2px 8px;border-radius:10px;font-size:9.5px;font-weight:800;background:' + (stateColor[r.state] || '#64748b') + ';color:#fff;letter-spacing:.3px';
+    tdState.appendChild(tag);
+    const tdOrd = document.createElement('td');
+    tdOrd.style.cssText = 'padding:5px 8px;color:var(--text-muted);font-size:10px';
+    tdOrd.textContent = r.orderNumber ? ('ORDEN ' + r.orderNumber) : String(r.pedidoId).slice(0, 8);
+    tr.appendChild(tdSku); tr.appendChild(tdDesc); tr.appendChild(tdQty); tr.appendChild(tdState); tr.appendChild(tdOrd);
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  body.appendChild(table);
+  const foot = document.createElement('div');
+  foot.style.cssText = 'margin-top:6px;font-size:10px;color:var(--text-muted);font-style:italic;line-height:1.4';
+  foot.textContent = 'ASIG = reserva firme con stock. BO = pedido pendiente sin stock. ENVIADO SAP = ya facturable en SAP. Para consolidar al pedido actual, usa Fusionar en la fila o los botones Eliminar/Agregar/Parcial de la sección azul.';
+  body.appendChild(foot);
+}
+
 function _renderE4BAsigApp(w){
   const cont = document.getElementById('wcard-e4b-asig-app');
   const rows = document.getElementById('wcard-e4b-asig-app-rows');
@@ -15625,6 +15735,9 @@ function _renderWaitlistCard(){
   document.getElementById('wcard-subt').textContent = (w.clientLocality || 's/loc') + ' · ' + (w.clientProvince || 's/prov') + ' · Vendor asignado: ' + (w.vendorAssigned || 'sin asignar') + ' · Cargado por ' + (w.ownerDisplayName || w.ownerEmail || '') + ' · ' + ts;
   // v477: render seccion "SAP Asignado - Con Stock" del cliente.
   _renderSapAsignadoConStock(w);
+  // v788 (2026-09-04): render seccion "TODO el stock asignado del cliente"
+  // (info-only, sin filtros de stock/fecha). Siempre visible, aunque este vacio.
+  try { _renderClienteAllOpenLines(w); } catch(_e){ console.warn('_renderClienteAllOpenLines', _e); }
   // v458 (2026-08-11): semantica corregida por feedback Mariano:
   //  - Disponible = Stock - Backorder SAP (SIEMPRE, NO resta pedidos en espera).
   //    Refleja lo que hay REAL disponible ahora en el snapshot SAP.
