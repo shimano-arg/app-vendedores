@@ -902,7 +902,27 @@ function renderReviewLines() {
         : null;
     if (_rsFn) {
       const stk = _rsFn(l.code);
-      if (stk && stk.hasData) dispReal = Number(stk.disponible || 0);
+      // v797 (2026-09-04, bug Santi): reemplazado `stk.disponible` por la
+      // formula LIBRE PARA LA VENTA de v767 (dep11 - reservadasASIG).
+      // `stk.disponible` viene de getStockRealmenteDisponible() que resta
+      // BO+ASIG+confirmed — desincronizado con el modal Lista de Espera
+      // (openWaitlistCardModal en index.html:15879) que usa la formula
+      // v767 (solo ASIG). Resultado: los 2 modales daban totales distintos
+      // para el mismo pedido, confundiendo al vendedor:
+      //   - Lista Espera: qty=10 CVC66MH4SACO → Con Stock $660k
+      //   - Revisar Tu Pedido: qty=10 CVC66MH4SACO → split 5 Con Stock $330k + 5 Sin stock $330k
+      //   - Diferencia porque el SKU tenia 41 disp fisico, 36 en state='BO'
+      //     esperando la CF FIFO (edge case documentado en el popup de stock
+      //     como "PENDIENTE SIN STOCK, revisar — CF FIFO no corrio aun").
+      // Los BO NO deben restar porque cuando llegue stock la CF FIFO los
+      // promueve a ASIG. Solo ASIG resta (stock realmente comprometido).
+      if (stk && stk.hasData) {
+        const _dep11 = typeof getStockDisponibleVenta === 'function'
+          ? Number(getStockDisponibleVenta(l.code) || 0)
+          : 0;
+        const _asig = Number(stk.asigApp || 0);
+        dispReal = Math.max(_dep11 - _asig, 0);
+      }
     }
     // v408 (2026-08-05): si la linea tiene faltantesQty (v407+ Excel import),
     // el "Sin stock" cuenta SOLO las unidades sin cobertura, no la linea

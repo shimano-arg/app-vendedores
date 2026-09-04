@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v796](#41-changelog-v300--v796)
+41. [Changelog v300 → v797](#41-changelog-v300--v797)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v796
+## 41) Changelog v300 → v797
+
+### v797 (2026-09-04)
+
+**Fix bug reportado por Santi: modal "Revisar Tu Pedido" daba subtotales distintos al modal "Pedido en Espera" para el mismo pedido.**
+
+- **Reporte Santi 2026-09-04**: al abrir un pedido en Lista de Espera y pasar a "Pasar a Pendientes", los totales cambiaban — SKUs marcados Con Stock en la Lista aparecían como SIN STOCK (bolita roja) en el modal Revisar. Ejemplo CVC66MH4SACO: 41 disp en dep 11 + 0 reservadas ASIG → Lista Espera marca Con Stock (correcto). Modal Revisar marca 5 Con Stock + 5 Sin Stock (incorrecto).
+- **Root cause**: los 2 modales usaban fórmulas distintas para "stock disponible":
+  - Modal Lista de Espera (`_renderWaitlistCard` en index.html:15879, v767): `disp = max(dep11 - reservadasASIG, 0)`. Solo resta ASIG. Los BO NO restan porque cuando llegue stock la CF FIFO los promueve.
+  - Modal Revisar Tu Pedido (`openReviewDialog` en pedidos-modal.js:905, v701): `dispReal = stk.disponible` que viene de `getStockRealmenteDisponible()` — resta BO+ASIG+confirmed. En el ejemplo: 41 - 36 (BO) - 0 = 5.
+- **Fix**: `pedidos-modal.js:903-915` reemplaza `dispReal = stk.disponible` por `dispReal = max(getStockDisponibleVenta(sku) - stk.asigApp, 0)`. Misma fórmula que Lista Espera (v767).
+- **Impacto**: los 2 modales ahora dan el MISMO número. Los SKUs con BO pendientes pero disp físico > 0 ya no se marcan como SIN STOCK en el modal Revisar — reflejan lo que el vendedor realmente puede prometer.
+- **Bug separado (no fixed en este PR)**: el edge case "PENDIENTE SIN STOCK: 36 unidades (revisar — hay stock disponible, CF FIFO no corrio aun)" que aparece en el popup del stock del SKU es un problema de la Cloud Function `onStockChangeFIFOAssign` que no promocionó los 36 en BO → ASIG cuando llegó el stock. Investigar aparte (posible modo shadow o degradación del step BACKORDER).
+- Bump `APP_VERSION` + `CACHE_VERSION` v796 → v797. Requiere rebuild del bundle.
 
 ### v796 (2026-09-04)
 
