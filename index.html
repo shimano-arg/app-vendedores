@@ -2119,11 +2119,14 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .client-card .cli-map-btn:active{transform:translateY(0)}
 .client-card .cli-map-btn[disabled]{background:#cbd5e1;color:var(--text-muted);cursor:not-allowed;box-shadow:none}
 .client-card .cli-map-btn[disabled]:hover{background:#cbd5e1;transform:none}
-/* v782 (2026-09-04): boton "Eliminar" para LEADs (provisorios sin cardCodeSap)
-   en el sidebar CLIENTES. Cualquier reader autenticado puede borrarlo para
-   limpiar duplicados / mal cargados. Rules ya lo permiten (v778). */
-.client-card .cli-delete-btn{position:absolute;top:6px;right:6px;padding:3px 8px;background:var(--color-danger);color:#fff;border:none;border-radius:4px;font-size:9px;font-weight:800;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;display:inline-flex;align-items:center;gap:3px;box-shadow:0 1px 3px rgba(220,38,38,.35);transition:.12s;z-index:3}
-.client-card .cli-delete-btn:hover{background:#b91c1c;transform:translateY(-1px);box-shadow:0 2px 6px rgba(185,28,28,.5)}
+/* v803 (2026-09-04): boton "Vincular SAP" para LEADs (provisorios sin
+   cardCodeSap) en el sidebar CLIENTES. Antes era "Eliminar" (v782) — se
+   cambio para evitar perdida de visitas al borrar un LEAD que en realidad
+   ya tenia su alta SAP creada. Ahora abre el modal Vincular LEAD ↔ Alta SAP
+   con el LEAD pre-seleccionado. Verde por consistencia con el boton
+   "Vincular LEAD-SAP" de Master Clientes (index.html:4049). */
+.client-card .cli-delete-btn{position:absolute;top:6px;right:6px;padding:3px 8px;background:#059669;color:#fff;border:none;border-radius:4px;font-size:9px;font-weight:800;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;display:inline-flex;align-items:center;gap:3px;box-shadow:0 1px 3px rgba(5,150,105,.35);transition:.12s;z-index:3}
+.client-card .cli-delete-btn:hover{background:#047857;transform:translateY(-1px);box-shadow:0 2px 6px rgba(5,150,105,.5)}
 .client-card .cli-delete-btn:active{transform:translateY(0)}
 /* v444 (2026-08-11): boton "Envio gratis" arriba del "Ver en mapa".
    SOLO visible para Ioannis (body.is-ioannis, seteado en applyRolePermissions).
@@ -2620,6 +2623,13 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 @media (min-width: 769px) {
   #mobile-header-hamburger, #mobile-drawer { display: none !important; }
 }
+
+/* v808 (Loop iter 5): skeleton rows para loading states de paneles waitlist.
+   Reemplaza "Cargando..." plano por rows animadas — el vendedor ve estructura
+   mientras carga la data en vez de un modal en blanco 2-5s. */
+@keyframes wcard-skeleton-shimmer{0%{background-position:-200px 0}100%{background-position:calc(200px + 100%) 0}}
+.wcard-skeleton-row{height:38px;border-radius:5px;background:linear-gradient(90deg,var(--bg-muted) 0%,var(--bg-elevated) 50%,var(--bg-muted) 100%);background-size:200px 100%;background-repeat:no-repeat;animation:wcard-skeleton-shimmer 1.4s ease-in-out infinite;margin:6px 0}
+@media (prefers-reduced-motion: reduce){.wcard-skeleton-row{animation:none;opacity:.6}}
 </style>
 <!-- v678 (2026-08-26) PERF Fase 2: apple-design CSS extraido a archivo aparte.
      Antes ~217 KB de CSS apple-design (v650-v676) estaban inline en el <style>
@@ -3985,19 +3995,19 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         </div>
         <button class="modal-close" onclick="closeLeadMergeModal()">&times;</button>
       </div>
-      <div class="modal-body" style="padding:20px">
-        <div id="lead-merge-status" style="margin-bottom:12px;font-size:12px"></div>
-        <div style="margin-bottom:14px">
-          <label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);margin-bottom:5px">1) LEAD provisorio (se conserva &mdash; mantiene las visitas)</label>
-          <select id="lead-merge-lead-select" style="width:100%;padding:8px 10px;border:1px solid var(--border-strong);border-radius:6px;font-size:13px"></select>
+      <div class="modal-body" style="padding:24px 20px;text-align:center">
+        <div id="lead-merge-status" style="margin-bottom:16px;font-size:12px;text-align:center"></div>
+        <div style="margin:0 auto 16px auto;max-width:520px;text-align:center">
+          <label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);margin-bottom:6px;text-align:center">1) LEAD provisorio (se conserva &mdash; mantiene las visitas)</label>
+          <select id="lead-merge-lead-select" style="width:100%;padding:8px 10px;border:1px solid var(--border-strong);border-radius:6px;font-size:13px;text-align:center;text-align-last:center"></select>
         </div>
-        <div style="margin-bottom:14px">
-          <label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);margin-bottom:5px">2) Alta SAP (se elimina; su cardCode va al LEAD)</label>
-          <select id="lead-merge-sap-select" style="width:100%;padding:8px 10px;border:1px solid var(--border-strong);border-radius:6px;font-size:13px"></select>
-          <div style="font-size:10.5px;color:var(--text-secondary);margin-top:4px">Al elegir un LEAD se filtran las altas SAP con nombre similar (mismo prov + 4+ chars en com&uacute;n) en el grupo "Sugerencias".</div>
+        <div style="margin:0 auto 16px auto;max-width:520px;text-align:center">
+          <label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);margin-bottom:6px;text-align:center">2) Alta SAP (se elimina; su cardCode va al LEAD)</label>
+          <select id="lead-merge-sap-select" style="width:100%;padding:8px 10px;border:1px solid var(--border-strong);border-radius:6px;font-size:13px;text-align:center;text-align-last:center"></select>
+          <div style="font-size:10.5px;color:var(--text-secondary);margin-top:6px;text-align:center">Al elegir un LEAD se filtran las altas SAP con nombre similar (mismo prov + 4+ chars en com&uacute;n) en el grupo "Sugerencias".</div>
         </div>
-        <div id="lead-merge-preview"></div>
-        <div style="margin-top:20px;display:flex;justify-content:flex-end;gap:8px">
+        <div id="lead-merge-preview" style="max-width:640px;margin:0 auto"></div>
+        <div style="margin-top:24px;display:flex;justify-content:center;gap:12px;flex-wrap:wrap">
           <button class="btn-cancel" onclick="closeLeadMergeModal()">Cancelar</button>
           <button id="lead-merge-confirm-btn" class="btn-confirm" style="background:#059669" onclick="confirmLeadMerge()">Fusionar</button>
         </div>
@@ -5157,7 +5167,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v807';
+const APP_VERSION = 'v808';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -7928,8 +7938,14 @@ window.mergeLeadIntoSapAlta = async function(leadFsId, sapAltaFsId, opts){
 
 // v799 (2026-09-04): abre modal para vincular LEAD con alta SAP.
 window.openLeadMergeModal = function(){
-  if (!currentUser || (userRole !== 'admin' && userRole !== 'gerente')) {
-    alert('Solo admin/gerente puede vincular LEADs.');
+  // v803 (2026-09-04): gate abierto a cualquier reader autenticado para que
+  // los VDEs puedan abrir el modal desde la card del sidebar (boton "Vincular
+  // SAP"). La confirmacion final (confirmLeadMerge) SIGUE gated a admin/gerente
+  // + Firestore Rules (client_applications.update de cardCodeSap requiere
+  // admin/gerente; delete de doc con cardCodeSap idem). VDEs pueden diagnosticar
+  // el match LEAD↔SAP pero no aplicarlo.
+  if (!currentUser || userRole === 'unassigned') {
+    alert('Necesitas estar autenticado para usar esta funcion.');
     return;
   }
   const modal = document.getElementById('lead-merge-modal');
@@ -8069,6 +8085,38 @@ function _lmRenderPreview(){
 window.closeLeadMergeModal = function(){
   const m = document.getElementById('lead-merge-modal');
   if (m) m.classList.remove('open');
+};
+
+// v803 (2026-09-04): abrir el modal Vincular LEAD ↔ Alta SAP con el LEAD
+// pre-seleccionado. Se llama desde el boton "Vincular SAP" en la card del
+// sidebar CLIENTES (index.html:9060+). Ventaja vs abrir el modal vacio:
+// el vendedor ya sabe cual LEAD quiere vincular — le mostramos directo las
+// sugerencias SAP con nombre similar sin que tenga que buscar en el dropdown
+// de 560+ LEADs.
+window.openLeadMergeModalForLead = function(ev, leadFsId){
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  if (!leadFsId) { alert('LEAD id no valido.'); return; }
+  window.openLeadMergeModal();
+  // openLeadMergeModal es sincrono (no async) — el modal ya esta abierto y los
+  // selects populados. Pre-seleccionar el LEAD + disparar el filtro SAP.
+  setTimeout(() => {
+    const leadSel = document.getElementById('lead-merge-lead-select');
+    if (!leadSel) return;
+    // Verificar que la option con este fsId existe.
+    const optExists = Array.from(leadSel.options).some(o => o.value === leadFsId);
+    if (!optExists) {
+      const status = document.getElementById('lead-merge-status');
+      if (status) {
+        const warn = document.createElement('div');
+        warn.style.cssText = 'color:#b45309;margin-top:6px;font-size:11px;text-align:center';
+        warn.textContent = '⚠ El LEAD ya no aparece en el listado (puede haber sido fusionado por otro user). Elegí de la lista.';
+        status.appendChild(warn);
+      }
+      return;
+    }
+    leadSel.value = leadFsId;
+    if (typeof _lmOnLeadChange === 'function') _lmOnLeadChange();
+  }, 50);
 };
 window.confirmLeadMerge = async function(){
   const leadFsId = document.getElementById('lead-merge-lead-select').value;
@@ -9054,13 +9102,19 @@ function renderClients(pts){
       html += '</div></div>';
       // Badge CAT en la esquina superior derecha (como antes).
       html += getClientCategoryBadgeHtml(it.point.province, it.point.name, it.name, {corner: true});
-      // v782 (2026-09-04): boton "Eliminar" visible SOLO para LEADs (provisorios
-      // sin cardCodeSap). Cualquier reader lo borra para limpiar duplicados o
-      // mal cargados. Firestore Rules ya permiten delete cuando !cardCodeSap
-      // (rules.v778 line 271). Los altas SAP reales quedan protegidas.
+      // v803 (2026-09-04): boton "Vincular SAP" (antes "Eliminar" v782). Al
+      // click abre el modal Vincular LEAD ↔ Alta SAP con el LEAD pre-seleccionado.
+      // Motivo: cuando el admin carga un LEAD en SAP como BP nuevo, quedan 2
+      // docs (LEAD + Alta SAP). Si el vendedor borraba el LEAD pensando que era
+      // "duplicado", perdia las visitas asociadas al LEAD. Con Vincular:
+      //   - LEAD se conserva (mantiene sus visitas).
+      //   - CardCode del alta SAP se copia al LEAD.
+      //   - Alta SAP duplicada se elimina.
+      // Solo visible para LEADs (sin cardCodeSap). El gate final admin/gerente
+      // vive en confirmLeadMerge + Firestore Rules (VDEs pueden abrir el modal
+      // para diagnosticar pero no confirmar).
       if (!a.cardCodeSap) {
-        const _delName = escapeAttr((a.fantasia || a.comercio || it.name || 'este LEAD').trim());
-        html += '<button class="cli-delete-btn" onclick="deleteLeadFromCard(event, \'' + safeFsId + '\', \'' + _delName + '\')" title="Eliminar este LEAD (duplicado / mal cargado)">&#128465;&#65039; Eliminar</button>';
+        html += '<button class="cli-delete-btn" onclick="openLeadMergeModalForLead(event, \'' + safeFsId + '\')" title="Vincular este LEAD con su alta SAP correspondiente (evita duplicados y preserva visitas)">&#128279; Vincular SAP</button>';
       }
       // v442: boton "Ver en mapa" — usa a.lat/a.lng (SAP alta geocodificada).
       // Si el alta no tiene geo aun, el boton sale disabled con tooltip.
@@ -15415,7 +15469,14 @@ function _renderClienteAllOpenLines(w){
   }
   if (!window._pedidosSnapshotLoaded || typeof globalPedidos === 'undefined' || !Array.isArray(globalPedidos)) {
     summary.textContent = '📋 Cargando stock asignado / backorder del cliente...';
-    while (body.firstChild) body.removeChild(body.firstChild);
+    // v808 (Loop iter 5): reemplaza el body vacio por 3 skeleton rows animadas.
+    // Antes: modal en blanco 2-5s -> vendedor cree "no hay data". Ahora ve
+    // estructura tipo shimmer mientras el listener onSnapshot trae la data.
+    if (typeof window._renderSkeletonRows === 'function') {
+      window._renderSkeletonRows(body, 3);
+    } else {
+      while (body.firstChild) body.removeChild(body.firstChild);
+    }
     return;
   }
   const prodByCode = {};
@@ -19181,6 +19242,15 @@ window._showErrorToast = function(msg){
     el.style.opacity = '0';
     el.style.transform = 'translateX(-50%) translateY(-30px)';
   }, 6000);
+};
+
+// v808 (Loop iter 5): skeleton rows para paneles waitlist en loading state.
+// Delega a src/pure/render-skeleton.js — logica pura testeada en Vitest.
+// Uso: _renderSkeletonRows(document.getElementById('foo-body'), 3)
+window._renderSkeletonRows = function(container, count){
+  const pureFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.renderSkeletonRowsPure);
+  if (!pureFn || !container) return;
+  pureFn(container, count, { doc: document });
 };
 
 // Toast verde grande con titulo + descripcion. Pensado para reasignaciones
