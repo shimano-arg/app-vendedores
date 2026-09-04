@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v786](#41-changelog-v300--v785)
+41. [Changelog v300 → v787](#41-changelog-v300--v785)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v786
+## 41) Changelog v300 → v787
+
+### v787 (2026-09-04)
+
+**Modal Pedido en Espera: fix Fusionar en SKUs sin stock + columna Pedido Final siempre azul.**
+
+- **Bug 1 (Mariano 2026-09-04)**: el botón **🔁 Fusionar** aparecía en filas de SKUs sin stock (ej: SNZS05N con Stock=0, Libre=0, Backorder=+6). Al tocarlo, saltaba alert "No encontré líneas ASIG/BO del cliente".
+  - **Root cause**: la condición para mostrar Fusionar era `yaEnOtroFiltrado.length > 0` (viene de `getStockPorCliente.yaEnOtroPedido`) que incluye TODAS las reservas del cliente en states `['confirmed', 'BO', 'ASIG']`. Pero `_findAsigDelCliente` (lo que Fusionar realmente consume) filtra más estricto: state='ASIG' o state='BO' con `getStockDisponibleVenta(sku) > 0`. Un SKU sin stock que solo tenía BO en otro pedido pasaba el primer filtro pero fallaba el segundo → botón mostrado pero acción vacía.
+  - **Fix**: nueva condición `_fusionable = yaEnOtroFiltrado.filter(x => x.state === 'ASIG' || (x.state === 'BO' && stockDep11Only > 0))`. Solo muestra botón si `_fusionable.reduce(qtyOpen) > 0`. Y el `+N` de la etiqueta refleja lo fusionable real, no el total de reservas.
+
+- **Bug 2 (Mariano 2026-09-04)**: la columna "Pedido Final" solo se pintaba de azul cuando `pedidoFinal > 0`. En filas sin stock (0), el cell aparecía sin fondo → columna visualmente inconsistente.
+  - **Fix**: aplicar background `#dbeafe` a TODAS las celdas de la columna Pedido Final. Color del texto muted (`#94a3b8`) cuando `pedidoFinal=0` para señalar "no accionable" sin romper la consistencia visual de columna.
+
+- **Bump**: `APP_VERSION` + `CACHE_VERSION` v786 → v787. Bundle sin cambios (patch inline).
+- **Tests**: unit 308/308 verde.
 
 ### v786 (2026-09-04)
 

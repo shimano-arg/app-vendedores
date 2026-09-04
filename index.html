@@ -5108,7 +5108,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v786';
+const APP_VERSION = 'v787';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15886,19 +15886,31 @@ function _renderWaitlistCard(){
         badge.title = 'El cliente ya tiene ' + porCli.reservadasPorCliente + ' u de ' + r.code + ' reservadas en ' + yaEnOtroFiltrado.length + ' pedido(s) anterior(es). Puede ser duplicado.';
         badge.style.cssText = 'color:var(--color-warning);font-weight:900;cursor:help';
         codeTd.appendChild(badge);
-        // v714.1 (2026-08-28): boton Fusionar. Suma las reservadasPorCliente al
-        // pedido actual (waitlistAddProductWithQty) y marca las lineas viejas
-        // ASIG/BO como recycled en Firestore (via _fusionarAsigDelSkuAlPedido).
-        const btnFusionar = document.createElement('button');
-        btnFusionar.type = 'button';
-        btnFusionar.textContent = '🔁 Fusionar (+' + porCli.reservadasPorCliente + ')';
-        btnFusionar.title = 'Consolidar las ' + porCli.reservadasPorCliente + ' u que el cliente ya tenia asignadas de ' + r.code + ' en este pedido. Las lineas viejas quedan como recycled.';
-        btnFusionar.style.cssText = 'margin-left:6px;background:#dbeafe;color:var(--text-primary);border:1px solid #93c5fd;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:800;cursor:pointer';
-        btnFusionar.onclick = (ev) => {
-          ev.stopPropagation();
-          window._fusionarAsigDelSkuAlPedido(w, r.code);
-        };
-        codeTd.appendChild(btnFusionar);
+        // v787 (2026-09-04): solo mostrar Fusionar si hay lineas que efectivamente
+        // se pueden consumir. Misma semantica que _findAsigDelCliente
+        // (state='ASIG' siempre, o state='BO' con stock fisico dep11 > 0).
+        // Bug reportado Mariano 2026-09-04: Fusionar aparecia para SKUs sin
+        // stock (SNZS05N) porque yaEnOtroFiltrado incluia lineas BO sin stock;
+        // al tocar Fusionar aparecia "No encontre lineas ASIG/BO del cliente".
+        const _fusionable = yaEnOtroFiltrado.filter(x =>
+          x && (x.state === 'ASIG' || (x.state === 'BO' && (stockDep11Only || 0) > 0))
+        );
+        const _fusionableQty = _fusionable.reduce((s, x) => s + (Number(x.qtyOpen) || 0), 0);
+        if (_fusionableQty > 0) {
+          // v714.1 (2026-08-28): boton Fusionar. Suma las reservadasPorCliente al
+          // pedido actual (waitlistAddProductWithQty) y marca las lineas viejas
+          // ASIG/BO como recycled en Firestore (via _fusionarAsigDelSkuAlPedido).
+          const btnFusionar = document.createElement('button');
+          btnFusionar.type = 'button';
+          btnFusionar.textContent = '🔁 Fusionar (+' + _fusionableQty + ')';
+          btnFusionar.title = 'Consolidar las ' + _fusionableQty + ' u que el cliente ya tenia asignadas de ' + r.code + ' en este pedido (state=ASIG o BO+stock). Las lineas viejas quedan como recycled.';
+          btnFusionar.style.cssText = 'margin-left:6px;background:#dbeafe;color:var(--text-primary);border:1px solid #93c5fd;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:800;cursor:pointer';
+          btnFusionar.onclick = (ev) => {
+            ev.stopPropagation();
+            window._fusionarAsigDelSkuAlPedido(w, r.code);
+          };
+          codeTd.appendChild(btnFusionar);
+        }
       }
     }
     // v467: qty editable inline. Input number con onchange que persiste.
@@ -15913,6 +15925,9 @@ function _renderWaitlistCard(){
     tr.appendChild(tdQty);
     // v716 (2026-08-28): Pedido Final = min(Pedido, Libre para la venta).
     // Es la qty efectiva que va a SAP como confirmed. El resto cae en BO.
+    // v787 (2026-09-04): pintar azul TODAS las celdas de la columna (aun 0)
+    // para que se vea como columna destacada por encima de todo, incluyendo
+    // rows sin stock que quedan en 0. Antes solo pintaba cuando pedidoFinal>0.
     const pedidoFinal = Math.max(0, Math.min(Number(r.qty) || 0, Number(r.disponible) || 0));
     const tdFinal = document.createElement('td');
     tdFinal.className = 'num';
@@ -15920,11 +15935,10 @@ function _renderWaitlistCard(){
     tdFinal.title = r.hasData
       ? 'Pedido Final = min(Pedido ' + r.qty + ', Libre ' + r.disponible + ') = ' + pedidoFinal + ' u\\nEs lo que va a SAP como confirmed.'
       : '';
-    if (r.hasData && pedidoFinal > 0) {
-      tdFinal.style.background = '#dbeafe';
-      tdFinal.style.color = '#1e40af';
-      tdFinal.style.fontWeight = '800';
-    }
+    tdFinal.style.background = '#dbeafe';
+    tdFinal.style.fontWeight = '800';
+    // Color muted cuando pedidoFinal=0 o sin datos (info secundaria, no accionable).
+    tdFinal.style.color = (r.hasData && pedidoFinal > 0) ? '#1e40af' : '#94a3b8';
     tr.appendChild(tdFinal);
     // v470/v472: Precio sin '$' + 3 subtotales (Inmediata + Pendiente + Backorder).
     tr.appendChild(mk(Math.round(r.precio).toLocaleString('es-AR'), 'num'));
