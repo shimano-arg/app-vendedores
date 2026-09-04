@@ -2839,7 +2839,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
     <!-- v476 (2026-08-12): renombrado. 'Backorder' = SKUs pedidos SIN stock (puro).
          'SAP Asignado - Con Stock' = SKUs pedidos donde ya llego mercaderia. -->
     <button class="btn-zonas" id="backorders-btn" onclick="openBackordersModal()" title="Backorder: SKUs con demanda que no podemos cubrir (sin stock) - urgentes de importar" style="background:#c2410c;color:#fff;display:none">Backorder <span id="backorders-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
-    <button class="btn-zonas" id="asignacion-backorder-btn" onclick="openAsignacionBackorderModal()" title="SAP Asignado - Con Stock: llego mercaderia, ver que clientes lo tenian pedido para avisarles" style="background:var(--color-success);color:#fff;display:none">SAP Asignado - Con Stock <span id="asignacion-backorder-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
+    <button class="btn-zonas" id="asignacion-backorder-btn" onclick="openAsignacionBackorderModal()" title="Stock Asignado: BO que ya esta disponible — llego mercaderia, ver que clientes lo tenian pedido para avisarles" style="background:var(--color-success);color:#fff;display:none">Stock Asignado (BO que ya est&aacute; disponible) <span id="asignacion-backorder-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
     <!-- v422 (2026-08-06): FORECAST admin-only (whitelist emails en src/domains/forecast.js).
          Modal compara ventas historicas (sku_ventas_snapshot BQ->Firestore) vs Sales Plan
          cargado por el user + politica de inventario (promedio YTD x 3 meses). -->
@@ -5117,7 +5117,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v790';
+const APP_VERSION = 'v791';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -11149,7 +11149,7 @@ function _applyBackordersMode(mode){
   if (mode === 'asignacion') {
     backordersStockFilter = 'con';
     if (head) head.style.background = 'linear-gradient(135deg,#14532d,#166534)';
-    if (title) title.innerHTML = '&#128233; SAP Asignado - Con Stock';
+    if (title) title.innerHTML = '&#128233; Stock Asignado (BO que ya est&aacute; disponible)';
     if (subt) subt.textContent = 'Llegó mercadería: buscá el SKU y ve qué clientes lo tenían pedido para avisarles. Datos SAP cada 30 min. Solo pesca.';
   } else {
     backordersStockFilter = 'sin';
@@ -15221,10 +15221,12 @@ function _renderClienteAllOpenLines(w){
     for (const p of PRODUCTS) prodByCode[(p.code || '').toUpperCase()] = p;
   }
   const getStk = (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : null;
-  // Clasificar en 3 buckets: asignado (accionable), backorder (info), enviadoSap (info).
+  // v791 (2026-09-04): clasificar en 2 buckets — asignado (accionable) y
+  // backorder (info). Antes habia un tercer bucket "enviadoSap" (state=
+  // 'confirmed') pero Mariano lo pidio remover: info operativa que no
+  // aporta al flow de armar pedido en espera.
   const asignadoRows = [];
   const backorderRows = [];
-  const enviadoSapRows = [];
   for (const p of globalPedidos) {
     if (!p || p.closedAt) continue;
     if (String(p.clientCardCode || '').trim() !== cc) continue;
@@ -15254,27 +15256,22 @@ function _renderClienteAllOpenLines(w){
         } else {
           backorderRows.push(row);
         }
-      } else if (l.state === 'confirmed') {
-        enviadoSapRows.push(row);
       }
+      // v791: state='confirmed' se ignora — ya se envio a SAP, no accionable.
     }
   }
   const _sortRows = (a, b) => String(a.code).localeCompare(String(b.code)) || (a.pedidoId || '').localeCompare(b.pedidoId || '');
   asignadoRows.sort(_sortRows);
   backorderRows.sort(_sortRows);
-  enviadoSapRows.sort(_sortRows);
   const totalAsig = asignadoRows.reduce((s, r) => s + r.qtyOpen, 0);
   const totalBo = backorderRows.reduce((s, r) => s + r.qtyOpen, 0);
-  const totalEnviado = enviadoSapRows.reduce((s, r) => s + r.qtyOpen, 0);
-  const totalRows = asignadoRows.length + backorderRows.length + enviadoSapRows.length;
+  const totalRows = asignadoRows.length + backorderRows.length;
   if (totalRows === 0) {
     summary.textContent = '📋 Stock asignado / Backorder del cliente — sin líneas open';
     while (body.firstChild) body.removeChild(body.firstChild);
     return;
   }
-  summary.textContent = '📋 Mostrar stock asignado (' + asignadoRows.length + ') + backorder (' + backorderRows.length + ')' +
-    (enviadoSapRows.length ? ' + enviado SAP (' + enviadoSapRows.length + ')' : '') +
-    ' del cliente';
+  summary.textContent = '📋 Mostrar stock asignado (' + asignadoRows.length + ') + backorder (' + backorderRows.length + ') del cliente';
   while (body.firstChild) body.removeChild(body.firstChild);
 
   // ============ SUBSECCION 1: STOCK ASIGNADO (accionable) ============
@@ -15384,37 +15381,10 @@ function _renderClienteAllOpenLines(w){
   }
   body.appendChild(boBox);
 
-  // ============ SUBSECCION 3: ENVIADO A SAP (info-only, colapsable) ============
-  if (enviadoSapRows.length > 0) {
-    const sapBox = document.createElement('details');
-    sapBox.style.cssText = 'margin-bottom:4px;background:#eff6ff;border:1.5px solid #93c5fd;border-radius:6px;padding:0';
-    const sapSum = document.createElement('summary');
-    sapSum.style.cssText = 'cursor:pointer;padding:8px 12px;font-size:11px;font-weight:800;color:#1e40af;user-select:none';
-    sapSum.textContent = '📤 Enviado a SAP — ' + enviadoSapRows.length + ' línea/s · ' + totalEnviado + ' u (click para ver)';
-    sapBox.appendChild(sapSum);
-    const sapContent = document.createElement('div');
-    sapContent.style.cssText = 'padding:0 12px 10px 12px';
-    const sapDesc = document.createElement('div');
-    sapDesc.style.cssText = 'font-size:10px;color:#1e3a8a;margin-bottom:6px;line-height:1.4;font-style:italic';
-    sapDesc.textContent = 'Líneas del cliente ya confirmadas en SAP como Sales Quotation, esperando factura. No accionable desde acá.';
-    sapContent.appendChild(sapDesc);
-    for (const r of enviadoSapRows) {
-      const line = document.createElement('div');
-      line.style.cssText = 'font-size:11px;padding:3px 0;color:var(--text-secondary)';
-      const codeSpan = document.createElement('span');
-      codeSpan.style.cssText = 'font-family:monospace;font-weight:800;color:var(--text-primary)';
-      codeSpan.textContent = r.code;
-      line.appendChild(codeSpan);
-      line.appendChild(document.createTextNode(' · ' + (r.desc || '(sin desc)') + ' · '));
-      const qtyB = document.createElement('b');
-      qtyB.textContent = r.qtyOpen + ' u';
-      line.appendChild(qtyB);
-      if (r.orderNumber) line.appendChild(document.createTextNode(' · ORDEN ' + r.orderNumber));
-      sapContent.appendChild(line);
-    }
-    sapBox.appendChild(sapContent);
-    body.appendChild(sapBox);
-  }
+  // v791 (2026-09-04): seccion "Enviado a SAP" removida (Mariano bug reporte
+  // "que es eso? de que me sirve?"). Las lineas confirmed son info operativa
+  // que el vendedor no necesita en el flow de armar pedido en espera. Si en
+  // algun momento se necesita, se recupera del historial del pedido en SAP.
 }
 
 function _renderE4BAsigApp(w){

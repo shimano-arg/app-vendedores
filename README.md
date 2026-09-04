@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v790](#41-changelog-v300--v790)
+41. [Changelog v300 → v791](#41-changelog-v300--v791)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v790
+## 41) Changelog v300 → v791
+
+### v791 (2026-09-04)
+
+**Modal Pedido en Espera: sacar "Enviado a SAP" + renombrar botón/modal "SAP Asignado - Con Stock".**
+
+- **Pedido Mariano 2026-09-04**: 2 cambios en la UI del modal Pedido en Espera y del header:
+  1. La subsección "📤 Enviado a SAP" (que v789 agregó bajo `<details>` colapsable) se **removió**. Mostraba las líneas `state='confirmed'` del cliente (ya en SAP como Sales Quotation esperando factura). Mariano: "¿qué es eso?, ¿de qué me sirve?" — es info operativa que no aporta al flow de armar pedido en espera. Si un vendedor necesita ver qué facturas están pendientes de un cliente, lo consulta directo en SAP.
+  2. El **modal global "SAP Asignado - Con Stock"** y su **botón del header** se renombraron a **"Stock Asignado (BO que ya está disponible)"** para reflejar exactamente qué es: backorder al que le llegó mercadería y ahora está disponible para ofrecer al cliente.
+- **Cambios técnicos**:
+  - `_renderClienteAllOpenLines` (index.html:15196) simplificado: ahora sólo 2 buckets (asignado + backorder). `state='confirmed'` se ignora. Se removió el bloque `<details>` de la subsección 3.
+  - `_applyBackordersMode('asignacion')` (index.html:11152) → nuevo título del modal.
+  - Botón `#asignacion-backorder-btn` (index.html:2842) → nuevo texto y nuevo tooltip.
+  - El label "Stock Asig." del sidebar-left (v481, index.html:20147) se mantiene corto para no romper el layout.
+- **Bump**: `APP_VERSION` + `CACHE_VERSION` v790 → v791. Bundle sin cambios (patch inline).
+- **Tests**: unit 308/308 verde.
 
 ### v790 (2026-09-04)
 
