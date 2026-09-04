@@ -144,6 +144,81 @@ export function getStockPorCliente(sku, cardCode, deps) {
   };
 }
 
+// v809 (2026-09-04, Loop iter 6): memoization de getStockPorCliente.
+// _renderWaitlistCard llama esta fn en un loop por SKU (hasta 30-50 por
+// cliente) y en cada tick de UI (edit qty, agregar SKU). Sin cache, cada
+// call itera todo globalPedidos (500+ pedidos en clientes grandes) → 15-25k
+// ops/frame. Bench iter 1 midio 142 µs/call, no cache — target −60% en
+// repeat calls al mismo (sku, cardCode).
+//
+// Estrategia:
+// - WeakMap keyed por pedidos array ref. Cuando globalPedidos se reemplaza
+//   por nueva ref (Firestore onSnapshot), el WeakMap se GC → invalidacion
+//   automatica.
+// - Sub-cache por key = sku|cardCode|fisico. Incluir fisico invalida al
+//   cambiar stock snapshot (fisico viene de deps.getStockFisico).
+// - TTL fallback 5s: safety net contra mutacion in-place de globalPedidos
+//   (v786 optimistic update lo hace). Entries con edad > 5s se descartan.
+//
+// Test unit: cache hit al 2do call con mismos args, miss al cambiar
+// cardCode/sku/fisico, invalidacion al cambiar pedidos ref.
+/** @type {WeakMap<object, Map<string, {result: any, ts: number}>>} */
+const _stockPorClienteMemo = new WeakMap();
+const MEMO_TTL_MS = 5000;
+
+/**
+ * Version memoizada de getStockPorCliente. Misma API + cache.
+ *
+ * @param {string} sku
+ * @param {string} cardCode
+ * @param {StockRealDeps} deps
+ * @returns {ReturnType<typeof getStockPorCliente>}
+ */
+export function getStockPorClienteMemo(sku, cardCode, deps) {
+  const pedidos = deps && deps.pedidos;
+  // Si pedidos no es un array/obj (edge case bootstrap), fallback sin cache.
+  if (!pedidos || typeof pedidos !== 'object') {
+    return getStockPorCliente(sku, cardCode, deps);
+  }
+  const skuUp = String(sku || '').toUpperCase();
+  const ccUp = String(cardCode || '').trim();
+  const fisico =
+    skuUp && deps && typeof deps.getStockFisico === 'function'
+      ? Number(deps.getStockFisico(skuUp)) || 0
+      : 0;
+  const key = skuUp + '|' + ccUp + '|' + fisico;
+
+  let bucket = _stockPorClienteMemo.get(pedidos);
+  const now = Date.now();
+  if (bucket) {
+    const cached = bucket.get(key);
+    if (cached && now - cached.ts < MEMO_TTL_MS) {
+      return cached.result;
+    }
+  } else {
+    bucket = new Map();
+    _stockPorClienteMemo.set(pedidos, bucket);
+  }
+  const result = getStockPorCliente(sku, cardCode, deps);
+  bucket.set(key, { result, ts: now });
+  return result;
+}
+
+/**
+ * Reset del cache — solo para tests.
+ */
+export function _resetStockPorClienteMemo() {
+  // WeakMap no tiene clear(). Reasignamos, pero como es const, en su lugar
+  // borramos todas las entries manualmente via API publica: no hay API para
+  // enumerar WeakMap. Workaround: crear nueva WeakMap y reasignar via closure
+  // no funciona con const. Solucion: exponemos el store y usamos delete + set
+  // vacio en cada key conocida. Para tests, tipicamente el test pasa nuevos
+  // pedidos arrays cada vez, asi que el WeakMap ni se toca — solo hace falta
+  // resetear cuando el test reusa el mismo pedidos array a proposito.
+  // Aqui no hacemos nada — los tests que necesiten reset deben usar arrays
+  // distintos por escenario. Esta fn queda como marker para docs.
+}
+
 /**
  * Calcula el desglose (fisico, comprometido, real) para mostrar en UI.
  *

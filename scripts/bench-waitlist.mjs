@@ -41,7 +41,7 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { getStockPorCliente, getStockRealmenteDisponible } from '../src/pure/stock-realmente-disponible.js';
+import { getStockPorCliente, getStockPorClienteMemo, getStockRealmenteDisponible } from '../src/pure/stock-realmente-disponible.js';
 
 // ============================================================
 // CLI args
@@ -192,6 +192,28 @@ function runGetStockPorClienteRepeat(fixture) {
   return stats(samples);
 }
 
+function runGetStockPorClienteRepeatMemo(fixture) {
+  // v809 iter 6: mismo escenario que "repeat same sku,cc" pero con la
+  // version memoizada. Meta: ≥60% reduccion vs no-memo (repeat).
+  const { pedidos, skus, clientes, stockFisico } = fixture;
+  const deps = {
+    getStockFisico: (sku) => stockFisico[sku] || 0,
+    pedidos,
+  };
+  const sku = skus[0];
+  const cc = clientes[0];
+  const samples = [];
+  const call = () => {
+    for (let k = 0; k < ITERATIONS; k++) {
+      getStockPorClienteMemo(sku, cc, deps);
+    }
+  };
+  for (let r = 0; r < RUNS; r++) {
+    samples.push(bench('getStockPorClienteRepeatMemo', call));
+  }
+  return stats(samples);
+}
+
 function runGetStockRealmenteDisponible(fixture) {
   const { pedidos, skus, stockFisico } = fixture;
   const deps = {
@@ -227,6 +249,7 @@ function main() {
   const results = {
     'getStockPorCliente (diverse sku,cc)': runGetStockPorCliente(fixture),
     'getStockPorCliente (repeat same sku,cc)': runGetStockPorClienteRepeat(fixture),
+    'getStockPorClienteMemo (repeat + cache)': runGetStockPorClienteRepeatMemo(fixture),
     'getStockRealmenteDisponible (diverse sku)': runGetStockRealmenteDisponible(fixture),
   };
 
