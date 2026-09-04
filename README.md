@@ -68,13 +68,14 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v802](#41-changelog-v300--v802)
+41. [Changelog v300 → v803](#41-changelog-v300--v803)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
 45. [E2.b performance + code splitting (rama `e2b-perf`)](#45-e2b-performance--code-splitting-rama-e2b-perf)
 46. [Bike Pipeline BQ + BO/ASIG desde app — CERRADO 2026-09-04](#46-bike-pipeline-bq--boasig-desde-app--cerrado-2026-09-04)
 48. [Flow LEAD → cliente SAP: auto + fallback manual — CERRADO 2026-09-04](#48-flow-lead--cliente-sap-auto--fallback-manual--cerrado-2026-09-04)
+49. [Integración SETUP (CRM del depósito) — PENDIENTE endpoints](#49-integración-setup-crm-del-depósito--pendiente-endpoints)
 
 ---
 
@@ -4669,7 +4670,16 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v802
+## 41) Changelog v300 → v803
+
+### v803 (2026-09-04)
+
+**Docs: nueva §49 "Integración SETUP (CRM del depósito) — PENDIENTE endpoints".**
+
+- Contexto: Mariano envió requerimiento técnico a SETUP el 2026-09-04 pidiendo endpoint batch para consultar estado de remitos, catálogo de estados, auth, rate limits, comportamiento con remito no encontrado, alternativa webhook. Esperando respuesta.
+- Sin código armado del lado nuestro — la sección documenta el objetivo, requerimientos pedidos, flow post-endpoints (CF scheduled + Firestore trigger + Power BI), preguntas abiertas para responderse cuando lleguen los endpoints, y checklist de implementación (secret manager, tests con mock, rollout gradual, plan B si SETUP dice "3 meses de desarrollo").
+- TOC actualizado con anchor `#49-integración-setup-crm-del-depósito--pendiente-endpoints`.
+- Bump `APP_VERSION` + `CACHE_VERSION` v802 → v803. Solo docs.
 
 ### v802 (2026-09-04)
 
@@ -8699,4 +8709,55 @@ ORDER BY ranAt DESC LIMIT 30
 ```
 
 (la vista `lead_merge_log_raw_latest` se crea cuando Firebase Extension `firestore-bigquery-export` la habilite para esta collection — si aún no está, consultar directo en Firestore Console).
+
+
+## 49) Integración SETUP (CRM del depósito) — PENDIENTE endpoints
+
+**Estado 2026-09-04**: requerimiento enviado a SETUP. Esperando respuesta técnica del proveedor con URL base, auth, catálogo de estados, rate limits y comportamiento con remito no encontrado. **Sin código armado del lado nuestro aún** — arrancamos cuando lleguen los endpoints.
+
+### 49.1 Objetivo
+
+Sincronizar el estado operativo de cada remito entre **SETUP** (CRM del depósito Shimano, tracking físico) y nuestra app-vendedores. Cuando SETUP marca un remito como "despachado" / "en tránsito" / "entregado" / etc., queremos que el vendedor lo vea reflejado en el cliente sin llamar al depósito.
+
+Alcance: **consulta de estado en tiempo casi real** vía polling / webhook. NO es reporting analítico.
+
+### 49.2 Requerimientos técnicos pedidos a SETUP
+
+1. **Endpoint batch** que reciba array de nº de remito y devuelva estado actual de cada uno.
+2. **Timestamp del último cambio de estado** en cada respuesta.
+3. **Catálogo completo de estados** posibles (armando, despachado, en tránsito, entregado, demorado, devuelto, rechazado, y cualquier excepción operativa).
+4. **Autenticación**: URL base + método (API key header, Bearer, OAuth).
+5. **Límites**: tamaño máximo del batch + rate limit (requests/minuto o hora).
+6. **Comportamiento con remito inexistente**: 404, null, respuesta vacía, `estado='not_found'`, etc.
+7. **Alternativa webhook**: si SETUP puede disparar notificación cuando cambia el estado, mejor que polling — 0 requests inútiles + info siempre fresca.
+
+### 49.3 Flow post-endpoints (cuando estén)
+
+**Del lado nuestro (a implementar)**:
+
+- Cloud Function scheduled cada ~10 min: lee remitos "abiertos" (state ∈ {'confirmed', 'ASIG', 'invoiced'} sin `deliveredAt` ni `cancelledAt` de nuestra tabla `pedidos` o de las SQ SAP), arma batch, consulta SETUP, actualiza campo `setupState` + `setupStateAt` en cada línea del pedido correspondiente.
+- Firestore trigger sobre cambio de `setupState`: notifica al vendedor via `notifications` doc si el estado cambia a algo relevante (ej: entregado → celebrate; devuelto → alerta).
+- Vista Power BI: alimentar `v_pedidos_lines` con las nuevas columnas para reporting de tiempo de entrega, tasa de devolución, etc.
+- **Alternativa webhook** (si SETUP lo ofrece): Cloud Function HTTPS endpoint recibiendo webhook, valida token, actualiza el pedido. Preferible a polling.
+
+**UI**: agregar badge/label en el modal de pedido mostrando el `setupState` con el timestamp del último cambio (color por estado).
+
+### 49.4 Preguntas abiertas (para responderse cuando lleguen los endpoints)
+
+- ¿Timezone del timestamp (UTC/ART) y formato (ISO 8601)?
+- ¿Ambiente sandbox/staging o directo prod?
+- ¿Versionado del contrato (v1, v2) o cambian sin aviso?
+- Si son remitos de SAP: ¿matchean por `DocNum` o por `docEntry`? ¿por CardCode?
+- ¿Los remitos "viejos" (>90 días) siguen consultables o los archivan?
+
+### 49.5 Cuando lleguen los endpoints
+
+1. Pedir a SETUP un ejemplo de request/response reales (curl + JSON con 2-3 remitos) — sin ejemplo la doc siempre falla en el detalle.
+2. Armar cliente HTTP en Cloud Function (`functions/core/setup-client-core.js`) con inyección de deps para testear con mock.
+3. Registrar `SETUP_API_KEY` (o equivalente) en Secret Manager.
+4. Cron via `onSchedule` (misma región `southamerica-east1`).
+5. Tests unitarios con mock de fetch + fixtures de respuestas típicas.
+6. Rollout gradual: 10% de pedidos primero, monitorear rate limits + coherencia de estados vs realidad, escalar al 100%.
+
+**Cuándo replantear**: si SETUP dice "no tenemos endpoint, hay que desarrollarlo y son 3 meses + $X", evaluar alternativa (ej: query directa a la BD de SETUP, export CSV diario, integración vía SAP si es que SETUP alimenta a SAP también, etc).
 
