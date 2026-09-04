@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v793](#41-changelog-v300--v793)
+41. [Changelog v300 → v794](#41-changelog-v300--v794)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,28 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v793
+## 41) Changelog v300 → v794
+
+### v794 (2026-09-04)
+
+**Cerrar Bike Pipeline: rename `sap_items_raw.cost_usd` → `cost_list11_usd` para evitar colisión con `sap_items_bike_raw.cost_usd` (COWORK feedback final).**
+
+- **Decisión COWORK sobre Bike lista 11 USD** (post-telemetría v793): NO agregar columna `cost_list11_usd` a `sap_items_bike_raw`. Verificado contra el modelo sobre 2.749 SKUs Bike con stock en depósito 10:
+  - Con costo lista 11 ARS: 2.642 (96.1%)
+  - Con costo lista 7 USD: 2.724 (99.1%)  ← mejor cobertura
+  - Sin ARS pero con lista 7: 82
+  - Sin ninguno: 25 (0.9%)
+  - La lista 7 cubre mejor lo que importa. Los items Bike lista 11 USD (que hoy quedan NULL) ya están cubiertos por lista 7. Agregar una 4ta columna solo recupera parte de 25 huérfanos. No vale la complejidad.
+- **Colisión de nombres identificada por COWORK**: `cost_usd` significaba cosas distintas en cada tabla:
+  - `sap_items_bike_raw.cost_usd` → price list 7 (COSTO ARTICULO USD)
+  - `sap_items_raw.cost_usd` → price list 11 (COSTO ARTICULO ARS, cargada en USD)
+  - Mismo nombre, listas SAP distintas → error silencioso el día que alguien cruce las tablas.
+- **Fix**: renombrar `sap_items_raw.cost_usd` → `sap_items_raw.cost_list11_usd`. El nombre explícito dice de qué lista sale.
+  - `flatten_item()` Pesca ahora emite `cost_list11_usd` en el dict de return.
+  - Autodetect en BQ crea la columna nueva; la vieja `cost_usd` desaparece al no ser emitida (WRITE_TRUNCATE).
+  - `sap_items_bike_raw.cost_usd` se mantiene sin cambios (lista 7, semántica intacta).
+- **Fact aparte** (COWORK, para doc — no fix): TC implícito lista 11 Bike = 1.365 vs `doc_rate` facturas 1.482. Inventario Bike al costo ARS subvaluado ~9.9% ($7.697M vs $8.458M al TC actual). Diferencia $760M. Dato para Compras.
+- Bump `APP_VERSION` + `CACHE_VERSION` v793 → v794. Bundle sin cambios.
 
 ### v793 (2026-09-04)
 
