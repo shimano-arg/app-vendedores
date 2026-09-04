@@ -97,6 +97,23 @@ const LAZY_CHUNKS = {
   // esta open y algo llama renderPanelControl antes del load, el stub
   // dispara loadChunk + re-invoke automatico.
   'panel-control': ['openPanelControl', 'closePanelControl', 'renderPanelControl'],
+  // v811 (2026-09-04) Loop iter 8: SEGUIMIENTO (visitas + notas + timeline).
+  // 1174 LOC. attachSegNotes/StatusListener corren dentro de openSeguimientoModal,
+  // NO al login. window.unsubSegNotes/Status son cross-scope pero se initializan
+  // en el chunk cuando el user abre el modal — antes de eso, off() ve undefined
+  // y skip (helper tolerante), sin errores. Safe lazy.
+  seguimiento: [
+    'openSeguimientoModal',
+    'closeSeguimientoModal',
+    'setSeguimientoTab',
+    'renderSeguimientoTab',
+    'deleteSegVisita',
+    'deleteSegPedido',
+    'openSegTimeline',
+    'closeSegTimeline',
+    'saveSegNote',
+    'setSegStatus',
+  ],
 };
 
 function fmtSize(bytes) {

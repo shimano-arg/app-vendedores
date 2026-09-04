@@ -4670,7 +4670,25 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v810
+## 41) Changelog v300 → v811
+
+### v811 (2026-09-04) — Loop Engineering iter 8 📦: chunk lazy seguimiento (-130 KB shell)
+
+**SEGUIMIENTO (visitas + notas + timeline) extraído del shell a chunk lazy. Shell: 2.38 → 2.25 MB.**
+
+- **Contexto**: iter 8 del Loop Engineering. `seguimiento.js` (1174 LOC) tiene 2 listeners `attachSegNotesListener` + `attachSegStatusListener` que corren **dentro de `openSeguimientoModal`**, NO al login. `window.unsubSegNotes` + `window.unsubSegStatus` son cross-scope (usados por `detachFirebaseListeners` en index.html:23951-23952), pero se inicializan cuando el chunk carga; antes de que el user abra el modal, están `undefined` y el helper `off()` (tolerante a no-función) los skipea sin errores. Safe lazy.
+- **Cambios (3 archivos sync CLAUDE.md #18)**:
+  1. `build.js` LAZY_CHUNKS: entry `seguimiento` con 10 exports.
+  2. `src/main.js`: removido import estático + agregado `installChunkStubs('seguimiento', ...)`.
+  3. `sw.js` STATIC_ASSETS: agregado `./chunks/seguimiento.js`.
+- **Bundle deltas**:
+  - Shell: **2.38 → 2.25 MB (-130 KB)**
+  - Nuevo chunk: `chunks/seguimiento.js` 133.8 KB
+- **Trigger de carga**: click en "Seguimiento" del sidebar → stub proxy `window.openSeguimientoModal` → `loadChunk('seguimiento')` → real fn.
+- **Tests**: 337 unit + 25 smoke verde.
+- **Bump**: APP_VERSION+CACHE_VERSION v810 → v811.
+
+
 
 ### v810 (2026-09-04) — Loop Engineering iter 7 📦: chunk lazy panel-control (-80 KB shell)
 

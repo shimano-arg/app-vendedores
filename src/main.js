@@ -61,7 +61,9 @@ import { applySentryUserContext } from './sentry.js';
 import './domains/targets.js'; // ensureTargetsListener al login
 import './domains/campanias.js'; // isCampaignApplicableToVendor + describeCampaignScope
 import './domains/dashboard.js'; // listenCampaigns al login + getVendorForKey + renderDashboard
-import './domains/seguimiento.js'; // unsubSegNotes/Status (cleanup)
+// v811 (Loop iter 8): seguimiento extraido a chunk lazy. Los listeners
+// attachSegNotes/StatusListener corren dentro de openSeguimientoModal,
+// no al login → seguro lazy. Stubs abajo.
 import './domains/rutas.js'; // ensureVisitsListener + ensureCustomRoutesListener al login
 import './domains/rendiciones.js'; // ensureRendicionesListener al login
 import './domains/notificaciones.js'; // renderNotifsList + syncUsersDirectory
@@ -134,6 +136,18 @@ installChunkStubs('forecast', [
   'exportForecastExcel',
 ]);
 installChunkStubs('panel-control', ['openPanelControl', 'closePanelControl', 'renderPanelControl']);
+installChunkStubs('seguimiento', [
+  'openSeguimientoModal',
+  'closeSeguimientoModal',
+  'setSeguimientoTab',
+  'renderSeguimientoTab',
+  'deleteSegVisita',
+  'deleteSegPedido',
+  'openSegTimeline',
+  'closeSegTimeline',
+  'saveSegNote',
+  'setSegStatus',
+]);
 
 const phase0 = {
   version: 'v333',
