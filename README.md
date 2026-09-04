@@ -4670,7 +4670,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v805
+## 41) Changelog v300 → v806
+
+### v806 (2026-09-04) — Loop Engineering iter 3 🧹: kill dead code post-return
+
+**3 bloques `eslint-disable-next-line no-unreachable` (~191 líneas legacy) borrados — cierra el gate C4 del plan Loop.**
+
+- **Contexto**: iter 3 del Loop Engineering. Post v698/v789 quedaron 3 funciones con `return;` temprano seguido de código legacy preservado "por si se decide reactivar". Compensación: agregaba ~5.5 KB al monolito, ensuciaba grep/audit, y mantenía referencias a fns viejas (`_e4bBoDelCliente`, `_e4bAsigDelCliente`, `_findAsigDelCliente`) que ya no forman parte del flow.
+- **Bloques eliminados**:
+  1. `_renderClientMenuBoAndAsigApp` (index.html:13504) — 52 líneas de render BO/ASIG en menú cliente (removido v698 por Mariano).
+  2. `_renderE4BBoApp` (index.html:15401) — 38 líneas render BO app-source en modal Pedido en Espera (removido v692).
+  3. `_renderE4BAsigApp` (index.html:15606) — 101 líneas render sección azul ASIG (absorbida por sección verde en v789).
+- **Deltas**: `index.html` -191 LOC (25541→25350). Funciones-shell preservadas (siguen siendo llamadas por listeners onSnapshot en :15368, :15370, :15694, :15838, :21856-21873) pero ahora hacen no-op limpio (ocultar contenedor y salir).
+- **Bump**: APP_VERSION+CACHE_VERSION v805 → v806.
+- **Gate cumplido**: `grep no-unreachable index.html = 0` ✓. Suite unit `319/319 verde` (sin regresión, ningún test tocaba los bloques dead).
 
 ### v805 (2026-09-04) — Loop Engineering iter 2 ⚡: silent-catches → Sentry + toast
 

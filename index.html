@@ -5157,7 +5157,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v805';
+const APP_VERSION = 'v806';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13510,58 +13510,6 @@ function _renderClientMenuBoAndAsigApp(clientName){
   // acciones (Ultima interaccion, ver compras, crear pedido, etc).
   if (boCont) boCont.style.display = 'none';
   if (asigCont) asigCont.style.display = 'none';
-  return;
-  // Legacy code intentionally unreachable. Preservado por si se decide
-  // reactivar. No se ejecuta.
-  // eslint-disable-next-line no-unreachable
-  const boRows = document.getElementById('ccm-e4b-bo-app-rows');
-  const asigRows = document.getElementById('ccm-e4b-asig-app-rows');
-  if (!boCont || !boRows || !asigCont || !asigRows) return;
-  boCont.style.display = 'none';
-  asigCont.style.display = 'none';
-  while (boRows.firstChild) boRows.removeChild(boRows.firstChild);
-  while (asigRows.firstChild) asigRows.removeChild(asigRows.firstChild);
-  if (!window.isE4BEnabled || !window.isE4BEnabled()) return;
-  const cardCode = (typeof sapGetClienteCode === 'function')
-    ? (sapGetClienteCode(clientName) || '') : '';
-  if (!cardCode) return;
-  const boList = window._e4bBoDelCliente ? window._e4bBoDelCliente(cardCode) : [];
-  const asigList = window._e4bAsigDelCliente ? window._e4bAsigDelCliente(cardCode) : [];
-  const prodByCode = {};
-  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
-    for (const p of PRODUCTS) prodByCode[(p.code || '').toUpperCase()] = p;
-  }
-  function _makeRow(sku, qty, colors) {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg-elevated);border:1px solid ' + colors.border + ';border-radius:5px;font-size:11px';
-    const left = document.createElement('div');
-    left.style.flex = '1';
-    const code = document.createElement('div');
-    code.style.cssText = 'font-family:monospace;font-weight:800;color:var(--text-primary);font-size:10.5px';
-    code.textContent = sku;
-    const prod = prodByCode[(sku || '').toUpperCase()];
-    const desc = document.createElement('div');
-    desc.style.cssText = 'color:var(--text-secondary);margin-top:1px;font-size:10.5px';
-    desc.textContent = prod ? (prod.desc || '') : '(sin catalogo)';
-    left.appendChild(code);
-    left.appendChild(desc);
-    row.appendChild(left);
-    const tag = document.createElement('span');
-    tag.style.cssText = 'flex-shrink:0;background:' + colors.tagBg + ';color:' + colors.tagFg + ';padding:4px 8px;border-radius:4px;font-size:10px;font-weight:700';
-    tag.textContent = qty + ' u';
-    row.appendChild(tag);
-    return row;
-  }
-  if (boList && boList.length) {
-    const cols = { border: '#fca5a5', tagBg: '#fecaca', tagFg: '#991b1b' };
-    for (const it of boList) boRows.appendChild(_makeRow(it.sku, it.qty, cols));
-    boCont.style.display = '';
-  }
-  if (asigList && asigList.length) {
-    const cols = { border: '#bfdbfe', tagBg: '#dbeafe', tagFg: '#1e40af' };
-    for (const it of asigList) asigRows.appendChild(_makeRow(it.sku, it.qty, cols));
-    asigCont.style.display = '';
-  }
 }
 window._renderClientMenuBoAndAsigApp = _renderClientMenuBoAndAsigApp;
 window.closeClientMenu = function(){
@@ -15453,44 +15401,6 @@ window._e4bBoDelCliente = function(cardCode){
 function _renderE4BBoApp(w){
   const cont = document.getElementById('wcard-e4b-bo-app');
   if (cont) cont.style.display = 'none';
-  return;
-  // Legacy code intentionally unreachable: preservado por si mas adelante
-  // se quiere reactivar la seccion. No se ejecuta.
-  // eslint-disable-next-line no-unreachable
-  const rows = document.getElementById('wcard-e4b-bo-app-rows');
-  if (!cont || !rows) return;
-  if (!window.isE4BEnabled || !window.isE4BEnabled()) { cont.style.display = 'none'; return; }
-  const list = window._e4bBoDelCliente(w && w.clientCardCode);
-  while (rows.firstChild) rows.removeChild(rows.firstChild);
-  if (!list || !list.length) { cont.style.display = 'none'; return; }
-  const prodByCode = {};
-  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
-    for (const p of PRODUCTS) prodByCode[(p.code || '').toUpperCase()] = p;
-  }
-  for (const it of list) {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg-elevated);border:1px solid #fca5a5;border-radius:5px;font-size:11px';
-    const left = document.createElement('div');
-    left.style.flex = '1';
-    const code = document.createElement('div');
-    code.style.cssText = 'font-family:monospace;font-weight:800;color:var(--text-primary);font-size:10.5px';
-    code.textContent = it.sku;
-    const prod = prodByCode[(it.sku || '').toUpperCase()];
-    const desc = document.createElement('div');
-    desc.style.cssText = 'color:var(--text-secondary);margin-top:1px;font-size:10.5px';
-    desc.textContent = prod ? (prod.desc || '') : '(sin catalogo)';
-    const meta = document.createElement('div');
-    meta.style.cssText = 'color:var(--text-muted);font-size:9.5px;margin-top:2px';
-    meta.textContent = 'BO app-source · esperando reposicion de stock';
-    left.appendChild(code); left.appendChild(desc); left.appendChild(meta);
-    row.appendChild(left);
-    const tag = document.createElement('span');
-    tag.style.cssText = 'flex-shrink:0;background:#fecaca;color:var(--color-danger-strong);padding:4px 8px;border-radius:4px;font-size:10px;font-weight:700';
-    tag.textContent = it.qty + ' u pend.';
-    row.appendChild(tag);
-    rows.appendChild(row);
-  }
-  cont.style.display = '';
 }
 // v789 (2026-09-04): render en 2 subsecciones:
 //   1) STOCK ASIGNADO (accionable): state='ASIG' O (state='BO' con stock fisico
@@ -15705,108 +15615,6 @@ function _renderE4BAsigApp(w){
   // codigo E4B). Puede eliminarse en un cleanup futuro.
   cont.style.display = 'none';
   while (rows.firstChild) rows.removeChild(rows.firstChild);
-  return;
-  // eslint-disable-next-line no-unreachable
-  // v704 (2026-08-28): usar _findAsigDelCliente (linea real, no virtual FIFO) y
-  // mostrar 3 opciones inline por linea: Eliminar / Agregar completo / Agregar
-  // parcial. Antes solo Aceptar/Rechazar via CF y bajo flag isE4BEnabled().
-  // Ahora visible siempre que el cliente tenga lineas ASIG open — permite al
-  // vendedor gestionar sin esperar al modal obligatorio de Pasar a Pendientes.
-  const asigLines = (typeof window._findAsigDelCliente === 'function')
-    ? window._findAsigDelCliente(w && w.clientName, w && w.clientCardCode)
-    : [];
-  while (rows.firstChild) rows.removeChild(rows.firstChild);
-  // v786 (2026-09-04): distinguir "snapshot no cargado" vs "cliente sin ASIG".
-  // Antes: si el modal se abria antes de que llegara el snapshot pedidos (200-800ms
-  // post-login o post-reconnect), la seccion aparecia vacia sin explicacion — el
-  // vendedor no sabia si estaba cargando o si genuinamente no habia ASIG. Ahora
-  // muestra "Cargando..." mientras espera; el listener onSnapshot re-renderea
-  // cuando llega la data.
-  if (!window._pedidosSnapshotLoaded) {
-    const loading = document.createElement('div');
-    loading.style.cssText = 'padding:12px;text-align:center;color:var(--text-muted);font-size:11px;font-style:italic';
-    loading.textContent = 'Cargando reservas del cliente desde SAP...';
-    rows.appendChild(loading);
-    cont.style.display = '';
-    return;
-  }
-  if (!asigLines.length) { cont.style.display = 'none'; return; }
-  // v717 (2026-08-28): resolver desc desde PRODUCTS por code si it.desc esta
-  // vacio + set de SKUs presentes en el pedido actual para pintar la row en
-  // amarillo si el SKU repetido (asi el vendedor lo detecta rapido).
-  const prodByCode = {};
-  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
-    for (const p of PRODUCTS) prodByCode[(p.code || '').toUpperCase()] = p;
-  }
-  const currentItemSkus = new Set();
-  if (w && Array.isArray(w.items)) {
-    for (const it of w.items) {
-      if (it && it.code) currentItemSkus.add(String(it.code).toUpperCase());
-    }
-  }
-  for (const it of asigLines) {
-    const row = document.createElement('div');
-    const _skuUp = String(it.code || '').toUpperCase();
-    const _repeatedInPedido = currentItemSkus.has(_skuUp);
-    // v717: fondo amarillo si el mismo SKU ya esta en el pedido actual
-    // (el cliente lo pidio otra vez sabiendo que ya tenia ASIG).
-    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;background:' + (_repeatedInPedido ? '#fef3c7' : '#fff') + ';border:1px solid ' + (_repeatedInPedido ? '#fbbf24' : '#bfdbfe') + ';border-radius:5px;font-size:11px;flex-wrap:wrap';
-    const left = document.createElement('div');
-    left.style.flex = '1';
-    left.style.minWidth = '220px';
-    const code = document.createElement('div');
-    code.style.cssText = 'font-family:monospace;font-weight:800;color:var(--text-primary);font-size:10.5px';
-    code.textContent = it.code + (_repeatedInPedido ? '  ⚠ TAMBIEN EN EL PEDIDO ACTUAL' : '');
-    if (_repeatedInPedido) code.style.color = '#92400e';
-    const desc = document.createElement('div');
-    desc.style.cssText = 'color:var(--text-secondary);margin-top:1px;font-size:10.5px';
-    // v717: fallback a lookup en PRODUCTS por code cuando it.desc esta vacio.
-    // Si tampoco esta en PRODUCTS, no mostrar nada (evita "(sin catalogo)").
-    const _prod = prodByCode[_skuUp];
-    const _desc = it.desc || (_prod && _prod.desc) || '';
-    if (_desc) {
-      desc.textContent = _desc;
-    } else {
-      desc.style.display = 'none';
-    }
-    const meta = document.createElement('div');
-    meta.style.cssText = 'color:var(--text-muted);font-size:9.5px;margin-top:2px';
-    // v705.1: distinguir ASIG firme (state=ASIG) vs virtual (state=BO+stock).
-    const _lbl = it.isVirtualAsig ? 'BO+stock disp (ASIG virtual)' : 'ASIG';
-    meta.textContent = _lbl + ' · ' + it.qtyOpen + ' u · pedido ' + String(it.pedidoId).slice(0, 6);
-    left.appendChild(code); left.appendChild(desc); left.appendChild(meta);
-    row.appendChild(left);
-    const tag = document.createElement('span');
-    tag.style.cssText = 'flex-shrink:0;background:#dbeafe;color:var(--text-primary);padding:4px 8px;border-radius:4px;font-size:10.5px;font-weight:800';
-    tag.textContent = it.qtyOpen + ' u';
-    row.appendChild(tag);
-    // v704: 3 opciones inline por linea. Mismo patron que modal ASIG obligatorio.
-    const btnDel = document.createElement('button');
-    btnDel.type = 'button';
-    btnDel.textContent = '🗑 Eliminar';
-    btnDel.style.cssText = 'flex-shrink:0;background:var(--color-danger-bg);color:var(--color-danger-strong);border:1px solid #fca5a5;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
-    btnDel.onclick = () => _asigInlineResolve(w, it, 'delete');
-    row.appendChild(btnDel);
-    const btnFull = document.createElement('button');
-    btnFull.type = 'button';
-    btnFull.textContent = '✓ Agregar completo (' + it.qtyOpen + ')';
-    btnFull.style.cssText = 'flex-shrink:0;background:var(--color-success-bg);color:var(--color-success);border:1px solid #86efac;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
-    btnFull.onclick = () => _asigInlineResolve(w, it, 'full');
-    row.appendChild(btnFull);
-    const btnPart = document.createElement('button');
-    btnPart.type = 'button';
-    btnPart.textContent = '✎ Parcial';
-    btnPart.style.cssText = 'flex-shrink:0;background:#dbeafe;color:var(--text-primary);border:1px solid #93c5fd;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
-    btnPart.onclick = () => _asigInlineResolve(w, it, 'partial');
-    row.appendChild(btnPart);
-    rows.appendChild(row);
-  }
-  cont.style.display = '';
-  // v704: actualizar copy del banner para reflejar las 3 opciones nuevas.
-  const title = cont.querySelector('div[style*="font-weight:800"]');
-  if (title) title.textContent = '📱 Stock Asignado del cliente — decide qué hacer con cada línea';
-  const subt = cont.querySelectorAll('div[style*="font-size:10.5px"]')[0];
-  if (subt) subt.textContent = 'El cliente tiene ' + asigLines.length + ' línea(s) con stock asignado. Eliminar libera el stock. Agregar completo mueve las unidades al pedido actual. Parcial pide cuántas de las asignadas van al pedido.';
 }
 
 // v704 (2026-08-28): handler inline para las 3 opciones de una linea ASIG.
