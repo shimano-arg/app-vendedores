@@ -4670,7 +4670,23 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v807
+## 41) Changelog v300 → v808
+
+### v808 (2026-09-04) — Loop Engineering iter 5 ✨: loading skeleton para panel Stock Asignado / Backorder
+
+**Reemplaza "Cargando..." plano por 3 filas skeleton animadas con shimmer effect en el panel `#wcard-cliente-open-lines` del modal Pedido en Espera.**
+
+- **Contexto**: iter 5 del Loop Engineering. El plan pedía skeleton en `#wcard-sap-asignado*` (panels v477/v480), pero **esos panels quedaron inertes post-migración BO 100% app** (2026-08-28, ver `project_bo_migration_100_app.md`) — `backorderLines` es siempre `[]` desde entonces, así que `_sapAsignadoConStockDeCliente()` retorna vacío y ambos containers quedan `display:none` permanentemente. Pivoté el target al panel que SÍ carga data hoy: `#wcard-cliente-open-lines` (v788+) que muestra stock asignado + backorder desde `globalPedidos`.
+- **Antes**: modal Pedido en Espera al abrir → mientras `_pedidosSnapshotLoaded` es false (200-800ms tras login/reconnect), el summary decía "📋 Cargando stock asignado / backorder..." y el body iba en blanco. Vendedor cree "no hay data" → cierra modal → pierde info.
+- **Ahora**: 3 rows skeleton con animación shimmer (linear-gradient rotando 1.4s, respeta `prefers-reduced-motion`). Vendedor ve estructura tipo "algo cargando" en vez de blanco.
+- **Arquitectura**:
+  - Módulo puro `src/pure/render-skeleton.js` con `renderSkeletonRowsPure(container, count, deps)` — inyectable, testeable en Vitest.
+  - CSS `.wcard-skeleton-row` + `@keyframes wcard-skeleton-shimmer` inline en index.html `<style>` (junto a las otras keyframes de la app).
+  - Runtime wrapper `window._renderSkeletonRows(container, count)` en index.html:19243 que delega al bundle.
+- **Tests**: `tests/unit/render-skeleton.test.js` cubre 9 casos (count normalización, container null, deps missing, cleanup previo, count decimal, count negativo).
+- **Suite**: 328/328 verde (319 + 9 nuevos).
+- **Nota TODO futuro**: los panels `#wcard-sap-asignado` + `#wcard-sap-asignado-nuevos` + fn `_sapAsignadoConStockDeCliente` + `_renderSapAsignadoConStock` quedaron dead post-BO migration. Candidatos para cleanup tipo iter 3 en un iter futuro (~30 LOC).
+- **Bump**: APP_VERSION+CACHE_VERSION v807 → v808.
 
 ### v807 (2026-09-04) — Loop Engineering iter 4 🧹: purge legacy dead functions (-83 LOC)
 

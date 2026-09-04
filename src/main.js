@@ -44,6 +44,7 @@ import {
 } from './pure/panel-metrics.js';
 import { reenrichPedidoLine, splitPedidoLine } from './pure/pedido-split.js';
 import { matchSkuFromTitle } from './pure/product-match.js';
+import { renderSkeletonRowsPure } from './pure/render-skeleton.js';
 import { reportCriticalErrorPure } from './pure/report-critical-error.js';
 import { matchesAllTokens } from './pure/search.js';
 import {
@@ -145,6 +146,7 @@ const phase0 = {
     passesTypeFilter,
     splitPedidoLine,
     reenrichPedidoLine,
+    renderSkeletonRowsPure,
     reportCriticalErrorPure,
     getStockRealmenteDisponible,
     getStockDesglose,
