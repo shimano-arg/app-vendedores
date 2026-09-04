@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v804](#41-changelog-v300--v804)
+41. [Changelog v300 → v805](#41-changelog-v300--v805)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4670,7 +4670,41 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v804
+## 41) Changelog v300 → v805
+
+### v805 (2026-09-04) — Loop Engineering iter 2 ⚡: silent-catches → Sentry + toast
+
+**8 escrituras Firestore críticas migradas de `.catch(e => console.warn)` a `reportCriticalError` — cierra la clase de bugs tipo v785 (falla silenciosa 3 semanas).**
+
+- **Contexto**: iter 2 del Loop Engineering. El plan identificó 11 silent-catches en escrituras Firestore que se tragaban errores. Precedente: v785 `client_master.set` falló silencioso 3 semanas hasta que alguien reportó un bug. El costo real es "detectamos cuando ya se rompió algo visible".
+- **Nuevo módulo puro `src/pure/report-critical-error.js`** con `reportCriticalErrorPure(err, opts, deps)`:
+  - Deps inyectables (`console`, `sentry`, `showErrorToast`) → 100% testeable.
+  - 3 acciones: `console.error` (severity real, no warn) + `Sentry.captureException` con tags `{op, source, extra}` + toast rojo al vendedor (no bloquea flow, auto-cierre 6s).
+  - Best-effort: si Sentry o toast throwean, NO rompe el flow del caller. Precedente v785 no debe repetirse.
+- **Nuevo `window.reportCriticalError(err, opts)`** en `index.html` — wrapper runtime que inyecta las deps reales.
+- **Nuevo `window._showErrorToast(msg)`** — toast rojo lazy (creado en primer error), auto-cierre 6s. No usa `alert/confirm/prompt` (bloquean flow).
+- **8 sitios migrados** (todas escrituras Firestore, tags Sentry:
+  - `index.html:14654` — `save-default-delivery-waitlist` (dentro del flujo Lista de Espera).
+  - `index.html:14998` — `theme-sync` (silent, baja severidad UX).
+  - `index.html:15067` — `dm-announcement-persist` (silent, baja severidad UX).
+  - `index.html:24691` — `save-default-delivery` (dentro del flujo Pasar a Pendientes).
+  - `index.html:24728` — `auto-confirm-100bo` (business-critical, userMsg custom).
+  - `index.html:24737` — `waitlist-delete` (bug clásico v785 pattern).
+  - `index.html:24745` — `waitlist-update-skipped` (business-critical).
+  - `index.html:24771` — `notif-vde-partner` (silent, notif no bloquea el guardado).
+- **Silent-catches restantes (fuera scope iter 2, dejados con `console.warn` por diseño)**:
+  - `polygon-clipping` load (fetch CDN externo, no Firestore).
+  - `allowed_emails` reads (2 sitios, no writes).
+  - Service Worker register (no Firestore).
+- **Nuevo `tests/unit/report-critical-error.test.js`** con 11 tests: cubre op default, userMsg default/custom, silent=true, sentry null (loader no cargó), Sentry throw defensivo, toast throw defensivo, userEmail null, transformación kebab-case→espacios.
+- **Cómo verificar en Sentry post-deploy**: en https://shimano-arg.sentry.io/, buscar issues con tag `op:waitlist-delete` (o cualquier otro). Deberían aparecer con contexto completo (docId, uid, appVersion) cuando ocurra un error real.
+- **Manual QA sugerido**: en DevTools console de prod, forzar un error para probar el toast:
+  ```javascript
+  window.reportCriticalError(new Error('prueba manual'), {op: 'manual-test'})
+  ```
+  Debería aparecer toast rojo arriba centrado + entrada Sentry con tag `op:manual-test`.
+- **319/319 tests verde** (308 previos + 11 nuevos).
+- Bump `APP_VERSION` + `CACHE_VERSION` v804 → v805.
 
 ### v804 (2026-09-04) — Loop Engineering iter 1: bench harness
 

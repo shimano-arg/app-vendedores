@@ -5157,7 +5157,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v804';
+const APP_VERSION = 'v805';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14651,7 +14651,10 @@ function _saveDefaultDeliveryFromWaitlist(clientProvincia, clientLocalidad, clie
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         updatedBy: (currentUser && currentUser.email) || '',
       }),
-    }, { merge: true }).catch(e => console.warn('save defaultDelivery from waitlist', e));
+    }, { merge: true }).catch(e => window.reportCriticalError(e, {
+      op: 'save-default-delivery-waitlist',
+      extra: { docId: cardCode || '' },
+    }));
   } catch(_e) { console.warn('_saveDefaultDeliveryFromWaitlist', _e); }
 }
 
@@ -14992,7 +14995,12 @@ window.toggleDarkMode = function(){
   if (typeof currentUser !== 'undefined' && currentUser && typeof fbDb !== 'undefined' && fbDb) {
     fbDb.collection('userData').doc(currentUser.uid)
       .set({ themePreference: next, themeUpdatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
-      .catch(e => console.warn('theme sync failed', e));
+      .catch(e => window.reportCriticalError(e, {
+        op: 'theme-sync',
+        extra: { uid: currentUser.uid, themeNext: next },
+        // Baja severidad UX (solo cross-device sync), toast confunde.
+        silent: true,
+      }));
   }
 };
 // Aplicar theme del user al login si Firestore tiene una preferencia distinta
@@ -15064,7 +15072,12 @@ window.dismissDarkModeAnnouncement = function() {
   if (typeof currentUser !== 'undefined' && currentUser && typeof fbDb !== 'undefined' && fbDb) {
     fbDb.collection('userData').doc(currentUser.uid)
       .set({ hasSeenDarkModeAnnouncement: true, darkModeAnnouncementSeenAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
-      .catch(e => console.warn('dm announcement persist', e));
+      .catch(e => window.reportCriticalError(e, {
+        op: 'dm-announcement-persist',
+        extra: { uid: currentUser.uid },
+        // Este error es de baja severidad UX (solo marca visto), toast puede confundir.
+        silent: true,
+      }));
   }
 };
 
@@ -19376,6 +19389,74 @@ function showSyncTag(msg, timeoutMs){
   clearTimeout(el._t);
   el._t = setTimeout(() => el.classList.remove('show'), timeoutMs || 1800);
 }
+
+// v805 (2026-09-04, Loop iter 2): helper para reportar errores criticos que
+// antes se tragaban con `.catch(e => console.warn(...))`. Reemplaza el
+// anti-pattern por 3 acciones:
+//   1. console.error (severity real, no warn).
+//   2. Sentry.captureException con tags (op, uid, cardCode, docId...) para
+//      poder diagnosticar via Sentry MCP: list_issues.
+//   3. Toast rojo visible al vendedor (no bloquea flow, se auto-cierra 6s).
+//
+// Precedente: v785 (client_master.set fallo silencioso 3 semanas hasta que
+// alguien reporto un bug). El costo real de esos silent-catches es
+// "detectamos el bug cuando ya se rompio algo visible", no cuando ocurre.
+//
+// Alcance del iter 2 (11 escrituras Firestore criticas): waitlist delete,
+// defaultDelivery updates, auto-confirm 100% BO, notif VDE pareja, dm
+// announcement persist, waitlist doc update skipped. Los .catch en READS
+// (allowed_emails, polygon-clipping fetch) o cargas de assets externos
+// se dejan con console.warn — no son escrituras que cambien state.
+//
+// Uso:
+//   fbDb.collection('foo').doc(id).set(payload)
+//     .catch(e => window.reportCriticalError(e, {op: 'foo-save', extra: {docId: id}}));
+//
+// opts:
+//   op: string (obligatorio) — tag Sentry para agrupar issues. Kebab-case.
+//   extra: object (opcional) — context adicional que va a Sentry.
+//   userMsg: string (opcional) — mensaje custom al usuario. Default:
+//            "No pude {op}. Reintentá en un momento."
+//   silent: bool (opcional) — solo captura a Sentry, no muestra toast.
+//           Uso raro; default false.
+window.reportCriticalError = function(err, opts){
+  // v805: delega a la fn pura del bundle (src/pure/report-critical-error.js).
+  // Deps inyectadas del runtime (console, window.Sentry, window._showErrorToast).
+  const pureFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.reportCriticalErrorPure);
+  if (!pureFn) {
+    // Fallback si el bundle no cargo (edge case bootstrap).
+    console.error('[' + ((opts && opts.op) || 'unknown') + '] (bundle not ready)', err, opts);
+    return;
+  }
+  pureFn(err, opts || {}, {
+    console: console,
+    sentry: (typeof window.Sentry !== 'undefined') ? window.Sentry : null,
+    showErrorToast: (typeof window._showErrorToast === 'function') ? window._showErrorToast : function(){},
+    appVersion: window.APP_VERSION || 'unknown',
+    userEmail: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.email : null,
+  });
+};
+
+// v805: toast rojo helper. Creado lazy (primer error). Se auto-cierra 6s.
+// No usa alert/confirm/prompt (bloquean flow). No usa showSyncTag (es
+// gris, se confunde con "guardado ok").
+window._showErrorToast = function(msg){
+  let el = document.getElementById('_error-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = '_error-toast';
+    el.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%) translateY(-30px);background:linear-gradient(135deg,#b91c1c,#7f1d1d);color:#fff;padding:12px 20px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;line-height:1.4;z-index:99999;box-shadow:0 8px 24px rgba(185,28,28,.5);opacity:0;transition:opacity .25s ease,transform .25s ease;max-width:min(560px,92vw);pointer-events:none';
+    document.body.appendChild(el);
+  }
+  el.textContent = '⚠️ ' + msg;
+  el.style.opacity = '1';
+  el.style.transform = 'translateX(-50%) translateY(0)';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateX(-50%) translateY(-30px)';
+  }, 6000);
+};
 
 // Toast verde grande con titulo + descripcion. Pensado para reasignaciones
 // de Zonas: queda visible 5seg, anclado arriba al centro, scrolleable si
@@ -24598,7 +24679,10 @@ window.doConfirmPedido = function(){
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
                 updatedBy: (currentUser && currentUser.email) || '',
               }),
-            }, { merge: true }).catch(e => console.warn('save defaultDelivery', e));
+            }, { merge: true }).catch(e => window.reportCriticalError(e, {
+              op: 'save-default-delivery',
+              extra: { cliDocId: _cliDocId },
+            }));
           }
         }
       } catch(_e){ console.warn('defaultDelivery save exception', _e); }
@@ -24631,7 +24715,11 @@ window.doConfirmPedido = function(){
         }).then(() => {
           console.log('[auto-confirm 100% BO]', ref.id, currentOrderClient && currentOrderClient.name);
           try { showSyncTag('Pedido 100% BO auto-confirmado (sin SAP)'); } catch(_e){}
-        }).catch(e => console.warn('auto-confirm 100% BO fallo:', e));
+        }).catch(e => window.reportCriticalError(e, {
+          op: 'auto-confirm-100bo',
+          extra: { pedidoId: ref.id, clientName: currentOrderClient && currentOrderClient.name },
+          userMsg: 'No pude auto-confirmar el pedido 100% backorder. Confirmalo manualmente desde el listado.',
+        }));
       }
       // v460: si el pedido venia de un "Dejar recalculando" y llego OK a
       // pedidos/{}, ahora si borrar el doc de revision_waitlist. Antes de
@@ -24640,7 +24728,11 @@ window.doConfirmPedido = function(){
       if (_pendingWaitlistDelete) {
         const _widToDelete = _pendingWaitlistDelete;
         _pendingWaitlistDelete = null;
-        fbDb.collection('revision_waitlist').doc(_widToDelete).delete().catch(e => console.warn('no pude borrar waitlist doc:', e));
+        fbDb.collection('revision_waitlist').doc(_widToDelete).delete().catch(e => window.reportCriticalError(e, {
+          op: 'waitlist-delete',
+          extra: { waitlistId: _widToDelete },
+          userMsg: 'Pedido pasó a Pendientes pero no pude borrar el doc de Lista de Espera. Revisá manualmente.',
+        }));
       } else if (_pendingWaitlistUpdate) {
         // v568: preservar los items sin dispSap en el waitlist doc en vez de borrar.
         const _update = _pendingWaitlistUpdate;
@@ -24648,7 +24740,11 @@ window.doConfirmPedido = function(){
         fbDb.collection('revision_waitlist').doc(_update.id).update({
           items: _update.keepItems,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        }).catch(e => console.warn('no pude actualizar waitlist doc con skipped items:', e));
+        }).catch(e => window.reportCriticalError(e, {
+          op: 'waitlist-update-skipped',
+          extra: { waitlistId: _update.id, keptCount: (_update.keepItems || []).length },
+          userMsg: 'Pedido pasó a Pendientes pero no pude actualizar los items skippeados en Lista de Espera. Revisá manualmente.',
+        }));
       }
       // Si fue creado en nombre de un VDE, notificar al VDE.
       if (actingPartner) {
@@ -24670,7 +24766,12 @@ window.doConfirmPedido = function(){
             mes: monthLabel,
             status: 'unread',
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-          }).catch(e => console.warn('notif al VDE pareja (pedido)', e));
+          }).catch(e => window.reportCriticalError(e, {
+            op: 'notif-vde-partner',
+            extra: { partnerUid: actingPartner.uid, clientName: parts[3] || '' },
+            // Silent: la notif es best-effort; el pedido ya se guardó bien.
+            silent: true,
+          }));
         } catch(e) { console.warn('notif al VDE pareja (pedido) outer', e); }
       }
     }).catch(e=>{
