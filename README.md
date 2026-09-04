@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v797](#41-changelog-v300--v797)
+41. [Changelog v300 → v798](#41-changelog-v300--v798)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,30 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v797
+## 41) Changelog v300 → v798
+
+### v798 (2026-09-04)
+
+**Fix bug crítico CF FIFO — 5 semanas rota + backfill one-shot para BOs colgados.**
+
+- **Root cause**: `functions/core/fifo-assign-core.js::extractSkusWithStockIncrease` hacía `Object.keys(after)` directo sobre `warehouseBreakdown` — pero el sync (`scripts/sync_sap_to_firestore.py:673`, v368+ 2026-07-31) lo serializa como **JSON string** (para no exceder el límite de 40k index entries de Firestore). `Object.keys()` sobre string devuelve índices de chars (`"0", "1", "2", ...`), no SKUs. Resultado: `skusChecked=0` en TODOS los logs de los últimos ~5 semanas. Ningún BO se promocionó automáticamente.
+- **Gap identificado en revisión**: CF v333 (2026-07-25) escrita ANTES del cambio a JSON string en el sync (v368 2026-07-31). Nunca se actualizó la CF para el nuevo schema. Los tests unitarios usaban objeto directo, no string — por eso pasaban aunque prod estuviera rota.
+- **Impacto**: al momento del fix, 104 pedidos con 1.482 líneas BO abarcando 387 SKUs (4.495 unidades). De esos, **112 SKUs con 605 unidades YA tenían stock disponible** y estaban esperando promoción que nunca llegó.
+- **Fix 1 (fifo-assign-core.js)**: nueva helper `_parseWarehouseBreakdown(snap)` que hace `JSON.parse()` cuando el input es string, fallback a objeto para retrocompat con syncs viejos + tests. Tests nuevos en `tests/functions/fifo-assign.test.js` para schema real (JSON string), mezcla string+objeto, y JSON inválido → 19/19 pass.
+- **Fix 2 (backfill one-shot)**: nuevo script `scripts/oneshot_fifo_backfill.py` que:
+  - Lee `stock_snapshot.warehouseBreakdown` (parseado como JSON string).
+  - Para cada SKU con stock > 0, carga candidatos BO ordenados por `createdAt` (FIFO).
+  - Aplica FIFO estricto (mismo criterio que la CF): promoción de líneas COMPLETAS hasta agotar stock, sin parciales.
+  - Update `pedidos.<id>.lines[i].state='ASIG' + asigAt=now`.
+  - Escribe audit a `stock_assignment_log/oneshot-backfill-<TS>`.
+  - Soporta `--dry-run` para preview. Chequeos defensivos (revalida `state='BO'` antes de update, skip pedidos closedAt≠null).
+  - **Se corre una sola vez** post-deploy — futuros syncs los cubre la CF automáticamente.
+- **Por qué el backfill es necesario**: la CF solo detecta **deltas positivos** (afterDep11 > beforeDep11). Los 112 SKUs pendientes que ya tienen stock NO van a auto-promocionarse porque el delta será 0 en los próximos syncs (el snapshot anterior ya trae el mismo stock).
+- **Post-backfill**, la CF v798 queda cubriendo:
+  - **Nuevos arribos de stock** (dep 11 sube desde 0 o desde N < BOtotal a N ≥ BOtotal) → auto-promoción.
+  - **Casos históricos**: cubiertos por el script one-shot.
+- **Efecto colateral (positivo)**: los pedidos que estaban en state='BO' + stock disponible pero no se promocionaban ahora quedan en state='ASIG' → aparecen en la sección "Stock Asignado" del modal Pedido en Espera, el vendedor puede aceptarlos o reciclarlos → cierra el ciclo BO → ASIG → confirmed que estaba roto.
+- Bump `APP_VERSION` + `CACHE_VERSION` v797 → v798.
 
 ### v797 (2026-09-04)
 

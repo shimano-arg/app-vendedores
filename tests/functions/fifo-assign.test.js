@@ -103,6 +103,38 @@ describe('extractSkusWithStockIncrease', () => {
     const r = extractSkusWithStockIncrease(null, { warehouseBreakdown: { X: { 11: 5 } } });
     expect(r.get('X')).toBe(5);
   });
+
+  // v798 (2026-09-04, bug reportado por Santi): schema real en prod es JSON
+  // string (sync_sap_to_firestore.py:673 serializa con json.dumps desde v368
+  // para no exceder el limite de 40k index entries de Firestore). La CF
+  // hacia Object.keys() directo sobre el string → indices de chars en vez de
+  // SKUs → skusChecked siempre 0. Este test cubre el schema real.
+  it('parsea warehouseBreakdown como JSON string (schema real prod)', () => {
+    const before = {
+      warehouseBreakdown: JSON.stringify({ 'SKU-A': { 11: 5 }, 'SKU-B': { 11: 20 } }),
+    };
+    const after = {
+      warehouseBreakdown: JSON.stringify({ 'SKU-A': { 11: 15 }, 'SKU-B': { 11: 20 } }),
+    };
+    const r = extractSkusWithStockIncrease(before, after);
+    expect(r.get('SKU-A')).toBe(10);
+    expect(r.has('SKU-B')).toBe(false);
+  });
+
+  it('mezcla string y objeto (retrocompat con syncs viejos)', () => {
+    const before = { warehouseBreakdown: { X: { 11: 5 } } }; // objeto viejo
+    const after = { warehouseBreakdown: JSON.stringify({ X: { 11: 12 } }) }; // string nuevo
+    const r = extractSkusWithStockIncrease(before, after);
+    expect(r.get('X')).toBe(7);
+  });
+
+  it('warehouseBreakdown como JSON string invalido devuelve vacio (safe)', () => {
+    const r = extractSkusWithStockIncrease(
+      { warehouseBreakdown: 'not json' },
+      { warehouseBreakdown: 'still not json' },
+    );
+    expect(r.size).toBe(0);
+  });
 });
 
 describe('computeAssignmentsFifo', () => {
