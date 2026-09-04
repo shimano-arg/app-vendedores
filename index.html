@@ -5117,7 +5117,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v789';
+const APP_VERSION = 'v790';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -16033,7 +16033,7 @@ function _renderWaitlistCard(){
   if (repetidos > 0) {
     const s3 = document.createElement('div');
     s3.style.cssText = 'color:#9a3412;background:#fff7ed;border-left:3px solid #f97316;padding:6px 10px;font-weight:700;margin-top:6px;font-size:11px;border-radius:4px';
-    s3.textContent = '🔁 ' + repetidos + ' SKU(s) que este cliente YA TENIA en pedidos anteriores (marcados con ⚠). Puede ser duplicado (se olvidó del pedido previo) o refuerzo intencional. Confirma con el cliente antes de pasar a Pendientes.';
+    s3.textContent = '🔁 ' + repetidos + ' SKU(S) QUE ESTE CLIENTE YA TENIA EN PEDIDOS ANTERIORES (MARCADOS CON ⚠). PUEDE SER DUPLICADO (SE OLVIDÓ DEL PEDIDO PREVIO) O REFUERZO INTENCIONAL. CONFIRMA CON EL CLIENTE ANTES DE PASAR A PENDIENTES.';
     statsEl.appendChild(s3);
   }
   const tbody = document.getElementById('wcard-rows');
