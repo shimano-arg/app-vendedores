@@ -68,12 +68,13 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v800](#41-changelog-v300--v800)
+41. [Changelog v300 → v801](#41-changelog-v300--v801)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
 45. [E2.b performance + code splitting (rama `e2b-perf`)](#45-e2b-performance--code-splitting-rama-e2b-perf)
 46. [Bike Pipeline BQ + BO/ASIG desde app — CERRADO 2026-09-04](#46-bike-pipeline-bq--boasig-desde-app--cerrado-2026-09-04)
+48. [Flow LEAD → cliente SAP: auto + fallback manual — CERRADO 2026-09-04](#48-flow-lead--cliente-sap-auto--fallback-manual--cerrado-2026-09-04)
 
 ---
 
@@ -4668,7 +4669,16 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v800
+## 41) Changelog v300 → v801
+
+### v801 (2026-09-04)
+
+**Docs: nueva §48 "Flow LEAD → cliente SAP: auto + fallback manual — CERRADO" al README.**
+
+- Consolida el trabajo de v799 (botón manual) + v800 (auto-merge fuzzy) en una sección unificada para retomar sin perder contexto.
+- Cubre: problema histórico, las 2 capas de solución (auto + manual), cuándo aplica cada capa, esquema de auditoría en `lead_merge_log`, cómo revertir un merge falso positivo, qué fields preserva del LEAD vs qué copia del SAP, comandos de verificación en producción.
+- TOC actualizado con anchor `#48-flow-lead--cliente-sap-auto--fallback-manual--cerrado-2026-09-04`.
+- Bump `APP_VERSION` + `CACHE_VERSION` v800 → v801. Solo docs, sin cambios de código.
 
 ### v800 (2026-09-04)
 
@@ -8570,4 +8580,105 @@ Documentado en memoria `feedback_bq_query_ps51_encoding.md`.
 - **COWORK**: arma el tablero Power BI Bike + review de shape. Acceso completo a SAP.
 - **Mariano** (jefe): supervisa, comunica cambios al equipo comercial.
 - **Logística Shimano AR**: resolvió el problema del WH 97 (~500 mil M unidades absurdas, no afecta `v_inventario_bike` por whitelist WH 10).
+
+
+## 48) Flow LEAD → cliente SAP: auto + fallback manual — CERRADO 2026-09-04
+
+**Estado**: CERRADO. Auto-match v800 + botón manual v799 + audit central `lead_merge_log`.
+
+### 48.1 El problema histórico
+
+Cuando un vendedor carga un cliente provisorio (LEAD) y le registra visitas, después llega el alta SAP y se genera un cardCode. El sync `sync_sap_to_firestore.py` intentaba matchear el BP SAP con algún LEAD existente por (a) cardCodeSap exacto, (b) CUIT normalizado, (c) nombre normalizado exacto.
+
+Cuando el match fallaba (porque el LEAD tenía "El Delta Pesca" y el CardName SAP era "GONZALEZ GARCIA SRL" — razón social vs fantasía), el sync creaba un cliente nuevo. Entonces quedaban 2 docs en `client_applications`:
+- LEAD viejo con `manualSapPending=true` (con visitas asociadas por match nombre+prov+localidad).
+- Alta SAP nueva con cardCode (sin visitas).
+
+Mariano borraba manual el LEAD para evitar duplicado → **las visitas se quedaban huérfanas** (existen en Firestore pero la UI no las asocia a ningún cliente visible). Bug reportado por email 2026-09-04.
+
+### 48.2 La solución (2 capas)
+
+**Capa 1 — Auto-match fuzzy** (v800, `sync_sap_to_firestore.py::find_match()`):
+- Nueva 4ta pasada del matcher después de cardCode/CUIT/nombre exacto.
+- Usa `difflib.SequenceMatcher` (stdlib) — algoritmo Ratcliff-Obershelp.
+- **Umbral conservador `FUZZY_THRESHOLD = 0.90`** (90% similaridad).
+- Requiere provincia exacta (evita mergear clientes de provincias distintas).
+- Solo contra provisorios (sin cardCodeSap ya asignado).
+- Si matchea → entra al flow PROV→CONF existente (update in-place preservando el fsId del LEAD para no perder visitas).
+- Audita cada auto-merge a `lead_merge_log/<timestamp>_<cardCode>` con `trigger: 'auto'`, `fuzzyScore`, `fuzzyField`.
+
+**Capa 2 — Botón manual** (v799, `index.html::openLeadMergeModal`):
+- Botón "🔗 Vincular LEAD ↔ SAP" en toolbar de Master Clientes (admin/gerente).
+- Modal con 2 selects (LEAD + alta SAP) + auto-sugerencia por nombre similar + preview del merge.
+- `window.mergeLeadIntoSapAlta(leadFsId, sapAltaFsId, opts)`: batch atómico update LEAD + delete alta SAP + audit log.
+- Cubre casos donde el fuzzy no llegó al umbral (60-90% "casi-match") o cuando el sync no detectó candidato en absoluto.
+
+### 48.3 Cuándo aplica cada capa
+
+| Escenario | Score fuzzy | Acción |
+|---|---|---|
+| LEAD y BP con mismo cardCode | (n/a — match exacto por card) | Update in-place automático (siempre funcionó) |
+| LEAD y BP con mismo CUIT | (n/a — match exacto por CUIT) | Update in-place automático |
+| LEAD y BP con mismo nombre normalizado | (n/a — match exacto por nombre) | Update in-place automático |
+| LEAD "PIRACUA BERNAL" vs BP "PIRACUA BERNAL SRL" | 0.93 | **v800 auto-merge** ✓ |
+| LEAD "EL DELTA PESCA" vs BP "EL DELTA PESCA CAZA CAMPING" | 0.86 | Log "casi-match" — admin usa botón v799 si aplica |
+| LEAD sin similaridad con ningún BP | <0.60 | Sync crea cliente nuevo (como antes). Admin usa botón v799 si sabe cuál es. |
+
+### 48.4 Auditoría — `lead_merge_log`
+
+Cada merge (auto o manual) escribe un doc con:
+
+```
+{
+  ranAt: <timestamp>,
+  by: 'sync_sap_to_firestore.py/auto_fuzzy' | '<email admin>',
+  leadFsId: '<fsId del LEAD conservado>',
+  leadComercio, leadProvincia, leadLocalidad,
+  sapCardCode, sapComercio,
+  fuzzyScore: 0.9X | null,      // solo auto
+  fuzzyField: 'comercio'|... | null,  // solo auto
+  trigger: 'auto' | 'manual',
+  payload: {...}                // fields aplicados en el merge (solo manual)
+}
+```
+
+**Rules**: `admin/gerente` puede read + create. Nadie puede update/delete (append-only para trazabilidad).
+
+**Cómo revertir un merge falso positivo**:
+1. Buscar el doc en `lead_merge_log` por `sapCardCode`.
+2. Recrear el alta SAP borrada (con el `sapCardCode` original).
+3. Update al LEAD viejo: quitar `cardCodeSap` y `manualSapPending=true`.
+4. Escribir un doc en `lead_merge_reverted_log` con el motivo (colección nueva a crear si aparecen falsos positivos frecuentes).
+
+### 48.5 Preserva qué
+
+- **`fsId` del LEAD** → las visitas siguen asociadas (matchean por comercio+prov+localidad como string).
+- **`assignedVendor`** del LEAD → fue asignado por el gerente con contexto.
+- **`fantasia`** del LEAD → nombre comercial real vs razón social SAP.
+- **`ownerUid`** del LEAD → quién lo cargó originalmente (para historial).
+
+Copia del SAP solo si el LEAD no lo tenía:
+- `calle`, `localidad`, `localidadFinal`, `provincia` (Juan cargó la dirección oficial).
+- `lat`, `lng` (si SAP hizo geocode).
+- `cuit`, `razonSocial` (Juan cargó desde AFIP).
+
+### 48.6 Cómo verificar en producción
+
+**Ver auto-merges del último sync**:
+```powershell
+gh run list --workflow="Sync SAP Catalog + Stock (Service Layer)" --limit 1 --json databaseId --jq '.[0].databaseId' | ForEach-Object { gh run view $_ --log 2>&1 | Select-String "bp/fuzzy" }
+```
+
+Salida esperada:
+- `[bp/fuzzy] MATCH bp='C20XXX' bp_name='NOMBRE SAP' -> lead='<fsId>' lead_comercio='NOMBRE LEAD' score=0.9XX prov='PROVINCIA'` → merge aplicado.
+- `[bp/fuzzy] casi-match (no auto-merge) bp=... score=0.7XX (umbral 0.9)` → sugerencia, requiere botón.
+
+**Ver histórico de merges**:
+```
+SELECT ranAt, sapCardCode, leadComercio, sapComercio, fuzzyScore, trigger, by
+FROM `app-vendedores-shimano.shimano_app.lead_merge_log_raw_latest`
+ORDER BY ranAt DESC LIMIT 30
+```
+
+(la vista `lead_merge_log_raw_latest` se crea cuando Firebase Extension `firestore-bigquery-export` la habilite para esta collection — si aún no está, consultar directo en Firestore Console).
 
