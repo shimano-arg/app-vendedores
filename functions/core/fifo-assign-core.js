@@ -51,6 +51,36 @@ import { readSyncMode } from './pedido-snapshot-core.js';
  */
 
 /**
+ * v798 (2026-09-04, bug reportado por Santi): parsear `warehouseBreakdown` como
+ * JSON string cuando corresponde. El sync `scripts/sync_sap_to_firestore.py`
+ * (v368+, 2026-07-31, line 673) serializa `warehouseBreakdown` como string
+ * JSON antes de escribirlo a `app_config/stock_snapshot` — Firestore tiene
+ * limite de 40k index entries por doc y con ~10k SKUs cada uno con {11: n,
+ * 12: n} sobraba. La CF FIFO no fue actualizada para esa serializacion:
+ * hacia `Object.keys(after)` directo sobre un STRING, devolviendo indices
+ * de chars ("0", "1", "2", ...) en vez de SKUs. Resultado: `skusChecked`
+ * siempre 0 en los logs, ningun BO se promocionaba. Rev commits: CF v333
+ * (2026-07-25) vs sync v368 (2026-07-31) — 6 dias de gap donde el schema
+ * se rompio silenciosamente.
+ *
+ * Fallback objeto para retrocompat con syncs viejos o tests.
+ * @param {any} snap
+ * @returns {Record<string, Record<string, number>>}
+ */
+function _parseWarehouseBreakdown(snap) {
+  const raw = snap && snap.warehouseBreakdown;
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  return raw;
+}
+
+/**
  * Extrae SKUs con delta positivo en dep 11 (stock disponible venta) comparando
  * warehouseBreakdown before vs after.
  * @param {any} beforeSnap
@@ -59,8 +89,8 @@ import { readSyncMode } from './pedido-snapshot-core.js';
  */
 export function extractSkusWithStockIncrease(beforeSnap, afterSnap) {
   const out = new Map();
-  const before = (beforeSnap && beforeSnap.warehouseBreakdown) || {};
-  const after = (afterSnap && afterSnap.warehouseBreakdown) || {};
+  const before = _parseWarehouseBreakdown(beforeSnap);
+  const after = _parseWarehouseBreakdown(afterSnap);
   for (const sku of Object.keys(after)) {
     const beforeDep11 = Number((before[sku] || {})['11']) || 0;
     const afterDep11 = Number((after[sku] || {})['11']) || 0;
