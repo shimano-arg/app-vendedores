@@ -2119,6 +2119,12 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .client-card .cli-map-btn:active{transform:translateY(0)}
 .client-card .cli-map-btn[disabled]{background:#cbd5e1;color:var(--text-muted);cursor:not-allowed;box-shadow:none}
 .client-card .cli-map-btn[disabled]:hover{background:#cbd5e1;transform:none}
+/* v782 (2026-09-04): boton "Eliminar" para LEADs (provisorios sin cardCodeSap)
+   en el sidebar CLIENTES. Cualquier reader autenticado puede borrarlo para
+   limpiar duplicados / mal cargados. Rules ya lo permiten (v778). */
+.client-card .cli-delete-btn{position:absolute;top:6px;right:6px;padding:3px 8px;background:var(--color-danger);color:#fff;border:none;border-radius:4px;font-size:9px;font-weight:800;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;display:inline-flex;align-items:center;gap:3px;box-shadow:0 1px 3px rgba(220,38,38,.35);transition:.12s;z-index:3}
+.client-card .cli-delete-btn:hover{background:#b91c1c;transform:translateY(-1px);box-shadow:0 2px 6px rgba(185,28,28,.5)}
+.client-card .cli-delete-btn:active{transform:translateY(0)}
 /* v444 (2026-08-11): boton "Envio gratis" arriba del "Ver en mapa".
    SOLO visible para Ioannis (body.is-ioannis, seteado en applyRolePermissions).
    Default azul marino oscuro; toggle verde cuando el cliente lo tiene marcado.
@@ -5102,7 +5108,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v781';
+const APP_VERSION = 'v782';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -7792,6 +7798,33 @@ window.setLeadEstado = function(fsId, estado){
   }).catch(e => { console.error('setLeadEstado', e); alert('Error: ' + (e.message || e)); });
 };
 
+// v782 (2026-09-04): eliminar un LEAD (client_applications sin cardCodeSap)
+// directo desde la card del sidebar CLIENTES. Cualquier reader autenticado lo
+// puede borrar — sirve para limpiar duplicados o altas mal cargadas sin depender
+// del admin. Guard extra: si el doc trae cardCodeSap (BP ya en SAP) NO permite
+// borrar desde aca (Rules igual lo bloquean; el guard client-side da mejor UX).
+window.deleteLeadFromCard = function(ev, fsId, nombre){
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  if (!fsId) return;
+  if (!currentUser || !userRole || userRole === 'unassigned') {
+    alert('Necesitas estar autenticado para eliminar.');
+    return;
+  }
+  const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(x => x && x._fsId === fsId);
+  if (alta && alta.cardCodeSap) {
+    alert('Esta tienda ya esta cargada en SAP (cardCode ' + alta.cardCodeSap + '). Solo admin/gerente puede eliminarla desde Master Clientes-Direcciones.');
+    return;
+  }
+  const safe = nombre || 'este LEAD';
+  if (!confirm('Eliminar "' + safe + '"?\n\nUsa esto SOLO si es duplicado o esta mal cargado. Va a desaparecer de la lista de todos.\n\nNo se puede deshacer.')) return;
+  fbDb.collection('client_applications').doc(fsId).delete().then(() => {
+    if (typeof showSyncTag === 'function') showSyncTag('LEAD eliminado: ' + safe);
+  }).catch(e => {
+    console.error('deleteLeadFromCard', e);
+    alert('Error eliminando: ' + (e.message || e));
+  });
+};
+
 // Modal para que el admin cargue la direccion de una alta SAP. Pide solo la
 // direccion - la localidad la deducimos del geocoding (Google/OSM devuelven
 // la localidad junto con lat/lng). Si el geocoding falla, recien ahi pedimos
@@ -8719,6 +8752,14 @@ function renderClients(pts){
       html += '</div></div>';
       // Badge CAT en la esquina superior derecha (como antes).
       html += getClientCategoryBadgeHtml(it.point.province, it.point.name, it.name, {corner: true});
+      // v782 (2026-09-04): boton "Eliminar" visible SOLO para LEADs (provisorios
+      // sin cardCodeSap). Cualquier reader lo borra para limpiar duplicados o
+      // mal cargados. Firestore Rules ya permiten delete cuando !cardCodeSap
+      // (rules.v778 line 271). Los altas SAP reales quedan protegidas.
+      if (!a.cardCodeSap) {
+        const _delName = escapeAttr((a.fantasia || a.comercio || it.name || 'este LEAD').trim());
+        html += '<button class="cli-delete-btn" onclick="deleteLeadFromCard(event, \'' + safeFsId + '\', \'' + _delName + '\')" title="Eliminar este LEAD (duplicado / mal cargado)">&#128465;&#65039; Eliminar</button>';
+      }
       // v442: boton "Ver en mapa" — usa a.lat/a.lng (SAP alta geocodificada).
       // Si el alta no tiene geo aun, el boton sale disabled con tooltip.
       if (a.lat != null && a.lng != null) {
