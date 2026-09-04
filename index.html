@@ -5108,7 +5108,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v782';
+const APP_VERSION = 'v783';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12499,7 +12499,17 @@ function getMyAllowedVendorKeys(){
     // + su propia zona asignada en /roles/{uid}.vendor (ej. Santiago
     // Esteban tiene Z7 = NOA + Misiones, ademas de cubrir Mauricio + Martin).
     const keys = (myExternalPartners || []).map(p => p.vendor).filter(Boolean);
-    if (assignedVendor) keys.push(assignedVendor);
+    if (assignedVendor) {
+      keys.push(assignedVendor);
+      // v783 (2026-09-04): fallback via VENDOR_INCLUDES_OTHERS (hardcoded map
+      // de Santi + Ioannis y sus parejas). Antes, si Mariano olvidaba setear
+      // internalPartnerUid en /roles/{uid} de los VDEs pareja, el dropdown
+      // ZONA del VDI mostraba solo su propia zona (bug reportado por Santi
+      // 2026-09-04: no veia Mauricio/Martin). El map hardcoded es la fuente
+      // "de negocio" — Firestore solo mueve el gate de escritura on-behalf-of.
+      const hardcoded = VENDOR_INCLUDES_OTHERS[assignedVendor];
+      if (hardcoded) hardcoded.forEach(k => keys.push(k));
+    }
     return new Set(keys);
   }
   return new Set();
@@ -12548,7 +12558,15 @@ function getSeguimientoExternalSet(){
     return all;
   }
   if (userRole === 'interno') {
-    return new Set((myExternalPartners || []).map(p => p.vendor).filter(Boolean));
+    const s = new Set((myExternalPartners || []).map(p => p.vendor).filter(Boolean));
+    // v783 (2026-09-04): mismo fallback que getMyAllowedVendorKeys — asegura
+    // que Seguimiento del VDI (Santi/Ioannis) no pierda visibilidad si el
+    // internalPartnerUid de sus parejas no esta cargado.
+    if (assignedVendor) {
+      const hardcoded = VENDOR_INCLUDES_OTHERS[assignedVendor];
+      if (hardcoded) hardcoded.forEach(k => s.add(k));
+    }
+    return s;
   }
   return new Set();
 }

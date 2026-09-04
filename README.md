@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v782](#41-changelog-v300--v782)
+41. [Changelog v300 → v783](#41-changelog-v300--v782)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,19 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v782
+## 41) Changelog v300 → v783
+
+### v783 (2026-09-04)
+
+**Fix VDI dropdown ZONA: fallback hardcoded para las zonas de apoyo (Santi + Ioannis).**
+
+- **Bug reportado por Santi 2026-09-04**: al abrir la app como VDI, el dropdown ZONA solo mostraba "Z7 - Santiago Esteban (NOA + NEA + Cuyo norte + apoyo Mauricio/Martin)" — no aparecían Z4 Martin ni Z5 Mauricio, así que no podía filtrar el mapa por las zonas de sus parejas.
+- **Root cause**: `getMyAllowedVendorKeys()` (index.html:12488) para role `interno` armaba el set solo desde `myExternalPartners` (query `roles.where('internalPartnerUid','==',currentUser.uid)`) + `assignedVendor`. Cuando los VDEs pareja (Mauricio, Martin) no tienen `internalPartnerUid` seteado en `/roles/{uid}`, el set queda con solo la propia zona del VDI.
+- **Fix**: fallback vía `VENDOR_INCLUDES_OTHERS` (map hardcoded que ya existía en index.html:12519 con `IOANNIS PALKOUDAKIS → [FEDERICO, GONZALO]` y `SANTIAGO ESTEBAN → [MAURICIO, MARTIN]`). Si `assignedVendor` matchea una key del map, se agregan las zonas hardcoded al set. Es el mismo patrón que ya usaban `getEffectiveVendorSet` (para expansión al filtrar) y `getSeguimientoExternalSet` (fallback admin/gerente).
+- Aplicado en dos lugares por consistencia: `getMyAllowedVendorKeys` (afecta dropdown ZONA + filtro mapa) y `getSeguimientoExternalSet` (afecta panel Seguimiento).
+- **Bump**: `APP_VERSION` + `CACHE_VERSION` v782 → v783. Bundle sin cambios (patch inline).
+- **Tests**: 308/308 verde. Los tests unitarios de listeners no cubren esta ruta (es lógica de scope de rol, no un listener).
+- **Nota data hygiene**: el fix es defensivo, pero Mariano debería igual chequear en Admin → Usuarios que Mauricio y Martin tengan `internalPartnerUid = Santi.uid` para que la escritura on-behalf-of (crear pedidos/visitas en nombre de) funcione. El fix solo cubre la visibilidad del mapa/dropdown; la escritura on-behalf-of usa `isMyPartnerVDE()` en las Firestore Rules que sí requiere el link real en Firestore.
 
 ### v782 (2026-09-04)
 
