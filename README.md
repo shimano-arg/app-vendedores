@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v791](#41-changelog-v300--v791)
+41. [Changelog v300 → v793](#41-changelog-v300--v793)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,29 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v791
+## 41) Changelog v300 → v793
+
+### v793 (2026-09-04)
+
+**Fix Pesca v3 (re-aplicado): 2 columnas separadas por currency + telemetría Bike.**
+
+- **Contexto**: mi v790 metió valores USD en una columna llamada `cost_avg_ars` para Pesca (usé `expected_currency=None`). COWORK marcó que el nombre queda mintiendo para toda una división: no se debe usar una sola columna agnóstica de moneda.
+- **Diseño correcto (COWORK)**: la lista 11 se lee 2 veces (una por moneda), cada valor va a una columna distinta con nombre veraz. El TC lo aplica Power BI del lado modelo con `doc_rate` (mismo patrón que ya usa con `target_usd`).
+- **Historial de intentos**:
+  - v792 (mío): implementé el fix pero el PR #459 (squash-merge) tuvo race condition — el squash tomó los archivos del commit v791 antes de que mi push de v792 se registrara. Los cambios en `scripts/sync_sap_to_bigquery.py` de v792 no llegaron a `main`. Solo se coló el bump de versión.
+  - v793 (este commit): re-aplico los cambios del pipeline (idénticos a v792, ver commit `0e56219` en el reflog de dev).
+- **Cambios en `flatten_item()` Pesca** (`sync_sap_to_bigquery.py`):
+  - `cost_avg_ars` filtra `expected_currency='ARS'` estricto (~2 items en Pesca, semántica intacta).
+  - Nueva columna `cost_usd` con `expected_currency='USD'` filtrado (~771 items en Pesca).
+- **Telemetría Bike**: nuevo log `[bike-list11/currency] distribucion Currency lista 11 en N items Bike: ARS=X, USD=Y, ...` para confirmar el conteo real de items Bike lista 11 USD (COWORK mencionó ~100 items). Zero-risk. Post-sync se decide si agregar columna adicional en `sap_items_bike_raw` para capturar esos 100 items USD que hoy quedan out.
+- **Fact aparte anotado por COWORK** (no fix del pipeline): TC implícito de la lista 11 (ARS) es 1.365 vs `doc_rate` de facturas en 1.482 (sep 2026). Inventario Bike valuado al costo ARS está subvaluado ~8.8% — dato para llevar a Compras.
+- Bump `APP_VERSION` + `CACHE_VERSION` v792 → v793.
+
+### v792 (2026-09-04)
+
+**Bump de versión (sin cambios de pipeline — ver v793 para el fix real).**
+
+- El commit v792 armó el fix Pesca pero el squash-merge del PR #459 tuvo race condition y solo tomó los bump de versión, sin el cambio del pipeline. El fix real llegó a `main` en v793.
 
 ### v791 (2026-09-04)
 

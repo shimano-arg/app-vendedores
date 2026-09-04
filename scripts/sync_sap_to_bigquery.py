@@ -638,22 +638,29 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
             break
     # v782 (2026-09-04): fix bonus Pesca — poblar cost_avg_ars desde price
     # list 11 "COSTO ARTICULO ARS" (mismo mecanismo que Bike v777).
-    # v790 (2026-09-04): SIN filtro por Currency (era 'ARS'). Motivo:
-    # validacion post-v784 mostro que sap_items_raw.cost_avg_ars quedaba
-    # 2/409 poblados en vez de 773 esperados. El probe pesca-costo-ars
-    # cuenta items con PriceList=11 sin filtrar moneda (100% cobertura),
-    # pero cuando aplicamos filtro Currency='ARS' cae a 2 items → los
-    # otros 771 tienen la lista 11 cargada en OTRA moneda (probablemente
-    # USD, dado que Bike la usa mixto). Aceptamos cualquier currency
-    # ahora; la telemetria de pesca-costo-ars/probe reporta la
-    # distribucion real para que COWORK/Contabilidad decida si hay que
-    # convertir a ARS con doc_rate en Power BI o si el valor puede quedar
-    # nativo (ver log post-v790).
-    cost_from_list11, cost_currency = _find_price_by_list_currency(
-        item.get('ItemPrices'), BIKE_PRICE_LIST_COSTO_ARS, expected_currency=None,
+    # v790 (2026-09-04): sin filtro Currency — probó ser incorrecto porque
+    # la lista 11 en Pesca es 771/773 en USD (verificado en probe). Escribir
+    # USD en una columna llamada cost_avg_ars deja el nombre mintiendo.
+    # v792 (2026-09-04, COWORK): reversion del enfoque agnostico. Diseno
+    # correcto: 2 columnas separadas por currency, cada una con nombre
+    # veraz. La lista 11 se lee 2 veces (una por moneda) y los valores
+    # van a columnas distintas. El TC lo aplica Power BI del lado modelo
+    # con doc_rate.
+    cost_from_list11_ars, _ = _find_price_by_list_currency(
+        item.get('ItemPrices'), BIKE_PRICE_LIST_COSTO_ARS, expected_currency='ARS',
+    )
+    cost_from_list11_usd, _ = _find_price_by_list_currency(
+        item.get('ItemPrices'), BIKE_PRICE_LIST_COSTO_ARS, expected_currency='USD',
     )
     weighted_cost_avg = (weighted_cost_num / weighted_cost_den) if weighted_cost_den > 0 else None
-    cost_avg = cost_from_list11 if cost_from_list11 is not None else weighted_cost_avg
+    # cost_avg_ars = SOLO valores en ARS (mantiene el nombre veraz). Fallback
+    # a weighted_cost_avg por backward compat (siempre null en este SAP).
+    cost_avg = cost_from_list11_ars if cost_from_list11_ars is not None else weighted_cost_avg
+    # cost_usd = SOLO valores en USD desde lista 11. En Pesca cubre ~771
+    # items; en Bike la usarian los ~100 items que tienen la lista 11 en
+    # USD (COWORK verifico contra data). El TC se aplica en Power BI si
+    # se necesita valuacion en ARS.
+    cost_usd = cost_from_list11_usd
     # last_purchase queda para compat con el schema (siempre None hasta que
     # este SAP exponga LastPurchasePrice o algun campo equivalente).
     last_purchase = None
@@ -690,7 +697,14 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
         # Power BI usa COALESCE(cost_avg_ars, cost_last_purchase_ars) para
         # tener siempre un valor razonable.
         'cost_last_purchase_ars': last_purchase,
+        # v782+: cost_avg_ars = price list 11 SOLO con Currency=ARS (2 items
+        # en Pesca). Preserva la semantica ARS del nombre. Fallback a
+        # weighted_cost_avg por backward compat (null en este SAP).
         'cost_avg_ars': avg_std,
+        # v792+: cost_usd = price list 11 SOLO con Currency=USD (~771 items
+        # en Pesca, verificado por COWORK). Columna nueva. El TC lo aplica
+        # Power BI si necesita valuacion en ARS.
+        'cost_usd': cost_usd,
         # v289/v527: categorizacion prioridad = catalogo local (index.html
         # PRODUCTS) -> UDFs SAP OITM (fallback). Los SKUs cargados en
         # index.html mantienen la categorizacion curada (mas fina, con
@@ -2254,6 +2268,22 @@ def main():
         filter_expr=f"ItemsGroupCode eq {bike_code}",
         max_docs=max_docs,
     )
+    # v792 (2026-09-04): telemetria de distribucion Currency en lista 11
+    # para Bike. COWORK mencionó que hay ~100 items Bike con lista 11 en
+    # USD que hoy quedan out (flatten_item_bike filtra Currency='ARS'
+    # estricto). Este probe reporta el conteo real para decidir si
+    # agregamos una columna cost_list11_usd a bike o si el conteo es lo
+    # suficientemente bajo para ignorarlo.
+    bike_currency_counts: dict = {}
+    for it in bike_items:
+        for ip in (it.get('ItemPrices') or []):
+            if ip.get('PriceList') == BIKE_PRICE_LIST_COSTO_ARS:
+                curr = (ip.get('Currency') or '').strip() or '(vacio)'
+                bike_currency_counts[curr] = bike_currency_counts.get(curr, 0) + 1
+                break
+    if bike_currency_counts:
+        curr_str = ', '.join(f'{c}={n}' for c, n in sorted(bike_currency_counts.items(), key=lambda x: -x[1]))
+        log(f'[bike-list11/currency] distribucion Currency lista 11 en {len(bike_items)} items Bike: {curr_str}')
     bike_rows = [flatten_item_bike(it, sync_ts) for it in bike_items]
     # Schema explicito: fuerza tipos aunque el batch entero venga null
     # (evita el bug autodetect que hace STRING inference cuando no puede
