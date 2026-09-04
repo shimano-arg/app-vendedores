@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v781](#41-changelog-v300--v781)
+41. [Changelog v300 → v782](#41-changelog-v300--v782)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,19 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v781
+## 41) Changelog v300 → v782
+
+### v782 (2026-09-04)
+
+**Sidebar CLIENTES: botón "Eliminar" en cada card de LEAD (provisorio) — abierto a todos los roles.**
+
+- **UI**: nuevo botón rojo en la esquina superior derecha de la card cuando `!a.cardCodeSap` (LEAD/provisorio de Alta Rápida). No aparece en clientes SAP reales (los que ya tienen cardCode) — esos siguen protegidos y solo se borran desde Master Clientes-Direcciones vía admin/gerente. Copy: "🗑️ Eliminar".
+- **Handler `deleteLeadFromCard(ev, fsId, nombre)`** (`index.html` inline, junto a `setLeadEstado`): `stopPropagation` para no abrir el modal de la card, confirm con nombre del LEAD, delete directo al doc `client_applications/{fsId}`. Extra guard client-side: si el doc tiene `cardCodeSap` (edge case) muestra un mensaje redirigiendo al admin.
+- **Sin cambios en Rules**: las Firestore Rules ya lo permiten desde v778 (`allow delete: if isAdminOrGerente() || (isReader() && !cardCodeSap)`). Vendedor/interno/viewer/admin/gerente pueden borrar LEADs; solo admin/gerente puede borrar altas SAP reales.
+- **Motivación** (pedido Mariano 2026-09-04): antes cualquier vendedor que detectaba un duplicado o LEAD mal cargado (mala escritura, tienda que no existe, cargado 2 veces) tenía que pedirle al admin que lo borrara desde Master Clientes-Direcciones. Ahora lo elimina desde la misma card del sidebar donde lo detectó — el mismo lugar donde se abre el modal Alta SAP.
+- **CSS**: nueva clase `.client-card .cli-delete-btn` (rojo, top-right, z-index 3 para quedar sobre el CAT badge). Hover y active con transform sutil.
+- **Bump**: `APP_VERSION` + `CACHE_VERSION` v781 → v782. Bundle sin cambios (todo el patch es en index.html inline).
+- **Tests**: `npm run test:unit` → 308/308 verde.
 
 ### v781 (2026-09-03)
 
