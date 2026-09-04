@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v798](#41-changelog-v300--v798)
+41. [Changelog v300 → v799](#41-changelog-v300--v799)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4668,7 +4668,34 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v798
+## 41) Changelog v300 → v799
+
+### v799 (2026-09-04)
+
+**Botón "Vincular LEAD ↔ SAP" en Master Clientes — fix email Mariano sobre pérdida de visitas al borrar LEAD provisorio.**
+
+- **Contexto del email**: cuando el vendedor carga un LEAD provisorio y le registra visitas, después Mariano pide alta SAP a Santi/Juan. Cuando el sync SAP corre y matchea por CardCode/CUIT/nombre exacto (`sync_sap_to_firestore.py:find_match`), hace update in-place al LEAD viejo (bien). Pero cuando el LEAD tiene nombre distinto al CardName SAP (ej. "El Delta Pesca" vs "GONZALEZ GARCIA SRL"), el match falla → se crea un doc NUEVO con cardCode → aparecen 2 clientes en el CRM. Mariano borraba manual el LEAD → visitas quedaban huérfanas (las visitas matchean por comercio+prov+localidad como string).
+- **Solución**: nuevo botón admin "🔗 Vincular LEAD ↔ SAP" en la toolbar de Master Clientes (verde). Al click, abre modal con 2 selects:
+  - LEAD provisorio (con `manualSapPending=true`, sin cardCodeSap).
+  - Alta SAP existente (con cardCodeSap).
+  - Al elegir LEAD, se filtran altas SAP con nombre similar (mismo provincia + 4+ chars comunes) en optgroup "Sugerencias".
+  - Preview del merge antes de confirmar.
+- **Nueva función `window.mergeLeadIntoSapAlta(leadFsId, sapAltaFsId, opts)`**:
+  - Update in-place al LEAD viejo con `cardCodeSap` + `manualSapPending=false` + audit fields (`mergedFromCardCode`, `mergedAt`, `mergedBy`).
+  - Delete al doc alta SAP nueva (duplicado).
+  - Batch atómico Firestore.
+  - Copia datos de dirección del SAP si el LEAD no los tenía (opts.copyFieldsFromSap default true).
+  - Preserva `assignedVendor` del LEAD si existe (el gerente lo asignó con contexto).
+  - Preserva `fantasia` del LEAD (vendedor puso el nombre comercial real).
+  - Restringido a admin/gerente client-side + server-side via Firestore rules.
+- **Nueva colección `lead_merge_log`** para auditoría. Rules: admin/gerente puede crear (no update/delete). Cada merge escribe un doc con `leadFsId`, `leadComercio`, `sapAltaFsId`, `sapCardCode`, `payload`, `by`, `ranAt`.
+- **Impacto en visitas**: como el fsId del LEAD viejo se conserva, y las visitas matchean por `comercio+provincia+localidad` (string), siguen apareciendo asociadas al cliente. Cero pérdida de historial, cero migración de datos.
+- **Recomendación operativa (agregar al proceso)**: cuando llega alta SAP nueva de Juan, ANTES de borrar el LEAD, abrir "Vincular LEAD ↔ SAP" y hacer el merge. Solo si no matchea nada, ahí sí crear cliente nuevo.
+- **Casos borde no cubiertos por esta versión** (mejoras futuras):
+  - LEAD sin coincidencia clara con ningún alta SAP → user manual selection.
+  - 2 LEADs distintos que en SAP son el mismo cliente → merge múltiple (por ahora hay que hacerlo de a uno).
+  - Reversión del merge → hay que restaurar manualmente desde el `lead_merge_log`.
+- Bump `APP_VERSION` + `CACHE_VERSION` v798 → v799.
 
 ### v798 (2026-09-04)
 

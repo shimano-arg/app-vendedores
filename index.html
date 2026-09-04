@@ -3972,6 +3972,39 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
       <div class="sap-body" id="sap-body"></div>
     </div>
   </div>
+  <!-- v799 (2026-09-04): modal Vincular LEAD ↔ alta SAP. Admin/gerente only.
+       Se abre desde el boton "Vincular LEAD-SAP" en Master Clientes.
+       Fix del problema reportado por Mariano por email: cuando el sync SAP
+       no matchea auto LEAD↔BP, quedan 2 docs; borrar el LEAD pierde visitas. -->
+  <div class="modal-overlay" id="lead-merge-modal" onclick="if(event.target===this)closeLeadMergeModal()">
+    <div class="modal-box" style="width:min(720px,96vw)">
+      <div class="modal-head" style="background:linear-gradient(135deg,#065f46,#047857)">
+        <div>
+          <h2>Vincular LEAD &harr; Alta SAP</h2>
+          <div class="subt">Fusiona un LEAD provisorio con su alta SAP correspondiente. El LEAD se conserva (para no perder visitas), le agrega el cardCode, y elimina el alta SAP duplicada.</div>
+        </div>
+        <button class="modal-close" onclick="closeLeadMergeModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:20px">
+        <div id="lead-merge-status" style="margin-bottom:12px;font-size:12px"></div>
+        <div style="margin-bottom:14px">
+          <label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);margin-bottom:5px">1) LEAD provisorio (se conserva &mdash; mantiene las visitas)</label>
+          <select id="lead-merge-lead-select" style="width:100%;padding:8px 10px;border:1px solid var(--border-strong);border-radius:6px;font-size:13px"></select>
+        </div>
+        <div style="margin-bottom:14px">
+          <label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);margin-bottom:5px">2) Alta SAP (se elimina; su cardCode va al LEAD)</label>
+          <select id="lead-merge-sap-select" style="width:100%;padding:8px 10px;border:1px solid var(--border-strong);border-radius:6px;font-size:13px"></select>
+          <div style="font-size:10.5px;color:var(--text-secondary);margin-top:4px">Al elegir un LEAD se filtran las altas SAP con nombre similar (mismo prov + 4+ chars en com&uacute;n) en el grupo "Sugerencias".</div>
+        </div>
+        <div id="lead-merge-preview"></div>
+        <div style="margin-top:20px;display:flex;justify-content:flex-end;gap:8px">
+          <button class="btn-cancel" onclick="closeLeadMergeModal()">Cancelar</button>
+          <button id="lead-merge-confirm-btn" class="btn-confirm" style="background:#059669" onclick="confirmLeadMerge()">Fusionar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="master-cli-modal" onclick="if(event.target===this)closeMasterClientesPanel()">
     <div class="modal-box mc-modal-box" style="width:min(1180px,98vw)">
       <div class="modal-head" style="background:linear-gradient(135deg,#7f1d1d,#b91c1c)">
@@ -4007,6 +4040,13 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
              su UI/logica). Antes: 2 botones en el header (Master Clientes +
              Zonas); ahora 1 solo (Master Clientes) + subboton para reasignacion. -->
         <button id="mc-reasignar-zonas-btn" class="mc-prov-btn" onclick="closeMasterClientesPanel();openZonasModal();" style="background:var(--color-accent-violet);box-shadow:0 1px 3px rgba(124,58,237,.3)" title="Reasignar tiendas / localidades / provincias a otro vendedor. Abre el panel Zonas con las 4 pestanas (Por tienda, Por localidad, Por provincia, Historial).">&#128172; Reasignar Zonas</button>
+        <!-- v799 (2026-09-04): boton para vincular un LEAD provisorio con
+             su alta SAP. Fix del problema reportado por Mariano: cuando el
+             sync SAP no matchea auto (nombre/CUIT distintos), aparece un
+             cliente nuevo y hay que borrar el LEAD manual, perdiendo las
+             visitas asociadas. Este boton hace merge preservando el LEAD
+             (con sus visitas) y agregandole el cardCode. -->
+        <button id="mc-vincular-lead-sap-btn" class="mc-prov-btn" onclick="closeMasterClientesPanel();openLeadMergeModal();" style="background:#059669;box-shadow:0 1px 3px rgba(5,150,105,.3)" title="Fusionar un LEAD provisorio con su alta SAP correspondiente. Preserva las visitas del LEAD.">&#128279; Vincular LEAD &harr; SAP</button>
       </div>
       <div class="mc-stats" id="mc-stats"></div>
       <div class="mc-body" id="mc-body"></div>
@@ -5117,7 +5157,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v798';
+const APP_VERSION = 'v799';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -7812,6 +7852,259 @@ window.setLeadEstado = function(fsId, estado){
 // puede borrar — sirve para limpiar duplicados o altas mal cargadas sin depender
 // del admin. Guard extra: si el doc trae cardCodeSap (BP ya en SAP) NO permite
 // borrar desde aca (Rules igual lo bloquean; el guard client-side da mejor UX).
+// v799 (2026-09-04, Mariano pedido): merge de LEAD provisorio con alta SAP nueva.
+// Preserva el fsId del LEAD (donde apuntan las visitas por match nombre+
+// provincia+localidad) y le agrega el cardCodeSap del alta nueva, borrando el
+// duplicado que el sync SAP creo. Sin esto, cuando el sync SAP no matchea
+// automaticamente (por nombre/CUIT distintos entre LEAD y BP SAP), quedan
+// 2 docs en client_applications: el LEAD viejo (con visitas) + el alta SAP
+// nueva (sin visitas). Mariano borraba manual el LEAD → visitas huerfanas.
+// Admin/gerente only. Audit a lead_merge_log.
+window.mergeLeadIntoSapAlta = async function(leadFsId, sapAltaFsId, opts){
+  if (!leadFsId || !sapAltaFsId) throw new Error('leadFsId y sapAltaFsId requeridos');
+  if (leadFsId === sapAltaFsId) throw new Error('LEAD y alta SAP son el mismo doc');
+  opts = opts || {};
+  const copyFieldsFromSap = opts.copyFieldsFromSap !== false; // default true
+  if (!currentUser || (userRole !== 'admin' && userRole !== 'gerente')) {
+    throw new Error('Solo admin/gerente puede vincular LEAD con alta SAP');
+  }
+  const [leadSnap, sapSnap] = await Promise.all([
+    fbDb.collection('client_applications').doc(leadFsId).get(),
+    fbDb.collection('client_applications').doc(sapAltaFsId).get(),
+  ]);
+  if (!leadSnap.exists) throw new Error('LEAD no encontrado: ' + leadFsId);
+  if (!sapSnap.exists) throw new Error('Alta SAP no encontrada: ' + sapAltaFsId);
+  const leadData = leadSnap.data() || {};
+  const sapData = sapSnap.data() || {};
+  const newCardCode = (sapData.cardCodeSap || '').trim();
+  if (!newCardCode) throw new Error('El alta SAP no tiene cardCodeSap');
+  if (leadData.cardCodeSap) {
+    throw new Error('El LEAD ya tiene cardCodeSap (' + leadData.cardCodeSap + '). No es provisorio.');
+  }
+  const mergePayload = {
+    cardCodeSap: newCardCode,
+    manualSapPending: false,
+    mergedFromSapFsId: sapAltaFsId,
+    mergedFromCardCode: newCardCode,
+    mergedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    mergedBy: currentUser.email || currentUser.uid,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    updatedBy: currentUser.email || currentUser.uid,
+  };
+  if (leadData.status !== 'approved') mergePayload.status = 'approved';
+  if (!leadData.assignedVendor && sapData.assignedVendor) mergePayload.assignedVendor = sapData.assignedVendor;
+  if (copyFieldsFromSap){
+    if (!leadData.calle && sapData.calle) mergePayload.calle = sapData.calle;
+    if (!leadData.localidad && sapData.localidad) mergePayload.localidad = sapData.localidad;
+    if (!leadData.localidadFinal && sapData.localidadFinal) mergePayload.localidadFinal = sapData.localidadFinal;
+    if (!leadData.provincia && sapData.provincia) mergePayload.provincia = sapData.provincia;
+    if ((leadData.lat == null || leadData.lng == null) && sapData.lat != null && sapData.lng != null){
+      mergePayload.lat = sapData.lat; mergePayload.lng = sapData.lng;
+    }
+    if (!leadData.cuit && sapData.cuit) mergePayload.cuit = sapData.cuit;
+    if (!leadData.razonSocial && sapData.razonSocial) mergePayload.razonSocial = sapData.razonSocial;
+  }
+  const batch = fbDb.batch();
+  batch.set(fbDb.collection('client_applications').doc(leadFsId), mergePayload, {merge: true});
+  batch.delete(fbDb.collection('client_applications').doc(sapAltaFsId));
+  const logRef = fbDb.collection('lead_merge_log').doc(
+    new Date().toISOString().replace(/[:.]/g, '-') + '_' + newCardCode
+  );
+  batch.set(logRef, {
+    ranAt: firebase.firestore.FieldValue.serverTimestamp(),
+    by: currentUser.email || currentUser.uid,
+    leadFsId,
+    leadComercio: leadData.comercio || leadData.fantasia || '',
+    leadProvincia: leadData.provincia || '',
+    leadLocalidad: leadData.localidad || '',
+    sapAltaFsId,
+    sapCardCode: newCardCode,
+    sapComercio: sapData.comercio || sapData.fantasia || '',
+    payload: mergePayload,
+  });
+  await batch.commit();
+  return {leadFsId, sapAltaFsId, newCardCode};
+};
+
+// v799 (2026-09-04): abre modal para vincular LEAD con alta SAP.
+window.openLeadMergeModal = function(){
+  if (!currentUser || (userRole !== 'admin' && userRole !== 'gerente')) {
+    alert('Solo admin/gerente puede vincular LEADs.');
+    return;
+  }
+  const modal = document.getElementById('lead-merge-modal');
+  if (!modal) { alert('Modal lead-merge no encontrado en el DOM. Recarga la app.'); return; }
+  const leads = (approvedAltasList || []).filter(a => a && !a.cardCodeSap && a.manualSapPending)
+    .sort((a, b) => (a.comercio || a.fantasia || '').localeCompare(b.comercio || b.fantasia || ''));
+  const sapAltas = (approvedAltasList || []).filter(a => a && a.cardCodeSap)
+    .sort((a, b) => (a.comercio || a.fantasia || '').localeCompare(b.comercio || b.fantasia || ''));
+  _lmPopulateLeadSelect(leads);
+  _lmPopulateSapSelect(sapAltas);
+  // Cachear en el modal para el filtro dinamico.
+  modal._lmLeads = leads;
+  modal._lmSapAltas = sapAltas;
+  const status = document.getElementById('lead-merge-status');
+  while (status.firstChild) status.removeChild(status.firstChild);
+  const s1 = document.createElement('span');
+  s1.style.color = 'var(--text-secondary)';
+  s1.appendChild(document.createTextNode('LEADs pendientes: '));
+  const b1 = document.createElement('b'); b1.textContent = String(leads.length); s1.appendChild(b1);
+  s1.appendChild(document.createTextNode(' · Altas SAP totales: '));
+  const b2 = document.createElement('b'); b2.textContent = String(sapAltas.length); s1.appendChild(b2);
+  status.appendChild(s1);
+  const preview = document.getElementById('lead-merge-preview');
+  while (preview.firstChild) preview.removeChild(preview.firstChild);
+  document.getElementById('lead-merge-lead-select').onchange = _lmOnLeadChange;
+  document.getElementById('lead-merge-sap-select').onchange = _lmRenderPreview;
+  modal.classList.add('open');
+};
+function _lmOptEl(value, label){
+  const o = document.createElement('option');
+  o.value = value || '';
+  o.textContent = label;
+  return o;
+}
+function _lmLeadLabel(l){
+  return (l.comercio || l.fantasia || '(sin nombre)') + ' · ' +
+         (l.provincia || 's/prov') + '/' + (l.localidad || 's/loc') +
+         (l.assignedVendor ? ' · ' + l.assignedVendor : '');
+}
+function _lmSapLabel(a){
+  return (a.cardCodeSap || '') + ' · ' + (a.comercio || a.fantasia || '(sin nombre)') + ' · ' +
+         (a.provincia || 's/prov') + '/' + (a.localidad || 's/loc');
+}
+function _lmPopulateLeadSelect(leads){
+  const sel = document.getElementById('lead-merge-lead-select');
+  while (sel.firstChild) sel.removeChild(sel.firstChild);
+  sel.appendChild(_lmOptEl('', '— Elegí un LEAD —'));
+  leads.forEach(l => sel.appendChild(_lmOptEl(l._fsId, _lmLeadLabel(l))));
+}
+function _lmPopulateSapSelect(sapAltas){
+  const sel = document.getElementById('lead-merge-sap-select');
+  while (sel.firstChild) sel.removeChild(sel.firstChild);
+  sel.appendChild(_lmOptEl('', '— Elegí un alta SAP —'));
+  sapAltas.forEach(a => sel.appendChild(_lmOptEl(a._fsId, _lmSapLabel(a))));
+}
+function _lmOnLeadChange(){
+  const modal = document.getElementById('lead-merge-modal');
+  const leadSel = document.getElementById('lead-merge-lead-select');
+  const sapSel = document.getElementById('lead-merge-sap-select');
+  const leadFsId = leadSel.value;
+  if (!leadFsId){
+    _lmPopulateSapSelect(modal._lmSapAltas || []);
+    _lmRenderPreview();
+    return;
+  }
+  const lead = (modal._lmLeads || []).find(l => l._fsId === leadFsId);
+  if (!lead) return;
+  const leadName = ((lead.comercio || lead.fantasia || '').trim().toLowerCase());
+  const leadProv = (lead.provincia || '').toLowerCase();
+  const cand = (modal._lmSapAltas || []).filter(a => {
+    const aName = ((a.comercio || a.fantasia || '').trim().toLowerCase());
+    if (!aName || !leadName) return false;
+    if ((a.provincia || '').toLowerCase() !== leadProv) return false;
+    for (let i = 0; i <= leadName.length - 4; i++){
+      const chunk = leadName.substr(i, 4);
+      if (aName.indexOf(chunk) >= 0) return true;
+    }
+    return false;
+  });
+  while (sapSel.firstChild) sapSel.removeChild(sapSel.firstChild);
+  sapSel.appendChild(_lmOptEl('', '— Elegí un alta SAP —'));
+  if (cand.length){
+    const g1 = document.createElement('optgroup');
+    g1.label = 'Sugerencias (mismo prov + nombre similar)';
+    cand.forEach(a => g1.appendChild(_lmOptEl(a._fsId, _lmSapLabel(a))));
+    sapSel.appendChild(g1);
+    const g2 = document.createElement('optgroup');
+    g2.label = 'Todos los demás';
+    (modal._lmSapAltas || []).filter(a => !cand.includes(a)).forEach(a => g2.appendChild(_lmOptEl(a._fsId, _lmSapLabel(a))));
+    sapSel.appendChild(g2);
+    if (cand.length === 1) sapSel.value = cand[0]._fsId;
+  } else {
+    (modal._lmSapAltas || []).forEach(a => sapSel.appendChild(_lmOptEl(a._fsId, _lmSapLabel(a))));
+  }
+  _lmRenderPreview();
+}
+function _lmRenderPreview(){
+  const preview = document.getElementById('lead-merge-preview');
+  while (preview.firstChild) preview.removeChild(preview.firstChild);
+  const leadFsId = document.getElementById('lead-merge-lead-select').value;
+  const sapFsId = document.getElementById('lead-merge-sap-select').value;
+  if (!leadFsId || !sapFsId) return;
+  const lead = (approvedAltasList || []).find(a => a && a._fsId === leadFsId);
+  const sap = (approvedAltasList || []).find(a => a && a._fsId === sapFsId);
+  if (!lead || !sap) return;
+  const tbl = document.createElement('table');
+  tbl.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;margin-top:10px';
+  const hdr = tbl.insertRow();
+  ['LEAD (se conserva)', 'ALTA SAP (se elimina; cardCode va al LEAD)'].forEach(t => {
+    const th = document.createElement('th');
+    th.style.cssText = 'padding:8px;border:1px solid var(--border-subtle);background:var(--bg-secondary);font-weight:700;text-align:left';
+    th.textContent = t;
+    hdr.appendChild(th);
+  });
+  const row = tbl.insertRow();
+  [[lead.comercio || lead.fantasia || '(sin nombre)', (lead.provincia||'') + ' / ' + (lead.localidad||''), ''],
+   [sap.comercio || sap.fantasia || '(sin nombre)', (sap.provincia||'') + ' / ' + (sap.localidad||''), sap.cardCodeSap||'']].forEach(cols => {
+    const td = document.createElement('td');
+    td.style.cssText = 'padding:8px;border:1px solid var(--border-subtle);vertical-align:top';
+    const line1 = document.createElement('div'); line1.textContent = cols[0]; td.appendChild(line1);
+    const line2 = document.createElement('small');
+    line2.style.color = 'var(--text-secondary)';
+    line2.textContent = cols[1];
+    if (cols[2]) { line2.appendChild(document.createTextNode(' · ')); const b = document.createElement('b'); b.textContent = cols[2]; line2.appendChild(b); }
+    td.appendChild(document.createElement('br'));
+    td.appendChild(line2);
+    row.appendChild(td);
+  });
+  preview.appendChild(tbl);
+  const warn = document.createElement('div');
+  warn.style.cssText = 'margin-top:12px;padding:10px;background:#fef3c7;border:1px solid #fbbf24;border-radius:6px;font-size:12px;color:#92400e';
+  warn.appendChild(document.createTextNode('⚠️ Se va a agregar '));
+  const cc = document.createElement('b'); cc.textContent = sap.cardCodeSap || ''; warn.appendChild(cc);
+  warn.appendChild(document.createTextNode(' al LEAD, borrar el alta SAP y preservar las visitas del LEAD. Auditoría en lead_merge_log.'));
+  preview.appendChild(warn);
+}
+window.closeLeadMergeModal = function(){
+  const m = document.getElementById('lead-merge-modal');
+  if (m) m.classList.remove('open');
+};
+window.confirmLeadMerge = async function(){
+  const leadFsId = document.getElementById('lead-merge-lead-select').value;
+  const sapFsId = document.getElementById('lead-merge-sap-select').value;
+  const status = document.getElementById('lead-merge-status');
+  while (status.firstChild) status.removeChild(status.firstChild);
+  if (!leadFsId || !sapFsId){
+    const s = document.createElement('span'); s.style.color = 'var(--color-danger-strong)';
+    s.textContent = 'Elegí LEAD y alta SAP primero.';
+    status.appendChild(s);
+    return;
+  }
+  const btn = document.getElementById('lead-merge-confirm-btn');
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = 'Fusionando...';
+  try {
+    const r = await window.mergeLeadIntoSapAlta(leadFsId, sapFsId);
+    const s = document.createElement('span'); s.style.color = 'var(--color-success)';
+    s.appendChild(document.createTextNode('✔ Fusionado: LEAD ahora tiene cardCode '));
+    const b = document.createElement('b'); b.textContent = r.newCardCode; s.appendChild(b);
+    s.appendChild(document.createTextNode('. Alta SAP duplicada eliminada. Visitas preservadas.'));
+    status.appendChild(s);
+    if (typeof showSyncTag === 'function') showSyncTag('LEAD vinculado a ' + r.newCardCode);
+    setTimeout(() => window.closeLeadMergeModal(), 2500);
+  } catch(e){
+    console.error('confirmLeadMerge', e);
+    const s = document.createElement('span'); s.style.color = 'var(--color-danger-strong)';
+    s.textContent = 'Error: ' + (e.message || String(e));
+    status.appendChild(s);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+};
+
 window.deleteLeadFromCard = function(ev, fsId, nombre){
   if (ev) { ev.stopPropagation(); ev.preventDefault(); }
   if (!fsId) return;

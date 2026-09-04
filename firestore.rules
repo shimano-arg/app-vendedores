@@ -342,6 +342,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // v799 (2026-09-04): audit log de merges LEAD → alta SAP ejecutados
+    // desde el boton "Vincular LEAD ↔ SAP" en Master Clientes. Escrito
+    // por admin/gerente cliente-side (batch atomico junto con el update
+    // del LEAD + delete del alta SAP duplicada). Lectura admin/gerente.
+    match /lead_merge_log/{logId} {
+      allow read: if isAdminOrGerente();
+      allow create: if isAdminOrGerente();
+      allow update, delete: if false;
+    }
+
     // v750 (2026-08-31): tracking de transiciones de state en lines pedidos-app.
     // Escrito por CF onPedidoWriteTrackAsigTransitions (Admin SDK, bypassea rules).
     // Objetivo: analytics mes-a-mes de conversion ASIG -> confirmed/invoiced vs
