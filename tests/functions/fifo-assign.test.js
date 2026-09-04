@@ -131,7 +131,7 @@ describe('extractSkusWithStockIncrease', () => {
   it('warehouseBreakdown como JSON string invalido devuelve vacio (safe)', () => {
     const r = extractSkusWithStockIncrease(
       { warehouseBreakdown: 'not json' },
-      { warehouseBreakdown: 'still not json' },
+      { warehouseBreakdown: 'still not json' }
     );
     expect(r.size).toBe(0);
   });
