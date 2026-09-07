@@ -2378,6 +2378,31 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   .modal-footer{flex-direction:column;align-items:stretch;gap:8px;padding:10px 14px calc(10px + env(safe-area-inset-bottom))}
   .modal-footer > div:last-child{display:flex;gap:6px}
   .btn-confirm,.btn-cancel{flex:1;padding:11px 10px;font-size:11px}
+  /* v824 (2026-09-07): footer del pedido-modal en mobile — antes los 4 botones
+     de #pm-actions-pending (Eliminar, Volver a borrador, Volver a lista de
+     espera, Confirmar definitivo) se apretujaban y se veian como circulos
+     irregulares con texto cortado. Fix: flex-wrap + botones balanceados 2x2
+     con line-height reducido para textos multi-palabra. */
+  #pm-actions-edit, #pm-actions-pending, #pm-actions-confirmed{
+    flex-wrap:wrap !important;
+    width:100%;
+    gap:6px !important;
+    justify-content:stretch;
+  }
+  #pm-actions-edit > button,
+  #pm-actions-pending > button,
+  #pm-actions-confirmed > button{
+    flex:1 1 calc(50% - 6px) !important;
+    min-width:0 !important;
+    padding:11px 6px !important;
+    font-size:10.5px !important;
+    white-space:normal !important;
+    line-height:1.2 !important;
+    letter-spacing:.2px !important;
+    border-radius:8px !important;
+    height:auto !important;
+    min-height:44px !important;
+  }
   .confirm-box{width:96%;padding:16px 18px}
   .confirm-box h3{font-size:14px}
   /* Suggest box scrolls inside */
@@ -5194,7 +5219,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v823';
+const APP_VERSION = 'v824';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
