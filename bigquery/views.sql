@@ -1147,10 +1147,15 @@ GROUP BY assigned_vendor;
 
 
 -- ============================================================
--- View 10-bis: v_deuda_facturas_detalle (2026-07-20)
+-- View 10-bis: v_deuda_facturas_detalle (2026-07-20, patched 2026-09-07)
 -- ============================================================
 -- Drill-down de v_deuda_por_vendedor: 1 fila por factura abierta.
 -- Permite tabla detalle en Power BI mostrando cada factura por vendedor.
+--
+-- v2 (2026-09-07): bug fix + agregados de cobranzas Bike.
+-- Ver bigquery/cobranzas_bike.sql para el SQL definitivo. Este archivo
+-- queda con la definicion vieja para no romper deploys que corran views.sql
+-- entero. El deploy real es via cobranzas_bike.sql que hace CREATE OR REPLACE.
 -- ============================================================
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_deuda_facturas_detalle` AS
 WITH facturas_abiertas AS (
