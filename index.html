@@ -5001,6 +5001,29 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   </div>
 </div>
 
+<!-- v817 (2026-09-07): modal Diagnóstico SKU. Se abre desde el botón "🔍
+     Diagnóstico" que aparece al lado del código en el modal Pedido en Espera
+     cuando la desc es "(SKU no encontrado en catalogo)". Explica al vendedor
+     por qué el SKU no está en el catálogo local + acción sugerida. -->
+<div class="modal-overlay" id="sku-diagnostico-modal" onclick="if(event.target===this)closeSkuDiagnostico()">
+  <div class="modal-box" style="width:min(640px,96vw)">
+    <div class="modal-head" style="background:linear-gradient(135deg,#0e7490,#0891b2)">
+      <div>
+        <h2>🔍 Diagnóstico SKU <span id="skudiag-code" style="font-family:monospace">--</span></h2>
+        <div class="subt">Este SKU aparece con stock/precio pero no está en el catálogo local (PRODUCTS). Análisis y acción sugerida.</div>
+      </div>
+      <button class="modal-close" onclick="closeSkuDiagnostico()">&times;</button>
+    </div>
+    <div class="modal-body" style="padding:20px 22px;display:block">
+      <div id="skudiag-body"></div>
+      <div style="margin-top:20px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap">
+        <button class="btn-cancel" onclick="closeSkuDiagnostico()">Cerrar</button>
+        <button id="skudiag-syncbtn" style="display:none;background:#0d9488;color:#fff;border:none;padding:9px 16px;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px" onclick="closeSkuDiagnostico(); if(typeof openSapAdminPanel==='function') openSapAdminPanel();">🔃 Ir a Panel SAP</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- v509 (2026-08-13): modal mini para exportar template Stock Asig. por
      cliente. Formato: LISTA DE PRECIOS SHIMANO + Datos de entrega (mismo
      template que el user usa historicamente, "Back Order Disponible
@@ -5171,7 +5194,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v816';
+const APP_VERSION = 'v817';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -16118,6 +16141,88 @@ window.closeWaitlistCardModal = function(){
   document.getElementById('waitlist-card-modal').classList.remove('open');
   _wcardCurrent = null;
 };
+
+// v817 (2026-09-07): modal Diagnostico SKU. Se abre desde el boton "🔍
+// Diagnostico" al lado del codigo cuando la desc es "(SKU no encontrado en
+// catalogo)". Explica al vendedor la causa probable (SKU no es grupo PESCA
+// en SAP) + accion sugerida.
+window.openSkuDiagnostico = function(code){
+  const modal = document.getElementById('sku-diagnostico-modal');
+  const codeEl = document.getElementById('skudiag-code');
+  const bodyEl = document.getElementById('skudiag-body');
+  const syncBtn = document.getElementById('skudiag-syncbtn');
+  if (!modal || !codeEl || !bodyEl) return;
+  codeEl.textContent = code || '?';
+  while (bodyEl.firstChild) bodyEl.removeChild(bodyEl.firstChild);
+
+  // Recabar diagnostico.
+  const catLen = (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) ? PRODUCTS.length : 0;
+  const inCatalog = catLen > 0 && !!PRODUCTS.find(p => p && p.code === code);
+  const stockFn = (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : null;
+  const stockDep11 = stockFn ? (stockFn(code) || 0) : null;
+  const priceFn = (typeof getDefaultPrice === 'function') ? getDefaultPrice : null;
+  const price = priceFn ? (priceFn(code) || 0) : null;
+  const isAdmin = (typeof userRole !== 'undefined') && (userRole === 'admin' || userRole === 'gerente');
+
+  // Bloque de estado actual.
+  const estadoBox = document.createElement('div');
+  estadoBox.style.cssText = 'background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:6px;padding:12px 14px;margin-bottom:16px;font-size:12px;line-height:1.6';
+  const _line = (label, val, color) => {
+    const d = document.createElement('div');
+    const l = document.createElement('span');
+    l.style.cssText = 'font-weight:700;color:var(--text-secondary);margin-right:8px';
+    l.textContent = label;
+    const v = document.createElement('span');
+    v.style.cssText = 'font-weight:800;' + (color ? ('color:' + color) : 'color:var(--text-primary)');
+    v.textContent = String(val);
+    d.appendChild(l);
+    d.appendChild(v);
+    return d;
+  };
+  estadoBox.appendChild(_line('Catálogo local (PRODUCTS):', catLen + ' items'));
+  estadoBox.appendChild(_line('¿SKU en catálogo local?:', inCatalog ? '✓ Sí' : '✗ NO', inCatalog ? '#059669' : '#dc2626'));
+  if (stockDep11 !== null) estadoBox.appendChild(_line('Stock dep 11 (SAP):', stockDep11 + ' u', stockDep11 > 0 ? '#059669' : 'var(--text-muted)'));
+  if (price !== null) estadoBox.appendChild(_line('Precio SAP:', price > 0 ? ('$' + price.toLocaleString('es-AR')) : '(sin precio)', price > 0 ? '#059669' : 'var(--text-muted)'));
+  bodyEl.appendChild(estadoBox);
+
+  // Bloque de causa.
+  const causaTitle = document.createElement('div');
+  causaTitle.style.cssText = 'font-size:12px;font-weight:800;color:var(--text-primary);margin-bottom:8px;text-transform:uppercase;letter-spacing:.4px';
+  causaTitle.textContent = '⚠ Causa probable';
+  bodyEl.appendChild(causaTitle);
+  const causaBox = document.createElement('div');
+  causaBox.style.cssText = 'background:#fef3c7;border:1px solid #fbbf24;border-radius:6px;padding:12px 14px;margin-bottom:16px;font-size:12px;line-height:1.6;color:#78350f';
+  const causa1 = document.createElement('div');
+  causa1.innerHTML = '<b>1. El SKU no pertenece al grupo <code>PESCA</code> en SAP.</b><br>El sync de catálogo automático (cada 5 min) filtra por <code>ItemsGroupCode eq PESCA</code>. Si este SKU es de Bike, Accesorios u otra división, no entra al catálogo local aunque tenga stock/precio en SAP.';
+  causaBox.appendChild(causa1);
+  const causa2 = document.createElement('div');
+  causa2.style.marginTop = '8px';
+  causa2.innerHTML = '<b>2. El sync manual desde Panel SAP trae TODOS los items sin filtro.</b><br>Si el admin corre "Sincronizar catálogo desde SAP" desde Panel SAP → tab Catálogo, se descargan todos los items del SL. Los SKUs que aparezcan cargan al catálogo local.';
+  causaBox.appendChild(causa2);
+  bodyEl.appendChild(causaBox);
+
+  // Bloque de acción.
+  const accionTitle = document.createElement('div');
+  accionTitle.style.cssText = 'font-size:12px;font-weight:800;color:var(--text-primary);margin-bottom:8px;text-transform:uppercase;letter-spacing:.4px';
+  accionTitle.textContent = '✅ Acción sugerida';
+  bodyEl.appendChild(accionTitle);
+  const accionBox = document.createElement('div');
+  accionBox.style.cssText = 'background:var(--color-success-bg);border:1px solid #86efac;border-radius:6px;padding:12px 14px;font-size:12px;line-height:1.6;color:#14532d';
+  if (isAdmin) {
+    accionBox.innerHTML = '<b>Sos admin/gerente</b> — podés forzar el sync desde Panel SAP → tab Catálogo → botón <b>"🔃 Sincronizar catálogo desde SAP"</b>. Descarga TODOS los items del SL (sin filtro PESCA). Después el SKU debería aparecer con su descripción real. Si tras el sync sigue faltando, el SKU quizás no existe en SAP o su ItemCode difiere del que se cargó en el pedido.';
+    if (syncBtn) syncBtn.style.display = '';
+  } else {
+    accionBox.innerHTML = '<b>Contactá a Mariano/Pablo (admin)</b> para que corran el sync manual desde Panel SAP. Mientras tanto, podés seguir con el pedido — SAP acepta el ItemCode aunque no esté en el catálogo local (usa el mismo código que se cargó desde el Excel).';
+    if (syncBtn) syncBtn.style.display = 'none';
+  }
+  bodyEl.appendChild(accionBox);
+
+  modal.classList.add('open');
+};
+window.closeSkuDiagnostico = function(){
+  const modal = document.getElementById('sku-diagnostico-modal');
+  if (modal) modal.classList.remove('open');
+};
 function _renderWaitlistCard(){
   const w = _wcardCurrent;
   if (!w) return;
@@ -16310,7 +16415,29 @@ function _renderWaitlistCard(){
     else if (!r.hasData) cls = 'no-data';
     tr.className = cls;
     tr.appendChild(mk(r.code, 'mono'));
-    tr.appendChild(mk(r.desc, 'left-align'));
+    // v817 (2026-09-07): si la desc es "(SKU no encontrado en catalogo)", el
+    // producto está en SAP (tiene stock/precio) pero no en PRODUCTS local.
+    // Causa típica: no es grupo PESCA (el sync filtra ItemsGroupCode=PESCA).
+    // Agregar boton "🔍 Diagnostico" para que Mariano vea la causa + accion.
+    const _descIsNotFound = typeof r.desc === 'string' && r.desc.indexOf('SKU no encontrado en catalogo') >= 0;
+    if (_descIsNotFound) {
+      const td = document.createElement('td');
+      td.className = 'left-align';
+      const descSpan = document.createElement('span');
+      descSpan.style.cssText = 'color:var(--color-danger-strong);font-style:italic';
+      descSpan.textContent = r.desc;
+      td.appendChild(descSpan);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = '🔍 Diagnóstico';
+      btn.title = 'Ver por qué este SKU no está en el catálogo local + acción sugerida';
+      btn.style.cssText = 'margin-left:8px;background:#0891b2;color:#fff;border:none;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;cursor:pointer;letter-spacing:.3px';
+      btn.onclick = (ev) => { ev.stopPropagation(); if (typeof window.openSkuDiagnostico === 'function') window.openSkuDiagnostico(r.code); };
+      td.appendChild(btn);
+      tr.appendChild(td);
+    } else {
+      tr.appendChild(mk(r.desc, 'left-align'));
+    }
     // v719 (2026-08-28): Stock completo (dep 11) — usar getStockDisponibleVenta
     // que es whs 11 SOLO, no whs11+whs12. Antes se mostraba r.stockTotal que
     // sumaba transit y no matcheaba con el modal STOCK ASIG (que solo cuenta dep 11).

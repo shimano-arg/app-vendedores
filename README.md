@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v816](#41-changelog-v300--v816)
+41. [Changelog v300 → v817](#41-changelog-v300--v817)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4670,7 +4670,30 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v816
+## 41) Changelog v300 → v817
+
+### v817 (2026-09-07) — modal Diagnóstico SKU en filas "(SKU no encontrado en catálogo)"
+
+**Pedido Mariano 2026-09-07** (después del diagnóstico DevTools que reveló `PRODUCTS.length = 665` y los 4 SKUs 597151/597144/127082/127099 con `found: false`):
+- Agregar botón "🔍 Diagnóstico" al lado del código SKU cuando la desc es "(SKU no encontrado en catálogo)".
+- Al hacer click abre modal que explica al vendedor: causa probable + acción sugerida + estado actual.
+
+**Modal Diagnóstico incluye**:
+- **Estado actual**: catálogo local size (PRODUCTS.length), si el SKU está en catálogo, stock dep 11 en SAP, precio SAP.
+- **Causa probable**: (1) el SKU no pertenece al grupo `PESCA` en SAP — el sync automático cada 5 min filtra `ItemsGroupCode eq PESCA`; (2) el sync manual desde Panel SAP trae todos los items sin filtro.
+- **Acción sugerida**: si es admin/gerente → botón "🔃 Ir a Panel SAP" que abre el panel para forzar sync manual. Si es VDE → mensaje "contactá a Mariano/Pablo, mientras tanto podés seguir con el pedido (SAP acepta el ItemCode aunque falte en el catálogo local)".
+
+**Cambios técnicos**:
+- Nuevo modal `#sku-diagnostico-modal` (index.html:5004+).
+- Nuevas fns `window.openSkuDiagnostico(code)` + `window.closeSkuDiagnostico()` (index.html:16098+).
+- En `_renderWaitlistCard` render de la fila (index.html:16265+), cuando la desc empieza con "(SKU no encontrado", se agrega botón "🔍 Diagnóstico" en la celda Producto.
+- Botón "Ir a Panel SAP" invoca `openSapAdminPanel()` (ya existe desde v220+).
+
+**Bump**: `APP_VERSION` + `CACHE_VERSION` v816 → v817. Bundle sin cambios (patch inline).
+
+**Tests**: unit 308/308 verde.
+
+**Long-term follow-up** (documentado, no en este PR): cambiar el filtro del sync (`sync_sap_to_firestore.py`) para incluir múltiples grupos de SAP (no sólo PESCA — quizás BIKE, ACCESORIOS). Requiere validación con Mariano de qué grupos son legítimos para vender. Alternativamente, sacar el filtro y traer todo el catálogo (~10k items en vez de ~665) — cost extra en Firestore lectures pero elimina la clase de bugs "SKU no en catálogo".
 
 ### v816 (2026-09-07) — fix pedidos confirmados de VDE invisibles en tab Confirmados
 
