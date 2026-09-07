@@ -80,6 +80,33 @@ export async function sapGet(session, endpoint, deps) {
 }
 
 /**
+ * POST a un endpoint SL con body JSON. Usado por auto-send-sap-core para
+ * enviar Sales Quotations (POST /b1s/v1/Quotations).
+ *
+ * @param {SapSession} session
+ * @param {string} endpoint absoluto empezando con /b1s/v1/
+ * @param {any} bodyObj payload a serializar como JSON
+ * @param {SapSlDeps} deps
+ * @returns {Promise<{status: number, body: any, headers: Headers}>}
+ */
+export async function sapPost(session, endpoint, bodyObj, deps) {
+  const res = await deps.fetch(`${deps.sapConfig.url}${endpoint}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: session.cookie },
+    body: JSON.stringify(bodyObj),
+  });
+  const text = await res.text();
+  /** @type {any} */
+  let body = text;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    /* body no-json */
+  }
+  return { status: res.status, body, headers: res.headers };
+}
+
+/**
  * Logout best-effort. Errores se loguean pero no se propagan.
  * @param {SapSession} session
  * @param {SapSlDeps} deps

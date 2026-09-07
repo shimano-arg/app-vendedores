@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v817](#41-changelog-v300--v817)
+41. [Changelog v300 → v818](#41-changelog-v300--v818)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4670,7 +4670,35 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v817
+## 41) Changelog v300 → v818
+
+### v818 (2026-09-07) — Cloud Function trigger auto-envío pedidos → SAP (independiente de admin logueado)
+
+**Pedido Mariano 2026-09-07** (post-v816): _"el tema vendedores es que ellos puedan pasar un pedido de la lista de espera a pendientes y posteriormente a confirmado (ingresa a sap) sin depender de los admin"._
+
+**Contexto**:
+- v816 arregló la VISIBILIDAD: los pedidos que los VDE confirman aparecen con chip "PENDIENTE ENVIO" en el tab Confirmados.
+- Pero el ENVÍO REAL a SAP seguía dependiendo del `sap-auto-send-listener` client-side que solo corre en sesión admin/gerente con SL habilitado.
+
+**Fix v818** — Firestore trigger `onDocumentWritten('pedidos/{id}')` en Cloud Function:
+- **Cuándo dispara**: cuando un pedido transiciona a `stage='confirmed'` sin `transferidoSAP` (guard `isEligibleForAutoSend`).
+- **Qué hace**: adquiere lock cross-session (TTL 300s), construye Sales Quotation payload, hace `sapLogin → sapPost /Quotations → sapLogout`, escribe `transferidoSAP.docNum`.
+- **Independencia total del admin**: corre server-side 24/7, usa `SAP_SL_PASSWORD` desde Secret Manager.
+- **Idempotencia dual** (defense-in-depth): CF trigger + auto-send client-side (v220+) corren en paralelo. Ambos hacen doble-check de `transferidoSAP` via transaction Firestore. Sin duplicados.
+
+**Estados** (loggeados server-side):
+- `sent_ok`, `skip_already_sent`, `skip_all_bo`, `skip_no_cardcode`, `skip_locked`, `skip_stage`, `error_sl`, `error_race`.
+
+**Arquitectura**:
+- Core module `functions/core/auto-send-sap-core.js` (400 LOC): lógica pura testeable con deps inyectables.
+- Wrapper trigger `functions/index.js:280+`: 128 LOC. Load config + mappings + inject.
+- Shared client `functions/core/sap-sl-client.js`: agregado `sapPost` (antes solo `sapGet`/`sapLogin`/`sapLogout`).
+
+**Tests**: `tests/functions/auto-send-sap.test.js` — 28 tests unit. Suite completa: 196 tests functions + 308 unit verdes.
+
+**Deploy** ⚠: requiere `firebase deploy --only functions:onPedidoConfirmedSendToSap`. Pendiente autorización explícita de Mariano (el sandbox bloquea deploys a prod sin OK visible en transcript).
+
+**Bump**: `APP_VERSION` + `CACHE_VERSION` v817 → v818. Bundle client sin cambios. Backend: +542 LOC.
 
 ### v817 (2026-09-07) — modal Diagnóstico SKU en filas "(SKU no encontrado en catálogo)"
 

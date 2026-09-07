@@ -34,6 +34,11 @@ import { syncSapInvoices } from './core/invoice-sync-core.js';
 import { buildEmailContent, sendEmail, shouldNotify } from './core/notify-quotation-sent-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
 import { handleSapProxy } from './core/sap-proxy-core.js';
+// v818 (2026-09-07): auto-envio pedidos confirmed a SAP via CF trigger. Elimina
+// dependencia del auto-send client-side (que solo corria en sesion admin/gerente
+// con SL activo). Fix bug reportado por Mariano: pedidos VDE confirmed quedaban
+// invisibles a SAP hasta que admin abria la app.
+import { handleAutoSendSap, AUTO_SEND_RESULT } from './core/auto-send-sap-core.js';
 import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
 
 if (!getApps().length) initializeApp();
@@ -326,6 +331,154 @@ export const onQuotationSentNotify = onDocumentWritten(
       console.error('onQuotationSentNotify error', {
         pedidoId: event.params.pedidoId,
         error: e?.message || String(e),
+      });
+    }
+  }
+);
+
+/**
+ * v818 (2026-09-07): auto-envio de pedidos confirmed a SAP.
+ *
+ * Firestore trigger sobre pedidos/{pedidoId}. Detecta transiciones a
+ * stage='confirmed' sin transferidoSAP y las envia como Sales Quotation
+ * via Service Layer. Server-side, corre 24/7 — no depende de sesion admin.
+ *
+ * Guards + idempotencia:
+ * - isEligibleForAutoSend: transicion real a confirmed (before.stage != confirmed).
+ * - Lock cross-session TTL 300s (evita doble-envio con el auto-send client-side).
+ * - Doble-check transferidoSAP en transaccion post-createQuotation.
+ *
+ * Config runtime:
+ * - Region: southamerica-east1 (mismo que SAP proxy).
+ * - Memory 512 MiB: SL login+POST+logout con parsing JSON.
+ * - Timeout 120s: SL response puede tardar 30-60s con network variance.
+ * - retry: false (single attempt). Errores permanentes (400 SAP business
+ *   logic) no deben retry-storm. Errores transitorios (SL 500, timeout) los
+ *   maneja el auto-send client-side de fallback cuando admin abre la app.
+ * - secrets: [SAP_SL_PASSWORD] — mismo secret que sapProxy.
+ *
+ * NO ejecuta si sapConfig no esta cargado en Firestore (skip silencioso).
+ */
+export const onPedidoConfirmedSendToSap = onDocumentWritten(
+  {
+    region: REGION,
+    document: 'pedidos/{pedidoId}',
+    retry: false,
+    memory: '512MiB',
+    timeoutSeconds: 120,
+    secrets: [SAP_SL_PASSWORD],
+  },
+  async (event) => {
+    const pedidoId = event.params.pedidoId;
+    try {
+      const beforeData = /** @type {any} */ (event.data?.before?.data() ?? null);
+      const afterData = /** @type {any} */ (event.data?.after?.data() ?? null);
+      if (!afterData) return; // doc deleted, nada que hacer
+
+      // Load sap config (url, companyDB, userName). El password viene del Secret.
+      const db = getFirestore();
+      const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+      if (!sapCfgSnap.exists) {
+        console.log('onPedidoConfirmedSendToSap skip: app_config/sap_integration no existe');
+        return;
+      }
+      const sapCfgData = sapCfgSnap.data() || {};
+      const sl = sapCfgData.serviceLayer || {};
+      const sapConfig = {
+        url: sl.url || '',
+        companyDB: sl.companyDB || '',
+        userName: sl.userName || '',
+        password: SAP_SL_PASSWORD.value(),
+      };
+      if (!sapConfig.url || !sapConfig.companyDB || !sapConfig.userName || !sapConfig.password) {
+        console.log('onPedidoConfirmedSendToSap skip: sapConfig incompleto');
+        return;
+      }
+
+      // Cargar mappings sap_clients/sap_products/sap_vendors para resolvers.
+      // Los VDE confirman con clientCardCode ya persistido en el pedido, asi
+      // que el mapping de clientes es fallback. Products es fallback tambien
+      // (auto-resolve leading zeros funciona para la mayoria).
+      /** @type {Map<string, string>} */
+      const sapClients = new Map();
+      /** @type {Map<string, string>} */
+      const sapProducts = new Map();
+      /** @type {Map<string, number>} */
+      const sapVendors = new Map();
+      try {
+        const [cliSnap, prodSnap, venSnap] = await Promise.all([
+          db.collection('sap_clients').get(),
+          db.collection('sap_products').get(),
+          db.collection('sap_vendors').get(),
+        ]);
+        cliSnap.forEach((d) => {
+          const data = d.data() || {};
+          const nameNorm = String(data.clientName || d.id).toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+          if (nameNorm && data.cardCode) sapClients.set(nameNorm, String(data.cardCode));
+        });
+        prodSnap.forEach((d) => {
+          const data = d.data() || {};
+          if (data.appCode && data.sapItemCode) sapProducts.set(String(data.appCode), String(data.sapItemCode));
+        });
+        venSnap.forEach((d) => {
+          const data = d.data() || {};
+          const vendorKey = String(data.vendorKey || d.id).toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+          const slp = Number(data.slpCode);
+          if (vendorKey && Number.isFinite(slp)) sapVendors.set(vendorKey, slp);
+        });
+      } catch (mapErr) {
+        console.warn('onPedidoConfirmedSendToSap: mapping load failed (non-blocking)', {
+          err: mapErr?.message || String(mapErr),
+        });
+      }
+
+      const result = await handleAutoSendSap(pedidoId, beforeData, afterData, {
+        fbDb: db,
+        FieldValue,
+        sapClients,
+        sapProducts,
+        sapVendors,
+        sl: {
+          fetch: globalThis.fetch,
+          sapConfig,
+          log: (msg, extra) => console.log(msg, extra || {}),
+        },
+      });
+
+      // Log estructurado del resultado.
+      if (result.result === AUTO_SEND_RESULT.SENT_OK) {
+        console.log('onPedidoConfirmedSendToSap OK', {
+          pedidoId,
+          docNum: result.docNum,
+          docEntry: result.docEntry,
+          cliente: afterData.clientName,
+        });
+      } else if (
+        result.result === AUTO_SEND_RESULT.SKIP_ALREADY_SENT ||
+        result.result === AUTO_SEND_RESULT.SKIP_ALL_BO ||
+        result.result === AUTO_SEND_RESULT.SKIP_NO_LINES ||
+        result.result === AUTO_SEND_RESULT.SKIP_NO_CARDCODE ||
+        result.result === AUTO_SEND_RESULT.SKIP_LOCKED ||
+        result.result === AUTO_SEND_RESULT.SKIP_STAGE
+      ) {
+        // Skips normales — log info para debugging pero no error.
+        console.log('onPedidoConfirmedSendToSap skip', { pedidoId, result: result.result, reason: result.reason });
+      } else if (result.result === AUTO_SEND_RESULT.ERROR_RACE) {
+        // Otra sesion (client-side auto-send) gano la carrera. No es error real.
+        console.log('onPedidoConfirmedSendToSap race lost', { pedidoId, winnerDocNum: result.docNum });
+      } else {
+        // ERROR_SL — algo fallo. Log error para monitoring/Sentry.
+        console.error('onPedidoConfirmedSendToSap ERROR', {
+          pedidoId,
+          error: result.error,
+          cliente: afterData.clientName,
+        });
+      }
+    } catch (e) {
+      console.error('onPedidoConfirmedSendToSap uncaught exception', {
+        pedidoId,
+        error: e?.message || String(e),
+        stack: e?.stack?.split('\n').slice(0, 3).join('\n'),
       });
     }
   }
