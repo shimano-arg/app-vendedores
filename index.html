@@ -2884,6 +2884,11 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
          .revision-btn oculto por default; body.can-revision lo muestra
          (whitelist Mariano/Ioannis/Santi/Pablo en applyRolePermissions). -->
     <button class="revision-btn btn-zonas" id="revision-btn" onclick="openRevisionModal()" title="Revision Excel: ver backorder + disponible + pedido del cliente" style="background:#0f766e;color:#fff">Revisi&oacute;n Excel</button>
+    <!-- v825 (2026-09-07): boton "Pedidos" en la home. Antes en mobile solo se
+         podia entrar desde el menu lateral > "Pedidos confirmados SAP". Ahora
+         boton directo que abre modal Estado (Lista de espera / Pendientes /
+         Confirmados SAP - 3 tabs). Visible para todos los roles. -->
+    <button class="btn-zonas" id="pedidos-btn" onclick="openEstadoModal()" title="Estado de pedidos: Lista de espera, Pendientes y Confirmados SAP" style="background:#1e40af;color:#fff">&#128203; Pedidos</button>
     <button class="revision-btn btn-zonas" id="waitlist-btn" onclick="openWaitlistModal()" title="Pedidos en espera: cards pre-cargadas que se recalculan al abrirlas" style="background:var(--color-accent-violet);color:#fff">Pedidos en Espera <span id="waitlist-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
     <!-- v611 (2026-08-24): PANEL DE CONTROL - visible SOLO Mariano (admin +
          email whitelist). Runtime guard replicado en openPanelControl(). -->
@@ -5219,7 +5224,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v824';
+const APP_VERSION = 'v825';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
