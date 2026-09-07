@@ -5171,7 +5171,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v813';
+const APP_VERSION = 'v814';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12413,9 +12413,14 @@ window.deleteAllBackorderAppLinesForClient = async function(sku, clienteNombre, 
       }
       if (modIdx < 0) { fail++; continue; }
       // Optimistic local update.
+      // v814 (2026-09-07): reemplazar refs (map + Object.assign) en vez de
+      // mutar in-place para invalidar la WeakMap cache de v809
+      // getStockPorClienteMemo. Ver comentario detallado en _asigInlineResolve.
       if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
-        const lp = globalPedidos.find(pp => pp && pp._fsId === e.pedidoId);
-        if (lp) lp.lines = lines;
+        globalPedidos = globalPedidos.map(pp => {
+          if (!pp || pp._fsId !== e.pedidoId) return pp;
+          return Object.assign({}, pp, { lines: lines });
+        });
       }
       await ref.update({
         lines: lines,
@@ -12495,9 +12500,14 @@ window.deleteBackorderAppLine = async function(pedidoId, sku, clienteNombre, qty
     // v720 (2026-08-28): OPTIMISTIC UPDATE. Antes esperaba el snapshot Firestore
     // (200-500ms) para ver el cambio en el modal. Ahora updated globalPedidos
     // localmente + renderBackordersTab inmediato, el snapshot despues confirma.
+    // v814 (2026-09-07): reemplazar refs en vez de mutar in-place para invalidar
+    // la WeakMap cache de v809 getStockPorClienteMemo. Sin esto, el panel Stock
+    // Asignado del cliente mostraba lineas ya borradas por hasta 5s (TTL).
     if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
-      const localP = globalPedidos.find(pp => pp && pp._fsId === pedidoId);
-      if (localP) localP.lines = newLines;
+      globalPedidos = globalPedidos.map(pp => {
+        if (!pp || pp._fsId !== pedidoId) return pp;
+        return Object.assign({}, pp, { lines: newLines });
+      });
     }
     // Re-render inmediato del modal Backorder si esta abierto.
     try {
@@ -15721,17 +15731,25 @@ async function _asigInlineResolve(w, it, action){
     // tarda 200-800ms). Sin esto, Fusionar/Agregar/Eliminar dejaba el top
     // summary + fila de la tabla mostrando datos stale — "cliente YA TENIA N
     // SKUs" + boton Fusionar seguian visibles aunque ya se habia consumido.
-    // Bug reportado por Mariano 2026-09-04: "toco Fusionar y no detecta el
-    // cambio arriba". Sin este optimistic, el listener onSnapshot recien corrige
-    // al llegar del server; con esto, el UI se ve consistente instantaneo.
+    //
+    // v814 (2026-09-07): FIX bug memoization v809. Antes mutabamos el array
+    // globalPedidos + sus lines in-place (misma ref). Como v809 introdujo
+    // getStockPorClienteMemo con WeakMap keyed por globalPedidos ref, la cache
+    // NO se invalidaba al mutar in-place -> reservadasPorCliente devolvia stale
+    // por hasta 5s (TTL). Sintoma: al tocar Fusionar/Eliminar, la fila consumida
+    // seguia apareciendo en STOCK ASIGNADO por 5s. Ahora reemplazamos la ref del
+    // array + del pedido + de sus lines -> WeakMap invalida al toque.
     try {
       if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
-        const _gp = globalPedidos.find(x => (x._fsId || x._id) === it.pedidoId);
-        if (_gp && Array.isArray(_gp.lines) && _gp.lines[it.lineIndex]) {
-          const _newLines = _gp.lines.slice();
-          _newLines[it.lineIndex] = l;
-          _gp.lines = _newLines;
-        }
+        globalPedidos = globalPedidos.map(p => {
+          if (!p) return p;
+          const pid = p._fsId || p._id || '';
+          if (pid !== it.pedidoId) return p;
+          if (!Array.isArray(p.lines) || !p.lines[it.lineIndex]) return p;
+          const newLines = p.lines.slice();
+          newLines[it.lineIndex] = l;
+          return Object.assign({}, p, { lines: newLines });
+        });
       }
     } catch(_e) { console.warn('optimistic globalPedidos update', _e); }
     // Agregar la porcion consumida al waitlist actual (full/partial).
