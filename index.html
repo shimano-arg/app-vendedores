@@ -5194,7 +5194,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v822';
+const APP_VERSION = 'v823';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14357,11 +14357,29 @@ function _renderEstadoPedidos(content, arr, tipo){
     card.onmouseover = () => { card.style.background = '#f8fafc'; };
     card.onmouseout = () => { card.style.background = '#fff'; };
     card.onclick = () => {
+      // v823 (2026-09-07): FIX bug mobile — tocar una card en tab Pendientes
+      // (o Confirmados) tumbaba al home. Root cause: la fn se llama
+      // `viewPedido(stage, key, idx)`, no `openPedido(...)`. Como openPedido
+      // no existe, `typeof openPedido === 'function'` es false, solo corria
+      // closeEstadoModal() y el user aterrizaba en la pantalla base.
+      // Fix: usar viewPedido con el key + idx del array local (pending/confirmed).
       closeEstadoModal();
-      if (typeof openPedido === 'function' && p.clientName) {
-        try { openPedido(p.province, p.locName || p.locality, p.clientName, p.id, tipo === 'pendientes' ? 'pending' : 'confirmed'); }
-        catch(e){ console.warn('openPedido from estado', e); }
+      if (typeof viewPedido !== 'function' || !p.key) return;
+      const stage = tipo === 'pendientes' ? 'pending' : 'confirmed';
+      const listMap = stage === 'pending' ? (typeof pending === 'object' ? pending : {}) : (typeof confirmed === 'object' ? confirmed : {});
+      const list = listMap[p.key] || [];
+      // Match por _fsId (unico) — el idx puede cambiar entre snapshots.
+      const idx = list.findIndex(e => e && e._fsId === p._fsId);
+      if (idx < 0) {
+        console.warn('[estado] pedido no encontrado en state local', {key: p.key, fsId: p._fsId, stage, listLen: list.length});
+        // Fallback: si no matcheamos por _fsId (posible en admin viendo pedidos
+        // de otros usuarios cuyo listener own no los mete en pending/confirmed),
+        // avisar con toast en vez de dejar al user en home sin feedback.
+        if (typeof alert === 'function') alert('No se pudo abrir el detalle del pedido. Refrescá la pantalla e intentá de nuevo.');
+        return;
       }
+      try { viewPedido(stage, p.key, idx); }
+      catch(e){ console.warn('viewPedido from estado', e); }
     };
     const row1 = document.createElement('div');
     row1.style.cssText = 'display:flex;align-items:center;gap:8px;font-weight:800;color:var(--text-primary);font-size:12.5px;margin-bottom:2px;flex-wrap:wrap';
