@@ -125,6 +125,15 @@ BQ_TABLE_IGN             = f'{BQ_PROJECT}.{BQ_DATASET}.sap_inventory_gen_entries
 # Definicion negocio: "entrada de stock" = arribo al warehouse 11, sin
 # importar el tipo de doc que lo genero.
 BQ_TABLE_INV_TRANSFERS   = f'{BQ_PROJECT}.{BQ_DATASET}.sap_inventory_transfers_raw'
+# v2 (2026-09-07 — sprint cobranzas Bike): cobranzas SAP.
+# IncomingPayments (ORCT) trae header del pago; PaymentChecks es nested collection
+# via $expand=PaymentChecks. Cada cheque genera 1 row en sap_payment_checks_raw
+# con FK a la cabecera (incoming_payment_doc_entry). Idem Deposits/CheckLines.
+BQ_TABLE_INCOMING_PAYMENTS = f'{BQ_PROJECT}.{BQ_DATASET}.sap_incoming_payments_raw'
+BQ_TABLE_PAYMENT_CHECKS    = f'{BQ_PROJECT}.{BQ_DATASET}.sap_payment_checks_raw'
+BQ_TABLE_DEPOSITS          = f'{BQ_PROJECT}.{BQ_DATASET}.sap_deposits_raw'
+BQ_TABLE_DEPOSIT_CHECKS    = f'{BQ_PROJECT}.{BQ_DATASET}.sap_deposit_checks_raw'
+BQ_TABLE_BANKS             = f'{BQ_PROJECT}.{BQ_DATASET}.sap_banks_raw'
 BQ_TABLE_TARGETS         = f'{BQ_PROJECT}.{BQ_DATASET}.targets_raw'
 BQ_TABLE_CAMPAIGNS       = f'{BQ_PROJECT}.{BQ_DATASET}.campaigns_raw'
 
@@ -523,11 +532,15 @@ def flatten_bp(bp: dict, sync_ts: str) -> dict:
         'phone1': bp.get('Phone1'),
         'cellular': bp.get('Cellular'),
         'pay_terms_group_code': bp.get('PayTermsGrpCode'),
-        # credit_line, current_account_balance, notes removidos del select
-        # (ver comentario en main). Mantenemos las columnas en el schema BQ
-        # con null para no romper vistas o consumers downstream.
-        'credit_line': None,
-        'current_account_balance': None,
+        # v2 (2026-09-07): 3 campos de credit ahora poblados con los nombres SL
+        # correctos (CreditLimit, no CreditLine). credit_line se mantiene como
+        # alias del nuevo credit_limit para no romper vistas viejas que la
+        # referencien. max_commitment y current_account_balance son columnas
+        # nuevas — schema BQ se actualiza con autodetect (WRITE_TRUNCATE).
+        'credit_line': bp.get('CreditLimit'),  # alias legacy
+        'credit_limit': bp.get('CreditLimit'),
+        'max_commitment': bp.get('MaxCommitment'),
+        'current_account_balance': bp.get('CurrentAccountBalance'),
         'sales_person_code': bp.get('SalesPersonCode'),
         'notes': None,
         'valid': bp.get('Valid'),
@@ -893,6 +906,177 @@ def flatten_doc(doc: dict, doc_type: str, sync_ts: str) -> dict:
         'update_date': doc.get('UpdateDate'),
         'lines_count': len(lines),
         'lines_json': json.dumps(lines, default=str) if lines else None,
+        '_sync_timestamp': sync_ts,
+    }
+
+
+# ============================================================
+# COBRANZAS v2 (2026-09-07): flatten para IncomingPayments/Deposits/Banks.
+# Doc BIKE DASHBOARD/INFORME_SAP_INVESTIGACION_2026-09-07.md tiene el schema
+# real de cada entity confirmado via SL directo.
+# ============================================================
+def flatten_incoming_payment(pay: dict, sync_ts: str) -> dict:
+    """
+    Cabecera del IncomingPayment (ORCT). Los cheques van aparte en
+    sap_payment_checks_raw via flatten_payment_check. 67% de los pagos Bike
+    son TransferSum > 0 (transferencia bancaria); el resto CashSum + Cheque.
+    """
+    return {
+        'doc_entry': pay.get('DocEntry'),
+        'doc_num': pay.get('DocNum'),
+        'doc_type': pay.get('DocType'),
+        'doc_date': pay.get('DocDate'),
+        'due_date': pay.get('DueDate'),
+        'card_code': pay.get('CardCode'),
+        'card_name': pay.get('CardName'),
+        'doc_currency': pay.get('DocCurrency'),
+        'doc_rate': pay.get('DocRate'),
+        # Montos: CashSum efectivo, TransferSum transferencia bancaria (con
+        # TransferDate = fecha real de acreditacion para transferencias),
+        # BillOfExchangeAmount cheque total en ARS. Las tres suman el pago.
+        'cash_sum': pay.get('CashSum'),
+        'transfer_sum': pay.get('TransferSum'),
+        'transfer_date': pay.get('TransferDate'),
+        'transfer_account': pay.get('TransferAccount'),
+        'transfer_reference': pay.get('TransferReference'),
+        'bill_of_exchange_amount': pay.get('BillOfExchangeAmount'),
+        'series': pay.get('Series'),
+        'bank_code': pay.get('BankCode'),
+        'bank_account': pay.get('BankAccount'),
+        'cancelled': pay.get('Cancelled'),
+        'journal_remarks': pay.get('JournalRemarks'),
+        'remarks': pay.get('Remarks'),
+        'reference_1': pay.get('Reference1'),
+        'reference_2': pay.get('Reference2'),
+        'payment_type': pay.get('PaymentType'),
+        'authorization_status': pay.get('AuthorizationStatus'),
+        # UDFs relevantes de ORCT (integracion BBVA + estado interno). El
+        # discovery mostro 16 UDFs; solo mapeamos los que aportan a cobranzas.
+        'u_estado': pay.get('U_Estado'),
+        'u_rendicion': pay.get('U_Rendicion'),
+        'u_detalle_transferencia': pay.get('U_detTansf'),
+        'u_status_bbva': pay.get('U_StatusBBVA'),
+        'u_id_bbva': pay.get('U_IdBBVA'),
+        '_sync_timestamp': sync_ts,
+    }
+
+
+def flatten_payment_check(check: dict, payment_doc_entry: int, payment_doc_date, payment_card_code: str, sync_ts: str) -> dict:
+    """
+    Cheque individual de un IncomingPayment. Fan-out: 1 pago con N cheques
+    -> N rows. Discovery clave: ECheck='tYES' distingue echeq (99.83% Bike 12m)
+    de cheque fisico. CheckAbsEntry es el link a Deposit.CheckLines.CheckKey.
+    """
+    return {
+        # FK a la cabecera del pago (para hacer join en vistas).
+        'payment_doc_entry': payment_doc_entry,
+        'payment_doc_date': payment_doc_date,
+        'payment_card_code': payment_card_code,
+        # Campos del cheque.
+        'line_num': check.get('LineNum'),
+        'check_number': check.get('CheckNumber'),
+        # CheckAbsEntry = key unico del cheque en SAP. Este es el campo que
+        # matchea con Deposit.CheckLines.CheckKey para saber si el cheque
+        # fue depositado. Discovery: 99.83% son echeq que NO usan Deposits.
+        'check_abs_entry': check.get('CheckAbsEntry'),
+        'due_date': check.get('DueDate'),
+        'check_sum': check.get('CheckSum'),
+        'currency': check.get('Currency'),
+        'bank_code': check.get('BankCode'),
+        'branch': check.get('Branch'),
+        'accountt_num': check.get('AccounttNum'),  # sic: SAP schema usa 3 t's
+        'check_account': check.get('CheckAccount'),
+        'country_code': check.get('CountryCode'),
+        # ECheck 'tYES'/'tNO': flag primario echeq vs fisico. Discovery Bike
+        # 12m: 1774 de 1777 cheques son echeq (99.83%).
+        'e_check': check.get('ECheck'),
+        # Trnsfrable 'tYES'/'tNO': cheque a la orden vs cruzado (transferible).
+        'trnsfrable': check.get('Trnsfrable'),
+        'manual_check': check.get('ManualCheck'),
+        'endorse': check.get('Endorse'),
+        'endorsable_check_no': check.get('EndorsableCheckNo'),
+        'originally_issued_by': check.get('OriginallyIssuedBy'),
+        'fiscal_id': check.get('FiscalID'),
+        'details': check.get('Details'),
+        '_sync_timestamp': sync_ts,
+    }
+
+
+def flatten_deposit(dep: dict, sync_ts: str) -> dict:
+    """
+    Cabecera del Deposit (ODPS). DepositType 'dtChecks' domina en Bike (los
+    Deposits son mayormente para cheques fisicos; los echeqs NO pasan por
+    aca — se acreditan directo). AbsEntry es el ID unico (no DocEntry).
+    """
+    return {
+        'abs_entry': dep.get('AbsEntry'),
+        'deposit_number': dep.get('DepositNumber'),
+        'deposit_type': dep.get('DepositType'),
+        'deposit_date': dep.get('DepositDate'),
+        'deposit_currency': dep.get('DepositCurrency'),
+        'deposit_account': dep.get('DepositAccount'),
+        'deposit_account_type': dep.get('DepositAccountType'),
+        'depositor_name': dep.get('DepositorName'),
+        'bank': dep.get('Bank'),
+        'bank_account_num': dep.get('BankAccountNum'),
+        'bank_branch': dep.get('BankBranch'),
+        'bank_reference': dep.get('BankReference'),
+        'total_lc': dep.get('TotalLC'),
+        'total_fc': dep.get('TotalFC'),
+        'total_sc': dep.get('TotalSC'),
+        'doc_rate': dep.get('DocRate'),
+        'series': dep.get('Series'),
+        'journal_remarks': dep.get('JournalRemarks'),
+        'reconcile_after_deposit': dep.get('ReconcileAfterDeposit'),
+        'check_deposit_type': dep.get('CheckDepositType'),
+        '_sync_timestamp': sync_ts,
+    }
+
+
+def flatten_deposit_check(check: dict, deposit_abs_entry: int, deposit_date, sync_ts: str) -> dict:
+    """
+    CheckLine de un Deposit. Fan-out: 1 deposit con N cheques -> N rows.
+    CheckKey es el link a PaymentCheck.CheckAbsEntry. Discovery Bike:
+    solo ~13% de los cheques matchean con un deposit (los echeqs no).
+    """
+    return {
+        # FK a la cabecera del deposit.
+        'deposit_abs_entry': deposit_abs_entry,
+        'deposit_date': deposit_date,
+        # CheckKey = link cross-entity (matchea con payment.check_abs_entry).
+        'check_key': check.get('CheckKey'),
+        'check_number': check.get('CheckNumber'),
+        'bank': check.get('Bank'),
+        'branch': check.get('Branch'),
+        'account_number': check.get('AccountNumber'),
+        'check_date': check.get('CheckDate'),
+        'check_amount': check.get('CheckAmount'),
+        'check_currency': check.get('CheckCurrency'),
+        'customer': check.get('Customer'),
+        'cash_check': check.get('CashCheck'),
+        'deposited': check.get('Deposited'),
+        'transferred': check.get('Transferred'),
+        '_sync_timestamp': sync_ts,
+    }
+
+
+def flatten_bank(bank: dict, sync_ts: str) -> dict:
+    """
+    Catalogo de bancos (ODSC). 86 rows totales en SAP Shimano. Necesario
+    para cruzar BankCode de PaymentChecks a BankName (ej: BankCode=285 ->
+    BANCO MACRO S.A.). Discovery: top 8 bancos concentran 51% del volumen.
+    """
+    return {
+        'bank_code': bank.get('BankCode'),
+        'bank_name': bank.get('BankName'),
+        'country_code': bank.get('CountryCode'),
+        'swift_no': bank.get('SwiftNo'),
+        'iban': bank.get('IBAN'),
+        'absolute_entry': bank.get('AbsoluteEntry'),
+        'account_for_outgoing_checks': bank.get('AccountforOutgoingChecks'),
+        'branch_for_outgoing_checks': bank.get('BranchforOutgoingChecks'),
+        'next_check_number': bank.get('NextCheckNumber'),
+        'default_bank_account_key': bank.get('DefaultBankAccountKey'),
         '_sync_timestamp': sync_ts,
     }
 
@@ -2149,15 +2333,22 @@ def main():
     log(f'[historial] cutoff DocDate >= {since_iso_date} (ultimos {history_months} meses)')
 
     # === 1. Business Partners (customers)
-    # Campos removidos del $select por incompatibilidad con el schema SL de
-    # Shimano (2026-07-08 pruebas manuales):
+    # Historia de campos removidos del $select por incompatibilidad con el
+    # schema SL de Shimano (2026-07-08 pruebas manuales):
     #   - State1  -> HTTP 400 (movido a BPAddresses)
-    #   - CreditLine -> HTTP 400 (renombrado o no expuesto)
-    #   - CurrentAccountBalance -> preventivo (campo calculado, puede fallar
-    #     por el mismo motivo)
+    #   - CreditLine -> HTTP 400 (nombre incorrecto, ver fix v2 abajo)
+    #   - CurrentAccountBalance -> preventivo (no probado antes)
     #   - Notes -> preventivo (LongText a veces rompe autodetect en BQ)
-    # Se pueden extraer despues en las vistas curadas de Fase 2 si Power BI
-    # los necesita.
+    #
+    # v2 (2026-09-07 — sprint cobranzas Bike): tras descubrir el schema real
+    # via SL directo (script investigar-sap-sl.mjs del proyecto BIKE DASHBOARD),
+    # los nombres correctos son:
+    #   - CreditLimit (no CreditLine)         — limite pactado en ARS
+    #   - MaxCommitment                       — techo maximo tolerable
+    #   - CurrentAccountBalance               — saldo actual cta cte (calculado por SAP)
+    # Confirmado responden 200 OK: 106 clientes con CreditLimit > 0 (4.4% de 2.410
+    # activos), promedio $8.8M, max $289M (PESCAR.INFO SHOP). Ver INFORME_SAP_
+    # INVESTIGACION_2026-09-07.md en Desktop\BIKE DASHBOARD\ para detalle.
     bp_select = [
         'CardCode', 'CardName', 'CardType', 'GroupCode', 'Currency',
         'Address', 'City', 'ZipCode', 'Country',
@@ -2165,6 +2356,8 @@ def main():
         'PayTermsGrpCode',
         'SalesPersonCode', 'Valid', 'Frozen',
         'CreateDate', 'UpdateDate',
+        # v2 (2026-09-07): campos de credit para tablero cobranzas Bike.
+        'CreditLimit', 'MaxCommitment', 'CurrentAccountBalance',
     ]
     bps = sl_fetch_all(
         cfg, session, '/b1s/v1/BusinessPartners', 'BP',
@@ -2544,6 +2737,74 @@ def main():
             w['DocumentLines'] = w.pop('StockTransferLines')
     wtr_rows = [flatten_doc(d, 'STOCK_TRANSFER', sync_ts) for d in wtrs]
     load_to_bq(bq_client, BQ_TABLE_INV_TRANSFERS, wtr_rows, 'STOCK_TRANSFERS', dry_run=dry_run)
+
+    # ============================================================
+    # COBRANZAS v2 (2026-09-07): 3 endpoints nuevos para tablero Bike.
+    # Ver Desktop\BIKE DASHBOARD\INFORME_SAP_INVESTIGACION_2026-09-07.md.
+    # ============================================================
+
+    # === COBRANZAS-A. Banks (catalogo, 86 rows).
+    # Endpoint chico. Sin filter (traemos los 86 completos). Solo lo que
+    # necesita la vista dim_bancos para cruzar BankCode -> BankName.
+    banks = sl_fetch_all(
+        cfg, session, '/b1s/v1/Banks', 'BANKS',
+        select_fields=['BankCode', 'BankName', 'CountryCode', 'SwiftNo', 'IBAN',
+                       'AbsoluteEntry', 'AccountforOutgoingChecks',
+                       'BranchforOutgoingChecks', 'NextCheckNumber',
+                       'DefaultBankAccountKey'],
+        max_docs=max_docs,
+    )
+    bank_rows = [flatten_bank(b, sync_ts) for b in banks]
+    load_to_bq(bq_client, BQ_TABLE_BANKS, bank_rows, 'BANKS', dry_run=dry_run)
+
+    # === COBRANZAS-B. IncomingPayments + PaymentChecks (12 meses).
+    # SL rechaza $expand=PaymentChecks combinado con $select en este schema
+    # (probado 2026-09-07). Alternativa: NO usar $select — traer entity
+    # completo con $expand. Payload ~5-8kb por pago, aceptable para 6.684
+    # pagos 12m.
+    # Trade-off: sin $select el filter va a "adivinar" campos si hay UDFs
+    # nuevos, pero SL lo tolera bien.
+    ip_since_iso = since_iso_date
+    ips = sl_fetch_all(
+        cfg, session, '/b1s/v1/IncomingPayments', 'INCOMING_PAYMENTS',
+        filter_expr=f"DocDate ge '{ip_since_iso}'",
+        expand_fields=['PaymentChecks'],
+        max_docs=max_docs,
+    )
+    # Fan-out: cheques como rows aparte con FK a la cabecera.
+    ip_rows = [flatten_incoming_payment(p, sync_ts) for p in ips]
+    check_rows = []
+    for p in ips:
+        payment_de = p.get('DocEntry')
+        payment_dd = p.get('DocDate')
+        payment_cc = p.get('CardCode')
+        for c in (p.get('PaymentChecks') or []):
+            check_rows.append(flatten_payment_check(c, payment_de, payment_dd, payment_cc, sync_ts))
+    load_to_bq(bq_client, BQ_TABLE_INCOMING_PAYMENTS, ip_rows, 'INCOMING_PAYMENTS', dry_run=dry_run)
+    load_to_bq(bq_client, BQ_TABLE_PAYMENT_CHECKS, check_rows, 'PAYMENT_CHECKS', dry_run=dry_run)
+    log(f'[COBRANZAS] IncomingPayments 12m: {len(ip_rows)} pagos / {len(check_rows)} cheques')
+
+    # === COBRANZAS-C. Deposits + CheckLines (12 meses).
+    # Deposits NO tiene columna Cancelled scalar (probado 2026-09-07) — no
+    # se puede filtrar por cancelled. Filter solo por DepositDate.
+    # $expand=CheckLines mismo problema que PaymentChecks: rechaza combinado
+    # con $select. Traer completo.
+    deps = sl_fetch_all(
+        cfg, session, '/b1s/v1/Deposits', 'DEPOSITS',
+        filter_expr=f"DepositDate ge '{ip_since_iso}'",
+        expand_fields=['CheckLines'],
+        max_docs=max_docs,
+    )
+    dep_rows = [flatten_deposit(d, sync_ts) for d in deps]
+    dep_check_rows = []
+    for d in deps:
+        dep_ae = d.get('AbsEntry')
+        dep_dd = d.get('DepositDate')
+        for c in (d.get('CheckLines') or []):
+            dep_check_rows.append(flatten_deposit_check(c, dep_ae, dep_dd, sync_ts))
+    load_to_bq(bq_client, BQ_TABLE_DEPOSITS, dep_rows, 'DEPOSITS', dry_run=dry_run)
+    load_to_bq(bq_client, BQ_TABLE_DEPOSIT_CHECKS, dep_check_rows, 'DEPOSIT_CHECKS', dry_run=dry_run)
+    log(f'[COBRANZAS] Deposits 12m: {len(dep_rows)} deposits / {len(dep_check_rows)} check-lines')
 
     # === 7. Targets mensuales (Firestore -> BigQuery)
     # Coleccion `targets` en Firestore (una fila por vendedor+ano+mes).
