@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v814](#41-changelog-v300--v814)
+41. [Changelog v300 → v815](#41-changelog-v300--v815)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4670,7 +4670,24 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v814
+## 41) Changelog v300 → v815
+
+### v815 (2026-09-07) — panel Stock Asignado: fix "Cargando..." infinito (timeout 15s + reintentar)
+
+**Bug reportado por Mariano 2026-09-07**: en el modal Pedido en Espera de PESCAR.INFO SHOP S.R.L. (ORDEN 111), los subtotales cargaban OK pero el panel "📋 Stock asignado / Backorder del cliente" quedaba con **"Cargando..." para siempre**.
+
+**Root cause**: `_renderClienteAllOpenLines` chequea `window._pedidosSnapshotLoaded` que se pone `true` cuando el `onSnapshot` de `/pedidos` dispara. Si el listener falla silencioso (rules bloqueadas, red flaky, ~1.500 pedidos históricos causan timeout de descarga) o `unsubPedidosAll` no se attacheó, el flag queda `false` para siempre → panel infinito sin feedback.
+
+**Fix v815**: timeout **15 segundos** con mensaje diagnóstico + 2 botones:
+- **🔄 Reintentar (re-attach listener)** → llama `ensureAllListeners()` + re-render en 100ms.
+- **↻ Refrescar app** → `location.reload()`.
+- Mensaje lista causas típicas (red, rules, colección grande).
+- `waitlist-card-modal.dataset.openedAt` trackea timestamp de apertura para saber cuándo timeout-ear.
+- `setTimeout` schedule re-render a 15.5s para transitar skeleton → mensaje.
+
+**Bump**: `APP_VERSION` + `CACHE_VERSION` v814 → v815. Bundle sin cambios (patch inline).
+
+**Tests**: unit 308/308 verde.
 
 ### v814 (2026-09-07) — fix bug Stock Asignado stale por 5s post-acción
 

@@ -5171,7 +5171,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v814';
+const APP_VERSION = 'v815';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15486,6 +15486,56 @@ function _renderClienteAllOpenLines(w){
     return;
   }
   if (!window._pedidosSnapshotLoaded || typeof globalPedidos === 'undefined' || !Array.isArray(globalPedidos)) {
+    // v815 (2026-09-07): timeout 15s con mensaje diagnostico. Antes: si el
+    // listener onSnapshot /pedidos tardaba mucho (1.500+ pedidos historicos)
+    // o fallaba silencioso (rules bloqueadas, red flaky, unsubPedidosAll no
+    // attacheado), el panel quedaba "Cargando..." INFINITO sin feedback.
+    // Bug reportado por Mariano 2026-09-07 (PESCAR.INFO SHOP: modal cargaba
+    // los subtotales pero panel stock asignado quedaba loading forever).
+    // Ahora: skeleton 15s, despues cambia a mensaje + boton reintentar.
+    const _cardModal = document.getElementById('waitlist-card-modal');
+    const _openedAt = _cardModal ? Number(_cardModal.dataset.openedAt || 0) : 0;
+    const _elapsedMs = _openedAt ? (Date.now() - _openedAt) : 0;
+    const TIMEOUT_MS = 15000;
+    if (_elapsedMs > TIMEOUT_MS) {
+      summary.textContent = '⚠ No se pudo cargar el stock asignado / backorder';
+      while (body.firstChild) body.removeChild(body.firstChild);
+      const errBox = document.createElement('div');
+      errBox.style.cssText = 'padding:14px;background:#fef3c7;border:1px solid #fbbf24;border-radius:6px;color:#92400e;font-size:12px;line-height:1.6';
+      const p1 = document.createElement('div');
+      p1.innerHTML = '<b>El listener de /pedidos no respondio en 15s.</b> Causas posibles:';
+      errBox.appendChild(p1);
+      const ul = document.createElement('ul');
+      ul.style.cssText = 'margin:6px 0 8px 18px;padding:0';
+      const causes = [
+        'Red flaky (mobile 3G/4G rural)',
+        'Firestore Rules bloquean la query (raro — sos ' + (typeof userRole !== 'undefined' ? userRole : '?') + ')',
+        'Coleccion pedidos con miles de docs — timeout de descarga',
+      ];
+      for (const c of causes) { const li = document.createElement('li'); li.textContent = c; ul.appendChild(li); }
+      errBox.appendChild(ul);
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:8px;margin-top:8px';
+      const btnRetry = document.createElement('button');
+      btnRetry.type = 'button';
+      btnRetry.textContent = '🔄 Reintentar (re-attach listener)';
+      btnRetry.style.cssText = 'padding:6px 12px;background:#0891b2;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer';
+      btnRetry.onclick = () => {
+        try { if (typeof ensureAllListeners === 'function') ensureAllListeners(); } catch(_e){}
+        if (_cardModal) _cardModal.dataset.openedAt = String(Date.now());
+        setTimeout(() => { try { _renderClienteAllOpenLines(w); } catch(_e){} }, 100);
+      };
+      btnRow.appendChild(btnRetry);
+      const btnReload = document.createElement('button');
+      btnReload.type = 'button';
+      btnReload.textContent = '↻ Refrescar app';
+      btnReload.style.cssText = 'padding:6px 12px;background:#dc2626;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer';
+      btnReload.onclick = () => location.reload();
+      btnRow.appendChild(btnReload);
+      errBox.appendChild(btnRow);
+      body.appendChild(errBox);
+      return;
+    }
     summary.textContent = '📋 Cargando stock asignado / backorder del cliente...';
     // v808 (Loop iter 5): reemplaza el body vacio por 3 skeleton rows animadas.
     // Antes: modal en blanco 2-5s -> vendedor cree "no hay data". Ahora ve
@@ -15494,6 +15544,18 @@ function _renderClienteAllOpenLines(w){
       window._renderSkeletonRows(body, 3);
     } else {
       while (body.firstChild) body.removeChild(body.firstChild);
+    }
+    // v815: schedule un re-render en 15s para chequear si el listener llego.
+    // Si no llego, el proximo render mostrara el mensaje de timeout arriba.
+    if (_openedAt && !_cardModal.dataset.timeoutScheduled) {
+      _cardModal.dataset.timeoutScheduled = '1';
+      setTimeout(() => {
+        try {
+          if (!window._pedidosSnapshotLoaded && _cardModal.classList.contains('open') && _wcardCurrent) {
+            _renderClienteAllOpenLines(_wcardCurrent);
+          }
+        } catch(_e){}
+      }, TIMEOUT_MS + 500);
     }
     return;
   }
@@ -16010,7 +16072,14 @@ window.openWaitlistCardModal = function(docId){
   // y stock_snapshot_app tengan listeners activos cuando abrimos el modal.
   try { if (typeof ensureStockSnapshotAppListener === 'function') ensureStockSnapshotAppListener(); } catch(e){}
   try { if (typeof ensureStockSnapshotListener === 'function') ensureStockSnapshotListener(); } catch(e){}
-  document.getElementById('waitlist-card-modal').classList.add('open');
+  // v815 (2026-09-07): trackear openedAt para el timeout del panel Stock
+  // Asignado. Si _pedidosSnapshotLoaded no llega en 15s -> mostrar mensaje
+  // diagnostico + boton reintentar (evita "Cargando..." infinito).
+  // timeoutScheduled se resetea aca para que el next render agende el check.
+  const _cardModal = document.getElementById('waitlist-card-modal');
+  _cardModal.dataset.openedAt = String(Date.now());
+  delete _cardModal.dataset.timeoutScheduled;
+  _cardModal.classList.add('open');
   _renderWaitlistCard();
   // v548 E5 UI merge: la data app-source ahora esta en el listener global
   // STOCK_ASIG_BY_CLIENT_APP (via stock_snapshot en active mode). Ya no hace
