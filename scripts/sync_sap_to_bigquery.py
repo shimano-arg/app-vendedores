@@ -48,6 +48,7 @@ import json
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from io import BytesIO
 
@@ -509,6 +510,89 @@ def sl_fetch_all(cfg, session, path_base, entity_name,
             break
     log(f'[SL/{entity_name}] total: {len(docs)} docs en {page} paginas')
     return docs
+
+
+def sl_fetch_nested_per_doc(cfg, session, doc_entries, nav_path_template, nav_property_key, entity_name, max_workers=8):
+    """
+    v2 (2026-09-07 — sprint cobranzas): fetch de nested collection per-doc en
+    paralelo. Necesario cuando $expand=X combinado con $filter/$select devuelve
+    HTTP 400 "invalid navigation property" (bug conocido de SL v10 con
+    IncomingPayments/PaymentChecks y Deposits/CheckLines).
+
+    Alternativa: hacer GET /entity(N)/nav_property individual por cada doc.
+    Con max_workers=8, procesa ~2000 docs en ~1-2 min.
+
+    Args:
+      doc_entries: lista de DocEntry (int) para iterar
+      nav_path_template: string con {doc_entry} placeholder, ej:
+        '/b1s/v1/IncomingPayments({doc_entry})/PaymentChecks'
+      nav_property_key: nombre de la key en el response que trae el array
+        (ej: 'PaymentChecks', 'CheckLines'). SL devuelve la nav como key
+        en el body root.
+
+    Returns:
+      dict {doc_entry: [items]} donde items puede ser lista vacia si el
+      doc no tiene items nested.
+    """
+    result = {}
+    total = len(doc_entries)
+    if total == 0:
+        return result
+
+    # Copiar cookies de la session compartida a un dict — requests permite
+    # pasarlos como argumento y evita el issue de thread-safety con Session.
+    cookies_dict = session.cookies.get_dict()
+
+    def _fetch_one(doc_entry):
+        url = f"{cfg['url']}{nav_path_template.format(doc_entry=doc_entry)}"
+        try:
+            resp = requests.get(url, timeout=60, cookies=cookies_dict, verify=session.verify)
+            if resp.status_code == 401:
+                # Session expiro. Marcamos como None para retry global.
+                return doc_entry, None
+            if not resp.ok:
+                # 404 o similar — nav property no existe para este doc, tratamos como vacio.
+                return doc_entry, []
+            resp.encoding = 'utf-8'
+            body = resp.json()
+            # SL devuelve la nav property como key en el root del body.
+            # Preferir la key explicita. Fallback: primera key que sea lista.
+            if nav_property_key in body and isinstance(body[nav_property_key], list):
+                return doc_entry, body[nav_property_key]
+            for k, v in body.items():
+                if isinstance(v, list):
+                    return doc_entry, v
+            return doc_entry, []
+        except Exception as e:
+            log(f'[SL/{entity_name}] exception per-doc {doc_entry}: {e}')
+            return doc_entry, []
+
+    processed = 0
+    needs_retry = []
+    last_progress = time.time()
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for doc_entry, items in executor.map(_fetch_one, doc_entries):
+            processed += 1
+            if items is None:
+                needs_retry.append(doc_entry)
+            else:
+                result[doc_entry] = items
+            if time.time() - last_progress > 5:
+                log(f'[SL/{entity_name}] per-doc: {processed}/{total} ({len(needs_retry)} pendientes de retry)')
+                last_progress = time.time()
+
+    # Retry global de los 401: re-login y procesar secuencial (poco volumen esperado).
+    if needs_retry:
+        log(f'[SL/{entity_name}] re-login y retry de {len(needs_retry)} docs con 401')
+        sl_login(cfg, session)
+        cookies_dict = session.cookies.get_dict()
+        for doc_entry in needs_retry:
+            _, items = _fetch_one(doc_entry)
+            result[doc_entry] = items if items is not None else []
+
+    total_items = sum(len(v) for v in result.values())
+    log(f'[SL/{entity_name}] per-doc completo: {total} docs / {total_items} items totales')
+    return result
 
 
 # ============================================================
@@ -2758,53 +2842,84 @@ def main():
     load_to_bq(bq_client, BQ_TABLE_BANKS, bank_rows, 'BANKS', dry_run=dry_run)
 
     # === COBRANZAS-B. IncomingPayments + PaymentChecks (12 meses).
-    # SL rechaza $expand=PaymentChecks combinado con $select en este schema
-    # (probado 2026-09-07). Alternativa: NO usar $select — traer entity
-    # completo con $expand. Payload ~5-8kb por pago, aceptable para 6.684
-    # pagos 12m.
-    # Trade-off: sin $select el filter va a "adivinar" campos si hay UDFs
-    # nuevos, pero SL lo tolera bien.
+    # SL de Shimano rechaza $expand=PaymentChecks (HTTP 400 "invalid navigation
+    # property" — probado en run #34152448287 del 2026-09-07 y confirmado con
+    # investigar-sap-sl.mjs del proyecto BIKE DASHBOARD).
+    #
+    # Fix: 2 pasos. Primero fetch de headers sin expand (rapido, 1 request por
+    # pagina de 500). Despues fetch per-doc de PaymentChecks solo para los
+    # pagos que probablemente tienen cheques (CashSum=0 AND TransferSum=0 en
+    # header). Ese subset es ~33% del total (2.190 de 6.684 en Bike 12m).
+    # Con ThreadPoolExecutor max_workers=8, procesa esos ~2.190 en ~1-2 min.
     ip_since_iso = since_iso_date
     ips = sl_fetch_all(
         cfg, session, '/b1s/v1/IncomingPayments', 'INCOMING_PAYMENTS',
         filter_expr=f"DocDate ge '{ip_since_iso}'",
-        expand_fields=['PaymentChecks'],
         max_docs=max_docs,
     )
-    # Fan-out: cheques como rows aparte con FK a la cabecera.
+    # Fan-out headers.
     ip_rows = [flatten_incoming_payment(p, sync_ts) for p in ips]
+
+    # Filter: pagos que probablemente tienen cheques (todo lo que no es cash ni
+    # transferencia pura). Bike es ~33%, Pesca podria ser distinto.
+    def _has_check_potential(p):
+        cash = p.get('CashSum') or 0
+        transfer = p.get('TransferSum') or 0
+        return cash == 0 and transfer == 0
+    payment_entries_con_cheques = [p.get('DocEntry') for p in ips if _has_check_potential(p) and p.get('DocEntry') is not None]
+    payment_headers_by_de = {p.get('DocEntry'): p for p in ips}
+    log(f'[COBRANZAS-B] IncomingPayments 12m: {len(ips)} total, {len(payment_entries_con_cheques)} con cheques (fetch per-doc)')
+
+    # Fetch per-doc de PaymentChecks en paralelo.
+    checks_by_de = sl_fetch_nested_per_doc(
+        cfg, session, payment_entries_con_cheques,
+        '/b1s/v1/IncomingPayments({doc_entry})/PaymentChecks',
+        'PaymentChecks', 'PAYMENT_CHECKS',
+        max_workers=8,
+    )
+    # Fan-out cheques como rows aparte con FK a la cabecera.
     check_rows = []
-    for p in ips:
-        payment_de = p.get('DocEntry')
-        payment_dd = p.get('DocDate')
-        payment_cc = p.get('CardCode')
-        for c in (p.get('PaymentChecks') or []):
+    for payment_de, checks in checks_by_de.items():
+        header = payment_headers_by_de.get(payment_de, {})
+        payment_dd = header.get('DocDate')
+        payment_cc = header.get('CardCode')
+        for c in (checks or []):
             check_rows.append(flatten_payment_check(c, payment_de, payment_dd, payment_cc, sync_ts))
     load_to_bq(bq_client, BQ_TABLE_INCOMING_PAYMENTS, ip_rows, 'INCOMING_PAYMENTS', dry_run=dry_run)
     load_to_bq(bq_client, BQ_TABLE_PAYMENT_CHECKS, check_rows, 'PAYMENT_CHECKS', dry_run=dry_run)
-    log(f'[COBRANZAS] IncomingPayments 12m: {len(ip_rows)} pagos / {len(check_rows)} cheques')
+    log(f'[COBRANZAS-B] loaded: {len(ip_rows)} pagos / {len(check_rows)} cheques')
 
     # === COBRANZAS-C. Deposits + CheckLines (12 meses).
-    # Deposits NO tiene columna Cancelled scalar (probado 2026-09-07) — no
-    # se puede filtrar por cancelled. Filter solo por DepositDate.
-    # $expand=CheckLines mismo problema que PaymentChecks: rechaza combinado
-    # con $select. Traer completo.
+    # Mismo bug que COBRANZAS-B: $expand=CheckLines rechazado por SL.
+    # Fix: fetch per-doc de CheckLines. Deposits son mucho menos (~267 en 12m),
+    # asi que llamamos per-doc para TODOS (sin filter previo).
+    # Deposits NO tiene columna Cancelled scalar (probado 2026-09-07) — filter
+    # solo por DepositDate.
     deps = sl_fetch_all(
         cfg, session, '/b1s/v1/Deposits', 'DEPOSITS',
         filter_expr=f"DepositDate ge '{ip_since_iso}'",
-        expand_fields=['CheckLines'],
         max_docs=max_docs,
     )
     dep_rows = [flatten_deposit(d, sync_ts) for d in deps]
+    deposit_headers_by_ae = {d.get('AbsEntry'): d for d in deps}
+    deposit_entries = [d.get('AbsEntry') for d in deps if d.get('AbsEntry') is not None]
+
+    # Fetch per-doc de CheckLines en paralelo.
+    check_lines_by_ae = sl_fetch_nested_per_doc(
+        cfg, session, deposit_entries,
+        '/b1s/v1/Deposits({doc_entry})/CheckLines',
+        'CheckLines', 'DEPOSIT_CHECK_LINES',
+        max_workers=8,
+    )
     dep_check_rows = []
-    for d in deps:
-        dep_ae = d.get('AbsEntry')
-        dep_dd = d.get('DepositDate')
-        for c in (d.get('CheckLines') or []):
+    for dep_ae, check_lines in check_lines_by_ae.items():
+        header = deposit_headers_by_ae.get(dep_ae, {})
+        dep_dd = header.get('DepositDate')
+        for c in (check_lines or []):
             dep_check_rows.append(flatten_deposit_check(c, dep_ae, dep_dd, sync_ts))
     load_to_bq(bq_client, BQ_TABLE_DEPOSITS, dep_rows, 'DEPOSITS', dry_run=dry_run)
     load_to_bq(bq_client, BQ_TABLE_DEPOSIT_CHECKS, dep_check_rows, 'DEPOSIT_CHECKS', dry_run=dry_run)
-    log(f'[COBRANZAS] Deposits 12m: {len(dep_rows)} deposits / {len(dep_check_rows)} check-lines')
+    log(f'[COBRANZAS-C] loaded: {len(dep_rows)} deposits / {len(dep_check_rows)} check-lines')
 
     # === 7. Targets mensuales (Firestore -> BigQuery)
     # Coleccion `targets` en Firestore (una fila por vendedor+ano+mes).
