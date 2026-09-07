@@ -142,6 +142,18 @@ WHERE bank_code IS NOT NULL;
 --   EFECTIVO:      cash_sum > 0 (raro en Bike)
 -- ============================================================
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_pagos_recibidos` AS
+WITH cheques_por_pago AS (
+  -- v2 fix (2026-09-07 post-deploy): los pagos-cheque tienen cash_sum=0,
+  -- transfer_sum=0 y bill_of_exchange_amount=0 en la cabecera. El monto
+  -- real vive en PaymentChecks.check_sum. Sumamos aca para que
+  -- monto_total_ars refleje el monto real independiente del medio de pago.
+  SELECT
+    payment_doc_entry,
+    SUM(SAFE_CAST(check_sum AS FLOAT64)) AS total_cheques_ars,
+    COUNT(*) AS n_cheques
+  FROM `app-vendedores-shimano.shimano_app.sap_payment_checks_raw`
+  GROUP BY 1
+)
 SELECT
   p.doc_entry,
   p.doc_num,
@@ -156,6 +168,8 @@ SELECT
   p.transfer_date,
   p.transfer_account,
   SAFE_CAST(p.bill_of_exchange_amount AS FLOAT64) AS bill_of_exchange_amount,
+  COALESCE(c.total_cheques_ars, 0) AS total_cheques_ars,
+  COALESCE(c.n_cheques, 0) AS n_cheques,
   p.series,
   CAST(p.bank_code AS STRING) AS bank_code,
   p.cancelled,
@@ -171,15 +185,18 @@ SELECT
     WHEN SAFE_CAST(p.cash_sum AS FLOAT64) > 0 THEN 'EFECTIVO'
     ELSE 'CHEQUE'
   END AS medio_pago,
-  -- Monto total del pago (suma de los 3 componentes).
+  -- Monto total del pago: suma de todos los medios + suma de cheques asociados
+  -- (fix v2: sin el JOIN a PaymentChecks, los pagos-cheque daban monto=0).
   ROUND(
     COALESCE(SAFE_CAST(p.cash_sum AS FLOAT64), 0) +
     COALESCE(SAFE_CAST(p.transfer_sum AS FLOAT64), 0) +
-    COALESCE(SAFE_CAST(p.bill_of_exchange_amount AS FLOAT64), 0),
+    COALESCE(SAFE_CAST(p.bill_of_exchange_amount AS FLOAT64), 0) +
+    COALESCE(c.total_cheques_ars, 0),
     2
   ) AS monto_total_ars,
   p._sync_timestamp
 FROM `app-vendedores-shimano.shimano_app.sap_incoming_payments_raw` p
+LEFT JOIN cheques_por_pago c ON p.doc_entry = c.payment_doc_entry
 WHERE p.cancelled = 'tNO';
 
 
