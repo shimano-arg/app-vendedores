@@ -1,0 +1,66 @@
+{
+  "49573": {
+    "pedidoId": "XGlkgtia51FfaHHChM84",
+    "clientCardCode": null,
+    "clientName": "PESCAR.INFO SHOP S.R.L.",
+    "createdAt": "2026-08-11 12:35:05.950000+00:00",
+    "closedAt": null,
+    "transferidoSAP": {
+      "via": "service_layer_auto",
+      "docNum": 2000042,
+      "transferredBy": "auto/mariano.erbino@shimano.com.ar",
+      "batchId": "SL-AUTO-1786451723241",
+      "transferredAt": "2026-08-11T12:35:23.241Z",
+      "docEntry": 49573,
+      "sapDocRange": "2000042"
+    }
+  },
+  "49108": {
+    "pedidoId": "6wXMOa7g3VyeJ4NH59Nb",
+    "clientCardCode": null,
+    "clientName": "FEDERICO ORLANDO RODRIGUEZ",
+    "createdAt": "2026-08-04 18:33:24.637000+00:00",
+    "closedAt": null,
+    "transferidoSAP": {
+      "via": "service_layer_auto",
+      "docNum": 2000013,
+      "transferredBy": "auto/mariano.erbino@shimano.com.ar",
+      "batchId": "SL-AUTO-1785868431996",
+      "transferredAt": "2026-08-04T18:33:51.996Z",
+      "docEntry": 49108,
+      "sapDocRange": "2000013"
+    }
+  },
+  "48199": {
+    "pedidoId": "LeCC5uWz9elp5IoVtRCl",
+    "clientCardCode": null,
+    "clientName": "MARIA AGUSTINA PRAT",
+    "createdAt": "2026-07-06 22:56:20.443000+00:00",
+    "closedAt": null,
+    "transferidoSAP": {
+      "via": "service_layer_auto",
+      "docNum": 2000003,
+      "transferredBy": "auto/mariano.erbino@shimano.com.ar",
+      "batchId": "SL-AUTO-1783530932096",
+      "transferredAt": "2026-07-08T17:15:32.096Z",
+      "docEntry": 48199,
+      "sapDocRange": "2000003"
+    }
+  },
+  "49900": {
+    "pedidoId": "jUX00FXhUw67UbSlcdcr",
+    "clientCardCode": null,
+    "clientName": "FERNANDO ANTONIO URQUIOLA",
+    "createdAt": "2026-08-19 14:44:43.353000+00:00",
+    "closedAt": null,
+    "transferidoSAP": {
+      "via": "service_layer_auto",
+      "docNum": 2000063,
+      "transferredBy": "auto/mariano.erbino@shimano.com.ar",
+      "batchId": "SL-AUTO-1787150720456",
+      "transferredAt": "2026-08-19T14:45:20.456Z",
+      "docEntry": 49900,
+      "sapDocRange": "2000063"
+    }
+  }
+}

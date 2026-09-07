@@ -26,6 +26,11 @@ import { updateAsigLineState } from './core/asig-recycle-core.js';
 // v750 (2026-08-31): tracking de transiciones ASIG para analytics mes-a-mes.
 import { detectAsigTransitions, writeTransitionsBatch } from './core/asig-transitions-core.js';
 import { expireAsigLinesTTL } from './core/asig-ttl-core.js';
+// v818 (2026-09-07): auto-envio pedidos confirmed a SAP via CF trigger. Elimina
+// dependencia del auto-send client-side (que solo corria en sesion admin/gerente
+// con SL activo). Fix bug reportado por Mariano: pedidos VDE confirmed quedaban
+// invisibles a SAP hasta que admin abria la app.
+import { AUTO_SEND_RESULT, handleAutoSendSap } from './core/auto-send-sap-core.js';
 import { runDailyBackup } from './core/backup-core.js';
 import { runFifoAssign } from './core/fifo-assign-core.js';
 import { runGeminiOcr } from './core/gemini-ocr-core.js';
@@ -34,11 +39,6 @@ import { syncSapInvoices } from './core/invoice-sync-core.js';
 import { buildEmailContent, sendEmail, shouldNotify } from './core/notify-quotation-sent-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
 import { handleSapProxy } from './core/sap-proxy-core.js';
-// v818 (2026-09-07): auto-envio pedidos confirmed a SAP via CF trigger. Elimina
-// dependencia del auto-send client-side (que solo corria en sesion admin/gerente
-// con SL activo). Fix bug reportado por Mariano: pedidos VDE confirmed quedaban
-// invisibles a SAP hasta que admin abria la app.
-import { handleAutoSendSap, AUTO_SEND_RESULT } from './core/auto-send-sap-core.js';
 import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
 
 if (!getApps().length) initializeApp();
@@ -413,16 +413,27 @@ export const onPedidoConfirmedSendToSap = onDocumentWritten(
         ]);
         cliSnap.forEach((d) => {
           const data = d.data() || {};
-          const nameNorm = String(data.clientName || d.id).toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+          const nameNorm = String(data.clientName || d.id)
+            .toUpperCase()
+            .normalize('NFD')
+            .replace(/[̀-ͯ]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
           if (nameNorm && data.cardCode) sapClients.set(nameNorm, String(data.cardCode));
         });
         prodSnap.forEach((d) => {
           const data = d.data() || {};
-          if (data.appCode && data.sapItemCode) sapProducts.set(String(data.appCode), String(data.sapItemCode));
+          if (data.appCode && data.sapItemCode)
+            sapProducts.set(String(data.appCode), String(data.sapItemCode));
         });
         venSnap.forEach((d) => {
           const data = d.data() || {};
-          const vendorKey = String(data.vendorKey || d.id).toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+          const vendorKey = String(data.vendorKey || d.id)
+            .toUpperCase()
+            .normalize('NFD')
+            .replace(/[̀-ͯ]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
           const slp = Number(data.slpCode);
           if (vendorKey && Number.isFinite(slp)) sapVendors.set(vendorKey, slp);
         });
@@ -462,10 +473,17 @@ export const onPedidoConfirmedSendToSap = onDocumentWritten(
         result.result === AUTO_SEND_RESULT.SKIP_STAGE
       ) {
         // Skips normales — log info para debugging pero no error.
-        console.log('onPedidoConfirmedSendToSap skip', { pedidoId, result: result.result, reason: result.reason });
+        console.log('onPedidoConfirmedSendToSap skip', {
+          pedidoId,
+          result: result.result,
+          reason: result.reason,
+        });
       } else if (result.result === AUTO_SEND_RESULT.ERROR_RACE) {
         // Otra sesion (client-side auto-send) gano la carrera. No es error real.
-        console.log('onPedidoConfirmedSendToSap race lost', { pedidoId, winnerDocNum: result.docNum });
+        console.log('onPedidoConfirmedSendToSap race lost', {
+          pedidoId,
+          winnerDocNum: result.docNum,
+        });
       } else {
         // ERROR_SL — algo fallo. Log error para monitoring/Sentry.
         console.error('onPedidoConfirmedSendToSap ERROR', {

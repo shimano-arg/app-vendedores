@@ -46,7 +46,7 @@ function makeFakeDb(initialDocs) {
             _path: path,
             async get() {
               const data = store.get(path);
-              return { exists: data !== undefined, data: () => data ? { ...data } : null };
+              return { exists: data !== undefined, data: () => (data ? { ...data } : null) };
             },
             async update(patch) {
               if (!store.has(path)) throw new Error('doc not found');
@@ -130,7 +130,15 @@ const baseSlConfig = {
   password: 'pw',
 };
 
-function makeDeps({ dbDocs = {}, slScenarios = {}, sapClients, sapProducts, sapVendors, now = 1700000000000, sessionId = 'sess-1' } = {}) {
+function makeDeps({
+  dbDocs = {},
+  slScenarios = {},
+  sapClients,
+  sapProducts,
+  sapVendors,
+  now = 1700000000000,
+  sessionId = 'sess-1',
+} = {}) {
   const fbDb = makeFakeDb(dbDocs);
   const fetch = makeSlFetch(slScenarios);
   return {
@@ -213,7 +221,9 @@ describe('resolveSlpCode', () => {
 
 describe('isEligibleForAutoSend', () => {
   it('elegible: stage cambia null -> confirmed sin transferidoSAP', () => {
-    expect(isEligibleForAutoSend(null, { stage: 'confirmed', lines: [{ state: 'confirmed', qty: 1 }] })).toEqual({ eligible: true });
+    expect(
+      isEligibleForAutoSend(null, { stage: 'confirmed', lines: [{ state: 'confirmed', qty: 1 }] })
+    ).toEqual({ eligible: true });
   });
   it('elegible: stage cambia pending -> confirmed sin transferidoSAP', () => {
     expect(
@@ -225,11 +235,17 @@ describe('isEligibleForAutoSend', () => {
   });
   it('no elegible: after ya era confirmed antes (no es transicion)', () => {
     expect(
-      isEligibleForAutoSend({ stage: 'confirmed' }, { stage: 'confirmed', lines: [{ state: 'confirmed', qty: 1 }] })
+      isEligibleForAutoSend(
+        { stage: 'confirmed' },
+        { stage: 'confirmed', lines: [{ state: 'confirmed', qty: 1 }] }
+      )
     ).toEqual({ eligible: false, reason: 'no_transition' });
   });
   it('no elegible: no confirmed', () => {
-    expect(isEligibleForAutoSend(null, { stage: 'pending' })).toEqual({ eligible: false, reason: 'not_confirmed' });
+    expect(isEligibleForAutoSend(null, { stage: 'pending' })).toEqual({
+      eligible: false,
+      reason: 'not_confirmed',
+    });
   });
   it('no elegible: transferidoSAP ya existe', () => {
     expect(
@@ -244,7 +260,10 @@ describe('isEligibleForAutoSend', () => {
     expect(
       isEligibleForAutoSend(null, {
         stage: 'confirmed',
-        lines: [{ state: 'BO', qty: 2 }, { state: 'BO', qty: 1 }],
+        lines: [
+          { state: 'BO', qty: 2 },
+          { state: 'BO', qty: 1 },
+        ],
       })
     ).toEqual({ eligible: false, reason: 'all_bo' });
   });
@@ -336,19 +355,29 @@ describe('handleAutoSendSap — happy path', () => {
 describe('handleAutoSendSap — skips', () => {
   it('skip: transferidoSAP ya existe (guard en isEligible)', async () => {
     const deps = makeDeps();
-    const r = await handleAutoSendSap('p1', null, {
-      ...validPedido,
-      transferidoSAP: { docNum: 1 },
-    }, deps);
+    const r = await handleAutoSendSap(
+      'p1',
+      null,
+      {
+        ...validPedido,
+        transferidoSAP: { docNum: 1 },
+      },
+      deps
+    );
     expect(r.result).toBe(AUTO_SEND_RESULT.SKIP_ALREADY_SENT);
     expect(deps.sl.fetch).not.toHaveBeenCalled();
   });
   it('skip: 100% BO', async () => {
     const deps = makeDeps();
-    const r = await handleAutoSendSap('p1', null, {
-      ...validPedido,
-      lines: [{ code: 'X', qty: 5, state: 'BO' }],
-    }, deps);
+    const r = await handleAutoSendSap(
+      'p1',
+      null,
+      {
+        ...validPedido,
+        lines: [{ code: 'X', qty: 5, state: 'BO' }],
+      },
+      deps
+    );
     expect(r.result).toBe(AUTO_SEND_RESULT.SKIP_ALL_BO);
   });
   it('skip: cardCode vacio (cliente sin alta SAP)', async () => {
@@ -359,7 +388,12 @@ describe('handleAutoSendSap — skips', () => {
   });
   it('skip: after ya era confirmed (no es transicion)', async () => {
     const deps = makeDeps();
-    const r = await handleAutoSendSap('p1', { ...validPedido }, { ...validPedido, condicionPago: 'CHEQUE' }, deps);
+    const r = await handleAutoSendSap(
+      'p1',
+      { ...validPedido },
+      { ...validPedido, condicionPago: 'CHEQUE' },
+      deps
+    );
     expect(r.result).toBe(AUTO_SEND_RESULT.SKIP_STAGE);
     expect(r.reason).toBe('no_transition');
   });

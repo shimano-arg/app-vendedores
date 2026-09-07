@@ -26,7 +26,7 @@
  * (loading configs, wiring deps, invocando handleAutoSendSap).
  */
 
-import { sapLogin, sapPost, sapLogout } from './sap-sl-client.js';
+import { sapLogin, sapLogout, sapPost } from './sap-sl-client.js';
 
 /**
  * @typedef {Object} SlDeps
@@ -68,15 +68,15 @@ import { sapLogin, sapPost, sapLogout } from './sap-sl-client.js';
  * Estados del handler.
  */
 export const AUTO_SEND_RESULT = /** @type {const} */ ({
-  SKIP_STAGE: 'skip_stage',                   // stage no es 'confirmed' (o no cambio a confirmed)
-  SKIP_ALREADY_SENT: 'skip_already_sent',     // transferidoSAP ya existe
-  SKIP_ALL_BO: 'skip_all_bo',                 // 100% backorder (via='app_only' via v607)
-  SKIP_NO_CARDCODE: 'skip_no_cardcode',       // cliente sin sapCardCode -> queda bloqueado
-  SKIP_LOCKED: 'skip_locked',                 // otra sesion tiene lock activo
-  SKIP_NO_LINES: 'skip_no_lines',             // pedido sin lineas confirmed
-  SENT_OK: 'sent_ok',                         // envio exitoso a SAP
-  ERROR_SL: 'error_sl',                       // SL devolvio error (no reintentable auto)
-  ERROR_RACE: 'error_race',                   // otra sesion completo despues del lock
+  SKIP_STAGE: 'skip_stage', // stage no es 'confirmed' (o no cambio a confirmed)
+  SKIP_ALREADY_SENT: 'skip_already_sent', // transferidoSAP ya existe
+  SKIP_ALL_BO: 'skip_all_bo', // 100% backorder (via='app_only' via v607)
+  SKIP_NO_CARDCODE: 'skip_no_cardcode', // cliente sin sapCardCode -> queda bloqueado
+  SKIP_LOCKED: 'skip_locked', // otra sesion tiene lock activo
+  SKIP_NO_LINES: 'skip_no_lines', // pedido sin lineas confirmed
+  SENT_OK: 'sent_ok', // envio exitoso a SAP
+  ERROR_SL: 'error_sl', // SL devolvio error (no reintentable auto)
+  ERROR_RACE: 'error_race', // otra sesion completo despues del lock
 });
 
 /**
@@ -211,18 +211,17 @@ export function buildQuotationPayload(pedido, pedidoId, deps) {
   const slpCode = resolveSlpCode(pedido.ownerVendor || '', deps);
   const batchId = 'CF-AUTO-' + now;
   const entregaSuffix = _buildEntregaSuffix(pedido.formaEntrega);
-  const comments =
-    [
-      'AppShimano',
-      pedido.clientName || '',
-      pedido.month || '',
-      pedido.ownerEmail || '',
-      pedido.condicionPago || 'CONDICION',
-      entregaSuffix,
-    ]
-      .filter(Boolean)
-      .join(' | ')
-      .slice(0, 254); // SAP Comments field max 254 chars.
+  const comments = [
+    'AppShimano',
+    pedido.clientName || '',
+    pedido.month || '',
+    pedido.ownerEmail || '',
+    pedido.condicionPago || 'CONDICION',
+    entregaSuffix,
+  ]
+    .filter(Boolean)
+    .join(' | ')
+    .slice(0, 254); // SAP Comments field max 254 chars.
 
   const payload = {
     CardCode: cardCode,
@@ -252,20 +251,23 @@ function _buildEntregaSuffix(formaEntrega) {
   const t = formaEntrega.tipo;
   if (t === 'TRANSPORTISTA') {
     const parts = [
-      formaEntrega.transpNombre && ('Transp: ' + formaEntrega.transpNombre),
-      formaEntrega.transpDireccion && ('Dir: ' + formaEntrega.transpDireccion),
-      formaEntrega.clienteDireccion && ('Entrega: ' + formaEntrega.clienteDireccion),
+      formaEntrega.transpNombre && 'Transp: ' + formaEntrega.transpNombre,
+      formaEntrega.transpDireccion && 'Dir: ' + formaEntrega.transpDireccion,
+      formaEntrega.clienteDireccion && 'Entrega: ' + formaEntrega.clienteDireccion,
     ].filter(Boolean);
     return parts.join(' - ');
   }
   if (t === 'SUCURSAL') {
-    return formaEntrega.sucursalDireccion ? ('Sucursal: ' + formaEntrega.sucursalDireccion) : 'SUCURSAL';
+    return formaEntrega.sucursalDireccion
+      ? 'Sucursal: ' + formaEntrega.sucursalDireccion
+      : 'SUCURSAL';
   }
   if (t === 'RETIRO_DEPOSITO') {
     const parts = [
-      formaEntrega.retiroNombre && ('Retira: ' + formaEntrega.retiroNombre + ' ' + (formaEntrega.retiroApellido || '')),
-      formaEntrega.retiroDni && ('DNI: ' + formaEntrega.retiroDni),
-      formaEntrega.retiroPatente && ('Patente: ' + formaEntrega.retiroPatente),
+      formaEntrega.retiroNombre &&
+        'Retira: ' + formaEntrega.retiroNombre + ' ' + (formaEntrega.retiroApellido || ''),
+      formaEntrega.retiroDni && 'DNI: ' + formaEntrega.retiroDni,
+      formaEntrega.retiroPatente && 'Patente: ' + formaEntrega.retiroPatente,
     ].filter(Boolean);
     return parts.join(' - ');
   }
@@ -341,7 +343,7 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
   // === LOCK (transaccional) ===
   const docRef = deps.fbDb.collection('pedidos').doc(pedidoId);
   const now = deps.now ? deps.now() : Date.now();
-  const sessionId = deps.genSessionId ? deps.genSessionId() : ('cf-' + now);
+  const sessionId = deps.genSessionId ? deps.genSessionId() : 'cf-' + now;
   const lockTtlMs = deps.lockTtlMs ?? 300000;
   try {
     await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
@@ -350,7 +352,7 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
       const data = snap.data() || {};
       if (data.transferidoSAP) throw new Error('ALREADY_SENT');
       const existingLock = data.sendingSapLock;
-      if (existingLock && existingLock.at && (now - existingLock.at) < lockTtlMs) {
+      if (existingLock && existingLock.at && now - existingLock.at < lockTtlMs) {
         throw new Error('OTHER_SESSION_LOCK');
       }
       tx.update(docRef, {
@@ -358,7 +360,7 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
       });
     });
   } catch (e) {
-    const msg = String(e && e.message || e);
+    const msg = String((e && e.message) || e);
     if (msg === 'ALREADY_SENT') return { result: AUTO_SEND_RESULT.SKIP_ALREADY_SENT };
     if (msg === 'OTHER_SESSION_LOCK') return { result: AUTO_SEND_RESULT.SKIP_LOCKED };
     if (msg === 'DOC_GONE') return { result: AUTO_SEND_RESULT.ERROR_SL, error: 'doc_gone' };
@@ -373,7 +375,9 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
     // Liberar lock para reintento manual.
     try {
       await docRef.update({ sendingSapLock: deps.FieldValue.delete() });
-    } catch { /* swallow */ }
+    } catch {
+      /* swallow */
+    }
     if (built.reason === 'no_cardcode') return { result: AUTO_SEND_RESULT.SKIP_NO_CARDCODE };
     if (built.reason === 'no_lines') return { result: AUTO_SEND_RESULT.SKIP_NO_LINES };
     return { result: AUTO_SEND_RESULT.ERROR_SL, error: 'build:' + built.reason };
@@ -386,13 +390,18 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
     const resp = await sapPost(session, '/b1s/v1/Quotations', built.payload, deps.sl);
     if (resp.status !== 201) {
       const errMsg =
-        (resp.body && resp.body.error && resp.body.error.message && resp.body.error.message.value) ||
+        (resp.body &&
+          resp.body.error &&
+          resp.body.error.message &&
+          resp.body.error.message.value) ||
         `SL http ${resp.status}`;
       log('[auto-send] SL error', { pedidoId, status: resp.status, errMsg });
       // Liberar lock (no retry auto).
       try {
         await docRef.update({ sendingSapLock: deps.FieldValue.delete() });
-      } catch { /* swallow */ }
+      } catch {
+        /* swallow */
+      }
       return { result: AUTO_SEND_RESULT.ERROR_SL, error: errMsg };
     }
     const docNum = Number(resp.body && resp.body.DocNum);
@@ -401,7 +410,9 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
       log('[auto-send] SL respondio 201 sin DocNum/DocEntry', { pedidoId, body: resp.body });
       try {
         await docRef.update({ sendingSapLock: deps.FieldValue.delete() });
-      } catch { /* swallow */ }
+      } catch {
+        /* swallow */
+      }
       return { result: AUTO_SEND_RESULT.ERROR_SL, error: 'sl_no_docnum' };
     }
 
@@ -412,7 +423,11 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
       if (!snap.exists) return;
       const data = snap.data() || {};
       if (data.transferidoSAP && data.transferidoSAP.docNum) {
-        winner = { docNum: data.transferidoSAP.docNum, docEntry: data.transferidoSAP.docEntry, byUs: false };
+        winner = {
+          docNum: data.transferidoSAP.docNum,
+          docEntry: data.transferidoSAP.docEntry,
+          byUs: false,
+        };
         return;
       }
       tx.update(docRef, {
@@ -432,23 +447,31 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
 
     if (!winner.byUs) {
       log('[auto-send] race lost', { pedidoId, ourDocNum: docNum, winnerDocNum: winner.docNum });
-      return { result: AUTO_SEND_RESULT.ERROR_RACE, docNum: winner.docNum, docEntry: winner.docEntry };
+      return {
+        result: AUTO_SEND_RESULT.ERROR_RACE,
+        docNum: winner.docNum,
+        docEntry: winner.docEntry,
+      };
     }
 
     log('[auto-send] OK', { pedidoId, docNum, docEntry, linesCount: built.linesCount });
     return { result: AUTO_SEND_RESULT.SENT_OK, docNum, docEntry };
   } catch (e) {
-    const msg = String(e && e.message || e);
+    const msg = String((e && e.message) || e);
     log('[auto-send] exception', { pedidoId, err: msg });
     try {
       await docRef.update({ sendingSapLock: deps.FieldValue.delete() });
-    } catch { /* swallow */ }
+    } catch {
+      /* swallow */
+    }
     return { result: AUTO_SEND_RESULT.ERROR_SL, error: 'exception:' + msg };
   } finally {
     if (session) {
       try {
         await sapLogout(session, deps.sl);
-      } catch { /* swallow */ }
+      } catch {
+        /* swallow */
+      }
     }
   }
 }
