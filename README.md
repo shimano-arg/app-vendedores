@@ -4670,7 +4670,19 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v818
+## 41) Changelog v300 → v819
+
+### v819 (2026-09-07) — fix modales Backorder + Stock Asignado vacíos post-v816
+
+**Bug reportado por Mariano**: los modales 📦 **Backorder** y 📩 **Stock Asignado (BO que ya está disponible)** mostraban "0 SKUs · 0 unidades · 0 clientes".
+
+**Root cause — interacción v578 + v816**:
+- v578: `renderBackordersTab` filtraba `if (!p.transferidoSAP) continue;`.
+- v816: pedidos VDE `stage='confirmed' && !transferidoSAP` (chip PENDIENTE ENVIO) consumían stock pero eran invisibles al modal.
+
+**Fix v819**: `if (p.stage !== 'confirmed') continue;` (`index.html:12121`). Ya no discrimina por `transferidoSAP`. Motivo original de v578 obsoleto post-CF trigger v818 (los pedidos se transfieren en <10s).
+
+**Bump**: `APP_VERSION` + `CACHE_VERSION` v818 → v819. Bundle sin cambios. Tests 308/308.
 
 ### v818 (2026-09-07) — Cloud Function trigger auto-envío pedidos → SAP (independiente de admin logueado)
 
