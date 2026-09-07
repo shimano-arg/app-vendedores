@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v815](#41-changelog-v300--v815)
+41. [Changelog v300 → v816](#41-changelog-v300--v816)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4670,7 +4670,29 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v815
+## 41) Changelog v300 → v816
+
+### v816 (2026-09-07) — fix pedidos confirmados de VDE invisibles en tab Confirmados
+
+**Bug reportado por Mariano**: los pedidos que los VDE (Gonzalo, Martin, Mauricio, Federico) confirman NO aparecen en el tab "Confirmados SAP" del modal Estado de pedidos para Mariano, Pablo, Ioannis, Santiago ni ningún otro user.
+
+**Root cause**:
+- `_estadoGetConfirmados` (index.html:14195) filtraba por `stage === 'confirmed' AND transferidoSAP.docNum`. El `docNum` solo se setea cuando el pedido efectivamente se envió a SAP como Sales Quotation.
+- El envío a SAP lo hace `sap-auto-send-listener` (src/domains/sap-auto-send-listener.js:30-35) que **solo corre en sesión admin/gerente + SL habilitado + toggle autoSendSL ON**.
+- Los VDE no tienen SL habilitado → cuando confirman un pedido, queda `stage='confirmed'` sin `transferidoSAP`.
+- Los pedidos quedan invisibles en el tab Confirmados hasta que Mariano/Pablo abren la app con SL + autoSendSL ON. Si Mariano no abre la app en el día, los pedidos del VDE quedan invisibles todo el día.
+- **Consecuencia real**: nadie del equipo puede ver los pedidos confirmados del día en tiempo real; se descubren solo al día siguiente cuando el auto-send ya corrió.
+
+**Fix v816** — `_estadoGetConfirmados` ahora devuelve TODOS los `stage='confirmed'`. El chip visual en la card distingue 3 estados:
+- **`SAP #N`** (verde) → enviado a SAP con docNum real.
+- **`SIN SAP (100% BO)`** (gris, tooltip) → auto-confirm via v607 (todo backorder, no va a SAP hasta que llegue stock).
+- **`PENDIENTE ENVIO`** (amarillo, tooltip) → confirmado por VDE pero admin/gerente aún no lo envió a SAP.
+
+**Long-term recomendado**: mover el auto-send a Cloud Function (Firestore trigger `onWrite` en `/pedidos`) para que se envíen automáticamente sin depender de que admin esté logueado. Ya existe `functions/index.js` con `sapProxy` — es viable. Queda para próximo Loop.
+
+**Bump**: `APP_VERSION` + `CACHE_VERSION` v815 → v816. Bundle sin cambios (patch inline).
+
+**Tests**: unit 308/308 verde.
 
 ### v815 (2026-09-07) — panel Stock Asignado: fix "Cargando..." infinito (timeout 15s + reintentar)
 

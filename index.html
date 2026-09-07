@@ -5171,7 +5171,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v815';
+const APP_VERSION = 'v816';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14194,9 +14194,19 @@ function _estadoGetPendientes(){
 }
 function _estadoGetConfirmados(){
   if (typeof globalPedidos === 'undefined' || !Array.isArray(globalPedidos)) return [];
-  return globalPedidos.filter(p =>
-    p && p.stage === 'confirmed' && p.transferidoSAP && p.transferidoSAP.docNum
-  );
+  // v816 (2026-09-07): FIX bug pedidos de VDE invisibles en tab Confirmados.
+  // Antes: filter requeria transferidoSAP.docNum — pero eso solo se setea
+  // cuando el pedido se envia a SAP como Sales Quotation. El auto-send
+  // (src/domains/sap-auto-send-listener.js) SOLO corre en sesion admin/gerente
+  // con SL habilitado + autoSendSL toggle ON. Los pedidos que los VDE
+  // (Gonzalo/Martin/Mauricio/Federico) confirman quedan stage=confirmed sin
+  // transferidoSAP.docNum hasta que Mariano/Pablo abren la app. Antes: quedaban
+  // invisibles en este tab para todos los users. Ahora: aparecen todos los
+  // stage=confirmed, con chip visual distinto:
+  //   - "SAP #N" (verde) → ya enviado a SAP con docNum real.
+  //   - "PENDIENTE ENVIO" (amarillo) → confirmed pero sin docNum aun.
+  //   - "SIN SAP (100% BO)" (gris) → auto-confirm via v607 (todo backorder).
+  return globalPedidos.filter(p => p && p.stage === 'confirmed');
 }
 function _renderEstadoList(){
   const content = document.getElementById('estado-content');
@@ -14334,11 +14344,30 @@ function _renderEstadoPedidos(content, arr, tipo){
     name.style.cssText = 'flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
     name.textContent = p.clientName || 'sin cliente';
     row1.appendChild(name);
+    // v816 (2026-09-07): chip visual del estado de envio a SAP.
+    // - Con docNum real: verde "SAP #N" (enviado como Sales Quotation).
+    // - Sin docNum, via='app_only' (v607 auto-confirm 100% BO): gris "SIN SAP (100% BO)".
+    // - Sin docNum, sin transferidoSAP: amarillo "PENDIENTE ENVIO" (VDE confirmo,
+    //   admin/gerente todavia no auto-envio via sap-auto-send-listener).
     if (tipo === 'confirmados' && p.transferidoSAP && p.transferidoSAP.docNum) {
       const chip = document.createElement('span');
       chip.style.cssText = 'background:#10b981;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.4px;flex-shrink:0';
       chip.textContent = 'SAP #' + p.transferidoSAP.docNum;
       row1.appendChild(chip);
+    } else if (tipo === 'confirmados' && p.transferidoSAP && p.transferidoSAP.via === 'app_only') {
+      const chip = document.createElement('span');
+      chip.style.cssText = 'background:#64748b;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.4px;flex-shrink:0';
+      chip.title = 'Pedido 100% backorder — no se envia a SAP hasta que llegue stock (auto-confirm via v607).';
+      chip.textContent = 'SIN SAP (100% BO)';
+      row1.appendChild(chip);
+    } else if (tipo === 'confirmados') {
+      const chip = document.createElement('span');
+      chip.style.cssText = 'background:#f59e0b;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.4px;flex-shrink:0';
+      chip.title = 'Confirmado por el vendedor pero no se envio a SAP todavia. Necesita admin/gerente logueado con SL + autoSendSL ON (o envio manual).';
+      chip.textContent = 'PENDIENTE ENVIO';
+      row1.appendChild(chip);
+    }
+    if (tipo === 'confirmados' && p.transferidoSAP && p.transferidoSAP.docNum) {
       // v505/v506: badge del estado macro SAP (OFERTA / ORDEN / FACTURADO /
       // COBRADO / CERRADO). Se popula via sync cada 30 min.
       const estadoChip = _sapEstadoBadge(p.sapEstado, p.sapEstadoDetalles);
