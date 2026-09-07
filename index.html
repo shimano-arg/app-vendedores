@@ -5194,7 +5194,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v819';
+const APP_VERSION = 'v820';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -24358,7 +24358,20 @@ function attachFirebaseListeners(){
   if (typeof listenSapSnapshot === 'function') listenSapSnapshot();
   listenOpsLog();
   listenSapMaps();
-  unsubPedidosAll = fbDb.collection('pedidos').onSnapshot(qs => {
+  // v820 (2026-09-07): FIX bug modales Backorder + Stock Asignado vacios para VDE.
+  // Root cause: Firestore Rules pedidos permiten `list` solo a isAdminOrGerente()
+  // OR isInterno() OR (isVendor() && ownsDoc()). Un vendedor NO puede hacer
+  // .collection('pedidos').onSnapshot() sin where clause -> listener falla
+  // silencioso, globalPedidos = [] para siempre. Antes de v819 no era visible
+  // porque backorderLines (SAP-source) daba la data. v700 mato ese path,
+  // v819 hizo APP-source la fuente unica -> los VDE veian modales vacios.
+  //
+  // Fix: si es vendedor, filtrar por ownerUid=uid (rules lo permiten via ownsDoc).
+  // Admin/gerente/interno siguen sin filtro (ven todo).
+  const _pedidosQuery = (userRole === 'vendedor')
+    ? fbDb.collection('pedidos').where('ownerUid', '==', currentUser.uid)
+    : fbDb.collection('pedidos');
+  unsubPedidosAll = _pedidosQuery.onSnapshot(qs => {
     // v786 (2026-09-04): flag para distinguir "no cargado aun" vs "cargado
     // pero vacio" en renders que iteran globalPedidos (ej: _renderE4BAsigApp).
     // Sin esto, el modal Pedido en Espera mostraba secciones vacias mientras
