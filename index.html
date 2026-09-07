@@ -5194,7 +5194,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v820';
+const APP_VERSION = 'v821';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -24353,18 +24353,19 @@ function attachFirebaseListeners(){
     try { if (typeof _updateSidebarLeftCards === 'function') _updateSidebarLeftCards(); } catch(e){}
   }, err => console.error('pedidos own listener', err));
 
-  // 3) pedidos de TODOS (para sugerencias cruzadas)
-  listenCampaigns();
-  if (typeof listenSapSnapshot === 'function') listenSapSnapshot();
-  listenOpsLog();
-  listenSapMaps();
+  // v821 (2026-09-07): CRITICAL — attachar unsubPedidosAll ANTES de las
+  // helpers listenCampaigns/listenOpsLog/listenSapMaps + envolverlas en
+  // try/catch. En v820 con user admin, `unsubPedidosAll = null` post-login
+  // sin siquiera correr el onSnapshot: alguna de las helpers explotaba
+  // silenciosa y tumbaba el resto del bloque. Diagnostico DevTools:
+  //   unsub: null, snapshotLoaded: undefined → listener nunca corrio
+  //   re-attach manual → globalPedidos.length = 115 (data + permisos OK)
+  //
   // v820 (2026-09-07): FIX bug modales Backorder + Stock Asignado vacios para VDE.
   // Root cause: Firestore Rules pedidos permiten `list` solo a isAdminOrGerente()
   // OR isInterno() OR (isVendor() && ownsDoc()). Un vendedor NO puede hacer
   // .collection('pedidos').onSnapshot() sin where clause -> listener falla
-  // silencioso, globalPedidos = [] para siempre. Antes de v819 no era visible
-  // porque backorderLines (SAP-source) daba la data. v700 mato ese path,
-  // v819 hizo APP-source la fuente unica -> los VDE veian modales vacios.
+  // silencioso, globalPedidos = [] para siempre.
   //
   // Fix: si es vendedor, filtrar por ownerUid=uid (rules lo permiten via ownsDoc).
   // Admin/gerente/interno siguen sin filtro (ven todo).
@@ -24429,6 +24430,15 @@ function attachFirebaseListeners(){
       if (bm && bm.classList.contains('open') && typeof renderBackordersTab === 'function') renderBackordersTab();
     } catch(e) { console.warn('refresh waitlist post pedidos snapshot', e); }
   }, err => console.error('pedidos all listener', err));
+
+  // v821: helpers de listeners auxiliares — cada uno envuelto en try/catch
+  // para que un TypeError (ej: bundle a medio cargar → fn undefined) no
+  // tumbe attachFirebaseListeners completo. Root cause del bug v820 admin:
+  // `listenOpsLog()` sin guard podia explotar y bloquear TODO el bloque.
+  try { if (typeof listenCampaigns === 'function') listenCampaigns(); } catch(e){ console.error('listenCampaigns', e); }
+  try { if (typeof listenSapSnapshot === 'function') listenSapSnapshot(); } catch(e){ console.error('listenSapSnapshot', e); }
+  try { if (typeof listenOpsLog === 'function') listenOpsLog(); } catch(e){ console.error('listenOpsLog', e); }
+  try { if (typeof listenSapMaps === 'function') listenSapMaps(); } catch(e){ console.error('listenSapMaps', e); }
 }
 
 // ========== Override de saves para escribir a la nube ==========
