@@ -68,7 +68,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 38. [Roadmap / pendientes](#38-roadmap--pendientes)
 39. [Seguimiento (panel VDIs)](#39-seguimiento-panel-vdis)
 40. [Power BI / BigQuery](#40-power-bi--bigquery)
-41. [Changelog v300 → v813](#41-changelog-v300--v813)
+41. [Changelog v300 → v814](#41-changelog-v300--v814)
 42. [Setup de desarrollo local (2026-07-24)](#42-setup-de-desarrollo-local-2026-07-24)
 43. [Fase 0 — Progreso 2026-07-24 (rama `fase-0`)](#43-fase-0--progreso-2026-07-24-rama-fase-0)
 44. [Estado de fin de sesión 2026-07-27 — dónde retomar en la próxima](#44-estado-de-fin-de-sesión-2026-07-27--dónde-retomar-en-la-próxima)
@@ -4670,7 +4670,42 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v813
+## 41) Changelog v300 → v814
+
+### v814 (2026-09-07) — fix bug Stock Asignado stale por 5s post-acción
+
+**Bug crítico**: al tocar Fusionar / Eliminar / Agregar completo / Parcial en el panel Stock Asignado del cliente, la línea consumida seguía apareciendo por **hasta 5 segundos** (contador arriba "🔁 N SKU(s) que este cliente YA TENIA" seguía alto, botón Fusionar seguía visible, fila seguía en subsección verde).
+
+**Root cause — interacción v786 + v809**:
+- v786 (2026-09-04): `_asigInlineResolve` hace optimistic update de `globalPedidos` MUTANDO `_gp.lines` in-place (misma ref del array).
+- v809 (Loop iter 6, 2026-09-04): `getStockPorCliente` memoizado con WeakMap keyed por `globalPedidos` ref + TTL 5s safety net.
+- **Combinación tóxica**: como `globalPedidos` mantiene la misma ref después de mutar in-place → `WeakMap.get(globalPedidos)` devuelve el bucket viejo → sub-cache hit por key `sku|cardCode|fisico` → devuelve `{reservadasPorCliente, yaEnOtroPedido}` STALE por hasta 5s.
+- Este riesgo estaba **explícitamente documentado** en el plan file `rippling-puzzling-sloth.md` (riesgo residual iter 6): "si `globalPedidos` se muta in-place, el WeakMap keyed por globalPedidos NO invalida la cache". La mitigación mencionada (TTL 5s) demostró ser insuficiente en la práctica.
+
+**Fix v814** — reemplazar refs en los **3 lugares** donde se hace optimistic update de `globalPedidos`:
+1. `_asigInlineResolve` (`index.html:15719`) — Fusionar / Eliminar / Agregar completo / Parcial desde el panel Pedido en Espera.
+2. `deleteAllBackorderAppLinesForClient` (`index.html:12416`) — bulk delete desde modal Stock Asignado / Backorder.
+3. Single-line delete desde modal Backorder (`index.html:12498`).
+
+Cambio del pattern:
+```js
+// ANTES (mutación in-place):
+const _gp = globalPedidos.find(...);
+_gp.lines = newLines;  // misma ref, WeakMap no invalida
+
+// AHORA (reemplazo de refs):
+globalPedidos = globalPedidos.map(p => {
+  if (p._fsId !== targetId) return p;
+  return Object.assign({}, p, { lines: newLines });
+});
+// nueva ref del array + nueva ref del pedido + nueva ref de lines → WeakMap invalida
+```
+
+**Verificación**:
+- `npm run test:unit` → 308/308 verde.
+- Manual QA post-deploy: tocar Fusionar en Stock Asignado → la línea consumida debe desaparecer AL TOQUE (no en 5s). Contador arriba "🔁 N SKU(s) que YA TENIA" debe bajar simultáneo.
+
+**Bump**: `APP_VERSION` + `CACHE_VERSION` v813 → v814. Bundle sin cambios (patch inline).
 
 ### v813 (2026-09-04) — fix layout modal Vincular LEAD ↔ Alta SAP
 
