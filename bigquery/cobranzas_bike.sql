@@ -209,58 +209,78 @@ WHERE p.cancelled = 'tNO';
 -- El link a Deposit va por check_abs_entry === Deposit.CheckLines.check_key.
 -- ============================================================
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_cheques_recibidos` AS
-WITH cheques_con_deposit AS (
-  SELECT
-    ch.payment_doc_entry,
-    ch.payment_doc_date,
-    ch.payment_card_code,
-    ch.line_num,
-    ch.check_number,
-    ch.check_abs_entry,
-    ch.due_date,
-    SAFE_CAST(ch.check_sum AS FLOAT64) AS check_sum,
-    ch.currency,
-    CAST(ch.bank_code AS STRING) AS bank_code,
-    ch.branch,
-    ch.accountt_num,
-    ch.check_account,
-    ch.country_code,
-    ch.e_check,
-    ch.trnsfrable,
-    ch.manual_check,
-    ch.endorse,
-    ch.originally_issued_by,
-    ch.fiscal_id,
-    ch._sync_timestamp,
-    -- LEFT JOIN a deposit_checks para saber si el cheque fue depositado.
-    dc.deposit_abs_entry,
-    dc.deposit_date
-  FROM `app-vendedores-shimano.shimano_app.sap_payment_checks_raw` ch
-  LEFT JOIN `app-vendedores-shimano.shimano_app.sap_deposit_checks_raw` dc
-    ON CAST(ch.check_abs_entry AS INT64) = CAST(dc.check_key AS INT64)
-)
+-- v2 fix (2026-09-07 post-validation Cowork):
+-- El link check_abs_entry <-> check_key NO existe (rangos disjuntos: check_key
+-- 1591-2149 vs check_abs_entry 2998-4864). Son dos IDs internos distintos de
+-- SAP (RCT1.CheckAbsEntry vs DPS1.CheckKey).
+--
+-- Hallazgo real: los echeqs NO usan Deposits estructuralmente. Se acreditan
+-- directo en cuenta bancaria via BBVA/MAV/MEP al vencer. Los 267 deposits son
+-- para cheques FISICOS (los 3 en produccion + histórico pre-modelo).
+--
+-- Fix: cambiar la logica de estados. Un echeq vencido NO es "vencido sin
+-- depositar" -- es "ACREDITADO" (paso automatico al vencer). Los 5 estados
+-- nuevos son:
+--   ACREDITADO                echeq con due_date <= hoy (99.8% del volumen)
+--   PENDIENTE_ACREDITACION    echeq con due_date > hoy (aun no vencio)
+--   DEPOSITADO                fisico con match en deposit_checks (por
+--                             check_number + bank, no por CheckAbsEntry)
+--   VENCIDO_SIN_DEPOSITAR     fisico vencido sin match en deposits (alerta real)
+--   EN_CARTERA                fisico no vencido sin depositar
 SELECT
-  c.*,
-  -- Estado del cheque: depositado / en cartera / vencido sin depositar
+  ch.payment_doc_entry,
+  ch.payment_doc_date,
+  ch.payment_card_code,
+  ch.line_num,
+  ch.check_number,
+  ch.check_abs_entry,
+  ch.due_date,
+  SAFE_CAST(ch.check_sum AS FLOAT64) AS check_sum,
+  ch.currency,
+  CAST(ch.bank_code AS STRING) AS bank_code,
+  ch.branch,
+  ch.accountt_num,
+  ch.check_account,
+  ch.country_code,
+  ch.e_check,
+  ch.trnsfrable,
+  ch.manual_check,
+  ch.endorse,
+  ch.originally_issued_by,
+  ch.fiscal_id,
+  ch._sync_timestamp,
+  -- Link opcional a deposit para cheques fisicos: JOIN por check_number + bank
+  -- (86 matches por check_number solo, 27 con bank tambien). El check_number no
+  -- es unico globalmente porque se resetea por talonario del banco emisor, pero
+  -- el par check_number + bank + branch reduce colisiones.
+  dc.deposit_abs_entry,
+  dc.deposit_date,
+  -- Estado del cheque - logica v2 basada en tipo (echeq vs fisico).
   CASE
-    WHEN c.deposit_abs_entry IS NOT NULL THEN 'DEPOSITADO'
-    WHEN c.due_date < CURRENT_DATE() THEN 'VENCIDO_SIN_DEPOSITAR'
+    WHEN ch.e_check = 'tYES' AND ch.due_date <= CURRENT_DATE() THEN 'ACREDITADO'
+    WHEN ch.e_check = 'tYES' AND ch.due_date > CURRENT_DATE() THEN 'PENDIENTE_ACREDITACION'
+    WHEN ch.e_check = 'tNO' AND dc.deposit_abs_entry IS NOT NULL THEN 'DEPOSITADO'
+    WHEN ch.e_check = 'tNO' AND ch.due_date < CURRENT_DATE() THEN 'VENCIDO_SIN_DEPOSITAR'
     ELSE 'EN_CARTERA'
   END AS estado_cheque,
-  -- Dias hasta el vencimiento (negativo = ya vencio).
-  DATE_DIFF(c.due_date, CURRENT_DATE(), DAY) AS dias_hasta_vencimiento,
+  -- Dias hasta el vencimiento (negativo = ya vencio / acreditado).
+  DATE_DIFF(ch.due_date, CURRENT_DATE(), DAY) AS dias_hasta_vencimiento,
   -- Categoria echeq vs fisico (flag primario segun discovery).
-  CASE WHEN c.e_check = 'tYES' THEN 'ECHEQ' ELSE 'FISICO' END AS tipo_cheque,
-  -- Bucket vencimiento para timeline.
+  CASE WHEN ch.e_check = 'tYES' THEN 'ECHEQ' ELSE 'FISICO' END AS tipo_cheque,
+  -- Bucket vencimiento para timeline (aplica a echeqs pendientes y fisicos en cartera).
   CASE
-    WHEN c.due_date < CURRENT_DATE() THEN '0. Vencido'
-    WHEN DATE_DIFF(c.due_date, CURRENT_DATE(), DAY) <= 7 THEN '1. Vence esta semana'
-    WHEN DATE_DIFF(c.due_date, CURRENT_DATE(), DAY) <= 30 THEN '2. Vence 15-30d'
-    WHEN DATE_DIFF(c.due_date, CURRENT_DATE(), DAY) <= 60 THEN '3. Vence 31-60d'
-    WHEN DATE_DIFF(c.due_date, CURRENT_DATE(), DAY) <= 90 THEN '4. Vence 61-90d'
+    WHEN ch.due_date < CURRENT_DATE() THEN '0. Ya vencio/acreditado'
+    WHEN DATE_DIFF(ch.due_date, CURRENT_DATE(), DAY) <= 7 THEN '1. Vence esta semana'
+    WHEN DATE_DIFF(ch.due_date, CURRENT_DATE(), DAY) <= 30 THEN '2. Vence 15-30d'
+    WHEN DATE_DIFF(ch.due_date, CURRENT_DATE(), DAY) <= 60 THEN '3. Vence 31-60d'
+    WHEN DATE_DIFF(ch.due_date, CURRENT_DATE(), DAY) <= 90 THEN '4. Vence 61-90d'
     ELSE '5. Vence +90d'
   END AS bucket_vencimiento
-FROM cheques_con_deposit c;
+FROM `app-vendedores-shimano.shimano_app.sap_payment_checks_raw` ch
+LEFT JOIN `app-vendedores-shimano.shimano_app.sap_deposit_checks_raw` dc
+  ON CAST(ch.check_number AS INT64) = CAST(dc.check_number AS INT64)
+ AND CAST(ch.bank_code AS STRING) = CAST(dc.bank AS STRING)
+ AND CAST(ch.branch AS STRING) = CAST(dc.branch AS STRING);
 
 
 -- ============================================================
