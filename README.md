@@ -4670,7 +4670,17 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v819
+## 41) Changelog v300 → v820
+
+### v820 (2026-09-07) — fix modales Backorder + Stock Asignado vacíos para VDE (root cause definitivo)
+
+**Bug reportado por Mariano post-v819**: los modales seguían vacíos. Diagnóstico DevTools reveló `globalPedidos.length === 0`.
+
+**Root cause**: Firestore Rules `pedidos` permiten `list` solo a admin/gerente/interno OR (vendor && ownsDoc). El listener sin where clause falla silencioso para VDE.
+
+**Fix**: query condicional por rol (`index.html:24361+`). VDE usa `.where('ownerUid', '==', uid)`. Admin/gerente/interno sin where.
+
+**Bump**: v819 → v820. Tests 308/308.
 
 ### v819 (2026-09-07) — fix modales Backorder + Stock Asignado vacíos post-v816
 
