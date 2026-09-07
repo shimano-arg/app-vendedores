@@ -203,6 +203,7 @@ export function buildQuotationPayload(pedido, pedidoId, deps) {
   }
 
   const now = deps.now ? deps.now() : Date.now();
+  /** @param {number} ms */
   const isoDate = (ms) => new Date(ms).toISOString().slice(0, 10);
   const dueDateDays = deps.dueDateDays ?? 30;
   const docDate = isoDate(now);
@@ -288,9 +289,10 @@ export function isEligibleForAutoSend(beforeData, afterData) {
   // y todas las lines son BO, es porque el auto-confirm client-side no corrio
   // (raro pero posible). Marcarlo con via='app_only' server-side para evitar
   // que quede pending forever.
+  /** @type {any[]} */
   const lines = Array.isArray(afterData.lines) ? afterData.lines : [];
   if (lines.length === 0) return { eligible: false, reason: 'no_lines' };
-  const allBo = lines.every((l) => l && l.state === 'BO');
+  const allBo = lines.every((/** @type {any} */ l) => l && l.state === 'BO');
   if (allBo) return { eligible: false, reason: 'all_bo' };
   // Cambio real de stage: si before ya era 'confirmed', esto es un update
   // secundario (ej: qty edit). Solo procesamos la TRANSICION a confirmed.
