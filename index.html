@@ -5194,7 +5194,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v821';
+const APP_VERSION = 'v822';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -24197,9 +24197,15 @@ function detachFirebaseListeners(){
   n += off('unsubTemporalPriceList', unsubTemporalPriceList, () => unsubTemporalPriceList = null);
   n += off('unsubVendorOverrides', unsubVendorOverrides, () => unsubVendorOverrides = null);
   n += off('unsubClientLocs', unsubClientLocs, () => unsubClientLocs = null);
-  n += off('unsubSegNotes', unsubSegNotes, () => unsubSegNotes = null);
-  n += off('unsubSegStatus', unsubSegStatus, () => unsubSegStatus = null);
-  n += off('_unsubAutoSendPedidos', _unsubAutoSendPedidos, () => _unsubAutoSendPedidos = null);
+  // v822 (2026-09-07): CRITICAL — estas 3 variables viven en el bundle/chunks
+  // (unsubSegNotes/Status en chunks/seguimiento.js, _unsubAutoSendPedidos en
+  // app.bundle.js) como window.X. Desde el inline scope NO son accesibles
+  // como identificador libre → ReferenceError que tumba TODO detach + attach.
+  // Bug latente desde que se agregaron esas 3 lineas. Fix: leer via window.
+  // con typeof guard para tolerar el caso "bundle aun no cargo".
+  n += off('unsubSegNotes', (typeof window.unsubSegNotes !== 'undefined') ? window.unsubSegNotes : null, () => { window.unsubSegNotes = null; });
+  n += off('unsubSegStatus', (typeof window.unsubSegStatus !== 'undefined') ? window.unsubSegStatus : null, () => { window.unsubSegStatus = null; });
+  n += off('_unsubAutoSendPedidos', (typeof window._unsubAutoSendPedidos !== 'undefined') ? window._unsubAutoSendPedidos : null, () => { window._unsubAutoSendPedidos = null; });
   n += off('_unsubRevisionWaitlist', _unsubRevisionWaitlist, () => _unsubRevisionWaitlist = null);
   n += off('_unsubFacturacionSnapshot', _unsubFacturacionSnapshot, () => _unsubFacturacionSnapshot = null);
   n += off('_unsubCampaniaSnapshot', _unsubCampaniaSnapshot, () => _unsubCampaniaSnapshot = null);
