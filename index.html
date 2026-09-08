@@ -5239,7 +5239,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v833';
+const APP_VERSION = 'v834';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15117,6 +15117,12 @@ var _depositoIsLoading = false;
 // arranque en Pesca por default (mayoria del uso operativo). El user puede
 // tocar "Todos" o "Bike" con los botones toggle.
 var _depositoFilterDivision = 'FISHING';
+// v834 (2026-09-08): rango historial dias. Default 60 (matchea CF default).
+// Mariano pidio poder ver "historico de despachado" mas alla de la ventana
+// corta. Selector "Ultimos N dias" en la barra de filtros permite 30/60/180/365.
+// Al cambiar dispara _refreshDepositoData() para traer datos frescos con el
+// nuevo rango.
+var _depositoRangoDias = 60;
 
 window.openDepositoModal = function(){
   const m = document.getElementById('deposito-modal');
@@ -15138,7 +15144,7 @@ async function _refreshDepositoData(){
     if (typeof firebase !== 'undefined' && firebase.functions) {
       // Fetch real via Cloud Function proxy (CF setupGetMovimientos)
       const fn = firebase.app().functions('southamerica-east1').httpsCallable('setupGetMovimientos');
-      const r = await fn({ dias: 60 });
+      const r = await fn({ dias: _depositoRangoDias || 60 });
       _depositoMovimientos = (r.data && r.data.movimientos) || [];
     } else {
       throw new Error('firebase.functions no disponible');
@@ -15159,6 +15165,14 @@ function _setDepositoFilterDivision(div){
   _renderDeposito();
 }
 window._setDepositoFilterDivision = _setDepositoFilterDivision;
+
+// v834 (2026-09-08): cambio de rango dispara re-fetch con nuevos dias.
+window._setDepositoRango = function(nuevosDias){
+  var n = Number(nuevosDias) || 60;
+  if (n === _depositoRangoDias) return;
+  _depositoRangoDias = n;
+  _refreshDepositoData();
+};
 
 function _depositoMockData(){
   // Mock basado en la estructura real de SETUP (probe 2026-09-08).
@@ -15239,6 +15253,14 @@ function _renderDeposito(){
   html += '    <option value="">Todos los estados</option>';
   html += '    <option value="PREPARACIÓN DE PEDIDO"' + (filtroEstado === 'PREPARACIÓN DE PEDIDO' ? ' selected' : '') + '>📦 Preparación</option>';
   html += '    <option value="DESPACHO"' + (filtroEstado === 'DESPACHO' ? ' selected' : '') + '>🚚 Despachado</option>';
+  html += '  </select>';
+  // v834: selector de rango (dias). Re-fetch al cambiar.
+  html += '  <select id="deposito-filter-rango" onchange="_setDepositoRango(this.value)" title="Rango historico a consultar en SETUP" style="flex:0 0 auto;padding:8px 8px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12px;outline:none;background:#fff;max-width:100%">';
+  [['30','30 dias'],['60','60 dias'],['180','6 meses'],['365','1 año']].forEach(function(pair){
+    var val = pair[0], lab = pair[1];
+    var sel = String(_depositoRangoDias) === val ? ' selected' : '';
+    html += '    <option value="' + val + '"' + sel + '>🗓 ' + lab + '</option>';
+  });
   html += '  </select>';
   html += '</div>';
   // Aviso mock si aplica.
