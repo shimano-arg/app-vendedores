@@ -2492,20 +2492,31 @@ def main():
     # Confirmado responden 200 OK: 106 clientes con CreditLimit > 0 (4.4% de 2.410
     # activos), promedio $8.8M, max $289M (PESCAR.INFO SHOP). Ver INFORME_SAP_
     # INVESTIGACION_2026-09-07.md en Desktop\BIKE DASHBOARD\ para detalle.
-    # v3.2 (2026-09-08): NO $select — traer schema completo del BP.
-    # Motivo: probamos $select + $expand=BPAddresses y este SL devuelve HTTP 400
-    # "Cannot expand invalid navigation property 'BPAddresses' for entity type
-    # 'BusinessPartner'". Sin $select, el schema completo incluye BPAddresses
-    # inline automaticamente (mismo comportamiento que aprovecha
-    # sync_sap_to_firestore.py:874 con exito). Payload x BP es mas grande
-    # pero manejable para ~2700 BPs.
+    # v3.3 (2026-09-08): agregar BPAddresses al $select (no $expand).
+    # Historia:
+    #   v3.0 → $select + $expand=BPAddresses → HTTP 400 "Cannot expand
+    #          invalid navigation property 'BPAddresses'".
+    #   v3.2 → sin $select → colgo >40min por payload gigante x BP (2688 x
+    #          schema completo). Cancelado.
+    #   v3.3 → $select con BPAddresses inline como campo — SL usualmente lo
+    #          admite como estructura complex-type (no navigation) y devuelve
+    #          el array inline. Balance velocidad/completitud.
     # Provincias map: /States?$filter=Country eq 'AR' → { '00': 'CIUDAD AUTONOMA...', ... }
-    # Codigos con cero a la izquierda (AFIP). Reemplaza la dependencia local
-    # GEO.txt del modelo TABLERO BIKE SAR.
+    # Codigos con cero a la izquierda (AFIP). Reemplaza dependencia GEO.txt.
     provinces_map = load_ar_provinces_map_bq(cfg, session)
+    bp_select = [
+        'CardCode', 'CardName', 'CardType', 'GroupCode', 'Currency',
+        'Address', 'City', 'ZipCode', 'Country',
+        'EmailAddress', 'Phone1', 'Cellular',
+        'PayTermsGrpCode',
+        'SalesPersonCode', 'Valid', 'Frozen',
+        'CreateDate', 'UpdateDate',
+        'CreditLimit', 'MaxCommitment', 'CurrentAccountBalance',
+        'BPAddresses',
+    ]
     bps = sl_fetch_all(
         cfg, session, '/b1s/v1/BusinessPartners', 'BP',
-        select_fields=None,
+        select_fields=bp_select,
         filter_expr="CardType eq 'cCustomer'",
         max_docs=max_docs,
     )
