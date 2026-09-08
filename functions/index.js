@@ -53,6 +53,12 @@ const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY');
 // send_rendiciones_email.py en GitHub Actions (GMAIL_APP_PASSWORD secret
 // del repo) — copiar a Secret Manager con `gcloud secrets create ...`.
 const GMAIL_APP_PASSWORD = defineSecret('GMAIL_APP_PASSWORD');
+// v829 (2026-09-08): password de SETUP WMS API para consultar estado de
+// pedidos (movimientos de salida). Confirmado por Marcos (SETUP) 2026-09-08:
+// user "nur" / password "1234" sirve para prod (nur-integra) y sandbox
+// (nur-prueba). Ver setupGetMovimientos abajo + probe scripts en
+// Desktop\SETUP-INTEGRACION\ para diagnostico empirico de la API.
+const SETUP_API_PASSWORD = defineSecret('SETUP_API_PASSWORD');
 const REGION = 'southamerica-east1';
 const PROJECT_ID = process.env.GCLOUD_PROJECT || 'app-vendedores-shimano';
 const BACKUP_BUCKET = `${PROJECT_ID}-backups`;
@@ -726,5 +732,172 @@ export const dailyFirestoreBackup = onSchedule(
       },
       log: (msg, extra) => console.log(msg, extra || {}),
     });
+  }
+);
+
+/**
+ * setupGetMovimientos — v829 (2026-09-08)
+ *
+ * Callable proxy que consulta SETUP WMS API para traer el estado logistico
+ * de pedidos (endpoint /GetMovimientosSalida). Alimenta el modal "Deposito"
+ * de la app vendedores que muestra "PREPARACIÓN DE PEDIDO" vs "DESPACHO"
+ * por cada pedido en el deposito.
+ *
+ * Config:
+ * - URL: https://nur-integra.setuponline.com.ar/ (prod, unico ambiente con data)
+ * - Auth: POST /CreateToken con {Username: 'nur', Password: secret}
+ * - Fetch: GET /GetMovimientosSalida con body JSON (requiere node:http para
+ *   bypass de restriccion GET-con-body de fetch standard).
+ *
+ * Input (request.data):
+ *   - dias: number (default 60) - ventana temporal a consultar
+ *   - cardCode?: string - filtro opcional por destinatario (SAP CardCode)
+ *
+ * Output:
+ *   - { movimientos: [...] } - array de movimientos flat con la estructura
+ *     documentada en scripts de probe (id_nota_de_venta, comprobante, etc).
+ *
+ * Autorizacion:
+ *   - Requiere request.auth (usuario logueado)
+ *   - Sin gate por rol: cualquier user de la app puede ver estado depósito
+ *
+ * Ver Desktop\SETUP-INTEGRACION\scripts\probe-setup-api.mjs para diagnóstico
+ * empírico de la API.
+ */
+export const setupGetMovimientos = onCall(
+  {
+    region: REGION,
+    secrets: [SETUP_API_PASSWORD],
+    cors: true,
+    enforceAppCheck: false,
+    memory: '256MiB',
+    timeoutSeconds: 30,
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Login required');
+    }
+
+    const SETUP_URL = 'https://nur-integra.setuponline.com.ar';
+    const SETUP_USER = 'nur';
+    const dias = Number(request.data && request.data.dias) || 60;
+    const filterCardCode = String((request.data && request.data.cardCode) || '').trim();
+
+    try {
+      // 1) Login → Bearer token
+      const rLogin = await globalThis.fetch(`${SETUP_URL}/CreateToken`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ Username: SETUP_USER, Password: SETUP_API_PASSWORD.value() }),
+      });
+      if (!rLogin.ok) {
+        const body = await rLogin.text().catch(() => '');
+        throw new HttpsError(
+          'internal',
+          `SETUP login failed status=${rLogin.status} body=${body.slice(0, 200)}`
+        );
+      }
+      const authBody = await rLogin.json();
+      const token = authBody.Token || authBody.token || authBody.access_token;
+      if (!token) {
+        throw new HttpsError('internal', 'SETUP no devolvio token');
+      }
+
+      // 2) Fetch movimientos — GET con body via node:http bypass.
+      // fetch nativo (undici) valida spec y rechaza body en GET. Usamos
+      // Node http/https directo para pasar body con method GET.
+      const https = await import('node:https');
+      const { URL } = await import('node:url');
+      const today = new Date();
+      const desde = new Date(today.getTime() - dias * 24 * 60 * 60 * 1000);
+      const filtros = {
+        ID_Nota_de_venta: '',
+        ID_Cliente: '',
+        ID_Destinatario: filterCardCode,
+        Codigo_deposito: 1,
+        Fecha_desde: desde.toISOString().slice(0, 10),
+        Fecha_hasta: today.toISOString().slice(0, 10),
+      };
+      const bodyStr = JSON.stringify(filtros);
+      const u = new URL(`${SETUP_URL}/GetMovimientosSalida`);
+
+      /** @type {{status: number, body: string}} */
+      const resp = await new Promise((resolve, reject) => {
+        const req = https.request(
+          {
+            hostname: u.hostname,
+            port: u.port || 443,
+            path: u.pathname,
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(bodyStr),
+              Authorization: `Bearer ${token}`,
+            },
+          },
+          (r) => {
+            /** @type {Buffer[]} */
+            const chunks = [];
+            r.on('data', (/** @type {Buffer} */ c) => chunks.push(c));
+            r.on('end', () =>
+              resolve({ status: r.statusCode || 0, body: Buffer.concat(chunks).toString('utf-8') })
+            );
+          }
+        );
+        req.on('error', reject);
+        req.write(bodyStr);
+        req.end();
+      });
+
+      if (resp.status !== 200) {
+        throw new HttpsError(
+          'internal',
+          `SETUP /GetMovimientosSalida status=${resp.status} body=${resp.body.slice(0, 200)}`
+        );
+      }
+
+      // 3) Parsear VFPData wrapper y aplanar por nota (agregando counts).
+      const parsed = JSON.parse(resp.body);
+      const data = parsed.VFPData;
+      if (!data) {
+        // Sin data — respuesta valida pero vacia (comun en sandbox).
+        return { movimientos: [], notasCount: 0 };
+      }
+      const arrKey = Object.keys(data).find((k) => Array.isArray(data[k]));
+      const arr = arrKey ? data[arrKey] : [];
+
+      // 4) Agregar por id_nota_de_venta — 1 fila = 1 nota (con contadores).
+      const byNota = new Map();
+      for (const m of arr) {
+        const k = m.id_nota_de_venta || '(sin-nota)';
+        if (!byNota.has(k)) {
+          byNota.set(k, {
+            id_nota_de_venta: k,
+            fecha: m.fecha,
+            comprobante: m.comprobante,
+            cliente: m.cliente,
+            destinatario: m.destinatario,
+            iddestinatario: m.iddestinatario,
+            deposito: m.deposito,
+            zona: m.zona,
+            ubicacion: m.ubicacion,
+            items_count: 0,
+            cantidad_total: 0,
+          });
+        }
+        const acc = byNota.get(k);
+        acc.items_count += 1;
+        acc.cantidad_total += Number(m.cantidad || 0);
+      }
+      const movimientos = Array.from(byNota.values()).sort((a, b) =>
+        String(b.fecha || '').localeCompare(String(a.fecha || ''))
+      );
+
+      return { movimientos, notasCount: movimientos.length, lineasTotales: arr.length };
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      console.error('setupGetMovimientos unexpected error', e);
+      throw new HttpsError('internal', String(e && e.message ? e.message : e));
+    }
   }
 );

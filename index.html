@@ -5222,7 +5222,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v828';
+const APP_VERSION = 'v829';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15080,17 +15080,164 @@ window.openWaitlistModal = function(){
 window.closeWaitlistModal = function(){
   document.getElementById('waitlist-modal').classList.remove('open');
 };
-// v735 (2026-08-30): modal "Deposito" placeholder de la futura integracion con WMS SETUP.
-// Ver Brief_Reunion_SETUP_Integracion.docx + reunion 2026-09-02. Post-integracion
-// aca va a mostrar timeline de estados (Picking/Armado/Despachado/Entregado) por pedido.
+// v829 (2026-09-08): modal "Deposito" con integracion real SETUP WMS.
+// Reemplaza el placeholder v735. Consume /GetMovimientosSalida via CF proxy
+// (setupGetMovimientos) que hace login + fetch a SETUP API. La CF esta en
+// functions/index.js y usa credenciales de Firebase Secret Manager
+// (SETUP_PASSWORD). Fallback a mock data si la CF no esta deployada aun.
+//
+// Estados posibles del campo 'comprobante' (validado empiricamente 2026-09-08
+// sobre 500 movimientos prod, 180d):
+//   'PREPARACIÓN DE PEDIDO' — pedido en armado (75% del volumen)
+//   'DESPACHO'              — pedido despachado (25%)
+// Otros valores posibles segun Marcos: PICKING, CONTROL, REMITO (a confirmar).
+var _depositoMovimientos = [];
+var _depositoLastFetchAt = null;
+var _depositoIsLoading = false;
+
 window.openDepositoModal = function(){
   const m = document.getElementById('deposito-modal');
   if (m) m.classList.add('open');
+  // Refrescar si no hay data o si pasaron > 5 min desde el ultimo fetch.
+  const stale = !_depositoLastFetchAt || (Date.now() - _depositoLastFetchAt > 5 * 60 * 1000);
+  if (stale && !_depositoIsLoading) _refreshDepositoData();
+  _renderDeposito();
 };
 window.closeDepositoModal = function(){
   const m = document.getElementById('deposito-modal');
   if (m) m.classList.remove('open');
 };
+
+async function _refreshDepositoData(){
+  _depositoIsLoading = true;
+  _renderDeposito(); // muestra loading
+  try {
+    if (typeof firebase !== 'undefined' && firebase.functions) {
+      // Fetch real via Cloud Function proxy (CF setupGetMovimientos)
+      const fn = firebase.app().functions('southamerica-east1').httpsCallable('setupGetMovimientos');
+      const r = await fn({ dias: 60 });
+      _depositoMovimientos = (r.data && r.data.movimientos) || [];
+    } else {
+      throw new Error('firebase.functions no disponible');
+    }
+  } catch (e) {
+    console.warn('[deposito] CF no disponible, usando mock:', e.message);
+    // Fallback: mock data con la estructura real validada empíricamente 2026-09-08.
+    _depositoMovimientos = _depositoMockData();
+  }
+  _depositoLastFetchAt = Date.now();
+  _depositoIsLoading = false;
+  _renderDeposito();
+}
+
+function _depositoMockData(){
+  // Mock basado en la estructura real de SETUP (probe 2026-09-08).
+  // Se usa mientras la CF setupGetMovimientos no este deployada.
+  return [
+    { id_nota_de_venta: '00015-127624', fecha: '2026-09-05', comprobante: 'PREPARACIÓN DE PEDIDO', cliente: 'Shimano', destinatario: 'SANTIAGO JAVIER', iddestinatario: 'C23272113629', items_count: 132, cantidad_total: 480, ubicacion: '005.002.007', zona: 'Zona S' },
+    { id_nota_de_venta: '00015-127589', fecha: '2026-09-03', comprobante: 'DESPACHO', cliente: 'Shimano', destinatario: 'BIKE GROUP SA', iddestinatario: 'C30707097465', items_count: 45, cantidad_total: 156, ubicacion: '005.001.003', zona: 'Zona N' },
+    { id_nota_de_venta: '00015-127578', fecha: '2026-09-02', comprobante: 'PREPARACIÓN DE PEDIDO', cliente: 'Shimano', destinatario: 'PESCAR.INFO SHOP', iddestinatario: 'C30711930392', items_count: 78, cantidad_total: 260, ubicacion: '005.003.012', zona: 'Zona E' },
+    { id_nota_de_venta: '00015-127544', fecha: '2026-08-30', comprobante: 'DESPACHO', cliente: 'Shimano', destinatario: 'REBORN SRL', iddestinatario: 'C30710852762', items_count: 22, cantidad_total: 90, ubicacion: '005.004.005', zona: 'Zona O' },
+  ];
+}
+
+function _renderDeposito(){
+  const container = document.getElementById('deposito-content');
+  if (!container) return;
+  if (_depositoIsLoading) {
+    container.innerHTML = '<div style="text-align:center;padding:40px 20px"><div style="font-size:32px;margin-bottom:12px">⏳</div><div style="color:var(--text-secondary);font-size:13px">Cargando estado del depósito...</div></div>';
+    return;
+  }
+  // Filter por buscador si esta seteado.
+  const q = (document.getElementById('deposito-search-input') || {}).value || '';
+  const qUpper = q.trim().toUpperCase();
+  let items = _depositoMovimientos;
+  if (qUpper) {
+    items = items.filter(m =>
+      String(m.destinatario || '').toUpperCase().includes(qUpper) ||
+      String(m.iddestinatario || '').toUpperCase().includes(qUpper) ||
+      String(m.id_nota_de_venta || '').toUpperCase().includes(qUpper) ||
+      String(m.idproducto || '').toUpperCase().includes(qUpper)
+    );
+  }
+  // Filter por estado si esta seteado.
+  const filtroEstado = (document.getElementById('deposito-filter-estado') || {}).value || '';
+  if (filtroEstado) items = items.filter(m => (m.comprobante || '') === filtroEstado);
+
+  // Contadores para header.
+  const totalPreparacion = _depositoMovimientos.filter(m => m.comprobante === 'PREPARACIÓN DE PEDIDO').length;
+  const totalDespacho = _depositoMovimientos.filter(m => m.comprobante === 'DESPACHO').length;
+  const lastAt = _depositoLastFetchAt ? new Date(_depositoLastFetchAt).toLocaleString('es-AR', {hour:'2-digit', minute:'2-digit'}) : '-';
+
+  const isMock = _depositoMovimientos.length > 0 && _depositoMovimientos.length <= 4;
+
+  let html = '';
+  // Barra de estado + refresh.
+  html += '<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap">';
+  html += '  <div style="display:flex;gap:8px;flex-wrap:wrap">';
+  html += '    <span style="background:#fef3c7;color:#78350f;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:700">📦 ' + totalPreparacion + ' en preparación</span>';
+  html += '    <span style="background:#dcfce7;color:#166534;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:700">🚚 ' + totalDespacho + ' despachados</span>';
+  html += '  </div>';
+  html += '  <div style="display:flex;gap:8px;align-items:center;font-size:11px;color:var(--text-muted)">';
+  html += '    <span>Última act: ' + lastAt + '</span>';
+  html += '    <button onclick="_refreshDepositoData()" style="background:#1e40af;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer">↻ Actualizar</button>';
+  html += '  </div>';
+  html += '</div>';
+  // Filtros.
+  html += '<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">';
+  html += '  <input type="search" id="deposito-search-input" placeholder="Buscar destinatario / N° nota / producto..." oninput="_renderDeposito()" value="' + escapeAttr(q) + '" style="flex:1;min-width:200px;padding:8px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12.5px;outline:none"/>';
+  html += '  <select id="deposito-filter-estado" onchange="_renderDeposito()" style="padding:8px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12.5px;outline:none;background:#fff">';
+  html += '    <option value="">Todos los estados</option>';
+  html += '    <option value="PREPARACIÓN DE PEDIDO"' + (filtroEstado === 'PREPARACIÓN DE PEDIDO' ? ' selected' : '') + '>📦 En preparación</option>';
+  html += '    <option value="DESPACHO"' + (filtroEstado === 'DESPACHO' ? ' selected' : '') + '>🚚 Despachado</option>';
+  html += '  </select>';
+  html += '</div>';
+  // Aviso mock si aplica.
+  if (isMock) {
+    html += '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:#7c2d12">';
+    html += '  ⚠️ <b>Datos de prueba</b>: la Cloud Function <code>setupGetMovimientos</code> aún no está deployada. Cuando el backend esté OK, esta vista trae los datos reales de SETUP.';
+    html += '</div>';
+  }
+  // Vacio.
+  if (items.length === 0) {
+    html += '<div style="text-align:center;padding:32px;color:var(--text-muted);font-size:13px">No se encontraron movimientos con los filtros actuales.</div>';
+    container.innerHTML = html;
+    return;
+  }
+  // Tabla.
+  html += '<div style="max-height:420px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:6px">';
+  html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+  html += '<thead style="background:#14315C;color:#fff;position:sticky;top:0;z-index:1">';
+  html += '<tr>';
+  html += '<th style="padding:8px 10px;text-align:left;font-weight:700;letter-spacing:.3px;text-transform:uppercase;font-size:10.5px">Estado</th>';
+  html += '<th style="padding:8px 10px;text-align:left;font-weight:700;letter-spacing:.3px;text-transform:uppercase;font-size:10.5px">Destinatario</th>';
+  html += '<th style="padding:8px 10px;text-align:left;font-weight:700;letter-spacing:.3px;text-transform:uppercase;font-size:10.5px">N° Nota</th>';
+  html += '<th style="padding:8px 10px;text-align:left;font-weight:700;letter-spacing:.3px;text-transform:uppercase;font-size:10.5px">Fecha</th>';
+  html += '<th style="padding:8px 10px;text-align:right;font-weight:700;letter-spacing:.3px;text-transform:uppercase;font-size:10.5px">Items</th>';
+  html += '<th style="padding:8px 10px;text-align:left;font-weight:700;letter-spacing:.3px;text-transform:uppercase;font-size:10.5px">Ubicación</th>';
+  html += '</tr></thead><tbody>';
+  items.forEach(m => {
+    const est = m.comprobante || '';
+    let estBadge = '';
+    if (est === 'PREPARACIÓN DE PEDIDO') estBadge = '<span style="background:#fef3c7;color:#78350f;padding:3px 8px;border-radius:10px;font-size:10.5px;font-weight:800;letter-spacing:.3px;white-space:nowrap">📦 EN PREPARACIÓN</span>';
+    else if (est === 'DESPACHO') estBadge = '<span style="background:#dcfce7;color:#166534;padding:3px 8px;border-radius:10px;font-size:10.5px;font-weight:800;letter-spacing:.3px;white-space:nowrap">🚚 DESPACHADO</span>';
+    else estBadge = '<span style="background:#e2e8f0;color:#475569;padding:3px 8px;border-radius:10px;font-size:10.5px;font-weight:800;letter-spacing:.3px;white-space:nowrap">' + escapeHtml(est) + '</span>';
+    const fechaStr = m.fecha ? String(m.fecha).slice(0, 10) : '-';
+    const itemsCount = m.items_count != null ? m.items_count : '';
+    const zonaStr = m.zona ? ' <span style="color:#94a3b8;font-size:10px">' + escapeHtml(m.zona) + '</span>' : '';
+    html += '<tr style="border-bottom:1px solid var(--border-subtle)">';
+    html += '<td style="padding:8px 10px">' + estBadge + '</td>';
+    html += '<td style="padding:8px 10px;font-weight:600">' + escapeHtml(m.destinatario || '-') + '<div style="font-size:10px;color:#94a3b8">' + escapeHtml(m.iddestinatario || '') + '</div></td>';
+    html += '<td style="padding:8px 10px;font-family:monospace;font-size:11.5px">' + escapeHtml(m.id_nota_de_venta || '-') + '</td>';
+    html += '<td style="padding:8px 10px;color:var(--text-secondary)">' + escapeHtml(fechaStr) + '</td>';
+    html += '<td style="padding:8px 10px;text-align:right;font-weight:700">' + itemsCount + '</td>';
+    html += '<td style="padding:8px 10px;font-family:monospace;font-size:11px;color:#64748b">' + escapeHtml(m.ubicacion || '-') + zonaStr + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  html += '<div style="margin-top:10px;font-size:11px;color:var(--text-muted);text-align:center">Fuente: SETUP WMS (nur-integra.setuponline.com.ar) · Depósito 1 · Nür Cono Sur SRL</div>';
+  container.innerHTML = html;
+}
 // v738 (2026-08-30): Dark Mode toggle REAL. Reemplaza openDarkModeModal
 // placeholder de v736. Decisiones (PLAN_DARK_MODE.md seccion 10):
 // - Firestore sync SI: userData/{uid}.themePreference para cross-device.
@@ -25607,30 +25754,25 @@ if ('serviceWorker' in navigator) {
   </div>
 </aside>
 
-<!-- v735 (2026-08-30): modal "Deposito" placeholder de la futura integracion con WMS SETUP.
-     Cuando este funcionando la integracion (post reunion 2026-09-02 - ver
-     Brief_Reunion_SETUP_Integracion.docx) aca va a mostrar timeline
-     Picking -> Armado -> Despachado -> Entregado por pedido. Por ahora solo muestra
-     "En construccion". -->
+<!-- v829 (2026-09-08): modal "Deposito" con integracion real SETUP WMS.
+     Consume /GetMovimientosSalida via CF proxy (setupGetMovimientos).
+     Muestra estado de cada pedido: 📦 EN PREPARACIÓN o 🚚 DESPACHADO.
+     Ver openDepositoModal() y _renderDeposito() para la logica JS. -->
 <div class="modal-overlay" id="deposito-modal" onclick="if(event.target===this)closeDepositoModal()">
-  <div class="modal-box" style="width:min(560px,94vw)">
+  <div class="modal-box" style="width:min(900px,96vw);max-height:92vh;display:flex;flex-direction:column">
     <div class="modal-head" style="background:linear-gradient(135deg,#0f4c81,#1e40af)">
       <div>
         <h2>Depósito</h2>
-        <div class="subt">Estado logístico en tiempo real de cada pedido</div>
+        <div class="subt">Estado logístico en tiempo real de cada pedido — SETUP WMS</div>
       </div>
       <button class="modal-close" onclick="closeDepositoModal()" aria-label="Cerrar">&times;</button>
     </div>
-    <div style="padding:28px 24px;text-align:center">
-      <div style="font-size:56px;line-height:1;margin-bottom:14px" aria-hidden="true">🚧</div>
-      <h3 style="margin:0 0 10px;font-size:16px;font-weight:800;color:var(--text-primary);letter-spacing:.4px;text-transform:uppercase">En construcción</h3>
-      <p style="margin:0 0 16px;font-size:13px;color:var(--text-secondary);line-height:1.5">
-        Acá vas a ver el <b>estado en tiempo real de cada pedido en el depósito</b>:
-        PICKING → ARMADO → DESPACHADO → ENTREGADO, con guía del transportista
-        y fecha estimada de entrega.
-      </p>
-      <div style="background:var(--bg-muted);border:1px dashed var(--border-default);border-radius:8px;padding:12px 14px;font-size:11.5px;color:var(--text-muted);line-height:1.5;text-align:left">
-        <b style="color:var(--text-secondary)">Estado de la integración:</b> reunión de kickoff técnico con el partner logístico (SETUP WMS) agendada para <b>martes 2026-09-02</b>. Post-reunión se define timeline de sandbox + go-live. Estimado 8-10 días de desarrollo una vez recibidas las credenciales.
+    <div style="padding:16px 20px;overflow-y:auto;flex:1">
+      <div id="deposito-content">
+        <div style="text-align:center;padding:40px 20px">
+          <div style="font-size:32px;margin-bottom:12px">⏳</div>
+          <div style="color:var(--text-secondary);font-size:13px">Iniciando...</div>
+        </div>
       </div>
     </div>
   </div>
