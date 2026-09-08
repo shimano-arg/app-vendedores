@@ -598,7 +598,56 @@ def sl_fetch_nested_per_doc(cfg, session, doc_entries, nav_path_template, nav_pr
 # ============================================================
 # Normalizacion: aplanar a rows para BigQuery
 # ============================================================
-def flatten_bp(bp: dict, sync_ts: str) -> dict:
+def load_ar_provinces_map_bq(cfg: dict, session) -> dict:
+    """
+    v3 (2026-09-08): mapping SAP Code -> Nombre canonico UPPERCASE para AR.
+    Copia funcional de load_ar_provinces_map en sync_sap_to_firestore.py.
+
+    Fuente: /b1s/v1/States?$filter=Country eq 'AR'&$select=Code,Name
+    Retorna: {'1': 'BUENOS AIRES', '2': 'CIUDAD AUTONOMA...', '13': 'SANTA FE', ...}
+
+    Si el lookup falla devuelve {} y state queda vacio en sap_bp_raw
+    (no aborta el sync). Log del sample para diagnostico.
+    """
+    result = {}
+    try:
+        path = "/b1s/v1/States?$filter=Country eq 'AR'&$select=Code,Name"
+        resp = session.get(f"{cfg['url']}{path}", timeout=30)
+        if resp.ok:
+            for state in resp.json().get('value', []):
+                code = str(state.get('Code', '')).strip()
+                name = str(state.get('Name', '')).strip().upper()
+                if code and name:
+                    result[code] = name
+        else:
+            log(f'[BP/provincias] HTTP {resp.status_code} en /States (state va vacio)')
+    except Exception as e:
+        log(f'[BP/provincias] WARN: {e} (state va vacio)')
+    log(f'[BP/provincias] {len(result)} codigos AR cargados desde SAP /States')
+    if result:
+        sample = list(result.items())[:5]
+        log(f'[BP/provincias] sample: {sample}')
+    return result
+
+
+def flatten_bp(bp: dict, sync_ts: str, provinces_map: dict = None) -> dict:
+    # v3 (2026-09-08): state ahora se pobla desde BPAddresses[].State (que trae
+    # el codigo interno SAP, ej '1', '2', '13') resuelto contra provinces_map
+    # a un nombre canonico en UPPERCASE (ej 'BUENOS AIRES', 'SANTA FE').
+    # Objetivo: eliminar la dependencia de C:\...\PowerBI\Bike\GEO.txt en el
+    # modelo TABLERO BIKE SAR — Power BI ahora se conecta directo a
+    # sap_bp_raw.state en lugar de un mapping local.
+    # Fuente: /b1s/v1/BusinessPartners?$expand=BPAddresses ; se toma el
+    # primer address con State no vacio (BPAddresses[0] suele ser Bill To).
+    state_code_raw = ''
+    state_name = ''
+    for addr in (bp.get('BPAddresses') or []):
+        code = (addr.get('State') or addr.get('State1') or '').strip()
+        if code:
+            state_code_raw = code
+            if provinces_map:
+                state_name = provinces_map.get(code, '')
+            break
     return {
         'card_code': bp.get('CardCode'),
         'card_name': bp.get('CardName'),
@@ -608,9 +657,12 @@ def flatten_bp(bp: dict, sync_ts: str) -> dict:
         'address': bp.get('Address'),
         'city': bp.get('City'),
         'zip_code': bp.get('ZipCode'),
-        # state queda en None por ahora (State1 fue removido del schema SL en
-        # 2026-07-08). Se puede extraer de BPAddresses en la vista Fase 2.
-        'state': None,
+        # state = NOMBRE canonico en uppercase (ej 'BUENOS AIRES', 'SANTA FE').
+        # Es lo que consume Power BI para el slicer de provincia.
+        'state': state_name.upper() if state_name else '',
+        # state_sap_code = codigo interno SAP (ej '1', '2', '13'). NO es codigo
+        # AFIP. Se guarda para traceability + eventual join con dim externa.
+        'state_sap_code': state_code_raw,
         'country': bp.get('Country'),
         'email': bp.get('EmailAddress'),
         'phone1': bp.get('Phone1'),
@@ -2448,13 +2500,21 @@ def main():
         # v2 (2026-09-07): campos de credit para tablero cobranzas Bike.
         'CreditLimit', 'MaxCommitment', 'CurrentAccountBalance',
     ]
+    # v3 (2026-09-08): $expand=BPAddresses para poder poblar state.
+    # State1 no vive en el schema top-level de BusinessPartners (removido
+    # 2026-07-08) pero SI en la subentidad BPAddresses. Con expand la
+    # respuesta trae el array BPAddresses inline por BP.
+    # Provincias map: /States?$filter=Country eq 'AR' → { '1': 'BUENOS AIRES', ... }.
+    # Reemplaza la dependencia local GEO.txt del modelo TABLERO BIKE SAR.
+    provinces_map = load_ar_provinces_map_bq(cfg, session)
     bps = sl_fetch_all(
         cfg, session, '/b1s/v1/BusinessPartners', 'BP',
         select_fields=bp_select,
         filter_expr="CardType eq 'cCustomer'",
         max_docs=max_docs,
+        expand_fields=['BPAddresses'],
     )
-    bp_rows = [flatten_bp(bp, sync_ts) for bp in bps]
+    bp_rows = [flatten_bp(bp, sync_ts, provinces_map=provinces_map) for bp in bps]
     load_to_bq(bq_client, BQ_TABLE_BP, bp_rows, 'BP', dry_run=dry_run)
 
     # === 2. Items (grupo PESCA con stock + precio)
