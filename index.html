@@ -5222,7 +5222,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v826';
+const APP_VERSION = 'v827';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -24349,11 +24349,19 @@ function attachFirebaseListeners(){
     }, err => console.error('userData listener', err));
   }
 
-  // 2) pedidos: admin/gerente/viewer ven TODOS (necesario para la pestaña
-  // Pedidos > Pendientes/Confirmados y sus filtros). Vendedor/interno solo
-  // los propios (where ownerUid == uid) para no contaminar su lista de
-  // 'mis pedidos'.
-  const ownPedidosQuery = (userRole === 'admin' || userRole === 'gerente' || userRole === 'viewer')
+  // 2) pedidos: admin/gerente/viewer/interno ven TODOS (necesario para la
+  // pestaña Pedidos > Pendientes/Confirmados y sus filtros). Solo vendedor
+  // (VDE) ve los propios (where ownerUid == uid) para no contaminar su
+  // lista de 'mis pedidos'.
+  //
+  // v827 (2026-09-08): agregado 'interno' al grupo de rol full-access.
+  // Pedido de Mariano: los VDI (Santiago e Ioannis) necesitan ver TODOS
+  // los pedidos confirmados sin importar de que vendedor, para hacer
+  // seguimiento comercial cruzado con los VDE. Firestore Rules ya lo
+  // permitian (line 67: list if isAdminOrGerente() || isInterno() ||
+  // (isVendor() && ownsDoc())); solo faltaba habilitarlo en el listener
+  // client-side.
+  const ownPedidosQuery = (userRole === 'admin' || userRole === 'gerente' || userRole === 'viewer' || userRole === 'interno')
     ? fbDb.collection('pedidos')
     : fbDb.collection('pedidos').where('ownerUid', '==', currentUser.uid);
   unsubPedidosOwn = ownPedidosQuery.onSnapshot(qs => {
