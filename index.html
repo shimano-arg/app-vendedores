@@ -5239,7 +5239,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v835';
+const APP_VERSION = 'v836';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15149,10 +15149,23 @@ async function _refreshDepositoData(){
   _renderDeposito(); // muestra loading
   try {
     if (typeof firebase !== 'undefined' && firebase.functions) {
-      // Fetch real via Cloud Function proxy (CF setupGetMovimientos)
-      const fn = firebase.app().functions('southamerica-east1').httpsCallable('setupGetMovimientos');
-      const r = await fn({ dias: _depositoRangoDias || 60 });
-      _depositoMovimientos = (r.data && r.data.movimientos) || [];
+      // v836 (2026-09-08): timeout defensivo client-side para evitar spinner
+      // infinito. Aunque la CF ejecuta bien, si el response payload es grande
+      // (365d = miles de movs) la Promise puede colgarse en algunas conexiones.
+      // Firebase httpsCallable acepta timeout via 2do arg de httpsCallable().
+      const timeoutMs = 90000; // 90s
+      const fn = firebase.app().functions('southamerica-east1').httpsCallable(
+        'setupGetMovimientos',
+        { timeout: timeoutMs }
+      );
+      // Race con timeout duro por si el SDK ignora el timeout config.
+      const callP = fn({ dias: _depositoRangoDias || 60 });
+      const timeoutP = new Promise((_, reject) => setTimeout(
+        () => reject(new Error('Timeout ' + timeoutMs + 'ms — la CF tardo demasiado. Probar rango menor.')),
+        timeoutMs
+      ));
+      const r = await Promise.race([callP, timeoutP]);
+      _depositoMovimientos = (r && r.data && r.data.movimientos) || [];
     } else {
       throw new Error('firebase.functions no disponible');
     }
