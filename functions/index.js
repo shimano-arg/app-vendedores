@@ -59,6 +59,14 @@ const GMAIL_APP_PASSWORD = defineSecret('GMAIL_APP_PASSWORD');
 // (nur-prueba). Ver setupGetMovimientos abajo + probe scripts en
 // Desktop\SETUP-INTEGRACION\ para diagnostico empirico de la API.
 const SETUP_API_PASSWORD = defineSecret('SETUP_API_PASSWORD');
+// v830 (2026-09-08): cache in-memory del mapa {codigo_producto: 'B'|'F'} para
+// clasificar cada movimiento por division sin re-consultar /GetProductos en
+// cada request. Firebase Functions v2 mantiene la instancia warm ~15 min ->
+// primer request tarda ~3s (fetch 10k productos), subsecuentes tardan ~1s.
+// TTL 30 min por si SETUP agrega productos nuevos.
+/** @type {Record<string, 'B'|'F'|'?'> | null} */
+let setupProductosCache = null;
+let setupProductosCacheAt = 0;
 const REGION = 'southamerica-east1';
 const PROJECT_ID = process.env.GCLOUD_PROJECT || 'app-vendedores-shimano';
 const BACKUP_BUCKET = `${PROJECT_ID}-backups`;
@@ -783,6 +791,13 @@ export const setupGetMovimientos = onCall(
     const dias = Number(request.data && request.data.dias) || 60;
     const filterCardCode = String((request.data && request.data.cardCode) || '').trim();
 
+    // v830 (2026-09-08): cache TTL 30 min declarado a module-scope arriba
+    // (setupProductosCache / setupProductosCacheAt). Reset si expiro.
+    if (setupProductosCacheAt && Date.now() - setupProductosCacheAt > 30 * 60 * 1000) {
+      setupProductosCache = null;
+      setupProductosCacheAt = 0;
+    }
+
     try {
       // 1) Login → Bearer token
       const rLogin = await globalThis.fetch(`${SETUP_URL}/CreateToken`, {
@@ -856,7 +871,7 @@ export const setupGetMovimientos = onCall(
         );
       }
 
-      // 3) Parsear VFPData wrapper y aplanar por nota (agregando counts).
+      // 3) Parsear VFPData wrapper.
       const parsed = JSON.parse(resp.body);
       const data = parsed.VFPData;
       if (!data) {
@@ -866,7 +881,61 @@ export const setupGetMovimientos = onCall(
       const arrKey = Object.keys(data).find((k) => Array.isArray(data[k]));
       const arr = arrKey ? data[arrKey] : [];
 
-      // 4) Agregar por id_nota_de_venta — 1 fila = 1 nota (con contadores).
+      // 4) v830 (2026-09-08): fetch /GetProductos si no esta en cache.
+      // SETUP tipa cada producto con tipo_mercaderia: 1=Fishing, 2=Bike.
+      // Necesario para clasificar cada nota como BIKE/FISHING/MIXTO.
+      if (!setupProductosCache) {
+        console.log('setupGetMovimientos: cargando cache productos desde SETUP');
+        const rProds = await new Promise((resolve, reject) => {
+          const uProds = new URL(`${SETUP_URL}/GetProductos`);
+          const req = https.request(
+            {
+              hostname: uProds.hostname,
+              port: uProds.port || 443,
+              path: uProds.pathname,
+              method: 'GET',
+              headers: { Authorization: `Bearer ${token}` },
+            },
+            (r) => {
+              /** @type {Buffer[]} */
+              const chunks = [];
+              r.on('data', (/** @type {Buffer} */ c) => chunks.push(c));
+              r.on('end', () =>
+                resolve({
+                  status: r.statusCode || 0,
+                  body: Buffer.concat(chunks).toString('utf-8'),
+                })
+              );
+            }
+          );
+          req.on('error', reject);
+          req.end();
+        });
+        if (rProds.status === 200) {
+          const pParsed = JSON.parse(rProds.body);
+          const pData = pParsed.VFPData;
+          const pKey = pData && Object.keys(pData).find((k) => Array.isArray(pData[k]));
+          const productos = pKey ? pData[pKey] : [];
+          /** @type {Record<string, 'B'|'F'|'?'>} */
+          const map = {};
+          for (const p of productos) {
+            const t = String(p.tipo_mercaderia || '');
+            map[p.codigo_producto] = t === '2' ? 'B' : t === '1' ? 'F' : '?';
+          }
+          setupProductosCache = map;
+          setupProductosCacheAt = Date.now();
+          console.log(`setupGetMovimientos: cache productos ${productos.length} items`);
+        } else {
+          console.warn(
+            `setupGetMovimientos: /GetProductos fallo status=${rProds.status}, sin clasificacion division`
+          );
+          setupProductosCache = {};
+        }
+      }
+      const prodMap = setupProductosCache || {};
+
+      // 5) Agregar por id_nota_de_venta — 1 fila = 1 nota (con contadores).
+      // Rastreamos cuantos productos son BIKE vs FISHING para asignar division.
       const byNota = new Map();
       for (const m of arr) {
         const k = m.id_nota_de_venta || '(sin-nota)';
@@ -883,15 +952,46 @@ export const setupGetMovimientos = onCall(
             ubicacion: m.ubicacion,
             items_count: 0,
             cantidad_total: 0,
+            _bikeCount: 0,
+            _fishingCount: 0,
+            _unknownCount: 0,
           });
         }
         const acc = byNota.get(k);
         acc.items_count += 1;
         acc.cantidad_total += Number(m.cantidad || 0);
+        const tipo = prodMap[m.idproducto] || '?';
+        if (tipo === 'B') acc._bikeCount++;
+        else if (tipo === 'F') acc._fishingCount++;
+        else acc._unknownCount++;
       }
-      const movimientos = Array.from(byNota.values()).sort((a, b) =>
-        String(b.fecha || '').localeCompare(String(a.fecha || ''))
-      );
+
+      // 6) Asignar division consolidada por nota + limpiar campos internos.
+      const movimientos = Array.from(byNota.values())
+        .map((n) => {
+          let division = 'DESCONOCIDO';
+          if (n._bikeCount > 0 && n._fishingCount === 0) division = 'BIKE';
+          else if (n._fishingCount > 0 && n._bikeCount === 0) division = 'FISHING';
+          else if (n._bikeCount > 0 && n._fishingCount > 0) division = 'MIXTO';
+          return {
+            id_nota_de_venta: n.id_nota_de_venta,
+            fecha: n.fecha,
+            comprobante: n.comprobante,
+            cliente: n.cliente,
+            destinatario: n.destinatario,
+            iddestinatario: n.iddestinatario,
+            deposito: n.deposito,
+            zona: n.zona,
+            ubicacion: n.ubicacion,
+            items_count: n.items_count,
+            cantidad_total: n.cantidad_total,
+            division,
+            bike_items: n._bikeCount,
+            fishing_items: n._fishingCount,
+            unknown_items: n._unknownCount,
+          };
+        })
+        .sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
 
       return { movimientos, notasCount: movimientos.length, lineasTotales: arr.length };
     } catch (e) {
