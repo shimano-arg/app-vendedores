@@ -815,6 +815,11 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
         'cat': _cat_local or _cat_sap,
         'fam': _fam_local or _fam_sap,
         'sub': _sub_local or _sub_sap,
+        # v827+ (2026-09-08): UDF U_CICLO_PROD para detectar PRE LANZAMIENTO
+        # (SKUs con stock fisico pero no vendibles). App vendedores lo trata
+        # como stock=0 + badge; tablero PBI puede filtrar/segmentar por este
+        # campo. Valores tipicos: 'PRE LANZAMIENTO', 'ACTIVO', 'DISCONTINUADO', ''
+        'ciclo_producto': (item.get('U_CICLO_PROD') or '').strip() if item.get('U_CICLO_PROD') else None,
         '_sync_timestamp': sync_ts,
     }
 
@@ -2477,7 +2482,9 @@ def main():
     # no Exception). Capturamos BaseException para no perder el fallback.
     # Confirmado prod 2026-08-14: los UDFs no se llaman U_CATEGORIA/U_FAMILIA/
     # U_SUBFAMILIA en este SAP - los UDFs reales hay que consultarlos a David.
-    item_select = item_select_base + ['U_CATEGORIA', 'U_FAMILIA', 'U_SUBFAMILIA']
+    # v827+ (2026-09-08): U_CICLO_PROD para detectar PRE LANZAMIENTO en Pesca.
+    # Alimenta el tablero PBI cuando se necesite filtrar/marcar SKUs no-vendibles.
+    item_select = item_select_base + ['U_CATEGORIA', 'U_FAMILIA', 'U_SUBFAMILIA', 'U_CICLO_PROD']
     try:
         items = sl_fetch_all(
             cfg, session, '/b1s/v1/Items', 'ITEMS',
