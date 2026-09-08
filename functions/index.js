@@ -823,65 +823,132 @@ export const setupGetMovimientos = onCall(
       // 2) Fetch movimientos — GET con body via node:http bypass.
       // fetch nativo (undici) valida spec y rechaza body en GET. Usamos
       // Node http/https directo para pasar body con method GET.
+      //
+      // v838 (2026-09-08): PAGINACION POR VENTANAS SEMANALES para eludir el
+      // hard-limit de 500 lineas por respuesta que impone SETUP (probado
+      // empiricamente 2026-09-08 en probe-por-que-10.mjs). Ningun parametro
+      // estandar de paginacion funciona (LimitCount, Offset, Page, Skip, etc.);
+      // pero Fecha_desde/Fecha_hasta SI filtra correctamente. Estrategia:
+      // trocear el rango pedido en ventanas de 7 dias y hacer requests en
+      // paralelo. Cada semana usualmente cabe muy debajo de 500 lineas
+      // (probe mostro 180 lineas en 7d recientes = ok con margen). Luego
+      // dedup por (id_nota + fecha + comprobante + idproducto) al mergear.
       const https = await import('node:https');
       const { URL } = await import('node:url');
       const today = new Date();
-      const desde = new Date(today.getTime() - dias * 24 * 60 * 60 * 1000);
-      const filtros = {
-        ID_Nota_de_venta: '',
-        ID_Cliente: '',
-        ID_Destinatario: filterCardCode,
-        Codigo_deposito: 1,
-        Fecha_desde: desde.toISOString().slice(0, 10),
-        Fecha_hasta: today.toISOString().slice(0, 10),
-      };
-      const bodyStr = JSON.stringify(filtros);
+      const WINDOW_DIAS = 7;
+
+      /** @type {{desde: string, hasta: string}[]} */
+      const windows = [];
+      for (let offset = 0; offset < dias; offset += WINDOW_DIAS) {
+        const hastaD = new Date(today.getTime() - offset * 24 * 60 * 60 * 1000);
+        const desdeD = new Date(
+          today.getTime() - Math.min(offset + WINDOW_DIAS, dias) * 24 * 60 * 60 * 1000
+        );
+        windows.push({
+          desde: desdeD.toISOString().slice(0, 10),
+          hasta: hastaD.toISOString().slice(0, 10),
+        });
+      }
+      console.log(`setupGetMovimientos: dias=${dias} → ${windows.length} ventanas semanales`);
+
       const u = new URL(`${SETUP_URL}/GetMovimientosSalida`);
 
-      /** @type {{status: number, body: string}} */
-      const resp = await new Promise((resolve, reject) => {
-        const req = https.request(
-          {
-            hostname: u.hostname,
-            port: u.port || 443,
-            path: u.pathname,
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'Content-Length': Buffer.byteLength(bodyStr),
-              Authorization: `Bearer ${token}`,
-            },
-          },
-          (r) => {
-            /** @type {Buffer[]} */
-            const chunks = [];
-            r.on('data', (/** @type {Buffer} */ c) => chunks.push(c));
-            r.on('end', () =>
-              resolve({ status: r.statusCode || 0, body: Buffer.concat(chunks).toString('utf-8') })
+      /**
+       * Fetch una ventana. Devuelve el array de lineas o null en caso de error
+       * transitorio (para no bloquear las otras ventanas).
+       * @param {{desde: string, hasta: string}} w
+       * @returns {Promise<any[]>}
+       */
+      async function fetchWindow(w) {
+        const filtros = {
+          ID_Nota_de_venta: '',
+          ID_Cliente: '',
+          ID_Destinatario: filterCardCode,
+          Codigo_deposito: 1,
+          Fecha_desde: w.desde,
+          Fecha_hasta: w.hasta,
+        };
+        const bodyStr = JSON.stringify(filtros);
+        try {
+          /** @type {{status: number, body: string}} */
+          const resp = await new Promise((resolve, reject) => {
+            const req = https.request(
+              {
+                hostname: u.hostname,
+                port: u.port || 443,
+                path: u.pathname,
+                method: 'GET',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Content-Length': Buffer.byteLength(bodyStr),
+                  Authorization: `Bearer ${token}`,
+                },
+              },
+              (r) => {
+                /** @type {Buffer[]} */
+                const chunks = [];
+                r.on('data', (/** @type {Buffer} */ c) => chunks.push(c));
+                r.on('end', () =>
+                  resolve({
+                    status: r.statusCode || 0,
+                    body: Buffer.concat(chunks).toString('utf-8'),
+                  })
+                );
+              }
             );
+            req.on('error', reject);
+            req.write(bodyStr);
+            req.end();
+          });
+          if (resp.status !== 200) {
+            console.warn(
+              `setupGetMovimientos: ventana ${w.desde}→${w.hasta} status=${resp.status} body=${resp.body.slice(0, 120)}`
+            );
+            return [];
           }
-        );
-        req.on('error', reject);
-        req.write(bodyStr);
-        req.end();
-      });
-
-      if (resp.status !== 200) {
-        throw new HttpsError(
-          'internal',
-          `SETUP /GetMovimientosSalida status=${resp.status} body=${resp.body.slice(0, 200)}`
-        );
+          const parsed = JSON.parse(resp.body);
+          const data = parsed.VFPData;
+          if (!data) return [];
+          const arrKey = Object.keys(data).find((k) => Array.isArray(data[k]));
+          return arrKey ? data[arrKey] : [];
+        } catch (err) {
+          console.warn(
+            `setupGetMovimientos: ventana ${w.desde}→${w.hasta} error=${err && err.message}`
+          );
+          return [];
+        }
       }
 
-      // 3) Parsear VFPData wrapper.
-      const parsed = JSON.parse(resp.body);
-      const data = parsed.VFPData;
-      if (!data) {
-        // Sin data — respuesta valida pero vacia (comun en sandbox).
+      // Fetch en paralelo (12 semanas × ~2s c/u ≈ 3s wall-clock con paralelismo).
+      const perWindow = await Promise.all(windows.map(fetchWindow));
+
+      // Dedup por composite key. Ventanas adyacentes pueden solapar en el borde
+      // (Fecha_desde/hasta inclusivos ambos), asi que una misma linea podria
+      // aparecer 2 veces. Key = id_nota + fecha + comprobante + idproducto +
+      // cantidad para minimizar colisiones falsas.
+      const seen = new Set();
+      /** @type {any[]} */
+      const arr = [];
+      let dupsCount = 0;
+      for (const lines of perWindow) {
+        for (const m of lines) {
+          const key = `${m.id_nota_de_venta}|${m.fecha}|${m.comprobante}|${m.idproducto}|${m.cantidad}`;
+          if (seen.has(key)) {
+            dupsCount++;
+            continue;
+          }
+          seen.add(key);
+          arr.push(m);
+        }
+      }
+      console.log(
+        `setupGetMovimientos: total ${arr.length} lineas post-dedup (dedup=${dupsCount} dup)`
+      );
+
+      if (arr.length === 0) {
         return { movimientos: [], notasCount: 0 };
       }
-      const arrKey = Object.keys(data).find((k) => Array.isArray(data[k]));
-      const arr = arrKey ? data[arrKey] : [];
 
       // 4) v830 (2026-09-08): fetch /GetProductos si no esta en cache.
       // SETUP tipa cada producto con tipo_mercaderia: 1=Fishing, 2=Bike.
