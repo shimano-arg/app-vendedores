@@ -2877,7 +2877,13 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
     <!-- v476 (2026-08-12): renombrado. 'Backorder' = SKUs pedidos SIN stock (puro).
          'SAP Asignado - Con Stock' = SKUs pedidos donde ya llego mercaderia. -->
     <button class="btn-zonas" id="backorders-btn" onclick="openBackordersModal()" title="Backorder: SKUs con demanda que no podemos cubrir (sin stock) - urgentes de importar" style="background:#c2410c;color:#fff;display:none">Backorder <span id="backorders-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
-    <button class="btn-zonas" id="asignacion-backorder-btn" onclick="openAsignacionBackorderModal()" title="Stock Asignado: BO que ya esta disponible — llego mercaderia, ver que clientes lo tenian pedido para avisarles" style="background:var(--color-success);color:#fff;display:none">Stock Asignado (BO que ya est&aacute; disponible) <span id="asignacion-backorder-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
+    <button class="btn-zonas" id="asignacion-backorder-btn" onclick="openAsignacionBackorderModal()" title="Stock Asignado: BO que ya esta disponible — llego mercaderia, ver que clientes lo tenian pedido para avisarles" style="background:var(--color-success);color:#fff;display:none">Stock Asignado <span id="asignacion-backorder-btn-count" style="background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px;display:none">0</span></button>
+    <!-- v831 (2026-09-08): boton "Deposito" en la home. Antes solo se accedia via
+         menu lateral (mdr-item) o el slot de "waitlist-btn" reasignado en v735.
+         Ahora directo desde la home mobile para simetria con Pedidos. Abre el
+         modal Deposito que consume SETUP WMS (v829-v830). Visible para todos
+         los roles (sin display:none). -->
+    <button class="btn-zonas" id="deposito-home-btn" onclick="openDepositoModal()" title="Depósito: estado de cada pedido en SETUP WMS (📦 en preparación / 🚚 despachado)" style="background:#0f4c81;color:#fff">&#127977; Dep&oacute;sito</button>
     <!-- v422 (2026-08-06): FORECAST admin-only (whitelist emails en src/domains/forecast.js).
          Modal compara ventas historicas (sku_ventas_snapshot BQ->Firestore) vs Sales Plan
          cargado por el user + politica de inventario (promedio YTD x 3 meses). -->
@@ -5222,7 +5228,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v830';
+const APP_VERSION = 'v831';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
