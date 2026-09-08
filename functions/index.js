@@ -833,8 +833,9 @@ export const setupGetMovimientos = onCall(
             },
           },
           (r) => {
+            /** @type {Buffer[]} */
             const chunks = [];
-            r.on('data', (c) => chunks.push(c));
+            r.on('data', (/** @type {Buffer} */ c) => chunks.push(c));
             r.on('end', () => resolve({ status: r.statusCode || 0, body: Buffer.concat(chunks).toString('utf-8') }));
           }
         );
