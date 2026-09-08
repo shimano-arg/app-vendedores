@@ -5228,7 +5228,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v831';
+const APP_VERSION = 'v832';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15102,7 +15102,10 @@ var _depositoLastFetchAt = null;
 var _depositoIsLoading = false;
 // v830 (2026-09-08): filtro por division (BIKE / FISHING / ambos).
 // Default: mostrar todos. El user toggle con botones dedicados.
-var _depositoFilterDivision = ''; // '' | 'BIKE' | 'FISHING'
+// v832 (2026-09-08): default 'FISHING' al abrir modal — Mariano pidio que
+// arranque en Pesca por default (mayoria del uso operativo). El user puede
+// tocar "Todos" o "Bike" con los botones toggle.
+var _depositoFilterDivision = 'FISHING';
 
 window.openDepositoModal = function(){
   const m = document.getElementById('deposito-modal');
@@ -15204,27 +15207,26 @@ function _renderDeposito(){
   html += '    <button onclick="_refreshDepositoData()" style="background:#1e40af;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer">↻ Actualizar</button>';
   html += '  </div>';
   html += '</div>';
-  // v830: botones toggle Pesca / Bike / Todos.
+  // v830/v832: botones toggle Pesca / Bike / Todos — flex:1 en mobile.
   const btnAllActive = !_depositoFilterDivision;
   const btnBikeActive = _depositoFilterDivision === 'BIKE';
   const btnFishActive = _depositoFilterDivision === 'FISHING';
   const btnStyle = (active, bgActive, bgInactive) =>
-    'padding:6px 14px;border:2px solid ' + (active ? bgActive : 'var(--border-default)') + ';border-radius:20px;background:' + (active ? bgActive : bgInactive) + ';color:' + (active ? '#fff' : 'var(--text-primary)') + ';font-size:12px;font-weight:700;cursor:pointer;transition:.15s;letter-spacing:.3px';
-  html += '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">';
-  html += '  <span style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-right:4px">División:</span>';
+    'flex:1 1 auto;min-width:0;padding:8px 6px;border:2px solid ' + (active ? bgActive : 'var(--border-default)') + ';border-radius:20px;background:' + (active ? bgActive : bgInactive) + ';color:' + (active ? '#fff' : 'var(--text-primary)') + ';font-size:11.5px;font-weight:700;cursor:pointer;transition:.15s;letter-spacing:.2px;white-space:nowrap';
+  html += '<div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">';
   html += '  <button onclick="_setDepositoFilterDivision(\'\')" style="' + btnStyle(btnAllActive, '#475569', '#fff') + '">Todos <span style="opacity:.7">' + _depositoMovimientos.length + '</span></button>';
   html += '  <button onclick="_setDepositoFilterDivision(\'FISHING\')" style="' + btnStyle(btnFishActive, '#0891b2', '#f0f9ff') + '">🎣 Pesca <span style="opacity:.7">' + totalFishing + '</span></button>';
   html += '  <button onclick="_setDepositoFilterDivision(\'BIKE\')" style="' + btnStyle(btnBikeActive, '#dc2626', '#fef2f2') + '">🚴 Bike <span style="opacity:.7">' + totalBike + '</span></button>';
-  if (totalMixto > 0) {
-    html += '  <span style="font-size:10.5px;color:var(--text-muted);font-style:italic">(' + totalMixto + ' pedidos mixtos)</span>';
-  }
   html += '</div>';
-  // Filtros (búsqueda + estado).
-  html += '<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">';
-  html += '  <input type="search" id="deposito-search-input" placeholder="Buscar destinatario / N° nota / producto..." oninput="_renderDeposito()" value="' + escapeAttr(q) + '" style="flex:1;min-width:200px;padding:8px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12.5px;outline:none"/>';
-  html += '  <select id="deposito-filter-estado" onchange="_renderDeposito()" style="padding:8px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12.5px;outline:none;background:#fff">';
+  if (totalMixto > 0) {
+    html += '<div style="margin-bottom:8px;font-size:10.5px;color:var(--text-muted);font-style:italic;text-align:center">' + totalMixto + ' pedidos mixtos incluidos</div>';
+  }
+  // Filtros (búsqueda + estado) — v832: mobile-friendly con flex:1 100%.
+  html += '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">';
+  html += '  <input type="search" id="deposito-search-input" placeholder="Buscar..." oninput="_renderDeposito()" value="' + escapeAttr(q) + '" style="flex:1 1 140px;min-width:0;padding:8px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12.5px;outline:none;box-sizing:border-box"/>';
+  html += '  <select id="deposito-filter-estado" onchange="_renderDeposito()" style="flex:0 0 auto;padding:8px 8px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12px;outline:none;background:#fff;max-width:100%">';
   html += '    <option value="">Todos los estados</option>';
-  html += '    <option value="PREPARACIÓN DE PEDIDO"' + (filtroEstado === 'PREPARACIÓN DE PEDIDO' ? ' selected' : '') + '>📦 En preparación</option>';
+  html += '    <option value="PREPARACIÓN DE PEDIDO"' + (filtroEstado === 'PREPARACIÓN DE PEDIDO' ? ' selected' : '') + '>📦 Preparación</option>';
   html += '    <option value="DESPACHO"' + (filtroEstado === 'DESPACHO' ? ' selected' : '') + '>🚚 Despachado</option>';
   html += '  </select>';
   html += '</div>';
