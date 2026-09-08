@@ -5239,7 +5239,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v834';
+const APP_VERSION = 'v835';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15123,6 +15123,11 @@ var _depositoFilterDivision = 'FISHING';
 // Al cambiar dispara _refreshDepositoData() para traer datos frescos con el
 // nuevo rango.
 var _depositoRangoDias = 60;
+// v835 (2026-09-08): flag explicito de fallback a mock. Antes se heuristicaba
+// por length<=4 lo cual daba falsos positivos cuando la CF devolvia pocos items
+// reales. Ahora seteamos true SOLO cuando el catch del fetch se dispara.
+var _depositoIsMockFlag = false;
+var _depositoLastError = '';
 
 window.openDepositoModal = function(){
   const m = document.getElementById('deposito-modal');
@@ -15139,6 +15144,8 @@ window.closeDepositoModal = function(){
 
 async function _refreshDepositoData(){
   _depositoIsLoading = true;
+  _depositoIsMockFlag = false;
+  _depositoLastError = '';
   _renderDeposito(); // muestra loading
   try {
     if (typeof firebase !== 'undefined' && firebase.functions) {
@@ -15150,8 +15157,9 @@ async function _refreshDepositoData(){
       throw new Error('firebase.functions no disponible');
     }
   } catch (e) {
-    console.warn('[deposito] CF no disponible, usando mock:', e.message);
-    // Fallback: mock data con la estructura real validada empíricamente 2026-09-08.
+    console.warn('[deposito] CF fallo, usando mock:', e && (e.message || e.code) || e);
+    _depositoIsMockFlag = true;
+    _depositoLastError = (e && (e.message || e.code)) || String(e);
     _depositoMovimientos = _depositoMockData();
   }
   _depositoLastFetchAt = Date.now();
@@ -15218,7 +15226,7 @@ function _renderDeposito(){
   const totalMixto = _depositoMovimientos.filter(m => m.division === 'MIXTO').length;
   const lastAt = _depositoLastFetchAt ? new Date(_depositoLastFetchAt).toLocaleString('es-AR', {hour:'2-digit', minute:'2-digit'}) : '-';
 
-  const isMock = _depositoMovimientos.length > 0 && _depositoMovimientos.length <= 4;
+  const isMock = _depositoIsMockFlag;
 
   let html = '';
   // Barra de estado + refresh.
@@ -15266,7 +15274,10 @@ function _renderDeposito(){
   // Aviso mock si aplica.
   if (isMock) {
     html += '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:#7c2d12">';
-    html += '  ⚠️ <b>Datos de prueba</b>: la Cloud Function <code>setupGetMovimientos</code> aún no está deployada. Cuando el backend esté OK, esta vista trae los datos reales de SETUP.';
+    html += '  ⚠️ <b>Datos de prueba</b> — la conexion con SETUP fallo. Reintenta con "↻ Actualizar" o probar con un rango menor.';
+    if (_depositoLastError) {
+      html += '<div style="margin-top:4px;font-size:10px;color:#78350f;font-family:monospace;opacity:.85">' + escapeHtml(_depositoLastError) + '</div>';
+    }
     html += '</div>';
   }
   // Vacio.

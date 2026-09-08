@@ -778,8 +778,8 @@ export const setupGetMovimientos = onCall(
     secrets: [SETUP_API_PASSWORD],
     cors: true,
     enforceAppCheck: false,
-    memory: '256MiB',
-    timeoutSeconds: 30,
+    memory: '512MiB',
+    timeoutSeconds: 300,
   },
   async (request) => {
     if (!request.auth) {
@@ -788,7 +788,9 @@ export const setupGetMovimientos = onCall(
 
     const SETUP_URL = 'https://nur-integra.setuponline.com.ar';
     const SETUP_USER = 'nur';
-    const dias = Number(request.data && request.data.dias) || 60;
+    // v835 (2026-09-08): dias hasta 365 (1 año). Timeout CF subido a 300s
+    // porque SETUP tarda mucho con rangos amplios + productos cache warm-up.
+    const dias = Math.min(365, Number(request.data && request.data.dias) || 60);
     const filterCardCode = String((request.data && request.data.cardCode) || '').trim();
 
     // v830 (2026-09-08): cache TTL 30 min declarado a module-scope arriba
