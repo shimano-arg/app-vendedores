@@ -632,8 +632,9 @@ def load_ar_provinces_map_bq(cfg: dict, session) -> dict:
 
 def flatten_bp(bp: dict, sync_ts: str, provinces_map: dict = None) -> dict:
     # v3 (2026-09-08): state ahora se pobla desde BPAddresses[].State (que trae
-    # el codigo interno SAP, ej '1', '2', '13') resuelto contra provinces_map
-    # a un nombre canonico en UPPERCASE (ej 'BUENOS AIRES', 'SANTA FE').
+    # el codigo AFIP con cero a la izquierda, ej '00'=CABA, '01'=Buenos Aires,
+    # '13'=Santa Fe) resuelto contra provinces_map a un nombre canonico en
+    # UPPERCASE (ej 'BUENOS AIRES', 'SANTA FE').
     # Objetivo: eliminar la dependencia de C:\...\PowerBI\Bike\GEO.txt en el
     # modelo TABLERO BIKE SAR — Power BI ahora se conecta directo a
     # sap_bp_raw.state en lugar de un mapping local.
@@ -660,8 +661,9 @@ def flatten_bp(bp: dict, sync_ts: str, provinces_map: dict = None) -> dict:
         # state = NOMBRE canonico en uppercase (ej 'BUENOS AIRES', 'SANTA FE').
         # Es lo que consume Power BI para el slicer de provincia.
         'state': state_name.upper() if state_name else '',
-        # state_sap_code = codigo interno SAP (ej '1', '2', '13'). NO es codigo
-        # AFIP. Se guarda para traceability + eventual join con dim externa.
+        # state_sap_code = codigo AFIP raw (con cero a la izquierda: '00',
+        # '01', ..., '24'). Preservado como texto (NO int) para no perder
+        # el cero de CABA. Se guarda para traceability + eventual join.
         'state_sap_code': state_code_raw,
         'country': bp.get('Country'),
         'email': bp.get('EmailAddress'),
@@ -2490,29 +2492,22 @@ def main():
     # Confirmado responden 200 OK: 106 clientes con CreditLimit > 0 (4.4% de 2.410
     # activos), promedio $8.8M, max $289M (PESCAR.INFO SHOP). Ver INFORME_SAP_
     # INVESTIGACION_2026-09-07.md en Desktop\BIKE DASHBOARD\ para detalle.
-    bp_select = [
-        'CardCode', 'CardName', 'CardType', 'GroupCode', 'Currency',
-        'Address', 'City', 'ZipCode', 'Country',
-        'EmailAddress', 'Phone1', 'Cellular',
-        'PayTermsGrpCode',
-        'SalesPersonCode', 'Valid', 'Frozen',
-        'CreateDate', 'UpdateDate',
-        # v2 (2026-09-07): campos de credit para tablero cobranzas Bike.
-        'CreditLimit', 'MaxCommitment', 'CurrentAccountBalance',
-    ]
-    # v3 (2026-09-08): $expand=BPAddresses para poder poblar state.
-    # State1 no vive en el schema top-level de BusinessPartners (removido
-    # 2026-07-08) pero SI en la subentidad BPAddresses. Con expand la
-    # respuesta trae el array BPAddresses inline por BP.
-    # Provincias map: /States?$filter=Country eq 'AR' → { '1': 'BUENOS AIRES', ... }.
-    # Reemplaza la dependencia local GEO.txt del modelo TABLERO BIKE SAR.
+    # v3.2 (2026-09-08): NO $select — traer schema completo del BP.
+    # Motivo: probamos $select + $expand=BPAddresses y este SL devuelve HTTP 400
+    # "Cannot expand invalid navigation property 'BPAddresses' for entity type
+    # 'BusinessPartner'". Sin $select, el schema completo incluye BPAddresses
+    # inline automaticamente (mismo comportamiento que aprovecha
+    # sync_sap_to_firestore.py:874 con exito). Payload x BP es mas grande
+    # pero manejable para ~2700 BPs.
+    # Provincias map: /States?$filter=Country eq 'AR' → { '00': 'CIUDAD AUTONOMA...', ... }
+    # Codigos con cero a la izquierda (AFIP). Reemplaza la dependencia local
+    # GEO.txt del modelo TABLERO BIKE SAR.
     provinces_map = load_ar_provinces_map_bq(cfg, session)
     bps = sl_fetch_all(
         cfg, session, '/b1s/v1/BusinessPartners', 'BP',
-        select_fields=bp_select,
+        select_fields=None,
         filter_expr="CardType eq 'cCustomer'",
         max_docs=max_docs,
-        expand_fields=['BPAddresses'],
     )
     bp_rows = [flatten_bp(bp, sync_ts, provinces_map=provinces_map) for bp in bps]
     load_to_bq(bq_client, BQ_TABLE_BP, bp_rows, 'BP', dry_run=dry_run)
