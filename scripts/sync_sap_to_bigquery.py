@@ -2521,7 +2521,41 @@ def main():
         max_docs=max_docs,
     )
     bp_rows = [flatten_bp(bp, sync_ts, provinces_map=provinces_map) for bp in bps]
-    load_to_bq(bq_client, BQ_TABLE_BP, bp_rows, 'BP', dry_run=dry_run)
+    # v3.4 (2026-09-08): schema explicito — autodetect infirio state_sap_code
+    # como INTEGER (perdio el cero a la izquierda: '00' CABA -> 0). Ahora
+    # forzamos STRING para preservar el codigo AFIP como texto de 2 chars.
+    bp_schema = [
+        bigquery.SchemaField('card_code', 'STRING'),
+        bigquery.SchemaField('card_name', 'STRING'),
+        bigquery.SchemaField('card_type', 'STRING'),
+        bigquery.SchemaField('group_code', 'INT64'),
+        bigquery.SchemaField('currency', 'STRING'),
+        bigquery.SchemaField('address', 'STRING'),
+        bigquery.SchemaField('city', 'STRING'),
+        bigquery.SchemaField('zip_code', 'STRING'),
+        bigquery.SchemaField('state', 'STRING'),
+        bigquery.SchemaField('state_sap_code', 'STRING'),  # ← forzado a STRING
+        bigquery.SchemaField('country', 'STRING'),
+        bigquery.SchemaField('email', 'STRING'),
+        bigquery.SchemaField('phone1', 'STRING'),
+        bigquery.SchemaField('cellular', 'STRING'),
+        bigquery.SchemaField('pay_terms_group_code', 'INT64'),
+        bigquery.SchemaField('credit_line', 'FLOAT64'),
+        bigquery.SchemaField('credit_limit', 'FLOAT64'),
+        bigquery.SchemaField('max_commitment', 'FLOAT64'),
+        bigquery.SchemaField('current_account_balance', 'FLOAT64'),
+        bigquery.SchemaField('sales_person_code', 'INT64'),
+        bigquery.SchemaField('notes', 'STRING'),
+        bigquery.SchemaField('valid', 'STRING'),
+        bigquery.SchemaField('frozen', 'STRING'),
+        bigquery.SchemaField('create_date', 'STRING'),
+        bigquery.SchemaField('update_date', 'STRING'),
+        bigquery.SchemaField('_sync_timestamp', 'STRING'),
+    ]
+    _load_to_bq_with_schema(
+        bq_client, BQ_TABLE_BP, bp_rows, 'BP',
+        schema=bp_schema, dry_run=dry_run,
+    )
 
     # === 2. Items (grupo PESCA con stock + precio)
     pesca_code = resolve_pesca_group_code(cfg, session)
