@@ -977,7 +977,8 @@ export const setupGetMovimientos = onCall(
         // Track comprobante flags
         const comp = String(m.comprobante || '').toUpperCase();
         if (comp === 'DESPACHO') acc._hasDespacho = true;
-        else if (comp === 'PREPARACIÓN DE PEDIDO' || comp === 'PREPARACION DE PEDIDO') acc._hasPreparacion = true;
+        else if (comp === 'PREPARACIÓN DE PEDIDO' || comp === 'PREPARACION DE PEDIDO')
+          acc._hasPreparacion = true;
         else if (comp) acc._hasOtro = m.comprobante;
         // Fecha = max de todas las lineas (mas reciente)
         if (m.fecha && (!acc.fecha || String(m.fecha) > String(acc.fecha))) {
