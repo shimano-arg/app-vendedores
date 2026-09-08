@@ -757,7 +757,8 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
         except (TypeError, ValueError):
             return None
     total_qty = 0.0
-    whs_stock = {}
+    whs_stock = {}      # v839+ (2026-09-08): valores = InStock - Committed (NETO)
+    whs_committed = {}  # v839+: committed puro por warehouse
     # v289 iter2: costo ponderado por warehouse (SUM stock*costo / SUM stock).
     # StandardAveragePrice viene por deposito en algunos SAP; si no, dejamos None.
     weighted_cost_num = 0.0
@@ -765,10 +766,18 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
     for w in (item.get('ItemWarehouseInfoCollection') or []):
         whs_code = w.get('WarehouseCode') or ''
         try:
-            qty = float(w.get('InStock') or 0)
+            in_stock = float(w.get('InStock') or 0)
+            cmt = float(w.get('Committed') or 0)
         except (TypeError, ValueError):
-            qty = 0.0
+            in_stock = 0.0
+            cmt = 0.0
+        # v839+ (2026-09-08): stock NETO = InStock - Committed. Fix bug
+        # SKUs con committed=in_stock aparecian como "disponibles" en el CRM
+        # y llegaban a SAP como pedidos que despues quedaban en backorder.
+        qty = max(in_stock - cmt, 0)
         whs_stock[whs_code] = qty
+        if cmt > 0:
+            whs_committed[whs_code] = cmt
         if whs_code in NON_SALES_WHS:
             continue
         total_qty += qty
@@ -843,6 +852,8 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
         'update_date': item.get('UpdateDate'),
         'stock_total_sellable': int(round(total_qty)),
         'stock_by_warehouse_json': json.dumps(whs_stock, default=str) if whs_stock else None,
+        # v839+ (2026-09-08): committed por warehouse. Transparencia + join.
+        'committed_by_warehouse_json': json.dumps(whs_committed, default=str) if whs_committed else None,
         'price_pesca_ars': price_pesca,
         # v289+: costos del item (2 fuentes de SAP para redundancia).
         # Power BI usa COALESCE(cost_avg_ars, cost_last_purchase_ars) para
@@ -938,16 +949,23 @@ def flatten_item_bike(item: dict, sync_ts: str) -> dict:
             return None
 
     # === Stock por warehouse ===
+    # v839+ (2026-09-08): stock NETO = InStock - Committed (fix Mariano).
     stock_sellable = 0.0
     stock_transito = 0.0
     whs_stock = {}
+    whs_committed = {}
     for w in (item.get('ItemWarehouseInfoCollection') or []):
         whs_code = w.get('WarehouseCode') or ''
         try:
-            qty = float(w.get('InStock') or 0)
+            in_stock = float(w.get('InStock') or 0)
+            cmt = float(w.get('Committed') or 0)
         except (TypeError, ValueError):
-            qty = 0.0
+            in_stock = 0.0
+            cmt = 0.0
+        qty = max(in_stock - cmt, 0)
         whs_stock[whs_code] = qty
+        if cmt > 0:
+            whs_committed[whs_code] = cmt
         if whs_code in BIKE_SALES_WHS:
             stock_sellable += qty
         if whs_code == BIKE_TRANSITO_WHS:
@@ -999,6 +1017,8 @@ def flatten_item_bike(item: dict, sync_ts: str) -> dict:
         'stock_total_sellable': int(round(stock_sellable)),
         'stock_transito': int(round(stock_transito)),
         'stock_by_warehouse_json': json.dumps(whs_stock, default=str) if whs_stock else None,
+        # v839+ (2026-09-08): committed por warehouse.
+        'committed_by_warehouse_json': json.dumps(whs_committed, default=str) if whs_committed else None,
         # Precio + costos desde price lists (SL rechaza campos costo a nivel Item).
         'price_bike_usd': price_venta_usd,
         'cost_avg_ars': cost_ars,
@@ -2691,6 +2711,7 @@ def main():
         bigquery.SchemaField('stock_total_sellable', 'INT64'),
         bigquery.SchemaField('stock_transito', 'INT64'),
         bigquery.SchemaField('stock_by_warehouse_json', 'STRING'),
+        bigquery.SchemaField('committed_by_warehouse_json', 'STRING'),  # v839+
         bigquery.SchemaField('price_bike_usd', 'FLOAT64'),
         bigquery.SchemaField('cost_avg_ars', 'FLOAT64'),
         bigquery.SchemaField('cost_usd', 'FLOAT64'),

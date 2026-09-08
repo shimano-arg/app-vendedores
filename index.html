@@ -5239,7 +5239,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v838';
+const APP_VERSION = 'v839';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -5679,6 +5679,16 @@ let STOCK_QUANTITIES = {};
 //   '98' Cuarentena PESCA = bloqueado (no vendible aun)
 //   otros codigos (01/03/04/07) = agrupado como "Otros" en la UI
 let STOCK_WAREHOUSE_BREAKDOWN = {};
+// v839+ (2026-09-08): committed por warehouse. Escrito por
+// sync_sap_to_firestore.py como warehouseCommittedBreakdown.
+// Formato: {SKU: {whs_code: committed_qty}}. Solo SKUs con committed > 0.
+// Uso:
+//   1) UI modal Stock: mostrar "fisico X (Y committed)" para transparencia.
+//   2) Backend fix: STOCK_WAREHOUSE_BREAKDOWN[sku][whs] YA es InStock-Committed
+//      (disponible NETO), asi que el calculo libre = disp - reservado sigue OK.
+//   3) Gate agregar SKU al pedido: bloquear si qty > disponible neto - reservado
+//      (evita que llegue a SAP como pedido normal y despues quede en backorder).
+let STOCK_WAREHOUSE_COMMITTED = {};
 // v377+ (2026-08-02): backorder por SKU (sumatoria RemainingOpenQuantity de
 // SQ open). Se usa para computar "Stock Liberado" en el alert de busqueda:
 //   Stock Liberado = max(transito(whs 12) - backorder, 0)
@@ -22134,10 +22144,22 @@ window.queryStockLive = function(code, btn){
         }
       }
       const libre = Math.max(disp - reservado, 0);
+      // v839+ (2026-09-08): committed por whs. Sirve para mostrar transparencia
+      // "de esos X que estan fisicamente, Y estan committed a SO abiertas".
+      // Nota: disp YA es NETO (InStock - Committed) desde el backend v839+,
+      // asi que el "8" que ve el vendedor ya descuenta committed. Esta linea
+      // adicional solo aparece si committed > 0 (para explicar por que disp
+      // "bajo" respecto de lo que ven en SAP In Stock).
+      const cmtByWhs = STOCK_WAREHOUSE_COMMITTED[k] || null;
+      const committed11 = Number((cmtByWhs && cmtByWhs['11']) || 0);
       const lines = [
-        '✅ DISPONIBLE (dep. 11): ' + disp + ' unidades',
+        '✅ DISPONIBLE NETO (dep. 11): ' + disp + ' unidades',
         '🚚 EN TRANSITO (dep. 12): ' + transito + ' unidades',
       ];
+      if (committed11 > 0) {
+        lines.push('🔒 COMMITTED SAP (dep. 11 comprometido a SO abiertas): ' + committed11 + ' unidades');
+        lines.push('     ↳ fisico bruto SAP: ' + (disp + committed11) + ' unidades (disp neto = fisico − committed)');
+      }
       if (reservado > 0) {
         lines.push('🔒 UNIDADES RESERVADAS (pedido con stock): ' + reservado + ' unidades');
       }
@@ -22369,6 +22391,15 @@ function ensureStockSnapshotListener(){
       catch(e) { console.warn('[stock] no pude parsear warehouseBreakdown:', e); STOCK_WAREHOUSE_BREAKDOWN = {}; }
     } else {
       STOCK_WAREHOUSE_BREAKDOWN = {};
+    }
+    // v839+ (2026-09-08): warehouseCommittedBreakdown (committed por whs).
+    // Snapshots pre-v839 no lo tienen → queda {} y la UI simplemente no
+    // muestra el detalle committed (misma UX que antes, sin regresion).
+    if (typeof d.warehouseCommittedBreakdown === 'string') {
+      try { STOCK_WAREHOUSE_COMMITTED = JSON.parse(d.warehouseCommittedBreakdown) || {}; }
+      catch(e) { console.warn('[stock] no pude parsear warehouseCommittedBreakdown:', e); STOCK_WAREHOUSE_COMMITTED = {}; }
+    } else {
+      STOCK_WAREHOUSE_COMMITTED = {};
     }
     // v377+: backorderBySku (JSON string). Snapshot pre-v377 no lo tiene -> {}.
     if (typeof d.backorderBySku === 'string') {
