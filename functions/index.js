@@ -938,6 +938,11 @@ export const setupGetMovimientos = onCall(
 
       // 5) Agregar por id_nota_de_venta — 1 fila = 1 nota (con contadores).
       // Rastreamos cuantos productos son BIKE vs FISHING para asignar division.
+      // v837 (2026-09-08): FIX — antes se guardaba el PRIMER comprobante visto,
+      // perdiendo el estado DESPACHO cuando una nota tiene tanto PREPARACION
+      // como DESPACHO (pedido armado + despachado). Ahora trackeamos ambos y
+      // priorizamos DESPACHO como estado final. Tambien la fecha se toma
+      // como el MAX de todas las lineas (fecha del ultimo evento).
       const byNota = new Map();
       for (const m of arr) {
         const k = m.id_nota_de_venta || '(sin-nota)';
@@ -945,7 +950,7 @@ export const setupGetMovimientos = onCall(
           byNota.set(k, {
             id_nota_de_venta: k,
             fecha: m.fecha,
-            comprobante: m.comprobante,
+            fecha_desde: m.fecha,
             cliente: m.cliente,
             destinatario: m.destinatario,
             iddestinatario: m.iddestinatario,
@@ -957,6 +962,9 @@ export const setupGetMovimientos = onCall(
             _bikeCount: 0,
             _fishingCount: 0,
             _unknownCount: 0,
+            _hasPreparacion: false,
+            _hasDespacho: false,
+            _hasOtro: null,
           });
         }
         const acc = byNota.get(k);
@@ -966,19 +974,38 @@ export const setupGetMovimientos = onCall(
         if (tipo === 'B') acc._bikeCount++;
         else if (tipo === 'F') acc._fishingCount++;
         else acc._unknownCount++;
+        // Track comprobante flags
+        const comp = String(m.comprobante || '').toUpperCase();
+        if (comp === 'DESPACHO') acc._hasDespacho = true;
+        else if (comp === 'PREPARACIÓN DE PEDIDO' || comp === 'PREPARACION DE PEDIDO') acc._hasPreparacion = true;
+        else if (comp) acc._hasOtro = m.comprobante;
+        // Fecha = max de todas las lineas (mas reciente)
+        if (m.fecha && (!acc.fecha || String(m.fecha) > String(acc.fecha))) {
+          acc.fecha = m.fecha;
+        }
+        if (m.fecha && (!acc.fecha_desde || String(m.fecha) < String(acc.fecha_desde))) {
+          acc.fecha_desde = m.fecha;
+        }
       }
 
       // 6) Asignar division consolidada por nota + limpiar campos internos.
+      // v837: comprobante final = DESPACHO si la nota tuvo evento DESPACHO
+      // (estado final), sino PREPARACION DE PEDIDO, sino el "otro" observado.
       const movimientos = Array.from(byNota.values())
         .map((n) => {
           let division = 'DESCONOCIDO';
           if (n._bikeCount > 0 && n._fishingCount === 0) division = 'BIKE';
           else if (n._fishingCount > 0 && n._bikeCount === 0) division = 'FISHING';
           else if (n._bikeCount > 0 && n._fishingCount > 0) division = 'MIXTO';
+          let comprobanteFinal;
+          if (n._hasDespacho) comprobanteFinal = 'DESPACHO';
+          else if (n._hasPreparacion) comprobanteFinal = 'PREPARACIÓN DE PEDIDO';
+          else comprobanteFinal = n._hasOtro || '';
           return {
             id_nota_de_venta: n.id_nota_de_venta,
             fecha: n.fecha,
-            comprobante: n.comprobante,
+            fecha_desde: n.fecha_desde,
+            comprobante: comprobanteFinal,
             cliente: n.cliente,
             destinatario: n.destinatario,
             iddestinatario: n.iddestinatario,
@@ -991,6 +1018,8 @@ export const setupGetMovimientos = onCall(
             bike_items: n._bikeCount,
             fishing_items: n._fishingCount,
             unknown_items: n._unknownCount,
+            has_preparacion: n._hasPreparacion,
+            has_despacho: n._hasDespacho,
           };
         })
         .sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
