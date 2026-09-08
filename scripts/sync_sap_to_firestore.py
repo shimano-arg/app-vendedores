@@ -257,21 +257,32 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
     """
     Itera Items del grupo PESCA (filtrado server-side) con
     ?$select=ItemCode,ItemName,ItemWarehouseInfoCollection paginando.
-    Devuelve (items, stock_map, qty_map, scanned, with_stock) donde:
-      items:      lista de {code, desc}
-      stock_map:  dict {ItemCode: bool}
-      qty_map:    dict {ItemCode: int}
-      scanned:    total de items iterados
-      with_stock: total con stock > 0
+    Devuelve (items, stock_map, qty_map, whs_map, price_map, pre_lanzamiento_map,
+              scanned, with_stock, with_price, with_pre_lanzamiento) donde:
+      items:               lista de {code, desc}
+      stock_map:           dict {ItemCode: bool}
+      qty_map:             dict {ItemCode: int} total stock
+      whs_map:             dict {ItemCode: {whs_code: int}}
+      price_map:           dict {ItemCode: float} precio ARS lista PESCA
+      pre_lanzamiento_map: dict {ItemCode: True} (solo los con PRE LANZAMIENTO)
+      scanned:             total de items iterados
+      with_stock:          total con stock > 0
+      with_price:          total con precio en lista PESCA
+      with_pre_lanzamiento: total con U_CICLO_PROD='PRE LANZAMIENTO'
     """
     items = []
     stock_map = {}       # {sku: bool}
     qty_map = {}         # {sku: int}     total sumado (retrocompat)
     whs_map = {}         # {sku: {whs_code: int}}  v368+ desglose por almacen (11=NUR PESCA vendible, 12=EN TRANSITO PESCA, 98=CUARENTENA, etc.)
     price_map = {}       # {sku: float}   precio en ARS de la lista PESCA (#12)
+    # v827+ (2026-09-08): SKUs con U_CICLO_PROD='PRE LANZAMIENTO'. La app
+    # los tratara como stock=0 (hasStock()=false, getStockQty()=0) y mostrara
+    # badge naranja para que el VDE entienda por que no puede vender aun.
+    pre_lanzamiento_map = {}  # {sku: True}  solo SKUs en pre-lanzamiento
     scanned = 0
     with_stock = 0
     with_price = 0
+    with_pre_lanzamiento = 0
 
     # Filtrar por el grupo PESCA server-side. Antes traiamos TODOS los items
     # (~10.700) y despues filtrabamos client-side usando el CSV inline de
@@ -287,7 +298,12 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
     path = (
         "/b1s/v1/Items"
         f"?$filter=ItemsGroupCode eq {pesca_group_code}"
-        "&$select=ItemCode,ItemName,ItemWarehouseInfoCollection,ItemPrices"
+        # v827+ (2026-09-08): agregado U_CICLO_PROD (UDF SAP) para detectar
+        # SKUs en PRE LANZAMIENTO. Mariano pidio: si un item figura en
+        # CICLO PROD = 'PRE LANZAMIENTO', la app NO debe contar con su stock
+        # (aunque haya unidades fisicas en el deposito 11). El VDE ve el
+        # badge y sabe que existen fisicamente pero no puede vender aun.
+        "&$select=ItemCode,ItemName,ItemWarehouseInfoCollection,ItemPrices,U_CICLO_PROD"
     )
     page_count = 0
     last_progress_log = time.time()
@@ -322,6 +338,13 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
             if not code:
                 continue
             name = (it.get('ItemName') or '').strip()
+            # v827+ (2026-09-08): detectar PRE LANZAMIENTO via UDF U_CICLO_PROD.
+            # Comparacion normalizada (upper + strip) para tolerar variaciones
+            # de mayusculas/espacios. Si el UDF viene vacio/null, no es pre-lanz.
+            ciclo_prod = (it.get('U_CICLO_PROD') or '').strip().upper()
+            if ciclo_prod == 'PRE LANZAMIENTO':
+                pre_lanzamiento_map[code] = True
+                with_pre_lanzamiento += 1
             whs_list = it.get('ItemWarehouseInfoCollection') or []
             total_qty = 0.0
             whs_breakdown = {}  # v368+: {whs_code: int} desglose para separar disponible vs transito en la UI
@@ -370,7 +393,7 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
                 with_stock += 1
             if max_items and scanned >= max_items:
                 log(f'[SL] cap de {max_items} alcanzado (test)')
-                return items, stock_map, qty_map, whs_map, price_map, scanned, with_stock, with_price
+                return items, stock_map, qty_map, whs_map, price_map, pre_lanzamiento_map, scanned, with_stock, with_price, with_pre_lanzamiento
 
         page_count += 1
         # Progress log cada 5 segundos
@@ -394,8 +417,8 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
             log('[SL] safety cap 50k alcanzado, cortando iteracion')
             break
 
-    log(f'[SL] termino: {scanned} items, {with_stock} con stock, {with_price} con precio, {page_count} paginas')
-    return items, stock_map, qty_map, whs_map, price_map, scanned, with_stock, with_price
+    log(f'[SL] termino: {scanned} items, {with_stock} con stock, {with_price} con precio, {with_pre_lanzamiento} en PRE LANZAMIENTO, {page_count} paginas')
+    return items, stock_map, qty_map, whs_map, price_map, pre_lanzamiento_map, scanned, with_stock, with_price, with_pre_lanzamiento
 
 
 def load_local_categorization_from_html() -> dict:
@@ -654,10 +677,10 @@ def sl_fetch_backorder_by_sku(cfg: dict, session: requests.Session) -> dict:
     return result
 
 
-def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, whs_map: dict, backorder_map: dict, with_stock: int) -> str:
+def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, whs_map: dict, backorder_map: dict, pre_lanzamiento_map: dict, with_stock: int) -> str:
     sync_batch_id = 'SYNC-STOCK-AUTO-' + str(int(time.time() * 1000))
     if os.environ.get('DRY_RUN', '').lower() == 'true':
-        log(f'[DRY_RUN] escribiria stock_snapshot con {len(stock_map)} SKUs ({with_stock} con stock, con cantidades)')
+        log(f'[DRY_RUN] escribiria stock_snapshot con {len(stock_map)} SKUs ({with_stock} con stock, con cantidades, {len(pre_lanzamiento_map or {})} en PRE LANZAMIENTO)')
         return sync_batch_id
     # Firestore tiene un limite HARD de ~40.000 index entries por documento.
     # Cada map field indexa cada key automaticamente. Con stock (10.684 entries)
@@ -677,6 +700,11 @@ def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, w
     # Stock Liberado = max(transito(whs12) - backorder, 0).
     # SKUs sin backorder NO estan en el map (equivale a 0) - reduce size.
     backorder_json = json.dumps(backorder_map or {}, separators=(',', ':'), ensure_ascii=True)
+    # v827+ (2026-09-08): pre-lanzamiento como STRING JSON. Solo contiene los
+    # SKUs con U_CICLO_PROD='PRE LANZAMIENTO' — mucho mas chico que stock_map
+    # (probablemente <50 items sobre 10k). La app lee este map y trata esos
+    # SKUs como stock=0 + muestra badge naranja "PRE LANZAMIENTO".
+    pre_lanz_json = json.dumps(pre_lanzamiento_map or {}, separators=(',', ':'), ensure_ascii=True)
     db.collection('app_config').document('stock_snapshot').set({
         # Key 'stock' compatible con el listener existente ensureStockSnapshotListener.
         'stock': stock_map,
@@ -688,6 +716,9 @@ def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, w
         'warehouseBreakdown': whs_json,
         # v377+: backorder por SKU (sumatoria RemainingOpenQuantity de SQ open).
         'backorderBySku': backorder_json,
+        # v827+ (2026-09-08): SKUs con U_CICLO_PROD='PRE LANZAMIENTO'. La app
+        # los trata como stock=0 y muestra badge naranja.
+        'preLanzamientoBySku': pre_lanz_json,
         'totalItems': len(stock_map),
         'withStock': with_stock,
         'warehouse': 'ALL_SALES',
@@ -696,7 +727,7 @@ def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, w
         'updatedBy': 'github-actions/sync_sap_to_firestore',
         'syncBatchId': sync_batch_id,
     })
-    log(f'[FS] stock_snapshot escrito: {len(stock_map)} SKUs, {with_stock} con stock (quantities JSON string {len(qty_json)} bytes, warehouseBreakdown {len(whs_json)} bytes, backorderBySku {len(backorder_json)} bytes / {len(backorder_map or {})} SKUs)')
+    log(f'[FS] stock_snapshot escrito: {len(stock_map)} SKUs, {with_stock} con stock (quantities JSON string {len(qty_json)} bytes, warehouseBreakdown {len(whs_json)} bytes, backorderBySku {len(backorder_json)} bytes / {len(backorder_map or {})} SKUs, preLanzamientoBySku {len(pre_lanz_json)} bytes / {len(pre_lanzamiento_map or {})} SKUs)')
     return sync_batch_id
 
 
@@ -1367,7 +1398,7 @@ def main() -> int:
         sl_login(sl_cfg, session)
 
     max_items = int(os.environ.get('SL_MAX_ITEMS', '0') or 0)
-    items, stock_map, qty_map, whs_map, price_map, scanned, with_stock, with_price = sl_fetch_items_and_stock(sl_cfg, session, max_items=max_items)
+    items, stock_map, qty_map, whs_map, price_map, pre_lanzamiento_map, scanned, with_stock, with_price, with_pre_lanzamiento = sl_fetch_items_and_stock(sl_cfg, session, max_items=max_items)
 
     if scanned == 0:
         log('[FATAL] SL devolvio 0 items. No escribo nada para no pisar datos buenos.')
@@ -1415,7 +1446,7 @@ def main() -> int:
     # - cantidad exacta en el modal Master de Productos para vendedores
     #   (via qty_map - antes solo admin podia ver la cantidad porque
     #   requeria login SL desde el browser).
-    write_stock_snapshot(db, stock_map, qty_map, whs_map, backorder_map, with_stock)
+    write_stock_snapshot(db, stock_map, qty_map, whs_map, backorder_map, pre_lanzamiento_map, with_stock)
     # Precios (v268+): traidos automatic de la lista PESCA #12 de SAP.
     # Antes se subian manual por CSV desde el modal admin -> lista congelada
     # con SKUs faltantes. Ahora se refresca cada 30 min.

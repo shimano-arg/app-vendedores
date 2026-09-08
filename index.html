@@ -5222,7 +5222,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v827';
+const APP_VERSION = 'v828';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -5671,6 +5671,13 @@ let STOCK_WAREHOUSE_BREAKDOWN = {};
 // v614b hizo con currentUser. Sin este cambio window.STOCK_* = undefined
 // y el panel muestra "sin datos" / 0 para todos los KPIs.
 var STOCK_BACKORDER = {};
+// v827+ (2026-09-08): SKUs con U_CICLO_PROD='PRE LANZAMIENTO' en SAP. Aunque
+// haya unidades fisicas en el deposito 11, la app los trata como stock=0
+// (hasStock()=false, getStockQty()=0) y muestra badge naranja "PRE LANZAMIENTO"
+// para que el VDE entienda por que no puede venderlos aun. Formato: {SKU: true}.
+// SKUs no en pre-lanzamiento NO estan en el map. Alimentado por
+// sync_sap_to_firestore.py -> stock_snapshot.preLanzamientoBySku (JSON string).
+var STOCK_PRE_LANZAMIENTO = {};
 // v548+ (2026-08-19) E5 UI merge: app-source (post-cutover mode='active').
 // Escritos por CF onPedidoWriteRecalcSnapshot cuando VDEs escriben pedidos.
 // Disjuntos con SAP-source por construccion (E4C filtra state='confirmed'
@@ -5698,6 +5705,10 @@ function _markStockMapLoaded(){
 function hasStock(sku){
   if (!sku) return null;
   if (!_STOCK_MAP_HAS_DATA) return null; // sin datos aun
+  // v827+ (2026-09-08): PRE LANZAMIENTO tratado como sin-stock. La app no
+  // permite vender SKUs con U_CICLO_PROD='PRE LANZAMIENTO' aunque haya
+  // unidades fisicas en el deposito. Ver comentario de STOCK_PRE_LANZAMIENTO.
+  if (isPreLanzamiento(sku)) return false;
   const k = String(sku).toUpperCase().trim();
   if (k in STOCK_MAP) return !!STOCK_MAP[k];
   // Fallback: SKUs puramente numericos del catalogo (ej '042163') pueden venir
@@ -5709,6 +5720,18 @@ function hasStock(sku){
   }
   return null;
 }
+// v827+ (2026-09-08): true si el SKU esta en PRE LANZAMIENTO (no vendible).
+// Usado por hasStock() para bloquear ventas y por la UI para mostrar badge.
+function isPreLanzamiento(sku){
+  if (!sku) return false;
+  const k = String(sku).toUpperCase().trim();
+  if (k in STOCK_PRE_LANZAMIENTO) return !!STOCK_PRE_LANZAMIENTO[k];
+  if (/^0+\d+$/.test(k)) {
+    const stripped = k.replace(/^0+/, '');
+    if (stripped in STOCK_PRE_LANZAMIENTO) return !!STOCK_PRE_LANZAMIENTO[stripped];
+  }
+  return false;
+}
 // v347+ (2026-07-29): devuelve la cantidad EXACTA de stock por SKU (numerica).
 // Usa STOCK_QUANTITIES que se popula desde el snapshot Firestore (v253+).
 // Retorna null si no hay datos de cantidad (snapshot viejo o sin sync).
@@ -5718,6 +5741,10 @@ function hasStock(sku){
 function getStockQty(sku){
   if (!sku) return null;
   if (!_STOCK_MAP_HAS_DATA) return null;
+  // v827+ (2026-09-08): PRE LANZAMIENTO retorna 0 aunque haya unidades fisicas.
+  // Consistente con hasStock() y previene que cualquier calculo de "hay X unids
+  // disponibles" cuente esos SKUs.
+  if (isPreLanzamiento(sku)) return 0;
   const k = String(sku).toUpperCase().trim();
   if (k in STOCK_QUANTITIES) return Number(STOCK_QUANTITIES[k] || 0);
   if (/^0+\d+$/.test(k)) {
@@ -21889,7 +21916,14 @@ window.queryStockLive = function(code, btn){
   } else {
     status = 'SIN STOCK en depositos vendibles';
   }
-  alert('Stock del SKU:\n\n' + code + '\n\n' + status + '\n\nFuente: snapshot SAP\nUltima actualizacion: ' + upd + ageStr + '\n\n(Se sincroniza automatico cada 30 min desde SAP Service Layer)');
+  // v827+ (2026-09-08): banner PRE LANZAMIENTO al principio del alert. La app
+  // trata el SKU como stock=0 (hasStock=false, getStockQty=0) pero mostrar el
+  // dato fisico ayuda al vendedor a entender: "hay 2000 unidades pero no las
+  // podes vender porque esta en pre-lanzamiento". Ver STOCK_PRE_LANZAMIENTO.
+  const preLanzHdr = isPreLanzamiento(k)
+    ? '⚠️ PRE LANZAMIENTO - SKU NO VENDIBLE\nAunque haya unidades fisicas en deposito, no se puede vender aun.\n\n'
+    : '';
+  alert(preLanzHdr + 'Stock del SKU:\n\n' + code + '\n\n' + status + '\n\nFuente: snapshot SAP\nUltima actualizacion: ' + upd + ageStr + '\n\n(Se sincroniza automatico cada 30 min desde SAP Service Layer)');
 };
 
 window.openStockModal = function(){
@@ -22091,6 +22125,14 @@ function ensureStockSnapshotListener(){
       catch(e) { console.warn('[stock] no pude parsear backorderBySku:', e); STOCK_BACKORDER = {}; }
     } else {
       STOCK_BACKORDER = {};
+    }
+    // v827+ (2026-09-08): preLanzamientoBySku (JSON string). SKUs con
+    // U_CICLO_PROD='PRE LANZAMIENTO' en SAP. Snapshot pre-v827 no lo tiene -> {}.
+    if (typeof d.preLanzamientoBySku === 'string') {
+      try { STOCK_PRE_LANZAMIENTO = JSON.parse(d.preLanzamientoBySku) || {}; }
+      catch(e) { console.warn('[stock] no pude parsear preLanzamientoBySku:', e); STOCK_PRE_LANZAMIENTO = {}; }
+    } else {
+      STOCK_PRE_LANZAMIENTO = {};
     }
     // v551+ (bugfix): los keys app-source YA NO se leen desde stock_snapshot
     // (fueron movidos a `stock_snapshot_app` doc separado porque
