@@ -5222,7 +5222,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v829';
+const APP_VERSION = 'v830';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15094,6 +15094,9 @@ window.closeWaitlistModal = function(){
 var _depositoMovimientos = [];
 var _depositoLastFetchAt = null;
 var _depositoIsLoading = false;
+// v830 (2026-09-08): filtro por division (BIKE / FISHING / ambos).
+// Default: mostrar todos. El user toggle con botones dedicados.
+var _depositoFilterDivision = ''; // '' | 'BIKE' | 'FISHING'
 
 window.openDepositoModal = function(){
   const m = document.getElementById('deposito-modal');
@@ -15130,14 +15133,21 @@ async function _refreshDepositoData(){
   _renderDeposito();
 }
 
+// v830: toggle filtro division. '' = todos, 'BIKE' o 'FISHING' = solo esa division.
+function _setDepositoFilterDivision(div){
+  _depositoFilterDivision = (_depositoFilterDivision === div) ? '' : div;
+  _renderDeposito();
+}
+window._setDepositoFilterDivision = _setDepositoFilterDivision;
+
 function _depositoMockData(){
   // Mock basado en la estructura real de SETUP (probe 2026-09-08).
   // Se usa mientras la CF setupGetMovimientos no este deployada.
   return [
-    { id_nota_de_venta: '00015-127624', fecha: '2026-09-05', comprobante: 'PREPARACIÓN DE PEDIDO', cliente: 'Shimano', destinatario: 'SANTIAGO JAVIER', iddestinatario: 'C23272113629', items_count: 132, cantidad_total: 480, ubicacion: '005.002.007', zona: 'Zona S' },
-    { id_nota_de_venta: '00015-127589', fecha: '2026-09-03', comprobante: 'DESPACHO', cliente: 'Shimano', destinatario: 'BIKE GROUP SA', iddestinatario: 'C30707097465', items_count: 45, cantidad_total: 156, ubicacion: '005.001.003', zona: 'Zona N' },
-    { id_nota_de_venta: '00015-127578', fecha: '2026-09-02', comprobante: 'PREPARACIÓN DE PEDIDO', cliente: 'Shimano', destinatario: 'PESCAR.INFO SHOP', iddestinatario: 'C30711930392', items_count: 78, cantidad_total: 260, ubicacion: '005.003.012', zona: 'Zona E' },
-    { id_nota_de_venta: '00015-127544', fecha: '2026-08-30', comprobante: 'DESPACHO', cliente: 'Shimano', destinatario: 'REBORN SRL', iddestinatario: 'C30710852762', items_count: 22, cantidad_total: 90, ubicacion: '005.004.005', zona: 'Zona O' },
+    { id_nota_de_venta: '00015-127624', fecha: '2026-09-05', comprobante: 'PREPARACIÓN DE PEDIDO', cliente: 'Shimano', destinatario: 'SANTIAGO JAVIER', iddestinatario: 'C23272113629', items_count: 132, cantidad_total: 480, ubicacion: '005.002.007', zona: 'Zona S', division: 'BIKE', bike_items: 132, fishing_items: 0 },
+    { id_nota_de_venta: '00015-127589', fecha: '2026-09-03', comprobante: 'DESPACHO', cliente: 'Shimano', destinatario: 'BIKE GROUP SA', iddestinatario: 'C30707097465', items_count: 45, cantidad_total: 156, ubicacion: '005.001.003', zona: 'Zona N', division: 'BIKE', bike_items: 45, fishing_items: 0 },
+    { id_nota_de_venta: '00015-127578', fecha: '2026-09-02', comprobante: 'PREPARACIÓN DE PEDIDO', cliente: 'Shimano', destinatario: 'PESCAR.INFO SHOP', iddestinatario: 'C30711930392', items_count: 78, cantidad_total: 260, ubicacion: '005.003.012', zona: 'Zona E', division: 'FISHING', bike_items: 0, fishing_items: 78 },
+    { id_nota_de_venta: '00015-127544', fecha: '2026-08-30', comprobante: 'DESPACHO', cliente: 'Shimano', destinatario: 'REBORN SRL', iddestinatario: 'C30710852762', items_count: 22, cantidad_total: 90, ubicacion: '005.004.005', zona: 'Zona O', division: 'MIXTO', bike_items: 18, fishing_items: 4 },
   ];
 }
 
@@ -15152,6 +15162,8 @@ function _renderDeposito(){
   const q = (document.getElementById('deposito-search-input') || {}).value || '';
   const qUpper = q.trim().toUpperCase();
   let items = _depositoMovimientos;
+  // Filtro por division (v830).
+  if (_depositoFilterDivision) items = items.filter(m => (m.division || '') === _depositoFilterDivision);
   if (qUpper) {
     items = items.filter(m =>
       String(m.destinatario || '').toUpperCase().includes(qUpper) ||
@@ -15167,6 +15179,9 @@ function _renderDeposito(){
   // Contadores para header.
   const totalPreparacion = _depositoMovimientos.filter(m => m.comprobante === 'PREPARACIÓN DE PEDIDO').length;
   const totalDespacho = _depositoMovimientos.filter(m => m.comprobante === 'DESPACHO').length;
+  const totalBike = _depositoMovimientos.filter(m => m.division === 'BIKE').length;
+  const totalFishing = _depositoMovimientos.filter(m => m.division === 'FISHING').length;
+  const totalMixto = _depositoMovimientos.filter(m => m.division === 'MIXTO').length;
   const lastAt = _depositoLastFetchAt ? new Date(_depositoLastFetchAt).toLocaleString('es-AR', {hour:'2-digit', minute:'2-digit'}) : '-';
 
   const isMock = _depositoMovimientos.length > 0 && _depositoMovimientos.length <= 4;
@@ -15183,7 +15198,22 @@ function _renderDeposito(){
   html += '    <button onclick="_refreshDepositoData()" style="background:#1e40af;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer">↻ Actualizar</button>';
   html += '  </div>';
   html += '</div>';
-  // Filtros.
+  // v830: botones toggle Pesca / Bike / Todos.
+  const btnAllActive = !_depositoFilterDivision;
+  const btnBikeActive = _depositoFilterDivision === 'BIKE';
+  const btnFishActive = _depositoFilterDivision === 'FISHING';
+  const btnStyle = (active, bgActive, bgInactive) =>
+    'padding:6px 14px;border:2px solid ' + (active ? bgActive : 'var(--border-default)') + ';border-radius:20px;background:' + (active ? bgActive : bgInactive) + ';color:' + (active ? '#fff' : 'var(--text-primary)') + ';font-size:12px;font-weight:700;cursor:pointer;transition:.15s;letter-spacing:.3px';
+  html += '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">';
+  html += '  <span style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-right:4px">División:</span>';
+  html += '  <button onclick="_setDepositoFilterDivision(\'\')" style="' + btnStyle(btnAllActive, '#475569', '#fff') + '">Todos <span style="opacity:.7">' + _depositoMovimientos.length + '</span></button>';
+  html += '  <button onclick="_setDepositoFilterDivision(\'FISHING\')" style="' + btnStyle(btnFishActive, '#0891b2', '#f0f9ff') + '">🎣 Pesca <span style="opacity:.7">' + totalFishing + '</span></button>';
+  html += '  <button onclick="_setDepositoFilterDivision(\'BIKE\')" style="' + btnStyle(btnBikeActive, '#dc2626', '#fef2f2') + '">🚴 Bike <span style="opacity:.7">' + totalBike + '</span></button>';
+  if (totalMixto > 0) {
+    html += '  <span style="font-size:10.5px;color:var(--text-muted);font-style:italic">(' + totalMixto + ' pedidos mixtos)</span>';
+  }
+  html += '</div>';
+  // Filtros (búsqueda + estado).
   html += '<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">';
   html += '  <input type="search" id="deposito-search-input" placeholder="Buscar destinatario / N° nota / producto..." oninput="_renderDeposito()" value="' + escapeAttr(q) + '" style="flex:1;min-width:200px;padding:8px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12.5px;outline:none"/>';
   html += '  <select id="deposito-filter-estado" onchange="_renderDeposito()" style="padding:8px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12.5px;outline:none;background:#fff">';
@@ -15210,6 +15240,7 @@ function _renderDeposito(){
   html += '<thead style="background:#14315C;color:#fff;position:sticky;top:0;z-index:1">';
   html += '<tr>';
   html += '<th style="padding:8px 10px;text-align:left;font-weight:700;letter-spacing:.3px;text-transform:uppercase;font-size:10.5px">Estado</th>';
+  html += '<th style="padding:8px 10px;text-align:left;font-weight:700;letter-spacing:.3px;text-transform:uppercase;font-size:10.5px">División</th>';
   html += '<th style="padding:8px 10px;text-align:left;font-weight:700;letter-spacing:.3px;text-transform:uppercase;font-size:10.5px">Destinatario</th>';
   html += '<th style="padding:8px 10px;text-align:left;font-weight:700;letter-spacing:.3px;text-transform:uppercase;font-size:10.5px">N° Nota</th>';
   html += '<th style="padding:8px 10px;text-align:left;font-weight:700;letter-spacing:.3px;text-transform:uppercase;font-size:10.5px">Fecha</th>';
@@ -15222,11 +15253,19 @@ function _renderDeposito(){
     if (est === 'PREPARACIÓN DE PEDIDO') estBadge = '<span style="background:#fef3c7;color:#78350f;padding:3px 8px;border-radius:10px;font-size:10.5px;font-weight:800;letter-spacing:.3px;white-space:nowrap">📦 EN PREPARACIÓN</span>';
     else if (est === 'DESPACHO') estBadge = '<span style="background:#dcfce7;color:#166534;padding:3px 8px;border-radius:10px;font-size:10.5px;font-weight:800;letter-spacing:.3px;white-space:nowrap">🚚 DESPACHADO</span>';
     else estBadge = '<span style="background:#e2e8f0;color:#475569;padding:3px 8px;border-radius:10px;font-size:10.5px;font-weight:800;letter-spacing:.3px;white-space:nowrap">' + escapeHtml(est) + '</span>';
+    // v830: badge division
+    const div = m.division || '';
+    let divBadge = '';
+    if (div === 'BIKE') divBadge = '<span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:800;letter-spacing:.3px;white-space:nowrap" title="' + (m.bike_items || 0) + ' items bike">🚴 BIKE</span>';
+    else if (div === 'FISHING') divBadge = '<span style="background:#f0f9ff;color:#0891b2;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:800;letter-spacing:.3px;white-space:nowrap" title="' + (m.fishing_items || 0) + ' items pesca">🎣 PESCA</span>';
+    else if (div === 'MIXTO') divBadge = '<span style="background:#faf5ff;color:#7c3aed;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:800;letter-spacing:.3px;white-space:nowrap" title="' + (m.bike_items || 0) + ' bike + ' + (m.fishing_items || 0) + ' pesca">⚡ MIXTO</span>';
+    else divBadge = '<span style="background:#f1f5f9;color:#64748b;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600;letter-spacing:.3px;white-space:nowrap">-</span>';
     const fechaStr = m.fecha ? String(m.fecha).slice(0, 10) : '-';
     const itemsCount = m.items_count != null ? m.items_count : '';
     const zonaStr = m.zona ? ' <span style="color:#94a3b8;font-size:10px">' + escapeHtml(m.zona) + '</span>' : '';
     html += '<tr style="border-bottom:1px solid var(--border-subtle)">';
     html += '<td style="padding:8px 10px">' + estBadge + '</td>';
+    html += '<td style="padding:8px 10px">' + divBadge + '</td>';
     html += '<td style="padding:8px 10px;font-weight:600">' + escapeHtml(m.destinatario || '-') + '<div style="font-size:10px;color:#94a3b8">' + escapeHtml(m.iddestinatario || '') + '</div></td>';
     html += '<td style="padding:8px 10px;font-family:monospace;font-size:11.5px">' + escapeHtml(m.id_nota_de_venta || '-') + '</td>';
     html += '<td style="padding:8px 10px;color:var(--text-secondary)">' + escapeHtml(fechaStr) + '</td>';
