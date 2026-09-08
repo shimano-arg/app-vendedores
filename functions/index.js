@@ -792,7 +792,10 @@ export const setupGetMovimientos = onCall(
       });
       if (!rLogin.ok) {
         const body = await rLogin.text().catch(() => '');
-        throw new HttpsError('internal', `SETUP login failed status=${rLogin.status} body=${body.slice(0, 200)}`);
+        throw new HttpsError(
+          'internal',
+          `SETUP login failed status=${rLogin.status} body=${body.slice(0, 200)}`
+        );
       }
       const authBody = await rLogin.json();
       const token = authBody.Token || authBody.token || authBody.access_token;
@@ -836,7 +839,9 @@ export const setupGetMovimientos = onCall(
             /** @type {Buffer[]} */
             const chunks = [];
             r.on('data', (/** @type {Buffer} */ c) => chunks.push(c));
-            r.on('end', () => resolve({ status: r.statusCode || 0, body: Buffer.concat(chunks).toString('utf-8') }));
+            r.on('end', () =>
+              resolve({ status: r.statusCode || 0, body: Buffer.concat(chunks).toString('utf-8') })
+            );
           }
         );
         req.on('error', reject);
@@ -845,7 +850,10 @@ export const setupGetMovimientos = onCall(
       });
 
       if (resp.status !== 200) {
-        throw new HttpsError('internal', `SETUP /GetMovimientosSalida status=${resp.status} body=${resp.body.slice(0, 200)}`);
+        throw new HttpsError(
+          'internal',
+          `SETUP /GetMovimientosSalida status=${resp.status} body=${resp.body.slice(0, 200)}`
+        );
       }
 
       // 3) Parsear VFPData wrapper y aplanar por nota (agregando counts).
@@ -881,7 +889,9 @@ export const setupGetMovimientos = onCall(
         acc.items_count += 1;
         acc.cantidad_total += Number(m.cantidad || 0);
       }
-      const movimientos = Array.from(byNota.values()).sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
+      const movimientos = Array.from(byNota.values()).sort((a, b) =>
+        String(b.fecha || '').localeCompare(String(a.fecha || ''))
+      );
 
       return { movimientos, notasCount: movimientos.length, lineasTotales: arr.length };
     } catch (e) {
