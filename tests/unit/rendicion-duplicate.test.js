@@ -3,12 +3,12 @@
  * Tests para el detector de duplicados de rendiciones.
  * Los 7 casos reales del audit agosto/septiembre 2026 son fixtures.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
+  chequearMatchDuplicado,
+  clavesDeDuplicado,
   normalizarTicket,
   parseCuitDeObservaciones,
-  clavesDeDuplicado,
-  chequearMatchDuplicado,
 } from '../../src/pure/rendicion-duplicate.js';
 
 // ============================================================

@@ -55,12 +55,10 @@ export function normalizarTicket(input) {
   if (!s) return null;
   // Normalizar separadores. `\` y `/` y espacios → `-`.
   // Preservamos guiones existentes.
-  const withDashes = s.replace(/[\s\/\\]+/g, '-');
+  const withDashes = s.replace(/[\s/\\]+/g, '-');
   // Si hay algun guion, procesar por segmentos.
   if (withDashes.includes('-')) {
-    const segments = withDashes
-      .split('-')
-      .filter((seg) => seg !== ''); // ignorar guiones dobles / borde
+    const segments = withDashes.split('-').filter((seg) => seg !== ''); // ignorar guiones dobles / borde
     if (!segments.length) return null;
     const normalized = segments
       .map((seg) => {
