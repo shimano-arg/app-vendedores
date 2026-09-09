@@ -251,7 +251,7 @@ VENDORS = [
     {'key': 'PACHI',                 'zone': 'Z4', 'label': 'Z4 - PACHI-VENTAS ESPECIALES (Cordoba + SL + parte SF + NEA)', 'color': '#E83A2E', 'fill': 'rgba(232,58,46,0.18)'},
     {'key': 'MAURICIO GIL',          'zone': 'Z5', 'label': 'Z5 - Mauricio Gil (Litoral + Norte BA)', 'color': '#F97316', 'fill': 'rgba(249,115,22,0.18)'},
     {'key': 'IOANNIS PALKOUDAKIS',   'zone': 'Z6', 'label': 'Z6 - Ioannis Palkoudakis (Patagonia)', 'color': '#8E44AD', 'fill': 'rgba(142,68,173,0.18)'},
-    {'key': 'SANTIAGO ESTEBAN',      'zone': 'Z7', 'label': 'Z7 - Santiago Esteban (NOA + NEA)', 'color': '#F39C12', 'fill': 'rgba(243,156,18,0.20)'},
+    {'key': 'SANTIAGO ESTEBAN',      'zone': 'Z7', 'label': 'Z7 - Santiago Esteban (NOA + NEA)', 'color': '#10b981', 'fill': 'rgba(16,185,129,0.20)'},
 ]
 vendor_map = {v['key']: v for v in VENDORS}
 
