@@ -812,6 +812,19 @@ html[data-theme="dark"] .tab-pane [style*="color:#0f172a"] {
    (poligonos SVG overlay, no afectados por filter sobre .leaflet-tile). */
 [data-theme="dark"] .leaflet-tile {
   filter: invert(1) hue-rotate(180deg) brightness(0.95) saturate(0.85);
+  /* v860 (2026-09-09): promover cada tile a GPU layer para que el compositor
+     pre-renderice el filter una vez y el zoom solo mueva la textura sin
+     recomputar. Baja mucho el CPU en dark mode al zoomear. */
+  will-change: transform;
+  transform: translateZ(0);
+}
+/* v860 (2026-09-09): mientras Leaflet corre la animacion de zoom, suspender
+   el filter dark. Sin esto el compositor recomputa filter en cada frame de
+   la anim (~250ms) → framerate malo en mobile. Tradeoff: durante el zoom se
+   ven los tiles con colores originales (flash a light ~250ms) y despues el
+   filter vuelve. Autorizado por Mariano (2026-09-09): "flujo mas natural". */
+[data-theme="dark"] .leaflet-map-pane.leaflet-zoom-anim .leaflet-tile {
+  filter: none;
 }
 /* Restaurar zoom controls que serian doble-invertidos si no los excluyo */
 [data-theme="dark"] .leaflet-control-zoom {
@@ -5247,7 +5260,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v859';
+const APP_VERSION = 'v860';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -5937,7 +5950,18 @@ window.applyThemeTilesSwap = function() {
     window._mapTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       subdomains: 'abc',
-      maxZoom: 19
+      maxZoom: 19,
+      // v860 (2026-09-09): flags para que el zoom se sienta natural.
+      //   updateWhenZooming:false → NO cargar tiles nuevos durante la animación
+      //     de zoom; espera a que termine. Antes: cada frame del zoom pedía tiles
+      //     al nuevo nivel → framerate malo en mobile.
+      //   updateWhenIdle:true → solo update de tiles cuando el mapa esta quieto
+      //     (default true en mobile, forzamos en desktop tambien).
+      //   keepBuffer:4 (default 2) → mantiene 4 tiles alrededor del viewport en
+      //     memoria para que un pan corto no muestre cuadrados grises.
+      updateWhenZooming: false,
+      updateWhenIdle: true,
+      keepBuffer: 4,
     }).addTo(map);
   }
 };
@@ -7621,6 +7645,17 @@ const _CLUSTER_OPTS = {
   chunkedLoading: true,
   spiderfyOnMaxZoom: true,
   iconCreateFunction: _clusterIconCreate,
+  // v860 (2026-09-09): desactivar animaciones de collapse/split de clusters
+  // durante zoom. Antes cada zoom lanzaba una anim de reagrupamiento que
+  // consumía CPU (iconCreateFunction llamado por cada cluster resultante) y
+  // hacia sentir el zoom pesado. Ahora los clusters aparecen/desaparecen de
+  // una — el zoom se siente mucho mas natural. Tradeoff: se pierde el efecto
+  // visual "chulo" de splitting pero el flujo es prioridad segun Mariano.
+  animate: false,
+  animateAddingMarkers: false,
+  // Reduce carga: remueve markers fuera del viewport en cada moveend en vez
+  // de mantenerlos todos ocultos en memoria.
+  removeOutsideVisibleBounds: true,
 };
 const _sharedCluster = (typeof L.markerClusterGroup === 'function')
   ? L.markerClusterGroup(_CLUSTER_OPTS).addTo(map)
