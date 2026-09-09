@@ -5247,7 +5247,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v850';
+const APP_VERSION = 'v851';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -6960,7 +6960,18 @@ function deptInRouteFocus(feat){
 // Luis = Martin) donde el GeoJSON original tiene depts mal etiquetados
 // o partidos entre varios vendors.
 const PROVINCE_VENDOR_OVERRIDE = {
-  'SAN LUIS': 'MARTIN BOIERO',
+  // v851 (2026-09-09): PACHI cubre 6 provincias completas (Cordoba, San Luis,
+  // Chaco, Formosa, Misiones, Corrientes). Pintamos las provincias enteras
+  // en rojo para reflejar que TODA la geografia es de PACHI, sin importar
+  // que algunos departamentos aun no tengan clientes cargados.
+  // Santa Fe queda AFUERA a proposito: solo 2 localidades de Martin (San
+  // Guillermo, Frontera) migraron a PACHI; el resto de SF es Mauricio.
+  'CORDOBA': 'PACHI',
+  'SAN LUIS': 'PACHI',
+  'CHACO': 'PACHI',
+  'FORMOSA': 'PACHI',
+  'MISIONES': 'PACHI',
+  'CORRIENTES': 'PACHI',
 };
 
 function deptEffectiveVendor(feat){
