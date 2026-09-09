@@ -4672,6 +4672,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v820
 
+### v858 (2026-09-09) — fix consistencia matemática modal Stock (STOCK TOTAL − COMPROMETIDO = LIBRE)
+
+**Bug reportado por Mariano**: al abrir modal Stock de SKU `PLM58RE0200150S` mostraba `STOCK TOTAL: 12`, `COMPROMETIDO: 11`, `LIBRE: 3` — matemáticamente inconsistente (`12 − 11 = 1`, no `3`).
+
+**Root cause**: las 3 métricas tenían scopes distintos.
+- `STOCK TOTAL` sumaba disp neto + committed dep 11 + tránsito + otros almacenes (global físico).
+- `COMPROMETIDO` sumaba committed dep 11 + reservado ASIG + espera app + pendiente sin stock (global compromiso).
+- `LIBRE` calculaba `disp − reservado` (solo dep 11, ignorando otros almacenes y espera app).
+
+Resultado: 12 total − 11 comprometido = 1 esperado, pero libre reportaba 3 (disp neto dep 11 = 3, reservado = 0).
+
+**Fix**: `LIBRE = max(STOCK TOTAL − COMPROMETIDO, 0)` (`index.html:22432+`). Las 3 líneas ahora cierran aritméticamente por construcción.
+
+**Bump**: v857 → v858. Bundle sin cambios (solo 1 línea en inline). Tests 308/308.
+
 ### v820 (2026-09-07) — fix modales Backorder + Stock Asignado vacíos para VDE (root cause definitivo)
 
 **Bug reportado por Mariano post-v819**: los modales seguían vacíos. Diagnóstico DevTools reveló `globalPedidos.length === 0`.
