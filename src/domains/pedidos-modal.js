@@ -253,25 +253,42 @@ window.openReviewDialog = function (mode) {
       );
       const _cmData = _cliDocId ? window.clientMasterCache.get(_cliDocId) : null;
       const _dd = _cmData && _cmData.defaultDelivery;
-      if (_dd && _dd.tipo && feSel) {
-        feSel.value = _dd.tipo;
+      const _applyDD = (dd) => {
+        if (!dd || !dd.tipo || !feSel) return;
+        feSel.value = dd.tipo;
         if (typeof window.onFormaEntregaChange === 'function') window.onFormaEntregaChange();
         const _setV = (id, v) => {
           const el = document.getElementById(id);
           if (el && v) el.value = v;
         };
-        if (_dd.tipo === 'TRANSPORTISTA') {
-          _setV('rv-transp-nombre', _dd.transpNombre);
-          _setV('rv-transp-direccion', _dd.transpDireccion);
-          _setV('rv-cliente-direccion', _dd.clienteDireccion);
-        } else if (_dd.tipo === 'SUCURSAL') {
-          _setV('rv-sucursal-direccion', _dd.sucursalDireccion);
-        } else if (_dd.tipo === 'RETIRO_DEPOSITO') {
-          _setV('rv-retiro-nombre', _dd.retiroNombre);
-          _setV('rv-retiro-apellido', _dd.retiroApellido);
-          _setV('rv-retiro-dni', _dd.retiroDni);
-          _setV('rv-retiro-patente', _dd.retiroPatente);
+        if (dd.tipo === 'TRANSPORTISTA') {
+          _setV('rv-transp-nombre', dd.transpNombre);
+          _setV('rv-transp-direccion', dd.transpDireccion);
+          _setV('rv-cliente-direccion', dd.clienteDireccion);
+        } else if (dd.tipo === 'SUCURSAL') {
+          _setV('rv-sucursal-direccion', dd.sucursalDireccion);
+        } else if (dd.tipo === 'RETIRO_DEPOSITO') {
+          _setV('rv-retiro-nombre', dd.retiroNombre);
+          _setV('rv-retiro-apellido', dd.retiroApellido);
+          _setV('rv-retiro-dni', dd.retiroDni);
+          _setV('rv-retiro-patente', dd.retiroPatente);
         }
+      };
+      if (_dd && _dd.tipo) {
+        _applyDD(_dd);
+      } else if (_cliDocId && typeof window.fbDb !== 'undefined' && window.fbDb) {
+        // v847 (2026-09-09): fallback fetch directo — clientMasterCache puede no
+        // tener el doc cargado (VDE con permisos limitados o cache stale). Fetch
+        // directo garantiza que si el defaultDelivery existe en Firestore, se
+        // aplique aunque no este en cache local.
+        window.fbDb.collection('client_master').doc(_cliDocId).get().then(snap => {
+          const d = snap.exists ? (snap.data() || {}) : {};
+          const dd2 = d.defaultDelivery;
+          if (dd2 && dd2.tipo) {
+            try { window.clientMasterCache.set(_cliDocId, Object.assign({}, _cmData || {}, d)); } catch (_e) {}
+            _applyDD(dd2);
+          }
+        }).catch((_e) => {/* silent */});
       }
     }
   } catch (_e) {
