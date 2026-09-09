@@ -5247,7 +5247,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v841';
+const APP_VERSION = 'v842';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17981,6 +17981,10 @@ window._showAsigResolveModal = function(w, asigLines, onDone){
 // el BO en la app; cuando ingrese mercaderia el CF FIFO asigna automatico.
 // El comportamiento es identico a Pasar a Pendientes (las lineas sin stock
 // quedan state='BO'), pero el confirm() explicito evita clicks accidentales.
+//
+// v842 (2026-09-09): SALTAR el gate ASIG del cliente. Casos especiales — el
+// vendedor quiere solo generar BO sin resolver el stock previamente asignado
+// del cliente. El gate ASIG queda solo en el flujo normal (Pasar a Pendientes).
 window.waitlistGenerarBackorder = async function(){
   const w = _wcardCurrent;
   if (!w) return;
@@ -17996,10 +18000,14 @@ window.waitlistGenerarBackorder = async function(){
   }
   const msg = '¿Seguro querés generar backorder?\n\n' +
     'Este pedido tiene ' + total + ' línea(s), de las cuales ' + sinStock + ' quedará(n) como BO (sin stock).\n\n' +
-    'Cuando ingrese mercadería a SAP, el CF FIFO va a asignar automáticamente al cliente.';
+    'Cuando ingrese mercadería a SAP, el CF FIFO va a asignar automáticamente al cliente.\n\n' +
+    '(No se va a preguntar por el stock asignado del cliente — este flujo es solo para generar BO.)';
   if (!confirm(msg)) return;
-  // Reutiliza el mismo flujo que Pasar a Pendientes — la logica de split
-  // (confirmed vs BO) ya se aplica linea x linea automaticamente.
+  // v842: llamar DIRECTO al continuar, saltando el gate ASIG.
+  if (typeof window._waitlistPasarAPendientesContinuar === 'function') {
+    return window._waitlistPasarAPendientesContinuar(w);
+  }
+  // Fallback defensivo: usar el flujo normal si por alguna razon no existe.
   return window.waitlistPasarAPendientes();
 };
 
