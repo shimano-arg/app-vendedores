@@ -1062,8 +1062,11 @@ SELECT
   _sync_timestamp
 FROM `app-vendedores-shimano.shimano_app.targets_raw`
 WHERE seller_id IN (
+  -- 2026-09-09: agregado PACHI (nuevo distribuidor). MARTIN BOIERO se mantiene
+  -- para facturas/targets historicos (no borrarlo hasta que se sanee la
+  -- serie temporal en Power BI).
   'GONZALO DE LA ROSA','MAURICIO GIL','IOANNIS PALKOUDAKIS',
-  'SANTIAGO ESTEBAN','FEDERICO CASTELANELLI','MARTIN BOIERO'
+  'SANTIAGO ESTEBAN','FEDERICO CASTELANELLI','MARTIN BOIERO','PACHI'
 )
   AND target_ars > 0;
 
@@ -1152,8 +1155,9 @@ enriquecido AS (
   WHERE ca.assigned_vendor IS NOT NULL
     AND ca.assigned_vendor != ''
     AND ca.assigned_vendor IN (
+      -- 2026-09-09: agregado PACHI. MARTIN se mantiene para historico.
       'GONZALO DE LA ROSA', 'MAURICIO GIL', 'IOANNIS PALKOUDAKIS',
-      'SANTIAGO ESTEBAN', 'FEDERICO CASTELANELLI', 'MARTIN BOIERO'
+      'SANTIAGO ESTEBAN', 'FEDERICO CASTELANELLI', 'MARTIN BOIERO', 'PACHI'
     )
 )
 SELECT
@@ -1239,8 +1243,9 @@ SELECT
 FROM facturas_abiertas fa
 INNER JOIN clientes_app ca USING (card_code)
 WHERE ca.info.assigned_vendor IN (
+  -- 2026-09-09: agregado PACHI. MARTIN se mantiene para historico.
   'GONZALO DE LA ROSA', 'MAURICIO GIL', 'IOANNIS PALKOUDAKIS',
-  'SANTIAGO ESTEBAN', 'FEDERICO CASTELANELLI', 'MARTIN BOIERO'
+  'SANTIAGO ESTEBAN', 'FEDERICO CASTELANELLI', 'MARTIN BOIERO', 'PACHI'
 );
 
 
@@ -1307,8 +1312,9 @@ enriquecido AS (
   FROM facturas f
   INNER JOIN clientes_app ca USING (card_code)
   WHERE ca.assigned_vendor IN (
+    -- 2026-09-09: agregado PACHI. MARTIN se mantiene para historico.
     'GONZALO DE LA ROSA', 'MAURICIO GIL', 'IOANNIS PALKOUDAKIS',
-    'SANTIAGO ESTEBAN', 'FEDERICO CASTELANELLI', 'MARTIN BOIERO'
+    'SANTIAGO ESTEBAN', 'FEDERICO CASTELANELLI', 'MARTIN BOIERO', 'PACHI'
   )
 )
 SELECT

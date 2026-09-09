@@ -246,7 +246,9 @@ for dkey, dept in prov_dept_polys.items():
 VENDORS = [
     {'key': 'GONZALO DE LA ROSA',    'zone': 'Z1', 'label': 'Z1 - Gonzalo De La Rosa (CABA + AMBA Norte/Oeste)', 'color': '#00A9E0', 'fill': 'rgba(0,169,224,0.18)'},
     {'key': 'FEDERICO CASTELANELLI', 'zone': 'Z2', 'label': 'Z2 - Federico Castelanelli (AMBA Sur + BA Interior + Costa)', 'color': '#003366', 'fill': 'rgba(0,51,102,0.20)'},
-    {'key': 'MARTIN BOIERO',         'zone': 'Z4', 'label': 'Z4 - Martin Boiero (Cordoba + Cuyo + SF Oeste)', 'color': '#E83A2E', 'fill': 'rgba(232,58,46,0.18)'},
+    # 2026-09-09: Martin retirado (renuncia). Z4 pasa a PACHI-VENTAS ESPECIALES
+    # (distribuidor). Mismo color rojo, mismo zone code para preservar visuales.
+    {'key': 'PACHI',                 'zone': 'Z4', 'label': 'Z4 - PACHI-VENTAS ESPECIALES (Cordoba + SL + parte SF + NEA)', 'color': '#E83A2E', 'fill': 'rgba(232,58,46,0.18)'},
     {'key': 'MAURICIO GIL',          'zone': 'Z5', 'label': 'Z5 - Mauricio Gil (Litoral + Norte BA)', 'color': '#F97316', 'fill': 'rgba(249,115,22,0.18)'},
     {'key': 'IOANNIS PALKOUDAKIS',   'zone': 'Z6', 'label': 'Z6 - Ioannis Palkoudakis (Patagonia)', 'color': '#8E44AD', 'fill': 'rgba(142,68,173,0.18)'},
     {'key': 'SANTIAGO ESTEBAN',      'zone': 'Z7', 'label': 'Z7 - Santiago Esteban (NOA + NEA)', 'color': '#F39C12', 'fill': 'rgba(243,156,18,0.20)'},

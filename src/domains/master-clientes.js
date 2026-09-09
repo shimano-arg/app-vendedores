@@ -1016,7 +1016,21 @@ window.applyMcSapImport = async function () {
 function inferVendorFromProvince(provUp) {
   if (!provUp) return '';
   const p = provUp.toUpperCase().trim();
-  // VDI provinces
+  // 2026-09-09 (Mariano): actualizado por baja Martin + alta PACHI.
+  // PACHI cubre: CORDOBA + SAN LUIS + CHACO + FORMOSA + MISIONES + CORRIENTES
+  //   + parte de SANTA FE (loc especificas, no toda la provincia).
+  // Como Alta Rapida no sabe la loc exacta al momento de inferir, para SANTA FE
+  // dejamos MAURICIO como default (mayoria) y el admin re-asigna a PACHI si es
+  // una loc del cluster Martin (San Guillermo, Frontera, Cañada de Gómez,
+  // El Trébol, Armstrong).
+  const PACHI_PROVS = [
+    'CORDOBA',
+    'SAN LUIS',
+    'CHACO',
+    'FORMOSA',
+    'MISIONES',
+    'CORRIENTES',
+  ];
   const IOANNIS_PROVS = [
     'TIERRA DEL FUEGO',
     'SANTA CRUZ',
@@ -1028,22 +1042,18 @@ function inferVendorFromProvince(provUp) {
   ];
   const SANTIAGO_PROVS = [
     'SAN JUAN',
-    'SAN LUIS',
     'JUJUY',
     'SALTA',
     'CATAMARCA',
     'SANTIAGO DEL ESTERO',
-    'FORMOSA',
-    'CHACO',
-    'MISIONES',
     'LA RIOJA',
     'TUCUMAN',
   ];
+  if (PACHI_PROVS.includes(p)) return 'PACHI';
   if (IOANNIS_PROVS.includes(p)) return 'IOANNIS PALKOUDAKIS';
   if (SANTIAGO_PROVS.includes(p)) return 'SANTIAGO ESTEBAN';
-  if (p === 'CORRIENTES' || p === 'ENTRE RIOS') return 'MAURICIO GIL';
-  if (p === 'CORDOBA') return 'MARTIN BOIERO';
-  if (p === 'SANTA FE') return 'MARTIN BOIERO';
+  if (p === 'ENTRE RIOS') return 'MAURICIO GIL';
+  if (p === 'SANTA FE') return 'MAURICIO GIL'; // default; loc del cluster PACHI se re-asigna manual
   if (
     p === 'BUENOS AIRES' ||
     p === 'CAPITAL FEDERAL' ||
