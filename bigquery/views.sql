@@ -231,9 +231,6 @@ WHERE operation <> 'DELETE';
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_facturas_sap` AS
 WITH bike_items AS (
   -- 2026-09-09 v2: universo de item_codes bike (grupo SAP 100, ~7k items).
-  -- Se usa para marcar factura como bike si CUALQUIERA de sus lineas tiene
-  -- un item de este set. Coste O(N_lines) por factura pero acotado (facturas
-  -- tienen 1-20 lineas tipicamente).
   SELECT DISTINCT item_code
   FROM `app-vendedores-shimano.shimano_app.sap_items_bike_raw`
 ),
@@ -269,6 +266,18 @@ invoices_and_cns AS (
   UNION ALL
   SELECT *, -1 AS sign, 'CREDIT_NOTE' AS doc_kind
   FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw`
+),
+-- 2026-09-09 v3 (BI feedback + BQ optimizer): pre-computar la lista de
+-- facturas que tienen al menos una linea con item bike. El approach
+-- correlated subquery + IN (SELECT...) NO se puede de-correlacionar en BQ.
+-- Solucion: UNNEST + INNER JOIN materializa el set (doc_entry, doc_kind)
+-- para hacer LEFT JOIN en el SELECT principal.
+facturas_con_item_bike AS (
+  SELECT DISTINCT inv.doc_entry, inv.doc_kind
+  FROM invoices_and_cns inv,
+       UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json, '$')) AS line_json
+  INNER JOIN bike_items bi
+    ON JSON_VALUE(line_json, '$.ItemCode') = bi.item_code
 )
 SELECT
   inv.doc_type,
@@ -357,15 +366,14 @@ SELECT
   --     — decision defensiva: mejor sobre-incluir que perder.
   --     Facturas SIN lines_json (raro, legacy) quedan es_bike=NULL.
   (inv.card_code LIKE 'CSIC%' OR inv.card_code LIKE 'CSPH%')            AS es_intercompany,
-  (SELECT COUNT(1) > 0
-   FROM UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json, '$')) AS line_json
-   WHERE JSON_VALUE(line_json, '$.ItemCode') IN (SELECT item_code FROM bike_items)
-  )                                                                     AS es_bike
+  (fb.doc_entry IS NOT NULL)                                             AS es_bike
 FROM invoices_and_cns inv
 LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
   ON inv.card_code = bp.card_code
 LEFT JOIN cliente_app ca
   ON ca.card_code = inv.card_code
+LEFT JOIN facturas_con_item_bike fb
+  ON fb.doc_entry = inv.doc_entry AND fb.doc_kind = inv.doc_kind
 -- v748 (2026-08-31): filtro estricto cancelled='tNO'. Antes: la vista devolvia
 -- TODOS los docs (incluyendo tYES y los cancellation docs con CANCELED='').
 -- Downstream consumers (Power BI, dashboards, TABLERO SAR) tenian que aplicar

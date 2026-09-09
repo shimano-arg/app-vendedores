@@ -44,6 +44,16 @@ WITH bike_items AS (
   SELECT DISTINCT item_code
   FROM `app-vendedores-shimano.shimano_app.sap_items_bike_raw`
 ),
+-- 2026-09-09 v3: pre-computar el set de facturas bike via UNNEST + INNER
+-- JOIN. Correlated subquery + IN (SELECT...) no se puede de-correlacionar
+-- en BQ y falla al hacer SELECT desde la view.
+facturas_con_item_bike AS (
+  SELECT DISTINCT inv.doc_entry
+  FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv,
+       UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json, '$')) AS line_json
+  INNER JOIN bike_items bi
+    ON JSON_VALUE(line_json, '$.ItemCode') = bi.item_code
+),
 facturas_abiertas AS (
   SELECT
     inv.card_code,
@@ -62,13 +72,11 @@ facturas_abiertas AS (
     -- Intercompany: SHIMANO INC (CSIC*) y SHIMANO PHILIPINE (CSPH*) refacturacion
     -- del grupo. Concentran 890M de deuda "vencida" que no es cobranza real.
     (inv.card_code LIKE 'CSIC%' OR inv.card_code LIKE 'CSPH%') AS es_intercompany,
-    -- 2026-09-09 v2: es_bike TRUE si al menos una linea tiene item bike.
-    -- Facturas mixtas (bike+pesca) tambien es_bike=TRUE (sobre-incluir).
-    (SELECT COUNT(1) > 0
-     FROM UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json, '$')) AS line_json
-     WHERE JSON_VALUE(line_json, '$.ItemCode') IN (SELECT item_code FROM bike_items)
-    ) AS es_bike
+    -- 2026-09-09 v3: es_bike via LEFT JOIN. Facturas mixtas (bike+pesca)
+    -- tambien es_bike=TRUE (sobre-incluir defensivo).
+    (fb.doc_entry IS NOT NULL) AS es_bike
   FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv
+  LEFT JOIN facturas_con_item_bike fb ON fb.doc_entry = inv.doc_entry
   WHERE inv.document_status = 'bost_Open'
     AND inv.cancelled = 'tNO'
     AND SAFE_CAST(inv.doc_total AS FLOAT64) - COALESCE(SAFE_CAST(inv.paid_to_date AS FLOAT64), 0) > 0.01
