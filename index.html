@@ -5247,7 +5247,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v844';
+const APP_VERSION = 'v845';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18979,7 +18979,15 @@ function renderConfirmadosList(){
     const lineCount = (it.conf.lines || []).length;
     const units = (it.conf.lines || []).reduce((s, l) => s + (parseFloat(l.qty) || 0), 0);
     html += '<div class="confirmed-card" onclick="viewPedido(\'confirmed\',\'' + escapeAttr(it.key) + '\',' + it.idx + ')">';
-    html += '<div class="cc-head"><div class="cc-name">' + escapeHtml(it.clientName) + '</div><div class="cc-month">' + escapeHtml(it.conf.month) + '</div></div>';
+    // v845 (2026-09-09): chip "ORDEN N" al lado del mes — Mariano pidio ver
+    // el mismo numero de orden que aparece en la Lista de Espera (waitlist)
+    // tambien en las cards de Confirmados. El pedido doc en Firestore guarda
+    // orderNumber al pasar de waitlist a pendientes (line 15060 / 17436).
+    let _ordChip = '';
+    if (it.conf.orderNumber) {
+      _ordChip = '<span style="display:inline-block;background:#0f172a;color:#fff;font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;letter-spacing:.3px;margin-left:6px">ORDEN ' + escapeHtml(String(it.conf.orderNumber)) + '</span>';
+    }
+    html += '<div class="cc-head"><div class="cc-name">' + escapeHtml(it.clientName) + '</div><div class="cc-month">' + escapeHtml(it.conf.month) + _ordChip + '</div></div>';
     html += '<div class="cc-meta">' + escapeHtml(it.locName) + ' / ' + escapeHtml(titleCase(it.prov)) + '</div>';
     html += '<div class="cc-summary">' + lineCount + ' productos &middot; ' + units + ' unidades &middot; ' + (it.conf.confirmedAt ? new Date(it.conf.confirmedAt).toLocaleDateString() : '') + '</div>';
     // v695: badge amarillo si el pedido es huerfano (no matchea POINTS/altas).
