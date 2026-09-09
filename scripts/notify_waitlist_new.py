@@ -57,18 +57,18 @@ IOANNIS = "ioannis.plakoudakis@shimano.com.ar"
 SANTIAGO = "santiago.esteban@shimano.com.ar"
 
 # Mapeo VDE -> pareja interna (VDI que controla su pedido).
+# 2026-09-09: Martin dado de baja (renuncia, zonas migradas a PACHI). PACHI
+# no carga waitlists en la app (Santiago actua on-behalf), asi que no va aca.
 VDE_TO_INTERNAL = {
     "gonzalo.de.la.rosa@shimano.com.ar": IOANNIS,
     "federico.castelanelli@shimano.com.ar": IOANNIS,
     "mauricio.gil@shimano.com.ar": SANTIAGO,
-    "martin.boiero@shimano.com.ar": SANTIAGO,
 }
 # Nombre para mostrar en el mail (MAYUS como pidio el user).
 VDE_DISPLAY_NAME = {
     "gonzalo.de.la.rosa@shimano.com.ar": "GONZALO",
     "federico.castelanelli@shimano.com.ar": "FEDERICO",
     "mauricio.gil@shimano.com.ar": "MAURICIO",
-    "martin.boiero@shimano.com.ar": "MARTIN",
 }
 
 # Paleta Shimano (consistente con send_tablero_sar_email.py).
