@@ -5040,6 +5040,14 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <button class="stock-action-btn publish" id="wcard-export-todo-btn" onclick="waitlistExportTodo()" style="background:#0f766e;color:#fff" title="Excel con 2 hojas: PEDIDO ACTUAL (los items del pedido tal cual el cliente pidio) + CONFIRMACION BACKORDER (SKUs asignados del cliente en SAP con estado disponible/no)">Exportar pedido original</button>
         <button class="stock-action-btn publish" id="wcard-archivo-cliente-btn" onclick="waitlistExportArchivoCliente()" style="background:#0369a1;color:#fff" title="Excel para mandar al cliente: columna 'Pedido' = min(cantidad pedida, disponible SAP) — refleja lo que le vamos a entregar. Filas sin dispSap se omiten.">Exportar pedido para enviar al cliente</button>
         <button class="stock-action-btn cancel" id="wcard-delete-btn" onclick="waitlistDeleteCurrent()" style="background:var(--color-danger);color:#fff;display:none">Borrar de espera</button>
+        <!-- v840 (2026-09-09): boton explicito "Generar Backorder" con confirmacion.
+             Caso de uso Mariano: cargamos pedidos sabiendo que no hay stock para
+             generar el BO en la app; cuando ingrese mercaderia el CF FIFO asigna
+             automatico. El comportamiento es identico a "Pasar a Pendientes"
+             (las lineas sin stock quedan state='BO'), pero el nombre + la
+             confirmacion evita clicks accidentales cuando el vendedor sabe que
+             esta haciendo un pedido sin cobertura de stock. -->
+        <button class="stock-action-btn publish" id="wcard-bo-btn" onclick="waitlistGenerarBackorder()" style="background:#c2410c;color:#fff" title="Confirma que las lineas sin stock queden como Backorder en la app (BO). El CF FIFO las asigna cuando ingresa mercaderia SAP.">&#128308; Generar Backorder</button>
         <button class="stock-action-btn publish" id="wcard-pass-btn" onclick="waitlistPasarAPendientes()" style="background:#1e40af;color:#fff">Pasar a Pendientes</button>
       </div>
     </div>
@@ -5239,7 +5247,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v839';
+const APP_VERSION = 'v840';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17966,6 +17974,33 @@ window._showAsigResolveModal = function(w, asigLines, onDone){
   overlay.appendChild(box);
   document.body.appendChild(overlay);
   render();
+};
+
+// v840 (2026-09-09): wrapper explicito para "generar backorder a proposito".
+// Mariano: a veces cargamos pedidos sabiendo que no hay stock para generar
+// el BO en la app; cuando ingrese mercaderia el CF FIFO asigna automatico.
+// El comportamiento es identico a Pasar a Pendientes (las lineas sin stock
+// quedan state='BO'), pero el confirm() explicito evita clicks accidentales.
+window.waitlistGenerarBackorder = async function(){
+  const w = _wcardCurrent;
+  if (!w) return;
+  // Contar lineas sin stock para hacer el mensaje mas util.
+  let sinStock = 0, total = 0;
+  const _gDispFn = (typeof window.getStockDisponibleVenta === 'function')
+    ? window.getStockDisponibleVenta : null;
+  for (const it of (w.items || [])) {
+    if (!(Number(it.qty) > 0)) continue;
+    total++;
+    const disp = _gDispFn ? Number(_gDispFn(it.code) || 0) : 0;
+    if (disp < Number(it.qty || 0)) sinStock++;
+  }
+  const msg = '¿Seguro querés generar backorder?\n\n' +
+    'Este pedido tiene ' + total + ' línea(s), de las cuales ' + sinStock + ' quedará(n) como BO (sin stock).\n\n' +
+    'Cuando ingrese mercadería a SAP, el CF FIFO va a asignar automáticamente al cliente.';
+  if (!confirm(msg)) return;
+  // Reutiliza el mismo flujo que Pasar a Pendientes — la logica de split
+  // (confirmed vs BO) ya se aplica linea x linea automaticamente.
+  return window.waitlistPasarAPendientes();
 };
 
 window.waitlistPasarAPendientes = async function(){
