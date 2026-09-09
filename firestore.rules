@@ -264,6 +264,13 @@ service cloud.firestore {
       //   geoPrecision, geoProvider, geoAt, updatedBy.
       // Restos (comercio, titular, cuit, cardCodeSap, precaucion*) siguen
       // restringidos a admin/gerente/interno.
+      // v859 (2026-09-09): fix bug reportado por Gonzalo — apretar Guardar en
+      // modal Alta SAP (saveSapAltaFantasiaFromModal) escribe `fantasia` pero
+      // no estaba en la whitelist → "Missing permissions" a VDE. Agrego
+      // `fantasia` (consistente con el UI v342+ que ya la deja editable a
+      // todos). precaucion/precaucionReason siguen restringidos (admin-only)
+      // — el cliente-side v859 ahora los omite del payload si el input no
+      // esta en el DOM (VDE nunca los ve).
       allow update: if isAdminOrGerente() || isInterno()
                      || (isReader()
                          && request.resource.data.diff(resource.data).affectedKeys()
@@ -272,6 +279,7 @@ service cloud.firestore {
                               'calle', 'localidad', 'localidadFinal',
                               'lat', 'lng',
                               'geoDisplay', 'geoPrecision', 'geoProvider', 'geoAt',
+                              'fantasia',
                               'updatedAt', 'updatedBy'
                             ]));
       // v778+: cualquier reader puede borrar un provisorio (client_applications
