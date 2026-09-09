@@ -1023,14 +1023,7 @@ function inferVendorFromProvince(provUp) {
   // dejamos MAURICIO como default (mayoria) y el admin re-asigna a PACHI si es
   // una loc del cluster Martin (San Guillermo, Frontera, Cañada de Gómez,
   // El Trébol, Armstrong).
-  const PACHI_PROVS = [
-    'CORDOBA',
-    'SAN LUIS',
-    'CHACO',
-    'FORMOSA',
-    'MISIONES',
-    'CORRIENTES',
-  ];
+  const PACHI_PROVS = ['CORDOBA', 'SAN LUIS', 'CHACO', 'FORMOSA', 'MISIONES', 'CORRIENTES'];
   const IOANNIS_PROVS = [
     'TIERRA DEL FUEGO',
     'SANTA CRUZ',
