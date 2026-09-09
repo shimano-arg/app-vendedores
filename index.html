@@ -5247,7 +5247,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v847';
+const APP_VERSION = 'v848';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13790,6 +13790,12 @@ window.closeExcelPedidoModal = function(){
 // parseExcelPedidoFile. Gated por whitelist emails (body.can-revision).
 // ==========================================================================
 var _revisionParsed = null;
+// v848 (2026-09-09): bytes crudos + filename del Excel original que subio el
+// vendedor via Revision Excel. Se retienen en memoria hasta que se dispara
+// revisionDejarRecalculando (o revisionExportar), momento en el que se sube
+// a Storage para que el notify_waitlist_new.py los adjunte al email.
+var _revisionRawExcelBytes = null;
+var _revisionRawExcelName = null;
 function _revisionCanUse(){
   // v517 (2026-08-13): abrimos a TODOS los users @shimano.com.ar y
   // @shimano.uy (VDIs, VDEs, admin, gerente, regional UY). Antes solo
@@ -13909,6 +13915,10 @@ async function parseRevisionExcelFile(file){
     const ext = (file.name.split('.').pop() || '').toLowerCase();
     if (ext !== 'xlsx' && ext !== 'xls') throw new Error('Formato no soportado: ' + ext);
     const buf = await file.arrayBuffer();
+    // v848 (2026-09-09): guardar bytes crudos + filename para adjuntar al
+    // email de notificacion cuando se cree el waitlist doc.
+    _revisionRawExcelBytes = buf;
+    _revisionRawExcelName = file.name || 'pedido.xlsx';
     const wb = XLSX.read(buf, {type: 'array'});
     const ws = wb.Sheets[wb.SheetNames[0]];
     const aoa = XLSX.utils.sheet_to_json(ws, {header: 1, defval: ''});
@@ -15093,6 +15103,24 @@ window.revisionDejarRecalculando = async function(){
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     };
     const docRef = await fbDb.collection('revision_waitlist').add(payload);
+    // v848 (2026-09-09): si el user subio un Excel, sube los bytes a Storage
+    // y guarda el path + name en el doc para que notify_waitlist_new.py lo
+    // adjunte al email. Fire-and-forget — no bloquea el flujo si falla.
+    try {
+      if (_revisionRawExcelBytes && typeof firebase !== 'undefined' && firebase.storage) {
+        const _excelPath = 'waitlist-excels/' + docRef.id + '.xlsx';
+        const _excelBlob = new Blob([_revisionRawExcelBytes], {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        });
+        const _storageRef = firebase.storage().ref(_excelPath);
+        _storageRef.put(_excelBlob).then(() => {
+          docRef.update({
+            sourceExcelPath: _excelPath,
+            sourceExcelName: _revisionRawExcelName || 'pedido.xlsx',
+          }).catch(_e => console.warn('waitlist doc excel-path update', _e));
+        }).catch(_e => console.warn('upload waitlist excel', _e));
+      }
+    } catch(_e) { console.warn('waitlist excel upload wrap', _e); }
     // v694 (2026-08-27): update optimista para reactividad inmediata.
     // Antes: se confiaba en el listener onSnapshot para propagar el nuevo doc
     // a revisionWaitlist. La latencia server-round-trip hacia que el user

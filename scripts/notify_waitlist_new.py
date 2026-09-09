@@ -37,7 +37,7 @@ from email.utils import make_msgid
 from zoneinfo import ZoneInfo
 
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, storage
 
 # ============================================================
 # Config
@@ -45,6 +45,10 @@ from firebase_admin import credentials, firestore
 MAIL_FROM = os.environ.get("MAIL_FROM", "bot.shimano.pesca@gmail.com")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 FB_SA_JSON = os.environ.get("FIREBASE_SERVICE_ACCOUNT", "")
+# v848 (2026-09-09): bucket Storage donde estan los Excels originales que
+# los VDE suben via Revision Excel (subidos por el frontend en el path
+# 'waitlist-excels/{docId}.xlsx'). Formato: <project>.firebasestorage.app.
+STORAGE_BUCKET = os.environ.get("FIREBASE_STORAGE_BUCKET", "app-vendedores-shimano.firebasestorage.app")
 
 TZ_AR = ZoneInfo("America/Argentina/Buenos_Aires")
 
@@ -89,8 +93,27 @@ def init_firestore():
     except json.JSONDecodeError as e:
         die(f"FIREBASE_SERVICE_ACCOUNT no es JSON valido: {e}")
     cred = credentials.Certificate(sa_dict)
-    firebase_admin.initialize_app(cred)
+    # v848: pasar storageBucket para poder descargar los Excels adjuntos.
+    firebase_admin.initialize_app(cred, {"storageBucket": STORAGE_BUCKET})
     return firestore.client()
+
+
+def download_excel_from_storage(path: str) -> bytes | None:
+    """
+    v848 (2026-09-09): descarga los bytes del Excel original que el VDE
+    subio via Revision Excel. Path esperado: 'waitlist-excels/{docId}.xlsx'.
+    Retorna None si falla (el email se manda sin adjunto, con warning).
+    """
+    try:
+        bucket = storage.bucket()
+        blob = bucket.blob(path)
+        if not blob.exists():
+            print(f"::warning::[notify_waitlist] excel no encontrado en storage: {path}", file=sys.stderr)
+            return None
+        return blob.download_as_bytes()
+    except Exception as e:
+        print(f"::warning::[notify_waitlist] error descargando excel {path}: {e}", file=sys.stderr)
+        return None
 
 
 def build_email(vde_name: str, cliente: str, doc: dict) -> tuple[str, str, str]:
@@ -153,6 +176,7 @@ def build_email(vde_name: str, cliente: str, doc: dict) -> tuple[str, str, str]:
         f"<tr><td style='padding:14px 24px;background:#f8fafc;color:{MUTED};font-size:11px;line-height:1.4'>"
         "Este mail es automatico. Se envia cada vez que un vendedor externo (Gonzalo, Federico, Mauricio, Martin) "
         "carga un pedido en la lista de espera. Recibido por Pablo (gerente) + pareja interna VDI. "
+        "Si el pedido se cargo via Excel, va adjunto el archivo original como backup. "
         "Para dejar de recibirlo, contactar al admin de la app."
         "</td></tr>"
         "</table></td></tr></table></body></html>"
@@ -161,7 +185,14 @@ def build_email(vde_name: str, cliente: str, doc: dict) -> tuple[str, str, str]:
     return subject, plain, html
 
 
-def send_email(subject: str, to_list: list[str], plain: str, html: str) -> None:
+def send_email(
+    subject: str,
+    to_list: list[str],
+    plain: str,
+    html: str,
+    excel_bytes: bytes | None = None,
+    excel_name: str | None = None,
+) -> None:
     if not GMAIL_APP_PASSWORD:
         die("GMAIL_APP_PASSWORD vacio. Setear el secret en GitHub.")
     msg = EmailMessage()
@@ -171,6 +202,15 @@ def send_email(subject: str, to_list: list[str], plain: str, html: str) -> None:
     msg["Message-ID"] = make_msgid(domain="shimano.com.ar")
     msg.set_content(plain)
     msg.add_alternative(html, subtype="html")
+    # v848 (2026-09-09): adjuntar Excel original del pedido si el VDE lo
+    # subio via Revision Excel. Bytes descargados de Storage previamente.
+    if excel_bytes:
+        msg.add_attachment(
+            excel_bytes,
+            maintype="application",
+            subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=excel_name or "pedido.xlsx",
+        )
     with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as s:
         s.login(MAIL_FROM, GMAIL_APP_PASSWORD)
         s.send_message(msg)
@@ -207,14 +247,25 @@ def process(db) -> None:
         cliente = (data.get("clientName") or "sin nombre").strip()
         subject, plain, html = build_email(vde_name, cliente, data)
         to_list = [PABLO, internal]
+        # v848 (2026-09-09): descargar Excel adjunto si el VDE lo subio.
+        # Si es carga manual (SKU-by-SKU), sourceExcelPath queda vacio y
+        # se manda el mail sin adjunto (comportamiento previo intacto).
+        excel_bytes = None
+        excel_name = None
+        source_excel_path = (data.get("sourceExcelPath") or "").strip()
+        if source_excel_path:
+            excel_bytes = download_excel_from_storage(source_excel_path)
+            excel_name = (data.get("sourceExcelName") or "pedido.xlsx").strip()
         try:
-            send_email(subject, to_list, plain, html)
-            print(f"[notify_waitlist] OK doc={d.id} vde={owner_email} cliente={cliente} -> {to_list}")
+            send_email(subject, to_list, plain, html, excel_bytes=excel_bytes, excel_name=excel_name)
+            attach_note = f" attach={excel_name}({len(excel_bytes)}b)" if excel_bytes else ""
+            print(f"[notify_waitlist] OK doc={d.id} vde={owner_email} cliente={cliente} -> {to_list}{attach_note}")
             d.reference.update(
                 {
                     "notifiedEmailAt": firestore.SERVER_TIMESTAMP,
                     "notifiedEmailTo": to_list,
                     "notifiedEmailVde": vde_name,
+                    "notifiedEmailHasAttachment": bool(excel_bytes),
                 }
             )
             sent += 1

@@ -32,6 +32,21 @@ service firebase.storage {
                    && request.resource.contentType.matches('image/.*');
     }
 
+    // Excels originales que los VDE suben via Revision Excel para cargar
+    // pedidos a la Lista de Espera (v848+, 2026-09-09). Se adjuntan al
+    // email de notificacion que reciben Pablo + VDI pareja.
+    // - write: cualquier user @shimano.com.ar autenticado. Limite 5 MB +
+    //   solo tipos Excel (xlsx/xls).
+    // - read: auth (el notify script usa Admin SDK que bypassa rules).
+    match /waitlist-excels/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.resource.size < 5 * 1024 * 1024
+                   && (request.resource.contentType == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+                       request.resource.contentType == 'application/vnd.ms-excel' ||
+                       request.resource.contentType == 'application/octet-stream');
+    }
+
     // Default: bloquear todo lo demas. Si en el futuro se agrega otro
     // path (ej: fotos de visitas migradas a Storage), agregar un match
     // dedicado arriba con sus propias reglas.
