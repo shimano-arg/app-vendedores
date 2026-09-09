@@ -79,10 +79,12 @@ async function fetchOwnerRendiciones(deps, ownerUid, nowDate, excludeDocId) {
     .get();
   /** @type {Array<{id: string, data: any}>} */
   const out = [];
-  snap.forEach(/** @param {any} doc */ (doc) => {
-    if (doc.id === excludeDocId) return;
-    out.push({ id: doc.id, data: doc.data() });
-  });
+  snap.forEach(
+    /** @param {any} doc */ (doc) => {
+      if (doc.id === excludeDocId) return;
+      out.push({ id: doc.id, data: doc.data() });
+    }
+  );
   return out;
 }
 
