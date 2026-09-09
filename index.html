@@ -5247,7 +5247,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v857';
+const APP_VERSION = 'v858';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -22411,14 +22411,18 @@ window.queryStockLive = function(code, btn){
           }
         }
       }
-      const libre = Math.max(disp - reservado, 0);
       // v841 (2026-09-09): simplificacion pedida por Mariano. Antes mostrabamos
       // 6-9 lineas con detalles tecnicos (disp neto, transito, committed SAP,
       // reservado, espera app, libre, otros almacenes, total). Ahora solo 3:
       //   1) STOCK TOTAL          = fisico bruto global (todos los almacenes,
       //                             incluyendo lo comprometido y en transito)
       //   2) COMPROMETIDO/RESERVADO = committed SAP + reservado app + espera app
-      //   3) LIBRE PARA LA VENTA  = disp neto (dep 11) - reservado app
+      //   3) LIBRE PARA LA VENTA  = STOCK TOTAL - COMPROMETIDO (v858+ 2026-09-09)
+      // v858 (2026-09-09): fix consistencia matematica. Antes libre se calculaba
+      // como disp neto (dep 11) - reservado app; no cuadraba con stockTotal -
+      // comprometido porque espera app y otros almacenes tenian scopes distintos.
+      // Ahora libre = stockTotal - comprometido garantiza que las 3 lineas siempre
+      // cierren aritmeticamente (Mariano: "12 - 11 = 1", no 3).
       const cmtByWhs = STOCK_WAREHOUSE_COMMITTED[k] || null;
       const committed11 = Number((cmtByWhs && cmtByWhs['11']) || 0);
       // Stock TOTAL = disp neto + committed (que reconstruye fisico bruto dep 11)
@@ -22430,6 +22434,7 @@ window.queryStockLive = function(code, btn){
       //   - espera app: Lista de Espera de vendedores
       //   - pendiente sin stock: state='BO' (solo si NO hay disp, para no doble-contar)
       const comprometido = committed11 + reservado + esperaApp + (disp === 0 ? pendienteSinStock : 0);
+      const libre = Math.max(stockTotal - comprometido, 0);
       const lines = [
         '📦 STOCK TOTAL: ' + stockTotal + ' unidades',
         '🔒 COMPROMETIDO / RESERVADO: ' + comprometido + ' unidades',
