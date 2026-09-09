@@ -79,7 +79,7 @@ async function fetchOwnerRendiciones(deps, ownerUid, nowDate, excludeDocId) {
     .get();
   /** @type {Array<{id: string, data: any}>} */
   const out = [];
-  snap.forEach((doc) => {
+  snap.forEach(/** @param {any} doc */ (doc) => {
     if (doc.id === excludeDocId) return;
     out.push({ id: doc.id, data: doc.data() });
   });
@@ -193,6 +193,7 @@ export async function checkNewRendicionDuplicate(newDocId, newData, deps) {
     importe: newData.importe,
     numeroTicket: newData.numeroTicket,
   });
+  /** @type {Record<string, any>} */
   const updateFields = {
     status: 'duplicado_detectado',
     duplicateOf: matched.doc.id,
