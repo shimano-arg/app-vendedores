@@ -5247,7 +5247,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v845';
+const APP_VERSION = 'v846';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18207,6 +18207,11 @@ window._waitlistPasarAPendientesContinuar = function(w){
   // BACKORDER (via circuito app-source BO/ASIG), no desde la Lista de Espera.
   _pendingWaitlistDelete = w._id;
   _pendingWaitlistUpdate = null;
+  // v846 (2026-09-09): propagar orderNumber del waitlist al pedido nuevo.
+  // Sin esto, el chip 'ORDEN N' nunca aparecia en las cards de Confirmados
+  // porque doConfirmPedido no incluia el campo en docData. Se resetea al
+  // final del flujo (o al proximo pasar-a-pendientes).
+  window._pendingPedidoOrderNumber = w.orderNumber || null;
   closeWaitlistCardModal();
   closeWaitlistModal();
   // v843 (2026-09-09): si viene de "Generar Backorder", saltar el modal
@@ -24818,6 +24823,9 @@ function attachFirebaseListeners(){
       const entry = {
         _fsId: doc.id,
         month: d.month, monthIdx: d.monthIdx, year: d.year,
+        // v846 (2026-09-09): incluir orderNumber para mostrar chip 'ORDEN N'
+        // en las cards de Confirmados/Pendientes (Mariano pidio verlo).
+        orderNumber: d.orderNumber || null,
         confirmedAt: d.confirmedAt, finalizedAt: d.finalizedAt || null,
         lines: d.lines || [],
         // Snapshot del descuento al confirmar - dashboard y targets usan
@@ -25120,6 +25128,11 @@ window.doConfirmPedido = function(){
     tipo: parts[0], province: parts[1], locName: parts[2], clientName: parts[3],
     // v564: cardCode SAP resuelto arriba. Fundamental para BO/ASIG.
     clientCardCode: _clientCardCode,
+    // v846 (2026-09-09): heredar el numero de orden del waitlist origen si lo hay
+    // (Mariano pidio ver 'ORDEN N' en cards de Confirmados). Poblado por
+    // _waitlistPasarAPendientesContinuar via window._pendingPedidoOrderNumber.
+    // Null cuando el pedido no viene de un waitlist (Excel upload, etc).
+    orderNumber: window._pendingPedidoOrderNumber || null,
     month: monthLabel, monthIdx: mesIdx, year: parseInt(anio),
     confirmedAt: new Date().toISOString(),
     // Condicion de pago seleccionada por el vendedor. Va al UDF U_TipoGasto
@@ -25237,6 +25250,8 @@ window.doConfirmPedido = function(){
   if (currentUser) {
     fbDb.collection('pedidos').add(docData).then((ref)=>{
       showSyncTag('Pedido pendiente guardado');
+      // v846 (2026-09-09): reset del orderNumber pendiente — ya se persistio en docData.
+      window._pendingPedidoOrderNumber = null;
       // Fallback local: solo cuando Firestore lo acepto. Si fallo por permisos,
       // NO metemos nada en pending[] porque el listener del snapshot rerenderiza
       // sobre el estado local y hace que el pedido "aparezca y desaparezca".
