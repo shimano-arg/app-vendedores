@@ -4672,6 +4672,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v820
 
+### v860 (2026-09-09) — perf mapa: zoom fluido (tiles + cluster + dark mode filter)
+
+**Pedido Mariano**: al hacer zoom in/out el mapa se sentía lento, quería flujo más natural.
+
+**3 cambios en el pipeline de render del mapa** (`index.html:5920+`, `:5937+`, `:7617+`, `:813+`):
+
+1. **TileLayer OSM**: agrego `updateWhenZooming: false` + `updateWhenIdle: true` + `keepBuffer: 4`. Leaflet ahora posterga la carga de tiles hasta que termina la animación de zoom (antes cada frame pedía tiles nuevos → framerate malo mobile). `keepBuffer:4` reduce cuadrados grises post-pan.
+
+2. **MarkerCluster**: agrego `animate: false` + `animateAddingMarkers: false` + `removeOutsideVisibleBounds: true`. Los clusters ya no animan el collapse/split al cambiar de nivel — aparecen/desaparecen instantáneo. `iconCreateFunction` custom deja de correr N veces por segundo durante la anim.
+
+3. **Dark mode CSS filter** (`invert + hue-rotate + saturate` sobre `.leaflet-tile`): suspendido durante `.leaflet-zoom-anim` (Leaflet agrega esta clase al `.leaflet-map-pane` durante la anim de zoom). Además agrego `will-change: transform + translateZ(0)` a cada tile para promoverlas a GPU layer y que el compositor pre-renderice el filter una vez. Tradeoff: durante los ~250ms del zoom se ve el flash a colores originales (light) — Mariano OK explícito.
+
+**Bump**: v859 → v860. Bundle sin cambios (solo inline JS + CSS). Tests 367/367 unit + 114/114 rules.
+
 ### v859 (2026-09-09) — fix "Missing permissions" al Guardar modal Alta SAP (VDE)
 
 **Bug reportado por Gonzalo (VDE)**: intentó editar el nombre fantasía (`DE LUCA BAIT SHOP`) del cliente `C20355329810` desde el modal Alta SAP → alert `Error: Missing or insufficient permissions.`
