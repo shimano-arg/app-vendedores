@@ -5,6 +5,14 @@
 // myRendicionesApproverUid, myRendicionesApproverEmail (top-level lets del
 // inline, visibles al bundle via free reference gracias al Global Environment
 // Record compartido).
+// 2026-09-09 anti-duplicados (Fase 3): import de logica pura + chequeo
+// pre-submit contra Firestore por ticketNormalizado.
+import {
+  chequearMatchDuplicado,
+  clavesDeDuplicado,
+  normalizarTicket,
+} from '../pure/rendicion-duplicate.js';
+
 // Módulo extraído verbatim: tipado real fuera de scope E2.e.
 //
 // RENDICIONES - solicitud anticipo + gastos con foto + aprobación
@@ -564,6 +572,71 @@ async function uploadRendicionFotoToStorage(dataUrl, ownerUid) {
   return await snap.ref.getDownloadURL();
 }
 
+/**
+ * v857+ (2026-09-09) — anti-duplicados: pre-check cliente al submit.
+ * Consulta Firestore por rendiciones del mismo owner en los ultimos 90 dias
+ * con el mismo ticketNormalizado. Si hay match FUERTE contra approved/pending,
+ * retorna la rendicion existente y el motivo. Si hay match DEBIL, tambien
+ * lo retorna. Sin match, retorna null.
+ *
+ * Es una LINEA DE DEFENSA REDUNDANTE: el CF trigger onCreate hace la misma
+ * validacion server-side. Este chequeo cliente ahorra 1 write innecesaria
+ * cuando el vendedor va a submitear un obvio duplicado.
+ *
+ * @param {Object} rendicionData  data que se va a submitear (SIN docId aun).
+ * @returns {Promise<null | {existing: {id: string, data: any}, match: {strength: 'strong'|'weak', reason: string}}>}
+ */
+async function _antidupPreCheck(rendicionData) {
+  try {
+    if (!fbDb || !rendicionData || !rendicionData.ownerUid) return null;
+    const ticketNorm = normalizarTicket(rendicionData.numeroTicket);
+    if (!ticketNorm) {
+      // Sin ticket no hay clave FUERTE — no consultamos (el CF cubre debiles).
+      return null;
+    }
+    // Query indexado por (ownerUid, ticketNormalizado). En Firestore devuelve
+    // rapido incluso con miles de rendiciones porque el indice compuesto
+    // (ownerUid, ticketNormalizado, createdAt DESC) filtra exacto.
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const snap = await fbDb
+      .collection('rendiciones')
+      .where('ownerUid', '==', rendicionData.ownerUid)
+      .where('ticketNormalizado', '==', ticketNorm)
+      .get();
+    for (const doc of snap.docs) {
+      const otherData = doc.data() || {};
+      // Ignorar rejected/duplicado_detectado — ya descartados.
+      if (otherData.status === 'rejected') continue;
+      if (otherData.status === 'duplicado_detectado') continue;
+      const match = chequearMatchDuplicado(rendicionData, otherData);
+      if (match) {
+        return { existing: { id: doc.id, data: otherData }, match };
+      }
+    }
+    return null;
+  } catch (e) {
+    console.warn('[antidup] pre-check fallo (no bloqueante):', e);
+    return null; // en duda, no bloquear — el CF server-side es el gate real.
+  }
+}
+
+/**
+ * v857+ (2026-09-09) — formatea la card de "otra rendicion" para el alert
+ * cuando hay match. Incluye link a la foto si existe.
+ */
+function _fmtRendicionDuplicada(existing) {
+  const d = existing.data || {};
+  const fecha =
+    d.createdAt && d.createdAt.toDate
+      ? d.createdAt.toDate().toLocaleString('es-AR')
+      : d.createdAt || '(sin fecha)';
+  const estado = d.status || '(sin estado)';
+  const monto = d.importe != null ? `$${d.importe}` : '(sin monto)';
+  const ticket = d.numeroTicket || '(sin ticket)';
+  const foto = d.fotoTicketUrl ? `\nFoto: ${d.fotoTicketUrl}` : '';
+  return `Ticket: ${ticket}\nImporte: ${monto}\nEstado: ${estado}\nCargada: ${fecha}${foto}`;
+}
+
 window.submitRendGasto = async function () {
   function read(id) {
     const el = document.getElementById(id);
@@ -672,7 +745,47 @@ window.submitRendGasto = async function () {
     approverEmail: approver.email,
     status: selfApprove ? 'approved' : 'pending_approval',
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    // v857+ (2026-09-09) anti-duplicados: popular ticketNormalizado (el CF
+    // trigger tambien lo pobla, pero ganamos 1 write si lo mandamos ya listo).
+    ticketNormalizado: normalizarTicket(read('rg-numero')),
   };
+  // v857+ anti-duplicados pre-check.
+  const dupCheck = await _antidupPreCheck(data);
+  if (dupCheck && dupCheck.match.strength === 'strong') {
+    alert(
+      '⚠️ DUPLICADO DETECTADO\n\n' +
+        'Ya existe una rendicion con el mismo ticket + importe cargada por vos ' +
+        'en los ultimos 90 dias:\n\n' +
+        _fmtRendicionDuplicada(dupCheck.existing) +
+        '\n\nEste gasto NO se envio para evitar el doble pago. Si es un caso ' +
+        'legitimo (ej: dos consumos distintos con el mismo ticket), consulta ' +
+        'con Pablo antes de re-cargar.'
+    );
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Enviar gasto a aprobacion';
+    }
+    return;
+  }
+  if (dupCheck && dupCheck.match.strength === 'weak') {
+    const ok = confirm(
+      '⚠️ POSIBLE DUPLICADO (mismo proveedor + mismo importe + misma fecha)\n\n' +
+        'Rendicion existente:\n' +
+        _fmtRendicionDuplicada(dupCheck.existing) +
+        '\n\nEste gasto puede ser legitimo (ej: dos peajes del mismo dia). ' +
+        '¿Confirmas que NO es duplicado y queres enviarlo igual?'
+    );
+    if (!ok) {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Enviar gasto a aprobacion';
+      }
+      return;
+    }
+    // Flag para audit — el aprobador ve que fue advertido y confirmado.
+    data.duplicateWarningAcknowledged = true;
+    data.duplicateWarningReason = dupCheck.match.reason;
+  }
   if (selfApprove) {
     // v308+: auto-aprobado (Diego director). Poblar campos de aprobacion
     // como si el propio owner fuese el approver.
@@ -896,10 +1009,17 @@ function renderTodasRendiciones() {
   }
   let html = '';
   items.forEach((r) => {
-    const stCls =
-      r.status === 'approved' ? 'approved' : r.status === 'rejected' ? 'rejected' : 'pending';
-    const stLbl =
-      r.status === 'approved'
+    const isDupDetected = r.status === 'duplicado_detectado';
+    const stCls = isDupDetected
+      ? 'rejected' // reusa el styling rojo de rejected para el banner
+      : r.status === 'approved'
+        ? 'approved'
+        : r.status === 'rejected'
+          ? 'rejected'
+          : 'pending';
+    const stLbl = isDupDetected
+      ? '⚠️ DUPLICADO DETECTADO'
+      : r.status === 'approved'
         ? '✓ Aprobada'
         : r.status === 'rejected'
           ? '✕ Rechazada'
@@ -918,7 +1038,35 @@ function renderTodasRendiciones() {
       stCls +
       '" onclick="openRendicionDetail(\'' +
       escapeAttr(rId) +
-      '\')" style="cursor:pointer" title="Tocar para ver el detalle y el ticket">';
+      '\')" style="cursor:pointer' +
+      (isDupDetected ? ';border-left:4px solid #dc2626;background:#fef2f2' : '') +
+      '" title="Tocar para ver el detalle y el ticket">';
+    // v857+: banner rojo sobre cualquier rendicion marcada como duplicado.
+    if (isDupDetected) {
+      html +=
+        '<div style="background:#dc2626;color:#fff;padding:6px 10px;margin:-8px -8px 8px -8px;border-radius:4px 4px 0 0;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:.4px">' +
+        '⚠️ Duplicado — no aprobar sin revisar</div>';
+      if (r.duplicateOf) {
+        html +=
+          '<div style="font-size:10px;color:#7f1d1d;margin-bottom:6px"><b>Rendicion original:</b> ' +
+          '<a href="#" onclick="event.stopPropagation();openRendicionDetail(\'' +
+          escapeAttr(r.duplicateOf) +
+          '\');return false" style="color:#0891b2;font-weight:700">' +
+          escapeHtml(r.duplicateOf) +
+          '</a></div>';
+      }
+      if (r.duplicateReason) {
+        html +=
+          '<div style="font-size:10px;color:#7f1d1d;margin-bottom:6px;font-family:monospace"><b>Match:</b> ' +
+          escapeHtml(r.duplicateReason) +
+          '</div>';
+      }
+    }
+    // v857+: aviso si el vendedor confirmo un match debil.
+    if (r.duplicateWarningAcknowledged) {
+      html +=
+        '<div style="background:#fef3c7;color:#78350f;padding:4px 8px;margin-bottom:6px;border-radius:3px;font-size:10px;font-weight:600">⚠️ ADVERTENCIA DEBIL confirmada por el vendedor</div>';
+    }
     html +=
       '<div style="font-size:10px;font-weight:800;color:#7c2d12;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">&#128100; ' +
       escapeHtml(vendorLbl) +
