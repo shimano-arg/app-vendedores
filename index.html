@@ -5247,7 +5247,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v846';
+const APP_VERSION = 'v847';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14833,22 +14833,50 @@ function _saveDefaultDeliveryFromWaitlist(clientProvincia, clientLocalidad, clie
 
 // v785: precarga los inputs rwe-* del bloque "Dejar recalculando" con los
 // datos de entrega guardados en client_master.defaultDelivery del cliente
-// resolvido. Solo pisa si el vendedor NO habia elegido nada aun (no
-// sobrescribe cambios manuales). Devuelve true si prefilleo.
+// resolvido. Devuelve true si prefilleo.
+// v847 (2026-09-09): quitados los 2 guards que impedian re-prefill:
+//   - _lastRwePrefilledDocId === docId → bloqueaba re-prefill del mismo cliente
+//     en misma sesion (impedia recargar cuando el user limpiaba campos).
+//   - sel.value && sel.value !== dd.tipo → bloqueaba pisar un valor previo
+//     (impedia prefill despues de reset).
+// Ahora prefill CORRE SIEMPRE que haya defaultDelivery. Si el vendedor tiene
+// datos custom ya cargados, los pisa (Mariano: "quiero que traiga los datos
+// completos siempre").
 function _prefillRweFromClientMaster(match){
   try {
     if (!match || !match.nombre) return false;
     if (typeof clientLocId !== 'function' || typeof clientMasterCache === 'undefined') return false;
     const docId = clientLocId(match.provincia || '', match.localidad || '', match.nombre);
     if (!docId) return false;
-    if (_lastRwePrefilledDocId === docId) return false;
     const cm = clientMasterCache.get(docId);
-    const dd = cm && cm.defaultDelivery;
-    if (!dd || !dd.tipo) return false;
+    let dd = cm && cm.defaultDelivery;
+    // v847: fallback fetch directo a Firestore si el cache no tiene el doc.
+    // Los VDE pueden no tener todos los client_master en cache local. Si el
+    // fetch trae defaultDelivery, actualizar el cache local ademas de prefill.
+    if (!dd || !dd.tipo) {
+      if (typeof fbDb !== 'undefined' && fbDb) {
+        fbDb.collection('client_master').doc(docId).get().then(snap => {
+          const d = snap.exists ? (snap.data() || {}) : {};
+          const dd2 = d.defaultDelivery;
+          if (dd2 && dd2.tipo) {
+            try { clientMasterCache.set(docId, Object.assign({}, cm || {}, d)); } catch(_e){}
+            _prefillRweApplyDD(dd2);
+          }
+        }).catch(_e => { /* silent */ });
+      }
+      return false; // sync return; el fetch async prefill si encuentra
+    }
+    _prefillRweApplyDD(dd);
+    _lastRwePrefilledDocId = docId;
+    return true;
+  } catch(_e) { console.warn('_prefillRweFromClientMaster', _e); return false; }
+}
+
+// v847: extraido a helper para poder invocar desde el fetch async.
+function _prefillRweApplyDD(dd){
+  try {
     const sel = document.getElementById('revision-wait-entrega-select');
     if (!sel) return false;
-    if (sel.value && sel.value !== dd.tipo) return false;
-    _lastRwePrefilledDocId = docId;
     sel.value = dd.tipo;
     if (typeof onRevisionEntregaChange === 'function') onRevisionEntregaChange();
     const setV = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
@@ -14865,7 +14893,7 @@ function _prefillRweFromClientMaster(match){
       setV('rwe-retiro-patente', dd.retiroPatente);
     }
     return true;
-  } catch(_e) { console.warn('_prefillRweFromClientMaster', _e); return false; }
+  } catch(_e) { console.warn('_prefillRweApplyDD', _e); return false; }
 }
 
 window.revisionOnClienteInput = function(){
