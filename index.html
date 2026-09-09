@@ -5247,7 +5247,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v843';
+const APP_VERSION = 'v844';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17988,6 +17988,10 @@ window._showAsigResolveModal = function(w, asigLines, onDone){
 window.waitlistGenerarBackorder = async function(){
   const w = _wcardCurrent;
   if (!w) return;
+  // v844 (2026-09-09): capturar waitlistId AHORA — despues del flow interno,
+  // `_wcardCurrent` va a estar en null y necesitamos el ID para el delete
+  // defensivo al final (por si el .then() async del add() no llega a borrar).
+  const _waitlistIdToDelete = w._id;
   // Contar lineas sin stock para hacer el mensaje mas util.
   let sinStock = 0, total = 0;
   const _gDispFn = (typeof window.getStockDisponibleVenta === 'function')
@@ -18067,6 +18071,21 @@ window.waitlistGenerarBackorder = async function(){
     }
   } finally {
     window._boSkipConfirmDialog = false;
+  }
+  // v844 (2026-09-09): delete defensivo del waitlist. El .then() async del
+  // add() interno SI hace el delete via _pendingWaitlistDelete, pero si por
+  // alguna razon no llega (race, error silenciado), este delete garantiza
+  // que la card desaparezca de la Lista de Espera. Firestore delete es
+  // idempotente — si ya se borro, este segundo intento es no-op silencioso.
+  if (_waitlistIdToDelete && typeof fbDb !== 'undefined' && fbDb) {
+    // Pequenio delay para no correr en paralelo con el add() (evita rate limits).
+    setTimeout(() => {
+      try {
+        fbDb.collection('revision_waitlist').doc(_waitlistIdToDelete).delete().catch(_e => {
+          // Silencioso — el .then() del add() ya podria haberlo borrado.
+        });
+      } catch (_e) { /* silencioso */ }
+    }, 500);
   }
 };
 
