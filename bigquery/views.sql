@@ -211,8 +211,14 @@ WHERE operation <> 'DELETE';
 
 -- ============================================================
 -- View 4: v_facturas_sap
--- 2026-09-09 (Mariano): agregado dias_vencido + bucket_aging server-side.
+-- 2026-09-09 (Mariano): agregado dias_vencido server-side.
 -- Antes Power BI calculaba aging con DAX+TODAY() que se congela por refresh.
+-- 2026-09-09 v2 (BI feedback): (a) drop bucket_aging con etiquetas ES —
+-- el tablero usa etiquetas EN ("1. Current", "2. Overdue 1-30d", ...); ahora
+-- solo expone dias_vencido INT y el bucket se arma en DAX; (b) timezone AR
+-- porque el refresh corre de noche hora AR y con UTC quedaba +1 dia
+-- (aging adelantado); (c) agrego es_intercompany + es_bike flags para que
+-- el modelo pueda filtrar bike-only sin intercompany desde su lado.
 -- ============================================================
 -- Facturas SAP + LEFT JOIN con Business Partners para tener nombre
 -- de cliente + tipo + moneda BP + ciudad al lado, sin que Power BI
@@ -223,7 +229,15 @@ WHERE operation <> 'DELETE';
 -- los campos bp_* quedan NULL - la factura sigue apareciendo.
 -- ============================================================
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_facturas_sap` AS
-WITH cliente_app AS (
+WITH bike_items AS (
+  -- 2026-09-09 v2: universo de item_codes bike (grupo SAP 100, ~7k items).
+  -- Se usa para marcar factura como bike si CUALQUIERA de sus lineas tiene
+  -- un item de este set. Coste O(N_lines) por factura pero acotado (facturas
+  -- tienen 1-20 lineas tipicamente).
+  SELECT DISTINCT item_code
+  FROM `app-vendedores-shimano.shimano_app.sap_items_bike_raw`
+),
+cliente_app AS (
   -- v311+ (2026-07-22): traer el assignedVendor de la app desde
   -- client_applications. Solucion al problema del SlpCode SAP inconsistente:
   -- SAP tiene facturas cargadas con SlpCode incorrectos (49=Mariano admin,
@@ -320,19 +334,33 @@ SELECT
   -- campos calculados en BQ, cada consulta tiene aging fresco.
   -- Solo aplica a facturas open + con doc_due_date. Para CN y cerradas
   -- queda NULL (no rompe consumers).
+  -- 2026-09-09 v2 (BI feedback):
+  --   - timezone AR (America/Argentina/Buenos_Aires) porque refresh corre
+  --     de noche AR y con UTC quedaba +1 dia.
+  --   - bucket_aging removido: el modelo espera etiquetas EN ("1. Current",
+  --     "2. Overdue 1-30d", ...) y las hacia coincidir con las ES anteriores
+  --     rompia las 5 medidas de tramo. Ahora expongo solo dias_vencido INT
+  --     y el bucket se define en DAX (una sola fuente de verdad).
   CASE
     WHEN inv.document_status = 'bost_Open' AND inv.doc_due_date IS NOT NULL AND inv.doc_kind = 'INVOICE'
-      THEN DATE_DIFF(CURRENT_DATE(), inv.doc_due_date, DAY)
+      THEN DATE_DIFF(CURRENT_DATE('America/Argentina/Buenos_Aires'), inv.doc_due_date, DAY)
     ELSE NULL
   END                                                                 AS dias_vencido,
-  CASE
-    WHEN inv.document_status != 'bost_Open' OR inv.doc_due_date IS NULL OR inv.doc_kind != 'INVOICE' THEN NULL
-    WHEN inv.doc_due_date >= CURRENT_DATE() THEN '1. Corriente'
-    WHEN DATE_DIFF(CURRENT_DATE(), inv.doc_due_date, DAY) <= 30 THEN '2. Vencida 1-30d'
-    WHEN DATE_DIFF(CURRENT_DATE(), inv.doc_due_date, DAY) <= 60 THEN '3. Vencida 31-60d'
-    WHEN DATE_DIFF(CURRENT_DATE(), inv.doc_due_date, DAY) <= 90 THEN '4. Vencida 61-90d'
-    ELSE '5. Vencida +90d'
-  END                                                                 AS bucket_aging
+  -- 2026-09-09 v2 (BI feedback): flags para que el modelo bike-only pueda
+  -- filtrar sin JOINs adicionales.
+  --   es_intercompany: CSIC* = SHIMANO INC, CSPH* = SHIMANO PHILIPINE.
+  --     Refacturacion del grupo; NO es deuda de canal. Antes solo estaba en
+  --     v_deuda_facturas_detalle; ahora tambien aca por consistencia.
+  --   es_bike: TRUE si CUALQUIERA de las lineas de la factura tiene un
+  --     item del universo bike (sap_items_bike_raw, grupo SAP 100, ~7k
+  --     items). Facturas mixtas (bike + pesca) tambien quedan es_bike=TRUE
+  --     — decision defensiva: mejor sobre-incluir que perder.
+  --     Facturas SIN lines_json (raro, legacy) quedan es_bike=NULL.
+  (inv.card_code LIKE 'CSIC%' OR inv.card_code LIKE 'CSPH%')            AS es_intercompany,
+  (SELECT COUNT(1) > 0
+   FROM UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json, '$')) AS line_json
+   WHERE JSON_VALUE(line_json, '$.ItemCode') IN (SELECT item_code FROM bike_items)
+  )                                                                     AS es_bike
 FROM invoices_and_cns inv
 LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
   ON inv.card_code = bp.card_code
@@ -1165,8 +1193,9 @@ SELECT
   COUNT(*) AS facturas_pendientes,
   COUNT(DISTINCT card_code) AS clientes_con_deuda,
   ROUND(SUM(saldo_ars), 2) AS deuda_total_ars,
-  ROUND(SUM(CASE WHEN doc_due_date < CURRENT_DATE() THEN saldo_ars ELSE 0 END), 2) AS deuda_vencida_ars,
-  ROUND(SUM(CASE WHEN doc_due_date >= CURRENT_DATE() THEN saldo_ars ELSE 0 END), 2) AS deuda_al_dia_ars,
+  -- 2026-09-09 v2 (BI feedback): timezone AR (refresh de noche AR con UTC quedaba +1d).
+  ROUND(SUM(CASE WHEN doc_due_date < CURRENT_DATE('America/Argentina/Buenos_Aires') THEN saldo_ars ELSE 0 END), 2) AS deuda_vencida_ars,
+  ROUND(SUM(CASE WHEN doc_due_date >= CURRENT_DATE('America/Argentina/Buenos_Aires') THEN saldo_ars ELSE 0 END), 2) AS deuda_al_dia_ars,
   MIN(doc_due_date) AS proxima_vencimiento,
   MAX(_sync_timestamp) AS _sync_timestamp
 FROM enriquecido
@@ -1230,12 +1259,13 @@ SELECT
   fa.doc_entry,
   fa.doc_date,
   fa.doc_due_date,
-  DATE_DIFF(CURRENT_DATE(), fa.doc_due_date, DAY) AS dias_vencido,
+  -- 2026-09-09 v2 (BI feedback): timezone AR.
+  DATE_DIFF(CURRENT_DATE('America/Argentina/Buenos_Aires'), fa.doc_due_date, DAY) AS dias_vencido,
   fa.doc_total_ars,
   fa.paid_to_date_ars,
   ROUND(fa.saldo_ars, 2) AS saldo_ars,
   CASE
-    WHEN fa.doc_due_date < CURRENT_DATE() THEN 'VENCIDA'
+    WHEN fa.doc_due_date < CURRENT_DATE('America/Argentina/Buenos_Aires') THEN 'VENCIDA'
     ELSE 'AL DIA'
   END AS estado,
   fa.sap_sales_person_code,
