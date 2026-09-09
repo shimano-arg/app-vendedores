@@ -281,14 +281,23 @@ window.openReviewDialog = function (mode) {
         // tener el doc cargado (VDE con permisos limitados o cache stale). Fetch
         // directo garantiza que si el defaultDelivery existe en Firestore, se
         // aplique aunque no este en cache local.
-        window.fbDb.collection('client_master').doc(_cliDocId).get().then(snap => {
-          const d = snap.exists ? (snap.data() || {}) : {};
-          const dd2 = d.defaultDelivery;
-          if (dd2 && dd2.tipo) {
-            try { window.clientMasterCache.set(_cliDocId, Object.assign({}, _cmData || {}, d)); } catch (_e) {}
-            _applyDD(dd2);
-          }
-        }).catch((_e) => {/* silent */});
+        window.fbDb
+          .collection('client_master')
+          .doc(_cliDocId)
+          .get()
+          .then((snap) => {
+            const d = snap.exists ? snap.data() || {} : {};
+            const dd2 = d.defaultDelivery;
+            if (dd2 && dd2.tipo) {
+              try {
+                window.clientMasterCache.set(_cliDocId, Object.assign({}, _cmData || {}, d));
+              } catch (_e) {}
+              _applyDD(dd2);
+            }
+          })
+          .catch((_e) => {
+            /* silent */
+          });
       }
     }
   } catch (_e) {
