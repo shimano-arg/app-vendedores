@@ -18,9 +18,13 @@
  * apagar el bloqueo sin redeploy si algo sale mal.
  */
 
-// Re-importa la logica pura. En CF Node20, `require` funciona con esm-interop.
-// Pero preferimos import estatico (esm nativo en functions con "type": "module").
-import { clavesDeDuplicado, normalizarTicket } from '../../src/pure/rendicion-duplicate.js';
+// Import de la logica pura. Ojo: el deploy de CF solo empaqueta functions/,
+// no src/. Por eso tenemos una copia sincronizada en
+// functions/core/rendicion-duplicate-pure.js (identica a src/pure/*).
+// Ambos archivos deben quedar iguales — si cambia la logica, actualizar ambos.
+// Fuente de verdad de comportamiento: tests/unit/rendicion-duplicate.test.js
+// (validan la version src/pure/).
+import { clavesDeDuplicado, normalizarTicket } from './rendicion-duplicate-pure.js';
 
 /**
  * Ventana de busqueda hacia atras. 90 dias per Mariano (2026-09-09).
