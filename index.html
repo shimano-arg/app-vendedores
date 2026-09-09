@@ -5247,7 +5247,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v842';
+const APP_VERSION = 'v843';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18003,12 +18003,71 @@ window.waitlistGenerarBackorder = async function(){
     'Cuando ingrese mercadería a SAP, el CF FIFO va a asignar automáticamente al cliente.\n\n' +
     '(No se va a preguntar por el stock asignado del cliente — este flujo es solo para generar BO.)';
   if (!confirm(msg)) return;
-  // v842: llamar DIRECTO al continuar, saltando el gate ASIG.
-  if (typeof window._waitlistPasarAPendientesContinuar === 'function') {
-    return window._waitlistPasarAPendientesContinuar(w);
+  // v842: llamar al continuar (saltando el gate ASIG).
+  // v843 (2026-09-09): tambien saltar el modal "Revisa tu pedido" — Mariano
+  // pidio que "Generar Backorder" cree el pedido directo sin preguntar por
+  // forma de pago/entrega. Estrategia: llamar _waitlistPasarAPendientesContinuar
+  // con flag para que setee todo y NO abra Revisar; despues auto-completar los
+  // campos requeridos con defaults + invocar doConfirmPedido directamente.
+  if (typeof window._waitlistPasarAPendientesContinuar !== 'function') {
+    return window.waitlistPasarAPendientes(); // fallback defensivo
   }
-  // Fallback defensivo: usar el flujo normal si por alguna razon no existe.
-  return window.waitlistPasarAPendientes();
+  // Marcar bandera para que el continuar NO abra Revisar.
+  window._boSkipReview = true;
+  try {
+    window._waitlistPasarAPendientesContinuar(w);
+  } finally {
+    window._boSkipReview = false;
+  }
+  // Auto-completar campos requeridos por doConfirmPedido con defaults
+  // "genericos" (deben respetarse los defaults de la app; el vendedor puede
+  // editarlos despues si abre el pedido). Usamos:
+  //   forma de pago = 'CONTADO'  (opcion mas comun en el picker; si no
+  //                                existe, doConfirmPedido va a re-mostrar
+  //                                Revisar y el vendedor completa).
+  //   forma de entrega = w.deliveryMethod || 'SUCURSAL' (prellenado desde el
+  //                                                        waitlist si lo tiene).
+  //   sucursalDireccion = w.deliveryDetails?.sucursalDireccion || 'A definir'
+  try {
+    const _setV = (id, v) => { const e = document.getElementById(id); if (e && v != null) e.value = v; };
+    // Forma de pago — tomar la primera opcion no-vacia si no hay default.
+    const fpEl = document.getElementById('rv-forma-pago');
+    if (fpEl && !fpEl.value) {
+      // Buscar 'CONTADO' primero; si no, la primera opcion valida.
+      let picked = '';
+      for (const opt of Array.from(fpEl.options || [])) {
+        if ((opt.value || '').toUpperCase().includes('CONTADO')) { picked = opt.value; break; }
+      }
+      if (!picked) {
+        for (const opt of Array.from(fpEl.options || [])) {
+          if (opt.value && opt.value.trim()) { picked = opt.value; break; }
+        }
+      }
+      if (picked) fpEl.value = picked;
+    }
+    // Forma de entrega — SUCURSAL + direccion "A definir" (marcador claro).
+    _setV('rv-forma-entrega', (w.deliveryMethod || 'SUCURSAL'));
+    if (typeof onFormaEntregaChange === 'function') { try { onFormaEntregaChange(); } catch(_e){} }
+    const _dd = w.deliveryDetails || {};
+    _setV('rv-sucursal-direccion', _dd.sucursalDireccion || 'A definir (Backorder generado sin revisar)');
+    _setV('rv-transp-nombre', _dd.transportistaNombre || '');
+    _setV('rv-transp-direccion', _dd.transportistaDireccion || '');
+    _setV('rv-cliente-direccion', _dd.clienteDireccion || '');
+    _setV('rv-retiro-nombre', _dd.retiroNombre || '');
+    _setV('rv-retiro-apellido', _dd.retiroApellido || '');
+    _setV('rv-retiro-dni', _dd.retiroDni || '');
+    _setV('rv-retiro-patente', _dd.retiroPatente || '');
+  } catch(e) { console.warn('waitlistGenerarBackorder autofill', e); }
+  // Marcar que la confirmacion la hicimos arriba con nuestro propio texto,
+  // para que doConfirmPedido no muestre su propio confirm() encima.
+  window._boSkipConfirmDialog = true;
+  try {
+    if (typeof window.doConfirmPedido === 'function') {
+      window.doConfirmPedido();
+    }
+  } finally {
+    window._boSkipConfirmDialog = false;
+  }
 };
 
 window.waitlistPasarAPendientes = async function(){
@@ -18131,6 +18190,12 @@ window._waitlistPasarAPendientesContinuar = function(w){
   _pendingWaitlistUpdate = null;
   closeWaitlistCardModal();
   closeWaitlistModal();
+  // v843 (2026-09-09): si viene de "Generar Backorder", saltar el modal
+  // Revisar — el flujo autocompleta forma pago/entrega y llama a
+  // doConfirmPedido directo. Ver waitlistGenerarBackorder.
+  if (window._boSkipReview === true) {
+    return;
+  }
   // Abrir modal "Revisa tu pedido" normal.
   try { openReviewDialog('crear'); }
   catch(e) { console.error('openReviewDialog from waitlist', e); alert('Pedido cargado en Pendientes pero no pudimos abrir Revisar. Andá a Pedidos > Crear.'); }
@@ -24951,7 +25016,11 @@ window.doConfirmPedido = function(){
   // ownerUid es el del VDE; queda auditoria de quien lo cargo (createdBy...).
   const actingPartner = getActingVendorPartner();
   const onBehalfBanner = actingPartner ? '\n(en nombre de ' + (actingPartner.displayName || actingPartner.email || 'VDE') + ')' : '';
-  if (!confirm('Confirmar pedido de "' + currentOrderClient.name + '" para ' + monthLabel + '?\nForma de pago: ' + condicionVal + onBehalfBanner)) return;
+  // v843 (2026-09-09): "Generar Backorder" ya pidio confirm() propio arriba,
+  // saltar el confirm() aca para no duplicar dialogo al vendedor.
+  if (window._boSkipConfirmDialog !== true) {
+    if (!confirm('Confirmar pedido de "' + currentOrderClient.name + '" para ' + monthLabel + '?\nForma de pago: ' + condicionVal + onBehalfBanner)) return;
+  }
   const parts = currentOrderKey.split('|');
   const ownerUid = actingPartner ? actingPartner.uid : (currentUser ? currentUser.uid : null);
   const ownerEmail = actingPartner ? (actingPartner.email || '') : (currentUser ? currentUser.email : null);
