@@ -44,15 +44,16 @@ WITH bike_items AS (
   SELECT DISTINCT item_code
   FROM `app-vendedores-shimano.shimano_app.sap_items_bike_raw`
 ),
--- 2026-09-09 v3: pre-computar el set de facturas bike via UNNEST + INNER
--- JOIN. Correlated subquery + IN (SELECT...) no se puede de-correlacionar
--- en BQ y falla al hacer SELECT desde la view.
-facturas_con_item_bike AS (
-  SELECT DISTINCT inv.doc_entry
+-- 2026-09-09 v4 (BI feedback): es_bike es del CLIENTE, no de la factura.
+-- Cliente bike = tuvo AL MENOS UNA linea con item bike en TODO su historico.
+-- Congruente con la medida "Es Bike" del modelo Power BI.
+clientes_bike AS (
+  SELECT DISTINCT inv.card_code
   FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv,
        UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json, '$')) AS line_json
   INNER JOIN bike_items bi
     ON JSON_VALUE(line_json, '$.ItemCode') = bi.item_code
+  WHERE inv.card_code IS NOT NULL
 ),
 facturas_abiertas AS (
   SELECT
@@ -72,11 +73,10 @@ facturas_abiertas AS (
     -- Intercompany: SHIMANO INC (CSIC*) y SHIMANO PHILIPINE (CSPH*) refacturacion
     -- del grupo. Concentran 890M de deuda "vencida" que no es cobranza real.
     (inv.card_code LIKE 'CSIC%' OR inv.card_code LIKE 'CSPH%') AS es_intercompany,
-    -- 2026-09-09 v3: es_bike via LEFT JOIN. Facturas mixtas (bike+pesca)
-    -- tambien es_bike=TRUE (sobre-incluir defensivo).
-    (fb.doc_entry IS NOT NULL) AS es_bike
+    -- 2026-09-09 v4: es_bike a nivel CLIENTE (card_code marcado, no factura).
+    (cb.card_code IS NOT NULL) AS es_bike
   FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv
-  LEFT JOIN facturas_con_item_bike fb ON fb.doc_entry = inv.doc_entry
+  LEFT JOIN clientes_bike cb ON cb.card_code = inv.card_code
   WHERE inv.document_status = 'bost_Open'
     AND inv.cancelled = 'tNO'
     AND SAFE_CAST(inv.doc_total AS FLOAT64) - COALESCE(SAFE_CAST(inv.paid_to_date AS FLOAT64), 0) > 0.01
@@ -108,8 +108,7 @@ SELECT
   fa.doc_entry,
   fa.doc_date,
   fa.doc_due_date,
-  -- 2026-09-09 v2 (BI feedback): timezone AR + drop bucket_aging (etiquetas EN
-  -- se definen en DAX del modelo).
+  -- 2026-09-09 v2 (BI feedback): timezone AR.
   DATE_DIFF(CURRENT_DATE('America/Argentina/Buenos_Aires'), fa.doc_due_date, DAY) AS dias_vencido,
   fa.doc_total_ars,
   fa.paid_to_date_ars,
@@ -118,6 +117,17 @@ SELECT
     WHEN fa.doc_due_date < CURRENT_DATE('America/Argentina/Buenos_Aires') THEN 'VENCIDA'
     ELSE 'AL DIA'
   END AS estado,
+  -- 2026-09-09 v4 (BI feedback): bucket_aging RE-agregado a v_deuda_facturas_
+  -- detalle porque el modelo actual lo consume. En v2/v3 lo drope pero el
+  -- modelo se rompio. Se removera cuando el colega BI migre las 5 medidas
+  -- de tramo a usar dias_vencido puro. Labels ES para no romper filtros DAX.
+  CASE
+    WHEN fa.doc_due_date >= CURRENT_DATE('America/Argentina/Buenos_Aires') THEN '1. Corriente'
+    WHEN DATE_DIFF(CURRENT_DATE('America/Argentina/Buenos_Aires'), fa.doc_due_date, DAY) <= 30 THEN '2. Vencida 1-30d'
+    WHEN DATE_DIFF(CURRENT_DATE('America/Argentina/Buenos_Aires'), fa.doc_due_date, DAY) <= 60 THEN '3. Vencida 31-60d'
+    WHEN DATE_DIFF(CURRENT_DATE('America/Argentina/Buenos_Aires'), fa.doc_due_date, DAY) <= 90 THEN '4. Vencida 61-90d'
+    ELSE '5. Vencida +90d'
+  END AS bucket_aging,
   fa.sap_sales_person_code,
   fa.payment_group_code,
   fa.es_intercompany,

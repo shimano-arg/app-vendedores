@@ -234,6 +234,19 @@ WITH bike_items AS (
   SELECT DISTINCT item_code
   FROM `app-vendedores-shimano.shimano_app.sap_items_bike_raw`
 ),
+-- 2026-09-09 v4 (BI feedback): es_bike es del CLIENTE, no de la factura.
+-- Cliente es bike si CUALQUIERA de sus facturas historicas tuvo al menos
+-- una linea con item bike. Congruente con la medida "Es Bike" del modelo
+-- Power BI. Marcar por factura (v2/v3) daba 200M vs los 89M que espera
+-- el tablero — dos definiciones de negocio distintas.
+clientes_bike AS (
+  SELECT DISTINCT inv.card_code
+  FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv,
+       UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json, '$')) AS line_json
+  INNER JOIN bike_items bi
+    ON JSON_VALUE(line_json, '$.ItemCode') = bi.item_code
+  WHERE inv.card_code IS NOT NULL
+),
 cliente_app AS (
   -- v311+ (2026-07-22): traer el assignedVendor de la app desde
   -- client_applications. Solucion al problema del SlpCode SAP inconsistente:
@@ -266,18 +279,6 @@ invoices_and_cns AS (
   UNION ALL
   SELECT *, -1 AS sign, 'CREDIT_NOTE' AS doc_kind
   FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw`
-),
--- 2026-09-09 v3 (BI feedback + BQ optimizer): pre-computar la lista de
--- facturas que tienen al menos una linea con item bike. El approach
--- correlated subquery + IN (SELECT...) NO se puede de-correlacionar en BQ.
--- Solucion: UNNEST + INNER JOIN materializa el set (doc_entry, doc_kind)
--- para hacer LEFT JOIN en el SELECT principal.
-facturas_con_item_bike AS (
-  SELECT DISTINCT inv.doc_entry, inv.doc_kind
-  FROM invoices_and_cns inv,
-       UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json, '$')) AS line_json
-  INNER JOIN bike_items bi
-    ON JSON_VALUE(line_json, '$.ItemCode') = bi.item_code
 )
 SELECT
   inv.doc_type,
@@ -366,14 +367,16 @@ SELECT
   --     — decision defensiva: mejor sobre-incluir que perder.
   --     Facturas SIN lines_json (raro, legacy) quedan es_bike=NULL.
   (inv.card_code LIKE 'CSIC%' OR inv.card_code LIKE 'CSPH%')            AS es_intercompany,
-  (fb.doc_entry IS NOT NULL)                                             AS es_bike
+  -- 2026-09-09 v4: es_bike a nivel CLIENTE (marca al card_code, no la
+  -- factura individual). Congruente con la medida "Es Bike" del modelo PBI.
+  (cb.card_code IS NOT NULL)                                             AS es_bike
 FROM invoices_and_cns inv
 LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
   ON inv.card_code = bp.card_code
 LEFT JOIN cliente_app ca
   ON ca.card_code = inv.card_code
-LEFT JOIN facturas_con_item_bike fb
-  ON fb.doc_entry = inv.doc_entry AND fb.doc_kind = inv.doc_kind
+LEFT JOIN clientes_bike cb
+  ON cb.card_code = inv.card_code
 -- v748 (2026-08-31): filtro estricto cancelled='tNO'. Antes: la vista devolvia
 -- TODOS los docs (incluyendo tYES y los cancellation docs con CANCELED='').
 -- Downstream consumers (Power BI, dashboards, TABLERO SAR) tenian que aplicar
