@@ -31,8 +31,20 @@
 --   4) Agregar columna es_intercompany para excluir facturas SHIMANO INC.
 --      y SHIMANO PHILIPINE (11 de las 13 con +90d son intercompany).
 -- ============================================================
+-- 2026-09-09 v2 (BI feedback):
+--   (a) timezone AR: reemplazado CURRENT_DATE('America/Argentina/Buenos_Aires') por CURRENT_DATE('America/
+--       Argentina/Buenos_Aires'). Con UTC el refresh de noche AR corria +1d.
+--   (b) es_bike flag agregado (era TODO del 2026-09-07). Usa
+--       sap_items_bike_raw (grupo SAP 100, ~7k items). Factura es bike si
+--       CUALQUIERA de sus lines tiene item bike.
+--   (c) drop bucket_aging: el modelo usa labels EN, se choca con las ES.
+--       Ahora solo dias_vencido INT; bucket se arma en DAX.
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_deuda_facturas_detalle` AS
-WITH facturas_abiertas AS (
+WITH bike_items AS (
+  SELECT DISTINCT item_code
+  FROM `app-vendedores-shimano.shimano_app.sap_items_bike_raw`
+),
+facturas_abiertas AS (
   SELECT
     inv.card_code,
     inv.card_name AS card_name_sap,
@@ -49,10 +61,13 @@ WITH facturas_abiertas AS (
     -- Flags para separar universo en Power BI.
     -- Intercompany: SHIMANO INC (CSIC*) y SHIMANO PHILIPINE (CSPH*) refacturacion
     -- del grupo. Concentran 890M de deuda "vencida" que no es cobranza real.
-    CASE
-      WHEN inv.card_code LIKE 'CSIC%' OR inv.card_code LIKE 'CSPH%' THEN TRUE
-      ELSE FALSE
-    END AS es_intercompany
+    (inv.card_code LIKE 'CSIC%' OR inv.card_code LIKE 'CSPH%') AS es_intercompany,
+    -- 2026-09-09 v2: es_bike TRUE si al menos una linea tiene item bike.
+    -- Facturas mixtas (bike+pesca) tambien es_bike=TRUE (sobre-incluir).
+    (SELECT COUNT(1) > 0
+     FROM UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json, '$')) AS line_json
+     WHERE JSON_VALUE(line_json, '$.ItemCode') IN (SELECT item_code FROM bike_items)
+    ) AS es_bike
   FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv
   WHERE inv.document_status = 'bost_Open'
     AND inv.cancelled = 'tNO'
@@ -85,25 +100,20 @@ SELECT
   fa.doc_entry,
   fa.doc_date,
   fa.doc_due_date,
-  DATE_DIFF(CURRENT_DATE(), fa.doc_due_date, DAY) AS dias_vencido,
+  -- 2026-09-09 v2 (BI feedback): timezone AR + drop bucket_aging (etiquetas EN
+  -- se definen en DAX del modelo).
+  DATE_DIFF(CURRENT_DATE('America/Argentina/Buenos_Aires'), fa.doc_due_date, DAY) AS dias_vencido,
   fa.doc_total_ars,
   fa.paid_to_date_ars,
   ROUND(fa.saldo_ars, 2) AS saldo_ars,
   CASE
-    WHEN fa.doc_due_date < CURRENT_DATE() THEN 'VENCIDA'
+    WHEN fa.doc_due_date < CURRENT_DATE('America/Argentina/Buenos_Aires') THEN 'VENCIDA'
     ELSE 'AL DIA'
   END AS estado,
-  -- Buckets aging estandar. En Bike la mayoria son "AL DIA" (cartera sana).
-  CASE
-    WHEN fa.doc_due_date >= CURRENT_DATE() THEN '1. Corriente'
-    WHEN DATE_DIFF(CURRENT_DATE(), fa.doc_due_date, DAY) <= 30 THEN '2. Vencida 1-30d'
-    WHEN DATE_DIFF(CURRENT_DATE(), fa.doc_due_date, DAY) <= 60 THEN '3. Vencida 31-60d'
-    WHEN DATE_DIFF(CURRENT_DATE(), fa.doc_due_date, DAY) <= 90 THEN '4. Vencida 61-90d'
-    ELSE '5. Vencida +90d'
-  END AS bucket_aging,
   fa.sap_sales_person_code,
   fa.payment_group_code,
   fa.es_intercompany,
+  fa.es_bike,
   fa._sync_timestamp
 FROM facturas_abiertas fa
 LEFT JOIN clientes_app ca USING (card_code);  -- LEFT: no perder facturas sin match en app
@@ -257,25 +267,25 @@ SELECT
   dc.deposit_date,
   -- Estado del cheque - logica v2 basada en tipo (echeq vs fisico).
   CASE
-    WHEN ch.e_check = 'tYES' AND ch.due_date <= CURRENT_DATE() THEN 'ACREDITADO'
-    WHEN ch.e_check = 'tYES' AND ch.due_date > CURRENT_DATE() THEN 'PENDIENTE_ACREDITACION'
+    WHEN ch.e_check = 'tYES' AND ch.due_date <= CURRENT_DATE('America/Argentina/Buenos_Aires') THEN 'ACREDITADO'
+    WHEN ch.e_check = 'tYES' AND ch.due_date > CURRENT_DATE('America/Argentina/Buenos_Aires') THEN 'PENDIENTE_ACREDITACION'
     WHEN ch.e_check = 'tNO' AND dc.deposit_abs_entry IS NOT NULL THEN 'DEPOSITADO'
-    WHEN ch.e_check = 'tNO' AND ch.due_date < CURRENT_DATE() THEN 'VENCIDO_SIN_DEPOSITAR'
+    WHEN ch.e_check = 'tNO' AND ch.due_date < CURRENT_DATE('America/Argentina/Buenos_Aires') THEN 'VENCIDO_SIN_DEPOSITAR'
     ELSE 'EN_CARTERA'
   END AS estado_cheque,
   -- Dias hasta el vencimiento (negativo = ya vencio / acreditado).
-  DATE_DIFF(ch.due_date, CURRENT_DATE(), DAY) AS dias_hasta_vencimiento,
+  DATE_DIFF(ch.due_date, CURRENT_DATE('America/Argentina/Buenos_Aires'), DAY) AS dias_hasta_vencimiento,
   -- Categoria echeq vs fisico (flag primario segun discovery).
   CASE WHEN ch.e_check = 'tYES' THEN 'ECHEQ' ELSE 'FISICO' END AS tipo_cheque,
   -- Bucket vencimiento para timeline (aplica a echeqs pendientes y fisicos en cartera).
   CASE
-    WHEN ch.due_date < CURRENT_DATE() THEN '0. Ya vencio/acreditado'
-    WHEN DATE_DIFF(ch.due_date, CURRENT_DATE(), DAY) <= 7 THEN '1. Vence esta semana'
+    WHEN ch.due_date < CURRENT_DATE('America/Argentina/Buenos_Aires') THEN '0. Ya vencio/acreditado'
+    WHEN DATE_DIFF(ch.due_date, CURRENT_DATE('America/Argentina/Buenos_Aires'), DAY) <= 7 THEN '1. Vence esta semana'
     -- FIX 2026-09-09 (Mariano): label decia "Vence 15-30d" pero el CASE hace
     -- fallback desde bucket 1 (<=7d), asi que agarra dias 8-30. Correcto es "8-30d".
-    WHEN DATE_DIFF(ch.due_date, CURRENT_DATE(), DAY) <= 30 THEN '2. Vence 8-30d'
-    WHEN DATE_DIFF(ch.due_date, CURRENT_DATE(), DAY) <= 60 THEN '3. Vence 31-60d'
-    WHEN DATE_DIFF(ch.due_date, CURRENT_DATE(), DAY) <= 90 THEN '4. Vence 61-90d'
+    WHEN DATE_DIFF(ch.due_date, CURRENT_DATE('America/Argentina/Buenos_Aires'), DAY) <= 30 THEN '2. Vence 8-30d'
+    WHEN DATE_DIFF(ch.due_date, CURRENT_DATE('America/Argentina/Buenos_Aires'), DAY) <= 60 THEN '3. Vence 31-60d'
+    WHEN DATE_DIFF(ch.due_date, CURRENT_DATE('America/Argentina/Buenos_Aires'), DAY) <= 90 THEN '4. Vence 61-90d'
     ELSE '5. Vence +90d'
   END AS bucket_vencimiento
 FROM `app-vendedores-shimano.shimano_app.sap_payment_checks_raw` ch
@@ -335,10 +345,10 @@ FROM `app-vendedores-shimano.shimano_app.sap_deposits_raw` d;
 -- SELECT COUNT(*) FROM dim_bancos;
 --   -> 86
 --
--- SELECT COUNT(*), SUM(monto_total_ars) FROM v_pagos_recibidos WHERE doc_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 12 MONTH);
+-- SELECT COUNT(*), SUM(monto_total_ars) FROM v_pagos_recibidos WHERE doc_date >= DATE_SUB(CURRENT_DATE('America/Argentina/Buenos_Aires'), INTERVAL 12 MONTH);
 --   -> ~6.684 pagos, monto total esperado ~ordenes de billones
 --
--- SELECT tipo_cheque, COUNT(*) FROM v_cheques_recibidos WHERE payment_doc_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 12 MONTH) GROUP BY 1;
+-- SELECT tipo_cheque, COUNT(*) FROM v_cheques_recibidos WHERE payment_doc_date >= DATE_SUB(CURRENT_DATE('America/Argentina/Buenos_Aires'), INTERVAL 12 MONTH) GROUP BY 1;
 --   -> ECHEQ: ~1774, FISICO: ~3 (99.83% echeq)
 --
 -- SELECT estado_cheque, COUNT(*), SUM(check_sum) FROM v_cheques_recibidos GROUP BY 1;
