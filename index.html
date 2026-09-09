@@ -5247,7 +5247,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v840';
+const APP_VERSION = 'v841';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -22179,42 +22179,29 @@ window.queryStockLive = function(code, btn){
         }
       }
       const libre = Math.max(disp - reservado, 0);
-      // v839+ (2026-09-08): committed por whs. Sirve para mostrar transparencia
-      // "de esos X que estan fisicamente, Y estan committed a SO abiertas".
-      // Nota: disp YA es NETO (InStock - Committed) desde el backend v839+,
-      // asi que el "8" que ve el vendedor ya descuenta committed. Esta linea
-      // adicional solo aparece si committed > 0 (para explicar por que disp
-      // "bajo" respecto de lo que ven en SAP In Stock).
+      // v841 (2026-09-09): simplificacion pedida por Mariano. Antes mostrabamos
+      // 6-9 lineas con detalles tecnicos (disp neto, transito, committed SAP,
+      // reservado, espera app, libre, otros almacenes, total). Ahora solo 3:
+      //   1) STOCK TOTAL          = fisico bruto global (todos los almacenes,
+      //                             incluyendo lo comprometido y en transito)
+      //   2) COMPROMETIDO/RESERVADO = committed SAP + reservado app + espera app
+      //   3) LIBRE PARA LA VENTA  = disp neto (dep 11) - reservado app
       const cmtByWhs = STOCK_WAREHOUSE_COMMITTED[k] || null;
       const committed11 = Number((cmtByWhs && cmtByWhs['11']) || 0);
+      // Stock TOTAL = disp neto + committed (que reconstruye fisico bruto dep 11)
+      //             + transito (dep 12) + otros almacenes.
+      const stockTotal = disp + committed11 + transito + otros;
+      // COMPROMETIDO / RESERVADO = todo lo que sale del "libre":
+      //   - committed SAP: SO abiertas ya prometidas
+      //   - reservado app: state='ASIG' (asignado a pedido con stock)
+      //   - espera app: Lista de Espera de vendedores
+      //   - pendiente sin stock: state='BO' (solo si NO hay disp, para no doble-contar)
+      const comprometido = committed11 + reservado + esperaApp + (disp === 0 ? pendienteSinStock : 0);
       const lines = [
-        '✅ DISPONIBLE NETO (dep. 11): ' + disp + ' unidades',
-        '🚚 EN TRANSITO (dep. 12): ' + transito + ' unidades',
+        '📦 STOCK TOTAL: ' + stockTotal + ' unidades',
+        '🔒 COMPROMETIDO / RESERVADO: ' + comprometido + ' unidades',
+        '🟢 LIBRE PARA LA VENTA: ' + libre + ' unidades',
       ];
-      if (committed11 > 0) {
-        lines.push('🔒 COMMITTED SAP (dep. 11 comprometido a SO abiertas): ' + committed11 + ' unidades');
-        lines.push('     ↳ fisico bruto SAP: ' + (disp + committed11) + ' unidades (disp neto = fisico − committed)');
-      }
-      if (reservado > 0) {
-        lines.push('🔒 UNIDADES RESERVADAS (pedido con stock): ' + reservado + ' unidades');
-      }
-      // PENDIENTE SIN STOCK solo se muestra si hay pending Y no hay disp
-      // (regla explicita Mariano: no puede haber pending si hay stock disponible;
-      // si aparece esta config, es un edge case de race condition que hay que
-      // resolver via CF FIFO).
-      if (pendienteSinStock > 0 && disp === 0) {
-        lines.push('🔴 PENDIENTE SIN STOCK (pedido sin stock): ' + pendienteSinStock + ' unidades');
-      } else if (pendienteSinStock > 0 && disp > 0) {
-        // Edge case defensivo: hay stock disponible Y pending. Mostrar warning.
-        lines.push('⚠️ PENDIENTE SIN STOCK: ' + pendienteSinStock + ' unidades (revisar — hay stock disponible, CF FIFO no corrio aun)');
-      }
-      if (esperaApp > 0) {
-        lines.push('⏳ ESPERA APP (Lista de Espera): ' + esperaApp + ' unidades');
-      }
-      lines.push('🟢 LIBRE PARA LA VENTA (disp - reservadas): ' + libre + ' unidades');
-      if (otros > 0) lines.push('⚠️ Otros almacenes: ' + otros + ' unidades (' + otrosDetalle.join(', ') + ')');
-      lines.push('──────────────');
-      lines.push('Total: ' + total + ' unidades');
       status = lines.join('\n');
     } else if (hasQtyData) {
       status = 'Total vendible: ' + qty + ' unidades\n\n(Sin desglose por almacen — el proximo sync separara disponible vs transito)';
