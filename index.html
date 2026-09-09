@@ -5247,7 +5247,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v849';
+const APP_VERSION = 'v850';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -7548,12 +7548,46 @@ function restyleZoneLayers(){
 //     ruidoso sobre los outlines de zona.
 //   chunkedLoading true: agrega markers en chunks (async), evita freeze.
 //   spiderfyOnMaxZoom true (default): click en cluster en maxZoom -> spider.
+// v850 (2026-09-09): iconCreateFunction custom para que los clusters tomen
+// el color del vendedor cuando todos los child markers pertenecen al mismo
+// vendor. Antes: cluster usaba default Leaflet (green<10, orange<100, red<1000)
+// que hacia ver el mapa Z4-PACHI con burbujas verdes/naranjas en vez del rojo
+// esperado. Ahora: si todos los pines del cluster son de PACHI, cluster rojo.
+// Si son mixtos (vendors distintos), fallback a default por count.
+function _clusterIconCreate(cluster) {
+  const children = cluster.getAllChildMarkers();
+  const count = children.length;
+  // Extraer vendor de cada marker (poblado en L.marker options).
+  const vendors = new Set();
+  for (const m of children) {
+    const v = m.options && m.options.vendor;
+    if (v) vendors.add(v);
+  }
+  let bg = null;
+  // Si todos los children pertenecen a UN mismo vendor conocido -> usar su color.
+  if (vendors.size === 1) {
+    const vk = vendors.values().next().value;
+    const vm = (typeof vendorLookup !== 'undefined') ? vendorLookup[vk] : null;
+    if (vm && vm.color) bg = vm.color;
+  }
+  // Fallback default Leaflet por count.
+  if (!bg) {
+    if (count < 10) bg = '#5cb85c';       // green
+    else if (count < 100) bg = '#f0ad4e'; // orange
+    else bg = '#d9534f';                  // red
+  }
+  const size = count < 10 ? 34 : count < 100 ? 40 : 46;
+  const html = `<div style="background:${bg};color:#fff;border:2px solid rgba(255,255,255,.85);border-radius:50%;width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;font-weight:800;font-family:Arial;font-size:${count > 99 ? 12 : count > 9 ? 13 : 14}px;box-shadow:0 2px 6px rgba(0,0,0,.35)">${count}</div>`;
+  return L.divIcon({ html, className: 'shimano-cluster', iconSize: [size, size] });
+}
+
 const _CLUSTER_OPTS = {
   maxClusterRadius: 60,
   disableClusteringAtZoom: 12,
   showCoverageOnHover: false,
   chunkedLoading: true,
   spiderfyOnMaxZoom: true,
+  iconCreateFunction: _clusterIconCreate,
 };
 const _sharedCluster = (typeof L.markerClusterGroup === 'function')
   ? L.markerClusterGroup(_CLUSTER_OPTS).addTo(map)
@@ -8706,7 +8740,8 @@ function drawMarkers(){
       const size = Math.max(46, Math.min(72, 30 + Math.sqrt(total) * 3.6));
       const icon = makeBubbleIcon(total, vm.color, size);
       const popup = buildAggPopup(vm.zone + ' - ' + titleCase(vkey), vm.label, g.c, g.pr, vm.color, g.pts.length + ' localidades');
-      const m = L.marker([lat, lon], {icon});
+      // v850: vendor en options → iconCreateFunction del cluster lo lee para tint.
+      const m = L.marker([lat, lon], {icon, vendor: vkey});
       const vk = vkey;
       m.on('click', function(){
         showClickDebug('Click vendedor: ' + vk);
@@ -8733,7 +8768,8 @@ function drawMarkers(){
       const size = Math.max(36, Math.min(58, 24 + Math.sqrt(total) * 3));
       const icon = makeBubbleIcon(total, vm.color, size);
       const popup = buildAggPopup(titleCase(g.province), 'Vendedor: ' + titleCase(g.vendor || 'Sin asignar'), g.c, g.pr, vm.color, g.pts.length + ' localidades');
-      const m = L.marker([lat, lon], {icon});
+      // v850: vendor en options → iconCreateFunction del cluster lo lee para tint.
+      const m = L.marker([lat, lon], {icon, vendor: g.vendor});
       const gv = g.vendor, gp = g.province;
       m.on('click', function(){
         showClickDebug('Click provincia: ' + gp);
@@ -8752,7 +8788,8 @@ function drawMarkers(){
       const size = isSelected ? baseSize + 6 : baseSize;
       const pct = localityContactPct(p);
       const icon = makeBubbleIcon(total, vm.color, size, isSelected, pct);
-      const m = L.marker([p.lat, p.lon], {icon});
+      // v850: vendor en options → iconCreateFunction del cluster lo lee para tint.
+      const m = L.marker([p.lat, p.lon], {icon, vendor: p.vendor});
       const data = {vendor: p.vendor, province: p.province, name: p.name};
       m.on('click', function(){
         showClickDebug('Click localidad: ' + data.name);
