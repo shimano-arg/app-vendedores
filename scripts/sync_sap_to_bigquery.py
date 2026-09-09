@@ -1432,10 +1432,11 @@ def sync_dashboard_snapshot_to_firestore(bq_client: bigquery.Client,
     para que la app pueda cruzar sap_snapshot con targets en el cliente.
 
     Solo agrega vendedores donde `assigned_vendor` de client_applications no
-    sea NULL (los 6 vendedores pesca reales de la app: GONZALO DE LA ROSA,
-    FEDERICO CASTELANELLI, MARTIN BOIERO, MAURICIO GIL, IOANNIS PALKOUDAKIS,
-    SANTIAGO ESTEBAN). Ignora facturas historicas de Baraldo (assigned_vendor
-    NULL). Ventana: año actual completo (mes 1..12).
+    sea NULL (los vendedores pesca reales de la app: GONZALO DE LA ROSA,
+    FEDERICO CASTELANELLI, MAURICIO GIL, IOANNIS PALKOUDAKIS, SANTIAGO ESTEBAN,
+    PACHI (v849+ nuevo distribuidor), y MARTIN BOIERO retirado 2026-09-09
+    que se mantiene para historicos). Ignora facturas historicas de Baraldo
+    (assigned_vendor NULL). Ventana: año actual completo (mes 1..12).
 
     Retorna la cantidad de docs escritos (util para logging).
 
