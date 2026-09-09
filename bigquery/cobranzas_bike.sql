@@ -271,7 +271,9 @@ SELECT
   CASE
     WHEN ch.due_date < CURRENT_DATE() THEN '0. Ya vencio/acreditado'
     WHEN DATE_DIFF(ch.due_date, CURRENT_DATE(), DAY) <= 7 THEN '1. Vence esta semana'
-    WHEN DATE_DIFF(ch.due_date, CURRENT_DATE(), DAY) <= 30 THEN '2. Vence 15-30d'
+    -- FIX 2026-09-09 (Mariano): label decia "Vence 15-30d" pero el CASE hace
+    -- fallback desde bucket 1 (<=7d), asi que agarra dias 8-30. Correcto es "8-30d".
+    WHEN DATE_DIFF(ch.due_date, CURRENT_DATE(), DAY) <= 30 THEN '2. Vence 8-30d'
     WHEN DATE_DIFF(ch.due_date, CURRENT_DATE(), DAY) <= 60 THEN '3. Vence 31-60d'
     WHEN DATE_DIFF(ch.due_date, CURRENT_DATE(), DAY) <= 90 THEN '4. Vence 61-90d'
     ELSE '5. Vence +90d'

@@ -601,15 +601,51 @@ def sl_fetch_nested_per_doc(cfg, session, doc_entries, nav_path_template, nav_pr
 def load_ar_provinces_map_bq(cfg: dict, session) -> dict:
     """
     v3 (2026-09-08): mapping SAP Code -> Nombre canonico UPPERCASE para AR.
+    v3.5 (2026-09-09): fallback hardcoded para las 4 provincias del sur.
     Copia funcional de load_ar_provinces_map en sync_sap_to_firestore.py.
 
     Fuente: /b1s/v1/States?$filter=Country eq 'AR'&$select=Code,Name
-    Retorna: {'1': 'BUENOS AIRES', '2': 'CIUDAD AUTONOMA...', '13': 'SANTA FE', ...}
+    Retorna: {'00': 'CIUDAD AUTONOMA...', '01': 'BUENOS AIRES', ..., '24': 'TIERRA DEL FUEGO'}
 
-    Si el lookup falla devuelve {} y state queda vacio en sap_bp_raw
-    (no aborta el sync). Log del sample para diagnostico.
+    NOTA (2026-09-09): SAP /States AR de Shimano SAP solo tiene configurados
+    los codigos '00'-'19'. Faltan las 4 provincias del sur (NEUQUEN, LA PAMPA,
+    RIO NEGRO, TIERRA DEL FUEGO — codigos AFIP 20-24) que si estan poblados
+    en BPAddresses[].State de los ~189 clientes de esa region. Sin este map,
+    sap_bp_raw.state queda vacio para esos clientes. Fallback hardcodeado
+    con los nombres AFIP oficiales para completar el mapping.
+
+    Cuando SAP admin agregue las provincias faltantes en OCRD.States, el
+    hardcoded queda como fallback silencioso (SAP /States lo pisa si vuelve).
     """
-    result = {}
+    # Hardcoded fallback (codigos AFIP oficiales). SAP /States pisa si viene.
+    AFIP_STATES_AR_FALLBACK = {
+        '00': 'CIUDAD AUTONOMA DE BUENOS AIRES',
+        '01': 'BUENOS AIRES',
+        '02': 'CATAMARCA',
+        '03': 'CORDOBA',
+        '04': 'CORRIENTES',
+        '05': 'ENTRE RIOS',
+        '06': 'JUJUY',
+        '07': 'MENDOZA',
+        '08': 'LA RIOJA',
+        '09': 'SALTA',
+        '10': 'SAN JUAN',
+        '11': 'SAN LUIS',
+        '12': 'SANTA CRUZ',
+        '13': 'SANTA FE',
+        '14': 'SANTIAGO DEL ESTERO',
+        '15': 'TUCUMAN',
+        '16': 'CHACO',
+        '17': 'CHUBUT',
+        '18': 'FORMOSA',
+        '19': 'MISIONES',
+        '20': 'NEUQUEN',
+        '21': 'LA PAMPA',
+        '22': 'RIO NEGRO',
+        '23': 'SANTA CRUZ',
+        '24': 'TIERRA DEL FUEGO',
+    }
+    result = dict(AFIP_STATES_AR_FALLBACK)  # arranca con fallback
     try:
         path = "/b1s/v1/States?$filter=Country eq 'AR'&$select=Code,Name"
         resp = session.get(f"{cfg['url']}{path}", timeout=30)
@@ -618,12 +654,12 @@ def load_ar_provinces_map_bq(cfg: dict, session) -> dict:
                 code = str(state.get('Code', '')).strip()
                 name = str(state.get('Name', '')).strip().upper()
                 if code and name:
-                    result[code] = name
+                    result[code] = name  # SAP pisa fallback si viene
         else:
-            log(f'[BP/provincias] HTTP {resp.status_code} en /States (state va vacio)')
+            log(f'[BP/provincias] HTTP {resp.status_code} en /States (usa fallback)')
     except Exception as e:
-        log(f'[BP/provincias] WARN: {e} (state va vacio)')
-    log(f'[BP/provincias] {len(result)} codigos AR cargados desde SAP /States')
+        log(f'[BP/provincias] WARN: {e} (usa fallback)')
+    log(f'[BP/provincias] {len(result)} codigos AR (fallback + SAP /States)')
     if result:
         sample = list(result.items())[:5]
         log(f'[BP/provincias] sample: {sample}')

@@ -211,6 +211,8 @@ WHERE operation <> 'DELETE';
 
 -- ============================================================
 -- View 4: v_facturas_sap
+-- 2026-09-09 (Mariano): agregado dias_vencido + bucket_aging server-side.
+-- Antes Power BI calculaba aging con DAX+TODAY() que se congela por refresh.
 -- ============================================================
 -- Facturas SAP + LEFT JOIN con Business Partners para tener nombre
 -- de cliente + tipo + moneda BP + ciudad al lado, sin que Power BI
@@ -309,7 +311,28 @@ SELECT
   -- ya vive en v_ventas_lineas (63k filas) que es la fuente real para
   -- medidas de facturacion/margen. Si algun query necesita lines_json,
   -- leerlo directo de sap_invoices_raw.lines_json o sap_credit_notes_raw.lines_json.
-  inv._sync_timestamp
+  inv._sync_timestamp,
+  -- 2026-09-09 (Mariano): aging server-side para evitar el bug de "columna
+  -- calculada DAX que se congela en cada refresh". Antes en Power BI se
+  -- calculaba DIA(TODAY() - doc_due_date) y quedaba desactualizado hasta
+  -- el proximo refresh - un dia de retraso hacia caer facturas fuera del
+  -- bucket vencidas ($21M invisibles reportado 2026-09-08). Con estos
+  -- campos calculados en BQ, cada consulta tiene aging fresco.
+  -- Solo aplica a facturas open + con doc_due_date. Para CN y cerradas
+  -- queda NULL (no rompe consumers).
+  CASE
+    WHEN inv.document_status = 'bost_Open' AND inv.doc_due_date IS NOT NULL AND inv.doc_kind = 'INVOICE'
+      THEN DATE_DIFF(CURRENT_DATE(), inv.doc_due_date, DAY)
+    ELSE NULL
+  END                                                                 AS dias_vencido,
+  CASE
+    WHEN inv.document_status != 'bost_Open' OR inv.doc_due_date IS NULL OR inv.doc_kind != 'INVOICE' THEN NULL
+    WHEN inv.doc_due_date >= CURRENT_DATE() THEN '1. Corriente'
+    WHEN DATE_DIFF(CURRENT_DATE(), inv.doc_due_date, DAY) <= 30 THEN '2. Vencida 1-30d'
+    WHEN DATE_DIFF(CURRENT_DATE(), inv.doc_due_date, DAY) <= 60 THEN '3. Vencida 31-60d'
+    WHEN DATE_DIFF(CURRENT_DATE(), inv.doc_due_date, DAY) <= 90 THEN '4. Vencida 61-90d'
+    ELSE '5. Vencida +90d'
+  END                                                                 AS bucket_aging
 FROM invoices_and_cns inv
 LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
   ON inv.card_code = bp.card_code
