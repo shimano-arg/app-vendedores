@@ -15,7 +15,7 @@
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { defineSecret } from 'firebase-functions/params';
-import { onDocumentWritten } from 'firebase-functions/v2/firestore';
+import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 // @google-cloud/firestore es pesado (~50 MB con gRPC/protobuf) y solo se
@@ -38,6 +38,7 @@ import { syncSapInvoices } from './core/invoice-sync-core.js';
 // v774 (2026-09-02): notif email al enviar oferta a SAP (pedido Mariano).
 import { buildEmailContent, sendEmail, shouldNotify } from './core/notify-quotation-sent-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
+import { checkNewRendicionDuplicate } from './core/rendicion-duplicate-core.js';
 import { handleSapProxy } from './core/sap-proxy-core.js';
 import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
 
@@ -1097,6 +1098,60 @@ export const setupGetMovimientos = onCall(
       if (e instanceof HttpsError) throw e;
       console.error('setupGetMovimientos unexpected error', e);
       throw new HttpsError('internal', String(e && e.message ? e.message : e));
+    }
+  }
+);
+
+/**
+ * onRendicionCreatedCheckDuplicate — trigger onCreate en rendiciones/{id}.
+ *
+ * Contexto: audit agosto/septiembre 2026 detecto pagos duplicados por la
+ * misma boleta ($28.600 de mas en un mes). Root cause: la unica barrera
+ * era el ojo del aprobador. Este trigger corre server-side (no bypasseable
+ * desde el cliente) y marca la rendicion como 'duplicado_detectado' si
+ * detecta match FUERTE contra una rendicion approved/pending del mismo
+ * owner en los ultimos 90 dias.
+ *
+ * Logica core: functions/core/rendicion-duplicate-core.js (testeable con
+ * mocks Firestore, no requiere emulador).
+ *
+ * Feature flag: app_config/rendiciones_config.antiDuplicadoEnabled (default
+ * true si el doc no existe). Cuando OFF, el trigger solo popula el campo
+ * ticketNormalizado (para no perder datos), pero NO bloquea. Permite apagar
+ * el bloqueo desde Firestore Console sin redeploy.
+ */
+export const onRendicionCreatedCheckDuplicate = onDocumentCreated(
+  {
+    region: REGION,
+    document: 'rendiciones/{docId}',
+    retry: false,
+    memory: '256MiB',
+    timeoutSeconds: 30,
+  },
+  async (event) => {
+    const data = event.data?.data();
+    if (!data) return;
+    const db = getFirestore();
+    try {
+      const result = await checkNewRendicionDuplicate(event.params.docId, data, {
+        db,
+        FieldValue,
+        log: (msg, extra) => console.log(msg, extra || {}),
+        isEnabled: async () => {
+          try {
+            const snap = await db.doc('app_config/rendiciones_config').get();
+            if (!snap.exists) return true; // default enabled si no hay config
+            const d = snap.data() || {};
+            return d.antiDuplicadoEnabled !== false; // solo false explicito lo apaga
+          } catch (_e) {
+            return true; // en duda, enabled
+          }
+        },
+      });
+      console.log('[antidup] result', { docId: event.params.docId, ...result });
+    } catch (e) {
+      console.error('[antidup] error', e);
+      // NO re-throw: retry:false + no queremos que fallos aca frenen el flow.
     }
   }
 );

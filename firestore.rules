@@ -286,11 +286,19 @@ service cloud.firestore {
     }
 
     // Rendiciones: mismo patrón — vendor list solo own.
+    // v857 (2026-09-09): anti-duplicados. Guard en update para impedir que
+    // un doc marcado como 'duplicado_detectado' (por CF onCreate) pase a
+    // 'approved' desde la UI. Admin/gerente igual puede pasar el status a
+    // 'rejected' si quiere descartarlo. Para volver a la vida un doc
+    // legitimo marcado como falso positivo, cambiar status a
+    // 'pending_approval' primero y despues aprobar.
     match /rendiciones/{docId} {
       allow get: if isReader();
       allow list: if isAdminOrGerente() || isInterno() || (isVendor() && ownsDoc());
       allow create: if request.auth != null && request.resource.data.ownerUid == request.auth.uid;
-      allow update: if isAdminOrGerente();
+      allow update: if isAdminOrGerente()
+                    && !(resource.data.get('status', '') == 'duplicado_detectado'
+                         && request.resource.data.status == 'approved');
       allow delete: if isAdminOrGerente();
     }
 
