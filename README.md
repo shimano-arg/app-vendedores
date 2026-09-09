@@ -4672,6 +4672,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v820
 
+### v859 (2026-09-09) — fix "Missing permissions" al Guardar modal Alta SAP (VDE)
+
+**Bug reportado por Gonzalo (VDE)**: intentó editar el nombre fantasía (`DE LUCA BAIT SHOP`) del cliente `C20355329810` desde el modal Alta SAP → alert `Error: Missing or insufficient permissions.`
+
+**Root cause doble**:
+1. `saveSapAltaFantasiaFromModal` (`index.html:7993`) SIEMPRE incluía `precaucion: false` + `precaucionReason: delete()` en el payload — aunque el input DOM no exista (la sección se renderiza solo `isAdminLike`, línea 7965). Los VDE nunca ven el checkbox pero el JS igual lo escribía como `false`.
+2. Firestore Rules `client_applications` (whitelist v776) permitía a `isReader()` tocar `calle/lat/lng/geo*/leadEstado/updatedAt/updatedBy` — pero NO `fantasia` ni `precaucion`. El UI dejaba editar fantasía desde v342 (2026-07-28), pero la Rules nunca se actualizó.
+
+**Fix**:
+- Cliente: si `precaucionEl === null` (VDE), omitir `precaucion` y `precaucionReason` del payload. Solo mandar `fantasia + updatedAt + updatedBy`.
+- Rules: agregar `fantasia` a la whitelist reader. `precaucion*` siguen admin-only.
+
+**Bump**: v858 → v859. Rules bump requiere `firebase deploy --only firestore:rules`.
+
 ### v858 (2026-09-09) — fix consistencia matemática modal Stock (STOCK TOTAL − COMPROMETIDO = LIBRE)
 
 **Bug reportado por Mariano**: al abrir modal Stock de SKU `PLM58RE0200150S` mostraba `STOCK TOTAL: 12`, `COMPROMETIDO: 11`, `LIBRE: 3` — matemáticamente inconsistente (`12 − 11 = 1`, no `3`).

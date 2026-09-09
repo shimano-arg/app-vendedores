@@ -5247,7 +5247,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v858';
+const APP_VERSION = 'v859';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -7993,21 +7993,35 @@ function openSapAltaInfoModal(fsId){
 window.saveSapAltaFantasiaFromModal = function(fsId){
   // v342+ (2026-07-28): vendedores + interno pueden editar el nombre fantasia.
   // Antes admin/gerente only. Los cambios quedan auditados via updatedBy.
+  // v859 (2026-09-09): fix bug reportado por Gonzalo — "Missing or insufficient
+  // permissions" al apretar Guardar. Root cause: el payload SIEMPRE incluia
+  // precaucion + precaucionReason aunque el input NO existiera en el DOM (la
+  // seccion se renderiza solo isAdminLike). Firestore Rules v776 solo permite
+  // al reader tocar la whitelist de direccion/geocoding + fantasia (agregada
+  // en esta misma bump). precaucion/precaucionReason NO estan en whitelist
+  // (son admin-only) → el update fallaba silencioso para VDE. Fix: solo
+  // incluir esos campos si el input existe (o sea, si es admin/gerente).
   const inp = document.getElementById('sai-fantasia-input');
   if (!inp) return;
   const trimmed = (inp.value || '').trim();
   const precaucionEl = document.getElementById('sai-precaucion-input');
   const reasonEl = document.getElementById('sai-precaucion-reason');
-  const precaucion = precaucionEl ? !!precaucionEl.checked : false;
-  const reason = reasonEl ? (reasonEl.value || '').trim() : '';
+  /** @type {Record<string, any>} */
   const payload = {
     fantasia: trimmed || firebase.firestore.FieldValue.delete(),
-    precaucion: precaucion,
-    precaucionReason: precaucion ? (reason || '') : firebase.firestore.FieldValue.delete(),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    updatedBy: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.email || currentUser.uid) : '',
   };
+  let precaucionMsg = '';
+  if (precaucionEl) {
+    const precaucion = !!precaucionEl.checked;
+    const reason = reasonEl ? (reasonEl.value || '').trim() : '';
+    payload.precaucion = precaucion;
+    payload.precaucionReason = precaucion ? (reason || '') : firebase.firestore.FieldValue.delete();
+    if (precaucion) precaucionMsg = ' (precaucion ON)';
+  }
   fbDb.collection('client_applications').doc(fsId).update(payload).then(() => {
-    if (typeof showSyncTag === 'function') showSyncTag('Cliente actualizado' + (precaucion ? ' (precaucion ON)' : ''));
+    if (typeof showSyncTag === 'function') showSyncTag('Cliente actualizado' + precaucionMsg);
     const modalEl = document.getElementById('sap-alta-info-modal');
     if (modalEl) modalEl.classList.remove('open');
   }).catch(e => { console.error('save SAP alta', e); alert('Error: ' + (e.message || e)); });
