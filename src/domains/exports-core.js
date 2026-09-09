@@ -49,7 +49,7 @@ window.exportMasterClientes = function () {
     'FEDERICO CASTELANELLI': 'IOANNIS PALKOUDAKIS',
     'GONZALO DE LA ROSA': 'IOANNIS PALKOUDAKIS',
     'MAURICIO GIL': 'SANTIAGO ESTEBAN',
-    'PACHI': 'SANTIAGO ESTEBAN',
+    PACHI: 'SANTIAGO ESTEBAN',
   };
   function lookupZone(vendorKey) {
     const v = typeof VENDORS !== 'undefined' ? VENDORS.find((vv) => vv.key === vendorKey) : null;
@@ -1623,7 +1623,7 @@ window.exportTargetsZonas = async function () {
     'FEDERICO CASTELANELLI': 'IOANNIS PALKOUDAKIS',
     'GONZALO DE LA ROSA': 'IOANNIS PALKOUDAKIS',
     'MAURICIO GIL': 'SANTIAGO ESTEBAN',
-    'PACHI': 'SANTIAGO ESTEBAN',
+    PACHI: 'SANTIAGO ESTEBAN',
   };
   function regionOf(prov) {
     const p = (prov || '').toUpperCase();
