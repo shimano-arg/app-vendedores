@@ -4236,7 +4236,11 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         </div>
         <div style="display:none;gap:8px" id="pm-actions-pending">
           <button class="btn-cancel" onclick="eliminarPendiente()">Eliminar</button>
-          <button onclick="volverABorrador()" style="padding:9px 14px;border:1.5px solid var(--border-default);border-radius:6px;background:var(--bg-elevated);color:var(--text-secondary);font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">Volver a borrador</button>
+          <!-- v862 (2026-09-10): boton "Volver a borrador" removido. Con
+               el full wipe de borradores en curso, ya no hay concepto de
+               borrador persistente. El equivalente moderno es "Volver a
+               lista de espera" (siguiente boton) que usa revision_waitlist. -->
+
           <!-- v473: solo visible para los 4 del whitelist Revision (body.can-revision). -->
           <button class="pm-back-to-waitlist" onclick="volverAListaEspera()" style="padding:9px 14px;border:1.5px solid var(--color-accent-violet);border-radius:6px;background:#faf5ff;color:var(--color-accent-violet);font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#8617; Volver a lista de espera</button>
           <button class="btn-confirm" onclick="confirmarDefinitivo()">Confirmar definitivo</button>
@@ -5260,7 +5264,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v861';
+const APP_VERSION = 'v862';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -6869,16 +6873,25 @@ function getClientDisplayName(key, fallback){
   return (m && m.customName && m.customName.trim()) ? m.customName.trim() : fallback;
 }
 
-// === Orders persistence (pedidos por cliente contactado) ===
+// === Orders scratch pad EN MEMORIA (v862: full wipe borradores) ===
+// v862 (2026-09-10): Mariano pidio que cada apertura de "Crear pedido"
+// arranque desde cero. `orders` sigue existiendo como scratch pad en RAM
+// durante la vida del modal (necesario para los helpers que iteran las
+// lineas: agregar SKU, cambiar qty, revisar, etc), pero NO persiste ni
+// se restaura entre sesiones. Consecuencias:
+//   - Nunca aparece el badge "En curso" en la lista de tiendas.
+//   - Al reabrir el mismo cliente, arranca vacio (sin recuperar lo previo).
+//   - Si el vendedor cierra el browser mid-pedido, pierde lo cargado.
+//     Trade-off aceptado en el pedido explicito del user.
+//   - saveOrders es no-op. El override que subia a Firestore (v274 legacy)
+//     tambien se removio.
+// Auto-clean natural: los `delete orders[key]` existentes en los flows
+// de confirmar/cancelar/enviar-a-espera siguen funcionando y liberan el
+// scratch pad.
 const ORDERS_KEY = 'shimano_zonas_orders_v1';
 let orders = {};
-try {
-  const raw = localStorage.getItem(ORDERS_KEY);
-  if (raw) orders = JSON.parse(raw) || {};
-} catch(e) { orders = {}; }
-function saveOrders(){
-  try { localStorage.setItem(ORDERS_KEY, JSON.stringify(orders)); } catch(e) {}
-}
+try { localStorage.removeItem(ORDERS_KEY); } catch(e) {}
+function saveOrders(){ /* v862: no-op (full wipe) */ }
 function orderKey(clientName, province, locName, tipo){
   return tipo + '|' + province + '|' + locName + '|' + clientName;
 }
@@ -13626,8 +13639,8 @@ function renderCrearList(){
     return {flag: false, reason: ''};
   }
   items.forEach(it => {
-    const k = orderKey(it.name, it.point.province, it.point.name, it.tipo);
-    const hasOrder = (orders[k] || []).length > 0;
+    // v862: `hasOrder` removido. Ya no hay estado "En curso" persistente
+    // entre sesiones — no tiene sentido pintarlo en la lista.
     // Detectar si es alta provisoria (sin SAP todavia). Sale del flag
     // manualSapPending del alta cuando no tiene cardCodeSap aun.
     const isProvisorio = !!(it.sapAlta && it.sapAlta.manualSapPending && !it.sapAlta.cardCodeSap);
@@ -13694,7 +13707,7 @@ function renderCrearList(){
     } else {
       html += '<div style="background:#10b981;color:#fff;font-size:9px;font-weight:800;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:.4px">Habilitado</div>';
     }
-    if (hasOrder) html += '<div style="font-size:9px;color:var(--color-success);font-weight:700">En curso</div>';
+    // v862: badge "En curso" removido (ver comentario en items.forEach).
     html += '</div></div>';
   });
   if (!items.length) html = '<div style="color:var(--text-muted);font-size:12px;padding:14px;text-align:center;background:var(--bg-secondary);border-radius:6px;line-height:1.5">Sin clientes habilitados en la selección actual.<br><span style="font-size:10px">Cambiá los filtros o pedile al admin que sume tiendas en SAP.</span></div>';
@@ -19675,22 +19688,12 @@ window.eliminarPendiente = async function(){
   closePedidoModal();
 };
 
+// v862 (2026-09-10): volverABorrador deprecada. El full wipe de borradores
+// hace que este flow no tenga sentido — restaurar a `orders[key]` seria
+// puramente en memoria y se perderia al cerrar el modal. El equivalente
+// moderno es window.volverAListaEspera (revision_waitlist).
 window.volverABorrador = function(){
-  if (!currentOrderClient || currentOrderClient.stage !== 'pending') return;
-  const key = currentOrderClient.viewKey, idx = currentOrderClient.viewIdx;
-  const list = pending[key] || [];
-  const entry = list[idx];
-  if (!entry) return;
-  if ((orders[key] || []).length) {
-    if (!confirm('Ya existe un borrador en curso para este cliente. Reemplazarlo?')) return;
-  }
-  orders[key] = (entry.lines || []).map(l => Object.assign({}, l, {qty: parseFloat(l.qty) || 0}));
-  saveOrders();
-  pending[key] = list.filter((_, i) => i !== idx);
-  if (!pending[key].length) delete pending[key];
-  savePending();
-  closePedidoModal();
-  setPedidoView('crear');
+  console.warn('[v862] volverABorrador deprecada — usar volverAListaEspera');
 };
 
 // ============================================================
@@ -24982,8 +24985,9 @@ function attachFirebaseListeners(){
         if (Array.isArray(data.contacted)) contacted = new Set(data.contacted);
         if (Array.isArray(data.canceled)) canceled = new Set(data.canceled);
         if (data.clientMeta && typeof data.clientMeta === 'object') clientMeta = data.clientMeta;
-        if (data.orders && typeof data.orders === 'object') orders = data.orders;
-        saveContacted(); saveCanceled(); saveClientMeta(); saveOrders();
+        // v862: `orders` NO se restaura mas desde userData. Cada apertura
+        // arranca vacia (full wipe borradores). `saveOrders` es no-op.
+        saveContacted(); saveCanceled(); saveClientMeta();
       } finally { suppressCloudSave = false; }
       if (typeof drawMarkers === 'function') drawMarkers();
       if (typeof restyleZoneLayers === 'function') restyleZoneLayers();
@@ -25167,12 +25171,9 @@ saveCanceled = function(){
   if (suppressCloudSave || !currentUser) return;
   fbDb.collection('userData').doc(currentUser.uid).set({canceled: [...canceled], updatedAt: firebase.firestore.FieldValue.serverTimestamp()}, {merge: true}).catch(e=>console.error('saveCanceled cloud', e));
 };
-const _origSaveOrders = saveOrders;
-saveOrders = function(){
-  _origSaveOrders();
-  if (suppressCloudSave || !currentUser) return;
-  fbDb.collection('userData').doc(currentUser.uid).set({orders: orders, updatedAt: firebase.firestore.FieldValue.serverTimestamp()}, {merge: true}).catch(e=>console.error('saveOrders cloud', e));
-};
+// v862 (2026-09-10): saveOrders override removido. `orders` es scratch pad
+// EN MEMORIA only — no persiste a localStorage ni a Firestore (userData).
+// El full wipe del borrador "En curso" implica que no hay nada que sync.
 const _origSaveClientMeta = saveClientMeta;
 saveClientMeta = function(){
   _origSaveClientMeta();
@@ -25693,17 +25694,20 @@ window.eliminarPendiente = async function(){
   closePedidoModal();
 };
 
+// v862 (2026-09-10): override de volverABorrador tambien deprecado.
+// Reemplazado por volverAListaEspera (revision_waitlist). Si algun caller
+// legacy invoca esta fn, cae al warn y NO ejecuta el flow viejo (evita
+// escribir a `orders[key]` que ya no persiste).
 window.volverABorrador = async function(){
-  // v469: await + alerta si falla el delete Firestore (para no dejar
-  // fantasma en globalPedidos que inflaria Disponible app).
+  console.warn('[v862] volverABorrador (override) deprecada — usar volverAListaEspera');
+  return;
+  // Legacy body preservado como referencia — inalcanzable.
+  // eslint-disable-next-line no-unreachable
   if (!currentOrderClient || currentOrderClient.stage !== 'pending') return;
   const key = currentOrderClient.viewKey, idx = currentOrderClient.viewIdx;
   const list = pending[key] || [];
   const entry = list[idx];
   if (!entry) return;
-  if ((orders[key] || []).length) {
-    if (!confirm('Ya existe un borrador en curso para este cliente. Reemplazarlo?')) return;
-  }
   try { logOp('volver_a_borrador', 'pedido', currentOrderClient.name, {key, month: entry.month, items: (entry.lines||[]).length}); } catch(e){}
   if (entry._fsId && currentUser && fbDb) {
     try {
