@@ -14,6 +14,34 @@
 
 
 -- ============================================================
+-- NUEVA (2026-09-10): v_provincia_cliente
+-- ============================================================
+-- Espejo de la provincia canonica del cliente (state de sap_bp_raw normalizado
+-- a UPPER + TRIM). Reemplaza la dependencia local map_provincia_cliente / GEO.txt
+-- del pbix del TABLERO BIKE SAR.
+--
+-- Semantica:
+--   - country != 'AR' excluidos (el tablero es solo Bike AR).
+--   - state vacio/NULL -> provincia = NULL (NO devolvemos "SIN PROVINCIA"
+--     acá; el DAX del modelo mantiene el COALESCE de 3 niveles:
+--     v_provincia_cliente.provincia -> dim_Cliente[Provincia] -> "SIN PROVINCIA").
+--   - UPPER(TRIM(state)) normaliza case + whitespace.
+--
+-- Cobertura verificada 2026-09-10: 909 de 910 clientes bike AR tienen state
+-- (99.9%). Unico gap: EMPL34996999 LAUREL EZEQUIEL RODRIGO (empleado interno).
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_provincia_cliente` AS
+SELECT
+  card_code,
+  card_name,
+  country,
+  CASE WHEN state IS NULL OR TRIM(state) = '' THEN NULL
+       ELSE UPPER(TRIM(state)) END AS provincia
+FROM `app-vendedores-shimano.shimano_app.sap_bp_raw`
+WHERE country = 'AR';
+
+
+-- ============================================================
 -- NUEVA (2026-09-10): dim_intercompany
 -- ============================================================
 -- Catalogo de card_codes intercompany (filiales Shimano + Lazer + Elite Italy).
