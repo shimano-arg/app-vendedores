@@ -642,7 +642,9 @@ def load_ar_provinces_map_bq(cfg: dict, session) -> dict:
         '20': 'NEUQUEN',
         '21': 'LA PAMPA',
         '22': 'RIO NEGRO',
-        '23': 'SANTA CRUZ',
+        # '23' NO existe en nomenclatura SAP-Shimano (0 BPs verificados
+        # 2026-09-10 contra sap_bp_raw). El slot antes decia 'SANTA CRUZ'
+        # duplicado con '12' — era un ghost inofensivo, removido por prolijidad.
         '24': 'TIERRA DEL FUEGO',
     }
     result = dict(AFIP_STATES_AR_FALLBACK)  # arranca con fallback
