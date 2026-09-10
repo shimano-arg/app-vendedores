@@ -4670,7 +4670,33 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v861
+## 41) Changelog v300 → v862
+
+### v862 (2026-09-10) — full wipe de borradores "En curso" (cada apertura arranca vacía)
+
+**Pedido Mariano**: _"quiero evitar que queden 'pedidos' en el estado 'en curso' porque sino cuando vuelvo a cargarle algo al cliente me queda lo anterior, quiero que siempre arranque desde cero el pedido"_.
+
+**Contexto**: el mecanismo `orders[key]` (localStorage `shimano_zonas_orders_v1` + backup Firestore `userData/{uid}.orders`) persistía borradores entre sesiones. Cada apertura de "Crear pedido" restauraba lo previo. La lista de tiendas pintaba badge verde "En curso" para los que tenían borrador.
+
+**Cambio — full wipe**:
+- `orders` sigue existiendo como scratch pad EN MEMORIA durante la vida del modal (los helpers `agregar SKU`, `cambiar qty`, etc. lo usan internamente), pero **cero persistencia**:
+  - `let orders = {}` sin restauración de localStorage al init.
+  - `localStorage.removeItem(ORDERS_KEY)` al arrancar (limpia residuos de sesiones previas).
+  - `saveOrders()` convertida en no-op.
+  - Override que subía a Firestore (`userData/{uid}.orders`) removido.
+  - Bootstrap desde `userData.orders` en el sync inicial también removido.
+- **Badge verde "En curso"** en la lista de tiendas eliminado (`renderPedidos()` L13697 + variable `hasOrder` L13630).
+- **Botón "Volver a borrador"** del modal pedido pendiente removido (`pm-actions-pending` L4239). El equivalente moderno **"Volver a lista de espera"** (`revision_waitlist`) queda como reemplazo — cubre el mismo use case con persistencia real.
+- Fns `volverABorrador` (2 defs: original inline + override) convertidas en no-op con `console.warn` defensivo por si algún caller legacy queda.
+
+**Trade-off aceptado por Mariano**: si un vendedor está a mitad de un pedido con 30 SKUs y se le crashea el browser o cierra la pestaña, pierde lo cargado. Es el precio explícito de "siempre desde cero". Para pedidos grandes que valga proteger, usar "Enviar a lista de espera" durante la carga (queda persistido en `revision_waitlist` Firestore).
+
+**Deltas**:
+- ~40 LOC removidas (borrador persistence + badge + botón + confirm prompts).
+- Tests 367/367 verde.
+- Bundle sin cambios.
+
+**Bump**: v861 → v862.
 
 ### v861 (2026-09-10) — fix scroll modal Pedido en Espera se resetea al tocar flecha qty
 
