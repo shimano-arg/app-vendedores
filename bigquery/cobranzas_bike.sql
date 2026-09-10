@@ -14,6 +14,33 @@
 
 
 -- ============================================================
+-- NUEVA (2026-09-10): dim_intercompany
+-- ============================================================
+-- Catalogo de card_codes intercompany (filiales Shimano + Lazer + Elite Italy).
+-- Fuente de verdad server-side para el flag es_intercompany. Antes usabamos
+-- LIKE 'CS%' hardcoded en cada view pero:
+--   - Se colaban LAZER SPORT NV (CLAZER000001) y ELITE ITALY (C55000003548)
+--     que no matchean el prefix — reportado por BI 2026-09-10 con LAZER
+--     inflando 14.18M en el corte bike no-intercompany.
+--   - Si finanzas da de alta filial nueva con otro formato, vuelve a fallar
+--     silencioso.
+-- Espejo local de la dim_Intercompany del pbix. Cuando se agregue una nueva
+-- filial actualizar solo aca — todas las views que hacen JOIN a esta la
+-- toman automatico.
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.dim_intercompany` AS
+SELECT card_code, card_name FROM UNNEST([
+  STRUCT('CSIC0001'     AS card_code, 'SHIMANO INC.'         AS card_name),
+  STRUCT('CSUR0001',     'SHIMANO URUGUAY'),
+  STRUCT('CSEU0001',     'SHIMANO EUROPE B.V.'),
+  STRUCT('CSPL0001',     'SHIMANO SINGAPORE'),
+  STRUCT('CSPH0001',     'SHIMANO PHILIPINE'),
+  STRUCT('CLAZER000001', 'LAZER SPORT NV'),
+  STRUCT('C55000003548', 'ELITE S.R.L. ITALY')
+]);
+
+
+-- ============================================================
 -- FIX: v_deuda_facturas_detalle (2026-09-07)
 -- ============================================================
 -- Bug reportado por COWORK 2026-09-07: la vista tiene un filtro hardcodeado
@@ -72,10 +99,12 @@ facturas_abiertas AS (
     -- Flags para separar universo en Power BI.
     -- Intercompany: SHIMANO INC (CSIC*) y SHIMANO PHILIPINE (CSPH*) refacturacion
     -- del grupo. Concentran 890M de deuda "vencida" que no es cobranza real.
-    -- 2026-09-10 (Mariano): tablero es solo Bike AR → toda filial Shimano
-    -- es intercompany. Prefix 'CS' captura las 5 (INC, URUGUAY, EUROPE,
-    -- PHILIPINE, SINGAPORE); clientes AR usan C20/C27/C30 sin colision.
-    (inv.card_code LIKE 'CS%') AS es_intercompany,
+    -- 2026-09-10 v6 (BI feedback): es_intercompany se lee de dim_intercompany
+    -- (fuente de verdad server-side). Antes LIKE 'CS%' se me colaban LAZER
+    -- SPORT NV (CLAZER000001) y ELITE ITALY (C55000003548). Ahora si finanzas
+    -- alta filial nueva, se agrega a dim_intercompany y todas las views la
+    -- toman.
+    (inv.card_code IN (SELECT card_code FROM `app-vendedores-shimano.shimano_app.dim_intercompany`)) AS es_intercompany,
     -- 2026-09-09 v4: es_bike a nivel CLIENTE (card_code marcado, no factura).
     (cb.card_code IS NOT NULL) AS es_bike
   FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv
