@@ -72,7 +72,10 @@ facturas_abiertas AS (
     -- Flags para separar universo en Power BI.
     -- Intercompany: SHIMANO INC (CSIC*) y SHIMANO PHILIPINE (CSPH*) refacturacion
     -- del grupo. Concentran 890M de deuda "vencida" que no es cobranza real.
-    (inv.card_code LIKE 'CSIC%' OR inv.card_code LIKE 'CSPH%') AS es_intercompany,
+    -- 2026-09-10 (Mariano): tablero es solo Bike AR → toda filial Shimano
+    -- es intercompany. Prefix 'CS' captura las 5 (INC, URUGUAY, EUROPE,
+    -- PHILIPINE, SINGAPORE); clientes AR usan C20/C27/C30 sin colision.
+    (inv.card_code LIKE 'CS%') AS es_intercompany,
     -- 2026-09-09 v4: es_bike a nivel CLIENTE (card_code marcado, no factura).
     (cb.card_code IS NOT NULL) AS es_bike
   FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` inv

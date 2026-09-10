@@ -366,7 +366,10 @@ SELECT
   --     items). Facturas mixtas (bike + pesca) tambien quedan es_bike=TRUE
   --     — decision defensiva: mejor sobre-incluir que perder.
   --     Facturas SIN lines_json (raro, legacy) quedan es_bike=NULL.
-  (inv.card_code LIKE 'CSIC%' OR inv.card_code LIKE 'CSPH%')            AS es_intercompany,
+  -- 2026-09-10 (Mariano): tablero es solo Bike AR → toda filial Shimano
+  -- (URUGUAY, EUROPE, INC, PHILIPINE, SINGAPORE) es intercompany. Prefix
+  -- 'CS' captura las 5 filiales del sistema; clientes AR usan C20/C27/C30.
+  (inv.card_code LIKE 'CS%')                                            AS es_intercompany,
   -- 2026-09-09 v4: es_bike a nivel CLIENTE (marca al card_code, no la
   -- factura individual). Congruente con la medida "Es Bike" del modelo PBI.
   (cb.card_code IS NOT NULL)                                             AS es_bike
