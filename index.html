@@ -5260,7 +5260,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v860';
+const APP_VERSION = 'v861';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -16747,6 +16747,16 @@ window.closeSkuDiagnostico = function(){
 function _renderWaitlistCard(){
   const w = _wcardCurrent;
   if (!w) return;
+  // v861 (2026-09-10): preservar scroll position del modal-body antes de
+  // regenerar el DOM. Sin esto, cada onSnapshot post-update (ej: tocar
+  // flecha "+" del input qty) reseteaba scroll a 0 y el vendedor tenia que
+  // bajar de nuevo. Bug reportado por Mariano.
+  const _wcardModalBody = (function(){
+    const modal = document.getElementById('waitlist-card-modal');
+    if (!modal) return null;
+    return modal.querySelector('.modal-body');
+  })();
+  const _savedScrollTop = _wcardModalBody ? _wcardModalBody.scrollTop : 0;
   // v499: incluir Orden N en el titulo del modal card si esta.
   const _ordenTxt = w.orderNumber ? '  ·  ORDEN ' + w.orderNumber : '';
   document.getElementById('wcard-title').textContent = 'Pedido en espera — ' + w.clientName + _ordenTxt;
@@ -17156,6 +17166,13 @@ function _renderWaitlistCard(){
   if (editOrdenBtn) {
     editOrdenBtn.style.display = canDelete ? '' : 'none';
     editOrdenBtn.textContent = w.orderNumber ? ('Editar orden (' + w.orderNumber + ')') : 'Asignar orden';
+  }
+  // v861 (2026-09-10): restaurar scroll a la posicion previa al re-render.
+  // Usamos requestAnimationFrame para que la restauracion corra despues del
+  // reflow del browser (el DOM recien regenerado todavia no tiene scrollHeight
+  // final si le pedimos scrollTop=X inmediato).
+  if (_wcardModalBody && _savedScrollTop > 0) {
+    requestAnimationFrame(() => { _wcardModalBody.scrollTop = _savedScrollTop; });
   }
 }
 
