@@ -5264,7 +5264,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v862';
+const APP_VERSION = 'v863';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -7785,6 +7785,22 @@ function getLocalityCentroid(prov, loc){
 // Asi el map respeta las reasignaciones hechas en Zonas sin tener que
 // duplicar la escritura en client_applications.
 function getEffectiveVendorForSapAlta(a){
+  // v862 (2026-09-11): coverageBy override. Diego (director) 2026-09-10
+  // confirmo que PACHI no es empleado Shimano — la cartera de MARTIN oficialmente
+  // va a SANTI (assignedVendor='SANTIAGO ESTEBAN' en Firestore + SAP). Pero
+  // Mariano necesita seguir viendo la zona Pachi diferenciada en el mapa/filtros
+  // durante el trial de 3 meses (hasta 2026-12-11) para medir la coverage
+  // presencial. coverageBy='PACHI' se setea en los 154 clientes migrados.
+  //
+  // Comportamiento:
+  //   - filter=PACHI → muestra los 154 (coverage) + no muestra propios de Santi.
+  //   - filter=SANTI → muestra propios de Santi + no muestra los 154 (que son
+  //     de coverage Pachi aunque assignedVendor=SANTI).
+  //   - popup del pin dice "Vendedor: PACHI" (respeta coverage).
+  //
+  // Fallback: si no hay coverageBy, retorna vendor efectivo actual (assignedVendor
+  // con overrides de Zonas modal).
+  if (a && a.coverageBy) return a.coverageBy;
   const baseVendor = (a && a.assignedVendor) ? a.assignedVendor : '';
   if (!a || typeof vendorOverrides === 'undefined' || !vendorOverrides) return baseVendor;
   if (!Object.keys(vendorOverrides).length) return baseVendor;

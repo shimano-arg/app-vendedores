@@ -854,6 +854,17 @@ window.applyMcSapImport = async function () {
           payload.localidadFinal = sap.city;
         }
         if (assignedVendor) payload.assignedVendor = assignedVendor;
+        // 2026-09-11: coverage_by = PACHI si la prov cae en su trial (3 meses
+        // hasta 2026-12-11). Se setea SOLO en alta nueva; el admin puede
+        // editar despues desde la app si el cliente no lo visita Pachi.
+        const coverageBy =
+          typeof inferCoverageFromProvince === 'function'
+            ? inferCoverageFromProvince(provNorm)
+            : '';
+        if (coverageBy) {
+          payload.coverageBy = coverageBy;
+          payload.coverageTrialEndDate = COVERAGE_TRIAL_END_DATE;
+        }
         // owner / cuit / condicionFiscal: NO se incluyen para no destruir
         // datos manuales cargados en altas previas. Si la fila no existe
         // todavia, esos campos quedan ausentes (lo que es OK - las altas SAP
@@ -904,6 +915,15 @@ window.applyMcSapImport = async function () {
             payload.localidadFinal = sap.city;
           }
           if (assignedVendor) payload.assignedVendor = assignedVendor;
+          // 2026-09-11: idem al batch — coverage_by=PACHI si prov cae en trial.
+          const coverageBy2 =
+            typeof inferCoverageFromProvince === 'function'
+              ? inferCoverageFromProvince(provNorm)
+              : '';
+          if (coverageBy2) {
+            payload.coverageBy = coverageBy2;
+            payload.coverageTrialEndDate = COVERAGE_TRIAL_END_DATE;
+          }
           try {
             await fbDb
               .collection('client_applications')
@@ -1013,17 +1033,21 @@ window.applyMcSapImport = async function () {
 // hardcoded (IOANNIS_PROVINCES + SANTIAGO_PROVINCES) y unas reglas
 // adicionales para Buenos Aires / Cuyo. Si no aplica nada, devuelve ''
 // (el admin lo asigna despues desde el modal Zonas).
+//
+// 2026-09-11 (v862, Mariano + Diego): PACHI no es empleado Shimano
+// (Diego 2026-09-10). La cartera oficial (assignedVendor + SAP SlpCode)
+// va a SANTI. Pero PACHI cubre presencialmente durante trial de 3 meses
+// hasta 2026-12-11 → seteamos coverageBy='PACHI' en las mismas provs
+// para poder medir el rendimiento por separado.
+const PACHI_COVERAGE_PROVS = ['CORDOBA', 'SAN LUIS', 'CHACO', 'FORMOSA', 'MISIONES', 'CORRIENTES'];
+const COVERAGE_TRIAL_END_DATE = '2026-12-11';
+
 function inferVendorFromProvince(provUp) {
   if (!provUp) return '';
   const p = provUp.toUpperCase().trim();
-  // 2026-09-09 (Mariano): actualizado por baja Martin + alta PACHI.
-  // PACHI cubre: CORDOBA + SAN LUIS + CHACO + FORMOSA + MISIONES + CORRIENTES
-  //   + parte de SANTA FE (loc especificas, no toda la provincia).
-  // Como Alta Rapida no sabe la loc exacta al momento de inferir, para SANTA FE
-  // dejamos MAURICIO como default (mayoria) y el admin re-asigna a PACHI si es
-  // una loc del cluster Martin (San Guillermo, Frontera, Cañada de Gómez,
-  // El Trébol, Armstrong).
-  const PACHI_PROVS = ['CORDOBA', 'SAN LUIS', 'CHACO', 'FORMOSA', 'MISIONES', 'CORRIENTES'];
+  // Provincias que antes iban a PACHI ahora asignan a SANTIAGO ESTEBAN
+  // (assignedVendor oficial). El coverage se marca aparte con
+  // inferCoverageFromProvince (ver abajo).
   const IOANNIS_PROVS = [
     'TIERRA DEL FUEGO',
     'SANTA CRUZ',
@@ -1042,11 +1066,12 @@ function inferVendorFromProvince(provUp) {
     'LA RIOJA',
     'TUCUMAN',
   ];
-  if (PACHI_PROVS.includes(p)) return 'PACHI';
+  // Las PACHI_COVERAGE_PROVS asignan oficialmente a SANTI (Diego 2026-09-10).
+  if (PACHI_COVERAGE_PROVS.includes(p)) return 'SANTIAGO ESTEBAN';
   if (IOANNIS_PROVS.includes(p)) return 'IOANNIS PALKOUDAKIS';
   if (SANTIAGO_PROVS.includes(p)) return 'SANTIAGO ESTEBAN';
   if (p === 'ENTRE RIOS') return 'MAURICIO GIL';
-  if (p === 'SANTA FE') return 'MAURICIO GIL'; // default; loc del cluster PACHI se re-asigna manual
+  if (p === 'SANTA FE') return 'MAURICIO GIL'; // default; loc del cluster PACHI se re-asigna manual (coverage se maneja aparte)
   if (
     p === 'BUENOS AIRES' ||
     p === 'CAPITAL FEDERAL' ||
@@ -1054,6 +1079,20 @@ function inferVendorFromProvince(provUp) {
     p === 'CIUDAD AUTONOMA DE BUENOS AIRES'
   )
     return 'FEDERICO CASTELANELLI';
+  return '';
+}
+
+// 2026-09-11: inferir coverage (quien cubre presencialmente) por provincia.
+// Solo relevante durante el trial de PACHI. Cuando el trial termine
+// (2026-12-11) y se decida oficializar/rebalancear, esta funcion vuelve
+// a devolver '' para todas las provs y las nuevas altas dejan de setear
+// coverageBy.
+// Se usa junto con inferVendorFromProvince: assignedVendor='SANTI' +
+// coverageBy='PACHI' cuando la prov cae en PACHI_COVERAGE_PROVS.
+function inferCoverageFromProvince(provUp) {
+  if (!provUp) return '';
+  const p = provUp.toUpperCase().trim();
+  if (PACHI_COVERAGE_PROVS.includes(p)) return 'PACHI';
   return '';
 }
 window.onMcFiltProvChange = function () {
@@ -2867,6 +2906,20 @@ window.saveMcAddr = async function (docId, btn) {
           if (altaCurrent && !altaCurrent.assignedVendor) {
             const inferred = inferVendorFromProvince(newProv);
             if (inferred) updatePayload.assignedVendor = inferred;
+          }
+          // 2026-09-11: si la prov nueva cae en coverage PACHI y el alta no
+          // tenia coverageBy antes, setearlo. Preserva override manual si
+          // el admin ya habia elegido otro coverage.
+          if (
+            altaCurrent &&
+            !altaCurrent.coverageBy &&
+            typeof inferCoverageFromProvince === 'function'
+          ) {
+            const inferredCov = inferCoverageFromProvince(newProv);
+            if (inferredCov) {
+              updatePayload.coverageBy = inferredCov;
+              updatePayload.coverageTrialEndDate = COVERAGE_TRIAL_END_DATE;
+            }
           }
         }
       }

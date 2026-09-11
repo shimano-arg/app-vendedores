@@ -255,6 +255,10 @@ cliente_app AS (
   -- de la app es la fuente de verdad del negocio. Filtrar por este campo
   -- en PBI muestra las facturas del vendedor real, no del que qued
   -- registrado en la carga SAP.
+  -- 2026-09-11: agregado coverage_by + coverage_trial_end_date para el
+  -- trial de PACHI (3 meses hasta 2026-12-11). Diego confirmo que Pachi no
+  -- es empleado; SAP factura como SANTI (assigned_vendor_app='SANTIAGO
+  -- ESTEBAN') pero coverageBy='PACHI' permite reporting operativo separado.
   SELECT
     JSON_VALUE(data, '$.cardCodeSap') AS card_code,
     ARRAY_AGG(
@@ -262,7 +266,19 @@ cliente_app AS (
       IGNORE NULLS
       ORDER BY document_id
       LIMIT 1
-    )[SAFE_OFFSET(0)] AS assigned_vendor_app
+    )[SAFE_OFFSET(0)] AS assigned_vendor_app,
+    ARRAY_AGG(
+      JSON_VALUE(data, '$.coverageBy')
+      IGNORE NULLS
+      ORDER BY document_id
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS coverage_by,
+    ARRAY_AGG(
+      JSON_VALUE(data, '$.coverageTrialEndDate')
+      IGNORE NULLS
+      ORDER BY document_id
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS coverage_trial_end_date
   FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
   WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
     AND JSON_VALUE(data, '$.cardCodeSap') != ''
@@ -323,6 +339,14 @@ SELECT
   -- v311+ (2026-07-22): vendedor real del cliente segun la app (source of truth).
   -- Usar este campo en los slicers del TABLERO SAR en vez de SlpCode.
   ca.assigned_vendor_app                                              AS assigned_vendor,
+  -- 2026-09-11: coverage_by = vendedor que cubre presencialmente al cliente
+  -- (puede diferir de assigned_vendor si hay una dupla vendedor externo +
+  -- interno). Ej: PACHI cubre zona ex-MARTIN pero SANTI factura. coverage_by
+  -- se setea manualmente en la app o auto por provincia (Cordoba/San Luis/
+  -- Chaco/Formosa/Misiones/Corrientes/Salto BA → PACHI durante trial).
+  -- coverage_trial_end_date marca cuando revisar/oficializar (default 2026-12-11).
+  ca.coverage_by                                                      AS coverage_by,
+  ca.coverage_trial_end_date                                          AS coverage_trial_end_date,
   inv.comments,
   inv.jrnl_memo,
   inv.payment_group_code,
@@ -1108,7 +1132,7 @@ WHERE seller_id IN (
   -- para facturas/targets historicos (no borrarlo hasta que se sanee la
   -- serie temporal en Power BI).
   'GONZALO DE LA ROSA','MAURICIO GIL','IOANNIS PALKOUDAKIS',
-  'SANTIAGO ESTEBAN','FEDERICO CASTELANELLI','MARTIN BOIERO','PACHI'
+  'SANTIAGO ESTEBAN','FEDERICO CASTELANELLI','MARTIN BOIERO'  -- PACHI removido 2026-09-11 (Diego: no es empleado Shimano; cartera va a SANTI, se mide coverage aparte)
 )
   AND target_ars > 0;
 
@@ -1199,7 +1223,7 @@ enriquecido AS (
     AND ca.assigned_vendor IN (
       -- 2026-09-09: agregado PACHI. MARTIN se mantiene para historico.
       'GONZALO DE LA ROSA', 'MAURICIO GIL', 'IOANNIS PALKOUDAKIS',
-      'SANTIAGO ESTEBAN', 'FEDERICO CASTELANELLI', 'MARTIN BOIERO', 'PACHI'
+      'SANTIAGO ESTEBAN', 'FEDERICO CASTELANELLI', 'MARTIN BOIERO'  -- PACHI removido 2026-09-11 (Diego)
     )
 )
 SELECT
@@ -1287,9 +1311,10 @@ SELECT
 FROM facturas_abiertas fa
 INNER JOIN clientes_app ca USING (card_code)
 WHERE ca.info.assigned_vendor IN (
-  -- 2026-09-09: agregado PACHI. MARTIN se mantiene para historico.
+  -- 2026-09-11: PACHI removido (Diego: no es empleado Shimano). MARTIN se
+  -- mantiene para historico.
   'GONZALO DE LA ROSA', 'MAURICIO GIL', 'IOANNIS PALKOUDAKIS',
-  'SANTIAGO ESTEBAN', 'FEDERICO CASTELANELLI', 'MARTIN BOIERO', 'PACHI'
+  'SANTIAGO ESTEBAN', 'FEDERICO CASTELANELLI', 'MARTIN BOIERO'
 );
 
 
