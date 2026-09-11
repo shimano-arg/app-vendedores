@@ -2218,9 +2218,27 @@ window.renderMasterClientesTable = function () {
         escapeHtml(dupSapV.cardCodeSap || '') +
         '</span>'
       : '';
+    // v880 (2026-09-11): resaltar fila si falta Localidad, Provincia o Vendedor.
+    // Ayuda al admin a ubicar rapido los rows incompletos del padron para
+    // completarlos. "(sin localidad)" / "(sin provincia)" son placeholders del
+    // import SAP -> cuentan como faltantes. Duplicado SAP tiene prioridad
+    // visual (es un problema mas critico); si no hay dup, se usa el mismo
+    // color rojo pero con tooltip enumerando los campos faltantes.
+    const _locMissing = !e.localidad || e.localidad === '(sin localidad)';
+    const _provMissing = !e.provincia || e.provincia === '(sin provincia)';
+    const _vendMissing = !e.vendor;
+    const _missingList = [];
+    if (_locMissing) _missingList.push('Localidad');
+    if (_provMissing) _missingList.push('Provincia');
+    if (_vendMissing) _missingList.push('Vendedor');
+    const _hasMissing = _missingList.length > 0;
     const rowStyleV = dupSapV
       ? ' style="background:var(--color-danger-bg);border-left:4px solid var(--color-danger)"'
-      : '';
+      : _hasMissing
+        ? ' style="background:var(--color-danger-bg);border-left:4px solid var(--color-danger)" title="Faltan datos: ' +
+          escapeAttr(_missingList.join(', ')) +
+          '"'
+        : '';
     let tagHtml;
     if (isSap) {
       if (e.sapCardCode) {
