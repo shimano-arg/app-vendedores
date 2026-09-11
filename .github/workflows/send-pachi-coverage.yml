@@ -1,0 +1,68 @@
+name: Send Pachi Coverage Report
+
+# Reporte semanal de facturacion zona PACHI vs zona SANTI propia.
+# Trial 3 meses (Diego 2026-09-10) hasta 2026-12-11. Ver
+# scripts/send_pachi_coverage_report.py para logica + fuentes de datos.
+#
+# Frecuencia: lunes 09:00 AR (12:00 UTC).
+# 7 dias antes del vencimiento del trial (2026-12-04) y al vencer (2026-12-11)
+# el mail agrega bloque de alerta con recomendacion.
+#
+# Secrets requeridos:
+#   FIREBASE_SERVICE_ACCOUNT   BQ Data Viewer (misma SA que los otros syncs)
+#   GMAIL_APP_PASSWORD         bot.shimano.pesca@gmail.com
+
+on:
+  schedule:
+    - cron: '0 12 * * 1'   # Lunes 12 UTC = 09:00 Argentina
+  workflow_dispatch:
+    inputs:
+      mail_to:
+        description: 'Override MAIL_TO. Vacio = default (mariano.erbino).'
+        type: string
+        required: false
+        default: ''
+      dry_run:
+        description: 'Solo generar HTML como artefacto (no enviar).'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: send-pachi-coverage
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install google-cloud-bigquery google-auth
+
+      - name: Run send_pachi_coverage_report
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_FROM: bot.shimano.pesca@gmail.com
+          MAIL_TO: ${{ inputs.mail_to != '' && inputs.mail_to || 'mariano.erbino@shimano.com.ar' }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python scripts/send_pachi_coverage_report.py
+
+      - name: Upload dry-run HTML artifact
+        if: ${{ inputs.dry_run == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dryrun-pachi-coverage-html
+          path: _dryrun_pachi_coverage.html
+          retention-days: 3

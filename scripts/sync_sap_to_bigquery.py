@@ -1436,9 +1436,13 @@ def sync_dashboard_snapshot_to_firestore(bq_client: bigquery.Client,
     Solo agrega vendedores donde `assigned_vendor` de client_applications no
     sea NULL (los vendedores pesca reales de la app: GONZALO DE LA ROSA,
     FEDERICO CASTELANELLI, MAURICIO GIL, IOANNIS PALKOUDAKIS, SANTIAGO ESTEBAN,
-    PACHI (v849+ nuevo distribuidor), y MARTIN BOIERO retirado 2026-09-09
-    que se mantiene para historicos). Ignora facturas historicas de Baraldo
-    (assigned_vendor NULL). Ventana: año actual completo (mes 1..12).
+    MARTIN BOIERO retirado 2026-09-09 que se mantiene para historicos).
+    2026-09-11 (Diego): PACHI removido — no es empleado Shimano, la cartera
+    ex-MARTIN se asigna oficialmente a SANTIAGO ESTEBAN; PACHI cubre presencial
+    durante trial 3 meses (marcado con coverageBy='PACHI' en client_applications
+    pero NO cuenta como assigned_vendor para targets/facturacion).
+    Ignora facturas historicas de Baraldo (assigned_vendor NULL). Ventana:
+    año actual completo (mes 1..12).
 
     Retorna la cantidad de docs escritos (util para logging).
 

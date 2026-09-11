@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v861 en main (2026-09-10)** — fix scroll modal Pedido en Espera se resetea al tocar flecha qty. Historia detallada por versión en §41 Changelog. |
-| **APP_VERSION** | `v861` en `main` (sincronizada con `sw.js` CACHE_VERSION; banner en console al arrancar + chequeo HTML vs SW). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v863 en main (2026-09-11)** — PACHI trial coverage (Diego: no es empleado; SANTI factura oficial + PACHI cubre presencial 3 meses hasta 2026-12-11). Ver §41. |
+| **APP_VERSION** | `v863` en `main` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,42 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v862
+## 41) Changelog v300 → v863
+
+### v863 (2026-09-11) — PACHI trial coverage (Diego 2026-09-10)
+
+**Cambio de plan de Diego**: PACHI NO es empleado Shimano ni tendrá acceso a SAP/sistemas. La cartera oficial de MARTIN va a **SANTIAGO ESTEBAN**. Durante 3 meses (hasta **2026-12-11**), PACHI cubre presencialmente esa zona para evaluar potencial — Mariano necesita medir facturación zona PACHI vs zona SANTI propia.
+
+**Solución técnica**: separar `assignedVendor` (SAP/comisiones) de `coverageBy` (reporting operativo).
+
+**Cambios ejecutados:**
+
+1. **Cliente-side (`src/domains/master-clientes.js`)**:
+   - `inferVendorFromProvince`: provincias ex-Martin (Córdoba, San Luis, Chaco, Formosa, Misiones, Corrientes) ahora asignan `SANTIAGO ESTEBAN` en vez de `PACHI`.
+   - Nueva fn `inferCoverageFromProvince` retorna `PACHI` para esas provincias.
+   - 3 call-sites (bulk SAP import batch + individual fallback + cambio provincia manual) setean `coverageBy=PACHI` + `coverageTrialEndDate=2026-12-11` automático si aplica.
+
+2. **Mapa (`index.html:getEffectiveVendorForSapAlta`)**: coverageBy override — filter=PACHI muestra los 154 aunque assignedVendor=SANTI. Filter=SANTI solo muestra propios.
+
+3. **BigQuery** (deployado):
+   - `v_facturas_sap`: agregadas columnas `coverage_by` y `coverage_trial_end_date`.
+   - PACHI removido de whitelists en `v_targets`, `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`.
+
+4. **Scripts (requieren `FIREBASE_SERVICE_ACCOUNT`)**:
+   - `scripts/disable_pachi_and_find.py` — compliance: disable Firebase user + roles.
+   - `scripts/migrate_pachi_to_santi_coverage.py` — migra 154 clientes con dry-run + backup + apply.
+
+5. **Reporte semanal**: `scripts/send_pachi_coverage_report.py` + workflow `.github/workflows/send-pachi-coverage.yml`. Cron lunes 09:00 AR. Banner de trial con color según estado (activo/ 7d/ vencido) — no requiere script separado para la alerta.
+
+**Pendientes de ejecutar (necesitan `FIREBASE_SERVICE_ACCOUNT` en tu env):**
+```
+python scripts/disable_pachi_and_find.py --apply
+python scripts/migrate_pachi_to_santi_coverage.py --apply
+```
+
+**Pendiente reunión viernes con Diego**: reasignar SlpCode SAP de los 154 BPs (SlpCode=Pablo temporal → Santi oficial).
+
+**Bump**: v862 → v863. Bundle rebuilt. 367/367 tests verdes.
 
 ### v862 (2026-09-10) — full wipe de borradores "En curso" (cada apertura arranca vacía)
 
