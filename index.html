@@ -3405,7 +3405,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <div id="zonas-content" style="flex:1;overflow-y:auto;padding:0 14px"></div>
         <div style="display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--border-subtle);background:var(--bg-secondary);flex-wrap:wrap;justify-content:flex-end">
           <button class="zonas-action-btn" style="background:#0f766e;color:#fff;border:none;padding:8px 14px;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;margin-right:auto" onclick="exportZonasMapeoExcel()" title="Exporta a Excel cómo está mapeado cada vendedor: las provincias y localidades que tiene asignadas + cantidad de tiendas en cada una">Exportar mapeo a Excel</button>
-          <button class="zonas-action-btn refresh" onclick="refreshZonasMap()">Refrescar Mapa</button>
+          <button class="zonas-action-btn refresh" onclick="refreshZonasMap()">&#8635; Refrescar Mapa</button>
           <button class="zonas-action-btn save" onclick="saveZonasChanges()" id="zonas-save-btn" disabled>Guardar Cambios</button>
         </div>
       </div>
@@ -5173,7 +5173,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
               <th style="text-align:center;padding:6px 8px" title="Lo que queda como backorder = max(Pedido - Libre, 0) x Precio">Backorder</th>
               <th style="text-align:center;padding:6px 8px" title="Pedido - Libre (unidades que quedan como backorder)">Backorder Unidades</th>
               <th style="text-align:center;padding:6px 8px" title="Diferencia respecto al Libre al momento de crear el pedido">Cambio</th>
-              <th style="text-align:center;padding:6px 8px" title="Quitar producto de la lista">&nbsp;</th>
+              <th style="text-align:center;padding:6px 8px" title="Quitar producto de la lista">Quitar</th>
             </tr>
           </thead>
           <tbody id="wcard-rows"></tbody>
@@ -5394,7 +5394,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v880';
+const APP_VERSION = 'v881';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -5483,7 +5483,7 @@ window.APP_VERSION = APP_VERSION;
       'transition:transform 100ms ease-out,box-shadow 100ms ease-out;' +
       'min-width:180px;' +
       '-webkit-tap-highlight-color:transparent;user-select:none';
-    btnRefresh.textContent = 'Refrescar ahora';
+    btnRefresh.textContent = '↻ Refrescar ahora'; // U+21BB = ↻
 
     // §1 feedback en pointerdown, no click. Cuando el user levanta el
     // dedo o cancela, vuelve al estado normal.
@@ -17893,13 +17893,27 @@ function _renderWaitlistCard(){
     }
     tr.appendChild(mk(chgTxt, chgCls));
     // v467: boton X para quitar la fila (guardado inmediato).
+    // v881 (2026-09-11): darle texto visible ("X") + estilo circular tipo boton.
+    // Antes textContent estaba vacio y solo se veia un espacio → el user no
+    // sabia que existia la accion. Ahora es una X clara en circulo rojo tenue.
     const tdDel = document.createElement('td');
     tdDel.style.textAlign = 'center';
     const btnDel = document.createElement('button');
     btnDel.type = 'button';
-    btnDel.textContent = '';
+    btnDel.textContent = '×'; // U+00D7 MULTIPLICATION SIGN (X)
     btnDel.title = 'Quitar este producto del pedido en espera';
-    btnDel.style.cssText = 'border:none;background:transparent;color:var(--color-danger);font-weight:800;cursor:pointer;font-size:14px;padding:2px 6px';
+    btnDel.setAttribute('aria-label', 'Quitar ' + r.code);
+    btnDel.style.cssText =
+      'width:26px;height:26px;border-radius:50%;border:1.5px solid #fecaca;' +
+      'background:#fef2f2;color:var(--color-danger);font-weight:900;' +
+      'cursor:pointer;font-size:16px;line-height:1;padding:0;' +
+      'display:inline-flex;align-items:center;justify-content:center;' +
+      'transition:background 120ms ease-out,transform 100ms ease-out';
+    btnDel.onmouseenter = () => { btnDel.style.background = '#fee2e2'; };
+    btnDel.onmouseleave = () => { btnDel.style.background = '#fef2f2'; };
+    btnDel.onpointerdown = () => { btnDel.style.transform = 'scale(0.92)'; };
+    btnDel.onpointerup = () => { btnDel.style.transform = 'scale(1)'; };
+    btnDel.onpointerleave = () => { btnDel.style.transform = 'scale(1)'; };
     btnDel.onclick = () => waitlistRemoveItem(w._id, r.idx);
     tdDel.appendChild(btnDel);
     tr.appendChild(tdDel);
