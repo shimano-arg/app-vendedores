@@ -383,6 +383,13 @@ const sapSL = {
         typeof sapGetProductCode === 'function' ? sapGetProductCode(l.code) || l.code : l.code,
       Quantity: parseFloat(l.qty) || 0,
       WarehouseCode: '11',
+      // v867 (2026-09-11): fix "1470000315 - specify a UoM code" reportado
+      // por Mariano. SAP dejo de asumir default UoM del item (posible cambio
+      // config server-side). Todos los items Shimano AR estan configurados
+      // como "Manual Management" con IUoMEntry=1 (Unidad). Explicito para
+      // que SAP no falle. Si algun item tiene otro grupo UoM en el futuro,
+      // hay que consultar /Items('SKU')?$select=IUoMEntry en runtime.
+      UoMEntry: 1,
     }));
     const dedupedByItem = {};
     rawLines.forEach((ln) => {

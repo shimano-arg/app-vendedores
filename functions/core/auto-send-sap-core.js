@@ -177,7 +177,7 @@ export function buildQuotationPayload(pedido, pedidoId, deps) {
   }
 
   // Dedup por ItemCode sumando qtys (SAP error 23105 si vienen 2 lines mismo item).
-  /** @type {Map<string, {ItemCode: string, Quantity: number, WarehouseCode: string, LineNum: number}>} */
+  /** @type {Map<string, {ItemCode: string, Quantity: number, WarehouseCode: string, UoMEntry: number, LineNum: number}>} */
   const dedupMap = new Map();
   let lineNum = 0;
   for (const l of confirmedLines) {
@@ -193,6 +193,10 @@ export function buildQuotationPayload(pedido, pedidoId, deps) {
         ItemCode: itemCode,
         Quantity: qty,
         WarehouseCode: '11',
+        // v867 (2026-09-11): fix "1470000315 - specify a UoM code". SAP
+        // dejo de asumir default UoM del item. Todos los items Shimano AR
+        // usan Manual Management con IUoMEntry=1 (Unidad).
+        UoMEntry: 1,
         LineNum: lineNum++,
       });
     }
