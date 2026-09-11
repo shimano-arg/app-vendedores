@@ -5282,7 +5282,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v871';
+const APP_VERSION = 'v872';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15816,24 +15816,39 @@ function _renderPreliminarLineasHtml(){
       'Sin líneas cargadas. Usá el buscador de arriba para agregar productos.' +
     '</div>';
   }
-  let html = '<div id="preliminar-lineas" style="border:1.5px solid var(--border-default);border-radius:8px;overflow:hidden;margin-bottom:14px;background:var(--bg-elevated)">';
-  html += '<div style="background:var(--bg-muted);padding:8px 12px;font-size:11px;font-weight:800;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:grid;grid-template-columns:1fr 90px 120px 100px 30px;gap:8px;align-items:center">';
-  html += '<div>Producto</div><div style="text-align:center">Cantidad</div><div style="text-align:right">Precio unit.</div><div style="text-align:right">Subtotal</div><div></div>';
-  html += '</div>';
+  // v872 (2026-09-11): layout de card responsive. Antes usaba grid 5-cols
+  // fijo (1fr 90 120 100 30) que en mobile <400px se rompía visualmente
+  // (columnas más anchas que el modal → header desalineado + SKU cortado).
+  // Ahora cada línea es una card apilada: título (SKU/desc + remove) arriba,
+  // controles (qty / precio / subtotal) abajo. Funciona en cualquier ancho.
+  let html = '<div id="preliminar-lineas" style="margin-bottom:14px;display:flex;flex-direction:column;gap:8px">';
   for (let i = 0; i < lineas.length; i++) {
     const l = lineas[i];
     const subtotal = (l.qty || 0) * (l.precio || 0);
-    html += '<div style="padding:10px 12px;border-top:1px solid var(--border-subtle);display:grid;grid-template-columns:1fr 90px 120px 100px 30px;gap:8px;align-items:center">';
-    html += ' <div style="min-width:0"><div style="font-family:monospace;font-size:11px;font-weight:800;color:var(--text-primary)">' + _prelEscHtml(l.sku) + '</div><div style="font-size:11px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + _prelEscAttr(l.desc) + '">' + _prelEscHtml(l.desc) + '</div></div>';
-    html += ' <div style="display:flex;gap:2px;justify-content:center;align-items:center">';
-    html += ' <button onclick="preliminarIncQty(' + i + ',-1)" style="width:22px;height:22px;border:1px solid var(--border-default);background:var(--bg-muted);border-radius:4px;font-weight:800;cursor:pointer">−</button>';
-    html += ' <input type="number" min="1" value="' + l.qty + '" onchange="preliminarSetQty(' + i + ', this.value)" style="width:40px;padding:2px 4px;border:1px solid var(--border-default);border-radius:4px;text-align:center;font-size:12px;font-weight:700"/>';
-    html += ' <button onclick="preliminarIncQty(' + i + ',1)" style="width:22px;height:22px;border:1px solid var(--border-default);background:var(--bg-muted);border-radius:4px;font-weight:800;cursor:pointer">+</button>';
-    html += ' </div>';
-    html += ' <div style="text-align:right"><input type="number" min="0" step="1" value="' + Math.round(l.precio) + '" onchange="preliminarSetPrecio(' + i + ', this.value)" title="Podés editar el precio unitario" style="width:100%;padding:4px 6px;border:1px solid var(--border-default);border-radius:4px;text-align:right;font-size:12px;font-weight:600;box-sizing:border-box"/></div>';
-    html += ' <div style="text-align:right;font-weight:800;font-size:13px;color:var(--text-primary)">' + _prelFmtArs(subtotal) + '</div>';
-    html += ' <div style="text-align:center"><button onclick="preliminarRemoveLine(' + i + ')" title="Quitar línea" style="width:24px;height:24px;border:none;background:transparent;color:var(--color-danger);font-size:14px;cursor:pointer;font-weight:800"></button></div>';
+    html += '<div style="background:var(--bg-elevated);border:1.5px solid var(--border-default);border-radius:8px;padding:10px 12px">';
+    // Header: SKU + desc + remove
+    html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px">';
+    html += '  <div style="min-width:0;flex:1"><div style="font-family:monospace;font-size:11px;font-weight:800;color:var(--text-primary)">' + _prelEscHtml(l.sku) + '</div><div style="font-size:11.5px;color:var(--text-secondary);line-height:1.35" title="' + _prelEscAttr(l.desc) + '">' + _prelEscHtml(l.desc) + '</div></div>';
+    html += '  <button onclick="preliminarRemoveLine(' + i + ')" title="Quitar línea" aria-label="Quitar" style="flex:0 0 auto;width:26px;height:26px;border:1px solid var(--border-default);background:var(--bg-muted);color:var(--color-danger);border-radius:6px;font-size:16px;font-weight:800;cursor:pointer;line-height:1;padding:0;display:flex;align-items:center;justify-content:center">×</button>';
     html += '</div>';
+    // Row controles: qty group + precio input + subtotal
+    html += '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between">';
+    // Grupo qty
+    html += '  <div style="display:flex;align-items:center;gap:4px">';
+    html += '    <span style="font-size:10.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.3px;font-weight:700;margin-right:2px">Cant</span>';
+    html += '    <button onclick="preliminarIncQty(' + i + ',-1)" style="width:26px;height:26px;border:1px solid var(--border-default);background:var(--bg-muted);border-radius:4px;font-weight:800;cursor:pointer;font-size:14px;padding:0">−</button>';
+    html += '    <input type="number" min="1" value="' + l.qty + '" onchange="preliminarSetQty(' + i + ', this.value)" style="width:48px;height:26px;padding:2px 4px;border:1px solid var(--border-default);border-radius:4px;text-align:center;font-size:13px;font-weight:700;box-sizing:border-box"/>';
+    html += '    <button onclick="preliminarIncQty(' + i + ',1)" style="width:26px;height:26px;border:1px solid var(--border-default);background:var(--bg-muted);border-radius:4px;font-weight:800;cursor:pointer;font-size:14px;padding:0">+</button>';
+    html += '  </div>';
+    // Grupo precio
+    html += '  <div style="display:flex;align-items:center;gap:4px">';
+    html += '    <span style="font-size:10.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.3px;font-weight:700">$ unit</span>';
+    html += '    <input type="number" min="0" step="1" value="' + Math.round(l.precio) + '" onchange="preliminarSetPrecio(' + i + ', this.value)" title="Podés editar el precio unitario" style="width:100px;height:26px;padding:2px 6px;border:1px solid var(--border-default);border-radius:4px;text-align:right;font-size:13px;font-weight:600;box-sizing:border-box"/>';
+    html += '  </div>';
+    // Subtotal
+    html += '  <div style="text-align:right;font-weight:800;font-size:15px;color:var(--text-primary);white-space:nowrap;padding-left:4px">' + _prelFmtArs(subtotal) + '</div>';
+    html += '</div>'; // /row controles
+    html += '</div>'; // /card
   }
   html += '</div>';
   return html;
