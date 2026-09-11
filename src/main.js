@@ -43,6 +43,12 @@ import {
   summarizeStorageUsage,
 } from './pure/panel-metrics.js';
 import { reenrichPedidoLine, splitPedidoLine } from './pure/pedido-split.js';
+// v868 (2026-09-11): pedido preliminar (cotizador feria).
+import {
+  calcularCotizacion,
+  DEFAULT_DISCOUNT_CONFIG,
+  formatCotizacionParaWhatsApp,
+} from './pure/preliminar-discount.js';
 import { matchSkuFromTitle } from './pure/product-match.js';
 import { renderSkeletonRowsPure } from './pure/render-skeleton.js';
 import { reportCriticalErrorPure } from './pure/report-critical-error.js';
@@ -202,6 +208,14 @@ if (typeof window !== 'undefined') {
   // titleCase(vendor) al user y ahora deben usar el helper con override).
   // @ts-expect-error — augmentation runtime-only
   window.displayVendorName = displayVendorName;
+  // v868 (2026-09-11): pedido preliminar (cotizador feria) — expuesto para
+  // uso desde inline handlers en index.html.
+  // @ts-expect-error — augmentation runtime-only
+  window.__preliminarDiscount = {
+    calcularCotizacion,
+    formatCotizacionParaWhatsApp,
+    DEFAULT_DISCOUNT_CONFIG,
+  };
 }
 
 export default phase0;

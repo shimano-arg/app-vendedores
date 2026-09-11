@@ -2908,6 +2908,11 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
          modal Deposito que consume SETUP WMS (v829-v830). Visible para todos
          los roles (sin display:none). -->
     <button class="btn-zonas" id="deposito-home-btn" onclick="openDepositoModal()" title="Depósito: estado de cada pedido en SETUP WMS (📦 en preparación / 🚚 despachado)" style="background:#0f4c81;color:#fff">&#127977; Dep&oacute;sito</button>
+    <!-- v868 (2026-09-11): Pedido Preliminar (cotizador feria). Cotización rápida
+         con descuentos configurables (categoría P/A/B/C + volumen + contado).
+         100% en memoria, no persiste, no toca stock ni SAP. Visible todos los
+         roles. Feature temporal para la feria — removible con 1 commit post-evento. -->
+    <button class="btn-zonas" id="preliminar-home-btn" onclick="openPreliminarModal()" title="Pedido Preliminar — cotizador con descuentos para la feria (no guarda pedido)" style="background:#7c3aed;color:#fff">&#127914; Preliminar</button>
     <!-- v422 (2026-08-06): FORECAST admin-only (whitelist emails en src/domains/forecast.js).
          Modal compara ventas historicas (sku_ventas_snapshot BQ->Firestore) vs Sales Plan
          cargado por el user + politica de inventario (promedio YTD x 3 meses). -->
@@ -5273,7 +5278,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v867';
+const APP_VERSION = 'v868';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15545,6 +15550,400 @@ function _setDepositoFilterDivision(div){
   _depositoFilterDivision = (_depositoFilterDivision === div) ? '' : div;
   _renderDeposito();
 }
+
+// ============================================================================
+// v868 (2026-09-11): Pedido Preliminar — cotizador para feria.
+// ============================================================================
+// Estado 100% en memoria. NO persiste. NO toca stock. NO crea pedido en SAP.
+// Solo sirve para mostrar al prospect/cliente cuánto le queda un pedido con
+// distintos descuentos aplicados en cascada (categoría + volumen + contado).
+// Lógica pura vive en src/pure/preliminar-discount.js (15 tests unit).
+// ============================================================================
+var _preliminarState = {
+  lineas: /** @type {Array<{sku:string, desc:string, qty:number, precio:number}>} */ ([]),
+  config: null, // se inicializa desde __preliminarDiscount.DEFAULT_DISCOUNT_CONFIG al abrir.
+  searchQuery: '',
+  dropdownOpen: false,
+};
+
+window.openPreliminarModal = function(){
+  const m = document.getElementById('preliminar-modal');
+  if (!m) return;
+  // Inicializar config con defaults si es la primera vez.
+  if (!_preliminarState.config && window.__preliminarDiscount) {
+    _preliminarState.config = JSON.parse(JSON.stringify(window.__preliminarDiscount.DEFAULT_DISCOUNT_CONFIG));
+  }
+  m.classList.add('open');
+  _renderPreliminar();
+  setTimeout(function(){
+    const inp = document.getElementById('preliminar-search-input');
+    if (inp) inp.focus();
+  }, 100);
+};
+
+window.closePreliminarModal = function(){
+  const m = document.getElementById('preliminar-modal');
+  if (!m) return;
+  // Warning si hay líneas cargadas (evita perder cotización por error).
+  if (_preliminarState.lineas.length > 0) {
+    if (!confirm('Tenés ' + _preliminarState.lineas.length + ' línea(s) cargadas. ¿Cerrar y descartar la cotización?')) return;
+    // Confirmó: vaciar estado para que la próxima apertura arranque limpia.
+    _preliminarState.lineas = [];
+    _preliminarState.searchQuery = '';
+    _preliminarState.dropdownOpen = false;
+  }
+  m.classList.remove('open');
+};
+
+// Escape mínimo para atributos HTML (evita XSS en descriptions con comillas).
+function _prelEscAttr(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function _prelEscHtml(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function _prelFmtArs(n){
+  return '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
+}
+
+// Buscar en PRODUCTS (global de la app). Devuelve top 12 matches.
+function _preliminarSearchProducts(q){
+  q = String(q || '').trim().toLowerCase();
+  if (!q || q.length < 2) return [];
+  if (typeof PRODUCTS === 'undefined' || !Array.isArray(PRODUCTS)) return [];
+  const out = [];
+  for (let i = 0; i < PRODUCTS.length && out.length < 12; i++) {
+    const p = PRODUCTS[i];
+    const code = String(p.code || '').toLowerCase();
+    const desc = String(p.desc || '').toLowerCase();
+    if (code.includes(q) || desc.includes(q)) out.push(p);
+  }
+  return out;
+}
+
+window.onPreliminarSearchInput = function(){
+  const inp = document.getElementById('preliminar-search-input');
+  _preliminarState.searchQuery = inp ? inp.value : '';
+  _preliminarState.dropdownOpen = _preliminarState.searchQuery.length >= 2;
+  _renderPreliminarDropdown();
+};
+
+window.onPreliminarSearchBlur = function(){
+  // Delay para permitir click en dropdown item.
+  setTimeout(function(){
+    _preliminarState.dropdownOpen = false;
+    _renderPreliminarDropdown();
+  }, 200);
+};
+
+window.preliminarAddSku = function(code){
+  if (!code) return;
+  const codeUp = String(code).toUpperCase();
+  // Buscar producto en catálogo para obtener descripción + precio.
+  let prod = null;
+  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
+    prod = PRODUCTS.find(function(p){ return String(p.code || '').toUpperCase() === codeUp; });
+  }
+  if (!prod) {
+    alert('SKU no encontrado en catálogo: ' + codeUp);
+    return;
+  }
+  const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(codeUp) || 0) : 0;
+  // Si ya está en las líneas, incrementar qty.
+  const existing = _preliminarState.lineas.find(function(l){ return l.sku === codeUp; });
+  if (existing) {
+    existing.qty += 1;
+  } else {
+    _preliminarState.lineas.push({
+      sku: codeUp,
+      desc: prod.desc || '',
+      qty: 1,
+      precio: precio,
+    });
+  }
+  // Limpiar search + cerrar dropdown.
+  _preliminarState.searchQuery = '';
+  _preliminarState.dropdownOpen = false;
+  const inp = document.getElementById('preliminar-search-input');
+  if (inp) inp.value = '';
+  _renderPreliminar();
+  // Re-focus el search para agregar más rápido.
+  setTimeout(function(){ if (inp) inp.focus(); }, 50);
+};
+
+window.preliminarRemoveLine = function(idx){
+  if (idx < 0 || idx >= _preliminarState.lineas.length) return;
+  _preliminarState.lineas.splice(idx, 1);
+  _renderPreliminar();
+};
+
+window.preliminarSetQty = function(idx, newQty){
+  if (idx < 0 || idx >= _preliminarState.lineas.length) return;
+  const q = Math.max(1, parseInt(newQty, 10) || 1);
+  _preliminarState.lineas[idx].qty = q;
+  _renderPreliminarResumen(); // fast path: solo repinta el resumen + línea afectada
+  _renderPreliminarLineas();
+};
+
+window.preliminarIncQty = function(idx, delta){
+  if (idx < 0 || idx >= _preliminarState.lineas.length) return;
+  _preliminarState.lineas[idx].qty = Math.max(1, _preliminarState.lineas[idx].qty + delta);
+  _renderPreliminarResumen();
+  _renderPreliminarLineas();
+};
+
+window.preliminarSetPrecio = function(idx, nuevoPrecio){
+  if (idx < 0 || idx >= _preliminarState.lineas.length) return;
+  const p = Math.max(0, parseFloat(nuevoPrecio) || 0);
+  _preliminarState.lineas[idx].precio = p;
+  _renderPreliminarResumen();
+  _renderPreliminarLineas();
+};
+
+window.preliminarSetCategoria = function(cat){
+  _preliminarState.config.categoria = cat || '';
+  // Si sale de P/A y estaba pagando contado, forzar OFF (contado NO aplica en B/C).
+  if (cat !== 'P' && cat !== 'A') _preliminarState.config.pagaContado = false;
+  _renderPreliminarDescuentos();
+  _renderPreliminarResumen();
+};
+
+window.preliminarToggleContado = function(){
+  _preliminarState.config.pagaContado = !_preliminarState.config.pagaContado;
+  _renderPreliminarDescuentos();
+  _renderPreliminarResumen();
+};
+
+window.preliminarSetPctCategoria = function(cat, pct){
+  const n = Math.max(0, Math.min(100, parseFloat(pct) || 0));
+  _preliminarState.config.pctCategoria[cat] = n;
+  _renderPreliminarResumen();
+};
+
+window.preliminarSetVolThreshold = function(v){
+  _preliminarState.config.volThreshold = Math.max(0, parseFloat(v) || 0);
+  _renderPreliminarResumen();
+};
+
+window.preliminarSetPctVolumen = function(pct){
+  _preliminarState.config.pctVolumen = Math.max(0, Math.min(100, parseFloat(pct) || 0));
+  _renderPreliminarResumen();
+};
+
+window.preliminarSetPctContado = function(pct){
+  _preliminarState.config.pctContado = Math.max(0, Math.min(100, parseFloat(pct) || 0));
+  _renderPreliminarResumen();
+};
+
+window.preliminarVaciar = function(){
+  if (_preliminarState.lineas.length === 0) return;
+  if (!confirm('¿Vaciar la cotización? Se pierden todas las líneas cargadas.')) return;
+  _preliminarState.lineas = [];
+  _renderPreliminar();
+};
+
+window.preliminarShareWhatsApp = function(){
+  if (_preliminarState.lineas.length === 0) {
+    alert('Agregá al menos 1 línea antes de compartir.');
+    return;
+  }
+  if (!window.__preliminarDiscount) return;
+  const linesForCalc = _preliminarState.lineas.map(function(l){
+    return { sku: l.sku, desc: l.desc, qty: l.qty, precioUnitario: l.precio };
+  });
+  const r = window.__preliminarDiscount.calcularCotizacion(linesForCalc, _preliminarState.config);
+  const txt = window.__preliminarDiscount.formatCotizacionParaWhatsApp(linesForCalc, r);
+  const url = 'https://wa.me/?text=' + encodeURIComponent(txt);
+  window.open(url, '_blank');
+};
+
+// ---- Renders (full + fast paths) ----
+
+function _renderPreliminar(){
+  const c = document.getElementById('preliminar-content');
+  if (!c) return;
+  c.innerHTML =
+    _renderPreliminarSearchHtml() +
+    _renderPreliminarLineasHtml() +
+    _renderPreliminarDescuentosHtml() +
+    _renderPreliminarResumenHtml() +
+    _renderPreliminarBotonesHtml();
+}
+
+function _renderPreliminarDropdown(){
+  const d = document.getElementById('preliminar-search-dropdown');
+  if (!d) return;
+  if (!_preliminarState.dropdownOpen) { d.style.display = 'none'; d.innerHTML = ''; return; }
+  const matches = _preliminarSearchProducts(_preliminarState.searchQuery);
+  if (matches.length === 0) {
+    d.style.display = 'block';
+    d.innerHTML = '<div style="padding:10px 12px;color:var(--text-muted);font-size:12px">Sin resultados para "' + _prelEscHtml(_preliminarState.searchQuery) + '"</div>';
+    return;
+  }
+  let html = '';
+  for (let i = 0; i < matches.length; i++) {
+    const p = matches[i];
+    const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(p.code) || 0) : 0;
+    html += '<div onclick="preliminarAddSku(\'' + _prelEscAttr(p.code) + '\')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border-subtle);display:flex;justify-content:space-between;gap:8px;align-items:center" onmouseover="this.style.background=\'var(--bg-hover)\'" onmouseout="this.style.background=\'\'">';
+    html += '  <div style="flex:1;min-width:0"><div style="font-family:monospace;font-size:11px;font-weight:800;color:var(--text-primary)">' + _prelEscHtml(p.code) + '</div>';
+    html += '  <div style="font-size:11px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + _prelEscHtml(p.desc || '') + '</div></div>';
+    html += '  <div style="font-size:12px;font-weight:700;color:' + (precio > 0 ? 'var(--color-success)' : 'var(--text-muted)') + ';white-space:nowrap">' + (precio > 0 ? _prelFmtArs(precio) : 's/precio') + '</div>';
+    html += '</div>';
+  }
+  d.style.display = 'block';
+  d.innerHTML = html;
+}
+
+function _renderPreliminarSearchHtml(){
+  return '<div style="position:relative;margin-bottom:14px">' +
+    '<input id="preliminar-search-input" type="text" placeholder="🔍 Buscar SKU o descripción para agregar..." oninput="onPreliminarSearchInput()" onfocus="onPreliminarSearchInput()" onblur="onPreliminarSearchBlur()" autocomplete="off" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-default);border-radius:8px;font-size:13px;outline:none;box-sizing:border-box;background:var(--bg-elevated)"/>' +
+    '<div id="preliminar-search-dropdown" style="display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;background:var(--bg-elevated);border:1.5px solid var(--border-default);border-radius:8px;max-height:280px;overflow-y:auto;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,.08)"></div>' +
+  '</div>';
+}
+
+function _renderPreliminarLineasHtml(){
+  const lineas = _preliminarState.lineas;
+  if (lineas.length === 0) {
+    return '<div id="preliminar-lineas" style="background:var(--bg-muted);border:1.5px dashed var(--border-default);border-radius:8px;padding:24px;text-align:center;color:var(--text-muted);font-size:13px;margin-bottom:14px">' +
+      'Sin líneas cargadas. Usá el buscador de arriba para agregar productos.' +
+    '</div>';
+  }
+  let html = '<div id="preliminar-lineas" style="border:1.5px solid var(--border-default);border-radius:8px;overflow:hidden;margin-bottom:14px;background:var(--bg-elevated)">';
+  html += '<div style="background:var(--bg-muted);padding:8px 12px;font-size:11px;font-weight:800;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;display:grid;grid-template-columns:1fr 90px 120px 100px 30px;gap:8px;align-items:center">';
+  html += '<div>Producto</div><div style="text-align:center">Cantidad</div><div style="text-align:right">Precio unit.</div><div style="text-align:right">Subtotal</div><div></div>';
+  html += '</div>';
+  for (let i = 0; i < lineas.length; i++) {
+    const l = lineas[i];
+    const subtotal = (l.qty || 0) * (l.precio || 0);
+    html += '<div style="padding:10px 12px;border-top:1px solid var(--border-subtle);display:grid;grid-template-columns:1fr 90px 120px 100px 30px;gap:8px;align-items:center">';
+    html += '  <div style="min-width:0"><div style="font-family:monospace;font-size:11px;font-weight:800;color:var(--text-primary)">' + _prelEscHtml(l.sku) + '</div><div style="font-size:11px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + _prelEscAttr(l.desc) + '">' + _prelEscHtml(l.desc) + '</div></div>';
+    html += '  <div style="display:flex;gap:2px;justify-content:center;align-items:center">';
+    html += '    <button onclick="preliminarIncQty(' + i + ',-1)" style="width:22px;height:22px;border:1px solid var(--border-default);background:var(--bg-muted);border-radius:4px;font-weight:800;cursor:pointer">−</button>';
+    html += '    <input type="number" min="1" value="' + l.qty + '" onchange="preliminarSetQty(' + i + ', this.value)" style="width:40px;padding:2px 4px;border:1px solid var(--border-default);border-radius:4px;text-align:center;font-size:12px;font-weight:700"/>';
+    html += '    <button onclick="preliminarIncQty(' + i + ',1)" style="width:22px;height:22px;border:1px solid var(--border-default);background:var(--bg-muted);border-radius:4px;font-weight:800;cursor:pointer">+</button>';
+    html += '  </div>';
+    html += '  <div style="text-align:right"><input type="number" min="0" step="1" value="' + Math.round(l.precio) + '" onchange="preliminarSetPrecio(' + i + ', this.value)" title="Podés editar el precio unitario" style="width:100%;padding:4px 6px;border:1px solid var(--border-default);border-radius:4px;text-align:right;font-size:12px;font-weight:600;box-sizing:border-box"/></div>';
+    html += '  <div style="text-align:right;font-weight:800;font-size:13px;color:var(--text-primary)">' + _prelFmtArs(subtotal) + '</div>';
+    html += '  <div style="text-align:center"><button onclick="preliminarRemoveLine(' + i + ')" title="Quitar línea" style="width:24px;height:24px;border:none;background:transparent;color:var(--color-danger);font-size:14px;cursor:pointer;font-weight:800">✕</button></div>';
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function _renderPreliminarLineas(){
+  const wrap = document.getElementById('preliminar-lineas');
+  if (!wrap) return;
+  wrap.outerHTML = _renderPreliminarLineasHtml();
+}
+
+function _renderPreliminarDescuentosHtml(){
+  const cfg = _preliminarState.config;
+  const cat = cfg.categoria || '';
+  const cats = ['P', 'A', 'B', 'C'];
+  const catButtons = cats.map(function(c){
+    const active = cat === c;
+    const bg = active ? '#7c3aed' : 'var(--bg-elevated)';
+    const fg = active ? '#fff' : 'var(--text-primary)';
+    const border = active ? '#7c3aed' : 'var(--border-default)';
+    return '<button onclick="preliminarSetCategoria(\'' + c + '\')" style="flex:1;padding:8px 4px;border:1.5px solid ' + border + ';background:' + bg + ';color:' + fg + ';border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;transition:.15s">' + c + ' (−' + cfg.pctCategoria[c] + '%)</button>';
+  }).join('');
+  const contadoElegible = cat === 'P' || cat === 'A';
+  const contadoBg = cfg.pagaContado ? '#0891b2' : 'var(--bg-elevated)';
+  const contadoFg = cfg.pagaContado ? '#fff' : 'var(--text-primary)';
+  const contadoBorder = cfg.pagaContado ? '#0891b2' : 'var(--border-default)';
+  const contadoOpacity = contadoElegible ? '1' : '.5';
+  const contadoDisabled = contadoElegible ? '' : 'disabled';
+  return '<div id="preliminar-descuentos" style="background:var(--bg-elevated);border:1.5px solid var(--border-default);border-radius:8px;padding:12px 14px;margin-bottom:14px">' +
+    '<div style="font-size:11px;font-weight:800;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Descuentos aplicables</div>' +
+    '<div style="margin-bottom:10px">' +
+      '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Categoría cliente:</div>' +
+      '<div style="display:flex;gap:4px">' + catButtons + '<button onclick="preliminarSetCategoria(\'\')" style="flex:0 0 auto;padding:8px 10px;border:1.5px solid var(--border-default);background:var(--bg-muted);color:var(--text-muted);border-radius:6px;font-size:11px;cursor:pointer" title="Sin categoría">✕</button></div>' +
+    '</div>' +
+    '<div style="margin-bottom:10px;opacity:' + contadoOpacity + '">' +
+      '<button onclick="preliminarToggleContado()" ' + contadoDisabled + ' style="width:100%;padding:8px 12px;border:1.5px solid ' + contadoBorder + ';background:' + contadoBg + ';color:' + contadoFg + ';border-radius:6px;font-size:12px;font-weight:700;cursor:' + (contadoElegible ? 'pointer' : 'not-allowed') + ';display:flex;justify-content:center;align-items:center;gap:6px">' +
+      '<span style="font-size:14px">' + (cfg.pagaContado ? '☑️' : '☐') + '</span> Paga contado (−' + cfg.pctContado + '%, solo P/A)' +
+      '</button>' +
+      (contadoElegible ? '' : '<div style="font-size:10px;color:var(--text-muted);margin-top:4px;text-align:center;font-style:italic">Solo aplica en categoría P o A</div>') +
+    '</div>' +
+    // Bloque avanzado colapsable con edición de %.
+    '<details style="border-top:1px dashed var(--border-subtle);padding-top:8px;margin-top:8px">' +
+      '<summary style="cursor:pointer;font-size:11px;color:var(--text-muted);font-weight:600;user-select:none">⚙️ Ajustar porcentajes / umbral volumen</summary>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));gap:8px;margin-top:8px">' +
+      cats.map(function(c){
+        return '<div style="display:flex;flex-direction:column"><label style="font-size:10px;color:var(--text-muted);margin-bottom:2px">Cat ' + c + ' %</label><input type="number" min="0" max="100" step="0.5" value="' + cfg.pctCategoria[c] + '" onchange="preliminarSetPctCategoria(\'' + c + '\', this.value); _renderPreliminarDescuentos()" style="padding:6px 8px;border:1px solid var(--border-default);border-radius:4px;font-size:12px"/></div>';
+      }).join('') +
+      '<div style="display:flex;flex-direction:column"><label style="font-size:10px;color:var(--text-muted);margin-bottom:2px">Volumen umbral $</label><input type="number" min="0" step="10000" value="' + cfg.volThreshold + '" onchange="preliminarSetVolThreshold(this.value)" style="padding:6px 8px;border:1px solid var(--border-default);border-radius:4px;font-size:12px"/></div>' +
+      '<div style="display:flex;flex-direction:column"><label style="font-size:10px;color:var(--text-muted);margin-bottom:2px">Vol %</label><input type="number" min="0" max="100" step="0.5" value="' + cfg.pctVolumen + '" onchange="preliminarSetPctVolumen(this.value)" style="padding:6px 8px;border:1px solid var(--border-default);border-radius:4px;font-size:12px"/></div>' +
+      '<div style="display:flex;flex-direction:column"><label style="font-size:10px;color:var(--text-muted);margin-bottom:2px">Contado %</label><input type="number" min="0" max="100" step="0.5" value="' + cfg.pctContado + '" onchange="preliminarSetPctContado(this.value)" style="padding:6px 8px;border:1px solid var(--border-default);border-radius:4px;font-size:12px"/></div>' +
+      '</div>' +
+    '</details>' +
+  '</div>';
+}
+
+function _renderPreliminarDescuentos(){
+  const wrap = document.getElementById('preliminar-descuentos');
+  if (!wrap) return;
+  wrap.outerHTML = _renderPreliminarDescuentosHtml();
+}
+
+function _renderPreliminarResumenHtml(){
+  if (!window.__preliminarDiscount) return '<div id="preliminar-resumen"></div>';
+  const linesForCalc = _preliminarState.lineas.map(function(l){
+    return { sku: l.sku, desc: l.desc, qty: l.qty, precioUnitario: l.precio };
+  });
+  const r = window.__preliminarDiscount.calcularCotizacion(linesForCalc, _preliminarState.config);
+  const isEmpty = r.subtotalBruto === 0;
+  const rowHtml = function(label, monto, extra){
+    return '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12.5px' + (extra || '') + '"><span>' + label + '</span><span style="font-family:monospace;font-weight:700">' + _prelFmtArs(monto) + '</span></div>';
+  };
+  const rowDesc = function(rz, monto){
+    const color = rz.aplica ? '#059669' : 'var(--text-muted)';
+    const strike = rz.aplica ? '' : 'text-decoration:line-through;opacity:.6;';
+    return '<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:11.5px;color:' + color + ';' + strike + '"><span>  ' + _prelEscHtml(rz.motivo) + '</span><span style="font-family:monospace">' + (rz.aplica ? '−' + _prelFmtArs(monto) : '−') + '</span></div>';
+  };
+  let html = '<div id="preliminar-resumen" style="background:linear-gradient(135deg,#1e293b,#0f172a);color:#fff;border-radius:10px;padding:16px 18px;margin-bottom:14px">';
+  html += '<div style="font-size:11px;font-weight:800;color:#cbd5e1;text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px">Resumen</div>';
+  if (isEmpty) {
+    html += '<div style="color:#94a3b8;font-size:13px;padding:12px 0;text-align:center">Agregá líneas para ver el cálculo</div>';
+  } else {
+    html += rowHtml('Subtotal (' + r.nLineas + ' línea(s) · ' + r.nUnidades + ' u)', r.subtotalBruto, ';color:#e2e8f0');
+    if (r.descCategoriaPct > 0) html += rowDesc({aplica: true, motivo: 'Categoría ' + _preliminarState.config.categoria + ' (−' + r.descCategoriaPct + '%)'}, r.descCategoriaMonto);
+    if (r.descVolumenPct > 0) html += rowDesc({aplica: true, motivo: 'Volumen ≥ ' + _prelFmtArs(_preliminarState.config.volThreshold) + ' (−' + r.descVolumenPct + '%)'}, r.descVolumenMonto);
+    if (r.descContadoPct > 0) html += rowDesc({aplica: true, motivo: 'Contado (−' + r.descContadoPct + '%)'}, r.descContadoMonto);
+    if (r.descTotalMonto > 0) {
+      html += '<div style="border-top:1px solid rgba(255,255,255,.15);margin-top:8px;padding-top:8px"></div>';
+      html += rowHtml('Descuento total (' + r.descTotalPctEfectivo.toFixed(1) + '%)', -r.descTotalMonto, ';color:#f0fdf4');
+    }
+    html += '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:10px;border-top:2px solid rgba(255,255,255,.25)">';
+    html += '  <span style="font-size:14px;font-weight:800;color:#fff">TOTAL</span>';
+    html += '  <span style="font-size:22px;font-weight:800;color:#4ade80;font-family:monospace">' + _prelFmtArs(r.total) + '</span>';
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function _renderPreliminarResumen(){
+  const wrap = document.getElementById('preliminar-resumen');
+  if (!wrap) return;
+  wrap.outerHTML = _renderPreliminarResumenHtml();
+}
+
+function _renderPreliminarBotonesHtml(){
+  const hasLineas = _preliminarState.lineas.length > 0;
+  return '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">' +
+    '<button onclick="preliminarVaciar()" ' + (hasLineas ? '' : 'disabled') + ' style="padding:9px 16px;border:1.5px solid var(--color-danger);background:transparent;color:var(--color-danger);border-radius:6px;font-size:12px;font-weight:700;cursor:' + (hasLineas ? 'pointer' : 'not-allowed') + ';opacity:' + (hasLineas ? '1' : '.5') + '">🗑 Vaciar</button>' +
+    '<button onclick="preliminarShareWhatsApp()" ' + (hasLineas ? '' : 'disabled') + ' style="padding:9px 16px;border:none;background:#25D366;color:#fff;border-radius:6px;font-size:12px;font-weight:700;cursor:' + (hasLineas ? 'pointer' : 'not-allowed') + ';opacity:' + (hasLineas ? '1' : '.5') + '">📱 Compartir por WhatsApp</button>' +
+  '</div>';
+}
+// ============================================================================
+// END v868 Pedido Preliminar
+// ============================================================================
 window._setDepositoFilterDivision = _setDepositoFilterDivision;
 
 // v834 (2026-09-08): cambio de rango dispara re-fetch con nuevos dias.
@@ -26440,6 +26839,25 @@ if ('serviceWorker' in navigator) {
           <div style="color:var(--text-secondary);font-size:13px">Iniciando...</div>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- v868 (2026-09-11): modal "Pedido Preliminar" — cotizador para feria.
+     Estado 100% en memoria (window._preliminarState), no persiste, no toca
+     stock ni SAP. Descuentos configurables inline. Cierre confirmado si hay
+     líneas cargadas. Feature temporal — removible con 1 commit post-feria. -->
+<div class="modal-overlay" id="preliminar-modal" onclick="if(event.target===this)closePreliminarModal()">
+  <div class="modal-box" style="width:min(920px,96vw);max-height:94vh;display:flex;flex-direction:column">
+    <div class="modal-head" style="background:linear-gradient(135deg,#5b21b6,#7c3aed)">
+      <div>
+        <h2>🎪 Pedido Preliminar</h2>
+        <div class="subt">Cotizador rápido para la feria — no guarda pedido, no toca stock ni SAP</div>
+      </div>
+      <button class="modal-close" onclick="closePreliminarModal()" aria-label="Cerrar">&times;</button>
+    </div>
+    <div style="padding:16px 20px;overflow-y:auto;flex:1" id="preliminar-content">
+      <!-- render dinámico -->
     </div>
   </div>
 </div>
