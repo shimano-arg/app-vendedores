@@ -17,7 +17,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v863 en main (2026-09-11)** — PACHI trial coverage ejecutado (154 clientes migrados assignedVendor→SANTI + coverageBy=PACHI; Firebase user disabled; trial hasta 2026-12-11). Ver §41. |
+| **Versión actual** | **v864 en main (2026-09-11)** — fix modal Backorder: BOs con stock parcial ya aparecen (badge URGENTE/PARCIAL + filtro urgencia). Ver §41. |
 | **APP_VERSION** | `v863` en `main` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
@@ -4670,7 +4670,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v863
+## 41) Changelog v300 → v864
+
+### v864 (2026-09-11) — fix modal Backorder: BOs con stock parcial ya se ven
+
+**Bug reportado por Mariano**: pedido de JAVIER DJEMDJEMIAN tenía SKU `ST2500HGFM` con chip "BACKORDER APP" pero al buscar en el modal Backorder no aparecía. Root cause: SKU con `dispSap=3` + 4 clientes pidiendo → 3 primeros van a ASIG (FIFO), el 4to queda en BO. El gate SKU-level v631 (`if isAsig !== skuHasStock: g.clientes = []`) ocultaba el SKU entero del modo BACKORDER porque `dispSap>0`.
+
+**Fix (Opción B acordada)**: sacar el gate SKU-level + clasificación de urgencia + filtro nuevo.
+
+- **`renderBackordersTab`** (`index.html:12454+`): sin gate SKU-level. Un SKU con stock parcial ahora aparece en AMBOS modales (ASIG para clientes cubiertos + BACKORDER para clientes en BO).
+- **Badge urgency** en cada card SKU del modo BACKORDER: 🔴 URGENTE (dispSap=0) vs 🟡 PARCIAL (dispSap>0 pero hay BOs).
+- **Nuevo dropdown** `#backorders-urgency-filter`: "Todos" (default post-fix) / "Solo urgentes" (comportamiento v631, para importar) / "Solo parciales".
+- **`backordersUrgencyFilter`** nuevo var + handler `onBackordersUrgencyFilterChange`. Visible solo en modo backorder.
+
+**Preserva el uso de Mariano-importador**: seleccionar "Solo urgentes" muestra el mismo set que antes.
+
+**Bump**: v863 → v864. Bundle sin cambios (solo inline JS + HTML). Tests 367/367.
 
 ### v863 (2026-09-11) — PACHI trial coverage (Diego 2026-09-10)
 
