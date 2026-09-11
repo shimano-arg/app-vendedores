@@ -5277,7 +5277,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v869';
+const APP_VERSION = 'v870';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15935,7 +15935,7 @@ function _renderPreliminarResumen(){
 
 function _renderPreliminarBotonesHtml(){
   const hasLineas = _preliminarState.lineas.length > 0;
-  return '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">' +
+  return '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">' +
     '<button onclick="preliminarVaciar()" ' + (hasLineas ? '' : 'disabled') + ' style="padding:9px 16px;border:1.5px solid var(--color-danger);background:transparent;color:var(--color-danger);border-radius:6px;font-size:12px;font-weight:700;cursor:' + (hasLineas ? 'pointer' : 'not-allowed') + ';opacity:' + (hasLineas ? '1' : '.5') + '">Vaciar</button>' +
     '<button onclick="preliminarShareWhatsApp()" ' + (hasLineas ? '' : 'disabled') + ' style="padding:9px 16px;border:none;background:#25D366;color:#fff;border-radius:6px;font-size:12px;font-weight:700;cursor:' + (hasLineas ? 'pointer' : 'not-allowed') + ';opacity:' + (hasLineas ? '1' : '.5') + '">Compartir por WhatsApp</button>' +
   '</div>';
