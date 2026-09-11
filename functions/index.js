@@ -843,7 +843,9 @@ export const setupGetMovimientos = onCall(
       // el filtro es inclusive-inclusive por dia calendario. Ahora `today` se
       // calcula formateado en TZ AR → matchea el dia que espera SETUP.
       // Extra bonus: logs y consumers ven la fecha AR correcta.
-      const todayARStr = new Date().toLocaleString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).slice(0, 10); // YYYY-MM-DD
+      const todayARStr = new Date()
+        .toLocaleString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+        .slice(0, 10); // YYYY-MM-DD
       // Anclamos "today" a las 12:00 UTC del mismo dia AR (evita salt de dia
       // por rounding a medianoche UTC durante las restas de 7d).
       const today = new Date(todayARStr + 'T12:00:00Z');
@@ -861,7 +863,9 @@ export const setupGetMovimientos = onCall(
           hasta: hastaD.toISOString().slice(0, 10),
         });
       }
-      console.log(`setupGetMovimientos: dias=${dias} → ${windows.length} ventanas semanales (today AR=${todayARStr})`);
+      console.log(
+        `setupGetMovimientos: dias=${dias} → ${windows.length} ventanas semanales (today AR=${todayARStr})`
+      );
 
       const u = new URL(`${SETUP_URL}/GetMovimientosSalida`);
 
@@ -1106,8 +1110,12 @@ export const setupGetMovimientos = onCall(
       // v865 (2026-09-11): log de max fecha para detectar "SETUP dejo de publicar".
       // Si Mariano ve la app sin data nueva, este log confirma si SETUP mismo
       // esta stale (max fecha vieja) o si el problema es cache/render client-side.
-      const maxFecha = movimientos.length > 0 ? String(movimientos[0].fecha || '').slice(0, 10) : null;
-      const minFecha = movimientos.length > 0 ? String(movimientos[movimientos.length - 1].fecha || '').slice(0, 10) : null;
+      const maxFecha =
+        movimientos.length > 0 ? String(movimientos[0].fecha || '').slice(0, 10) : null;
+      const minFecha =
+        movimientos.length > 0
+          ? String(movimientos[movimientos.length - 1].fecha || '').slice(0, 10)
+          : null;
       const totalDespachos = movimientos.filter((m) => m.comprobante === 'DESPACHO').length;
       console.log(
         `setupGetMovimientos: retornando ${movimientos.length} notas (${totalDespachos} despachos) desde=${minFecha} hasta=${maxFecha}`
