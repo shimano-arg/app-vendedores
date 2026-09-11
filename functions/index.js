@@ -924,9 +924,14 @@ export const setupGetMovimientos = onCall(
           }
           const parsed = JSON.parse(resp.body);
           const data = parsed.VFPData;
-          if (!data) return [];
+          if (!data) {
+            console.log(`setupGetMovimientos: ventana ${w.desde}→${w.hasta} sin VFPData en body`);
+            return [];
+          }
           const arrKey = Object.keys(data).find((k) => Array.isArray(data[k]));
-          return arrKey ? data[arrKey] : [];
+          const rows = arrKey ? data[arrKey] : [];
+          console.log(`setupGetMovimientos: ventana ${w.desde}→${w.hasta} → ${rows.length} lineas`);
+          return rows;
         } catch (err) {
           console.warn(
             `setupGetMovimientos: ventana ${w.desde}→${w.hasta} error=${err && err.message}`

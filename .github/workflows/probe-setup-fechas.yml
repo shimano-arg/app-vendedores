@@ -1,0 +1,51 @@
+name: Probe SETUP fechas
+
+# One-shot: llama directo a la API SETUP y reporta cuantas lineas devuelve
+# por ventana de 7 dias (ultimas 3 semanas). Diagnostica si SETUP mismo
+# esta stale vs bug nuestro en la CF.
+#
+# Usa el secret SETUP_API_PASSWORD ya configurado en el repo.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install google-cloud-secret-manager google-auth
+
+      - name: Leer SETUP_API_PASSWORD de GSM y probe
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GCP_PROJECT: app-vendedores-shimano
+        run: |
+          # Escribimos JSON SA a archivo temp y usamos GOOGLE_APPLICATION_CREDENTIALS
+          echo "$FIREBASE_SERVICE_ACCOUNT" > /tmp/sa.json
+          export GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json
+          # Leemos secret con python (evita instalar gcloud CLI en runner)
+          export SETUP_API_PASSWORD=$(python -c "
+          from google.cloud import secretmanager
+          from google.oauth2 import service_account
+          import json, os
+          sa = json.loads(os.environ['FIREBASE_SERVICE_ACCOUNT'])
+          creds = service_account.Credentials.from_service_account_info(sa)
+          client = secretmanager.SecretManagerServiceClient(credentials=creds)
+          name = f'projects/{os.environ[\"GCP_PROJECT\"]}/secrets/SETUP_API_PASSWORD/versions/latest'
+          resp = client.access_secret_version(request={'name': name})
+          print(resp.payload.data.decode('utf-8'), end='')
+          ")
+          rm /tmp/sa.json
+          python scripts/probe_setup_ultimos_dias.py
