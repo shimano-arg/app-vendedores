@@ -22,6 +22,13 @@ concurrency:
   group: test-and-lint-${{ github.ref }}
   cancel-in-progress: true
 
+# v877 (2026-09-11) SEC: fix CodeQL actions/missing-workflow-permissions #21.
+# Workflow read-only para test/lint — no necesita write. Principio de menor
+# privilegio: si algún step maligno inyectara comandos (via deps compromise o
+# script en tests), no puede modificar el repo, crear releases, ni publicar.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
