@@ -5273,7 +5273,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v865';
+const APP_VERSION = 'v866';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -5297,39 +5297,92 @@ window.APP_VERSION = APP_VERSION;
     // Si ya esta el modal abierto (double-trigger), skip.
     if (document.getElementById('version-alert-modal')) return;
 
+    // v866 (2026-09-11): restyle apple-design (skill CLAUDE.md #21).
+    // Cambios vs v697:
+    //   §1 feedback: btn scale(0.97) en pointerdown, no en click.
+    //   §7 spatial: entrada spring desde scale 0.94 + opacity 0.
+    //   §12 material: backdrop con blur + saturate (chrome de iOS).
+    //   §14 reduced-motion: sin springs, solo fade instant.
+    //   §15 typography: letter-spacing negativo en title (mas grande = mas
+    //        tight), body weight 400 + line-height 1.5.
+    //   §1 pill button: border-radius 999px, sin uppercase, weight 600.
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
     const overlay = document.createElement('div');
     overlay.id = 'version-alert-modal';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px';
+    overlay.style.cssText =
+      'position:fixed;inset:0;z-index:100000;' +
+      'display:flex;align-items:center;justify-content:center;padding:24px;' +
+      'background:rgba(0,0,0,0.35);' +
+      '-webkit-backdrop-filter:blur(20px) saturate(1.6);' +
+      'backdrop-filter:blur(20px) saturate(1.6);' +
+      'opacity:0;transition:opacity ' + (reduceMotion ? '0ms' : '250ms') + ' cubic-bezier(0.16,1,0.3,1)';
 
     const box = document.createElement('div');
-    box.style.cssText = 'background:var(--bg-elevated);border-radius:12px;max-width:400px;width:100%;padding:22px;box-shadow:0 20px 40px rgba(0,0,0,0.3);text-align:center;font-family:inherit';
+    box.style.cssText =
+      'background:var(--bg-elevated);border-radius:20px;max-width:380px;width:100%;' +
+      'padding:32px 28px 24px;' +
+      'box-shadow:0 24px 60px -12px rgba(0,0,0,0.35),0 8px 24px -8px rgba(0,0,0,0.15);' +
+      'text-align:center;font-family:inherit;' +
+      'border:0.5px solid rgba(255,255,255,0.08);' +
+      (reduceMotion ? '' : 'transform:scale(0.94);opacity:0;transition:transform 350ms cubic-bezier(0.16,1,0.3,1),opacity 250ms cubic-bezier(0.16,1,0.3,1);');
 
-    const icon = document.createElement('div');
-    icon.style.cssText = 'font-size:36px;margin-bottom:8px';
-    icon.textContent = '🔄';
+    const iconWrap = document.createElement('div');
+    iconWrap.style.cssText =
+      'width:56px;height:56px;border-radius:16px;margin:0 auto 20px;' +
+      'display:flex;align-items:center;justify-content:center;' +
+      'background:linear-gradient(135deg,#0ea5e9,#0284a0);' +
+      'box-shadow:0 8px 24px -6px rgba(2,132,160,0.5),inset 0 1px 0 rgba(255,255,255,0.2);' +
+      'font-size:28px;line-height:1';
+    iconWrap.textContent = '🔄';
 
     const title = document.createElement('div');
-    title.style.cssText = 'font-size:16px;font-weight:800;color:var(--text-primary);margin-bottom:8px';
-    title.textContent = 'Nueva version disponible';
+    title.style.cssText =
+      'font-size:20px;font-weight:700;color:var(--text-primary);' +
+      'letter-spacing:-0.022em;line-height:1.2;margin-bottom:10px';
+    title.textContent = 'Nueva versión disponible';
 
     const msg = document.createElement('div');
-    msg.style.cssText = 'font-size:12.5px;color:var(--text-secondary);line-height:1.5;margin-bottom:16px';
-    msg.innerHTML = 'Estas usando <b>' + APP_VERSION + '</b> pero la ultima es <b>' + remoteVer + '</b>.<br><br>Actualizá ahora para no perder los últimos cambios ni arrastrar bugs de la versión vieja.';
-
-    const btnRow = document.createElement('div');
-    btnRow.style.cssText = 'display:flex;gap:8px;justify-content:center;flex-wrap:wrap';
+    msg.style.cssText =
+      'font-size:14px;color:var(--text-secondary);' +
+      'line-height:1.5;margin-bottom:24px;font-weight:400;letter-spacing:-0.006em';
+    msg.innerHTML =
+      'Estás usando <b style="color:var(--text-primary);font-weight:600">' + APP_VERSION + '</b> ' +
+      'pero la última es <b style="color:var(--text-primary);font-weight:600">' + remoteVer + '</b>.<br><br>' +
+      'Actualizá ahora para no perder los últimos cambios ni arrastrar bugs de la versión vieja.';
 
     const btnRefresh = document.createElement('button');
     btnRefresh.type = 'button';
-    btnRefresh.style.cssText = 'background:#0284a0;color:#fff;border:none;border-radius:6px;padding:10px 20px;font-size:13px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.5px';
+    btnRefresh.style.cssText =
+      'background:linear-gradient(180deg,#0ea5e9,#0284a0);color:#fff;' +
+      'border:none;border-radius:14px;padding:14px 28px;' +
+      'font-size:15px;font-weight:600;letter-spacing:-0.01em;' +
+      'cursor:pointer;font-family:inherit;' +
+      'box-shadow:0 4px 12px -2px rgba(2,132,160,0.4),inset 0 1px 0 rgba(255,255,255,0.2);' +
+      'transition:transform 100ms ease-out,box-shadow 100ms ease-out;' +
+      'min-width:180px;' +
+      '-webkit-tap-highlight-color:transparent;user-select:none';
     btnRefresh.textContent = 'Refrescar ahora';
+
+    // §1 feedback en pointerdown, no click. Cuando el user levanta el
+    // dedo o cancela, vuelve al estado normal.
+    btnRefresh.addEventListener('pointerdown', function(){
+      btnRefresh.style.transform = 'scale(0.97)';
+      btnRefresh.style.boxShadow = '0 2px 6px -1px rgba(2,132,160,0.4),inset 0 1px 0 rgba(255,255,255,0.2)';
+    });
+    ['pointerup','pointercancel','pointerleave'].forEach(function(ev){
+      btnRefresh.addEventListener(ev, function(){
+        btnRefresh.style.transform = '';
+        btnRefresh.style.boxShadow = '0 4px 12px -2px rgba(2,132,160,0.4),inset 0 1px 0 rgba(255,255,255,0.2)';
+      });
+    });
+
     btnRefresh.onclick = function(){
       // Cache bust: unregister SW + reload. Similar a "Forzar actualizacion".
       try {
         if ('serviceWorker' in navigator) {
           navigator.serviceWorker.getRegistrations().then(regs => {
             Promise.all(regs.map(r => r.unregister())).finally(() => {
-              // Limpiar cache antes de reload.
               if ('caches' in window) {
                 caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))).finally(() => {
                   location.reload();
@@ -5349,13 +5402,23 @@ window.APP_VERSION = APP_VERSION;
 
     // v697: sin boton "Despues". Mariano pidio bloqueante para forzar
     // actualizacion en todos los users. El unico camino es refrescar.
-    btnRow.appendChild(btnRefresh);
-    box.appendChild(icon);
+    box.appendChild(iconWrap);
     box.appendChild(title);
     box.appendChild(msg);
-    box.appendChild(btnRow);
+    box.appendChild(btnRefresh);
     overlay.appendChild(box);
     document.body.appendChild(overlay);
+
+    // §7 spatial consistency: animar entrada spring desde scale 0.94.
+    // 2 rAF garantiza que el navegador aplico el estado inicial antes de
+    // transicionar al final (sin esto, el browser puede saltear la anim).
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){
+        overlay.style.opacity = '1';
+        box.style.transform = '';
+        box.style.opacity = '1';
+      });
+    });
   }
 
   async function _checkRemoteVersion(){
