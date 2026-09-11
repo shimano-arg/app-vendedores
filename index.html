@@ -2349,8 +2349,65 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   /* Los 3 botones de la barra derecha (Campanas / Exportar Analisis / Exportar
      Excel) APILADOS uno debajo del otro en mobile (no en fila), para que se
      lean bien y el tap target sea cómodo. */
-  .controls-right-group{width:100%;display:flex !important;flex-direction:column !important;gap:6px;margin-left:0}
-  .btn-dashboard,.btn-visita,.btn-analisis,.btn-zonas,.btn-mis-camps,.btn-export,.btn-rendiciones-top,.btn-clientes,.btn-alta-cli-top,.btn-seguimiento{width:100% !important;justify-content:center;padding:10px 12px;font-size:12px;font-weight:700;flex:initial;min-width:0;letter-spacing:.2px}
+  .controls-right-group{width:100%;display:flex !important;flex-direction:column !important;gap:10px;margin-left:0}
+  /* v873 (2026-09-11): mobile home buttons restyle apple-design.
+     - border-radius 14px (iOS-like corner)
+     - padding generoso + min-height 48px (Apple HIG tap target guideline)
+     - font-weight 600 (no 700/800), text-transform none (case normal, no UPPERCASE)
+     - letter-spacing negativo (tighter, sf-pro-like)
+     - box-shadow sutil (no bold shadows)
+     - feedback pointerdown scale(0.97) con cubic-bezier spring
+     - transition transform + shadow (100ms)
+   Preserva colores originales por botón (identificación funcional). */
+  .btn-dashboard,.btn-visita,.btn-analisis,.btn-zonas,.btn-mis-camps,.btn-export,.btn-rendiciones-top,.btn-clientes,.btn-alta-cli-top,.btn-seguimiento{
+    width:100% !important;
+    justify-content:center;
+    padding:14px 18px;
+    font-size:15px;
+    font-weight:600;
+    flex:initial;
+    min-width:0;
+    min-height:48px;
+    letter-spacing:-0.01em;
+    text-transform:none;
+    border-radius:14px;
+    box-shadow:0 1px 3px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.08);
+    transition:transform 100ms cubic-bezier(0.16,1,0.3,1),box-shadow 100ms ease-out,filter 100ms ease-out;
+    -webkit-tap-highlight-color:transparent;
+    user-select:none;
+  }
+  .btn-dashboard:active,.btn-visita:active,.btn-analisis:active,.btn-zonas:active,.btn-mis-camps:active,.btn-export:active,.btn-rendiciones-top:active,.btn-clientes:active,.btn-alta-cli-top:active,.btn-seguimiento:active{
+    transform:scale(.97);
+    box-shadow:0 1px 2px rgba(0,0,0,.15),inset 0 1px 0 rgba(255,255,255,.08);
+    filter:brightness(.95);
+  }
+  /* Selects del header en mobile: mismo lenguaje apple (rounded pill, padding generoso). */
+  .toolbar-select,#filter-vendor,#filter-province,#filter-locality,#filter-status,#filter-locality-type{
+    border-radius:12px !important;
+    padding:12px 14px !important;
+    font-size:14px !important;
+    font-weight:500 !important;
+    letter-spacing:-0.01em !important;
+    min-height:44px;
+    border:1px solid var(--border-default) !important;
+    background:var(--bg-elevated) !important;
+    box-shadow:0 1px 2px rgba(0,0,0,.04);
+    -webkit-tap-highlight-color:transparent;
+  }
+  /* Refrescar app button destacado con la misma estética. */
+  #reload-btn-toolbar{
+    border-radius:14px !important;
+    padding:14px 18px !important;
+    font-size:14px !important;
+    font-weight:600 !important;
+    letter-spacing:-0.01em !important;
+    text-transform:none !important;
+    min-height:48px;
+    box-shadow:0 2px 6px rgba(30,58,138,.25),inset 0 1px 0 rgba(255,255,255,.15);
+    transition:transform 100ms cubic-bezier(0.16,1,0.3,1),box-shadow 100ms ease-out;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #reload-btn-toolbar:active{transform:scale(.97);box-shadow:0 1px 2px rgba(30,58,138,.2)}
   .main-container{flex-direction:column;height:auto;min-height:calc(100vh - 116px)}
   #map{display:none}
   .sidebar{width:100%;max-height:none;border-left:none;border-top:none;padding:12px 14px}
@@ -5282,7 +5339,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v872';
+const APP_VERSION = 'v873';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
