@@ -871,8 +871,13 @@ html[data-theme="dark"] .tab-pane [style*="color:#0f172a"] {
 .header-logo:hover{transform:scale(1.04);opacity:.85}
 .header-logo:active{transform:scale(.97)}
 /* Hamburger button: oculto en desktop, visible en mobile via media query. */
-.header-hamburger{display:none;background:transparent;border:1.5px solid var(--border-default);border-radius:6px;color:var(--text-primary);font-size:20px;padding:4px 10px;cursor:pointer;line-height:1;height:36px;align-items:center;justify-content:center;transition:.15s}
-.header-hamburger:hover{background:var(--bg-muted);border-color:var(--border-strong)}
+/* v871 (2026-09-11): header hamburger en celeste Shimano (#00A9E0). Antes
+   tenia el emoji ≡ que se removio con v869 cleanup, quedaba boton vacio.
+   Ahora tiene 3 lineas rendered en CSS puro (independiente de fuentes/emojis).
+   Color celeste = color oficial Shimano + brand del logo. */
+.header-hamburger{display:none;background:#00A9E0;border:1.5px solid #00A9E0;border-radius:6px;color:#fff;font-size:20px;padding:4px 10px;cursor:pointer;line-height:1;height:36px;width:44px;align-items:center;justify-content:center;transition:.15s;position:relative}
+.header-hamburger::before{content:'';display:block;width:20px;height:2.5px;background:#fff;border-radius:2px;box-shadow:0 -6px 0 #fff,0 6px 0 #fff}
+.header-hamburger:hover{background:#0091c2;border-color:#0091c2}
 .header-hamburger:active{transform:scale(.95)}
 
 /* v471: layout flex-column con altura fija = 100vh para eliminar scroll
@@ -5277,7 +5282,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v870';
+const APP_VERSION = 'v871';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
