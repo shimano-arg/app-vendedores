@@ -2353,8 +2353,10 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
      full-width arriba (CTA principal). Panel Control full-width outline
      al final (admin, visual distinto). Los demás pares. */
   .controls-right-group{width:100%;display:grid !important;grid-template-columns:1fr 1fr;gap:8px;margin-left:0}
-  /* Pedidos hero: full-width + más alto + más grande, primer botón visible. */
-  #pedidos-btn{grid-column:1 / -1;min-height:60px !important;font-size:17px !important;font-weight:700 !important;box-shadow:0 4px 14px rgba(30,64,175,.35),inset 0 1px 0 rgba(255,255,255,.15) !important}
+  /* Pedidos + Campañas Activas hero: full-width + más alto + más grande. */
+  #pedidos-btn,#mis-camps-btn{grid-column:1 / -1;min-height:60px !important;font-size:17px !important;font-weight:700 !important;box-shadow:0 4px 14px rgba(30,64,175,.35),inset 0 1px 0 rgba(255,255,255,.15) !important}
+  /* Campañas Activas tiene su propio color (ambar), preservamos shadow tintada. */
+  #mis-camps-btn{box-shadow:0 4px 14px rgba(217,119,6,.35),inset 0 1px 0 rgba(255,255,255,.15) !important}
   /* Panel Control: outline al final, estilo admin distinto. */
   #panel-control-btn{grid-column:1 / -1;background:transparent !important;color:var(--text-primary) !important;border:1.5px solid var(--border-default) !important;box-shadow:none !important;font-weight:500 !important}
   #panel-control-btn:active{filter:none !important;background:var(--bg-muted) !important}
@@ -5349,7 +5351,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v874';
+const APP_VERSION = 'v875';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
