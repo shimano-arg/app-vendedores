@@ -193,6 +193,10 @@ export function buildQuotationPayload(pedido, pedidoId, deps) {
         ItemCode: itemCode,
         Quantity: qty,
         WarehouseCode: '11',
+        // v867 (2026-09-11): fix "1470000315 - specify a UoM code". SAP
+        // dejo de asumir default UoM del item. Todos los items Shimano AR
+        // usan Manual Management con IUoMEntry=1 (Unidad).
+        UoMEntry: 1,
         LineNum: lineNum++,
       });
     }

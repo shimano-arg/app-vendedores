@@ -17,7 +17,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v866 en main (2026-09-11)** — modal Nueva versión disponible con estilo apple-design (spring entrada + backdrop blur + pill button). Ver §41. |
+| **Versión actual** | **v867 en main (2026-09-11)** — fix SAP error 1470000315 (agregado UoMEntry:1 en cada línea del SQ) + modal versión estilo apple + SETUP data monitoring. Ver §41. |
 | **APP_VERSION** | `v863` en `main` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
@@ -4670,7 +4670,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v866
+## 41) Changelog v300 → v867
+
+### v867 (2026-09-11) — Fix SAP error 1470000315 "specify a UoM code"
+
+**Bug reportado por Mariano**: envío a SAP falla con `HTTP 400 - 1470000315 - Cannot add or update document; specify a UoM code`. Error global del documento (no de un item específico). SAP dejó de asumir UoM default.
+
+**Fix**: agregar `UoMEntry: 1` explícito en cada línea del SQ. Items Shimano AR = Manual Management + IUoMEntry=1 (Unidad).
+
+Aplicado en:
+- `src/domains/sap-service-layer.js:386` — flow client-side ("Enviar a SAP via Service Layer" del panel Admin).
+- `functions/core/auto-send-sap-core.js:194` — CF trigger `onPedidoConfirmedSendToSap` (auto-send VDE).
+
+CF deployada 14:26 UTC. Bump v866→v867. Bundle rebuilt. 367/367 tests verdes.
+
+**Nota futura**: si algún item tuviera UoM Group distinto (rare), habría que consultar `/Items('SKU')?$select=IUoMEntry` en runtime + cachear.
 
 ### v866 (2026-09-11) — Modal "Nueva versión disponible" restyle apple-design
 
