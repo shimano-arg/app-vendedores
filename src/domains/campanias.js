@@ -226,7 +226,7 @@ async function refreshCampaignsList() {
         if (c.archivedManually && archivedAt) estado += ' el ' + archivedAt;
         if (c.archivedBy) estado += ' por ' + c.archivedBy;
         estadoLine =
-          '<div class="cli-meta" style="color:#7c2d12;font-weight:600;margin-top:3px;font-size:10px">&#9202; ' +
+          '<div class="cli-meta" style="color:#7c2d12;font-weight:600;margin-top:3px;font-size:10px">' +
           escapeHtml(estado) +
           '</div>';
       }
@@ -288,7 +288,7 @@ async function refreshCampaignsList() {
         html +=
           '<button class="cli-del" onclick="finalizarCampaign(\'' +
           c._id +
-          '\')" title="Finalizar campa&ntilde;a manualmente (queda en Hist&oacute;ricas)" style="background:var(--color-warning)">&#9201;</button>';
+          '\')" title="Finalizar campa&ntilde;a manualmente (queda en Hist&oacute;ricas)" style="background:var(--color-warning)"></button>';
       } else {
         html +=
           '<button class="cli-del" onclick="deleteCampaign(\'' +

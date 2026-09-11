@@ -7,9 +7,9 @@
 //
 // Cross-scope state (via window):
 // - window.clientMasterCache (Map): LEÍDA por 15+ callers en varios dominios
-//   (targets, isSapConfirmed, pedido-modal _addrFor, rutas _zonasAddrFor,
-//   pedido discount calc, renderMasterClientesTable, etc.). El Map se preserva
-//   mediante alias local: const clientMasterCache = window.clientMasterCache.
+// (targets, isSapConfirmed, pedido-modal _addrFor, rutas _zonasAddrFor,
+// pedido discount calc, renderMasterClientesTable, etc.). El Map se preserva
+// mediante alias local: const clientMasterCache = window.clientMasterCache.
 // - window.unsubClientMaster: cleanup en detachFirebaseListeners inline.
 //
 // Locals al módulo: mcPendingChanges, mcAutosaveTimers (const), mcPendingRowIds
@@ -449,9 +449,9 @@ function _mcStringSim(a, b) {
 
 // Busca un match para una tienda del SAP entre los puntos del mapa.
 // Devuelve {entry, similarity, matchType} o null. matchType:
-//   'exact'  -> nombre normalizado identico (en cualquier provincia)
-//   'fuzzy'  -> similitud >= 0.82 + misma provincia
-//   null     -> no encontro
+// 'exact' -> nombre normalizado identico (en cualquier provincia)
+// 'fuzzy' -> similitud >= 0.82 + misma provincia
+// null -> no encontro
 function _mcFindMatch(sapName, sapState, storeIndex, allStores) {
   const k = _mcNormName(sapName);
   if (storeIndex[k] && storeIndex[k].length) {
@@ -651,7 +651,7 @@ async function parseMcSapFile(file) {
     const _willOver = _mcSapMatched.filter((m) => m.hadAddress).length;
     const newN = _mcSapUnmatched.length;
     document.getElementById('mc-sap-stats').innerHTML =
-      '<b>&#128203; Filas en el archivo SAP:</b> ' +
+      '<b>Filas en el archivo SAP:</b> ' +
       _mcSapParsedRows.length +
       '<br>' +
       '<b style="color:var(--color-success)">&#10003; Matches exactos:</b> ' +
@@ -663,14 +663,14 @@ async function parseMcSapFile(file) {
       '<b style="color:#1e40af">&#10133; NUEVAS - se van a crear en el mapa:</b> ' +
       newN +
       ' tiendas<br>' +
-      '<b style="color:var(--text-secondary)">&#128203; Tiendas matcheadas se marcan como <i>habilitadas</i> para crear pedidos directamente.</b>';
+      '<b style="color:var(--text-secondary)">Tiendas matcheadas se marcan como <i>habilitadas</i> para crear pedidos directamente.</b>';
     prevEl.style.display = '';
     // Mostrar las fuzzy + nuevas para que el usuario revise antes de aplicar
     const fuzzyList = _mcSapMatched.filter((m) => m.matchType === 'fuzzy');
     let unmInner = '';
     if (fuzzyList.length) {
       unmInner +=
-        '<b style="color:#9a3412">&#9888; Matches por similitud (revisar - puede ser duplicado o tienda nueva):</b><br>';
+        '<b style="color:#9a3412">Matches por similitud (revisar - puede ser duplicado o tienda nueva):</b><br>';
       fuzzyList.slice(0, 15).forEach((m) => {
         unmInner +=
           '&middot; SAP: <b>' +
@@ -978,7 +978,7 @@ window.applyMcSapImport = async function () {
           ' actualizadas + ' +
           actualCreated +
           ' nuevas creadas.\n\n' +
-          '⚠️ ATENCION: ' +
+          'ATENCION: ' +
           sinProv +
           ' de las nuevas no tienen PROVINCIA en el Excel SAP.\n\n' +
           'Esas tiendas aparecen en Master Clientes bajo "(sin provincia)" - cargales la provincia a mano y se ubican en el mapa.\n\n' +
@@ -1025,7 +1025,7 @@ window.applyMcSapImport = async function () {
     console.error('applyMcSapImport', e);
     alert('Error aplicando: ' + (e.message || e));
     btn.disabled = false;
-    btn.innerHTML = '&#128190; Aplicar a la app';
+    btn.innerHTML = 'Aplicar a la app';
   }
 };
 
@@ -1162,7 +1162,7 @@ function renderMcProvisoriosTable() {
 
   const total = getProvisoriosList().length;
   const statsHtml =
-    '<span style="background:#ede9fe;color:var(--color-accent-violet);border-color:#c4b5fd">&#9889; Provisorios (Alta Rapida): ' +
+    '<span style="background:#ede9fe;color:var(--color-accent-violet);border-color:#c4b5fd">Provisorios (Alta Rapida): ' +
     total +
     '</span>' +
     '<span>Filtrados: ' +
@@ -1245,7 +1245,7 @@ function renderMcProvisoriosTable() {
     const dupBadge = dupSap
       ? '<span style="background:var(--color-danger);color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;margin-left:6px" title="' +
         escapeAttr(dupTitle) +
-        '">&#9888; DUPLICADO SAP ' +
+        '">DUPLICADO SAP ' +
         escapeHtml(dupSap.cardCodeSap || '') +
         '</span>'
       : '';
@@ -1263,7 +1263,7 @@ function renderMcProvisoriosTable() {
         '\', this)" ' +
         'onkeydown="if(event.key===\'Enter\')this.blur()" ' +
         'title="Editar nombre del comercio (autosave al salir del campo o Enter)" />' +
-        '<div class="mc-meta" style="margin-top:4px"><span class="mc-tag prov">&#9889; PROVISORIO</span>' +
+        '<div class="mc-meta" style="margin-top:4px"><span class="mc-tag prov">PROVISORIO</span>' +
         dupBadge +
         (dueno
           ? '<span style="font-size:10px;color:var(--text-muted)">Dueno: ' +
@@ -1288,7 +1288,7 @@ function renderMcProvisoriosTable() {
         '<div class="mc-name">' +
         escapeHtml(nombre) +
         '</div>' +
-        '<div class="mc-meta"><span class="mc-tag prov">&#9889; PROVISORIO</span>' +
+        '<div class="mc-meta"><span class="mc-tag prov">PROVISORIO</span>' +
         dupBadge +
         (dueno
           ? '<span style="font-size:10px;color:var(--text-muted)">Dueno: ' +
@@ -1439,7 +1439,7 @@ function renderMcProvisoriosTable() {
       JSON.stringify(nombre).replace(/"/g, '&quot;') +
       ",'" +
       safeId +
-      '\')">&#128465;</button>';
+      '\')"></button>';
     if (userRole === 'admin') {
       html +=
         '<td><div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center">' +
@@ -1448,7 +1448,7 @@ function renderMcProvisoriosTable() {
         'title="Buscar el BP de SAP correspondiente y vincularlo (setea cardCodeSap y saca el provisorio de No confirmados)" ' +
         'onclick="openVincularSapModal(\'' +
         safeId +
-        '\')">&#128279; Vincular con SAP</button>' +
+        '\')">Vincular con SAP</button>' +
         delBtn +
         '</div></td>';
     } else {
@@ -1670,12 +1670,12 @@ window.saveMcClienteSapVendor = async function (province, localityName, clientNa
 // falla (nombre normalizado difiere, provisorio sin CUIT, etc.), admin
 // vincula el provisorio a mano contra un BP de SAP ya sincronizado.
 // La operacion:
-//   1. Copia los campos SAP (cardCodeSap, sapCardType, sapDivision, etc.)
-//      del BP elegido al doc del provisorio.
-//   2. Setea manualSapPending=false + source='sap_sync_manual_link'.
-//   3. Elimina el doc BP duplicado (el que creo el cron con status=approved)
-//      asi no quedan 2 clientes representando el mismo comercio.
-//   4. Guarda auditoria (linkedFromSapDocId, linkedBy, linkedAt).
+// 1. Copia los campos SAP (cardCodeSap, sapCardType, sapDivision, etc.)
+// del BP elegido al doc del provisorio.
+// 2. Setea manualSapPending=false + source='sap_sync_manual_link'.
+// 3. Elimina el doc BP duplicado (el que creo el cron con status=approved)
+// asi no quedan 2 clientes representando el mismo comercio.
+// 4. Guarda auditoria (linkedFromSapDocId, linkedBy, linkedAt).
 let vsmProvisorioId = null;
 let vsmSelectedSapId = null;
 
@@ -1863,13 +1863,13 @@ window.confirmVincularSap = async function (sapAltaFsId) {
     'Vincular el provisorio "' +
     provName +
     '" con el BP SAP:\n\n' +
-    '   ' +
+    ' ' +
     sapName +
     '\n' +
-    '   CardCode: ' +
+    ' CardCode: ' +
     cc +
     '\n' +
-    (sap.cuit ? '   CUIT: ' + sap.cuit + '\n' : '') +
+    (sap.cuit ? ' CUIT: ' + sap.cuit + '\n' : '') +
     '\nEl provisorio va a quedar HABILITADO con este CardCode.\n' +
     'El BP duplicado del SAP se elimina.\n\nConfirmar?';
   if (!confirm(msg)) return;
@@ -1917,7 +1917,7 @@ window.confirmVincularSap = async function (sapAltaFsId) {
     closeVincularSapModal();
     // Actualizar la tabla de Master Clientes (por si esta abierta)
     if (typeof renderMasterClientesTable === 'function') renderMasterClientesTable();
-    alert('✓ Vinculado. "' + provName + '" ahora tiene CardCode ' + cc + ' y quedo confirmado.');
+    alert('Vinculado. "' + provName + '" ahora tiene CardCode ' + cc + ' y quedo confirmado.');
   } catch (e) {
     console.error('confirmVincularSap', e);
     if (errEl) {
@@ -2119,7 +2119,7 @@ window.renderMasterClientesTable = function () {
       defaultDelivery = saved && saved.defaultDelivery ? saved.defaultDelivery : null;
     }
     // v630: badge + tooltip con datos de entrega guardados. Si el vendedor
-    // ya cargo un pedido para este cliente, aparece el icono 📦 con detalle.
+    // ya cargo un pedido para este cliente, aparece el icono con detalle.
     // Al abrir un nuevo pedido, los inputs vienen pre-cargados (openReviewDialog).
     let deliveryBadge = '';
     if (defaultDelivery && defaultDelivery.tipo) {
@@ -2149,7 +2149,7 @@ window.renderMasterClientesTable = function () {
       deliveryBadge =
         '<div style="margin-top:4px;display:inline-block;padding:2px 8px;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:4px;font-size:9.5px;font-weight:700" title="' +
         escapeAttr(_tooltip.join('\n')) +
-        '">📦 ENTREGA: ' +
+        '">ENTREGA: ' +
         escapeHtml(_tipoLbl.toUpperCase()) +
         '</div>';
     }
@@ -2214,7 +2214,7 @@ window.renderMasterClientesTable = function () {
         escapeAttr(dupSapV.comercio || dupSapV.fantasia || '?') +
         ' (' +
         escapeAttr(dupSapV.cardCodeSap || '') +
-        '). Revisa y elimina el provisorio si corresponde.">&#9888; DUPLICADO SAP ' +
+        '). Revisa y elimina el provisorio si corresponde.">DUPLICADO SAP ' +
         escapeHtml(dupSapV.cardCodeSap || '') +
         '</span>'
       : '';
@@ -2230,7 +2230,7 @@ window.renderMasterClientesTable = function () {
           '</span>';
       } else {
         tagHtml =
-          '<span class="mc-tag" style="background:var(--color-warning-bg);color:var(--color-warning);border:1px solid #fcd34d">&#9889; PROVISORIO</span>' +
+          '<span class="mc-tag" style="background:var(--color-warning-bg);color:var(--color-warning);border:1px solid #fcd34d">PROVISORIO</span>' +
           dupBadgeV;
       }
     } else {
@@ -2442,7 +2442,7 @@ window.renderMasterClientesTable = function () {
       JSON.stringify(e.nombre).replace(/"/g, '&quot;') +
       ",'" +
       escapeAttr(isSap ? e.sapFsId : '') +
-      '\')" style="background:var(--color-danger);color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px" title="Eliminar tienda">&#128465;</button></div></td>';
+      '\')" style="background:var(--color-danger);color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px" title="Eliminar tienda"></button></div></td>';
     html += '</tr>';
   });
   html += '</tbody></table>';
@@ -2694,12 +2694,12 @@ window.saveMcClientField = async function (docId, fieldName, sel) {
 // recalcula al ingresar el pedido para evitar duplicar descuentos.
 //
 // Tabla de descuentos (acumulativos):
-//   Fijo (por tipo de cliente):   P=6% / A=3% / B,C=0%
-//   Volumen (DINAMICO segun subtotal del pedido actual):
-//     hasta $3M: 0% / $3M-$4.5M: 2% / $4.5M-$10M: 3% /
-//     $10M-$20M: 4% / mas de $20M: 6%
-//   Pago Anticipado (solo si forma de pago = CONTADO):
-//     P=5% / A=3% / B,C=0%
+// Fijo (por tipo de cliente): P=6% / A=3% / B,C=0%
+// Volumen (DINAMICO segun subtotal del pedido actual):
+// hasta $3M: 0% / $3M-$4.5M: 2% / $4.5M-$10M: 3% /
+// $10M-$20M: 4% / mas de $20M: 6%
+// Pago Anticipado (solo si forma de pago = CONTADO):
+// P=5% / A=3% / B,C=0%
 // calcClientDiscount: movido al bundle (window.calcClientDiscount vía __phase0.pure).
 
 // Devuelve los datos comerciales del cliente actual del pedido (currentOrderClient).
@@ -2727,12 +2727,12 @@ function pedidoDiscountFactor(pedido) {
 window.pedidoDiscountFactor = pedidoDiscountFactor;
 
 // Eliminar una entrada de Master Clientes. Comportamiento segun tipo:
-//  - SAP altas (sapFsId presente): borra el doc en client_applications.
-//    Solo si no tiene cardCodeSap todavia O si el admin/gerente confirma
-//    que entiende que esta borrando un cliente cargado en SAP B1.
-//  - POINTS legacy: borra el doc en client_master (limpia direccion) y
-//    avisa que el nombre queda en el padron historico hasta el proximo
-//    rebuild del Excel.
+// - SAP altas (sapFsId presente): borra el doc en client_applications.
+// Solo si no tiene cardCodeSap todavia O si el admin/gerente confirma
+// que entiende que esta borrando un cliente cargado en SAP B1.
+// - POINTS legacy: borra el doc en client_master (limpia direccion) y
+// avisa que el nombre queda en el padron historico hasta el proximo
+// rebuild del Excel.
 // v778+: abierto a todos los roles autenticados (admin/gerente/vendedor/
 // interno/viewer). Firestore rules siguen protegiendo BPs con cardCodeSap
 // (solo admin/gerente puede borrarlos).

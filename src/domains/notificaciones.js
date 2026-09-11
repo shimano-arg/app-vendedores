@@ -28,7 +28,7 @@
 //
 // Cross-scope state (via window):
 // - window.unsubMySentTasks: listener con cleanup en detachFirebaseListeners()
-//   del inline (línea ~23869 pre-E2.g).
+// del inline (línea ~23869 pre-E2.g).
 // Locals al módulo: window.notifsTab, mySentTasks, taskFormImages, pendingNotifIdToMarkRead.
 // === Notificaciones panel ===
 // ============================================================
@@ -102,7 +102,7 @@ const ALTA_CLI_MAX_FOTOS = 5;
 let altaCliFiles = { arca: null, iibb: null, fotos: [] };
 let altaCliMine = []; // mis solicitudes (vendedor logueado)
 // Cross-scope: el inline detachFirebaseListeners hace
-//   off('unsubAltaCliMine', unsubAltaCliMine, () => unsubAltaCliMine = null)
+// off('unsubAltaCliMine', unsubAltaCliMine, () => unsubAltaCliMine = null)
 // donde `unsubAltaCliMine` es free reference. Sin `window.` explícito, el
 // `let` del bundle IIFE NO es visible al inline → off skipeaba → listener leak.
 if (typeof window.unsubAltaCliMine === 'undefined') window.unsubAltaCliMine = null;
@@ -380,16 +380,16 @@ window.submitAltaRapida = async function () {
     document.getElementById('alta-rapida-form').reset();
     if (btn) {
       btn.disabled = false;
-      btn.textContent = '⚡ Confirmar cliente y habilitar';
+      btn.textContent = 'Confirmar cliente y habilitar';
     }
     alert(
-      '✓ Cliente habilitado provisoriamente.\n\nYa podes cargarle pedidos desde la solapa PEDIDOS.'
+      'Cliente habilitado provisoriamente.\n\nYa podes cargarle pedidos desde la solapa PEDIDOS.'
     );
   } catch (e) {
     console.error('submitAltaRapida', e);
     if (btn) {
       btn.disabled = false;
-      btn.textContent = '⚡ Confirmar cliente y habilitar';
+      btn.textContent = 'Confirmar cliente y habilitar';
     }
     alert('Error guardando: ' + (e.message || e));
   }
@@ -639,11 +639,7 @@ function renderAltaCliMisSolicitudes() {
     const stCls =
       a.status === 'approved' ? 'approved' : a.status === 'rejected' ? 'rejected' : 'pending';
     const stLbl =
-      a.status === 'approved'
-        ? '✓ Aprobada'
-        : a.status === 'rejected'
-          ? '✕ Rechazada'
-          : 'Pendiente';
+      a.status === 'approved' ? 'Aprobada' : a.status === 'rejected' ? 'Rechazada' : 'Pendiente';
     const dt = a.createdAt ? (a.createdAt.toDate ? a.createdAt.toDate() : null) : null;
     const dtStr = dt ? dt.toLocaleString('es-AR') : '';
     const apCount = a.approvals ? Object.keys(a.approvals).length : 0;
@@ -693,7 +689,7 @@ function renderAltaCliMisSolicitudes() {
         safeId +
         "', " +
         safeName +
-        ')" style="background:var(--color-danger-bg);color:var(--color-danger-strong);border:1.5px solid #fca5a5;border-radius:5px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer">&#128465; Eliminar</button>';
+        ')" style="background:var(--color-danger-bg);color:var(--color-danger-strong);border:1.5px solid #fca5a5;border-radius:5px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer">Eliminar</button>';
       html += '</div>';
     }
     html += '</div>';
@@ -834,9 +830,9 @@ window.openClientApplicationDetail = async function (appId, notifId) {
     // Bloque de "datos del aprobador" - solo visible si soy aprobador y no
     // di mi aprobacion todavia. Aca el aprobador completa info que la
     // solicitud no trae del lado del vendedor:
-    //   - cardCode SAP: BP a usar en pedidos (sin esto no entra el ZIP DTW)
-    //   - assignedVendor: vendor que va a atender la tienda (aparece en su mapa)
-    //   - localidadFinal: por si la localidad declarada no matchea con el mapa
+    // - cardCode SAP: BP a usar en pedidos (sin esto no entra el ZIP DTW)
+    // - assignedVendor: vendor que va a atender la tienda (aparece en su mapa)
+    // - localidadFinal: por si la localidad declarada no matchea con el mapa
     const meEmail = (currentUser.email || '').toLowerCase();
     const iAmApprover = CLIENT_APPLICATION_APPROVER_EMAILS.indexOf(meEmail) >= 0;
     const iAlreadyApproved = a.approvals && a.approvals[currentUser.uid];
@@ -891,7 +887,7 @@ window.openClientApplicationDetail = async function (appId, notifId) {
       h +=
         '<option value="__DISTRIBUTOR__"' +
         (preVendor === '__DISTRIBUTOR__' ? ' selected' : '') +
-        '>&#127981; DISTRIBUIDOR</option>';
+        '>DISTRIBUIDOR</option>';
       h += '</optgroup>';
       h += '</select>';
       h +=
@@ -1141,7 +1137,7 @@ function notifItemHtml(n, opts) {
   let h = '<div class="' + cls + '">';
   if (type === 'task') {
     const fromLabel = n.fromName || n.fromEmail || 'Alguien';
-    h += '<div class="task-sender">&#9650; De ' + escapeHtml(fromLabel) + '</div>';
+    h += '<div class="task-sender">De ' + escapeHtml(fromLabel) + '</div>';
     const statusTag =
       n.status === 'done'
         ? '<span class="task-status-tag done">&#10003; Completada</span>'
@@ -1165,7 +1161,7 @@ function notifItemHtml(n, opts) {
       });
       h += '</div>';
     }
-    h += '<div class="nf"><span>&#128197; ' + escapeHtml(dtStr) + '</span></div>';
+    h += '<div class="nf"><span>' + escapeHtml(dtStr) + '</span></div>';
     if (n.status !== 'done' && !opts.readonly) {
       h += '<div class="notif-item-actions">';
       h +=
@@ -1194,15 +1190,12 @@ function notifItemHtml(n, opts) {
     }
   } else if (type === 'client_approval') {
     h +=
-      '<div class="task-sender">&#9650; De ' +
+      '<div class="task-sender">De ' +
       escapeHtml(n.fromName || n.fromEmail || 'Vendedor') +
       '</div>';
     h += '<div class="task-title">' + escapeHtml(n.title || 'Solicitud de alta') + '</div>';
     if (n.description) h += '<div class="task-desc">' + escapeHtml(n.description) + '</div>';
-    h +=
-      '<div class="nf" style="margin-top:6px"><span>&#128197; ' +
-      escapeHtml(dtStr) +
-      '</span></div>';
+    h += '<div class="nf" style="margin-top:6px"><span>' + escapeHtml(dtStr) + '</span></div>';
     if (n.status !== 'read' && n.status !== 'done' && !opts.readonly) {
       h += '<div class="notif-item-actions">';
       h +=
@@ -1227,15 +1220,12 @@ function notifItemHtml(n, opts) {
     }
   } else if (type === 'rendicion_approval') {
     h +=
-      '<div class="task-sender">&#9650; De ' +
+      '<div class="task-sender">De ' +
       escapeHtml(n.fromName || n.fromEmail || 'Vendedor') +
       '</div>';
     h += '<div class="task-title">' + escapeHtml(n.title || 'Rendicion pendiente') + '</div>';
     if (n.description) h += '<div class="task-desc">' + escapeHtml(n.description) + '</div>';
-    h +=
-      '<div class="nf" style="margin-top:6px"><span>&#128197; ' +
-      escapeHtml(dtStr) +
-      '</span></div>';
+    h += '<div class="nf" style="margin-top:6px"><span>' + escapeHtml(dtStr) + '</span></div>';
     if (n.status !== 'read' && n.status !== 'done' && !opts.readonly) {
       h += '<div class="notif-item-actions">';
       h +=
@@ -1289,7 +1279,7 @@ function notifItemHtml(n, opts) {
     h +=
       '<button class="btn-read" style="background:var(--color-danger-bg);color:var(--color-danger-strong);border:1.5px solid #fca5a5;font-weight:700" onclick="deleteNotif(\'' +
       escapeAttr(n._fsId) +
-      '\')" title="Eliminar esta notificacion">&#128465; Eliminar</button>';
+      '\')" title="Eliminar esta notificacion">Eliminar</button>';
     h += '</div>';
   }
   h += '</div>';
@@ -1313,8 +1303,7 @@ function renderNotifsList() {
   const cont = document.getElementById('notifs-list');
   const pendientes = (myNotifications || []).filter(isNotifPending);
   if (!pendientes.length) {
-    cont.innerHTML =
-      '<div class="notif-empty">No tenes alertas ni tareas pendientes. &#127881;</div>';
+    cont.innerHTML = '<div class="notif-empty">No tenes alertas ni tareas pendientes. </div>';
     return;
   }
   // v321+: header con contador + boton "Marcar todas como leidas" para
@@ -1386,7 +1375,7 @@ window.markAllNotifsRead = async function () {
     alert('Error marcando notificaciones: ' + (e.message || e));
     if (btn) {
       btn.disabled = false;
-      btn.textContent = '✓ Marcar todas como leidas';
+      btn.textContent = 'Marcar todas como leidas';
     }
   }
 };
@@ -1417,7 +1406,7 @@ function renderMySentTasks() {
     const dtStr = fmtNotifDate(n);
     const targetLabel = n.targetName || n.targetEmail || n.targetUid || 'Alguien';
     html += '<div class="' + cls + '">';
-    html += '<div class="task-sender">&#9660; Para ' + escapeHtml(targetLabel) + '</div>';
+    html += '<div class="task-sender">Para ' + escapeHtml(targetLabel) + '</div>';
     const statusTag = isDone
       ? '<span class="task-status-tag done">&#10003; Completada</span>'
       : '<span class="task-status-tag pending">Pendiente</span>';
@@ -1440,7 +1429,7 @@ function renderMySentTasks() {
       });
       html += '</div>';
     }
-    html += '<div class="nf"><span>&#128197; ' + escapeHtml(dtStr) + '</span>';
+    html += '<div class="nf"><span>' + escapeHtml(dtStr) + '</span>';
     if (isDone && n.doneAt) {
       const da = n.doneAt.toDate ? n.doneAt.toDate() : new Date(n.doneAt);
       html +=
@@ -1801,7 +1790,7 @@ window.markAllNotifsRead = async function () {
 
 // === Exports a window para callers cross-scope ===
 // - renderNotifsList: llamada desde línea 12046 (tab handler), 12284 y 12331
-//   (dentro de ensureNotifsListener + updateNotifsBadge del inline).
+// (dentro de ensureNotifsListener + updateNotifsBadge del inline).
 // - updateNotifsTabCounts: llamada desde línea 12329-30 del inline.
 // - populateTaskTargets: ya está window.populateTaskTargets = function.
 // - syncUsersDirectory: ya está window.syncUsersDirectory = syncUsersDirectory (dentro del bloque).

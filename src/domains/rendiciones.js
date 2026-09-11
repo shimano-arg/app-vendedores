@@ -22,7 +22,7 @@ import {
 //
 // Cross-scope state (via window):
 // - window.unsubMisRendiciones + window.unsubTodasRendiciones: listeners con
-//   cleanup en detachFirebaseListeners() del inline (línea ~24758 pre-E2.e).
+// cleanup en detachFirebaseListeners() del inline (línea ~24758 pre-E2.e).
 // Locals al módulo: geminiApiKeyCache, rdSolicitudAdj, rdGastoFoto,
 // misRendiciones, todasRendiciones, todasRendFilter + 3 constantes
 // (GEMINI_MODEL, GEMINI_OCR_PROMPT, SELF_APPROVE_RENDICIONES_EMAILS).
@@ -215,7 +215,7 @@ function refreshRendAdjGrid() {
     const isImg = rdSolicitudAdj.type && rdSolicitudAdj.type.startsWith('image/');
     const preview = isImg
       ? '<img src="' + rdSolicitudAdj.data + '"/>'
-      : '<div style="font-size:9px;text-align:center;padding:14px 4px;color:var(--text-secondary);word-break:break-all">&#128196;<br>' +
+      : '<div style="font-size:9px;text-align:center;padding:14px 4px;color:var(--text-secondary);word-break:break-all"><br>' +
         escapeHtml(rdSolicitudAdj.name) +
         '</div>';
     grid.innerHTML =
@@ -277,7 +277,7 @@ async function runRendGastoOcr(isManualRetry) {
     if (statusEl) {
       statusEl.innerHTML =
         '<div style="background:var(--color-warning-bg);border:1px solid #fcd34d;border-radius:5px;padding:8px 10px;font-size:11px;color:#78350f">' +
-        '<b>&#9888; Revisa los campos</b> autocompletados antes de enviar. La IA puede equivocarse, sobre todo en montos, numero de ticket y descripcion. ' +
+        '<b>Revisa los campos</b> autocompletados antes de enviar. La IA puede equivocarse, sobre todo en montos, numero de ticket y descripcion. ' +
         '<button type="button" onclick="reRunRendGastoOcr()" style="background:#0891b2;color:#fff;border:none;border-radius:3px;padding:3px 8px;font-size:10px;font-weight:800;cursor:pointer;margin-left:6px">Re-analizar</button>' +
         '</div>';
     }
@@ -316,8 +316,8 @@ function refreshRendFotoGrid() {
       '"/><button type="button" class="rm" onclick="removeRendFotoTicket()">&times;</button></div>';
   } else {
     grid.innerHTML =
-      '<label class="photo-cell add" style="background:#fce7f3;border-color:#f9a8d4;color:#9d174d;font-size:10px;font-weight:800;letter-spacing:.3px"><input type="file" accept="image/*" capture="environment" style="display:none" onchange="onRendFotoTicket(this)"/>&#128247; SACAR<br>FOTO</label>' +
-      '<label class="photo-cell add" style="background:#dbeafe;border-color:#93c5fd;color:#1e40af;font-size:10px;font-weight:800;letter-spacing:.3px"><input type="file" accept="image/*" style="display:none" onchange="onRendFotoTicket(this)"/>&#128194; ELEGIR<br>DE GALERÍA</label>';
+      '<label class="photo-cell add" style="background:#fce7f3;border-color:#f9a8d4;color:#9d174d;font-size:10px;font-weight:800;letter-spacing:.3px"><input type="file" accept="image/*" capture="environment" style="display:none" onchange="onRendFotoTicket(this)"/>SACAR<br>FOTO</label>' +
+      '<label class="photo-cell add" style="background:#dbeafe;border-color:#93c5fd;color:#1e40af;font-size:10px;font-weight:800;letter-spacing:.3px"><input type="file" accept="image/*" style="display:none" onchange="onRendFotoTicket(this)"/>ELEGIR<br>DE GALERÍA</label>';
   }
 }
 
@@ -339,11 +339,11 @@ async function resolveMyRendicionesApprover() {
   //
   // IMPORTANTE: los vendedores NO pueden leer /roles/{otroUid} por security
   // rules. Estrategia:
-  //   1. Si tenemos el email cacheado en /roles/{yo}.rendicionesApproverEmail
-  //      (lo escribe bulkAssignApprover), usar eso directo - 0 reads extra.
-  //   2. Si no, leer del directorio publico app_config/users_directory que
-  //      admin sincroniza al abrir Panel Usuarios.
-  //   3. Fallback /roles (solo funciona para admin/gerente).
+  // 1. Si tenemos el email cacheado en /roles/{yo}.rendicionesApproverEmail
+  // (lo escribe bulkAssignApprover), usar eso directo - 0 reads extra.
+  // 2. Si no, leer del directorio publico app_config/users_directory que
+  // admin sincroniza al abrir Panel Usuarios.
+  // 3. Fallback /roles (solo funciona para admin/gerente).
   if (!myRendicionesApproverUid) return null;
   if (myRendicionesApproverEmail) {
     return {
@@ -583,7 +583,7 @@ async function uploadRendicionFotoToStorage(dataUrl, ownerUid) {
  * validacion server-side. Este chequeo cliente ahorra 1 write innecesaria
  * cuando el vendedor va a submitear un obvio duplicado.
  *
- * @param {Object} rendicionData  data que se va a submitear (SIN docId aun).
+ * @param {Object} rendicionData data que se va a submitear (SIN docId aun).
  * @returns {Promise<null | {existing: {id: string, data: any}, match: {strength: 'strong'|'weak', reason: string}}>}
  */
 async function _antidupPreCheck(rendicionData) {
@@ -753,7 +753,7 @@ window.submitRendGasto = async function () {
   const dupCheck = await _antidupPreCheck(data);
   if (dupCheck && dupCheck.match.strength === 'strong') {
     alert(
-      '⚠️ DUPLICADO DETECTADO\n\n' +
+      'DUPLICADO DETECTADO\n\n' +
         'Ya existe una rendicion con el mismo ticket + importe cargada por vos ' +
         'en los ultimos 90 dias:\n\n' +
         _fmtRendicionDuplicada(dupCheck.existing) +
@@ -769,7 +769,7 @@ window.submitRendGasto = async function () {
   }
   if (dupCheck && dupCheck.match.strength === 'weak') {
     const ok = confirm(
-      '⚠️ POSIBLE DUPLICADO (mismo proveedor + mismo importe + misma fecha)\n\n' +
+      'POSIBLE DUPLICADO (mismo proveedor + mismo importe + misma fecha)\n\n' +
         'Rendicion existente:\n' +
         _fmtRendicionDuplicada(dupCheck.existing) +
         '\n\nEste gasto puede ser legitimo (ej: dos peajes del mismo dia). ' +
@@ -851,9 +851,9 @@ function renderMisRendiciones() {
       r.status === 'approved' ? 'approved' : r.status === 'rejected' ? 'rejected' : 'pending';
     const stLbl =
       r.status === 'approved'
-        ? '✓ Aprobada'
+        ? 'Aprobada'
         : r.status === 'rejected'
-          ? '✕ Rechazada'
+          ? 'Rechazada'
           : 'Pendiente de aprobacion';
     const dt = r.createdAt ? (r.createdAt.toDate ? r.createdAt.toDate() : null) : null;
     const dtStr = dt ? dt.toLocaleString('es-AR') : '';
@@ -888,7 +888,7 @@ function renderMisRendiciones() {
         escapeHtml(r.rejectedReason) +
         '</div>';
     html +=
-      '<div style="font-size:10px;color:#0891b2;margin-top:6px;font-weight:700">&#128194; Tocar para ver detalle y comprobante &rarr;</div>';
+      '<div style="font-size:10px;color:#0891b2;margin-top:6px;font-weight:700">Tocar para ver detalle y comprobante &rarr;</div>';
     html += '</div>';
   });
   cont.innerHTML = html;
@@ -1018,11 +1018,11 @@ function renderTodasRendiciones() {
           ? 'rejected'
           : 'pending';
     const stLbl = isDupDetected
-      ? '⚠️ DUPLICADO DETECTADO'
+      ? 'DUPLICADO DETECTADO'
       : r.status === 'approved'
-        ? '✓ Aprobada'
+        ? 'Aprobada'
         : r.status === 'rejected'
-          ? '✕ Rechazada'
+          ? 'Rechazada'
           : 'Pendiente de aprobacion';
     const dt = r.createdAt && r.createdAt.toDate ? r.createdAt.toDate() : null;
     const dtStr = dt ? dt.toLocaleString('es-AR') : '';
@@ -1045,7 +1045,7 @@ function renderTodasRendiciones() {
     if (isDupDetected) {
       html +=
         '<div style="background:#dc2626;color:#fff;padding:6px 10px;margin:-8px -8px 8px -8px;border-radius:4px 4px 0 0;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:.4px">' +
-        '⚠️ Duplicado — no aprobar sin revisar</div>';
+        'Duplicado — no aprobar sin revisar</div>';
       if (r.duplicateOf) {
         html +=
           '<div style="font-size:10px;color:#7f1d1d;margin-bottom:6px"><b>Rendicion original:</b> ' +
@@ -1065,10 +1065,10 @@ function renderTodasRendiciones() {
     // v857+: aviso si el vendedor confirmo un match debil.
     if (r.duplicateWarningAcknowledged) {
       html +=
-        '<div style="background:#fef3c7;color:#78350f;padding:4px 8px;margin-bottom:6px;border-radius:3px;font-size:10px;font-weight:600">⚠️ ADVERTENCIA DEBIL confirmada por el vendedor</div>';
+        '<div style="background:#fef3c7;color:#78350f;padding:4px 8px;margin-bottom:6px;border-radius:3px;font-size:10px;font-weight:600">ADVERTENCIA DEBIL confirmada por el vendedor</div>';
     }
     html +=
-      '<div style="font-size:10px;font-weight:800;color:#7c2d12;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">&#128100; ' +
+      '<div style="font-size:10px;font-weight:800;color:#7c2d12;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">' +
       escapeHtml(vendorLbl) +
       '</div>';
     html += '<h5><span class="rd-tipo-tag">' + tipoTag + '</span>' + escapeHtml(ttl) + '</h5>';
@@ -1092,7 +1092,7 @@ function renderTodasRendiciones() {
         escapeHtml(r.approvedByEmail) +
         '</div>';
     html +=
-      '<div style="font-size:10px;color:#0891b2;margin-top:6px;font-weight:700">&#128194; Tocar para ver detalle y comprobante &rarr;</div>';
+      '<div style="font-size:10px;color:#0891b2;margin-top:6px;font-weight:700">Tocar para ver detalle y comprobante &rarr;</div>';
     html += '</div>';
   });
   cont.innerHTML = html;

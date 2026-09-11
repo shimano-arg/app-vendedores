@@ -136,7 +136,7 @@ function renderGeminiConfigSection(_data) {
   const msg = document.createElement('div');
   msg.style.cssText = 'font-size:11px;color:var(--text-muted)';
   // Icono candado + texto. textContent es safe (no HTML parsing).
-  msg.textContent = '🔒 Guardado por seguridad en Google Secret Manager';
+  msg.textContent = 'Guardado por seguridad en Google Secret Manager';
   wrap.appendChild(title);
   wrap.appendChild(msg);
   el.appendChild(wrap);
@@ -638,7 +638,7 @@ window.openAdminPanel = async function () {
           : '';
         const protectedTag =
           isProtected && !isSelf
-            ? ' <span style="color:var(--color-accent-violet);font-size:9px;font-weight:800" title="Admin protegido - no se puede eliminar">&#128274; PROTEGIDO</span>'
+            ? ' <span style="color:var(--color-accent-violet);font-size:9px;font-weight:800" title="Admin protegido - no se puede eliminar">PROTEGIDO</span>'
             : '';
         const waVal = d.whatsapp || '';
         const waInputHtml =
@@ -670,7 +670,7 @@ window.openAdminPanel = async function () {
           docId +
           "', " +
           JSON.stringify(d.email || '').replace(/"/g, '&quot;') +
-          ')">&#128274; Contraseña</button>';
+          ')">Contraseña</button>';
         // Botón Configurar 2FA
         const totpStatusTag = d.totpEnabled
           ? ' <span style="color:#10b981;font-weight:800">&#10003;</span>'
@@ -682,7 +682,7 @@ window.openAdminPanel = async function () {
           docId +
           "', " +
           JSON.stringify(d.email || '').replace(/"/g, '&quot;') +
-          ')">&#128272; 2FA' +
+          ')">2FA' +
           totpStatusTag +
           '</button>';
         // Desktop row
@@ -1034,15 +1034,15 @@ window.changeUserPassword = async function (uid, email) {
       '\n\n' +
       'Elegi una opcion (1 / 2):\n\n' +
       '1) ENVIAR MAIL DE RESETEO (recomendado)\n' +
-      '   Le llega a ' +
+      ' Le llega a ' +
       email +
       ' un mail de Firebase con un link.\n' +
-      '   El usuario clickea, setea su nueva password y vuelve a la app.\n' +
-      '   Es lo estandar y funciona seguro.\n\n' +
+      ' El usuario clickea, setea su nueva password y vuelve a la app.\n' +
+      ' Es lo estandar y funciona seguro.\n\n' +
       '2) Resetear SOLO el password-gate (segunda capa).\n' +
-      '   No cambia la password real de Firebase. Sirve si el usuario\n' +
-      '   entra por Google y olvido la password-gate de la app, NO si\n' +
-      '   olvido la password del login con email.\n\n' +
+      ' No cambia la password real de Firebase. Sirve si el usuario\n' +
+      ' entra por Google y olvido la password-gate de la app, NO si\n' +
+      ' olvido la password del login con email.\n\n' +
       'Escribi 1 o 2:',
     '1'
   );

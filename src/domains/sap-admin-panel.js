@@ -7,11 +7,11 @@
 //
 // Cross-scope state (via window, todos los usos con prefix window. explicit):
 // - window.sapClientsMap / window.sapProductsMap: LEIDOS por sapGetClienteCode
-//   / sapGetMaterialCode (cross-scope caller de exports-sap.js).
+// / sapGetMaterialCode (cross-scope caller de exports-sap.js).
 // - window.sapConfigCache: LEIDO por sapSL.loadConfig (bundle sap-service-layer),
-//   sap-auto-send-listener bundle, exports-sap.js buildQuotationPayload.
+// sap-auto-send-listener bundle, exports-sap.js buildQuotationPayload.
 // - window.unsubSapClients / window.unsubSapProducts / window.unsubSapConfig:
-//   cleanups en detachFirebaseListeners inline.
+// cleanups en detachFirebaseListeners inline.
 
 // =====================================================================
 // SECCIÓN: F1: vars + listenSapMaps + open/close/switchSapTab (inline L12136-12208)
@@ -231,7 +231,7 @@ function renderSapConfig() {
     (isAdmin ? 'pointer' : 'not-allowed') +
     ';accent-color:#0d9488"/>' +
     (autoSendSL
-      ? '&#9889; AUTO-ENVIO ACTIVO - los pedidos confirmados van directo a SAP'
+      ? 'AUTO-ENVIO ACTIVO - los pedidos confirmados van directo a SAP'
       : 'Activar auto-envio') +
     '</label>' +
     '</div>' +
@@ -272,7 +272,7 @@ function renderSapConfig() {
         catalogInfo +
         '</div>' +
         (isAdmin
-          ? '<button class="app-btn-pill" style="background:#0d9488;color:#fff;padding:10px 18px;border:none;border-radius:6px;cursor:pointer;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:11px" onclick="syncSapCatalog()">&#128260; Sincronizar catalogo desde SAP</button>'
+          ? '<button class="app-btn-pill" style="background:#0d9488;color:#fff;padding:10px 18px;border:none;border-radius:6px;cursor:pointer;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:11px" onclick="syncSapCatalog()">Sincronizar catalogo desde SAP</button>'
           : '<div style="font-size:11px;color:var(--text-muted)">Solo admin puede sincronizar</div>') +
         '</div>'
       );
@@ -287,8 +287,8 @@ function renderSapConfig() {
     '&#10003; 6 SlpCodes de vendedores cargados via Integracion SAP<br>' +
     (seriesId
       ? '&#10003; Series APP ID cargado: <b>' + escapeHtml(seriesId) + '</b><br>'
-      : '&#9888;&#65039; <b>FALTA</b> cargar el Series APP ID (pedirselo a Eliana)<br>') +
-    '&#9888;&#65040; Pendiente: prueba E2E con DTW en ambiente TEST.' +
+      : '<b>FALTA</b> cargar el Series APP ID (pedirselo a Eliana)<br>') +
+    '&#65040; Pendiente: prueba E2E con DTW en ambiente TEST.' +
     '</div>' +
     '</div>';
 }
@@ -387,7 +387,7 @@ window.syncSapCatalog = async function () {
     statusEl.style.fontStyle = 'normal';
     statusEl.innerHTML = txt;
   };
-  setStatus('&#9203; Conectando a Service Layer...');
+  setStatus('Conectando a Service Layer...');
   const sess = await sapSL.ensureSession();
   if (!sess.ok) {
     setStatus('&#10006; Error de sesion: ' + escapeHtml(sess.error || ''), '#dc2626');
@@ -402,9 +402,7 @@ window.syncSapCatalog = async function () {
     return;
   }
   const slItems = r.items || [];
-  setStatus(
-    '&#128190; Guardando ' + slItems.length.toLocaleString('es-AR') + ' items en Firestore...'
-  );
+  setStatus('Guardando ' + slItems.length.toLocaleString('es-AR') + ' items en Firestore...');
   // Merge inteligente con PRODUCTS local.
   const localMap = new Map();
   if (Array.isArray(PRODUCTS)) {
@@ -501,13 +499,13 @@ window.syncSapCatalog = async function () {
 // Devuelve un sufijo listo para pegar al final del string 'Comments' /
 // 'Remarks' del Sales Quotation, con la info de forma de entrega elegida
 // por el vendedor. Formato:
-//   ' | Entrega TRANSPORTISTA: <nombre> - <direccion>'
-//   ' | Entrega SUCURSAL: <direccion>'
-//   ''  (si el pedido no tiene formaEntrega cargada, pedidos previos a v269)
+// ' | Entrega TRANSPORTISTA: <nombre> - <direccion>'
+// ' | Entrega SUCURSAL: <direccion>'
+// '' (si el pedido no tiene formaEntrega cargada, pedidos previos a v269)
 //
 // Se usa en dos lugares:
-//  1) buildQuotationPayload (Service Layer) -> campo Comments
-//  2) exportSapReadyCsv (DTW CSV OQUT) -> campo Comments
+// 1) buildQuotationPayload (Service Layer) -> campo Comments
+// 2) exportSapReadyCsv (DTW CSV OQUT) -> campo Comments
 //
 // Nota: cuando Ezequiel Mendoza (SEIDOR) cree los UDFs dedicados
 // (U_FormaEntrega, U_TransportistaNombre, etc), reemplazar este sufijo
@@ -573,15 +571,15 @@ function sapGetClienteCode(clientName) {
 }
 function sapGetMaterialCode(productCode) {
   // 1) Si hay mapeo manual en sap_products (admin cargo correspondencia
-  //    explicita), usarlo. Tiene precedencia absoluta.
+  // explicita), usarlo. Tiene precedencia absoluta.
   const v = window.sapProductsMap[productCode];
   if (v && v.sapMaterial) return v.sapMaterial;
   // 2) Verificacion automatica vs SAP de David: el 99% de los codigos son
-  //    iguales en ambos sistemas. La unica diferencia detectada es que en el
-  //    master de la app algunos codigos numericos tienen ceros a la izquierda
-  //    (ej '032737') mientras que SAP los guarda sin padding ('32737').
-  //    Si el codigo es puramente numerico, devolvemos el codigo sin ceros a
-  //    la izquierda; sino devolvemos el codigo tal cual (matchea directo).
+  // iguales en ambos sistemas. La unica diferencia detectada es que en el
+  // master de la app algunos codigos numericos tienen ceros a la izquierda
+  // (ej '032737') mientras que SAP los guarda sin padding ('32737').
+  // Si el codigo es puramente numerico, devolvemos el codigo sin ceros a
+  // la izquierda; sino devolvemos el codigo tal cual (matchea directo).
   if (!productCode) return '';
   const pc = String(productCode).trim();
   if (/^0+\d+$/.test(pc)) {
@@ -603,11 +601,11 @@ function renderSapServiceLayer() {
   let h = '<div style="padding:18px 22px;font-size:13px;color:var(--text-primary)">';
   h +=
     '<div style="background:#dbeafe;border:1px solid #93c5fd;border-radius:8px;padding:14px;margin-bottom:18px;font-size:12px;color:#1e3a8a;line-height:1.6">';
-  h += '<b>&#128279; Que es el Service Layer?</b><br>';
+  h += '<b>Que es el Service Layer?</b><br>';
   h +=
     'Es la API REST oficial de SAP B1. Cuando esta habilitado, la app envia los pedidos confirmados directamente a SAP como Sales Quotations (sin ZIP DTW), y consulta stock en tiempo real para el indicador verde/rojo del picker.<br><br>';
   h +=
-    '<b>&#9888; Importante:</b> el ZIP DTW manual sigue funcionando como respaldo. Si Service Layer falla o esta desactivado, los vendedores y vos pueden seguir operando con el flujo manual.';
+    '<b>Importante:</b> el ZIP DTW manual sigue funcionando como respaldo. Si Service Layer falla o esta desactivado, los vendedores y vos pueden seguir operando con el flujo manual.';
   h += '</div>';
   // Toggle de habilitacion + estado
   h +=
@@ -628,7 +626,7 @@ function renderSapServiceLayer() {
     '<span>' +
     (enabled
       ? '&#10003; Service Layer HABILITADO - los pedidos van directo a SAP'
-      : '&#9888; Service Layer DESHABILITADO - los pedidos siguen yendo por ZIP DTW manual') +
+      : 'Service Layer DESHABILITADO - los pedidos siguen yendo por ZIP DTW manual') +
     '</span>';
   h += '</label>';
   h += '</div>';
@@ -657,7 +655,7 @@ function renderSapServiceLayer() {
   h +=
     '<div><label style="font-size:11px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:4px">Password</label>';
   h +=
-    '<div style="width:100%;padding:8px 10px;border:1.5px dashed var(--border-default);border-radius:5px;font-size:11px;color:var(--text-muted);background:var(--bg-secondary)">&#128274; Gestionada por Secret Manager (server-side, no editable)</div></div>';
+    '<div style="width:100%;padding:8px 10px;border:1.5px dashed var(--border-default);border-radius:5px;font-size:11px;color:var(--text-muted);background:var(--bg-secondary)">Gestionada por Secret Manager (server-side, no editable)</div></div>';
   h += '</div>';
   h +=
     '<div style="font-size:10px;color:var(--text-muted);margin-top:8px"><b>Seguridad (v690):</b> la password vive SOLO en Secret Manager server-side (Cloud Function sapProxy). El input password fue removido: cualquier save de config borra el campo password del doc Firestore automaticamente (defensa en profundidad). Rotacion: Firebase Console > Secret Manager > SAP_SL_PASSWORD.</div>';
@@ -665,11 +663,11 @@ function renderSapServiceLayer() {
   // (all 100% width + apilados) sin tocar el desktop.
   h += '<div class="sl-actions" style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">';
   h +=
-    '<button class="sap-btn primary" style="background:#0284c7" onclick="saveSlConfig()">&#128190; Guardar configuracion</button>';
+    '<button class="sap-btn primary" style="background:#0284c7" onclick="saveSlConfig()">Guardar configuracion</button>';
   h +=
-    '<button class="sap-btn" style="background:var(--bg-elevated);border:1.5px solid var(--border-default);color:var(--text-secondary)" onclick="testSlConnection()">&#128268; Probar conexion (sapProxy)</button>';
+    '<button class="sap-btn" style="background:var(--bg-elevated);border:1.5px solid var(--border-default);color:var(--text-secondary)" onclick="testSlConnection()">Probar conexion (sapProxy)</button>';
   h +=
-    '<button class="sap-btn" style="background:var(--bg-elevated);border:1.5px solid var(--border-default);color:var(--text-secondary)" onclick="testSlStock()">&#128230; Probar stock SKU prueba</button>';
+    '<button class="sap-btn" style="background:var(--bg-elevated);border:1.5px solid var(--border-default);color:var(--text-secondary)" onclick="testSlStock()">Probar stock SKU prueba</button>';
   h += '</div>';
   h += '<div id="sl-test-result" style="margin-top:14px"></div>';
   body.innerHTML = h;
@@ -1111,7 +1109,7 @@ function renderSapPedidos() {
       html +=
         '<button class="sap-btn success" onclick="enviarSeleccionadosViaSL()"' +
         (canSL ? '' : ' disabled') +
-        ' style="background:#0d9488" title="Envia los pedidos seleccionados directo a SAP via Service Layer como Sales Quotation. Sin DTW manual.">&#9889; Enviar a SAP via Service Layer (' +
+        ' style="background:#0d9488" title="Envia los pedidos seleccionados directo a SAP via Service Layer como Sales Quotation. Sin DTW manual.">Enviar a SAP via Service Layer (' +
         sapPendSelection.size +
         ')</button>';
     }
@@ -1132,7 +1130,7 @@ function renderSapPedidos() {
         (canDelete ? '#dc2626' : '#94a3b8') +
         ';color:#fff;border:none" onclick="deleteSelectedPedidos()"' +
         (canDelete ? '' : ' disabled') +
-        ' title="Borra los pedidos seleccionados de Firestore. Accion irreversible. Util para limpiar pedidos de prueba.">&#128465; Eliminar seleccionados (' +
+        ' title="Borra los pedidos seleccionados de Firestore. Accion irreversible. Util para limpiar pedidos de prueba.">Eliminar seleccionados (' +
         sapPendSelection.size +
         ')</button>';
     }
@@ -1148,7 +1146,7 @@ function renderSapPedidos() {
         (canDelete ? '#dc2626' : '#94a3b8') +
         ';color:#fff;border:none" onclick="deleteSelectedPedidos()"' +
         (canDelete ? '' : ' disabled') +
-        ' title="Borra los pedidos seleccionados. Irreversible. Util para limpiar pedidos de prueba ya transferidos.">&#128465; Eliminar seleccionados (' +
+        ' title="Borra los pedidos seleccionados. Irreversible. Util para limpiar pedidos de prueba ya transferidos.">Eliminar seleccionados (' +
         sapPendSelection.size +
         ')</button>';
     }
@@ -1173,7 +1171,7 @@ function renderSapPedidos() {
     }
     // === SECCION BLOQUEADOS ===
     html +=
-      '<div class="sap-section-head" style="margin-top:24px"><span class="sec-title warn">&#9888; Bloqueados por alta de cliente</span><span class="sec-meta">' +
+      '<div class="sap-section-head" style="margin-top:24px"><span class="sec-title warn">Bloqueados por alta de cliente</span><span class="sec-meta">' +
       bloqueados.length +
       ' pedido' +
       (bloqueados.length === 1 ? '' : 's') +

@@ -5,11 +5,11 @@
 //
 // Cross-scope state (via window):
 // - window.visitsCache: LEÍDA por dashboard, rutas (renderRutaDetalle/renderRutasTab),
-//   backup (deleteVisitPhotosForMonth); ESCRITA por ensureVisitsListener (rutas.js).
+// backup (deleteVisitPhotosForMonth); ESCRITA por ensureVisitsListener (rutas.js).
 // - window.unsubVisits: cleanup en detachFirebaseListeners inline; asignado por
-//   ensureVisitsListener (rutas.js).
+// ensureVisitsListener (rutas.js).
 // - window.unsubClientLocs: cleanup en detachFirebaseListeners inline; asignado
-//   por ensureClientLocsListener (dentro de este módulo).
+// por ensureClientLocsListener (dentro de este módulo).
 //
 // COORDINACIÓN CON rutas.js: rutas.js/ensureVisitsListener también actualizado
 // con prefix window. para reasignaciones de visitsCache y unsubVisits (mismo commit).
@@ -54,13 +54,13 @@ function clientLocId(prov, locName, tienda) {
 }
 
 // Buscador que matchea el query contra varias fuentes de nombre del cliente:
-//  1) Nombre titular (comercio o razon social) - lo que aparece en POINTS
-//     y en approvedAltasList.comercio.
-//  2) Nombre del local (fantasia) - customFantasia en clientMeta y fantasia
-//     en approvedAltasList. Los vendedores muchas veces saben el nombre del
-//     local pero no del titular ("Pescaplay" en vez de "Juan Perez").
-//  3) Localidad - por si buscan "Rio Tercero" o similar.
-//  4) Titular alternativo de la alta SAP (a.titular).
+// 1) Nombre titular (comercio o razon social) - lo que aparece en POINTS
+// y en approvedAltasList.comercio.
+// 2) Nombre del local (fantasia) - customFantasia en clientMeta y fantasia
+// en approvedAltasList. Los vendedores muchas veces saben el nombre del
+// local pero no del titular ("Pescaplay" en vez de "Juan Perez").
+// 3) Localidad - por si buscan "Rio Tercero" o similar.
+// 4) Titular alternativo de la alta SAP (a.titular).
 // Devuelve true si el query esta vacio o si alguno de los campos matchea.
 // v312+: helper reutilizable. Divide el query en tokens por espacios y
 // exige que TODOS aparezcan en el haystack (busqueda tipo Google - AND).
@@ -75,12 +75,12 @@ function clientLocId(prov, locName, tienda) {
 // provisorio para que admin lo elimine manualmente.
 //
 // Criterio de match:
-//   1. El candidato debe ser un SAP habilitado (cardCodeSap + status='approved').
-//   2. Misma PROVINCIA normalizada.
-//   3. Misma LOCALIDAD normalizada.
-//   4. Nombre "similar": comparten al menos 2 tokens significativos (>=3
-//      chars, sin stopwords tipo 'de', 'la', 'el', 'pesca'), o uno esta
-//      contenido en el otro (ambos normalizados).
+// 1. El candidato debe ser un SAP habilitado (cardCodeSap + status='approved').
+// 2. Misma PROVINCIA normalizada.
+// 3. Misma LOCALIDAD normalizada.
+// 4. Nombre "similar": comparten al menos 2 tokens significativos (>=3
+// chars, sin stopwords tipo 'de', 'la', 'el', 'pesca'), o uno esta
+// contenido en el otro (ambos normalizados).
 //
 // Devuelve el doc SAP duplicado (el objeto de approvedAltasList) o null.
 // Los stopwords son intencionalmente pocos - preferimos falsos positivos
@@ -608,10 +608,10 @@ function populateVisitaLocalidades() {
       const dedupKey = _norm(aProv) + '|' + _norm(aLoc) + '|' + _norm(nombre);
       if (seen.has(dedupKey)) return;
       seen.add(dedupKey);
-      // v314+: badge "⚡ PROVISORIO" mas visible (antes solo emoji ⚡). Ayuda
+      // v314+: badge "PROVISORIO" mas visible (antes solo emoji ). Ayuda
       // al vendedor a identificar rapido en el dropdown que la tienda es un
       // alta rapida reciente, para evitar picar un POINT del padron por error.
-      const badge = a.manualSapPending && !a.cardCodeSap ? ' ⚡ PROVISORIO' : '';
+      const badge = a.manualSapPending && !a.cardCodeSap ? ' PROVISORIO' : '';
       const showFant = fantasia && fantasia.toLowerCase() !== nombre.toLowerCase();
       items.push({
         value: aProv + '||' + aLoc + '||' + nombre,
@@ -699,12 +699,12 @@ function populateVisitaLocalidades() {
 // Componente Filter-Select (busqueda + dropdown filtrable). Reemplaza a
 // los <select> nativos en VISITAS para permitir buscar escribiendo, en
 // vez de scrollear listas largas. Estructura HTML esperada:
-//   <div class="fs-wrap" data-fs-id="foo">
-//     <input class="fs-input" id="foo-search" .../>
-//     <button class="fs-clear" onclick="fsClear('foo')">×</button>
-//     <div class="fs-dropdown" id="foo-dropdown"></div>
-//     <input type="hidden" id="foo"/>  <!-- value real -->
-//   </div>
+// <div class="fs-wrap" data-fs-id="foo">
+// <input class="fs-input" id="foo-search" .../>
+// <button class="fs-clear" onclick="fsClear('foo')">×</button>
+// <div class="fs-dropdown" id="foo-dropdown"></div>
+// <input type="hidden" id="foo"/> <!-- value real -->
+// </div>
 // Uso desde codigo: fsPopulate('foo', [{value, label}, ...], onChange).
 // =====================================================================
 const _fsRegistry = {};
@@ -917,7 +917,7 @@ function refreshActingAsInfoLine() {
   if (p) {
     info.style.display = '';
     info.innerHTML =
-      '&#9888;&#65039; La visita queda registrada como del VDE <b>' +
+      'La visita queda registrada como del VDE <b>' +
       escapeHtml(p.displayName) +
       '</b>. Le va a llegar una notificacion automatica.';
   } else {
@@ -968,10 +968,7 @@ window.onTiendaChange = function (val) {
   if (hiddenTienda) hiddenTienda.value = tienda;
   if (locDetected) {
     locDetected.innerHTML =
-      '📍 Localidad detectada: <b>' +
-      escapeHtml(loc) +
-      '</b> &mdash; ' +
-      escapeHtml(titleCase(prov));
+      'Localidad detectada: <b>' + escapeHtml(loc) + '</b> &mdash; ' + escapeHtml(titleCase(prov));
     locDetected.style.display = 'block';
   }
 };
@@ -1464,15 +1461,15 @@ function renderVisitasList() {
     // v306+: badge visual del tipo de interaccion.
     const isContacto = v.interactionType === 'contacto';
     const iBadge = isContacto
-      ? '<span style="display:inline-block;background:#ccfbf1;color:#0f766e;border:1px solid #5eead4;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#128241; Contacto</span>'
-      : '<span style="display:inline-block;background:#ede9fe;color:var(--color-accent-violet);border:1px solid #c4b5fd;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#128100; Visita</span>';
+      ? '<span style="display:inline-block;background:#ccfbf1;color:#0f766e;border:1px solid #5eead4;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">Contacto</span>'
+      : '<span style="display:inline-block;background:#ede9fe;color:var(--color-accent-violet);border:1px solid #c4b5fd;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">Visita</span>';
     // v365+: badge de resultado del contacto no presencial (respondio / no respondio / sin marcar).
     // Solo aplica a interactionType === 'contacto'; para visitas presenciales no tiene sentido.
     let resBadge = '';
     if (isContacto) {
       if (v.contactoResultado === 'respondio') {
         resBadge =
-          '<span style="display:inline-block;background:var(--color-success-bg);color:var(--color-success);border:1px solid #86efac;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#9989; Respondio</span>';
+          '<span style="display:inline-block;background:var(--color-success-bg);color:var(--color-success);border:1px solid #86efac;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">Respondio</span>';
       } else if (v.contactoResultado === 'no_respondio') {
         resBadge =
           '<span style="display:inline-block;background:var(--border-subtle);color:var(--text-secondary);border:1px solid var(--border-default);padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">&#10060; No respondio</span>';
@@ -1541,7 +1538,7 @@ function renderVisitasList() {
       html +=
         '<button onclick="event.stopPropagation();openContactoEstadoModal(\'' +
         escapeAttr(v.id) +
-        '\')" title="Marcar resultado del contacto (respondio / no respondio) o eliminar" style="background:#0f766e;color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128203; Estado</button>';
+        '\')" title="Marcar resultado del contacto (respondio / no respondio) o eliminar" style="background:#0f766e;color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Estado</button>';
     }
     if (canDeleteThis && !isContacto) {
       // Para visitas presenciales el ELIMINAR sigue directo (sin pasar por el modal Estado).
@@ -1550,7 +1547,7 @@ function renderVisitasList() {
         escapeAttr(v.id) +
         "','" +
         escapeAttr(v.tienda || '') +
-        '\')" title="Eliminar esta visita" style="background:var(--color-danger);color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Eliminar</button>';
+        '\')" title="Eliminar esta visita" style="background:var(--color-danger);color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Eliminar</button>';
     }
     html += '</div>';
     html += '</div></div>';
@@ -1904,9 +1901,9 @@ window.setVisitFormReadonly = setVisitFormReadonly;
 window.ensureClientLocsListener = ensureClientLocsListener;
 // E6 hotfix 2: MÁS helpers de visitas usadas por el inline sin prefix window.
 // - clientLocId: chequeado con typeof en isSapConfirmed L4281, sin window
-//   `typeof clientLocId === 'function'` devuelve 'undefined' → skipea Path 1
-//   del isSapConfirmed → retorna false para todos → filteredPoints() = 0 →
-//   stats muestran 0 en LOCALIDADES/HABILITADOS/PENDIENTES/TIENDAS.
+// `typeof clientLocId === 'function'` devuelve 'undefined' → skipea Path 1
+// del isSapConfirmed → retorna false para todos → filteredPoints() = 0 →
+// stats muestran 0 en LOCALIDADES/HABILITADOS/PENDIENTES/TIENDAS.
 // - clientMatchesQuery: usada por renderClients + renderPedidosTab search.
 // - getClientCategoryBadgeHtml: usada por renderClients + renderPedidosTab badges.
 window.clientLocId = clientLocId;
