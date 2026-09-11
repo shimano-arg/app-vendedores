@@ -858,7 +858,9 @@ window.applyMcSapImport = async function () {
         // hasta 2026-12-11). Se setea SOLO en alta nueva; el admin puede
         // editar despues desde la app si el cliente no lo visita Pachi.
         const coverageBy =
-          typeof inferCoverageFromProvince === 'function' ? inferCoverageFromProvince(provNorm) : '';
+          typeof inferCoverageFromProvince === 'function'
+            ? inferCoverageFromProvince(provNorm)
+            : '';
         if (coverageBy) {
           payload.coverageBy = coverageBy;
           payload.coverageTrialEndDate = COVERAGE_TRIAL_END_DATE;
@@ -915,7 +917,9 @@ window.applyMcSapImport = async function () {
           if (assignedVendor) payload.assignedVendor = assignedVendor;
           // 2026-09-11: idem al batch — coverage_by=PACHI si prov cae en trial.
           const coverageBy2 =
-            typeof inferCoverageFromProvince === 'function' ? inferCoverageFromProvince(provNorm) : '';
+            typeof inferCoverageFromProvince === 'function'
+              ? inferCoverageFromProvince(provNorm)
+              : '';
           if (coverageBy2) {
             payload.coverageBy = coverageBy2;
             payload.coverageTrialEndDate = COVERAGE_TRIAL_END_DATE;
@@ -1035,14 +1039,7 @@ window.applyMcSapImport = async function () {
 // va a SANTI. Pero PACHI cubre presencialmente durante trial de 3 meses
 // hasta 2026-12-11 → seteamos coverageBy='PACHI' en las mismas provs
 // para poder medir el rendimiento por separado.
-const PACHI_COVERAGE_PROVS = [
-  'CORDOBA',
-  'SAN LUIS',
-  'CHACO',
-  'FORMOSA',
-  'MISIONES',
-  'CORRIENTES',
-];
+const PACHI_COVERAGE_PROVS = ['CORDOBA', 'SAN LUIS', 'CHACO', 'FORMOSA', 'MISIONES', 'CORRIENTES'];
 const COVERAGE_TRIAL_END_DATE = '2026-12-11';
 
 function inferVendorFromProvince(provUp) {
@@ -2913,7 +2910,11 @@ window.saveMcAddr = async function (docId, btn) {
           // 2026-09-11: si la prov nueva cae en coverage PACHI y el alta no
           // tenia coverageBy antes, setearlo. Preserva override manual si
           // el admin ya habia elegido otro coverage.
-          if (altaCurrent && !altaCurrent.coverageBy && typeof inferCoverageFromProvince === 'function') {
+          if (
+            altaCurrent &&
+            !altaCurrent.coverageBy &&
+            typeof inferCoverageFromProvince === 'function'
+          ) {
             const inferredCov = inferCoverageFromProvince(newProv);
             if (inferredCov) {
               updatePayload.coverageBy = inferredCov;
