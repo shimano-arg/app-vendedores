@@ -1367,6 +1367,17 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
    Los th/td no se shrinkean por defecto, asi que el contenedor scroll horizontalmente. */
 @media (max-width:520px){.mc-body{overflow-x:auto;-webkit-overflow-scrolling:touch}}
 .mc-table{width:100%;border-collapse:collapse;font-size:12px}
+/* v882 (2026-09-11) PERF: skip layout+paint de las filas off-screen.
+   content-visibility:auto pide al browser que trate cada <tr> como su
+   propia region — cuando esta fuera del viewport, salta layout+paint
+   (usa el intrinsic-size como placeholder). Master Clientes con 800+
+   rows deja de renderizar todo de golpe: solo pinta lo visible.
+   Ahorro estimado: ~800 rows x 7 cells x (inputs+selects) = ~11k DOM
+   nodes offscreen que dejan de tocar el layout tree.
+   contain-intrinsic-size le da altura estimada al placeholder (evita
+   scrollbar jump). Compat: Chrome 85+, Edge 85+, Safari 18+. Firefox
+   degrade a comportamiento normal. */
+.mc-table tbody tr{content-visibility:auto;contain-intrinsic-size:auto 46px}
 .mc-table th{position:sticky;top:0;background:var(--bg-muted);padding:8px 10px;text-align:left;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);border-bottom:2px solid var(--border-default);z-index:2;white-space:nowrap}
 .mc-table td{padding:6px 10px;border-bottom:1px solid var(--border-subtle);vertical-align:middle}
 .mc-table tr:hover td{background:#fafafa}
@@ -2115,7 +2126,15 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .slft-wl-search-row input:focus{border-color:#f97316;box-shadow:0 0 0 2px rgba(249,115,22,.15)}
 .slft-wl-search-row #slft-wl-clear{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:var(--text-muted);font-size:18px;font-weight:800;cursor:pointer;line-height:1;padding:0 6px}
 .slft-wl-search-row #slft-wl-clear:hover{color:var(--color-danger)}
-#map{flex:1;z-index:1;background:#eaf3f8}
+/* v882 (2026-09-11) PERF: mapa Leaflet aislado + hint al compositor.
+   contain: layout paint style = subtree autocontenido salvo size (el mapa
+   depende del flex:1 del padre para su altura, si aplicamos "strict" con
+   size el mapa colapsa a 0px). El browser sabe que nada del mapa afecta
+   al resto del layout ni viceversa -> zoom/pan solo repinta el mapa, no
+   dispara reflow del sidebar/modales. will-change reserva capa GPU.
+   translateZ(0) fuerza compositor layer en Safari mobile (que ignora
+   will-change:transform en algunos escenarios). */
+#map{flex:1;z-index:1;background:#eaf3f8;contain:layout paint style;will-change:transform;transform:translateZ(0)}
 .sidebar{width:420px;background:var(--bg-elevated);overflow-y:auto;border-left:1px solid var(--border-subtle);padding:14px 16px;display:flex;flex-direction:column}
 .sidebar h3{font-size:13px;color:var(--text-primary);margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid var(--brand-shimano-blue);font-weight:700;text-transform:uppercase;letter-spacing:.5px}
 .tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-bottom:12px}
@@ -2234,6 +2253,10 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #revision-rows tr td.mono{font-family:monospace;font-size:10px}
 #revision-rows tr td.num{text-align:right;font-weight:600}
 #revision-rows tr.no-data td{background:var(--bg-secondary);color:var(--text-muted);font-style:italic}
+/* v882 (2026-09-11) PERF: mismo que .mc-table — skip layout de rows off-screen
+   en modal Revision (Excel preview) y modal Pedido en Espera (wcard-rows).
+   Ambas tablas pueden tener 50-500 rows con inputs/badges pesados. */
+#revision-rows tr,#wcard-rows tr{content-visibility:auto;contain-intrinsic-size:auto 40px}
 /* v454: card individual + listado de pedidos en espera. */
 #wcard-rows tr.exceed td{background:#fef2f2;color:var(--color-danger-strong);font-weight:700}
 #wcard-rows tr.exceed td.exc-cell{background:var(--color-danger);color:#fff}
@@ -2327,7 +2350,17 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 .click-debug{position:fixed;top:130px;right:360px;background:#0f172a;color:#fff;padding:8px 14px;border-radius:6px;font-size:12px;font-weight:700;z-index:2000;display:none;box-shadow:0 2px 8px rgba(0,0,0,.35);font-family:monospace}
 .modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,.55);z-index:3000;display:none;align-items:center;justify-content:center;padding:20px}
 .modal-overlay.open{display:flex}
-.modal-box{background:var(--bg-elevated);border-radius:10px;width:min(900px,96vw);max-height:90vh;overflow:hidden;box-shadow:0 12px 36px rgba(0,0,0,.35);display:flex;flex-direction:column}
+/* v882 (2026-09-11) PERF: aislar layout/paint de modales del resto del DOM.
+   Antes cualquier scroll/resize de la home recalculaba layout de los 20+
+   modales aunque estuvieran display:none — el browser sigue procesando
+   sus reglas de layout por estar en el arbol. contain:content dice
+   "todo el subtree es autocontenido, no afecta ni recibe layout externo".
+   Al abrir un modal .open, siguen aisladas -> el mapa/home detras no
+   recalcula tampoco al re-render del contenido del modal. Chrome/Edge
+   modernos + Safari 17+. Degrade en browsers viejos = comportamiento
+   previo (sin regresion). */
+.modal-overlay{contain:content}
+.modal-box{background:var(--bg-elevated);border-radius:10px;width:min(900px,96vw);max-height:90vh;overflow:hidden;box-shadow:0 12px 36px rgba(0,0,0,.35);display:flex;flex-direction:column;contain:layout style}
 
 
 /* v678 (2026-08-26) PERF Fase 2: apple-design CSS extraido a
@@ -5394,7 +5427,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v881';
+const APP_VERSION = 'v882';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

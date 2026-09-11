@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v881 en dev (2026-09-11)** — modal Pedido en Espera: columna X visible para quitar SKU + ícono ↻ en "Refrescar Mapa"/"Refrescar ahora". Ver §41. |
-| **APP_VERSION** | `v881` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v882 en dev (2026-09-11)** — PERF quick-wins CSS: `contain`/`content-visibility`/`will-change` en mapa + modales + tablas grandes. Ver §41. |
+| **APP_VERSION** | `v882` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,28 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v881
+## 41) Changelog v300 → v882
+
+### v882 (2026-09-11) — PERF quick-wins CSS: aislar mapa + modales + tablas grandes
+
+**Pedido Mariano**: "la app se siente lenta, scroll y zoom en el mapa cuestan tanto mobile como desktop".
+
+**Diagnóstico**: HTML inline 2.06 MB con ~20 modales renderizados aunque estén `display:none` — el browser sigue procesando su layout tree en cada scroll/resize. Mapa Leaflet compartía compositor con sidebar/modales → zoom disparaba repaint del arbol entero. Tablas grandes (Master Clientes 802 rows, waitlist con 50-500) sin virtualización → todo el DOM se calcula de golpe.
+
+**Cambios (solo CSS, cero JS)**:
+
+1. **`.modal-overlay { contain: content }`** (line 2338) — cada modal es autocontenido, no afecta ni recibe layout externo. `.modal-box { contain: layout style }` — su contenido interno tampoco filtra al padre.
+2. **`#map { contain: layout paint style; will-change: transform; transform: translateZ(0) }`** (line 2126) — mapa aislado + capa GPU dedicada. `contain:strict` con `size` rompía Leaflet (colapsaba a 0px porque depende del `flex:1` del padre). Sin size, sigue tomando altura pero zoom/pan usa compositor.
+3. **`.mc-table tbody tr { content-visibility: auto; contain-intrinsic-size: auto 46px }`** (line 1381) — filas off-screen del Master Clientes no calculan layout ni paint. Con 800 rows × 7 cells × inputs/selects = ~11k DOM nodes que dejan de tocar el layout tree hasta que scrolleás cerca.
+4. **`#revision-rows tr, #wcard-rows tr { content-visibility: auto }`** (line 2258) — mismo para modal Revision (preview Excel) + modal Pedido en Espera.
+
+**Ganancia esperada**: scroll de home ~30-50% más fluido (menos layout thrashing), zoom Leaflet ~2x más rápido (compositor GPU), scroll dentro del modal Master Clientes casi instantáneo con 800 rows.
+
+**Compat**: Chrome 85+, Edge 85+, Safari 18+. Firefox y browsers viejos degradan a comportamiento previo — sin regresión visual ni funcional.
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v882`. Tests: 382/382 unit + 25/25 smoke.
+
+**Fuera de scope (para próximas iters)**: bundle shell <1.5 MB (lazy chunk de Dashboard requiere splitear `dashboard.js` en 2 archivos — listeners al login vs UI on-demand), silent-catches Firestore → Sentry, `_renderWaitlistCard` refactor. Documentados en `PLAN.md` `rippling-puzzling-sloth.md`.
 
 ### v881 (2026-09-11) — Modal Pedido en Espera: X visible para quitar SKU + íconos refresh
 
