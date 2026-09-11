@@ -43,7 +43,7 @@ const HEALTH_COLORS = {
 
 function _healthDot(status) {
   const color = HEALTH_COLORS[status] || HEALTH_COLORS.unknown;
-  return '<span style="color:' + color + ';font-size:14px">&#9679;</span>';
+  return '<span style="color:' + color + ';font-size:14px"></span>';
 }
 
 function _hCard(title, status, mainText, subText, tooltip) {
@@ -748,7 +748,7 @@ function _renderGhActionsDetail() {
       '</td>' +
       '<td style="padding:5px 8px"><span style="color:' +
       statusColor +
-      ';font-weight:800">&#9679; ' +
+      ';font-weight:800">' +
       _escHtml(statusLabel) +
       '</span></td>' +
       '<td style="padding:5px 8px;color:var(--text-muted)">' +

@@ -12,9 +12,9 @@
 //
 // Cross-scope state:
 // - window.campaignsCache: shared con targets/pedidos/otros dominios que leen
-//   listado global de campañas activas. Inicializado como [] al load del bundle.
+// listado global de campañas activas. Inicializado como [] al load del bundle.
 // - window.unsubCampaigns: listener con cleanup en detachFirebaseListeners()
-//   (línea 26535 del inline post-E2.c). Bundle asigna window.unsubCampaigns.
+// (línea 26535 del inline post-E2.c). Bundle asigna window.unsubCampaigns.
 // Locals al módulo: dashboardVendorFilter, POINT_TO_VENDOR, fmt* helpers.
 
 // Init cross-scope state (bundle IIFE corre pre-inline, así que garantiza
@@ -621,7 +621,7 @@ window.renderDashboard = function () {
         ledColor +
         ';letter-spacing:.5px">' +
         rankLabel +
-        (isLeader ? ' &middot; &#127942; LIDER DEL MES' : '') +
+        (isLeader ? ' &middot; LIDER DEL MES' : '') +
         '</div>';
       html +=
         '<div style="font-size:13px;font-weight:800;color:var(--text-primary);margin-top:2px">' +
@@ -701,7 +701,7 @@ window.renderDashboard = function () {
     const monthTgtArsSap = getMonthlyTargetArs(dashboardVendorForTargets, selYear, selMonthIdx);
     html += '<div class="dash-card" style="border:2px solid #0284c7;background:#f0f9ff">';
     html +=
-      '<h4 style="color:#0c4a6e">&#128202; SAP - ' +
+      '<h4 style="color:#0c4a6e">SAP - ' +
       (isCurrentMonth ? 'Mes en curso' : 'Mes de ' + MESES[selMonthIdx]) +
       ' <span class="sub" style="color:#0369a1">' +
       MESES[selMonthIdx] +
@@ -1220,11 +1220,11 @@ function renderDashboardVisitas(el) {
     _dashInfo(
       'Mes: ' +
         ym +
-        '  ·  ' +
+        ' · ' +
         vendors.length +
-        ' vendedores  ·  ' +
+        ' vendedores · ' +
         totalVisitas +
-        ' visitas  ·  ' +
+        ' visitas · ' +
         totalContactados +
         ' contactados'
     )

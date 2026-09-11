@@ -19,7 +19,7 @@
 // El único consumer externo (wrapper window.matchSkuFromTitle en inline línea
 // ~3408) también se actualiza para usar los getters via window.getSkuIndex/Tokens.
 //
-// Cross-scope state: NONE.  es local al módulo (solo usado por
+// Cross-scope state: NONE. es local al módulo (solo usado por
 // flashSaved). No hay listeners onSnapshot.
 function populateProductFilters() {
   const cats = [...new Set(PRODUCTS.map((p) => p.cat).filter(Boolean))].sort();
@@ -128,8 +128,8 @@ function renderProductPicker() {
   const q = (document.getElementById('pm-search').value || '').toLowerCase().trim();
   // Filtro stock (Todos / Disponibles / No disp). Si hasStock(code) devuelve
   // null (snapshot stock no cargado todavia) lo tratamos como "no se sabe":
-  //   - en modo Disponibles: lo ocultamos (mejor mostrar nada que falso positivo).
-  //   - en modo No disp: tampoco lo mostramos (no podemos afirmar que no haya).
+  // - en modo Disponibles: lo ocultamos (mejor mostrar nada que falso positivo).
+  // - en modo No disp: tampoco lo mostramos (no podemos afirmar que no haya).
   const stockFilterEl = document.querySelector('.pm-stock-filter');
   const stockFilter = stockFilterEl ? stockFilterEl.getAttribute('data-stock') : 'ALL';
   let currentLines;
@@ -179,7 +179,7 @@ function renderProductPicker() {
     );
     const campTitle = inCamp ? 'Producto en campaña activa: ' + campMap.get(p.code).join(', ') : '';
     const campBadge = inCamp
-      ? '<span class="camp-badge" title="' + escapeAttr(campTitle) + '">★ CAMP</span>'
+      ? '<span class="camp-badge" title="' + escapeAttr(campTitle) + '">CAMP</span>'
       : '';
     // v617: badges ASIG (violeta) y BO (naranja) del cliente actual para este SKU.
     // Ayuda a evitar duplicar demanda del mismo cliente.
@@ -193,7 +193,7 @@ function renderProductPicker() {
         asigBadge =
           ' <span style="background:var(--color-accent-violet);color:#fff;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:800;vertical-align:middle" title="Cliente tiene ' +
           _asigQty +
-          'u en STOCK ASIGNADO (fue backorder, entro stock). Confirmar puede duplicar demanda.">&#127919; ASIG ' +
+          'u en STOCK ASIGNADO (fue backorder, entro stock). Confirmar puede duplicar demanda.">ASIG ' +
           _asigQty +
           '</span>';
       }
@@ -201,7 +201,7 @@ function renderProductPicker() {
         boBadge =
           ' <span style="background:#f97316;color:#fff;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:800;vertical-align:middle" title="Cliente tiene ' +
           _boQty +
-          'u en BACKORDER APP (pedido sin stock). Agregar puede duplicar.">&#128227; BO ' +
+          'u en BACKORDER APP (pedido sin stock). Agregar puede duplicar.">BO ' +
           _boQty +
           '</span>';
       }
@@ -703,10 +703,10 @@ function flashSaved() {
 
 // === Exports a window para callers cross-scope ===
 // - populateProductFilters, renderProductPicker, renderOrderLines: llamadas
-//   desde inline pedidos modal (líneas ~13484-86, ~13791-93, ~13870-71) y desde
-//   listeners de STOCK/PRODUCTS (líneas ~3554, ~17493, ~19690 pre-E2.i).
+// desde inline pedidos modal (líneas ~13484-86, ~13791-93, ~13870-71) y desde
+// listeners de STOCK/PRODUCTS (líneas ~3554, ~17493, ~19690 pre-E2.i).
 // - getSkuIndex, getSkuTokens: usadas por el wrapper window.matchSkuFromTitle
-//   en el inline (línea ~3408 pre-E2.i, actualizado en este commit).
+// en el inline (línea ~3408 pre-E2.i, actualizado en este commit).
 // - Resto de handlers ya son window.foo = function... verbatim.
 window.populateProductFilters = populateProductFilters;
 window.renderProductPicker = renderProductPicker;

@@ -14,7 +14,7 @@
 //
 // Cross-scope state (via window):
 // - window.rutaDetalleId: leído desde ensureRouteOverridesListener y
-//   ensureVisitsPartnerListener (líneas ~13644, ~13694 del inline).
+// ensureVisitsPartnerListener (líneas ~13644, ~13694 del inline).
 // - window.unsubCustomRoutes: listener con cleanup en detachFirebaseListeners.
 // Locals al módulo: rutaView, rutaHistMonth, rutaHistYear, window.rutaVendorFilter,
 // _lastRouteStats, rutaMode, myCustomRoutes, _rpmTiendas, constantes RUTA_*.
@@ -606,7 +606,7 @@ window.recalcularRutas = async function () {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = '&#128260; Recalcular Rutas';
+      btn.innerHTML = 'Recalcular Rutas';
     }
   }
 };
@@ -860,7 +860,7 @@ function renderRutasPersonalizadas() {
     html +=
       '<button onclick="deleteRutaPersonalizada(\'' +
       safeId +
-      '\')" style="background:var(--color-danger-bg);color:var(--color-danger-strong);border:1.5px solid #fca5a5;border-radius:5px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer">&#128465; Eliminar</button>';
+      '\')" style="background:var(--color-danger-bg);color:var(--color-danger-strong);border:1.5px solid #fca5a5;border-radius:5px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer">Eliminar</button>';
     html += '</div>';
     html += '</div>';
   });
@@ -1221,11 +1221,11 @@ function renderRutaDetalle() {
 
   // Permitir cargar visita / marcar contactado dentro de cada tienda de la
   // ruta. Roles habilitados (siempre que sea el mes en curso):
-  //  - admin / gerente: cualquier ruta.
-  //  - vendedor (VDE): solo su zona asignada.
-  //  - interno (VDI): solo las zonas de sus VDEs pareja
-  //    (myExternalPartners, cargado por loadMyExternalPartners desde
-  //    /roles donde internalPartnerUid==uid).
+  // - admin / gerente: cualquier ruta.
+  // - vendedor (VDE): solo su zona asignada.
+  // - interno (VDI): solo las zonas de sus VDEs pareja
+  // (myExternalPartners, cargado por loadMyExternalPartners desde
+  // /roles donde internalPartnerUid==uid).
   const isCurrentMonth = rutaView === 'mes';
   const allowEdit =
     isCurrentMonth &&
@@ -1255,7 +1255,7 @@ function renderRutaDetalle() {
   html +=
     '<button class="ruta-wa-btn" onclick="sendRouteByWhatsApp(\'' +
     escapeAttr(ruta.id) +
-    '\')" title="Enviar la ruta por WhatsApp con un link de Google Maps de las tiendas">&#128241; Enviar ruta por WhatsApp</button>';
+    '\')" title="Enviar la ruta por WhatsApp con un link de Google Maps de las tiendas">Enviar ruta por WhatsApp</button>';
   html += '</div>';
 
   ruta.tiendas.forEach((t, idx) => {
@@ -1278,23 +1278,23 @@ function renderRutaDetalle() {
     } else if (t.derivada) {
       cls = 'ruta-tienda derivada';
       tagCls = 'derivada';
-      tagTxt = '&#9889; Derivada VDI';
+      tagTxt = 'Derivada VDI';
     } else if (t.reagendadaPara) {
       cls = 'ruta-tienda reagendada';
       tagCls = 'reagendada';
-      tagTxt = '&#128197; Reagendada';
+      tagTxt = 'Reagendada';
     }
     html += '<div class="' + cls + '">';
     if (!visited && t.derivada) {
       html +=
-        '<div class="ruta-tienda-reagenda-meta" style="color:var(--color-warning)">&#9889; Esperando contacto del VDI' +
+        '<div class="ruta-tienda-reagenda-meta" style="color:var(--color-warning)">Esperando contacto del VDI' +
         (t.derivadaA ? ' (' + escapeHtml(t.derivadaA) + ')' : '') +
         (t.derivadaAt ? ' &middot; derivada el ' + escapeHtml(t.derivadaAt) : '') +
         '</div>';
     }
     if (!visited && t.reagendadaPara)
       html +=
-        '<div class="ruta-tienda-reagenda-meta">&#128197; Reagendada para ' +
+        '<div class="ruta-tienda-reagenda-meta">Reagendada para ' +
         fmtFechaCorta(t.reagendadaPara) +
         '</div>';
     html += '<div class="ruta-tienda-head"><div>';
@@ -1314,7 +1314,7 @@ function renderRutaDetalle() {
       const fecha = visit.fecha ? new Date(visit.fecha).toLocaleDateString('es-AR') : '';
       const esTelefono = visit.tipoContacto === 'telefono';
       const verbo = esTelefono ? 'Contactada por telefono' : 'Visitada';
-      const icon = esTelefono ? '&#128222; ' : '';
+      const icon = esTelefono ? '' : '';
       html += '<div class="ruta-tienda-visit-meta">' + icon + verbo + ' el ' + escapeHtml(fecha);
       if (visit.ownerEmail) html += ' por ' + escapeHtml(visit.ownerEmail);
       html += '</div>';
@@ -1343,7 +1343,7 @@ function renderRutaDetalle() {
         tProvJson +
         ', ' +
         tNomJson +
-        ')" title="Para usar cuando contactaste al cliente por telefono / mensaje y no necesitaste hacer la visita presencial. Se registra como Contactado y la tienda queda completada en la ruta.">&#128222; Marcar como contactado</button>';
+        ')" title="Para usar cuando contactaste al cliente por telefono / mensaje y no necesitaste hacer la visita presencial. Se registra como Contactado y la tienda queda completada en la ruta.">Marcar como contactado</button>';
     }
     html += '</div>';
   });
@@ -1709,10 +1709,10 @@ window.sendRouteByWhatsApp = async function (rutaId) {
   const waUrl = 'https://wa.me/' + destNumber + '?text=' + encodeURIComponent(msg);
   // Estrategia doble para maximizar compatibilidad:
   // - En iOS ya abrimos una tab placeholder al inicio (dentro del gesture).
-  //   Ahora le cambiamos el location a la URL de WA. Si el placeholder fallo
-  //   (popup blocker), waTab es null y caemos al fallback.
+  // Ahora le cambiamos el location a la URL de WA. Si el placeholder fallo
+  // (popup blocker), waTab es null y caemos al fallback.
   // - En Android/Desktop, window.open post-await funciona la mayoria de veces.
-  //   Si no, tenemos fallback a location.href.
+  // Si no, tenemos fallback a location.href.
   let opened = false;
   if (waTab && !waTab.closed) {
     try {

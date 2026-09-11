@@ -7,11 +7,11 @@
 // FRAGMENTO PARCIAL del dominio pedidos. Los otros 2 fragmentos siguen en
 // inline por complejidad + centralidad del dominio:
 // - Fragmento A (L4410-4453): const ORDERS_KEY + let orders/pending/confirmed +
-//   saveOrders/savePending/saveConfirmed/orderKey helpers.
+// saveOrders/savePending/saveConfirmed/orderKey helpers.
 // - Fragmento C (L13279+, ~18820-19246): unsubPedidosOwn/All + globalPedidos +
-//   listeners onSnapshot + doConfirmPedido (2da versión que sobrescribe) +
-//   confirmarDefinitivo (2da) + eliminarPendiente (2da) + volverABorrador (2da) +
-//   volverAPendientes.
+// listeners onSnapshot + doConfirmPedido (2da versión que sobrescribe) +
+// confirmarDefinitivo (2da) + eliminarPendiente (2da) + volverABorrador (2da) +
+// volverAPendientes.
 //
 // KNOWN BUG preservado verbatim: doConfirmPedido, confirmarDefinitivo,
 // eliminarPendiente, volverABorrador están declaradas 2 veces (fragmento B
@@ -20,8 +20,8 @@
 //
 // Cross-scope state (via window):
 // - window.currentOrderKey / window.currentOrderClient: LEÍDAS por product-picker.js
-//   bundle (renderProductPicker, addToOrder, setOrderQty, etc.). ESCRITAS solo
-//   dentro de este fragmento B (openPedidoModal, cancelPedido).
+// bundle (renderProductPicker, addToOrder, setOrderQty, etc.). ESCRITAS solo
+// dentro de este fragmento B (openPedidoModal, cancelPedido).
 //
 // Deps del inline: orders (fragmento A), pending (A), confirmed (A), fbDb,
 // firebase, currentUser, userRole, VENDORS, MESES, escapeHtml, titleCase,
@@ -135,13 +135,13 @@ window.cancelPedido = function () {
     Object.keys(orders).length
   );
   // 2) Firestore: BUG CRITICO que estabamos arrastrando - saveOrders hace
-  //    .set({orders: orders}, {merge: true}) que hace DEEP MERGE de objetos
-  //    anidados. Las keys borradas localmente NO se borran en Firestore.
-  //    Cuando el listener trae de vuelta el snapshot, hace orders = data.orders
-  //    con las keys viejas -> el pedido cancelado 'revive' y queda EN CURSO.
-  //    Fix: usar FieldPath + FieldValue.delete() para borrar la key
-  //    especifica en el server. FieldPath maneja los caracteres especiales
-  //    como '|' (que rompen dot notation).
+  // .set({orders: orders}, {merge: true}) que hace DEEP MERGE de objetos
+  // anidados. Las keys borradas localmente NO se borran en Firestore.
+  // Cuando el listener trae de vuelta el snapshot, hace orders = data.orders
+  // con las keys viejas -> el pedido cancelado 'revive' y queda EN CURSO.
+  // Fix: usar FieldPath + FieldValue.delete() para borrar la key
+  // especifica en el server. FieldPath maneja los caracteres especiales
+  // como '|' (que rompen dot notation).
   if (currentUser && fbDb) {
     try {
       const suppress = suppressCloudSave; // guardar flag actual
@@ -363,7 +363,7 @@ window.openSinStockDetail = function () {
       fmt(faltantes * p) +
       '</b></span>' +
       (transito > 0
-        ? '<span style="width:100%;margin-top:4px;color:#b45309">&#128666; ' +
+        ? '<span style="width:100%;margin-top:4px;color:#b45309">' +
           Math.round(transito) +
           ' u en tr&aacute;nsito (almac&eacute;n 12)</span>'
         : '') +
@@ -384,7 +384,7 @@ window.openSinStockDetail = function () {
   modalEl.innerHTML =
     '<div class="modal-box" style="width:min(500px,96vw);max-height:88vh;display:flex;flex-direction:column">' +
     '<div class="modal-head" style="background:linear-gradient(135deg,#7f1d1d,#dc2626)">' +
-    '<div><h2>&#9888;&#65039; Items sin stock</h2><div class="subt">' +
+    '<div><h2>Items sin stock</h2><div class="subt">' +
     sinStock.length +
     ' producto' +
     (sinStock.length === 1 ? '' : 's') +
@@ -659,7 +659,7 @@ function showReviewError(msg) {
     if (footer && footer.parentNode) footer.parentNode.insertBefore(el, footer);
     else modalBody.appendChild(el);
   }
-  el.innerHTML = '&#9888;&#65039; ' + msg;
+  el.innerHTML = '' + msg;
   // Scroll al banner por si esta fuera de vista.
   try {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -896,9 +896,9 @@ function renderReviewLines() {
     totalM = 0;
   let visibleN = 0; // v281+: cuenta lineas que pasan el filtro (para el counter).
   // Subtotales por disponibilidad de stock. hasStock(code):
-  //   true  -> disponible
-  //   false -> NO disponible (rojo)
-  //   null  -> sin datos cargados aun (tratamos como disponible para no asustar)
+  // true -> disponible
+  // false -> NO disponible (rojo)
+  // null -> sin datos cargados aun (tratamos como disponible para no asustar)
   let okU = 0,
     okM = 0,
     okN = 0;
@@ -935,11 +935,11 @@ function renderReviewLines() {
       // (openWaitlistCardModal en index.html:15879) que usa la formula
       // v767 (solo ASIG). Resultado: los 2 modales daban totales distintos
       // para el mismo pedido, confundiendo al vendedor:
-      //   - Lista Espera: qty=10 CVC66MH4SACO → Con Stock $660k
-      //   - Revisar Tu Pedido: qty=10 CVC66MH4SACO → split 5 Con Stock $330k + 5 Sin stock $330k
-      //   - Diferencia porque el SKU tenia 41 disp fisico, 36 en state='BO'
-      //     esperando la CF FIFO (edge case documentado en el popup de stock
-      //     como "PENDIENTE SIN STOCK, revisar — CF FIFO no corrio aun").
+      // - Lista Espera: qty=10 CVC66MH4SACO → Con Stock $660k
+      // - Revisar Tu Pedido: qty=10 CVC66MH4SACO → split 5 Con Stock $330k + 5 Sin stock $330k
+      // - Diferencia porque el SKU tenia 41 disp fisico, 36 en state='BO'
+      // esperando la CF FIFO (edge case documentado en el popup de stock
+      // como "PENDIENTE SIN STOCK, revisar — CF FIFO no corrio aun").
       // Los BO NO deben restar porque cuando llegue stock la CF FIFO los
       // promueve a ASIG. Solo ASIG resta (stock realmente comprometido).
       if (stk && stk.hasData) {
@@ -957,10 +957,10 @@ function renderReviewLines() {
     // entera. Se mantiene por compat, pero si tenemos dispReal, ese gana.
     const _faltantes = parseFloat(l.faltantesQty) || 0;
     // Regla nueva v581:
-    //   - Si dispReal >= q  → todo Disponibles.
-    //   - Si dispReal > 0 y < q → split: dispReal a Disponibles, (q-dispReal) a Sin stock.
-    //   - Si dispReal == 0 (o null y hasStock=false) → todo Sin stock.
-    //   - Si dispReal null (sin datos) → caer al comportamiento viejo con hasStock.
+    // - Si dispReal >= q → todo Disponibles.
+    // - Si dispReal > 0 y < q → split: dispReal a Disponibles, (q-dispReal) a Sin stock.
+    // - Si dispReal == 0 (o null y hasStock=false) → todo Sin stock.
+    // - Si dispReal null (sin datos) → caer al comportamiento viejo con hasStock.
     let goesToOk = 0;
     let goesToNo = 0;
     if (dispReal != null) {
@@ -1083,7 +1083,7 @@ function renderReviewLines() {
     }
     html += '<div class="rl-code">' + dot + escapeHtml(l.code) + badgeSplitCount + '</div>';
     const badgeReview = needsReview
-      ? ' <span style="color:#b45309;font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.4px;background:#fde68a;padding:1px 5px;border-radius:3px">&#128269; revisar en sap</span>'
+      ? ' <span style="color:#b45309;font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.4px;background:#fde68a;padding:1px 5px;border-radius:3px">revisar en sap</span>'
       : '';
     const badgeNoStock =
       !needsReview && noDisp
@@ -1304,7 +1304,7 @@ function renderReviewLines() {
     // INPUT editable del descuento total. Envia a SAP como DiscountPercent.
     body +=
       '<div class="rd-line" style="margin-top:8px;padding:10px;background:#ecfdf5;border:1.5px solid #86efac;border-radius:6px">' +
-      '<span style="font-weight:800;color:var(--color-success)">&#128176; Descuento total (%) <span style="color:var(--color-danger)">*</span></span>' +
+      '<span style="font-weight:800;color:var(--color-success)">Descuento total (%) <span style="color:var(--color-danger)">*</span></span>' +
       '<input type="number" id="rv-manual-discount" min="0" max="100" step="0.01" value="' +
       escapeAttr(inputValue) +
       '" style="width:80px;padding:6px 8px;border:1.5px solid #86efac;border-radius:5px;font-size:13px;font-weight:800;text-align:right;color:var(--color-success)" onchange="renderReviewLines()"/>' +
@@ -1321,9 +1321,9 @@ function renderReviewLines() {
       Math.round(manualMonto).toLocaleString('es-AR') +
       '</span></span></div>';
     body +=
-      '<div class="rd-warn" style="background:var(--color-success-bg);border-color:#86efac;color:var(--color-success)">&#128712; El descuento manual se envia a SAP como DiscountPercent (campo Descuento % en OQUT). El vendedor confirma este numero.</div>';
+      '<div class="rd-warn" style="background:var(--color-success-bg);border-color:#86efac;color:var(--color-success)">El descuento manual se envia a SAP como DiscountPercent (campo Descuento % en OQUT). El vendedor confirma este numero.</div>';
     discEl.innerHTML =
-      '<div class="review-discount"><div class="rd-head"><span>&#128176; Descuento del pedido</span></div>' +
+      '<div class="review-discount"><div class="rd-head"><span>Descuento del pedido</span></div>' +
       body +
       '</div>';
   }
@@ -1534,7 +1534,7 @@ function refreshPedidoActingAsInfo() {
   if (p) {
     info.style.display = '';
     info.innerHTML =
-      '&#9888;&#65039; El pedido queda registrado como del VDE <b>' +
+      'El pedido queda registrado como del VDE <b>' +
       escapeHtml(p.displayName) +
       '</b>. Le va a llegar una notificacion automatica.';
   } else {

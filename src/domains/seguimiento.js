@@ -11,7 +11,7 @@
 //
 // Cross-scope state (via window):
 // - window.unsubSegNotes / window.unsubSegStatus: listeners con cleanup en
-//   detachFirebaseListeners() inline (líneas 26148-49 pre-E2.d).
+// detachFirebaseListeners() inline (líneas 26148-49 pre-E2.d).
 // Locals al módulo: segVisitsCache, segNotesCache, segStatusCache,
 // segCurrentTab, currentSegTimelineKey, _segDebounceTimer.
 
@@ -24,10 +24,10 @@ if (typeof window.unsubSegStatus === 'undefined') window.unsubSegStatus = null;
 // SEGUIMIENTO - Panel de gestion comercial para vendedores internos.
 // =========================================================================
 // Modelo:
-//   visitas      -> collection 'visits' (cargada 1x con where vendor in [...])
-//   pedidos      -> globalPedidos (ya listenerado para sugerencias cruzadas)
-//   notas        -> collection 'seguimiento_notes'
-//   estados      -> collection 'seguimiento_status'  (revisado / pendiente / resuelto)
+// visitas -> collection 'visits' (cargada 1x con where vendor in [...])
+// pedidos -> globalPedidos (ya listenerado para sugerencias cruzadas)
+// notas -> collection 'seguimiento_notes'
+// estados -> collection 'seguimiento_status' (revisado / pendiente / resuelto)
 // Permisos: getSeguimientoExternalSet() es el guard. Cada accion (open,
 // render, save, setStatus) re-valida vendorInSeguimientoScope(vendor) para
 // que la manipulacion del frontend no pueda forzar acceso a un VDE ajeno.
@@ -672,13 +672,13 @@ function renderSegVisitas(visits) {
           escapeAttr(v.id) +
           "','" +
           escapeAttr(v.tienda || '') +
-          '\')" title="Eliminar esta visita (admin/gerente)" style="margin-left:6px;padding:3px 8px;border:none;border-radius:4px;background:var(--color-danger);color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Borrar</button>'
+          '\')" title="Eliminar esta visita (admin/gerente)" style="margin-left:6px;padding:3px 8px;border:none;border-radius:4px;background:var(--color-danger);color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Borrar</button>'
         : '';
     // v443: badge tipo (VISITA presencial vs CONTACTO no presencial).
     const contacto = isContacto(v);
     const tipoBadge = contacto
-      ? '<span style="display:inline-block;background:#ccfbf1;color:#0d5c56;font-size:8px;font-weight:800;padding:2px 5px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px;margin-left:6px">&#128172; Contacto</span>'
-      : '<span style="display:inline-block;background:#ede9fe;color:var(--color-accent-violet);font-size:8px;font-weight:800;padding:2px 5px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px;margin-left:6px">&#128663; Visita</span>';
+      ? '<span style="display:inline-block;background:#ccfbf1;color:#0d5c56;font-size:8px;font-weight:800;padding:2px 5px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px;margin-left:6px">Contacto</span>'
+      : '<span style="display:inline-block;background:#ede9fe;color:var(--color-accent-violet);font-size:8px;font-weight:800;padding:2px 5px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px;margin-left:6px">Visita</span>';
     html += '<div class="seg-row" onclick="openSegTimeline(\'' + escapeAttr(k) + '\')">';
     html += '<div>' + escapeHtml((v.fecha || '').slice(0, 10) || '-') + tipoBadge + '</div>';
     html += '<div>' + escapeHtml(titleCase(v.vendor || '')) + '</div>';
@@ -753,7 +753,7 @@ function renderSegPedidos(pedidos) {
           escapeAttr(p._fsId) +
           "','" +
           escapeAttr(p.clientName || '') +
-          '\')" title="Eliminar este pedido del historial (admin/gerente)" style="margin-left:8px;padding:3px 8px;border:none;border-radius:4px;background:var(--color-danger);color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Borrar</button>'
+          '\')" title="Eliminar este pedido del historial (admin/gerente)" style="margin-left:8px;padding:3px 8px;border:none;border-radius:4px;background:var(--color-danger);color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Borrar</button>'
         : '';
     html += '<div class="seg-row" onclick="openSegTimeline(\'' + escapeAttr(k) + '\')">';
     html += '<div>' + escapeHtml(dt || '-') + '</div>';
@@ -826,10 +826,10 @@ function renderSegPendientes(items) {
   items.forEach((it) => {
     const lbl = it.status === 'red' ? 'CRITICO' : it.status === 'yellow' ? 'REVISAR' : 'OK';
     // Boton de eliminar/resolver segun origen del pendiente:
-    //  - pedido-pending: borrar el doc del pedido (solo admin/gerente).
-    //  - visit-no-order: marcar el clientKey como 'resuelto' en
-    //    seguimiento_status para que detectSegPendientes lo oculte
-    //    (cualquier user de Seguimiento puede resolverlo).
+    // - pedido-pending: borrar el doc del pedido (solo admin/gerente).
+    // - visit-no-order: marcar el clientKey como 'resuelto' en
+    // seguimiento_status para que detectSegPendientes lo oculte
+    // (cualquier user de Seguimiento puede resolverlo).
     let actionBtn = '';
     if (it.kind === 'pedido-pending' && canDel && it.pedidoFsId) {
       actionBtn =
@@ -837,7 +837,7 @@ function renderSegPendientes(items) {
         escapeAttr(it.pedidoFsId) +
         "','" +
         escapeAttr(it.client || '') +
-        '\')" title="Eliminar el pedido pendiente del historial (admin/gerente)" style="margin-left:6px;padding:3px 8px;border:none;border-radius:4px;background:var(--color-danger);color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">&#128465; Borrar pedido</button>';
+        '\')" title="Eliminar el pedido pendiente del historial (admin/gerente)" style="margin-left:6px;padding:3px 8px;border:none;border-radius:4px;background:var(--color-danger);color:#fff;font-size:9px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Borrar pedido</button>';
     } else if (it.kind === 'visit-no-order' && isSegUser) {
       actionBtn =
         ' <button onclick="event.stopPropagation();setSegStatus(\'' +
