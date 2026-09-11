@@ -1,0 +1,94 @@
+name: Run Pachi Migration (one-shot)
+
+# Workflow manual (workflow_dispatch) para ejecutar los 2 scripts de
+# migracion PACHI:
+#   1. disable_pachi_and_find.py — compliance: disable user Firebase.
+#   2. migrate_pachi_to_santi_coverage.py — 154 clientes assignedVendor
+#      PACHI → SANTI + coverageBy=PACHI + coverageTrialEndDate=2026-12-11.
+#
+# Usa el secret FIREBASE_SERVICE_ACCOUNT ya configurado en el repo (mismo
+# que send_tablero_sar_email.py, sync_sap_to_bigquery.py, etc).
+#
+# Flow recomendado:
+#   1. Correr con dry_run=true → ver logs → confirmar counts.
+#   2. Correr con dry_run=false → ejecuta apply.
+#   3. Post-run: workflow se puede borrar (one-shot).
+#
+# Autorizado por Mariano 2026-09-11.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry-run (true = solo lista lo que haria, false = aplica cambios)'
+        type: boolean
+        required: true
+        default: true
+      confirm_apply:
+        description: 'Confirmacion explicita para apply. Escribir literal: APLICAR-PACHI-MIGRATION'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install google-cloud-firestore google-cloud-bigquery google-auth firebase-admin requests
+
+      - name: Validate confirmacion apply
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          if [ "${{ inputs.confirm_apply }}" != "APLICAR-PACHI-MIGRATION" ]; then
+            echo "::error::confirm_apply debe ser exactamente 'APLICAR-PACHI-MIGRATION' cuando dry_run=false"
+            exit 1
+          fi
+
+      - name: Script 1 — disable_pachi_and_find
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          echo "=================================================="
+          echo "SCRIPT 1: disable_pachi_and_find.py"
+          echo "Dry-run: ${{ inputs.dry_run }}"
+          echo "=================================================="
+          if [ "${{ inputs.dry_run }}" == "true" ]; then
+            python scripts/disable_pachi_and_find.py
+          else
+            python scripts/disable_pachi_and_find.py --apply
+          fi
+
+      - name: Script 2 — migrate_pachi_to_santi_coverage
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          echo "=================================================="
+          echo "SCRIPT 2: migrate_pachi_to_santi_coverage.py"
+          echo "Dry-run: ${{ inputs.dry_run }}"
+          echo "=================================================="
+          if [ "${{ inputs.dry_run }}" == "true" ]; then
+            python scripts/migrate_pachi_to_santi_coverage.py
+          else
+            python scripts/migrate_pachi_to_santi_coverage.py --apply
+          fi
+
+      - name: Upload migration backup (si apply corrio)
+        if: ${{ inputs.dry_run == false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pachi-migration-backup
+          path: scripts/_backups/pachi_migration_*.json
+          retention-days: 90
+          if-no-files-found: warn
