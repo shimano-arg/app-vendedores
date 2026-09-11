@@ -875,6 +875,55 @@ html[data-theme="dark"] .tab-pane [style*="color:#0f172a"] {
    tenia el emoji ≡ que se removio con v869 cleanup, quedaba boton vacio.
    Ahora tiene 3 lineas rendered en CSS puro (independiente de fuentes/emojis).
    Color celeste = color oficial Shimano + brand del logo. */
+/* v879 (2026-09-11): controls unificados del modal Backorder / Stock Asignado
+   con estilo apple-design. Todos los inputs/selects usan .bo-ctl con el mismo
+   height (44px), radius (12px), padding y font. Todos los botones usan .bo-btn.
+   Aplican en mobile y desktop para consistencia total. */
+.bo-ctl{
+  height:44px;
+  padding:10px 14px;
+  border:1px solid var(--border-default);
+  border-radius:12px;
+  font-size:14px;
+  font-weight:500;
+  letter-spacing:-0.01em;
+  outline:none;
+  background:var(--bg-elevated);
+  color:var(--text-primary);
+  box-shadow:0 1px 2px rgba(0,0,0,.04);
+  transition:border-color .1s ease-out,box-shadow .1s ease-out;
+  box-sizing:border-box;
+  font-family:inherit;
+  -webkit-tap-highlight-color:transparent;
+}
+.bo-ctl:focus{border-color:#0284a0;box-shadow:0 0 0 3px rgba(2,132,160,.15)}
+.bo-btn{
+  min-height:44px;
+  padding:10px 22px;
+  border:none;
+  border-radius:12px;
+  background:#1e293b;
+  color:#fff;
+  font-size:14px;
+  font-weight:600;
+  letter-spacing:-0.01em;
+  cursor:pointer;
+  font-family:inherit;
+  box-shadow:0 2px 6px rgba(15,23,42,.25),inset 0 1px 0 rgba(255,255,255,.1);
+  transition:transform 100ms cubic-bezier(0.16,1,0.3,1),box-shadow 100ms ease-out,filter 100ms ease-out;
+  white-space:nowrap;
+  min-width:160px;
+  -webkit-tap-highlight-color:transparent;
+  user-select:none;
+}
+.bo-btn:hover{filter:brightness(1.1)}
+.bo-btn:active{transform:scale(.97);box-shadow:0 1px 3px rgba(15,23,42,.2),inset 0 1px 0 rgba(255,255,255,.1);filter:brightness(.95)}
+/* En mobile, botones full-width para consistencia + tap target grande. */
+@media (max-width:640px){
+  .bo-btn{width:100%;min-width:0;padding:12px 18px;font-size:15px;min-height:48px}
+  .bo-ctl{font-size:14px;height:46px}
+}
+
 .header-hamburger{display:none;background:#00A9E0;border:1.5px solid #00A9E0;border-radius:6px;color:#fff;font-size:20px;padding:4px 10px;cursor:pointer;line-height:1;height:36px;width:44px;align-items:center;justify-content:center;transition:.15s;position:relative}
 .header-hamburger::before{content:'';display:block;width:20px;height:2.5px;background:#fff;border-radius:2px;box-shadow:0 -6px 0 #fff,0 6px 0 #fff}
 .header-hamburger:hover{background:#0091c2;border-color:#0091c2}
@@ -1446,7 +1495,11 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
 .targets-filter-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
 .targets-filter-row select{padding:9px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12px;font-weight:600;color:var(--text-primary);outline:none;background:var(--bg-elevated);font-family:inherit}
 .targets-filter-row select:focus{border-color:#0284c7}
-.targets-table{width:100%;border-collapse:collapse;font-size:12px}
+/* v879 (2026-09-11): fix mobile — 6 columnas (Mes+3 familias+Total+Estado) no
+   caben en <400px. Wrap con overflow-x:auto y min-width en la tabla → user
+   scrollea horizontal para ver todos los targets sin romper el layout. */
+#tgt-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -18px;padding:0 18px}
+.targets-table{width:100%;border-collapse:collapse;font-size:12px;min-width:640px}
 .targets-table th{background:var(--bg-muted);padding:8px 10px;text-align:left;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);border-bottom:2px solid var(--border-default)}
 .targets-table td{padding:6px 10px;border-bottom:1px solid var(--border-subtle);vertical-align:middle}
 .targets-table input.tgt-input{width:100%;min-width:110px;box-sizing:border-box;padding:8px 12px;border:1.5px solid var(--border-default);border-radius:5px;font-size:13.5px;text-align:right;font-family:ui-monospace,Menlo,monospace;outline:none;letter-spacing:.2px}
@@ -4735,40 +4788,30 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
                - Boton Exportar sacado del flex y puesto en su propio div
                  con text-align:center -> queda centrado horizontalmente
                  (mobile y desktop). -->
+          <!-- v879 (2026-09-11): controls del modal Backorder unificados con
+               estilo apple. Todos los inputs/selects usan `.bo-ctl` (mismo
+               height, radius, padding, font). Todos los botones usan `.bo-btn`.
+               Aplican en mobile y desktop por consistencia total. -->
           <div id="backorders-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0">
-            <input id="backorders-search" oninput="onBackordersSearch()" type="text" placeholder="Buscar por SKU, codigo o cliente (ej: SN2000FJ o MUNDO ESTURION)..." style="flex:1 1 100%;min-width:200px;padding:9px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)"/>
-            <select id="backorders-mes-filter" onchange="onBackordersMesChange()" title="Filtrar por mes de la SQ" style="flex:1 1 260px;min-width:200px;padding:9px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated);font-weight:700">
+            <input id="backorders-search" class="bo-ctl" oninput="onBackordersSearch()" type="text" placeholder="Buscar por SKU, codigo o cliente (ej: SN2000FJ o MUNDO ESTURION)..." style="flex:1 1 100%;min-width:200px"/>
+            <select id="backorders-mes-filter" class="bo-ctl" onchange="onBackordersMesChange()" title="Filtrar por mes de la SQ" style="flex:1 1 260px;min-width:200px">
               <option value="">Todos los meses</option>
             </select>
-            <!-- v710 (2026-08-28): filtro 'Sin/Con/Todos stock' REMOVIDO por pedido
-                 de Mariano. Antes: v420 lo agrego como select con 3 opciones,
-                 v523 lo escondio en mode='asignacion'. Ahora se elimina del DOM
-                 en ambos modos. La logica sigue viva en JS (backordersStockFilter):
-                 _applyBackordersMode setea 'sin' en modo urgente y 'con' en modo
-                 asignacion automaticamente. El user ya no puede overridear. -->
-            <select id="backorders-stock-filter" onchange="onBackordersStockFilterChange()" style="display:none">
+            <select id="backorders-stock-filter" class="bo-ctl" onchange="onBackordersStockFilterChange()" style="display:none">
               <option value="sin">Sin stock (para importar)</option>
               <option value="con">Con stock (para asignar)</option>
               <option value="todos">Todos (sin filtro)</option>
             </select>
-            <!-- v864 (2026-09-11): filtro urgencia visible solo en modo backorder.
-                 'todos' incluye urgentes + parciales (default post-fix).
-                 'urgente' = comportamiento v631 (solo sin stock, para importar).
-                 'parcial' = solo SKUs con stock repartido y algun BO. -->
-            <select id="backorders-urgency-filter" onchange="onBackordersUrgencyFilterChange()" title="Filtrar por urgencia del backorder" style="flex:1 1 260px;min-width:200px;padding:9px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated);font-weight:700">
+            <select id="backorders-urgency-filter" class="bo-ctl" onchange="onBackordersUrgencyFilterChange()" title="Filtrar por urgencia del backorder" style="flex:1 1 260px;min-width:200px">
               <option value="todos">Todos los backorders</option>
               <option value="urgente">Solo urgentes (sin stock)</option>
               <option value="parcial">Solo parciales (stock repartido)</option>
             </select>
           </div>
           <div style="text-align:center;flex-shrink:0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-            <!-- v702 (2026-08-28): uniformar los 3 botones del toolbar. Antes tenian
-                 colores distintos (naranja/verde/ambar) que rompian consistencia
-                 visual. Ahora todos usan la paleta primary del app (azul slate).
-                 Los emojis mantienen distincion funcional. -->
-            <button id="btn-export-lista-plana" onclick="exportBackordersToExcel()" style="padding:9px 18px;border:1.5px solid #1e293b;border-radius:6px;background:#1e293b;color:#fff;font-size:12px;font-weight:700;cursor:pointer;min-width:160px">Exportar todo</button>
-            <button id="btn-export-stock-asig-cliente" onclick="openExportStockAsigCliente()" style="padding:9px 18px;border:1.5px solid #1e293b;border-radius:6px;background:#1e293b;color:#fff;font-size:12px;font-weight:700;cursor:pointer;min-width:160px">Exportar Stock Asignado por cliente</button>
-            <button id="btn-backorders-graficos" onclick="openBackordersGraficos()" title="Ver graficos de top clientes + top SKUs con mas backorder" style="padding:9px 18px;border:1.5px solid #1e293b;border-radius:6px;background:#1e293b;color:#fff;font-size:12px;font-weight:700;cursor:pointer;min-width:160px">Gr&aacute;ficos</button>
+            <button id="btn-export-lista-plana" class="bo-btn" onclick="exportBackordersToExcel()">Exportar todo</button>
+            <button id="btn-export-stock-asig-cliente" class="bo-btn" onclick="openExportStockAsigCliente()">Exportar Stock Asignado por cliente</button>
+            <button id="btn-backorders-graficos" class="bo-btn" onclick="openBackordersGraficos()" title="Ver graficos de top clientes + top SKUs con mas backorder">Gr&aacute;ficos</button>
           </div>
           <div id="backorders-summary" style="padding:10px 12px;background:var(--color-warning-bg);border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#78350f;flex-shrink:0"></div>
           <div id="backorders-list" style="flex:1;overflow-y:auto"></div>
@@ -5351,7 +5394,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v878';
+const APP_VERSION = 'v879';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
