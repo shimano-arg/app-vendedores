@@ -5273,7 +5273,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v864';
+const APP_VERSION = 'v865';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15380,7 +15380,13 @@ window.closeWaitlistModal = function(){
 //   'DESPACHO'              — pedido despachado (25%)
 // Otros valores posibles segun Marcos: PICKING, CONTROL, REMITO (a confirmar).
 var _depositoMovimientos = [];
-var _depositoLastFetchAt = null;
+// v865 (2026-09-11): persistir last fetch en localStorage. Antes era var
+// de sesion — al re-login se olvidaba y el vendedor no sabia si la data
+// era vieja. Ahora sobrevive refresh + relogin.
+var _depositoLastFetchAt = (function(){
+  try { const s = localStorage.getItem('deposito_last_fetch_at'); return s ? Number(s) : null; }
+  catch(_e) { return null; }
+})();
 var _depositoIsLoading = false;
 // v830 (2026-09-08): filtro por division (BIKE / FISHING / ambos).
 // Default: mostrar todos. El user toggle con botones dedicados.
@@ -15403,8 +15409,12 @@ var _depositoLastError = '';
 window.openDepositoModal = function(){
   const m = document.getElementById('deposito-modal');
   if (m) m.classList.add('open');
-  // Refrescar si no hay data o si pasaron > 5 min desde el ultimo fetch.
-  const stale = !_depositoLastFetchAt || (Date.now() - _depositoLastFetchAt > 5 * 60 * 1000);
+  // v865 (2026-09-11): TTL reducido 5min → 60s. Ademas si no hay data en
+  // memoria (recien recarga la app), forzar re-fetch aunque el timestamp
+  // persistido diga que el ultimo fetch fue "reciente" (era antes de que
+  // _depositoMovimientos se vaciara al reload).
+  const noDataInMemory = !Array.isArray(_depositoMovimientos) || _depositoMovimientos.length === 0;
+  const stale = noDataInMemory || !_depositoLastFetchAt || (Date.now() - _depositoLastFetchAt > 60 * 1000);
   if (stale && !_depositoIsLoading) _refreshDepositoData();
   _renderDeposito();
 };
@@ -15447,9 +15457,25 @@ async function _refreshDepositoData(){
     _depositoMovimientos = _depositoMockData();
   }
   _depositoLastFetchAt = Date.now();
+  // v865 (2026-09-11): persistir last fetch cross-session.
+  try { localStorage.setItem('deposito_last_fetch_at', String(_depositoLastFetchAt)); } catch(_e){}
   _depositoIsLoading = false;
   _renderDeposito();
 }
+
+// v865 (2026-09-11): re-fetch automatico al volver al tab (foco).
+// Sin esto, si el vendedor deja el modal abierto en background y vuelve
+// horas despues, ve data stale sin darse cuenta. Ahora al recuperar foco
+// se dispara re-fetch si TTL vencido.
+document.addEventListener('visibilitychange', function(){
+  if (document.visibilityState !== 'visible') return;
+  const m = document.getElementById('deposito-modal');
+  if (!m || !m.classList.contains('open')) return; // modal cerrado
+  const stale = !_depositoLastFetchAt || (Date.now() - _depositoLastFetchAt > 60 * 1000);
+  if (stale && !_depositoIsLoading && typeof _refreshDepositoData === 'function') {
+    _refreshDepositoData();
+  }
+});
 
 // v830: toggle filtro division. '' = todos, 'BIKE' o 'FISHING' = solo esa division.
 function _setDepositoFilterDivision(div){
@@ -15509,6 +15535,25 @@ function _renderDeposito(){
   const totalFishing = _depositoMovimientos.filter(m => m.division === 'FISHING').length;
   const totalMixto = _depositoMovimientos.filter(m => m.division === 'MIXTO').length;
   const lastAt = _depositoLastFetchAt ? new Date(_depositoLastFetchAt).toLocaleString('es-AR', {hour:'2-digit', minute:'2-digit'}) : '-';
+  // v865 (2026-09-11): max fecha de los movimientos retornados. Sirve para
+  // detectar si SETUP dejo de publicar (data pega en X dias sin actualizarse).
+  let maxFecha = '';
+  for (const m of _depositoMovimientos) {
+    const f = String(m.fecha || '').slice(0, 10);
+    if (f && f > maxFecha) maxFecha = f;
+  }
+  // Cuantos dias hace que es el mov mas reciente. >2 dias = warning.
+  let maxFechaDaysAgo = null;
+  if (maxFecha) {
+    const now = new Date();
+    const nowStr = now.toISOString().slice(0, 10);
+    const mfDate = new Date(maxFecha + 'T00:00:00');
+    const nowDate = new Date(nowStr + 'T00:00:00');
+    maxFechaDaysAgo = Math.round((nowDate - mfDate) / (24 * 60 * 60 * 1000));
+  }
+  // TTL: si pasaron > 5 min sin refresh + modal abierto → warning.
+  const fetchAgeSec = _depositoLastFetchAt ? Math.round((Date.now() - _depositoLastFetchAt) / 1000) : null;
+  const fetchStale = fetchAgeSec != null && fetchAgeSec > 300;
 
   const isMock = _depositoIsMockFlag;
 
@@ -15519,11 +15564,27 @@ function _renderDeposito(){
   html += '    <span style="background:#fef3c7;color:#78350f;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:700">📦 ' + totalPreparacion + ' en preparación</span>';
   html += '    <span style="background:#dcfce7;color:#166534;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:700">🚚 ' + totalDespacho + ' despachados</span>';
   html += '  </div>';
-  html += '  <div style="display:flex;gap:8px;align-items:center;font-size:11px;color:var(--text-muted)">';
-  html += '    <span>Última act: ' + lastAt + '</span>';
+  html += '  <div style="display:flex;gap:8px;align-items:center;font-size:11px;color:var(--text-muted);flex-wrap:wrap">';
+  // v865 (2026-09-11): mostrar HORA del fetch + FECHA del movimiento mas
+  // reciente. Ayuda a distinguir "fetch reciente pero SETUP no tiene data
+  // nueva" vs "cache stale, hay que refrescar".
+  const lastAtColor = fetchStale ? '#c2410c' : 'var(--text-muted)';
+  html += '    <span style="color:' + lastAtColor + '" title="Momento del ultimo fetch a SETUP">Última act: <b>' + lastAt + '</b>' + (fetchAgeSec != null && fetchAgeSec > 60 ? ' (' + (fetchAgeSec < 3600 ? Math.floor(fetchAgeSec/60) + ' min' : Math.floor(fetchAgeSec/3600) + 'h') + ' atrás)' : '') + '</span>';
+  if (maxFecha) {
+    const maxFechaColor = maxFechaDaysAgo != null && maxFechaDaysAgo > 2 ? '#c2410c' : 'var(--text-muted)';
+    html += '    <span style="color:' + maxFechaColor + '" title="Fecha del movimiento mas reciente en la respuesta de SETUP">Últ. mov: <b>' + maxFecha + '</b>' + (maxFechaDaysAgo != null && maxFechaDaysAgo > 0 ? ' (' + maxFechaDaysAgo + 'd)' : '') + '</span>';
+  }
   html += '    <button onclick="_refreshDepositoData()" style="background:#1e40af;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer">↻ Actualizar</button>';
   html += '  </div>';
   html += '</div>';
+  // v865 (2026-09-11): banner amarillo si el mov mas reciente tiene >2 dias.
+  // Indica posible problema en SETUP (no publica) o en la CF (paginacion).
+  if (maxFechaDaysAgo != null && maxFechaDaysAgo > 2 && !isMock) {
+    html += '<div style="background:#fef3c7;border:1px solid #fde047;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:11.5px;color:#78350f">';
+    html += '  ⚠️ El movimiento más reciente que reportó SETUP es de hace <b>' + maxFechaDaysAgo + ' día(s)</b> (' + maxFecha + '). ';
+    html += 'Si esperabas ver despachos más recientes, tocá "↻ Actualizar" o avisá — puede ser problema del sistema de logística.';
+    html += '</div>';
+  }
   // v830/v832: botones toggle Pesca / Bike / Todos — flex:1 en mobile.
   const btnAllActive = !_depositoFilterDivision;
   const btnBikeActive = _depositoFilterDivision === 'BIKE';

@@ -17,7 +17,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v864 en main (2026-09-11)** — fix modal Backorder: BOs con stock parcial ya aparecen (badge URGENTE/PARCIAL + filtro urgencia). Ver §41. |
+| **Versión actual** | **v865 en main (2026-09-11)** — SETUP integration: 6 fixes contra data stale (CF timezone AR + localStorage TTL + banner UI). Ver §41. |
 | **APP_VERSION** | `v863` en `main` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
@@ -4670,7 +4670,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v864
+## 41) Changelog v300 → v865
+
+### v865 (2026-09-11) — SETUP integration: 6 fixes contra data stale
+
+**Bug reportado por Mariano**: modal Depósito muestra info vieja. Diagnóstico contra logs GCP: CF corrió y retornó 1007 líneas frescas 11:57 UTC — el problema estaba en 2 partes.
+
+**Root causes:**
+1. **Timezone en cálculo de ventanas de la CF**: `new Date()` retorna UTC. Cuando la CF corría entre 21:00-24:00 AR (00-03 UTC del día siguiente), `today = tomorrow_AR`. SETUP filtra por calendario AR → no devolvía nada de HOY.
+2. **`_depositoLastFetchAt` era var de sesión**: al re-login se olvidaba. TTL de 5 min bloqueaba refresh aunque el vendedor esperara data fresca.
+3. Ningún indicador visible de "última fecha de movimiento" — el vendedor no distinguía entre "SETUP no publicó" vs "cache stale nuestro".
+
+**Fixes:**
+
+1. **CF timezone AR** (`functions/index.js:839+`): `today` se calcula desde `en-CA` locale en `America/Argentina/Buenos_Aires`, anclado a 12:00 UTC del día AR.
+2. **CF logs de max/min fecha retornada** + return `maxFecha`, `minFecha`, `fetchedAtIso` al cliente.
+3. **`_depositoLastFetchAt` en localStorage** (`index.html:15383`): persiste cross-session/relogin.
+4. **TTL reducido 5 min → 60 seg** + auto re-fetch al recuperar foco del tab (`visibilitychange` listener).
+5. **UI: banner amarillo si el mov más reciente tiene >2 días** de antigüedad. Header muestra HORA del fetch + FECHA del último movimiento (datos separados).
+6. **Force re-fetch si `_depositoMovimientos` está vacío en memoria** aunque el TTL persistido diga "reciente".
+
+**Deploy**: CF `setupGetMovimientos` deployada 13:19 UTC. Bump v864→v865. 367/367 tests verdes.
 
 ### v864 (2026-09-11) — fix modal Backorder: BOs con stock parcial ya se ven
 
