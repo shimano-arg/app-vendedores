@@ -5351,7 +5351,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v875';
+const APP_VERSION = 'v876';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10271,7 +10271,8 @@ window.darAltaClienteModal = async function(){
       precisionLabel = 'aproximado (calle sin altura)';
       confirmNeeded = true;
     } else if (precision === 'locality') {
-      precisionLabel = 'aproximado (centro de ' + locality + ')';
+      // v876 SEC: escapar locality (nombre de ciudad) que va a innerHTML abajo.
+      precisionLabel = 'aproximado (centro de ' + escapeHtml(locality) + ')';
       confirmNeeded = true;
     } else if (precision === 'province') {
       precisionLabel = 'MUY aproximado (centro de la provincia)';
@@ -12685,15 +12686,30 @@ window.renderBackordersTab = function(){
     if (k) _cliSet.add(k);
   }));
   const totalClientes = _cliSet.size;
-  const _filtroBadges = [];
-  if (q) _filtroBadges.push('busqueda: "' + escapeHtml(q) + '"');
+  // v876 SEC: fix CodeQL js/xss-through-dom alert #25. Antes construíamos el
+  // innerHTML concatenando _filtroBadges.join(...) donde uno de los pushes
+  // era 'busqueda: "' + escapeHtml(q) + '"'. Aunque `q` estaba escaped,
+  // CodeQL no seguía el escape a través del array→join→innerHTML. Ahora
+  // separo la parte estática (contadores + labels) del texto de badges
+  // filtros. El texto va por textContent en un elemento aparte, imposible
+  // de inyectar HTML sin importar qué venga en `q`.
+  sum.innerHTML = '<b>' + skus.length + '</b> SKUs con backorder &middot; <b>' + Math.round(totalUnidades) + '</b> unidades pendientes &middot; <b>' + totalClientes + '</b> clientes';
+  const _filtroTxts = [];
+  if (q) _filtroTxts.push('busqueda: "' + q + '"');
   if (mesF) {
     const [yy, mm] = mesF.split('-');
     const _MESES_LBL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-    _filtroBadges.push('mes: ' + _MESES_LBL[parseInt(mm,10)-1] + ' ' + yy);
+    _filtroTxts.push('mes: ' + _MESES_LBL[parseInt(mm,10)-1] + ' ' + yy);
   }
-  sum.innerHTML = '<b>' + skus.length + '</b> SKUs con backorder &middot; <b>' + Math.round(totalUnidades) + '</b> unidades pendientes &middot; <b>' + totalClientes + '</b> clientes'
-    + (_filtroBadges.length ? ' &middot; <i>' + _filtroBadges.join(' &middot; ') + '</i>' : '');
+  if (_filtroTxts.length) {
+    // Text content (100% escaped by DOM) — sin posibilidad de inyección.
+    const sep = document.createElement('span');
+    sep.textContent = ' · ';
+    const italic = document.createElement('i');
+    italic.textContent = _filtroTxts.join(' · ');
+    sum.appendChild(sep);
+    sum.appendChild(italic);
+  }
   // Lista
   if (!skus.length) {
     // v700: mensaje contextual segun si hay query. Antes solo mostraba "Sin resultados"
@@ -12799,13 +12815,23 @@ window.renderBackordersTab = function(){
       // solo el pedidoId de la ultima linea agregada al skuMap.clientes.
       const _pedidoIdsForCancel = Array.isArray(c.pedidoIds) ? c.pedidoIds : (c.pedidoId ? [{ pedidoId: c.pedidoId, state: c.state, qty: c.pendiente }] : []);
       if (c.source === 'app' && _pedidoIdsForCancel.length > 0) {
-        const _clienteEsc = String(c.nombre || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        // v876 (2026-09-11) SEC: fix CodeQL js/incomplete-sanitization alert #29.
+        // Antes el escape manual .replace(/'/g,"\\'") no escapaba backslash primero
+        // → nombre con `foo\';alert(1)` rompía las comillas del onclick. Ahora usamos
+        // JSON.stringify que hace todos los escapes JS necesarios (\, ", control chars)
+        // y devuelve una string literal completa "foo\\'...". Envolvemos el resultado
+        // completo en escapeAttr para que las " del JSON no rompan el atributo HTML.
         const _stateAny = _pedidoIdsForCancel[0].state;
         const _lblTitle = _stateAny === 'ASIG'
           ? 'Eliminar todas las reservas ASIG del cliente para este SKU (' + _pedidoIdsForCancel.length + ' linea/s, ' + Math.round(c.pendiente) + ' u total). Libera el stock. Permanente.'
           : 'Eliminar todas las lineas del cliente para este SKU (' + _pedidoIdsForCancel.length + ' linea/s, ' + Math.round(c.pendiente) + ' u total). Permanente.';
-        const _payload = JSON.stringify(_pedidoIdsForCancel).replace(/'/g, "&#39;").replace(/"/g, '&quot;');
-        html += '<button onclick=\'window.deleteAllBackorderAppLinesForClient("' + escapeAttr(g.sku) + '","' + _clienteEsc + '",' + Math.round(c.pendiente) + ',' + _payload + ')\' title="' + _lblTitle + '" style="flex-shrink:0;background:var(--color-danger-bg);color:var(--color-danger-strong);border:1px solid #fca5a5;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">ELIMINAR' + (_pedidoIdsForCancel.length > 1 ? ' (' + _pedidoIdsForCancel.length + ')' : '') + '</button>';
+        const _argsSafe = escapeAttr(
+          JSON.stringify(g.sku) + ',' +
+          JSON.stringify(String(c.nombre || '')) + ',' +
+          Math.round(c.pendiente) + ',' +
+          JSON.stringify(_pedidoIdsForCancel)
+        );
+        html += '<button onclick="window.deleteAllBackorderAppLinesForClient(' + _argsSafe + ')" title="' + escapeAttr(_lblTitle) + '" style="flex-shrink:0;background:var(--color-danger-bg);color:var(--color-danger-strong);border:1px solid #fca5a5;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">ELIMINAR' + (_pedidoIdsForCancel.length > 1 ? ' (' + _pedidoIdsForCancel.length + ')' : '') + '</button>';
       }
       html += '</div>';
     });
@@ -21135,7 +21161,9 @@ window.doInlineLogin = async function(){
     } else if (code === 'auth/network-request-failed') {
       msg = 'Sin internet. Verificá tu conexión y reintentá.';
     } else {
-      msg = (e && (e.message || e.code)) || 'Error desconocido';
+      // v876 SEC: fix CodeQL js/xss-through-exception. Escapar el mensaje de
+      // error que puede venir de Firebase Auth y ser inyectado como HTML.
+      msg = escapeHtml((e && (e.message || e.code)) || 'Error desconocido');
     }
     errEl.innerHTML = msg;
     errEl.style.display = '';
@@ -21241,7 +21269,8 @@ window.signInWithEmailPassword = async function(){
     } else if (code === 'auth/too-many-requests') {
       msg = 'Demasiados intentos. Esperá unos minutos y reintentá.';
     } else {
-      msg = (e && (e.message || e.code)) || 'Error desconocido';
+      // v876 SEC: fix CodeQL js/xss-through-exception. Escapar mensaje de error.
+      msg = escapeHtml((e && (e.message || e.code)) || 'Error desconocido');
     }
     errEl.innerHTML = msg;
     errEl.style.display = '';
@@ -21291,8 +21320,12 @@ window.sendEmailSignInLink = async function(){
     } else if (code === 'auth/invalid-email') {
       msg = 'El email es invalido.';
     } else if (code === 'auth/unauthorized-continue-uri' || code === 'auth/invalid-continue-uri') {
+      // v876 SEC: window.location.hostname es controlled pero pasamos por escapeHtml defensivamente.
       msg = '<b>El dominio de la app no esta autorizado.</b><br>'
-        + '<span style="font-size:11px">Admin: agrega ' + window.location.hostname + ' en Firebase Console > Authentication > Settings > Authorized domains.</span>';
+        + '<span style="font-size:11px">Admin: agrega ' + escapeHtml(window.location.hostname) + ' en Firebase Console > Authentication > Settings > Authorized domains.</span>';
+    } else if (e && e.message) {
+      // v876 SEC: fallback con mensaje de error escapado.
+      msg = escapeHtml(e.message);
     }
     errEl.innerHTML = msg;
     errEl.style.display = '';
@@ -21372,7 +21405,8 @@ window.sendEmailSignInLink = async function(){
         } else if (code === 'auth/user-disabled') {
           msg = 'Tu cuenta esta deshabilitada. Pedile al admin que te re-habilite.';
         } else {
-          msg = 'No pudimos completar el inicio de sesion.<br><br>Error: ' + (err.message || code || 'desconocido');
+          // v876 SEC: escapar err.message/code para no ejecutar HTML si Firebase lo devolviera con markup.
+          msg = 'No pudimos completar el inicio de sesion.<br><br>Error: ' + escapeHtml(err.message || code || 'desconocido');
         }
         errEl.innerHTML = msg;
         errEl.style.display = '';
