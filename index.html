@@ -4672,6 +4672,15 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
               <option value="con">Con stock (para asignar)</option>
               <option value="todos">Todos (sin filtro)</option>
             </select>
+            <!-- v864 (2026-09-11): filtro urgencia visible solo en modo backorder.
+                 'todos' incluye urgentes + parciales (default post-fix).
+                 'urgente' = comportamiento v631 (solo sin stock, para importar).
+                 'parcial' = solo SKUs con stock repartido y algun BO. -->
+            <select id="backorders-urgency-filter" onchange="onBackordersUrgencyFilterChange()" title="Filtrar por urgencia del backorder" style="flex:1 1 260px;min-width:200px;padding:9px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated);font-weight:700">
+              <option value="todos">Todos los backorders</option>
+              <option value="urgente">Solo urgentes (sin stock)</option>
+              <option value="parcial">Solo parciales (stock repartido)</option>
+            </select>
           </div>
           <div style="text-align:center;flex-shrink:0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
             <!-- v702 (2026-08-28): uniformar los 3 botones del toolbar. Antes tenian
@@ -5264,7 +5273,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v863';
+const APP_VERSION = 'v864';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -11751,6 +11760,10 @@ var backordersSearchQuery = '';         // texto del buscador SKU
 var backordersMesFilter = '';           // v411: filtro por mes YYYY-MM del sqDocDate
 var backordersStockFilter = 'sin';      // v420: 'sin' | 'con' | 'todos' - reemplaza v419 bool
 var backordersMode = 'urgente';         // v420: 'urgente' (Backorders) | 'asignacion' (Asignacion Backorder)
+// v864 (2026-09-11): filtro urgencia solo aplica en modo backorder. 'todos'
+// muestra urgentes + parciales (default post-fix). 'urgente' = comportamiento
+// v631 (solo dispSap=0, para importar). 'parcial' = solo con stock repartido.
+var backordersUrgencyFilter = 'todos';
 // v402 (2026-08-05): abrir/cerrar Backorders como modal fullscreen (pedido
 // de Mariano - antes era una tab dentro del sidebar). Al abrir, garantiza
 // listener + trigger render.
@@ -11778,10 +11791,21 @@ function _applyBackordersMode(mode){
   // (el modal SAP Asignado - Con Stock por definicion muestra solo con
   // stock; el filtro sin stock esta en el modal Backorder aparte).
   if (sel) sel.style.display = (mode === 'asignacion') ? 'none' : '';
+  // v864 (2026-09-11): filtro urgencia visible solo en modo backorder.
+  const urgSel = document.getElementById('backorders-urgency-filter');
+  if (urgSel) {
+    urgSel.style.display = (mode === 'asignacion') ? 'none' : '';
+    urgSel.value = backordersUrgencyFilter;
+  }
   // v509: boton "Exportar Stock Asignado" visible solo en modo asignacion.
   const tplBtn = document.getElementById('btn-export-stock-asig-cliente');
   if (tplBtn) tplBtn.style.display = (mode === 'asignacion') ? '' : 'none';
 }
+window.onBackordersUrgencyFilterChange = function(){
+  const sel = document.getElementById('backorders-urgency-filter');
+  backordersUrgencyFilter = sel ? sel.value : 'todos';
+  try { renderBackordersTab(); } catch(e) { console.warn('onBackordersUrgencyFilterChange', e); }
+};
 // v420 (2026-08-06): recomputa counts para ambos botones (urgente + asignacion)
 // contando SKUs distintos (no lineas) en cada categoria segun stock actual.
 // Se llama desde ensureBackordersListener + desde el listener de stock_snapshot.
@@ -12454,15 +12478,21 @@ window.renderBackordersTab = function(){
   Object.values(skuMap).forEach(g => {
     const isAsig = (backordersMode === 'asignacion');
     const dispSap = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(g.sku) || 0) : 0;
-    const skuHasStock = dispSap > 0;
-    if (isAsig !== skuHasStock) {
-      g.clientes = []; // SKU no corresponde a este modal
-    } else if (isAsig) {
-      // modo STOCK ASIG.: solo clientes con qtyAsignada > 0. Mostrar qtyAsignada.
+    g.dispSap = dispSap; // guardar para render header
+    // v864 (2026-09-11): removido el gate SKU-level (v631). Antes: si el SKU
+    // tenia dispSap>0 se ocultaba entero del modo BACKORDER (asumiendo "hay
+    // stock, no urge importar"). Pero un SKU con stock parcial (ej dispSap=3
+    // + 4 clientes pidiendo) tiene el 4to en BO real y quedaba invisible.
+    // Bug reportado por Mariano 2026-09-11 con ST2500HGFM (JAVIER DJEMDJEMIAN).
+    // Fix: filtrar solo por qtyAsignada/qtyBackorder per-cliente. Un SKU con
+    // stock parcial ahora aparece en AMBOS modales — clientes con asignacion
+    // en STOCK ASIG. y clientes con backorder en BACKORDER.
+    // g.urgency (solo modo backorder): 'urgente' = dispSap=0, 'parcial' = dispSap>0.
+    if (isAsig) {
       g.clientes = g.clientes.filter(c => (c.qtyAsignada || 0) > 0);
     } else {
-      // modo BACKORDER: solo clientes con qtyBackorder > 0. Mostrar qtyBackorder.
       g.clientes = g.clientes.filter(c => (c.qtyBackorder || 0) > 0);
+      g.urgency = dispSap > 0 ? 'parcial' : 'urgente';
     }
     // v724 (2026-08-28): consolidar duplicados por cliente (cardCode + nombre).
     // Mariano: 'LUIS ZYSMAN con 1 u y 11 u' deberian mostrarse como una sola
@@ -12496,7 +12526,14 @@ window.renderBackordersTab = function(){
     }
   });
   // v576: eliminar SKUs vacios post-cap (todos los clientes filtrados por modo).
-  const skus = Object.values(skuMap).filter(g => g.clientes && g.clientes.length > 0);
+  let skus = Object.values(skuMap).filter(g => g.clientes && g.clientes.length > 0);
+  // v864 (2026-09-11): filtro adicional por urgency (solo en modo backorder).
+  // Preserva el uso de Mariano-importador: seleccionar "Solo urgentes" muestra
+  // el mismo set que antes (SKUs con dispSap=0). Default 'todos' incluye
+  // parciales para no perder BOs con stock repartido.
+  if (backordersMode !== 'asignacion' && typeof backordersUrgencyFilter !== 'undefined' && backordersUrgencyFilter && backordersUrgencyFilter !== 'todos') {
+    skus = skus.filter(g => g.urgency === backordersUrgencyFilter);
+  }
   skus.sort((a,b) => b.totalPendiente - a.totalPendiente);
   // Summary
   const totalUnidades = skus.reduce((s,x) => s + x.totalPendiente, 0);
@@ -12570,6 +12607,16 @@ window.renderBackordersTab = function(){
       html += '<div style="font-size:10px;opacity:.75;margin-top:2px">' + escapeHtml(g.familia || '-') + ' / ' + escapeHtml(g.subfamilia || '-') + '</div>';
     }
     html += '<div style="font-size:10px;opacity:.95;margin-top:4px;font-weight:700">' + _stkLabel + '</div>';
+    // v864 (2026-09-11): badge urgency solo en modo BACKORDER. Distinguir
+    // "urgente" (sin stock, importar YA) vs "parcial" (stock repartido, no
+    // urgente pero hay BOs igual).
+    if (!_isAsigMode && g.urgency) {
+      const _urgLbl = g.urgency === 'urgente'
+        ? '🔴 URGENTE — sin stock, importar'
+        : '🟡 PARCIAL — hay stock pero repartido';
+      const _urgBg = g.urgency === 'urgente' ? 'rgba(0,0,0,.35)' : 'rgba(255,255,255,.20)';
+      html += '<div style="margin-top:6px"><span style="background:' + _urgBg + ';color:#fff;padding:2px 8px;border-radius:10px;font-size:9.5px;font-weight:800;letter-spacing:.3px">' + _urgLbl + '</span></div>';
+    }
     html += '</div>';
     html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:18px;font-weight:800">' + totalStr + '</div><div style="font-size:9px;text-transform:uppercase;opacity:.9;letter-spacing:.4px">unidades</div></div>';
     html += '</div></div>';
