@@ -1253,8 +1253,7 @@ function notifItemHtml(n, opts) {
     // por el CF autoConfirmPendingPedidosCF tras N min de inactividad. El VDE
     // ve el alerta + link a la card confirmada para revisar el envio a SAP.
     const minutes = Number(n.minutesInPending) || 10;
-    h +=
-      '<h4 style="color:#b45309">&#9200; Pedido auto-confirmado por timeout</h4>';
+    h += '<h4 style="color:#b45309">&#9200; Pedido auto-confirmado por timeout</h4>';
     h +=
       '<div class="nm">Tu pedido de <b>' +
       escapeHtml(n.clientName || 'cliente') +

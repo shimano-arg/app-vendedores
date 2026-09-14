@@ -35,7 +35,6 @@ function makeFbDbStub({ pedidos = [], config = null } = {}) {
       return { async get() {}, async update() {}, async set() {} };
     },
     collection(name) {
-      const self = this;
       if (name === 'pedidos') {
         return {
           doc(id) {

@@ -34,7 +34,7 @@ import { expireAsigLinesTTL } from './core/asig-ttl-core.js';
 // Idea Mariano: VDEs olvidan clickear "CONFIRMAR DEFINITIVO", los pedidos
 // quedan sin llegar a SAP. Este core scanea + promueve stage='confirmed';
 // el trigger onPedidoConfirmedSendToSap ya hace el envio SAP real.
-import { AUTO_CONFIRM_RESULT, autoConfirmPendingPedidos } from './core/auto-confirm-pending-core.js';
+import { autoConfirmPendingPedidos } from './core/auto-confirm-pending-core.js';
 import { AUTO_SEND_RESULT, handleAutoSendSap } from './core/auto-send-sap-core.js';
 import { runDailyBackup } from './core/backup-core.js';
 import { runFifoAssign } from './core/fifo-assign-core.js';
