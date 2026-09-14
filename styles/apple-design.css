@@ -5305,6 +5305,35 @@
 #pane-pedidos .confirmed-card[style*="border-left-color:#d97706"] {
   border-left-color: #ff9500 !important;
 }
+/* v916 (2026-09-14): card en ERROR SAP (transferError persistido). Sobrepasa
+   los overrides apple-design con misma especificidad + !important. Sin esto,
+   #pane-pedidos .confirmed-card gana y el fondo queda blanco (Mariano vio v915
+   sin fondo rojo — el pedido de "que el fondo se pinte de rojo" no habia
+   tomado efecto por especificidad). */
+#pane-pedidos .confirmed-card.cc-error {
+  background: #dc2626 !important;
+  border: 2px solid #991b1b !important;
+  border-left: 6px solid #7f1d1d !important;
+  color: #fff !important;
+}
+#pane-pedidos .confirmed-card.cc-error:hover {
+  background: #b91c1c !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 12px rgba(220, 38, 38, 0.35) !important;
+}
+#pane-pedidos .confirmed-card.cc-error .cc-name {
+  color: #fff !important;
+}
+#pane-pedidos .confirmed-card.cc-error .cc-meta {
+  color: #fecaca !important;
+}
+#pane-pedidos .confirmed-card.cc-error .cc-summary {
+  color: #fecaca !important;
+}
+#pane-pedidos .confirmed-card.cc-error .cc-month {
+  background: rgba(255, 255, 255, 0.18) !important;
+  color: #fff !important;
+}
 #pane-pedidos .confirmed-card .cc-name {
   color: #1d1d1f !important;
   font-size: 12.5px !important;
