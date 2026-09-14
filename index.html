@@ -5427,7 +5427,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v882';
+const APP_VERSION = 'v913';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14601,6 +14601,32 @@ function _updateWaitlistBadge(){
   else badge.style.display = 'none';
 }
 
+// v913 (2026-09-13): fix bug ORDEN duplicada. Antes: max(revisionWaitlist)+1
+// client-side, que retrocedia cada vez que un pedido salia del waitlist a
+// pedidos. Consecuencia: ORDEN 131 y 144 colisionaron en produccion.
+// Ahora: contador atomico en Firestore (counters/orderNumber) reservado via
+// runTransaction. Defense-in-depth: max(counter, local_waitlist_max) para
+// que un counter stale nunca regale numeros ya en uso.
+async function reserveNextOrderNumber(){
+  if (!fbDb) throw new Error('fbDb no inicializado');
+  const ref = fbDb.collection('counters').doc('orderNumber');
+  return fbDb.runTransaction(async t => {
+    const snap = await t.get(ref);
+    const fromCounter = (snap.exists && Number.isFinite(snap.data().value)) ? snap.data().value : 0;
+    let localMax = 0;
+    (revisionWaitlist || []).forEach(w => {
+      const n = parseInt(String(w.orderNumber || '').replace(/\D/g, ''), 10);
+      if (Number.isFinite(n) && n > localMax) localMax = n;
+    });
+    const next = Math.max(fromCounter, localMax) + 1;
+    t.set(ref, {
+      value: next,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    return String(next);
+  });
+}
+
 // v493 (2026-08-12): render de la lista inline en el sidebar-left.
 // Se muestra solo si el user tiene can-revision (whitelist) y hay >=1 pedido
 // en la coleccion. Click en item abre el modal card (mismo que la lista del
@@ -15499,17 +15525,14 @@ window.revisionDejarRecalculando = async function(){
     deliveryDetails.retiroDni = rd;
     deliveryDetails.retiroPatente = rp.toUpperCase();
   }
-  // v515/v518: auto-asignar numero de orden = max(existente) + 1.
-  const ordenNum = (() => {
-    let max = 0;
-    (revisionWaitlist || []).forEach(w => {
-      const n = parseInt(String(w.orderNumber || '').replace(/\D/g, ''), 10);
-      if (Number.isFinite(n) && n > max) max = n;
-    });
-    return String(max + 1);
-  })();
-  if (!ordenNum) {
-    alert('No se pudo calcular el numero de orden. Refresca la pagina y reintentá.');
+  // v913 (2026-09-13): reservar numero de orden atomicamente via counters/orderNumber.
+  // Reemplaza el max(revisionWaitlist)+1 que colisionaba (ORDEN 131 y 144 dup en prod).
+  let ordenNum;
+  try {
+    ordenNum = await reserveNextOrderNumber();
+  } catch (e) {
+    console.error('reserveNextOrderNumber (Revision Excel)', e);
+    alert('No se pudo reservar el numero de orden. Refresca la pagina y reintentá.');
     return;
   }
   const btn = document.getElementById('revision-wait-btn');
@@ -18750,15 +18773,16 @@ window.reviewDejarEnEspera = async function(){
     deliveryDetails.retiroDni = rd;
     deliveryDetails.retiroPatente = rp.toUpperCase();
   }
-  // Auto-numero de orden.
-  const ordenNum = (() => {
-    let max = 0;
-    (revisionWaitlist || []).forEach(w => {
-      const n = parseInt(String(w.orderNumber || '').replace(/\D/g, ''), 10);
-      if (Number.isFinite(n) && n > max) max = n;
-    });
-    return String(max + 1);
-  })();
+  // v913 (2026-09-13): reservar numero de orden atomicamente via counters/orderNumber.
+  // Reemplaza el max(revisionWaitlist)+1 que colisionaba (ORDEN 131 y 144 dup en prod).
+  let ordenNum;
+  try {
+    ordenNum = await reserveNextOrderNumber();
+  } catch (e) {
+    console.error('reserveNextOrderNumber (Crear Manual)', e);
+    alert('No se pudo reservar el numero de orden. Refresca la pagina y reintentá.');
+    return;
+  }
   // Resolver cardCode + vendor del cliente (best-effort).
   const cardCode = (typeof sapGetClienteCode === 'function') ? (sapGetClienteCode(currentOrderClient.name) || '') : '';
   const vendorAssigned = (typeof getEffectiveVendorForClient === 'function' && typeof POINTS !== 'undefined')
