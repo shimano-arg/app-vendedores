@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v922 en dev (2026-09-14)** — **fix mapa**: cuando se reasignaba una localidad sin POINT desde el modal Reasignación → "Por localidad" (v920), el override se guardaba en `vendor_overrides` pero el partido en el mapa seguía pintado con el color de `PROVINCE_VENDOR_OVERRIDE`. Ahora `deptEffectiveVendor` consulta el `vendor_overrides` de Firestore (scope LOC + PROV) antes del hardcode de provincia. Ver §41. |
-| **APP_VERSION** | `v922` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v923 en dev (2026-09-14)** — **UX Pedidos tabs**: el toggle Crear/Pendientes/Confirmados ahora pinta el fondo del tab activo con el color semántico (Crear = verde, Pendientes = naranja, Confirmados = verde) en lugar del fondo blanco iOS uniforme + solo cambio de color en el texto. Mariano pidió mayor contraste para saber en qué opción está parado. Ver §41. |
+| **APP_VERSION** | `v923` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,29 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v922
+## 41) Changelog v300 → v923
+
+### v923 (2026-09-14) — UX Pedidos tabs: fondo pintado con color semántico por tab (Crear/Confirmados verde, Pendientes naranja)
+
+**Pedido de Mariano**: en el pane Pedidos, los tabs Crear / Pendientes / Confirmados usaban el estilo iOS segmented control clásico — fondo blanco uniforme para todos, solo cambiaba el color del texto del activo. El contraste era muy sutil y no era claro en qué tab estabas parado.
+
+**Fix** (`styles/apple-design.css:3487-3502`): sobreescribir el `.active` del segmented control con **fondo pintado del color semántico** + texto blanco por tab:
+- **Crear** (`#pt-crear.active`) → verde `#248a3d` (acción, positivo).
+- **Pendientes** (`#pt-pend.active`) → naranja `#d97706` (alerta, coherente con las cards naranja de pending + el chip auto-confirm de v921).
+- **Confirmados** (`#pt-conf.active`) → verde `#248a3d` (éxito, mismo verde que Crear).
+
+Box-shadow del active con tinte del mismo color (rgba .35) para reforzar el efecto elevado del segmented control.
+
+**Nota técnica** (regla de memoria): apple-design.css usa `!important` sistemáticamente. Un `.toggle-pedidos button.active` en el CSS del `<head>` de `index.html` no tenía efecto — quedaba pisado por el `#pane-pedidos .toggle-pedidos button.active !important` de apple-design.css. Los cambios visuales del pane-pedidos deben ir directamente en `styles/apple-design.css` con la especificidad `#pane-*`. Se dejó un comentario en `index.html:2775-2779` apuntando a apple-design.css para futuros lectores.
+
+**Diff**:
+- `styles/apple-design.css:3480-3502` — sobreescritura del active por tab con fondo + box-shadow.
+- `index.html:2775` — comentario apuntando a apple-design.css como source of truth.
+- APP_VERSION + CACHE_VERSION → `v923`. Cambio 100% CSS (no toca bundle ni JS).
+
+**Cómo verificar**: pane Pedidos → tocar cada tab. Crear pinta verde vibrante, Pendientes pinta naranja, Confirmados pinta verde (mismo que Crear). Los inactivos quedan con texto gris apagado sobre fondo transparente del contenedor. Contraste WCAG AA suficiente en light y dark mode.
+
+---
 
 ### v922 (2026-09-14) — Fix color del partido en el mapa post-reasignación "Por localidad" (bug v920)
 

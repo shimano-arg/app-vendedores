@@ -3472,14 +3472,33 @@
   color: #1d1d1f !important;
   background: rgba(255, 255, 255, 0.6) !important;
 }
+/* v923 (2026-09-14): pedido de Mariano — fondo pintado en el active por tab
+   para que sea visualmente obvio en cual estas parado. Antes: fondo blanco
+   uniforme + solo texto en color por tab (iOS segmented classic) — pero el
+   contraste era muy sutil. Ahora: fondo del color semantico del tab con
+   texto blanco. Semantica: Crear = verde accion, Pendientes = naranja
+   alerta (coherente con las cards naranja + el chip auto-confirm de v921),
+   Confirmados = verde exito. */
 #pane-pedidos .toggle-pedidos button.active {
   background: #ffffff !important;
   color: #1d1d1f !important;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
-#pane-pedidos #pt-crear.active { color: #248a3d !important; }
-#pane-pedidos #pt-pend.active { color: #a86200 !important; }
-#pane-pedidos #pt-conf.active { color: #49A2DA !important; }
+#pane-pedidos #pt-crear.active {
+  background: #248a3d !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(36, 138, 61, 0.35) !important;
+}
+#pane-pedidos #pt-pend.active {
+  background: #d97706 !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(217, 119, 6, 0.35) !important;
+}
+#pane-pedidos #pt-conf.active {
+  background: #248a3d !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(36, 138, 61, 0.35) !important;
+}
 
 /* Contact controls con summary "738 cliente(s) habilitado(s)..." */
 #pane-pedidos .contact-controls {
