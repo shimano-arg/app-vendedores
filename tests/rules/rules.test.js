@@ -1018,3 +1018,58 @@ describe('/client_applications leadEstado scope (v926 E1.6 HIGH-09)', () => {
     );
   });
 });
+
+// ============================================================
+// v933 (SecAudit Sprint 2 MED-04) — counters/orderNumber cap + hasOnly
+// ============================================================
+describe('/counters/orderNumber (v933 MED-04 VULN-207)', () => {
+  it('vendor puede incrementar en +1 (flow reserveNextOrderNumber normal)', async () => {
+    await seedDoc('counters/orderNumber', { value: 150 });
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'counters', 'orderNumber'), {
+        value: 151,
+      })
+    );
+  });
+  it('CRIT: vendor NO puede saltar counter a valor arbitrario grande', async () => {
+    await seedDoc('counters/orderNumber', { value: 150 });
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'counters', 'orderNumber'), {
+        value: 9999999,
+      })
+    );
+  });
+  it('vendor NO puede retroceder el counter (monotonicidad v913 intacta)', async () => {
+    await seedDoc('counters/orderNumber', { value: 150 });
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'counters', 'orderNumber'), {
+        value: 100,
+      })
+    );
+  });
+  it('vendor NO puede inyectar campos extra en update', async () => {
+    await seedDoc('counters/orderNumber', { value: 150 });
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'counters', 'orderNumber'), {
+        value: 151,
+        evilPayload: 'hack',
+      })
+    );
+  });
+  it('vendor NO puede inyectar campos extra en create', async () => {
+    // Sin seed previo => es create path. docId=orderNumber + evilPayload -> denied por hasOnly.
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'counters', 'orderNumber'), {
+        value: 1,
+        evilPayload: 'hack',
+      })
+    );
+  });
+  it('vendor NO puede crear counters con docId distinto (rule solo permite orderNumber)', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'counters', 'evilCounter'), {
+        value: 1,
+      })
+    );
+  });
+});
