@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v924 en dev (2026-09-14)** — **SecAudit Sprint 1 E1.2 + E1.3**: (1) `geminiOcrProxy` con `enforceAppCheck: true` (rollout gradual — geminiOcr primero); (2) `firestore.rules pedidos update` para vendor restringido con `affectedKeys().hasOnly([whitelist])` — VDE ya no puede tocar `transferidoSAP`, `transferError`, `sendingSapLock`, `orderNumberPrev`, `ownerUid`, `clientCardCode` etc. Cierra CHAIN-01 (comisión duplicada) del audit. Ver §41. |
-| **APP_VERSION** | `v924` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v925 en dev (2026-09-14)** — **fix geocoding + Places API fallback**: bug estructural — `geocodeWithGoogleMaps` era llamada en `index.html` pero solo existía como `_geocodeWithGoogleMaps` (private) en el chunk lazy `admin-users`. ReferenceError silencioso → cascada de fallbacks OSM → centroide del pueblo. Fix: función movida inline al shell del bundle + 4 mejoras (A coords literales, B Plus Code, C dedupe locality, D fallback Places API por nombre del comercio). Ver §41. (v924 SecAudit Sprint 1 E1.2 + E1.3 sigue vigente en paralelo). |
+| **APP_VERSION** | `v925` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,47 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v924
+## 41) Changelog v300 → v925
+
+### v925 (2026-09-14) — Fix geocoding Google Maps (nunca corría) + Places API fallback por nombre del comercio
+
+**Bug reportado por Mariano**: al pegar la dirección completa de Google Maps para editar un LEAD (`Av. Domingo Faustino Sarmiento 737, B6725 Carmen de Areco, Provincia de Buenos Aires`), la app aceptaba pero geocodificaba al centroide del pueblo — no al punto exacto del negocio.
+
+**Causa raíz doble**:
+
+1. **`geocodeWithGoogleMaps` nunca ejecutaba**. En `index.html:10269` la llamada era `await geocodeWithGoogleMaps(...)` (sin underscore), pero la única definición estaba en `src/domains/admin-users.js` como `_geocodeWithGoogleMaps` (con underscore, private al chunk lazy). ReferenceError silencioso → cae al catch → cascada OSM Nominatim → OSM tampoco reconoce la calle → variantes de fallback → centroide de Carmen de Areco.
+2. **La query duplicaba locality/provincia** cuando el user pegaba la dirección completa. Concat `[address, locality, prov, 'Argentina']` → `"... Carmen de Areco, Provincia de Buenos Aires, Carmen de Areco, Buenos Aires, Argentina"` → confusión para el matcher.
+
+**Fix estructural + 4 mejoras**:
+
+- **Mover código de geocoding al shell del bundle** (inline en `index.html`): `_getGmapsApiKeyInline`, `_fetchGmapsGeocodeInline`, `_lookupPlaceByNameInline`, `window.geocodeWithGoogleMaps`. El shell tiene la función disponible desde flows públicos (Alta cliente, Editar dirección, Bulk geocode).
+- **(A) Coordenadas literales**: `-34.37666, -59.82273` pegado del URL de Maps → ROOFTOP directo, saltea geocoding.
+- **(B) Plus Code detection**: regex `\b([23456789CFGHJMPQRVWX]{2,8}\+[23456789CFGHJMPQRVWX]{2,3})\b` matchea Plus Codes globales (`8FVC9G8F+6X`) o locales (`F+6X Carmen de Areco`). Query directa a Google, ROOFTOP por definición.
+- **(C) Dedupe locality/provincia**: si `address` ya contiene esos strings, no se concatenan de vuelta.
+- **(D) Fallback Places API**: cuando el Geocoding API devuelve `APPROXIMATE` (centroide) o `GEOMETRIC_CENTER` (centro de calle) y tenemos el nombre del comercio (4to arg `businessName`), llama `findplacefromtext` con `<nombre> <address> <locality> <prov> Argentina`. Places usa el mismo motor que `google.com/maps` cuando buscás por nombre → devuelve el pin exacto del negocio. Si el key no tiene Places habilitado → null y queda el geocode result.
+
+**Propagación de `businessName`**:
+- `geocodeClientAddress(address, locality, provinceCode, businessName)` — 4to arg opcional.
+- Callers: `openSapAltaAddressModal` → pasa `nombre`; `darAltaClienteModal` → pasa `parts[3]` del `currentClientModalKey`; `geocodeAllPendingSapAltas` → pasa `a.comercio || a.fantasia`.
+
+**Cache sync**: `saveGmapsApiKey` y `deleteGmapsApiKey` (en `admin-users.js`) llaman `window._invalidateGmapsKeyCache()` para invalidar el cache inline post-cambio de key.
+
+**UX**: prompt de "Editar dirección" enumera 4 formatos aceptados.
+
+**Diff**:
+- `index.html:10264+` — bloque nuevo inline con las 4 helpers + `window.geocodeWithGoogleMaps` + firma extendida `geocodeClientAddress(a, l, p, businessName)`.
+- `index.html` — callers `openSapAltaAddressModal`, `darAltaClienteModal`, `geocodeAllPendingSapAltas` pasan `businessName`.
+- `index.html` — prompt de Editar dirección enumera las 4 opciones (calle+num, dirección completa, Plus Code, coords literales).
+- `src/domains/admin-users.js` — `saveGmapsApiKey` / `deleteGmapsApiKey` invalidan cache inline. `_geocodeWithGoogleMaps` queda como dead code (no calls); se limpiará en un follow-up.
+- APP_VERSION + CACHE_VERSION → `v925`. Bundle regenerado.
+
+**Cómo verificar**:
+- [ ] LEAD sin geocode preciso → "Editar dirección" → pegar dirección completa de Maps → ROOFTOP.
+- [ ] Pegar solo Plus Code (`J59F+6X Carmen de Areco`) → mismo punto.
+- [ ] Pegar coords del URL (`-34.37, -59.82`) → skipea geocoding, usa tal cual.
+- [ ] DevTools console: `[gmaps] geocode query:` sin duplicación; `[gmaps] Places match:` cuando dispara fallback.
+
+---
 
 ### v924 (2026-09-14) — SecAudit Sprint 1 E1.2 + E1.3: App Check en geminiOcrProxy + pedido update `.hasOnly()` para vendor
 

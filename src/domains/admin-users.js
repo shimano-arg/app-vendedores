@@ -243,6 +243,10 @@ window.saveGmapsApiKey = async function () {
         { merge: true }
       );
     gmapsApiKeyCache = key;
+    // v924: invalidar el cache inline del shell (el geocoding real vive alli).
+    if (typeof window._invalidateGmapsKeyCache === 'function') {
+      try { window._invalidateGmapsKeyCache(); } catch(_e){}
+    }
     showSyncTag('Google Maps API key guardada');
     try {
       openAdminPanel();
@@ -263,6 +267,10 @@ window.deleteGmapsApiKey = async function () {
   try {
     await fbDb.collection('app_config').doc('google_maps').delete();
     gmapsApiKeyCache = null;
+    // v924: idem save — invalidar cache inline.
+    if (typeof window._invalidateGmapsKeyCache === 'function') {
+      try { window._invalidateGmapsKeyCache(); } catch(_e){}
+    }
     showSyncTag('Google Maps API key borrada');
     try {
       openAdminPanel();
