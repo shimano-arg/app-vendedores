@@ -150,6 +150,102 @@ describe('handleSapProxy — sanitización', () => {
       handleSapProxy(/** @type {any} */ ({}), { uid: 'u1' }, deps)
     ).rejects.toMatchObject({ code: 'invalid-argument' });
   });
+
+  // v917 (SecAudit Sprint 0 CRIT-02): path traversal + whitelist por (method, resource)
+  it('CRIT-02: path traversal /Items/../Invoices → invalid-argument', async () => {
+    const deps = makeDeps();
+    await expect(
+      handleSapProxy(
+        { endpoint: '/b1s/v1/Items/../Invoices', method: 'POST', body: {} },
+        { uid: 'u1' },
+        deps
+      )
+    ).rejects.toMatchObject({ code: 'invalid-argument' });
+  });
+
+  it('CRIT-02: doble slash /b1s/v1//Items → invalid-argument', async () => {
+    const deps = makeDeps();
+    await expect(
+      handleSapProxy({ endpoint: '/b1s/v1//Items' }, { uid: 'u1' }, deps)
+    ).rejects.toMatchObject({ code: 'invalid-argument' });
+  });
+
+  it('CRIT-02: resource lowercase → invalid-argument (PascalCase enforced)', async () => {
+    const deps = makeDeps();
+    await expect(
+      handleSapProxy({ endpoint: '/b1s/v1/items' }, { uid: 'u1' }, deps)
+    ).rejects.toMatchObject({ code: 'invalid-argument' });
+  });
+
+  it('CRIT-02: admin POST /Invoices → permission-denied (no whitelist)', async () => {
+    const deps = makeDeps();
+    await expect(
+      handleSapProxy(
+        { endpoint: '/b1s/v1/Invoices', method: 'POST', body: {} },
+        { uid: 'u1' },
+        deps
+      )
+    ).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+
+  it('CRIT-02: admin POST /JournalEntries → permission-denied', async () => {
+    const deps = makeDeps();
+    await expect(
+      handleSapProxy(
+        { endpoint: '/b1s/v1/JournalEntries', method: 'POST', body: {} },
+        { uid: 'u1' },
+        deps
+      )
+    ).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+
+  it('CRIT-02: admin DELETE /Items → permission-denied (DELETE_ALLOWED vacío)', async () => {
+    const deps = makeDeps();
+    await expect(
+      handleSapProxy({ endpoint: "/b1s/v1/Items('X')", method: 'DELETE' }, { uid: 'u1' }, deps)
+    ).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+
+  it('CRIT-02: admin PATCH /BusinessPartners → permission-denied (PATCH solo Quotations)', async () => {
+    const deps = makeDeps();
+    await expect(
+      handleSapProxy(
+        { endpoint: "/b1s/v1/BusinessPartners('C1')", method: 'PATCH', body: {} },
+        { uid: 'u1' },
+        deps
+      )
+    ).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+
+  it('CRIT-02: gerente POST /Quotations(1)/Cancel → OK (subresource Cancel)', async () => {
+    const deps = makeDeps({ getUserRole: vi.fn(async () => 'gerente') });
+    const res = await handleSapProxy(
+      { endpoint: '/b1s/v1/Quotations(1)/Cancel', method: 'POST' },
+      { uid: 'u1' },
+      deps
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it('CRIT-02: vendedor GET /SQLQueries(name)/List → OK (stock query)', async () => {
+    const deps = makeDeps({ getUserRole: vi.fn(async () => 'vendedor') });
+    const res = await handleSapProxy(
+      { endpoint: "/b1s/v1/SQLQueries('ItemStockByWhs')/List?ItemCode='X'" },
+      { uid: 'u1' },
+      deps
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it('CRIT-02: vendedor GET /ItemWarehouseInfoCollection(...) → OK', async () => {
+    const deps = makeDeps({ getUserRole: vi.fn(async () => 'vendedor') });
+    const res = await handleSapProxy(
+      { endpoint: "/b1s/v1/ItemWarehouseInfoCollection('X','W07')" },
+      { uid: 'u1' },
+      deps
+    );
+    expect(res.status).toBe(200);
+  });
 });
 
 describe('handleSapProxy — SL relay', () => {

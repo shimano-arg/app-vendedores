@@ -51,8 +51,21 @@ service cloud.firestore {
         || isGerente()
         || resource.data.internalPartnerUid == request.auth.uid
       );
+      // v917 (2026-09-14, SecAudit Sprint 0 CRIT-01): cerrar auto-escalation
+      // admin. Antes: `role in ['unassigned','admin']` permitia que CUALQUIER
+      // usuario autenticado se auto-promoviera a admin en su primer create.
+      // Ahora: `admin` solo puede setearse en create si el token.email es la
+      // cuenta bootstrap `bot.shimano.pesca@gmail.com`. Ver
+      // `fetchAndApplyRole` en index.html:22212 (isBoot flow).
+      // Promociones posteriores usan `update` que requiere isAdmin() (linea 66).
       allow create: if request.auth != null && request.auth.uid == uid
-                     && request.resource.data.role in ['unassigned', 'admin'];
+                     && (
+                       request.resource.data.role == 'unassigned'
+                       || (
+                         request.resource.data.role == 'admin'
+                         && request.auth.token.email == 'bot.shimano.pesca@gmail.com'
+                       )
+                     );
       allow update, delete: if isAdmin();
     }
 

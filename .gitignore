@@ -91,3 +91,7 @@ __pycache__/
 # Backups locales (ej: geo.json.bak generado por scripts/simplify-geo.js)
 *.bak
 _motion_probe/
+
+# v917 SecAudit — findings sensibles, no publicar hasta cerrar toda la remediation
+SECURITY_AUDIT_*/
+
