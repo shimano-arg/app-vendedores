@@ -1748,6 +1748,26 @@
 #panel-control-btn.btn-zonas:hover { background: #2f2f33 !important; }
 #panel-control-btn.btn-zonas:active { transform: scale(0.97) !important; }
 
+/* v933 (2026-09-14): PRELIMINAR button, tambien pill Apple con purple.
+   Match visual con Panel de Control pero color de accion positivo/creativo.
+   Antes: rectangulo violeta uppercase con box-shadow saturado. Ahora:
+   pill 999px + weight 600 + letter-spacing -0.01em + text-transform none. */
+#preliminar-home-btn.btn-zonas {
+  background: #7c3aed !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#preliminar-home-btn.btn-zonas:hover { background: #6d28d9 !important; }
+#preliminar-home-btn.btn-zonas:active { transform: scale(0.97) !important; }
+
 /* Header hamburger (mobile) tambien Apple-ify */
 .header-hamburger {
   border: 1px solid #d2d2d7 !important;
