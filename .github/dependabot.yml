@@ -1,0 +1,57 @@
+# v937 (2026-09-14, SecAudit Sprint 2 MED-11 VULN-520):
+# Dependabot para GH Actions. Antes: los 22 workflows tenian
+# `actions/checkout@v4`, `actions/setup-python@v5`, etc — pinned al major
+# tag (mutable). Un supply chain attack (Ultralytics/tj-actions style) que
+# comprometa uno de esos actions se replayea en la proxima corrida de
+# cualquier workflow. Ahora: Dependabot audita weekly, crea PRs con SHA
+# pins actualizados. Cuando merges el PR, el commit SHA queda pineado en
+# el workflow (formato `actions/checkout@abc123 # v4.1.7`).
+#
+# ecosistemas cubiertos:
+# - github-actions: los 22 workflows en .github/workflows/*.yml
+# - npm root: package.json (dev deps: vitest, esbuild, etc)
+# - npm functions: package.json (runtime deps: firebase-admin, nodemailer, etc)
+#
+# `open-pull-requests-limit: 3` por ecosistema para no saturar el review.
+# `groups` reduce PR noise agrupando por category.
+version: 2
+updates:
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+      day: 'monday'
+    open-pull-requests-limit: 3
+    labels:
+      - 'dependencies'
+      - 'security'
+    groups:
+      actions-non-patch:
+        applies-to: version-updates
+        update-types:
+          - 'minor'
+          - 'major'
+
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+      day: 'monday'
+    open-pull-requests-limit: 3
+    labels:
+      - 'dependencies'
+      - 'security'
+    groups:
+      dev-deps:
+        applies-to: version-updates
+        dependency-type: 'development'
+
+  - package-ecosystem: 'npm'
+    directory: '/functions'
+    schedule:
+      interval: 'weekly'
+      day: 'monday'
+    open-pull-requests-limit: 3
+    labels:
+      - 'dependencies'
+      - 'security'
