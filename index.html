@@ -1241,6 +1241,8 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
 .ntab-count:empty,.ntab-count.zero{display:none}
 .notif-item.type-task{border-left-color:var(--color-accent-violet)}
 .notif-item.type-task_ack{border-left-color:#0284c7}
+.notif-item.type-auto_confirm_timeout{border-left-color:#d97706;background:linear-gradient(90deg,#fff7ed 0%,#fff 40%)}
+.notif-item.type-auto_confirm_timeout.read{background:transparent}
 .notif-item.type-task .task-title{font-size:13px;font-weight:800;color:var(--color-accent-violet);margin-bottom:4px}
 .notif-item.type-task .task-desc{font-size:11px;color:var(--text-secondary);line-height:1.5;white-space:pre-wrap;background:var(--bg-secondary);padding:7px 9px;border-radius:5px;border-left:3px solid var(--border-subtle);margin-top:4px}
 .notif-item.type-task.read .task-title{color:var(--text-muted)}
@@ -5439,7 +5441,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v920';
+const APP_VERSION = 'v921';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -19893,6 +19895,14 @@ function renderPendientesList(){
     const _sB = (typeof _tsB === 'string') ? _tsB : (_tsB && typeof _tsB.toDate === 'function' ? _tsB.toDate().toISOString() : (_tsB ? String(_tsB) : ''));
     return _sB.localeCompare(_sA);
   });
+  // v921 (2026-09-14): timeout de auto-confirm. Leer app_config si esta cacheado
+  // en window.__autoConfirmCfg (poblado por listener admin), sino usar 10 min
+  // default. El CF autoConfirmPendingPedidosCF respeta el mismo doc.
+  const _autoConfCfg = (typeof window !== 'undefined' && window.__autoConfirmCfg) || {};
+  const _autoConfEnabled = _autoConfCfg.enabled !== false;
+  const _autoConfMin = Number.isFinite(Number(_autoConfCfg.minutesTimeout)) && Number(_autoConfCfg.minutesTimeout) > 0
+    ? Number(_autoConfCfg.minutesTimeout) : 10;
+  const _autoConfMs = _autoConfMin * 60 * 1000;
   let html = '';
   items.forEach(it => {
     const lineCount = (it.conf.lines || []).length;
@@ -19901,6 +19911,18 @@ function renderPendientesList(){
     html += '<div class="cc-head"><div class="cc-name">' + escapeHtml(it.clientName) + '</div><div class="cc-month" style="background:#d97706">' + escapeHtml(it.conf.month) + '</div></div>';
     html += '<div class="cc-meta">' + escapeHtml(it.locName) + ' / ' + escapeHtml(titleCase(it.prov)) + '</div>';
     html += '<div class="cc-summary" style="color:var(--color-warning)">' + lineCount + ' productos &middot; ' + units + ' unidades &middot; ' + (it.conf.confirmedAt ? new Date(it.conf.confirmedAt).toLocaleDateString() : '') + '</div>';
+    // v921: chip countdown auto-confirm. El data-deadline lo consume el tick
+    // de setInterval (window.tickPendientesAutoConfirmChips) para actualizar
+    // el mm:ss cada 1s sin re-renderizar toda la lista.
+    if (_autoConfEnabled && it.conf.confirmedAt) {
+      const _confTs = new Date(it.conf.confirmedAt).getTime();
+      if (Number.isFinite(_confTs)) {
+        const _deadline = _confTs + _autoConfMs;
+        html += '<div class="pending-auto-confirm-chip" data-deadline="' + _deadline + '" style="display:inline-flex;align-items:center;gap:4px;background:#fef3c7;color:#78350f;border:1px solid #fcd34d;padding:2px 8px;border-radius:12px;font-size:10.5px;font-weight:700;margin-top:6px">'
+          + '<span style="font-size:10px">&#9203;</span><span class="pending-auto-confirm-text">Auto-confirma...</span>'
+          + '</div>';
+      }
+    }
     // v708: badge huerfano (mismo pattern que renderConfirmadosList v695).
     if (it.orphan) {
       html += '<div style="display:inline-block;background:var(--color-warning-bg);color:var(--color-warning);font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px;margin-top:4px">sin cat&aacute;logo (revisar province/localidad)</div>';
@@ -19911,6 +19933,47 @@ function renderPendientesList(){
   document.getElementById('pedidos-content').innerHTML = html;
   document.getElementById('tab-ped-count').textContent = items.length;
   document.getElementById('pedidos-summary').textContent = items.length + ' pedido(s) pendiente(s) de confirmacion definitiva';
+  // v921: primer tick inmediato para no mostrar "Auto-confirma..." vacío.
+  if (typeof window.tickPendientesAutoConfirmChips === 'function') {
+    try { window.tickPendientesAutoConfirmChips(); } catch(_e) {}
+  }
+}
+
+// v921 (2026-09-14): actualiza el mm:ss de los chips "Auto-confirma en X" de
+// la lista de Pendientes cada 1s. Solo hace trabajo si hay chips visibles.
+window.tickPendientesAutoConfirmChips = function(){
+  const chips = document.querySelectorAll('.pending-auto-confirm-chip[data-deadline]');
+  if (!chips.length) return;
+  const now = Date.now();
+  chips.forEach(chip => {
+    const deadline = Number(chip.getAttribute('data-deadline')) || 0;
+    const remain = deadline - now;
+    const textEl = chip.querySelector('.pending-auto-confirm-text');
+    if (!textEl) return;
+    if (remain <= 0) {
+      textEl.textContent = 'Auto-confirmando...';
+      chip.style.background = '#fed7aa';
+      chip.style.borderColor = '#f97316';
+      chip.style.color = '#9a3412';
+      return;
+    }
+    const mins = Math.floor(remain / 60000);
+    const secs = Math.floor((remain % 60000) / 1000);
+    const mm = mins.toString().padStart(2, '0');
+    const ss = secs.toString().padStart(2, '0');
+    textEl.textContent = 'Auto-confirma en ' + mm + ':' + ss;
+    if (remain <= 60000) {
+      chip.style.background = '#fee2e2';
+      chip.style.borderColor = '#fca5a5';
+      chip.style.color = '#991b1b';
+    }
+  });
+};
+// Tick global cada 1s. Es un timer inocuo — solo lee DOM y actualiza texto.
+if (typeof window._pendingAutoConfirmTicker === 'undefined') {
+  window._pendingAutoConfirmTicker = setInterval(() => {
+    try { window.tickPendientesAutoConfirmChips(); } catch(_e) {}
+  }, 1000);
 }
 
 // v378+ (2026-08-02): mapping estado -> {label visible, css class} para el
@@ -22277,6 +22340,7 @@ function ensureAllListeners(){
   _try('vendorOverrides', () => ensureVendorOverridesListener());
   _try('stockSnapshot', () => ensureStockSnapshotListener());
   _try('stockSnapshotApp', () => ensureStockSnapshotAppListener());
+  _try('autoConfirmCfg', () => ensureAutoConfirmCfgListener());
   _try('ghActionsStatus', () => ensureGhActionsStatusListener());
   _try('sentryStatus', () => ensureSentryStatusListener());
   _try('sapSyncState', () => ensureSapSyncStateListener());
@@ -22930,6 +22994,28 @@ function ensureGhActionsStatusListener() {
       try { window.renderPanelControl(); } catch(_e){}
     }
   }, err => console.warn('gh_actions_status listener', err));
+}
+
+// v921 (2026-09-14): listener del doc app_config/auto_confirm — todos los
+// users lo leen (rules: catch-all isReader() de app_config) para que la card
+// de Pendientes calcule el countdown con el mismo timeout que aplica el CF
+// autoConfirmPendingPedidosCF. Si `enabled=false` o el doc no existe, el
+// frontend no muestra el chip. Cambios en Firestore se propagan en vivo.
+let unsubAutoConfirmCfg = null;
+window.__autoConfirmCfg = null;
+function ensureAutoConfirmCfgListener() {
+  if (unsubAutoConfirmCfg || !currentUser || !fbDb) return;
+  unsubAutoConfirmCfg = fbDb.collection('app_config').doc('auto_confirm').onSnapshot(snap => {
+    window.__autoConfirmCfg = snap.exists ? (snap.data() || {}) : { enabled: true, minutesTimeout: 10 };
+    // Re-render pendientes si estamos en esa vista (para refrescar el
+    // deadline embebido en cada chip). No es caro — solo re-arma el HTML.
+    try {
+      if (typeof getPedidoView === 'function' && getPedidoView() === 'pendientes'
+          && typeof renderPendientesList === 'function') {
+        renderPendientesList();
+      }
+    } catch(_e) {}
+  }, err => console.warn('auto_confirm cfg listener', err));
 }
 
 // v613 iter 3 (2026-08-24): listener del doc sentry_issues escrito por
@@ -25950,6 +26036,7 @@ function detachFirebaseListeners(){
   n += off('unsubProductCatalog', unsubProductCatalog, () => unsubProductCatalog = null);
   n += off('unsubStockSnapshot', unsubStockSnapshot, () => unsubStockSnapshot = null);
   n += off('unsubStockSnapshotApp', unsubStockSnapshotApp, () => unsubStockSnapshotApp = null);
+  n += off('unsubAutoConfirmCfg', unsubAutoConfirmCfg, () => unsubAutoConfirmCfg = null);
   n += off('unsubGhActionsStatus', unsubGhActionsStatus, () => unsubGhActionsStatus = null);
   n += off('unsubSentryStatus', unsubSentryStatus, () => unsubSentryStatus = null);
   n += off('unsubSapSyncState', unsubSapSyncState, () => unsubSapSyncState = null);

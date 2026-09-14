@@ -1248,6 +1248,30 @@ function notifItemHtml(n, opts) {
         '\')">Marcar leida</button>';
       h += '</div>';
     }
+  } else if (type === 'auto_confirm_timeout') {
+    // v921 (2026-09-14): pedido pasado automaticamente de pending a confirmed
+    // por el CF autoConfirmPendingPedidosCF tras N min de inactividad. El VDE
+    // ve el alerta + link a la card confirmada para revisar el envio a SAP.
+    const minutes = Number(n.minutesInPending) || 10;
+    h += '<h4 style="color:#b45309">&#9200; Pedido auto-confirmado por timeout</h4>';
+    h +=
+      '<div class="nm">Tu pedido de <b>' +
+      escapeHtml(n.clientName || 'cliente') +
+      '</b>' +
+      (n.month ? ' (' + escapeHtml(n.month) + ')' : '') +
+      ' quedo <b>' +
+      minutes +
+      ' min</b> en Pendientes sin confirmar. Se paso a Confirmados automaticamente y se envio a SAP.' +
+      '</div>';
+    h += '<div class="nf"><span>' + escapeHtml(dtStr) + '</span></div>';
+    if (n.status !== 'read' && !opts.readonly) {
+      h += '<div class="notif-item-actions">';
+      h +=
+        '<button class="btn-read" onclick="markNotifRead(\'' +
+        escapeAttr(n._fsId) +
+        '\')">Marcar leida</button>';
+      h += '</div>';
+    }
   } else {
     // derivacion
     h += '<h4>' + escapeHtml(n.tienda || 'Sin tienda') + '</h4>';
