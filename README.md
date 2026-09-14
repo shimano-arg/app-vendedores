@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v938 en dev (2026-09-14)** — **SecAudit Sprint 2 batch 4** (4 MEDIUM cerrados): (1) MED-03 storage rules `waitlist-excels` — path scopeado por `{ownerUid}/` + domain gate `@shimano.com.ar/uy` + drop `application/octet-stream`; (2) MED-09 `probe-setup-fechas.yml` — `trap 'rm -f /tmp/sa.json' EXIT` + `umask 077`; (3) MED-11 (partial) Dependabot para GH Actions + npm + SHA pin en workflow crítico `sync-sap-catalog-stock.yml`; (4) MED-12 redactada mención `nur/1234` en comentarios de `functions/index.js`. Sprint 2: **11/15 MEDIUM**. Ver §41. |
-| **APP_VERSION** | `v938` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v939 en dev (2026-09-14)** — **SecAudit Sprint 2 batch 5** (2 MEDIUM cerrados, cierra Sprint 2 al 13/15): (1) MED-14 FIFO `applyAssignments` envuelto en `runTransaction` con defense-in-depth `state === 'BO'` — elimina race VDE-cancela vs CF-promueve; (2) MED-15 rate limit para `sapProxy` (300/hr) y `geminiOcrProxy` (100/hr) via `rate_limits/{uid}` counter atómico. **Sprint 2: 13/15 MEDIUM** (queda MED-07 cross-vendor snapshots → Sprint 3 backend refactor + MED-13 desactivación). Ver §41. |
+| **APP_VERSION** | `v939` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,41 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v938
+## 41) Changelog v300 → v939
+
+### v939 (2026-09-14) — SecAudit Sprint 2 batch 5: 2 MEDIUM (FIFO transaction + rate limiting)
+
+Cierra **Sprint 2 al 13/15 MEDIUM**. Queda pendiente MED-07 (cross-vendor snapshots — requiere refactor arquitectónico, escribir 1 doc por vendorKey, Sprint 3 backend) y MED-13 (dejado como defensa-en-depth aprobada, no fix requerido en este ciclo).
+
+#### MED-14 — FIFO `applyAssignments` runTransaction (VULN-L007)
+
+`functions/core/fifo-assign-core.js:194`. Antes: la CF `onStockChangeFIFOAssign` leía `pedido.lines`, computaba la promoción `BO → ASIG`, y hacía `ref.update({ lines, updatedAt })` sin transaction. Ventana de race (~10-50ms) entre `snap.get()` y `ref.update()`: si un VDE cancelaba la línea BO desde la app en ese intervalo (`state: 'BO' → 'CANCELLED'` via `updatePedido`), la CF pisaba el nuevo estado sin verlo. Resultado observable: un VDE que "canceló" una línea la veía re-aparecer como `ASIG` en la próxima sync — línea zombie.
+
+Ahora la escritura por-doc usa `deps.fbDb.runTransaction(async (tx) => { ... })` — Firestore garantiza serializabilidad + retry automático hasta 5 veces si detecta conflicto. Además, defense-in-depth: si al re-leer dentro de la transaction la línea ya NO está en state `'BO'` (fue cancelada/reciclada/expired por otro flow), se skipea sin escribir para no clobbear el nuevo state.
+
+Tests: 3 nuevos en `tests/functions/fifo-assign.test.js` (skip si CANCELLED, skip si state distinto, happy path via transaction). Suite: 22/22 verde.
+
+**Impacto**: elimina un vector de corrupción de estado en el flow crítico stock → asignación. Sin este fix un attacker con acceso a la app podía cancelar líneas justo antes del stock update para observar el race — pero también era un bug real que afectaba flows legítimos (VDE que se arrepiente de una línea mientras entra stock).
+
+#### MED-15 — Rate limiting sapProxy + geminiOcrProxy (VULN-L004 + VULN-L015)
+
+`functions/core/rate-limit-core.js` (nuevo) + `functions/index.js:113` + `functions/index.js:669`. Antes: las callables user-invoked `sapProxy` y `geminiOcrProxy` no tenían rate limit. Un token comprometido (o un VDE hostil ejecutando desde DevTools) podía:
+- Hacer 10.000 requests/min a `sapProxy`, saturando el pool de Service Layer sessions de SAP → self-DoS (login threshold breach + lockout de la cuenta técnica).
+- Loopear 100k requests OCR a `geminiOcrProxy` → burn Gemini credit ilimitado (los tokens son pagos por request).
+
+Ahora un counter atómico en Firestore por-user (`rate_limits/{uid}`) implementa fixed-window rate limit:
+- **sapProxy**: 300 requests/hora por user. VDE normal usa ~50 sapProxy calls/día — hay 6x headroom sobre el uso legítimo pico.
+- **geminiOcrProxy**: 100 requests/hora por user. Más conservador porque cada OCR consume tokens Gemini pagos.
+
+Implementación pura (dependency-injected) en `functions/core/rate-limit-core.js` con `checkAndIncrementRateLimit(deps, uid, opName, threshold, windowMs)`. Envuelto en `runTransaction` para atomic read-check-write. Al hit del limit se responde con `HttpsError('resource-exhausted', 'X rate limit alcanzado (N/hr). Reset: ISO')`. El contador NO incrementa cuando `!allowed` (evita amplification/self-DoS).
+
+Firestore rules (`firestore.rules:498`): nueva regla para `rate_limits/{uid}` — owner puede leer su propio doc, admin/gerente leen cualquiera para monitoring, nadie escribe client-side (solo CF via Admin SDK bypass rules).
+
+Tests: 10 nuevos en `tests/functions/rate-limit.test.js` (allowed happy path, incremento, threshold hit no incrementa, reset por window expiry, ops distintas independientes, users distintos independientes, invariantes de API, log callback). Suite: 33/33 verde.
+
+**Impacto**: cierra la superficie brute-force / credential-stuffing / cost-amplification en las dos callables más caras. Un attacker que compromete un token JWT ahora está capped a 300 sapProxy + 100 OCR por hora — insuficiente para tirar SAP o quemar Gemini credit significativo.
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v939`. Deploy: `firebase deploy --only functions:sapProxy,functions:geminiOcrProxy,firestore:rules`.
 
 ### v938 (2026-09-14) — SecAudit Sprint 2 batch 4: 4 MEDIUM (storage + GH Actions cluster)
 

@@ -488,6 +488,18 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // v939 (2026-09-14, SecAudit Sprint 2 MED-15 VULN-L004): counters de
+    // rate limit escritos por CF (Admin SDK bypass rules). Owner puede
+    // leer su propio doc para debug (ver "cuanto uso me queda?" en la
+    // proxima ventana), admin/gerente pueden leer cualquiera para
+    // monitoring. Nadie puede escribir client-side - el counter es solo
+    // server-side.
+    match /rate_limits/{uid} {
+      allow read: if request.auth != null
+        && (request.auth.uid == uid || isAdminOrGerente());
+      allow write: if false; // solo CF via Admin SDK
+    }
+
     // v542 E2: audit log del sync SAP Invoices. Escrito por Cloud Function
     // (Admin SDK, bypass rules). Lectura para admin/gerente (monitoring).
     match /sap_sync_log/{logId} {
