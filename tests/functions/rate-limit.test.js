@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { RATE_LIMITS, checkAndIncrementRateLimit } from '../../functions/core/rate-limit-core.js';
+import { checkAndIncrementRateLimit, RATE_LIMITS } from '../../functions/core/rate-limit-core.js';
 
 function makeFakeFbDb() {
   const store = new Map();

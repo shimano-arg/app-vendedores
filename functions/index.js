@@ -43,12 +43,12 @@ import { syncSapInvoices } from './core/invoice-sync-core.js';
 // v774 (2026-09-02): notif email al enviar oferta a SAP (pedido Mariano).
 import { buildEmailContent, sendEmail, shouldNotify } from './core/notify-quotation-sent-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
+// v939 (SecAudit Sprint 2 MED-15 VULN-L004+L015): rate limit para sapProxy
+// + geminiOcrProxy. Contador atomico en Firestore rate_limits/{uid}.
+import { checkAndIncrementRateLimit, RATE_LIMITS } from './core/rate-limit-core.js';
 import { checkNewRendicionDuplicate } from './core/rendicion-duplicate-core.js';
 import { handleSapProxy } from './core/sap-proxy-core.js';
 import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
-// v939 (SecAudit Sprint 2 MED-15 VULN-L004+L015): rate limit para sapProxy
-// + geminiOcrProxy. Contador atomico en Firestore rate_limits/{uid}.
-import { RATE_LIMITS, checkAndIncrementRateLimit } from './core/rate-limit-core.js';
 
 if (!getApps().length) initializeApp();
 
