@@ -245,7 +245,9 @@ window.saveGmapsApiKey = async function () {
     gmapsApiKeyCache = key;
     // v924: invalidar el cache inline del shell (el geocoding real vive alli).
     if (typeof window._invalidateGmapsKeyCache === 'function') {
-      try { window._invalidateGmapsKeyCache(); } catch(_e){}
+      try {
+        window._invalidateGmapsKeyCache();
+      } catch (_e) {}
     }
     showSyncTag('Google Maps API key guardada');
     try {
@@ -269,7 +271,9 @@ window.deleteGmapsApiKey = async function () {
     gmapsApiKeyCache = null;
     // v924: idem save — invalidar cache inline.
     if (typeof window._invalidateGmapsKeyCache === 'function') {
-      try { window._invalidateGmapsKeyCache(); } catch(_e){}
+      try {
+        window._invalidateGmapsKeyCache();
+      } catch (_e) {}
     }
     showSyncTag('Google Maps API key borrada');
     try {
