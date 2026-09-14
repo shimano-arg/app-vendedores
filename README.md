@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v925 en dev (2026-09-14)** — **fix geocoding + Places API fallback**: bug estructural — `geocodeWithGoogleMaps` era llamada en `index.html` pero solo existía como `_geocodeWithGoogleMaps` (private) en el chunk lazy `admin-users`. ReferenceError silencioso → cascada de fallbacks OSM → centroide del pueblo. Fix: función movida inline al shell del bundle + 4 mejoras (A coords literales, B Plus Code, C dedupe locality, D fallback Places API por nombre del comercio). Ver §41. (v924 SecAudit Sprint 1 E1.2 + E1.3 sigue vigente en paralelo). |
-| **APP_VERSION** | `v925` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v926 en dev (2026-09-14)** — **top-stats aclaración**: Mariano reportó que 1 SAP + 6 LEADs ≠ 8 TIENDAS para PACHI. Causa: los 4 stats no son mutuamente exclusivos — el gap son clientes del padrón (POINTS) sin contactar y sin alta rápida. Fix: tooltip descriptivo en cada card + desglose en TIENDAS ("N habilitados + M LEADs + K sin cargar"). Ver §41. |
+| **APP_VERSION** | `v926` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,41 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v925
+## 41) Changelog v300 → v926
+
+### v926 (2026-09-14) — Top-stats: tooltip descriptivo por card + desglose del "gap" en TIENDAS
+
+**Bug reportado por Mariano**: seleccionando PACHI (Z4) el header mostraba **4 LOCALIDADES / 1 CLIENTES EN SAP / 6 LEADs / 8 TIENDAS**. La aritmética `1 SAP + 6 LEADs = 7 ≠ 8 TIENDAS` no cuadra — los stats parecen contarse en universos distintos.
+
+**Causa raíz**: los 4 stats **no son mutuamente exclusivos**. `updateStats` compute:
+
+| Card | Fuente |
+|------|--------|
+| `LOCALIDADES` (`_statLocVal`) | `pts.length + sapLocs.size` = POINTS del vendor + localidades de altas SAP huérfanas. |
+| `CLIENTES EN SAP` (`habilitados`) | Clientes marcados como contactados en POINTs + altas SAP con `isSapConfirmed` (cardCode + geo + addr). |
+| `LEADs` (`_provisoriosCount`) | Provisorios (`manualSapPending && !cardCodeSap`) filtrados por vendor/prov/loc. |
+| `TIENDAS` (`total`) | `habilitados + pendientes` — donde `pendientes` incluye tanto LEADs como **clientes del padrón POINTS sin contactar y sin alta rápida** (históricos sin gestionar). |
+
+Para PACHI: los 8 TIENDAS = 1 SAP habilitado + 6 LEADs + **1 cliente del padrón sin cargar**. Ese 1 orphan es invisible en el resto de los stats → parece que los números no cuadran.
+
+**Fix v926 (no-invasivo, tooltip only)**:
+- Agregar `title` (tooltip HTML5) a cada `.stat-box`:
+  - **LOCALIDADES** → explica que suma POINTS + localidades SAP huérfanas.
+  - **CLIENTES EN SAP** → explica que incluye contactados de POINTs + altas SAP confirmadas.
+  - **LEADs** → explica que es `manualSapPending && !cardCodeSap`.
+  - **TIENDAS** → muestra la **fórmula desglose**: `N habilitados + M LEADs + K en padron sin cargar/contactar`. Si `K > 0`, el user ve exactamente dónde está el gap. Además da hint del fix: "Cargalos desde Alta clientes o marcalos como contactados".
+
+No se cambia la definición ni los números — solo se hacen **visibles** las semánticas para que el usuario entienda por qué no suman igual. Zero riesgo de regresión.
+
+**Diff**:
+- `index.html:9298-9333` — bloque `updateStats` termina agregando `.stat-box title` con tooltip descriptivo por card.
+- APP_VERSION + CACHE_VERSION → `v926`. Zero cambios de bundle (inline).
+
+**Cómo verificar**: seleccionar vendor con mix de SAP + LEADs + padrón sin cargar. Hover sobre "TIENDAS" en el header → tooltip muestra la suma exacta con los 3 buckets desglosados.
+
+**Follow-up posible** (no implementado): agregar una 5ta card "SIN CARGAR" con el count del bucket K si K > 0, pero eso puede romper el layout mobile (4 cards → 5 no encaja). El tooltip cubre el caso sin cambiar layout.
+
+---
 
 ### v925 (2026-09-14) — Fix geocoding Google Maps (nunca corría) + Places API fallback por nombre del comercio
 
