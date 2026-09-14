@@ -200,7 +200,7 @@ async function applyAssignments(deps, assignments) {
     const ref = deps.fbDb.collection('pedidos').doc(a.pedidoId);
     // v939: transaction para atomic read-mutate-write. Firestore reintenta
     // hasta 5 veces automatico si detecta conflict.
-    await deps.fbDb.runTransaction(async (tx) => {
+    await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
       const snap = await tx.get(ref);
       if (!snap.exists) return;
       const data = snap.data();

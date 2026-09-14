@@ -55,7 +55,7 @@ export async function checkAndIncrementRateLimit(deps, uid, opName, threshold, w
   const now = deps.now ? deps.now() : new Date();
   const nowMs = now.getTime();
   const ref = deps.fbDb.collection('rate_limits').doc(uid);
-  return await deps.fbDb.runTransaction(async (tx) => {
+  return await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
     const snap = await tx.get(ref);
     const data = snap.exists ? snap.data() || {} : {};
     const op = data[opName] || {};
