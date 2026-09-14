@@ -441,16 +441,27 @@ service cloud.firestore {
     // en produccion (ORDEN 131 y 144 duplicadas). Solo un doc valido:
     // 'orderNumber'. Monotonicidad enforceada: value solo puede crecer, nunca
     // retroceder. Read abierto a isReader (necesario para la transaccion).
+    // v933 (2026-09-14, SecAudit Sprint 2 MED-04 VULN-207): cap increment
+    // + hasOnly. Antes: cualquier reader podia jumpear el counter a
+    // Number.MAX_SAFE_INTEGER (starving legit order numbers para siempre)
+    // o inyectar campos extra al doc que otros consumers pudieran honrar.
+    // Ahora: value nuevo <= viejo+1 (una unidad por request) + hasOnly.
+    // El reserveNextOrderNumber (index.html) hace exactly value+1 asi que
+    // el cap es tight - no false positive.
     match /counters/{docId} {
       allow read: if isReader();
       allow create: if isReader()
                      && docId == 'orderNumber'
+                     && request.resource.data.keys().hasOnly(['value', 'updatedAt', 'seededAt', 'seededReason'])
                      && request.resource.data.value is int
-                     && request.resource.data.value > 0;
+                     && request.resource.data.value > 0
+                     && request.resource.data.value <= 1000000;
       allow update: if isReader()
                      && docId == 'orderNumber'
+                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['value', 'updatedAt'])
                      && request.resource.data.value is int
-                     && request.resource.data.value > resource.data.value;
+                     && request.resource.data.value > resource.data.value
+                     && request.resource.data.value <= resource.data.value + 1;
       allow delete: if false;
     }
 

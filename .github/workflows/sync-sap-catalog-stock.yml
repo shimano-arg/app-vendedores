@@ -85,7 +85,17 @@ jobs:
         # v610 (2026-08-24): pin google-cloud-firestore<2.29.0. La 2.29.0
         # (release 2026-08-24) URL-encodes '(default)' → error "Invalid database
         # id %28default%29". Rompio los 4 workflows Python simultaneamente ~22:00 UTC.
-        run: pip install firebase-admin "google-cloud-firestore<2.29" "google-cloud-core<2.7" "google-api-core<2.35" requests
+        # v933 (2026-09-14, SecAudit Sprint 2 MED-08 partial): pin exact
+        # versions para reducir la superficie "compromised pip dep -> push a
+        # main via admin PAT". Full fix (mover stock.json fuera del repo o
+        # usar bot-branch + PR flow) queda como TODO Sprint 3. Update de
+        # versiones: revisar CVEs + testear en sandbox antes de bumpear.
+        run: pip install --disable-pip-version-check
+             "firebase-admin==6.5.0"
+             "google-cloud-firestore==2.20.1"
+             "google-cloud-core==2.4.1"
+             "google-api-core==2.24.2"
+             "requests==2.32.3"
 
       - name: Run sync
         env:
