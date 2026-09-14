@@ -69,8 +69,9 @@ export async function autoConfirmPendingPedidos({
     .limit(batchLimit)
     .get();
 
+  /** @type {Array<{id: string, data: any, ageMinutes: number}>} */
   const eligibles = [];
-  snap.forEach((doc) => {
+  snap.forEach((/** @type {any} */ doc) => {
     const d = doc.data() || {};
     const t = d.confirmedAt;
     if (!t) return;
