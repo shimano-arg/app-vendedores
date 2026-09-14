@@ -1018,3 +1018,132 @@ describe('/client_applications leadEstado scope (v926 E1.6 HIGH-09)', () => {
     );
   });
 });
+
+// ============================================================
+// v933 (SecAudit Sprint 2 MED-04) — counters/orderNumber cap + hasOnly
+// ============================================================
+describe('/counters/orderNumber (v933 MED-04 VULN-207)', () => {
+  it('vendor puede incrementar en +1 (flow reserveNextOrderNumber normal)', async () => {
+    await seedDoc('counters/orderNumber', { value: 150 });
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'counters', 'orderNumber'), {
+        value: 151,
+      })
+    );
+  });
+  it('CRIT: vendor NO puede saltar counter a valor arbitrario grande', async () => {
+    await seedDoc('counters/orderNumber', { value: 150 });
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'counters', 'orderNumber'), {
+        value: 9999999,
+      })
+    );
+  });
+  it('vendor NO puede retroceder el counter (monotonicidad v913 intacta)', async () => {
+    await seedDoc('counters/orderNumber', { value: 150 });
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'counters', 'orderNumber'), {
+        value: 100,
+      })
+    );
+  });
+  it('vendor NO puede inyectar campos extra en update', async () => {
+    await seedDoc('counters/orderNumber', { value: 150 });
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'counters', 'orderNumber'), {
+        value: 151,
+        evilPayload: 'hack',
+      })
+    );
+  });
+  it('vendor NO puede inyectar campos extra en create', async () => {
+    // Sin seed previo => es create path. docId=orderNumber + evilPayload -> denied por hasOnly.
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'counters', 'orderNumber'), {
+        value: 1,
+        evilPayload: 'hack',
+      })
+    );
+  });
+  it('vendor NO puede crear counters con docId distinto (rule solo permite orderNumber)', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'counters', 'evilCounter'), {
+        value: 1,
+      })
+    );
+  });
+});
+
+// ============================================================
+// v934 (SecAudit Sprint 2 MED-05) — allowed_emails split get/list
+// ============================================================
+describe('/allowed_emails split get/list (v934 MED-05 VULN-208)', () => {
+  beforeEach(async () => {
+    await seedDoc('allowed_emails/test@x.com', { granted: true });
+    await seedDoc('allowed_emails/other@x.com', { granted: true });
+  });
+  it('vendor puede get de un email especifico (flow login check)', async () => {
+    await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'allowed_emails', 'test@x.com')));
+  });
+  it('unassigned puede get de un email especifico', async () => {
+    await assertSucceeds(getDoc(doc(authedDb(UID.unassigned), 'allowed_emails', 'test@x.com')));
+  });
+  it('CRIT: vendor NO puede list la coleccion completa (staff directory enum)', async () => {
+    await assertFails(getDocs(collection(authedDb(UID.vendor), 'allowed_emails')));
+  });
+  it('CRIT: unassigned NO puede list', async () => {
+    await assertFails(getDocs(collection(authedDb(UID.unassigned), 'allowed_emails')));
+  });
+  it('admin/gerente pueden list (uso legitimo panel admin)', async () => {
+    await assertSucceeds(getDocs(collection(authedDb(UID.admin), 'allowed_emails')));
+    await assertSucceeds(getDocs(collection(authedDb(UID.gerente), 'allowed_emails')));
+  });
+});
+
+// ============================================================
+// v934 (SecAudit Sprint 2 MED-13) — rendiciones duplicate 2-step bypass
+// ============================================================
+describe('/rendiciones duplicado_detectado bypass (v934 MED-13 VULN-707)', () => {
+  beforeEach(async () => {
+    await seedDoc('rendiciones/r-dup', {
+      ownerUid: UID.vendor,
+      status: 'duplicado_detectado',
+      amount: 1000,
+    });
+  });
+  it('admin puede pasar duplicado_detectado -> rejected (cancelar doc)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.admin), 'rendiciones', 'r-dup'), {
+        status: 'rejected',
+      })
+    );
+  });
+  it('admin puede update otros campos manteniendo duplicado_detectado', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.admin), 'rendiciones', 'r-dup'), {
+        adminNote: 'reviewed',
+      })
+    );
+  });
+  it('CRIT: admin NO puede pasar duplicado_detectado -> approved directo (v857)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.admin), 'rendiciones', 'r-dup'), {
+        status: 'approved',
+      })
+    );
+  });
+  it('CRIT: admin NO puede pasar duplicado_detectado -> pending_approval (v934 bypass 2-step)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.admin), 'rendiciones', 'r-dup'), {
+        status: 'pending_approval',
+      })
+    );
+  });
+  it('CRIT: gerente NO puede pasar duplicado_detectado -> pending_approval', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.gerente), 'rendiciones', 'r-dup'), {
+        status: 'pending_approval',
+      })
+    );
+  });
+});
