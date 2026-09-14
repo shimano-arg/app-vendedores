@@ -72,11 +72,14 @@ function makeFbDbStub({ pedidos = [], config = null } = {}) {
                 });
                 if (chain._orderBy) {
                   const dir = chain._orderBy.dir === 'desc' ? -1 : 1;
-                  arr = arr.slice().sort((a, b) =>
-                    (String(a.data[chain._orderBy.field] || '').localeCompare(
-                      String(b.data[chain._orderBy.field] || '')
-                    )) * dir
-                  );
+                  arr = arr
+                    .slice()
+                    .sort(
+                      (a, b) =>
+                        String(a.data[chain._orderBy.field] || '').localeCompare(
+                          String(b.data[chain._orderBy.field] || '')
+                        ) * dir
+                    );
                 }
                 if (chain._limit != null) arr = arr.slice(0, chain._limit);
                 return {
@@ -184,9 +187,7 @@ describe('autoConfirmPendingPedidos', () => {
 
   it('NO procesa pedidos con lines vacías (defensivo)', async () => {
     const fbDb = makeFbDbStub({
-      pedidos: [
-        pedidoDoc({ id: 'corrupto', data: { confirmedAt: isoMinutesAgo(20), lines: [] } }),
-      ],
+      pedidos: [pedidoDoc({ id: 'corrupto', data: { confirmedAt: isoMinutesAgo(20), lines: [] } })],
     });
     const r = await autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn });
     expect(r.result).toBe(AUTO_CONFIRM_RESULT.NO_PEDIDOS);
@@ -258,7 +259,12 @@ describe('autoConfirmPendingPedidos', () => {
           doc(id) {
             const d = origDoc(id);
             if (id === 'b') {
-              return { ...d, async update() { throw new Error('boom'); } };
+              return {
+                ...d,
+                async update() {
+                  throw new Error('boom');
+                },
+              };
             }
             return d;
           },

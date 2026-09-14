@@ -50,11 +50,17 @@ export async function autoConfirmPendingPedidos({
   const enabled = cfg.enabled !== false; // default true
   if (!enabled) {
     log('autoConfirmPendingPedidos skip: disabled via app_config/auto_confirm.enabled=false');
-    return { result: AUTO_CONFIRM_RESULT.SKIP_DISABLED, processed: 0, processedIds: [], errors: [] };
+    return {
+      result: AUTO_CONFIRM_RESULT.SKIP_DISABLED,
+      processed: 0,
+      processedIds: [],
+      errors: [],
+    };
   }
-  const minutes = Number.isFinite(Number(cfg.minutesTimeout)) && Number(cfg.minutesTimeout) > 0
-    ? Number(cfg.minutesTimeout)
-    : timeoutMinutes;
+  const minutes =
+    Number.isFinite(Number(cfg.minutesTimeout)) && Number(cfg.minutesTimeout) > 0
+      ? Number(cfg.minutesTimeout)
+      : timeoutMinutes;
 
   const nowMs = now();
   const cutoffMs = nowMs - minutes * 60 * 1000;
@@ -94,16 +100,19 @@ export async function autoConfirmPendingPedidos({
   for (const p of eligibles) {
     try {
       const finalizedAtIso = new Date(nowMs).toISOString();
-      await fbDb.collection('pedidos').doc(p.id).update({
-        stage: 'confirmed',
-        finalizedAt: finalizedAtIso,
-        finalizedBy: 'auto/' + minutes + 'min-timeout',
-        autoConfirmed: {
-          triggeredAt: finalizedAtIso,
-          reason: 'pending_timeout',
-          minutesInPending: p.ageMinutes,
-        },
-      });
+      await fbDb
+        .collection('pedidos')
+        .doc(p.id)
+        .update({
+          stage: 'confirmed',
+          finalizedAt: finalizedAtIso,
+          finalizedBy: 'auto/' + minutes + 'min-timeout',
+          autoConfirmed: {
+            triggeredAt: finalizedAtIso,
+            reason: 'pending_timeout',
+            minutesInPending: p.ageMinutes,
+          },
+        });
       // Notificación in-app para el VDE dueño. El listener del frontend la
       // muestra como toast + queda en el bell.
       if (p.data.ownerUid) {
@@ -125,11 +134,23 @@ export async function autoConfirmPendingPedidos({
           });
         }
       }
-      processedIds.push({ id: p.id, clientName: p.data.clientName, ownerUid: p.data.ownerUid, ageMinutes: p.ageMinutes });
-      log('autoConfirmPendingPedidos processed', { pedidoId: p.id, clientName: p.data.clientName, ageMinutes: p.ageMinutes });
+      processedIds.push({
+        id: p.id,
+        clientName: p.data.clientName,
+        ownerUid: p.data.ownerUid,
+        ageMinutes: p.ageMinutes,
+      });
+      log('autoConfirmPendingPedidos processed', {
+        pedidoId: p.id,
+        clientName: p.data.clientName,
+        ageMinutes: p.ageMinutes,
+      });
     } catch (e) {
       errors.push({ id: p.id, err: e && e.message ? e.message : String(e) });
-      log('autoConfirmPendingPedidos error', { pedidoId: p.id, err: e && e.message ? e.message : String(e) });
+      log('autoConfirmPendingPedidos error', {
+        pedidoId: p.id,
+        err: e && e.message ? e.message : String(e),
+      });
     }
   }
 
