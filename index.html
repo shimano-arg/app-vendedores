@@ -5444,7 +5444,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v923';
+const APP_VERSION = 'v924';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -6567,7 +6567,9 @@ async function geocodeAllPendingSapAltas(options){
       const locality = a.localidadFinal || a.localidad || '';
       const province = a.provincia || '';
       if (!address || !province) { skip++; continue; }
-      const geo = await geocodeClientAddress(address, locality, province);
+      // v924: pasar el nombre del comercio para el fallback Places API.
+      const bizNameGeo = a.comercio || a.fantasia || '';
+      const geo = await geocodeClientAddress(address, locality, province, bizNameGeo);
       if (geo && geo.lat != null && geo.lng != null) {
         // Update Firestore con lat/lng + metadata.
         await fbDb.collection('client_applications').doc(a._fsId).set({
@@ -8720,7 +8722,11 @@ window.openSapAltaAddressModal = function(fsId){
   const newCalle = prompt(
     'Editar direccion de:\n' + nombre + ' (SAP ' + (a.cardCodeSap || '') + ')\n' +
     'Provincia: ' + (a.provincia || '') + (currentLoc ? '\nLocalidad: ' + currentLoc : '') +
-    '\n\nIngresa direccion (calle + numero). Luego te preguntamos localidad si queres corregirla.',
+    '\n\nOpciones (v924):\n' +
+    '  1) Calle + numero: "Av. Sarmiento 737"\n' +
+    '  2) Direccion completa pegada de Maps.\n' +
+    '  3) Plus Code de Maps: "F+6X Carmen de Areco" o "9G8F+6X".\n' +
+    '  4) Coordenadas del URL de Maps: "-34.37666, -59.82273".',
     currentCalle
   );
   if (newCalle == null) return; // cancelo
@@ -8770,7 +8776,8 @@ window.openSapAltaAddressModal = function(fsId){
       let geo = null;
       try {
         if (typeof geocodeClientAddress === 'function') {
-          geo = await geocodeClientAddress(trimmed, geocodeLoc, a.provincia || '');
+          // v924: pasar el nombre del comercio para el fallback Places API.
+          geo = await geocodeClientAddress(trimmed, geocodeLoc, a.provincia || '', nombre);
         }
       } catch(e) { console.warn('geocode tras cargar direccion', e); }
       console.log('[edit-address]', {fsId, calle: trimmed, prev: [prevLat, prevLng], nuevo: geo ? [geo.lat, geo.lng] : null, provider: geo && geo.provider});
@@ -8826,7 +8833,7 @@ window.openSapAltaAddressModal = function(fsId){
           }, {merge: true});
           let geo2 = null;
           try {
-            geo2 = await geocodeClientAddress(trimmed, cleanLoc, a.provincia || '');
+            geo2 = await geocodeClientAddress(trimmed, cleanLoc, a.provincia || '', nombre);
           } catch(e) { console.warn('geocode 2nd try', e); }
           if (geo2 && geo2.lat != null && geo2.lng != null) {
             await fbDb.collection('client_applications').doc(fsId).set({
@@ -10261,12 +10268,164 @@ function aplicarEstadoCliente(state){
 //
 // Limite Nominatim: 1 req/seg. Pausa 1.1s entre intentos.
 // El campo precision en el resultado indica que tan exacto fue el match.
-async function geocodeClientAddress(address, locality, provinceCode){
+// v924 (2026-09-14): geocoding con Google Maps + Places API, inline aca
+// porque antes vivia en admin-users.js (chunk lazy, invisible al shell).
+// 4 mejoras: A) coords literales pegadas, B) Plus Code, C) dedupe locality,
+// D) fallback Places API por nombre del comercio.
+var _gmapsApiKeyCacheInline = null;
+window._invalidateGmapsKeyCache = function(){ _gmapsApiKeyCacheInline = null; };
+async function _getGmapsApiKeyInline(){
+  if (_gmapsApiKeyCacheInline) return _gmapsApiKeyCacheInline;
+  try {
+    const snap = await fbDb.collection('app_config').doc('google_maps').get();
+    if (snap.exists) {
+      const d = snap.data() || {};
+      if (d.apiKey) { _gmapsApiKeyCacheInline = d.apiKey; return d.apiKey; }
+    }
+  } catch(e) { console.warn('[gmaps] no se pudo leer api key', e); }
+  return null;
+}
+async function _fetchGmapsGeocodeInline(query, key){
+  const url = 'https://maps.googleapis.com/maps/api/geocode/json'
+    + '?address=' + encodeURIComponent(query)
+    + '&region=ar&components=country:AR&language=es'
+    + '&key=' + encodeURIComponent(key);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    if (data.status === 'OK' && data.results && data.results.length) {
+      const res = data.results[0];
+      const loc = res.geometry && res.geometry.location;
+      if (!loc) return null;
+      const lt = (res.geometry && res.geometry.location_type) || '';
+      let precision = 'address';
+      if (lt === 'APPROXIMATE') precision = 'locality';
+      else if (lt === 'GEOMETRIC_CENTER') precision = 'street';
+      const components = res.address_components || [];
+      const byType = (t) => {
+        const c = components.find(cc => Array.isArray(cc.types) && cc.types.includes(t));
+        return c ? (c.long_name || '') : '';
+      };
+      const detectedLocality = byType('locality') || byType('sublocality') || byType('administrative_area_level_2') || '';
+      const detectedProvince = byType('administrative_area_level_1') || '';
+      return {
+        lat: parseFloat(loc.lat),
+        lng: parseFloat(loc.lng),
+        display: res.formatted_address || query,
+        precision,
+        provider: 'google',
+        locationType: lt,
+        locality: detectedLocality,
+        province: detectedProvince,
+      };
+    }
+    if (data.status === 'ZERO_RESULTS') { console.log('[gmaps] ZERO_RESULTS for:', query); return null; }
+    if (data.status === 'REQUEST_DENIED') { console.error('[gmaps] REQUEST_DENIED:', data.error_message || '(sin detalle)'); return null; }
+    if (data.status === 'OVER_QUERY_LIMIT') { console.error('[gmaps] OVER_QUERY_LIMIT'); return null; }
+    console.warn('[gmaps] status inesperado:', data.status, data.error_message);
+    return null;
+  } catch(e) { console.warn('[gmaps] geocode error:', e); return null; }
+}
+async function _lookupPlaceByNameInline(businessName, address, locality, prov, key){
+  const input = [businessName, address, locality, prov, 'Argentina'].filter(Boolean).join(' ');
+  const url = 'https://maps.googleapis.com/maps/api/place/findplacefromtext/json'
+    + '?input=' + encodeURIComponent(input)
+    + '&inputtype=textquery'
+    + '&fields=' + encodeURIComponent('geometry,formatted_address,place_id,name')
+    + '&language=es'
+    + '&key=' + encodeURIComponent(key);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    if (data.status === 'OK' && Array.isArray(data.candidates) && data.candidates.length) {
+      const c = data.candidates[0];
+      const loc = c.geometry && c.geometry.location;
+      if (!loc) return null;
+      return {
+        lat: parseFloat(loc.lat),
+        lng: parseFloat(loc.lng),
+        display: c.formatted_address || c.name || input,
+        precision: 'address',
+        provider: 'google-places',
+        locationType: 'ROOFTOP',
+        placeId: c.place_id || '',
+        locality: '',
+        province: '',
+      };
+    }
+    if (data.status === 'REQUEST_DENIED') { console.warn('[places] REQUEST_DENIED (Places API no habilitado?):', data.error_message || '(sin detalle)'); return null; }
+    if (data.status === 'ZERO_RESULTS') { console.log('[places] ZERO_RESULTS for:', input); return null; }
+    console.warn('[places] status inesperado:', data.status, data.error_message);
+    return null;
+  } catch(e) { console.warn('[places] fetch error:', e); return null; }
+}
+window.geocodeWithGoogleMaps = async function(address, locality, provinceCode, businessName){
+  const key = await _getGmapsApiKeyInline();
+  if (!key) return null;
+  const addrTrim = String(address || '').trim();
+  if (!addrTrim) return null;
+  const coordMatch = addrTrim.match(/^\s*(-?\d{1,3}\.\d{3,}),\s*(-?\d{1,3}\.\d{3,})\s*$/);
+  if (coordMatch) {
+    const lat = parseFloat(coordMatch[1]);
+    const lng = parseFloat(coordMatch[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      console.log('[gmaps] literal coords detected:', lat, lng);
+      return {
+        lat, lng,
+        display: lat.toFixed(5) + ', ' + lng.toFixed(5) + ' (coords pegadas)',
+        precision: 'address', provider: 'google-literal', locationType: 'ROOFTOP',
+        locality: '', province: '',
+      };
+    }
+  }
+  const plusCodeRe = /\b([23456789CFGHJMPQRVWX]{2,8}\+[23456789CFGHJMPQRVWX]{2,3})\b/i;
+  const plusCodeMatch = addrTrim.match(plusCodeRe);
+  if (plusCodeMatch) {
+    const plusCode = plusCodeMatch[1].toUpperCase();
+    const isGlobal = plusCode.split('+')[0].length >= 8;
+    const plusQuery = isGlobal ? plusCode : [plusCode, locality || '', 'Argentina'].filter(Boolean).join(' ');
+    console.log('[gmaps] Plus Code detected:', plusCode, 'isGlobal:', isGlobal, 'query:', plusQuery);
+    const plusRes = await _fetchGmapsGeocodeInline(plusQuery, key);
+    if (plusRes) return Object.assign({}, plusRes, {precision: 'address', provider: 'google-plus-code'});
+  }
+  const prov = (typeof titleCase === 'function') ? titleCase(provinceCode || '') : (provinceCode || '');
+  const addrLower = addrTrim.toLowerCase();
+  const locTrim = String(locality || '').trim();
+  const locLower = locTrim.toLowerCase();
+  const provLower = String(prov || '').toLowerCase();
+  const hasLocInAddr = locLower && addrLower.includes(locLower);
+  const hasProvInAddr = provLower && (addrLower.includes(provLower) || addrLower.includes('provincia de ' + provLower));
+  const parts = [addrTrim];
+  if (!hasLocInAddr && locTrim) parts.push(locTrim);
+  if (!hasProvInAddr && prov) parts.push(prov);
+  parts.push('Argentina');
+  const fullAddr = parts.join(', ');
+  console.log('[gmaps] geocode query:', fullAddr, {hasLocInAddr, hasProvInAddr});
+  const geoRes = await _fetchGmapsGeocodeInline(fullAddr, key);
+  if (!geoRes) return null;
+  const lt = geoRes.locationType || '';
+  const bizNameTrim = String(businessName || '').trim();
+  const shouldFallback = bizNameTrim && (lt === 'APPROXIMATE' || lt === 'GEOMETRIC_CENTER');
+  if (shouldFallback) {
+    console.log('[gmaps] geocode precision', lt, '- intentando Places con businessName:', bizNameTrim);
+    try {
+      const placeRes = await _lookupPlaceByNameInline(bizNameTrim, addrTrim, locTrim, prov, key);
+      if (placeRes) { console.log('[gmaps] Places match:', placeRes.display); return placeRes; }
+    } catch(e) { console.warn('[gmaps] Places lookup error, keeping geocode result:', e); }
+  }
+  return geoRes;
+};
+
+async function geocodeClientAddress(address, locality, provinceCode, businessName){
   // PROVIDER 1: Google Maps Geocoding API (si hay key configurada).
   // Mucho mejor cobertura que OSM en AR (sobre todo localidades chicas
   // y zonas rurales). Si tiene key y matchea, devolvemos directo.
+  // v924: businessName opcional. Si viene, el fallback Places puede matchear
+  // el negocio por nombre cuando la calle no esta bien geocodificada.
   try {
-    const gmapsResult = await geocodeWithGoogleMaps(address, locality, provinceCode);
+    const gmapsResult = await window.geocodeWithGoogleMaps(address, locality, provinceCode, businessName);
     if (gmapsResult) {
       console.log('[geocode] match via Google Maps:', gmapsResult.locationType, gmapsResult.display);
       return gmapsResult;
@@ -10350,6 +10509,8 @@ window.darAltaClienteModal = async function(){
   }
   const parts = currentClientModalKey.split('|'); // [tipo, province, locName, clientName]
   const provinceCode = parts[1];
+  // v924: parts[3] = nombre del cliente, para el fallback Places API.
+  const clientNameForGeo = parts[3] || '';
   const state = getClientState(currentClientModalKey);
   const msg = state === 'cancelado'
     ? 'Reactivar este cliente y darlo de alta?\n\nDirección: ' + address + '\nLocalidad: ' + locality
@@ -10359,7 +10520,7 @@ window.darAltaClienteModal = async function(){
   if (statusEl) statusEl.innerHTML = '<span style="color:#1d4ed8">Buscando coordenadas en OpenStreetMap (probando variantes)...</span>';
   let geo = null;
   try {
-    geo = await geocodeClientAddress(address, locality, provinceCode);
+    geo = await geocodeClientAddress(address, locality, provinceCode, clientNameForGeo);
   } catch(e) {
     console.warn('[geocode] error:', e);
     if (statusEl) statusEl.innerHTML = '<span style="color:var(--color-danger-strong)">Error de red al geocodificar. Revisá tu conexión.</span>';

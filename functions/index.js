@@ -622,7 +622,15 @@ export const geminiOcrProxy = onCall(
     region: REGION,
     secrets: [GEMINI_API_KEY],
     cors: true,
-    enforceAppCheck: false,
+    // v918 (2026-09-14, SecAudit Sprint 1 E1.2): App Check obligatorio.
+    // Antes: false con TODO. Un IDToken robado via XSS/phishing/browser ext
+    // era usable desde curl para burn Gemini credit ilimitado. Ahora exige
+    // token App Check emitido por el browser via reCAPTCHA v3 (activado
+    // post-login en index.html:21209 activateAppCheckOnce).
+    // Rollout gradual — geminiOcrProxy es el primero (menos flow-critico).
+    // Si empiezan a llegar reports de rendicion falla, chequear que el user
+    // no tenga throttle 24h en reCAPTCHA (ver reference_appcheck_throttle_24h).
+    enforceAppCheck: true,
     memory: '512MiB',
     timeoutSeconds: 60,
   },

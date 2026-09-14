@@ -100,9 +100,40 @@ service cloud.firestore {
       // pueden crear pedidos on-behalf-of vendedores, y necesitan poder
       // resolver ASIG lines cross-vendor para el flow waitlist. VDEs siguen
       // restringidos a sus propios pedidos.
-      allow update, delete: if isAdminOrGerente()
+      // v918 (2026-09-14, SecAudit Sprint 1 E1.3 HIGH-05 + CHAIN-01):
+      // vendor update queda restringido a un whitelist de campos con
+      // affectedKeys().hasOnly(). Antes no habia hasOnly -> VDE malicioso
+      // podia editar transferidoSAP=null y confirmar el pedido de nuevo,
+      // gatillando SQ duplicada en SAP + comision doble (CHAIN-01), o
+      // tamperear netAmountArs/clientCardCode. Ahora los campos sensibles
+      // (transferidoSAP, transferError, sendingSapLock, orderNumberPrev/*,
+      // sapEstado*, ownerUid, ownerEmail, ownerVendor, key, tipo, etc)
+      // solo pueden ser escritos por CFs (Admin SDK) o admin/gerente.
+      //
+      // Delete: cerrado para vendor (era abierto antes por ownership) —
+      // un vendedor no deberia poder wipear su propio pedido confirmado.
+      // Admin/gerente/interno siguen igual (v747 blanket para interno).
+      allow update: if isAdminOrGerente()
         || isInterno()
-        || (isVendor() && resource.data.ownerUid == request.auth.uid);
+        || (
+          isVendor()
+          && resource.data.ownerUid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            // Delivery info (usuario cambia transportista/sucursal/retiro post-envio)
+            'formaEntrega', 'deliveryDetails',
+            // Contenido del pedido (edit lines pre-transfer, aggregate updates)
+            'lines', 'netAmountArs', 'subtotalArs', 'discountPct', 'discountSnapshot',
+            'condicionPago',
+            // Transiciones de estado (waitlist -> pending -> confirmed)
+            'stage', 'confirmedAt', 'finalizedAt', 'closedAt',
+            // Metadata del pedido
+            'observaciones', 'notes', 'clientNotes', 'updatedAt', 'updatedBy',
+            'month', 'monthIdx', 'year',
+            // orderNumber: incluido por decision Mariano 2026-09-14 (Sprint 1 Q2)
+            'orderNumber'
+          ])
+        );
+      allow delete: if isAdminOrGerente() || isInterno();
     }
 
     match /campaigns/{campaignId} {
