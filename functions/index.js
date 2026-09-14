@@ -827,7 +827,12 @@ export const dailyFirestoreBackup = onSchedule(
  *
  * Autorizacion:
  *   - Requiere request.auth (usuario logueado)
- *   - Sin gate por rol: cualquier user de la app puede ver estado depósito
+ *   - v928 (2026-09-14, SecAudit Sprint 1 E1.7 HIGH-10): domain gate
+ *     @shimano.com.ar/@shimano.uy + role check contra roles/{uid}.
+ *     Rechaza unassigned/viewer + roles no-Shimano. Antes: cualquier
+ *     authenticated user enumeraba 365d de shipments SETUP por cualquier
+ *     cardCode -> logistics data exfil + SETUP API quota burn.
+ *   - TODO Sprint 2: scope filterCardCode a myVendorKey.
  *
  * Ver Desktop\SETUP-INTEGRACION\scripts\probe-setup-api.mjs para diagnóstico
  * empírico de la API.
@@ -845,6 +850,25 @@ export const setupGetMovimientos = onCall(
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Login required');
     }
+    // v928 (SecAudit E1.7 HIGH-10): domain gate + role check.
+    const _email = String(request.auth.token?.email || '').toLowerCase();
+    if (!(_email.endsWith('@shimano.com.ar') || _email.endsWith('@shimano.uy'))) {
+      throw new HttpsError('permission-denied', 'Solo @shimano.com.ar o @shimano.uy');
+    }
+    const _roleSnap = await getFirestore().doc(`roles/${request.auth.uid}`).get();
+    const _role = (_roleSnap.data() || {}).role || null;
+    if (!['admin', 'gerente', 'vendedor', 'interno'].includes(_role)) {
+      throw new HttpsError(
+        'permission-denied',
+        `Rol ${_role} no autorizado para setupGetMovimientos`
+      );
+    }
+    console.log('setupGetMovimientos OK gate', {
+      uid: request.auth.uid,
+      email: _email,
+      role: _role,
+      cardCode: String((request.data && request.data.cardCode) || '').trim() || null,
+    });
 
     const SETUP_URL = 'https://nur-integra.setuponline.com.ar';
     const SETUP_USER = 'nur';

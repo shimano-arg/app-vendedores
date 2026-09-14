@@ -5444,7 +5444,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v928';
+const APP_VERSION = 'v929';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -7270,9 +7270,6 @@ const DEPT_VENDOR_OVERRIDE = {
   // como Mauricio; el override alinea la geo del mapa.
   'BUENOS AIRES|Salto': 'MAURICIO GIL',
   'BUENOS AIRES|San Antonio De Areco': 'MAURICIO GIL',
-  // v928 (2026-09-14): Carmen de Areco + Capitan Sarmiento tambien a Mauricio.
-  'BUENOS AIRES|Carmen De Areco': 'MAURICIO GIL',
-  'BUENOS AIRES|Capitan Sarmiento': 'MAURICIO GIL',
 };
 
 function deptEffectiveVendor(feat){
