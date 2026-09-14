@@ -332,6 +332,24 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // v913 (2026-09-13): contador atomico para reservar orderNumber en
+    // pedidos. Reemplaza el max(revisionWaitlist)+1 client-side que colisiono
+    // en produccion (ORDEN 131 y 144 duplicadas). Solo un doc valido:
+    // 'orderNumber'. Monotonicidad enforceada: value solo puede crecer, nunca
+    // retroceder. Read abierto a isReader (necesario para la transaccion).
+    match /counters/{docId} {
+      allow read: if isReader();
+      allow create: if isReader()
+                     && docId == 'orderNumber'
+                     && request.resource.data.value is int
+                     && request.resource.data.value > 0;
+      allow update: if isReader()
+                     && docId == 'orderNumber'
+                     && request.resource.data.value is int
+                     && request.resource.data.value > resource.data.value;
+      allow delete: if false;
+    }
+
     // v542 E2: audit log del sync SAP Invoices. Escrito por Cloud Function
     // (Admin SDK, bypass rules). Lectura para admin/gerente (monitoring).
     match /sap_sync_log/{logId} {

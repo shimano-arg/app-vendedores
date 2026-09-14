@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v882 en dev (2026-09-11)** — PERF quick-wins CSS: `contain`/`content-visibility`/`will-change` en mapa + modales + tablas grandes. Ver §41. |
-| **APP_VERSION** | `v882` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v913 en dev (2026-09-13)** — Fix bug ORDEN duplicada: `reserveNextOrderNumber` transacción atómica sobre `counters/orderNumber` reemplaza `max(revisionWaitlist)+1` que colisionaba. Ver §41. |
+| **APP_VERSION** | `v913` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,30 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v882
+## 41) Changelog v300 → v913
+
+### v913 (2026-09-13) — Fix bug ORDEN duplicada: contador atómico en Firestore
+
+**Pedido Mariano**: dos pedidos confirmados aparecían con el mismo número de orden (`ORDEN 144` — MARIA AGUSTINA PRAT y PESCAR.INFO SHOP). Query a `pedidos_raw_raw_latest` (BQ) reveló que en realidad son **3 colisiones activas**: ORDEN 144 × 3 (BROBRO SA, PESCAR.INFO, MARIA AGUSTINA — 10-11 sept) y ORDEN 131 × 2 (PATRIARCA, TAMBORENEA — 9 sept).
+
+**Root cause**: los flujos `Revision Excel → waitlist` (`index.html:15502` original) y `Crear manual → waitlist` (`index.html:18754` original) computaban `orderNumber` con `max(revisionWaitlist) + 1` sobre el snapshot **live** de `revision_waitlist`. Cuando un pedido pasa de waitlist a confirmado, el doc se **borra** de `revision_waitlist` (`index.html:19204 _pendingWaitlistDelete`), así que el máximo retrocedía. Escenario garantizado: waitlist tiene 143,144,145 → se confirma 144 → sale del waitlist → el próximo vendedor recalcula max=145 → asigna 146 ✓; pero cuando también salen 145 y 143, el próximo asigna un número ya usado. Secundariamente había race window entre 2 vendedores creando simultáneamente (ambos ven el mismo max).
+
+**Fix**: nuevo helper `reserveNextOrderNumber()` (`index.html:14610`) usa `fbDb.runTransaction` sobre `counters/orderNumber`:
+
+```js
+const next = Math.max(counter.value ?? 0, localWaitlistMax) + 1;
+t.set(ref, { value: next, updatedAt: serverTimestamp() }, { merge: true });
+return String(next);
+```
+
+- **Atomicidad**: la transacción retryea automáticamente ante conflicto — 2 vendedores concurrentes ven distintos snapshots y el segundo hace retry.
+- **Monotonicidad**: `firestore.rules` (nueva sección `match /counters/{docId}`) enforcea que `request.resource.data.value > resource.data.value` — el contador nunca puede retroceder.
+- **Defense-in-depth**: si por alguna razón el counter queda stale (< max del waitlist local), toma `max(counter, localMax)` como base — nunca regala un número ya en uso.
+- Reemplaza los 2 bloques `max+1` idénticos (`Revision Excel` y `Crear Manual`).
+
+**Renumbering de duplicados existentes** (post-deploy): script Python `scripts/_fix_dup_order_numbers.py` con `--apply` renumera los 3 pedidos posteriores al primero de cada colisión (TAMBORENEA 131→151, PESCAR.INFO 144→152, MARIA 144→153) y setea `counters/orderNumber.value` al max global. Corre con ADC del gcloud del usuario. En dry-run confirma plan antes de escribir.
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v913`. Sin cambios en `src/*` — no requiere rebuild del bundle.
 
 ### v882 (2026-09-11) — PERF quick-wins CSS: aislar mapa + modales + tablas grandes
 
