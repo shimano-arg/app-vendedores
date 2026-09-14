@@ -1083,24 +1083,16 @@ describe('/allowed_emails split get/list (v934 MED-05 VULN-208)', () => {
     await seedDoc('allowed_emails/other@x.com', { granted: true });
   });
   it('vendor puede get de un email especifico (flow login check)', async () => {
-    await assertSucceeds(
-      getDoc(doc(authedDb(UID.vendor), 'allowed_emails', 'test@x.com'))
-    );
+    await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'allowed_emails', 'test@x.com')));
   });
   it('unassigned puede get de un email especifico', async () => {
-    await assertSucceeds(
-      getDoc(doc(authedDb(UID.unassigned), 'allowed_emails', 'test@x.com'))
-    );
+    await assertSucceeds(getDoc(doc(authedDb(UID.unassigned), 'allowed_emails', 'test@x.com')));
   });
   it('CRIT: vendor NO puede list la coleccion completa (staff directory enum)', async () => {
-    await assertFails(
-      getDocs(collection(authedDb(UID.vendor), 'allowed_emails'))
-    );
+    await assertFails(getDocs(collection(authedDb(UID.vendor), 'allowed_emails')));
   });
   it('CRIT: unassigned NO puede list', async () => {
-    await assertFails(
-      getDocs(collection(authedDb(UID.unassigned), 'allowed_emails'))
-    );
+    await assertFails(getDocs(collection(authedDb(UID.unassigned), 'allowed_emails')));
   });
   it('admin/gerente pueden list (uso legitimo panel admin)', async () => {
     await assertSucceeds(getDocs(collection(authedDb(UID.admin), 'allowed_emails')));
