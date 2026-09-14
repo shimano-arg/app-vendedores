@@ -5479,7 +5479,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v930';
+const APP_VERSION = 'v932';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -6310,8 +6310,9 @@ const GeocodePinsControl = L.Control.extend({
     btn.title = 'Reubicar pines: geocodifica todas las tiendas SAP que tienen direccion pero estan en el centro de la provincia';
     btn.setAttribute('role', 'button');
     btn.setAttribute('aria-label', 'Reubicar pines en el mapa');
-    btn.innerHTML = ''; // simbolo pin (round pushpin)
-    btn.style.cssText = 'font-size:16px;font-weight:800;color:var(--text-primary);text-align:center;line-height:30px;cursor:pointer;display:block;width:30px;height:30px';
+    // v931 (2026-09-14): SVG pin (map marker) — emoji original se perdio.
+    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="vertical-align:middle;pointer-events:none"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>';
+    btn.style.cssText = 'font-size:16px;font-weight:800;color:var(--text-primary);text-align:center;line-height:30px;cursor:pointer;display:flex;align-items:center;justify-content:center;width:30px;height:30px';
     L.DomEvent.on(btn, 'click', L.DomEvent.stop);
     L.DomEvent.on(btn, 'click', function(){
       if (userRole !== 'admin' && userRole !== 'gerente') {
@@ -6340,8 +6341,9 @@ const RecalcOutlinesControl = L.Control.extend({
     btn.title = 'Recalcular contornos de zonas (despues de reasignar localidades/provincias en ZONAS)';
     btn.setAttribute('role', 'button');
     btn.setAttribute('aria-label', 'Recalcular contornos de zonas');
-    btn.innerHTML = ''; // symbol: polygon outline
-    btn.style.cssText = 'font-size:18px;font-weight:800;color:var(--text-primary);text-align:center;line-height:30px;cursor:pointer;display:block;width:30px;height:30px';
+    // v931 (2026-09-14): SVG polygon outline (recalcular contornos de zonas).
+    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true" style="vertical-align:middle;pointer-events:none"><polygon points="12,3 22,10 18,20 6,20 2,10"/></svg>';
+    btn.style.cssText = 'font-size:18px;font-weight:800;color:var(--text-primary);text-align:center;line-height:30px;cursor:pointer;display:flex;align-items:center;justify-content:center;width:30px;height:30px';
     L.DomEvent.on(btn, 'click', L.DomEvent.stop);
     L.DomEvent.on(btn, 'click', function(){
       if (userRole !== 'admin' && userRole !== 'gerente') {

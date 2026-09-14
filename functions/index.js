@@ -320,7 +320,6 @@ export const onQuotationSentNotify = onDocumentWritten(
       const { subject, text, html } = buildEmailContent(event.params.pedidoId, afterData);
 
       // Lazy import de nodemailer para no cargarlo si el trigger no dispara.
-      // @ts-expect-error — nodemailer no tiene types built-in en este proyecto
       const nodemailerMod = await import('nodemailer');
       const nodemailer = nodemailerMod.default || nodemailerMod;
 
