@@ -15,8 +15,34 @@ function makeFakeFbDb(initialState = {}) {
   return {
     _writes: writes,
     _store: store,
+    // v939 (SecAudit MED-14): mock de runTransaction. Reejecuta la fn una
+    // sola vez con un `tx` que expone .get() (paralelo a doc.get()) y
+    // .update() que persiste al store. Retry+conflict detection real no se
+    // simulan - alcanza para probar happy path + skip cuando state != BO.
+    async runTransaction(fn) {
+      const tx = {
+        async get(refLike) {
+          return refLike._read();
+        },
+        update(refLike, data) {
+          refLike._commitUpdate(data);
+        },
+      };
+      return await fn(tx);
+    },
     doc(path) {
       return {
+        async _read() {
+          return this.get();
+        },
+        _commitUpdate(data) {
+          if (path.startsWith('pedidos/')) {
+            const id = path.split('/')[1];
+            const p = store.pedidos.find((x) => x.id === id);
+            if (p) p.data = { ...p.data, ...data };
+          }
+          writes.push({ type: 'update', path, data });
+        },
         async get() {
           if (path === 'app_config/sap_sync_state') {
             return { exists: !!store.syncState, data: () => store.syncState || {} };
@@ -341,5 +367,89 @@ describe('runFifoAssign — shadow mode', () => {
     const r = await runFifoAssign(deps, { warehouseBreakdown: {} }, { warehouseBreakdown: {} });
     expect(r.skusChecked).toBe(0);
     expect(r.promotions).toEqual([]);
+  });
+});
+
+// v939 (SecAudit Sprint 2 MED-14) — runTransaction + skip si state cambió
+describe('applyAssignments — v939 MED-14 race defense', () => {
+  it('NO pisa la línea si state cambió a CANCELLED (VDE cancelo en el race window)', async () => {
+    // Seed: pedido con linea BO -> el detector FIFO la marco como candidata.
+    // Antes de que apply corra, el VDE cambia el state a 'CANCELLED'.
+    const fbDb = makeFakeFbDb({
+      syncState: { mode: 'active' },
+      pedidos: [
+        {
+          id: 'p1',
+          data: {
+            clientCardCode: 'C1',
+            confirmedAt: '2026-09-14T18:00:00Z',
+            closedAt: null,
+            lines: [
+              { code: 'X', qtyOpen: 5, state: 'CANCELLED', cancelledAt: '2026-09-14T20:00:00Z' },
+            ],
+          },
+        },
+      ],
+    });
+    const deps = { fbDb, log: vi.fn(), now: () => new Date('2026-09-14T20:01:00Z') };
+    const before = { warehouseBreakdown: {} };
+    const after = { warehouseBreakdown: { X: { 11: 10 } } };
+    await runFifoAssign(deps, before, after);
+    // La linea NO fue promoted a ASIG - state sigue en CANCELLED
+    expect(fbDb._store.pedidos[0].data.lines[0].state).toBe('CANCELLED');
+    // No write via tx.update (transaction skipeo)
+    const updates = fbDb._writes.filter((w) => w.type === 'update' && w.path === 'pedidos/p1');
+    expect(updates.length).toBe(0);
+  });
+
+  it('NO pisa si state cambió a RECYCLED (otro flow ya movio la linea)', async () => {
+    const fbDb = makeFakeFbDb({
+      syncState: { mode: 'active' },
+      pedidos: [
+        {
+          id: 'p1',
+          data: {
+            clientCardCode: 'C1',
+            confirmedAt: '2026-09-14T18:00:00Z',
+            closedAt: null,
+            lines: [{ code: 'X', qtyOpen: 5, state: 'RECYCLED', recycledIntoPedidoId: 'p2' }],
+          },
+        },
+      ],
+    });
+    const deps = { fbDb, log: vi.fn(), now: () => new Date('2026-09-14T20:01:00Z') };
+    await runFifoAssign(
+      deps,
+      { warehouseBreakdown: {} },
+      { warehouseBreakdown: { X: { 11: 10 } } }
+    );
+    expect(fbDb._store.pedidos[0].data.lines[0].state).toBe('RECYCLED');
+    const updates = fbDb._writes.filter((w) => w.type === 'update' && w.path === 'pedidos/p1');
+    expect(updates.length).toBe(0);
+  });
+
+  it('SI promote si state sigue en BO (happy path intacto)', async () => {
+    const fbDb = makeFakeFbDb({
+      syncState: { mode: 'active' },
+      pedidos: [
+        {
+          id: 'p1',
+          data: {
+            clientCardCode: 'C1',
+            confirmedAt: '2026-09-14T18:00:00Z',
+            closedAt: null,
+            lines: [{ code: 'X', qtyOpen: 5, state: 'BO' }],
+          },
+        },
+      ],
+    });
+    const deps = { fbDb, log: vi.fn(), now: () => new Date('2026-09-14T20:01:00Z') };
+    await runFifoAssign(
+      deps,
+      { warehouseBreakdown: {} },
+      { warehouseBreakdown: { X: { 11: 10 } } }
+    );
+    expect(fbDb._store.pedidos[0].data.lines[0].state).toBe('ASIG');
+    expect(fbDb._store.pedidos[0].data.lines[0].asigAt).toBeDefined();
   });
 });

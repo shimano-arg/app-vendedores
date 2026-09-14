@@ -43,6 +43,9 @@ import { syncSapInvoices } from './core/invoice-sync-core.js';
 // v774 (2026-09-02): notif email al enviar oferta a SAP (pedido Mariano).
 import { buildEmailContent, sendEmail, shouldNotify } from './core/notify-quotation-sent-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
+// v939 (SecAudit Sprint 2 MED-15 VULN-L004+L015): rate limit para sapProxy
+// + geminiOcrProxy. Contador atomico en Firestore rate_limits/{uid}.
+import { checkAndIncrementRateLimit, RATE_LIMITS } from './core/rate-limit-core.js';
 import { checkNewRendicionDuplicate } from './core/rendicion-duplicate-core.js';
 import { handleSapProxy } from './core/sap-proxy-core.js';
 import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
@@ -103,6 +106,24 @@ export const sapProxy = onCall(
   },
   async (request) => {
     const db = getFirestore();
+    // v939 (SecAudit MED-15): rate limit ANTES de leer sapConfig/hacer login.
+    // Un token comprometido no debe poder burnear reads de app_config ni
+    // gastar SL sessions haciendo login+logout en loop.
+    if (request.auth) {
+      const rl = await checkAndIncrementRateLimit(
+        { fbDb: db, log: (m, e) => console.log(m, e || {}) },
+        request.auth.uid,
+        'sapProxy',
+        RATE_LIMITS.sapProxy.threshold,
+        RATE_LIMITS.sapProxy.windowMs
+      );
+      if (!rl.allowed) {
+        throw new HttpsError(
+          'resource-exhausted',
+          `sapProxy rate limit alcanzado (${rl.threshold}/hr). Reset: ${rl.resetAt}`
+        );
+      }
+    }
     const sapCfgSnap = await db.doc('app_config/sap_integration').get();
     const sapCfg = sapCfgSnap.data() || {};
     const sl = sapCfg.serviceLayer || {};
@@ -641,6 +662,24 @@ export const geminiOcrProxy = onCall(
     timeoutSeconds: 60,
   },
   async (request) => {
+    // v939 (SecAudit MED-15): rate limit para geminiOcrProxy - cada request
+    // consume tokens Gemini pagos. Sin limit, un token comprometido burnea
+    // credit ilimitado.
+    if (request.auth) {
+      const rl = await checkAndIncrementRateLimit(
+        { fbDb: getFirestore(), log: (m, e) => console.log(m, e || {}) },
+        request.auth.uid,
+        'geminiOcrProxy',
+        RATE_LIMITS.geminiOcrProxy.threshold,
+        RATE_LIMITS.geminiOcrProxy.windowMs
+      );
+      if (!rl.allowed) {
+        throw new HttpsError(
+          'resource-exhausted',
+          `geminiOcrProxy rate limit alcanzado (${rl.threshold}/hr). Reset: ${rl.resetAt}`
+        );
+      }
+    }
     try {
       return await runGeminiOcr(
         {

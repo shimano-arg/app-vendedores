@@ -177,6 +177,17 @@ export function computeAssignmentsFifo(candidates, availableStock) {
 /**
  * Aplica las asignaciones al Firestore (solo en modo 'active'). Modifica
  * pedidos.lines[i].state='ASIG' + asigAt=ISO now.
+ *
+ * v939 (2026-09-14, SecAudit Sprint 2 MED-14 VULN-L007): envuelto en
+ * runTransaction para eliminar el race entre snap.get() y ref.update().
+ * Antes: CF FIFO leia lines, el VDE cancelaba una linea BO desde la app en
+ * la ventana (ms), CF escribia lines pisando la cancelacion sin ver el
+ * cambio. Ahora la transaction re-lee dentro del ciclo y aborta+retry si
+ * el doc cambio - Firestore garantiza serializabilidad. Ademas, si la
+ * linea que ibamos a promover a ASIG ya no esta en state 'BO' (fue
+ * cancelada/expired/reciclada por otro flow), se skipea sin escribir para
+ * no clobbear el nuevo estado.
+ *
  * @param {FifoAssignDeps} deps
  * @param {Assignment[]} assignments
  */
@@ -187,16 +198,27 @@ async function applyAssignments(deps, assignments) {
   // Con volumen esperado (<10 assignments por SKU) es viable secuencial.
   for (const a of assignments) {
     const ref = deps.fbDb.collection('pedidos').doc(a.pedidoId);
-    const snap = await ref.get();
-    if (!snap.exists) continue;
-    const data = snap.data();
-    const lines = Array.isArray(data.lines) ? [...data.lines] : [];
-    if (!lines[a.lineIndex]) continue;
-    lines[a.lineIndex] = Object.assign({}, lines[a.lineIndex], {
-      state: 'ASIG',
-      asigAt: nowIso,
+    // v939: transaction para atomic read-mutate-write. Firestore reintenta
+    // hasta 5 veces automatico si detecta conflict.
+    await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return;
+      const data = snap.data();
+      const lines = Array.isArray(data.lines) ? [...data.lines] : [];
+      if (!lines[a.lineIndex]) return;
+      // v939: defense-in-depth. Solo promover si la linea sigue en BO.
+      // Si un VDE ya la cancelo/reciclo mientras estabamos calculando el
+      // FIFO, no pisar el nuevo state.
+      const currentState = lines[a.lineIndex].state;
+      if (currentState && currentState !== 'BO') {
+        return; // linea ya no esta en BO, skip sin escribir
+      }
+      lines[a.lineIndex] = Object.assign({}, lines[a.lineIndex], {
+        state: 'ASIG',
+        asigAt: nowIso,
+      });
+      tx.update(ref, { lines, updatedAt: nowIso });
     });
-    await ref.update({ lines, updatedAt: nowIso });
   }
 }
 
