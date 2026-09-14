@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v921 en dev (2026-09-14)** — **auto-confirmación de pedidos estancados**: nueva Cloud Function scheduled `autoConfirmPendingPedidosCF` cada 2 min promueve pedidos con `stage='pending'` a `stage='confirmed'` cuando llevan > 10 min sin que el VDE los finalice; el trigger `onPedidoConfirmedSendToSap` (v818) los manda a SAP. Kill switch en `app_config/auto_confirm.enabled`, timeout en `.minutesTimeout`. UI: chip countdown "Auto-confirma en mm:ss" en cada card de Pendientes + notificación in-app al VDE dueño. Ver §41. |
-| **APP_VERSION** | `v921` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v922 en dev (2026-09-14)** — **fix mapa**: cuando se reasignaba una localidad sin POINT desde el modal Reasignación → "Por localidad" (v920), el override se guardaba en `vendor_overrides` pero el partido en el mapa seguía pintado con el color de `PROVINCE_VENDOR_OVERRIDE`. Ahora `deptEffectiveVendor` consulta el `vendor_overrides` de Firestore (scope LOC + PROV) antes del hardcode de provincia. Ver §41. |
+| **APP_VERSION** | `v922` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,45 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v921
+## 41) Changelog v300 → v922
+
+### v922 (2026-09-14) — Fix color del partido en el mapa post-reasignación "Por localidad" (bug v920)
+
+**Bug reportado por Mariano**: reasignó "Carmen de Areco" (localidad sin POINT, solo con 1 LEAD) a Mauricio desde el modal Reasignación → "Por localidad" (feature nueva de v920). El modal reflejaba el cambio (`ASIGNACIÓN ACTUAL: VDE: MAURICIO GIL`), pero al Refrescar Mapa el partido de Carmen de Areco seguía pintado con el color de Gonzalo (default de Buenos Aires).
+
+**Causa raíz**: `deptEffectiveVendor(feat)` en `index.html:7270` decide el color del polígono con esta prioridad:
+1. `DEPT_VENDOR_OVERRIDE[province|name]` — hardcode JS. Carmen de Areco no está.
+2. `PROVINCE_VENDOR_OVERRIDE[province]` — hardcode JS. Buenos Aires **sí está**, devuelve el default (Gonzalo).
+3. Sólo si no hay hardcode, itera POINTS del partido (`pointsByDept[k]`) y toma el vendor mayoritario. Carmen de Areco no tiene POINTS → `pts.length === 0` → return `feat.properties.vendor` (el original del Excel).
+
+La función **nunca consultaba `vendorOverrides`** (los docs de Firestore que escribe el modal Reasignación). Para partidos con POINTs, `getEffectiveVendorForClient` sí los consulta y el color se computa del conteo. Para partidos sin POINT — como Carmen de Areco cuando solo hay LEADs huérfanos — el override quedaba invisible al mapa.
+
+**Fix**: agregar en `deptEffectiveVendor` (justo antes de `PROVINCE_VENDOR_OVERRIDE`) el lookup en `vendorOverrides`:
+
+```js
+if (typeof vendorOverrides !== 'undefined' && vendorOverrides) {
+  const locKey = 'LOC|' + feat.properties.province + '|' + feat.properties.name;
+  const locOverride = vendorOverrides[locKey];
+  if (locOverride && locOverride.newVendor) return locOverride.newVendor;
+  const provKeyFs = 'PROV|' + feat.properties.province;
+  const provOverrideFs = vendorOverrides[provKeyFs];
+  if (provOverrideFs && provOverrideFs.newVendor) return provOverrideFs.newVendor;
+}
+```
+
+Cubre dos casos:
+- **LOC override**: la localidad y el partido tienen el mismo nombre (caso típico Buenos Aires: partido y ciudad cabecera homónimos, ej. Carmen de Areco, San Antonio de Areco, Saladillo). El override de v920 se aplica correctamente.
+- **PROV override** (bonus): reasignar toda una provincia desde el tab "Por provincia" ahora también afecta el color del partido en el mapa aunque no tenga POINTs.
+
+**Limitación**: si un partido tiene múltiples localidades homónimas de otras provincias, o si la localidad reasignada tiene un nombre distinto al partido (ej. una localidad rural pequeña dentro de un partido más grande), el fix no la cubre. Ese caso es raro para localidades sin POINT — se puede reasignar por tienda desde el tab "Por tienda" cuando aparezca un POINT allá.
+
+**Diff**:
+- `index.html:7270-7304` — nuevo bloque LOC + PROV lookup en `deptEffectiveVendor`.
+- APP_VERSION + CACHE_VERSION → `v922`. Cambio 100% inline (no toca bundle).
+
+**Cómo verificar**: modal Reasignación → tab "Por localidad" → seleccionar "Carmen de Areco" → reasignar a Mauricio → confirmar → tocar "Refrescar Mapa". El partido de Carmen de Areco debe pintarse con el color de Mauricio (verde-oliva) en lugar del default de la provincia.
+
+---
 
 ### v921 (2026-09-14) — Auto-confirmación de pedidos estancados en Pendientes > 10 min
 
