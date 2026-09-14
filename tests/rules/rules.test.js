@@ -116,6 +116,17 @@ describe('unassigned role', () => {
     await assertFails(setDoc(doc(db, 'roles', newUid), { role: 'gerente' }));
     await assertFails(setDoc(doc(db, 'roles', newUid), { role: 'vendedor' }));
   });
+  // v917 (2026-09-14, SecAudit Sprint 0 CRIT-01): auto-escalation admin.
+  it('NO puede crearse a sí mismo como admin (auto-escalation cerrada v917)', async () => {
+    const newUid = 'uid-fresh-3';
+    const db = authedDb(newUid, { email: 'attacker@shimano.com.ar' });
+    await assertFails(setDoc(doc(db, 'roles', newUid), { role: 'admin' }));
+  });
+  it('bot.shimano.pesca sí puede crearse como admin (bootstrap flow)', async () => {
+    const newUid = 'uid-boot';
+    const db = authedDb(newUid, { email: 'bot.shimano.pesca@gmail.com' });
+    await assertSucceeds(setDoc(doc(db, 'roles', newUid), { role: 'admin' }));
+  });
 });
 
 // ============================================================

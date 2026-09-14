@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v916 en dev (2026-09-14)** — FIX v915: agregar override `#pane-pedidos .confirmed-card.cc-error` en `apple-design.css` con `!important`. El fondo rojo de v915 no se veía porque `apple-design.css` tenía `background:#fff !important` con mayor especificidad. Ver §41. |
-| **APP_VERSION** | `v916` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v917 en dev (2026-09-14)** — **SecAudit Sprint 0**: cierra los 2 findings CRITICAL. CRIT-01: `roles/{uid}` create bloquea auto-escalation a admin (solo `bot.shimano.pesca` puede setearse admin en bootstrap). CRIT-02: `sapProxy` whitelist (method, resource) + bloquea path traversal — admin comprometido ya no puede `POST /Invoices`, `POST /JournalEntries`, `DELETE /Items`, etc. Ver §41. |
+| **APP_VERSION** | `v917` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,86 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v916
+## 41) Changelog v300 → v917
+
+### v917 (2026-09-14) — SecAudit Sprint 0: cierra 2 CRITICAL findings
+
+**Contexto**: audit de ciberseguridad completo (8 agentes paralelos, `SECURITY_AUDIT_2026-09-14/`) identificó 2 findings CRITICAL con confianza HIGH. Ambos cerrados en este PR.
+
+#### CRIT-01 — Auto-escalation admin cerrada (`firestore.rules:47-56`)
+
+**Antes**:
+```
+allow create: if request.auth != null && request.auth.uid == uid
+               && request.resource.data.role in ['unassigned', 'admin'];
+```
+Cualquier usuario autenticado podía crear su propio `roles/{uid}` con `role: 'admin'` en un solo Firestore write.
+
+**Ahora**:
+```
+allow create: if request.auth != null && request.auth.uid == uid
+               && (
+                 request.resource.data.role == 'unassigned'
+                 || (
+                   request.resource.data.role == 'admin'
+                   && request.auth.token.email == 'bot.shimano.pesca@gmail.com'
+                 )
+               );
+```
+- `'unassigned'` sigue permitido para el flow standard (nuevos VDE se auto-crean unassigned y admin los promueve).
+- `'admin'` **solo** para el token cuyo email es `bot.shimano.pesca@gmail.com` (bootstrap flow en `index.html:22212 fetchAndApplyRole`).
+- Promociones subsecuentes usan `update` que ya requería `isAdmin()`.
+
+**Tests**: 2 nuevos en `tests/rules/rules.test.js`:
+- attacker con `email='attacker@shimano.com.ar'` tratando `setDoc(roles/newUid, {role:'admin'})` → PERMISSION_DENIED.
+- bot.shimano.pesca con `email='bot.shimano.pesca@gmail.com'` → succeeds.
+
+Suite: **116/116** ✅.
+
+#### CRIT-02 — sapProxy whitelist por (method, resource) + traversal defense (`functions/core/sap-proxy-core.js`)
+
+**Antes**: solo `startsWith('/b1s/v1/')` + `includes('/Items')` para read-only. Para `method != GET`, admin/gerente podía:
+- `POST /b1s/v1/Invoices` (facturación directa, bypass SO/SQ approval)
+- `POST /b1s/v1/JournalEntries` (contabilidad manual)
+- `DELETE /b1s/v1/Items(X)` (borrar SKUs del catálogo)
+- `PATCH /b1s/v1/BusinessPartners(C)` (rewrite CardCode + CreditLimit de cualquier cliente)
+
+**Ahora** — cambios en `sap-proxy-core.js`:
+
+1. `extractResource(endpoint)` — regex `^\/b1s\/v1\/([A-Z][A-Za-z0-9_]*)(\(|\?|\/|$)` extrae el resource root. Rechaza lowercase, missing prefix, malformed.
+2. Bloquea `..` y `//` en cualquier parte del endpoint (path traversal defense).
+3. **Whitelist explícita por método**:
+   - `READ_ALLOWED` (GET): `Items`, `ItemWarehouseInfoCollection`, `SQLQueries`, `BusinessPartners`, `Warehouses`, `SalesPersons`, `Inventory`, `Quotations`, `Orders`.
+   - `WRITE_ALLOWED.POST`: `['Quotations']` (incluye `POST /Quotations(N)/Cancel` porque el resource extraído es `Quotations`).
+   - `WRITE_ALLOWED.PATCH`: `['Quotations']`.
+   - `WRITE_ALLOWED.DELETE`: `[]` (vacío — nunca directo; para cancelar usar POST /Cancel).
+4. `classifyRequest(method, resource)` → `'read' | 'write' | 'denied'` — deniega antes de hacer login SL.
+
+**Los CFs backend** (`auto-send-sap-core.js`, `invoice-sync-core.js`) NO pasan por este core — hablan directo con SL via `sap-sl-client.js` con creds server-side. Este fix solo afecta calls desde el cliente.
+
+**Tests**: 10 nuevos en `tests/functions/sap-proxy.test.js`:
+- traversal `/Items/../Invoices` → invalid-argument
+- doble slash `//Items` → invalid-argument
+- lowercase `/items` → invalid-argument (PascalCase enforced)
+- admin `POST /Invoices` → permission-denied
+- admin `POST /JournalEntries` → permission-denied
+- admin `DELETE /Items(X)` → permission-denied
+- admin `PATCH /BusinessPartners(C1)` → permission-denied
+- gerente `POST /Quotations(1)/Cancel` → OK
+- vendedor `GET /SQLQueries(name)/List` → OK
+- vendedor `GET /ItemWarehouseInfoCollection(...)` → OK
+
+Suite: **35/35** ✅.
+
+#### Deploy
+
+- Rules deployadas via `firebase deploy --only firestore:rules`.
+- Cloud Function `sapProxy` redeployada via `firebase deploy --only functions:sapProxy`.
+- APP_VERSION + CACHE_VERSION → `v917`. Sin cambios client-side salvo bumps → no requiere rebuild del bundle.
+
+#### Loop Engineering
+
+Sprint 0 cerrado. Sigue Sprint 1 (9 HIGH findings) esta semana. Ver `SECURITY_AUDIT_2026-09-14/LOOP_ENGINEERING_PLAN.md`.
 
 ### v916 (2026-09-14) — FIX v915: fondo rojo ganaba el CSS de apple-design
 
