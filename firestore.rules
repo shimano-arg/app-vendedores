@@ -298,8 +298,16 @@ service cloud.firestore {
       allow delete: if isReader();
     }
 
+    // v934 (2026-09-14, SecAudit Sprint 2 MED-05 VULN-208): split get/list.
+    // Antes: `read` (get + list) abierto a cualquier authenticated - un user
+    // unassigned podia enumerar TODOS los emails whitelisteados (staff
+    // directory dump). Se usa como pretexto para phishing dirigido.
+    // Ahora: get (por email como docId) sigue abierto - flujo login legitimo
+    // en index.html:21457 y 21646 (check "estoy en la whitelist?"). List
+    // (colecccion entera) restringido a admin+gerente.
     match /allowed_emails/{docId} {
-      allow read: if request.auth != null;
+      allow get: if request.auth != null;
+      allow list: if isAdminOrGerente();
       allow write: if isAdmin();
     }
 
@@ -401,16 +409,31 @@ service cloud.firestore {
     // v857 (2026-09-09): anti-duplicados. Guard en update para impedir que
     // un doc marcado como 'duplicado_detectado' (por CF onCreate) pase a
     // 'approved' desde la UI. Admin/gerente igual puede pasar el status a
-    // 'rejected' si quiere descartarlo. Para volver a la vida un doc
-    // legitimo marcado como falso positivo, cambiar status a
-    // 'pending_approval' primero y despues aprobar.
+    // 'rejected' si quiere descartarlo.
+    // v934 (2026-09-14, SecAudit Sprint 2 MED-13 VULN-707): cerrar el 2-step
+    // bypass. El comment previo sugeria "cambiar status a pending_approval
+    // primero y despues aprobar" para reactivar un falso positivo - pero eso
+    // permitia admin/gerente aprobar una rendicion duplicada real en 2 ticks.
+    // El CF detector solo corre onCreate, no re-evalua on update. Ahora una
+    // vez marcada como duplicado_detectado el unico status transition
+    // permitido es -> 'rejected' (admin cancelar el doc). Para un falso
+    // positivo legitimo, el flow correcto es delete + create nueva desde 0.
     match /rendiciones/{docId} {
       allow get: if isReader();
       allow list: if isAdminOrGerente() || isInterno() || (isVendor() && ownsDoc());
       allow create: if request.auth != null && request.resource.data.ownerUid == request.auth.uid;
       allow update: if isAdminOrGerente()
-                    && !(resource.data.get('status', '') == 'duplicado_detectado'
-                         && request.resource.data.status == 'approved');
+                    && (
+                      // Path A: no era duplicado_detectado - update normal
+                      resource.data.get('status', '') != 'duplicado_detectado'
+                      || (
+                        // Path B: era duplicado_detectado - solo permitir
+                        // que status siga siendo 'duplicado_detectado' (edicion
+                        // de otros campos) o pase a 'rejected' (cancelar doc).
+                        request.resource.data.status == 'duplicado_detectado'
+                        || request.resource.data.status == 'rejected'
+                      )
+                    );
       allow delete: if isAdminOrGerente();
     }
 
