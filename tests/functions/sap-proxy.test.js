@@ -11,7 +11,8 @@ function makeDeps(over = {}) {
     getUserRole: vi.fn(async () => 'admin'),
     fetch: vi.fn(async (url) => makeSlResponse(url)),
     sapConfig: {
-      url: 'https://shimano-sap.test',
+      // v935 (Sprint 2 MED-02): host debe estar en ALLOWED_SAP_HOSTS.
+      url: 'https://shimano-sap.seidor.com.ar:50000',
       companyDB: 'SHIMANO_TST_06',
       userName: 'APP_VENDEDORES',
       password: 'super-secret',
@@ -360,5 +361,142 @@ describe('handleSapProxy — no leaks', () => {
     for (const entry of logs) {
       expect(JSON.stringify(entry)).not.toContain('super-secret');
     }
+  });
+});
+
+describe('handleSapProxy — v935 MED-02 host allowlist', () => {
+  it('CRIT: rechaza host no listado (attacker.com) — evita cred exfil', async () => {
+    const deps = makeDeps({
+      sapConfig: {
+        url: 'https://attacker.com/sap',
+        companyDB: 'SHIMANO_TST_06',
+        userName: 'APP_VENDEDORES',
+        password: 'super-secret',
+      },
+    });
+    await expect(
+      handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps)
+    ).rejects.toMatchObject({ code: 'failed-precondition' });
+  });
+  it('CRIT: rechaza host tipo-squat "shimano-sap.evilcorp.ar" (subdomain trickery)', async () => {
+    const deps = makeDeps({
+      sapConfig: {
+        url: 'https://shimano-sap.evilcorp.ar/sap',
+        companyDB: 'SHIMANO_TST_06',
+        userName: 'APP_VENDEDORES',
+        password: 'super-secret',
+      },
+    });
+    await expect(
+      handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps)
+    ).rejects.toMatchObject({ code: 'failed-precondition' });
+  });
+  it('rechaza URL malformada', async () => {
+    const deps = makeDeps({
+      sapConfig: {
+        url: 'not-a-url',
+        companyDB: 'X',
+        userName: 'X',
+        password: 'X',
+      },
+    });
+    await expect(
+      handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps)
+    ).rejects.toMatchObject({ code: 'internal' });
+  });
+  it('acepta host listado (shimano-sap.seidor.com.ar)', async () => {
+    const deps = makeDeps();
+    const res = await handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps);
+    expect(res.status).toBe(200);
+  });
+  it('acepta host listado con puerto (:50000)', async () => {
+    const deps = makeDeps({
+      sapConfig: {
+        url: 'https://shimano-sap.seidor.com.ar:50000',
+        companyDB: 'X',
+        userName: 'X',
+        password: 'X',
+      },
+    });
+    const res = await handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps);
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('handleSapProxy — v935 MED-06 per-role read scoping', () => {
+  it('CRIT: vendedor NO puede GET /BusinessPartners (evita pull credit DB)', async () => {
+    const deps = makeDeps({ getUserRole: vi.fn(async () => 'vendedor') });
+    await expect(
+      handleSapProxy(
+        { endpoint: "/b1s/v1/BusinessPartners?$select=CardCode,CreditLine" },
+        { uid: 'u1' },
+        deps
+      )
+    ).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+  it('CRIT: interno NO puede GET /BusinessPartners', async () => {
+    const deps = makeDeps({ getUserRole: vi.fn(async () => 'interno') });
+    await expect(
+      handleSapProxy({ endpoint: '/b1s/v1/BusinessPartners' }, { uid: 'u1' }, deps)
+    ).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+  it('CRIT: vendedor NO puede GET /SalesPersons (info comercial)', async () => {
+    const deps = makeDeps({ getUserRole: vi.fn(async () => 'vendedor') });
+    await expect(
+      handleSapProxy({ endpoint: '/b1s/v1/SalesPersons' }, { uid: 'u1' }, deps)
+    ).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+  it('CRIT: vendedor NO puede GET /Inventory', async () => {
+    const deps = makeDeps({ getUserRole: vi.fn(async () => 'vendedor') });
+    await expect(
+      handleSapProxy({ endpoint: '/b1s/v1/Inventory' }, { uid: 'u1' }, deps)
+    ).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+  it('vendedor sigue pudiendo GET /Items (flow legitimo)', async () => {
+    const deps = makeDeps({ getUserRole: vi.fn(async () => 'vendedor') });
+    const res = await handleSapProxy({ endpoint: '/b1s/v1/Items' }, { uid: 'u1' }, deps);
+    expect(res.status).toBe(200);
+  });
+  it('vendedor sigue pudiendo GET /ItemWarehouseInfoCollection + /SQLQueries', async () => {
+    const deps1 = makeDeps({ getUserRole: vi.fn(async () => 'vendedor') });
+    const r1 = await handleSapProxy(
+      { endpoint: "/b1s/v1/ItemWarehouseInfoCollection('X','W07')" },
+      { uid: 'u1' },
+      deps1
+    );
+    expect(r1.status).toBe(200);
+    const deps2 = makeDeps({ getUserRole: vi.fn(async () => 'vendedor') });
+    const r2 = await handleSapProxy(
+      { endpoint: "/b1s/v1/SQLQueries('X')/List" },
+      { uid: 'u1' },
+      deps2
+    );
+    expect(r2.status).toBe(200);
+  });
+  it('interno puede GET /Quotations y /Orders (troubleshoot ASIG/BO)', async () => {
+    const deps1 = makeDeps({ getUserRole: vi.fn(async () => 'interno') });
+    const r1 = await handleSapProxy({ endpoint: '/b1s/v1/Quotations' }, { uid: 'u1' }, deps1);
+    expect(r1.status).toBe(200);
+    const deps2 = makeDeps({ getUserRole: vi.fn(async () => 'interno') });
+    const r2 = await handleSapProxy({ endpoint: '/b1s/v1/Orders' }, { uid: 'u1' }, deps2);
+    expect(r2.status).toBe(200);
+  });
+  it('admin sigue pudiendo GET /BusinessPartners (uso legitimo panel)', async () => {
+    const deps = makeDeps({ getUserRole: vi.fn(async () => 'admin') });
+    const res = await handleSapProxy(
+      { endpoint: '/b1s/v1/BusinessPartners' },
+      { uid: 'u1' },
+      deps
+    );
+    expect(res.status).toBe(200);
+  });
+  it('gerente sigue pudiendo GET /BusinessPartners', async () => {
+    const deps = makeDeps({ getUserRole: vi.fn(async () => 'gerente') });
+    const res = await handleSapProxy(
+      { endpoint: '/b1s/v1/BusinessPartners' },
+      { uid: 'u1' },
+      deps
+    );
+    expect(res.status).toBe(200);
   });
 });
