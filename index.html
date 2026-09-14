@@ -5444,7 +5444,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v929';
+const APP_VERSION = 'v930';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -5498,14 +5498,8 @@ window.APP_VERSION = APP_VERSION;
       'border:0.5px solid rgba(255,255,255,0.08);' +
       (reduceMotion ? '' : 'transform:scale(0.94);opacity:0;transition:transform 350ms cubic-bezier(0.16,1,0.3,1),opacity 250ms cubic-bezier(0.16,1,0.3,1);');
 
-    const iconWrap = document.createElement('div');
-    iconWrap.style.cssText =
-      'width:56px;height:56px;border-radius:16px;margin:0 auto 20px;' +
-      'display:flex;align-items:center;justify-content:center;' +
-      'background:linear-gradient(135deg,#0ea5e9,#0284a0);' +
-      'box-shadow:0 8px 24px -6px rgba(2,132,160,0.5),inset 0 1px 0 rgba(255,255,255,0.2);' +
-      'font-size:28px;line-height:1';
-    iconWrap.textContent = '';
+    // v929 (2026-09-14): quitado el cuadrado azul (iconWrap) — Mariano lo
+    // pidio; sin contenido dentro era ruido visual.
 
     const title = document.createElement('div');
     title.style.cssText =
@@ -5573,7 +5567,6 @@ window.APP_VERSION = APP_VERSION;
 
     // v697: sin boton "Despues". Mariano pidio bloqueante para forzar
     // actualizacion en todos los users. El unico camino es refrescar.
-    box.appendChild(iconWrap);
     box.appendChild(title);
     box.appendChild(msg);
     box.appendChild(btnRefresh);
