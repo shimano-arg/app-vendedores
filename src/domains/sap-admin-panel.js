@@ -931,6 +931,9 @@ window.enviarPedidosASAPViaServiceLayer = async function (pedidos) {
             batchId: 'SL-' + Date.now(),
           },
           sendingSapLock: firebase.firestore.FieldValue.delete(),
+          // v914 (2026-09-14): limpiar transferError de un intento fallido
+          // previo — el envio actual fue exitoso.
+          transferError: firebase.firestore.FieldValue.delete(),
         });
       } catch (e) {
         console.warn('No pude marcar pedido como transferido', p._fsId, e);
@@ -943,6 +946,20 @@ window.enviarPedidosASAPViaServiceLayer = async function (pedidos) {
         } catch (_) {}
       }
       errors.push({ pedido: p._fsId, cliente: p.clientName, error: r.error });
+      // v914 (2026-09-14): persistir el error de SAP en el pedido doc para
+      // que la card en Confirmados se pinte de rojo + boton "por que fallo".
+      // Antes: el error solo aparecia en el alert() del manual send y se
+      // perdia al cerrar. Los vendedores no tenian visibilidad del problema.
+      try {
+        await docRef.update({
+          transferError: {
+            message: String(r.error || 'Error desconocido').slice(0, 500),
+            at: new Date().toISOString(),
+            via: 'service_layer',
+            attemptedBy: (currentUser && currentUser.email) || '',
+          },
+        });
+      } catch (_) {}
     }
   }
   return { sent, failed: errors.length, errors, skipped };
