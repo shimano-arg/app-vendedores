@@ -2791,16 +2791,18 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 .confirmed-card .cc-sap-estado.est-cobrado-completo{background:#059669} /* verde: COBRADO_COMPLETO */
 .confirmed-card .cc-sap-estado.est-cerrado{background:#64748b} /* gris: CERRADO (SQ cancelada/vencida) */
 .confirmed-card .cc-sap-estado.est-desconocido{background:var(--border-subtle);color:var(--text-secondary);font-weight:600} /* pendiente snapshot */
-/* v914 (2026-09-14): card roja cuando el envio a SAP fallo. transferError se
-   persiste en el pedido doc por sap-admin-panel + sap-auto-send-listener. */
-.confirmed-card.cc-error{background:#fee2e2;border:2px solid #dc2626;border-left:6px solid #991b1b}
-.confirmed-card.cc-error:hover{background:#fecaca}
-.confirmed-card.cc-error .cc-name{color:#991b1b}
-.confirmed-card.cc-error .cc-summary{color:#7f1d1d}
-.confirmed-card.cc-error .cc-month{background:#dc2626}
-.cc-error-btn{display:inline-flex;align-items:center;gap:5px;background:#dc2626;color:#fff;border:none;padding:5px 10px;border-radius:6px;font-size:10.5px;font-weight:800;letter-spacing:.3px;cursor:pointer;margin-top:6px;text-transform:uppercase}
-.cc-error-btn:hover{background:#991b1b}
-.cc-error-type{display:inline-block;background:#7f1d1d;color:#fff;padding:2px 7px;border-radius:10px;font-size:9.5px;font-weight:800;letter-spacing:.3px;margin-left:6px;text-transform:uppercase}
+/* v914/v915 (2026-09-14): card roja cuando el envio a SAP fallo.
+   v915 subio la intensidad — fondo rojo fuerte lleno + texto blanco para
+   maximo contraste. Pedido explicito Mariano ("que el fondo se pinte de rojo"). */
+.confirmed-card.cc-error{background:#dc2626;border:2px solid #991b1b;border-left:6px solid #7f1d1d;color:#fff}
+.confirmed-card.cc-error:hover{background:#b91c1c}
+.confirmed-card.cc-error .cc-name{color:#fff}
+.confirmed-card.cc-error .cc-meta{color:#fecaca}
+.confirmed-card.cc-error .cc-summary{color:#fecaca}
+.confirmed-card.cc-error .cc-month{background:#7f1d1d;color:#fff}
+.cc-error-btn{display:inline-flex;align-items:center;gap:5px;background:#fff;color:#991b1b;border:none;padding:5px 10px;border-radius:6px;font-size:10.5px;font-weight:800;letter-spacing:.3px;cursor:pointer;margin-top:6px;text-transform:uppercase}
+.cc-error-btn:hover{background:#fecaca}
+.cc-error-type{display:inline-block;background:#7f1d1d;color:#fff;padding:2px 7px;border-radius:10px;font-size:9.5px;font-weight:800;letter-spacing:.3px;margin-left:6px;text-transform:uppercase;border:1px solid #fff}
 .ped-search-wrap{margin-bottom:8px}
 .ped-search{width:100%;padding:8px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;background:var(--bg-elevated);box-sizing:border-box;-webkit-appearance:none}
 .ped-search:focus{border-color:var(--brand-shimano-blue);box-shadow:0 0 0 2px rgba(0,169,224,.15)}
@@ -5437,7 +5439,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v914';
+const APP_VERSION = 'v915';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
