@@ -1411,19 +1411,20 @@ def main() -> int:
     sl_cfg = get_sl_config(db)
 
     session = requests.Session()
+    # v928 (2026-09-14, SecAudit Sprint 1 E1.9 HIGH-12): TLS verification
+    # ALWAYS ON. Antes: si SL respondia con SSLError, el sync silenciosamente
+    # reintentaba con verify=False y REENVIABA las creds SAP al endpoint no
+    # verificado. Textbook "make it work" antipattern. Ahora fail fast en
+    # SSL error - el operador tiene que resolver la causa real. SL_INSECURE=true
+    # sigue disponible solo para debug local con warning ruidoso.
     verify_ssl = os.environ.get('SL_INSECURE', '').lower() != 'true'
     session.verify = verify_ssl
     if not verify_ssl:
         requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
-        log('[SL] verify SSL DESHABILITADO (SL_INSECURE=true)')
+        log('[SL] WARNING verify SSL DESHABILITADO explicitamente (SL_INSECURE=true) - solo debug local')
 
-    try:
-        sl_login(sl_cfg, session)
-    except requests.exceptions.SSLError as e:
-        log(f'[SL] SSL error: {e}. Reintento con verify=False (temporal).')
-        session.verify = False
-        requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
-        sl_login(sl_cfg, session)
+    # Fail fast en SSL error - ver comment v928 arriba.
+    sl_login(sl_cfg, session)
 
     max_items = int(os.environ.get('SL_MAX_ITEMS', '0') or 0)
     items, stock_map, qty_map, whs_map, whs_committed_map, price_map, pre_lanzamiento_map, scanned, with_stock, with_price, with_pre_lanzamiento = sl_fetch_items_and_stock(sl_cfg, session, max_items=max_items)

@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v927 en dev (2026-09-14)** — **SecAudit Sprint 1 iter 2 (E1.4 + E1.5 + E1.6)**: cierra 3 HIGH — (1) `revision_waitlist` delete restringido a admin/gerente/interno (evita wipe malicioso); (2) `client_master.defaultDelivery` con `is map` + `size<=12` + sub-keys whitelist (evita XSS potencial + JSON bombs); (3) `client_applications.leadEstado` scope por `assignedVendor==myVendorKey` + `leadEstadoBy` debe coincidir con `token.email` (evita cross-vendor tampering + impersonation en audit). Ver §41. (v926 top-stats de Mariano sigue vigente en paralelo). |
-| **APP_VERSION** | `v927` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v929 en dev (2026-09-14)** — **SecAudit Sprint 1 iter 2+3** (5 HIGH cerrados en batch): E1.4 `revision_waitlist` delete admin-only + E1.5 `client_master.defaultDelivery` shape + E1.6 `leadEstado` scope + E1.7 `setupGetMovimientos` role gate + E1.9 remove SSL fallback SAP sync. Post-mortem: PR 582 previa (v927) fue mergeada con conflict resolution que silenciosamente dropeó los cambios de rules; PR 583 (v928 partidos Mariano) siguió en paralelo. Ver §41. |
+| **APP_VERSION** | `v929` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,54 +4670,37 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v927
+## 41) Changelog v300 → v929
 
-### v927 (2026-09-14) — SecAudit Sprint 1 iter 2: cierra 3 HIGH (revision_waitlist delete + client_master shape + leadEstado scope)
+### v929 (2026-09-14) — SecAudit Sprint 1 iter 2+3: cierra 5 HIGH en un batch
 
-Continuación de `SECURITY_AUDIT_2026-09-14/LOOP_ENGINEERING_PLAN.md`. Cierra E1.4 + E1.5 + E1.6 (3 de los 7 HIGH restantes).
+**Nota importante**: la PR 582 previa (v927) fue mergeada con un conflict resolution que **dropeó silenciosamente** los cambios de `firestore.rules` + `tests/rules/rules.test.js`. Verificado post-mortem — main quedó con el título "v927" pero sin el diff real de rules. Esta PR re-aplica esos cambios + agrega E1.7 y E1.9 para un batch consolidado que efectivamente cierra 5 findings HIGH de `SECURITY_AUDIT_2026-09-14`.
 
-#### E1.4 — `revision_waitlist` delete restringido a admin/gerente/interno (HIGH-06)
+#### E1.4 — `revision_waitlist` delete admin/gerente/interno (HIGH-06)
 
-`firestore.rules:509`. Antes: `allow update, delete: if isReader();` — cualquier @shimano user (viewer, VDE hostil) podía wipear la lista de espera entera con un forEach desde DevTools. Ahora split:
-- `update`: sigue abierto (waitlist es colaborativo — VDI/VDE cross-editing es necesario para el flow revision-excel).
-- `delete`: `isAdminOrGerente() || isInterno()` — audit trail via humanos con rol elevado.
+`firestore.rules` (bloque revision_waitlist). Split update (abierto — colaborativo) / delete (admin/gerente/interno). Antes cualquier @shimano user podía wipear la lista con un forEach.
 
-#### E1.5 — `client_master.defaultDelivery` con schema validation (HIGH-08)
+#### E1.5 — `client_master.defaultDelivery` schema validation (HIGH-08)
 
-`firestore.rules:250-292`. Antes: `defaultDelivery` aceptaba cualquier JSON. VDE hostil podía escribir:
-- String de 10 MB → doc bloat + Firestore cost.
-- Array anidado → confusion + potential deserialization issue si algún cliente lo parsea inline.
-- Objeto con `<script>` en algún campo → stored XSS si algún render lo interpreta como HTML.
+`firestore.rules` (bloque client_master). `is map` + `size() <= 12` + `keys().hasOnly([...])` whitelist. Bloquea string 10 MB, arrays anidados, JSON bombs, XSS potencial.
 
-Ahora se enforza:
-- `defaultDelivery is map` — rechaza string/array/número.
-- `defaultDelivery.size() <= 12` — cap razonable (los flows reales usan ~5-8 sub-campos).
-- `defaultDelivery.keys().hasOnly([...])` con whitelist explícita de sub-campos: `tipo`, `deliveryMethod`, `transpNombre`, `transportistaNombre`, `transpDireccion`, `transportistaDireccion`, `sucursalDireccion`, `retiroNombre`, `retiroApellido`, `retiroDni`, `retiroPatente`, `clienteDireccion`, `updatedAt`, `updatedBy`.
+#### E1.6 — `client_applications.leadEstado` scope + anti-impersonation (HIGH-09)
 
-Ambos alias (v785 `tipo/transpNombre/transpDireccion` + v518 `deliveryMethod/transportistaNombre/transportistaDireccion`) están whitelisteados para no romper compat con los dos flows del código.
+`firestore.rules` (bloque client_applications update). Vendor solo puede update si `assignedVendor == myVendorKey()` o `ownerUid == request.auth.uid`. Si toca `leadEstadoBy` debe coincidir con `token.email`. Si toca `updatedBy` debe coincidir con `request.auth.uid` o `token.email`.
 
-#### E1.6 — `client_applications.leadEstado` scope + `leadEstadoBy` anti-impersonation (HIGH-09)
+#### E1.7 — `setupGetMovimientos` role gate (HIGH-10)
 
-`firestore.rules:318-360`. La read rule ya scopea por `assignedVendor == myVendorKey()` pero la update NO. Un VDE conociendo el `docId` de un lead ajeno podía:
-- Togglear su `leadEstado` (marcar como perdido, lost, etc).
-- Tamperear geo (`lat`, `lng`) del lead de otro VDE.
-- Forjar `leadEstadoBy: 'pablo@shimano.com.ar'` — engañar el audit trail visible para gerentes.
+`functions/index.js:setupGetMovimientos`. Domain gate `@shimano.com.ar`/`@shimano.uy` + `roles/{uid}.role in ['admin','gerente','vendedor','interno']`. Antes: cualquier authenticated user podía enumerar 365d de SETUP shipments.
 
-Ahora la rama de reader (que hoy solo aplica a vendor + viewer):
-- Requiere `resource.data.assignedVendor == myVendorKey() || resource.data.ownerUid == request.auth.uid` (viewer sin vendorKey queda bloqueado — esperado).
-- Si el update toca `leadEstadoBy` → debe coincidir con `request.auth.token.email`.
-- Si el update toca `updatedBy` → debe coincidir con `request.auth.uid` o `token.email`.
+#### E1.9 — Remove SSL fallback en `sync_sap_to_firestore.py` (HIGH-12)
 
-Admin/gerente/interno mantienen blanket update (rama superior de la rule, sin cambios).
+`scripts/sync_sap_to_firestore.py:1413+`. Elimina el try/except que silenciosamente reintentaba con `verify=False` reenviando creds SAP. Fail fast en SSL error. `SL_INSECURE=true` sigue disponible solo para debug local.
 
-**Tests**: 16 nuevos en `tests/rules/rules.test.js`:
-- E1.4 (5): vendor create/update OK, vendor/viewer delete DENIED, admin/gerente/interno delete OK
-- E1.5 (6): map válido OK, string DENIED, key no-whitelist DENIED, >12 keys DENIED, update válido OK, array DENIED
-- E1.6 (5): vendor propio lead OK, vendor ajeno DENIED, forjar leadEstadoBy DENIED, coincide email OK, admin/gerente/interno blanket OK
+**Tests**: 16 nuevos en `tests/rules/rules.test.js` (E1.4/5/6 — E1.7 y E1.9 no requieren test suite del emulator porque son CF+py).
 
-Suite: **137/137** ✅ (was 121).
+Suite: **137/137** ✅.
 
-**Bump**: APP_VERSION + CACHE_VERSION → `v927`. Deploy: `firebase deploy --only firestore:rules`.
+**Bump**: APP_VERSION + CACHE_VERSION → `v928`. Deploy: `firebase deploy --only firestore:rules functions:setupGetMovimientos`.
 
 ### v926 (2026-09-14) — Top-stats: tooltip descriptivo por card + desglose del "gap" en TIENDAS
 
