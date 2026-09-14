@@ -5479,7 +5479,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v936';
+const APP_VERSION = 'v937';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -9273,7 +9273,19 @@ function updateStats(pts){
       // v548: alta sin assignedVendor NO visible para vendedores/VDIs
       // (antes se colaba). Admin/gerente/viewer tienen sapEffSet=null y
       // saltan el bloque.
-      if (sapEffSet) { if (!a.assignedVendor) return; if (!sapEffSet.has(a.assignedVendor)) return; }
+      // v937 (2026-09-14): FIX bug reportado por Mariano — usar
+      // getEffectiveVendorForSapAlta (mismo filtro que drawSapAltaPins)
+      // en lugar de a.assignedVendor directo. Sin esto, el mapa mostraba
+      // 170 pines para PACHI (154 con coverageBy='PACHI' del trial v862)
+      // pero el header decia 8 TIENDAS porque no consideraba coverageBy.
+      // Ahora ambos usan la misma resolucion.
+      if (sapEffSet) {
+        const _effVSap = (typeof getEffectiveVendorForSapAlta === 'function')
+          ? getEffectiveVendorForSapAlta(a)
+          : (a.assignedVendor || '');
+        if (!_effVSap) return;
+        if (!sapEffSet.has(_effVSap)) return;
+      }
       const prov = (a.provincia || '').toUpperCase().trim();
       // Si no hay provincia (Excel SAP sin columna State), igual la
       // contamos como PENDIENTE para que el admin vea que hay datos
@@ -9358,7 +9370,15 @@ function updateStats(pts){
     // (mismo criterio que el bloque de sapLocs mas arriba).
     // v548: alta sin assignedVendor NO cuenta como lead visible para
     // vendedores/VDIs (antes se colaba en la card LEADS del header).
-    if (_leadsVendSet) { if (!a.assignedVendor) return false; if (!_leadsVendSet.has(a.assignedVendor)) return false; }
+    // v937 (2026-09-14): idem fix del bloque sapLocs — usar
+    // getEffectiveVendorForSapAlta para respetar coverageBy override.
+    if (_leadsVendSet) {
+      const _effVLead = (typeof getEffectiveVendorForSapAlta === 'function')
+        ? getEffectiveVendorForSapAlta(a)
+        : (a.assignedVendor || '');
+      if (!_effVLead) return false;
+      if (!_leadsVendSet.has(_effVLead)) return false;
+    }
     const _aProv = (a.provincia || '').toUpperCase().trim();
     if (_aProv && _leadsProvFilter && _aProv !== _leadsProvFilter) return false;
     const _aLoc = (a.localidadFinal || a.localidad || '').trim();
@@ -9473,7 +9493,19 @@ function updateContactSummary(){
       // v548: alta sin assignedVendor NO visible para vendedores/VDIs
       // (antes se colaba). Admin/gerente/viewer tienen sapEffSet=null y
       // saltan el bloque.
-      if (sapEffSet) { if (!a.assignedVendor) return; if (!sapEffSet.has(a.assignedVendor)) return; }
+      // v937 (2026-09-14): FIX bug reportado por Mariano — usar
+      // getEffectiveVendorForSapAlta (mismo filtro que drawSapAltaPins)
+      // en lugar de a.assignedVendor directo. Sin esto, el mapa mostraba
+      // 170 pines para PACHI (154 con coverageBy='PACHI' del trial v862)
+      // pero el header decia 8 TIENDAS porque no consideraba coverageBy.
+      // Ahora ambos usan la misma resolucion.
+      if (sapEffSet) {
+        const _effVSap = (typeof getEffectiveVendorForSapAlta === 'function')
+          ? getEffectiveVendorForSapAlta(a)
+          : (a.assignedVendor || '');
+        if (!_effVSap) return;
+        if (!sapEffSet.has(_effVSap)) return;
+      }
       const prov = (a.provincia || '').toUpperCase().trim();
       const isProvisorio = !a.cardCodeSap && !!a.manualSapPending;
       if (!prov && !isProvisorio && (provFilter || locFilter)) return;
@@ -9561,7 +9593,19 @@ function renderClients(pts){
       // v548: alta sin assignedVendor NO visible para vendedores/VDIs
       // (antes se colaba). Admin/gerente/viewer tienen sapEffSet=null y
       // saltan el bloque.
-      if (sapEffSet) { if (!a.assignedVendor) return; if (!sapEffSet.has(a.assignedVendor)) return; }
+      // v937 (2026-09-14): FIX bug reportado por Mariano — usar
+      // getEffectiveVendorForSapAlta (mismo filtro que drawSapAltaPins)
+      // en lugar de a.assignedVendor directo. Sin esto, el mapa mostraba
+      // 170 pines para PACHI (154 con coverageBy='PACHI' del trial v862)
+      // pero el header decia 8 TIENDAS porque no consideraba coverageBy.
+      // Ahora ambos usan la misma resolucion.
+      if (sapEffSet) {
+        const _effVSap = (typeof getEffectiveVendorForSapAlta === 'function')
+          ? getEffectiveVendorForSapAlta(a)
+          : (a.assignedVendor || '');
+        if (!_effVSap) return;
+        if (!sapEffSet.has(_effVSap)) return;
+      }
       const prov = (a.provincia || '').toUpperCase().trim();
       // v293+: provisorio de Alta Rapida (manualSapPending && !cardCodeSap) es
       // el mismo criterio que getProvisoriosList() usa para el KPI PENDIENTES.
@@ -15825,9 +15869,14 @@ window.revisionDejarRecalculando = async function(){
     // v848 (2026-09-09): si el user subio un Excel, sube los bytes a Storage
     // y guarda el path + name en el doc para que notify_waitlist_new.py lo
     // adjunte al email. Fire-and-forget — no bloquea el flujo si falla.
+    // v937 (2026-09-14, SecAudit Sprint 2 MED-03): path scopeado por uid del
+    // owner. Storage rule ahora requiere `waitlist-excels/{ownerUid}/...` +
+    // domain gate + auth.uid match. Previa path flat permitia a cualquier
+    // user pisar el excel de otro con solo saber el docId.
     try {
       if (_revisionRawExcelBytes && typeof firebase !== 'undefined' && firebase.storage) {
-        const _excelPath = 'waitlist-excels/' + docRef.id + '.xlsx';
+        const _uid = (currentUser && currentUser.uid) || 'anon';
+        const _excelPath = 'waitlist-excels/' + _uid + '/' + docRef.id + '.xlsx';
         const _excelBlob = new Blob([_revisionRawExcelBytes], {
           type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         });
