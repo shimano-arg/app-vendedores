@@ -31,7 +31,17 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           GCP_PROJECT: app-vendedores-shimano
+        # v937 (2026-09-14, SecAudit Sprint 2 MED-09 VULN-540): trap cleanup
+        # del SA JSON EN CUALQUIER exit path. Antes: si el python fallaba
+        # (SecretManager quota, timeout, etc), el `rm /tmp/sa.json` de la
+        # ultima linea nunca corria y el SA JSON quedaba en la FS del runner
+        # hasta que el runner se destruye. Runner es ephemeral pero el
+        # blast radius durante el flight de 60-90s no era cero. Ahora el
+        # trap corre siempre (incluso con set -e implicit del step).
         run: |
+          set -eu
+          trap 'rm -f /tmp/sa.json' EXIT
+          umask 077  # cualquier archivo nuevo queda 600 (owner-only read)
           # Escribimos JSON SA a archivo temp y usamos GOOGLE_APPLICATION_CREDENTIALS
           echo "$FIREBASE_SERVICE_ACCOUNT" > /tmp/sa.json
           export GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json
@@ -47,5 +57,4 @@ jobs:
           resp = client.access_secret_version(request={'name': name})
           print(resp.payload.data.decode('utf-8'), end='')
           ")
-          rm /tmp/sa.json
           python scripts/probe_setup_ultimos_dias.py

@@ -61,8 +61,15 @@ const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY');
 const GMAIL_APP_PASSWORD = defineSecret('GMAIL_APP_PASSWORD');
 // v829 (2026-09-08): password de SETUP WMS API para consultar estado de
 // pedidos (movimientos de salida). Confirmado por Marcos (SETUP) 2026-09-08:
-// user "nur" / password "1234" sirve para prod (nur-integra) y sandbox
-// (nur-prueba). Ver setupGetMovimientos abajo + probe scripts en
+// mismo user sirve para prod (nur-integra) y sandbox (nur-prueba).
+// v937 (2026-09-14, SecAudit Sprint 2 MED-12 VULN-301+711): redactado el
+// valor literal de user/password que estaba en este comment. El secret
+// vive en GCP Secret Manager (SETUP_API_PASSWORD) y se lee via
+// SETUP_API_PASSWORD.value() dentro del CF setupGetMovimientos. El
+// user "nur" era un secret weak (4 digitos) leaked en el codigo fuente
+// del repo publico - cambiar a un password fuerte requiere coordinacion
+// con SETUP/Marcos + rotar en Secret Manager. TODO Sprint 3.
+// Ver setupGetMovimientos abajo + probe scripts en
 // Desktop\SETUP-INTEGRACION\ para diagnostico empirico de la API.
 const SETUP_API_PASSWORD = defineSecret('SETUP_API_PASSWORD');
 // v830 (2026-09-08): cache in-memory del mapa {codigo_producto: 'B'|'F'} para

@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v935 en dev (2026-09-14)** — **SecAudit Sprint 2 batch 3** (2 MEDIUM cerrados sapProxy hardening): (1) MED-02 host allowlist hardcoded en `sap-proxy-core.js` — admin con Firestore Console ya no puede redirigir SAP creds a un host malicioso; (2) MED-06 per-role read scoping — vendedor/interno ya no pueden `GET /BusinessPartners` (credit DB exfil bloqueado) ni `/SalesPersons` ni `/Inventory`; interno mantiene Quotations/Orders para troubleshoot. Sprint 2: 7/15 MEDIUM. Ver §41. |
-| **APP_VERSION** | `v935` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v937 en dev (2026-09-14)** — **SecAudit Sprint 2 batch 4** (4 MEDIUM cerrados): (1) MED-03 storage rules `waitlist-excels` — path scopeado por `{ownerUid}/` + domain gate `@shimano.com.ar/uy` + drop `application/octet-stream`; (2) MED-09 `probe-setup-fechas.yml` — `trap 'rm -f /tmp/sa.json' EXIT` + `umask 077`; (3) MED-11 (partial) Dependabot para GH Actions + npm + SHA pin en workflow crítico `sync-sap-catalog-stock.yml`; (4) MED-12 redactada mención `nur/1234` en comentarios de `functions/index.js`. Sprint 2: **11/15 MEDIUM**. Ver §41. |
+| **APP_VERSION** | `v937` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,49 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v935
+## 41) Changelog v300 → v937
+
+### v937 (2026-09-14) — SecAudit Sprint 2 batch 4: 4 MEDIUM (storage + GH Actions cluster)
+
+#### MED-03 — `waitlist-excels` storage rules hardening (VULN-501+502)
+
+`storage.rules:41+` + `index.html:15830`. Antes:
+- `write: if request.auth != null` — cualquier authed user (incluyendo VDE externo/unassigned/cuentas obsoletas) podía subir xlsx.
+- `application/octet-stream` aceptado como fallback → cualquier binario <5MB pasaba (executables, malware).
+- Path flat `waitlist-excels/{docId}.xlsx` sin scoping → cualquier user podía pisar el excel de otro conociendo el docId.
+
+Ahora:
+- Path scopeado a `waitlist-excels/{ownerUid}/{docId}.xlsx`.
+- `request.auth.uid == ownerUid` (dueño del path debe ser el caller).
+- `request.auth.token.email.matches('.*@shimano[.](com[.]ar|uy)$')` (domain gate).
+- Content-Type solo Excel real (`.xlsx` / `.xls`), no `octet-stream`.
+
+Client (`index.html:15830`) actualizado para prependear `{uid}/` al path. `notify_waitlist_new.py` no requiere cambio — lee `sourceExcelPath` del doc de Firestore (path lo escribe el client).
+
+#### MED-09 — `probe-setup-fechas.yml` trap cleanup (VULN-540)
+
+`.github/workflows/probe-setup-fechas.yml:30+`. Antes: si el python fallaba, el `rm /tmp/sa.json` final nunca corría y el SA JSON quedaba en la FS del runner ephemeral. Ahora:
+- `set -eu` (fail fast).
+- `trap 'rm -f /tmp/sa.json' EXIT` (cleanup en cualquier exit path, incluyendo error).
+- `umask 077` (archivos nuevos owner-only 600 en lugar del default 644).
+
+#### MED-11 (partial) — Dependabot + SHA pin en workflow crítico (VULN-520)
+
+Nuevo `.github/dependabot.yml`:
+- `github-actions` weekly PRs auto-actualiza refs `actions/*` con SHA pins.
+- `npm` root + `npm functions` weekly PRs para runtime + dev deps.
+
+Además `sync-sap-catalog-stock.yml` (el workflow con admin PAT + `contents: write` que bypassea CI) pinneado a SHAs explícitos:
+- `actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2`
+- `actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.4.0`
+
+Los otros 21 workflows quedan en tag pins hasta que Dependabot corra + generemos PRs para cada uno. Ese trabajo tedioso se queda en Sprint 3 backlog.
+
+#### MED-12 — SETUP creds redactadas en comentarios (VULN-301+711)
+
+`functions/index.js:63+`. Removida la mención literal de `user "nur" / password "1234"` del bloque de comentarios sobre `SETUP_API_PASSWORD`. El secret sigue viviendo en GCP Secret Manager (server-side). La rotación del password débil `1234` a algo fuerte requiere coordinación con Marcos/SETUP → **TODO Sprint 3**.
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v937`. Deploy: `firebase deploy --only storage:rules` (+ auto-deploy GH Pages para el cambio en `index.html`).
 
 ### v935 (2026-09-14) — SecAudit Sprint 2 batch 3: 2 MEDIUM (sapProxy hardening — host allowlist + per-role scoping)
 

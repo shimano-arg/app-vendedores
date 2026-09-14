@@ -35,16 +35,30 @@ service firebase.storage {
     // Excels originales que los VDE suben via Revision Excel para cargar
     // pedidos a la Lista de Espera (v848+, 2026-09-09). Se adjuntan al
     // email de notificacion que reciben Pablo + VDI pareja.
-    // - write: cualquier user @shimano.com.ar autenticado. Limite 5 MB +
-    //   solo tipos Excel (xlsx/xls).
-    // - read: auth (el notify script usa Admin SDK que bypassa rules).
-    match /waitlist-excels/{allPaths=**} {
+    //
+    // v937 (2026-09-14, SecAudit Sprint 2 MED-03 VULN-501+502):
+    // 1. Antes: write abierto a cualquier `request.auth != null`. Cualquier
+    //    Firebase auth user (incluyendo VDE externo, unassigned, cuentas
+    //    obsoletas) podia subir xlsx aca. Comment mentia diciendo "@shimano
+    //    only" pero la rule no lo enforceaba. Ahora exige domain gate
+    //    @shimano.com.ar o @shimano.uy.
+    // 2. Antes: `application/octet-stream` aceptado como fallback -> podian
+    //    subir cualquier binario (executables, malware) bajo la excusa que
+    //    "algunos browsers no ponen el mime xlsx correcto". Ahora solo mimes
+    //    Excel reales. Si un browser lo manda mal, el user tiene que reintentar
+    //    con otro browser o la app tiene que fixear el mime antes de subir.
+    // 3. Antes: sin path scoping - cualquier user podia pisar el excel de
+    //    otro (path `waitlist-excels/algo.xlsx`). Ahora path scopeado a
+    //    /waitlist-excels/{ownerUid}/... y el uid del path tiene que
+    //    matchear request.auth.uid.
+    match /waitlist-excels/{ownerUid}/{allPaths=**} {
       allow read: if request.auth != null;
       allow write: if request.auth != null
+                   && request.auth.uid == ownerUid
+                   && request.auth.token.email.matches('.*@shimano[.](com[.]ar|uy)$')
                    && request.resource.size < 5 * 1024 * 1024
                    && (request.resource.contentType == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-                       request.resource.contentType == 'application/vnd.ms-excel' ||
-                       request.resource.contentType == 'application/octet-stream');
+                       request.resource.contentType == 'application/vnd.ms-excel');
     }
 
     // Default: bloquear todo lo demas. Si en el futuro se agrega otro
