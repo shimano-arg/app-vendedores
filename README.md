@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v929 en dev (2026-09-14)** — **SecAudit Sprint 1 iter 2+3** (5 HIGH cerrados en batch): E1.4 `revision_waitlist` delete admin-only + E1.5 `client_master.defaultDelivery` shape + E1.6 `leadEstado` scope + E1.7 `setupGetMovimientos` role gate + E1.9 remove SSL fallback SAP sync. Post-mortem: PR 582 previa (v927) fue mergeada con conflict resolution que silenciosamente dropeó los cambios de rules; PR 583 (v928 partidos Mariano) siguió en paralelo. Ver §41. |
-| **APP_VERSION** | `v929` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v930 en dev (2026-09-14)** — **SecAudit Sprint 1 E1.8 HIGH-11**: SRI (Subresource Integrity) en TODOS los CDN scripts + CSS (12 tags: Leaflet + markercluster + xlsx + Firebase 10.7.1 × 6). Cierra el vector CDN compromise → arbitrary JS con Firebase Auth token access. `xlsx@0.18.5` proto pollution (GHSA-4r6h-8v6p-xvw6) queda como TODO Sprint 2 (migrar a `exceljs`). Ver §41. |
+| **APP_VERSION** | `v930` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,36 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v929
+## 41) Changelog v300 → v930
+
+### v930 (2026-09-14) — SecAudit Sprint 1 E1.8: SRI en 12 CDN scripts + CSS (cierra HIGH-11)
+
+**Contexto**: sin `integrity=` en un `<script src="https://cdn.X/...">`, si el CDN se compromete (unpkg, jsdelivr, gstatic — todos ya tuvieron incidentes históricos), el atacante inyecta arbitrary JS que corre con acceso al **Firebase Auth token de todos los users**, DOM, estado, etc. Blast radius máximo. SRI hace que el browser verifique el hash del content antes de ejecutar — si no matchea, aborta.
+
+**Cambio**: agregado `integrity="sha384-..." crossorigin="anonymous"` a las 12 tags de CDN en `index.html:76-133`:
+
+**Scripts (9)**:
+1. `unpkg/leaflet@1.9.4/dist/leaflet.js` → `sha384-cxOPjt7s...`
+2. `unpkg/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js` → `sha384-eXVCORTR...`
+3. `cdn.jsdelivr/xlsx@0.18.5/dist/xlsx.full.min.js` → `sha384-vtjasyid...`
+4-9. `gstatic/firebasejs/10.7.1/*-compat.js` (app, auth, firestore, storage, app-check, functions) → 6 hashes distintos
+
+**Stylesheets (3)**:
+- `unpkg/leaflet@1.9.4/dist/leaflet.css` → `sha384-sHL9NAb7...`
+- `unpkg/leaflet.markercluster@1.5.3/dist/MarkerCluster.css` → `sha384-pmjIAcz2...`
+- `unpkg/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css` → `sha384-wgw+aLYN...`
+
+**Procedimiento para bumpear una lib** (documentar en el header comment de index.html:76):
+```bash
+curl -sL "<CDN_URL>" | openssl dgst -sha384 -binary | openssl base64 -A
+# Copiar el output en el `integrity="sha384-..."` de la tag correspondiente.
+```
+
+Los hashes son inmutables por version. Bumpear la version del CDN (ej: Leaflet 1.9.4 → 1.9.5) requiere regenerar el hash.
+
+**Fuera de scope (Sprint 2)**: `xlsx@0.18.5` sigue con `GHSA-4r6h-8v6p-xvw6` (prototype pollution) — es CVE del código, no del CDN. SRI cierra CDN compromise pero no ayuda con el CVE. Migrar a `exceljs` (ya cargado on-demand en el shell para stock asig template) es la solución definitiva. TODO Sprint 2.
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v930`. Sin cambios en rules ni CFs — solo HTML. GH Pages auto-deploy tras merge.
 
 ### v929 (2026-09-14) — SecAudit Sprint 1 iter 2+3: cierra 5 HIGH en un batch
 
