@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v917 en dev (2026-09-14)** — **SecAudit Sprint 0**: cierra los 2 findings CRITICAL. CRIT-01: `roles/{uid}` create bloquea auto-escalation a admin (solo `bot.shimano.pesca` puede setearse admin en bootstrap). CRIT-02: `sapProxy` whitelist (method, resource) + bloquea path traversal — admin comprometido ya no puede `POST /Invoices`, `POST /JournalEntries`, `DELETE /Items`, etc. Ver §41. |
-| **APP_VERSION** | `v917` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v918 en dev (2026-09-14)** — **fix modal Zonas**: el filtro "Localidades" del modal Reasignación de zonas ahora incluye localidades de LEADs / altas SAP huérfanas (`approvedAltasList`), no sólo las de POINTS. Antes un LEAD como "El tigrecito pesca y camping" (Carmen de Areco) aparecía en la lista pero su localidad no se podía seleccionar en el filtro. Ver §41. |
+| **APP_VERSION** | `v918` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,30 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v917
+## 41) Changelog v300 → v918
+
+### v918 (2026-09-14) — Fix filtro "Localidades" del modal Reasignación de zonas (LEADs / altas SAP huérfanas)
+
+**Bug reportado por Mariano**: en Master Clientes → Reasignar, el cliente "El tigrecito pesca y camping" (LEAD de Carmen de Areco) aparecía en la lista al buscarlo por nombre, pero **su localidad "Carmen de Areco" no aparecía en el `<select>` de Localidades**, imposibilitando filtrar la vista por esa localidad.
+
+**Causa raíz**: en `renderZonasList()` (`index.html:24545`) la lista de clientes se compone de dos fuentes:
+1. **POINTS**: tiendas ya mapeadas geográficamente. Cada POINT tiene provincia + localidad + array de clientes.
+2. **`approvedAltasList`** (`index.html:24600`): altas SAP y **LEADs provisorios** (`isProvisorio = !!a.manualSapPending && !a.cardCodeSap`) que no tienen POINT propio. Se inyectan como filas usando `a.localidadFinal || a.localidad` como localidad.
+
+Pero los dos populates del filtro Localidades — `populateZonasFilters()` (línea 24375) y `populateZonasFilters_locOnly()` (línea 24727) — construían las opciones **exclusivamente desde POINTS**. Si una localidad no tenía POINT (como Carmen de Areco), aunque hubiera LEADs listados en esa localidad, nunca aparecía en el `<select>`.
+
+**Fix**: los dos populates ahora también iteran `approvedAltasList`, extrayendo `a.provincia` + `(a.localidadFinal || a.localidad)`. Dedupe con `Set` (por si la misma localidad ya vino de POINTS). Cambio quirúrgico, sin tocar `renderZonasList()`.
+
+**Diff**:
+- `index.html` `populateZonasFilters()` línea 24382: agrega bloque `if (typeof approvedAltasList !== 'undefined' ...)` que suma provs + locs de altas.
+- `index.html` `populateZonasFilters_locOnly()` línea 24721: mismo bloque, respetando el filtro de provincia actual (`curProv`). Se agrega `Set seen` para dedupe.
+- APP_VERSION + CACHE_VERSION → `v918`. Cambio 100% inline (no toca bundle) → no requiere rebuild.
+
+**Cómo verificar**: abrir Master Clientes → botón Reasignar → tab "Por tienda" o "Por provincia". El `<select>` de Localidades ahora incluye Carmen de Areco (y toda localidad con LEADs en curso). Al elegirla, la fila del LEAD queda filtrada correctamente.
+
+**Impacto colateral**: cero. El fix solo agrega opciones al `<select>`; el resto del flujo (render, reasignación, save) no cambia. Zero riesgo de regresión.
+
+---
 
 ### v917 (2026-09-14) — SecAudit Sprint 0: cierra 2 CRITICAL findings
 

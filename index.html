@@ -5439,7 +5439,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v917';
+const APP_VERSION = 'v918';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -24377,6 +24377,21 @@ function populateZonasFilters(){
     if (!locsByProv[p.province]) locsByProv[p.province] = new Set();
     locsByProv[p.province].add(p.name);
   });
+  // v918: incluir localidades de altas SAP huerfanas / LEADs (approvedAltasList)
+  // que no tienen POINT propio. Sin esto, un LEAD como "El tigrecito pesca y
+  // camping" (Carmen de Areco) aparecia en la lista pero su localidad NO estaba
+  // en el <select>, imposibilitando filtrar por ella.
+  if (typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList)) {
+    approvedAltasList.forEach(a => {
+      if (!a) return;
+      const prov = (a.provincia || '').toUpperCase().trim();
+      const loc = (a.localidadFinal || a.localidad || '').trim();
+      if (!prov || !loc) return;
+      provs.add(prov);
+      if (!locsByProv[prov]) locsByProv[prov] = new Set();
+      locsByProv[prov].add(loc);
+    });
+  }
   const sortedProvs = [...provs].sort();
   provSel.innerHTML = '<option value="ALL">Todas las provincias</option>'
     + sortedProvs.map(p => '<option value="' + escapeAttr(p) + '">' + escapeHtml(titleCase(p)) + '</option>').join('');
@@ -24723,11 +24738,31 @@ function populateZonasFilters_locOnly(){
   const locSel = document.getElementById('zonas-loc-sel');
   const curProv = provSel.value;
   const curLoc = locSel.value;
+  const seen = new Set();
   const locs = [];
   POINTS.forEach(p => {
     if (curProv !== 'ALL' && p.province !== curProv) return;
-    locs.push(p.province + '||' + p.name);
+    const k = p.province + '||' + p.name;
+    if (seen.has(k)) return;
+    seen.add(k);
+    locs.push(k);
   });
+  // v918: sumar localidades de LEADs / altas SAP huerfanas (mismo motivo que
+  // populateZonasFilters). Dedupe con `seen` para evitar duplicados cuando la
+  // misma localidad ya vino de POINTS.
+  if (typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList)) {
+    approvedAltasList.forEach(a => {
+      if (!a) return;
+      const prov = (a.provincia || '').toUpperCase().trim();
+      const loc = (a.localidadFinal || a.localidad || '').trim();
+      if (!prov || !loc) return;
+      if (curProv !== 'ALL' && prov !== curProv) return;
+      const k = prov + '||' + loc;
+      if (seen.has(k)) return;
+      seen.add(k);
+      locs.push(k);
+    });
+  }
   locs.sort((a, b) => a.localeCompare(b));
   locSel.innerHTML = '<option value="ALL">Todas las localidades</option>'
     + locs.map(k => {
