@@ -202,11 +202,7 @@ describe('handleSapProxy — sanitización', () => {
   it('CRIT-02: admin DELETE /Items → permission-denied (DELETE_ALLOWED vacío)', async () => {
     const deps = makeDeps();
     await expect(
-      handleSapProxy(
-        { endpoint: '/b1s/v1/Items(\'X\')', method: 'DELETE' },
-        { uid: 'u1' },
-        deps
-      )
+      handleSapProxy({ endpoint: "/b1s/v1/Items('X')", method: 'DELETE' }, { uid: 'u1' }, deps)
     ).rejects.toMatchObject({ code: 'permission-denied' });
   });
 
@@ -214,7 +210,7 @@ describe('handleSapProxy — sanitización', () => {
     const deps = makeDeps();
     await expect(
       handleSapProxy(
-        { endpoint: '/b1s/v1/BusinessPartners(\'C1\')', method: 'PATCH', body: {} },
+        { endpoint: "/b1s/v1/BusinessPartners('C1')", method: 'PATCH', body: {} },
         { uid: 'u1' },
         deps
       )
@@ -224,7 +220,7 @@ describe('handleSapProxy — sanitización', () => {
   it('CRIT-02: gerente POST /Quotations(1)/Cancel → OK (subresource Cancel)', async () => {
     const deps = makeDeps({ getUserRole: vi.fn(async () => 'gerente') });
     const res = await handleSapProxy(
-      { endpoint: "/b1s/v1/Quotations(1)/Cancel", method: 'POST' },
+      { endpoint: '/b1s/v1/Quotations(1)/Cancel', method: 'POST' },
       { uid: 'u1' },
       deps
     );

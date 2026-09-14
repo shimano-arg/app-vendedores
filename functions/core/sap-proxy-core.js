@@ -103,7 +103,7 @@ export function makeHttpsError(code, message) {
  */
 export function classifyRequest(method, resource) {
   if (method === 'GET') {
-    return (/** @type {readonly string[]} */ (READ_ALLOWED)).includes(resource) ? 'read' : 'denied';
+    return /** @type {readonly string[]} */ (READ_ALLOWED).includes(resource) ? 'read' : 'denied';
   }
   const allowedForMethod = WRITE_ALLOWED[method] || [];
   return allowedForMethod.includes(resource) ? 'write' : 'denied';
