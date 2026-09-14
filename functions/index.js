@@ -30,6 +30,11 @@ import { expireAsigLinesTTL } from './core/asig-ttl-core.js';
 // dependencia del auto-send client-side (que solo corria en sesion admin/gerente
 // con SL activo). Fix bug reportado por Mariano: pedidos VDE confirmed quedaban
 // invisibles a SAP hasta que admin abria la app.
+// v921 (2026-09-14): auto-confirm pedidos estancados en pending > 10 min.
+// Idea Mariano: VDEs olvidan clickear "CONFIRMAR DEFINITIVO", los pedidos
+// quedan sin llegar a SAP. Este core scanea + promueve stage='confirmed';
+// el trigger onPedidoConfirmedSendToSap ya hace el envio SAP real.
+import { AUTO_CONFIRM_RESULT, autoConfirmPendingPedidos } from './core/auto-confirm-pending-core.js';
 import { AUTO_SEND_RESULT, handleAutoSendSap } from './core/auto-send-sap-core.js';
 import { runDailyBackup } from './core/backup-core.js';
 import { runFifoAssign } from './core/fifo-assign-core.js';
@@ -673,6 +678,52 @@ export const expireAsigLinesTTLCF = onSchedule(
       pedidosClosed: r.pedidosClosed,
       errors: r.errors.length,
     });
+  }
+);
+
+/**
+ * v921 (2026-09-14): auto-confirmar pedidos estancados en stage='pending' > 10 min.
+ *
+ * Corre cada 2 min. Query pedidos stage='pending' ordenados por confirmedAt ASC
+ * (limit 100). Los que cumplen `now - confirmedAt >= minutesTimeout` (default
+ * 10) reciben update({stage: 'confirmed', finalizedAt, finalizedBy: 'auto/<N>min-timeout',
+ * autoConfirmed: {...}}). El trigger onPedidoConfirmedSendToSap ya existente
+ * (v818) detecta la transición y arma la Sales Quotation en SAP.
+ *
+ * Kill switch: `app_config/auto_confirm.enabled=false` en Firestore desactiva
+ * el barrido. `app_config/auto_confirm.minutesTimeout=<N>` cambia el timeout.
+ *
+ * Notificaciones: agrega un doc `notifications/{}` type='auto_confirm_timeout'
+ * dirigido al VDE dueño del pedido — el frontend lo muestra como toast + bell.
+ */
+export const autoConfirmPendingPedidosCF = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 2 minutes',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 0,
+    memory: '256MiB',
+    timeoutSeconds: 60,
+  },
+  async () => {
+    const db = getFirestore();
+    try {
+      const r = await autoConfirmPendingPedidos({
+        fbDb: db,
+        FieldValue,
+        log: (msg, extra) => console.log(msg, extra || {}),
+      });
+      console.log('autoConfirmPendingPedidosCF summary', {
+        result: r.result,
+        processed: r.processed,
+        errors: r.errors && r.errors.length ? r.errors.length : 0,
+      });
+      if (r.errors && r.errors.length) {
+        console.warn('autoConfirmPendingPedidosCF errors detail', r.errors);
+      }
+    } catch (e) {
+      console.error('autoConfirmPendingPedidosCF unexpected error', e);
+    }
   }
 );
 

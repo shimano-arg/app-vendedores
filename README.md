@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v920 en dev (2026-09-14)** — **v919** alinea el subtotal "Con Stock" del modal Pedido en Espera con el total del Excel "Archivo cliente" usando `stk.disponible` (política v701: `dep11 - (confirmed+BO+ASIG)`). **v920** hace que el tab "Por localidad" del modal Reasignación también muestre localidades que solo tienen LEADs / altas SAP huérfanas, con handler que propaga la reasignación a `assignedVendor` de cada LEAD. Ver §41. |
-| **APP_VERSION** | `v920` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v921 en dev (2026-09-14)** — **auto-confirmación de pedidos estancados**: nueva Cloud Function scheduled `autoConfirmPendingPedidosCF` cada 2 min promueve pedidos con `stage='pending'` a `stage='confirmed'` cuando llevan > 10 min sin que el VDE los finalice; el trigger `onPedidoConfirmedSendToSap` (v818) los manda a SAP. Kill switch en `app_config/auto_confirm.enabled`, timeout en `.minutesTimeout`. UI: chip countdown "Auto-confirma en mm:ss" en cada card de Pendientes + notificación in-app al VDE dueño. Ver §41. |
+| **APP_VERSION** | `v921` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,52 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v920
+## 41) Changelog v300 → v921
+
+### v921 (2026-09-14) — Auto-confirmación de pedidos estancados en Pendientes > 10 min
+
+**Idea de Mariano**: VDEs cargan pedidos, tocan "Pasar a Pendientes", pero olvidan la confirmación definitiva. Los pedidos quedan estacionados en `stage='pending'` horas o días — nunca llegan a SAP como Sales Quotation, invisible al sistema comercial. Solución: barrido periódico que promueve el pedido a `stage='confirmed'` tras N min sin acción, y el trigger existente `onPedidoConfirmedSendToSap` (v818) hace el envío real.
+
+**Componentes**:
+
+1. **Core testeable** (`functions/core/auto-confirm-pending-core.js`): pura, sin dependencias de admin SDK. Recibe `fbDb + FieldValue + timeoutMinutes + log + now` (clock inyectable para tests). Lee `app_config/auto_confirm`, query `pedidos where stage=='pending' orderBy confirmedAt asc limit 100`, filtra por `now - confirmedAt >= minutesTimeout`, y para cada elegible: `update({stage: 'confirmed', finalizedAt, finalizedBy: 'auto/<N>min-timeout', autoConfirmed: {...}})` + `notifications.add({type: 'auto_confirm_timeout', targetUid: ownerUid, ...})`. Guards defensivos: skip pedidos con `finalizedAt` (doble-tick), `transferidoSAP.docNum` (ya en SAP), `lines` vacías (corruptos).
+2. **Wrapper CF** (`functions/index.js:autoConfirmPendingPedidosCF`): `onSchedule('every 2 minutes')`, region southamerica-east1, retry 0. Solo logging estructurado — no throws.
+3. **Kill switch + config** (`app_config/auto_confirm`): `{enabled: bool, minutesTimeout: number}`. `enabled=false` desactiva el barrido sin redeploy. `minutesTimeout` sobreescribe el default 10.
+4. **Frontend chip countdown** (`renderPendientesList`): cada card de Pendientes ahora muestra un chip `Auto-confirma en mm:ss` que se actualiza cada 1s via `setInterval` global + selector `.pending-auto-confirm-chip[data-deadline]`. Cambia a rojo suave los últimos 60s y a "Auto-confirmando..." naranja post-deadline.
+5. **Listener global** (`ensureAutoConfirmCfgListener`): lee `app_config/auto_confirm` en vivo, poblando `window.__autoConfirmCfg` para que el countdown del frontend calcule con el timeout que efectivamente usa el CF. Cambios en Firestore se propagan sin recargar. Unsub agregado a `detachFirebaseListeners` (regla v12 del CLAUDE.md).
+6. **Notificación in-app** (`notificaciones.js`): nuevo caso `type === 'auto_confirm_timeout'` en `notifItemHtml` con card ámbar mostrando cliente + mes + minutos que estuvo en pending. CSS `.notif-item.type-auto_confirm_timeout` con `border-left: #d97706` + gradient fondo.
+
+**Idempotencia + safety**:
+- El trigger `onPedidoConfirmedSendToSap` ya chequea `transferidoSAP.docNum` + lock cross-session TTL 300s → no doble-envío.
+- El CF no llama a SAP directamente: solo cambia el stage. Errores SAP downstream (precio 0, cliente inactivo, etc.) quedan en la card roja de v914 — Mariano ve claro qué falló.
+- El VDE puede revertir con "Volver a Pendientes" (función existente); auto-confirm no es destructivo.
+- `now()` inyectable en tests para determinismo.
+
+**Diff**:
+- `functions/core/auto-confirm-pending-core.js` — módulo nuevo (~130 LOC).
+- `functions/index.js:29-34` — import.
+- `functions/index.js:678-717` — wrapper CF `autoConfirmPendingPedidosCF`.
+- `tests/functions/auto-confirm-pending.test.js` — 9 tests unitarios (SKIP_DISABLED, NO_PEDIDOS, procesamiento OK, notificación, defensivos, timeout custom, errores por-pedido).
+- `index.html:19894-19952` — bloque render del chip countdown + `tickPendientesAutoConfirmChips` + `setInterval` global.
+- `index.html:22996-23015` — `ensureAutoConfirmCfgListener` + `let unsubAutoConfirmCfg`.
+- `index.html:22340` — hookup en el bootstrap `_try('autoConfirmCfg', ...)`.
+- `index.html:26037` — `off('unsubAutoConfirmCfg', ...)` en `detachFirebaseListeners`.
+- `index.html:1244` — CSS `.notif-item.type-auto_confirm_timeout`.
+- `src/domains/notificaciones.js:1239-1264` — caso render notif `auto_confirm_timeout`.
+- APP_VERSION + CACHE_VERSION → `v921`. Bundle regenerado.
+
+**Deploy**:
+- El código del frontend (index.html + bundle) llega a prod vía el merge PR → GitHub Pages sirve automáticamente.
+- El código de la CF requiere `firebase deploy --only functions:autoConfirmPendingPedidosCF` (Mariano tiene las credenciales; yo no puedo hacerlo desde acá).
+- Post-deploy CF: sin doc `app_config/auto_confirm` → default `enabled=true, minutesTimeout=10`. Para desactivar temporalmente: `db.doc('app_config/auto_confirm').set({enabled: false}, {merge: true})` desde Firestore console.
+
+**Cómo verificar en prod** (post-deploy CF):
+- [ ] Cargar un pedido pequeño, "Pasar a Pendientes" y "Confirmar pedido" en el modal Revisar. El pedido queda en Pendientes con card + chip "Auto-confirma en 09:xx".
+- [ ] Esperar 10 min. El chip pasa a rojo, luego a "Auto-confirmando...". Al próximo tick del CF (< 2 min más), el pedido desaparece de Pendientes y aparece en Confirmados con `finalizedBy: 'auto/10min-timeout'`.
+- [ ] En Notificaciones: aparece la card ámbar "Pedido auto-confirmado por timeout".
+- [ ] En Cloud Logging: buscar `autoConfirmPendingPedidosCF summary` — debe mostrar `processed: N`.
+
+---
 
 ### v920 (2026-09-14) — Fix tab "Por localidad" del modal Reasignación: mostrar localidades con solo LEADs / altas SAP huérfanas + propagar reasignación
 
