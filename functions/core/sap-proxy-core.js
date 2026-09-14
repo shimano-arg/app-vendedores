@@ -21,8 +21,16 @@
  */
 
 const ALLOWED_ROLES_WRITE = /** @type {const} */ (['admin', 'gerente']);
-const ALLOWED_ROLES_READ = /** @type {const} */ (['admin', 'gerente', 'vendedor', 'interno']);
 const ENDPOINT_PREFIX = '/b1s/v1/';
+
+// v935 (2026-09-14, SecAudit Sprint 2 MED-02 VULN-005): SAP host allowlist.
+// Antes: deps.sapConfig.url venia de app_config/sap_integration (Firestore).
+// Un admin con acceso a Firestore Console podia rewrite serviceLayer.url a
+// un host controlado por el atacante -> CF POSTeaba CompanyDB+UserName+Password
+// (del Secret Manager) al host malicioso en cada request. Firestore-console
+// access se convertia en secret-exfiltration a un dominio arbitrario.
+// Ahora: hardcoded en el codigo. Bumpearlo requiere PR + review.
+const ALLOWED_SAP_HOSTS = /** @type {const} */ (['shimano-sap.seidor.com.ar']);
 
 // v917 (2026-09-14, SecAudit Sprint 0 CRIT-02): whitelist explicita por
 // (method, resource). Antes: solo `startsWith('/b1s/v1/')` + `includes('/Items')`
@@ -31,17 +39,56 @@ const ENDPOINT_PREFIX = '/b1s/v1/';
 // listan explicitamente que resources SAP se permiten desde el cliente.
 // Los CFs backend (auto-send-sap-core, invoice-sync-core) NO pasan por este
 // core — hablan directo con SL via sap-sl-client, con su propia validacion.
-const READ_ALLOWED = /** @type {const} */ ([
-  'Items',
-  'ItemWarehouseInfoCollection',
-  'SQLQueries',
-  'BusinessPartners',
-  'Warehouses',
-  'SalesPersons',
-  'Inventory',
-  'Quotations',
-  'Orders',
-]);
+//
+// v935 (SecAudit Sprint 2 MED-06 VULN-209): read scoping per role. Antes:
+// ALLOWED_ROLES_READ compartia el mismo whitelist entre admin/gerente/vendedor/
+// interno - un VDE podia GET /BusinessPartners?$select=CreditLine para pull
+// entero de credit limits + discount rates de toda la BP DB (exfil de datos
+// comerciales confidenciales). Ahora vendedor/interno tienen un allowlist
+// mas chico (solo lo que usan de verdad desde el cliente); BusinessPartners
+// queda admin/gerente only. Los VDE consumen BP data desde sap_clients
+// snapshot en Firestore, no directo via sapProxy.
+/** @type {Readonly<Record<string, readonly string[]>>} */
+const READ_ALLOWED_PER_ROLE = /** @type {const} */ ({
+  admin: [
+    'Items',
+    'ItemWarehouseInfoCollection',
+    'SQLQueries',
+    'BusinessPartners',
+    'Warehouses',
+    'SalesPersons',
+    'Inventory',
+    'Quotations',
+    'Orders',
+  ],
+  gerente: [
+    'Items',
+    'ItemWarehouseInfoCollection',
+    'SQLQueries',
+    'BusinessPartners',
+    'Warehouses',
+    'SalesPersons',
+    'Inventory',
+    'Quotations',
+    'Orders',
+  ],
+  vendedor: [
+    // VDE consume BP data desde sap_clients Firestore snapshot, no via sapProxy.
+    'Items',
+    'ItemWarehouseInfoCollection',
+    'SQLQueries',
+    'Warehouses',
+  ],
+  interno: [
+    // VDI necesita ver Quotations/Orders para troubleshoot ASIG/BO flows.
+    'Items',
+    'ItemWarehouseInfoCollection',
+    'SQLQueries',
+    'Warehouses',
+    'Quotations',
+    'Orders',
+  ],
+});
 /** @type {Readonly<Record<string, readonly string[]>>} */
 const WRITE_ALLOWED = /** @type {const} */ ({
   POST: ['Quotations'], // incluye POST /Quotations({id})/Cancel (mismo resource extraido)
@@ -84,11 +131,11 @@ export function extractResource(endpoint) {
  * @property {unknown} body Body parseado (JSON o string).
  *
  * @typedef {Object} HttpsErrorLike
- * @property {'unauthenticated'|'permission-denied'|'invalid-argument'|'internal'|'unavailable'} code
+ * @property {'unauthenticated'|'permission-denied'|'invalid-argument'|'internal'|'unavailable'|'failed-precondition'} code
  * @property {string} message
  */
 
-/** @param {'unauthenticated'|'permission-denied'|'invalid-argument'|'internal'|'unavailable'} code
+/** @param {'unauthenticated'|'permission-denied'|'invalid-argument'|'internal'|'unavailable'|'failed-precondition'} code
  *  @param {string} message
  *  @returns {HttpsErrorLike} */
 export function makeHttpsError(code, message) {
@@ -96,14 +143,19 @@ export function makeHttpsError(code, message) {
 }
 
 /**
- * v917 (Sprint 0 CRIT-02): whitelist read/write por (method, resource).
+ * v917 (Sprint 0 CRIT-02) + v935 (Sprint 2 MED-06): whitelist read/write
+ * per (method, resource, role). El write whitelist es rol-agnostico porque
+ * el rol se checkea aparte (admin/gerente only). El read whitelist varia
+ * por rol - vendor/interno no pueden GET BusinessPartners.
  * @param {string} method
  * @param {string} resource
+ * @param {string} role
  * @returns {'read' | 'write' | 'denied'}
  */
-export function classifyRequest(method, resource) {
+export function classifyRequest(method, resource, role) {
   if (method === 'GET') {
-    return /** @type {readonly string[]} */ (READ_ALLOWED).includes(resource) ? 'read' : 'denied';
+    const allowedForRole = READ_ALLOWED_PER_ROLE[role] || [];
+    return allowedForRole.includes(resource) ? 'read' : 'denied';
   }
   const allowedForMethod = WRITE_ALLOWED[method] || [];
   return allowedForMethod.includes(resource) ? 'write' : 'denied';
@@ -175,7 +227,9 @@ export async function handleSapProxy(data, auth, deps) {
       'endpoint no matchea /b1s/v1/<Resource> (case-sensitive, PascalCase).'
     );
   }
-  const kind = classifyRequest(method, resource);
+  // v935 (Sprint 2 MED-06): classify pasa el rol para que el whitelist
+  // de lecturas sea distinto por rol (VDE no puede GET BusinessPartners).
+  const kind = classifyRequest(method, resource, role);
   if (kind === 'denied') {
     log('sapProxy denied by whitelist', {
       uid: auth.uid,
@@ -186,22 +240,48 @@ export async function handleSapProxy(data, auth, deps) {
     });
     throw makeHttpsError(
       'permission-denied',
-      `${method} /b1s/v1/${resource} no está en la whitelist sapProxy.`
+      `${method} /b1s/v1/${resource} no está en la whitelist sapProxy para rol ${role}.`
     );
   }
 
-  const roleWhitelist = kind === 'read' ? ALLOWED_ROLES_READ : ALLOWED_ROLES_WRITE;
-  if (!(/** @type {readonly string[]} */ (roleWhitelist).includes(role))) {
-    log('sapProxy denied by role', { uid: auth.uid, role, method, endpoint: data.endpoint });
-    throw makeHttpsError(
-      'permission-denied',
-      `Rol ${role} no autorizado para ${method} ${data.endpoint}`
-    );
+  // El write whitelist es rol-agnostico porque el classify no considera
+  // rol para writes. Aca chequeamos que el rol tenga permiso de escritura.
+  if (kind === 'write') {
+    if (!(/** @type {readonly string[]} */ (ALLOWED_ROLES_WRITE).includes(role))) {
+      log('sapProxy denied by write role', {
+        uid: auth.uid,
+        role,
+        method,
+        endpoint: data.endpoint,
+      });
+      throw makeHttpsError('permission-denied', `Rol ${role} no autorizado para escrituras SL`);
+    }
   }
 
   const { url, companyDB, userName, password } = deps.sapConfig;
   if (!url || !companyDB || !userName || !password) {
     throw makeHttpsError('internal', 'sapConfig incompleto.');
+  }
+
+  // v935 (Sprint 2 MED-02 VULN-005): host allowlist. Antes admin con Firestore
+  // Console write podia redirigir la url a un host malicioso -> creds SAP
+  // exfiltradas. Ahora rechazamos cualquier host no listado en el codigo.
+  /** @type {URL} */
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    throw makeHttpsError('internal', 'sapConfig.url no es URL valida.');
+  }
+  if (!(/** @type {readonly string[]} */ (ALLOWED_SAP_HOSTS).includes(parsedUrl.hostname))) {
+    log('sapProxy denied by host allowlist', {
+      uid: auth.uid,
+      hostname: parsedUrl.hostname,
+    });
+    throw makeHttpsError(
+      'failed-precondition',
+      `SAP host ${parsedUrl.hostname} no autorizado. Verificar app_config/sap_integration.`
+    );
   }
 
   const loginRes = await deps.fetch(`${url}/b1s/v1/Login`, {
