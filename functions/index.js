@@ -858,7 +858,10 @@ export const setupGetMovimientos = onCall(
     const _roleSnap = await getFirestore().doc(`roles/${request.auth.uid}`).get();
     const _role = (_roleSnap.data() || {}).role || null;
     if (!['admin', 'gerente', 'vendedor', 'interno'].includes(_role)) {
-      throw new HttpsError('permission-denied', `Rol ${_role} no autorizado para setupGetMovimientos`);
+      throw new HttpsError(
+        'permission-denied',
+        `Rol ${_role} no autorizado para setupGetMovimientos`
+      );
     }
     console.log('setupGetMovimientos OK gate', {
       uid: request.auth.uid,
