@@ -428,7 +428,7 @@ describe('handleSapProxy — v935 MED-06 per-role read scoping', () => {
     const deps = makeDeps({ getUserRole: vi.fn(async () => 'vendedor') });
     await expect(
       handleSapProxy(
-        { endpoint: "/b1s/v1/BusinessPartners?$select=CardCode,CreditLine" },
+        { endpoint: '/b1s/v1/BusinessPartners?$select=CardCode,CreditLine' },
         { uid: 'u1' },
         deps
       )
@@ -483,20 +483,12 @@ describe('handleSapProxy — v935 MED-06 per-role read scoping', () => {
   });
   it('admin sigue pudiendo GET /BusinessPartners (uso legitimo panel)', async () => {
     const deps = makeDeps({ getUserRole: vi.fn(async () => 'admin') });
-    const res = await handleSapProxy(
-      { endpoint: '/b1s/v1/BusinessPartners' },
-      { uid: 'u1' },
-      deps
-    );
+    const res = await handleSapProxy({ endpoint: '/b1s/v1/BusinessPartners' }, { uid: 'u1' }, deps);
     expect(res.status).toBe(200);
   });
   it('gerente sigue pudiendo GET /BusinessPartners', async () => {
     const deps = makeDeps({ getUserRole: vi.fn(async () => 'gerente') });
-    const res = await handleSapProxy(
-      { endpoint: '/b1s/v1/BusinessPartners' },
-      { uid: 'u1' },
-      deps
-    );
+    const res = await handleSapProxy({ endpoint: '/b1s/v1/BusinessPartners' }, { uid: 'u1' }, deps);
     expect(res.status).toBe(200);
   });
 });
