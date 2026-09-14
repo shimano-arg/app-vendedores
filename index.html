@@ -5441,7 +5441,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v921';
+const APP_VERSION = 'v922';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -7274,6 +7274,26 @@ function deptEffectiveVendor(feat){
   const deptKey = feat.properties.province + '|' + feat.properties.name;
   const deptOverride = DEPT_VENDOR_OVERRIDE[deptKey];
   if (deptOverride) return deptOverride;
+  // v922 (2026-09-14): FIX bug reportado por Mariano — reasignar una
+  // localidad SIN POINT desde el modal Reasignacion "Por localidad" (v920)
+  // guardaba el override en vendor_overrides/{LOC|prov|loc} pero el mapa
+  // seguia mostrando el color de PROVINCE_VENDOR_OVERRIDE porque la lista
+  // de POINTS del depto era vacia (return feat.properties.vendor). Ahora,
+  // antes de caer en PROVINCE_VENDOR_OVERRIDE, chequeamos si existe un
+  // vendor_overrides con scope=LOC cuyo nombre matchea el del depto (caso
+  // tipico Buenos Aires: partido y localidad homonimos, ej. Carmen de Areco).
+  // Si existe, ese override gana sobre el hardcode de provincia.
+  if (typeof vendorOverrides !== 'undefined' && vendorOverrides) {
+    const locKey = 'LOC|' + feat.properties.province + '|' + feat.properties.name;
+    const locOverride = vendorOverrides[locKey];
+    if (locOverride && locOverride.newVendor) return locOverride.newVendor;
+    // Idem para override de provincia guardado en Firestore desde tab
+    // "Por provincia" (v920+ deberia haber sido asi todo el tiempo, pero
+    // recien lo incorporo aca porque escapaba a deptEffectiveVendor).
+    const provKeyFs = 'PROV|' + feat.properties.province;
+    const provOverrideFs = vendorOverrides[provKeyFs];
+    if (provOverrideFs && provOverrideFs.newVendor) return provOverrideFs.newVendor;
+  }
   // Override hardcoded por provincia (aplica a todos los depts que no
   // tienen override propio).
   const provOverride = PROVINCE_VENDOR_OVERRIDE[feat.properties.province];
