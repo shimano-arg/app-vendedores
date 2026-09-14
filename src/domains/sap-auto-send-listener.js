@@ -136,6 +136,9 @@ function ensureSapAutoSendListener() {
                     batchId: null,
                   },
                   sendingSapLock: firebase.firestore.FieldValue.delete(),
+                  // v914: pedido 100% BO paso a app_only exitoso — limpiar
+                  // transferError de intentos previos si los habia.
+                  transferError: firebase.firestore.FieldValue.delete(),
                 });
                 console.log(
                   '[SAP auto] app_only',
@@ -184,6 +187,8 @@ function ensureSapAutoSendListener() {
                       batchId: 'SL-AUTO-' + Date.now(),
                     },
                     sendingSapLock: firebase.firestore.FieldValue.delete(),
+                    // v914: envio auto exitoso — limpiar transferError previo.
+                    transferError: firebase.firestore.FieldValue.delete(),
                   });
                 });
                 if (winnerDocNum && winnerDocNum !== myNewDocNum) {
@@ -217,9 +222,19 @@ function ensureSapAutoSendListener() {
                 }
               } else {
                 console.warn('[SAP auto] FAILED', fsId, p.clientName, '-', r.error);
-                // Liberar el lock para que se pueda reintentar (manual o auto).
+                // Liberar el lock + persistir el error en el pedido para
+                // que la card en Confirmados se pinte de rojo y muestre
+                // "por que fallo" al vendedor (v914).
                 try {
-                  await docRef.update({ sendingSapLock: firebase.firestore.FieldValue.delete() });
+                  await docRef.update({
+                    sendingSapLock: firebase.firestore.FieldValue.delete(),
+                    transferError: {
+                      message: String(r.error || 'Error desconocido').slice(0, 500),
+                      at: new Date().toISOString(),
+                      via: 'service_layer_auto',
+                      attemptedBy: 'auto/' + ((currentUser && currentUser.email) || ''),
+                    },
+                  });
                 } catch (_) {}
                 // No hacemos retry automatico. El admin lo ve en Pendientes y
                 // puede mandarlo manual o ver el error.

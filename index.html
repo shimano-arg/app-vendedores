@@ -2791,6 +2791,16 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 .confirmed-card .cc-sap-estado.est-cobrado-completo{background:#059669} /* verde: COBRADO_COMPLETO */
 .confirmed-card .cc-sap-estado.est-cerrado{background:#64748b} /* gris: CERRADO (SQ cancelada/vencida) */
 .confirmed-card .cc-sap-estado.est-desconocido{background:var(--border-subtle);color:var(--text-secondary);font-weight:600} /* pendiente snapshot */
+/* v914 (2026-09-14): card roja cuando el envio a SAP fallo. transferError se
+   persiste en el pedido doc por sap-admin-panel + sap-auto-send-listener. */
+.confirmed-card.cc-error{background:#fee2e2;border:2px solid #dc2626;border-left:6px solid #991b1b}
+.confirmed-card.cc-error:hover{background:#fecaca}
+.confirmed-card.cc-error .cc-name{color:#991b1b}
+.confirmed-card.cc-error .cc-summary{color:#7f1d1d}
+.confirmed-card.cc-error .cc-month{background:#dc2626}
+.cc-error-btn{display:inline-flex;align-items:center;gap:5px;background:#dc2626;color:#fff;border:none;padding:5px 10px;border-radius:6px;font-size:10.5px;font-weight:800;letter-spacing:.3px;cursor:pointer;margin-top:6px;text-transform:uppercase}
+.cc-error-btn:hover{background:#991b1b}
+.cc-error-type{display:inline-block;background:#7f1d1d;color:#fff;padding:2px 7px;border-radius:10px;font-size:9.5px;font-weight:800;letter-spacing:.3px;margin-left:6px;text-transform:uppercase}
 .ped-search-wrap{margin-bottom:8px}
 .ped-search{width:100%;padding:8px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;background:var(--bg-elevated);box-sizing:border-box;-webkit-appearance:none}
 .ped-search:focus{border-color:var(--brand-shimano-blue);box-shadow:0 0 0 2px rgba(0,169,224,.15)}
@@ -5427,7 +5437,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v913';
+const APP_VERSION = 'v914';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -19918,6 +19928,63 @@ function renderSapEstadoBadge(estado, detalles){
   return '<div class="cc-sap-estado ' + info.cls + '">' + escapeHtml(text) + '</div>';
 }
 
+// v914 (2026-09-14): clasifica el mensaje de error SAP en categorias que el
+// vendedor entienda + devuelve una accion sugerida. Los codigos SAP salen
+// de https://help.sap.com/... (SBO Service Layer error codes) — mapeo
+// derivado de errores reales que vimos en produccion.
+function classifyTransferError(msg){
+  const raw = String(msg || '').toLowerCase();
+  if (raw.includes('lead') && raw.includes('inactive'))
+    return { type: 'Cliente inactivo', hint: 'El cliente esta marcado como Lead inactivo en SAP. Pedile a Mariano/Pablo que lo reactive.' };
+  if (raw.includes('cardcode') || raw.includes('card code') || raw.includes('bp not found'))
+    return { type: 'Cliente sin CardCode', hint: 'Falta darle CardCode SAP a este cliente. Panel SAP > Pendientes > Alta.' };
+  if (raw.includes('item') && (raw.includes('not found') || raw.includes('no valid')))
+    return { type: 'Producto invalido', hint: 'Uno de los SKUs no existe o no vende en SAP. Revisa la lista de productos del pedido.' };
+  if (raw.includes('price') || raw.includes('precio'))
+    return { type: 'Precio invalido', hint: 'Precio fuera de rango o lista de precios sin cargar. Reintentar despues del sync.' };
+  if (raw.includes('http 401') || raw.includes('unauthorized') || raw.includes('login'))
+    return { type: 'Sesion SAP caida', hint: 'La sesion Service Layer expiro. Admin: reintenta el envio manual.' };
+  if (raw.includes('http 400'))
+    return { type: 'Datos invalidos', hint: 'SAP rechazo el pedido por datos invalidos. Ver mensaje completo con el boton.' };
+  if (raw.includes('http 500') || raw.includes('http 502') || raw.includes('http 503') || raw.includes('timeout') || raw.includes('econnreset'))
+    return { type: 'SAP no responde', hint: 'Service Layer no respondio. Reintenta en 1-2 min.' };
+  return { type: 'Error SAP', hint: 'Copia el mensaje y avisale a Mariano/Pablo.' };
+}
+
+window.openTransferErrorModal = function(pedidoFsId){
+  // Buscar el pedido en el state global. globalPedidos primero, sino en confirmed[].
+  let p = null;
+  if (Array.isArray(globalPedidos)) p = globalPedidos.find(x => x && x._fsId === pedidoFsId) || null;
+  if (!p) {
+    Object.values(confirmed || {}).forEach(list => {
+      (list || []).forEach(c => { if (c && c._fsId === pedidoFsId) p = c; });
+    });
+  }
+  if (!p || !p.transferError) {
+    alert('No se encontro el detalle del error. Refresca la pagina.');
+    return;
+  }
+  const err = p.transferError;
+  const cat = classifyTransferError(err.message);
+  const cliente = p.clientName || 'Pedido';
+  const at = err.at ? new Date(err.at).toLocaleString('es-AR') : '';
+  const body = [
+    'Cliente: ' + cliente,
+    '',
+    'Tipo: ' + cat.type,
+    '',
+    'Que hacer: ' + cat.hint,
+    '',
+    'Mensaje SAP:',
+    err.message || '(sin mensaje)',
+    '',
+    'Cuando fallo: ' + at,
+    err.via ? 'Via: ' + err.via : '',
+    err.attemptedBy ? 'Intento por: ' + err.attemptedBy : '',
+  ].filter(Boolean).join('\n');
+  alert(body);
+};
+
 function renderConfirmadosList(){
   const visibleKeys = buildPedidoVisibleKeysSet();
   // Armar items completos antes de filtrar - usamos los items para popular
@@ -20003,7 +20070,13 @@ function renderConfirmadosList(){
   items.forEach(it => {
     const lineCount = (it.conf.lines || []).length;
     const units = (it.conf.lines || []).reduce((s, l) => s + (parseFloat(l.qty) || 0), 0);
-    html += '<div class="confirmed-card" onclick="viewPedido(\'confirmed\',\'' + escapeAttr(it.key) + '\',' + it.idx + ')">';
+    // v914 (2026-09-14): si el pedido fallo al enviar a SAP (transferError
+    // persistido por sap-admin-panel + sap-auto-send-listener), pintarlo
+    // en rojo fuerte + boton "por que fallo".
+    const hasErr = !!(it.conf.transferError && it.conf.transferError.message
+      && !(it.conf.transferidoSAP && it.conf.transferidoSAP.docNum));
+    const cardCls = 'confirmed-card' + (hasErr ? ' cc-error' : '');
+    html += '<div class="' + cardCls + '" onclick="viewPedido(\'confirmed\',\'' + escapeAttr(it.key) + '\',' + it.idx + ')">';
     // v845 (2026-09-09): chip "ORDEN N" al lado del mes — Mariano pidio ver
     // el mismo numero de orden que aparece en la Lista de Espera (waitlist)
     // tambien en las cards de Confirmados. El pedido doc en Firestore guarda
@@ -20019,6 +20092,15 @@ function renderConfirmadosList(){
     // Se muestra ANTES del badge SAP para que sea visible.
     if (it.orphan) {
       html += '<div style="display:inline-block;background:var(--color-warning-bg);color:var(--color-warning);font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px;margin-top:4px">sin cat&aacute;logo (revisar province/localidad)</div>';
+    }
+    // v914 (2026-09-14): banner de error + boton "por que fallo" cuando
+    // transferError esta seteado. Click abre modal con clasificacion + hint.
+    if (hasErr) {
+      const cat = (typeof classifyTransferError === 'function') ? classifyTransferError(it.conf.transferError.message) : { type: 'Error SAP' };
+      html += '<div style="margin-top:6px">';
+      html += '<button type="button" class="cc-error-btn" onclick="event.stopPropagation(); openTransferErrorModal(\'' + escapeAttr(it.conf._fsId || '') + '\')">&#9888; &iquest;POR QU&Eacute; FALL&Oacute;?</button>';
+      html += '<span class="cc-error-type">' + escapeHtml(cat.type) + '</span>';
+      html += '</div>';
     }
     // v378+ (2026-08-02): badge de estado SAP (OFERTA/ORDEN/FACTURADO/COBRADO/CERRADO).
     // Solo aparece si el pedido fue transferido a SAP (tiene transferidoSAP.docNum).
@@ -25879,6 +25961,11 @@ function attachFirebaseListeners(){
         // valido en Firestore). Bug historico del snapshot del entry — el
         // listener global unsubPedidosAll (globalPedidos) sí lo incluia.
         transferidoSAP: d.transferidoSAP || null,
+        // v914 (2026-09-14): error del ultimo intento de envio a SAP.
+        // Persistido por sap-admin-panel (manual) o sap-auto-send-listener
+        // (auto) cuando la respuesta del Service Layer no es ok. Se limpia
+        // en el proximo envio exitoso. Rendereado como card roja + boton.
+        transferError: d.transferError || null,
         // v378+ (2026-08-02): estado macro del pedido en el flujo SAP,
         // escrito por sync_pedido_estados_to_firestore cada 30 min via cron BQ.
         // Valores: OFERTA_VENTA | ORDEN_VENTA | FACTURADO | COBRADO_PARCIAL |
@@ -25947,6 +26034,9 @@ function attachFirebaseListeners(){
         migrationSource: d.migrationSource || null,
         lines: d.lines || [],
         transferidoSAP: d.transferidoSAP || null,
+        // v914 (2026-09-14): error persistido del ultimo intento fallido de
+        // envio a SAP. Se lee desde openTransferErrorModal y renderConfirmadosList.
+        transferError: d.transferError || null,
         // v378+ (2026-08-02): estado macro del pedido en el flujo SAP.
         sapEstado: d.sapEstado || null,
         sapEstadoDetalles: d.sapEstadoDetalles || null,
