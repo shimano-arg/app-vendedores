@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v930 en dev (2026-09-14)** — **SecAudit Sprint 1 E1.8 HIGH-11**: SRI (Subresource Integrity) en TODOS los CDN scripts + CSS (12 tags: Leaflet + markercluster + xlsx + Firebase 10.7.1 × 6). Cierra el vector CDN compromise → arbitrary JS con Firebase Auth token access. `xlsx@0.18.5` proto pollution (GHSA-4r6h-8v6p-xvw6) queda como TODO Sprint 2 (migrar a `exceljs`). Ver §41. |
-| **APP_VERSION** | `v930` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v931 en dev (2026-09-14)** — **SecAudit Sprint 1 E1.1 HIGH-04**: bump `nodemailer` `^6.10.1` → `^10.0.10` en `functions/package.json`. Cierra **12 CVEs stacked** incluyendo SSRF via raw option (GHSA-p6gq-j5cr-w38f, CVSS 7.1) + CRLF/SMTP command injection + addressparser DoS. Solo `onQuotationSentNotify` usa nodemailer (lazy import). Sprint 1: **9/9 HIGH cerrados** 🎉. Ver §41. |
+| **APP_VERSION** | `v931` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,32 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v930
+## 41) Changelog v300 → v931
+
+### v931 (2026-09-14) — SecAudit Sprint 1 E1.1: bump `nodemailer` ^6.10.1 → ^10.0.10 (cierra HIGH-04)
+
+**Contexto**: `nodemailer@6.10.1` acumula **12 CVEs stacked**, incluyendo:
+
+- **GHSA-p6gq-j5cr-w38f** (HIGH, CVSS 7.1) — la opción `raw` bypasseaba `disableFileAccess`/`disableUrlAccess` → arbitrary file read + SSRF desde la CF server-side.
+- **GHSA-rcmh-qjqh-p98v** (HIGH, CVSS 7.5) — `addressparser` recursion → DoS.
+- **GHSA-2x7j-588g-ccc2** (HIGH, CVSS 7.5) — `addressparser` quadratic → DoS.
+- **GHSA-mm7p-fcc7-pg87**, **GHSA-vvjj-xcjg-gr5g**, **GHSA-268h-hp4c-crq3** — CRLF/SMTP command injection + email delivery to unintended domain.
+- **GHSA-cc9r-2j5m-2m83**, **GHSA-wmmp-3585-3rmp** — recipient-domain validation bypass.
+- + 4 MODERATE.
+
+`nodemailer` corre server-side dentro del CF `onQuotationSentNotify` (lazy import en `functions/index.js:324`) con SMTP creds (`GMAIL_APP_PASSWORD` en Secret Manager). Un atacante con capacidad de invocar el trigger con payload controlado podía explotar el raw-option bypass para leer archivos arbitrarios del container CF o hacer SSRF a servicios internos (`169.254.169.254` metadata, Firestore admin, etc).
+
+**Fix**: `cd functions && npm i nodemailer@^10` — bump semver-major 6→10.
+
+- **Cambios en API surface**: none. Nuestra usage es `createTransport({service: 'gmail', auth: {user, pass}})` + `transporter.sendMail({from, to, subject, text, html})`. Ambos stable en 10.x. Sin OAuth, DKIM, attachments, raw option — nada afectado por breaking changes.
+- **Node runtime**: 20 (compatible con 10.x que requiere Node 14+).
+- **Post-bump audit**: 0 CVEs de nodemailer. Los 11 moderate restantes son transitivos de `@google-cloud/storage` vía `firebase-admin` — tracked como TODO Sprint 2 (VULN-404: `firebase-admin ^12` → `^14`).
+
+**Deploy**: `firebase deploy --only functions:onQuotationSentNotify`.
+
+**Smoke test post-deploy**: enviar un pedido a SAP → verificar en Cloud Logging que `[onQuotationSentNotify email enviado]` aparece + email llega a `santiago.beron@shimano.uy` sin errores.
+
+**🎉 Sprint 1 completo — 9/9 HIGH del audit cerrados** (E1.2 App Check + E1.3 pedido hasOnly + E1.4/5/6 rules cluster + E1.7 setupGetMovimientos + E1.8 SRI + E1.9 SSL fallback + E1.1 nodemailer). Sigue Sprint 2 (15 MEDIUM).
 
 ### v930 (2026-09-14) — SecAudit Sprint 1 E1.8: SRI en 12 CDN scripts + CSS (cierra HIGH-11)
 
