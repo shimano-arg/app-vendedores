@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v931 en dev (2026-09-14)** — **SecAudit Sprint 1 E1.1 HIGH-04**: bump `nodemailer` `^6.10.1` → `^10.0.10` en `functions/package.json`. Cierra **12 CVEs stacked** incluyendo SSRF via raw option (GHSA-p6gq-j5cr-w38f, CVSS 7.1) + CRLF/SMTP command injection + addressparser DoS. Solo `onQuotationSentNotify` usa nodemailer (lazy import). Sprint 1: **9/9 HIGH cerrados** 🎉. Ver §41. |
-| **APP_VERSION** | `v931` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v932 en prod (2026-09-14)** — cierre del día del 2026-09-14 con **19 versiones shipped** entre trabajo funcional (Claude) y SecAudit Sprint 1 completo (Mariano). Highlights: (a) auto-confirm de pedidos estancados en Pendientes (v921); (b) fix geocoding Google Maps que nunca ejecutaba + fallback Places API (v925); (c) desglose semántico del gap en top-stats TIENDAS (v926); (d) partidos Carmen de Areco + Capitán Sarmiento a Mauricio (v928); (e) SecAudit Sprint 1 **9/9 HIGH cerrados** (v924-v931); (f) UX: tabs Pedidos con color semántico (v923) + iconos SVG en botones del leaflet control (v932). Ver §41. |
+| **APP_VERSION** | `v932` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,63 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v931
+## 41) Changelog v300 → v932
+
+### 📅 Resumen del día 2026-09-14 (v918 → v932, 19 versiones)
+
+Sesión de trabajo intensa con dos tracks paralelos:
+
+**Track A — Trabajo funcional (Claude Code)** — 11 versiones cerradas:
+
+| Versión | Titular |
+|---------|---------|
+| v918 | Fix filtro "Localidades" del modal Reasignación (LEADs) |
+| v919 | Fix subtotal "Con Stock" modal Pedido en Espera vs Excel |
+| v920 | Tab "Por localidad" del modal Reasignación con LEADs + handler batch |
+| v921 | Auto-confirm de pedidos estancados en Pendientes > 10 min (CF + UI) |
+| v922 | Fix color del partido en el mapa post-reasignación "Por localidad" |
+| v923 | UX Pedidos tabs: fondo pintado con color semántico por tab |
+| v925 | Fix geocoding Google Maps (nunca corría) + Places API fallback |
+| v926 | Top-stats: tooltip descriptivo + desglose del "gap" en TIENDAS |
+| v928 | Partidos Carmen de Areco + Capitán Sarmiento a Mauricio |
+| v930 | Quitar cuadrado azul del modal "Nueva versión disponible" |
+| v932 | Íconos SVG en botones "Reubicar pines" + "Recalcular contornos" del mapa |
+
+**Track B — SecAudit Sprint 0 + Sprint 1 (Mariano + auditoría)** — Sprint 0 cerrado (v917) + Sprint 1 **9/9 HIGH cerrados** 🎉:
+
+| Versión | Findings cerrados |
+|---------|-------------------|
+| v917 | Sprint 0: 2 CRITICAL (auto-escalation admin + sapProxy whitelist) |
+| v924 | E1.2 App Check en `geminiOcrProxy` + E1.3 pedido update `.hasOnly()` |
+| v929 | E1.4 `revision_waitlist delete` + E1.5 `client_master shape` + E1.6 `leadEstado scope` + E1.7 `setupGetMovimientos` role gate + E1.9 `sync_sap_to_firestore.py` remove SSL fallback |
+| v930 | E1.8 SRI en 12 CDN scripts + CSS |
+| v931 | E1.1 bump `nodemailer` ^6.10.1 → ^10.0.10 (12 CVEs stacked) |
+
+**Sprint 2 en cola** (15 MEDIUM): `firebase-admin` bump (VULN-404), `xlsx` → `exceljs` migration (GHSA-4r6h-8v6p-xvw6), y otros — plan pendiente.
+
+**Deploy pendiente al 2026-09-14 final**:
+- Cloud Functions modificadas: `geminiOcrProxy` (App Check), `sapProxy` (whitelist), `onQuotationSentNotify` (nodemailer), `autoConfirmPendingPedidosCF` (nuevo, v921). Requiere `firebase deploy --only functions` desde el laptop de Mariano.
+- Frontend + Firestore rules ya en prod vía GitHub Pages.
+
+---
+
+### v932 (2026-09-14) — Iconos SVG en botones "Reubicar pines" + "Recalcular contornos" del leaflet control
+
+**Bug reportado por Mariano**: los 2 botones del leaflet control (esquina superior izquierda del mapa) aparecían como cuadrados vacíos. El `innerHTML` era `''` — probablemente emojis Unicode (📍 pin y 🔷 polígono) que se perdieron al guardar el archivo con un editor sin soporte UTF-8 completo.
+
+**Fix** (`index.html:6304` y `6334`): reemplazar el `innerHTML = ''` con SVG inline:
+
+- **Reubicar pines** → SVG map pin (Material Icons style, `<path d="M12 2C8.13...">`) — 16×16.
+- **Recalcular contornos** → SVG polygon outline (pentágono, `<polygon points="12,3 22,10 18,20 6,20 2,10"/>`) — 18×18.
+- `display:flex` + `align-items:center` + `justify-content:center` para centrar el ícono en el 30×30 del `leaflet-bar`.
+- `fill="currentColor"` (pin) y `stroke="currentColor"` (polígono) — heredan el color del texto, respetan light/dark mode.
+- `pointer-events:none` en el SVG para que el click quede en el `<a>` padre.
+
+APP_VERSION + CACHE_VERSION → `v932`. Zero cambios de bundle/JS logic.
+
+**Cómo verificar**: hard reload → esquina superior izquierda del mapa muestra 3 botones con íconos visibles: refresh (↻, ya existía), pin (Reubicar pines), polígono (Recalcular contornos).
+
+---
 
 ### v931 (2026-09-14) — SecAudit Sprint 1 E1.1: bump `nodemailer` ^6.10.1 → ^10.0.10 (cierra HIGH-04)
 
@@ -4725,6 +4781,25 @@ Los hashes son inmutables por version. Bumpear la version del CDN (ej: Leaflet 1
 **Fuera de scope (Sprint 2)**: `xlsx@0.18.5` sigue con `GHSA-4r6h-8v6p-xvw6` (prototype pollution) — es CVE del código, no del CDN. SRI cierra CDN compromise pero no ayuda con el CVE. Migrar a `exceljs` (ya cargado on-demand en el shell para stock asig template) es la solución definitiva. TODO Sprint 2.
 
 **Bump**: APP_VERSION + CACHE_VERSION → `v930`. Sin cambios en rules ni CFs — solo HTML. GH Pages auto-deploy tras merge.
+
+### v928 (2026-09-14) — Partidos Carmen de Areco + Capitan Sarmiento a Mauricio (continuación v854)
+
+**Pedido de Mariano**: los partidos de Carmen de Areco y Capitán Sarmiento pintaban celeste (default Federico para Buenos Aires) aunque las tiendas ya estaban asignadas a Mauricio. Continuación natural de v854 que había pasado Salto + San Antonio de Areco a Mauricio — los cuatro son partidos linderos.
+
+**Fix**: 2 entries nuevas en `DEPT_VENDOR_OVERRIDE` (`index.html:7264`):
+
+```js
+'BUENOS AIRES|Carmen De Areco': 'MAURICIO GIL',
+'BUENOS AIRES|Capitan Sarmiento': 'MAURICIO GIL',
+```
+
+Nombres exactos verificados contra `geo.json`: `Carmen De Areco` (case-sensitive con `De` mayúscula) y `Capitan Sarmiento` (sin tilde).
+
+APP_VERSION + CACHE_VERSION → `v928`. Zero cambios de bundle/JS logic.
+
+**Nota**: v922 (fix `deptEffectiveVendor` para consultar `vendor_overrides` de Firestore) sigue vigente para casos dinámicos donde el override viene del modal Reasignación. v928 es el hardcode para casos permanentes que Mariano decide manualmente, patrón consistente con v852 (San Martin/Iriondo/Belgrano de SF a PACHI) y v854.
+
+**Cómo verificar**: hard reload → los partidos de Carmen de Areco y Capitán Sarmiento pintan con el color de Mauricio (naranja) en lugar del celeste que tenían.
 
 ### v929 (2026-09-14) — SecAudit Sprint 1 iter 2+3: cierra 5 HIGH en un batch
 
