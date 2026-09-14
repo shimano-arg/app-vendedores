@@ -30,9 +30,7 @@ const ENDPOINT_PREFIX = '/b1s/v1/';
 // (del Secret Manager) al host malicioso en cada request. Firestore-console
 // access se convertia en secret-exfiltration a un dominio arbitrario.
 // Ahora: hardcoded en el codigo. Bumpearlo requiere PR + review.
-const ALLOWED_SAP_HOSTS = /** @type {const} */ ([
-  'shimano-sap.seidor.com.ar',
-]);
+const ALLOWED_SAP_HOSTS = /** @type {const} */ (['shimano-sap.seidor.com.ar']);
 
 // v917 (2026-09-14, SecAudit Sprint 0 CRIT-02): whitelist explicita por
 // (method, resource). Antes: solo `startsWith('/b1s/v1/')` + `includes('/Items')`
@@ -53,23 +51,42 @@ const ALLOWED_SAP_HOSTS = /** @type {const} */ ([
 /** @type {Readonly<Record<string, readonly string[]>>} */
 const READ_ALLOWED_PER_ROLE = /** @type {const} */ ({
   admin: [
-    'Items', 'ItemWarehouseInfoCollection', 'SQLQueries',
-    'BusinessPartners', 'Warehouses', 'SalesPersons', 'Inventory',
-    'Quotations', 'Orders',
+    'Items',
+    'ItemWarehouseInfoCollection',
+    'SQLQueries',
+    'BusinessPartners',
+    'Warehouses',
+    'SalesPersons',
+    'Inventory',
+    'Quotations',
+    'Orders',
   ],
   gerente: [
-    'Items', 'ItemWarehouseInfoCollection', 'SQLQueries',
-    'BusinessPartners', 'Warehouses', 'SalesPersons', 'Inventory',
-    'Quotations', 'Orders',
+    'Items',
+    'ItemWarehouseInfoCollection',
+    'SQLQueries',
+    'BusinessPartners',
+    'Warehouses',
+    'SalesPersons',
+    'Inventory',
+    'Quotations',
+    'Orders',
   ],
   vendedor: [
     // VDE consume BP data desde sap_clients Firestore snapshot, no via sapProxy.
-    'Items', 'ItemWarehouseInfoCollection', 'SQLQueries', 'Warehouses',
+    'Items',
+    'ItemWarehouseInfoCollection',
+    'SQLQueries',
+    'Warehouses',
   ],
   interno: [
     // VDI necesita ver Quotations/Orders para troubleshoot ASIG/BO flows.
-    'Items', 'ItemWarehouseInfoCollection', 'SQLQueries', 'Warehouses',
-    'Quotations', 'Orders',
+    'Items',
+    'ItemWarehouseInfoCollection',
+    'SQLQueries',
+    'Warehouses',
+    'Quotations',
+    'Orders',
   ],
 });
 /** @type {Readonly<Record<string, readonly string[]>>} */
@@ -231,11 +248,13 @@ export async function handleSapProxy(data, auth, deps) {
   // rol para writes. Aca chequeamos que el rol tenga permiso de escritura.
   if (kind === 'write') {
     if (!(/** @type {readonly string[]} */ (ALLOWED_ROLES_WRITE).includes(role))) {
-      log('sapProxy denied by write role', { uid: auth.uid, role, method, endpoint: data.endpoint });
-      throw makeHttpsError(
-        'permission-denied',
-        `Rol ${role} no autorizado para escrituras SL`
-      );
+      log('sapProxy denied by write role', {
+        uid: auth.uid,
+        role,
+        method,
+        endpoint: data.endpoint,
+      });
+      throw makeHttpsError('permission-denied', `Rol ${role} no autorizado para escrituras SL`);
     }
   }
 

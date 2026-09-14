@@ -17,7 +17,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v934 en dev (2026-09-14)** — **SecAudit Sprint 2 batch 2** (2 MEDIUM cerrados): (1) MED-05 `allowed_emails` split `get`/`list` — `get` sigue abierto (login check), `list` restringido a admin/gerente (evita staff directory enum); (2) MED-13 `rendiciones` cerrar el 2-step bypass — `duplicado_detectado` solo puede pasar a `rejected` (antes admin podía escapar via `→ pending_approval → approved`). Sprint 2: 5/15 MEDIUM. MED-07 (snapshots cross-vendor) queda para Sprint 3 — requiere refactor backend. Ver §41. |
+| **Versión actual** | **v935 en dev (2026-09-14)** — **SecAudit Sprint 2 batch 3** (2 MEDIUM cerrados sapProxy hardening): (1) MED-02 host allowlist hardcoded en `sap-proxy-core.js` — admin con Firestore Console ya no puede redirigir SAP creds a un host malicioso; (2) MED-06 per-role read scoping — vendedor/interno ya no pueden `GET /BusinessPartners` (credit DB exfil bloqueado) ni `/SalesPersons` ni `/Inventory`; interno mantiene Quotations/Orders para troubleshoot. Sprint 2: 7/15 MEDIUM. Ver §41. |
 | **APP_VERSION** | `v934` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
@@ -4670,7 +4670,38 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v934
+## 41) Changelog v300 → v935
+
+### v935 (2026-09-14) — SecAudit Sprint 2 batch 3: 2 MEDIUM (sapProxy hardening — host allowlist + per-role scoping)
+
+#### MED-02 — SAP host allowlist hardcoded (VULN-005)
+
+`functions/core/sap-proxy-core.js`. Antes: `deps.sapConfig.url` venía de `app_config/sap_integration` en Firestore. Admin con acceso a Firestore Console podía rewrite `serviceLayer.url` a host controlado por atacante — la CF POSTeaba `CompanyDB` + `UserName` + `Password` (del Secret Manager) al host malicioso en cada request. **Firestore-console access → secret exfiltration a dominio arbitrario**.
+
+Ahora hardcoded:
+```js
+const ALLOWED_SAP_HOSTS = ['shimano-sap.seidor.com.ar'];
+```
+
+En cada request `new URL(deps.sapConfig.url).hostname` se compara. Si no matchea, `failed-precondition` antes de hacer login. Bumpearlo (nuevo host test/prod) requiere PR + review.
+
+#### MED-06 — Per-role read scoping (VULN-209)
+
+Antes: `ALLOWED_ROLES_READ = ['admin','gerente','vendedor','interno']` compartía el whitelist. Un VDE podía `GET /b1s/v1/BusinessPartners?$select=CardCode,CardName,CreditLine,DiscountPercent,Balance,...` y **pull entero de credit limits + discount rates + payment behavior de toda la BP DB** (exfil de datos comerciales confidenciales).
+
+Ahora `READ_ALLOWED_PER_ROLE`:
+
+| Rol | Recursos permitidos |
+|---|---|
+| admin / gerente | Items, ItemWarehouseInfoCollection, SQLQueries, **BusinessPartners**, Warehouses, **SalesPersons**, **Inventory**, Quotations, Orders |
+| vendedor | Items, ItemWarehouseInfoCollection, SQLQueries, Warehouses |
+| interno | Items, ItemWarehouseInfoCollection, SQLQueries, Warehouses, Quotations, Orders |
+
+VDE consume BP data desde el snapshot Firestore `sap_clients` (actualizado por cron, ya scopeado por `assignedVendor`). No necesita SL directo. Interno mantiene Quotations/Orders para troubleshoot ASIG/BO flows.
+
+**Tests**: 14 nuevos en `tests/functions/sap-proxy.test.js` — 5 host allowlist (attacker.com denied, typo-squat denied, URL inválida denied, host legítimo con y sin puerto OK) + 9 per-role (vendor/interno denied en BP/SalesPersons/Inventory, vendor OK Items/IWI/SQLQueries, interno OK Quotations/Orders, admin/gerente unrestricted). Suite **49/49** ✅ (was 35).
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v935`. Deploy: `firebase deploy --only functions:sapProxy`.
 
 ### v934 (2026-09-14) — SecAudit Sprint 2 batch 2: 2 MEDIUM (allowed_emails get/list split + rendiciones 2-step bypass)
 
