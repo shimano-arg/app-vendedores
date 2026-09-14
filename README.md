@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v918 en dev (2026-09-14)** — **fix modal Zonas**: el filtro "Localidades" del modal Reasignación de zonas ahora incluye localidades de LEADs / altas SAP huérfanas (`approvedAltasList`), no sólo las de POINTS. Antes un LEAD como "El tigrecito pesca y camping" (Carmen de Areco) aparecía en la lista pero su localidad no se podía seleccionar en el filtro. Ver §41. |
-| **APP_VERSION** | `v918` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v920 en dev (2026-09-14)** — **v919** alinea el subtotal "Con Stock" del modal Pedido en Espera con el total del Excel "Archivo cliente" usando `stk.disponible` (política v701: `dep11 - (confirmed+BO+ASIG)`). **v920** hace que el tab "Por localidad" del modal Reasignación también muestre localidades que solo tienen LEADs / altas SAP huérfanas, con handler que propaga la reasignación a `assignedVendor` de cada LEAD. Ver §41. |
+| **APP_VERSION** | `v920` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,53 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v918
+## 41) Changelog v300 → v920
+
+### v920 (2026-09-14) — Fix tab "Por localidad" del modal Reasignación: mostrar localidades con solo LEADs / altas SAP huérfanas + propagar reasignación
+
+**Bug reportado por Mariano**: en Master Clientes → Reasignar → tab "Por localidad", al seleccionar "Carmen de Areco" (localidad que aparece en el filtro desde v918 porque tiene un LEAD "El tigrecito pesca y camping"), la lista quedaba vacía con "Sin resultados para los filtros aplicados." Como Carmen de Areco no tiene ningún POINT (solo un LEAD), el tab no la mostraba.
+
+**Causa raíz**: en `renderZonasList()` el bloque `zonasTab === 'loc'` (línea 24675) itera **solo POINTS**. A diferencia del tab "Por tienda" (que ya inyecta LEADs desde `approvedAltasList`), el tab "Por localidad" no tenía ese bloque.
+
+**Fix**:
+1. Agregado `Set seenLocs` que trackea las localidades ya renderizadas por POINT.
+2. Bloque nuevo que agrupa `approvedAltasList` por `(provincia, localidad)` y crea una **fila sintética por localidad-sin-POINT** con el label del count ("1 LEAD(s)", "2 SAP", "1 LEAD · 3 SAP", etc.).
+3. Handler nuevo `onZonasLocLeadsChange(prov, loc, fsIdsStr, sel)` que:
+   - Muestra un `confirm()` con el count y el destino.
+   - Ejecuta un **batch write** de Firestore actualizando `assignedVendor` en cada `client_applications/{fsId}` de la localidad.
+   - Escribe también `vendor_overrides/{LOC|prov|loc}` para que si mañana llega un POINT en esa localidad, herede la asignación.
+4. Toast verde de confirmación con el detalle.
+
+**Diff**:
+- `index.html:24675-24743` — bloque nuevo del tab "Por localidad" (POINTS + LEADs sintéticos).
+- `index.html:24874-24923` — handler `onZonasLocLeadsChange` con batch commit + vendor_override.
+- APP_VERSION + CACHE_VERSION → `v920`.
+
+**Cómo verificar**: Master Clientes → Reasignar → tab "Por localidad" → filtro Localidades = "Carmen de Areco". Debe aparecer 1 fila con `1 LEAD(s) (sin POINT)`. Al elegir un vendedor en "Reasignar a", pide confirm y actualiza el LEAD (el badge amarillo LEAD en tab "Por tienda" ahora tiene el nuevo vendedor asignado).
+
+---
+
+### v919 (2026-09-14) — Fix desfase entre subtotal "Con Stock" del modal Pedido en Espera y total del Excel "Archivo cliente"
+
+**Bug reportado por Mariano**: en el modal Pedido en Espera de un cliente (ej. `PABLO RICARDO GERPE ORDEN 154`), el header mostraba `Subtotal (Con Stock) — INMEDIATO = $791.000`, pero al descargar el Excel "Archivo cliente" el `TOTAL DEL PEDIDO` daba `$701.000`. Diferencia: exactamente $90.000 = 1u de `CIS151HGC` × $90.000, que el modal contaba como "con stock" pero el Excel omitía.
+
+**Causa raíz**: dos fórmulas distintas de "disponible" entre modal y Excel:
+
+- **Modal (`renderWcardStats`, v766 antigua)**: `disp = max(dep11 - STOCK_ASIG_APP, 0)` — solo restaba unidades en estado `ASIG`. Para CIS151HGC: `27 - 21 = 6 libres`.
+- **Excel (`waitlistExportArchivoCliente`, v579 + v701)**: usa `_revisionStockFor(sku).disponible` que a partir de v701 (2026-08-28) es `getStockRealmenteDisponible = max(dep11 - Σ(confirmed + BO + ASIG), 0)`. Para CIS151HGC: `disp = 0` (todo el stock está comprometido entre confirmed + BO + ASIG).
+
+El modal se quedó con la fórmula pre-v701 (solo ASIG). La política v701 explícitamente dice "app owns stock: confirmed+BO+ASIG cuentan como comprometido". El Excel ya la respetaba; el modal no.
+
+**Fix**:
+1. `renderWcardStats` (`index.html:17619`) — reemplazar `disp = max(dep11 - reservadasAsig, 0)` por `disp = max(Number(stk.disponible || 0), 0)`. Fuente única = `getStockRealmenteDisponible`, misma que el Excel.
+2. Tooltip de la columna "LIBRE PARA LA VENTA" actualizado para desglosar `confirmed / BO / ASIG` explícitamente.
+3. La columna "UNIDADES RESERVADAS" **sigue mostrando solo ASIG** (decisión v767 explícita, coherente con el modal STOCK ASIGNADO que también solo lista ASIG).
+
+**Trade-off UX**: la resta aritmética visible (`STOCK COMPLETO - UNIDADES RESERVADAS`) puede no cerrar con `LIBRE PARA LA VENTA` cuando hay confirmed o BO adicionales. El tooltip del LIBRE explicita la fórmula real. Alternativa considerada y descartada: renombrar "UNIDADES RESERVADAS" a "COMPROMETIDAS TOTAL" (confirmed+BO+ASIG) — se descartó para no romper la coherencia con el modal STOCK ASIGNADO (que solo muestra ASIG per v767).
+
+**Cómo verificar**: abrir un pedido en espera con SKUs que tengan `confirmed` o `BO` pendientes. El subtotal "Con Stock" del modal ahora coincide con el `TOTAL DEL PEDIDO` del Excel "Archivo cliente" descargado.
+
+---
 
 ### v918 (2026-09-14) — Fix filtro "Localidades" del modal Reasignación de zonas (LEADs / altas SAP huérfanas)
 

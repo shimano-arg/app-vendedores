@@ -5439,7 +5439,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v918';
+const APP_VERSION = 'v920';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17608,19 +17608,21 @@ function _renderWaitlistCard(){
     const otros = _otrosPedidosEnEsperaDeSku(it.code, w._id);
     const pendingApp = _pendingAppDeSku(it.code);
     const backSap = stk.backorder || 0;
-    // v766 (2026-09-01): FIX bug reportado por Mariano — "Libre para la venta"
-    // mostraba stockTotal(dep11+dep12) - backorder_SAP = 86 - 14 = 72 aunque
-    // el vendedor no puede prometer las 80u en TRANSITO. La regla nueva
-    // (consistente con v763 del alert de stock):
-    // LIBRE PARA LA VENTA = max(DISPONIBLE dep 11 - UNIDADES RESERVADAS, 0)
-    // UNIDADES RESERVADAS = SUM(qtyOpen) state='ASIG' (STOCK_ASIG_APP[sku])
-    // dep 12 (transito) NO cuenta porque no esta vendible aun; se muestra
-    // aparte como info (columna EN TRANSITO en el alert).
-    const dep11 = (typeof getStockDisponibleVenta === 'function')
-      ? (getStockDisponibleVenta(it.code) || 0)
-      : 0;
-    const reservadasAsig = stk.asigApp || 0;
-    const disp = stk.hasData ? Math.max(dep11 - reservadasAsig, 0) : null;
+    // v919 (2026-09-14): FIX bug reportado por Mariano — el subtotal
+    // "Con Stock" (INMEDIATO/PENDIENTE) del modal no coincidia con el total
+    // del Excel "Archivo cliente". Ej: modal $791.000, Excel $701.000 (1u
+    // CIS151HGC × $90.000 de diferencia).
+    // Causa: el modal calculaba disp = dep11 - STOCK_ASIG_APP (SOLO
+    // state='ASIG'), mientras el Excel usa stk.disponible =
+    // getStockRealmenteDisponible = dep11 - (confirmed + BO + ASIG),
+    // que es la politica v701 (2026-08-28) "app owns stock: confirmed+BO+ASIG
+    // cuentan como comprometido". El modal quedo con la formula v766 antigua.
+    // Fix: usar stk.disponible como fuente unica de "libre para la venta"
+    // en el modal Pedido en Espera. La columna "UNIDADES RESERVADAS" sigue
+    // mostrando SOLO ASIG (decision v767 explicita, coherencia con modal
+    // STOCK ASIGNADO) — por eso la resta visible (STOCK - RESERVADAS !=
+    // LIBRE) puede no cerrar. El tooltip del LIBRE explicita la formula real.
+    const disp = stk.hasData ? Math.max(Number(stk.disponible || 0), 0) : null;
     // dispApp = descontamos ademas pedidos en Espera (pendingApp) para el
     // caso "si el vendedor tarda, otros pedidos-en-espera pueden agarrar
     // el stock primero via FIFO al confirmar".
@@ -17851,14 +17853,22 @@ function _renderWaitlistCard(){
       tdReserv.style.fontWeight = '800';
     }
     tr.appendChild(tdReserv);
-    // Libre para la venta = max(dep11 - reservadas_ASIG, 0). v766 (2026-09-01):
-    // Fix bug — antes usaba stockTotal(dep11+dep12) inflando "libre" con
-    // unidades en transito no vendibles. Ahora consistente con v763 del alert.
+    // v919 (2026-09-14): Libre para la venta = stk.disponible via
+    // getStockRealmenteDisponible = max(dep11 - (confirmed + BO + ASIG), 0).
+    // Coincide con la formula del Excel "Archivo cliente" y politica v701.
+    // La columna "UNIDADES RESERVADAS" muestra SOLO ASIG (v767) por lo que
+    // la resta visible (STOCK - RESERVADAS) puede no cerrar con LIBRE
+    // cuando hay confirmed o BO adicionales — el tooltip desglosa la formula.
     const tdLibre = document.createElement('td');
     tdLibre.className = 'num disp-sap-col';
     tdLibre.textContent = r.hasData ? String(r.disponible || 0) : '-';
     if (r.hasData) {
-      tdLibre.title = 'Libre para la venta: ' + (r.disponible || 0) + ' u\\n(disp. dep 11: ' + stockDep11Only + ' - reservadas ASIG: ' + reservadasBacked + ')';
+      const _confN = (desg.breakdown && desg.breakdown.confirmed) || 0;
+      const _boN = (desg.breakdown && desg.breakdown.BO) || 0;
+      const _asigN = (desg.breakdown && desg.breakdown.ASIG) || 0;
+      tdLibre.title = 'Libre para la venta: ' + (r.disponible || 0) + ' u\\n' +
+        '= dep 11 ' + stockDep11Only + ' - comprometidos totales ' + (_confN + _boN + _asigN) + '\\n' +
+        'Breakdown comprometido: confirmed ' + _confN + ' u · BO ' + _boN + ' u · ASIG ' + _asigN + ' u';
     }
     tr.appendChild(tdLibre);
     // v713.1: Alerta visual cuando el SKU se repite - resaltar fila y marcar summary.
@@ -24664,6 +24674,9 @@ function renderZonasList(){
     }
   } else if (zonasTab === 'loc') {
     // Por localidad
+    // v920 (2026-09-14): trackear localidades ya renderizadas por POINT para
+    // no duplicar con el bloque de LEADs / altas SAP huerfanas de abajo.
+    const seenLocs = new Set();
     POINTS.forEach(p => {
       if (provFilter !== 'ALL' && p.province !== provFilter) return;
       if (locFilter !== 'ALL') {
@@ -24678,6 +24691,7 @@ function renderZonasList(){
       const newSelKey = pending ? pending.newVendor : '';
       const rowCls = pending ? ' changed' : '';
       const tdsCount = (p.clients || []).length + (p.prospects || []).length + (p.distributorClients || []).length;
+      seenLocs.add((p.province || '').toUpperCase() + '||' + p.name);
       html += '<div class="zonas-row' + rowCls + '">'
         + '<div><div class="name">' + escapeHtml(p.name) + '</div><div class="meta">' + tdsCount + ' tiendas</div></div>'
         + '<div><div class="meta">' + escapeHtml(titleCase(p.province)) + '</div></div>'
@@ -24687,6 +24701,54 @@ function renderZonasList(){
       count++;
       if (count >= 500) return;
     });
+    // v920: filas sinteticas para localidades que solo tienen LEADs / altas
+    // SAP huerfanas (sin POINT propio). Bug reportado por Mariano: Carmen
+    // de Areco tenia el LEAD "El tigrecito pesca y camping" pero no aparecia
+    // en tab "Por localidad" porque no habia POINT ahi. Con este bloque, la
+    // localidad se muestra con el count de LEADs/altas y el reasignar
+    // propaga a assignedVendor de cada LEAD via onZonasLocLeadsChange.
+    if (zonasScope === 'sap' && count < 500
+        && typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList)) {
+      // Agrupar por (prov||loc). Cada grupo = 1 fila sintetica.
+      const leadsByLoc = {}; // key: PROV||LOC -> { prov, loc, altas: [{fsId, vendor}] }
+      approvedAltasList.forEach(a => {
+        if (!a) return;
+        const prov = (a.provincia || '').toUpperCase().trim();
+        const loc = (a.localidadFinal || a.localidad || '').trim();
+        if (!prov || !loc) return;
+        const key = prov + '||' + loc;
+        if (seenLocs.has(key)) return; // ya renderizado por POINT
+        if (provFilter !== 'ALL' && prov !== provFilter) return;
+        if (locFilter !== 'ALL') {
+          const [pr, lc] = locFilter.split('||');
+          if (prov !== pr || loc !== lc) return;
+        }
+        if (searchQ && !loc.toLowerCase().includes(searchQ)) return;
+        if (!leadsByLoc[key]) leadsByLoc[key] = { prov, loc, altas: [] };
+        leadsByLoc[key].altas.push({ fsId: a._fsId || '', vendor: a.assignedVendor || '', isLead: !!a.manualSapPending && !a.cardCodeSap });
+      });
+      Object.values(leadsByLoc).forEach(g => {
+        if (count >= 500) return;
+        // Vendor efectivo: si TODOS los altas tienen el mismo assignedVendor,
+        // ese es el efectivo. Si son mixtos o hay sin asignar -> vacio.
+        const distinctVendors = new Set(g.altas.map(x => x.vendor || ''));
+        const effVendor = (distinctVendors.size === 1) ? [...distinctVendors][0] : '';
+        if (zonasFilterUnassigned && effVendor) return;
+        const leadsCount = g.altas.filter(x => x.isLead).length;
+        const sapCount = g.altas.length - leadsCount;
+        const countLabel = leadsCount > 0 && sapCount > 0
+          ? (leadsCount + ' LEAD · ' + sapCount + ' SAP')
+          : (leadsCount > 0 ? (leadsCount + ' LEAD(s)') : (sapCount + ' alta(s) SAP'));
+        const fsIdsStr = g.altas.map(x => x.fsId).filter(Boolean).join(',');
+        html += '<div class="zonas-row" data-lead-locality="1">'
+          + '<div><div class="name">' + escapeHtml(g.loc) + '</div><div class="meta" style="color:#b45309">' + escapeHtml(countLabel) + ' (sin POINT)</div></div>'
+          + '<div><div class="meta">' + escapeHtml(titleCase(g.prov)) + '</div></div>'
+          + '<div class="current">' + vendorLabel(effVendor) + '</div>'
+          + '<div><select onchange="onZonasLocLeadsChange(\'' + escapeAttr(g.prov) + '\',\'' + escapeAttr(g.loc) + '\',\'' + escapeAttr(fsIdsStr) + '\', this)">' + zonasDestOptions('') + '</select></div>'
+          + '</div>';
+        count++;
+      });
+    }
   } else if (zonasTab === 'prov') {
     // Una fila por provincia. Vendor "actual" = el dominante de los POINTS
     // de esa provincia (mayoria simple), considerando los overrides ya
@@ -24805,6 +24867,58 @@ window.onZonasSapAltaChange = async function(fsId, sel){
   } catch(e) {
     console.error('onZonasSapAltaChange', e);
     alert('Error reasignando: ' + (e.message || e));
+    sel.value = '';
+  }
+};
+
+// v920 (2026-09-14): handler para la fila sintetica del tab "Por localidad"
+// cuando la localidad NO tiene POINT y solo tiene LEADs / altas SAP huerfanas.
+// Aplica el nuevo vendor a assignedVendor de CADA alta en la localidad, y
+// tambien escribe un vendor_override de localidad para el dia que llegue
+// un POINT ahi (asi la asignacion se preserva). No usa zonasPendingChanges
+// porque el batch se aplica inmediato — es una accion puntual.
+window.onZonasLocLeadsChange = async function(province, locName, fsIdsStr, sel){
+  const newVendor = sel.value;
+  if (!newVendor) return;
+  if (newVendor === '__DISTRIBUTOR__') {
+    alert('Para asignar LEADs a DISTRIBUIDOR usa el tab "Por tienda" o el modal Master Clientes.');
+    sel.value = '';
+    return;
+  }
+  const fsIds = (fsIdsStr || '').split(',').filter(Boolean);
+  if (!fsIds.length) { alert('No hay LEADs para reasignar en esta localidad.'); sel.value = ''; return; }
+  if (!confirm('Reasignar ' + fsIds.length + ' cliente(s) de ' + locName + ' a ' + titleCase(newVendor) + '?')) {
+    sel.value = '';
+    return;
+  }
+  try {
+    const batch = fbDb.batch();
+    fsIds.forEach(fsId => {
+      const ref = fbDb.collection('client_applications').doc(fsId);
+      batch.update(ref, {
+        assignedVendor: newVendor,
+        reassignedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        reassignedBy: currentUser ? (currentUser.email || currentUser.uid) : '',
+      });
+    });
+    await batch.commit();
+    // Escribir tambien override de localidad para que POINTs futuros hereden.
+    const locKey = zonasKey('loc', province, locName);
+    await fbDb.collection('vendor_overrides').doc(locKey).set({
+      scope: 'loc',
+      province,
+      locName,
+      newVendor,
+      newVendorType: getVendorTypeFromKey(newVendor) || 'VDE',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: currentUser ? (currentUser.email || currentUser.uid) : '',
+    }, { merge: true });
+    showSyncTag('Localidad reasignada');
+    const detail = fsIds.length + ' cliente(s) en <b>' + escapeHtml(locName) + '</b> &rarr; <b>' + escapeHtml(titleCase(newVendor)) + '</b>';
+    showZonasToast('Reasignacion guardada', [detail]);
+  } catch(e) {
+    console.error('onZonasLocLeadsChange', e);
+    alert('Error reasignando la localidad: ' + (e.message || e));
     sel.value = '';
   }
 };
