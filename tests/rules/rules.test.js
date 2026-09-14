@@ -231,15 +231,74 @@ describe('/pedidos', () => {
       setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-new-forge'), { ownerUid: UID.vendorOther })
     );
   });
-  it('vendor puede update/delete pedido propio', async () => {
+  // v918 (Sprint 1 E1.3 HIGH-05): vendor update restringido por hasOnly().
+  // vendor delete removido (era abierto por ownership — riesgo: VDE wipe
+  // pedidos post-envio a SAP, dejando SQ orfano en SAP sin trace).
+  it('vendor puede update campos permitidos de pedido propio (stage, lines, formaEntrega)', async () => {
     await assertSucceeds(
       updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor'), { stage: 'confirmed' })
     );
-    await assertSucceeds(deleteDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor')));
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor'), {
+        lines: [{ code: 'X', qty: 1 }],
+        netAmountArs: 1000,
+      })
+    );
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor'), {
+        formaEntrega: 'TRANSPORTISTA',
+        deliveryDetails: { transportistaNombre: 'X' },
+      })
+    );
+  });
+  it('vendor NO puede update transferidoSAP (CHAIN-01 comision duplicada)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor'), { transferidoSAP: null })
+    );
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor'), {
+        transferidoSAP: { docNum: 9999, via: 'fake' },
+      })
+    );
+  });
+  it('vendor NO puede update transferError / sendingSapLock / orderNumberPrev', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor'), { transferError: null })
+    );
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor'), { sendingSapLock: null })
+    );
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor'), { orderNumberPrev: '999' })
+    );
+  });
+  it('vendor NO puede update ownerUid / ownerVendor / clientCardCode', async () => {
+    // clientCardCode NO esta en el whitelist -> deniega
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor'), { clientCardCode: 'HACKED' })
+    );
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor'), { ownerUid: UID.admin })
+    );
+  });
+  it('vendor NO puede delete pedido propio (defensa contra wipe SQ ya enviada)', async () => {
+    await assertFails(deleteDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor')));
   });
   it('vendor NO puede update/delete pedido ajeno', async () => {
     await assertFails(updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-other'), { stage: 'x' }));
     await assertFails(deleteDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-other')));
+  });
+  it('admin/gerente/interno pueden update sin restriccion (blanket)', async () => {
+    // admin puede tocar campos que el vendor no puede (transferidoSAP)
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.admin), 'pedidos', 'p-vendor'), {
+        transferidoSAP: { docNum: 100, via: 'service_layer' },
+      })
+    );
+    // interno puede update pedidos cross-VDE (v747)
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'p-other'), { stage: 'closed' })
+    );
   });
 
   it('interno partnered puede crear pedido en nombre de su VDE (onBehalfOf=true)', async () => {

@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v923 en dev (2026-09-14)** — **UX Pedidos tabs**: el toggle Crear/Pendientes/Confirmados ahora pinta el fondo del tab activo con el color semántico (Crear = verde, Pendientes = naranja, Confirmados = verde) en lugar del fondo blanco iOS uniforme + solo cambio de color en el texto. Mariano pidió mayor contraste para saber en qué opción está parado. Ver §41. |
-| **APP_VERSION** | `v923` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v924 en dev (2026-09-14)** — **SecAudit Sprint 1 E1.2 + E1.3**: (1) `geminiOcrProxy` con `enforceAppCheck: true` (rollout gradual — geminiOcr primero); (2) `firestore.rules pedidos update` para vendor restringido con `affectedKeys().hasOnly([whitelist])` — VDE ya no puede tocar `transferidoSAP`, `transferError`, `sendingSapLock`, `orderNumberPrev`, `ownerUid`, `clientCardCode` etc. Cierra CHAIN-01 (comisión duplicada) del audit. Ver §41. |
+| **APP_VERSION** | `v924` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,51 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v923
+## 41) Changelog v300 → v924
+
+### v924 (2026-09-14) — SecAudit Sprint 1 E1.2 + E1.3: App Check en geminiOcrProxy + pedido update `.hasOnly()` para vendor
+
+Continuación de `SECURITY_AUDIT_2026-09-14/LOOP_ENGINEERING_PLAN.md`. Cierra 2 de los 9 findings HIGH.
+
+#### E1.2 — App Check obligatorio en `geminiOcrProxy` (HIGH-03)
+
+`functions/index.js:625`: `enforceAppCheck: false` → `true`.
+
+**Rollout gradual** — `geminiOcrProxy` es el primero de los 4 callables porque es el menos flow-crítico y el más goloso para credit-abuse (cada request consume tokens Gemini pagos). Si un IDToken se roba (XSS, phishing, browser extension), sin App Check era usable desde curl para burn credit ilimitado. Ahora exige token App Check emitido por el browser vía reCAPTCHA v3 (`index.html:21209 activateAppCheckOnce` — activado post-login, `isTokenAutoRefreshEnabled: true`).
+
+**Riesgo residual conocido**: sesiones con reCAPTCHA en throttle 24h (per `reference_appcheck_throttle_24h.md`) van a ver el token AppCheck expirar y las llamadas fallar hasta que el user haga Clear site data. Si empiezan a llegar reports de rendición que no sube el ticket, chequear consola por `firebase-app-check` errors.
+
+**Próximas iters**: `sapProxy`, `updateAsigLineStateCF`, `setupGetMovimientos` — enable después de verificar 24-48h que geminiOcrProxy no rompe nada.
+
+#### E1.3 — `pedidos update` restringido por whitelist de campos (HIGH-05, cierra CHAIN-01)
+
+`firestore.rules:103-133`. Antes: `allow update, delete: if isAdminOrGerente() || isInterno() || (isVendor() && ownsDoc());`
+
+VDE con DevTools podía escribir cualquier campo — incluyendo `transferidoSAP:null` para simular que su pedido nunca se envió a SAP → confirmar de nuevo → **comisión duplicada** (CHAIN-01 CRIT del audit). También `netAmountArs`/`discountPct` para falsificar compliance rate, o `clientCardCode` para redirigir a otro cliente en el próximo send.
+
+**Ahora** — split update/delete + `affectedKeys().hasOnly([whitelist])` para vendor. Whitelist:
+- Delivery info: `formaEntrega`, `deliveryDetails`
+- Contenido pedido: `lines`, `netAmountArs`, `subtotalArs`, `discountPct`, `discountSnapshot`, `condicionPago`
+- Transiciones: `stage`, `confirmedAt`, `finalizedAt`, `closedAt`
+- Metadata: `observaciones`, `notes`, `clientNotes`, `updatedAt`, `updatedBy`, `month`, `monthIdx`, `year`, `orderNumber`
+
+Los campos sensibles (`transferidoSAP`, `transferError`, `sendingSapLock`, `orderNumberPrev`, `orderNumberRenumberedAt`, `orderNumberRenumberedReason`, `sapEstado*`, `ownerUid`, `ownerEmail`, `ownerVendor`, `key`, `tipo`, `clientCardCode`, `province`, `locName`, `clientName`, `createdAt`) **NO están en el whitelist** → vendor ya no los puede tocar.
+
+**Cambio semántico** — vendor **no puede** delete su propio pedido (era abierto por ownership). Si necesita cancelar, admin/gerente resuelve. Admin/gerente/interno mantienen blanket unrestricted update (v747 relaxation intacta).
+
+**Follow-up Sprint 2**: freeze completo post-transferidoSAP para eliminar el resto de CHAIN-01 (VDE ya no puede editar `netAmountArs`/`discountPct` una vez que el pedido está en SAP).
+
+**Tests**: 5 nuevos en `tests/rules/rules.test.js`:
+- vendor update campos permitidos (stage, lines, formaEntrega) → OK
+- vendor update `transferidoSAP` → denied (cierra CHAIN-01)
+- vendor update `transferError` / `sendingSapLock` / `orderNumberPrev` → denied
+- vendor update `clientCardCode` / `ownerUid` → denied
+- vendor delete pedido propio → denied
+- admin/gerente/interno unrestricted → OK
+
+Suite: **121/121** ✅.
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v924`. Deploy: `firebase deploy --only firestore:rules functions:geminiOcrProxy`.
 
 ### v923 (2026-09-14) — UX Pedidos tabs: fondo pintado con color semántico por tab (Crear/Confirmados verde, Pendientes naranja)
 
