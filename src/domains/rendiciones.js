@@ -7,11 +7,7 @@
 // Record compartido).
 // 2026-09-09 anti-duplicados (Fase 3): import de logica pura + chequeo
 // pre-submit contra Firestore por ticketNormalizado.
-import {
-  chequearMatchDuplicado,
-  clavesDeDuplicado,
-  normalizarTicket,
-} from '../pure/rendicion-duplicate.js';
+import { chequearMatchDuplicado, normalizarTicket } from '../pure/rendicion-duplicate.js';
 
 // Módulo extraído verbatim: tipado real fuera de scope E2.e.
 //
@@ -597,7 +593,7 @@ async function _antidupPreCheck(rendicionData) {
     // Query indexado por (ownerUid, ticketNormalizado). En Firestore devuelve
     // rapido incluso con miles de rendiciones porque el indice compuesto
     // (ownerUid, ticketNormalizado, createdAt DESC) filtra exacto.
-    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const _since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
     const snap = await fbDb
       .collection('rendiciones')
       .where('ownerUid', '==', rendicionData.ownerUid)

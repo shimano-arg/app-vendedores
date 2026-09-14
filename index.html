@@ -73,14 +73,32 @@
 <link rel="preload" href="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js" as="script" crossorigin>
 <link rel="preload" href="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js" as="script" crossorigin>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- v930 (2026-09-14, SecAudit Sprint 1 E1.8 HIGH-11): SRI (Subresource
+     Integrity) en TODOS los CDN scripts + CSS. Sin SRI, un compromiso del
+     CDN (unpkg, jsdelivr, gstatic) permitiria inyectar arbitrary JS en las
+     paginas de todos los users - con acceso completo al Firebase Auth
+     token, DOM y estado de la app. Los hashes fueron generados con:
+       curl -sL <URL> | openssl dgst -sha384 -binary | openssl base64 -A
+     y son inmutables por version. Bumpear la version del CDN requiere
+     regenerar el hash. Ver README §41 v930 para el procedimiento. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H"
+      crossorigin="anonymous"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"
+        crossorigin="anonymous"></script>
 <!-- v352: markercluster para agrupar los ~1000 pines de tiendas en burbujas
      con numero cuando el zoom esta lejos. Elimina el freezing al pintar 1000
      divIcons superpuestos en country view. -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+      integrity="sha384-pmjIAcz2bAn0xukfxADbZIb3t8oRT9Sv0rvO+BR5Csr6Dhqq+nZs59P0pPKQJkEV"
+      crossorigin="anonymous"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+      integrity="sha384-wgw+aLYNQ7dlhK47ZPK7FRACiq7ROZwgFNg0m04avm4CaXS+Z9Y7nMu8yNjBKYC+"
+      crossorigin="anonymous"/>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"
+        integrity="sha384-eXVCORTRlv4FUUgS/xmOyr66XBVraen8ATNLMESp92FKXLAMiKkerixTiBvXriZr"
+        crossorigin="anonymous"></script>
 <!-- v679 (2026-08-26) PERF Fase 3: 3 libs pesadas cargadas ON-DEMAND en vez
      de <script defer> al initial load:
        - polygon-clipping (~50 KB): solo para outlines de zonas admin
@@ -90,17 +108,34 @@
      Cargados via window.loadPolygonClipping() / loadJSZip() / loadExcelJS()
      al primer uso. Cache dedup: llamadas concurrentes comparten Promise.
      xlsx (SheetJS ~800 KB) SIGUE con defer porque tiene 220+ callers,
-     riesgo alto de romper si se convierte a lazy sin auditar cada uno. -->
-<script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-check-compat.js"></script>
+     riesgo alto de romper si se convierte a lazy sin auditar cada uno.
+     v930: TODO Sprint 2 - migrar xlsx@0.18.5 a exceljs (unmaintained +
+     GHSA-4r6h-8v6p-xvw6 proto pollution). SRI cierra el vector CDN
+     compromise; el CVE del codigo requiere migracion. -->
+<script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
+        integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw"
+        crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"
+        integrity="sha384-yuGdyIzzYtOBlBG6JOWn+Ey9kpq7HocusNuxEGyyohr1eEyXpeEyehIIXC/hznw4"
+        crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"
+        integrity="sha384-lI+CxEx/bCvWP1b0OK13j5HTrTZP7yf1xle8TVOFq2smz6KC1RChTarRV/RHP5PP"
+        crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"
+        integrity="sha384-nwX2Qpkhc2sv6L0ZPkLefLGguao67toSowvePuQvGF6cG+8MUphGI2uI94Ls3JF7"
+        crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"
+        integrity="sha384-oze9siCpFoiDBZ37lLp99ZmOMO+je1s/xtvwtbNv3NXQXLpbpfPSzZSpbT3xV9da"
+        crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-check-compat.js"
+        integrity="sha384-rxbD+YIVHadImwEcPc07/NNXIMwVf3RtXkQUgI0cE4GzDCFQ9IQ+kLvlefJ/Eb7E"
+        crossorigin="anonymous"></script>
 <!-- E2.b step 3 (v329+): SDK Firebase Functions para invocar sapProxy Cloud Function.
      Reemplaza el fetch directo a shimano-sap.seidor.com.ar (que leía creds de Firestore)
      por callable server-side con creds en Secret Manager. -->
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-functions-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-functions-compat.js"
+        integrity="sha384-nr3XW2E61lv+rhFoxO+G+2MytvPBcAHRBkVN+clME9hVhZBH+LxuUkYSsrIEUON+"
+        crossorigin="anonymous"></script>
 
 <!-- Sentry loader (Fase 0 E7). Public key hardcoded; el loader baja el
      config completo (DSN, org, project, sampling) desde el CDN de Sentry
