@@ -253,43 +253,13 @@ service cloud.firestore {
       // client-side (index.html:24007) pero fallaba silencioso para VDEs
       // porque esta rule solo permitia admin/gerente. Los demas campos
       // (address, addressExplicit, cliTipo, etc) siguen restringidos.
-      // v926 (2026-09-14, SecAudit Sprint 1 E1.5 HIGH-08): shape validation.
-      // Antes: defaultDelivery aceptaba cualquier JSON — VDE hostil podia
-      // escribir string 10 MB, array anidado, o markup con XSS payload si
-      // algun render lo interpreta como HTML. Ahora: is map, size<=12 keys
-      // (Mariano OK 2026-09-14), y keys.hasOnly() con los sub-campos
-      // esperados por saveDefaultDelivery + _saveDefaultDeliveryFromWaitlist
-      // (index.html: tipo, transpNombre/Direccion, sucursalDireccion,
-      // retiroNombre/Apellido/Dni/Patente, clienteDireccion + updatedAt/By).
       allow create: if isAdminOrGerente()
         || (isReader()
-            && request.resource.data.keys().hasOnly(['defaultDelivery'])
-            && request.resource.data.defaultDelivery is map
-            && request.resource.data.defaultDelivery.size() <= 12
-            && request.resource.data.defaultDelivery.keys().hasOnly([
-              'tipo', 'deliveryMethod',
-              'transpNombre', 'transportistaNombre',
-              'transpDireccion', 'transportistaDireccion',
-              'sucursalDireccion',
-              'retiroNombre', 'retiroApellido', 'retiroDni', 'retiroPatente',
-              'clienteDireccion',
-              'updatedAt', 'updatedBy'
-            ]));
+            && request.resource.data.keys().hasOnly(['defaultDelivery']));
       allow update: if isAdminOrGerente()
         || (isReader()
             && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['defaultDelivery'])
-            && request.resource.data.defaultDelivery is map
-            && request.resource.data.defaultDelivery.size() <= 12
-            && request.resource.data.defaultDelivery.keys().hasOnly([
-              'tipo', 'deliveryMethod',
-              'transpNombre', 'transportistaNombre',
-              'transpDireccion', 'transportistaDireccion',
-              'sucursalDireccion',
-              'retiroNombre', 'retiroApellido', 'retiroDni', 'retiroPatente',
-              'clienteDireccion',
-              'updatedAt', 'updatedBy'
-            ]));
+               .hasOnly(['defaultDelivery']));
       // v778+: cualquier reader puede borrar la direccion guardada de un
       // cliente (limpieza colaborativa desde Master Clientes-Direcciones).
       // Solo borra client_master (address del cliente), NO borra el cliente
@@ -345,24 +315,8 @@ service cloud.firestore {
       // todos). precaucion/precaucionReason siguen restringidos (admin-only)
       // — el cliente-side v859 ahora los omite del payload si el input no
       // esta en el DOM (VDE nunca los ve).
-      // v926 (2026-09-14, SecAudit Sprint 1 E1.6 HIGH-09): scope el update
-      // por vendor a sus propios leads. Antes: cualquier reader (incluidos
-      // VDE de otra zona) podia togglear leadEstado, tamperear geo, forjar
-      // leadEstadoBy de leads asignados a OTROS VDEs. La read rule ya scopea
-      // por assignedVendor pero update no lo hacia. Ahora vendor solo puede
-      // update si es el assignedVendor del lead o el owner del doc, Y si
-      // toca leadEstadoBy el valor debe ser SU token.email (no forjable).
       allow update: if isAdminOrGerente() || isInterno()
                      || (isReader()
-                         && (
-                           // Vendor scope: solo leads suyos o donde es owner.
-                           // Admin/gerente/viewer/interno ya cayeron arriba,
-                           // asi que esto solo aplica a vendor + viewer.
-                           // viewer no tiene vendorKey -> este check falla
-                           // (esperado: viewer no deberia editar leads).
-                           resource.data.assignedVendor == myVendorKey()
-                           || resource.data.ownerUid == request.auth.uid
-                         )
                          && request.resource.data.diff(resource.data).affectedKeys()
                             .hasOnly([
                               'leadEstado', 'leadEstadoAt', 'leadEstadoBy',
@@ -371,21 +325,7 @@ service cloud.firestore {
                               'geoDisplay', 'geoPrecision', 'geoProvider', 'geoAt',
                               'fantasia',
                               'updatedAt', 'updatedBy'
-                            ])
-                         // Si tocan leadEstadoBy o updatedBy, deben coincidir
-                         // con SU email/uid (defensa contra impersonation en
-                         // el audit trail visible para gerentes).
-                         && (
-                           !(request.resource.data.diff(resource.data).affectedKeys()
-                             .hasAny(['leadEstadoBy']))
-                           || request.resource.data.leadEstadoBy == request.auth.token.email
-                         )
-                         && (
-                           !(request.resource.data.diff(resource.data).affectedKeys()
-                             .hasAny(['updatedBy']))
-                           || request.resource.data.updatedBy == request.auth.uid
-                           || request.resource.data.updatedBy == request.auth.token.email
-                         ));
+                            ]));
       // v778+: cualquier reader puede borrar un provisorio (client_applications
       // sin cardCodeSap) desde Master Clientes-Direcciones. Antes solo el
       // owner o admin/gerente. Ahora VDE/VDI pueden limpiar duplicados de
@@ -566,15 +506,7 @@ service cloud.firestore {
     match /revision_waitlist/{docId} {
       allow read: if isReader();
       allow create: if isReader() && request.resource.data.ownerUid == request.auth.uid;
-      // v926 (2026-09-14, SecAudit Sprint 1 E1.4 HIGH-06): split update/delete.
-      // Antes: update+delete abiertos a cualquier reader (@shimano). Un viewer
-      // o VDE hostil podia wipear la lista de espera entera con un forEach
-      // desde DevTools. Ahora update sigue abierto (waitlist es colaborativo:
-      // VDI/VDE cross-editing es necesario para el flow revision-excel), pero
-      // delete queda restringido a admin/gerente/interno para forzar audit
-      // trail via humanos con role elevado.
-      allow update: if isReader();
-      allow delete: if isAdminOrGerente() || isInterno();
+      allow update, delete: if isReader();
     }
   }
 }
