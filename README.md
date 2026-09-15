@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v940 (2026-09-15)** — HOTFIX: `sapProxy` rate limit bumpeado de 300 → 5000/hr. El threshold de v939 (MED-15) subestimaba el factor de amplificación del flow `service_layer_auto` (SL Login + N calls por línea + SL Logout por pedido) y bloqueaba a VDEs enviando pedidos batch. Ver §41. |
-| **APP_VERSION** | `v940` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v941 (2026-09-15)** — Modal Backorder: eliminada opción "Todos los backorders" del filtro urgencia + default vuelto a "Solo urgentes (sin stock)". Los SKUs parciales siguen accesibles vía dropdown "Solo parciales". Ver §41. |
+| **APP_VERSION** | `v941` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v940
+## 41) Changelog v300 → v941
+
+### v941 (2026-09-15) — Backorder modal: eliminada opción "Todos los backorders" del filtro urgencia
+
+Reporte de Mariano 2026-09-15: en la sección Backorder aparecen SKUs marcados **PARCIAL — hay stock pero repartido** (headers verdes) junto con los urgentes. Expectativa del uso Mariano-importador: el modal Backorder debe mostrar **solo lo "para importar YA"** (SKUs con `dispSap = 0`).
+
+**Root cause**: v864 (2026-09-11) cambió el default de `backordersUrgencyFilter` de `'urgente'` a `'todos'` para arreglar el bug de "cliente en BO invisible cuando el SKU tiene stock parcial". Ese fix se preservó (el filtrado per-cliente por `qtyBackorder > 0` sigue vigente), pero el default `'todos'` metía ruido visual con los parciales.
+
+**Fix v941**:
+- `index.html:4890` — eliminada la `<option value="todos">Todos los backorders</option>` del `<select>`. Quedan solo "Solo urgentes (sin stock)" (default) + "Solo parciales (stock repartido)".
+- `index.html:12286` — `var backordersUrgencyFilter = 'urgente'` (era `'todos'`).
+- `index.html:12326` — fallback del handler ahora es `'urgente'` (era `'todos'`).
+- Comportamiento restaurado al pre-v864 para el user (default urgentes). Los parciales siguen siendo accesibles vía dropdown si se necesitan.
+- El fix de v864 (mostrar clientes en BO real dentro de SKUs con stock parcial) se preserva completamente — solo cambió cuándo aparecen (ahora requiere seleccionar "Solo parciales" en el filtro).
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v941`. Deploy: sin CF (solo frontend), GH Pages auto-deploy al merge.
 
 ### v940 (2026-09-15) — HOTFIX: sapProxy rate limit 300 → 5000/hr
 
