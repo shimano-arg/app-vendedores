@@ -4888,7 +4888,6 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
               <option value="todos">Todos (sin filtro)</option>
             </select>
             <select id="backorders-urgency-filter" class="bo-ctl" onchange="onBackordersUrgencyFilterChange()" title="Filtrar por urgencia del backorder" style="flex:1 1 260px;min-width:200px">
-              <option value="todos">Todos los backorders</option>
               <option value="urgente">Solo urgentes (sin stock)</option>
               <option value="parcial">Solo parciales (stock repartido)</option>
             </select>
@@ -5479,7 +5478,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v940';
+const APP_VERSION = 'v941';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12278,10 +12277,13 @@ var backordersSearchQuery = ''; // texto del buscador SKU
 var backordersMesFilter = ''; // v411: filtro por mes YYYY-MM del sqDocDate
 var backordersStockFilter = 'sin'; // v420: 'sin' | 'con' | 'todos' - reemplaza v419 bool
 var backordersMode = 'urgente'; // v420: 'urgente' (Backorders) | 'asignacion' (Asignacion Backorder)
-// v864 (2026-09-11): filtro urgencia solo aplica en modo backorder. 'todos'
-// muestra urgentes + parciales (default post-fix). 'urgente' = comportamiento
-// v631 (solo dispSap=0, para importar). 'parcial' = solo con stock repartido.
-var backordersUrgencyFilter = 'todos';
+// v864 (2026-09-11): filtro urgencia solo aplica en modo backorder. 'urgente'
+// = comportamiento v631 (solo dispSap=0, para importar). 'parcial' = solo con
+// stock repartido.
+// v941 (2026-09-15): eliminada opcion 'todos' del dropdown por pedido Mariano
+// — el modal Backorder debe mostrar solo lo "para importar" por default. Los
+// parciales tienen stock repartido y aparecen en STOCK ASIG. desde ahi.
+var backordersUrgencyFilter = 'urgente';
 // v402 (2026-08-05): abrir/cerrar Backorders como modal fullscreen (pedido
 // de Mariano - antes era una tab dentro del sidebar). Al abrir, garantiza
 // listener + trigger render.
@@ -12321,7 +12323,7 @@ function _applyBackordersMode(mode){
 }
 window.onBackordersUrgencyFilterChange = function(){
   const sel = document.getElementById('backorders-urgency-filter');
-  backordersUrgencyFilter = sel ? sel.value : 'todos';
+  backordersUrgencyFilter = sel ? sel.value : 'urgente';
   try { renderBackordersTab(); } catch(e) { console.warn('onBackordersUrgencyFilterChange', e); }
 };
 // v420 (2026-08-06): recomputa counts para ambos botones (urgente + asignacion)
