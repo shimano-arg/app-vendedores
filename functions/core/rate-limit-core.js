@@ -97,11 +97,20 @@ export async function checkAndIncrementRateLimit(deps, uid, opName, threshold, w
 }
 
 /**
- * Config defaults por operacion. Threshold conservador - da headroom al
- * uso real (VDE hace ~50 sapProxy calls/dia normal, ~15 rendiciones/dia).
- * Bumpear si algun VDE reporta rate-limit hit en flujo legitimo.
+ * Config defaults por operacion.
+ *
+ * v940 (2026-09-15) HOTFIX: sapProxy 300 -> 5000/hr. El threshold original
+ * asumia "~50 calls/dia por VDE" pero no consideraba el factor de
+ * amplificacion del flow service_layer_auto: cada pedido enviado a SAP
+ * dispara SL Login + N calls por linea + SL Logout via sapProxy. Un VDE
+ * mandando 5-10 pedidos batch pega 300/hr en minutos. Reporte 2026-09-15
+ * ~13:02 ART: mariano.erbino + pablo.gonzalez bloqueados con
+ * "resource-exhausted" en el envio de pedidos. Bump a 5000/hr (17x) mantiene
+ * defensa contra abuse real (>1.4 req/seg sostenido) sin molestar al uso
+ * legitimo. Si vuelve a pegar, reveer si conviene excluir cuentas "auto/*"
+ * del rate limit (backend flow, no superficie brute-force).
  */
 export const RATE_LIMITS = /** @type {const} */ ({
-  sapProxy: { threshold: 300, windowMs: 60 * 60 * 1000 }, // 300/hr
+  sapProxy: { threshold: 5000, windowMs: 60 * 60 * 1000 }, // 5000/hr (v940 hotfix)
   geminiOcrProxy: { threshold: 100, windowMs: 60 * 60 * 1000 }, // 100/hr
 });
