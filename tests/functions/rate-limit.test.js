@@ -164,8 +164,8 @@ describe('checkAndIncrementRateLimit', () => {
 });
 
 describe('RATE_LIMITS defaults', () => {
-  it('sapProxy: 300/hr', () => {
-    expect(RATE_LIMITS.sapProxy.threshold).toBe(300);
+  it('sapProxy: 5000/hr (v940 hotfix — bump desde 300 por service_layer_auto batching)', () => {
+    expect(RATE_LIMITS.sapProxy.threshold).toBe(5000);
     expect(RATE_LIMITS.sapProxy.windowMs).toBe(60 * 60 * 1000);
   });
   it('geminiOcrProxy: 100/hr (mas conservador — cada req consume tokens Gemini pagos)', () => {
