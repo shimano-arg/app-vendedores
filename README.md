@@ -4672,6 +4672,63 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v960
 
+---
+
+### 📌 Resumen ejecutivo — sesión maratónica 2026-09-16
+
+**19 versiones desplegadas** (v942 → v960) + **4 scripts one-shot** (cleanup + backfill). Trabajo agrupado por tema:
+
+#### 🎯 Feature grande — Stock Asignado tier-based por cliTipo (v956-v960 + backfill)
+Introducción de reserva diferenciada de stock según categoría del cliente. Los clientes **P/A retienen stock físico**, los **B/C tienen la línea asignada pero sin reservar** — así el stock queda disponible para vendedores que atienden clientes prioritarios.
+
+| Componente | Versión | Cambio |
+|---|---|---|
+| CF FIFO tier-based | v956 | `functions/core/fifo-assign-core.js` — prioridad P>A>B>C, escribe `asigReserva` + `asigCliTipo` |
+| Stock calc | v957 | `src/pure/stock-realmente-disponible.js` — 3 fns skipean ASIG con `asigReserva=false` |
+| UI badges CON/SIN RESERVA | v958 | Modal detalle pedido + Modal Stock Asignado |
+| Backfill 199 líneas C | script | `scripts/backfill-asigreserva-v957.cjs` — 64 pedidos, 199 líneas C liberadas |
+| Expiración 15d + fix UNIDADES RESERVADAS | v959 | `lineReservesStock` chequea `asigAt` — expira independiente cliTipo |
+| Cap ASIG por dispSap FIFO | v960 | SKUs con dispSap=0 desaparecen. Header = tope físico (21 vs 23) |
+
+#### 🚨 Hotfixes críticos
+- **v940**: `sapProxy` rate limit 300→5000/hr (bloqueaba VDEs enviando pedidos batch via `service_layer_auto`)
+- **v942**: `orderNumber` en "Crear Pedido" directo (quedaba sin chip ORDEN N en Confirmados)
+- **v949**: expone `fbDb` como `window.fbDb` (col G export Backorders quedaba en 0 por scope const)
+- **v952**: `orderNumber` en 2 flows waitlist restantes (`enviarBorradorAListaEspera` + `volverAListaEspera`)
+- **v953 CRÍTICO**: waitlist doc no se borraba tras confirmar → VDE re-confirmaba mismo pedido creando SQs duplicadas en SAP (caso ORDEN 178 CRISTIAN JOSE SANTORO con 3 duplicados SAP `2000183/4/5`). Fix triple: rules owner-delete + mark `stage=consumed` + sidebar filter.
+
+#### 🎨 UI mejoras y correcciones
+- **v941**: Backorder modal — quitada opción "Todos" del dropdown, default "Solo urgentes"
+- **v943**: Confirmados ordenados por `orderNumber` DESC (era `confirmedAt`)
+- **v944**: Pedidos 100% backorder pintados amarillo + chip "BACKORDER" (era "undefined")
+- **v945**: fix botón "Eliminar" invisible en Master Clientes (renderaba `<button></button>` sin texto)
+- **v946**: debounce 200ms en buscador Master Clientes (lag brutal al tipear sobre 800+ filas)
+- **v955**: subtotal disponible/backorder debajo del TOTAL NETO en modal detalle pedido
+
+#### 📊 Backorders Excel export — 4 iteraciones sucesivas
+- **v947**: quitadas 4 columnas (Ciudad, Vendedor, SQ Doc Num, SQ Fecha) — pedido reducir ruido
+- **v948**: agregadas 2 columnas (Total vendidas hist. + Stock dep 11)
+- **v950**: segunda hoja "Forecast" con 1 línea por SKU agregada
+- **v951**: naming mode-aware — `Stock_Asignado_...xlsx` cuando se exporta desde tab asignación
+
+#### 🛡️ Defense-in-depth waitlist (v954)
+Post-v953 audit exhaustivo detectó **5 casos pre-existentes** del bug de waitlist duplicado. Cleanup + prevención:
+- Cleanup: 2 pedidos duplicados borrados + 2 pedidos con orderNumber colisionado reasignados + 4 waitlist zombies borrados
+- Cron audit cada 6h (`.github/workflows/audit-waitlist-integrity.yml`) que valida 3 invariantes
+- Test unitario del filter (`tests/unit/waitlist-filter.test.js`)
+
+#### 📂 Archivos entregables (además del código)
+- **`Desktop\Email_SETUP_API_estado_remitos.md`**: requerimiento técnico API SETUP (P1 endpoint batch, P2 endpoint puntual, P3 webhook)
+- **`Desktop\Email_SETUP_respuesta_a_Marcos.md`**: cierre del hilo SETUP tras confirmar que el gap es interno NUR
+- **`Desktop\Requerimiento_SETUP_API_Estados_Remitos.md`**: doc formal para NUR + Marcos con evidencia del probe 127531
+
+#### 🔴 Pendientes de acción externa (fuera del código)
+- **SAP**: coordinar con Santi el cierre de 5 SQs duplicadas (`2000176`, `2000177`, `2000184`, `2000185` + el ORDEN 178)
+- **NUR/SETUP**: mandar el requerimiento formal — decisión pendiente Mariano sobre presupuesto
+- **Master Clientes**: solo 2 clientes categorizados como P, 0 como A. El resto en default C. Categorizar los top 20-30 recuperaría la reserva para ellos
+
+---
+
 ### v960 (2026-09-16) — Cap ASIG por dispSap FIFO en modal Stock Asignado
 
 Pedido Mariano 2026-09-16 con 2 screenshots:
