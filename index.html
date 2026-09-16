@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v957';
+const APP_VERSION = 'v958';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13067,6 +13067,12 @@ window.renderBackordersTab = function(){
           state: l.state,
           pedidoId: p._fsId || '',
           pedidoOrden: p.orderNumber || null,
+          // v958 (Fase 3, 2026-09-16): propaga asigReserva + asigCliTipo para
+          // que el render del modal Backorder/Stock Asignado muestre badge
+          // CON/SIN RESERVA. Ver setter en fifo-assign-core.js:computeAssignmentsFifo (v956)
+          // + backfill script v957.
+          asigReserva: l.asigReserva,
+          asigCliTipo: l.asigCliTipo || '',
         });
       }
     }
@@ -13303,8 +13309,21 @@ window.renderBackordersTab = function(){
       }
       html += '<div style="padding:8px 14px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:8px">';
       html += '<div style="flex:1;min-width:0">';
-      html += '<div style="font-size:12px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:6px">';
+      html += '<div style="font-size:12px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
       html += '<span style="background:' + badgeBg + ';color:' + badgeFg + ';padding:2px 6px;border-radius:4px;font-size:9.5px;font-weight:800;flex-shrink:0">' + badgeLbl + '</span>';
+      // v958 (Fase 3, 2026-09-16): badge CON/SIN RESERVA solo para ASIG.
+      // ASIG con asigReserva=false (clientes B/C) NO retiene stock → aparece
+      // en cyan para que el VDE sepa que ese cliente no bloquea la venta a otros.
+      // ASIG con asigReserva=true (P/A) o undefined (legacy pre-backfill) → violet.
+      // Solo se muestra en modo Stock Asignado (asignacion) o cuando el
+      // cliente esta ASIG (aunque este en modo BO).
+      if (c.source === 'app' && c.state === 'ASIG') {
+        if (c.asigReserva === false) {
+          html += '<span style="background:#cffafe;color:#0e7490;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="Cliente B/C: la linea aparece en Stock Asignado pero NO reserva stock. Otros VDEs pueden vender este SKU a clientes A/P.">SIN RESERVA</span>';
+        } else {
+          html += '<span style="background:#ede9fe;color:#6b21a8;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="Cliente P/A: reserva stock. Otros VDEs NO pueden vender hasta que se facture o cancele.">CON RESERVA</span>';
+        }
+      }
       html += '<span>' + escapeHtml(c.nombre) + '</span>';
       html += '</div>';
       html += '<div style="font-size:10px;color:var(--text-muted);margin-top:2px">' + metaText + '</div>';
@@ -20746,16 +20765,30 @@ window.viewPedido = function(stage, key, idx){
       const isAsigLine = l.state === 'ASIG';
       const isInvoicedLine = l.state === 'invoiced';
       const isSinStock = !!l.sinStock || isBoLine;
+      // v958 (Fase 3, 2026-09-16): distinguir ASIG con vs sin reserva.
+      // asigReserva=false (clientes B/C) → la linea aparece pero no bloquea
+      // stock. Se pinta distinto para que el VDE lo entienda de un vistazo.
+      // Retrocompat: undefined = true (linea pre-v956 o pre-backfill).
+      const isAsigSinReserva = isAsigLine && l.asigReserva === false;
       // v408: si la linea trae faltantesQty (v407+ Excel), contar solo las
       // unidades faltantes reales. Sino, la qty completa (comportamiento viejo).
       if (isSinStock) sinStockUnits += (parseFloat(l.faltantesQty) || q);
       // Estilo condicional: fondo rojo tenue + border rojo si sin stock.
+      // v958: ASIG sin reserva = fondo cyan claro + borde cyan.
       const rowStyle = isSinStock
         ? 'grid-template-columns:70px 1fr 70px 50px;background:var(--color-danger-bg);border-left:3px solid var(--color-danger)'
-        : isAsigLine
-          ? 'grid-template-columns:70px 1fr 70px 50px;background:#f3e8ff;border-left:3px solid var(--color-accent-violet)'
-          : 'grid-template-columns:70px 1fr 70px 50px';
-      const qtyColor = isSinStock ? '#991b1b' : (isAsigLine ? '#6b21a8' : '#166534');
+        : isAsigSinReserva
+          ? 'grid-template-columns:70px 1fr 70px 50px;background:#ecfeff;border-left:3px solid #0891b2'
+          : isAsigLine
+            ? 'grid-template-columns:70px 1fr 70px 50px;background:#f3e8ff;border-left:3px solid var(--color-accent-violet)'
+            : 'grid-template-columns:70px 1fr 70px 50px';
+      const qtyColor = isSinStock
+        ? '#991b1b'
+        : isAsigSinReserva
+          ? '#0e7490'
+          : isAsigLine
+            ? '#6b21a8'
+            : '#166534';
       // v369+: si la linea sin stock tiene transitoQty (unidades en almacen 12
       // que van a llegar), mostrar badge extra ambar "N EN TRANSITO" al lado
       // del rojo — asi el vendedor sabe que el backorder no es "sin fecha",
@@ -20764,8 +20797,12 @@ window.viewPedido = function(stage, key, idx){
       if (isBoLine) {
         // v618: badge BACKORDER APP (mas informativo que SIN STOCK generico).
         codeExtra = ' <span style="background:#c2410c;color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Linea state=BO: NO se envio a SAP porque no habia stock al confirmar. Queda como backorder en la app hasta que entre stock (CF FIFO promueve a ASIG).">BACKORDER APP</span>';
+      } else if (isAsigSinReserva) {
+        // v958 (Fase 3): badge cyan explicito para ASIG sin reserva. El stock
+        // no queda bloqueado — otros VDEs pueden venderlo. Suele ser cliente B/C.
+        codeExtra = ' <span style="background:#0891b2;color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Linea state=ASIG SIN reserva: el cliente es B/C. La linea aparece asignada pero no bloquea stock — otros VDEs pueden vender ese SKU a clientes A/P.">ASIG SIN RESERVA</span>';
       } else if (isAsigLine) {
-        codeExtra = ' <span style="background:var(--color-accent-violet);color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Linea state=ASIG: stock asignado (fue BO, entro mercaderia). Espera aceptacion o reciclado.">ASIG</span>';
+        codeExtra = ' <span style="background:var(--color-accent-violet);color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Linea state=ASIG con reserva (cliente P/A): stock reservado FIFO. Otros VDEs NO pueden vender este SKU hasta que el pedido se facture o se cancele.">ASIG</span>';
       } else if (isInvoicedLine) {
         codeExtra = ' <span style="background:#4b5563;color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Linea state=invoiced: facturada por SAP.">FACTURADO</span>';
       } else if (isSinStock) {
