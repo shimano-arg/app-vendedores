@@ -14,7 +14,6 @@ import { installChunkStubs } from './loader.js';
 import { calcClientDiscount } from './pure/discount.js';
 import { findSapDuplicateForProvisorio } from './pure/duplicate.js';
 import { passesTypeFilter } from './pure/filters.js';
-import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
 import {
   displayVendorName,
   escapeHtml,
@@ -60,6 +59,7 @@ import {
   getStockPorClienteMemo,
   getStockRealmenteDisponible,
 } from './pure/stock-realmente-disponible.js';
+import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
 import { createSapClient } from './sap-client.js';
 import { applySentryUserContext } from './sentry.js';
 // Dominios que quedan en el shell (side-effect imports, cada uno registra window.foo).

@@ -10,11 +10,13 @@ describe('shouldIncludeWaitlistDoc (v953 fix)', () => {
     // Este es el invariante clave del fix v953: si el pedido pasa a
     // Pendientes y luego se confirma, se marca el waitlist doc como
     // consumed. La UI debe ocultarlo aunque el delete falle por rules.
-    expect(shouldIncludeWaitlistDoc({
-      clientName: 'CRISTIAN JOSE SANTORO',
-      stage: 'consumed',
-      consumedByPedidoId: 'somePedidoId',
-    })).toBe(false);
+    expect(
+      shouldIncludeWaitlistDoc({
+        clientName: 'CRISTIAN JOSE SANTORO',
+        stage: 'consumed',
+        consumedByPedidoId: 'somePedidoId',
+      })
+    ).toBe(false);
   });
 
   it('doc con stage=pending → incluir (stage libre)', () => {
@@ -41,7 +43,7 @@ describe('shouldIncludeWaitlistDoc (v953 fix)', () => {
       { id: 'c', clientName: 'C' },
       { id: 'd', clientName: 'D', stage: 'consumed' },
     ];
-    const filtered = snapshot.filter(d => shouldIncludeWaitlistDoc(d));
-    expect(filtered.map(d => d.id)).toEqual(['a', 'c']);
+    const filtered = snapshot.filter((d) => shouldIncludeWaitlistDoc(d));
+    expect(filtered.map((d) => d.id)).toEqual(['a', 'c']);
   });
 });
