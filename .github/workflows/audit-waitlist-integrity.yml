@@ -1,0 +1,45 @@
+name: Audit Waitlist Integrity
+
+# v953 (2026-09-16): audit periodico que valida invariantes:
+#   1. NO 2+ pedidos con mismo orderNumber
+#   2. NO waitlist docs con orderNumber que ya este en pedidos
+#   3. NO waitlist docs stage=consumed vivos hace mas de 1h
+#
+# Corre cada 6 horas. Si detecta alertas, exit code 2 → GH Actions muestra
+# el workflow como failed → Mariano ve el fallo en la lista de runs.
+#
+# Secrets requeridos:
+#   FIREBASE_SERVICE_ACCOUNT   JSON del service account.
+
+on:
+  schedule:
+    - cron: '19 */6 * * *'     # cada 6h en minuto 19 (evita colisiones con otros crons)
+  workflow_dispatch:            # boton "Run workflow" para probar manual
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-waitlist-integrity
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        # Mismo pin que notify-waitlist.yml (google-cloud-firestore<2.29 bug).
+        run: pip install firebase-admin "google-cloud-firestore<2.29" "google-cloud-core<2.7" "google-api-core<2.35"
+
+      - name: Run audit_waitlist_integrity
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: python scripts/audit_waitlist_integrity.py

@@ -59,6 +59,7 @@ import {
   getStockPorClienteMemo,
   getStockRealmenteDisponible,
 } from './pure/stock-realmente-disponible.js';
+import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
 import { createSapClient } from './sap-client.js';
 import { applySentryUserContext } from './sentry.js';
 // Dominios que quedan en el shell (side-effect imports, cada uno registra window.foo).
@@ -169,6 +170,7 @@ const phase0 = {
     findSapDuplicateForProvisorio,
     matchSkuFromTitle,
     passesTypeFilter,
+    shouldIncludeWaitlistDoc,
     splitPedidoLine,
     reenrichPedidoLine,
     renderSkeletonRowsPure,

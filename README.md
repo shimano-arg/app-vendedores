@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v953 (2026-09-16)** — HOTFIX CRÍTICO: waitlist doc no se borraba (permission-denied VDE) → VDE re-confirmaba el mismo pedido creando SQs duplicadas en SAP. Fix rules owner-delete + mark consumed + sidebar filter. Ver §41. |
-| **APP_VERSION** | `v953` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v954 (2026-09-16)** — Post-v953 defense-in-depth: cleanup 5 casos pre-existentes + cron audit cada 6h + test unitario del filter waitlist. Ver §41. |
+| **APP_VERSION** | `v954` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,29 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v953
+## 41) Changelog v300 → v954
+
+### v954 (2026-09-16) — Defense-in-depth waitlist: audit cron + filter module + test unitario
+
+Post-v953, audit exhaustivo detectó **5 casos pre-existentes** del mismo bug acumulados desde antes de las 3 capas de defensa. Cleanup + prevención para evitar recurrencia:
+
+**Cleanup ejecutado** (script `scripts/cleanup-multi-cases-v953.cjs`):
+- 2 pedidos duplicados de ORDEN 143 (FERNANDO LUIS HORACIO DEL INTENTO) borrados. DocNums SAP 2000176 + 2000177 quedan por cerrar con Santi.
+- 2 pedidos con orderNumber colisionado (ORDEN 143 vs LOS MARINEROS, ORDEN 146 GRAN PARANA vs BERNAL GUSTAVO) reasignados a nuevos orderNumbers (180 y 181) — colisiones pre-v913. Se mantiene `orderNumberPrev` + `orderNumberReassignedReason` para audit trail.
+- 4 waitlist zombies borrados (ORDEN 159, 143, 168, 169).
+
+**Alerta automatizada** (`.github/workflows/audit-waitlist-integrity.yml`):
+Cron cada 6h corre `scripts/audit_waitlist_integrity.py` que valida 3 invariantes:
+1. No 2+ pedidos con mismo orderNumber
+2. No waitlist docs con orderNumber que ya esté en pedidos
+3. No waitlist docs `stage='consumed'` vivos >1h
+
+Si detecta alertas → exit 2 → workflow falla → visible en GH Actions.
+
+**Test unitario** (`tests/unit/waitlist-filter.test.js` + `src/pure/waitlist-filter.js`):
+Extraído el filter `shouldIncludeWaitlistDoc(data)` de `index.html:15008` a módulo puro. 6 tests validan el invariante clave del fix v953: docs con `stage='consumed'` son excluidos de la UI aunque sigan vivos en Firestore. Si alguien regresa la lógica en el futuro, los tests fallan.
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v954`. Deploy: GH Pages auto (nuevo workflow se activa al mergear).
 
 ### v953 (2026-09-16) — HOTFIX CRÍTICO: waitlist doc no se borraba → VDE confirmaba mismo pedido 3× creando SQs duplicadas en SAP
 
