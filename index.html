@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v951';
+const APP_VERSION = 'v952';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27417,6 +27417,19 @@ window.volverAListaEspera = async function(){
   try {
     logOp('volver_a_lista_espera', 'pedido', currentOrderClient.name, {key, month: entry.month, items: items.length, sapDocNum: _sapDoc || null});
   } catch(e){}
+  // v952 (2026-09-16): preservar orderNumber del pedido pending si existe.
+  // Si es legacy (pre-v913/v942 sin orderNumber) reservar uno nuevo para
+  // que la card en waitlist tenga chip ORDEN N igual que el resto.
+  let ordenNum = entry.orderNumber || null;
+  if (!ordenNum) {
+    try {
+      ordenNum = await reserveNextOrderNumber();
+    } catch (e) {
+      console.error('reserveNextOrderNumber (volverAListaEspera fallback)', e);
+      alert('No se pudo reservar el numero de orden. Refresca la pagina y reintenta.');
+      return;
+    }
+  }
   const payload = {
     clientName, clientProvince: prov, clientLocality: locName,
     clientCardCode: cardCode || '',
@@ -27425,6 +27438,7 @@ window.volverAListaEspera = async function(){
     ownerEmail: currentUser.email || '',
     ownerDisplayName: currentUser.displayName || currentUser.email || '',
     ownerVendor: (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '',
+    orderNumber: ordenNum,
     items,
     // v473: marca de que este waitlist doc vino de un pedido pending revertido.
     fromPedidoFsId: entry._fsId || '',
@@ -27484,6 +27498,19 @@ window.enviarBorradorAListaEspera = async function(){
     + 'Los items van a quedar en PEDIDOS EN ESPERA (compartido entre Mariano/Ioannis/Santi/Pablo).\n'
     + 'Se puede editar cantidades, agregar/quitar productos, y despues confirmarlo desde ahi.';
   if (!confirm(confirmMsg)) return;
+  // v952 (2026-09-16): reservar orderNumber igual que reviewDejarEnEspera
+  // (v913). Antes este flow (Crear Pedido -> lista de espera SIN pasar por
+  // Pendientes) creaba el waitlist doc sin orderNumber -> la card no
+  // mostraba el chip ORDEN N. Reportado por Mariano. Reserva post-confirm()
+  // gate para no gastar contador si el user cancela.
+  let ordenNum;
+  try {
+    ordenNum = await reserveNextOrderNumber();
+  } catch (e) {
+    console.error('reserveNextOrderNumber (enviarBorradorAListaEspera)', e);
+    alert('No se pudo reservar el numero de orden. Refresca la pagina y reintenta.');
+    return;
+  }
   const parts = currentOrderKey.split('|');
   const prov = parts[1] || '';
   const locName = parts[2] || '';
@@ -27512,6 +27539,7 @@ window.enviarBorradorAListaEspera = async function(){
     ownerEmail: currentUser ? (currentUser.email || '') : '',
     ownerDisplayName: currentUser ? (currentUser.displayName || currentUser.email || '') : '',
     ownerVendor: (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '',
+    orderNumber: ordenNum, // v952 (2026-09-16): populado arriba con reserveNextOrderNumber
     items,
     // Marca de que vino de un borrador directo (vs volverAListaEspera de un pending revertido).
     fromBorrador: true,
@@ -27528,7 +27556,7 @@ window.enviarBorradorAListaEspera = async function(){
   // Limpiar el borrador local.
   delete orders[currentOrderKey];
   saveOrders();
-  showSyncTag('Borrador movido a lista de espera');
+  showSyncTag('Borrador movido a lista de espera (ORDEN ' + ordenNum + ')');
   closePedidoModal();
 };
 
