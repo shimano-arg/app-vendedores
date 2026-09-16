@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v946';
+const APP_VERSION = 'v947';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12535,49 +12535,46 @@ window.exportBackordersToExcel = async function(){
       const precio = parseFloat(ln.precioUnitario) || 0;
       const importe = Math.round(qty * precio);
       total += importe;
+      // v947 (2026-09-16): removidas 4 columnas del export por pedido
+      // Mariano — Ciudad, Vendedor, SQ Doc Num, SQ Fecha. Ver renumeracion
+      // de indexes abajo (headers, widths, merges, numFmts).
       rows.push([
         ln.sku || '',
         ln.producto || '',
         ln.clienteNombre || '',
-        ln.clienteCiudad || '',
-        ln.vendorKey || '',
         qty,
         precio,
         importe,
-        ln.sqDocNum || '',
-        ln.sqDocDate || '',
       ]);
     });
     ws.columns = [
-      { width: 16 }, { width: 55 }, { width: 32 }, { width: 20 }, { width: 22 },
-      { width: 14 }, { width: 14 }, { width: 16 }, { width: 12 }, { width: 14 },
+      { width: 16 }, { width: 55 }, { width: 32 },
+      { width: 14 }, { width: 14 }, { width: 16 },
     ];
-    // Row 1: TOTAL DEL PEDIDO.
-    ws.mergeCells('A1:G1');
+    // Row 1: TOTAL DEL PEDIDO. v947: label A1:E1 alineado a la derecha, F1
+    // con el total (alinea con la columna "Importe pendiente").
+    ws.mergeCells('A1:E1');
     ws.getCell('A1').value = 'TOTAL DEL PEDIDO';
     ws.getCell('A1').fill = TOTAL_FILL;
     ws.getCell('A1').font = TOTAL_FONT;
     ws.getCell('A1').alignment = { vertical: 'middle', horizontal: 'right' };
-    ws.getCell('H1').value = total || 0;
-    ws.getCell('H1').fill = TOTAL_FILL;
-    ws.getCell('H1').font = TOTAL_FONT;
-    ws.getCell('H1').alignment = CENTER;
-    ws.getCell('H1').numFmt = '"$"#,##0';
-    ws.mergeCells('I1:J1');
-    ws.getCell('I1').fill = TOTAL_FILL;
+    ws.getCell('F1').value = total || 0;
+    ws.getCell('F1').fill = TOTAL_FILL;
+    ws.getCell('F1').font = TOTAL_FONT;
+    ws.getCell('F1').alignment = CENTER;
+    ws.getCell('F1').numFmt = '"$"#,##0';
     ws.getRow(1).height = 24;
     // Row 2: encabezados.
-    const HEAD = ['SKU', 'Producto', 'Cliente', 'Ciudad', 'Vendedor',
-                  'Unidades pendientes', 'Precio unitario', 'Importe pendiente',
-                  'SQ Doc Num', 'SQ Fecha'];
+    const HEAD = ['SKU', 'Producto', 'Cliente',
+                  'Unidades pendientes', 'Precio unitario', 'Importe pendiente'];
     HEAD.forEach((h, i) => { const c = ws.getCell(2, i + 1); c.value = h; c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = CENTER; });
     // Row 3+: data.
     rows.forEach((r, idx) => {
       const row = ws.getRow(idx + 3);
       r.forEach((v, ci) => row.getCell(ci + 1).value = v);
-      for (let c = 1; c <= 10; c++) row.getCell(c).alignment = CENTER;
-      row.getCell(7).numFmt = '"$"#,##0'; // Precio unitario
-      row.getCell(8).numFmt = '"$"#,##0'; // Importe pendiente
+      for (let c = 1; c <= 6; c++) row.getCell(c).alignment = CENTER;
+      row.getCell(5).numFmt = '"$"#,##0'; // Precio unitario (era col 7)
+      row.getCell(6).numFmt = '"$"#,##0'; // Importe pendiente (era col 8)
     });
     const out = await wb.xlsx.writeBuffer();
     const dateStr = new Date().toISOString().slice(0, 10);
