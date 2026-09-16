@@ -12,7 +12,7 @@
 
 /**
  * Decide si un doc de revision_waitlist debe incluirse en la UI.
- * @param {Object} data — el `d.data()` del Firestore doc
+ * @param {{ stage?: string, [key: string]: any } | null | undefined} data — el `d.data()` del Firestore doc
  * @returns {boolean} true si incluir, false si skipear
  */
 export function shouldIncludeWaitlistDoc(data) {
