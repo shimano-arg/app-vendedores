@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v949';
+const APP_VERSION = 'v950';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12620,6 +12620,79 @@ window.exportBackordersToExcel = async function(){
       row.getCell(7).numFmt = '#,##0';    // Total vendidas hist.
       row.getCell(8).numFmt = '#,##0';    // Stock dep 11
     });
+    // v950 (2026-09-16): segunda hoja 'Forecast' con 1 linea por SKU
+    // agregada (suma todas las lineas del mismo SKU en todos los clientes)
+    // — pedido Mariano. Facilita ver el total de demanda por SKU para
+    // decidir importaciones sin tener que sumar manualmente por cliente.
+    const forecastMap = {};
+    filtered.forEach(ln => {
+      const skuKey = String(ln.sku || '').toUpperCase();
+      const q = Math.round(parseFloat(ln.pendiente) || 0);
+      const p = parseFloat(ln.precioUnitario) || 0;
+      if (!forecastMap[skuKey]) {
+        forecastMap[skuKey] = {
+          sku: ln.sku || '',
+          producto: ln.producto || '',
+          qty: 0,
+          precio: p,
+          importe: 0,
+        };
+      }
+      const acc = forecastMap[skuKey];
+      acc.qty += q;
+      acc.importe += Math.round(q * p);
+      // Si distintas lineas del mismo SKU tienen precios distintos, quedamos
+      // con el mayor (defensivo — casi siempre son iguales, pero si difieren
+      // el mayor es un proxy razonable del precio de lista).
+      if (p > acc.precio) acc.precio = p;
+    });
+    const forecastRows = Object.keys(forecastMap)
+      .sort((a, b) => forecastMap[b].qty - forecastMap[a].qty) // DESC por qty
+      .map(k => {
+        const f = forecastMap[k];
+        const totalVend = Number(salesBySku[k] || 0);
+        const stockDep11 = (typeof getStockDisponibleVenta === 'function')
+          ? Number(getStockDisponibleVenta(k) || 0)
+          : 0;
+        return [f.sku, f.producto, f.qty, f.precio, f.importe, totalVend, stockDep11];
+      });
+    const totalForecast = forecastRows.reduce((s, r) => s + r[4], 0);
+    const wsF = wb.addWorksheet('Forecast');
+    wsF.columns = [
+      { width: 16 }, { width: 55 },
+      { width: 20 }, { width: 14 }, { width: 20 },
+      { width: 18 }, { width: 14 },
+    ];
+    // Row 1: TOTAL DEL FORECAST. Label A1:D1 (columnas SKU/Producto/Qty/Precio)
+    // + valor en E1 alineado con "Importe pendiente total".
+    wsF.mergeCells('A1:D1');
+    wsF.getCell('A1').value = 'TOTAL DEL FORECAST';
+    wsF.getCell('A1').fill = TOTAL_FILL;
+    wsF.getCell('A1').font = TOTAL_FONT;
+    wsF.getCell('A1').alignment = { vertical: 'middle', horizontal: 'right' };
+    wsF.getCell('E1').value = totalForecast || 0;
+    wsF.getCell('E1').fill = TOTAL_FILL;
+    wsF.getCell('E1').font = TOTAL_FONT;
+    wsF.getCell('E1').alignment = CENTER;
+    wsF.getCell('E1').numFmt = '"$"#,##0';
+    wsF.getCell('F1').fill = TOTAL_FILL;
+    wsF.getCell('G1').fill = TOTAL_FILL;
+    wsF.getRow(1).height = 24;
+    // Row 2: encabezados.
+    const HEAD_F = ['SKU', 'Producto',
+                    'Unidades pendientes totales', 'Precio unitario', 'Importe pendiente total',
+                    'Total vendidas hist.', 'Stock dep 11'];
+    HEAD_F.forEach((h, i) => { const c = wsF.getCell(2, i + 1); c.value = h; c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = CENTER; });
+    // Row 3+: data (una fila por SKU).
+    forecastRows.forEach((r, idx) => {
+      const row = wsF.getRow(idx + 3);
+      r.forEach((v, ci) => row.getCell(ci + 1).value = v);
+      for (let c = 1; c <= 7; c++) row.getCell(c).alignment = CENTER;
+      row.getCell(4).numFmt = '"$"#,##0'; // Precio unitario
+      row.getCell(5).numFmt = '"$"#,##0'; // Importe pendiente total
+      row.getCell(6).numFmt = '#,##0';    // Total vendidas hist.
+      row.getCell(7).numFmt = '#,##0';    // Stock dep 11
+    });
     const out = await wb.xlsx.writeBuffer();
     const dateStr = new Date().toISOString().slice(0, 10);
     const suffixQ = q ? ('_' + q.replace(/[^a-z0-9]/gi, '').slice(0, 20)) : '';
@@ -12630,7 +12703,7 @@ window.exportBackordersToExcel = async function(){
     const a = document.createElement('a');
     a.href = url; a.download = filename; document.body.appendChild(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 200);
-    if (typeof showSyncTag === 'function') showSyncTag('Exportado: ' + rows.length + ' lineas');
+    if (typeof showSyncTag === 'function') showSyncTag('Exportado: ' + rows.length + ' lineas + ' + forecastRows.length + ' SKUs (Forecast)');
   } catch(e) {
     console.error('exportBackordersToExcel', e);
     alert('Error al generar el Excel: ' + (e.message || e));
