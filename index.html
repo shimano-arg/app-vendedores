@@ -2840,6 +2840,13 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 .confirmed-card.cc-error .cc-meta{color:#fecaca}
 .confirmed-card.cc-error .cc-summary{color:#fecaca}
 .confirmed-card.cc-error .cc-month{background:#7f1d1d;color:#fff}
+/* v944 (2026-09-16): pedidos 100% backorder — amarillo para identificar rapido */
+.confirmed-card.cc-backorder{background:#fef3c7;border:2px solid #f59e0b;border-left:6px solid #d97706;color:#78350f}
+.confirmed-card.cc-backorder:hover{background:#fde68a}
+.confirmed-card.cc-backorder .cc-name{color:#78350f}
+.confirmed-card.cc-backorder .cc-meta{color:#92400e}
+.confirmed-card.cc-backorder .cc-summary{color:#92400e}
+.confirmed-card.cc-backorder .cc-month{background:#d97706;color:#fff}
 .cc-error-btn{display:inline-flex;align-items:center;gap:5px;background:#fff;color:#991b1b;border:none;padding:5px 10px;border-radius:6px;font-size:10.5px;font-weight:800;letter-spacing:.3px;cursor:pointer;margin-top:6px;text-transform:uppercase}
 .cc-error-btn:hover{background:#fecaca}
 .cc-error-type{display:inline-block;background:#7f1d1d;color:#fff;padding:2px 7px;border-radius:10px;font-size:9.5px;font-weight:800;letter-spacing:.3px;margin-left:6px;text-transform:uppercase;border:1px solid #fff}
@@ -5478,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v943';
+const APP_VERSION = 'v944';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -20453,7 +20460,13 @@ function renderConfirmadosList(){
     // en rojo fuerte + boton "por que fallo".
     const hasErr = !!(it.conf.transferError && it.conf.transferError.message
       && !(it.conf.transferidoSAP && it.conf.transferidoSAP.docNum));
-    const cardCls = 'confirmed-card' + (hasErr ? ' cc-error' : '');
+    // v944 (2026-09-16): pedidos 100% backorder (todas las lineas state='BO')
+    // se pintan amarillo para identificarlos rapido — pedido Mariano. Estos
+    // son auto-confirmados por v607 (no van a SAP como SQ, solo generan
+    // demanda BO). Prioridad de estilo: error (rojo) > 100% BO (amarillo).
+    const is100Bo = (it.conf.lines || []).length > 0
+      && (it.conf.lines || []).every(l => l && l.state === 'BO');
+    const cardCls = 'confirmed-card' + (hasErr ? ' cc-error' : (is100Bo ? ' cc-backorder' : ''));
     html += '<div class="' + cardCls + '" onclick="viewPedido(\'confirmed\',\'' + escapeAttr(it.key) + '\',' + it.idx + ')">';
     // v845 (2026-09-09): chip "ORDEN N" al lado del mes — Mariano pidio ver
     // el mismo numero de orden que aparece en la Lista de Espera (waitlist)
@@ -20463,7 +20476,11 @@ function renderConfirmadosList(){
     if (it.conf.orderNumber) {
       _ordChip = '<span style="display:inline-block;background:#0f172a;color:#fff;font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;letter-spacing:.3px;margin-left:6px">ORDEN ' + escapeHtml(String(it.conf.orderNumber)) + '</span>';
     }
-    html += '<div class="cc-head"><div class="cc-name">' + escapeHtml(it.clientName) + '</div><div class="cc-month">' + escapeHtml(it.conf.month) + _ordChip + '</div></div>';
+    // v944: chip mes muestra "BACKORDER" cuando 100% BO (los auto-confirmados
+    // v607 no tienen month/year seteados en algunos paths — antes salia
+    // "undefined" como label).
+    const _monthLbl = is100Bo ? 'BACKORDER' : (it.conf.month || '');
+    html += '<div class="cc-head"><div class="cc-name">' + escapeHtml(it.clientName) + '</div><div class="cc-month">' + escapeHtml(_monthLbl) + _ordChip + '</div></div>';
     html += '<div class="cc-meta">' + escapeHtml(it.locName) + ' / ' + escapeHtml(titleCase(it.prov)) + '</div>';
     html += '<div class="cc-summary">' + lineCount + ' productos &middot; ' + units + ' unidades &middot; ' + (it.conf.confirmedAt ? new Date(it.conf.confirmedAt).toLocaleDateString() : '') + '</div>';
     // v695: badge amarillo si el pedido es huerfano (no matchea POINTS/altas).
@@ -20501,7 +20518,12 @@ window.viewPedido = function(stage, key, idx){
   // En PENDIENTES el modal es editable; en CONFIRMADOS sigue siendo read-only.
   currentOrderKey = stage === 'pending' ? '__pending__' : '__readonly__';
   currentOrderClient = {name: clientName, tipo, province: prov, locName, stage, viewKey: key, viewIdx: idx};
-  document.getElementById('pm-name').textContent = clientName + ' - ' + c.month;
+  // v944 (2026-09-16): pedido 100% backorder → titulo "cliente - BACKORDER"
+  // en vez de "cliente - undefined" (algunos auto-confirmados v607 vienen sin
+  // month seteado en el flow directo).
+  const _c100Bo = (c.lines || []).length > 0 && (c.lines || []).every(l => l && l.state === 'BO');
+  const _modalMonthLbl = _c100Bo ? 'BACKORDER' : (c.month || 'sin mes');
+  document.getElementById('pm-name').textContent = clientName + ' - ' + _modalMonthLbl;
   const tipoLbl = tipo === 'C' ? 'Cliente actual' : 'Prospecto';
   const stageBadge = stage === 'pending'
     ? '<span style="background:#d97706;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:800">PENDIENTE</span>'
