@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v950';
+const APP_VERSION = 'v951';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12554,7 +12554,15 @@ window.exportBackordersToExcel = async function(){
     const TOTAL_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF166534' } };
     const TOTAL_FONT = { color: { argb: 'FFFFFFFF' }, bold: true, size: 14 };
     const CENTER = { vertical: 'middle', horizontal: 'center' };
-    const ws = wb.addWorksheet('Backorders');
+    // v951 (2026-09-16): naming mode-aware. Antes el filename y worksheets
+    // decian "Backorders" incluso en modo Stock Asignado — reportado Mariano.
+    // isAsigMode se resuelve arriba (backordersMode === 'asignacion').
+    const WS_NAME_MAIN = isAsigMode ? 'Stock Asignado' : 'Backorders';
+    const WS_NAME_RESUMEN = isAsigMode ? 'Resumen por SKU' : 'Forecast';
+    const TITLE_MAIN = isAsigMode ? 'TOTAL STOCK ASIGNADO' : 'TOTAL DEL PEDIDO';
+    const TITLE_RESUMEN = isAsigMode ? 'TOTAL RESUMEN' : 'TOTAL DEL FORECAST';
+    const FILE_PREFIX = isAsigMode ? 'Stock_Asignado_' : 'Backorders_';
+    const ws = wb.addWorksheet(WS_NAME_MAIN);
     // Data + total.
     const rows = [];
     let total = 0;
@@ -12593,7 +12601,7 @@ window.exportBackordersToExcel = async function(){
     // con el total (alinea con la columna "Importe pendiente"). G1:H1
     // rellenadas con el mismo fill para mantener la barra visual continua.
     ws.mergeCells('A1:E1');
-    ws.getCell('A1').value = 'TOTAL DEL PEDIDO';
+    ws.getCell('A1').value = TITLE_MAIN;
     ws.getCell('A1').fill = TOTAL_FILL;
     ws.getCell('A1').font = TOTAL_FONT;
     ws.getCell('A1').alignment = { vertical: 'middle', horizontal: 'right' };
@@ -12657,7 +12665,7 @@ window.exportBackordersToExcel = async function(){
         return [f.sku, f.producto, f.qty, f.precio, f.importe, totalVend, stockDep11];
       });
     const totalForecast = forecastRows.reduce((s, r) => s + r[4], 0);
-    const wsF = wb.addWorksheet('Forecast');
+    const wsF = wb.addWorksheet(WS_NAME_RESUMEN);
     wsF.columns = [
       { width: 16 }, { width: 55 },
       { width: 20 }, { width: 14 }, { width: 20 },
@@ -12666,7 +12674,7 @@ window.exportBackordersToExcel = async function(){
     // Row 1: TOTAL DEL FORECAST. Label A1:D1 (columnas SKU/Producto/Qty/Precio)
     // + valor en E1 alineado con "Importe pendiente total".
     wsF.mergeCells('A1:D1');
-    wsF.getCell('A1').value = 'TOTAL DEL FORECAST';
+    wsF.getCell('A1').value = TITLE_RESUMEN;
     wsF.getCell('A1').fill = TOTAL_FILL;
     wsF.getCell('A1').font = TOTAL_FONT;
     wsF.getCell('A1').alignment = { vertical: 'middle', horizontal: 'right' };
@@ -12697,13 +12705,13 @@ window.exportBackordersToExcel = async function(){
     const dateStr = new Date().toISOString().slice(0, 10);
     const suffixQ = q ? ('_' + q.replace(/[^a-z0-9]/gi, '').slice(0, 20)) : '';
     const suffixM = mesF ? ('_mes-' + mesF) : '';
-    const filename = 'Backorders_' + dateStr + suffixM + suffixQ + '.xlsx';
+    const filename = FILE_PREFIX + dateStr + suffixM + suffixQ + '.xlsx';
     const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = filename; document.body.appendChild(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 200);
-    if (typeof showSyncTag === 'function') showSyncTag('Exportado: ' + rows.length + ' lineas + ' + forecastRows.length + ' SKUs (Forecast)');
+    if (typeof showSyncTag === 'function') showSyncTag('Exportado: ' + rows.length + ' lineas + ' + forecastRows.length + ' SKUs (' + WS_NAME_RESUMEN + ')');
   } catch(e) {
     console.error('exportBackordersToExcel', e);
     alert('Error al generar el Excel: ' + (e.message || e));
