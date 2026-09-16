@@ -296,3 +296,120 @@ describe('getStockDesglose — v957 asigReserva=false', () => {
     expect(d.real).toBe(16);
   });
 });
+
+// v959 (2026-09-16): expiracion de reserva a 15 dias desde asigAt
+describe('getStockRealmenteDisponible — v959 expiracion 15 dias', () => {
+  const now = new Date('2026-09-16T12:00:00Z').getTime();
+  const iso = (daysAgo) => new Date(now - daysAgo * 24 * 60 * 60 * 1000).toISOString();
+
+  it('ASIG con reserva RECIENTE (<15d) sigue reservando', () => {
+    const r = getStockRealmenteDisponible(
+      'SKU1',
+      {
+        getStockFisico: () => 20,
+        pedidos: [
+          P({ lines: [L({ qtyOpen: 5, state: 'ASIG', asigReserva: true, asigAt: iso(10) })] }),
+        ],
+      },
+      { now }
+    );
+    expect(r).toBe(15);
+  });
+
+  it('ASIG con reserva EXPIRADA (>15d) deja de reservar', () => {
+    const r = getStockRealmenteDisponible(
+      'SKU1',
+      {
+        getStockFisico: () => 20,
+        pedidos: [
+          P({ lines: [L({ qtyOpen: 5, state: 'ASIG', asigReserva: true, asigAt: iso(20) })] }),
+        ],
+      },
+      { now }
+    );
+    expect(r).toBe(20); // 20 - 0 = 20
+  });
+
+  it('ASIG con asigReserva=true justo en el limite (15d) sigue reservando', () => {
+    const r = getStockRealmenteDisponible(
+      'SKU1',
+      {
+        getStockFisico: () => 20,
+        pedidos: [
+          P({ lines: [L({ qtyOpen: 5, state: 'ASIG', asigReserva: true, asigAt: iso(15) })] }),
+        ],
+      },
+      { now }
+    );
+    expect(r).toBe(15); // <= 15 dias => reserva
+  });
+
+  it('expiracion aplica a P/A tambien (independiente del cliTipo)', () => {
+    // No hay cliTipo en la line — la expiracion se basa solo en asigAt.
+    // Aunque asigReserva=true, expira despues de 15d.
+    const r = getStockRealmenteDisponible(
+      'SKU1',
+      {
+        getStockFisico: () => 20,
+        pedidos: [
+          P({ lines: [L({ qtyOpen: 8, state: 'ASIG', asigReserva: true, asigAt: iso(30) })] }),
+        ],
+      },
+      { now }
+    );
+    expect(r).toBe(20);
+  });
+
+  it('ASIG sin asigAt (legacy) sigue reservando por default', () => {
+    const r = getStockRealmenteDisponible(
+      'SKU1',
+      {
+        getStockFisico: () => 20,
+        pedidos: [P({ lines: [L({ qtyOpen: 5, state: 'ASIG' })] })],
+      },
+      { now }
+    );
+    expect(r).toBe(15);
+  });
+
+  it('mix expirada + reciente + confirmed: solo las que reservan cuentan', () => {
+    const r = getStockRealmenteDisponible(
+      'SKU1',
+      {
+        getStockFisico: () => 20,
+        pedidos: [
+          P({ lines: [L({ qtyOpen: 3, state: 'confirmed' })] }),
+          P({ lines: [L({ qtyOpen: 4, state: 'ASIG', asigReserva: true, asigAt: iso(5) })] }),
+          P({ lines: [L({ qtyOpen: 6, state: 'ASIG', asigReserva: true, asigAt: iso(20) })] }), // expirada
+          P({ lines: [L({ qtyOpen: 2, state: 'ASIG', asigReserva: false })] }), // B/C sin reserva
+        ],
+      },
+      { now }
+    );
+    // 20 - 3 (confirmed) - 4 (ASIG reciente) - 0 (expirada) - 0 (sin reserva) = 13
+    expect(r).toBe(13);
+  });
+});
+
+describe('getStockDesglose — v959 expiracion 15 dias', () => {
+  const now = new Date('2026-09-16T12:00:00Z').getTime();
+  const iso = (daysAgo) => new Date(now - daysAgo * 24 * 60 * 60 * 1000).toISOString();
+
+  it('breakdown.ASIG NO cuenta las lineas expiradas (>15d)', () => {
+    const d = getStockDesglose(
+      'SKU1',
+      {
+        getStockFisico: () => 20,
+        pedidos: [
+          P({ lines: [L({ qtyOpen: 3, state: 'ASIG', asigReserva: true, asigAt: iso(5) })] }),
+          P({ lines: [L({ qtyOpen: 4, state: 'ASIG', asigReserva: true, asigAt: iso(20) })] }), // expirada
+        ],
+      },
+      { now }
+    );
+    // El ejemplo de Mariano: de las 4 unid solo 3 con reserva -> muestra 3
+    expect(d.breakdown.ASIG).toBe(3);
+    expect(d.comprometido).toBe(3);
+    expect(d.real).toBe(17);
+  });
+});

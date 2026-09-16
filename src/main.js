@@ -58,6 +58,7 @@ import {
   getStockPorCliente,
   getStockPorClienteMemo,
   getStockRealmenteDisponible,
+  lineReservesStock,
 } from './pure/stock-realmente-disponible.js';
 import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
 import { createSapClient } from './sap-client.js';
@@ -179,6 +180,7 @@ const phase0 = {
     getStockDesglose,
     getStockPorCliente,
     getStockPorClienteMemo,
+    lineReservesStock,
     canViewPanel,
     computeHealthStatus,
     computeAgeMinutes,
