@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v947';
+const APP_VERSION = 'v948';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12519,6 +12519,34 @@ window.exportBackordersToExcel = async function(){
     alert('No hay backorders para exportar en la seleccion actual.');
     return;
   }
+  // v948 (2026-09-16): cargar sku_ventas_snapshot (admin-only) para poblar la
+  // columna "Total vendidas hist." — pedido Mariano. Cache en window para no
+  // pegarle a Firestore en cada export de la sesion. Si el user no es admin
+  // el read falla con permission-denied — silencioso, columna queda en 0.
+  let salesBySku = window.__skuVentasTotalesCache || null;
+  if (!salesBySku) {
+    salesBySku = {};
+    try {
+      if (window.fbDb) {
+        const snap = await window.fbDb.collection('sku_ventas_snapshot').get();
+        snap.forEach(doc => {
+          const d = doc.data() || {};
+          if (!d.sku) return;
+          let t = 0;
+          if (d.meses) {
+            for (const k in d.meses) {
+              t += Number((d.meses[k] && d.meses[k].qty) || 0);
+            }
+          }
+          salesBySku[String(d.sku).trim().toUpperCase()] = Math.round(t);
+        });
+        window.__skuVentasTotalesCache = salesBySku;
+      }
+    } catch (e) {
+      console.warn('exportBackordersToExcel: no se pudo cargar sku_ventas_snapshot (admin-only)', e && e.message);
+      // salesBySku queda {} — la columna sale con 0
+    }
+  }
   try {
     const wb = new ExcelJS.Workbook();
     const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF074F69' } };
@@ -12536,8 +12564,15 @@ window.exportBackordersToExcel = async function(){
       const importe = Math.round(qty * precio);
       total += importe;
       // v947 (2026-09-16): removidas 4 columnas del export por pedido
-      // Mariano — Ciudad, Vendedor, SQ Doc Num, SQ Fecha. Ver renumeracion
-      // de indexes abajo (headers, widths, merges, numFmts).
+      // Mariano — Ciudad, Vendedor, SQ Doc Num, SQ Fecha.
+      // v948 (2026-09-16): agregadas 2 columnas — Total vendidas hist.
+      // (sumatoria meses de sku_ventas_snapshot) + Stock dep 11
+      // (getStockDisponibleVenta). Los SKUs sin data en snapshot salen con 0.
+      const skuU = String(ln.sku || '').toUpperCase();
+      const totalVend = Number(salesBySku[skuU] || 0);
+      const stockDep11 = (typeof getStockDisponibleVenta === 'function')
+        ? Number(getStockDisponibleVenta(skuU) || 0)
+        : 0;
       rows.push([
         ln.sku || '',
         ln.producto || '',
@@ -12545,14 +12580,18 @@ window.exportBackordersToExcel = async function(){
         qty,
         precio,
         importe,
+        totalVend,
+        stockDep11,
       ]);
     });
     ws.columns = [
       { width: 16 }, { width: 55 }, { width: 32 },
       { width: 14 }, { width: 14 }, { width: 16 },
+      { width: 18 }, { width: 14 },
     ];
-    // Row 1: TOTAL DEL PEDIDO. v947: label A1:E1 alineado a la derecha, F1
-    // con el total (alinea con la columna "Importe pendiente").
+    // Row 1: TOTAL DEL PEDIDO. v948: label A1:E1 alineado a la derecha, F1
+    // con el total (alinea con la columna "Importe pendiente"). G1:H1
+    // rellenadas con el mismo fill para mantener la barra visual continua.
     ws.mergeCells('A1:E1');
     ws.getCell('A1').value = 'TOTAL DEL PEDIDO';
     ws.getCell('A1').fill = TOTAL_FILL;
@@ -12563,18 +12602,23 @@ window.exportBackordersToExcel = async function(){
     ws.getCell('F1').font = TOTAL_FONT;
     ws.getCell('F1').alignment = CENTER;
     ws.getCell('F1').numFmt = '"$"#,##0';
+    ws.getCell('G1').fill = TOTAL_FILL;
+    ws.getCell('H1').fill = TOTAL_FILL;
     ws.getRow(1).height = 24;
     // Row 2: encabezados.
     const HEAD = ['SKU', 'Producto', 'Cliente',
-                  'Unidades pendientes', 'Precio unitario', 'Importe pendiente'];
+                  'Unidades pendientes', 'Precio unitario', 'Importe pendiente',
+                  'Total vendidas hist.', 'Stock dep 11'];
     HEAD.forEach((h, i) => { const c = ws.getCell(2, i + 1); c.value = h; c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = CENTER; });
     // Row 3+: data.
     rows.forEach((r, idx) => {
       const row = ws.getRow(idx + 3);
       r.forEach((v, ci) => row.getCell(ci + 1).value = v);
-      for (let c = 1; c <= 6; c++) row.getCell(c).alignment = CENTER;
-      row.getCell(5).numFmt = '"$"#,##0'; // Precio unitario (era col 7)
-      row.getCell(6).numFmt = '"$"#,##0'; // Importe pendiente (era col 8)
+      for (let c = 1; c <= 8; c++) row.getCell(c).alignment = CENTER;
+      row.getCell(5).numFmt = '"$"#,##0'; // Precio unitario
+      row.getCell(6).numFmt = '"$"#,##0'; // Importe pendiente
+      row.getCell(7).numFmt = '#,##0';    // Total vendidas hist.
+      row.getCell(8).numFmt = '#,##0';    // Stock dep 11
     });
     const out = await wb.xlsx.writeBuffer();
     const dateStr = new Date().toISOString().slice(0, 10);

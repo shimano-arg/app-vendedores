@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v947 (2026-09-16)** — Backorders Excel export: quitadas 4 columnas (Ciudad, Vendedor, SQ Doc Num, SQ Fecha). El archivo queda con SKU + Producto + Cliente + Unidades + Precio + Importe. Ver §41. |
-| **APP_VERSION** | `v947` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v948 (2026-09-16)** — Backorders Excel: sumadas 2 columnas — "Total vendidas hist." (sumatoria `sku_ventas_snapshot.meses`) y "Stock dep 11" (`getStockDisponibleVenta`). Ayudan a decidir importaciones con contexto. Ver §41. |
+| **APP_VERSION** | `v948` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,38 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v947
+## 41) Changelog v300 → v948
+
+### v948 (2026-09-16) — Backorders Excel: agregadas 2 columnas (Total vendidas hist. + Stock dep 11)
+
+Pedido Mariano 2026-09-16: sumar al Excel del botón "Exportar todo" 2 métricas por SKU para tomar decisiones de importación con contexto.
+
+**Cambios en `exportBackordersToExcel` (`index.html:12522`+)**:
+
+Nueva columnas G + H:
+
+| Col | Header | Fuente |
+|---|---|---|
+| G | Total vendidas hist. | Sumatoria de `sku_ventas_snapshot.meses[YYYY-MM].qty` para el SKU (todos los meses persistidos por el sync BQ→Firestore) |
+| H | Stock dep 11 | `getStockDisponibleVenta(sku)` — misma función que usa el modal Backorder para pintar disponibilidad |
+
+**Layout final (8 columnas)**:
+| Col | Header |
+|---|---|
+| A | SKU |
+| B | Producto |
+| C | Cliente |
+| D | Unidades pendientes |
+| E | Precio unitario |
+| F | Importe pendiente |
+| G | Total vendidas hist. |
+| H | Stock dep 11 |
+
+**Carga del snapshot**: `sku_ventas_snapshot` es admin-only en las rules (§9). Se lee una vez por sesión y se cachea en `window.__skuVentasTotalesCache` para no re-pedir a Firestore en exports sucesivos. Si el user no es admin, el read falla silencioso y la columna sale con `0` (no rompe el export).
+
+**Formatos**: G y H con `#,##0` (numérico con separador de miles). F1 total sigue en `"$"#,##0`. Row 1 con label A1:E1 + total F1 + relleno verde G1:H1 para mantener la barra visual.
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v948`. Deploy: GH Pages auto (solo frontend).
 
 ### v947 (2026-09-16) — Backorders Excel export: quitar 4 columnas (Ciudad, Vendedor, SQ Doc Num, SQ Fecha)
 
