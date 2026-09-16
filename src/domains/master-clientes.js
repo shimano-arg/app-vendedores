@@ -1429,6 +1429,8 @@ function renderMcProvisoriosTable() {
     // v778+: boton Eliminar visible para todos los roles (usa deleteMcEntry
     // que dispatchea a client_applications.delete via sapFsId). Vincular con
     // SAP sigue siendo admin-only. Layout: flex row para acomodar ambos.
+    // v945 (2026-09-16): boton Eliminar tenia >< /button> sin texto —
+    // invisible en la UI. Mismo fix que en el tab SAP (linea ~2457).
     const delBtn =
       '<button type="button" ' +
       'style="background:var(--color-danger);color:#fff;padding:6px 8px;font-size:10px;font-weight:800;border:none;border-radius:4px;cursor:pointer;text-transform:uppercase;letter-spacing:.3px" ' +
@@ -1439,7 +1441,7 @@ function renderMcProvisoriosTable() {
       JSON.stringify(nombre).replace(/"/g, '&quot;') +
       ",'" +
       safeId +
-      '\')"></button>';
+      '\')">Eliminar</button>';
     if (userRole === 'admin') {
       html +=
         '<td><div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center">' +
@@ -2454,13 +2456,16 @@ window.renderMasterClientesTable = function () {
       '" data-sap-fsid="' +
       escapeAttr(isSap ? e.sapFsId : '') +
       '">Guardar</button>' +
-      '<button onclick="deleteMcEntry(\'' +
+      // v945 (2026-09-16): boton Eliminar tenia >< /button> sin texto —
+      // invisible en la UI. Reportado por Mariano con screenshot Master
+      // Clientes tab SAP (ON FIRE, LANUS).
+      '<button type="button" onclick="deleteMcEntry(\'' +
       escapeAttr(id) +
       "'," +
       JSON.stringify(e.nombre).replace(/"/g, '&quot;') +
       ",'" +
       escapeAttr(isSap ? e.sapFsId : '') +
-      '\')" style="background:var(--color-danger);color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px" title="Eliminar tienda"></button></div></td>';
+      '\')" style="background:var(--color-danger);color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px" title="Eliminar tienda">Eliminar</button></div></td>';
     html += '</tr>';
   });
   html += '</tbody></table>';
