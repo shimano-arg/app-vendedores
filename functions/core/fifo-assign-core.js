@@ -30,12 +30,15 @@ import { readSyncMode } from './pedido-snapshot-core.js';
  * @property {number} lineIndex
  * @property {number} qtyOpen
  * @property {string} clientCardCode
+ * @property {'P'|'A'|'B'|'C'} cliTipo — v956 (2026-09-16): categoria comercial. Default 'C' si no seteado.
  *
  * @typedef {Object} Assignment
  * @property {string} pedidoId
  * @property {number} lineIndex
  * @property {number} qtyAssigned
  * @property {string} clientCardCode
+ * @property {'P'|'A'|'B'|'C'} cliTipo — v956: para audit y visibility.
+ * @property {boolean} asigReserva — v956: true si P/A (retiene stock), false si B/C (stock queda disponible).
  *
  * @typedef {Object} Promotion
  * @property {string} sku
@@ -49,6 +52,69 @@ import { readSyncMode } from './pedido-snapshot-core.js';
  * @property {Promotion[]} promotions
  * @property {string[]} errors
  */
+
+// v956 (2026-09-16): tier priority para FIFO. Los clientes P y A tienen
+// prioridad y ademas retienen stock (asigReserva=true). B y C solo se
+// asignan si sobra stock post-P/A, y no retienen (asigReserva=false).
+/** @type {Record<'P'|'A'|'B'|'C', number>} */
+const CLI_TIPO_PRIORITY = { P: 0, A: 1, B: 2, C: 3 };
+
+/**
+ * v956: normaliza el string cliTipo a los 4 tiers oficiales. Default 'C'
+ * cuando no hay valor o el valor es invalido — mismo comportamiento que
+ * la UI (master-clientes.js:2445 "default visual 'C' cuando no hay
+ * cliTipo guardado").
+ * @param {any} raw
+ * @returns {'P'|'A'|'B'|'C'}
+ */
+function normalizeCliTipo(raw) {
+  const s = String(raw || '')
+    .trim()
+    .toUpperCase();
+  if (s === 'P' || s === 'A' || s === 'B' || s === 'C') return s;
+  return 'C';
+}
+
+/**
+ * v956: computa el docId de client_master a partir de province + locality
+ * + tienda. Portado de app.bundle.js:7919 (fn clientLocId2) — mismo algoritmo
+ * que usa la UI para keyar client_master. Sin esto la CF no podria lookup
+ * el cliTipo actual del cliente.
+ * @param {string} prov
+ * @param {string} locName
+ * @param {string} tienda
+ * @returns {string}
+ */
+export function computeClientLocId(prov, locName, tienda) {
+  /** @param {string} s */
+  const norm = (s) =>
+    String(s || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_|_$/g, '');
+  return norm(prov) + '__' + norm(locName) + '__' + norm(tienda);
+}
+
+/**
+ * v956: fetch cliTipo para un cliente desde client_master. Default 'C'
+ * si el doc no existe o no tiene el field. Se llama en `loadBoCandidatesForSku`.
+ * @param {FifoAssignDeps} deps
+ * @param {string} docId
+ * @returns {Promise<'P'|'A'|'B'|'C'>}
+ */
+async function fetchCliTipo(deps, docId) {
+  if (!docId) return 'C';
+  try {
+    const snap = await deps.fbDb.collection('client_master').doc(docId).get();
+    if (!snap.exists) return 'C';
+    const data = snap.data() || {};
+    return normalizeCliTipo(data.cliTipo);
+  } catch (_e) {
+    return 'C';
+  }
+}
 
 /**
  * v798 (2026-09-04, bug reportado por Santi): parsear `warehouseBreakdown` como
@@ -111,8 +177,8 @@ export function extractSkusWithStockIncrease(beforeSnap, afterSnap) {
  */
 export async function loadBoCandidatesForSku(deps, sku) {
   const snap = await deps.fbDb.collection('pedidos').where('closedAt', '==', null).get();
-  /** @type {BoCandidate[]} */
-  const out = [];
+  /** @type {Array<BoCandidate & { _prov: string, _loc: string, _cli: string }>} */
+  const preOut = [];
   const skuUp = String(sku).toUpperCase();
   snap.forEach((/** @type {any} */ doc) => {
     const data = doc.data() || {};
@@ -136,23 +202,65 @@ export async function loadBoCandidatesForSku(deps, sku) {
           createdAtMs = data.createdAt;
         }
       }
-      out.push({
+      preOut.push({
         pedidoId: doc.id,
         createdAtMs,
         lineIndex: i,
         qtyOpen,
         clientCardCode: String(data.clientCardCode || '').trim(),
+        cliTipo: 'C', // placeholder — se rellena abajo con lookup a client_master
+        _prov: String(data.province || data.clientProvince || '').trim(),
+        _loc: String(data.locName || data.clientLocality || '').trim(),
+        _cli: String(data.clientName || '').trim(),
       });
     }
   });
+  // v956 (2026-09-16): resolver cliTipo dinamico via client_master. Cache
+  // por docId dentro del batch para evitar duplicar reads si multiples
+  // pedidos del mismo cliente estan en la cola.
+  /** @type {Map<string, 'P'|'A'|'B'|'C'>} */
+  const cliTipoCache = new Map();
+  for (const c of preOut) {
+    const docId = computeClientLocId(c._prov, c._loc, c._cli);
+    let tipo = cliTipoCache.get(docId);
+    if (tipo === undefined) {
+      tipo = await fetchCliTipo(deps, docId);
+      cliTipoCache.set(docId, tipo);
+    }
+    c.cliTipo = tipo;
+  }
+  /** @type {BoCandidate[]} */
+  const out = preOut.map((c) => ({
+    pedidoId: c.pedidoId,
+    createdAtMs: c.createdAtMs,
+    lineIndex: c.lineIndex,
+    qtyOpen: c.qtyOpen,
+    clientCardCode: c.clientCardCode,
+    cliTipo: c.cliTipo,
+  }));
   // FIFO por createdAt ascendente. Ties se rompen por pedidoId (deterministic).
+  // La priorizacion por cliTipo se hace en computeAssignmentsFifo (agrupacion
+  // tier-based), no en el orden global aqui.
   out.sort((a, b) => a.createdAtMs - b.createdAtMs || a.pedidoId.localeCompare(b.pedidoId));
   return out;
 }
 
 /**
- * FIFO estricto: primeros pedidos se llevan la linea COMPLETA. Si no alcanza
- * para cubrir la linea, corta (no promocion parcial).
+ * v956 (2026-09-16): FIFO tier-based por cliTipo. Los pedidos se procesan
+ * tier por tier (P → A → B → C). Dentro de cada tier, FIFO estricto por
+ * createdAt: primeros pedidos se llevan la linea COMPLETA; si no alcanza
+ * para cubrir el primero de la cola, ESE TIER se corta (no promocion
+ * parcial) — pero el siguiente tier sigue procesandose con el stock que
+ * quede.
+ *
+ * asigReserva: true si el tier es P o A (reserva stock fisico para el
+ * cliente), false si es B o C (linea aparece en Stock Asignado pero el
+ * stock queda libre para nuevos pedidos de clientes A/P).
+ *
+ * Rationale (pedido Mariano 2026-09-16): que los VDEs no vean "sin stock"
+ * cuando el stock esta parado por un cliente C con baja frecuencia de
+ * compra. Los clientes A/P son los que retienen stock; B/C no.
+ *
  * @param {BoCandidate[]} candidates
  * @param {number} availableStock
  * @returns {{ assignments: Assignment[], remaining: number }}
@@ -161,15 +269,31 @@ export function computeAssignmentsFifo(candidates, availableStock) {
   /** @type {Assignment[]} */
   const assignments = [];
   let remaining = availableStock;
+  // Agrupar por tier (ya vienen sorteados por createdAt ASC desde loader).
+  /** @type {Map<'P'|'A'|'B'|'C', BoCandidate[]>} */
+  const byTier = new Map();
+  for (const t of /** @type {const} */ (['P', 'A', 'B', 'C'])) byTier.set(t, []);
   for (const c of candidates) {
-    if (remaining < c.qtyOpen) break; // FIFO estricto, no parcial
-    assignments.push({
-      pedidoId: c.pedidoId,
-      lineIndex: c.lineIndex,
-      qtyAssigned: c.qtyOpen,
-      clientCardCode: c.clientCardCode,
-    });
-    remaining -= c.qtyOpen;
+    const tier = c.cliTipo || 'C';
+    const list = byTier.get(tier);
+    if (list) list.push(c);
+  }
+  // Procesar tiers en orden de prioridad. Un tier que "se corta" no bloquea
+  // al siguiente — pasar al siguiente con el remaining actual.
+  for (const tier of /** @type {const} */ (['P', 'A', 'B', 'C'])) {
+    const tierCands = byTier.get(tier) || [];
+    for (const c of tierCands) {
+      if (remaining < c.qtyOpen) break; // FIFO estricto WITHIN tier, no parcial
+      assignments.push({
+        pedidoId: c.pedidoId,
+        lineIndex: c.lineIndex,
+        qtyAssigned: c.qtyOpen,
+        clientCardCode: c.clientCardCode,
+        cliTipo: tier,
+        asigReserva: tier === 'P' || tier === 'A',
+      });
+      remaining -= c.qtyOpen;
+    }
   }
   return { assignments, remaining };
 }
@@ -216,6 +340,10 @@ async function applyAssignments(deps, assignments) {
       lines[a.lineIndex] = Object.assign({}, lines[a.lineIndex], {
         state: 'ASIG',
         asigAt: nowIso,
+        // v956 (2026-09-16): asigReserva computado en computeAssignmentsFifo
+        // segun cliTipo del cliente al momento de la promocion.
+        asigReserva: !!a.asigReserva,
+        asigCliTipo: a.cliTipo,
       });
       tx.update(ref, { lines, updatedAt: nowIso });
     });
