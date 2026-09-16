@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v942 (2026-09-16)** — HOTFIX: pedidos cargados desde "Crear Pedido" directo (sin pasar por Revisión Excel) ahora reservan `orderNumber` via `counters/orderNumber`. Antes quedaban en Confirmados sin chip `ORDEN N`. Ver §41. |
-| **APP_VERSION** | `v942` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v943 (2026-09-16)** — Pedidos Confirmados: sort primario por `orderNumber` DESC (mayor a menor). Los sin ORDEN caen al final agrupados por `confirmedAt` DESC. Ver §41. |
+| **APP_VERSION** | `v943` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,17 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v942
+## 41) Changelog v300 → v943
+
+### v943 (2026-09-16) — Pedidos Confirmados: sort primario por orderNumber DESC
+
+Pedido Mariano 2026-09-16: la lista de Confirmados venía ordenada por `confirmedAt` DESC. Con orderNumber ya visible en las cards (v845), quiere ver los pedidos ordenados por ORDEN de mayor a menor (ORDEN 165, 162, 156, 146...).
+
+**Fix**: `renderConfirmadosList` (`index.html:20431`) — sort primario por `orderNumber` numérico DESC. Los pedidos sin orderNumber (legacy o aguardando snapshot) quedan al final agrupados, ordenados entre sí por `confirmedAt` DESC (comportamiento previo). El guard defensivo de v410 para Firestore Timestamp se preserva en el fallback.
+
+**Nota**: la lista de Pendientes conserva el sort por `confirmedAt` DESC — solo Confirmados cambia. Si querés el mismo sort en Pendientes, avísame.
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v943`. Deploy: GH Pages auto.
 
 ### v942 (2026-09-16) — HOTFIX: pedidos desde "Crear Pedido" directo ahora reservan orderNumber
 

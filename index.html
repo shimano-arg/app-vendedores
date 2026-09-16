@@ -5478,7 +5478,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v942';
+const APP_VERSION = 'v943';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -20425,10 +20425,20 @@ function renderConfirmadosList(){
     const k = (typeof contactKey === 'function') ? contactKey(fakePoint, it.clientName, it.tipo) : '';
     return clientMatchesQuery(it.clientName, it.locName, k, q);
   });
-  // v410 (2026-08-06): guard defensivo. Si confirmedAt viene como Firestore
-  // Timestamp (ej doc restaurado via admin script), localeCompare crasheaba
-  // y no rendereaba nada. Coercion segura a string ISO.
+  // v943 (2026-09-16): sort primario por orderNumber DESC (pedido Mariano —
+  // quiere ver ORDEN 165 arriba de 162, 156, etc). Los pedidos sin
+  // orderNumber (legacy o aguardando snapshot) caen al final agrupados,
+  // ordenados entre si por confirmedAt DESC. v410 (2026-08-06) preservado
+  // en el fallback: guard defensivo cuando confirmedAt viene como Firestore
+  // Timestamp (doc restaurado via admin) — coercion segura a string ISO.
   items.sort((a, b) => {
+    const _oA = parseInt(String(a.conf.orderNumber || '').replace(/\D/g, ''), 10);
+    const _oB = parseInt(String(b.conf.orderNumber || '').replace(/\D/g, ''), 10);
+    const _hasA = Number.isFinite(_oA);
+    const _hasB = Number.isFinite(_oB);
+    if (_hasA && !_hasB) return -1;
+    if (!_hasA && _hasB) return 1;
+    if (_hasA && _hasB) return _oB - _oA;
     const _tsA = a.conf.confirmedAt, _tsB = b.conf.confirmedAt;
     const _sA = (typeof _tsA === 'string') ? _tsA : (_tsA && typeof _tsA.toDate === 'function' ? _tsA.toDate().toISOString() : (_tsA ? String(_tsA) : ''));
     const _sB = (typeof _tsB === 'string') ? _tsB : (_tsB && typeof _tsB.toDate === 'function' ? _tsB.toDate().toISOString() : (_tsB ? String(_tsB) : ''));
