@@ -45,29 +45,42 @@
  */
 const STATES_QUE_RESERVAN = new Set(['confirmed', 'BO', 'ASIG']);
 
+// v957/v959: constantes para expiracion de reserva.
+const RESERVA_TTL_DAYS = 15;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /**
- * v957 (Fase 2, 2026-09-16): decide si una linea reserva stock. Extiende
- * STATES_QUE_RESERVAN con el flag `asigReserva` para ASIG:
+ * v957 (Fase 2, 2026-09-16): decide si una linea reserva stock.
+ * v959 (2026-09-16): agrega expiracion 15 dias desde asigAt.
  *
- *   - state='confirmed' → true (siempre reserva, ya se envio a SAP)
- *   - state='BO'        → true (siempre reserva, demanda pendiente)
- *   - state='ASIG' con `asigReserva === false` → false (cliente B/C, la CF
- *     FIFO v956 marca asi para no bloquear stock a clientes A/P). El line
- *     APARECE en Stock Asignado pero el stock queda libre para vender a otros.
- *   - state='ASIG' con `asigReserva !== false` (true o undefined) → true.
- *     `undefined` reserva por default para retrocompat con lineas pre-v956
- *     que no tienen el field (backfill Fase 4 las va a marcar).
- *
- * Retorna false para cualquier otro state (invoiced, cancelled, recycled, legacy).
+ * Reglas:
+ * - state='confirmed' o 'BO': siempre reserva
+ * - state='ASIG' con asigReserva===false: no reserva (cliente B/C)
+ * - state='ASIG' con asigAt > 15 dias atras: no reserva (expirada, cualquier tipo)
+ * - state='ASIG' con asigReserva!=false y asigAt<=15d o sin asigAt: reserva
+ * - cualquier otro state: no reserva
  *
  * @param {any} line
+ * @param {number} [nowMs] timestamp ms, inyectable para tests. Default Date.now().
  * @returns {boolean}
  */
-function lineReservesStock(line) {
+export function lineReservesStock(line, nowMs) {
   if (!line) return false;
   const state = line.state;
   if (state === 'confirmed' || state === 'BO') return true;
-  if (state === 'ASIG') return line.asigReserva !== false;
+  if (state === 'ASIG') {
+    if (line.asigReserva === false) return false;
+    // v959: expiracion 15 dias desde asigAt.
+    if (line.asigAt) {
+      const asigAtMs = new Date(line.asigAt).getTime();
+      if (Number.isFinite(asigAtMs)) {
+        const now = typeof nowMs === 'number' ? nowMs : Date.now();
+        const ageDays = (now - asigAtMs) / DAY_MS;
+        if (ageDays > RESERVA_TTL_DAYS) return false;
+      }
+    }
+    return true;
+  }
   return false;
 }
 
@@ -76,14 +89,16 @@ function lineReservesStock(line) {
  *
  * @param {string} sku
  * @param {StockRealDeps} deps
+ * @param {{now?: number}} [opts] - v959: now inyectable para tests.
  * @returns {number} Stock disponible >= 0.
  */
-export function getStockRealmenteDisponible(sku, deps) {
+export function getStockRealmenteDisponible(sku, deps, opts) {
   const skuUp = String(sku || '').toUpperCase();
   if (!skuUp) return 0;
   const fisico = Number(deps.getStockFisico(skuUp)) || 0;
   if (fisico <= 0) return 0;
 
+  const now = opts && typeof opts.now === 'number' ? opts.now : Date.now();
   let comprometido = 0;
   const pedidos = Array.isArray(deps.pedidos) ? deps.pedidos : [];
   for (const p of pedidos) {
@@ -92,8 +107,8 @@ export function getStockRealmenteDisponible(sku, deps) {
     for (const l of lines) {
       if (!l || !l.code) continue;
       if (String(l.code).toUpperCase() !== skuUp) continue;
-      // v957: skipear ASIG sin reserva (asigReserva=false, clientes B/C).
-      if (!lineReservesStock(l)) continue;
+      // v957/v959: skipear ASIG sin reserva o con reserva expirada.
+      if (!lineReservesStock(l, now)) continue;
       const qtyOpen = Number(l.qtyOpen) || 0;
       if (qtyOpen <= 0) continue;
       comprometido += qtyOpen;
@@ -119,9 +134,10 @@ export function getStockRealmenteDisponible(sku, deps) {
  * @param {string} sku
  * @param {string} cardCode CardCode del cliente actual
  * @param {StockRealDeps} deps
+ * @param {{now?: number}} [opts] - v959: now inyectable para tests.
  * @returns {{fisico: number, reservadasPorCliente: number, reservadasPorOtros: number, libreParaCliente: number, disponibleReal: number, yaEnOtroPedido: {pedidoId: string, qtyOpen: number, state: string}[]}}
  */
-export function getStockPorCliente(sku, cardCode, deps) {
+export function getStockPorCliente(sku, cardCode, deps, opts) {
   const skuUp = String(sku || '').toUpperCase();
   const ccUp = String(cardCode || '').trim();
   const fisico = skuUp ? Number(deps.getStockFisico(skuUp)) || 0 : 0;
@@ -135,6 +151,7 @@ export function getStockPorCliente(sku, cardCode, deps) {
   };
   if (!skuUp || !ccUp) return empty;
 
+  const now = opts && typeof opts.now === 'number' ? opts.now : Date.now();
   let reservadasPorCliente = 0;
   let reservadasPorOtros = 0;
   const yaEnOtroPedido = [];
@@ -146,8 +163,8 @@ export function getStockPorCliente(sku, cardCode, deps) {
     for (const l of lines) {
       if (!l || !l.code) continue;
       if (String(l.code).toUpperCase() !== skuUp) continue;
-      // v957: skipear ASIG sin reserva (asigReserva=false, clientes B/C).
-      if (!lineReservesStock(l)) continue;
+      // v957/v959: skipear ASIG sin reserva o con reserva expirada.
+      if (!lineReservesStock(l, now)) continue;
       const qtyOpen = Number(l.qtyOpen) || 0;
       if (qtyOpen <= 0) continue;
       if (pCC === ccUp) {
@@ -200,13 +217,14 @@ const MEMO_TTL_MS = 5000;
  * @param {string} sku
  * @param {string} cardCode
  * @param {StockRealDeps} deps
+ * @param {{now?: number}} [opts]
  * @returns {ReturnType<typeof getStockPorCliente>}
  */
-export function getStockPorClienteMemo(sku, cardCode, deps) {
+export function getStockPorClienteMemo(sku, cardCode, deps, opts) {
   const pedidos = deps && deps.pedidos;
   // Si pedidos no es un array/obj (edge case bootstrap), fallback sin cache.
   if (!pedidos || typeof pedidos !== 'object') {
-    return getStockPorCliente(sku, cardCode, deps);
+    return getStockPorCliente(sku, cardCode, deps, opts);
   }
   const skuUp = String(sku || '').toUpperCase();
   const ccUp = String(cardCode || '').trim();
@@ -227,7 +245,7 @@ export function getStockPorClienteMemo(sku, cardCode, deps) {
     bucket = new Map();
     _stockPorClienteMemo.set(pedidos, bucket);
   }
-  const result = getStockPorCliente(sku, cardCode, deps);
+  const result = getStockPorCliente(sku, cardCode, deps, opts);
   bucket.set(key, { result, ts: now });
   return result;
 }
@@ -252,14 +270,16 @@ export function _resetStockPorClienteMemo() {
  *
  * @param {string} sku
  * @param {StockRealDeps} deps
+ * @param {{now?: number}} [opts] - v959: now inyectable para tests.
  * @returns {{fisico: number, comprometido: number, real: number, breakdown: {confirmed: number, BO: number, ASIG: number}}}
  */
-export function getStockDesglose(sku, deps) {
+export function getStockDesglose(sku, deps, opts) {
   const skuUp = String(sku || '').toUpperCase();
   const fisico = skuUp ? Number(deps.getStockFisico(skuUp)) || 0 : 0;
   const breakdown = { confirmed: 0, BO: 0, ASIG: 0 };
   if (!skuUp) return { fisico: 0, comprometido: 0, real: 0, breakdown };
 
+  const now = opts && typeof opts.now === 'number' ? opts.now : Date.now();
   const pedidos = Array.isArray(deps.pedidos) ? deps.pedidos : [];
   for (const p of pedidos) {
     if (!p || p.closedAt) continue;
@@ -268,8 +288,8 @@ export function getStockDesglose(sku, deps) {
       if (!l || !l.code) continue;
       if (String(l.code).toUpperCase() !== skuUp) continue;
       const st = /** @type {'confirmed'|'BO'|'ASIG'} */ (l.state);
-      // v957: skipear ASIG sin reserva (asigReserva=false, clientes B/C).
-      if (!lineReservesStock(l)) continue;
+      // v957/v959: skipear ASIG sin reserva o con reserva expirada.
+      if (!lineReservesStock(l, now)) continue;
       const qtyOpen = Number(l.qtyOpen) || 0;
       if (qtyOpen <= 0) continue;
       breakdown[st] = (breakdown[st] || 0) + qtyOpen;

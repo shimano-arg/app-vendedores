@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v958';
+const APP_VERSION = 'v959';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -20766,10 +20766,22 @@ window.viewPedido = function(stage, key, idx){
       const isInvoicedLine = l.state === 'invoiced';
       const isSinStock = !!l.sinStock || isBoLine;
       // v958 (Fase 3, 2026-09-16): distinguir ASIG con vs sin reserva.
-      // asigReserva=false (clientes B/C) → la linea aparece pero no bloquea
-      // stock. Se pinta distinto para que el VDE lo entienda de un vistazo.
-      // Retrocompat: undefined = true (linea pre-v956 o pre-backfill).
-      const isAsigSinReserva = isAsigLine && l.asigReserva === false;
+      // v959 (2026-09-16): tambien cubre expiracion a 15 dias — despues
+      // de ese periodo la linea sigue siendo ASIG pero deja de reservar
+      // stock (sin importar cliTipo). Usamos lineReservesStock del bundle
+      // para tener la misma logica que el stock calc.
+      const _lrsFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
+      const isAsigSinReserva = isAsigLine && (_lrsFn ? !_lrsFn(l) : l.asigReserva === false);
+      // Sub-clasificacion para tooltip: es sin reserva por B/C o por expiracion?
+      let _sinReservaMotivo = '';
+      if (isAsigSinReserva) {
+        if (l.asigReserva === false) {
+          _sinReservaMotivo = 'Cliente B/C — la linea aparece asignada pero no bloquea stock.';
+        } else if (l.asigAt) {
+          const _ageDays = Math.floor((Date.now() - new Date(l.asigAt).getTime()) / (24 * 60 * 60 * 1000));
+          _sinReservaMotivo = 'Reserva expirada — pasaron ' + _ageDays + ' dias desde asigAt (limite 15). El stock queda libre.';
+        }
+      }
       // v408: si la linea trae faltantesQty (v407+ Excel), contar solo las
       // unidades faltantes reales. Sino, la qty completa (comportamiento viejo).
       if (isSinStock) sinStockUnits += (parseFloat(l.faltantesQty) || q);
@@ -20798,9 +20810,11 @@ window.viewPedido = function(stage, key, idx){
         // v618: badge BACKORDER APP (mas informativo que SIN STOCK generico).
         codeExtra = ' <span style="background:#c2410c;color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Linea state=BO: NO se envio a SAP porque no habia stock al confirmar. Queda como backorder en la app hasta que entre stock (CF FIFO promueve a ASIG).">BACKORDER APP</span>';
       } else if (isAsigSinReserva) {
-        // v958 (Fase 3): badge cyan explicito para ASIG sin reserva. El stock
-        // no queda bloqueado — otros VDEs pueden venderlo. Suele ser cliente B/C.
-        codeExtra = ' <span style="background:#0891b2;color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Linea state=ASIG SIN reserva: el cliente es B/C. La linea aparece asignada pero no bloquea stock — otros VDEs pueden vender ese SKU a clientes A/P.">ASIG SIN RESERVA</span>';
+        // v958 (Fase 3) + v959 expiracion: badge cyan explicito para ASIG
+        // sin reserva. El stock no queda bloqueado — otros VDEs pueden venderlo.
+        // Puede ser cliente B/C o reserva expirada (>15d).
+        const _tipTxt = 'Linea state=ASIG SIN reserva. ' + (_sinReservaMotivo || 'La linea aparece asignada pero no bloquea stock.');
+        codeExtra = ' <span style="background:#0891b2;color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="' + escapeAttr(_tipTxt) + '">ASIG SIN RESERVA</span>';
       } else if (isAsigLine) {
         codeExtra = ' <span style="background:var(--color-accent-violet);color:#fff;font-size:8px;padding:1px 4px;border-radius:3px;font-weight:800;vertical-align:middle;margin-left:3px" title="Linea state=ASIG con reserva (cliente P/A): stock reservado FIFO. Otros VDEs NO pueden vender este SKU hasta que el pedido se facture o se cancele.">ASIG</span>';
       } else if (isInvoicedLine) {
