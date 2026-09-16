@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v959 (2026-09-16)** — Expiración 15d de reserva ASIG (independiente cliTipo) + fix "UNIDADES RESERVADAS" (solo cuenta con reserva vigente). Cierra el feature tier-based FIFO. Ver §41. |
-| **APP_VERSION** | `v959` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v960 (2026-09-16)** — Modal Stock Asignado: cap ASIG por dispSap FIFO. SKUs con dispSap=0 desaparecen (son Backorder). Header muestra el tope físico (21 en vez de 23 si hay excedente). Ver §41. |
+| **APP_VERSION** | `v960` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,40 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v959
+## 41) Changelog v300 → v960
+
+### v960 (2026-09-16) — Cap ASIG por dispSap FIFO en modal Stock Asignado
+
+Pedido Mariano 2026-09-16 con 2 screenshots:
+1. **SLXDC151HG** aparecía en Stock Asignado con "sin stock en ningun deposito" (dispSap=0). El VDE no debe ver eso ahí — es Backorder.
+2. **CVC66MH4SACO** mostraba `23 UNIDADES` en el header pero solo hay `21 disponibles en dep. 11`. Las 2 excedentes son técnicamente BO (no hay stock físico).
+
+**Root cause**: en `renderBackordersTab` (línea 13093+), el cap FIFO por dispSap se aplicaba a competidores (SAP + APP-BO) pero **NO a APP-ASIG**. Los ASIG tomaban `qtyAsignada = c.pendiente` completo sin respetar el tope físico. Comentario original decía "consumen stock primero, sin competir".
+
+**Fix**: aplicar el mismo cap FIFO a APP-ASIG:
+```js
+const asigAppClientes = g.clientes.filter(c => c.source === 'app' && c.state === 'ASIG');
+asigAppClientes.sort((a, b) => (a.sqDocDate || '').localeCompare(b.sqDocDate || '')); // FIFO por fecha
+for (const c of asigAppClientes) {
+  const asignable = Math.min(c.pendiente, Math.max(0, restante));
+  c.qtyAsignada = asignable;
+  c.qtyBackorder = c.pendiente - asignable;
+  restante -= asignable;
+}
+```
+
+**Efectos combinados**:
+- **SKUs con dispSap=0**: todas las ASIG capean a `qtyAsignada=0` → filtro por `qtyAsignada>0` los deja sin clientes → SKU desaparece del modal Stock Asignado.
+- **SKUs con dispSap<sum(ASIG)**: header muestra `sum(qtyAsignada) = dispSap`. El excedente cae a `qtyBackorder` — esos clientes aparecen en modal Backorder en su lugar.
+- **Orden FIFO** por `sqDocDate` ASC: los clientes que pidieron primero se llevan el stock físico primero.
+
+**Ejemplo Mariano**:
+- CVC66MH4SACO, dispSap=21, 3 clientes ASIG con 10+10+3=23
+- Post-cap: cliente1=10, cliente2=10, cliente3=1 (qtyBackorder=2)
+- Header muestra 21 ✅ (era 23)
+- El excedente de cliente3 (2u) aparece en modal Backorder
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v960`. Deploy: GH Pages auto.
 
 ### v959 (2026-09-16) — Expiración 15 días de reserva ASIG + fix "UNIDADES RESERVADAS"
 

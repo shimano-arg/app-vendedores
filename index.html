@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v959';
+const APP_VERSION = 'v960';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13093,13 +13093,21 @@ window.renderBackordersTab = function(){
   Object.values(skuMap).forEach(g => {
     const dispSap = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(g.sku) || 0) : 0;
     let restante = dispSap;
-    // Paso 1: APP-ASIG consume primero (reservado por E4.5, no compite).
-    for (const c of g.clientes) {
-      if (c.source === 'app' && c.state === 'ASIG') {
-        c.qtyAsignada = c.pendiente;
-        c.qtyBackorder = 0;
-        restante -= c.pendiente;
-      }
+    // v960 (2026-09-16): cap ASIG por dispSap FIFO. Antes: ASIG tomaba
+    // c.pendiente entero sin cap → si dispSap=21 pero 3 clientes tenian ASIG
+    // 10+10+3=23, el header decia 23 UNIDADES (pero solo hay 21 en dep 11).
+    // Ahora se respeta el tope fisico y el excedente cae a qtyBackorder.
+    // Reportado por Mariano 2026-09-16 con CVC66MH4SACO (21 disp / 23 asig).
+    //
+    // Paso 1: APP-ASIG consume primero por FIFO de fecha (mas viejo gana)
+    // pero respetando el cap fisico dispSap.
+    const asigAppClientes = g.clientes.filter(c => c.source === 'app' && c.state === 'ASIG');
+    asigAppClientes.sort((a, b) => (a.sqDocDate || '').localeCompare(b.sqDocDate || ''));
+    for (const c of asigAppClientes) {
+      const asignable = Math.min(c.pendiente, Math.max(0, restante));
+      c.qtyAsignada = asignable;
+      c.qtyBackorder = c.pendiente - asignable;
+      restante -= asignable;
     }
     if (restante < 0) restante = 0;
     // Paso 2: competidores (SAP + APP-BO) ordenados FIFO.
