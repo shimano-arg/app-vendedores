@@ -163,3 +163,53 @@ describe('getStockPorClienteMemo', () => {
     expect(withinTtl.reservadasPorCliente).toBe(5);
   });
 });
+
+// v957 (2026-09-16, Fase 2): ASIG con asigReserva=false no cuenta en el desglose
+describe('getStockPorCliente — v957 asigReserva=false', () => {
+  it('ASIG sin reserva de otro cliente NO reduce libreParaCliente', () => {
+    const pedidos = [
+      // Otro cliente con ASIG sin reserva (cliente B/C) — no bloquea a nadie
+      {
+        _fsId: 'p_otro',
+        clientCardCode: 'C_OTRO',
+        lines: [{ code: 'SKU1', state: 'ASIG', qtyOpen: 6, asigReserva: false }],
+      },
+    ];
+    const deps = makeDeps(pedidos);
+    const r = getStockPorCliente('SKU1', 'C_MIO', deps);
+    expect(r.fisico).toBe(20);
+    expect(r.reservadasPorOtros).toBe(0);
+    expect(r.libreParaCliente).toBe(20); // el ASIG sin reserva no cuenta
+    expect(r.disponibleReal).toBe(20);
+  });
+
+  it('ASIG sin reserva del MISMO cliente tampoco cuenta en reservadasPorCliente', () => {
+    const pedidos = [
+      {
+        _fsId: 'p_mio',
+        clientCardCode: 'C_MIO',
+        lines: [{ code: 'SKU1', state: 'ASIG', qtyOpen: 4, asigReserva: false }],
+      },
+    ];
+    const deps = makeDeps(pedidos);
+    const r = getStockPorCliente('SKU1', 'C_MIO', deps);
+    // La linea existe en el pedido pero no reserva stock — no aparece en el
+    // desglose de reservas.
+    expect(r.reservadasPorCliente).toBe(0);
+    expect(r.libreParaCliente).toBe(20);
+  });
+
+  it('ASIG con reserva sigue contando normal (retrocompat)', () => {
+    const pedidos = [
+      {
+        _fsId: 'p_otro',
+        clientCardCode: 'C_OTRO',
+        lines: [{ code: 'SKU1', state: 'ASIG', qtyOpen: 4, asigReserva: true }],
+      },
+    ];
+    const deps = makeDeps(pedidos);
+    const r = getStockPorCliente('SKU1', 'C_MIO', deps);
+    expect(r.reservadasPorOtros).toBe(4);
+    expect(r.libreParaCliente).toBe(16);
+  });
+});

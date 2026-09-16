@@ -46,6 +46,32 @@
 const STATES_QUE_RESERVAN = new Set(['confirmed', 'BO', 'ASIG']);
 
 /**
+ * v957 (Fase 2, 2026-09-16): decide si una linea reserva stock. Extiende
+ * STATES_QUE_RESERVAN con el flag `asigReserva` para ASIG:
+ *
+ *   - state='confirmed' → true (siempre reserva, ya se envio a SAP)
+ *   - state='BO'        → true (siempre reserva, demanda pendiente)
+ *   - state='ASIG' con `asigReserva === false` → false (cliente B/C, la CF
+ *     FIFO v956 marca asi para no bloquear stock a clientes A/P). El line
+ *     APARECE en Stock Asignado pero el stock queda libre para vender a otros.
+ *   - state='ASIG' con `asigReserva !== false` (true o undefined) → true.
+ *     `undefined` reserva por default para retrocompat con lineas pre-v956
+ *     que no tienen el field (backfill Fase 4 las va a marcar).
+ *
+ * Retorna false para cualquier otro state (invoiced, cancelled, recycled, legacy).
+ *
+ * @param {any} line
+ * @returns {boolean}
+ */
+function lineReservesStock(line) {
+  if (!line) return false;
+  const state = line.state;
+  if (state === 'confirmed' || state === 'BO') return true;
+  if (state === 'ASIG') return line.asigReserva !== false;
+  return false;
+}
+
+/**
  * Calcula el stock realmente disponible para un SKU dado.
  *
  * @param {string} sku
@@ -66,7 +92,8 @@ export function getStockRealmenteDisponible(sku, deps) {
     for (const l of lines) {
       if (!l || !l.code) continue;
       if (String(l.code).toUpperCase() !== skuUp) continue;
-      if (!STATES_QUE_RESERVAN.has(l.state)) continue;
+      // v957: skipear ASIG sin reserva (asigReserva=false, clientes B/C).
+      if (!lineReservesStock(l)) continue;
       const qtyOpen = Number(l.qtyOpen) || 0;
       if (qtyOpen <= 0) continue;
       comprometido += qtyOpen;
@@ -119,7 +146,8 @@ export function getStockPorCliente(sku, cardCode, deps) {
     for (const l of lines) {
       if (!l || !l.code) continue;
       if (String(l.code).toUpperCase() !== skuUp) continue;
-      if (!STATES_QUE_RESERVAN.has(l.state)) continue;
+      // v957: skipear ASIG sin reserva (asigReserva=false, clientes B/C).
+      if (!lineReservesStock(l)) continue;
       const qtyOpen = Number(l.qtyOpen) || 0;
       if (qtyOpen <= 0) continue;
       if (pCC === ccUp) {
@@ -240,7 +268,8 @@ export function getStockDesglose(sku, deps) {
       if (!l || !l.code) continue;
       if (String(l.code).toUpperCase() !== skuUp) continue;
       const st = /** @type {'confirmed'|'BO'|'ASIG'} */ (l.state);
-      if (!STATES_QUE_RESERVAN.has(st)) continue;
+      // v957: skipear ASIG sin reserva (asigReserva=false, clientes B/C).
+      if (!lineReservesStock(l)) continue;
       const qtyOpen = Number(l.qtyOpen) || 0;
       if (qtyOpen <= 0) continue;
       breakdown[st] = (breakdown[st] || 0) + qtyOpen;
