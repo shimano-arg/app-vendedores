@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v943 (2026-09-16)** — Pedidos Confirmados: sort primario por `orderNumber` DESC (mayor a menor). Los sin ORDEN caen al final agrupados por `confirmedAt` DESC. Ver §41. |
-| **APP_VERSION** | `v943` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v944 (2026-09-16)** — Pedidos 100% backorder: card pintada amarillo + chip "BACKORDER" (antes salía "undefined"). Mismo patrón visual que las cards de error SAP (v914) para identificar rápido. Ver §41. |
+| **APP_VERSION** | `v944` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,29 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v943
+## 41) Changelog v300 → v944
+
+### v944 (2026-09-16) — Pedidos 100% Backorder pintados amarillo + chip "BACKORDER"
+
+Pedido Mariano 2026-09-16: los pedidos 100% backorder (todas las líneas en `state='BO'` — auto-confirmados por v607 porque no tienen cobertura de stock) aparecían en el listado Confirmados con card blanca y con label "undefined" donde va el mes. Difícil identificarlos rápido en el listado.
+
+**Fix**: mismo patrón visual que las cards de error SAP (v914 rojo).
+- **CSS**: nueva clase `.cc-backorder` con fondo `#fef3c7` + borde `#f59e0b` + borde-izquierdo `#d97706` (paleta amarilla Tailwind 200-600). Estados de texto en tonos `#78350f`/`#92400e` para contraste.
+- **Prioridad de estilo**: error (rojo) > 100% BO (amarillo) > default (blanco/verde). Si el pedido falló a SAP Y es 100% BO, gana rojo.
+- **Chip mes**: cuando 100% BO, muestra "BACKORDER" en lugar del `month` (que venía `undefined` en algunos paths del auto-confirm). Mismo cambio en el título del modal detalle (`clientName - BACKORDER` en vez de `clientName - undefined`).
+
+**Detección 100% BO**:
+```js
+const is100Bo = (it.conf.lines || []).length > 0
+  && (it.conf.lines || []).every(l => l && l.state === 'BO');
+```
+
+Cambios en `index.html`:
+- Líneas ~2844-2850 — CSS `.cc-backorder`
+- `renderConfirmadosList` línea ~20444 — clase + label mes
+- `viewPedido` línea ~20504 — título modal
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v944`. Deploy: GH Pages auto (solo frontend).
 
 ### v943 (2026-09-16) — Pedidos Confirmados: sort primario por orderNumber DESC
 
