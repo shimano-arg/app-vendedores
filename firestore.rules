@@ -616,11 +616,18 @@ service cloud.firestore {
       // Antes: update+delete abiertos a cualquier reader (@shimano). Un viewer
       // o VDE hostil podia wipear la lista de espera entera con un forEach
       // desde DevTools. Ahora update sigue abierto (waitlist es colaborativo:
-      // VDI/VDE cross-editing es necesario para el flow revision-excel), pero
-      // delete queda restringido a admin/gerente/interno para forzar audit
-      // trail via humanos con role elevado.
+      // VDI/VDE cross-editing es necesario para el flow revision-excel).
+      // v953 (2026-09-16): permitir owner delete. Sin esto, cuando un VDE
+      // confirmaba un pedido desde la waitlist, el .then() del pedidos.add()
+      // fallaba al borrar el waitlist doc → la card seguia en el sidebar →
+      // VDE podia re-confirmar el mismo entry 2-3 veces creando SQs duplicadas
+      // en SAP. Bug reportado por Mariano 2026-09-16 (CRISTIAN JOSE SANTORO
+      // ORDEN 178, 3 SQs 2000183/2000184/2000185). Delete queda scoped al
+      // owner del doc — no permite wipe masivo (defensa v926 preservada).
+      // Admin/gerente/interno siguen pudiendo borrar cualquier doc.
       allow update: if isReader();
-      allow delete: if isAdminOrGerente() || isInterno();
+      allow delete: if isAdminOrGerente() || isInterno()
+                    || (isReader() && resource.data.ownerUid == request.auth.uid);
     }
   }
 }

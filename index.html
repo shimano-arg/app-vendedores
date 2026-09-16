@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v952';
+const APP_VERSION = 'v953';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15006,7 +15006,15 @@ function ensureRevisionWaitlistListener(){
     .orderBy('createdAt', 'asc')
     .onSnapshot(qs => {
       const arr = [];
-      qs.forEach(d => arr.push(Object.assign({_id: d.id}, d.data() || {})));
+      qs.forEach(d => {
+        const data = d.data() || {};
+        // v953 (2026-09-16): skip waitlist docs marcados como consumidos.
+        // Se setean al confirmar el pedido en Pendientes (doConfirmPedido.then).
+        // Sin este filter, si el delete de la rule fallaba, la card quedaba
+        // visible y el VDE podia re-confirmarla creando SQs duplicadas en SAP.
+        if (data.stage === 'consumed') return;
+        arr.push(Object.assign({_id: d.id}, data));
+      });
       revisionWaitlist = arr;
       _updateWaitlistBadge();
       // v493: refrescar listado inline del sidebar-left (si visible).
@@ -27156,10 +27164,27 @@ window.doConfirmPedido = async function(){
       if (_pendingWaitlistDelete) {
         const _widToDelete = _pendingWaitlistDelete;
         _pendingWaitlistDelete = null;
+        // v953 (2026-09-16): PRIMERO marcar como consumido via update (que
+        // funciona para cualquier reader). El listener de sidebar filtra por
+        // stage != 'consumed' para esconder la card inmediatamente. LUEGO
+        // intentar delete (permission-denied si el user no es owner + no es
+        // admin/gerente/interno — con v953 rules el owner tambien puede).
+        // Sin este update de defense-in-depth, si el delete fallaba la card
+        // quedaba visible en el sidebar y el VDE podia re-confirmar el mismo
+        // entry 2-3 veces creando SQs duplicadas en SAP (bug reportado por
+        // Mariano 2026-09-16 CRISTIAN JOSE SANTORO ORDEN 178, 3 SQs duplicadas).
+        fbDb.collection('revision_waitlist').doc(_widToDelete).update({
+          stage: 'consumed',
+          consumedByPedidoId: ref.id,
+          consumedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        }).catch(_e => {
+          // Silencioso — si el update falla el delete va a intentar tambien.
+          console.warn('waitlist mark consumed failed', _e && _e.message);
+        });
         fbDb.collection('revision_waitlist').doc(_widToDelete).delete().catch(e => window.reportCriticalError(e, {
           op: 'waitlist-delete',
           extra: { waitlistId: _widToDelete },
-          userMsg: 'Pedido pasó a Pendientes pero no pude borrar el doc de Lista de Espera. Revisá manualmente.',
+          userMsg: 'Pedido pasó a Pendientes. El doc de Lista de Espera quedó marcado como consumido (invisible) — revisá manualmente si necesitas eliminarlo.',
         }));
       } else if (_pendingWaitlistUpdate) {
         // v568: preservar los items sin dispSap en el waitlist doc en vez de borrar.
