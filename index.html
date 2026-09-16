@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v954';
+const APP_VERSION = 'v955';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -20722,11 +20722,20 @@ window.viewPedido = function(stage, key, idx){
     // (unidades pedidas SIN cobertura de stock al momento de confirmar).
     // Contador para el subtitulo header ('X uds sin stock').
     let sinStockUnits = 0;
+    // v955 (2026-09-16): subtotales separados por disponibilidad — pedido
+    // Mariano. Muestra debajo del TOTAL NETO cuanto del pedido es "disponible"
+    // (state != BO) vs "backorder" (state == BO). Ambos son gross (sin desc).
+    let subtotalDispCalc = 0;
+    let subtotalBackorderCalc = 0;
     (c.lines || []).forEach(l => {
       const q = parseFloat(l.qty) || 0;
       const pr = parseFloat(l.precio) || 0;
       totalU += q;
       subtotalCalc += q * pr;
+      // v955: acumular por state. Legacy sinStock (pre-v543) se cuenta como BO.
+      const _lineIsBo = l.state === 'BO' || (!l.state && !!l.sinStock);
+      if (_lineIsBo) subtotalBackorderCalc += q * pr;
+      else subtotalDispCalc += q * pr;
       // v618 (2026-08-25): unificar sinStock legacy con state='BO' del schema v543+.
       // Bug reportado por Mariano: pedido CHALPAC S.A. mostraba linea 22CATPRII420
       // qty=2 en el modal Confirmado como si estuviera OK, pero la linea era
@@ -20897,6 +20906,21 @@ window.viewPedido = function(stage, key, idx){
     infoHtml += '<span style="font-weight:800;color:var(--text-primary)">TOTAL NETO</span>';
     infoHtml += '<span style="font-weight:800;color:var(--color-success);font-size:16px">' + fmtAr(neto) + '</span>';
     infoHtml += '</div>';
+    // v955 (2026-09-16): breakdown por disponibilidad debajo del TOTAL NETO
+    // — pedido Mariano. Subtotal DISPONIBLE (lineas con stock) + Subtotal
+    // BACKORDER (lineas state=BO). Ambos gross (sin descuento aplicado).
+    // Solo se muestran si hay al menos algo de backorder para no meter
+    // ruido en pedidos 100% con stock.
+    if (subtotalBackorderCalc > 0) {
+      infoHtml += '<div style="display:flex;justify-content:space-between;padding:4px 0 4px 14px;font-size:11px;color:var(--text-muted);border-top:1px dashed var(--border-subtle)">';
+      infoHtml += '<span>&middot; Subtotal disponible <span style="font-size:10px;color:var(--text-muted)">(con stock)</span></span>';
+      infoHtml += '<span style="font-weight:700;color:var(--color-success)">' + fmtAr(subtotalDispCalc) + '</span>';
+      infoHtml += '</div>';
+      infoHtml += '<div style="display:flex;justify-content:space-between;padding:4px 0 7px 14px;font-size:11px;color:var(--text-muted)">';
+      infoHtml += '<span>&middot; Subtotal backorder <span style="font-size:10px;color:var(--color-danger)">(sin stock)</span></span>';
+      infoHtml += '<span style="font-weight:700;color:var(--color-danger)">' + fmtAr(subtotalBackorderCalc) + '</span>';
+      infoHtml += '</div>';
+    }
     // Fecha confirmacion
     infoHtml += '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border-default);font-size:10px;color:var(--text-muted)">';
     infoHtml += 'Confirmado el ' + (c.confirmedAt ? new Date(c.confirmedAt).toLocaleString('es-AR') : '-');
