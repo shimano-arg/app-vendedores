@@ -5478,7 +5478,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v941';
+const APP_VERSION = 'v942';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -26640,7 +26640,7 @@ saveClientMeta = function(){
 
 // ========== Override de las acciones de pedido (push a coleccion pedidos) ==========
 const _origDoConfirm = window.doConfirmPedido;
-window.doConfirmPedido = function(){
+window.doConfirmPedido = async function(){
   if (!currentOrderKey || currentOrderKey === '__readonly__') return;
   const ord = orders[currentOrderKey] || [];
   if (!ord.length) return;
@@ -26709,6 +26709,20 @@ window.doConfirmPedido = function(){
   // saltar el confirm() aca para no duplicar dialogo al vendedor.
   if (window._boSkipConfirmDialog !== true) {
     if (!confirm('Confirmar pedido de "' + currentOrderClient.name + '" para ' + monthLabel + '?\nForma de pago: ' + condicionVal + onBehalfBanner)) return;
+  }
+  // v942 (2026-09-16) HOTFIX: si el flow no viene de un waitlist (Crear
+  // Pedido directo), reservar orderNumber ahora para que el pedido nunca
+  // quede sin ORDEN en Confirmados. Antes solo _waitlistPasarAPendientesContinuar
+  // seteaba window._pendingPedidoOrderNumber; el path directo caia con null.
+  // Reserva post-confirm() gate para no gastar contador si el user cancela.
+  if (!window._pendingPedidoOrderNumber) {
+    try {
+      window._pendingPedidoOrderNumber = await reserveNextOrderNumber();
+    } catch (e) {
+      console.error('reserveNextOrderNumber (doConfirmPedido fallback)', e);
+      alert('No se pudo reservar el numero de orden. Refresca la pagina y reintenta.');
+      return;
+    }
   }
   const parts = currentOrderKey.split('|');
   const ownerUid = actingPartner ? actingPartner.uid : (currentUser ? currentUser.uid : null);
@@ -26785,7 +26799,10 @@ window.doConfirmPedido = function(){
     // v846 (2026-09-09): heredar el numero de orden del waitlist origen si lo hay
     // (Mariano pidio ver 'ORDEN N' en cards de Confirmados). Poblado por
     // _waitlistPasarAPendientesContinuar via window._pendingPedidoOrderNumber.
-    // Null cuando el pedido no viene de un waitlist (Excel upload, etc).
+    // v942 (2026-09-16): garantia — si el flow no vino del waitlist, arriba
+    // reservamos el orderNumber al pasar el confirm() gate. Ya nunca deberia
+    // caer null aca; el fallback null se mantiene solo como defensa por si el
+    // reserve fallo silencioso.
     orderNumber: window._pendingPedidoOrderNumber || null,
     month: monthLabel, monthIdx: mesIdx, year: parseInt(anio),
     confirmedAt: new Date().toISOString(),
