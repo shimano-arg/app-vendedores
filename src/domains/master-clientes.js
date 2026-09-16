@@ -1931,6 +1931,25 @@ window.confirmVincularSap = async function (sapAltaFsId) {
   }
 };
 
+// v946 (2026-09-16): debounce del buscador. Antes cada keystroke disparaba
+// el re-render completo de la tabla (800+ filas + string concat + innerHTML)
+// bloqueando el input entre 200-800ms segun cantidad de filas visibles. El
+// vendedor veia lag al tipear. Ahora se acumula el evento por 200ms — al
+// terminar de tipear se ejecuta un solo render. UX percibida: instantanea.
+window.debouncedRenderMc = (function () {
+  let t = null;
+  return function () {
+    clearTimeout(t);
+    t = setTimeout(function () {
+      try {
+        window.renderMasterClientesTable();
+      } catch (e) {
+        console.warn('debouncedRenderMc', e);
+      }
+    }, 200);
+  };
+})();
+
 window.renderMasterClientesTable = function () {
   const cont = document.getElementById('mc-body');
   if (!cont) return;

@@ -4321,7 +4321,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
           <option value="con">Solo con direccion</option>
           <option value="sin">Solo sin direccion</option>
         </select>
-        <input type="search" id="mc-search" placeholder="Buscar por nombre de tienda..." oninput="renderMasterClientesTable()"/>
+        <input type="search" id="mc-search" placeholder="Buscar por nombre de tienda..." oninput="debouncedRenderMc()"/>
         <!-- v413 (2026-08-06): removidos 5 botones del toolbar por pedido de Mariano:
              Importar desde SAP, Geocodificar tiendas SAP, Deduplicar SAP,
              Revisar direcciones, Masterfile-Base. Funciones siguen definidas
@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v945';
+const APP_VERSION = 'v946';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
