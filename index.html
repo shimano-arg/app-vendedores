@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v953';
+const APP_VERSION = 'v954';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15008,11 +15008,16 @@ function ensureRevisionWaitlistListener(){
       const arr = [];
       qs.forEach(d => {
         const data = d.data() || {};
-        // v953 (2026-09-16): skip waitlist docs marcados como consumidos.
-        // Se setean al confirmar el pedido en Pendientes (doConfirmPedido.then).
-        // Sin este filter, si el delete de la rule fallaba, la card quedaba
-        // visible y el VDE podia re-confirmarla creando SQs duplicadas en SAP.
-        if (data.stage === 'consumed') return;
+        // v953 (2026-09-16): filter puro shouldIncludeWaitlistDoc excluye
+        // docs con stage='consumed'. Ver src/pure/waitlist-filter.js +
+        // tests/unit/waitlist-filter.test.js.
+        const _wlFilter = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.shouldIncludeWaitlistDoc);
+        if (_wlFilter) {
+          if (!_wlFilter(data)) return;
+        } else {
+          // Fallback inline si el bundle no expuso el filter.
+          if (data.stage === 'consumed') return;
+        }
         arr.push(Object.assign({_id: d.id}, data));
       });
       revisionWaitlist = arr;

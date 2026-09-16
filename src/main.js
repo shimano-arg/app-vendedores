@@ -14,6 +14,7 @@ import { installChunkStubs } from './loader.js';
 import { calcClientDiscount } from './pure/discount.js';
 import { findSapDuplicateForProvisorio } from './pure/duplicate.js';
 import { passesTypeFilter } from './pure/filters.js';
+import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
 import {
   displayVendorName,
   escapeHtml,
@@ -169,6 +170,7 @@ const phase0 = {
     findSapDuplicateForProvisorio,
     matchSkuFromTitle,
     passesTypeFilter,
+    shouldIncludeWaitlistDoc,
     splitPedidoLine,
     reenrichPedidoLine,
     renderSkeletonRowsPure,
