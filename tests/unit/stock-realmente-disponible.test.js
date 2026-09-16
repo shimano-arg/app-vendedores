@@ -240,3 +240,59 @@ describe('getStockDesglose — breakdown por state', () => {
     });
   });
 });
+
+// v957 (2026-09-16, Fase 2): asigReserva=false NO resta stock disponible
+describe('getStockRealmenteDisponible — v957 asigReserva=false', () => {
+  it('ASIG con asigReserva=true reserva stock (comportamiento pre-v956)', () => {
+    const r = getStockRealmenteDisponible('SKU1', {
+      getStockFisico: () => 20,
+      pedidos: [P({ lines: [L({ qtyOpen: 5, state: 'ASIG', asigReserva: true })] })],
+    });
+    expect(r).toBe(15);
+  });
+
+  it('ASIG con asigReserva=false NO reserva (stock queda libre)', () => {
+    const r = getStockRealmenteDisponible('SKU1', {
+      getStockFisico: () => 20,
+      pedidos: [P({ lines: [L({ qtyOpen: 5, state: 'ASIG', asigReserva: false })] })],
+    });
+    expect(r).toBe(20);
+  });
+
+  it('ASIG sin asigReserva (undefined) reserva por default — retrocompat pre-v956', () => {
+    const r = getStockRealmenteDisponible('SKU1', {
+      getStockFisico: () => 20,
+      pedidos: [P({ lines: [L({ qtyOpen: 5, state: 'ASIG' })] })],
+    });
+    // Sin field asigReserva, default true → reserva.
+    expect(r).toBe(15);
+  });
+
+  it('mix: BO reserva, ASIG con reserva reserva, ASIG sin reserva NO', () => {
+    const r = getStockRealmenteDisponible('SKU1', {
+      getStockFisico: () => 20,
+      pedidos: [
+        P({ lines: [L({ qtyOpen: 3, state: 'BO' })] }),
+        P({ lines: [L({ qtyOpen: 4, state: 'ASIG', asigReserva: true })] }),
+        P({ lines: [L({ qtyOpen: 6, state: 'ASIG', asigReserva: false })] }),
+      ],
+    });
+    // 20 - 3 - 4 - 0 = 13
+    expect(r).toBe(13);
+  });
+});
+
+describe('getStockDesglose — v957 asigReserva=false', () => {
+  it('ASIG sin reserva NO cuenta en breakdown.ASIG ni en comprometido', () => {
+    const d = getStockDesglose('SKU1', {
+      getStockFisico: () => 20,
+      pedidos: [
+        P({ lines: [L({ qtyOpen: 4, state: 'ASIG', asigReserva: true })] }),
+        P({ lines: [L({ qtyOpen: 6, state: 'ASIG', asigReserva: false })] }),
+      ],
+    });
+    expect(d.breakdown.ASIG).toBe(4);
+    expect(d.comprometido).toBe(4);
+    expect(d.real).toBe(16);
+  });
+});

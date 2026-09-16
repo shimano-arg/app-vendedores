@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v956 (2026-09-16)** — FASE 1 tier-based FIFO: CF `onStockChangeFIFOAssign` prioriza P>A>B>C y setea `asigReserva=true` solo para P/A. B/C quedan asignados sin retener stock. Fase 2-4 (stock calc + UI + backfill) vienen en PRs separados. Ver §41. |
-| **APP_VERSION** | `v956` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v957 (2026-09-16)** — FASE 2 tier-based FIFO: `getStockRealmenteDisponible/PorCliente/Desglose` skipean ASIG con `asigReserva=false`. Ahora el stock queda REALMENTE libre cuando el cliente es B/C. Fase 3-4 (UI + backfill) pendientes. Ver §41. |
+| **APP_VERSION** | `v957` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,41 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v956
+## 41) Changelog v300 → v957
+
+### v957 (2026-09-16) — FASE 2: stock disponible skipea ASIG con `asigReserva=false`
+
+Segunda etapa del feature (v956 fue Fase 1 — CF FIFO). Ahora los cálculos de stock disponible **realmente** ignoran las líneas ASIG que la CF marcó con `asigReserva=false` (clientes B/C). El feature empieza a tener impacto visible: cuando un VDE carga un pedido nuevo para un cliente A, si hay stock ASIG de un B/C, ese stock **queda disponible** para el A.
+
+**Cambios en `src/pure/stock-realmente-disponible.js`**:
+
+Nuevo helper interno `lineReservesStock(line)`:
+```js
+function lineReservesStock(line) {
+  if (!line) return false;
+  const state = line.state;
+  if (state === 'confirmed' || state === 'BO') return true;
+  if (state === 'ASIG') return line.asigReserva !== false;
+  return false;
+}
+```
+
+Aplicado en las 3 funciones exportadas:
+- `getStockRealmenteDisponible` — línea ASIG con `asigReserva=false` NO resta del comprometido
+- `getStockPorCliente` — ni en `reservadasPorCliente` ni en `reservadasPorOtros`
+- `getStockDesglose` — no aparece en `breakdown.ASIG` ni en `comprometido`
+
+**Retrocompat**: líneas ASIG sin field `asigReserva` (pre-v956) siguen reservando por default (`asigReserva !== false` es true cuando es `undefined`). El backfill de Fase 4 va a marcar esas líneas explícitamente.
+
+**Tests**: 396/396 verde en la suite completa. **8 tests nuevos** específicos para asigReserva:
+- ASIG con `asigReserva=true` reserva (pre-v956 behavior)
+- ASIG con `asigReserva=false` NO reserva
+- ASIG sin field default a reserva (retrocompat)
+- Mix BO+ASIG-con-reserva+ASIG-sin-reserva calcula correctamente
+- `getStockPorCliente` mismo comportamiento para lines propias y de otros
+- `getStockDesglose` breakdown correcto
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v957`. Deploy: GH Pages auto (bundle rebuilt).
 
 ### v956 (2026-09-16) — FASE 1: FIFO tier-based por cliTipo + campo `asigReserva` (solo backend)
 
