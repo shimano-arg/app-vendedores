@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v957 (2026-09-16)** — FASE 2 tier-based FIFO: `getStockRealmenteDisponible/PorCliente/Desglose` skipean ASIG con `asigReserva=false`. Ahora el stock queda REALMENTE libre cuando el cliente es B/C. Fase 3-4 (UI + backfill) pendientes. Ver §41. |
-| **APP_VERSION** | `v957` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v958 (2026-09-16)** — FASE 3 tier-based FIFO: badges UI `CON RESERVA` (violet, P/A) / `SIN RESERVA` (cyan, B/C) en modal detalle pedido + modal Stock Asignado. Cierra el feature: 1 CF + 2 stock calc + 3 UI + 4 backfill (64 pedidos, 199 C liberadas). Ver §41. |
+| **APP_VERSION** | `v958` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,38 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v957
+## 41) Changelog v300 → v958
+
+### v958 (2026-09-16) — FASE 3: UI badges CON/SIN RESERVA en ASIG
+
+Cierra el feature tier-based FIFO. Ahora los VDEs pueden distinguir visualmente cuál línea ASIG **reserva stock** vs cuál **no**.
+
+**Cambios en `index.html`**:
+
+1. **Modal detalle pedido (`viewPedido`, línea 20745+)**:
+   - Nueva variable `isAsigSinReserva = isAsigLine && l.asigReserva === false`
+   - Row style para ASIG sin reserva: fondo cyan claro (`#ecfeff`) + borde cyan (`#0891b2`)
+   - Badge cyan `ASIG SIN RESERVA` en vez del violet `ASIG` para líneas B/C
+   - Tooltip explica: "otros VDEs pueden vender este SKU a clientes A/P"
+
+2. **Modal Backorder/Stock Asignado (línea 13293+)**:
+   - Propaga `asigReserva` + `asigCliTipo` desde `l` al objeto cliente (línea 13068)
+   - En cada fila cliente de estado ASIG, badge extra al lado del nombre:
+     - `SIN RESERVA` (cyan) si `asigReserva === false` (B/C)
+     - `CON RESERVA` (violet) si `asigReserva !== false` (P/A o legacy pre-backfill)
+
+**Retrocompat**: líneas ASIG sin field `asigReserva` (pre-Fase 4 backfill) por default se ven `CON RESERVA` violet (comportamiento pre-v956).
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v958`. Deploy: GH Pages auto.
+
+## Feature completo tier-based FIFO — final v958
+
+| Fase | Versión | Estado |
+|---|---|---|
+| 1. CF FIFO + campo `asigReserva` | v956 | ✅ prod |
+| 2. Stock calc skipea sin reserva | v957 | ✅ prod |
+| 3. UI badges CON/SIN RESERVA | v958 | ✅ prod |
+| 4. Backfill líneas ASIG existentes | (script) | ✅ ejecutado 64 pedidos, 199 C liberadas |
 
 ### v957 (2026-09-16) — FASE 2: stock disponible skipea ASIG con `asigReserva=false`
 
