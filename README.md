@@ -4670,7 +4670,28 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v982
+## 41) Changelog v300 → v983
+
+### v983 (2026-09-17) — VDE (role=vendedor) solo ve sus items en Lista de Espera
+
+Pedido Mariano (contexto: alta de Pachi Naba como VDE proxy de Santiago). Los VDE `role='vendedor'` NO deben ver los items de Lista de Espera de otros VDE — es ruido y confusión. Admin, gerente, interno, viewer siguen viendo TODO (para revisar y aprobar).
+
+**Fix en 2 lugares**:
+- `index.html:_renderWaitlistSidebar` (sidebar-left `PEDIDOS EN ESPERA`)
+- `index.html:_renderEstadoList` tab `LISTA DE ESPERA` (modal Estado)
+
+**Criterio del filtro** (mismo en ambos):
+```js
+if (userRole === 'vendedor') {
+  arr = arr.filter(w => 
+    w.ownerUid === currentUser.uid           // yo lo cargue
+    || w.ownerVendor === assignedVendor      // vendor propio lo cargo
+    || w.vendorAssigned === assignedVendor   // cliente de mi zona lo cargo otro
+  );
+}
+```
+
+`APP_VERSION` + `CACHE_VERSION` → v983.
 
 ### v982 (2026-09-17) — CF `handleAutoSendSap`: persistir `via='app_only'` en detección server-side de 100% BO
 

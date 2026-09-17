@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v982';
+const APP_VERSION = 'v983';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15271,10 +15271,26 @@ function _renderWaitlistSidebar(){
   }
   const arr = revisionWaitlist || [];
   const q = (_slftWlSearch || '').trim().toLowerCase();
-  const filteredRaw = q ? arr.filter(w => {
+  // v983 (2026-09-17): VDE (role='vendedor') solo ve sus propios items en la
+  // lista de espera. Admin/gerente/interno/viewer ven todo (para revisar y
+  // aprobar). Un VDE que ve waitlists de otros VDE es ruido (pediria ver
+  // pedidos que no le pertenecen). Filtro por ownerUid (el que cargo el
+  // pedido) O vendorAssigned del cliente == su vendorKey (edge case: cliente
+  // de su zona que otro VDE cargo).
+  let arrForRole = arr;
+  if (typeof userRole !== 'undefined' && userRole === 'vendedor') {
+    const _myUid = (typeof currentUser !== 'undefined' && currentUser && currentUser.uid) || '';
+    const _myVendor = (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '';
+    arrForRole = arr.filter(w => {
+      if (_myUid && w.ownerUid === _myUid) return true;
+      if (_myVendor && (w.ownerVendor === _myVendor || w.vendorAssigned === _myVendor)) return true;
+      return false;
+    });
+  }
+  const filteredRaw = q ? arrForRole.filter(w => {
     const hay = (w.clientName || '') + ' ' + (w.clientLocality || '') + ' ' + (w.clientProvince || '');
     return hay.toLowerCase().indexOf(q) >= 0;
-  }) : arr;
+  }) : arrForRole;
   // v501: ordenar por orderNumber numerico ascendente (42, 43, 44...).
   // Los que no tienen orden se muestran al final. Los que tienen texto
   // no-numerico se ordenan lexico. Nota: no mutamos revisionWaitlist,
@@ -15410,7 +15426,19 @@ function _renderEstadoList(){
   const actions = document.getElementById('estado-actions');
   if (!content) return;
   // Actualizar contadores.
-  const arrEspera = revisionWaitlist || [];
+  // v983 (2026-09-17): VDE (role='vendedor') solo ve sus items en la
+  // Lista de Espera del modal Estado, mismo criterio que sidebar-left.
+  const _arrEsperaRaw = revisionWaitlist || [];
+  let arrEspera = _arrEsperaRaw;
+  if (typeof userRole !== 'undefined' && userRole === 'vendedor') {
+    const _myUid = (typeof currentUser !== 'undefined' && currentUser && currentUser.uid) || '';
+    const _myVendor = (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '';
+    arrEspera = _arrEsperaRaw.filter(w => {
+      if (_myUid && w.ownerUid === _myUid) return true;
+      if (_myVendor && (w.ownerVendor === _myVendor || w.vendorAssigned === _myVendor)) return true;
+      return false;
+    });
+  }
   const arrPend = _estadoGetPendientes();
   const arrConf = _estadoGetConfirmados();
   const cE = document.getElementById('estado-cnt-espera');
