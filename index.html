@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v978';
+const APP_VERSION = 'v979';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12437,6 +12437,10 @@ function _updateBackorderButtonCounts(){
       for (const l of p.lines) {
         if (!l || !l.code || Number(l.qtyOpen || 0) <= 0) continue;
         if (l.state !== 'BO' && l.state !== 'ASIG') continue;
+        // v979 (2026-09-17): consistencia con v978. No contar vencidas
+        // (ASIG >15d, BO >15d, ASIG B/C) en el badge del boton.
+        const _lrsFn979 = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
+        if (_lrsFn979 && !_lrsFn979(l, Date.now(), p)) continue;
         const sku = String(l.code).toUpperCase();
         if (_hasStock(sku)) skusAsig.add(sku);
         else skusUrgente.add(sku);
@@ -12548,6 +12552,9 @@ window.exportBackordersToExcel = async function(){
       for (const l of lines) {
         if (!l || !l.code) continue;
         if (l.state !== 'BO' && l.state !== 'ASIG') continue;
+        // v979 (2026-09-17): consistencia con v978. Export no incluye vencidas.
+        const _lrsFn979 = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
+        if (_lrsFn979 && !_lrsFn979(l, Date.now(), p)) continue;
         const qty = Number(l.qtyOpen) || 0;
         if (qty <= 0) continue;
         const skuUp = String(l.code).toUpperCase();
@@ -15077,9 +15084,13 @@ function _revisionRenderPreview(parsed, detectedCliente, notFoundCount, zerosCou
       : 0;
     const desg = (l.hasData && typeof window.getStockDesglose === 'function')
       ? window.getStockDesglose(l.code)
-      : { breakdown: { ASIG: 0 } };
-    const asigOnly = (desg.breakdown && desg.breakdown.ASIG) || 0;
-    const reservadas = l.hasData ? Math.min(asigOnly, dep11) : 0;
+      : { breakdown: { ASIG: 0, confirmed: 0 } };
+    // v979 (2026-09-17): sumar ASIG + confirmed. Ambos reservan stock fisico
+    // (v957/v963: confirmed vencidas ya se filtran en getStockDesglose).
+    // Antes solo contaba ASIG -> Libre sobrestimado si habia confirmed vivas.
+    const bd = desg.breakdown || {};
+    const reservadasSku = (Number(bd.ASIG) || 0) + (Number(bd.confirmed) || 0);
+    const reservadas = l.hasData ? Math.min(reservadasSku, dep11) : 0;
     const libre = l.hasData ? Math.max(dep11 - reservadas, 0) : 0;
     const pedidoFinal = l.hasData ? Math.min(l.qty, libre) : l.qty;
     const backorderUnidades = l.hasData ? Math.max(l.qty - libre, 0) : 0;
@@ -17239,6 +17250,10 @@ window._e4bAsigDelCliente = function(cardCode){
       if (!l) continue;
       if (l.state !== 'BO' && l.state !== 'ASIG') continue;
       if ((l.qtyOpen || 0) <= 0) continue;
+      // v979 (2026-09-17): consistencia con v978. No mostrar en historial
+      // cliente las vencidas (ASIG >15d, BO >15d, ASIG B/C).
+      const _lrsFn979 = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
+      if (_lrsFn979 && !_lrsFn979(l, Date.now(), p)) continue;
       skusDelCliente.add(String(l.code || '').toUpperCase());
     }
   }

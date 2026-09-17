@@ -4670,7 +4670,35 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v978
+## 41) Changelog v300 → v979
+
+### v979 (2026-09-17) — Auditoría cross-módulo: 4 fixes para consistencia de stock reservado
+
+Post-auditoría con 4 agentes paralelos (superpowers:dispatching-parallel-agents). Zonas sólidas: reglas 15d (frontend + CF byte-a-byte iguales) y warehouse dep 11 vs dep 12 (post-v627). Fixes reales encontrados:
+
+**Fix 1** — `index.html:15082` (modal Pedido en Espera "Libre para la venta"):
+Antes: `reservadas = ASIG_del_breakdown`. Ignoraba `confirmed`. `getStockDesglose` YA devuelve `{confirmed, BO, ASIG}` con todas las expiraciones filtradas — solo faltaba sumar confirmed. Ahora: `reservadas = ASIG + confirmed`.
+
+**Fix 2** — `index.html:12439` (badge count del botón Backorder/Stock Asig en toolbar):
+Iteraba `globalPedidos[].lines` con `state=='BO'||'ASIG'` sin filtro por vencidas. Contadores inflados. Ahora aplica `lineReservesStock`.
+
+**Fix 3** — `index.html:12550` (`exportBackordersToExcel`):
+Export incluía vencidas → KPIs de reporte inflados. Ahora filtra.
+
+**Fix 4** — `index.html:17240` (`_e4bAsigDelCliente` — historial ASIG del modal Cliente):
+Iteraba globalPedidos sin filtro → historial mostraba reservas fantasma. Ahora filtra. (`_e4bBoDelCliente` ya lee `STOCK_BO_BY_CLIENT_APP` que viene filtrado por CF v976, no requiere fix).
+
+**False positives del audit**: sidebar PEDIDOS EN ESPERA usa items de `revisionWaitlist` (no reservan por v974) y `_renderEstadoPedidos` muestra totales de pedido (no reservas). No requieren cambio.
+
+**Gap detectado (no fixeado, TODO futuro)**: no hay test que valide equivalencia byte-a-byte entre las 2 copias de `lineReservesStock` (frontend + CF). Sugerido crear `tests/integration/lineReservesStock-sync.test.js` para prevenir drift silencioso.
+
+Todos los fixes usan el mismo pattern:
+```js
+const _lrsFn979 = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
+if (_lrsFn979 && !_lrsFn979(l, Date.now(), p)) continue;
+```
+
+`APP_VERSION` + `CACHE_VERSION` → v979.
 
 ### v978 (2026-09-17) — Ocultar líneas vencidas del modal Stock Asignado / Backorder
 
