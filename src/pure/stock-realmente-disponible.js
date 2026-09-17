@@ -59,9 +59,15 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  *   como reserva. Panel admin muestra las expiradas para revision manual.
  *   NO se aplica regla tier (P/A/B/C) porque 100% de clientes tienen
  *   cliTipo='unknown' al 2026-09-17 — el tier no discriminaria nada.
+ * v969 (2026-09-17): agrega expiracion 15 dias desde pedido.createdAt para
+ *   BO. Rationale: BOs olvidados (pedido de hace >15d que nunca llego stock)
+ *   deben dejar de reservar demanda futura — si el vendedor no lo actualizo
+ *   ni cancelo, probablemente el cliente ya no lo espera. La linea sigue
+ *   viva en la app pero deja de bloquear stock para pedidos nuevos.
  *
  * Reglas:
- * - state='BO': siempre reserva (esperando stock futuro)
+ * - state='BO' con pedido.createdAt > 15d atras: no reserva (expirada)
+ * - state='BO' con createdAt <= 15d o sin createdAt: reserva
  * - state='confirmed' con confirmedAt > 15d atras: no reserva (expirada)
  * - state='confirmed' con confirmedAt <= 15d o sin confirmedAt: reserva
  * - state='ASIG' con asigReserva===false: no reserva (cliente B/C)
@@ -71,16 +77,29 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  *
  * @param {any} line
  * @param {number} [nowMs] timestamp ms, inyectable para tests. Default Date.now().
- * @param {any} [pedido] pedido padre — para leer confirmedAt (que vive en el
- *   pedido, no en la linea). Opcional para backwards-compat con callers que
- *   solo pasan la linea. Sin pedido, confirmed nunca expira (comportamiento
- *   pre-v963 para el caller que no adopto la firma nueva).
+ * @param {any} [pedido] pedido padre — para leer confirmedAt/createdAt
+ *   (que viven en el pedido, no en la linea). Opcional para backwards-compat
+ *   con callers que solo pasan la linea. Sin pedido, ni confirmed ni BO
+ *   expiran nunca (comportamiento pre-v963/v969).
  * @returns {boolean}
  */
 export function lineReservesStock(line, nowMs, pedido) {
   if (!line) return false;
   const state = line.state;
-  if (state === 'BO') return true;
+  if (state === 'BO') {
+    // v969: expiracion 15d desde pedido.createdAt (BOs olvidados dejan de
+    // reservar). Si el caller no pasa pedido o el pedido no tiene createdAt,
+    // BO nunca expira (comportamiento pre-v969).
+    if (pedido && pedido.createdAt) {
+      const createdAtMs = new Date(pedido.createdAt).getTime();
+      if (Number.isFinite(createdAtMs)) {
+        const now = typeof nowMs === 'number' ? nowMs : Date.now();
+        const ageDays = (now - createdAtMs) / DAY_MS;
+        if (ageDays > RESERVA_TTL_DAYS) return false;
+      }
+    }
+    return true;
+  }
   if (state === 'confirmed') {
     // v963: expiracion 15d desde confirmedAt del pedido (no de la linea).
     // Si el caller no pasa pedido, mantener comportamiento pre-v963 (siempre reserva).

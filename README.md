@@ -4670,7 +4670,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v968
+## 41) Changelog v300 → v969
+
+### v969 (2026-09-17) — Expiración 15d también para BO viejos
+
+Extiende la regla v959/v963 (ASIG y confirmed expiran a los 15d) a **BO**. Racional: BOs olvidados (pedido cargado hace >15d que nunca llegó stock) no deberían seguir reservando demanda futura — si el vendedor no lo actualizó ni canceló, probablemente el cliente ya no lo espera. La línea sigue viva en la app pero deja de bloquear stock para pedidos nuevos.
+
+**Cambios**:
+- `src/pure/stock-realmente-disponible.js`: `lineReservesStock` para BO ahora chequea `pedido.createdAt > 15d`. Sin pedido o sin `createdAt` (backwards-compat) BO nunca expira.
+- Timestamp base: `pedido.createdAt` (no hay `boAt` por línea; el BO existió desde que se cargó el pedido).
+- `tests/unit/stock-realmente-disponible.test.js`: reemplaza el test "BO nunca expira" por 6 tests cubriendo: sin pedido, sin createdAt, <15d, borde 15d, >15d, e impacto en `getStockRealmenteDisponible`. 46/46 tests OK.
+- `index.html:_renderBackorder`: propaga `pedidoCreatedAt: p.createdAt` al card. Agrega badge `VENCIDA Nd` (ámbar, mismo estilo que confirmed) cuando el BO tiene >15d desde createdAt.
+- `APP_VERSION` + `CACHE_VERSION` → v969.
+
+**Reglas actuales de reserva de stock** (todas con `RESERVA_TTL_DAYS = 15`):
+| State | Timestamp base | Regla |
+|---|---|---|
+| BO | `pedido.createdAt` | v969: expira a 15d |
+| confirmed | `pedido.confirmedAt` | v963: expira a 15d |
+| ASIG | `line.asigAt` | v959: expira a 15d + v957: `asigReserva=false` (B/C) no reserva desde el inicio |
+
+**Impacto esperado**: menos stock "falsamente comprometido" en cálculos disponible = fisico - reservas. VDEs verán badges `VENCIDA` en BOs olvidados y podrán decidir eliminarlos, contactar al cliente o dejarlos si aún esperan.
 
 ### v968 (2026-09-17) — Mapa: strippear inner rings de `prov` (huecos artefactos en el fill)
 
