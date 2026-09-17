@@ -4670,7 +4670,11 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v971
+## 41) Changelog v300 → v972
+
+### v972 (2026-09-17) — Quitar línea `⚠ SOBREVENTA` del alert Stock del Master
+
+Pedido Mariano: la línea de warning agregada en v971 sobra. El vendedor ya ve `LIBRE PARA LA VENTA: 0` y la info de sobreventa no le aporta accionable inmediato. `APP_VERSION` + `CACHE_VERSION` → v972.
 
 ### v971 (2026-09-17) — Alert Stock del Master: fix doble-cuento + warning sobreventa
 
