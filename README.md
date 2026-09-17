@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v962 (2026-09-17)** — Modal Stock Asignado incluye `state='confirmed'` con badge "EN SAP" (sin botón Eliminar). Col UNIDADES RESERVADAS del modal Pedido en Espera vuelve a mostrar confirmed+ASIG → resta visible cierra. Reversal parcial de v767. Ver §41. |
-| **APP_VERSION** | `v962` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v963 (2026-09-17)** — Expiración 15d para `state='confirmed'` (sin tier). Después de 15d el stock queda libre en la app (SQ sigue viva en SAP). Badge amarillo `VENCIDA Nd` en modal Stock Asignado. Fase A del plan tier-based SAP. Ver §41. |
+| **APP_VERSION** | `v963` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,57 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v962
+## 41) Changelog v300 → v963
+
+### v963 (2026-09-17) — Expiración 15d para `state='confirmed'` + badge VENCIDA (Fase A tier-based SAP)
+
+Pedido Mariano 2026-09-17: coherencia con la regla de ASIG (v959) — las líneas `state='confirmed'` (SQ ya en SAP) deben expirar a 15d desde `confirmedAt`, sin importar cliTipo (P/A/B/C). Después de 15d el stock queda libre en la app **pero la SQ sigue viva en SAP** (temporal, se coordina con Santi).
+
+**Audit previo (2026-09-17)**:
+- 907 líneas confirmed abiertas, 2050 u, $139.888.000 ARS bloqueado
+- 250 líneas >15d (496u, $39M ARS) — candidatas a expirar
+- 0 líneas >30d ✅ (Santi factura relativo rápido)
+- **100% cliTipos=`unknown`** → tier P/A/B/C NO se aplica en Fase A (todos serían "C default" → nadie retendría, riesgo sobreventa total)
+
+**Cambios en `src/pure/stock-realmente-disponible.js`**:
+
+`lineReservesStock(line, nowMs, pedido)` extendida con tercer parámetro `pedido`:
+```js
+if (state === 'confirmed') {
+  if (pedido && pedido.confirmedAt) {
+    const ageDays = (now - new Date(pedido.confirmedAt).getTime()) / DAY_MS;
+    if (ageDays > 15) return false;
+  }
+  return true;
+}
+```
+
+Backwards-compat: sin `pedido`, comportamiento pre-v963 (siempre reserva). Callers de `getStockRealmenteDisponible/PorCliente/Desglose` pasan `p` (el pedido padre) al `lineReservesStock`.
+
+**Cambio en UI (`index.html:13340+`)**: badge amarillo `VENCIDA Nd` extra para líneas confirmed con `sqDocDate > 15d`. Junto al badge `EN SAP` (azul) permite ver de un vistazo cuáles necesitan revisión.
+
+**Tests**: 410/410 verde en suite completa. 7 nuevos:
+- confirmed <15d sigue reservando
+- confirmed >15d expira
+- Límite exacto 15d sigue reservando
+- Backwards-compat sin pedido
+- BO nunca expira (aunque el pedido sea viejo)
+- Ejemplo Mariano: 25 dep11 + 32 confirmed (20 viejas) → libre 13
+
+**Impacto operativo esperado**:
+- **~$39M ARS** que estaban bloqueando stock ahora quedan libres para pedidos nuevos
+- Los VDEs ven las expiradas con badge `VENCIDA Nd` en el modal Stock Asignado → auto-audit
+- Santi/admin usa esto para saber qué SQs revisar en SAP
+
+**Rationale NO aplicar tier P/A/B/C hoy**:
+Con 100% de clientes en `unknown`, la regla degradaría a "todos son C → nadie retiene reserva sobre confirmed". Es cambio agresivo sin beneficio (los clientes P/A que sí compran ya están cubiertos por la expiración 15d).
+
+**Follow-ups pendientes** (fuera de este PR):
+- Fase B: shadow mode auto-cancel SQ en SAP (CF que logs sin ejecutar)
+- Fase C: auto-cancel real con salvaguardas
+- Alternativa: categorizar clientes A/P en Master Clientes para que el tier tenga sentido a futuro
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v963`. Deploy: GH Pages auto (frontend-only).
 
 ### v962 (2026-09-17) — Modal Stock Asignado incluye `confirmed` + col UNIDADES RESERVADAS cierra
 
