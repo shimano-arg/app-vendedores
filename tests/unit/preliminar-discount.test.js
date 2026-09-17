@@ -89,19 +89,21 @@ describe('preliminar-discount — calcularCotizacion', () => {
     expect(r.descContadoPct).toBe(0);
   });
 
-  it('cascada completa: P + volumen + contado en el mismo pedido', () => {
-    // Bruto 1M, P 15% = 850k, vol 3% = 824.500, contado 5% = 783.275 → round 783275.
+  it('v981 aditivo: P + volumen + contado suman % sobre subtotal bruto', () => {
+    // Bruto 1M, P 15% + vol 3% + contado 5% = 23% aditivo → 230k desc, total 770k.
+    // Antes v981 usaba cascada multiplicativa (total 783.275). Cambiado para
+    // alinear con calcClientDiscount (venta real, tambien aditivo).
     const lineas = [{ sku: 'A', qty: 1, precioUnitario: 1000000 }];
     const r = calcularCotizacion(lineas, cfg({ categoria: 'P', pagaContado: true }));
     expect(r.subtotalBruto).toBe(1000000);
+    expect(r.descCategoriaMonto).toBe(150000); // 1M × 0.15
     expect(r.subtotalPostCategoria).toBe(850000);
-    expect(r.descVolumenMonto).toBe(25500); // 850000 × 0.03
-    expect(r.subtotalPostVolumen).toBe(824500);
-    expect(r.descContadoMonto).toBe(41225); // 824500 × 0.05
-    expect(r.total).toBe(783275);
-    expect(r.descTotalMonto).toBe(1000000 - 783275);
-    // %efectivo total ≈ 21.67%
-    expect(r.descTotalPctEfectivo).toBeCloseTo(21.6725, 3);
+    expect(r.descVolumenMonto).toBe(30000); // 1M × 0.03 (aditivo)
+    expect(r.subtotalPostVolumen).toBe(820000);
+    expect(r.descContadoMonto).toBe(50000); // 1M × 0.05 (aditivo)
+    expect(r.total).toBe(770000);
+    expect(r.descTotalMonto).toBe(230000);
+    expect(r.descTotalPctEfectivo).toBeCloseTo(23.0, 2);
   });
 
   it('razones de descuento reflejan aplicabilidad', () => {
