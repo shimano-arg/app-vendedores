@@ -4670,7 +4670,32 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v970
+## 41) Changelog v300 → v971
+
+### v971 (2026-09-17) — Alert Stock del Master: fix doble-cuento + warning sobreventa
+
+Reporte Mariano: para CAT2500HGFE el alert mostraba `STOCK TOTAL: 31 · COMPROMETIDO: 47 · LIBRE: 0` — matemáticamente imposible (comprometido > total).
+
+**Root cause**: cuando un pedido-app pasa a `state='ASIG'` + auto-send-to-SAP genera una SQ, ese qtyOpen queda registrado 2 veces:
+- (a) en `STOCK_WAREHOUSE_COMMITTED` (SAP lo tiene como SO abierta)
+- (b) en `STOCK_ASIG_APP` (la app lo tiene como asignado)
+
+La fórmula v858 sumaba ambos en `comprometido`, dando > `stockTotal`.
+
+**Fix**: como en v701 (2026-08-28) se acordó que la app es la fuente de verdad de BO/ASIG, el cálculo honesto es:
+```js
+LIBRE PARA VENTA = max(disp - reservado_app - espera_app, 0)   // disp ya es neto SAP
+COMPROMETIDO EN DEP 11 = disp - libre                          // dep 11 cierra
+STOCK FISICO (todos almacenes) = disp + committed + tránsito + otros  // info general
+```
+
+Renombrado `STOCK TOTAL` → `STOCK FISICO (todos los almacenes)` para clarificar que suma warehouses no vendibles.
+
+**Warning nuevo (⚠ SOBREVENTA)**: si `reservado_app + espera_app > disp`, agrego una línea al alert avisando que las promesas exceden el físico. Caso Mariano quedaría: `20u fisicas dep 11 pero 42u reservadas en pedidos-app` — señal de sync stale o sobreventa real.
+
+**No toco**: header `20 disponibles en dep. 11` del modal Stock Asignado — el label es semánticamente correcto (es el físico bruto dep 11 SAP), no confunde tras el fix del Master.
+
+`APP_VERSION` + `CACHE_VERSION` → v971.
 
 ### v970 (2026-09-17) — Quitar badge `N exc.` / `OK` de las cards del sidebar Lista de Espera
 
