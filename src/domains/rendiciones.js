@@ -74,11 +74,35 @@ async function extractTicketDataWithGemini(dataUrl) {
       );
     }
     if (code === 'functions/unauthenticated' || code === 'functions/permission-denied') {
-      throw new Error('Sesion expirada o sin permisos. Cerra y volve a entrar a la app.');
+      // v961 (2026-09-17): mejorar mensaje. La causa mas comun no es sesion
+      // expirada sino throttle 24h de reCAPTCHA v3 (App Check). Ver
+      // memory/reference_appcheck_throttle_24h.md — el SDK Firebase se
+      // auto-throttlea cuando recibe repetidos 403 y bloquea todos los
+      // requests por-browser por 24hs. Fix desde el user: borrar datos del
+      // sitio y volver a entrar. Cerrar y reabrir la app SOLA no alcanza
+      // porque el throttle esta persistido en IndexedDB.
+      const isThrottle = /throttl/i.test(msg) || /appCheck/i.test(msg);
+      const instrucciones =
+        'Hace esto en tu telefono:\n' +
+        '1) Abri el menu del navegador (los 3 puntitos)\n' +
+        '2) Buscá "Configuracion" o "Ajustes del sitio"\n' +
+        '3) Busca "shimano-arg.github.io" y toca "Borrar datos" o "Restablecer permisos"\n' +
+        '4) Cerra el navegador y volvé a abrir la app\n' +
+        '5) Volve a loguearte con Google\n\n' +
+        'Si sigue fallando, avisale a Mariano.';
+      throw new Error(
+        (isThrottle
+          ? 'La verificacion de seguridad esta bloqueada por 24hs (sucede raro).'
+          : 'Sesion expirada o problema de permisos.') +
+          '\n\n' +
+          instrucciones
+      );
     }
     if (code === 'functions/failed-precondition') {
       throw new Error('El OCR no esta configurado en el servidor. Avisale a Mariano.');
     }
+    // v961: log detallado para diagnostico. Mantener el mensaje al user simple.
+    console.warn('[OCR rendicion] callable failed', { code, msg, err: e });
     throw new Error('OCR fallo: ' + msg);
   }
   const parsed = res && res.data;
@@ -281,14 +305,70 @@ async function runRendGastoOcr(isManualRetry) {
   } catch (e) {
     console.error('OCR error', e);
     if (statusEl) {
-      statusEl.innerHTML =
-        '<div style="background:var(--color-danger-bg);border:1px solid #fca5a5;border-radius:5px;padding:8px 10px;font-size:11px;color:var(--color-danger-strong)">' +
-        '<b>No se pudieron extraer los datos.</b> Compleí el form manualmente.<br>' +
-        '<span style="font-size:10px;opacity:.8">Detalle: ' +
-        escapeHtml(String(e.message || e).slice(0, 120)) +
-        '</span>' +
-        '<button type="button" onclick="reRunRendGastoOcr()" style="background:#0891b2;color:#fff;border:none;border-radius:3px;padding:3px 8px;font-size:10px;font-weight:800;cursor:pointer;margin-left:6px">Reintentar</button>' +
-        '</div>';
+      // v961 (2026-09-17): render seguro sin innerHTML. Antes se cortaba
+      // el detalle a 120 chars y se perdian las instrucciones multi-linea
+      // (bug AppCheck throttle 24h de reCAPTCHA — ver
+      // memory/reference_appcheck_throttle_24h.md). Ahora si el mensaje trae
+      // instrucciones detalladas (>120 chars o multi-linea), se muestran
+      // completas con <pre> preservando saltos.
+      const rawMsg = String(e.message || e);
+      const isLongDetailed = rawMsg.length > 120 || rawMsg.includes('\n');
+      // Limpiar statusEl y construir children seguro con DOM APIs.
+      while (statusEl.firstChild) statusEl.removeChild(statusEl.firstChild);
+      const box = document.createElement('div');
+      box.style.cssText =
+        'background:var(--color-danger-bg);border:1px solid #fca5a5;border-radius:5px;padding:10px 12px;font-size:11px;color:var(--color-danger-strong)';
+      if (isLongDetailed) {
+        const parts = rawMsg.split('\n\n');
+        const titulo = parts[0] || '';
+        const detalle = parts.slice(1).join('\n\n');
+        const b = document.createElement('b');
+        b.textContent = titulo;
+        box.appendChild(b);
+        if (detalle) {
+          const pre = document.createElement('pre');
+          pre.style.cssText =
+            'margin:8px 0 6px;font-family:inherit;font-size:11px;white-space:pre-wrap;color:var(--text-primary);line-height:1.5';
+          pre.textContent = detalle;
+          box.appendChild(pre);
+        }
+        const btnWrap = document.createElement('div');
+        btnWrap.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-top:6px';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = 'Reintentar';
+        btn.style.cssText =
+          'background:#0891b2;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:10px;font-weight:800;cursor:pointer';
+        btn.onclick = () => {
+          if (typeof window.reRunRendGastoOcr === 'function') window.reRunRendGastoOcr();
+        };
+        btnWrap.appendChild(btn);
+        const hint = document.createElement('span');
+        hint.style.cssText = 'font-size:10px;color:var(--text-muted);align-self:center';
+        hint.textContent = 'o carga los campos a mano abajo';
+        btnWrap.appendChild(hint);
+        box.appendChild(btnWrap);
+      } else {
+        const b = document.createElement('b');
+        b.textContent = 'No se pudieron extraer los datos.';
+        box.appendChild(b);
+        box.appendChild(document.createTextNode(' Compleí el form manualmente.'));
+        box.appendChild(document.createElement('br'));
+        const span = document.createElement('span');
+        span.style.cssText = 'font-size:10px;opacity:.8';
+        span.textContent = 'Detalle: ' + rawMsg.slice(0, 120);
+        box.appendChild(span);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = 'Reintentar';
+        btn.style.cssText =
+          'background:#0891b2;color:#fff;border:none;border-radius:3px;padding:3px 8px;font-size:10px;font-weight:800;cursor:pointer;margin-left:6px';
+        btn.onclick = () => {
+          if (typeof window.reRunRendGastoOcr === 'function') window.reRunRendGastoOcr();
+        };
+        box.appendChild(btn);
+      }
+      statusEl.appendChild(box);
     }
     if (isManualRetry) alert('OCR fallo: ' + (e.message || e));
   }
