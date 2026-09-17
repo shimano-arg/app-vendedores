@@ -51,23 +51,49 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * v957 (Fase 2, 2026-09-16): decide si una linea reserva stock.
- * v959 (2026-09-16): agrega expiracion 15 dias desde asigAt.
+ * v959 (2026-09-16): agrega expiracion 15 dias desde asigAt para ASIG.
+ * v963 (2026-09-17): agrega expiracion 15 dias desde confirmedAt/asigAt para
+ *   confirmed. Rationale: si Santi no factura una SQ en 15d, el stock debe
+ *   quedar disponible para otros pedidos (evita deuda tecnica de reservas
+ *   olvidadas). La SQ sigue viva en SAP — solo la app deja de considerarla
+ *   como reserva. Panel admin muestra las expiradas para revision manual.
+ *   NO se aplica regla tier (P/A/B/C) porque 100% de clientes tienen
+ *   cliTipo='unknown' al 2026-09-17 — el tier no discriminaria nada.
  *
  * Reglas:
- * - state='confirmed' o 'BO': siempre reserva
+ * - state='BO': siempre reserva (esperando stock futuro)
+ * - state='confirmed' con confirmedAt > 15d atras: no reserva (expirada)
+ * - state='confirmed' con confirmedAt <= 15d o sin confirmedAt: reserva
  * - state='ASIG' con asigReserva===false: no reserva (cliente B/C)
- * - state='ASIG' con asigAt > 15 dias atras: no reserva (expirada, cualquier tipo)
+ * - state='ASIG' con asigAt > 15d atras: no reserva (expirada)
  * - state='ASIG' con asigReserva!=false y asigAt<=15d o sin asigAt: reserva
  * - cualquier otro state: no reserva
  *
  * @param {any} line
  * @param {number} [nowMs] timestamp ms, inyectable para tests. Default Date.now().
+ * @param {any} [pedido] pedido padre — para leer confirmedAt (que vive en el
+ *   pedido, no en la linea). Opcional para backwards-compat con callers que
+ *   solo pasan la linea. Sin pedido, confirmed nunca expira (comportamiento
+ *   pre-v963 para el caller que no adopto la firma nueva).
  * @returns {boolean}
  */
-export function lineReservesStock(line, nowMs) {
+export function lineReservesStock(line, nowMs, pedido) {
   if (!line) return false;
   const state = line.state;
-  if (state === 'confirmed' || state === 'BO') return true;
+  if (state === 'BO') return true;
+  if (state === 'confirmed') {
+    // v963: expiracion 15d desde confirmedAt del pedido (no de la linea).
+    // Si el caller no pasa pedido, mantener comportamiento pre-v963 (siempre reserva).
+    if (pedido && pedido.confirmedAt) {
+      const confirmedAtMs = new Date(pedido.confirmedAt).getTime();
+      if (Number.isFinite(confirmedAtMs)) {
+        const now = typeof nowMs === 'number' ? nowMs : Date.now();
+        const ageDays = (now - confirmedAtMs) / DAY_MS;
+        if (ageDays > RESERVA_TTL_DAYS) return false;
+      }
+    }
+    return true;
+  }
   if (state === 'ASIG') {
     if (line.asigReserva === false) return false;
     // v959: expiracion 15 dias desde asigAt.
@@ -107,8 +133,8 @@ export function getStockRealmenteDisponible(sku, deps, opts) {
     for (const l of lines) {
       if (!l || !l.code) continue;
       if (String(l.code).toUpperCase() !== skuUp) continue;
-      // v957/v959: skipear ASIG sin reserva o con reserva expirada.
-      if (!lineReservesStock(l, now)) continue;
+      // v957/v959/v963: skipear ASIG sin reserva/expirada + confirmed >15d expirada.
+      if (!lineReservesStock(l, now, p)) continue;
       const qtyOpen = Number(l.qtyOpen) || 0;
       if (qtyOpen <= 0) continue;
       comprometido += qtyOpen;
@@ -163,8 +189,8 @@ export function getStockPorCliente(sku, cardCode, deps, opts) {
     for (const l of lines) {
       if (!l || !l.code) continue;
       if (String(l.code).toUpperCase() !== skuUp) continue;
-      // v957/v959: skipear ASIG sin reserva o con reserva expirada.
-      if (!lineReservesStock(l, now)) continue;
+      // v957/v959/v963: skipear ASIG sin reserva/expirada + confirmed >15d expirada.
+      if (!lineReservesStock(l, now, p)) continue;
       const qtyOpen = Number(l.qtyOpen) || 0;
       if (qtyOpen <= 0) continue;
       if (pCC === ccUp) {
@@ -288,8 +314,8 @@ export function getStockDesglose(sku, deps, opts) {
       if (!l || !l.code) continue;
       if (String(l.code).toUpperCase() !== skuUp) continue;
       const st = /** @type {'confirmed'|'BO'|'ASIG'} */ (l.state);
-      // v957/v959: skipear ASIG sin reserva o con reserva expirada.
-      if (!lineReservesStock(l, now)) continue;
+      // v957/v959/v963: skipear ASIG sin reserva/expirada + confirmed >15d expirada.
+      if (!lineReservesStock(l, now, p)) continue;
       const qtyOpen = Number(l.qtyOpen) || 0;
       if (qtyOpen <= 0) continue;
       breakdown[st] = (breakdown[st] || 0) + qtyOpen;

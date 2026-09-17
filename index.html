@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v962';
+const APP_VERSION = 'v963';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13347,8 +13347,20 @@ window.renderBackordersTab = function(){
       // v962 (2026-09-17): badge 'EN SAP' para lineas state='confirmed'.
       // Ya viajaron a SAP como SQ. La app las muestra para no "olvidarlas"
       // pero la fuente de verdad es SAP — no hay boton Eliminar (ver mas abajo).
+      // v963 (2026-09-17): badge extra 'VENCIDA' para confirmed >15d. Estas
+      // dejaron de reservar stock en la app (regla lineReservesStock).
+      // Sugieren revision con Santi (cancelar SQ o completar facturacion).
       if (c.source === 'app' && c.state === 'confirmed') {
         html += '<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="Linea state=confirmed: ya se envio a SAP como Oferta de Venta (SQ). La app la muestra para tracking pero NO se puede eliminar aca — cancelar la SQ en SAP con Santi.">EN SAP</span>';
+        // v963: computar edad desde sqDocDate (que en confirmed app-source
+        // es igual a confirmedAt.slice(0,10) — ver linea 13064).
+        if (c.sqDocDate) {
+          const _ageMs = Date.now() - new Date(c.sqDocDate + 'T12:00:00Z').getTime();
+          const _ageDays = Math.floor(_ageMs / (24 * 60 * 60 * 1000));
+          if (_ageDays > 15) {
+            html += '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="SQ con ' + _ageDays + ' dias. Deja de reservar stock en la app (regla v963). Coordinar con Santi: cancelar SQ en SAP o completar facturacion.">VENCIDA ' + _ageDays + 'd</span>';
+          }
+        }
       }
       html += '<span>' + escapeHtml(c.nombre) + '</span>';
       html += '</div>';

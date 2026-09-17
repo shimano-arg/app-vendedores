@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   getStockDesglose,
   getStockRealmenteDisponible,
+  lineReservesStock,
 } from '../../src/pure/stock-realmente-disponible.js';
 
 // Helper: crea un pedido-like
@@ -411,5 +412,72 @@ describe('getStockDesglose — v959 expiracion 15 dias', () => {
     expect(d.breakdown.ASIG).toBe(3);
     expect(d.comprometido).toBe(3);
     expect(d.real).toBe(17);
+  });
+});
+
+// v963 (2026-09-17): expiracion 15 dias tambien para state='confirmed'
+describe('lineReservesStock — v963 confirmed expira a 15d desde confirmedAt', () => {
+  const now = new Date('2026-09-17T12:00:00Z').getTime();
+  const isoDaysAgo = (d) => new Date(now - d * DAY_MS).toISOString();
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  it('confirmed RECIENTE (<15d) sigue reservando', () => {
+    const line = { state: 'confirmed', qtyOpen: 5 };
+    const pedido = { confirmedAt: isoDaysAgo(10) };
+    expect(lineReservesStock(line, now, pedido)).toBe(true);
+  });
+
+  it('confirmed EXPIRADA (>15d) deja de reservar', () => {
+    const line = { state: 'confirmed', qtyOpen: 5 };
+    const pedido = { confirmedAt: isoDaysAgo(20) };
+    expect(lineReservesStock(line, now, pedido)).toBe(false);
+  });
+
+  it('confirmed en el limite exacto (15d) sigue reservando', () => {
+    const line = { state: 'confirmed', qtyOpen: 5 };
+    const pedido = { confirmedAt: isoDaysAgo(15) };
+    expect(lineReservesStock(line, now, pedido)).toBe(true);
+  });
+
+  it('confirmed sin pedido (backwards-compat pre-v963) sigue reservando', () => {
+    const line = { state: 'confirmed', qtyOpen: 5 };
+    expect(lineReservesStock(line, now)).toBe(true);
+  });
+
+  it('confirmed sin confirmedAt en pedido sigue reservando', () => {
+    const line = { state: 'confirmed', qtyOpen: 5 };
+    const pedido = {}; // sin confirmedAt
+    expect(lineReservesStock(line, now, pedido)).toBe(true);
+  });
+
+  it('BO nunca expira (aunque el pedido sea viejo)', () => {
+    const line = { state: 'BO', qtyOpen: 5 };
+    const pedido = { confirmedAt: isoDaysAgo(100) };
+    expect(lineReservesStock(line, now, pedido)).toBe(true);
+  });
+});
+
+describe('getStockRealmenteDisponible — v963 confirmed expirada libera stock', () => {
+  const now = new Date('2026-09-17T12:00:00Z').getTime();
+  const iso = (d) => new Date(now - d * 24 * 60 * 60 * 1000).toISOString();
+
+  it('caso ejemplo Mariano: confirmed >15d deja de bloquear stock', () => {
+    // 25 en dep 11, 32 confirmed pero 20 son viejas (>15d) → libre = 25 - 12 = 13
+    const r = getStockRealmenteDisponible(
+      'SKU1',
+      {
+        getStockFisico: () => 25,
+        pedidos: [
+          P({ confirmedAt: iso(5), lines: [L({ qtyOpen: 5, state: 'confirmed' })] }),
+          P({ confirmedAt: iso(7), lines: [L({ qtyOpen: 3, state: 'confirmed' })] }),
+          P({ confirmedAt: iso(10), lines: [L({ qtyOpen: 4, state: 'confirmed' })] }),
+          P({ confirmedAt: iso(20), lines: [L({ qtyOpen: 10, state: 'confirmed' })] }), // expirada
+          P({ confirmedAt: iso(25), lines: [L({ qtyOpen: 10, state: 'confirmed' })] }), // expirada
+        ],
+      },
+      { now }
+    );
+    // 25 - 5 - 3 - 4 - 0 - 0 = 13
+    expect(r).toBe(13);
   });
 });
