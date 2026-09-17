@@ -28,12 +28,20 @@
  *      Si pagaContado == true → aplica CONTADO_PCT extra
  *      Default: 5%
  *
- * Orden de aplicación: bruto → −categoría → −volumen → −contado.
- * Todos se aplican sobre el subtotal RESIDUAL (compuesto, no aditivo).
+ * Cálculo ADITIVO (v981, 2026-09-17): consistente con `discount.js` que usa
+ * el descuento real aplicado al confirmar el pedido (`calcClientDiscount`).
+ * Antes (v868-v980): usaba cascada multiplicativa — el vendedor cotizaba con
+ * Preliminar y luego veía números distintos al confirmar (Mariano detectó el
+ * gap en auditoría 2026-09-17). Ahora los % se suman y se aplican sobre el
+ * subtotal bruto: descTotalPct = pctCategoria + pctVolumen + pctContado.
+ * Los subtotales intermedios se mantienen para no romper la UI del modal
+ * (`subtotalPostCategoria = subtotalBruto - descCategoriaMonto`, etc.).
+ *
  * Ej: bruto 1000, cat 15%, vol 3%, contado 5%:
- *   post_cat  = 1000 × (1 − 0.15) = 850
- *   post_vol  =  850 × (1 − 0.03) = 824.5
- *   post_cont =  824.5 × (1 − 0.05) = 783.275 → 783 (redondeo entero)
+ *   descCategoriaMonto = 1000 × 0.15 = 150
+ *   descVolumenMonto   = 1000 × 0.03 =  30
+ *   descContadoMonto   = 1000 × 0.05 =  50
+ *   total = 1000 − 150 − 30 − 50 = 770
  */
 
 /**
@@ -120,12 +128,14 @@ export function calcularCotizacion(lineas, config) {
     });
   }
 
-  // 2) Volumen (sobre subtotal post-categoria)
+  // 2) Volumen (aditivo, sobre subtotalBruto). El umbral sigue midiendose
+  // sobre subtotalPostCategoria para preservar el gate: "si tu subtotal ya
+  // descontado por categoria pasa el umbral, sumas el %volumen".
   const volThreshold = Math.max(0, Number(config.volThreshold) || 0);
   const pctVolumenCfg = Math.max(0, Math.min(100, Number(config.pctVolumen) || 0));
   const volAplica = volThreshold > 0 && subtotalPostCategoria >= volThreshold && pctVolumenCfg > 0;
   const descVolumenPct = volAplica ? pctVolumenCfg : 0;
-  const descVolumenMonto = Math.round(subtotalPostCategoria * (descVolumenPct / 100));
+  const descVolumenMonto = Math.round(subtotalBruto * (descVolumenPct / 100));
   const subtotalPostVolumen = subtotalPostCategoria - descVolumenMonto;
   if (volThreshold > 0) {
     razones.push({
@@ -134,13 +144,13 @@ export function calcularCotizacion(lineas, config) {
     });
   }
 
-  // 3) Contado (solo P/A, sobre subtotal post-volumen)
+  // 3) Contado (aditivo, solo P/A, sobre subtotalBruto).
   const pagaContado = Boolean(config && config.pagaContado);
   const contadoElegible = cat === 'P' || cat === 'A';
   const pctContadoCfg = Math.max(0, Math.min(100, Number(config.pctContado) || 0));
   const contadoAplica = pagaContado && contadoElegible && pctContadoCfg > 0;
   const descContadoPct = contadoAplica ? pctContadoCfg : 0;
-  const descContadoMonto = Math.round(subtotalPostVolumen * (descContadoPct / 100));
+  const descContadoMonto = Math.round(subtotalBruto * (descContadoPct / 100));
   const total = subtotalPostVolumen - descContadoMonto;
 
   if (pagaContado) {

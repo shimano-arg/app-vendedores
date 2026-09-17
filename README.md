@@ -4670,7 +4670,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v980
+## 41) Changelog v300 → v981
+
+### v981 (2026-09-17) — Preliminar-discount: cambio cascada multiplicativa → aditiva (alinear con venta real)
+
+Bug detectado en auditoría cross-módulo #2 con superpowers:dispatching-parallel-agents (2026-09-17): el modal Preliminar (`src/pure/preliminar-discount.js`, cotizador de show room) usaba **cascada multiplicativa**, mientras `calcClientDiscount` (`src/pure/discount.js`, descuento real al confirmar) usa **aditivo**. Divergencia real:
+
+Ejemplo cliente P + $1M + contado con % default (P=15, vol=3, contado=5):
+- Preliminar viejo (multiplicativo): total = 1M × 0.85 × 0.97 × 0.95 = **$783.275**
+- calcClientDiscount (aditivo real): pctTotal = 23% → total = **$770.000**
+- Diferencia: **$13.275** (1.7%). El VDE cotizaba con Preliminar y confirmaba con distintos números.
+
+**Fix**: Preliminar ahora usa aditivo. `descCategoriaMonto`, `descVolumenMonto`, `descContadoMonto` se calculan cada uno sobre `subtotalBruto` (no cascada). Umbral volumen (`subtotalPostCategoria >= volThreshold`) se mantiene igual — solo el % se aplica sobre bruto.
+
+**Test** `cascada completa` reemplazado por `v981 aditivo`. 15/15 tests OK.
+
+**Impacto**: cero para pedidos existentes (Preliminar no persiste). Para VDEs que cotizan post-deploy: los números ahora coinciden entre modal y confirmación. `APP_VERSION` + `CACHE_VERSION` → v981. Bundle rebuildeado.
 
 ### v980 (2026-09-17) — Picker de productos: color del punto alineado con "libre para la venta"
 
