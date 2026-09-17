@@ -4670,7 +4670,25 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v977
+## 41) Changelog v300 → v978
+
+### v978 (2026-09-17) — Ocultar líneas vencidas del modal Stock Asignado / Backorder
+
+Pedido Mariano: "todo lo vencido cerralo (ASIG >15, ya sea SAP o BO olvidado) así queda como stock asignado pero no reserva stock y no molesta".
+
+**Filtro visual** en `_renderBackorder` (`index.html:13115`): usa `window.__phase0.pure.lineReservesStock(l, Date.now(), p)` — si retorna false (vencida, ASIG B/C, o BO/confirmed >15d), la línea NO se agrega al modal.
+
+**Semántica**:
+- El `state` de la línea NO cambia — sigue siendo `ASIG` / `BO` / `confirmed` en Firestore.
+- La línea sigue apareciendo en la card del cliente (modal individual).
+- No aparece en el modal Stock Asignado / Backorder (`_renderBackorder`).
+- Ya no reserva stock (regla v957/v959/v963/v969 desde el core + v976 CF).
+
+**Consistente con v976**: la CF ya no cuenta esas líneas en `STOCK_ASIG_APP` / `STOCK_BACKORDER_APP`. Este cambio termina de cerrar el loop visual.
+
+Si en el futuro Mariano quiere ver las vencidas (para eliminar bulk, contactar cliente, etc.), se puede agregar un toggle "Mostrar vencidas" al header del modal. Por ahora se ocultan por default.
+
+`APP_VERSION` + `CACHE_VERSION` → v978.
 
 ### v977 (2026-09-17) — Renombrar título modal a "Stock Asignado"
 
