@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v973';
+const APP_VERSION = 'v974';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -24161,15 +24161,15 @@ window.queryStockLive = function(code, btn){
           }
         }
       }
-      // v973 (2026-09-17): 4 lineas pedidas por Mariano — dep 11 + dep 12 +
-      // comprometido + libre. Todo referenciado a dep 11 (el unico vendible).
-      // dep 12 va como info separada (no vendible hoy, en transito).
+      // v973 (2026-09-17): 4 lineas — dep 11 + dep 12 + comprometido + libre.
+      // v974 (2026-09-17): Lista de Espera NO compromete stock (Mariano). Es
+      // solo pre-carga de VDE — hasta que se confirma el pedido, no reserva.
+      // Solo state='ASIG' compromete (lineas BO que ya recibieron stock FIFO).
       // Formula:
-      //   COMPROMETIDO = min(disp, reservado + espera + BO)   ← capado a disp
-      //   LIBRE = max(disp - reservado - espera - BO, 0)
-      //   disp = COMPROMETIDO + LIBRE                          ← siempre cierra
-      const demandaApp = reservado + esperaApp + (disp === 0 ? pendienteSinStock : 0);
-      const libre = Math.max(disp - demandaApp, 0);
+      //   COMPROMETIDO = min(disp, reservado_ASIG)  ← capado a disp
+      //   LIBRE = max(disp - reservado_ASIG, 0)
+      //   disp = COMPROMETIDO + LIBRE               ← siempre cierra
+      const libre = Math.max(disp - reservado, 0);
       const comprometido = disp - libre;
       const lines = [
         'STOCK FISICO (DEP 11): ' + disp + ' unidades',

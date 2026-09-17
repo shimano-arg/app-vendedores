@@ -4670,7 +4670,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v973
+## 41) Changelog v300 → v974
+
+### v974 (2026-09-17) — Alert Stock del Master: Lista de Espera NO compromete stock
+
+Corrección Mariano: la Lista de Espera (revisionWaitlist) NO debe entrar en el cálculo de `COMPROMETIDO`. Es solo pre-carga del VDE — hasta que se confirma el pedido no reserva stock. Solo `state='ASIG'` (líneas BO que ya recibieron stock por FIFO) reserva.
+
+**Fórmula corregida**:
+```js
+LIBRE = max(disp - reservado_ASIG, 0)
+COMPROMETIDO = disp - LIBRE
+```
+
+Impacto en CAT2500HGFE (caso reportado): antes `COMPROMETIDO=20`, ahora `COMPROMETIDO=12` (matches con los 12u visibles en modal Stock Asignado) y `LIBRE=8`.
+
+`APP_VERSION` + `CACHE_VERSION` → v974.
 
 ### v973 (2026-09-17) — Alert Stock del Master: 4 líneas (Dep 11 + Tránsito + Comprometido + Libre)
 
