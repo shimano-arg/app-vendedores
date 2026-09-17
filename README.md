@@ -4670,7 +4670,13 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v969
+## 41) Changelog v300 → v970
+
+### v970 (2026-09-17) — Quitar badge `N exc.` / `OK` de las cards del sidebar Lista de Espera
+
+Pedido de Mariano: los badges `N exc.` y `OK` en las cards del sidebar `PEDIDOS EN ESPERA` eran ruido visual. El color del card (`has-exceed` → fondo rosado + borde rojo) ya comunica que hay excedentes, y el detalle numérico está en la card abierta.
+
+Removido el bloque de badge en `_renderWaitlistSidebar` (`index.html:15327-15335`). Se conserva `item.className = 'slft-wl-item' + (excedentes > 0 ? ' has-exceed' : '')` (colorea el fondo). El CSS del badge (`.slft-wl-badge*` en el head) queda vivo — no lo removí porque también lo usa la lista principal en `waitlist-item` (renderer legacy). `APP_VERSION` + `CACHE_VERSION` → v970.
 
 ### v969 (2026-09-17) — Expiración 15d también para BO viejos
 
