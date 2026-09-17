@@ -53,7 +53,32 @@ function countVertices(feature) {
   return n;
 }
 
-async function cleanFeatureCollection(fc, name) {
+function stripInnerRings(fc) {
+  // Provincias NO tienen enclaves reales — CABA esta separada. Todo inner
+  // ring en prov es artefacto de digitalizacion INDEC. Los strippeamos.
+  let stripped = 0;
+  for (const feat of fc.features) {
+    const geom = feat.geometry;
+    if (!geom) continue;
+    if (geom.type === 'Polygon') {
+      if (geom.coordinates.length > 1) {
+        stripped += geom.coordinates.length - 1;
+        geom.coordinates = [geom.coordinates[0]];
+      }
+    } else if (geom.type === 'MultiPolygon') {
+      for (const poly of geom.coordinates) {
+        if (poly.length > 1) {
+          stripped += poly.length - 1;
+          poly.length = 1;
+        }
+      }
+    }
+  }
+  return stripped;
+}
+
+async function cleanFeatureCollection(fc, name, opts) {
+  const { snap, gapFill, stripInners } = opts;
   const before = fc.features.reduce((s, f) => s + countVertices(f), 0);
   const inputName = `${name}.json`;
   const outputName = `${name}-clean.json`;
@@ -62,14 +87,12 @@ async function cleanFeatureCollection(fc, name) {
   // reproyectamos a mercator, corremos clean con unidades reales (m/km2),
   // y volvemos a wgs84 para exportar como GeoJSON standard.
   //
-  //   -clean snap-interval=100m gap-fill-area=1km2 :
-  //     snap = 100m -> vertices dentro de 100m colapsan al mismo punto
-  //     gap-fill = 1km2 -> huecos <1km2 entre features se cierran (los mas
-  //     grandes son enclaves legitimos, no gaps de digitalizacion)
+  //   dept: snap 100m + gap-fill 1km2  → preserva enclaves reales (CABA, etc)
+  //   prov: snap 500m + gap-fill 100km2 + strip inners → provincias sin huecos
   const cmd = [
     `-i ${inputName}`,
     '-proj webmercator',
-    '-clean snap-interval=100m gap-fill-area=1km2 rewind',
+    `-clean snap-interval=${snap} gap-fill-area=${gapFill} rewind`,
     '-proj wgs84',
     // precision=0.00001 -> 5 decimales (~1m). Depts abarcan km, no perdemos
     // nada visible y bajamos ~50% el tamaño del JSON output.
@@ -81,13 +104,19 @@ async function cleanFeatureCollection(fc, name) {
   });
 
   const cleaned = JSON.parse(output[outputName].toString('utf8'));
+
+  let strippedInners = 0;
+  if (stripInners) {
+    strippedInners = stripInnerRings(cleaned);
+  }
+
   const after = cleaned.features.reduce((s, f) => s + countVertices(f), 0);
 
   console.log(
-    `  [${name}] ${fc.features.length} features · vertices ${before.toLocaleString()} → ${after.toLocaleString()} (${(
+    `  [${name}] snap=${snap} gapFill=${gapFill}${stripInners ? ' +stripInners' : ''}: ${fc.features.length} features · vertices ${before.toLocaleString()} → ${after.toLocaleString()} (${(
       ((after - before) / before) *
       100
-    ).toFixed(1)}%)`
+    ).toFixed(1)}%)${strippedInners ? ` · ${strippedInners} inner rings stripped` : ''}`
   );
 
   return cleaned;
@@ -106,8 +135,16 @@ async function main() {
 
   console.log('Cleaning...');
   const [deptClean, provClean] = await Promise.all([
-    cleanFeatureCollection(raw.dept, 'dept'),
-    cleanFeatureCollection(raw.prov, 'prov'),
+    cleanFeatureCollection(raw.dept, 'dept', {
+      snap: '100m',
+      gapFill: '1km2',
+      stripInners: false,
+    }),
+    cleanFeatureCollection(raw.prov, 'prov', {
+      snap: '500m',
+      gapFill: '100km2',
+      stripInners: true,
+    }),
   ]);
   console.log();
 
