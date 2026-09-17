@@ -33,17 +33,74 @@ const SNAPSHOT_DOC_ACTIVE = 'app_config/stock_snapshot_app';
 const SNAPSHOT_DOC_SHADOW = 'app_config/stock_snapshot_shadow_v3';
 const OPEN_STATES = new Set(['BO', 'ASIG']);
 
+// v976 (2026-09-17): reglas de expiracion portadas de
+// `src/pure/stock-realmente-disponible.js`. MANTENER SINCRONIZADO — si cambia
+// alla, cambiar aca tambien. Se copia inline porque la CF vive en functions/
+// y no puede importar de src/ (build de Firebase Functions es aislado).
+const RESERVA_TTL_DAYS = 15;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Portado de src/pure/stock-realmente-disponible.js:lineReservesStock.
+ * Retorna true si la linea reserva stock (segun state + edad + asigReserva).
+ * @param {any} line
+ * @param {number} nowMs
+ * @param {any} pedido
+ * @returns {boolean}
+ */
+export function lineReservesStock(line, nowMs, pedido) {
+  if (!line) return false;
+  const state = line.state;
+  if (state === 'BO') {
+    // v969: expira 15d desde pedido.createdAt.
+    if (pedido && pedido.createdAt) {
+      const createdAtMs = new Date(pedido.createdAt).getTime();
+      if (Number.isFinite(createdAtMs) && (nowMs - createdAtMs) / DAY_MS > RESERVA_TTL_DAYS) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (state === 'confirmed') {
+    // v963: expira 15d desde pedido.confirmedAt.
+    if (pedido && pedido.confirmedAt) {
+      const confirmedAtMs = new Date(pedido.confirmedAt).getTime();
+      if (Number.isFinite(confirmedAtMs) && (nowMs - confirmedAtMs) / DAY_MS > RESERVA_TTL_DAYS) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (state === 'ASIG') {
+    // v957: asigReserva=false (B/C) no reserva.
+    if (line.asigReserva === false) return false;
+    // v959: expira 15d desde asigAt.
+    if (line.asigAt) {
+      const asigAtMs = new Date(line.asigAt).getTime();
+      if (Number.isFinite(asigAtMs) && (nowMs - asigAtMs) / DAY_MS > RESERVA_TTL_DAYS) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
 /**
  * @typedef {Object} PedidoLine
  * @property {string} code
  * @property {number} qtyOpen
  * @property {'BO'|'ASIG'|'confirmed'|'invoiced'|'cancelled'|'recycled'|'legacy'} state
+ * @property {any} [asigReserva] undefined | true | false (v957)
+ * @property {any} [asigAt] ISO string cuando la linea paso a ASIG (v959)
  *
  * @typedef {Object} PedidoDoc
  * @property {string} clientCardCode
  * @property {PedidoLine[]} lines
  * @property {any} closedAt
  * @property {any} [transferidoSAP] Objeto con via/docNum/docEntry o null si aun no se envio a SAP.
+ * @property {any} [createdAt] Timestamp/ISO cuando el VDE cargo el pedido (v969: expira BO).
+ * @property {any} [confirmedAt] Timestamp/ISO cuando el pedido paso a confirmed (v963: expira confirmed).
  *
  * @typedef {Object} SnapshotDeps
  * @property {any} fbDb Firestore Admin instance.
@@ -95,13 +152,15 @@ export async function readSyncMode(deps) {
  * seccion asig).
  * @param {PedidoDoc[]} pedidos
  * @param {string} sku
+ * @param {number} [nowMs] v976: timestamp inyectable para tests. Default Date.now().
  */
-export function aggregateForSku(pedidos, sku) {
+export function aggregateForSku(pedidos, sku, nowMs) {
   let bo = 0;
   let asig = 0;
   const asigByClient = new Map();
   const boByClient = new Map();
   const skuUp = String(sku).toUpperCase();
+  const now = typeof nowMs === 'number' ? nowMs : Date.now();
   for (const p of pedidos) {
     if (p.closedAt) continue; // pedido cerrado no cuenta
     // v578 (2026-08-21): solo pedidos procesados por auto-send cuentan.
@@ -116,6 +175,13 @@ export function aggregateForSku(pedidos, sku) {
       if (!OPEN_STATES.has(l.state)) continue;
       const q = Number(l.qtyOpen || 0);
       if (q <= 0) continue;
+      // v976 (2026-09-17): aplicar lineReservesStock — no contar como
+      // reserva a las ASIG vencidas (asigAt >15d), ASIG sin reserva
+      // (asigReserva=false para clientes B/C), ni BO vencidos (createdAt >15d).
+      // Bug reportado: STOCK_ASIG_APP contaba todo state='ASIG' sin filtrar
+      // -> alert Master mostraba "reservado" > realidad, doble descuento vs
+      // getStockRealmenteDisponible que si filtra.
+      if (!lineReservesStock(l, now, p)) continue;
       const cc = String(p.clientCardCode || '').trim();
       if (l.state === 'BO') {
         bo += q;
@@ -147,6 +213,9 @@ async function loadOpenPedidos(deps) {
       lines: Array.isArray(data.lines) ? data.lines : [],
       closedAt: data.closedAt,
       transferidoSAP: data.transferidoSAP || null,
+      // v976: createdAt/confirmedAt necesarios para lineReservesStock (v963/v969).
+      createdAt: data.createdAt || null,
+      confirmedAt: data.confirmedAt || null,
     });
   });
   return out;
@@ -263,8 +332,9 @@ export async function recalcSnapshotForSkus(deps, affectedSkus) {
   const perSku = new Map();
   /** @type {Record<string, {bo: number, asig: number}>} */
   const totals = {};
+  const now = Date.now();
   for (const sku of affectedSkus) {
-    const agg = aggregateForSku(pedidos, sku);
+    const agg = aggregateForSku(pedidos, sku, now);
     perSku.set(sku, agg);
     totals[sku] = { bo: agg.bo, asig: agg.asig };
   }

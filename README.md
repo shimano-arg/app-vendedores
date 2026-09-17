@@ -4670,7 +4670,42 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v974
+## 41) Changelog v300 → v976
+
+### v976 (2026-09-17) — CF `computePerSku`: aplicar `lineReservesStock` (vencidas + B/C no cuentan)
+
+Bug detectado por Mariano: el alert Master mostraba ASIG vencidas + ASIG sin reserva (B/C) como "comprometidas", inconsistente con `getStockRealmenteDisponible` que sí las excluye.
+
+**Root cause**: `pedido-snapshot-core.js:aggregateForSku` sumaba **todas** las líneas `state='ASIG'` con `qtyOpen>0` en `asigBySkuApp[sku]`, sin chequear:
+- `asigAt > 15d` (v959: expira)
+- `asigReserva === false` (v957: cliente B/C no reserva)
+- `pedido.createdAt > 15d` para BO (v969: expira)
+- `pedido.confirmedAt > 15d` para confirmed (v963)
+
+**Fix**: portar `lineReservesStock` de `src/pure/stock-realmente-disponible.js` inline en `functions/core/pedido-snapshot-core.js` (comment "MANTENER SINCRONIZADO" — CF build no puede importar de `src/`). Aplicar el filtro antes de sumar. Extender `loadOpenPedidos` para leer `createdAt` + `confirmedAt` de los pedidos.
+
+Consecuencia: `STOCK_ASIG_APP[sku]` y `STOCK_BACKORDER_APP[sku]` ahora coinciden con lo que reservan en el core. **Todos los lectores del snapshot son consistentes con `getStockRealmenteDisponible`** (alert Master, modal Backorder/Stock Asig, otros usos futuros).
+
+**Backfill**: automático — el snapshot se recomputa al próximo write de pedido (trigger de la CF). Para forzar refresh inmediato, ejecutar un no-op update en `pedidos/{id}` o esperar el próximo `onPedidoWriteRecalcSnapshot`.
+
+**Tests**: 7 nuevos en `tests/functions/pedido-snapshot.test.js` (ASIG vencida, ASIG B/C, BO vencido, BO fresco, BO sin createdAt, caso mixto). 72/72 OK entre pedido-snapshot + stock-realmente-disponible.
+
+**Deploy CF requerido**: `firebase deploy --only functions:onPedidoWriteRecalcSnapshot` (Mariano lo hace después del merge).
+
+`APP_VERSION` + `CACHE_VERSION` → v976.
+
+### v975 (2026-09-17) — Export "Pedidos del mes": agregar columna `Nombre del local / fantasía`
+
+Pedido Mariano: en Exportar → Reportes Excel → Pedidos del mes faltaba la columna con el nombre del local. Ahora se agrega entre `Cliente` y `CardCode`.
+
+**Resolución de fantasía** (mismo pattern que las cards del mapa `index.html:9915-9935`):
+1. `clientMeta[cardCode].customFantasia` (editado desde el modal cliente).
+2. Fallback: `approvedAltasList[].fantasia` matcheado por comercio == `p.clientName`.
+3. Si ninguno resuelve, columna queda vacía.
+
+Helper `_resolveFantasiaForPedido(p)` extraído en `src/domains/exports-core.js` para no duplicar la lógica en cada línea.
+
+`APP_VERSION` + `CACHE_VERSION` → v975. Bundle rebuildeado.
 
 ### v974 (2026-09-17) — Alert Stock del Master: Lista de Espera NO compromete stock
 

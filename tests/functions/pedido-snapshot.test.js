@@ -241,6 +241,129 @@ describe('aggregateForSku', () => {
     expect(r.asigByClient.get('C001')).toBe(3);
   });
 
+  // v976 (2026-09-17): filtro por lineReservesStock — ASIG vencidas, ASIG sin
+  // reserva, BO vencidos NO deben contarse en asig/bo (bug reportado por Mariano:
+  // el alert Master mostraba reservado inflado porque STOCK_ASIG_APP incluia
+  // todo state='ASIG' sin filtrar).
+  describe('v976: filtro por lineReservesStock (expiraciones + asigReserva)', () => {
+    const now = new Date('2026-09-17T12:00:00Z').getTime();
+    const isoDaysAgo = (d) => new Date(now - d * 24 * 60 * 60 * 1000).toISOString();
+
+    it('ASIG con asigAt >15d NO cuenta (v959 vencida)', () => {
+      const pedidos = [
+        {
+          clientCardCode: 'C1',
+          closedAt: null,
+          transferidoSAP: { via: 'service_layer_auto' },
+          createdAt: isoDaysAgo(30),
+          lines: [{ code: 'X', qtyOpen: 5, state: 'ASIG', asigAt: isoDaysAgo(20) }],
+        },
+      ];
+      const r = aggregateForSku(pedidos, 'X', now);
+      expect(r.asig).toBe(0);
+      expect(r.asigByClient.get('C1')).toBeUndefined();
+    });
+
+    it('ASIG con asigAt <15d cuenta (fresco)', () => {
+      const pedidos = [
+        {
+          clientCardCode: 'C1',
+          closedAt: null,
+          transferidoSAP: { via: 'service_layer_auto' },
+          lines: [{ code: 'X', qtyOpen: 5, state: 'ASIG', asigAt: isoDaysAgo(10) }],
+        },
+      ];
+      const r = aggregateForSku(pedidos, 'X', now);
+      expect(r.asig).toBe(5);
+    });
+
+    it('ASIG con asigReserva=false NO cuenta (v957 cliente B/C)', () => {
+      const pedidos = [
+        {
+          clientCardCode: 'C1',
+          closedAt: null,
+          transferidoSAP: { via: 'service_layer_auto' },
+          lines: [
+            { code: 'X', qtyOpen: 5, state: 'ASIG', asigReserva: false, asigAt: isoDaysAgo(1) },
+          ],
+        },
+      ];
+      const r = aggregateForSku(pedidos, 'X', now);
+      expect(r.asig).toBe(0);
+    });
+
+    it('BO con pedido.createdAt >15d NO cuenta (v969 vencido)', () => {
+      const pedidos = [
+        {
+          clientCardCode: 'C1',
+          closedAt: null,
+          transferidoSAP: { via: 'service_layer_auto' },
+          createdAt: isoDaysAgo(30),
+          lines: [{ code: 'X', qtyOpen: 8, state: 'BO' }],
+        },
+      ];
+      const r = aggregateForSku(pedidos, 'X', now);
+      expect(r.bo).toBe(0);
+    });
+
+    it('BO con pedido.createdAt <15d cuenta', () => {
+      const pedidos = [
+        {
+          clientCardCode: 'C1',
+          closedAt: null,
+          transferidoSAP: { via: 'service_layer_auto' },
+          createdAt: isoDaysAgo(10),
+          lines: [{ code: 'X', qtyOpen: 8, state: 'BO' }],
+        },
+      ];
+      const r = aggregateForSku(pedidos, 'X', now);
+      expect(r.bo).toBe(8);
+    });
+
+    it('BO sin createdAt cuenta (backwards-compat)', () => {
+      const pedidos = [
+        {
+          clientCardCode: 'C1',
+          closedAt: null,
+          transferidoSAP: { via: 'service_layer_auto' },
+          lines: [{ code: 'X', qtyOpen: 8, state: 'BO' }],
+        },
+      ];
+      const r = aggregateForSku(pedidos, 'X', now);
+      expect(r.bo).toBe(8);
+    });
+
+    it('caso mixto: 3 pedidos ASIG (uno vencido, uno B/C, uno fresco) — solo el fresco cuenta', () => {
+      const pedidos = [
+        {
+          clientCardCode: 'C1',
+          closedAt: null,
+          transferidoSAP: { via: 'service_layer_auto' },
+          lines: [{ code: 'X', qtyOpen: 10, state: 'ASIG', asigAt: isoDaysAgo(20) }],
+        },
+        {
+          clientCardCode: 'C2',
+          closedAt: null,
+          transferidoSAP: { via: 'service_layer_auto' },
+          lines: [
+            { code: 'X', qtyOpen: 7, state: 'ASIG', asigReserva: false, asigAt: isoDaysAgo(3) },
+          ],
+        },
+        {
+          clientCardCode: 'C3',
+          closedAt: null,
+          transferidoSAP: { via: 'service_layer_auto' },
+          lines: [{ code: 'X', qtyOpen: 4, state: 'ASIG', asigAt: isoDaysAgo(5) }],
+        },
+      ];
+      const r = aggregateForSku(pedidos, 'X', now);
+      expect(r.asig).toBe(4);
+      expect(r.asigByClient.get('C1')).toBeUndefined();
+      expect(r.asigByClient.get('C2')).toBeUndefined();
+      expect(r.asigByClient.get('C3')).toBe(4);
+    });
+  });
+
   it('v578: pedido sin transferidoSAP se skippea (solo pedidos ya enviados a SAP cuentan)', () => {
     const pedidos = [
       // Sin transferidoSAP → NO cuenta (bug CARNADAS LOBERIA)
