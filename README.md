@@ -4670,7 +4670,23 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v979
+## 41) Changelog v300 → v980
+
+### v980 (2026-09-17) — Picker de productos: color del punto alineado con "libre para la venta"
+
+Bug detectado durante audit: el color del punto en el picker de productos usaba `hasStock()` (físico dep 11 crudo), no `getStockRealmenteDisponible` (libre para venta). Resultado: SKUs con físico dep 11 pero todo reservado por otros pedidos-app mostraban punto **verde engañoso** al vendedor.
+
+**Fix** (`src/domains/product-picker.js:280`):
+| Color | Antes | Ahora |
+|---|---|---|
+| 🟢 Verde | físico dep 11 > 0 | **`disp real > 0`** (libre para vender YA) |
+| 🟡 Ámbar | disp=0 + tránsito>0 | `disp real = 0` (todo reservado o tránsito) — se puede vender como backorder |
+| 🔴 Rojo | sin stock físico | sin stock físico (sin cambio) |
+| ⚪ Gris | sin datos | sin datos (sin cambio) |
+
+Tooltip enriquecido para el caso "todo reservado": `"Fisico dep 11: 45 pero todo reservado por otros pedidos-app (libre para la venta: 0) — se puede vender como backorder"`.
+
+Bundle rebuildeado. `APP_VERSION` + `CACHE_VERSION` → v980.
 
 ### v979 (2026-09-17) — Auditoría cross-módulo: 4 fixes para consistencia de stock reservado
 
