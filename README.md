@@ -4670,7 +4670,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v972
+## 41) Changelog v300 → v973
+
+### v973 (2026-09-17) — Alert Stock del Master: 4 líneas (Dep 11 + Tránsito + Comprometido + Libre)
+
+Pedido Mariano: reemplazar la línea agregada "STOCK FISICO (todos los almacenes)" por 2 líneas separadas — dep 11 (vendible) y dep 12 (tránsito) — para que el VDE vea explícito qué es vendible hoy y qué llega pronto. Ahora el alert muestra:
+```
+STOCK FISICO (DEP 11): N unidades         ← físico vendible
+UNIDADES EN TRANSITO (DEP 12): N unidades ← llegando pronto, no vendible aún
+COMPROMETIDO: N unidades                  ← reservado_app + espera_app (capado a dep 11)
+LIBRE PARA LA VENTA: N unidades           ← lo que se puede vender ya
+```
+
+Matemática cierra: `dep 11 = COMPROMETIDO + LIBRE`. Tránsito queda como info aparte (no entra en la aritmética porque aún no está vendible).
+
+`APP_VERSION` + `CACHE_VERSION` → v973.
 
 ### v972 (2026-09-17) — Quitar línea `⚠ SOBREVENTA` del alert Stock del Master
 
