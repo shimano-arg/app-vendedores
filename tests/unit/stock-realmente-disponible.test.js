@@ -450,10 +450,51 @@ describe('lineReservesStock — v963 confirmed expira a 15d desde confirmedAt', 
     expect(lineReservesStock(line, now, pedido)).toBe(true);
   });
 
-  it('BO nunca expira (aunque el pedido sea viejo)', () => {
+  // v969 (2026-09-17): BO expira a los 15d desde pedido.createdAt.
+  it('BO sin pedido sigue reservando (backwards-compat)', () => {
     const line = { state: 'BO', qtyOpen: 5 };
-    const pedido = { confirmedAt: isoDaysAgo(100) };
+    expect(lineReservesStock(line, now)).toBe(true);
+  });
+
+  it('BO con pedido sin createdAt sigue reservando (backwards-compat)', () => {
+    const line = { state: 'BO', qtyOpen: 5 };
+    const pedido = {}; // sin createdAt
     expect(lineReservesStock(line, now, pedido)).toBe(true);
+  });
+
+  it('BO con createdAt reciente (<15d) reserva', () => {
+    const line = { state: 'BO', qtyOpen: 5 };
+    const pedido = { createdAt: isoDaysAgo(10) };
+    expect(lineReservesStock(line, now, pedido)).toBe(true);
+  });
+
+  it('BO con createdAt exactamente 15d (borde) todavia reserva', () => {
+    const line = { state: 'BO', qtyOpen: 5 };
+    const pedido = { createdAt: isoDaysAgo(15) };
+    expect(lineReservesStock(line, now, pedido)).toBe(true);
+  });
+
+  it('BO con createdAt >15d NO reserva (expirada)', () => {
+    const line = { state: 'BO', qtyOpen: 5 };
+    const pedido = { createdAt: isoDaysAgo(20) };
+    expect(lineReservesStock(line, now, pedido)).toBe(false);
+  });
+
+  it('BO expirada (>15d) libera stock — impacto en getStockRealmenteDisponible', () => {
+    // Caso: 20 en dep 11, dos BOs — uno reciente (5u, 10d) y otro viejo (7u, 30d).
+    // El viejo NO debe reservar → real = 20 - 5 = 15.
+    const r = getStockRealmenteDisponible(
+      'SKU1',
+      {
+        getStockFisico: () => 20,
+        pedidos: [
+          P({ createdAt: isoDaysAgo(10), lines: [L({ qtyOpen: 5, state: 'BO' })] }),
+          P({ createdAt: isoDaysAgo(30), lines: [L({ qtyOpen: 7, state: 'BO' })] }),
+        ],
+      },
+      { now }
+    );
+    expect(r).toBe(15);
   });
 });
 
