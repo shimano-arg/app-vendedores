@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v970';
+const APP_VERSION = 'v971';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -24161,35 +24161,41 @@ window.queryStockLive = function(code, btn){
           }
         }
       }
-      // v841 (2026-09-09): simplificacion pedida por Mariano. Antes mostrabamos
-      // 6-9 lineas con detalles tecnicos (disp neto, transito, committed SAP,
-      // reservado, espera app, libre, otros almacenes, total). Ahora solo 3:
-      // 1) STOCK TOTAL = fisico bruto global (todos los almacenes,
-      // incluyendo lo comprometido y en transito)
-      // 2) COMPROMETIDO/RESERVADO = committed SAP + reservado app + espera app
-      // 3) LIBRE PARA LA VENTA = STOCK TOTAL - COMPROMETIDO (v858+ 2026-09-09)
-      // v858 (2026-09-09): fix consistencia matematica. Antes libre se calculaba
-      // como disp neto (dep 11) - reservado app; no cuadraba con stockTotal -
-      // comprometido porque espera app y otros almacenes tenian scopes distintos.
-      // Ahora libre = stockTotal - comprometido garantiza que las 3 lineas siempre
-      // cierren aritmeticamente (Mariano: "12 - 11 = 1", no 3).
+      // v841 (2026-09-09): simplificacion Mariano. 3 lineas: fisico total,
+      // comprometido, libre.
+      // v858 (2026-09-09): antes libre = disp - reservado_app; se cambio a
+      // stockTotal - comprometido para cerrar aritmeticamente.
+      // v971 (2026-09-17): fix doble-cuento reportado por Mariano — cuando
+      // un pedido-app pasa a state='ASIG' + auto-send-to-SAP genera una SQ,
+      // ese qtyOpen queda registrado 2 veces: (a) en STOCK_WAREHOUSE_COMMITTED
+      // (SAP lo tiene como SO abierta) y (b) en STOCK_ASIG_APP (la app lo tiene
+      // como asignado). Al sumar ambos en `comprometido` da > stockTotal.
+      // Solucion: como estamos en scope "app es la fuente de verdad de BO/ASIG"
+      // (Mariano 2026-08-28), el numero honesto para el vendedor es:
+      //   LIBRE PARA VENTA = max(disp - reservado_app - espera_app, 0)
+      // "disp" ya viene neto del breakdown SAP (excluye committed).
+      // Reservado + espera son SOLO app-side.
+      // STOCK FISICO = fisico bruto TODOS los almacenes (info general, no
+      // implica que se pueda vender de otros almacenes hoy).
+      // COMPROMETIDO = disp - libre (garantiza que dep 11 cierre: disp = libre + comprometido)
       const cmtByWhs = STOCK_WAREHOUSE_COMMITTED[k] || null;
       const committed11 = Number((cmtByWhs && cmtByWhs['11']) || 0);
-      // Stock TOTAL = disp neto + committed (que reconstruye fisico bruto dep 11)
-      // + transito (dep 12) + otros almacenes.
-      const stockTotal = disp + committed11 + transito + otros;
-      // COMPROMETIDO / RESERVADO = todo lo que sale del "libre":
-      // - committed SAP: SO abiertas ya prometidas
-      // - reservado app: state='ASIG' (asignado a pedido con stock)
-      // - espera app: Lista de Espera de vendedores
-      // - pendiente sin stock: state='BO' (solo si NO hay disp, para no doble-contar)
-      const comprometido = committed11 + reservado + esperaApp + (disp === 0 ? pendienteSinStock : 0);
-      const libre = Math.max(stockTotal - comprometido, 0);
+      const stockFisicoTotal = disp + committed11 + transito + otros;
+      const libre = Math.max(disp - reservado - esperaApp - (disp === 0 ? pendienteSinStock : 0), 0);
+      const comprometido = disp - libre;
       const lines = [
-        'STOCK TOTAL: ' + stockTotal + ' unidades',
-        'COMPROMETIDO / RESERVADO: ' + comprometido + ' unidades',
+        'STOCK FISICO (todos los almacenes): ' + stockFisicoTotal + ' unidades',
+        'COMPROMETIDO EN DEP 11: ' + comprometido + ' unidades',
         'LIBRE PARA LA VENTA: ' + libre + ' unidades',
       ];
+      // v971: si las reservas app-side exceden el disp SAP, es sobreventa
+      // (o desync). Mostrar aviso para que el vendedor sepa que hay "promesa"
+      // > "capacidad".
+      const demandaAppTotal = reservado + esperaApp + (disp === 0 ? pendienteSinStock : 0);
+      if (demandaAppTotal > disp && demandaAppTotal > 0) {
+        lines.push('');
+        lines.push('⚠ SOBREVENTA: ' + demandaAppTotal + 'u reservadas en pedidos-app pero solo ' + disp + 'u fisicas dep 11.');
+      }
       status = lines.join('\n');
     } else if (hasQtyData) {
       status = 'Total vendible: ' + qty + ' unidades\n\n(Sin desglose por almacen — el proximo sync separara disponible vs transito)';
