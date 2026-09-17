@@ -4670,7 +4670,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v967
+## 41) Changelog v300 → v968
+
+### v968 (2026-09-17) — Mapa: strippear inner rings de `prov` (huecos artefactos en el fill)
+
+Post-v967 Mariano reportó que en Mendoza (y otras provincias) aún se veían **zonas blancas grandes internas** al zoom cercano — no eran grietas topológicas, eran **huecos de decenas de km² dentro del polígono provincial** usado para el fill.
+
+**Root cause**: el `prov` original de `geo.json` no era un contorno provincial continuo. Cada provincia era un **MultiPolygon con 18-40 shapes separadas** (ej: Mendoza 18 shapes, Entre Ríos 42, Corrientes 38…). Probablemente venían de una fuente que fusionó depts sin dissolve. Cuando en v967 se corrió mapshaper `-clean gap-fill-area=1km2`, snapeó vertices pero los huecos > 1 km² entre las shapes quedaron como **inner rings artefactos** en el output. El fill layer (que en modo single-vendor usa el polígono provincial) renderizaba esos huecos como transparentes → aparecían como zonas blancas.
+
+**Fix**: parámetros distintos para `dept` y `prov`:
+- `dept` sigue con snap 100m + gap-fill 1km2 (preserva enclaves reales como CABA).
+- `prov` ahora usa snap 500m + gap-fill 100km2 + **strippeo de TODOS los inner rings** post-clean (las provincias no tienen enclaves reales — CABA es una feature separada).
+
+Resultado: `prov` sin ningún inner ring artefacto (525 stripped en total). Mendoza pasó de `Polygon con 21 anillos internos` a `Polygon simple con 1 outer ring de 316 vertices`. Total prov vertices bajó 48.7%.
+
+**Cambios**:
+- `scripts/clean-geo-json.mjs`: función `stripInnerRings(fc)` + parámetros separados por FeatureCollection.
+- `geo.json`: regenerado (976 KB vs 1073 KB del v967, ahora +10% vs pre-clean).
+- `VENDOR_OUTLINES_CACHE_KEY v15 → v16`: invalida cache local.
+- `APP_VERSION` + `CACHE_VERSION` → v968.
+
+**Verificación**: post-deploy zoom cercano en Mendoza no debe mostrar huecos internos — la provincia entera debería estar cubierta uniformemente por el color del vendor.
 
 ### v967 (2026-09-17) — Mapa: geo.json topológicamente limpio (mapshaper snap + clean)
 
