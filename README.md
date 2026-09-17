@@ -4670,7 +4670,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v984
+## 41) Changelog v300 → v985
+
+### v985 (2026-09-17) — OCR rendicion: retry con refresh AppCheck + mensaje mejorado
+
+Reporte VDEs 2026-09-17: no pueden cargar rendiciones. Ven alert "OCR fallo: Sesion expirada o problema de permisos" con instrucciones para Clear Site Data. Root cause: `geminiOcrProxy` tiene `enforceAppCheck: true` (v918 SecAudit); cuando reCAPTCHA v3 se auto-throttlea 24h por-browser, el token AppCheck falla y la CF devuelve `unauthenticated` → error al VDE.
+
+**Fix (`src/domains/rendiciones.js:76-127`)** — combinación de retry automático + mensaje mejorado:
+
+1. **Retry con force-refresh**: al detectar `unauthenticated`/`permission-denied`, hacer `firebase.appCheck().getToken(true)` (fuerza generación de token nuevo) + retry del callable. Si el problema era un token stale (no throttle real), el VDE ni se entera del error.
+2. **Mensaje mejorado**: si el retry también falla, mostrar mensaje que trata AppCheck throttle como causa principal (elimina el regex `/throttl/i` que nunca matcheaba el mensaje real del server).
+
+Trade-off SEC: cero (mismo AppCheck enforcement, solo mejor UX). Bundle rebuildeado.
+
+`APP_VERSION` + `CACHE_VERSION` → v985.
 
 ### v984 (2026-09-17) — Ocultar botones Dashboard / Depósito / Preliminar para role=vendedor
 
