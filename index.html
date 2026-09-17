@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v971';
+const APP_VERSION = 'v972';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -24188,14 +24188,6 @@ window.queryStockLive = function(code, btn){
         'COMPROMETIDO EN DEP 11: ' + comprometido + ' unidades',
         'LIBRE PARA LA VENTA: ' + libre + ' unidades',
       ];
-      // v971: si las reservas app-side exceden el disp SAP, es sobreventa
-      // (o desync). Mostrar aviso para que el vendedor sepa que hay "promesa"
-      // > "capacidad".
-      const demandaAppTotal = reservado + esperaApp + (disp === 0 ? pendienteSinStock : 0);
-      if (demandaAppTotal > disp && demandaAppTotal > 0) {
-        lines.push('');
-        lines.push('⚠ SOBREVENTA: ' + demandaAppTotal + 'u reservadas en pedidos-app pero solo ' + disp + 'u fisicas dep 11.');
-      }
       status = lines.join('\n');
     } else if (hasQtyData) {
       status = 'Total vendible: ' + qty + ' unidades\n\n(Sin desglose por almacen — el proximo sync separara disponible vs transito)';
