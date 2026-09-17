@@ -1548,6 +1548,35 @@ window.exportStockAsigAll = async function () {
   showSyncTag('Export Stock Asignado listo (' + rows.length + ' lineas)', 2400);
 };
 
+// v975 (2026-09-17): resuelve nombre de fantasia para un pedido usando el
+// mismo pattern que las cards del mapa (index.html:9915-9935):
+//   1) clientMeta[cardCode].customFantasia (editado desde el modal cliente)
+//   2) approvedAltasList[].fantasia matcheado por comercio == clientName
+function _resolveFantasiaForPedido(p) {
+  const cardCode = String(p.clientCardCode || '').trim();
+  if (cardCode) {
+    const meta = /** @type {any} */ (globalThis).clientMeta;
+    const custom = meta && meta[cardCode] && meta[cardCode].customFantasia;
+    if (custom && String(custom).trim()) return String(custom).trim();
+  }
+  const altas = /** @type {any} */ (globalThis).approvedAltasList;
+  if (Array.isArray(altas)) {
+    const nameLower = String(p.clientName || '').trim().toLowerCase();
+    if (nameLower) {
+      const match = altas.find((a) => {
+        if (!a) return false;
+        const c = String(a.comercio || '').trim().toLowerCase();
+        const f = String(a.fantasia || '').trim().toLowerCase();
+        return c === nameLower || f === nameLower;
+      });
+      if (match && match.fantasia && String(match.fantasia).trim()) {
+        return String(match.fantasia).trim();
+      }
+    }
+  }
+  return '';
+}
+
 async function exportPedidosMesForMonth(anio, monthIdx) {
   showSyncTag('Generando export de Pedidos del mes...');
   const rows = [];
@@ -1562,6 +1591,9 @@ async function exportPedidosMesForMonth(anio, monthIdx) {
             .toISOString()
             .slice(0, 10)
       : '';
+    // v975 (2026-09-17): resolver fantasia una vez por pedido (no por linea) —
+    // el lookup en clientMeta + approvedAltasList es constante para todo el pedido.
+    const nombreLocalFantasia = _resolveFantasiaForPedido(p);
     lines.forEach((l, idx) => {
       if (!l) return;
       const qty = Number(l.qty) || 0;
@@ -1571,6 +1603,7 @@ async function exportPedidosMesForMonth(anio, monthIdx) {
         Mes: p.month || '',
         Stage: p.stage || '',
         Cliente: p.clientName || '',
+        Nombre_Local_Fantasia: nombreLocalFantasia,
         CardCode: p.clientCardCode || '',
         Provincia: p.province || '',
         Localidad: p.locName || '',

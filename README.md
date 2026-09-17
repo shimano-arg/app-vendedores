@@ -4670,7 +4670,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v974
+## 41) Changelog v300 → v975
+
+### v975 (2026-09-17) — Export "Pedidos del mes": agregar columna `Nombre del local / fantasía`
+
+Pedido Mariano: en Exportar → Reportes Excel → Pedidos del mes faltaba la columna con el nombre del local. Ahora se agrega entre `Cliente` y `CardCode`.
+
+**Resolución de fantasía** (mismo pattern que las cards del mapa `index.html:9915-9935`):
+1. `clientMeta[cardCode].customFantasia` (editado desde el modal cliente).
+2. Fallback: `approvedAltasList[].fantasia` matcheado por comercio == `p.clientName`.
+3. Si ninguno resuelve, columna queda vacía.
+
+Helper `_resolveFantasiaForPedido(p)` extraído en `src/domains/exports-core.js` para no duplicar la lógica en cada línea.
+
+`APP_VERSION` + `CACHE_VERSION` → v975. Bundle rebuildeado.
 
 ### v974 (2026-09-17) — Alert Stock del Master: Lista de Espera NO compromete stock
 
