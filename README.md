@@ -4670,7 +4670,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v966
+## 41) Changelog v300 → v967
+
+### v967 (2026-09-17) — Mapa: geo.json topológicamente limpio (mapshaper snap + clean)
+
+Reporte Mariano post-v966: "de lejos funciona 10/10 pero de cerca siguen existiendo" (grietas). Los fixes v965 (fill desde union) + v966 (filtro inners + stroke buffer) mejoraron mucho pero eran **mitigations sobre datos INDEC con vertices desalineados**. Root cause: la data INDEC fue digitalizada semi-independiente por depto → vertices "compartidos" entre depts vecinos difieren hasta 200m → `polygon-clipping.union` no logra fusionarlos limpio.
+
+**Fix**: pre-procesar `geo.json` una sola vez con `mapshaper` para forzar topología exacta. Vertices dentro de 100m se snapean al mismo punto exacto → union perfecta → cero gaps matemáticamente garantizado.
+
+**Cambios**:
+- `scripts/clean-geo-json.mjs` (nuevo): lee geo.json, extrae `dept` y `prov`, corre `-proj webmercator -clean snap-interval=100m gap-fill-area=1km2 rewind -proj wgs84 -o precision=0.00001`, reconstruye `{dept, prov}` y guarda in-place. Diagnostic muestra % vertices compartidos.
+- `geo.json`: regenerado (885 KB → 1073 KB, +21%). Vertices compartidos: **12.7% → 67.7%** (5x mejora).
+- `geo.json.backup-pre-v967`: backup del original.
+- `index.html`: bump `VENDOR_OUTLINES_CACHE_KEY v14 → v15` → invalida cache local del vendor union para recomputar con la data limpia.
+- `mapshaper ^0.7.61`: nueva devDependency.
+- Mitigations previos (v965 filter, v966 stroke buffer + INNER_MIN_PERIM) **quedan como belt-and-suspenders** — no hacen daño y protegen si por algún motivo el geo.json vuelve stale.
+
+**Por qué mapshaper y no runtime**: hacerlo build-time es zero runtime cost, invisible al usuario, y el geo.json queda limpio permanentemente. Herramienta estándar de la industria (UN, FT, Guardian) para datos gubernamentales.
+
+**Trade-off**: geo.json crece 21% (~190 KB extra) por los vertices intermedios que mapshaper agrega para topología exacta. A cambio, los outlines por vendor se computan más rápido (union fusiona sin ambigüedad).
+
+**Verificación**: correr `node scripts/clean-geo-json.mjs --dry` para ver los stats. Post-deploy: mapa a zoom cercano no debe mostrar grietas ni entre depts del mismo vendor ni entre depts de vendors distintos (esas siempre van a estar demarcadas por el stroke provincial).
 
 ### v966 (2026-09-17) — Mapa: eliminar "grietas" residuales (filtrar inners chicos + stroke buffer)
 
