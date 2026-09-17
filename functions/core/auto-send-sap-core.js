@@ -332,7 +332,39 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
   if (!elig.eligible) {
     log('[auto-send] skip', { pedidoId, reason: elig.reason });
     if (elig.reason === 'already_sent') return { result: AUTO_SEND_RESULT.SKIP_ALREADY_SENT };
-    if (elig.reason === 'all_bo') return { result: AUTO_SEND_RESULT.SKIP_ALL_BO };
+    if (elig.reason === 'all_bo') {
+      // v982 (2026-09-17): antes solo se skippeaba sin persistir nada. Si el
+      // client-side v607 no marco el pedido con via='app_only' (raro pero
+      // posible: VDE offline al confirmar, race con el trigger CF), el pedido
+      // quedaba en transferidoSAP=null indefinidamente. Ahora la CF persiste
+      // el marker para cerrar el loop de observability.
+      // Idempotente: solo escribimos si transferidoSAP aun es null (no
+      // pisamos otros writes).
+      try {
+        const now = deps.now ? deps.now() : Date.now();
+        await deps.fbDb
+          .collection('pedidos')
+          .doc(pedidoId)
+          .set(
+            {
+              transferidoSAP: {
+                via: 'app_only',
+                reason: 'all_lines_bo_server_detected',
+                transferredAt: new Date(now).toISOString(),
+              },
+            },
+            { merge: true }
+          );
+        log('[auto-send] marked via=app_only server-side', { pedidoId });
+      } catch (e) {
+        log('[auto-send] failed to mark app_only', {
+          pedidoId,
+          error: e && e.message ? e.message : String(e),
+        });
+        // no-op: no bloqueamos el retorno por un fallo de marker
+      }
+      return { result: AUTO_SEND_RESULT.SKIP_ALL_BO };
+    }
     if (elig.reason === 'no_lines') return { result: AUTO_SEND_RESULT.SKIP_NO_LINES };
     return { result: AUTO_SEND_RESULT.SKIP_STAGE, reason: elig.reason };
   }

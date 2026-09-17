@@ -4670,7 +4670,33 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v981
+## 41) Changelog v300 → v982
+
+### v982 (2026-09-17) — CF `handleAutoSendSap`: persistir `via='app_only'` en detección server-side de 100% BO
+
+Fix cosmético identificado en auditoría #3 (superpowers). Cuando la CF `handleAutoSendSap` detecta un pedido `stage='confirmed'` con todas las líneas `state='BO'` (raro — el cliente-side v607 normalmente lo marca antes, pero puede fallar si VDE offline al confirmar), la CF hacía `SKIP_ALL_BO` sin persistir nada. El pedido quedaba con `transferidoSAP=null` indefinidamente hasta que se editara.
+
+**Fix** (`functions/core/auto-send-sap-core.js:335-361`): al detectar `all_bo` server-side, la CF ahora escribe:
+```js
+transferidoSAP: {
+  via: 'app_only',
+  reason: 'all_lines_bo_server_detected',
+  transferredAt: <ISO>,
+}
+```
+
+Con `{ merge: true }` para no pisar writes concurrentes. Try/catch para no bloquear el return si el marker falla (mejor observability degradada que error).
+
+**Impacto de negocio**: cero riesgo — solo mejora observability. El pedido seguía funcionando correctamente antes; ahora tiene metadata que refleja "no viajó a SAP porque son todos BO".
+
+**Deploy CF requerido** (post-merge):
+```bash
+firebase deploy --only functions:onPedidoWriteAutoSendSap
+```
+
+Test `v982: 100% BO persiste transferidoSAP.via=app_only server-side` en `tests/functions/auto-send-sap.test.js`. Mock `makeFakeDb` extendido con `set()` support. **29/29 tests OK**.
+
+`APP_VERSION` + `CACHE_VERSION` → v982.
 
 ### v981 (2026-09-17) — Preliminar-discount: cambio cascada multiplicativa → aditiva (alinear con venta real)
 

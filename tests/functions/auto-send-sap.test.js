@@ -52,6 +52,16 @@ function makeFakeDb(initialDocs) {
               if (!store.has(path)) throw new Error('doc not found');
               _apply(path, patch);
             },
+            async set(patch, opts) {
+              // v982: soporte set con merge:true (usado por handleAutoSendSap
+              // en el path all_bo para persistir transferidoSAP={via:'app_only'}).
+              // Sin merge no aplica en este handler, pero manejamos ambos casos.
+              if (opts && opts.merge) {
+                _apply(path, patch);
+              } else {
+                store.set(path, { ...patch });
+              }
+            },
           };
           return ref;
         },
@@ -379,6 +389,27 @@ describe('handleAutoSendSap — skips', () => {
       deps
     );
     expect(r.result).toBe(AUTO_SEND_RESULT.SKIP_ALL_BO);
+  });
+  // v982 (2026-09-17): all_bo detectado server-side persiste marker
+  // transferidoSAP.via='app_only' para observability (antes quedaba null).
+  it('v982: 100% BO persiste transferidoSAP.via=app_only server-side', async () => {
+    const deps = makeDeps();
+    const r = await handleAutoSendSap(
+      'p1',
+      null,
+      {
+        ...validPedido,
+        lines: [{ code: 'X', qty: 5, state: 'BO' }],
+      },
+      deps
+    );
+    expect(r.result).toBe(AUTO_SEND_RESULT.SKIP_ALL_BO);
+    const persisted = deps.fbDb._dump()['pedidos/p1'];
+    expect(persisted).toBeDefined();
+    expect(persisted.transferidoSAP).toBeDefined();
+    expect(persisted.transferidoSAP.via).toBe('app_only');
+    expect(persisted.transferidoSAP.reason).toBe('all_lines_bo_server_detected');
+    expect(persisted.transferidoSAP.transferredAt).toBeDefined();
   });
   it('skip: cardCode vacio (cliente sin alta SAP)', async () => {
     const deps = makeDeps();
