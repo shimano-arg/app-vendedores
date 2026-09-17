@@ -526,6 +526,24 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // v964 (2026-09-17): audit logs de sqCancelExpiredCF.
+    // sq_cancel_log_shadow: Fase B (deploy sin riesgo, solo loguea).
+    // sq_cancel_log:        Fase C (cancela SQs reales).
+    // sq_cancel_skipped_log: Fase C, salvaguardas que evitaron cancelar.
+    // Los 3 escritos por CF (Admin SDK). Lectura admin/gerente para audit.
+    match /sq_cancel_log_shadow/{logId} {
+      allow read: if isAdminOrGerente();
+      allow write: if false;
+    }
+    match /sq_cancel_log/{logId} {
+      allow read: if isAdminOrGerente();
+      allow write: if false;
+    }
+    match /sq_cancel_skipped_log/{logId} {
+      allow read: if isAdminOrGerente();
+      allow write: if false;
+    }
+
     // v799 (2026-09-04): audit log de merges LEAD → alta SAP ejecutados
     // desde el boton "Vincular LEAD ↔ SAP" en Master Clientes. Escrito
     // por admin/gerente cliente-side (batch atomico junto con el update

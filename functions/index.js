@@ -48,7 +48,10 @@ import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapsh
 import { checkAndIncrementRateLimit, RATE_LIMITS } from './core/rate-limit-core.js';
 import { checkNewRendicionDuplicate } from './core/rendicion-duplicate-core.js';
 import { handleSapProxy } from './core/sap-proxy-core.js';
+import { sapGet, sapLogin, sapLogout, sapPost } from './core/sap-sl-client.js';
 import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
+// v964 (2026-09-17): auto-cancel SQ expiradas (Fase B shadow + Fase C active).
+import { runSqCancelExpired } from './core/sq-cancel-core.js';
 
 if (!getApps().length) initializeApp();
 
@@ -731,6 +734,109 @@ export const expireAsigLinesTTLCF = onSchedule(
       pedidosClosed: r.pedidosClosed,
       errors: r.errors.length,
     });
+  }
+);
+
+/**
+ * v964 (2026-09-17): auto-cancel SQs con lineas confirmed >15d.
+ *
+ * Fase B (shadow, default): loguea qué SQs cancelaría a
+ * `sq_cancel_log_shadow/{iso}`. NO ejecuta cancel en SAP ni cambia state
+ * en Firestore. Se activa por deploy sin riesgo.
+ *
+ * Fase C (active): cambiar `app_config/sap_sync_state.sqCancelMode='active'`.
+ * Cada corrida verifica cada SQ candidata en SAP (DocumentStatus + Delivery)
+ * y solo cancela las que pasan las salvaguardas. Escribe a `sq_cancel_log`
+ * (audit) y `sq_cancel_skipped_log` (por qué se saltearon).
+ *
+ * Cron diario 04:30 America/Argentina/Buenos_Aires (después del TTL ASIG a
+ * las 03:00 para no colisionar).
+ */
+export const sqCancelExpiredCF = onSchedule(
+  {
+    region: REGION,
+    schedule: '30 4 * * *',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 1,
+    memory: '512MiB',
+    timeoutSeconds: 540,
+    secrets: [SAP_SL_PASSWORD],
+  },
+  async () => {
+    const db = getFirestore();
+    // Cargar sapConfig para posible modo active (Fase C).
+    const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+    const sapCfg = sapCfgSnap.exists ? sapCfgSnap.data() || {} : {};
+    const sl = sapCfg.serviceLayer || {};
+    /** @type {any} */
+    let sapSession = null;
+    /** @type {any} */
+    let slFetchFn;
+    const wantsActive = sl && sl.url && SAP_SL_PASSWORD.value();
+    if (wantsActive) {
+      const stateSnap = await db.doc('app_config/sap_sync_state').get();
+      const sqCancelMode = String(
+        ((stateSnap.exists ? stateSnap.data() : {}) || {}).sqCancelMode || ''
+      ).toLowerCase();
+      if (sqCancelMode === 'active') {
+        try {
+          const deps = {
+            fetch: /** @type {any} */ (globalThis.fetch),
+            sapConfig: {
+              url: sl.url,
+              companyDB: sl.companyDB,
+              userName: sl.username || sl.userName,
+              password: SAP_SL_PASSWORD.value(),
+            },
+            log: (/** @type {string} */ msg, /** @type {any} */ extra) =>
+              console.log(msg, extra || {}),
+          };
+          sapSession = await sapLogin(deps);
+          // Wrapper que hace GET/POST via helpers del sap-sl-client.
+          slFetchFn = async (/** @type {string} */ uri, /** @type {any} */ opts) => {
+            if (opts && opts.method === 'POST') {
+              return await sapPost(sapSession, uri, opts.body || {}, deps);
+            }
+            return await sapGet(sapSession, uri, deps);
+          };
+        } catch (e) {
+          console.error('sqCancelExpiredCF: fallo login SL, cae a shadow', e);
+          slFetchFn = undefined; // sin slFetch → runSqCancelExpired se queda en shadow
+        }
+      }
+    }
+
+    try {
+      const r = await runSqCancelExpired({
+        fbDb: db,
+        log: (msg, extra) => console.log(msg, extra || {}),
+        slFetch: slFetchFn,
+      });
+      console.log('sqCancelExpiredCF summary', {
+        mode: r.mode,
+        pedidosScanned: r.pedidosScanned,
+        cancelled: r.cancelledCount,
+        skipped: r.skipped.length,
+        errors: r.errors.length,
+      });
+    } finally {
+      if (sapSession && slFetchFn) {
+        try {
+          await sapLogout(sapSession, {
+            fetch: /** @type {any} */ (globalThis.fetch),
+            sapConfig: {
+              url: sl.url,
+              companyDB: sl.companyDB,
+              userName: sl.username || sl.userName,
+              password: SAP_SL_PASSWORD.value(),
+            },
+            log: () => {},
+          });
+        } catch (e) {
+          console.warn('sqCancelExpiredCF: logout SL fallo', e);
+        }
+      }
+    }
   }
 );
 

@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v963 (2026-09-17)** — Expiración 15d para `state='confirmed'` (sin tier). Después de 15d el stock queda libre en la app (SQ sigue viva en SAP). Badge amarillo `VENCIDA Nd` en modal Stock Asignado. Fase A del plan tier-based SAP. Ver §41. |
-| **APP_VERSION** | `v963` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v964 (2026-09-17)** — Fase B+C tier-based SAP: CF `sqCancelExpiredCF` diaria 04:30 en shadow mode (default) que loguea SQs candidatas. Fase C (auto-cancel real via SL) detrás de feature flag. 5 salvaguardas + 3 audit logs. Ver §41. |
+| **APP_VERSION** | `v964` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,64 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v963
+## 41) Changelog v300 → v964
+
+### v964 (2026-09-17) — Fase B+C: CF `sqCancelExpiredCF` (shadow por default, active detrás de feature flag)
+
+Continúa el trabajo de v963 (Fase A). Ahora tenemos infraestructura completa para auto-cancelar SQs en SAP cuando su línea confirmed >15d. Deploy en **shadow mode** (cero riesgo).
+
+**Nuevos archivos**:
+- `functions/core/sq-cancel-core.js` — lógica pura (scan + verify + cancel + mark)
+- `functions/index.js` — CF `sqCancelExpiredCF` con cron diario 04:30 ART
+- `tests/functions/sq-cancel.test.js` — 19 tests unitarios (403+19 = 422 en suite full)
+- `firestore.rules` — 3 collections nuevas admin-read: `sq_cancel_log_shadow`, `sq_cancel_log`, `sq_cancel_skipped_log`
+
+**Modos operativos**:
+
+| Modo | Setting | Comportamiento |
+|---|---|---|
+| **shadow** (default) | `sqCancelMode` no seteado o != 'active' | Log a `sq_cancel_log_shadow/{iso}` con candidatas. NO ejecuta cancel en SAP ni cambia state en Firestore. |
+| **active** (Fase C) | `app_config/sap_sync_state.sqCancelMode = 'active'` | Verifica cada SQ + salvaguardas + cancela via SL + marca linea `state='cancelled'` + log audit. |
+
+**Salvaguardas Fase C** (todas obligatorias, cualquier fail → skip + log):
+1. `pedido.transferidoSAP.docNum` debe existir (viajó a SAP)
+2. SAP: `DocumentStatus === 'bost_Open'`
+3. SAP: `Cancelled === 'tNO'`
+4. SAP: ninguna línea con `TargetType=15` (Delivery) o `17` (Order)
+5. Si login SL falla → cae automáticamente a shadow
+
+**Firestore schema por cada línea cancelada** (Fase C):
+```js
+{
+  state: 'cancelled',
+  cancelledAt: ISO,
+  cancelledReason: 'sq_ttl_expired',
+  cancelledByCF: 'sqCancelExpiredCF',
+  qtyOpen: 0,
+}
+```
+
+**Audit logs**:
+- `sq_cancel_log_shadow/{iso}` — Fase B (candidatos identificados sin acción)
+- `sq_cancel_log/{iso}` — Fase C (ejecuciones reales con counts)
+- `sq_cancel_skipped_log/{iso}` — Fase C (skips con motivo por salvaguarda)
+
+**Cronograma**:
+- **Hoy**: deploy Fase B. Cron corre diario a las 04:30 en shadow → escribe log con candidatos.
+- **1 semana**: revisar logs. Confirmar que candidatas coinciden con lo esperado y no hay falsos positivos.
+- **Cambio a Fase C**: `firebase firestore:document:update app_config/sap_sync_state { sqCancelMode: 'active' }` — sin re-deploy.
+
+**Tests: 19 nuevos**, foco en escenarios de salvaguardas y modos:
+- Escanea correcto con confirmed >15d + transferidoSAP
+- Skip pedidos <15d, sin SAP, cerrados, sin lineas abiertas
+- Verify: Open+sin Delivery → OK, cerrada/con Delivery/Order → skip
+- Cancel: happy path POST /Cancel al DocEntry correcto
+- Race defense: `markLinesCancelled` no pisa si state ya cambió
+- Shadow: NO llama a SL, log al `_shadow` collection
+- Active: cancela + marca + log real
+- Active + Delivery: skip + log al `_skipped`
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v964`. Deploy: `firebase deploy --only functions:sqCancelExpiredCF,firestore:rules`.
 
 ### v963 (2026-09-17) — Expiración 15d para `state='confirmed'` + badge VENCIDA (Fase A tier-based SAP)
 
