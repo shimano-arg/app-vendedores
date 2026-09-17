@@ -1561,12 +1561,18 @@ function _resolveFantasiaForPedido(p) {
   }
   const altas = /** @type {any} */ (globalThis).approvedAltasList;
   if (Array.isArray(altas)) {
-    const nameLower = String(p.clientName || '').trim().toLowerCase();
+    const nameLower = String(p.clientName || '')
+      .trim()
+      .toLowerCase();
     if (nameLower) {
       const match = altas.find((a) => {
         if (!a) return false;
-        const c = String(a.comercio || '').trim().toLowerCase();
-        const f = String(a.fantasia || '').trim().toLowerCase();
+        const c = String(a.comercio || '')
+          .trim()
+          .toLowerCase();
+        const f = String(a.fantasia || '')
+          .trim()
+          .toLowerCase();
         return c === nameLower || f === nameLower;
       });
       if (match && match.fantasia && String(match.fantasia).trim()) {
