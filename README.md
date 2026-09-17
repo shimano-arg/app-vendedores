@@ -4670,7 +4670,13 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v976
+## 41) Changelog v300 → v977
+
+### v977 (2026-09-17) — Renombrar título modal a "Stock Asignado"
+
+Pedido Mariano: acortar `Stock Asignado (BO que ya está disponible)` → `Stock Asignado`. El subtítulo debajo ("Llegó mercadería: buscá el SKU...") ya explica el propósito. Cambio de `innerHTML` a `textContent` en el mismo commit (seguridad + suficiente para texto plano).
+
+`APP_VERSION` + `CACHE_VERSION` → v977.
 
 ### v976 (2026-09-17) — CF `computePerSku`: aplicar `lineReservesStock` (vencidas + B/C no cuentan)
 
