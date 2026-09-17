@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v969';
+const APP_VERSION = 'v970';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15324,15 +15324,9 @@ function _renderWaitlistSidebar(){
     const info = document.createElement('span');
     info.textContent = tsStr + ' · ' + (w.items || []).length + ' SKU · ' + totalUnid + 'u';
     meta.appendChild(info);
-    const badge = document.createElement('span');
-    if (excedentes > 0) {
-      badge.className = 'slft-wl-badge exceed';
-      badge.textContent = excedentes + ' exc.';
-    } else {
-      badge.className = 'slft-wl-badge ok';
-      badge.textContent = 'OK';
-    }
-    meta.appendChild(badge);
+    // v970 (2026-09-17): badge 'N exc.' / 'OK' removido a pedido de Mariano —
+    // ruido visual, el color del card (has-exceed → fondo rosado + borde rojo)
+    // ya comunica que hay excedentes, y el detalle esta en la card abierta.
     item.appendChild(meta);
     rows.appendChild(item);
   });
