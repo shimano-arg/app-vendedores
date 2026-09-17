@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v964';
+const APP_VERSION = 'v965';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -7442,20 +7442,9 @@ function deptStyle(feat){
         opacity: 0.9,
       };
     }
-    return {
-      fillColor: fill,
-      fillOpacity: 0.30,
-      // v356: stroke del mismo color que el fill + misma opacity para tapar
-      // los micro-gaps entre depts adyacentes causados por Douglas-Peucker
-      // (v351) + smoothFactor 3.0 (v354): cada dept se simplifica
-      // independientemente, sus bordes no coinciden pixel-perfect con los
-      // vecinos, aparece el fondo blanco entre ellos. Un stroke sutil del
-      // mismo color tapa esos gaps SIN verse como linea visible (mismo
-      // opacity que fill = mismo tono aparente).
-      color: fill,
-      weight: 1,
-      opacity: 0.30,
-    };
+    // v965 (2026-09-17): fill viene de vendorFillLayer (una sola geometria
+    // union por vendor, sin microgaps). Aca dejamos el dept transparente.
+    return {fillOpacity: 0, stroke: false, interactive: false};
   }
   // currentVendor === 'ALL' (admin/viewer pasa por aca, VDI con todas mis
   // zonas tambien pasa aca pero solo despues del filtro effSet de arriba).
@@ -7465,20 +7454,9 @@ function deptStyle(feat){
   if (!deptMatchesLocality(feat)) {
     return {fillOpacity: 0, opacity: 0, weight: 0, interactive: false};
   }
-  const fill = vm ? vm.color : '#cbd5e1';
-  const fo = vm ? 0.22 : 0.05;
-  return {
-    fillColor: fill,
-    fillOpacity: fo,
-    // v356: stroke sutil del mismo color y misma opacity que el fill —
-    // tapa los micro-gaps entre depts adyacentes (simplificacion
-    // independiente por Douglas-Peucker + smoothFactor). Mismo tono
-    // aparente que el fill, no se ve como linea de borde. El contorno
-    // externo grueso de la zona lo sigue dibujando vendorOutlineLayer.
-    color: fill,
-    weight: 1,
-    opacity: fo,
-  };
+  // v965 (2026-09-17): vista general (ALL) — mismo tratamiento: fill viene
+  // de vendorFillLayer (union sin gaps), dept transparente.
+  return {fillOpacity: 0, stroke: false, interactive: false};
 }
 
 // Filtra de un FeatureCollection las geometrias enteramente en la
@@ -7536,12 +7514,19 @@ const deptLayer = L.geoJSON(_filterOutAntarctica(DEPT_GEO), {
 // con el color del vendor. La capa de deptos individuales conserva el
 // fill pero su weight de borde se baja casi a 0 para que las localidades
 // no se vean separadas - solo el contorno general de la zona.
+// v965 (2026-09-17): vendorFillLayer se crea PRIMERO para que Leaflet lo
+// pinte debajo de vendorOutlineLayer. El fill viene de la geometria union
+// (una por vendor, sin microgaps entre depts) y reemplaza al fill que hasta
+// v964 hacia deptLayer por depto individual.
+let vendorFillLayer = L.layerGroup().addTo(map);
 let vendorOutlineLayer = L.layerGroup().addTo(map);
-let _vendorOutlinesCache = null; // {vendor: [[[lat,lng],[lat,lng]], ...]}
+let _vendorOutlinesCache = null; // {vendor: [{outer, inners}, ...]} (v965)
 // Cache de localStorage: invalida si subimos esta version cuando cambia
 // el DEPT_GEO. Asi la primera carga tarda 1-2s pero las siguientes son
 // instantaneas (las polilineas ya estan calculadas y guardadas).
-const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v12';
+// v965 (2026-09-17): bumped v12→v13 porque el shape del cache cambió
+// de [polyline] a [{outer, inners}]. Invalida caches viejos.
+const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v13';
 // Firma del estado que impacta en los outlines: si el usuario reasigna
 // zonas en el modal ZONAS, la firma cambia -> cache stale -> se recomputa
 // en el proximo load automaticamente (sin tener que apretar el boton
@@ -7739,15 +7724,33 @@ function _buildVendorOutlinesCache(){
       merged = unionTree(mps);
       if (!merged) { out[vendor] = []; return; }
     }
-    const polylines = [];
+    // v965 (2026-09-17): guardar polygons completos (outer + inner rings) en
+    // lugar de solo polylines outer. Esto permite dibujar el fill sin
+    // microgaps entre depts vecinos del mismo vendor (los gaps existen porque
+    // los vertices INDEC no matchean pixel-perfect). Al pintar el fill desde
+    // el union polygon (una sola geometria continua por vendor), no hay
+    // manera de que aparezcan lineas del fondo.
+    // Estructura: outlines[vendor] = [{outer: [[lat,lng],...], inners: [[[lat,lng],...],...]}, ...]
+    // outer se sigue usando para el borde (drawVendorOutlines) via poly.outer.
+    const polygons = [];
     merged.forEach(poly => {
       if (!poly.length) return;
       const outer = poly[0];
       if (outer.length < 4) return;
       if (ringPerim(outer) < 0.3) return;
-      polylines.push(outer.map(c => [c[1], c[0]]));
+      const inners = [];
+      for (let ii = 1; ii < poly.length; ii++) {
+        const inner = poly[ii];
+        if (inner && inner.length >= 4) {
+          inners.push(inner.map(c => [c[1], c[0]]));
+        }
+      }
+      polygons.push({
+        outer: outer.map(c => [c[1], c[0]]),
+        inners: inners,
+      });
     });
-    out[vendor] = polylines;
+    out[vendor] = polygons;
   });
   _vendorOutlinesCache = out;
   const summary = Object.keys(out).map(v => v + '(' + (out[v] || []).length + 'p)');
@@ -7769,7 +7772,11 @@ function _buildVendorOutlinesCache(){
 function drawVendorOutlines(){
   vendorOutlineLayer.clearLayers();
   // Modo DISTRIBUIDORES no muestra outlines de vendor (solo deptos en azul marino).
-  if (currentTypeFilter === 'DISTRIBUIDORES') return;
+  if (currentTypeFilter === 'DISTRIBUIDORES') {
+    // Aun asi, limpiar el fill layer para no mostrar fills stale.
+    try { if (typeof drawVendorFills === 'function') drawVendorFills(); } catch(_e) {}
+    return;
+  }
   const outlines = _buildVendorOutlinesCache();
   const effSet = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
   Object.keys(outlines).forEach(vendor => {
@@ -7783,20 +7790,65 @@ function drawVendorOutlines(){
     }
     const vm = (typeof vendorLookup !== 'undefined') ? vendorLookup[vendor] : null;
     const color = vm ? vm.color : '#475569';
-    const polylines = outlines[vendor] || [];
+    const polygons = outlines[vendor] || [];
     // Cuanto mas filtrado, mas grueso el borde para mayor enfasis.
     const weight = (currentVendor !== 'ALL') ? 3.5 : 2.5;
-    polylines.forEach(ll => {
-      L.polyline(ll, {
+    // v965: soportar tanto formato nuevo ({outer, inners}) como legacy (array).
+    polygons.forEach(entry => {
+      const outer = Array.isArray(entry) ? entry : (entry && entry.outer);
+      if (!outer || !outer.length) return;
+      L.polyline(outer, {
         color: color,
         weight: weight,
         opacity: 0.92,
         lineCap: 'round',
         lineJoin: 'round',
         interactive: false,
-        // v354: simplifica los vertices casi colineales antes de rendear.
         smoothFactor: 3.0,
       }).addTo(vendorOutlineLayer);
+    });
+  });
+  // v965 (2026-09-17): repintar fills en la misma pasada. El fill viene de
+  // la misma geometria union → cero microgaps entre depts. drawVendorFills
+  // hace su propio clearLayers, es idempotente.
+  try { drawVendorFills(); } catch(e) { console.warn('drawVendorFills', e); }
+}
+
+// v965 (2026-09-17): drawVendorFills — pinta el fill de la zona de cada
+// vendor usando la geometria union (declarada arriba en vendorFillLayer).
+function drawVendorFills(){
+  vendorFillLayer.clearLayers();
+  if (currentTypeFilter === 'DISTRIBUIDORES') return;
+  // Solo dibujamos fills en la vista "sin filtro fino": cuando el usuario
+  // filtra por localidad o provincia especifica, ya deptLayer dibuja el
+  // color en los depts que corresponden. Fill union solo tiene sentido en
+  // la vista general.
+  if (currentLocality !== 'ALL') return;
+  if (currentProvince !== 'ALL' && currentVendor === 'ALL') return;
+  const outlines = _buildVendorOutlinesCache();
+  const effSet = (typeof getEffectiveVendorSet === 'function') ? getEffectiveVendorSet(currentVendor) : null;
+  Object.keys(outlines).forEach(vendor => {
+    if (effSet && !effSet.has(vendor)) return;
+    const vm = (typeof vendorLookup !== 'undefined') ? vendorLookup[vendor] : null;
+    const color = vm ? vm.color : '#94a3b8';
+    // Opacidad del fill mimicka la que usaba deptStyle:
+    // - Filtro por vendor / vendor+provincia: 0.30
+    // - Vista general (ALL): 0.22
+    const fillOpacity = (currentVendor !== 'ALL') ? 0.30 : 0.22;
+    const polygons = outlines[vendor] || [];
+    polygons.forEach(entry => {
+      const outer = Array.isArray(entry) ? entry : (entry && entry.outer);
+      if (!outer || !outer.length) return;
+      const inners = (entry && entry.inners) ? entry.inners : [];
+      const rings = [outer].concat(inners);
+      L.polygon(rings, {
+        fillColor: color,
+        fillOpacity: fillOpacity,
+        // Sin stroke — el borde lo dibuja vendorOutlineLayer.
+        stroke: false,
+        interactive: false,
+        smoothFactor: 3.0,
+      }).addTo(vendorFillLayer);
     });
   });
 }

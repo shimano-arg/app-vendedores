@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v964 (2026-09-17)** — Fase B+C tier-based SAP: CF `sqCancelExpiredCF` diaria 04:30 en shadow mode (default) que loguea SQs candidatas. Fase C (auto-cancel real via SL) detrás de feature flag. 5 salvaguardas + 3 audit logs. Ver §41. |
-| **APP_VERSION** | `v964` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v965 (2026-09-17)** — Mapa: fix microgaps al zoom alto. Fill de zonas ahora se dibuja desde la geometría union por vendor (una geometría continua), no desde depts individuales. Cero líneas blancas entre depts del mismo vendor. Ver §41. |
+| **APP_VERSION** | `v965` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,45 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v964
+## 41) Changelog v300 → v965
+
+### v965 (2026-09-17) — Mapa: fill de zonas desde geometría union (elimina microgaps al zoom alto)
+
+Reporte Mariano 2026-09-17 con captura: al hacer zoom alto se ven líneas blancas del fondo del mapa **entre depts vecinos del mismo vendor**. Los vértices INDEC no coinciden pixel-perfect entre depts colindantes → aparecen gaps de 1-5px visibles.
+
+**Root cause**: hasta v964, el fill se pintaba **por depto individual** (`deptLayer` con `fillColor` en `deptStyle`). Cada depto era un path separado en el canvas — el fondo del mapa se veía en los intersticios. El truco de v356 (`color: fill, weight: 1, opacity: 0.30`) no alcanzaba porque:
+- `weight: 1` = 1 px, y a zoom alto los gaps son >1 px
+- `opacity: 0.30` = demasiado transparente para tapar el fondo
+
+**Fix**: dibujar el fill desde la **misma geometría union** que ya usábamos para los outlines (`_vendorOutlinesCache`). Al ser un solo polígono continuo por vendor (resultado del `polygon-clipping.union`), no hay intersticios donde el fondo pueda escaparse.
+
+**Cambios en `index.html`**:
+
+1. **Cache format bump** (`VENDOR_OUTLINES_CACHE_KEY: v12 → v13`) — el cache ahora guarda `{outer, inners}` en vez de `[polyline]` para soportar polígonos con huecos.
+
+2. **`_buildVendorOutlinesCache`** (~línea 7742): guarda outer + inner rings, no solo outer:
+```js
+polygons.push({
+  outer: outer.map(c => [c[1], c[0]]),
+  inners: inners,
+});
+```
+
+3. **Nueva capa `vendorFillLayer`** (línea 7517) creada ANTES de `vendorOutlineLayer` para que Leaflet la pinte debajo:
+```js
+let vendorFillLayer = L.layerGroup().addTo(map);
+let vendorOutlineLayer = L.layerGroup().addTo(map);
+```
+
+4. **Nueva función `drawVendorFills()`** que itera `_vendorOutlinesCache` y dibuja `L.polygon(rings, {fillColor, fillOpacity, stroke: false})` — sin stroke porque el borde lo maneja `vendorOutlineLayer`. Se llama al final de `drawVendorOutlines()` (mismo trigger, sin tocar los 8 call sites).
+
+5. **`deptStyle` simplificado**: en las 2 ramas donde antes retornaba `fillColor + weight: 1 + opacity: 0.30`, ahora retorna `{fillOpacity: 0, stroke: false, interactive: false}`. El fill lo hace `vendorFillLayer`. La rama de "localidad filtrada" mantiene el fill del dept (útil para ver el partido específico resaltado).
+
+**Retrocompat**: `drawVendorOutlines` soporta tanto el formato viejo `[polyline]` como el nuevo `{outer, inners}` durante la transición del localStorage cache.
+
+**Performance**: cero regresión. El `polygon-clipping.union` ya se ejecutaba para los outlines; solo cambia que reutilizamos el output para el fill. Un polígono por vendor en vez de 3000 depts → **más rápido** en el paint del canvas.
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v965`. Deploy: GH Pages auto.
 
 ### v964 (2026-09-17) — Fase B+C: CF `sqCancelExpiredCF` (shadow por default, active detrás de feature flag)
 
