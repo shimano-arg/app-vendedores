@@ -277,30 +277,52 @@ function renderProductPicker() {
         disp +
         ' libres</span>';
     }
+    // v980 (2026-09-17): color del punto alineado con "libre para la venta"
+    // (getStockRealmenteDisponible). Antes verde = hay fisico dep 11 (aunque
+    // todo estuviera reservado app) -> vendedor pensaba "tengo stock" y no.
+    // Ahora:
+    //   VERDE = hay libres para vender YA (disp > 0)
+    //   AMBAR = no vendible YA pero eventualmente (todo reservado app O hay
+    //           transito dep 12)
+    //   ROJO = sin fisico y sin transito
+    //   GRIS = sin datos
     let stockDot = '';
-    if (stockSt === true && disp != null && disp === 0 && trans != null && trans > 0) {
-      // Ambar: 0 disponible pero N en transito -> se puede prometer con fecha estimada.
-      stockDot =
-        '<span class="stock-dot" style="background:var(--color-warning)" title="0 disponible en deposito 11 pero ' +
-        trans +
-        ' unidades en transito (deposito 12) — se puede vender como backorder"></span>';
-    } else if (stockSt === true) {
-      // v705: tooltip enriquecido con desglose fisico vs real.
-      const t =
-        disp != null
-          ? 'Disponible real (fisico - compromisos-app): ' +
-            disp +
-            ' uds' +
-            (dispFisico != null && dispFisico !== disp
-              ? ' (fisico dep 11: ' + dispFisico + ', reservado: ' + (dispFisico - disp) + ')'
-              : '') +
-            (trans > 0 ? ' + ' + trans + ' en transito' : '')
-          : 'Disponible en depositos vendibles';
-      stockDot = '<span class="stock-dot ok" title="' + escapeAttr(t) + '"></span>';
+    if (stockSt === null) {
+      stockDot = '<span class="stock-dot na" title="Sin datos de stock"></span>';
     } else if (stockSt === false) {
       stockDot = '<span class="stock-dot no" title="Sin stock en ningun deposito vendible"></span>';
+    } else if (disp != null && disp > 0) {
+      // Verde: hay libres para venta hoy.
+      const tOk =
+        'Disponible real (fisico - compromisos-app): ' +
+        disp +
+        ' uds' +
+        (dispFisico != null && dispFisico !== disp
+          ? ' (fisico dep 11: ' + dispFisico + ', reservado: ' + (dispFisico - disp) + ')'
+          : '') +
+        (trans > 0 ? ' + ' + trans + ' en transito' : '');
+      stockDot = '<span class="stock-dot ok" title="' + escapeAttr(tOk) + '"></span>';
     } else {
-      stockDot = '<span class="stock-dot na" title="Sin datos de stock"></span>';
+      // Ambar: fisico > 0 pero todo reservado app, O 0 fisico + hay transito.
+      // En ambos casos se puede prometer como backorder.
+      let tWarn;
+      if (dispFisico != null && dispFisico > 0) {
+        tWarn =
+          'Fisico dep 11: ' +
+          dispFisico +
+          ' pero todo reservado por otros pedidos-app (libre para la venta: 0)' +
+          (trans > 0 ? ' + ' + trans + ' en transito' : '') +
+          ' — se puede vender como backorder';
+      } else {
+        tWarn =
+          '0 disponible en deposito 11' +
+          (trans > 0 ? ' pero ' + trans + ' unidades en transito (deposito 12)' : '') +
+          ' — se puede vender como backorder';
+      }
+      stockDot =
+        '<span class="stock-dot" style="background:var(--color-warning)" title="' +
+        escapeAttr(tWarn) +
+        '"></span>';
     }
     html +=
       '<div class="' +
