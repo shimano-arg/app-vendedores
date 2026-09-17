@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v961 (2026-09-17)** — HOTFIX OCR rendiciones: mensaje de error cuando AppCheck falla ahora incluye instrucciones completas (5 pasos) para que el VDE auto-resuelva el throttle 24h de reCAPTCHA. Antes se cortaba a 120 chars. Ver §41. |
-| **APP_VERSION** | `v961` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v962 (2026-09-17)** — Modal Stock Asignado incluye `state='confirmed'` con badge "EN SAP" (sin botón Eliminar). Col UNIDADES RESERVADAS del modal Pedido en Espera vuelve a mostrar confirmed+ASIG → resta visible cierra. Reversal parcial de v767. Ver §41. |
+| **APP_VERSION** | `v962` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,61 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v961
+## 41) Changelog v300 → v962
+
+### v962 (2026-09-17) — Modal Stock Asignado incluye `confirmed` + col UNIDADES RESERVADAS cierra
+
+Pedido Mariano 2026-09-17 tras thread de FABIAN CEFERINO GARRONE ORDEN 174: buscaba CAPGL2401 (gorras Loomis) en el modal Stock Asignado y decía "Sin resultados", pero en el modal Pedido en Espera veía Stock=25, Reservadas=0, Libre=0 — no cerraba visualmente. Root cause: había 32u en `state='confirmed'` (SQ ya en SAP) que:
+
+1. **Modal Stock Asignado** filtraba con `l.state !== 'BO' && l.state !== 'ASIG' continue` → las 32u no aparecían.
+2. **Columna UNIDADES RESERVADAS** mostraba solo ASIG (v767) — daba 0 aunque hubiera 32 comprometidas.
+3. **Fórmula Libre = dep11 − (confirmed+BO+ASIG)** SÍ contaba las 32 → daba 0.
+
+Resultado: la resta visible `STOCK − RESERVADAS = LIBRE` no cerraba, el VDE no entendía dónde estaban las gorras, y las líneas `confirmed` quedaban "olvidadas" en la vista (aunque restaban stock).
+
+**Filosofía del fix (validada con Mariano)**:
+> "No traer nada de SAP. Solo respetar la lógica BO/ASIG existente. Pero evitar olvidar cosas que están en SAP porque las envió la app."
+
+Todas las líneas `confirmed` app-source YA están en Firestore (fueron creadas por la app y persisten con `l.state='confirmed'`). Solo hace falta mostrarlas.
+
+**Cambios en `index.html`**:
+
+1. **Modal Stock Asignado/Backorder (`renderBackordersTab` línea 13037)** — incluir también `state='confirmed'`:
+```js
+// Antes:
+if (l.state !== 'BO' && l.state !== 'ASIG') continue;
+// Después:
+if (l.state !== 'BO' && l.state !== 'ASIG' && l.state !== 'confirmed') continue;
+```
+
+2. **Cap FIFO (línea 13100+)** — las `confirmed` tienen prioridad igual que ASIG (ya viajaron a SAP, son "asignadas duras"). Antes solo ASIG entraba al Paso 1; `confirmed` caía al Paso 2 como competidor contra BO — incorrecto porque `confirmed >>> BO` en prioridad de facturación.
+
+3. **Badge visual (línea 13340+)** — nuevo badge azul `EN SAP` para líneas `state='confirmed'`:
+```html
+<span title="Linea state=confirmed: ya se envio a SAP como Oferta de Venta (SQ). La app la muestra para tracking pero NO se puede eliminar aca — cancelar la SQ en SAP con Santi.">EN SAP</span>
+```
+
+4. **Sin botón Eliminar para `confirmed`** — `_isConfirmedApp = c.source === 'app' && c.state === 'confirmed'`; el botón se skipea. Rationale: borrar la línea en Firestore NO cancela la SQ en SAP → sería una acción engañosa. Si hay que cancelar, coordinar con Santi.
+
+5. **Columna UNIDADES RESERVADAS (línea 18320+)** — vuelve a incluir confirmed:
+```js
+// Antes (v767): const asigOnly = desg.breakdown.ASIG || 0;
+// Después (v962):
+const asigConfirmed = (desg.breakdown.ASIG || 0) + (desg.breakdown.confirmed || 0);
+```
+
+Ahora la resta visible `STOCK - RESERVADAS ≈ LIBRE` cierra (salvo cuando hay BO adicionales que tampoco cuentan como stock disponible). Tooltip explícito con breakdown.
+
+6. **Headers de tabla actualizados**: `<th title="Unidades reservadas = confirmed (ya en SAP) + ASIG (asignado FIFO). No incluye BO porque son unidades sin stock.">`
+
+**Impacto operativo esperado**:
+- VDE busca cualquier SKU en modal Stock Asignado → ve TODOS los clientes que lo tienen tomado (BO + ASIG + EN SAP)
+- Columna UNIDADES RESERVADAS del modal Pedido en Espera cierra visualmente
+- Las `confirmed` no se pueden borrar desde la app — cambio de proceso: cancelaciones se hacen con Santi (correcto).
+
+**Reversal de v767**: la decisión v767 de mostrar solo ASIG en UNIDADES RESERVADAS quedó obsoleta con este cambio. La consistencia con el modal Stock Asignado se mantiene porque **ambos ahora incluyen confirmed**.
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v962`. Deploy: GH Pages auto (solo frontend, sin CF ni rules).
 
 ### v961 (2026-09-17) — HOTFIX: mensaje OCR rendiciones cuando AppCheck falla
 
