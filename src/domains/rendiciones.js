@@ -74,36 +74,56 @@ async function extractTicketDataWithGemini(dataUrl) {
       );
     }
     if (code === 'functions/unauthenticated' || code === 'functions/permission-denied') {
-      // v961 (2026-09-17): mejorar mensaje. La causa mas comun no es sesion
-      // expirada sino throttle 24h de reCAPTCHA v3 (App Check). Ver
-      // memory/reference_appcheck_throttle_24h.md — el SDK Firebase se
-      // auto-throttlea cuando recibe repetidos 403 y bloquea todos los
-      // requests por-browser por 24hs. Fix desde el user: borrar datos del
-      // sitio y volver a entrar. Cerrar y reabrir la app SOLA no alcanza
-      // porque el throttle esta persistido en IndexedDB.
-      const isThrottle = /throttl/i.test(msg) || /appCheck/i.test(msg);
-      const instrucciones =
-        'Hace esto en tu telefono:\n' +
-        '1) Abri el menu del navegador (los 3 puntitos)\n' +
-        '2) Buscá "Configuracion" o "Ajustes del sitio"\n' +
-        '3) Busca "shimano-arg.github.io" y toca "Borrar datos" o "Restablecer permisos"\n' +
-        '4) Cerra el navegador y volvé a abrir la app\n' +
-        '5) Volve a loguearte con Google\n\n' +
-        'Si sigue fallando, avisale a Mariano.';
-      throw new Error(
-        (isThrottle
-          ? 'La verificacion de seguridad esta bloqueada por 24hs (sucede raro).'
-          : 'Sesion expirada o problema de permisos.') +
-          '\n\n' +
-          instrucciones
-      );
-    }
-    if (code === 'functions/failed-precondition') {
+      // v985 (2026-09-17): Fix reporte VDE. Antes solo mostrabamos el error
+      // sin intentar recovery. Ahora hacemos 2 cosas:
+      //   1. force-refresh del AppCheck token (resuelve tokens stale)
+      //   2. retry del callable con el token fresco
+      // Si el retry funciona, el user no se entera del error.
+      // Si tambien falla, mensaje mejorado tratando AppCheck throttle como
+      // causa principal (es la mas comun; reCAPTCHA v3 se auto-throttlea 24h
+      // por-browser cuando detecta comportamiento "raro" o recibe repetidos
+      // 403). Fix definitivo desde el user: Clear Site Data.
+      console.warn('[OCR rendicion] callable fallo, intentando refresh AppCheck + retry', {
+        code,
+        msg,
+      });
+      let retryOk = false;
+      try {
+        if (typeof firebase !== 'undefined' && firebase.appCheck) {
+          // force refresh — devuelve un token nuevo o lanza si throttle real
+          await firebase.appCheck().getToken(true);
+          res = await Promise.race([callable({ imageBase64, mimeType }), timeoutPromise]);
+          retryOk = true;
+          console.log('[OCR rendicion] retry con refresh exitoso');
+        }
+      } catch (retryErr) {
+        console.warn('[OCR rendicion] retry con refresh tambien fallo', {
+          retryCode: retryErr && retryErr.code,
+          retryMsg: retryErr && retryErr.message,
+        });
+      }
+      if (!retryOk) {
+        const instrucciones =
+          'Hace esto en tu telefono:\n' +
+          '1) Abri el menu del navegador (los 3 puntitos)\n' +
+          '2) Buscá "Configuracion" o "Ajustes del sitio"\n' +
+          '3) Busca "shimano-arg.github.io" y toca "Borrar datos" o "Restablecer permisos"\n' +
+          '4) Cerra el navegador y volvé a abrir la app\n' +
+          '5) Volve a loguearte con Google\n\n' +
+          'Si sigue fallando, avisale a Mariano.';
+        throw new Error(
+          'La verificacion de seguridad (App Check) esta bloqueada — reCAPTCHA v3 se auto-throttlea 24h.\n\n' +
+            instrucciones
+        );
+      }
+      // retryOk===true → seguimos con el flow normal, `res` tiene el resultado
+    } else if (code === 'functions/failed-precondition') {
       throw new Error('El OCR no esta configurado en el servidor. Avisale a Mariano.');
+    } else {
+      // v961: log detallado para diagnostico. Mantener el mensaje al user simple.
+      console.warn('[OCR rendicion] callable failed', { code, msg, err: e });
+      throw new Error('OCR fallo: ' + msg);
     }
-    // v961: log detallado para diagnostico. Mantener el mensaje al user simple.
-    console.warn('[OCR rendicion] callable failed', { code, msg, err: e });
-    throw new Error('OCR fallo: ' + msg);
   }
   const parsed = res && res.data;
   if (!parsed || typeof parsed !== 'object') {
