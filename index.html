@@ -5095,7 +5095,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
                 <th style="text-align:left;padding:6px 8px">SKU</th>
                 <th style="text-align:left;padding:6px 8px">Producto</th>
                 <th style="text-align:right;padding:6px 8px" title="Stock fisico en el deposito 11 vendible. NO incluye dep 12 transito.">Stock completo (dep 11)</th>
-                <th style="text-align:right;padding:6px 8px" title="Unidades reservadas a otros clientes (state=ASIG en pedidos-app). Consistente con el modal STOCK ASIGNADO.">Unidades reservadas</th>
+                <th style="text-align:right;padding:6px 8px" title="Unidades reservadas = confirmed (ya en SAP) + ASIG (asignado FIFO). Consistente con el modal STOCK ASIGNADO que ahora tambien incluye confirmed (v962).">Unidades reservadas</th>
                 <th style="text-align:right;padding:6px 8px;background:var(--color-success-bg);color:#14532d" title="Stock completo (dep 11) - Unidades reservadas. Es lo que podes prometer al cliente HOY.">Libre para la venta</th>
                 <th style="text-align:right;padding:6px 8px">Pedido cliente</th>
                 <th style="text-align:right;padding:6px 8px;background:#dbeafe;color:var(--text-primary)" title="Pedido Final = min(Pedido cliente, Libre para la venta). Lo que efectivamente va a SAP como confirmed. El resto cae en Backorder App.">Pedido final</th>
@@ -5251,7 +5251,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
               <th style="text-align:center;padding:6px 8px">SKU</th>
               <th style="text-align:left;padding:6px 8px">Producto</th>
               <th style="text-align:center;padding:6px 8px" title="Stock fisico completo en deposito 11">Stock completo (dep 11)</th>
-              <th style="text-align:center;padding:6px 8px" title="Unidades comprometidas en pedidos-app open (confirmed + BO + ASIG). Hover: breakdown por state.">Unidades reservadas</th>
+              <th style="text-align:center;padding:6px 8px" title="Unidades reservadas = confirmed (ya en SAP) + ASIG (asignado FIFO). No incluye BO porque son unidades sin stock. Hover: breakdown por state.">Unidades reservadas</th>
               <th style="text-align:center;padding:6px 8px;background:var(--color-success-bg);color:#14532d" title="Stock realmente disponible = Stock completo - Unidades reservadas. Es lo que podes prometer al cliente HOY.">Libre para la venta</th>
               <!-- v726 (2026-08-28): rename Pedido -> Pedido Original para diferenciarla claramente de Pedido Final. -->
               <th style="text-align:center;padding:6px 8px" title="Cantidad ORIGINAL que pidio el cliente (antes del split contra stock disponible)">Pedido Original</th>
@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v961';
+const APP_VERSION = 'v962';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13034,7 +13034,11 @@ window.renderBackordersTab = function(){
       if (p.stage !== 'confirmed') continue;
       for (const l of p.lines) {
         if (!l || !l.code) continue;
-        if (l.state !== 'BO' && l.state !== 'ASIG') continue;
+        // v962 (2026-09-17): incluir tambien state='confirmed' (SQ enviada a
+        // SAP). Antes solo BO+ASIG — pedido Mariano para que la app no "olvide"
+        // las lineas que ya viajaron a SAP. Se marcan visualmente con badge
+        // 'EN SAP' y NO tienen boton Eliminar (SAP es la fuente de verdad).
+        if (l.state !== 'BO' && l.state !== 'ASIG' && l.state !== 'confirmed') continue;
         const qtyOpen = Number(l.qtyOpen || 0);
         if (qtyOpen <= 0) continue;
         const sku = String(l.code).toUpperCase();
@@ -13099,11 +13103,17 @@ window.renderBackordersTab = function(){
     // Ahora se respeta el tope fisico y el excedente cae a qtyBackorder.
     // Reportado por Mariano 2026-09-16 con CVC66MH4SACO (21 disp / 23 asig).
     //
-    // Paso 1: APP-ASIG consume primero por FIFO de fecha (mas viejo gana)
-    // pero respetando el cap fisico dispSap.
-    const asigAppClientes = g.clientes.filter(c => c.source === 'app' && c.state === 'ASIG');
-    asigAppClientes.sort((a, b) => (a.sqDocDate || '').localeCompare(b.sqDocDate || ''));
-    for (const c of asigAppClientes) {
+    // Paso 1: APP-ASIG + APP-confirmed consumen primero por FIFO de fecha
+    // (mas viejo gana) pero respetando el cap fisico dispSap.
+    // v962 (2026-09-17): confirmed tiene la misma prioridad que ASIG (ya
+    // enviada a SAP como SQ) — no compite con BO. Antes solo ASIG estaba en
+    // este paso, confirmed caia como "competidor" contra BO en Paso 2 lo cual
+    // era incorrecto porque confirmed >>> BO en prioridad de facturacion.
+    const prioritarios = g.clientes.filter(c =>
+      c.source === 'app' && (c.state === 'ASIG' || c.state === 'confirmed')
+    );
+    prioritarios.sort((a, b) => (a.sqDocDate || '').localeCompare(b.sqDocDate || ''));
+    for (const c of prioritarios) {
       const asignable = Math.min(c.pendiente, Math.max(0, restante));
       c.qtyAsignada = asignable;
       c.qtyBackorder = c.pendiente - asignable;
@@ -13111,7 +13121,9 @@ window.renderBackordersTab = function(){
     }
     if (restante < 0) restante = 0;
     // Paso 2: competidores (SAP + APP-BO) ordenados FIFO.
-    const competidores = g.clientes.filter(c => !(c.source === 'app' && c.state === 'ASIG'));
+    const competidores = g.clientes.filter(c =>
+      !(c.source === 'app' && (c.state === 'ASIG' || c.state === 'confirmed'))
+    );
     competidores.sort((a, b) => {
       // SAP siempre primero (transicion). Cuando ya no queden SAP, solo hay APP-BO.
       if (a.source !== b.source) return a.source === 'sap' ? -1 : 1;
@@ -13332,6 +13344,12 @@ window.renderBackordersTab = function(){
           html += '<span style="background:#ede9fe;color:#6b21a8;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="Cliente P/A: reserva stock. Otros VDEs NO pueden vender hasta que se facture o cancele.">CON RESERVA</span>';
         }
       }
+      // v962 (2026-09-17): badge 'EN SAP' para lineas state='confirmed'.
+      // Ya viajaron a SAP como SQ. La app las muestra para no "olvidarlas"
+      // pero la fuente de verdad es SAP — no hay boton Eliminar (ver mas abajo).
+      if (c.source === 'app' && c.state === 'confirmed') {
+        html += '<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="Linea state=confirmed: ya se envio a SAP como Oferta de Venta (SQ). La app la muestra para tracking pero NO se puede eliminar aca — cancelar la SQ en SAP con Santi.">EN SAP</span>';
+      }
       html += '<span>' + escapeHtml(c.nombre) + '</span>';
       html += '</div>';
       html += '<div style="font-size:10px;color:var(--text-muted);margin-top:2px">' + metaText + '</div>';
@@ -13348,7 +13366,11 @@ window.renderBackordersTab = function(){
       // TODOS via window.deleteAllBackorderAppLinesForClient. Antes se cancelaba
       // solo el pedidoId de la ultima linea agregada al skuMap.clientes.
       const _pedidoIdsForCancel = Array.isArray(c.pedidoIds) ? c.pedidoIds : (c.pedidoId ? [{ pedidoId: c.pedidoId, state: c.state, qty: c.pendiente }] : []);
-      if (c.source === 'app' && _pedidoIdsForCancel.length > 0) {
+      // v962 (2026-09-17): sin boton Eliminar para lineas confirmed (ya en SAP).
+      // El delete de la linea en Firestore NO cancela la SQ en SAP; seria una
+      // accion enganosa. Si hay que cancelar, coordinar con Santi (SAP).
+      const _isConfirmedApp = c.source === 'app' && c.state === 'confirmed';
+      if (!_isConfirmedApp && c.source === 'app' && _pedidoIdsForCancel.length > 0) {
         // v876 (2026-09-11) SEC: fix CodeQL js/incomplete-sanitization alert #29.
         // Antes el escape manual .replace(/'/g,"\\'") no escapaba backslash primero
         // → nombre con `foo\';alert(1)` rompía las comillas del onclick. Ahora usamos
@@ -18284,20 +18306,20 @@ function _renderWaitlistCard(){
     // Filtrar pedidos que no sean el actual (w._id) para no contar la misma linea que estamos viendo.
     const yaEnOtroFiltrado = yaEnOtro.filter(x => x && x.pedidoId !== w._id);
     r._yaEnOtroPedido = yaEnOtroFiltrado;
-    // v767 (2026-09-01): UNIDADES RESERVADAS = solo state='ASIG'.
-    // Bug reportado por Mariano: la columna mostraba desg.comprometido =
-    // confirmed + BO + ASIG (6u para CAC70MH2UR) pero el modal STOCK ASIGNADO
-    // filtrado por ese SKU decia 0u. Inconsistencia porque el modal STOCK
-    // ASIG solo muestra state='ASIG'.
-    // Ahora ambos usan la misma fuente: desg.breakdown.ASIG. Matches tambien
-    // con la definicion v763 del alert de stock (UNIDADES RESERVADAS = ASIG)
-    // y con la formula v766 de LIBRE PARA LA VENTA (dep11 - reservadas_ASIG).
-    // Los state='confirmed' (enviado a SAP) y 'BO' (sin stock) NO se cuentan
-    // aca — se muestran en sus columnas propias (backorder = BO, y confirmed
-    // se ve implicito en el pedido final).
-    const asigOnly = (desg.breakdown && desg.breakdown.ASIG) || 0;
+    // v767 (2026-09-01): UNIDADES RESERVADAS mostraba solo state='ASIG'.
+    // v962 (2026-09-17): REVERTIDO. Ahora muestra confirmed + ASIG (todo lo
+    // que reserva stock hoy). Rationale: el modal STOCK ASIGNADO tambien
+    // incluye confirmed desde v962, entonces la coherencia se mantiene. Ademas
+    // la resta visible STOCK - RESERVADAS = LIBRE ahora CIERRA en la UI, que
+    // era la fuente de confusion original (Mariano 2026-09-17 con CAPGL2401:
+    // stock=25, reservadas=0, libre=0 no cerraba porque confirmed=32 no se
+    // contaba). BO NO se incluye porque son unidades sin stock — cuentan en
+    // otra columna (backorder).
+    // Si necesita ser ASIG-solo, envolver con feature flag futura.
+    const asigConfirmed = ((desg.breakdown && desg.breakdown.ASIG) || 0)
+      + ((desg.breakdown && desg.breakdown.confirmed) || 0);
     const reservadasBacked = r.hasData
-      ? Math.min(asigOnly, stockDep11Only || 0)
+      ? Math.min(asigConfirmed, stockDep11Only || 0)
       : 0;
     const demandaSinBacking = r.hasData
       ? Math.max((desg.comprometido || 0) - reservadasBacked, 0)
@@ -18306,11 +18328,12 @@ function _renderWaitlistCard(){
     tdReserv.className = 'num';
     tdReserv.textContent = r.hasData ? String(reservadasBacked) : '-';
     if (r.hasData && reservadasBacked > 0) {
-      // v767: tooltip alineado con la nueva definicion (solo ASIG).
-      tdReserv.title = 'Unidades Reservadas (state=ASIG): ' + reservadasBacked + ' u\\n' +
-        'Breakdown: ASIG ' + ((desg.breakdown && desg.breakdown.ASIG) || 0) +
-        ' u · BO ' + ((desg.breakdown && desg.breakdown.BO) || 0) +
-        ' u · confirmed ' + ((desg.breakdown && desg.breakdown.confirmed) || 0) + ' u\\n' +
+      // v962 (2026-09-17): tooltip actualizado — RESERVADAS ahora incluye
+      // confirmed + ASIG (no solo ASIG como v767). Ver comentario arriba.
+      tdReserv.title = 'Unidades Reservadas (confirmed + ASIG): ' + reservadasBacked + ' u\\n' +
+        'Breakdown: confirmed ' + ((desg.breakdown && desg.breakdown.confirmed) || 0) +
+        ' u · ASIG ' + ((desg.breakdown && desg.breakdown.ASIG) || 0) +
+        ' u · BO (no cuenta) ' + ((desg.breakdown && desg.breakdown.BO) || 0) + ' u\\n' +
         'De ESTE cliente: ' + porCli.reservadasPorCliente + ' u · De OTROS: ' + porCli.reservadasPorOtros + ' u';
       tdReserv.style.background = '#e0e7ff';
       tdReserv.style.color = '#3730a3';
@@ -18320,9 +18343,9 @@ function _renderWaitlistCard(){
     // v919 (2026-09-14): Libre para la venta = stk.disponible via
     // getStockRealmenteDisponible = max(dep11 - (confirmed + BO + ASIG), 0).
     // Coincide con la formula del Excel "Archivo cliente" y politica v701.
-    // La columna "UNIDADES RESERVADAS" muestra SOLO ASIG (v767) por lo que
-    // la resta visible (STOCK - RESERVADAS) puede no cerrar con LIBRE
-    // cuando hay confirmed o BO adicionales — el tooltip desglosa la formula.
+    // v962 (2026-09-17): RESERVADAS ahora incluye confirmed → STOCK - RESERVADAS
+    // ya CIERRA visualmente con LIBRE (salvo cuando hay BO adicionales que
+    // tampoco cuentan como stock realmente disponible). Tooltip explicito.
     const tdLibre = document.createElement('td');
     tdLibre.className = 'num disp-sap-col';
     tdLibre.textContent = r.hasData ? String(r.disponible || 0) : '-';
