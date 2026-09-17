@@ -4670,7 +4670,18 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v983
+## 41) Changelog v300 → v984
+
+### v984 (2026-09-17) — Ocultar botones Dashboard / Depósito / Preliminar para role=vendedor
+
+Pedido Mariano (contexto: onboarding de Pachi Naba como VDE proxy). Los VDE no necesitan estos 3 botones:
+- **Dashboard**: KPIs de ventas / dashboard admin
+- **Depósito**: estado de pedidos en SETUP WMS (interno)
+- **Preliminar**: cotizador de feria (herramienta de admin/gerente/VDI)
+
+**Fix** (`index.html:applyRolePermissions`): ocultar `#dashboard-btn`, `#deposito-home-btn`, `#preliminar-home-btn` cuando `userRole === 'vendedor'`. Se mantienen visibles para admin/gerente/interno/viewer.
+
+`APP_VERSION` + `CACHE_VERSION` → v984.
 
 ### v983 (2026-09-17) — VDE (role=vendedor) solo ve sus items en Lista de Espera
 

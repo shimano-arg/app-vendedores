@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v983';
+const APP_VERSION = 'v984';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -23139,6 +23139,15 @@ function applyRolePermissions(){
     if (_panelBtn) {
       _panelBtn.style.display = (_isMarianoHdr && userRole === 'admin') ? '' : 'none';
     }
+    // v984 (2026-09-17): botones Dashboard, Depósito y Preliminar ocultos para
+    // role='vendedor'. Contexto: Pachi Naba (VDE proxy) no necesita ver KPIs,
+    // ni el estado del depósito, ni el cotizador de feria — son features para
+    // admin/gerente/VDI. Se mantienen visibles para el resto de roles.
+    const _isVendor984 = (userRole === 'vendedor');
+    ['dashboard-btn', 'deposito-home-btn', 'preliminar-home-btn'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = _isVendor984 ? 'none' : '';
+    });
     // Si es Mariano, mostrar el role-badge (ex-v400 lo ocultaba a todos).
     // Para el resto queda oculto en cualquier caso porque el contenedor
     // #header-badge esta hidden.
