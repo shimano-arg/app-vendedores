@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v965';
+const APP_VERSION = 'v966';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -7526,7 +7526,10 @@ let _vendorOutlinesCache = null; // {vendor: [{outer, inners}, ...]} (v965)
 // instantaneas (las polilineas ya estan calculadas y guardadas).
 // v965 (2026-09-17): bumped v12→v13 porque el shape del cache cambió
 // de [polyline] a [{outer, inners}]. Invalida caches viejos.
-const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v13';
+// v966 (2026-09-17): bumped v13→v14 porque ahora se filtran los inners
+// chicos (perim<0.5°) como artefactos. Caches viejos tenían huecos
+// espurios que aparecían como "grietas" en el mapa.
+const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v14';
 // Firma del estado que impacta en los outlines: si el usuario reasigna
 // zonas en el modal ZONAS, la firma cambia -> cache stale -> se recomputa
 // en el proximo load automaticamente (sin tener que apretar el boton
@@ -7730,8 +7733,14 @@ function _buildVendorOutlinesCache(){
     // los vertices INDEC no matchean pixel-perfect). Al pintar el fill desde
     // el union polygon (una sola geometria continua por vendor), no hay
     // manera de que aparezcan lineas del fondo.
+    // v966 (2026-09-17): filtrar inners CHICOS (perim < 0.5°). Cuando dos
+    // depts vecinos tienen vertices que difieren en >100m, polygon-clipping
+    // no logra fusionarlos y genera un "polygon con hueco" — el hueco es
+    // una franja delgada que aparece como GRIETA en el mapa. Los enclaves
+    // reales de otro vendor tienen >55km de contorno (0.5°); todo lo menor
+    // se descarta como artefacto.
     // Estructura: outlines[vendor] = [{outer: [[lat,lng],...], inners: [[[lat,lng],...],...]}, ...]
-    // outer se sigue usando para el borde (drawVendorOutlines) via poly.outer.
+    const INNER_MIN_PERIM = 0.5; // grados aprox (~55 km)
     const polygons = [];
     merged.forEach(poly => {
       if (!poly.length) return;
@@ -7741,9 +7750,11 @@ function _buildVendorOutlinesCache(){
       const inners = [];
       for (let ii = 1; ii < poly.length; ii++) {
         const inner = poly[ii];
-        if (inner && inner.length >= 4) {
-          inners.push(inner.map(c => [c[1], c[0]]));
-        }
+        if (!inner || inner.length < 4) continue;
+        // v966: descartar huecos artefactos (franjas delgadas por vertices INDEC
+        // que no matchean). Un enclave legitimo tiene perimetro grande.
+        if (ringPerim(inner) < INNER_MIN_PERIM) continue;
+        inners.push(inner.map(c => [c[1], c[0]]));
       }
       polygons.push({
         outer: outer.map(c => [c[1], c[0]]),
@@ -7841,11 +7852,19 @@ function drawVendorFills(){
       if (!outer || !outer.length) return;
       const inners = (entry && entry.inners) ? entry.inners : [];
       const rings = [outer].concat(inners);
+      // v966 (2026-09-17): stroke del mismo color y opacidad que el fill.
+      // Actua como "buffer visual" — sella cualquier grieta residual entre
+      // ring outer y ring inner (o entre vertices dupes). No se ve como
+      // linea de borde porque tiene el mismo tono aparente que el fill.
+      // El contorno grueso del vendor (color saturado) lo sigue dibujando
+      // vendorOutlineLayer por encima.
       L.polygon(rings, {
         fillColor: color,
         fillOpacity: fillOpacity,
-        // Sin stroke — el borde lo dibuja vendorOutlineLayer.
-        stroke: false,
+        color: color,
+        weight: 3,
+        opacity: fillOpacity,
+        lineJoin: 'round',
         interactive: false,
         smoothFactor: 3.0,
       }).addTo(vendorFillLayer);

@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v965 (2026-09-17)** — Mapa: fix microgaps al zoom alto. Fill de zonas ahora se dibuja desde la geometría union por vendor (una geometría continua), no desde depts individuales. Cero líneas blancas entre depts del mismo vendor. Ver §41. |
-| **APP_VERSION** | `v965` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v966 (2026-09-17)** — Mapa: eliminar "grietas" residuales de v965 (líneas diagonales blancas atravesando zonas del mismo vendor). Filtro de inners chicos (artefactos de union) + stroke buffer del mismo color al fill. Cache key bump v13→v14. Ver §41. |
+| **APP_VERSION** | `v966` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,40 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v965
+## 41) Changelog v300 → v966
+
+### v966 (2026-09-17) — Mapa: eliminar "grietas" residuales (filtrar inners chicos + stroke buffer)
+
+Reporte Mariano post-v965 con captura de Neuquén: al zoom alto quedan **líneas blancas diagonales largas** atravesando zonas coloreadas del mismo vendor. Diferente al bug de v965 (microgaps entre depts) — estas son **anillos internos incorrectos** del polygon union.
+
+**Root cause**: cuando `polygon-clipping.union` fusiona 2 depts vecinos con vértices que difieren >100m, no logra fusionarlos limpio y genera un "polygon con hueco" — el hueco es una franja delgada que aparece como grieta. En v965 pinté esos huecos como transparentes al respetar los `inners` del polygon.
+
+**Fix 1: filtrar inners chicos** (`_buildVendorOutlinesCache` ~línea 7745):
+```js
+const INNER_MIN_PERIM = 0.5; // grados aprox (~55 km)
+if (ringPerim(inner) < INNER_MIN_PERIM) continue;
+```
+Los enclaves REALES de otro vendor tienen ≥55 km de contorno. Todo lo menor es artefacto de la union imperfecta.
+
+**Fix 2: stroke buffer del mismo color** (`drawVendorFills` ~línea 7810):
+```js
+L.polygon(rings, {
+  fillColor: color, fillOpacity: fillOpacity,
+  color: color, weight: 3, opacity: fillOpacity, // ← nuevo
+  lineJoin: 'round', ...
+})
+```
+El stroke del **mismo color y opacidad que el fill** actúa como buffer visual: sella cualquier grieta residual entre el outer ring y los inners (o entre vértices duplicados). No se ve como línea porque tiene el mismo tono aparente que el fill. El contorno grueso del vendor (color saturado) lo sigue dibujando `vendorOutlineLayer` por encima.
+
+**Fix 3: cache key bump** (`v13 → v14`):
+Los caches viejos guardados en localStorage tenían los inners espurios. Bump del key invalida todo cache anterior y fuerza rebuild con el filtro.
+
+**Efecto combinado**:
+- Los enclaves legítimos (raro en Argentina) siguen dibujándose correctamente como huecos
+- Los artefactos (franjas delgadas por vertices no matchean) se descartan → zona pintada uniforme
+- Si alguno se cuela, el stroke buffer lo tapa visualmente
+
+**Bump**: APP_VERSION + CACHE_VERSION → `v966`. Deploy: GH Pages auto.
 
 ### v965 (2026-09-17) — Mapa: fill de zonas desde geometría union (elimina microgaps al zoom alto)
 
