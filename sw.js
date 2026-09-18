@@ -46,6 +46,7 @@ const STATIC_ASSETS = [
   './chunks/exports-core.js',
   './chunks/exports-advanced.js',
   './chunks/admin-users.js',
+  './chunks/meli.js',
   // v422+ (2026-08-06): modal FORECAST admin-only (Mariano). Snapshot BQ
   // sku_ventas_snapshot + Sales Plan uploaded + politica inventario.
   './chunks/forecast.js',
