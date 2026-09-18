@@ -3166,6 +3166,15 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
     <div id="panel-control-body" style="flex:1;overflow:auto;background:var(--bg-secondary)"></div>
   </div>
 </div>
+<!-- v>=997 (2026-09-18): Modal MERCADOLIBRE. Solo Mariano. Contenido
+     renderizado por src/domains/meli.js (chunk lazy). -->
+<div class="modal-overlay" id="meli-modal" onclick="if(event.target===this)closeMeliModal()" style="z-index:1200;display:none;align-items:flex-start;justify-content:center;padding:24px">
+  <div class="modal-content" style="max-width:1100px;width:100%;max-height:90vh;display:flex;flex-direction:column;background:var(--bg-elevated);border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div id="meli-modal-header"><!-- populated por meli.js --></div>
+    <div id="meli-subtabs"><!-- populated por meli.js --></div>
+    <div id="meli-modal-body" style="flex:1;overflow:auto;background:var(--bg-secondary)"><!-- populated por meli.js --></div>
+  </div>
+</div>
 <!-- v431: #herramientas-modal removido. Los 3 items volvieron a ser botones
      individuales en el top toolbar (ver .btn-mis-camps / .btn-export /
      .btn-rendiciones-top arriba). -->
