@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v986';
+const APP_VERSION = 'v987';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -23162,6 +23162,25 @@ function applyRolePermissions(){
         el.style.display = '';
       }
     });
+    // v987 (2026-09-18): pachi solo ve "Rutas recomendadas" en el tab Rutas.
+    // Ocultamos el boton "Rutas personalizadas" + su panel de subcontroles.
+    // Forzamos modo 'recomendada' por si estaba en 'personalizada' antes.
+    const _rmodePers987 = document.getElementById('rmode-pers');
+    const _rutaPersCtl987 = document.getElementById('ruta-pers-controls');
+    const _rmodeReco987 = document.getElementById('rmode-reco');
+    if (_isPachi986) {
+      if (_rmodePers987) _rmodePers987.style.display = 'none';
+      if (_rutaPersCtl987) _rutaPersCtl987.style.display = 'none';
+      // Que rmode-reco ocupe el ancho completo (antes flex:1 compartido con
+      // el otro boton).
+      if (_rmodeReco987) _rmodeReco987.style.flex = '1 1 100%';
+      try {
+        if (typeof setRutaMode === 'function') setRutaMode('recomendada');
+      } catch (_e) {}
+    } else {
+      if (_rmodePers987) _rmodePers987.style.display = '';
+      if (_rmodeReco987) _rmodeReco987.style.flex = '';
+    }
     // Si es Mariano, mostrar el role-badge (ex-v400 lo ocultaba a todos).
     // Para el resto queda oculto en cualquier caso porque el contenedor
     // #header-badge esta hidden.
