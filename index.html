@@ -2273,6 +2273,12 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .client-card .cli-envio-btn{display:none;position:absolute;bottom:32px;right:6px;padding:4px 9px;background:#1F3864;color:#fff;border:none;border-radius:4px;font-size:10px;font-weight:800;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;align-items:center;gap:4px;box-shadow:0 1px 3px rgba(31,56,100,.35);transition:.12s;z-index:2}
 body.is-ioannis .client-card .cli-envio-btn{display:inline-flex}
 body.is-ioannis .client-card{padding-bottom:60px}
+/* v988 (2026-09-18): pachi solo ve "Rutas recomendadas". Ocultar el boton
+   "Rutas personalizadas" + su panel de subcontroles. !important porque
+   setRutaMode() re-setea display en runtime cada vez que se navega el tab. */
+body.is-pachi #rmode-pers{display:none !important}
+body.is-pachi #ruta-pers-controls{display:none !important}
+body.is-pachi #rmode-reco{flex:1 1 100% !important}
 /* v451 (2026-08-11): boton Revision Excel oculto por default, visible solo
    para whitelist de emails (Mariano, Ioannis, Santi, Pablo). El gate se aplica
    en applyRolePermissions. */
@@ -5485,7 +5491,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v987';
+const APP_VERSION = 'v988';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -23162,24 +23168,16 @@ function applyRolePermissions(){
         el.style.display = '';
       }
     });
-    // v987 (2026-09-18): pachi solo ve "Rutas recomendadas" en el tab Rutas.
-    // Ocultamos el boton "Rutas personalizadas" + su panel de subcontroles.
-    // Forzamos modo 'recomendada' por si estaba en 'personalizada' antes.
-    const _rmodePers987 = document.getElementById('rmode-pers');
-    const _rutaPersCtl987 = document.getElementById('ruta-pers-controls');
-    const _rmodeReco987 = document.getElementById('rmode-reco');
+    // v988 (2026-09-18): pachi solo ve "Rutas recomendadas". Ocultamos el
+    // boton "Rutas personalizadas" + su panel de subcontroles via CSS class
+    // `body.is-pachi` (mas robusto que inline style que se pisa cuando
+    // setRutaMode re-renderiza). Ademas forzamos setRutaMode('recomendada')
+    // por si el user estaba en modo personalizado antes.
+    document.body.classList.toggle('is-pachi', _isPachi986);
     if (_isPachi986) {
-      if (_rmodePers987) _rmodePers987.style.display = 'none';
-      if (_rutaPersCtl987) _rutaPersCtl987.style.display = 'none';
-      // Que rmode-reco ocupe el ancho completo (antes flex:1 compartido con
-      // el otro boton).
-      if (_rmodeReco987) _rmodeReco987.style.flex = '1 1 100%';
       try {
         if (typeof setRutaMode === 'function') setRutaMode('recomendada');
       } catch (_e) {}
-    } else {
-      if (_rmodePers987) _rmodePers987.style.display = '';
-      if (_rmodeReco987) _rmodeReco987.style.flex = '';
     }
     // Si es Mariano, mostrar el role-badge (ex-v400 lo ocultaba a todos).
     // Para el resto queda oculto en cualquier caso porque el contenedor
