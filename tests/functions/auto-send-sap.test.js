@@ -342,6 +342,40 @@ describe('buildQuotationPayload', () => {
     expect(r.ok).toBe(true);
     expect(r.payload.Comments.length).toBeLessThanOrEqual(254);
   });
+
+  // v991 (SecAudit run-1 HIGH #5): trueVendor override
+  describe('v991 trueVendor override (anti ownerVendor spoof)', () => {
+    it('sin trueVendor: usa pedido.ownerVendor (retrocompat)', () => {
+      const deps = makeDeps({ sapVendors: new Map([['GONZALO DE LA ROSA', 12]]) });
+      const r = buildQuotationPayload(validPedido, 'p', deps);
+      expect(r.ok).toBe(true);
+      expect(r.payload.SalesPersonCode).toBe(12);
+    });
+    it('trueVendor="MARTIN": override pedido.ownerVendor="GONZALO"', () => {
+      const deps = makeDeps({
+        sapVendors: new Map([
+          ['GONZALO DE LA ROSA', 12],
+          ['MARTIN BOIERO', 7],
+        ]),
+      });
+      const r = buildQuotationPayload(validPedido, 'p', deps, 'MARTIN BOIERO');
+      expect(r.ok).toBe(true);
+      // SlpCode debe ser del trueVendor (7), NO del pedido.ownerVendor (12).
+      expect(r.payload.SalesPersonCode).toBe(7);
+    });
+    it('trueVendor null: cae al pedido.ownerVendor (fallback)', () => {
+      const deps = makeDeps({ sapVendors: new Map([['GONZALO DE LA ROSA', 12]]) });
+      const r = buildQuotationPayload(validPedido, 'p', deps, null);
+      expect(r.ok).toBe(true);
+      expect(r.payload.SalesPersonCode).toBe(12);
+    });
+    it('trueVendor sin mapping en sapVendors: SlpCode -1 (defensivo)', () => {
+      const deps = makeDeps({ sapVendors: new Map([['GONZALO DE LA ROSA', 12]]) });
+      const r = buildQuotationPayload(validPedido, 'p', deps, 'VENDEDOR NUEVO');
+      expect(r.ok).toBe(true);
+      expect(r.payload.SalesPersonCode).toBe(-1);
+    });
+  });
 });
 
 // ---- handleAutoSendSap ----------------------------------------------------
@@ -459,6 +493,110 @@ describe('handleAutoSendSap — idempotencia', () => {
     });
     const r = await handleAutoSendSap('p1', null, { ...validPedido }, deps);
     expect(r.result).toBe(AUTO_SEND_RESULT.SENT_OK);
+  });
+});
+
+// v991 (SecAudit run-1 HIGH #5): handleAutoSendSap resuelve trueVendor via
+// deps.getUserVendor y lo pasa a buildQuotationPayload. Un VDE spoofeando
+// ownerVendor via devtools YA no puede desviar comision.
+describe('handleAutoSendSap — v991 trueVendor server-side lookup', () => {
+  it('llama getUserVendor(ownerUid) y usa el resultado en SlpCode', async () => {
+    const getUserVendor = vi.fn(async () => 'MARTIN BOIERO');
+    const deps = makeDeps({
+      dbDocs: {
+        'pedidos/p1': {
+          ...validPedido,
+          ownerUid: 'u_atacante',
+          ownerVendor: 'GONZALO DE LA ROSA', // spoofeado
+        },
+      },
+      sapVendors: new Map([
+        ['GONZALO DE LA ROSA', 12],
+        ['MARTIN BOIERO', 7],
+      ]),
+    });
+    deps.getUserVendor = getUserVendor;
+    const r = await handleAutoSendSap(
+      'p1',
+      null,
+      { ...validPedido, ownerUid: 'u_atacante', ownerVendor: 'GONZALO DE LA ROSA' },
+      deps
+    );
+    expect(r.result).toBe(AUTO_SEND_RESULT.SENT_OK);
+    expect(getUserVendor).toHaveBeenCalledWith('u_atacante');
+    // La request POST a /Quotations debe haber usado SlpCode=7 (MARTIN, true),
+    // NO 12 (GONZALO, spoofeado).
+    const quotCall = deps.sl.fetch.mock.calls.find((c) => c[0].endsWith('/Quotations'));
+    const body = JSON.parse(quotCall[1].body);
+    expect(body.SalesPersonCode).toBe(7);
+  });
+
+  it('sin getUserVendor: fallback a pedido.ownerVendor (retrocompat tests core)', async () => {
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': { ...validPedido } },
+      sapVendors: new Map([['GONZALO DE LA ROSA', 12]]),
+    });
+    // No getUserVendor inyectado
+    const r = await handleAutoSendSap('p1', null, { ...validPedido }, deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.SENT_OK);
+    const quotCall = deps.sl.fetch.mock.calls.find((c) => c[0].endsWith('/Quotations'));
+    const body = JSON.parse(quotCall[1].body);
+    expect(body.SalesPersonCode).toBe(12); // ownerVendor del pedido
+  });
+
+  it('getUserVendor throw: no bloquea envio, cae al fallback + loguea warning', async () => {
+    const getUserVendor = vi.fn(async () => {
+      throw new Error('firestore unavailable');
+    });
+    // Necesita ownerUid para que el core intente el getUserVendor lookup.
+    const pedWithOwner = { ...validPedido, ownerUid: 'u_gonzalo' };
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': pedWithOwner },
+      sapVendors: new Map([['GONZALO DE LA ROSA', 12]]),
+    });
+    deps.getUserVendor = getUserVendor;
+    const r = await handleAutoSendSap('p1', null, pedWithOwner, deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.SENT_OK);
+    // Fallback: usa pedido.ownerVendor -> SlpCode 12
+    const quotCall = deps.sl.fetch.mock.calls.find((c) => c[0].endsWith('/Quotations'));
+    const body = JSON.parse(quotCall[1].body);
+    expect(body.SalesPersonCode).toBe(12);
+    // Loguea el error de getUserVendor
+    const logCalls = deps.sl.log.mock.calls.map((c) => String(c[0]));
+    expect(logCalls.some((m) => m.includes('getUserVendor fail'))).toBe(true);
+  });
+
+  it('trueVendor divergent: loguea warning con detalles (audit trail)', async () => {
+    const getUserVendor = vi.fn(async () => 'MARTIN BOIERO'); // real
+    const deps = makeDeps({
+      dbDocs: {
+        'pedidos/p1': {
+          ...validPedido,
+          ownerUid: 'u_x',
+          ownerVendor: 'GONZALO DE LA ROSA', // spoof
+        },
+      },
+      sapVendors: new Map([
+        ['GONZALO DE LA ROSA', 12],
+        ['MARTIN BOIERO', 7],
+      ]),
+    });
+    deps.getUserVendor = getUserVendor;
+    await handleAutoSendSap(
+      'p1',
+      null,
+      { ...validPedido, ownerUid: 'u_x', ownerVendor: 'GONZALO DE LA ROSA' },
+      deps
+    );
+    const warnCall = deps.sl.log.mock.calls.find((c) =>
+      String(c[0]).includes('WARN ownerVendor divergent')
+    );
+    expect(warnCall).toBeDefined();
+    expect(warnCall[1]).toMatchObject({
+      ownerUid: 'u_x',
+      pedidoOwnerVendor: 'GONZALO DE LA ROSA',
+      trueVendor: 'MARTIN BOIERO',
+    });
   });
 });
 

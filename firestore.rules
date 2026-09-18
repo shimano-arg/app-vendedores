@@ -78,8 +78,25 @@ service cloud.firestore {
     match /pedidos/{pedidoId} {
       allow get: if isReader();
       allow list: if isAdminOrGerente() || isInterno() || (isVendor() && ownsDoc());
+      // v991 (2026-09-18, SecAudit run-1 HIGH #5): validar ownerVendor en
+      // create. Antes: un VDE con devtools/curl podia crear un pedido con
+      // `ownerUid=self` + `ownerVendor='<victim>'` -> trigger
+      // onPedidoConfirmedSendToSap resolvia SlpCode del victim -> commission
+      // fraud + audit trail confuso (Firestore muestra atacante, SAP muestra
+      // victim). Ahora Rules validan que ownerVendor sea null / propio /
+      // seteado por admin+gerente. La CF ademas hace fresh lookup a
+      // roles/{ownerUid}.vendor (defensa en profundidad), pero cerrar el
+      // create al nivel de rule ya bloquea el vector de fraude.
       allow create: if isAdminOrGerente()
-        || (isVendor() && request.resource.data.ownerUid == request.auth.uid)
+        || (
+          isVendor()
+          && request.resource.data.ownerUid == request.auth.uid
+          && (
+            !('ownerVendor' in request.resource.data)
+            || request.resource.data.ownerVendor == null
+            || request.resource.data.ownerVendor == myVendorKey()
+          )
+        )
         || (isInterno()
             && request.resource.data.ownerUid == request.auth.uid
             && request.resource.data.onBehalfOf == false)
@@ -328,7 +345,25 @@ service cloud.firestore {
                         resource.data.assignedVendor == myVendorKey()
                         || resource.data.ownerUid == request.auth.uid
                       ));
-      allow create: if (request.auth != null && request.resource.data.ownerUid == request.auth.uid)
+      // v991 (2026-09-18, SecAudit run-1 HIGH #6): validar assignedVendor en
+      // create. Antes: un VDE con devtools/curl podia crear alta rapida con
+      // `assignedVendor='<victim>'` -> el lead aparecia en el mapa del victim
+      // (`.where('assignedVendor','==',victimKey)`) mientras el ownerUid
+      // seguia siendo el atacante. Simetrico a v926 HIGH-09 (update-side ya
+      // cerrado). Ahora create solo permite: null (deja unassigned), propio
+      // vendor, o admin+gerente overrides. Formulario publico
+      // (submittedByPublicForm) sigue permitido sin auth para el flow web
+      // externo.
+      allow create: if (
+                   request.auth != null
+                   && request.resource.data.ownerUid == request.auth.uid
+                   && (
+                     !('assignedVendor' in request.resource.data)
+                     || request.resource.data.assignedVendor == null
+                     || request.resource.data.assignedVendor == myVendorKey()
+                     || isAdminOrGerente()
+                   )
+                 )
                  || (request.resource.data.submittedByPublicForm == true
                      && request.resource.data.comercio is string
                      && request.resource.data.cuit is string
