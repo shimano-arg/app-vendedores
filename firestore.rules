@@ -453,11 +453,28 @@ service cloud.firestore {
     // vez marcada como duplicado_detectado el unico status transition
     // permitido es -> 'rejected' (admin cancelar el doc). Para un falso
     // positivo legitimo, el flow correcto es delete + create nueva desde 0.
+    // v992 (2026-09-18, SecAudit run-1 CRITICAL #2): cap importe defensivo.
+    // Antes: create/update aceptaba cualquier importe (inclusive 999999999
+    // fruto de un Gemini adversarial). La CF ya valida el output del OCR y
+    // rechaza si supera 10M ARS, pero un submit directo desde devtools/curl
+    // bypasseando el OCR podia igual escribir el importe abusivo. Ahora las
+    // rules exigen: si el campo `importe` esta presente y no es null, debe
+    // ser numeric >= 0 y <= 10.000.000 (mismo cap que gemini-ocr-core.js).
+    // El importe puede estar null en solicitudes borrador o algunos flows
+    // legacy — permitimos absent/null.
+    function _importeValido(imp) {
+      return imp == null || (imp is number && imp >= 0 && imp <= 10000000);
+    }
     match /rendiciones/{docId} {
       allow get: if isReader();
       allow list: if isAdminOrGerente() || isInterno() || (isVendor() && ownsDoc());
-      allow create: if request.auth != null && request.resource.data.ownerUid == request.auth.uid;
+      allow create: if request.auth != null
+                     && request.resource.data.ownerUid == request.auth.uid
+                     && _importeValido(request.resource.data.get('importe', null))
+                     && _importeValido(request.resource.data.get('importeUsd', null));
       allow update: if isAdminOrGerente()
+                    && _importeValido(request.resource.data.get('importe', null))
+                    && _importeValido(request.resource.data.get('importeUsd', null))
                     && (
                       // Path A: no era duplicado_detectado - update normal
                       resource.data.get('status', '') != 'duplicado_detectado'

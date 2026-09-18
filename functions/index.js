@@ -1028,7 +1028,11 @@ export const dailyFirestoreBackup = onSchedule(
  *     Rechaza unassigned/viewer + roles no-Shimano. Antes: cualquier
  *     authenticated user enumeraba 365d de shipments SETUP por cualquier
  *     cardCode -> logistics data exfil + SETUP API quota burn.
- *   - TODO Sprint 2: scope filterCardCode a myVendorKey.
+ *   - v994 (2026-09-18, SecAudit run-1 HIGH #3): scope filterCardCode a
+ *     caller vendor cuando role='vendedor'. Cierra el TODO Sprint 2:
+ *     vendedor solo puede consultar movimientos de clientes cuyo
+ *     client_master.assignedVendor matchea roles/{uid}.vendor.
+ *     Admin/gerente/interno sin restriccion.
  *
  * Ver Desktop\SETUP-INTEGRACION\scripts\probe-setup-api.mjs para diagnóstico
  * empírico de la API.
@@ -1047,12 +1051,15 @@ export const setupGetMovimientos = onCall(
       throw new HttpsError('unauthenticated', 'Login required');
     }
     // v928 (SecAudit E1.7 HIGH-10): domain gate + role check.
+    const _db = getFirestore();
     const _email = String(request.auth.token?.email || '').toLowerCase();
     if (!(_email.endsWith('@shimano.com.ar') || _email.endsWith('@shimano.uy'))) {
       throw new HttpsError('permission-denied', 'Solo @shimano.com.ar o @shimano.uy');
     }
-    const _roleSnap = await getFirestore().doc(`roles/${request.auth.uid}`).get();
-    const _role = (_roleSnap.data() || {}).role || null;
+    const _roleSnap = await _db.doc(`roles/${request.auth.uid}`).get();
+    const _roleData = _roleSnap.data() || {};
+    const _role = _roleData.role || null;
+    const _callerVendor = _roleData.vendor || null;
     if (!['admin', 'gerente', 'vendedor', 'interno'].includes(_role)) {
       throw new HttpsError(
         'permission-denied',
@@ -1072,6 +1079,51 @@ export const setupGetMovimientos = onCall(
     // porque SETUP tarda mucho con rangos amplios + productos cache warm-up.
     const dias = Math.min(365, Number(request.data && request.data.dias) || 60);
     const filterCardCode = String((request.data && request.data.cardCode) || '').trim();
+
+    // v994 (2026-09-18, SecAudit run-1 HIGH #3): scope cardCode a caller
+    // vendor cuando role='vendedor'. Antes: cualquier VDE podia pasar el
+    // cardCode de un cliente ajeno y ver 365d de shipments SETUP → competitor
+    // territory intel + patterns de compra por cliente. Admin/gerente/interno
+    // mantienen acceso amplio (necesitan queries cross-vendor para
+    // troubleshoot logistico).
+    // Reglas:
+    //   - vendedor sin cardCode: throw invalid-argument (evita "traeme todo").
+    //   - vendedor con cardCode: fetch client_master/{cardCode}.assignedVendor
+    //     y comparar case-insensitive con _callerVendor. Mismatch -> deny.
+    //   - client_master doc ausente: fail closed (assumeSame=false).
+    if (_role === 'vendedor') {
+      if (!filterCardCode) {
+        throw new HttpsError(
+          'invalid-argument',
+          'cardCode requerido para role=vendedor (scope territorial)'
+        );
+      }
+      if (!_callerVendor) {
+        throw new HttpsError(
+          'failed-precondition',
+          'roles/{uid}.vendor no seteado — pedirle al admin que asigne vendorKey'
+        );
+      }
+      const _cmSnap = await _db.doc(`client_master/${filterCardCode}`).get();
+      const _cmData = _cmSnap.data() || {};
+      const _clientVendor = _cmData.assignedVendor || null;
+      const _norm = (/** @type {any} */ s) =>
+        String(s || '')
+          .trim()
+          .toUpperCase();
+      if (!_clientVendor || _norm(_clientVendor) !== _norm(_callerVendor)) {
+        console.warn('setupGetMovimientos DENY cardCode scope', {
+          uid: request.auth.uid,
+          callerVendor: _callerVendor,
+          cardCode: filterCardCode,
+          clientVendor: _clientVendor,
+        });
+        throw new HttpsError(
+          'permission-denied',
+          `cardCode ${filterCardCode} no pertenece a tu cartera`
+        );
+      }
+    }
 
     // v830 (2026-09-08): cache TTL 30 min declarado a module-scope arriba
     // (setupProductosCache / setupProductosCacheAt). Reset si expiro.
