@@ -2796,3 +2796,110 @@ SELECT
   inv_stats.max_doc_num_invoice,
   inv_stats.max_doc_date_invoice
 FROM agg, inv_stats;
+
+-- ============================================================
+-- v_waitlist_disponible_ars — v997 (2026-09-18)
+-- ============================================================
+-- Alimenta card PowerBI "Total Espera $ARS = lo que va a entrar SAP HOY"
+-- desde la Lista de Espera (coleccion Firestore `revision_waitlist`).
+--
+-- Regla de negocio v974: Lista de Espera NO compromete stock. Esta vista
+-- estima cuanto de la lista se va a convertir en pedido efectivo CUANDO
+-- el VDE confirme (usando stock actual + precio ARS de referencia).
+--
+-- Fuentes:
+--   - waitlist_raw          - una row por (waitlist_doc, item), sync via
+--                             sync_waitlist_from_firestore cada 30 min
+--   - v_inventario          - stock_actual (Dep 11 pre-comprometidos) +
+--                             price_pesca_ars (list 11 PESCA ARS)
+--
+-- Calculo por item:
+--   qty_disponible_ahora = LEAST(item.qty, MAX(stock_actual, 0))
+--   disponible_ars       = qty_disponible_ahora × price_pesca_ars
+--
+-- Vendor: preferimos owner_vendor (VDE que cargo el waitlist); fallback
+-- vendor_assigned (default override si existe). Uppercase + trim para
+-- matchear el slicer `assigned_vendor` del resto del tablero.
+--
+-- Uso en PBI:
+--   Card "Total Espera $ARS"  = SUM(disponible_ars)                  filtro implicito por slicer vendor
+--   Card "Items en espera"    = COUNT(*)
+--   Card "Clientes en espera" = DISTINCTCOUNT(client_card_code)
+--   Tabla detalle             = todos los campos, top 20 por disponible_ars DESC
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_waitlist_disponible_ars` AS
+WITH waitlist AS (
+  SELECT
+    doc_id                                                           AS waitlist_id,
+    item_index,
+    client_name, client_province, client_locality, client_card_code,
+    owner_uid, owner_email, owner_display_name,
+    UPPER(TRIM(COALESCE(NULLIF(owner_vendor, ''), vendor_assigned)))  AS assigned_vendor,
+    order_number,
+    source,
+    from_pedido_fs_id,
+    from_pedido_month,
+    delivery_method,
+    item_code,
+    item_desc,
+    item_qty,
+    first_disponible,
+    first_stock_total,
+    first_backorder,
+    created_at,
+    updated_at,
+    _sync_timestamp
+  FROM `app-vendedores-shimano.shimano_app.waitlist_raw`
+  WHERE item_qty > 0
+),
+joined AS (
+  SELECT
+    w.*,
+    inv.item_name                                                    AS inventario_item_name,
+    inv.familia,
+    inv.subfamilia,
+    inv.stock_actual,
+    inv.price_pesca_ars,
+    -- disponible_ahora = min(qty pedida, stock actual clampeado a >=0).
+    -- Nunca reservamos negativo: si el snapshot muestra stock=-5 por backorder
+    -- viejo, tratamos como 0 (no hay stock real para servir).
+    LEAST(w.item_qty, GREATEST(COALESCE(inv.stock_actual, 0), 0))    AS qty_disponible_ahora
+  FROM waitlist w
+  LEFT JOIN `app-vendedores-shimano.shimano_app.v_inventario` inv
+    ON UPPER(TRIM(w.item_code)) = UPPER(TRIM(inv.item_code))
+)
+SELECT
+  waitlist_id,
+  item_index,
+  assigned_vendor,
+  client_card_code,
+  client_name,
+  client_province,
+  client_locality,
+  owner_uid,
+  owner_email,
+  owner_display_name,
+  order_number,
+  source,
+  from_pedido_fs_id,
+  from_pedido_month,
+  delivery_method,
+  item_code,
+  item_desc,
+  inventario_item_name,
+  familia,
+  subfamilia,
+  item_qty                                                           AS qty_pedida,
+  qty_disponible_ahora,
+  item_qty - qty_disponible_ahora                                    AS qty_backorder_estimado,
+  stock_actual                                                       AS stock_actual_dep11,
+  price_pesca_ars,
+  ROUND(qty_disponible_ahora * COALESCE(price_pesca_ars, 0), 2)      AS disponible_ars,
+  ROUND(item_qty * COALESCE(price_pesca_ars, 0), 2)                  AS total_pedido_ars,
+  ROUND((item_qty - qty_disponible_ahora) * COALESCE(price_pesca_ars, 0), 2) AS backorder_estimado_ars,
+  first_disponible,
+  first_stock_total,
+  first_backorder,
+  created_at,
+  updated_at,
+  _sync_timestamp
+FROM joined;
