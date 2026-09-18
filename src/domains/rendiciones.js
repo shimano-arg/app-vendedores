@@ -134,6 +134,12 @@ async function extractTicketDataWithGemini(dataUrl) {
 
 function fillRendGastoFormFromOcr(d) {
   // Mapea el JSON de Gemini a los campos del form. Acepta nulls.
+  // v992 (SecAudit run-1 CRITICAL #2): cuando el OCR devuelve un enum que
+  // NO matchea las opciones del dropdown (silenced pre-v992), acumular el
+  // campo en unmatched[] y mostrar al final un warning visible al VDE.
+  // Antes era silent skip -> el VDE no se enteraba y podia terminar
+  // enviando un gasto con moneda/tipoGasto en blanco.
+  const unmatched = [];
   function setV(id, v) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -148,7 +154,11 @@ function fillRendGastoFormFromOcr(d) {
     // Buscar opcion que matchee
     const opts = [...el.options].map((o) => o.value);
     const hit = opts.find((o) => o.toUpperCase() === s);
-    if (hit) el.value = hit;
+    if (hit) {
+      el.value = hit;
+    } else {
+      unmatched.push({ campo: id.replace(/^rg-/, ''), valor: s.slice(0, 40) });
+    }
   }
   setV('rg-numero', d.numeroTicket);
   setValid('rg-desc', d.descripcion); // dropdown ahora
@@ -159,6 +169,21 @@ function fillRendGastoFormFromOcr(d) {
   if (d.importeUsd != null) setV('rg-importeUsd', d.importeUsd);
   setValid('rg-divGasto', d.divisionGasto || 'GASTO LOCAL');
   setV('rg-obs', d.observaciones);
+  if (unmatched.length) {
+    console.warn('[OCR rendicion] campos con valor invalido', unmatched);
+    try {
+      alert(
+        'El OCR extrajo el ticket, pero no reconoció algunos campos.\n\n' +
+          'Completalos a mano antes de enviar:\n\n' +
+          unmatched
+            .map((u) => '- ' + u.campo + (u.valor ? ' (leyo: ' + u.valor + ')' : ''))
+            .join('\n') +
+          '\n\nSi ves esto seguido, avisale a Mariano.'
+      );
+    } catch (_e) {
+      /* fallback silent */
+    }
+  }
 }
 
 let rdSolicitudAdj = null; // base64 del adjunto Excel/PDF/imagen

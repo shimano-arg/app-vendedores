@@ -437,6 +437,55 @@ describe('/rendiciones', () => {
     await assertFails(deleteDoc(doc(authedDb(UID.vendor), 'rendiciones', 'r-vendor')));
     await assertSucceeds(deleteDoc(doc(authedDb(UID.admin), 'rendiciones', 'r-vendor')));
   });
+
+  // v992 (SecAudit run-1 CRITICAL #2): cap importe defensivo en rules.
+  it('v992: vendor puede create con importe null (solicitud sin monto)', async () => {
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'rendiciones', 'r-v992-null'), {
+        ownerUid: UID.vendor,
+        importe: null,
+      })
+    );
+  });
+  it('v992: vendor puede create con importe valido (5000)', async () => {
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'rendiciones', 'r-v992-ok'), {
+        ownerUid: UID.vendor,
+        importe: 5000,
+      })
+    );
+  });
+  it('v992: vendor puede create con importe en el limite (10M)', async () => {
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'rendiciones', 'r-v992-limit'), {
+        ownerUid: UID.vendor,
+        importe: 10000000,
+      })
+    );
+  });
+  it('v992 CRIT: vendor NO puede create con importe out-of-range (fraud vector)', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'rendiciones', 'r-v992-fraud'), {
+        ownerUid: UID.vendor,
+        importe: 999999999,
+      })
+    );
+  });
+  it('v992 CRIT: vendor NO puede create con importe negativo', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'rendiciones', 'r-v992-neg'), {
+        ownerUid: UID.vendor,
+        importe: -100,
+      })
+    );
+  });
+  it('v992 CRIT: gerente NO puede update a importe fuera del cap', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.gerente), 'rendiciones', 'r-vendor'), {
+        importe: 999999999,
+      })
+    );
+  });
 });
 
 // ============================================================
