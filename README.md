@@ -4670,7 +4670,15 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v986
+## 41) Changelog v300 → v987
+
+### v987 (2026-09-18) — Pachi: solo ve "Rutas recomendadas" (oculta "Rutas personalizadas")
+
+Pedido Mariano: pachi (VDE proxy) solo ve el modo "Rutas recomendadas" en el tab Rutas. El botón "Rutas personalizadas" + su panel de subcontroles quedan ocultos, y el botón "Rutas recomendadas" ocupa el ancho completo.
+
+Fix (`applyRolePermissions`): al detectar `_em === 'pachinaba@gmail.com'`, ocultar `#rmode-pers` + `#ruta-pers-controls` + forzar `setRutaMode('recomendada')` por si estaba en modo personalizado.
+
+`APP_VERSION` + `CACHE_VERSION` → v987.
 
 ### v986 (2026-09-18) — Pachi: modal Reportes Excel restringido a 3 categorías
 
