@@ -4670,7 +4670,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v987
+## 41) Changelog v300 → v988
+
+### v988 (2026-09-18) — Pachi: fix del oculto de "Rutas personalizadas" via CSS class (v987 no funcionaba)
+
+Fix del reporte de Mariano: en v987 pachi seguía viendo el botón "Rutas personalizadas". Root cause: `setRutaMode()` en `src/domains/rutas.js:624-625` re-setea `#ruta-pers-controls.style.display` cada vez que se navega el tab — el inline `style.display='none'` que puso `applyRolePermissions()` se pisaba.
+
+**Fix**: pasar de inline style a **CSS class + `!important`** (pattern probado con `body.is-ioannis`):
+```css
+body.is-pachi #rmode-pers{display:none !important}
+body.is-pachi #ruta-pers-controls{display:none !important}
+body.is-pachi #rmode-reco{flex:1 1 100% !important}
+```
+
+`applyRolePermissions()` ahora solo hace `body.classList.toggle('is-pachi', _isPachi)` + forzar `setRutaMode('recomendada')` una vez. La class sobrevive a los re-renders.
+
+`APP_VERSION` + `CACHE_VERSION` → v988.
 
 ### v987 (2026-09-18) — Pachi: solo ve "Rutas recomendadas" (oculta "Rutas personalizadas")
 
