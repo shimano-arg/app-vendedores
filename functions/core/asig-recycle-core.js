@@ -23,6 +23,7 @@
 /**
  * @typedef {Object} RecycleDeps
  * @property {any} fbDb Firestore Admin instance.
+ * @property {(uid: string) => Promise<string|null>} [getUserRole] v990: lookup rol en roles/{uid}. Si no se pasa, se comporta como pre-v990 (asume admin) para retrocompat de tests core que no montan roles.
  * @property {(msg: string, extra?: Record<string, unknown>) => void} [log]
  *
  * @typedef {Object} RecycleAuth
@@ -72,6 +73,22 @@ export async function updateAsigLineState(deps, auth, input) {
     throw { code: 'permission-denied', message: 'solo @shimano puede reciclar/rechazar ASIG' };
   }
 
+  // 1.5) Role gate (v990, SecAudit run-1 CRITICAL #1). Antes el email check
+  // por si solo permitia a viewer/unassigned/vendor de otra zona mutar
+  // cualquier pedido. Ahora exige rol activo (admin/gerente/interno/vendedor);
+  // vendor ademas debe ser owner del pedido (chequeado en la transaccion).
+  // Si getUserRole no se inyecta (tests core preexistentes) asumimos admin.
+  const role = deps.getUserRole ? await deps.getUserRole(auth.uid) : 'admin';
+  const _isAdminOrGerente = role === 'admin' || role === 'gerente';
+  const _isInterno = role === 'interno';
+  const _isVendor = role === 'vendedor';
+  if (!_isAdminOrGerente && !_isInterno && !_isVendor) {
+    throw {
+      code: 'permission-denied',
+      message: `rol '${role || 'sin_rol'}' no autorizado para reciclar/rechazar ASIG`,
+    };
+  }
+
   // 2) Input validation
   const { sourcePedidoId, sourceLineIndex, qty, action, targetPedidoId } =
     input || /** @type {any} */ ({});
@@ -105,6 +122,15 @@ export async function updateAsigLineState(deps, auth, input) {
     const data = snap.data() || {};
     if (data.closedAt) {
       throw { code: 'failed-precondition', message: 'pedido ya cerrado' };
+    }
+    // v990 (SecAudit run-1 CRITICAL #1): ownership check para vendor. Admin/
+    // gerente/interno pueden mutar cualquier pedido (Rules v747 blanket para
+    // interno tambien); vendor solo el propio.
+    if (_isVendor && data.ownerUid !== auth.uid) {
+      throw {
+        code: 'permission-denied',
+        message: 'vendedor no puede reciclar/rechazar ASIG de pedidos ajenos',
+      };
     }
     const lines = Array.isArray(data.lines) ? [...data.lines] : [];
     const line = lines[sourceLineIndex];

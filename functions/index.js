@@ -105,7 +105,13 @@ export const sapProxy = onCall(
     // preflight falla, el browser cachea el fallo, y los POST subsiguientes se
     // cuelgan indefinidamente en el SDK client-side sin ni siquiera llegar al server.
     cors: true,
-    enforceAppCheck: false, // TODO: enable cuando App Check esté configurado
+    // v990 (2026-09-18, SecAudit run-1 HIGH #4): enforceAppCheck true.
+    // Antes false con TODO: un IDToken robado (XSS/phishing/browser ext)
+    // podia sostener ~120k SL requests/24h y enumerar el catalogo Items +
+    // stocks + warehouses ilimitadamente. reCAPTCHA v3 activado post-login
+    // (index.html:activateAppCheckOnce) ya emite tokens App Check al browser.
+    // geminiOcrProxy ya usa enforceAppCheck: true (v918) sin regresiones.
+    enforceAppCheck: true,
   },
   async (request) => {
     const db = getFirestore();
@@ -605,13 +611,44 @@ export const updateAsigLineStateCF = onCall(
   {
     region: REGION,
     cors: true,
-    enforceAppCheck: false,
+    // v990 (2026-09-18, SecAudit run-1 CRITICAL #1): endurecer CF.
+    // Antes: enforceAppCheck false + sin rate limit + sin role gate + sin
+    // ownership check. Cualquier @shimano user (viewer, unassigned, VDE de
+    // otra zona) podia spamear recycle/reject en pedidos ajenos → DoS +
+    // corrupcion + auto-close forzado (closedAt set). Cambios:
+    //   - enforceAppCheck: true (token reCAPTCHA v3 obligatorio).
+    //   - rate limit 500/hr por user (updateAsigLineState en RATE_LIMITS).
+    //   - role gate + ownership check en el core (asig-recycle-core.js:1.5+3).
+    enforceAppCheck: true,
   },
   async (request) => {
     const db = getFirestore();
+    // Rate limit ANTES del transaction (evita gastar reads en un abuse loop).
+    if (request.auth) {
+      const rl = await checkAndIncrementRateLimit(
+        { fbDb: db, log: (m, e) => console.log(m, e || {}) },
+        request.auth.uid,
+        'updateAsigLineState',
+        RATE_LIMITS.updateAsigLineState.threshold,
+        RATE_LIMITS.updateAsigLineState.windowMs
+      );
+      if (!rl.allowed) {
+        throw new HttpsError(
+          'resource-exhausted',
+          `updateAsigLineState rate limit alcanzado (${rl.threshold}/hr). Reset: ${rl.resetAt}`
+        );
+      }
+    }
     try {
       return await updateAsigLineState(
-        { fbDb: db, log: (msg, extra) => console.log(msg, extra || {}) },
+        {
+          fbDb: db,
+          log: (msg, extra) => console.log(msg, extra || {}),
+          getUserRole: async (uid) => {
+            const snap = await db.doc(`roles/${uid}`).get();
+            return (snap.data() || {}).role || null;
+          },
+        },
         request.auth ? { uid: request.auth.uid, email: request.auth.token?.email || '' } : null,
         request.data
       );
