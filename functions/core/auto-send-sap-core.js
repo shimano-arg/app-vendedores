@@ -220,8 +220,7 @@ export function buildQuotationPayload(pedido, pedidoId, deps, trueVendor) {
   // `ownerVendor='<victim>'` -> SQ a SAP con SlpCode de otro vendedor ->
   // commission fraud. Con trueVendor inyectado (roles/{ownerUid}.vendor)
   // el server hace fresh lookup y no puede ser spoofeado desde el cliente.
-  const vendorForSlp =
-    (typeof trueVendor === 'string' && trueVendor) || pedido.ownerVendor || '';
+  const vendorForSlp = (typeof trueVendor === 'string' && trueVendor) || pedido.ownerVendor || '';
   const slpCode = resolveSlpCode(vendorForSlp, deps);
   const batchId = 'CF-AUTO-' + now;
   const entregaSuffix = _buildEntregaSuffix(pedido.formaEntrega);
