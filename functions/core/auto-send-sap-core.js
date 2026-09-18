@@ -60,6 +60,7 @@ import { sapLogin, sapLogout, sapPost } from './sap-sl-client.js';
  * @property {Map<string, string>} [sapClients]  clientName_normalized -> CardCode
  * @property {Map<string, string>} [sapProducts] appCode -> sapItemCode (mapeo manual)
  * @property {Map<string, number>} [sapVendors]  vendorKey -> slpCode
+ * @property {(uid: string) => Promise<string|null>} [getUserVendor] v991: lookup fresh de `roles/{uid}.vendor` para evitar ownerVendor spoof en el pedido. Si no se pasa, el core cae al `pedido.ownerVendor` (retrocompat con tests core).
  * @property {number} [lockTtlMs]              default 300000 (5 min)
  * @property {number} [dueDateDays]            default 30
  */
@@ -157,9 +158,10 @@ export function resolveSlpCode(vendorKey, deps) {
  * @param {PedidoLike} pedido
  * @param {string} pedidoId Firestore doc id (para NumAtCard + U_AppOrderId).
  * @param {CoreDeps} deps
+ * @param {string|null} [trueVendor] v991 (SecAudit run-1 HIGH #5): vendor key resuelto server-side desde roles/{ownerUid}. Si se pasa, se usa para resolver SLP code (y se ignora pedido.ownerVendor). Si es null/undefined, cae al pedido.ownerVendor (retrocompat).
  * @returns {{ok: false, reason: string} | {ok: true, payload: any, linesCount: number}}
  */
-export function buildQuotationPayload(pedido, pedidoId, deps) {
+export function buildQuotationPayload(pedido, pedidoId, deps, trueVendor) {
   const cardCode = resolveCardCode(pedido, deps);
   if (!cardCode) {
     return { ok: false, reason: 'no_cardcode' };
@@ -212,7 +214,14 @@ export function buildQuotationPayload(pedido, pedidoId, deps) {
   const dueDateDays = deps.dueDateDays ?? 30;
   const docDate = isoDate(now);
   const docDueDate = isoDate(now + dueDateDays * 24 * 3600 * 1000);
-  const slpCode = resolveSlpCode(pedido.ownerVendor || '', deps);
+  // v991 (SecAudit run-1 HIGH #5): usar trueVendor server-side si viene.
+  // Antes: `resolveSlpCode(pedido.ownerVendor, deps)` confiaba en el campo
+  // del pedido, que un VDE bypassing UI (devtools/curl) podia setear a
+  // `ownerVendor='<victim>'` -> SQ a SAP con SlpCode de otro vendedor ->
+  // commission fraud. Con trueVendor inyectado (roles/{ownerUid}.vendor)
+  // el server hace fresh lookup y no puede ser spoofeado desde el cliente.
+  const vendorForSlp = (typeof trueVendor === 'string' && trueVendor) || pedido.ownerVendor || '';
+  const slpCode = resolveSlpCode(vendorForSlp, deps);
   const batchId = 'CF-AUTO-' + now;
   const entregaSuffix = _buildEntregaSuffix(pedido.formaEntrega);
   const comments = [
@@ -404,8 +413,41 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
     return { result: AUTO_SEND_RESULT.ERROR_SL, error: 'lock_exception:' + msg };
   }
 
+  // === RESOLVE trueVendor SERVER-SIDE (v991 SecAudit run-1 HIGH #5) ===
+  // Antes: buildQuotationPayload usaba pedido.ownerVendor sin validar.
+  // Ahora leemos roles/{ownerUid}.vendor con Admin SDK; el pedido.ownerVendor
+  // no es tocado (fuente auditable pero no confiable para SAP). Si divergen
+  // logueamos warning para forense.
+  let trueVendor = null;
+  const ownerUid = String(afterData?.ownerUid || '').trim();
+  if (deps.getUserVendor && ownerUid) {
+    try {
+      trueVendor = await deps.getUserVendor(ownerUid);
+    } catch (e) {
+      // Non-fatal: cae al fallback pedido.ownerVendor + loguea. La SQ igual
+      // se envia (evita bloquear el flow por un read fallado).
+      log('[auto-send] getUserVendor fail', {
+        pedidoId,
+        ownerUid,
+        err: e && e.message ? e.message : String(e),
+      });
+    }
+  }
+  if (
+    trueVendor &&
+    afterData?.ownerVendor &&
+    String(trueVendor).toUpperCase() !== String(afterData.ownerVendor).toUpperCase()
+  ) {
+    log('[auto-send] WARN ownerVendor divergent', {
+      pedidoId,
+      ownerUid,
+      pedidoOwnerVendor: afterData.ownerVendor,
+      trueVendor,
+    });
+  }
+
   // === BUILD PAYLOAD ===
-  const built = buildQuotationPayload(afterData, pedidoId, deps);
+  const built = buildQuotationPayload(afterData, pedidoId, deps, trueVendor);
   if (!built.ok) {
     log('[auto-send] build failed', { pedidoId, reason: built.reason });
     // Liberar lock para reintento manual.

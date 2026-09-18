@@ -505,6 +505,14 @@ export const onPedidoConfirmedSendToSap = onDocumentWritten(
         sapClients,
         sapProducts,
         sapVendors,
+        // v991 (SecAudit run-1 HIGH #5): fresh lookup del vendor real del owner
+        // desde roles/{uid}.vendor. handleAutoSendSap lo pasa a
+        // buildQuotationPayload para resolver SlpCode (en vez de confiar en
+        // pedido.ownerVendor, que un VDE hostil puede spoofear via devtools).
+        getUserVendor: async (uid) => {
+          const snap = await db.doc(`roles/${uid}`).get();
+          return (snap.data() || {}).vendor || null;
+        },
         sl: {
           fetch: globalThis.fetch,
           sapConfig,

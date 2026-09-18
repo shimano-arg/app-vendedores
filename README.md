@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v990 (2026-09-18)** — SecAudit run-1 CRITICAL #1 + HIGH #4 cerrados: `updateAsigLineStateCF` con `enforceAppCheck: true` + rate limit 500/hr + role gate (admin/gerente/interno/vendedor) + ownership check para vendor; `sapProxy` con `enforceAppCheck: true` (elimina TODO). Ver §41. |
-| **APP_VERSION** | `v990` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v991 (2026-09-18)** — SecAudit run-1 HIGH #5 + #6 cerrados: `onPedidoConfirmedSendToSap` resuelve `trueVendor` fresh desde `roles/{ownerUid}.vendor` (deja de confiar en `pedido.ownerVendor` spoofeable); Rules `pedidos.create` valida `ownerVendor == myVendorKey()` para vendor; Rules `client_applications.create` valida `assignedVendor == myVendorKey()` para vendor (cerró lead theft simétrico a v926 update-side). Ver §41. |
+| **APP_VERSION** | `v991` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,30 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v990
+## 41) Changelog v300 → v991
+
+### v991 (2026-09-18) — SecAudit run-1: HIGH #5 (ownerVendor spoof) + HIGH #6 (assignedVendor spoof) cerrados
+
+Cierre de las 2 variantes **create-side** del mismo patrón que v918 (CHAIN-01) y v926 (HIGH-09) cerraron en **update-side**. Zero cambio de UX para flow legítimo.
+
+**Finding #5 — `onPedidoConfirmedSendToSap` `ownerVendor` spoof (HIGH)**. Root cause: `functions/core/auto-send-sap-core.js` construía el payload SQ con `resolveSlpCode(pedido.ownerVendor, deps)`. Un VDE con devtools/curl podía crear un pedido con `ownerUid=self` + `ownerVendor='<victim>'` → SQ enviada a SAP con SlpCode del victim → commission fraud + audit trail confuso (Firestore muestra al atacante, SAP muestra al victim). 3 fixes coordinados:
+
+1. **`functions/core/auto-send-sap-core.js`** — nuevo dep opcional `getUserVendor(uid)` en `CoreDeps`. `handleAutoSendSap` hace fresh lookup a `roles/{ownerUid}.vendor` server-side y lo pasa como 4to arg (`trueVendor`) a `buildQuotationPayload`. Si `trueVendor` viene, override `pedido.ownerVendor` para el SlpCode. Si diverge, se loguea `WARN ownerVendor divergent` con `{pedidoOwnerVendor, trueVendor, ownerUid}` para forense. Si `getUserVendor` throw (Firestore hiccup), cae al fallback `pedido.ownerVendor` + loguea `getUserVendor fail` (no bloquea el envío por un read fallado).
+2. **`functions/index.js:onPedidoConfirmedSendToSap`** — wiring del `getUserVendor` inyectado con Admin SDK.
+3. **`firestore.rules:pedidos create`** — nueva validación: `vendor` solo puede crear pedido con `ownerVendor == null | myVendorKey()`. Admin/gerente mantienen create sin restricción (backend flows legítimos). Defensa en profundidad: si el vector rules pasa (bug futuro), la CF sigue haciendo fresh lookup y NO usa el spoof.
+
+**Finding #6 — `client_applications create` `assignedVendor` spoof (HIGH)**. Root cause: `firestore.rules:client_applications create` no validaba `assignedVendor`. Un VDE hostil con devtools podía crear un lead con `ownerUid=self` + `assignedVendor='<victim>'` → el lead aparecía en el mapa del victim (`.where('assignedVendor','==',victimKey)`) mientras el ownerUid seguía siendo del atacante. Simétrico a v926 HIGH-09 (update-side ya cerrado). Fix: extender la rule con `assignedVendor == null | myVendorKey() | isAdminOrGerente()`. Formulario público (`submittedByPublicForm`) queda intacto.
+
+**Tests**:
+- 5 tests nuevos en `auto-send-sap.test.js` (`v991 trueVendor override`): sin trueVendor cae al pedido.ownerVendor (retrocompat), trueVendor override SlpCode, trueVendor null fallback, trueVendor sin mapping → -1.
+- 4 tests nuevos en `auto-send-sap.test.js` (`v991 handleAutoSendSap`): getUserVendor invoked con ownerUid, sin getUserVendor fallback OK, getUserVendor throw fallback + log, divergent log warning.
+- 4 tests nuevos en `rules.test.js` (`v991 pedidos.create ownerVendor`): vendor own OK, null OK, spoof rejected, admin override OK.
+- 4 tests nuevos en `rules.test.js` (`v991 client_applications.create assignedVendor`): vendor own OK, null OK, spoof rejected, admin override OK.
+- Fix side test preexistente: `revision_waitlist vendor delete` estaba pre-v953 (asumía delete cerrado). Actualizado a "vendor puede delete su propio waitlist" + "vendor NO puede delete ajeno" para reflejar rule vigente.
+
+Verificación: `npx vitest run tests/functions` → 306/306 pass. `npm run test:rules` → 162/162 pass.
+
+Bump `APP_VERSION` + `CACHE_VERSION` → v991. Bundle rebuildeado. Rules deploy: `firebase deploy --only firestore:rules`. Functions deploy: `firebase deploy --only functions:onPedidoConfirmedSendToSap`.
 
 ### v990 (2026-09-18) — SecAudit run-1: CRITICAL #1 (updateAsigLineStateCF) + HIGH #4 (sapProxy enforceAppCheck) cerrados
 

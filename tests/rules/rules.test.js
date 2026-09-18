@@ -231,6 +231,42 @@ describe('/pedidos', () => {
       setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-new-forge'), { ownerUid: UID.vendorOther })
     );
   });
+  // v991 (SecAudit run-1 HIGH #5): create rule valida ownerVendor
+  it('v991: vendor puede crear pedido con ownerVendor=myVendorKey (VDE_GONZALO)', async () => {
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-new-own'), {
+        ownerUid: UID.vendor,
+        ownerVendor: 'VDE_GONZALO',
+      })
+    );
+  });
+  it('v991: vendor puede crear pedido con ownerVendor=null (unset)', async () => {
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-new-null'), {
+        ownerUid: UID.vendor,
+        ownerVendor: null,
+      })
+    );
+  });
+  it('v991: vendor NO puede crear pedido con ownerVendor spoofeado a otro (VDE_OTRO)', async () => {
+    // Vector CRITICAL: commission fraud. Aunque el ownerUid es propio, seteando
+    // ownerVendor=<victima> el trigger onPedidoConfirmedSendToSap resolvia
+    // SlpCode del otro -> comision atribuida mal.
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-new-spoof'), {
+        ownerUid: UID.vendor,
+        ownerVendor: 'VDE_OTRO',
+      })
+    );
+  });
+  it('v991: admin puede crear pedido con cualquier ownerVendor (backend flow)', async () => {
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.admin), 'pedidos', 'p-admin-any'), {
+        ownerUid: UID.vendorOther,
+        ownerVendor: 'VDE_OTRO',
+      })
+    );
+  });
   // v918 (Sprint 1 E1.3 HIGH-05): vendor update restringido por hasOnly().
   // vendor delete removido (era abierto por ownership — riesgo: VDE wipe
   // pedidos post-envio a SAP, dejando SQ orfano en SAP sin trace).
@@ -510,6 +546,39 @@ describe('/client_applications', () => {
   it('vendor crea alta propia', async () => {
     await assertSucceeds(
       setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-new'), { ownerUid: UID.vendor })
+    );
+  });
+  // v991 (SecAudit run-1 HIGH #6): create rule valida assignedVendor
+  it('v991: vendor puede crear alta con assignedVendor=myVendorKey (VDE_GONZALO)', async () => {
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-mine'), {
+        ownerUid: UID.vendor,
+        assignedVendor: 'VDE_GONZALO',
+      })
+    );
+  });
+  it('v991: vendor puede crear alta con assignedVendor=null (unassigned)', async () => {
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-null'), {
+        ownerUid: UID.vendor,
+        assignedVendor: null,
+      })
+    );
+  });
+  it('v991: vendor NO puede crear alta con assignedVendor spoofeado a otro (VDE_OTRO) — lead theft', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-spoof'), {
+        ownerUid: UID.vendor,
+        assignedVendor: 'VDE_OTRO',
+      })
+    );
+  });
+  it('v991: admin puede crear alta con cualquier assignedVendor (override legitimo)', async () => {
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.admin), 'client_applications', 'ca-admin-assign'), {
+        ownerUid: UID.admin,
+        assignedVendor: 'VDE_OTRO',
+      })
     );
   });
   it('vendor puede borrar alta propia SIN cardCodeSap', async () => {
@@ -869,10 +938,18 @@ describe('/revision_waitlist (v926 E1.4 HIGH-06)', () => {
       })
     );
   });
-  it('CRIT: vendor NO puede delete waitlist (defensa contra wipe)', async () => {
-    await assertFails(deleteDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'w-vendor')));
+  // v953 (2026-09-16): reabrio delete al owner del waitlist (owner puede
+  // borrar su propio doc despues de confirmar el pedido). El wipe cross-vendor
+  // sigue prohibido. Los tests originales (pre-v953) asumian el gate cerrado
+  // pero fueron actualizados aca para reflejar la rule vigente.
+  it('v953: vendor SI puede delete su propio waitlist (owner)', async () => {
+    await assertSucceeds(deleteDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'w-vendor')));
   });
-  it('viewer NO puede delete waitlist (defensa contra wipe)', async () => {
+  it('CRIT: vendor NO puede delete waitlist ajeno (defensa contra wipe cross-vendor)', async () => {
+    await seedDoc('revision_waitlist/w-other', { ownerUid: UID.vendorOther, items: [] });
+    await assertFails(deleteDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'w-other')));
+  });
+  it('viewer NO puede delete waitlist (no es owner ni admin/gerente/interno)', async () => {
     await assertFails(deleteDoc(doc(authedDb(UID.viewer), 'revision_waitlist', 'w-vendor')));
   });
   it('admin/gerente/interno SI pueden delete', async () => {
