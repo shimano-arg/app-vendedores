@@ -34,6 +34,11 @@ function _escHtml(s) {
     .replace(/'/g, '&#39;');
 }
 
+function _isMarianoEmail() {
+  const email = ((window.currentUser && window.currentUser.email) || '').toLowerCase();
+  return email === 'erbinomariano@gmail.com' || email === 'mariano.erbino@shimano.com.ar';
+}
+
 const HEALTH_COLORS = {
   green: '#16a34a',
   yellow: '#f59e0b',
@@ -930,6 +935,15 @@ window.renderPanelControl = function () {
   html += _renderPedidosSection();
   html += _renderBackorderSection();
   html += _renderOpsLogSection();
+  if (_isMarianoEmail()) {
+    // Static HTML only (no user-supplied content); safe to concat.
+    html +=
+      '<div style="margin-top:24px;padding:16px;background:var(--bg-secondary);border-radius:8px">' +
+      '<div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Herramientas Mariano-only</div>' +
+      '<button onclick="closePanelControl();openMeliModal();" style="padding:10px 18px;background:#FFE600;color:#0f172a;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px">🛒 Mercado Libre</button>' +
+      '<div style="font-size:10px;color:var(--text-muted);margin-top:6px">Datos sincronizados diariamente desde mercado-intelligence</div>' +
+      '</div>';
+  }
   html +=
     '<div style="text-align:right;font-size:10.5px;color:var(--text-muted);margin-top:8px">Renderizado ' +
     _escHtml(new Date().toLocaleTimeString('es-AR')) +

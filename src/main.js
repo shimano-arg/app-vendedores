@@ -156,6 +156,7 @@ installChunkStubs('seguimiento', [
   'saveSegNote',
   'setSegStatus',
 ]);
+installChunkStubs('meli', ['openMeliModal', 'closeMeliModal', 'setMeliSubtab']);
 
 const phase0 = {
   version: 'v333',

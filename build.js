@@ -114,6 +114,14 @@ const LAZY_CHUNKS = {
     'saveSegNote',
     'setSegStatus',
   ],
+  // E4.4 (2026-09-18): CRM MELI modal (admin/gerente). Consulta datos ML
+  // (ventas, publicaciones, competencia) scrapeados por pipeline mercado-intelligence
+  // + expone a Shimano Pesca. Lazy porque solo Mariano/gerentes lo abren.
+  'meli': [
+    'openMeliModal',
+    'closeMeliModal',
+    'setMeliSubtab',
+  ],
 };
 
 function fmtSize(bytes) {
