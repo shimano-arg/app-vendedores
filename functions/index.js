@@ -1086,42 +1086,45 @@ export const setupGetMovimientos = onCall(
     // territory intel + patterns de compra por cliente. Admin/gerente/interno
     // mantienen acceso amplio (necesitan queries cross-vendor para
     // troubleshoot logistico).
-    // Reglas:
-    //   - vendedor sin cardCode: throw invalid-argument (evita "traeme todo").
-    //   - vendedor con cardCode: fetch client_master/{cardCode}.assignedVendor
-    //     y comparar case-insensitive con _callerVendor. Mismatch -> deny.
-    //   - client_master doc ausente: fail closed (assumeSame=false).
+    // Reglas para role='vendedor':
+    //   1. Con cardCode: fetch client_master/{cardCode}.assignedVendor y
+    //      comparar case-insensitive con _callerVendor. Mismatch -> deny.
+    //      client_master doc ausente: fail closed (asumimos no autorizado).
+    //   2. Sin cardCode: el modal Deposito llama sin cardCode para traer
+    //      "todos los shipments recientes" (v836 flow). NO tiramos error —
+    //      en su lugar, marcamos _scopeAllToVendorCartera=true y al final
+    //      filtramos los movimientos server-side por client_master.assignedVendor.
+    //      El vendedor solo ve shipments de clientes de su cartera.
+    const _norm = (/** @type {any} */ s) =>
+      String(s || '')
+        .trim()
+        .toUpperCase();
+    let _scopeAllToVendorCartera = false;
     if (_role === 'vendedor') {
-      if (!filterCardCode) {
-        throw new HttpsError(
-          'invalid-argument',
-          'cardCode requerido para role=vendedor (scope territorial)'
-        );
-      }
       if (!_callerVendor) {
         throw new HttpsError(
           'failed-precondition',
           'roles/{uid}.vendor no seteado — pedirle al admin que asigne vendorKey'
         );
       }
-      const _cmSnap = await _db.doc(`client_master/${filterCardCode}`).get();
-      const _cmData = _cmSnap.data() || {};
-      const _clientVendor = _cmData.assignedVendor || null;
-      const _norm = (/** @type {any} */ s) =>
-        String(s || '')
-          .trim()
-          .toUpperCase();
-      if (!_clientVendor || _norm(_clientVendor) !== _norm(_callerVendor)) {
-        console.warn('setupGetMovimientos DENY cardCode scope', {
-          uid: request.auth.uid,
-          callerVendor: _callerVendor,
-          cardCode: filterCardCode,
-          clientVendor: _clientVendor,
-        });
-        throw new HttpsError(
-          'permission-denied',
-          `cardCode ${filterCardCode} no pertenece a tu cartera`
-        );
+      if (filterCardCode) {
+        const _cmSnap = await _db.doc(`client_master/${filterCardCode}`).get();
+        const _cmData = _cmSnap.data() || {};
+        const _clientVendor = _cmData.assignedVendor || null;
+        if (!_clientVendor || _norm(_clientVendor) !== _norm(_callerVendor)) {
+          console.warn('setupGetMovimientos DENY cardCode scope', {
+            uid: request.auth.uid,
+            callerVendor: _callerVendor,
+            cardCode: filterCardCode,
+            clientVendor: _clientVendor,
+          });
+          throw new HttpsError(
+            'permission-denied',
+            `cardCode ${filterCardCode} no pertenece a tu cartera`
+          );
+        }
+      } else {
+        _scopeAllToVendorCartera = true;
       }
     }
 
@@ -1443,23 +1446,60 @@ export const setupGetMovimientos = onCall(
         })
         .sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
 
+      // v994 (SecAudit run-1 HIGH #3): si el caller es vendedor sin cardCode
+      // explicito, filtrar server-side por su cartera antes de retornar. Sin
+      // este filtro el vendedor seguiria viendo TODOS los shipments de todos
+      // los clientes (bug exfil de v829-v993). Query batch a client_master
+      // por los cardCodes unicos de la respuesta SETUP, indexar por
+      // assignedVendor, y matchear.
+      let _finalMovimientos = movimientos;
+      if (_scopeAllToVendorCartera) {
+        const _cardCodes = Array.from(
+          new Set(movimientos.map((m) => String(m.destinatario || '').trim()).filter(Boolean))
+        );
+        // Firestore no permite `in` con >30 items — chunkear (o all-fetch si
+        // son pocos). Total cardCodes tipicos por ventana 60d ~50-200.
+        /** @type {Map<string, string>} */
+        const _vendorByCardCode = new Map();
+        const CHUNK = 30;
+        for (let i = 0; i < _cardCodes.length; i += CHUNK) {
+          const chunk = _cardCodes.slice(i, i + CHUNK);
+          const _qs = await _db.collection('client_master').where('__name__', 'in', chunk).get();
+          _qs.forEach((/** @type {any} */ d) => {
+            const av = (d.data() || {}).assignedVendor;
+            if (av) _vendorByCardCode.set(d.id, _norm(av));
+          });
+        }
+        const _callerVendorNorm = _norm(_callerVendor);
+        const _preFilterCount = movimientos.length;
+        _finalMovimientos = movimientos.filter((m) => {
+          const cc = String(m.destinatario || '').trim();
+          if (!cc) return false;
+          const av = _vendorByCardCode.get(cc);
+          return av === _callerVendorNorm;
+        });
+        console.log(
+          `setupGetMovimientos: vendor scope filter ${_preFilterCount} → ${_finalMovimientos.length} notas (callerVendor=${_callerVendor})`
+        );
+      }
+
       // v865 (2026-09-11): log de max fecha para detectar "SETUP dejo de publicar".
       // Si Mariano ve la app sin data nueva, este log confirma si SETUP mismo
       // esta stale (max fecha vieja) o si el problema es cache/render client-side.
       const maxFecha =
-        movimientos.length > 0 ? String(movimientos[0].fecha || '').slice(0, 10) : null;
+        _finalMovimientos.length > 0 ? String(_finalMovimientos[0].fecha || '').slice(0, 10) : null;
       const minFecha =
-        movimientos.length > 0
-          ? String(movimientos[movimientos.length - 1].fecha || '').slice(0, 10)
+        _finalMovimientos.length > 0
+          ? String(_finalMovimientos[_finalMovimientos.length - 1].fecha || '').slice(0, 10)
           : null;
-      const totalDespachos = movimientos.filter((m) => m.comprobante === 'DESPACHO').length;
+      const totalDespachos = _finalMovimientos.filter((m) => m.comprobante === 'DESPACHO').length;
       console.log(
-        `setupGetMovimientos: retornando ${movimientos.length} notas (${totalDespachos} despachos) desde=${minFecha} hasta=${maxFecha}`
+        `setupGetMovimientos: retornando ${_finalMovimientos.length} notas (${totalDespachos} despachos) desde=${minFecha} hasta=${maxFecha}`
       );
 
       return {
-        movimientos,
-        notasCount: movimientos.length,
+        movimientos: _finalMovimientos,
+        notasCount: _finalMovimientos.length,
         lineasTotales: arr.length,
         maxFecha,
         minFecha,

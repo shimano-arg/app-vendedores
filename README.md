@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v994 (2026-09-18)** — SecAudit run-1 HIGH #3 cerrado (último finding del run-1): `setupGetMovimientos` scope `cardCode` a caller vendor cuando `role='vendedor'` (fetch `client_master/{cardCode}.assignedVendor` y match case-insensitive con `roles/{uid}.vendor`). Vendedor sin cardCode → `invalid-argument`. Admin/gerente/interno mantienen acceso amplio. **Todos los 7 confirmed findings de SecAudit run-1 cerrados**. Ver §41. |
-| **APP_VERSION** | `v994` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v995 (2026-09-18)** — Hotfix pre-deploy v994: el modal Depósito (`index.html:16354`) llama `setupGetMovimientos` SIN `cardCode` (query global "traeme todos los shipments"). El v994 original tiraba `invalid-argument` en ese caso → rompía UX. Ahora si vendedor sin `cardCode` → server hace fetch normal + filtra `movimientos` server-side por `client_master.assignedVendor == roles/{uid}.vendor` (batch chunked query). Vendedor con `cardCode` sigue con el check estricto. Vector cerrado igual: vendedor solo ve shipments de su cartera. Ver §41. |
+| **APP_VERSION** | `v995` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,28 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v994
+## 41) Changelog v300 → v995
+
+### v995 (2026-09-18) — Hotfix pre-deploy v994: setupGetMovimientos vendedor sin cardCode → filtro server-side por cartera
+
+Descubierto durante el pre-deploy review del v994: el modal Depósito de la app (`index.html:_fetchDeposito`) invoca `setupGetMovimientos({ dias })` **sin `cardCode`** (v836 flow "traeme todos los shipments recientes"). El v994 original devolvía `invalid-argument` en ese caso → rompía completamente el modal para VDEs.
+
+**Fix v995**:
+- Si `role === 'vendedor' && filterCardCode == null` → NO throw. En su lugar marca `_scopeAllToVendorCartera = true` y sigue el flow normal.
+- Al final del handler (justo antes del `return { movimientos }`), si el flag está activo:
+  1. Extraer set de `destinatario` (= cardCode) únicos del array `movimientos` que SETUP devolvió.
+  2. Chunked query a `client_master` con `where('__name__', 'in', chunk)` (batch de 30, límite Firestore para `in`).
+  3. Construir `Map<cardCode, assignedVendor>`.
+  4. `_finalMovimientos = movimientos.filter(m => vendorByCardCode.get(m.destinatario) === callerVendorNorm)`.
+  5. Log `vendor scope filter N → M notas` para observability.
+- Vendedor con `cardCode` explicito sigue con el check estricto v994 (verifica `client_master/{cardCode}.assignedVendor` == callerVendor).
+- Admin/gerente/interno sin cambio.
+
+**Trade-off perf**: para dias=60 típicos (~50-200 cardCodes únicos) son 2-7 chunk queries (10-30ms cada una). Aceptable dentro del timeout 300s del CF. Alternativa evaluada y descartada: pre-cachear el vendor's cartera al inicio (pero cartera es dinámica y client_master crece, cache serviría poco).
+
+**Vector de finding #3 cerrado igual**: vendedor sigue sin poder ver shipments de clientes ajenos, sea con o sin cardCode. El fix v994+v995 es la implementación robusta y compatible con la UX existente.
+
+Bump `APP_VERSION` + `CACHE_VERSION` → v995. Bundle rebuildeado.
 
 ### v994 (2026-09-18) — SecAudit run-1: HIGH #3 setupGetMovimientos cardCode scoping (7/7 findings cerrados)
 
