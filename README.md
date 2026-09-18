@@ -20,7 +20,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Versión actual** | **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. 3 sub-tabs (MAP · Productos · Categorías) alimentadas por sync diario desde mercado-intelligence. Botón "🛒 Mercado Libre" al final del Panel de Control, gated por email whitelist (erbinomariano@gmail.com + mariano.erbino@shimano.com.ar). Chunk lazy `chunks/meli.js` + rules `isMariano()` + colecciones `meli/*`. Ver §51. \| **v995 (2026-09-18)** — Hotfix pre-deploy v994: el modal Depósito (`index.html:16354`) llama `setupGetMovimientos` SIN `cardCode` (query global "traeme todos los shipments"). El v994 original tiraba `invalid-argument` en ese caso → rompía UX. Ahora si vendedor sin `cardCode` → server hace fetch normal + filtra `movimientos` server-side por `client_master.assignedVendor == roles/{uid}.vendor` (batch chunked query). Vendedor con `cardCode` sigue con el check estricto. Vector cerrado igual: vendedor solo ve shipments de su cartera. Ver §41. |
 | **APP_VERSION** | `v996` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
-| **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
+| **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
 | **Bot Inventario Google Sheet** | Lee `raw.githubusercontent.com/shimano-arg/app-vendedores/main/stock.json` cada 30 min — datos frescos garantizados |
 
@@ -4671,7 +4671,39 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v995
+## 41) Changelog v300 → v997
+
+### v997 (2026-09-18) — Power BI card "Total Espera $ARS" (pipeline waitlist_raw → v_waitlist_disponible_ars)
+
+Pedido Mariano: ver en el TABLERO SAR (PowerBI) cuánto en pesos representa la Lista de Espera que HOY va a entrar a SAP (con stock actual, no snapshot al cargar). Pipeline nuevo end-to-end 100% backend (0 cambios frontend, sin bump APP_VERSION):
+
+**1. Tabla raw `waitlist_raw`** (BQ, dataset `shimano_app`). Cada doc de la colección Firestore `revision_waitlist` se aplana a rows por (waitlist_doc, item). Escrita por nueva función `sync_waitlist_from_firestore()` en `scripts/sync_sap_to_bigquery.py`, corre en el cron GH Actions cada 30 min con `truncate_on_empty=True`.
+
+**2. Vista `v_waitlist_disponible_ars`** (bigquery/views.sql) joinea `waitlist_raw` × `v_inventario`:
+- `qty_disponible_ahora = LEAST(item.qty, MAX(stock_actual, 0))` — clamped a >=0
+- `disponible_ars = qty_disponible_ahora × price_pesca_ars` (list 11 PESCA ARS)
+- `total_pedido_ars = item.qty × price_pesca_ars`
+- `backorder_estimado_ars = (item.qty − qty_disponible_ahora) × price_pesca_ars`
+- Vendor: `COALESCE(owner_vendor, vendor_assigned)` uppercase+trim para matchear el slicer `assigned_vendor` global del tablero
+
+**3. Script de deploy** `scripts/deploy_waitlist_view.py` — backfill inicial one-shot + smoke test.
+
+**Verificación post-deploy** (2026-09-18 20:07 UTC): 5 waitlists activos, 57 items, 3 vendors. **Total disponible $5.571.000 ARS** (FEDERICO CASTELANELLI $4.093.000, SANTIAGO ESTEBAN $1.447.000). Backorder estimado $1.259.000.
+
+**Cómo agregarlo al TABLERO SAR PowerBI**:
+1. Home → Get data → BigQuery → project `app-vendedores-shimano` → dataset `shimano_app` → seleccionar `v_waitlist_disponible_ars` → Load
+2. Nueva hoja "LISTA DE ESPERA" (o card en Dashboard existente):
+   - **Card "Total Espera $ARS"** = `SUM(disponible_ars)` — respeta el slicer vendor automáticamente
+   - **Card "Items en espera"** = `COUNT(rows)`
+   - **Card "Clientes en espera"** = `DISTINCTCOUNT(client_card_code)`
+   - **Card "Backorder estimado $ARS"** = `SUM(backorder_estimado_ars)`
+   - **Tabla detalle** (ordenar `disponible_ars` DESC, top 50): assigned_vendor, client_name, item_code, item_desc, qty_pedida, qty_disponible_ahora, stock_actual_dep11, price_pesca_ars, disponible_ars
+3. Slicer global `assigned_vendor` (mismo pattern que las demás páginas)
+4. Slicer opcional `source` (crear-manual vs revision-excel vs volver-a-espera)
+
+**Trade-offs conocidos**:
+- Precio = `price_pesca_ars` (list 11 PESCA ARS) — NO el negociado por cliente. Para "disponible con descuento por cliente" hay que joinear con `sap_bp_raw.PriceListNum` + `sap_items_raw.item_prices[]`. Deferred.
+- Sync cada 30 min (cron GH Actions). Cambios visibles al próximo refresh de PowerBI.
 
 ### v995 (2026-09-18) — Hotfix pre-deploy v994: setupGetMovimientos vendedor sin cardCode → filtro server-side por cartera
 

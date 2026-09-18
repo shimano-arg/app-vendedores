@@ -137,6 +137,12 @@ BQ_TABLE_DEPOSIT_CHECKS    = f'{BQ_PROJECT}.{BQ_DATASET}.sap_deposit_checks_raw'
 BQ_TABLE_BANKS             = f'{BQ_PROJECT}.{BQ_DATASET}.sap_banks_raw'
 BQ_TABLE_TARGETS         = f'{BQ_PROJECT}.{BQ_DATASET}.targets_raw'
 BQ_TABLE_CAMPAIGNS       = f'{BQ_PROJECT}.{BQ_DATASET}.campaigns_raw'
+# v997 (2026-09-18): waitlist_raw se alimenta desde la coleccion Firestore
+# `revision_waitlist` (Lista de Espera). Cada doc tiene items[] array; en BQ
+# se aplana a una row por (waitlist_doc, item). Alimenta la vista
+# `v_waitlist_disponible_ars` que joinea con v_inventario para computar
+# "cuanto de la Lista de Espera va a entrar SAP" en ARS.
+BQ_TABLE_WAITLIST        = f'{BQ_PROJECT}.{BQ_DATASET}.waitlist_raw'
 
 # Codigo de la lista PESCA en SAP (misma que sync_sap_to_firestore.py).
 PESCA_PRICE_LIST_NUM = 12
@@ -1336,6 +1342,112 @@ def sync_targets_from_firestore(db: firestore.Client, sync_ts: str) -> list:
             '_sync_timestamp':  sync_ts,
         })
     log(f'[TARGETS] {len(rows)} rows validas (target > 0)')
+    return rows
+
+
+def sync_waitlist_from_firestore(db: firestore.Client, sync_ts: str) -> list:
+    """v997 (2026-09-18): lee coleccion `revision_waitlist` de Firestore y
+    aplana cada doc x item a rows individuales para BQ.
+
+    Un doc waitlist tiene:
+      clientName, clientProvince, clientLocality, clientCardCode
+      vendorAssigned (default vendor override), ownerUid, ownerEmail,
+      ownerDisplayName, ownerVendor (vendor key del VDE que cargo), orderNumber
+      source ('crear-manual' | 'revision-excel' | 'volver-a-espera')
+      fromPedidoFsId, fromPedidoMonth  (si vino de pedido revertido)
+      items: [{ code, desc, qty, firstStockTotal, firstBackorder, firstDisponible }]
+      deliveryMethod, deliveryDetails (opcional)
+      sourceExcelPath, sourceExcelName (v848+, opcional)
+      createdAt, updatedAt
+
+    Regla de negocio: Lista de Espera NO compromete stock (v974). Los items
+    solo estiman lo que va a entrar a SAP CUANDO el VDE confirme. La vista
+    v_waitlist_disponible_ars joinea con v_inventario para computar
+    disponible_ahora = LEAST(item.qty, stock_actual) × price_pesca_ars.
+
+    WRITE_TRUNCATE + truncate_on_empty=True: si Pablo/VDE vacia la lista, la
+    vista debe reflejar 0, no seguir mostrando docs zombie.
+    """
+    log('[WAITLIST] leyendo coleccion revision_waitlist de Firestore...')
+    rows = []
+    docs_count = 0
+    items_count = 0
+    for d in db.collection('revision_waitlist').stream():
+        data = d.to_dict() or {}
+        docs_count += 1
+        items = data.get('items') or []
+        if not isinstance(items, list) or not items:
+            continue
+        # Metadata compartida por todas las rows de este waitlist doc.
+        client_name = (data.get('clientName') or '').strip()
+        client_province = (data.get('clientProvince') or '').strip()
+        client_locality = (data.get('clientLocality') or '').strip()
+        client_card_code = (data.get('clientCardCode') or '').strip()
+        owner_uid = data.get('ownerUid') or ''
+        owner_email = data.get('ownerEmail') or ''
+        owner_display_name = data.get('ownerDisplayName') or ''
+        owner_vendor = (data.get('ownerVendor') or '').strip()
+        vendor_assigned = (data.get('vendorAssigned') or '').strip()
+        source = (data.get('source') or '').strip() or 'unknown'
+        from_pedido_fs_id = data.get('fromPedidoFsId') or ''
+        from_pedido_month = data.get('fromPedidoMonth') or ''
+        delivery_method = (data.get('deliveryMethod') or '').strip()
+        source_excel_path = data.get('sourceExcelPath') or ''
+        source_excel_name = data.get('sourceExcelName') or ''
+        try:
+            order_number = int(data.get('orderNumber') or 0)
+        except (TypeError, ValueError):
+            order_number = 0
+        created_at = data.get('createdAt')
+        updated_at = data.get('updatedAt')
+        for idx, it in enumerate(items):
+            if not isinstance(it, dict):
+                continue
+            code = (it.get('code') or '').strip()
+            if not code:
+                continue
+            try:
+                qty = float(it.get('qty') or 0)
+            except (TypeError, ValueError):
+                qty = 0.0
+            if qty <= 0:
+                continue
+            def _safe_num(v):
+                try:
+                    return float(v) if v is not None else None
+                except (TypeError, ValueError):
+                    return None
+            items_count += 1
+            rows.append({
+                'doc_id':              d.id,
+                'item_index':          idx,
+                'client_name':         client_name,
+                'client_province':     client_province,
+                'client_locality':     client_locality,
+                'client_card_code':    client_card_code,
+                'owner_uid':           owner_uid,
+                'owner_email':         owner_email,
+                'owner_display_name':  owner_display_name,
+                'owner_vendor':        owner_vendor,
+                'vendor_assigned':     vendor_assigned,
+                'order_number':        order_number,
+                'source':              source,
+                'from_pedido_fs_id':   from_pedido_fs_id,
+                'from_pedido_month':   from_pedido_month,
+                'delivery_method':     delivery_method,
+                'source_excel_path':   source_excel_path,
+                'source_excel_name':   source_excel_name,
+                'item_code':           code,
+                'item_desc':           (it.get('desc') or '').strip(),
+                'item_qty':            qty,
+                'first_stock_total':   _safe_num(it.get('firstStockTotal')),
+                'first_backorder':     _safe_num(it.get('firstBackorder')),
+                'first_disponible':    _safe_num(it.get('firstDisponible')),
+                'created_at':          created_at.isoformat() if created_at else None,
+                'updated_at':          updated_at.isoformat() if updated_at else None,
+                '_sync_timestamp':     sync_ts,
+            })
+    log(f'[WAITLIST] {docs_count} docs -> {items_count} items (rows con qty > 0)')
     return rows
 
 
@@ -3150,6 +3262,47 @@ def main():
     # el estado real (0 filas), no seguir mostrando la campania zombie.
     # Ver docstring de _load_to_bq_with_schema para contexto completo.
     _load_to_bq_with_schema(bq_client, BQ_TABLE_CAMPAIGNS, campaign_rows, 'CAMPAIGNS', _campaign_schema, dry_run=dry_run, truncate_on_empty=True)
+
+    # === 8b. Lista de Espera (Firestore -> BigQuery) v997 (2026-09-18)
+    # Coleccion `revision_waitlist`: un doc por pedido en espera, con items[]
+    # array de {code, desc, qty, firstDisponible, firstStockTotal, firstBackorder}.
+    # Aplanado a rows por (doc, item) para permitir join con v_inventario en
+    # la vista v_waitlist_disponible_ars.
+    # Regla de negocio v974: Lista de Espera NO compromete stock — la vista
+    # BQ estima cuanto va a entrar SAP CUANDO el VDE confirme (usa stock actual
+    # x precio ARS).
+    # truncate_on_empty=True: si vaciaron la lista, la vista debe mostrar 0.
+    waitlist_rows = sync_waitlist_from_firestore(db, sync_ts)
+    _waitlist_schema = [
+        bigquery.SchemaField('doc_id',             'STRING'),
+        bigquery.SchemaField('item_index',         'INT64'),
+        bigquery.SchemaField('client_name',        'STRING'),
+        bigquery.SchemaField('client_province',    'STRING'),
+        bigquery.SchemaField('client_locality',    'STRING'),
+        bigquery.SchemaField('client_card_code',   'STRING'),
+        bigquery.SchemaField('owner_uid',          'STRING'),
+        bigquery.SchemaField('owner_email',        'STRING'),
+        bigquery.SchemaField('owner_display_name', 'STRING'),
+        bigquery.SchemaField('owner_vendor',       'STRING'),
+        bigquery.SchemaField('vendor_assigned',    'STRING'),
+        bigquery.SchemaField('order_number',       'INT64'),
+        bigquery.SchemaField('source',             'STRING'),
+        bigquery.SchemaField('from_pedido_fs_id',  'STRING'),
+        bigquery.SchemaField('from_pedido_month',  'STRING'),
+        bigquery.SchemaField('delivery_method',    'STRING'),
+        bigquery.SchemaField('source_excel_path',  'STRING'),
+        bigquery.SchemaField('source_excel_name',  'STRING'),
+        bigquery.SchemaField('item_code',          'STRING'),
+        bigquery.SchemaField('item_desc',          'STRING'),
+        bigquery.SchemaField('item_qty',           'FLOAT64'),
+        bigquery.SchemaField('first_stock_total',  'FLOAT64'),
+        bigquery.SchemaField('first_backorder',    'FLOAT64'),
+        bigquery.SchemaField('first_disponible',   'FLOAT64'),
+        bigquery.SchemaField('created_at',         'TIMESTAMP'),
+        bigquery.SchemaField('updated_at',         'TIMESTAMP'),
+        bigquery.SchemaField('_sync_timestamp',    'TIMESTAMP'),
+    ]
+    _load_to_bq_with_schema(bq_client, BQ_TABLE_WAITLIST, waitlist_rows, 'WAITLIST', _waitlist_schema, dry_run=dry_run, truncate_on_empty=True)
 
     # === 9. Dashboard snapshot (BQ -> Firestore) v367+
     # Agrega v_facturas_sap + v_ventas_lineas por (vendor, año, mes) y escribe
