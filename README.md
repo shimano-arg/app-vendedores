@@ -4670,7 +4670,37 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v988
+## 41) Changelog v300 → v989
+
+### v989 (2026-09-18) — Security audit run-1 con `cloudflare/security-audit-skill` (7 confirmed, 4 rejected, 2 needs_validation)
+
+Corrido externo de auditoría de seguridad usando la skill `cloudflare/security-audit-skill` (recién instalada). Perfil `standard`, budget 30 agents, consumed 23 (4 reconnaissance + 11 hunters + 8 verifiers). Cobertura de 17 unidades: 4 callable CFs, 5 rule surfaces, storage rules, SW, auth flow, DOM injection sinks, 1 Firestore trigger, supply-chain.
+
+Reportes generados en el repo root (**NO commiteados** — contienen fingerprints + attack traces; decisión del owner sobre commitearlos, agregarlos al gitignore, o moverlos a un repo privado):
+- `REPORT.md` — resumen ejecutivo + comparación con audits previos (v917/v918/v926/v933/v934/v935/v939/v953: todos siguen efectivos).
+- `FINDINGS-DETAIL.md` — 7 confirmed findings con source trace file:line + smallest fix.
+- `NEEDS-VALIDATION.md` — facts deployment-side (Firebase Console App Check enforcement + SAP SL SQLQueries mode).
+
+Full run artifacts en `~/security-audit-skill/app-vendedores/run-1/` (fuera del repo): `run-metadata.json`, `architecture.md`, `coverage-ledger.json`, `findings.json` con schema JSON del skill.
+
+**Findings confirmed** (severidad → título → fix):
+| # | Sev | Título | Fix estimado |
+|---|---|---|---|
+| 1 | CRITICAL | `updateAsigLineStateCF` — no AppCheck + no rate limit + no role gate + no pedido ownership check → cualquier @shimano user DoS + corrompe pedidos ajenos | v990 |
+| 2 | CRITICAL | Gemini OCR pipeline — prompt sin anti-jailbreak + sin validación enum/bounds + sin cap importe → imagen adversarial infla rendicion | v992 |
+| 3 | HIGH | `setupGetMovimientos` — `cardCode` no scoped a caller vendor (TODO línea 986) | v994 |
+| 4 | HIGH | `sapProxy enforceAppCheck:false` → 120k SL requests/24h con IDToken robado | v990 |
+| 5 | HIGH | `onPedidoConfirmedSendToSap` confía en `pedido.ownerVendor` sin validar → commission fraud | v991 |
+| 6 | HIGH | `client_applications` create acepta `assignedVendor` arbitrario → lead theft | v991 |
+| 7 | HIGH | `createUser` bypass (4 gaps) + `storage.rules:28` permite a cualquier auth != null leer todas las fotos de rendiciones | v993 |
+
+**Findings rejected** (false positives al verificar): 3 innerHTML sinks con data sources static hardcoded (`POINTS`, `VENDORS` de `build_app.py`; `showReviewError` msg developer-controlled) + XSS via `observaciones` mitigado por `escapeHtml`.
+
+**Pattern insight**: findings #5 y #6 son variantes **create-side** del mismo patrón que v918 (CHAIN-01) y v926 (HIGH-09) cerraron en **update-side**. Vale hacer una pasada específica buscando el mismo gap en otras collections.
+
+**Gap del proceso**: los validators del skill (`validate-coverage-ledger.cjs`, `validate-findings.cjs`) requieren POSIX no-follow + nonblocking descriptor APIs no disponibles en Windows Node runtime. Los artifacts JSON fueron escritos matcheando el schema por inspección, no machine-validated. Re-run en WSL2/Linux cierra ese gap.
+
+**Sin cambios de código en este bump — solo documentación**. Bump v988 → v989 (`APP_VERSION` + `CACHE_VERSION`) para reflejar el estado del repo en el runtime cache buster.
 
 ### v988 (2026-09-18) — Pachi: fix del oculto de "Rutas personalizadas" via CSS class (v987 no funcionaba)
 
