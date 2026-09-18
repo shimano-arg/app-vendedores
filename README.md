@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v995 (2026-09-18)** — Hotfix pre-deploy v994: el modal Depósito (`index.html:16354`) llama `setupGetMovimientos` SIN `cardCode` (query global "traeme todos los shipments"). El v994 original tiraba `invalid-argument` en ese caso → rompía UX. Ahora si vendedor sin `cardCode` → server hace fetch normal + filtra `movimientos` server-side por `client_master.assignedVendor == roles/{uid}.vendor` (batch chunked query). Vendedor con `cardCode` sigue con el check estricto. Vector cerrado igual: vendedor solo ve shipments de su cartera. Ver §41. |
-| **APP_VERSION** | `v995` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. 3 sub-tabs (MAP · Productos · Categorías) alimentadas por sync diario desde mercado-intelligence. Botón "🛒 Mercado Libre" al final del Panel de Control, gated por email whitelist (erbinomariano@gmail.com + mariano.erbino@shimano.com.ar). Chunk lazy `chunks/meli.js` + rules `isMariano()` + colecciones `meli/*`. Ver §51. \| **v995 (2026-09-18)** — Hotfix pre-deploy v994: el modal Depósito (`index.html:16354`) llama `setupGetMovimientos` SIN `cardCode` (query global "traeme todos los shipments"). El v994 original tiraba `invalid-argument` en ese caso → rompía UX. Ahora si vendedor sin `cardCode` → server hace fetch normal + filtra `movimientos` server-side por `client_master.assignedVendor == roles/{uid}.vendor` (batch chunked query). Vendedor con `cardCode` sigue con el check estricto. Vector cerrado igual: vendedor solo ve shipments de su cartera. Ver §41. |
+| **APP_VERSION** | `v996` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -76,6 +76,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 46. [Bike Pipeline BQ + BO/ASIG desde app — CERRADO 2026-09-04](#46-bike-pipeline-bq--boasig-desde-app--cerrado-2026-09-04)
 48. [Flow LEAD → cliente SAP: auto + fallback manual — CERRADO 2026-09-04](#48-flow-lead--cliente-sap-auto--fallback-manual--cerrado-2026-09-04)
 49. [Integración SETUP (CRM del depósito) — PENDIENTE endpoints](#49-integración-setup-crm-del-depósito--pendiente-endpoints)
+51. [MERCADOLIBRE (Mariano-only)](#51-mercadolibre-mariano-only)
 
 ---
 
@@ -11595,4 +11596,29 @@ Requieren dispatch de workflow con `SAP_SL_PASSWORD` accesible. Ordenados por pr
   - `v_deuda_facturas_detalle` — filtro Fishing hardcoded (a corregir)
   - `v_facturado_cobrado_deuda_por_vendedor` — mismo filtro Fishing
   - `v_deuda_por_vendedor`
+
+---
+
+## 51) MERCADOLIBRE (Mariano-only)
+
+Sección visible solo para Mariano (gate por email, mismo patrón que Panel de Control). Integra los datos del pipeline mercado-intelligence al CRM en 3 sub-tabs: MAP · Productos · Categorías.
+
+**Entry point**: Panel de Control → botón "🛒 Mercado Libre".
+
+**Fuente de datos**: 4 colecciones Firestore del proyecto app-vendedores-shimano escritas por el GHA `sync-to-app.yml` del repo mercado-intelligence (diario 9:20 ARG). Ver:
+- `docs/specs/2026-09-18-mercadolibre-crm-section-design.md`
+- `docs/plans/2026-09-18-mercadolibre-crm-section-plan.md`
+- Repo mercado-intelligence: `botshimanopesca-beep/mercado-intelligence`
+
+**Colecciones nuevas**:
+- `meli/state` (singleton) — last_sync + snapshot_date + counts + sync_status
+- `meli_products` (~231 docs) — mirror de market_products
+- `meli_categories` (~11 docs) — mirror de market_categories
+- `meli_map_alerts` (4-60 docs) — violaciones MAP del snapshot actual
+
+**Rules**: `isMariano()` chequea `token.email` (2 whitelist: erbinomariano@gmail.com + mariano.erbino@shimano.com.ar). Nadie escribe desde client — solo el SA `mi-sync-writer@app-vendedores-shimano.iam.gserviceaccount.com` usado por el GHA (Admin SDK bypasea rules).
+
+**Sin listeners `onSnapshot`**: data cambia diario, alcanza con `.get()` one-shot al abrir el modal. Cachea en memoria durante la sesión.
+
+**Actualizar la whitelist Mariano**: `isMariano()` en `firestore.rules` + `_isMarianoEmail()` en `src/domains/panel-control.js`. Ambos hay que tocar.
 
