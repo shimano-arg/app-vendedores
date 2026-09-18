@@ -44,6 +44,15 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/roles/$(targetUid)).data.internalPartnerUid == request.auth.uid;
     }
 
+    // Section MERCADOLIBRE (Mariano-only). Ver docs/specs/2026-09-18-mercadolibre-crm-section-design.md
+    function isMariano() {
+      return request.auth != null
+        && request.auth.token.email in [
+          'erbinomariano@gmail.com',
+          'mariano.erbino@shimano.com.ar'
+        ];
+    }
+
     match /roles/{uid} {
       allow read: if request.auth != null && (
         request.auth.uid == uid
@@ -698,6 +707,26 @@ service cloud.firestore {
       allow update: if isReader();
       allow delete: if isAdminOrGerente() || isInterno()
                     || (isReader() && resource.data.ownerUid == request.auth.uid);
+    }
+
+    // MERCADOLIBRE (v>=997) -- solo Mariano lee, nadie escribe desde client.
+    // La escritura la hace el GHA sync-to-app.yml del repo mercado-intelligence
+    // con SA (Admin SDK bypasea rules).
+    match /meli/{docId} {
+      allow read: if isMariano();
+      allow write: if false;
+    }
+    match /meli_products/{productId} {
+      allow read: if isMariano();
+      allow write: if false;
+    }
+    match /meli_categories/{categoryId} {
+      allow read: if isMariano();
+      allow write: if false;
+    }
+    match /meli_map_alerts/{alertId} {
+      allow read: if isMariano();
+      allow write: if false;
     }
   }
 }
