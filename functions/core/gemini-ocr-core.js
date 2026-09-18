@@ -143,7 +143,8 @@ function _validateOcrResult(parsed) {
       clean[field] = null;
       continue;
     }
-    if (typeof v !== 'string' || !allowed.includes(v)) {
+    const _allowed = /** @type {readonly string[]} */ (allowed);
+    if (typeof v !== 'string' || !_allowed.includes(v)) {
       clean[field] = null;
       invalidEnums.push(field + ':' + String(v).slice(0, 40));
     } else {

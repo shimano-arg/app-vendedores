@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v993 (2026-09-18)** — SecAudit run-1 HIGH #7 cerrado: createUser bypass fix — `doInlineLogin` + `signInWithEmailPassword` ahora usan `emailToDocId` correcto, `await` la validation (no `setTimeout`), invocan `isUserAllowed()` server-side SIEMPRE (no solo cuando didCreate=true), y no silencian el `.catch()` del delete. `storage.rules:rendiciones` requiere `isReader()` (rol activo) en vez de `request.auth != null` — orphan account creada por bug ya no puede leer las fotos. Ver §41. |
-| **APP_VERSION** | `v993` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v994 (2026-09-18)** — SecAudit run-1 HIGH #3 cerrado (último finding del run-1): `setupGetMovimientos` scope `cardCode` a caller vendor cuando `role='vendedor'` (fetch `client_master/{cardCode}.assignedVendor` y match case-insensitive con `roles/{uid}.vendor`). Vendedor sin cardCode → `invalid-argument`. Admin/gerente/interno mantienen acceso amplio. **Todos los 7 confirmed findings de SecAudit run-1 cerrados**. Ver §41. |
+| **APP_VERSION** | `v994` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,37 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v993
+## 41) Changelog v300 → v994
+
+### v994 (2026-09-18) — SecAudit run-1: HIGH #3 setupGetMovimientos cardCode scoping (7/7 findings cerrados)
+
+Cierre del ultimo confirmed finding del SecAudit run-1. `setupGetMovimientos` (callable HTTPS del modal "Deposito") ahora scopea el `cardCode` al vendor del caller cuando `role='vendedor'`.
+
+**Finding #3 — `setupGetMovimientos` cardCode not scoped (HIGH)**. Root cause: `functions/index.js:1074` leia `filterCardCode` del request sin validar que el cliente perteneciera al vendedor del caller. Cualquier VDE con devtools podia enviar `cardCode='<cliente-de-otro-VDE>'` y ver 365 días de historial de shipments SETUP (destinatario, zona, ubicacion, items_count, cantidad_total, comprobante, division) del cliente ajeno → **competitor territory intel + patterns de compra**. El header ya tenia el TODO Sprint 2 explícito.
+
+**Fix** (`functions/index.js:setupGetMovimientos`):
+- Nuevo lookup `_callerVendor = roles/{uid}.vendor` (junto con el role check preexistente).
+- Si `role === 'vendedor'`:
+  1. `filterCardCode` requerido → sin cardCode devuelve `invalid-argument` ("traeme todo" no permitido).
+  2. `_callerVendor` requerido → si el rol no tiene `vendor` field, `failed-precondition` (pedirle al admin que asigne vendorKey).
+  3. `client_master/{cardCode}.assignedVendor` case-insensitive comparado con `_callerVendor`. Mismatch (o doc ausente) → `permission-denied` + log warning con detalles para audit.
+- Admin/gerente/interno mantienen acceso amplio (necesitan queries cross-vendor para troubleshoot logistico + ventana operativa).
+
+**Tests**: no hay tests unitarios para `setupGetMovimientos` (es un handler HTTP directamente en `functions/index.js` sin core extracted). Verificacion post-deploy manual:
+- VDE con cardCode propio → OK
+- VDE con cardCode ajeno → `permission-denied` (verificable en Logs Firebase)
+- Admin/gerente sin cambio → OK
+
+Bump `APP_VERSION` + `CACHE_VERSION` → v994. Bundle rebuildeado. README actualizado. Deploy: `firebase deploy --only functions:setupGetMovimientos`.
+
+**SecAudit run-1 CLOSURE (2026-09-18)**: los 7 confirmed findings quedaron cerrados en 5 versiones sucesivas:
+- v990: CRITICAL #1 (updateAsigLineStateCF) + HIGH #4 (sapProxy enforceAppCheck)
+- v991: HIGH #5 (ownerVendor spoof) + HIGH #6 (assignedVendor spoof)
+- v992: CRITICAL #2 (Gemini OCR anti-jailbreak + validation + importe cap)
+- v993: HIGH #7 (createUser bypass fix + storage.rules isReader)
+- v994: HIGH #3 (setupGetMovimientos cardCode scoping)
+
+Los 2 items `needs_validation` (App Check enforcement + SAP SL SQLQueries mode) quedan como TODO owner-side; no bloquean el cierre del run porque son config-drift checks, no bugs de codigo. Los 4 findings `rejected` fueron verificados false positives.
 
 ### v993 (2026-09-18) — SecAudit run-1: HIGH #7 createUser bypass + storage.rules isReader
 
