@@ -5485,7 +5485,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v985';
+const APP_VERSION = 'v986';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -23147,6 +23147,20 @@ function applyRolePermissions(){
     ['dashboard-btn', 'deposito-home-btn', 'preliminar-home-btn'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.style.display = _isVendor984 ? 'none' : '';
+    });
+    // v986 (2026-09-18): pachi (VDE proxy) solo puede exportar 3 categorias
+    // desde el modal Reportes Excel: Visitas, Pedidos del mes, Precio+Stock.
+    // Ocultamos el resto (RENDICIONES/ALTAS/MASTER/BACKORDER/STOCK_ASIG).
+    // Filtro por email (no por rol) porque otros VDE pueden necesitar el resto.
+    const _isPachi986 = _em === 'pachinaba@gmail.com';
+    const _pachiAllowedKinds = new Set(['VISITAS', 'PEDIDOS_MES', 'PRECIOS_STOCK']);
+    document.querySelectorAll('#export-modal .exp-opt[data-exp-kind]').forEach((el) => {
+      const kind = el.getAttribute('data-exp-kind') || '';
+      if (_isPachi986) {
+        el.style.display = _pachiAllowedKinds.has(kind) ? '' : 'none';
+      } else {
+        el.style.display = '';
+      }
     });
     // Si es Mariano, mostrar el role-badge (ex-v400 lo ocultaba a todos).
     // Para el resto queda oculto en cualquier caso porque el contenedor

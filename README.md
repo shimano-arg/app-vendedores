@@ -4670,7 +4670,17 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v985
+## 41) Changelog v300 → v986
+
+### v986 (2026-09-18) — Pachi: modal Reportes Excel restringido a 3 categorías
+
+Pedido Mariano: pachi (VDE proxy) solo debe ver 3 opciones en Exportar a Excel → Reportes Excel: **Visitas y Contactos**, **Pedidos del mes**, **Precios + Stock por SKU**. El resto (Rendiciones, Altas, Masterfile de clientes, Backorder, Stock Asignado) queda oculto.
+
+**Fix** (`index.html:applyRolePermissions`): filtro por email (no por rol) porque otros VDE pueden necesitar el resto de opciones. Solo `pachinaba@gmail.com` ve el modal restringido.
+
+Nota: los nombres "SAP" y "RUTAS" en el pedido original se interpretaron como referencia a las tarjetas de Masterfile de clientes (que tiene enlace con SAP) y a la mención de "Rutas" en la descripción del modal padre. Ambos quedan ocultos para pachi por el filtro de kind.
+
+`APP_VERSION` + `CACHE_VERSION` → v986.
 
 ### v985 (2026-09-17) — OCR rendicion: retry con refresh AppCheck + mensaje mejorado
 
