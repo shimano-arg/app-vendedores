@@ -5491,7 +5491,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v992';
+const APP_VERSION = 'v993';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -22083,6 +22083,46 @@ function prefillLoginEmail(){
   }
 }
 
+// v993 (2026-09-18, SecAudit run-1 HIGH #7): helper compartido para validar
+// post-signin. Cierra 4 gaps del pattern viejo:
+//   1. `doc(email)` -> `doc(emailToDocId(email))` (raw email como docId
+//      producia mismatch con el docId que el admin crea desde el panel,
+//      que si usa emailToDocId).
+//   2. setTimeout(...) sin await -> `await`. El modal ya no puede cerrar
+//      antes de que el check termine.
+//   3. `.catch(()=>{})` silenciado en el delete -> `console.error` + doble
+//      intento (el primer delete requiere fresh auth; despues del signIn
+//      es fresh, deberia funcionar; si igual falla, log para que admin
+//      limpie el orphan).
+//   4. Antes solo chequeaba en didCreate=true. Un atacker que ya se creo
+//      la cuenta (bypasseo el check por el silent catch) despues hacia
+//      signIn con didCreate=false y no revalidamos -> orphan account
+//      persiste + puede leer /storage/rendiciones/**. Ahora SIEMPRE
+//      valida: si isUserAllowed() falla, expulsa.
+async function _validateSignedInUserOrKick(){
+  const user = fbAuth.currentUser;
+  if (!user) return { ok: true, kicked: false }; // race: user logged out
+  try {
+    const allowed = await isUserAllowed(user);
+    if (allowed) return { ok: true, kicked: false };
+  } catch (e) {
+    console.error('[auth] isUserAllowed threw', e);
+    // Failing closed: si no pudimos validar, expulsamos por defensa.
+  }
+  // Not allowed -> kick.
+  console.warn('[auth] usuario NO autorizado, eliminando cuenta', user.email);
+  let deleted = false;
+  try {
+    await user.delete();
+    deleted = true;
+  } catch (delErr) {
+    console.error('[auth] no pude eliminar orphan account (needs re-auth?):', delErr);
+    // No hay password aca para re-auth. Loguea y sigue con signOut.
+  }
+  try { await fbAuth.signOut(); } catch (_e) { /* swallow */ }
+  return { ok: false, kicked: true, deleted };
+}
+
 // Login inline desde la pantalla principal (no modal). Reutiliza la
 // misma logica que signInWithEmailPassword pero leyendo los inputs
 // inline en lugar de los del modal.
@@ -22120,27 +22160,25 @@ window.doInlineLogin = async function(){
     }
     // Login OK. Recordar el email para la proxima.
     try { window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, email); } catch(e){}
-    // Si el usuario YA EXISTIA en Firebase Auth (no lo creamos nosotros) lo
-    // tratamos como pre-autorizado: el admin lo creo desde Firebase Console
-    // con password, asi que Firebase Auth ES la allowlist. No hace falta
-    // double-checkear allowed_emails (que ademas el admin no esta usando).
-    // SOLO si lo creamos recien en este flujo (didCreate=true) chequeamos
-    // allowed_emails para bloquear registros random: alguien que tipea un
-    // email nuevo en el login form podria auto-registrarse sin permiso.
-    if (didCreate) {
-      setTimeout(() => {
-        fbDb.collection('allowed_emails').doc(email).get()
-          .then(snap => {
-            if (!snap.exists) {
-              console.warn('[auth-inline] cuenta creada pero email NO esta en allowed_emails - eliminando');
-              if (fbAuth.currentUser) { fbAuth.currentUser.delete().catch(()=>{}); }
-              fbAuth.signOut();
-              alert('Este email no esta habilitado para crear cuenta. Pedile al admin que te de de alta primero.');
-            }
-          })
-          .catch(e => console.warn('[auth-inline] allowed_emails read denegado:', e && (e.code || e.message)));
-      }, 100);
+    // v993 (SecAudit run-1 HIGH #7): SIEMPRE validar post-signin, no solo
+    // cuando didCreate=true. Un attacker con orphan pre-existente podia
+    // signIn con didCreate=false y bypasear el check original. isUserAllowed
+    // cubre 3 rutas: hardcoded email, rol ya asignado en /roles, o email
+    // en allowed_emails (con emailToDocId correcto). Ver
+    // _validateSignedInUserOrKick para el flow completo.
+    const check = await _validateSignedInUserOrKick();
+    if (!check.ok) {
+      // Kick already signed out + (best-effort) deleted the account.
+      if (errEl) {
+        errEl.textContent = 'Este email no esta habilitado. Pedile al admin que te de de alta primero.';
+        errEl.style.display = '';
+      }
+      btn.disabled = false;
+      btn.textContent = oldTxt;
+      return;
     }
+    // didCreate no se usa mas — la validation cubre ambos casos.
+    void didCreate;
   } catch(e) {
     console.error('doInlineLogin', e);
     const code = e && e.code;
@@ -22229,26 +22267,25 @@ window.signInWithEmailPassword = async function(){
         throw e;
       }
     }
-    // Ya autenticado. Cerramos el modal asi el usuario ve la app.
+    // v993 (SecAudit run-1 HIGH #7): SIEMPRE validar post-signin (ver
+    // _validateSignedInUserOrKick). Antes chequeabamos solo si
+    // didCreate=true — un attacker con orphan pre-existente bypasseaba.
+    // Bloquea el cierre del modal hasta que el check termine. Si el user
+    // no esta autorizado, kick antes de mostrar la app.
+    const check = await _validateSignedInUserOrKick();
+    if (!check.ok) {
+      if (errEl) {
+        errEl.textContent = 'Este email no esta habilitado. Pedile al admin que te de de alta primero.';
+        errEl.style.display = '';
+      }
+      btn.disabled = false;
+      btn.textContent = oldTxt;
+      return;
+    }
+    // Ya autenticado y autorizado. Cerramos el modal asi el usuario ve la app.
     console.log('[auth] step 3: closing modal');
     closeEmailPasswordModal();
-    // Solo chequeamos allowed_emails si la cuenta se creo recien aca. Si
-    // el usuario YA EXISTIA en Firebase Auth, lo tratamos como autorizado
-    // (admin lo creo desde Firebase Console). Asi evitamos pedir 2 listas.
-    if (didCreate) {
-      setTimeout(() => {
-        fbDb.collection('allowed_emails').doc(email).get()
-          .then(snap => {
-            if (!snap.exists) {
-              console.warn('[auth] cuenta creada pero email NO esta en allowed_emails - eliminando');
-              if (fbAuth.currentUser) { fbAuth.currentUser.delete().catch(()=>{}); }
-              fbAuth.signOut();
-              alert('Este email no esta habilitado para crear cuenta. Pedile al admin que te de de alta primero.');
-            }
-          })
-          .catch(e => console.warn('[auth] no pude validar allowed_emails:', e && (e.code || e.message)));
-      }, 100);
-    }
+    void didCreate;
   } catch(e) {
     console.error('signInWithEmailPassword', e);
     const code = e && e.code;

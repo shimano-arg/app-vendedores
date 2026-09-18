@@ -18,14 +18,33 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
+    // v993 (2026-09-18, SecAudit run-1 HIGH #7): mirror del helper isReader()
+    // de firestore.rules. Bloquea que una orphan account creada via el flow
+    // de signInWithEmailPassword (fixed en v993) pueda leer /rendiciones/**
+    // aunque logre burlar el kick client-side. Un usuario sin rol asignado
+    // en /roles/{uid} devuelve false y la lectura falla con permission-denied.
+    // NOTA: storage rules NO pueden hacer `get()` a Firestore directamente;
+    // en su lugar Firebase permite usar `firestore.exists()` / `firestore.get()`
+    // (documented Rules API para Storage). Ver
+    // https://firebase.google.com/docs/rules/rules-language#function.
+    function _role() {
+      return firestore.get(/databases/(default)/documents/roles/$(request.auth.uid)).data.role;
+    }
+    function isReader() {
+      return request.auth != null
+        && _role() in ['admin', 'gerente', 'vendedor', 'interno', 'viewer'];
+    }
+
     // Fotos de ticket de rendiciones:
     // - write: el vendedor solo puede escribir en SU propia carpeta
     //   (ownerUid del path == request.auth.uid). Limite 10 MB por archivo
     //   + solo tipos image/*.
-    // - read: cualquier usuario autenticado puede leer (admin/gerente
-    //   necesitan ver todas las fotos para aprobar rendiciones).
+    // - read: v993 (SecAudit run-1 HIGH #7): antes `request.auth != null`
+    //   dejaba a cualquier authenticated (incluso orphans post-createUser
+    //   bypass) leer todas las fotos de rendiciones. Ahora requiere un rol
+    //   activo en /roles/{uid} (mismo set que firestore.rules isReader).
     match /rendiciones/{ownerUid}/{allFiles=**} {
-      allow read: if request.auth != null;
+      allow read: if isReader();
       allow write: if request.auth != null
                    && request.auth.uid == ownerUid
                    && request.resource.size < 10 * 1024 * 1024
