@@ -59,6 +59,7 @@ function _pedido(overrides = {}) {
     data: {
       clientCardCode: 'C001',
       closedAt: null,
+      ownerUid: 'u1', // v990: default owner matchea AUTH_OK.uid para no romper tests preexistentes
       lines: [
         {
           code: 'SKU-A',
@@ -324,6 +325,109 @@ describe('updateAsigLineState — cancel/reject', () => {
         action: 'cancelled',
       })
     ).rejects.toMatchObject({ code: 'failed-precondition' });
+  });
+});
+
+// v990 (SecAudit run-1 CRITICAL #1): role gate + ownership check.
+describe('updateAsigLineState — v990 role gate + ownership', () => {
+  it('rol viewer: throws permission-denied (no autorizado)', async () => {
+    const deps = {
+      fbDb: makeFakeFbDb([_pedido()]),
+      log: vi.fn(),
+      getUserRole: async () => 'viewer',
+    };
+    await expect(
+      updateAsigLineState(deps, AUTH_OK, {
+        sourcePedidoId: 'P1',
+        sourceLineIndex: 0,
+        qty: 1,
+        action: 'recycled',
+      })
+    ).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+
+  it('rol unassigned/null: throws permission-denied', async () => {
+    const deps = {
+      fbDb: makeFakeFbDb([_pedido()]),
+      log: vi.fn(),
+      getUserRole: async () => null,
+    };
+    await expect(
+      updateAsigLineState(deps, AUTH_OK, {
+        sourcePedidoId: 'P1',
+        sourceLineIndex: 0,
+        qty: 1,
+        action: 'recycled',
+      })
+    ).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+
+  it('rol vendedor + owner: OK', async () => {
+    const p = _pedido({ ownerUid: 'u_vde' });
+    const fbDb = makeFakeFbDb([p]);
+    const deps = { fbDb, log: vi.fn(), getUserRole: async () => 'vendedor' };
+    const r = await updateAsigLineState(
+      deps,
+      { uid: 'u_vde', email: 'vde@shimano.com.ar' },
+      { sourcePedidoId: 'P1', sourceLineIndex: 0, qty: 2, action: 'recycled' }
+    );
+    expect(r.success).toBe(true);
+    expect(r.qtyApplied).toBe(2);
+  });
+
+  it('rol vendedor + pedido ajeno: throws permission-denied', async () => {
+    const p = _pedido({ ownerUid: 'u_otro_vde' });
+    const fbDb = makeFakeFbDb([p]);
+    const deps = { fbDb, log: vi.fn(), getUserRole: async () => 'vendedor' };
+    await expect(
+      updateAsigLineState(
+        deps,
+        { uid: 'u_vde_hostil', email: 'vde@shimano.com.ar' },
+        { sourcePedidoId: 'P1', sourceLineIndex: 0, qty: 2, action: 'cancelled' }
+      )
+    ).rejects.toMatchObject({ code: 'permission-denied' });
+    // Estado del pedido no cambia (defensa: rollback transaccional)
+    expect(fbDb._store.pedidos[0].data.lines[0].qtyOpen).toBe(10);
+    expect(fbDb._store.pedidos[0].data.lines[0].qtyCancelled).toBe(0);
+  });
+
+  it('rol interno: puede operar sobre pedido ajeno (flow VDI)', async () => {
+    const p = _pedido({ ownerUid: 'u_vde_pareja' });
+    const fbDb = makeFakeFbDb([p]);
+    const deps = { fbDb, log: vi.fn(), getUserRole: async () => 'interno' };
+    const r = await updateAsigLineState(
+      deps,
+      { uid: 'u_interno', email: 'vdi@shimano.com.ar' },
+      { sourcePedidoId: 'P1', sourceLineIndex: 0, qty: 5, action: 'cancelled' }
+    );
+    expect(r.success).toBe(true);
+  });
+
+  it('rol gerente: puede operar sobre pedido ajeno', async () => {
+    const p = _pedido({ ownerUid: 'u_otro' });
+    const fbDb = makeFakeFbDb([p]);
+    const deps = { fbDb, log: vi.fn(), getUserRole: async () => 'gerente' };
+    const r = await updateAsigLineState(
+      deps,
+      { uid: 'u_ger', email: 'ger@shimano.com.ar' },
+      { sourcePedidoId: 'P1', sourceLineIndex: 0, qty: 10, action: 'recycled' }
+    );
+    expect(r.success).toBe(true);
+    expect(r.pedidoClosed).toBe(true);
+  });
+
+  it('sin deps.getUserRole (tests preexistentes): asume admin (retrocompat)', async () => {
+    // No pasamos getUserRole -> el core cae al default 'admin' para no romper
+    // los tests core previos. En prod SIEMPRE se inyecta desde el wrapper.
+    const fbDb = makeFakeFbDb([_pedido({ ownerUid: 'irrelevante' })]);
+    const deps = { fbDb, log: vi.fn() };
+    const r = await updateAsigLineState(deps, AUTH_OK, {
+      sourcePedidoId: 'P1',
+      sourceLineIndex: 0,
+      qty: 3,
+      action: 'recycled',
+    });
+    expect(r.success).toBe(true);
   });
 });
 

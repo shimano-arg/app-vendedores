@@ -113,4 +113,11 @@ export async function checkAndIncrementRateLimit(deps, uid, opName, threshold, w
 export const RATE_LIMITS = /** @type {const} */ ({
   sapProxy: { threshold: 5000, windowMs: 60 * 60 * 1000 }, // 5000/hr (v940 hotfix)
   geminiOcrProxy: { threshold: 100, windowMs: 60 * 60 * 1000 }, // 100/hr
+  // v990 (2026-09-18, SecAudit run-1 CRITICAL #1): sin rate limit previo, un
+  // @shimano hostil podia spamear recycle/reject en un loop contra pedidos
+  // ajenos - DoS + corrupcion de qtyRecycled/qtyCancelled + auto-close
+  // (closedAt) de pedidos victima. 500/hr = ~1 accion cada 7s sostenido:
+  // suficiente para el uso legitimo de admin resolviendo waitlist post-stock
+  // change pero corta abuse loop en <2 min.
+  updateAsigLineState: { threshold: 500, windowMs: 60 * 60 * 1000 },
 });

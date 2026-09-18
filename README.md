@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v966 (2026-09-17)** — Mapa: eliminar "grietas" residuales de v965 (líneas diagonales blancas atravesando zonas del mismo vendor). Filtro de inners chicos (artefactos de union) + stroke buffer del mismo color al fill. Cache key bump v13→v14. Ver §41. |
-| **APP_VERSION** | `v966` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v990 (2026-09-18)** — SecAudit run-1 CRITICAL #1 + HIGH #4 cerrados: `updateAsigLineStateCF` con `enforceAppCheck: true` + rate limit 500/hr + role gate (admin/gerente/interno/vendedor) + ownership check para vendor; `sapProxy` con `enforceAppCheck: true` (elimina TODO). Ver §41. |
+| **APP_VERSION** | `v990` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4670,7 +4670,26 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v989
+## 41) Changelog v300 → v990
+
+### v990 (2026-09-18) — SecAudit run-1: CRITICAL #1 (updateAsigLineStateCF) + HIGH #4 (sapProxy enforceAppCheck) cerrados
+
+Fix de los 2 findings más ruidosos de la auditoría v989. Zero cambios de UX / flow para VDE-VDI-admin legítimos.
+
+**Finding #1 — `updateAsigLineStateCF` (CRITICAL)**. Root cause: la CF que reciclaba/rechazaba líneas ASIG (RECYCLE/REJECT en modal cliente + flow waitlist) no tenía App Check, ni rate limit, ni role gate, ni ownership check. Cualquier @shimano user (viewer, unassigned, VDE de otra zona) podía spamear `qtyRecycled`/`qtyCancelled` en pedidos ajenos y forzar `closedAt` (auto-close). 4 fixes coordinados:
+
+1. **`functions/core/rate-limit-core.js`** — agregado `updateAsigLineState: { threshold: 500, windowMs: 60 * 60 * 1000 }` a `RATE_LIMITS`. 500/hr ≈ 1 acción cada 7s sostenido, tight sobre el uso legítimo (admin resolviendo waitlist post-stock change) pero corta abuse loop en <2 min.
+2. **`functions/index.js:updateAsigLineStateCF`** — `enforceAppCheck: false` → `true` (token reCAPTCHA v3 obligatorio, igual patrón que `geminiOcrProxy` v918). Rate limit call ANTES del transaction (evita gastar reads del pedido en un abuse loop). Wiring de `getUserRole` inyectado a los deps del core.
+3. **`functions/core/asig-recycle-core.js`** — nuevo step "1.5 Role gate" después del email check: lookup `roles/{uid}.role`, rechaza si no está en `admin|gerente|interno|vendedor` (rechazado explícito: viewer, unassigned). Dentro de la transacción: si `_isVendor && data.ownerUid !== auth.uid` → `permission-denied`. Admin/gerente/interno mantienen blanket cross-pedido (interno lo necesita para el flow ASIG cross-vendor del waitlist, consistent con `firestore.rules` v747).
+4. **`tests/functions/asig-recycle.test.js`** — nuevo describe "v990 role gate + ownership" con 6 tests: viewer/null rechazados, vendedor+owner OK, vendedor+ajeno rechazado (+ verifica que el pedido no cambia), interno cross-pedido OK, gerente cross-pedido OK, y un test de retrocompat que verifica que si `deps.getUserRole` no se inyecta (tests core preexistentes) el core asume 'admin'. `_pedido()` helper actualizado con `ownerUid: 'u1'` default para que los 79 tests preexistentes sigan pasando.
+
+**Finding #4 — `sapProxy enforceAppCheck: false` (HIGH)**. Root cause: `functions/index.js:sapProxy` tenía el flag en false con TODO. Un IDToken robado (XSS/phishing/browser extension malicioso) podía sostener ~120k SL requests/24h dentro del rate limit v940 (5000/hr) y enumerar el catálogo `Items` + `ItemWarehouseInfoCollection` + `Warehouses` + stock queries `SQLQueries` sin restricción. Fix trivial: `enforceAppCheck: true`. Cliente ya está listo (`activateAppCheckOnce` post-login en index.html) y `geminiOcrProxy` ya usa `enforceAppCheck: true` desde v918 sin regresiones. Un legítimo browser sale con token AppCheck; un token robado usado desde curl es rechazado por el CF antes del rate limit.
+
+**Verificación**: `npx vitest run tests/functions/asig-recycle.test.js tests/functions/rate-limit.test.js tests/functions/sap-proxy.test.js` → 85/85 pass (incluye 6 nuevos v990 + retrocompat).
+
+**Consideración deployment**: `updateAsigLineStateCF` + `sapProxy` pasan a exigir App Check enforcement por browser. VDEs con reCAPTCHA v3 throttleado 24h (síntoma conocido, ver `reference_appcheck_throttle_24h.md`) verán rechazo en la operación → mismo remedio del v985 para OCR: Clear site data (browser re-activa reCAPTCHA). Precedente v918 con `geminiOcrProxy` no generó incidentes.
+
+Bump `APP_VERSION` + `CACHE_VERSION` → v990. Bundle rebuildeado (`node build.js`). README actualizado.
 
 ### v989 (2026-09-18) — Security audit run-1 con `cloudflare/security-audit-skill` (7 confirmed, 4 rejected, 2 needs_validation)
 

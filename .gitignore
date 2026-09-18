@@ -95,3 +95,16 @@ _motion_probe/
 # v917 SecAudit — findings sensibles, no publicar hasta cerrar toda la remediation
 SECURITY_AUDIT_*/
 
+# v989 (2026-09-18): reportes de la corrida cloudflare/security-audit-skill run-1.
+# Contienen fingerprints estables + source traces file:line + attack chains.
+# NO commitear: si aparecen en el repo publico dan un mapa listo para atacar.
+# Historial completo queda en ~/security-audit-skill/app-vendedores/run-N/
+# (fuera del repo). Copias operativas viven solo local.
+REPORT.md
+FINDINGS-DETAIL.md
+NEEDS-VALIDATION.md
+
+# Backups puntuales de geo.json pre-fix (v965-v967). No se versionan: el
+# geo.json vigente es el unico source of truth.
+geo.json.backup-*
+
