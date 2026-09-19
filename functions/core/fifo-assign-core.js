@@ -57,7 +57,7 @@ import { readSyncMode } from './pedido-snapshot-core.js';
 // prioridad y ademas retienen stock (asigReserva=true). B y C solo se
 // asignan si sobra stock post-P/A, y no retienen (asigReserva=false).
 /** @type {Record<'P'|'A'|'B'|'C', number>} */
-const CLI_TIPO_PRIORITY = { P: 0, A: 1, B: 2, C: 3 };
+const _CLI_TIPO_PRIORITY = { P: 0, A: 1, B: 2, C: 3 };
 
 /**
  * v956: normaliza el string cliTipo a los 4 tiers oficiales. Default 'C'
