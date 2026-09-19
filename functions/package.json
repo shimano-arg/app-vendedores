@@ -3,7 +3,7 @@
   "description": "Cloud Functions for app-vendedores-shimano (Fase 0)",
   "type": "module",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "main": "index.js",
   "dependencies": {
