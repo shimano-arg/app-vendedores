@@ -4671,7 +4671,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v997
+## 41) Changelog v300 → v998
+
+### v998 (2026-09-19) — Cloud Functions runtime Node 20 → Node 22 (deadline decomm 2026-10-30)
+
+Google Cloud Functions decomisiona Node 20 el **2026-10-30**. Preemptive upgrade a Node 22 (GA en Firebase desde 2024) para evitar deploys rotos post-fecha. Backend-only, 0 cambios frontend, sin bump APP_VERSION/CACHE_VERSION.
+
+**Cambios**:
+- `functions/package.json` engines.node: `"20"` → `"22"`. `firebase-functions@^6.0.1` es compatible con Node 22 (no requiere upgrade a `firebase-functions@latest` — se posterga hasta que salga patch del bug AppCheck Gen 2 tracked en 44.4 SecAudit run-1).
+- `functions/package-lock.json` regenerado con `npm install` — sin cambios de deps (up to date, 244 packages auditadas).
+- `.github/workflows/test-and-lint.yml` `node-version: '20'` → `'22'` para alinear CI con prod runtime.
+- Runtime local dev sigue en v24.15.0 (npm warn EBADENGINE inofensivo — GCP deploy usa el valor exacto de engines.node como runtime).
+
+**Verificación pre-commit**:
+- `npm run test:unit` → 431/431 tests OK (22 test files).
+- `npm run test:smoke` → 25/25 tests OK.
+- `node -e "import('./functions/index.js')"` → LOAD OK, 16 Cloud Functions exportadas.
+
+**Post-deploy checklist** (cuando se haga `firebase deploy --only functions`):
+- Confirmar en Cloud Console → Cloud Functions → cada función → "Runtime: Node.js 22".
+- Verificar logs post-deploy sin errores de `ReferenceError`/`SyntaxError` (Node 22 removió algunos APIs deprecated hace tiempo, ninguno usado por este código).
+- Rollback plan: si algo falla, revert commit + `firebase deploy --only functions` con engines.node `"20"` — Node 20 sigue disponible hasta 2026-10-30.
 
 ### v997 (2026-09-18) — Power BI card "Total Espera $ARS" (pipeline waitlist_raw → v_waitlist_disponible_ars)
 
@@ -10394,7 +10414,7 @@ De la sesión 2026-07-27 (esta):
 4. **Configurar alerta email de fallo del backup**: Cloud Logging → log-based metric sobre `severity>=ERROR AND resource.labels.function_name="dailyFirestoreBackup"` → Alerting policy → email a `bot.shimano.pesca@gmail.com`.
 
 **Mantenimiento (sin urgencia)**:
-5. **Runtime Node.js 20 deprecation**: los deploys de Cloud Functions warnean que Node 20 fue deprecado el 2026-04-30 y decommissioned el 2026-10-30. Antes de octubre 2026, migrar `functions/package.json` engines a `"node": "22"` y `firebase-functions@latest`.
+5. ~~**Runtime Node.js 20 deprecation**~~ — **HECHO v998 (2026-09-19)**: `functions/package.json` engines migrado de `"20"` → `"22"` + CI (`test-and-lint.yml`) alineado a Node 22. Firebase soporta Node 22 desde 2024 GA. `firebase-functions@^6.0.1` es compatible. Pendiente subsiguiente: `firebase-functions@latest` cuando el patch del bug AppCheck Gen 2 (44.4 SecAudit run-1) esté disponible.
 6. **Dependabot functions/**: 8 vulns moderate transitivas (uuid/retry-request/teeny-request/gaxios via firebase-admin). `npm audit fix --force` empeora. Se aceptan como riesgo bajo (server-side sandbox, code paths no procesan input arbitrario). Silenciar en GitHub Security → Dependabot alerts con "Dismiss → Risk: Tolerable" cuando quieras.
 7. **AppCheck 403 throttled** (pre-existente): reCAPTCHA v3 rechaza tokens con throttle 24h. Investigar en panel Firebase App Check el registration del dominio + site key. No bloquea operativa.
 8. **QA humano vendor-path** (implícito por uso diario): validar con una cuenta rol `vendedor` real que Pedidos/Visitas/Rendiciones renderean OK después del deploy de rules. Rollback: `firebase rollback firestore:rules`.
@@ -10432,7 +10452,7 @@ Ninguna acción bloqueante. Cuando quieras avanzar, prioridad recomendada:
 
 1. **Después del test humano en operación diaria (3-7 días)**: correr el checklist post-Fase 0 (sección 44.4 puntos 1-2) — rotar password + borrar creds de Firestore. Con eso cierra oficialmente el ciclo de E5 (creds fuera de Firestore).
 2. **Alerta email backup** (44.4 punto 4): 15 min de configuración, previene fallos silenciosos.
-3. **Mantenimiento Node 20 → 22** (44.4 punto 5): antes de octubre 2026.
+3. ~~**Mantenimiento Node 20 → 22**~~ — HECHO v998 (2026-09-19); ver 44.4 punto 5.
 
 Para nuevos features de la app: no hay bloqueo de Fase 0. Podés arrancar cualquier cosa. La infraestructura queda como base sólida (tests + build pipeline + Cloud Functions + backups + monitoring).
 

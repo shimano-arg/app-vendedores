@@ -41,9 +41,9 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          # v378 usa Node 20 en Cloud Functions (deadline oct 2026 para
-          # migrar a Node 22). Alineamos el CI a la misma versión que prod.
-          node-version: '20'
+          # v998 (2026-09-19) migrado a Node 22 antes del decomm de Node 20
+          # (deadline GCP 2026-10-30). Alineado con functions/package.json engines.
+          node-version: '22'
           cache: 'npm'
 
       - name: Install root deps
