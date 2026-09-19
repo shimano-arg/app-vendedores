@@ -43,7 +43,7 @@
  * Estados que reservan stock. `confirmed` fue enviado a SAP pero aun no
  * facturado; `BO` espera stock futuro; `ASIG` ya tiene stock reservado FIFO.
  */
-const STATES_QUE_RESERVAN = new Set(['confirmed', 'BO', 'ASIG']);
+const _STATES_QUE_RESERVAN = new Set(['confirmed', 'BO', 'ASIG']);
 
 // v957/v959: constantes para expiracion de reserva.
 const RESERVA_TTL_DAYS = 15;

@@ -49,7 +49,7 @@ describe('sortMapAlerts', () => {
 
   it('ordena por diferencia_pct ascendente (peor primero)', () => {
     const out = sortMapAlerts(alerts);
-    expect(out.map(a => a.seller_nickname)).toEqual(['B', 'D', 'A', 'C']);
+    expect(out.map((a) => a.seller_nickname)).toEqual(['B', 'D', 'A', 'C']);
   });
 
   it('no muta el array original', () => {
@@ -78,7 +78,7 @@ describe('filterProducts', () => {
   it('filtra por categoría', () => {
     const out = filterProducts(products, { category: 'Reeles' });
     expect(out.length).toBe(2);
-    expect(out.map(p => p.catalog_product_id)).toEqual(['1', '3']);
+    expect(out.map((p) => p.catalog_product_id)).toEqual(['1', '3']);
   });
 
   it('filtra por search case-insensitive', () => {

@@ -19,9 +19,15 @@ import {
   UID,
 } from './setup.js';
 
-beforeAll(async () => { await initTestEnv(); });
-afterAll(async () => { await cleanupTestEnv(); });
-beforeEach(async () => { await seedCanonicalRoles(); });
+beforeAll(async () => {
+  await initTestEnv();
+});
+afterAll(async () => {
+  await cleanupTestEnv();
+});
+beforeEach(async () => {
+  await seedCanonicalRoles();
+});
 
 const MARIANO_EMAILS = ['erbinomariano@gmail.com', 'mariano.erbino@shimano.com.ar'];
 
