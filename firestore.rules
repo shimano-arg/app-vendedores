@@ -728,5 +728,13 @@ service cloud.firestore {
       allow read: if isMariano();
       allow write: if false;
     }
+    match /meli_map_alerts_history/{itemId} {
+      allow read: if isMariano();
+      allow write: if false;
+    }
+    match /meli_map_ranking/{sellerNickname} {
+      allow read: if isMariano();
+      allow write: if false;
+    }
   }
 }

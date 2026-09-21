@@ -44,6 +44,18 @@ export function getSeverityColor(pct) {
   return 'gray';
 }
 
+export function sortRanking(rankings) {
+  if (!Array.isArray(rankings)) return [];
+  return [...rankings].sort((a, b) => {
+    // Orden principal: n_violations desc
+    const nA = a.n_violations || 0;
+    const nB = b.n_violations || 0;
+    if (nB !== nA) return nB - nA;
+    // Desempate: worst_diff_pct asc (más negativo primero)
+    return (a.worst_diff_pct || 0) - (b.worst_diff_pct || 0);
+  });
+}
+
 // ============================================================
 // State interno (local al IIFE del chunk, NO cross-scope)
 // ============================================================
@@ -72,7 +84,7 @@ function closeMeliModal() {
 }
 
 function setMeliSubtab(name) {
-  if (!['map', 'products', 'categories'].includes(name)) return;
+  if (!['map', 'products', 'categories', 'ranking'].includes(name)) return;
   _currentSubtab = name;
   renderMeliModal();
 }
@@ -80,17 +92,19 @@ function setMeliSubtab(name) {
 async function loadMeliData(force = false) {
   if (_meliCache && !force) return _meliCache;
   const db = window.fbDb;
-  const [stateSnap, prodSnap, catSnap, alertSnap] = await Promise.all([
+  const [stateSnap, prodSnap, catSnap, alertSnap, rankingSnap] = await Promise.all([
     db.collection('meli').doc('state').get(),
     db.collection('meli_products').get(),
     db.collection('meli_categories').get(),
     db.collection('meli_map_alerts').get(),
+    db.collection('meli_map_ranking').get(),
   ]);
   _meliCache = {
     state: stateSnap.exists ? stateSnap.data() : null,
     products: prodSnap.docs.map((d) => d.data()),
     categories: catSnap.docs.map((d) => d.data()),
     alerts: alertSnap.docs.map((d) => d.data()),
+    ranking: rankingSnap.docs.map((d) => d.data()),
   };
   return _meliCache;
 }
@@ -111,6 +125,7 @@ function renderMeliModal() {
     _paintProductsSection(body, _meliCache.products);
     setTimeout(_paintProductsTable, 0);
   } else if (_currentSubtab === 'categories') _paintCategoriesSection(body, _meliCache.categories);
+  else if (_currentSubtab === 'ranking') _paintRankingSection(body, _meliCache.ranking || []);
 }
 
 // Renderers
@@ -169,6 +184,7 @@ function _paintSubtabs(el, cache, active) {
     pill('map', '🎯 MAP', cache.alerts.length) +
     pill('products', '📦 Productos', cache.products.length) +
     pill('categories', '📊 Categorías', cache.categories.length) +
+    pill('ranking', '🏆 Ranking', (cache.ranking || []).length) +
     '</div>';
 }
 
@@ -438,6 +454,115 @@ function _paintCategoriesSection(el, categories) {
     .join('');
 
   html += '</div></div>';
+  el.innerHTML = html;
+}
+
+function _paintRankingSection(el, ranking) {
+  const esc = window.escapeHtml || ((s) => String(s));
+  const sorted = sortRanking(ranking);
+
+  // KPI cards: total sellers rankeados, worst offender, activos
+  const nSellers = sorted.length;
+  const worstOffender = sorted[0] || null;
+  const totalActive = sorted.reduce((sum, r) => sum + (r.n_active_violations || 0), 0);
+
+  let html = '<div style="padding:14px 16px">';
+
+  html +=
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">' +
+    '<div style="background:var(--bg-elevated);border:1.5px solid var(--border-subtle);border-radius:8px;padding:12px">' +
+    '<div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase;font-weight:700">Sellers rankeados</div>' +
+    '<div style="font-size:26px;font-weight:800">' +
+    nSellers +
+    '</div>' +
+    '<div style="font-size:10px;color:var(--text-muted)">históricamente</div>' +
+    '</div>' +
+    '<div style="background:var(--bg-elevated);border:1.5px solid var(--border-subtle);border-radius:8px;padding:12px">' +
+    '<div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase;font-weight:700">Peor infractor</div>' +
+    '<div style="font-size:18px;font-weight:800">' +
+    esc(worstOffender ? worstOffender.seller_nickname : '—') +
+    '</div>' +
+    '<div style="font-size:10px;color:var(--text-muted)">' +
+    (worstOffender ? worstOffender.n_violations + ' violaciones' : '') +
+    '</div>' +
+    '</div>' +
+    '<div style="background:var(--bg-elevated);border:1.5px solid var(--border-subtle);border-radius:8px;padding:12px">' +
+    '<div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase;font-weight:700">Violaciones activas</div>' +
+    '<div style="font-size:26px;font-weight:800;color:' +
+    (totalActive > 0 ? '#dc2626' : '#16a34a') +
+    '">' +
+    totalActive +
+    '</div>' +
+    '<div style="font-size:10px;color:var(--text-muted)">still_violating</div>' +
+    '</div>' +
+    '</div>';
+
+  if (sorted.length === 0) {
+    html +=
+      '<div style="padding:40px 20px;text-align:center;color:#94a3b8;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px">🏆 Sin ranking todavía — el primer sync poblará esto</div>';
+    html += '</div>';
+    el.innerHTML = html;
+    return;
+  }
+
+  html +=
+    '<div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px;overflow:hidden">' +
+    '<div style="display:grid;grid-template-columns:150px 60px 60px 60px 1fr 1fr 60px;padding:8px 10px;background:#f3f4f6;font-weight:700;font-size:10px;text-transform:uppercase;color:#64748b;gap:8px">' +
+    '<div>Seller</div>' +
+    '<div>Prov</div>' +
+    '<div style="text-align:center">Total</div>' +
+    '<div style="text-align:center">Activas</div>' +
+    '<div>Top SKUs</div>' +
+    '<div>Top Categorías</div>' +
+    '<div style="text-align:right">Peor %</div>' +
+    '</div>';
+
+  html += sorted
+    .map((r) => {
+      const topSkusStr =
+        (r.top_skus || [])
+          .slice(0, 3)
+          .map((s) => esc(s.sku) + ' (' + s.count + ')')
+          .join(', ') || '—';
+      const topCatsStr =
+        (r.top_categories || [])
+          .slice(0, 3)
+          .map((c) => esc(c.category_name) + ' (' + c.count + ')')
+          .join(', ') || '—';
+      const worst = (r.worst_diff_pct || 0).toFixed(1);
+      const activeColor = (r.n_active_violations || 0) > 0 ? '#dc2626' : '#94a3b8';
+      return (
+        '<div style="display:grid;grid-template-columns:150px 60px 60px 60px 1fr 1fr 60px;padding:8px 10px;border-top:1px solid #f3f4f6;font-size:11px;gap:8px;align-items:center">' +
+        '<div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+        esc(r.seller_nickname || '—') +
+        '</div>' +
+        '<div style="font-size:10px">' +
+        esc(r.seller_state || '—') +
+        '</div>' +
+        '<div style="text-align:center;font-weight:700">' +
+        (r.n_violations || 0) +
+        '</div>' +
+        '<div style="text-align:center;font-weight:700;color:' +
+        activeColor +
+        '">' +
+        (r.n_active_violations || 0) +
+        '</div>' +
+        '<div style="font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+        topSkusStr +
+        '</div>' +
+        '<div style="font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+        topCatsStr +
+        '</div>' +
+        '<div style="text-align:right;font-weight:700;color:#dc2626">' +
+        worst +
+        '%</div>' +
+        '</div>'
+      );
+    })
+    .join('');
+
+  html += '</div>';
+  html += '</div>';
   el.innerHTML = html;
 }
 
