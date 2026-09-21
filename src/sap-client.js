@@ -88,7 +88,8 @@ export function createSapClient(firebase, opts) {
     // que no importa en el flow de envio de pedidos (ya son sync o batch
     // que espera anyway).
     try {
-      const auth = firebase.auth && firebase.auth();
+      const fbAny = /** @type {any} */ (firebase);
+      const auth = fbAny.auth && fbAny.auth();
       if (auth && auth.currentUser && typeof auth.currentUser.getIdToken === 'function') {
         await auth.currentUser.getIdToken(true);
       }
