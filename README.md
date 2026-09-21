@@ -11672,24 +11672,40 @@ Requieren dispatch de workflow con `SAP_SL_PASSWORD` accesible. Ordenados por pr
 
 ## 51) MERCADOLIBRE (Mariano-only)
 
-Sección visible solo para Mariano (gate por email, mismo patrón que Panel de Control). Integra los datos del pipeline mercado-intelligence al CRM en 3 sub-tabs: MAP · Productos · Categorías.
+Sección visible solo para Mariano (gate por email, mismo patrón que Panel de Control). Integra los datos del pipeline mercado-intelligence al CRM en **4 sub-tabs**: MAP · Productos · Categorías · **Ranking**.
 
 **Entry point**: Panel de Control → botón "🛒 Mercado Libre".
 
-**Fuente de datos**: 4 colecciones Firestore del proyecto app-vendedores-shimano escritas por el GHA `sync-to-app.yml` del repo mercado-intelligence (diario 9:20 ARG). Ver:
+**Fuente de datos**: 6 colecciones Firestore del proyecto app-vendedores-shimano escritas por el GHA `sync-to-app.yml` del repo mercado-intelligence (diario 9:20 ARG). Ver:
 - `docs/specs/2026-09-18-mercadolibre-crm-section-design.md`
 - `docs/plans/2026-09-18-mercadolibre-crm-section-plan.md`
 - Repo mercado-intelligence: `botshimanopesca-beep/mercado-intelligence`
 
-**Colecciones nuevas**:
+**Colecciones**:
 - `meli/state` (singleton) — last_sync + snapshot_date + counts + sync_status
 - `meli_products` (~231 docs) — mirror de market_products
 - `meli_categories` (~11 docs) — mirror de market_categories
-- `meli_map_alerts` (4-60 docs) — violaciones MAP del snapshot actual
+- `meli_map_alerts` (4-60 docs) — violaciones MAP del snapshot actual (snapshot pattern, se borra y reescribe)
+- `meli_map_alerts_history` (v997+) — doc por `item_id` único que alguna vez violó. Campos: first/last_detected_at, worst_diff_pct, n_days_seen, still_violating. Doc_id = item_id → dedupe natural
+- `meli_map_ranking` (v997+) — precomputado por el sync. Doc por seller_nickname con n_violations, n_active_violations, top_skus (top 3 con count + worst), top_categories (top 3 con count), worst/avg_diff_pct, first/last_violation_at
 
 **Rules**: `isMariano()` chequea `token.email` (2 whitelist: erbinomariano@gmail.com + mariano.erbino@shimano.com.ar). Nadie escribe desde client — solo el SA `mi-sync-writer@app-vendedores-shimano.iam.gserviceaccount.com` usado por el GHA (Admin SDK bypasea rules).
 
 **Sin listeners `onSnapshot`**: data cambia diario, alcanza con `.get()` one-shot al abrir el modal. Cachea en memoria durante la sesión.
 
 **Actualizar la whitelist Mariano**: `isMariano()` en `firestore.rules` + `_isMarianoEmail()` en `src/domains/panel-control.js`. Ambos hay que tocar.
+
+### Ranking histórico (v997, 2026-09-21)
+
+Cuarta sub-tab 🏆 Ranking que acumula infracciones MAP desde 2026-09-21 en adelante. Muestra tabla ordenada por `n_violations` desc con Seller · Provincia · # Total · # Activas · Top SKUs · Top Categorías · Peor %.
+
+**Conteo**: cada `item_id` único = 1 violación (aunque persista N días). Si el mismo seller publica el mismo producto por debajo del precio durante 15 días seguidos, cuenta como 1 violación única (no 15).
+
+**Estado activo/resuelto**: cuando el precio sube y ya no viola en la corrida diaria, el doc en `meli_map_alerts_history` queda con `still_violating=false` pero **NO se borra** (queda como historial). El ranking distingue `n_violations` (total histórico) vs `n_active_violations` (still_violating=true hoy).
+
+**Sin backfill**: el ranking arranca desde 2026-09-21. Snapshots BQ previos NO se procesaron retroactivamente. Los sellers que hayan violado antes de esa fecha empiezan de cero.
+
+**Cómo crecerá**: cada corrida diaria del sync agrega nuevos item_ids que aparezcan violando + updatea last_detected_at + n_days_seen de los repetidos + marca resueltos los que subieron precio. El `_compute_ranking` re-agrega todo desde cero por seller cada corrida (query completa a `meli_map_alerts_history` + Counter en Python).
+
+**Frontend**: función pura `sortRanking(rankings)` en `src/domains/meli.js` con test unit. Renderer `_paintRankingSection` con 3 KPI cards (sellers rankeados, peor infractor, violaciones activas) + tabla. Empty state cuando ranking está vacío ("🏆 Sin ranking todavía — el primer sync poblará esto").
 
