@@ -74,6 +74,33 @@ export function createSapClient(firebase, opts) {
         return { ok: false, status: 0, error: 'body no es JSON válido' };
       }
     }
+    // v1000 (2026-09-21) HOTFIX: force refresh IDToken antes de la callable.
+    // Bug reportado 2026-09-21 10:36 ART: pedido MARCELO BOSCHETTO fallo con
+    // callable(functions/unauthenticated) mientras que en paralelo otras
+    // requests a sapProxy pasaban con auth VALID. Diagnostico: race del SDK
+    // Firebase Auth cuando el batch envia N callables concurrentes y el
+    // IDToken cacheado esta cerca del expiration (~1h). Alguna request
+    // toma un token stale que Firebase Callable Gen 2 rechaza con
+    // `Unauthenticated` default (SIN llegar al handler, por eso no aparece
+    // en logs de sapProxy). getIdToken(true) fuerza refresh del token
+    // desde el server + garantiza que la callable use un token fresco.
+    // Costo: 1 extra roundtrip al identity toolkit por invocacion; ~150ms
+    // que no importa en el flow de envio de pedidos (ya son sync o batch
+    // que espera anyway).
+    try {
+      const auth = firebase.auth && firebase.auth();
+      if (auth && auth.currentUser && typeof auth.currentUser.getIdToken === 'function') {
+        await auth.currentUser.getIdToken(true);
+      }
+    } catch (_authErr) {
+      // Non-fatal: si el refresh falla, seguimos con el token cacheado.
+      // La callable puede tirar unauthenticated y el user va a re-loguearse
+      // manualmente. Log para diagnostico.
+      console.warn(
+        '[sap-client] getIdToken(true) fallo, continuando con token cacheado:',
+        _authErr
+      );
+    }
     const callable = firebase.app().functions(region).httpsCallable(callableName);
     try {
       const res = await callable({ endpoint: path, method, body: parsedBody });
