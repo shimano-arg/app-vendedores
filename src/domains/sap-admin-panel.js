@@ -827,7 +827,27 @@ window.enviarSeleccionadosViaSL = async function () {
   if (!confirm(msg)) return;
   if (typeof showSyncTag === 'function') showSyncTag('Enviando ' + conCard.length + ' a SAP...');
   const r = await enviarPedidosASAPViaServiceLayer(conCard);
+  const skippedCount = (r.skipped && r.skipped.length) || 0;
   let detail = 'Enviados OK: ' + r.sent + '\nFallaron: ' + r.failed;
+  // v1001 (2026-09-21): mostrar tambien los skipped en el summary. Antes se
+  // ocultaban silenciosamente cuando el pedido tenia sendingSapLock <60s o
+  // ya estaba transferido — el summary decia "OK: 0 / Fallaron: 0" sin
+  // explicar por que. Reporte 2026-09-21: pedido MARCELO BOSCHETTO con lock
+  // stale de un intento previo hacia que reintentos silentemente no hicieran
+  // nada. Ahora se listan con el motivo.
+  if (skippedCount > 0) {
+    detail += '\nOmitidos: ' + skippedCount;
+    detail +=
+      '\n\nOmitidos (no reintentables ahora):\n' +
+      r.skipped
+        .slice(0, 5)
+        .map((e) => '- ' + (e.cliente || e.pedido) + ': ' + e.motivo)
+        .join('\n');
+    if (r.skipped.length > 5) detail += '\n... ' + (r.skipped.length - 5) + ' mas.';
+    detail +=
+      '\n\nSi el pedido esta lockeado, esperá 60 segundos y reintenta. ' +
+      'Si dice "ya enviado" pero no aparece en Ya Transferidos, refresca (F5).';
+  }
   if (r.failed > 0 && r.errors && r.errors.length) {
     detail +=
       '\n\nErrores:\n' +
