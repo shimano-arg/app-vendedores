@@ -440,10 +440,21 @@ export const onPedidoConfirmedSendToSap = onDocumentWritten(
       }
       const sapCfgData = sapCfgSnap.data() || {};
       const sl = sapCfgData.serviceLayer || {};
+      // v999 (2026-09-21) HOTFIX: fallback sl.username || sl.userName.
+      // El doc Firestore app_config/sap_integration tiene el field como
+      // `username` (lowercase), no `userName` (camelCase). Todas las demas
+      // lecturas del sapConfig en este archivo (lineas 150, 209, 833, 875, 961)
+      // usan `sl.username || sl.userName` pero esta unica no. Resultado: el
+      // trigger detectaba sapConfig incompleto -> skip -> NUNCA envio pedidos
+      // a SAP desde su creacion. Los pedidos igual llegaban porque el
+      // client-side sap-auto-send-listener.js cubria cuando algun admin estaba
+      // con la app abierta. Reporte 2026-09-21 09:31 ART: pedido MARCELO
+      // BOSCHETTO fallo por Firebase Auth token expirado en el client-side;
+      // trigger auto server-side habria sido el fallback pero estaba roto.
       const sapConfig = {
         url: sl.url || '',
         companyDB: sl.companyDB || '',
-        userName: sl.userName || '',
+        userName: sl.username || sl.userName || '',
         password: SAP_SL_PASSWORD.value(),
       };
       if (!sapConfig.url || !sapConfig.companyDB || !sapConfig.userName || !sapConfig.password) {
