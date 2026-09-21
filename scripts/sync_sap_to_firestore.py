@@ -371,7 +371,20 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
                     whs_breakdown[whs_code] = int(round(disp_neto))
                 if cmt > 0:
                     whs_committed[whs_code] = int(round(cmt))
-            has_stk = total_qty > 0
+            # v1002 (2026-09-21): has_stk solo verdadero si hay stock en whs 11
+            # (PESCA DISPONIBLE VENTA).
+            # Antes: has_stk = total_qty > 0 sumaba TODOS los warehouses excepto
+            # NON_SALES_WHS ({05,06}). Pero warehouses 01/03/04/07/98 tampoco son
+            # vendibles (consignacion/proveedor/cuarentena, no deposito propio).
+            # Bug reportado por gerente ventas 2026-09-21: SKU TRX301HGB con
+            # 1 unidad en whs 07 aparecia con badge "DISPONIBLE" en Master de
+            # Productos pero al abrir el detalle "LIBRE PARA LA VENTA: 0
+            # unidades". La UI client-side ya usa whs 11 como definicion de
+            # "disponible" (index.html:6105 v369+); ahora el sync la refleja.
+            # Nota: qty_map[code] sigue siendo total_qty (suma ALL_SALES) para
+            # no romper reportes/exports que usan la cantidad total. Solo el
+            # flag booleano stock_map se corrige.
+            has_stk = whs_breakdown.get('11', 0) > 0
             items.append({'code': code, 'desc': name})
             stock_map[code] = has_stk
             # Cantidad total en entero (SAP no maneja fracciones de items). La
