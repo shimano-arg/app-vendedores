@@ -318,3 +318,140 @@ git push -u origin dev                       # recrea dev remota
 **Auditoría periódica**: cuando se implementen features nuevas con interacción gestual, correr `grep -rn "// apple-design skill" src/ index.html` para ver los downgrades acumulados y decidir si vale la pena upgrade. Cero interacciones gestuales nuevas sin al menos §1 (feedback pointerdown) + §7 (spatial consistency) + §14 (reduced motion).
 
 **Cuándo NO usar la skill**: interacciones que no son gestuales (form validation, alerts, redirects, table sort). La skill es sobre **movimiento físico**, no sobre UI en general.
+
+## 22. Diagnosticar App Check enforcement con `gcloud logging`, NO con `firebase functions:log` (2026-09-21)
+
+**Regla**: cuando aparezca `callable(functions/unauthenticated): Unauthenticated` en el frontend contra alguna Cloud Function Gen 2 con `enforceAppCheck: true`, NO diagnosticar con `firebase functions:log`. Ese comando **oculta el `httpRequest.status`** y solo muestra el DEBUG "Callable request verification passed" — que es un log emitido **antes del enforcement gate** y da falso positivo.
+
+**Por qué**: en Gen 2 el logging pipeline emite el DEBUG "verification passed" con `verifications: {auth: VALID, app: MISSING}` INCLUSO cuando el runtime va a devolver HTTP 401 por App Check enforcement. El firebase CLI oculta el status; hay que ir al `gcloud logging` para verlo.
+
+**Comando de diagnóstico correcto**:
+```bash
+gcloud logging read \
+  "resource.type=cloud_run_revision AND resource.labels.service_name=<fnname_lowercase> \
+   AND severity>=WARNING AND timestamp>=\"<iso>\"" \
+  --project=app-vendedores-shimano \
+  --format="value(timestamp,severity,httpRequest.status)"
+```
+
+Interpretación:
+- `httpRequest.status: 200` → CF ejecutó handler. Error viene del handler mismo (revisar textPayload o jsonPayload).
+- `httpRequest.status: 401` → App Check enforcement REAL rechazó. Rollback `enforceAppCheck: false` o esperar Clear Site Data en cliente.
+- `httpRequest.status: 429` → rate limit hit.
+
+**Propagation delay conocido**: registrar la Web App en Firebase Console → App Check → Apps NO activa enforcement inmediato. Delay observado empíricamente **~66h** desde registration hasta que el runtime empieza a rechazar `app:MISSING`. Durante la ventana, el DEBUG log engaña — parece que el flag no funciona.
+
+**Precedente (2026-09-21)**: pedido MARCELO BOSCHETTO no ingresaba a SAP con `callable(functions/unauthenticated)`. `firebase functions:log --only sapProxy` mostró "verification passed" todo el tiempo. Perdimos ~2h diagnosticando race de auth token, sapConfig incompleto, getIdToken race. El diagnóstico real apareció al correr `gcloud logging read --format="value(httpRequest.status)"` → todos los WARNING eran 401. v1003 hotfix: `enforceAppCheck: false` en las 3 CFs (sapProxy + updateAsigLineStateCF + geminiOcrProxy).
+
+## 23. Rollout gradual de App Check enforcement — nunca las 3 CFs simultáneas (2026-09-21)
+
+**Regla**: al enable `enforceAppCheck: true` en Cloud Functions de flujo crítico, hacer rollout gradual **una CF a la vez** con ventana de observación de 24-72h entre cada una. NUNCA enable las 3 CFs (sapProxy + updateAsigLineStateCF + geminiOcrProxy) simultáneas — la penalidad de un incidente afecta a 3 flows críticos a la vez (envío pedidos SAP + recycle ASIG + OCR rendiciones).
+
+**Por qué**: dos precedentes documentados de re-enable masivo que rompieron producción:
+- **v918 (2026-09-14)**: `geminiOcrProxy` primero (menos crítico). OK en shadow.
+- **v990 (2026-09-18)**: extendió a sapProxy + updateAsigLineStateCF simultáneo. Combinado con el registration Console del mismo día, terminó bloqueando todo tras propagation (~66h después).
+
+**Cómo aplicar** el próximo rollout:
+1. Pre-verificar: `activateAppCheckOnce()` en bundle OK + site key correcta + Console App registered + secret configurada.
+2. Deploy `enforceAppCheck: true` **solo** en `geminiOcrProxy` (rendiciones — menos crítico, no bloquea envío SAP).
+3. Monitor con `gcloud logging httpRequest.status=401` en esa CF durante **1 semana**.
+4. Si silencio (cero 401 en request de VDEs con reCAPTCHA activo) → repetir para `updateAsigLineStateCF`.
+5. Otra semana silencio → repetir para `sapProxy`.
+6. Nunca las 3 simultáneas.
+
+## 24. Firestore field `username` (lowercase) — hacer fallback `sl.username || sl.userName` SIEMPRE (2026-09-21)
+
+**Regla**: cuando leas el config SAP SL desde Firestore `app_config/sap_integration.serviceLayer` en Cloud Functions o scripts Python, usar el pattern **`sl.username || sl.userName`** con fallback. El doc real Firestore tiene el field como `username` (lowercase 'n'), pero muchos handlers viejos accedían solo `sl.userName` (camelCase) sin fallback.
+
+**Por qué**: bug latente v918→v999 en `functions/index.js:446` del trigger `onPedidoConfirmedSendToSap`. Leía `userName: sl.userName || ''` (camelCase-only) sin fallback a `sl.username`. Resultado: `sapConfig.userName === ''` → validation fail → skip → **el trigger NUNCA envió pedidos automáticamente desde su creación**. Los pedidos llegaban a SAP solo porque el flow client-side `sap-auto-send-listener.js` cubría cuando había admin online. Si nadie tenía la app abierta post-confirmación, el pedido quedaba con `transferidoSAP=null` indefinidamente. Los logs Firebase mostraban `sapConfig incompleto` cada ejecución del trigger pero nadie los investigó.
+
+**Cómo aplicar**: al escribir código nuevo que lea sapConfig, siempre usar el pattern:
+```js
+const sapConfig = {
+  url: sl.url || '',
+  companyDB: sl.companyDB || '',
+  userName: sl.username || sl.userName || '',   // ← ambos, con lowercase primero
+  password: SAP_SL_PASSWORD.value(),
+};
+```
+
+Grep de referencia: en `functions/index.js` las líneas 150, 209, 833, 875, 961 ya tienen el pattern correcto; la 446 fue la que estaba mal. Al agregar cualquier CF nueva que lea sapConfig, revisar TODAS las lecturas con `grep -n "sl.userName\|sl.username" functions/index.js`.
+
+## 25. Force refresh IDToken pre-callable en flow batch (2026-09-21)
+
+**Regla**: en `src/sap-client.js:fetchWithSession` (y cualquier flow que dispare múltiples `httpsCallable` en batch), llamar `firebase.auth().currentUser.getIdToken(true)` con force=true **antes de cada callable**. El costo es ~150ms por invocación y elimina el race del SDK Firebase Auth cuando el IDToken cacheado está cerca del expiration (~1h).
+
+**Por qué**: reporte 2026-09-21 10:36 ART: pedido MARCELO BOSCHETTO falló con `callable(functions/unauthenticated)` en el batch "Enviar via Service Layer" mientras otras callables concurrentes del mismo batch pasaban con auth VALID. Root cause: race del SDK cuando N callables se disparan concurrentes con token cerca de expirar. Alguna toma un token stale que Firebase Callable Gen 2 rechaza con `Unauthenticated` default **antes** de llegar al handler (por eso no aparece en logs sapProxy).
+
+**Cómo aplicar** — ya está implementado en `src/sap-client.js:77-103` (v1000):
+```js
+try {
+  const fbAny = /** @type {any} */ (firebase);
+  const auth = fbAny.auth && fbAny.auth();
+  if (auth && auth.currentUser && typeof auth.currentUser.getIdToken === 'function') {
+    await auth.currentUser.getIdToken(true);
+  }
+} catch (_authErr) {
+  // Non-fatal: si el refresh falla, seguimos con el token cacheado
+  console.warn('[sap-client] getIdToken(true) fallo:', _authErr);
+}
+const callable = firebase.app().functions(region).httpsCallable(callableName);
+```
+
+Al agregar callables en flows batch a otras CFs (setupGetMovimientos, geminiOcrProxy, etc), replicar este pattern.
+
+## 26. Stock "DISPONIBLE" en el sync SAP solo cuenta whs 11 (2026-09-21)
+
+**Regla**: en `scripts/sync_sap_to_firestore.py`, el flag `has_stk` (que se traduce a `STOCK_MAP[sku] = true` en Firestore y al badge "DISPONIBLE" en el frontend) debe usar **`whs_breakdown.get('11', 0) > 0`**, NO el total_qty sumando todos los warehouses excepto NON_SALES_WHS.
+
+**Por qué**: SAP tiene múltiples warehouses. La app-vendedores considera vendible SOLO el whs `11` (PESCA DISPONIBLE VENTA). Los demás son:
+- `01`, `03`, `04`: consignación / proveedor externo
+- `05`: MARKETING
+- `06`: DEVOLUCIONES
+- `07`: muestras / uso interno (no vendible)
+- `12`: PESCA EN TRÁNSITO (va a estar disponible pero HOY no)
+- `98`: CUARENTENA
+
+El bug (2026-09-21) reportado por gerente ventas: SKU TRX301HGB aparecía "DISPONIBLE" en el Master de Productos pero el modal detalle decía "LIBRE PARA LA VENTA: 0 unidades". Tenía 1 unidad en whs `07`. El sync marcaba `has_stk=True` porque total_qty=1, aunque `whs['11']=0`. Impacto: 45 SKUs afectados (~13% del catálogo con stock aparente).
+
+**Cómo aplicar**: al modificar `write_stock_snapshot` o cualquier lógica que compute stock disponible en scripts o CFs, SIEMPRE filtrar por whs 11:
+```python
+has_stk = whs_breakdown.get('11', 0) > 0
+```
+
+`qty_map[code] = total_qty` sigue igual (suma ALL_SALES) para no romper reportes/exports que usan la cantidad total. Solo el flag booleano `stock_map` se computa desde whs 11.
+
+**Comment client-side de referencia**: `index.html:6105 v369+` documenta la definición correcta desde 2026-07-31. El sync tardó hasta 2026-09-21 en alinear.
+
+## 27. Los merges pierden hotfixes de branches viejas — verificar blame después de merges masivos (2026-09-21)
+
+**Regla**: cuando se mergean múltiples PRs seguidos (v996 + v997 + v998), verificar que **hotfixes urgentes** en archivos tocados por múltiples branches sigan aplicados. El squash merge NO re-rebasea las branches origen; si una branch fue creada pre-hotfix y no rebaseó, va a sobrescribir el hotfix cuando se mergea.
+
+**Por qué**: precedente v996 hotfix (2026-09-18) revertía `enforceAppCheck: true → false` en 3 CFs. Después vinieron v996-MELI (#665), v997-PowerBI (#666), v998-Node22 (#667) — todos con branches creadas ANTES del hotfix y sin rebase. Al hacer squash merge, las 3 líneas del hotfix se perdieron. `git blame` post-merge mostraba que las líneas apuntaban al commit v990 (el previo al hotfix), no al hotfix. El hotfix quedó latente hasta que la propagation Console lo activó definitivamente (v1003, 2026-09-21).
+
+**Cómo aplicar**: después de mergear múltiples PRs del mismo día que tocaron áreas críticas (functions/index.js, storage.rules, firestore.rules), correr:
+```bash
+git blame -L <linea>,<linea+10> <archivo>
+```
+en las líneas de hotfixes recientes. Si el commit shown NO es el hotfix esperado, el squash merge lo perdió — hay que re-aplicar.
+
+**Alternativa proactiva**: cuando abras un PR sobre archivos que tuvieron hotfix reciente en main, hacer `git pull --rebase origin main` en la branch feature antes del merge para que los conflictos aparezcan explícitos (y no se pierdan silenciosos).
+
+## 28. Firebase Callable Gen 2: skipped silent en batch handlers (2026-09-21)
+
+**Regla**: en batch handlers que dispararan múltiples callables, si el summary UI dice "OK: 0 / Fallaron: 0" con requests que sí se dispararon, chequear si hay `skipped[]` que NO se está mostrando al usuario. `skipped` se usa para `sendingSapLock < 60s`, `transferidoSAP` ya set, y similares — casos donde el handler decidió no reintentar pero no es error.
+
+**Por qué**: reporte 2026-09-21 10:52 ART: Mariano vio "Enviados OK: 0 / Fallaron: 0" en el modal Carga a SAP sin ninguna explicación de por qué nada se procesó. `enviarPedidosASAPViaServiceLayer` skipeaba silencioso el pedido de MARCELO BOSCHETTO porque tenía `sendingSapLock` de 21 min (< 60s window del check), pero el handler NUNCA mostraba los skipped al UI.
+
+**Cómo aplicar**: cuando escribas o modifiques handlers batch (envío SAP, aprobar rendiciones masivas, cerrar lote, etc), incluir `skipped` en el summary:
+```js
+const skippedCount = (r.skipped && r.skipped.length) || 0;
+let detail = 'Enviados OK: ' + r.sent + '\nFallaron: ' + r.failed;
+if (skippedCount > 0) {
+  detail += '\nOmitidos: ' + skippedCount;
+  detail += '\n\nOmitidos (no reintentables ahora):\n' +
+    r.skipped.slice(0, 5).map(e => '- ' + (e.cliente || e.pedido) + ': ' + e.motivo).join('\n');
+}
+```
+
+Precedente aplicado: `src/domains/sap-admin-panel.js:830` v1001.
