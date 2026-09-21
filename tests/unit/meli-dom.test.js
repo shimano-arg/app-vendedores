@@ -8,6 +8,7 @@ import {
   formatSnapshotAge,
   getSeverityColor,
   sortMapAlerts,
+  sortRanking,
 } from '../../src/domains/meli.js';
 
 describe('formatSnapshotAge', () => {
@@ -112,5 +113,31 @@ describe('getSeverityColor', () => {
     expect(getSeverityColor(-1.9)).toBe('gray');
     expect(getSeverityColor(-0.9)).toBe('gray');
     expect(getSeverityColor(0)).toBe('gray');
+  });
+});
+
+describe('sortRanking', () => {
+  const rankings = [
+    { seller_nickname: 'A', n_violations: 3, worst_diff_pct: -5 },
+    { seller_nickname: 'B', n_violations: 10, worst_diff_pct: -8 },
+    { seller_nickname: 'C', n_violations: 5, worst_diff_pct: -12 },
+    { seller_nickname: 'D', n_violations: 10, worst_diff_pct: -3 },
+  ];
+
+  it('ordena por n_violations descendente', () => {
+    const out = sortRanking(rankings);
+    expect(out.map((r) => r.seller_nickname)).toEqual(['B', 'D', 'C', 'A']);
+    // B y D empatan en 10 → desempate por worst_diff_pct asc (B=-8 < D=-3)
+  });
+
+  it('no muta el array original', () => {
+    const original = [...rankings];
+    sortRanking(rankings);
+    expect(rankings).toEqual(original);
+  });
+
+  it('devuelve [] si input es [] o null', () => {
+    expect(sortRanking([])).toEqual([]);
+    expect(sortRanking(null)).toEqual([]);
   });
 });
