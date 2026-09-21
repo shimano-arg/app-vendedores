@@ -1,5 +1,5 @@
 /**
- * Tests de rules para las 4 colecciones MERCADOLIBRE (Mariano-only).
+ * Tests de rules para las 6 colecciones MERCADOLIBRE (Mariano-only).
  * Ver docs/specs/2026-09-18-mercadolibre-crm-section-design.md § 5.
  */
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
@@ -50,7 +50,24 @@ describe('meli_* (Mariano-only)', () => {
         const db = authedDb('uid-mariano', { email });
         await assertSucceeds(getDocs(collection(db, 'meli_map_alerts')));
       });
+      it(`Mariano (${email}) lista meli_map_alerts_history`, async () => {
+        const db = authedDb('uid-mariano', { email });
+        await assertSucceeds(getDocs(collection(db, 'meli_map_alerts_history')));
+      });
+      it(`Mariano (${email}) lista meli_map_ranking`, async () => {
+        const db = authedDb('uid-mariano', { email });
+        await assertSucceeds(getDocs(collection(db, 'meli_map_ranking')));
+      });
     }
+
+    it('vendor NO lista meli_map_alerts_history', async () => {
+      const db = authedDb(UID.vendor, { email: 'vendedor@shimano.com.ar' });
+      await assertFails(getDocs(collection(db, 'meli_map_alerts_history')));
+    });
+    it('gerente NO lista meli_map_ranking', async () => {
+      const db = authedDb(UID.gerente, { email: 'gerente@shimano.com.ar' });
+      await assertFails(getDocs(collection(db, 'meli_map_ranking')));
+    });
 
     it('admin NO-Mariano NO lee meli/state', async () => {
       const db = authedDb(UID.admin, { email: 'otro-admin@shimano.com.ar' });
@@ -90,6 +107,14 @@ describe('meli_* (Mariano-only)', () => {
     it('admin NO escribe meli_map_alerts', async () => {
       const db = authedDb(UID.admin, { email: 'otro-admin@shimano.com.ar' });
       await assertFails(setDoc(doc(db, 'meli_map_alerts', 'MLAtest'), { sku: 'X' }));
+    });
+    it('Mariano NO escribe meli_map_alerts_history', async () => {
+      const db = authedDb('uid-mariano', { email: 'erbinomariano@gmail.com' });
+      await assertFails(setDoc(doc(db, 'meli_map_alerts_history', 'MLAtest'), { sku: 'X' }));
+    });
+    it('Mariano NO escribe meli_map_ranking', async () => {
+      const db = authedDb('uid-mariano', { email: 'erbinomariano@gmail.com' });
+      await assertFails(setDoc(doc(db, 'meli_map_ranking', 'PESCAPLAY'), { n_violations: 1 }));
     });
   });
 });
