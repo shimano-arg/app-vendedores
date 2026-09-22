@@ -2958,12 +2958,24 @@ body.dark .planner-card { background: #2c2c2e; box-shadow: 0 1px 3px rgba(0,0,0,
 .planner-card-badges { display:flex; gap:4px; flex-wrap:wrap; margin-top:8px; }
 .planner-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.06); font-weight: 500; }
 body.dark .planner-badge { background: rgba(255,255,255,0.12); }
-.planner-card.state-cargado { border-left: 3px solid #FFCC00; }
-.planner-card.state-confirmado-vendedor { border-left: 3px solid #34C759; }
-.planner-card.state-facturado { border-left: 3px solid #34C759; }
-.planner-card.state-fact-pendiente { border-left: 3px solid #FFCC00; }
-.planner-card.state-cobrado-parcial { border-left: 3px solid #FF9500; }
-.planner-card.state-cobrado-full { border-left: 3px solid #34C759; }
+/* v1019 (2026-09-22): pintar toda la card del color de estado (no solo borde)
+   para que el estado sea visualmente claro de un vistazo. Tinted fondo
+   suave (paleta Apple systemColor at ~15% opacity) preserva legibilidad
+   del texto negro. Border-left más intenso queda como acento. */
+.planner-card.state-cargado { background: #FFF4C2; border-left: 3px solid #FFCC00; }
+.planner-card.state-confirmado-vendedor { background: #C8F0D4; border-left: 3px solid #34C759; }
+.planner-card.state-facturado { background: #C8F0D4; border-left: 3px solid #34C759; }
+.planner-card.state-fact-pendiente { background: #FFF4C2; border-left: 3px solid #FFCC00; }
+.planner-card.state-cobrado-parcial { background: #FFE0B8; border-left: 3px solid #FF9500; }
+.planner-card.state-cobrado-full { background: #C8F0D4; border-left: 3px solid #34C759; }
+/* Dark mode: mismo tinted pero con opacity/rgba sobre el fondo #2c2c2e.
+   Specificity 0,3,1 vence a body.dark .planner-card (0,2,1). */
+body.dark .planner-card.state-cargado { background: rgba(255, 204, 0, 0.18); }
+body.dark .planner-card.state-confirmado-vendedor { background: rgba(52, 199, 89, 0.22); }
+body.dark .planner-card.state-facturado { background: rgba(52, 199, 89, 0.22); }
+body.dark .planner-card.state-fact-pendiente { background: rgba(255, 204, 0, 0.18); }
+body.dark .planner-card.state-cobrado-parcial { background: rgba(255, 149, 0, 0.22); }
+body.dark .planner-card.state-cobrado-full { background: rgba(52, 199, 89, 0.22); }
 .planner-kanban-empty { padding: 48px; text-align: center; opacity: 0.55; font-size: 13px; }
 .planner-card-toggles {
   display: flex; gap: 6px; margin-top: 8px;
@@ -5711,7 +5723,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1018';
+const APP_VERSION = 'v1019';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

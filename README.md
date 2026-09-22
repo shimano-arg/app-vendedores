@@ -4672,7 +4672,24 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1018
+## 41) Changelog v300 → v1019
+
+### v1019 (2026-09-22) — Planner: pintar toda la card del color de estado (no solo borde)
+
+**Reporte**: Mariano — el border-left de 3px era demasiado sutil para escanear el estado de un vistazo (verde/amarillo/naranja). Pedido explícito: que se pinte la card completa del color.
+
+**Fix**: agregar `background` tinted a las 6 clases `state-*` con paleta Apple systemColor at ~15% opacity (preserva legibilidad del texto negro).
+
+| Clase | Fondo light | Fondo dark |
+|-------|-------------|------------|
+| `state-cargado` | `#FFF4C2` (systemYellow tint) | `rgba(255,204,0,0.18)` |
+| `state-confirmado-vendedor` | `#C8F0D4` (systemGreen tint) | `rgba(52,199,89,0.22)` |
+| `state-fact-pendiente` | `#FFF4C2` | `rgba(255,204,0,0.18)` |
+| `state-facturado` | `#C8F0D4` | `rgba(52,199,89,0.22)` |
+| `state-cobrado-parcial` | `#FFE0B8` (systemOrange tint) | `rgba(255,149,0,0.22)` |
+| `state-cobrado-full` | `#C8F0D4` | `rgba(52,199,89,0.22)` |
+
+El `border-left: 3px` intenso queda como acento adicional. Los dark overrides usan `body.dark .planner-card.state-*` (specificity 0,3,1) para vencer al `body.dark .planner-card { background: #2c2c2e }` general (0,2,1).
 
 ### v1018 (2026-09-22) — Planner: mostrar total ARS del pedido en todas las cards (schema real `totalAmountArs` / `netAmountArs`)
 
