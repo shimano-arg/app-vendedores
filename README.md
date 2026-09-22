@@ -4672,7 +4672,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1017
+## 41) Changelog v300 → v1018
+
+### v1018 (2026-09-22) — Planner: mostrar total ARS del pedido en todas las cards (schema real `totalAmountArs` / `netAmountArs`)
+
+**Reporte**: Mariano — las cards del Planner no mostraban el total. El render existía (línea 27419) pero leía `pedido.total || pedido.totalARS`, campos que **nunca existieron** en Firestore. El schema real de `pedidos` usa `totalAmountArs` (~24% de docs) o `netAmountArs` (~76%). Consecuencia: 0/256 pedidos abiertos mostraban total.
+
+**Fix**: nuevo helper `_plannerComputeTotal(pedido)` con precedencia:
+1. `totalAmountArs` (schema más común)
+2. `netAmountArs` (variante)
+3. `subtotalArs`
+4. `total` / `totalARS` (legacy)
+5. Compute desde `lines[].qty * (precio || priceAtCreation || price)` (fallback)
+
+Además: se removió el gate `(total ? … : '')` que ocultaba el div si el total era null. Ahora siempre se renderiza el `.planner-card-total` con "—" si nada aplica (consistencia visual).
+
+**Cobertura verificada contra Firestore prod**: 256/256 pedidos abiertos resuelven total con los primeros 2 caminos (61 `totalAmountArs` + 195 `netAmountArs`). Ningún doc muestra "—" en la práctica actual.
 
 ### v1017 (2026-09-22) — Planner: sort de columnas por `createdAt` (fecha visible) en vez de `updatedAt`
 

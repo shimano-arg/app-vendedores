@@ -5711,7 +5711,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1017';
+const APP_VERSION = 'v1018';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27413,11 +27413,14 @@ function renderPlannerCard(pedido, column) {
   const cliente = escapeHtml(pedido.clientName || pedido.cardName || pedido.clientCardCode || pedido.cardCode || '(sin cliente)');
   const vdi = escapeHtml(pedido.ownerVendor || pedido.vendorKey || '—');
   const fecha = _plannerFmtDate(pedido.createdAt || pedido.updatedAt);
-  const totalNum = typeof pedido.total === 'number' ? pedido.total
-                  : (typeof pedido.totalARS === 'number' ? pedido.totalARS : null);
+  // v1018 (2026-09-22): totales del pedido con schema real de Firestore.
+  // Precedencia: totalAmountArs (schema mas comun) -> netAmountArs (variante)
+  // -> subtotalArs -> total/totalARS (legacy) -> compute desde lines.
+  // Si nada aplica, mostrar "—" en vez de omitir el div para consistencia visual.
+  const totalNum = _plannerComputeTotal(pedido);
   const total = totalNum != null
     ? totalNum.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 })
-    : '';
+    : '—';
   const badges = [];
   if (pedido.transferidoSAP && pedido.transferidoSAP.docNum) badges.push('SAP:' + pedido.transferidoSAP.docNum);
   if (pedido.transferidoSAP && pedido.transferidoSAP.orderDocEntry) badges.push('SO:' + pedido.transferidoSAP.orderDocEntry);
@@ -27450,7 +27453,7 @@ function renderPlannerCard(pedido, column) {
       ' onclick="openPlannerCardModal(\'' + escapeHtml(pedido.id) + '\')">' +
       '<div class="planner-card-cliente">' + cliente + '</div>' +
       '<div class="planner-card-meta">' + vdi + ' · ' + escapeHtml(fecha) + '</div>' +
-      (total ? '<div class="planner-card-total">' + escapeHtml(total) + '</div>' : '') +
+      '<div class="planner-card-total">' + escapeHtml(total) + '</div>' +
       '<div class="planner-card-badges">' + badgesHtml + '</div>' +
       togglesHtml +
     '</div>'
@@ -27503,6 +27506,34 @@ function _plannerFmtDate(ts) {
           : (typeof ts === 'number' ? new Date(ts) : (ts instanceof Date ? ts : null));
   if (!d || isNaN(d.getTime())) return '';
   return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+}
+
+// v1018 (2026-09-22): total ARS del pedido para las cards del Planner.
+// El schema real de Firestore usa `totalAmountArs` (mayoria) o
+// `netAmountArs`/`subtotalArs` (variante). El campo `total`/`totalARS`
+// del render viejo NUNCA existio en los docs — por eso todas las cards
+// mostraban la linea de total vacia. Fallback final: computar desde lines
+// (qty * precio || priceAtCreation) por si algun doc no tiene totales
+// pre-calculados.
+function _plannerComputeTotal(pedido) {
+  if (!pedido) return null;
+  if (typeof pedido.totalAmountArs === 'number') return pedido.totalAmountArs;
+  if (typeof pedido.netAmountArs === 'number') return pedido.netAmountArs;
+  if (typeof pedido.subtotalArs === 'number') return pedido.subtotalArs;
+  if (typeof pedido.total === 'number') return pedido.total;
+  if (typeof pedido.totalARS === 'number') return pedido.totalARS;
+  const lineas = Array.isArray(pedido.lines) ? pedido.lines
+                : (Array.isArray(pedido.items) ? pedido.items : []);
+  if (lineas.length === 0) return null;
+  let sum = 0;
+  let any = false;
+  for (const l of lineas) {
+    if (!l) continue;
+    const qty = Number(l.qty) || 0;
+    const price = Number(l.precio) || Number(l.priceAtCreation) || Number(l.price) || 0;
+    if (qty > 0 && price > 0) { sum += qty * price; any = true; }
+  }
+  return any ? sum : null;
 }
 
 // v1006 Planner modal state vars (var — CLAUDE.md #13 cross-scope).
