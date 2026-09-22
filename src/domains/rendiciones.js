@@ -658,17 +658,88 @@ window.submitRendSolicitud = async function () {
 // bajo el path rendiciones/{ownerUid}/{timestamp}_ticket.{ext} y devuelve la
 // downloadURL. Sirve tanto para el submit en vivo como para el script de
 // retro-migracion de las 46 rendiciones que ya tienen fotoTicket embebido.
+//
+// v1008 (2026-09-22): reporte VDE — la app "lee la foto barbaro" pero al
+// confirmar tira "unauthorized" en ingles. Fix defensivo triple:
+//   1) Comprimir >5 MB con canvas (regla storage.rules exige <10 MB).
+//   2) Force refresh IDToken pre-put (mata caso sesion vencida).
+//   3) Mapear codes de Firebase Storage a mensaje en espanol.
+
+const RENDICION_MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+
+async function _compressImageBlobIfNeeded(blob) {
+  if (blob.size <= RENDICION_MAX_UPLOAD_BYTES) return blob;
+  const bmp = await createImageBitmap(blob).catch(() => null);
+  if (!bmp) return blob;
+  const maxDim = 2000;
+  const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+  const w = Math.round(bmp.width * scale);
+  const h = Math.round(bmp.height * scale);
+  let quality = 0.82;
+  let last = null;
+  for (let i = 0; i < 4; i++) {
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bmp, 0, 0, w, h);
+    const out = await new Promise((resolve) =>
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', quality)
+    );
+    last = out || last;
+    if (out && out.size <= RENDICION_MAX_UPLOAD_BYTES) return out;
+    quality -= 0.15;
+    if (quality < 0.35) break;
+  }
+  return last || blob;
+}
+
+function _storageErrorMessageEs(err) {
+  const code = (err && err.code) || '';
+  if (code === 'storage/unauthorized') {
+    return 'Firebase rechazo la subida. Cerra sesion y volve a entrar; si sigue avisale a Mariano.';
+  }
+  if (code === 'storage/quota-exceeded') {
+    return 'Cuota de almacenamiento excedida. Avisale a Mariano.';
+  }
+  if (code === 'storage/unauthenticated') {
+    return 'Sesion vencida. Cerra sesion y volve a entrar.';
+  }
+  if (code === 'storage/retry-limit-exceeded' || code === 'storage/canceled') {
+    return 'La subida se corto. Verifica tu conexion y reintenta.';
+  }
+  return err && err.message ? err.message : 'Error desconocido subiendo la foto.';
+}
+
 async function uploadRendicionFotoToStorage(dataUrl, ownerUid) {
   if (!dataUrl || typeof dataUrl !== 'string') return '';
   const m = /^data:image\/(\w+);base64,(.+)$/i.exec(dataUrl);
   if (!m) throw new Error('Formato de imagen invalido (esperado data:image/*;base64,...)');
-  const ext = (m[1] || 'jpg').toLowerCase().replace('jpeg', 'jpg');
+  let ext = (m[1] || 'jpg').toLowerCase().replace('jpeg', 'jpg');
   const b64 = m[2];
   // Convertir base64 a Blob (mas eficiente que putString para archivos grandes)
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  const blob = new Blob([bytes], { type: 'image/' + ext });
+  let blob = new Blob([bytes], { type: 'image/' + ext });
+  // v1008 defensa #1: comprimir si supera 5 MB (rule limite 10 MB con margen).
+  if (blob.size > RENDICION_MAX_UPLOAD_BYTES) {
+    const compressed = await _compressImageBlobIfNeeded(blob);
+    if (compressed && compressed !== blob) {
+      blob = compressed;
+      ext = 'jpg';
+    }
+  }
+  // v1008 defensa #2: force refresh IDToken pre-put (cubre session-expired).
+  try {
+    const fbAny = /** @type {any} */ (firebase);
+    const auth = fbAny.auth && fbAny.auth();
+    if (auth && auth.currentUser && typeof auth.currentUser.getIdToken === 'function') {
+      await auth.currentUser.getIdToken(true);
+    }
+  } catch (_authErr) {
+    console.warn('[rendiciones] getIdToken(true) fallo pre-upload:', _authErr);
+  }
   const ts = Date.now();
   const path = 'rendiciones/' + (ownerUid || 'anonimo') + '/' + ts + '_ticket.' + ext;
   const ref = firebase.storage().ref(path);
@@ -676,7 +747,7 @@ async function uploadRendicionFotoToStorage(dataUrl, ownerUid) {
   // soporta AbortController directo pero Promise.race con setTimeout resuelve
   // el bloqueo. Sin timeout el boton "Subiendo foto..." quedaba pegado
   // infinito si Storage colgaba (red rota / rules deny / foto muy grande).
-  const putPromise = ref.put(blob);
+  const putPromise = ref.put(blob, { contentType: blob.type || 'image/' + ext });
   const timeoutPromise = new Promise((_resolve, reject) => {
     setTimeout(() => {
       try {
@@ -689,8 +760,17 @@ async function uploadRendicionFotoToStorage(dataUrl, ownerUid) {
       );
     }, 60000);
   });
-  const snap = await Promise.race([putPromise, timeoutPromise]);
-  return await snap.ref.getDownloadURL();
+  try {
+    const snap = await Promise.race([putPromise, timeoutPromise]);
+    return await snap.ref.getDownloadURL();
+  } catch (err) {
+    // v1008 defensa #3: mensaje en espanol con hint segun code de Firebase.
+    const legible = _storageErrorMessageEs(err);
+    const wrapped = new Error(legible);
+    wrapped.cause = err;
+    wrapped.code = err && err.code;
+    throw wrapped;
+  }
 }
 
 /**

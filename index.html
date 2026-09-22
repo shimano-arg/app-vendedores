@@ -2281,7 +2281,11 @@ body.is-pachi #ruta-pers-controls{display:none !important}
 body.is-pachi #rmode-reco{flex:1 1 100% !important}
 /* v1005: Planner section gated Mariano-only in dev. Un-gate future via
    app_config/planner_config.enabledForAllRoles. */
-body.is-mariano .tab-btn[data-tab="planner"]{display:inline-block !important}
+/* v1008 (2026-09-22): tab-btn del sidebar deprecado. Planner ahora abre desde
+   el header (#planner-header-btn -> openPlannerBoardModal). Mantengo la regla
+   como display:none para que el tab-btn de fallback (line ~4813) quede oculto
+   aunque este el body.is-mariano seteado. */
+body.is-mariano .tab-btn[data-tab="planner"]{display:none !important}
 body.planner-enabled-all .tab-btn[data-tab="planner"]{display:inline-block !important}
 /* v451 (2026-08-11): boton Revision Excel oculto por default, visible solo
    para whitelist de emails (Mariano, Ioannis, Santi, Pablo). El gate se aplica
@@ -2961,9 +2965,116 @@ body.dark .planner-badge { background: rgba(255,255,255,0.12); }
 .planner-card.state-cobrado-parcial { border-left: 3px solid #FF9500; }
 .planner-card.state-cobrado-full { border-left: 3px solid #34C759; }
 .planner-kanban-empty { padding: 48px; text-align: center; opacity: 0.55; font-size: 13px; }
+.planner-card-toggles {
+  display: flex; gap: 6px; margin-top: 8px;
+}
+.planner-toggle-btn {
+  flex: 1;
+  font-size: 11px; padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,0.12);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+  font-family: inherit;
+}
+.planner-toggle-btn:hover { background: rgba(0,0,0,0.04); }
+body.dark .planner-toggle-btn { border-color: rgba(255,255,255,0.16); }
+body.dark .planner-toggle-btn:hover { background: rgba(255,255,255,0.06); }
+.planner-toggle-btn.active-yellow {
+  background: #FFCC00; color: #000; border-color: transparent; font-weight: 600;
+}
+.planner-toggle-btn.active-green {
+  background: #34C759; color: #fff; border-color: transparent; font-weight: 600;
+}
 @media (prefers-reduced-motion: reduce) {
   .planner-card, .planner-card.dragging { transition: none; transform: none; }
 }
+/* v1006 Planner: drag-drop target indicators. */
+.planner-col.drop-target {
+  outline: 2px dashed rgba(0,122,255,0.6);
+  outline-offset: -4px;
+}
+.planner-col.drop-blocked {
+  outline: 2px dashed rgba(255,59,48,0.6);
+  outline-offset: -4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .planner-col.drop-target, .planner-col.drop-blocked { outline-style: solid; }
+}
+/* v1006 Planner modal — Apple style */
+.planner-modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.4);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  z-index: 10000;
+  display: flex; align-items: center; justify-content: center;
+  animation: plannerFadeIn 0.2s cubic-bezier(0.32,0.72,0,1);
+}
+.planner-modal {
+  background: white; color: #1c1c1e;
+  border-radius: 20px;
+  width: min(720px, 92vw); max-height: 88vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  overflow: hidden;
+  animation: plannerScaleIn 0.24s cubic-bezier(0.32,0.72,0,1);
+}
+body.dark .planner-modal { background: #1c1c1e; color: #f5f5f7; }
+.planner-modal-header {
+  padding: 20px 24px; display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+}
+body.dark .planner-modal-header { border-color: rgba(255,255,255,0.08); }
+.planner-modal-close {
+  background: none; border: none; font-size: 18px; cursor: pointer;
+  opacity: 0.55; padding: 6px 10px; border-radius: 8px;
+  color: inherit;
+}
+.planner-modal-close:hover { opacity: 1; background: rgba(0,0,0,0.05); }
+body.dark .planner-modal-close:hover { background: rgba(255,255,255,0.08); }
+.planner-modal-tabs {
+  display: flex; padding: 0 16px; gap: 4px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+body.dark .planner-modal-tabs { border-color: rgba(255,255,255,0.06); }
+.planner-modal-tab {
+  background: none; border: none;
+  padding: 12px 16px; cursor: pointer;
+  opacity: 0.55; font-weight: 500; font-size: 14px;
+  border-bottom: 2px solid transparent;
+  color: inherit; font-family: inherit;
+}
+.planner-modal-tab:hover { opacity: 0.85; }
+.planner-modal-tab.active { opacity: 1; border-bottom-color: #007AFF; }
+.planner-modal-body {
+  padding: 20px 24px; overflow-y: auto; flex: 1;
+}
+.planner-modal-lineas-table {
+  width: 100%; border-collapse: collapse; font-size: 13px;
+}
+.planner-modal-lineas-table thead th {
+  text-align: left; padding: 8px 12px; opacity: 0.55; font-weight: 500;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em;
+}
+body.dark .planner-modal-lineas-table thead th { border-color: rgba(255,255,255,0.08); }
+.planner-modal-lineas-table tbody td {
+  padding: 10px 12px; border-bottom: 1px solid rgba(0,0,0,0.04);
+}
+body.dark .planner-modal-lineas-table tbody td { border-color: rgba(255,255,255,0.04); }
+.planner-modal-lineas-table tbody tr:last-child td { border-bottom: none; }
+.planner-modal-lineas-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+@keyframes plannerFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes plannerScaleIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .planner-modal-backdrop, .planner-modal { animation: none; }
+}
+/* v1007 Planner Config sub-tab dark mode */
+body.dark #planner-config-root > div > div { background: rgba(255,255,255,0.04) !important; }
+body.dark #planner-config-root input[type="email"] { background: #2c2c2e; color: #f5f5f7; border-color: rgba(255,255,255,0.16); }
+body.dark #planner-config-root input[type="email"][readonly] { background: rgba(255,255,255,0.02); }
 </style>
 <!-- v678 (2026-08-26) PERF Fase 2: apple-design CSS extraido a archivo aparte.
      Antes ~217 KB de CSS apple-design (v650-v676) estaban inline en el <style>
@@ -3211,6 +3322,10 @@ body.dark .planner-badge { background: rgba(255,255,255,0.12); }
     <!-- v611 (2026-08-24): PANEL DE CONTROL - visible SOLO Mariano (admin +
          email whitelist). Runtime guard replicado en openPanelControl(). -->
     <button class="btn-zonas" id="panel-control-btn" onclick="openPanelControl()" title="Panel de Control: estado de salud + KPIs para anticipar problemas (solo Mariano)" style="background:#0f172a;color:#fff;display:none">Panel de Control</button>
+    <!-- v1008 (2026-09-22): boton Planner reubicado desde sidebar al header (pedido Mariano
+         para poder ver el Kanban en modal grande sin scroll horizontal). Mismo gate que
+         panel-control-btn: solo Mariano email + admin role. Runtime guard en applyRolePermissions. -->
+    <button class="btn-zonas" id="planner-header-btn" onclick="openPlannerBoardModal()" title="Planner: Kanban de pedidos por depósito (solo Mariano)" style="background:#c2410c;color:#fff;display:none">&#128203; Planner</button>
   </div>
 </div>
 
@@ -3224,6 +3339,28 @@ body.dark .planner-badge { background: rgba(255,255,255,0.12); }
       <button onclick="closePanelControl()" style="background:transparent;color:#fff;border:none;font-size:22px;cursor:pointer;padding:0 6px;line-height:1">&times;</button>
     </div>
     <div id="panel-control-body" style="flex:1;overflow:auto;background:var(--bg-secondary)"></div>
+  </div>
+</div>
+<!-- v1008 (2026-09-22): Modal Planner Kanban (reemplaza el tab-pane). Ancho generoso
+     para que las 6 columnas entren sin scroll horizontal. Contenido renderizado por
+     renderPlannerKanban() sobre #planner-kanban-root (mismo id que antes vivia en
+     el tab-pane; movido al modal). -->
+<div class="modal-overlay" id="planner-board-modal" onclick="if(event.target===this)closePlannerBoardModal()" style="z-index:1200;display:none;align-items:flex-start;justify-content:center;padding:24px">
+  <div class="modal-content" style="max-width:1800px;width:97vw;max-height:92vh;display:flex;flex-direction:column;background:var(--bg-elevated);border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="padding:14px 20px;background:#c2410c;color:#fff;display:flex;align-items:center;gap:12px">
+      <h2 style="margin:0;font-size:16px;font-weight:800;flex:1">&#128203; Planner &mdash; Tablero de pedidos</h2>
+      <button data-planner-sub="tablero" class="active" onclick="setPlannerSubtab('tablero')" style="background:rgba(255,255,255,.16);color:#fff;border:none;padding:6px 12px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Tablero</button>
+      <button data-planner-sub="config" onclick="setPlannerSubtab('config')" style="background:rgba(255,255,255,.16);color:#fff;border:none;padding:6px 12px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Config</button>
+      <button onclick="closePlannerBoardModal()" style="background:transparent;color:#fff;border:none;font-size:22px;cursor:pointer;padding:0 6px;line-height:1">&times;</button>
+    </div>
+    <div id="planner-board-modal-body" style="flex:1;overflow:auto;background:var(--bg-secondary);padding:16px 20px">
+      <div id="planner-pane-tablero" class="planner-subpane" style="display:block">
+        <div class="planner-kanban" id="planner-kanban-root"></div>
+      </div>
+      <div id="planner-pane-config" class="planner-subpane" style="display:none">
+        <div id="planner-config-root"></div>
+      </div>
+    </div>
   </div>
 </div>
 <!-- v>=997 (2026-09-18): Modal MERCADOLIBRE. Solo Mariano. Contenido
@@ -5040,23 +5177,11 @@ body.dark .planner-badge { background: rgba(255,255,255,0.12); }
         <button class="qmodal-btn primary" onclick="markAllNotifsRead()">Marcar todas como le&iacute;das</button>
       </div>
     </div>
-    <!-- v1005: Planner section gated Mariano-only via body.is-mariano CSS gate. -->
-    <div class="tab-pane" id="pane-planner" style="display:none;">
-      <div class="rd-subtabs">
-        <button class="rd-subtab-btn active" data-planner-sub="tablero" onclick="setPlannerSubtab('tablero')">Tablero</button>
-        <button class="rd-subtab-btn" data-planner-sub="config" onclick="setPlannerSubtab('config')">Config</button>
-      </div>
-
-      <div id="planner-pane-tablero" class="planner-subpane" style="display:block;">
-        <div class="planner-kanban" id="planner-kanban-root"></div>
-      </div>
-
-      <div id="planner-pane-config" class="planner-subpane" style="display:none;">
-        <div style="padding:48px;text-align:center;color:#999;">
-          Config responsables &mdash; pr&oacute;xima etapa (Task 15).
-        </div>
-      </div>
-    </div>
+    <!-- v1005 Planner section — v1008 (2026-09-22) contenido migrado al modal
+         #planner-board-modal (openPlannerBoardModal). El tab-pane queda como
+         placeholder inerte por si algo hace setTab('planner') via devtools;
+         renderizadores usan los ids del modal. -->
+    <div class="tab-pane" id="pane-planner" style="display:none;"></div>
   </div>
 </div>
 <div class="modal-overlay" id="client-menu-modal" onclick="if(event.target===this)closeClientMenu()">
@@ -5578,7 +5703,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1006';
+const APP_VERSION = 'v1008';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12253,6 +12378,110 @@ function setPlannerSubtab(key) {
   if (pane) pane.style.display = 'block';
   var btn = document.querySelector('[data-planner-sub="' + key + '"]');
   if (btn) btn.classList.add('active');
+  if (key === 'config') renderPlannerConfig();
+}
+
+// v1008 (2026-09-22): Planner Kanban migrado de tab-pane a modal grande. El
+// botón vive en el header (#planner-header-btn); openPlannerBoardModal muestra
+// el overlay, arranca listeners (idempotente) y renderiza el Kanban.
+function openPlannerBoardModal() {
+  var em = ((currentUser && (currentUser.email || '')) || '').toLowerCase();
+  var okEmail = em === 'mariano.erbino@shimano.com.ar' || em === 'erbinomariano@gmail.com';
+  if (!okEmail || userRole !== 'admin') return; // runtime guard extra
+  var modal = document.getElementById('planner-board-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  setPlannerSubtab('tablero');
+  try { attachPlannerListeners(); } catch (e) { console.warn('[planner] attach fail', e); }
+  try { renderPlannerKanban(); } catch (e) { console.warn('[planner] render fail', e); }
+}
+function closePlannerBoardModal() {
+  var modal = document.getElementById('planner-board-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+// v1007 Planner Config: form for editing responsables per column.
+function renderPlannerConfig() {
+  var root = document.getElementById('planner-config-root');
+  if (!root) return;
+  var config = plannerResponsablesCache || {};
+
+  var rowsHtml = PLANNER_COLUMNS.map(function(col) {
+    var c = config[col.key] || {};
+    var isConfirmado = col.key === 'confirmado';
+    var isFacturar = col.key === 'facturar';
+    var emailValue = isConfirmado ? 'mariano.erbino@shimano.com.ar' : (c.email || '');
+    var notifyChecked = c.notifyOnEnter !== false;
+    var vdiChecked = isFacturar && !!c.sendToVdi;
+
+    return (
+      '<div style="margin-bottom:16px;padding:16px;background:rgba(0,0,0,0.03);border-radius:12px;">' +
+        '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px;">' +
+          '<label style="font-weight:600;font-size:14px;letter-spacing:-0.01em;">' + escapeHtml(col.label) + '</label>' +
+          (isConfirmado ? '<span style="font-size:11px;opacity:.6;">Hardcoded a Mariano</span>' : '') +
+        '</div>' +
+        '<input type="email" name="' + col.key + '_email"' +
+          ' value="' + escapeHtml(emailValue) + '"' +
+          (isConfirmado ? ' readonly' : '') +
+          ' placeholder="alguien@shimano.com.ar"' +
+          ' style="width:100%;padding:8px 12px;border:1px solid rgba(0,0,0,0.12);border-radius:8px;font-size:14px;box-sizing:border-box;font-family:inherit;' + (isConfirmado ? 'opacity:.6;background:rgba(0,0,0,0.02);' : '') + '">' +
+        '<label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;cursor:pointer;">' +
+          '<input type="checkbox" name="' + col.key + '_notify"' + (notifyChecked ? ' checked' : '') + '>' +
+          'Notificar cuando una card entre a esta columna' +
+        '</label>' +
+        (isFacturar
+          ? '<label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:13px;cursor:pointer;">' +
+              '<input type="checkbox" name="facturar_vdi"' + (vdiChecked ? ' checked' : '') + '>' +
+              'Además enviar email al VDI del pedido' +
+            '</label>'
+          : '') +
+      '</div>'
+    );
+  }).join('');
+
+  root.innerHTML =
+    '<div style="padding:24px;max-width:640px;">' +
+      '<h3 style="margin:0 0 4px;font-weight:700;letter-spacing:-0.02em;">Responsables por columna</h3>' +
+      '<p style="font-size:13px;opacity:.6;margin:0 0 24px;">Email que recibe notificación cuando una card entra a esa columna. Solo Mariano puede editar (regla de Firestore).</p>' +
+      '<form id="planner-config-form" onsubmit="savePlannerResponsables(event)">' +
+        rowsHtml +
+        '<button type="submit" style="background:#007AFF;color:white;padding:10px 20px;border-radius:8px;border:none;cursor:pointer;font-weight:600;font-family:inherit;font-size:14px;">Guardar</button>' +
+      '</form>' +
+    '</div>';
+}
+
+async function savePlannerResponsables(ev) {
+  ev.preventDefault();
+  var form = ev.target;
+  try {
+    var payload = {};
+    for (var i = 0; i < PLANNER_COLUMNS.length; i++) {
+      var col = PLANNER_COLUMNS[i];
+      var emailInput = form[col.key + '_email'];
+      var notifyInput = form[col.key + '_notify'];
+      var emailRaw = (emailInput && emailInput.value ? emailInput.value : '').trim().toLowerCase();
+      var notifyOnEnter = !!(notifyInput && notifyInput.checked);
+      var entry = { notifyOnEnter: notifyOnEnter };
+      if (col.key === 'confirmado') {
+        entry.email = 'mariano.erbino@shimano.com.ar';
+        entry.name = 'Mariano';
+        entry.hardcoded = true;
+      } else {
+        entry.email = emailRaw;
+        entry.name = emailRaw ? emailRaw.split('@')[0] : '';
+      }
+      if (col.key === 'facturar') {
+        var vdiInput = form.facturar_vdi;
+        entry.sendToVdi = !!(vdiInput && vdiInput.checked);
+      }
+      payload[col.key] = entry;
+    }
+    await fbDb.doc('app_config/planner_responsables').set(payload);
+    alert('Config guardada.');
+  } catch (err) {
+    console.error('[planner] save responsables failed:', err);
+    alert('Error al guardar: ' + (err && err.message ? err.message : err));
+  }
 }
 
 // v429: sincroniza el estado activo del FAB Home con currentTab.
@@ -23298,6 +23527,11 @@ function applyRolePermissions(){
     if (_panelBtn) {
       _panelBtn.style.display = (_isMarianoHdr && userRole === 'admin') ? '' : 'none';
     }
+    // v1008 (2026-09-22): mismo gate para el nuevo Planner header btn.
+    const _plannerHdrBtn = document.getElementById('planner-header-btn');
+    if (_plannerHdrBtn) {
+      _plannerHdrBtn.style.display = (_isMarianoHdr && userRole === 'admin') ? '' : 'none';
+    }
     // v984 (2026-09-17): botones Dashboard, Depósito y Preliminar ocultos para
     // role='vendedor'. Contexto: Pachi Naba (VDE proxy) no necesita ver KPIs,
     // ni el estado del depósito, ni el cotizador de feria — son features para
@@ -25199,6 +25433,18 @@ let zonasPendingChanges = {}; // key -> {scope, target, originalVendor, original
 var vendorOverrides = {}; // key -> Firestore doc (asignaciones aplicadas)
 var vendorOverridesHistory = []; // ultimos cambios para tab Historial
 var unsubVendorOverrides = null;
+// v1006 Planner: motion library for spring animations on drag-drop.
+// Loaded async once; stored in window._motion for use by handlers.
+(async () => {
+  try {
+    if (!window._motion) {
+      window._motion = await import('https://cdn.jsdelivr.net/npm/motion@13/+esm');
+    }
+  } catch (e) {
+    console.warn('[planner] motion lib load failed, animations disabled:', e?.message);
+  }
+})();
+
 // v1005 Planner Kanban state vars (var — CLAUDE.md #13 cross-scope).
 var unsubPlannerPedidos = null;
 var unsubPlannerWaitlist = null;
@@ -25206,6 +25452,7 @@ var unsubPlannerConfig = null;
 var plannerPedidosCache = new Map();
 var plannerWaitlistCache = new Map();
 var plannerResponsablesCache = {};
+var plannerDragged = null;  // {id, from} of card being dragged
 let vdiPartnerUsers = []; // usuarios con rol 'interno' (VDIs) para el dropdown
 let otherUsers = []; // usuarios con rol 'admin' u otros -> seccion "Otros"
 
@@ -26909,6 +27156,90 @@ const PLANNER_COLUMNS = [
   { key: 'cobrado',      label: 'Cobrado' },
 ];
 
+// v1006 Planner: drag-drop handlers. Only manual columns accept drop.
+const PLANNER_MANUAL_TARGETS = new Set(['confirmado', 'cobrado']);
+
+function onPlannerCardDragStart(ev) {
+  const el = ev.currentTarget;
+  plannerDragged = { id: el.dataset.pedidoId, from: el.dataset.column };
+  el.classList.add('dragging');
+  ev.dataTransfer.effectAllowed = 'move';
+  ev.dataTransfer.setData('text/plain', plannerDragged.id);
+}
+
+function onPlannerCardDragEnd(ev) {
+  ev.currentTarget.classList.remove('dragging');
+  plannerDragged = null;
+  document.querySelectorAll('.planner-col.drop-target, .planner-col.drop-blocked')
+    .forEach(c => c.classList.remove('drop-target', 'drop-blocked'));
+}
+
+function onPlannerColDragOver(ev) {
+  ev.preventDefault();
+  const dst = ev.currentTarget.dataset.col;
+  if (!plannerDragged || plannerDragged.from === dst) return;
+  if (PLANNER_MANUAL_TARGETS.has(dst)) {
+    ev.currentTarget.classList.add('drop-target');
+    ev.currentTarget.classList.remove('drop-blocked');
+    ev.dataTransfer.dropEffect = 'move';
+  } else {
+    ev.currentTarget.classList.add('drop-blocked');
+    ev.currentTarget.classList.remove('drop-target');
+    ev.dataTransfer.dropEffect = 'none';
+  }
+}
+
+function onPlannerColDragLeave(ev) {
+  ev.currentTarget.classList.remove('drop-target', 'drop-blocked');
+}
+
+async function onPlannerColDrop(ev) {
+  ev.preventDefault();
+  const col = ev.currentTarget;
+  const dst = col.dataset.col;
+  const draggedId = plannerDragged?.id;
+  const from = plannerDragged?.from;
+  col.classList.remove('drop-target', 'drop-blocked');
+  if (!draggedId || from === dst) return;
+
+  if (!PLANNER_MANUAL_TARGETS.has(dst)) {
+    alert('La columna "' + dst + '" es automática — se llena según el estado del pedido en SAP. No se puede mover manualmente.');
+    return;
+  }
+
+  const plannerStage = dst === 'confirmado' ? 'confirmado'
+                    : dst === 'cobrado'    ? 'cobrado_parcial'
+                    : null;
+  if (!plannerStage) return;
+
+  try {
+    const auth = firebase.auth().currentUser;
+    await fbDb.collection('pedidos').doc(draggedId).update({
+      plannerStage,
+      plannerHistory: firebase.firestore.FieldValue.arrayUnion({
+        stage: plannerStage,
+        movedAt: firebase.firestore.Timestamp.now(),
+        movedBy: auth?.uid || 'unknown',
+        movedByEmail: auth?.email || 'unknown',
+      }),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Spring feedback on the moved card (best-effort — motion may not be loaded yet).
+    requestAnimationFrame(() => {
+      const dropped = document.querySelector('[data-pedido-id="' + draggedId + '"]');
+      if (dropped && window._motion?.animate) {
+        try {
+          window._motion.animate(dropped, { scale: [0.96, 1] }, { duration: 0.32, easing: 'ease-out' });
+        } catch (e) { /* silent */ }
+      }
+    });
+  } catch (err) {
+    console.error('[planner] drop update failed:', err);
+    alert('Error al mover la card: ' + (err?.message || err));
+  }
+}
+
 function attachPlannerListeners() {
   if (unsubPlannerPedidos) return;  // already attached
   const db = fbDb;
@@ -26977,6 +27308,17 @@ function renderPlannerKanban() {
 
   // All user data goes through escapeHtml — repo-wide innerHTML pattern (rendiciones, dashboard).
   root.innerHTML = html;
+
+  // v1006 Planner: wire drag-drop handlers after DOM is set.
+  root.querySelectorAll('.planner-card').forEach(el => {
+    el.addEventListener('dragstart', onPlannerCardDragStart);
+    el.addEventListener('dragend', onPlannerCardDragEnd);
+  });
+  root.querySelectorAll('.planner-col').forEach(col => {
+    col.addEventListener('dragover', onPlannerColDragOver);
+    col.addEventListener('drop', onPlannerColDrop);
+    col.addEventListener('dragleave', onPlannerColDragLeave);
+  });
 }
 
 function renderPlannerCard(pedido, column) {
@@ -26997,6 +27339,21 @@ function renderPlannerCard(pedido, column) {
   const badgesHtml = badges.map(b => '<span class="planner-badge">' + escapeHtml(b) + '</span>').join('');
   const stateClass = computePlannerCardStateClass(pedido, column);
 
+  let togglesHtml = '';
+  if (column === 'lista_espera' && pedido._isWaitlist) {
+    const items = Array.isArray(pedido.items) ? pedido.items : [];
+    const anyConfirmed = pedido.vendorConfirmed === true || items.some(i => i?.vendorConfirmed === true);
+    const cargadoActive = !anyConfirmed;
+    const confirmadoActive = anyConfirmed;
+    togglesHtml =
+      '<div class="planner-card-toggles" onclick="event.stopPropagation();">' +
+        '<button class="planner-toggle-btn' + (cargadoActive ? ' active-yellow' : '') + '"' +
+          ' onclick="togglePlannerWaitlistState(\'' + escapeHtml(pedido.id) + '\', false)">Cargado</button>' +
+        '<button class="planner-toggle-btn' + (confirmadoActive ? ' active-green' : '') + '"' +
+          ' onclick="togglePlannerWaitlistState(\'' + escapeHtml(pedido.id) + '\', true)">Confirmado</button>' +
+      '</div>';
+  }
+
   return (
     '<div class="planner-card ' + stateClass + '"' +
       ' data-pedido-id="' + escapeHtml(pedido.id) + '"' +
@@ -27007,6 +27364,7 @@ function renderPlannerCard(pedido, column) {
       '<div class="planner-card-meta">' + vdi + ' · ' + escapeHtml(fecha) + '</div>' +
       (total ? '<div class="planner-card-total">' + escapeHtml(total) + '</div>' : '') +
       '<div class="planner-card-badges">' + badgesHtml + '</div>' +
+      togglesHtml +
     '</div>'
   );
 }
@@ -27029,6 +27387,26 @@ function computePlannerCardStateClass(pedido, column) {
   return '';
 }
 
+async function togglePlannerWaitlistState(waitlistId, confirmed) {
+  try {
+    const ref = fbDb.collection('revision_waitlist').doc(waitlistId);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      console.warn('[planner] waitlist doc not found:', waitlistId);
+      return;
+    }
+    const items = Array.isArray(snap.data().items) ? snap.data().items : [];
+    const nextItems = items.map(i => ({ ...i, vendorConfirmed: !!confirmed }));
+    await ref.update({
+      items: nextItems,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (err) {
+    console.error('[planner] toggle waitlist failed:', err);
+    alert('Error al cambiar estado: ' + (err?.message || err));
+  }
+}
+
 function _plannerFmtDate(ts) {
   if (!ts) return '';
   const d = (typeof ts.toDate === 'function') ? ts.toDate()
@@ -27037,9 +27415,352 @@ function _plannerFmtDate(ts) {
   return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
 }
 
-// Stub — real modal implemented in Task 12.
+// v1006 Planner modal state vars (var — CLAUDE.md #13 cross-scope).
+var _plannerModalPedidoId = null;
+var _plannerModalTab = 'lineas';
+
 function openPlannerCardModal(pedidoId) {
-  console.log('[planner] TODO modal open for', pedidoId);
+  _plannerModalPedidoId = pedidoId;
+  _plannerModalTab = 'lineas';
+  const modal = document.getElementById('planner-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  // Reset tab active state to Líneas.
+  document.querySelectorAll('[data-plmodal]').forEach(b => {
+    b.classList.toggle('active', b.dataset.plmodal === 'lineas');
+  });
+  renderPlannerModal();
+  // ESC-to-close listener (attached once — check first).
+  if (!window._plannerModalEscBound) {
+    window._plannerModalEscBound = true;
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && document.getElementById('planner-modal')?.style.display === 'flex') {
+        closePlannerModal();
+      }
+    });
+  }
+}
+
+function closePlannerModal() {
+  const modal = document.getElementById('planner-modal');
+  if (modal) modal.style.display = 'none';
+  _plannerModalPedidoId = null;
+}
+
+function setPlannerModalTab(tab) {
+  _plannerModalTab = tab;
+  document.querySelectorAll('[data-plmodal]').forEach(b => {
+    b.classList.toggle('active', b.dataset.plmodal === tab);
+  });
+  renderPlannerModal();
+}
+
+function renderPlannerModal() {
+  if (!_plannerModalPedidoId) return;
+  const pedido = plannerPedidosCache.get(_plannerModalPedidoId)
+              || plannerWaitlistCache.get(_plannerModalPedidoId);
+  const title = document.getElementById('planner-modal-title');
+  const body = document.getElementById('planner-modal-body');
+  if (!title || !body) return;
+
+  if (!pedido) {
+    title.textContent = 'Pedido no encontrado';
+    body.innerHTML = '<div style="opacity:.55;padding:24px;text-align:center;">El pedido puede haber sido cerrado o consumido.</div>';
+    return;
+  }
+
+  const clienteLabel = pedido.cardName || pedido.cardCode || pedido.id || '(sin cliente)';
+  title.textContent = clienteLabel;
+
+  if (_plannerModalTab === 'lineas') {
+    body.innerHTML = renderPlannerModalLineas(pedido);
+  } else if (_plannerModalTab === 'adjuntos') {
+    body.innerHTML = renderPlannerModalAdjuntos(pedido);
+  } else if (_plannerModalTab === 'historial') {
+    body.innerHTML = renderPlannerModalHistorial(pedido);
+  }
+}
+
+function renderPlannerModalLineas(pedido) {
+  const items = Array.isArray(pedido.items) ? pedido.items : [];
+  if (items.length === 0) {
+    return '<div style="opacity:.55;padding:24px;text-align:center;">Este pedido no tiene líneas.</div>';
+  }
+  const rows = items.map(l => {
+    const sku = escapeHtml(l?.sku || l?.itemCode || '');
+    const desc = escapeHtml(l?.descripcion || l?.itemName || l?.description || '');
+    const qty = Number(l?.qty || 0);
+    const qtyInv = Number(l?.qtyInvoiced || 0);
+    const price = Number(l?.price || l?.unitPrice || 0);
+    const priceStr = price ? price.toLocaleString('es-AR', { maximumFractionDigits: 2 }) : '';
+    return (
+      '<tr>' +
+        '<td>' + sku + '</td>' +
+        '<td>' + desc + '</td>' +
+        '<td class="num">' + qty + '</td>' +
+        '<td class="num">' + qtyInv + '</td>' +
+        '<td class="num">' + priceStr + '</td>' +
+      '</tr>'
+    );
+  }).join('');
+  return (
+    '<table class="planner-modal-lineas-table">' +
+      '<thead><tr>' +
+        '<th>SKU</th>' +
+        '<th>Descripción</th>' +
+        '<th class="num">Qty</th>' +
+        '<th class="num">Facturado</th>' +
+        '<th class="num">Precio</th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+    '</table>'
+  );
+}
+
+async function handlePlannerAttachmentUpload(files) {
+  if (!_plannerModalPedidoId) return;
+  const pedidoId = _plannerModalPedidoId;
+  const pedidoRef = fbDb.collection('pedidos').doc(pedidoId);
+
+  let snap;
+  try {
+    snap = await pedidoRef.get();
+  } catch (err) {
+    alert('No se pudo leer el pedido: ' + (err?.message || err));
+    return;
+  }
+  const current = Array.isArray(snap.data()?.plannerAttachments)
+    ? snap.data().plannerAttachments : [];
+
+  const filesArr = Array.from(files || []);
+  if (current.length + filesArr.length > 10) {
+    alert('Máximo 10 archivos por card. Actualmente hay ' + current.length + '.');
+    return;
+  }
+
+  const ALLOWED = new Set(['application/pdf', 'image/jpeg', 'image/png']);
+  const MAX_SIZE = 10 * 1024 * 1024;
+  const storage = firebase.storage();
+  const additions = [];
+
+  for (const file of filesArr) {
+    if (!ALLOWED.has(file.type)) {
+      alert('Tipo no permitido: ' + file.name + ' (' + file.type + '). Solo PDF/JPG/PNG.');
+      continue;
+    }
+    if (file.size > MAX_SIZE) {
+      alert('Archivo excede 10MB: ' + file.name);
+      continue;
+    }
+    const ts = Date.now();
+    const safe = String(file.name).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = 'planner-attachments/' + pedidoId + '/' + ts + '_' + safe;
+    try {
+      const ref = storage.ref(path);
+      const uploadRes = await ref.put(file, { contentType: file.type });
+      const url = await uploadRes.ref.getDownloadURL();
+      additions.push({
+        name: file.name,
+        url,
+        size: file.size,
+        mime: file.type,
+        uploadedAt: firebase.firestore.Timestamp.now(),
+        uploadedBy: firebase.auth().currentUser?.uid || 'unknown',
+      });
+    } catch (err) {
+      console.error('[planner] upload failed:', err);
+      alert('Error subiendo ' + file.name + ': ' + (err?.message || err));
+    }
+  }
+
+  if (additions.length) {
+    try {
+      await pedidoRef.update({
+        plannerAttachments: firebase.firestore.FieldValue.arrayUnion(...additions),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      // Refresh cache immediately (onSnapshot will also fire).
+      const fresh = await pedidoRef.get();
+      plannerPedidosCache.set(pedidoId, { id: pedidoId, ...fresh.data() });
+      renderPlannerModal();
+    } catch (err) {
+      alert('Uploads OK pero falló actualizar el pedido: ' + (err?.message || err));
+    }
+  }
+}
+
+async function deletePlannerAttachment(idx) {
+  if (!_plannerModalPedidoId) return;
+  if (!confirm('¿Eliminar este adjunto? No se puede deshacer.')) return;
+  const pedidoId = _plannerModalPedidoId;
+  const pedidoRef = fbDb.collection('pedidos').doc(pedidoId);
+  let snap;
+  try {
+    snap = await pedidoRef.get();
+  } catch (err) {
+    alert('No se pudo leer el pedido: ' + (err?.message || err));
+    return;
+  }
+  const attachments = Array.isArray(snap.data()?.plannerAttachments)
+    ? snap.data().plannerAttachments : [];
+  const att = attachments[idx];
+  if (!att) return;
+
+  // Delete from Storage first (best-effort — may already be gone).
+  try {
+    const url = new URL(att.url);
+    const encoded = url.pathname.split('/o/')[1];
+    if (encoded) {
+      const path = decodeURIComponent(encoded.split('?')[0]);
+      await firebase.storage().ref(path).delete();
+    }
+  } catch (err) {
+    console.warn('[planner] storage delete failed (may already be gone):', err?.message);
+  }
+
+  // Remove from Firestore.
+  const nextAttachments = attachments.filter((_, i) => i !== idx);
+  try {
+    await pedidoRef.update({
+      plannerAttachments: nextAttachments,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    const fresh = await pedidoRef.get();
+    plannerPedidosCache.set(pedidoId, { id: pedidoId, ...fresh.data() });
+    renderPlannerModal();
+  } catch (err) {
+    alert('Error eliminando adjunto: ' + (err?.message || err));
+  }
+}
+
+function renderPlannerModalAdjuntos(pedido) {
+  const attachments = Array.isArray(pedido.plannerAttachments) ? pedido.plannerAttachments : [];
+  const remaining = 10 - attachments.length;
+
+  const grid = attachments.map((a, i) => {
+    const isImg = String(a.mime || '').startsWith('image/');
+    const preview = isImg
+      ? '<img src="' + escapeHtml(a.url) + '" alt="" style="width:100%;height:120px;object-fit:cover;border-radius:8px;">'
+      : '<div style="display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.05);border-radius:8px;height:120px;font-size:36px;">📄</div>';
+    return (
+      '<div style="display:flex;flex-direction:column;gap:6px;">' +
+        '<a href="' + escapeHtml(a.url) + '" target="_blank" rel="noopener">' + preview + '</a>' +
+        '<div style="font-size:11px;opacity:.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(a.name || '') + '</div>' +
+        '<div style="font-size:10px;opacity:.5;">' + _plannerFmtBytes(a.size) + '</div>' +
+        '<button onclick="deletePlannerAttachment(' + i + ')" style="font-size:11px;padding:4px 8px;background:rgba(255,59,48,0.1);color:#FF3B30;border:none;border-radius:6px;cursor:pointer;font-family:inherit;">Eliminar</button>' +
+      '</div>'
+    );
+  }).join('');
+
+  const uploadDisabled = remaining <= 0;
+  const uploadBtn =
+    '<label style="background:' + (uploadDisabled ? 'rgba(0,0,0,0.1)' : '#007AFF') + ';color:' + (uploadDisabled ? '#999' : 'white') + ';padding:8px 14px;border-radius:8px;cursor:' + (uploadDisabled ? 'not-allowed' : 'pointer') + ';font-size:13px;font-weight:500;">' +
+      'Subir archivo' +
+      '<input type="file" multiple accept="application/pdf,image/jpeg,image/png"' +
+        ' style="display:none;"' + (uploadDisabled ? ' disabled' : '') +
+        ' onchange="handlePlannerAttachmentUpload(this.files); this.value=null;">' +
+    '</label>';
+
+  return (
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">' +
+      '<div style="font-size:13px;opacity:.7;">' + attachments.length + ' / 10 archivos · máx 10 MB · PDF/JPG/PNG</div>' +
+      uploadBtn +
+    '</div>' +
+    (attachments.length === 0
+      ? '<div style="opacity:.55;text-align:center;padding:32px;">Sin adjuntos.</div>'
+      : '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:14px;">' + grid + '</div>')
+  );
+}
+
+function _plannerFmtBytes(n) {
+  const v = Number(n) || 0;
+  if (v < 1024) return v + ' B';
+  if (v < 1024 * 1024) return (v / 1024).toFixed(1) + ' KB';
+  return (v / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+function _plannerFmtDateTime(ts) {
+  if (!ts) return '';
+  const d = (typeof ts.toDate === 'function') ? ts.toDate()
+          : (typeof ts === 'number' ? new Date(ts)
+          : (ts instanceof Date ? ts
+          : (typeof ts === 'object' && ts.seconds ? new Date(ts.seconds * 1000)
+          : null)));
+  if (!d || isNaN(d.getTime())) return '';
+  return d.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function renderPlannerModalHistorial(pedido) {
+  const history = Array.isArray(pedido.plannerHistory) ? pedido.plannerHistory.slice().reverse() : [];
+  const emails = (pedido.plannerEmails && typeof pedido.plannerEmails === 'object') ? pedido.plannerEmails : {};
+  const currentCol = computeColumn(pedido);
+  const hasEmailForCurrent = !!(emails[currentCol] && emails[currentCol].sentAt);
+
+  const currentColLabel = (PLANNER_COLUMNS.find(c => c.key === currentCol) || {}).label || currentCol;
+  const btnLabel = (hasEmailForCurrent ? 'Reenviar' : 'Enviar') + ' notif de columna actual (' + currentColLabel + ')';
+
+  const timelineHtml = history.length
+    ? history.map(h => {
+        const stageLabel = (PLANNER_COLUMNS.find(c => c.key === h.stage) || {}).label || h.stage;
+        const who = escapeHtml(h.movedByEmail || h.movedBy || '?');
+        const when = _plannerFmtDateTime(h.movedAt);
+        return (
+          '<div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid rgba(0,0,0,0.06);">' +
+            '<div style="width:8px;height:8px;border-radius:50%;background:#007AFF;margin-top:6px;flex-shrink:0;"></div>' +
+            '<div>' +
+              '<div style="font-size:13px;font-weight:600;">Movido a ' + escapeHtml(stageLabel) + '</div>' +
+              '<div style="font-size:11px;opacity:.6;margin-top:2px;">' + who + ' · ' + escapeHtml(when) + '</div>' +
+            '</div>' +
+          '</div>'
+        );
+      }).join('')
+    : '<div style="opacity:.55;padding:20px;text-align:center;font-size:13px;">Sin transiciones aún.</div>';
+
+  const emailsHtml = Object.entries(emails)
+    .filter(function(entry) { return entry[1] && entry[1].sentAt; })
+    .map(function(entry) {
+      var col = entry[0], meta = entry[1];
+      var colLabel = (PLANNER_COLUMNS.find(c => c.key === col) || {}).label || col;
+      return (
+        '<div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid rgba(0,0,0,0.06);">' +
+          '<div style="width:8px;height:8px;border-radius:50%;background:#34C759;margin-top:6px;flex-shrink:0;"></div>' +
+          '<div>' +
+            '<div style="font-size:13px;">📧 Email enviado — <strong>' + escapeHtml(colLabel) + '</strong></div>' +
+            '<div style="font-size:11px;opacity:.6;margin-top:2px;">A: ' + escapeHtml(meta.to || '?') + ' · ' + escapeHtml(_plannerFmtDateTime(meta.sentAt)) + '</div>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
+
+  return (
+    '<div style="margin-bottom:20px;">' +
+      '<button onclick="resendPlannerNotif(\'' + escapeHtml(currentCol) + '\')"' +
+        ' style="background:#007AFF;color:white;padding:9px 16px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;">' +
+        escapeHtml(btnLabel) +
+      '</button>' +
+    '</div>' +
+    '<h4 style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:.55;margin:0 0 8px;font-weight:600;">Transiciones</h4>' +
+    timelineHtml +
+    '<h4 style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:.55;margin:24px 0 8px;font-weight:600;">Emails enviados</h4>' +
+    (emailsHtml || '<div style="opacity:.55;padding:12px;font-size:13px;">Sin emails enviados aún.</div>')
+  );
+}
+
+async function resendPlannerNotif(column) {
+  if (!_plannerModalPedidoId) return;
+  if (!confirm('¿Reenviar notificación para la columna "' + column + '"? Se limpiará la marca sentAt y el trigger volverá a enviar el email al responsable.')) return;
+  try {
+    const callable = firebase.app().functions('southamerica-east1').httpsCallable('resendPlannerEmail');
+    const res = await callable({ pedidoId: _plannerModalPedidoId, column });
+    alert('Notificación reenviada: ' + ((res && res.data && res.data.result && res.data.result.sent && res.data.result.sent.to) || 'OK'));
+    // Refresh cache — onSnapshot will also fire.
+    const fresh = await fbDb.collection('pedidos').doc(_plannerModalPedidoId).get();
+    plannerPedidosCache.set(_plannerModalPedidoId, { id: _plannerModalPedidoId, ...fresh.data() });
+    renderPlannerModal();
+  } catch (err) {
+    console.error('[planner] resend notif failed:', err);
+    alert('Error al reenviar: ' + ((err && err.message) || err));
+  }
 }
 
 function detachFirebaseListeners(){
@@ -28625,6 +29346,22 @@ if ('serviceWorker' in navigator) {
     <path d="M16.003 3.2c-7.09 0-12.856 5.762-12.856 12.85 0 2.267.594 4.48 1.72 6.428L3.2 28.8l6.492-1.7a12.83 12.83 0 0 0 6.31 1.61h.005c7.09 0 12.856-5.763 12.856-12.85 0-3.435-1.338-6.66-3.767-9.088A12.766 12.766 0 0 0 16.003 3.2zm.003 2.16c2.85 0 5.529 1.11 7.545 3.127a10.61 10.61 0 0 1 3.127 7.55c0 5.896-4.796 10.69-10.694 10.69h-.005a10.66 10.66 0 0 1-5.437-1.489l-.39-.232-4.052 1.061 1.08-3.945-.254-.404a10.62 10.62 0 0 1-1.632-5.681c.002-5.895 4.797-10.69 10.712-10.677zm-3.86 5.802c-.223 0-.585.083-.891.416-.306.334-1.17 1.142-1.17 2.787 0 1.644 1.198 3.234 1.365 3.457.168.223 2.316 3.703 5.719 5.043 2.828 1.114 3.404.892 4.017.836.614-.056 1.98-.808 2.259-1.588.278-.78.278-1.45.195-1.588-.083-.14-.306-.223-.64-.39-.335-.167-1.98-.976-2.286-1.087-.306-.111-.529-.167-.752.167-.223.334-.863 1.087-1.058 1.31-.195.223-.39.251-.724.083-.334-.167-1.412-.52-2.688-1.66-.994-.887-1.665-1.98-1.86-2.314-.195-.334-.02-.514.147-.68.15-.15.334-.39.502-.585.167-.195.223-.334.334-.557.111-.223.056-.418-.028-.585-.083-.167-.752-1.812-1.03-2.481-.271-.652-.548-.563-.751-.575-.194-.011-.417-.014-.64-.014z"/>
   </svg>
 </a>
+
+<!-- v1006 Planner: modal detalle de card (Líneas / Adjuntos / Historial). -->
+<div id="planner-modal" class="planner-modal-backdrop" style="display:none;" onclick="closePlannerModal()">
+  <div class="planner-modal" onclick="event.stopPropagation();">
+    <div class="planner-modal-header">
+      <h3 id="planner-modal-title" style="margin:0;font-weight:700;letter-spacing:-0.01em;">Pedido</h3>
+      <button class="planner-modal-close" onclick="closePlannerModal()" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="planner-modal-tabs">
+      <button class="planner-modal-tab active" data-plmodal="lineas" onclick="setPlannerModalTab('lineas')">Líneas</button>
+      <button class="planner-modal-tab" data-plmodal="adjuntos" onclick="setPlannerModalTab('adjuntos')">Adjuntos</button>
+      <button class="planner-modal-tab" data-plmodal="historial" onclick="setPlannerModalTab('historial')">Historial</button>
+    </div>
+    <div id="planner-modal-body" class="planner-modal-body"></div>
+  </div>
+</div>
 
 </body>
 </html>
