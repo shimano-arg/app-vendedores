@@ -37,9 +37,47 @@
  * @property {string} [province]
  * @property {number} [orderNumber]
  * @property {number} [totalAmountArs]
+ * @property {number} [netAmountArs]
+ * @property {number} [subtotalArs]
+ * @property {number} [total]
+ * @property {number} [totalARS]
  * @property {any[]} [lines]
  * @property {TransferidoSAP} [transferidoSAP]
  */
+
+/**
+ * Total ARS del pedido con schema real de Firestore.
+ * Mismo pattern que _plannerComputeTotal en el frontend (v1018). El schema
+ * NO tiene un unico field: la mayoria de pedidos que se envian a SAP usan
+ * `netAmountArs`; algunos legacy podrian usar `totalAmountArs`/`subtotalArs`.
+ * Fallback final: sumar qty*precio de `lines`. Antes se leia solo
+ * `pedido.totalAmountArs` -> vacio en el email porque el field no existe.
+ *
+ * @param {PedidoData|null|undefined} pedido
+ * @returns {number|null}
+ */
+export function computeTotalArs(pedido) {
+  if (!pedido) return null;
+  if (typeof pedido.totalAmountArs === 'number') return pedido.totalAmountArs;
+  if (typeof pedido.netAmountArs === 'number') return pedido.netAmountArs;
+  if (typeof pedido.subtotalArs === 'number') return pedido.subtotalArs;
+  if (typeof pedido.total === 'number') return pedido.total;
+  if (typeof pedido.totalARS === 'number') return pedido.totalARS;
+  const lineas = Array.isArray(pedido.lines) ? pedido.lines : [];
+  if (lineas.length === 0) return null;
+  let sum = 0;
+  let any = false;
+  for (const l of lineas) {
+    if (!l) continue;
+    const qty = Number(l.qty) || 0;
+    const price = Number(l.precio) || Number(l.priceAtCreation) || Number(l.price) || 0;
+    if (qty > 0 && price > 0) {
+      sum += qty * price;
+      any = true;
+    }
+  }
+  return any ? sum : null;
+}
 
 /**
  * Determina si debe disparar la notificacion comparando antes/despues.
@@ -70,8 +108,8 @@ export function shouldNotify(before, after) {
 export function buildEmailContent(pedidoId, pedido) {
   const ts = pedido.transferidoSAP || {};
   const nLines = Array.isArray(pedido.lines) ? pedido.lines.length : 0;
-  const totalArs = Number(pedido.totalAmountArs || 0);
-  const totalFmt = totalArs
+  const totalArs = computeTotalArs(pedido);
+  const totalFmt = totalArs != null
     ? '$' + totalArs.toLocaleString('es-AR', { minimumFractionDigits: 0 })
     : '-';
 
