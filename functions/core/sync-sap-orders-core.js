@@ -108,25 +108,46 @@ export async function syncSapOrders(deps) {
   try {
     for (const p of pending) {
       try {
-        // Consultamos la SQ (Quotation) directamente por DocEntry + expand de
-        // DocumentLines. La linea que fue convertida a SO tiene TargetType=17.
-        const expandParams = 'DocumentLines($select=TargetType,TargetEntry)';
+        // v1015 hotfix3: SAP SL NO permite $expand=DocumentLines sobre
+        // /Quotations(id) (single-entity). Devuelve
+        // "Cannot expand invalid navigation property 'DocumentLines'".
+        // Solucion: usar el pattern collection query + $filter (mismo pattern
+        // que sq-cancel-core.js:135 que ya funciona en prod).
         const selectParams = 'DocEntry,DocumentLines';
+        const expandParams = 'DocumentLines($select=TargetType,TargetEntry)';
         const endpoint =
-          `/b1s/v1/Quotations(${p.sqDocEntry})` +
-          `?$select=${encodeURIComponent(selectParams)}` +
-          `&$expand=${encodeURIComponent(expandParams)}`;
+          `/b1s/v1/Quotations?$filter=DocEntry eq ${p.sqDocEntry}` +
+          `&$select=${encodeURIComponent(selectParams)}` +
+          `&$expand=${encodeURIComponent(expandParams)}` +
+          `&$top=1`;
         const r = await sapGet(session, endpoint, deps);
         if (r.status !== 200) {
+          const bodyStr =
+            typeof r.body === 'string'
+              ? r.body.slice(0, 500)
+              : JSON.stringify(r.body).slice(0, 500);
           log('[sync-orders] SAP GET non-200', {
             pedidoId: p.id,
             status: r.status,
+            sqDocEntry: p.sqDocEntry,
+            endpoint,
+            bodyPreview: bodyStr,
+          });
+          errors++;
+          continue;
+        }
+        // Collection query -> value: [{DocEntry, DocumentLines: [...]}].
+        const value = r.body && Array.isArray(r.body.value) ? r.body.value : [];
+        if (value.length === 0) {
+          log('[sync-orders] SQ no encontrada en SAP', {
+            pedidoId: p.id,
             sqDocEntry: p.sqDocEntry,
           });
           errors++;
           continue;
         }
-        const lines = r.body && Array.isArray(r.body.DocumentLines) ? r.body.DocumentLines : [];
+        const lines =
+          value[0] && Array.isArray(value[0].DocumentLines) ? value[0].DocumentLines : [];
         const orderLine = lines.find(
           (/** @type {any} */ l) => Number(l && l.TargetType) === TARGET_TYPE_ORDER
         );
