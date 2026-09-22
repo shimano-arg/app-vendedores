@@ -6648,3 +6648,124 @@ html[data-theme="dark"] #pane-locs h3 {
   color: #ffffff !important;
 }
 
+/* ============================================================
+   v1009 (2026-09-22) apple-design: #planner-header-btn (pill Apple)
+   + #planner-board-modal (modal grande con typography y blur).
+   Sigue el mismo pattern de #panel-control-modal (v668).
+   ============================================================ */
+
+/* ==== #planner-header-btn (pill Apple naranja) ==== */
+#planner-header-btn.btn-zonas {
+  background: #ff9500 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#planner-header-btn.btn-zonas:hover { background: #ffa726 !important; }
+#planner-header-btn.btn-zonas:active { transform: scale(0.97) !important; }
+
+/* ==== #planner-board-modal (Mariano-only Kanban modal) ==== */
+#planner-board-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+/* Modal container (usa .modal-content) */
+#planner-board-modal.modal-overlay[style*="display:flex"] .modal-content,
+#planner-board-modal.modal-overlay[style*="display: flex"] .modal-content {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  background: #f5f5f7 !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+  overflow: hidden;
+}
+
+/* Header dark Apple (JS setea inline bg #c2410c — lo overridamos a #1d1d1f) */
+#planner-board-modal .modal-content > div:first-child[style*="background:#c2410c"] {
+  background: #1d1d1f !important;
+  border-radius: 16px 16px 0 0 !important;
+  padding: 16px 24px !important;
+  color: #ffffff !important;
+  border-bottom: none !important;
+}
+#planner-board-modal .modal-content > div:first-child h2 {
+  color: #ffffff !important;
+  font-size: 17px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+  margin: 0 !important;
+}
+
+/* Subtabs (Tablero / Config) pill Apple dentro del header dark */
+#planner-board-modal .modal-content > div:first-child button[data-planner-sub] {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  border: 1px solid rgba(255, 255, 255, 0.20) !important;
+  border-radius: 999px !important;
+  padding: 6px 14px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  transition: background 150ms ease-out, color 150ms ease-out;
+}
+#planner-board-modal .modal-content > div:first-child button[data-planner-sub]:hover {
+  background: rgba(255, 255, 255, 0.22) !important;
+  color: #ffffff !important;
+}
+#planner-board-modal .modal-content > div:first-child button[data-planner-sub].active {
+  background: #ff9500 !important;
+  border-color: transparent !important;
+  color: #ffffff !important;
+}
+
+/* Boton close × */
+#planner-board-modal .modal-content > div:first-child button[onclick*="closePlannerBoardModal"] {
+  color: rgba(255, 255, 255, 0.7) !important;
+  font-size: 22px !important;
+  transition: color 150ms ease-out;
+}
+#planner-board-modal .modal-content > div:first-child button[onclick*="closePlannerBoardModal"]:hover {
+  color: #ffffff !important;
+}
+
+/* Body: background clarito Apple, padding limpio */
+#planner-board-modal #planner-board-modal-body {
+  background: #f5f5f7 !important;
+  padding: 16px 20px !important;
+}
+
+/* Kanban dentro del modal: columnas mas angostas para que 6 entren sin scroll
+   horizontal a 1800px. Fuera del modal el kanban conserva el ancho original. */
+#planner-board-modal .planner-kanban {
+  min-height: 0 !important;
+  padding: 12px 4px !important;
+  gap: 12px !important;
+}
+#planner-board-modal .planner-col {
+  flex: 1 1 0 !important;
+  min-width: 260px !important;
+  max-width: none !important;
+}
+
+/* Dark mode support */
+html[data-theme="dark"] #planner-board-modal.modal-overlay[style*="display:flex"] .modal-content,
+html[data-theme="dark"] #planner-board-modal.modal-overlay[style*="display: flex"] .modal-content {
+  background: #1c1c1e !important;
+  color: #f5f5f7 !important;
+}
+html[data-theme="dark"] #planner-board-modal #planner-board-modal-body {
+  background: #1c1c1e !important;
+}
+
