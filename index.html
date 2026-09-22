@@ -5774,7 +5774,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1037';
+const APP_VERSION = 'v1038';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27890,23 +27890,43 @@ function renderPlannerModalLineas(pedido) {
   if (lineas.length === 0) {
     return '<div style="opacity:.55;padding:24px;text-align:center;">Este pedido no tiene líneas.</div>';
   }
+  // v1038 (2026-09-22): agregar columna Subtotal (qty × precio) + fallback a
+  // getDefaultPrice(code) para pedidos waitlist que no tienen precio en las
+  // lines (bug mismo pattern que _plannerComputeTotal v1036). Reporte Mariano:
+  // en el modal de la card veía Facturado=0 y Precio=0 para waitlist entries.
+  const _hasPriceFn = typeof getDefaultPrice === 'function';
+  const fmtArs = (n) => n
+    ? n.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 })
+    : '—';
+  let totalPedido = 0;
   const rows = lineas.map(l => {
     const sku = escapeHtml(l?.code || l?.sku || l?.itemCode || '');
     const desc = escapeHtml(l?.desc || l?.descripcion || l?.name || l?.itemName || l?.description || '');
     const qty = Number(l?.qty || 0);
     const qtyInv = Number(l?.qtyInvoiced || 0);
-    const price = Number(l?.priceAtCreation || l?.precio || l?.price || l?.unitPrice || 0);
-    const priceStr = price ? price.toLocaleString('es-AR', { maximumFractionDigits: 2 }) : '';
+    let price = Number(l?.priceAtCreation || l?.precio || l?.price || l?.unitPrice || 0);
+    if (!price && _hasPriceFn && (l?.code || l?.sku || l?.itemCode)) {
+      price = Number(getDefaultPrice(l.code || l.sku || l.itemCode)) || 0;
+    }
+    const subtotal = qty * price;
+    totalPedido += subtotal;
     return (
       '<tr>' +
         '<td>' + sku + '</td>' +
         '<td>' + desc + '</td>' +
         '<td class="num">' + qty + '</td>' +
         '<td class="num">' + qtyInv + '</td>' +
-        '<td class="num">' + priceStr + '</td>' +
+        '<td class="num">' + fmtArs(price) + '</td>' +
+        '<td class="num">' + fmtArs(subtotal) + '</td>' +
       '</tr>'
     );
   }).join('');
+  const footer = totalPedido > 0
+    ? '<tfoot><tr>' +
+        '<td colspan="5" class="num" style="font-weight:700;padding-top:12px;border-top:1px solid rgba(0,0,0,0.08);">Total pedido</td>' +
+        '<td class="num" style="font-weight:700;padding-top:12px;border-top:1px solid rgba(0,0,0,0.08);">' + fmtArs(totalPedido) + '</td>' +
+      '</tr></tfoot>'
+    : '';
   return (
     '<table class="planner-modal-lineas-table">' +
       '<thead><tr>' +
@@ -27915,8 +27935,10 @@ function renderPlannerModalLineas(pedido) {
         '<th class="num">Qty</th>' +
         '<th class="num">Facturado</th>' +
         '<th class="num">Precio</th>' +
+        '<th class="num">Subtotal</th>' +
       '</tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
+      footer +
     '</table>'
   );
 }
