@@ -23,7 +23,10 @@ describe('SAP_LOCK_TTL_MS', () => {
     const coreSrc = readFileSync(`${ROOT}/functions/core/auto-send-sap-core.js`, 'utf-8');
     // Match: `deps.lockTtlMs ?? 300000` (o similar). Extrae el numero literal.
     const match = coreSrc.match(/deps\.lockTtlMs\s*\?\?\s*(\d+)/);
-    expect(match, 'no encontre `deps.lockTtlMs ?? <number>` en auto-send-sap-core.js').not.toBeNull();
+    expect(
+      match,
+      'no encontre `deps.lockTtlMs ?? <number>` en auto-send-sap-core.js'
+    ).not.toBeNull();
     const cfDefault = Number(match[1]);
     expect(cfDefault).toBe(SAP_LOCK_TTL_MS);
   });
