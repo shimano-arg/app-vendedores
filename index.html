@@ -5768,7 +5768,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1029';
+const APP_VERSION = 'v1030';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27474,9 +27474,14 @@ function renderPlannerKanban() {
     // haber quedado ahi. Se ven desde Pending list / Master Pedidos; no en el
     // Planner. Fix requerido por Mariano para tener 1:1 sidebar = Planner col.
     if (col === 'lista_espera') continue;
-    // v1014: aplicar filtro de mes solo a facturar/cobrado (columnas historicas
-    // que acumulan indefinido). Las otras son WIP corto y siempre se muestran.
-    if ((col === 'facturar' || col === 'cobrado') && !_plannerPedidoInMonth(p, plannerMonthFilter)) {
+    // v1030 (2026-09-22): extender filtro de mes a TODAS las columnas del
+    // pipeline (Oferta / Pendiente de facturar / Confirmado / Facturado /
+    // Cobrado). El asumption previo (v1014) de que Oferta/Pend/Confirmado
+    // eran "WIP corto" no se cumplia — habia pedidos de julio en Oferta
+    // (Sept). Ahora si el user filtra "Septiembre", solo ve pedidos de
+    // Septiembre en todas las columnas del pipeline. Lista de espera se
+    // maneja con el sidebar-left (siempre entradas frescas).
+    if (!_plannerPedidoInMonth(p, plannerMonthFilter)) {
       continue;
     }
     // v1023 (2026-09-22): filtros de busqueda por cliente + orderNumber.

@@ -4672,7 +4672,17 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1029
+## 41) Changelog v300 → v1030
+
+### v1030 (2026-09-22) — Planner: filtro de mes aplica a TODAS las columnas del pipeline (no solo Facturado/Cobrado)
+
+**Reporte**: Mariano — con filtro "Septiembre" activo veía cards de julio en la columna Oferta (SAP:2000009 del 28/7, Reborn SRL 27/7, Sebastian Villarreal 27/7, etc).
+
+**Root cause**: v1014 aplicaba el filtro de mes **solo** a Facturado + Cobrado ("columnas históricas que acumulan"). Las otras (Oferta / Pendiente de facturar / Confirmado) se mostraban sin filtrar bajo el assumption "son WIP corto". Ese assumption falló: hay pedidos de julio (~60 días) todavía en Oferta.
+
+**Fix**: extender el filtro de mes a **todas las columnas del pipeline** (Oferta / Pendiente de facturar / Confirmado / Facturado / Cobrado). Lista de espera queda sin filtrar (waitlist entries son entradas frescas siempre, no aplica el concepto de mes).
+
+Con filtro "Septiembre 2026" activo, ahora todas las columnas muestran solo pedidos con `createdAt` en septiembre. Para ver los viejos, seleccionar "Todos los meses" en el dropdown del header.
 
 ### v1029 (2026-09-22) — Planner Lista de espera 1:1 con sidebar (excluir pedidos "colgados" del default lista_espera)
 
