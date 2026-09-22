@@ -4672,7 +4672,17 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1019
+## 41) Changelog v300 → v1020
+
+### v1020 (2026-09-22) — Planner: subtotal ARS por columna en el header
+
+**Reporte**: Mariano — pidió ver el total agregado de cada columna del Kanban para tener a la vista cuánto suma cada stage del pipeline.
+
+**Fix**: en `renderPlannerKanban`, sumar `_plannerComputeTotal(p)` de cada card visible (respeta el filtro de mes en Facturar/Cobrado). Nuevo `<div class="planner-col-subtotal">` insertado entre el header y la lista de cards. Formato `$ integer` con separadores es-AR.
+
+CSS `.planner-col-subtotal`: font-size 13px, font-weight 600, opacity 0.75, letter-spacing -0.01em (jerarquía tipográfica Apple secondary — no compite con el título de la columna).
+
+Columnas vacías muestran `$ 0` (no se oculta) para consistencia visual.
 
 ### v1019 (2026-09-22) — Planner: pintar toda la card del color de estado (no solo borde)
 
