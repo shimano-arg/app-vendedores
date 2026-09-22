@@ -56,6 +56,7 @@ import { sapGet, sapLogin, sapLogout, sapPost } from './core/sap-sl-client.js';
 import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
 // v964 (2026-09-17): auto-cancel SQ expiradas (Fase B shadow + Fase C active).
 import { runSqCancelExpired } from './core/sq-cancel-core.js';
+import { syncSapOrders } from './core/sync-sap-orders-core.js';
 
 if (!getApps().length) initializeApp();
 
@@ -232,6 +233,53 @@ export const syncSapInvoicesToApp = onSchedule(
       orphans: result.orphans.length,
       errors: result.errors.length,
     });
+  }
+);
+
+/**
+ * v1015 (2026-09-22): syncSapOrdersToApp — scheduled cada 60 min.
+ * Cierra la columna "Órdenes" del Planner Kanban que estaba en 0 porque
+ * nadie escribia `transferidoSAP.orderDocEntry` en Firestore.
+ *
+ * Flujo:
+ * 1. Lista pedidos con SQ en SAP (docEntry seteado) sin orderDocEntry aun.
+ * 2. Para cada uno, GET /Orders?$filter=DocumentLines/any(BaseEntry=X and BaseType=23).
+ * 3. Si hit -> update `transferidoSAP.orderDocEntry` + `orderSyncedAt`.
+ *
+ * Idempotente. Costo: ~1 GET SAP por pedido pendiente por corrida (batch max 100).
+ * NO tiene modo shadow — es un enrichment de campo nuevo, no reemplaza dato existente.
+ */
+export const syncSapOrdersToApp = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 60 minutes',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 1,
+    memory: '512MiB',
+    timeoutSeconds: 300,
+    secrets: [SAP_SL_PASSWORD],
+  },
+  async () => {
+    const db = getFirestore();
+    const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+    const sapCfg = sapCfgSnap.data() || {};
+    const sl = sapCfg.serviceLayer || {};
+    if (!sl.url || !sl.companyDB) {
+      console.warn('syncSapOrdersToApp: sap_integration.serviceLayer incompleto, skip');
+      return;
+    }
+    const result = await syncSapOrders({
+      fetch: globalThis.fetch,
+      sapConfig: {
+        url: sl.url,
+        companyDB: sl.companyDB,
+        userName: sl.username || sl.userName,
+        password: SAP_SL_PASSWORD.value(),
+      },
+      fbDb: db,
+      log: (msg, extra) => console.log(msg, extra || {}),
+    });
+    console.log('syncSapOrdersToApp summary', result);
   }
 );
 

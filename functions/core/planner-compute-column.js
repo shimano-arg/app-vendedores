@@ -56,8 +56,11 @@ export function computeColumn(pedido) {
   // Rule 4: any line with qtyInvoiced > 0
   // v1013 (2026-09-22): schema real de pedidos es `lines`. Mantenemos `items`
   // como fallback por si algún doc viejo usa el nombre anterior.
-  const lineas = Array.isArray(pedido.lines) ? pedido.lines
-                : (Array.isArray(pedido.items) ? pedido.items : []);
+  const lineas = Array.isArray(pedido.lines)
+    ? pedido.lines
+    : Array.isArray(pedido.items)
+      ? pedido.items
+      : [];
   if (lineas.some((line) => (line?.qtyInvoiced || 0) > 0)) {
     return 'facturar';
   }

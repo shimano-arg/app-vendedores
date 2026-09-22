@@ -18,7 +18,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
 | **Versión actual** | **v1007 (2026-09-22)** — Planner Kanban F1 completa (Mariano-only en producción). T0-T15 committed; deploys pendientes: firestore:rules, storage, functions. Ver §52 + docs/plans/. \| **v1005 (2026-09-22)** — Planner Kanban (Mariano-only, en desarrollo). Task 0: baseline version bump + README stub. Spec en §52 + Plan en docs/plans/. \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP (Series missing en CF + lock 60s en batch). \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. Diagnóstico previo del "SDK Gen 2 bug" era incorrecto — el enforcement SÍ funciona, pero tarda ~66h desde registration Console en propagarse. Deploy directo sin PR (urgencia productiva). Ver §41 + `NEEDS-VALIDATION.md §1`. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11 (fix 45 SKUs con badge "DISPONIBLE" falso, ej TRX301HGB). \| **v1001 (2026-09-21)** — UX fix: alert "Enviar via Service Layer" muestra "Omitidos" con motivo cuando algún pedido queda skipped por lock stale. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX `onPedidoConfirmedSendToSap` (`functions/index.js:446`): typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. 3 sub-tabs (MAP · Productos · Categorías) alimentadas por sync diario desde mercado-intelligence. Botón "🛒 Mercado Libre" al final del Panel de Control, gated por email whitelist (erbinomariano@gmail.com + mariano.erbino@shimano.com.ar). Chunk lazy `chunks/meli.js` + rules `isMariano()` + colecciones `meli/*`. Ver §51. \| **v995 (2026-09-18)** — Hotfix pre-deploy v994: el modal Depósito (`index.html:16354`) llama `setupGetMovimientos` SIN `cardCode` (query global "traeme todos los shipments"). El v994 original tiraba `invalid-argument` en ese caso → rompía UX. Ahora si vendedor sin `cardCode` → server hace fetch normal + filtra `movimientos` server-side por `client_master.assignedVendor == roles/{uid}.vendor` (batch chunked query). Vendedor con `cardCode` sigue con el check estricto. Vector cerrado igual: vendedor solo ve shipments de su cartera. Ver §41. |
-| **APP_VERSION** | `v1014` frontend (Planner filtro por mes en columnas Facturar/Cobrado, default mes actual). Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog para historial completo. |
+| **APP_VERSION** | `v1015` frontend (nuevo scheduled CF `syncSapOrdersToApp` puebla `transferidoSAP.orderDocEntry` para cerrar columna Órdenes del Planner). Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4672,7 +4672,52 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1006
+## 41) Changelog v300 → v1015
+
+### v1015 (2026-09-22) — Nuevo scheduled CF `syncSapOrdersToApp` (cierra la columna "Órdenes" del Planner Kanban)
+
+**Contexto**: reporte 2026-09-22 (Mariano) — la columna "Órdenes" del Planner Kanban aparecía en 0 aunque en SAP hay Sales Orders creadas. Root cause: la regla del Planner (`transferidoSAP.orderDocEntry` truthy → 'ordenes') existía desde v1005 pero **nadie escribía ese campo**. El CF de auto-send graba `docNum`/`docEntry` de la Sales Quotation, pero cuando en SAP la SQ se convierte a SO, ese cambio no viajaba a Firestore.
+
+**Fix**: nuevo scheduled Cloud Function `syncSapOrdersToApp` que corre cada 60 min.
+
+**Flujo**:
+1. Query Firestore: `pedidos` con `closedAt == null`, orderBy `updatedAt` desc, limit `batchSize * 5`.
+2. Filtro client-side: pedidos con `transferidoSAP.docEntry` seteado (=SQ ya creada en SAP) **sin** `transferidoSAP.orderDocEntry` (=SO aún no sincronizada). Slice a `batchSize` (default 100).
+3. Login a SAP SL. Para cada pedido pendiente:
+   ```
+   GET /b1s/v1/Orders?$filter=DocumentLines/any(l:l/BaseEntry eq <sqDocEntry> and l/BaseType eq 23)&$select=DocEntry&$top=1
+   ```
+   `BaseType=23` = Sales Quotation (la SO tiene línea que apunta a la SQ).
+4. Si `value: [{DocEntry: X}]` → `fbDb.doc('pedidos/{id}').update({ 'transferidoSAP.orderDocEntry': X, 'transferidoSAP.orderSyncedAt': <iso> })`. **Dot-notation** preserva `docNum`, `docEntry`, `transferredAt`, `batchId` (no pisa).
+5. Si `value: []` → no-op (miss). SQ todavía no fue convertida.
+6. Logout. Retornar `{ checked, hits, misses, errors }`.
+
+**Idempotencia**: escribir el mismo `orderDocEntry` 2 veces es no-op efectivo (mismo valor). Correr el sync N veces = mismo estado final.
+
+**Rate limit**: 1 GET SAP por pedido pendiente. En steady state ~5-30 pedidos "en Oferta" en un momento dado, cada corrida hace ~5-30 GETs a SAP. Aceptable con schedule cada 60 min.
+
+**Tests** (9 casos en `tests/functions/sync-sap-orders.test.js`):
+1. Sin pedidos pendientes → no llama a SAP.
+2. 1 pedido con SQ y hit en SAP → update aplicado, campos previos preservados.
+3. SAP responde `value: []` → miss, no update.
+4. Pedido con `orderDocEntry` ya seteado → se skip del batch (listPendingPedidos filtra).
+5. Pedido sin `transferidoSAP.docEntry` → se skip.
+6. GET throw en un pedido → errors++, sigue con siguientes.
+7. GET status 500 → errors++.
+8. `batchSize` respetado (5 pedidos, batchSize=3 → checked=3).
+9. Session reuse (1 login + 1 logout aunque haya N GETs).
+
+**Deploy**: `firebase deploy --only functions:syncSapOrdersToApp`.
+
+**Verificación post-deploy**: buscar `'syncSapOrdersToApp summary'` en logs. Después de 1-2 corridas la columna "Órdenes" del Planner debería empezar a mostrar los pedidos que ya tienen SO creada en SAP.
+
+**Escalado futuro**: si el volumen crece (>500 pedidos pendientes por corrida), pasar a cursor-based enum (patrón de `syncSapInvoicesToApp`) — enumerar Orders nuevas y match reverse en Firestore.
+
+### v1014 (2026-09-22) — Planner: filtro de mes en Facturar/Cobrado
+
+Reporte 2026-09-22 (Mariano post v1013): columna Facturar mostraba 134 items mezclando cards de agosto y septiembre. Contexto: sin sync SAP → `app.closedAt` (E6 del plan BO/ASIG) las columnas históricas acumulan sin cierre automático.
+
+Fix: filtro de mes en el header del modal del Planner con default = mes actual. Select con 5 opciones: mes actual (default), -1, -2, -3, "Todos los meses". Se aplica solo a las columnas históricas (Facturar + Cobrado) — las otras (Lista de espera / Oferta / Órdenes / Confirmado) son WIP corto y siempre se muestran completas. Estado en memoria, resetea al reload.
 
 ### v1006 (2026-09-22) — Idempotencia server-side por `NumAtCard` (cierra los 2 vectores residuales de duplicados)
 
