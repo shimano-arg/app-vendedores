@@ -29,8 +29,8 @@ function makeDeps({ config = defaultConfig(), roleDocs = {} } = {}) {
           return { exists: false, data: () => ({}) };
         },
       }),
-      collection: (name) => ({
-        where: (field, op, val) => ({
+      collection: (_name) => ({
+        where: (field, _op, val) => ({
           limit: (n) => ({
             get: async () => {
               const uids = Object.keys(roleDocs).filter(
