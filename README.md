@@ -4672,7 +4672,40 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1034
+## 41) Changelog v300 → v1035
+
+### v1035 (2026-09-22) — Planner Cobrado: nuevo CF `syncSapPaymentsToApp` + `invoicedAmount` exacto de SAP
+
+**Contexto**: en v1034 se preparó la UI para tener columna Cobrado en verde y Facturado en amarillo. Pero 258/258 pedidos abiertos no tenían data de cobro (`paidStatus`, `paidAmount`) → Cobrado seguía vacía y toda card en Facturado quedaba amarilla sin diferenciar.
+
+**Solución (Fase 2)**: nuevo scheduled Cloud Function que sincroniza cada 15min los cobros desde SAP.
+
+**Backend** (`functions/core/sync-sap-payments-core.js`):
+1. Lista pedidos abiertos con `sapLinkage.appliedInvoiceDocEntries` no vacío.
+2. Enum `/Invoices desc` paginado ($skip=0..500, page 20 default del SL) leyendo `DocEntry, DocTotal, PaidToDate`. Mismo pattern que `syncSapOrdersToApp` — SL de la company no admite `$expand` en collections Document.
+3. Build map `{ docEntry → {docTotal, paidToDate} }`.
+4. Para cada pedido, suma:
+   - `invoicedAmount = Σ DocTotal`
+   - `paidAmount = Σ PaidToDate`
+   - `paidStatus`: `'paid'` si `paidAmount >= invoicedAmount - 1` (tolerancia $1), `'partial'` si `> 0`, `null` si `0`.
+5. Update Firestore + `paidSyncedAt` timestamp.
+
+Idempotente (comparación con estado actual antes de escribir). Sin modo shadow — es enrichment de fields nuevos, safe deploy directo.
+
+**Schedule**: `every 15 minutes` (mismo tick que Orders + Invoices). Costo: ~25 GETs/corrida → 100 GETs/hr.
+
+**Firestore rules**: agregados `invoicedAmount` + `paidSyncedAt` al `hasOnly` de `pedidos`.
+
+**Frontend**: `_plannerComputeInvoicedTotal` en `index.html` ahora usa `pedido.invoicedAmount` de SAP si existe. Elimina el error residual 9.8% de v1033 (subtotal Facturado será exacto contra PowerBI). Fallback al compute local `qtyInvoiced*precio` si el CF aún no persistió.
+
+**Semántica del Planner post-Fase 2**:
+- **Facturado (amarillo)**: `paidStatus === 'partial'` o `null` (facturado sin cobrar 100%).
+- **Cobrado (verde)**: `paidStatus === 'paid'` → `computeColumn` Rule 2 lo mueve automático (semántica ya existente desde v1005).
+- Las cards migran solas cuando SAP registra el cobro completo.
+
+**Tests**: 10/10 pass — sin pedidos, 1 invoice paid, 2 invoices partial, paidToDate=0, idempotencia, invoice fuera de rango, paginación, filtro sin appliedInvoiceDocEntries, tolerancia $1, applyPaymentUpdate directo.
+
+**Deploy**: `firebase deploy --only functions:syncSapPaymentsToApp` — nueva CF, se agrega al Cloud Scheduler automático.
 
 ### v1034 (2026-09-22) — Planner: simplificar semántica de colores (Facturado amarillo + Cobrado verde, resto blancas)
 

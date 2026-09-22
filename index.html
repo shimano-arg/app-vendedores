@@ -5774,7 +5774,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1034';
+const APP_VERSION = 'v1035';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27773,6 +27773,12 @@ function _plannerComputeTotal(pedido) {
 // DocTotal de las invoices en `sapLinkage.appliedInvoiceDocEntries`.
 function _plannerComputeInvoicedTotal(pedido) {
   if (!pedido) return null;
+  // v1035 (2026-09-22): usar invoicedAmount de SAP si existe (exacto, con
+  // descuentos aplicados al facturar). El CF syncSapPaymentsToApp lo escribe
+  // cada 15min leyendo DocTotal de las invoices en appliedInvoiceDocEntries.
+  // Elimina el error residual 9.8% que quedaba con qtyInvoiced*precio.
+  if (typeof pedido.invoicedAmount === 'number') return pedido.invoicedAmount;
+  // Fallback pre-Fase 2: compute desde lines (aproximación sin descuentos).
   const lineas = Array.isArray(pedido.lines) ? pedido.lines
                 : (Array.isArray(pedido.items) ? pedido.items : []);
   if (lineas.length === 0) return null;
