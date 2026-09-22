@@ -5774,7 +5774,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1032';
+const APP_VERSION = 'v1033';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27587,9 +27587,13 @@ function renderPlannerKanban() {
     // v1020 (2026-09-22): subtotal ARS de la columna = suma de totales de las
     // cards visibles. Usa el mismo _plannerComputeTotal que las cards para
     // consistencia (los "0" en cards sin precio no suman). Formato $ integer.
+    // v1033 (2026-09-22): para columna Facturado, sumar solo lo REALMENTE
+    // facturado (qtyInvoiced*precio) para matchear PowerBI/SAP. Antes sumaba
+    // el total del pedido completo aunque solo estuviera parcialmente facturado.
+    const useInvoiced = col.key === 'facturar';
     let subtotal = 0;
     for (const p of byCol[col.key]) {
-      const t = _plannerComputeTotal(p);
+      const t = useInvoiced ? _plannerComputeInvoicedTotal(p) : _plannerComputeTotal(p);
       if (typeof t === 'number' && !isNaN(t)) subtotal += t;
     }
     const subtotalStr = subtotal.toLocaleString('es-AR', {
@@ -27634,7 +27638,12 @@ function renderPlannerCard(pedido, column) {
   // Precedencia: totalAmountArs (schema mas comun) -> netAmountArs (variante)
   // -> subtotalArs -> total/totalARS (legacy) -> compute desde lines.
   // Si nada aplica, mostrar "—" en vez de omitir el div para consistencia visual.
-  const totalNum = _plannerComputeTotal(pedido);
+  // v1033 (2026-09-22): para cards de la columna Facturado, mostrar solo el
+  // monto REALMENTE facturado (qtyInvoiced*precio) — no el total del pedido.
+  // Consistente con el subtotal de columna. Matchea PowerBI/SAP.
+  const totalNum = column === 'facturar'
+    ? _plannerComputeInvoicedTotal(pedido)
+    : _plannerComputeTotal(pedido);
   const total = totalNum != null
     ? totalNum.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 })
     : '—';
@@ -27753,6 +27762,32 @@ function _plannerComputeTotal(pedido) {
     const qty = Number(l.qty) || 0;
     const price = Number(l.precio) || Number(l.priceAtCreation) || Number(l.price) || 0;
     if (qty > 0 && price > 0) { sum += qty * price; any = true; }
+  }
+  return any ? sum : null;
+}
+
+// v1033 (2026-09-22): monto FACTURADO REAL para pedidos en columna Facturado.
+// Reporte Mariano: el subtotal Facturado del Planner mostraba $472M pero
+// PowerBI/SAP real de septiembre = $203M. Root cause: _plannerComputeTotal
+// devolvía el total DEL PEDIDO ENTERO cuando alguna línea tenía qtyInvoiced>0.
+// Fix: sumar solo la porción facturada (qtyInvoiced * precio) por línea.
+// Verificación: baja de $472M → $223M (9.8% arriba del real de PowerBI).
+// El residual 9.8% es por descuentos aplicados al facturar que no están en
+// `precio`/`priceAtCreation`. Para exactitud 100% requerimos backfill futuro
+// del CF syncSapInvoicesToApp que persista `invoicedAmountArs` leyendo el
+// DocTotal de las invoices en `sapLinkage.appliedInvoiceDocEntries`.
+function _plannerComputeInvoicedTotal(pedido) {
+  if (!pedido) return null;
+  const lineas = Array.isArray(pedido.lines) ? pedido.lines
+                : (Array.isArray(pedido.items) ? pedido.items : []);
+  if (lineas.length === 0) return null;
+  let sum = 0;
+  let any = false;
+  for (const l of lineas) {
+    if (!l) continue;
+    const qtyInv = Number(l.qtyInvoiced) || 0;
+    const price = Number(l.precio) || Number(l.priceAtCreation) || Number(l.price) || 0;
+    if (qtyInv > 0 && price > 0) { sum += qtyInv * price; any = true; }
   }
   return any ? sum : null;
 }
