@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v999 (2026-09-21)** — HOTFIX `onPedidoConfirmedSendToSap` (`functions/index.js:446`): typo `sl.userName` sin fallback a `sl.username` hacía skip todos los envíos automáticos server-side desde el deploy inicial. Fix 1 línea + `firebase deploy --only functions:onPedidoConfirmedSendToSap`. Los pedidos legaban a SAP igual porque el client-side sap-auto-send-listener cubría cuando había admin online. Reporte pedido MARCELO BOSCHETTO. Ver §41. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. 3 sub-tabs (MAP · Productos · Categorías) alimentadas por sync diario desde mercado-intelligence. Botón "🛒 Mercado Libre" al final del Panel de Control, gated por email whitelist (erbinomariano@gmail.com + mariano.erbino@shimano.com.ar). Chunk lazy `chunks/meli.js` + rules `isMariano()` + colecciones `meli/*`. Ver §51. \| **v995 (2026-09-18)** — Hotfix pre-deploy v994: el modal Depósito (`index.html:16354`) llama `setupGetMovimientos` SIN `cardCode` (query global "traeme todos los shipments"). El v994 original tiraba `invalid-argument` en ese caso → rompía UX. Ahora si vendedor sin `cardCode` → server hace fetch normal + filtra `movimientos` server-side por `client_master.assignedVendor == roles/{uid}.vendor` (batch chunked query). Vendedor con `cardCode` sigue con el check estricto. Vector cerrado igual: vendedor solo ve shipments de su cartera. Ver §41. |
-| **APP_VERSION** | `v999` (sincronizada con `sw.js` CACHE_VERSION). Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. Diagnóstico previo del "SDK Gen 2 bug" era incorrecto — el enforcement SÍ funciona, pero tarda ~66h desde registration Console en propagarse. Deploy directo sin PR (urgencia productiva). Ver §41 + `NEEDS-VALIDATION.md §1`. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11 (fix 45 SKUs con badge "DISPONIBLE" falso, ej TRX301HGB). \| **v1001 (2026-09-21)** — UX fix: alert "Enviar via Service Layer" muestra "Omitidos" con motivo cuando algún pedido queda skipped por lock stale. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX `onPedidoConfirmedSendToSap` (`functions/index.js:446`): typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. 3 sub-tabs (MAP · Productos · Categorías) alimentadas por sync diario desde mercado-intelligence. Botón "🛒 Mercado Libre" al final del Panel de Control, gated por email whitelist (erbinomariano@gmail.com + mariano.erbino@shimano.com.ar). Chunk lazy `chunks/meli.js` + rules `isMariano()` + colecciones `meli/*`. Ver §51. \| **v995 (2026-09-18)** — Hotfix pre-deploy v994: el modal Depósito (`index.html:16354`) llama `setupGetMovimientos` SIN `cardCode` (query global "traeme todos los shipments"). El v994 original tiraba `invalid-argument` en ese caso → rompía UX. Ahora si vendedor sin `cardCode` → server hace fetch normal + filtra `movimientos` server-side por `client_master.assignedVendor == roles/{uid}.vendor` (batch chunked query). Vendedor con `cardCode` sigue con el check estricto. Vector cerrado igual: vendedor solo ve shipments de su cartera. Ver §41. |
+| **APP_VERSION** | `v1004` frontend (fix duplicados batch handler + cross-BU CF). Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4671,7 +4671,98 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v999
+## 41) Changelog v300 → v1004
+
+### v1004 (2026-09-22) — HOTFIX cross-BU Pesca→Bike + duplicados en SAP (`Series` missing en CF trigger + lock window 60s en batch handler)
+
+**Reporte productivo 2026-09-22**: pedidos de clientes Pesca ingresando a SAP clasificados como BIKE + algunos pedidos entrando **duplicados**.
+
+**Root cause 1 (cross-BU)**: el CF trigger `onPedidoConfirmedSendToSap` (arreglado v999) construía el payload SQ **sin `Series`**. El flow client-side `sap-service-layer.js:441` sí seteaba `payload.Series = seriesId` desde `sapConfigCache.appSeriesId` (=103 PROD), pero el CF nunca lo pasó por `deps` a `buildQuotationPayload`. Cuando el payload viaja sin `Series`, SAP aplica la DocSeries default del user SL — que en prod es una serie asociada a Bike → **pedidos Pesca clasificados como BIKE**. Bug latente desde v818 (2026-09-07) pero invisible hasta que v999 activó el CF trigger real (24 hs antes).
+
+**Root cause 2 (duplicados)**: ventana del lock `sendingSapLock` **inconsistente entre los 3 flows** que hoy pueden mandar a SAP:
+- CF trigger `auto-send-sap-core.js:392` → **300 s** ✓ (default `lockTtlMs`)
+- Auto-send listener `sap-auto-send-listener.js:106` → **300 s** ✓ (fix v577 tras el incidente Ioannis+Jonatan)
+- Batch handler manual "Carga a SAP" `sap-admin-panel.js:911` → **60 s** ❌ (nunca actualizado)
+
+Con los 3 flows activos post-v999, si un admin corre "Carga a SAP" mientras un pedido tiene lock del CF/listener con >60 s (SAP puede tardar minutos bajo carga), el batch **considera stale un lock que sigue activo** → 2 POST concurrentes a `/Quotations` → 2 SQ en SAP para el mismo pedido. Es el mismo bug que v577 fixeó parcialmente (subió el listener a 300 s pero omitió el batch handler).
+
+**Fix**:
+1. `functions/index.js:454` — cargar `appSeriesId = parseInt(sapCfgData.appSeriesId, 10)` desde `app_config/sap_integration` y pasarlo por `deps.appSeriesId` a `handleAutoSendSap`.
+2. `functions/core/auto-send-sap-core.js:255` — si `deps.appSeriesId` es `number` finite, agregar `payload.Series = deps.appSeriesId`. Idempotente / retrocompat: sin `appSeriesId` en deps, comportamiento previo (Series omitido).
+3. `src/domains/sap-admin-panel.js:911` — cambiar `lockAgeMs < 60000` → `lockAgeMs < 300000`. Alinea al listener + CF.
+4. Tests `tests/functions/auto-send-sap.test.js` — 4 casos nuevos en `describe('v1004 Series')`: setea 103, omite si null/undefined/NaN.
+
+**Cleanup pendiente en SAP** (coordinar con Santi, owner SAP):
+- Query `SELECT * FROM OQUT WHERE U_AppOrigen='SHIMANO_APP_VENDEDORES' AND CreateDate >= '2026-09-21' AND Series <> 103` — todos los SQ que ingresaron con DocSeries incorrecta post-v999.
+- Query `SELECT NumAtCard, COUNT(*) FROM OQUT WHERE U_AppOrigen='SHIMANO_APP_VENDEDORES' AND CreateDate >= '2026-09-21' GROUP BY NumAtCard HAVING COUNT(*) > 1` — SQ duplicados (mismo pedidoId en Firestore).
+- Cancelar/re-clasificar manual en SAP.
+
+**Deploy**:
+- Bundle rebuildeado + bump `APP_VERSION`/`CACHE_VERSION` v1001 → v1004.
+- `firebase deploy --only functions:onPedidoConfirmedSendToSap` obligatorio (fix del payload es CF-side).
+- Verificación post-deploy: primer pedido Pesca confirmado post-deploy → checar en SAP que `Series=103`.
+
+### v1003 (2026-09-21) — HOTFIX definitivo: revert `enforceAppCheck: true → false` en 3 CFs (SDK Gen 2 NO era bug, era delay de propagación de Console registration)
+
+**Reporte 2026-09-21 13:41 ART**: pedido MARCELO BOSCHETTO **sigue** fallando post-v999+v1000+v1001+v1002 con `callable(functions/unauthenticated): Unauthenticated`.
+
+**Diagnóstico correcto** vía `gcloud logging` (que muestra `httpRequest.status`, oculto en firebase functions:log): TODAS las requests a sapProxy WARNING con **HTTP 401**. El SDK Gen 2 Firebase Functions emite el DEBUG "Callable request verification passed" **antes** del enforcement gate — ese log engaña porque llega aunque el HTTP response final sea 401. El `firebase functions:log --only sapProxy` ocultaba el status; el `gcloud logging read --format="value(httpRequest.status)"` lo mostró.
+
+**Timeline reconstruida**:
+- **2026-09-18 20:35 UTC**: Mariano registra Web App en Firebase Console → App Check → Apps con reCAPTCHA v3 secret.
+- **Post-registration**: runtime SIGUE aceptando `app:MISSING` durante ventana de propagation (documented en `NEEDS-VALIDATION.md §1` como "SDK bug" — diagnóstico incorrecto).
+- **~2026-09-21 15:00 UTC (~66h después)**: propagation completa. Runtime empieza a rechazar `app:MISSING` con HTTP 401 real. Debug log sigue diciendo "verification passed" (falso positivo del logging).
+- **2026-09-21 16:40 UTC**: reporte productivo. VDEs bloqueados en envíos SAP + rendiciones.
+- **2026-09-21 16:47 UTC (v1003)**: deploy directo `enforceAppCheck: false` en las 3 CFs. Sin PR — urgencia productiva + autonomía total autorizada.
+- **2026-09-21 16:49 UTC**: primer HTTP 200 confirmado. Pedido MARCELO BOSCHETTO transferido a SAP (docNum 2000206).
+
+**El hotfix v996 original** (2026-09-18) intentaba lo mismo pero **se perdió en merges** de v996-MELI (#665) + v997-PBI (#666) + v998-Node22 (#667) porque las branches fueron creadas pre-hotfix y no rebasearon. Post-v996 el blame de las líneas apuntaba a v990 (`enforceAppCheck: true`). Yo confié en el DEBUG "verification passed" para asumir que el enforcement no funcionaba de todos modos — pero era falso positivo del SDK logging.
+
+**Mitigations activas cierran el vector residual**:
+- Rate limits: sapProxy 5000/hr, updateAsigLineState 500/hr, geminiOcrProxy 100/hr (v939, v940, v990)
+- Role gate + ownership check en cores (v928, v990)
+- SL endpoint whitelist per-role (v917, v918) — vendedor no puede POST Quotations con IDToken robado
+- Rules cross-cutting fraud vectors (v918, v991)
+
+**Severidad post-rollback**: MEDIUM (era HIGH sin las capas Rules + rate limit + role gate ya activas).
+
+**Plan re-enable coordinado** (para futuro, sin apuro): documented en `NEEDS-VALIDATION.md §1` — solo `geminiOcrProxy` primero (menos crítico), esperar 24-72h, monitorear `gcloud logging httpRequest.status=401`, repetir de a una CF con ventana de observación de 1 semana entre cada una. Nunca las 3 simultáneas.
+
+**Nuevas reglas capturadas en `CLAUDE.md`**: §22 (gcloud logging para diagnosticar App Check), §23 (rollout gradual App Check), §24 (fallback `sl.username || sl.userName`), §25 (getIdToken(true) pre-callable en batch), §26 (has_stk solo whs 11), §27 (verificar blame post-merges masivos para hotfixes latentes), §28 (skipped visible en batch handlers UI).
+
+Sin bump APP_VERSION — el fix es solo CFs (backend).
+
+### v1002 (2026-09-21) — Sync SAP stock: `has_stk` solo whs 11 (fix badge "DISPONIBLE" falso, 45 SKUs)
+
+**Reporte gerente ventas 2026-09-21**: SKU TRX301HGB aparece "✓ DISPONIBLE" en Master de Productos pero al abrir el detalle "LIBRE PARA LA VENTA: 0 unidades".
+
+**Root cause** (`scripts/sync_sap_to_firestore.py:376`): `has_stk = total_qty > 0` sumaba TODOS los warehouses excepto `NON_SALES_WHS = {'05','06'}`. Pero warehouses `01/03/04/07/98` tampoco son vendibles (consignación/proveedor/cuarentena). TRX301HGB tenía 1 unidad en whs 07 → has_stk=True → badge equivocado.
+
+La UI client-side ya usaba whs 11 como definición de disponible desde v369+ (`index.html:6105`). El bug era del sync (fuente de verdad).
+
+**Fix** (1 línea): `has_stk = total_qty > 0` → `has_stk = whs_breakdown.get('11', 0) > 0`. `qty_map[code]` sigue = total_qty para reportes.
+
+**Impacto medido**: 45 SKUs (13% de los "disponibles" actuales) pasaron a "SIN STOCK" correctamente. Ejemplos: TRX301HGB, SLXXT151HGA, CAT2500HGFE, BMBP14000XC, CVL401. Todos con únicamente `{'07': 1 o 2}`.
+
+Deploy: PR #672 merged + trigger manual del workflow `sync-sap-catalog-stock.yml`. Post-sync: total con stock=True bajó de 348 a 303. Cero SKUs con stock=True sin whs 11.
+
+### v1001 (2026-09-21) — UX fix: alert "Carga a SAP" muestra "Omitidos" cuando hay skipped
+
+**Reporte 2026-09-21 10:52 ART**: Mariano vio "Enviados OK: 0 / Fallaron: 0" al enviar batch a SAP. Sin explicación.
+
+**Root cause**: `enviarPedidosASAPViaServiceLayer` (`src/domains/sap-admin-panel.js:829`) skipea silencioso pedidos con `sendingSapLock < 60s` (lock del intento previo) o `transferidoSAP` ya set (ya enviado). Ambos van a `skipped[]`, no a `errors[]`. `failed = errors.length = 0`. Summary NUNCA mostraba skipped.
+
+**Fix**: agregar sección "Omitidos" al alert cuando `skipped.length > 0`, con count + motivo por cada uno (max 5) + hint sobre esperar 60s si es lock, o F5 si es "ya enviado".
+
+**Nota lock stale**: pedido MARCELO BOSCHETTO específico (docId `nRckQH05gSZwjZNMjSFS`) tenía lock del intento fallido de 09:31 UTC. Liberado manualmente desde Firestore Admin SDK antes del deploy.
+
+### v1000 (2026-09-21) — HOTFIX: `sap-client` fuerza refresh IDToken pre-callable (race unauthenticated)
+
+**Reporte 2026-09-21 10:36 ART**: pedido MARCELO BOSCHETTO fallo con `callable(functions/unauthenticated): Unauthenticated` mientras otras callables paralelas del batch pasaban con auth VALID.
+
+**Root cause**: race del SDK Firebase Auth cuando batch envía N callables concurrentes con IDToken cacheado cerca del expiration (~1h). Alguna request toma token stale que Firebase Callable Gen 2 rechaza con `Unauthenticated` default **antes** del handler (por eso no aparece en logs sapProxy).
+
+**Fix** (`src/sap-client.js:fetchWithSession`): antes de cada callable a sapProxy, llamar `firebase.auth().currentUser.getIdToken(true)` para forzar refresh del IDToken. Non-fatal si falla (log + continúa con cache). Costo: +150ms por invocación.
 
 ### v999 (2026-09-21) — HOTFIX: `onPedidoConfirmedSendToSap` sapConfig incompleto (typo `sl.userName` sin fallback a `sl.username`)
 
@@ -11672,24 +11763,40 @@ Requieren dispatch de workflow con `SAP_SL_PASSWORD` accesible. Ordenados por pr
 
 ## 51) MERCADOLIBRE (Mariano-only)
 
-Sección visible solo para Mariano (gate por email, mismo patrón que Panel de Control). Integra los datos del pipeline mercado-intelligence al CRM en 3 sub-tabs: MAP · Productos · Categorías.
+Sección visible solo para Mariano (gate por email, mismo patrón que Panel de Control). Integra los datos del pipeline mercado-intelligence al CRM en **4 sub-tabs**: MAP · Productos · Categorías · **Ranking**.
 
 **Entry point**: Panel de Control → botón "🛒 Mercado Libre".
 
-**Fuente de datos**: 4 colecciones Firestore del proyecto app-vendedores-shimano escritas por el GHA `sync-to-app.yml` del repo mercado-intelligence (diario 9:20 ARG). Ver:
+**Fuente de datos**: 6 colecciones Firestore del proyecto app-vendedores-shimano escritas por el GHA `sync-to-app.yml` del repo mercado-intelligence (diario 9:20 ARG). Ver:
 - `docs/specs/2026-09-18-mercadolibre-crm-section-design.md`
 - `docs/plans/2026-09-18-mercadolibre-crm-section-plan.md`
 - Repo mercado-intelligence: `botshimanopesca-beep/mercado-intelligence`
 
-**Colecciones nuevas**:
+**Colecciones**:
 - `meli/state` (singleton) — last_sync + snapshot_date + counts + sync_status
 - `meli_products` (~231 docs) — mirror de market_products
 - `meli_categories` (~11 docs) — mirror de market_categories
-- `meli_map_alerts` (4-60 docs) — violaciones MAP del snapshot actual
+- `meli_map_alerts` (4-60 docs) — violaciones MAP del snapshot actual (snapshot pattern, se borra y reescribe)
+- `meli_map_alerts_history` (v997+) — doc por `item_id` único que alguna vez violó. Campos: first/last_detected_at, worst_diff_pct, n_days_seen, still_violating. Doc_id = item_id → dedupe natural
+- `meli_map_ranking` (v997+) — precomputado por el sync. Doc por seller_nickname con n_violations, n_active_violations, top_skus (top 3 con count + worst), top_categories (top 3 con count), worst/avg_diff_pct, first/last_violation_at
 
 **Rules**: `isMariano()` chequea `token.email` (2 whitelist: erbinomariano@gmail.com + mariano.erbino@shimano.com.ar). Nadie escribe desde client — solo el SA `mi-sync-writer@app-vendedores-shimano.iam.gserviceaccount.com` usado por el GHA (Admin SDK bypasea rules).
 
 **Sin listeners `onSnapshot`**: data cambia diario, alcanza con `.get()` one-shot al abrir el modal. Cachea en memoria durante la sesión.
 
 **Actualizar la whitelist Mariano**: `isMariano()` en `firestore.rules` + `_isMarianoEmail()` en `src/domains/panel-control.js`. Ambos hay que tocar.
+
+### Ranking histórico (v997, 2026-09-21)
+
+Cuarta sub-tab 🏆 Ranking que acumula infracciones MAP desde 2026-09-21 en adelante. Muestra tabla ordenada por `n_violations` desc con Seller · Provincia · # Total · # Activas · Top SKUs · Top Categorías · Peor %.
+
+**Conteo**: cada `item_id` único = 1 violación (aunque persista N días). Si el mismo seller publica el mismo producto por debajo del precio durante 15 días seguidos, cuenta como 1 violación única (no 15).
+
+**Estado activo/resuelto**: cuando el precio sube y ya no viola en la corrida diaria, el doc en `meli_map_alerts_history` queda con `still_violating=false` pero **NO se borra** (queda como historial). El ranking distingue `n_violations` (total histórico) vs `n_active_violations` (still_violating=true hoy).
+
+**Sin backfill**: el ranking arranca desde 2026-09-21. Snapshots BQ previos NO se procesaron retroactivamente. Los sellers que hayan violado antes de esa fecha empiezan de cero.
+
+**Cómo crecerá**: cada corrida diaria del sync agrega nuevos item_ids que aparezcan violando + updatea last_detected_at + n_days_seen de los repetidos + marca resueltos los que subieron precio. El `_compute_ranking` re-agrega todo desde cero por seller cada corrida (query completa a `meli_map_alerts_history` + Counter en Python).
+
+**Frontend**: función pura `sortRanking(rankings)` en `src/domains/meli.js` con test unit. Renderer `_paintRankingSection` con 3 KPI cards (sellers rankeados, peor infractor, violaciones activas) + tabla. Empty state cuando ranking está vacío ("🏆 Sin ranking todavía — el primer sync poblará esto").
 
