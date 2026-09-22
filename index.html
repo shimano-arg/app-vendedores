@@ -2938,6 +2938,26 @@ body.dark .planner-col { background: rgba(28,28,30,0.72); border-color: rgba(255
 }
 .planner-col-count { font-size: 13px; font-weight: 500; opacity: 0.55; margin-left: 6px; }
 .planner-col-resp { font-size: 11px; opacity: 0.6; margin-left: 8px; }
+/* v1024 (2026-09-22): placeholder blanco para los inputs de busqueda del header
+   Planner (fondo naranja #c2410c). El default es negro semi-opaco → invisible. */
+#planner-client-filter::placeholder,
+#planner-order-filter::placeholder {
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 500;
+}
+/* Firefox usa opacity=1 por default en placeholder — normalizar */
+#planner-client-filter::-moz-placeholder,
+#planner-order-filter::-moz-placeholder {
+  color: rgba(255, 255, 255, 0.7);
+  opacity: 1;
+}
+/* Focus: subir contraste + border sutil */
+#planner-client-filter:focus,
+#planner-order-filter:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.24);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
 /* v1020 (2026-09-22): subtotal ARS por columna (suma de totales de cards visibles).
    Va justo bajo el header, antes de la lista de cards. Estilo Apple secondary. */
 .planner-col-subtotal {
@@ -5738,7 +5758,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1023';
+const APP_VERSION = 'v1024';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

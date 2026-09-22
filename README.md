@@ -4672,7 +4672,13 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1023
+## 41) Changelog v300 → v1024
+
+### v1024 (2026-09-22) — Planner: fix contraste del placeholder en los inputs de búsqueda del header
+
+**Reporte**: Mariano — los inputs de Cliente/ORDEN N (v1023) tenían placeholder en negro semi-opaco (default browser) sobre fondo naranja `#c2410c` → invisibles.
+
+**Fix**: CSS con `::placeholder` blanco al 70% opacity + `-moz-placeholder` normalizado (Firefox usa opacity=1 por default) + focus state con background más claro y ring sutil para feedback visual.
 
 ### v1023 (2026-09-22) — Planner: 2 filtros nuevos en el header (Cliente + ORDEN N)
 
