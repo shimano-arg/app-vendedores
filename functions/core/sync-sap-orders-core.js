@@ -34,8 +34,9 @@
 
 import { sapGet, sapLogin, sapLogout } from './sap-sl-client.js';
 
-const TARGET_TYPE_ORDER = 17; // SAP: SQ.Line.TargetType=17 -> linea convertida en SO
+const BASE_TYPE_QUOTATION = 23; // SAP: SO.Line.BaseType=23 -> linea originada en SQ
 const DEFAULT_BATCH_SIZE = 100;
+const ORDERS_LOOKAHEAD = 500; // Cuantas SO recientes traer por corrida
 
 /**
  * @typedef {Object} SyncOrdersDeps
@@ -106,86 +107,106 @@ export async function syncSapOrders(deps) {
   let misses = 0;
   let errors = 0;
   try {
-    for (const p of pending) {
+    // v1015 hotfix6: REVERSE MAP approach. En vez de N queries a /Quotations
+    // (que no permite $expand ni devuelve Target* sin expand), enumeramos las
+    // ultimas SO en SAP con $expand=DocumentLines($select=BaseType,BaseEntry).
+    // $expand SI funciona en COLLECTION queries (no en single-entity ni sobre
+    // /Quotations). Buildeamos un map {sqDocEntry -> soDocEntry} y matcheamos.
+    //
+    // Ventajas: 1 SAP query total (vs N). Mucho mas escalable.
+    // Trade-off: si una SO se creo hace mucho tiempo (>ORDERS_LOOKAHEAD SO
+    // atras) queda invisible al sync. En steady state ~30 SO/dia esto cubre
+    // ~16 dias hacia atras. Suficiente para el caso de uso.
+    const pendingSqSet = new Set(pending.map((p) => p.sqDocEntry));
+    const sqToPedido = new Map(pending.map((p) => [p.sqDocEntry, p.id]));
+
+    // v1015 hotfix7: SAP SL de esta company NO permite $expand sobre ninguna
+    // collection de tipo Document. Sin $expand, DocumentLines igual viene
+    // inline con BaseType/BaseEntry por default (visto empiricamente).
+    // v1015 hotfix8: SAP SL default page size = 20. $top=500 ignorado.
+    // Paginamos con $skip hasta cubrir ORDERS_LOOKAHEAD.
+    const PAGE_SIZE = 20;
+    /** @type {Map<number, number>} */
+    const sqToOrder = new Map();
+    let totalOrdersScanned = 0;
+    let orderFailAt = null;
+    for (let skip = 0; skip < ORDERS_LOOKAHEAD; skip += PAGE_SIZE) {
+      const ordersEndpoint =
+        '/b1s/v1/Orders' +
+        `?$select=${encodeURIComponent('DocEntry,DocumentLines')}` +
+        '&$orderby=DocEntry desc' +
+        `&$skip=${skip}`;
+      const rOrders = await sapGet(session, ordersEndpoint, deps);
+      if (rOrders.status !== 200) {
+        const bodyStr =
+          typeof rOrders.body === 'string'
+            ? rOrders.body.slice(0, 500)
+            : JSON.stringify(rOrders.body).slice(0, 500);
+        log('[sync-orders] SAP GET /Orders fallo', {
+          status: rOrders.status,
+          skip,
+          endpoint: ordersEndpoint,
+          bodyPreview: bodyStr,
+        });
+        orderFailAt = skip;
+        break;
+      }
+      const orders = rOrders.body && Array.isArray(rOrders.body.value) ? rOrders.body.value : [];
+      if (orders.length === 0) {
+        // Sin mas SO — no vale la pena seguir paginando.
+        break;
+      }
+      totalOrdersScanned += orders.length;
+      for (const so of orders) {
+        const soDocEntry = Number(so.DocEntry);
+        if (!Number.isFinite(soDocEntry)) continue;
+        const lines = Array.isArray(so.DocumentLines) ? so.DocumentLines : [];
+        for (const l of lines) {
+          if (Number(l && l.BaseType) !== BASE_TYPE_QUOTATION) continue;
+          const sqDe = Number(l.BaseEntry);
+          if (!Number.isFinite(sqDe)) continue;
+          // Si esta SQ es una de nuestras pending, guardar el match.
+          // Solo el primer match gana (SO mas reciente por orderby DocEntry desc).
+          if (pendingSqSet.has(sqDe) && !sqToOrder.has(sqDe)) {
+            sqToOrder.set(sqDe, soDocEntry);
+          }
+        }
+      }
+      // Optimizacion: si ya matcheamos todas las pending, cortar.
+      if (sqToOrder.size >= pendingSqSet.size) break;
+    }
+    log('[sync-orders] reverse map built', {
+      ordersScanned: totalOrdersScanned,
+      matchedSqCount: sqToOrder.size,
+      pendingSqCount: pendingSqSet.size,
+      orderFailAt,
+    });
+    if (orderFailAt !== null && sqToOrder.size === 0) {
+      // Ninguna page se completo; no hay como matchear.
+      return { checked: pending.length, hits: 0, misses: 0, errors: pending.length };
+    }
+
+    // Aplicar updates a Firestore.
+    for (const [sqDe, soDe] of sqToOrder.entries()) {
+      const pedidoId = sqToPedido.get(sqDe);
+      if (!pedidoId) continue;
       try {
-        // v1015 hotfix3: SAP SL NO permite $expand=DocumentLines sobre
-        // /Quotations(id) (single-entity). Devuelve
-        // "Cannot expand invalid navigation property 'DocumentLines'".
-        // Solucion: usar el pattern collection query + $filter (mismo pattern
-        // que sq-cancel-core.js:135 que ya funciona en prod).
-        const selectParams = 'DocEntry,DocumentLines';
-        const expandParams = 'DocumentLines($select=TargetType,TargetEntry)';
-        const endpoint =
-          `/b1s/v1/Quotations?$filter=DocEntry eq ${p.sqDocEntry}` +
-          `&$select=${encodeURIComponent(selectParams)}` +
-          `&$expand=${encodeURIComponent(expandParams)}` +
-          `&$top=1`;
-        const r = await sapGet(session, endpoint, deps);
-        if (r.status !== 200) {
-          const bodyStr =
-            typeof r.body === 'string'
-              ? r.body.slice(0, 500)
-              : JSON.stringify(r.body).slice(0, 500);
-          log('[sync-orders] SAP GET non-200', {
-            pedidoId: p.id,
-            status: r.status,
-            sqDocEntry: p.sqDocEntry,
-            endpoint,
-            bodyPreview: bodyStr,
-          });
-          errors++;
-          continue;
-        }
-        // Collection query -> value: [{DocEntry, DocumentLines: [...]}].
-        const value = r.body && Array.isArray(r.body.value) ? r.body.value : [];
-        if (value.length === 0) {
-          log('[sync-orders] SQ no encontrada en SAP', {
-            pedidoId: p.id,
-            sqDocEntry: p.sqDocEntry,
-          });
-          errors++;
-          continue;
-        }
-        const lines =
-          value[0] && Array.isArray(value[0].DocumentLines) ? value[0].DocumentLines : [];
-        const orderLine = lines.find(
-          (/** @type {any} */ l) => Number(l && l.TargetType) === TARGET_TYPE_ORDER
-        );
-        if (!orderLine) {
-          // SQ existe pero ninguna linea fue convertida a SO todavia.
-          misses++;
-          continue;
-        }
-        const orderDocEntry = Number(orderLine.TargetEntry);
-        if (!Number.isFinite(orderDocEntry) || orderDocEntry <= 0) {
-          log('[sync-orders] SAP devolvio TargetEntry invalido', {
-            pedidoId: p.id,
-            sqDocEntry: p.sqDocEntry,
-            orderLine,
-          });
-          errors++;
-          continue;
-        }
-        // Update Firestore. Usamos dot-notation para no pisar otros campos
-        // de transferidoSAP (docNum, transferredAt, batchId, etc).
-        await deps.fbDb.doc(`pedidos/${p.id}`).update({
-          'transferidoSAP.orderDocEntry': orderDocEntry,
+        await deps.fbDb.doc(`pedidos/${pedidoId}`).update({
+          'transferidoSAP.orderDocEntry': soDe,
           'transferidoSAP.orderSyncedAt': new Date().toISOString(),
         });
         hits++;
-        log('[sync-orders] hit', {
-          pedidoId: p.id,
-          sqDocEntry: p.sqDocEntry,
-          orderDocEntry,
-        });
+        log('[sync-orders] hit', { pedidoId, sqDocEntry: sqDe, orderDocEntry: soDe });
       } catch (e) {
-        log('[sync-orders] pedido exception', {
-          pedidoId: p.id,
+        log('[sync-orders] update Firestore fallo', {
+          pedidoId,
+          sqDocEntry: sqDe,
           err: e && /** @type {any} */ (e).message ? /** @type {any} */ (e).message : String(e),
         });
         errors++;
       }
     }
+    misses = pending.length - hits - errors;
   } finally {
     try {
       await sapLogout(session, deps);

@@ -92,76 +92,37 @@ function makeSlFetch(scenarios) {
     if (url.endsWith('/b1s/v1/Logout')) {
       return { ok: true, status: 204, headers: { get: () => null }, text: async () => '' };
     }
-    // GET /b1s/v1/Quotations?$filter=DocEntry eq X&$select=DocEntry,DocumentLines&$expand=DocumentLines(...)&$top=1
-    // v1015 hotfix3: SAP SL NO permite $expand sobre /Quotations(id) single-entity.
-    // Cambio a collection query con $filter (mismo pattern que sq-cancel-core.js).
-    const decoded = decodeURIComponent(url);
-    const m = decoded.match(/\/b1s\/v1\/Quotations\?\$filter=DocEntry\s+eq\s+(\d+)/);
-    if (m) {
-      const sqDocEntry = Number(m[1]);
-      if (scenarios.throwOn && scenarios.throwOn.includes(sqDocEntry)) {
-        throw new Error('network error');
-      }
-      if (scenarios.status500On && scenarios.status500On.includes(sqDocEntry)) {
-        return { ok: false, status: 500, headers: { get: () => null }, text: async () => '' };
-      }
-      // scenarios.notFound[sqDocEntry] = true -> collection value=[] (SQ borrada/no existe)
-      if (scenarios.notFound && scenarios.notFound.includes(sqDocEntry)) {
+    // v1015 hotfix6: REVERSE MAP approach.
+    // GET /b1s/v1/Orders?$select=DocEntry,DocumentLines&$expand=DocumentLines($select=BaseType,BaseEntry)
+    //     &$orderby=DocEntry desc&$top=500
+    // Devuelve las ultimas N SO con lineas que apuntan a SQs (BaseType=23).
+    if (/\/b1s\/v1\/Orders\?/.test(url)) {
+      if (scenarios.ordersThrow) throw new Error('orders network error');
+      if (scenarios.ordersStatus && scenarios.ordersStatus !== 200) {
         return {
-          ok: true,
-          status: 200,
+          ok: false,
+          status: scenarios.ordersStatus,
           headers: { get: () => null },
-          text: async () => JSON.stringify({ value: [] }),
+          text: async () => '',
         };
       }
-      // scenarios.malformed -> SQ existe pero TargetEntry invalido
-      if (scenarios.malformed && scenarios.malformed.includes(sqDocEntry)) {
-        return {
-          ok: true,
-          status: 200,
-          headers: { get: () => null },
-          text: async () =>
-            JSON.stringify({
-              value: [
-                {
-                  DocEntry: sqDocEntry,
-                  DocumentLines: [{ TargetType: 17, TargetEntry: 0 }],
-                },
-              ],
-            }),
-        };
+      // Build orders from scenarios.mapping = { sqDe -> soDe }. Cada mapping
+      // se traduce a una SO con una linea BaseType=23, BaseEntry=sqDe.
+      const mapping = scenarios.mapping || {};
+      const orders = Object.entries(mapping).map(([sqDe, soDe]) => ({
+        DocEntry: Number(soDe),
+        DocumentLines: [{ BaseType: 23, BaseEntry: Number(sqDe) }],
+      }));
+      // scenarios.extraOrders permite agregar SOs no relacionadas para
+      // testear que se ignoran.
+      if (Array.isArray(scenarios.extraOrders)) {
+        orders.push(...scenarios.extraOrders);
       }
-      const orderDocEntry = scenarios.mapping && scenarios.mapping[sqDocEntry];
-      if (orderDocEntry) {
-        return {
-          ok: true,
-          status: 200,
-          headers: { get: () => null },
-          text: async () =>
-            JSON.stringify({
-              value: [
-                {
-                  DocEntry: sqDocEntry,
-                  DocumentLines: [
-                    { TargetType: null, TargetEntry: 0 },
-                    { TargetType: 17, TargetEntry: orderDocEntry },
-                  ],
-                },
-              ],
-            }),
-        };
-      }
-      // Miss: SQ existe pero ninguna linea con TargetType=17.
       return {
         ok: true,
         status: 200,
         headers: { get: () => null },
-        text: async () =>
-          JSON.stringify({
-            value: [
-              { DocEntry: sqDocEntry, DocumentLines: [{ TargetType: null, TargetEntry: 0 }] },
-            ],
-          }),
+        text: async () => JSON.stringify({ value: orders }),
       };
     }
     return { ok: true, status: 200, headers: { get: () => null }, text: async () => '{}' };
@@ -217,7 +178,7 @@ describe('syncSapOrders', () => {
     expect(updated.transferidoSAP.docNum).toBe(555);
   });
 
-  it('SAP no tiene SO todavia (value: []) -> miss, no update', async () => {
+  it('SO enumerate devuelve vacio -> miss, no update', async () => {
     const deps = makeDeps({
       pedidos: [{ id: 'p1', data: { closedAt: null, transferidoSAP: { docEntry: 100 } } }],
       scenarios: { mapping: {} },
@@ -254,27 +215,41 @@ describe('syncSapOrders', () => {
     expect(r).toEqual({ checked: 0, hits: 0, misses: 0, errors: 0 });
   });
 
-  it('GET SAP throw en un pedido -> errors=1, sigue con siguiente', async () => {
+  it('GET /Orders throw -> todos los pending cuentan como errors', async () => {
     const deps = makeDeps({
       pedidos: [
         { id: 'p1', data: { closedAt: null, transferidoSAP: { docEntry: 100 } } },
         { id: 'p2', data: { closedAt: null, transferidoSAP: { docEntry: 200 } } },
       ],
-      scenarios: { throwOn: [100], mapping: { 200: 888 } },
+      scenarios: { ordersThrow: true },
     });
-    const r = await syncSapOrders(deps);
-    expect(r).toEqual({ checked: 2, hits: 1, misses: 0, errors: 1 });
-    expect(deps.fbDb._store.get('p1').transferidoSAP.orderDocEntry).toBeUndefined();
-    expect(deps.fbDb._store.get('p2').transferidoSAP.orderDocEntry).toBe(888);
+    // Cuando el GET a /Orders throw, sapLogin() throws antes de llegar al try/finally
+    // del handler. syncSapOrders bubblea la excepcion (no la absorbe).
+    await expect(syncSapOrders(deps)).rejects.toThrow();
   });
 
-  it('GET SAP status 500 en un pedido -> errors=1, sigue', async () => {
+  it('GET /Orders status 500 -> errors = pending.length, no updates', async () => {
     const deps = makeDeps({
       pedidos: [{ id: 'p1', data: { closedAt: null, transferidoSAP: { docEntry: 100 } } }],
-      scenarios: { status500On: [100] },
+      scenarios: { ordersStatus: 500 },
     });
     const r = await syncSapOrders(deps);
     expect(r).toEqual({ checked: 1, hits: 0, misses: 0, errors: 1 });
+    expect(deps.fbDb._store.get('p1').transferidoSAP.orderDocEntry).toBeUndefined();
+  });
+
+  it('ignora SO no relacionadas al buildear el reverse map', async () => {
+    const deps = makeDeps({
+      pedidos: [{ id: 'p1', data: { closedAt: null, transferidoSAP: { docEntry: 100 } } }],
+      scenarios: {
+        mapping: { 100: 555 },
+        // SO adicional que apunta a otra SQ que NO es nuestra.
+        extraOrders: [{ DocEntry: 999, DocumentLines: [{ BaseType: 23, BaseEntry: 88888 }] }],
+      },
+    });
+    const r = await syncSapOrders(deps);
+    expect(r).toEqual({ checked: 1, hits: 1, misses: 0, errors: 0 });
+    expect(deps.fbDb._store.get('p1').transferidoSAP.orderDocEntry).toBe(555);
   });
 
   it('batchSize limita el numero de pedidos procesados', async () => {
