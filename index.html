@@ -2985,6 +2985,16 @@ body.dark .planner-card { background: #2c2c2e; box-shadow: 0 1px 3px rgba(0,0,0,
 .planner-card-badges { display:flex; gap:4px; flex-wrap:wrap; margin-top:8px; }
 .planner-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.06); font-weight: 500; }
 body.dark .planner-badge { background: rgba(255,255,255,0.12); }
+/* v1025 (2026-09-22): ORDEN N destacado en rojo Ferrari (#D40000) para que
+   se identifique de un vistazo como ID del negocio (vs SAP:X/SO:Y que son
+   IDs del sistema contable, chips grises). */
+.planner-badge.planner-badge-orden {
+  background: #D40000;
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+body.dark .planner-badge.planner-badge-orden { background: #D40000; color: #fff; }
 /* v1019 (2026-09-22): pintar toda la card del color de estado (no solo borde)
    para que el estado sea visualmente claro de un vistazo. Tinted fondo
    suave (paleta Apple systemColor at ~15% opacity) preserva legibilidad
@@ -5758,7 +5768,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1024';
+const APP_VERSION = 'v1025';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27529,18 +27539,16 @@ function renderPlannerCard(pedido, column) {
     ? totalNum.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 })
     : '—';
   const badges = [];
-  // v1022 (2026-09-22): ORDEN N como ID unico del pedido. Se reserva en
-  // reserveNextOrderNumber() al crearse (waitlist directo o via Confirmar
-  // Pedido) y se preserva a lo largo del pipeline. Va PRIMERO para que
-  // sea el identificador principal visible (SAP:X y SO:Y son numeros
-  // internos del sistema contable — el ORDEN N es el ID del negocio).
-  if (pedido.orderNumber) badges.push('ORDEN ' + pedido.orderNumber);
-  if (pedido.transferidoSAP && pedido.transferidoSAP.docNum) badges.push('SAP:' + pedido.transferidoSAP.docNum);
-  if (pedido.transferidoSAP && pedido.transferidoSAP.orderDocEntry) badges.push('SO:' + pedido.transferidoSAP.orderDocEntry);
+  // v1025 (2026-09-22): SAP:X y SO:Y primero (contexto del sistema contable);
+  // ORDEN N al final con estilo destacado (rojo Ferrari #D40000) porque es el
+  // ID del negocio que Mariano usa para trackear el pedido de un vistazo.
+  if (pedido.transferidoSAP && pedido.transferidoSAP.docNum) badges.push({ text: 'SAP:' + pedido.transferidoSAP.docNum, cls: 'planner-badge' });
+  if (pedido.transferidoSAP && pedido.transferidoSAP.orderDocEntry) badges.push({ text: 'SO:' + pedido.transferidoSAP.orderDocEntry, cls: 'planner-badge' });
   if (Array.isArray(pedido.plannerAttachments) && pedido.plannerAttachments.length) {
-    badges.push('📎' + pedido.plannerAttachments.length);
+    badges.push({ text: '📎' + pedido.plannerAttachments.length, cls: 'planner-badge' });
   }
-  const badgesHtml = badges.map(b => '<span class="planner-badge">' + escapeHtml(b) + '</span>').join('');
+  if (pedido.orderNumber) badges.push({ text: 'ORDEN ' + pedido.orderNumber, cls: 'planner-badge planner-badge-orden' });
+  const badgesHtml = badges.map(b => '<span class="' + b.cls + '">' + escapeHtml(b.text) + '</span>').join('');
   const stateClass = computePlannerCardStateClass(pedido, column);
 
   let togglesHtml = '';
