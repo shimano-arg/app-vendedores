@@ -90,5 +90,26 @@ implementations.forEach(({ name, fn }) => {
     it('empty transferidoSAP object → lista_espera (no crash)', () => {
       expect(fn({ transferidoSAP: {} })).toBe('lista_espera');
     });
+
+    // v1013 (2026-09-22): pedidos schema real es `lines`; `items` fallback.
+    it('lines (schema real) with qtyInvoiced > 0 → facturar', () => {
+      expect(
+        fn({
+          transferidoSAP: { docNum: 12345, orderDocEntry: 678 },
+          lines: [{ qtyInvoiced: 0 }, { qtyInvoiced: 5 }],
+        })
+      ).toBe('facturar');
+    });
+
+    it('lines takes precedence over items when both present', () => {
+      // lines vacio + items con invoiced → NO va a facturar (lines gana)
+      expect(
+        fn({
+          transferidoSAP: { docNum: 12345 },
+          lines: [],
+          items: [{ qtyInvoiced: 5 }],
+        })
+      ).toBe('oferta');
+    });
   });
 });
