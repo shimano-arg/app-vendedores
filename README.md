@@ -4672,7 +4672,17 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1016
+## 41) Changelog v300 → v1017
+
+### v1017 (2026-09-22) — Planner: sort de columnas por `createdAt` (fecha visible) en vez de `updatedAt`
+
+**Reporte**: Mariano — columnas del Planner aparecían con las cards revueltas por fecha. La card muestra `createdAt || updatedAt` (via `_plannerFmtDate`), pero el sort usaba `updatedAt || createdAt`. Consecuencia: `updatedAt` refleja el último touch de Firestore (sync SAP de invoices, edits automáticos del CF de orders, etc.), no la fecha del pedido. Ejemplo típico: en Facturar aparecía Bianchini 16/9 entre Federico Fatechi 4/9 y Pablo Roldan 11/9 — porque el sync de facturación de Bianchini fue reciente y le movió el `updatedAt` a hoy aunque el pedido en sí es del 4/9.
+
+**Fix**: cambiar `tsOf` en `renderPlannerKanban` para usar `createdAt || updatedAt` — el mismo pattern que `_plannerFmtDate`. Ahora la fecha visible en la card y el orden de sort quedan alineados: cards ordenadas de más nueva (arriba) a más vieja (abajo) según la fecha que se ve.
+
+**Alcance**: aplica a las 6 columnas del Kanban. Las cards de waitlist (`_isWaitlist`) también quedan ordenadas por su `createdAt` propio.
+
+**Sin cambios**: la lógica de `computeColumn`, filtro de mes y drag-drop no se tocaron.
 
 ### v1016 (2026-09-22) — Planner: bug latente `plannerStage='confirmado'` que pisaba `qtyInvoiced>0` (BIANCHINI SAP:2000120 atascado)
 
