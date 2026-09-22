@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v1007 (2026-09-22)** — Planner Kanban F1 completa (Mariano-only en producción). T0-T15 committed; deploys pendientes: firestore:rules, storage, functions. Ver §52 + docs/plans/. \| **v1005 (2026-09-22)** — Planner Kanban (Mariano-only, en desarrollo). Task 0: baseline version bump + README stub. Spec en §52 + Plan en docs/plans/. \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP (Series missing en CF + lock 60s en batch). \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. Diagnóstico previo del "SDK Gen 2 bug" era incorrecto — el enforcement SÍ funciona, pero tarda ~66h desde registration Console en propagarse. Deploy directo sin PR (urgencia productiva). Ver §41 + `NEEDS-VALIDATION.md §1`. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11 (fix 45 SKUs con badge "DISPONIBLE" falso, ej TRX301HGB). \| **v1001 (2026-09-21)** — UX fix: alert "Enviar via Service Layer" muestra "Omitidos" con motivo cuando algún pedido queda skipped por lock stale. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX `onPedidoConfirmedSendToSap` (`functions/index.js:446`): typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. 3 sub-tabs (MAP · Productos · Categorías) alimentadas por sync diario desde mercado-intelligence. Botón "🛒 Mercado Libre" al final del Panel de Control, gated por email whitelist (erbinomariano@gmail.com + mariano.erbino@shimano.com.ar). Chunk lazy `chunks/meli.js` + rules `isMariano()` + colecciones `meli/*`. Ver §51. \| **v995 (2026-09-18)** — Hotfix pre-deploy v994: el modal Depósito (`index.html:16354`) llama `setupGetMovimientos` SIN `cardCode` (query global "traeme todos los shipments"). El v994 original tiraba `invalid-argument` en ese caso → rompía UX. Ahora si vendedor sin `cardCode` → server hace fetch normal + filtra `movimientos` server-side por `client_master.assignedVendor == roles/{uid}.vendor` (batch chunked query). Vendedor con `cardCode` sigue con el check estricto. Vector cerrado igual: vendedor solo ve shipments de su cartera. Ver §41. |
-| **APP_VERSION** | `v1015` frontend (nuevo scheduled CF `syncSapOrdersToApp` puebla `transferidoSAP.orderDocEntry` para cerrar columna Órdenes del Planner). Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v1038 (2026-09-22)** — Sesión intensiva Planner Kanban: pipeline 100% automático + lineal (5 columnas, columna Confirmado removida). 19 PRs shipped (#687-#710) + 3 CFs nuevos deployados (`syncSapOrdersToApp` schedule 15min, `syncSapPaymentsToApp` nuevo Fase 2, `onPlannerStageChanged` multi-update). Ver §52 (estado consolidado) + §41 (changelog detallado v1016-v1038). \| **v1007 (2026-09-22)** — Planner Kanban F1 completa (Mariano-only en producción). \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP. \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. |
+| **APP_VERSION** | `v1038` frontend (Planner modal líneas: columna Subtotal + `getDefaultPrice` fallback para waitlists). Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog + §52 estado Planner. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -77,7 +77,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 48. [Flow LEAD → cliente SAP: auto + fallback manual — CERRADO 2026-09-04](#48-flow-lead--cliente-sap-auto--fallback-manual--cerrado-2026-09-04)
 49. [Integración SETUP (CRM del depósito) — PENDIENTE endpoints](#49-integración-setup-crm-del-depósito--pendiente-endpoints)
 51. [MERCADOLIBRE (Mariano-only)](#51-mercadolibre-mariano-only)
-52. [Planner Kanban (Mariano-only, en desarrollo)](#52-planner-kanban-mariano-only-en-desarrollo)
+52. [Planner Kanban (v1038 — pipeline 100% automático)](#52-planner-kanban-v1038--pipeline-100-automático)
 
 ---
 
@@ -12290,30 +12290,88 @@ Cuarta sub-tab 🏆 Ranking que acumula infracciones MAP desde 2026-09-21 en ade
 
 ---
 
-## 52) Planner Kanban (Mariano-only, en desarrollo)
+## 52) Planner Kanban (v1038 — pipeline 100% automático)
 
-**Fecha inicio**: 2026-09-22
+**Fecha inicio**: 2026-09-22 · **Estado**: PRODUCTIVO (whitelist ARG + UY)
 
-**Estado**: F1 shippeada en dev 2026-09-22 (T0-T15 committed). Mariano-only en producción hasta validación E2E. Deploys pendientes: firestore:rules, storage, functions:onPlannerStageChanged, functions:resendPlannerEmail.
+**Spec original**: `docs/specs/2026-09-22-planner-design.md` (spec inicial; la implementación real evolucionó — ver §41 v1016-v1038 para el estado actual).
 
-**Spec**: `docs/specs/2026-09-22-planner-design.md`
+### Estado post-sesión 2026-09-22 (v1005 → v1038)
 
-**Plan**: `docs/plans/2026-09-22-planner-plan.md`
+Kanban 5 columnas, pipeline **100% automático + lineal** desde SAP:
 
-### Descripción
+```
+Lista de espera → Oferta → Pendiente de facturar → Facturado → Cobrado
+   (waitlist)      (SQ)      (SO creada)         (invoice+)    (paid+)
+```
 
-Kanban interactivo para gestionar el ciclo completo de la venta, con 6 columnas que reflejan el flujo de un pedido desde la Lista de Espera hasta el Cobrado:
+**Semántica de columnas** (`computeColumn`, top-down):
+1. `plannerStage='cobrado_*'` → **Cobrado** (drag manual, raro)
+2. `paidStatus='partial'|'paid'` → **Cobrado** (SAP payments sync)
+3. `lines.some(qtyInvoiced>0)` → **Facturado** (SAP invoices sync)
+4. `transferidoSAP.orderDocEntry` → **Pendiente de facturar** (SO creada en SAP)
+5. `transferidoSAP.docNum` → **Oferta** (SQ creada en SAP)
+6. default → **Lista de espera** (waitlist entries de `revision_waitlist`)
 
-1. **Lista Espera** — Pedidos pre-carga (`state='WAIT_LIST'`), no comprometen stock
-2. **Oferta** — Cotizaciones confirmadas, en fase de negociación
-3. **Órdenes** — Pedidos confirmados por cliente, listos para SAP
-4. **Confirmado** — Pedidos en SAP (state='CONFIRMED'), facturación pendiente
-5. **Facturar** — Invoices SAP enviadas a cliente, cobro pendiente
-6. **Cobrado** — Pagos recibidos y conciliados
+### Whitelist actual
 
-Cada columna tiene responsables asignados (vendedor, gerente, admin SAP) con emails automáticos al mover un card entre columnas. Los adjuntos (remito, factura, comprobante de pago) van vía email. Drag-and-drop gestual con feedback instantáneo.
+Botón "Planner" visible + `openPlannerBoardModal` gated a:
+- **Mariano** (admin) — `mariano.erbino@shimano.com.ar`, `erbinomariano@gmail.com`
+- **Pablo** (gerente/admin) — `pablo.gonzalez@shimano.com.ar`
+- **VDIs ARG** (interno) — `santiago.esteban@shimano.com.ar`, `ioannis.plakoudakis@shimano.com.ar`
+- **UY** — `santiago.beron@shimano.uy`, `diego.valsi@shimano.uy`
 
-**Control de acceso**: gated por `app_config/planner_config.enabledForAllRoles` (default `false`). Mariano-only en producción temprana; se abre a VDEs/VDIs/gerentes cuando la validación cierre.
+Roles permitidos: `admin | gerente | interno`.
 
-**Entradas**: 17 tareas (E0-E16) en el plan. Versión v1005 (baseline).
+### Scheduled Cloud Functions (todos every 15 min, TZ ART)
+
+| CF | Función | Deploy status |
+|----|---------|---------------|
+| `syncSapInvoicesToApp` | Invoice SAP → `pedidos.lines[].qtyInvoiced` (mueve a Facturado) | ✅ activo (pre-sesión) |
+| `syncSapOrdersToApp` | SO SAP → `pedidos.transferidoSAP.orderDocEntry` (mueve a Pend. facturar) | ✅ v1028 (schedule 15min) |
+| `syncSapPaymentsToApp` | Invoice.PaidToDate → `pedidos.paidAmount` + `paidStatus` (mueve a Cobrado) | ✅ v1035 nuevo |
+| `onPlannerStageChanged` | Firestore trigger → email al responsable + VDI pareja | ✅ v1031/v1037 (últimos deploys) |
+
+### Config UI del Planner (modal header)
+
+- **Reloj sync**: `Próx. sync en Xm YYs` (countdown al próximo tick de 15min).
+- **Filtro de mes**: dropdown que aplica a las 5 columnas (default: mes actual).
+- **Filtro por cliente** (search): substring case-insensitive en `clientName`.
+- **Filtro por ORDEN N** (search): substring numérico en `orderNumber`.
+
+### Cards del Planner
+
+- **Cliente + VDI + fecha** en el header.
+- **Total ARS** visible (`_plannerComputeTotal` con precedencia `totalAmountArs → netAmountArs → subtotalArs → total → totalARS → compute qty*precio → getDefaultPrice(code) fallback`).
+- **Badges** (al final, ordenados): `SAP:X · SO:Y · 📎N · ORDEN X` (último en rojo Ferrari `#D40000`).
+- **Colores**: Facturado amarillo (`#FFF4C2`), Cobrado verde (`#C8F0D4`), resto blancas.
+- **Subtotal por columna** en el header (para Facturado usa `_plannerComputeInvoicedTotal` con `invoicedAmount` de SAP si existe).
+- **Modal card**: 3 tabs (Líneas / Adjuntos / Historial). Tabla líneas: SKU / Desc / Qty / Facturado / Precio / Subtotal + Total pedido en footer.
+
+### Casos especiales
+
+- **Lista de espera**: 100% coincide con sidebar-left "PEDIDOS EN ESPERA" (solo `revision_waitlist` entries filtrados client-side por `stage !== 'consumed'`, sin pedidos "colgados" de `pedidos` col).
+- **ORDEN N** (contador `counters/orderNumber`, reservado via `runTransaction`): se preserva a lo largo del pipeline; visible en card + subject del email.
+- **VDI pareja notif**: si el VDE dueño del pedido tiene `internalPartnerUid` en `roles/{uid}`, el VDI pareja recibe email automático de cualquier cambio de columna. Mapping actual:
+  - Ioannis ← Gonzalo + Federico
+  - Santiago Esteban ← Martin Boiero + Mauricio Gil + Pachi (pachinaba)
+- **Fase 2 sync payments**: `invoicedAmount` desde SAP DocTotal → subtotal Facturado 100% exacto contra PowerBI (elimina el error 9.8% residual del compute `qtyInvoiced×precio`).
+
+### Data faltante / TODO menores
+
+- `pachi.ventasespeciales@shimano.com.ar` sin `internalPartnerUid` en `roles` → emails de esos pedidos no notifican al VDI Santiago (si se quiere fixear: setear el field manualmente).
+- 7 pedidos legacy pre-v942 (2026-09-16) sin `orderNumber` → cards con badge SAP:X pero sin `ORDEN N`. Se dejan rotar; nuevos pedidos siempre traen orderNumber.
+- Investigación PDF SAP cerrada (2026-09-22): SL de la company **no expone endpoints /Print o similares** — probados 6 candidatos, todos 400 code 201. Upload manual de PDFs vía tab "Adjuntos" del modal cubre el use case. Camino B (jsPDF client-side) queda como opción futura si se quiere automatizar.
+
+### Deploys CF necesarios ante cambios
+
+- Cambios en labels de columna / semántica emails → `firebase deploy --only functions:onPlannerStageChanged`
+- Cambios en schedule / lógica sync → `firebase deploy --only functions:syncSapOrdersToApp` o `functions:syncSapPaymentsToApp`
+- Frontend puro (colores, filtros, badges) → GitHub Pages auto post-merge.
+
+### Enlaces relacionados
+
+- Spec inicial: `docs/specs/2026-09-22-planner-design.md`
+- Plan original: `docs/plans/2026-09-22-planner-plan.md`
+- Changelog detallado por versión: §41 (v1005 → v1038).
 
