@@ -5711,7 +5711,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1015';
+const APP_VERSION = 'v1016';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12368,14 +12368,18 @@ window.setTab = function(name){
 // Test tests/unit/planner-compute-column.test.js enforces parity.
 // v1013 (2026-09-22): pedidos schema real es `lines`; `items` queda como
 // fallback histórico. Igual cambio hecho en el CF core.
+// v1016 (2026-09-22): 'facturar' (auto SAP) precede a 'confirmado' (drag manual).
+// Bug BIANCHINI SAP:2000120: qtyInvoiced=15/78u pero plannerStage='confirmado'
+// lo trababa en la columna Confirmado. Ahora si SAP facturó la card se
+// promueve sola aunque el drag manual haya quedado seteado.
 function computeColumn(pedido) {
-  if (pedido?.plannerStage === 'confirmado') return 'confirmado';
   if (pedido?.plannerStage === 'cobrado_parcial') return 'cobrado';
   if (pedido?.plannerStage === 'cobrado_full') return 'cobrado';
   if (pedido?.paidStatus === 'partial' || pedido?.paidStatus === 'paid') return 'cobrado';
   const lineas = Array.isArray(pedido?.lines) ? pedido.lines
                 : (Array.isArray(pedido?.items) ? pedido.items : []);
   if (lineas.some(l => (l?.qtyInvoiced || 0) > 0)) return 'facturar';
+  if (pedido?.plannerStage === 'confirmado') return 'confirmado';
   if (pedido?.transferidoSAP?.orderDocEntry) return 'ordenes';
   if (pedido?.transferidoSAP?.docNum) return 'oferta';
   return 'lista_espera';

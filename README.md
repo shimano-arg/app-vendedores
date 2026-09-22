@@ -4672,7 +4672,24 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1015
+## 41) Changelog v300 → v1016
+
+### v1016 (2026-09-22) — Planner: bug latente `plannerStage='confirmado'` que pisaba `qtyInvoiced>0` (BIANCHINI SAP:2000120 atascado)
+
+**Reporte**: Mariano arrastró BIANCHINI SAP:2000120 de Confirmado a Facturar y el drop no procedía. Investigación reveló dos capas:
+
+1. **By design (esperado)**: Facturar/Órdenes/Oferta/Lista de espera son columnas **automáticas** — se llenan según señales de SAP. Solo Confirmado y Cobrado aceptan drop manual (`PLANNER_MANUAL_TARGETS = ['confirmado','cobrado']`). El drop mostró el visual `drop-blocked` y salió un `alert()`.
+2. **Bug latente**: aunque el drop hubiera pasado, `computeColumn` iba a re-clasificar el pedido en Confirmado porque `plannerStage='confirmado'` era la primera regla. Peor aún: **cuando SAP factura un pedido que había pasado por drag a Confirmado, la card queda atascada ahí forever** — `qtyInvoiced>0` (regla facturar) nunca gana sobre `plannerStage='confirmado'`.
+
+Verificación real: Bianchini `kHVMLGV7XzOemBy49JtT` tenía `plannerStage='confirmado'` (arrastrado hoy 14:03) + `qtyInvoiced=15/78u` (SAP facturó ~19%). Debería estar en Facturar, quedaba en Confirmado.
+
+**Fix**: reordenar `computeColumn`. La regla `lines.some(l => qtyInvoiced>0) → facturar` ahora precede a `plannerStage='confirmado'`. Semántica: si SAP avanzó el pedido (facturación o cobro), esas señales pisan al drag manual y promueven la card sola. Cambio aplicado en los 3 mirrors: `functions/core/planner-compute-column.js`, `src/domains/planner/compute-column.js`, `index.html:12371-12384` (mirror inline).
+
+**Tests** (34/34 pass): agregados dos casos — `plannerStage=confirmado + lines qtyInvoiced>0 → facturar` (schema real) y `plannerStage=confirmado + items qtyInvoiced>0 → facturar` (schema legacy). El test viejo "confirmado overrides all" se renombró a "confirmado + docNum sin facturar → confirmado" para no engañar (ya no override "all", solo cuando SAP no avanzó).
+
+**Otras 4 cards Bianchini** (`6SuKzmbp5jY0DOOE05yD`, `FsrIc3mlgxLYMiptoIWZ`, `PXAR49dTEETEy5DI2zkw`) no tenían `plannerStage` seteado y ya estaban correctamente en Facturar; solo la SAP:2000120 estaba impactada por el bug.
+
+**Nota de diseño**: si se quisiera permitir drop manual a Facturar en el futuro, agregar `'facturar'` a `PLANNER_MANUAL_TARGETS` en `index.html:27227`. La decisión de mantenerla 100% automática se tomó explícitamente (2026-09-22) para preservar la garantía "verdad de SAP".
 
 ### v1015 (2026-09-22) — Nuevo scheduled CF `syncSapOrdersToApp` (cierra la columna "Órdenes" del Planner Kanban)
 
