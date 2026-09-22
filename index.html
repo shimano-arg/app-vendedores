@@ -2999,6 +2999,74 @@ body.dark .planner-toggle-btn:hover { background: rgba(255,255,255,0.06); }
 @media (prefers-reduced-motion: reduce) {
   .planner-col.drop-target, .planner-col.drop-blocked { outline-style: solid; }
 }
+/* v1006 Planner modal — Apple style */
+.planner-modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.4);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  z-index: 10000;
+  display: flex; align-items: center; justify-content: center;
+  animation: plannerFadeIn 0.2s cubic-bezier(0.32,0.72,0,1);
+}
+.planner-modal {
+  background: white; color: #1c1c1e;
+  border-radius: 20px;
+  width: min(720px, 92vw); max-height: 88vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  overflow: hidden;
+  animation: plannerScaleIn 0.24s cubic-bezier(0.32,0.72,0,1);
+}
+body.dark .planner-modal { background: #1c1c1e; color: #f5f5f7; }
+.planner-modal-header {
+  padding: 20px 24px; display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+}
+body.dark .planner-modal-header { border-color: rgba(255,255,255,0.08); }
+.planner-modal-close {
+  background: none; border: none; font-size: 18px; cursor: pointer;
+  opacity: 0.55; padding: 6px 10px; border-radius: 8px;
+  color: inherit;
+}
+.planner-modal-close:hover { opacity: 1; background: rgba(0,0,0,0.05); }
+body.dark .planner-modal-close:hover { background: rgba(255,255,255,0.08); }
+.planner-modal-tabs {
+  display: flex; padding: 0 16px; gap: 4px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+body.dark .planner-modal-tabs { border-color: rgba(255,255,255,0.06); }
+.planner-modal-tab {
+  background: none; border: none;
+  padding: 12px 16px; cursor: pointer;
+  opacity: 0.55; font-weight: 500; font-size: 14px;
+  border-bottom: 2px solid transparent;
+  color: inherit; font-family: inherit;
+}
+.planner-modal-tab:hover { opacity: 0.85; }
+.planner-modal-tab.active { opacity: 1; border-bottom-color: #007AFF; }
+.planner-modal-body {
+  padding: 20px 24px; overflow-y: auto; flex: 1;
+}
+.planner-modal-lineas-table {
+  width: 100%; border-collapse: collapse; font-size: 13px;
+}
+.planner-modal-lineas-table thead th {
+  text-align: left; padding: 8px 12px; opacity: 0.55; font-weight: 500;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em;
+}
+body.dark .planner-modal-lineas-table thead th { border-color: rgba(255,255,255,0.08); }
+.planner-modal-lineas-table tbody td {
+  padding: 10px 12px; border-bottom: 1px solid rgba(0,0,0,0.04);
+}
+body.dark .planner-modal-lineas-table tbody td { border-color: rgba(255,255,255,0.04); }
+.planner-modal-lineas-table tbody tr:last-child td { border-bottom: none; }
+.planner-modal-lineas-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+@keyframes plannerFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes plannerScaleIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .planner-modal-backdrop, .planner-modal { animation: none; }
+}
 </style>
 <!-- v678 (2026-08-26) PERF Fase 2: apple-design CSS extraido a archivo aparte.
      Antes ~217 KB de CSS apple-design (v650-v676) estaban inline en el <style>
@@ -27216,9 +27284,106 @@ function _plannerFmtDate(ts) {
   return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
 }
 
-// Stub — real modal implemented in Task 12.
+// v1006 Planner modal state vars (var — CLAUDE.md #13 cross-scope).
+var _plannerModalPedidoId = null;
+var _plannerModalTab = 'lineas';
+
 function openPlannerCardModal(pedidoId) {
-  console.log('[planner] TODO modal open for', pedidoId);
+  _plannerModalPedidoId = pedidoId;
+  _plannerModalTab = 'lineas';
+  const modal = document.getElementById('planner-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  // Reset tab active state to Líneas.
+  document.querySelectorAll('[data-plmodal]').forEach(b => {
+    b.classList.toggle('active', b.dataset.plmodal === 'lineas');
+  });
+  renderPlannerModal();
+  // ESC-to-close listener (attached once — check first).
+  if (!window._plannerModalEscBound) {
+    window._plannerModalEscBound = true;
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && document.getElementById('planner-modal')?.style.display === 'flex') {
+        closePlannerModal();
+      }
+    });
+  }
+}
+
+function closePlannerModal() {
+  const modal = document.getElementById('planner-modal');
+  if (modal) modal.style.display = 'none';
+  _plannerModalPedidoId = null;
+}
+
+function setPlannerModalTab(tab) {
+  _plannerModalTab = tab;
+  document.querySelectorAll('[data-plmodal]').forEach(b => {
+    b.classList.toggle('active', b.dataset.plmodal === tab);
+  });
+  renderPlannerModal();
+}
+
+function renderPlannerModal() {
+  if (!_plannerModalPedidoId) return;
+  const pedido = plannerPedidosCache.get(_plannerModalPedidoId)
+              || plannerWaitlistCache.get(_plannerModalPedidoId);
+  const title = document.getElementById('planner-modal-title');
+  const body = document.getElementById('planner-modal-body');
+  if (!title || !body) return;
+
+  if (!pedido) {
+    title.textContent = 'Pedido no encontrado';
+    body.innerHTML = '<div style="opacity:.55;padding:24px;text-align:center;">El pedido puede haber sido cerrado o consumido.</div>';
+    return;
+  }
+
+  const clienteLabel = pedido.cardName || pedido.cardCode || pedido.id || '(sin cliente)';
+  title.textContent = clienteLabel;
+
+  if (_plannerModalTab === 'lineas') {
+    body.innerHTML = renderPlannerModalLineas(pedido);
+  } else if (_plannerModalTab === 'adjuntos') {
+    body.innerHTML = '<div style="opacity:.55;padding:32px;text-align:center;">Adjuntos — próximamente (Task 13).</div>';
+  } else if (_plannerModalTab === 'historial') {
+    body.innerHTML = '<div style="opacity:.55;padding:32px;text-align:center;">Historial — próximamente (Task 14).</div>';
+  }
+}
+
+function renderPlannerModalLineas(pedido) {
+  const items = Array.isArray(pedido.items) ? pedido.items : [];
+  if (items.length === 0) {
+    return '<div style="opacity:.55;padding:24px;text-align:center;">Este pedido no tiene líneas.</div>';
+  }
+  const rows = items.map(l => {
+    const sku = escapeHtml(l?.sku || l?.itemCode || '');
+    const desc = escapeHtml(l?.descripcion || l?.itemName || l?.description || '');
+    const qty = Number(l?.qty || 0);
+    const qtyInv = Number(l?.qtyInvoiced || 0);
+    const price = Number(l?.price || l?.unitPrice || 0);
+    const priceStr = price ? price.toLocaleString('es-AR', { maximumFractionDigits: 2 }) : '';
+    return (
+      '<tr>' +
+        '<td>' + sku + '</td>' +
+        '<td>' + desc + '</td>' +
+        '<td class="num">' + qty + '</td>' +
+        '<td class="num">' + qtyInv + '</td>' +
+        '<td class="num">' + priceStr + '</td>' +
+      '</tr>'
+    );
+  }).join('');
+  return (
+    '<table class="planner-modal-lineas-table">' +
+      '<thead><tr>' +
+        '<th>SKU</th>' +
+        '<th>Descripción</th>' +
+        '<th class="num">Qty</th>' +
+        '<th class="num">Facturado</th>' +
+        '<th class="num">Precio</th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+    '</table>'
+  );
 }
 
 function detachFirebaseListeners(){
@@ -28804,6 +28969,22 @@ if ('serviceWorker' in navigator) {
     <path d="M16.003 3.2c-7.09 0-12.856 5.762-12.856 12.85 0 2.267.594 4.48 1.72 6.428L3.2 28.8l6.492-1.7a12.83 12.83 0 0 0 6.31 1.61h.005c7.09 0 12.856-5.763 12.856-12.85 0-3.435-1.338-6.66-3.767-9.088A12.766 12.766 0 0 0 16.003 3.2zm.003 2.16c2.85 0 5.529 1.11 7.545 3.127a10.61 10.61 0 0 1 3.127 7.55c0 5.896-4.796 10.69-10.694 10.69h-.005a10.66 10.66 0 0 1-5.437-1.489l-.39-.232-4.052 1.061 1.08-3.945-.254-.404a10.62 10.62 0 0 1-1.632-5.681c.002-5.895 4.797-10.69 10.712-10.677zm-3.86 5.802c-.223 0-.585.083-.891.416-.306.334-1.17 1.142-1.17 2.787 0 1.644 1.198 3.234 1.365 3.457.168.223 2.316 3.703 5.719 5.043 2.828 1.114 3.404.892 4.017.836.614-.056 1.98-.808 2.259-1.588.278-.78.278-1.45.195-1.588-.083-.14-.306-.223-.64-.39-.335-.167-1.98-.976-2.286-1.087-.306-.111-.529-.167-.752.167-.223.334-.863 1.087-1.058 1.31-.195.223-.39.251-.724.083-.334-.167-1.412-.52-2.688-1.66-.994-.887-1.665-1.98-1.86-2.314-.195-.334-.02-.514.147-.68.15-.15.334-.39.502-.585.167-.195.223-.334.334-.557.111-.223.056-.418-.028-.585-.083-.167-.752-1.812-1.03-2.481-.271-.652-.548-.563-.751-.575-.194-.011-.417-.014-.64-.014z"/>
   </svg>
 </a>
+
+<!-- v1006 Planner: modal detalle de card (Líneas / Adjuntos / Historial). -->
+<div id="planner-modal" class="planner-modal-backdrop" style="display:none;" onclick="closePlannerModal()">
+  <div class="planner-modal" onclick="event.stopPropagation();">
+    <div class="planner-modal-header">
+      <h3 id="planner-modal-title" style="margin:0;font-weight:700;letter-spacing:-0.01em;">Pedido</h3>
+      <button class="planner-modal-close" onclick="closePlannerModal()" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="planner-modal-tabs">
+      <button class="planner-modal-tab active" data-plmodal="lineas" onclick="setPlannerModalTab('lineas')">Líneas</button>
+      <button class="planner-modal-tab" data-plmodal="adjuntos" onclick="setPlannerModalTab('adjuntos')">Adjuntos</button>
+      <button class="planner-modal-tab" data-plmodal="historial" onclick="setPlannerModalTab('historial')">Historial</button>
+    </div>
+    <div id="planner-modal-body" class="planner-modal-body"></div>
+  </div>
+</div>
 
 </body>
 </html>
