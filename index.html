@@ -2279,6 +2279,10 @@ body.is-ioannis .client-card{padding-bottom:60px}
 body.is-pachi #rmode-pers{display:none !important}
 body.is-pachi #ruta-pers-controls{display:none !important}
 body.is-pachi #rmode-reco{flex:1 1 100% !important}
+/* v1005: Planner section gated Mariano-only in dev. Un-gate future via
+   app_config/planner_config.enabledForAllRoles. */
+body.is-mariano .tab-btn[data-tab="planner"]{display:inline-block !important}
+body.planner-enabled-all .tab-btn[data-tab="planner"]{display:inline-block !important}
 /* v451 (2026-08-11): boton Revision Excel oculto por default, visible solo
    para whitelist de emails (Mariano, Ioannis, Santi, Pablo). El gate se aplica
    en applyRolePermissions. */
@@ -2904,6 +2908,62 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 @keyframes wcard-skeleton-shimmer{0%{background-position:-200px 0}100%{background-position:calc(200px + 100%) 0}}
 .wcard-skeleton-row{height:38px;border-radius:5px;background:linear-gradient(90deg,var(--bg-muted) 0%,var(--bg-elevated) 50%,var(--bg-muted) 100%);background-size:200px 100%;background-repeat:no-repeat;animation:wcard-skeleton-shimmer 1.4s ease-in-out infinite;margin:6px 0}
 @media (prefers-reduced-motion: reduce){.wcard-skeleton-row{animation:none;opacity:.6}}
+
+/* v1005 Planner Kanban — Apple design language. */
+.planner-kanban {
+  display: flex; gap: 16px; padding: 24px;
+  overflow-x: auto; overflow-y: hidden;
+  min-height: calc(100vh - 240px);
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+.planner-col {
+  flex: 0 0 320px; scroll-snap-align: start;
+  background: rgba(255,255,255,0.7);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 16px; padding: 12px;
+  display: flex; flex-direction: column;
+}
+body.dark .planner-col { background: rgba(28,28,30,0.72); border-color: rgba(255,255,255,0.08); }
+.planner-col-header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 8px 12px 12px;
+  font-size: 15px; font-weight: 700; letter-spacing: -0.02em;
+}
+.planner-col-count { font-size: 13px; font-weight: 500; opacity: 0.55; margin-left: 6px; }
+.planner-col-resp { font-size: 11px; opacity: 0.6; margin-left: 8px; }
+.planner-col-cards {
+  display: flex; flex-direction: column; gap: 8px;
+  overflow-y: auto; padding: 4px;
+  flex: 1;
+}
+.planner-card {
+  background: white; border-radius: 12px; padding: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.05);
+  cursor: grab; user-select: none;
+  transition: transform 0.32s cubic-bezier(0.32,0.72,0,1), box-shadow 0.2s ease;
+}
+body.dark .planner-card { background: #2c2c2e; box-shadow: 0 1px 3px rgba(0,0,0,0.4); color: #f5f5f7; }
+.planner-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+.planner-card.dragging { opacity: 0.7; cursor: grabbing; transform: scale(1.02) rotate(1deg); }
+.planner-card-cliente { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+.planner-card-meta { font-size: 12px; opacity: 0.65; margin-top: 4px; }
+.planner-card-total { font-size: 13px; font-weight: 600; margin-top: 6px; }
+.planner-card-badges { display:flex; gap:4px; flex-wrap:wrap; margin-top:8px; }
+.planner-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.06); font-weight: 500; }
+body.dark .planner-badge { background: rgba(255,255,255,0.12); }
+.planner-card.state-cargado { border-left: 3px solid #FFCC00; }
+.planner-card.state-confirmado-vendedor { border-left: 3px solid #34C759; }
+.planner-card.state-facturado { border-left: 3px solid #34C759; }
+.planner-card.state-fact-pendiente { border-left: 3px solid #FFCC00; }
+.planner-card.state-cobrado-parcial { border-left: 3px solid #FF9500; }
+.planner-card.state-cobrado-full { border-left: 3px solid #34C759; }
+.planner-kanban-empty { padding: 48px; text-align: center; opacity: 0.55; font-size: 13px; }
+@media (prefers-reduced-motion: reduce) {
+  .planner-card, .planner-card.dragging { transition: none; transform: none; }
+}
 </style>
 <!-- v678 (2026-08-26) PERF Fase 2: apple-design CSS extraido a archivo aparte.
      Antes ~217 KB de CSS apple-design (v650-v676) estaban inline en el <style>
@@ -4643,6 +4703,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
         <button class="tab-btn tab-action" data-tab="contactado-action" onclick="openVisitaModal('contacto')" title="Registrar contacto no presencial (WhatsApp / tel&eacute;fono / email)">Contactado</button>
         <button class="tab-btn" data-tab="altacli" onclick="setTab('altacli')" title="Alta de clientes (en construccion)">Alta clientes <span class="tab-count" id="tab-altacli-count" style="display:none">0</span></button>
         <button class="tab-btn" data-tab="rendiciones" onclick="setTab('rendiciones')" title="Rendiciones: mis gastos + aprobaciones">Rendiciones <span class="tab-count" id="tab-rend-count" style="display:none">0</span></button>
+        <button class="tab-btn" data-tab="planner" onclick="setTab('planner')" style="display:none;">&#128203; Planner</button>
         <button class="tab-btn active" id="tab-notif" data-tab="notif" onclick="setTab('notif')" title="Alertas y notificaciones">Notificaciones <span class="tab-count" id="tab-notif-count" style="display:none">0</span></button>
       </div>
     </div>
@@ -4977,6 +5038,23 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
       </div>
       <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border-subtle);text-align:center" id="notifs-footer">
         <button class="qmodal-btn primary" onclick="markAllNotifsRead()">Marcar todas como le&iacute;das</button>
+      </div>
+    </div>
+    <!-- v1005: Planner section gated Mariano-only via body.is-mariano CSS gate. -->
+    <div class="tab-pane" id="pane-planner" style="display:none;">
+      <div class="rd-subtabs">
+        <button class="rd-subtab-btn active" data-planner-sub="tablero" onclick="setPlannerSubtab('tablero')">Tablero</button>
+        <button class="rd-subtab-btn" data-planner-sub="config" onclick="setPlannerSubtab('config')">Config</button>
+      </div>
+
+      <div id="planner-pane-tablero" class="planner-subpane" style="display:block;">
+        <div class="planner-kanban" id="planner-kanban-root"></div>
+      </div>
+
+      <div id="planner-pane-config" class="planner-subpane" style="display:none;">
+        <div style="padding:48px;text-align:center;color:#999;">
+          Config responsables &mdash; pr&oacute;xima etapa (Task 15).
+        </div>
       </div>
     </div>
   </div>
@@ -5500,7 +5578,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1005';
+const APP_VERSION = 'v1006';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12131,6 +12209,8 @@ window.setTab = function(name){
   document.getElementById('pane-rendiciones').style.display = name === 'rendiciones' ? '' : 'none';
   document.getElementById('pane-altacli').style.display = name === 'altacli' ? '' : 'none';
   document.getElementById('pane-notif').style.display = name === 'notif' ? '' : 'none';
+  document.getElementById('pane-planner').style.display = name === 'planner' ? '' : 'none';
+  if (name === 'planner') attachPlannerListeners();
   if (name === 'pedidos') renderPedidosTab();
   if (name === 'rutas') { ensureVisitsListener(); renderRutasTab(); }
   if (name === 'altacli') { populateAltaCliProvincias(); ensureAltaCliListener(); }
@@ -12150,6 +12230,30 @@ window.setTab = function(name){
   currentTab = name;
   _updateHomeActiveState();
 };
+
+// v1005 Planner — mirror of functions/core/planner-compute-column.js.
+// Test tests/unit/planner-compute-column.test.js enforces parity.
+function computeColumn(pedido) {
+  if (pedido?.plannerStage === 'confirmado') return 'confirmado';
+  if (pedido?.plannerStage === 'cobrado_parcial') return 'cobrado';
+  if (pedido?.plannerStage === 'cobrado_full') return 'cobrado';
+  if (pedido?.paidStatus === 'partial' || pedido?.paidStatus === 'paid') return 'cobrado';
+  const items = Array.isArray(pedido?.items) ? pedido.items : [];
+  if (items.some(l => (l?.qtyInvoiced || 0) > 0)) return 'facturar';
+  if (pedido?.transferidoSAP?.orderDocEntry) return 'ordenes';
+  if (pedido?.transferidoSAP?.docNum) return 'oferta';
+  return 'lista_espera';
+}
+
+// v1005: Planner sub-tab toggle. Pattern mirrors setRendSubtab (rendiciones.js).
+function setPlannerSubtab(key) {
+  document.querySelectorAll('.planner-subpane').forEach(function(el) { el.style.display = 'none'; });
+  document.querySelectorAll('[data-planner-sub]').forEach(function(el) { el.classList.remove('active'); });
+  var pane = document.getElementById('planner-pane-' + key);
+  if (pane) pane.style.display = 'block';
+  var btn = document.querySelector('[data-planner-sub="' + key + '"]');
+  if (btn) btn.classList.add('active');
+}
 
 // v429: sincroniza el estado activo del FAB Home con currentTab.
 function _updateHomeActiveState(){
@@ -23144,6 +23248,9 @@ function applyRolePermissions(){
   // (por ahora: boton "Envio gratis" en cada card de cliente).
   const _em = ((currentUser && (currentUser.email || '')) || '').toLowerCase();
   document.body.classList.toggle('is-ioannis', _em === 'ioannis.plakoudakis@shimano.com.ar');
+  // v1005: Planner section gate — Mariano email + admin role.
+  const _plannerMarianoEmails = new Set(['erbinomariano@gmail.com', 'mariano.erbino@shimano.com.ar']);
+  document.body.classList.toggle('is-mariano', _plannerMarianoEmails.has(_em) && userRole === 'admin');
   // v451: whitelist de emails para el boton "Revision Excel" del header.
   // Cargar Excel del cliente + ver stock disponible + backorder + pedido.
   // Whitelist: Mariano (admin), Ioannis + Santi (VDIs, arman pedidos de sus
@@ -25092,6 +25199,13 @@ let zonasPendingChanges = {}; // key -> {scope, target, originalVendor, original
 var vendorOverrides = {}; // key -> Firestore doc (asignaciones aplicadas)
 var vendorOverridesHistory = []; // ultimos cambios para tab Historial
 var unsubVendorOverrides = null;
+// v1005 Planner Kanban state vars (var — CLAUDE.md #13 cross-scope).
+var unsubPlannerPedidos = null;
+var unsubPlannerWaitlist = null;
+var unsubPlannerConfig = null;
+var plannerPedidosCache = new Map();
+var plannerWaitlistCache = new Map();
+var plannerResponsablesCache = {};
 let vdiPartnerUsers = []; // usuarios con rol 'interno' (VDIs) para el dropdown
 let otherUsers = []; // usuarios con rol 'admin' u otros -> seccion "Otros"
 
@@ -26785,6 +26899,149 @@ window.deleteAllHistory = async function(){
 
 // E2.o (e2b-perf 2026-07-28): admin-users F2 (deleteUserRole + TOTP + changeUserPassword + saveUserRole) → src/domains/admin-users.js
 
+// v1005 Planner: 6-column Kanban with drag-drop support (T11 wires drag).
+const PLANNER_COLUMNS = [
+  { key: 'lista_espera', label: 'Lista de espera' },
+  { key: 'oferta',       label: 'Oferta' },
+  { key: 'ordenes',      label: 'Órdenes' },
+  { key: 'confirmado',   label: 'Confirmado' },
+  { key: 'facturar',     label: 'Facturar' },
+  { key: 'cobrado',      label: 'Cobrado' },
+];
+
+function attachPlannerListeners() {
+  if (unsubPlannerPedidos) return;  // already attached
+  const db = fbDb;
+
+  unsubPlannerConfig = db.doc('app_config/planner_responsables').onSnapshot(snap => {
+    plannerResponsablesCache = snap.exists ? (snap.data() || {}) : {};
+    renderPlannerKanban();
+  }, err => console.warn('planner_responsables listener:', err?.message));
+
+  unsubPlannerPedidos = db.collection('pedidos')
+    .where('closedAt', '==', null)
+    .onSnapshot(snap => {
+      plannerPedidosCache.clear();
+      snap.forEach(d => plannerPedidosCache.set(d.id, { id: d.id, ...d.data() }));
+      renderPlannerKanban();
+    }, err => console.warn('pedidos listener:', err?.message));
+
+  unsubPlannerWaitlist = db.collection('revision_waitlist')
+    .where('stage', '!=', 'consumed')
+    .onSnapshot(snap => {
+      plannerWaitlistCache.clear();
+      snap.forEach(d => plannerWaitlistCache.set(d.id, { id: d.id, ...d.data() }));
+      renderPlannerKanban();
+    }, err => console.warn('revision_waitlist listener:', err?.message));
+}
+
+function renderPlannerKanban() {
+  const root = document.getElementById('planner-kanban-root');
+  if (!root) return;
+
+  const byCol = { lista_espera: [], oferta: [], ordenes: [], confirmado: [], facturar: [], cobrado: [] };
+  for (const p of plannerPedidosCache.values()) {
+    byCol[computeColumn(p)].push(p);
+  }
+  for (const w of plannerWaitlistCache.values()) {
+    byCol.lista_espera.push({ ...w, _isWaitlist: true });
+  }
+
+  const tsOf = x => {
+    const t = x.updatedAt || x.createdAt;
+    if (!t) return 0;
+    if (typeof t.toMillis === 'function') return t.toMillis();
+    if (typeof t === 'number') return t;
+    return 0;
+  };
+  Object.keys(byCol).forEach(k => byCol[k].sort((a, b) => tsOf(b) - tsOf(a)));
+
+  const html = PLANNER_COLUMNS.map(col => {
+    const resp = plannerResponsablesCache[col.key];
+    const respEmail = resp && resp.email ? escapeHtml(resp.email) : '';
+    const cardsHtml = byCol[col.key].length
+      ? byCol[col.key].map(p => renderPlannerCard(p, col.key)).join('')
+      : '<div class="planner-kanban-empty" style="padding:24px;">Sin pedidos</div>';
+    return (
+      '<div class="planner-col" data-col="' + col.key + '">' +
+        '<div class="planner-col-header">' +
+          '<span>' + escapeHtml(col.label) +
+            '<span class="planner-col-count">' + byCol[col.key].length + '</span>' +
+          '</span>' +
+          '<span class="planner-col-resp">' + respEmail + '</span>' +
+        '</div>' +
+        '<div class="planner-col-cards">' + cardsHtml + '</div>' +
+      '</div>'
+    );
+  }).join('');
+
+  // All user data goes through escapeHtml — repo-wide innerHTML pattern (rendiciones, dashboard).
+  root.innerHTML = html;
+}
+
+function renderPlannerCard(pedido, column) {
+  const cliente = escapeHtml(pedido.cardName || pedido.cardCode || '(sin cliente)');
+  const vdi = escapeHtml(pedido.vendorKey || '—');
+  const fecha = _plannerFmtDate(pedido.createdAt || pedido.updatedAt);
+  const totalNum = typeof pedido.total === 'number' ? pedido.total
+                  : (typeof pedido.totalARS === 'number' ? pedido.totalARS : null);
+  const total = totalNum != null
+    ? totalNum.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 })
+    : '';
+  const badges = [];
+  if (pedido.transferidoSAP && pedido.transferidoSAP.docNum) badges.push('SAP:' + pedido.transferidoSAP.docNum);
+  if (pedido.transferidoSAP && pedido.transferidoSAP.orderDocEntry) badges.push('SO:' + pedido.transferidoSAP.orderDocEntry);
+  if (Array.isArray(pedido.plannerAttachments) && pedido.plannerAttachments.length) {
+    badges.push('📎' + pedido.plannerAttachments.length);
+  }
+  const badgesHtml = badges.map(b => '<span class="planner-badge">' + escapeHtml(b) + '</span>').join('');
+  const stateClass = computePlannerCardStateClass(pedido, column);
+
+  return (
+    '<div class="planner-card ' + stateClass + '"' +
+      ' data-pedido-id="' + escapeHtml(pedido.id) + '"' +
+      ' data-column="' + column + '"' +
+      ' draggable="true"' +
+      ' onclick="openPlannerCardModal(\'' + escapeHtml(pedido.id) + '\')">' +
+      '<div class="planner-card-cliente">' + cliente + '</div>' +
+      '<div class="planner-card-meta">' + vdi + ' · ' + escapeHtml(fecha) + '</div>' +
+      (total ? '<div class="planner-card-total">' + escapeHtml(total) + '</div>' : '') +
+      '<div class="planner-card-badges">' + badgesHtml + '</div>' +
+    '</div>'
+  );
+}
+
+function computePlannerCardStateClass(pedido, column) {
+  if (column === 'lista_espera') {
+    const items = Array.isArray(pedido.items) ? pedido.items : [];
+    const anyConfirmed = pedido.vendorConfirmed === true || items.some(i => i && i.vendorConfirmed === true);
+    return anyConfirmed ? 'state-confirmado-vendedor' : 'state-cargado';
+  }
+  if (column === 'facturar') {
+    const items = Array.isArray(pedido.items) ? pedido.items : [];
+    const allInvoiced = items.length > 0 && items.every(i => i && (i.qtyInvoiced || 0) >= (i.qty || 0));
+    return allInvoiced ? 'state-facturado' : 'state-fact-pendiente';
+  }
+  if (column === 'cobrado') {
+    const isFull = pedido.paidStatus === 'paid' || pedido.plannerStage === 'cobrado_full';
+    return isFull ? 'state-cobrado-full' : 'state-cobrado-parcial';
+  }
+  return '';
+}
+
+function _plannerFmtDate(ts) {
+  if (!ts) return '';
+  const d = (typeof ts.toDate === 'function') ? ts.toDate()
+          : (typeof ts === 'number' ? new Date(ts) : (ts instanceof Date ? ts : null));
+  if (!d || isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+}
+
+// Stub — real modal implemented in Task 12.
+function openPlannerCardModal(pedidoId) {
+  console.log('[planner] TODO modal open for', pedidoId);
+}
+
 function detachFirebaseListeners(){
   // E1 (e2b-perf 2026-07-27): audit reveló que solo 8/31 listeners onSnapshot
   // se limpiaban acá. Los otros 23 quedaban vivos al logout → acumulaban en
@@ -26853,6 +27110,10 @@ function detachFirebaseListeners(){
   n += off('_unsubFacturacionSnapshot', _unsubFacturacionSnapshot, () => _unsubFacturacionSnapshot = null);
   n += off('_unsubCampaniaSnapshot', _unsubCampaniaSnapshot, () => _unsubCampaniaSnapshot = null);
   n += off('_unsubDashboardVisuales', _unsubDashboardVisuales, () => _unsubDashboardVisuales = null);
+  // v1005 Planner Kanban listeners.
+  n += off('unsubPlannerPedidos', unsubPlannerPedidos, () => unsubPlannerPedidos = null);
+  n += off('unsubPlannerWaitlist', unsubPlannerWaitlist, () => unsubPlannerWaitlist = null);
+  n += off('unsubPlannerConfig', unsubPlannerConfig, () => unsubPlannerConfig = null);
   if (typeof _logT === 'function') _logT('detach: ' + n + ' listeners cerrados');
   return n;
 }

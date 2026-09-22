@@ -80,6 +80,21 @@ service firebase.storage {
                        request.resource.contentType == 'application/vnd.ms-excel');
     }
 
+    // Adjuntos del Kanban Planner (v981+, 2026-09-22):
+    // - Mariano + admin solo pueden subir attachments (fase 1).
+    // - Read: admin/gerente o Mariano whitelist.
+    // - Write: Mariano whitelist o admin role, max 10 MB, solo PDF/JPEG/PNG.
+    match /planner-attachments/{pedidoId}/{fileName} {
+      allow read: if request.auth != null
+                   && (request.auth.token.email in ['erbinomariano@gmail.com', 'mariano.erbino@shimano.com.ar']
+                       || firestore.get(/databases/(default)/documents/roles/$(request.auth.uid)).data.role in ['admin', 'gerente']);
+      allow write: if request.auth != null
+                    && (request.auth.token.email in ['erbinomariano@gmail.com', 'mariano.erbino@shimano.com.ar']
+                        || firestore.get(/databases/(default)/documents/roles/$(request.auth.uid)).data.role == 'admin')
+                    && request.resource.size < 10 * 1024 * 1024
+                    && request.resource.contentType.matches('application/pdf|image/jpeg|image/png');
+    }
+
     // Default: bloquear todo lo demas. Si en el futuro se agrega otro
     // path (ej: fotos de visitas migradas a Storage), agregar un match
     // dedicado arriba con sus propias reglas.

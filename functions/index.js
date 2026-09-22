@@ -18,6 +18,7 @@ import { defineSecret } from 'firebase-functions/params';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import nodemailer from 'nodemailer';
 // @google-cloud/firestore es pesado (~50 MB con gRPC/protobuf) y solo se
 // usa dentro de dailyFirestoreBackup para instanciar FirestoreAdminClient.
 // Cargarlo top-level exhausta el timeout de 10s del "backend spec analysis"
@@ -43,6 +44,9 @@ import { syncSapInvoices } from './core/invoice-sync-core.js';
 // v774 (2026-09-02): notif email al enviar oferta a SAP (pedido Mariano).
 import { buildEmailContent, sendEmail, shouldNotify } from './core/notify-quotation-sent-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
+import { handleResendPlannerEmail } from './core/planner-resend-email-core.js';
+// v1005 (2026-09-22): Planner Kanban — trigger email on column transition.
+import { handlePlannerStageChanged } from './core/planner-stage-change-core.js';
 // v939 (SecAudit Sprint 2 MED-15 VULN-L004+L015): rate limit para sapProxy
 // + geminiOcrProxy. Contador atomico en Firestore rate_limits/{uid}.
 import { checkAndIncrementRateLimit, RATE_LIMITS } from './core/rate-limit-core.js';
@@ -1618,6 +1622,71 @@ export const onRendicionCreatedCheckDuplicate = onDocumentCreated(
     } catch (e) {
       console.error('[antidup] error', e);
       // NO re-throw: retry:false + no queremos que fallos aca frenen el flow.
+    }
+  }
+);
+
+// v1005 (2026-09-22): Planner Kanban section — trigger email on column transition.
+// Idempotencia via pedido.plannerEmails.{column}.sentAt.
+// Deploy pending human approval — see Task 5 of Planner Kanban plan.
+export const onPlannerStageChanged = onDocumentWritten(
+  {
+    document: 'pedidos/{id}',
+    region: REGION,
+    secrets: [GMAIL_APP_PASSWORD],
+  },
+  async (event) => {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: 'bot.shimano.pesca@gmail.com',
+        pass: GMAIL_APP_PASSWORD.value(),
+      },
+    });
+
+    try {
+      return await handlePlannerStageChanged(event, {
+        db: getFirestore(),
+        transporter,
+        log: console,
+        now: () => new Date(),
+      });
+    } catch (err) {
+      console.error('onPlannerStageChanged failed:', err);
+      // NEVER throw — retries would duplicate emails when the send actually succeeded.
+      return { skipped: 'error', error: err?.message };
+    }
+  }
+);
+
+// v1005 (2026-09-22): Callable to re-send Planner column-entry email.
+// Mariano only. Clears plannerEmails.{col}.sentAt so the stage handler re-fires.
+// Deploy pending human approval.
+export const resendPlannerEmail = onCall(
+  { region: REGION, secrets: [GMAIL_APP_PASSWORD] },
+  async (request) => {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: 'bot.shimano.pesca@gmail.com', pass: GMAIL_APP_PASSWORD.value() },
+    });
+    const db = getFirestore();
+    try {
+      return await handleResendPlannerEmail(request.data, request.auth ?? null, {
+        db,
+        stageHandler: (event) =>
+          handlePlannerStageChanged(event, {
+            db,
+            transporter,
+            log: console,
+            now: () => new Date(),
+          }),
+        log: console,
+      });
+    } catch (err) {
+      if (err?.code && err?.message) {
+        throw new HttpsError(err.code, err.message);
+      }
+      throw new HttpsError('internal', 'Resend failed', { detail: err?.message });
     }
   }
 );

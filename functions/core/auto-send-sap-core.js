@@ -26,7 +26,7 @@
  * (loading configs, wiring deps, invocando handleAutoSendSap).
  */
 
-import { sapLogin, sapLogout, sapPost } from './sap-sl-client.js';
+import { sapGet, sapLogin, sapLogout, sapPost } from './sap-sl-client.js';
 
 /**
  * @typedef {Object} SlDeps
@@ -77,6 +77,7 @@ export const AUTO_SEND_RESULT = /** @type {const} */ ({
   SKIP_LOCKED: 'skip_locked', // otra sesion tiene lock activo
   SKIP_NO_LINES: 'skip_no_lines', // pedido sin lineas confirmed
   SENT_OK: 'sent_ok', // envio exitoso a SAP
+  SENT_OK_IDEMPOTENT: 'sent_ok_idempotent', // v1006: SAP ya tenia SQ con este NumAtCard, no re-POST
   ERROR_SL: 'error_sl', // SL devolvio error (no reintentable auto)
   ERROR_RACE: 'error_race', // otra sesion completo despues del lock
 });
@@ -476,6 +477,89 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
   let session = null;
   try {
     session = await sapLogin(deps.sl);
+
+    // v1006 (2026-09-22): CHECK IDEMPOTENTE por NumAtCard antes del POST.
+    // Cierra los 2 vectores residuales que quedaban abiertos post-v1005:
+    //   1. SAP tarda >5min (lockTtlMs expira). Otra sesion toma lock y
+    //      re-envia -> antes se creaba SQ duplicado en SAP. Ahora el
+    //      segundo intento chequea por NumAtCard y encuentra el SQ del
+    //      primer intento -> writes transferidoSAP sin re-POST.
+    //   2. sapPost OK pero write transferidoSAP falla (network hiccup,
+    //      Firestore latency). Siguiente trigger fire re-invoca; el check
+    //      encuentra el SQ y no re-crea.
+    // NumAtCard = pedidoId (Firestore doc id, ~20 chars alphanum) -> colision
+    // con otro pedido es cripticamente improbable.
+    // Fallback defensivo: si el GET falla o tarda, seguimos con el POST
+    // (comportamiento previo). No queremos que el check bloquee envios legit.
+    const idempotenceQ = `$filter=${encodeURIComponent(`NumAtCard eq '${pedidoId}'`)}&$select=DocEntry,DocNum,NumAtCard&$top=1`;
+    /** @type {{DocNum: number, DocEntry: number} | null} */
+    let existingSq = null;
+    try {
+      const check = await sapGet(session, `/b1s/v1/Quotations?${idempotenceQ}`, deps.sl);
+      if (
+        check.status === 200 &&
+        check.body &&
+        Array.isArray(check.body.value) &&
+        check.body.value.length > 0
+      ) {
+        const found = check.body.value[0];
+        const foundDocNum = Number(found.DocNum);
+        const foundDocEntry = Number(found.DocEntry);
+        if (Number.isFinite(foundDocNum) && Number.isFinite(foundDocEntry)) {
+          existingSq = { DocNum: foundDocNum, DocEntry: foundDocEntry };
+          log('[auto-send] idempotent hit', {
+            pedidoId,
+            existingDocNum: foundDocNum,
+            existingDocEntry: foundDocEntry,
+          });
+        }
+      }
+    } catch (e) {
+      // GET fallo -> log warn + seguir con POST (fallback al comportamiento
+      // previo). No bloqueamos envios por un problema del check.
+      log('[auto-send] idempotent check failed (non-blocking)', {
+        pedidoId,
+        err: e && e.message ? e.message : String(e),
+      });
+    }
+
+    if (existingSq) {
+      // SAP ya tiene un SQ para este pedidoId. Escribir transferidoSAP con
+      // el DocNum encontrado (transaccional, doble-check race). NO re-POST.
+      let winner = { docNum: existingSq.DocNum, docEntry: existingSq.DocEntry, byUs: false };
+      await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
+        const snap = await tx.get(docRef);
+        if (!snap.exists) return;
+        const data = snap.data() || {};
+        if (data.transferidoSAP && data.transferidoSAP.docNum) {
+          winner = {
+            docNum: data.transferidoSAP.docNum,
+            docEntry: data.transferidoSAP.docEntry,
+            byUs: false,
+          };
+          return;
+        }
+        tx.update(docRef, {
+          transferidoSAP: {
+            via: 'cf_auto_idempotent',
+            docEntry: existingSq.DocEntry,
+            docNum: existingSq.DocNum,
+            transferredAt: new Date(now).toISOString(),
+            transferredBy: 'cf-auto/' + sessionId,
+            sapDocRange: String(existingSq.DocNum),
+            batchId: 'CF-AUTO-IDEMPOTENT-' + now,
+          },
+          sendingSapLock: deps.FieldValue.delete(),
+        });
+        winner = { docNum: existingSq.DocNum, docEntry: existingSq.DocEntry, byUs: true };
+      });
+      return {
+        result: AUTO_SEND_RESULT.SENT_OK_IDEMPOTENT,
+        docNum: winner.docNum,
+        docEntry: winner.docEntry,
+      };
+    }
+
     const resp = await sapPost(session, '/b1s/v1/Quotations', built.payload, deps.sl);
     if (resp.status !== 201) {
       const errMsg =
