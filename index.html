@@ -3067,6 +3067,10 @@ body.dark .planner-modal-lineas-table tbody td { border-color: rgba(255,255,255,
 @media (prefers-reduced-motion: reduce) {
   .planner-modal-backdrop, .planner-modal { animation: none; }
 }
+/* v1007 Planner Config sub-tab dark mode */
+body.dark #planner-config-root > div > div { background: rgba(255,255,255,0.04) !important; }
+body.dark #planner-config-root input[type="email"] { background: #2c2c2e; color: #f5f5f7; border-color: rgba(255,255,255,0.16); }
+body.dark #planner-config-root input[type="email"][readonly] { background: rgba(255,255,255,0.02); }
 </style>
 <!-- v678 (2026-08-26) PERF Fase 2: apple-design CSS extraido a archivo aparte.
      Antes ~217 KB de CSS apple-design (v650-v676) estaban inline en el <style>
@@ -5155,9 +5159,7 @@ body.dark .planner-modal-lineas-table tbody td { border-color: rgba(255,255,255,
       </div>
 
       <div id="planner-pane-config" class="planner-subpane" style="display:none;">
-        <div style="padding:48px;text-align:center;color:#999;">
-          Config responsables &mdash; pr&oacute;xima etapa (Task 15).
-        </div>
+        <div id="planner-config-root"></div>
       </div>
     </div>
   </div>
@@ -12356,6 +12358,91 @@ function setPlannerSubtab(key) {
   if (pane) pane.style.display = 'block';
   var btn = document.querySelector('[data-planner-sub="' + key + '"]');
   if (btn) btn.classList.add('active');
+  if (key === 'config') renderPlannerConfig();
+}
+
+// v1007 Planner Config: form for editing responsables per column.
+function renderPlannerConfig() {
+  var root = document.getElementById('planner-config-root');
+  if (!root) return;
+  var config = plannerResponsablesCache || {};
+
+  var rowsHtml = PLANNER_COLUMNS.map(function(col) {
+    var c = config[col.key] || {};
+    var isConfirmado = col.key === 'confirmado';
+    var isFacturar = col.key === 'facturar';
+    var emailValue = isConfirmado ? 'mariano.erbino@shimano.com.ar' : (c.email || '');
+    var notifyChecked = c.notifyOnEnter !== false;
+    var vdiChecked = isFacturar && !!c.sendToVdi;
+
+    return (
+      '<div style="margin-bottom:16px;padding:16px;background:rgba(0,0,0,0.03);border-radius:12px;">' +
+        '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px;">' +
+          '<label style="font-weight:600;font-size:14px;letter-spacing:-0.01em;">' + escapeHtml(col.label) + '</label>' +
+          (isConfirmado ? '<span style="font-size:11px;opacity:.6;">Hardcoded a Mariano</span>' : '') +
+        '</div>' +
+        '<input type="email" name="' + col.key + '_email"' +
+          ' value="' + escapeHtml(emailValue) + '"' +
+          (isConfirmado ? ' readonly' : '') +
+          ' placeholder="alguien@shimano.com.ar"' +
+          ' style="width:100%;padding:8px 12px;border:1px solid rgba(0,0,0,0.12);border-radius:8px;font-size:14px;box-sizing:border-box;font-family:inherit;' + (isConfirmado ? 'opacity:.6;background:rgba(0,0,0,0.02);' : '') + '">' +
+        '<label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;cursor:pointer;">' +
+          '<input type="checkbox" name="' + col.key + '_notify"' + (notifyChecked ? ' checked' : '') + '>' +
+          'Notificar cuando una card entre a esta columna' +
+        '</label>' +
+        (isFacturar
+          ? '<label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:13px;cursor:pointer;">' +
+              '<input type="checkbox" name="facturar_vdi"' + (vdiChecked ? ' checked' : '') + '>' +
+              'Además enviar email al VDI del pedido' +
+            '</label>'
+          : '') +
+      '</div>'
+    );
+  }).join('');
+
+  root.innerHTML =
+    '<div style="padding:24px;max-width:640px;">' +
+      '<h3 style="margin:0 0 4px;font-weight:700;letter-spacing:-0.02em;">Responsables por columna</h3>' +
+      '<p style="font-size:13px;opacity:.6;margin:0 0 24px;">Email que recibe notificación cuando una card entra a esa columna. Solo Mariano puede editar (regla de Firestore).</p>' +
+      '<form id="planner-config-form" onsubmit="savePlannerResponsables(event)">' +
+        rowsHtml +
+        '<button type="submit" style="background:#007AFF;color:white;padding:10px 20px;border-radius:8px;border:none;cursor:pointer;font-weight:600;font-family:inherit;font-size:14px;">Guardar</button>' +
+      '</form>' +
+    '</div>';
+}
+
+async function savePlannerResponsables(ev) {
+  ev.preventDefault();
+  var form = ev.target;
+  try {
+    var payload = {};
+    for (var i = 0; i < PLANNER_COLUMNS.length; i++) {
+      var col = PLANNER_COLUMNS[i];
+      var emailInput = form[col.key + '_email'];
+      var notifyInput = form[col.key + '_notify'];
+      var emailRaw = (emailInput && emailInput.value ? emailInput.value : '').trim().toLowerCase();
+      var notifyOnEnter = !!(notifyInput && notifyInput.checked);
+      var entry = { notifyOnEnter: notifyOnEnter };
+      if (col.key === 'confirmado') {
+        entry.email = 'mariano.erbino@shimano.com.ar';
+        entry.name = 'Mariano';
+        entry.hardcoded = true;
+      } else {
+        entry.email = emailRaw;
+        entry.name = emailRaw ? emailRaw.split('@')[0] : '';
+      }
+      if (col.key === 'facturar') {
+        var vdiInput = form.facturar_vdi;
+        entry.sendToVdi = !!(vdiInput && vdiInput.checked);
+      }
+      payload[col.key] = entry;
+    }
+    await fbDb.doc('app_config/planner_responsables').set(payload);
+    alert('Config guardada.');
+  } catch (err) {
+    console.error('[planner] save responsables failed:', err);
+    alert('Error al guardar: ' + (err && err.message ? err.message : err));
+  }
 }
 
 // v429: sincroniza el estado activo del FAB Home con currentTab.
