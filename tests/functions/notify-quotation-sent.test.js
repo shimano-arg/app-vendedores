@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildEmailContent, computeTotalArs, shouldNotify } from '../../functions/core/notify-quotation-sent-core.js';
+import {
+  buildEmailContent,
+  computeTotalArs,
+  shouldNotify,
+} from '../../functions/core/notify-quotation-sent-core.js';
 
 // v1034 (2026-09-22): unit tests para el trigger onQuotationSentNotify (santiago.beron@shimano.uy).
 // El bug reportado: el email siempre llegaba con total vacio porque el CF leia

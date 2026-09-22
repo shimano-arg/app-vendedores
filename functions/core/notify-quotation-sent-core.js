@@ -109,9 +109,8 @@ export function buildEmailContent(pedidoId, pedido) {
   const ts = pedido.transferidoSAP || {};
   const nLines = Array.isArray(pedido.lines) ? pedido.lines.length : 0;
   const totalArs = computeTotalArs(pedido);
-  const totalFmt = totalArs != null
-    ? '$' + totalArs.toLocaleString('es-AR', { minimumFractionDigits: 0 })
-    : '-';
+  const totalFmt =
+    totalArs != null ? '$' + totalArs.toLocaleString('es-AR', { minimumFractionDigits: 0 }) : '-';
 
   const subject = `[Shimano App] Oferta SAP ${ts.docNum} - ${pedido.clientName || 'Cliente'}`;
 
