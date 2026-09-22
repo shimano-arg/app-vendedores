@@ -4672,7 +4672,23 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1026
+## 41) Changelog v300 → v1027
+
+### v1027 (2026-09-22) — Planner: fix listener waitlist — `.where('stage', '!=', 'consumed')` excluía docs sin campo `stage`
+
+**Reporte**: Mariano — la columna Lista de espera del Planner mostraba pedidos distintos a la lista de espera del sidebar-left (6 en sidebar vs 10 completamente diferentes en Planner). Ninguno matcheaba.
+
+**Root cause**: en `attachPlannerListeners` (`index.html:27435`), el listener del Planner usaba:
+```js
+db.collection('revision_waitlist').where('stage', '!=', 'consumed')
+```
+Firestore `!=` **excluye docs que no tienen el campo `stage` en absoluto**. Los 6 waitlists activos en producción NO tienen el campo `stage` (son de antes de que se introdujera con v953) — los 6 quedaban invisibles al Planner.
+
+El sidebar-left NO tenía este bug porque usaba filter client-side (`shouldIncludeWaitlistDoc` en `src/pure/waitlist-filter.js`), que solo excluye docs con `stage === 'consumed'` explícitamente.
+
+**Fix**: replicar el pattern del sidebar-left en el listener del Planner: sin `where`, filter client-side. Ahora ambas fuentes usan el mismo criterio.
+
+Los pedidos "lista_espera" que aparecían en el Planner antes eran de la colección `pedidos` con `computeColumn === 'lista_espera'` (sin plannerStage, sin qtyInvoiced, sin orderDocEntry, sin docNum) — esos siguen apareciendo. Los 6 waitlists faltantes se agregan.
 
 ### v1026 (2026-09-22) — Planner: rename labels `Órdenes` → `Pendiente de facturar` y `Facturar` → `Facturado`
 
