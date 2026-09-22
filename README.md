@@ -4672,7 +4672,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1037
+## 41) Changelog v300 → v1038
+
+### v1038 (2026-09-22) — Planner modal líneas: agregar columna Subtotal + fallback `getDefaultPrice` para waitlist entries
+
+**Reporte**: Mariano — al abrir el modal de una card del Planner (LUIS ALBERTO SUGAIAR ORDEN 207, waitlist entry), veía `Facturado=0` y `Precio=0` en todas las líneas.
+
+**Root cause**: mismo pattern que v1036 (`_plannerComputeTotal`) — los waitlist entries en `revision_waitlist` NO tienen `precio` ni `priceAtCreation` en sus lines, solo `code, desc, qty`. El render del modal no tenía fallback a `getDefaultPrice(code)`.
+
+**Fix** (`renderPlannerModalLineas`):
+1. **Precio**: 4to fallback a `getDefaultPrice(code)` si no hay precio en la línea (mismo lookup que usa el modal Waitlist Card y `_plannerComputeTotal`).
+2. **Nueva columna "Subtotal"** = `qty × precio`. Formato $ ARS.
+3. **Footer con "Total pedido"** — suma de todos los subtotales (solo si > 0).
+4. **Formato precios**: cambiado a formato $ ARS integer (era plain number con maximumFractionDigits 2).
+
+Ahora el modal muestra la tabla completa: `SKU / Descripción / Qty / Facturado / Precio / Subtotal` + Total pedido en el footer.
 
 ### v1037 (2026-09-22) — Planner: removida columna "Confirmado" — pipeline 100% automático + lineal
 
