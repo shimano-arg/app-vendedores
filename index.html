@@ -5774,7 +5774,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1036';
+const APP_VERSION = 'v1037';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12442,7 +12442,10 @@ function computeColumn(pedido) {
   const lineas = Array.isArray(pedido?.lines) ? pedido.lines
                 : (Array.isArray(pedido?.items) ? pedido.items : []);
   if (lineas.some(l => (l?.qtyInvoiced || 0) > 0)) return 'facturar';
-  if (pedido?.plannerStage === 'confirmado') return 'confirmado';
+  // v1037 (2026-09-22): removida columna 'confirmado'. Un doc con plannerStage=
+  // 'confirmado' cae ahora en las siguientes reglas (SAP-based). El único
+  // pedido en prod con ese stage (BIANCHINI SAP:2000120) ya caía en 'facturar'
+  // por Rule 3 (qtyInvoiced>0) — cero impacto de datos.
   if (pedido?.transferidoSAP?.orderDocEntry) return 'ordenes';
   if (pedido?.transferidoSAP?.docNum) return 'oferta';
   return 'lista_espera';
@@ -27389,21 +27392,24 @@ window.deleteAllHistory = async function(){
 
 // v1005 Planner: 6-column Kanban with drag-drop support (T11 wires drag).
 // v1026 (2026-09-22): rename labels 'Órdenes' → 'Pendiente de facturar' y
-// 'Facturar' → 'Facturado' — reflejan mejor la semántica actual (Órdenes ya
-// eran "SO creada esperando facturar"; Facturar ya se subdividía visualmente
-// en parcial/full via state-fact-pendiente vs state-facturado). Keys internos
-// intactos para no romper plannerHistory/plannerEmails/config responsables.
+// 'Facturar' → 'Facturado'.
+// v1037 (2026-09-22): removida columna 'Confirmado' — 0 pedidos en uso, era
+// el único stage manual del pipeline que nadie usaba. Pipeline queda 100%
+// automático + lineal: Lista de espera → Oferta → Pend. facturar → Facturado
+// → Cobrado. El key 'confirmado' desaparece de todas las capas (computeColumn,
+// PLANNER_COLUMNS, MANUAL_TARGETS, COLUMN_LABELS del CF, tests).
 const PLANNER_COLUMNS = [
   { key: 'lista_espera', label: 'Lista de espera' },
   { key: 'oferta',       label: 'Oferta' },
   { key: 'ordenes',      label: 'Pendiente de facturar' },
-  { key: 'confirmado',   label: 'Confirmado' },
   { key: 'facturar',     label: 'Facturado' },
   { key: 'cobrado',      label: 'Cobrado' },
 ];
 
 // v1006 Planner: drag-drop handlers. Only manual columns accept drop.
-const PLANNER_MANUAL_TARGETS = new Set(['confirmado', 'cobrado']);
+// v1037: solo 'cobrado' queda como manual (raramente usado; ya casi todo
+// migra automático desde SAP via paidStatus).
+const PLANNER_MANUAL_TARGETS = new Set(['cobrado']);
 
 function onPlannerCardDragStart(ev) {
   const el = ev.currentTarget;
@@ -27453,9 +27459,8 @@ async function onPlannerColDrop(ev) {
     return;
   }
 
-  const plannerStage = dst === 'confirmado' ? 'confirmado'
-                    : dst === 'cobrado'    ? 'cobrado_parcial'
-                    : null;
+  // v1037: solo 'cobrado' es manual. La columna 'confirmado' fue removida.
+  const plannerStage = dst === 'cobrado' ? 'cobrado_parcial' : null;
   if (!plannerStage) return;
 
   try {

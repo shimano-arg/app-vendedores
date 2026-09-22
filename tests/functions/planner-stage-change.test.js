@@ -63,16 +63,11 @@ function makeDeps({ config = defaultConfig(), roleDocs = {} } = {}) {
 }
 
 function defaultConfig() {
+  // v1037: 'confirmado' removida del config (columna sacada del Planner).
   return {
     lista_espera: { email: 'le@x.com', name: 'LE', notifyOnEnter: true },
     oferta: { email: 'of@x.com', name: 'OF', notifyOnEnter: true },
     ordenes: { email: 'or@x.com', name: 'OR', notifyOnEnter: true },
-    confirmado: {
-      email: 'mariano.erbino@shimano.com.ar',
-      name: 'Mariano',
-      notifyOnEnter: true,
-      hardcoded: true,
-    },
     facturar: {
       email: 'fa@x.com',
       name: 'FA',
@@ -140,12 +135,14 @@ describe('handlePlannerStageChanged', () => {
     expect(result).toEqual({ skipped: 'already-sent' });
   });
 
-  // Case 4: transition to confirmado via plannerStage override
-  it('case 4: before=lista_espera, after has plannerStage=confirmado → email to mariano.erbino@shimano.com.ar', async () => {
+  // Case 4 (v1037): 'confirmado' removida. plannerStage='confirmado' ya no
+  // dispara email — el pedido cae en 'oferta' via Rule 5 (docNum).
+  it('case 4 (v1037): plannerStage=confirmado + docNum → cae en oferta (no confirmado)', async () => {
     const before = { items: [] };
     const after = {
       items: [],
       plannerStage: 'confirmado',
+      transferidoSAP: { docNum: 12345 },
       pedidoNumber: 'P-004',
     };
     const event = makeEvent(before, after);
@@ -153,10 +150,11 @@ describe('handlePlannerStageChanged', () => {
 
     const result = await handlePlannerStageChanged(event, deps);
 
+    // Dispara email de 'oferta' — no de 'confirmado' que ya no existe
     expect(deps.transporter.sendMail).toHaveBeenCalledTimes(1);
     const callArgs = deps.transporter.sendMail.mock.calls[0][0];
-    expect(callArgs.to).toContain('mariano.erbino@shimano.com.ar');
-    expect(result.sent.column).toBe('confirmado');
+    expect(callArgs.to).toContain('of@x.com');
+    expect(result.sent.column).toBe('oferta');
   });
 
   // Case 5: facturar + sendToVdi with matching vendor → both emails in to
@@ -302,11 +300,13 @@ describe('handlePlannerStageChanged', () => {
   });
 
   // v1022: orderNumber tiene precedencia como ID único del negocio.
-  it('case 14 (v1022): orderNumber solo (sin SAP) + transición a confirmado → "ORDEN 145"', async () => {
-    // Necesitamos que el after cambie de columna vs before para que se dispare el email.
-    // Usamos plannerStage='confirmado' — cae en columna 'confirmado' sin necesitar SAP.
+  // v1037: refactor — antes usaba plannerStage='confirmado' pero esa columna
+  // se removió. Ahora usamos transición a Cobrado (paidStatus='paid') para
+  // forzar cambio de columna vs before y validar que el subject sale "ORDEN N"
+  // sin sufijo SAP (porque no hay transferidoSAP en el pedido).
+  it('case 14 (v1022): orderNumber solo (sin SAP) + cobrado → "ORDEN 145" en subject', async () => {
     const before = { items: [] };
-    const after = { items: [], orderNumber: '145', plannerStage: 'confirmado' };
+    const after = { items: [], orderNumber: '145', paidStatus: 'paid' };
     const event = makeEvent(before, after);
     const deps = makeDeps();
 

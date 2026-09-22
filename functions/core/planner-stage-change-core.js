@@ -29,9 +29,9 @@ const COLUMN_LABELS = {
   lista_espera: 'Lista de espera',
   oferta: 'Oferta SAP',
   ordenes: 'Pendiente de facturar',
-  confirmado: 'Confirmado',
   facturar: 'Facturado',
   cobrado: 'Cobrado',
+  // v1037: 'confirmado' removida — 0 uso en prod.
 };
 
 // ---------------------------------------------------------------------------
