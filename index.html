@@ -5774,7 +5774,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1033';
+const APP_VERSION = 'v1034';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27691,22 +27691,17 @@ function renderPlannerCard(pedido, column) {
 }
 
 function computePlannerCardStateClass(pedido, column) {
-  if (column === 'lista_espera') {
-    const items = Array.isArray(pedido.items) ? pedido.items : [];
-    const anyConfirmed = pedido.vendorConfirmed === true || items.some(i => i && i.vendorConfirmed === true);
-    return anyConfirmed ? 'state-confirmado-vendedor' : 'state-cargado';
-  }
-  if (column === 'facturar') {
-    // v1013 (2026-09-22): pedidos schema real es `lines`.
-    const lineas = Array.isArray(pedido.lines) ? pedido.lines
-                  : (Array.isArray(pedido.items) ? pedido.items : []);
-    const allInvoiced = lineas.length > 0 && lineas.every(i => i && (i.qtyInvoiced || 0) >= (i.qty || 0));
-    return allInvoiced ? 'state-facturado' : 'state-fact-pendiente';
-  }
-  if (column === 'cobrado') {
-    const isFull = pedido.paidStatus === 'paid' || pedido.plannerStage === 'cobrado_full';
-    return isFull ? 'state-cobrado-full' : 'state-cobrado-parcial';
-  }
+  // v1034 (2026-09-22): simplificar semantica de colores por columna:
+  // - Facturado: AMARILLO plano (todo pedido en facturar es "no cobrado 100%",
+  //   los 100% cobrados caen automatico en Cobrado via computeColumn Rule 2/3).
+  // - Cobrado: VERDE plano (todo pedido cobrado 100%).
+  // - Otras columnas (Lista de espera, Oferta, Pend. facturar, Confirmado):
+  //   BLANCAS (sin tinted) — el border-left izquierdo sigue como acento sutil.
+  // Reporte Mariano: "cards blancas como en las otras columnas" para reducir
+  // el ruido visual y hacer que solo Facturado (amarillo) + Cobrado (verde)
+  // llamen la atención.
+  if (column === 'facturar') return 'state-fact-pendiente';
+  if (column === 'cobrado') return 'state-cobrado-full';
   return '';
 }
 

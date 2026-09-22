@@ -4672,7 +4672,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1033
+## 41) Changelog v300 → v1034
+
+### v1034 (2026-09-22) — Planner: simplificar semántica de colores (Facturado amarillo + Cobrado verde, resto blancas)
+
+**Reporte**: Mariano — pidió que Facturado sea siempre amarillo (facturado sin cobrar 100%), Cobrado siempre verde (cobrado 100%), y las otras columnas blancas para reducir ruido visual.
+
+**Cambio** (`computePlannerCardStateClass`):
+- **Facturado** (`column === 'facturar'`): `state-fact-pendiente` (amarillo `#FFF4C2`) siempre.
+- **Cobrado** (`column === 'cobrado'`): `state-cobrado-full` (verde `#C8F0D4`) siempre.
+- **Resto** (Lista de espera, Oferta, Pend. facturar, Confirmado): `''` (sin state class → fondo blanco).
+
+**Semántica** — con Fase 2 (sync SAP payments) implementada, todo pedido 100% cobrado migra automático a Cobrado vía `computeColumn` Rule 2 (`paidStatus === 'paid'`). Todo lo que quede en Facturado es "facturado pero no cobrado 100%" → coincide con el amarillo.
+
+**Estado actual** (pre-Fase 2): 258/258 pedidos sin data de cobro en Firestore → columna Cobrado está vacía y toda card en Facturado queda amarilla. Cuando la Fase 2 esté deployada, los cobros reales de SAP se sincronizan cada 15min y las cards migran solas.
+
+**Fase 2 pendiente**: nuevo CF `syncSapPaymentsToApp` que persiste `paidAmount` y `paidStatus` desde `/IncomingPayments` de SAP SL. Requiere backend nuevo (~4-6h).
 
 ### v1033 (2026-09-22) — Planner Facturado: subtotal usa monto facturado real (qtyInvoiced × precio) — no el total del pedido completo
 
