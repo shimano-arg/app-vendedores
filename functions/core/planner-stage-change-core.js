@@ -39,17 +39,59 @@ const COLUMN_LABELS = {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolves the email of the VDI associated with a vendorKey by querying
- * the `roles` collection.
+ * Resolves the email of the VDE (vendedor externo) that owns a vendorKey.
+ *
+ * v1031 (2026-09-22) rename: antes se llamaba `resolveVdiEmail` pero
+ * semanticamente devuelve el VDE, no el VDI (el que tiene `vendor` en `roles`
+ * es el VDE, el VDI es su partner). Config `sendToVdi` en Facturar quedó
+ * mal nombrada — en realidad envía al VDE (dueño del pedido).
  *
  * @param {string} vendorKey
  * @param {any} db  - Injected Firestore instance
  * @returns {Promise<string|null>}
  */
-async function resolveVdiEmail(vendorKey, db) {
+async function resolveVdeEmail(vendorKey, db) {
   const snap = await db.collection('roles').where('vendor', '==', vendorKey).limit(1).get();
   if (snap.empty) return null;
   return snap.docs[0].data().email || null;
+}
+
+/**
+ * Resolves the email of the VDI (vendedor interno) pareja del VDE dueño de
+ * un pedido. Flow:
+ *   1. Buscar VDE con `vendor === pedido.ownerVendor` (o `vendorKey` fallback)
+ *   2. Leer su `internalPartnerUid` (apunta al UID del VDI pareja)
+ *   3. Traer `roles/{internalPartnerUid}` y devolver su email
+ *
+ * v1031 (2026-09-22): pedido de Mariano — notificar a los VDIs (Santiago
+ * Esteban, Ioannis Palkoudakis) cuando un pedido de su/sus pareja(s) VDE
+ * cambia de columna en el Planner. Auto-escalable a cualquier VDI futuro.
+ *
+ * @param {any} pedido - The pedido document data
+ * @param {any} db - Injected Firestore instance
+ * @returns {Promise<string|null>}
+ */
+async function resolveVdiPartnerEmail(pedido, db) {
+  const vendorKey = pedido?.ownerVendor || pedido?.vendorKey;
+  if (!vendorKey) return null;
+  // Paso 1: encontrar el VDE con ese vendor key. Usar 2 wheres para
+  // no matchear docs con vendor coincidente pero role != vendedor.
+  const vdeSnap = await db
+    .collection('roles')
+    .where('vendor', '==', vendorKey)
+    .where('role', '==', 'vendedor')
+    .limit(1)
+    .get();
+  if (vdeSnap.empty) return null;
+  const vde = vdeSnap.docs[0].data() || {};
+  const partnerUid = vde.internalPartnerUid;
+  if (!partnerUid) return null;
+  // Paso 2: leer el doc del VDI pareja
+  const vdiSnap = await db.doc('roles/' + partnerUid).get();
+  if (!vdiSnap.exists) return null;
+  const vdi = vdiSnap.data() || {};
+  if (vdi.role !== 'interno') return null;
+  return vdi.email || null;
 }
 
 /**
@@ -242,13 +284,28 @@ export async function handlePlannerStageChanged(event, deps) {
   const recipients = [];
   if (columnConfig.email) recipients.push(columnConfig.email);
 
-  // Step 6 — for 'facturar' with sendToVdi, also notify the assigned VDI
+  // Step 6a — for 'facturar' with sendToVdi (legacy — en realidad notifica al
+  // VDE dueño), notificar al VDE. v1031 rename: la función se llama
+  // resolveVdeEmail ahora (antes mal nombrada resolveVdiEmail).
   if (afterCol === 'facturar' && columnConfig.sendToVdi && after.vendorKey) {
-    const vdiEmail = await resolveVdiEmail(after.vendorKey, deps.db);
-    if (vdiEmail) {
-      recipients.push(vdiEmail);
+    const vdeEmail = await resolveVdeEmail(after.vendorKey, deps.db);
+    if (vdeEmail) {
+      recipients.push(vdeEmail);
     } else {
       deps.log.warn(`Facturar sendToVdi: no email for vendor ${after.vendorKey}`);
+    }
+  }
+
+  // Step 6b (v1031, 2026-09-22) — notificar al VDI pareja del VDE dueño del
+  // pedido para TODAS las columnas del pipeline. Pedido de Mariano: Santiago
+  // Esteban e Ioannis Palkoudakis reciben notif de cambio de columna de sus
+  // pedidos o de sus parejas VDE.
+  // Se puede deshabilitar por columna con `notifyVdiPartner: false` en la
+  // config de responsables (opt-out granular).
+  if (columnConfig.notifyVdiPartner !== false) {
+    const vdiPartnerEmail = await resolveVdiPartnerEmail(after, deps.db);
+    if (vdiPartnerEmail && !recipients.includes(vdiPartnerEmail)) {
+      recipients.push(vdiPartnerEmail);
     }
   }
 

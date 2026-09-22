@@ -18,28 +18,43 @@ function makeEvent(before, after) {
 }
 
 function makeDeps({ config = defaultConfig(), roleDocs = {} } = {}) {
+  // v1031: mock extendido — soporta .doc('roles/{uid}') para VDI partner lookup
+  // y multi-where (.where().where().limit()) para query VDE.
   return {
     db: {
       doc: (path) => ({
         get: async () => {
           if (path === 'app_config/planner_responsables')
             return { exists: true, data: () => config };
+          // v1031: soporte para roles/{uid} lookup (VDI partner)
+          if (path.startsWith('roles/')) {
+            const uid = path.slice('roles/'.length);
+            if (roleDocs[uid]) {
+              return { exists: true, data: () => roleDocs[uid] };
+            }
+            return { exists: false, data: () => ({}) };
+          }
           return { exists: false, data: () => ({}) };
         },
       }),
-      collection: (_name) => ({
-        where: (field, _op, val) => ({
+      collection: (_name) => {
+        // Builder que acumula wheres y soporta chained .where().where().limit()
+        const makeChain = (filters) => ({
+          where: (field, _op, val) => makeChain([...filters, { field, val }]),
           limit: (n) => ({
             get: async () => {
-              const uids = Object.keys(roleDocs).filter((uid) => roleDocs[uid][field] === val);
+              const uids = Object.keys(roleDocs).filter((uid) =>
+                filters.every((f) => roleDocs[uid][f.field] === f.val)
+              );
               return {
                 empty: uids.length === 0,
                 docs: uids.slice(0, n).map((uid) => ({ id: uid, data: () => roleDocs[uid] })),
               };
             },
           }),
-        }),
-      }),
+        });
+        return makeChain([]);
+      },
     },
     transporter: { sendMail: vi.fn(async () => ({ messageId: 'test' })) },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -317,6 +332,113 @@ describe('handlePlannerStageChanged', () => {
 
     const callArgs = deps.transporter.sendMail.mock.calls[0][0];
     expect(callArgs.subject).toMatch(/ORDEN 145 \(SAP:2000120 · SO:36882\)/);
+  });
+
+  // v1031: notificar al VDI pareja del VDE dueño del pedido en cualquier columna.
+  it('case 17 (v1031): pedido con ownerVendor=GONZALO → email al VDI pareja Ioannis', async () => {
+    const before = { items: [] };
+    const after = {
+      items: [],
+      ownerVendor: 'GONZALO DE LA ROSA',
+      transferidoSAP: { docNum: 12345 },
+    };
+    const event = makeEvent(before, after);
+    const deps = makeDeps({
+      roleDocs: {
+        'gonzalo-uid': {
+          role: 'vendedor',
+          vendor: 'GONZALO DE LA ROSA',
+          email: 'gonzalo@shimano.com.ar',
+          internalPartnerUid: 'ioannis-uid',
+        },
+        'ioannis-uid': {
+          role: 'interno',
+          email: 'ioannis.plakoudakis@shimano.com.ar',
+        },
+      },
+    });
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    expect(callArgs.to).toContain('ioannis.plakoudakis@shimano.com.ar');
+    // Y también el columnConfig.email de la col oferta (of@x.com)
+    expect(callArgs.to).toContain('of@x.com');
+  });
+
+  it('case 18 (v1031): VDE sin internalPartnerUid → no falla, no agrega VDI a recipients', async () => {
+    const before = { items: [] };
+    const after = { items: [], ownerVendor: 'ORPHAN', transferidoSAP: { docNum: 12345 } };
+    const event = makeEvent(before, after);
+    const deps = makeDeps({
+      roleDocs: {
+        'orphan-uid': { role: 'vendedor', vendor: 'ORPHAN', email: 'orphan@x.com' },
+      },
+    });
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    // Solo el columnConfig.email; no aparece nada más
+    expect(callArgs.to).toBe('of@x.com');
+  });
+
+  it('case 19 (v1031): notifyVdiPartner=false en config → no notifica al VDI pareja', async () => {
+    const before = { items: [] };
+    const after = {
+      items: [],
+      ownerVendor: 'GONZALO DE LA ROSA',
+      transferidoSAP: { docNum: 12345 },
+    };
+    const event = makeEvent(before, after);
+    const cfg = defaultConfig();
+    cfg.oferta.notifyVdiPartner = false;
+    const deps = makeDeps({
+      config: cfg,
+      roleDocs: {
+        'gonzalo-uid': {
+          role: 'vendedor',
+          vendor: 'GONZALO DE LA ROSA',
+          email: 'gonzalo@shimano.com.ar',
+          internalPartnerUid: 'ioannis-uid',
+        },
+        'ioannis-uid': { role: 'interno', email: 'ioannis.plakoudakis@shimano.com.ar' },
+      },
+    });
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    expect(callArgs.to).not.toContain('ioannis');
+    expect(callArgs.to).toBe('of@x.com');
+  });
+
+  it('case 20 (v1031): VDI pareja == columnConfig.email → no duplica', async () => {
+    const before = { items: [] };
+    const after = { items: [], ownerVendor: 'MARTIN BOIERO', transferidoSAP: { docNum: 12345 } };
+    const event = makeEvent(before, after);
+    const cfg = defaultConfig();
+    // Config columna oferta apunta al mismo email del VDI pareja → dedup check
+    cfg.oferta.email = 'santiago.esteban@shimano.com.ar';
+    const deps = makeDeps({
+      config: cfg,
+      roleDocs: {
+        'martin-uid': {
+          role: 'vendedor',
+          vendor: 'MARTIN BOIERO',
+          email: 'martin@shimano.com.ar',
+          internalPartnerUid: 'santiago-uid',
+        },
+        'santiago-uid': { role: 'interno', email: 'santiago.esteban@shimano.com.ar' },
+      },
+    });
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    // El email aparece una sola vez (no duplicado)
+    const matches = (callArgs.to.match(/santiago\.esteban/g) || []).length;
+    expect(matches).toBe(1);
   });
 
   it('case 16 (v1022): orderNumber + docNum (sin SO) → "ORDEN 145 (SAP:2000120)"', async () => {
