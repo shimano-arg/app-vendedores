@@ -4672,7 +4672,31 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1030
+## 41) Changelog v300 → v1031
+
+### v1031 (2026-09-22) — Planner emails: notificar al VDI pareja del VDE dueño del pedido en TODAS las columnas
+
+**Reporte**: Mariano — Santiago Esteban e Ioannis Palkoudakis (VDIs) deben recibir emails cuando un pedido de ellos o de sus parejas VDE cambie de columna en el Planner.
+
+**Estado previo**: el CF `onPlannerStageChanged` mandaba email solo al responsable de la columna (config `planner_responsables`) + al VDE dueño si `sendToVdi: true` en Facturar (mal nombrado — la función `resolveVdiEmail` en realidad devolvía el VDE, no el VDI).
+
+**Fix** (`functions/core/planner-stage-change-core.js`):
+1. **Rename**: `resolveVdiEmail` → `resolveVdeEmail` (nombre semánticamente correcto). El flow legacy de Facturar sigue funcionando idéntico.
+2. **Nueva función `resolveVdiPartnerEmail(pedido, db)`**: (1) busca VDE con `vendor === pedido.ownerVendor`, (2) lee su `internalPartnerUid`, (3) trae `roles/{partnerUid}.email`. Cero hardcode — funciona automático para cualquier VDI futuro.
+3. **Step 6b**: para TODAS las columnas del pipeline, agregar `resolveVdiPartnerEmail(after, db)` a recipients (dedup si ya está). Deshabilitable por columna con `notifyVdiPartner: false` en `planner_responsables`.
+
+**Cobertura verificada en prod** (5 VDEs con partner, 1 sin):
+- Ioannis: Gonzalo, Federico
+- Santiago: Martin Boiero, Mauricio Gil, Pachi (pachinaba)
+- ⚠️ `pachi.ventasespeciales@shimano.com.ar` sin `internalPartnerUid` — pedidos suyos no notifican al VDI (dato faltante en `roles`, decidir aparte)
+
+**Tests**: 20/20 pass (+4 nuevos v1031):
+- Case 17: VDE con partner → email al VDI pareja
+- Case 18: VDE sin partner → no falla, solo columnConfig.email
+- Case 19: `notifyVdiPartner: false` → opt-out granular
+- Case 20: VDI pareja == columnConfig.email → dedup
+
+**Deploy**: `firebase deploy --only functions:onPlannerStageChanged`
 
 ### v1030 (2026-09-22) — Planner: filtro de mes aplica a TODAS las columnas del pipeline (no solo Facturado/Cobrado)
 
