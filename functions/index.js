@@ -238,21 +238,25 @@ export const syncSapInvoicesToApp = onSchedule(
 
 /**
  * v1015 (2026-09-22): syncSapOrdersToApp — scheduled cada 60 min.
- * Cierra la columna "Órdenes" del Planner Kanban que estaba en 0 porque
- * nadie escribia `transferidoSAP.orderDocEntry` en Firestore.
+ * Cierra la columna "Pendiente de facturar" del Planner Kanban que estaba en 0
+ * porque nadie escribia `transferidoSAP.orderDocEntry` en Firestore.
+ *
+ * v1028 (2026-09-22): schedule cambiado de 60min a 15min (match con
+ * syncSapInvoicesToApp). Reporte Mariano: la latencia hasta 60min entre
+ * "genero SO en SAP" y "aparece en el Planner" era demasiada para operar.
  *
  * Flujo:
  * 1. Lista pedidos con SQ en SAP (docEntry seteado) sin orderDocEntry aun.
- * 2. Para cada uno, GET /Orders?$filter=DocumentLines/any(BaseEntry=X and BaseType=23).
+ * 2. Enum /Orders desc paginado ($skip=0..500) y matchea via BaseType=23 + BaseEntry.
  * 3. Si hit -> update `transferidoSAP.orderDocEntry` + `orderSyncedAt`.
  *
- * Idempotente. Costo: ~1 GET SAP por pedido pendiente por corrida (batch max 100).
+ * Idempotente. Costo: 1 loop de ~25 GETs por corrida (500/20 default page).
  * NO tiene modo shadow — es un enrichment de campo nuevo, no reemplaza dato existente.
  */
 export const syncSapOrdersToApp = onSchedule(
   {
     region: REGION,
-    schedule: 'every 60 minutes',
+    schedule: 'every 15 minutes',
     timeZone: 'America/Argentina/Buenos_Aires',
     retryCount: 1,
     memory: '512MiB',

@@ -4672,7 +4672,17 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1027
+## 41) Changelog v300 → v1028
+
+### v1028 (2026-09-22) — Schedule syncSapOrdersToApp: cada 60min → cada 15min
+
+**Reporte**: Mariano — la latencia de hasta 60min entre "genero SO en SAP" y "aparece en Planner" era demasiada para operar.
+
+**Fix**: `functions/index.js:255` cambio `schedule: 'every 60 minutes'` → `schedule: 'every 15 minutes'`. Match con `syncSapInvoicesToApp` que ya corre cada 15min sin problemas.
+
+**Cost esperado**: 4x más calls al SAP SL por hora (de 1 a 4). Cada corrida es ~25 GETs (500/20 default page) → 100 GETs/hr vs 25 GETs/hr antes. SAP SL responde OK a este volumen (invoices ya lo hace).
+
+**Deploy**: `firebase deploy --only functions:syncSapOrdersToApp` — GCP Cloud Scheduler se actualiza automáticamente al deploy.
 
 ### v1027 (2026-09-22) — Planner: fix listener waitlist — `.where('stage', '!=', 'consumed')` excluía docs sin campo `stage`
 
