@@ -3397,7 +3397,13 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
 <div class="modal-overlay" id="planner-board-modal" onclick="if(event.target===this)closePlannerBoardModal()" style="z-index:1200;display:none;align-items:flex-start;justify-content:center;padding:24px">
   <div class="modal-content" style="max-width:1800px;width:97vw;max-height:92vh;display:flex;flex-direction:column;background:var(--bg-elevated);border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)">
     <div style="padding:14px 20px;background:#c2410c;color:#fff;display:flex;align-items:center;gap:12px">
-      <h2 style="margin:0;font-size:16px;font-weight:800;flex:1">Planner &mdash; Tablero de pedidos</h2>
+      <h2 style="margin:0;font-size:16px;font-weight:800">Planner &mdash; Tablero de pedidos</h2>
+      <!-- v1032 (2026-09-22): reloj countdown a la proxima sync SAP (Orders
+           corre cada 15min, alineado al reloj hh:00, hh:15, hh:30, hh:45).
+           startPlannerSyncCountdown() setea el timer al abrir el modal. -->
+      <span id="planner-sync-countdown" title="Sync SAP Orders (cada 15 min)"
+            style="margin-left:14px;font-size:11px;font-weight:600;letter-spacing:.2px;background:rgba(255,255,255,.16);color:#fff;padding:5px 10px;border-radius:5px;font-variant-numeric:tabular-nums;flex:0 0 auto">Próx. sync en —</span>
+      <span style="flex:1"></span>
       <!-- v1014 (2026-09-22): filtro de mes para las columnas historicas (Facturar + Cobrado).
            Default: mes actual. "Todos" = comportamiento previo (sin filtro). -->
       <label style="color:#fff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;display:flex;align-items:center;gap:6px">
@@ -5768,7 +5774,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1031';
+const APP_VERSION = 'v1032';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12555,19 +12561,64 @@ function setPlannerSubtab(key) {
 // botón vive en el header (#planner-header-btn); openPlannerBoardModal muestra
 // el overlay, arranca listeners (idempotente) y renderiza el Kanban.
 function openPlannerBoardModal() {
+  // v1032 (2026-09-22): whitelist ampliada — Mariano + Pablo + Santiago Esteban
+  // + Ioannis (VDIs). Sync con applyRolePermissions._plannerAllowedEmails.
   var em = ((currentUser && (currentUser.email || '')) || '').toLowerCase();
-  var okEmail = em === 'mariano.erbino@shimano.com.ar' || em === 'erbinomariano@gmail.com';
-  if (!okEmail || userRole !== 'admin') return; // runtime guard extra
+  var okEmail =
+    em === 'mariano.erbino@shimano.com.ar' ||
+    em === 'erbinomariano@gmail.com' ||
+    em === 'pablo.gonzalez@shimano.com.ar' ||
+    em === 'santiago.esteban@shimano.com.ar' ||
+    em === 'ioannis.plakoudakis@shimano.com.ar';
+  var okRole = userRole === 'admin' || userRole === 'gerente' || userRole === 'interno';
+  if (!okEmail || !okRole) return; // runtime guard extra
   var modal = document.getElementById('planner-board-modal');
   if (!modal) return;
   modal.style.display = 'flex';
   setPlannerSubtab('tablero');
   try { attachPlannerListeners(); } catch (e) { console.warn('[planner] attach fail', e); }
   try { renderPlannerKanban(); } catch (e) { console.warn('[planner] render fail', e); }
+  try { startPlannerSyncCountdown(); } catch (e) { console.warn('[planner] countdown fail', e); }
 }
 function closePlannerBoardModal() {
   var modal = document.getElementById('planner-board-modal');
   if (modal) modal.style.display = 'none';
+  try { stopPlannerSyncCountdown(); } catch (e) { /* silent */ }
+}
+
+// v1032 (2026-09-22): countdown a la proxima sync SAP Orders. El schedule es
+// "every 15 minutes" (GCP Cloud Scheduler alinea a hh:00, hh:15, hh:30, hh:45
+// segun timeZone America/Argentina/Buenos_Aires). Calculamos el proximo tick
+// como ceil(now / 15min) * 15min. Cero backend, solo timer local.
+var _plannerSyncCountdownIntervalId = null;
+function _plannerNextSyncMs() {
+  var now = Date.now();
+  var quarter = 15 * 60 * 1000;
+  return Math.ceil(now / quarter) * quarter;
+}
+function _plannerRenderSyncCountdown() {
+  var el = document.getElementById('planner-sync-countdown');
+  if (!el) return;
+  var remaining = _plannerNextSyncMs() - Date.now();
+  if (remaining <= 0) {
+    el.textContent = 'Sincronizando…';
+    return;
+  }
+  var totalSec = Math.floor(remaining / 1000);
+  var m = Math.floor(totalSec / 60);
+  var s = totalSec % 60;
+  el.textContent = 'Próx. sync en ' + m + 'm ' + String(s).padStart(2, '0') + 's';
+}
+function startPlannerSyncCountdown() {
+  stopPlannerSyncCountdown();
+  _plannerRenderSyncCountdown();
+  _plannerSyncCountdownIntervalId = setInterval(_plannerRenderSyncCountdown, 1000);
+}
+function stopPlannerSyncCountdown() {
+  if (_plannerSyncCountdownIntervalId) {
+    clearInterval(_plannerSyncCountdownIntervalId);
+    _plannerSyncCountdownIntervalId = null;
+  }
 }
 
 // v1007 Planner Config: form for editing responsables per column.
@@ -23698,9 +23749,23 @@ function applyRolePermissions(){
       _panelBtn.style.display = (_isMarianoHdr && userRole === 'admin') ? '' : 'none';
     }
     // v1008 (2026-09-22): mismo gate para el nuevo Planner header btn.
+    // v1032 (2026-09-22): whitelist ampliada — Mariano + Pablo (admin/gerente)
+    // + Santiago Esteban + Ioannis Palkoudakis (VDIs role=interno). Los VDIs
+    // necesitan ver el Planner para trackear el pipeline de sus parejas VDE.
     const _plannerHdrBtn = document.getElementById('planner-header-btn');
     if (_plannerHdrBtn) {
-      _plannerHdrBtn.style.display = (_isMarianoHdr && userRole === 'admin') ? '' : 'none';
+      const _plannerAllowedEmails = new Set([
+        'mariano.erbino@shimano.com.ar',
+        'erbinomariano@gmail.com',
+        'pablo.gonzalez@shimano.com.ar',
+        'santiago.esteban@shimano.com.ar',
+        'ioannis.plakoudakis@shimano.com.ar',
+      ]);
+      const _plannerAllowedRoles = new Set(['admin', 'gerente', 'interno']);
+      const _emLower = ((currentUser && currentUser.email) || '').toLowerCase();
+      const _canPlanner =
+        _plannerAllowedEmails.has(_emLower) && _plannerAllowedRoles.has(userRole);
+      _plannerHdrBtn.style.display = _canPlanner ? '' : 'none';
     }
     // v984 (2026-09-17): botones Dashboard, Depósito y Preliminar ocultos para
     // role='vendedor'. Contexto: Pachi Naba (VDE proxy) no necesita ver KPIs,
@@ -27511,8 +27576,11 @@ function renderPlannerKanban() {
   Object.keys(byCol).forEach(k => byCol[k].sort((a, b) => tsOf(b) - tsOf(a)));
 
   const html = PLANNER_COLUMNS.map(col => {
-    const resp = plannerResponsablesCache[col.key];
-    const respEmail = resp && resp.email ? escapeHtml(resp.email) : '';
+    // v1032 (2026-09-22): removido chip con email del responsable del header
+    // — Mariano pidio menos ruido visual. La config del responsable sigue en
+    // Firestore (app_config/planner_responsables) y se ve/edita desde el
+    // tab Config del modal. Nombre: `.planner-col-resp` queda unused pero
+    // el CSS se deja por si vuelve.
     const cardsHtml = byCol[col.key].length
       ? byCol[col.key].map(p => renderPlannerCard(p, col.key)).join('')
       : '<div class="planner-kanban-empty" style="padding:24px;">Sin pedidos</div>';
@@ -27533,7 +27601,6 @@ function renderPlannerKanban() {
           '<span>' + escapeHtml(col.label) +
             '<span class="planner-col-count">' + byCol[col.key].length + '</span>' +
           '</span>' +
-          '<span class="planner-col-resp">' + respEmail + '</span>' +
         '</div>' +
         '<div class="planner-col-subtotal">' + escapeHtml(subtotalStr) + '</div>' +
         '<div class="planner-col-cards">' + cardsHtml + '</div>' +

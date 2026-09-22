@@ -4672,7 +4672,29 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1031
+## 41) Changelog v300 → v1032
+
+### v1032 (2026-09-22) — Planner: 3 mejoras UX (reloj sync + whitelist ampliada + limpiar header columna)
+
+Reporte Mariano — 3 items en un mismo PR:
+
+**A. Reloj countdown a próxima sync SAP** (junto al título del modal)
+- Nuevo `<span id="planner-sync-countdown">` en el header naranja del modal.
+- Formato: `Próx. sync en Xm YYs`. Cuando llega a 0 muestra `Sincronizando…`.
+- Cálculo cero-backend: `Math.ceil(now / 15min) * 15min` — el GCP Cloud Scheduler alinea a hh:00, hh:15, hh:30, hh:45 en zona `America/Argentina/Buenos_Aires`, así que sabemos el próximo tick sin consultar backend.
+- Timer local con `setInterval(1000ms)`. Se arranca en `openPlannerBoardModal()` y se para en `closePlannerBoardModal()` para no dejar el interval vivo.
+
+**B. Whitelist del botón "Planner" en la home ampliada**
+- Antes: Mariano only (`mariano.erbino@shimano.com.ar` + `erbinomariano@gmail.com`, role `admin`).
+- Ahora: Mariano + Pablo (`pablo.gonzalez@shimano.com.ar`, gerente/admin) + Santiago Esteban (`santiago.esteban@shimano.com.ar`, interno) + Ioannis Palkoudakis (`ioannis.plakoudakis@shimano.com.ar`, interno).
+- Roles permitidos ampliados: `admin` + `gerente` + `interno`.
+- Sync entre `applyRolePermissions` (gate CSS del btn) y `openPlannerBoardModal` (runtime guard).
+
+**C. Limpiar el chip del email del responsable en el header de cada columna**
+- Antes: `[Lista de espera 6]  mariano.erbino@shimano.com.ar` en el header de cada columna.
+- Ahora: solo `[Lista de espera 6]`. Menos ruido visual.
+- La config del responsable sigue en Firestore (`app_config/planner_responsables`) y se ve/edita desde el tab Config del modal.
+- CSS `.planner-col-resp` queda unused pero se deja por si se revierte.
 
 ### v1031 (2026-09-22) — Planner emails: notificar al VDI pareja del VDE dueño del pedido en TODAS las columnas
 
