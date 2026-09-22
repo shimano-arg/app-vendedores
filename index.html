@@ -2987,6 +2987,18 @@ body.dark .planner-toggle-btn:hover { background: rgba(255,255,255,0.06); }
 @media (prefers-reduced-motion: reduce) {
   .planner-card, .planner-card.dragging { transition: none; transform: none; }
 }
+/* v1006 Planner: drag-drop target indicators. */
+.planner-col.drop-target {
+  outline: 2px dashed rgba(0,122,255,0.6);
+  outline-offset: -4px;
+}
+.planner-col.drop-blocked {
+  outline: 2px dashed rgba(255,59,48,0.6);
+  outline-offset: -4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .planner-col.drop-target, .planner-col.drop-blocked { outline-style: solid; }
+}
 </style>
 <!-- v678 (2026-08-26) PERF Fase 2: apple-design CSS extraido a archivo aparte.
      Antes ~217 KB de CSS apple-design (v650-v676) estaban inline en el <style>
@@ -25222,6 +25234,18 @@ let zonasPendingChanges = {}; // key -> {scope, target, originalVendor, original
 var vendorOverrides = {}; // key -> Firestore doc (asignaciones aplicadas)
 var vendorOverridesHistory = []; // ultimos cambios para tab Historial
 var unsubVendorOverrides = null;
+// v1006 Planner: motion library for spring animations on drag-drop.
+// Loaded async once; stored in window._motion for use by handlers.
+(async () => {
+  try {
+    if (!window._motion) {
+      window._motion = await import('https://cdn.jsdelivr.net/npm/motion@13/+esm');
+    }
+  } catch (e) {
+    console.warn('[planner] motion lib load failed, animations disabled:', e?.message);
+  }
+})();
+
 // v1005 Planner Kanban state vars (var — CLAUDE.md #13 cross-scope).
 var unsubPlannerPedidos = null;
 var unsubPlannerWaitlist = null;
@@ -25229,6 +25253,7 @@ var unsubPlannerConfig = null;
 var plannerPedidosCache = new Map();
 var plannerWaitlistCache = new Map();
 var plannerResponsablesCache = {};
+var plannerDragged = null;  // {id, from} of card being dragged
 let vdiPartnerUsers = []; // usuarios con rol 'interno' (VDIs) para el dropdown
 let otherUsers = []; // usuarios con rol 'admin' u otros -> seccion "Otros"
 
@@ -26932,6 +26957,90 @@ const PLANNER_COLUMNS = [
   { key: 'cobrado',      label: 'Cobrado' },
 ];
 
+// v1006 Planner: drag-drop handlers. Only manual columns accept drop.
+const PLANNER_MANUAL_TARGETS = new Set(['confirmado', 'cobrado']);
+
+function onPlannerCardDragStart(ev) {
+  const el = ev.currentTarget;
+  plannerDragged = { id: el.dataset.pedidoId, from: el.dataset.column };
+  el.classList.add('dragging');
+  ev.dataTransfer.effectAllowed = 'move';
+  ev.dataTransfer.setData('text/plain', plannerDragged.id);
+}
+
+function onPlannerCardDragEnd(ev) {
+  ev.currentTarget.classList.remove('dragging');
+  plannerDragged = null;
+  document.querySelectorAll('.planner-col.drop-target, .planner-col.drop-blocked')
+    .forEach(c => c.classList.remove('drop-target', 'drop-blocked'));
+}
+
+function onPlannerColDragOver(ev) {
+  ev.preventDefault();
+  const dst = ev.currentTarget.dataset.col;
+  if (!plannerDragged || plannerDragged.from === dst) return;
+  if (PLANNER_MANUAL_TARGETS.has(dst)) {
+    ev.currentTarget.classList.add('drop-target');
+    ev.currentTarget.classList.remove('drop-blocked');
+    ev.dataTransfer.dropEffect = 'move';
+  } else {
+    ev.currentTarget.classList.add('drop-blocked');
+    ev.currentTarget.classList.remove('drop-target');
+    ev.dataTransfer.dropEffect = 'none';
+  }
+}
+
+function onPlannerColDragLeave(ev) {
+  ev.currentTarget.classList.remove('drop-target', 'drop-blocked');
+}
+
+async function onPlannerColDrop(ev) {
+  ev.preventDefault();
+  const col = ev.currentTarget;
+  const dst = col.dataset.col;
+  const draggedId = plannerDragged?.id;
+  const from = plannerDragged?.from;
+  col.classList.remove('drop-target', 'drop-blocked');
+  if (!draggedId || from === dst) return;
+
+  if (!PLANNER_MANUAL_TARGETS.has(dst)) {
+    alert('La columna "' + dst + '" es automática — se llena según el estado del pedido en SAP. No se puede mover manualmente.');
+    return;
+  }
+
+  const plannerStage = dst === 'confirmado' ? 'confirmado'
+                    : dst === 'cobrado'    ? 'cobrado_parcial'
+                    : null;
+  if (!plannerStage) return;
+
+  try {
+    const auth = firebase.auth().currentUser;
+    await fbDb.collection('pedidos').doc(draggedId).update({
+      plannerStage,
+      plannerHistory: firebase.firestore.FieldValue.arrayUnion({
+        stage: plannerStage,
+        movedAt: firebase.firestore.Timestamp.now(),
+        movedBy: auth?.uid || 'unknown',
+        movedByEmail: auth?.email || 'unknown',
+      }),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Spring feedback on the moved card (best-effort — motion may not be loaded yet).
+    requestAnimationFrame(() => {
+      const dropped = document.querySelector('[data-pedido-id="' + draggedId + '"]');
+      if (dropped && window._motion?.animate) {
+        try {
+          window._motion.animate(dropped, { scale: [0.96, 1] }, { duration: 0.32, easing: 'ease-out' });
+        } catch (e) { /* silent */ }
+      }
+    });
+  } catch (err) {
+    console.error('[planner] drop update failed:', err);
+    alert('Error al mover la card: ' + (err?.message || err));
+  }
+}
+
 function attachPlannerListeners() {
   if (unsubPlannerPedidos) return;  // already attached
   const db = fbDb;
@@ -27000,6 +27109,17 @@ function renderPlannerKanban() {
 
   // All user data goes through escapeHtml — repo-wide innerHTML pattern (rendiciones, dashboard).
   root.innerHTML = html;
+
+  // v1006 Planner: wire drag-drop handlers after DOM is set.
+  root.querySelectorAll('.planner-card').forEach(el => {
+    el.addEventListener('dragstart', onPlannerCardDragStart);
+    el.addEventListener('dragend', onPlannerCardDragEnd);
+  });
+  root.querySelectorAll('.planner-col').forEach(col => {
+    col.addEventListener('dragover', onPlannerColDragOver);
+    col.addEventListener('drop', onPlannerColDrop);
+    col.addEventListener('dragleave', onPlannerColDragLeave);
+  });
 }
 
 function renderPlannerCard(pedido, column) {
