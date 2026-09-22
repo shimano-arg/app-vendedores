@@ -4672,7 +4672,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1028
+## 41) Changelog v300 → v1029
+
+### v1029 (2026-09-22) — Planner Lista de espera 1:1 con sidebar (excluir pedidos "colgados" del default lista_espera)
+
+**Reporte**: Mariano — la columna "Lista de espera" del Planner debe coincidir EXACTO con el sidebar-left "PEDIDOS EN ESPERA". Ni un pedido más ni menos, mismos clientes.
+
+**Análisis (post-v1027)**: la columna Lista de espera del Planner tenía **2 fuentes mezcladas**:
+1. `revision_waitlist` entries (6 en prod) → los mismos que el sidebar-left ✅
+2. Pedidos de `pedidos` con `computeColumn === 'lista_espera'` (10 en prod) → **pedidos "colgados"**: `stage='confirmed'` sin `transferidoSAP.docNum`, cayendo en Rule 7 (default) de `computeColumn`. Ejemplos: Federico Fatechi, Piracua, Susana Andrili.
+
+Semánticamente esos 10 NO son "lista de espera" (esa columna representa pre-oferta SAP). Son pedidos que se confirmaron pero nunca llegaron a SAP por alguna razón (bug legacy, fallo transferencia). Antes se mostraban por default sin más categorización.
+
+**Fix**: en `renderPlannerKanban`, si `computeColumn(p) === 'lista_espera'` para un pedido de la colección `pedidos`, **skipear** (no push a byCol). Solo los `revision_waitlist` entries van a esa columna. Ahora sidebar y Planner coinciden 1:1.
+
+**Trade-off**: los 10 pedidos colgados no aparecen en ninguna columna del Planner. Siguen visibles desde otros lugares (Pending list, Master Pedidos, Backorder App). Aceptable porque nunca deberían estar en Lista de espera semánticamente — es un problema de datos legacy, no de UI. Si Mariano decide backfillear `transferidoSAP.docNum` o llevarlos a Cerrados, se resolverían.
 
 ### v1028 (2026-09-22) — Schedule syncSapOrdersToApp: cada 60min → cada 15min
 
