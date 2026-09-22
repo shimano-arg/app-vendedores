@@ -3376,6 +3376,14 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
           <!-- opciones se rellenan en renderPlannerMonthFilterOptions() -->
         </select>
       </label>
+      <!-- v1023 (2026-09-22): filtros de busqueda por cliente + orderNumber.
+           Debounce ligero (150ms) para no re-renderizar en cada tecla. -->
+      <input id="planner-client-filter" type="search" placeholder="Cliente…"
+             oninput="setPlannerClientFilter(this.value)"
+             style="background:rgba(255,255,255,.16);color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:11px;font-weight:600;width:160px;font-family:inherit;letter-spacing:-0.01em">
+      <input id="planner-order-filter" type="search" placeholder="ORDEN N…"
+             oninput="setPlannerOrderFilter(this.value)"
+             style="background:rgba(255,255,255,.16);color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:11px;font-weight:600;width:110px;font-family:inherit;letter-spacing:-0.01em">
       <button data-planner-sub="tablero" class="active" onclick="setPlannerSubtab('tablero')" style="background:rgba(255,255,255,.16);color:#fff;border:none;padding:6px 12px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Tablero</button>
       <button data-planner-sub="config" onclick="setPlannerSubtab('config')" style="background:rgba(255,255,255,.16);color:#fff;border:none;padding:6px 12px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Config</button>
       <button onclick="closePlannerBoardModal()" style="background:transparent;color:#fff;border:none;font-size:22px;cursor:pointer;padding:0 6px;line-height:1">&times;</button>
@@ -5730,7 +5738,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1022';
+const APP_VERSION = 'v1023';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12418,6 +12426,48 @@ var plannerMonthFilter = (function() {
 function setPlannerMonthFilter(value) {
   plannerMonthFilter = value || 'all';
   try { renderPlannerKanban(); } catch (e) { console.warn('[planner] setMonth render fail', e); }
+}
+
+// v1023 (2026-09-22): filtros de busqueda por cliente + orderNumber.
+// State en memoria; se resetea al reload. Debounce 150ms para no re-renderizar
+// en cada tecla (el kanban tiene 250+ cards y renderiza sync).
+var plannerClientFilter = '';
+var plannerOrderFilter = '';
+var _plannerFilterDebounceT = null;
+
+function _plannerScheduleRender() {
+  if (_plannerFilterDebounceT) clearTimeout(_plannerFilterDebounceT);
+  _plannerFilterDebounceT = setTimeout(function () {
+    _plannerFilterDebounceT = null;
+    try { renderPlannerKanban(); } catch (e) { console.warn('[planner] filter render fail', e); }
+  }, 150);
+}
+
+function setPlannerClientFilter(value) {
+  plannerClientFilter = String(value || '').trim().toLowerCase();
+  _plannerScheduleRender();
+}
+
+function setPlannerOrderFilter(value) {
+  // Normalizamos a solo digitos para matchear tanto "145" como "ORDEN 145" o "orden145".
+  plannerOrderFilter = String(value || '').replace(/\D/g, '');
+  _plannerScheduleRender();
+}
+
+// Match check para filtros de busqueda. Se aplica a pedidos + waitlist entries
+// (ambos tienen clientName y orderNumber en el mismo lugar).
+function _plannerMatchesFilters(pedido) {
+  if (plannerClientFilter) {
+    var name = String(
+      pedido.clientName || pedido.cardName || pedido.clientCardCode || pedido.cardCode || ''
+    ).toLowerCase();
+    if (!name.includes(plannerClientFilter)) return false;
+  }
+  if (plannerOrderFilter) {
+    var orderDigits = String(pedido.orderNumber || '').replace(/\D/g, '');
+    if (!orderDigits.includes(plannerOrderFilter)) return false;
+  }
+  return true;
 }
 
 function _plannerPedidoInMonth(pedido, monthKey) {
@@ -27371,9 +27421,15 @@ function renderPlannerKanban() {
     if ((col === 'facturar' || col === 'cobrado') && !_plannerPedidoInMonth(p, plannerMonthFilter)) {
       continue;
     }
+    // v1023 (2026-09-22): filtros de busqueda por cliente + orderNumber.
+    // Se aplican DESPUES del filtro de mes para que el subtotal de columna
+    // refleje solo lo visible.
+    if (!_plannerMatchesFilters(p)) continue;
     byCol[col].push(p);
   }
   for (const w of plannerWaitlistCache.values()) {
+    // Waitlist entries tambien pasan por filtros (mismo shape: clientName + orderNumber).
+    if (!_plannerMatchesFilters(w)) continue;
     byCol.lista_espera.push({ ...w, _isWaitlist: true });
   }
 

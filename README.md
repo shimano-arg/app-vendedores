@@ -4672,7 +4672,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1022
+## 41) Changelog v300 → v1023
+
+### v1023 (2026-09-22) — Planner: 2 filtros nuevos en el header (Cliente + ORDEN N)
+
+**Reporte**: Mariano — pidió filtros de búsqueda en el modal del Planner para encontrar rápido un pedido específico entre las 250+ cards.
+
+**Fix**: 2 `<input type="search">` en el header del modal (junto al selector de mes existente):
+- **Cliente**: busca substring case-insensitive en `clientName || cardName || clientCardCode || cardCode`.
+- **ORDEN N**: normaliza a solo dígitos (para matchear "145", "ORDEN 145" o "orden145" indistintamente) y busca substring en `orderNumber`.
+
+Ambos filtros se aplican DESPUÉS del filtro de mes existente (Facturar/Cobrado) para que el subtotal de columna refleje solo lo visible. También se aplican a las waitlist entries (mismo shape).
+
+**Debounce 150ms**: `_plannerScheduleRender` evita re-renderizar el kanban en cada tecla (250+ cards + render sync no escalaba). El debounce se resetea con cada input.
+
+**Estado en memoria** (`plannerClientFilter`, `plannerOrderFilter`) — se resetea al reload como los otros filtros del Planner.
 
 ### v1022 (2026-09-22) — Planner: `ORDEN N` como ID único del pedido, visible en cards y emails a lo largo del pipeline
 
