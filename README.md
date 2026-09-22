@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. Diagnóstico previo del "SDK Gen 2 bug" era incorrecto — el enforcement SÍ funciona, pero tarda ~66h desde registration Console en propagarse. Deploy directo sin PR (urgencia productiva). Ver §41 + `NEEDS-VALIDATION.md §1`. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11 (fix 45 SKUs con badge "DISPONIBLE" falso, ej TRX301HGB). \| **v1001 (2026-09-21)** — UX fix: alert "Enviar via Service Layer" muestra "Omitidos" con motivo cuando algún pedido queda skipped por lock stale. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX `onPedidoConfirmedSendToSap` (`functions/index.js:446`): typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. 3 sub-tabs (MAP · Productos · Categorías) alimentadas por sync diario desde mercado-intelligence. Botón "🛒 Mercado Libre" al final del Panel de Control, gated por email whitelist (erbinomariano@gmail.com + mariano.erbino@shimano.com.ar). Chunk lazy `chunks/meli.js` + rules `isMariano()` + colecciones `meli/*`. Ver §51. \| **v995 (2026-09-18)** — Hotfix pre-deploy v994: el modal Depósito (`index.html:16354`) llama `setupGetMovimientos` SIN `cardCode` (query global "traeme todos los shipments"). El v994 original tiraba `invalid-argument` en ese caso → rompía UX. Ahora si vendedor sin `cardCode` → server hace fetch normal + filtra `movimientos` server-side por `client_master.assignedVendor == roles/{uid}.vendor` (batch chunked query). Vendedor con `cardCode` sigue con el check estricto. Vector cerrado igual: vendedor solo ve shipments de su cartera. Ver §41. |
-| **APP_VERSION** | `v1004` frontend (fix duplicados batch handler + cross-BU CF). Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v1005 (2026-09-22)** — Planner Kanban (Mariano-only, en desarrollo). Task 0: baseline version bump + README stub. Spec en §52 + Plan en docs/plans/. \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP (Series missing en CF + lock 60s en batch). \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. Diagnóstico previo del "SDK Gen 2 bug" era incorrecto — el enforcement SÍ funciona, pero tarda ~66h desde registration Console en propagarse. Deploy directo sin PR (urgencia productiva). Ver §41 + `NEEDS-VALIDATION.md §1`. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11 (fix 45 SKUs con badge "DISPONIBLE" falso, ej TRX301HGB). \| **v1001 (2026-09-21)** — UX fix: alert "Enviar via Service Layer" muestra "Omitidos" con motivo cuando algún pedido queda skipped por lock stale. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX `onPedidoConfirmedSendToSap` (`functions/index.js:446`): typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. 3 sub-tabs (MAP · Productos · Categorías) alimentadas por sync diario desde mercado-intelligence. Botón "🛒 Mercado Libre" al final del Panel de Control, gated por email whitelist (erbinomariano@gmail.com + mariano.erbino@shimano.com.ar). Chunk lazy `chunks/meli.js` + rules `isMariano()` + colecciones `meli/*`. Ver §51. \| **v995 (2026-09-18)** — Hotfix pre-deploy v994: el modal Depósito (`index.html:16354`) llama `setupGetMovimientos` SIN `cardCode` (query global "traeme todos los shipments"). El v994 original tiraba `invalid-argument` en ese caso → rompía UX. Ahora si vendedor sin `cardCode` → server hace fetch normal + filtra `movimientos` server-side por `client_master.assignedVendor == roles/{uid}.vendor` (batch chunked query). Vendedor con `cardCode` sigue con el check estricto. Vector cerrado igual: vendedor solo ve shipments de su cartera. Ver §41. |
+| **APP_VERSION** | `v1005` frontend (Planner Kanban — E0 baseline Task 0). Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -77,6 +77,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 48. [Flow LEAD → cliente SAP: auto + fallback manual — CERRADO 2026-09-04](#48-flow-lead--cliente-sap-auto--fallback-manual--cerrado-2026-09-04)
 49. [Integración SETUP (CRM del depósito) — PENDIENTE endpoints](#49-integración-setup-crm-del-depósito--pendiente-endpoints)
 51. [MERCADOLIBRE (Mariano-only)](#51-mercadolibre-mariano-only)
+52. [Planner Kanban (Mariano-only, en desarrollo)](#52-planner-kanban-mariano-only-en-desarrollo)
 
 ---
 
@@ -11799,4 +11800,34 @@ Cuarta sub-tab 🏆 Ranking que acumula infracciones MAP desde 2026-09-21 en ade
 **Cómo crecerá**: cada corrida diaria del sync agrega nuevos item_ids que aparezcan violando + updatea last_detected_at + n_days_seen de los repetidos + marca resueltos los que subieron precio. El `_compute_ranking` re-agrega todo desde cero por seller cada corrida (query completa a `meli_map_alerts_history` + Counter en Python).
 
 **Frontend**: función pura `sortRanking(rankings)` en `src/domains/meli.js` con test unit. Renderer `_paintRankingSection` con 3 KPI cards (sellers rankeados, peor infractor, violaciones activas) + tabla. Empty state cuando ranking está vacío ("🏆 Sin ranking todavía — el primer sync poblará esto").
+
+
+---
+
+## 52) Planner Kanban (Mariano-only, en desarrollo)
+
+**Fecha inicio**: 2026-09-22
+
+**Estado**: En desarrollo (Fase 1). Mariano-only en producción hasta validación.
+
+**Spec**: `docs/specs/2026-09-22-planner-design.md`
+
+**Plan**: `docs/plans/2026-09-22-planner-plan.md`
+
+### Descripción
+
+Kanban interactivo para gestionar el ciclo completo de la venta, con 6 columnas que reflejan el flujo de un pedido desde la Lista de Espera hasta el Cobrado:
+
+1. **Lista Espera** — Pedidos pre-carga (`state='WAIT_LIST'`), no comprometen stock
+2. **Oferta** — Cotizaciones confirmadas, en fase de negociación
+3. **Órdenes** — Pedidos confirmados por cliente, listos para SAP
+4. **Confirmado** — Pedidos en SAP (state='CONFIRMED'), facturación pendiente
+5. **Facturar** — Invoices SAP enviadas a cliente, cobro pendiente
+6. **Cobrado** — Pagos recibidos y conciliados
+
+Cada columna tiene responsables asignados (vendedor, gerente, admin SAP) con emails automáticos al mover un card entre columnas. Los adjuntos (remito, factura, comprobante de pago) van vía email. Drag-and-drop gestual con feedback instantáneo.
+
+**Control de acceso**: gated por `app_config/planner_config.enabledForAllRoles` (default `false`). Mariano-only en producción temprana; se abre a VDEs/VDIs/gerentes cuando la validación cierre.
+
+**Entradas**: 17 tareas (E0-E16) en el plan. Versión v1005 (baseline).
 

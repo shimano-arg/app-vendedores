@@ -22,6 +22,8 @@
 // manda automaticamente como Sales Quotation. Idempotente: si dos admin
 // estan online, el primero gana porque la segunda invocacion ve
 // transferidoSAP ya seteado y skip.
+import { SAP_LOCK_TTL_MS } from './sap-lock-constants.js';
+
 const _autoSendInflight = new Set(); // pedido fsIds que estan siendo enviados ahora
 if (typeof window._unsubAutoSendPedidos === 'undefined') window._unsubAutoSendPedidos = null;
 
@@ -103,7 +105,7 @@ function ensureSapAutoSendListener() {
                 if (data.transferidoSAP) throw new Error('ALREADY_SENT');
                 if (data.sendingSapLock && data.sendingSapLock.at) {
                   const lockAgeMs = Date.now() - data.sendingSapLock.at;
-                  if (lockAgeMs < 300000)
+                  if (lockAgeMs < SAP_LOCK_TTL_MS)
                     throw new Error(
                       'OTHER_SESSION_LOCK:' + (data.sendingSapLock.sessionId || 'unknown')
                     );

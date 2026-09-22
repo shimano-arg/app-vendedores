@@ -473,6 +473,34 @@ export const onPedidoConfirmedSendToSap = onDocumentWritten(
         appSeriesIdRaw !== undefined && appSeriesIdRaw !== null && appSeriesIdRaw !== ''
           ? parseInt(String(appSeriesIdRaw), 10)
           : null;
+      // v1005 (2026-09-22): FAIL-CLOSE. Si appSeriesId no esta configurado
+      // (missing/null/NaN), el CF NO manda el pedido a SAP. Sin esta guarda,
+      // el CF mandaria sin Series -> SAP aplicaria default del user SL ->
+      // cross-BU silencioso (bug v1004 puede reaparecer si admin borra el
+      // config). El pedido queda pending con transferError visible en la
+      // card de Confirmados; admin arregla config y reenvia manual via
+      // batch handler "Carga a SAP".
+      if (!Number.isFinite(appSeriesId)) {
+        console.error('onPedidoConfirmedSendToSap SKIP: appSeriesId no configurado', {
+          pedidoId,
+          appSeriesIdRaw,
+          cliente: afterData.clientName,
+        });
+        try {
+          await db.doc(`pedidos/${pedidoId}`).update({
+            transferError: {
+              message:
+                'appSeriesId no configurado en app_config/sap_integration. Config admin -> panel SAP.',
+              at: new Date().toISOString(),
+              via: 'cf_auto',
+              attemptedBy: 'cf-auto',
+            },
+          });
+        } catch (_) {
+          /* swallow: si el pedido fue borrado o hay otro race, seguimos */
+        }
+        return;
+      }
 
       // Cargar mappings sap_clients/sap_products/sap_vendors para resolvers.
       // Los VDE confirman con clientCardCode ya persistido en el pedido, asi
