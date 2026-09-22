@@ -2281,7 +2281,11 @@ body.is-pachi #ruta-pers-controls{display:none !important}
 body.is-pachi #rmode-reco{flex:1 1 100% !important}
 /* v1005: Planner section gated Mariano-only in dev. Un-gate future via
    app_config/planner_config.enabledForAllRoles. */
-body.is-mariano .tab-btn[data-tab="planner"]{display:inline-block !important}
+/* v1008 (2026-09-22): tab-btn del sidebar deprecado. Planner ahora abre desde
+   el header (#planner-header-btn -> openPlannerBoardModal). Mantengo la regla
+   como display:none para que el tab-btn de fallback (line ~4813) quede oculto
+   aunque este el body.is-mariano seteado. */
+body.is-mariano .tab-btn[data-tab="planner"]{display:none !important}
 body.planner-enabled-all .tab-btn[data-tab="planner"]{display:inline-block !important}
 /* v451 (2026-08-11): boton Revision Excel oculto por default, visible solo
    para whitelist de emails (Mariano, Ioannis, Santi, Pablo). El gate se aplica
@@ -3318,6 +3322,10 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
     <!-- v611 (2026-08-24): PANEL DE CONTROL - visible SOLO Mariano (admin +
          email whitelist). Runtime guard replicado en openPanelControl(). -->
     <button class="btn-zonas" id="panel-control-btn" onclick="openPanelControl()" title="Panel de Control: estado de salud + KPIs para anticipar problemas (solo Mariano)" style="background:#0f172a;color:#fff;display:none">Panel de Control</button>
+    <!-- v1008 (2026-09-22): boton Planner reubicado desde sidebar al header (pedido Mariano
+         para poder ver el Kanban en modal grande sin scroll horizontal). Mismo gate que
+         panel-control-btn: solo Mariano email + admin role. Runtime guard en applyRolePermissions. -->
+    <button class="btn-zonas" id="planner-header-btn" onclick="openPlannerBoardModal()" title="Planner: Kanban de pedidos por depósito (solo Mariano)" style="background:#c2410c;color:#fff;display:none">&#128203; Planner</button>
   </div>
 </div>
 
@@ -3331,6 +3339,28 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
       <button onclick="closePanelControl()" style="background:transparent;color:#fff;border:none;font-size:22px;cursor:pointer;padding:0 6px;line-height:1">&times;</button>
     </div>
     <div id="panel-control-body" style="flex:1;overflow:auto;background:var(--bg-secondary)"></div>
+  </div>
+</div>
+<!-- v1008 (2026-09-22): Modal Planner Kanban (reemplaza el tab-pane). Ancho generoso
+     para que las 6 columnas entren sin scroll horizontal. Contenido renderizado por
+     renderPlannerKanban() sobre #planner-kanban-root (mismo id que antes vivia en
+     el tab-pane; movido al modal). -->
+<div class="modal-overlay" id="planner-board-modal" onclick="if(event.target===this)closePlannerBoardModal()" style="z-index:1200;display:none;align-items:flex-start;justify-content:center;padding:24px">
+  <div class="modal-content" style="max-width:1800px;width:97vw;max-height:92vh;display:flex;flex-direction:column;background:var(--bg-elevated);border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="padding:14px 20px;background:#c2410c;color:#fff;display:flex;align-items:center;gap:12px">
+      <h2 style="margin:0;font-size:16px;font-weight:800;flex:1">&#128203; Planner &mdash; Tablero de pedidos</h2>
+      <button data-planner-sub="tablero" class="active" onclick="setPlannerSubtab('tablero')" style="background:rgba(255,255,255,.16);color:#fff;border:none;padding:6px 12px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Tablero</button>
+      <button data-planner-sub="config" onclick="setPlannerSubtab('config')" style="background:rgba(255,255,255,.16);color:#fff;border:none;padding:6px 12px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Config</button>
+      <button onclick="closePlannerBoardModal()" style="background:transparent;color:#fff;border:none;font-size:22px;cursor:pointer;padding:0 6px;line-height:1">&times;</button>
+    </div>
+    <div id="planner-board-modal-body" style="flex:1;overflow:auto;background:var(--bg-secondary);padding:16px 20px">
+      <div id="planner-pane-tablero" class="planner-subpane" style="display:block">
+        <div class="planner-kanban" id="planner-kanban-root"></div>
+      </div>
+      <div id="planner-pane-config" class="planner-subpane" style="display:none">
+        <div id="planner-config-root"></div>
+      </div>
+    </div>
   </div>
 </div>
 <!-- v>=997 (2026-09-18): Modal MERCADOLIBRE. Solo Mariano. Contenido
@@ -5147,21 +5177,11 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <button class="qmodal-btn primary" onclick="markAllNotifsRead()">Marcar todas como le&iacute;das</button>
       </div>
     </div>
-    <!-- v1005: Planner section gated Mariano-only via body.is-mariano CSS gate. -->
-    <div class="tab-pane" id="pane-planner" style="display:none;">
-      <div class="rd-subtabs">
-        <button class="rd-subtab-btn active" data-planner-sub="tablero" onclick="setPlannerSubtab('tablero')">Tablero</button>
-        <button class="rd-subtab-btn" data-planner-sub="config" onclick="setPlannerSubtab('config')">Config</button>
-      </div>
-
-      <div id="planner-pane-tablero" class="planner-subpane" style="display:block;">
-        <div class="planner-kanban" id="planner-kanban-root"></div>
-      </div>
-
-      <div id="planner-pane-config" class="planner-subpane" style="display:none;">
-        <div id="planner-config-root"></div>
-      </div>
-    </div>
+    <!-- v1005 Planner section — v1008 (2026-09-22) contenido migrado al modal
+         #planner-board-modal (openPlannerBoardModal). El tab-pane queda como
+         placeholder inerte por si algo hace setTab('planner') via devtools;
+         renderizadores usan los ids del modal. -->
+    <div class="tab-pane" id="pane-planner" style="display:none;"></div>
   </div>
 </div>
 <div class="modal-overlay" id="client-menu-modal" onclick="if(event.target===this)closeClientMenu()">
@@ -5683,7 +5703,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1007';
+const APP_VERSION = 'v1008';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12359,6 +12379,25 @@ function setPlannerSubtab(key) {
   var btn = document.querySelector('[data-planner-sub="' + key + '"]');
   if (btn) btn.classList.add('active');
   if (key === 'config') renderPlannerConfig();
+}
+
+// v1008 (2026-09-22): Planner Kanban migrado de tab-pane a modal grande. El
+// botón vive en el header (#planner-header-btn); openPlannerBoardModal muestra
+// el overlay, arranca listeners (idempotente) y renderiza el Kanban.
+function openPlannerBoardModal() {
+  var em = ((currentUser && (currentUser.email || '')) || '').toLowerCase();
+  var okEmail = em === 'mariano.erbino@shimano.com.ar' || em === 'erbinomariano@gmail.com';
+  if (!okEmail || userRole !== 'admin') return; // runtime guard extra
+  var modal = document.getElementById('planner-board-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  setPlannerSubtab('tablero');
+  try { attachPlannerListeners(); } catch (e) { console.warn('[planner] attach fail', e); }
+  try { renderPlannerKanban(); } catch (e) { console.warn('[planner] render fail', e); }
+}
+function closePlannerBoardModal() {
+  var modal = document.getElementById('planner-board-modal');
+  if (modal) modal.style.display = 'none';
 }
 
 // v1007 Planner Config: form for editing responsables per column.
@@ -23487,6 +23526,11 @@ function applyRolePermissions(){
     const _panelBtn = document.getElementById('panel-control-btn');
     if (_panelBtn) {
       _panelBtn.style.display = (_isMarianoHdr && userRole === 'admin') ? '' : 'none';
+    }
+    // v1008 (2026-09-22): mismo gate para el nuevo Planner header btn.
+    const _plannerHdrBtn = document.getElementById('planner-header-btn');
+    if (_plannerHdrBtn) {
+      _plannerHdrBtn.style.display = (_isMarianoHdr && userRole === 'admin') ? '' : 'none';
     }
     // v984 (2026-09-17): botones Dashboard, Depósito y Preliminar ocultos para
     // role='vendedor'. Contexto: Pachi Naba (VDE proxy) no necesita ver KPIs,

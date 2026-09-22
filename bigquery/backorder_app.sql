@@ -514,3 +514,78 @@ WHERE u.sku IS NOT NULL
 --       AS unidades_liberadas
 --   FROM changes;
 -- =============================================================================
+
+
+-- =============================================================================
+-- VISTA: v_backorder (dedicada Power BI)
+-- =============================================================================
+-- Solo state='BO' (unidades prometidas al cliente sin stock disponible). Una
+-- fila por linea de pedido. Importe ARS ya calculado como qty_open *
+-- price_at_creation. Filtrar en Power BI por is_pesca / fecha / vendor / etc.
+-- =============================================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_backorder` AS
+SELECT
+  pedido_id,
+  order_number,
+  created_at,
+  DATE(created_at)                                AS fecha,
+  FORMAT_DATE('%Y-%m', DATE(created_at))          AS mes,
+  EXTRACT(YEAR FROM created_at)                   AS anio,
+  EXTRACT(MONTH FROM created_at)                  AS mes_idx,
+  sku,
+  descripcion,
+  familia,
+  subfamilia,
+  is_pesca,
+  cliente_code,
+  cliente_nombre,
+  cliente_ciudad,
+  cliente_provincia,
+  vendor,
+  vendor_email,
+  qty                                             AS qty_original,
+  qty_open                                        AS unidades,
+  price_at_creation                               AS precio_unitario,
+  ROUND(qty_open * COALESCE(price_at_creation, precio, 0), 2) AS importe_ars,
+  last_operation_at                               AS _sync_timestamp
+FROM `app-vendedores-shimano.shimano_app.v_backorder_app`
+WHERE state = 'BO'
+  AND qty_open > 0;
+
+
+-- =============================================================================
+-- VISTA: v_stock_asignado (dedicada Power BI)
+-- =============================================================================
+-- Solo state='ASIG' (unidades con stock reservado FIFO esperando confirmacion).
+-- Una fila por linea. Mismo shape que v_backorder para poder unir/comparar en
+-- Power BI. Importe ARS = qty_open * price_at_creation.
+-- =============================================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_stock_asignado` AS
+SELECT
+  pedido_id,
+  order_number,
+  created_at,
+  DATE(created_at)                                AS fecha,
+  FORMAT_DATE('%Y-%m', DATE(created_at))          AS mes,
+  EXTRACT(YEAR FROM created_at)                   AS anio,
+  EXTRACT(MONTH FROM created_at)                  AS mes_idx,
+  sku,
+  descripcion,
+  familia,
+  subfamilia,
+  is_pesca,
+  cliente_code,
+  cliente_nombre,
+  cliente_ciudad,
+  cliente_provincia,
+  vendor,
+  vendor_email,
+  qty                                             AS qty_original,
+  qty_open                                        AS unidades,
+  price_at_creation                               AS precio_unitario,
+  ROUND(qty_open * COALESCE(price_at_creation, precio, 0), 2) AS importe_ars,
+  last_operation_at                               AS _sync_timestamp
+FROM `app-vendedores-shimano.shimano_app.v_backorder_app`
+WHERE state = 'ASIG'
+  AND qty_open > 0;
+
