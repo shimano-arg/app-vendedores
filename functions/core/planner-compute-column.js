@@ -22,7 +22,8 @@
  * @typedef {Object} PlannerPedido
  * @property {string} [plannerStage] 'confirmado' | 'cobrado_parcial' | 'cobrado_full' | null
  * @property {string} [paidStatus] 'partial' | 'paid' | null
- * @property {Array<{qtyInvoiced?: number}>} [items]
+ * @property {Array<{qtyInvoiced?: number}>} [lines] pedidos schema real
+ * @property {Array<{qtyInvoiced?: number}>} [items] fallback histórico
  * @property {{orderDocEntry?: number, docNum?: number}} [transferidoSAP]
  */
 
@@ -52,9 +53,12 @@ export function computeColumn(pedido) {
     return 'cobrado';
   }
 
-  // Rule 4: any item with qtyInvoiced > 0
-  const items = Array.isArray(pedido.items) ? pedido.items : [];
-  if (items.some((line) => (line?.qtyInvoiced || 0) > 0)) {
+  // Rule 4: any line with qtyInvoiced > 0
+  // v1013 (2026-09-22): schema real de pedidos es `lines`. Mantenemos `items`
+  // como fallback por si algún doc viejo usa el nombre anterior.
+  const lineas = Array.isArray(pedido.lines) ? pedido.lines
+                : (Array.isArray(pedido.items) ? pedido.items : []);
+  if (lineas.some((line) => (line?.qtyInvoiced || 0) > 0)) {
     return 'facturar';
   }
 

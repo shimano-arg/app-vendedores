@@ -5703,7 +5703,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1012';
+const APP_VERSION = 'v1013';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12358,13 +12358,16 @@ window.setTab = function(name){
 
 // v1005 Planner — mirror of functions/core/planner-compute-column.js.
 // Test tests/unit/planner-compute-column.test.js enforces parity.
+// v1013 (2026-09-22): pedidos schema real es `lines`; `items` queda como
+// fallback histórico. Igual cambio hecho en el CF core.
 function computeColumn(pedido) {
   if (pedido?.plannerStage === 'confirmado') return 'confirmado';
   if (pedido?.plannerStage === 'cobrado_parcial') return 'cobrado';
   if (pedido?.plannerStage === 'cobrado_full') return 'cobrado';
   if (pedido?.paidStatus === 'partial' || pedido?.paidStatus === 'paid') return 'cobrado';
-  const items = Array.isArray(pedido?.items) ? pedido.items : [];
-  if (items.some(l => (l?.qtyInvoiced || 0) > 0)) return 'facturar';
+  const lineas = Array.isArray(pedido?.lines) ? pedido.lines
+                : (Array.isArray(pedido?.items) ? pedido.items : []);
+  if (lineas.some(l => (l?.qtyInvoiced || 0) > 0)) return 'facturar';
   if (pedido?.transferidoSAP?.orderDocEntry) return 'ordenes';
   if (pedido?.transferidoSAP?.docNum) return 'oferta';
   return 'lista_espera';
@@ -27379,8 +27382,10 @@ function computePlannerCardStateClass(pedido, column) {
     return anyConfirmed ? 'state-confirmado-vendedor' : 'state-cargado';
   }
   if (column === 'facturar') {
-    const items = Array.isArray(pedido.items) ? pedido.items : [];
-    const allInvoiced = items.length > 0 && items.every(i => i && (i.qtyInvoiced || 0) >= (i.qty || 0));
+    // v1013 (2026-09-22): pedidos schema real es `lines`.
+    const lineas = Array.isArray(pedido.lines) ? pedido.lines
+                  : (Array.isArray(pedido.items) ? pedido.items : []);
+    const allInvoiced = lineas.length > 0 && lineas.every(i => i && (i.qtyInvoiced || 0) >= (i.qty || 0));
     return allInvoiced ? 'state-facturado' : 'state-fact-pendiente';
   }
   if (column === 'cobrado') {
@@ -27486,16 +27491,21 @@ function renderPlannerModal() {
 }
 
 function renderPlannerModalLineas(pedido) {
-  const items = Array.isArray(pedido.items) ? pedido.items : [];
-  if (items.length === 0) {
+  // v1013 (2026-09-22): pedidos Firestore guardan las lineas en `lines` (ver
+  // pedidos.add() + update line 13922). El schema `items` era de un plan viejo
+  // del Planner. Cada linea tiene shape: {code, desc, qty, qtyOpen, qtyInvoiced,
+  // qtyCancelled, state, priceAtCreation, precio}.
+  const lineas = Array.isArray(pedido.lines) ? pedido.lines
+                : (Array.isArray(pedido.items) ? pedido.items : []);
+  if (lineas.length === 0) {
     return '<div style="opacity:.55;padding:24px;text-align:center;">Este pedido no tiene líneas.</div>';
   }
-  const rows = items.map(l => {
-    const sku = escapeHtml(l?.sku || l?.itemCode || '');
-    const desc = escapeHtml(l?.descripcion || l?.itemName || l?.description || '');
+  const rows = lineas.map(l => {
+    const sku = escapeHtml(l?.code || l?.sku || l?.itemCode || '');
+    const desc = escapeHtml(l?.desc || l?.descripcion || l?.name || l?.itemName || l?.description || '');
     const qty = Number(l?.qty || 0);
     const qtyInv = Number(l?.qtyInvoiced || 0);
-    const price = Number(l?.price || l?.unitPrice || 0);
+    const price = Number(l?.priceAtCreation || l?.precio || l?.price || l?.unitPrice || 0);
     const priceStr = price ? price.toLocaleString('es-AR', { maximumFractionDigits: 2 }) : '';
     return (
       '<tr>' +
