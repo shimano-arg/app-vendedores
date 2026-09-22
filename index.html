@@ -5774,7 +5774,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1035';
+const APP_VERSION = 'v1036';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12569,7 +12569,10 @@ function openPlannerBoardModal() {
     em === 'erbinomariano@gmail.com' ||
     em === 'pablo.gonzalez@shimano.com.ar' ||
     em === 'santiago.esteban@shimano.com.ar' ||
-    em === 'ioannis.plakoudakis@shimano.com.ar';
+    em === 'ioannis.plakoudakis@shimano.com.ar' ||
+    // v1036 (2026-09-22): agregado Uruguay
+    em === 'santiago.beron@shimano.uy' ||
+    em === 'diego.valsi@shimano.uy';
   var okRole = userRole === 'admin' || userRole === 'gerente' || userRole === 'interno';
   if (!okEmail || !okRole) return; // runtime guard extra
   var modal = document.getElementById('planner-board-modal');
@@ -23760,6 +23763,9 @@ function applyRolePermissions(){
         'pablo.gonzalez@shimano.com.ar',
         'santiago.esteban@shimano.com.ar',
         'ioannis.plakoudakis@shimano.com.ar',
+        // v1036 (2026-09-22): agregado Uruguay — Santiago Beron + Diego Valsi.
+        'santiago.beron@shimano.uy',
+        'diego.valsi@shimano.uy',
       ]);
       const _plannerAllowedRoles = new Set(['admin', 'gerente', 'interno']);
       const _emLower = ((currentUser && currentUser.email) || '').toLowerCase();
@@ -27750,12 +27756,21 @@ function _plannerComputeTotal(pedido) {
   const lineas = Array.isArray(pedido.lines) ? pedido.lines
                 : (Array.isArray(pedido.items) ? pedido.items : []);
   if (lineas.length === 0) return null;
+  // v1036 (2026-09-22): fallback a getDefaultPrice(code) para lookup del precio
+  // en el master de productos. Los waitlist entries (revision_waitlist docs)
+  // NO tienen `precio` ni `priceAtCreation` en sus lines — solo qty + code +
+  // stock info. Sin este fallback las cards de Lista de espera mostraban "—".
+  // Mismo pattern que el modal Waitlist Card usa (index.html:18845).
+  const _hasPriceFn = typeof getDefaultPrice === 'function';
   let sum = 0;
   let any = false;
   for (const l of lineas) {
     if (!l) continue;
     const qty = Number(l.qty) || 0;
-    const price = Number(l.precio) || Number(l.priceAtCreation) || Number(l.price) || 0;
+    let price = Number(l.precio) || Number(l.priceAtCreation) || Number(l.price) || 0;
+    if (!price && _hasPriceFn && l.code) {
+      price = Number(getDefaultPrice(l.code)) || 0;
+    }
     if (qty > 0 && price > 0) { sum += qty * price; any = true; }
   }
   return any ? sum : null;

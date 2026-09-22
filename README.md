@@ -4672,7 +4672,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1035
+## 41) Changelog v300 → v1036
+
+### v1036 (2026-09-22) — Planner: total en cards de Lista de espera (getDefaultPrice fallback) + whitelist Uruguay
+
+**Reporte Mariano — 2 items:**
+
+**A. Total en cards de Lista de espera (waitlist entries)**
+
+**Bug**: cards en Lista de espera mostraban "—" en el total. El modal del waitlist sí muestra el total correcto ($1,407,000 para SUGAIAR ORDEN 207).
+
+**Root cause**: los waitlist entries (`revision_waitlist` docs) tienen lines con solo `{code, desc, qty, firstBackorder, firstDisponible, firstStockTotal}` — **sin `precio` ni `priceAtCreation`**. Son "pedidos crudos" cargados desde Excel antes de la asignación de precios. El modal calcula el total en runtime con `getDefaultPrice(code)` (index.html:18845). El card render del Planner no lo hacía.
+
+**Fix**: agregar `getDefaultPrice(code)` como 4to fallback en `_plannerComputeTotal` cuando no hay `precio` en la línea. Mismo lookup que usa el modal. Los 6 waitlists actuales van a mostrar su total real.
+
+**B. Whitelist Planner ampliada a Uruguay**
+
+Agregados a `_plannerAllowedEmails`:
+- `santiago.beron@shimano.uy`
+- `diego.valsi@shimano.uy`
+
+Sync entre `applyRolePermissions` (CSS gate) y `openPlannerBoardModal` (runtime guard).
 
 ### v1035 (2026-09-22) — Planner Cobrado: nuevo CF `syncSapPaymentsToApp` + `invoicedAmount` exacto de SAP
 
