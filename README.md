@@ -12390,11 +12390,45 @@ Roles permitidos: `admin | gerente | interno`.
 - Cambios en schedule / lógica sync → `firebase deploy --only functions:syncSapOrdersToApp` o `functions:syncSapPaymentsToApp`
 - Frontend puro (colores, filtros, badges) → GitHub Pages auto post-merge.
 
+### Planner vs PowerBI — por qué los números NO coinciden (y no deberían)
+
+**Los dos salen de SAP pero miden cosas semánticamente distintas por diseño.** Comparación FAQ para consulta futura si alguien reporta "el número del Planner no coincide con el BI".
+
+**Diferencia 1 — El filtro "Septiembre" significa cosas distintas**:
+- **Planner**: filtra por `createdAt` del pedido en la app (mes en que se cargó).
+- **PowerBI**: filtra por `DocDate` del documento SAP (SQ/SO/Invoice/Payment) — fecha contable.
+- Ejemplo: pedido creado el 28/8 y facturado el 3/9 → Planner lo cuenta en agosto (creación), BI en septiembre (contable).
+
+**Diferencia 2 — Columnas del Planner son EXCLUSIVAS; KPIs del BI son ACUMULATIVOS**:
+- **Planner**: un pedido cae en UNA sola columna. Un pedido 100% cobrado desaparece de Facturado y aparece solo en Cobrado.
+- **PowerBI**: cada tile mide un concepto independiente. Un pedido facturado + cobrado aparece en Facturación Y en Cobrado (los dos tiles).
+
+**Diferencia 3 — Base numérica**:
+- Planner suma **pedidos** (docs Firestore). Cada pedido tiene 1 SQ (`docNum`), 0-1 SO (`orderDocEntry`), 0-N invoices (`appliedInvoiceDocEntries`).
+- PowerBI suma **documentos SAP directos** (invoices sueltas, payments sueltos, SQ sueltas).
+
+**Traducción correcta** (medición 2026-09-22):
+
+| Concepto contable | Planner (sumar columnas) | PowerBI (tile directo) |
+|-------------------|--------------------------|------------------------|
+| Facturación total | Facturado + Cobrado = $81M + $213M = **$294M** | Facturación = **$203M** |
+| Cobrado total | Cobrado = **$213M** | Cobrado = **$134M** |
+| SO activas | Pend. facturar + Facturado + Cobrado = **$297M** | Órdenes = **$267M** |
+| SQ vivas | Oferta = **$294M** | Ofertas de ventas = **$372M** |
+
+Los gaps residuales (10-30%) son casi todos por la Diferencia 1 (filtro de mes distinto).
+
+**Cuál usar**:
+- **Planner** para pipeline de trabajo diario: "¿qué pedidos tengo abiertos, en qué stage?"
+- **PowerBI** para análisis contable / gerencial: "¿cuánto facturé este mes? ¿cuánto cobré?"
+
+Son vistas **complementarias**, no duplicadas. Fase 3 (filtro contable con `lastInvoiceDate` / `lastPaymentDate` persistidos por CFs) queda evaluado y **descartado** por decisión Mariano 2026-09-22 — no vale la pena la complejidad backend cuando el user entiende que son vistas distintas.
+
 ### Enlaces relacionados
 
 - Spec inicial: `docs/specs/2026-09-22-planner-design.md`
 - Plan original: `docs/plans/2026-09-22-planner-plan.md`
-- Changelog detallado por versión: §41 (v1005 → v1038).
+- Changelog detallado por versión: §41 (v1005 → v1040).
 
 
 ## 53) BigQuery views + CF fixes — sesión 2026-09-22 (v1033-v1035)
