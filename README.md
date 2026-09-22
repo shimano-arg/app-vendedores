@@ -4672,7 +4672,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1036
+## 41) Changelog v300 → v1037
+
+### v1037 (2026-09-22) — Planner: removida columna "Confirmado" — pipeline 100% automático + lineal
+
+**Reporte**: Mariano — la columna Confirmado no se usaba (0 pedidos hoy, 1 doc en Firestore con `plannerStage='confirmado'` pero ya caía en Facturado por Rule 3).
+
+**Cambios en las 3 capas**:
+
+1. **`PLANNER_COLUMNS`** en `index.html:27396`: de 6 → 5 columnas. Removida `{ key: 'confirmado', label: 'Confirmado' }`.
+2. **`computeColumn`** (los 3 mirrors — inline `index.html:12403`, `functions/core/planner-compute-column.js`, `src/domains/planner/compute-column.js`): removida Rule 4 (`plannerStage === 'confirmado' → 'confirmado'`). Docs con ese stage caen ahora en Rule 5 (orderDocEntry → ordenes) o Rule 6 (docNum → oferta) o default (lista_espera). Cero pérdida de datos verificada — el único doc en prod (BIANCHINI SAP:2000120) ya caía en Facturado por Rule 3 (qtyInvoiced>0).
+3. **`PLANNER_MANUAL_TARGETS`**: reducido a `['cobrado']` — solo cobrado queda como drag manual (raramente usado post-Fase 2 payments sync).
+4. **`COLUMN_LABELS`** en `functions/core/planner-stage-change-core.js`: sin `confirmado`.
+5. **`plannerStage` mapping en `onPlannerColDrop`**: solo maneja `dst === 'cobrado'`.
+
+**Tests actualizados** (54/54 pass):
+- `planner-compute-column.test.js`: caso "plannerStage=confirmado + docNum sin facturar" ahora expecta `'oferta'` (Rule 5).
+- `planner-stage-change.test.js`: `defaultConfig()` sin `confirmado`; case 4 refactorizado para validar que `plannerStage='confirmado' + docNum` cae en 'oferta'; case 14 refactorizado para usar `paidStatus='paid'` en vez de `plannerStage='confirmado'` como truco de transición.
+
+**Pipeline post-v1037**: `Lista de espera → Oferta → Pendiente de facturar → Facturado → Cobrado`. Cinco columnas, todas automáticas (excepto drag opcional a Cobrado que casi nunca se usa desde la Fase 2).
+
+**Deploy CF**: `firebase deploy --only functions:onPlannerStageChanged` para que el CF también refleje el nuevo mapping de labels.
 
 ### v1036 (2026-09-22) — Planner: total en cards de Lista de espera (getDefaultPrice fallback) + whitelist Uruguay
 
