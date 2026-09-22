@@ -42,13 +42,34 @@ implementations.forEach(({ name, fn }) => {
       expect(fn({ paidStatus: 'paid' })).toBe('cobrado');
     });
 
-    it('plannerStage = confirmado overrides all → confirmado', () => {
+    it('plannerStage = confirmado + docNum sin facturar → confirmado', () => {
       expect(
         fn({
           plannerStage: 'confirmado',
           transferidoSAP: { docNum: 12345 },
         })
       ).toBe('confirmado');
+    });
+
+    // v1016 (2026-09-22): SAP facturó una línea → gana sobre plannerStage=confirmado.
+    // Precedente BIANCHINI SAP:2000120 (qtyInvoiced=15/78u pero atascado en Confirmado).
+    it('plannerStage = confirmado + lines qtyInvoiced>0 → facturar (SAP pisa drag)', () => {
+      expect(
+        fn({
+          plannerStage: 'confirmado',
+          transferidoSAP: { docNum: 2000120, orderDocEntry: 50699 },
+          lines: [{ qtyInvoiced: 0 }, { qtyInvoiced: 15 }],
+        })
+      ).toBe('facturar');
+    });
+
+    it('plannerStage = confirmado + items qtyInvoiced>0 (legacy schema) → facturar', () => {
+      expect(
+        fn({
+          plannerStage: 'confirmado',
+          items: [{ qtyInvoiced: 3 }],
+        })
+      ).toBe('facturar');
     });
 
     it('plannerStage = cobrado_parcial overrides transfer → cobrado', () => {
