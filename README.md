@@ -4680,38 +4680,39 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 **Fix**: nuevo scheduled Cloud Function `syncSapOrdersToApp` que corre cada 60 min.
 
-**Flujo**:
-1. Query Firestore: `pedidos` con `closedAt == null`, orderBy `updatedAt` desc, limit `batchSize * 5`.
-2. Filtro client-side: pedidos con `transferidoSAP.docEntry` seteado (=SQ ya creada en SAP) **sin** `transferidoSAP.orderDocEntry` (=SO aún no sincronizada). Slice a `batchSize` (default 100).
-3. Login a SAP SL. Para cada pedido pendiente:
-   ```
-   GET /b1s/v1/Orders?$filter=DocumentLines/any(l:l/BaseEntry eq <sqDocEntry> and l/BaseType eq 23)&$select=DocEntry&$top=1
-   ```
-   `BaseType=23` = Sales Quotation (la SO tiene línea que apunta a la SQ).
-4. Si `value: [{DocEntry: X}]` → `fbDb.doc('pedidos/{id}').update({ 'transferidoSAP.orderDocEntry': X, 'transferidoSAP.orderSyncedAt': <iso> })`. **Dot-notation** preserva `docNum`, `docEntry`, `transferredAt`, `batchId` (no pisa).
-5. Si `value: []` → no-op (miss). SQ todavía no fue convertida.
-6. Logout. Retornar `{ checked, hits, misses, errors }`.
+**Diseño final** (post 8 hotfixes — ver historial abajo):
 
-**Idempotencia**: escribir el mismo `orderDocEntry` 2 veces es no-op efectivo (mismo valor). Correr el sync N veces = mismo estado final.
+Enum reverse — enumerar `/Orders desc` con paginación y buildear map `{sqDe → soDe}` client-side.
 
-**Rate limit**: 1 GET SAP por pedido pendiente. En steady state ~5-30 pedidos "en Oferta" en un momento dado, cada corrida hace ~5-30 GETs a SAP. Aceptable con schedule cada 60 min.
+```
+GET /b1s/v1/Orders?$select=DocEntry,DocumentLines&$orderby=DocEntry desc&$skip=<0,20,40,...500>
+```
 
-**Tests** (9 casos en `tests/functions/sync-sap-orders.test.js`):
-1. Sin pedidos pendientes → no llama a SAP.
-2. 1 pedido con SQ y hit en SAP → update aplicado, campos previos preservados.
-3. SAP responde `value: []` → miss, no update.
-4. Pedido con `orderDocEntry` ya seteado → se skip del batch (listPendingPedidos filtra).
-5. Pedido sin `transferidoSAP.docEntry` → se skip.
-6. GET throw en un pedido → errors++, sigue con siguientes.
-7. GET status 500 → errors++.
-8. `batchSize` respetado (5 pedidos, batchSize=3 → checked=3).
-9. Session reuse (1 login + 1 logout aunque haya N GETs).
+Sin `$expand`. `DocumentLines` viene inline con `BaseType`/`BaseEntry` por default cuando está en `$select`. Buscar client-side `BaseType===23` (Quotation) → `BaseEntry` = sqDocEntry. Si esa SQ está en nuestras pending, escribir `pedidos/{id}.transferidoSAP.orderDocEntry = so.DocEntry` con **dot-notation** (preserva `docNum`/`docEntry`/`transferredAt`/`batchId`).
 
-**Deploy**: `firebase deploy --only functions:syncSapOrdersToApp`.
+**Paginación**: SAP SL default page size = 20. `$top=500` se ignora. Loop `$skip=0,20,40,...500` hasta cubrir `ORDERS_LOOKAHEAD=500`. Early exit si ya matcheamos todas las pending.
 
-**Verificación post-deploy**: buscar `'syncSapOrdersToApp summary'` en logs. Después de 1-2 corridas la columna "Órdenes" del Planner debería empezar a mostrar los pedidos que ya tienen SO creada en SAP.
+**Eficiencia**: 1 loop de ~25 GETs por corrida vs N GETs individuales (uno por pending). Escalable.
 
-**Escalado futuro**: si el volumen crece (>500 pedidos pendientes por corrida), pasar a cursor-based enum (patrón de `syncSapInvoicesToApp`) — enumerar Orders nuevas y match reverse en Firestore.
+**Trade-off**: si una SO se creó hace >500 SO atrás (~16 días en steady state 30 SO/día), queda invisible al sync. Aceptable para el caso de uso actual. Escalado futuro: cursor-based enum (patrón de `syncSapInvoicesToApp`).
+
+**Historial de hotfixes** (por si el diseño necesita revisarse en el futuro):
+
+- **hotfix2** `/Quotations(id)?$expand=DocumentLines` → 400 "Cannot expand invalid navigation property 'DocumentLines' for entity type 'Document'".
+- **hotfix3** `/Quotations?$filter=DocEntry eq X&$expand` → mismo error (SL rechaza `$expand` en collection Document también).
+- **hotfix4** `/Quotations?$filter` sin `$expand` → 200 OK pero SAP no devuelve `TargetType`/`TargetEntry` sin expand (solo `BaseType`/`BaseEntry`).
+- **hotfix5** debug log de las keys → confirmó que `Target*` NO viene sin `$expand`.
+- **hotfix6** flip a enum reverse `/Orders?$expand=DocumentLines` → mismo 400.
+- **hotfix7** `/Orders` sin `$expand` → 200 OK pero solo 20 SO scanned (default page).
+- **hotfix8** paginación `$skip` → **funcionó** ✅ (63 hits sobre 100 pending en primera corrida productiva).
+
+**Regla nueva capturada en CLAUDE.md #29** (pendiente): **SAP SL de esta company no permite `$expand` sobre ninguna collection Document** (Quotations/Orders/Invoices). Diferencia vs `sq-cancel-core.js` que sí funciona con expand: aquel corre client-side via `sapProxy` callable; el CF corre server-side directo al SL y ahí falla. Cualquier CF nuevo que quiera hacer lineage between documents debe usar el pattern **enum + inline DocumentLines** (sin `$expand`) + paginación con `$skip` (page default = 20).
+
+**Tests** (10 casos en `tests/functions/sync-sap-orders.test.js`): sin pending, 1 hit, miss, orderDocEntry ya seteado (skip), sin docEntry (skip), `/Orders` throw (bubble), `/Orders` status 500 (errors=pending.length), SOs no relacionadas ignoradas, session reuse.
+
+**Deploy**: `firebase deploy --only functions:syncSapOrdersToApp` (2026-09-22 17:12 UTC).
+
+**Verificación productiva**: primera corrida real devolvió `{ checked: 100, hits: 63, misses: 37, errors: 0, ordersScanned: 500 }`. 63 pedidos migraron de "Oferta" → "Órdenes" en el Planner.
 
 ### v1014 (2026-09-22) — Planner: filtro de mes en Facturar/Cobrado
 
