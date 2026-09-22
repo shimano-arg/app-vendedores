@@ -899,6 +899,10 @@ window.enviarPedidosASAPViaServiceLayer = async function (pedidos) {
     // v344+ (2026-07-28): FIX DUPLICADOS. Igual que el auto-send listener,
     // aca tambien reservamos con transaction para prevenir carrera contra el
     // auto-send corriendo en OTRA sesion (o el mismo tab despues del F5).
+    // v1004 (2026-09-22): ventana 60s -> 300s alineada con listener (v577) y
+    // CF trigger (v818). Con los tres flows activos post-v999, el batch podia
+    // pasar por encima de un lock de CF/listener aun activo (SAP a veces tarda
+    // >60s) -> 2 SQ en SAP para el mismo pedido. Bug reportado 2026-09-22.
     let lockAcquired = false;
     try {
       await fbDb.runTransaction(async (tx) => {
@@ -908,7 +912,7 @@ window.enviarPedidosASAPViaServiceLayer = async function (pedidos) {
         if (data.transferidoSAP) throw new Error('ALREADY_SENT');
         if (data.sendingSapLock && data.sendingSapLock.at) {
           const lockAgeMs = Date.now() - data.sendingSapLock.at;
-          if (lockAgeMs < 60000)
+          if (lockAgeMs < 300000)
             throw new Error('OTHER_SESSION_LOCK:' + (data.sendingSapLock.sessionId || 'unknown'));
         }
         tx.update(docRef, { sendingSapLock: { sessionId: mySessionId, at: Date.now() } });

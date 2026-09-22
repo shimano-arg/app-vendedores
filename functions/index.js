@@ -461,6 +461,18 @@ export const onPedidoConfirmedSendToSap = onDocumentWritten(
         console.log('onPedidoConfirmedSendToSap skip: sapConfig incompleto');
         return;
       }
+      // v1004 (2026-09-22): appSeriesId (DocSeries "APP") desde app_config.
+      // El flow client-side (sap-service-layer.js:441) ya seteaba
+      // `payload.Series = seriesId` pero el CF nunca lo pasaba -> SAP aplicaba
+      // DocSeries default del user SL, que en produccion es una serie Bike
+      // -> pedidos Pesca terminaban clasificados como BIKE. Bug latente v818
+      // pero invisible hasta v999 que arreglo el userName y activo el CF.
+      // Reporte 2026-09-22: cross-BU Pesca->Bike en SAP.
+      const appSeriesIdRaw = sapCfgData.appSeriesId;
+      const appSeriesId =
+        appSeriesIdRaw !== undefined && appSeriesIdRaw !== null && appSeriesIdRaw !== ''
+          ? parseInt(String(appSeriesIdRaw), 10)
+          : null;
 
       // Cargar mappings sap_clients/sap_products/sap_vendors para resolvers.
       // Los VDE confirman con clientCardCode ya persistido en el pedido, asi
@@ -516,6 +528,10 @@ export const onPedidoConfirmedSendToSap = onDocumentWritten(
         sapClients,
         sapProducts,
         sapVendors,
+        // v1004 (2026-09-22): DocSeries "APP" del config; buildQuotationPayload
+        // lo pasa como payload.Series. Sin esto, SAP aplica default del user SL
+        // y clasifica los SQ contra la BU equivocada (bug cross-BU 2026-09-22).
+        appSeriesId,
         // v991 (SecAudit run-1 HIGH #5): fresh lookup del vendor real del owner
         // desde roles/{uid}.vendor. handleAutoSendSap lo pasa a
         // buildQuotationPayload para resolver SlpCode (en vez de confiar en

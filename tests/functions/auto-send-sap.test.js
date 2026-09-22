@@ -343,6 +343,37 @@ describe('buildQuotationPayload', () => {
     expect(r.payload.Comments.length).toBeLessThanOrEqual(254);
   });
 
+  // v1004 (2026-09-22): payload.Series desde deps.appSeriesId (bug cross-BU)
+  describe('v1004 Series (DocSeries "APP")', () => {
+    it('setea payload.Series si deps.appSeriesId es number', () => {
+      const deps = makeDeps();
+      deps.appSeriesId = 103;
+      const r = buildQuotationPayload(validPedido, 'p', deps);
+      expect(r.ok).toBe(true);
+      expect(r.payload.Series).toBe(103);
+    });
+    it('omite Series si deps.appSeriesId es null (fallback DocSeries default)', () => {
+      const deps = makeDeps();
+      deps.appSeriesId = null;
+      const r = buildQuotationPayload(validPedido, 'p', deps);
+      expect(r.ok).toBe(true);
+      expect(r.payload.Series).toBeUndefined();
+    });
+    it('omite Series si deps.appSeriesId no viene (retrocompat)', () => {
+      const deps = makeDeps();
+      const r = buildQuotationPayload(validPedido, 'p', deps);
+      expect(r.ok).toBe(true);
+      expect(r.payload.Series).toBeUndefined();
+    });
+    it('omite Series si deps.appSeriesId es NaN (defensivo)', () => {
+      const deps = makeDeps();
+      deps.appSeriesId = Number.NaN;
+      const r = buildQuotationPayload(validPedido, 'p', deps);
+      expect(r.ok).toBe(true);
+      expect(r.payload.Series).toBeUndefined();
+    });
+  });
+
   // v991 (SecAudit run-1 HIGH #5): trueVendor override
   describe('v991 trueVendor override (anti ownerVendor spoof)', () => {
     it('sin trueVendor: usa pedido.ownerVendor (retrocompat)', () => {

@@ -18,7 +18,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
 | **Versión actual** | **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. Diagnóstico previo del "SDK Gen 2 bug" era incorrecto — el enforcement SÍ funciona, pero tarda ~66h desde registration Console en propagarse. Deploy directo sin PR (urgencia productiva). Ver §41 + `NEEDS-VALIDATION.md §1`. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11 (fix 45 SKUs con badge "DISPONIBLE" falso, ej TRX301HGB). \| **v1001 (2026-09-21)** — UX fix: alert "Enviar via Service Layer" muestra "Omitidos" con motivo cuando algún pedido queda skipped por lock stale. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX `onPedidoConfirmedSendToSap` (`functions/index.js:446`): typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. 3 sub-tabs (MAP · Productos · Categorías) alimentadas por sync diario desde mercado-intelligence. Botón "🛒 Mercado Libre" al final del Panel de Control, gated por email whitelist (erbinomariano@gmail.com + mariano.erbino@shimano.com.ar). Chunk lazy `chunks/meli.js` + rules `isMariano()` + colecciones `meli/*`. Ver §51. \| **v995 (2026-09-18)** — Hotfix pre-deploy v994: el modal Depósito (`index.html:16354`) llama `setupGetMovimientos` SIN `cardCode` (query global "traeme todos los shipments"). El v994 original tiraba `invalid-argument` en ese caso → rompía UX. Ahora si vendedor sin `cardCode` → server hace fetch normal + filtra `movimientos` server-side por `client_master.assignedVendor == roles/{uid}.vendor` (batch chunked query). Vendedor con `cardCode` sigue con el check estricto. Vector cerrado igual: vendedor solo ve shipments de su cartera. Ver §41. |
-| **APP_VERSION** | `v1002` frontend (v1003 solo tocó CFs, sin bump). Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog para historial completo. |
+| **APP_VERSION** | `v1004` frontend (fix duplicados batch handler + cross-BU CF). Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4671,7 +4671,36 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1003
+## 41) Changelog v300 → v1004
+
+### v1004 (2026-09-22) — HOTFIX cross-BU Pesca→Bike + duplicados en SAP (`Series` missing en CF trigger + lock window 60s en batch handler)
+
+**Reporte productivo 2026-09-22**: pedidos de clientes Pesca ingresando a SAP clasificados como BIKE + algunos pedidos entrando **duplicados**.
+
+**Root cause 1 (cross-BU)**: el CF trigger `onPedidoConfirmedSendToSap` (arreglado v999) construía el payload SQ **sin `Series`**. El flow client-side `sap-service-layer.js:441` sí seteaba `payload.Series = seriesId` desde `sapConfigCache.appSeriesId` (=103 PROD), pero el CF nunca lo pasó por `deps` a `buildQuotationPayload`. Cuando el payload viaja sin `Series`, SAP aplica la DocSeries default del user SL — que en prod es una serie asociada a Bike → **pedidos Pesca clasificados como BIKE**. Bug latente desde v818 (2026-09-07) pero invisible hasta que v999 activó el CF trigger real (24 hs antes).
+
+**Root cause 2 (duplicados)**: ventana del lock `sendingSapLock` **inconsistente entre los 3 flows** que hoy pueden mandar a SAP:
+- CF trigger `auto-send-sap-core.js:392` → **300 s** ✓ (default `lockTtlMs`)
+- Auto-send listener `sap-auto-send-listener.js:106` → **300 s** ✓ (fix v577 tras el incidente Ioannis+Jonatan)
+- Batch handler manual "Carga a SAP" `sap-admin-panel.js:911` → **60 s** ❌ (nunca actualizado)
+
+Con los 3 flows activos post-v999, si un admin corre "Carga a SAP" mientras un pedido tiene lock del CF/listener con >60 s (SAP puede tardar minutos bajo carga), el batch **considera stale un lock que sigue activo** → 2 POST concurrentes a `/Quotations` → 2 SQ en SAP para el mismo pedido. Es el mismo bug que v577 fixeó parcialmente (subió el listener a 300 s pero omitió el batch handler).
+
+**Fix**:
+1. `functions/index.js:454` — cargar `appSeriesId = parseInt(sapCfgData.appSeriesId, 10)` desde `app_config/sap_integration` y pasarlo por `deps.appSeriesId` a `handleAutoSendSap`.
+2. `functions/core/auto-send-sap-core.js:255` — si `deps.appSeriesId` es `number` finite, agregar `payload.Series = deps.appSeriesId`. Idempotente / retrocompat: sin `appSeriesId` en deps, comportamiento previo (Series omitido).
+3. `src/domains/sap-admin-panel.js:911` — cambiar `lockAgeMs < 60000` → `lockAgeMs < 300000`. Alinea al listener + CF.
+4. Tests `tests/functions/auto-send-sap.test.js` — 4 casos nuevos en `describe('v1004 Series')`: setea 103, omite si null/undefined/NaN.
+
+**Cleanup pendiente en SAP** (coordinar con Santi, owner SAP):
+- Query `SELECT * FROM OQUT WHERE U_AppOrigen='SHIMANO_APP_VENDEDORES' AND CreateDate >= '2026-09-21' AND Series <> 103` — todos los SQ que ingresaron con DocSeries incorrecta post-v999.
+- Query `SELECT NumAtCard, COUNT(*) FROM OQUT WHERE U_AppOrigen='SHIMANO_APP_VENDEDORES' AND CreateDate >= '2026-09-21' GROUP BY NumAtCard HAVING COUNT(*) > 1` — SQ duplicados (mismo pedidoId en Firestore).
+- Cancelar/re-clasificar manual en SAP.
+
+**Deploy**:
+- Bundle rebuildeado + bump `APP_VERSION`/`CACHE_VERSION` v1001 → v1004.
+- `firebase deploy --only functions:onPedidoConfirmedSendToSap` obligatorio (fix del payload es CF-side).
+- Verificación post-deploy: primer pedido Pesca confirmado post-deploy → checar en SAP que `Series=103`.
 
 ### v1003 (2026-09-21) — HOTFIX definitivo: revert `enforceAppCheck: true → false` en 3 CFs (SDK Gen 2 NO era bug, era delay de propagación de Console registration)
 
