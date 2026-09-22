@@ -44,9 +44,9 @@ import { syncSapInvoices } from './core/invoice-sync-core.js';
 // v774 (2026-09-02): notif email al enviar oferta a SAP (pedido Mariano).
 import { buildEmailContent, sendEmail, shouldNotify } from './core/notify-quotation-sent-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
+import { handleResendPlannerEmail } from './core/planner-resend-email-core.js';
 // v1005 (2026-09-22): Planner Kanban — trigger email on column transition.
 import { handlePlannerStageChanged } from './core/planner-stage-change-core.js';
-import { handleResendPlannerEmail } from './core/planner-resend-email-core.js';
 // v939 (SecAudit Sprint 2 MED-15 VULN-L004+L015): rate limit para sapProxy
 // + geminiOcrProxy. Contador atomico en Firestore rate_limits/{uid}.
 import { checkAndIncrementRateLimit, RATE_LIMITS } from './core/rate-limit-core.js';
@@ -1673,12 +1673,13 @@ export const resendPlannerEmail = onCall(
     try {
       return await handleResendPlannerEmail(request.data, request.auth ?? null, {
         db,
-        stageHandler: (event) => handlePlannerStageChanged(event, {
-          db,
-          transporter,
-          log: console,
-          now: () => new Date(),
-        }),
+        stageHandler: (event) =>
+          handlePlannerStageChanged(event, {
+            db,
+            transporter,
+            log: console,
+            now: () => new Date(),
+          }),
         log: console,
       });
     } catch (err) {

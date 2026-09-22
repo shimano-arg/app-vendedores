@@ -10,7 +10,14 @@
  * re-sends idempotently.
  */
 
-const VALID_COLUMNS = new Set(['lista_espera', 'oferta', 'ordenes', 'confirmado', 'facturar', 'cobrado']);
+const VALID_COLUMNS = new Set([
+  'lista_espera',
+  'oferta',
+  'ordenes',
+  'confirmado',
+  'facturar',
+  'cobrado',
+]);
 const MARIANO_EMAILS = new Set(['erbinomariano@gmail.com', 'mariano.erbino@shimano.com.ar']);
 
 /**
@@ -22,8 +29,10 @@ const MARIANO_EMAILS = new Set(['erbinomariano@gmail.com', 'mariano.erbino@shima
 export async function handleResendPlannerEmail(data, auth, deps) {
   if (!auth?.uid) throw { code: 'unauthenticated', message: 'Login required' };
   const email = auth.token?.email;
-  if (!email || !MARIANO_EMAILS.has(email)) throw { code: 'permission-denied', message: 'Not authorized to resend' };
-  if (!data?.pedidoId || !VALID_COLUMNS.has(data?.column)) throw { code: 'invalid-argument', message: 'pedidoId + valid column required' };
+  if (!email || !MARIANO_EMAILS.has(email))
+    throw { code: 'permission-denied', message: 'Not authorized to resend' };
+  if (!data?.pedidoId || !VALID_COLUMNS.has(data?.column))
+    throw { code: 'invalid-argument', message: 'pedidoId + valid column required' };
 
   const snap = await deps.db.doc(`pedidos/${data.pedidoId}`).get();
   if (!snap.exists) throw { code: 'not-found', message: `Pedido ${data.pedidoId} not found` };
@@ -33,7 +42,10 @@ export async function handleResendPlannerEmail(data, auth, deps) {
   deps.log.info(`Resend requested: pedido=${data.pedidoId} column=${data.column}`);
 
   // Synthesize event so the stage handler treats this as a fresh transition into `column`.
-  const currentData = { ...snap.data(), plannerEmails: { ...(snap.data().plannerEmails || {}), [data.column]: null } };
+  const currentData = {
+    ...snap.data(),
+    plannerEmails: { ...(snap.data().plannerEmails || {}), [data.column]: null },
+  };
   const event = {
     data: {
       before: { data: () => ({}) },

@@ -88,8 +88,11 @@ function makeFakeDb(initialDocs) {
 /** Mock SL respuestas por endpoint. */
 function makeSlFetch(scenarios) {
   return vi.fn(async (url, init) => {
-    const isPost = init && init.method === 'POST';
-    const isQuot = url.endsWith('/b1s/v1/Quotations') && isPost;
+    const method = (init && init.method) || 'GET';
+    const isPost = method === 'POST';
+    const isQuotPost = url.endsWith('/b1s/v1/Quotations') && isPost;
+    // v1006: GET /b1s/v1/Quotations?$filter=NumAtCard eq '...' — check idempotente.
+    const isQuotGet = /\/b1s\/v1\/Quotations\?/.test(url) && !isPost;
     if (url.endsWith('/b1s/v1/Login')) {
       return {
         ok: true,
@@ -101,7 +104,47 @@ function makeSlFetch(scenarios) {
     if (url.endsWith('/b1s/v1/Logout')) {
       return { ok: true, status: 204, headers: { get: () => null }, text: async () => '' };
     }
-    if (isQuot) {
+    if (isQuotGet) {
+      // v1006: scenarios.idempotentThrow -> reject (simula network error)
+      if (scenarios.idempotentThrow) {
+        throw new Error(scenarios.idempotentThrow);
+      }
+      // v1006: scenarios.idempotentStatus -> status HTTP custom (no 200)
+      if (scenarios.idempotentStatus && scenarios.idempotentStatus !== 200) {
+        return {
+          ok: false,
+          status: scenarios.idempotentStatus,
+          headers: { get: () => null },
+          text: async () => '',
+        };
+      }
+      // v1006: scenarios.idempotentHit -> SAP ya tiene SQ para este NumAtCard
+      if (scenarios.idempotentHit) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          text: async () =>
+            JSON.stringify({
+              value: [
+                {
+                  DocEntry: scenarios.idempotentHit.DocEntry ?? 555,
+                  DocNum: scenarios.idempotentHit.DocNum ?? 999,
+                  NumAtCard: scenarios.idempotentHit.NumAtCard ?? 'p1',
+                },
+              ],
+            }),
+        };
+      }
+      // Default: no hit — value: []
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        text: async () => JSON.stringify({ value: [] }),
+      };
+    }
+    if (isQuotPost) {
       if (scenarios.quotError) {
         return {
           ok: false,
@@ -643,5 +686,110 @@ describe('handleAutoSendSap — errores SL', () => {
     const after = deps.fbDb._dump()['pedidos/p1'];
     expect(after.sendingSapLock).toBeUndefined();
     expect(after.transferidoSAP).toBeUndefined();
+  });
+});
+
+// v1006 (2026-09-22): idempotencia server-side por NumAtCard.
+// Antes del POST /Quotations, GET filtrado por NumAtCard. Si existe -> no
+// re-POST, escribir transferidoSAP con el DocNum encontrado. Cierra los 2
+// vectores residuales: (a) SAP tarda >5min y otra sesion re-envia; (b)
+// sapPost OK pero write transferidoSAP falla y trigger re-dispara.
+describe('handleAutoSendSap — v1006 idempotencia por NumAtCard', () => {
+  it('idempotent hit: SAP ya tiene SQ con este NumAtCard -> SENT_OK_IDEMPOTENT sin re-POST', async () => {
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': { ...validPedido } },
+      slScenarios: {
+        idempotentHit: { DocNum: 999, DocEntry: 555, NumAtCard: 'p1' },
+        // Si esto se ejecutara (no deberia), fallaria distinto:
+        docNum: 12345,
+        docEntry: 999999,
+      },
+    });
+    const r = await handleAutoSendSap('p1', null, { ...validPedido }, deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.SENT_OK_IDEMPOTENT);
+    expect(r.docNum).toBe(999);
+    expect(r.docEntry).toBe(555);
+    const after = deps.fbDb._dump()['pedidos/p1'];
+    expect(after.transferidoSAP.docNum).toBe(999);
+    expect(after.transferidoSAP.via).toBe('cf_auto_idempotent');
+    expect(after.transferidoSAP.batchId).toMatch(/^CF-AUTO-IDEMPOTENT-/);
+    expect(after.sendingSapLock).toBeUndefined();
+  });
+
+  it('NO POST se ejecuta cuando idempotent hit acierta', async () => {
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': { ...validPedido } },
+      slScenarios: {
+        idempotentHit: { DocNum: 111, DocEntry: 222 },
+      },
+    });
+    await handleAutoSendSap('p1', null, { ...validPedido }, deps);
+    const fetchMock = deps.sl.fetch;
+    const postCalls = fetchMock.mock.calls.filter(
+      ([url, init]) => url.endsWith('/b1s/v1/Quotations') && init && init.method === 'POST'
+    );
+    expect(postCalls).toHaveLength(0);
+  });
+
+  it('idempotent miss (value: []) -> POST normal, SENT_OK', async () => {
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': { ...validPedido } },
+      slScenarios: { docNum: 12345, docEntry: 999 },
+    });
+    const r = await handleAutoSendSap('p1', null, { ...validPedido }, deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.SENT_OK);
+    const after = deps.fbDb._dump()['pedidos/p1'];
+    expect(after.transferidoSAP.via).toBe('cf_auto');
+  });
+
+  it('GET falla (network error) -> fallback a POST, SENT_OK (no bloquea)', async () => {
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': { ...validPedido } },
+      slScenarios: {
+        idempotentThrow: 'network hiccup',
+        docNum: 12345,
+        docEntry: 999,
+      },
+    });
+    const r = await handleAutoSendSap('p1', null, { ...validPedido }, deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.SENT_OK);
+    expect(r.docNum).toBe(12345);
+    const after = deps.fbDb._dump()['pedidos/p1'];
+    expect(after.transferidoSAP.via).toBe('cf_auto');
+  });
+
+  it('GET responde status !=200 -> fallback a POST, SENT_OK', async () => {
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': { ...validPedido } },
+      slScenarios: {
+        idempotentStatus: 500,
+        docNum: 12345,
+        docEntry: 999,
+      },
+    });
+    const r = await handleAutoSendSap('p1', null, { ...validPedido }, deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.SENT_OK);
+    expect(r.docNum).toBe(12345);
+  });
+
+  it('idempotent hit pero otra sesion escribio transferidoSAP primero -> respeta winner', async () => {
+    // Simula: nuestra CF hace GET, encuentra SQ (999), pero antes de escribir
+    // transferidoSAP otra sesion ya escribio (docNum=888). Como el write es
+    // transaccional, la nuestra ve el data existente y no pisa.
+    // Estado inicial: pedido ya tiene transferidoSAP (otra sesion completo).
+    // El eligibility check (isEligible) va a detectar transferidoSAP y skip
+    // ANTES de llegar al idempotent check -> resultado SKIP_ALREADY_SENT.
+    // Este test cubre el skip-eligible antes del check idempotent.
+    const deps = makeDeps({
+      dbDocs: {
+        'pedidos/p1': {
+          ...validPedido,
+          transferidoSAP: { docNum: 888, via: 'other_session' },
+        },
+      },
+      slScenarios: { idempotentHit: { DocNum: 999, DocEntry: 555 } },
+    });
+    const r = await handleAutoSendSap('p1', null, deps.fbDb._dump()['pedidos/p1'], deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.SKIP_ALREADY_SENT);
   });
 });

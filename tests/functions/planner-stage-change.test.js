@@ -12,9 +12,7 @@ function makeEvent(before, after) {
   return {
     data: {
       before: before ? { data: () => before } : null,
-      after: after
-        ? { data: () => after, ref: { update: vi.fn(async () => {}) } }
-        : null,
+      after: after ? { data: () => after, ref: { update: vi.fn(async () => {}) } } : null,
     },
   };
 }
@@ -33,14 +31,10 @@ function makeDeps({ config = defaultConfig(), roleDocs = {} } = {}) {
         where: (field, _op, val) => ({
           limit: (n) => ({
             get: async () => {
-              const uids = Object.keys(roleDocs).filter(
-                (uid) => roleDocs[uid][field] === val
-              );
+              const uids = Object.keys(roleDocs).filter((uid) => roleDocs[uid][field] === val);
               return {
                 empty: uids.length === 0,
-                docs: uids
-                  .slice(0, n)
-                  .map((uid) => ({ id: uid, data: () => roleDocs[uid] })),
+                docs: uids.slice(0, n).map((uid) => ({ id: uid, data: () => roleDocs[uid] })),
               };
             },
           }),

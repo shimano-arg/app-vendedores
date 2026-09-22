@@ -8,7 +8,10 @@ import { handleResendPlannerEmail } from '../../functions/core/planner-resend-em
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeDeps({ pedidoData = {}, stageHandler = vi.fn(async () => ({ sent: { to: 'x', column: 'oferta' } })) } = {}) {
+function makeDeps({
+  pedidoData = {},
+  stageHandler = vi.fn(async () => ({ sent: { to: 'x', column: 'oferta' } })),
+} = {}) {
   const updateMock = vi.fn(async () => {});
   return {
     db: {
@@ -63,7 +66,11 @@ describe('handleResendPlannerEmail', () => {
 
   // Case 4: happy path — Mariano + valid pedido + valid column
   it('case 4: Mariano + valid pedido + column "oferta" → update called + stageHandler invoked + returns {ok:true}', async () => {
-    const pedidoData = { pedidoNumber: 'P-001', items: [], plannerEmails: { oferta: { sentAt: new Date() } } };
+    const pedidoData = {
+      pedidoNumber: 'P-001',
+      items: [],
+      plannerEmails: { oferta: { sentAt: new Date() } },
+    };
     const stageHandler = vi.fn(async () => ({ sent: { to: 'of@x.com', column: 'oferta' } }));
     const deps = makeDeps({ pedidoData, stageHandler });
 

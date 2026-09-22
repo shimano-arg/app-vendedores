@@ -18,7 +18,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
 | **Versión actual** | **v1005 (2026-09-22)** — Planner Kanban (Mariano-only, en desarrollo). Task 0: baseline version bump + README stub. Spec en §52 + Plan en docs/plans/. \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP (Series missing en CF + lock 60s en batch). \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. Diagnóstico previo del "SDK Gen 2 bug" era incorrecto — el enforcement SÍ funciona, pero tarda ~66h desde registration Console en propagarse. Deploy directo sin PR (urgencia productiva). Ver §41 + `NEEDS-VALIDATION.md §1`. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11 (fix 45 SKUs con badge "DISPONIBLE" falso, ej TRX301HGB). \| **v1001 (2026-09-21)** — UX fix: alert "Enviar via Service Layer" muestra "Omitidos" con motivo cuando algún pedido queda skipped por lock stale. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX `onPedidoConfirmedSendToSap` (`functions/index.js:446`): typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. 3 sub-tabs (MAP · Productos · Categorías) alimentadas por sync diario desde mercado-intelligence. Botón "🛒 Mercado Libre" al final del Panel de Control, gated por email whitelist (erbinomariano@gmail.com + mariano.erbino@shimano.com.ar). Chunk lazy `chunks/meli.js` + rules `isMariano()` + colecciones `meli/*`. Ver §51. \| **v995 (2026-09-18)** — Hotfix pre-deploy v994: el modal Depósito (`index.html:16354`) llama `setupGetMovimientos` SIN `cardCode` (query global "traeme todos los shipments"). El v994 original tiraba `invalid-argument` en ese caso → rompía UX. Ahora si vendedor sin `cardCode` → server hace fetch normal + filtra `movimientos` server-side por `client_master.assignedVendor == roles/{uid}.vendor` (batch chunked query). Vendedor con `cardCode` sigue con el check estricto. Vector cerrado igual: vendedor solo ve shipments de su cartera. Ver §41. |
-| **APP_VERSION** | `v1005` frontend (Planner Kanban — E0 baseline Task 0). Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog para historial completo. |
+| **APP_VERSION** | `v1006` frontend (idempotencia server-side por `NumAtCard` en CF trigger). Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4672,7 +4672,59 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1004
+## 41) Changelog v300 → v1006
+
+### v1006 (2026-09-22) — Idempotencia server-side por `NumAtCard` (cierra los 2 vectores residuales de duplicados)
+
+**Contexto**: v1004 y v1005 blindaron los vectores más comunes de duplicados en SAP (lock desalineado en batch handler + fail-close si falta `appSeriesId`). Quedaban 2 vectores residuales abiertos:
+
+1. **SAP tarda >5 min** (`lockTtlMs` expira). Otra sesión considera stale el lock y re-envía → antes se creaba SQ duplicado.
+2. **`sapPost` OK pero write `transferidoSAP` falla** (network hiccup, Firestore latency). El trigger re-dispara en el próximo write al doc → antes se re-creaba SQ.
+
+**Fix**: check idempotente por `NumAtCard` antes del POST. Después de `sapLogin` y antes de `sapPost`, `handleAutoSendSap` ahora hace:
+
+```
+GET /b1s/v1/Quotations?$filter=NumAtCard eq '<pedidoId>'&$select=DocEntry,DocNum,NumAtCard&$top=1
+```
+
+- Si `value: [{DocNum, DocEntry, NumAtCard}]` → SAP ya tiene el SQ. Escribir `transferidoSAP` con el DocNum encontrado (via `cf_auto_idempotent`, batchId `CF-AUTO-IDEMPOTENT-<now>`). **NO re-POST**. Retornar `AUTO_SEND_RESULT.SENT_OK_IDEMPOTENT`.
+- Si `value: []` → miss. POST normal, comportamiento previo.
+- Si el GET falla (network throw) o responde `status !== 200` → **fallback a POST** con log warn (defensivo: no bloqueamos envíos legit por un problema del check).
+
+`NumAtCard = pedidoId` (Firestore doc id ~20 chars alphanum) — colisión con otro pedido es criptográficamente improbable.
+
+**Costo runtime**: cada envío ahora hace 1 GET adicional al SL (login + GET + POST + logout). Sobrecarga aceptable — SL puede con el volumen actual (~30-100 pedidos/día).
+
+**Nuevo resultado**: `AUTO_SEND_RESULT.SENT_OK_IDEMPOTENT` — visible en logs para distinguir envíos "detectados" de "creados". Métrica de observability: si crece este contador es señal de que hay races o retries silenciosos.
+
+**Tests nuevos** (6 casos en `describe('handleAutoSendSap — v1006 idempotencia por NumAtCard')`):
+1. Idempotent hit → `SENT_OK_IDEMPOTENT` con DocNum del SAP existente.
+2. NO POST cuando idempotent hit (verifica `fetch.mock.calls` con method=POST count === 0).
+3. Idempotent miss (`value: []`) → POST normal → `SENT_OK`.
+4. GET throw → fallback POST → `SENT_OK`.
+5. GET status !== 200 → fallback POST → `SENT_OK`.
+6. Doc ya tiene transferidoSAP (otra sesión completó) → `SKIP_ALREADY_SENT` sin llegar al check.
+
+**Deploy**: `firebase deploy --only functions:onPedidoConfirmedSendToSap`.
+**Verificación post-deploy**: buscar `'[auto-send] idempotent hit'` en logs. Si aparece con volumen significativo (>1% de envíos) hay problema upstream (SAP lento sostenido, races frecuentes).
+
+### v1005 (2026-09-22) — Hardening SAP: fail-close si falta `appSeriesId` + constante compartida `SAP_LOCK_TTL_MS`
+
+Cierra 2 de los 3 vectores más probables de re-ocurrencia del bug v1004:
+
+**Item 1 — Fail-close `appSeriesId`** (`functions/index.js:471+`):
+- **Antes**: si admin borra `appSeriesId` del `app_config/sap_integration`, el CF seguiría enviando pedidos SIN `Series` → SAP aplica default del user SL → cross-BU silencioso reaparece.
+- **Ahora**: guard en el wrapper. Si `appSeriesId` no es `Number.isFinite`, `console.error` + escribe `transferError` en el pedido (card roja en Confirmados vía v914) + `return` sin invocar `handleAutoSendSap`. Admin fixea config y reenvía manual vía batch.
+
+**Item 2 — Constante compartida `SAP_LOCK_TTL_MS`**:
+- Nuevo módulo `src/domains/sap-lock-constants.js` exporta `SAP_LOCK_TTL_MS = 300000`.
+- `sap-auto-send-listener.js:106` y `sap-admin-panel.js:911` importan la constante (no literal `300000`).
+- **Test unit** `tests/unit/sap-lock-ttl.test.js` valida:
+  1. `SAP_LOCK_TTL_MS === 300000` (v577 baseline).
+  2. **Coincide con `deps.lockTtlMs ?? X` del CF core** (regex sobre `auto-send-sap-core.js`).
+  3. Ambos flows client-side importan la constante (no literal).
+
+Si un dev futuro sube el TTL en un lado sin el otro → CI falla en test #2. El bug v1004 (batch a 60s desalineado de listener a 300s durante 1 mes) hubiera sido atajado por este test.
 
 ### v1004 (2026-09-22) — HOTFIX cross-BU Pesca→Bike + duplicados en SAP (`Series` missing en CF trigger + lock window 60s en batch handler)
 

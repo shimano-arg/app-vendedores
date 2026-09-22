@@ -77,9 +77,7 @@ describe('/app_config/planner_config', () => {
 
   it('cualquier usuario autenticado puede leer planner_config (assertSucceeds)', async () => {
     // vendor es un usuario autenticado regular — debe poder leer
-    await assertSucceeds(
-      getDoc(doc(authedDb(UID.vendor), 'app_config', 'planner_config'))
-    );
+    await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'app_config', 'planner_config')));
   });
 
   it('admin NO-Mariano NO puede escribir planner_config (assertFails)', async () => {
@@ -116,8 +114,6 @@ describe('/pedidos hasOnly whitelist — campos planner + paid (vendor update)',
 // ============================================================
 describe('/roles/{uid} read — isMariano() incluido', () => {
   it('Mariano puede leer cualquier role (necesario para onPlannerStageChanged CF)', async () => {
-    await assertSucceeds(
-      getDoc(doc(marianoDb(), 'roles', UID.vendor))
-    );
+    await assertSucceeds(getDoc(doc(marianoDb(), 'roles', UID.vendor)));
   });
 });

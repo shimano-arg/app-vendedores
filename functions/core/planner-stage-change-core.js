@@ -42,11 +42,7 @@ const COLUMN_LABELS = {
  * @returns {Promise<string|null>}
  */
 async function resolveVdiEmail(vendorKey, db) {
-  const snap = await db
-    .collection('roles')
-    .where('vendor', '==', vendorKey)
-    .limit(1)
-    .get();
+  const snap = await db.collection('roles').where('vendor', '==', vendorKey).limit(1).get();
   if (snap.empty) return null;
   return snap.docs[0].data().email || null;
 }
