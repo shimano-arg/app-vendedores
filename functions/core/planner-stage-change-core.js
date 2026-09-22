@@ -61,6 +61,61 @@ function escapeHtml(s) {
 }
 
 /**
+ * Resolves the display "number" for a pedido in the email notification.
+ * v1021: los pedidos NUNCA tienen pedidoNumber/orderNumber (ese schema
+ * nunca existió); la card del Planner muestra `SAP:<docNum>` y opcionalmente
+ * `SO:<orderDocEntry>`. Alineamos el email con esa misma señal.
+ *
+ * @param {any} pedido
+ * @returns {string}
+ */
+function resolveDisplayNumber(pedido) {
+  if (pedido?.pedidoNumber) return String(pedido.pedidoNumber);
+  if (pedido?.orderNumber) return String(pedido.orderNumber);
+  const t = pedido?.transferidoSAP;
+  if (t?.orderDocEntry && t?.docNum) return `SAP:${t.docNum} · SO:${t.orderDocEntry}`;
+  if (t?.docNum) return `SAP:${t.docNum}`;
+  if (t?.orderDocEntry) return `SO:${t.orderDocEntry}`;
+  return '(sin número)';
+}
+
+/**
+ * Resolves the total ARS of a pedido using the same precedence chain as
+ * the client's _plannerComputeTotal (index.html v1018). v1021 fix: antes
+ * solo miraba totalAmountArs (~24% de docs) → 76% de pedidos mostraban "-".
+ * MANTENER SINCRONIZADO con _plannerComputeTotal en index.html.
+ *
+ * @param {any} pedido
+ * @returns {number|null}
+ */
+function resolveTotalArs(pedido) {
+  if (!pedido) return null;
+  if (typeof pedido.totalAmountArs === 'number') return pedido.totalAmountArs;
+  if (typeof pedido.netAmountArs === 'number') return pedido.netAmountArs;
+  if (typeof pedido.subtotalArs === 'number') return pedido.subtotalArs;
+  if (typeof pedido.total === 'number') return pedido.total;
+  if (typeof pedido.totalARS === 'number') return pedido.totalARS;
+  const lineas = Array.isArray(pedido.lines)
+    ? pedido.lines
+    : Array.isArray(pedido.items)
+      ? pedido.items
+      : [];
+  if (lineas.length === 0) return null;
+  let sum = 0,
+    any = false;
+  for (const l of lineas) {
+    if (!l) continue;
+    const qty = Number(l.qty) || 0;
+    const price = Number(l.precio) || Number(l.priceAtCreation) || Number(l.price) || 0;
+    if (qty > 0 && price > 0) {
+      sum += qty * price;
+      any = true;
+    }
+  }
+  return any ? sum : null;
+}
+
+/**
  * Builds the email subject, HTML body, and plain-text fallback for a
  * Planner column-entry notification.
  *
@@ -70,13 +125,14 @@ function escapeHtml(s) {
  */
 function buildEmailBody(pedido, column) {
   const label = COLUMN_LABELS[column] || column;
-  const num = pedido.pedidoNumber || pedido.orderNumber || '(sin número)';
-  const cliente = pedido.clientName || '(sin cliente)';
+  const num = resolveDisplayNumber(pedido);
+  const cliente = pedido.clientName || pedido.cardName || '(sin cliente)';
   const vdi = pedido.ownerVendor || pedido.vendorKey || '-';
-  const totalArs = Number(pedido.totalAmountArs || 0);
-  const totalFmt = totalArs
-    ? '$' + totalArs.toLocaleString('es-AR', { minimumFractionDigits: 0 })
-    : '-';
+  const totalArs = resolveTotalArs(pedido);
+  const totalFmt =
+    typeof totalArs === 'number' && totalArs > 0
+      ? '$' + totalArs.toLocaleString('es-AR', { minimumFractionDigits: 0 })
+      : '-';
 
   const subject = `[Planner] Pedido ${num} entró a ${label}`;
 

@@ -4672,7 +4672,29 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1020
+## 41) Changelog v300 → v1021
+
+### v1021 (2026-09-22) — Planner email notification: "(sin número)" + "Total ARS -" (mismos bugs de schema que el frontend, ahora en el CF `onPlannerStageChanged`)
+
+**Reporte**: Mariano — los emails automáticos del Planner llegaban con `(sin número)` en el subject y `Total ARS -` en el cuerpo. Mismo pattern que los bugs v1018/v1011: el CF leía campos que **nunca existieron** en el schema real de Firestore.
+
+**Root causes en `functions/core/planner-stage-change-core.js`**:
+1. `num = pedido.pedidoNumber || pedido.orderNumber || '(sin número)'` — ninguno de esos campos existe en los pedidos productivos. La UI usa `transferidoSAP.docNum` (SAP:X) + `orderDocEntry` (SO:Y) para el número visible.
+2. `totalArs = Number(pedido.totalAmountArs || 0)` — el 76% de pedidos usa `netAmountArs`; solo 24% tiene `totalAmountArs`.
+
+**Fix**: extraer 2 helpers puros con la misma precedencia que el frontend:
+- `resolveDisplayNumber(pedido)` → `pedidoNumber → orderNumber → SAP:docNum · SO:orderDocEntry → SAP:docNum → SO:orderDocEntry → '(sin número)'`
+- `resolveTotalArs(pedido)` → `totalAmountArs → netAmountArs → subtotalArs → total → totalARS → compute desde lines (qty * precio || priceAtCreation)`
+
+`resolveTotalArs` es literalmente el mismo algoritmo que `_plannerComputeTotal` en `index.html:27510` — sin extraer a módulo común porque el CF no puede importar código del bundle client-side. Comentario en ambos archivos: "MANTENER SINCRONIZADO".
+
+**Tests**: 13/13 pass (9 existentes + 4 nuevos v1021):
+- Case 10: sin `pedidoNumber` con `docNum` → subject `SAP:12345`
+- Case 11: `docNum + orderDocEntry` → subject `SAP:X · SO:Y`
+- Case 12: sin `totalAmountArs` con `netAmountArs` → total muestra el valor
+- Case 13: sin totales pero con `lines qty*precio` → computed correcto
+
+**Deploy** (post-merge): `firebase deploy --only functions:onPlannerStageChanged` (el fix está en el CF, no en el bundle client-side).
 
 ### v1020 (2026-09-22) — Planner: subtotal ARS por columna en el header
 

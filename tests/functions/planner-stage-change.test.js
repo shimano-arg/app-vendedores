@@ -218,6 +218,74 @@ describe('handlePlannerStageChanged', () => {
     expect(result).toEqual({ skipped: 'no-after' });
   });
 
+  // v1021: fallback a transferidoSAP.docNum cuando no hay pedidoNumber/orderNumber
+  it('case 10 (v1021): sin pedidoNumber pero con transferidoSAP.docNum → subject "SAP:12345"', async () => {
+    const before = { items: [] };
+    const after = { items: [], transferidoSAP: { docNum: 12345 } };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    expect(callArgs.subject).toContain('SAP:12345');
+    expect(callArgs.subject).not.toContain('sin número');
+    expect(callArgs.text).toContain('SAP:12345');
+  });
+
+  it('case 11 (v1021): sin pedidoNumber pero con docNum+orderDocEntry → "SAP:X · SO:Y"', async () => {
+    const before = { items: [] };
+    const after = { items: [], transferidoSAP: { docNum: 2000120, orderDocEntry: 36882 } };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    expect(callArgs.subject).toContain('SAP:2000120');
+    expect(callArgs.subject).toContain('SO:36882');
+  });
+
+  // v1021: fallback de totalArs cuando totalAmountArs ausente pero netAmountArs presente (76% de pedidos reales)
+  it('case 12 (v1021): sin totalAmountArs pero con netAmountArs → total muestra el netAmountArs', async () => {
+    const before = { items: [] };
+    const after = {
+      items: [],
+      transferidoSAP: { docNum: 999 },
+      netAmountArs: 1954000,
+    };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    expect(callArgs.text).toContain('1.954.000');
+    expect(callArgs.html).toContain('1.954.000');
+    // No aparece el "-" que indicaba total ausente
+    expect(callArgs.text).not.toMatch(/Total ARS:-/);
+  });
+
+  it('case 13 (v1021): sin totales pero con lines qty*precio → total computado', async () => {
+    const before = { items: [] };
+    const after = {
+      items: [],
+      lines: [
+        { qty: 2, precio: 27000 },
+        { qty: 3, priceAtCreation: 10000 },
+      ],
+      transferidoSAP: { docNum: 888 },
+    };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    // 2*27000 + 3*10000 = 84000
+    expect(callArgs.text).toContain('84.000');
+  });
+
   // Case 9: facturar + sendToVdi + orphan VDI (no email) → log.warn + sendMail still called with primary email only
   it('case 9: facturar + sendToVdi + orphan VDI (no email field) → log.warn called AND sendMail called with fa@x.com only', async () => {
     const before = { items: [] };
