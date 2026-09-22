@@ -2961,6 +2961,29 @@ body.dark .planner-badge { background: rgba(255,255,255,0.12); }
 .planner-card.state-cobrado-parcial { border-left: 3px solid #FF9500; }
 .planner-card.state-cobrado-full { border-left: 3px solid #34C759; }
 .planner-kanban-empty { padding: 48px; text-align: center; opacity: 0.55; font-size: 13px; }
+.planner-card-toggles {
+  display: flex; gap: 6px; margin-top: 8px;
+}
+.planner-toggle-btn {
+  flex: 1;
+  font-size: 11px; padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,0.12);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+  font-family: inherit;
+}
+.planner-toggle-btn:hover { background: rgba(0,0,0,0.04); }
+body.dark .planner-toggle-btn { border-color: rgba(255,255,255,0.16); }
+body.dark .planner-toggle-btn:hover { background: rgba(255,255,255,0.06); }
+.planner-toggle-btn.active-yellow {
+  background: #FFCC00; color: #000; border-color: transparent; font-weight: 600;
+}
+.planner-toggle-btn.active-green {
+  background: #34C759; color: #fff; border-color: transparent; font-weight: 600;
+}
 @media (prefers-reduced-motion: reduce) {
   .planner-card, .planner-card.dragging { transition: none; transform: none; }
 }
@@ -26997,6 +27020,21 @@ function renderPlannerCard(pedido, column) {
   const badgesHtml = badges.map(b => '<span class="planner-badge">' + escapeHtml(b) + '</span>').join('');
   const stateClass = computePlannerCardStateClass(pedido, column);
 
+  let togglesHtml = '';
+  if (column === 'lista_espera' && pedido._isWaitlist) {
+    const items = Array.isArray(pedido.items) ? pedido.items : [];
+    const anyConfirmed = pedido.vendorConfirmed === true || items.some(i => i?.vendorConfirmed === true);
+    const cargadoActive = !anyConfirmed;
+    const confirmadoActive = anyConfirmed;
+    togglesHtml =
+      '<div class="planner-card-toggles" onclick="event.stopPropagation();">' +
+        '<button class="planner-toggle-btn' + (cargadoActive ? ' active-yellow' : '') + '"' +
+          ' onclick="togglePlannerWaitlistState(\'' + escapeHtml(pedido.id) + '\', false)">Cargado</button>' +
+        '<button class="planner-toggle-btn' + (confirmadoActive ? ' active-green' : '') + '"' +
+          ' onclick="togglePlannerWaitlistState(\'' + escapeHtml(pedido.id) + '\', true)">Confirmado</button>' +
+      '</div>';
+  }
+
   return (
     '<div class="planner-card ' + stateClass + '"' +
       ' data-pedido-id="' + escapeHtml(pedido.id) + '"' +
@@ -27007,6 +27045,7 @@ function renderPlannerCard(pedido, column) {
       '<div class="planner-card-meta">' + vdi + ' · ' + escapeHtml(fecha) + '</div>' +
       (total ? '<div class="planner-card-total">' + escapeHtml(total) + '</div>' : '') +
       '<div class="planner-card-badges">' + badgesHtml + '</div>' +
+      togglesHtml +
     '</div>'
   );
 }
@@ -27027,6 +27066,26 @@ function computePlannerCardStateClass(pedido, column) {
     return isFull ? 'state-cobrado-full' : 'state-cobrado-parcial';
   }
   return '';
+}
+
+async function togglePlannerWaitlistState(waitlistId, confirmed) {
+  try {
+    const ref = fbDb.collection('revision_waitlist').doc(waitlistId);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      console.warn('[planner] waitlist doc not found:', waitlistId);
+      return;
+    }
+    const items = Array.isArray(snap.data().items) ? snap.data().items : [];
+    const nextItems = items.map(i => ({ ...i, vendorConfirmed: !!confirmed }));
+    await ref.update({
+      items: nextItems,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (err) {
+    console.error('[planner] toggle waitlist failed:', err);
+    alert('Error al cambiar estado: ' + (err?.message || err));
+  }
 }
 
 function _plannerFmtDate(ts) {
