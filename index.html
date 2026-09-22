@@ -5768,7 +5768,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1025';
+const APP_VERSION = 'v1026';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27317,12 +27317,17 @@ window.deleteAllHistory = async function(){
 // E2.o (e2b-perf 2026-07-28): admin-users F2 (deleteUserRole + TOTP + changeUserPassword + saveUserRole) → src/domains/admin-users.js
 
 // v1005 Planner: 6-column Kanban with drag-drop support (T11 wires drag).
+// v1026 (2026-09-22): rename labels 'Órdenes' → 'Pendiente de facturar' y
+// 'Facturar' → 'Facturado' — reflejan mejor la semántica actual (Órdenes ya
+// eran "SO creada esperando facturar"; Facturar ya se subdividía visualmente
+// en parcial/full via state-fact-pendiente vs state-facturado). Keys internos
+// intactos para no romper plannerHistory/plannerEmails/config responsables.
 const PLANNER_COLUMNS = [
   { key: 'lista_espera', label: 'Lista de espera' },
   { key: 'oferta',       label: 'Oferta' },
-  { key: 'ordenes',      label: 'Órdenes' },
+  { key: 'ordenes',      label: 'Pendiente de facturar' },
   { key: 'confirmado',   label: 'Confirmado' },
-  { key: 'facturar',     label: 'Facturar' },
+  { key: 'facturar',     label: 'Facturado' },
   { key: 'cobrado',      label: 'Cobrado' },
 ];
 
