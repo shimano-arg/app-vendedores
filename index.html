@@ -27344,7 +27344,7 @@ function renderPlannerModal() {
   if (_plannerModalTab === 'lineas') {
     body.innerHTML = renderPlannerModalLineas(pedido);
   } else if (_plannerModalTab === 'adjuntos') {
-    body.innerHTML = '<div style="opacity:.55;padding:32px;text-align:center;">Adjuntos — próximamente (Task 13).</div>';
+    body.innerHTML = renderPlannerModalAdjuntos(pedido);
   } else if (_plannerModalTab === 'historial') {
     body.innerHTML = '<div style="opacity:.55;padding:32px;text-align:center;">Historial — próximamente (Task 14).</div>';
   }
@@ -27384,6 +27384,168 @@ function renderPlannerModalLineas(pedido) {
       '<tbody>' + rows + '</tbody>' +
     '</table>'
   );
+}
+
+async function handlePlannerAttachmentUpload(files) {
+  if (!_plannerModalPedidoId) return;
+  const pedidoId = _plannerModalPedidoId;
+  const pedidoRef = fbDb.collection('pedidos').doc(pedidoId);
+
+  let snap;
+  try {
+    snap = await pedidoRef.get();
+  } catch (err) {
+    alert('No se pudo leer el pedido: ' + (err?.message || err));
+    return;
+  }
+  const current = Array.isArray(snap.data()?.plannerAttachments)
+    ? snap.data().plannerAttachments : [];
+
+  const filesArr = Array.from(files || []);
+  if (current.length + filesArr.length > 10) {
+    alert('Máximo 10 archivos por card. Actualmente hay ' + current.length + '.');
+    return;
+  }
+
+  const ALLOWED = new Set(['application/pdf', 'image/jpeg', 'image/png']);
+  const MAX_SIZE = 10 * 1024 * 1024;
+  const storage = firebase.storage();
+  const additions = [];
+
+  for (const file of filesArr) {
+    if (!ALLOWED.has(file.type)) {
+      alert('Tipo no permitido: ' + file.name + ' (' + file.type + '). Solo PDF/JPG/PNG.');
+      continue;
+    }
+    if (file.size > MAX_SIZE) {
+      alert('Archivo excede 10MB: ' + file.name);
+      continue;
+    }
+    const ts = Date.now();
+    const safe = String(file.name).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = 'planner-attachments/' + pedidoId + '/' + ts + '_' + safe;
+    try {
+      const ref = storage.ref(path);
+      const uploadRes = await ref.put(file, { contentType: file.type });
+      const url = await uploadRes.ref.getDownloadURL();
+      additions.push({
+        name: file.name,
+        url,
+        size: file.size,
+        mime: file.type,
+        uploadedAt: firebase.firestore.Timestamp.now(),
+        uploadedBy: firebase.auth().currentUser?.uid || 'unknown',
+      });
+    } catch (err) {
+      console.error('[planner] upload failed:', err);
+      alert('Error subiendo ' + file.name + ': ' + (err?.message || err));
+    }
+  }
+
+  if (additions.length) {
+    try {
+      await pedidoRef.update({
+        plannerAttachments: firebase.firestore.FieldValue.arrayUnion(...additions),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      // Refresh cache immediately (onSnapshot will also fire).
+      const fresh = await pedidoRef.get();
+      plannerPedidosCache.set(pedidoId, { id: pedidoId, ...fresh.data() });
+      renderPlannerModal();
+    } catch (err) {
+      alert('Uploads OK pero falló actualizar el pedido: ' + (err?.message || err));
+    }
+  }
+}
+
+async function deletePlannerAttachment(idx) {
+  if (!_plannerModalPedidoId) return;
+  if (!confirm('¿Eliminar este adjunto? No se puede deshacer.')) return;
+  const pedidoId = _plannerModalPedidoId;
+  const pedidoRef = fbDb.collection('pedidos').doc(pedidoId);
+  let snap;
+  try {
+    snap = await pedidoRef.get();
+  } catch (err) {
+    alert('No se pudo leer el pedido: ' + (err?.message || err));
+    return;
+  }
+  const attachments = Array.isArray(snap.data()?.plannerAttachments)
+    ? snap.data().plannerAttachments : [];
+  const att = attachments[idx];
+  if (!att) return;
+
+  // Delete from Storage first (best-effort — may already be gone).
+  try {
+    const url = new URL(att.url);
+    const encoded = url.pathname.split('/o/')[1];
+    if (encoded) {
+      const path = decodeURIComponent(encoded.split('?')[0]);
+      await firebase.storage().ref(path).delete();
+    }
+  } catch (err) {
+    console.warn('[planner] storage delete failed (may already be gone):', err?.message);
+  }
+
+  // Remove from Firestore.
+  const nextAttachments = attachments.filter((_, i) => i !== idx);
+  try {
+    await pedidoRef.update({
+      plannerAttachments: nextAttachments,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    const fresh = await pedidoRef.get();
+    plannerPedidosCache.set(pedidoId, { id: pedidoId, ...fresh.data() });
+    renderPlannerModal();
+  } catch (err) {
+    alert('Error eliminando adjunto: ' + (err?.message || err));
+  }
+}
+
+function renderPlannerModalAdjuntos(pedido) {
+  const attachments = Array.isArray(pedido.plannerAttachments) ? pedido.plannerAttachments : [];
+  const remaining = 10 - attachments.length;
+
+  const grid = attachments.map((a, i) => {
+    const isImg = String(a.mime || '').startsWith('image/');
+    const preview = isImg
+      ? '<img src="' + escapeHtml(a.url) + '" alt="" style="width:100%;height:120px;object-fit:cover;border-radius:8px;">'
+      : '<div style="display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.05);border-radius:8px;height:120px;font-size:36px;">📄</div>';
+    return (
+      '<div style="display:flex;flex-direction:column;gap:6px;">' +
+        '<a href="' + escapeHtml(a.url) + '" target="_blank" rel="noopener">' + preview + '</a>' +
+        '<div style="font-size:11px;opacity:.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(a.name || '') + '</div>' +
+        '<div style="font-size:10px;opacity:.5;">' + _plannerFmtBytes(a.size) + '</div>' +
+        '<button onclick="deletePlannerAttachment(' + i + ')" style="font-size:11px;padding:4px 8px;background:rgba(255,59,48,0.1);color:#FF3B30;border:none;border-radius:6px;cursor:pointer;font-family:inherit;">Eliminar</button>' +
+      '</div>'
+    );
+  }).join('');
+
+  const uploadDisabled = remaining <= 0;
+  const uploadBtn =
+    '<label style="background:' + (uploadDisabled ? 'rgba(0,0,0,0.1)' : '#007AFF') + ';color:' + (uploadDisabled ? '#999' : 'white') + ';padding:8px 14px;border-radius:8px;cursor:' + (uploadDisabled ? 'not-allowed' : 'pointer') + ';font-size:13px;font-weight:500;">' +
+      'Subir archivo' +
+      '<input type="file" multiple accept="application/pdf,image/jpeg,image/png"' +
+        ' style="display:none;"' + (uploadDisabled ? ' disabled' : '') +
+        ' onchange="handlePlannerAttachmentUpload(this.files); this.value=null;">' +
+    '</label>';
+
+  return (
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">' +
+      '<div style="font-size:13px;opacity:.7;">' + attachments.length + ' / 10 archivos · máx 10 MB · PDF/JPG/PNG</div>' +
+      uploadBtn +
+    '</div>' +
+    (attachments.length === 0
+      ? '<div style="opacity:.55;text-align:center;padding:32px;">Sin adjuntos.</div>'
+      : '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:14px;">' + grid + '</div>')
+  );
+}
+
+function _plannerFmtBytes(n) {
+  const v = Number(n) || 0;
+  if (v < 1024) return v + ' B';
+  if (v < 1024 * 1024) return (v / 1024).toFixed(1) + ' KB';
+  return (v / 1024 / 1024).toFixed(1) + ' MB';
 }
 
 function detachFirebaseListeners(){
