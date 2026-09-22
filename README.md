@@ -78,6 +78,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 49. [Integración SETUP (CRM del depósito) — PENDIENTE endpoints](#49-integración-setup-crm-del-depósito--pendiente-endpoints)
 51. [MERCADOLIBRE (Mariano-only)](#51-mercadolibre-mariano-only)
 52. [Planner Kanban (v1038 — pipeline 100% automático)](#52-planner-kanban-v1038--pipeline-100-automático)
+53. [BigQuery views + CF fixes — sesión 2026-09-22 (v1033-v1035)](#53-bigquery-views--cf-fixes--sesión-2026-09-22-v1033-v1035)
 
 ---
 
@@ -12394,4 +12395,149 @@ Roles permitidos: `admin | gerente | interno`.
 - Spec inicial: `docs/specs/2026-09-22-planner-design.md`
 - Plan original: `docs/plans/2026-09-22-planner-plan.md`
 - Changelog detallado por versión: §41 (v1005 → v1038).
+
+
+## 53) BigQuery views + CF fixes — sesión 2026-09-22 (v1033-v1035)
+
+3 cambios en la misma sesión, todos deployeados y validados. Contexto para Cowork y el TABLERO SAR.
+
+### 53.1) Fix fecha NULL en `v_backorder` + `v_stock_asignado` (PR #704, v1033)
+
+**Bug:** las columnas `fecha`, `mes`, `anio`, `mes_idx` venían NULL en TODAS las filas (3.022 en `v_backorder`, 194 en `v_stock_asignado`). Consecuencia: el slicer de Mes en Power BI no filtraba ninguna medida ni visual — mostraban siempre el total actual del backorder / stock asignado.
+
+**Causa raíz:** en `v_backorder_app.created_at` se leía `SAFE_CAST(JSON_VALUE(data, '$.createdAt') AS TIMESTAMP)`. El Firestore Extension for BigQuery serializa el field `createdAt` (Firestore Timestamp) como objeto JSON `{"_seconds":N,"_nanoseconds":N}`. `JSON_VALUE` sobre un objeto devuelve NULL → `created_at` NULL en toda la vista upstream, y `v_backorder` / `v_stock_asignado` / `v_backorder_lineas_v2.sq_doc_date` heredaban el NULL.
+
+Verificado en BQ pre-fix:
+```
+JSON_VALUE(data, '$.createdAt')          → NULL en 274/274 pedidos
+JSON_QUERY(data, '$.createdAt')          → {"_seconds":1786060800,"_nanoseconds":0}
+JSON_VALUE(data, '$.createdAt._seconds') → 274/274 con valor
+```
+
+**Fix:**
+- Upstream en `v_backorder_app.created_at`:
+  ```sql
+  TIMESTAMP_SECONDS(SAFE_CAST(JSON_VALUE(p.data, '$.createdAt._seconds') AS INT64)) AS created_at
+  ```
+- TZ Argentina en `v_backorder` + `v_stock_asignado` (`fecha`, `mes`, `anio`, `mes_idx`) + `v_backorder_lineas_v2.sq_doc_date`:
+  ```sql
+  DATE(created_at, 'America/Argentina/Buenos_Aires')                                  AS fecha,
+  FORMAT_DATE('%Y-%m', DATE(created_at, 'America/Argentina/Buenos_Aires'))            AS mes,
+  EXTRACT(YEAR FROM DATE(created_at, 'America/Argentina/Buenos_Aires'))               AS anio,
+  EXTRACT(MONTH FROM DATE(created_at, 'America/Argentina/Buenos_Aires'))              AS mes_idx,
+  ```
+
+**Acceptance post-fix:**
+
+| vista            | filas | ok_fecha | rango                      |
+|------------------|-------|----------|----------------------------|
+| v_backorder      | 3.022 | true     | 2026-06-22 → 2026-09-22    |
+| v_stock_asignado | 194   | true     | 2026-06-29 → 2026-09-18    |
+
+### 53.2) Nueva vista `v_ordenes_sap` (PR #711, v1035)
+
+Nueva vista sobre `sap_orders_raw` (ORDR / RDR1). Grano: **línea de orden**. Cierra el embudo **Oferta → Orden → Remito → Factura** todo SAP puro. Reemplaza a `v_pedidos_lines` (que salía de la app y arrastra backorder + facturado) como tabla de hecho de "Órdenes de Venta" en el TABLERO SAR.
+
+**Shape** (mismo patrón que `v_ofertas_lineas` / `v_remitos_lineas`):
+
+| grupo | columnas |
+|-------|----------|
+| ID | `doc_entry`, `doc_num`, `line_num` |
+| Fecha | `doc_date` (DATE nativo), `fecha`, `mes` ('YYYY-MM'), `anio`, `mes_idx` |
+| Cliente | `card_code`, `card_name` |
+| Vendedor | `slp_code` (sales_person_code), `SlpCode Asignado` (50-55), `assigned_vendor` (via `client_applications`) |
+| Producto | `item_code`, `descripcion` (`ItemDescription` con fallback a `Dscription`), `familia`, `subfamilia`, `is_pesca` (`items_group_code=102`) |
+| Montos | `cantidad`, `precio_unitario`, `importe_linea_ars` (`LineTotal` × factor descuento cabecera, mismo criterio v388.1) |
+| Estado línea | `line_status` ('O'/'C' desde `bost_Open`/`bost_Close`), `open_qty` (`RemainingOpenQuantity`), `open_amount_ars` |
+| Meta | `doc_currency`, `doc_rate`, `document_status`, `_sync_timestamp` |
+
+**Fix crítico detectado en el review:** SAP Service Layer devuelve **`OpenAmount == LineTotal`** incluso en líneas cerradas (solo `RemainingOpenQuantity` se pone en 0 al cerrar). Sin gate por `LineStatus`, `SUM(open_amount) ≈ SUM(importe)` → la "orden neta" (pendiente de remitir/facturar) sería indistinguible de la bruta.
+
+La vista gatea:
+```sql
+CASE
+  WHEN JSON_VALUE(line, '$.LineStatus') = 'bost_Open' THEN
+    SAFE_CAST(JSON_VALUE(line, '$.OpenAmount') AS FLOAT64)
+      * (1 - SAFE_DIVIDE(COALESCE(o.total_discount, 0), NULLIF(slo.suma_lineas, 0)))
+  ELSE 0
+END AS open_amount_ars
+```
+
+**Acceptance:**
+
+| métrica | valor |
+|---------|-------|
+| Filas | 75.208 (0 sin fecha) |
+| Rango fechas | 2025-09-15 → 2026-09-22 |
+| Órdenes distintas | 5.234 |
+| SKUs distintos | 3.972 |
+| Clientes distintos | 1.056 |
+| Monto total ARS | **$28.326 MM** (neto IVA + descuentos cabecera) |
+| Monto abierto ARS | **$202 M** (0,7% del bruto) |
+| Unidades totales | 698.466 |
+| Unidades abiertas | 8.595 |
+
+Distribución `line_status`:
+
+| line_status | n líneas | importe_ars | open_amount_ars | open_qty |
+|-------------|----------|-------------|-----------------|----------|
+| O | 1.108 | 202 M | 202 M | 8.595 |
+| C | 74.100 | 28.124 MM | **0** | 0 |
+
+Cross-check contra raw: 5.234 docs no cancelados en `sap_orders_raw` = 5.234 `doc_entry` en la vista. Monto raw `SUM(doc_total)` = $33.632MM vs vista $28.326MM → diferencia 1,187× = **21% IVA**, consistente.
+
+### 53.3) Fix Total ARS vacío en email a `santiago.beron@shimano.uy` (PR #706, v1034)
+
+**Bug reportado por Santi:** todos los emails de notificación de oferta enviada a SAP le llegaban con `Total ARS: -`.
+
+**Causa raíz:** `functions/core/notify-quotation-sent-core.js:73` leía `Number(pedido.totalAmountArs || 0)`. En Firestore prod el field `totalAmountArs` **no existe** en pedidos que van a SAP. Verificado en BQ contra los 5 pedidos más recientes con `transferidoSAP.docNum`: **5/5 tienen `netAmountArs`, 0/5 tienen `totalAmountArs`**. Mismo bug de schema que ya se corrigió en frontend en v1018 (planner cards) y v1021 (email planner), pero el CF `onQuotationSentNotify` (v774) quedó atrás.
+
+**Fix:** helper `computeTotalArs(pedido)` con la misma precedencia que `_plannerComputeTotal` del frontend:
+1. `totalAmountArs` (legacy)
+2. `netAmountArs`  ← schema real de pedidos con docNum
+3. `subtotalArs`
+4. `total` / `totalARS` (legacy)
+5. `sum(lines[].qty × (precio || priceAtCreation || price))`
+
+15 tests unitarios en `tests/functions/notify-quotation-sent.test.js` (incluye regression guard que falla si el CF vuelve a leer solo `totalAmountArs`).
+
+**Deploy:** `firebase deploy --only functions:onQuotationSentNotify` OK en `southamerica-east1`.
+
+**Validación end-to-end:** re-disparado sobre pedido #208 (FERNANDO ANTONIO URQUIOLA, `docNum=2000216`, `netAmountArs=$23.403.800`) via script `scripts/retrigger-notify-quotation.cjs`. El script toggea `transferidoSAP.docNum → null → valor original` en Firestore para que `shouldNotify` retorne true. Log del CF post-restore: `onQuotationSentNotify email enviado {pedidoId: 'trrGvi8x9fhvKvF0RkJN', docNum: 2000216, cliente: 'FERNANDO ANTONIO URQUIOLA'}`. Santi confirmó que ahora ve el total.
+
+### 53.4) IMPORTANTE — Cómo leer las vistas nuevas desde Power BI
+
+**Usar `Value.NativeQuery`, NO el conector nativo BQ.** El Storage Read API del conector devuelve **NULL** en columnas calculadas de fecha en views (fenómeno confirmado en `v_backorder` v1033 pre-fix, incluso post `DATE(...)` explícito). Query pattern:
+
+```powerquery
+let
+  Source = GoogleBigQuery.Database(),
+  proj   = Source{[Name="app-vendedores-shimano"]}[Data],
+  ds     = proj{[Name="shimano_app"]}[Data],
+  Query  = Value.NativeQuery(ds, "SELECT * FROM shimano_app.v_ordenes_sap")
+in
+  Query
+```
+
+Aplica también a `v_backorder`, `v_stock_asignado`, `v_backorder_lineas_v2`.
+
+### 53.5) Deuda / próximos pasos
+
+- **`v_backorder`**: 1.830u con `vendor=NULL` (pedidos sin `ownerVendor`) + 625u con `vendor=""` + `vendor_email` presente. Requiere backfill en Firestore, no en la vista.
+- **`onQuotationSentNotify`**: sigue filtrando `via='service_layer_auto'`. Pedidos con `via='cf_auto'` (3/5 recientes) NO disparan mail a Santi. Si se quiere ampliar, aflojar el filtro en `shouldNotify`.
+- **TABLERO SAR**: integrar `v_ordenes_sap` como tabla de hecho, jubilar medidas que hoy salen de `v_pedidos_lines` para "Órdenes de Venta".
+
+### 53.6) Archivos tocados
+
+- `bigquery/backorder_app.sql` — fix upstream `created_at` + TZ AR en 3 vistas downstream.
+- `bigquery/views.sql` — nueva vista `v_ordenes_sap` al final.
+- `functions/core/notify-quotation-sent-core.js` — helper `computeTotalArs` + tipo `PedidoData` extendido.
+- `tests/functions/notify-quotation-sent.test.js` — 15 tests unitarios (NUEVO).
+- `scripts/retrigger-notify-quotation.cjs` — script one-shot para re-disparar el CF sin tocar SAP (NUEVO).
+
+### 53.7) Commits en `main`
+
+- `00d2b31` — v1033: fix fecha en `v_backorder` + `v_stock_asignado`.
+- `03678c2` — v1034: fix Total ARS vacío en email a santiago.beron.
+- `b68703a` — v1035: agregar `v_ordenes_sap` (ORDR/RDR1) para TABLERO SAR.
 
