@@ -4672,7 +4672,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1032
+## 41) Changelog v300 → v1033
+
+### v1033 (2026-09-22) — Planner Facturado: subtotal usa monto facturado real (qtyInvoiced × precio) — no el total del pedido completo
+
+**Reporte**: Mariano — el subtotal Facturado del Planner mostraba **$472M** para septiembre pero el PowerBI (alimentado de facturas SAP reales) mostraba **$203M**. 2.3x más — obviamente mal.
+
+**Root cause**: `_plannerComputeTotal` devolvía el total del pedido ENTERO (`totalAmountArs || netAmountArs || subtotalArs`) apenas alguna línea tuviera `qtyInvoiced > 0`. Ejemplo: un pedido de $23.8M con 109/425 unidades facturadas → aportaba $23.8M al subtotal cuando en realidad solo $10.3M se facturó.
+
+**Fix**: nueva función `_plannerComputeInvoicedTotal(pedido)` que suma `qtyInvoiced × (precio || priceAtCreation || price)` por línea. Se usa en 2 lugares:
+1. Subtotal de la columna Facturado (`useInvoiced = col.key === 'facturar'`).
+2. Total ARS de cada card individual cuando `column === 'facturar'`.
+
+Las otras columnas (Oferta, Pendiente de facturar, Confirmado, Cobrado) siguen usando `_plannerComputeTotal` porque representan pedidos "todavía por facturar/cobrar".
+
+**Verificación contra prod**:
+- Subtotal Facturado septiembre ANTES fix: **$472,629,750** (132.8% arriba del PowerBI real)
+- Subtotal Facturado septiembre DESPUÉS fix: **$223,014,000** (9.8% arriba del PowerBI real de $203,052,212)
+
+**Precisión residual (~10%)**: el 9.8% que sigue arriba es porque `precio`/`priceAtCreation` no reflejan descuentos aplicados al momento de facturar (que sí se aplican al `DocTotal` de la invoice en SAP). Para exactitud 100%, requiere backfill futuro en el CF `syncSapInvoicesToApp` que persista `invoicedAmountArs` en el pedido leyendo el `DocTotal` de las invoices en `sapLinkage.appliedInvoiceDocEntries`.
+
+**Nota adicional (no fixeada acá)**: el filtro de mes en Facturado sigue siendo por `createdAt` del pedido, no por fecha de emisión de la factura. Puede haber pedidos creados en agosto pero facturados en septiembre (o viceversa) que difieran del corte contable. Si necesitas match exacto por mes contable, se puede migrar a leer la `DocDate` de la última invoice — otro scope.
 
 ### v1032 (2026-09-22) — Planner: 3 mejoras UX (reloj sync + whitelist ampliada + limpiar header columna)
 
