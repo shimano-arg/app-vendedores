@@ -4672,7 +4672,18 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1024
+## 41) Changelog v300 → v1025
+
+### v1025 (2026-09-22) — Planner: ORDEN N en rojo Ferrari + al final de los badges (identidad visual del ID del negocio)
+
+**Reporte**: Mariano — quiere que el chip `ORDEN N` se identifique de un vistazo como el ID del negocio (vs `SAP:X` / `SO:Y` que son IDs internos del sistema contable).
+
+**Fix visual**:
+- Orden reordenado en los badges: `SAP:X → SO:Y → 📎N → ORDEN N` (ORDEN al final, más visible).
+- Nueva clase `.planner-badge-orden`: `background: #D40000` (rojo Ferrari), `color: #fff`, `font-weight: 700`, `letter-spacing: 0.02em`.
+- Los otros chips (SAP:X, SO:Y) quedan con el estilo gris default.
+
+**Nota sobre pedidos legacy sin `orderNumber`**: 7 de los 10 pedidos de Lista de espera no tienen ORDEN N porque fueron creados antes de v942 (2026-09-16) cuando se agregó el `reserveNextOrderNumber` al path "Crear Pedido" directo. No hay backfill automático — se decidirá aparte si se hace o si se deja rotar el pipeline hasta que salgan.
 
 ### v1024 (2026-09-22) — Planner: fix contraste del placeholder en los inputs de búsqueda del header
 
