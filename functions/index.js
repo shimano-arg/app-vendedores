@@ -57,6 +57,7 @@ import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
 // v964 (2026-09-17): auto-cancel SQ expiradas (Fase B shadow + Fase C active).
 import { runSqCancelExpired } from './core/sq-cancel-core.js';
 import { syncSapOrders } from './core/sync-sap-orders-core.js';
+import { handleSyncSapPayments } from './core/sync-sap-payments-core.js';
 
 if (!getApps().length) initializeApp();
 
@@ -284,6 +285,57 @@ export const syncSapOrdersToApp = onSchedule(
       log: (msg, extra) => console.log(msg, extra || {}),
     });
     console.log('syncSapOrdersToApp summary', result);
+  }
+);
+
+/**
+ * v1035 (2026-09-22): syncSapPaymentsToApp — scheduled cada 15 min.
+ * Cierra la columna "Cobrado" del Planner Kanban que estaba vacía porque
+ * nadie escribia `paidAmount` / `paidStatus` en Firestore.
+ *
+ * Flujo:
+ * 1. Lista pedidos abiertos con `sapLinkage.appliedInvoiceDocEntries` no vacío.
+ * 2. Enum `/Invoices desc` paginado ($skip=0..500) leyendo DocTotal + PaidToDate.
+ * 3. Para cada pedido, suma invoicedAmount + paidAmount y calcula paidStatus.
+ * 4. Escribe `pedidos/{id}` con { paidAmount, invoicedAmount, paidStatus }.
+ *
+ * paidStatus='paid' hace que `computeColumn` mueva el pedido a Cobrado
+ * automatico. Ademas `invoicedAmount` fixea el error residual 9.8% de v1033.
+ *
+ * Idempotente. Costo: ~25 GETs por corrida (500 invoices / 20 default page).
+ * NO tiene modo shadow — enrichment de fields nuevos, safe para deploy directo.
+ */
+export const syncSapPaymentsToApp = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 15 minutes',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 1,
+    memory: '512MiB',
+    timeoutSeconds: 300,
+    secrets: [SAP_SL_PASSWORD],
+  },
+  async () => {
+    const db = getFirestore();
+    const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+    const sapCfg = sapCfgSnap.data() || {};
+    const sl = sapCfg.serviceLayer || {};
+    if (!sl.url || !sl.companyDB) {
+      console.warn('syncSapPaymentsToApp: sap_integration.serviceLayer incompleto, skip');
+      return;
+    }
+    const result = await handleSyncSapPayments({
+      fetch: globalThis.fetch,
+      sapConfig: {
+        url: sl.url,
+        companyDB: sl.companyDB,
+        userName: sl.username || sl.userName,
+        password: SAP_SL_PASSWORD.value(),
+      },
+      fbDb: db,
+      log: (msg, extra) => console.log(msg, extra || {}),
+    });
+    console.log('syncSapPaymentsToApp summary', result);
   }
 );
 
