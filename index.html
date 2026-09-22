@@ -3349,6 +3349,14 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
   <div class="modal-content" style="max-width:1800px;width:97vw;max-height:92vh;display:flex;flex-direction:column;background:var(--bg-elevated);border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)">
     <div style="padding:14px 20px;background:#c2410c;color:#fff;display:flex;align-items:center;gap:12px">
       <h2 style="margin:0;font-size:16px;font-weight:800;flex:1">Planner &mdash; Tablero de pedidos</h2>
+      <!-- v1014 (2026-09-22): filtro de mes para las columnas historicas (Facturar + Cobrado).
+           Default: mes actual. "Todos" = comportamiento previo (sin filtro). -->
+      <label style="color:#fff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;display:flex;align-items:center;gap:6px">
+        Mes:
+        <select id="planner-month-filter" onchange="setPlannerMonthFilter(this.value)" style="background:rgba(255,255,255,.16);color:#fff;border:none;padding:5px 8px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer">
+          <!-- opciones se rellenan en renderPlannerMonthFilterOptions() -->
+        </select>
+      </label>
       <button data-planner-sub="tablero" class="active" onclick="setPlannerSubtab('tablero')" style="background:rgba(255,255,255,.16);color:#fff;border:none;padding:6px 12px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Tablero</button>
       <button data-planner-sub="config" onclick="setPlannerSubtab('config')" style="background:rgba(255,255,255,.16);color:#fff;border:none;padding:6px 12px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Config</button>
       <button onclick="closePlannerBoardModal()" style="background:transparent;color:#fff;border:none;font-size:22px;cursor:pointer;padding:0 6px;line-height:1">&times;</button>
@@ -5703,7 +5711,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1013';
+const APP_VERSION = 'v1014';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12371,6 +12379,62 @@ function computeColumn(pedido) {
   if (pedido?.transferidoSAP?.orderDocEntry) return 'ordenes';
   if (pedido?.transferidoSAP?.docNum) return 'oferta';
   return 'lista_espera';
+}
+
+// v1014 (2026-09-22): filtro de mes para las columnas historicas del Planner.
+// Aplica solo a `facturar` y `cobrado` (las que acumulan indefinido). Las otras
+// (lista_espera / oferta / ordenes / confirmado) son WIP corto y no filtran.
+// Estado en memoria; se resetea al reload. Formato: 'YYYY-MM' o 'all'.
+// Reporte 2026-09-22 (Mariano): columna Facturar mostraba 134 items mezclando
+// meses; queria solo septiembre. Default = mes actual.
+var plannerMonthFilter = (function() {
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+})();
+
+function setPlannerMonthFilter(value) {
+  plannerMonthFilter = value || 'all';
+  try { renderPlannerKanban(); } catch (e) { console.warn('[planner] setMonth render fail', e); }
+}
+
+function _plannerPedidoInMonth(pedido, monthKey) {
+  if (monthKey === 'all') return true;
+  var ts = pedido && (pedido.createdAt || pedido.updatedAt);
+  if (!ts) return false;
+  var d = null;
+  if (ts && typeof ts.toDate === 'function') d = ts.toDate();
+  else if (typeof ts === 'number') d = new Date(ts);
+  else if (typeof ts === 'string') d = new Date(ts);
+  if (!d || isNaN(d.getTime())) return false;
+  var key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  return key === monthKey;
+}
+
+// Rellena el <select> #planner-month-filter con [mes actual, -1, -2, -3, todos].
+// Usa DOM API (no innerHTML) porque los labels contienen caracteres de acento
+// que Biome/security hooks flaggean con innerHTML aunque el input sea controlado.
+function renderPlannerMonthFilterOptions() {
+  var sel = document.getElementById('planner-month-filter');
+  if (!sel) return;
+  var MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  var now = new Date();
+  while (sel.firstChild) sel.removeChild(sel.firstChild);
+  for (var i = 0; i < 4; i++) {
+    var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    var key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    var label = MESES[d.getMonth()] + ' ' + d.getFullYear();
+    if (i === 0) label += ' (actual)';
+    var opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = label;
+    if (key === plannerMonthFilter) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  var optAll = document.createElement('option');
+  optAll.value = 'all';
+  optAll.textContent = 'Todos los meses';
+  if (plannerMonthFilter === 'all') optAll.selected = true;
+  sel.appendChild(optAll);
 }
 
 // v1005: Planner sub-tab toggle. Pattern mirrors setRendSubtab (rendiciones.js).
@@ -27273,9 +27337,18 @@ function renderPlannerKanban() {
   const root = document.getElementById('planner-kanban-root');
   if (!root) return;
 
+  // v1014: refrescar options del filtro de mes (idempotente; incluye el mes actual).
+  try { renderPlannerMonthFilterOptions(); } catch (e) { /* swallow */ }
+
   const byCol = { lista_espera: [], oferta: [], ordenes: [], confirmado: [], facturar: [], cobrado: [] };
   for (const p of plannerPedidosCache.values()) {
-    byCol[computeColumn(p)].push(p);
+    const col = computeColumn(p);
+    // v1014: aplicar filtro de mes solo a facturar/cobrado (columnas historicas
+    // que acumulan indefinido). Las otras son WIP corto y siempre se muestran.
+    if ((col === 'facturar' || col === 'cobrado') && !_plannerPedidoInMonth(p, plannerMonthFilter)) {
+      continue;
+    }
+    byCol[col].push(p);
   }
   for (const w of plannerWaitlistCache.values()) {
     byCol.lista_espera.push({ ...w, _isWaitlist: true });
