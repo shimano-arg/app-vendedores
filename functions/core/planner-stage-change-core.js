@@ -97,14 +97,20 @@ function resolveTotalArs(pedido) {
   if (typeof pedido.totalARS === 'number') return pedido.totalARS;
   const lineas = Array.isArray(pedido.lines)
     ? pedido.lines
-    : Array.isArray(pedido.items) ? pedido.items : [];
+    : Array.isArray(pedido.items)
+      ? pedido.items
+      : [];
   if (lineas.length === 0) return null;
-  let sum = 0, any = false;
+  let sum = 0,
+    any = false;
   for (const l of lineas) {
     if (!l) continue;
     const qty = Number(l.qty) || 0;
     const price = Number(l.precio) || Number(l.priceAtCreation) || Number(l.price) || 0;
-    if (qty > 0 && price > 0) { sum += qty * price; any = true; }
+    if (qty > 0 && price > 0) {
+      sum += qty * price;
+      any = true;
+    }
   }
   return any ? sum : null;
 }
@@ -123,9 +129,10 @@ function buildEmailBody(pedido, column) {
   const cliente = pedido.clientName || pedido.cardName || '(sin cliente)';
   const vdi = pedido.ownerVendor || pedido.vendorKey || '-';
   const totalArs = resolveTotalArs(pedido);
-  const totalFmt = typeof totalArs === 'number' && totalArs > 0
-    ? '$' + totalArs.toLocaleString('es-AR', { minimumFractionDigits: 0 })
-    : '-';
+  const totalFmt =
+    typeof totalArs === 'number' && totalArs > 0
+      ? '$' + totalArs.toLocaleString('es-AR', { minimumFractionDigits: 0 })
+      : '-';
 
   const subject = `[Planner] Pedido ${num} entró a ${label}`;
 
