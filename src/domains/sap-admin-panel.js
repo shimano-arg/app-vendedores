@@ -13,6 +13,8 @@
 // - window.unsubSapClients / window.unsubSapProducts / window.unsubSapConfig:
 // cleanups en detachFirebaseListeners inline.
 
+import { SAP_LOCK_TTL_MS } from './sap-lock-constants.js';
+
 // =====================================================================
 // SECCIÓN: F1: vars + listenSapMaps + open/close/switchSapTab (inline L12136-12208)
 // =====================================================================
@@ -912,7 +914,7 @@ window.enviarPedidosASAPViaServiceLayer = async function (pedidos) {
         if (data.transferidoSAP) throw new Error('ALREADY_SENT');
         if (data.sendingSapLock && data.sendingSapLock.at) {
           const lockAgeMs = Date.now() - data.sendingSapLock.at;
-          if (lockAgeMs < 300000)
+          if (lockAgeMs < SAP_LOCK_TTL_MS)
             throw new Error('OTHER_SESSION_LOCK:' + (data.sendingSapLock.sessionId || 'unknown'));
         }
         tx.update(docRef, { sendingSapLock: { sessionId: mySessionId, at: Date.now() } });
