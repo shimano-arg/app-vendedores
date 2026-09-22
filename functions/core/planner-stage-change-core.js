@@ -62,20 +62,38 @@ function escapeHtml(s) {
 
 /**
  * Resolves the display "number" for a pedido in the email notification.
- * v1021: los pedidos NUNCA tienen pedidoNumber/orderNumber (ese schema
- * nunca existió); la card del Planner muestra `SAP:<docNum>` y opcionalmente
- * `SO:<orderDocEntry>`. Alineamos el email con esa misma señal.
+ *
+ * v1022 (2026-09-22): pedido.orderNumber (ID único del negocio asignado por
+ * counters/orderNumber al crearse en el waitlist) tiene la precedencia máxima
+ * y se combina con SAP:X / SO:Y como contexto adicional. El ORDEN es el ID
+ * que el equipo comercial usa para trackear el pedido a lo largo del pipeline
+ * — SAP:X y SO:Y son números internos del sistema contable.
+ *
+ * Formato:
+ *  - "ORDEN 145" (sin SAP)
+ *  - "ORDEN 145 (SAP:2000120 · SO:36882)" (con SAP+SO)
+ *  - "ORDEN 145 (SAP:2000120)" (con SAP sin SO)
+ *  - "SAP:2000120 · SO:36882" (sin ORDEN, legacy fallback)
+ *  - "(sin número)" (nada)
+ *
+ * v1021: pedidoNumber es legacy (schema plan viejo, nunca existió en prod).
  *
  * @param {any} pedido
  * @returns {string}
  */
 function resolveDisplayNumber(pedido) {
-  if (pedido?.pedidoNumber) return String(pedido.pedidoNumber);
-  if (pedido?.orderNumber) return String(pedido.orderNumber);
   const t = pedido?.transferidoSAP;
-  if (t?.orderDocEntry && t?.docNum) return `SAP:${t.docNum} · SO:${t.orderDocEntry}`;
-  if (t?.docNum) return `SAP:${t.docNum}`;
-  if (t?.orderDocEntry) return `SO:${t.orderDocEntry}`;
+  let sapContext = '';
+  if (t?.orderDocEntry && t?.docNum) sapContext = `SAP:${t.docNum} · SO:${t.orderDocEntry}`;
+  else if (t?.docNum) sapContext = `SAP:${t.docNum}`;
+  else if (t?.orderDocEntry) sapContext = `SO:${t.orderDocEntry}`;
+
+  if (pedido?.orderNumber) {
+    const orden = `ORDEN ${pedido.orderNumber}`;
+    return sapContext ? `${orden} (${sapContext})` : orden;
+  }
+  if (pedido?.pedidoNumber) return String(pedido.pedidoNumber);
+  if (sapContext) return sapContext;
   return '(sin número)';
 }
 

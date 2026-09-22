@@ -4672,7 +4672,41 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1021
+## 41) Changelog v300 → v1022
+
+### v1022 (2026-09-22) — Planner: `ORDEN N` como ID único del pedido, visible en cards y emails a lo largo del pipeline
+
+**Reporte**: Mariano — quiere que el número de orden asignado en la lista de espera se mantenga como identificador único del pedido a lo largo de todo el pipeline (waitlist → oferta → órdenes → confirmado → facturar → cobrado). Los chips `SAP:X` y `SO:Y` son números internos del sistema contable — el ORDEN N es el ID del negocio.
+
+**Estado previo**: el campo `pedido.orderNumber` ya se persistía en Firestore desde v846 (2026-09-09) — `_waitlistPasarAPendientesContinuar` lo heredaba del waitlist y v942 agregó el path directo (`doConfirmPedido`) con `reserveNextOrderNumber()`. Cobertura hoy: 66/257 pedidos abiertos tienen `orderNumber` (los creados post-v846); los viejos siguen sin él y por consenso no se hace backfill.
+
+**Fix visual** (2 lugares):
+
+**1. Card del Planner (`index.html:27455`)** — agregar `ORDEN N` como primer badge, antes de `SAP:X` y `SO:Y`:
+```js
+if (pedido.orderNumber) badges.push('ORDEN ' + pedido.orderNumber);
+if (pedido.transferidoSAP?.docNum) badges.push('SAP:' + pedido.transferidoSAP.docNum);
+if (pedido.transferidoSAP?.orderDocEntry) badges.push('SO:' + pedido.transferidoSAP.orderDocEntry);
+```
+
+Waitlist entries (que también tienen `orderNumber` directo) obtienen el badge gratis por el mismo path.
+
+**2. Email del CF (`functions/core/planner-stage-change-core.js:resolveDisplayNumber`)** — nuevo formato con `ORDEN N` como principal + SAP como contexto opcional:
+- `ORDEN 145` (sin SAP)
+- `ORDEN 145 (SAP:2000120 · SO:36882)` (con SAP+SO)
+- `ORDEN 145 (SAP:2000120)` (con SAP sin SO)
+- Fallback: `SAP:X · SO:Y` (pedidos viejos sin `orderNumber`)
+- Último recurso: `(sin número)`
+
+**Tests** (16/16 pass, +3 nuevos v1022):
+- Case 14: `orderNumber='145'` solo → subject contiene `ORDEN 145`, no `SAP:`
+- Case 15: `orderNumber + docNum + orderDocEntry` → subject `ORDEN 145 (SAP:2000120 · SO:36882)`
+- Case 16: `orderNumber + docNum` (sin SO) → `ORDEN 145 (SAP:2000120)` (sin `SO:`)
+
+**Deploy**: bundle client-side va con GitHub Pages. CF core cambio requiere:
+```bash
+firebase deploy --only functions:onPlannerStageChanged
+```
 
 ### v1021 (2026-09-22) — Planner email notification: "(sin número)" + "Total ARS -" (mismos bugs de schema que el frontend, ahora en el CF `onPlannerStageChanged`)
 
