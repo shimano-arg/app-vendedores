@@ -286,6 +286,56 @@ describe('handlePlannerStageChanged', () => {
     expect(callArgs.text).toContain('84.000');
   });
 
+  // v1022: orderNumber tiene precedencia como ID único del negocio.
+  it('case 14 (v1022): orderNumber solo (sin SAP) + transición a confirmado → "ORDEN 145"', async () => {
+    // Necesitamos que el after cambie de columna vs before para que se dispare el email.
+    // Usamos plannerStage='confirmado' — cae en columna 'confirmado' sin necesitar SAP.
+    const before = { items: [] };
+    const after = { items: [], orderNumber: '145', plannerStage: 'confirmado' };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    expect(callArgs.subject).toContain('ORDEN 145');
+    expect(callArgs.subject).not.toContain('SAP:');
+    expect(callArgs.subject).not.toContain('(SAP:');
+  });
+
+  it('case 15 (v1022): orderNumber + docNum + orderDocEntry → "ORDEN 145 (SAP:X · SO:Y)"', async () => {
+    const before = { items: [] };
+    const after = {
+      items: [],
+      orderNumber: '145',
+      transferidoSAP: { docNum: 2000120, orderDocEntry: 36882 },
+    };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    expect(callArgs.subject).toMatch(/ORDEN 145 \(SAP:2000120 · SO:36882\)/);
+  });
+
+  it('case 16 (v1022): orderNumber + docNum (sin SO) → "ORDEN 145 (SAP:2000120)"', async () => {
+    const before = { items: [] };
+    const after = {
+      items: [],
+      orderNumber: '145',
+      transferidoSAP: { docNum: 2000120 },
+    };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    expect(callArgs.subject).toMatch(/ORDEN 145 \(SAP:2000120\)/);
+    expect(callArgs.subject).not.toContain('SO:');
+  });
+
   // Case 9: facturar + sendToVdi + orphan VDI (no email) → log.warn + sendMail still called with primary email only
   it('case 9: facturar + sendToVdi + orphan VDI (no email field) → log.warn called AND sendMail called with fa@x.com only', async () => {
     const before = { items: [] };
