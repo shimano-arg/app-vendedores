@@ -237,6 +237,15 @@ export function buildQuotationPayload(pedido, pedidoId, deps, trueVendor) {
     .join(' | ')
     .slice(0, 254); // SAP Comments field max 254 chars.
 
+  // v1004 (2026-09-22): setear DocSeries "APP" si viene en deps. Alineado con
+  // client-side sap-service-layer.js:441. Sin esto SAP aplica default del user
+  // SL y los SQ terminan en la BU equivocada (cross-BU Pesca->Bike). Se
+  // spreadea condicional en el literal para que TS infiera Series como
+  // optional sin necesidad de @typedef del payload.
+  const seriesPatch =
+    typeof deps.appSeriesId === 'number' && Number.isFinite(deps.appSeriesId)
+      ? { Series: deps.appSeriesId }
+      : {};
   const payload = {
     CardCode: cardCode,
     DocDate: docDate,
@@ -251,13 +260,8 @@ export function buildQuotationPayload(pedido, pedidoId, deps, trueVendor) {
     U_AppBatchId: batchId,
     U_TipoGasto: pedido.condicionPago || 'CONDICION',
     DocumentLines: documentLines,
+    ...seriesPatch,
   };
-  // v1004 (2026-09-22): setear DocSeries "APP" si viene en deps. Alineado con
-  // client-side sap-service-layer.js:441. Sin esto SAP aplica default del user
-  // SL y los SQ terminan en la BU equivocada (cross-BU Pesca->Bike).
-  if (typeof deps.appSeriesId === 'number' && Number.isFinite(deps.appSeriesId)) {
-    payload.Series = deps.appSeriesId;
-  }
   return { ok: true, payload, linesCount: documentLines.length };
 }
 
