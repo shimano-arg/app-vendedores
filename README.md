@@ -4672,7 +4672,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1025
+## 41) Changelog v300 → v1026
+
+### v1026 (2026-09-22) — Planner: rename labels `Órdenes` → `Pendiente de facturar` y `Facturar` → `Facturado`
+
+**Reporte**: Mariano — pidió dividir "Facturar" en 2 conceptos: "Pendiente de facturar" (esperando) y "Facturado" (confirmado que se facturó). Sugirió usar la columna "Órdenes" existente como el "Pendiente de facturar".
+
+**Análisis**: la semántica actual ya calzaba con lo pedido — solo faltaba renombrar labels. `Órdenes` en `computeColumn` es "SO creada en SAP pero 0 líneas facturadas" (Rule 5, `orderDocEntry` truthy, sin llegar a Rule 3 de qtyInvoiced) — literal "pendiente de facturar". `Facturar` ya se subdividía visualmente en parcial (state-fact-pendiente amarillo) vs completo (state-facturado verde).
+
+**Fix**: rename SOLO labels de UI + subject del email. Keys internos (`ordenes`, `facturar`) intactos para no romper `plannerHistory`, `plannerEmails`, config de responsables ni el filtro de mes.
+
+- `PLANNER_COLUMNS` en `index.html:27242` → labels nuevos.
+- `COLUMN_LABELS` en `functions/core/planner-stage-change-core.js` → sync con frontend.
+- Tests 16/16 pass — no había hardcoded de labels, solo de keys internos.
+
+**Deploy**: bundle client-side → GitHub Pages auto. CF core → `firebase deploy --only functions:onPlannerStageChanged` para que el próximo email diga `entró a Facturado` / `entró a Pendiente de facturar`.
 
 ### v1025 (2026-09-22) — Planner: ORDEN N en rojo Ferrari + al final de los badges (identidad visual del ID del negocio)
 

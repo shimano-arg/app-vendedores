@@ -19,13 +19,18 @@ import { computeColumn } from './planner-compute-column.js';
 // Constants
 // ---------------------------------------------------------------------------
 
-/** @type {Record<string, string>} */
+/**
+ * v1026 (2026-09-22): sync con PLANNER_COLUMNS del frontend.
+ * 'Órdenes SAP' → 'Pendiente de facturar' (SO creada esperando facturar).
+ * 'Facturar' → 'Facturado' (al menos 1 línea con qtyInvoiced > 0).
+ * @type {Record<string, string>}
+ */
 const COLUMN_LABELS = {
   lista_espera: 'Lista de espera',
   oferta: 'Oferta SAP',
-  ordenes: 'Órdenes SAP',
+  ordenes: 'Pendiente de facturar',
   confirmado: 'Confirmado',
-  facturar: 'Facturar',
+  facturar: 'Facturado',
   cobrado: 'Cobrado',
 };
 
