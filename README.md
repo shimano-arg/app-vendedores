@@ -4672,7 +4672,13 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1038
+## 41) Changelog v300 → v1039
+
+### v1039 (2026-09-22) — Planner modal líneas: removida columna "Facturado" (menos ruido)
+
+Reporte Mariano — la columna `Facturado` (qty facturada por línea) generaba ruido en el modal. La info de facturación ya está visible en el Kanban (columna Facturado + badge SAP:X + subtotal por columna).
+
+Modal ahora muestra `SKU / Descripción / Qty / Precio / Subtotal` + Total pedido en el footer. `colspan` del footer ajustado de 5 → 4.
 
 ### v1038 (2026-09-22) — Planner modal líneas: agregar columna Subtotal + fallback `getDefaultPrice` para waitlist entries
 

@@ -5774,7 +5774,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1038';
+const APP_VERSION = 'v1039';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27898,12 +27898,15 @@ function renderPlannerModalLineas(pedido) {
   const fmtArs = (n) => n
     ? n.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 })
     : '—';
+  // v1039 (2026-09-22): removida columna 'Facturado' del modal — Mariano pidio
+  // menos ruido. La info de facturacion sigue en la columna Facturado del
+  // Kanban (via computeColumn) + en el badge SAP:X. El modal ahora solo
+  // muestra el pedido puro (SKU + desc + qty + precio + subtotal).
   let totalPedido = 0;
   const rows = lineas.map(l => {
     const sku = escapeHtml(l?.code || l?.sku || l?.itemCode || '');
     const desc = escapeHtml(l?.desc || l?.descripcion || l?.name || l?.itemName || l?.description || '');
     const qty = Number(l?.qty || 0);
-    const qtyInv = Number(l?.qtyInvoiced || 0);
     let price = Number(l?.priceAtCreation || l?.precio || l?.price || l?.unitPrice || 0);
     if (!price && _hasPriceFn && (l?.code || l?.sku || l?.itemCode)) {
       price = Number(getDefaultPrice(l.code || l.sku || l.itemCode)) || 0;
@@ -27915,7 +27918,6 @@ function renderPlannerModalLineas(pedido) {
         '<td>' + sku + '</td>' +
         '<td>' + desc + '</td>' +
         '<td class="num">' + qty + '</td>' +
-        '<td class="num">' + qtyInv + '</td>' +
         '<td class="num">' + fmtArs(price) + '</td>' +
         '<td class="num">' + fmtArs(subtotal) + '</td>' +
       '</tr>'
@@ -27923,7 +27925,7 @@ function renderPlannerModalLineas(pedido) {
   }).join('');
   const footer = totalPedido > 0
     ? '<tfoot><tr>' +
-        '<td colspan="5" class="num" style="font-weight:700;padding-top:12px;border-top:1px solid rgba(0,0,0,0.08);">Total pedido</td>' +
+        '<td colspan="4" class="num" style="font-weight:700;padding-top:12px;border-top:1px solid rgba(0,0,0,0.08);">Total pedido</td>' +
         '<td class="num" style="font-weight:700;padding-top:12px;border-top:1px solid rgba(0,0,0,0.08);">' + fmtArs(totalPedido) + '</td>' +
       '</tr></tfoot>'
     : '';
@@ -27933,7 +27935,6 @@ function renderPlannerModalLineas(pedido) {
         '<th>SKU</th>' +
         '<th>Descripción</th>' +
         '<th class="num">Qty</th>' +
-        '<th class="num">Facturado</th>' +
         '<th class="num">Precio</th>' +
         '<th class="num">Subtotal</th>' +
       '</tr></thead>' +
