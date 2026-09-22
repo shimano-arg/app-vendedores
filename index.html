@@ -3325,7 +3325,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
     <!-- v1008 (2026-09-22): boton Planner reubicado desde sidebar al header (pedido Mariano
          para poder ver el Kanban en modal grande sin scroll horizontal). Mismo gate que
          panel-control-btn: solo Mariano email + admin role. Runtime guard en applyRolePermissions. -->
-    <button class="btn-zonas" id="planner-header-btn" onclick="openPlannerBoardModal()" title="Planner: Kanban de pedidos por depósito (solo Mariano)" style="background:#c2410c;color:#fff;display:none">Planner</button>
+    <button class="btn-zonas" id="planner-header-btn" onclick="openPlannerBoardModal()" title="Planner: Kanban de pedidos por depósito (solo Mariano)" style="background:#ff9500;color:#fff;border:none;border-radius:999px;padding:8px 16px;font-size:11px;font-weight:600;letter-spacing:-0.01em;text-transform:none;box-shadow:none;display:none">Planner</button>
   </div>
 </div>
 
@@ -5703,7 +5703,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1011';
+const APP_VERSION = 'v1012';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
