@@ -4672,7 +4672,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1039
+## 41) Changelog v300 → v1040
+
+### v1040 (2026-09-22) — Planner Cobrado: subtotal usa `paidAmount` real de SAP (no total del pedido)
+
+**Reporte**: Mariano — Cobrado del Planner mostraba $356M vs $135M en PowerBI (2.6x más).
+
+**Root cause**: mismo bug que v1033/v1035 pero para Cobrado. `_plannerComputeTotal` devolvía el total del pedido entero cuando el pedido caía en Cobrado. Ejemplo: pedido de $10M con paid=$2M → sumaba $10M en vez de $2M.
+
+**Fix**: nueva función `_plannerComputePaidTotal(pedido)` que prefiere `pedido.paidAmount` (persistido por el CF `syncSapPaymentsToApp` cada 15min desde SAP `Invoice.PaidToDate`). Fallback a `invoicedAmount` si no hay `paidAmount` todavía (caso drag manual sin sync).
+
+**Verificación contra prod (47 pedidos en Cobrado, septiembre)**:
+- ANTES: **$356,146,460** (163% arriba del PowerBI $134M)
+- DESPUÉS: **$213,261,133** (58% arriba)
+
+**Gap residual $78M ($213M app vs $134M BI)**: filtro de mes semánticamente distinto — Planner usa `createdAt` del pedido, PowerBI usa `DocDate` de la factura/pago. Pedidos creados en agosto pero cobrados en septiembre → BI los cuenta como septiembre, Planner como agosto. **Otro scope** — requiere que CF persista `lastInvoiceDate` + `lastPaymentDate` y el filtro los use en vez de `createdAt`.
 
 ### v1039 (2026-09-22) — Planner modal líneas: removida columna "Facturado" (menos ruido)
 
