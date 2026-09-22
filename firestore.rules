@@ -54,10 +54,13 @@ service cloud.firestore {
     }
 
     match /roles/{uid} {
+      // Planner Task 2: agregado isMariano() para que onPlannerStageChanged CF
+      // pueda leer roles/{uid}.email server-side al enviar notif VDI.
       allow read: if request.auth != null && (
         request.auth.uid == uid
         || isAdmin()
         || isGerente()
+        || isMariano()
         || resource.data.internalPartnerUid == request.auth.uid
       );
       // v917 (2026-09-14, SecAudit Sprint 0 CRIT-01): cerrar auto-escalation
@@ -156,7 +159,11 @@ service cloud.firestore {
             'observaciones', 'notes', 'clientNotes', 'updatedAt', 'updatedBy',
             'month', 'monthIdx', 'year',
             // orderNumber: incluido por decision Mariano 2026-09-14 (Sprint 1 Q2)
-            'orderNumber'
+            'orderNumber',
+            // Planner Kanban (Task 2, 2026-09-22): etapa kanban + historial +
+            // emails notif + adjuntos + estado/monto/fecha de pago.
+            'plannerStage', 'plannerHistory', 'plannerEmails',
+            'plannerAttachments', 'paidStatus', 'paidAmount', 'paidToDate'
           ])
         );
       allow delete: if isAdminOrGerente() || isInterno();
@@ -516,8 +523,28 @@ service cloud.firestore {
       // E3 stock_snapshot_shadow_v3: shadow del snapshot app-source, admin/gerente
       // (info operacional del sync, no relevante a vendedores hasta cutover E5).
       allow read: if (docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3', 'gemini'] && isAdminOrGerente())
-                  || (!(docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3', 'gemini']) && isReader());
-      allow write: if isAdmin();
+                  || (!(docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3', 'gemini', 'planner_responsables', 'planner_config']) && isReader())
+                  || (docId == 'planner_config' && request.auth != null)
+                  || (docId == 'planner_responsables' && (isAdmin() || isGerente() || isMariano()));
+      // Planner Task 2: planner_responsables y planner_config tienen su propio
+      // gate de write (isMariano-only). El catch-all `isAdmin()` queda excluido
+      // para esos dos docIds para evitar bypass de la restriccion Mariano-only.
+      allow write: if isAdmin() && !(docId in ['planner_responsables', 'planner_config']);
+    }
+
+    // Planner Kanban Task 2 (2026-09-22): configuracion de responsables del
+    // planner. Solo Mariano puede escribir; admin/gerente/Mariano pueden leer.
+    match /app_config/planner_responsables {
+      allow read: if isAdmin() || isGerente() || isMariano();
+      allow write: if isMariano();
+    }
+
+    // Planner Kanban Task 2 (2026-09-22): configuracion general del planner
+    // (etapas, columnas, labels). Cualquier usuario autenticado puede leer
+    // para renderizar el tablero. Solo Mariano puede configurarlo.
+    match /app_config/planner_config {
+      allow read: if request.auth != null;
+      allow write: if isMariano();
     }
 
     // v913 (2026-09-13): contador atomico para reservar orderNumber en
