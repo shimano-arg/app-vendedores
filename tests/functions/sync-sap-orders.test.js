@@ -92,12 +92,12 @@ function makeSlFetch(scenarios) {
     if (url.endsWith('/b1s/v1/Logout')) {
       return { ok: true, status: 204, headers: { get: () => null }, text: async () => '' };
     }
-    // GET /b1s/v1/Orders?$filter=DocumentLines/any(l:l/BaseEntry eq X and l/BaseType eq 23)&$select=DocEntry&$top=1
-    // El filter viene URL-encoded (encodeURIComponent). Decodificamos para
-    // que el regex pueda leer el sqDocEntry.
-    const decoded = decodeURIComponent(url);
-    const m = decoded.match(/BaseEntry\s+eq\s+(\d+)/);
-    if (m && /\/b1s\/v1\/Orders\?/.test(url)) {
+    // GET /b1s/v1/Quotations(<sqDocEntry>)?$select=DocEntry,DocumentLines&$expand=DocumentLines(...)
+    // v1015 hotfix: SAP SL no soporta $filter=DocumentLines/any() sobre /Orders.
+    // Nuevo enfoque: query directa a la SQ + expand DocumentLines. La linea
+    // con TargetType=17 (Sales Order) tiene el TargetEntry con el orderDocEntry.
+    const m = url.match(/\/b1s\/v1\/Quotations\((\d+)\)/);
+    if (m) {
       const sqDocEntry = Number(m[1]);
       if (scenarios.throwOn && scenarios.throwOn.includes(sqDocEntry)) {
         throw new Error('network error');
@@ -105,20 +105,47 @@ function makeSlFetch(scenarios) {
       if (scenarios.status500On && scenarios.status500On.includes(sqDocEntry)) {
         return { ok: false, status: 500, headers: { get: () => null }, text: async () => '' };
       }
-      const orderDocEntry = scenarios.mapping && scenarios.mapping[sqDocEntry];
-      if (orderDocEntry) {
+      // scenarios.malformed[sqDocEntry] = true -> SQ existe pero TargetEntry invalido
+      if (scenarios.malformed && scenarios.malformed.includes(sqDocEntry)) {
         return {
           ok: true,
           status: 200,
           headers: { get: () => null },
-          text: async () => JSON.stringify({ value: [{ DocEntry: orderDocEntry }] }),
+          text: async () =>
+            JSON.stringify({
+              DocEntry: sqDocEntry,
+              DocumentLines: [{ TargetType: 17, TargetEntry: 0 }],
+            }),
         };
       }
+      const orderDocEntry = scenarios.mapping && scenarios.mapping[sqDocEntry];
+      if (orderDocEntry) {
+        // Simulamos body real: SQ con DocumentLines[0].TargetType=17, TargetEntry=orderDocEntry.
+        // Puede haber lineas previas con TargetType=null (no convertidas) - mezclamos.
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          text: async () =>
+            JSON.stringify({
+              DocEntry: sqDocEntry,
+              DocumentLines: [
+                { TargetType: null, TargetEntry: 0 },
+                { TargetType: 17, TargetEntry: orderDocEntry },
+              ],
+            }),
+        };
+      }
+      // Miss: SQ existe pero ninguna linea con TargetType=17.
       return {
         ok: true,
         status: 200,
         headers: { get: () => null },
-        text: async () => JSON.stringify({ value: [] }),
+        text: async () =>
+          JSON.stringify({
+            DocEntry: sqDocEntry,
+            DocumentLines: [{ TargetType: null, TargetEntry: 0 }],
+          }),
       };
     }
     return { ok: true, status: 200, headers: { get: () => null }, text: async () => '{}' };

@@ -14,8 +14,11 @@
  * 1. Query Firestore: pedidos con `closedAt == null`, ordenados por updatedAt desc.
  * 2. Filtrar client-side: los que tengan `transferidoSAP.docEntry` seteado
  *    (=SQ ya creada en SAP) pero NO tengan `transferidoSAP.orderDocEntry`.
- * 3. Para cada pedido pendiente, GET a SAP:
- *      /b1s/v1/Orders?$filter=DocumentLines/any(l:l/BaseEntry eq <sqDocEntry> and l/BaseType eq 23)&$select=DocEntry&$top=1
+ * 3. Para cada pedido pendiente, GET a SAP consultando la SQ directamente
+ *    (SAP SL no soporta $filter=DocumentLines/any(...) sobre /Orders):
+ *      /b1s/v1/Quotations(<sqDocEntry>)?$select=DocEntry,DocumentLines&$expand=DocumentLines($select=TargetType,TargetEntry)
+ *    - Buscar en DocumentLines la primera linea con TargetType=17 (Sales Order).
+ *      Su TargetEntry es el DocEntry de la SO derivada.
  *    - Si hit -> update `transferidoSAP.orderDocEntry` + `transferidoSAP.orderSyncedAt`.
  *    - Si miss -> no-op (la SQ aun no fue convertida a SO).
  * 4. Retornar resumen `{checked, hits, misses, errors}`.
@@ -31,7 +34,7 @@
 
 import { sapGet, sapLogin, sapLogout } from './sap-sl-client.js';
 
-const BASE_TYPE_QUOTATION = 23; // SAP: SO.Line.BaseType=23 -> apunta a SQ (Quotation)
+const TARGET_TYPE_ORDER = 17; // SAP: SQ.Line.TargetType=17 -> linea convertida en SO
 const DEFAULT_BATCH_SIZE = 100;
 
 /**
@@ -105,24 +108,39 @@ export async function syncSapOrders(deps) {
   try {
     for (const p of pending) {
       try {
-        const filter = `DocumentLines/any(l:l/BaseEntry eq ${p.sqDocEntry} and l/BaseType eq ${BASE_TYPE_QUOTATION})`;
-        const endpoint = `/b1s/v1/Orders?$filter=${encodeURIComponent(filter)}&$select=DocEntry&$top=1`;
+        // Consultamos la SQ (Quotation) directamente por DocEntry + expand de
+        // DocumentLines. La linea que fue convertida a SO tiene TargetType=17.
+        const expandParams = 'DocumentLines($select=TargetType,TargetEntry)';
+        const selectParams = 'DocEntry,DocumentLines';
+        const endpoint =
+          `/b1s/v1/Quotations(${p.sqDocEntry})` +
+          `?$select=${encodeURIComponent(selectParams)}` +
+          `&$expand=${encodeURIComponent(expandParams)}`;
         const r = await sapGet(session, endpoint, deps);
         if (r.status !== 200) {
-          log('[sync-orders] SAP GET non-200', { pedidoId: p.id, status: r.status });
+          log('[sync-orders] SAP GET non-200', {
+            pedidoId: p.id,
+            status: r.status,
+            sqDocEntry: p.sqDocEntry,
+          });
           errors++;
           continue;
         }
-        const value = r.body && Array.isArray(r.body.value) ? r.body.value : [];
-        if (value.length === 0) {
+        const lines = r.body && Array.isArray(r.body.DocumentLines) ? r.body.DocumentLines : [];
+        const orderLine = lines.find(
+          (/** @type {any} */ l) => Number(l && l.TargetType) === TARGET_TYPE_ORDER
+        );
+        if (!orderLine) {
+          // SQ existe pero ninguna linea fue convertida a SO todavia.
           misses++;
           continue;
         }
-        const orderDocEntry = Number(value[0].DocEntry);
+        const orderDocEntry = Number(orderLine.TargetEntry);
         if (!Number.isFinite(orderDocEntry) || orderDocEntry <= 0) {
-          log('[sync-orders] SAP devolvio DocEntry invalido', {
+          log('[sync-orders] SAP devolvio TargetEntry invalido', {
             pedidoId: p.id,
-            body: value[0],
+            sqDocEntry: p.sqDocEntry,
+            orderLine,
           });
           errors++;
           continue;
