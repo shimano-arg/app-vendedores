@@ -27346,7 +27346,7 @@ function renderPlannerModal() {
   } else if (_plannerModalTab === 'adjuntos') {
     body.innerHTML = renderPlannerModalAdjuntos(pedido);
   } else if (_plannerModalTab === 'historial') {
-    body.innerHTML = '<div style="opacity:.55;padding:32px;text-align:center;">Historial — próximamente (Task 14).</div>';
+    body.innerHTML = renderPlannerModalHistorial(pedido);
   }
 }
 
@@ -27546,6 +27546,90 @@ function _plannerFmtBytes(n) {
   if (v < 1024) return v + ' B';
   if (v < 1024 * 1024) return (v / 1024).toFixed(1) + ' KB';
   return (v / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+function _plannerFmtDateTime(ts) {
+  if (!ts) return '';
+  const d = (typeof ts.toDate === 'function') ? ts.toDate()
+          : (typeof ts === 'number' ? new Date(ts)
+          : (ts instanceof Date ? ts
+          : (typeof ts === 'object' && ts.seconds ? new Date(ts.seconds * 1000)
+          : null)));
+  if (!d || isNaN(d.getTime())) return '';
+  return d.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function renderPlannerModalHistorial(pedido) {
+  const history = Array.isArray(pedido.plannerHistory) ? pedido.plannerHistory.slice().reverse() : [];
+  const emails = (pedido.plannerEmails && typeof pedido.plannerEmails === 'object') ? pedido.plannerEmails : {};
+  const currentCol = computeColumn(pedido);
+  const hasEmailForCurrent = !!(emails[currentCol] && emails[currentCol].sentAt);
+
+  const currentColLabel = (PLANNER_COLUMNS.find(c => c.key === currentCol) || {}).label || currentCol;
+  const btnLabel = (hasEmailForCurrent ? 'Reenviar' : 'Enviar') + ' notif de columna actual (' + currentColLabel + ')';
+
+  const timelineHtml = history.length
+    ? history.map(h => {
+        const stageLabel = (PLANNER_COLUMNS.find(c => c.key === h.stage) || {}).label || h.stage;
+        const who = escapeHtml(h.movedByEmail || h.movedBy || '?');
+        const when = _plannerFmtDateTime(h.movedAt);
+        return (
+          '<div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid rgba(0,0,0,0.06);">' +
+            '<div style="width:8px;height:8px;border-radius:50%;background:#007AFF;margin-top:6px;flex-shrink:0;"></div>' +
+            '<div>' +
+              '<div style="font-size:13px;font-weight:600;">Movido a ' + escapeHtml(stageLabel) + '</div>' +
+              '<div style="font-size:11px;opacity:.6;margin-top:2px;">' + who + ' · ' + escapeHtml(when) + '</div>' +
+            '</div>' +
+          '</div>'
+        );
+      }).join('')
+    : '<div style="opacity:.55;padding:20px;text-align:center;font-size:13px;">Sin transiciones aún.</div>';
+
+  const emailsHtml = Object.entries(emails)
+    .filter(function(entry) { return entry[1] && entry[1].sentAt; })
+    .map(function(entry) {
+      var col = entry[0], meta = entry[1];
+      var colLabel = (PLANNER_COLUMNS.find(c => c.key === col) || {}).label || col;
+      return (
+        '<div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid rgba(0,0,0,0.06);">' +
+          '<div style="width:8px;height:8px;border-radius:50%;background:#34C759;margin-top:6px;flex-shrink:0;"></div>' +
+          '<div>' +
+            '<div style="font-size:13px;">📧 Email enviado — <strong>' + escapeHtml(colLabel) + '</strong></div>' +
+            '<div style="font-size:11px;opacity:.6;margin-top:2px;">A: ' + escapeHtml(meta.to || '?') + ' · ' + escapeHtml(_plannerFmtDateTime(meta.sentAt)) + '</div>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
+
+  return (
+    '<div style="margin-bottom:20px;">' +
+      '<button onclick="resendPlannerNotif(\'' + escapeHtml(currentCol) + '\')"' +
+        ' style="background:#007AFF;color:white;padding:9px 16px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;">' +
+        escapeHtml(btnLabel) +
+      '</button>' +
+    '</div>' +
+    '<h4 style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:.55;margin:0 0 8px;font-weight:600;">Transiciones</h4>' +
+    timelineHtml +
+    '<h4 style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:.55;margin:24px 0 8px;font-weight:600;">Emails enviados</h4>' +
+    (emailsHtml || '<div style="opacity:.55;padding:12px;font-size:13px;">Sin emails enviados aún.</div>')
+  );
+}
+
+async function resendPlannerNotif(column) {
+  if (!_plannerModalPedidoId) return;
+  if (!confirm('¿Reenviar notificación para la columna "' + column + '"? Se limpiará la marca sentAt y el trigger volverá a enviar el email al responsable.')) return;
+  try {
+    const callable = firebase.app().functions('southamerica-east1').httpsCallable('resendPlannerEmail');
+    const res = await callable({ pedidoId: _plannerModalPedidoId, column });
+    alert('Notificación reenviada: ' + ((res && res.data && res.data.result && res.data.result.sent && res.data.result.sent.to) || 'OK'));
+    // Refresh cache — onSnapshot will also fire.
+    const fresh = await fbDb.collection('pedidos').doc(_plannerModalPedidoId).get();
+    plannerPedidosCache.set(_plannerModalPedidoId, { id: _plannerModalPedidoId, ...fresh.data() });
+    renderPlannerModal();
+  } catch (err) {
+    console.error('[planner] resend notif failed:', err);
+    alert('Error al reenviar: ' + ((err && err.message) || err));
+  }
 }
 
 function detachFirebaseListeners(){
