@@ -2938,6 +2938,13 @@ body.dark .planner-col { background: rgba(28,28,30,0.72); border-color: rgba(255
 }
 .planner-col-count { font-size: 13px; font-weight: 500; opacity: 0.55; margin-left: 6px; }
 .planner-col-resp { font-size: 11px; opacity: 0.6; margin-left: 8px; }
+/* v1020 (2026-09-22): subtotal ARS por columna (suma de totales de cards visibles).
+   Va justo bajo el header, antes de la lista de cards. Estilo Apple secondary. */
+.planner-col-subtotal {
+  padding: 0 12px 10px;
+  font-size: 13px; font-weight: 600; letter-spacing: -0.01em;
+  opacity: 0.75;
+}
 .planner-col-cards {
   display: flex; flex-direction: column; gap: 8px;
   overflow-y: auto; padding: 4px;
@@ -5723,7 +5730,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1019';
+const APP_VERSION = 'v1020';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27390,6 +27397,17 @@ function renderPlannerKanban() {
     const cardsHtml = byCol[col.key].length
       ? byCol[col.key].map(p => renderPlannerCard(p, col.key)).join('')
       : '<div class="planner-kanban-empty" style="padding:24px;">Sin pedidos</div>';
+    // v1020 (2026-09-22): subtotal ARS de la columna = suma de totales de las
+    // cards visibles. Usa el mismo _plannerComputeTotal que las cards para
+    // consistencia (los "0" en cards sin precio no suman). Formato $ integer.
+    let subtotal = 0;
+    for (const p of byCol[col.key]) {
+      const t = _plannerComputeTotal(p);
+      if (typeof t === 'number' && !isNaN(t)) subtotal += t;
+    }
+    const subtotalStr = subtotal.toLocaleString('es-AR', {
+      style: 'currency', currency: 'ARS', maximumFractionDigits: 0,
+    });
     return (
       '<div class="planner-col" data-col="' + col.key + '">' +
         '<div class="planner-col-header">' +
@@ -27398,6 +27416,7 @@ function renderPlannerKanban() {
           '</span>' +
           '<span class="planner-col-resp">' + respEmail + '</span>' +
         '</div>' +
+        '<div class="planner-col-subtotal">' + escapeHtml(subtotalStr) + '</div>' +
         '<div class="planner-col-cards">' + cardsHtml + '</div>' +
       '</div>'
     );
