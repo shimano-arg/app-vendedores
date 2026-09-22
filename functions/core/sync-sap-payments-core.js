@@ -66,6 +66,7 @@ const DEFAULT_PAGE_SIZE = 20; // SL default; ignora $top mayor
  */
 async function listPedidosWithInvoices(deps) {
   const snap = await deps.fbDb.collection('pedidos').where('closedAt', '==', null).get();
+  /** @type {Array<{id: string, data: any}>} */
   const out = [];
   snap.forEach((/** @type {any} */ doc) => {
     const data = doc.data() || {};
