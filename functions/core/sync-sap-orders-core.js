@@ -36,7 +36,15 @@ import { sapGet, sapLogin, sapLogout } from './sap-sl-client.js';
 
 const BASE_TYPE_QUOTATION = 23; // SAP: SO.Line.BaseType=23 -> linea originada en SQ
 const DEFAULT_BATCH_SIZE = 100;
-const ORDERS_LOOKAHEAD = 500; // Cuantas SO recientes traer por corrida
+// v1045 (2026-09-23): aumentado de 500 → 2000. Reporte Mariano: pedidos Pesca
+// que ya tenían SO en SAP no se sincronizaban al Planner. Diagnóstico: SAP DB
+// tiene múltiples BUs (Pesca + Bike + Marketing + Muestras + Chile). El scan
+// desc de 500 SOs quedaba dominado por otras BUs, dejando las SOs Pesca fuera.
+// Cost extra: ~100 GETs/corrida (5x más) — cada 15min tick, page 20 default.
+// Trade-off: si hay racha de >2000 SOs no-Pesca entre SOs Pesca vs Pesca en
+// Firestore, seguiría faltando. Fix definitivo futuro: filter por BaseEntry
+// range (requiere que SL soporte filter/any que actualmente no).
+const ORDERS_LOOKAHEAD = 2000;
 
 /**
  * @typedef {Object} SyncOrdersDeps
