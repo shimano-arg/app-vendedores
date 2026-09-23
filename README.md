@@ -12444,6 +12444,25 @@ Los gaps residuales (10-30%) son casi todos por la Diferencia 1 (filtro de mes d
 
 Son vistas **complementarias**, no duplicadas. Fase 3 (filtro contable con `lastInvoiceDate` / `lastPaymentDate` persistidos por CFs) queda evaluado y **descartado** por decisión Mariano 2026-09-22 — no vale la pena la complejidad backend cuando el user entiende que son vistas distintas.
 
+### Verificación empírica de ofertas (2026-09-23)
+
+Corrida un script comparativo contra SL directo:
+
+- SAP Quotations con `DocDate` septiembre 2026: **587 SQs** (163 open + 424 closed + 39 cancelled).
+- Suma non-cancelled: **$1,754M** (!!).
+- Planner columna Oferta septiembre: **32 SQs**, sumadas **$298M**.
+- **SQs "SAP-only" (en SAP no en Firestore)**: 488 → $1,317M.
+
+**Explicación del gap masivo**: el SL devuelve TODAS las SQs de la company DB `SHIMANO_ARG` — que incluye **Pesca + Bike + Marketing + Muestras + Chile** (múltiples BUs bajo la misma DB). El PowerBI que ve Mariano filtra solo Pesca (~$372M). La app-vendedores procesa solo Pesca (~$298M).
+
+Las 488 "SAP-only" son SQs de otras BUs — nombres reveladores:
+- `SHIMANO CHILE SPA` $159M — exportación
+- `MUESTRAS BRAND SPECIALISTS` $46M — muestras internas
+- `MARKETING SAR` $20M — Marketing
+- `MUTILOA`, `CELERO BIKES`, `BERTOLINA SPORTS`, `KELES`, `QUINTANA` — todos BU Bike
+
+**Conclusión**: las 32 ofertas del Planner son **correctas y coherentes con Pesca**. No hay duplicados, ni SQs faltantes, ni pedidos mal categorizados. El aparente "gap" es multi-BU en la DB de SAP — no aplica a la app-vendedores que es Pesca-only.
+
 ### Enlaces relacionados
 
 - Spec inicial: `docs/specs/2026-09-22-planner-design.md`
