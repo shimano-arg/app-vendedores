@@ -37,7 +37,12 @@
 
 import { sapGet, sapLogin, sapLogout } from './sap-sl-client.js';
 
-const DEFAULT_INVOICES_LOOKAHEAD = 500;
+// v1048 (2026-09-23): aumentado 500 → 2000 por mismo motivo que
+// syncSapOrdersToApp v1045. SAP DB tiene múltiples BUs — el scan desc de
+// invoices puede quedar dominado por otras BUs, dejando invoices Pesca
+// viejas fuera. Con LOOKAHEAD=2000, cubrimos ~16 días de volumen contable
+// típico. Cost: ~100 GETs/corrida (era 25).
+const DEFAULT_INVOICES_LOOKAHEAD = 2000;
 const DEFAULT_PAGE_SIZE = 20; // SL default; ignora $top mayor
 
 /**
