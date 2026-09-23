@@ -4673,7 +4673,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1040
+## 41) Changelog v300 → v1041
+
+### v1041 (2026-09-22) — Planner mobile responsive (tablet ≤900px + mobile ≤640px)
+
+**Reporte**: Mariano — el Planner no se adaptaba a mobile. Modal padding grande, header con 8+ elementos sin wrap, columnas fijas 320px, tabla líneas rompía layout.
+
+**Fix**: nuevo bloque `@media (max-width: 900px)` + `@media (max-width: 640px)` con `!important` para pisar los inline styles del modal header (que usan `style="..."` directo, no clases).
+
+**Tablet (≤900px)**:
+- Modal ocupa 100vw × 100vh, border-radius 0, padding 0.
+- Header naranja con `flex-wrap: wrap` + gap 8px.
+- Título `flex: 1 1 100%` para forzar el break.
+- Inputs cliente/orden `flex: 1 1 45%` (dos en línea).
+- Columnas `flex: 0 0 280px` (era 320).
+
+**Mobile (≤640px)**:
+- Header padding 8px, título 13px, botones 10px.
+- Columnas `flex: 0 0 88vw` — una casi-full por pantalla, scroll horizontal con snap.
+- Cards con padding + font-size reducidos.
+- Modal de card (líneas/adjuntos/historial): full-screen sin border-radius.
+- Tabla líneas: `white-space: nowrap` + font 11px para horizontal scroll cómodo.
 
 ### v1040 (2026-09-22) — Planner Cobrado: subtotal usa `paidAmount` real de SAP (no total del pedido)
 
