@@ -1838,8 +1838,10 @@ export const triggerPlannerSync = onCall(
         password: SAP_SL_PASSWORD.value(),
       },
       fbDb: db,
-      log: (msg, extra) => console.log('[triggerPlannerSync]', msg, extra || {}),
+      log: (/** @type {string} */ msg, /** @type {Record<string, unknown>} */ extra) =>
+        console.log('[triggerPlannerSync]', msg, extra || {}),
     };
+    /** @type {{invoices: any, orders: any, payments: any, errors: Array<{step: string, message: string}>}} */
     const summary = { invoices: null, orders: null, payments: null, errors: [] };
     try {
       const r = await syncSapInvoices(deps);
@@ -1861,17 +1863,26 @@ export const triggerPlannerSync = onCall(
           ...r,
         });
     } catch (e) {
-      summary.errors.push({ step: 'invoices', message: e?.message || String(e) });
+      summary.errors.push({
+        step: 'invoices',
+        message: /** @type {any} */ (e)?.message || String(e),
+      });
     }
     try {
       summary.orders = await syncSapOrders(deps);
     } catch (e) {
-      summary.errors.push({ step: 'orders', message: e?.message || String(e) });
+      summary.errors.push({
+        step: 'orders',
+        message: /** @type {any} */ (e)?.message || String(e),
+      });
     }
     try {
       summary.payments = await handleSyncSapPayments(deps);
     } catch (e) {
-      summary.errors.push({ step: 'payments', message: e?.message || String(e) });
+      summary.errors.push({
+        step: 'payments',
+        message: /** @type {any} */ (e)?.message || String(e),
+      });
     }
     console.log('triggerPlannerSync summary', summary);
     return summary;
