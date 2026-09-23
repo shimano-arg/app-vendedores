@@ -341,47 +341,83 @@ window.exportMasterClientes = function () {
   }
 
   const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(rows);
-  ws['!cols'] = [
-    { wch: 16 }, // CardCode SAP
-    { wch: 38 }, // Nombre tienda
-    { wch: 28 }, // Alias
-    { wch: 14 }, // Tipo
-    { wch: 14 }, // Estado
-    { wch: 22 }, // Provincia
-    { wch: 22 }, // Localidad mapa
-    { wch: 22 }, // Departamento
-    { wch: 28 }, // Vendedor externo
-    { wch: 8 }, // Zona
-    { wch: 48 }, // Etiqueta zona
-    { wch: 28 }, // Asesor interno
-    { wch: 38 }, // Direccion
-    { wch: 24 }, // Localidad declarada
-    { wch: 14 }, // Lat
-    { wch: 14 }, // Lng
-    // v450: clasificacion desde visits/contactos.
-    { wch: 14 }, // Ultima interaccion
-    { wch: 14 }, // Tipo ultima interaccion
-    { wch: 10 }, // Total visitas
-    { wch: 10 }, // Total contactos
-    { wch: 18 }, // Tipo comercio
-    { wch: 16 }, // Local
-    { wch: 12 }, // Tamano
-    { wch: 14 }, // Fidelidad
-    { wch: 20 }, // Especializacion
-    { wch: 20 }, // Canal de compra
-    { wch: 10 }, // Relevancia
-    { wch: 8 }, // POP
-    { wch: 26 }, // Necesidad puntual
-    { wch: 16 }, // Tipo de venta
-    { wch: 18 }, // Ponderacion mostrador
-    { wch: 18 }, // Ponderacion e-commerce
-    { wch: 26 }, // Competencia
-    { wch: 26 }, // Oportunidad
-    { wch: 22 }, // Mas vendido
-    { wch: 22 }, // Mas preguntan
-    { wch: 26 }, // Ayuda tienda
-  ];
+  // v1043 (2026-09-23): post-proceso — sacar columnas 100% vacías.
+  // Reporte Mariano: masterfile exportaba 37 columnas donde muchas venían
+  // vacías porque no había visitas/contactos cargados para esos clientes.
+  // Fix: identificar keys donde TODAS las filas tienen valor "vacío" (empty
+  // string, null, undefined) y removerlas antes del sheet. Los conteos
+  // (Total visitas/contactos) se consideran vacíos si todos son 0.
+  // Widths por column-name (en vez de posicional) para que el filter no
+  // desalinee el sheet cuando removemos columnas.
+  const COL_WIDTHS = {
+    'CardCode SAP': 16,
+    'Nombre tienda': 38,
+    'Alias (modal)': 28,
+    Tipo: 14,
+    Estado: 14,
+    Provincia: 22,
+    'Localidad (mapa)': 22,
+    Departamento: 22,
+    'Vendedor externo (VDE)': 28,
+    Zona: 8,
+    'Etiqueta zona': 48,
+    'Asesor interno (VDI)': 28,
+    Direccion: 38,
+    'Localidad declarada': 24,
+    'Lat (geocode)': 14,
+    'Lng (geocode)': 14,
+    'Ultima interaccion': 14,
+    'Tipo ultima interaccion': 14,
+    'Total visitas': 10,
+    'Total contactos': 10,
+    'Tipo comercio': 18,
+    Local: 16,
+    Tamano: 12,
+    Fidelidad: 14,
+    Especializacion: 20,
+    'Canal de compra': 20,
+    Relevancia: 10,
+    POP: 8,
+    'Necesidad puntual': 26,
+    'Tipo de venta': 16,
+    'Ponderacion mostrador (%)': 18,
+    'Ponderacion e-commerce (%)': 18,
+    Competencia: 26,
+    Oportunidad: 26,
+    'Mas vendido': 22,
+    'Mas preguntan': 22,
+    'Ayuda tienda': 26,
+  };
+  // Detectar keys 100% vacías.
+  const allKeys = Object.keys(COL_WIDTHS);
+  const NUMERIC_ZERO_OK = new Set(['Total visitas', 'Total contactos']);
+  const emptyKeys = new Set(
+    allKeys.filter((k) => {
+      // Skip columnas core que SIEMPRE se muestran aunque estén vacías.
+      // (CardCode/Nombre son opcionales técnicamente pero cliente sin nombre
+      // ya no llega hasta acá.)
+      return rows.every((r) => {
+        const v = r[k];
+        if (v === '' || v === null || v === undefined) return true;
+        if (NUMERIC_ZERO_OK.has(k) && v === 0) return true;
+        return false;
+      });
+    })
+  );
+  const keptKeys = allKeys.filter((k) => !emptyKeys.has(k));
+  const rowsFiltered = rows.map((r) => {
+    const out = {};
+    keptKeys.forEach((k) => {
+      out[k] = r[k];
+    });
+    return out;
+  });
+  const removedCount = emptyKeys.size;
+  if (removedCount > 0) {
+    console.log(`[masterfile] removidas ${removedCount} cols vacías:`, [...emptyKeys].join(', '));
+  }
+  const ws = XLSX.utils.json_to_sheet(rowsFiltered, { header: keptKeys });
+  ws['!cols'] = keptKeys.map((k) => ({ wch: COL_WIDTHS[k] || 15 }));
   XLSX.utils.book_append_sheet(wb, ws, 'Clientes habilitados SAP');
 
   // Hoja resumen por zona
