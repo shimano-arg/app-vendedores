@@ -81,16 +81,35 @@ service firebase.storage {
     }
 
     // Adjuntos del Kanban Planner (v981+, 2026-09-22):
-    // - Mariano + admin solo pueden subir attachments (fase 1).
-    // - Read: admin/gerente o Mariano whitelist.
-    // - Write: Mariano whitelist o admin role, max 10 MB, solo PDF/JPEG/PNG.
+    // v1046 (2026-09-23): ampliada whitelist para sincronizar con el gate del
+    // frontend (v1032 + v1036: Pablo, Santiago Esteban, Ioannis, Santiago Beron
+    // UY, Diego Valsi UY). Antes los gerentes/internos podian abrir el modal
+    // del Planner pero el upload de adjuntos fallaba con permission-denied
+    // porque las rules solo permitian a Mariano + admin. Mismos criterios que
+    // el gate frontend: emails whitelist + roles admin|gerente|interno.
     match /planner-attachments/{pedidoId}/{fileName} {
       allow read: if request.auth != null
-                   && (request.auth.token.email in ['erbinomariano@gmail.com', 'mariano.erbino@shimano.com.ar']
-                       || firestore.get(/databases/(default)/documents/roles/$(request.auth.uid)).data.role in ['admin', 'gerente']);
+                   && (request.auth.token.email in [
+                         'erbinomariano@gmail.com',
+                         'mariano.erbino@shimano.com.ar',
+                         'pablo.gonzalez@shimano.com.ar',
+                         'santiago.esteban@shimano.com.ar',
+                         'ioannis.plakoudakis@shimano.com.ar',
+                         'santiago.beron@shimano.uy',
+                         'diego.valsi@shimano.uy'
+                       ]
+                       || firestore.get(/databases/(default)/documents/roles/$(request.auth.uid)).data.role in ['admin', 'gerente', 'interno']);
       allow write: if request.auth != null
-                    && (request.auth.token.email in ['erbinomariano@gmail.com', 'mariano.erbino@shimano.com.ar']
-                        || firestore.get(/databases/(default)/documents/roles/$(request.auth.uid)).data.role == 'admin')
+                    && (request.auth.token.email in [
+                          'erbinomariano@gmail.com',
+                          'mariano.erbino@shimano.com.ar',
+                          'pablo.gonzalez@shimano.com.ar',
+                          'santiago.esteban@shimano.com.ar',
+                          'ioannis.plakoudakis@shimano.com.ar',
+                          'santiago.beron@shimano.uy',
+                          'diego.valsi@shimano.uy'
+                        ]
+                        || firestore.get(/databases/(default)/documents/roles/$(request.auth.uid)).data.role in ['admin', 'gerente', 'interno'])
                     && request.resource.size < 10 * 1024 * 1024
                     && request.resource.contentType.matches('application/pdf|image/jpeg|image/png');
     }
