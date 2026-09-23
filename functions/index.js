@@ -1794,3 +1794,86 @@ export const resendPlannerEmail = onCall(
     }
   }
 );
+
+/**
+ * v1050 (2026-09-23): triggerPlannerSync — callable para forzar manualmente
+ * las 3 syncs SAP → Firestore que alimentan el Planner Kanban (Invoices +
+ * Orders + Payments). Pedido Mariano: cuando genera una SO/factura/cobranza
+ * en SAP no quiere esperar hasta 15min al próximo tick del schedule.
+ *
+ * Gate: admin | gerente | interno (mismos roles que ven el Planner completo).
+ * Ejecuta las 3 syncs EN SERIE (no paralelo — cada una hace su propio SL
+ * login/logout, y la SL company tiene throttling para sesiones concurrentes).
+ * Retorna summary de cada una.
+ */
+export const triggerPlannerSync = onCall(
+  {
+    region: REGION,
+    memory: '512MiB',
+    timeoutSeconds: 300,
+    secrets: [SAP_SL_PASSWORD],
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Login requerido');
+    }
+    const db = getFirestore();
+    const roleSnap = await db.doc(`roles/${request.auth.uid}`).get();
+    const role = (roleSnap.data() || {}).role || null;
+    if (!['admin', 'gerente', 'interno'].includes(role)) {
+      throw new HttpsError('permission-denied', `Rol ${role || 'sin rol'} no puede forzar sync`);
+    }
+    const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+    const sapCfg = sapCfgSnap.data() || {};
+    const sl = sapCfg.serviceLayer || {};
+    if (!sl.url || !sl.companyDB) {
+      throw new HttpsError('failed-precondition', 'sap_integration.serviceLayer incompleto');
+    }
+    const deps = {
+      fetch: globalThis.fetch,
+      sapConfig: {
+        url: sl.url,
+        companyDB: sl.companyDB,
+        userName: sl.username || sl.userName,
+        password: SAP_SL_PASSWORD.value(),
+      },
+      fbDb: db,
+      log: (msg, extra) => console.log('[triggerPlannerSync]', msg, extra || {}),
+    };
+    const summary = { invoices: null, orders: null, payments: null, errors: [] };
+    try {
+      const r = await syncSapInvoices(deps);
+      summary.invoices = {
+        mode: r.mode,
+        invoicesRead: r.invoicesRead,
+        matches: r.matches.length,
+        orphans: r.orphans.length,
+        errors: r.errors.length,
+      };
+      const logId = new Date().toISOString().replace(/[:.]/g, '-');
+      await db
+        .collection('sap_sync_log')
+        .doc(logId)
+        .set({
+          ranAt: new Date().toISOString(),
+          manualTrigger: true,
+          triggeredBy: request.auth.uid,
+          ...r,
+        });
+    } catch (e) {
+      summary.errors.push({ step: 'invoices', message: e?.message || String(e) });
+    }
+    try {
+      summary.orders = await syncSapOrders(deps);
+    } catch (e) {
+      summary.errors.push({ step: 'orders', message: e?.message || String(e) });
+    }
+    try {
+      summary.payments = await handleSyncSapPayments(deps);
+    } catch (e) {
+      summary.errors.push({ step: 'payments', message: e?.message || String(e) });
+    }
+    console.log('triggerPlannerSync summary', summary);
+    return summary;
+  }
+);

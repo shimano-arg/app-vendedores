@@ -3540,6 +3540,11 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
            startPlannerSyncCountdown() setea el timer al abrir el modal. -->
       <span id="planner-sync-countdown" title="Sync SAP Orders (cada 15 min)"
             style="margin-left:14px;font-size:11px;font-weight:600;letter-spacing:.2px;background:rgba(255,255,255,.16);color:#fff;padding:5px 10px;border-radius:5px;font-variant-numeric:tabular-nums;flex:0 0 auto">Próx. sync en —</span>
+      <!-- v1050 (2026-09-23): boton para forzar sync SAP manual (Invoices+Orders+Payments).
+           Solo visible para admin/gerente/interno. El CF `triggerPlannerSync` gate por role. -->
+      <button id="planner-sync-manual-btn" type="button" onclick="triggerPlannerSyncManual()"
+              title="Forzar sync SAP ahora (Invoices + Orders + Payments)"
+              style="margin-left:6px;font-size:13px;font-weight:700;background:rgba(255,255,255,.16);color:#fff;border:none;padding:5px 10px;border-radius:5px;cursor:pointer;flex:0 0 auto;line-height:1">↻</button>
       <span style="flex:1"></span>
       <!-- v1014 (2026-09-22): filtro de mes para las columnas historicas (Facturar + Cobrado).
            Default: mes actual. "Todos" = comportamiento previo (sin filtro). -->
@@ -5911,7 +5916,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1049';
+const APP_VERSION = 'v1050';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12761,6 +12766,51 @@ function stopPlannerSyncCountdown() {
   if (_plannerSyncCountdownIntervalId) {
     clearInterval(_plannerSyncCountdownIntervalId);
     _plannerSyncCountdownIntervalId = null;
+  }
+}
+
+// v1050 (2026-09-23): trigger manual de la sync SAP (Invoices+Orders+Payments).
+// El CF `triggerPlannerSync` gate por role admin|gerente|interno; este handler
+// solo es un thin wrapper que muestra estado en el botón y refresca el reloj.
+async function triggerPlannerSyncManual() {
+  var btn = document.getElementById('planner-sync-manual-btn');
+  var clock = document.getElementById('planner-sync-countdown');
+  if (!btn) return;
+  var origText = btn.textContent;
+  var origClockText = clock ? clock.textContent : '';
+  btn.disabled = true;
+  btn.style.opacity = '.5';
+  btn.textContent = '…';
+  if (clock) clock.textContent = 'Sincronizando…';
+  try {
+    // v1000 pattern: force refresh IDToken pre-callable para evitar race.
+    try {
+      var au = firebase.auth && firebase.auth();
+      if (au && au.currentUser && typeof au.currentUser.getIdToken === 'function') {
+        await au.currentUser.getIdToken(true);
+      }
+    } catch (_e) { /* non-fatal */ }
+    var callable = firebase.app().functions('southamerica-east1').httpsCallable('triggerPlannerSync');
+    var res = await callable({});
+    var s = (res && res.data) || {};
+    var msg = 'Sync OK';
+    if (s.invoices) msg += ' · Fact:' + (s.invoices.matches || 0);
+    if (s.orders) msg += ' · Ord:' + (s.orders.hits || 0);
+    if (s.payments) msg += ' · Cobr:' + (s.payments.pedidosUpdated || 0);
+    if (s.errors && s.errors.length) msg += ' · Errores:' + s.errors.length;
+    if (typeof showSyncTag === 'function') showSyncTag(msg);
+    else alert(msg);
+  } catch (e) {
+    console.error('[planner] trigger sync fail', e);
+    var em = (e && e.message) || 'Error desconocido';
+    if (typeof showSyncTag === 'function') showSyncTag('Sync ERROR: ' + em);
+    else alert('Sync ERROR: ' + em);
+  } finally {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.textContent = origText;
+    if (clock) clock.textContent = origClockText;
+    // El countdown loop sigue corriendo — al próximo tick 1s vuelve a mostrar valor real.
   }
 }
 
