@@ -3115,6 +3115,143 @@ body.dark .planner-modal-lineas-table thead th { border-color: rgba(255,255,255,
 body.dark .planner-modal-lineas-table tbody td { border-color: rgba(255,255,255,0.04); }
 .planner-modal-lineas-table tbody tr:last-child td { border-bottom: none; }
 .planner-modal-lineas-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* v1041 (2026-09-22): Planner responsivo mobile.
+   Reporte Mariano: el Planner no se adaptaba a mobile — modal padding
+   grande, header con 8+ elementos sin wrap, columnas 320px fijas, tabla
+   de líneas con 5 cols muy angostas.
+   Fix: media queries que pisan inline styles con !important (los HTML
+   del modal usan style="..." inline, no clases). */
+
+/* Tablet (≤900px): modal ocupa toda la pantalla, header wrap, columnas
+   un poco más chicas. */
+@media (max-width: 900px) {
+  #planner-board-modal {
+    padding: 0 !important;
+    align-items: stretch !important;
+  }
+  #planner-board-modal > .modal-content {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+    height: 100vh;
+  }
+  #planner-board-modal > .modal-content > div:first-child {
+    /* Header naranja */
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    padding: 10px 12px !important;
+  }
+  #planner-board-modal > .modal-content > div:first-child > h2 {
+    font-size: 14px !important;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  #planner-sync-countdown {
+    margin-left: 0 !important;
+    font-size: 10px !important;
+    padding: 3px 6px !important;
+    order: 10; /* al final del wrap */
+  }
+  #planner-client-filter, #planner-order-filter {
+    flex: 1 1 45%;
+    min-width: 0;
+    width: auto !important;
+  }
+  .planner-kanban {
+    padding: 8px !important;
+    gap: 8px !important;
+    min-height: unset;
+    height: 100%;
+  }
+  .planner-col {
+    flex: 0 0 280px;
+    padding: 10px !important;
+  }
+}
+
+/* Mobile (≤640px): scroll-snap fuerte, 1 columna casi-full en pantalla,
+   filtros stackeados, tabla líneas horizontal-scroll. */
+@media (max-width: 640px) {
+  #planner-board-modal > .modal-content > div:first-child {
+    padding: 8px 10px !important;
+    gap: 6px !important;
+  }
+  #planner-board-modal > .modal-content > div:first-child > h2 {
+    font-size: 13px !important;
+    letter-spacing: -0.02em;
+  }
+  #planner-sync-countdown {
+    font-size: 9px !important;
+    padding: 2px 5px !important;
+  }
+  #planner-board-modal > .modal-content > div:first-child > label {
+    /* Filtro Mes */
+    font-size: 10px !important;
+    order: 5;
+  }
+  #planner-board-modal > .modal-content > div:first-child > button {
+    /* Botones Tablero/Config/close */
+    font-size: 10px !important;
+    padding: 4px 8px !important;
+  }
+  #planner-client-filter, #planner-order-filter {
+    font-size: 12px !important;
+    padding: 6px 10px !important;
+  }
+  .planner-kanban {
+    padding: 6px !important;
+    gap: 6px !important;
+  }
+  .planner-col {
+    flex: 0 0 88vw !important;
+    padding: 8px !important;
+  }
+  .planner-col-header {
+    padding: 4px 8px 8px !important;
+    font-size: 14px !important;
+  }
+  .planner-col-subtotal {
+    padding: 0 8px 8px !important;
+    font-size: 12px !important;
+  }
+  .planner-card {
+    padding: 10px !important;
+    border-radius: 10px !important;
+  }
+  .planner-card-cliente {
+    font-size: 13px !important;
+  }
+  .planner-card-meta {
+    font-size: 11px !important;
+  }
+  .planner-card-total {
+    font-size: 12px !important;
+  }
+  .planner-badge {
+    font-size: 9px !important;
+    padding: 2px 5px !important;
+  }
+  /* Modal de card: full width con menos padding. */
+  #planner-modal .modal, #planner-modal .modal-content {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+  /* Tabla líneas: horizontal scroll para no romper layout con 5 cols. */
+  .planner-modal-lineas-table {
+    font-size: 11px;
+  }
+  .planner-modal-lineas-table thead th,
+  .planner-modal-lineas-table tbody td {
+    padding: 6px 6px !important;
+    white-space: nowrap;
+  }
+}
+
 @keyframes plannerFadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes plannerScaleIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) {
@@ -5774,7 +5911,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1040';
+const APP_VERSION = 'v1041';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
