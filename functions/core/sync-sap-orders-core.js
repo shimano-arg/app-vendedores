@@ -71,12 +71,13 @@ const ORDERS_LOOKAHEAD = 2000;
  * @returns {Promise<Array<{id: string, sqDocEntry: number}>>}
  */
 async function listPendingPedidos(deps, limit) {
-  const snap = await deps.fbDb
-    .collection('pedidos')
-    .where('closedAt', '==', null)
-    .orderBy('updatedAt', 'desc')
-    .limit(limit * 5) // grab wider slice, filter client-side (many won't match)
-    .get();
+  // v1047 (2026-09-23): removido `orderBy('updatedAt', 'desc').limit(limit*5)`.
+  // Bug: pedidos con updatedAt viejo (activity syncs pushean updatedAt de los
+  // recientes) quedaban FUERA del slice de 500 y nunca se procesaban. Fix:
+  // traer TODOS los pedidos con closedAt=null (~260 hoy, crece ~30/día),
+  // filter client-side, tomar los primeros `limit`. Ordenar por sqDocEntry
+  // asc para priorizar los MÁS VIEJOS (que llevan más tiempo esperando match).
+  const snap = await deps.fbDb.collection('pedidos').where('closedAt', '==', null).get();
 
   /** @type {Array<{id: string, sqDocEntry: number}>} */
   const pending = [];
@@ -90,6 +91,10 @@ async function listPendingPedidos(deps, limit) {
       pending.push({ id: d.id, sqDocEntry });
     }
   });
+  // Orden por sqDocEntry asc: los más viejos primero (los que llevan más
+  // tiempo esperando match). Cuando el volumen crezca y sea >100 por tick,
+  // esto garantiza que ningún pedido quede "atrás para siempre".
+  pending.sort((a, b) => a.sqDocEntry - b.sqDocEntry);
   return pending.slice(0, limit);
 }
 
