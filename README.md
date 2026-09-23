@@ -4673,7 +4673,36 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1041
+## 41) Changelog v300 → v1042
+
+### v1042 (2026-09-23) — CF `syncSapPaymentsToApp`: fix invoices consolidadas (split proporcional al netAmountArs)
+
+**Reporte**: Mariano vio 2 pedidos MUNDO ESTURION en Cobrado con el MISMO `paidAmount` de $21.5M cada uno, cuando en realidad son pedidos distintos ($9.9M y $21.5M). Sospecha de duplicación.
+
+**Verificación**: ambos pedidos tienen la misma `sapLinkage.appliedInvoiceDocEntries: [33815]`. Es una **invoice SAP consolidada** que agrupa líneas de 2 SOs distintas (36545 + 36552). El CF `syncSapPaymentsToApp` le atribuía el DocTotal COMPLETO ($21.5M) a cada uno → sobre-conteo en subtotal Cobrado.
+
+**Impacto medido antes del fix** (250 pedidos abiertos):
+- 3 invoices consolidadas afectan 6 pedidos
+- Sobre-conteo en `invoicedAmount`: **$40.3M**
+- Sobre-conteo en `paidAmount`: **$21.5M**
+
+**Fix** (`functions/core/sync-sap-payments-core.js`):
+
+1. **`handleSyncSapPayments`**: build `invoiceShareMap` = `Map<invoiceDocEntry, [{id, net}]>` con TODOS los pedidos que referencian cada invoice.
+2. **`applyPaymentUpdate`**: nuevo param `invoiceShareMap`. Si una invoice está en >1 entrada, calcula `fraction = pedido.netAmountArs / sum(net de todos los pedidos que la comparten)` y multiplica `DocTotal + PaidToDate` por esa fracción antes de sumar.
+3. **Fallback**: si no hay `netAmountArs` en el pedido → split parejo `1/shares.length`.
+
+Ejemplo MUNDO ESTURION invoice 33815:
+- Ped1 net=$20.6M → recibe 68% × $21.5M = **$14.6M**
+- Ped2 net=$9.9M → recibe 32% × $21.5M = **$7.0M**
+- Suma = $21.5M (matchea DocTotal, NO duplica).
+
+**Tests**: 13/13 pass (+3 nuevos v1042):
+- Case 11: invoice compartida 2 pedidos net distinto → split proporcional
+- Case 12: pedidos sin net → fallback 50/50
+- Case 13: invoice NO compartida sigue funcionando 1:1
+
+**Deploy**: `firebase deploy --only functions:syncSapPaymentsToApp` — próxima corrida corrige `paidAmount`/`invoicedAmount` de los 6 pedidos afectados (idempotente, comparación pre-update).
 
 ### v1041 (2026-09-22) — Planner mobile responsive (tablet ≤900px + mobile ≤640px)
 

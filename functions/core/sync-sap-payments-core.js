@@ -129,16 +129,39 @@ function calcPaidStatus(paid, invoiced) {
 }
 
 /**
+ * Devuelve el "peso" de un pedido para calcular su share de una invoice
+ * consolidada. Usa netAmountArs / subtotalArs / totalAmountArs como proxy
+ * del tamaño del pedido en la invoice compartida.
+ *
+ * @param {any} data
+ * @returns {number}
+ */
+function pedidoNetForShare(data) {
+  if (typeof data.netAmountArs === 'number' && data.netAmountArs > 0) return data.netAmountArs;
+  if (typeof data.subtotalArs === 'number' && data.subtotalArs > 0) return data.subtotalArs;
+  if (typeof data.totalAmountArs === 'number' && data.totalAmountArs > 0)
+    return data.totalAmountArs;
+  return 0;
+}
+
+/**
  * Aplica el update a un pedido si los valores cambian.
+ *
+ * v1042 (2026-09-23): fix invoice consolidadas. Si una invoice está linkeada
+ * a >1 pedido (factura SAP que agrupa líneas de varias SQs), splitear el
+ * DocTotal + PaidToDate proporcional al `netAmountArs` de cada pedido para
+ * NO duplicar el monto.
  *
  * @param {PaymentSyncDeps} deps
  * @param {string} pedidoId
  * @param {any} data
  * @param {Map<number, {docTotal: number, paidToDate: number}>} invoiceMap
+ * @param {Map<number, Array<{id: string, net: number}>>} [invoiceShareMap] Optional. Si presente, splitea invoices compartidas.
  * @returns {Promise<{ updated: boolean, missedCount: number, invoicedAmount: number, paidAmount: number, paidStatus: 'paid'|'partial'|null }>}
  */
-export async function applyPaymentUpdate(deps, pedidoId, data, invoiceMap) {
+export async function applyPaymentUpdate(deps, pedidoId, data, invoiceMap, invoiceShareMap) {
   const applied = data.sapLinkage?.appliedInvoiceDocEntries || [];
+  const myNet = pedidoNetForShare(data);
   let invoicedAmount = 0;
   let paidAmount = 0;
   let missedCount = 0;
@@ -148,8 +171,22 @@ export async function applyPaymentUpdate(deps, pedidoId, data, invoiceMap) {
       missedCount++;
       continue;
     }
-    invoicedAmount += info.docTotal;
-    paidAmount += info.paidToDate;
+    // v1042: si la invoice está compartida y tenemos el shareMap, aplicar fracción.
+    let fraction = 1;
+    if (invoiceShareMap) {
+      const shares = invoiceShareMap.get(Number(de));
+      if (shares && shares.length > 1) {
+        const totalNet = shares.reduce((s, x) => s + (x.net || 0), 0);
+        if (totalNet > 0 && myNet > 0) {
+          fraction = myNet / totalNet;
+        } else {
+          // Fallback: split parejo si no tenemos net values.
+          fraction = 1 / shares.length;
+        }
+      }
+    }
+    invoicedAmount += info.docTotal * fraction;
+    paidAmount += info.paidToDate * fraction;
   }
   const paidStatus = calcPaidStatus(paidAmount, invoicedAmount);
 
@@ -211,6 +248,34 @@ export async function handleSyncSapPayments(deps) {
     }
   }
 
+  // v1042 (2026-09-23): build invoiceShareMap para fix de invoices consolidadas.
+  // Map: invoiceDocEntry → [{id, net}] con TODOS los pedidos que la referencian.
+  // Cuando `applyPaymentUpdate` procese un pedido, si su invoice está en >1
+  // entrada, splitea el DocTotal/PaidToDate proporcional al net de cada pedido.
+  /** @type {Map<number, Array<{id: string, net: number}>>} */
+  const invoiceShareMap = new Map();
+  let sharedCount = 0;
+  for (const { id, data } of pedidos) {
+    const applied = data.sapLinkage?.appliedInvoiceDocEntries || [];
+    const net = pedidoNetForShare(data);
+    for (const inv of applied) {
+      const key = Number(inv);
+      let arr = invoiceShareMap.get(key);
+      if (!arr) {
+        arr = [];
+        invoiceShareMap.set(key, arr);
+      }
+      arr.push({ id, net });
+    }
+  }
+  invoiceShareMap.forEach((arr) => {
+    if (arr.length > 1) sharedCount++;
+  });
+  log('syncSapPayments: invoice share map built', {
+    totalInvoices: invoiceShareMap.size,
+    sharedInvoices: sharedCount,
+  });
+
   let pedidosUpdated = 0;
   let pedidosPaidFull = 0;
   let pedidosPaidPartial = 0;
@@ -218,7 +283,7 @@ export async function handleSyncSapPayments(deps) {
   let errors = 0;
   for (const { id, data } of pedidos) {
     try {
-      const r = await applyPaymentUpdate(deps, id, data, invoiceMap);
+      const r = await applyPaymentUpdate(deps, id, data, invoiceMap, invoiceShareMap);
       if (r.updated) pedidosUpdated++;
       if (r.paidStatus === 'paid') pedidosPaidFull++;
       if (r.paidStatus === 'partial') pedidosPaidPartial++;

@@ -269,4 +269,77 @@ describe('handleSyncSapPayments', () => {
     expect(r.paidAmount).toBe(400);
     expect(r.paidStatus).toBe('partial');
   });
+
+  // v1042 (2026-09-23): fix invoice consolidada — split proporcional
+  it('case 11 (v1042): invoice compartida por 2 pedidos → split proporcional al netAmountArs', async () => {
+    // Simula caso real MUNDO ESTURION: 2 pedidos con invoice 33815 compartida.
+    // Ped1 net=20.667.600, Ped2 net=9.965.000. Invoice docTotal=$21.536.159.
+    // Split esperado: Ped1 68% ($14.6M), Ped2 32% ($7.0M). Total = $21.5M (no $43M).
+    const pedidos = [
+      {
+        id: 'ped-esturion-1',
+        data: {
+          closedAt: null,
+          netAmountArs: 20667600,
+          sapLinkage: { appliedInvoiceDocEntries: [33815] },
+        },
+      },
+      {
+        id: 'ped-esturion-2',
+        data: {
+          closedAt: null,
+          netAmountArs: 9965000,
+          sapLinkage: { appliedInvoiceDocEntries: [33815] },
+        },
+      },
+    ];
+    const invoices = { 33815: { docTotal: 21536159.4, paidToDate: 21536159.4 } };
+    const deps = makeDeps(pedidos, invoices);
+    await handleSyncSapPayments(deps);
+    const p1 = deps.fbDb._store.get('ped-esturion-1');
+    const p2 = deps.fbDb._store.get('ped-esturion-2');
+    // Verificar split (tolerancia 1 peso por floating point).
+    const expected1 = 21536159.4 * (20667600 / (20667600 + 9965000));
+    const expected2 = 21536159.4 * (9965000 / (20667600 + 9965000));
+    expect(p1.paidAmount).toBeCloseTo(expected1, 0);
+    expect(p2.paidAmount).toBeCloseTo(expected2, 0);
+    // Suma debe reconstruir el total (no duplicar).
+    expect(p1.paidAmount + p2.paidAmount).toBeCloseTo(21536159.4, 0);
+  });
+
+  it('case 12 (v1042): pedido sin netAmountArs cuando invoice compartida → split parejo (fallback 50/50)', async () => {
+    const pedidos = [
+      { id: 'ped-a', data: { closedAt: null, sapLinkage: { appliedInvoiceDocEntries: [999] } } },
+      { id: 'ped-b', data: { closedAt: null, sapLinkage: { appliedInvoiceDocEntries: [999] } } },
+    ];
+    const invoices = { 999: { docTotal: 100000, paidToDate: 50000 } };
+    const deps = makeDeps(pedidos, invoices);
+    await handleSyncSapPayments(deps);
+    const a = deps.fbDb._store.get('ped-a');
+    const b = deps.fbDb._store.get('ped-b');
+    expect(a.paidAmount).toBe(25000);
+    expect(b.paidAmount).toBe(25000);
+    expect(a.invoicedAmount).toBe(50000);
+    expect(b.invoicedAmount).toBe(50000);
+  });
+
+  it('case 13 (v1042): invoice NO compartida sigue funcionando 1:1 sin fracción', async () => {
+    const pedidos = [
+      {
+        id: 'ped-solo',
+        data: {
+          closedAt: null,
+          netAmountArs: 500000,
+          sapLinkage: { appliedInvoiceDocEntries: [77777] },
+        },
+      },
+    ];
+    const invoices = { 77777: { docTotal: 500000, paidToDate: 500000 } };
+    const deps = makeDeps(pedidos, invoices);
+    await handleSyncSapPayments(deps);
+    const p = deps.fbDb._store.get('ped-solo');
+    expect(p.paidAmount).toBe(500000);
+    expect(p.invoicedAmount).toBe(500000);
+    expect(p.paidStatus).toBe('paid');
+  });
 });
