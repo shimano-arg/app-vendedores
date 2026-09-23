@@ -4673,7 +4673,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1042
+## 41) Changelog v300 → v1043
+
+### v1043 (2026-09-23) — Masterfile Clientes SAP: remover columnas 100% vacías del export
+
+**Reporte**: Mariano — el export "Master Clientes" sacaba muchas columnas vacías. Total 37 columnas fijas, pero ~21 vienen de `_classifRow` (Tipo comercio, Local, Tamaño, Fidelidad, POP, Ayuda tienda, etc.) que solo se llenan cuando el cliente tiene visitas/contactos cargados. Si no hay visitas → 21 columnas vacías por fila.
+
+**Fix** (`src/domains/exports-core.js:exportMasterClientes`):
+
+Post-proceso antes de generar el sheet:
+1. Detectar keys donde TODAS las filas tienen valor "vacío" (empty string, null, undefined).
+2. Excepción: `Total visitas` y `Total contactos` se consideran vacíos también si todos son 0.
+3. Filtrar esas keys de `rows` (via `rowsFiltered`).
+4. Reordenar `!cols` (widths) para matchear las keys que quedaron.
+5. Log en consola: `[masterfile] removidas N cols vacías: ...` para debugging.
+
+Ejemplo con 300 clientes y 0 visitas → sheet queda con 16 columnas (info básica) en vez de 37. Con 5 visitas cargadas que llenaron "Tipo comercio" y "POP" → sheet queda con 18 columnas (las otras 19 de clasificación siguen fuera).
 
 ### v1042 (2026-09-23) — CF `syncSapPaymentsToApp`: fix invoices consolidadas (split proporcional al netAmountArs)
 
