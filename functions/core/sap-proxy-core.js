@@ -60,6 +60,10 @@ const READ_ALLOWED_PER_ROLE = /** @type {const} */ ({
     'Inventory',
     'Quotations',
     'Orders',
+    // v1044 (2026-09-23): agregado Invoices para diagnóstico de orphans del CF
+    // syncSapInvoicesToApp (leer DocumentLines + BaseType/BaseEntry lineage).
+    // READ-only, sin risk de write. Mismo pattern que Quotations/Orders.
+    'Invoices',
   ],
   gerente: [
     'Items',
@@ -71,6 +75,7 @@ const READ_ALLOWED_PER_ROLE = /** @type {const} */ ({
     'Inventory',
     'Quotations',
     'Orders',
+    'Invoices',
   ],
   vendedor: [
     // VDE consume BP data desde sap_clients Firestore snapshot, no via sapProxy.
