@@ -260,8 +260,12 @@ export async function handleSyncSapPayments(deps) {
     const net = pedidoNetForShare(data);
     for (const inv of applied) {
       const key = Number(inv);
-      if (!invoiceShareMap.has(key)) invoiceShareMap.set(key, []);
-      invoiceShareMap.get(key).push({ id, net });
+      let arr = invoiceShareMap.get(key);
+      if (!arr) {
+        arr = [];
+        invoiceShareMap.set(key, arr);
+      }
+      arr.push({ id, net });
     }
   }
   invoiceShareMap.forEach((arr) => {
