@@ -5921,7 +5921,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1057';
+const APP_VERSION = 'v1058';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -20662,6 +20662,16 @@ window._waitlistPasarAPendientesContinuar = function(w){
   // porque doConfirmPedido no incluia el campo en docData. Se resetea al
   // final del flujo (o al proximo pasar-a-pendientes).
   window._pendingPedidoOrderNumber = w.orderNumber || null;
+  // v1058 (2026-09-24): propagar tambien el waitlist ID origen al docData del
+  // pedido. Reemplaza el path fragil de _pendingWaitlistDelete (variable en
+  // memoria global del browser) por un campo persistido en Firestore. El CF
+  // onPedidoCreatedCleanupWaitlist limpia el waitlist atomicamente al detectar
+  // el create — no depende de que la variable en memoria sobreviva reload/close
+  // del tab entre "Pasar a Pendientes" y el confirm final. Incidente ANA LORENA
+  // FUENTES ORDEN 228 (2026-09-24): waitlist quedo huerfano porque el path old
+  // fallo silenciosamente. El path old (_pendingWaitlistDelete) queda como
+  // fallback (defense in depth).
+  window._pendingPedidoWaitlistId = w._id || null;
   closeWaitlistCardModal();
   closeWaitlistModal();
   // v843 (2026-09-09): si viene de "Generar Backorder", saltar el modal
@@ -28935,6 +28945,11 @@ window.doConfirmPedido = async function(){
     // caer null aca; el fallback null se mantiene solo como defensa por si el
     // reserve fallo silencioso.
     orderNumber: window._pendingPedidoOrderNumber || null,
+    // v1058 (2026-09-24): waitlistOrigenId persistido en Firestore para que
+    // la CF onPedidoCreatedCleanupWaitlist pueda cerrar el waitlist atomicamente
+    // sin depender de la variable en memoria _pendingWaitlistDelete. Ver comment
+    // en _waitlistPasarAPendientesContinuar (linea ~20664).
+    waitlistOrigenId: window._pendingPedidoWaitlistId || null,
     month: monthLabel, monthIdx: mesIdx, year: parseInt(anio),
     confirmedAt: new Date().toISOString(),
     // Condicion de pago seleccionada por el vendedor. Va al UDF U_TipoGasto
@@ -29054,6 +29069,8 @@ window.doConfirmPedido = async function(){
       showSyncTag('Pedido pendiente guardado');
       // v846 (2026-09-09): reset del orderNumber pendiente — ya se persistio en docData.
       window._pendingPedidoOrderNumber = null;
+      // v1058 (2026-09-24): reset del waitlistOrigenId pendiente — ya se persistio.
+      window._pendingPedidoWaitlistId = null;
       // Fallback local: solo cuando Firestore lo acepto. Si fallo por permisos,
       // NO metemos nada en pending[] porque el listener del snapshot rerenderiza
       // sobre el estado local y hace que el pedido "aparezca y desaparezca".

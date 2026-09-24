@@ -117,12 +117,15 @@ export const sapProxy = onCall(
     // cuelgan indefinidamente en el SDK client-side sin ni siquiera llegar al server.
     cors: true,
     // v990 (2026-09-18, SecAudit run-1 HIGH #4): enforceAppCheck true.
-    // Antes false con TODO: un IDToken robado (XSS/phishing/browser ext)
-    // podia sostener ~120k SL requests/24h y enumerar el catalogo Items +
-    // stocks + warehouses ilimitadamente. reCAPTCHA v3 activado post-login
-    // (index.html:activateAppCheckOnce) ya emite tokens App Check al browser.
-    // geminiOcrProxy ya usa enforceAppCheck: true (v918) sin regresiones.
-    enforceAppCheck: true,
+    // v1003 (2026-09-21): rollback hotfix directo a false (no comprometido).
+    // v1058 (2026-09-24): commit del rollback. Redeploys posteriores a v1003
+    // reintrodujeron true → hoy 24/9 Pablo reportó "callable(functions/
+    // unauthenticated)" al enviar ORDEN 228 desde Lista de Espera. 3 días
+    // desde v1003 debería haber propagado el AppCheck pero sigue devolviendo
+    // 401. Volver a false hasta que se investigue con tiempo la propagación
+    // real de la registration reCAPTCHA v3 (ver reference_appcheck_throttle_24h
+    // y feedback_appcheck_gcloud_diagnostic).
+    enforceAppCheck: false,
   },
   async (request) => {
     const db = getFirestore();
@@ -845,7 +848,9 @@ export const updateAsigLineStateCF = onCall(
     //   - enforceAppCheck: true (token reCAPTCHA v3 obligatorio).
     //   - rate limit 500/hr por user (updateAsigLineState en RATE_LIMITS).
     //   - role gate + ownership check en el core (asig-recycle-core.js:1.5+3).
-    enforceAppCheck: true,
+    // v1058 (2026-09-24): rollback a false (sync con sapProxy — mismo incidente
+    // AppCheck 401). Rate limit + role gate + ownership check siguen activos.
+    enforceAppCheck: false,
   },
   async (request) => {
     const db = getFirestore();
@@ -923,7 +928,9 @@ export const geminiOcrProxy = onCall(
     // Rollout gradual — geminiOcrProxy es el primero (menos flow-critico).
     // Si empiezan a llegar reports de rendicion falla, chequear que el user
     // no tenga throttle 24h en reCAPTCHA (ver reference_appcheck_throttle_24h).
-    enforceAppCheck: true,
+    // v1058 (2026-09-24): rollback a false (sync con sapProxy — mismo incidente
+    // AppCheck 401 en Pablo). Rate limit sigue activo.
+    enforceAppCheck: false,
     memory: '512MiB',
     timeoutSeconds: 60,
   },
@@ -1992,5 +1999,80 @@ export const triggerPlannerSync = onCall(
     }
     console.log('triggerPlannerSync summary', summary);
     return summary;
+  }
+);
+
+/**
+ * v1058 (2026-09-24): onPedidoCreatedCleanupWaitlist — trigger onCreate en
+ * `pedidos/{pedidoId}` que, si el pedido trae `waitlistOrigenId`, marca el
+ * doc `revision_waitlist/{waitlistOrigenId}` como consumido de forma atomica.
+ *
+ * Reemplaza el path fragil client-side (`_pendingWaitlistDelete` en memoria del
+ * browser) que dependia de que la variable global sobreviviera reload/close del
+ * tab entre "Pasar a Pendientes" y el confirm final.
+ *
+ * Incidente que motivo el fix (2026-09-24): ANA LORENA FUENTES ORDEN 228 quedo
+ * en Lista de Espera Y en Confirmados simultaneamente. El path old client-side
+ * fallo silenciosamente en un intento de Pablo — el pedido llego a `pedidos`
+ * pero el `stage='consumed'` update del waitlist nunca ocurrio (`stage: None`,
+ * `consumedByPedidoId: None`).
+ *
+ * Idempotencia:
+ * - Si el waitlist ya tiene `stage='consumed'`, no hace nada.
+ * - Si el waitlist no existe (ya borrado), log info y no throw.
+ * - Si el pedido no trae `waitlistOrigenId`, no hace nada (pedido cargado
+ *   directo desde Crear Pedido, no desde waitlist).
+ *
+ * Retry: false. Un waitlist quedandose huerfano es peor que un re-trigger —
+ * si algo falla el path old client-side todavia intenta como fallback, o el
+ * script `_cleanup_orphan_waitlist_XXX.py` limpia manualmente.
+ */
+export const onPedidoCreatedCleanupWaitlist = onDocumentCreated(
+  {
+    region: REGION,
+    document: 'pedidos/{pedidoId}',
+    retry: false,
+    memory: '256MiB',
+    timeoutSeconds: 30,
+  },
+  async (event) => {
+    const data = event.data?.data() || null;
+    if (!data) return;
+    const waitlistId = data.waitlistOrigenId;
+    if (!waitlistId || typeof waitlistId !== 'string') return;
+    const pedidoId = event.params.pedidoId;
+    const db = getFirestore();
+    const wRef = db.collection('revision_waitlist').doc(waitlistId);
+    try {
+      const snap = await wRef.get();
+      if (!snap.exists) {
+        console.log('[cleanup-waitlist] waitlist no existe (ya borrado?)', {
+          pedidoId,
+          waitlistId,
+        });
+        return;
+      }
+      const wData = snap.data() || {};
+      if (wData.stage === 'consumed') {
+        console.log('[cleanup-waitlist] ya consumed, no-op', { pedidoId, waitlistId });
+        return;
+      }
+      await wRef.update({
+        stage: 'consumed',
+        consumedByPedidoId: pedidoId,
+        consumedAt: FieldValue.serverTimestamp(),
+        consumedByTrigger: 'onPedidoCreatedCleanupWaitlist',
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      console.log('[cleanup-waitlist] marked consumed', { pedidoId, waitlistId });
+    } catch (e) {
+      // Fail-close silencioso — un error aca no debe bloquear el flujo de creacion
+      // de pedidos. El path old client-side + script manual son fallbacks.
+      console.error('[cleanup-waitlist] error (no-throw)', {
+        pedidoId,
+        waitlistId,
+        err: e && /** @type {any} */ (e).message ? /** @type {any} */ (e).message : String(e),
+      });
+    }
   }
 );

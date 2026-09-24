@@ -18,7 +18,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
 | **Versión actual** | **v1038 (2026-09-22)** — Sesión intensiva Planner Kanban: pipeline 100% automático + lineal (5 columnas, columna Confirmado removida). 19 PRs shipped (#687-#710) + 3 CFs nuevos deployados (`syncSapOrdersToApp` schedule 15min, `syncSapPaymentsToApp` nuevo Fase 2, `onPlannerStageChanged` multi-update). Ver §52 (estado consolidado) + §41 (changelog detallado v1016-v1038). \| **v1007 (2026-09-22)** — Planner Kanban F1 completa (Mariano-only en producción). \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP. \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. |
-| **APP_VERSION** | `v1057` frontend (UX fix Master Clientes: input Credito ensanchado 10%→17% + font 11→13px + hint `$X.XXX.XXX` debajo del input — valores tipo 750.000 quedaban cortados). `v1056`: F1-F4 enriquecimiento vista Clientes (input Credito en modal cliente + CF `onVisitCreatedDenormToClientMaster` + BQ views 360). `v1055`: columna Credito editable en Master Clientes UI + export Excel. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog + §52 estado Planner. |
+| **APP_VERSION** | `v1058` frontend + 4 CFs (INCIDENTE 2026-09-24: fix bug 1 AppCheck 401 rollback commit — Pablo bloqueado enviando ORDEN 228 con "callable(functions/unauthenticated)"; fix bug 2 duplicación waitlist+confirmed — pedido guarda `waitlistOrigenId` en Firestore + nueva CF `onPedidoCreatedCleanupWaitlist` cierra el waitlist atomicamente sin depender de var global browser). `v1057`: UX fix input Credito. `v1056`: F1-F4 enriquecimiento vista Clientes. `v1055`: columna Credito editable + export. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4673,7 +4673,35 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1057
+## 41) Changelog v300 → v1058
+
+### v1058 (2026-09-24) — INCIDENTE Pablo: fix AppCheck 401 + fix duplicación waitlist+confirmed
+
+**Reporte Mariano**: Pablo cargó pedido ANA LORENA FUENTES ORDEN 228 en Lista de Espera, apretó "Pasar a Pendientes"→confirm. Screenshot con error: `callable(functions/unauthenticated): Unauthenticated`. Además el pedido quedó **duplicado**: visible en Lista de Espera y en Confirmados (con badge "ERROR SAP") simultáneamente.
+
+**Diagnóstico** (validado con datos Firestore + logs GCP):
+
+- **Bug 1 (AppCheck 401)**: `sapProxy` CF deployada con `enforceAppCheck: true` (`functions/index.js:125`). Logs GCP mostraron HTTP 401 constante desde IP de Pablo. Memory `feedback_appcheck_gcloud_diagnostic` indica que v1003 (2026-09-21) hizo rollback a `false` pero **fue hotfix directo sin commit**; deploys posteriores (v1004+) reintrodujeron `true` cada vez. Después de 3 días desde v1003, la propagación reCAPTCHA v3 sigue sin funcionar. Mismo problema afectaba `updateAsigLineStateCF` (v990) y `geminiOcrProxy` (v918).
+
+- **Bug 2 (duplicación waitlist)**: pedido `2msGaQQrMK4Gxl5Q4dMc` (ORDEN 228) tenía `stage=confirmed` + `transferError` pero el waitlist `KMIdF94Ah9Eud7xyEesf` seguía con `stage=None`, `consumedByPedidoId=None`. Root cause: el flujo cliente-side depende de `window._pendingWaitlistDelete` (variable global JS en memoria del browser). Si el usuario recarga tab, cierra ventana, o hay un throw entre "Pasar a Pendientes" y el confirm final, la variable se pierde → el update+delete post-`pedidos.add()` no se ejecuta → waitlist queda huérfano.
+
+**Fix** (3 partes):
+
+1. **`functions/index.js` — rollback AppCheck** en 3 CFs: `sapProxy` (línea 125), `updateAsigLineStateCF` (línea 848), `geminiOcrProxy` (línea 926). `enforceAppCheck: true → false`. Rate limit + role gate + ownership check siguen activos. Comments actualizados con contexto del incidente.
+
+2. **`index.html` + nueva CF `onPedidoCreatedCleanupWaitlist`** — persistencia server-side:
+   - `_waitlistPasarAPendientesContinuar` (línea 20664): setea `window._pendingPedidoWaitlistId = w._id` (nuevo, junto al ya-existente `_pendingPedidoOrderNumber`).
+   - `docData` de `pedidos.add()` (línea 28948): agrega campo `waitlistOrigenId` persistido en Firestore.
+   - Nueva CF `onPedidoCreatedCleanupWaitlist` (functions/index.js): trigger `onDocumentCreated` en `pedidos/{id}`. Si `waitlistOrigenId` está seteado, marca el waitlist como `stage='consumed'` + `consumedByPedidoId` + `consumedAt` atomicamente. Idempotente (skip si ya consumed) + fail-close silencioso (log error, no throw — el path old sigue funcionando como fallback).
+   - Path old (`_pendingWaitlistDelete` client-side, línea 29126) NO se removió — queda como defense-in-depth por si la CF falla o no dispara.
+
+3. **Cleanup ORDEN 228** (`_cleanup_orphan_waitlist_228.py`): marcó el waitlist huérfano como consumed apuntando al pedido existente + liberó `sendingSapLock` del pedido para permitir reintento cuando el AppCheck rollback esté vivo.
+
+**Deploy**: 3 CFs deployadas primero (`sapProxy`, `updateAsigLineStateCF`, `geminiOcrProxy`) para destrabar a Pablo antes del merge del PR. Luego `onPedidoCreatedCleanupWaitlist` post-merge.
+
+**Test plan post-deploy**:
+- Pablo re-envía ORDEN 228 desde Confirmados (botón "Por qué falló"→retry o auto-listener) → debería crear la SQ SAP sin 401.
+- Nueva prueba end-to-end: cargar waitlist → Pasar a Pendientes → confirmar → verificar que el waitlist desaparece de Lista de Espera Y aparece en Confirmados solo una vez.
 
 ### v1057 (2026-09-24) — Master Clientes: fix UX del input Credito (ancho + font)
 
