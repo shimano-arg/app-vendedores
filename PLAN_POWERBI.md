@@ -682,6 +682,8 @@ SELECT
   JSON_VALUE(data, '$.sapValid') AS sap_valid,
   JSON_VALUE(data, '$.sapFrozen') AS sap_frozen,
   JSON_VALUE(data, '$.sapReadyForSL') = 'true' AS sap_ready_for_sl,
+  -- v1057: U_DIVISION SAP. 1=BIKE, 2=PESCA, 3=BIKE&PESCA.
+  JSON_VALUE(data, '$.sapDivision') AS sap_division,
   JSON_VALUE(data, '$.source') AS source,
   JSON_VALUE(data, '$.leadEstado') AS lead_estado,
   JSON_VALUE(data, '$.manualSapPending') = 'true' AS manual_sap_pending,
@@ -788,6 +790,9 @@ WITH
     -- v1057: excluir provisorios y LEADs sin cardCodeSap. Solo BPs con card
     -- SAP efectivo (customers + LEADs con card). Pedido Mariano.
     WHERE card_code_sap IS NOT NULL AND card_code_sap != ''
+    -- v1057-d: solo Pesca (U_DIVISION 2) o Bike&Pesca (3). Excluye Bike puro
+    -- (1) — Mariano solo quiere clientes de la division Fishing.
+    AND sap_division IN ('2', '3')
   )
 SELECT
   ca.application_id,
