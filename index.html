@@ -5723,7 +5723,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1019';
+const APP_VERSION = 'v1020';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27435,7 +27435,12 @@ function renderPlannerCard(pedido, column) {
     : '—';
   const badges = [];
   if (pedido.transferidoSAP && pedido.transferidoSAP.docNum) badges.push('SAP:' + pedido.transferidoSAP.docNum);
-  if (pedido.transferidoSAP && pedido.transferidoSAP.orderDocEntry) badges.push('SO:' + pedido.transferidoSAP.orderDocEntry);
+  // v1020: mostrar orderDocNum (numero visible SAP). Fallback a orderDocEntry
+  // solo por seguridad — pedidos synced pre-v1020 se re-procesan en la proxima
+  // corrida del CF (filtro cambia a !orderDocNum).
+  if (pedido.transferidoSAP && (pedido.transferidoSAP.orderDocNum || pedido.transferidoSAP.orderDocEntry)) {
+    badges.push('SO:' + (pedido.transferidoSAP.orderDocNum || pedido.transferidoSAP.orderDocEntry));
+  }
   if (Array.isArray(pedido.plannerAttachments) && pedido.plannerAttachments.length) {
     badges.push('📎' + pedido.plannerAttachments.length);
   }

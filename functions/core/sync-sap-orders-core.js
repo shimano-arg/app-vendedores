@@ -1,6 +1,10 @@
 // @ts-check
 /**
  * v1015 (2026-09-22): sync SAP Sales Orders -> pedidos.transferidoSAP.orderDocEntry.
+ * v1020 (2026-09-24): guardar tambien `orderDocNum`. `orderDocEntry` es PK interna
+ * de SAP (invisible al usuario); el badge "SO:" en la card debe mostrar DocNum
+ * (numero de documento visible en la UI SAP). Filtro re-procesa pedidos ya
+ * synced sin orderDocNum para backfill idempotente.
  *
  * Objetivo: cuando en SAP se convierte una SQ (Sales Quotation) que originalmente
  * creo la app en una SO (Sales Order), reflejarlo en Firestore para que el
@@ -54,9 +58,13 @@ const ORDERS_LOOKAHEAD = 500; // Cuantas SO recientes traer por corrida
  */
 
 /**
- * Lista pedidos activos (closedAt=null) con SQ en SAP pero sin orderDocEntry.
+ * Lista pedidos activos (closedAt=null) con SQ en SAP pero sin orderDocNum.
  * Fetch a Firestore + filtro client-side (mas simple que compound where con
  * inequality en campo anidado, que requiere indice explicito).
+ *
+ * v1020: filtro por `orderDocNum` (no `orderDocEntry`) para re-procesar los
+ * pedidos synced pre-v1020 y backfillearles el DocNum. Es idempotente: una vez
+ * que todos tienen orderDocNum, el filtro los skipea.
  *
  * @param {SyncOrdersDeps} deps
  * @param {number} limit
@@ -77,8 +85,8 @@ async function listPendingPedidos(deps, limit) {
     const t = data.transferidoSAP || {};
     const sqDocEntry = Number(t.docEntry);
     // Precondicion: SQ creada en SAP (docEntry seteado) + SO todavia no
-    // reflejada (orderDocEntry ausente o null).
-    if (Number.isFinite(sqDocEntry) && sqDocEntry > 0 && !t.orderDocEntry) {
+    // reflejada (orderDocNum ausente o null).
+    if (Number.isFinite(sqDocEntry) && sqDocEntry > 0 && !t.orderDocNum) {
       pending.push({ id: d.id, sqDocEntry });
     }
   });
@@ -125,15 +133,17 @@ export async function syncSapOrders(deps) {
     // inline con BaseType/BaseEntry por default (visto empiricamente).
     // v1015 hotfix8: SAP SL default page size = 20. $top=500 ignorado.
     // Paginamos con $skip hasta cubrir ORDERS_LOOKAHEAD.
+    // v1020: agregamos DocNum al $select (numero visible en UI SAP; DocEntry
+    // es PK interna invisible al usuario).
     const PAGE_SIZE = 20;
-    /** @type {Map<number, number>} */
+    /** @type {Map<number, {docEntry: number, docNum: number|null}>} */
     const sqToOrder = new Map();
     let totalOrdersScanned = 0;
     let orderFailAt = null;
     for (let skip = 0; skip < ORDERS_LOOKAHEAD; skip += PAGE_SIZE) {
       const ordersEndpoint =
         '/b1s/v1/Orders' +
-        `?$select=${encodeURIComponent('DocEntry,DocumentLines')}` +
+        `?$select=${encodeURIComponent('DocEntry,DocNum,DocumentLines')}` +
         '&$orderby=DocEntry desc' +
         `&$skip=${skip}`;
       const rOrders = await sapGet(session, ordersEndpoint, deps);
@@ -160,6 +170,8 @@ export async function syncSapOrders(deps) {
       for (const so of orders) {
         const soDocEntry = Number(so.DocEntry);
         if (!Number.isFinite(soDocEntry)) continue;
+        const soDocNumRaw = Number(so.DocNum);
+        const soDocNum = Number.isFinite(soDocNumRaw) ? soDocNumRaw : null;
         const lines = Array.isArray(so.DocumentLines) ? so.DocumentLines : [];
         for (const l of lines) {
           if (Number(l && l.BaseType) !== BASE_TYPE_QUOTATION) continue;
@@ -168,7 +180,7 @@ export async function syncSapOrders(deps) {
           // Si esta SQ es una de nuestras pending, guardar el match.
           // Solo el primer match gana (SO mas reciente por orderby DocEntry desc).
           if (pendingSqSet.has(sqDe) && !sqToOrder.has(sqDe)) {
-            sqToOrder.set(sqDe, soDocEntry);
+            sqToOrder.set(sqDe, { docEntry: soDocEntry, docNum: soDocNum });
           }
         }
       }
@@ -187,16 +199,24 @@ export async function syncSapOrders(deps) {
     }
 
     // Aplicar updates a Firestore.
-    for (const [sqDe, soDe] of sqToOrder.entries()) {
+    for (const [sqDe, so] of sqToOrder.entries()) {
       const pedidoId = sqToPedido.get(sqDe);
       if (!pedidoId) continue;
       try {
-        await deps.fbDb.doc(`pedidos/${pedidoId}`).update({
-          'transferidoSAP.orderDocEntry': soDe,
+        /** @type {Record<string, any>} */
+        const patch = {
+          'transferidoSAP.orderDocEntry': so.docEntry,
           'transferidoSAP.orderSyncedAt': new Date().toISOString(),
-        });
+        };
+        if (so.docNum !== null) patch['transferidoSAP.orderDocNum'] = so.docNum;
+        await deps.fbDb.doc(`pedidos/${pedidoId}`).update(patch);
         hits++;
-        log('[sync-orders] hit', { pedidoId, sqDocEntry: sqDe, orderDocEntry: soDe });
+        log('[sync-orders] hit', {
+          pedidoId,
+          sqDocEntry: sqDe,
+          orderDocEntry: so.docEntry,
+          orderDocNum: so.docNum,
+        });
       } catch (e) {
         log('[sync-orders] update Firestore fallo', {
           pedidoId,

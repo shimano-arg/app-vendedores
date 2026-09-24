@@ -18,7 +18,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
 | **Versión actual** | **v1007 (2026-09-22)** — Planner Kanban F1 completa (Mariano-only en producción). T0-T15 committed; deploys pendientes: firestore:rules, storage, functions. Ver §52 + docs/plans/. \| **v1005 (2026-09-22)** — Planner Kanban (Mariano-only, en desarrollo). Task 0: baseline version bump + README stub. Spec en §52 + Plan en docs/plans/. \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP (Series missing en CF + lock 60s en batch). \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. Diagnóstico previo del "SDK Gen 2 bug" era incorrecto — el enforcement SÍ funciona, pero tarda ~66h desde registration Console en propagarse. Deploy directo sin PR (urgencia productiva). Ver §41 + `NEEDS-VALIDATION.md §1`. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11 (fix 45 SKUs con badge "DISPONIBLE" falso, ej TRX301HGB). \| **v1001 (2026-09-21)** — UX fix: alert "Enviar via Service Layer" muestra "Omitidos" con motivo cuando algún pedido queda skipped por lock stale. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX `onPedidoConfirmedSendToSap` (`functions/index.js:446`): typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. 3 sub-tabs (MAP · Productos · Categorías) alimentadas por sync diario desde mercado-intelligence. Botón "🛒 Mercado Libre" al final del Panel de Control, gated por email whitelist (erbinomariano@gmail.com + mariano.erbino@shimano.com.ar). Chunk lazy `chunks/meli.js` + rules `isMariano()` + colecciones `meli/*`. Ver §51. \| **v995 (2026-09-18)** — Hotfix pre-deploy v994: el modal Depósito (`index.html:16354`) llama `setupGetMovimientos` SIN `cardCode` (query global "traeme todos los shipments"). El v994 original tiraba `invalid-argument` en ese caso → rompía UX. Ahora si vendedor sin `cardCode` → server hace fetch normal + filtra `movimientos` server-side por `client_master.assignedVendor == roles/{uid}.vendor` (batch chunked query). Vendedor con `cardCode` sigue con el check estricto. Vector cerrado igual: vendedor solo ve shipments de su cartera. Ver §41. |
-| **APP_VERSION** | `v1015` frontend (nuevo scheduled CF `syncSapOrdersToApp` puebla `transferidoSAP.orderDocEntry` para cerrar columna Órdenes del Planner). Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog para historial completo. |
+| **APP_VERSION** | `v1020` frontend (fix badge Planner "SO:XXXXX": ahora muestra `DocNum` visible SAP en vez de `DocEntry` interno; CF `syncSapOrdersToApp` guarda `orderDocNum` + backfillea pedidos synced pre-v1020). Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog para historial completo. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4672,7 +4672,26 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1019
+## 41) Changelog v300 → v1020
+
+### v1020 (2026-09-24) — Planner: badge "SO:XXXX" mostraba DocEntry interno en vez de DocNum visible SAP
+
+**Reporte**: Mariano — la card BROBRO SA (SAP:2000226, ORDEN 220) mostraba badge `SO:37210` pero ese número no existe en SAP.
+
+**Root cause**: la CF `syncSapOrdersToApp` (v1015) guardaba únicamente `transferidoSAP.orderDocEntry` (PK interna secuencial de SAP, invisible en la UI). El badge del Planner (`index.html:27438`) lo renderizaba como si fuera un número de documento. En SAP el usuario busca por **DocNum** (número visible), no por DocEntry.
+
+**Fix** (3 puntos):
+
+1. **`functions/core/sync-sap-orders-core.js`**:
+   - Agregado `DocNum` al `$select` de `/Orders` (traía solo `DocEntry,DocumentLines`).
+   - Guarda ahora `transferidoSAP.orderDocNum` además de `orderDocEntry`.
+   - Filtro de pending cambia de `!t.orderDocEntry` → `!t.orderDocNum`: los pedidos synced pre-v1020 se re-procesan automáticamente en la próxima corrida del CF (backfill idempotente). Una vez que tienen `orderDocNum`, se skipean.
+
+2. **`index.html:27438`**: badge muestra `orderDocNum || orderDocEntry` (fallback por seguridad hasta que el CF backfillee todos).
+
+3. **Tests** (`tests/functions/sync-sap-orders.test.js`, 11/11 pass): mock `makeSlFetch` acepta shorthand `{ 100: 777 }` (DocNum=DocEntry) o full `{ 100: { docEntry: 37210, docNum: 220 } }` (para testear DocNum ≠ DocEntry). Nuevo test valida el backfill (pedido con `orderDocEntry` sin `orderDocNum` → re-procesa).
+
+**Deploy**: requiere `firebase deploy --only functions:syncSapOrdersToApp` para que el CF empiece a escribir `orderDocNum`. Frontend puede ir solo (fallback a `orderDocEntry` para no romper cards).
 
 ### v1019 (2026-09-22) — Planner: pintar toda la card del color de estado (no solo borde)
 
