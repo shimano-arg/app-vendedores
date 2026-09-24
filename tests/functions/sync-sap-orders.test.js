@@ -106,13 +106,21 @@ function makeSlFetch(scenarios) {
           text: async () => '',
         };
       }
-      // Build orders from scenarios.mapping = { sqDe -> soDe }. Cada mapping
-      // se traduce a una SO con una linea BaseType=23, BaseEntry=sqDe.
+      // Build orders from scenarios.mapping = { sqDe -> soDe | {docEntry,docNum} }.
+      // Cada mapping se traduce a una SO con una linea BaseType=23, BaseEntry=sqDe.
+      // Shorthand num => DocNum = DocEntry (comportamiento tipico SAP). Para
+      // testear DocNum distinto de DocEntry, pasar { docEntry, docNum }.
       const mapping = scenarios.mapping || {};
-      const orders = Object.entries(mapping).map(([sqDe, soDe]) => ({
-        DocEntry: Number(soDe),
-        DocumentLines: [{ BaseType: 23, BaseEntry: Number(sqDe) }],
-      }));
+      const orders = Object.entries(mapping).map(([sqDe, so]) => {
+        const isObj = so && typeof so === 'object';
+        const docEntry = Number(isObj ? so.docEntry : so);
+        const docNum = isObj ? Number(so.docNum) : docEntry;
+        return {
+          DocEntry: docEntry,
+          DocNum: docNum,
+          DocumentLines: [{ BaseType: 23, BaseEntry: Number(sqDe) }],
+        };
+      });
       // scenarios.extraOrders permite agregar SOs no relacionadas para
       // testear que se ignoran.
       if (Array.isArray(scenarios.extraOrders)) {
@@ -155,7 +163,7 @@ describe('syncSapOrders', () => {
     expect(deps.sl.fetch).not.toHaveBeenCalled();
   });
 
-  it('un pedido con SQ sin orderDocEntry -> SAP devuelve hit -> update aplicado', async () => {
+  it('un pedido con SQ sin orderDocNum -> SAP devuelve hit -> update aplicado', async () => {
     const deps = makeDeps({
       pedidos: [
         {
@@ -166,16 +174,37 @@ describe('syncSapOrders', () => {
           },
         },
       ],
-      scenarios: { mapping: { 100: 777 } },
+      scenarios: { mapping: { 100: { docEntry: 37210, docNum: 220 } } },
     });
     const r = await syncSapOrders(deps);
     expect(r).toEqual({ checked: 1, hits: 1, misses: 0, errors: 0 });
     const updated = deps.fbDb._store.get('p1');
-    expect(updated.transferidoSAP.orderDocEntry).toBe(777);
+    expect(updated.transferidoSAP.orderDocEntry).toBe(37210);
+    expect(updated.transferidoSAP.orderDocNum).toBe(220);
     expect(updated.transferidoSAP.orderSyncedAt).toBeTruthy();
     // Preserva campos previos.
     expect(updated.transferidoSAP.docEntry).toBe(100);
     expect(updated.transferidoSAP.docNum).toBe(555);
+  });
+
+  it('v1054 backfill: pedido con orderDocEntry pero sin orderDocNum -> re-procesa', async () => {
+    const deps = makeDeps({
+      pedidos: [
+        {
+          id: 'p1',
+          data: {
+            closedAt: null,
+            transferidoSAP: { docEntry: 100, docNum: 555, orderDocEntry: 37210 },
+          },
+        },
+      ],
+      scenarios: { mapping: { 100: { docEntry: 37210, docNum: 220 } } },
+    });
+    const r = await syncSapOrders(deps);
+    expect(r).toEqual({ checked: 1, hits: 1, misses: 0, errors: 0 });
+    const updated = deps.fbDb._store.get('p1');
+    expect(updated.transferidoSAP.orderDocNum).toBe(220);
+    expect(updated.transferidoSAP.orderDocEntry).toBe(37210);
   });
 
   it('SO enumerate devuelve vacio -> miss, no update', async () => {
@@ -189,14 +218,14 @@ describe('syncSapOrders', () => {
     expect(p.transferidoSAP.orderDocEntry).toBeUndefined();
   });
 
-  it('pedido con orderDocEntry ya seteado: se skip del batch', async () => {
+  it('pedido con orderDocNum ya seteado: se skip del batch', async () => {
     const deps = makeDeps({
       pedidos: [
         {
           id: 'p1',
           data: {
             closedAt: null,
-            transferidoSAP: { docEntry: 100, orderDocEntry: 999 },
+            transferidoSAP: { docEntry: 100, orderDocEntry: 999, orderDocNum: 220 },
           },
         },
       ],
