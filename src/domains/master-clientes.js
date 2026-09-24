@@ -2116,7 +2116,8 @@ window.renderMasterClientesTable = function () {
   // en ARS que tiene el cliente para pagar con cheque. Admin+gerente pueden
   // editar; se guarda en client_master.creditoCheque (POINTS) o
   // client_applications.creditoCheque (SAP altas).
-  html += '<th style="width:10%" title="Limite de credito en ARS para pagar con cheque (editable admin/gerente)">Credito</th>';
+  html +=
+    '<th style="width:10%" title="Limite de credito en ARS para pagar con cheque (editable admin/gerente)">Credito</th>';
   html += '<th style="width:8%"></th>';
   html += '</tr></thead><tbody>';
   const MAX = 500;
@@ -2470,8 +2471,9 @@ window.renderMasterClientesTable = function () {
     // v1055 (2026-09-24): input numeric editable para creditoCheque. Autosave
     // onchange via saveMcClientNumField (parse a Number, guarda a Firestore).
     // Placeholder muestra formato ARS para orientar; el valor real es number.
-    const creditoCanEdit = (userRole === 'admin' || userRole === 'gerente');
-    const creditoDisplay = curCredito != null && Number.isFinite(curCredito) ? String(curCredito) : '';
+    const creditoCanEdit = userRole === 'admin' || userRole === 'gerente';
+    const creditoDisplay =
+      curCredito != null && Number.isFinite(curCredito) ? String(curCredito) : '';
     if (creditoCanEdit) {
       html +=
         '<td data-vendor="' +
@@ -2488,12 +2490,16 @@ window.renderMasterClientesTable = function () {
         escapeAttr(creditoDisplay) +
         '" placeholder="0" title="Limite ARS para cheque" onchange="saveMcClientNumField(\'' +
         escapeAttr(id) +
-        '\', \'creditoCheque\', this)" /></td>';
+        "', 'creditoCheque', this)\" /></td>";
     } else {
-      const creditoFmt = curCredito != null && Number.isFinite(curCredito)
-        ? '$' + curCredito.toLocaleString('es-AR')
-        : '-';
-      html += '<td style="text-align:right;font-size:11px;color:var(--text-secondary)">' + escapeHtml(creditoFmt) + '</td>';
+      const creditoFmt =
+        curCredito != null && Number.isFinite(curCredito)
+          ? '$' + curCredito.toLocaleString('es-AR')
+          : '-';
+      html +=
+        '<td style="text-align:right;font-size:11px;color:var(--text-secondary)">' +
+        escapeHtml(creditoFmt) +
+        '</td>';
     }
     html +=
       '<td><div style="display:flex;gap:4px;flex-wrap:wrap"><button class="' +

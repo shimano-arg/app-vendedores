@@ -254,7 +254,8 @@ window.exportMasterClientes = function () {
             // v1055 (2026-09-24): limite de credito ARS para pagar con cheque.
             // Editable admin/gerente desde Master Clientes UI, guardado en
             // client_master.creditoCheque (para POINTS matcheados con SAP).
-            'Credito cheque (ARS)': cmData.creditoCheque != null ? Number(cmData.creditoCheque) : '',
+            'Credito cheque (ARS)':
+              cmData.creditoCheque != null ? Number(cmData.creditoCheque) : '',
           },
           _classifRow(province, localityMap, name)
         )
