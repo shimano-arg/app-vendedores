@@ -81,6 +81,39 @@ describe('extractLastVisitPayload', () => {
       visitId: 'v42',
     });
   });
+  it('fallback legacy: tamano string → tamanos[] cuando no hay array (v1057)', () => {
+    const p = extractLastVisitPayload(
+      {
+        fidelidad: 'ALTA',
+        tamano: 'GRANDE, MULTIRUBRO',
+        especializacion: 'PREMIUM, AGUA DULCE',
+        fecha: '2026-07-01',
+      },
+      'v-legacy'
+    );
+    expect(p.tamanos).toEqual(['GRANDE', 'MULTIRUBRO']);
+    expect(p.especializaciones).toEqual(['PREMIUM', 'AGUA DULCE']);
+  });
+  it('prioriza array nuevo sobre legacy string', () => {
+    const p = extractLastVisitPayload(
+      {
+        fidelidad: 'ALTA',
+        tamanos: ['CHICA'],
+        tamano: 'GRANDE, MULTIRUBRO',
+        fecha: '2026-09-01',
+      },
+      'v-mix'
+    );
+    expect(p.tamanos).toEqual(['CHICA']);
+  });
+  it('legacy string vacio o whitespace-only no genera arrays', () => {
+    const p = extractLastVisitPayload(
+      { fidelidad: 'ALTA', tamano: '', especializacion: '   ', fecha: '2026-07-01' },
+      'v-empty'
+    );
+    expect(p.tamanos).toBeUndefined();
+    expect(p.especializaciones).toBeUndefined();
+  });
   it('incluye ponderaciones solo si tipoVenta=AMBOS', () => {
     const solo = extractLastVisitPayload(
       {

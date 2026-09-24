@@ -66,9 +66,18 @@ def extract_last_visit_payload(visit: dict, visit_id: str) -> dict | None:
     tamanos = visit.get('tamanos')
     if isinstance(tamanos, list) and tamanos:
         out['tamanos'] = list(tamanos)
+    else:
+        # v1057: fallback legacy pre-v498. `tamano` es STRING con join(', ').
+        legacy = visit.get('tamano')
+        if isinstance(legacy, str) and legacy.strip():
+            out['tamanos'] = [s.strip() for s in legacy.split(',') if s.strip()]
     especializaciones = visit.get('especializaciones')
     if isinstance(especializaciones, list) and especializaciones:
         out['especializaciones'] = list(especializaciones)
+    else:
+        legacy_esp = visit.get('especializacion')
+        if isinstance(legacy_esp, str) and legacy_esp.strip():
+            out['especializaciones'] = [s.strip() for s in legacy_esp.split(',') if s.strip()]
     if visit.get('canalCompra'):
         out['canalCompra'] = str(visit['canalCompra'])
     if visit.get('tipoVenta'):
@@ -98,6 +107,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     parser.add_argument('--apply', action='store_true', help='Ejecuta writes (default: dry-run)')
     parser.add_argument('--limit', type=int, default=None, help='Limitar clientes procesados (debug)')
+    parser.add_argument(
+        '--force-refresh',
+        action='store_true',
+        help='Rerun completo ignorando LWW guard. Usar solo tras bugfix del extract '
+        'para reprocesar visits que ya se habian denormalizado con logica vieja.',
+    )
     args = parser.parse_args()
 
     mode = 'APPLY' if args.apply else 'DRY-RUN'
@@ -152,7 +167,7 @@ def main():
         prev_cm = existing.get(doc_id) or {}
         prev_last = prev_cm.get('lastVisit') or {}
         prev_fecha = str(prev_last.get('fecha') or '')
-        if prev_fecha and prev_fecha >= fecha:
+        if prev_fecha and prev_fecha >= fecha and not args.force_refresh:
             skipped_older += 1
             continue
         to_write.append((doc_id, payload, prev_cm.get('provincia'), payload.get('fecha')))
