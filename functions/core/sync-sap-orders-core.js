@@ -1,6 +1,10 @@
 // @ts-check
 /**
  * v1015 (2026-09-22): sync SAP Sales Orders -> pedidos.transferidoSAP.orderDocEntry.
+ * v1054 (2026-09-24): guardar tambien `orderDocNum`. `orderDocEntry` es PK
+ * interna de SAP (invisible en la UI); el badge "SO:" en la card debe mostrar
+ * DocNum (numero visible en SAP). Filtro re-procesa pedidos synced pre-v1054
+ * sin orderDocNum para backfill idempotente.
  *
  * Objetivo: cuando en SAP se convierte una SQ (Sales Quotation) que originalmente
  * creo la app en una SO (Sales Order), reflejarlo en Firestore para que el
@@ -86,8 +90,11 @@ async function listPendingPedidos(deps, limit) {
     const t = data.transferidoSAP || {};
     const sqDocEntry = Number(t.docEntry);
     // Precondicion: SQ creada en SAP (docEntry seteado) + SO todavia no
-    // reflejada (orderDocEntry ausente o null).
-    if (Number.isFinite(sqDocEntry) && sqDocEntry > 0 && !t.orderDocEntry) {
+    // reflejada (orderDocNum ausente o null).
+    // v1054: filtro por orderDocNum (no orderDocEntry) para backfillear los
+    // pedidos synced pre-v1054 que tienen orderDocEntry pero no orderDocNum.
+    // Idempotente: una vez que todos tienen orderDocNum, el filtro los skipea.
+    if (Number.isFinite(sqDocEntry) && sqDocEntry > 0 && !t.orderDocNum) {
       pending.push({ id: d.id, sqDocEntry });
     }
   });
@@ -138,15 +145,17 @@ export async function syncSapOrders(deps) {
     // inline con BaseType/BaseEntry por default (visto empiricamente).
     // v1015 hotfix8: SAP SL default page size = 20. $top=500 ignorado.
     // Paginamos con $skip hasta cubrir ORDERS_LOOKAHEAD.
+    // v1054: agregamos DocNum al $select (numero visible en UI SAP; DocEntry
+    // es PK interna invisible al usuario).
     const PAGE_SIZE = 20;
-    /** @type {Map<number, number>} */
+    /** @type {Map<number, {docEntry: number, docNum: number|null}>} */
     const sqToOrder = new Map();
     let totalOrdersScanned = 0;
     let orderFailAt = null;
     for (let skip = 0; skip < ORDERS_LOOKAHEAD; skip += PAGE_SIZE) {
       const ordersEndpoint =
         '/b1s/v1/Orders' +
-        `?$select=${encodeURIComponent('DocEntry,DocumentLines')}` +
+        `?$select=${encodeURIComponent('DocEntry,DocNum,DocumentLines')}` +
         '&$orderby=DocEntry desc' +
         `&$skip=${skip}`;
       const rOrders = await sapGet(session, ordersEndpoint, deps);
@@ -173,6 +182,8 @@ export async function syncSapOrders(deps) {
       for (const so of orders) {
         const soDocEntry = Number(so.DocEntry);
         if (!Number.isFinite(soDocEntry)) continue;
+        const soDocNumRaw = Number(so.DocNum);
+        const soDocNum = Number.isFinite(soDocNumRaw) ? soDocNumRaw : null;
         const lines = Array.isArray(so.DocumentLines) ? so.DocumentLines : [];
         for (const l of lines) {
           if (Number(l && l.BaseType) !== BASE_TYPE_QUOTATION) continue;
@@ -181,7 +192,7 @@ export async function syncSapOrders(deps) {
           // Si esta SQ es una de nuestras pending, guardar el match.
           // Solo el primer match gana (SO mas reciente por orderby DocEntry desc).
           if (pendingSqSet.has(sqDe) && !sqToOrder.has(sqDe)) {
-            sqToOrder.set(sqDe, soDocEntry);
+            sqToOrder.set(sqDe, { docEntry: soDocEntry, docNum: soDocNum });
           }
         }
       }
@@ -200,16 +211,24 @@ export async function syncSapOrders(deps) {
     }
 
     // Aplicar updates a Firestore.
-    for (const [sqDe, soDe] of sqToOrder.entries()) {
+    for (const [sqDe, so] of sqToOrder.entries()) {
       const pedidoId = sqToPedido.get(sqDe);
       if (!pedidoId) continue;
       try {
-        await deps.fbDb.doc(`pedidos/${pedidoId}`).update({
-          'transferidoSAP.orderDocEntry': soDe,
+        /** @type {Record<string, any>} */
+        const patch = {
+          'transferidoSAP.orderDocEntry': so.docEntry,
           'transferidoSAP.orderSyncedAt': new Date().toISOString(),
-        });
+        };
+        if (so.docNum !== null) patch['transferidoSAP.orderDocNum'] = so.docNum;
+        await deps.fbDb.doc(`pedidos/${pedidoId}`).update(patch);
         hits++;
-        log('[sync-orders] hit', { pedidoId, sqDocEntry: sqDe, orderDocEntry: soDe });
+        log('[sync-orders] hit', {
+          pedidoId,
+          sqDocEntry: sqDe,
+          orderDocEntry: so.docEntry,
+          orderDocNum: so.docNum,
+        });
       } catch (e) {
         log('[sync-orders] update Firestore fallo', {
           pedidoId,
