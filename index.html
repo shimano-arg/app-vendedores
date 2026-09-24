@@ -4994,6 +4994,11 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
                 <option value="C">C - sin descuento</option>
               </select>
             </div>
+            <div id="cm-credito-cheque-block" style="margin-top:10px;display:none">
+              <label for="cm-credito-cheque" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Cr&eacute;dito cheque (ARS) <span style="font-weight:400;color:var(--text-muted)">(monto de cr&eacute;dito autorizado en cheques)</span></label>
+              <input id="cm-credito-cheque" type="number" min="0" step="1000" placeholder="Ej: 500000" onblur="saveClientCreditoChequeFromModal(this)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)"/>
+              <div id="cm-credito-cheque-status" style="font-size:10px;color:var(--text-muted);margin-top:4px;min-height:14px"></div>
+            </div>
             <div id="cm-cli-status" style="font-size:10px;color:var(--text-muted);margin-top:6px;min-height:14px"></div>
           </div>
           <div id="cm-geo-status" style="font-size:10px;color:var(--text-muted);margin-top:4px;min-height:14px"></div>
@@ -5916,7 +5921,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1055';
+const APP_VERSION = 'v1056';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10506,6 +10511,14 @@ function openClientModal(clientName, tipo, province, localityName){
   // cada pedido - asi que no hay mas campos a nivel cliente.
   const selTipo = document.getElementById('cm-cli-tipo');
   if (selTipo) selTipo.value = cmData.cliTipo || '';
+  // v1056: Credito cheque (ARS) - solo admin/gerente. Number > 0 permitido, guarda
+  // en client_master.creditoCheque (+ updatedAt/By) via saveClientCreditoChequeFromModal.
+  const credBlockEl = document.getElementById('cm-credito-cheque-block');
+  if (credBlockEl) credBlockEl.style.display = isAdminLike ? '' : 'none';
+  const credInput = document.getElementById('cm-credito-cheque');
+  if (credInput) credInput.value = (cmData.creditoCheque != null) ? String(cmData.creditoCheque) : '';
+  const credStatus = document.getElementById('cm-credito-cheque-status');
+  if (credStatus) credStatus.textContent = '';
   // Guardo en el dataset del modal los meta necesarios para escribir a
   // client_master al cambiar un dropdown (vendor / prov / loc / name).
   const modalEl = document.getElementById('client-modal');
