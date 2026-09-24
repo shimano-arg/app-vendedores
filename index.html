@@ -5921,7 +5921,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1060';
+const APP_VERSION = 'v1061';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13435,10 +13435,17 @@ window.exportBackordersToExcel = async function(){
       const stockDep11 = (typeof getStockDisponibleVenta === 'function')
         ? Number(getStockDisponibleVenta(skuU) || 0)
         : 0;
+      // v1058 (2026-09-24): agregar columna Vendedor (pedido Mariano). Resolver
+      // desde vendorLookup para mostrar zona + nombre. Fallback al key crudo si
+      // no matchea (vendedor histórico borrado, key raro, etc.).
+      const vk = ln.vendorKey || '';
+      const _vm = (typeof vendorLookup !== 'undefined') ? vendorLookup[vk] : null;
+      const vendorLabel = _vm ? (_vm.zone + ' - ' + vk) : (vk || '(sin vendedor)');
       rows.push([
         ln.sku || '',
         ln.producto || '',
         ln.clienteNombre || '',
+        vendorLabel,
         qty,
         precio,
         importe,
@@ -13447,28 +13454,28 @@ window.exportBackordersToExcel = async function(){
       ]);
     });
     ws.columns = [
-      { width: 16 }, { width: 55 }, { width: 32 },
+      { width: 16 }, { width: 55 }, { width: 32 }, { width: 30 },
       { width: 14 }, { width: 14 }, { width: 16 },
       { width: 18 }, { width: 14 },
     ];
-    // Row 1: TOTAL DEL PEDIDO. v948: label A1:E1 alineado a la derecha, F1
-    // con el total (alinea con la columna "Importe pendiente"). G1:H1
+    // Row 1: TOTAL DEL PEDIDO. v1058: label A1:F1 alineado a la derecha, G1
+    // con el total (alinea con la columna "Importe pendiente"). H1:I1
     // rellenadas con el mismo fill para mantener la barra visual continua.
-    ws.mergeCells('A1:E1');
+    ws.mergeCells('A1:F1');
     ws.getCell('A1').value = TITLE_MAIN;
     ws.getCell('A1').fill = TOTAL_FILL;
     ws.getCell('A1').font = TOTAL_FONT;
     ws.getCell('A1').alignment = { vertical: 'middle', horizontal: 'right' };
-    ws.getCell('F1').value = total || 0;
-    ws.getCell('F1').fill = TOTAL_FILL;
-    ws.getCell('F1').font = TOTAL_FONT;
-    ws.getCell('F1').alignment = CENTER;
-    ws.getCell('F1').numFmt = '"$"#,##0';
+    ws.getCell('G1').value = total || 0;
     ws.getCell('G1').fill = TOTAL_FILL;
+    ws.getCell('G1').font = TOTAL_FONT;
+    ws.getCell('G1').alignment = CENTER;
+    ws.getCell('G1').numFmt = '"$"#,##0';
     ws.getCell('H1').fill = TOTAL_FILL;
+    ws.getCell('I1').fill = TOTAL_FILL;
     ws.getRow(1).height = 24;
     // Row 2: encabezados.
-    const HEAD = ['SKU', 'Producto', 'Cliente',
+    const HEAD = ['SKU', 'Producto', 'Cliente', 'Vendedor',
                   'Unidades pendientes', 'Precio unitario', 'Importe pendiente',
                   'Total vendidas hist.', 'Stock dep 11'];
     HEAD.forEach((h, i) => { const c = ws.getCell(2, i + 1); c.value = h; c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = CENTER; });
@@ -13476,11 +13483,11 @@ window.exportBackordersToExcel = async function(){
     rows.forEach((r, idx) => {
       const row = ws.getRow(idx + 3);
       r.forEach((v, ci) => row.getCell(ci + 1).value = v);
-      for (let c = 1; c <= 8; c++) row.getCell(c).alignment = CENTER;
-      row.getCell(5).numFmt = '"$"#,##0'; // Precio unitario
-      row.getCell(6).numFmt = '"$"#,##0'; // Importe pendiente
-      row.getCell(7).numFmt = '#,##0';    // Total vendidas hist.
-      row.getCell(8).numFmt = '#,##0';    // Stock dep 11
+      for (let c = 1; c <= 9; c++) row.getCell(c).alignment = CENTER;
+      row.getCell(6).numFmt = '"$"#,##0'; // Precio unitario
+      row.getCell(7).numFmt = '"$"#,##0'; // Importe pendiente
+      row.getCell(8).numFmt = '#,##0';    // Total vendidas hist.
+      row.getCell(9).numFmt = '#,##0';    // Stock dep 11
     });
     // v950 (2026-09-16): segunda hoja 'Forecast' con 1 linea por SKU
     // agregada (suma todas las lineas del mismo SKU en todos los clientes)
