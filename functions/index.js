@@ -58,6 +58,8 @@ import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
 import { runSqCancelExpired } from './core/sq-cancel-core.js';
 import { syncSapOrders } from './core/sync-sap-orders-core.js';
 import { handleSyncSapPayments } from './core/sync-sap-payments-core.js';
+// v1053 (2026-09-24): detección SQs cerradas manualmente en SAP (Close Document).
+import { syncSapQuotationClosures } from './core/sync-sap-quotation-closures-core.js';
 
 if (!getApps().length) initializeApp();
 
@@ -336,6 +338,56 @@ export const syncSapPaymentsToApp = onSchedule(
       log: (msg, extra) => console.log(msg, extra || {}),
     });
     console.log('syncSapPaymentsToApp summary', result);
+  }
+);
+
+/**
+ * v1053 (2026-09-24): syncSapQuotationClosuresToApp — scheduled cada 15 min.
+ * Cierra pedidos-app cuyas SQs fueron cerradas manualmente en SAP (Close
+ * Document, sin cancel ni conversion). Antes de v1053, esos pedidos quedaban
+ * pineados en la columna "Oferta" del Planner Kanban indefinidamente porque
+ * `syncSapOrdersToApp` solo detecta conversión SQ→SO (BaseType=23), no cierre
+ * manual.
+ *
+ * Precedente: 2026-09-23 Mariano reportó 4 casos (SQs 2000123 Peralta, 2000155
+ * Fatechi, 2000220/2000221 Desiata). Fix manual con
+ * scripts/close-manual-sap-sqs-2026-09-23.cjs. Este CF automatiza la detección.
+ *
+ * Idempotente. Costo: ~100 GETs/corrida (LOOKAHEAD=2000, page 20 default).
+ * FAIL-SAFE: solo cierra pedidos SIN orderDocEntry, SIN qtyInvoiced, SIN
+ * paidStatus (=nunca facturamos algo que ya avanzó). Ver core para detalles.
+ */
+export const syncSapQuotationClosuresToApp = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 15 minutes',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 1,
+    memory: '512MiB',
+    timeoutSeconds: 300,
+    secrets: [SAP_SL_PASSWORD],
+  },
+  async () => {
+    const db = getFirestore();
+    const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+    const sapCfg = sapCfgSnap.data() || {};
+    const sl = sapCfg.serviceLayer || {};
+    if (!sl.url || !sl.companyDB) {
+      console.warn('syncSapQuotationClosuresToApp: sap_integration.serviceLayer incompleto, skip');
+      return;
+    }
+    const result = await syncSapQuotationClosures({
+      fetch: globalThis.fetch,
+      sapConfig: {
+        url: sl.url,
+        companyDB: sl.companyDB,
+        userName: sl.username || sl.userName,
+        password: SAP_SL_PASSWORD.value(),
+      },
+      fbDb: db,
+      log: (msg, extra) => console.log(msg, extra || {}),
+    });
+    console.log('syncSapQuotationClosuresToApp summary', result);
   }
 );
 
@@ -1841,8 +1893,8 @@ export const triggerPlannerSync = onCall(
       log: (/** @type {string} */ msg, /** @type {Record<string, unknown>} */ extra) =>
         console.log('[triggerPlannerSync]', msg, extra || {}),
     };
-    /** @type {{invoices: any, orders: any, payments: any, errors: Array<{step: string, message: string}>}} */
-    const summary = { invoices: null, orders: null, payments: null, errors: [] };
+    /** @type {{invoices: any, orders: any, payments: any, closures: any, errors: Array<{step: string, message: string}>}} */
+    const summary = { invoices: null, orders: null, payments: null, closures: null, errors: [] };
     try {
       const r = await syncSapInvoices(deps);
       summary.invoices = {
@@ -1881,6 +1933,14 @@ export const triggerPlannerSync = onCall(
     } catch (e) {
       summary.errors.push({
         step: 'payments',
+        message: /** @type {any} */ (e)?.message || String(e),
+      });
+    }
+    try {
+      summary.closures = await syncSapQuotationClosures(deps);
+    } catch (e) {
+      summary.errors.push({
+        step: 'closures',
         message: /** @type {any} */ (e)?.message || String(e),
       });
     }

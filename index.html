@@ -5916,7 +5916,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1051';
+const APP_VERSION = 'v1053';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12797,6 +12797,7 @@ async function triggerPlannerSyncManual() {
     if (s.invoices) msg += ' · Fact:' + (s.invoices.matches || 0);
     if (s.orders) msg += ' · Ord:' + (s.orders.hits || 0);
     if (s.payments) msg += ' · Cobr:' + (s.payments.pedidosUpdated || 0);
+    if (s.closures) msg += ' · Cerr:' + (s.closures.closedInApp || 0);
     if (s.errors && s.errors.length) msg += ' · Errores:' + s.errors.length;
     if (typeof showSyncTag === 'function') showSyncTag(msg);
     else alert(msg);
