@@ -736,10 +736,15 @@ SELECT
   -- v1056: subobjeto lastVisit poblado por CF onVisitCreatedDenormToClientMaster.
   -- "Ultima gana" — la visita mas reciente por fecha sobreescribe.
   JSON_VALUE(data, '$.lastVisit.fidelidad') AS last_visit_fidelidad,
-  -- v1057: arrays con ARRAY(SELECT JSON_VALUE...) para unquote (JSON_QUERY_ARRAY
-  -- devuelve strings con quotes literales que Power BI muestra como '[]').
-  ARRAY(SELECT JSON_VALUE(x) FROM UNNEST(JSON_QUERY_ARRAY(data, '$.lastVisit.tamanos')) x) AS last_visit_tamanos,
-  ARRAY(SELECT JSON_VALUE(x) FROM UNNEST(JSON_QUERY_ARRAY(data, '$.lastVisit.especializaciones')) x) AS last_visit_especializaciones,
+  -- v1057-e: arrays con ARRAY(SELECT JSON_VALUE...) para unquote + IF wrap
+  -- para que empty arrays salgan NULL en vez de '[]' (Power BI los agrupa con
+  -- (En blanco) cuando son NULL en vez de mostrar '[]' separado).
+  IF(ARRAY_LENGTH(ARRAY(SELECT JSON_VALUE(x) FROM UNNEST(JSON_QUERY_ARRAY(data, '$.lastVisit.tamanos')) x)) > 0,
+     ARRAY(SELECT JSON_VALUE(x) FROM UNNEST(JSON_QUERY_ARRAY(data, '$.lastVisit.tamanos')) x),
+     NULL) AS last_visit_tamanos,
+  IF(ARRAY_LENGTH(ARRAY(SELECT JSON_VALUE(x) FROM UNNEST(JSON_QUERY_ARRAY(data, '$.lastVisit.especializaciones')) x)) > 0,
+     ARRAY(SELECT JSON_VALUE(x) FROM UNNEST(JSON_QUERY_ARRAY(data, '$.lastVisit.especializaciones')) x),
+     NULL) AS last_visit_especializaciones,
   JSON_VALUE(data, '$.lastVisit.canalCompra') AS last_visit_canal_compra,
   JSON_VALUE(data, '$.lastVisit.tipoVenta') AS last_visit_tipo_venta,
   CAST(JSON_VALUE(data, '$.lastVisit.ponderacionMostrado') AS NUMERIC) AS last_visit_pond_mostrado,
