@@ -704,12 +704,21 @@ WITH latest AS (
     ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY timestamp DESC) AS rn
   FROM `shimano_app.client_master_raw_raw_changelog`
   WHERE operation != 'DELETE'
+),
+parts AS (
+  SELECT
+    document_id, timestamp, data,
+    -- doc_id tiene formato 'prov__loc__tienda' normalizado. Splitea para
+    -- reconstruir cuando los campos JSON estan vacios (backfill F3 v1056 no
+    -- los populo — 321 docs afectados). v1057 fix.
+    SPLIT(document_id, '__') AS id_parts
+  FROM latest WHERE rn = 1
 )
 SELECT
   document_id AS doc_id,
-  JSON_VALUE(data, '$.provincia') AS provincia,
-  JSON_VALUE(data, '$.localidad') AS localidad,
-  JSON_VALUE(data, '$.clientName') AS client_name,
+  COALESCE(NULLIF(JSON_VALUE(data, '$.provincia'), ''), UPPER(REPLACE(id_parts[SAFE_OFFSET(0)], '_', ' '))) AS provincia,
+  COALESCE(NULLIF(JSON_VALUE(data, '$.localidad'), ''), INITCAP(REPLACE(id_parts[SAFE_OFFSET(1)], '_', ' '))) AS localidad,
+  COALESCE(NULLIF(JSON_VALUE(data, '$.clientName'), ''), INITCAP(REPLACE(id_parts[SAFE_OFFSET(2)], '_', ' '))) AS client_name,
   JSON_VALUE(data, '$.vendor') AS vendor,
   JSON_VALUE(data, '$.address') AS address,
   JSON_VALUE(data, '$.addressExplicit') = 'true' AS address_explicit,
@@ -721,8 +730,10 @@ SELECT
   -- v1056: subobjeto lastVisit poblado por CF onVisitCreatedDenormToClientMaster.
   -- "Ultima gana" — la visita mas reciente por fecha sobreescribe.
   JSON_VALUE(data, '$.lastVisit.fidelidad') AS last_visit_fidelidad,
-  JSON_QUERY_ARRAY(data, '$.lastVisit.tamanos') AS last_visit_tamanos,
-  JSON_QUERY_ARRAY(data, '$.lastVisit.especializaciones') AS last_visit_especializaciones,
+  -- v1057: arrays con ARRAY(SELECT JSON_VALUE...) para unquote (JSON_QUERY_ARRAY
+  -- devuelve strings con quotes literales que Power BI muestra como '[]').
+  ARRAY(SELECT JSON_VALUE(x) FROM UNNEST(JSON_QUERY_ARRAY(data, '$.lastVisit.tamanos')) x) AS last_visit_tamanos,
+  ARRAY(SELECT JSON_VALUE(x) FROM UNNEST(JSON_QUERY_ARRAY(data, '$.lastVisit.especializaciones')) x) AS last_visit_especializaciones,
   JSON_VALUE(data, '$.lastVisit.canalCompra') AS last_visit_canal_compra,
   JSON_VALUE(data, '$.lastVisit.tipoVenta') AS last_visit_tipo_venta,
   CAST(JSON_VALUE(data, '$.lastVisit.ponderacionMostrado') AS NUMERIC) AS last_visit_pond_mostrado,
@@ -734,7 +745,7 @@ SELECT
   JSON_VALUE(data, '$.defaultDelivery.tipo') AS default_delivery_tipo,
   TIMESTAMP(JSON_VALUE(data, '$.updatedAt')) AS updated_at,
   JSON_VALUE(data, '$.updatedBy') AS updated_by
-FROM latest WHERE rn = 1;
+FROM parts;
 ```
 
 ### A.2c. clientes_360_view (v1056, join master enriquecido)

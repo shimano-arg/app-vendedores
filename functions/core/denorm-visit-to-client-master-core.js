@@ -57,9 +57,25 @@ export function clientLocId(prov, locName, tienda) {
 export function extractLastVisitPayload(visit, visitId) {
   const out = {};
   if (visit.fidelidad) out.fidelidad = String(visit.fidelidad);
-  if (Array.isArray(visit.tamanos) && visit.tamanos.length) out.tamanos = visit.tamanos.slice();
+  if (Array.isArray(visit.tamanos) && visit.tamanos.length) {
+    out.tamanos = visit.tamanos.slice();
+  } else if (typeof visit.tamano === 'string' && visit.tamano.trim()) {
+    // v1057: fallback a campo legacy pre-v498 (2026-08-12). Antes de v498 solo
+    // se guardaba `tamano` como STRING join (ej "GRANDE, MULTIRUBRO"). Sin este
+    // fallback, ~287 visitas históricas no contribuyen a lastVisit.tamanos.
+    out.tamanos = visit.tamano
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
   if (Array.isArray(visit.especializaciones) && visit.especializaciones.length) {
     out.especializaciones = visit.especializaciones.slice();
+  } else if (typeof visit.especializacion === 'string' && visit.especializacion.trim()) {
+    // v1057: fallback legacy idem tamano.
+    out.especializaciones = visit.especializacion
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
   if (visit.canalCompra) out.canalCompra = String(visit.canalCompra);
   if (visit.tipoVenta) out.tipoVenta = String(visit.tipoVenta);
