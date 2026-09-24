@@ -27,6 +27,7 @@
  */
 
 import { sapGet, sapLogin, sapLogout, sapPost } from './sap-sl-client.js';
+import { filterLinesByLiveStock } from './sap-stock-recheck-core.js';
 
 /**
  * @typedef {Object} SlDeps
@@ -76,7 +77,9 @@ export const AUTO_SEND_RESULT = /** @type {const} */ ({
   SKIP_NO_CARDCODE: 'skip_no_cardcode', // cliente sin sapCardCode -> queda bloqueado
   SKIP_LOCKED: 'skip_locked', // otra sesion tiene lock activo
   SKIP_NO_LINES: 'skip_no_lines', // pedido sin lineas confirmed
+  SKIP_STOCK_RECHECK_ALL_DEGRADED: 'skip_stock_recheck_all_degraded', // v1051: re-check live stock SAP degradó TODAS las líneas confirmed → skip envío (queda app_only)
   SENT_OK: 'sent_ok', // envio exitoso a SAP
+  SENT_OK_PARTIAL_STOCK: 'sent_ok_partial_stock', // v1051: enviado a SAP con líneas parcialmente degradadas por live stock recheck
   SENT_OK_IDEMPOTENT: 'sent_ok_idempotent', // v1006: SAP ya tenia SQ con este NumAtCard, no re-POST
   ERROR_SL: 'error_sl', // SL devolvio error (no reintentable auto)
   ERROR_RACE: 'error_race', // otra sesion completo despues del lock
@@ -560,6 +563,74 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
       };
     }
 
+    // v1051 (2026-09-23): RE-CHECK LIVE STOCK antes del POST. Cierra la
+    // barrera defensiva faltante identificada en la auditoría 2026-09-23:
+    // el `state='confirmed'` fue decidido client-side contra un snapshot
+    // local con hasta ~5 min de antigüedad + sin considerar pedidos
+    // concurrentes ni ventas fuera de la app. Sin este check, SAP recibía
+    // SQs con `Quantity > available whs 11` sin nada que las frenara.
+    //
+    // Estrategia: consulta a SAP `/Items?$filter=...&$select=ItemWarehouseInfoCollection`,
+    // filtra whs 11, calcula `available = InStock - Committed` (misma
+    // definición que sync_sap_to_firestore.py v839+), remueve líneas donde
+    // `Quantity > available`.
+    //
+    // FAIL-OPEN por diseño: si el GET falla (SL down, timeout, parse), sigue
+    // con el POST como antes de v1051. Esta capa es aditiva — no debe empeorar
+    // el flow si SAP tiene un hipo transiente.
+    const stockCheck = await filterLinesByLiveStock(
+      session,
+      built.payload.DocumentLines || [],
+      deps.sl
+    );
+    if (!stockCheck.checkSucceeded) {
+      log('[auto-send] live stock recheck FAILED (fail-open, continúa)', {
+        pedidoId,
+        checkError: stockCheck.checkError,
+      });
+    }
+    /** @type {Array<{itemCode: string, requested: number, available: number, reason: string}>} */
+    const degradedForAudit = stockCheck.degradedLines || [];
+    if (stockCheck.checkSucceeded && degradedForAudit.length > 0) {
+      log('[auto-send] live stock recheck DEGRADED lines', {
+        pedidoId,
+        degradedCount: degradedForAudit.length,
+        keptCount: stockCheck.keptLines.length,
+        sample: degradedForAudit.slice(0, 5),
+      });
+      built.payload.DocumentLines = stockCheck.keptLines;
+      if (stockCheck.keptLines.length === 0) {
+        // Todas las líneas confirmed se degradaron. Marcamos el pedido como
+        // `via='app_only'` con reason auditable + escribimos los degraded.
+        // NO enviamos SQ vacía a SAP.
+        try {
+          await docRef.update({
+            transferidoSAP: {
+              via: 'app_only',
+              reason: 'stock_recheck_all_degraded',
+              transferredAt: new Date(now).toISOString(),
+              transferredBy: 'cf-auto/' + sessionId,
+              stockRecheckDegraded: degradedForAudit,
+            },
+            sendingSapLock: deps.FieldValue.delete(),
+          });
+        } catch (persistErr) {
+          log('[auto-send] failed to persist all_degraded marker', {
+            pedidoId,
+            err: persistErr && persistErr.message ? persistErr.message : String(persistErr),
+          });
+        }
+        try {
+          await sapLogout(session, deps.sl);
+        } catch {
+          /* swallow */
+        }
+        return {
+          result: AUTO_SEND_RESULT.SKIP_STOCK_RECHECK_ALL_DEGRADED,
+          reason: 'all_lines_degraded',
+        };
+      }
+    }
     const resp = await sapPost(session, '/b1s/v1/Quotations', built.payload, deps.sl);
     if (resp.status !== 201) {
       const errMsg =
@@ -603,16 +674,23 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
         };
         return;
       }
+      // v1051: si el recheck degradó líneas parcialmente, marcamos via y
+      // adjuntamos el listado degraded para auditoría posterior.
+      /** @type {Record<string, any>} */
+      const transferidoSAPPayload = {
+        via: degradedForAudit.length > 0 ? 'cf_auto_partial_stock' : 'cf_auto',
+        docEntry,
+        docNum,
+        transferredAt: new Date(now).toISOString(),
+        transferredBy: 'cf-auto/' + sessionId,
+        sapDocRange: String(docNum),
+        batchId: 'CF-AUTO-' + now,
+      };
+      if (degradedForAudit.length > 0) {
+        transferidoSAPPayload.stockRecheckDegraded = degradedForAudit;
+      }
       tx.update(docRef, {
-        transferidoSAP: {
-          via: 'cf_auto',
-          docEntry,
-          docNum,
-          transferredAt: new Date(now).toISOString(),
-          transferredBy: 'cf-auto/' + sessionId,
-          sapDocRange: String(docNum),
-          batchId: 'CF-AUTO-' + now,
-        },
+        transferidoSAP: transferidoSAPPayload,
         sendingSapLock: deps.FieldValue.delete(),
       });
       winner = { docNum, docEntry, byUs: true };
@@ -627,7 +705,16 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
       };
     }
 
-    log('[auto-send] OK', { pedidoId, docNum, docEntry, linesCount: built.linesCount });
+    log('[auto-send] OK', {
+      pedidoId,
+      docNum,
+      docEntry,
+      linesCount: built.linesCount,
+      degradedCount: degradedForAudit.length,
+    });
+    if (degradedForAudit.length > 0) {
+      return { result: AUTO_SEND_RESULT.SENT_OK_PARTIAL_STOCK, docNum, docEntry };
+    }
     return { result: AUTO_SEND_RESULT.SENT_OK, docNum, docEntry };
   } catch (e) {
     const msg = String((e && e.message) || e);
