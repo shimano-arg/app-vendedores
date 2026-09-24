@@ -64,8 +64,10 @@ export function extractLastVisitPayload(visit, visitId) {
   if (visit.canalCompra) out.canalCompra = String(visit.canalCompra);
   if (visit.tipoVenta) out.tipoVenta = String(visit.tipoVenta);
   if (visit.tipoVenta === 'AMBOS') {
-    if (typeof visit.ponderacionMostrado === 'number') out.ponderacionMostrado = visit.ponderacionMostrado;
-    if (typeof visit.ponderacionEcommerce === 'number') out.ponderacionEcommerce = visit.ponderacionEcommerce;
+    if (typeof visit.ponderacionMostrado === 'number')
+      out.ponderacionMostrado = visit.ponderacionMostrado;
+    if (typeof visit.ponderacionEcommerce === 'number')
+      out.ponderacionEcommerce = visit.ponderacionEcommerce;
   }
   // Si la visita no trajo NINGÚN atributo comercial (ej. modo 'contacto'
   // telefónico donde el vendedor solo marca formaContacto), no vale la pena

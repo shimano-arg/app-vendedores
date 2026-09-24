@@ -2652,7 +2652,7 @@ window.saveClientCreditoChequeFromModal = async function (inputEl) {
     parsed = Math.round(parsed);
   }
   const cmData = clientMasterCache.get(docId) || {};
-  const prev = (cmData.creditoCheque != null) ? Number(cmData.creditoCheque) : null;
+  const prev = cmData.creditoCheque != null ? Number(cmData.creditoCheque) : null;
   if (parsed === prev) return;
   if (status) status.textContent = 'Guardando...';
   inputEl.disabled = true;
@@ -2664,19 +2664,22 @@ window.saveClientCreditoChequeFromModal = async function (inputEl) {
       clientName: modalEl.dataset.clientName || '',
     };
     const update = Object.assign({}, meta, {
-      creditoCheque: (parsed === null) ? null : parsed,
+      creditoCheque: parsed === null ? null : parsed,
       updatedBy: currentUser.email || '',
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
     await fbDb.collection('client_master').doc(docId).set(update, { merge: true });
     if (status) {
-      status.textContent = (parsed === null) ? 'Credito eliminado' : 'Guardado: $' + parsed.toLocaleString('es-AR');
-      setTimeout(() => { if (status) status.textContent = ''; }, 2500);
+      status.textContent =
+        parsed === null ? 'Credito eliminado' : 'Guardado: $' + parsed.toLocaleString('es-AR');
+      setTimeout(() => {
+        if (status) status.textContent = '';
+      }, 2500);
     }
   } catch (e) {
     console.error('saveClientCreditoChequeFromModal', e);
     if (status) status.textContent = 'Error: ' + (e.message || String(e));
-    inputEl.value = (prev != null) ? String(prev) : '';
+    inputEl.value = prev != null ? String(prev) : '';
   } finally {
     inputEl.disabled = false;
   }

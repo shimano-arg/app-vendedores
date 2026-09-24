@@ -38,6 +38,9 @@ import { expireAsigLinesTTL } from './core/asig-ttl-core.js';
 import { autoConfirmPendingPedidos } from './core/auto-confirm-pending-core.js';
 import { AUTO_SEND_RESULT, handleAutoSendSap } from './core/auto-send-sap-core.js';
 import { runDailyBackup } from './core/backup-core.js';
+// v1056 (2026-09-24): denormaliza attrs comerciales de la última visita al doc
+// del cliente en client_master. Última visita gana (LWW por fecha).
+import { denormVisitToClientMaster } from './core/denorm-visit-to-client-master-core.js';
 import { runFifoAssign } from './core/fifo-assign-core.js';
 import { runGeminiOcr } from './core/gemini-ocr-core.js';
 import { syncSapInvoices } from './core/invoice-sync-core.js';
@@ -60,9 +63,6 @@ import { syncSapOrders } from './core/sync-sap-orders-core.js';
 import { handleSyncSapPayments } from './core/sync-sap-payments-core.js';
 // v1053 (2026-09-24): detección SQs cerradas manualmente en SAP (Close Document).
 import { syncSapQuotationClosures } from './core/sync-sap-quotation-closures-core.js';
-// v1056 (2026-09-24): denormaliza attrs comerciales de la última visita al doc
-// del cliente en client_master. Última visita gana (LWW por fecha).
-import { denormVisitToClientMaster } from './core/denorm-visit-to-client-master-core.js';
 
 if (!getApps().length) initializeApp();
 
@@ -1817,7 +1817,7 @@ export const onVisitCreatedDenormToClientMaster = onDocumentCreated(
     try {
       const result = await denormVisitToClientMaster(
         { visit, visitId: event.params.visitId },
-        { db, FieldValue, log: (msg, extra) => console.log(msg, extra || {}) },
+        { db, FieldValue, log: (msg, extra) => console.log(msg, extra || {}) }
       );
       console.log('[denorm-visit] result', { visitId: event.params.visitId, ...result });
     } catch (e) {
@@ -1825,7 +1825,7 @@ export const onVisitCreatedDenormToClientMaster = onDocumentCreated(
       // NO re-throw: retry:false + no queremos que fallos aca frenen el flow
       // de visitas (que sigue funcionando con lectura directa de la colección).
     }
-  },
+  }
 );
 
 // v1005 (2026-09-22): Planner Kanban section — trigger email on column transition.
