@@ -18,7 +18,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
 | **Versión actual** | **v1038 (2026-09-22)** — Sesión intensiva Planner Kanban: pipeline 100% automático + lineal (5 columnas, columna Confirmado removida). 19 PRs shipped (#687-#710) + 3 CFs nuevos deployados (`syncSapOrdersToApp` schedule 15min, `syncSapPaymentsToApp` nuevo Fase 2, `onPlannerStageChanged` multi-update). Ver §52 (estado consolidado) + §41 (changelog detallado v1016-v1038). \| **v1007 (2026-09-22)** — Planner Kanban F1 completa (Mariano-only en producción). \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP. \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. |
-| **APP_VERSION** | `v1056` frontend (F1-F4 enriquecimiento vista Clientes: input Credito cheque en modal cliente individual + CF `onVisitCreatedDenormToClientMaster` que copia attrs comerciales de cada visita a `client_master.lastVisit` con LWW por fecha + backfill script + 3 BQ views extendidas para PowerBI clientes_360). CF deploy + install extension `client_master` pendientes de aprobación humana — ver `PLAN_POWERBI.md` sección v1056. `v1055`: columna Credito editable en Master Clientes UI + export Excel. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog + §52 estado Planner. |
+| **APP_VERSION** | `v1057` frontend (UX fix Master Clientes: input Credito ensanchado 10%→17% + font 11→13px + hint `$X.XXX.XXX` debajo del input — valores tipo 750.000 quedaban cortados). `v1056`: F1-F4 enriquecimiento vista Clientes (input Credito en modal cliente + CF `onVisitCreatedDenormToClientMaster` + BQ views 360). `v1055`: columna Credito editable en Master Clientes UI + export Excel. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog + §52 estado Planner. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4673,7 +4673,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1056
+## 41) Changelog v300 → v1057
+
+### v1057 (2026-09-24) — Master Clientes: fix UX del input Credito (ancho + font)
+
+**Reporte**: Mariano — screenshot mostrando el input de Credito con valor `750000` cortado: "no se leen bien los valores queda chico el cuadrado". El ancho de la columna era 10% del modal (~50px) y el font 11px, insuficiente para números ≥6 dígitos.
+
+**Fix** (`src/domains/master-clientes.js` renderMasterClientesTable):
+
+1. **Ancho columna Credito**: 10% → 17% (compensado tomando 1% de Tienda/Localidad/Provincia/Vendedor/Direccion/Tipo). Header renombrado `Credito` → `Credito ARS`.
+2. **Font input**: 11px → 13px, padding `4px 8px`, `min-width: 100px`, `font-variant-numeric: tabular-nums` (dígitos misma anchura → alineación decimal impecable).
+3. **Hint debajo del input**: `$X.XXX.XXX` formato ARS legible al costado del input crudo — así se ve simultáneamente el valor editable (`750000`) y el formateado (`$750.000`) sin sacrificar la edición numérica.
+4. **Readonly (VDE/VDI)**: font 11px → 12px + `tabular-nums` para consistencia visual.
+
+Rebuild bundle + bump `APP_VERSION`/`CACHE_VERSION` v1056 → v1057.
 
 ### v1056 (2026-09-24) — Enriquecimiento vista Clientes: input Credito en modal individual + CF denorm visitas → client_master.lastVisit + BQ views clientes_360
 

@@ -2106,18 +2106,20 @@ window.renderMasterClientesTable = function () {
     return s;
   }
   let html = '<table class="mc-table"><thead><tr>';
-  html += '<th style="width:20%">Tienda</th>';
-  html += '<th style="width:11%">Localidad</th>';
-  html += '<th style="width:10%">Provincia</th>';
-  html += '<th style="width:12%">Vendedor</th>';
-  html += '<th style="width:20%">Direcci&oacute;n exacta</th>';
-  html += '<th style="width:9%" title="Categoria comercial del cliente">Tipo</th>';
+  html += '<th style="width:19%">Tienda</th>';
+  html += '<th style="width:10%">Localidad</th>';
+  html += '<th style="width:9%">Provincia</th>';
+  html += '<th style="width:11%">Vendedor</th>';
+  html += '<th style="width:18%">Direcci&oacute;n exacta</th>';
+  html += '<th style="width:8%" title="Categoria comercial del cliente">Tipo</th>';
   // v1055 (2026-09-24): nueva columna "Credito" — limite de credito editable
   // en ARS que tiene el cliente para pagar con cheque. Admin+gerente pueden
   // editar; se guarda en client_master.creditoCheque (POINTS) o
   // client_applications.creditoCheque (SAP altas).
+  // v1057 (2026-09-24): ensancho 10%→17% + font 11→13px porque valores tipo
+  // 750.000 quedaban cortados en el input (reportado por Mariano con screenshot).
   html +=
-    '<th style="width:10%" title="Limite de credito en ARS para pagar con cheque (editable admin/gerente)">Credito</th>';
+    '<th style="width:17%" title="Limite de credito en ARS para pagar con cheque (editable admin/gerente)">Credito ARS</th>';
   html += '<th style="width:8%"></th>';
   html += '</tr></thead><tbody>';
   const MAX = 500;
@@ -2470,10 +2472,17 @@ window.renderMasterClientesTable = function () {
       '</td>';
     // v1055 (2026-09-24): input numeric editable para creditoCheque. Autosave
     // onchange via saveMcClientNumField (parse a Number, guarda a Firestore).
-    // Placeholder muestra formato ARS para orientar; el valor real es number.
+    // v1057 (2026-09-24): font 11→13px, padding lateral, min-width 100px + hint
+    // "$X.XXX.XXX" al lado (formato ARS legible mientras el input muestra el
+    // numero crudo editable). Reportado por Mariano: "no se leen bien los
+    // valores queda chico el cuadrado".
     const creditoCanEdit = userRole === 'admin' || userRole === 'gerente';
     const creditoDisplay =
       curCredito != null && Number.isFinite(curCredito) ? String(curCredito) : '';
+    const creditoFmt =
+      curCredito != null && Number.isFinite(curCredito)
+        ? '$' + curCredito.toLocaleString('es-AR')
+        : '';
     if (creditoCanEdit) {
       html +=
         '<td data-vendor="' +
@@ -2486,19 +2495,22 @@ window.renderMasterClientesTable = function () {
         escapeAttr(e.nombre) +
         '"><input type="number" min="0" step="1000" class="mc-addr-input js-mc-credito-input' +
         (creditoDisplay ? ' has-value' : '') +
-        '" style="font-size:11px;text-align:right" value="' +
+        '" style="font-size:13px;text-align:right;padding:4px 8px;min-width:100px;font-variant-numeric:tabular-nums" value="' +
         escapeAttr(creditoDisplay) +
         '" placeholder="0" title="Limite ARS para cheque" onchange="saveMcClientNumField(\'' +
         escapeAttr(id) +
-        "', 'creditoCheque', this)\" /></td>";
+        "', 'creditoCheque', this)\" />" +
+        (creditoFmt
+          ? '<div style="font-size:10px;color:var(--text-muted);text-align:right;margin-top:2px;font-variant-numeric:tabular-nums" title="Formato legible">' +
+            escapeHtml(creditoFmt) +
+            '</div>'
+          : '') +
+        '</td>';
     } else {
-      const creditoFmt =
-        curCredito != null && Number.isFinite(curCredito)
-          ? '$' + curCredito.toLocaleString('es-AR')
-          : '-';
+      const creditoRO = creditoFmt || '-';
       html +=
-        '<td style="text-align:right;font-size:11px;color:var(--text-secondary)">' +
-        escapeHtml(creditoFmt) +
+        '<td style="text-align:right;font-size:12px;color:var(--text-secondary);font-variant-numeric:tabular-nums;padding-right:8px">' +
+        escapeHtml(creditoRO) +
         '</td>';
     }
     html +=
