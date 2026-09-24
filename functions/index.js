@@ -60,6 +60,9 @@ import { syncSapOrders } from './core/sync-sap-orders-core.js';
 import { handleSyncSapPayments } from './core/sync-sap-payments-core.js';
 // v1053 (2026-09-24): detección SQs cerradas manualmente en SAP (Close Document).
 import { syncSapQuotationClosures } from './core/sync-sap-quotation-closures-core.js';
+// v1056 (2026-09-24): denormaliza attrs comerciales de la última visita al doc
+// del cliente en client_master. Última visita gana (LWW por fecha).
+import { denormVisitToClientMaster } from './core/denorm-visit-to-client-master-core.js';
 
 if (!getApps().length) initializeApp();
 
@@ -1780,6 +1783,49 @@ export const onRendicionCreatedCheckDuplicate = onDocumentCreated(
       // NO re-throw: retry:false + no queremos que fallos aca frenen el flow.
     }
   }
+);
+
+/**
+ * onVisitCreatedDenormToClientMaster — v1056 (2026-09-24).
+ * Trigger onCreate en visits/{id}. Copia los atributos comerciales de la
+ * visita (fidelidad, tamanos[], especializaciones[], canalCompra, tipoVenta +
+ * ponderaciones) al doc `client_master.{docId}` como subobjeto `lastVisit`.
+ *
+ * Motivación: pedido Mariano 2026-09-24 — hoy esos campos solo viven en cada
+ * doc de `visits` (append-only). La app y PowerBI necesitan leer el "estado
+ * actual" de un cliente (última fidelidad, último tipo, etc.) sin agregar
+ * visits en cada query. Este trigger denormaliza al doc del cliente con
+ * regla "última visita gana" (LWW por `visit.fecha`).
+ *
+ * Guard temporal LWW: si la visita nueva tiene fecha anterior al lastVisit
+ * ya guardado, skip. Cubre backfill fuera de orden y retries del runtime.
+ *
+ * Core testeable: functions/core/denorm-visit-to-client-master-core.js
+ */
+export const onVisitCreatedDenormToClientMaster = onDocumentCreated(
+  {
+    region: REGION,
+    document: 'visits/{visitId}',
+    retry: false,
+    memory: '256MiB',
+    timeoutSeconds: 30,
+  },
+  async (event) => {
+    const visit = event.data?.data();
+    if (!visit) return;
+    const db = getFirestore();
+    try {
+      const result = await denormVisitToClientMaster(
+        { visit, visitId: event.params.visitId },
+        { db, FieldValue, log: (msg, extra) => console.log(msg, extra || {}) },
+      );
+      console.log('[denorm-visit] result', { visitId: event.params.visitId, ...result });
+    } catch (e) {
+      console.error('[denorm-visit] error', e);
+      // NO re-throw: retry:false + no queremos que fallos aca frenen el flow
+      // de visitas (que sigue funcionando con lectura directa de la colección).
+    }
+  },
 );
 
 // v1005 (2026-09-22): Planner Kanban section — trigger email on column transition.
