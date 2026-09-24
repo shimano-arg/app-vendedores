@@ -785,6 +785,9 @@ WITH
         ), r'^_|_$', ''
       ) AS join_key
     FROM `shimano_app.client_applications_view`
+    -- v1057: excluir provisorios y LEADs sin cardCodeSap. Solo BPs con card
+    -- SAP efectivo (customers + LEADs con card). Pedido Mariano.
+    WHERE card_code_sap IS NOT NULL AND card_code_sap != ''
   )
 SELECT
   ca.application_id,
