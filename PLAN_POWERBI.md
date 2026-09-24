@@ -670,6 +670,10 @@ SELECT
   JSON_VALUE(data, '$.coverageBy') AS coverage_by,
   JSON_VALUE(data, '$.precaucion') = 'true' AS precaucion,
   JSON_VALUE(data, '$.precaucionReason') AS precaucion_reason,
+  -- v1057: cli_tipo lo escribe el admin desde Master Clientes UI (Direcciones)
+  -- para altas SAP. 153 rows populated (P/A/B/C). El resto muestra 'C' como
+  -- default visual v349+ pero no auto-persiste.
+  JSON_VALUE(data, '$.cliTipo') AS cli_tipo,
   -- v1056: campo financiero para PowerBI (admin/gerente carga en client_master
   -- Y en client_applications desde v1055 Master Clientes UI).
   CAST(JSON_VALUE(data, '$.creditoCheque') AS NUMERIC) AS credito_cheque_ars,
@@ -804,7 +808,10 @@ SELECT
   -- desde Master Clientes UI) o de client_master (POINTS). Coalesce prioriza
   -- el mas reciente actualizado por admin.
   COALESCE(ca.credito_cheque_ars, cm.credito_cheque_ars) AS credito_cheque_ars,
-  cm.cli_tipo,
+  -- v1057: cli_tipo prioriza client_applications (donde admin edita desde
+  -- Master Clientes UI). Fallback a client_master (usado por Modal cliente
+  -- individual). 154 rows populated post-fix.
+  COALESCE(ca.cli_tipo, cm.cli_tipo) AS cli_tipo,
   cm.vendor AS master_vendor,
   cm.default_delivery_tipo,
   -- Ultima visita (denormalizada por CF F2)
