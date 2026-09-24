@@ -21,11 +21,31 @@
     }
   ],
   "emulators": {
-    "auth": { "port": 9099 },
-    "functions": { "port": 5001 },
-    "firestore": { "port": 8080 },
-    "storage": { "port": 9199 },
-    "ui": { "enabled": true, "port": 4000 },
+    "auth": {
+      "port": 9099
+    },
+    "functions": {
+      "port": 5001
+    },
+    "firestore": {
+      "port": 8080
+    },
+    "storage": {
+      "port": 9199
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4000
+    },
     "singleProjectMode": true
+  },
+  "extensions": {
+    "client-master-bq": "firebase/firestore-bigquery-export@0.3.3",
+    "pedidos-bq": "firebase/firestore-bigquery-export@0.3.3",
+    "visits-bq": "firebase/firestore-bigquery-export@0.3.3",
+    "client-applications-bq": "firebase/firestore-bigquery-export@0.3.3",
+    "campaigns-bq": "firebase/firestore-bigquery-export@0.3.3",
+    "sap-clients-bq": "firebase/firestore-bigquery-export@0.3.3",
+    "rendiciones-bq": "firebase/firestore-bigquery-export@0.3.3"
   }
 }
