@@ -646,7 +646,7 @@ CREATE OR REPLACE VIEW `shimano_app.client_applications_view` AS
 WITH latest AS (
   SELECT document_id, timestamp, operation, data,
     ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY timestamp DESC) AS rn
-  FROM `shimano_app.client_applications_raw_changelog`
+  FROM `shimano_app.client_applications_raw_raw_changelog`
   WHERE operation != 'DELETE'
 )
 SELECT
@@ -702,7 +702,7 @@ CREATE OR REPLACE VIEW `shimano_app.client_master_view` AS
 WITH latest AS (
   SELECT document_id, timestamp, operation, data,
     ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY timestamp DESC) AS rn
-  FROM `shimano_app.client_master_raw_changelog`
+  FROM `shimano_app.client_master_raw_raw_changelog`
   WHERE operation != 'DELETE'
 )
 SELECT

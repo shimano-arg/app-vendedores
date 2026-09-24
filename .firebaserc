@@ -1,5 +1,23 @@
 {
   "projects": {
     "default": "app-vendedores-shimano"
+  },
+  "targets": {},
+  "etags": {
+    "app-vendedores-shimano": {
+      "extensionInstances": {
+        "campaigns-bq": "0717509c5ecbaffad500b871099dd486660ae4ef24df2f87826966a472beab42",
+        "client-applications-bq": "1783ec42a6ff63f129cd657e13bfbc749166afaf43fbe1d575c71399726749f7",
+        "client-master-bq": "e6548f66ac28a8094ab3a27b164de0dfc7336b02b64fc9c5008ac1cff9219ac2",
+        "firestore-bigquery-export": "d79c6f0dbbd5b574df62ba2073742cdf985f5ec9d39e9d1031e35afa27070356",
+        "firestore-bigquery-export-2gu8": "dfc8909f746587a65fb91a7581cc4268d8d78731c7949c7796529f93908fab91",
+        "firestore-bigquery-export-9vq0": "1517b17258b725cd0d40922f9e8a1937234cf6b9f38193a812a00b3f5a5ca5c2",
+        "firestore-bigquery-export-tkx3": "fbf4999e6b6f455e0687c02fcc7695338895e57ed8af7ef9833cbe05535dec9e",
+        "pedidos-bq": "76c4f7864f0a9abd943c74cf758cf562b7e2811339fe7c2137ec777812614da1",
+        "rendiciones-bq": "8fe7213bd43406bbd5f34fba6746f49a0e3b9dd7fc960e25a8e5e745c1f14471",
+        "sap-clients-bq": "8e94ed023235d52fbf12b504c558572d6ffafe70dc6f973bbe99a30335c4efa1",
+        "visits-bq": "bf01571cbaa6efe2bb6f768599970f51febcd3464cb170721ef5b16a66f64c41"
+      }
+    }
   }
 }
