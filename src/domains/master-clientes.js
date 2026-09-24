@@ -2628,6 +2628,63 @@ window.saveClientCategoriaFromModal = async function (fieldName, sel) {
   }
 };
 
+// v1056: auto-save del monto "Credito cheque (ARS)" en el modal cliente.
+// Solo admin/gerente puede editarlo (gate en openClientModal via display:none).
+// Guarda en client_master.creditoCheque (+ updatedAt/By). onblur para no
+// tirar un write por cada tecla. Number >= 0 o vacio (elimina el campo).
+window.saveClientCreditoChequeFromModal = async function (inputEl) {
+  if (typeof canWrite === 'function' && !canWrite()) {
+    alert('Tu rol no permite modificar el credito de cheque.');
+    return;
+  }
+  const modalEl = document.getElementById('client-modal');
+  const docId = modalEl && modalEl.dataset.docId;
+  if (!docId) return;
+  const raw = (inputEl.value || '').trim();
+  const status = document.getElementById('cm-credito-cheque-status');
+  let parsed = null;
+  if (raw !== '') {
+    parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      if (status) status.textContent = 'Monto invalido';
+      return;
+    }
+    parsed = Math.round(parsed);
+  }
+  const cmData = clientMasterCache.get(docId) || {};
+  const prev = cmData.creditoCheque != null ? Number(cmData.creditoCheque) : null;
+  if (parsed === prev) return;
+  if (status) status.textContent = 'Guardando...';
+  inputEl.disabled = true;
+  try {
+    const meta = {
+      vendor: modalEl.dataset.vendor || '',
+      provincia: modalEl.dataset.provincia || '',
+      localidad: modalEl.dataset.localidad || '',
+      clientName: modalEl.dataset.clientName || '',
+    };
+    const update = Object.assign({}, meta, {
+      creditoCheque: parsed === null ? null : parsed,
+      updatedBy: currentUser.email || '',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    await fbDb.collection('client_master').doc(docId).set(update, { merge: true });
+    if (status) {
+      status.textContent =
+        parsed === null ? 'Credito eliminado' : 'Guardado: $' + parsed.toLocaleString('es-AR');
+      setTimeout(() => {
+        if (status) status.textContent = '';
+      }, 2500);
+    }
+  } catch (e) {
+    console.error('saveClientCreditoChequeFromModal', e);
+    if (status) status.textContent = 'Error: ' + (e.message || String(e));
+    inputEl.value = prev != null ? String(prev) : '';
+  } finally {
+    inputEl.disabled = false;
+  }
+};
+
 // Auto-save de los 3 dropdowns de categorizacion comercial (Tipo / Volumen /
 // Anticipado). Se guardan directo a client_master sin requerir el boton
 // Guardar (que sigue siendo solo para la direccion). El select cambia de

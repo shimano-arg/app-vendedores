@@ -7,6 +7,46 @@ Estado: en ejecución — pausa esperando upgrade a Blaze (~12:00 cuando llegue 
 
 ---
 
+## v1056 (2026-09-24) — Enriquecimiento vista Clientes (F1-F4)
+
+Pedido Mariano: sumar a la vista Clientes de la app + PowerBI los campos que
+el vendedor ya carga en cada visita (Tipo de cliente, Fidelidad, Especialización
+por tipo de pesca, Canal de compra, Tipo de venta) + email + Crédito cheque
+(ARS), con regla "última visita gana".
+
+Fases:
+- **F1 (frontend, v1056)** ✅ shipped — input Crédito cheque en modal cliente
+  individual (admin/gerente). Complementa la columna del Master Clientes UI
+  (v1055). Mismo campo `client_master.creditoCheque`.
+- **F2 (CF, v1056)** ✅ shipped — `onVisitCreatedDenormToClientMaster` copia
+  attrs de cada visita nueva a `client_master.{docId}.lastVisit` con LWW por
+  `visit.fecha`. Deploy pendiente aprobación: `firebase deploy --only
+  functions:onVisitCreatedDenormToClientMaster`.
+- **F3 (backfill, v1056)** ✅ shipped — `scripts/backfill_visits_to_client_master.py`
+  para poblar `lastVisit` con visitas históricas. Run:
+  1. `gcloud auth application-default login`
+  2. `python scripts/backfill_visits_to_client_master.py` (dry-run)
+  3. `python scripts/backfill_visits_to_client_master.py --apply`
+- **F4 (BQ, v1056)** ✅ shipped SQL — ver Apéndice A.2 (extendida con email,
+  telefono, credito, sap_health, geo, lead_estado), A.2b (nueva
+  `client_master_view` con `lastVisit.*` aplanado), A.2c (nueva
+  `clientes_360_view` — join key normalizado espeja `clientLocId`).
+
+**Pasos manuales pendientes para cerrar F4** (Firebase Console — no automatizable
+con CLI):
+1. Extensions → "Stream Firestore to BigQuery" → install nueva instancia:
+   - Collection path: `client_master`
+   - Dataset ID: `shimano_app`
+   - Table ID: `client_master_raw`
+   - Location: `us-central1`
+2. Correr backfill de la extension: `npx --package=@firebaseextensions/fs-bq-import-collection fs-bq-import-collection`
+3. Ejecutar los 3 CREATE OR REPLACE VIEW del Apéndice A.2 / A.2b / A.2c en BQ.
+4. En Power BI Desktop: agregar `clientes_360_view` como nuevo dataset, retirar
+   el modelo viejo de `client_applications_view` (queda como fuente de dato pero
+   los reports leen la 360).
+
+---
+
 ## CHECKLIST DE EJECUCIÓN (live status)
 
 ### ✅ Hecho hoy
@@ -619,15 +659,169 @@ SELECT
   JSON_VALUE(data, '$.cuit') AS cuit,
   JSON_VALUE(data, '$.calle') AS calle,
   JSON_VALUE(data, '$.localidad') AS localidad,
+  JSON_VALUE(data, '$.localidadFinal') AS localidad_final,
   JSON_VALUE(data, '$.provincia') AS provincia,
+  JSON_VALUE(data, '$.codigoPostal') AS codigo_postal,
+  -- v1056: contactabilidad (existen en Firestore desde sync SAP hace tiempo,
+  -- solo faltaba proyectarlos a BQ).
+  JSON_VALUE(data, '$.email') AS email,
+  JSON_VALUE(data, '$.telefonoContacto') AS telefono_contacto,
   JSON_VALUE(data, '$.assignedVendor') AS assigned_vendor,
+  JSON_VALUE(data, '$.coverageBy') AS coverage_by,
   JSON_VALUE(data, '$.precaucion') = 'true' AS precaucion,
   JSON_VALUE(data, '$.precaucionReason') AS precaucion_reason,
+  -- v1056: campo financiero para PowerBI (admin/gerente carga en client_master
+  -- Y en client_applications desde v1055 Master Clientes UI).
+  CAST(JSON_VALUE(data, '$.creditoCheque') AS NUMERIC) AS credito_cheque_ars,
+  -- v1056: metadata SAP health + funnel LEAD.
+  JSON_VALUE(data, '$.sapCardType') AS sap_card_type,
+  JSON_VALUE(data, '$.sapValid') AS sap_valid,
+  JSON_VALUE(data, '$.sapFrozen') AS sap_frozen,
+  JSON_VALUE(data, '$.sapReadyForSL') = 'true' AS sap_ready_for_sl,
+  JSON_VALUE(data, '$.source') AS source,
+  JSON_VALUE(data, '$.leadEstado') AS lead_estado,
+  JSON_VALUE(data, '$.manualSapPending') = 'true' AS manual_sap_pending,
   CAST(JSON_VALUE(data, '$.lat') AS FLOAT64) AS lat,
   CAST(JSON_VALUE(data, '$.lng') AS FLOAT64) AS lng,
+  JSON_VALUE(data, '$.geoProvider') AS geo_provider,
+  JSON_VALUE(data, '$.geoPrecision') AS geo_precision,
   TIMESTAMP(JSON_VALUE(data, '$.createdAt')) AS created_at,
-  TIMESTAMP(JSON_VALUE(data, '$.updatedAt')) AS updated_at
+  TIMESTAMP(JSON_VALUE(data, '$.updatedAt')) AS updated_at,
+  JSON_VALUE(data, '$.updatedBy') AS updated_by
 FROM latest WHERE rn = 1;
+```
+
+### A.2b. client_master_view (v1056, requiere extension Stream to BQ nueva)
+Prerequisito: instalar la extension **`firestore-bigquery-export`** apuntando
+a la coleccion `client_master` → tabla `client_master_raw` en dataset
+`shimano_app`. Config: dataset `shimano_app`, location `us-central1`, backup
+collection vacio, excluded fields vacio. Ver Paso 4.3 del checklist original.
+
+```sql
+CREATE OR REPLACE VIEW `shimano_app.client_master_view` AS
+WITH latest AS (
+  SELECT document_id, timestamp, operation, data,
+    ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY timestamp DESC) AS rn
+  FROM `shimano_app.client_master_raw_changelog`
+  WHERE operation != 'DELETE'
+)
+SELECT
+  document_id AS doc_id,
+  JSON_VALUE(data, '$.provincia') AS provincia,
+  JSON_VALUE(data, '$.localidad') AS localidad,
+  JSON_VALUE(data, '$.clientName') AS client_name,
+  JSON_VALUE(data, '$.vendor') AS vendor,
+  JSON_VALUE(data, '$.address') AS address,
+  JSON_VALUE(data, '$.addressExplicit') = 'true' AS address_explicit,
+  JSON_VALUE(data, '$.sapCity') AS sap_city,
+  JSON_VALUE(data, '$.sapZip') AS sap_zip,
+  -- Categorizacion comercial editada por admin
+  JSON_VALUE(data, '$.cliTipo') AS cli_tipo,
+  CAST(JSON_VALUE(data, '$.creditoCheque') AS NUMERIC) AS credito_cheque_ars,
+  -- v1056: subobjeto lastVisit poblado por CF onVisitCreatedDenormToClientMaster.
+  -- "Ultima gana" — la visita mas reciente por fecha sobreescribe.
+  JSON_VALUE(data, '$.lastVisit.fidelidad') AS last_visit_fidelidad,
+  JSON_QUERY_ARRAY(data, '$.lastVisit.tamanos') AS last_visit_tamanos,
+  JSON_QUERY_ARRAY(data, '$.lastVisit.especializaciones') AS last_visit_especializaciones,
+  JSON_VALUE(data, '$.lastVisit.canalCompra') AS last_visit_canal_compra,
+  JSON_VALUE(data, '$.lastVisit.tipoVenta') AS last_visit_tipo_venta,
+  CAST(JSON_VALUE(data, '$.lastVisit.ponderacionMostrado') AS NUMERIC) AS last_visit_pond_mostrado,
+  CAST(JSON_VALUE(data, '$.lastVisit.ponderacionEcommerce') AS NUMERIC) AS last_visit_pond_ecommerce,
+  DATE(JSON_VALUE(data, '$.lastVisit.fecha')) AS last_visit_fecha,
+  JSON_VALUE(data, '$.lastVisit.byDisplayName') AS last_visit_by,
+  JSON_VALUE(data, '$.lastVisit.visitId') AS last_visit_id,
+  -- Default delivery persistido (v785)
+  JSON_VALUE(data, '$.defaultDelivery.tipo') AS default_delivery_tipo,
+  TIMESTAMP(JSON_VALUE(data, '$.updatedAt')) AS updated_at,
+  JSON_VALUE(data, '$.updatedBy') AS updated_by
+FROM latest WHERE rn = 1;
+```
+
+### A.2c. clientes_360_view (v1056, join master enriquecido)
+Vista principal para PowerBI. Une `client_applications_view` (padron SAP) con
+`client_master_view` (overrides + lastVisit denormalizado) por `provincia +
+localidad + comercio`. Es el reemplazo natural de leer las 2 vistas separadas
+y joinearlas en el modelo Power BI.
+
+```sql
+CREATE OR REPLACE VIEW `shimano_app.clientes_360_view` AS
+WITH
+  ca AS (
+    SELECT
+      *,
+      -- Espeja clientLocId de src/domains/visitas.js:43 en SQL para poder
+      -- joinear contra client_master.doc_id (que usa esta misma key).
+      REGEXP_REPLACE(
+        REGEXP_REPLACE(
+          LOWER(NORMALIZE_AND_CASEFOLD(COALESCE(provincia, ''), NFD)),
+          r'[^a-z0-9]+', '_'
+        ), r'^_|_$', ''
+      ) || '__' ||
+      REGEXP_REPLACE(
+        REGEXP_REPLACE(
+          LOWER(NORMALIZE_AND_CASEFOLD(COALESCE(localidad, ''), NFD)),
+          r'[^a-z0-9]+', '_'
+        ), r'^_|_$', ''
+      ) || '__' ||
+      REGEXP_REPLACE(
+        REGEXP_REPLACE(
+          LOWER(NORMALIZE_AND_CASEFOLD(COALESCE(comercio, ''), NFD)),
+          r'[^a-z0-9]+', '_'
+        ), r'^_|_$', ''
+      ) AS join_key
+    FROM `shimano_app.client_applications_view`
+  )
+SELECT
+  ca.application_id,
+  ca.card_code_sap,
+  ca.status,
+  ca.titular,
+  ca.comercio,
+  ca.fantasia,
+  ca.cuit,
+  ca.email,
+  ca.telefono_contacto,
+  ca.calle,
+  ca.localidad,
+  ca.provincia,
+  ca.codigo_postal,
+  ca.assigned_vendor,
+  ca.coverage_by,
+  ca.precaucion,
+  ca.precaucion_reason,
+  -- credito_cheque_ars puede venir de client_applications (altas SAP editadas
+  -- desde Master Clientes UI) o de client_master (POINTS). Coalesce prioriza
+  -- el mas reciente actualizado por admin.
+  COALESCE(ca.credito_cheque_ars, cm.credito_cheque_ars) AS credito_cheque_ars,
+  cm.cli_tipo,
+  cm.vendor AS master_vendor,
+  cm.default_delivery_tipo,
+  -- Ultima visita (denormalizada por CF F2)
+  cm.last_visit_fidelidad,
+  cm.last_visit_tamanos,
+  cm.last_visit_especializaciones,
+  cm.last_visit_canal_compra,
+  cm.last_visit_tipo_venta,
+  cm.last_visit_pond_mostrado,
+  cm.last_visit_pond_ecommerce,
+  cm.last_visit_fecha,
+  cm.last_visit_by,
+  ca.sap_card_type,
+  ca.sap_valid,
+  ca.sap_frozen,
+  ca.sap_ready_for_sl,
+  ca.source,
+  ca.lead_estado,
+  ca.manual_sap_pending,
+  ca.lat,
+  ca.lng,
+  ca.geo_provider,
+  ca.geo_precision,
+  ca.created_at,
+  ca.updated_at
+FROM ca
+LEFT JOIN `shimano_app.client_master_view` cm
+  ON ca.join_key = cm.doc_id;
 ```
 
 ### A.3. campaigns_view
