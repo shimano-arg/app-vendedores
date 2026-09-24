@@ -2106,12 +2106,18 @@ window.renderMasterClientesTable = function () {
     return s;
   }
   let html = '<table class="mc-table"><thead><tr>';
-  html += '<th style="width:22%">Tienda</th>';
-  html += '<th style="width:12%">Localidad</th>';
-  html += '<th style="width:11%">Provincia</th>';
-  html += '<th style="width:13%">Vendedor</th>';
-  html += '<th style="width:23%">Direcci&oacute;n exacta</th>';
-  html += '<th style="width:11%" title="Categoria comercial del cliente">Tipo</th>';
+  html += '<th style="width:20%">Tienda</th>';
+  html += '<th style="width:11%">Localidad</th>';
+  html += '<th style="width:10%">Provincia</th>';
+  html += '<th style="width:12%">Vendedor</th>';
+  html += '<th style="width:20%">Direcci&oacute;n exacta</th>';
+  html += '<th style="width:9%" title="Categoria comercial del cliente">Tipo</th>';
+  // v1055 (2026-09-24): nueva columna "Credito" — limite de credito editable
+  // en ARS que tiene el cliente para pagar con cheque. Admin+gerente pueden
+  // editar; se guarda en client_master.creditoCheque (POINTS) o
+  // client_applications.creditoCheque (SAP altas).
+  html +=
+    '<th style="width:10%" title="Limite de credito en ARS para pagar con cheque (editable admin/gerente)">Credito</th>';
   html += '<th style="width:8%"></th>';
   html += '</tr></thead><tbody>';
   const MAX = 500;
@@ -2123,6 +2129,7 @@ window.renderMasterClientesTable = function () {
     // approvedAltasList (savedAddr es la calle/address actual guardada).
     let savedAddr = '';
     let curTipo = '';
+    let curCredito = null; // v1055: limite de credito ARS para cheque
     let defaultDelivery = null;
     if (isSap) {
       const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(
@@ -2130,10 +2137,12 @@ window.renderMasterClientesTable = function () {
       );
       savedAddr = alta ? alta.calle || alta.address || '' : '';
       curTipo = (alta && alta.cliTipo) || '';
+      curCredito = alta && alta.creditoCheque != null ? Number(alta.creditoCheque) : null;
     } else {
       const saved = clientMasterCache.get(id);
       savedAddr = saved && saved.address ? saved.address : '';
       curTipo = (saved && saved.cliTipo) || '';
+      curCredito = saved && saved.creditoCheque != null ? Number(saved.creditoCheque) : null;
       // v630: defaultDelivery vive en client_master (solo POINTS por ahora;
       // SAP altas se agregan cuando el vendedor confirma un pedido para ese
       // cliente y clientLocId matchea con el nombre real).
@@ -2459,6 +2468,39 @@ window.renderMasterClientesTable = function () {
       '">' +
       _selHtml('cliTipo', curTipoRender, TIPO_OPTS, id) +
       '</td>';
+    // v1055 (2026-09-24): input numeric editable para creditoCheque. Autosave
+    // onchange via saveMcClientNumField (parse a Number, guarda a Firestore).
+    // Placeholder muestra formato ARS para orientar; el valor real es number.
+    const creditoCanEdit = userRole === 'admin' || userRole === 'gerente';
+    const creditoDisplay =
+      curCredito != null && Number.isFinite(curCredito) ? String(curCredito) : '';
+    if (creditoCanEdit) {
+      html +=
+        '<td data-vendor="' +
+        escapeAttr(e.vendor) +
+        '" data-prov="' +
+        escapeAttr(e.provincia) +
+        '" data-loc="' +
+        escapeAttr(e.localidad) +
+        '" data-name="' +
+        escapeAttr(e.nombre) +
+        '"><input type="number" min="0" step="1000" class="mc-addr-input js-mc-credito-input' +
+        (creditoDisplay ? ' has-value' : '') +
+        '" style="font-size:11px;text-align:right" value="' +
+        escapeAttr(creditoDisplay) +
+        '" placeholder="0" title="Limite ARS para cheque" onchange="saveMcClientNumField(\'' +
+        escapeAttr(id) +
+        "', 'creditoCheque', this)\" /></td>";
+    } else {
+      const creditoFmt =
+        curCredito != null && Number.isFinite(curCredito)
+          ? '$' + curCredito.toLocaleString('es-AR')
+          : '-';
+      html +=
+        '<td style="text-align:right;font-size:11px;color:var(--text-secondary)">' +
+        escapeHtml(creditoFmt) +
+        '</td>';
+    }
     html +=
       '<td><div style="display:flex;gap:4px;flex-wrap:wrap"><button class="' +
       btnCls +
@@ -2725,6 +2767,82 @@ window.saveMcClientField = async function (docId, fieldName, sel) {
     }
   } finally {
     sel.classList.remove('saving');
+  }
+};
+
+// v1055 (2026-09-24): guarda un campo numerico del cliente (por ahora solo
+// creditoCheque). Reusa el patron de saveMcClientField: gated a admin/gerente,
+// escribe a client_master (POINTS) o client_applications (SAP altas via prefix
+// sap:). Diferencia clave: parse a Number para preservar tipo en Firestore
+// (asi queries y agregaciones no se pierden). Vacio o NaN -> null (equivalente
+// a "sin limite cargado").
+window.saveMcClientNumField = async function (docId, fieldName, input) {
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin o gerente puede editar el limite de credito.');
+    const isSap = typeof docId === 'string' && docId.indexOf('sap:') === 0;
+    if (isSap) {
+      const fsId = docId.slice(4);
+      const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(
+        (x) => x._fsId === fsId
+      );
+      const prev = alta && alta[fieldName] != null ? Number(alta[fieldName]) : null;
+      input.value = prev != null && Number.isFinite(prev) ? String(prev) : '';
+    } else {
+      const saved = clientMasterCache.get(docId);
+      const prev = saved && saved[fieldName] != null ? Number(saved[fieldName]) : null;
+      input.value = prev != null && Number.isFinite(prev) ? String(prev) : '';
+    }
+    return;
+  }
+  const raw = (input.value || '').trim();
+  const parsed = raw === '' ? null : Number(raw);
+  const newVal = parsed != null && Number.isFinite(parsed) ? parsed : null;
+  const isSap = typeof docId === 'string' && docId.indexOf('sap:') === 0;
+  input.classList.add('saving');
+  try {
+    if (isSap) {
+      const fsId = docId.slice(4);
+      const update = {
+        updatedBy: currentUser.email || '',
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      };
+      update[fieldName] = newVal;
+      await fbDb.collection('client_applications').doc(fsId).set(update, { merge: true });
+    } else {
+      const td =
+        input.closest('td[data-vendor]') || input.closest('tr').querySelector('td[data-vendor]');
+      const meta = {
+        vendor: td ? td.dataset.vendor : '',
+        provincia: td ? td.dataset.prov : '',
+        localidad: td ? td.dataset.loc : '',
+        clientName: td ? td.dataset.name : '',
+      };
+      const update = Object.assign({}, meta, {
+        updatedBy: currentUser.email || '',
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      update[fieldName] = newVal;
+      await fbDb.collection('client_master').doc(docId).set(update, { merge: true });
+    }
+    input.classList.toggle('has-value', newVal != null);
+    showSyncTag('Credito guardado');
+  } catch (e) {
+    console.error('saveMcClientNumField', e);
+    alert('Error guardando: ' + (e.message || e));
+    if (isSap) {
+      const fsId = docId.slice(4);
+      const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(
+        (x) => x._fsId === fsId
+      );
+      const prev = alta && alta[fieldName] != null ? Number(alta[fieldName]) : null;
+      input.value = prev != null && Number.isFinite(prev) ? String(prev) : '';
+    } else {
+      const saved = clientMasterCache.get(docId);
+      const prev = saved && saved[fieldName] != null ? Number(saved[fieldName]) : null;
+      input.value = prev != null && Number.isFinite(prev) ? String(prev) : '';
+    }
+  } finally {
+    input.classList.remove('saving');
   }
 };
 
