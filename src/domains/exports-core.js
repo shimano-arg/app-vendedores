@@ -251,6 +251,10 @@ window.exportMasterClientes = function () {
             'Localidad declarada': localityCust,
             'Lat (geocode)': customLat || lat,
             'Lng (geocode)': customLng || lon,
+            // v1055 (2026-09-24): limite de credito ARS para pagar con cheque.
+            // Editable admin/gerente desde Master Clientes UI, guardado en
+            // client_master.creditoCheque (para POINTS matcheados con SAP).
+            'Credito cheque (ARS)': cmData.creditoCheque != null ? Number(cmData.creditoCheque) : '',
           },
           _classifRow(province, localityMap, name)
         )
@@ -313,6 +317,8 @@ window.exportMasterClientes = function () {
             'Localidad declarada': loc,
             'Lat (geocode)': a.lat != null ? a.lat : '',
             'Lng (geocode)': a.lng != null ? a.lng : '',
+            // v1055: mismo campo para altas SAP (client_applications.creditoCheque).
+            'Credito cheque (ARS)': a.creditoCheque != null ? Number(a.creditoCheque) : '',
           },
           _classifRow(prov, loc, nombre)
         )
@@ -366,6 +372,7 @@ window.exportMasterClientes = function () {
     'Localidad declarada': 24,
     'Lat (geocode)': 14,
     'Lng (geocode)': 14,
+    'Credito cheque (ARS)': 18,
     'Ultima interaccion': 14,
     'Tipo ultima interaccion': 14,
     'Total visitas': 10,
@@ -390,7 +397,7 @@ window.exportMasterClientes = function () {
   };
   // Detectar keys 100% vacías.
   const allKeys = Object.keys(COL_WIDTHS);
-  const NUMERIC_ZERO_OK = new Set(['Total visitas', 'Total contactos']);
+  const NUMERIC_ZERO_OK = new Set(['Total visitas', 'Total contactos', 'Credito cheque (ARS)']);
   const emptyKeys = new Set(
     allKeys.filter((k) => {
       // Skip columnas core que SIEMPRE se muestran aunque estén vacías.
