@@ -38,10 +38,10 @@ function makeDbStub({ existing = {} } = {}) {
 describe('clientLocId', () => {
   it('normaliza tildes y no-alphanumeric', () => {
     expect(clientLocId('Buenos Aires', 'San Isidro', 'PescaPlay')).toBe(
-      'buenos_aires__san_isidro__pescaplay',
+      'buenos_aires__san_isidro__pescaplay'
     );
     expect(clientLocId('CÓRDOBA', 'Villa María', 'El Pez Gordo')).toBe(
-      'cordoba__villa_maria__el_pez_gordo',
+      'cordoba__villa_maria__el_pez_gordo'
     );
   });
   it('acepta vacíos', () => {
@@ -67,7 +67,7 @@ describe('extractLastVisitPayload', () => {
         createdByDisplayName: 'Gonzalo',
         createdByEmail: 'gonza@shimano.com',
       },
-      'v42',
+      'v42'
     );
     expect(p).toEqual({
       fidelidad: 'ALTA',
@@ -83,13 +83,18 @@ describe('extractLastVisitPayload', () => {
   });
   it('incluye ponderaciones solo si tipoVenta=AMBOS', () => {
     const solo = extractLastVisitPayload(
-      { fidelidad: 'MEDIA', tipoVenta: 'MOSTRADO', ponderacionMostrado: 80, ponderacionEcommerce: 20 },
-      'v1',
+      {
+        fidelidad: 'MEDIA',
+        tipoVenta: 'MOSTRADO',
+        ponderacionMostrado: 80,
+        ponderacionEcommerce: 20,
+      },
+      'v1'
     );
     expect(solo.ponderacionMostrado).toBeUndefined();
     const ambos = extractLastVisitPayload(
       { fidelidad: 'MEDIA', tipoVenta: 'AMBOS', ponderacionMostrado: 60, ponderacionEcommerce: 40 },
-      'v1',
+      'v1'
     );
     expect(ambos.ponderacionMostrado).toBe(60);
     expect(ambos.ponderacionEcommerce).toBe(40);
@@ -115,7 +120,7 @@ describe('denormVisitToClientMaster', () => {
     const db = makeDbStub();
     const r = await denormVisitToClientMaster(
       { visit: { fidelidad: 'ALTA' }, visitId: 'v1' },
-      { db, FieldValue },
+      { db, FieldValue }
     );
     expect(r.status).toBe('skipped');
     expect(r.reason).toBe('missing_prov_loc_tienda');
@@ -135,7 +140,7 @@ describe('denormVisitToClientMaster', () => {
         },
         visitId: 'v1',
       },
-      { db, FieldValue },
+      { db, FieldValue }
     );
     expect(r.status).toBe('skipped');
     expect(r.reason).toBe('no_attributes');
@@ -160,7 +165,7 @@ describe('denormVisitToClientMaster', () => {
         },
         visitId: 'v1',
       },
-      { db, FieldValue },
+      { db, FieldValue }
     );
     expect(r.status).toBe('ok');
     expect(r.docId).toBe('buenos_aires__palermo__pescaplay');
@@ -210,7 +215,7 @@ describe('denormVisitToClientMaster', () => {
         },
         visitId: 'v99',
       },
-      { db, FieldValue },
+      { db, FieldValue }
     );
     expect(r.status).toBe('ok');
     const w = db._store.writes[0];
@@ -243,7 +248,7 @@ describe('denormVisitToClientMaster', () => {
         },
         visitId: 'vOld',
       },
-      { db, FieldValue },
+      { db, FieldValue }
     );
     expect(r.status).toBe('skipped');
     expect(r.reason).toBe('older_than_existing');
@@ -269,7 +274,7 @@ describe('denormVisitToClientMaster', () => {
           },
           visitId: v.visitId,
         },
-        { db, FieldValue },
+        { db, FieldValue }
       );
     }
     const docId = 'buenos_aires__palermo__mariano_pesca';
