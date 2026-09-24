@@ -821,10 +821,10 @@ SELECT
   -- desde Master Clientes UI) o de client_master (POINTS). Coalesce prioriza
   -- el mas reciente actualizado por admin.
   COALESCE(ca.credito_cheque_ars, cm.credito_cheque_ars) AS credito_cheque_ars,
-  -- v1057: cli_tipo prioriza client_applications (donde admin edita desde
-  -- Master Clientes UI). Fallback a client_master (usado por Modal cliente
-  -- individual). 154 rows populated post-fix.
-  COALESCE(ca.cli_tipo, cm.cli_tipo) AS cli_tipo,
+  -- v1057-f: default "C" cuando no hay cliTipo persistido (mismo pattern que
+  -- Master Clientes UI v349+ que muestra "C" visualmente sin persistir). Refleja
+  -- en PowerBI lo que ve el admin en la app. NULLIF para tratar '' como null.
+  COALESCE(NULLIF(ca.cli_tipo, ''), NULLIF(cm.cli_tipo, ''), 'C') AS cli_tipo,
   cm.vendor AS master_vendor,
   cm.default_delivery_tipo,
   -- Ultima visita (denormalizada por CF F2)
