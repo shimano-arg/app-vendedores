@@ -18,7 +18,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
 | **Versión actual** | **v1038 (2026-09-22)** — Sesión intensiva Planner Kanban: pipeline 100% automático + lineal (5 columnas, columna Confirmado removida). 19 PRs shipped (#687-#710) + 3 CFs nuevos deployados (`syncSapOrdersToApp` schedule 15min, `syncSapPaymentsToApp` nuevo Fase 2, `onPlannerStageChanged` multi-update). Ver §52 (estado consolidado) + §41 (changelog detallado v1016-v1038). \| **v1007 (2026-09-22)** — Planner Kanban F1 completa (Mariano-only en producción). \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP. \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. |
-| **APP_VERSION** | `v1074` frontend (Botón "Enviar a SAP" admin-only en cards de Confirmados con `transferError` — reintento manual del envío una vez resuelto el problema que causó el fallo. Reusa `enviarPedidosASAPViaServiceLayer` existente). `v1073 BQ-only`: `fecha_contable` en `v_facturas_sap` + `v_ventas_lineas`. `v1072`: Modal Stock Asignado muestra ASIG con `asigReserva=false`. `v1071 CF-only`: `setupGetMovimientos` log detallado. `v1070`: listener `stock_snapshot` resiliente. `v1069`: escape hatch `?skipAppCheck=1`. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog. |
+| **APP_VERSION** | `v1075` frontend (Listener `sap_integration` resiliente: mismo zombie safety net que v1070 pero para el listener de config SAP — reporte Mariano "Service Layer no habilitado" al tocar "Enviar a SAP" aunque en Firestore `sl.enabled=true`. Root cause: `onSnapshot` queda zombie → `sapConfigCache={}` → `sapSL.isEnabled()=false`). `v1074`: botón "Enviar a SAP" admin-only en cards con `transferError`. `v1073 BQ-only`: `fecha_contable`. `v1072`: Modal Stock Asignado ASIG sin reserva. `v1071 CF-only`: `setupGetMovimientos` log. `v1070`: listener `stock_snapshot` resiliente. `v1069`: escape hatch `?skipAppCheck=1`. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4673,7 +4673,31 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1074
+## 41) Changelog v300 → v1075
+
+### v1075 (2026-09-25) — Listener `sap_integration` resiliente: mismo zombie safety net que v1070 (stock_snapshot)
+
+**Reporte Mariano 2026-09-25**: al tocar el botón "Enviar a SAP" (v1074) en la card de un pedido con `transferError`, alert "Service Layer no está habilitado. Configuralo en el tab Service Layer." aunque en Firestore `sl.enabled=true`.
+
+**Root cause**: mismo pattern zombie del v1070 aplicado al listener `unsubSapConfig`. El `onSnapshot` sobre `app_config/sap_integration` queda attach pero nunca dispara callback → `sapConfigCache = {}` → `sapSL.isEnabled()` devuelve false para toda la sesión.
+
+**Fix**: aplicar el mismo pattern del v1070 a `ensureSapConfigListener` en `src/domains/sap-admin-panel.js`:
+
+1. **`_applySapConfigDoc(d, source)`** — helper extraído para aplicar el snapshot (setea `sapConfigCache`, notifica a `ensureSapAutoSendListener`, re-renderea el panel SAP si abierto). Reutilizable desde el listener y desde el fallback.
+
+2. **Zombie detection + re-attach**: track `_sapConfigListenerAttachedAt` + `_sapConfigListenerFiredAt` en `window.*`. Si `unsubSapConfig` existe pero >15s sin fire → tear-down + re-attach.
+
+3. **Safety net `.get({source:'server'})`**: post-attach setTimeout 15s. Si el listener no fired, `.get()` explícito y `_applySapConfigDoc(d, 'fallback-get')`.
+
+4. **Error handler**: antes `console.warn` sin re-attach. Ahora `console.error` + reset `_sapConfigListenerAttachedAt=null` para permitir retry en próxima llamada.
+
+**Log post-deploy esperado**:
+- Sesión normal: `[sapConfig] listener attach` → `[sapConfig] cargado (listener): N keys, sl.enabled=true`.
+- Sesión zombie: `[sapConfig] listener attach` → 15s de silencio → warn "listener no fired en 15s post-attach — fallback .get() explícito" → `[sapConfig] cargado (fallback-get): N keys, sl.enabled=true`.
+
+**Debt profunda**: el zombie state en `onSnapshot` es un patrón repetitivo que ya golpeó 2 listeners hoy (stock_snapshot v1070 + sap_integration v1075). Se puede generalizar en un helper `ensureListenerWithFallback(ref, applyFn, name)` y aplicarlo consistente a todos los listeners críticos (`unsubPedidosAll`, `unsubClientMaster`, `unsubApprovedAltas`, `unsubBackorderSnapshot`, etc). Cuando aparezca otro caso, hacer la refactorización.
+
+Rebuild `app.bundle.js` + chunks (regla feedback_build_bundle_commit). Bump `APP_VERSION`/`CACHE_VERSION` v1074 → v1075.
 
 ### v1074 (2026-09-25) — Botón "Enviar a SAP" en cards de Confirmados con `transferError` (admin-only)
 
