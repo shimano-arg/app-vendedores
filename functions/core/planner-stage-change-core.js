@@ -73,25 +73,47 @@ async function resolveVdeEmail(vendorKey, db) {
  */
 async function resolveVdiPartnerEmail(pedido, db) {
   const vendorKey = pedido?.ownerVendor || pedido?.vendorKey;
-  if (!vendorKey) return null;
-  // Paso 1: encontrar el VDE con ese vendor key. Usar 2 wheres para
-  // no matchear docs con vendor coincidente pero role != vendedor.
+  // v1080 (2026-09-25): logging detallado para diagnostico del bug reportado
+  // "Santiago Esteban no recibe alertas". Cada return null se marca con el
+  // motivo exacto — asi en firebase functions:log queda evidencia de por
+  // que la CF no envia al VDI pareja.
+  if (!vendorKey) {
+    console.log('[vdi-partner] skip: no-vendor-key en pedido', pedido?.id || '?');
+    return null;
+  }
   const vdeSnap = await db
     .collection('roles')
     .where('vendor', '==', vendorKey)
     .where('role', '==', 'vendedor')
     .limit(1)
     .get();
-  if (vdeSnap.empty) return null;
+  if (vdeSnap.empty) {
+    console.log('[vdi-partner] skip: no-vde-found para vendorKey=' + vendorKey);
+    return null;
+  }
   const vde = vdeSnap.docs[0].data() || {};
+  const vdeUid = vdeSnap.docs[0].id;
   const partnerUid = vde.internalPartnerUid;
-  if (!partnerUid) return null;
-  // Paso 2: leer el doc del VDI pareja
+  if (!partnerUid) {
+    console.log('[vdi-partner] skip: no-internalPartnerUid en VDE ' + vdeUid + ' (email=' + (vde.email || '?') + ', vendor=' + vendorKey + ')');
+    return null;
+  }
   const vdiSnap = await db.doc('roles/' + partnerUid).get();
-  if (!vdiSnap.exists) return null;
+  if (!vdiSnap.exists) {
+    console.log('[vdi-partner] skip: partnerUid=' + partnerUid + ' no existe en roles/');
+    return null;
+  }
   const vdi = vdiSnap.data() || {};
-  if (vdi.role !== 'interno') return null;
-  return vdi.email || null;
+  if (vdi.role !== 'interno') {
+    console.log('[vdi-partner] skip: partnerUid=' + partnerUid + ' tiene role=' + vdi.role + ' (esperado: interno). Email=' + (vdi.email || '?'));
+    return null;
+  }
+  if (!vdi.email) {
+    console.log('[vdi-partner] skip: partnerUid=' + partnerUid + ' role=interno OK pero sin email seteado');
+    return null;
+  }
+  console.log('[vdi-partner] OK: vendor=' + vendorKey + ' -> VDE ' + (vde.email || '?') + ' -> VDI ' + vdi.email);
+  return vdi.email;
 }
 
 /**
