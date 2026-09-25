@@ -18,7 +18,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
 | **Versión actual** | **v1038 (2026-09-22)** — Sesión intensiva Planner Kanban: pipeline 100% automático + lineal (5 columnas, columna Confirmado removida). 19 PRs shipped (#687-#710) + 3 CFs nuevos deployados (`syncSapOrdersToApp` schedule 15min, `syncSapPaymentsToApp` nuevo Fase 2, `onPlannerStageChanged` multi-update). Ver §52 (estado consolidado) + §41 (changelog detallado v1016-v1038). \| **v1007 (2026-09-22)** — Planner Kanban F1 completa (Mariano-only en producción). \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP. \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. |
-| **APP_VERSION** | `v1064` frontend (modal Backorder: reemplaza input Search por 2 filtros dedicados — **Tienda** con autocompletar datalist + **Vendedor** dropdown que trae solo el backorder de las tiendas de ese VDE. Aplica al render + al export "Exportar todo"). `v1063`: fix export vendedor. `v1060`: fix panel Stock Asignado. `v1058`: fix AppCheck 401. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog. |
+| **APP_VERSION** | `v1065` frontend (HOTFIX real del bug "(sin vendedor)" en export Backorder: v1063 arregló el fallback en el consumidor pero el SNAPSHOT LOCAL de `globalPedidos` nunca copiaba `d.vendedor` — solo `d.ownerVendor`. Agregado `vendedor/vendorAssigned/vendor` a la proyección del listener onSnapshot). `v1064`: filtros Tienda+Vendedor. `v1063`: fix fallback vendedor. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4673,7 +4673,43 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1064
+## 41) Changelog v300 → v1065
+
+### v1065 (2026-09-25) — HOTFIX real bug "(sin vendedor)": snapshot listener no proyectaba `d.vendedor`
+
+**Reporte Mariano** (Backorders_2026-09-25 (1).xlsx): tras hard refresh + limpiar storage, el export seguía mostrando "(sin vendedor)" para muchas filas (850/3270 = 26%).
+
+**Diagnóstico completo** (comparando export vs Firestore real):
+
+| Bucket | Export | Firestore | Delta |
+|---|---|---|---|
+| (sin vendedor) | 850 | 73 | **+777** |
+| GONZALO | 832 | 851 | -19 |
+| SANTIAGO | 684 | 696 | -12 |
+| IOANNIS | 469 | 505 | -36 |
+
+**Root cause real** (`index.html:28815+`): el listener `onSnapshot('pedidos')` que popula `globalPedidos` **proyecta manualmente los campos** que copia — no hace spread completo del doc. La proyección solo incluía `ownerVendor: d.ownerVendor || ''`. Pero ~28% de los pedidos abiertos (59/211) tienen `vendedor` seteado en Firestore pero NO `ownerVendor` (pedidos migrados/viejos). Esos pedidos llegan al browser con `p.vendedor=undefined` → el fallback v1063 (`p.ownerVendor || p.vendedor || ...`) termina en `''` → "(sin vendedor)" en el export/render.
+
+El fix v1063 arregló el CONSUMIDOR (fallback en el export), pero la fuente (el snapshot local) ya venía sin el dato. El fix v1064 (filtros Tienda + Vendedor) tampoco lo tocó — reusaba la misma proyección.
+
+**Fix**: agregar los 3 campos legacy a la proyección:
+
+```javascript
+globalPedidos.push({
+  ...
+  ownerVendor: d.ownerVendor || '',
+  vendedor: d.vendedor || '',          // ← v1065 nuevo
+  vendorAssigned: d.vendorAssigned || '',  // ← v1065 nuevo
+  vendor: d.vendor || '',              // ← v1065 nuevo
+  ...
+});
+```
+
+Ahora los ~59 pedidos con schema legacy llegan al browser con `p.vendedor='MARTIN BOIERO'` (o quien sea) y el fallback v1063 lo captura correctamente.
+
+**Lección**: cuando el schema tiene campos alternativos, verificar tanto el CONSUMIDOR (fallback en el lector) como la FUENTE (proyección del snapshot). Un fix aislado en cualquiera de los dos no alcanza.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1064 → v1065.
 
 ### v1064 (2026-09-25) — Modal Backorder: reemplaza input Search por 2 filtros dedicados (Tienda + Vendedor)
 
