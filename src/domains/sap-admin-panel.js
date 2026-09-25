@@ -138,32 +138,74 @@ window.switchSapTab = function (tab) {
 // La info vive en app_config/sap_integration. Solo admin edita; el resto la lee.
 if (typeof window.sapConfigCache === 'undefined') window.sapConfigCache = {};
 if (typeof window.unsubSapConfig === 'undefined') window.unsubSapConfig = null;
+// v1075 (2026-09-25): tracking del listener sap_integration para detectar
+// "zombie state" — attach OK pero onSnapshot nunca fires. Precedente v1070
+// aplico el mismo pattern al listener stock_snapshot; Mariano 2026-09-25
+// reporto el mismo bug en sap_integration ("Service Layer no habilitado"
+// al tocar Enviar a SAP aunque en Firestore sl.enabled=true). Sin este
+// tracking + fallback, sapConfigCache queda {} silencioso y sapSL.isEnabled()
+// devuelve false para toda la sesion.
+if (typeof window._sapConfigListenerAttachedAt === 'undefined') window._sapConfigListenerAttachedAt = null;
+if (typeof window._sapConfigListenerFiredAt === 'undefined') window._sapConfigListenerFiredAt = null;
+// Helper que aplica un snapshot doc a las globals + notifica a consumers.
+function _applySapConfigDoc(d, source) {
+  window.sapConfigCache = d || {};
+  try {
+    if (typeof ensureSapAutoSendListener === 'function') ensureSapAutoSendListener();
+  } catch (_e) {}
+  if (
+    window.sapCurrentTab === 'config' &&
+    document.getElementById('sap-modal') &&
+    document.getElementById('sap-modal').classList.contains('open')
+  ) {
+    try { renderSapConfig(); } catch (_e) {}
+  }
+  console.log('[sapConfig] cargado (' + source + '): ' + Object.keys(d || {}).length + ' keys, sl.enabled=' + (d && d.serviceLayer && d.serviceLayer.enabled));
+}
 function ensureSapConfigListener() {
-  if (window.unsubSapConfig || !currentUser || !fbDb) return;
+  const _now = Date.now();
+  // v1075 zombie detection: si unsubSapConfig existe pero >15s sin fires,
+  // tear-down + re-attach.
+  if (window.unsubSapConfig) {
+    if (window._sapConfigListenerFiredAt) return;
+    if (window._sapConfigListenerAttachedAt && (_now - window._sapConfigListenerAttachedAt) < 15000) return;
+    console.warn('[sapConfig] listener zombie detectado (attach hace ' +
+      (window._sapConfigListenerAttachedAt ? Math.round((_now - window._sapConfigListenerAttachedAt) / 1000) : '?') +
+      's sin fires) — tear-down + re-attach');
+    try { window.unsubSapConfig(); } catch (_e) {}
+    window.unsubSapConfig = null;
+  }
+  if (!currentUser || !fbDb) return;
+  window._sapConfigListenerAttachedAt = _now;
+  window._sapConfigListenerFiredAt = null;
+  console.log('[sapConfig] listener attach');
   window.unsubSapConfig = fbDb
     .collection('app_config')
     .doc('sap_integration')
     .onSnapshot(
       (snap) => {
-        window.sapConfigCache = snap && snap.exists ? snap.data() || {} : {};
-        // Reaccionar al toggle de auto-envio: activa o apaga el listener segun
-        // window.sapConfigCache.autoSendSL. Tambien se reactiva si el admin recarga
-        // las credenciales de SL.
-        try {
-          if (typeof ensureSapAutoSendListener === 'function') ensureSapAutoSendListener();
-        } catch (_e) {}
-        // Si el panel SAP esta abierto en la tab Config, refrescar.
-        if (
-          window.sapCurrentTab === 'config' &&
-          document.getElementById('sap-modal').classList.contains('open')
-        ) {
-          try {
-            renderSapConfig();
-          } catch (_e) {}
-        }
+        window._sapConfigListenerFiredAt = Date.now();
+        const d = snap && snap.exists ? snap.data() || {} : {};
+        _applySapConfigDoc(d, 'listener');
       },
-      (err) => console.warn('sapConfig listener', err)
+      (err) => {
+        console.error('[sapConfig] listener error:', err && err.code, err && err.message);
+        window._sapConfigListenerAttachedAt = null; // permitir re-attach
+      }
     );
+  // v1075 safety net: si en 15s no fired, .get({source:'server'}) explicito.
+  // En el bug observado, .get() funciona aunque onSnapshot queda zombie.
+  setTimeout(() => {
+    if (window._sapConfigListenerFiredAt) return;
+    if (!fbDb || !currentUser) return;
+    console.warn('[sapConfig] listener no fired en 15s post-attach — fallback .get() explicito');
+    fbDb.collection('app_config').doc('sap_integration').get({ source: 'server' }).then(snap => {
+      if (window._sapConfigListenerFiredAt) return; // race
+      if (!snap.exists) { console.warn('[sapConfig] fallback .get() dice exists=false'); return; }
+      window._sapConfigListenerFiredAt = Date.now();
+      _applySapConfigDoc(snap.data() || {}, 'fallback-get');
+    }).catch(e => console.error('[sapConfig] fallback .get() error:', e && e.code, e && e.message));
+  }, 15000);
 }
 
 function renderSapConfig() {
