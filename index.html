@@ -5327,15 +5327,6 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
             <select id="backorders-mes-filter" class="bo-ctl" onchange="onBackordersMesChange()" title="Filtrar por mes de la SQ" style="flex:1 1 200px;min-width:170px">
               <option value="">Todos los meses</option>
             </select>
-            <select id="backorders-stock-filter" class="bo-ctl" onchange="onBackordersStockFilterChange()" style="display:none">
-              <option value="sin">Sin stock (para importar)</option>
-              <option value="con">Con stock (para asignar)</option>
-              <option value="todos">Todos (sin filtro)</option>
-            </select>
-            <select id="backorders-urgency-filter" class="bo-ctl" onchange="onBackordersUrgencyFilterChange()" title="Filtrar por urgencia del backorder" style="flex:1 1 200px;min-width:170px">
-              <option value="urgente">Solo urgentes (sin stock)</option>
-              <option value="parcial">Solo parciales (stock repartido)</option>
-            </select>
           </div>
           <div style="text-align:center;flex-shrink:0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
             <button id="btn-export-lista-plana" class="bo-btn" onclick="exportBackordersToExcel()">Exportar todo</button>
@@ -5928,7 +5919,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1066';
+const APP_VERSION = 'v1067';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13159,7 +13150,10 @@ function _applyBackordersMode(mode){
   const head = document.getElementById('backorders-modal-head');
   const title = document.getElementById('backorders-modal-title');
   const subt = document.getElementById('backorders-modal-subt');
-  const sel = document.getElementById('backorders-stock-filter');
+  // v1067 (2026-09-25): selects "Sin stock" y "Solo urgentes" removidos del
+  // modal Backorder por pedido Mariano. Los defaults por modo se mantienen:
+  // backordersStockFilter='sin' y backordersUrgencyFilter='urgente' aplican
+  // en modo backorder; 'con' aplica en modo asignacion.
   if (mode === 'asignacion') {
     backordersStockFilter = 'con';
     if (head) head.style.background = 'linear-gradient(135deg,#14532d,#166534)';
@@ -13171,26 +13165,10 @@ function _applyBackordersMode(mode){
     if (title) title.innerHTML = 'Backorder';
     if (subt) subt.textContent = 'SKUs con demanda pendiente que no podemos cubrir - urgentes de importar. Datos SAP cada 30 min. Solo pesca.';
   }
-  if (sel) sel.value = backordersStockFilter;
-  // v523: en mode='asignacion' el select de filtro por stock queda oculto
-  // (el modal SAP Asignado - Con Stock por definicion muestra solo con
-  // stock; el filtro sin stock esta en el modal Backorder aparte).
-  if (sel) sel.style.display = (mode === 'asignacion') ? 'none' : '';
-  // v864 (2026-09-11): filtro urgencia visible solo en modo backorder.
-  const urgSel = document.getElementById('backorders-urgency-filter');
-  if (urgSel) {
-    urgSel.style.display = (mode === 'asignacion') ? 'none' : '';
-    urgSel.value = backordersUrgencyFilter;
-  }
   // v509: boton "Exportar Stock Asignado" visible solo en modo asignacion.
   const tplBtn = document.getElementById('btn-export-stock-asig-cliente');
   if (tplBtn) tplBtn.style.display = (mode === 'asignacion') ? '' : 'none';
 }
-window.onBackordersUrgencyFilterChange = function(){
-  const sel = document.getElementById('backorders-urgency-filter');
-  backordersUrgencyFilter = sel ? sel.value : 'urgente';
-  try { renderBackordersTab(); } catch(e) { console.warn('onBackordersUrgencyFilterChange', e); }
-};
 // v420 (2026-08-06): recomputa counts para ambos botones (urgente + asignacion)
 // contando SKUs distintos (no lineas) en cada categoria segun stock actual.
 // Se llama desde ensureBackordersListener + desde el listener de stock_snapshot.
@@ -13305,16 +13283,6 @@ window.clearBackordersSearch = function(){
 window.onBackordersMesChange = function(){
   const sel = document.getElementById('backorders-mes-filter');
   backordersMesFilter = (sel && sel.value || '').trim();
-  renderBackordersTab();
-};
-// v420 (2026-08-06): select con 3 estados de filtro por stock. Reemplaza el checkbox v419.
-// 'sin' = solo SKUs sin stock en whs 11+12 (urgentes importar). Default en mode='urgente'.
-// 'con' = solo SKUs con stock en whs 11 o 12 (para asignar). Default en mode='asignacion'.
-// 'todos' = sin filtro por stock (mostrar todo).
-window.onBackordersStockFilterChange = function(){
-  const sel = document.getElementById('backorders-stock-filter');
-  const v = (sel && sel.value) || 'todos';
-  backordersStockFilter = (v === 'sin' || v === 'con') ? v : 'todos';
   renderBackordersTab();
 };
 // v401 (2026-08-05): exportar backorders filtrados a Excel. Respeta el
