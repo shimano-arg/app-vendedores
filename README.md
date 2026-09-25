@@ -18,7 +18,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
 | **Versión actual** | **v1038 (2026-09-22)** — Sesión intensiva Planner Kanban: pipeline 100% automático + lineal (5 columnas, columna Confirmado removida). 19 PRs shipped (#687-#710) + 3 CFs nuevos deployados (`syncSapOrdersToApp` schedule 15min, `syncSapPaymentsToApp` nuevo Fase 2, `onPlannerStageChanged` multi-update). Ver §52 (estado consolidado) + §41 (changelog detallado v1016-v1038). \| **v1007 (2026-09-22)** — Planner Kanban F1 completa (Mariano-only en producción). \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP. \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. |
-| **APP_VERSION** | `v1077` frontend (Refactor: `ensureListenerWithFallback` helper genérico para listeners `onSnapshot` resilientes al zombie state. 5 listeners refactoreados: `stock_snapshot`, `sap_integration`, `pedidos_own`, `pedidos_all`, `revision_waitlist`. Solución arquitectural al pattern que ya golpeó 3 listeners el día — la card ya se mueve al pasar de Lista de Espera a Pendientes sin refresh manual). `v1076`: HOTFIX input `sl-user`. `v1075`: listener `sap_integration` zombie safety net. `v1074`: botón "Enviar a SAP". `v1073 BQ-only`: `fecha_contable`. `v1072`: Modal Stock Asignado ASIG sin reserva. `v1071 CF-only`: `setupGetMovimientos` log. `v1070`: listener `stock_snapshot` resiliente. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog. |
+| **APP_VERSION** | `v1078` frontend (Updates casi instantáneos: helper `ensureListenerWithFallback` con timeout 3s + polling continuo cada 3s si el listener queda zombie + render manual post-`pedidos.add()` en `doConfirmPedido`. Fix del feedback Mariano "ESOS CAMBIOS DEBEN SER CASI INSTANTÁNEOS". Card aparece en <100ms al Confirmar aunque el listener esté zombie). `v1077`: refactor helper genérico. `v1076`: HOTFIX input `sl-user`. `v1075`: listener `sap_integration`. `v1074`: botón "Enviar a SAP". `v1073 BQ-only`: `fecha_contable`. `v1072`: Modal Stock Asignado ASIG sin reserva. `v1071 CF-only`: `setupGetMovimientos` log. `v1070`: listener `stock_snapshot`. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4673,7 +4673,30 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1077
+## 41) Changelog v300 → v1078
+
+### v1078 (2026-09-25) — Updates casi instantáneos: timeout 3s + polling continuo si listener zombie + render manual post-write
+
+**Reporte Mariano 2026-09-25**: "ESOS CAMBIOS DEBEN SER CASI INSTANTÁNEOS". El v1077 con timeout 15s + fallback ONE-SHOT no cubría updates posteriores — si el listener seguía zombie, el próximo write requería refresh manual.
+
+**Fix arquitectural**:
+
+1. **Timeout reducido 15s → 3s** en el helper `ensureListenerWithFallback`. UX más responsivo.
+2. **Polling continuo post-fallback**: si el listener no dispara en 3s, además del `.get({source:'server'})` inicial, se activa un `setInterval` cada 3s (configurable via `options.pollIntervalMs`) que sigue haciendo `.get()` indefinidamente hasta que el listener resucite o `detachResilientListener` corra.
+3. **Auto-cancel del polling**: si el listener SÍ dispara alguna vez (revive), el polling se cancela automáticamente en el callback (`wasZombie && state.pollInterval → clearInterval`).
+4. **Render manual post-write en `doConfirmPedido`**: después de `pedidos.add()` + push local a `pending[]`, llama `renderPedidosTab()` explícito. La card aparece **instantáneo** (0ms) sin depender del listener. El listener después re-valida vía snapshot o fallback.
+
+**Comportamiento post-deploy**:
+
+- **Sesión sana + write propio**: card aparece en <100ms (render manual post-write) + listener valida en <1s.
+- **Sesión zombie + write propio**: card aparece en <100ms (render manual). Polling cada 3s garantiza updates de otros users se ven en máximo 3s.
+- **Sesión zombie + write de otro user (VDI, CF)**: máximo 3s de delay por polling.
+
+**Costo Firebase**: sesión zombie hace ~5 `.get()` cada 3s = 100/min = 6k/hora por user zombie. Con Blaze plan es marginal. Users sanos = 0 polling adicional.
+
+**Test explicit**: en Console log, buscar `[pedidos_own] polling activado cada 3000ms hasta que el listener resucite` cuando el listener queda zombie. Si nunca aparece → listener sano.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1077 → v1078.
 
 ### v1077 (2026-09-25) — Refactor: `ensureListenerWithFallback` helper genérico para listeners onSnapshot resilientes al zombie state
 
