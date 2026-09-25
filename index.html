@@ -5919,7 +5919,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1072';
+const APP_VERSION = 'v1074';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -21586,6 +21586,61 @@ window.openTransferErrorModal = function(pedidoFsId){
   alert(body);
 };
 
+// v1074 (2026-09-25): reintento manual de envio a SAP para pedidos con
+// transferError (badge "POR QUE FALLO?"). Uso: admin resuelve el problema
+// que causo el fallo (ej: cliente inactivo -> activarlo en SAP) y toca
+// "Enviar a SAP" en la card del pedido. Llama a la funcion existente
+// enviarPedidosASAPViaServiceLayer con un array de 1 pedido. Reporta el
+// resultado en un alert simple; la card se re-renderea automatico cuando
+// el listener onSnapshot recibe el update de Firestore
+// (transferidoSAP seteado -> hasErr=false -> desaparece el banner rojo).
+window.reintentarEnvioSap = async function(pedidoFsId){
+  if (userRole !== 'admin') { alert('Solo admin puede reintentar el envio a SAP.'); return; }
+  if (!pedidoFsId) return;
+  let p = null;
+  if (Array.isArray(globalPedidos)) p = globalPedidos.find(x => x && x._fsId === pedidoFsId) || null;
+  if (!p) {
+    Object.values(confirmed || {}).forEach(list => {
+      (list || []).forEach(c => { if (c && c._fsId === pedidoFsId) p = c; });
+    });
+  }
+  if (!p) { alert('No se encontro el pedido. Refresca la pagina.'); return; }
+  if (p.transferidoSAP) { alert('Este pedido ya fue transferido a SAP (DocNum ' + (p.transferidoSAP.docNum || '?') + '). No hace falta reintentar.'); return; }
+  if (typeof sapSL === 'undefined' || !sapSL.isEnabled || !sapSL.isEnabled()) {
+    alert('Service Layer no esta habilitado. Configuralo en el tab Service Layer.');
+    return;
+  }
+  if (typeof enviarPedidosASAPViaServiceLayer !== 'function') {
+    alert('Modulo de envio SL no cargado. Recarga la pagina.');
+    return;
+  }
+  const cli = p.clientName || '(sin cliente)';
+  const ord = p.orderNumber ? ' (ORDEN ' + p.orderNumber + ')' : '';
+  if (!confirm('Reintentar envio a SAP del pedido:\n\n' + cli + ord + '\n\nVerificaste que el problema anterior este resuelto en SAP?')) return;
+  try {
+    const r = await enviarPedidosASAPViaServiceLayer([p]);
+    const okCount = (r && r.sent) || 0;
+    const failCount = (r && r.failed) || 0;
+    const skipCount = (r && r.skipped && r.skipped.length) || 0;
+    let msg;
+    if (okCount > 0) {
+      msg = 'Enviado OK a SAP.';
+    } else if (failCount > 0) {
+      const errMsg = (r.errors && r.errors[0] && r.errors[0].error) || '(sin detalle)';
+      msg = 'Fallo el reintento.\n\nMotivo: ' + errMsg + '\n\nRevisa el modal "POR QUE FALLO?" para mas info.';
+    } else if (skipCount > 0) {
+      const skipMsg = (r.skipped[0] && r.skipped[0].motivo) || '(sin motivo)';
+      msg = 'Omitido: ' + skipMsg;
+    } else {
+      msg = 'Sin resultado. Revisa la consola.';
+    }
+    alert(msg);
+  } catch(e) {
+    console.error('reintentarEnvioSap', e);
+    alert('Error inesperado: ' + ((e && e.message) || String(e)));
+  }
+};
+
 function renderConfirmadosList(){
   const visibleKeys = buildPedidoVisibleKeysSet();
   // Armar items completos antes de filtrar - usamos los items para popular
@@ -21721,6 +21776,13 @@ function renderConfirmadosList(){
       html += '<div style="margin-top:6px">';
       html += '<button type="button" class="cc-error-btn" onclick="event.stopPropagation(); openTransferErrorModal(\'' + escapeAttr(it.conf._fsId || '') + '\')">&#9888; &iquest;POR QU&Eacute; FALL&Oacute;?</button>';
       html += '<span class="cc-error-type">' + escapeHtml(cat.type) + '</span>';
+      // v1074 (2026-09-25): boton "Enviar a SAP" solo para admin. Permite
+      // reintentar el envio individual una vez que el admin resolvio el
+      // problema que causo el fallo (ej: activo el cliente en SAP si estaba
+      // inactivo). Llama a enviarPedidosASAPViaServiceLayer([pedido]).
+      if (userRole === 'admin' && it.conf._fsId) {
+        html += ' <button type="button" class="cc-resend-btn" onclick="event.stopPropagation(); reintentarEnvioSap(\'' + escapeAttr(it.conf._fsId) + '\')" title="Reintentar envio a SAP (una vez resuelto el problema)" style="background:#1e40af;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer;margin-left:6px">&#8635; Enviar a SAP</button>';
+      }
       html += '</div>';
     }
     // v378+ (2026-08-02): badge de estado SAP (OFERTA/ORDEN/FACTURADO/COBRADO/CERRADO).
