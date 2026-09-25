@@ -5919,7 +5919,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1077';
+const APP_VERSION = 'v1078';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -28635,11 +28635,16 @@ const _resilientListenerState = new Map();
 
 function ensureListenerWithFallback(name, refBuilder, applyFn, options) {
   options = options || {};
-  const timeoutMs = options.timeoutMs || 15000;
+  // v1078: timeout mas agresivo (3s) + polling continuo si el listener queda
+  // zombie. Antes: 15s fallback once + updates posteriores nunca llegaban ->
+  // user necesitaba refresh manual. Ahora: fallback rapido y polling cada
+  // 3s indefinidamente hasta que el listener resucite o el user cierre la app.
+  const timeoutMs = options.timeoutMs || 3000;
+  const pollIntervalMs = options.pollIntervalMs || 3000;
   const now = Date.now();
   let state = _resilientListenerState.get(name);
   if (!state) {
-    state = { unsub: null, attachedAt: null, firedAt: null };
+    state = { unsub: null, attachedAt: null, firedAt: null, pollInterval: null };
     _resilientListenerState.set(name, state);
   }
   // Zombie detection: unsub existe pero pasaron >timeoutMs sin fire → re-attach.
@@ -28650,6 +28655,7 @@ function ensureListenerWithFallback(name, refBuilder, applyFn, options) {
       Math.round((now - (state.attachedAt || 0)) / 1000) +
       's sin fires) — tear-down + re-attach');
     try { state.unsub(); } catch(_e){}
+    if (state.pollInterval) { clearInterval(state.pollInterval); state.pollInterval = null; }
     state.unsub = null;
   }
   // Preconditions.
@@ -28664,7 +28670,14 @@ function ensureListenerWithFallback(name, refBuilder, applyFn, options) {
   console.log('[' + name + '] listener attach');
   state.unsub = ref.onSnapshot(
     (snap) => {
+      const wasZombie = !state.firedAt;
       state.firedAt = Date.now();
+      // v1078: si el listener revivio despues de haber estado zombie, cancelar el polling.
+      if (wasZombie && state.pollInterval) {
+        clearInterval(state.pollInterval);
+        state.pollInterval = null;
+        console.log('[' + name + '] listener revivio — polling detenido');
+      }
       try { applyFn(snap, 'listener'); }
       catch (e) { console.error('[' + name + '] applyFn error:', e); }
     },
@@ -28674,13 +28687,15 @@ function ensureListenerWithFallback(name, refBuilder, applyFn, options) {
     }
   );
   // Safety net: si en timeoutMs no fired, hacer .get({source:'server'}) explicito.
+  // Al fallar, iniciar polling continuo para captar updates futuros aunque el
+  // listener siga zombie (bug del user reportado 2026-09-25 — Mariano).
   setTimeout(() => {
     if (state.firedAt) return;
     if (!fbDb || !currentUser) return;
     const refForGet = refBuilder();
     if (!refForGet || typeof refForGet.get !== 'function') return;
     console.warn('[' + name + '] listener no fired en ' +
-      Math.round(timeoutMs / 1000) + 's post-attach — fallback .get() explicito');
+      Math.round(timeoutMs / 1000) + 's post-attach — fallback .get() explicito + polling');
     refForGet.get({ source: 'server' }).then(snap => {
       if (state.firedAt) return; // race con el listener
       state.firedAt = Date.now();
@@ -28688,6 +28703,21 @@ function ensureListenerWithFallback(name, refBuilder, applyFn, options) {
       catch (e) { console.error('[' + name + '] applyFn (fallback) error:', e); }
     }).catch(e => console.error('[' + name + '] fallback .get() error:',
       e && (e.code || e.message) || e));
+    // v1078: iniciar polling cada pollIntervalMs. Se cancela cuando el
+    // listener revive (ver callback arriba) o cuando detachResilientListener corre.
+    if (state.pollInterval) clearInterval(state.pollInterval);
+    state.pollInterval = setInterval(() => {
+      if (!fbDb || !currentUser) { clearInterval(state.pollInterval); state.pollInterval = null; return; }
+      const refPoll = refBuilder();
+      if (!refPoll || typeof refPoll.get !== 'function') return;
+      refPoll.get({ source: 'server' }).then(pollSnap => {
+        // Marcamos firedAt para consumers que chequean stale.
+        state.firedAt = Date.now();
+        try { applyFn(pollSnap, 'poll'); }
+        catch (e) { console.error('[' + name + '] applyFn (poll) error:', e); }
+      }).catch(e => console.warn('[' + name + '] poll error:', e && (e.code || e.message) || e));
+    }, pollIntervalMs);
+    console.log('[' + name + '] polling activado cada ' + pollIntervalMs + 'ms hasta que el listener resucite');
   }, timeoutMs);
 }
 window.ensureListenerWithFallback = ensureListenerWithFallback;
@@ -28696,6 +28726,7 @@ function detachResilientListener(name) {
   const state = _resilientListenerState.get(name);
   if (!state) return;
   try { if (typeof state.unsub === 'function') state.unsub(); } catch(_e){}
+  if (state.pollInterval) { clearInterval(state.pollInterval); state.pollInterval = null; }
   state.unsub = null;
   state.attachedAt = null;
   state.firedAt = null;
@@ -29384,6 +29415,12 @@ window.doConfirmPedido = async function(){
       savePending();
       delete orders[currentOrderKey];
       saveOrders();
+      // v1078 (2026-09-25): rerender inmediato para que la card aparezca en
+      // Pedidos > Pendientes sin esperar el listener onSnapshot (que puede
+      // quedar zombie). Reporte Mariano: "al pasar de Lista de Espera a
+      // Pendientes, la card no se mueve sin refresh manual". El push local
+      // ya hidrato pending[] arriba — solo falta que el UI lo pinte.
+      try { if (typeof renderPedidosTab === 'function') renderPedidosTab(); } catch(_e){}
       // v630 (2026-08-25): guardar formaEntrega como default del cliente en
       // client_master.defaultDelivery para que el proximo pedido venga
       // pre-cargado (pedido Mariano — reducir friccion vendedores). Modo Y:
