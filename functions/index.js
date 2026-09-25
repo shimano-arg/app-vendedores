@@ -1484,7 +1484,18 @@ export const setupGetMovimientos = onCall(
           const parsed = JSON.parse(resp.body);
           const data = parsed.VFPData;
           if (!data) {
-            console.log(`setupGetMovimientos: ventana ${w.desde}→${w.hasta} sin VFPData en body`);
+            // v1071 (2026-09-25): log detallado del body cuando falta VFPData.
+            // Antes solo se logueaba "sin VFPData" — sin forma de distinguir
+            // body vacío vs error message vs formato distinto. Con esto, si
+            // SETUP empieza a devolver algo raro para la ventana más reciente
+            // (bug intermitente reportado 2026-09-25 Mariano), queda el body
+            // preview en logs para diagnóstico rápido.
+            const _topKeys = Object.keys(parsed || {}).slice(0, 10).join(',');
+            const _preview = resp.body.slice(0, 400).replace(/\s+/g, ' ');
+            console.log(
+              `setupGetMovimientos: ventana ${w.desde}→${w.hasta} sin VFPData ` +
+              `(topKeys=[${_topKeys}] bodyLen=${resp.body.length} bodyPreview=${_preview})`
+            );
             return [];
           }
           const arrKey = Object.keys(data).find((k) => Array.isArray(data[k]));

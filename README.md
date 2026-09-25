@@ -4673,7 +4673,52 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1070
+## 41) Changelog v300 → v1071
+
+### v1071 (2026-09-25) — CF `setupGetMovimientos` — log detallado del body cuando SETUP no devuelve `VFPData`
+
+**Reporte Mariano 2026-09-25 12:06 ART**: modal Depósito muestra "Últ. mov: 2026-09-14 (11d)" con warning amarillo. Botón Actualizar dispara la CF (confirmado por logs) pero el mov más reciente no avanza del 14/9.
+
+**Root cause identificado en `firebase functions:log --only setupGetMovimientos`**:
+
+```
+setupGetMovimientos: ventana 2026-09-18→2026-09-25 sin VFPData en body
+setupGetMovimientos: ventana 2026-09-11→2026-09-18 → 48 lineas
+setupGetMovimientos: ventana 2026-09-04→2026-09-11 → 132 lineas
+setupGetMovimientos: ventana 2026-08-28→2026-09-04 → 167 lineas
+setupGetMovimientos: retornando 17 notas (11 despachos) desde=2026-08-14 hasta=2026-09-14
+```
+
+SETUP responde con body **sin `VFPData`** para la ventana más reciente (18/9-25/9). Puede ser: (a) genuinamente no despacharon nada en esa ventana, (b) formato distinto de respuesta cuando no hay data, (c) algún bug de SETUP para ventanas recientes.
+
+**Fix diagnóstico**: log del body raw (400 chars) + topKeys del JSON cuando falta `VFPData`. Antes solo se logueaba "sin VFPData" — sin forma de distinguir body vacío vs error message vs formato distinto. Con este log, próxima vez que el issue reaparezca queda evidencia en 30 segundos.
+
+Cambio en `functions/index.js:setupGetMovimientos`:
+
+```js
+// Antes
+if (!data) {
+  console.log(`... sin VFPData en body`);
+  return [];
+}
+
+// Ahora
+if (!data) {
+  const _topKeys = Object.keys(parsed || {}).slice(0, 10).join(',');
+  const _preview = resp.body.slice(0, 400).replace(/\s+/g, ' ');
+  console.log(`... sin VFPData (topKeys=[${_topKeys}] bodyLen=${resp.body.length} bodyPreview=${_preview})`);
+  return [];
+}
+```
+
+Cero cambio funcional. Cero cambio frontend. Solo mejora observability para el próximo debug.
+
+**Deploy**: solo functions (`firebase deploy --only functions:setupGetMovimientos`). No requiere bump `APP_VERSION` / `CACHE_VERSION` porque no toca frontend.
+
+**Acción pendiente**: después del deploy, Mariano toca Actualizar → mirar `firebase functions:log --only setupGetMovimientos` → ver el `bodyPreview` de la ventana 18/9-25/9. Con ese preview decidimos si:
+- (a) SETUP devuelve body vacío / null → data real, no hay despachos.
+- (b) SETUP devuelve error message → problema de la API, hablar con Marcos.
+- (c) SETUP cambió formato → adaptar el parser de la CF.
 
 ### v1070 (2026-09-25) — Listener `stock_snapshot` resiliente: fallback `.get()` cuando `onSnapshot` queda zombie
 
