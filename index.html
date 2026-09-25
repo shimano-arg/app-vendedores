@@ -5921,7 +5921,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1062';
+const APP_VERSION = 'v1063';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13360,14 +13360,21 @@ window.exportBackordersToExcel = async function(){
           producto,
           clienteNombre: cliente,
           clienteCiudad: p.clientLocality || p.locName || '',
-          // v1062: pedidos guardan mayormente `createdByDisplayName` (91%) y
-          // `ownerUid` — no `vendedor` (solo 9% de los pedidos viejos lo tienen).
-          // Fallback en cascada + normalize a UPPERCASE para matchear vendorLookup.
+          // v1063 (2026-09-25): FIX v1062 asumio mal el schema. El campo
+          // estandar en pedidos es `ownerVendor` (usado en el mismo archivo
+          // linea 13946 populando skuMap APP-source, en 14534, 27196, y en
+          // functions/core/auto-send-sap-core.js). v1062 intentaba p.vendedor
+          // / p.vendorAssigned / p.vendor (ninguno existe en schema real) y
+          // fallback a p.createdByDisplayName (texto libre tipo "Pablo
+          // Gonzalez" que no matchea vendorLookup por key). Resultado: TODAS
+          // las filas del export decian "(sin vendedor)" (reportado Mariano
+          // 2026-09-25 screenshot Backorders_2026-09-25.xlsx). Fallbacks de
+          // legacy quedan por defensa pero ownerVendor va primero.
           vendorKey: (
-            p.vendedor
+            p.ownerVendor
+            || p.vendedor
             || p.vendorAssigned
             || p.vendor
-            || p.createdByDisplayName
             || ''
           ).toString().toUpperCase().trim(),
           pendiente: qty,
