@@ -5919,7 +5919,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1076';
+const APP_VERSION = 'v1077';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -16020,14 +16020,11 @@ var _pendingWaitlistDelete = null;
 var _pendingWaitlistUpdate = null;
 
 function ensureRevisionWaitlistListener(){
-  if (_unsubRevisionWaitlist) return;
-  if (!currentUser || !fbDb) return;
-  // v516 (2026-08-13): gate can-revision removido - todos los users
-  // pueden leer la lista compartida (rules Firestore permiten a cualquier
-  // reader). Antes solo el whitelist iniciaba el listener.
-  _unsubRevisionWaitlist = fbDb.collection('revision_waitlist')
-    .orderBy('createdAt', 'asc')
-    .onSnapshot(qs => {
+  // v1077 (2026-09-25): refactor a ensureListenerWithFallback.
+  ensureListenerWithFallback(
+    'revision_waitlist',
+    () => fbDb.collection('revision_waitlist').orderBy('createdAt', 'asc'),
+    (qs, _source) => {
       const arr = [];
       qs.forEach(d => {
         const data = d.data() || {};
@@ -16058,7 +16055,8 @@ function ensureRevisionWaitlistListener(){
         if (updated) { _wcardCurrent = updated; _renderWaitlistCard(); }
         else closeWaitlistCardModal(); // fue borrado por otro user
       }
-    }, err => console.warn('[revision_waitlist] listener', err));
+    }
+  );
 }
 function _updateWaitlistBadge(){
   const badge = document.getElementById('waitlist-btn-count');
@@ -24761,16 +24759,11 @@ function ensureProductCatalogListener(){
 // Firestore app_config/stock_snapshot y todos los usuarios lo escuchan en
 // tiempo real para actualizar STOCK_MAP.
 let _stockParsedPayload = null; // {stock, totalSkus, withStock, withoutStock}
+// v1077 (2026-09-25): unsubStockSnapshot y tracking movidos al registry
+// del helper ensureListenerWithFallback (por nombre 'stock_snapshot').
+// Se conserva la variable como alias para el `off()` del inline
+// detachFirebaseListeners que la referencia por nombre.
 let unsubStockSnapshot = null;
-// v1070 (2026-09-25): tracking del listener stock_snapshot para detectar
-// "zombie state" — attach OK pero onSnapshot nunca fires. Bug observado
-// con Mariano 2026-09-25 (ver README §41). Sin este tracking, si el listener
-// nunca dispara STOCK_MAP queda con los datos del stock.json estático
-// (sin warehouseBreakdown/quantities) → falso "STOCK DEP 11 = 0" y otros
-// side effects. La app parece funcionar pero muestra data stale al usuario
-// sin ningún warning.
-let _stockListenerAttachedAt = null;
-let _stockListenerFiredAt = null;
 // v551+ (bugfix E5 UI merge): listener separado para stock_snapshot_app
 // (doc que E3 escribe en active mode, NO tocado por sync_sap_to_firestore.py).
 let unsubStockSnapshotApp = null;
@@ -25544,51 +25537,17 @@ function _applyStockSnapshotDoc(d, source) {
   }
 }
 
+// v1077 (2026-09-25): refactor a ensureListenerWithFallback (helper generico).
+// Antes v1070 duplicaba el pattern zombie inline aca; ahora se centraliza.
 function ensureStockSnapshotListener(){
-  const _now = Date.now();
-  // v1070 (2026-09-25): detección de listener "zombie" — attach OK pero
-  // onSnapshot nunca fires. Si `unsubStockSnapshot` existe pero pasaron >15s
-  // sin ningún fire, tear-down + re-attach. Precedente Mariano 2026-09-25
-  // (bug donde el bundle attachea el listener pero Firestore SDK no dispara
-  // el snap inicial, por causa aún desconocida — puede ser race con
-  // enablePersistence + auth state + AppCheck en flujo específico).
-  if (unsubStockSnapshot) {
-    if (_stockListenerFiredAt) return;
-    if (_stockListenerAttachedAt && (_now - _stockListenerAttachedAt) < 15000) return;
-    console.warn('[stock] listener zombie detectado (attach hace ' +
-      (_stockListenerAttachedAt ? Math.round((_now - _stockListenerAttachedAt) / 1000) : '?') +
-      's sin fires) — tear-down + re-attach');
-    try { unsubStockSnapshot(); } catch(_e){}
-    unsubStockSnapshot = null;
-  }
-  if (!currentUser || !fbDb) return;
-  _stockListenerAttachedAt = _now;
-  _stockListenerFiredAt = null;
-  console.log('[stock] listener attach');
-  unsubStockSnapshot = fbDb.collection('app_config').doc('stock_snapshot').onSnapshot(snap => {
-    _stockListenerFiredAt = Date.now();
-    if (!snap.exists) return;
-    const d = snap.data() || {};
-    _applyStockSnapshotDoc(d, 'listener');
-  }, err => {
-    console.error('[stock] listener error:', err && err.code, err && err.message);
-    _stockListenerAttachedAt = null; // permitir re-attach en próxima llamada
-  });
-  // v1070 safety net: si en 15s post-attach el listener no fired ni un solo
-  // snap, hacer un .get({source:'server'}) explícito y aplicar. En el bug
-  // observado con Mariano 2026-09-25, .get() funcionaba pero onSnapshot no.
-  // Esto garantiza que STOCK_MAP se popule aunque el listener quede zombie.
-  setTimeout(() => {
-    if (_stockListenerFiredAt) return; // el listener sí fired en la ventana
-    if (!fbDb || !currentUser) return;
-    console.warn('[stock] listener no fired en 15s post-attach — fallback .get() explícito');
-    fbDb.collection('app_config').doc('stock_snapshot').get({source: 'server'}).then(snap => {
-      if (_stockListenerFiredAt) return; // race: el listener fired durante el .get()
-      if (!snap.exists) { console.warn('[stock] fallback .get() dice exists=false'); return; }
-      _stockListenerFiredAt = Date.now(); // marcar como fired para próximas llamadas
-      _applyStockSnapshotDoc(snap.data() || {}, 'fallback-get');
-    }).catch(e => console.error('[stock] fallback .get() error:', e && e.code, e && e.message));
-  }, 15000);
+  ensureListenerWithFallback(
+    'stock_snapshot',
+    () => fbDb.collection('app_config').doc('stock_snapshot'),
+    (snap, source) => {
+      if (!snap || !snap.exists) return;
+      _applyStockSnapshotDoc(snap.data() || {}, source);
+    }
+  );
 }
 
 // v551+ (bugfix E5 UI merge): listener separado a `stock_snapshot_app`.
@@ -28648,6 +28607,101 @@ async function resendPlannerNotif(column) {
   }
 }
 
+// v1077 (2026-09-25): helper generico para listeners onSnapshot resilientes
+// al zombie state (attach OK pero callback nunca dispara). Ya golpeo 3
+// listeners en el dia: stock_snapshot (v1070), sap_integration (v1075), y
+// pedidos_own (this fix). El pattern siempre es el mismo — Firestore SDK
+// deja el listener registrado pero el snap inicial no llega, probable race
+// con enablePersistence + AppCheck + auth flow. Sin safety net, el UI
+// queda stale hasta refresh manual.
+//
+// El helper mantiene un registry por nombre. Cada attach:
+//   1. Detecta zombie: si el listener existe pero >15s sin fire, tear-down
+//      + re-attach (usado cuando ensureAllListeners re-corre en
+//      visibilitychange).
+//   2. Attach nuevo onSnapshot + safety net setTimeout 15s.
+//   3. Si el timeout expira sin fire → .get({source:'server'}) fallback y
+//      aplica el mismo callback (fromCache:false garantizado).
+//
+// Uso:
+//   ensureListenerWithFallback('nombre',
+//     () => fbDb.collection('X').doc('Y'),        // refBuilder lazy
+//     (snap, source) => { /* apply */ }            // callback comun
+//   );
+//
+// El callback recibe DocumentSnapshot para docs y QuerySnapshot para collections
+// (el helper es agnostic — el applyFn sabe qué tipo esperar).
+const _resilientListenerState = new Map();
+
+function ensureListenerWithFallback(name, refBuilder, applyFn, options) {
+  options = options || {};
+  const timeoutMs = options.timeoutMs || 15000;
+  const now = Date.now();
+  let state = _resilientListenerState.get(name);
+  if (!state) {
+    state = { unsub: null, attachedAt: null, firedAt: null };
+    _resilientListenerState.set(name, state);
+  }
+  // Zombie detection: unsub existe pero pasaron >timeoutMs sin fire → re-attach.
+  if (state.unsub) {
+    if (state.firedAt) return; // listener sano, no hacer nada
+    if (state.attachedAt && (now - state.attachedAt) < timeoutMs) return; // grace period
+    console.warn('[' + name + '] listener zombie detectado (attach hace ' +
+      Math.round((now - (state.attachedAt || 0)) / 1000) +
+      's sin fires) — tear-down + re-attach');
+    try { state.unsub(); } catch(_e){}
+    state.unsub = null;
+  }
+  // Preconditions.
+  if (!currentUser || !fbDb) return;
+  const ref = refBuilder();
+  if (!ref || typeof ref.onSnapshot !== 'function') {
+    console.warn('[' + name + '] refBuilder devolvio ref invalido');
+    return;
+  }
+  state.attachedAt = now;
+  state.firedAt = null;
+  console.log('[' + name + '] listener attach');
+  state.unsub = ref.onSnapshot(
+    (snap) => {
+      state.firedAt = Date.now();
+      try { applyFn(snap, 'listener'); }
+      catch (e) { console.error('[' + name + '] applyFn error:', e); }
+    },
+    (err) => {
+      console.error('[' + name + '] listener error:', err && err.code, err && err.message);
+      state.attachedAt = null; // permitir re-attach en proxima llamada
+    }
+  );
+  // Safety net: si en timeoutMs no fired, hacer .get({source:'server'}) explicito.
+  setTimeout(() => {
+    if (state.firedAt) return;
+    if (!fbDb || !currentUser) return;
+    const refForGet = refBuilder();
+    if (!refForGet || typeof refForGet.get !== 'function') return;
+    console.warn('[' + name + '] listener no fired en ' +
+      Math.round(timeoutMs / 1000) + 's post-attach — fallback .get() explicito');
+    refForGet.get({ source: 'server' }).then(snap => {
+      if (state.firedAt) return; // race con el listener
+      state.firedAt = Date.now();
+      try { applyFn(snap, 'fallback-get'); }
+      catch (e) { console.error('[' + name + '] applyFn (fallback) error:', e); }
+    }).catch(e => console.error('[' + name + '] fallback .get() error:',
+      e && (e.code || e.message) || e));
+  }, timeoutMs);
+}
+window.ensureListenerWithFallback = ensureListenerWithFallback;
+
+function detachResilientListener(name) {
+  const state = _resilientListenerState.get(name);
+  if (!state) return;
+  try { if (typeof state.unsub === 'function') state.unsub(); } catch(_e){}
+  state.unsub = null;
+  state.attachedAt = null;
+  state.firedAt = null;
+}
+window.detachResilientListener = detachResilientListener;
+
 function detachFirebaseListeners(){
   // E1 (e2b-perf 2026-07-27): audit reveló que solo 8/31 listeners onSnapshot
   // se limpiaban acá. Los otros 23 quedaban vivos al logout → acumulaban en
@@ -28663,6 +28717,9 @@ function detachFirebaseListeners(){
   let n = 0;
   // Los 8 originales (pre-E1):
   n += off('unsubUserData', unsubUserData, () => unsubUserData = null);
+  // v1077: pedidos_own y pedidos_all viven en el registry del helper.
+  detachResilientListener('pedidos_own');
+  detachResilientListener('pedidos_all');
   n += off('unsubPedidosOwn', unsubPedidosOwn, () => unsubPedidosOwn = null);
   n += off('unsubPedidosAll', unsubPedidosAll, () => unsubPedidosAll = null);
   n += off('unsubCampaigns', unsubCampaigns, () => unsubCampaigns = null);
@@ -28686,8 +28743,14 @@ function detachFirebaseListeners(){
   n += off('unsubBackorderSnapshot', unsubBackorderSnapshot, () => unsubBackorderSnapshot = null);
   n += off('unsubMisRendiciones', unsubMisRendiciones, () => unsubMisRendiciones = null);
   n += off('unsubTodasRendiciones', unsubTodasRendiciones, () => unsubTodasRendiciones = null);
-  n += off('unsubSapConfig', unsubSapConfig, () => unsubSapConfig = null);
+  // v1077: sapConfig y stockSnapshot ahora viven en el registry del helper
+  // ensureListenerWithFallback. detachResilientListener limpia state.unsub
+  // internamente. Los off() legacy quedan por si algun bundle antiguo aun
+  // los llama con la referencia vieja de window.unsubX.
+  detachResilientListener('sap_integration');
+  n += off('unsubSapConfig', window.unsubSapConfig, () => window.unsubSapConfig = null);
   n += off('unsubProductCatalog', unsubProductCatalog, () => unsubProductCatalog = null);
+  detachResilientListener('stock_snapshot');
   n += off('unsubStockSnapshot', unsubStockSnapshot, () => unsubStockSnapshot = null);
   n += off('unsubStockSnapshotApp', unsubStockSnapshotApp, () => unsubStockSnapshotApp = null);
   n += off('unsubAutoConfirmCfg', unsubAutoConfirmCfg, () => unsubAutoConfirmCfg = null);
@@ -28712,6 +28775,8 @@ function detachFirebaseListeners(){
   n += off('unsubSegNotes', (typeof window.unsubSegNotes !== 'undefined') ? window.unsubSegNotes : null, () => { window.unsubSegNotes = null; });
   n += off('unsubSegStatus', (typeof window.unsubSegStatus !== 'undefined') ? window.unsubSegStatus : null, () => { window.unsubSegStatus = null; });
   n += off('_unsubAutoSendPedidos', (typeof window._unsubAutoSendPedidos !== 'undefined') ? window._unsubAutoSendPedidos : null, () => { window._unsubAutoSendPedidos = null; });
+  // v1077: revision_waitlist vive en el registry del helper.
+  detachResilientListener('revision_waitlist');
   n += off('_unsubRevisionWaitlist', _unsubRevisionWaitlist, () => _unsubRevisionWaitlist = null);
   n += off('_unsubFacturacionSnapshot', _unsubFacturacionSnapshot, () => _unsubFacturacionSnapshot = null);
   n += off('_unsubCampaniaSnapshot', _unsubCampaniaSnapshot, () => _unsubCampaniaSnapshot = null);
@@ -28820,16 +28885,18 @@ function attachFirebaseListeners(){
   // lista de 'mis pedidos'.
   //
   // v827 (2026-09-08): agregado 'interno' al grupo de rol full-access.
-  // Pedido de Mariano: los VDI (Santiago e Ioannis) necesitan ver TODOS
-  // los pedidos confirmados sin importar de que vendedor, para hacer
-  // seguimiento comercial cruzado con los VDE. Firestore Rules ya lo
-  // permitian (line 67: list if isAdminOrGerente() || isInterno() ||
-  // (isVendor() && ownsDoc())); solo faltaba habilitarlo en el listener
-  // client-side.
-  const ownPedidosQuery = (userRole === 'admin' || userRole === 'gerente' || userRole === 'viewer' || userRole === 'interno')
-    ? fbDb.collection('pedidos')
-    : fbDb.collection('pedidos').where('ownerUid', '==', currentUser.uid);
-  unsubPedidosOwn = ownPedidosQuery.onSnapshot(qs => {
+  //
+  // v1077 (2026-09-25): attach via ensureListenerWithFallback. Antes el
+  // onSnapshot inline no tenia safety net cuando quedaba zombie → Mariano
+  // reporto que al pasar de Lista de Espera a Pendientes la card no se movia
+  // sin refresh manual. Con el helper, si el listener no fires en 15s se
+  // hace .get({source:'server'}) fallback y se aplica igual.
+  ensureListenerWithFallback(
+    'pedidos_own',
+    () => (userRole === 'admin' || userRole === 'gerente' || userRole === 'viewer' || userRole === 'interno')
+      ? fbDb.collection('pedidos')
+      : fbDb.collection('pedidos').where('ownerUid', '==', currentUser.uid),
+    (qs, _source) => {
     const newPending = {};
     const newConfirmed = {};
     qs.forEach(doc => {
@@ -28884,7 +28951,8 @@ function attachFirebaseListeners(){
     if (typeof drawMarkers === 'function') drawMarkers();
     // v481: refrescar cards del sidebar-left (facturacion diaria + cumplimiento).
     try { if (typeof _updateSidebarLeftCards === 'function') _updateSidebarLeftCards(); } catch(e){}
-  }, err => console.error('pedidos own listener', err));
+    }
+  );
 
   // v821 (2026-09-07): CRITICAL — attachar unsubPedidosAll ANTES de las
   // helpers listenCampaigns/listenOpsLog/listenSapMaps + envolverlas en
@@ -28902,10 +28970,12 @@ function attachFirebaseListeners(){
   //
   // Fix: si es vendedor, filtrar por ownerUid=uid (rules lo permiten via ownsDoc).
   // Admin/gerente/interno siguen sin filtro (ven todo).
-  const _pedidosQuery = (userRole === 'vendedor')
-    ? fbDb.collection('pedidos').where('ownerUid', '==', currentUser.uid)
-    : fbDb.collection('pedidos');
-  unsubPedidosAll = _pedidosQuery.onSnapshot(qs => {
+  ensureListenerWithFallback(
+    'pedidos_all',
+    () => (userRole === 'vendedor')
+      ? fbDb.collection('pedidos').where('ownerUid', '==', currentUser.uid)
+      : fbDb.collection('pedidos'),
+    (qs, _source) => {
     // v786 (2026-09-04): flag para distinguir "no cargado aun" vs "cargado
     // pero vacio" en renders que iteran globalPedidos (ej: _renderE4BAsigApp).
     // Sin esto, el modal Pedido en Espera mostraba secciones vacias mientras
@@ -28975,7 +29045,8 @@ function attachFirebaseListeners(){
       const bm = document.getElementById('backorders-modal');
       if (bm && bm.classList.contains('open') && typeof renderBackordersTab === 'function') renderBackordersTab();
     } catch(e) { console.warn('refresh waitlist post pedidos snapshot', e); }
-  }, err => console.error('pedidos all listener', err));
+    }
+  );
 
   // v821: helpers de listeners auxiliares — cada uno envuelto en try/catch
   // para que un TypeError (ej: bundle a medio cargar → fn undefined) no
