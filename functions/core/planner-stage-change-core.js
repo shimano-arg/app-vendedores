@@ -39,6 +39,26 @@ const COLUMN_LABELS = {
 // ---------------------------------------------------------------------------
 
 /**
+ * v1081 (2026-09-25): alias legacy para vendedores que salieron del equipo
+ * pero cuyos pedidos historicos siguen en Firestore con el nombre viejo.
+ * MARTIN BOIERO era Z4 hasta que PACHI ocupo la zona. Mariano confirmo:
+ * "NO EXISTE MAS MARTIN BOIERO. TODO LO DE MARTIN ES PACHI". El alias hace
+ * que la CF trate los pedidos historicos como si fueran de PACHI —
+ * resolveVdeEmail y resolveVdiPartnerEmail resuelven a PACHI+Santiago
+ * automaticamente. Pattern paralelo al frontend v1079 (_canonVendor).
+ *
+ * Escalable: para cualquier nuevo caso, agregar entrada aca.
+ */
+const LEGACY_VENDOR_ALIAS = {
+  'MARTIN BOIERO': 'PACHI',
+};
+function canonVendor(v) {
+  if (v == null) return v;
+  const k = String(v).toUpperCase().trim();
+  return LEGACY_VENDOR_ALIAS[k] || k;
+}
+
+/**
  * Resolves the email of the VDE (vendedor externo) that owns a vendorKey.
  *
  * v1031 (2026-09-22) rename: antes se llamaba `resolveVdiEmail` pero
@@ -46,12 +66,15 @@ const COLUMN_LABELS = {
  * es el VDE, el VDI es su partner). Config `sendToVdi` en Facturar quedó
  * mal nombrada — en realidad envía al VDE (dueño del pedido).
  *
+ * v1081 (2026-09-25): aplica canonVendor para mapear MARTIN BOIERO → PACHI.
+ *
  * @param {string} vendorKey
  * @param {any} db  - Injected Firestore instance
  * @returns {Promise<string|null>}
  */
 async function resolveVdeEmail(vendorKey, db) {
-  const snap = await db.collection('roles').where('vendor', '==', vendorKey).limit(1).get();
+  const canonKey = canonVendor(vendorKey);
+  const snap = await db.collection('roles').where('vendor', '==', canonKey).limit(1).get();
   if (snap.empty) return null;
   return snap.docs[0].data().email || null;
 }
@@ -72,10 +95,17 @@ async function resolveVdeEmail(vendorKey, db) {
  * @returns {Promise<string|null>}
  */
 async function resolveVdiPartnerEmail(pedido, db) {
-  const vendorKey = pedido?.ownerVendor || pedido?.vendorKey;
-  if (!vendorKey) {
+  const rawVendorKey = pedido?.ownerVendor || pedido?.vendorKey;
+  if (!rawVendorKey) {
     console.log('[vdi-partner] skip: no-vendor-key en pedido', pedido?.id || '?');
     return null;
+  }
+  // v1081 (2026-09-25): canonVendor mapea MARTIN BOIERO → PACHI. Pedidos
+  // historicos de Martin resuelven al VDE PACHI (y por su internalPartnerUid
+  // llegan a Santiago Esteban).
+  const vendorKey = canonVendor(rawVendorKey);
+  if (vendorKey !== rawVendorKey) {
+    console.log('[vdi-partner] alias legacy: ' + rawVendorKey + ' -> ' + vendorKey);
   }
   // Paso 1: encontrar el VDE con ese vendor key.
   const vdeSnap = await db
