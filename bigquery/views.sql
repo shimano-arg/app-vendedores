@@ -295,6 +295,32 @@ invoices_and_cns AS (
   UNION ALL
   SELECT *, -1 AS sign, 'CREDIT_NOTE' AS doc_kind
   FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw`
+),
+-- v1073 (2026-09-25): fecha_contable — atribuir NC al mes de la FACTURA
+-- ORIGINAL que reversa, no a la fecha de emision de la NC. Sin esto, una
+-- NC del 22/09 contra una factura del 21/08 restaba en septiembre y no
+-- neteaba contra agosto. Ejemplo: MALALCO FLY SHOP INVOICE 18689
+-- (2026-08-21, +68 u, +$4.016.138) + CREDIT_NOTE 1905 (2026-09-22, -68 u,
+-- -$4.016.138): con fecha_contable ambos caen en agosto 2026 → neto $0
+-- correcto.
+-- Vinculo SAP: cada linea de NC tiene BaseType=13 (OINV) + BaseEntry
+-- apuntando al OINV.DocEntry de la factura original. Un doc de NC puede
+-- referenciar 1..N facturas por sus lineas — usamos MIN(doc_date) por si
+-- hay multiples (comportamiento razonable: atribuir al mes de la primera
+-- factura reversa).
+-- Si la NC no tiene BaseType=13 valido (ej: NC directa sin factura base),
+-- se marca con nc_sin_base=TRUE mas abajo y fecha_contable cae al doc_date
+-- de la NC como fallback.
+nc_base_dates AS (
+  SELECT
+    nc.doc_entry AS nc_doc_entry,
+    MIN(base_inv.doc_date) AS factura_base_doc_date
+  FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw` nc,
+       UNNEST(JSON_EXTRACT_ARRAY(nc.lines_json)) AS nc_line
+  JOIN `app-vendedores-shimano.shimano_app.sap_invoices_raw` base_inv
+    ON base_inv.doc_entry = SAFE_CAST(JSON_VALUE(nc_line, '$.BaseEntry') AS INT64)
+    AND SAFE_CAST(JSON_VALUE(nc_line, '$.BaseType') AS INT64) = 13
+  GROUP BY nc.doc_entry
 )
 SELECT
   inv.doc_type,
@@ -302,6 +328,31 @@ SELECT
   inv.doc_entry,
   inv.doc_num,
   inv.doc_date,
+  -- v1073 (2026-09-25): fecha_contable / mes_contable / anio_contable
+  -- + nc_sin_base. Ver comentario del CTE nc_base_dates arriba.
+  -- DATETIME() wrap para evitar el bug de Storage Read API con DATE puro.
+  DATETIME(
+    CASE
+      WHEN inv.doc_kind = 'CREDIT_NOTE' AND ncb.factura_base_doc_date IS NOT NULL
+        THEN ncb.factura_base_doc_date
+      ELSE inv.doc_date
+    END
+  )                                                                   AS fecha_contable,
+  EXTRACT(YEAR FROM
+    CASE
+      WHEN inv.doc_kind = 'CREDIT_NOTE' AND ncb.factura_base_doc_date IS NOT NULL
+        THEN ncb.factura_base_doc_date
+      ELSE inv.doc_date
+    END
+  )                                                                   AS anio_contable,
+  EXTRACT(MONTH FROM
+    CASE
+      WHEN inv.doc_kind = 'CREDIT_NOTE' AND ncb.factura_base_doc_date IS NOT NULL
+        THEN ncb.factura_base_doc_date
+      ELSE inv.doc_date
+    END
+  )                                                                   AS mes_contable,
+  (inv.doc_kind = 'CREDIT_NOTE' AND ncb.factura_base_doc_date IS NULL) AS nc_sin_base,
   inv.doc_due_date,
   inv.document_status,
   inv.cancelled,
@@ -404,6 +455,10 @@ LEFT JOIN cliente_app ca
   ON ca.card_code = inv.card_code
 LEFT JOIN clientes_bike cb
   ON cb.card_code = inv.card_code
+-- v1073 (2026-09-25): join a la fecha de la factura original (solo aplica a NCs).
+LEFT JOIN nc_base_dates ncb
+  ON ncb.nc_doc_entry = inv.doc_entry
+  AND inv.doc_kind = 'CREDIT_NOTE'
 -- v748 (2026-08-31): filtro estricto cancelled='tNO'. Antes: la vista devolvia
 -- TODOS los docs (incluyendo tYES y los cancellation docs con CANCELED='').
 -- Downstream consumers (Power BI, dashboards, TABLERO SAR) tenian que aplicar
@@ -809,6 +864,23 @@ invoices_and_cns AS (
   SELECT *, -1 AS sign, 'CREDIT_NOTE' AS doc_kind
   FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw`
 ),
+-- v1073 (2026-09-25): fecha_contable — atribuir NC al mes de la FACTURA
+-- ORIGINAL. Ver comentario paralelo en v_facturas_sap para el fundamento.
+-- Vinculo: RIN1.BaseType=13 (OINV) + RIN1.BaseEntry=OINV.DocEntry.
+-- Si una NC referencia multiples facturas por sus lineas, se toma MIN.
+-- MALALCO FLY SHOP: NC 1905 (22/09) contra INVOICE 18689 (21/08) →
+-- fecha_contable de ambos = 2026-08-21 → neto agosto = $0.
+nc_base_dates AS (
+  SELECT
+    nc.doc_entry AS nc_doc_entry,
+    MIN(base_inv.doc_date) AS factura_base_doc_date
+  FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw` nc,
+       UNNEST(JSON_EXTRACT_ARRAY(nc.lines_json)) AS nc_line
+  JOIN `app-vendedores-shimano.shimano_app.sap_invoices_raw` base_inv
+    ON base_inv.doc_entry = SAFE_CAST(JSON_VALUE(nc_line, '$.BaseEntry') AS INT64)
+    AND SAFE_CAST(JSON_VALUE(nc_line, '$.BaseType') AS INT64) = 13
+  GROUP BY nc.doc_entry
+),
 -- v388.1 (2026-08-04): suma de LineTotal por doc, para prorratear el
 -- descuento global de cabecera (total_discount) al importe de cada linea.
 -- Sin este prorrateo, v_ventas_lineas mostraba el importe SIN restar el
@@ -834,6 +906,31 @@ SELECT
   inv.doc_date,
   EXTRACT(YEAR  FROM inv.doc_date) AS anio,
   EXTRACT(MONTH FROM inv.doc_date) AS mes,
+  -- v1073 (2026-09-25): fecha_contable / mes_contable / anio_contable
+  -- + nc_sin_base. Netean NCs contra el mes de la factura original.
+  -- DATETIME() wrap para evitar el bug de Storage Read API con DATE puro.
+  DATETIME(
+    CASE
+      WHEN inv.doc_kind = 'CREDIT_NOTE' AND ncb.factura_base_doc_date IS NOT NULL
+        THEN ncb.factura_base_doc_date
+      ELSE inv.doc_date
+    END
+  )                                                                     AS fecha_contable,
+  EXTRACT(YEAR FROM
+    CASE
+      WHEN inv.doc_kind = 'CREDIT_NOTE' AND ncb.factura_base_doc_date IS NOT NULL
+        THEN ncb.factura_base_doc_date
+      ELSE inv.doc_date
+    END
+  )                                                                     AS anio_contable,
+  EXTRACT(MONTH FROM
+    CASE
+      WHEN inv.doc_kind = 'CREDIT_NOTE' AND ncb.factura_base_doc_date IS NOT NULL
+        THEN ncb.factura_base_doc_date
+      ELSE inv.doc_date
+    END
+  )                                                                     AS mes_contable,
+  (inv.doc_kind = 'CREDIT_NOTE' AND ncb.factura_base_doc_date IS NULL)  AS nc_sin_base,
   inv.card_code,
   inv.card_name,
   inv.sales_person_code,
@@ -918,6 +1015,10 @@ LEFT JOIN prov_lookup prov
   ON prov.card_code = inv.card_code
 LEFT JOIN cliente_app ca
   ON ca.card_code = inv.card_code
+-- v1073 (2026-09-25): fecha de la factura original para NCs (netea contra su mes).
+LEFT JOIN nc_base_dates ncb
+  ON ncb.nc_doc_entry = inv.doc_entry
+  AND inv.doc_kind = 'CREDIT_NOTE'
 -- v748 (2026-08-31): filtro estricto cancelled='tNO'. Antes: COALESCE(cancelled,'tNO')='tNO'
 -- que trataba NULL/vacio como 'tNO' -> incluia los documentos de CANCELACION
 -- (SAP crea un doc espejo con CANCELED='' cuando anula una factura). Efecto
