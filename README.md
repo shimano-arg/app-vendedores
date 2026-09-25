@@ -18,7 +18,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
 | **Versión actual** | **v1038 (2026-09-22)** — Sesión intensiva Planner Kanban: pipeline 100% automático + lineal (5 columnas, columna Confirmado removida). 19 PRs shipped (#687-#710) + 3 CFs nuevos deployados (`syncSapOrdersToApp` schedule 15min, `syncSapPaymentsToApp` nuevo Fase 2, `onPlannerStageChanged` multi-update). Ver §52 (estado consolidado) + §41 (changelog detallado v1016-v1038). \| **v1007 (2026-09-22)** — Planner Kanban F1 completa (Mariano-only en producción). \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP. \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. |
-| **APP_VERSION** | `v1070` frontend (listener `stock_snapshot` resiliente: zombie detection + fallback `.get({source:'server'})` cuando `onSnapshot` queda sin disparar 15s post-attach. Bug observado con Mariano 2026-09-25: `.get()` funciona pero `onSnapshot` no fires aunque el doc en Firestore es fresh — causa exacta no clara pero se puede recuperar con el fallback). `v1069`: escape hatch `?skipAppCheck=1` para reCAPTCHA v3 throttle 403. `v1068`: HOTFIX `q is not defined` en `renderBackordersTab`. `v1067`: quitar selects "Sin stock" y "Solo urgentes" del toolbar Backorder. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog. |
+| **APP_VERSION** | `v1072` frontend (Modal Stock Asignado: mostrar ASIG con `asigReserva=false` en modo asignacion — reporte Mariano "NO PUEDE NO HABER STOCK ASIGNADO", root cause 100% clientes con `asigCliTipo=C` default → 100% `asigReserva=false` → filtro v978 vaciaba el modal. Badge "SIN RESERVA" las diferencia. Modo Backorder sin cambios). `v1071 CF-only`: `setupGetMovimientos` log detallado. `v1070`: listener `stock_snapshot` resiliente. `v1069`: escape hatch `?skipAppCheck=1`. `v1068`: HOTFIX `q is not defined`. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4673,7 +4673,33 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1071
+## 41) Changelog v300 → v1072
+
+### v1072 (2026-09-25) — Modal Stock Asignado: mostrar ASIG con `asigReserva=false` en modo asignacion
+
+**Reporte Mariano 2026-09-25 12:18**: "NO PUEDE NO HABER STOCK ASIGNADO" — modal Stock Asignado mostraba 0 SKUs, 0 unidades, 0 clientes. Investigación en Console:
+
+```
+Total lineas ASIG con qtyOpen>0: 58
+Distribución por tier: {P:0, A:0, B:0, C:58, other:0}
+_lrsFn para primera linea ASIG: false
+```
+
+**Root cause**: 100% de los clientes ASIG tienen `asigCliTipo='C'` (default cuando el flujo cli_tipo no resuelve — bug conocido, ver feedback v1057-f). Como consecuencia, la CF FIFO (`fifo-assign-core.js:293`) les asigna `asigReserva=false` a las 58 líneas ASIG. El filtro `lineReservesStock` de v978 descarta TODAS las líneas ASIG con `asigReserva=false` → modal vacío.
+
+Es un side-effect del bug del flujo cli_tipo (fix profundo pendiente) combinado con el filtro v978 diseñado asumiendo tiers reales. Mientras 100% caiga a tier C default, el modal Stock Asignado queda **siempre vacío** aunque haya demanda real con stock físico disponible.
+
+**Fix quirúrgico**: en modo `asignacion`, permitir líneas ASIG con `asigReserva=false` si NO están expiradas (`asigAt <= 15d`). El badge "SIN RESERVA" del UI ya las diferencia visualmente para el VDE.
+
+**Comportamiento nuevo**:
+
+- **Modal Stock Asignado** (mode='asignacion'): muestra ASIG con stock físico HOY, incluidas las de tier B/C (con badge "SIN RESERVA"). Sigue ocultando ASIG expiradas (>15d).
+- **Modal Backorder** (mode='urgente'): sin cambios.
+- **Cálculo de stock disponible** (`getStockRealmenteDisponible`, etc): sin cambios — sigue usando `lineReservesStock` normal → líneas ASIG B/C no reservan stock físico. Consistente con v957.
+
+**Debt pendiente**: fix profundo del flujo cli_tipo — hoy el 100% de los clientes cae a 'C' default. Cuando se corrija, las líneas ASIG de tier A/P van a filtrar por el path normal y este fix del v1072 se convierte en no-op para tiers reales.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1071 → v1072.
 
 ### v1071 (2026-09-25) — CF `setupGetMovimientos` — log detallado del body cuando SETUP no devuelve `VFPData`
 

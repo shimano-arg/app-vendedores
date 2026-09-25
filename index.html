@@ -5919,7 +5919,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1070';
+const APP_VERSION = 'v1072';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13958,8 +13958,26 @@ window.renderBackordersTab = function(){
         // BO >15d, confirmed >15d. Las lineas siguen vivas en Firestore y en la card
         // del cliente, pero desaparecen del modal Stock Asignado / Backorder.
         // Consistente con la CF v976 que ya las excluye del snapshot de reservas.
+        //
+        // v1072 (2026-09-25): en modo asignacion permitir ASIG con asigReserva=false
+        // si aun no expiro. Root cause "NO PUEDE NO HABER STOCK ASIGNADO" (Mariano):
+        // 100% de clientes tienen cliTipo=C default (bug conocido feedback v1057-f)
+        // -> 100% de asignaciones tienen asigReserva=false -> filtro v978 vaciaba
+        // el modal Stock Asignado siempre. Fix quirurgico: en modo asignacion,
+        // permitir ASIG-sin-reserva vigente (asigAt <= 15d). Sigue filtrado en
+        // modo backorder (no queremos mostrar ASIG en Backorder). Sigue filtrado
+        // ASIG expirada (asigAt > 15d) en ambos modos. El badge "SIN RESERVA"
+        // del UI (linea ~21832) las diferencia visualmente.
         const _lrsFn978 = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
-        if (_lrsFn978 && !_lrsFn978(l, Date.now(), p)) continue;
+        if (_lrsFn978 && !_lrsFn978(l, Date.now(), p)) {
+          const _isAsigMode = (backordersMode === 'asignacion');
+          const _isAsigSinReservaVigente =
+            _isAsigMode &&
+            l.state === 'ASIG' &&
+            l.asigReserva === false &&
+            (!l.asigAt || ((Date.now() - new Date(l.asigAt).getTime()) / (24 * 60 * 60 * 1000)) <= 15);
+          if (!_isAsigSinReservaVigente) continue;
+        }
         const sku = String(l.code).toUpperCase();
         // v1064: mismo filtrado que fuente SAP — tienda(tq) + vendor(vf) + mes(mesF).
         const _pVendorKey = (p.ownerVendor || p.vendedor || p.vendorAssigned || p.vendor || '').toString().toUpperCase().trim();
