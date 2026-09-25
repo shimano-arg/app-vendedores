@@ -694,7 +694,7 @@ function renderSapServiceLayer() {
     '<div><label style="font-size:11px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:4px">Usuario (UserName)</label>';
   h +=
     '<input id="sl-user" type="text" placeholder="APP_VENDEDORES" value="' +
-    escapeAttr(cfg.username) +
+    escapeAttr(cfg.username || 'APP_VENDEDORES') +
     '" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:5px;font-size:12px;font-family:Consolas,monospace"/></div>';
   h +=
     '<div><label style="font-size:11px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:4px">Password</label>';

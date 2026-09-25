@@ -18,7 +18,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
 | **Versión actual** | **v1038 (2026-09-22)** — Sesión intensiva Planner Kanban: pipeline 100% automático + lineal (5 columnas, columna Confirmado removida). 19 PRs shipped (#687-#710) + 3 CFs nuevos deployados (`syncSapOrdersToApp` schedule 15min, `syncSapPaymentsToApp` nuevo Fase 2, `onPlannerStageChanged` multi-update). Ver §52 (estado consolidado) + §41 (changelog detallado v1016-v1038). \| **v1007 (2026-09-22)** — Planner Kanban F1 completa (Mariano-only en producción). \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP. \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. |
-| **APP_VERSION** | `v1075` frontend (Listener `sap_integration` resiliente: mismo zombie safety net que v1070 pero para el listener de config SAP — reporte Mariano "Service Layer no habilitado" al tocar "Enviar a SAP" aunque en Firestore `sl.enabled=true`. Root cause: `onSnapshot` queda zombie → `sapConfigCache={}` → `sapSL.isEnabled()=false`). `v1074`: botón "Enviar a SAP" admin-only en cards con `transferError`. `v1073 BQ-only`: `fecha_contable`. `v1072`: Modal Stock Asignado ASIG sin reserva. `v1071 CF-only`: `setupGetMovimientos` log. `v1070`: listener `stock_snapshot` resiliente. `v1069`: escape hatch `?skipAppCheck=1`. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog. |
+| **APP_VERSION** | `v1076` frontend (HOTFIX asimetría input `sl-user` en el panel Service Layer: no tenía fallback hardcodeado `\|\| 'APP_VENDEDORES'` como los otros 2 inputs → con `sapConfigCache={}` el value quedaba `""` mientras el placeholder engañosamente mostraba el default → validador leía vacío al Guardar). `v1075`: listener `sap_integration` zombie safety net. `v1074`: botón "Enviar a SAP" admin-only. `v1073 BQ-only`: `fecha_contable`. `v1072`: Modal Stock Asignado ASIG sin reserva. `v1071 CF-only`: `setupGetMovimientos` log. `v1070`: listener `stock_snapshot` resiliente. `v1069`: escape hatch `?skipAppCheck=1`. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4673,7 +4673,40 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1075
+## 41) Changelog v300 → v1076
+
+### v1076 (2026-09-25) — HOTFIX: input `sl-user` sin default hardcodeado en render del panel Service Layer
+
+**Reporte Mariano 2026-09-25**: al intentar habilitar Service Layer por primera vez (checkbox tildado + Guardar), alert "Si vas a habilitar Service Layer, completá URL + CompanyDB + Usuario al menos" aunque los 3 campos se veían llenos en la UI.
+
+**Root cause**: asimetría del render del panel Service Layer en `src/domains/sap-admin-panel.js:renderSapServiceLayer`. Los inputs `sl-url` y `sl-company` tienen fallback hardcodeado al default de Shimano:
+
+```js
+escapeAttr(cfg.url || 'https://shimano-sap.seidor.com.ar:50000')
+escapeAttr(cfg.companyDB || 'SHIMANO_SAU')
+```
+
+Pero `sl-user` **NO** tenía fallback:
+
+```js
+escapeAttr(cfg.username)  // vacío si cfg.username=''
+```
+
+Con `sapConfigCache={}` (primera vez, o zombie del listener), `cfg.username=''` → el input queda con `value=""` mientras el `placeholder="APP_VENDEDORES"` sí muestra el texto gris. Al leer `document.getElementById('sl-user').value` en el validador, obtiene `""` → falla la validación → alert engañoso.
+
+Trap típico del pattern `value=""` + `placeholder="X"`: la UI se ve completa pero el DOM tiene vacío. Ya nos pasó como debt de UX en otros forms.
+
+**Fix**: agregar el mismo fallback que los otros dos inputs:
+
+```js
+escapeAttr(cfg.username || 'APP_VENDEDORES')
+```
+
+Efecto: al abrir el panel por primera vez o con cache vacío, los 3 inputs muestran los defaults reales (`https://...`, `SHIMANO_SAU`, `APP_VENDEDORES`) en `value` (no en placeholder), listos para Guardar sin tocar nada.
+
+**Prevención pendiente**: unir los 3 inputs en un array + loop de render que fuerce el pattern default fallback. Micro-refactor futuro cuando volvamos al panel.
+
+Rebuild `app.bundle.js` + chunks. Bump `APP_VERSION`/`CACHE_VERSION` v1075 → v1076.
 
 ### v1075 (2026-09-25) — Listener `sap_integration` resiliente: mismo zombie safety net que v1070 (stock_snapshot)
 
