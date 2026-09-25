@@ -5919,7 +5919,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1078';
+const APP_VERSION = 'v1079';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -6641,6 +6641,21 @@ async function loadStockSnapshot(){
 
 const vendorLookup = {};
 VENDORS.forEach(v => vendorLookup[v.key] = v);
+
+// v1079 (2026-09-25): alias para vendedores legacy que salieron del equipo
+// pero cuyos pedidos historicos siguen en Firestore con el nombre viejo.
+// MARTIN BOIERO era Z4 hasta que PACHI ocupo la zona (2026-09-17 precedente
+// project_pachi_vde_proxy.md). Los pedidos viejos aparecian con nombre suelto
+// "Martin Boiero" sin prefijo Z en el dropdown filtro del modal Backorder/
+// Stock Asignado. Con el alias, esos pedidos se agrupan bajo PACHI en la UI.
+const LEGACY_VENDOR_ALIAS = {
+  'MARTIN BOIERO': 'PACHI',
+};
+function _canonVendor(v) {
+  const k = String(v || '').toUpperCase().trim();
+  return LEGACY_VENDOR_ALIAS[k] || k;
+}
+window._canonVendor = _canonVendor;
 
 // preferCanvas: true — renderiza polygonos (provincias + departamentos + zonas) en <canvas> en vez de SVG.
 // Con ~500 polygonos y ~1000 markers superpuestos, SVG re-pinta cada path en cada frame de zoom → lag.
@@ -13339,7 +13354,8 @@ window.exportBackordersToExcel = async function(){
         const prod = prodByCode[skuUp];
         const producto = l.desc || (prod && prod.desc) || '';
         const cliente = p.clientName || '';
-        const _pVendorKey = (p.ownerVendor || p.vendedor || p.vendorAssigned || p.vendor || '').toString().toUpperCase().trim();
+        // v1079: _canonVendor aplica alias legacy (MARTIN BOIERO → PACHI).
+        const _pVendorKey = _canonVendor(p.ownerVendor || p.vendedor || p.vendorAssigned || p.vendor || '');
         if (vf && _pVendorKey !== vf) continue;
         if (tq) {
           const skuHit = skuUp.toLowerCase().includes(tq);
@@ -13431,7 +13447,8 @@ window.exportBackordersToExcel = async function(){
       // v1058 (2026-09-24): agregar columna Vendedor (pedido Mariano). Resolver
       // desde vendorLookup para mostrar zona + nombre. Fallback al key crudo si
       // no matchea (vendedor histórico borrado, key raro, etc.).
-      const vk = ln.vendorKey || '';
+      // v1079 (2026-09-25): _canonVendor aplica alias legacy (MARTIN BOIERO → PACHI).
+      const vk = _canonVendor(ln.vendorKey || '');
       const _vm = (typeof vendorLookup !== 'undefined') ? vendorLookup[vk] : null;
       const vendorLabel = _vm ? (_vm.zone + ' - ' + vk) : (vk || '(sin vendedor)');
       rows.push([
@@ -13852,7 +13869,8 @@ window.renderBackordersTab = function(){
           && (Number(l.qtyOpen) || 0) > 0);
         if (!hasOpenBoAsig) continue;
         if (p.clientName) tiendasSet.add(String(p.clientName).trim());
-        const vk = (p.ownerVendor || p.vendedor || '').toString().toUpperCase().trim();
+        // v1079 (2026-09-25): _canonVendor aplica alias legacy (MARTIN BOIERO → PACHI).
+        const vk = _canonVendor(p.ownerVendor || p.vendedor || '');
         if (vk) vendorsSet.add(vk);
       }
     }
@@ -13890,7 +13908,8 @@ window.renderBackordersTab = function(){
   const mesF = backordersMesFilter;
   const _passesFilters = (ln) => {
     if (mesF && String(ln.sqDocDate || '').slice(0, 7) !== mesF) return false;
-    if (vf && (ln.vendorKey || '').toUpperCase() !== vf) return false;
+    // v1079: alias legacy — pedidos historicos MARTIN BOIERO matchean filtro PACHI.
+    if (vf && _canonVendor(ln.vendorKey || '') !== vf) return false;
     if (tq) {
       const skuHit = (ln.sku || '').toLowerCase().includes(tq);
       const prodHit = (ln.producto || '').toLowerCase().includes(tq);
@@ -13980,7 +13999,8 @@ window.renderBackordersTab = function(){
         }
         const sku = String(l.code).toUpperCase();
         // v1064: mismo filtrado que fuente SAP — tienda(tq) + vendor(vf) + mes(mesF).
-        const _pVendorKey = (p.ownerVendor || p.vendedor || p.vendorAssigned || p.vendor || '').toString().toUpperCase().trim();
+        // v1079: _canonVendor aplica alias legacy (MARTIN BOIERO → PACHI).
+        const _pVendorKey = _canonVendor(p.ownerVendor || p.vendedor || p.vendorAssigned || p.vendor || '');
         if (vf && _pVendorKey !== vf) continue;
         if (tq) {
           const skuHit = sku.toLowerCase().includes(tq);
@@ -14582,7 +14602,8 @@ function _backordersGraficosData(){
     const sku = (ln.sku || '').toUpperCase();
     if (!sku) continue;
     if (!_skuMatches(sku)) continue;
-    const vk = (ln.vendorKey || '').trim();
+    // v1079: _canonVendor aplica alias legacy (MARTIN BOIERO → PACHI).
+    const vk = _canonVendor(ln.vendorKey || '');
     if (vk) vendorSet.add(vk);
     if (vendorFilter && vk !== vendorFilter) continue;
     const tienda = (ln.clienteNombre || '').trim() || (ln.clienteCode || '(sin tienda)');
@@ -14600,6 +14621,8 @@ function _backordersGraficosData(){
       const eff = getVendorForKey(k) || '';
       if (eff) pVendor = eff;
     }
+    // v1079: _canonVendor aplica alias legacy (MARTIN BOIERO → PACHI).
+    pVendor = _canonVendor(pVendor);
     if (pVendor) vendorSet.add(pVendor);
     if (vendorFilter && pVendor !== vendorFilter) continue;
     const tienda = (p.clientName || '').trim() || '(sin tienda)';
