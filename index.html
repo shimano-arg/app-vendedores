@@ -5919,7 +5919,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1067';
+const APP_VERSION = 'v1068';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14154,7 +14154,7 @@ window.renderBackordersTab = function(){
   // de inyectar HTML sin importar qué venga en `q`.
   sum.innerHTML = '<b>' + skus.length + '</b> SKUs con backorder &middot; <b>' + Math.round(totalUnidades) + '</b> unidades pendientes &middot; <b>' + totalClientes + '</b> clientes';
   const _filtroTxts = [];
-  if (q) _filtroTxts.push('busqueda: "' + q + '"');
+  if (tq) _filtroTxts.push('busqueda: "' + tq + '"');
   if (mesF) {
     const [yy, mm] = mesF.split('-');
     const _MESES_LBL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -14176,8 +14176,8 @@ window.renderBackordersTab = function(){
     // en absoluto" es real (ej. cero pedidos-app con BO/ASIG open). escapeHtml sigue
     // sanitizando el query del user antes de interpolar (mismo patron del codigo original).
     let _msg;
-    if (q) {
-      _msg = 'Sin resultados para "' + escapeHtml(q) + '"';
+    if (tq) {
+      _msg = 'Sin resultados para "' + escapeHtml(tq) + '"';
     } else if (backordersMode === 'asignacion') {
       _msg = 'Sin stock asignado pendiente.';
     } else {
