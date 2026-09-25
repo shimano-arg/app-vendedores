@@ -5316,8 +5316,15 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
                height, radius, padding, font). Todos los botones usan `.bo-btn`.
                Aplican en mobile y desktop por consistencia total. -->
           <div id="backorders-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0">
-            <input id="backorders-search" class="bo-ctl" oninput="onBackordersSearch()" type="text" placeholder="Buscar por SKU, codigo o cliente (ej: SN2000FJ o MUNDO ESTURION)..." style="flex:1 1 100%;min-width:200px"/>
-            <select id="backorders-mes-filter" class="bo-ctl" onchange="onBackordersMesChange()" title="Filtrar por mes de la SQ" style="flex:1 1 260px;min-width:200px">
+            <!-- v1064 (2026-09-25): reemplazado el input Search por 2 filtros dedicados:
+                 Tienda (autocompletar via datalist) + Vendedor (dropdown VDE).
+                 Buscar por SKU sigue disponible desde el input Tienda tipeando codigo. -->
+            <input id="backorders-tienda-filter" class="bo-ctl" list="backorders-tienda-datalist" oninput="onBackordersTiendaChange()" type="text" placeholder="Tienda / SKU / codigo (ej: MUNDO ESTURION o SN2000FJ)..." style="flex:2 1 300px;min-width:220px"/>
+            <datalist id="backorders-tienda-datalist"></datalist>
+            <select id="backorders-vendor-filter" class="bo-ctl" onchange="onBackordersVendorChange()" title="Filtrar backorder por vendedor asignado a las tiendas" style="flex:1 1 200px;min-width:170px">
+              <option value="">Todos los vendedores</option>
+            </select>
+            <select id="backorders-mes-filter" class="bo-ctl" onchange="onBackordersMesChange()" title="Filtrar por mes de la SQ" style="flex:1 1 200px;min-width:170px">
               <option value="">Todos los meses</option>
             </select>
             <select id="backorders-stock-filter" class="bo-ctl" onchange="onBackordersStockFilterChange()" style="display:none">
@@ -5325,7 +5332,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
               <option value="con">Con stock (para asignar)</option>
               <option value="todos">Todos (sin filtro)</option>
             </select>
-            <select id="backorders-urgency-filter" class="bo-ctl" onchange="onBackordersUrgencyFilterChange()" title="Filtrar por urgencia del backorder" style="flex:1 1 260px;min-width:200px">
+            <select id="backorders-urgency-filter" class="bo-ctl" onchange="onBackordersUrgencyFilterChange()" title="Filtrar por urgencia del backorder" style="flex:1 1 200px;min-width:170px">
               <option value="urgente">Solo urgentes (sin stock)</option>
               <option value="parcial">Solo parciales (stock repartido)</option>
             </select>
@@ -5921,7 +5928,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1063';
+const APP_VERSION = 'v1064';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13127,7 +13134,11 @@ document.addEventListener('keydown', (e) => {
 // ============================================================
 var backorderLines = []; // aplanado: todas las lineas visibles al user
 var unsubBackorderSnapshot = null; // listener onSnapshot a la coleccion
-var backordersSearchQuery = ''; // texto del buscador SKU
+var backordersSearchQuery = ''; // legacy — mantenido para compat con codigo viejo (siempre '' desde v1064)
+// v1064 (2026-09-25): reemplaza backordersSearchQuery. Match sobre clientName + SKU + producto.
+var backordersTiendaQuery = '';
+// v1064: filtro por vendorKey (ownerVendor / vendedor). '' = todos.
+var backordersVendorFilter = '';
 var backordersMesFilter = ''; // v411: filtro por mes YYYY-MM del sqDocDate
 var backordersStockFilter = 'sin'; // v420: 'sin' | 'con' | 'todos' - reemplaza v419 bool
 var backordersMode = 'urgente'; // v420: 'urgente' (Backorders) | 'asignacion' (Asignacion Backorder)
@@ -13270,15 +13281,24 @@ window.ensureBackordersListener = function(){
   backorderLines = [];
   return;
 };
-window.onBackordersSearch = function(){
-  const inp = document.getElementById('backorders-search');
-  backordersSearchQuery = (inp && inp.value || '').trim().toLowerCase();
+// v1064 (2026-09-25): reemplazado onBackordersSearch por onBackordersTiendaChange
+// + onBackordersVendorChange. Handler viejo se mantiene como no-op por si algun
+// codigo legacy lo llama (no hay UI para dispararlo).
+window.onBackordersSearch = function(){};
+window.onBackordersTiendaChange = function(){
+  const inp = document.getElementById('backorders-tienda-filter');
+  backordersTiendaQuery = (inp && inp.value || '').trim().toLowerCase();
+  renderBackordersTab();
+};
+window.onBackordersVendorChange = function(){
+  const sel = document.getElementById('backorders-vendor-filter');
+  backordersVendorFilter = (sel && sel.value || '').trim().toUpperCase();
   renderBackordersTab();
 };
 window.clearBackordersSearch = function(){
-  const inp = document.getElementById('backorders-search');
+  const inp = document.getElementById('backorders-tienda-filter');
   if (inp) inp.value = '';
-  backordersSearchQuery = '';
+  backordersTiendaQuery = '';
   renderBackordersTab();
 };
 // v411 (2026-08-06): filtro por mes YYYY-MM (extraido de sqDocDate).
@@ -13312,7 +13332,9 @@ window.exportBackordersToExcel = async function(){
   // Ahora itera lineas state=BO (backorder) o state=ASIG con qty > 0 de pedidos
   // abiertos, respeta el modo del modal (urgente=sin stock, asignacion=con stock).
   const isAsigMode = (typeof backordersMode !== 'undefined' && backordersMode === 'asignacion');
-  const q = backordersSearchQuery;
+  // v1064 (2026-09-25): reemplaza `q` legacy por tienda(tq) + vendor(vf).
+  const tq = backordersTiendaQuery;
+  const vf = backordersVendorFilter;
   const mesF = backordersMesFilter;
   // v679 PERF Fase 3: ExcelJS ahora carga on-demand
   try { await window.loadExcelJS(); } catch (e) { alert('No se pudo cargar ExcelJS: ' + e.message); return; }
@@ -13345,14 +13367,16 @@ window.exportBackordersToExcel = async function(){
           const dt = String(p.confirmedAt || p.createdAt || '').slice(0, 7);
           if (dt !== mesF) continue;
         }
-        // Filtro busqueda.
+        // v1064: filtro tienda (tq) + vendor (vf). Reemplaza el filtro `q` legacy.
         const prod = prodByCode[skuUp];
         const producto = l.desc || (prod && prod.desc) || '';
         const cliente = p.clientName || '';
-        if (q) {
-          const skuHit = skuUp.toLowerCase().includes(q);
-          const prodHit = producto.toLowerCase().includes(q);
-          const cliHit = cliente.toLowerCase().includes(q);
+        const _pVendorKey = (p.ownerVendor || p.vendedor || p.vendorAssigned || p.vendor || '').toString().toUpperCase().trim();
+        if (vf && _pVendorKey !== vf) continue;
+        if (tq) {
+          const skuHit = skuUp.toLowerCase().includes(tq);
+          const prodHit = producto.toLowerCase().includes(tq);
+          const cliHit = cliente.toLowerCase().includes(tq);
           if (!skuHit && !prodHit && !cliHit) continue;
         }
         filtered.push({
@@ -13360,23 +13384,8 @@ window.exportBackordersToExcel = async function(){
           producto,
           clienteNombre: cliente,
           clienteCiudad: p.clientLocality || p.locName || '',
-          // v1063 (2026-09-25): FIX v1062 asumio mal el schema. El campo
-          // estandar en pedidos es `ownerVendor` (usado en el mismo archivo
-          // linea 13946 populando skuMap APP-source, en 14534, 27196, y en
-          // functions/core/auto-send-sap-core.js). v1062 intentaba p.vendedor
-          // / p.vendorAssigned / p.vendor (ninguno existe en schema real) y
-          // fallback a p.createdByDisplayName (texto libre tipo "Pablo
-          // Gonzalez" que no matchea vendorLookup por key). Resultado: TODAS
-          // las filas del export decian "(sin vendedor)" (reportado Mariano
-          // 2026-09-25 screenshot Backorders_2026-09-25.xlsx). Fallbacks de
-          // legacy quedan por defensa pero ownerVendor va primero.
-          vendorKey: (
-            p.ownerVendor
-            || p.vendedor
-            || p.vendorAssigned
-            || p.vendor
-            || ''
-          ).toString().toUpperCase().trim(),
+          // v1064: reusar _pVendorKey calculado arriba (mismo fallback v1063).
+          vendorKey: _pVendorKey,
           pendiente: qty,
           precioUnitario: Number(l.priceAtCreation || l.precio || 0),
           sqDocNum: (p.transferidoSAP && p.transferidoSAP.docNum) || '',
@@ -13841,30 +13850,86 @@ window.renderBackordersTab = function(){
     const meses = Array.from(mesesSet).sort().reverse();
     const _MESES_LBL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
     const curVal = _mesSel.value;
-    _mesSel.innerHTML = '<option value="">Todos los meses</option>' +
-      meses.map(m => {
-        const [yy, mm] = m.split('-');
-        return '<option value="' + m + '">' + _MESES_LBL[parseInt(mm,10)-1] + ' ' + yy + '</option>';
-      }).join('');
+    while (_mesSel.firstChild) _mesSel.removeChild(_mesSel.firstChild);
+    const optAllMes = document.createElement('option'); optAllMes.value = ''; optAllMes.textContent = 'Todos los meses';
+    _mesSel.appendChild(optAllMes);
+    meses.forEach(m => {
+      const [yy, mm] = m.split('-');
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = _MESES_LBL[parseInt(mm,10)-1] + ' ' + yy;
+      _mesSel.appendChild(opt);
+    });
     if (curVal && meses.indexOf(curVal) >= 0) _mesSel.value = curVal;
     else backordersMesFilter = ''; // el mes previo desaparecio, resetear
   }
+  // v1064 (2026-09-25): popular datalist de Tiendas + dropdown de Vendedores.
+  // Datalist tiendas: nombres unicos de clientes con lineas BO/ASIG open activas
+  // (fuente APP globalPedidos). Dropdown vendedores: keys unicas de ownerVendor/
+  // vendedor de esos pedidos, ordenadas alfa. Ambos se recomputan en cada render
+  // (~211 pedidos abiertos hoy — costo despreciable).
+  const _tiendaDatalist = document.getElementById('backorders-tienda-datalist');
+  const _vendorSel = document.getElementById('backorders-vendor-filter');
+  if (_tiendaDatalist || _vendorSel) {
+    const tiendasSet = new Set();
+    const vendorsSet = new Set();
+    if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+      for (const p of globalPedidos) {
+        if (!p || p.closedAt) continue;
+        if (p.stage !== 'confirmed') continue;
+        const hasOpenBoAsig = Array.isArray(p.lines) && p.lines.some(l => l
+          && (l.state === 'BO' || l.state === 'ASIG')
+          && (Number(l.qtyOpen) || 0) > 0);
+        if (!hasOpenBoAsig) continue;
+        if (p.clientName) tiendasSet.add(String(p.clientName).trim());
+        const vk = (p.ownerVendor || p.vendedor || '').toString().toUpperCase().trim();
+        if (vk) vendorsSet.add(vk);
+      }
+    }
+    if (_tiendaDatalist) {
+      while (_tiendaDatalist.firstChild) _tiendaDatalist.removeChild(_tiendaDatalist.firstChild);
+      Array.from(tiendasSet).sort().forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t;
+        _tiendaDatalist.appendChild(opt);
+      });
+    }
+    if (_vendorSel) {
+      const vendors = Array.from(vendorsSet).sort();
+      const curV = _vendorSel.value;
+      while (_vendorSel.firstChild) _vendorSel.removeChild(_vendorSel.firstChild);
+      const optAllVend = document.createElement('option'); optAllVend.value = ''; optAllVend.textContent = 'Todos los vendedores';
+      _vendorSel.appendChild(optAllVend);
+      vendors.forEach(v => {
+        const _vm = (typeof vendorLookup !== 'undefined') ? vendorLookup[v] : null;
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = _vm ? (_vm.zone + ' - ' + titleCase(v)) : titleCase(v);
+        _vendorSel.appendChild(opt);
+      });
+      if (curV && vendorsSet.has(curV)) _vendorSel.value = curV;
+      else backordersVendorFilter = ''; // el vendor previo desaparecio, resetear
+    }
+  }
   // Agrupar por SKU. Cada grupo tiene: producto + total pendiente + clientes.
-  const q = backordersSearchQuery;
+  // v1064: reemplaza `q` (backordersSearchQuery legacy) por `tq` (tienda/SKU/producto)
+  // + `vf` (vendorKey). Semantica: tienda es texto libre matcheando cliente/SKU/
+  // producto; vendor es exact match sobre vendorKey normalizado uppercase.
+  const tq = backordersTiendaQuery;
+  const vf = backordersVendorFilter;
   const mesF = backordersMesFilter;
-  // v411: helper para chequear si un linea matchea todos los filtros (busqueda + mes + sin-stock).
   const _passesFilters = (ln) => {
     if (mesF && String(ln.sqDocDate || '').slice(0, 7) !== mesF) return false;
-    if (q) {
-      const skuHit = (ln.sku || '').toLowerCase().includes(q);
-      const prodHit = (ln.producto || '').toLowerCase().includes(q);
-      const cliHit = (ln.clienteNombre || '').toLowerCase().includes(q);
+    if (vf && (ln.vendorKey || '').toUpperCase() !== vf) return false;
+    if (tq) {
+      const skuHit = (ln.sku || '').toLowerCase().includes(tq);
+      const prodHit = (ln.producto || '').toLowerCase().includes(tq);
+      const cliHit = (ln.clienteNombre || '').toLowerCase().includes(tq);
       if (!skuHit && !prodHit && !cliHit) return false;
     }
     // v576: NO filtramos por stock aca — recolectamos TODOS los candidatos
     // (SAP + APP-BO + APP-ASIG) sin importar stock, y despues aplicamos cap
     // FIFO en fase 2 para calcular qtyAsignada + qtyBackorder por linea.
-    // Filtrar el modo (STOCK ASIG. vs BACKORDER) al final segun qty resultante.
     return true;
   };
   // v576: skuMap enriquecido — cada cliente lleva source ('sap'|'app'),
@@ -13926,10 +13991,13 @@ window.renderBackordersTab = function(){
         const _lrsFn978 = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
         if (_lrsFn978 && !_lrsFn978(l, Date.now(), p)) continue;
         const sku = String(l.code).toUpperCase();
-        if (q) {
-          const skuHit = sku.toLowerCase().includes(q);
-          const prodHit = String(l.desc || '').toLowerCase().includes(q);
-          const cliHit = String(p.clientName || '').toLowerCase().includes(q);
+        // v1064: mismo filtrado que fuente SAP — tienda(tq) + vendor(vf) + mes(mesF).
+        const _pVendorKey = (p.ownerVendor || p.vendedor || p.vendorAssigned || p.vendor || '').toString().toUpperCase().trim();
+        if (vf && _pVendorKey !== vf) continue;
+        if (tq) {
+          const skuHit = sku.toLowerCase().includes(tq);
+          const prodHit = String(l.desc || '').toLowerCase().includes(tq);
+          const cliHit = String(p.clientName || '').toLowerCase().includes(tq);
           if (!skuHit && !prodHit && !cliHit) continue;
         }
         if (mesF) {
@@ -13950,7 +14018,7 @@ window.renderBackordersTab = function(){
           precio: parseFloat(l.precio || l.priceAtCreation || 0) || 0,
           sqDocNum: 0,
           sqDocDate: String(p.confirmedAt || '').slice(0, 10),
-          vendorKey: p.ownerVendor || '',
+          vendorKey: _pVendorKey,
           source: 'app',
           state: l.state,
           pedidoId: p._fsId || '',
