@@ -18,7 +18,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
 | **Versión actual** | **v1038 (2026-09-22)** — Sesión intensiva Planner Kanban: pipeline 100% automático + lineal (5 columnas, columna Confirmado removida). 19 PRs shipped (#687-#710) + 3 CFs nuevos deployados (`syncSapOrdersToApp` schedule 15min, `syncSapPaymentsToApp` nuevo Fase 2, `onPlannerStageChanged` multi-update). Ver §52 (estado consolidado) + §41 (changelog detallado v1016-v1038). \| **v1007 (2026-09-22)** — Planner Kanban F1 completa (Mariano-only en producción). \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP. \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. |
-| **APP_VERSION** | `v1069` frontend (escape hatch `?skipAppCheck=1` o `localStorage.debugSkipAppCheck='1'` para bypass activateAppCheckOnce cuando reCAPTCHA v3 está en throttle 403 permanente que Clear Site Data no resuelve — root cause Google reCAPTCHA rechaza el token por score bajo, no un problema local del SDK). `v1068`: HOTFIX `q is not defined` en `renderBackordersTab`. `v1067`: quitar selects "Sin stock" y "Solo urgentes" del toolbar Backorder. `v1066`: HOTFIX ReferenceError en export Backorder. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog. |
+| **APP_VERSION** | `v1070` frontend (listener `stock_snapshot` resiliente: zombie detection + fallback `.get({source:'server'})` cuando `onSnapshot` queda sin disparar 15s post-attach. Bug observado con Mariano 2026-09-25: `.get()` funciona pero `onSnapshot` no fires aunque el doc en Firestore es fresh — causa exacta no clara pero se puede recuperar con el fallback). `v1069`: escape hatch `?skipAppCheck=1` para reCAPTCHA v3 throttle 403. `v1068`: HOTFIX `q is not defined` en `renderBackordersTab`. `v1067`: quitar selects "Sin stock" y "Solo urgentes" del toolbar Backorder. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4673,7 +4673,34 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1069
+## 41) Changelog v300 → v1070
+
+### v1070 (2026-09-25) — Listener `stock_snapshot` resiliente: fallback `.get()` cuando `onSnapshot` queda zombie
+
+**Continuación del debug 2026-09-25 con Mariano** (post-v1069). Después de aplicar el bypass AppCheck y wipe de IndexedDB, el listener `onSnapshot` de `app_config/stock_snapshot` seguía sin disparar aunque `.get({source:'server'})` desde Console devolvía el doc perfecto (updatedAt 2026-09-25T10:22:18Z, warehouseBreakdown 8117 bytes, todo fresh).
+
+**Root cause exacto identificado**: el listener `onSnapshot` para ese doc específicamente queda en estado "zombie" — la subscripción no dispara el snap inicial ni updates posteriores. Otros listeners `onSnapshot` sobre la misma colección `app_config` (catalog, campania, dashboard_visuales, stock_snapshot_app) funcionan bien en la misma sesión. `.get()` sobre el mismo doc funciona. Causa del zombie no clara — puede ser race con `enablePersistence({synchronizeTabs:true})` + AppCheck + auth flow específico.
+
+**Fix**: `ensureStockSnapshotListener` reescrita con 3 mejoras:
+
+1. **Extract del callback en `_applyStockSnapshotDoc(d, source)`** — misma lógica de parsing/apply, reutilizable desde múltiples fuentes.
+
+2. **Zombie detection + re-attach**: track `_stockListenerAttachedAt` y `_stockListenerFiredAt`. Si `unsubStockSnapshot` existe pero pasaron >15s sin ningún fire → tear-down + re-attach. `ensureAllListeners()` se llama en `visibilitychange` y en re-render → los usuarios que dejan la app abierta y vuelven, si el listener está zombie se recupera automático sin intervención.
+
+3. **Safety net fallback `.get({source:'server'})`**: post-attach, agenda un timeout de 15s. Si el listener no fired en ese lapso, ejecuta un `.get()` explícito y aplica el data manualmente vía `_applyStockSnapshotDoc(d, 'fallback-get')`. En el bug observado, `.get()` funciona aunque `onSnapshot` no — este safety garantiza que `STOCK_MAP` + `warehouseBreakdown` + `quantities` se popularizan sin importar el estado del listener.
+
+4. **Error handler mejorado**: antes `console.warn('stock snapshot listener', err)` (sin re-attach). Ahora `console.error` + reset de `_stockListenerAttachedAt = null` para permitir re-attach en próxima llamada.
+
+**Comportamiento esperado post-deploy**:
+- Sesión normal (listener OK): `[stock] listener attach` → dentro de 1-2s → `[stock] desde Firestore (listener): 775 SKUs (263 con stock). updatedAt=...`
+- Sesión con zombie: `[stock] listener attach` → 15s sin fire → warn "listener no fired en 15s post-attach — fallback .get() explícito" → `[stock] desde Firestore (fallback-get): 775 SKUs ...`
+- Después de un fetch fallback exitoso, los updates via listener no llegan (queda zombie), pero `ensureAllListeners` en `visibilitychange` va a intentar re-attach → si el nuevo attach también es zombie, el fallback vuelve a disparar cada vez que el user cambia de tab y vuelve.
+
+**Convivencia con el bypass AppCheck (v1069)**: son fixes ortogonales. El bypass evita el 403 en la activación de AppCheck. Este fix evita el listener zombie de Firestore. Un user con reCAPTCHA en throttle Y listener zombie necesita AMBOS activos. Un user sano no percibe diferencia.
+
+**Debt pendiente**: entender POR QUÉ `onSnapshot` queda zombie específicamente para `stock_snapshot`. Hipótesis a testear: race con `enablePersistence` + doc size (stock_snapshot es de los docs más grandes de la app: ~42 KB entre stock + JSON strings). Si el race se puede reproducir en un ambiente controlado, se puede reportar a Firebase SDK.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1069 → v1070.
 
 ### v1069 (2026-09-25) — Escape hatch `?skipAppCheck=1` para reCAPTCHA v3 en throttle 403 permanente
 
