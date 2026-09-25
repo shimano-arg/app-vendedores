@@ -18,7 +18,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
 | **Versión actual** | **v1038 (2026-09-22)** — Sesión intensiva Planner Kanban: pipeline 100% automático + lineal (5 columnas, columna Confirmado removida). 19 PRs shipped (#687-#710) + 3 CFs nuevos deployados (`syncSapOrdersToApp` schedule 15min, `syncSapPaymentsToApp` nuevo Fase 2, `onPlannerStageChanged` multi-update). Ver §52 (estado consolidado) + §41 (changelog detallado v1016-v1038). \| **v1007 (2026-09-22)** — Planner Kanban F1 completa (Mariano-only en producción). \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP. \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. |
-| **APP_VERSION** | `v1068` frontend (HOTFIX ReferenceError `q is not defined` en `renderBackordersTab` — hermano del hotfix v1066: v1064 renombró `q → tq` al top de la función pero olvidó 3 usos en el badge de búsqueda del banner + mensaje "Sin resultados". Al abrir el modal Backorder rompía el render silenciosamente). `v1067`: quitar selects "Sin stock" y "Solo urgentes" del toolbar Backorder. `v1066`: HOTFIX ReferenceError en export Backorder. `v1065`: HOTFIX proyección globalPedidos. `v1064`: filtros Tienda+Vendedor. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog. |
+| **APP_VERSION** | `v1069` frontend (escape hatch `?skipAppCheck=1` o `localStorage.debugSkipAppCheck='1'` para bypass activateAppCheckOnce cuando reCAPTCHA v3 está en throttle 403 permanente que Clear Site Data no resuelve — root cause Google reCAPTCHA rechaza el token por score bajo, no un problema local del SDK). `v1068`: HOTFIX `q is not defined` en `renderBackordersTab`. `v1067`: quitar selects "Sin stock" y "Solo urgentes" del toolbar Backorder. `v1066`: HOTFIX ReferenceError en export Backorder. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -4673,7 +4673,37 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1068
+## 41) Changelog v300 → v1069
+
+### v1069 (2026-09-25) — Escape hatch `?skipAppCheck=1` para reCAPTCHA v3 en throttle 403 permanente
+
+**Reporte Mariano 2026-09-25**: browser en throttle `appCheck/throttled` 24h persistente. Fix conocido "Clear Site Data" NO resuelve (memoria `reference_appcheck_throttle_24h.md` decía que sí, pero en este caso no). Console log:
+
+```
+content-firebaseappcheck.googleapis.com/exchangeRecaptchaV3Token → 403
+@firebase/app-check: Requests throttled due to 403 error. Attempts allowed again after 01d:00m:00s
+```
+
+Consecuencia en cadena: listener onSnapshot de `stock_snapshot` + `sap_integration` no dispara → `STOCK_MAP` queda con datos del `stock.json` estático (sin `warehouseBreakdown` ni `quantities`) → falso "DISPONIBLE" en Master de Productos + falso "STOCK COMPLETO (DEP 11) = 0" en modal Pedido en Espera + alert "Service Layer no está habilitado" en Sync manual.
+
+**Root cause refinado**: el 403 NO es un throttle local del SDK. Viene del **servidor Firebase que rechaza el intercambio del token reCAPTCHA v3 por un token AppCheck**. Causas plausibles:
+
+- reCAPTCHA v3 devuelve score muy bajo para la combinación IP/cuenta/browser específica de Mariano (Google marca "no humano" — patrón común en usuarios power que hacen refresh muy seguido).
+- La registration de la Web App en Firebase Console → App Check → Apps o el secret reCAPTCHA v3 podría haber cambiado — pero eso afectaría eventualmente a todos.
+- Otros users tienen tokens AppCheck cacheados en IndexedDB con TTL ~1h. Sus SDKs auto-refrescan (`isTokenAutoRefreshEnabled: true`). Si el refresh también recibe 403, empiezan a caer uno por uno. **Mariano es el canario porque hizo Clear.**
+
+**Fix (escape hatch)**: `activateAppCheckOnce()` ahora chequea `?skipAppCheck=1` en la URL o `localStorage.debugSkipAppCheck='1'`. Si está seteado, salta la activación. Sin activación, el SDK no envía el header AppCheck y Firestore acepta las reads (porque no está en enforcement estricto: si lo estuviera, TODOS los users con tokens expirados fallarían).
+
+**Uso**:
+- Sesión única: abrir `https://shimano-arg.github.io/app-vendedores/?skipAppCheck=1`.
+- Persistente por browser: en DevTools > Console → `localStorage.setItem('debugSkipAppCheck', '1')` → reload.
+- Desactivar: `localStorage.removeItem('debugSkipAppCheck')`.
+
+**Seguridad**: los 3 CFs sensibles (`sapProxy`, `updateAsigLineStateCF`, `geminiOcrProxy`) tienen `enforceAppCheck:false` desde v1003 — este bypass NO abre superficie de abuse porque esas CFs ya no dependían del token. Firestore lo mismo (soft-enforcement, no strict — lo confirma que otros users trabajan bien con tokens caducados). Cuando el issue global se resuelva (revocar+re-crear reCAPTCHA v3 en Console, o cambiar a reCAPTCHA Enterprise), el bypass debería sacarse y todos vuelven al flow normal.
+
+**Diagnostic pendiente**: probar en Chrome incógnito. Si el 403 tampoco aparece ahí → problema es Chrome específico. Si sí aparece → problema es global de reCAPTCHA/Firebase Console.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1068 → v1069.
 
 ### v1068 (2026-09-25) — HOTFIX `q is not defined` en `renderBackordersTab` (hermano del v1066)
 

@@ -5919,7 +5919,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1068';
+const APP_VERSION = 'v1069';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -22591,6 +22591,25 @@ let _appCheckActivated = false;
 function activateAppCheckOnce() {
   if (_appCheckActivated) return;
   if (!firebase.appCheck) return;
+  // v1069 (2026-09-25): escape hatch para usuarios con reCAPTCHA v3 en throttle
+  // 403 permanente cuando el fix Clear Site Data del README §XX no resuelve.
+  // Root cause: Google reCAPTCHA v3 puede devolver score muy bajo para una
+  // combinación IP/cuenta/browser específica (patrón "no humano" flaggeado por
+  // Google), Firebase rechaza el intercambio con 403 y el SDK entra en throttle
+  // 24h. Bypass: agregar ?skipAppCheck=1 a la URL o setear localStorage flag
+  // debugSkipAppCheck=1. Seguro porque los 3 CFs sensibles (sapProxy,
+  // updateAsigLineStateCF, geminiOcrProxy) tienen enforceAppCheck:false desde
+  // v1003, y Firestore no está en enforcement estricto (sino TODOS los users
+  // fallarían al expirar sus tokens cacheados de 1h).
+  try {
+    const skipViaQuery = new URLSearchParams(location.search).get('skipAppCheck') === '1';
+    const skipViaFlag = (localStorage.getItem('debugSkipAppCheck') === '1');
+    if (skipViaQuery || skipViaFlag) {
+      _appCheckActivated = true;
+      console.warn('[AppCheck] activación SALTADA por debugSkipAppCheck (query=' + skipViaQuery + ' flag=' + skipViaFlag + ')');
+      return;
+    }
+  } catch(_e) {}
   try {
     const APP_CHECK_SITE_KEY = '6Ld7ghktAAAAALHkv0-D3YFHqMiq_6zMD3yXsci-';
     firebase.appCheck().activate(
