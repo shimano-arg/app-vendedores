@@ -73,22 +73,41 @@ async function resolveVdeEmail(vendorKey, db) {
  */
 async function resolveVdiPartnerEmail(pedido, db) {
   const vendorKey = pedido?.ownerVendor || pedido?.vendorKey;
-  // v1080 (2026-09-25): logging detallado para diagnostico del bug reportado
-  // "Santiago Esteban no recibe alertas". Cada return null se marca con el
-  // motivo exacto — asi en firebase functions:log queda evidencia de por
-  // que la CF no envia al VDI pareja.
   if (!vendorKey) {
     console.log('[vdi-partner] skip: no-vendor-key en pedido', pedido?.id || '?');
     return null;
   }
+  // Paso 1: encontrar el VDE con ese vendor key.
   const vdeSnap = await db
     .collection('roles')
     .where('vendor', '==', vendorKey)
     .where('role', '==', 'vendedor')
     .limit(1)
     .get();
+  // v1080 (2026-09-25): fallback self-notification. Reporte Mariano — Santiago
+  // no recibia alertas de sus PROPIOS pedidos (ownerVendor='SANTIAGO ESTEBAN')
+  // porque Santiago esta registrado como role='interno' (no 'vendedor'). El
+  // codigo original solo buscaba VDEs pareja de otro VDI. Ahora: si no hay VDE
+  // 'vendedor' con ese key, buscar directamente al 'interno' con el mismo
+  // vendor — es su propio pedido, se auto-notifica. Aplica al VDE-VDI hibrido
+  // (Santiago Z7 + partner de Mauricio/PACHI/Martin, Ioannis Z6, etc).
   if (vdeSnap.empty) {
-    console.log('[vdi-partner] skip: no-vde-found para vendorKey=' + vendorKey);
+    const selfInternoSnap = await db
+      .collection('roles')
+      .where('vendor', '==', vendorKey)
+      .where('role', '==', 'interno')
+      .limit(1)
+      .get();
+    if (!selfInternoSnap.empty) {
+      const self = selfInternoSnap.docs[0].data() || {};
+      if (self.email) {
+        console.log('[vdi-partner] OK self-notify: vendor=' + vendorKey + ' es interno directo -> ' + self.email);
+        return self.email;
+      }
+      console.log('[vdi-partner] skip: interno self=' + vendorKey + ' sin email');
+      return null;
+    }
+    console.log('[vdi-partner] skip: no-vde-found ni no-interno-self para vendorKey=' + vendorKey);
     return null;
   }
   const vde = vdeSnap.docs[0].data() || {};
