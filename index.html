@@ -5928,7 +5928,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1065';
+const APP_VERSION = 'v1066';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13589,7 +13589,9 @@ window.exportBackordersToExcel = async function(){
     });
     const out = await wb.xlsx.writeBuffer();
     const dateStr = new Date().toISOString().slice(0, 10);
-    const suffixQ = q ? ('_' + q.replace(/[^a-z0-9]/gi, '').slice(0, 20)) : '';
+    // v1066 (2026-09-25): fix ReferenceError. v1064 renombró `q` → `tq` pero
+    // se olvidó esta línea del filename builder. `tq` es el filtro texto (tienda/SKU/producto).
+    const suffixQ = tq ? ('_' + tq.replace(/[^a-z0-9]/gi, '').slice(0, 20)) : '';
     const suffixM = mesF ? ('_mes-' + mesF) : '';
     const filename = FILE_PREFIX + dateStr + suffixM + suffixQ + '.xlsx';
     const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
