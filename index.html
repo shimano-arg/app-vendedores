@@ -5919,7 +5919,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1079';
+const APP_VERSION = 'v1082';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -11654,6 +11654,32 @@ window.runMonthlyBackup = async function(){
     } catch(e) { console.error('zip backup', e); }
   }
 
+  // v1082 (2026-09-25): helper autofit para SheetJS. Los 3 exports del Backup
+  // mensual (Visitas, Pedidos, Rutas) usaban XLSX.utils.json_to_sheet(rows) sin
+  // ws['!cols'] configurado → Excel usa width default ~8 chars → columnas con
+  // texto largo (Cliente, Descripcion, "Lo que mas preguntan") se truncaban
+  // visualmente. Este helper computa anchos basados en max length real del
+  // contenido (con padding). Ver auditoria en README §41 v1082.
+  function _autoFitCols(rows, options) {
+    const opts = options || {};
+    const minW = opts.minWidth || 8;
+    const maxW = opts.maxWidth || 60;
+    const padding = (opts.padding != null) ? opts.padding : 2;
+    if (!Array.isArray(rows) || !rows.length) return [];
+    const headers = Object.keys(rows[0]);
+    return headers.map(h => {
+      let maxLen = String(h).length;
+      for (const row of rows) {
+        const val = row[h];
+        const str = (val == null) ? '' : String(val);
+        // Multi-line: solo primera linea para el sizing (Excel no wrappea por default).
+        const firstLine = str.split('\n')[0];
+        if (firstLine.length > maxLen) maxLen = firstLine.length;
+      }
+      return { wch: Math.max(minW, Math.min(maxW, maxLen + padding)) };
+    });
+  }
+
   // === B) XLSX visitas del mes ===
   if (visitsM.length) {
     const rows = visitsM.map(v => ({
@@ -11686,7 +11712,10 @@ window.runMonthlyBackup = async function(){
       Email: v.ownerEmail || '',
     }));
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Visitas ' + monthLabel);
+    // v1082: autofit widths para evitar columnas truncadas visualmente.
+    const wsVis = XLSX.utils.json_to_sheet(rows);
+    wsVis['!cols'] = _autoFitCols(rows);
+    XLSX.utils.book_append_sheet(wb, wsVis, 'Visitas ' + monthLabel);
     XLSX.writeFile(wb, 'Shimano_Visitas_' + ymPrefix + '.xlsx');
   }
 
@@ -11722,7 +11751,10 @@ window.runMonthlyBackup = async function(){
     });
     if (pedRows.length) {
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pedRows), 'Pedidos ' + monthLabel);
+      // v1082: autofit widths.
+      const wsPed = XLSX.utils.json_to_sheet(pedRows);
+      wsPed['!cols'] = _autoFitCols(pedRows);
+      XLSX.utils.book_append_sheet(wb, wsPed, 'Pedidos ' + monthLabel);
       XLSX.writeFile(wb, 'Shimano_Pedidos_' + ymPrefix + '.xlsx');
     }
   }
@@ -11764,8 +11796,17 @@ window.runMonthlyBackup = async function(){
       });
     });
     const wb = XLSX.utils.book_new();
-    if (cumplRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cumplRows), 'Cumplimiento por vendedor');
-    if (rutaRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rutaRows), 'Detalle rutas');
+    // v1082: autofit widths para ambas sheets.
+    if (cumplRows.length) {
+      const wsCumpl = XLSX.utils.json_to_sheet(cumplRows);
+      wsCumpl['!cols'] = _autoFitCols(cumplRows);
+      XLSX.utils.book_append_sheet(wb, wsCumpl, 'Cumplimiento por vendedor');
+    }
+    if (rutaRows.length) {
+      const wsRuta = XLSX.utils.json_to_sheet(rutaRows);
+      wsRuta['!cols'] = _autoFitCols(rutaRows);
+      XLSX.utils.book_append_sheet(wb, wsRuta, 'Detalle rutas');
+    }
     XLSX.writeFile(wb, 'Shimano_Rutas_' + ymPrefix + '.xlsx');
   }
 
