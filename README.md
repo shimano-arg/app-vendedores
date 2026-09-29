@@ -4673,7 +4673,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1087
+## 41) Changelog v300 → v1088
+
+### v1088 (2026-09-29) — Fix "sin vendedor" en export Backorder
+
+**Reporte Mariano**: al hacer "Exportar todo" desde el modal Backorder, algunos clientes salían con `Vendedor = (sin vendedor)` aunque en el Master Cliente sí tenían asignado (WALTER ROSSINI → Z5 Mauricio Gil, FERNANDO URQUIOLA → Z2 Federico Castelanelli, etc).
+
+**Root cause**: el export leía **solo** `pedido.ownerVendor` (con fallbacks a `vendedor` / `vendorAssigned` / `vendor`). Los pedidos históricos no siempre setean `ownerVendor` — la fuente de verdad del vendedor de un cliente vive en `client_master/{docId}.assignedVendor`, editable desde el Master Clientes UI.
+
+**Fix**: cuando `pedido.ownerVendor` sale vacío, hacer fallback a `clientMasterCache.get(clientLocId(province, locName, clientName)).assignedVendor`. Aplicado en 2 lugares:
+- `index.html:exportBackordersToExcel` (modal Backorder "Exportar todo").
+- `src/domains/exports-core.js:exportBackorderAll` (menú Reportes Excel → Backorder snapshot).
+
+El fallback es best-effort: si el cliente no está en el cache o no tiene `assignedVendor`, sigue mostrando "(sin vendedor)". Cero cambio si el pedido ya trae `ownerVendor`.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1087 → v1088.
 
 ### v1087 (2026-09-29) — CF `syncSapDocTotalsToApp` persiste DocTotal real de SAP en Planner cards
 
