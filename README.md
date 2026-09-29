@@ -4673,7 +4673,32 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1096
+## 41) Changelog v300 → v1097
+
+### v1097 (2026-09-29) — Dashboard: filtro Santiago Esteban absorbe Pachi
+
+**Pedido Mariano**: Pachi es VDE proxy (Z4) pero los pedidos entran a SAP mapeados al SlpCode de Santiago Esteban (VDI partner). Quiere:
+- Filtrar por **PACHI** → solo Pachi (dato útil para saber cuánto aportó Pachi).
+- Filtrar por **SANTIAGO ESTEBAN** → Santiago + Pachi sumados.
+
+**Cambios**:
+
+1. **`src/domains/dashboard.js`** — nuevo helper `_combineVendorsForFilter(vendorKey)`:
+   - `'SANTIAGO ESTEBAN'` → `['SANTIAGO ESTEBAN', 'PACHI']`.
+   - Cualquier otro vendor → `[vendorKey]` (single).
+2. Nuevo helper `getSapSnapshotForCombined(vendor, year, month)`: suma `importeLineasArsNeto`, `unidadesNeto`, `ncsArs`, `porFamilia.{REEL,CANAS,LINEAS}` de todos los vendors del combine.
+3. **`src/domains/targets.js`** — helpers combinados `getMonthlyTargetArsCombined` y `getMonthlyTargetByFamilyCombined` que suman targets del set.
+4. **Aplicado solo en el filtered view** (cuando `dashboardVendorForTargets` está definido). El ranking general (línea 513) sigue usando `getSapSnapshotFor` sin combine → cada vendor aparece separado en su fila.
+
+**Escenarios**:
+- Admin filtra `Z7 - Santiago Esteban` → SAP mes en curso, target, desglose familia = Santiago + Pachi.
+- Admin filtra `Z4 - Pachi` → solo Pachi.
+- Admin sin filtro (Todos) → ranking muestra Santiago y Pachi como rows separadas (sin doble contar).
+- VDE con `role=vendedor` → ve su propio scope, sin absorption.
+
+**Referencia**: memoria `project_pachi_vde_proxy.md` documenta el pattern VDE proxy.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1096 → v1097.
 
 ### v1096 (2026-09-29) — Labels del modal export: quitar "(snapshot actual)"
 
