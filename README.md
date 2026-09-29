@@ -4673,7 +4673,45 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1082
+## 41) Changelog v300 → v1083
+
+### v1083 (2026-09-29) — Planner total ARS matchea SAP DocTotal en pedidos con `transferidoSAP.docNum`
+
+**Reporte Mariano 2026-09-29**: card GERARDO VIGNOLA (Oferta) mostraba $3.239.640, pero abrir la Sales Quotation 2000245 en SAP muestra `Total Before Discount = $3.168.000`. Idem YIYO (Pendiente) $6.420.000 planner vs $2.328.000 SAP SO 20041. Diferencias del 2% hasta 175% según el caso.
+
+**Root cause** (verificado con `scripts/_diagnose_planner_vs_sap_totals.cjs`):
+
+`_plannerComputeTotal` (`index.html:28221`) leía `netAmountArs` del pedido-app, que suma **confirmed + BO con la fórmula v699**:
+
+```
+netAmountArs = confirmed × (1 − descuentoPct/100) + BO_sin_descuento
+```
+
+Pero **SAP solo tiene las líneas `state === 'confirmed'`** — los BO quedan en app (columna Backorder / modal Stock Asignado). Cuando Mariano compara card ↔ Sales Quotation/Order en SAP, ve montos distintos.
+
+Ejemplos verificados:
+| Pedido | Planner pre-v1083 | SAP DocTotal | POST-v1083 | Δ vs SAP |
+|---|---:|---:|---:|---:|
+| VIGNOLA orden 245 SQ 2000245 | $3.239.640 | $3.168.000 | $3.168.000 | 0% |
+| YIYO orden 238 SO 20041 | $6.420.000 | $2.328.000 | $2.328.000 | 0% |
+
+**Fix**: en `_plannerComputeTotal`, para pedidos con `transferidoSAP.docNum`, computar SOLO desde `lines[]` con `state === 'confirmed'`. Fallback al legacy (`netAmountArs` etc) para:
+- Lista de espera (sin `transferidoSAP`).
+- Pedidos sin líneas confirmed (todo BO / recycled).
+- Pedidos legacy sin schema BO/ASIG.
+
+Facturado / Cobrado NO se tocan — usan `_plannerComputeInvoicedTotal` / `_plannerComputePaidTotal` que leen `invoicedAmount` / `paidAmount` sync-eados por `syncSapPaymentsToApp` desde SAP DocTotal real.
+
+**Impacto agregado Septiembre 2026** (columna Pendiente de facturar):
+- 25 de 37 pedidos afectados (68%).
+- Subtotal columna: **$126.7M → $69.7M** (baja 45%).
+- Reducción = $56.9M de líneas BO que estaban infladas en el total de las cards.
+
+Backend intacto (`netAmountArs` sigue reportando el compromiso app completo para dashboards y targets). Solo cambia la representación en las cards del Planner.
+
+**Diagnóstico deja `scripts/_diagnose_planner_vs_sap_totals.cjs`** para verificaciones futuras: side-by-side legacy vs nueva sobre pedidos específicos + agregado mensual.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1082 → v1083.
 
 ### v1082 (2026-09-25) — Excel exports Backup mensual con autofit de anchos de columna
 
