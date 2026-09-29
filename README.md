@@ -4673,7 +4673,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1091
+## 41) Changelog v300 → v1092
+
+### v1092 (2026-09-29) — Planner accesible para VDEs (scope propio)
+
+**Pedido Mariano**: los VDEs deben poder abrir el Planner pero **solo con sus propios pedidos**, no todos.
+
+**Cambios**:
+
+1. **Gate del botón** (`index.html:23881`): antes limitado a whitelist emails × roles `admin/gerente/interno`. Ahora:
+   - `admin/gerente/interno` → siguen requiriendo email whitelist (Mariano/Pablo/Santi/Ioannis/UY).
+   - `vendedor` (nuevo) → cualquier VDE con `assignedVendor` definido puede abrirlo.
+
+2. **Listener pedidos** (`_subscribePlannerPedidos`): cuando `userRole === 'vendedor'`, agregar filtro `.where('ownerUid', '==', currentUser.uid)`. Necesario para respetar la Firestore rule `list: isVendor() && ownsDoc()` (sin el filtro el listener falla silencioso, patrón v820 replicado).
+
+3. **Listener revision_waitlist**: filtro client-side por `ownerUid == uid` cuando es VDE. Rules permite `read: isReader()` = todos leen; el scoping se hace en el cliente.
+
+**Trade-off conocido**: pedidos creados **on-behalf-of** por un VDI (Santi/Ioannis a nombre de un VDE) tienen `ownerUid = VDI` no VDE — quedan fuera del scope del VDE. Si eso se vuelve un problema real, hay que extender las rules `list` a `(isVendor() && (ownerUid == auth.uid || ownerVendor == myVendorKey()))`. Por ahora MVP: el VDE ve solo lo que él mismo cargó.
+
+**Cero impacto** para admin/gerente/interno — su listener y scope no cambian.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1091 → v1092.
 
 ### v1091 (2026-09-29) — Botón Planner mobile idéntico a Panel de Control
 

@@ -5940,7 +5940,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1091';
+const APP_VERSION = 'v1092';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -23866,6 +23866,11 @@ function applyRolePermissions(){
     // v1032 (2026-09-22): whitelist ampliada — Mariano + Pablo (admin/gerente)
     // + Santiago Esteban + Ioannis Palkoudakis (VDIs role=interno). Los VDIs
     // necesitan ver el Planner para trackear el pipeline de sus parejas VDE.
+    // v1092 (2026-09-29): extendido a VDEs (role='vendedor') con scope propio.
+    // La whitelist de emails aplica SOLO a admin/gerente/interno. Cualquier
+    // VDE con vendorKey definido puede abrir el Planner y ver solo SUS pedidos
+    // (filtro en _subscribePlannerPedidos por ownerUid=uid, respetando la
+    // Firestore rule `list: isVendor() && ownsDoc()`).
     const _plannerHdrBtn = document.getElementById('planner-header-btn');
     if (_plannerHdrBtn) {
       const _plannerAllowedEmails = new Set([
@@ -23878,10 +23883,12 @@ function applyRolePermissions(){
         'santiago.beron@shimano.uy',
         'diego.valsi@shimano.uy',
       ]);
-      const _plannerAllowedRoles = new Set(['admin', 'gerente', 'interno']);
       const _emLower = ((currentUser && currentUser.email) || '').toLowerCase();
+      const _isVDIorAdmin = (userRole === 'admin' || userRole === 'gerente' || userRole === 'interno');
+      const _isVDE = (userRole === 'vendedor');
       const _canPlanner =
-        _plannerAllowedEmails.has(_emLower) && _plannerAllowedRoles.has(userRole);
+        (_isVDIorAdmin && _plannerAllowedEmails.has(_emLower))
+        || (_isVDE && !!assignedVendor);
       _plannerHdrBtn.style.display = _canPlanner ? '' : 'none';
     }
     // v984 (2026-09-17) + v1086: botones Dashboard y Depósito ocultos para
@@ -27596,10 +27603,18 @@ async function onPlannerColDrop(ev) {
 // Con plannerShowClosed=true trae todos los pedidos creados en los ultimos 90
 // dias (activos + cerrados). El filtro _plannerPedidoInMonth limita al mes
 // seleccionado, asi el volumen no crece descontroladamente.
+// v1092 (2026-09-29): scope VDE — cuando userRole='vendedor', filtrar por
+// ownerUid=uid. Sin este filtro el listener falla silencioso porque la rule
+// `list` de /pedidos exige ownsDoc() para vendors. Mismo pattern que
+// unsubPedidosAll (index.html:28781 v820 fix). Trade-off: pedidos creados
+// on-behalf-of por un VDI quedan fuera del scope (ownerUid=VDI, no VDE).
 function _subscribePlannerPedidos() {
   if (unsubPlannerPedidos) { try { unsubPlannerPedidos(); } catch (_) { /* ignore */ } unsubPlannerPedidos = null; }
   const db = fbDb;
-  const base = db.collection('pedidos');
+  let base = db.collection('pedidos');
+  if (userRole === 'vendedor' && currentUser && currentUser.uid) {
+    base = base.where('ownerUid', '==', currentUser.uid);
+  }
   const query = plannerShowClosed
     ? base.where('createdAt', '>=', new Date(Date.now() - 90 * 86400000))
     : base.where('closedAt', '==', null);
@@ -27635,6 +27650,11 @@ function attachPlannerListeners() {
   // (usa filter client-side). Fix: replicar el pattern del sidebar-left
   // (ver ensureRevisionWaitlistListener línea 15685): sin where, filter
   // client-side via shouldIncludeWaitlistDoc (o fallback stage==='consumed').
+  // v1092 (2026-09-29): scope VDE. rules dejan que cualquier reader lea toda
+  // la revision_waitlist, pero para el Planner queremos que VDE vea solo sus
+  // propias entradas. Filtro client-side por ownerUid=uid. Los otros roles
+  // (admin/gerente/interno) siguen viendo todo.
+  const _isVDEForWaitlist = (userRole === 'vendedor' && currentUser && currentUser.uid);
   unsubPlannerWaitlist = db.collection('revision_waitlist')
     .orderBy('createdAt', 'asc')
     .onSnapshot(snap => {
@@ -27642,6 +27662,8 @@ function attachPlannerListeners() {
       const _wlFilter = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.shouldIncludeWaitlistDoc);
       snap.forEach(d => {
         const data = d.data() || {};
+        // v1092: scope VDE — solo entries donde ownerUid = uid del usuario.
+        if (_isVDEForWaitlist && data.ownerUid !== currentUser.uid) return;
         if (_wlFilter) {
           if (!_wlFilter(data)) return;
         } else {
