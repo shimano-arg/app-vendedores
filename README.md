@@ -4673,7 +4673,24 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1088
+## 41) Changelog v300 → v1089
+
+### v1089 (2026-09-29) — Badge closed en Planner cards: solo candado + tooltip (sin jerga técnica)
+
+**Pedido Mariano**: el badge naranja "🔒 sap_manual_close" / "🔒 all_invoiced" que agregué en v1084 confundía a vendedores. Prefieren no ver esas etiquetas.
+
+**Fix**: el badge queda como **`🔒` solo** (sin texto). El `closedReason` técnico va como `title` (tooltip al hover), en español legible:
+
+| closedReason | Tooltip |
+|---|---|
+| `sap_manual_close` | Cerrado manualmente en SAP (sin generar Sales Order ni facturar) |
+| `all_invoiced` | Totalmente facturado |
+| `all_recycled_or_cancelled_or_invoiced` | Todas las líneas recicladas, canceladas o facturadas |
+| `ttl_expired` | TTL de asignación expirado (líneas ASIG venciaron) |
+
+Los pedidos cerrados siguen apareciendo solo cuando el toggle "Mostrar cerrados" está activo (feature v1084 sin cambios). Auditar el motivo requiere ahora hacer hover — cero ruido visual en el uso diario.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1088 → v1089.
 
 ### v1088 (2026-09-29) — Fix "sin vendedor" en export Backorder
 

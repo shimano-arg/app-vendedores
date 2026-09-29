@@ -5938,7 +5938,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1088';
+const APP_VERSION = 'v1089';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27795,14 +27795,25 @@ function renderPlannerCard(pedido, column) {
     badges.push({ text: '📎' + pedido.plannerAttachments.length, cls: 'planner-badge' });
   }
   if (pedido.orderNumber) badges.push({ text: 'ORDEN ' + pedido.orderNumber, cls: 'planner-badge planner-badge-orden' });
-  // v1084 (2026-09-29): cards visibles solo cuando toggle "Mostrar cerrados"
-  // esta activo. Badge naranja destaca que el pedido esta cerrado y muestra el
-  // reason (sap_manual_close / all_invoiced / all_recycled_or_cancelled_or_invoiced / ttl_expired).
+  // v1084 → v1089 (2026-09-29): cards de pedidos cerrados solo visibles con
+  // toggle "Mostrar cerrados". Badge minimal (candado sin texto) para no
+  // confundir vendedores con jerga tecnica tipo "sap_manual_close" o
+  // "all_invoiced". El reason completo queda como tooltip para auditoria.
   if (pedido.closedAt) {
-    const _reason = pedido.closedReason || 'cerrado';
-    badges.push({ text: '🔒 ' + _reason, cls: 'planner-badge planner-badge-closed' });
+    const _reasonMap = {
+      sap_manual_close: 'Cerrado manualmente en SAP (sin generar Sales Order ni facturar)',
+      all_invoiced: 'Totalmente facturado',
+      all_recycled_or_cancelled_or_invoiced: 'Todas las líneas recicladas, canceladas o facturadas',
+      ttl_expired: 'TTL de asignación expirado (líneas ASIG venciaron)',
+    };
+    const _r = pedido.closedReason || '';
+    const _tooltip = _reasonMap[_r] || ('Pedido cerrado' + (_r ? ' (' + _r + ')' : ''));
+    badges.push({ text: '🔒', cls: 'planner-badge planner-badge-closed', title: _tooltip });
   }
-  const badgesHtml = badges.map(b => '<span class="' + b.cls + '">' + escapeHtml(b.text) + '</span>').join('');
+  const badgesHtml = badges.map(b => {
+    const _titleAttr = b.title ? ' title="' + escapeHtml(b.title) + '"' : '';
+    return '<span class="' + b.cls + '"' + _titleAttr + '>' + escapeHtml(b.text) + '</span>';
+  }).join('');
   const stateClass = computePlannerCardStateClass(pedido, column);
 
   let togglesHtml = '';
