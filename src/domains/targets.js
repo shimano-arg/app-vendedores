@@ -59,6 +59,24 @@ function getMonthlyTargetArs(vendorKey, year, monthIdx) {
   const v = parseFloat(t.targetArs);
   return Number.isNaN(v) || v < 0 ? null : v;
 }
+
+// v1093 (2026-09-29): devuelve targetByFamily {REEL, CANAS, LINEAS} para el
+// bloque "Desglose por familia" del Dashboard. Los valores son AR$ per familia.
+// Fallback: si el doc no tiene targetByFamily (docs pre-v310 legacy), devuelve
+// null en cada familia — el UI muestra "sin target por familia".
+function getMonthlyTargetByFamily(vendorKey, year, monthIdx) {
+  if (!vendorKey) return null;
+  const id = targetDocId(vendorKey, year, monthIdx);
+  const t = targetsCache.get(id);
+  if (!t || !t.targetByFamily) return null;
+  const bf = t.targetByFamily;
+  const _pv = (k) => {
+    const v = parseFloat(bf[k]);
+    return Number.isNaN(v) || v < 0 ? null : v;
+  };
+  return { REEL: _pv('REEL'), CANAS: _pv('CANAS'), LINEAS: _pv('LINEAS') };
+}
+window.getMonthlyTargetByFamily = getMonthlyTargetByFamily;
 function getCumulativeTargetArs(vendorKey, year, throughMonthIdx) {
   // Suma los targets asignados de enero a throughMonthIdx (inclusive). Si faltan algunos, suma solo los que tiene.
   // Devuelve {sum, monthsAssigned, monthsMissing}
