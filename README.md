@@ -13302,3 +13302,84 @@ Aplica también a `v_backorder`, `v_stock_asignado`, `v_backorder_lineas_v2`.
 - `03678c2` — v1034: fix Total ARS vacío en email a santiago.beron.
 - `b68703a` — v1035: agregar `v_ordenes_sap` (ORDR/RDR1) para TABLERO SAR.
 
+## 54) Sesión larga 2026-09-25 → 2026-09-29 (v1067 → v1082 + CFs planner + BQ + admin data ops)
+
+Sesión intensiva multi-frente. 16+ shipments cerrados. Todo en `main` y desplegado.
+
+### 54.1) Shipments cerrados
+
+| # | Ver / Ámbito | Qué |
+|---|---|---|
+| 1 | v1067 frontend | Modal Backorder: quitar 2 selects redundantes ("Sin stock", "Solo urgentes") del toolbar. |
+| 2 | v1068 frontend | HOTFIX `ReferenceError: q is not defined` en `renderBackordersTab` (hermano v1066 — v1064 renombró `q → tq` y quedaron 3 líneas sin renombrar). |
+| 3 | v1069 frontend | Escape hatch `?skipAppCheck=1` (o `localStorage.debugSkipAppCheck='1'`) para saltar `activateAppCheckOnce` cuando reCAPTCHA v3 queda en throttle 403 permanente que Clear Site Data no resuelve. |
+| 4 | v1070 frontend | Listener `stock_snapshot` resiliente: zombie detection + fallback `.get({source:'server'})` a los 15s si `onSnapshot` no fires. |
+| 5 | v1071 CF-only | `setupGetMovimientos` con log detallado del body cuando SETUP responde sin `VFPData`. Diagnóstico: SETUP genuinamente no publicaba movimientos desde 14/9. |
+| 6 | v1072 frontend | Modal Stock Asignado muestra líneas ASIG con `asigReserva=false` (workaround del bug root `asigCliTipo=C` default 100%). |
+| 7 | v1073 BQ-only | `fecha_contable` + `mes_contable` + `anio_contable` + `nc_sin_base` en `v_facturas_sap` y `v_ventas_lineas`. Netea NCs contra el mes de la factura original vía `RIN1.BaseType=13`. Verificado con MALALCO agosto/septiembre. |
+| 8 | v1074 frontend | Botón "↻ Enviar a SAP" admin-only en cards de Confirmados con `transferError` — reintento manual del envío post-fix del problema. |
+| 9 | v1075 frontend | Listener `sap_integration` resiliente con mismo zombie safety net del v1070. |
+| 10 | v1076 frontend | HOTFIX asimetría input `sl-user` sin default hardcodeado en el render del panel Service Layer (fallback `\|\| 'APP_VENDEDORES'`). |
+| 11 | v1077 frontend | Refactor: helper genérico `ensureListenerWithFallback(name, refBuilder, applyFn)` con state per-name en un `Map()`. 5 listeners refactoreados: `stock_snapshot`, `sap_integration`, `pedidos_own`, `pedidos_all`, `revision_waitlist`. |
+| 12 | v1078 frontend | Updates casi instantáneos: timeout del helper 15s → 3s + polling continuo cada 3s si zombie + `renderPedidosTab()` explícito post-`pedidos.add()` en `doConfirmPedido`. |
+| 13 | v1079 frontend | Alias `MARTIN BOIERO → PACHI` (helper `_canonVendor`) en dropdown filtro Backorder/Stock Asignado + Excel export + gráficos. |
+| 14 | v1080 CF-only | Planner `resolveVdiPartnerEmail` self-notify si el vendor es `role='interno'` directamente. Fix para pedidos con `ownerVendor='SANTIAGO ESTEBAN'` que no llegaban a Santiago. |
+| 15 | v1081 CF-only | Alias `MARTIN BOIERO → PACHI` en planner CF (paralelo v1079 frontend). |
+| 16 | v1082 frontend | Excel exports Backup mensual con autofit de anchos de columna. Helper `_autoFitCols(rows)` aplicado a `Shimano_Visitas`, `Shimano_Pedidos`, `Shimano_Rutas`. |
+
+### 54.2) Admin data ops ejecutadas (Firestore direct writes)
+
+- **Campañas obsoletas eliminadas**: `CAMPAÑA CATANA GONZALO SEPT.` (duplicado units con la $8.5M), `CAMPAÑA MARTIN CATANA SEPT.` (MARTIN ya no existe). Preservada `CAMPAÑA CATANA MARTIN` de agosto (histórica real).
+- **Campaña GONZALO $8.5M** — des-archivada (tenía `archivedManually=true` por error).
+- **Backfill `client_master.defaultDelivery`** — 58 clientes actualizados (40% de los 146 con formaEntrega en pedidos). Cobertura pasó de 19% → 31% del universo total. `updatedBy: backfill:erbinomariano@gmail.com` para identificarlos.
+
+### 54.3) Verificaciones ejecutadas y confirmadas
+
+- ✅ **AppCheck throttle 403 permanente** confirmado en Mariano browser via Console log directo (`Attempts allowed again after 01d:00m:00s`).
+- ✅ **`stock_snapshot` doc en Firestore fresh** — `.get({source:'server'})` desde Console retorna `updatedAt=2026-09-25T10:22:18Z`, `warehouseBreakdown 8117 bytes`, etc. El listener `onSnapshot` es lo que quedaba zombie, no la data.
+- ✅ **Service Layer estaba literalmente deshabilitado** — no era zombie del listener sino `serviceLayer.enabled=false` en Firestore. Solucionado con checkbox + Guardar.
+- ✅ **Planner CF logging revela el bug**: `[vdi-partner] skip: no-vde-found para vendorKey=SANTIAGO ESTEBAN` → confirmó que Santiago es `role='interno'`.
+- ✅ **NC 1905 vs INVOICE 18689** MALALCO: agosto=$0, septiembre=$0 post-`fecha_contable`.
+- ✅ **Backfill `defaultDelivery`**: `LISTO. OK: 58 | FAIL: 0`.
+
+### 54.4) Verificaciones YA HECHAS por Mariano (prioridad 1)
+
+- ✅ **Santiago recibe alertas del Planner** post v1080/v1081.
+- ✅ **Power BI updated** con `fecha_contable` como clave de relación calendario.
+- ✅ **Pedido SANTIAGO GERMAN CARRASCO** (cliente inactivo SAP) — resuelto vía activación en SAP + botón "↻ Enviar a SAP" v1074.
+
+### 54.5) Deuda técnica identificada — pendiente próxima sesión
+
+**Bugs root que quedaron con workaround** (no bloqueantes):
+
+1. **`asigCliTipo=C` default en 100% de clientes** — la CF FIFO cae al fallback 'C' porque `fetchCliTipo` no resuelve. Consecuencia: modal Stock Asignado muestra todo con badge "SIN RESERVA" (v1072 fix cosmético). Fix profundo: hacer que `fetchCliTipo` lea el tier real del cliente (BP field o algún master). **Estimación**: 1-2 hs. Prioridad media.
+
+2. **`defaultDelivery` no se guarda en flujos alternativos** — 40% de casos requirieron backfill. Probable: v607 auto-confirm 100% BO + v819 pedidos sintéticos de migración SAP no ejecutan el `client_master.set` de v630. Agregarlo en esos flows. **Estimación**: 30 min. Prioridad baja (el backfill cubrió).
+
+3. **`[BO-dup-strict] 106 líneas duplicadas`** en `pedidos-app` — aparece en Console cada snapshot. Correr `window.diagBackorderOverlap()` para diagnóstico. Probable overlap entre SQs históricos SAP y pedidos-app sintéticos post-migración v819. **Estimación**: 30-60 min. Prioridad media (afecta reporting de Backorder).
+
+**Deuda BQ**:
+
+4. **Backend NC → Return → Invoice** (v1073 BQ) — 52 NCs (12.8%) con `nc_sin_base=TRUE` son vía Return. Requiere entender el doc type custom Shimano `234000031` al que apuntan las líneas del Return. Reduciría `pct_sin_base` de 48% a 36%. **Estimación**: 2-3 hs.
+
+**Refactor / test coverage**:
+
+5. **Smoke test Playwright para modal Backorder** — 2 regresiones consecutivas (v1066 + v1068) del rename `q → tq`. Un test "abrir modal + tocar Exportar todo" prevendría ambas. **Estimación**: 1 hr.
+
+6. **Refactor 3 inputs SL** en un array + loop en `renderSapServiceLayer` (fix simétrico permanente al bug v1076). **Estimación**: 15 min.
+
+7. **Aplicar helper `ensureListenerWithFallback` a más listeners críticos** (`unsubApprovedAltas`, `unsubClientMaster`, `unsubBackorderSnapshot`) para prevenir el 4to caso zombie. **Estimación**: 30 min.
+
+8. **Investigar por qué el listener `onSnapshot` queda zombie**. Hipótesis actual: race con `enablePersistence({synchronizeTabs:true})` + AppCheck + auth flow. Reproducir en ambiente controlado, reportar a Firebase SDK si aplica. **Estimación**: 2-4 hs. Prioridad baja (el safety net cubre).
+
+### 54.6) Cambios de arquitectura de la sesión
+
+- **Nuevo helper genérico `ensureListenerWithFallback`** en `index.html`. Pattern zombie-safe para todos los `onSnapshot` críticos.
+- **Nuevo helper `_canonVendor(v)`** en `index.html` + `canonVendor(v)` en `planner-stage-change-core.js`. Alias legacy MARTIN BOIERO → PACHI en frontend + backend.
+- **Nuevo helper `_autoFitCols(rows, options)`** en `index.html`. Autofit de anchos de columna para exports SheetJS.
+- **Nueva columna `fecha_contable`** en `v_facturas_sap` y `v_ventas_lineas`. Cambia el pattern de agrupamiento por mes para netear NCs contra factura original.
+
+### 54.7) Estado final APP_VERSION
+
+`v1082` desplegado en `main`. GH Pages activo. CFs `onPlannerStageChanged` y `setupGetMovimientos` deployadas manualmente vía `firebase deploy --only functions:X`.
+
