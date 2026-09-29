@@ -4673,7 +4673,23 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1093
+## 41) Changelog v300 → v1094
+
+### v1094 (2026-09-29) — HOTFIX: VDE hace click en Planner y no se abre
+
+**Reporte VDEs**: post-v1092 el botón Planner aparece pero al hacer click no se abre nada.
+
+**Root cause**: v1092 extendió el gate del **botón** (`applyRolePermissions`) para permitir VDEs, pero olvidó actualizar el **runtime guard interno** de `openPlannerBoardModal()` (`index.html:12796`). Este segundo guard seguía exigiendo `admin/gerente/interno` + email whitelist — para VDEs, `if (!okEmail || !okRole) return` disparaba y la función retornaba silenciosamente sin abrir el modal ni loguear nada.
+
+**Fix**: replicar el gate del botón dentro de `openPlannerBoardModal`:
+```js
+var isVDIorAdmin = (userRole === 'admin' || userRole === 'gerente' || userRole === 'interno');
+var isVDE = (userRole === 'vendedor');
+var canOpen = (isVDIorAdmin && okEmail) || (isVDE && !!assignedVendor);
+if (!canOpen) return;
+```
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1093 → v1094.
 
 ### v1093 (2026-09-29) — Dashboard: desglose por familia (REEL / CAÑAS / LÍNEAS+ACC) por vendedor
 

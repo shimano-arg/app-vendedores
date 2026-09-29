@@ -5940,7 +5940,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1093';
+const APP_VERSION = 'v1094';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12796,7 +12796,12 @@ function setPlannerSubtab(key) {
 function openPlannerBoardModal() {
   // v1032 (2026-09-22): whitelist ampliada — Mariano + Pablo + Santiago Esteban
   // + Ioannis (VDIs). Sync con applyRolePermissions._plannerAllowedEmails.
+  // v1094 (2026-09-29): HOTFIX — runtime guard olvido actualizarse en v1092
+  // cuando abri Planner a VDEs. Botón mostraba pero clic retornaba silencioso.
+  // Ahora: VDE con vendorKey pasa (mismo gate que applyRolePermissions v1092).
   var em = ((currentUser && (currentUser.email || '')) || '').toLowerCase();
+  var isVDIorAdmin = (userRole === 'admin' || userRole === 'gerente' || userRole === 'interno');
+  var isVDE = (userRole === 'vendedor');
   var okEmail =
     em === 'mariano.erbino@shimano.com.ar' ||
     em === 'erbinomariano@gmail.com' ||
@@ -12806,8 +12811,10 @@ function openPlannerBoardModal() {
     // v1036 (2026-09-22): agregado Uruguay
     em === 'santiago.beron@shimano.uy' ||
     em === 'diego.valsi@shimano.uy';
-  var okRole = userRole === 'admin' || userRole === 'gerente' || userRole === 'interno';
-  if (!okEmail || !okRole) return; // runtime guard extra
+  var canOpen =
+    (isVDIorAdmin && okEmail)
+    || (isVDE && !!assignedVendor);
+  if (!canOpen) return; // runtime guard extra
   var modal = document.getElementById('planner-board-modal');
   if (!modal) return;
   modal.style.display = 'flex';
