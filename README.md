@@ -4711,7 +4711,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 **Storage snapshot**: `forecasts_snapshots/{YYYY-MM}/{familia}.xlsx` — permite auditoría de "qué Excel real subimos ese mes" independientemente del parseo Firestore.
 
-**Fuera de scope Fase 1** (viene en Fase 2): cálculo del forecast (`déficit = backorder + venta_esperada − stock − unidades_meses_previos`, luego `sugerido = max(déficit, MOQ)`), tabla del "Forecast Calculado", export Excel del cálculo, queries a `v_ventas_lineas` para venta esperada mes anterior año-anterior.
+**Fuera de scope Fase 1** (viene en Fase 2, ver nota abajo): cálculo del forecast, tabla del "Forecast Calculado", export Excel del cálculo.
+
+**⚠ Cambio scope Fase 2 (2026-09-29, post v1098)** — Mariano redefinió: en vez del cálculo simple `déficit = backorder + venta_esperada − stock − unidades_meses_previos`, la Fase 2 es un **pipeline Python de forecasting estadístico con series temporales** que corre offline en `scripts/forecast/` (junto a `sync_sap_to_bigquery.py`). Decisiones tomadas antes de arrancar código:
+
+- **Librería**: Nixtla `statsforecast` + `hierarchicalforecast` (AutoARIMA/AutoETS + reconciliación MinT bottom-up).
+- **Granularidad**: hierarchical familia → subfamilia → SKU.
+- **Cadencia**: mensual manual (`python scripts/forecast/train_and_publish.py` el 1° de cada mes).
+- **Sales Plans (Fase 1)**: pasan a rol de **benchmark comparativo** (forecast vs plan comercial lado a lado en la UI), NO son input al modelo.
+- **Exógenas** vía CSV editable `scripts/forecast/inputs/exogenas.csv`. Columnas: `mes` (YYYY-MM), `rem_ipc_12m`, `dolar_futuro_12m`, `dolar_oficial_prom`, `dolar_mep_prom`, `tasa_bcra_tna`, `es_electoral` (0/1), `torneo_grande` (0/1). Rango mínimo 2022-01 → 2027-12.
+- **Backtest**: rolling-origin CV con MAPE + RMSE por SKU. Se muestran badges en la UI.
+- **Output**: Firestore `forecast_output/{sku}` con `{forecast: {'YYYY-MM': {mean, lo80, hi80}}, metrics: {mape, rmse, confidence}, versionId, generatedAt}`.
+- **UI**: nueva tab "Forecast Estadístico" en modal FORECAST — tabla SKU × 7 meses + click SKU → modal detalle con gráfico historia + forecast + IC 80% + overlay Sales Plan.
+- **Constraints heredados**: NO Free Inventory como input; NO NCM 9507 (empeora modelo); modelar qty total por SKU sin dividir por vendor.
+
+Sub-fases estimadas: F2A.1 baseline (2-3h) → F2A.2 jerarquía (2h) → F2A.3 exógenas (2h) → F2A.4 write Firestore + rules (1h) → F2A.5 script end-to-end (1h) → F2B.1 tabla UI (2h) → F2B.2 modal detalle (2h). Total ~12-14h. Pendiente: Mariano prepara `exogenas.csv` con Cowork antes de arrancar F2A.1.
 
 Bump `APP_VERSION`/`CACHE_VERSION` v1097 → v1098.
 
