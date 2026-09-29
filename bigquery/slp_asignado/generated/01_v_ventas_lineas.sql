@@ -198,6 +198,7 @@ SELECT
   -- SAP que esta inconsistente en decenas de facturas.
   ca.assigned_vendor_app                                                AS assigned_vendor,
   inv._sync_timestamp,
+
   -- slp_asignado (2026-09-29 v2): mapeo canonico SOLO por texto de
   -- assigned_vendor. Congruente con la atribucion del modelo PBI.
   CASE UPPER(TRIM(ca.assigned_vendor_app))

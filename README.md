@@ -4673,7 +4673,41 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1094
+## 41) Changelog v300 → v1095
+
+### v1095 (2026-09-29) — Fix estructural race `syncSapQuotationClosures` (SOLEDAD case)
+
+**Reporte Ioannis**: pedido SOLEDAD SANCHEZ orden 237 SAP:2000241 sigue en columna "Oferta" del Planner aunque en SAP ya está convertido a SO 20056. Mariano lo ve con badge 🔒 (toggle "Mostrar cerrados" activo); Ioannis no lo ve.
+
+**Root cause**: race condition entre 2 CFs schedulados cada 15 min:
+- `syncSapQuotationClosures` (v1053): detecta SQ con `DocumentStatus='bost_Close'` + `Cancelled='tNO'` → cierra pedido-app como `sap_manual_close`.
+- `syncSapOrdersToApp` (v1015): detecta SO derivada + setea `transferidoSAP.orderDocEntry` en el pedido-app.
+
+**El problema**: `bost_Close` en SAP se dispara TANTO por "cierre manual" (cancel document) COMO por "conversion a SO". El CF de closures no distinguía y cerraba pedidos que en realidad avanzaron al pipeline SO. Si el CF de closures corría primero, marcaba `closedAt: sap_manual_close` antes de que el sync de orders pudiera poner `orderDocEntry`. El pedido quedaba invisible en el Planner default.
+
+**Fix**: nueva función `fetchQuotationsWithDerivedOrder(session, deps, closedLookahead)` que enumera `/Orders` paginado desc y extrae `BaseEntry` cuando `BaseType=23` (=Quotation). Devuelve `Set<sqDocEntry>` con las SQs que YA se convirtieron.
+
+En el loop principal, ANTES de marcar `sap_manual_close`:
+```js
+if (derivedSqSet.has(c.sqDocEntry)) {
+  // SQ bost_Close por conversion, no manual close. Skip.
+  continue;
+}
+```
+
+Ahora el CF solo cierra pedidos donde efectivamente NO hay SO derivada. Los race victims futuros se eliminan.
+
+**Fail-open**: si el fetch de `/Orders` falla (SL down, timeout), el guard queda vacío y el CF sigue comportándose como pre-v1095. Preferimos no bloquear el flow entero por un fallo de conectividad.
+
+**Costo extra**: +100 GETs por corrida (~2000 lookahead / page 20). Total CF: 200 GETs cada 15 min = 800 GETs/hr. Alineado con syncSapOrdersToApp / syncSapPaymentsToApp.
+
+**Fix inmediato aplicado a SOLEDAD** (`scripts/_reopen_soledad_pedido.cjs`): reabrió el pedido borrando `closedAt` + `closedReason` + metadatos. El próximo tick de `syncSapOrdersToApp` va a setear `orderDocEntry=SO 20056` correctamente.
+
+**Tests**: 10 nuevos en `tests/functions/sync-sap-quotation-closures.test.js` (cobertura completa del core que no tenía tests) incluyendo la regresión SOLEDAD.
+
+**Deploy**: requiere `firebase deploy --only functions:syncSapQuotationClosures` post-merge.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1094 → v1095.
 
 ### v1094 (2026-09-29) — HOTFIX: VDE hace click en Planner y no se abre
 

@@ -218,6 +218,7 @@ SELECT
   -- 2026-09-09 v4: es_bike a nivel CLIENTE (marca al card_code, no la
   -- factura individual). Congruente con la medida "Es Bike" del modelo PBI.
   (cb.card_code IS NOT NULL)                                             AS es_bike,
+
   -- slp_asignado (2026-09-29 v2): mapeo canonico SOLO por texto de
   -- assigned_vendor. Congruente con la atribucion del modelo PBI.
   CASE UPPER(TRIM(ca.assigned_vendor_app))
