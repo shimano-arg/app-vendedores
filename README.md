@@ -4673,7 +4673,17 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1095
+## 41) Changelog v300 → v1096
+
+### v1096 (2026-09-29) — Labels del modal export: quitar "(snapshot actual)"
+
+Pedido Mariano: labels más limpios en el modal "Que queres exportar?":
+- `Backorder (snapshot actual)` → `Backorder`
+- `Stock Asignado (snapshot actual)` → `Stock Asignado`
+
+La descripción abajo de cada opción ya explica que es "snapshot del estado actual", el paréntesis en el título era redundante y ruidoso. Cambio cosmético, sin impacto en lógica.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1095 → v1096.
 
 ### v1095 (2026-09-29) — Fix estructural race `syncSapQuotationClosures` (SOLEDAD case)
 
