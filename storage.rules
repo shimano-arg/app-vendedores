@@ -114,6 +114,27 @@ service firebase.storage {
                     && request.resource.contentType.matches('application/pdf|image/jpeg|image/png');
     }
 
+    // v1098+ (2026-09-29) Fase 1 Forecast v2: snapshot original de los Sales
+    // Plans mensuales (Rods/Reels/FG) subidos por Mariano en el modal FORECAST.
+    // Path canónico: `forecasts_snapshots/{YYYY-MM}/{familia}.xlsx`. Mariano-only
+    // (feature admin whitelist). Máx 10 MB por Excel. El parseo va a Firestore
+    // `sales_plan_cache/{familia}` (regla espejo en firestore.rules).
+    match /forecasts_snapshots/{yearMonth}/{fileName} {
+      allow read: if request.auth != null
+                   && request.auth.token.email in [
+                        'erbinomariano@gmail.com',
+                        'mariano.erbino@shimano.com.ar'
+                      ];
+      allow write: if request.auth != null
+                    && request.auth.token.email in [
+                         'erbinomariano@gmail.com',
+                         'mariano.erbino@shimano.com.ar'
+                       ]
+                    && request.resource.size < 10 * 1024 * 1024
+                    && (request.resource.contentType == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+                        request.resource.contentType == 'application/vnd.ms-excel');
+    }
+
     // Default: bloquear todo lo demas. Si en el futuro se agrega otro
     // path (ej: fotos de visitas migradas a Storage), agregar un match
     // dedicado arriba con sus propias reglas.
