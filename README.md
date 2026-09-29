@@ -4673,7 +4673,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1084
+## 41) Changelog v300 → v1085
+
+### v1085 (2026-09-29) — Botón Planner uniforme con el resto en mobile
+
+**Reporte Mariano** (screenshot mobile): el botón "Planner" en la home mobile aparecía con forma pill (bordes 999px, padding chico, font-size 11px) rompiendo la simetría con Depósito / Preliminar / Forecast / etc — que son rectangulares con esquinas moderadas (border-radius 14px, min-height 48px, font-size 15px).
+
+**Root cause**: `index.html:3524` tenía los estilos pill inline en el `style=""` del botón. Los inline styles ganan cascade sobre las reglas `@media (max-width:768px)` de la clase `.btn-zonas` (línea 2511). En mobile el pill se aplicaba y rompía la uniformidad.
+
+**Fix**:
+- Quitados los inline styles pill (`border-radius:999px`, `padding:8px 16px`, `font-size:11px`, etc). El botón ahora tiene solo `background:#ff9500;color:#fff;display:none`.
+- Movido el pill a CSS `@media (min-width: 769px) #planner-header-btn { ... }`. Desktop mantiene el pill Apple (feedback memo `feedback_apple_pill_inline_style.md`); mobile hereda el rectangular de `.btn-zonas` con reglas mobile (border-radius 14px, min-height 48px, etc).
+
+**Nota sobre Preliminar**: el screenshot también mostraba Preliminar (violeta) con forma pill, pero el código NO tiene overrides pill para ese botón — solo `background:#7c3aed;color:#fff`. Puede ser cache SW viejo. Si post-v1085 sigue viéndose distinto, aplicar el mismo pattern.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1084 → v1085.
 
 ### v1084 (2026-09-29) — Toggle "Mostrar pedidos cerrados" en Planner Config (auditoría)
 
