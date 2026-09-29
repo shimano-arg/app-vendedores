@@ -45,7 +45,7 @@ const SALES_PLAN_FAMILIAS = [
   { key: 'reels', label: 'Reels', color: '#8b5cf6' },
   { key: 'fg', label: 'FG (resto)', color: '#f59e0b' },
 ];
-let _salesPlanCaches = { rods: null, reels: null, fg: null }; // last loaded doc
+const _salesPlanCaches = { rods: null, reels: null, fg: null }; // last loaded doc
 let _forecastActiveTab = 'sales-plans'; // 'sales-plans' | 'legacy'
 
 // Whitelist de emails con acceso al modal FORECAST. Replica el patron de
@@ -253,18 +253,22 @@ function _renderModalShell() {
 
 function _buildShellHtml() {
   // Broken-out pure string builder para pasar el hook de innerHTML.
-  const modalOuter = '<div style="position:absolute;inset:1vh 1vw;background:var(--bg-elevated);border-radius:10px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.35)">';
-  const header = '<div style="padding:12px 18px;background:#0f172a;color:#fff;display:flex;align-items:center;gap:12px">' +
+  const modalOuter =
+    '<div style="position:absolute;inset:1vh 1vw;background:var(--bg-elevated);border-radius:10px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.35)">';
+  const header =
+    '<div style="padding:12px 18px;background:#0f172a;color:#fff;display:flex;align-items:center;gap:12px">' +
     '<div style="flex:1"><div style="font-size:16px;font-weight:800;letter-spacing:.5px">FORECAST</div>' +
     '<div id="forecast-subtitle" style="font-size:11px;opacity:.8;margin-top:2px">Sales Plans mensuales + politica de inventario</div></div>' +
     '<button onclick="closeForecastModal()" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:700">Cerrar</button>' +
     '</div>';
-  const tabsBar = '<div id="forecast-tabs-bar" style="display:flex;gap:0;background:#1e293b;padding:0 18px;border-bottom:1px solid var(--border-subtle)">' +
+  const tabsBar =
+    '<div id="forecast-tabs-bar" style="display:flex;gap:0;background:#1e293b;padding:0 18px;border-bottom:1px solid var(--border-subtle)">' +
     '<button data-tab="sales-plans" onclick="switchForecastTab(\'sales-plans\')" class="forecast-tab" style="padding:10px 16px;background:transparent;color:#fff;border:none;border-bottom:3px solid #0d9488;cursor:pointer;font-weight:700;font-size:12px;letter-spacing:.4px;text-transform:uppercase">Sales Plans</button>' +
     '<button data-tab="legacy" onclick="switchForecastTab(\'legacy\')" class="forecast-tab" style="padding:10px 16px;background:transparent;color:#94a3b8;border:none;border-bottom:3px solid transparent;cursor:pointer;font-weight:600;font-size:12px;letter-spacing:.4px;text-transform:uppercase">Forecast Legacy (6m)</button>' +
     '</div>';
   const tabSalesPlans = '<div id="forecast-tab-sales-plans" style="flex:1;overflow:auto"></div>';
-  const legacyBar = '<div style="padding:12px 18px;background:var(--bg-secondary);border-bottom:1px solid var(--border-subtle);display:flex;flex-wrap:wrap;gap:14px;align-items:center">' +
+  const legacyBar =
+    '<div style="padding:12px 18px;background:var(--bg-secondary);border-bottom:1px solid var(--border-subtle);display:flex;flex-wrap:wrap;gap:14px;align-items:center">' +
     '<label style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;background:#0d9488;color:#fff;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer">' +
     '<span>Cargar Sales Plan (.xlsx)</span>' +
     '<input type="file" accept=".xlsx,.xls" style="display:none" onchange="onForecastSalesPlanFile(event)"/></label>' +
@@ -272,8 +276,13 @@ function _buildShellHtml() {
     '<button id="forecast-export-btn" onclick="exportForecastExcel()" disabled style="padding:8px 14px;background:var(--color-success);color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;opacity:.5">Exportar Excel</button>' +
     '<div id="forecast-stats" style="margin-left:auto;font-size:11px;color:var(--text-secondary);font-weight:600"></div>' +
     '</div>';
-  const legacyBody = '<div id="forecast-body" style="flex:1;overflow:auto;padding:0"><div style="padding:60px 20px;text-align:center;color:var(--text-muted);font-size:14px">Esperando archivo Sales Plan...</div></div>';
-  const tabLegacy = '<div id="forecast-tab-legacy" style="flex:1;overflow:hidden;flex-direction:column;display:none">' + legacyBar + legacyBody + '</div>';
+  const legacyBody =
+    '<div id="forecast-body" style="flex:1;overflow:auto;padding:0"><div style="padding:60px 20px;text-align:center;color:var(--text-muted);font-size:14px">Esperando archivo Sales Plan...</div></div>';
+  const tabLegacy =
+    '<div id="forecast-tab-legacy" style="flex:1;overflow:hidden;flex-direction:column;display:none">' +
+    legacyBar +
+    legacyBody +
+    '</div>';
   return modalOuter + header + tabsBar + tabSalesPlans + tabLegacy + '</div>';
 }
 
@@ -313,8 +322,11 @@ function _fmtDateShort(iso) {
   if (!iso) return '—';
   try {
     const d = iso.toDate ? iso.toDate() : new Date(iso);
-    return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: '2-digit' })
-      + ' ' + d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    return (
+      d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: '2-digit' }) +
+      ' ' +
+      d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+    );
   } catch {
     return String(iso);
   }
@@ -322,15 +334,17 @@ function _fmtDateShort(iso) {
 
 async function _loadSalesPlanCaches() {
   if (!window.fbDb) return;
-  await Promise.all(SALES_PLAN_FAMILIAS.map(async (f) => {
-    try {
-      const doc = await window.fbDb.collection('sales_plan_cache').doc(f.key).get();
-      _salesPlanCaches[f.key] = doc.exists ? doc.data() : null;
-    } catch (e) {
-      console.warn('[FORECAST] load sales_plan_cache/' + f.key + ' fail:', e && e.message);
-      _salesPlanCaches[f.key] = null;
-    }
-  }));
+  await Promise.all(
+    SALES_PLAN_FAMILIAS.map(async (f) => {
+      try {
+        const doc = await window.fbDb.collection('sales_plan_cache').doc(f.key).get();
+        _salesPlanCaches[f.key] = doc.exists ? doc.data() : null;
+      } catch (e) {
+        console.warn('[FORECAST] load sales_plan_cache/' + f.key + ' fail:', e && e.message);
+        _salesPlanCaches[f.key] = null;
+      }
+    })
+  );
 }
 
 function _renderTable(rows) {
@@ -419,52 +433,93 @@ function escapeHtmlSafe(s) {
 function _buildSalesPlanSlotHtml(f) {
   const cache = _salesPlanCaches[f.key];
   const rowsCount = cache && Number.isFinite(cache.rowsCount) ? cache.rowsCount : 0;
-  const monthsCount = cache && Array.isArray(cache.detectedMonths) ? cache.detectedMonths.length : 0;
+  const monthsCount =
+    cache && Array.isArray(cache.detectedMonths) ? cache.detectedMonths.length : 0;
   const parsedAt = cache && cache.parsedAt ? _fmtDateShort(cache.parsedAt) : '';
   const uploadedBy = cache && cache.uploadedBy ? cache.uploadedBy : '';
   const sourceFilename = cache && cache.sourceFilename ? cache.sourceFilename : '';
   const yearMonth = cache && cache.yearMonth ? cache.yearMonth : '';
-  const monthsRange = cache && cache.detectedMonths && cache.detectedMonths.length
-    ? (cache.detectedMonths[0] + ' → ' + cache.detectedMonths[cache.detectedMonths.length - 1])
-    : '—';
+  const monthsRange =
+    cache && cache.detectedMonths && cache.detectedMonths.length
+      ? cache.detectedMonths[0] + ' → ' + cache.detectedMonths[cache.detectedMonths.length - 1]
+      : '—';
   const hasCache = !!cache;
   const badge = hasCache
     ? '<div style="padding:4px 8px;background:#16a34a;color:#fff;border-radius:12px;font-size:10px;font-weight:700;letter-spacing:.4px">CARGADO</div>'
     : '<div style="padding:4px 8px;background:#dc2626;color:#fff;border-radius:12px;font-size:10px;font-weight:700;letter-spacing:.4px">FALTA</div>';
   const metaBlock = hasCache
-    ? ('<div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:11px;padding:10px 12px;background:var(--bg-secondary);border-radius:6px">' +
-        '<div style="color:var(--text-muted);font-weight:600">Archivo</div><div style="color:var(--text-primary);font-family:monospace;word-break:break-all">' + escapeHtmlSafe(sourceFilename) + '</div>' +
-        '<div style="color:var(--text-muted);font-weight:600">Subido</div><div style="color:var(--text-primary)">' + escapeHtmlSafe(parsedAt) + '</div>' +
-        '<div style="color:var(--text-muted);font-weight:600">Por</div><div style="color:var(--text-primary)">' + escapeHtmlSafe(uploadedBy) + '</div>' +
-        '<div style="color:var(--text-muted);font-weight:600">Snapshot</div><div style="color:var(--text-primary);font-family:monospace">' + escapeHtmlSafe(yearMonth) + '</div>' +
-        '<div style="color:var(--text-muted);font-weight:600">SKUs</div><div style="color:var(--text-primary);font-weight:700">' + rowsCount.toLocaleString('es-AR') + '</div>' +
-        '<div style="color:var(--text-muted);font-weight:600">Meses</div><div style="color:var(--text-primary);font-weight:700">' + monthsCount + ' <span style="color:var(--text-muted);font-weight:400">(' + escapeHtmlSafe(monthsRange) + ')</span></div>' +
-      '</div>')
+    ? '<div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:11px;padding:10px 12px;background:var(--bg-secondary);border-radius:6px">' +
+      '<div style="color:var(--text-muted);font-weight:600">Archivo</div><div style="color:var(--text-primary);font-family:monospace;word-break:break-all">' +
+      escapeHtmlSafe(sourceFilename) +
+      '</div>' +
+      '<div style="color:var(--text-muted);font-weight:600">Subido</div><div style="color:var(--text-primary)">' +
+      escapeHtmlSafe(parsedAt) +
+      '</div>' +
+      '<div style="color:var(--text-muted);font-weight:600">Por</div><div style="color:var(--text-primary)">' +
+      escapeHtmlSafe(uploadedBy) +
+      '</div>' +
+      '<div style="color:var(--text-muted);font-weight:600">Snapshot</div><div style="color:var(--text-primary);font-family:monospace">' +
+      escapeHtmlSafe(yearMonth) +
+      '</div>' +
+      '<div style="color:var(--text-muted);font-weight:600">SKUs</div><div style="color:var(--text-primary);font-weight:700">' +
+      rowsCount.toLocaleString('es-AR') +
+      '</div>' +
+      '<div style="color:var(--text-muted);font-weight:600">Meses</div><div style="color:var(--text-primary);font-weight:700">' +
+      monthsCount +
+      ' <span style="color:var(--text-muted);font-weight:400">(' +
+      escapeHtmlSafe(monthsRange) +
+      ')</span></div>' +
+      '</div>'
     : '<div style="padding:14px;text-align:center;font-size:12px;color:var(--text-muted);background:var(--bg-secondary);border-radius:6px;border:1px dashed var(--border-subtle)">Aun no subiste el Sales Plan de esta familia.</div>';
-  const uploadBtn = '<label style="display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 14px;background:' + f.color + ';color:#fff;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:.4px">' +
-    '<span>' + (hasCache ? '↻ Reemplazar Excel' : '⬆ Cargar Excel') + '</span>' +
-    '<input type="file" accept=".xlsx,.xls" data-familia="' + f.key + '" style="display:none" onchange="onSalesPlanFileForFamilia(event, \'' + f.key + '\')"/>' +
+  const uploadBtn =
+    '<label style="display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 14px;background:' +
+    f.color +
+    ';color:#fff;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:.4px">' +
+    '<span>' +
+    (hasCache ? '↻ Reemplazar Excel' : '⬆ Cargar Excel') +
+    '</span>' +
+    '<input type="file" accept=".xlsx,.xls" data-familia="' +
+    f.key +
+    '" style="display:none" onchange="onSalesPlanFileForFamilia(event, \'' +
+    f.key +
+    '\')"/>' +
     '</label>';
-  const cardHead = '<div style="display:flex;align-items:center;gap:10px">' +
-    '<div style="width:12px;height:32px;background:' + f.color + ';border-radius:3px"></div>' +
-    '<div style="flex:1"><div style="font-size:14px;font-weight:800;color:var(--text-primary)">' + escapeHtmlSafe(f.label) + '</div>' +
+  const cardHead =
+    '<div style="display:flex;align-items:center;gap:10px">' +
+    '<div style="width:12px;height:32px;background:' +
+    f.color +
+    ';border-radius:3px"></div>' +
+    '<div style="flex:1"><div style="font-size:14px;font-weight:800;color:var(--text-primary)">' +
+    escapeHtmlSafe(f.label) +
+    '</div>' +
     '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">Sales Plan mensual · Hoja SAR</div></div>' +
-    badge + '</div>';
-  return '<div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px">' +
-    cardHead + metaBlock + uploadBtn +
-    '<div id="sales-plan-status-' + f.key + '" style="font-size:11px;color:var(--text-muted);min-height:14px"></div>' +
+    badge +
     '</div>';
+  return (
+    '<div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px">' +
+    cardHead +
+    metaBlock +
+    uploadBtn +
+    '<div id="sales-plan-status-' +
+    f.key +
+    '" style="font-size:11px;color:var(--text-muted);min-height:14px"></div>' +
+    '</div>'
+  );
 }
 
 function _renderSalesPlansTab() {
   const cont = document.getElementById('forecast-tab-sales-plans');
   if (!cont) return;
   const slots = SALES_PLAN_FAMILIAS.map(_buildSalesPlanSlotHtml).join('');
-  const intro = '<div style="margin-bottom:16px;padding:12px 14px;background:var(--bg-secondary);border-left:3px solid #0d9488;border-radius:6px;font-size:12px;color:var(--text-secondary);line-height:1.5">' +
+  const intro =
+    '<div style="margin-bottom:16px;padding:12px 14px;background:var(--bg-secondary);border-left:3px solid #0d9488;border-radius:6px;font-size:12px;color:var(--text-secondary);line-height:1.5">' +
     '<b style="color:var(--text-primary)">Fase 1</b> — Cargá los 3 Sales Plans mensuales (Rods / Reels / FG). Se parsea la hoja <b>SAR</b>: SKU, MOQ 12 months, y una columna por mes. ' +
     'El Excel original queda snapshotado en Storage y el parseo queda en Firestore para el cálculo (próxima fase).' +
     '</div>';
-  const grid = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">' + slots + '</div>';
+  const grid =
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">' +
+    slots +
+    '</div>';
   cont.innerHTML = '<div style="padding:18px">' + intro + grid + '</div>';
 }
 
@@ -493,9 +548,17 @@ window.onSalesPlanFileForFamilia = async function (event, familia) {
     setStatus('Leyendo Excel…');
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array' });
-    const sarName = wb.SheetNames.find((n) => String(n || '').trim().toUpperCase() === 'SAR');
+    const sarName = wb.SheetNames.find(
+      (n) =>
+        String(n || '')
+          .trim()
+          .toUpperCase() === 'SAR'
+    );
     if (!sarName) {
-      setStatus('⚠ El Excel no tiene hoja "SAR". Hojas encontradas: ' + wb.SheetNames.join(', '), '#dc2626');
+      setStatus(
+        '⚠ El Excel no tiene hoja "SAR". Hojas encontradas: ' + wb.SheetNames.join(', '),
+        '#dc2626'
+      );
       return;
     }
     const sheet = wb.Sheets[sarName];
@@ -522,9 +585,10 @@ window.onSalesPlanFileForFamilia = async function (event, familia) {
     const uploadedBy = (window.currentUser && window.currentUser.email) || 'unknown';
     const payload = {
       familia,
-      parsedAt: (window.firebase && window.firebase.firestore && window.firebase.firestore.FieldValue)
-        ? window.firebase.firestore.FieldValue.serverTimestamp()
-        : new Date().toISOString(),
+      parsedAt:
+        window.firebase && window.firebase.firestore && window.firebase.firestore.FieldValue
+          ? window.firebase.firestore.FieldValue.serverTimestamp()
+          : new Date().toISOString(),
       uploadedBy,
       sourceFilename: file.name || '',
       sourceSheet: sarName,
@@ -537,13 +601,19 @@ window.onSalesPlanFileForFamilia = async function (event, familia) {
     };
     await window.fbDb.collection('sales_plan_cache').doc(familia).set(payload);
     _salesPlanCaches[familia] = payload;
-    setStatus('✓ OK. ' + parsed.rows.length + ' SKUs × ' + parsed.detectedMonths.length + ' meses.', '#16a34a');
+    setStatus(
+      '✓ OK. ' + parsed.rows.length + ' SKUs × ' + parsed.detectedMonths.length + ' meses.',
+      '#16a34a'
+    );
     _renderSalesPlansTab();
   } catch (e) {
     console.error('[FORECAST] upload sales plan ' + familia + ' fail:', e);
     setStatus('✗ Error: ' + ((e && e.message) || e), '#dc2626');
     if (e && e.code === 'MONTHS_NOT_FOUND') {
-      alert('El Excel no tiene columnas de meses reconocibles.\n\nHeaders esperados: "Jan 2027", "May 2027", "Ene 2027", "2027-01", etc.\n\nDetalle: ' + e.message);
+      alert(
+        'El Excel no tiene columnas de meses reconocibles.\n\nHeaders esperados: "Jan 2027", "May 2027", "Ene 2027", "2027-01", etc.\n\nDetalle: ' +
+          e.message
+      );
     }
   } finally {
     if (event && event.target) event.target.value = '';
@@ -559,7 +629,9 @@ window.openForecastModal = async function () {
   el.style.display = 'block';
   // v1098+ Fase 1: cargar Sales Plans caches + renderizar tab default.
   _renderSalesPlansTab();
-  _loadSalesPlanCaches().then(_renderSalesPlansTab).catch(() => {});
+  _loadSalesPlanCaches()
+    .then(_renderSalesPlansTab)
+    .catch(() => {});
   // Legacy: snapshot solo se carga lazy si el user cambia a tab Legacy.
   if (_forecastLoading) return;
   if (!_forecastSnapshot) {

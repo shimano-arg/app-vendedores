@@ -11,18 +11,46 @@
 // en la fila header). Esta fn tolera ambos layouts.
 
 const MONTH_ALIASES = {
-  jan: 1, january: 1, ene: 1, enero: 1,
-  feb: 2, february: 2, febrero: 2,
-  mar: 3, march: 3, marzo: 3,
-  apr: 4, april: 4, abr: 4, abril: 4,
-  may: 5, mayo: 5,
-  jun: 6, june: 6, junio: 6,
-  jul: 7, july: 7, julio: 7,
-  aug: 8, august: 8, ago: 8, agosto: 8,
-  sep: 9, sept: 9, september: 9, septiembre: 9,
-  oct: 10, october: 10, octubre: 10,
-  nov: 11, november: 11, noviembre: 11,
-  dec: 12, december: 12, dic: 12, diciembre: 12,
+  jan: 1,
+  january: 1,
+  ene: 1,
+  enero: 1,
+  feb: 2,
+  february: 2,
+  febrero: 2,
+  mar: 3,
+  march: 3,
+  marzo: 3,
+  apr: 4,
+  april: 4,
+  abr: 4,
+  abril: 4,
+  may: 5,
+  mayo: 5,
+  jun: 6,
+  june: 6,
+  junio: 6,
+  jul: 7,
+  july: 7,
+  julio: 7,
+  aug: 8,
+  august: 8,
+  ago: 8,
+  agosto: 8,
+  sep: 9,
+  sept: 9,
+  september: 9,
+  septiembre: 9,
+  oct: 10,
+  october: 10,
+  octubre: 10,
+  nov: 11,
+  november: 11,
+  noviembre: 11,
+  dec: 12,
+  december: 12,
+  dic: 12,
+  diciembre: 12,
 };
 
 // Normaliza labels de meses a 'YYYY-MM'. Retorna null si no matchea.
@@ -34,7 +62,7 @@ function normalizeMonthLabel(label) {
   if (!s) return null;
   let m;
   // "jan 2027" | "jan-27" | "ene/2027" | "may27" | "may.2027"
-  m = s.match(/^([a-záéíóú]{3,10})[\s\-\/._]*(\d{2,4})$/);
+  m = s.match(/^([a-záéíóú]{3,10})[\s\-/._]*(\d{2,4})$/);
   if (m) {
     const mon = MONTH_ALIASES[m[1]] || MONTH_ALIASES[m[1].slice(0, 3)];
     if (mon) {
@@ -48,14 +76,16 @@ function normalizeMonthLabel(label) {
   if (m) {
     const y = parseInt(m[1], 10);
     const mon = parseInt(m[2], 10);
-    if (mon >= 1 && mon <= 12) return String(y).padStart(4, '0') + '-' + String(mon).padStart(2, '0');
+    if (mon >= 1 && mon <= 12)
+      return String(y).padStart(4, '0') + '-' + String(mon).padStart(2, '0');
   }
   // "01/2027" | "01-2027"
   m = s.match(/^(\d{1,2})[-/](\d{4})$/);
   if (m) {
     const mon = parseInt(m[1], 10);
     const y = parseInt(m[2], 10);
-    if (mon >= 1 && mon <= 12) return String(y).padStart(4, '0') + '-' + String(mon).padStart(2, '0');
+    if (mon >= 1 && mon <= 12)
+      return String(y).padStart(4, '0') + '-' + String(mon).padStart(2, '0');
   }
   return null;
 }
@@ -63,13 +93,22 @@ function normalizeMonthLabel(label) {
 // Busca la fila header (0-based). Escanea las primeras 30 filas.
 function findHeaderRow(rows) {
   const HEADER_MARKERS = [
-    'sku code/part no', 'sku code', 'sku', 'part no', 'part number',
-    'itemcode', 'item code', 'codigo', 'código',
+    'sku code/part no',
+    'sku code',
+    'sku',
+    'part no',
+    'part number',
+    'itemcode',
+    'item code',
+    'codigo',
+    'código',
   ];
   for (let i = 0; i < Math.min(rows.length, 30); i++) {
     const row = rows[i] || [];
     for (const cell of row) {
-      const s = String(cell == null ? '' : cell).trim().toLowerCase();
+      const s = String(cell == null ? '' : cell)
+        .trim()
+        .toLowerCase();
       if (HEADER_MARKERS.indexOf(s) >= 0) return i;
     }
   }
@@ -87,15 +126,29 @@ function detectColumns(headerRow, hintRowAbove) {
   for (let i = 0; i < headerRow.length; i++) {
     const raw = String(headerRow[i] == null ? '' : headerRow[i]).trim();
     const s = raw.toLowerCase();
-    if (skuIdx < 0 && (
-      s === 'sku code/part no' || s === 'sku code' || s === 'sku' ||
-      s === 'part no' || s === 'part number' || s === 'itemcode' ||
-      s === 'item code' || s === 'codigo' || s === 'código'
-    )) {
+    if (
+      skuIdx < 0 &&
+      (s === 'sku code/part no' ||
+        s === 'sku code' ||
+        s === 'sku' ||
+        s === 'part no' ||
+        s === 'part number' ||
+        s === 'itemcode' ||
+        s === 'item code' ||
+        s === 'codigo' ||
+        s === 'código')
+    ) {
       skuIdx = i;
       continue;
     }
-    if (descIdx < 0 && (s === 'description' || s === 'descripcion' || s === 'descripción' || s === 'item name' || s === 'itemname')) {
+    if (
+      descIdx < 0 &&
+      (s === 'description' ||
+        s === 'descripcion' ||
+        s === 'descripción' ||
+        s === 'item name' ||
+        s === 'itemname')
+    ) {
       descIdx = i;
       continue;
     }
@@ -117,7 +170,10 @@ function detectColumns(headerRow, hintRowAbove) {
     }
   }
   return {
-    skuIdx, descIdx, moqIdx, monthColumns,
+    skuIdx,
+    descIdx,
+    moqIdx,
+    monthColumns,
     detectedMonths: Array.from(detectedMonthsSet).sort(),
   };
 }
@@ -136,7 +192,7 @@ function parseSalesPlanSheet(rows) {
     throw err;
   }
   const headerRow = rows[headerIdx] || [];
-  const rowAbove = headerIdx > 0 ? (rows[headerIdx - 1] || []) : null;
+  const rowAbove = headerIdx > 0 ? rows[headerIdx - 1] || [] : null;
   const cols = detectColumns(headerRow, rowAbove);
   if (cols.skuIdx < 0) {
     const err = new Error('No se encontro columna SKU en la fila header');
@@ -144,7 +200,9 @@ function parseSalesPlanSheet(rows) {
     throw err;
   }
   if (!cols.monthColumns.length) {
-    const err = new Error('No se detectaron columnas de meses en el header (ej: "Jan 2027", "May 2027")');
+    const err = new Error(
+      'No se detectaron columnas de meses en el header (ej: "Jan 2027", "May 2027")'
+    );
     err.code = 'MONTHS_NOT_FOUND';
     throw err;
   }
@@ -157,10 +215,12 @@ function parseSalesPlanSheet(rows) {
     const sku = String(skuRaw).trim();
     const upper = sku.toUpperCase();
     // Skip filas TOTAL / SUM / SUBTOTAL
-    if (upper === 'TOTAL' || upper === 'SUM' || upper === 'SUBTOTAL' || upper === 'TOTALES') continue;
+    if (upper === 'TOTAL' || upper === 'SUM' || upper === 'SUBTOTAL' || upper === 'TOTALES')
+      continue;
     if (seenSku.has(upper)) continue; // dedupe
     seenSku.add(upper);
-    const description = cols.descIdx >= 0 ? String(row[cols.descIdx] == null ? '' : row[cols.descIdx]).trim() : '';
+    const description =
+      cols.descIdx >= 0 ? String(row[cols.descIdx] == null ? '' : row[cols.descIdx]).trim() : '';
     const moqRaw = cols.moqIdx >= 0 ? row[cols.moqIdx] : null;
     const moqNum = Number(moqRaw);
     const moq = Number.isFinite(moqNum) && moqNum > 0 ? Math.round(moqNum) : 0;
@@ -187,6 +247,12 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { parseSalesPlanSheet, normalizeMonthLabel, findHeaderRow, detectColumns };
 }
 if (typeof window !== 'undefined') {
-  window.SalesPlanParser = { parseSalesPlanSheet, normalizeMonthLabel, findHeaderRow, detectColumns };
+  window.SalesPlanParser = {
+    parseSalesPlanSheet,
+    normalizeMonthLabel,
+    findHeaderRow,
+    detectColumns,
+  };
 }
-export { parseSalesPlanSheet, normalizeMonthLabel, findHeaderRow, detectColumns };
+
+export { detectColumns, findHeaderRow, normalizeMonthLabel, parseSalesPlanSheet };

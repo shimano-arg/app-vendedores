@@ -1,9 +1,9 @@
 // @ts-nocheck
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  normalizeMonthLabel,
-  findHeaderRow,
   detectColumns,
+  findHeaderRow,
+  normalizeMonthLabel,
   parseSalesPlanSheet,
 } from '../../src/pure/sales-plan-parser.js';
 
@@ -58,14 +58,24 @@ describe('findHeaderRow', () => {
     expect(findHeaderRow(rows)).toBe(1);
   });
   it('-1 si no hay header', () => {
-    const rows = [['foo', 'bar'], ['baz', 'qux']];
+    const rows = [
+      ['foo', 'bar'],
+      ['baz', 'qux'],
+    ];
     expect(findHeaderRow(rows)).toBe(-1);
   });
 });
 
 describe('detectColumns', () => {
   it('detecta SKU + Description + MOQ + meses', () => {
-    const header = ['Description', 'SKU Code/Part No', 'MOQ 12 months', 'Jan 2027', 'Feb 2027', 'Mar 2027'];
+    const header = [
+      'Description',
+      'SKU Code/Part No',
+      'MOQ 12 months',
+      'Jan 2027',
+      'Feb 2027',
+      'Mar 2027',
+    ];
     const cols = detectColumns(header, null);
     expect(cols.skuIdx).toBe(1);
     expect(cols.descIdx).toBe(0);
