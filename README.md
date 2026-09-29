@@ -4673,7 +4673,28 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1090
+## 41) Changelog v300 → v1091
+
+### v1091 (2026-09-29) — Botón Planner mobile idéntico a Panel de Control
+
+**Pedido Mariano**: en mobile el botón Planner debe verse **exactamente igual** que Panel de Control (mismo full-width, mismo estilo outline, mismo font-weight).
+
+**Fix**: extender la regla CSS `@media (max-width:768px)` existente para `#panel-control-btn` para que también aplique a `#planner-header-btn`:
+
+```css
+#panel-control-btn,#planner-header-btn{
+  grid-column:1 / -1;                                  /* full width */
+  background:transparent !important;
+  color:var(--text-primary) !important;
+  border:1.5px solid var(--border-default) !important;
+  box-shadow:none !important;
+  font-weight:500 !important
+}
+```
+
+Ambos botones son admin-only + Mariano-only y aparecen al final de la home — visualmente ahora son gemelos. En desktop el CSS `@media (min-width: 769px) #planner-header-btn` sigue igual (pill Apple naranja).
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1090 → v1091.
 
 ### v1090 (2026-09-29) — Exports Excel uniformes: header verde + celdas centradas
 

@@ -2505,9 +2505,11 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   #pedidos-btn,#mis-camps-btn{grid-column:1 / -1;min-height:60px !important;font-size:17px !important;font-weight:700 !important;box-shadow:0 4px 14px rgba(30,64,175,.35),inset 0 1px 0 rgba(255,255,255,.15) !important}
   /* Campañas Activas tiene su propio color (ambar), preservamos shadow tintada. */
   #mis-camps-btn{box-shadow:0 4px 14px rgba(217,119,6,.35),inset 0 1px 0 rgba(255,255,255,.15) !important}
-  /* Panel Control: outline al final, estilo admin distinto. */
-  #panel-control-btn{grid-column:1 / -1;background:transparent !important;color:var(--text-primary) !important;border:1.5px solid var(--border-default) !important;box-shadow:none !important;font-weight:500 !important}
-  #panel-control-btn:active{filter:none !important;background:var(--bg-muted) !important}
+  /* Panel Control + Planner: mismo estilo outline en mobile (v1091 pedido Mariano).
+     Full width + fondo transparente + border sutil + font-weight 500. Ambos
+     son admin-only y aparecen al final de la home, deben lucir iguales. */
+  #panel-control-btn,#planner-header-btn{grid-column:1 / -1;background:transparent !important;color:var(--text-primary) !important;border:1.5px solid var(--border-default) !important;box-shadow:none !important;font-weight:500 !important}
+  #panel-control-btn:active,#planner-header-btn:active{filter:none !important;background:var(--bg-muted) !important}
   /* Waitlist (Pedidos en Espera) span 2 también — es un flujo pesado, merece destaque. */
   #waitlist-btn{grid-column:1 / -1;min-height:52px !important;font-size:16px !important}
   /* v873 (2026-09-11): mobile home buttons restyle apple-design.
@@ -5938,7 +5940,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1090';
+const APP_VERSION = 'v1091';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
