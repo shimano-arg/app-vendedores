@@ -275,6 +275,20 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // v1098+ (2026-09-29) Fase 1 Forecast v2: cache del parseo de los 3 Sales
+    // Plans mensuales (Rods/Reels/FG). 1 doc por familia (id = 'rods'|'reels'|'fg')
+    // con las filas parseadas del Excel + metadata (uploadedBy, sourceFilename,
+    // storagePath, detectedMonths, rowsCount). Escritos client-side desde
+    // src/domains/forecast.js:onSalesPlanFileForFamilia() al hacer upload.
+    // Mariano-only por diseño (feature admin-only). El Excel original vive en
+    // Firebase Storage bajo `forecasts_snapshots/{YYYY-MM}/{familia}.xlsx`
+    // (regla espejo en storage.rules).
+    match /sales_plan_cache/{familia} {
+      allow read: if isMariano();
+      allow write: if isMariano()
+                    && familia in ['rods', 'reels', 'fg'];
+    }
+
     match /client_locations/{docId} {
       allow read: if isReader();
       allow create: if isAdminOrGerente() || isVendor() || isInterno();

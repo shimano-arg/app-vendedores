@@ -4673,7 +4673,47 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1097
+## 41) Changelog v300 → v1098
+
+### v1098 (2026-09-29) — Forecast Fase 1: uploads Sales Plans (Rods / Reels / FG)
+
+**Pedido Mariano**: armar la sección Forecast que use `backorder + venta esperada (mismo mes año anterior) − stock actual − unidades meses previos`, con MOQ del Sales Plan y horizonte 7 meses adelante. Feature dividida en fases para deploy incremental.
+
+**Fase 1 (esta versión)** — sólo el ingreso de datos. El cálculo llega en Fase 2.
+
+**Cambios**:
+
+1. **`src/pure/sales-plan-parser.js` (NUEVO)** — parser puro que consume el output de `XLSX.utils.sheet_to_json(sheet, {header:1, defval:'', raw:true})` y devuelve `{sku, description, moq, months: {'YYYY-MM': N}}` por fila. Tolera:
+   - Headers `SKU Code/Part No`, `SKU`, `Part No`, `ItemCode`, `Codigo` (case-insensitive).
+   - Meses en formatos `Jan 2027`, `May 2027`, `Ene-27`, `2027-01`, `01/2027`, `may.2027`, etc — inglés y español.
+   - Header multi-row (año en la fila arriba + mes en la header row).
+   - Skip filas `TOTAL`/`SUM`/`SUBTOTAL` + dedupe SKU repetido + skip cantidades ≤ 0.
+   - Errors tipados: `EMPTY_SHEET`, `HEADER_NOT_FOUND`, `SKU_COL_MISSING`, `MONTHS_NOT_FOUND`.
+2. **`tests/unit/sales-plan-parser.test.js` (NUEVO)** — 18 tests cubriendo normalización de meses, detección de header, parse minimal + edge cases (MOQ ausente/negativo, dedupe, filas totales, meses en cero).
+3. **`src/domains/forecast.js`** (chunk lazy `forecast.js`):
+   - Import estático del parser (attach a `window.SalesPlanParser`).
+   - Nuevo shell con **tabs bar**: `Sales Plans` (default) vs `Forecast Legacy (6m)`. El flujo legacy queda intacto en su propia tab.
+   - Tab **Sales Plans**: 3 tarjetas con badge CARGADO/FALTA, metadata (archivo, uploader, snapshot, SKUs, rango de meses) y botón "Cargar/Reemplazar Excel".
+   - Handler `onSalesPlanFileForFamilia(event, familia)`: lee la hoja `SAR` (exigido, sin fallback silencioso), parsea, sube el Excel original a Storage y persiste el parseo en Firestore.
+4. **`firestore.rules`** — `sales_plan_cache/{familia in ['rods','reels','fg']}` — read+write `isMariano()`.
+5. **`storage.rules`** — `forecasts_snapshots/{yearMonth}/{fileName}` — Mariano whitelist, mime Excel obligatorio, cap 10 MB.
+6. **`build.js` + `src/main.js` + `sw.js`** — actualizados los 3 lugares por CLAUDE.md #18: chunk `forecast.js` incluye ahora `switchForecastTab` + `onSalesPlanFileForFamilia`. Bundle chunk crece 9 → 109 KB por el parser + tabs UI.
+
+**Firestore schema `sales_plan_cache/{familia}`**:
+```
+{
+  familia, parsedAt (server ts), uploadedBy, sourceFilename, sourceSheet,
+  yearMonth: 'YYYY-MM', storagePath: 'forecasts_snapshots/YYYY-MM/{familia}.xlsx',
+  rowsCount, headerRowIndex, detectedMonths: ['YYYY-MM', ...],
+  rows: [{sku, description, moq, months: {'YYYY-MM': N}}]
+}
+```
+
+**Storage snapshot**: `forecasts_snapshots/{YYYY-MM}/{familia}.xlsx` — permite auditoría de "qué Excel real subimos ese mes" independientemente del parseo Firestore.
+
+**Fuera de scope Fase 1** (viene en Fase 2): cálculo del forecast (`déficit = backorder + venta_esperada − stock − unidades_meses_previos`, luego `sugerido = max(déficit, MOQ)`), tabla del "Forecast Calculado", export Excel del cálculo, queries a `v_ventas_lineas` para venta esperada mes anterior año-anterior.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1097 → v1098.
 
 ### v1097 (2026-09-29) — Dashboard: filtro Santiago Esteban absorbe Pachi
 
