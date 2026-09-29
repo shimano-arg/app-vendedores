@@ -5938,7 +5938,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1086';
+const APP_VERSION = 'v1087';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27872,14 +27872,22 @@ function _plannerFmtDate(ts) {
 // pre-calculados.
 function _plannerComputeTotal(pedido) {
   if (!pedido) return null;
-  // v1083 (2026-09-29): pedidos ya en SAP (transferidoSAP.docNum) muestran el
-  // total de las lineas confirmed — matchea "Total Before Discount" del SQ/SO
-  // en SAP. netAmountArs sumaba tambien las BO (Backorder queda en app, no
-  // viaja a SAP), causando discrepancias como VIGNOLA 245 ($3.239.640 planner
-  // vs $3.168.000 SAP) y YIYO 238 ($6.420.000 vs $2.328.000). Los BO se ven
-  // en la columna Backorder / modal Stock Asignado. Facturado/Cobrado usan
-  // _plannerComputeInvoicedTotal / _plannerComputePaidTotal (invoicedAmount /
-  // paidAmount sync-eados desde SAP DocTotal).
+  // v1087 (2026-09-29): PRIORIDAD MAXIMA — sapDocTotal poblado por la CF
+  // syncSapDocTotalsToApp cada 30 min con el DocTotal REAL de SAP (SQ o SO).
+  // Resuelve casos donde app.lines.state='confirmed' no coincide con las
+  // lineas efectivamente en SAP (MAXERA orden 204: 5 lines confirmed suman
+  // $1.124.000 pero SAP tiene 4 lines = $822.800 porque la 5ta line fue
+  // rechazada / editada). Cuando existe sapDocTotal, es la fuente de verdad.
+  if (typeof pedido.sapDocTotal === 'number' && pedido.sapDocTotal > 0) {
+    return pedido.sapDocTotal;
+  }
+  // v1083 (2026-09-29): fallback — pedidos con transferidoSAP.docNum pero
+  // sin sapDocTotal aun (CF corre cada 30 min, hay ventana de latencia).
+  // Suma solo las lineas confirmed que "deberian" haber viajado a SAP.
+  // netAmountArs sumaba tambien las BO (Backorder queda en app, no viaja a
+  // SAP), causando discrepancias como VIGNOLA 245 y YIYO 238. Facturado/
+  // Cobrado usan _plannerComputeInvoicedTotal / _plannerComputePaidTotal
+  // (invoicedAmount / paidAmount sync-eados desde SAP Invoice DocTotal).
   const _hasSapDoc = pedido.transferidoSAP && pedido.transferidoSAP.docNum;
   if (_hasSapDoc && Array.isArray(pedido.lines)) {
     let sumConfirmed = 0;

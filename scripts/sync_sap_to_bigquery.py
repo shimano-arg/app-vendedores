@@ -334,6 +334,7 @@ def sl_login(cfg: dict, session: requests.Session) -> None:
     )
     if not resp.ok:
         try:
+            resp.encoding = 'utf-8'  # v1087: defensivo — SL a veces omite charset (ver v782)
             detail = resp.json().get('error', {}).get('message', {}).get('value', '')
         except Exception:
             detail = resp.text[:200]
@@ -349,6 +350,7 @@ def resolve_pesca_group_code(cfg: dict, session: requests.Session) -> int:
     if not resp.ok:
         log(f"[FATAL] no pude resolver grupo PESCA: HTTP {resp.status_code}")
         sys.exit(6)
+    resp.encoding = 'utf-8'  # v1087: defensivo (ver v782)
     arr = resp.json().get('value', []) or []
     if not arr:
         log("[FATAL] no existe un grupo llamado 'PESCA' en SAP")
@@ -387,6 +389,7 @@ def probe_bike_udfs(cfg: dict, session: requests.Session, group_code: int) -> li
             working.append(udf)
         else:
             try:
+                resp.encoding = 'utf-8'  # v1087: defensivo (ver v782)
                 err = resp.json().get('error', {}).get('message', {}).get('value', '')
             except Exception:
                 err = resp.text[:120]
@@ -413,6 +416,7 @@ def resolve_bike_group_code(cfg: dict, session: requests.Session) -> int:
     if not resp.ok:
         log(f"[WARN] lookup BIKE HTTP {resp.status_code} — fallback a codigo {BIKE_ITEMS_GROUP_CODE_FALLBACK}")
         return BIKE_ITEMS_GROUP_CODE_FALLBACK
+    resp.encoding = 'utf-8'  # v1087: defensivo (ver v782)
     arr = resp.json().get('value', []) or []
     if not arr:
         log(f"[WARN] no existe grupo llamado 'BIKE' en SAP — fallback a codigo {BIKE_ITEMS_GROUP_CODE_FALLBACK}")
@@ -471,6 +475,7 @@ def sl_fetch_all(cfg, session, path_base, entity_name,
             resp = session.get(url, timeout=60, headers=page_size_headers)
         if not resp.ok:
             try:
+                resp.encoding = 'utf-8'  # v1087: defensivo (ver v782)
                 detail = resp.json().get('error', {}).get('message', {}).get('value', '')
             except Exception:
                 detail = resp.text[:200]
@@ -658,6 +663,7 @@ def load_ar_provinces_map_bq(cfg: dict, session) -> dict:
         path = "/b1s/v1/States?$filter=Country eq 'AR'&$select=Code,Name"
         resp = session.get(f"{cfg['url']}{path}", timeout=30)
         if resp.ok:
+            resp.encoding = 'utf-8'  # v1087: CRITICO — /States trae nombres con acentos ("CÓRDOBA", "ENTRE RÍOS"). Ver v782.
             for state in resp.json().get('value', []):
                 code = str(state.get('Code', '')).strip()
                 name = str(state.get('Name', '')).strip().upper()

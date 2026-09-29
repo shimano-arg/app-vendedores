@@ -4673,7 +4673,45 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1086
+## 41) Changelog v300 → v1087
+
+### v1087 (2026-09-29) — CF `syncSapDocTotalsToApp` persiste DocTotal real de SAP en Planner cards
+
+**Reporte Mariano 2026-09-29**: MAXERA orden 204 SAP:2000212 mostraba **$1.124.000** en el Planner (Pendiente de facturar) pero la SQ+SO en SAP dicen **$822.800**. Diferencia $301.200.
+
+**Root cause**: el fix v1083 sumaba `pedido.lines.state === 'confirmed'`, asumiendo que TODAS las líneas confirmed viajaron a SAP. Diagnóstico (`scripts/_diagnose_maxera.cjs`) reveló que la línea `CVC66MH4SACO` (qty 6, precio $66.000, subtotal $396.000) tenía `state='confirmed'` en el pedido-app pero **SAP nunca la recibió** — sólo tiene 4 líneas. Causa exacta del gap: rechazo del catálogo SAP / edición manual en oficina / split BO/confirmed post-envío / falla parcial del CF `onPedidoConfirmedSendToSap`.
+
+**Fix (Opción B del análisis)**: nueva CF **`syncSapDocTotalsToApp`** que cada 30 min:
+
+1. Lista pedidos-app abiertos con `transferidoSAP.docNum` seteado + `paidStatus != 'paid'`.
+2. Enum `/Quotations` y `/Orders` paginados desc (LOOKAHEAD=2000, page=20) con `$select=DocEntry,DocNum,DocTotal`. Construye 2 maps.
+3. Para cada pedido, **prioriza SO** DocTotal si `orderDocEntry` existe (SO más avanzado), sino cae a SQ DocTotal.
+4. Delta write en `pedido.sapDocTotal` + `sapDocTotalSource` (`'SO'|'SQ'`) + `sapDocTotalSyncedAt`.
+
+**Frontend `_plannerComputeTotal`** (nueva prioridad):
+```
+pedido.sapDocTotal (v1087, cuando existe)
+  → sum(lines.state='confirmed') (v1083 fallback)
+    → netAmountArs / subtotalArs (v pre-1083 legacy)
+      → compute desde lines (fallback ultimo)
+```
+
+**Complementa (no reemplaza)** los syncs existentes:
+- `syncSapOrdersToApp` v1015 — persiste `orderDocEntry` (link SQ→SO).
+- `syncSapPaymentsToApp` v1035 — persiste `invoicedAmount`/`paidAmount` (columna Cobrado).
+- **`syncSapDocTotalsToApp` v1087** — persiste `sapDocTotal` (columnas Oferta/Pending/Confirmado).
+
+**Costo**: ~200 GETs/corrida (2 endpoints × 100 GETs page 20). Cada 30 min = 400 GETs/hr. Alineado con las otras CFs de sync.
+
+**Idempotente + delta write** (solo escribe si cambió). Sin modo shadow — enrichment de field nuevo, safe.
+
+**Tests**: 8 nuevos unit (`tests/functions/sync-sap-doc-totals.test.js`) cubriendo prioridad SO>SQ, missed docs, delta write, regresión MAXERA (bytes exactos $822.800).
+
+**Diagnóstico**: `scripts/_diagnose_maxera.cjs` reusable para futuros casos de discrepancia app↔SAP.
+
+**Nota sobre latencia inicial**: post-deploy hay ventana de hasta 30 min hasta que la CF corra y populate `sapDocTotal` en pedidos activos. Durante esa ventana el frontend usa el fallback v1083. Trigger manual del scheduler post-deploy documentado en el README §54.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1086 → v1087.
 
 ### v1086 (2026-09-29) — Bundle: pill Planner mobile + delete Preliminar + delete Rutas Recomendadas
 
