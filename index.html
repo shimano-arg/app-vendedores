@@ -5919,7 +5919,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1082';
+const APP_VERSION = 'v1083';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -28220,6 +28220,28 @@ function _plannerFmtDate(ts) {
 // pre-calculados.
 function _plannerComputeTotal(pedido) {
   if (!pedido) return null;
+  // v1083 (2026-09-29): pedidos ya en SAP (transferidoSAP.docNum) muestran el
+  // total de las lineas confirmed — matchea "Total Before Discount" del SQ/SO
+  // en SAP. netAmountArs sumaba tambien las BO (Backorder queda en app, no
+  // viaja a SAP), causando discrepancias como VIGNOLA 245 ($3.239.640 planner
+  // vs $3.168.000 SAP) y YIYO 238 ($6.420.000 vs $2.328.000). Los BO se ven
+  // en la columna Backorder / modal Stock Asignado. Facturado/Cobrado usan
+  // _plannerComputeInvoicedTotal / _plannerComputePaidTotal (invoicedAmount /
+  // paidAmount sync-eados desde SAP DocTotal).
+  const _hasSapDoc = pedido.transferidoSAP && pedido.transferidoSAP.docNum;
+  if (_hasSapDoc && Array.isArray(pedido.lines)) {
+    let sumConfirmed = 0;
+    let anyConfirmed = false;
+    for (const l of pedido.lines) {
+      if (!l || l.state !== 'confirmed') continue;
+      const qty = Number(l.qty) || 0;
+      const price = Number(l.precio) || Number(l.priceAtCreation) || Number(l.price) || 0;
+      if (qty > 0 && price > 0) { sumConfirmed += qty * price; anyConfirmed = true; }
+    }
+    if (anyConfirmed) return sumConfirmed;
+    // Sin lineas confirmed (todo quedo en BO / recycled / cancelled): fallthrough
+    // al legacy path para no mostrar "—" en cards con transferidoSAP dummy.
+  }
   if (typeof pedido.totalAmountArs === 'number') return pedido.totalAmountArs;
   if (typeof pedido.netAmountArs === 'number') return pedido.netAmountArs;
   if (typeof pedido.subtotalArs === 'number') return pedido.subtotalArs;

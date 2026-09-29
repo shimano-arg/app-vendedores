@@ -1490,11 +1490,13 @@ export const setupGetMovimientos = onCall(
             // SETUP empieza a devolver algo raro para la ventana más reciente
             // (bug intermitente reportado 2026-09-25 Mariano), queda el body
             // preview en logs para diagnóstico rápido.
-            const _topKeys = Object.keys(parsed || {}).slice(0, 10).join(',');
+            const _topKeys = Object.keys(parsed || {})
+              .slice(0, 10)
+              .join(',');
             const _preview = resp.body.slice(0, 400).replace(/\s+/g, ' ');
             console.log(
               `setupGetMovimientos: ventana ${w.desde}→${w.hasta} sin VFPData ` +
-              `(topKeys=[${_topKeys}] bodyLen=${resp.body.length} bodyPreview=${_preview})`
+                `(topKeys=[${_topKeys}] bodyLen=${resp.body.length} bodyPreview=${_preview})`
             );
             return [];
           }
