@@ -14,11 +14,7 @@
 // direccion + localidad declaradas en el modal Alta de cliente (si existen),
 // coordenadas geocodificadas, estado (Habilitado/Pendiente/Cancelado),
 // categoria (Regular/Ventas Especiales/Distribuidor).
-window.exportMasterClientes = function () {
-  if (typeof XLSX === 'undefined') {
-    alert('La libreria de Excel no se cargo. Verifique su conexion a internet y reintente.');
-    return;
-  }
+window.exportMasterClientes = async function () {
   if (!POINTS || !POINTS.length) {
     alert('No hay datos cargados todavia.');
     return;
@@ -347,7 +343,9 @@ window.exportMasterClientes = function () {
     return;
   }
 
-  const wb = XLSX.utils.book_new();
+  // v1090 (2026-09-29): refactor a downloadXlsx helper (estilo verde + centered
+  // uniforme). Antes usaba XLSX.writeFile directo con SheetJS free que ignora
+  // estilos. Ahora heredado del helper — misma UI que Ventas/Visitas/etc.
   // v1043 (2026-09-23): post-proceso — sacar columnas 100% vacías.
   // Reporte Mariano: masterfile exportaba 37 columnas donde muchas venían
   // vacías porque no había visitas/contactos cargados para esos clientes.
@@ -424,10 +422,6 @@ window.exportMasterClientes = function () {
   if (removedCount > 0) {
     console.log(`[masterfile] removidas ${removedCount} cols vacías:`, [...emptyKeys].join(', '));
   }
-  const ws = XLSX.utils.json_to_sheet(rowsFiltered, { header: keptKeys });
-  ws['!cols'] = keptKeys.map((k) => ({ wch: COL_WIDTHS[k] || 15 }));
-  XLSX.utils.book_append_sheet(wb, ws, 'Clientes habilitados SAP');
-
   // Hoja resumen por zona
   const byZone = {};
   rows.forEach((r) => {
@@ -445,9 +439,6 @@ window.exportMasterClientes = function () {
       Canceladas: d.cancelados,
     }))
     .sort((a, b) => b['Total tiendas'] - a['Total tiendas']);
-  const wsRes = XLSX.utils.json_to_sheet(resumenRows);
-  wsRes['!cols'] = [{ wch: 48 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
-  XLSX.utils.book_append_sheet(wb, wsRes, 'Resumen por zona');
 
   const ts = new Date().toISOString().slice(0, 10);
   // v331: sufijo con el scope aplicado para diferenciar el archivo del VDE/VDI
@@ -459,7 +450,10 @@ window.exportMasterClientes = function () {
         ? [...scopeSet][0].split(' ')[0]
         : 'mis-zonas-' + scopeSet.size;
   const fname = 'Masterfile_Clientes_SAP_' + scopeLbl + '_' + ts + '.xlsx';
-  XLSX.writeFile(wb, fname);
+  await downloadXlsx(fname, [
+    { name: 'Clientes habilitados SAP', rows: rowsFiltered },
+    { name: 'Resumen por zona', rows: resumenRows },
+  ]);
   showSyncTag(
     rows.length +
       ' clientes exportados' +
@@ -479,7 +473,7 @@ window.exportMasterClientes = function () {
 //  - "Precios": solo SKU + descripcion + precio (sin stock).
 //  - "Stock": solo SKU + descripcion + estado de stock.
 //  - "Info": fecha de los snapshots y fuentes.
-window.exportPreciosStock = function () {
+window.exportPreciosStock = async function () {
   if (typeof XLSX === 'undefined') {
     alert('La libreria de Excel no se cargo. Verifique su conexion a internet y reintente.');
     return;
@@ -519,23 +513,10 @@ window.exportPreciosStock = function () {
     'Precio ARS': fmtPrecio(p.code),
     'Stock W11': fmtStock(p.code),
   })).sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(rows);
-  ws['!cols'] = [
-    { wch: 14 },
-    { wch: 60 },
-    { wch: 18 },
-    { wch: 22 },
-    { wch: 18 },
-    { wch: 14 },
-    { wch: 14 },
-  ];
-  // Aplicar formato moneda a la columna Precio ARS (columna F = 6).
-  for (let i = 2; i <= rows.length + 1; i++) {
-    const cell = ws['F' + i];
-    if (cell && typeof cell.v === 'number') cell.z = '"$"#,##0';
-  }
-  XLSX.utils.book_append_sheet(wb, ws, 'Precios y Stock');
+  // v1090 (2026-09-29): refactor a downloadXlsx helper (estilo verde uniforme).
+  // El formato de moneda ARS de la columna Precio queda como número simple —
+  // se pierde el prefix "$" pero se gana consistencia visual. Excel permite
+  // aplicar formato manual si el usuario lo necesita.
 
   // Hoja 2: solo Precios
   const preciosRows = PRODUCTS.map((p) => ({
@@ -545,13 +526,6 @@ window.exportPreciosStock = function () {
   }))
     .filter((r) => r['Precio ARS'] !== '')
     .sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
-  const wsP = XLSX.utils.json_to_sheet(preciosRows);
-  wsP['!cols'] = [{ wch: 14 }, { wch: 60 }, { wch: 14 }];
-  for (let i = 2; i <= preciosRows.length + 1; i++) {
-    const cell = wsP['C' + i];
-    if (cell && typeof cell.v === 'number') cell.z = '"$"#,##0';
-  }
-  XLSX.utils.book_append_sheet(wb, wsP, 'Precios');
 
   // Hoja 3: solo Stock
   const stockRows = PRODUCTS.map((p) => ({
@@ -559,9 +533,6 @@ window.exportPreciosStock = function () {
     Descripcion: p.desc || '',
     'Stock W11': fmtStock(p.code),
   })).sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
-  const wsS = XLSX.utils.json_to_sheet(stockRows);
-  wsS['!cols'] = [{ wch: 14 }, { wch: 60 }, { wch: 14 }];
-  XLSX.utils.book_append_sheet(wb, wsS, 'Stock');
 
   // Hoja 4: metadata - cuando fue cada snapshot para que el lector sepa
   // si la lista esta fresca.
@@ -601,12 +572,13 @@ window.exportPreciosStock = function () {
       Valor: (currentUser && (currentUser.email || currentUser.displayName)) || '(desconocido)',
     },
   ];
-  const wsI = XLSX.utils.json_to_sheet(infoRows);
-  wsI['!cols'] = [{ wch: 36 }, { wch: 36 }];
-  XLSX.utils.book_append_sheet(wb, wsI, 'Info');
-
   const ts = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, 'Precios_y_Stock_' + ts + '.xlsx');
+  await downloadXlsx('Precios_y_Stock_' + ts + '.xlsx', [
+    { name: 'Precios y Stock', rows },
+    { name: 'Precios', rows: preciosRows },
+    { name: 'Stock', rows: stockRows },
+    { name: 'Info', rows: infoRows },
+  ]);
   showSyncTag(rows.length + ' SKUs exportados (precios + stock)');
 };
 
@@ -716,21 +688,72 @@ function periodLabel(anio, monthIdx) {
   return MESES[monthIdx] + '_' + anio;
 }
 
-function downloadXlsx(filename, sheets) {
-  const wb = XLSX.utils.book_new();
-  for (const s of sheets) {
-    const ws = XLSX.utils.json_to_sheet(
-      s.rows.length ? s.rows : [{ Aviso: 'Sin datos para el periodo seleccionado' }]
-    );
-    if (s.rows.length) {
-      const cols = Object.keys(s.rows[0]).map((k) => ({
-        wch: Math.min(40, Math.max(10, k.length + 4)),
-      }));
-      ws['!cols'] = cols;
-    }
-    XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
+// v1090 (2026-09-29): reescrito con ExcelJS para dar UI uniforme a TODOS los
+// exports (header verde + celdas centered + border sutil + auto-fit width).
+// Antes usaba XLSX SheetJS free que ignora silently los estilos de celda. El
+// pattern verde replica el TOTAL bar de exportBackordersToExcel (modal
+// Backorder v720+). ExcelJS ya se carga on-demand via window.loadExcelJS.
+async function downloadXlsx(filename, sheets) {
+  try {
+    await window.loadExcelJS();
+  } catch (e) {
+    alert('No se pudo cargar ExcelJS: ' + (e.message || e));
+    return;
   }
-  XLSX.writeFile(wb, filename);
+  const wb = new ExcelJS.Workbook();
+  const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF166534' } };
+  const HEADER_FONT = { color: { argb: 'FFFFFFFF' }, bold: true, size: 12 };
+  const CENTER = { vertical: 'middle', horizontal: 'center', wrapText: true };
+  const BORDER_THIN = { style: 'thin', color: { argb: 'FFCCCCCC' } };
+  const BORDER = { top: BORDER_THIN, left: BORDER_THIN, bottom: BORDER_THIN, right: BORDER_THIN };
+
+  for (const s of sheets) {
+    const ws = wb.addWorksheet(s.name.slice(0, 31));
+    const rows = s.rows.length ? s.rows : [{ Aviso: 'Sin datos para el periodo seleccionado' }];
+    const headers = Object.keys(rows[0]);
+
+    const headerRow = ws.addRow(headers);
+    headerRow.eachCell((cell) => {
+      cell.fill = HEADER_FILL;
+      cell.font = HEADER_FONT;
+      cell.alignment = CENTER;
+      cell.border = BORDER;
+    });
+    headerRow.height = 26;
+
+    for (const row of rows) {
+      const values = headers.map((h) => (row[h] !== undefined && row[h] !== null ? row[h] : ''));
+      const dataRow = ws.addRow(values);
+      dataRow.eachCell((cell) => {
+        cell.alignment = CENTER;
+        cell.border = BORDER;
+      });
+    }
+
+    headers.forEach((h, i) => {
+      let maxLen = String(h).length;
+      for (const row of rows) {
+        const v = String(row[h] === undefined || row[h] === null ? '' : row[h]).split('\n')[0];
+        if (v.length > maxLen) maxLen = v.length;
+      }
+      ws.getColumn(i + 1).width = Math.min(60, Math.max(10, maxLen + 4));
+    });
+
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+  }
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 // ============================================================
@@ -1800,29 +1823,11 @@ window.exportTargetsZonas = async function () {
   rows.forEach((r, i) => {
     r['NRO CTE'] = i + 1;
   });
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(rows);
-  ws['!cols'] = [
-    { wch: 14 },
-    { wch: 10 },
-    { wch: 16 },
-    { wch: 22 },
-    { wch: 28 },
-    { wch: 28 },
-    { wch: 28 },
-    { wch: 10 },
-    { wch: 22 },
-    { wch: 10 },
-    { wch: 38 },
-    { wch: 32 },
-    { wch: 14 },
-    { wch: 24 },
-    { wch: 18 },
-    { wch: 14 },
-  ];
-  XLSX.utils.book_append_sheet(wb, ws, 'CLIENTES_ZONAS');
+  // v1090 (2026-09-29): refactor a downloadXlsx (estilo verde uniforme).
   const ts = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, 'TARGETS_VENDEDORES_ZONAS_' + ts + '.xlsx');
+  await downloadXlsx('TARGETS_VENDEDORES_ZONAS_' + ts + '.xlsx', [
+    { name: 'CLIENTES_ZONAS', rows },
+  ]);
   showSyncTag(
     'Excel exportado: ' +
       rows.length +

@@ -4673,7 +4673,32 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1089
+## 41) Changelog v300 → v1090
+
+### v1090 (2026-09-29) — Exports Excel uniformes: header verde + celdas centradas
+
+**Pedido Mariano**: TODOS los exports Excel deben salir con columnas centradas y encabezados verdes (mismo estilo que el "TOTAL DEL PEDIDO" del export Backorder del modal).
+
+**Root cause**: `downloadXlsx` (helper de `src/domains/exports-core.js`) usaba **SheetJS free** (`xlsx@0.18.5`) que ignora silently los estilos de celda. Solo aplicaba anchos de columna. Los 8 exports del modal "Que queres exportar?" salían sin formato.
+
+**Fix**: refactor `downloadXlsx` a **ExcelJS** (ya cargado on-demand via `window.loadExcelJS`). Ahora aplica:
+- Header row: fill verde `#166534` + font blanco bold + centered + border sutil + height 26px + **frozen (fila 1 sticky)**.
+- Data rows: alignment centered + border sutil + wrap text.
+- Auto-fit width por columna (max 60 chars).
+- Multi-sheet workbook con mismo estilo por hoja.
+
+**Exports afectados** (todos usan el helper ahora):
+- Ventas, Visitas, Rendiciones, Rutas, Altas, Backorder (mensual), Stock Asignado (mensual), Pedidos del mes — vía `exportXForMonth`.
+- Backorder All, Stock Asignado All — snapshot desde `exportBackorderAll` / `exportStockAsigAll`.
+- Masterfile Clientes SAP — refactoreado desde XLSX directo.
+- Precios + Stock por SKU — refactoreado desde XLSX directo.
+- Targets Zonas — refactoreado desde XLSX directo.
+
+**Trade-off**: se pierde el formato de moneda `"$"#,##0` que había en `exportPreciosStock` (SheetJS-specific). El precio queda como número simple. Excel permite formato manual si se necesita — no vale la pena mantener la deuda dual SheetJS+ExcelJS para eso.
+
+**No cambia**: `exportBackordersToExcel` (modal Backorder "Exportar todo") ni `exportStockAsigadosToExcel` — ya usan ExcelJS con estilo propio (que el user consideró referencia). Los dejamos como están.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1089 → v1090.
 
 ### v1089 (2026-09-29) — Badge closed en Planner cards: solo candado + tooltip (sin jerga técnica)
 
