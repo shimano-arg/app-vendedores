@@ -153,9 +153,18 @@ function _applySapConfigDoc(d, source) {
     document.getElementById('sap-modal') &&
     document.getElementById('sap-modal').classList.contains('open')
   ) {
-    try { renderSapConfig(); } catch (_e) {}
+    try {
+      renderSapConfig();
+    } catch (_e) {}
   }
-  console.log('[sap_integration] cargado (' + source + '): ' + Object.keys(d || {}).length + ' keys, sl.enabled=' + (d && d.serviceLayer && d.serviceLayer.enabled));
+  console.log(
+    '[sap_integration] cargado (' +
+      source +
+      '): ' +
+      Object.keys(d || {}).length +
+      ' keys, sl.enabled=' +
+      (d && d.serviceLayer && d.serviceLayer.enabled)
+  );
 }
 function ensureSapConfigListener() {
   if (typeof window.ensureListenerWithFallback !== 'function') {
