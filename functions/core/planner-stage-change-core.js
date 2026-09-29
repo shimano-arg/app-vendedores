@@ -49,9 +49,14 @@ const COLUMN_LABELS = {
  *
  * Escalable: para cualquier nuevo caso, agregar entrada aca.
  */
+/** @type {Record<string, string>} */
 const LEGACY_VENDOR_ALIAS = {
   'MARTIN BOIERO': 'PACHI',
 };
+/**
+ * @param {string|null|undefined} v
+ * @returns {string|null|undefined}
+ */
 function canonVendor(v) {
   if (v == null) return v;
   const k = String(v).toUpperCase().trim();
