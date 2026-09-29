@@ -59,6 +59,7 @@ import { sapGet, sapLogin, sapLogout, sapPost } from './core/sap-sl-client.js';
 import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
 // v964 (2026-09-17): auto-cancel SQ expiradas (Fase B shadow + Fase C active).
 import { runSqCancelExpired } from './core/sq-cancel-core.js';
+import { handleSyncSapDocTotals } from './core/sync-sap-doc-totals-core.js';
 import { syncSapOrders } from './core/sync-sap-orders-core.js';
 import { handleSyncSapPayments } from './core/sync-sap-payments-core.js';
 // v1053 (2026-09-24): detección SQs cerradas manualmente en SAP (Close Document).
@@ -344,6 +345,63 @@ export const syncSapPaymentsToApp = onSchedule(
       log: (msg, extra) => console.log(msg, extra || {}),
     });
     console.log('syncSapPaymentsToApp summary', result);
+  }
+);
+
+/**
+ * v1087 (2026-09-29): syncSapDocTotalsToApp — scheduled cada 30 min.
+ * Persiste el DocTotal REAL de las SQ/SO SAP en `pedido.sapDocTotal` para
+ * que el Planner Kanban muestre exactamente lo mismo que SAP en las cards
+ * de Oferta/Pending/Confirmado.
+ *
+ * Precedente MAXERA orden 204 (session 2026-09-29): el fix v1083 (sumar
+ * lines.state='confirmed') asume que TODAS las líneas confirmed llegaron a
+ * SAP. Cuando SAP tiene menos líneas (rechazo por catálogo, edición manual,
+ * split BO post-envío), el Planner sobre-estima. La única fuente de verdad
+ * del total es el DocTotal en SAP mismo.
+ *
+ * Complementa (no reemplaza) los otros syncs:
+ *  - syncSapOrdersToApp (v1015): persiste orderDocEntry/orderDocNum (link SQ→SO)
+ *  - syncSapPaymentsToApp (v1035): persiste invoicedAmount/paidAmount (Cobrado)
+ *  - syncSapDocTotalsToApp (v1087): persiste sapDocTotal (Oferta/Pending)
+ *
+ * Costo: ~200 GETs/corrida (2 endpoints × LOOKAHEAD=2000 / page 20). Cada 30
+ * min = 400 GETs/hr. Alineado con syncSapPaymentsToApp.
+ *
+ * Idempotente. Delta write (solo escribe si cambió). NO tiene modo shadow —
+ * enrichment de field nuevo, safe.
+ */
+export const syncSapDocTotalsToApp = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 30 minutes',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 1,
+    memory: '512MiB',
+    timeoutSeconds: 300,
+    secrets: [SAP_SL_PASSWORD],
+  },
+  async () => {
+    const db = getFirestore();
+    const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+    const sapCfg = sapCfgSnap.data() || {};
+    const sl = sapCfg.serviceLayer || {};
+    if (!sl.url || !sl.companyDB) {
+      console.warn('syncSapDocTotalsToApp: sap_integration.serviceLayer incompleto, skip');
+      return;
+    }
+    const result = await handleSyncSapDocTotals({
+      fetch: globalThis.fetch,
+      sapConfig: {
+        url: sl.url,
+        companyDB: sl.companyDB,
+        userName: sl.username || sl.userName,
+        password: SAP_SL_PASSWORD.value(),
+      },
+      fbDb: db,
+      log: (msg, extra) => console.log(msg, extra || {}),
+    });
+    console.log('syncSapDocTotalsToApp summary', result);
   }
 );
 

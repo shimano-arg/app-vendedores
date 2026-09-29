@@ -211,6 +211,7 @@ def sl_login(cfg: dict, session: requests.Session) -> None:
     )
     if not resp.ok:
         try:
+            resp.encoding = 'utf-8'  # v1087: defensivo — SL a veces omite charset (ver sync_sap_to_bigquery.py v782 para detalle del bug)
             detail = resp.json().get('error', {}).get('message', {}).get('value', '')
         except Exception:
             detail = resp.text[:200]
@@ -235,11 +236,13 @@ def resolve_pesca_group_code(cfg: dict, session: requests.Session) -> int:
     resp = session.get(f"{cfg['url']}{path}", timeout=30)
     if not resp.ok:
         try:
+            resp.encoding = 'utf-8'  # v1087
             detail = resp.json().get('error', {}).get('message', {}).get('value', '')
         except Exception:
             detail = resp.text[:200]
         log(f"[FATAL] no pude resolver grupo PESCA: HTTP {resp.status_code} - {detail}")
         sys.exit(6)
+    resp.encoding = 'utf-8'  # v1087: defensivo (ver sync_sap_to_bigquery.py v782)
     body = resp.json()
     arr = body.get('value', []) or []
     if not arr:
@@ -325,12 +328,14 @@ def sl_fetch_items_and_stock(cfg: dict, session: requests.Session, max_items: in
 
         if not resp.ok:
             try:
+                resp.encoding = 'utf-8'  # v1087
                 detail = resp.json().get('error', {}).get('message', {}).get('value', '')
             except Exception:
                 detail = resp.text[:200]
             log(f'[FATAL] SL error HTTP {resp.status_code} - {detail}. Path: {path}')
             sys.exit(4)
 
+        resp.encoding = 'utf-8'  # v1087: CRITICO — Items trae item_name con acentos ("MULTIPROPÓSITO", "CAÑAS", etc). Sin esto, requests decodifica como ISO-8859-1 y produce mojibake "MULTIPROPÃSITO"/"CAÃ‘AS".
         body = resp.json()
         arr = body.get('value', []) or []
 
@@ -671,6 +676,7 @@ def sl_fetch_backorder_by_sku(cfg: dict, session: requests.Session) -> dict:
         if not resp.ok:
             log(f'[BACKORDER] HTTP {resp.status_code} (no bloqueante). Body: {resp.text[:200]}')
             return result
+        resp.encoding = 'utf-8'  # v1087: CRITICO (Orders/Quotations traen ItemName con acentos, ver v782)
         body = resp.json()
         arr = body.get('value', []) or []
         for doc in arr:
@@ -860,6 +866,7 @@ def load_ar_provinces_map(cfg: dict, session: requests.Session) -> dict:
         path = "/b1s/v1/States?$filter=Country eq 'AR'&$select=Code,Name"
         resp = session.get(f"{cfg['url']}{path}", timeout=30)
         if resp.ok:
+            resp.encoding = 'utf-8'  # v1087: CRITICO — /States trae "CÓRDOBA", "ENTRE RÍOS", "NEUQUÉN" (ver v782)
             for state in resp.json().get('value', []):
                 code = str(state.get('Code', '')).strip()
                 name = str(state.get('Name', '')).strip().upper()
@@ -932,11 +939,13 @@ def fetch_bp_pesca_from_sl(cfg: dict, session: requests.Session) -> list:
             resp = session.get(url, timeout=60)
         if not resp.ok:
             try:
+                resp.encoding = 'utf-8'  # v1087
                 detail = resp.json().get('error', {}).get('message', {}).get('value', '')
             except Exception:
                 detail = resp.text[:200]
             log(f'[FATAL/BP] HTTP {resp.status_code} - {detail}')
             return bps  # devolver lo que llevemos, no aborta el sync entero
+        resp.encoding = 'utf-8'  # v1087: CRITICO — BP trae card_name con acentos (ver v782)
         body = resp.json()
         bps.extend(body.get('value', []) or [])
         page += 1
