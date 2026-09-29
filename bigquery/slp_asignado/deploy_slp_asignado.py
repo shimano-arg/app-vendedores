@@ -162,11 +162,15 @@ def strip_previous_slp_cols(query: str) -> str:
     # Estrategia: remover cada bloque "-- slp_(asignado|documento_sap)"
     # + el codigo hasta el "AS slp_xxx" que le corresponda.
 
+    # v1090 (2026-09-29): simplificado `[ \t]*[^\n]*` → `[^\n]*` para evitar
+    # ReDoS catastrophic backtracking flagueado por CodeQL. `[^\n]*` ya matchea
+    # tabs+espacios+cualquier no-newline; el `[ \t]*` upfront era redundante y
+    # generaba paths exponenciales en strings adversarial.
     pattern = re.compile(
         r"(?:,\s*\n)?"                           # coma opcional pre
         r"[ \t]*--[ \t]*slp_(?:asignado|documento_sap)[^\n]*\n"  # comentario propio
-        r"(?:[ \t]*[^\n]*\n)*?"                  # cuerpo de la expresion (lazy)
-        r"[ \t]*[^\n]*AS[ \t]+slp_(?:asignado|documento_sap)[ \t]*,?[ \t]*\n?",
+        r"(?:[^\n]*\n)*?"                        # cuerpo de la expresion (lazy)
+        r"[^\n]*AS[ \t]+slp_(?:asignado|documento_sap)[ \t]*,?[ \t]*\n?",
         re.IGNORECASE,
     )
     new_query = pattern.sub("\n", query)
