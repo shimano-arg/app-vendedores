@@ -165,6 +165,62 @@ export async function fetchClosedQuotations(session, deps, closedLookahead) {
 }
 
 /**
+ * v1095 (2026-09-29): fetch SQs que YA tienen SO derivada — anti-race guard.
+ * Enumera /Orders paginado desc y extrae los BaseEntry cuando BaseType=23
+ * (Quotation). Devuelve Set<sqDocEntry> con las SQs que se convirtieron a SO.
+ *
+ * Precedente SOLEDAD SANCHEZ (SQ 2000241 → SO 20056): el CF cerraba
+ * pedidos-app como sap_manual_close cuando la SQ estaba bost_Close, pero
+ * bost_Close también dispara cuando la SQ se convierte a SO. Race: el CF
+ * corría antes que syncSapOrdersToApp seteara orderDocEntry en el pedido,
+ * y cerraba erroneamente. Este guard lo evita.
+ *
+ * @param {import('./sap-sl-client.js').SapSession} session
+ * @param {SyncQuotationClosuresDeps} deps
+ * @param {number} closedLookahead
+ * @returns {Promise<{ok: true, derivedSqSet: Set<number>, scanned: number} | {ok: false, error: string}>}
+ */
+export async function fetchQuotationsWithDerivedOrder(session, deps, closedLookahead) {
+  const PAGE_SIZE = 20;
+  /** @type {Set<number>} */
+  const derivedSqSet = new Set();
+  let scanned = 0;
+  for (let skip = 0; skip < closedLookahead; skip += PAGE_SIZE) {
+    const endpoint =
+      '/b1s/v1/Orders' +
+      `?$select=${encodeURIComponent('DocEntry,DocumentLines')}` +
+      '&$orderby=DocEntry desc' +
+      `&$skip=${skip}`;
+    let resp;
+    try {
+      resp = await sapGet(session, endpoint, deps);
+    } catch (e) {
+      return {
+        ok: false,
+        error: 'sapGet Orders threw: ' + ((e && /** @type {any} */ (e).message) || String(e)),
+      };
+    }
+    if (resp.status !== 200) {
+      return { ok: false, error: `SL Orders GET status=${resp.status}` };
+    }
+    const rows = resp.body && Array.isArray(resp.body.value) ? resp.body.value : [];
+    if (rows.length === 0) break;
+    scanned += rows.length;
+    for (const o of rows) {
+      const lines = Array.isArray(o.DocumentLines) ? o.DocumentLines : [];
+      for (const l of lines) {
+        const baseType = Number(l.BaseType);
+        const baseEntry = Number(l.BaseEntry);
+        if (baseType === 23 && Number.isFinite(baseEntry) && baseEntry > 0) {
+          derivedSqSet.add(baseEntry);
+        }
+      }
+    }
+  }
+  return { ok: true, derivedSqSet, scanned };
+}
+
+/**
  * Handler principal. Se invoca desde un scheduled CF trigger.
  *
  * @param {SyncQuotationClosuresDeps} deps
@@ -205,8 +261,37 @@ export async function syncSapQuotationClosures(deps) {
       candidatesToCheck: candidates.length,
     });
 
+    // v1095 (2026-09-29): ANTI-RACE guard. Antes de marcar sap_manual_close,
+    // enumerar /Orders para saber qué SQs YA tienen SO derivada (BaseType=23).
+    // Si una SQ está en `closedSet` (bost_Close) Y también en `derivedSqSet`
+    // (tiene SO), la razón del cierre NO es manual close — es conversion a
+    // SO. Se saltea; syncSapOrdersToApp la va a procesar como orderDocEntry.
+    // Precedente: SOLEDAD SANCHEZ SQ 2000241 → SO 20056 cerrada como manual.
+    const orderResult = await fetchQuotationsWithDerivedOrder(session, deps, closedLookahead);
+    /** @type {Set<number>} */
+    const derivedSqSet = orderResult.ok ? orderResult.derivedSqSet : new Set();
+    if (!orderResult.ok) {
+      log('[sync-quot-closures] SAP orders fetch failed (fail-open, no anti-race)', {
+        error: orderResult.error,
+      });
+    } else {
+      log('[sync-quot-closures] SAP orders scan done', {
+        ordersScanned: orderResult.scanned,
+        derivedSqCount: derivedSqSet.size,
+      });
+    }
+
     for (const c of candidates) {
       if (!closedSet.has(c.sqDocEntry)) continue;
+      if (derivedSqSet.has(c.sqDocEntry)) {
+        // v1095: race víctima detectada. SQ bost_Close por conversion, no
+        // manual close. Skip — syncSapOrdersToApp lo procesará.
+        log('[sync-quot-closures] SKIP race-victim: SQ has derived SO', {
+          pedidoId: c.id,
+          sqDocEntry: c.sqDocEntry,
+        });
+        continue;
+      }
       try {
         const nowIso = nowFn().toISOString();
         // Read-modify-write para preservar los otros campos de transferidoSAP.

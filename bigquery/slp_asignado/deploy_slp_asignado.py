@@ -130,6 +130,13 @@ VIEW_SPECS = {
         "spc": None,
         "text": "assigned_vendor",
     },
+    "v_ordenes_sap": {
+        # v_ordenes_sap ya tiene una columna `SlpCode Asignado` (con backticks)
+        # que expone el SlpCode SAP del documento. Solo agregamos slp_asignado
+        # con el mapeo por texto; NO usamos slp_documento_sap para no duplicar.
+        "spc": None,
+        "text": "ca.assigned_vendor_app",
+    },
 }
 
 
@@ -346,6 +353,7 @@ def build_all_statements(client: bigquery.Client) -> list[tuple[str, str]]:
         "v_leads_vs_clientes_por_vendedor",
         "v_conversion_leads_mensual",
         "v_leads_snapshot_fin_mes",
+        "v_ordenes_sap",
         # Dependientes (usan las anteriores):
         "v_visitas_enriquecida",       # SELECT v.* de v_visitas
         "v_campanias_ventas_detalle",  # JOIN v_ventas_lineas

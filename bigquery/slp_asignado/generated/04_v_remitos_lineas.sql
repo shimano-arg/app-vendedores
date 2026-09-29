@@ -195,6 +195,7 @@ SELECT
   u.base_line,
   u.doc_currency,
   u.doc_rate,
+
   -- slp_asignado (2026-09-29 v2): mapeo canonico SOLO por texto de
   -- assigned_vendor. Congruente con la atribucion del modelo PBI.
   CASE UPPER(TRIM(ca.assigned_vendor_app))

@@ -74,6 +74,7 @@ SELECT
   CASE WHEN sq.sales_person_code BETWEEN 50 AND 55 THEN sq.sales_person_code ELSE NULL END AS `SlpCode Asignado`,
   ca.assigned_vendor_app AS assigned_vendor,
   sq._sync_timestamp,
+
   -- slp_asignado (2026-09-29 v2): mapeo canonico SOLO por texto de
   -- assigned_vendor. Congruente con la atribucion del modelo PBI.
   CASE UPPER(TRIM(ca.assigned_vendor_app))
