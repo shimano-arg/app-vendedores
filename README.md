@@ -4673,7 +4673,38 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1084
+## 41) Changelog v300 → v1086
+
+### v1086 (2026-09-29) — Bundle: pill Planner mobile + delete Preliminar + delete Rutas Recomendadas
+
+**Pedido Mariano**: (1) el botón "Planner" en mobile rompía la simetría con Depósito/Forecast/etc (pill vs rectangular); (2) eliminar el botón "Preliminar" y su modal (feature v868 cotizador feria, ya no se usa post-evento); (3) eliminar el modo "Rutas recomendadas" del tab Rutas — dejar solo Personalizadas.
+
+**Cambios**:
+
+1. **Pill Planner solo desktop** (`index.html:3524` + CSS nuevo).
+   - Quitados los inline pill (`border-radius:999px`, `padding:8px 16px`, `font-size:11px`, etc) del botón `#planner-header-btn`. Ahora solo `background:#ff9500;color:#fff;display:none`.
+   - Pill movido a CSS `@media (min-width: 769px) #planner-header-btn { ... }`. Desktop mantiene el pill Apple; mobile hereda el rectangular estándar de `.btn-zonas` (misma forma que Depósito/Forecast).
+   - Root cause del bug: inline styles ganan cascade sobre reglas `@media` mobile.
+
+2. **Delete Preliminar (feature v868 cotizador feria completo)**.
+   - Borrado: `src/pure/preliminar-discount.js` (224 LOC) + `tests/unit/preliminar-discount.test.js` (suite de 15 tests).
+   - `src/main.js`: removidos import + expose `window.__preliminarDiscount`.
+   - `index.html`: removido botón home `#preliminar-home-btn`, bloque JS completo (`_preliminarState` + funciones window.preliminar*/openPreliminarModal/closePreliminarModal/etc — ~400 LOC), modal HTML `#preliminar-modal`, entrada en el array `[...forEach display gate]` v984.
+   - Total: -800+ LOC + 2 archivos eliminados.
+
+3. **Delete Rutas Recomendadas (feature v988 pachi gate)**.
+   - `index.html`: reemplazado el toggle 2-botones (`#rmode-reco` + `#rmode-pers`) + sub-controles del modo recomendada (`#ruta-reco-controls` con "Del mes"/"Histórico"/"Recalcular Rutas") por solo `#ruta-pers-controls` siempre visible con el botón "+ Nueva ruta". Removido CSS `body.is-pachi #rmode-pers/etc` (v988). Removido bloque JS que forzaba `setRutaMode('recomendada')` en pachi.
+   - `src/domains/rutas.js`: `renderRutasTab()` simplificado — ahora solo llama `ensureCustomRoutesListener()` + `return renderRutasPersonalizadas()`. Removidas ~145 LOC de código dead (branches para modo recomendada + filtros mes/histórico + render de rutas autogeneradas).
+   - Dead code que queda dormido (removible en v1087+ si Mariano confirma): `generarRutasVendor()` (~370 LOC del algoritmo de generación), `window.recalcularRutas`, `window.setRutaMode`, `window.setRutaView`, `renderRutaDetalle` y funciones asociadas. Nada de esto se ejecuta en runtime; conservado por si vuelve la feature.
+   - Auto-init del listener `unsubCustomRoutes`: antes se disparaba desde `setRutaMode('personalizada')` (que ya no se llama). Ahora `renderRutasTab()` lo dispara idempotente en cada apertura del tab.
+
+**Impacto downstream**:
+- Cero cambios en Cloud Functions, Firestore rules/collections, BigQuery views, Power BI.
+- Bundle `app.bundle.js` recompilado + committed (regla `feedback_build_bundle_commit.md`).
+
+**Tests**: 493 unit (bajaron de 508 porque los 15 tests de `preliminar-discount` se removieron junto con la fuente) + 25 smoke + typecheck + lint clean.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1084 → v1086 (saltamos v1085 porque su PR #774 fue cerrado y su contenido — el pill fix — se incluye en este bundle).
 
 ### v1084 (2026-09-29) — Toggle "Mostrar pedidos cerrados" en Planner Config (auditoría)
 
