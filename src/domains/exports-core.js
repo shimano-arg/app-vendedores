@@ -1444,6 +1444,24 @@ window.exportBackorderAll = async function () {
   for (const p of arr) {
     if (!p || p.closedAt) continue;
     totalPedidosOpen++;
+    // v1088 (2026-09-29): fallback vendedor via clientMasterCache cuando el
+    // pedido no trae ownerVendor. Ver comentario en exportBackordersToExcel.
+    let _pedidoVendor = p.ownerVendor || '';
+    if (
+      !_pedidoVendor &&
+      typeof window !== 'undefined' &&
+      typeof window.clientLocId === 'function' &&
+      typeof window.clientMasterCache !== 'undefined' &&
+      window.clientMasterCache.get
+    ) {
+      try {
+        const _cmDocId = window.clientLocId(p.province || '', p.locName || '', p.clientName || '');
+        const _cmData = window.clientMasterCache.get(_cmDocId);
+        if (_cmData && _cmData.assignedVendor) _pedidoVendor = _cmData.assignedVendor;
+      } catch (_e) {
+        /* silent */
+      }
+    }
     const lines = Array.isArray(p.lines) ? p.lines : [];
     lines.forEach((l, idx) => {
       if (!l || l.state !== 'BO') return;
@@ -1462,7 +1480,7 @@ window.exportBackorderAll = async function () {
         CardCode: p.clientCardCode || '',
         Provincia: p.province || '',
         Localidad: p.locName || '',
-        Vendedor: p.ownerVendor || '',
+        Vendedor: _pedidoVendor,
         SKU: l.code || '',
         Producto: l.desc || l.name || '',
         Cantidad_Pedida: Number(l.qty) || 0,

@@ -5938,7 +5938,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1087';
+const APP_VERSION = 'v1088';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13431,7 +13431,22 @@ window.exportBackordersToExcel = async function(){
         const producto = l.desc || (prod && prod.desc) || '';
         const cliente = p.clientName || '';
         // v1079: _canonVendor aplica alias legacy (MARTIN BOIERO → PACHI).
-        const _pVendorKey = _canonVendor(p.ownerVendor || p.vendedor || p.vendorAssigned || p.vendor || '');
+        // v1088 (2026-09-29): fallback a clientMasterCache.assignedVendor cuando
+        // pedido.ownerVendor viene vacio. Bug reportado por Mariano: WALTER
+        // ROSSINI + FERNANDO URQUIOLA salian como "(sin vendedor)" en el export
+        // aunque en el Master Cliente tenian Z5 y Z2 asignados. Root cause:
+        // pedidos historicos no seteaban ownerVendor. El Master Cliente es la
+        // fuente de verdad — si el pedido no lo trae, resolver por cliente.
+        let _pVendorKey = _canonVendor(p.ownerVendor || p.vendedor || p.vendorAssigned || p.vendor || '');
+        if (!_pVendorKey && typeof clientLocId === 'function' && typeof clientMasterCache !== 'undefined' && clientMasterCache.get) {
+          try {
+            const _cmDocId = clientLocId(p.province || '', p.locName || '', p.clientName || '');
+            const _cmData = clientMasterCache.get(_cmDocId);
+            if (_cmData && _cmData.assignedVendor) {
+              _pVendorKey = _canonVendor(_cmData.assignedVendor);
+            }
+          } catch (_e) { /* silent */ }
+        }
         if (vf && _pVendorKey !== vf) continue;
         if (tq) {
           const skuHit = skuUp.toLowerCase().includes(tq);
