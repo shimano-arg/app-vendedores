@@ -17,8 +17,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 | **SAP CompanyDB TEST** | `SHIMANO_TST_06` |
 | **Stack** | HTML5 + Vanilla JS + Firebase Firestore + Gemini API (OCR) |
 | **Build pipeline** | Python (openpyxl) genera el HTML autosuficiente desde Excels master |
-| **Versión actual** | **v1007 (2026-09-22)** — Planner Kanban F1 completa (Mariano-only en producción). T0-T15 committed; deploys pendientes: firestore:rules, storage, functions. Ver §52 + docs/plans/. \| **v1005 (2026-09-22)** — Planner Kanban (Mariano-only, en desarrollo). Task 0: baseline version bump + README stub. Spec en §52 + Plan en docs/plans/. \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP (Series missing en CF + lock 60s en batch). \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. Diagnóstico previo del "SDK Gen 2 bug" era incorrecto — el enforcement SÍ funciona, pero tarda ~66h desde registration Console en propagarse. Deploy directo sin PR (urgencia productiva). Ver §41 + `NEEDS-VALIDATION.md §1`. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11 (fix 45 SKUs con badge "DISPONIBLE" falso, ej TRX301HGB). \| **v1001 (2026-09-21)** — UX fix: alert "Enviar via Service Layer" muestra "Omitidos" con motivo cuando algún pedido queda skipped por lock stale. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX `onPedidoConfirmedSendToSap` (`functions/index.js:446`): typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. 3 sub-tabs (MAP · Productos · Categorías) alimentadas por sync diario desde mercado-intelligence. Botón "🛒 Mercado Libre" al final del Panel de Control, gated por email whitelist (erbinomariano@gmail.com + mariano.erbino@shimano.com.ar). Chunk lazy `chunks/meli.js` + rules `isMariano()` + colecciones `meli/*`. Ver §51. \| **v995 (2026-09-18)** — Hotfix pre-deploy v994: el modal Depósito (`index.html:16354`) llama `setupGetMovimientos` SIN `cardCode` (query global "traeme todos los shipments"). El v994 original tiraba `invalid-argument` en ese caso → rompía UX. Ahora si vendedor sin `cardCode` → server hace fetch normal + filtra `movimientos` server-side por `client_master.assignedVendor == roles/{uid}.vendor` (batch chunked query). Vendedor con `cardCode` sigue con el check estricto. Vector cerrado igual: vendedor solo ve shipments de su cartera. Ver §41. |
-| **APP_VERSION** | `v1020` frontend (fix badge Planner "SO:XXXXX": ahora muestra `DocNum` visible SAP en vez de `DocEntry` interno; CF `syncSapOrdersToApp` guarda `orderDocNum` + backfillea pedidos synced pre-v1020). Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog para historial completo. |
+| **Versión actual** | **v1038 (2026-09-22)** — Sesión intensiva Planner Kanban: pipeline 100% automático + lineal (5 columnas, columna Confirmado removida). 19 PRs shipped (#687-#710) + 3 CFs nuevos deployados (`syncSapOrdersToApp` schedule 15min, `syncSapPaymentsToApp` nuevo Fase 2, `onPlannerStageChanged` multi-update). Ver §52 (estado consolidado) + §41 (changelog detallado v1016-v1038). \| **v1007 (2026-09-22)** — Planner Kanban F1 completa (Mariano-only en producción). \| **v1004 (2026-09-21)** — HOTFIX cross-BU Pesca→Bike + duplicados SAP. \| **v1003 (2026-09-21)** — HOTFIX definitivo: revert `enforceAppCheck: true → false` en sapProxy + updateAsigLineStateCF + geminiOcrProxy. \| **v1002 (2026-09-21)** — Sync SAP stock: `has_stk` solo whs 11. \| **v1000 (2026-09-21)** — `src/sap-client.js` fuerza `getIdToken(true)` pre-callable. \| **v999 (2026-09-21)** — HOTFIX typo `sl.userName` sin fallback a `sl.username`. \| **v996 (2026-09-18)** — Sección MERCADOLIBRE (Mariano-only) en Panel de Control. |
+| **APP_VERSION** | `v1082` frontend (Excel exports Backup mensual con autofit de anchos: helper `_autoFitCols(rows)` computa widths basado en max length del contenido real. Aplicado a `Shimano_Visitas`, `Shimano_Pedidos`, `Shimano_Rutas` que no tenían `ws['!cols']` configurado → columnas truncadas visualmente. Los otros 22 exports ya tenían anchos hardcoded — auditados y confirmados OK). `v1081 CF-only`: alias MARTIN→PACHI en planner CF. `v1080 CF-only`: planner self-notify. `v1079`: alias frontend MARTIN→PACHI. `v1078`: updates casi instantáneos + polling. `v1077`: refactor helper genérico. `v1076`: HOTFIX input `sl-user`. Sincronizada con `sw.js` CACHE_VERSION. Ver §41 Changelog. |
 | **Firebase plan** | **Blaze** activo (necesario para Storage + extensions BigQuery) |
 | **Pipeline Power BI** | Firestore → BigQuery (Extension `firestore-bigquery-export`, 7 colecciones + `targets` + `campaigns` + `revision_waitlist` **v997 (2026-09-18)** via sync propio) + SAP → BigQuery (`sync_sap_to_bigquery.py`, **9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, **Deliveries**, **Returns**) → **20 vistas curadas** (base: `v_pedidos_header`, `v_pedidos_lines`, `v_visitas` **con `interaction_type`+`es_contacto`+`forma_contacto`**, `v_facturas_sap` **con `paid_to_date`+`saldo_ars`+`assigned_vendor`**, `v_inventario` **con alias `qty_quotations_open`**, `v_inventario_por_warehouse`, `v_ventas_lineas` **con `cobrado_prorrateado_ars`+`deuda_prorrateada_ars`+`assigned_vendor`**, `v_backorder_lineas`, `v_targets` **con `target_reel/canas/lineas_ars`**; **deuda 2026-07-20**: `v_deuda_por_vendedor`, `v_deuda_facturas_detalle`, `v_facturado_cobrado_deuda_por_vendedor`; **rendiciones 2026-07-22**: `v_rendiciones`, `v_rendiciones_duplicados`; **campañas 2026-07-30**: `v_campanias_progreso`, `v_campanias_evolucion_diaria`, `v_campanias_ventas_detalle`; **leads 2026-08-03**: `v_leads_vs_clientes_por_vendedor`; **remitos 2026-08-03/04**: `v_remitos_lineas` con match determinista Delivery↔Invoice `BaseType=13+BaseEntry=Invoice.DocEntry` confirmado por Santi/SEIDOR; **ofertas 2026-08-04**: `v_ofertas_lineas` = total de Sales Quotations sin recortar por stock para card "TOTAL" en PBI; **waitlist $ARS 2026-09-18 (v997)**: `v_waitlist_disponible_ars` sobre `waitlist_raw` × `v_inventario` → estima cuánto de la Lista de Espera va a entrar SAP hoy (`LEAST(qty, stock_actual) × price_pesca_ars`)) → **Power BI Desktop TABLERO SAR publicado con 8+ páginas (Desempeño-Pesca, Ventas, Pedidos, Visitas, Facturación por vendedor, Backorder, Inventario, Rendiciones, Campañas), slicer de vendedor migrado a `assigned_vendor` (fuente de verdad app, no SlpCode SAP inconsistente)**. Ver sección 40 |
 | **Sync SAP automático** | Service Layer → Firestore + `stock.json` **+ BPs pesca cada 30 min** (cron GH Actions `13,43 * * * *`). Desde v288 sincroniza también BPs con `U_DIVISION ∈ {2 PESCA, 3 BIKE&PESCA}` a `client_applications` — los altas SAP aparecen en la app sin acción manual del admin |
@@ -77,7 +77,8 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 48. [Flow LEAD → cliente SAP: auto + fallback manual — CERRADO 2026-09-04](#48-flow-lead--cliente-sap-auto--fallback-manual--cerrado-2026-09-04)
 49. [Integración SETUP (CRM del depósito) — PENDIENTE endpoints](#49-integración-setup-crm-del-depósito--pendiente-endpoints)
 51. [MERCADOLIBRE (Mariano-only)](#51-mercadolibre-mariano-only)
-52. [Planner Kanban (Mariano-only, en desarrollo)](#52-planner-kanban-mariano-only-en-desarrollo)
+52. [Planner Kanban (v1038 — pipeline 100% automático)](#52-planner-kanban-v1038--pipeline-100-automático)
+53. [BigQuery views + CF fixes — sesión 2026-09-22 (v1033-v1035)](#53-bigquery-views--cf-fixes--sesión-2026-09-22-v1033-v1035)
 
 ---
 
@@ -4672,26 +4673,1064 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1020
+## 41) Changelog v300 → v1082
 
-### v1020 (2026-09-24) — Planner: badge "SO:XXXX" mostraba DocEntry interno en vez de DocNum visible SAP
+### v1082 (2026-09-25) — Excel exports Backup mensual con autofit de anchos de columna
+
+**Pedido Mariano**: asegurar que al exportar reportes Excel las columnas se bajen completas (no truncadas visualmente).
+
+**Auditoría sistemática** (skill `superpowers:systematic-debugging`) de los 25+ exportadores Excel en `index.html`:
+
+| Estado | Cantidad | Detalle |
+|---|---|---|
+| ✅ Con anchos configurados | 22 | Backorder/StockAsig (ExcelJS), Shimano_AppVendedores (14 hojas), Backorder Gráficos, Revision, Pedido en Espera, Template, Campañas activas |
+| ❌ Sin anchos | **3** | **Backup mensual: Visitas, Pedidos, Rutas** |
+
+Los 3 problemáticos usaban el pattern SheetJS `XLSX.utils.json_to_sheet(rows)` + `book_append_sheet` sin `ws['!cols']` → Excel usa width default (~8 chars) → columnas con texto largo (Cliente, Descripcion, "Lo que mas preguntan") se truncaban visualmente.
+
+**Fix**: helper genérico `_autoFitCols(rows, options)` que computa anchos basado en max length del contenido real de cada columna:
+
+```js
+function _autoFitCols(rows, options) {
+  const minW = options?.minWidth || 8;
+  const maxW = options?.maxWidth || 60;
+  const padding = options?.padding ?? 2;
+  const headers = Object.keys(rows[0] || {});
+  return headers.map(h => {
+    let maxLen = String(h).length;
+    for (const row of rows) {
+      const s = String(row[h] ?? '').split('\n')[0];
+      if (s.length > maxLen) maxLen = s.length;
+    }
+    return { wch: Math.max(minW, Math.min(maxW, maxLen + padding)) };
+  });
+}
+```
+
+Aplicado a los 3 exports:
+- `Shimano_Visitas_YYYY-MM.xlsx` (27 columnas: Fecha, Vendedor, Cliente, Tienda, Notas, "Lo que mas preguntan", etc).
+- `Shimano_Pedidos_YYYY-MM.xlsx` (16 columnas: SKU, Descripcion, Cliente, Provincia, etc).
+- `Shimano_Rutas_YYYY-MM.xlsx` (2 sheets: Cumplimiento + Detalle rutas).
+
+**Beneficio vs anchos hardcodeados**:
+- Se adapta al contenido real (si un cliente tiene nombre de 60 chars, el ancho se ajusta).
+- No requiere saber anchos apropiados a priori.
+- Fix defensivo: nuevas columnas futuras heredan el pattern.
+- Cap en `maxWidth=60` evita columnas gigantes por outliers.
+
+**Uso futuro**: cualquier nuevo export SheetJS que use `json_to_sheet(rows)` puede llamar `ws['!cols'] = _autoFitCols(rows)` para tener autofit sin pensar en anchos.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1079 → v1082 (skipping v1080/v1081 porque fueron CF-only del planner emails, sin bump frontend).
+
+### v1079 (2026-09-25) — Alias legacy `MARTIN BOIERO` → `PACHI` en dropdown filtro Backorder/Stock Asignado
+
+**Reporte Mariano 2026-09-25**: en el dropdown "Todos los vendedores" del modal Backorder/Stock Asignado aparece "Martin Boiero" (sin prefijo Z, ejemplo Z4), pero MARTIN ya salió del equipo — ahora PACHI ocupa Z4 (precedente v956+ `project_pachi_vde_proxy.md`).
+
+**Root cause**: `VENDORS` (array del catálogo) ya no incluye `MARTIN BOIERO` — solo `PACHI` en `Z4`. Pero pedidos históricos en Firestore siguen con `ownerVendor='MARTIN BOIERO'` (cuando MARTIN cargaba pedidos). El dropdown se popula desde `globalPedidos` con esos valores crudos. Como `vendorLookup["MARTIN BOIERO"]=undefined`, cae al fallback `titleCase(v)` = "Martin Boiero" sin prefijo Z.
+
+**Fix**: helper `_canonVendor(v)` que aplica un mapa `LEGACY_VENDOR_ALIAS = { 'MARTIN BOIERO': 'PACHI' }`. Aplicado en 5 puntos:
+
+- Populate dropdown `backorders-vendor-filter` (renderBackordersTab línea 13872).
+- `_passesFilters` de renderBackordersTab (línea 13909).
+- Loop `globalPedidos` de renderBackordersTab (línea 14002).
+- Loop `globalPedidos` de exportBackordersToExcel (línea 13358).
+- Columna Vendedor en exportBackordersToExcel (línea 13451).
+- Loop backorders gráficos (líneas 14605 + 14623).
+
+**Efecto**:
+
+- Pedidos históricos de MARTIN aparecen bajo el filtro "Z4 - Pachi" en el dropdown.
+- Excel export muestra "Z4 - PACHI" en la columna Vendedor para esos pedidos.
+- Filtrar por PACHI incluye pedidos históricos de MARTIN + pedidos nuevos de PACHI. Comportamiento esperado por el usuario final.
+
+**Escalable**: si en el futuro sale otro vendedor y otro entra a su zona, agregar entrada al mapa `LEGACY_VENDOR_ALIAS`. Cero cambios de código.
+
+**No migra datos**: los pedidos en Firestore mantienen su `ownerVendor` original (auditoría histórica). Solo el DISPLAY se normaliza.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1078 → v1079.
+
+### v1078 (2026-09-25) — Updates casi instantáneos: timeout 3s + polling continuo si listener zombie + render manual post-write
+
+**Reporte Mariano 2026-09-25**: "ESOS CAMBIOS DEBEN SER CASI INSTANTÁNEOS". El v1077 con timeout 15s + fallback ONE-SHOT no cubría updates posteriores — si el listener seguía zombie, el próximo write requería refresh manual.
+
+**Fix arquitectural**:
+
+1. **Timeout reducido 15s → 3s** en el helper `ensureListenerWithFallback`. UX más responsivo.
+2. **Polling continuo post-fallback**: si el listener no dispara en 3s, además del `.get({source:'server'})` inicial, se activa un `setInterval` cada 3s (configurable via `options.pollIntervalMs`) que sigue haciendo `.get()` indefinidamente hasta que el listener resucite o `detachResilientListener` corra.
+3. **Auto-cancel del polling**: si el listener SÍ dispara alguna vez (revive), el polling se cancela automáticamente en el callback (`wasZombie && state.pollInterval → clearInterval`).
+4. **Render manual post-write en `doConfirmPedido`**: después de `pedidos.add()` + push local a `pending[]`, llama `renderPedidosTab()` explícito. La card aparece **instantáneo** (0ms) sin depender del listener. El listener después re-valida vía snapshot o fallback.
+
+**Comportamiento post-deploy**:
+
+- **Sesión sana + write propio**: card aparece en <100ms (render manual post-write) + listener valida en <1s.
+- **Sesión zombie + write propio**: card aparece en <100ms (render manual). Polling cada 3s garantiza updates de otros users se ven en máximo 3s.
+- **Sesión zombie + write de otro user (VDI, CF)**: máximo 3s de delay por polling.
+
+**Costo Firebase**: sesión zombie hace ~5 `.get()` cada 3s = 100/min = 6k/hora por user zombie. Con Blaze plan es marginal. Users sanos = 0 polling adicional.
+
+**Test explicit**: en Console log, buscar `[pedidos_own] polling activado cada 3000ms hasta que el listener resucite` cuando el listener queda zombie. Si nunca aparece → listener sano.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1077 → v1078.
+
+### v1077 (2026-09-25) — Refactor: `ensureListenerWithFallback` helper genérico para listeners onSnapshot resilientes al zombie state
+
+**Reporte Mariano 2026-09-25**: "los cambios no son instantáneos, ejemplo paso de la lista de espera a pendientes y sino refresco manual no veo que se mueva la card". Tercer listener zombie del día (después de `stock_snapshot` v1070 y `sap_integration` v1075).
+
+**Debugging sistemático (skill `superpowers:systematic-debugging`)**:
+
+- Flujo Lista de Espera → Pendientes: `waitlistPasarAPendientes` → modal Revisar → `doConfirmPedido` → `pedidos.add(docData)` en Firestore.
+- Post-add hace push local a `pending[currentOrderKey]` pero **NO llama `renderPedidosTab()` explícito**. Confía en el listener `unsubPedidosOwn` para el rerender.
+- Listener `unsubPedidosOwn` línea 28832: en su callback llama `renderPedidosTab()` línea 28883. Si el listener no dispara (zombie), la card no se mueve.
+- Mismo pattern que ya golpeó `stock_snapshot` y `sap_integration` hoy. Tercer listener zombie.
+
+**Root cause final**: Firestore SDK deja los listeners `onSnapshot` registrados pero el callback nunca dispara. Race probable con `enablePersistence({synchronizeTabs:true})` + AppCheck + auth flow. `.get({source:'server'})` funciona pero `onSnapshot` no.
+
+**Fix arquitectural**: refactor a helper genérico `ensureListenerWithFallback(name, refBuilder, applyFn, options)` con state per-name en un `Map()`:
+
+1. **Zombie detection**: si `unsub` existe pero >15s sin fire → tear-down + re-attach.
+2. **Safety net `.get({source:'server'})`**: post-attach setTimeout 15s. Si listener no fired → `.get()` explícito + apply.
+3. **Error handler**: `console.error` + reset del attach timestamp para permitir retry.
+4. **Log unificado**: `[nombre] attach`, `[nombre] listener zombie detectado`, `[nombre] fallback .get() explicito`, etc.
+
+Helper vive en `index.html` (inline, cerca de `attachFirebaseListeners`) + expuesto como `window.ensureListenerWithFallback` para consumo desde bundle. Helper análogo `detachResilientListener(name)` para cleanup.
+
+**5 listeners refactorizados al helper**:
+
+| Listener | Antes | Ahora | Impacto |
+|---|---|---|---|
+| `stock_snapshot` | v1070 código zombie inline (~55 líneas) | Wrapper de 10 líneas al helper | Stock DEP 11 se actualiza sin refresh |
+| `sap_integration` | v1075 código zombie inline (~55 líneas) | Wrapper de 12 líneas al helper | Panel SAP + botón Enviar OK sin refresh |
+| `pedidos_own` | Inline directo sin safety net | Wrapper al helper con nombre `'pedidos_own'` | Cards de Pendientes/Confirmados se mueven al confirmar |
+| `pedidos_all` | Inline directo sin safety net | Wrapper al helper con nombre `'pedidos_all'` | `globalPedidos` y modales Backorder/StockAsig se actualizan sin refresh |
+| `revision_waitlist` | Inline directo sin safety net | Wrapper al helper con nombre `'revision_waitlist'` | Lista de Espera se actualiza al agregar/eliminar sin refresh |
+
+**Comportamiento post-deploy**:
+
+- Sesión sana: `[nombre] listener attach` → 1-2s → callback dispara → estado se actualiza. Cero cambio observable respecto a antes.
+- Sesión zombie: `[nombre] listener attach` → 15s de silencio → warn "listener no fired en 15s post-attach — fallback .get() explicito" → callback dispara con snap del server. Estado se actualiza al 15° segundo automáticamente (sin refresh manual del user).
+- `ensureAllListeners()` corre en `visibilitychange` → si el listener quedó zombie durante inactividad de tab, al volver se re-attach automático.
+
+**`detachFirebaseListeners`**: agregado `detachResilientListener('nombre')` para cada listener refactoreado. El `off()` legacy queda como defensa hasta próximo cleanup.
+
+**Beneficio secundario**: pattern reusable. Cuando aparezca el 4to zombie (probablemente `unsubApprovedAltas`, `unsubClientMaster`, o `unsubBackorderSnapshot`), aplicar el helper = 5-10 líneas de código en vez de duplicar el pattern.
+
+**Bump `APP_VERSION`/`CACHE_VERSION`** v1076 → v1077. Rebuild `app.bundle.js` + `chunks/`.
+
+### v1076 (2026-09-25) — HOTFIX: input `sl-user` sin default hardcodeado en render del panel Service Layer
+
+**Reporte Mariano 2026-09-25**: al intentar habilitar Service Layer por primera vez (checkbox tildado + Guardar), alert "Si vas a habilitar Service Layer, completá URL + CompanyDB + Usuario al menos" aunque los 3 campos se veían llenos en la UI.
+
+**Root cause**: asimetría del render del panel Service Layer en `src/domains/sap-admin-panel.js:renderSapServiceLayer`. Los inputs `sl-url` y `sl-company` tienen fallback hardcodeado al default de Shimano:
+
+```js
+escapeAttr(cfg.url || 'https://shimano-sap.seidor.com.ar:50000')
+escapeAttr(cfg.companyDB || 'SHIMANO_SAU')
+```
+
+Pero `sl-user` **NO** tenía fallback:
+
+```js
+escapeAttr(cfg.username)  // vacío si cfg.username=''
+```
+
+Con `sapConfigCache={}` (primera vez, o zombie del listener), `cfg.username=''` → el input queda con `value=""` mientras el `placeholder="APP_VENDEDORES"` sí muestra el texto gris. Al leer `document.getElementById('sl-user').value` en el validador, obtiene `""` → falla la validación → alert engañoso.
+
+Trap típico del pattern `value=""` + `placeholder="X"`: la UI se ve completa pero el DOM tiene vacío. Ya nos pasó como debt de UX en otros forms.
+
+**Fix**: agregar el mismo fallback que los otros dos inputs:
+
+```js
+escapeAttr(cfg.username || 'APP_VENDEDORES')
+```
+
+Efecto: al abrir el panel por primera vez o con cache vacío, los 3 inputs muestran los defaults reales (`https://...`, `SHIMANO_SAU`, `APP_VENDEDORES`) en `value` (no en placeholder), listos para Guardar sin tocar nada.
+
+**Prevención pendiente**: unir los 3 inputs en un array + loop de render que fuerce el pattern default fallback. Micro-refactor futuro cuando volvamos al panel.
+
+Rebuild `app.bundle.js` + chunks. Bump `APP_VERSION`/`CACHE_VERSION` v1075 → v1076.
+
+### v1075 (2026-09-25) — Listener `sap_integration` resiliente: mismo zombie safety net que v1070 (stock_snapshot)
+
+**Reporte Mariano 2026-09-25**: al tocar el botón "Enviar a SAP" (v1074) en la card de un pedido con `transferError`, alert "Service Layer no está habilitado. Configuralo en el tab Service Layer." aunque en Firestore `sl.enabled=true`.
+
+**Root cause**: mismo pattern zombie del v1070 aplicado al listener `unsubSapConfig`. El `onSnapshot` sobre `app_config/sap_integration` queda attach pero nunca dispara callback → `sapConfigCache = {}` → `sapSL.isEnabled()` devuelve false para toda la sesión.
+
+**Fix**: aplicar el mismo pattern del v1070 a `ensureSapConfigListener` en `src/domains/sap-admin-panel.js`:
+
+1. **`_applySapConfigDoc(d, source)`** — helper extraído para aplicar el snapshot (setea `sapConfigCache`, notifica a `ensureSapAutoSendListener`, re-renderea el panel SAP si abierto). Reutilizable desde el listener y desde el fallback.
+
+2. **Zombie detection + re-attach**: track `_sapConfigListenerAttachedAt` + `_sapConfigListenerFiredAt` en `window.*`. Si `unsubSapConfig` existe pero >15s sin fire → tear-down + re-attach.
+
+3. **Safety net `.get({source:'server'})`**: post-attach setTimeout 15s. Si el listener no fired, `.get()` explícito y `_applySapConfigDoc(d, 'fallback-get')`.
+
+4. **Error handler**: antes `console.warn` sin re-attach. Ahora `console.error` + reset `_sapConfigListenerAttachedAt=null` para permitir retry en próxima llamada.
+
+**Log post-deploy esperado**:
+- Sesión normal: `[sapConfig] listener attach` → `[sapConfig] cargado (listener): N keys, sl.enabled=true`.
+- Sesión zombie: `[sapConfig] listener attach` → 15s de silencio → warn "listener no fired en 15s post-attach — fallback .get() explícito" → `[sapConfig] cargado (fallback-get): N keys, sl.enabled=true`.
+
+**Debt profunda**: el zombie state en `onSnapshot` es un patrón repetitivo que ya golpeó 2 listeners hoy (stock_snapshot v1070 + sap_integration v1075). Se puede generalizar en un helper `ensureListenerWithFallback(ref, applyFn, name)` y aplicarlo consistente a todos los listeners críticos (`unsubPedidosAll`, `unsubClientMaster`, `unsubApprovedAltas`, `unsubBackorderSnapshot`, etc). Cuando aparezca otro caso, hacer la refactorización.
+
+Rebuild `app.bundle.js` + chunks (regla feedback_build_bundle_commit). Bump `APP_VERSION`/`CACHE_VERSION` v1074 → v1075.
+
+### v1074 (2026-09-25) — Botón "Enviar a SAP" en cards de Confirmados con `transferError` (admin-only)
+
+**Pedido Mariano**: en la card de un pedido confirmado que tiene `transferError` (banner rojo + botón "¿POR QUÉ FALLÓ?" + tipo de error como "CLIENTE INACTIVO"), agregar un botón adicional para reintentar el envío a SAP manualmente después de resolver el problema. Uso típico: SAP marca el cliente como inactivo → Mariano lo activa en SAP → toca "Enviar a SAP" → el pedido se reintenta sin esperar al listener automático.
+
+**Cambios (`index.html`):**
+
+1. **Nuevo botón** en la card del render `renderConfirmadosList` (~línea 21725):
+   - Solo visible si `userRole === 'admin'` (admin gate — coincide con el gate de `enviarPedidosASAPViaServiceLayer`).
+   - Solo visible si hay `transferError` (o sea, si aparece el badge "¿POR QUÉ FALLÓ?").
+   - Estilo azul (`#1e40af`) inline para distinguirse del botón rojo "por qué falló".
+   - Label `↻ Enviar a SAP` con emoji circular arrow.
+
+2. **Nueva función `window.reintentarEnvioSap(pedidoFsId)`** (~línea 21597):
+   - Guards defensivos: rol admin, pedido existe, no está ya transferido, Service Layer habilitado, módulo cargado.
+   - Confirm modal antes de disparar ("Verificaste que el problema esté resuelto en SAP?").
+   - Llama a `enviarPedidosASAPViaServiceLayer([p])` (función existente que ya maneja el envío individual con transaction lock, retry, y persistencia de `transferError`).
+   - Reporta resultado en alert simple: OK, error con mensaje, skip con motivo.
+   - La card se re-renderea automático cuando el listener `onSnapshot` recibe el update de Firestore (`transferidoSAP` seteado → `hasErr=false` → desaparece el banner rojo).
+
+**No cambia el flow automático**: la CF `onPedidoConfirmedSendToSap` sigue reintentando periódicamente si falló, y `sap-auto-send-listener.js` también. Este botón es un **manual override** para saltear la espera cuando el admin sabe que el problema ya está fixed.
+
+**Riesgo:** cero — reusa `enviarPedidosASAPViaServiceLayer` que ya está probada en producción (SAP > Pendientes > Enviar Seleccionados via Service Layer). Solo cambia el punto de entrada.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1072 → v1074 (skipping v1073 porque fue el fix BQ `fecha_contable` que no bumpeó frontend).
+
+### v1072 (2026-09-25) — Modal Stock Asignado: mostrar ASIG con `asigReserva=false` en modo asignacion
+
+**Reporte Mariano 2026-09-25 12:18**: "NO PUEDE NO HABER STOCK ASIGNADO" — modal Stock Asignado mostraba 0 SKUs, 0 unidades, 0 clientes. Investigación en Console:
+
+```
+Total lineas ASIG con qtyOpen>0: 58
+Distribución por tier: {P:0, A:0, B:0, C:58, other:0}
+_lrsFn para primera linea ASIG: false
+```
+
+**Root cause**: 100% de los clientes ASIG tienen `asigCliTipo='C'` (default cuando el flujo cli_tipo no resuelve — bug conocido, ver feedback v1057-f). Como consecuencia, la CF FIFO (`fifo-assign-core.js:293`) les asigna `asigReserva=false` a las 58 líneas ASIG. El filtro `lineReservesStock` de v978 descarta TODAS las líneas ASIG con `asigReserva=false` → modal vacío.
+
+Es un side-effect del bug del flujo cli_tipo (fix profundo pendiente) combinado con el filtro v978 diseñado asumiendo tiers reales. Mientras 100% caiga a tier C default, el modal Stock Asignado queda **siempre vacío** aunque haya demanda real con stock físico disponible.
+
+**Fix quirúrgico**: en modo `asignacion`, permitir líneas ASIG con `asigReserva=false` si NO están expiradas (`asigAt <= 15d`). El badge "SIN RESERVA" del UI ya las diferencia visualmente para el VDE.
+
+**Comportamiento nuevo**:
+
+- **Modal Stock Asignado** (mode='asignacion'): muestra ASIG con stock físico HOY, incluidas las de tier B/C (con badge "SIN RESERVA"). Sigue ocultando ASIG expiradas (>15d).
+- **Modal Backorder** (mode='urgente'): sin cambios.
+- **Cálculo de stock disponible** (`getStockRealmenteDisponible`, etc): sin cambios — sigue usando `lineReservesStock` normal → líneas ASIG B/C no reservan stock físico. Consistente con v957.
+
+**Debt pendiente**: fix profundo del flujo cli_tipo — hoy el 100% de los clientes cae a 'C' default. Cuando se corrija, las líneas ASIG de tier A/P van a filtrar por el path normal y este fix del v1072 se convierte en no-op para tiers reales.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1071 → v1072.
+
+### v1071 (2026-09-25) — CF `setupGetMovimientos` — log detallado del body cuando SETUP no devuelve `VFPData`
+
+**Reporte Mariano 2026-09-25 12:06 ART**: modal Depósito muestra "Últ. mov: 2026-09-14 (11d)" con warning amarillo. Botón Actualizar dispara la CF (confirmado por logs) pero el mov más reciente no avanza del 14/9.
+
+**Root cause identificado en `firebase functions:log --only setupGetMovimientos`**:
+
+```
+setupGetMovimientos: ventana 2026-09-18→2026-09-25 sin VFPData en body
+setupGetMovimientos: ventana 2026-09-11→2026-09-18 → 48 lineas
+setupGetMovimientos: ventana 2026-09-04→2026-09-11 → 132 lineas
+setupGetMovimientos: ventana 2026-08-28→2026-09-04 → 167 lineas
+setupGetMovimientos: retornando 17 notas (11 despachos) desde=2026-08-14 hasta=2026-09-14
+```
+
+SETUP responde con body **sin `VFPData`** para la ventana más reciente (18/9-25/9). Puede ser: (a) genuinamente no despacharon nada en esa ventana, (b) formato distinto de respuesta cuando no hay data, (c) algún bug de SETUP para ventanas recientes.
+
+**Fix diagnóstico**: log del body raw (400 chars) + topKeys del JSON cuando falta `VFPData`. Antes solo se logueaba "sin VFPData" — sin forma de distinguir body vacío vs error message vs formato distinto. Con este log, próxima vez que el issue reaparezca queda evidencia en 30 segundos.
+
+Cambio en `functions/index.js:setupGetMovimientos`:
+
+```js
+// Antes
+if (!data) {
+  console.log(`... sin VFPData en body`);
+  return [];
+}
+
+// Ahora
+if (!data) {
+  const _topKeys = Object.keys(parsed || {}).slice(0, 10).join(',');
+  const _preview = resp.body.slice(0, 400).replace(/\s+/g, ' ');
+  console.log(`... sin VFPData (topKeys=[${_topKeys}] bodyLen=${resp.body.length} bodyPreview=${_preview})`);
+  return [];
+}
+```
+
+Cero cambio funcional. Cero cambio frontend. Solo mejora observability para el próximo debug.
+
+**Deploy**: solo functions (`firebase deploy --only functions:setupGetMovimientos`). No requiere bump `APP_VERSION` / `CACHE_VERSION` porque no toca frontend.
+
+**Acción pendiente**: después del deploy, Mariano toca Actualizar → mirar `firebase functions:log --only setupGetMovimientos` → ver el `bodyPreview` de la ventana 18/9-25/9. Con ese preview decidimos si:
+- (a) SETUP devuelve body vacío / null → data real, no hay despachos.
+- (b) SETUP devuelve error message → problema de la API, hablar con Marcos.
+- (c) SETUP cambió formato → adaptar el parser de la CF.
+
+### v1070 (2026-09-25) — Listener `stock_snapshot` resiliente: fallback `.get()` cuando `onSnapshot` queda zombie
+
+**Continuación del debug 2026-09-25 con Mariano** (post-v1069). Después de aplicar el bypass AppCheck y wipe de IndexedDB, el listener `onSnapshot` de `app_config/stock_snapshot` seguía sin disparar aunque `.get({source:'server'})` desde Console devolvía el doc perfecto (updatedAt 2026-09-25T10:22:18Z, warehouseBreakdown 8117 bytes, todo fresh).
+
+**Root cause exacto identificado**: el listener `onSnapshot` para ese doc específicamente queda en estado "zombie" — la subscripción no dispara el snap inicial ni updates posteriores. Otros listeners `onSnapshot` sobre la misma colección `app_config` (catalog, campania, dashboard_visuales, stock_snapshot_app) funcionan bien en la misma sesión. `.get()` sobre el mismo doc funciona. Causa del zombie no clara — puede ser race con `enablePersistence({synchronizeTabs:true})` + AppCheck + auth flow específico.
+
+**Fix**: `ensureStockSnapshotListener` reescrita con 3 mejoras:
+
+1. **Extract del callback en `_applyStockSnapshotDoc(d, source)`** — misma lógica de parsing/apply, reutilizable desde múltiples fuentes.
+
+2. **Zombie detection + re-attach**: track `_stockListenerAttachedAt` y `_stockListenerFiredAt`. Si `unsubStockSnapshot` existe pero pasaron >15s sin ningún fire → tear-down + re-attach. `ensureAllListeners()` se llama en `visibilitychange` y en re-render → los usuarios que dejan la app abierta y vuelven, si el listener está zombie se recupera automático sin intervención.
+
+3. **Safety net fallback `.get({source:'server'})`**: post-attach, agenda un timeout de 15s. Si el listener no fired en ese lapso, ejecuta un `.get()` explícito y aplica el data manualmente vía `_applyStockSnapshotDoc(d, 'fallback-get')`. En el bug observado, `.get()` funciona aunque `onSnapshot` no — este safety garantiza que `STOCK_MAP` + `warehouseBreakdown` + `quantities` se popularizan sin importar el estado del listener.
+
+4. **Error handler mejorado**: antes `console.warn('stock snapshot listener', err)` (sin re-attach). Ahora `console.error` + reset de `_stockListenerAttachedAt = null` para permitir re-attach en próxima llamada.
+
+**Comportamiento esperado post-deploy**:
+- Sesión normal (listener OK): `[stock] listener attach` → dentro de 1-2s → `[stock] desde Firestore (listener): 775 SKUs (263 con stock). updatedAt=...`
+- Sesión con zombie: `[stock] listener attach` → 15s sin fire → warn "listener no fired en 15s post-attach — fallback .get() explícito" → `[stock] desde Firestore (fallback-get): 775 SKUs ...`
+- Después de un fetch fallback exitoso, los updates via listener no llegan (queda zombie), pero `ensureAllListeners` en `visibilitychange` va a intentar re-attach → si el nuevo attach también es zombie, el fallback vuelve a disparar cada vez que el user cambia de tab y vuelve.
+
+**Convivencia con el bypass AppCheck (v1069)**: son fixes ortogonales. El bypass evita el 403 en la activación de AppCheck. Este fix evita el listener zombie de Firestore. Un user con reCAPTCHA en throttle Y listener zombie necesita AMBOS activos. Un user sano no percibe diferencia.
+
+**Debt pendiente**: entender POR QUÉ `onSnapshot` queda zombie específicamente para `stock_snapshot`. Hipótesis a testear: race con `enablePersistence` + doc size (stock_snapshot es de los docs más grandes de la app: ~42 KB entre stock + JSON strings). Si el race se puede reproducir en un ambiente controlado, se puede reportar a Firebase SDK.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1069 → v1070.
+
+### v1069 (2026-09-25) — Escape hatch `?skipAppCheck=1` para reCAPTCHA v3 en throttle 403 permanente
+
+**Reporte Mariano 2026-09-25**: browser en throttle `appCheck/throttled` 24h persistente. Fix conocido "Clear Site Data" NO resuelve (memoria `reference_appcheck_throttle_24h.md` decía que sí, pero en este caso no). Console log:
+
+```
+content-firebaseappcheck.googleapis.com/exchangeRecaptchaV3Token → 403
+@firebase/app-check: Requests throttled due to 403 error. Attempts allowed again after 01d:00m:00s
+```
+
+Consecuencia en cadena: listener onSnapshot de `stock_snapshot` + `sap_integration` no dispara → `STOCK_MAP` queda con datos del `stock.json` estático (sin `warehouseBreakdown` ni `quantities`) → falso "DISPONIBLE" en Master de Productos + falso "STOCK COMPLETO (DEP 11) = 0" en modal Pedido en Espera + alert "Service Layer no está habilitado" en Sync manual.
+
+**Root cause refinado**: el 403 NO es un throttle local del SDK. Viene del **servidor Firebase que rechaza el intercambio del token reCAPTCHA v3 por un token AppCheck**. Causas plausibles:
+
+- reCAPTCHA v3 devuelve score muy bajo para la combinación IP/cuenta/browser específica de Mariano (Google marca "no humano" — patrón común en usuarios power que hacen refresh muy seguido).
+- La registration de la Web App en Firebase Console → App Check → Apps o el secret reCAPTCHA v3 podría haber cambiado — pero eso afectaría eventualmente a todos.
+- Otros users tienen tokens AppCheck cacheados en IndexedDB con TTL ~1h. Sus SDKs auto-refrescan (`isTokenAutoRefreshEnabled: true`). Si el refresh también recibe 403, empiezan a caer uno por uno. **Mariano es el canario porque hizo Clear.**
+
+**Fix (escape hatch)**: `activateAppCheckOnce()` ahora chequea `?skipAppCheck=1` en la URL o `localStorage.debugSkipAppCheck='1'`. Si está seteado, salta la activación. Sin activación, el SDK no envía el header AppCheck y Firestore acepta las reads (porque no está en enforcement estricto: si lo estuviera, TODOS los users con tokens expirados fallarían).
+
+**Uso**:
+- Sesión única: abrir `https://shimano-arg.github.io/app-vendedores/?skipAppCheck=1`.
+- Persistente por browser: en DevTools > Console → `localStorage.setItem('debugSkipAppCheck', '1')` → reload.
+- Desactivar: `localStorage.removeItem('debugSkipAppCheck')`.
+
+**Seguridad**: los 3 CFs sensibles (`sapProxy`, `updateAsigLineStateCF`, `geminiOcrProxy`) tienen `enforceAppCheck:false` desde v1003 — este bypass NO abre superficie de abuse porque esas CFs ya no dependían del token. Firestore lo mismo (soft-enforcement, no strict — lo confirma que otros users trabajan bien con tokens caducados). Cuando el issue global se resuelva (revocar+re-crear reCAPTCHA v3 en Console, o cambiar a reCAPTCHA Enterprise), el bypass debería sacarse y todos vuelven al flow normal.
+
+**Diagnostic pendiente**: probar en Chrome incógnito. Si el 403 tampoco aparece ahí → problema es Chrome específico. Si sí aparece → problema es global de reCAPTCHA/Firebase Console.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1068 → v1069.
+
+### v1068 (2026-09-25) — HOTFIX `q is not defined` en `renderBackordersTab` (hermano del v1066)
+
+**Reporte Mariano** (Console log 14:23 UTC): al abrir el modal Backorder, error visible en Console:
+```
+openBackordersModal render ReferenceError: q is not defined
+    at window.renderBackordersTab (app-vendedores/:14157:3)
+    at window.openBackordersModal (app-vendedores/:13235:9)
+```
+El listado se pintaba vacío / roto porque el render tiraba antes de terminar.
+
+**Root cause**: v1064 renombró la variable de filtro texto `q` (legacy `backordersSearchQuery`) → `tq` (nuevo `backordersTiendaQuery`) al top de `renderBackordersTab`. Se cambiaron las lecturas del loop de filtrado pero quedaron 3 referencias sin renombrar más abajo:
+- `index.html:14157` — badge de "búsqueda:" en el banner amarillo.
+- `index.html:14179` — check para mensaje "Sin resultados".
+- `index.html:14180` — texto del mensaje.
+
+Es exactamente el mismo tipo de olvido que v1066 arregló en `exportBackordersToExcel`. Búsqueda ampliada por toda la función confirma que ya no quedan más ocurrencias fuera de comentarios históricos (que sí mantienen `q` como referencia al nombre viejo — OK).
+
+**Fix**: `q` → `tq` en las 3 líneas. Sin cambio de comportamiento (misma variable, mismo valor).
+
+**Prevención**: los tests unitarios de bundle-runtime no capturaron esto porque `renderBackordersTab` requiere DOM + state runtime para ejecutarse. Un smoke test de "abrir modal Backorder sin filtros y verificar que no tira exception" cubriría ambos regresiones (v1066 + v1068). TODO.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1067 → v1068.
+
+### v1067 (2026-09-25) — Modal Backorder: quitar selects "Sin stock" y "Solo urgentes" de la toolbar
+
+**Pedido Mariano** (captura 11:12): en la toolbar del modal Backorder había dos selects redundantes:
+
+- `#backorders-stock-filter` — opciones `Sin stock (para importar)` / `Con stock (para asignar)` / `Todos (sin filtro)`. Ya tenía `style="display:none"` inline en el HTML, pero `_applyBackordersMode` lo re-mostraba con `sel.style.display = ''` al abrir el modal en modo backorder (v523).
+- `#backorders-urgency-filter` — opciones `Solo urgentes (sin stock)` / `Solo parciales (stock repartido)` (v864).
+
+Los dos ocupaban ancho en la toolbar sin agregar utilidad práctica: en modo Backorder el default siempre debe ser `sin stock` + `urgente` (para importar), y en modo Asignación Stock el default siempre debe ser `con stock`. El precedente v941 (2026-09-15) ya había eliminado la opción "todos" del urgency dropdown por el mismo motivo — este es el paso final.
+
+**Cambios (`index.html`)**:
+
+- Eliminados ambos `<select>` del bloque `#backorders-toolbar` (líneas ~5330-5338 pre-cambio).
+- Simplificado `_applyBackordersMode(mode)`: removidas las 8 líneas que hacían `sel.value = ...` y `sel.style.display = ...` para los dos IDs desaparecidos. El comentario documenta que los defaults se siguen forzando por modo internamente.
+- Eliminada la función `window.onBackordersStockFilterChange` (dead code — solo se llamaba desde el onchange del select removido).
+- Eliminada la función `window.onBackordersUrgencyFilterChange` (idem).
+- Los state vars `backordersStockFilter` y `backordersUrgencyFilter` se conservan porque `_passesFilters` (línea ~13729) y el listener de mode siguen leyéndolos. El modo Backorder mantiene `sin` + `urgente`; el modo Asignación mantiene `con`.
+
+**Behavior**: cero cambios de comportamiento del listado. La UI es más limpia (toolbar con 3 campos: Buscar, Todos los vendedores, Todos los meses).
+
+**Rollback**: revertir el commit; nada más.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1066 → v1067.
+
+### v1066 (2026-09-25) — HOTFIX ReferenceError `q is not defined` en export Backorder
+
+**Reporte Mariano** (captura 10:26): al tocar "Exportar todo" en el modal Backorder, alert `Error al generar el Excel: q is not defined`. Nada se descargaba.
+
+**Root cause** (`index.html:13592`): v1064 renombró la variable de filtro de texto de `q` (legacy backordersSearchQuery) → `tq` (backordersTiendaQuery) al top de `exportBackordersToExcel`. Se cambiaron todas las lecturas dentro del loop de filtrado, pero se olvidó la línea del filename builder al final del `try`:
+
+```js
+const suffixQ = q ? ('_' + q.replace(...)) : '';   // ← `q` ya no existe
+```
+
+Cuando el user tenía filtro Tienda vacío, la coerción `q ?` tiraba `ReferenceError` antes de llegar al ternario → caía al catch → alert genérico. Se disparaba SIEMPRE (con o sin filtro), porque `ReferenceError` corta la ejecución antes de la evaluación booleana.
+
+**Fix**: `q` → `tq` (mismo significado semántico: filtro texto sobre tienda/SKU/producto).
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1065 → v1066.
+
+### v1065 (2026-09-25) — HOTFIX real bug "(sin vendedor)": snapshot listener no proyectaba `d.vendedor`
+
+**Reporte Mariano** (Backorders_2026-09-25 (1).xlsx): tras hard refresh + limpiar storage, el export seguía mostrando "(sin vendedor)" para muchas filas (850/3270 = 26%).
+
+**Diagnóstico completo** (comparando export vs Firestore real):
+
+| Bucket | Export | Firestore | Delta |
+|---|---|---|---|
+| (sin vendedor) | 850 | 73 | **+777** |
+| GONZALO | 832 | 851 | -19 |
+| SANTIAGO | 684 | 696 | -12 |
+| IOANNIS | 469 | 505 | -36 |
+
+**Root cause real** (`index.html:28815+`): el listener `onSnapshot('pedidos')` que popula `globalPedidos` **proyecta manualmente los campos** que copia — no hace spread completo del doc. La proyección solo incluía `ownerVendor: d.ownerVendor || ''`. Pero ~28% de los pedidos abiertos (59/211) tienen `vendedor` seteado en Firestore pero NO `ownerVendor` (pedidos migrados/viejos). Esos pedidos llegan al browser con `p.vendedor=undefined` → el fallback v1063 (`p.ownerVendor || p.vendedor || ...`) termina en `''` → "(sin vendedor)" en el export/render.
+
+El fix v1063 arregló el CONSUMIDOR (fallback en el export), pero la fuente (el snapshot local) ya venía sin el dato. El fix v1064 (filtros Tienda + Vendedor) tampoco lo tocó — reusaba la misma proyección.
+
+**Fix**: agregar los 3 campos legacy a la proyección:
+
+```javascript
+globalPedidos.push({
+  ...
+  ownerVendor: d.ownerVendor || '',
+  vendedor: d.vendedor || '',          // ← v1065 nuevo
+  vendorAssigned: d.vendorAssigned || '',  // ← v1065 nuevo
+  vendor: d.vendor || '',              // ← v1065 nuevo
+  ...
+});
+```
+
+Ahora los ~59 pedidos con schema legacy llegan al browser con `p.vendedor='MARTIN BOIERO'` (o quien sea) y el fallback v1063 lo captura correctamente.
+
+**Lección**: cuando el schema tiene campos alternativos, verificar tanto el CONSUMIDOR (fallback en el lector) como la FUENTE (proyección del snapshot). Un fix aislado en cualquiera de los dos no alcanza.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1064 → v1065.
+
+### v1064 (2026-09-25) — Modal Backorder: reemplaza input Search por 2 filtros dedicados (Tienda + Vendedor)
+
+**Reporte Mariano**: reemplazar los filtros del modal Backorder por un filtro "Tiendas" (buscar por tienda) y un filtro "Vendedor" (que traiga el backorder de las tiendas de ese vendedor).
+
+**Fix** (`index.html`):
+
+1. **Toolbar del modal** (línea 5319+): removido el input `backorders-search` genérico. Reemplazado por 2 controles:
+   - `backorders-tienda-filter`: input con `<datalist>` autocompletado. Match texto libre sobre `clientName || sku || producto`. Placeholder "Tienda / SKU / código".
+   - `backorders-vendor-filter`: `<select>` con dropdown. Match exact sobre `vendorKey` (con fallback v1063 `ownerVendor || vendedor || vendorAssigned || vendor`).
+
+2. **Estado JS** (línea 13130+): agregadas `backordersTiendaQuery` + `backordersVendorFilter`. Deprecada `backordersSearchQuery` (queda en `''` fijo para compat con código legacy que la refiera).
+
+3. **Handlers** (línea 13284+): nuevos `onBackordersTiendaChange` + `onBackordersVendorChange`. El viejo `onBackordersSearch` queda como no-op.
+
+4. **`renderBackordersTab`** (línea 13854+):
+   - Popula datalist de tiendas con `clientName` únicos de pedidos con BO/ASIG open activo (fuente `globalPedidos`).
+   - Popula dropdown de vendedores con `vendorKey` únicos (aplicando fallback v1063), ordenado alfa, mostrando label "zona - Nombre" via `vendorLookup`.
+   - `_passesFilters` (SAP source, hoy no-op post-v700) + loop APP: aplican filtros `tq` (tienda texto libre) + `vf` (vendor exact).
+
+5. **`exportBackordersToExcel`** (línea 13328): mismo replacement — usa `tq/vf` en vez de `q`, consistencia con el render (WYSIWYG entre modal y export).
+
+Sin cambios en firestore.rules. Sin cambios en CFs. Rebuild bundle NO necesario (no toca `src/domains/*.js`).
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1063 → v1064.
+
+### v1063 (2026-09-25) — Fix export Backorder: columna Vendedor toda "(sin vendedor)"
+
+**Reporte Mariano** (screenshot `Backorders_2026-09-25.xlsx`): la columna Vendedor del export salía completa como `(sin vendedor)` para todas las filas, aunque los clientes eran de vendedores reales (MARISA IANUNZIO, CUASSOLO SOCIEDAD, etc.).
+
+**Root cause** (`index.html:13366`): v1062 (misma semana) asumió mal el schema — el fallback intentaba `p.vendedor || p.vendorAssigned || p.vendor || p.createdByDisplayName`. Ninguno de esos campos existe en el schema real de `pedidos`. El campo estándar es **`p.ownerVendor`** — usado en el resto del archivo (línea 13946 populando `skuMap` APP-source, 14534, 27196) y en todos los CFs (`functions/core/auto-send-sap-core.js`, `notify-quotation-sent-core.js`).
+
+El comment original de v1062 decía "pedidos guardan mayormente `createdByDisplayName` (91%)" — es cierto que ese campo existe, pero es texto libre tipo "Pablo Gonzalez" y NO matchea con `vendorLookup` que espera keys tipo "PABLO". Además `p.createdByDisplayName` refleja quién CARGÓ el pedido (VDI actuando como VDE), no a quién pertenece la cartera.
+
+**Fix**: cambiar el fallback a `p.ownerVendor` primero (el campo real), dejando los legacy inexistentes como defensa por si aparece algún doc con schema viejo:
+
+```javascript
+vendorKey: (
+  p.ownerVendor            // ← campo real, estándar del proyecto
+  || p.vendedor            // legacy defensivo
+  || p.vendorAssigned      // legacy defensivo
+  || p.vendor              // legacy defensivo
+  || ''
+).toString().toUpperCase().trim(),
+```
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1062 → v1063.
+
+**Lección** (memory `feedback_planner_schema_check`, v1011/v1013): verificar schema real de `pedidos.add()` antes de leer `pedido.X` — nunca asumir nombres. Precedente confirmado.
+
+### v1060 (2026-09-24) — Fix panel Stock Asignado (modal Pedido en Espera) mostraba líneas ASIG sin stock físico
+
+**Reporte Mariano** (screenshot): PESCAR.INFO SHOP ORDEN 230 — el panel "Stock asignado / Backorder del cliente" mostraba línea CIS151HGC 5u en STOCK ASIGNADO. Master de Productos para el mismo SKU marca "X SIN STOCK" (snapshot SAP dep 11 = 0). La descripción del panel dice literal *"Reservas del cliente CON stock físico disponible ahora"* → contradicción.
+
+**Root cause** (`index.html:18396`):
+
+```javascript
+if (l.state === 'ASIG') {
+  asignadoRows.push(row);  // SIEMPRE sin chequear stock
+} else if (l.state === 'BO') {
+  const stk = getStk(l.code) || 0;
+  if (stk > 0) asignadoRows.push(row);  // BO sí chequea
+  else        backorderRows.push(row);
+}
+```
+
+Para `state='BO'` ya se verifica stock físico (BO con stock aparece como "virtual ASIG"). Para `state='ASIG'` NO — se asume que si el CF FIFO lo promovió en el pasado, sigue teniendo stock. Falso: el stock puede haberse facturado a otro cliente, ajustado en SAP, o el snapshot puede estar desactualizado. El CF FIFO no revierte asignaciones cuando el stock desaparece.
+
+**Fix**:
+
+1. Chequear `getStockDisponibleVenta > 0` también para `state='ASIG'`. Si stock=0, línea se marca `isStaleAsig=true` y cae en `backorderRows`.
+2. En el render de la tabla BACKORDER, líneas con `isStaleAsig` obtienen fondo amarillo (`#fefce8`) + badge inline "ASIG SIN STOCK" (`#f59e0b`) al lado del SKU con tooltip explicando "esta línea estaba en state=ASIG pero hoy no hay stock físico dep 11".
+
+El state en Firestore NO se toca — el pedido histórico sigue con `l.state='ASIG'` (fuente de verdad para el CF FIFO cuando reingrese mercadería). Solo cambia el render del panel visual.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1058 → v1060 (v1059 fue solo el cron rendiciones, sin bump de frontend).
+
+### v1058 (2026-09-24) — INCIDENTE Pablo: fix AppCheck 401 + fix duplicación waitlist+confirmed
+
+**Reporte Mariano**: Pablo cargó pedido ANA LORENA FUENTES ORDEN 228 en Lista de Espera, apretó "Pasar a Pendientes"→confirm. Screenshot con error: `callable(functions/unauthenticated): Unauthenticated`. Además el pedido quedó **duplicado**: visible en Lista de Espera y en Confirmados (con badge "ERROR SAP") simultáneamente.
+
+**Diagnóstico** (validado con datos Firestore + logs GCP):
+
+- **Bug 1 (AppCheck 401)**: `sapProxy` CF deployada con `enforceAppCheck: true` (`functions/index.js:125`). Logs GCP mostraron HTTP 401 constante desde IP de Pablo. Memory `feedback_appcheck_gcloud_diagnostic` indica que v1003 (2026-09-21) hizo rollback a `false` pero **fue hotfix directo sin commit**; deploys posteriores (v1004+) reintrodujeron `true` cada vez. Después de 3 días desde v1003, la propagación reCAPTCHA v3 sigue sin funcionar. Mismo problema afectaba `updateAsigLineStateCF` (v990) y `geminiOcrProxy` (v918).
+
+- **Bug 2 (duplicación waitlist)**: pedido `2msGaQQrMK4Gxl5Q4dMc` (ORDEN 228) tenía `stage=confirmed` + `transferError` pero el waitlist `KMIdF94Ah9Eud7xyEesf` seguía con `stage=None`, `consumedByPedidoId=None`. Root cause: el flujo cliente-side depende de `window._pendingWaitlistDelete` (variable global JS en memoria del browser). Si el usuario recarga tab, cierra ventana, o hay un throw entre "Pasar a Pendientes" y el confirm final, la variable se pierde → el update+delete post-`pedidos.add()` no se ejecuta → waitlist queda huérfano.
+
+**Fix** (3 partes):
+
+1. **`functions/index.js` — rollback AppCheck** en 3 CFs: `sapProxy` (línea 125), `updateAsigLineStateCF` (línea 848), `geminiOcrProxy` (línea 926). `enforceAppCheck: true → false`. Rate limit + role gate + ownership check siguen activos. Comments actualizados con contexto del incidente.
+
+2. **`index.html` + nueva CF `onPedidoCreatedCleanupWaitlist`** — persistencia server-side:
+   - `_waitlistPasarAPendientesContinuar` (línea 20664): setea `window._pendingPedidoWaitlistId = w._id` (nuevo, junto al ya-existente `_pendingPedidoOrderNumber`).
+   - `docData` de `pedidos.add()` (línea 28948): agrega campo `waitlistOrigenId` persistido en Firestore.
+   - Nueva CF `onPedidoCreatedCleanupWaitlist` (functions/index.js): trigger `onDocumentCreated` en `pedidos/{id}`. Si `waitlistOrigenId` está seteado, marca el waitlist como `stage='consumed'` + `consumedByPedidoId` + `consumedAt` atomicamente. Idempotente (skip si ya consumed) + fail-close silencioso (log error, no throw — el path old sigue funcionando como fallback).
+   - Path old (`_pendingWaitlistDelete` client-side, línea 29126) NO se removió — queda como defense-in-depth por si la CF falla o no dispara.
+
+3. **Cleanup ORDEN 228** (`_cleanup_orphan_waitlist_228.py`): marcó el waitlist huérfano como consumed apuntando al pedido existente + liberó `sendingSapLock` del pedido para permitir reintento cuando el AppCheck rollback esté vivo.
+
+**Deploy**: 3 CFs deployadas primero (`sapProxy`, `updateAsigLineStateCF`, `geminiOcrProxy`) para destrabar a Pablo antes del merge del PR. Luego `onPedidoCreatedCleanupWaitlist` post-merge.
+
+**Test plan post-deploy**:
+- Pablo re-envía ORDEN 228 desde Confirmados (botón "Por qué falló"→retry o auto-listener) → debería crear la SQ SAP sin 401.
+- Nueva prueba end-to-end: cargar waitlist → Pasar a Pendientes → confirmar → verificar que el waitlist desaparece de Lista de Espera Y aparece en Confirmados solo una vez.
+
+### v1057 (2026-09-24) — Master Clientes: fix UX del input Credito (ancho + font)
+
+**Reporte**: Mariano — screenshot mostrando el input de Credito con valor `750000` cortado: "no se leen bien los valores queda chico el cuadrado". El ancho de la columna era 10% del modal (~50px) y el font 11px, insuficiente para números ≥6 dígitos.
+
+**Fix** (`src/domains/master-clientes.js` renderMasterClientesTable):
+
+1. **Ancho columna Credito**: 10% → 17% (compensado tomando 1% de Tienda/Localidad/Provincia/Vendedor/Direccion/Tipo). Header renombrado `Credito` → `Credito ARS`.
+2. **Font input**: 11px → 13px, padding `4px 8px`, `min-width: 100px`, `font-variant-numeric: tabular-nums` (dígitos misma anchura → alineación decimal impecable).
+3. **Hint debajo del input**: `$X.XXX.XXX` formato ARS legible al costado del input crudo — así se ve simultáneamente el valor editable (`750000`) y el formateado (`$750.000`) sin sacrificar la edición numérica.
+4. **Readonly (VDE/VDI)**: font 11px → 12px + `tabular-nums` para consistencia visual.
+
+Rebuild bundle + bump `APP_VERSION`/`CACHE_VERSION` v1056 → v1057.
+
+### v1056 (2026-09-24) — Enriquecimiento vista Clientes: input Credito en modal individual + CF denorm visitas → client_master.lastVisit + BQ views clientes_360
+
+**Reporte**: Mariano — necesita ver en la vista Clientes de la app (y en PowerBI) el estado ACTUAL de cada cliente para 5 atributos que el vendedor ya carga en cada visita (Fidelidad, Tipo de cliente/tamaños, Especialización por tipo de pesca, Canal de compra, Tipo de venta) + Crédito cheque (ARS) + email. Regla de negocio: "última visita gana" — si Gonzalo visita a Mariano Pesca 3 veces con Fidelidad BAJA/BAJA/ALTA, queda ALTA. Ver `PLAN_POWERBI.md` sección v1056 para el plan completo (F1-F4).
+
+**Fase 1 — frontend: input Credito cheque en modal cliente individual**:
+- `index.html:4996+`: nuevo `<div id="cm-credito-cheque-block">` con `<input type="number">` gate admin/gerente (display:none via `openClientModal` isAdminLike). Onblur → `saveClientCreditoChequeFromModal`. Etiqueta "Crédito cheque (ARS)".
+- `src/domains/master-clientes.js:2635+`: nuevo handler `saveClientCreditoChequeFromModal`. Valida Number>=0, guarda a `client_master.creditoCheque` con merge preservando timestamp genérico. Vacío → null. Reusa el mismo campo que el input del Master Clientes UI (v1055) — ambas vías consistentes.
+- `APP_VERSION` v1055 → v1056 + `sw.js` `CACHE_VERSION` v1055 → v1056.
+- **Sin cambios en firestore.rules**: admin/gerente ya tiene write abierto a `client_master`.
+
+**Fase 2 — Cloud Function `onVisitCreatedDenormToClientMaster`**:
+- `functions/core/denorm-visit-to-client-master-core.js`: core puro testeable con `clientLocId` (espeja `src/domains/visitas.js:43`) + `extractLastVisitPayload` + `isNewerOrEqual` + handler `denormVisitToClientMaster`.
+- `functions/index.js`: wrapper `onDocumentCreated visits/{visitId}` con retry:false, memory:256MiB, timeout:30s. Copia `fidelidad`, `tamanos[]`, `especializaciones[]`, `canalCompra`, `tipoVenta` + `ponderacionMostrado/Ecommerce` (si tipoVenta=AMBOS) a `client_master.{docId}.lastVisit`.
+- **Guard temporal LWW real**: si `visit.fecha < lastVisit.fecha` existente → skip. Cubre backfill fuera de orden y retries del runtime.
+- Preservación: NO pisa `vendor`/`clientName`/`updatedAt` cuando el doc ya existe (solo `lastVisit` + `lastVisitDenormAt`).
+- **14 tests** en `tests/functions/denorm-visit-to-client-master.test.js` (14/14 pass) incluyen el escenario Mariano BAJA/BAJA/ALTA → ALTA.
+- **Deploy pendiente aprobación humana**: `firebase deploy --only functions:onVisitCreatedDenormToClientMaster`.
+
+**Fase 3 — Backfill histórico**:
+- `scripts/backfill_visits_to_client_master.py`: replica `clientLocId` + `extractLastVisitPayload` en Python. Agrupa visits por docId, keep latest por fecha, batches Firestore de 400. Dry-run por default.
+- Usage:
+  1. `gcloud auth application-default login`
+  2. `python scripts/backfill_visits_to_client_master.py` (dry-run)
+  3. `python scripts/backfill_visits_to_client_master.py --apply`
+
+**Fase 4 — BigQuery views + PLAN_POWERBI update**:
+- `PLAN_POWERBI.md` Apéndice A.2 (`client_applications_view`): extendida con `email`, `telefono_contacto`, `codigo_postal`, `localidad_final`, `credito_cheque_ars`, `coverage_by`, `sap_card_type`, `sap_valid`, `sap_frozen`, `sap_ready_for_sl`, `source`, `lead_estado`, `manual_sap_pending`, `geo_provider`, `geo_precision`, `updated_by` (todos ya existían en Firestore, solo faltaba proyectarlos).
+- `PLAN_POWERBI.md` Apéndice A.2b — NUEVA `client_master_view` con `lastVisit.*` aplanado (fidelidad, tamanos[], especializaciones[], canalCompra, tipoVenta, ponderaciones, fecha, byDisplayName, visitId) + `cli_tipo` + `credito_cheque_ars` + `default_delivery_tipo`.
+- `PLAN_POWERBI.md` Apéndice A.2c — NUEVA `clientes_360_view` = LEFT JOIN de `client_applications_view` con `client_master_view` por `join_key` normalizado (mismo algoritmo que `clientLocId`). Es la vista principal que consume Power BI.
+- **Pasos manuales pendientes (Firebase Console)**:
+  1. Extensions → Stream Firestore to BigQuery → install nueva instancia para colección `client_master` (dataset `shimano_app`, tabla `client_master_raw`, location `us-central1`).
+  2. Backfill: `npx --package=@firebaseextensions/fs-bq-import-collection fs-bq-import-collection`.
+  3. Ejecutar los 3 CREATE OR REPLACE VIEW en BigQuery Console.
+  4. En Power BI Desktop: agregar `clientes_360_view` como dataset principal.
+
+### v1055 (2026-09-24) — Master Clientes: nueva columna "Credito" (limite ARS para cheque)
+
+**Reporte**: Mariano — necesita cargar el limite de credito que tiene cada cliente para pagar con cheque, para que quede visible junto al resto de los datos de identificacion comercial.
+
+**Fix** (3 puntos):
+
+1. **`src/domains/master-clientes.js`**:
+   - `renderMasterClientesTable`: nueva columna "Credito" entre Tipo y Acciones. Input numeric (type="number", step=1000, min=0) editable por admin+gerente; solo-lectura formato ARS ($1.234.567) para otros roles.
+   - Nueva funcion `saveMcClientNumField(docId, fieldName, input)`: gated a admin+gerente, parsea a Number (vacio → null), guarda a `client_master.creditoCheque` (POINTS) o `client_applications.creditoCheque` (SAP altas via prefix `sap:`). Preserva timestamp `updatedAt/By`.
+   - Anchos de columnas rebalanceados: Tienda 22→20%, Localidad 12→11%, Provincia 11→10%, Vendedor 13→12%, Direccion 23→20%, Tipo 11→9%, Credito 10%, Acciones 8%.
+
+2. **`src/domains/exports-core.js`**: nueva columna "Credito cheque (ARS)" en el masterfile Excel (leyendo `cmData.creditoCheque` para POINTS y `a.creditoCheque` para altas SAP). Incluida en `COL_WIDTHS` (18) y `NUMERIC_ZERO_OK` (para que el post-proceso de v1043 no la borre cuando todos son 0).
+
+3. **`chunks/exports-core.js` + `app.bundle.js`**: rebuild (regla CLAUDE.md #18 + feedback memory v1049 sobre olvidar rebuild al tocar `src/domains/*.js`).
+
+**Sin cambios en firestore.rules**: la regla de `client_master` ya permite `update`/`create` a admin+gerente sin restriccion de campos (linea 300+); `client_applications` idem (linea 417+). El campo `creditoCheque` cae en la clausula abierta `isAdminOrGerente()`.
+
+**Post-deploy verification**:
+- Abrir Master Clientes con cuenta admin/gerente → ver columna "Credito" con inputs vacios.
+- Cargar valor (ej: 500000) en un cliente → autosave `showSyncTag('Credito guardado')`.
+- Refresh página → valor persiste.
+- Cargar mismo cliente con cuenta VDE/VDI → ver valor como texto `$500.000` (no editable).
+- Exportar Masterfile de Clientes → columna "Credito cheque (ARS)" aparece con los valores cargados.
+
+### v1054 (2026-09-24) — Planner: badge "SO:XXXX" mostraba DocEntry interno en vez de DocNum visible SAP
 
 **Reporte**: Mariano — la card BROBRO SA (SAP:2000226, ORDEN 220) mostraba badge `SO:37210` pero ese número no existe en SAP.
 
-**Root cause**: la CF `syncSapOrdersToApp` (v1015) guardaba únicamente `transferidoSAP.orderDocEntry` (PK interna secuencial de SAP, invisible en la UI). El badge del Planner (`index.html:27438`) lo renderizaba como si fuera un número de documento. En SAP el usuario busca por **DocNum** (número visible), no por DocEntry.
+**Root cause**: la CF `syncSapOrdersToApp` (v1015) guardaba únicamente `transferidoSAP.orderDocEntry` (PK interna secuencial de SAP, invisible en la UI). El badge del Planner (`index.html:27858`) lo renderizaba como si fuera un número de documento. En SAP el usuario busca por **DocNum** (número visible), no por DocEntry.
 
 **Fix** (3 puntos):
 
 1. **`functions/core/sync-sap-orders-core.js`**:
    - Agregado `DocNum` al `$select` de `/Orders` (traía solo `DocEntry,DocumentLines`).
    - Guarda ahora `transferidoSAP.orderDocNum` además de `orderDocEntry`.
-   - Filtro de pending cambia de `!t.orderDocEntry` → `!t.orderDocNum`: los pedidos synced pre-v1020 se re-procesan automáticamente en la próxima corrida del CF (backfill idempotente). Una vez que tienen `orderDocNum`, se skipean.
+   - Filtro de pending cambia de `!t.orderDocEntry` → `!t.orderDocNum`: los pedidos synced pre-v1054 (v1015..v1053) se re-procesan automáticamente en la próxima corrida del CF (backfill idempotente). Una vez que tienen `orderDocNum`, se skipean.
 
-2. **`index.html:27438`**: badge muestra `orderDocNum || orderDocEntry` (fallback por seguridad hasta que el CF backfillee todos).
+2. **`index.html:27858`**: badge muestra `orderDocNum || orderDocEntry` (fallback por seguridad hasta que el CF backfillee todos los pedidos activos).
 
-3. **Tests** (`tests/functions/sync-sap-orders.test.js`, 11/11 pass): mock `makeSlFetch` acepta shorthand `{ 100: 777 }` (DocNum=DocEntry) o full `{ 100: { docEntry: 37210, docNum: 220 } }` (para testear DocNum ≠ DocEntry). Nuevo test valida el backfill (pedido con `orderDocEntry` sin `orderDocNum` → re-procesa).
+3. **Tests** (`tests/functions/sync-sap-orders.test.js`, 11/11 pass): mock `makeSlFetch` acepta shorthand `{ 100: 777 }` (DocNum=DocEntry) o full `{ 100: { docEntry: 37210, docNum: 220 } }` (para testear DocNum ≠ DocEntry). Nuevo test valida el path de backfill (pedido con `orderDocEntry` sin `orderDocNum` → re-procesa).
 
-**Deploy**: requiere `firebase deploy --only functions:syncSapOrdersToApp` para que el CF empiece a escribir `orderDocNum`. Frontend puede ir solo (fallback a `orderDocEntry` para no romper cards).
+**Deploy**: requiere `firebase deploy --only functions:syncSapOrdersToApp` para que el CF empiece a escribir `orderDocNum`. Frontend puede shippearse solo con fallback a `orderDocEntry` (no rompe cards existentes).
+
+### v1043 (2026-09-23) — Masterfile Clientes SAP: remover columnas 100% vacías del export
+
+**Reporte**: Mariano — el export "Master Clientes" sacaba muchas columnas vacías. Total 37 columnas fijas, pero ~21 vienen de `_classifRow` (Tipo comercio, Local, Tamaño, Fidelidad, POP, Ayuda tienda, etc.) que solo se llenan cuando el cliente tiene visitas/contactos cargados. Si no hay visitas → 21 columnas vacías por fila.
+
+**Fix** (`src/domains/exports-core.js:exportMasterClientes`):
+
+Post-proceso antes de generar el sheet:
+1. Detectar keys donde TODAS las filas tienen valor "vacío" (empty string, null, undefined).
+2. Excepción: `Total visitas` y `Total contactos` se consideran vacíos también si todos son 0.
+3. Filtrar esas keys de `rows` (via `rowsFiltered`).
+4. Reordenar `!cols` (widths) para matchear las keys que quedaron.
+5. Log en consola: `[masterfile] removidas N cols vacías: ...` para debugging.
+
+Ejemplo con 300 clientes y 0 visitas → sheet queda con 16 columnas (info básica) en vez de 37. Con 5 visitas cargadas que llenaron "Tipo comercio" y "POP" → sheet queda con 18 columnas (las otras 19 de clasificación siguen fuera).
+
+### v1042 (2026-09-23) — CF `syncSapPaymentsToApp`: fix invoices consolidadas (split proporcional al netAmountArs)
+
+**Reporte**: Mariano vio 2 pedidos MUNDO ESTURION en Cobrado con el MISMO `paidAmount` de $21.5M cada uno, cuando en realidad son pedidos distintos ($9.9M y $21.5M). Sospecha de duplicación.
+
+**Verificación**: ambos pedidos tienen la misma `sapLinkage.appliedInvoiceDocEntries: [33815]`. Es una **invoice SAP consolidada** que agrupa líneas de 2 SOs distintas (36545 + 36552). El CF `syncSapPaymentsToApp` le atribuía el DocTotal COMPLETO ($21.5M) a cada uno → sobre-conteo en subtotal Cobrado.
+
+**Impacto medido antes del fix** (250 pedidos abiertos):
+- 3 invoices consolidadas afectan 6 pedidos
+- Sobre-conteo en `invoicedAmount`: **$40.3M**
+- Sobre-conteo en `paidAmount`: **$21.5M**
+
+**Fix** (`functions/core/sync-sap-payments-core.js`):
+
+1. **`handleSyncSapPayments`**: build `invoiceShareMap` = `Map<invoiceDocEntry, [{id, net}]>` con TODOS los pedidos que referencian cada invoice.
+2. **`applyPaymentUpdate`**: nuevo param `invoiceShareMap`. Si una invoice está en >1 entrada, calcula `fraction = pedido.netAmountArs / sum(net de todos los pedidos que la comparten)` y multiplica `DocTotal + PaidToDate` por esa fracción antes de sumar.
+3. **Fallback**: si no hay `netAmountArs` en el pedido → split parejo `1/shares.length`.
+
+Ejemplo MUNDO ESTURION invoice 33815:
+- Ped1 net=$20.6M → recibe 68% × $21.5M = **$14.6M**
+- Ped2 net=$9.9M → recibe 32% × $21.5M = **$7.0M**
+- Suma = $21.5M (matchea DocTotal, NO duplica).
+
+**Tests**: 13/13 pass (+3 nuevos v1042):
+- Case 11: invoice compartida 2 pedidos net distinto → split proporcional
+- Case 12: pedidos sin net → fallback 50/50
+- Case 13: invoice NO compartida sigue funcionando 1:1
+
+**Deploy**: `firebase deploy --only functions:syncSapPaymentsToApp` — próxima corrida corrige `paidAmount`/`invoicedAmount` de los 6 pedidos afectados (idempotente, comparación pre-update).
+
+### v1041 (2026-09-22) — Planner mobile responsive (tablet ≤900px + mobile ≤640px)
+
+**Reporte**: Mariano — el Planner no se adaptaba a mobile. Modal padding grande, header con 8+ elementos sin wrap, columnas fijas 320px, tabla líneas rompía layout.
+
+**Fix**: nuevo bloque `@media (max-width: 900px)` + `@media (max-width: 640px)` con `!important` para pisar los inline styles del modal header (que usan `style="..."` directo, no clases).
+
+**Tablet (≤900px)**:
+- Modal ocupa 100vw × 100vh, border-radius 0, padding 0.
+- Header naranja con `flex-wrap: wrap` + gap 8px.
+- Título `flex: 1 1 100%` para forzar el break.
+- Inputs cliente/orden `flex: 1 1 45%` (dos en línea).
+- Columnas `flex: 0 0 280px` (era 320).
+
+**Mobile (≤640px)**:
+- Header padding 8px, título 13px, botones 10px.
+- Columnas `flex: 0 0 88vw` — una casi-full por pantalla, scroll horizontal con snap.
+- Cards con padding + font-size reducidos.
+- Modal de card (líneas/adjuntos/historial): full-screen sin border-radius.
+- Tabla líneas: `white-space: nowrap` + font 11px para horizontal scroll cómodo.
+
+### v1040 (2026-09-22) — Planner Cobrado: subtotal usa `paidAmount` real de SAP (no total del pedido)
+
+**Reporte**: Mariano — Cobrado del Planner mostraba $356M vs $135M en PowerBI (2.6x más).
+
+**Root cause**: mismo bug que v1033/v1035 pero para Cobrado. `_plannerComputeTotal` devolvía el total del pedido entero cuando el pedido caía en Cobrado. Ejemplo: pedido de $10M con paid=$2M → sumaba $10M en vez de $2M.
+
+**Fix**: nueva función `_plannerComputePaidTotal(pedido)` que prefiere `pedido.paidAmount` (persistido por el CF `syncSapPaymentsToApp` cada 15min desde SAP `Invoice.PaidToDate`). Fallback a `invoicedAmount` si no hay `paidAmount` todavía (caso drag manual sin sync).
+
+**Verificación contra prod (47 pedidos en Cobrado, septiembre)**:
+- ANTES: **$356,146,460** (163% arriba del PowerBI $134M)
+- DESPUÉS: **$213,261,133** (58% arriba)
+
+**Gap residual $78M ($213M app vs $134M BI)**: filtro de mes semánticamente distinto — Planner usa `createdAt` del pedido, PowerBI usa `DocDate` de la factura/pago. Pedidos creados en agosto pero cobrados en septiembre → BI los cuenta como septiembre, Planner como agosto. **Otro scope** — requiere que CF persista `lastInvoiceDate` + `lastPaymentDate` y el filtro los use en vez de `createdAt`.
+
+### v1039 (2026-09-22) — Planner modal líneas: removida columna "Facturado" (menos ruido)
+
+Reporte Mariano — la columna `Facturado` (qty facturada por línea) generaba ruido en el modal. La info de facturación ya está visible en el Kanban (columna Facturado + badge SAP:X + subtotal por columna).
+
+Modal ahora muestra `SKU / Descripción / Qty / Precio / Subtotal` + Total pedido en el footer. `colspan` del footer ajustado de 5 → 4.
+
+### v1038 (2026-09-22) — Planner modal líneas: agregar columna Subtotal + fallback `getDefaultPrice` para waitlist entries
+
+**Reporte**: Mariano — al abrir el modal de una card del Planner (LUIS ALBERTO SUGAIAR ORDEN 207, waitlist entry), veía `Facturado=0` y `Precio=0` en todas las líneas.
+
+**Root cause**: mismo pattern que v1036 (`_plannerComputeTotal`) — los waitlist entries en `revision_waitlist` NO tienen `precio` ni `priceAtCreation` en sus lines, solo `code, desc, qty`. El render del modal no tenía fallback a `getDefaultPrice(code)`.
+
+**Fix** (`renderPlannerModalLineas`):
+1. **Precio**: 4to fallback a `getDefaultPrice(code)` si no hay precio en la línea (mismo lookup que usa el modal Waitlist Card y `_plannerComputeTotal`).
+2. **Nueva columna "Subtotal"** = `qty × precio`. Formato $ ARS.
+3. **Footer con "Total pedido"** — suma de todos los subtotales (solo si > 0).
+4. **Formato precios**: cambiado a formato $ ARS integer (era plain number con maximumFractionDigits 2).
+
+Ahora el modal muestra la tabla completa: `SKU / Descripción / Qty / Facturado / Precio / Subtotal` + Total pedido en el footer.
+
+### v1037 (2026-09-22) — Planner: removida columna "Confirmado" — pipeline 100% automático + lineal
+
+**Reporte**: Mariano — la columna Confirmado no se usaba (0 pedidos hoy, 1 doc en Firestore con `plannerStage='confirmado'` pero ya caía en Facturado por Rule 3).
+
+**Cambios en las 3 capas**:
+
+1. **`PLANNER_COLUMNS`** en `index.html:27396`: de 6 → 5 columnas. Removida `{ key: 'confirmado', label: 'Confirmado' }`.
+2. **`computeColumn`** (los 3 mirrors — inline `index.html:12403`, `functions/core/planner-compute-column.js`, `src/domains/planner/compute-column.js`): removida Rule 4 (`plannerStage === 'confirmado' → 'confirmado'`). Docs con ese stage caen ahora en Rule 5 (orderDocEntry → ordenes) o Rule 6 (docNum → oferta) o default (lista_espera). Cero pérdida de datos verificada — el único doc en prod (BIANCHINI SAP:2000120) ya caía en Facturado por Rule 3 (qtyInvoiced>0).
+3. **`PLANNER_MANUAL_TARGETS`**: reducido a `['cobrado']` — solo cobrado queda como drag manual (raramente usado post-Fase 2 payments sync).
+4. **`COLUMN_LABELS`** en `functions/core/planner-stage-change-core.js`: sin `confirmado`.
+5. **`plannerStage` mapping en `onPlannerColDrop`**: solo maneja `dst === 'cobrado'`.
+
+**Tests actualizados** (54/54 pass):
+- `planner-compute-column.test.js`: caso "plannerStage=confirmado + docNum sin facturar" ahora expecta `'oferta'` (Rule 5).
+- `planner-stage-change.test.js`: `defaultConfig()` sin `confirmado`; case 4 refactorizado para validar que `plannerStage='confirmado' + docNum` cae en 'oferta'; case 14 refactorizado para usar `paidStatus='paid'` en vez de `plannerStage='confirmado'` como truco de transición.
+
+**Pipeline post-v1037**: `Lista de espera → Oferta → Pendiente de facturar → Facturado → Cobrado`. Cinco columnas, todas automáticas (excepto drag opcional a Cobrado que casi nunca se usa desde la Fase 2).
+
+**Deploy CF**: `firebase deploy --only functions:onPlannerStageChanged` para que el CF también refleje el nuevo mapping de labels.
+
+### v1036 (2026-09-22) — Planner: total en cards de Lista de espera (getDefaultPrice fallback) + whitelist Uruguay
+
+**Reporte Mariano — 2 items:**
+
+**A. Total en cards de Lista de espera (waitlist entries)**
+
+**Bug**: cards en Lista de espera mostraban "—" en el total. El modal del waitlist sí muestra el total correcto ($1,407,000 para SUGAIAR ORDEN 207).
+
+**Root cause**: los waitlist entries (`revision_waitlist` docs) tienen lines con solo `{code, desc, qty, firstBackorder, firstDisponible, firstStockTotal}` — **sin `precio` ni `priceAtCreation`**. Son "pedidos crudos" cargados desde Excel antes de la asignación de precios. El modal calcula el total en runtime con `getDefaultPrice(code)` (index.html:18845). El card render del Planner no lo hacía.
+
+**Fix**: agregar `getDefaultPrice(code)` como 4to fallback en `_plannerComputeTotal` cuando no hay `precio` en la línea. Mismo lookup que usa el modal. Los 6 waitlists actuales van a mostrar su total real.
+
+**B. Whitelist Planner ampliada a Uruguay**
+
+Agregados a `_plannerAllowedEmails`:
+- `santiago.beron@shimano.uy`
+- `diego.valsi@shimano.uy`
+
+Sync entre `applyRolePermissions` (CSS gate) y `openPlannerBoardModal` (runtime guard).
+
+### v1035 (2026-09-22) — Planner Cobrado: nuevo CF `syncSapPaymentsToApp` + `invoicedAmount` exacto de SAP
+
+**Contexto**: en v1034 se preparó la UI para tener columna Cobrado en verde y Facturado en amarillo. Pero 258/258 pedidos abiertos no tenían data de cobro (`paidStatus`, `paidAmount`) → Cobrado seguía vacía y toda card en Facturado quedaba amarilla sin diferenciar.
+
+**Solución (Fase 2)**: nuevo scheduled Cloud Function que sincroniza cada 15min los cobros desde SAP.
+
+**Backend** (`functions/core/sync-sap-payments-core.js`):
+1. Lista pedidos abiertos con `sapLinkage.appliedInvoiceDocEntries` no vacío.
+2. Enum `/Invoices desc` paginado ($skip=0..500, page 20 default del SL) leyendo `DocEntry, DocTotal, PaidToDate`. Mismo pattern que `syncSapOrdersToApp` — SL de la company no admite `$expand` en collections Document.
+3. Build map `{ docEntry → {docTotal, paidToDate} }`.
+4. Para cada pedido, suma:
+   - `invoicedAmount = Σ DocTotal`
+   - `paidAmount = Σ PaidToDate`
+   - `paidStatus`: `'paid'` si `paidAmount >= invoicedAmount - 1` (tolerancia $1), `'partial'` si `> 0`, `null` si `0`.
+5. Update Firestore + `paidSyncedAt` timestamp.
+
+Idempotente (comparación con estado actual antes de escribir). Sin modo shadow — es enrichment de fields nuevos, safe deploy directo.
+
+**Schedule**: `every 15 minutes` (mismo tick que Orders + Invoices). Costo: ~25 GETs/corrida → 100 GETs/hr.
+
+**Firestore rules**: agregados `invoicedAmount` + `paidSyncedAt` al `hasOnly` de `pedidos`.
+
+**Frontend**: `_plannerComputeInvoicedTotal` en `index.html` ahora usa `pedido.invoicedAmount` de SAP si existe. Elimina el error residual 9.8% de v1033 (subtotal Facturado será exacto contra PowerBI). Fallback al compute local `qtyInvoiced*precio` si el CF aún no persistió.
+
+**Semántica del Planner post-Fase 2**:
+- **Facturado (amarillo)**: `paidStatus === 'partial'` o `null` (facturado sin cobrar 100%).
+- **Cobrado (verde)**: `paidStatus === 'paid'` → `computeColumn` Rule 2 lo mueve automático (semántica ya existente desde v1005).
+- Las cards migran solas cuando SAP registra el cobro completo.
+
+**Tests**: 10/10 pass — sin pedidos, 1 invoice paid, 2 invoices partial, paidToDate=0, idempotencia, invoice fuera de rango, paginación, filtro sin appliedInvoiceDocEntries, tolerancia $1, applyPaymentUpdate directo.
+
+**Deploy**: `firebase deploy --only functions:syncSapPaymentsToApp` — nueva CF, se agrega al Cloud Scheduler automático.
+
+### v1034 (2026-09-22) — Planner: simplificar semántica de colores (Facturado amarillo + Cobrado verde, resto blancas)
+
+**Reporte**: Mariano — pidió que Facturado sea siempre amarillo (facturado sin cobrar 100%), Cobrado siempre verde (cobrado 100%), y las otras columnas blancas para reducir ruido visual.
+
+**Cambio** (`computePlannerCardStateClass`):
+- **Facturado** (`column === 'facturar'`): `state-fact-pendiente` (amarillo `#FFF4C2`) siempre.
+- **Cobrado** (`column === 'cobrado'`): `state-cobrado-full` (verde `#C8F0D4`) siempre.
+- **Resto** (Lista de espera, Oferta, Pend. facturar, Confirmado): `''` (sin state class → fondo blanco).
+
+**Semántica** — con Fase 2 (sync SAP payments) implementada, todo pedido 100% cobrado migra automático a Cobrado vía `computeColumn` Rule 2 (`paidStatus === 'paid'`). Todo lo que quede en Facturado es "facturado pero no cobrado 100%" → coincide con el amarillo.
+
+**Estado actual** (pre-Fase 2): 258/258 pedidos sin data de cobro en Firestore → columna Cobrado está vacía y toda card en Facturado queda amarilla. Cuando la Fase 2 esté deployada, los cobros reales de SAP se sincronizan cada 15min y las cards migran solas.
+
+**Fase 2 pendiente**: nuevo CF `syncSapPaymentsToApp` que persiste `paidAmount` y `paidStatus` desde `/IncomingPayments` de SAP SL. Requiere backend nuevo (~4-6h).
+
+### v1033 (2026-09-22) — Planner Facturado: subtotal usa monto facturado real (qtyInvoiced × precio) — no el total del pedido completo
+
+**Reporte**: Mariano — el subtotal Facturado del Planner mostraba **$472M** para septiembre pero el PowerBI (alimentado de facturas SAP reales) mostraba **$203M**. 2.3x más — obviamente mal.
+
+**Root cause**: `_plannerComputeTotal` devolvía el total del pedido ENTERO (`totalAmountArs || netAmountArs || subtotalArs`) apenas alguna línea tuviera `qtyInvoiced > 0`. Ejemplo: un pedido de $23.8M con 109/425 unidades facturadas → aportaba $23.8M al subtotal cuando en realidad solo $10.3M se facturó.
+
+**Fix**: nueva función `_plannerComputeInvoicedTotal(pedido)` que suma `qtyInvoiced × (precio || priceAtCreation || price)` por línea. Se usa en 2 lugares:
+1. Subtotal de la columna Facturado (`useInvoiced = col.key === 'facturar'`).
+2. Total ARS de cada card individual cuando `column === 'facturar'`.
+
+Las otras columnas (Oferta, Pendiente de facturar, Confirmado, Cobrado) siguen usando `_plannerComputeTotal` porque representan pedidos "todavía por facturar/cobrar".
+
+**Verificación contra prod**:
+- Subtotal Facturado septiembre ANTES fix: **$472,629,750** (132.8% arriba del PowerBI real)
+- Subtotal Facturado septiembre DESPUÉS fix: **$223,014,000** (9.8% arriba del PowerBI real de $203,052,212)
+
+**Precisión residual (~10%)**: el 9.8% que sigue arriba es porque `precio`/`priceAtCreation` no reflejan descuentos aplicados al momento de facturar (que sí se aplican al `DocTotal` de la invoice en SAP). Para exactitud 100%, requiere backfill futuro en el CF `syncSapInvoicesToApp` que persista `invoicedAmountArs` en el pedido leyendo el `DocTotal` de las invoices en `sapLinkage.appliedInvoiceDocEntries`.
+
+**Nota adicional (no fixeada acá)**: el filtro de mes en Facturado sigue siendo por `createdAt` del pedido, no por fecha de emisión de la factura. Puede haber pedidos creados en agosto pero facturados en septiembre (o viceversa) que difieran del corte contable. Si necesitas match exacto por mes contable, se puede migrar a leer la `DocDate` de la última invoice — otro scope.
+
+### v1032 (2026-09-22) — Planner: 3 mejoras UX (reloj sync + whitelist ampliada + limpiar header columna)
+
+Reporte Mariano — 3 items en un mismo PR:
+
+**A. Reloj countdown a próxima sync SAP** (junto al título del modal)
+- Nuevo `<span id="planner-sync-countdown">` en el header naranja del modal.
+- Formato: `Próx. sync en Xm YYs`. Cuando llega a 0 muestra `Sincronizando…`.
+- Cálculo cero-backend: `Math.ceil(now / 15min) * 15min` — el GCP Cloud Scheduler alinea a hh:00, hh:15, hh:30, hh:45 en zona `America/Argentina/Buenos_Aires`, así que sabemos el próximo tick sin consultar backend.
+- Timer local con `setInterval(1000ms)`. Se arranca en `openPlannerBoardModal()` y se para en `closePlannerBoardModal()` para no dejar el interval vivo.
+
+**B. Whitelist del botón "Planner" en la home ampliada**
+- Antes: Mariano only (`mariano.erbino@shimano.com.ar` + `erbinomariano@gmail.com`, role `admin`).
+- Ahora: Mariano + Pablo (`pablo.gonzalez@shimano.com.ar`, gerente/admin) + Santiago Esteban (`santiago.esteban@shimano.com.ar`, interno) + Ioannis Palkoudakis (`ioannis.plakoudakis@shimano.com.ar`, interno).
+- Roles permitidos ampliados: `admin` + `gerente` + `interno`.
+- Sync entre `applyRolePermissions` (gate CSS del btn) y `openPlannerBoardModal` (runtime guard).
+
+**C. Limpiar el chip del email del responsable en el header de cada columna**
+- Antes: `[Lista de espera 6]  mariano.erbino@shimano.com.ar` en el header de cada columna.
+- Ahora: solo `[Lista de espera 6]`. Menos ruido visual.
+- La config del responsable sigue en Firestore (`app_config/planner_responsables`) y se ve/edita desde el tab Config del modal.
+- CSS `.planner-col-resp` queda unused pero se deja por si se revierte.
+
+### v1031 (2026-09-22) — Planner emails: notificar al VDI pareja del VDE dueño del pedido en TODAS las columnas
+
+**Reporte**: Mariano — Santiago Esteban e Ioannis Palkoudakis (VDIs) deben recibir emails cuando un pedido de ellos o de sus parejas VDE cambie de columna en el Planner.
+
+**Estado previo**: el CF `onPlannerStageChanged` mandaba email solo al responsable de la columna (config `planner_responsables`) + al VDE dueño si `sendToVdi: true` en Facturar (mal nombrado — la función `resolveVdiEmail` en realidad devolvía el VDE, no el VDI).
+
+**Fix** (`functions/core/planner-stage-change-core.js`):
+1. **Rename**: `resolveVdiEmail` → `resolveVdeEmail` (nombre semánticamente correcto). El flow legacy de Facturar sigue funcionando idéntico.
+2. **Nueva función `resolveVdiPartnerEmail(pedido, db)`**: (1) busca VDE con `vendor === pedido.ownerVendor`, (2) lee su `internalPartnerUid`, (3) trae `roles/{partnerUid}.email`. Cero hardcode — funciona automático para cualquier VDI futuro.
+3. **Step 6b**: para TODAS las columnas del pipeline, agregar `resolveVdiPartnerEmail(after, db)` a recipients (dedup si ya está). Deshabilitable por columna con `notifyVdiPartner: false` en `planner_responsables`.
+
+**Cobertura verificada en prod** (5 VDEs con partner, 1 sin):
+- Ioannis: Gonzalo, Federico
+- Santiago: Martin Boiero, Mauricio Gil, Pachi (pachinaba)
+- ⚠️ `pachi.ventasespeciales@shimano.com.ar` sin `internalPartnerUid` — pedidos suyos no notifican al VDI (dato faltante en `roles`, decidir aparte)
+
+**Tests**: 20/20 pass (+4 nuevos v1031):
+- Case 17: VDE con partner → email al VDI pareja
+- Case 18: VDE sin partner → no falla, solo columnConfig.email
+- Case 19: `notifyVdiPartner: false` → opt-out granular
+- Case 20: VDI pareja == columnConfig.email → dedup
+
+**Deploy**: `firebase deploy --only functions:onPlannerStageChanged`
+
+### v1030 (2026-09-22) — Planner: filtro de mes aplica a TODAS las columnas del pipeline (no solo Facturado/Cobrado)
+
+**Reporte**: Mariano — con filtro "Septiembre" activo veía cards de julio en la columna Oferta (SAP:2000009 del 28/7, Reborn SRL 27/7, Sebastian Villarreal 27/7, etc).
+
+**Root cause**: v1014 aplicaba el filtro de mes **solo** a Facturado + Cobrado ("columnas históricas que acumulan"). Las otras (Oferta / Pendiente de facturar / Confirmado) se mostraban sin filtrar bajo el assumption "son WIP corto". Ese assumption falló: hay pedidos de julio (~60 días) todavía en Oferta.
+
+**Fix**: extender el filtro de mes a **todas las columnas del pipeline** (Oferta / Pendiente de facturar / Confirmado / Facturado / Cobrado). Lista de espera queda sin filtrar (waitlist entries son entradas frescas siempre, no aplica el concepto de mes).
+
+Con filtro "Septiembre 2026" activo, ahora todas las columnas muestran solo pedidos con `createdAt` en septiembre. Para ver los viejos, seleccionar "Todos los meses" en el dropdown del header.
+
+### v1029 (2026-09-22) — Planner Lista de espera 1:1 con sidebar (excluir pedidos "colgados" del default lista_espera)
+
+**Reporte**: Mariano — la columna "Lista de espera" del Planner debe coincidir EXACTO con el sidebar-left "PEDIDOS EN ESPERA". Ni un pedido más ni menos, mismos clientes.
+
+**Análisis (post-v1027)**: la columna Lista de espera del Planner tenía **2 fuentes mezcladas**:
+1. `revision_waitlist` entries (6 en prod) → los mismos que el sidebar-left ✅
+2. Pedidos de `pedidos` con `computeColumn === 'lista_espera'` (10 en prod) → **pedidos "colgados"**: `stage='confirmed'` sin `transferidoSAP.docNum`, cayendo en Rule 7 (default) de `computeColumn`. Ejemplos: Federico Fatechi, Piracua, Susana Andrili.
+
+Semánticamente esos 10 NO son "lista de espera" (esa columna representa pre-oferta SAP). Son pedidos que se confirmaron pero nunca llegaron a SAP por alguna razón (bug legacy, fallo transferencia). Antes se mostraban por default sin más categorización.
+
+**Fix**: en `renderPlannerKanban`, si `computeColumn(p) === 'lista_espera'` para un pedido de la colección `pedidos`, **skipear** (no push a byCol). Solo los `revision_waitlist` entries van a esa columna. Ahora sidebar y Planner coinciden 1:1.
+
+**Trade-off**: los 10 pedidos colgados no aparecen en ninguna columna del Planner. Siguen visibles desde otros lugares (Pending list, Master Pedidos, Backorder App). Aceptable porque nunca deberían estar en Lista de espera semánticamente — es un problema de datos legacy, no de UI. Si Mariano decide backfillear `transferidoSAP.docNum` o llevarlos a Cerrados, se resolverían.
+
+### v1028 (2026-09-22) — Schedule syncSapOrdersToApp: cada 60min → cada 15min
+
+**Reporte**: Mariano — la latencia de hasta 60min entre "genero SO en SAP" y "aparece en Planner" era demasiada para operar.
+
+**Fix**: `functions/index.js:255` cambio `schedule: 'every 60 minutes'` → `schedule: 'every 15 minutes'`. Match con `syncSapInvoicesToApp` que ya corre cada 15min sin problemas.
+
+**Cost esperado**: 4x más calls al SAP SL por hora (de 1 a 4). Cada corrida es ~25 GETs (500/20 default page) → 100 GETs/hr vs 25 GETs/hr antes. SAP SL responde OK a este volumen (invoices ya lo hace).
+
+**Deploy**: `firebase deploy --only functions:syncSapOrdersToApp` — GCP Cloud Scheduler se actualiza automáticamente al deploy.
+
+### v1027 (2026-09-22) — Planner: fix listener waitlist — `.where('stage', '!=', 'consumed')` excluía docs sin campo `stage`
+
+**Reporte**: Mariano — la columna Lista de espera del Planner mostraba pedidos distintos a la lista de espera del sidebar-left (6 en sidebar vs 10 completamente diferentes en Planner). Ninguno matcheaba.
+
+**Root cause**: en `attachPlannerListeners` (`index.html:27435`), el listener del Planner usaba:
+```js
+db.collection('revision_waitlist').where('stage', '!=', 'consumed')
+```
+Firestore `!=` **excluye docs que no tienen el campo `stage` en absoluto**. Los 6 waitlists activos en producción NO tienen el campo `stage` (son de antes de que se introdujera con v953) — los 6 quedaban invisibles al Planner.
+
+El sidebar-left NO tenía este bug porque usaba filter client-side (`shouldIncludeWaitlistDoc` en `src/pure/waitlist-filter.js`), que solo excluye docs con `stage === 'consumed'` explícitamente.
+
+**Fix**: replicar el pattern del sidebar-left en el listener del Planner: sin `where`, filter client-side. Ahora ambas fuentes usan el mismo criterio.
+
+Los pedidos "lista_espera" que aparecían en el Planner antes eran de la colección `pedidos` con `computeColumn === 'lista_espera'` (sin plannerStage, sin qtyInvoiced, sin orderDocEntry, sin docNum) — esos siguen apareciendo. Los 6 waitlists faltantes se agregan.
+
+### v1026 (2026-09-22) — Planner: rename labels `Órdenes` → `Pendiente de facturar` y `Facturar` → `Facturado`
+
+**Reporte**: Mariano — pidió dividir "Facturar" en 2 conceptos: "Pendiente de facturar" (esperando) y "Facturado" (confirmado que se facturó). Sugirió usar la columna "Órdenes" existente como el "Pendiente de facturar".
+
+**Análisis**: la semántica actual ya calzaba con lo pedido — solo faltaba renombrar labels. `Órdenes` en `computeColumn` es "SO creada en SAP pero 0 líneas facturadas" (Rule 5, `orderDocEntry` truthy, sin llegar a Rule 3 de qtyInvoiced) — literal "pendiente de facturar". `Facturar` ya se subdividía visualmente en parcial (state-fact-pendiente amarillo) vs completo (state-facturado verde).
+
+**Fix**: rename SOLO labels de UI + subject del email. Keys internos (`ordenes`, `facturar`) intactos para no romper `plannerHistory`, `plannerEmails`, config de responsables ni el filtro de mes.
+
+- `PLANNER_COLUMNS` en `index.html:27242` → labels nuevos.
+- `COLUMN_LABELS` en `functions/core/planner-stage-change-core.js` → sync con frontend.
+- Tests 16/16 pass — no había hardcoded de labels, solo de keys internos.
+
+**Deploy**: bundle client-side → GitHub Pages auto. CF core → `firebase deploy --only functions:onPlannerStageChanged` para que el próximo email diga `entró a Facturado` / `entró a Pendiente de facturar`.
+
+### v1025 (2026-09-22) — Planner: ORDEN N en rojo Ferrari + al final de los badges (identidad visual del ID del negocio)
+
+**Reporte**: Mariano — quiere que el chip `ORDEN N` se identifique de un vistazo como el ID del negocio (vs `SAP:X` / `SO:Y` que son IDs internos del sistema contable).
+
+**Fix visual**:
+- Orden reordenado en los badges: `SAP:X → SO:Y → 📎N → ORDEN N` (ORDEN al final, más visible).
+- Nueva clase `.planner-badge-orden`: `background: #D40000` (rojo Ferrari), `color: #fff`, `font-weight: 700`, `letter-spacing: 0.02em`.
+- Los otros chips (SAP:X, SO:Y) quedan con el estilo gris default.
+
+**Nota sobre pedidos legacy sin `orderNumber`**: 7 de los 10 pedidos de Lista de espera no tienen ORDEN N porque fueron creados antes de v942 (2026-09-16) cuando se agregó el `reserveNextOrderNumber` al path "Crear Pedido" directo. No hay backfill automático — se decidirá aparte si se hace o si se deja rotar el pipeline hasta que salgan.
+
+### v1024 (2026-09-22) — Planner: fix contraste del placeholder en los inputs de búsqueda del header
+
+**Reporte**: Mariano — los inputs de Cliente/ORDEN N (v1023) tenían placeholder en negro semi-opaco (default browser) sobre fondo naranja `#c2410c` → invisibles.
+
+**Fix**: CSS con `::placeholder` blanco al 70% opacity + `-moz-placeholder` normalizado (Firefox usa opacity=1 por default) + focus state con background más claro y ring sutil para feedback visual.
+
+### v1023 (2026-09-22) — Planner: 2 filtros nuevos en el header (Cliente + ORDEN N)
+
+**Reporte**: Mariano — pidió filtros de búsqueda en el modal del Planner para encontrar rápido un pedido específico entre las 250+ cards.
+
+**Fix**: 2 `<input type="search">` en el header del modal (junto al selector de mes existente):
+- **Cliente**: busca substring case-insensitive en `clientName || cardName || clientCardCode || cardCode`.
+- **ORDEN N**: normaliza a solo dígitos (para matchear "145", "ORDEN 145" o "orden145" indistintamente) y busca substring en `orderNumber`.
+
+Ambos filtros se aplican DESPUÉS del filtro de mes existente (Facturar/Cobrado) para que el subtotal de columna refleje solo lo visible. También se aplican a las waitlist entries (mismo shape).
+
+**Debounce 150ms**: `_plannerScheduleRender` evita re-renderizar el kanban en cada tecla (250+ cards + render sync no escalaba). El debounce se resetea con cada input.
+
+**Estado en memoria** (`plannerClientFilter`, `plannerOrderFilter`) — se resetea al reload como los otros filtros del Planner.
+
+### v1022 (2026-09-22) — Planner: `ORDEN N` como ID único del pedido, visible en cards y emails a lo largo del pipeline
+
+**Reporte**: Mariano — quiere que el número de orden asignado en la lista de espera se mantenga como identificador único del pedido a lo largo de todo el pipeline (waitlist → oferta → órdenes → confirmado → facturar → cobrado). Los chips `SAP:X` y `SO:Y` son números internos del sistema contable — el ORDEN N es el ID del negocio.
+
+**Estado previo**: el campo `pedido.orderNumber` ya se persistía en Firestore desde v846 (2026-09-09) — `_waitlistPasarAPendientesContinuar` lo heredaba del waitlist y v942 agregó el path directo (`doConfirmPedido`) con `reserveNextOrderNumber()`. Cobertura hoy: 66/257 pedidos abiertos tienen `orderNumber` (los creados post-v846); los viejos siguen sin él y por consenso no se hace backfill.
+
+**Fix visual** (2 lugares):
+
+**1. Card del Planner (`index.html:27455`)** — agregar `ORDEN N` como primer badge, antes de `SAP:X` y `SO:Y`:
+```js
+if (pedido.orderNumber) badges.push('ORDEN ' + pedido.orderNumber);
+if (pedido.transferidoSAP?.docNum) badges.push('SAP:' + pedido.transferidoSAP.docNum);
+if (pedido.transferidoSAP?.orderDocEntry) badges.push('SO:' + pedido.transferidoSAP.orderDocEntry);
+```
+
+Waitlist entries (que también tienen `orderNumber` directo) obtienen el badge gratis por el mismo path.
+
+**2. Email del CF (`functions/core/planner-stage-change-core.js:resolveDisplayNumber`)** — nuevo formato con `ORDEN N` como principal + SAP como contexto opcional:
+- `ORDEN 145` (sin SAP)
+- `ORDEN 145 (SAP:2000120 · SO:36882)` (con SAP+SO)
+- `ORDEN 145 (SAP:2000120)` (con SAP sin SO)
+- Fallback: `SAP:X · SO:Y` (pedidos viejos sin `orderNumber`)
+- Último recurso: `(sin número)`
+
+**Tests** (16/16 pass, +3 nuevos v1022):
+- Case 14: `orderNumber='145'` solo → subject contiene `ORDEN 145`, no `SAP:`
+- Case 15: `orderNumber + docNum + orderDocEntry` → subject `ORDEN 145 (SAP:2000120 · SO:36882)`
+- Case 16: `orderNumber + docNum` (sin SO) → `ORDEN 145 (SAP:2000120)` (sin `SO:`)
+
+**Deploy**: bundle client-side va con GitHub Pages. CF core cambio requiere:
+```bash
+firebase deploy --only functions:onPlannerStageChanged
+```
+
+### v1021 (2026-09-22) — Planner email notification: "(sin número)" + "Total ARS -" (mismos bugs de schema que el frontend, ahora en el CF `onPlannerStageChanged`)
+
+**Reporte**: Mariano — los emails automáticos del Planner llegaban con `(sin número)` en el subject y `Total ARS -` en el cuerpo. Mismo pattern que los bugs v1018/v1011: el CF leía campos que **nunca existieron** en el schema real de Firestore.
+
+**Root causes en `functions/core/planner-stage-change-core.js`**:
+1. `num = pedido.pedidoNumber || pedido.orderNumber || '(sin número)'` — ninguno de esos campos existe en los pedidos productivos. La UI usa `transferidoSAP.docNum` (SAP:X) + `orderDocEntry` (SO:Y) para el número visible.
+2. `totalArs = Number(pedido.totalAmountArs || 0)` — el 76% de pedidos usa `netAmountArs`; solo 24% tiene `totalAmountArs`.
+
+**Fix**: extraer 2 helpers puros con la misma precedencia que el frontend:
+- `resolveDisplayNumber(pedido)` → `pedidoNumber → orderNumber → SAP:docNum · SO:orderDocEntry → SAP:docNum → SO:orderDocEntry → '(sin número)'`
+- `resolveTotalArs(pedido)` → `totalAmountArs → netAmountArs → subtotalArs → total → totalARS → compute desde lines (qty * precio || priceAtCreation)`
+
+`resolveTotalArs` es literalmente el mismo algoritmo que `_plannerComputeTotal` en `index.html:27510` — sin extraer a módulo común porque el CF no puede importar código del bundle client-side. Comentario en ambos archivos: "MANTENER SINCRONIZADO".
+
+**Tests**: 13/13 pass (9 existentes + 4 nuevos v1021):
+- Case 10: sin `pedidoNumber` con `docNum` → subject `SAP:12345`
+- Case 11: `docNum + orderDocEntry` → subject `SAP:X · SO:Y`
+- Case 12: sin `totalAmountArs` con `netAmountArs` → total muestra el valor
+- Case 13: sin totales pero con `lines qty*precio` → computed correcto
+
+**Deploy** (post-merge): `firebase deploy --only functions:onPlannerStageChanged` (el fix está en el CF, no en el bundle client-side).
+
+### v1020 (2026-09-22) — Planner: subtotal ARS por columna en el header
+
+**Reporte**: Mariano — pidió ver el total agregado de cada columna del Kanban para tener a la vista cuánto suma cada stage del pipeline.
+
+**Fix**: en `renderPlannerKanban`, sumar `_plannerComputeTotal(p)` de cada card visible (respeta el filtro de mes en Facturar/Cobrado). Nuevo `<div class="planner-col-subtotal">` insertado entre el header y la lista de cards. Formato `$ integer` con separadores es-AR.
+
+CSS `.planner-col-subtotal`: font-size 13px, font-weight 600, opacity 0.75, letter-spacing -0.01em (jerarquía tipográfica Apple secondary — no compite con el título de la columna).
+
+Columnas vacías muestran `$ 0` (no se oculta) para consistencia visual.
 
 ### v1019 (2026-09-22) — Planner: pintar toda la card del color de estado (no solo borde)
 
@@ -11980,30 +13019,367 @@ Cuarta sub-tab 🏆 Ranking que acumula infracciones MAP desde 2026-09-21 en ade
 
 ---
 
-## 52) Planner Kanban (Mariano-only, en desarrollo)
+## 52) Planner Kanban (v1038 — pipeline 100% automático)
 
-**Fecha inicio**: 2026-09-22
+**Fecha inicio**: 2026-09-22 · **Estado**: PRODUCTIVO (whitelist ARG + UY)
 
-**Estado**: F1 shippeada en dev 2026-09-22 (T0-T15 committed). Mariano-only en producción hasta validación E2E. Deploys pendientes: firestore:rules, storage, functions:onPlannerStageChanged, functions:resendPlannerEmail.
+**Spec original**: `docs/specs/2026-09-22-planner-design.md` (spec inicial; la implementación real evolucionó — ver §41 v1016-v1038 para el estado actual).
 
-**Spec**: `docs/specs/2026-09-22-planner-design.md`
+### Estado post-sesión 2026-09-22 (v1005 → v1038)
 
-**Plan**: `docs/plans/2026-09-22-planner-plan.md`
+Kanban 5 columnas, pipeline **100% automático + lineal** desde SAP:
 
-### Descripción
+```
+Lista de espera → Oferta → Pendiente de facturar → Facturado → Cobrado
+   (waitlist)      (SQ)      (SO creada)         (invoice+)    (paid+)
+```
 
-Kanban interactivo para gestionar el ciclo completo de la venta, con 6 columnas que reflejan el flujo de un pedido desde la Lista de Espera hasta el Cobrado:
+**Semántica de columnas** (`computeColumn`, top-down):
+1. `plannerStage='cobrado_*'` → **Cobrado** (drag manual, raro)
+2. `paidStatus='partial'|'paid'` → **Cobrado** (SAP payments sync)
+3. `lines.some(qtyInvoiced>0)` → **Facturado** (SAP invoices sync)
+4. `transferidoSAP.orderDocEntry` → **Pendiente de facturar** (SO creada en SAP)
+5. `transferidoSAP.docNum` → **Oferta** (SQ creada en SAP)
+6. default → **Lista de espera** (waitlist entries de `revision_waitlist`)
 
-1. **Lista Espera** — Pedidos pre-carga (`state='WAIT_LIST'`), no comprometen stock
-2. **Oferta** — Cotizaciones confirmadas, en fase de negociación
-3. **Órdenes** — Pedidos confirmados por cliente, listos para SAP
-4. **Confirmado** — Pedidos en SAP (state='CONFIRMED'), facturación pendiente
-5. **Facturar** — Invoices SAP enviadas a cliente, cobro pendiente
-6. **Cobrado** — Pagos recibidos y conciliados
+### Whitelist actual
 
-Cada columna tiene responsables asignados (vendedor, gerente, admin SAP) con emails automáticos al mover un card entre columnas. Los adjuntos (remito, factura, comprobante de pago) van vía email. Drag-and-drop gestual con feedback instantáneo.
+Botón "Planner" visible + `openPlannerBoardModal` gated a:
+- **Mariano** (admin) — `mariano.erbino@shimano.com.ar`, `erbinomariano@gmail.com`
+- **Pablo** (gerente/admin) — `pablo.gonzalez@shimano.com.ar`
+- **VDIs ARG** (interno) — `santiago.esteban@shimano.com.ar`, `ioannis.plakoudakis@shimano.com.ar`
+- **UY** — `santiago.beron@shimano.uy`, `diego.valsi@shimano.uy`
 
-**Control de acceso**: gated por `app_config/planner_config.enabledForAllRoles` (default `false`). Mariano-only en producción temprana; se abre a VDEs/VDIs/gerentes cuando la validación cierre.
+Roles permitidos: `admin | gerente | interno`.
 
-**Entradas**: 17 tareas (E0-E16) en el plan. Versión v1005 (baseline).
+### Scheduled Cloud Functions (todos every 15 min, TZ ART)
+
+| CF | Función | Deploy status |
+|----|---------|---------------|
+| `syncSapInvoicesToApp` | Invoice SAP → `pedidos.lines[].qtyInvoiced` (mueve a Facturado) | ✅ activo (pre-sesión) |
+| `syncSapOrdersToApp` | SO SAP → `pedidos.transferidoSAP.orderDocEntry` (mueve a Pend. facturar) | ✅ v1028 (schedule 15min) |
+| `syncSapPaymentsToApp` | Invoice.PaidToDate → `pedidos.paidAmount` + `paidStatus` (mueve a Cobrado) | ✅ v1035 nuevo |
+| `onPlannerStageChanged` | Firestore trigger → email al responsable + VDI pareja | ✅ v1031/v1037 (últimos deploys) |
+
+### Config UI del Planner (modal header)
+
+- **Reloj sync**: `Próx. sync en Xm YYs` (countdown al próximo tick de 15min).
+- **Filtro de mes**: dropdown que aplica a las 5 columnas (default: mes actual).
+- **Filtro por cliente** (search): substring case-insensitive en `clientName`.
+- **Filtro por ORDEN N** (search): substring numérico en `orderNumber`.
+
+### Cards del Planner
+
+- **Cliente + VDI + fecha** en el header.
+- **Total ARS** visible (`_plannerComputeTotal` con precedencia `totalAmountArs → netAmountArs → subtotalArs → total → totalARS → compute qty*precio → getDefaultPrice(code) fallback`).
+- **Badges** (al final, ordenados): `SAP:X · SO:Y · 📎N · ORDEN X` (último en rojo Ferrari `#D40000`).
+- **Colores**: Facturado amarillo (`#FFF4C2`), Cobrado verde (`#C8F0D4`), resto blancas.
+- **Subtotal por columna** en el header (para Facturado usa `_plannerComputeInvoicedTotal` con `invoicedAmount` de SAP si existe).
+- **Modal card**: 3 tabs (Líneas / Adjuntos / Historial). Tabla líneas: SKU / Desc / Qty / Facturado / Precio / Subtotal + Total pedido en footer.
+
+### Casos especiales
+
+- **Lista de espera**: 100% coincide con sidebar-left "PEDIDOS EN ESPERA" (solo `revision_waitlist` entries filtrados client-side por `stage !== 'consumed'`, sin pedidos "colgados" de `pedidos` col).
+- **ORDEN N** (contador `counters/orderNumber`, reservado via `runTransaction`): se preserva a lo largo del pipeline; visible en card + subject del email.
+- **VDI pareja notif**: si el VDE dueño del pedido tiene `internalPartnerUid` en `roles/{uid}`, el VDI pareja recibe email automático de cualquier cambio de columna. Mapping actual:
+  - Ioannis ← Gonzalo + Federico
+  - Santiago Esteban ← Martin Boiero + Mauricio Gil + Pachi (pachinaba)
+- **Fase 2 sync payments**: `invoicedAmount` desde SAP DocTotal → subtotal Facturado 100% exacto contra PowerBI (elimina el error 9.8% residual del compute `qtyInvoiced×precio`).
+
+### Data faltante / TODO menores
+
+- `pachi.ventasespeciales@shimano.com.ar` sin `internalPartnerUid` en `roles` → emails de esos pedidos no notifican al VDI Santiago (si se quiere fixear: setear el field manualmente).
+- 7 pedidos legacy pre-v942 (2026-09-16) sin `orderNumber` → cards con badge SAP:X pero sin `ORDEN N`. Se dejan rotar; nuevos pedidos siempre traen orderNumber.
+- Investigación PDF SAP cerrada (2026-09-22): SL de la company **no expone endpoints /Print o similares** — probados 6 candidatos, todos 400 code 201. Upload manual de PDFs vía tab "Adjuntos" del modal cubre el use case. Camino B (jsPDF client-side) queda como opción futura si se quiere automatizar.
+
+### Deploys CF necesarios ante cambios
+
+- Cambios en labels de columna / semántica emails → `firebase deploy --only functions:onPlannerStageChanged`
+- Cambios en schedule / lógica sync → `firebase deploy --only functions:syncSapOrdersToApp` o `functions:syncSapPaymentsToApp`
+- Frontend puro (colores, filtros, badges) → GitHub Pages auto post-merge.
+
+### Planner vs PowerBI — por qué los números NO coinciden (y no deberían)
+
+**Los dos salen de SAP pero miden cosas semánticamente distintas por diseño.** Comparación FAQ para consulta futura si alguien reporta "el número del Planner no coincide con el BI".
+
+**Diferencia 1 — El filtro "Septiembre" significa cosas distintas**:
+- **Planner**: filtra por `createdAt` del pedido en la app (mes en que se cargó).
+- **PowerBI**: filtra por `DocDate` del documento SAP (SQ/SO/Invoice/Payment) — fecha contable.
+- Ejemplo: pedido creado el 28/8 y facturado el 3/9 → Planner lo cuenta en agosto (creación), BI en septiembre (contable).
+
+**Diferencia 2 — Columnas del Planner son EXCLUSIVAS; KPIs del BI son ACUMULATIVOS**:
+- **Planner**: un pedido cae en UNA sola columna. Un pedido 100% cobrado desaparece de Facturado y aparece solo en Cobrado.
+- **PowerBI**: cada tile mide un concepto independiente. Un pedido facturado + cobrado aparece en Facturación Y en Cobrado (los dos tiles).
+
+**Diferencia 3 — Base numérica**:
+- Planner suma **pedidos** (docs Firestore). Cada pedido tiene 1 SQ (`docNum`), 0-1 SO (`orderDocEntry`), 0-N invoices (`appliedInvoiceDocEntries`).
+- PowerBI suma **documentos SAP directos** (invoices sueltas, payments sueltos, SQ sueltas).
+
+**Traducción correcta** (medición 2026-09-22):
+
+| Concepto contable | Planner (sumar columnas) | PowerBI (tile directo) |
+|-------------------|--------------------------|------------------------|
+| Facturación total | Facturado + Cobrado = $81M + $213M = **$294M** | Facturación = **$203M** |
+| Cobrado total | Cobrado = **$213M** | Cobrado = **$134M** |
+| SO activas | Pend. facturar + Facturado + Cobrado = **$297M** | Órdenes = **$267M** |
+| SQ vivas | Oferta = **$294M** | Ofertas de ventas = **$372M** |
+
+Los gaps residuales (10-30%) son casi todos por la Diferencia 1 (filtro de mes distinto).
+
+**Cuál usar**:
+- **Planner** para pipeline de trabajo diario: "¿qué pedidos tengo abiertos, en qué stage?"
+- **PowerBI** para análisis contable / gerencial: "¿cuánto facturé este mes? ¿cuánto cobré?"
+
+Son vistas **complementarias**, no duplicadas. Fase 3 (filtro contable con `lastInvoiceDate` / `lastPaymentDate` persistidos por CFs) queda evaluado y **descartado** por decisión Mariano 2026-09-22 — no vale la pena la complejidad backend cuando el user entiende que son vistas distintas.
+
+### Verificación empírica de ofertas (2026-09-23)
+
+Corrida un script comparativo contra SL directo:
+
+- SAP Quotations con `DocDate` septiembre 2026: **587 SQs** (163 open + 424 closed + 39 cancelled).
+- Suma non-cancelled: **$1,754M** (!!).
+- Planner columna Oferta septiembre: **32 SQs**, sumadas **$298M**.
+- **SQs "SAP-only" (en SAP no en Firestore)**: 488 → $1,317M.
+
+**Explicación del gap masivo**: el SL devuelve TODAS las SQs de la company DB `SHIMANO_ARG` — que incluye **Pesca + Bike + Marketing + Muestras + Chile** (múltiples BUs bajo la misma DB). El PowerBI que ve Mariano filtra solo Pesca (~$372M). La app-vendedores procesa solo Pesca (~$298M).
+
+Las 488 "SAP-only" son SQs de otras BUs — nombres reveladores:
+- `SHIMANO CHILE SPA` $159M — exportación
+- `MUESTRAS BRAND SPECIALISTS` $46M — muestras internas
+- `MARKETING SAR` $20M — Marketing
+- `MUTILOA`, `CELERO BIKES`, `BERTOLINA SPORTS`, `KELES`, `QUINTANA` — todos BU Bike
+
+**Conclusión**: las 32 ofertas del Planner son **correctas y coherentes con Pesca**. No hay duplicados, ni SQs faltantes, ni pedidos mal categorizados. El aparente "gap" es multi-BU en la DB de SAP — no aplica a la app-vendedores que es Pesca-only.
+
+### Enlaces relacionados
+
+- Spec inicial: `docs/specs/2026-09-22-planner-design.md`
+- Plan original: `docs/plans/2026-09-22-planner-plan.md`
+- Changelog detallado por versión: §41 (v1005 → v1040).
+
+
+## 53) BigQuery views + CF fixes — sesión 2026-09-22 (v1033-v1035)
+
+3 cambios en la misma sesión, todos deployeados y validados. Contexto para Cowork y el TABLERO SAR.
+
+### 53.1) Fix fecha NULL en `v_backorder` + `v_stock_asignado` (PR #704, v1033)
+
+**Bug:** las columnas `fecha`, `mes`, `anio`, `mes_idx` venían NULL en TODAS las filas (3.022 en `v_backorder`, 194 en `v_stock_asignado`). Consecuencia: el slicer de Mes en Power BI no filtraba ninguna medida ni visual — mostraban siempre el total actual del backorder / stock asignado.
+
+**Causa raíz:** en `v_backorder_app.created_at` se leía `SAFE_CAST(JSON_VALUE(data, '$.createdAt') AS TIMESTAMP)`. El Firestore Extension for BigQuery serializa el field `createdAt` (Firestore Timestamp) como objeto JSON `{"_seconds":N,"_nanoseconds":N}`. `JSON_VALUE` sobre un objeto devuelve NULL → `created_at` NULL en toda la vista upstream, y `v_backorder` / `v_stock_asignado` / `v_backorder_lineas_v2.sq_doc_date` heredaban el NULL.
+
+Verificado en BQ pre-fix:
+```
+JSON_VALUE(data, '$.createdAt')          → NULL en 274/274 pedidos
+JSON_QUERY(data, '$.createdAt')          → {"_seconds":1786060800,"_nanoseconds":0}
+JSON_VALUE(data, '$.createdAt._seconds') → 274/274 con valor
+```
+
+**Fix:**
+- Upstream en `v_backorder_app.created_at`:
+  ```sql
+  TIMESTAMP_SECONDS(SAFE_CAST(JSON_VALUE(p.data, '$.createdAt._seconds') AS INT64)) AS created_at
+  ```
+- TZ Argentina en `v_backorder` + `v_stock_asignado` (`fecha`, `mes`, `anio`, `mes_idx`) + `v_backorder_lineas_v2.sq_doc_date`:
+  ```sql
+  DATE(created_at, 'America/Argentina/Buenos_Aires')                                  AS fecha,
+  FORMAT_DATE('%Y-%m', DATE(created_at, 'America/Argentina/Buenos_Aires'))            AS mes,
+  EXTRACT(YEAR FROM DATE(created_at, 'America/Argentina/Buenos_Aires'))               AS anio,
+  EXTRACT(MONTH FROM DATE(created_at, 'America/Argentina/Buenos_Aires'))              AS mes_idx,
+  ```
+
+**Acceptance post-fix:**
+
+| vista            | filas | ok_fecha | rango                      |
+|------------------|-------|----------|----------------------------|
+| v_backorder      | 3.022 | true     | 2026-06-22 → 2026-09-22    |
+| v_stock_asignado | 194   | true     | 2026-06-29 → 2026-09-18    |
+
+### 53.2) Nueva vista `v_ordenes_sap` (PR #711, v1035)
+
+Nueva vista sobre `sap_orders_raw` (ORDR / RDR1). Grano: **línea de orden**. Cierra el embudo **Oferta → Orden → Remito → Factura** todo SAP puro. Reemplaza a `v_pedidos_lines` (que salía de la app y arrastra backorder + facturado) como tabla de hecho de "Órdenes de Venta" en el TABLERO SAR.
+
+**Shape** (mismo patrón que `v_ofertas_lineas` / `v_remitos_lineas`):
+
+| grupo | columnas |
+|-------|----------|
+| ID | `doc_entry`, `doc_num`, `line_num` |
+| Fecha | `doc_date` (DATE nativo), `fecha`, `mes` ('YYYY-MM'), `anio`, `mes_idx` |
+| Cliente | `card_code`, `card_name` |
+| Vendedor | `slp_code` (sales_person_code), `SlpCode Asignado` (50-55), `assigned_vendor` (via `client_applications`) |
+| Producto | `item_code`, `descripcion` (`ItemDescription` con fallback a `Dscription`), `familia`, `subfamilia`, `is_pesca` (`items_group_code=102`) |
+| Montos | `cantidad`, `precio_unitario`, `importe_linea_ars` (`LineTotal` × factor descuento cabecera, mismo criterio v388.1) |
+| Estado línea | `line_status` ('O'/'C' desde `bost_Open`/`bost_Close`), `open_qty` (`RemainingOpenQuantity`), `open_amount_ars` |
+| Meta | `doc_currency`, `doc_rate`, `document_status`, `_sync_timestamp` |
+
+**Fix crítico detectado en el review:** SAP Service Layer devuelve **`OpenAmount == LineTotal`** incluso en líneas cerradas (solo `RemainingOpenQuantity` se pone en 0 al cerrar). Sin gate por `LineStatus`, `SUM(open_amount) ≈ SUM(importe)` → la "orden neta" (pendiente de remitir/facturar) sería indistinguible de la bruta.
+
+La vista gatea:
+```sql
+CASE
+  WHEN JSON_VALUE(line, '$.LineStatus') = 'bost_Open' THEN
+    SAFE_CAST(JSON_VALUE(line, '$.OpenAmount') AS FLOAT64)
+      * (1 - SAFE_DIVIDE(COALESCE(o.total_discount, 0), NULLIF(slo.suma_lineas, 0)))
+  ELSE 0
+END AS open_amount_ars
+```
+
+**Acceptance:**
+
+| métrica | valor |
+|---------|-------|
+| Filas | 75.208 (0 sin fecha) |
+| Rango fechas | 2025-09-15 → 2026-09-22 |
+| Órdenes distintas | 5.234 |
+| SKUs distintos | 3.972 |
+| Clientes distintos | 1.056 |
+| Monto total ARS | **$28.326 MM** (neto IVA + descuentos cabecera) |
+| Monto abierto ARS | **$202 M** (0,7% del bruto) |
+| Unidades totales | 698.466 |
+| Unidades abiertas | 8.595 |
+
+Distribución `line_status`:
+
+| line_status | n líneas | importe_ars | open_amount_ars | open_qty |
+|-------------|----------|-------------|-----------------|----------|
+| O | 1.108 | 202 M | 202 M | 8.595 |
+| C | 74.100 | 28.124 MM | **0** | 0 |
+
+Cross-check contra raw: 5.234 docs no cancelados en `sap_orders_raw` = 5.234 `doc_entry` en la vista. Monto raw `SUM(doc_total)` = $33.632MM vs vista $28.326MM → diferencia 1,187× = **21% IVA**, consistente.
+
+### 53.3) Fix Total ARS vacío en email a `santiago.beron@shimano.uy` (PR #706, v1034)
+
+**Bug reportado por Santi:** todos los emails de notificación de oferta enviada a SAP le llegaban con `Total ARS: -`.
+
+**Causa raíz:** `functions/core/notify-quotation-sent-core.js:73` leía `Number(pedido.totalAmountArs || 0)`. En Firestore prod el field `totalAmountArs` **no existe** en pedidos que van a SAP. Verificado en BQ contra los 5 pedidos más recientes con `transferidoSAP.docNum`: **5/5 tienen `netAmountArs`, 0/5 tienen `totalAmountArs`**. Mismo bug de schema que ya se corrigió en frontend en v1018 (planner cards) y v1021 (email planner), pero el CF `onQuotationSentNotify` (v774) quedó atrás.
+
+**Fix:** helper `computeTotalArs(pedido)` con la misma precedencia que `_plannerComputeTotal` del frontend:
+1. `totalAmountArs` (legacy)
+2. `netAmountArs`  ← schema real de pedidos con docNum
+3. `subtotalArs`
+4. `total` / `totalARS` (legacy)
+5. `sum(lines[].qty × (precio || priceAtCreation || price))`
+
+15 tests unitarios en `tests/functions/notify-quotation-sent.test.js` (incluye regression guard que falla si el CF vuelve a leer solo `totalAmountArs`).
+
+**Deploy:** `firebase deploy --only functions:onQuotationSentNotify` OK en `southamerica-east1`.
+
+**Validación end-to-end:** re-disparado sobre pedido #208 (FERNANDO ANTONIO URQUIOLA, `docNum=2000216`, `netAmountArs=$23.403.800`) via script `scripts/retrigger-notify-quotation.cjs`. El script toggea `transferidoSAP.docNum → null → valor original` en Firestore para que `shouldNotify` retorne true. Log del CF post-restore: `onQuotationSentNotify email enviado {pedidoId: 'trrGvi8x9fhvKvF0RkJN', docNum: 2000216, cliente: 'FERNANDO ANTONIO URQUIOLA'}`. Santi confirmó que ahora ve el total.
+
+### 53.4) IMPORTANTE — Cómo leer las vistas nuevas desde Power BI
+
+**Usar `Value.NativeQuery`, NO el conector nativo BQ.** El Storage Read API del conector devuelve **NULL** en columnas calculadas de fecha en views (fenómeno confirmado en `v_backorder` v1033 pre-fix, incluso post `DATE(...)` explícito). Query pattern:
+
+```powerquery
+let
+  Source = GoogleBigQuery.Database(),
+  proj   = Source{[Name="app-vendedores-shimano"]}[Data],
+  ds     = proj{[Name="shimano_app"]}[Data],
+  Query  = Value.NativeQuery(ds, "SELECT * FROM shimano_app.v_ordenes_sap")
+in
+  Query
+```
+
+Aplica también a `v_backorder`, `v_stock_asignado`, `v_backorder_lineas_v2`.
+
+### 53.5) Deuda / próximos pasos
+
+- **`v_backorder`**: 1.830u con `vendor=NULL` (pedidos sin `ownerVendor`) + 625u con `vendor=""` + `vendor_email` presente. Requiere backfill en Firestore, no en la vista.
+- **`onQuotationSentNotify`**: sigue filtrando `via='service_layer_auto'`. Pedidos con `via='cf_auto'` (3/5 recientes) NO disparan mail a Santi. Si se quiere ampliar, aflojar el filtro en `shouldNotify`.
+- **TABLERO SAR**: integrar `v_ordenes_sap` como tabla de hecho, jubilar medidas que hoy salen de `v_pedidos_lines` para "Órdenes de Venta".
+
+### 53.6) Archivos tocados
+
+- `bigquery/backorder_app.sql` — fix upstream `created_at` + TZ AR en 3 vistas downstream.
+- `bigquery/views.sql` — nueva vista `v_ordenes_sap` al final.
+- `functions/core/notify-quotation-sent-core.js` — helper `computeTotalArs` + tipo `PedidoData` extendido.
+- `tests/functions/notify-quotation-sent.test.js` — 15 tests unitarios (NUEVO).
+- `scripts/retrigger-notify-quotation.cjs` — script one-shot para re-disparar el CF sin tocar SAP (NUEVO).
+
+### 53.7) Commits en `main`
+
+- `00d2b31` — v1033: fix fecha en `v_backorder` + `v_stock_asignado`.
+- `03678c2` — v1034: fix Total ARS vacío en email a santiago.beron.
+- `b68703a` — v1035: agregar `v_ordenes_sap` (ORDR/RDR1) para TABLERO SAR.
+
+## 54) Sesión larga 2026-09-25 → 2026-09-29 (v1067 → v1082 + CFs planner + BQ + admin data ops)
+
+Sesión intensiva multi-frente. 16+ shipments cerrados. Todo en `main` y desplegado.
+
+### 54.1) Shipments cerrados
+
+| # | Ver / Ámbito | Qué |
+|---|---|---|
+| 1 | v1067 frontend | Modal Backorder: quitar 2 selects redundantes ("Sin stock", "Solo urgentes") del toolbar. |
+| 2 | v1068 frontend | HOTFIX `ReferenceError: q is not defined` en `renderBackordersTab` (hermano v1066 — v1064 renombró `q → tq` y quedaron 3 líneas sin renombrar). |
+| 3 | v1069 frontend | Escape hatch `?skipAppCheck=1` (o `localStorage.debugSkipAppCheck='1'`) para saltar `activateAppCheckOnce` cuando reCAPTCHA v3 queda en throttle 403 permanente que Clear Site Data no resuelve. |
+| 4 | v1070 frontend | Listener `stock_snapshot` resiliente: zombie detection + fallback `.get({source:'server'})` a los 15s si `onSnapshot` no fires. |
+| 5 | v1071 CF-only | `setupGetMovimientos` con log detallado del body cuando SETUP responde sin `VFPData`. Diagnóstico: SETUP genuinamente no publicaba movimientos desde 14/9. |
+| 6 | v1072 frontend | Modal Stock Asignado muestra líneas ASIG con `asigReserva=false` (workaround del bug root `asigCliTipo=C` default 100%). |
+| 7 | v1073 BQ-only | `fecha_contable` + `mes_contable` + `anio_contable` + `nc_sin_base` en `v_facturas_sap` y `v_ventas_lineas`. Netea NCs contra el mes de la factura original vía `RIN1.BaseType=13`. Verificado con MALALCO agosto/septiembre. |
+| 8 | v1074 frontend | Botón "↻ Enviar a SAP" admin-only en cards de Confirmados con `transferError` — reintento manual del envío post-fix del problema. |
+| 9 | v1075 frontend | Listener `sap_integration` resiliente con mismo zombie safety net del v1070. |
+| 10 | v1076 frontend | HOTFIX asimetría input `sl-user` sin default hardcodeado en el render del panel Service Layer (fallback `\|\| 'APP_VENDEDORES'`). |
+| 11 | v1077 frontend | Refactor: helper genérico `ensureListenerWithFallback(name, refBuilder, applyFn)` con state per-name en un `Map()`. 5 listeners refactoreados: `stock_snapshot`, `sap_integration`, `pedidos_own`, `pedidos_all`, `revision_waitlist`. |
+| 12 | v1078 frontend | Updates casi instantáneos: timeout del helper 15s → 3s + polling continuo cada 3s si zombie + `renderPedidosTab()` explícito post-`pedidos.add()` en `doConfirmPedido`. |
+| 13 | v1079 frontend | Alias `MARTIN BOIERO → PACHI` (helper `_canonVendor`) en dropdown filtro Backorder/Stock Asignado + Excel export + gráficos. |
+| 14 | v1080 CF-only | Planner `resolveVdiPartnerEmail` self-notify si el vendor es `role='interno'` directamente. Fix para pedidos con `ownerVendor='SANTIAGO ESTEBAN'` que no llegaban a Santiago. |
+| 15 | v1081 CF-only | Alias `MARTIN BOIERO → PACHI` en planner CF (paralelo v1079 frontend). |
+| 16 | v1082 frontend | Excel exports Backup mensual con autofit de anchos de columna. Helper `_autoFitCols(rows)` aplicado a `Shimano_Visitas`, `Shimano_Pedidos`, `Shimano_Rutas`. |
+
+### 54.2) Admin data ops ejecutadas (Firestore direct writes)
+
+- **Campañas obsoletas eliminadas**: `CAMPAÑA CATANA GONZALO SEPT.` (duplicado units con la $8.5M), `CAMPAÑA MARTIN CATANA SEPT.` (MARTIN ya no existe). Preservada `CAMPAÑA CATANA MARTIN` de agosto (histórica real).
+- **Campaña GONZALO $8.5M** — des-archivada (tenía `archivedManually=true` por error).
+- **Backfill `client_master.defaultDelivery`** — 58 clientes actualizados (40% de los 146 con formaEntrega en pedidos). Cobertura pasó de 19% → 31% del universo total. `updatedBy: backfill:erbinomariano@gmail.com` para identificarlos.
+
+### 54.3) Verificaciones ejecutadas y confirmadas
+
+- ✅ **AppCheck throttle 403 permanente** confirmado en Mariano browser via Console log directo (`Attempts allowed again after 01d:00m:00s`).
+- ✅ **`stock_snapshot` doc en Firestore fresh** — `.get({source:'server'})` desde Console retorna `updatedAt=2026-09-25T10:22:18Z`, `warehouseBreakdown 8117 bytes`, etc. El listener `onSnapshot` es lo que quedaba zombie, no la data.
+- ✅ **Service Layer estaba literalmente deshabilitado** — no era zombie del listener sino `serviceLayer.enabled=false` en Firestore. Solucionado con checkbox + Guardar.
+- ✅ **Planner CF logging revela el bug**: `[vdi-partner] skip: no-vde-found para vendorKey=SANTIAGO ESTEBAN` → confirmó que Santiago es `role='interno'`.
+- ✅ **NC 1905 vs INVOICE 18689** MALALCO: agosto=$0, septiembre=$0 post-`fecha_contable`.
+- ✅ **Backfill `defaultDelivery`**: `LISTO. OK: 58 | FAIL: 0`.
+
+### 54.4) Verificaciones YA HECHAS por Mariano (prioridad 1)
+
+- ✅ **Santiago recibe alertas del Planner** post v1080/v1081.
+- ✅ **Power BI updated** con `fecha_contable` como clave de relación calendario.
+- ✅ **Pedido SANTIAGO GERMAN CARRASCO** (cliente inactivo SAP) — resuelto vía activación en SAP + botón "↻ Enviar a SAP" v1074.
+
+### 54.5) Deuda técnica identificada — pendiente próxima sesión
+
+**Bugs root que quedaron con workaround** (no bloqueantes):
+
+1. **`asigCliTipo=C` default en 100% de clientes** — la CF FIFO cae al fallback 'C' porque `fetchCliTipo` no resuelve. Consecuencia: modal Stock Asignado muestra todo con badge "SIN RESERVA" (v1072 fix cosmético). Fix profundo: hacer que `fetchCliTipo` lea el tier real del cliente (BP field o algún master). **Estimación**: 1-2 hs. Prioridad media.
+
+2. **`defaultDelivery` no se guarda en flujos alternativos** — 40% de casos requirieron backfill. Probable: v607 auto-confirm 100% BO + v819 pedidos sintéticos de migración SAP no ejecutan el `client_master.set` de v630. Agregarlo en esos flows. **Estimación**: 30 min. Prioridad baja (el backfill cubrió).
+
+3. **`[BO-dup-strict] 106 líneas duplicadas`** en `pedidos-app` — aparece en Console cada snapshot. Correr `window.diagBackorderOverlap()` para diagnóstico. Probable overlap entre SQs históricos SAP y pedidos-app sintéticos post-migración v819. **Estimación**: 30-60 min. Prioridad media (afecta reporting de Backorder).
+
+**Deuda BQ**:
+
+4. **Backend NC → Return → Invoice** (v1073 BQ) — 52 NCs (12.8%) con `nc_sin_base=TRUE` son vía Return. Requiere entender el doc type custom Shimano `234000031` al que apuntan las líneas del Return. Reduciría `pct_sin_base` de 48% a 36%. **Estimación**: 2-3 hs.
+
+**Refactor / test coverage**:
+
+5. **Smoke test Playwright para modal Backorder** — 2 regresiones consecutivas (v1066 + v1068) del rename `q → tq`. Un test "abrir modal + tocar Exportar todo" prevendría ambas. **Estimación**: 1 hr.
+
+6. **Refactor 3 inputs SL** en un array + loop en `renderSapServiceLayer` (fix simétrico permanente al bug v1076). **Estimación**: 15 min.
+
+7. **Aplicar helper `ensureListenerWithFallback` a más listeners críticos** (`unsubApprovedAltas`, `unsubClientMaster`, `unsubBackorderSnapshot`) para prevenir el 4to caso zombie. **Estimación**: 30 min.
+
+8. **Investigar por qué el listener `onSnapshot` queda zombie**. Hipótesis actual: race con `enablePersistence({synchronizeTabs:true})` + AppCheck + auth flow. Reproducir en ambiente controlado, reportar a Firebase SDK si aplica. **Estimación**: 2-4 hs. Prioridad baja (el safety net cubre).
+
+### 54.6) Cambios de arquitectura de la sesión
+
+- **Nuevo helper genérico `ensureListenerWithFallback`** en `index.html`. Pattern zombie-safe para todos los `onSnapshot` críticos.
+- **Nuevo helper `_canonVendor(v)`** en `index.html` + `canonVendor(v)` en `planner-stage-change-core.js`. Alias legacy MARTIN BOIERO → PACHI en frontend + backend.
+- **Nuevo helper `_autoFitCols(rows, options)`** en `index.html`. Autofit de anchos de columna para exports SheetJS.
+- **Nueva columna `fecha_contable`** en `v_facturas_sap` y `v_ventas_lineas`. Cambia el pattern de agrupamiento por mes para netear NCs contra factura original.
+
+### 54.7) Estado final APP_VERSION
+
+`v1082` desplegado en `main`. GH Pages activo. CFs `onPlannerStageChanged` y `setupGetMovimientos` deployadas manualmente vía `firebase deploy --only functions:X`.
 

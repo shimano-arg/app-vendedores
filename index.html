@@ -2938,6 +2938,33 @@ body.dark .planner-col { background: rgba(28,28,30,0.72); border-color: rgba(255
 }
 .planner-col-count { font-size: 13px; font-weight: 500; opacity: 0.55; margin-left: 6px; }
 .planner-col-resp { font-size: 11px; opacity: 0.6; margin-left: 8px; }
+/* v1024 (2026-09-22): placeholder blanco para los inputs de busqueda del header
+   Planner (fondo naranja #c2410c). El default es negro semi-opaco → invisible. */
+#planner-client-filter::placeholder,
+#planner-order-filter::placeholder {
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 500;
+}
+/* Firefox usa opacity=1 por default en placeholder — normalizar */
+#planner-client-filter::-moz-placeholder,
+#planner-order-filter::-moz-placeholder {
+  color: rgba(255, 255, 255, 0.7);
+  opacity: 1;
+}
+/* Focus: subir contraste + border sutil */
+#planner-client-filter:focus,
+#planner-order-filter:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.24);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+/* v1020 (2026-09-22): subtotal ARS por columna (suma de totales de cards visibles).
+   Va justo bajo el header, antes de la lista de cards. Estilo Apple secondary. */
+.planner-col-subtotal {
+  padding: 0 12px 10px;
+  font-size: 13px; font-weight: 600; letter-spacing: -0.01em;
+  opacity: 0.75;
+}
 .planner-col-cards {
   display: flex; flex-direction: column; gap: 8px;
   overflow-y: auto; padding: 4px;
@@ -2958,6 +2985,16 @@ body.dark .planner-card { background: #2c2c2e; box-shadow: 0 1px 3px rgba(0,0,0,
 .planner-card-badges { display:flex; gap:4px; flex-wrap:wrap; margin-top:8px; }
 .planner-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.06); font-weight: 500; }
 body.dark .planner-badge { background: rgba(255,255,255,0.12); }
+/* v1025 (2026-09-22): ORDEN N destacado en rojo Ferrari (#D40000) para que
+   se identifique de un vistazo como ID del negocio (vs SAP:X/SO:Y que son
+   IDs del sistema contable, chips grises). */
+.planner-badge.planner-badge-orden {
+  background: #D40000;
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+body.dark .planner-badge.planner-badge-orden { background: #D40000; color: #fff; }
 /* v1019 (2026-09-22): pintar toda la card del color de estado (no solo borde)
    para que el estado sea visualmente claro de un vistazo. Tinted fondo
    suave (paleta Apple systemColor at ~15% opacity) preserva legibilidad
@@ -3078,6 +3115,143 @@ body.dark .planner-modal-lineas-table thead th { border-color: rgba(255,255,255,
 body.dark .planner-modal-lineas-table tbody td { border-color: rgba(255,255,255,0.04); }
 .planner-modal-lineas-table tbody tr:last-child td { border-bottom: none; }
 .planner-modal-lineas-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* v1041 (2026-09-22): Planner responsivo mobile.
+   Reporte Mariano: el Planner no se adaptaba a mobile — modal padding
+   grande, header con 8+ elementos sin wrap, columnas 320px fijas, tabla
+   de líneas con 5 cols muy angostas.
+   Fix: media queries que pisan inline styles con !important (los HTML
+   del modal usan style="..." inline, no clases). */
+
+/* Tablet (≤900px): modal ocupa toda la pantalla, header wrap, columnas
+   un poco más chicas. */
+@media (max-width: 900px) {
+  #planner-board-modal {
+    padding: 0 !important;
+    align-items: stretch !important;
+  }
+  #planner-board-modal > .modal-content {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+    height: 100vh;
+  }
+  #planner-board-modal > .modal-content > div:first-child {
+    /* Header naranja */
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    padding: 10px 12px !important;
+  }
+  #planner-board-modal > .modal-content > div:first-child > h2 {
+    font-size: 14px !important;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  #planner-sync-countdown {
+    margin-left: 0 !important;
+    font-size: 10px !important;
+    padding: 3px 6px !important;
+    order: 10; /* al final del wrap */
+  }
+  #planner-client-filter, #planner-order-filter {
+    flex: 1 1 45%;
+    min-width: 0;
+    width: auto !important;
+  }
+  .planner-kanban {
+    padding: 8px !important;
+    gap: 8px !important;
+    min-height: unset;
+    height: 100%;
+  }
+  .planner-col {
+    flex: 0 0 280px;
+    padding: 10px !important;
+  }
+}
+
+/* Mobile (≤640px): scroll-snap fuerte, 1 columna casi-full en pantalla,
+   filtros stackeados, tabla líneas horizontal-scroll. */
+@media (max-width: 640px) {
+  #planner-board-modal > .modal-content > div:first-child {
+    padding: 8px 10px !important;
+    gap: 6px !important;
+  }
+  #planner-board-modal > .modal-content > div:first-child > h2 {
+    font-size: 13px !important;
+    letter-spacing: -0.02em;
+  }
+  #planner-sync-countdown {
+    font-size: 9px !important;
+    padding: 2px 5px !important;
+  }
+  #planner-board-modal > .modal-content > div:first-child > label {
+    /* Filtro Mes */
+    font-size: 10px !important;
+    order: 5;
+  }
+  #planner-board-modal > .modal-content > div:first-child > button {
+    /* Botones Tablero/Config/close */
+    font-size: 10px !important;
+    padding: 4px 8px !important;
+  }
+  #planner-client-filter, #planner-order-filter {
+    font-size: 12px !important;
+    padding: 6px 10px !important;
+  }
+  .planner-kanban {
+    padding: 6px !important;
+    gap: 6px !important;
+  }
+  .planner-col {
+    flex: 0 0 88vw !important;
+    padding: 8px !important;
+  }
+  .planner-col-header {
+    padding: 4px 8px 8px !important;
+    font-size: 14px !important;
+  }
+  .planner-col-subtotal {
+    padding: 0 8px 8px !important;
+    font-size: 12px !important;
+  }
+  .planner-card {
+    padding: 10px !important;
+    border-radius: 10px !important;
+  }
+  .planner-card-cliente {
+    font-size: 13px !important;
+  }
+  .planner-card-meta {
+    font-size: 11px !important;
+  }
+  .planner-card-total {
+    font-size: 12px !important;
+  }
+  .planner-badge {
+    font-size: 9px !important;
+    padding: 2px 5px !important;
+  }
+  /* Modal de card: full width con menos padding. */
+  #planner-modal .modal, #planner-modal .modal-content {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+  /* Tabla líneas: horizontal scroll para no romper layout con 5 cols. */
+  .planner-modal-lineas-table {
+    font-size: 11px;
+  }
+  .planner-modal-lineas-table thead th,
+  .planner-modal-lineas-table tbody td {
+    padding: 6px 6px !important;
+    white-space: nowrap;
+  }
+}
+
 @keyframes plannerFadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes plannerScaleIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) {
@@ -3360,7 +3534,18 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
 <div class="modal-overlay" id="planner-board-modal" onclick="if(event.target===this)closePlannerBoardModal()" style="z-index:1200;display:none;align-items:flex-start;justify-content:center;padding:24px">
   <div class="modal-content" style="max-width:1800px;width:97vw;max-height:92vh;display:flex;flex-direction:column;background:var(--bg-elevated);border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)">
     <div style="padding:14px 20px;background:#c2410c;color:#fff;display:flex;align-items:center;gap:12px">
-      <h2 style="margin:0;font-size:16px;font-weight:800;flex:1">Planner &mdash; Tablero de pedidos</h2>
+      <h2 style="margin:0;font-size:16px;font-weight:800">Planner &mdash; Tablero de pedidos</h2>
+      <!-- v1032 (2026-09-22): reloj countdown a la proxima sync SAP (Orders
+           corre cada 15min, alineado al reloj hh:00, hh:15, hh:30, hh:45).
+           startPlannerSyncCountdown() setea el timer al abrir el modal. -->
+      <span id="planner-sync-countdown" title="Sync SAP Orders (cada 15 min)"
+            style="margin-left:14px;font-size:11px;font-weight:600;letter-spacing:.2px;background:rgba(255,255,255,.16);color:#fff;padding:5px 10px;border-radius:5px;font-variant-numeric:tabular-nums;flex:0 0 auto">Próx. sync en —</span>
+      <!-- v1050 (2026-09-23): boton para forzar sync SAP manual (Invoices+Orders+Payments).
+           Solo visible para admin/gerente/interno. El CF `triggerPlannerSync` gate por role. -->
+      <button id="planner-sync-manual-btn" type="button" onclick="triggerPlannerSyncManual()"
+              title="Forzar sync SAP ahora (Invoices + Orders + Payments)"
+              style="margin-left:6px;font-size:13px;font-weight:700;background:rgba(255,255,255,.16);color:#fff;border:none;padding:5px 10px;border-radius:5px;cursor:pointer;flex:0 0 auto;line-height:1">↻</button>
+      <span style="flex:1"></span>
       <!-- v1014 (2026-09-22): filtro de mes para las columnas historicas (Facturar + Cobrado).
            Default: mes actual. "Todos" = comportamiento previo (sin filtro). -->
       <label style="color:#fff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;display:flex;align-items:center;gap:6px">
@@ -3369,6 +3554,14 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
           <!-- opciones se rellenan en renderPlannerMonthFilterOptions() -->
         </select>
       </label>
+      <!-- v1023 (2026-09-22): filtros de busqueda por cliente + orderNumber.
+           Debounce ligero (150ms) para no re-renderizar en cada tecla. -->
+      <input id="planner-client-filter" type="search" placeholder="Cliente…"
+             oninput="setPlannerClientFilter(this.value)"
+             style="background:rgba(255,255,255,.16);color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:11px;font-weight:600;width:160px;font-family:inherit;letter-spacing:-0.01em">
+      <input id="planner-order-filter" type="search" placeholder="ORDEN N…"
+             oninput="setPlannerOrderFilter(this.value)"
+             style="background:rgba(255,255,255,.16);color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:11px;font-weight:600;width:110px;font-family:inherit;letter-spacing:-0.01em">
       <button data-planner-sub="tablero" class="active" onclick="setPlannerSubtab('tablero')" style="background:rgba(255,255,255,.16);color:#fff;border:none;padding:6px 12px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Tablero</button>
       <button data-planner-sub="config" onclick="setPlannerSubtab('config')" style="background:rgba(255,255,255,.16);color:#fff;border:none;padding:6px 12px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px">Config</button>
       <button onclick="closePlannerBoardModal()" style="background:transparent;color:#fff;border:none;font-size:22px;cursor:pointer;padding:0 6px;line-height:1">&times;</button>
@@ -4801,6 +4994,11 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
                 <option value="C">C - sin descuento</option>
               </select>
             </div>
+            <div id="cm-credito-cheque-block" style="margin-top:10px;display:none">
+              <label for="cm-credito-cheque" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Cr&eacute;dito cheque (ARS) <span style="font-weight:400;color:var(--text-muted)">(monto de cr&eacute;dito autorizado en cheques)</span></label>
+              <input id="cm-credito-cheque" type="number" min="0" step="1000" placeholder="Ej: 500000" onblur="saveClientCreditoChequeFromModal(this)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)"/>
+              <div id="cm-credito-cheque-status" style="font-size:10px;color:var(--text-muted);margin-top:4px;min-height:14px"></div>
+            </div>
             <div id="cm-cli-status" style="font-size:10px;color:var(--text-muted);margin-top:6px;min-height:14px"></div>
           </div>
           <div id="cm-geo-status" style="font-size:10px;color:var(--text-muted);margin-top:4px;min-height:14px"></div>
@@ -5118,18 +5316,16 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
                height, radius, padding, font). Todos los botones usan `.bo-btn`.
                Aplican en mobile y desktop por consistencia total. -->
           <div id="backorders-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0">
-            <input id="backorders-search" class="bo-ctl" oninput="onBackordersSearch()" type="text" placeholder="Buscar por SKU, codigo o cliente (ej: SN2000FJ o MUNDO ESTURION)..." style="flex:1 1 100%;min-width:200px"/>
-            <select id="backorders-mes-filter" class="bo-ctl" onchange="onBackordersMesChange()" title="Filtrar por mes de la SQ" style="flex:1 1 260px;min-width:200px">
+            <!-- v1064 (2026-09-25): reemplazado el input Search por 2 filtros dedicados:
+                 Tienda (autocompletar via datalist) + Vendedor (dropdown VDE).
+                 Buscar por SKU sigue disponible desde el input Tienda tipeando codigo. -->
+            <input id="backorders-tienda-filter" class="bo-ctl" list="backorders-tienda-datalist" oninput="onBackordersTiendaChange()" type="text" placeholder="Tienda / SKU / codigo (ej: MUNDO ESTURION o SN2000FJ)..." style="flex:2 1 300px;min-width:220px"/>
+            <datalist id="backorders-tienda-datalist"></datalist>
+            <select id="backorders-vendor-filter" class="bo-ctl" onchange="onBackordersVendorChange()" title="Filtrar backorder por vendedor asignado a las tiendas" style="flex:1 1 200px;min-width:170px">
+              <option value="">Todos los vendedores</option>
+            </select>
+            <select id="backorders-mes-filter" class="bo-ctl" onchange="onBackordersMesChange()" title="Filtrar por mes de la SQ" style="flex:1 1 200px;min-width:170px">
               <option value="">Todos los meses</option>
-            </select>
-            <select id="backorders-stock-filter" class="bo-ctl" onchange="onBackordersStockFilterChange()" style="display:none">
-              <option value="sin">Sin stock (para importar)</option>
-              <option value="con">Con stock (para asignar)</option>
-              <option value="todos">Todos (sin filtro)</option>
-            </select>
-            <select id="backorders-urgency-filter" class="bo-ctl" onchange="onBackordersUrgencyFilterChange()" title="Filtrar por urgencia del backorder" style="flex:1 1 260px;min-width:200px">
-              <option value="urgente">Solo urgentes (sin stock)</option>
-              <option value="parcial">Solo parciales (stock repartido)</option>
             </select>
           </div>
           <div style="text-align:center;flex-shrink:0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
@@ -5723,7 +5919,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1020';
+const APP_VERSION = 'v1082';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -6445,6 +6641,21 @@ async function loadStockSnapshot(){
 
 const vendorLookup = {};
 VENDORS.forEach(v => vendorLookup[v.key] = v);
+
+// v1079 (2026-09-25): alias para vendedores legacy que salieron del equipo
+// pero cuyos pedidos historicos siguen en Firestore con el nombre viejo.
+// MARTIN BOIERO era Z4 hasta que PACHI ocupo la zona (2026-09-17 precedente
+// project_pachi_vde_proxy.md). Los pedidos viejos aparecian con nombre suelto
+// "Martin Boiero" sin prefijo Z en el dropdown filtro del modal Backorder/
+// Stock Asignado. Con el alias, esos pedidos se agrupan bajo PACHI en la UI.
+const LEGACY_VENDOR_ALIAS = {
+  'MARTIN BOIERO': 'PACHI',
+};
+function _canonVendor(v) {
+  const k = String(v || '').toUpperCase().trim();
+  return LEGACY_VENDOR_ALIAS[k] || k;
+}
+window._canonVendor = _canonVendor;
 
 // preferCanvas: true — renderiza polygonos (provincias + departamentos + zonas) en <canvas> en vez de SVG.
 // Con ~500 polygonos y ~1000 markers superpuestos, SVG re-pinta cada path en cada frame de zoom → lag.
@@ -10313,6 +10524,14 @@ function openClientModal(clientName, tipo, province, localityName){
   // cada pedido - asi que no hay mas campos a nivel cliente.
   const selTipo = document.getElementById('cm-cli-tipo');
   if (selTipo) selTipo.value = cmData.cliTipo || '';
+  // v1056: Credito cheque (ARS) - solo admin/gerente. Number > 0 permitido, guarda
+  // en client_master.creditoCheque (+ updatedAt/By) via saveClientCreditoChequeFromModal.
+  const credBlockEl = document.getElementById('cm-credito-cheque-block');
+  if (credBlockEl) credBlockEl.style.display = isAdminLike ? '' : 'none';
+  const credInput = document.getElementById('cm-credito-cheque');
+  if (credInput) credInput.value = (cmData.creditoCheque != null) ? String(cmData.creditoCheque) : '';
+  const credStatus = document.getElementById('cm-credito-cheque-status');
+  if (credStatus) credStatus.textContent = '';
   // Guardo en el dataset del modal los meta necesarios para escribir a
   // client_master al cambiar un dropdown (vendor / prov / loc / name).
   const modalEl = document.getElementById('client-modal');
@@ -11435,6 +11654,32 @@ window.runMonthlyBackup = async function(){
     } catch(e) { console.error('zip backup', e); }
   }
 
+  // v1082 (2026-09-25): helper autofit para SheetJS. Los 3 exports del Backup
+  // mensual (Visitas, Pedidos, Rutas) usaban XLSX.utils.json_to_sheet(rows) sin
+  // ws['!cols'] configurado → Excel usa width default ~8 chars → columnas con
+  // texto largo (Cliente, Descripcion, "Lo que mas preguntan") se truncaban
+  // visualmente. Este helper computa anchos basados en max length real del
+  // contenido (con padding). Ver auditoria en README §41 v1082.
+  function _autoFitCols(rows, options) {
+    const opts = options || {};
+    const minW = opts.minWidth || 8;
+    const maxW = opts.maxWidth || 60;
+    const padding = (opts.padding != null) ? opts.padding : 2;
+    if (!Array.isArray(rows) || !rows.length) return [];
+    const headers = Object.keys(rows[0]);
+    return headers.map(h => {
+      let maxLen = String(h).length;
+      for (const row of rows) {
+        const val = row[h];
+        const str = (val == null) ? '' : String(val);
+        // Multi-line: solo primera linea para el sizing (Excel no wrappea por default).
+        const firstLine = str.split('\n')[0];
+        if (firstLine.length > maxLen) maxLen = firstLine.length;
+      }
+      return { wch: Math.max(minW, Math.min(maxW, maxLen + padding)) };
+    });
+  }
+
   // === B) XLSX visitas del mes ===
   if (visitsM.length) {
     const rows = visitsM.map(v => ({
@@ -11467,7 +11712,10 @@ window.runMonthlyBackup = async function(){
       Email: v.ownerEmail || '',
     }));
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Visitas ' + monthLabel);
+    // v1082: autofit widths para evitar columnas truncadas visualmente.
+    const wsVis = XLSX.utils.json_to_sheet(rows);
+    wsVis['!cols'] = _autoFitCols(rows);
+    XLSX.utils.book_append_sheet(wb, wsVis, 'Visitas ' + monthLabel);
     XLSX.writeFile(wb, 'Shimano_Visitas_' + ymPrefix + '.xlsx');
   }
 
@@ -11503,7 +11751,10 @@ window.runMonthlyBackup = async function(){
     });
     if (pedRows.length) {
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pedRows), 'Pedidos ' + monthLabel);
+      // v1082: autofit widths.
+      const wsPed = XLSX.utils.json_to_sheet(pedRows);
+      wsPed['!cols'] = _autoFitCols(pedRows);
+      XLSX.utils.book_append_sheet(wb, wsPed, 'Pedidos ' + monthLabel);
       XLSX.writeFile(wb, 'Shimano_Pedidos_' + ymPrefix + '.xlsx');
     }
   }
@@ -11545,8 +11796,17 @@ window.runMonthlyBackup = async function(){
       });
     });
     const wb = XLSX.utils.book_new();
-    if (cumplRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cumplRows), 'Cumplimiento por vendedor');
-    if (rutaRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rutaRows), 'Detalle rutas');
+    // v1082: autofit widths para ambas sheets.
+    if (cumplRows.length) {
+      const wsCumpl = XLSX.utils.json_to_sheet(cumplRows);
+      wsCumpl['!cols'] = _autoFitCols(cumplRows);
+      XLSX.utils.book_append_sheet(wb, wsCumpl, 'Cumplimiento por vendedor');
+    }
+    if (rutaRows.length) {
+      const wsRuta = XLSX.utils.json_to_sheet(rutaRows);
+      wsRuta['!cols'] = _autoFitCols(rutaRows);
+      XLSX.utils.book_append_sheet(wb, wsRuta, 'Detalle rutas');
+    }
     XLSX.writeFile(wb, 'Shimano_Rutas_' + ymPrefix + '.xlsx');
   }
 
@@ -12391,7 +12651,10 @@ function computeColumn(pedido) {
   const lineas = Array.isArray(pedido?.lines) ? pedido.lines
                 : (Array.isArray(pedido?.items) ? pedido.items : []);
   if (lineas.some(l => (l?.qtyInvoiced || 0) > 0)) return 'facturar';
-  if (pedido?.plannerStage === 'confirmado') return 'confirmado';
+  // v1037 (2026-09-22): removida columna 'confirmado'. Un doc con plannerStage=
+  // 'confirmado' cae ahora en las siguientes reglas (SAP-based). El único
+  // pedido en prod con ese stage (BIANCHINI SAP:2000120) ya caía en 'facturar'
+  // por Rule 3 (qtyInvoiced>0) — cero impacto de datos.
   if (pedido?.transferidoSAP?.orderDocEntry) return 'ordenes';
   if (pedido?.transferidoSAP?.docNum) return 'oferta';
   return 'lista_espera';
@@ -12411,6 +12674,48 @@ var plannerMonthFilter = (function() {
 function setPlannerMonthFilter(value) {
   plannerMonthFilter = value || 'all';
   try { renderPlannerKanban(); } catch (e) { console.warn('[planner] setMonth render fail', e); }
+}
+
+// v1023 (2026-09-22): filtros de busqueda por cliente + orderNumber.
+// State en memoria; se resetea al reload. Debounce 150ms para no re-renderizar
+// en cada tecla (el kanban tiene 250+ cards y renderiza sync).
+var plannerClientFilter = '';
+var plannerOrderFilter = '';
+var _plannerFilterDebounceT = null;
+
+function _plannerScheduleRender() {
+  if (_plannerFilterDebounceT) clearTimeout(_plannerFilterDebounceT);
+  _plannerFilterDebounceT = setTimeout(function () {
+    _plannerFilterDebounceT = null;
+    try { renderPlannerKanban(); } catch (e) { console.warn('[planner] filter render fail', e); }
+  }, 150);
+}
+
+function setPlannerClientFilter(value) {
+  plannerClientFilter = String(value || '').trim().toLowerCase();
+  _plannerScheduleRender();
+}
+
+function setPlannerOrderFilter(value) {
+  // Normalizamos a solo digitos para matchear tanto "145" como "ORDEN 145" o "orden145".
+  plannerOrderFilter = String(value || '').replace(/\D/g, '');
+  _plannerScheduleRender();
+}
+
+// Match check para filtros de busqueda. Se aplica a pedidos + waitlist entries
+// (ambos tienen clientName y orderNumber en el mismo lugar).
+function _plannerMatchesFilters(pedido) {
+  if (plannerClientFilter) {
+    var name = String(
+      pedido.clientName || pedido.cardName || pedido.clientCardCode || pedido.cardCode || ''
+    ).toLowerCase();
+    if (!name.includes(plannerClientFilter)) return false;
+  }
+  if (plannerOrderFilter) {
+    var orderDigits = String(pedido.orderNumber || '').replace(/\D/g, '');
+    if (!orderDigits.includes(plannerOrderFilter)) return false;
+  }
+  return true;
 }
 
 function _plannerPedidoInMonth(pedido, monthKey) {
@@ -12468,19 +12773,113 @@ function setPlannerSubtab(key) {
 // botón vive en el header (#planner-header-btn); openPlannerBoardModal muestra
 // el overlay, arranca listeners (idempotente) y renderiza el Kanban.
 function openPlannerBoardModal() {
+  // v1032 (2026-09-22): whitelist ampliada — Mariano + Pablo + Santiago Esteban
+  // + Ioannis (VDIs). Sync con applyRolePermissions._plannerAllowedEmails.
   var em = ((currentUser && (currentUser.email || '')) || '').toLowerCase();
-  var okEmail = em === 'mariano.erbino@shimano.com.ar' || em === 'erbinomariano@gmail.com';
-  if (!okEmail || userRole !== 'admin') return; // runtime guard extra
+  var okEmail =
+    em === 'mariano.erbino@shimano.com.ar' ||
+    em === 'erbinomariano@gmail.com' ||
+    em === 'pablo.gonzalez@shimano.com.ar' ||
+    em === 'santiago.esteban@shimano.com.ar' ||
+    em === 'ioannis.plakoudakis@shimano.com.ar' ||
+    // v1036 (2026-09-22): agregado Uruguay
+    em === 'santiago.beron@shimano.uy' ||
+    em === 'diego.valsi@shimano.uy';
+  var okRole = userRole === 'admin' || userRole === 'gerente' || userRole === 'interno';
+  if (!okEmail || !okRole) return; // runtime guard extra
   var modal = document.getElementById('planner-board-modal');
   if (!modal) return;
   modal.style.display = 'flex';
   setPlannerSubtab('tablero');
   try { attachPlannerListeners(); } catch (e) { console.warn('[planner] attach fail', e); }
   try { renderPlannerKanban(); } catch (e) { console.warn('[planner] render fail', e); }
+  try { startPlannerSyncCountdown(); } catch (e) { console.warn('[planner] countdown fail', e); }
 }
 function closePlannerBoardModal() {
   var modal = document.getElementById('planner-board-modal');
   if (modal) modal.style.display = 'none';
+  try { stopPlannerSyncCountdown(); } catch (e) { /* silent */ }
+}
+
+// v1032 (2026-09-22): countdown a la proxima sync SAP Orders. El schedule es
+// "every 15 minutes" (GCP Cloud Scheduler alinea a hh:00, hh:15, hh:30, hh:45
+// segun timeZone America/Argentina/Buenos_Aires). Calculamos el proximo tick
+// como ceil(now / 15min) * 15min. Cero backend, solo timer local.
+var _plannerSyncCountdownIntervalId = null;
+function _plannerNextSyncMs() {
+  var now = Date.now();
+  var quarter = 15 * 60 * 1000;
+  return Math.ceil(now / quarter) * quarter;
+}
+function _plannerRenderSyncCountdown() {
+  var el = document.getElementById('planner-sync-countdown');
+  if (!el) return;
+  var remaining = _plannerNextSyncMs() - Date.now();
+  if (remaining <= 0) {
+    el.textContent = 'Sincronizando…';
+    return;
+  }
+  var totalSec = Math.floor(remaining / 1000);
+  var m = Math.floor(totalSec / 60);
+  var s = totalSec % 60;
+  el.textContent = 'Próx. sync en ' + m + 'm ' + String(s).padStart(2, '0') + 's';
+}
+function startPlannerSyncCountdown() {
+  stopPlannerSyncCountdown();
+  _plannerRenderSyncCountdown();
+  _plannerSyncCountdownIntervalId = setInterval(_plannerRenderSyncCountdown, 1000);
+}
+function stopPlannerSyncCountdown() {
+  if (_plannerSyncCountdownIntervalId) {
+    clearInterval(_plannerSyncCountdownIntervalId);
+    _plannerSyncCountdownIntervalId = null;
+  }
+}
+
+// v1050 (2026-09-23): trigger manual de la sync SAP (Invoices+Orders+Payments).
+// El CF `triggerPlannerSync` gate por role admin|gerente|interno; este handler
+// solo es un thin wrapper que muestra estado en el botón y refresca el reloj.
+async function triggerPlannerSyncManual() {
+  var btn = document.getElementById('planner-sync-manual-btn');
+  var clock = document.getElementById('planner-sync-countdown');
+  if (!btn) return;
+  var origText = btn.textContent;
+  var origClockText = clock ? clock.textContent : '';
+  btn.disabled = true;
+  btn.style.opacity = '.5';
+  btn.textContent = '…';
+  if (clock) clock.textContent = 'Sincronizando…';
+  try {
+    // v1000 pattern: force refresh IDToken pre-callable para evitar race.
+    try {
+      var au = firebase.auth && firebase.auth();
+      if (au && au.currentUser && typeof au.currentUser.getIdToken === 'function') {
+        await au.currentUser.getIdToken(true);
+      }
+    } catch (_e) { /* non-fatal */ }
+    var callable = firebase.app().functions('southamerica-east1').httpsCallable('triggerPlannerSync');
+    var res = await callable({});
+    var s = (res && res.data) || {};
+    var msg = 'Sync OK';
+    if (s.invoices) msg += ' · Fact:' + (s.invoices.matches || 0);
+    if (s.orders) msg += ' · Ord:' + (s.orders.hits || 0);
+    if (s.payments) msg += ' · Cobr:' + (s.payments.pedidosUpdated || 0);
+    if (s.closures) msg += ' · Cerr:' + (s.closures.closedInApp || 0);
+    if (s.errors && s.errors.length) msg += ' · Errores:' + s.errors.length;
+    if (typeof showSyncTag === 'function') showSyncTag(msg);
+    else alert(msg);
+  } catch (e) {
+    console.error('[planner] trigger sync fail', e);
+    var em = (e && e.message) || 'Error desconocido';
+    if (typeof showSyncTag === 'function') showSyncTag('Sync ERROR: ' + em);
+    else alert('Sync ERROR: ' + em);
+  } finally {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.textContent = origText;
+    if (clock) clock.textContent = origClockText;
+    // El countdown loop sigue corriendo — al próximo tick 1s vuelve a mostrar valor real.
+  }
 }
 
 // v1007 Planner Config: form for editing responsables per column.
@@ -12782,7 +13181,11 @@ document.addEventListener('keydown', (e) => {
 // ============================================================
 var backorderLines = []; // aplanado: todas las lineas visibles al user
 var unsubBackorderSnapshot = null; // listener onSnapshot a la coleccion
-var backordersSearchQuery = ''; // texto del buscador SKU
+var backordersSearchQuery = ''; // legacy — mantenido para compat con codigo viejo (siempre '' desde v1064)
+// v1064 (2026-09-25): reemplaza backordersSearchQuery. Match sobre clientName + SKU + producto.
+var backordersTiendaQuery = '';
+// v1064: filtro por vendorKey (ownerVendor / vendedor). '' = todos.
+var backordersVendorFilter = '';
 var backordersMesFilter = ''; // v411: filtro por mes YYYY-MM del sqDocDate
 var backordersStockFilter = 'sin'; // v420: 'sin' | 'con' | 'todos' - reemplaza v419 bool
 var backordersMode = 'urgente'; // v420: 'urgente' (Backorders) | 'asignacion' (Asignacion Backorder)
@@ -12803,7 +13206,10 @@ function _applyBackordersMode(mode){
   const head = document.getElementById('backorders-modal-head');
   const title = document.getElementById('backorders-modal-title');
   const subt = document.getElementById('backorders-modal-subt');
-  const sel = document.getElementById('backorders-stock-filter');
+  // v1067 (2026-09-25): selects "Sin stock" y "Solo urgentes" removidos del
+  // modal Backorder por pedido Mariano. Los defaults por modo se mantienen:
+  // backordersStockFilter='sin' y backordersUrgencyFilter='urgente' aplican
+  // en modo backorder; 'con' aplica en modo asignacion.
   if (mode === 'asignacion') {
     backordersStockFilter = 'con';
     if (head) head.style.background = 'linear-gradient(135deg,#14532d,#166534)';
@@ -12815,26 +13221,10 @@ function _applyBackordersMode(mode){
     if (title) title.innerHTML = 'Backorder';
     if (subt) subt.textContent = 'SKUs con demanda pendiente que no podemos cubrir - urgentes de importar. Datos SAP cada 30 min. Solo pesca.';
   }
-  if (sel) sel.value = backordersStockFilter;
-  // v523: en mode='asignacion' el select de filtro por stock queda oculto
-  // (el modal SAP Asignado - Con Stock por definicion muestra solo con
-  // stock; el filtro sin stock esta en el modal Backorder aparte).
-  if (sel) sel.style.display = (mode === 'asignacion') ? 'none' : '';
-  // v864 (2026-09-11): filtro urgencia visible solo en modo backorder.
-  const urgSel = document.getElementById('backorders-urgency-filter');
-  if (urgSel) {
-    urgSel.style.display = (mode === 'asignacion') ? 'none' : '';
-    urgSel.value = backordersUrgencyFilter;
-  }
   // v509: boton "Exportar Stock Asignado" visible solo en modo asignacion.
   const tplBtn = document.getElementById('btn-export-stock-asig-cliente');
   if (tplBtn) tplBtn.style.display = (mode === 'asignacion') ? '' : 'none';
 }
-window.onBackordersUrgencyFilterChange = function(){
-  const sel = document.getElementById('backorders-urgency-filter');
-  backordersUrgencyFilter = sel ? sel.value : 'urgente';
-  try { renderBackordersTab(); } catch(e) { console.warn('onBackordersUrgencyFilterChange', e); }
-};
 // v420 (2026-08-06): recomputa counts para ambos botones (urgente + asignacion)
 // contando SKUs distintos (no lineas) en cada categoria segun stock actual.
 // Se llama desde ensureBackordersListener + desde el listener de stock_snapshot.
@@ -12925,31 +13315,30 @@ window.ensureBackordersListener = function(){
   backorderLines = [];
   return;
 };
-window.onBackordersSearch = function(){
-  const inp = document.getElementById('backorders-search');
-  backordersSearchQuery = (inp && inp.value || '').trim().toLowerCase();
+// v1064 (2026-09-25): reemplazado onBackordersSearch por onBackordersTiendaChange
+// + onBackordersVendorChange. Handler viejo se mantiene como no-op por si algun
+// codigo legacy lo llama (no hay UI para dispararlo).
+window.onBackordersSearch = function(){};
+window.onBackordersTiendaChange = function(){
+  const inp = document.getElementById('backorders-tienda-filter');
+  backordersTiendaQuery = (inp && inp.value || '').trim().toLowerCase();
+  renderBackordersTab();
+};
+window.onBackordersVendorChange = function(){
+  const sel = document.getElementById('backorders-vendor-filter');
+  backordersVendorFilter = (sel && sel.value || '').trim().toUpperCase();
   renderBackordersTab();
 };
 window.clearBackordersSearch = function(){
-  const inp = document.getElementById('backorders-search');
+  const inp = document.getElementById('backorders-tienda-filter');
   if (inp) inp.value = '';
-  backordersSearchQuery = '';
+  backordersTiendaQuery = '';
   renderBackordersTab();
 };
 // v411 (2026-08-06): filtro por mes YYYY-MM (extraido de sqDocDate).
 window.onBackordersMesChange = function(){
   const sel = document.getElementById('backorders-mes-filter');
   backordersMesFilter = (sel && sel.value || '').trim();
-  renderBackordersTab();
-};
-// v420 (2026-08-06): select con 3 estados de filtro por stock. Reemplaza el checkbox v419.
-// 'sin' = solo SKUs sin stock en whs 11+12 (urgentes importar). Default en mode='urgente'.
-// 'con' = solo SKUs con stock en whs 11 o 12 (para asignar). Default en mode='asignacion'.
-// 'todos' = sin filtro por stock (mostrar todo).
-window.onBackordersStockFilterChange = function(){
-  const sel = document.getElementById('backorders-stock-filter');
-  const v = (sel && sel.value) || 'todos';
-  backordersStockFilter = (v === 'sin' || v === 'con') ? v : 'todos';
   renderBackordersTab();
 };
 // v401 (2026-08-05): exportar backorders filtrados a Excel. Respeta el
@@ -12967,7 +13356,9 @@ window.exportBackordersToExcel = async function(){
   // Ahora itera lineas state=BO (backorder) o state=ASIG con qty > 0 de pedidos
   // abiertos, respeta el modo del modal (urgente=sin stock, asignacion=con stock).
   const isAsigMode = (typeof backordersMode !== 'undefined' && backordersMode === 'asignacion');
-  const q = backordersSearchQuery;
+  // v1064 (2026-09-25): reemplaza `q` legacy por tienda(tq) + vendor(vf).
+  const tq = backordersTiendaQuery;
+  const vf = backordersVendorFilter;
   const mesF = backordersMesFilter;
   // v679 PERF Fase 3: ExcelJS ahora carga on-demand
   try { await window.loadExcelJS(); } catch (e) { alert('No se pudo cargar ExcelJS: ' + e.message); return; }
@@ -13000,14 +13391,17 @@ window.exportBackordersToExcel = async function(){
           const dt = String(p.confirmedAt || p.createdAt || '').slice(0, 7);
           if (dt !== mesF) continue;
         }
-        // Filtro busqueda.
+        // v1064: filtro tienda (tq) + vendor (vf). Reemplaza el filtro `q` legacy.
         const prod = prodByCode[skuUp];
         const producto = l.desc || (prod && prod.desc) || '';
         const cliente = p.clientName || '';
-        if (q) {
-          const skuHit = skuUp.toLowerCase().includes(q);
-          const prodHit = producto.toLowerCase().includes(q);
-          const cliHit = cliente.toLowerCase().includes(q);
+        // v1079: _canonVendor aplica alias legacy (MARTIN BOIERO → PACHI).
+        const _pVendorKey = _canonVendor(p.ownerVendor || p.vendedor || p.vendorAssigned || p.vendor || '');
+        if (vf && _pVendorKey !== vf) continue;
+        if (tq) {
+          const skuHit = skuUp.toLowerCase().includes(tq);
+          const prodHit = producto.toLowerCase().includes(tq);
+          const cliHit = cliente.toLowerCase().includes(tq);
           if (!skuHit && !prodHit && !cliHit) continue;
         }
         filtered.push({
@@ -13015,7 +13409,8 @@ window.exportBackordersToExcel = async function(){
           producto,
           clienteNombre: cliente,
           clienteCiudad: p.clientLocality || p.locName || '',
-          vendorKey: p.vendedor || p.vendorAssigned || p.vendor || '',
+          // v1064: reusar _pVendorKey calculado arriba (mismo fallback v1063).
+          vendorKey: _pVendorKey,
           pendiente: qty,
           precioUnitario: Number(l.priceAtCreation || l.precio || 0),
           sqDocNum: (p.transferidoSAP && p.transferidoSAP.docNum) || '',
@@ -13090,10 +13485,18 @@ window.exportBackordersToExcel = async function(){
       const stockDep11 = (typeof getStockDisponibleVenta === 'function')
         ? Number(getStockDisponibleVenta(skuU) || 0)
         : 0;
+      // v1058 (2026-09-24): agregar columna Vendedor (pedido Mariano). Resolver
+      // desde vendorLookup para mostrar zona + nombre. Fallback al key crudo si
+      // no matchea (vendedor histórico borrado, key raro, etc.).
+      // v1079 (2026-09-25): _canonVendor aplica alias legacy (MARTIN BOIERO → PACHI).
+      const vk = _canonVendor(ln.vendorKey || '');
+      const _vm = (typeof vendorLookup !== 'undefined') ? vendorLookup[vk] : null;
+      const vendorLabel = _vm ? (_vm.zone + ' - ' + vk) : (vk || '(sin vendedor)');
       rows.push([
         ln.sku || '',
         ln.producto || '',
         ln.clienteNombre || '',
+        vendorLabel,
         qty,
         precio,
         importe,
@@ -13102,28 +13505,28 @@ window.exportBackordersToExcel = async function(){
       ]);
     });
     ws.columns = [
-      { width: 16 }, { width: 55 }, { width: 32 },
+      { width: 16 }, { width: 55 }, { width: 32 }, { width: 30 },
       { width: 14 }, { width: 14 }, { width: 16 },
       { width: 18 }, { width: 14 },
     ];
-    // Row 1: TOTAL DEL PEDIDO. v948: label A1:E1 alineado a la derecha, F1
-    // con el total (alinea con la columna "Importe pendiente"). G1:H1
+    // Row 1: TOTAL DEL PEDIDO. v1058: label A1:F1 alineado a la derecha, G1
+    // con el total (alinea con la columna "Importe pendiente"). H1:I1
     // rellenadas con el mismo fill para mantener la barra visual continua.
-    ws.mergeCells('A1:E1');
+    ws.mergeCells('A1:F1');
     ws.getCell('A1').value = TITLE_MAIN;
     ws.getCell('A1').fill = TOTAL_FILL;
     ws.getCell('A1').font = TOTAL_FONT;
     ws.getCell('A1').alignment = { vertical: 'middle', horizontal: 'right' };
-    ws.getCell('F1').value = total || 0;
-    ws.getCell('F1').fill = TOTAL_FILL;
-    ws.getCell('F1').font = TOTAL_FONT;
-    ws.getCell('F1').alignment = CENTER;
-    ws.getCell('F1').numFmt = '"$"#,##0';
+    ws.getCell('G1').value = total || 0;
     ws.getCell('G1').fill = TOTAL_FILL;
+    ws.getCell('G1').font = TOTAL_FONT;
+    ws.getCell('G1').alignment = CENTER;
+    ws.getCell('G1').numFmt = '"$"#,##0';
     ws.getCell('H1').fill = TOTAL_FILL;
+    ws.getCell('I1').fill = TOTAL_FILL;
     ws.getRow(1).height = 24;
     // Row 2: encabezados.
-    const HEAD = ['SKU', 'Producto', 'Cliente',
+    const HEAD = ['SKU', 'Producto', 'Cliente', 'Vendedor',
                   'Unidades pendientes', 'Precio unitario', 'Importe pendiente',
                   'Total vendidas hist.', 'Stock dep 11'];
     HEAD.forEach((h, i) => { const c = ws.getCell(2, i + 1); c.value = h; c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = CENTER; });
@@ -13131,11 +13534,11 @@ window.exportBackordersToExcel = async function(){
     rows.forEach((r, idx) => {
       const row = ws.getRow(idx + 3);
       r.forEach((v, ci) => row.getCell(ci + 1).value = v);
-      for (let c = 1; c <= 8; c++) row.getCell(c).alignment = CENTER;
-      row.getCell(5).numFmt = '"$"#,##0'; // Precio unitario
-      row.getCell(6).numFmt = '"$"#,##0'; // Importe pendiente
-      row.getCell(7).numFmt = '#,##0';    // Total vendidas hist.
-      row.getCell(8).numFmt = '#,##0';    // Stock dep 11
+      for (let c = 1; c <= 9; c++) row.getCell(c).alignment = CENTER;
+      row.getCell(6).numFmt = '"$"#,##0'; // Precio unitario
+      row.getCell(7).numFmt = '"$"#,##0'; // Importe pendiente
+      row.getCell(8).numFmt = '#,##0';    // Total vendidas hist.
+      row.getCell(9).numFmt = '#,##0';    // Stock dep 11
     });
     // v950 (2026-09-16): segunda hoja 'Forecast' con 1 linea por SKU
     // agregada (suma todas las lineas del mismo SKU en todos los clientes)
@@ -13212,7 +13615,9 @@ window.exportBackordersToExcel = async function(){
     });
     const out = await wb.xlsx.writeBuffer();
     const dateStr = new Date().toISOString().slice(0, 10);
-    const suffixQ = q ? ('_' + q.replace(/[^a-z0-9]/gi, '').slice(0, 20)) : '';
+    // v1066 (2026-09-25): fix ReferenceError. v1064 renombró `q` → `tq` pero
+    // se olvidó esta línea del filename builder. `tq` es el filtro texto (tienda/SKU/producto).
+    const suffixQ = tq ? ('_' + tq.replace(/[^a-z0-9]/gi, '').slice(0, 20)) : '';
     const suffixM = mesF ? ('_mes-' + mesF) : '';
     const filename = FILE_PREFIX + dateStr + suffixM + suffixQ + '.xlsx';
     const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -13473,30 +13878,88 @@ window.renderBackordersTab = function(){
     const meses = Array.from(mesesSet).sort().reverse();
     const _MESES_LBL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
     const curVal = _mesSel.value;
-    _mesSel.innerHTML = '<option value="">Todos los meses</option>' +
-      meses.map(m => {
-        const [yy, mm] = m.split('-');
-        return '<option value="' + m + '">' + _MESES_LBL[parseInt(mm,10)-1] + ' ' + yy + '</option>';
-      }).join('');
+    while (_mesSel.firstChild) _mesSel.removeChild(_mesSel.firstChild);
+    const optAllMes = document.createElement('option'); optAllMes.value = ''; optAllMes.textContent = 'Todos los meses';
+    _mesSel.appendChild(optAllMes);
+    meses.forEach(m => {
+      const [yy, mm] = m.split('-');
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = _MESES_LBL[parseInt(mm,10)-1] + ' ' + yy;
+      _mesSel.appendChild(opt);
+    });
     if (curVal && meses.indexOf(curVal) >= 0) _mesSel.value = curVal;
     else backordersMesFilter = ''; // el mes previo desaparecio, resetear
   }
+  // v1064 (2026-09-25): popular datalist de Tiendas + dropdown de Vendedores.
+  // Datalist tiendas: nombres unicos de clientes con lineas BO/ASIG open activas
+  // (fuente APP globalPedidos). Dropdown vendedores: keys unicas de ownerVendor/
+  // vendedor de esos pedidos, ordenadas alfa. Ambos se recomputan en cada render
+  // (~211 pedidos abiertos hoy — costo despreciable).
+  const _tiendaDatalist = document.getElementById('backorders-tienda-datalist');
+  const _vendorSel = document.getElementById('backorders-vendor-filter');
+  if (_tiendaDatalist || _vendorSel) {
+    const tiendasSet = new Set();
+    const vendorsSet = new Set();
+    if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+      for (const p of globalPedidos) {
+        if (!p || p.closedAt) continue;
+        if (p.stage !== 'confirmed') continue;
+        const hasOpenBoAsig = Array.isArray(p.lines) && p.lines.some(l => l
+          && (l.state === 'BO' || l.state === 'ASIG')
+          && (Number(l.qtyOpen) || 0) > 0);
+        if (!hasOpenBoAsig) continue;
+        if (p.clientName) tiendasSet.add(String(p.clientName).trim());
+        // v1079 (2026-09-25): _canonVendor aplica alias legacy (MARTIN BOIERO → PACHI).
+        const vk = _canonVendor(p.ownerVendor || p.vendedor || '');
+        if (vk) vendorsSet.add(vk);
+      }
+    }
+    if (_tiendaDatalist) {
+      while (_tiendaDatalist.firstChild) _tiendaDatalist.removeChild(_tiendaDatalist.firstChild);
+      Array.from(tiendasSet).sort().forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t;
+        _tiendaDatalist.appendChild(opt);
+      });
+    }
+    if (_vendorSel) {
+      const vendors = Array.from(vendorsSet).sort();
+      const curV = _vendorSel.value;
+      while (_vendorSel.firstChild) _vendorSel.removeChild(_vendorSel.firstChild);
+      const optAllVend = document.createElement('option'); optAllVend.value = ''; optAllVend.textContent = 'Todos los vendedores';
+      _vendorSel.appendChild(optAllVend);
+      vendors.forEach(v => {
+        const _vm = (typeof vendorLookup !== 'undefined') ? vendorLookup[v] : null;
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = _vm ? (_vm.zone + ' - ' + titleCase(v)) : titleCase(v);
+        _vendorSel.appendChild(opt);
+      });
+      if (curV && vendorsSet.has(curV)) _vendorSel.value = curV;
+      else backordersVendorFilter = ''; // el vendor previo desaparecio, resetear
+    }
+  }
   // Agrupar por SKU. Cada grupo tiene: producto + total pendiente + clientes.
-  const q = backordersSearchQuery;
+  // v1064: reemplaza `q` (backordersSearchQuery legacy) por `tq` (tienda/SKU/producto)
+  // + `vf` (vendorKey). Semantica: tienda es texto libre matcheando cliente/SKU/
+  // producto; vendor es exact match sobre vendorKey normalizado uppercase.
+  const tq = backordersTiendaQuery;
+  const vf = backordersVendorFilter;
   const mesF = backordersMesFilter;
-  // v411: helper para chequear si un linea matchea todos los filtros (busqueda + mes + sin-stock).
   const _passesFilters = (ln) => {
     if (mesF && String(ln.sqDocDate || '').slice(0, 7) !== mesF) return false;
-    if (q) {
-      const skuHit = (ln.sku || '').toLowerCase().includes(q);
-      const prodHit = (ln.producto || '').toLowerCase().includes(q);
-      const cliHit = (ln.clienteNombre || '').toLowerCase().includes(q);
+    // v1079: alias legacy — pedidos historicos MARTIN BOIERO matchean filtro PACHI.
+    if (vf && _canonVendor(ln.vendorKey || '') !== vf) return false;
+    if (tq) {
+      const skuHit = (ln.sku || '').toLowerCase().includes(tq);
+      const prodHit = (ln.producto || '').toLowerCase().includes(tq);
+      const cliHit = (ln.clienteNombre || '').toLowerCase().includes(tq);
       if (!skuHit && !prodHit && !cliHit) return false;
     }
     // v576: NO filtramos por stock aca — recolectamos TODOS los candidatos
     // (SAP + APP-BO + APP-ASIG) sin importar stock, y despues aplicamos cap
     // FIFO en fase 2 para calcular qtyAsignada + qtyBackorder por linea.
-    // Filtrar el modo (STOCK ASIG. vs BACKORDER) al final segun qty resultante.
     return true;
   };
   // v576: skuMap enriquecido — cada cliente lleva source ('sap'|'app'),
@@ -13555,13 +14018,35 @@ window.renderBackordersTab = function(){
         // BO >15d, confirmed >15d. Las lineas siguen vivas en Firestore y en la card
         // del cliente, pero desaparecen del modal Stock Asignado / Backorder.
         // Consistente con la CF v976 que ya las excluye del snapshot de reservas.
+        //
+        // v1072 (2026-09-25): en modo asignacion permitir ASIG con asigReserva=false
+        // si aun no expiro. Root cause "NO PUEDE NO HABER STOCK ASIGNADO" (Mariano):
+        // 100% de clientes tienen cliTipo=C default (bug conocido feedback v1057-f)
+        // -> 100% de asignaciones tienen asigReserva=false -> filtro v978 vaciaba
+        // el modal Stock Asignado siempre. Fix quirurgico: en modo asignacion,
+        // permitir ASIG-sin-reserva vigente (asigAt <= 15d). Sigue filtrado en
+        // modo backorder (no queremos mostrar ASIG en Backorder). Sigue filtrado
+        // ASIG expirada (asigAt > 15d) en ambos modos. El badge "SIN RESERVA"
+        // del UI (linea ~21832) las diferencia visualmente.
         const _lrsFn978 = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
-        if (_lrsFn978 && !_lrsFn978(l, Date.now(), p)) continue;
+        if (_lrsFn978 && !_lrsFn978(l, Date.now(), p)) {
+          const _isAsigMode = (backordersMode === 'asignacion');
+          const _isAsigSinReservaVigente =
+            _isAsigMode &&
+            l.state === 'ASIG' &&
+            l.asigReserva === false &&
+            (!l.asigAt || ((Date.now() - new Date(l.asigAt).getTime()) / (24 * 60 * 60 * 1000)) <= 15);
+          if (!_isAsigSinReservaVigente) continue;
+        }
         const sku = String(l.code).toUpperCase();
-        if (q) {
-          const skuHit = sku.toLowerCase().includes(q);
-          const prodHit = String(l.desc || '').toLowerCase().includes(q);
-          const cliHit = String(p.clientName || '').toLowerCase().includes(q);
+        // v1064: mismo filtrado que fuente SAP — tienda(tq) + vendor(vf) + mes(mesF).
+        // v1079: _canonVendor aplica alias legacy (MARTIN BOIERO → PACHI).
+        const _pVendorKey = _canonVendor(p.ownerVendor || p.vendedor || p.vendorAssigned || p.vendor || '');
+        if (vf && _pVendorKey !== vf) continue;
+        if (tq) {
+          const skuHit = sku.toLowerCase().includes(tq);
+          const prodHit = String(l.desc || '').toLowerCase().includes(tq);
+          const cliHit = String(p.clientName || '').toLowerCase().includes(tq);
           if (!skuHit && !prodHit && !cliHit) continue;
         }
         if (mesF) {
@@ -13582,7 +14067,7 @@ window.renderBackordersTab = function(){
           precio: parseFloat(l.precio || l.priceAtCreation || 0) || 0,
           sqDocNum: 0,
           sqDocDate: String(p.confirmedAt || '').slice(0, 10),
-          vendorKey: p.ownerVendor || '',
+          vendorKey: _pVendorKey,
           source: 'app',
           state: l.state,
           pedidoId: p._fsId || '',
@@ -13748,7 +14233,7 @@ window.renderBackordersTab = function(){
   // de inyectar HTML sin importar qué venga en `q`.
   sum.innerHTML = '<b>' + skus.length + '</b> SKUs con backorder &middot; <b>' + Math.round(totalUnidades) + '</b> unidades pendientes &middot; <b>' + totalClientes + '</b> clientes';
   const _filtroTxts = [];
-  if (q) _filtroTxts.push('busqueda: "' + q + '"');
+  if (tq) _filtroTxts.push('busqueda: "' + tq + '"');
   if (mesF) {
     const [yy, mm] = mesF.split('-');
     const _MESES_LBL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -13770,8 +14255,8 @@ window.renderBackordersTab = function(){
     // en absoluto" es real (ej. cero pedidos-app con BO/ASIG open). escapeHtml sigue
     // sanitizando el query del user antes de interpolar (mismo patron del codigo original).
     let _msg;
-    if (q) {
-      _msg = 'Sin resultados para "' + escapeHtml(q) + '"';
+    if (tq) {
+      _msg = 'Sin resultados para "' + escapeHtml(tq) + '"';
     } else if (backordersMode === 'asignacion') {
       _msg = 'Sin stock asignado pendiente.';
     } else {
@@ -14158,7 +14643,8 @@ function _backordersGraficosData(){
     const sku = (ln.sku || '').toUpperCase();
     if (!sku) continue;
     if (!_skuMatches(sku)) continue;
-    const vk = (ln.vendorKey || '').trim();
+    // v1079: _canonVendor aplica alias legacy (MARTIN BOIERO → PACHI).
+    const vk = _canonVendor(ln.vendorKey || '');
     if (vk) vendorSet.add(vk);
     if (vendorFilter && vk !== vendorFilter) continue;
     const tienda = (ln.clienteNombre || '').trim() || (ln.clienteCode || '(sin tienda)');
@@ -14176,6 +14662,8 @@ function _backordersGraficosData(){
       const eff = getVendorForKey(k) || '';
       if (eff) pVendor = eff;
     }
+    // v1079: _canonVendor aplica alias legacy (MARTIN BOIERO → PACHI).
+    pVendor = _canonVendor(pVendor);
     if (pVendor) vendorSet.add(pVendor);
     if (vendorFilter && pVendor !== vendorFilter) continue;
     const tienda = (p.clientName || '').trim() || '(sin tienda)';
@@ -15596,14 +16084,11 @@ var _pendingWaitlistDelete = null;
 var _pendingWaitlistUpdate = null;
 
 function ensureRevisionWaitlistListener(){
-  if (_unsubRevisionWaitlist) return;
-  if (!currentUser || !fbDb) return;
-  // v516 (2026-08-13): gate can-revision removido - todos los users
-  // pueden leer la lista compartida (rules Firestore permiten a cualquier
-  // reader). Antes solo el whitelist iniciaba el listener.
-  _unsubRevisionWaitlist = fbDb.collection('revision_waitlist')
-    .orderBy('createdAt', 'asc')
-    .onSnapshot(qs => {
+  // v1077 (2026-09-25): refactor a ensureListenerWithFallback.
+  ensureListenerWithFallback(
+    'revision_waitlist',
+    () => fbDb.collection('revision_waitlist').orderBy('createdAt', 'asc'),
+    (qs, _source) => {
       const arr = [];
       qs.forEach(d => {
         const data = d.data() || {};
@@ -15634,7 +16119,8 @@ function ensureRevisionWaitlistListener(){
         if (updated) { _wcardCurrent = updated; _renderWaitlistCard(); }
         else closeWaitlistCardModal(); // fue borrado por otro user
       }
-    }, err => console.warn('[revision_waitlist] listener', err));
+    }
+  );
 }
 function _updateWaitlistBadge(){
   const badge = document.getElementById('waitlist-btn-count');
@@ -18048,8 +18534,23 @@ function _renderClienteAllOpenLines(w){
         // priceAtCreation por si _asigInlineResolve lo necesita.
         priceAtCreation: Number(l.priceAtCreation || l.precio || 0),
       };
+      // v1060 (2026-09-24): chequear stock fisico dep 11 tambien para state='ASIG'.
+      // Antes: state='ASIG' siempre iba a STOCK ASIGNADO sin verificar stock,
+      // aunque la descripcion del panel dice literal "Reservas del cliente CON
+      // stock fisico disponible ahora". Bug reportado por Mariano 2026-09-24
+      // con CIS151HGC en PESCAR.INFO SHOP ORDEN 230: state='ASIG' 5u pero stock
+      // dep 11 = 0. Root cause: el CF FIFO le asigno en el pasado, despues el
+      // stock desaparecio (facturado a otro/ajuste), pero el state siguio 'ASIG'
+      // en el pedido historico. Ahora: si stock=0, cae en BACKORDER con badge
+      // 'ASIG SIN STOCK' para diferenciar de una BO normal.
       if (l.state === 'ASIG') {
-        asignadoRows.push(row);
+        const stk = getStk ? (getStk(l.code) || 0) : 0;
+        if (stk > 0) {
+          asignadoRows.push(row);
+        } else {
+          row.isStaleAsig = true;
+          backorderRows.push(row);
+        }
       } else if (l.state === 'BO') {
         const stk = getStk ? (getStk(l.code) || 0) : 0;
         if (stk > 0) {
@@ -18162,10 +18663,26 @@ function _renderClienteAllOpenLines(w){
     const tbody = document.createElement('tbody');
     for (const r of backorderRows) {
       const tr = document.createElement('tr');
-      tr.style.cssText = 'border-bottom:1px solid #fecaca';
+      // v1060 (2026-09-24): fondo amarillo para lineas ASIG que perdieron stock
+      // fisico. Ayuda al vendedor a distinguirlas de una BO normal.
+      tr.style.cssText = r.isStaleAsig
+        ? 'border-bottom:1px solid #fde68a;background:#fefce8'
+        : 'border-bottom:1px solid #fecaca';
       const tdSku = document.createElement('td');
       tdSku.style.cssText = 'padding:5px 8px;font-family:monospace;font-weight:800';
-      tdSku.textContent = r.code;
+      // v1060: badge inline "ASIG SIN STOCK" al lado del SKU cuando isStaleAsig.
+      if (r.isStaleAsig) {
+        const skuText = document.createElement('span');
+        skuText.textContent = r.code;
+        const badge = document.createElement('span');
+        badge.textContent = 'ASIG SIN STOCK';
+        badge.title = 'Esta linea estaba en state=ASIG (asignada por FIFO) pero hoy no hay stock fisico dep 11. Se muestra en Backorder hasta que reingrese mercaderia.';
+        badge.style.cssText = 'display:inline-block;margin-left:6px;padding:1px 6px;background:#f59e0b;color:#fff;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:.3px;font-family:sans-serif';
+        tdSku.appendChild(skuText);
+        tdSku.appendChild(badge);
+      } else {
+        tdSku.textContent = r.code;
+      }
       const tdDesc = document.createElement('td');
       tdDesc.style.cssText = 'padding:5px 8px;color:var(--text-secondary)';
       tdDesc.textContent = r.desc || '(sin descripcion)';
@@ -20317,6 +20834,16 @@ window._waitlistPasarAPendientesContinuar = function(w){
   // porque doConfirmPedido no incluia el campo en docData. Se resetea al
   // final del flujo (o al proximo pasar-a-pendientes).
   window._pendingPedidoOrderNumber = w.orderNumber || null;
+  // v1058 (2026-09-24): propagar tambien el waitlist ID origen al docData del
+  // pedido. Reemplaza el path fragil de _pendingWaitlistDelete (variable en
+  // memoria global del browser) por un campo persistido en Firestore. El CF
+  // onPedidoCreatedCleanupWaitlist limpia el waitlist atomicamente al detectar
+  // el create — no depende de que la variable en memoria sobreviva reload/close
+  // del tab entre "Pasar a Pendientes" y el confirm final. Incidente ANA LORENA
+  // FUENTES ORDEN 228 (2026-09-24): waitlist quedo huerfano porque el path old
+  // fallo silenciosamente. El path old (_pendingWaitlistDelete) queda como
+  // fallback (defense in depth).
+  window._pendingPedidoWaitlistId = w._id || null;
   closeWaitlistCardModal();
   closeWaitlistModal();
   // v843 (2026-09-09): si viene de "Generar Backorder", saltar el modal
@@ -21121,6 +21648,61 @@ window.openTransferErrorModal = function(pedidoFsId){
   alert(body);
 };
 
+// v1074 (2026-09-25): reintento manual de envio a SAP para pedidos con
+// transferError (badge "POR QUE FALLO?"). Uso: admin resuelve el problema
+// que causo el fallo (ej: cliente inactivo -> activarlo en SAP) y toca
+// "Enviar a SAP" en la card del pedido. Llama a la funcion existente
+// enviarPedidosASAPViaServiceLayer con un array de 1 pedido. Reporta el
+// resultado en un alert simple; la card se re-renderea automatico cuando
+// el listener onSnapshot recibe el update de Firestore
+// (transferidoSAP seteado -> hasErr=false -> desaparece el banner rojo).
+window.reintentarEnvioSap = async function(pedidoFsId){
+  if (userRole !== 'admin') { alert('Solo admin puede reintentar el envio a SAP.'); return; }
+  if (!pedidoFsId) return;
+  let p = null;
+  if (Array.isArray(globalPedidos)) p = globalPedidos.find(x => x && x._fsId === pedidoFsId) || null;
+  if (!p) {
+    Object.values(confirmed || {}).forEach(list => {
+      (list || []).forEach(c => { if (c && c._fsId === pedidoFsId) p = c; });
+    });
+  }
+  if (!p) { alert('No se encontro el pedido. Refresca la pagina.'); return; }
+  if (p.transferidoSAP) { alert('Este pedido ya fue transferido a SAP (DocNum ' + (p.transferidoSAP.docNum || '?') + '). No hace falta reintentar.'); return; }
+  if (typeof sapSL === 'undefined' || !sapSL.isEnabled || !sapSL.isEnabled()) {
+    alert('Service Layer no esta habilitado. Configuralo en el tab Service Layer.');
+    return;
+  }
+  if (typeof enviarPedidosASAPViaServiceLayer !== 'function') {
+    alert('Modulo de envio SL no cargado. Recarga la pagina.');
+    return;
+  }
+  const cli = p.clientName || '(sin cliente)';
+  const ord = p.orderNumber ? ' (ORDEN ' + p.orderNumber + ')' : '';
+  if (!confirm('Reintentar envio a SAP del pedido:\n\n' + cli + ord + '\n\nVerificaste que el problema anterior este resuelto en SAP?')) return;
+  try {
+    const r = await enviarPedidosASAPViaServiceLayer([p]);
+    const okCount = (r && r.sent) || 0;
+    const failCount = (r && r.failed) || 0;
+    const skipCount = (r && r.skipped && r.skipped.length) || 0;
+    let msg;
+    if (okCount > 0) {
+      msg = 'Enviado OK a SAP.';
+    } else if (failCount > 0) {
+      const errMsg = (r.errors && r.errors[0] && r.errors[0].error) || '(sin detalle)';
+      msg = 'Fallo el reintento.\n\nMotivo: ' + errMsg + '\n\nRevisa el modal "POR QUE FALLO?" para mas info.';
+    } else if (skipCount > 0) {
+      const skipMsg = (r.skipped[0] && r.skipped[0].motivo) || '(sin motivo)';
+      msg = 'Omitido: ' + skipMsg;
+    } else {
+      msg = 'Sin resultado. Revisa la consola.';
+    }
+    alert(msg);
+  } catch(e) {
+    console.error('reintentarEnvioSap', e);
+    alert('Error inesperado: ' + ((e && e.message) || String(e)));
+  }
+};
+
 function renderConfirmadosList(){
   const visibleKeys = buildPedidoVisibleKeysSet();
   // Armar items completos antes de filtrar - usamos los items para popular
@@ -21256,6 +21838,13 @@ function renderConfirmadosList(){
       html += '<div style="margin-top:6px">';
       html += '<button type="button" class="cc-error-btn" onclick="event.stopPropagation(); openTransferErrorModal(\'' + escapeAttr(it.conf._fsId || '') + '\')">&#9888; &iquest;POR QU&Eacute; FALL&Oacute;?</button>';
       html += '<span class="cc-error-type">' + escapeHtml(cat.type) + '</span>';
+      // v1074 (2026-09-25): boton "Enviar a SAP" solo para admin. Permite
+      // reintentar el envio individual una vez que el admin resolvio el
+      // problema que causo el fallo (ej: activo el cliente en SAP si estaba
+      // inactivo). Llama a enviarPedidosASAPViaServiceLayer([pedido]).
+      if (userRole === 'admin' && it.conf._fsId) {
+        html += ' <button type="button" class="cc-resend-btn" onclick="event.stopPropagation(); reintentarEnvioSap(\'' + escapeAttr(it.conf._fsId) + '\')" title="Reintentar envio a SAP (una vez resuelto el problema)" style="background:#1e40af;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer;margin-left:6px">&#8635; Enviar a SAP</button>';
+      }
       html += '</div>';
     }
     // v378+ (2026-08-02): badge de estado SAP (OFERTA/ORDEN/FACTURADO/COBRADO/CERRADO).
@@ -22144,6 +22733,25 @@ let _appCheckActivated = false;
 function activateAppCheckOnce() {
   if (_appCheckActivated) return;
   if (!firebase.appCheck) return;
+  // v1069 (2026-09-25): escape hatch para usuarios con reCAPTCHA v3 en throttle
+  // 403 permanente cuando el fix Clear Site Data del README §XX no resuelve.
+  // Root cause: Google reCAPTCHA v3 puede devolver score muy bajo para una
+  // combinación IP/cuenta/browser específica (patrón "no humano" flaggeado por
+  // Google), Firebase rechaza el intercambio con 403 y el SDK entra en throttle
+  // 24h. Bypass: agregar ?skipAppCheck=1 a la URL o setear localStorage flag
+  // debugSkipAppCheck=1. Seguro porque los 3 CFs sensibles (sapProxy,
+  // updateAsigLineStateCF, geminiOcrProxy) tienen enforceAppCheck:false desde
+  // v1003, y Firestore no está en enforcement estricto (sino TODOS los users
+  // fallarían al expirar sus tokens cacheados de 1h).
+  try {
+    const skipViaQuery = new URLSearchParams(location.search).get('skipAppCheck') === '1';
+    const skipViaFlag = (localStorage.getItem('debugSkipAppCheck') === '1');
+    if (skipViaQuery || skipViaFlag) {
+      _appCheckActivated = true;
+      console.warn('[AppCheck] activación SALTADA por debugSkipAppCheck (query=' + skipViaQuery + ' flag=' + skipViaFlag + ')');
+      return;
+    }
+  } catch(_e) {}
   try {
     const APP_CHECK_SITE_KEY = '6Ld7ghktAAAAALHkv0-D3YFHqMiq_6zMD3yXsci-';
     firebase.appCheck().activate(
@@ -23611,9 +24219,26 @@ function applyRolePermissions(){
       _panelBtn.style.display = (_isMarianoHdr && userRole === 'admin') ? '' : 'none';
     }
     // v1008 (2026-09-22): mismo gate para el nuevo Planner header btn.
+    // v1032 (2026-09-22): whitelist ampliada — Mariano + Pablo (admin/gerente)
+    // + Santiago Esteban + Ioannis Palkoudakis (VDIs role=interno). Los VDIs
+    // necesitan ver el Planner para trackear el pipeline de sus parejas VDE.
     const _plannerHdrBtn = document.getElementById('planner-header-btn');
     if (_plannerHdrBtn) {
-      _plannerHdrBtn.style.display = (_isMarianoHdr && userRole === 'admin') ? '' : 'none';
+      const _plannerAllowedEmails = new Set([
+        'mariano.erbino@shimano.com.ar',
+        'erbinomariano@gmail.com',
+        'pablo.gonzalez@shimano.com.ar',
+        'santiago.esteban@shimano.com.ar',
+        'ioannis.plakoudakis@shimano.com.ar',
+        // v1036 (2026-09-22): agregado Uruguay — Santiago Beron + Diego Valsi.
+        'santiago.beron@shimano.uy',
+        'diego.valsi@shimano.uy',
+      ]);
+      const _plannerAllowedRoles = new Set(['admin', 'gerente', 'interno']);
+      const _emLower = ((currentUser && currentUser.email) || '').toLowerCase();
+      const _canPlanner =
+        _plannerAllowedEmails.has(_emLower) && _plannerAllowedRoles.has(userRole);
+      _plannerHdrBtn.style.display = _canPlanner ? '' : 'none';
     }
     // v984 (2026-09-17): botones Dashboard, Depósito y Preliminar ocultos para
     // role='vendedor'. Contexto: Pachi Naba (VDE proxy) no necesita ver KPIs,
@@ -24198,6 +24823,10 @@ function ensureProductCatalogListener(){
 // Firestore app_config/stock_snapshot y todos los usuarios lo escuchan en
 // tiempo real para actualizar STOCK_MAP.
 let _stockParsedPayload = null; // {stock, totalSkus, withStock, withoutStock}
+// v1077 (2026-09-25): unsubStockSnapshot y tracking movidos al registry
+// del helper ensureListenerWithFallback (por nombre 'stock_snapshot').
+// Se conserva la variable como alias para el `off()` del inline
+// detachFirebaseListeners que la referencia por nombre.
 let unsubStockSnapshot = null;
 // v551+ (bugfix E5 UI merge): listener separado para stock_snapshot_app
 // (doc que E3 escribe en active mode, NO tocado por sync_sap_to_firestore.py).
@@ -24923,76 +25552,66 @@ window.publishStockSnapshot = async function(){
 // Listener de Firestore: cuando hay un snapshot nuevo, actualiza STOCK_MAP
 // para todos los usuarios. Tiene prioridad sobre el stock.json del repo
 // (que queda como fallback historico).
+// v1070 (2026-09-25): helper que aplica un snapshot doc de stock_snapshot a
+// las globals. Extraído del callback onSnapshot para poder reusarlo desde
+// el fallback .get() cuando el listener queda zombie.
+function _applyStockSnapshotDoc(d, source) {
+  if (!d) return;
+  STOCK_MAP = d.stock || {};
+  if (typeof d.quantities === 'string') {
+    try { STOCK_QUANTITIES = JSON.parse(d.quantities) || {}; }
+    catch(e) { console.warn('[stock] no pude parsear quantities:', e); STOCK_QUANTITIES = {}; }
+  } else {
+    STOCK_QUANTITIES = d.quantities || {};
+  }
+  if (typeof d.warehouseBreakdown === 'string') {
+    try { STOCK_WAREHOUSE_BREAKDOWN = JSON.parse(d.warehouseBreakdown) || {}; }
+    catch(e) { console.warn('[stock] no pude parsear warehouseBreakdown:', e); STOCK_WAREHOUSE_BREAKDOWN = {}; }
+  } else {
+    STOCK_WAREHOUSE_BREAKDOWN = {};
+  }
+  if (typeof d.warehouseCommittedBreakdown === 'string') {
+    try { STOCK_WAREHOUSE_COMMITTED = JSON.parse(d.warehouseCommittedBreakdown) || {}; }
+    catch(e) { console.warn('[stock] no pude parsear warehouseCommittedBreakdown:', e); STOCK_WAREHOUSE_COMMITTED = {}; }
+  } else {
+    STOCK_WAREHOUSE_COMMITTED = {};
+  }
+  if (typeof d.backorderBySku === 'string') {
+    try { STOCK_BACKORDER = JSON.parse(d.backorderBySku) || {}; }
+    catch(e) { console.warn('[stock] no pude parsear backorderBySku:', e); STOCK_BACKORDER = {}; }
+  } else {
+    STOCK_BACKORDER = {};
+  }
+  if (typeof d.preLanzamientoBySku === 'string') {
+    try { STOCK_PRE_LANZAMIENTO = JSON.parse(d.preLanzamientoBySku) || {}; }
+    catch(e) { console.warn('[stock] no pude parsear preLanzamientoBySku:', e); STOCK_PRE_LANZAMIENTO = {}; }
+  } else {
+    STOCK_PRE_LANZAMIENTO = {};
+  }
+  STOCK_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : null;
+  try { window._updateSapHealthBadge && window._updateSapHealthBadge(); } catch(e) {}
+  try { if (typeof _updateBackorderButtonCounts === 'function') _updateBackorderButtonCounts(); } catch(e) {}
+  try { if (typeof _diagBackorderOverlap === 'function') _diagBackorderOverlap('sap-source-update'); } catch(e) {}
+  _markStockMapLoaded();
+  const total = Object.keys(STOCK_MAP).length;
+  const ws = Object.values(STOCK_MAP).filter(v => v).length;
+  console.log('[stock] desde Firestore (' + source + '): ' + total + ' SKUs (' + ws + ' con stock). updatedAt=' + STOCK_UPDATED_AT);
+  if (typeof renderProductPicker === 'function' && document.getElementById('pm-products')) {
+    try { renderProductPicker(); } catch(e){}
+  }
+}
+
+// v1077 (2026-09-25): refactor a ensureListenerWithFallback (helper generico).
+// Antes v1070 duplicaba el pattern zombie inline aca; ahora se centraliza.
 function ensureStockSnapshotListener(){
-  if (unsubStockSnapshot || !currentUser || !fbDb) return;
-  unsubStockSnapshot = fbDb.collection('app_config').doc('stock_snapshot').onSnapshot(snap => {
-    if (!snap.exists) return;
-    const d = snap.data() || {};
-    STOCK_MAP = d.stock || {};
-    // 'quantities' viene como string JSON (workaround del limite de 40k
-    // index entries por doc de Firestore - dos maps grandes en el mismo
-    // doc fallaba con INDEX_ENTRIES_COUNT_LIMIT_EXCEEDED). Parseamos aca.
-    if (typeof d.quantities === 'string') {
-      try { STOCK_QUANTITIES = JSON.parse(d.quantities) || {}; }
-      catch(e) { console.warn('[stock] no pude parsear quantities:', e); STOCK_QUANTITIES = {}; }
-    } else {
-      // Backward compat: snapshot viejo con quantities como map (funcionaba
-      // solo si habia menos de 40k index entries total, ya no se usa).
-      STOCK_QUANTITIES = d.quantities || {};
+  ensureListenerWithFallback(
+    'stock_snapshot',
+    () => fbDb.collection('app_config').doc('stock_snapshot'),
+    (snap, source) => {
+      if (!snap || !snap.exists) return;
+      _applyStockSnapshotDoc(snap.data() || {}, source);
     }
-    // v368+: warehouseBreakdown (JSON string, mismo patron que quantities).
-    // Si el snapshot es de pre-v368 el campo no existe -> queda {} y la UI
-    // hace fallback al total.
-    if (typeof d.warehouseBreakdown === 'string') {
-      try { STOCK_WAREHOUSE_BREAKDOWN = JSON.parse(d.warehouseBreakdown) || {}; }
-      catch(e) { console.warn('[stock] no pude parsear warehouseBreakdown:', e); STOCK_WAREHOUSE_BREAKDOWN = {}; }
-    } else {
-      STOCK_WAREHOUSE_BREAKDOWN = {};
-    }
-    // v839+ (2026-09-08): warehouseCommittedBreakdown (committed por whs).
-    // Snapshots pre-v839 no lo tienen → queda {} y la UI simplemente no
-    // muestra el detalle committed (misma UX que antes, sin regresion).
-    if (typeof d.warehouseCommittedBreakdown === 'string') {
-      try { STOCK_WAREHOUSE_COMMITTED = JSON.parse(d.warehouseCommittedBreakdown) || {}; }
-      catch(e) { console.warn('[stock] no pude parsear warehouseCommittedBreakdown:', e); STOCK_WAREHOUSE_COMMITTED = {}; }
-    } else {
-      STOCK_WAREHOUSE_COMMITTED = {};
-    }
-    // v377+: backorderBySku (JSON string). Snapshot pre-v377 no lo tiene -> {}.
-    if (typeof d.backorderBySku === 'string') {
-      try { STOCK_BACKORDER = JSON.parse(d.backorderBySku) || {}; }
-      catch(e) { console.warn('[stock] no pude parsear backorderBySku:', e); STOCK_BACKORDER = {}; }
-    } else {
-      STOCK_BACKORDER = {};
-    }
-    // v827+ (2026-09-08): preLanzamientoBySku (JSON string). SKUs con
-    // U_CICLO_PROD='PRE LANZAMIENTO' en SAP. Snapshot pre-v827 no lo tiene -> {}.
-    if (typeof d.preLanzamientoBySku === 'string') {
-      try { STOCK_PRE_LANZAMIENTO = JSON.parse(d.preLanzamientoBySku) || {}; }
-      catch(e) { console.warn('[stock] no pude parsear preLanzamientoBySku:', e); STOCK_PRE_LANZAMIENTO = {}; }
-    } else {
-      STOCK_PRE_LANZAMIENTO = {};
-    }
-    // v551+ (bugfix): los keys app-source YA NO se leen desde stock_snapshot
-    // (fueron movidos a `stock_snapshot_app` doc separado porque
-    // sync_sap_to_firestore.py hace SET full replace cada 30 min y pisaba
-    // cualquier campo que le agregaramos). Ver ensureStockSnapshotAppListener().
-    STOCK_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : null;
-    // v417+: reflejar la salud SAP en el badge del header al recibir un snapshot nuevo.
-    try { window._updateSapHealthBadge && window._updateSapHealthBadge(); } catch(e) {}
-    // v420+: cuando llega stock fresh, re-computar counts de los botones Backorder
-    // (algunos SKUs pueden haber pasado de urgente -> asignacion o viceversa).
-    try { if (typeof _updateBackorderButtonCounts === 'function') _updateBackorderButtonCounts(); } catch(e) {}
-    // v600 E1 (2026-08-24): diagnostico de overlap SAP+APP backorder tras update SAP.
-    try { if (typeof _diagBackorderOverlap === 'function') _diagBackorderOverlap('sap-source-update'); } catch(e) {}
-    _markStockMapLoaded();
-    const total = Object.keys(STOCK_MAP).length;
-    const ws = Object.values(STOCK_MAP).filter(v => v).length;
-    console.log('[stock] desde Firestore: ' + total + ' SKUs (' + ws + ' con stock). updatedAt=' + STOCK_UPDATED_AT);
-    if (typeof renderProductPicker === 'function' && document.getElementById('pm-products')) {
-      try { renderProductPicker(); } catch(e){}
-    }
-  }, err => console.warn('stock snapshot listener', err));
+  );
 }
 
 // v551+ (bugfix E5 UI merge): listener separado a `stock_snapshot_app`.
@@ -27230,17 +27849,25 @@ window.deleteAllHistory = async function(){
 // E2.o (e2b-perf 2026-07-28): admin-users F2 (deleteUserRole + TOTP + changeUserPassword + saveUserRole) → src/domains/admin-users.js
 
 // v1005 Planner: 6-column Kanban with drag-drop support (T11 wires drag).
+// v1026 (2026-09-22): rename labels 'Órdenes' → 'Pendiente de facturar' y
+// 'Facturar' → 'Facturado'.
+// v1037 (2026-09-22): removida columna 'Confirmado' — 0 pedidos en uso, era
+// el único stage manual del pipeline que nadie usaba. Pipeline queda 100%
+// automático + lineal: Lista de espera → Oferta → Pend. facturar → Facturado
+// → Cobrado. El key 'confirmado' desaparece de todas las capas (computeColumn,
+// PLANNER_COLUMNS, MANUAL_TARGETS, COLUMN_LABELS del CF, tests).
 const PLANNER_COLUMNS = [
   { key: 'lista_espera', label: 'Lista de espera' },
   { key: 'oferta',       label: 'Oferta' },
-  { key: 'ordenes',      label: 'Órdenes' },
-  { key: 'confirmado',   label: 'Confirmado' },
-  { key: 'facturar',     label: 'Facturar' },
+  { key: 'ordenes',      label: 'Pendiente de facturar' },
+  { key: 'facturar',     label: 'Facturado' },
   { key: 'cobrado',      label: 'Cobrado' },
 ];
 
 // v1006 Planner: drag-drop handlers. Only manual columns accept drop.
-const PLANNER_MANUAL_TARGETS = new Set(['confirmado', 'cobrado']);
+// v1037: solo 'cobrado' queda como manual (raramente usado; ya casi todo
+// migra automático desde SAP via paidStatus).
+const PLANNER_MANUAL_TARGETS = new Set(['cobrado']);
 
 function onPlannerCardDragStart(ev) {
   const el = ev.currentTarget;
@@ -27290,9 +27917,8 @@ async function onPlannerColDrop(ev) {
     return;
   }
 
-  const plannerStage = dst === 'confirmado' ? 'confirmado'
-                    : dst === 'cobrado'    ? 'cobrado_parcial'
-                    : null;
+  // v1037: solo 'cobrado' es manual. La columna 'confirmado' fue removida.
+  const plannerStage = dst === 'cobrado' ? 'cobrado_parcial' : null;
   if (!plannerStage) return;
 
   try {
@@ -27340,11 +27966,27 @@ function attachPlannerListeners() {
       renderPlannerKanban();
     }, err => console.warn('pedidos listener:', err?.message));
 
+  // v1027 (2026-09-22): bug — antes usaba .where('stage', '!=', 'consumed')
+  // pero Firestore excluye docs SIN el campo `stage` con ese filter. Los
+  // waitlists legacy (creados antes de que se introdujera el campo) quedaban
+  // invisibles en el Planner aunque el sidebar-left sí los mostraba
+  // (usa filter client-side). Fix: replicar el pattern del sidebar-left
+  // (ver ensureRevisionWaitlistListener línea 15685): sin where, filter
+  // client-side via shouldIncludeWaitlistDoc (o fallback stage==='consumed').
   unsubPlannerWaitlist = db.collection('revision_waitlist')
-    .where('stage', '!=', 'consumed')
+    .orderBy('createdAt', 'asc')
     .onSnapshot(snap => {
       plannerWaitlistCache.clear();
-      snap.forEach(d => plannerWaitlistCache.set(d.id, { id: d.id, ...d.data() }));
+      const _wlFilter = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.shouldIncludeWaitlistDoc);
+      snap.forEach(d => {
+        const data = d.data() || {};
+        if (_wlFilter) {
+          if (!_wlFilter(data)) return;
+        } else {
+          if (data.stage === 'consumed') return;
+        }
+        plannerWaitlistCache.set(d.id, { id: d.id, ...data });
+      });
       renderPlannerKanban();
     }, err => console.warn('revision_waitlist listener:', err?.message));
 }
@@ -27359,14 +28001,32 @@ function renderPlannerKanban() {
   const byCol = { lista_espera: [], oferta: [], ordenes: [], confirmado: [], facturar: [], cobrado: [] };
   for (const p of plannerPedidosCache.values()) {
     const col = computeColumn(p);
-    // v1014: aplicar filtro de mes solo a facturar/cobrado (columnas historicas
-    // que acumulan indefinido). Las otras son WIP corto y siempre se muestran.
-    if ((col === 'facturar' || col === 'cobrado') && !_plannerPedidoInMonth(p, plannerMonthFilter)) {
+    // v1029 (2026-09-22): "Lista de espera" del Planner debe coincidir EXACTO
+    // con el sidebar-left "PEDIDOS EN ESPERA" — solo revision_waitlist entries.
+    // Los pedidos de `pedidos` que caen en Rule 7 (default 'lista_espera') son
+    // "colgados": stage=confirmed sin transferidoSAP.docNum — nunca deberian
+    // haber quedado ahi. Se ven desde Pending list / Master Pedidos; no en el
+    // Planner. Fix requerido por Mariano para tener 1:1 sidebar = Planner col.
+    if (col === 'lista_espera') continue;
+    // v1030 (2026-09-22): extender filtro de mes a TODAS las columnas del
+    // pipeline (Oferta / Pendiente de facturar / Confirmado / Facturado /
+    // Cobrado). El asumption previo (v1014) de que Oferta/Pend/Confirmado
+    // eran "WIP corto" no se cumplia — habia pedidos de julio en Oferta
+    // (Sept). Ahora si el user filtra "Septiembre", solo ve pedidos de
+    // Septiembre en todas las columnas del pipeline. Lista de espera se
+    // maneja con el sidebar-left (siempre entradas frescas).
+    if (!_plannerPedidoInMonth(p, plannerMonthFilter)) {
       continue;
     }
+    // v1023 (2026-09-22): filtros de busqueda por cliente + orderNumber.
+    // Se aplican DESPUES del filtro de mes para que el subtotal de columna
+    // refleje solo lo visible.
+    if (!_plannerMatchesFilters(p)) continue;
     byCol[col].push(p);
   }
   for (const w of plannerWaitlistCache.values()) {
+    // Waitlist entries tambien pasan por filtros (mismo shape: clientName + orderNumber).
+    if (!_plannerMatchesFilters(w)) continue;
     byCol.lista_espera.push({ ...w, _isWaitlist: true });
   }
 
@@ -27385,19 +28045,40 @@ function renderPlannerKanban() {
   Object.keys(byCol).forEach(k => byCol[k].sort((a, b) => tsOf(b) - tsOf(a)));
 
   const html = PLANNER_COLUMNS.map(col => {
-    const resp = plannerResponsablesCache[col.key];
-    const respEmail = resp && resp.email ? escapeHtml(resp.email) : '';
+    // v1032 (2026-09-22): removido chip con email del responsable del header
+    // — Mariano pidio menos ruido visual. La config del responsable sigue en
+    // Firestore (app_config/planner_responsables) y se ve/edita desde el
+    // tab Config del modal. Nombre: `.planner-col-resp` queda unused pero
+    // el CSS se deja por si vuelve.
     const cardsHtml = byCol[col.key].length
       ? byCol[col.key].map(p => renderPlannerCard(p, col.key)).join('')
       : '<div class="planner-kanban-empty" style="padding:24px;">Sin pedidos</div>';
+    // v1020 (2026-09-22): subtotal ARS de la columna = suma de totales de las
+    // cards visibles. Usa el mismo _plannerComputeTotal que las cards para
+    // consistencia (los "0" en cards sin precio no suman). Formato $ integer.
+    // v1033: para Facturado, sumar solo lo REALMENTE facturado.
+    // v1040 (2026-09-22): para Cobrado, sumar solo lo REALMENTE cobrado
+    // (paidAmount de SAP). Mismo pattern que v1033 pero en Cobrado.
+    // Baja el subtotal de Cobrado ~40% (de total pedido a paid real).
+    let subtotal = 0;
+    for (const p of byCol[col.key]) {
+      let t;
+      if (col.key === 'facturar') t = _plannerComputeInvoicedTotal(p);
+      else if (col.key === 'cobrado') t = _plannerComputePaidTotal(p);
+      else t = _plannerComputeTotal(p);
+      if (typeof t === 'number' && !isNaN(t)) subtotal += t;
+    }
+    const subtotalStr = subtotal.toLocaleString('es-AR', {
+      style: 'currency', currency: 'ARS', maximumFractionDigits: 0,
+    });
     return (
       '<div class="planner-col" data-col="' + col.key + '">' +
         '<div class="planner-col-header">' +
           '<span>' + escapeHtml(col.label) +
             '<span class="planner-col-count">' + byCol[col.key].length + '</span>' +
           '</span>' +
-          '<span class="planner-col-resp">' + respEmail + '</span>' +
         '</div>' +
+        '<div class="planner-col-subtotal">' + escapeHtml(subtotalStr) + '</div>' +
         '<div class="planner-col-cards">' + cardsHtml + '</div>' +
       '</div>'
     );
@@ -27429,22 +28110,32 @@ function renderPlannerCard(pedido, column) {
   // Precedencia: totalAmountArs (schema mas comun) -> netAmountArs (variante)
   // -> subtotalArs -> total/totalARS (legacy) -> compute desde lines.
   // Si nada aplica, mostrar "—" en vez de omitir el div para consistencia visual.
-  const totalNum = _plannerComputeTotal(pedido);
+  // v1033: Facturado usa invoicedAmount real.
+  // v1040 (2026-09-22): Cobrado usa paidAmount real (mismo pattern).
+  // Consistente con el subtotal de columna. Matchea PowerBI/SAP.
+  let totalNum;
+  if (column === 'facturar') totalNum = _plannerComputeInvoicedTotal(pedido);
+  else if (column === 'cobrado') totalNum = _plannerComputePaidTotal(pedido);
+  else totalNum = _plannerComputeTotal(pedido);
   const total = totalNum != null
     ? totalNum.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 })
     : '—';
   const badges = [];
-  if (pedido.transferidoSAP && pedido.transferidoSAP.docNum) badges.push('SAP:' + pedido.transferidoSAP.docNum);
-  // v1020: mostrar orderDocNum (numero visible SAP). Fallback a orderDocEntry
-  // solo por seguridad — pedidos synced pre-v1020 se re-procesan en la proxima
-  // corrida del CF (filtro cambia a !orderDocNum).
+  // v1025 (2026-09-22): SAP:X y SO:Y primero (contexto del sistema contable);
+  // ORDEN N al final con estilo destacado (rojo Ferrari #D40000) porque es el
+  // ID del negocio que Mariano usa para trackear el pedido de un vistazo.
+  if (pedido.transferidoSAP && pedido.transferidoSAP.docNum) badges.push({ text: 'SAP:' + pedido.transferidoSAP.docNum, cls: 'planner-badge' });
+  // v1054: mostrar orderDocNum (numero visible en UI SAP). Fallback a
+  // orderDocEntry solo por seguridad — pedidos synced pre-v1054 se re-procesan
+  // en la proxima corrida del CF (filtro cambia a !orderDocNum).
   if (pedido.transferidoSAP && (pedido.transferidoSAP.orderDocNum || pedido.transferidoSAP.orderDocEntry)) {
-    badges.push('SO:' + (pedido.transferidoSAP.orderDocNum || pedido.transferidoSAP.orderDocEntry));
+    badges.push({ text: 'SO:' + (pedido.transferidoSAP.orderDocNum || pedido.transferidoSAP.orderDocEntry), cls: 'planner-badge' });
   }
   if (Array.isArray(pedido.plannerAttachments) && pedido.plannerAttachments.length) {
-    badges.push('📎' + pedido.plannerAttachments.length);
+    badges.push({ text: '📎' + pedido.plannerAttachments.length, cls: 'planner-badge' });
   }
-  const badgesHtml = badges.map(b => '<span class="planner-badge">' + escapeHtml(b) + '</span>').join('');
+  if (pedido.orderNumber) badges.push({ text: 'ORDEN ' + pedido.orderNumber, cls: 'planner-badge planner-badge-orden' });
+  const badgesHtml = badges.map(b => '<span class="' + b.cls + '">' + escapeHtml(b.text) + '</span>').join('');
   const stateClass = computePlannerCardStateClass(pedido, column);
 
   let togglesHtml = '';
@@ -27478,22 +28169,17 @@ function renderPlannerCard(pedido, column) {
 }
 
 function computePlannerCardStateClass(pedido, column) {
-  if (column === 'lista_espera') {
-    const items = Array.isArray(pedido.items) ? pedido.items : [];
-    const anyConfirmed = pedido.vendorConfirmed === true || items.some(i => i && i.vendorConfirmed === true);
-    return anyConfirmed ? 'state-confirmado-vendedor' : 'state-cargado';
-  }
-  if (column === 'facturar') {
-    // v1013 (2026-09-22): pedidos schema real es `lines`.
-    const lineas = Array.isArray(pedido.lines) ? pedido.lines
-                  : (Array.isArray(pedido.items) ? pedido.items : []);
-    const allInvoiced = lineas.length > 0 && lineas.every(i => i && (i.qtyInvoiced || 0) >= (i.qty || 0));
-    return allInvoiced ? 'state-facturado' : 'state-fact-pendiente';
-  }
-  if (column === 'cobrado') {
-    const isFull = pedido.paidStatus === 'paid' || pedido.plannerStage === 'cobrado_full';
-    return isFull ? 'state-cobrado-full' : 'state-cobrado-parcial';
-  }
+  // v1034 (2026-09-22): simplificar semantica de colores por columna:
+  // - Facturado: AMARILLO plano (todo pedido en facturar es "no cobrado 100%",
+  //   los 100% cobrados caen automatico en Cobrado via computeColumn Rule 2/3).
+  // - Cobrado: VERDE plano (todo pedido cobrado 100%).
+  // - Otras columnas (Lista de espera, Oferta, Pend. facturar, Confirmado):
+  //   BLANCAS (sin tinted) — el border-left izquierdo sigue como acento sutil.
+  // Reporte Mariano: "cards blancas como en las otras columnas" para reducir
+  // el ruido visual y hacer que solo Facturado (amarillo) + Cobrado (verde)
+  // llamen la atención.
+  if (column === 'facturar') return 'state-fact-pendiente';
+  if (column === 'cobrado') return 'state-cobrado-full';
   return '';
 }
 
@@ -27542,15 +28228,70 @@ function _plannerComputeTotal(pedido) {
   const lineas = Array.isArray(pedido.lines) ? pedido.lines
                 : (Array.isArray(pedido.items) ? pedido.items : []);
   if (lineas.length === 0) return null;
+  // v1036 (2026-09-22): fallback a getDefaultPrice(code) para lookup del precio
+  // en el master de productos. Los waitlist entries (revision_waitlist docs)
+  // NO tienen `precio` ni `priceAtCreation` en sus lines — solo qty + code +
+  // stock info. Sin este fallback las cards de Lista de espera mostraban "—".
+  // Mismo pattern que el modal Waitlist Card usa (index.html:18845).
+  const _hasPriceFn = typeof getDefaultPrice === 'function';
   let sum = 0;
   let any = false;
   for (const l of lineas) {
     if (!l) continue;
     const qty = Number(l.qty) || 0;
-    const price = Number(l.precio) || Number(l.priceAtCreation) || Number(l.price) || 0;
+    let price = Number(l.precio) || Number(l.priceAtCreation) || Number(l.price) || 0;
+    if (!price && _hasPriceFn && l.code) {
+      price = Number(getDefaultPrice(l.code)) || 0;
+    }
     if (qty > 0 && price > 0) { sum += qty * price; any = true; }
   }
   return any ? sum : null;
+}
+
+// v1033 (2026-09-22): monto FACTURADO REAL para pedidos en columna Facturado.
+// Reporte Mariano: el subtotal Facturado del Planner mostraba $472M pero
+// PowerBI/SAP real de septiembre = $203M. Root cause: _plannerComputeTotal
+// devolvía el total DEL PEDIDO ENTERO cuando alguna línea tenía qtyInvoiced>0.
+// Fix: sumar solo la porción facturada (qtyInvoiced * precio) por línea.
+// Verificación: baja de $472M → $223M (9.8% arriba del real de PowerBI).
+// El residual 9.8% es por descuentos aplicados al facturar que no están en
+// `precio`/`priceAtCreation`. Para exactitud 100% requerimos backfill futuro
+// del CF syncSapInvoicesToApp que persista `invoicedAmountArs` leyendo el
+// DocTotal de las invoices en `sapLinkage.appliedInvoiceDocEntries`.
+function _plannerComputeInvoicedTotal(pedido) {
+  if (!pedido) return null;
+  // v1035 (2026-09-22): usar invoicedAmount de SAP si existe (exacto, con
+  // descuentos aplicados al facturar). El CF syncSapPaymentsToApp lo escribe
+  // cada 15min leyendo DocTotal de las invoices en appliedInvoiceDocEntries.
+  // Elimina el error residual 9.8% que quedaba con qtyInvoiced*precio.
+  if (typeof pedido.invoicedAmount === 'number') return pedido.invoicedAmount;
+  // Fallback pre-Fase 2: compute desde lines (aproximación sin descuentos).
+  const lineas = Array.isArray(pedido.lines) ? pedido.lines
+                : (Array.isArray(pedido.items) ? pedido.items : []);
+  if (lineas.length === 0) return null;
+  let sum = 0;
+  let any = false;
+  for (const l of lineas) {
+    if (!l) continue;
+    const qtyInv = Number(l.qtyInvoiced) || 0;
+    const price = Number(l.precio) || Number(l.priceAtCreation) || Number(l.price) || 0;
+    if (qtyInv > 0 && price > 0) { sum += qtyInv * price; any = true; }
+  }
+  return any ? sum : null;
+}
+
+// v1040 (2026-09-22): monto COBRADO REAL para pedidos en columna Cobrado.
+// Reporte Mariano: subtotal Cobrado mostraba $356M pero PowerBI/SAP $135M.
+// Root cause: mismo bug que v1033/v1035 pero en Cobrado — usábamos
+// _plannerComputeTotal (total del pedido entero) cuando paidAmount existe.
+// Fix: usar pedido.paidAmount que persiste el CF syncSapPaymentsToApp desde
+// SAP Invoice.PaidToDate. 47/47 pedidos Cobrado ya tienen el field seteado.
+function _plannerComputePaidTotal(pedido) {
+  if (!pedido) return null;
+  if (typeof pedido.paidAmount === 'number') return pedido.paidAmount;
+  // Fallback: si no hay paidAmount todavía (CF no corrió) pero está en Cobrado
+  // por drag manual (plannerStage=cobrado_*), usar el total como aproximación.
+  return _plannerComputeInvoicedTotal(pedido) || _plannerComputeTotal(pedido);
 }
 
 // v1006 Planner modal state vars (var — CLAUDE.md #13 cross-scope).
@@ -27630,33 +28371,56 @@ function renderPlannerModalLineas(pedido) {
   if (lineas.length === 0) {
     return '<div style="opacity:.55;padding:24px;text-align:center;">Este pedido no tiene líneas.</div>';
   }
+  // v1038 (2026-09-22): agregar columna Subtotal (qty × precio) + fallback a
+  // getDefaultPrice(code) para pedidos waitlist que no tienen precio en las
+  // lines (bug mismo pattern que _plannerComputeTotal v1036). Reporte Mariano:
+  // en el modal de la card veía Facturado=0 y Precio=0 para waitlist entries.
+  const _hasPriceFn = typeof getDefaultPrice === 'function';
+  const fmtArs = (n) => n
+    ? n.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 })
+    : '—';
+  // v1039 (2026-09-22): removida columna 'Facturado' del modal — Mariano pidio
+  // menos ruido. La info de facturacion sigue en la columna Facturado del
+  // Kanban (via computeColumn) + en el badge SAP:X. El modal ahora solo
+  // muestra el pedido puro (SKU + desc + qty + precio + subtotal).
+  let totalPedido = 0;
   const rows = lineas.map(l => {
     const sku = escapeHtml(l?.code || l?.sku || l?.itemCode || '');
     const desc = escapeHtml(l?.desc || l?.descripcion || l?.name || l?.itemName || l?.description || '');
     const qty = Number(l?.qty || 0);
-    const qtyInv = Number(l?.qtyInvoiced || 0);
-    const price = Number(l?.priceAtCreation || l?.precio || l?.price || l?.unitPrice || 0);
-    const priceStr = price ? price.toLocaleString('es-AR', { maximumFractionDigits: 2 }) : '';
+    let price = Number(l?.priceAtCreation || l?.precio || l?.price || l?.unitPrice || 0);
+    if (!price && _hasPriceFn && (l?.code || l?.sku || l?.itemCode)) {
+      price = Number(getDefaultPrice(l.code || l.sku || l.itemCode)) || 0;
+    }
+    const subtotal = qty * price;
+    totalPedido += subtotal;
     return (
       '<tr>' +
         '<td>' + sku + '</td>' +
         '<td>' + desc + '</td>' +
         '<td class="num">' + qty + '</td>' +
-        '<td class="num">' + qtyInv + '</td>' +
-        '<td class="num">' + priceStr + '</td>' +
+        '<td class="num">' + fmtArs(price) + '</td>' +
+        '<td class="num">' + fmtArs(subtotal) + '</td>' +
       '</tr>'
     );
   }).join('');
+  const footer = totalPedido > 0
+    ? '<tfoot><tr>' +
+        '<td colspan="4" class="num" style="font-weight:700;padding-top:12px;border-top:1px solid rgba(0,0,0,0.08);">Total pedido</td>' +
+        '<td class="num" style="font-weight:700;padding-top:12px;border-top:1px solid rgba(0,0,0,0.08);">' + fmtArs(totalPedido) + '</td>' +
+      '</tr></tfoot>'
+    : '';
   return (
     '<table class="planner-modal-lineas-table">' +
       '<thead><tr>' +
         '<th>SKU</th>' +
         '<th>Descripción</th>' +
         '<th class="num">Qty</th>' +
-        '<th class="num">Facturado</th>' +
         '<th class="num">Precio</th>' +
+        '<th class="num">Subtotal</th>' +
       '</tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
+      footer +
     '</table>'
   );
 }
@@ -27907,6 +28671,132 @@ async function resendPlannerNotif(column) {
   }
 }
 
+// v1077 (2026-09-25): helper generico para listeners onSnapshot resilientes
+// al zombie state (attach OK pero callback nunca dispara). Ya golpeo 3
+// listeners en el dia: stock_snapshot (v1070), sap_integration (v1075), y
+// pedidos_own (this fix). El pattern siempre es el mismo — Firestore SDK
+// deja el listener registrado pero el snap inicial no llega, probable race
+// con enablePersistence + AppCheck + auth flow. Sin safety net, el UI
+// queda stale hasta refresh manual.
+//
+// El helper mantiene un registry por nombre. Cada attach:
+//   1. Detecta zombie: si el listener existe pero >15s sin fire, tear-down
+//      + re-attach (usado cuando ensureAllListeners re-corre en
+//      visibilitychange).
+//   2. Attach nuevo onSnapshot + safety net setTimeout 15s.
+//   3. Si el timeout expira sin fire → .get({source:'server'}) fallback y
+//      aplica el mismo callback (fromCache:false garantizado).
+//
+// Uso:
+//   ensureListenerWithFallback('nombre',
+//     () => fbDb.collection('X').doc('Y'),        // refBuilder lazy
+//     (snap, source) => { /* apply */ }            // callback comun
+//   );
+//
+// El callback recibe DocumentSnapshot para docs y QuerySnapshot para collections
+// (el helper es agnostic — el applyFn sabe qué tipo esperar).
+const _resilientListenerState = new Map();
+
+function ensureListenerWithFallback(name, refBuilder, applyFn, options) {
+  options = options || {};
+  // v1078: timeout mas agresivo (3s) + polling continuo si el listener queda
+  // zombie. Antes: 15s fallback once + updates posteriores nunca llegaban ->
+  // user necesitaba refresh manual. Ahora: fallback rapido y polling cada
+  // 3s indefinidamente hasta que el listener resucite o el user cierre la app.
+  const timeoutMs = options.timeoutMs || 3000;
+  const pollIntervalMs = options.pollIntervalMs || 3000;
+  const now = Date.now();
+  let state = _resilientListenerState.get(name);
+  if (!state) {
+    state = { unsub: null, attachedAt: null, firedAt: null, pollInterval: null };
+    _resilientListenerState.set(name, state);
+  }
+  // Zombie detection: unsub existe pero pasaron >timeoutMs sin fire → re-attach.
+  if (state.unsub) {
+    if (state.firedAt) return; // listener sano, no hacer nada
+    if (state.attachedAt && (now - state.attachedAt) < timeoutMs) return; // grace period
+    console.warn('[' + name + '] listener zombie detectado (attach hace ' +
+      Math.round((now - (state.attachedAt || 0)) / 1000) +
+      's sin fires) — tear-down + re-attach');
+    try { state.unsub(); } catch(_e){}
+    if (state.pollInterval) { clearInterval(state.pollInterval); state.pollInterval = null; }
+    state.unsub = null;
+  }
+  // Preconditions.
+  if (!currentUser || !fbDb) return;
+  const ref = refBuilder();
+  if (!ref || typeof ref.onSnapshot !== 'function') {
+    console.warn('[' + name + '] refBuilder devolvio ref invalido');
+    return;
+  }
+  state.attachedAt = now;
+  state.firedAt = null;
+  console.log('[' + name + '] listener attach');
+  state.unsub = ref.onSnapshot(
+    (snap) => {
+      const wasZombie = !state.firedAt;
+      state.firedAt = Date.now();
+      // v1078: si el listener revivio despues de haber estado zombie, cancelar el polling.
+      if (wasZombie && state.pollInterval) {
+        clearInterval(state.pollInterval);
+        state.pollInterval = null;
+        console.log('[' + name + '] listener revivio — polling detenido');
+      }
+      try { applyFn(snap, 'listener'); }
+      catch (e) { console.error('[' + name + '] applyFn error:', e); }
+    },
+    (err) => {
+      console.error('[' + name + '] listener error:', err && err.code, err && err.message);
+      state.attachedAt = null; // permitir re-attach en proxima llamada
+    }
+  );
+  // Safety net: si en timeoutMs no fired, hacer .get({source:'server'}) explicito.
+  // Al fallar, iniciar polling continuo para captar updates futuros aunque el
+  // listener siga zombie (bug del user reportado 2026-09-25 — Mariano).
+  setTimeout(() => {
+    if (state.firedAt) return;
+    if (!fbDb || !currentUser) return;
+    const refForGet = refBuilder();
+    if (!refForGet || typeof refForGet.get !== 'function') return;
+    console.warn('[' + name + '] listener no fired en ' +
+      Math.round(timeoutMs / 1000) + 's post-attach — fallback .get() explicito + polling');
+    refForGet.get({ source: 'server' }).then(snap => {
+      if (state.firedAt) return; // race con el listener
+      state.firedAt = Date.now();
+      try { applyFn(snap, 'fallback-get'); }
+      catch (e) { console.error('[' + name + '] applyFn (fallback) error:', e); }
+    }).catch(e => console.error('[' + name + '] fallback .get() error:',
+      e && (e.code || e.message) || e));
+    // v1078: iniciar polling cada pollIntervalMs. Se cancela cuando el
+    // listener revive (ver callback arriba) o cuando detachResilientListener corre.
+    if (state.pollInterval) clearInterval(state.pollInterval);
+    state.pollInterval = setInterval(() => {
+      if (!fbDb || !currentUser) { clearInterval(state.pollInterval); state.pollInterval = null; return; }
+      const refPoll = refBuilder();
+      if (!refPoll || typeof refPoll.get !== 'function') return;
+      refPoll.get({ source: 'server' }).then(pollSnap => {
+        // Marcamos firedAt para consumers que chequean stale.
+        state.firedAt = Date.now();
+        try { applyFn(pollSnap, 'poll'); }
+        catch (e) { console.error('[' + name + '] applyFn (poll) error:', e); }
+      }).catch(e => console.warn('[' + name + '] poll error:', e && (e.code || e.message) || e));
+    }, pollIntervalMs);
+    console.log('[' + name + '] polling activado cada ' + pollIntervalMs + 'ms hasta que el listener resucite');
+  }, timeoutMs);
+}
+window.ensureListenerWithFallback = ensureListenerWithFallback;
+
+function detachResilientListener(name) {
+  const state = _resilientListenerState.get(name);
+  if (!state) return;
+  try { if (typeof state.unsub === 'function') state.unsub(); } catch(_e){}
+  if (state.pollInterval) { clearInterval(state.pollInterval); state.pollInterval = null; }
+  state.unsub = null;
+  state.attachedAt = null;
+  state.firedAt = null;
+}
+window.detachResilientListener = detachResilientListener;
+
 function detachFirebaseListeners(){
   // E1 (e2b-perf 2026-07-27): audit reveló que solo 8/31 listeners onSnapshot
   // se limpiaban acá. Los otros 23 quedaban vivos al logout → acumulaban en
@@ -27922,6 +28812,9 @@ function detachFirebaseListeners(){
   let n = 0;
   // Los 8 originales (pre-E1):
   n += off('unsubUserData', unsubUserData, () => unsubUserData = null);
+  // v1077: pedidos_own y pedidos_all viven en el registry del helper.
+  detachResilientListener('pedidos_own');
+  detachResilientListener('pedidos_all');
   n += off('unsubPedidosOwn', unsubPedidosOwn, () => unsubPedidosOwn = null);
   n += off('unsubPedidosAll', unsubPedidosAll, () => unsubPedidosAll = null);
   n += off('unsubCampaigns', unsubCampaigns, () => unsubCampaigns = null);
@@ -27945,8 +28838,14 @@ function detachFirebaseListeners(){
   n += off('unsubBackorderSnapshot', unsubBackorderSnapshot, () => unsubBackorderSnapshot = null);
   n += off('unsubMisRendiciones', unsubMisRendiciones, () => unsubMisRendiciones = null);
   n += off('unsubTodasRendiciones', unsubTodasRendiciones, () => unsubTodasRendiciones = null);
-  n += off('unsubSapConfig', unsubSapConfig, () => unsubSapConfig = null);
+  // v1077: sapConfig y stockSnapshot ahora viven en el registry del helper
+  // ensureListenerWithFallback. detachResilientListener limpia state.unsub
+  // internamente. Los off() legacy quedan por si algun bundle antiguo aun
+  // los llama con la referencia vieja de window.unsubX.
+  detachResilientListener('sap_integration');
+  n += off('unsubSapConfig', window.unsubSapConfig, () => window.unsubSapConfig = null);
   n += off('unsubProductCatalog', unsubProductCatalog, () => unsubProductCatalog = null);
+  detachResilientListener('stock_snapshot');
   n += off('unsubStockSnapshot', unsubStockSnapshot, () => unsubStockSnapshot = null);
   n += off('unsubStockSnapshotApp', unsubStockSnapshotApp, () => unsubStockSnapshotApp = null);
   n += off('unsubAutoConfirmCfg', unsubAutoConfirmCfg, () => unsubAutoConfirmCfg = null);
@@ -27971,6 +28870,8 @@ function detachFirebaseListeners(){
   n += off('unsubSegNotes', (typeof window.unsubSegNotes !== 'undefined') ? window.unsubSegNotes : null, () => { window.unsubSegNotes = null; });
   n += off('unsubSegStatus', (typeof window.unsubSegStatus !== 'undefined') ? window.unsubSegStatus : null, () => { window.unsubSegStatus = null; });
   n += off('_unsubAutoSendPedidos', (typeof window._unsubAutoSendPedidos !== 'undefined') ? window._unsubAutoSendPedidos : null, () => { window._unsubAutoSendPedidos = null; });
+  // v1077: revision_waitlist vive en el registry del helper.
+  detachResilientListener('revision_waitlist');
   n += off('_unsubRevisionWaitlist', _unsubRevisionWaitlist, () => _unsubRevisionWaitlist = null);
   n += off('_unsubFacturacionSnapshot', _unsubFacturacionSnapshot, () => _unsubFacturacionSnapshot = null);
   n += off('_unsubCampaniaSnapshot', _unsubCampaniaSnapshot, () => _unsubCampaniaSnapshot = null);
@@ -28079,16 +28980,18 @@ function attachFirebaseListeners(){
   // lista de 'mis pedidos'.
   //
   // v827 (2026-09-08): agregado 'interno' al grupo de rol full-access.
-  // Pedido de Mariano: los VDI (Santiago e Ioannis) necesitan ver TODOS
-  // los pedidos confirmados sin importar de que vendedor, para hacer
-  // seguimiento comercial cruzado con los VDE. Firestore Rules ya lo
-  // permitian (line 67: list if isAdminOrGerente() || isInterno() ||
-  // (isVendor() && ownsDoc())); solo faltaba habilitarlo en el listener
-  // client-side.
-  const ownPedidosQuery = (userRole === 'admin' || userRole === 'gerente' || userRole === 'viewer' || userRole === 'interno')
-    ? fbDb.collection('pedidos')
-    : fbDb.collection('pedidos').where('ownerUid', '==', currentUser.uid);
-  unsubPedidosOwn = ownPedidosQuery.onSnapshot(qs => {
+  //
+  // v1077 (2026-09-25): attach via ensureListenerWithFallback. Antes el
+  // onSnapshot inline no tenia safety net cuando quedaba zombie → Mariano
+  // reporto que al pasar de Lista de Espera a Pendientes la card no se movia
+  // sin refresh manual. Con el helper, si el listener no fires en 15s se
+  // hace .get({source:'server'}) fallback y se aplica igual.
+  ensureListenerWithFallback(
+    'pedidos_own',
+    () => (userRole === 'admin' || userRole === 'gerente' || userRole === 'viewer' || userRole === 'interno')
+      ? fbDb.collection('pedidos')
+      : fbDb.collection('pedidos').where('ownerUid', '==', currentUser.uid),
+    (qs, _source) => {
     const newPending = {};
     const newConfirmed = {};
     qs.forEach(doc => {
@@ -28143,7 +29046,8 @@ function attachFirebaseListeners(){
     if (typeof drawMarkers === 'function') drawMarkers();
     // v481: refrescar cards del sidebar-left (facturacion diaria + cumplimiento).
     try { if (typeof _updateSidebarLeftCards === 'function') _updateSidebarLeftCards(); } catch(e){}
-  }, err => console.error('pedidos own listener', err));
+    }
+  );
 
   // v821 (2026-09-07): CRITICAL — attachar unsubPedidosAll ANTES de las
   // helpers listenCampaigns/listenOpsLog/listenSapMaps + envolverlas en
@@ -28161,10 +29065,12 @@ function attachFirebaseListeners(){
   //
   // Fix: si es vendedor, filtrar por ownerUid=uid (rules lo permiten via ownsDoc).
   // Admin/gerente/interno siguen sin filtro (ven todo).
-  const _pedidosQuery = (userRole === 'vendedor')
-    ? fbDb.collection('pedidos').where('ownerUid', '==', currentUser.uid)
-    : fbDb.collection('pedidos');
-  unsubPedidosAll = _pedidosQuery.onSnapshot(qs => {
+  ensureListenerWithFallback(
+    'pedidos_all',
+    () => (userRole === 'vendedor')
+      ? fbDb.collection('pedidos').where('ownerUid', '==', currentUser.uid)
+      : fbDb.collection('pedidos'),
+    (qs, _source) => {
     // v786 (2026-09-04): flag para distinguir "no cargado aun" vs "cargado
     // pero vacio" en renders que iteran globalPedidos (ej: _renderE4BAsigApp).
     // Sin esto, el modal Pedido en Espera mostraba secciones vacias mientras
@@ -28185,6 +29091,16 @@ function attachFirebaseListeners(){
         createdAt: d.createdAt || null,
         clientCardCode: d.clientCardCode || '',
         ownerVendor: d.ownerVendor || '',
+        // v1065 (2026-09-25): agregar campos vendedor legacy a la proyeccion.
+        // ~28% de pedidos abiertos tienen `vendedor` seteado pero NO
+        // `ownerVendor` (pedidos migrados/viejos). Sin estos campos en la
+        // proyeccion del snapshot, se llegan al browser con ownerVendor=''
+        // y el fallback v1063 en exportBackordersToExcel / renderBackordersTab
+        // termina cayendo a "(sin vendedor)". Reportado por Mariano 2026-09-25
+        // con 777 lineas mal categorizadas en Backorders_2026-09-25.xlsx.
+        vendedor: d.vendedor || '',
+        vendorAssigned: d.vendorAssigned || '',
+        vendor: d.vendor || '',
         closedAt: d.closedAt || null,
         migrationSource: d.migrationSource || null,
         lines: d.lines || [],
@@ -28224,7 +29140,8 @@ function attachFirebaseListeners(){
       const bm = document.getElementById('backorders-modal');
       if (bm && bm.classList.contains('open') && typeof renderBackordersTab === 'function') renderBackordersTab();
     } catch(e) { console.warn('refresh waitlist post pedidos snapshot', e); }
-  }, err => console.error('pedidos all listener', err));
+    }
+  );
 
   // v821: helpers de listeners auxiliares — cada uno envuelto en try/catch
   // para que un TypeError (ej: bundle a medio cargar → fn undefined) no
@@ -28428,6 +29345,11 @@ window.doConfirmPedido = async function(){
     // caer null aca; el fallback null se mantiene solo como defensa por si el
     // reserve fallo silencioso.
     orderNumber: window._pendingPedidoOrderNumber || null,
+    // v1058 (2026-09-24): waitlistOrigenId persistido en Firestore para que
+    // la CF onPedidoCreatedCleanupWaitlist pueda cerrar el waitlist atomicamente
+    // sin depender de la variable en memoria _pendingWaitlistDelete. Ver comment
+    // en _waitlistPasarAPendientesContinuar (linea ~20664).
+    waitlistOrigenId: window._pendingPedidoWaitlistId || null,
     month: monthLabel, monthIdx: mesIdx, year: parseInt(anio),
     confirmedAt: new Date().toISOString(),
     // Condicion de pago seleccionada por el vendedor. Va al UDF U_TipoGasto
@@ -28547,6 +29469,8 @@ window.doConfirmPedido = async function(){
       showSyncTag('Pedido pendiente guardado');
       // v846 (2026-09-09): reset del orderNumber pendiente — ya se persistio en docData.
       window._pendingPedidoOrderNumber = null;
+      // v1058 (2026-09-24): reset del waitlistOrigenId pendiente — ya se persistio.
+      window._pendingPedidoWaitlistId = null;
       // Fallback local: solo cuando Firestore lo acepto. Si fallo por permisos,
       // NO metemos nada en pending[] porque el listener del snapshot rerenderiza
       // sobre el estado local y hace que el pedido "aparezca y desaparezca".
@@ -28555,6 +29479,12 @@ window.doConfirmPedido = async function(){
       savePending();
       delete orders[currentOrderKey];
       saveOrders();
+      // v1078 (2026-09-25): rerender inmediato para que la card aparezca en
+      // Pedidos > Pendientes sin esperar el listener onSnapshot (que puede
+      // quedar zombie). Reporte Mariano: "al pasar de Lista de Espera a
+      // Pendientes, la card no se mueve sin refresh manual". El push local
+      // ya hidrato pending[] arriba — solo falta que el UI lo pinte.
+      try { if (typeof renderPedidosTab === 'function') renderPedidosTab(); } catch(_e){}
       // v630 (2026-08-25): guardar formaEntrega como default del cliente en
       // client_master.defaultDelivery para que el proximo pedido venga
       // pre-cargado (pedido Mariano — reducir friccion vendedores). Modo Y:

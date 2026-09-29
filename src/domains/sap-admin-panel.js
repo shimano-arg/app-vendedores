@@ -138,32 +138,38 @@ window.switchSapTab = function (tab) {
 // La info vive en app_config/sap_integration. Solo admin edita; el resto la lee.
 if (typeof window.sapConfigCache === 'undefined') window.sapConfigCache = {};
 if (typeof window.unsubSapConfig === 'undefined') window.unsubSapConfig = null;
+// v1077 (2026-09-25): refactor a ensureListenerWithFallback (helper generico
+// inline en index.html). Antes v1075 duplicaba el pattern zombie aca; ahora
+// centralizado. El apply helper _applySapConfigDoc queda porque tiene la
+// logica business-specific (notificar a ensureSapAutoSendListener, refrescar
+// el panel SAP si esta abierto).
+function _applySapConfigDoc(d, source) {
+  window.sapConfigCache = d || {};
+  try {
+    if (typeof ensureSapAutoSendListener === 'function') ensureSapAutoSendListener();
+  } catch (_e) {}
+  if (
+    window.sapCurrentTab === 'config' &&
+    document.getElementById('sap-modal') &&
+    document.getElementById('sap-modal').classList.contains('open')
+  ) {
+    try { renderSapConfig(); } catch (_e) {}
+  }
+  console.log('[sap_integration] cargado (' + source + '): ' + Object.keys(d || {}).length + ' keys, sl.enabled=' + (d && d.serviceLayer && d.serviceLayer.enabled));
+}
 function ensureSapConfigListener() {
-  if (window.unsubSapConfig || !currentUser || !fbDb) return;
-  window.unsubSapConfig = fbDb
-    .collection('app_config')
-    .doc('sap_integration')
-    .onSnapshot(
-      (snap) => {
-        window.sapConfigCache = snap && snap.exists ? snap.data() || {} : {};
-        // Reaccionar al toggle de auto-envio: activa o apaga el listener segun
-        // window.sapConfigCache.autoSendSL. Tambien se reactiva si el admin recarga
-        // las credenciales de SL.
-        try {
-          if (typeof ensureSapAutoSendListener === 'function') ensureSapAutoSendListener();
-        } catch (_e) {}
-        // Si el panel SAP esta abierto en la tab Config, refrescar.
-        if (
-          window.sapCurrentTab === 'config' &&
-          document.getElementById('sap-modal').classList.contains('open')
-        ) {
-          try {
-            renderSapConfig();
-          } catch (_e) {}
-        }
-      },
-      (err) => console.warn('sapConfig listener', err)
-    );
+  if (typeof window.ensureListenerWithFallback !== 'function') {
+    console.warn('[sap_integration] ensureListenerWithFallback no cargado — skip');
+    return;
+  }
+  window.ensureListenerWithFallback(
+    'sap_integration',
+    () => fbDb.collection('app_config').doc('sap_integration'),
+    (snap, source) => {
+      const d = snap && snap.exists ? snap.data() || {} : {};
+      _applySapConfigDoc(d, source);
+    }
+  );
 }
 
 function renderSapConfig() {
@@ -652,7 +658,7 @@ function renderSapServiceLayer() {
     '<div><label style="font-size:11px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:4px">Usuario (UserName)</label>';
   h +=
     '<input id="sl-user" type="text" placeholder="APP_VENDEDORES" value="' +
-    escapeAttr(cfg.username) +
+    escapeAttr(cfg.username || 'APP_VENDEDORES') +
     '" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:5px;font-size:12px;font-family:Consolas,monospace"/></div>';
   h +=
     '<div><label style="font-size:11px;font-weight:700;color:var(--text-secondary);display:block;margin-bottom:4px">Password</label>';

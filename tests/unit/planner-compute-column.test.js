@@ -42,13 +42,15 @@ implementations.forEach(({ name, fn }) => {
       expect(fn({ paidStatus: 'paid' })).toBe('cobrado');
     });
 
-    it('plannerStage = confirmado + docNum sin facturar → confirmado', () => {
+    // v1037 (2026-09-22): Rule 4 ('confirmado') removida. plannerStage='confirmado'
+    // ya no se considera — el pedido cae en las siguientes reglas SAP-based.
+    it('v1037: plannerStage = confirmado + docNum sin facturar → oferta (Rule 5)', () => {
       expect(
         fn({
           plannerStage: 'confirmado',
           transferidoSAP: { docNum: 12345 },
         })
-      ).toBe('confirmado');
+      ).toBe('oferta');
     });
 
     // v1016 (2026-09-22): SAP facturó una línea → gana sobre plannerStage=confirmado.

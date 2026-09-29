@@ -1,10 +1,10 @@
 // @ts-check
 /**
  * v1015 (2026-09-22): sync SAP Sales Orders -> pedidos.transferidoSAP.orderDocEntry.
- * v1020 (2026-09-24): guardar tambien `orderDocNum`. `orderDocEntry` es PK interna
- * de SAP (invisible al usuario); el badge "SO:" en la card debe mostrar DocNum
- * (numero de documento visible en la UI SAP). Filtro re-procesa pedidos ya
- * synced sin orderDocNum para backfill idempotente.
+ * v1054 (2026-09-24): guardar tambien `orderDocNum`. `orderDocEntry` es PK
+ * interna de SAP (invisible en la UI); el badge "SO:" en la card debe mostrar
+ * DocNum (numero visible en SAP). Filtro re-procesa pedidos synced pre-v1054
+ * sin orderDocNum para backfill idempotente.
  *
  * Objetivo: cuando en SAP se convierte una SQ (Sales Quotation) que originalmente
  * creo la app en una SO (Sales Order), reflejarlo en Firestore para que el
@@ -40,7 +40,15 @@ import { sapGet, sapLogin, sapLogout } from './sap-sl-client.js';
 
 const BASE_TYPE_QUOTATION = 23; // SAP: SO.Line.BaseType=23 -> linea originada en SQ
 const DEFAULT_BATCH_SIZE = 100;
-const ORDERS_LOOKAHEAD = 500; // Cuantas SO recientes traer por corrida
+// v1045 (2026-09-23): aumentado de 500 → 2000. Reporte Mariano: pedidos Pesca
+// que ya tenían SO en SAP no se sincronizaban al Planner. Diagnóstico: SAP DB
+// tiene múltiples BUs (Pesca + Bike + Marketing + Muestras + Chile). El scan
+// desc de 500 SOs quedaba dominado por otras BUs, dejando las SOs Pesca fuera.
+// Cost extra: ~100 GETs/corrida (5x más) — cada 15min tick, page 20 default.
+// Trade-off: si hay racha de >2000 SOs no-Pesca entre SOs Pesca vs Pesca en
+// Firestore, seguiría faltando. Fix definitivo futuro: filter por BaseEntry
+// range (requiere que SL soporte filter/any que actualmente no).
+const ORDERS_LOOKAHEAD = 2000;
 
 /**
  * @typedef {Object} SyncOrdersDeps
@@ -58,25 +66,22 @@ const ORDERS_LOOKAHEAD = 500; // Cuantas SO recientes traer por corrida
  */
 
 /**
- * Lista pedidos activos (closedAt=null) con SQ en SAP pero sin orderDocNum.
+ * Lista pedidos activos (closedAt=null) con SQ en SAP pero sin orderDocEntry.
  * Fetch a Firestore + filtro client-side (mas simple que compound where con
  * inequality en campo anidado, que requiere indice explicito).
- *
- * v1020: filtro por `orderDocNum` (no `orderDocEntry`) para re-procesar los
- * pedidos synced pre-v1020 y backfillearles el DocNum. Es idempotente: una vez
- * que todos tienen orderDocNum, el filtro los skipea.
  *
  * @param {SyncOrdersDeps} deps
  * @param {number} limit
  * @returns {Promise<Array<{id: string, sqDocEntry: number}>>}
  */
 async function listPendingPedidos(deps, limit) {
-  const snap = await deps.fbDb
-    .collection('pedidos')
-    .where('closedAt', '==', null)
-    .orderBy('updatedAt', 'desc')
-    .limit(limit * 5) // grab wider slice, filter client-side (many won't match)
-    .get();
+  // v1047 (2026-09-23): removido `orderBy('updatedAt', 'desc').limit(limit*5)`.
+  // Bug: pedidos con updatedAt viejo (activity syncs pushean updatedAt de los
+  // recientes) quedaban FUERA del slice de 500 y nunca se procesaban. Fix:
+  // traer TODOS los pedidos con closedAt=null (~260 hoy, crece ~30/día),
+  // filter client-side, tomar los primeros `limit`. Ordenar por sqDocEntry
+  // asc para priorizar los MÁS VIEJOS (que llevan más tiempo esperando match).
+  const snap = await deps.fbDb.collection('pedidos').where('closedAt', '==', null).get();
 
   /** @type {Array<{id: string, sqDocEntry: number}>} */
   const pending = [];
@@ -86,10 +91,17 @@ async function listPendingPedidos(deps, limit) {
     const sqDocEntry = Number(t.docEntry);
     // Precondicion: SQ creada en SAP (docEntry seteado) + SO todavia no
     // reflejada (orderDocNum ausente o null).
+    // v1054: filtro por orderDocNum (no orderDocEntry) para backfillear los
+    // pedidos synced pre-v1054 que tienen orderDocEntry pero no orderDocNum.
+    // Idempotente: una vez que todos tienen orderDocNum, el filtro los skipea.
     if (Number.isFinite(sqDocEntry) && sqDocEntry > 0 && !t.orderDocNum) {
       pending.push({ id: d.id, sqDocEntry });
     }
   });
+  // Orden por sqDocEntry asc: los más viejos primero (los que llevan más
+  // tiempo esperando match). Cuando el volumen crezca y sea >100 por tick,
+  // esto garantiza que ningún pedido quede "atrás para siempre".
+  pending.sort((a, b) => a.sqDocEntry - b.sqDocEntry);
   return pending.slice(0, limit);
 }
 
@@ -133,7 +145,7 @@ export async function syncSapOrders(deps) {
     // inline con BaseType/BaseEntry por default (visto empiricamente).
     // v1015 hotfix8: SAP SL default page size = 20. $top=500 ignorado.
     // Paginamos con $skip hasta cubrir ORDERS_LOOKAHEAD.
-    // v1020: agregamos DocNum al $select (numero visible en UI SAP; DocEntry
+    // v1054: agregamos DocNum al $select (numero visible en UI SAP; DocEntry
     // es PK interna invisible al usuario).
     const PAGE_SIZE = 20;
     /** @type {Map<number, {docEntry: number, docNum: number|null}>} */

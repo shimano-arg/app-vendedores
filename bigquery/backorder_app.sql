@@ -66,7 +66,9 @@ WITH pedidos_open AS (
     p.document_id AS pedido_id,
     p.data,
     SAFE_CAST(JSON_VALUE(p.data, '$.orderNumber') AS INT64)     AS order_number,
-    SAFE_CAST(JSON_VALUE(p.data, '$.createdAt') AS TIMESTAMP)    AS created_at,
+    -- Firestore Timestamp llega como {"_seconds":N,"_nanoseconds":N}; JSON_VALUE
+    -- del root devuelve NULL sobre el objeto, hay que ir a $.createdAt._seconds.
+    TIMESTAMP_SECONDS(SAFE_CAST(JSON_VALUE(p.data, '$.createdAt._seconds') AS INT64)) AS created_at,
     JSON_VALUE(p.data, '$.clientCardCode')                       AS cliente_code,
     JSON_VALUE(p.data, '$.clientName')                           AS cliente_nombre,
     JSON_VALUE(p.data, '$.locName')                              AS cliente_ciudad,
@@ -176,7 +178,7 @@ SELECT
   -- Compat columns con v_backorder_lineas vieja (mismo shape)
   CAST(NULL AS INT64)                    AS sq_doc_entry,   -- No aplica en app
   ba.order_number                        AS sq_doc_num,
-  DATE(ba.created_at)                    AS sq_doc_date,
+  DATE(ba.created_at, 'America/Argentina/Buenos_Aires') AS sq_doc_date,
   ba.sku,
   ba.descripcion                         AS producto,
   ba.familia,
@@ -528,10 +530,11 @@ SELECT
   pedido_id,
   order_number,
   created_at,
-  DATE(created_at)                                AS fecha,
-  FORMAT_DATE('%Y-%m', DATE(created_at))          AS mes,
-  EXTRACT(YEAR FROM created_at)                   AS anio,
-  EXTRACT(MONTH FROM created_at)                  AS mes_idx,
+  -- fecha canónica en TZ Argentina para que Power BI relacione con la dim Date local
+  DATE(created_at, 'America/Argentina/Buenos_Aires')                                        AS fecha,
+  FORMAT_DATE('%Y-%m', DATE(created_at, 'America/Argentina/Buenos_Aires'))                  AS mes,
+  EXTRACT(YEAR FROM DATE(created_at, 'America/Argentina/Buenos_Aires'))                     AS anio,
+  EXTRACT(MONTH FROM DATE(created_at, 'America/Argentina/Buenos_Aires'))                    AS mes_idx,
   sku,
   descripcion,
   familia,
@@ -565,10 +568,11 @@ SELECT
   pedido_id,
   order_number,
   created_at,
-  DATE(created_at)                                AS fecha,
-  FORMAT_DATE('%Y-%m', DATE(created_at))          AS mes,
-  EXTRACT(YEAR FROM created_at)                   AS anio,
-  EXTRACT(MONTH FROM created_at)                  AS mes_idx,
+  -- fecha canónica en TZ Argentina para que Power BI relacione con la dim Date local
+  DATE(created_at, 'America/Argentina/Buenos_Aires')                                        AS fecha,
+  FORMAT_DATE('%Y-%m', DATE(created_at, 'America/Argentina/Buenos_Aires'))                  AS mes,
+  EXTRACT(YEAR FROM DATE(created_at, 'America/Argentina/Buenos_Aires'))                     AS anio,
+  EXTRACT(MONTH FROM DATE(created_at, 'America/Argentina/Buenos_Aires'))                    AS mes_idx,
   sku,
   descripcion,
   familia,

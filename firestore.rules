@@ -163,7 +163,10 @@ service cloud.firestore {
             // Planner Kanban (Task 2, 2026-09-22): etapa kanban + historial +
             // emails notif + adjuntos + estado/monto/fecha de pago.
             'plannerStage', 'plannerHistory', 'plannerEmails',
-            'plannerAttachments', 'paidStatus', 'paidAmount', 'paidToDate'
+            'plannerAttachments', 'paidStatus', 'paidAmount', 'paidToDate',
+            // Fase 2 v1035 (2026-09-22): sync SAP payments escribe estos
+            // fields desde el CF syncSapPaymentsToApp cada 15min.
+            'invoicedAmount', 'paidSyncedAt'
           ])
         );
       allow delete: if isAdminOrGerente() || isInterno();

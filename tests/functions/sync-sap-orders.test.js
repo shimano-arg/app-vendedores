@@ -187,7 +187,7 @@ describe('syncSapOrders', () => {
     expect(updated.transferidoSAP.docNum).toBe(555);
   });
 
-  it('v1020 backfill: pedido con orderDocEntry pero sin orderDocNum -> re-procesa', async () => {
+  it('v1054 backfill: pedido con orderDocEntry pero sin orderDocNum -> re-procesa', async () => {
     const deps = makeDeps({
       pedidos: [
         {

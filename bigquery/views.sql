@@ -295,6 +295,32 @@ invoices_and_cns AS (
   UNION ALL
   SELECT *, -1 AS sign, 'CREDIT_NOTE' AS doc_kind
   FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw`
+),
+-- v1073 (2026-09-25): fecha_contable — atribuir NC al mes de la FACTURA
+-- ORIGINAL que reversa, no a la fecha de emision de la NC. Sin esto, una
+-- NC del 22/09 contra una factura del 21/08 restaba en septiembre y no
+-- neteaba contra agosto. Ejemplo: MALALCO FLY SHOP INVOICE 18689
+-- (2026-08-21, +68 u, +$4.016.138) + CREDIT_NOTE 1905 (2026-09-22, -68 u,
+-- -$4.016.138): con fecha_contable ambos caen en agosto 2026 → neto $0
+-- correcto.
+-- Vinculo SAP: cada linea de NC tiene BaseType=13 (OINV) + BaseEntry
+-- apuntando al OINV.DocEntry de la factura original. Un doc de NC puede
+-- referenciar 1..N facturas por sus lineas — usamos MIN(doc_date) por si
+-- hay multiples (comportamiento razonable: atribuir al mes de la primera
+-- factura reversa).
+-- Si la NC no tiene BaseType=13 valido (ej: NC directa sin factura base),
+-- se marca con nc_sin_base=TRUE mas abajo y fecha_contable cae al doc_date
+-- de la NC como fallback.
+nc_base_dates AS (
+  SELECT
+    nc.doc_entry AS nc_doc_entry,
+    MIN(base_inv.doc_date) AS factura_base_doc_date
+  FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw` nc,
+       UNNEST(JSON_EXTRACT_ARRAY(nc.lines_json)) AS nc_line
+  JOIN `app-vendedores-shimano.shimano_app.sap_invoices_raw` base_inv
+    ON base_inv.doc_entry = SAFE_CAST(JSON_VALUE(nc_line, '$.BaseEntry') AS INT64)
+    AND SAFE_CAST(JSON_VALUE(nc_line, '$.BaseType') AS INT64) = 13
+  GROUP BY nc.doc_entry
 )
 SELECT
   inv.doc_type,
@@ -302,6 +328,31 @@ SELECT
   inv.doc_entry,
   inv.doc_num,
   inv.doc_date,
+  -- v1073 (2026-09-25): fecha_contable / mes_contable / anio_contable
+  -- + nc_sin_base. Ver comentario del CTE nc_base_dates arriba.
+  -- DATETIME() wrap para evitar el bug de Storage Read API con DATE puro.
+  DATETIME(
+    CASE
+      WHEN inv.doc_kind = 'CREDIT_NOTE' AND ncb.factura_base_doc_date IS NOT NULL
+        THEN ncb.factura_base_doc_date
+      ELSE inv.doc_date
+    END
+  )                                                                   AS fecha_contable,
+  EXTRACT(YEAR FROM
+    CASE
+      WHEN inv.doc_kind = 'CREDIT_NOTE' AND ncb.factura_base_doc_date IS NOT NULL
+        THEN ncb.factura_base_doc_date
+      ELSE inv.doc_date
+    END
+  )                                                                   AS anio_contable,
+  EXTRACT(MONTH FROM
+    CASE
+      WHEN inv.doc_kind = 'CREDIT_NOTE' AND ncb.factura_base_doc_date IS NOT NULL
+        THEN ncb.factura_base_doc_date
+      ELSE inv.doc_date
+    END
+  )                                                                   AS mes_contable,
+  (inv.doc_kind = 'CREDIT_NOTE' AND ncb.factura_base_doc_date IS NULL) AS nc_sin_base,
   inv.doc_due_date,
   inv.document_status,
   inv.cancelled,
@@ -404,6 +455,10 @@ LEFT JOIN cliente_app ca
   ON ca.card_code = inv.card_code
 LEFT JOIN clientes_bike cb
   ON cb.card_code = inv.card_code
+-- v1073 (2026-09-25): join a la fecha de la factura original (solo aplica a NCs).
+LEFT JOIN nc_base_dates ncb
+  ON ncb.nc_doc_entry = inv.doc_entry
+  AND inv.doc_kind = 'CREDIT_NOTE'
 -- v748 (2026-08-31): filtro estricto cancelled='tNO'. Antes: la vista devolvia
 -- TODOS los docs (incluyendo tYES y los cancellation docs con CANCELED='').
 -- Downstream consumers (Power BI, dashboards, TABLERO SAR) tenian que aplicar
@@ -809,6 +864,23 @@ invoices_and_cns AS (
   SELECT *, -1 AS sign, 'CREDIT_NOTE' AS doc_kind
   FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw`
 ),
+-- v1073 (2026-09-25): fecha_contable — atribuir NC al mes de la FACTURA
+-- ORIGINAL. Ver comentario paralelo en v_facturas_sap para el fundamento.
+-- Vinculo: RIN1.BaseType=13 (OINV) + RIN1.BaseEntry=OINV.DocEntry.
+-- Si una NC referencia multiples facturas por sus lineas, se toma MIN.
+-- MALALCO FLY SHOP: NC 1905 (22/09) contra INVOICE 18689 (21/08) →
+-- fecha_contable de ambos = 2026-08-21 → neto agosto = $0.
+nc_base_dates AS (
+  SELECT
+    nc.doc_entry AS nc_doc_entry,
+    MIN(base_inv.doc_date) AS factura_base_doc_date
+  FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw` nc,
+       UNNEST(JSON_EXTRACT_ARRAY(nc.lines_json)) AS nc_line
+  JOIN `app-vendedores-shimano.shimano_app.sap_invoices_raw` base_inv
+    ON base_inv.doc_entry = SAFE_CAST(JSON_VALUE(nc_line, '$.BaseEntry') AS INT64)
+    AND SAFE_CAST(JSON_VALUE(nc_line, '$.BaseType') AS INT64) = 13
+  GROUP BY nc.doc_entry
+),
 -- v388.1 (2026-08-04): suma de LineTotal por doc, para prorratear el
 -- descuento global de cabecera (total_discount) al importe de cada linea.
 -- Sin este prorrateo, v_ventas_lineas mostraba el importe SIN restar el
@@ -834,6 +906,31 @@ SELECT
   inv.doc_date,
   EXTRACT(YEAR  FROM inv.doc_date) AS anio,
   EXTRACT(MONTH FROM inv.doc_date) AS mes,
+  -- v1073 (2026-09-25): fecha_contable / mes_contable / anio_contable
+  -- + nc_sin_base. Netean NCs contra el mes de la factura original.
+  -- DATETIME() wrap para evitar el bug de Storage Read API con DATE puro.
+  DATETIME(
+    CASE
+      WHEN inv.doc_kind = 'CREDIT_NOTE' AND ncb.factura_base_doc_date IS NOT NULL
+        THEN ncb.factura_base_doc_date
+      ELSE inv.doc_date
+    END
+  )                                                                     AS fecha_contable,
+  EXTRACT(YEAR FROM
+    CASE
+      WHEN inv.doc_kind = 'CREDIT_NOTE' AND ncb.factura_base_doc_date IS NOT NULL
+        THEN ncb.factura_base_doc_date
+      ELSE inv.doc_date
+    END
+  )                                                                     AS anio_contable,
+  EXTRACT(MONTH FROM
+    CASE
+      WHEN inv.doc_kind = 'CREDIT_NOTE' AND ncb.factura_base_doc_date IS NOT NULL
+        THEN ncb.factura_base_doc_date
+      ELSE inv.doc_date
+    END
+  )                                                                     AS mes_contable,
+  (inv.doc_kind = 'CREDIT_NOTE' AND ncb.factura_base_doc_date IS NULL)  AS nc_sin_base,
   inv.card_code,
   inv.card_name,
   inv.sales_person_code,
@@ -918,6 +1015,10 @@ LEFT JOIN prov_lookup prov
   ON prov.card_code = inv.card_code
 LEFT JOIN cliente_app ca
   ON ca.card_code = inv.card_code
+-- v1073 (2026-09-25): fecha de la factura original para NCs (netea contra su mes).
+LEFT JOIN nc_base_dates ncb
+  ON ncb.nc_doc_entry = inv.doc_entry
+  AND inv.doc_kind = 'CREDIT_NOTE'
 -- v748 (2026-08-31): filtro estricto cancelled='tNO'. Antes: COALESCE(cancelled,'tNO')='tNO'
 -- que trataba NULL/vacio como 'tNO' -> incluia los documentos de CANCELACION
 -- (SAP crea un doc espejo con CANCELED='' cuando anula una factura). Efecto
@@ -2903,3 +3004,141 @@ SELECT
   updated_at,
   _sync_timestamp
 FROM joined;
+
+
+-- ============================================================
+-- v_ordenes_sap (2026-09-22): ORDENES DE VENTA SAP (ORDR + RDR1)
+-- Grano: linea de orden. Fuente: sap_orders_raw.
+--
+-- Uso Power BI: cierra el embudo Oferta -> Orden -> Remito -> Factura,
+-- todo SAP puro. Reemplaza v_pedidos_lines (que sale de la app y arrastra
+-- backorder + facturado) como tabla de hecho de "Ordenes de Venta".
+--
+-- Estado de linea (RDR1.LineStatus): 'O' abierta / 'C' cerrada.
+--   open_qty        = RemainingOpenQuantity (unidades pendientes)
+--   open_amount_ars = OpenAmount * factor_descuento_cabecera
+--                     (importe abierto NETO de descuento global)
+--
+-- Convenciones:
+--   - Excluye cancelados: cancelled='tNO'.
+--   - Prorrateo descuento cabecera igual que v_ofertas_lineas / v_remitos_lineas
+--     (LineTotal * (1 - total_discount/suma_line_totals)).
+--   - Vendedor: sales_person_code header + assigned_vendor via client_applications
+--     (mismo pattern que ofertas/remitos).
+--   - is_pesca: (items_group_code = 102).
+--   - fecha = doc_date (ya es DATE nativo en el schema; NO se aplica TZ
+--     porque no es TIMESTAMP). mes/anio/mes_idx derivados de doc_date.
+--
+-- IMPORTANTE Power BI: leer via Value.NativeQuery. El Storage Read API
+-- del conector devuelve NULL en columnas calculadas de fecha en vistas
+-- (fenomeno confirmado en v_backorder v1033).
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_ordenes_sap` AS
+WITH
+cliente_app AS (
+  SELECT
+    JSON_VALUE(data, '$.cardCodeSap') AS card_code,
+    ARRAY_AGG(
+      JSON_VALUE(data, '$.assignedVendor')
+      IGNORE NULLS
+      ORDER BY document_id
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS assigned_vendor_app
+  FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+  WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+    AND JSON_VALUE(data, '$.cardCodeSap') != ''
+  GROUP BY card_code
+),
+items AS (
+  SELECT
+    item_code,
+    familia_norm                 AS familia,
+    subfamilia_norm              AS subfamilia,
+    (items_group_code = 102)     AS is_pesca
+  FROM `app-vendedores-shimano.shimano_app.v_sap_items_enriched`
+),
+sum_lines_orders AS (
+  SELECT
+    doc_entry,
+    SUM(SAFE_CAST(JSON_VALUE(ln, '$.LineTotal') AS FLOAT64)) AS suma_lineas
+  FROM `app-vendedores-shimano.shimano_app.sap_orders_raw`,
+       UNNEST(JSON_QUERY_ARRAY(lines_json)) AS ln
+  WHERE COALESCE(cancelled, 'tNO') = 'tNO'
+  GROUP BY doc_entry
+)
+SELECT
+  -- Identificacion documento + linea
+  o.doc_entry,
+  o.doc_num,
+  SAFE_CAST(JSON_VALUE(line, '$.LineNum') AS INT64)                     AS line_num,
+
+  -- Fecha (doc_date ya es DATE nativo)
+  o.doc_date,
+  o.doc_date                                                            AS fecha,
+  FORMAT_DATE('%Y-%m', o.doc_date)                                      AS mes,
+  EXTRACT(YEAR FROM o.doc_date)                                         AS anio,
+  EXTRACT(MONTH FROM o.doc_date)                                        AS mes_idx,
+
+  -- Cliente
+  o.card_code,
+  o.card_name,
+
+  -- Vendedor (mismo pattern que v_ofertas_lineas / v_remitos_lineas)
+  o.sales_person_code                                                   AS slp_code,
+  CASE
+    WHEN o.sales_person_code BETWEEN 50 AND 55 THEN o.sales_person_code
+    ELSE NULL
+  END                                                                   AS `SlpCode Asignado`,
+  ca.assigned_vendor_app                                                AS assigned_vendor,
+
+  -- Producto
+  JSON_VALUE(line, '$.ItemCode')                                        AS item_code,
+  -- SO usa ItemDescription (no Dscription como quotations/deliveries)
+  COALESCE(
+    JSON_VALUE(line, '$.ItemDescription'),
+    JSON_VALUE(line, '$.Dscription')
+  )                                                                     AS descripcion,
+  it.familia,
+  it.subfamilia,
+  it.is_pesca,
+
+  -- Cantidades e importes
+  SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)                  AS cantidad,
+  SAFE_CAST(JSON_VALUE(line, '$.Price') AS FLOAT64)                     AS precio_unitario,
+  -- Importe linea NETO (post-descuento global cabecera, mismo criterio v388.1)
+  SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+    * (1 - SAFE_DIVIDE(COALESCE(o.total_discount, 0), NULLIF(slo.suma_lineas, 0)))
+                                                                        AS importe_linea_ars,
+
+  -- Estado de linea + apertura pendiente
+  -- SAP Service Layer devuelve 'bost_Open'/'bost_Close'; mapeo a 'O'/'C'
+  -- para que Power BI/DAX escriba filtros mas cortos y coherentes con RDR1.
+  CASE JSON_VALUE(line, '$.LineStatus')
+    WHEN 'bost_Open'  THEN 'O'
+    WHEN 'bost_Close' THEN 'C'
+    ELSE NULL
+  END                                                                   AS line_status,
+  SAFE_CAST(JSON_VALUE(line, '$.RemainingOpenQuantity') AS FLOAT64)     AS open_qty,
+  -- open_amount_ars: gate por LineStatus. SAP SL devuelve OpenAmount == LineTotal
+  -- incluso en lineas cerradas (bug/design SAP: solo RemainingOpenQuantity se
+  -- pone en 0 al cerrar). Sin este gate, SUM(open_amount) daria ~SUM(importe)
+  -- confundiendo "orden neta" con "orden bruta". Se aplica el mismo prorrateo
+  -- de descuento cabecera para coherencia con importe_linea_ars.
+  CASE
+    WHEN JSON_VALUE(line, '$.LineStatus') = 'bost_Open' THEN
+      SAFE_CAST(JSON_VALUE(line, '$.OpenAmount') AS FLOAT64)
+        * (1 - SAFE_DIVIDE(COALESCE(o.total_discount, 0), NULLIF(slo.suma_lineas, 0)))
+    ELSE 0
+  END                                                                   AS open_amount_ars,
+
+  -- Metadata documento
+  o.doc_currency,
+  o.doc_rate,
+  o.document_status,
+  o._sync_timestamp
+FROM `app-vendedores-shimano.shimano_app.sap_orders_raw` o,
+     UNNEST(JSON_EXTRACT_ARRAY(o.lines_json)) AS line
+LEFT JOIN sum_lines_orders slo ON slo.doc_entry = o.doc_entry
+LEFT JOIN items             it  ON it.item_code = JSON_VALUE(line, '$.ItemCode')
+LEFT JOIN cliente_app       ca  ON ca.card_code = o.card_code
+WHERE COALESCE(o.cancelled, 'tNO') = 'tNO';

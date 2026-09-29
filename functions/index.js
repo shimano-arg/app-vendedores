@@ -38,6 +38,9 @@ import { expireAsigLinesTTL } from './core/asig-ttl-core.js';
 import { autoConfirmPendingPedidos } from './core/auto-confirm-pending-core.js';
 import { AUTO_SEND_RESULT, handleAutoSendSap } from './core/auto-send-sap-core.js';
 import { runDailyBackup } from './core/backup-core.js';
+// v1056 (2026-09-24): denormaliza attrs comerciales de la última visita al doc
+// del cliente en client_master. Última visita gana (LWW por fecha).
+import { denormVisitToClientMaster } from './core/denorm-visit-to-client-master-core.js';
 import { runFifoAssign } from './core/fifo-assign-core.js';
 import { runGeminiOcr } from './core/gemini-ocr-core.js';
 import { syncSapInvoices } from './core/invoice-sync-core.js';
@@ -57,6 +60,9 @@ import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
 // v964 (2026-09-17): auto-cancel SQ expiradas (Fase B shadow + Fase C active).
 import { runSqCancelExpired } from './core/sq-cancel-core.js';
 import { syncSapOrders } from './core/sync-sap-orders-core.js';
+import { handleSyncSapPayments } from './core/sync-sap-payments-core.js';
+// v1053 (2026-09-24): detección SQs cerradas manualmente en SAP (Close Document).
+import { syncSapQuotationClosures } from './core/sync-sap-quotation-closures-core.js';
 
 if (!getApps().length) initializeApp();
 
@@ -111,12 +117,15 @@ export const sapProxy = onCall(
     // cuelgan indefinidamente en el SDK client-side sin ni siquiera llegar al server.
     cors: true,
     // v990 (2026-09-18, SecAudit run-1 HIGH #4): enforceAppCheck true.
-    // Antes false con TODO: un IDToken robado (XSS/phishing/browser ext)
-    // podia sostener ~120k SL requests/24h y enumerar el catalogo Items +
-    // stocks + warehouses ilimitadamente. reCAPTCHA v3 activado post-login
-    // (index.html:activateAppCheckOnce) ya emite tokens App Check al browser.
-    // geminiOcrProxy ya usa enforceAppCheck: true (v918) sin regresiones.
-    enforceAppCheck: true,
+    // v1003 (2026-09-21): rollback hotfix directo a false (no comprometido).
+    // v1058 (2026-09-24): commit del rollback. Redeploys posteriores a v1003
+    // reintrodujeron true → hoy 24/9 Pablo reportó "callable(functions/
+    // unauthenticated)" al enviar ORDEN 228 desde Lista de Espera. 3 días
+    // desde v1003 debería haber propagado el AppCheck pero sigue devolviendo
+    // 401. Volver a false hasta que se investigue con tiempo la propagación
+    // real de la registration reCAPTCHA v3 (ver reference_appcheck_throttle_24h
+    // y feedback_appcheck_gcloud_diagnostic).
+    enforceAppCheck: false,
   },
   async (request) => {
     const db = getFirestore();
@@ -238,21 +247,25 @@ export const syncSapInvoicesToApp = onSchedule(
 
 /**
  * v1015 (2026-09-22): syncSapOrdersToApp — scheduled cada 60 min.
- * Cierra la columna "Órdenes" del Planner Kanban que estaba en 0 porque
- * nadie escribia `transferidoSAP.orderDocEntry` en Firestore.
+ * Cierra la columna "Pendiente de facturar" del Planner Kanban que estaba en 0
+ * porque nadie escribia `transferidoSAP.orderDocEntry` en Firestore.
+ *
+ * v1028 (2026-09-22): schedule cambiado de 60min a 15min (match con
+ * syncSapInvoicesToApp). Reporte Mariano: la latencia hasta 60min entre
+ * "genero SO en SAP" y "aparece en el Planner" era demasiada para operar.
  *
  * Flujo:
  * 1. Lista pedidos con SQ en SAP (docEntry seteado) sin orderDocEntry aun.
- * 2. Para cada uno, GET /Orders?$filter=DocumentLines/any(BaseEntry=X and BaseType=23).
+ * 2. Enum /Orders desc paginado ($skip=0..500) y matchea via BaseType=23 + BaseEntry.
  * 3. Si hit -> update `transferidoSAP.orderDocEntry` + `orderSyncedAt`.
  *
- * Idempotente. Costo: ~1 GET SAP por pedido pendiente por corrida (batch max 100).
+ * Idempotente. Costo: 1 loop de ~25 GETs por corrida (500/20 default page).
  * NO tiene modo shadow — es un enrichment de campo nuevo, no reemplaza dato existente.
  */
 export const syncSapOrdersToApp = onSchedule(
   {
     region: REGION,
-    schedule: 'every 60 minutes',
+    schedule: 'every 15 minutes',
     timeZone: 'America/Argentina/Buenos_Aires',
     retryCount: 1,
     memory: '512MiB',
@@ -280,6 +293,107 @@ export const syncSapOrdersToApp = onSchedule(
       log: (msg, extra) => console.log(msg, extra || {}),
     });
     console.log('syncSapOrdersToApp summary', result);
+  }
+);
+
+/**
+ * v1035 (2026-09-22): syncSapPaymentsToApp — scheduled cada 15 min.
+ * Cierra la columna "Cobrado" del Planner Kanban que estaba vacía porque
+ * nadie escribia `paidAmount` / `paidStatus` en Firestore.
+ *
+ * Flujo:
+ * 1. Lista pedidos abiertos con `sapLinkage.appliedInvoiceDocEntries` no vacío.
+ * 2. Enum `/Invoices desc` paginado ($skip=0..500) leyendo DocTotal + PaidToDate.
+ * 3. Para cada pedido, suma invoicedAmount + paidAmount y calcula paidStatus.
+ * 4. Escribe `pedidos/{id}` con { paidAmount, invoicedAmount, paidStatus }.
+ *
+ * paidStatus='paid' hace que `computeColumn` mueva el pedido a Cobrado
+ * automatico. Ademas `invoicedAmount` fixea el error residual 9.8% de v1033.
+ *
+ * Idempotente. Costo: ~25 GETs por corrida (500 invoices / 20 default page).
+ * NO tiene modo shadow — enrichment de fields nuevos, safe para deploy directo.
+ */
+export const syncSapPaymentsToApp = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 15 minutes',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 1,
+    memory: '512MiB',
+    timeoutSeconds: 300,
+    secrets: [SAP_SL_PASSWORD],
+  },
+  async () => {
+    const db = getFirestore();
+    const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+    const sapCfg = sapCfgSnap.data() || {};
+    const sl = sapCfg.serviceLayer || {};
+    if (!sl.url || !sl.companyDB) {
+      console.warn('syncSapPaymentsToApp: sap_integration.serviceLayer incompleto, skip');
+      return;
+    }
+    const result = await handleSyncSapPayments({
+      fetch: globalThis.fetch,
+      sapConfig: {
+        url: sl.url,
+        companyDB: sl.companyDB,
+        userName: sl.username || sl.userName,
+        password: SAP_SL_PASSWORD.value(),
+      },
+      fbDb: db,
+      log: (msg, extra) => console.log(msg, extra || {}),
+    });
+    console.log('syncSapPaymentsToApp summary', result);
+  }
+);
+
+/**
+ * v1053 (2026-09-24): syncSapQuotationClosuresToApp — scheduled cada 15 min.
+ * Cierra pedidos-app cuyas SQs fueron cerradas manualmente en SAP (Close
+ * Document, sin cancel ni conversion). Antes de v1053, esos pedidos quedaban
+ * pineados en la columna "Oferta" del Planner Kanban indefinidamente porque
+ * `syncSapOrdersToApp` solo detecta conversión SQ→SO (BaseType=23), no cierre
+ * manual.
+ *
+ * Precedente: 2026-09-23 Mariano reportó 4 casos (SQs 2000123 Peralta, 2000155
+ * Fatechi, 2000220/2000221 Desiata). Fix manual con
+ * scripts/close-manual-sap-sqs-2026-09-23.cjs. Este CF automatiza la detección.
+ *
+ * Idempotente. Costo: ~100 GETs/corrida (LOOKAHEAD=2000, page 20 default).
+ * FAIL-SAFE: solo cierra pedidos SIN orderDocEntry, SIN qtyInvoiced, SIN
+ * paidStatus (=nunca facturamos algo que ya avanzó). Ver core para detalles.
+ */
+export const syncSapQuotationClosuresToApp = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 15 minutes',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 1,
+    memory: '512MiB',
+    timeoutSeconds: 300,
+    secrets: [SAP_SL_PASSWORD],
+  },
+  async () => {
+    const db = getFirestore();
+    const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+    const sapCfg = sapCfgSnap.data() || {};
+    const sl = sapCfg.serviceLayer || {};
+    if (!sl.url || !sl.companyDB) {
+      console.warn('syncSapQuotationClosuresToApp: sap_integration.serviceLayer incompleto, skip');
+      return;
+    }
+    const result = await syncSapQuotationClosures({
+      fetch: globalThis.fetch,
+      sapConfig: {
+        url: sl.url,
+        companyDB: sl.companyDB,
+        userName: sl.username || sl.userName,
+        password: SAP_SL_PASSWORD.value(),
+      },
+      fbDb: db,
+      log: (msg, extra) => console.log(msg, extra || {}),
+    });
+    console.log('syncSapQuotationClosuresToApp summary', result);
   }
 );
 
@@ -734,7 +848,9 @@ export const updateAsigLineStateCF = onCall(
     //   - enforceAppCheck: true (token reCAPTCHA v3 obligatorio).
     //   - rate limit 500/hr por user (updateAsigLineState en RATE_LIMITS).
     //   - role gate + ownership check en el core (asig-recycle-core.js:1.5+3).
-    enforceAppCheck: true,
+    // v1058 (2026-09-24): rollback a false (sync con sapProxy — mismo incidente
+    // AppCheck 401). Rate limit + role gate + ownership check siguen activos.
+    enforceAppCheck: false,
   },
   async (request) => {
     const db = getFirestore();
@@ -812,7 +928,9 @@ export const geminiOcrProxy = onCall(
     // Rollout gradual — geminiOcrProxy es el primero (menos flow-critico).
     // Si empiezan a llegar reports de rendicion falla, chequear que el user
     // no tenga throttle 24h en reCAPTCHA (ver reference_appcheck_throttle_24h).
-    enforceAppCheck: true,
+    // v1058 (2026-09-24): rollback a false (sync con sapProxy — mismo incidente
+    // AppCheck 401 en Pablo). Rate limit sigue activo.
+    enforceAppCheck: false,
     memory: '512MiB',
     timeoutSeconds: 60,
   },
@@ -1366,7 +1484,18 @@ export const setupGetMovimientos = onCall(
           const parsed = JSON.parse(resp.body);
           const data = parsed.VFPData;
           if (!data) {
-            console.log(`setupGetMovimientos: ventana ${w.desde}→${w.hasta} sin VFPData en body`);
+            // v1071 (2026-09-25): log detallado del body cuando falta VFPData.
+            // Antes solo se logueaba "sin VFPData" — sin forma de distinguir
+            // body vacío vs error message vs formato distinto. Con esto, si
+            // SETUP empieza a devolver algo raro para la ventana más reciente
+            // (bug intermitente reportado 2026-09-25 Mariano), queda el body
+            // preview en logs para diagnóstico rápido.
+            const _topKeys = Object.keys(parsed || {}).slice(0, 10).join(',');
+            const _preview = resp.body.slice(0, 400).replace(/\s+/g, ' ');
+            console.log(
+              `setupGetMovimientos: ventana ${w.desde}→${w.hasta} sin VFPData ` +
+              `(topKeys=[${_topKeys}] bodyLen=${resp.body.length} bodyPreview=${_preview})`
+            );
             return [];
           }
           const arrKey = Object.keys(data).find((k) => Array.isArray(data[k]));
@@ -1674,6 +1803,49 @@ export const onRendicionCreatedCheckDuplicate = onDocumentCreated(
   }
 );
 
+/**
+ * onVisitCreatedDenormToClientMaster — v1056 (2026-09-24).
+ * Trigger onCreate en visits/{id}. Copia los atributos comerciales de la
+ * visita (fidelidad, tamanos[], especializaciones[], canalCompra, tipoVenta +
+ * ponderaciones) al doc `client_master.{docId}` como subobjeto `lastVisit`.
+ *
+ * Motivación: pedido Mariano 2026-09-24 — hoy esos campos solo viven en cada
+ * doc de `visits` (append-only). La app y PowerBI necesitan leer el "estado
+ * actual" de un cliente (última fidelidad, último tipo, etc.) sin agregar
+ * visits en cada query. Este trigger denormaliza al doc del cliente con
+ * regla "última visita gana" (LWW por `visit.fecha`).
+ *
+ * Guard temporal LWW: si la visita nueva tiene fecha anterior al lastVisit
+ * ya guardado, skip. Cubre backfill fuera de orden y retries del runtime.
+ *
+ * Core testeable: functions/core/denorm-visit-to-client-master-core.js
+ */
+export const onVisitCreatedDenormToClientMaster = onDocumentCreated(
+  {
+    region: REGION,
+    document: 'visits/{visitId}',
+    retry: false,
+    memory: '256MiB',
+    timeoutSeconds: 30,
+  },
+  async (event) => {
+    const visit = event.data?.data();
+    if (!visit) return;
+    const db = getFirestore();
+    try {
+      const result = await denormVisitToClientMaster(
+        { visit, visitId: event.params.visitId },
+        { db, FieldValue, log: (msg, extra) => console.log(msg, extra || {}) }
+      );
+      console.log('[denorm-visit] result', { visitId: event.params.visitId, ...result });
+    } catch (e) {
+      console.error('[denorm-visit] error', e);
+      // NO re-throw: retry:false + no queremos que fallos aca frenen el flow
+      // de visitas (que sigue funcionando con lectura directa de la colección).
+    }
+  }
+);
+
 // v1005 (2026-09-22): Planner Kanban section — trigger email on column transition.
 // Idempotencia via pedido.plannerEmails.{column}.sentAt.
 // Deploy pending human approval — see Task 5 of Planner Kanban plan.
@@ -1735,6 +1907,183 @@ export const resendPlannerEmail = onCall(
         throw new HttpsError(err.code, err.message);
       }
       throw new HttpsError('internal', 'Resend failed', { detail: err?.message });
+    }
+  }
+);
+
+/**
+ * v1050 (2026-09-23): triggerPlannerSync — callable para forzar manualmente
+ * las 3 syncs SAP → Firestore que alimentan el Planner Kanban (Invoices +
+ * Orders + Payments). Pedido Mariano: cuando genera una SO/factura/cobranza
+ * en SAP no quiere esperar hasta 15min al próximo tick del schedule.
+ *
+ * Gate: admin | gerente | interno (mismos roles que ven el Planner completo).
+ * Ejecuta las 3 syncs EN SERIE (no paralelo — cada una hace su propio SL
+ * login/logout, y la SL company tiene throttling para sesiones concurrentes).
+ * Retorna summary de cada una.
+ */
+export const triggerPlannerSync = onCall(
+  {
+    region: REGION,
+    memory: '512MiB',
+    timeoutSeconds: 300,
+    secrets: [SAP_SL_PASSWORD],
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Login requerido');
+    }
+    const db = getFirestore();
+    const roleSnap = await db.doc(`roles/${request.auth.uid}`).get();
+    const role = (roleSnap.data() || {}).role || null;
+    if (!['admin', 'gerente', 'interno'].includes(role)) {
+      throw new HttpsError('permission-denied', `Rol ${role || 'sin rol'} no puede forzar sync`);
+    }
+    const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+    const sapCfg = sapCfgSnap.data() || {};
+    const sl = sapCfg.serviceLayer || {};
+    if (!sl.url || !sl.companyDB) {
+      throw new HttpsError('failed-precondition', 'sap_integration.serviceLayer incompleto');
+    }
+    const deps = {
+      fetch: globalThis.fetch,
+      sapConfig: {
+        url: sl.url,
+        companyDB: sl.companyDB,
+        userName: sl.username || sl.userName,
+        password: SAP_SL_PASSWORD.value(),
+      },
+      fbDb: db,
+      log: (/** @type {string} */ msg, /** @type {Record<string, unknown>} */ extra) =>
+        console.log('[triggerPlannerSync]', msg, extra || {}),
+    };
+    /** @type {{invoices: any, orders: any, payments: any, closures: any, errors: Array<{step: string, message: string}>}} */
+    const summary = { invoices: null, orders: null, payments: null, closures: null, errors: [] };
+    try {
+      const r = await syncSapInvoices(deps);
+      summary.invoices = {
+        mode: r.mode,
+        invoicesRead: r.invoicesRead,
+        matches: r.matches.length,
+        orphans: r.orphans.length,
+        errors: r.errors.length,
+      };
+      const logId = new Date().toISOString().replace(/[:.]/g, '-');
+      await db
+        .collection('sap_sync_log')
+        .doc(logId)
+        .set({
+          ranAt: new Date().toISOString(),
+          manualTrigger: true,
+          triggeredBy: request.auth.uid,
+          ...r,
+        });
+    } catch (e) {
+      summary.errors.push({
+        step: 'invoices',
+        message: /** @type {any} */ (e)?.message || String(e),
+      });
+    }
+    try {
+      summary.orders = await syncSapOrders(deps);
+    } catch (e) {
+      summary.errors.push({
+        step: 'orders',
+        message: /** @type {any} */ (e)?.message || String(e),
+      });
+    }
+    try {
+      summary.payments = await handleSyncSapPayments(deps);
+    } catch (e) {
+      summary.errors.push({
+        step: 'payments',
+        message: /** @type {any} */ (e)?.message || String(e),
+      });
+    }
+    try {
+      summary.closures = await syncSapQuotationClosures(deps);
+    } catch (e) {
+      summary.errors.push({
+        step: 'closures',
+        message: /** @type {any} */ (e)?.message || String(e),
+      });
+    }
+    console.log('triggerPlannerSync summary', summary);
+    return summary;
+  }
+);
+
+/**
+ * v1058 (2026-09-24): onPedidoCreatedCleanupWaitlist — trigger onCreate en
+ * `pedidos/{pedidoId}` que, si el pedido trae `waitlistOrigenId`, marca el
+ * doc `revision_waitlist/{waitlistOrigenId}` como consumido de forma atomica.
+ *
+ * Reemplaza el path fragil client-side (`_pendingWaitlistDelete` en memoria del
+ * browser) que dependia de que la variable global sobreviviera reload/close del
+ * tab entre "Pasar a Pendientes" y el confirm final.
+ *
+ * Incidente que motivo el fix (2026-09-24): ANA LORENA FUENTES ORDEN 228 quedo
+ * en Lista de Espera Y en Confirmados simultaneamente. El path old client-side
+ * fallo silenciosamente en un intento de Pablo — el pedido llego a `pedidos`
+ * pero el `stage='consumed'` update del waitlist nunca ocurrio (`stage: None`,
+ * `consumedByPedidoId: None`).
+ *
+ * Idempotencia:
+ * - Si el waitlist ya tiene `stage='consumed'`, no hace nada.
+ * - Si el waitlist no existe (ya borrado), log info y no throw.
+ * - Si el pedido no trae `waitlistOrigenId`, no hace nada (pedido cargado
+ *   directo desde Crear Pedido, no desde waitlist).
+ *
+ * Retry: false. Un waitlist quedandose huerfano es peor que un re-trigger —
+ * si algo falla el path old client-side todavia intenta como fallback, o el
+ * script `_cleanup_orphan_waitlist_XXX.py` limpia manualmente.
+ */
+export const onPedidoCreatedCleanupWaitlist = onDocumentCreated(
+  {
+    region: REGION,
+    document: 'pedidos/{pedidoId}',
+    retry: false,
+    memory: '256MiB',
+    timeoutSeconds: 30,
+  },
+  async (event) => {
+    const data = event.data?.data() || null;
+    if (!data) return;
+    const waitlistId = data.waitlistOrigenId;
+    if (!waitlistId || typeof waitlistId !== 'string') return;
+    const pedidoId = event.params.pedidoId;
+    const db = getFirestore();
+    const wRef = db.collection('revision_waitlist').doc(waitlistId);
+    try {
+      const snap = await wRef.get();
+      if (!snap.exists) {
+        console.log('[cleanup-waitlist] waitlist no existe (ya borrado?)', {
+          pedidoId,
+          waitlistId,
+        });
+        return;
+      }
+      const wData = snap.data() || {};
+      if (wData.stage === 'consumed') {
+        console.log('[cleanup-waitlist] ya consumed, no-op', { pedidoId, waitlistId });
+        return;
+      }
+      await wRef.update({
+        stage: 'consumed',
+        consumedByPedidoId: pedidoId,
+        consumedAt: FieldValue.serverTimestamp(),
+        consumedByTrigger: 'onPedidoCreatedCleanupWaitlist',
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      console.log('[cleanup-waitlist] marked consumed', { pedidoId, waitlistId });
+    } catch (e) {
+      // Fail-close silencioso — un error aca no debe bloquear el flujo de creacion
+      // de pedidos. El path old client-side + script manual son fallbacks.
+      console.error('[cleanup-waitlist] error (no-throw)', {
+        pedidoId,
+        waitlistId,
+        err: e && /** @type {any} */ (e).message ? /** @type {any} */ (e).message : String(e),
+      });
     }
   }
 );

@@ -18,28 +18,43 @@ function makeEvent(before, after) {
 }
 
 function makeDeps({ config = defaultConfig(), roleDocs = {} } = {}) {
+  // v1031: mock extendido — soporta .doc('roles/{uid}') para VDI partner lookup
+  // y multi-where (.where().where().limit()) para query VDE.
   return {
     db: {
       doc: (path) => ({
         get: async () => {
           if (path === 'app_config/planner_responsables')
             return { exists: true, data: () => config };
+          // v1031: soporte para roles/{uid} lookup (VDI partner)
+          if (path.startsWith('roles/')) {
+            const uid = path.slice('roles/'.length);
+            if (roleDocs[uid]) {
+              return { exists: true, data: () => roleDocs[uid] };
+            }
+            return { exists: false, data: () => ({}) };
+          }
           return { exists: false, data: () => ({}) };
         },
       }),
-      collection: (_name) => ({
-        where: (field, _op, val) => ({
+      collection: (_name) => {
+        // Builder que acumula wheres y soporta chained .where().where().limit()
+        const makeChain = (filters) => ({
+          where: (field, _op, val) => makeChain([...filters, { field, val }]),
           limit: (n) => ({
             get: async () => {
-              const uids = Object.keys(roleDocs).filter((uid) => roleDocs[uid][field] === val);
+              const uids = Object.keys(roleDocs).filter((uid) =>
+                filters.every((f) => roleDocs[uid][f.field] === f.val)
+              );
               return {
                 empty: uids.length === 0,
                 docs: uids.slice(0, n).map((uid) => ({ id: uid, data: () => roleDocs[uid] })),
               };
             },
           }),
-        }),
-      }),
+        });
+        return makeChain([]);
+      },
     },
     transporter: { sendMail: vi.fn(async () => ({ messageId: 'test' })) },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -48,16 +63,11 @@ function makeDeps({ config = defaultConfig(), roleDocs = {} } = {}) {
 }
 
 function defaultConfig() {
+  // v1037: 'confirmado' removida del config (columna sacada del Planner).
   return {
     lista_espera: { email: 'le@x.com', name: 'LE', notifyOnEnter: true },
     oferta: { email: 'of@x.com', name: 'OF', notifyOnEnter: true },
     ordenes: { email: 'or@x.com', name: 'OR', notifyOnEnter: true },
-    confirmado: {
-      email: 'mariano.erbino@shimano.com.ar',
-      name: 'Mariano',
-      notifyOnEnter: true,
-      hardcoded: true,
-    },
     facturar: {
       email: 'fa@x.com',
       name: 'FA',
@@ -125,12 +135,14 @@ describe('handlePlannerStageChanged', () => {
     expect(result).toEqual({ skipped: 'already-sent' });
   });
 
-  // Case 4: transition to confirmado via plannerStage override
-  it('case 4: before=lista_espera, after has plannerStage=confirmado → email to mariano.erbino@shimano.com.ar', async () => {
+  // Case 4 (v1037): 'confirmado' removida. plannerStage='confirmado' ya no
+  // dispara email — el pedido cae en 'oferta' via Rule 5 (docNum).
+  it('case 4 (v1037): plannerStage=confirmado + docNum → cae en oferta (no confirmado)', async () => {
     const before = { items: [] };
     const after = {
       items: [],
       plannerStage: 'confirmado',
+      transferidoSAP: { docNum: 12345 },
       pedidoNumber: 'P-004',
     };
     const event = makeEvent(before, after);
@@ -138,10 +150,11 @@ describe('handlePlannerStageChanged', () => {
 
     const result = await handlePlannerStageChanged(event, deps);
 
+    // Dispara email de 'oferta' — no de 'confirmado' que ya no existe
     expect(deps.transporter.sendMail).toHaveBeenCalledTimes(1);
     const callArgs = deps.transporter.sendMail.mock.calls[0][0];
-    expect(callArgs.to).toContain('mariano.erbino@shimano.com.ar');
-    expect(result.sent.column).toBe('confirmado');
+    expect(callArgs.to).toContain('of@x.com');
+    expect(result.sent.column).toBe('oferta');
   });
 
   // Case 5: facturar + sendToVdi with matching vendor → both emails in to
@@ -216,6 +229,233 @@ describe('handlePlannerStageChanged', () => {
 
     expect(deps.transporter.sendMail).not.toHaveBeenCalled();
     expect(result).toEqual({ skipped: 'no-after' });
+  });
+
+  // v1021: fallback a transferidoSAP.docNum cuando no hay pedidoNumber/orderNumber
+  it('case 10 (v1021): sin pedidoNumber pero con transferidoSAP.docNum → subject "SAP:12345"', async () => {
+    const before = { items: [] };
+    const after = { items: [], transferidoSAP: { docNum: 12345 } };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    expect(callArgs.subject).toContain('SAP:12345');
+    expect(callArgs.subject).not.toContain('sin número');
+    expect(callArgs.text).toContain('SAP:12345');
+  });
+
+  it('case 11 (v1021): sin pedidoNumber pero con docNum+orderDocEntry → "SAP:X · SO:Y"', async () => {
+    const before = { items: [] };
+    const after = { items: [], transferidoSAP: { docNum: 2000120, orderDocEntry: 36882 } };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    expect(callArgs.subject).toContain('SAP:2000120');
+    expect(callArgs.subject).toContain('SO:36882');
+  });
+
+  // v1021: fallback de totalArs cuando totalAmountArs ausente pero netAmountArs presente (76% de pedidos reales)
+  it('case 12 (v1021): sin totalAmountArs pero con netAmountArs → total muestra el netAmountArs', async () => {
+    const before = { items: [] };
+    const after = {
+      items: [],
+      transferidoSAP: { docNum: 999 },
+      netAmountArs: 1954000,
+    };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    expect(callArgs.text).toContain('1.954.000');
+    expect(callArgs.html).toContain('1.954.000');
+    // No aparece el "-" que indicaba total ausente
+    expect(callArgs.text).not.toMatch(/Total ARS:-/);
+  });
+
+  it('case 13 (v1021): sin totales pero con lines qty*precio → total computado', async () => {
+    const before = { items: [] };
+    const after = {
+      items: [],
+      lines: [
+        { qty: 2, precio: 27000 },
+        { qty: 3, priceAtCreation: 10000 },
+      ],
+      transferidoSAP: { docNum: 888 },
+    };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    // 2*27000 + 3*10000 = 84000
+    expect(callArgs.text).toContain('84.000');
+  });
+
+  // v1022: orderNumber tiene precedencia como ID único del negocio.
+  // v1037: refactor — antes usaba plannerStage='confirmado' pero esa columna
+  // se removió. Ahora usamos transición a Cobrado (paidStatus='paid') para
+  // forzar cambio de columna vs before y validar que el subject sale "ORDEN N"
+  // sin sufijo SAP (porque no hay transferidoSAP en el pedido).
+  it('case 14 (v1022): orderNumber solo (sin SAP) + cobrado → "ORDEN 145" en subject', async () => {
+    const before = { items: [] };
+    const after = { items: [], orderNumber: '145', paidStatus: 'paid' };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    expect(callArgs.subject).toContain('ORDEN 145');
+    expect(callArgs.subject).not.toContain('SAP:');
+    expect(callArgs.subject).not.toContain('(SAP:');
+  });
+
+  it('case 15 (v1022): orderNumber + docNum + orderDocEntry → "ORDEN 145 (SAP:X · SO:Y)"', async () => {
+    const before = { items: [] };
+    const after = {
+      items: [],
+      orderNumber: '145',
+      transferidoSAP: { docNum: 2000120, orderDocEntry: 36882 },
+    };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    expect(callArgs.subject).toMatch(/ORDEN 145 \(SAP:2000120 · SO:36882\)/);
+  });
+
+  // v1031: notificar al VDI pareja del VDE dueño del pedido en cualquier columna.
+  it('case 17 (v1031): pedido con ownerVendor=GONZALO → email al VDI pareja Ioannis', async () => {
+    const before = { items: [] };
+    const after = {
+      items: [],
+      ownerVendor: 'GONZALO DE LA ROSA',
+      transferidoSAP: { docNum: 12345 },
+    };
+    const event = makeEvent(before, after);
+    const deps = makeDeps({
+      roleDocs: {
+        'gonzalo-uid': {
+          role: 'vendedor',
+          vendor: 'GONZALO DE LA ROSA',
+          email: 'gonzalo@shimano.com.ar',
+          internalPartnerUid: 'ioannis-uid',
+        },
+        'ioannis-uid': {
+          role: 'interno',
+          email: 'ioannis.plakoudakis@shimano.com.ar',
+        },
+      },
+    });
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    expect(callArgs.to).toContain('ioannis.plakoudakis@shimano.com.ar');
+    // Y también el columnConfig.email de la col oferta (of@x.com)
+    expect(callArgs.to).toContain('of@x.com');
+  });
+
+  it('case 18 (v1031): VDE sin internalPartnerUid → no falla, no agrega VDI a recipients', async () => {
+    const before = { items: [] };
+    const after = { items: [], ownerVendor: 'ORPHAN', transferidoSAP: { docNum: 12345 } };
+    const event = makeEvent(before, after);
+    const deps = makeDeps({
+      roleDocs: {
+        'orphan-uid': { role: 'vendedor', vendor: 'ORPHAN', email: 'orphan@x.com' },
+      },
+    });
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    // Solo el columnConfig.email; no aparece nada más
+    expect(callArgs.to).toBe('of@x.com');
+  });
+
+  it('case 19 (v1031): notifyVdiPartner=false en config → no notifica al VDI pareja', async () => {
+    const before = { items: [] };
+    const after = {
+      items: [],
+      ownerVendor: 'GONZALO DE LA ROSA',
+      transferidoSAP: { docNum: 12345 },
+    };
+    const event = makeEvent(before, after);
+    const cfg = defaultConfig();
+    cfg.oferta.notifyVdiPartner = false;
+    const deps = makeDeps({
+      config: cfg,
+      roleDocs: {
+        'gonzalo-uid': {
+          role: 'vendedor',
+          vendor: 'GONZALO DE LA ROSA',
+          email: 'gonzalo@shimano.com.ar',
+          internalPartnerUid: 'ioannis-uid',
+        },
+        'ioannis-uid': { role: 'interno', email: 'ioannis.plakoudakis@shimano.com.ar' },
+      },
+    });
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    expect(callArgs.to).not.toContain('ioannis');
+    expect(callArgs.to).toBe('of@x.com');
+  });
+
+  it('case 20 (v1031): VDI pareja == columnConfig.email → no duplica', async () => {
+    const before = { items: [] };
+    const after = { items: [], ownerVendor: 'MARTIN BOIERO', transferidoSAP: { docNum: 12345 } };
+    const event = makeEvent(before, after);
+    const cfg = defaultConfig();
+    // Config columna oferta apunta al mismo email del VDI pareja → dedup check
+    cfg.oferta.email = 'santiago.esteban@shimano.com.ar';
+    const deps = makeDeps({
+      config: cfg,
+      roleDocs: {
+        'martin-uid': {
+          role: 'vendedor',
+          vendor: 'MARTIN BOIERO',
+          email: 'martin@shimano.com.ar',
+          internalPartnerUid: 'santiago-uid',
+        },
+        'santiago-uid': { role: 'interno', email: 'santiago.esteban@shimano.com.ar' },
+      },
+    });
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    // El email aparece una sola vez (no duplicado)
+    const matches = (callArgs.to.match(/santiago\.esteban/g) || []).length;
+    expect(matches).toBe(1);
+  });
+
+  it('case 16 (v1022): orderNumber + docNum (sin SO) → "ORDEN 145 (SAP:2000120)"', async () => {
+    const before = { items: [] };
+    const after = {
+      items: [],
+      orderNumber: '145',
+      transferidoSAP: { docNum: 2000120 },
+    };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    const callArgs = deps.transporter.sendMail.mock.calls[0][0];
+    expect(callArgs.subject).toMatch(/ORDEN 145 \(SAP:2000120\)/);
+    expect(callArgs.subject).not.toContain('SO:');
   });
 
   // Case 9: facturar + sendToVdi + orphan VDI (no email) → log.warn + sendMail still called with primary email only
