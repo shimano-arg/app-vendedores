@@ -83,6 +83,59 @@ function getSapSnapshotFor(vendorKey, year, month) {
   return window.sapSnapshotCache[docId] || null;
 }
 
+// v1097 (2026-09-29): Santiago Esteban absorbe Pachi. Pedido Mariano — Pachi
+// carga como VDE Z4 pero los pedidos entran a SAP mapeados al SlpCode de
+// Santiago (ver project_pachi_vde_proxy). Cuando filtro por Santiago quiero
+// ver Santiago + Pachi; filtro Pachi solo Pachi.
+function _combineVendorsForFilter(vendorKey) {
+  const norm = String(vendorKey || '')
+    .toUpperCase()
+    .trim();
+  if (norm === 'SANTIAGO ESTEBAN') return ['SANTIAGO ESTEBAN', 'PACHI'];
+  return [vendorKey];
+}
+window._combineVendorsForFilter = _combineVendorsForFilter;
+
+// Suma sap_snapshot de multiples vendors (para filter=Santiago que absorbe Pachi).
+function getSapSnapshotForCombined(vendorKey, year, month) {
+  const vendors = _combineVendorsForFilter(vendorKey);
+  let hasAny = false;
+  const acc = {
+    importeLineasArsNeto: 0,
+    facturadoArsNeto: 0,
+    facturadoArsBruto: 0,
+    unidadesNeto: 0,
+    ncsArs: 0,
+    ncsCount: 0,
+    facturasCount: 0,
+    porFamilia: {
+      REEL: { neto: 0, uds: 0 },
+      CANAS: { neto: 0, uds: 0 },
+      LINEAS: { neto: 0, uds: 0 },
+    },
+  };
+  for (const v of vendors) {
+    const s = getSapSnapshotFor(v, year, month);
+    if (!s) continue;
+    hasAny = true;
+    acc.importeLineasArsNeto += Number(s.importeLineasArsNeto || 0);
+    acc.facturadoArsNeto += Number(s.facturadoArsNeto || 0);
+    acc.facturadoArsBruto += Number(s.facturadoArsBruto || 0);
+    acc.unidadesNeto += Number(s.unidadesNeto || 0);
+    acc.ncsArs += Number(s.ncsArs || 0);
+    acc.ncsCount += Number(s.ncsCount || 0);
+    acc.facturasCount += Number(s.facturasCount || 0);
+    if (s.porFamilia) {
+      for (const fam of ['REEL', 'CANAS', 'LINEAS']) {
+        const f = s.porFamilia[fam] || {};
+        acc.porFamilia[fam].neto += Number(f.neto || 0);
+        acc.porFamilia[fam].uds += Number(f.uds || 0);
+      }
+    }
+  }
+  return hasAny ? acc : null;
+}
+
 // Helper: suma YTD del vendedor (todos los meses del año hasta el mes actual, 0-11 inclusive).
 // v580 (2026-08-21): usar importeLineasArsNeto (sin IVA) en vez de
 // facturadoArsNeto (con IVA). Bug reportado por Mariano: app mostraba $40.3M
@@ -697,8 +750,13 @@ window.renderDashboard = function () {
   // consistente con el TABLERO SAR de Power BI.
   if (dashboardVendorForTargets) {
     // v374+: usa mes seleccionado (default = mes actual)
-    const sapSnapMes = getSapSnapshotFor(dashboardVendorForTargets, selYear, selMonthIdx);
-    const monthTgtArsSap = getMonthlyTargetArs(dashboardVendorForTargets, selYear, selMonthIdx);
+    // v1097 (2026-09-29): getSapSnapshotForCombined + getMonthlyTargetArsCombined
+    // absorben Pachi cuando filtro=Santiago Esteban (VDI partner del VDE proxy).
+    const sapSnapMes = getSapSnapshotForCombined(dashboardVendorForTargets, selYear, selMonthIdx);
+    const monthTgtArsSap =
+      typeof window.getMonthlyTargetArsCombined === 'function'
+        ? window.getMonthlyTargetArsCombined(dashboardVendorForTargets, selYear, selMonthIdx)
+        : getMonthlyTargetArs(dashboardVendorForTargets, selYear, selMonthIdx);
     html += '<div class="dash-card" style="border:2px solid #0284c7;background:#f0f9ff">';
     html +=
       '<h4 style="color:#0c4a6e">SAP - ' +
@@ -786,10 +844,13 @@ window.renderDashboard = function () {
     // especifico. Si el snapshot no tiene porFamilia (pre-v1093) o el target
     // no tiene desglose, muestra facturado sin % y un tip para cargar.
     if (sapSnapMes && sapSnapMes.porFamilia) {
+      // v1097: absorbe Pachi cuando filtro=Santiago Esteban.
       const tgtByFam =
-        typeof window.getMonthlyTargetByFamily === 'function'
-          ? window.getMonthlyTargetByFamily(dashboardVendorForTargets, selYear, selMonthIdx)
-          : null;
+        typeof window.getMonthlyTargetByFamilyCombined === 'function'
+          ? window.getMonthlyTargetByFamilyCombined(dashboardVendorForTargets, selYear, selMonthIdx)
+          : typeof window.getMonthlyTargetByFamily === 'function'
+            ? window.getMonthlyTargetByFamily(dashboardVendorForTargets, selYear, selMonthIdx)
+            : null;
       const FAMILIES = [
         { key: 'REEL', label: 'Reel', color: '#3b82f6' },
         { key: 'CANAS', label: 'Cañas', color: '#8b5cf6' },
