@@ -2995,6 +2995,16 @@ body.dark .planner-badge { background: rgba(255,255,255,0.12); }
   letter-spacing: 0.02em;
 }
 body.dark .planner-badge.planner-badge-orden { background: #D40000; color: #fff; }
+/* v1084 (2026-09-29): badge de pedidos cerrados (closedAt !== null). Solo se
+   muestra cuando el toggle "Mostrar cerrados" del Config esta activo. Naranja
+   apagado para distinguir de estados normales sin robar atencion. */
+.planner-badge.planner-badge-closed {
+  background: #F5A623;
+  color: #3d1e00;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+body.dark .planner-badge.planner-badge-closed { background: #C77A00; color: #fff; }
 /* v1019 (2026-09-22): pintar toda la card del color de estado (no solo borde)
    para que el estado sea visualmente claro de un vistazo. Tinted fondo
    suave (paleta Apple systemColor at ~15% opacity) preserva legibilidad
@@ -5919,7 +5929,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1083';
+const APP_VERSION = 'v1084';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12921,6 +12931,21 @@ function renderPlannerConfig() {
     );
   }).join('');
 
+  // v1084 (2026-09-29): toggle auditoria para pedidos cerrados. Ver comment
+  // en _subscribePlannerPedidos + togglePlannerShowClosed. Todo el HTML es
+  // literal (sin input de usuario) — safe innerHTML pattern del repo.
+  var showClosedBlock =
+    '<div style="margin-top:24px;padding:16px;background:rgba(245,166,35,0.08);border-radius:12px;border:1px solid rgba(245,166,35,0.28);">' +
+      '<label style="display:flex;align-items:flex-start;gap:10px;font-size:13px;cursor:pointer;">' +
+        '<input type="checkbox" id="planner-show-closed-toggle"' + (plannerShowClosed ? ' checked' : '') +
+          ' onchange="togglePlannerShowClosed(this.checked)" style="margin-top:2px;">' +
+        '<span>' +
+          '<strong style="display:block;margin-bottom:4px;">Mostrar pedidos cerrados en SAP (auditoria)</strong>' +
+          '<span style="opacity:.75;">Por default el Planner oculta pedidos cerrados (SQ cerrada manualmente en SAP, totalmente facturados). Activar este toggle los muestra con badge naranja. Trae los ultimos 90 dias.</span>' +
+        '</span>' +
+      '</label>' +
+    '</div>';
+
   root.innerHTML =
     '<div style="padding:24px;max-width:640px;">' +
       '<h3 style="margin:0 0 4px;font-weight:700;letter-spacing:-0.02em;">Responsables por columna</h3>' +
@@ -12929,6 +12954,7 @@ function renderPlannerConfig() {
         rowsHtml +
         '<button type="submit" style="background:#007AFF;color:white;padding:10px 20px;border-radius:8px;border:none;cursor:pointer;font-weight:600;font-family:inherit;font-size:14px;">Guardar</button>' +
       '</form>' +
+      showClosedBlock +
     '</div>';
 }
 
@@ -26155,6 +26181,11 @@ var plannerPedidosCache = new Map();
 var plannerWaitlistCache = new Map();
 var plannerResponsablesCache = {};
 var plannerDragged = null;  // {id, from} of card being dragged
+// v1084 (2026-09-29): toggle para auditar pedidos cerrados (closedAt !== null)
+// que hoy quedan invisibles en el Planner. En Sept 2026 son ~16% (23/143)
+// mayormente por reason='sap_manual_close' (SAP cerró la SQ sin generar SO).
+// Default OFF = comportamiento clásico. localStorage per-browser.
+var plannerShowClosed = (typeof localStorage !== 'undefined' && localStorage.getItem('plannerShowClosed') === '1');
 let vdiPartnerUsers = []; // usuarios con rol 'interno' (VDIs) para el dropdown
 let otherUsers = []; // usuarios con rol 'admin' u otros -> seccion "Otros"
 
@@ -27949,6 +27980,31 @@ async function onPlannerColDrop(ev) {
   }
 }
 
+// v1084: subscribe re-usable. Default filtra closedAt=null (Planner "clasico").
+// Con plannerShowClosed=true trae todos los pedidos creados en los ultimos 90
+// dias (activos + cerrados). El filtro _plannerPedidoInMonth limita al mes
+// seleccionado, asi el volumen no crece descontroladamente.
+function _subscribePlannerPedidos() {
+  if (unsubPlannerPedidos) { try { unsubPlannerPedidos(); } catch (_) { /* ignore */ } unsubPlannerPedidos = null; }
+  const db = fbDb;
+  const base = db.collection('pedidos');
+  const query = plannerShowClosed
+    ? base.where('createdAt', '>=', new Date(Date.now() - 90 * 86400000))
+    : base.where('closedAt', '==', null);
+  unsubPlannerPedidos = query.onSnapshot(snap => {
+    plannerPedidosCache.clear();
+    snap.forEach(d => plannerPedidosCache.set(d.id, { id: d.id, ...d.data() }));
+    renderPlannerKanban();
+  }, err => console.warn('pedidos listener:', err?.message));
+}
+
+// v1084: llamada desde el checkbox del Config modal. Persiste + resuscribe.
+window.togglePlannerShowClosed = function(checked) {
+  plannerShowClosed = !!checked;
+  try { localStorage.setItem('plannerShowClosed', plannerShowClosed ? '1' : '0'); } catch (_) { /* ignore */ }
+  _subscribePlannerPedidos();
+};
+
 function attachPlannerListeners() {
   if (unsubPlannerPedidos) return;  // already attached
   const db = fbDb;
@@ -27958,13 +28014,7 @@ function attachPlannerListeners() {
     renderPlannerKanban();
   }, err => console.warn('planner_responsables listener:', err?.message));
 
-  unsubPlannerPedidos = db.collection('pedidos')
-    .where('closedAt', '==', null)
-    .onSnapshot(snap => {
-      plannerPedidosCache.clear();
-      snap.forEach(d => plannerPedidosCache.set(d.id, { id: d.id, ...d.data() }));
-      renderPlannerKanban();
-    }, err => console.warn('pedidos listener:', err?.message));
+  _subscribePlannerPedidos();
 
   // v1027 (2026-09-22): bug — antes usaba .where('stage', '!=', 'consumed')
   // pero Firestore excluye docs SIN el campo `stage` con ese filter. Los
@@ -28135,6 +28185,13 @@ function renderPlannerCard(pedido, column) {
     badges.push({ text: '📎' + pedido.plannerAttachments.length, cls: 'planner-badge' });
   }
   if (pedido.orderNumber) badges.push({ text: 'ORDEN ' + pedido.orderNumber, cls: 'planner-badge planner-badge-orden' });
+  // v1084 (2026-09-29): cards visibles solo cuando toggle "Mostrar cerrados"
+  // esta activo. Badge naranja destaca que el pedido esta cerrado y muestra el
+  // reason (sap_manual_close / all_invoiced / all_recycled_or_cancelled_or_invoiced / ttl_expired).
+  if (pedido.closedAt) {
+    const _reason = pedido.closedReason || 'cerrado';
+    badges.push({ text: '🔒 ' + _reason, cls: 'planner-badge planner-badge-closed' });
+  }
   const badgesHtml = badges.map(b => '<span class="' + b.cls + '">' + escapeHtml(b.text) + '</span>').join('');
   const stateClass = computePlannerCardStateClass(pedido, column);
 

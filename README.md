@@ -4673,7 +4673,35 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1083
+## 41) Changelog v300 → v1084
+
+### v1084 (2026-09-29) — Toggle "Mostrar pedidos cerrados" en Planner Config (auditoría)
+
+**Reporte Mariano 2026-09-29**: pedido HECTOR GERMAN HOJBERG orden 210 aparece en el sidebar "Confirmados" del mapa pero NO aparece en el Planner ni buscándolo por número ni por nombre. Idem con otros pedidos que "desaparecen".
+
+**Root cause** (`scripts/_diagnose_hojberg_orden210.cjs`):
+
+Listener del Planner (`index.html:27962`) filtra `.where('closedAt', '==', null)`. Cuando el CF `syncSapQuotationClosures` (v1053) detecta que la SQ correspondiente fue **cerrada manualmente en SAP** (David/oficina hizo Close Document sin generar SO), pone `closedAt` + `closedReason='sap_manual_close'`. El pedido desaparece del Planner instantáneamente.
+
+Caso HOJBERG 210: SQ 2000234 con `sapDocumentStatus='bost_Close'`, sin `orderDocEntry`, sin `invoicedAmount`. CF v1053 lo cerró como `sap_manual_close`.
+
+**Escala del problema** (Septiembre 2026):
+- **23 de 143 pedidos (16%) invisibles** en el Planner.
+- **20 por `sap_manual_close`** — SQ cerrada manualmente sin generar SO.
+- 3 por `all_invoiced` — facturado completo (esperado que no aparezca).
+
+**Fix**: toggle nuevo en Planner Config (Modal → Config → "Mostrar pedidos cerrados en SAP (auditoría)"). Por default OFF (comportamiento clásico). Cuando ON:
+
+1. Var global `plannerShowClosed` (localStorage per-browser).
+2. Helper `_subscribePlannerPedidos()` resuscribe el listener con query alternativa: `where('createdAt', '>=', hace-90-días)` sin filtro `closedAt`. Trae activos + cerrados de los últimos 90 días. Cambio en toggle → unsub + resubscribe automático (`window.togglePlannerShowClosed`).
+3. Cards con `closedAt !== null` muestran badge naranja `🔒 <closedReason>` para distinguirlas visualmente.
+4. `computeColumn()` no se toca — los cerrados caen en su columna natural según reglas SAP (HOJBERG 210 va a "Oferta" porque tiene `docNum` sin `orderDocEntry`).
+
+Cero cambio en flujo default. Cuando Mariano ve un pedido "faltar", activa el toggle, lo encuentra, y luego lo apaga para volver al Planner limpio.
+
+**Diagnóstico deja `scripts/_diagnose_hojberg_orden210.cjs`** para auditar cuántos pedidos están cerrados en cualquier mes futuro (breakdown por `closedReason`).
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1083 → v1084.
 
 ### v1083 (2026-09-29) — Planner total ARS matchea SAP DocTotal en pedidos con `transferidoSAP.docNum`
 
