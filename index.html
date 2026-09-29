@@ -3761,14 +3761,14 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <div class="exp-opt" data-exp-kind="BACKORDER" onclick="closeExportDialog();exportBackorderAll()">
           <div class="exp-icon" style="background:#c2410c"></div>
           <div class="exp-body">
-            <h3>Backorder (snapshot actual)</h3>
+            <h3>Backorder</h3>
             <p>Lineas state=BO open en TODOS los pedidos-app: cliente, SKU, cantidad pendiente, vendedor asignado, fecha del pedido original, precio. Sin filtro de mes - snapshot del estado actual (incluye pedidos migrados desde SAP).</p>
           </div>
         </div>
         <div class="exp-opt" data-exp-kind="STOCK_ASIG" onclick="closeExportDialog();exportStockAsigAll()">
           <div class="exp-icon" style="background:var(--color-accent-violet)"></div>
           <div class="exp-body">
-            <h3>Stock Asignado (snapshot actual)</h3>
+            <h3>Stock Asignado</h3>
             <p>Lineas ASIG (o BO con stock virtual) de TODOS los pedidos-app: cliente, SKU, cantidad reservada, vendedor, pedido, precio. Sin filtro de mes - snapshot del estado actual.</p>
           </div>
         </div>
@@ -5940,7 +5940,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1095';
+const APP_VERSION = 'v1096';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
