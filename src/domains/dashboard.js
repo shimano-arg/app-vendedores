@@ -778,6 +778,86 @@ window.renderDashboard = function () {
         '</div>';
     }
     html += '</div>';
+
+    // v1093 (2026-09-29): bloque "Desglose por familia" (REEL / CAÑAS / LÍNEAS+ACC)
+    // pedido Mariano — replicar el Power BI Tablero SAR con targets por familia
+    // + logro %. Requiere sap_snapshot.porFamilia (populated por sync v1093).
+    // Se muestra debajo del bloque SAP mes en curso cuando hay vendedor
+    // especifico. Si el snapshot no tiene porFamilia (pre-v1093) o el target
+    // no tiene desglose, muestra facturado sin % y un tip para cargar.
+    if (sapSnapMes && sapSnapMes.porFamilia) {
+      const tgtByFam =
+        typeof window.getMonthlyTargetByFamily === 'function'
+          ? window.getMonthlyTargetByFamily(dashboardVendorForTargets, selYear, selMonthIdx)
+          : null;
+      const FAMILIES = [
+        { key: 'REEL', label: 'Reel', color: '#3b82f6' },
+        { key: 'CANAS', label: 'Cañas', color: '#8b5cf6' },
+        { key: 'LINEAS', label: 'Líneas + Acc', color: '#f59e0b' },
+      ];
+      html += '<div class="dash-card" style="border:2px solid #166534;background:#f0fdf4">';
+      html +=
+        '<h4 style="color:#14532d">Desglose por familia <span class="sub" style="color:#166534">Target vs facturado SAP por bucket (matches PowerBI Tablero SAR)</span></h4>';
+      FAMILIES.forEach((fam) => {
+        const famData = sapSnapMes.porFamilia[fam.key] || {};
+        const netoFam = Number(famData.neto || 0);
+        const udsFam = Number(famData.uds || 0);
+        const tgtFam = tgtByFam ? tgtByFam[fam.key] : null;
+        const pctFam = tgtFam != null && tgtFam > 0 ? Math.round((netoFam / tgtFam) * 100) : null;
+        const pctClamp = pctFam != null ? Math.min(100, Math.max(0, pctFam)) : 0;
+        const pctColor =
+          pctFam == null
+            ? '#94a3b8'
+            : pctFam >= 100
+              ? '#10b981'
+              : pctFam >= 70
+                ? '#f59e0b'
+                : '#dc2626';
+        html +=
+          '<div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px;padding:10px 12px;margin-bottom:8px;border-left:4px solid ' +
+          fam.color +
+          '">';
+        html +=
+          '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:4px">';
+        html +=
+          '<div style="font-size:13px;font-weight:800;color:var(--text-primary)">' +
+          fam.label +
+          '</div>';
+        if (pctFam != null) {
+          html +=
+            '<div style="font-size:18px;font-weight:800;color:' +
+            pctColor +
+            '">' +
+            pctFam +
+            '%</div>';
+        } else {
+          html +=
+            '<div style="font-size:9px;font-weight:700;color:var(--text-muted);background:var(--bg-muted);padding:4px 8px;border-radius:4px">SIN TARGET</div>';
+        }
+        html += '</div>';
+        if (tgtFam != null && tgtFam > 0) {
+          html +=
+            '<div class="tgt-bar"><div class="tgt-bar-fill ' +
+            tgtBarCls(pctFam) +
+            '" style="width:' +
+            pctClamp +
+            '%"></div></div>';
+        }
+        html +=
+          '<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-secondary);margin-top:3px;font-weight:600"><span>' +
+          fmtMoney(netoFam) +
+          (tgtFam != null && tgtFam > 0 ? ' / ' + fmtMoney(tgtFam) : ' facturado') +
+          '</span><span>' +
+          fmtNum(udsFam) +
+          ' uds</span></div>';
+        html += '</div>';
+      });
+      if (!tgtByFam) {
+        html +=
+          '<div style="font-size:10px;color:var(--text-muted);margin-top:6px;line-height:1.4">Tip: cargá los targets por familia (Reel / Cañas / Líneas) desde el panel <b>Targets</b> del admin para ver el % de cumplimiento por bucket.</div>';
+      }
+      html += '</div>';
+    }
   }
 
   // v390.1 (2026-08-04): removida card "Mes en curso · pedidos de la app"

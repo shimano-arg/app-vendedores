@@ -1570,6 +1570,13 @@ def sync_dashboard_snapshot_to_firestore(bq_client: bigquery.Client,
     log('[SNAPSHOT] agregando v_facturas_sap + v_ventas_lineas por (vendor, año, mes)...')
     from datetime import date as _date
     current_year = _date.today().year
+    # v1093 (2026-09-29): agregado porFamilia breakdown al snapshot para el
+    # bloque "Desglose por familia" del Dashboard app (matches el Power BI
+    # Tablero SAR). Bucket TARGET_FAMILY:
+    #   REEL   = familia = 'REEL'
+    #   CANAS  = familia = 'CAÑAS'   (post-fix mojibake v1087, UTF-8 correcto)
+    #   LINEAS = todo lo demas (LINEAS, FG, COMBO, MONOFILAMENTO, SIN CATALOGO)
+    # Este mapeo replica el bucket "LÍNEAS+ACC" del PBI (acc = accessories).
     query = f"""
     WITH fact AS (
       SELECT
@@ -1598,6 +1605,37 @@ def sync_dashboard_snapshot_to_firestore(bq_client: bigquery.Client,
       WHERE assigned_vendor IS NOT NULL
         AND EXTRACT(YEAR FROM doc_date) = {current_year}
       GROUP BY assigned_vendor, anio, mes
+    ),
+    familia_agg AS (
+      SELECT
+        assigned_vendor,
+        EXTRACT(YEAR  FROM doc_date) AS anio,
+        EXTRACT(MONTH FROM doc_date) AS mes,
+        CASE
+          WHEN UPPER(familia) = 'REEL'  THEN 'REEL'
+          WHEN UPPER(familia) = 'CAÑAS' THEN 'CANAS'
+          ELSE 'LINEAS'
+        END                          AS familia_bucket,
+        SUM(cantidad)                AS uds_familia,
+        SUM(importe_linea_ars)       AS neto_familia
+      FROM `app-vendedores-shimano.shimano_app.v_ventas_lineas`
+      WHERE assigned_vendor IS NOT NULL
+        AND EXTRACT(YEAR FROM doc_date) = {current_year}
+      GROUP BY assigned_vendor, anio, mes, familia_bucket
+    ),
+    familia_pivot AS (
+      SELECT
+        assigned_vendor,
+        anio,
+        mes,
+        SUM(CASE WHEN familia_bucket='REEL'   THEN neto_familia ELSE 0 END) AS reel_neto,
+        SUM(CASE WHEN familia_bucket='REEL'   THEN uds_familia   ELSE 0 END) AS reel_uds,
+        SUM(CASE WHEN familia_bucket='CANAS'  THEN neto_familia ELSE 0 END) AS canas_neto,
+        SUM(CASE WHEN familia_bucket='CANAS'  THEN uds_familia   ELSE 0 END) AS canas_uds,
+        SUM(CASE WHEN familia_bucket='LINEAS' THEN neto_familia ELSE 0 END) AS lineas_neto,
+        SUM(CASE WHEN familia_bucket='LINEAS' THEN uds_familia   ELSE 0 END) AS lineas_uds
+      FROM familia_agg
+      GROUP BY assigned_vendor, anio, mes
     )
     SELECT
       f.assigned_vendor,
@@ -1608,13 +1646,23 @@ def sync_dashboard_snapshot_to_firestore(bq_client: bigquery.Client,
       f.ncs_ars,
       f.facturas_count,
       f.ncs_count,
-      COALESCE(u.unidades_neto, 0)          AS unidades_neto,
-      COALESCE(u.importe_lineas_ars_neto, 0) AS importe_lineas_ars_neto
+      COALESCE(u.unidades_neto, 0)           AS unidades_neto,
+      COALESCE(u.importe_lineas_ars_neto, 0) AS importe_lineas_ars_neto,
+      COALESCE(fp.reel_neto,   0)            AS reel_neto,
+      COALESCE(fp.reel_uds,    0)            AS reel_uds,
+      COALESCE(fp.canas_neto,  0)            AS canas_neto,
+      COALESCE(fp.canas_uds,   0)            AS canas_uds,
+      COALESCE(fp.lineas_neto, 0)            AS lineas_neto,
+      COALESCE(fp.lineas_uds,  0)            AS lineas_uds
     FROM fact f
     LEFT JOIN unid u
       ON u.assigned_vendor = f.assigned_vendor
      AND u.anio = f.anio
      AND u.mes  = f.mes
+    LEFT JOIN familia_pivot fp
+      ON fp.assigned_vendor = f.assigned_vendor
+     AND fp.anio = f.anio
+     AND fp.mes  = f.mes
     """
     rows = list(bq_client.query(query, location=BQ_LOCATION).result())
     if not rows:
@@ -1642,6 +1690,15 @@ def sync_dashboard_snapshot_to_firestore(bq_client: bigquery.Client,
             'ncsCount':                int(d['ncs_count'] or 0),
             'unidadesNeto':            float(d['unidades_neto'] or 0),
             'importeLineasArsNeto':    float(d['importe_lineas_ars_neto'] or 0),
+            # v1093 (2026-09-29): breakdown por familia para el bloque
+            # "Desglose por familia" del Dashboard. Alineado con las 3 buckets
+            # de targets (REEL / CANAS / LINEAS) — LINEAS incluye FG/COMBO/
+            # MONOFILAMENTO/etc (equivalente al bucket "LÍNEAS+ACC" del PBI).
+            'porFamilia': {
+                'REEL':   {'neto': float(d['reel_neto']   or 0), 'uds': float(d['reel_uds']   or 0)},
+                'CANAS':  {'neto': float(d['canas_neto']  or 0), 'uds': float(d['canas_uds']  or 0)},
+                'LINEAS': {'neto': float(d['lineas_neto'] or 0), 'uds': float(d['lineas_uds'] or 0)},
+            },
             'updatedAt':               firestore.SERVER_TIMESTAMP,
         }
         batch.set(coll.document(doc_id), payload)

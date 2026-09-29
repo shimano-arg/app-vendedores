@@ -4673,7 +4673,42 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1092
+## 41) Changelog v300 → v1093
+
+### v1093 (2026-09-29) — Dashboard: desglose por familia (REEL / CAÑAS / LÍNEAS+ACC) por vendedor
+
+**Pedido Mariano**: cada VDE debe ver su target mensual desglosado por familia, matcheando el layout del Power BI Tablero SAR (columnas Target REEL / Logro REEL / Target CAÑAS / Logro CAÑAS / etc).
+
+**Cambios**:
+
+1. **Backend `scripts/sync_sap_to_bigquery.py`** — extendida `sync_dashboard_snapshot_to_firestore` con nueva CTE `familia_agg + familia_pivot` que agrupa `v_ventas_lineas` por `(vendor, año, mes, familia_bucket)`. El bucket normaliza:
+   - `REEL` ← `familia = 'REEL'`
+   - `CANAS` ← `familia = 'CAÑAS'`
+   - `LINEAS` ← todo lo demás (LINEAS, FG, COMBO, MONOFILAMENTO, SIN CATALOGO) — matches el "LÍNEAS+ACC" del PBI.
+   
+   El payload de `sap_snapshot/{vendor}_{YYYY}_{MM}` ahora incluye:
+   ```json
+   "porFamilia": {
+     "REEL":   { "neto": 62703340, "uds": 484 },
+     "CANAS":  { "neto": 44877610, "uds": 260 },
+     "LINEAS": { "neto":  6958810, "uds": 891 }
+   }
+   ```
+
+2. **`src/domains/targets.js`** — nueva helper `getMonthlyTargetByFamily(vendor, year, month)` que devuelve `{REEL, CANAS, LINEAS}` desde `targetsCache[id].targetByFamily` (el campo ya existe desde v310+ del panel Targets).
+
+3. **`src/domains/dashboard.js`** — nuevo bloque "Desglose por familia" debajo del bloque SAP mes en curso. Solo se muestra cuando `dashboardVendorForTargets` está definido (automático para VDE con `role='vendedor'`; admin al filtrar por vendor específico). 3 cards con:
+   - Border-left color por familia (azul/violeta/naranja).
+   - Nombre + % cumplimiento en grande (verde/amarillo/rojo).
+   - Barra de progreso `tgtBarCls`.
+   - `facturado / target` + unidades.
+   - Fallback "SIN TARGET" cuando el vendor no tiene `targetByFamily` cargado.
+
+**Post-deploy**:
+- Trigger manual del workflow `sync-sap-to-bigquery.yml` para que el snapshot popule `porFamilia` en el próximo tick (o esperar 30 min al cron automático).
+- Los VDEs que hoy ven el Dashboard van a tener el desglose visible en el próximo refresh una vez populated.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1092 → v1093.
 
 ### v1092 (2026-09-29) — Planner accesible para VDEs (scope propio)
 
