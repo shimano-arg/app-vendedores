@@ -2019,7 +2019,7 @@ def sync_campania_snapshot_to_firestore(bq_client: bigquery.Client,
     # Los totales de la campana (realizadoQty/realizadoArs) siguen usando
     # v_campanias_progreso que respeta scope (para no inflar cumplimiento).
     # v649 (2026-08-26): agregar provincia + localidad (bp.city) para el Excel
-    # export del modal Graficos. LEFT JOIN a sap_bps_raw para localidad — best
+    # export del modal Graficos. LEFT JOIN a sap_bp_raw para localidad — best
     # effort, si el BP no tiene MailCity queda null.
     detalle_query = """
     WITH c AS (
@@ -2043,7 +2043,7 @@ def sync_campania_snapshot_to_firestore(bq_client: bigquery.Client,
     JOIN `app-vendedores-shimano.shimano_app.v_ventas_lineas` v
       ON v.item_code IN UNNEST(c.skus)
      AND v.doc_date BETWEEN c.start_date AND c.end_date
-    LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bps_raw` bp
+    LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
       ON bp.card_code = v.card_code
     WHERE v.is_pesca = TRUE
     GROUP BY c.campaign_id, v.item_code, v.card_code, v.card_name
