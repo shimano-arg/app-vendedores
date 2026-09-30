@@ -4673,9 +4673,223 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1110
+## 41) Changelog v300 → v1121
 
-### v1110 (2026-09-30) — Fix race SQ→SO: NumAtCard lookup + salvage race victims
+### v1121 (2026-09-30) — Fix query Disparador Manual (no requiere composite index)
+
+Bug reportado por Mariano al abrir Disparador Manual: `Error cargando pendientes: The query requires an index`. Firestore exigía composite index para `where('status','==','approved').orderBy('createdAt','desc')`.
+
+**Fix** en `src/domains/rendiciones.js` `openDisparadorManualModal`: query sin `orderBy` + `.limit(2000)`. Sort por `createdAt desc` en memoria client-side después del fetch.
+
+Bump v1120 → v1121.
+
+### v1120 (2026-09-30) — ROLLBACK: feature discontinued_skus removido (app colgada)
+
+App quedaba en "Cargando sesión..." al reiniciar. Rollback total del feature de `forecast_config/discontinued_skus` (v1117 + hotfix v1119 no alcanzaron).
+
+**Removido**: fn `ensureDiscontinuedSkusListener()`, registro en `attachFirebaseListeners`, filtros en `STOCK_BACKORDER`/`STOCK_BACKORDER_APP`. `DISCONTINUED_SKUS` queda como `new Set()` vacío para no romper referencias residuales. La lista en Firestore sigue viva.
+
+**TODO**: reimplementar on-demand (fetch al abrir modal Backorder si es Mariano) para no correr `onSnapshot` global.
+
+Bump v1119 → v1120.
+
+### v1119 (2026-09-30) — HOTFIX (parcial): listener discontinued_skus movido post-auth
+
+Intento de fix del bug de v1117 (app colgada). Moví el listener del top-level a `ensureDiscontinuedSkusListener()` con guard `if (!currentUser) return`. **No fue suficiente** — v1120 hizo rollback total.
+
+Bump v1118 → v1119.
+
+### v1118 (2026-09-30) — Botón "Enviar de todos modos" bypass gate ASIG con password
+
+Pedido Mariano: excepción para pasar Lista de Espera → Pendientes sin la revisión obligatoria de stock asignado. Con password "SHIMANO" para prevenir uso accidental.
+
+**Cambios en `index.html`**:
+1. Nuevo botón "🔓 Enviar de todos modos" al lado de "Pasar a Pendientes" (rojo oscuro con dashed amarillo).
+2. Handler `waitlistPasarAPendientesBypass()`: prompt password → valida `=== 'SHIMANO'` → confirm detalle → setea `window._pendingBypassAsigGate = {bypassed, bypassedBy, bypassedAt, bypassReason}` → llama `_waitlistPasarAPendientesContinuar(w)` (salta el gate ASIG).
+3. `pedidos.add()` incluye `bypassAsigGate: window._pendingBypassAsigGate || null` para auditoría.
+4. Reset del flag después del `add()`.
+
+**Uso**: query auditoría `where('bypassAsigGate.bypassed','==',true)`.
+
+Bump v1117 → v1118.
+
+### v1117 (2026-09-30) — Excluir SKUs descontinuados del modal Backorder (SAP + APP) — CAUSÓ BUG
+
+Pedido Mariano: los SKUs CATANA FE (2022) siguen apareciendo en Backorder aunque están descontinuados. **NOTA: esta versión causó app colgada en v1118 al reiniciar. Rollback en v1120.**
+
+**Cambios (todos revertidos en v1120)**:
+1. Script `scripts/_clean_backorder_catana_discontinued.cjs` — one-shot: agregó 8 SKUs CATANA a `forecast_config/discontinued_skus` + intentó cancelar líneas BO en pedidos-app (0 afectados, todo era SAP).
+2. `index.html`: listener global `onSnapshot forecast_config/discontinued_skus` para filtrar `STOCK_BACKORDER` (SAP) + `STOCK_BACKORDER_APP` al parsear. **Bug**: corría en top-level pre-auth → `permission-denied` bloqueaba la carga.
+
+**Verificación previa**: SKUs con BO SAP `CAT4000HGFE=6, CATC3000HGFE=5, CAT4000FE=3, CAT1000FE=3, CAT2500FE=2, CATC3000FE=1` (~20 unidades). La lista en Firestore sigue viva para futura re-implementación on-demand.
+
+Bump v1116 → v1117.
+
+### v1116 (2026-09-30) — Disparador Manual de rendiciones (CF + UI)
+
+Pedido Mariano: forzar envío email + SharePoint de rendiciones aprobadas sin esperar el cron GH Actions Lun/Mie 8 UTC.
+
+**Backend**:
+- `functions/core/trigger-rendiciones-email-core.js` — lógica core testeable.
+- `functions/index.js` — wrapper `triggerRendicionesEmailManual` callable admin/gerente/Mariano-only. Hace POST a GitHub API `workflow_dispatch` del `send-rendiciones-email.yml`.
+- Requiere Secret `GITHUB_DISPATCH_TOKEN` (PAT fine-grained con `Actions:Write` scope). Deployado con token real de Mariano.
+
+**Frontend** (`src/domains/rendiciones.js`):
+- Botón "🔄 Disparador Manual" en tab Rendiciones → TODAS (admin/gerente-only).
+- Modal preview con lista de rendiciones aprobadas + `notifiedAt==null` + resumen totales.
+- Confirmar → llama callable → success con link a la run GH Actions.
+- Fallback claro con hint si el secret no está configurado.
+
+Bump v1115 → v1116.
+
+### v1115 (2026-09-30) — Excepción para rendir gasto con duplicado detectado
+
+Pedido Mariano: rendición previa con problema, necesita re-cargarla saltando el bloqueo strong del detector de duplicados.
+
+**Cambio** `src/domains/rendiciones.js` `submitGasto`: cuando `_antidupPreCheck` devuelve `match.strength === 'strong'`, en lugar de alert bloqueante ahora sale confirm con opción de override. Si acepta, prompt de motivo obligatorio + agregar al doc:
+- `excepcionDuplicado: true`
+- `excepcionMotivo`, `excepcionAutorizadaPor`, `excepcionAutorizadaAt`
+- `duplicadoAnteriorId`
+- Prepend `[EXCEPCIÓN DUPLICADO] <motivo>` a `observaciones` para que Pablo lo vea en el email.
+
+Bump v1114 → v1115.
+
+### v1114 (2026-09-30) — F3B multiplicador dinámico por SKU (auto + override manual)
+
+Reemplaza el multiplicador fijo 1.0 (v1109) por un multiplicador auto que refleja tendencia de venta:
+
+```
+mult_auto = avg(últimos 2 meses cerrados) / avg(últimos 6 meses cerrados)
+            con cap [0.5, 2.5]
+```
+
+Fallback default 1.0 si <3 meses de baseline o baseline muy bajo.
+
+**Override manual** editable inline (click en celda → input → Enter). Persiste en Firestore `forecast_config/multipliers.skuOverrides[SKU] = {value, updatedBy, updatedAt}`. Botón ↻ para volver al auto.
+
+**Nueva columna "Multip."** entre Vta/mes y Demanda esp. con chips A (auto verde) / M (manual naranja) / · (default gris). Color valor: >1.05 verde, <0.95 rojo, medio muted.
+
+Refresh diario automático via `sku_ventas_snapshot` cron cada 30 min. Export Excel incluye Multiplicador + Origen.
+
+Bump v1113 → v1114.
+
+### v1113 (2026-09-30) — Forzar scroll horizontal en tabla Recomendación de Compra
+
+Mariano no veía el botón 🗑 al final de cada fila. Root cause: `table width:100%` comprimía todo → la última columna quedaba fuera del viewport sin aparecer scroll.
+
+**Fix** en `src/domains/forecast.js`: `min-width:1400px` en la tabla para que aparezca scroll horizontal automático.
+
+Bump v1112 → v1113.
+
+### v1112 (2026-09-30) — F3B: SKUs descontinuados en tabla Recomendación de Compra
+
+Pedido Mariano: los SKUs CATANA FE se descontinuaron, quiere excluirlos del forecast.
+
+**Cambios**:
+1. Nueva rule Firestore `forecast_config/{docId}` Mariano-only.
+2. Nueva colección `forecast_config/discontinued_skus` con `{skus[], updatedAt, updatedBy}`.
+3. Botón 🗑 en cada fila de la tabla → confirm → agrega SKU al array → persiste → skip del cálculo.
+4. Chip "🚫 N descontinuados" en el header (púrpura) — click abre modal con lista + botón "↻ Reactivar" por SKU.
+5. `_computeRecommendations` skipea SKUs en `_discontinuedSkus` Set.
+
+Nueva columna "Acción" al final de la tabla.
+
+Bump v1111 → v1112.
+
+### v1111 (2026-09-30) — Eliminar tab Legacy (6m) + limpiar pipeline viejo (~350 LOC)
+
+Pedido Mariano. La tab "Legacy (6m)" era el flujo original v422 con formato SKU + 6 columnas + política YTD × 3. Reemplazada por Fase 1 (v1098) + Fase 2B (v1103) + Fase 3A (v1109).
+
+**Removido**:
+- HTML tab Legacy + contenedor + barra de acciones legacy.
+- `switchForecastTab` case 'legacy'.
+- `openForecastModal` snapshot loading (era solo para legacy).
+- State: `_forecastSnapshot`, `_forecastSalesPlan`, `_forecastRows`, `_forecastLoading`.
+- Helpers: `_monthKey`, `_monthLabel`, `_addMonths`, `_sumVentas12mCompletos`, `_sumVentasYTD`.
+- Pipeline: `_loadSnapshot`, `_parseSalesPlanRows`, `_computeForecastRows`, `_renderTable`.
+- Windows: `onForecastSalesPlanFile`, `exportForecastExcel`, `reloadForecastSnapshot`.
+
+Chunk `forecast.js`: 160 → 140 KB (-20 KB). Diff neto: −708 líneas / +22 líneas.
+
+Bump v1110 → v1111.
+
+### v1110 (2026-09-30) — Centrar contenido tabla Recomendación de Compra
+
+Pedido Mariano. Cambio `text-align:left/right → center` en todas las celdas + headers de la tabla Reco. La columna Descripción queda `left` por legibilidad.
+
+Bump v1109 → v1110.
+
+### v1109 (2026-09-30) — F3A: Tabla Recomendación de Compra debajo de cards Sales Plans
+
+Nueva sección en tab Sales Plans del modal FORECAST que aparece cuando al menos un sales plan está cargado. Para cada SKU del plan:
+
+```
+Balance = stock_libre + en_transito + sales_plan_futuro
+        − backorder_actual
+        − (venta_mensual_promedio_3m × horizonte_7m × multiplier)
+
+Recomendado = balance < 0 ? ceil(-balance / MOQ) * MOQ : 0
+```
+
+**Datos consumidos**:
+- `app_config/stock_snapshot.warehouseBreakdown[sku]['11'/'12']` + `backorderBySku`.
+- `sku_ventas_snapshot/{sku}.meses['YYYY-MM'].qty` (promedio 3m cerrados).
+- `sales_plan_cache/{rods|reels}.rows` (suma columnas desde mes actual).
+
+**Tabla**: Familia | SKU | Descripción | Stock | Tránsito | Backorder | Vta/mes | Demanda esp | Plan futuro | Balance (color) | MOQ | Recomendado (badge).
+
+**Filtros**: buscar, familia (all/rods/reels), "Solo con reco > 0" (default checked). Export Excel.
+
+En esta iteración `multiplier = 1.0` fijo (F3B lo hizo editable en v1114).
+
+Bump v1108 → v1109.
+
+### v1108 (2026-09-30) — Quitar FG del modal Sales Plans
+
+Pedido Mariano. UI muestra solo Rods (Cañas) + Reels. Rule Firestore/Storage sigue aceptando 'fg' por si se reactiva.
+
+Bump v1107 → v1108.
+
+### v1107 (2026-09-30) — Storage cap 10 → 25 MB + fix "Invalid Date" en card Sales Plan
+
+**Reportes Mariano**:
+1. Excel Rods (11.6 MB) rebotaba con `storage/unauthorized` — pasaba el cap de 10 MB.
+2. Card mostraba "Invalid Date Invalid Date" en el timestamp.
+
+**Fixes**:
+- `storage.rules`: cap `forecasts_snapshots` subido a `25 * 1024 * 1024`.
+- `src/domains/forecast.js`: `_salesPlanCaches[familia] = Object.assign({}, payload, {parsedAt: new Date()})` en vez de asignar el payload directo (que tenía `FieldValue.serverTimestamp()` sentinel no resuelto client-side).
+
+Storage rules deployadas via `firebase deploy --only storage`.
+
+Bump v1106 → v1107.
+
+### v1106 (2026-09-30) — Tabs FORECAST colores usan CSS vars (fix light mode)
+
+Pedido Mariano. Colores hardcodeados (`#fff` activo / `#94a3b8` inactivo, fondo `#1e293b`) eran invisibles en light mode.
+
+**Fix** `src/domains/forecast.js` `_buildShellHtml` + `switchForecastTab`:
+- Background: `var(--bg-secondary)`
+- Activo: `var(--text-primary)`
+- Inactivo: `var(--text-muted)`
+
+Bump v1105 → v1106.
+
+### v1105 (2026-09-30) — Fix tab Forecast Estadístico placeholder + defensive rendering
+
+Reporte Mariano: al seleccionar tab "FORECAST ESTADÍSTICO" queda en blanco.
+
+**Fixes** `src/domains/forecast.js`:
+- `switchForecastTab('stat')`: muestra placeholder spinner ANTES del load, re-renderiza si ya está cargado.
+- `_renderForecastStatTab`: envuelto en try/catch → muestra stack trace si algo rompe (antes: fail silencioso).
+- `_loadForecastOutput`: logging para debug.
+- Botón "Reintentar" en el error card.
+
+Bump v1104 → v1105.
+
+### v1110-parallel (2026-09-30) — Fix race SQ→SO: NumAtCard lookup + salvage race victims
+
+> **Nota**: número v1110 colisiona con la v1110 "Centrar contenido tabla Recomendación de Compra" (arriba). Fue un deploy paralelo el mismo día. El `APP_VERSION` que quedó en prod para ese branch fue el correspondiente al hotfix SQ→SO.
 
 **Reporte Mariano**: pedido REBORN SRL (SAP:2000244) seguía en columna "Oferta" del Planner con monto incorrecto ($7.763.000 vs $4.992.375,30 real en SAP) aunque en SAP la SQ ya había sido convertida a SO 20067.
 
