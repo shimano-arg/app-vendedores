@@ -4673,7 +4673,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1121
+## 41) Changelog v300 → v1122
+
+### v1122 (2026-09-30) — Botón ELIMINAR (SAP) forzado en modal Backorder para líneas confirmed
+
+Pedido Mariano: los SKUs CATANA descontinuados tienen líneas EN SAP en el modal Backorder que no se pueden eliminar. El botón "ELIMINAR" original (v702) solo aparece para líneas APP-only — v962 lo restringió para evitar desync con SAP cuando la línea ya está `state='confirmed'`.
+
+**Cambio en `index.html`**: nuevo botón condicional en `renderBackordersTab`:
+- Si `!_isConfirmedApp && c.source === 'app'` → botón normal `ELIMINAR` (rojo claro).
+- Si `_isConfirmedApp && _pedidoIdsForCancel.length > 0` → botón nuevo `🔓 ELIMINAR (SAP)` (rojo oscuro con borde dashed amarillo, mismo estilo que "Enviar de todos modos" de v1118).
+
+**Handler nuevo** `window.deleteConfirmedAppLinesForClient`:
+1. `prompt()` password → valida `=== 'SHIMANO'`.
+2. `confirm()` doble con warning: cliente + SKU + qty + N líneas + aviso que la SQ SAP sigue viva.
+3. Marca líneas con `state='cancelled_force_sap'`, `qtyOpen=0`, `qtyCancelled += qtyOpen previo`.
+4. Metadata `cancelledBy` (email), `cancelledAt`, `cancelledFrom: 'backorder-modal-force-sap'`, `cancelledReason: 'FORZAR eliminar linea confirmed (SQ SAP viva)'`.
+
+**Advertencia UX**: la Sales Quotation en SAP no se cierra automáticamente. El user tiene que cerrarla manualmente en SAP; en el próximo sync (~30 min) el `backorderBySku` refleja el estado limpio.
+
+**Auditoría**: query `where('lines[].state', '==', 'cancelled_force_sap')`.
+
+Bump v1121 → v1122.
 
 ### v1121 (2026-09-30) — Fix query Disparador Manual (no requiere composite index)
 
