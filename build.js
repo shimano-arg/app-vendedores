@@ -102,6 +102,9 @@ const LAZY_CHUNKS = {
     'discontinueSku',
     'reactivateSku',
     'openDiscontinuedModal',
+    // v1114+ F3B multiplicador dinámico editable.
+    'editMultiplier',
+    'resetMultiplier',
   ],
   // v810 (2026-09-04) Loop iter 7: PANEL DE CONTROL Mariano-only (v611+).
   // 939 LOC de metricas/health/KPIs que solo abre 1 usuario, on-demand.
