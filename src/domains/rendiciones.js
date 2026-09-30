@@ -951,22 +951,62 @@ window.submitRendGasto = async function () {
     ticketNormalizado: normalizarTicket(read('rg-numero')),
   };
   // v857+ anti-duplicados pre-check.
+  // v1115+ (2026-09-30): permitir override como EXCEPCIÓN cuando el user
+  // confirma que es un caso legítimo (ej: rendición anterior con problema,
+  // corrección de datos, dos consumos con mismo ticket, etc). El override
+  // agrega flags al doc para trazabilidad y el approver recibe el flag en
+  // el email para que sepa que es una excepción autorizada.
   const dupCheck = await _antidupPreCheck(data);
+  let excepcionData = null;
   if (dupCheck && dupCheck.match.strength === 'strong') {
-    alert(
+    const confirmExc = confirm(
       'DUPLICADO DETECTADO\n\n' +
         'Ya existe una rendicion con el mismo ticket + importe cargada por vos ' +
         'en los ultimos 90 dias:\n\n' +
         _fmtRendicionDuplicada(dupCheck.existing) +
-        '\n\nEste gasto NO se envio para evitar el doble pago. Si es un caso ' +
-        'legitimo (ej: dos consumos distintos con el mismo ticket), consulta ' +
-        'con Pablo antes de re-cargar.'
+        '\n\n¿Es un caso legítimo (ej: rendición anterior salió mal, corrección, ' +
+        'dos consumos distintos con mismo ticket)?\n\n' +
+        '• CANCELAR → no se envía (evita doble pago)\n' +
+        '• OK → registrar como EXCEPCIÓN y enviar a ' +
+        (approver.name || approver.email) +
+        ' para aprobación'
     );
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = 'Enviar gasto a aprobacion';
+    if (!confirmExc) {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Enviar gasto a aprobacion';
+      }
+      return;
     }
-    return;
+    const motivo = prompt(
+      'Motivo de la excepción (obligatorio para trazabilidad):\n\n' +
+        'Ejemplo: "Rendición anterior salió con error, re-cargo con datos correctos"',
+      ''
+    );
+    if (!motivo || !motivo.trim()) {
+      alert('Excepción cancelada: se requiere motivo.');
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Enviar gasto a aprobacion';
+      }
+      return;
+    }
+    excepcionData = {
+      excepcionDuplicado: true,
+      excepcionMotivo: motivo.trim(),
+      excepcionAutorizadaPor: currentUser.email || currentUser.uid,
+      excepcionAutorizadaAt: firebase.firestore.FieldValue.serverTimestamp(),
+      duplicadoAnteriorId:
+        (dupCheck.existing && (dupCheck.existing.id || dupCheck.existing._fsId)) || null,
+    };
+    // Agregar el motivo a las observaciones para que Pablo lo vea en el email.
+    data.observaciones =
+      (data.observaciones ? data.observaciones + '\n\n' : '') +
+      '[EXCEPCIÓN DUPLICADO] ' +
+      motivo.trim();
+  }
+  if (excepcionData) {
+    Object.assign(data, excepcionData);
   }
   if (dupCheck && dupCheck.match.strength === 'weak') {
     const ok = confirm(
