@@ -1213,6 +1213,10 @@ window.setTodasRendFilter = function (f) {
 };
 
 function renderTodasRendiciones() {
+  // v1116: Disparador Manual (admin/gerente only). Render lazy en cada
+  // llamada — el userRole puede cambiar durante la sesion.
+  renderDisparadorManualBtn();
+
   const cont = document.getElementById('rd-todas-list');
   if (!cont) return;
   if (!todasRendiciones.length) {
@@ -1803,6 +1807,260 @@ window.rejectRendicion = async function (rendId, notifId) {
 };
 
 // === Exports a window para callers cross-scope ===
+// v1116 F3C — Disparador Manual del workflow send-rendiciones-email.yml
+function _canDispatchRendicionesEmail() {
+  try {
+    const role = window.userRole || '';
+    const email = ((window.currentUser && window.currentUser.email) || '').toLowerCase();
+    return (
+      role === 'admin' ||
+      role === 'gerente' ||
+      email === 'mariano.erbino@shimano.com.ar' ||
+      email === 'erbinomariano@gmail.com'
+    );
+  } catch {
+    return false;
+  }
+}
+
+function renderDisparadorManualBtn() {
+  const cont = document.getElementById('rd-disparador-container');
+  if (!cont) return;
+  if (!_canDispatchRendicionesEmail()) {
+    cont.textContent = '';
+    return;
+  }
+  cont.innerHTML = _btnDisparadorHtml();
+}
+
+function _btnDisparadorHtml() {
+  return (
+    '<button onclick="openDisparadorManualModal()" style="width:100%;padding:10px 14px;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-weight:800;font-size:12px;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;margin-bottom:10px" title="Enviar por email las rendiciones aprobadas que aun no fueron notificadas">' +
+    '🔄 Disparador Manual — Enviar aprobadas pendientes de env&iacute;o</button>'
+  );
+}
+
+window.openDisparadorManualModal = async function () {
+  if (!_canDispatchRendicionesEmail()) {
+    alert('Solo admin/gerente/Mariano pueden disparar el envío manual.');
+    return;
+  }
+  const existing = document.getElementById('disparador-manual-modal');
+  if (existing) existing.remove();
+  const el = document.createElement('div');
+  el.id = 'disparador-manual-modal';
+  el.style.cssText =
+    'position:fixed;inset:0;background:rgba(15,23,42,.65);z-index:2100;display:flex;align-items:center;justify-content:center;padding:3vh';
+  el.onclick = (ev) => {
+    if (ev.target === el) el.remove();
+  };
+  el.innerHTML = _dispModalShellHtml();
+  document.body.appendChild(el);
+  try {
+    const snap = await window.fbDb
+      .collection('rendiciones')
+      .where('status', '==', 'approved')
+      .orderBy('createdAt', 'desc')
+      .limit(500)
+      .get();
+    /** @type {Array<any>} */
+    const pending = [];
+    snap.forEach((doc) => {
+      const d = doc.data();
+      if (!d.notifiedAt) {
+        pending.push(Object.assign({ _fsId: doc.id }, d));
+      }
+    });
+    _renderDisparadorManualBody(pending);
+  } catch (e) {
+    console.error('[disparador] load fail', e);
+    const body = document.getElementById('disparador-manual-body');
+    if (body) {
+      body.textContent = 'Error cargando pendientes: ' + ((e && e.message) || String(e));
+      body.style.color = '#dc2626';
+    }
+  }
+};
+
+function _renderDisparadorManualBody(pending) {
+  const body = document.getElementById('disparador-manual-body');
+  if (!body) return;
+  if (!pending.length) {
+    body.innerHTML = _dispEmptyHtml();
+    return;
+  }
+  const totalArs = pending
+    .filter((r) => (r.moneda || 'PESOS') === 'PESOS')
+    .reduce((s, r) => s + (Number(r.importe) || 0), 0);
+  const totalUsd = pending
+    .filter((r) => r.moneda === 'DOLARES' || Number(r.importeUsd) > 0)
+    .reduce((s, r) => s + (Number(r.importeUsd) || Number(r.importe) || 0), 0);
+  const rowsHtml = pending
+    .slice(0, 100)
+    .map((r) => {
+      const dt = r.createdAt && r.createdAt.toDate ? r.createdAt.toDate() : null;
+      const dtStr = dt
+        ? dt.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: '2-digit' })
+        : '';
+      const desc =
+        r.tipo === 'gasto'
+          ? (r.descripcion || '-') + ' · ' + (r.tipoGasto || '')
+          : (r.tipoOperacion || '-') + ' · ' + (r.motivo || '');
+      const owner = r.ownerName || r.ownerEmail || '(sin owner)';
+      return (
+        '<tr style="border-bottom:1px solid var(--border-subtle)"><td style="padding:6px 8px;font-size:11px;color:var(--text-secondary)">' +
+        escapeHtml(dtStr) +
+        '</td><td style="padding:6px 8px;font-size:11px;color:var(--text-primary);font-weight:600">' +
+        escapeHtml(owner) +
+        '</td><td style="padding:6px 8px;font-size:11px;color:var(--text-secondary);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+        escapeHtml(desc) +
+        '</td><td style="padding:6px 8px;font-size:11px;text-align:right;color:var(--text-primary);font-variant-numeric:tabular-nums;font-weight:700">' +
+        (Number(r.importe) || 0).toLocaleString('es-AR') +
+        ' ' +
+        escapeHtml(r.moneda || '') +
+        '</td></tr>'
+      );
+    })
+    .join('');
+  body.style.padding = '0';
+  body.innerHTML = _dispBodyHtml(pending.length, totalArs, totalUsd, rowsHtml);
+}
+
+function _dispEmptyHtml() {
+  return (
+    '<div style="padding:40px;text-align:center;color:var(--text-muted)">' +
+    '<div style="font-size:48px;margin-bottom:10px">&#10003;</div>' +
+    '<div style="font-size:14px;font-weight:700;color:var(--color-success)">No hay rendiciones aprobadas pendientes de env&iacute;o</div>' +
+    '<div style="font-size:11px;color:var(--text-muted);margin-top:8px">Todas las rendiciones ya fueron notificadas por el cron o el disparo previo.</div>' +
+    '</div>'
+  );
+}
+
+function _dispBodyHtml(nPending, totalArs, totalUsd, rowsHtml) {
+  const usdChip =
+    totalUsd > 0
+      ? '<div style="flex:1;min-width:140px;padding:10px;background:var(--bg-secondary);border-radius:6px;text-align:center"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Total USD</div><div style="font-size:20px;font-weight:800;color:var(--text-primary)">$' +
+        totalUsd.toLocaleString('es-AR') +
+        '</div></div>'
+      : '';
+  const truncNote =
+    nPending > 100
+      ? '<div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:-8px;margin-bottom:12px">Mostrando primeras 100 de ' +
+        nPending +
+        '</div>'
+      : '';
+  return (
+    '<div style="padding:0 20px 20px">' +
+    '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">' +
+    '<div style="flex:1;min-width:140px;padding:10px;background:var(--bg-secondary);border-radius:6px;text-align:center"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Total pendientes</div><div style="font-size:20px;font-weight:800;color:var(--text-primary)">' +
+    nPending +
+    '</div></div>' +
+    '<div style="flex:1;min-width:140px;padding:10px;background:var(--bg-secondary);border-radius:6px;text-align:center"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Total ARS</div><div style="font-size:20px;font-weight:800;color:var(--text-primary)">$' +
+    totalArs.toLocaleString('es-AR') +
+    '</div></div>' +
+    usdChip +
+    '</div>' +
+    '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">Se van a enviar por email + SharePoint las siguientes rendiciones aprobadas que a&uacute;n no fueron notificadas:</div>' +
+    '<div style="max-height:40vh;overflow:auto;border:1px solid var(--border-subtle);border-radius:6px;margin-bottom:14px"><table style="width:100%;border-collapse:collapse;font-size:11px"><thead style="background:#0f172a;color:#fff"><tr><th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase">Fecha</th><th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase">Vendedor</th><th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase">Descripci&oacute;n</th><th style="padding:6px 8px;text-align:right;font-size:10px;text-transform:uppercase">Importe</th></tr></thead><tbody>' +
+    rowsHtml +
+    '</tbody></table></div>' +
+    truncNote +
+    '<div style="display:flex;gap:10px;justify-content:flex-end">' +
+    '<button onclick="document.getElementById(\'disparador-manual-modal\').remove()" style="padding:10px 16px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:6px;font-weight:700;cursor:pointer">Cancelar</button>' +
+    '<button id="disparador-confirm-btn" onclick="confirmDispararManual(' +
+    nPending +
+    ')" style="padding:10px 20px;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-weight:800;cursor:pointer">Confirmar y disparar</button>' +
+    '</div></div>'
+  );
+}
+
+window.confirmDispararManual = async function (nPending) {
+  const btn = document.getElementById('disparador-confirm-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Disparando...';
+    btn.style.opacity = '0.6';
+  }
+  try {
+    const region = 'southamerica-east1';
+    const fbAny = /** @type {any} */ (firebase);
+    const auth = fbAny.auth && fbAny.auth();
+    if (auth && auth.currentUser && typeof auth.currentUser.getIdToken === 'function') {
+      await auth.currentUser.getIdToken(true);
+    }
+    const callable = firebase
+      .app()
+      .functions(region)
+      .httpsCallable('triggerRendicionesEmailManual');
+    const resp = await callable({});
+    const data = (resp && resp.data) || {};
+    const body = document.getElementById('disparador-manual-body');
+    if (body) body.innerHTML = _dispSuccessHtml(nPending, data.workflowUrl);
+  } catch (e) {
+    console.error('[disparador] confirm fail', e);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Confirmar y disparar';
+      btn.style.opacity = '1';
+    }
+    const body = document.getElementById('disparador-manual-body');
+    if (body) body.innerHTML = _dispErrorHtml(e);
+  }
+};
+
+function _dispSuccessHtml(nPending, workflowUrl) {
+  const url = workflowUrl || 'https://github.com/shimano-arg/app-vendedores/actions';
+  return (
+    '<div style="padding:40px 20px;text-align:center">' +
+    '<div style="font-size:48px;margin-bottom:12px">&#128640;</div>' +
+    '<div style="font-size:16px;font-weight:800;color:var(--color-success);margin-bottom:6px">Workflow disparado</div>' +
+    '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px">Se est&aacute;n procesando ' +
+    nPending +
+    ' rendiciones. El email llega en <b>1-3 minutos</b> a mariano.erbino@shimano.com.ar + diego.valsi@shimano.uy.<br>SharePoint se actualiza autom&aacute;ticamente despu&eacute;s via Power Automate.</div>' +
+    '<a href="' +
+    escapeAttr(url) +
+    '" target="_blank" style="display:inline-block;padding:8px 16px;background:#0d9488;color:#fff;border-radius:6px;text-decoration:none;font-weight:700;font-size:12px">Ver ejecuci&oacute;n en GitHub Actions &rarr;</a>' +
+    '<div style="margin-top:14px"><button onclick="document.getElementById(\'disparador-manual-modal\').remove()" style="padding:8px 14px;background:transparent;color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;font-weight:700">Cerrar</button></div>' +
+    '</div>'
+  );
+}
+
+function _dispErrorHtml(e) {
+  const errCode = e && e.code;
+  const errMsg = (e && e.message) || String(e);
+  let hint = '';
+  if (errCode === 'failed-precondition' && /GITHUB_DISPATCH_TOKEN/i.test(errMsg)) {
+    hint =
+      '<div style="margin-top:10px;padding:10px;background:var(--color-warning-bg);border-radius:6px;font-size:11px;color:#78350f;text-align:left"><b>Setup pendiente:</b> hay que crear un Personal Access Token de GitHub con permiso <code>Actions: Write</code> y guardarlo en Secret Manager como <code>GITHUB_DISPATCH_TOKEN</code>.<br><br>Mientras tanto pod&eacute;s disparar manualmente desde:<br><a href="https://github.com/shimano-arg/app-vendedores/actions/workflows/send-rendiciones-email.yml" target="_blank" style="color:#7c3aed;font-weight:700">github.com/.../send-rendiciones-email</a> &rarr; bot&oacute;n <b>Run workflow</b></div>';
+  }
+  return (
+    '<div style="padding:20px">' +
+    '<div style="padding:14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;color:#7f1d1d;margin-bottom:10px"><b>Error al disparar:</b><br>' +
+    escapeHtml(errMsg) +
+    hint +
+    '</div>' +
+    '<button onclick="openDisparadorManualModal()" style="padding:8px 14px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;font-weight:700">Reintentar</button>' +
+    '</div>'
+  );
+}
+
+function _dispModalShellHtml() {
+  return (
+    '<div style="background:var(--bg-elevated);border-radius:12px;padding:24px;max-width:720px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.4)">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+    '<div><div style="font-size:18px;font-weight:800;color:var(--text-primary)">Disparador Manual</div>' +
+    '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">Enviar por email + SharePoint las rendiciones aprobadas a&uacute;n no notificadas</div></div>' +
+    '<button onclick="document.getElementById(\'disparador-manual-modal\').remove()" style="background:transparent;border:1px solid var(--border-subtle);border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:700">Cerrar</button>' +
+    '</div>' +
+    '<div id="disparador-manual-body" style="padding:20px;text-align:center;color:var(--text-muted)">' +
+    '<div style="display:inline-block;width:24px;height:24px;border:3px solid #7c3aed;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:10px"></div>' +
+    '<div>Cargando rendiciones pendientes de env&iacute;o...</div>' +
+    '<style>@keyframes spin{to{transform:rotate(360deg)}}</style>' +
+    '</div>' +
+    '</div>'
+  );
+}
+
 // Funciones llamadas desde fuera del bloque rendiciones:
 // - ensureRendicionesListener: init global post-login (línea ~12035, ~18610 pre-E2.e).
 // - openRendicionDetail: notif render en notifItemHtml (línea ~14228 pre-E2.e).
@@ -1813,3 +2071,4 @@ window.openRendicionDetail = window.openRendicionDetail || openRendicionDetail;
 window.renderMisRendiciones = renderMisRendiciones;
 window.ensureTodasRendicionesListener = ensureTodasRendicionesListener;
 window.renderTodasRendiciones = renderTodasRendiciones;
+window.renderDisparadorManualBtn = renderDisparadorManualBtn;
