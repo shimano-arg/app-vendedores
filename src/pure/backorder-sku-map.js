@@ -100,8 +100,9 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
   const mesF = String(filters.mesYYYYMM || '');
   const now = typeof deps.now === 'number' ? deps.now : Date.now();
   const getStk = typeof deps.getStockDisponibleVenta === 'function' ? deps.getStockDisponibleVenta : () => 0;
-  const canonVendor = typeof deps.canonVendor === 'function' ? deps.canonVendor : (x) => String(x || '').trim().toUpperCase();
+  const canonVendor = typeof deps.canonVendor === 'function' ? deps.canonVendor : /** @param {any} x */ (x) => String(x || '').trim().toUpperCase();
   const products = Array.isArray(deps.products) ? deps.products : [];
+  /** @type {Object<string, any>} */
   const prodByCode = {};
   for (const p of products) {
     if (p && p.code) prodByCode[String(p.code).toUpperCase()] = p;
@@ -129,6 +130,7 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
     return true;
   };
 
+  /** @type {Object<string, SkuGroup>} */
   /** @type {Object<string, SkuGroup>} */
   const skuMap = {};
 
