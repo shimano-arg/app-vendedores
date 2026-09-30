@@ -295,7 +295,7 @@ function _buildShellHtml() {
   return modalOuter + header + tabsBar + tabSalesPlans + tabStat + tabLegacy + '</div>';
 }
 
-// v1098+ Fase 1 + v1103+ Fase 2B: switch entre tabs Sales Plans / Stat / Legacy.
+// v1098+ Fase 1 + v1103+ Fase 2B + v1105 fix: switch entre tabs Sales Plans / Stat / Legacy.
 window.switchForecastTab = function (tabId) {
   _forecastActiveTab = tabId;
   const sp = document.getElementById('forecast-tab-sales-plans');
@@ -311,19 +311,40 @@ window.switchForecastTab = function (tabId) {
     b.style.borderBottomColor = active ? '#0d9488' : 'transparent';
     b.style.fontWeight = active ? '700' : '600';
   });
-  // Lazy load del contenido stat on-demand la primera vez
-  if (tabId === 'stat' && !_forecastStatDocs) {
-    _loadForecastOutput()
-      .then(_renderForecastStatTab)
-      .catch((e) => {
-        console.error('[FORECAST stat] load fail', e);
-        const c = document.getElementById('forecast-tab-stat');
-        if (c)
-          c.innerHTML =
-            '<div style="padding:60px 20px;text-align:center;color:#dc2626">Error cargando forecast_output: ' +
-            escapeHtmlSafe(e.message || String(e)) +
-            '</div>';
-      });
+  // v1105 fix: al activar la tab stat, mostrar placeholder inmediato para
+  // que se vea algo mientras carga (o si el load ya termino, re-render).
+  if (tabId === 'stat') {
+    const cont = document.getElementById('forecast-tab-stat');
+    if (cont) {
+      if (_forecastStatDocs) {
+        // Ya cargado: re-render (por si el user viene de otra tab).
+        _renderForecastStatTab();
+      } else {
+        // Aún no cargado: placeholder + load.
+        cont.innerHTML =
+          '<div style="padding:60px 20px;text-align:center;color:var(--text-muted);font-size:14px">' +
+          '<div style="display:inline-block;width:24px;height:24px;border:3px solid #0d9488;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:12px"></div>' +
+          '<div>Cargando forecast_output desde Firestore...</div>' +
+          '<style>@keyframes spin{to{transform:rotate(360deg)}}</style>' +
+          '</div>';
+        _loadForecastOutput()
+          .then(_renderForecastStatTab)
+          .catch((e) => {
+            console.error('[FORECAST stat] load fail', e);
+            const c = document.getElementById('forecast-tab-stat');
+            if (c) {
+              c.innerHTML =
+                '<div style="padding:60px 20px;text-align:center;color:#dc2626;line-height:1.6">' +
+                '<div style="font-size:16px;font-weight:700;margin-bottom:12px">Error cargando forecast_output</div>' +
+                '<div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">' +
+                escapeHtmlSafe(e.message || String(e)) +
+                '</div>' +
+                '<button onclick="switchForecastTab(\'stat\')" style="padding:8px 14px;background:#0d9488;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer">Reintentar</button>' +
+                '</div>';
+            }
+          });
+      }
+    }
   }
 };
 
@@ -651,6 +672,7 @@ window.onSalesPlanFileForFamilia = async function (event, familia) {
 
 async function _loadForecastOutput() {
   if (!window.fbDb) throw new Error('Firestore no inicializado');
+  console.log('[FORECAST stat] loading forecast_output...');
   const [snap, metaDoc] = await Promise.all([
     window.fbDb.collection('forecast_output').get(),
     window.fbDb.collection('forecast_output_meta').doc('current').get(),
@@ -664,6 +686,7 @@ async function _loadForecastOutput() {
   });
   _forecastStatDocs = docs;
   _forecastStatMeta = metaDoc.exists ? metaDoc.data() : null;
+  console.log('[FORECAST stat] loaded', docs.length, 'docs · meta:', !!_forecastStatMeta);
   return docs;
 }
 
@@ -713,9 +736,24 @@ function _fmtDsShort(iso) {
 function _renderForecastStatTab() {
   const cont = document.getElementById('forecast-tab-stat');
   if (!cont) return;
+  try {
+    _renderForecastStatTabImpl(cont);
+  } catch (e) {
+    console.error('[FORECAST stat] render fail', e);
+    cont.innerHTML =
+      '<div style="padding:40px 20px;color:#dc2626;line-height:1.6">' +
+      '<div style="font-size:16px;font-weight:700;margin-bottom:10px">Error renderizando tab Forecast Estadístico</div>' +
+      '<pre style="font-size:11px;background:#fef2f2;padding:12px;border-radius:6px;overflow:auto;white-space:pre-wrap">' +
+      escapeHtmlSafe(e.stack || e.message || String(e)) +
+      '</pre></div>';
+  }
+}
+
+function _renderForecastStatTabImpl(cont) {
   const docs = _forecastStatDocs || [];
   const meta = _forecastStatMeta || {};
   const resumen = meta.resumen || {};
+  console.log('[FORECAST stat] render — docs:', docs.length, 'meta:', !!meta.generatedAt);
   if (!docs.length) {
     cont.innerHTML =
       '<div style="padding:60px 20px;text-align:center;color:var(--text-muted)">' +
