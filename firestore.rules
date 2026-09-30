@@ -304,6 +304,13 @@ service cloud.firestore {
       allow write: if isMariano();
     }
 
+    // v1112+ (2026-09-30) F3B: config del modulo Forecast — SKUs descontinuados,
+    // multiplicadores por subfamilia, etc. Mariano-only read+write.
+    match /forecast_config/{docId} {
+      allow read: if isMariano();
+      allow write: if isMariano();
+    }
+
     match /client_locations/{docId} {
       allow read: if isReader();
       allow create: if isAdminOrGerente() || isVendor() || isInterno();

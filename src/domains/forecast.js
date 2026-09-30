@@ -46,6 +46,11 @@ let _recoFilterMinRec = true; // "solo mostrar SKUs con recomendado > 0"
 let _recoFilterFamilia = 'all'; // 'all' | 'rods' | 'reels'
 let _recoSearchText = '';
 
+// v1112+ (F3B): SKUs descontinuados que Mariano marca para excluir del forecast.
+// Persisten en Firestore `forecast_config/discontinued_skus` como { skus: [SKU upper], updatedAt, updatedBy }.
+let _discontinuedSkus = null; // Set<string upper> o null si no cargado
+let _discontinuedMeta = null; // {updatedAt, updatedBy}
+
 const RECO_HORIZON_MONTHS = 7;
 const RECO_VENTA_PROMEDIO_WINDOW = 3; // meses hacia atrás para promedio venta
 const RECO_DEFAULT_MULTIPLIER = 1.0;
@@ -881,9 +886,41 @@ window.closeForecastModal = function () {
 // F3A — Tabla Recomendación de Compra (tab Sales Plans)
 // ---------------------------------------------------------------------------
 
+async function _loadDiscontinuedSkus() {
+  if (!window.fbDb) return;
+  try {
+    const doc = await window.fbDb.collection('forecast_config').doc('discontinued_skus').get();
+    if (doc.exists) {
+      const d = doc.data() || {};
+      const arr = Array.isArray(d.skus) ? d.skus : [];
+      _discontinuedSkus = new Set(arr.map((s) => String(s).trim().toUpperCase()));
+      _discontinuedMeta = { updatedAt: d.updatedAt, updatedBy: d.updatedBy };
+    } else {
+      _discontinuedSkus = new Set();
+      _discontinuedMeta = null;
+    }
+  } catch (e) {
+    console.warn('[FORECAST reco] load discontinued fail:', e && e.message);
+    _discontinuedSkus = new Set();
+  }
+}
+
+async function _saveDiscontinuedSkus() {
+  if (!window.fbDb || !_discontinuedSkus) return;
+  const uid = (window.currentUser && window.currentUser.email) || 'unknown';
+  const payload = {
+    skus: Array.from(_discontinuedSkus).sort(),
+    updatedAt: new Date().toISOString(),
+    updatedBy: uid,
+  };
+  await window.fbDb.collection('forecast_config').doc('discontinued_skus').set(payload);
+  _discontinuedMeta = { updatedAt: payload.updatedAt, updatedBy: payload.updatedBy };
+}
+
 async function _loadRecoData() {
   if (!window.fbDb) throw new Error('Firestore no inicializado');
   const promises = [];
+  if (!_discontinuedSkus) promises.push(_loadDiscontinuedSkus());
   if (!_recoStockSnapshot) {
     promises.push(
       window.fbDb
@@ -974,6 +1011,8 @@ function _computeRecommendations() {
     for (const spRow of cache.rows) {
       const sku = String(spRow.sku || '').trim();
       const skuUpper = sku.toUpperCase();
+      // v1112: skipeamos SKUs descontinuados (Mariano los marca desde la UI).
+      if (_discontinuedSkus && _discontinuedSkus.has(skuUpper)) continue;
       const stockWh =
         (_recoStockSnapshot &&
           _recoStockSnapshot.warehouseBreakdown &&
@@ -1086,6 +1125,14 @@ function _renderRecoSectionImpl(cont) {
   const totalReco = allRows.reduce((s, r) => s + r.recomendado, 0);
   const totalConReco = allRows.filter((r) => r.recomendado > 0).length;
 
+  const nDisc = _discontinuedSkus ? _discontinuedSkus.size : 0;
+  const discChip =
+    nDisc > 0
+      ? '<button onclick="openDiscontinuedModal()" style="padding:6px 12px;background:#9333ea;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer" title="Gestionar SKUs descontinuados">🚫 ' +
+        _fmtInt(nDisc) +
+        ' descontinuados</button>'
+      : '';
+
   const header =
     '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">' +
     '<div style="flex:1;min-width:280px"><div style="font-size:18px;font-weight:800;color:var(--text-primary)">Recomendación de Compra</div>' +
@@ -1098,6 +1145,7 @@ function _renderRecoSectionImpl(cont) {
     '<div style="padding:6px 12px;background:#134e4a;color:#fff;border-radius:6px;font-size:12px;font-weight:700">Σ ' +
     _fmtInt(totalReco) +
     ' unidades</div>' +
+    discChip +
     '</div>';
 
   const filters =
@@ -1174,6 +1222,13 @@ function _renderRecoSectionImpl(cont) {
         ';color:#fff;font-size:12px;font-weight:800;min-width:50px">' +
         _fmtInt(r.recomendado) +
         '</span></td>' +
+        '<td style="padding:6px 8px;text-align:center">' +
+        '<button onclick="discontinueSku(\'' +
+        escapeHtmlSafe(r.sku) +
+        "', '" +
+        escapeHtmlSafe(r.description.replace(/'/g, '')) +
+        '\')" title="Descontinuar este SKU" style="background:transparent;border:1px solid var(--border-subtle);border-radius:4px;padding:4px 8px;cursor:pointer;font-size:14px;color:var(--text-muted)">🗑</button>' +
+        '</td>' +
         '</tr>'
       );
     })
@@ -1195,10 +1250,11 @@ function _renderRecoSectionImpl(cont) {
     '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Balance</th>' +
     '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">MOQ</th>' +
     '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase;background:#134e4a">Recomendado</th>' +
+    '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase" title="Descontinuar SKU">Acción</th>' +
     '</tr></thead><tbody>' +
     (rows.length
       ? rowsHtml
-      : '<tr><td colspan="12" style="padding:40px;text-align:center;color:var(--text-muted)">Sin resultados con los filtros actuales</td></tr>') +
+      : '<tr><td colspan="13" style="padding:40px;text-align:center;color:var(--text-muted)">Sin resultados con los filtros actuales</td></tr>') +
     '</tbody></table></div>';
 
   const footer =
@@ -1302,3 +1358,109 @@ window.exportRecoExcel = function () {
     String(hoy.getDate()).padStart(2, '0');
   XLSX.writeFile(wb, 'Recomendacion_Compra_' + stamp + '.xlsx');
 };
+
+// v1112 F3B: descontinuar / reactivar SKUs.
+window.discontinueSku = async function (sku, description) {
+  if (!_discontinuedSkus) _discontinuedSkus = new Set();
+  const upper = String(sku).trim().toUpperCase();
+  const label = description ? sku + ' — ' + description.slice(0, 60) : sku;
+  if (
+    !confirm(
+      'Descontinuar ' +
+        label +
+        '?\n\nQuedará excluido del cálculo de recomendación de compra hasta que lo reactives desde el chip "Descontinuados".'
+    )
+  ) {
+    return;
+  }
+  _discontinuedSkus.add(upper);
+  try {
+    await _saveDiscontinuedSkus();
+    _renderRecoSection();
+  } catch (e) {
+    _discontinuedSkus.delete(upper);
+    alert('Error guardando: ' + (e.message || e));
+  }
+};
+
+window.reactivateSku = async function (sku) {
+  if (!_discontinuedSkus) return;
+  const upper = String(sku).trim().toUpperCase();
+  _discontinuedSkus.delete(upper);
+  try {
+    await _saveDiscontinuedSkus();
+    _renderDiscontinuedModal();
+    _renderRecoSection();
+  } catch (e) {
+    _discontinuedSkus.add(upper);
+    alert('Error guardando: ' + (e.message || e));
+  }
+};
+
+window.openDiscontinuedModal = function () {
+  const existing = document.getElementById('discontinued-skus-modal');
+  if (existing) existing.remove();
+  const el = document.createElement('div');
+  el.id = 'discontinued-skus-modal';
+  el.style.cssText =
+    'position:fixed;inset:0;background:rgba(15,23,42,.65);z-index:2100;display:flex;align-items:center;justify-content:center;padding:3vh';
+  el.onclick = (ev) => {
+    if (ev.target === el) el.remove();
+  };
+  el.innerHTML =
+    '<div id="discontinued-modal-content" style="background:var(--bg-elevated);border-radius:12px;padding:24px;max-width:640px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.4)"></div>';
+  document.body.appendChild(el);
+  _renderDiscontinuedModal();
+};
+
+function _renderDiscontinuedModal() {
+  const cont = document.getElementById('discontinued-modal-content');
+  if (!cont) return;
+  const list = _discontinuedSkus ? Array.from(_discontinuedSkus).sort() : [];
+  // Buscar descripción en los sales plans caches por si esta cargado
+  const skuToDesc = {};
+  for (const fam of ['rods', 'reels']) {
+    const cache = _salesPlanCaches[fam];
+    if (cache && cache.rows) {
+      for (const r of cache.rows) {
+        skuToDesc[String(r.sku).trim().toUpperCase()] = r.description || '';
+      }
+    }
+  }
+  const head =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+    '<div><div style="font-size:18px;font-weight:800;color:var(--text-primary)">SKUs descontinuados</div>' +
+    '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">' +
+    list.length +
+    ' SKUs excluidos del cálculo de Recomendación de Compra' +
+    '</div></div>' +
+    '<button onclick="document.getElementById(\'discontinued-skus-modal\').remove()" style="background:transparent;border:1px solid var(--border-subtle);border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:700">Cerrar</button>' +
+    '</div>';
+  const body =
+    list.length === 0
+      ? '<div style="padding:40px;text-align:center;color:var(--text-muted)">No hay SKUs descontinuados.<br><br>Podés descontinuar SKUs desde el botón 🗑 en cada fila de la tabla Recomendación de Compra.</div>'
+      : '<div style="display:flex;flex-direction:column;gap:6px">' +
+        list
+          .map((sku) => {
+            const desc = skuToDesc[sku] || '';
+            return (
+              '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-secondary);border-radius:6px">' +
+              '<div style="flex:1"><div style="font-family:monospace;font-weight:700;color:var(--text-primary)">' +
+              escapeHtmlSafe(sku) +
+              '</div>' +
+              (desc
+                ? '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">' +
+                  escapeHtmlSafe(desc) +
+                  '</div>'
+                : '') +
+              '</div>' +
+              '<button onclick="reactivateSku(\'' +
+              escapeHtmlSafe(sku) +
+              '\')" style="padding:6px 12px;background:#16a34a;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer">↻ Reactivar</button>' +
+              '</div>'
+            );
+          })
+          .join('') +
+        '</div>';
+  cont.innerHTML = head + body;
+}
