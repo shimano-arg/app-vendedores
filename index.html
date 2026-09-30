@@ -5948,7 +5948,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1121';
+const APP_VERSION = 'v1122';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14248,6 +14248,8 @@ window.renderBackordersTab = function(){
       // v962 (2026-09-17): sin boton Eliminar para lineas confirmed (ya en SAP).
       // El delete de la linea en Firestore NO cancela la SQ en SAP; seria una
       // accion enganosa. Si hay que cancelar, coordinar con Santi (SAP).
+      // v1122 (2026-09-30): boton ELIMINAR (SAP) para casos como SKUs descontinuados.
+      // Warning explicito: la SQ SAP sigue viva. Solo cierra la linea en Firestore.
       const _isConfirmedApp = c.source === 'app' && c.state === 'confirmed';
       if (!_isConfirmedApp && c.source === 'app' && _pedidoIdsForCancel.length > 0) {
         // v876 (2026-09-11) SEC: fix CodeQL js/incomplete-sanitization alert #29.
@@ -14267,6 +14269,18 @@ window.renderBackordersTab = function(){
           JSON.stringify(_pedidoIdsForCancel)
         );
         html += '<button onclick="window.deleteAllBackorderAppLinesForClient(' + _argsSafe + ')" title="' + escapeAttr(_lblTitle) + '" style="flex-shrink:0;background:var(--color-danger-bg);color:var(--color-danger-strong);border:1px solid #fca5a5;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">ELIMINAR' + (_pedidoIdsForCancel.length > 1 ? ' (' + _pedidoIdsForCancel.length + ')' : '') + '</button>';
+      } else if (_isConfirmedApp && _pedidoIdsForCancel.length > 0) {
+        // v1122: para lineas confirmed (EN SAP) — ELIMINAR forzado con warning
+        // explicito. Uso tipico: SKU descontinuado que no va a facturarse nunca
+        // aunque la SQ SAP siga abierta. Mariano coordina el cierre en SAP aparte.
+        const _lblTitleSap = 'FORZAR eliminar linea confirmada (EN SAP). Requiere cerrar la SQ SAP tambien. Solo para casos excepcionales (ej: SKU descontinuado).';
+        const _argsSafeSap = escapeAttr(
+          JSON.stringify(g.sku) + ',' +
+          JSON.stringify(String(c.nombre || '')) + ',' +
+          Math.round(c.pendiente) + ',' +
+          JSON.stringify(_pedidoIdsForCancel)
+        );
+        html += '<button onclick="window.deleteConfirmedAppLinesForClient(' + _argsSafeSap + ')" title="' + escapeAttr(_lblTitleSap) + '" style="flex-shrink:0;background:#7c2d12;color:#fff;border:1px dashed #fbbf24;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">🔓 ELIMINAR (SAP)' + (_pedidoIdsForCancel.length > 1 ? ' (' + _pedidoIdsForCancel.length + ')' : '') + '</button>';
       }
       html += '</div>';
     });
@@ -14351,6 +14365,93 @@ window.deleteAllBackorderAppLinesForClient = async function(sku, clienteNombre, 
   } catch(_e){}
   if (typeof showSyncTag === 'function') {
     showSyncTag((stAny === 'ASIG' ? 'ASIG' : 'BO') + ' eliminadas: ' + ok + '/' + entries.length + ' lineas');
+  }
+  if (fail > 0) alert(fail + ' linea(s) no se pudieron eliminar. Refresca y reintenta.');
+};
+
+// v1122 (2026-09-30): FORZAR eliminar lineas confirmed (que ya estan en SAP).
+// Uso tipico: SKU descontinuado que no va a facturarse aunque la SQ SAP siga
+// abierta. Pide password 'SHIMANO' + confirm doble para prevenir uso accidental.
+// La SQ SAP subyacente NO se cierra automatico — Mariano tiene que cerrarla
+// manual en SAP.
+window.deleteConfirmedAppLinesForClient = async function(sku, clienteNombre, totalQty, entries){
+  if (!Array.isArray(entries) || !entries.length) return;
+  const pwd = prompt(
+    '⚠ FORZAR eliminar linea CONFIRMED (EN SAP)\n\n' +
+    'Cliente: ' + clienteNombre + '\n' +
+    'SKU: ' + sku + ' (' + totalQty + ' unidades)\n' +
+    'Lineas: ' + entries.length + '\n\n' +
+    'Esta accion cierra la linea SOLO en la app (Firestore).\n' +
+    'La Sales Quotation en SAP sigue viva y tiene que cerrarla manualmente.\n\n' +
+    'Uso tipico: SKU descontinuado sin reposicion.\n\n' +
+    'Ingresa la password de bypass:'
+  );
+  if (pwd == null) return;
+  if (String(pwd).trim().toUpperCase() !== 'SHIMANO') {
+    alert('Password incorrecta. Cancelado.');
+    return;
+  }
+  if (!confirm(
+    'CONFIRMAR ELIMINACION FORZADA?\n\n' +
+    totalQty + ' u de ' + sku + '\n' +
+    'Cliente: ' + clienteNombre + '\n' +
+    entries.length + ' linea(s) confirmed en pedidos-app.\n\n' +
+    'Recorda cerrar la SQ SAP tambien.'
+  )) return;
+
+  const email = ((window.currentUser && window.currentUser.email) || '').toLowerCase();
+  const cancelMeta = {
+    cancelledAt: new Date().toISOString(),
+    cancelledFrom: 'backorder-modal-force-sap',
+    cancelledBy: email || 'unknown',
+    cancelledReason: 'FORZAR eliminar linea confirmed (SQ SAP viva)',
+  };
+  let ok = 0, fail = 0;
+  for (const e of entries) {
+    try {
+      const ref = fbDb.collection('pedidos').doc(e.pedidoId);
+      const snap = await ref.get();
+      if (!snap.exists) { fail++; continue; }
+      const d = snap.data() || {};
+      const lines = Array.isArray(d.lines) ? d.lines.slice() : [];
+      let modIdx = -1;
+      for (let i = 0; i < lines.length; i++) {
+        const l = lines[i];
+        if (!l) continue;
+        if (String(l.code || '').toUpperCase() !== String(sku).toUpperCase()) continue;
+        if (l.state !== 'confirmed') continue;
+        modIdx = i;
+        lines[i] = Object.assign({}, l, {
+          qtyOpen: 0,
+          qtyCancelled: (Number(l.qtyCancelled) || 0) + (Number(l.qtyOpen) || 0),
+          state: 'cancelled_force_sap',
+        }, cancelMeta);
+        break;
+      }
+      if (modIdx < 0) { fail++; continue; }
+      // Optimistic local update.
+      if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+        globalPedidos = globalPedidos.map(pp => {
+          if (!pp || pp._fsId !== e.pedidoId) return pp;
+          return Object.assign({}, pp, { lines: lines });
+        });
+      }
+      await ref.update({
+        lines: lines,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      ok++;
+    } catch (err) {
+      console.error('deleteConfirmedAppLinesForClient linea', e.pedidoId, err);
+      fail++;
+    }
+  }
+  try {
+    const bm = document.getElementById('backorders-modal');
+    if (bm && bm.classList.contains('open') && typeof renderBackordersTab === 'function') renderBackordersTab();
+  } catch(_e){}
+  if (typeof showSyncTag === 'function') {
+    showSyncTag('Confirmed forzadas eliminadas: ' + ok + '/' + entries.length + ' lineas');
   }
   if (fail > 0) alert(fail + ' linea(s) no se pudieron eliminar. Refresca y reintenta.');
 };
