@@ -23,6 +23,16 @@ describe('normalizeMonthLabel', () => {
     expect(normalizeMonthLabel('AGO-27')).toBe('2027-08');
     expect(normalizeMonthLabel('Dic 2026')).toBe('2026-12');
   });
+  it('v1104 parsea formato Excel multi-line "2021\\nJan" (año arriba, mes abajo)', () => {
+    expect(normalizeMonthLabel('2021\nJan')).toBe('2021-01');
+    expect(normalizeMonthLabel('2027\nDec')).toBe('2027-12');
+    expect(normalizeMonthLabel('2026\nSep')).toBe('2026-09');
+    // Con varios whitespaces/tab
+    expect(normalizeMonthLabel('2021\r\nJan')).toBe('2021-01');
+    expect(normalizeMonthLabel('2021\t\tJan')).toBe('2021-01');
+    expect(normalizeMonthLabel('2021 Jan')).toBe('2021-01');
+  });
+
   it('parsea numerico', () => {
     expect(normalizeMonthLabel('2027-01')).toBe('2027-01');
     expect(normalizeMonthLabel('2027/12')).toBe('2027-12');
@@ -84,6 +94,28 @@ describe('detectColumns', () => {
     expect(cols.monthColumns[0]).toEqual({ colIdx: 3, monthKey: '2027-01' });
     expect(cols.detectedMonths).toEqual(['2027-01', '2027-02', '2027-03']);
   });
+  it('v1104 detecta headers Excel multi-line: MOQ\\n12 months + 2021\\nJan', () => {
+    const header = [
+      ' Description ',
+      'SKU Code/Part No',
+      'Family',
+      'Type',
+      'MOQ\n12 months',
+      'Factory',
+      'Base\nFOB(USD)',
+      '2021\nJan',
+      '2021\nFeb',
+      '2027\nDec',
+    ];
+    const cols = detectColumns(header, null);
+    expect(cols.skuIdx).toBe(1);
+    expect(cols.descIdx).toBe(0);
+    expect(cols.moqIdx).toBe(4);
+    expect(cols.monthColumns.length).toBe(3);
+    expect(cols.monthColumns[0]).toEqual({ colIdx: 7, monthKey: '2021-01' });
+    expect(cols.monthColumns[2]).toEqual({ colIdx: 9, monthKey: '2027-12' });
+  });
+
   it('combina año de la fila arriba + mes de la fila header', () => {
     const above = ['', '', '', '2027', '2027', '2027'];
     const header = ['Description', 'SKU', 'MOQ', 'Jan', 'Feb', 'Mar'];

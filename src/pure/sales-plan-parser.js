@@ -55,10 +55,14 @@ const MONTH_ALIASES = {
 
 // Normaliza labels de meses a 'YYYY-MM'. Retorna null si no matchea.
 // Formatos soportados: "Jan 2027", "Ene-27", "Jan/2027", "May27",
-// "2027-01", "01/2027", "Jan.2027".
+// "2027-01", "01/2027", "Jan.2027", "2021\nJan" (multi-line Excel).
 function normalizeMonthLabel(label) {
   if (label == null) return null;
-  const s = String(label).trim().toLowerCase();
+  // v1104: colapsar newlines/tabs a espacio antes del trim.
+  // El formato Excel "2021\nJan" (año en L1, mes en L2 dentro de una celda
+  // multi-row) es común en Sales Plans SUR. `\s+` matchea whitespace incluyendo
+  // \n y \r\n.
+  const s = String(label).replace(/\s+/g, ' ').trim().toLowerCase();
   if (!s) return null;
   let m;
   // "jan 2027" | "jan-27" | "ene/2027" | "may27" | "may.2027"
@@ -70,6 +74,14 @@ function normalizeMonthLabel(label) {
       if (y < 100) y = 2000 + y;
       return String(y).padStart(4, '0') + '-' + String(mon).padStart(2, '0');
     }
+  }
+  // "2021 jan" | "2027 dic" (año primero + mes, formato Excel multi-line
+  // colapsado tras replace \s+).
+  m = s.match(/^(\d{4})[\s\-/._]+([a-záéíóú]{3,10})$/);
+  if (m) {
+    const y = parseInt(m[1], 10);
+    const mon = MONTH_ALIASES[m[2]] || MONTH_ALIASES[m[2].slice(0, 3)];
+    if (mon) return String(y).padStart(4, '0') + '-' + String(mon).padStart(2, '0');
   }
   // "2027-01" | "2027/01"
   m = s.match(/^(\d{4})[-/](\d{1,2})$/);
@@ -106,7 +118,10 @@ function findHeaderRow(rows) {
   for (let i = 0; i < Math.min(rows.length, 30); i++) {
     const row = rows[i] || [];
     for (const cell of row) {
+      // v1104: colapsar newlines a espacio para matchear headers como
+      // "SKU Code/Part No" (ok) o "SKU\nCode" (necesita colapsar).
       const s = String(cell == null ? '' : cell)
+        .replace(/\s+/g, ' ')
         .trim()
         .toLowerCase();
       if (HEADER_MARKERS.indexOf(s) >= 0) return i;
@@ -124,7 +139,11 @@ function detectColumns(headerRow, hintRowAbove) {
   const monthColumns = [];
   const detectedMonthsSet = new Set();
   for (let i = 0; i < headerRow.length; i++) {
-    const raw = String(headerRow[i] == null ? '' : headerRow[i]).trim();
+    // v1104: colapsar newlines a espacio antes de comparar. Los Sales Plan
+    // SUR tienen headers multi-line como "MOQ\n12 months" o "Base\nFOB(USD)".
+    const raw = String(headerRow[i] == null ? '' : headerRow[i])
+      .replace(/\s+/g, ' ')
+      .trim();
     const s = raw.toLowerCase();
     if (
       skuIdx < 0 &&
