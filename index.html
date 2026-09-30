@@ -5943,7 +5943,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1116';
+const APP_VERSION = 'v1117';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -6458,6 +6458,27 @@ let STOCK_WAREHOUSE_COMMITTED = {};
 // v614b hizo con currentUser. Sin este cambio window.STOCK_* = undefined
 // y el panel muestra "sin datos" / 0 para todos los KPIs.
 var STOCK_BACKORDER = {};
+// v1117 (2026-09-30): SKUs descontinuados (forecast_config/discontinued_skus)
+// que se filtran del backorder SAP para que no aparezcan en el modal Backorder
+// ni en cálculos de recomendación. Se hidrata via listener onSnapshot.
+var DISCONTINUED_SKUS = new Set();
+if (typeof fbDb !== 'undefined' && fbDb) {
+  try {
+    fbDb.collection('forecast_config').doc('discontinued_skus').onSnapshot((snap) => {
+      const d = snap.exists ? snap.data() : {};
+      const arr = Array.isArray(d.skus) ? d.skus : [];
+      DISCONTINUED_SKUS = new Set(arr.map((s) => String(s).trim().toUpperCase()));
+      // Re-filtrar STOCK_BACKORDER + recompute counts.
+      if (typeof STOCK_BACKORDER === 'object' && STOCK_BACKORDER) {
+        DISCONTINUED_SKUS.forEach((sku) => { delete STOCK_BACKORDER[sku]; });
+      }
+      try { if (typeof _updateBackorderButtonCounts === 'function') _updateBackorderButtonCounts(); } catch(e) {}
+      try { if (typeof renderBackordersTab === 'function') renderBackordersTab(); } catch(e) {}
+    }, (err) => console.warn('[discontinued-skus] listener err', err));
+  } catch(e) {
+    console.warn('[discontinued-skus] init err', e);
+  }
+}
 // v827+ (2026-09-08): SKUs con U_CICLO_PROD='PRE LANZAMIENTO' en SAP. Aunque
 // haya unidades fisicas en el deposito 11, la app los trata como stock=0
 // (hasStock()=false, getStockQty()=0) y muestra badge naranja "PRE LANZAMIENTO"
@@ -25011,6 +25032,10 @@ function _applyStockSnapshotDoc(d, source) {
   } else {
     STOCK_BACKORDER = {};
   }
+  // v1117: quitar SKUs descontinuados del backorder SAP (no habra reposicion).
+  if (DISCONTINUED_SKUS && DISCONTINUED_SKUS.size > 0) {
+    DISCONTINUED_SKUS.forEach((sku) => { delete STOCK_BACKORDER[sku]; });
+  }
   if (typeof d.preLanzamientoBySku === 'string') {
     try { STOCK_PRE_LANZAMIENTO = JSON.parse(d.preLanzamientoBySku) || {}; }
     catch(e) { console.warn('[stock] no pude parsear preLanzamientoBySku:', e); STOCK_PRE_LANZAMIENTO = {}; }
@@ -25059,6 +25084,13 @@ function ensureStockSnapshotAppListener(){
     STOCK_ASIG_APP = (d.asigBySkuApp && typeof d.asigBySkuApp === 'object') ? d.asigBySkuApp : {};
     STOCK_ASIG_BY_CLIENT_APP = (d.asigByClientSkuApp && typeof d.asigByClientSkuApp === 'object') ? d.asigByClientSkuApp : {};
     STOCK_BO_BY_CLIENT_APP = (d.backorderByClientSkuApp && typeof d.backorderByClientSkuApp === 'object') ? d.backorderByClientSkuApp : {};
+    // v1117: quitar SKUs descontinuados tambien del backorder APP.
+    if (DISCONTINUED_SKUS && DISCONTINUED_SKUS.size > 0) {
+      DISCONTINUED_SKUS.forEach((sku) => {
+        delete STOCK_BACKORDER_APP[sku];
+        delete STOCK_ASIG_APP[sku];
+      });
+    }
     console.log('[stock_snapshot_app] updated: bo=' + Object.keys(STOCK_BACKORDER_APP).length
       + ' asig=' + Object.keys(STOCK_ASIG_APP).length
       + ' asigByClient=' + Object.keys(STOCK_ASIG_BY_CLIENT_APP).length
