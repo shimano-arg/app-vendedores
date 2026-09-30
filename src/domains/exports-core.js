@@ -1368,15 +1368,29 @@ async function exportBackorderForMonth(anio, monthIdx) {
       const cmDocId = w.clientLocId(p.province || '', p.locName || '', p.clientName || '');
       const cmData = w.clientMasterCache.get(cmDocId);
       return (cmData && cmData.assignedVendor) || '';
-    } catch (_e) { return ''; }
+    } catch (_e) {
+      return '';
+    }
   };
   const rawLines = computeFn
-    ? computeFn(pedidos, 'urgente', { mesYYYYMM }, {
-        getStockDisponibleVenta: typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : () => 0,
-        canonVendor: typeof w._canonVendor === 'function' ? w._canonVendor : (x) => String(x || '').trim().toUpperCase(),
-        products: Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [],
-        resolveVendorFallback: _resolveVendorFallback,
-      })
+    ? computeFn(
+        pedidos,
+        'urgente',
+        { mesYYYYMM },
+        {
+          getStockDisponibleVenta:
+            typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : () => 0,
+          canonVendor:
+            typeof w._canonVendor === 'function'
+              ? w._canonVendor
+              : (x) =>
+                  String(x || '')
+                    .trim()
+                    .toUpperCase(),
+          products: Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [],
+          resolveVendorFallback: _resolveVendorFallback,
+        }
+      )
     : [];
   const pedidoById = {};
   for (const p of pedidos) if (p && p._fsId) pedidoById[p._fsId] = p;
@@ -1388,14 +1402,17 @@ async function exportBackorderForMonth(anio, monthIdx) {
     let fechaPedido = '';
     if (c.pedidoCreatedAt) {
       const dt = c.pedidoCreatedAt;
-      fechaPedido = typeof dt === 'string'
-        ? dt.slice(0, 10)
-        : new Date(dt.toDate ? dt.toDate() : dt).toISOString().slice(0, 10);
+      fechaPedido =
+        typeof dt === 'string'
+          ? dt.slice(0, 10)
+          : new Date(dt.toDate ? dt.toDate() : dt).toISOString().slice(0, 10);
     }
     let cantidadPedida = qo;
     let lineaIdx = -1;
     if (p && Array.isArray(p.lines)) {
-      const idx = p.lines.findIndex((l) => l && String(l.code || '').toUpperCase() === rl.sku && l.state === c.state);
+      const idx = p.lines.findIndex(
+        (l) => l && String(l.code || '').toUpperCase() === rl.sku && l.state === c.state
+      );
       if (idx >= 0) {
         cantidadPedida = Number(p.lines[idx].qty) || qo;
         lineaIdx = idx;
@@ -1440,15 +1457,29 @@ async function exportStockAsigForMonth(anio, monthIdx) {
       const cmDocId = w.clientLocId(p.province || '', p.locName || '', p.clientName || '');
       const cmData = w.clientMasterCache.get(cmDocId);
       return (cmData && cmData.assignedVendor) || '';
-    } catch (_e) { return ''; }
+    } catch (_e) {
+      return '';
+    }
   };
   const rawLines = computeFn
-    ? computeFn(pedidos, 'asignacion', { mesYYYYMM }, {
-        getStockDisponibleVenta: typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : () => 0,
-        canonVendor: typeof w._canonVendor === 'function' ? w._canonVendor : (x) => String(x || '').trim().toUpperCase(),
-        products: Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [],
-        resolveVendorFallback: _resolveVendorFallback,
-      })
+    ? computeFn(
+        pedidos,
+        'asignacion',
+        { mesYYYYMM },
+        {
+          getStockDisponibleVenta:
+            typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : () => 0,
+          canonVendor:
+            typeof w._canonVendor === 'function'
+              ? w._canonVendor
+              : (x) =>
+                  String(x || '')
+                    .trim()
+                    .toUpperCase(),
+          products: Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [],
+          resolveVendorFallback: _resolveVendorFallback,
+        }
+      )
     : [];
   const pedidoById = {};
   for (const p of pedidos) if (p && p._fsId) pedidoById[p._fsId] = p;
@@ -1460,13 +1491,16 @@ async function exportStockAsigForMonth(anio, monthIdx) {
     let fechaPedido = '';
     if (c.pedidoCreatedAt) {
       const dt = c.pedidoCreatedAt;
-      fechaPedido = typeof dt === 'string'
-        ? dt.slice(0, 10)
-        : new Date(dt.toDate ? dt.toDate() : dt).toISOString().slice(0, 10);
+      fechaPedido =
+        typeof dt === 'string'
+          ? dt.slice(0, 10)
+          : new Date(dt.toDate ? dt.toDate() : dt).toISOString().slice(0, 10);
     }
     let lineaIdx = -1;
     if (p && Array.isArray(p.lines)) {
-      const idx = p.lines.findIndex((l) => l && String(l.code || '').toUpperCase() === rl.sku && l.state === c.state);
+      const idx = p.lines.findIndex(
+        (l) => l && String(l.code || '').toUpperCase() === rl.sku && l.state === c.state
+      );
       if (idx >= 0) lineaIdx = idx;
     }
     let estadoReal = 'ASIG';
@@ -1514,21 +1548,36 @@ window.exportBackorderAll = async function () {
     try {
       if (typeof window === 'undefined') return '';
       const w = /** @type {any} */ (window);
-      if (typeof w.clientLocId !== 'function' || !w.clientMasterCache || !w.clientMasterCache.get) return '';
+      if (typeof w.clientLocId !== 'function' || !w.clientMasterCache || !w.clientMasterCache.get)
+        return '';
       const cmDocId = w.clientLocId(p.province || '', p.locName || '', p.clientName || '');
       const cmData = w.clientMasterCache.get(cmDocId);
       return (cmData && cmData.assignedVendor) || '';
-    } catch (_e) { return ''; }
+    } catch (_e) {
+      return '';
+    }
   };
   const w = /** @type {any} */ (typeof window !== 'undefined' ? window : {});
   const computeFn = w.__phase0 && w.__phase0.pure && w.__phase0.pure.computeBackorderRawLines;
   const rawLines = computeFn
-    ? computeFn(arr, 'urgente', {}, {
-        getStockDisponibleVenta: typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : () => 0,
-        canonVendor: typeof w._canonVendor === 'function' ? w._canonVendor : (x) => String(x || '').trim().toUpperCase(),
-        products: Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [],
-        resolveVendorFallback: _resolveVendorFallback,
-      })
+    ? computeFn(
+        arr,
+        'urgente',
+        {},
+        {
+          getStockDisponibleVenta:
+            typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : () => 0,
+          canonVendor:
+            typeof w._canonVendor === 'function'
+              ? w._canonVendor
+              : (x) =>
+                  String(x || '')
+                    .trim()
+                    .toUpperCase(),
+          products: Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [],
+          resolveVendorFallback: _resolveVendorFallback,
+        }
+      )
     : [];
   // Índice pedidoId → pedido para enriquecer con campos que el módulo no expone
   // (Mes, Cantidad_Pedida original, Origen, Linea_Idx).
@@ -1543,15 +1592,18 @@ window.exportBackorderAll = async function () {
     let fechaPedido = '';
     if (c.pedidoCreatedAt) {
       const dt = c.pedidoCreatedAt;
-      fechaPedido = typeof dt === 'string'
-        ? dt.slice(0, 10)
-        : new Date(dt.toDate ? dt.toDate() : dt).toISOString().slice(0, 10);
+      fechaPedido =
+        typeof dt === 'string'
+          ? dt.slice(0, 10)
+          : new Date(dt.toDate ? dt.toDate() : dt).toISOString().slice(0, 10);
     }
     // Recuperar la línea original para Cantidad_Pedida + Linea_Idx (si hay pedido).
     let cantidadPedida = qo;
     let lineaIdx = -1;
     if (p && Array.isArray(p.lines)) {
-      const idx = p.lines.findIndex((l) => l && String(l.code || '').toUpperCase() === rl.sku && l.state === c.state);
+      const idx = p.lines.findIndex(
+        (l) => l && String(l.code || '').toUpperCase() === rl.sku && l.state === c.state
+      );
       if (idx >= 0) {
         cantidadPedida = Number(p.lines[idx].qty) || qo;
         lineaIdx = idx;
@@ -1583,8 +1635,12 @@ window.exportBackorderAll = async function () {
   if (rows.length === 0) {
     alert(
       'Export Backorder vacio. Diagnostico:\n' +
-        '- Total pedidos en globalPedidos: ' + arr.length + '\n' +
-        '- Pedidos abiertos (sin closedAt): ' + totalPedidosOpen + '\n' +
+        '- Total pedidos en globalPedidos: ' +
+        arr.length +
+        '\n' +
+        '- Pedidos abiertos (sin closedAt): ' +
+        totalPedidosOpen +
+        '\n' +
         '- Lineas post-FIFO+vencidas con qtyBackorder>0: 0\n\n' +
         'Posibles causas:\n' +
         '1. No hay backorder abierto ahora mismo (todo confirmed, cerrado o vencido)\n' +
@@ -1617,21 +1673,36 @@ window.exportStockAsigAll = async function () {
     try {
       if (typeof window === 'undefined') return '';
       const w = /** @type {any} */ (window);
-      if (typeof w.clientLocId !== 'function' || !w.clientMasterCache || !w.clientMasterCache.get) return '';
+      if (typeof w.clientLocId !== 'function' || !w.clientMasterCache || !w.clientMasterCache.get)
+        return '';
       const cmDocId = w.clientLocId(p.province || '', p.locName || '', p.clientName || '');
       const cmData = w.clientMasterCache.get(cmDocId);
       return (cmData && cmData.assignedVendor) || '';
-    } catch (_e) { return ''; }
+    } catch (_e) {
+      return '';
+    }
   };
   const w = /** @type {any} */ (typeof window !== 'undefined' ? window : {});
   const computeFn = w.__phase0 && w.__phase0.pure && w.__phase0.pure.computeBackorderRawLines;
   const rawLines = computeFn
-    ? computeFn(arr, 'asignacion', {}, {
-        getStockDisponibleVenta: typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : () => 0,
-        canonVendor: typeof w._canonVendor === 'function' ? w._canonVendor : (x) => String(x || '').trim().toUpperCase(),
-        products: Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [],
-        resolveVendorFallback: _resolveVendorFallback,
-      })
+    ? computeFn(
+        arr,
+        'asignacion',
+        {},
+        {
+          getStockDisponibleVenta:
+            typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : () => 0,
+          canonVendor:
+            typeof w._canonVendor === 'function'
+              ? w._canonVendor
+              : (x) =>
+                  String(x || '')
+                    .trim()
+                    .toUpperCase(),
+          products: Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [],
+          resolveVendorFallback: _resolveVendorFallback,
+        }
+      )
     : [];
   const pedidoById = {};
   for (const p of arr) if (p && p._fsId) pedidoById[p._fsId] = p;
@@ -1643,13 +1714,16 @@ window.exportStockAsigAll = async function () {
     let fechaPedido = '';
     if (c.pedidoCreatedAt) {
       const dt = c.pedidoCreatedAt;
-      fechaPedido = typeof dt === 'string'
-        ? dt.slice(0, 10)
-        : new Date(dt.toDate ? dt.toDate() : dt).toISOString().slice(0, 10);
+      fechaPedido =
+        typeof dt === 'string'
+          ? dt.slice(0, 10)
+          : new Date(dt.toDate ? dt.toDate() : dt).toISOString().slice(0, 10);
     }
     let lineaIdx = -1;
     if (p && Array.isArray(p.lines)) {
-      const idx = p.lines.findIndex((l) => l && String(l.code || '').toUpperCase() === rl.sku && l.state === c.state);
+      const idx = p.lines.findIndex(
+        (l) => l && String(l.code || '').toUpperCase() === rl.sku && l.state === c.state
+      );
       if (idx >= 0) lineaIdx = idx;
     }
     // Estado_Real: histórico "BO_con_stock_(virtual_ASIG)" vs "ASIG". v1100:
@@ -1683,8 +1757,12 @@ window.exportStockAsigAll = async function () {
   if (rows.length === 0) {
     alert(
       'Export Stock Asignado vacio. Diagnostico:\n' +
-        '- Total pedidos en globalPedidos: ' + arr.length + '\n' +
-        '- Pedidos abiertos (sin closedAt): ' + totalPedidosOpen + '\n' +
+        '- Total pedidos en globalPedidos: ' +
+        arr.length +
+        '\n' +
+        '- Pedidos abiertos (sin closedAt): ' +
+        totalPedidosOpen +
+        '\n' +
         '- Lineas post-FIFO+vencidas con qtyAsignada>0: 0\n\n' +
         'Posibles causas:\n' +
         '1. No hay stock asignado ahora mismo\n' +

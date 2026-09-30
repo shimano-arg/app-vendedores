@@ -99,8 +99,15 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
   const vf = String(filters.vendorKey || '');
   const mesF = String(filters.mesYYYYMM || '');
   const now = typeof deps.now === 'number' ? deps.now : Date.now();
-  const getStk = typeof deps.getStockDisponibleVenta === 'function' ? deps.getStockDisponibleVenta : () => 0;
-  const canonVendor = typeof deps.canonVendor === 'function' ? deps.canonVendor : /** @param {any} x */ (x) => String(x || '').trim().toUpperCase();
+  const getStk =
+    typeof deps.getStockDisponibleVenta === 'function' ? deps.getStockDisponibleVenta : () => 0;
+  const canonVendor =
+    typeof deps.canonVendor === 'function'
+      ? deps.canonVendor
+      : /** @param {any} x */ (x) =>
+          String(x || '')
+            .trim()
+            .toUpperCase();
   const products = Array.isArray(deps.products) ? deps.products : [];
   /** @type {Object<string, any>} */
   const prodByCode = {};
@@ -131,7 +138,6 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
   };
 
   /** @type {Object<string, SkuGroup>} */
-  /** @type {Object<string, SkuGroup>} */
   const skuMap = {};
 
   // Fuente 1: backorderLines legacy (SAP). Típicamente vacío post-v700 pero
@@ -139,13 +145,16 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
   const backorderLines = Array.isArray(deps.backorderLines) ? deps.backorderLines : [];
   for (const ln of backorderLines) {
     if (!ln) continue;
-    if (!passesFilters({
-      sqDocDate: ln.sqDocDate,
-      vendorKey: ln.vendorKey,
-      sku: ln.sku || '',
-      producto: ln.producto || '',
-      clienteNombre: ln.clienteNombre || '',
-    })) continue;
+    if (
+      !passesFilters({
+        sqDocDate: ln.sqDocDate,
+        vendorKey: ln.vendorKey,
+        sku: ln.sku || '',
+        producto: ln.producto || '',
+        clienteNombre: ln.clienteNombre || '',
+      })
+    )
+      continue;
     const sku = ln.sku || '';
     if (!skuMap[sku]) {
       skuMap[sku] = {
@@ -198,7 +207,7 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
           isAsig &&
           l.state === 'ASIG' &&
           l.asigReserva === false &&
-          (!l.asigAt || ((now - new Date(l.asigAt).getTime()) / DAY_MS) <= RESERVA_TTL_DAYS);
+          (!l.asigAt || (now - new Date(l.asigAt).getTime()) / DAY_MS <= RESERVA_TTL_DAYS);
         if (!isAsigSinReservaVigente) continue;
       }
       const sku = String(l.code).toUpperCase();
@@ -210,15 +219,20 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
         try {
           const fb = deps.resolveVendorFallback(p);
           if (fb) vendorKey = canonVendor(fb);
-        } catch (_e) { /* silent */ }
+        } catch (_e) {
+          /* silent */
+        }
       }
-      if (!passesFilters({
-        sqDocDate: p.confirmedAt,
-        vendorKey,
-        sku,
-        producto: String(l.desc || ''),
-        clienteNombre: String(p.clientName || ''),
-      })) continue;
+      if (
+        !passesFilters({
+          sqDocDate: p.confirmedAt,
+          vendorKey,
+          sku,
+          producto: String(l.desc || ''),
+          clienteNombre: String(p.clientName || ''),
+        })
+      )
+        continue;
       if (!skuMap[sku]) {
         const prod = prodByCode[sku] || {};
         skuMap[sku] = {
