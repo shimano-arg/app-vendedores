@@ -92,10 +92,10 @@ function makeSlFetch(scenarios) {
     if (url.endsWith('/b1s/v1/Logout')) {
       return { ok: true, status: 204, headers: { get: () => null }, text: async () => '' };
     }
-    // v1015 hotfix6: REVERSE MAP approach.
-    // GET /b1s/v1/Orders?$select=DocEntry,DocumentLines&$expand=DocumentLines($select=BaseType,BaseEntry)
-    //     &$orderby=DocEntry desc&$top=500
-    // Devuelve las ultimas N SO con lineas que apuntan a SQs (BaseType=23).
+    // v1102: NumAtCard targeted lookup.
+    // GET /b1s/v1/Orders?$filter=NumAtCard eq 'pedidoId'&$select=DocEntry,DocNum
+    // Devuelve la SO cuyo NumAtCard matchea el pedidoId (heredado en la
+    // conversión SQ → SO).
     if (/\/b1s\/v1\/Orders\?/.test(url)) {
       if (scenarios.ordersThrow) throw new Error('orders network error');
       if (scenarios.ordersStatus && scenarios.ordersStatus !== 200) {
@@ -106,25 +106,21 @@ function makeSlFetch(scenarios) {
           text: async () => '',
         };
       }
-      // Build orders from scenarios.mapping = { sqDe -> soDe | {docEntry,docNum} }.
-      // Cada mapping se traduce a una SO con una linea BaseType=23, BaseEntry=sqDe.
-      // Shorthand num => DocNum = DocEntry (comportamiento tipico SAP). Para
-      // testear DocNum distinto de DocEntry, pasar { docEntry, docNum }.
+      // Extraer pedidoId del filter URL. Formato esperado:
+      // ...?$filter=NumAtCard%20eq%20'p1'&$select=...
+      const decoded = decodeURIComponent(url);
+      const match = decoded.match(/NumAtCard\s+eq\s+'([^']+)'/);
+      const pedidoId = match ? match[1] : null;
+      // scenarios.mapping = { pedidoId -> { docEntry, docNum } | number }
       const mapping = scenarios.mapping || {};
-      const orders = Object.entries(mapping).map(([sqDe, so]) => {
+      /** @type {Array<any>} */
+      const orders = [];
+      if (pedidoId && Object.hasOwn(mapping, pedidoId)) {
+        const so = mapping[pedidoId];
         const isObj = so && typeof so === 'object';
         const docEntry = Number(isObj ? so.docEntry : so);
         const docNum = isObj ? Number(so.docNum) : docEntry;
-        return {
-          DocEntry: docEntry,
-          DocNum: docNum,
-          DocumentLines: [{ BaseType: 23, BaseEntry: Number(sqDe) }],
-        };
-      });
-      // scenarios.extraOrders permite agregar SOs no relacionadas para
-      // testear que se ignoran.
-      if (Array.isArray(scenarios.extraOrders)) {
-        orders.push(...scenarios.extraOrders);
+        orders.push({ DocEntry: docEntry, DocNum: docNum });
       }
       return {
         ok: true,
@@ -174,7 +170,7 @@ describe('syncSapOrders', () => {
           },
         },
       ],
-      scenarios: { mapping: { 100: { docEntry: 37210, docNum: 220 } } },
+      scenarios: { mapping: { p1: { docEntry: 37210, docNum: 220 } } },
     });
     const r = await syncSapOrders(deps);
     expect(r).toEqual({ checked: 1, hits: 1, misses: 0, errors: 0 });
@@ -198,7 +194,7 @@ describe('syncSapOrders', () => {
           },
         },
       ],
-      scenarios: { mapping: { 100: { docEntry: 37210, docNum: 220 } } },
+      scenarios: { mapping: { p1: { docEntry: 37210, docNum: 220 } } },
     });
     const r = await syncSapOrders(deps);
     expect(r).toEqual({ checked: 1, hits: 1, misses: 0, errors: 0 });
@@ -244,7 +240,7 @@ describe('syncSapOrders', () => {
     expect(r).toEqual({ checked: 0, hits: 0, misses: 0, errors: 0 });
   });
 
-  it('GET /Orders throw -> todos los pending cuentan como errors', async () => {
+  it('GET /Orders throw -> cada pedido cuenta como error, no bubblea', async () => {
     const deps = makeDeps({
       pedidos: [
         { id: 'p1', data: { closedAt: null, transferidoSAP: { docEntry: 100 } } },
@@ -252,9 +248,11 @@ describe('syncSapOrders', () => {
       ],
       scenarios: { ordersThrow: true },
     });
-    // Cuando el GET a /Orders throw, sapLogin() throws antes de llegar al try/finally
-    // del handler. syncSapOrders bubblea la excepcion (no la absorbe).
-    await expect(syncSapOrders(deps)).rejects.toThrow();
+    // v1102: nuevo approach targeted por pedido. Un GET fallido no bubblea —
+    // se cuenta como error y sigue el siguiente. Más resiliente que el
+    // scan bulk previo.
+    const r = await syncSapOrders(deps);
+    expect(r).toEqual({ checked: 2, hits: 0, misses: 0, errors: 2 });
   });
 
   it('GET /Orders status 500 -> errors = pending.length, no updates', async () => {
@@ -267,13 +265,11 @@ describe('syncSapOrders', () => {
     expect(deps.fbDb._store.get('p1').transferidoSAP.orderDocEntry).toBeUndefined();
   });
 
-  it('ignora SO no relacionadas al buildear el reverse map', async () => {
+  it('mapping por pedidoId aisla cada pedido (NumAtCard targeted)', async () => {
     const deps = makeDeps({
       pedidos: [{ id: 'p1', data: { closedAt: null, transferidoSAP: { docEntry: 100 } } }],
       scenarios: {
-        mapping: { 100: 555 },
-        // SO adicional que apunta a otra SQ que NO es nuestra.
-        extraOrders: [{ DocEntry: 999, DocumentLines: [{ BaseType: 23, BaseEntry: 88888 }] }],
+        mapping: { p1: 555, unrelatedPedido: 999 },
       },
     });
     const r = await syncSapOrders(deps);
@@ -289,7 +285,7 @@ describe('syncSapOrders', () => {
         id: 'p' + i,
         data: { closedAt: null, transferidoSAP: { docEntry: 100 + i } },
       });
-      mapping[100 + i] = 900 + i;
+      mapping['p' + i] = 900 + i;
     }
     const deps = makeDeps({ pedidos, scenarios: { mapping }, batchSize: 3 });
     const r = await syncSapOrders(deps);
@@ -303,7 +299,7 @@ describe('syncSapOrders', () => {
         { id: 'p1', data: { closedAt: null, transferidoSAP: { docEntry: 100 } } },
         { id: 'p2', data: { closedAt: null, transferidoSAP: { docEntry: 200 } } },
       ],
-      scenarios: { mapping: { 100: 900, 200: 901 } },
+      scenarios: { mapping: { p1: 900, p2: 901 } },
     });
     await syncSapOrders(deps);
     const calls = deps.sl.fetch.mock.calls;

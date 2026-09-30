@@ -449,6 +449,8 @@ export const syncSapQuotationClosuresToApp = onSchedule(
         password: SAP_SL_PASSWORD.value(),
       },
       fbDb: db,
+      // v1102: FieldValue.delete() para el race-victim repair.
+      FieldValue,
       log: (msg, extra) => console.log(msg, extra || {}),
     });
     console.log('syncSapQuotationClosuresToApp summary', result);
