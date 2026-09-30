@@ -145,6 +145,8 @@ installChunkStubs('forecast', [
   'discontinueSku',
   'reactivateSku',
   'openDiscontinuedModal',
+  'editMultiplier',
+  'resetMultiplier',
 ]);
 installChunkStubs('panel-control', ['openPanelControl', 'closePanelControl', 'renderPanelControl']);
 installChunkStubs('seguimiento', [

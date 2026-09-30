@@ -51,6 +51,16 @@ let _recoSearchText = '';
 let _discontinuedSkus = null; // Set<string upper> o null si no cargado
 let _discontinuedMeta = null; // {updatedAt, updatedBy}
 
+// v1114+ (F3B multiplicador dinámico): multiplicador auto por SKU = venta_2m
+// dividido por venta_6m, con cap. Override manual persistido en Firestore
+// `forecast_config/multipliers` con {skuOverrides: {SKU: {value, updatedBy, updatedAt}}}.
+let _multiplierOverrides = null; // { [SKU upper]: {value, updatedBy, updatedAt} }
+const RECO_MULT_RECENT_MONTHS = 2;
+const RECO_MULT_BASELINE_MONTHS = 6;
+const RECO_MULT_MIN = 0.5;
+const RECO_MULT_MAX = 2.5;
+const RECO_MULT_MIN_BASELINE = 0.1; // evita división por cero
+
 const RECO_HORIZON_MONTHS = 7;
 const RECO_VENTA_PROMEDIO_WINDOW = 3; // meses hacia atrás para promedio venta
 const RECO_DEFAULT_MULTIPLIER = 1.0;
@@ -886,6 +896,101 @@ window.closeForecastModal = function () {
 // F3A — Tabla Recomendación de Compra (tab Sales Plans)
 // ---------------------------------------------------------------------------
 
+async function _loadMultiplierOverrides() {
+  if (!window.fbDb) return;
+  try {
+    const doc = await window.fbDb.collection('forecast_config').doc('multipliers').get();
+    if (doc.exists) {
+      const d = doc.data() || {};
+      _multiplierOverrides = d.skuOverrides || {};
+    } else {
+      _multiplierOverrides = {};
+    }
+  } catch (e) {
+    console.warn('[FORECAST reco] load multipliers fail:', e && e.message);
+    _multiplierOverrides = {};
+  }
+}
+
+async function _saveMultiplierOverride(skuUpper, value) {
+  if (!window.fbDb) return;
+  if (!_multiplierOverrides) _multiplierOverrides = {};
+  const uid = (window.currentUser && window.currentUser.email) || 'unknown';
+  _multiplierOverrides[skuUpper] = {
+    value: Number(value),
+    updatedAt: new Date().toISOString(),
+    updatedBy: uid,
+  };
+  await window.fbDb.collection('forecast_config').doc('multipliers').set({
+    skuOverrides: _multiplierOverrides,
+    updatedAt: new Date().toISOString(),
+    updatedBy: uid,
+  });
+}
+
+async function _removeMultiplierOverride(skuUpper) {
+  if (!window.fbDb || !_multiplierOverrides) return;
+  delete _multiplierOverrides[skuUpper];
+  const uid = (window.currentUser && window.currentUser.email) || 'unknown';
+  await window.fbDb.collection('forecast_config').doc('multipliers').set({
+    skuOverrides: _multiplierOverrides,
+    updatedAt: new Date().toISOString(),
+    updatedBy: uid,
+  });
+}
+
+// Auto multiplier: recent/baseline con cap. Retorna {value, source: 'auto'|'fallback'|'default', recent, baseline}.
+function _computeMultiplierAuto(skuUpper) {
+  const rec = _recoVentasSnapshot && _recoVentasSnapshot[skuUpper];
+  if (!rec || !rec.meses) return { value: 1.0, source: 'default', recent: 0, baseline: 0 };
+  const hoy = new Date();
+  const monthsBackKey = (n) => {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() - n, 1);
+    return String(d.getFullYear()) + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  };
+  const collectAvg = (n) => {
+    let sum = 0;
+    let count = 0;
+    for (let i = 1; i <= n; i++) {
+      const k = monthsBackKey(i);
+      const m = rec.meses[k];
+      if (m && Number.isFinite(Number(m.qty))) {
+        sum += Number(m.qty);
+        count++;
+      }
+    }
+    return count > 0 ? { avg: sum / count, n: count } : { avg: 0, n: 0 };
+  };
+  const rec2 = collectAvg(RECO_MULT_RECENT_MONTHS);
+  const bas6 = collectAvg(RECO_MULT_BASELINE_MONTHS);
+  // Necesitamos al menos 1 mes reciente + 3 meses baseline para calcular auto.
+  if (rec2.n === 0 || bas6.n < 3 || bas6.avg < RECO_MULT_MIN_BASELINE) {
+    return { value: 1.0, source: 'default', recent: rec2.avg, baseline: bas6.avg };
+  }
+  let ratio = rec2.avg / bas6.avg;
+  if (ratio < RECO_MULT_MIN) ratio = RECO_MULT_MIN;
+  if (ratio > RECO_MULT_MAX) ratio = RECO_MULT_MAX;
+  return {
+    value: Math.round(ratio * 100) / 100,
+    source: 'auto',
+    recent: Math.round(rec2.avg * 10) / 10,
+    baseline: Math.round(bas6.avg * 10) / 10,
+  };
+}
+
+function _getEffectiveMultiplier(skuUpper) {
+  // Override manual gana
+  if (_multiplierOverrides && _multiplierOverrides[skuUpper]) {
+    return {
+      value: Number(_multiplierOverrides[skuUpper].value) || 1.0,
+      source: 'manual',
+      auto: _computeMultiplierAuto(skuUpper),
+    };
+  }
+  const auto = _computeMultiplierAuto(skuUpper);
+  return { value: auto.value, source: auto.source, auto };
+}
+
 async function _loadDiscontinuedSkus() {
   if (!window.fbDb) return;
   try {
@@ -921,6 +1026,7 @@ async function _loadRecoData() {
   if (!window.fbDb) throw new Error('Firestore no inicializado');
   const promises = [];
   if (!_discontinuedSkus) promises.push(_loadDiscontinuedSkus());
+  if (!_multiplierOverrides) promises.push(_loadMultiplierOverrides());
   if (!_recoStockSnapshot) {
     promises.push(
       window.fbDb
@@ -1029,7 +1135,9 @@ function _computeRecommendations() {
       const ventaMensual = _computeVentaMensualPromedio(skuUpper);
       const salesPlanFut = _computeSalesPlanFuturo(spRow);
       const moq = Number(spRow.moq || 0);
-      const multiplier = RECO_DEFAULT_MULTIPLIER; // v1109: fijo 1.0; F3B lo hace editable por subfamilia
+      // v1114 F3B: multiplicador auto (recent/baseline) o override manual.
+      const multInfo = _getEffectiveMultiplier(skuUpper);
+      const multiplier = multInfo.value;
       const demandaEsperada = ventaMensual * multiplier * RECO_HORIZON_MONTHS;
       const balance = stockLibre + enTransito + salesPlanFut - backorder - demandaEsperada;
       let recomendado = 0;
@@ -1048,6 +1156,8 @@ function _computeRecommendations() {
         ventaMensual: Math.round(ventaMensual * 10) / 10,
         salesPlanFut,
         multiplier,
+        multSource: multInfo.source, // 'auto' | 'manual' | 'default' | 'fallback'
+        multAuto: multInfo.auto ? multInfo.auto.value : null, // el valor auto si hay override manual
         demandaEsperada: Math.round(demandaEsperada * 10) / 10,
         balance: Math.round(balance * 10) / 10,
         recomendado,
@@ -1070,6 +1180,110 @@ function _fmtInt(n) {
   if (n == null || !Number.isFinite(Number(n))) return '—';
   return Math.round(Number(n)).toLocaleString('es-AR');
 }
+
+// v1114 F3B: celda multiplicador con chip auto/manual + input editable.
+function _buildMultCellHtml(r) {
+  const skuUpper = String(r.sku).trim().toUpperCase();
+  const isManual = r.multSource === 'manual';
+  const isDefault = r.multSource === 'default';
+  const val = Number(r.multiplier || 1.0).toFixed(2);
+  // Color por dirección: >1.05 verde (creciendo), <0.95 rojo (cayendo), medio gris.
+  let dirColor = 'var(--text-muted)';
+  if (r.multiplier > 1.05) dirColor = '#16a34a';
+  else if (r.multiplier < 0.95) dirColor = '#dc2626';
+
+  const chip = isManual
+    ? '<span style="display:inline-block;padding:1px 5px;background:#f59e0b;color:#fff;border-radius:8px;font-size:9px;font-weight:700;margin-left:4px" title="Override manual: pisa el auto">M</span>'
+    : isDefault
+      ? '<span style="display:inline-block;padding:1px 5px;background:#94a3b8;color:#fff;border-radius:8px;font-size:9px;font-weight:700;margin-left:4px" title="Sin datos suficientes: usa 1.0">·</span>'
+      : '<span style="display:inline-block;padding:1px 5px;background:#0d9488;color:#fff;border-radius:8px;font-size:9px;font-weight:700;margin-left:4px" title="Auto = venta 2m / venta 6m">A</span>';
+
+  const resetBtn = isManual
+    ? '<button onclick="resetMultiplier(\'' +
+      escapeHtmlSafe(skuUpper) +
+      '\')" title="Volver al auto" style="margin-left:4px;background:transparent;border:none;cursor:pointer;font-size:12px;color:var(--text-muted);padding:0">↻</button>'
+    : '';
+
+  const autoHint =
+    isManual && r.multAuto != null
+      ? ' <span style="font-size:10px;color:var(--text-muted)" title="Valor auto calculado">(auto ' +
+        Number(r.multAuto).toFixed(2) +
+        ')</span>'
+      : '';
+
+  return (
+    '<span style="display:inline-flex;align-items:center;gap:2px">' +
+    '<span onclick="editMultiplier(this, \'' +
+    escapeHtmlSafe(skuUpper) +
+    '\')" style="cursor:pointer;padding:2px 6px;border-radius:4px;background:var(--bg-secondary);font-variant-numeric:tabular-nums;font-weight:700;color:' +
+    dirColor +
+    '" title="Click para editar">' +
+    val +
+    '</span>' +
+    chip +
+    resetBtn +
+    autoHint +
+    '</span>'
+  );
+}
+
+window.editMultiplier = function (el, skuUpper) {
+  const currentVal = parseFloat(el.textContent) || 1.0;
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.step = '0.05';
+  input.min = '0.1';
+  input.max = '5';
+  input.value = String(currentVal);
+  input.style.cssText =
+    'width:60px;padding:2px 4px;font-size:12px;font-weight:700;text-align:center;border:2px solid #0d9488;border-radius:4px;background:var(--bg-elevated);color:var(--text-primary);font-variant-numeric:tabular-nums';
+  const parent = el.parentNode;
+  parent.replaceChild(input, el);
+  input.focus();
+  input.select();
+
+  const commit = async () => {
+    const v = parseFloat(input.value);
+    if (isNaN(v) || v < 0.1 || v > 5) {
+      _renderRecoSection();
+      return;
+    }
+    if (Math.abs(v - currentVal) < 0.001) {
+      _renderRecoSection();
+      return;
+    }
+    try {
+      await _saveMultiplierOverride(skuUpper, v);
+      _renderRecoSection();
+    } catch (e) {
+      alert('Error guardando: ' + (e.message || e));
+      _renderRecoSection();
+    }
+  };
+
+  const cancel = () => _renderRecoSection();
+
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      input.blur();
+    } else if (ev.key === 'Escape') {
+      ev.preventDefault();
+      cancel();
+    }
+  });
+};
+
+window.resetMultiplier = async function (skuUpper) {
+  if (!confirm('Volver el multiplicador de ' + skuUpper + ' al cálculo automático?')) return;
+  try {
+    await _removeMultiplierOverride(skuUpper);
+    _renderRecoSection();
+  } catch (e) {
+    alert('Error: ' + (e.message || e));
+  }
+};
 
 function _renderRecoSection() {
   const cont = document.getElementById('reco-section-container');
@@ -1203,6 +1417,9 @@ function _renderRecoSectionImpl(cont) {
         '<td style="padding:6px 8px;text-align:center;font-variant-numeric:tabular-nums;color:var(--text-secondary)">' +
         _fmtInt(r.ventaMensual) +
         '</td>' +
+        '<td style="padding:6px 8px;text-align:center">' +
+        _buildMultCellHtml(r) +
+        '</td>' +
         '<td style="padding:6px 8px;text-align:center;font-variant-numeric:tabular-nums;color:var(--text-secondary)">' +
         _fmtInt(r.demandaEsperada) +
         '</td>' +
@@ -1248,6 +1465,7 @@ function _renderRecoSectionImpl(cont) {
     '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase" title="Whs 12">Tránsito</th>' +
     '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Backorder</th>' +
     '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase" title="Promedio últimos 3 meses">Vta/mes</th>' +
+    '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase" title="Multiplicador de tendencia = venta 2m / venta 6m. Editable (click para override).">Multip.</th>' +
     '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase" title="Vta/mes × 7 meses">Demanda esp.</th>' +
     '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase" title="Suma columnas Sales Plan desde mes actual">Plan futuro</th>' +
     '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Balance</th>' +
@@ -1257,7 +1475,7 @@ function _renderRecoSectionImpl(cont) {
     '</tr></thead><tbody>' +
     (rows.length
       ? rowsHtml
-      : '<tr><td colspan="13" style="padding:40px;text-align:center;color:var(--text-muted)">Sin resultados con los filtros actuales</td></tr>') +
+      : '<tr><td colspan="14" style="padding:40px;text-align:center;color:var(--text-muted)">Sin resultados con los filtros actuales</td></tr>') +
     '</tbody></table></div>';
 
   const footer =
@@ -1312,6 +1530,8 @@ window.exportRecoExcel = function () {
       'Tránsito',
       'Backorder',
       'Vta prom/mes',
+      'Multiplicador',
+      'Origen mult',
       'Demanda esp. 7m',
       'Sales Plan futuro',
       'Balance',
@@ -1328,6 +1548,8 @@ window.exportRecoExcel = function () {
       r.enTransito,
       r.backorder,
       r.ventaMensual,
+      r.multiplier,
+      r.multSource || 'auto',
       r.demandaEsperada,
       r.salesPlanFut,
       r.balance,
@@ -1337,18 +1559,20 @@ window.exportRecoExcel = function () {
   }
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = [
-    { wch: 14 },
-    { wch: 18 },
-    { wch: 40 },
-    { wch: 8 },
-    { wch: 10 },
-    { wch: 11 },
-    { wch: 12 },
-    { wch: 15 },
-    { wch: 16 },
-    { wch: 10 },
-    { wch: 8 },
-    { wch: 12 },
+    { wch: 14 }, // Familia
+    { wch: 18 }, // SKU
+    { wch: 40 }, // Descripción
+    { wch: 8 }, // Stock
+    { wch: 10 }, // Tránsito
+    { wch: 11 }, // Backorder
+    { wch: 12 }, // Vta prom/mes
+    { wch: 12 }, // Multiplicador
+    { wch: 11 }, // Origen mult
+    { wch: 15 }, // Demanda esp 7m
+    { wch: 16 }, // Sales Plan futuro
+    { wch: 10 }, // Balance
+    { wch: 8 }, // MOQ
+    { wch: 12 }, // Recomendado
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Recomendación');
