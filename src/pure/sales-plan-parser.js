@@ -141,7 +141,9 @@ function detectColumns(headerRow, hintRowAbove) {
   for (let i = 0; i < headerRow.length; i++) {
     // v1104: colapsar newlines a espacio antes de comparar. Los Sales Plan
     // SUR tienen headers multi-line como "MOQ\n12 months" o "Base\nFOB(USD)".
-    const raw = String(headerRow[i] == null ? '' : headerRow[i]).replace(/\s+/g, ' ').trim();
+    const raw = String(headerRow[i] == null ? '' : headerRow[i])
+      .replace(/\s+/g, ' ')
+      .trim();
     const s = raw.toLowerCase();
     if (
       skuIdx < 0 &&
