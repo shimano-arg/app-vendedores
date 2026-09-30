@@ -1355,41 +1355,71 @@ function _iteratePedidosMes(anio, monthIdx) {
 
 async function exportBackorderForMonth(anio, monthIdx) {
   showSyncTag('Generando export de Backorder...');
-  const rows = [];
+  // v1100: delega al módulo puro. Filtra por mes vía filters.mesYYYYMM
+  // (que el módulo aplica sobre confirmedAt). Coincide con el modal.
   const pedidos = _iteratePedidosMes(anio, monthIdx);
-  for (const p of pedidos) {
-    if (p.closedAt) continue;
-    const lines = Array.isArray(p.lines) ? p.lines : [];
-    lines.forEach((l, idx) => {
-      if (!l || l.state !== 'BO') return;
-      const qo = Number(l.qtyOpen) || 0;
-      if (qo <= 0) return;
-      rows.push({
-        Fecha_Pedido: p.createdAt
-          ? typeof p.createdAt === 'string'
-            ? p.createdAt.slice(0, 10)
-            : new Date(p.createdAt.toDate ? p.createdAt.toDate() : p.createdAt)
-                .toISOString()
-                .slice(0, 10)
-          : '',
-        Mes: p.month || '',
-        Cliente: p.clientName || '',
-        CardCode: p.clientCardCode || '',
-        Provincia: p.province || '',
-        Localidad: p.locName || '',
-        Vendedor: p.ownerVendor || '',
-        SKU: l.code || '',
-        Producto: l.desc || l.name || '',
-        Cantidad_Pedida: Number(l.qty) || 0,
-        Cantidad_Pendiente_BO: qo,
-        Precio_Unit_ARS: Number(l.priceAtCreation || l.precio || 0),
-        Subtotal_BO_ARS: Math.round(qo * (Number(l.priceAtCreation || l.precio || 0) || 0)),
-        Pedido_ID: p._fsId || '',
-        Linea_Idx: idx,
-        SQ_DocNum: p.transferidoSAP ? p.transferidoSAP.docNum || '' : '',
-      });
+  const w = /** @type {any} */ (typeof window !== 'undefined' ? window : {});
+  const computeFn = w.__phase0 && w.__phase0.pure && w.__phase0.pure.computeBackorderRawLines;
+  const mesYYYYMM = anio + '-' + String(monthIdx + 1).padStart(2, '0');
+  /** @type {(p: any) => string} */
+  const _resolveVendorFallback = (p) => {
+    try {
+      if (!w.clientLocId || !w.clientMasterCache || !w.clientMasterCache.get) return '';
+      const cmDocId = w.clientLocId(p.province || '', p.locName || '', p.clientName || '');
+      const cmData = w.clientMasterCache.get(cmDocId);
+      return (cmData && cmData.assignedVendor) || '';
+    } catch (_e) { return ''; }
+  };
+  const rawLines = computeFn
+    ? computeFn(pedidos, 'urgente', { mesYYYYMM }, {
+        getStockDisponibleVenta: typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : () => 0,
+        canonVendor: typeof w._canonVendor === 'function' ? w._canonVendor : (x) => String(x || '').trim().toUpperCase(),
+        products: Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [],
+        resolveVendorFallback: _resolveVendorFallback,
+      })
+    : [];
+  const pedidoById = {};
+  for (const p of pedidos) if (p && p._fsId) pedidoById[p._fsId] = p;
+  const rows = [];
+  rawLines.forEach((rl) => {
+    const c = rl.cliente;
+    const p = c.pedidoId ? pedidoById[c.pedidoId] : null;
+    const qo = c.qtyBackorder || 0;
+    let fechaPedido = '';
+    if (c.pedidoCreatedAt) {
+      const dt = c.pedidoCreatedAt;
+      fechaPedido = typeof dt === 'string'
+        ? dt.slice(0, 10)
+        : new Date(dt.toDate ? dt.toDate() : dt).toISOString().slice(0, 10);
+    }
+    let cantidadPedida = qo;
+    let lineaIdx = -1;
+    if (p && Array.isArray(p.lines)) {
+      const idx = p.lines.findIndex((l) => l && String(l.code || '').toUpperCase() === rl.sku && l.state === c.state);
+      if (idx >= 0) {
+        cantidadPedida = Number(p.lines[idx].qty) || qo;
+        lineaIdx = idx;
+      }
+    }
+    rows.push({
+      Fecha_Pedido: fechaPedido,
+      Mes: (p && p.month) || '',
+      Cliente: c.nombre || '',
+      CardCode: c.code || (p && p.clientCardCode) || '',
+      Provincia: c.provincia || (p && p.province) || '',
+      Localidad: c.ciudad || (p && p.locName) || '',
+      Vendedor: c.vendorKey || '',
+      SKU: rl.sku || '',
+      Producto: rl.producto || '',
+      Cantidad_Pedida: cantidadPedida,
+      Cantidad_Pendiente_BO: qo,
+      Precio_Unit_ARS: c.precio || 0,
+      Subtotal_BO_ARS: Math.round(qo * (c.precio || 0)),
+      Pedido_ID: c.pedidoId || '',
+      Linea_Idx: lineaIdx,
+      SQ_DocNum: c.sqDocNum || '',
     });
-  }
+  });
   rows.sort((a, b) => (a.Cliente || '').localeCompare(b.Cliente || ''));
   const fname = 'Shimano_Backorder_' + periodLabel(anio, monthIdx) + '.xlsx';
   downloadXlsx(fname, [{ name: 'Backorder', rows }]);
@@ -1398,56 +1428,68 @@ async function exportBackorderForMonth(anio, monthIdx) {
 
 async function exportStockAsigForMonth(anio, monthIdx) {
   showSyncTag('Generando export de Stock Asignado...');
-  const rows = [];
+  // v1100: delega al módulo puro modo asignacion. Coincide con el modal.
   const pedidos = _iteratePedidosMes(anio, monthIdx);
-  const getStk =
-    typeof window !== 'undefined' && typeof window.getStockDisponibleVenta === 'function'
-      ? window.getStockDisponibleVenta
-      : null;
-  for (const p of pedidos) {
-    if (p.closedAt) continue;
-    const lines = Array.isArray(p.lines) ? p.lines : [];
-    lines.forEach((l, idx) => {
-      if (!l) return;
-      const qo = Number(l.qtyOpen) || 0;
-      if (qo <= 0) return;
-      let virtual = false;
-      if (l.state === 'ASIG') {
-        // ok reserva firme
-      } else if (l.state === 'BO') {
-        // virtual solo si hay stock disp
-        if (!getStk) return;
-        const stk = getStk(l.code) || 0;
-        if (stk <= 0) return;
-        virtual = true;
-      } else {
-        return;
-      }
-      rows.push({
-        Fecha_Pedido: p.createdAt
-          ? typeof p.createdAt === 'string'
-            ? p.createdAt.slice(0, 10)
-            : new Date(p.createdAt.toDate ? p.createdAt.toDate() : p.createdAt)
-                .toISOString()
-                .slice(0, 10)
-          : '',
-        Mes: p.month || '',
-        Cliente: p.clientName || '',
-        CardCode: p.clientCardCode || '',
-        Provincia: p.province || '',
-        Localidad: p.locName || '',
-        Vendedor: p.ownerVendor || '',
-        SKU: l.code || '',
-        Producto: l.desc || l.name || '',
-        Cantidad_Reservada: qo,
-        Estado_Real: virtual ? 'BO_con_stock_(virtual_ASIG)' : 'ASIG',
-        Precio_Unit_ARS: Number(l.priceAtCreation || l.precio || 0),
-        Subtotal_Reservado_ARS: Math.round(qo * (Number(l.priceAtCreation || l.precio || 0) || 0)),
-        Pedido_ID: p._fsId || '',
-        Linea_Idx: idx,
-      });
+  const w = /** @type {any} */ (typeof window !== 'undefined' ? window : {});
+  const computeFn = w.__phase0 && w.__phase0.pure && w.__phase0.pure.computeBackorderRawLines;
+  const mesYYYYMM = anio + '-' + String(monthIdx + 1).padStart(2, '0');
+  /** @type {(p: any) => string} */
+  const _resolveVendorFallback = (p) => {
+    try {
+      if (!w.clientLocId || !w.clientMasterCache || !w.clientMasterCache.get) return '';
+      const cmDocId = w.clientLocId(p.province || '', p.locName || '', p.clientName || '');
+      const cmData = w.clientMasterCache.get(cmDocId);
+      return (cmData && cmData.assignedVendor) || '';
+    } catch (_e) { return ''; }
+  };
+  const rawLines = computeFn
+    ? computeFn(pedidos, 'asignacion', { mesYYYYMM }, {
+        getStockDisponibleVenta: typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : () => 0,
+        canonVendor: typeof w._canonVendor === 'function' ? w._canonVendor : (x) => String(x || '').trim().toUpperCase(),
+        products: Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [],
+        resolveVendorFallback: _resolveVendorFallback,
+      })
+    : [];
+  const pedidoById = {};
+  for (const p of pedidos) if (p && p._fsId) pedidoById[p._fsId] = p;
+  const rows = [];
+  rawLines.forEach((rl) => {
+    const c = rl.cliente;
+    const p = c.pedidoId ? pedidoById[c.pedidoId] : null;
+    const qty = c.qtyAsignada || 0;
+    let fechaPedido = '';
+    if (c.pedidoCreatedAt) {
+      const dt = c.pedidoCreatedAt;
+      fechaPedido = typeof dt === 'string'
+        ? dt.slice(0, 10)
+        : new Date(dt.toDate ? dt.toDate() : dt).toISOString().slice(0, 10);
+    }
+    let lineaIdx = -1;
+    if (p && Array.isArray(p.lines)) {
+      const idx = p.lines.findIndex((l) => l && String(l.code || '').toUpperCase() === rl.sku && l.state === c.state);
+      if (idx >= 0) lineaIdx = idx;
+    }
+    let estadoReal = 'ASIG';
+    if (c.state === 'BO') estadoReal = 'BO_con_stock_(virtual_ASIG)';
+    else if (c.state === 'confirmed') estadoReal = 'confirmed (SQ en SAP)';
+    rows.push({
+      Fecha_Pedido: fechaPedido,
+      Mes: (p && p.month) || '',
+      Cliente: c.nombre || '',
+      CardCode: c.code || (p && p.clientCardCode) || '',
+      Provincia: c.provincia || (p && p.province) || '',
+      Localidad: c.ciudad || (p && p.locName) || '',
+      Vendedor: c.vendorKey || '',
+      SKU: rl.sku || '',
+      Producto: rl.producto || '',
+      Cantidad_Reservada: qty,
+      Estado_Real: estadoReal,
+      Precio_Unit_ARS: c.precio || 0,
+      Subtotal_Reservado_ARS: Math.round(qty * (c.precio || 0)),
+      Pedido_ID: c.pedidoId || '',
+      Linea_Idx: lineaIdx,
     });
-  }
+  });
   rows.sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
   const fname = 'Shimano_StockAsignado_' + periodLabel(anio, monthIdx) + '.xlsx';
   downloadXlsx(fname, [{ name: 'Stock Asignado', rows }]);
@@ -1460,77 +1502,94 @@ async function exportStockAsigForMonth(anio, monthIdx) {
 // no los incluia. Version "current status" que itera globalPedidos completo.
 window.exportBackorderAll = async function () {
   showSyncTag('Generando export de Backorder (snapshot actual)...');
-  const rows = [];
+  // v1100 (2026-09-30): delega al módulo puro backorder-sku-map — mismo
+  // FIFO + filtro vencidas + estados (BO+ASIG+confirmed) que el modal. Antes
+  // este export era un dump crudo de líneas state=BO sin cap ni filtro
+  // vencidas, así que divergía del modal. Ahora es paridad total.
   const arr =
     typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos) ? globalPedidos : [];
-  let totalPedidosOpen = 0;
-  for (const p of arr) {
-    if (!p || p.closedAt) continue;
-    totalPedidosOpen++;
-    // v1088 (2026-09-29): fallback vendedor via clientMasterCache cuando el
-    // pedido no trae ownerVendor. Ver comentario en exportBackordersToExcel.
-    let _pedidoVendor = p.ownerVendor || '';
-    if (
-      !_pedidoVendor &&
-      typeof window !== 'undefined' &&
-      typeof window.clientLocId === 'function' &&
-      typeof window.clientMasterCache !== 'undefined' &&
-      window.clientMasterCache.get
-    ) {
-      try {
-        const _cmDocId = window.clientLocId(p.province || '', p.locName || '', p.clientName || '');
-        const _cmData = window.clientMasterCache.get(_cmDocId);
-        if (_cmData && _cmData.assignedVendor) _pedidoVendor = _cmData.assignedVendor;
-      } catch (_e) {
-        /* silent */
+  const totalPedidosOpen = arr.filter((p) => p && !p.closedAt).length;
+  /** @type {(p: any) => string} */
+  const _resolveVendorFallback = (p) => {
+    try {
+      if (typeof window === 'undefined') return '';
+      const w = /** @type {any} */ (window);
+      if (typeof w.clientLocId !== 'function' || !w.clientMasterCache || !w.clientMasterCache.get) return '';
+      const cmDocId = w.clientLocId(p.province || '', p.locName || '', p.clientName || '');
+      const cmData = w.clientMasterCache.get(cmDocId);
+      return (cmData && cmData.assignedVendor) || '';
+    } catch (_e) { return ''; }
+  };
+  const w = /** @type {any} */ (typeof window !== 'undefined' ? window : {});
+  const computeFn = w.__phase0 && w.__phase0.pure && w.__phase0.pure.computeBackorderRawLines;
+  const rawLines = computeFn
+    ? computeFn(arr, 'urgente', {}, {
+        getStockDisponibleVenta: typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : () => 0,
+        canonVendor: typeof w._canonVendor === 'function' ? w._canonVendor : (x) => String(x || '').trim().toUpperCase(),
+        products: Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [],
+        resolveVendorFallback: _resolveVendorFallback,
+      })
+    : [];
+  // Índice pedidoId → pedido para enriquecer con campos que el módulo no expone
+  // (Mes, Cantidad_Pedida original, Origen, Linea_Idx).
+  const pedidoById = {};
+  for (const p of arr) if (p && p._fsId) pedidoById[p._fsId] = p;
+  const rows = [];
+  rawLines.forEach((rl) => {
+    const c = rl.cliente;
+    const p = c.pedidoId ? pedidoById[c.pedidoId] : null;
+    // Cantidad_Pendiente_BO = qtyBackorder post-FIFO.
+    const qo = c.qtyBackorder || 0;
+    let fechaPedido = '';
+    if (c.pedidoCreatedAt) {
+      const dt = c.pedidoCreatedAt;
+      fechaPedido = typeof dt === 'string'
+        ? dt.slice(0, 10)
+        : new Date(dt.toDate ? dt.toDate() : dt).toISOString().slice(0, 10);
+    }
+    // Recuperar la línea original para Cantidad_Pedida + Linea_Idx (si hay pedido).
+    let cantidadPedida = qo;
+    let lineaIdx = -1;
+    if (p && Array.isArray(p.lines)) {
+      const idx = p.lines.findIndex((l) => l && String(l.code || '').toUpperCase() === rl.sku && l.state === c.state);
+      if (idx >= 0) {
+        cantidadPedida = Number(p.lines[idx].qty) || qo;
+        lineaIdx = idx;
       }
     }
-    const lines = Array.isArray(p.lines) ? p.lines : [];
-    lines.forEach((l, idx) => {
-      if (!l || l.state !== 'BO') return;
-      const qo = Number(l.qtyOpen) || 0;
-      if (qo <= 0) return;
-      rows.push({
-        Fecha_Pedido: p.createdAt
-          ? typeof p.createdAt === 'string'
-            ? p.createdAt.slice(0, 10)
-            : new Date(p.createdAt.toDate ? p.createdAt.toDate() : p.createdAt)
-                .toISOString()
-                .slice(0, 10)
-          : '',
-        Mes: p.month || '',
-        Cliente: p.clientName || '',
-        CardCode: p.clientCardCode || '',
-        Provincia: p.province || '',
-        Localidad: p.locName || '',
-        Vendedor: _pedidoVendor,
-        SKU: l.code || '',
-        Producto: l.desc || l.name || '',
-        Cantidad_Pedida: Number(l.qty) || 0,
-        Cantidad_Pendiente_BO: qo,
-        Precio_Unit_ARS: Number(l.priceAtCreation || l.precio || 0),
-        Subtotal_BO_ARS: Math.round(qo * (Number(l.priceAtCreation || l.precio || 0) || 0)),
-        Pedido_ID: p._fsId || '',
-        Linea_Idx: idx,
-        SQ_DocNum: p.transferidoSAP ? p.transferidoSAP.docNum || '' : '',
-        Origen: p.migrationSource || 'app',
-      });
+    rows.push({
+      Fecha_Pedido: fechaPedido,
+      Mes: (p && p.month) || '',
+      Cliente: c.nombre || '',
+      CardCode: c.code || (p && p.clientCardCode) || '',
+      Provincia: c.provincia || (p && p.province) || '',
+      Localidad: c.ciudad || (p && p.locName) || '',
+      Vendedor: c.vendorKey || '',
+      SKU: rl.sku || '',
+      Producto: rl.producto || '',
+      Cantidad_Pedida: cantidadPedida,
+      Cantidad_Pendiente_BO: qo,
+      Precio_Unit_ARS: c.precio || 0,
+      Subtotal_BO_ARS: Math.round(qo * (c.precio || 0)),
+      Pedido_ID: c.pedidoId || '',
+      Linea_Idx: lineaIdx,
+      SQ_DocNum: c.sqDocNum || '',
+      Origen: (p && p.migrationSource) || 'app',
+      // v1100: contexto útil para debugging paridad modal↔reporte.
+      Estado: c.state || 'BO',
+      Stock_Disp_SKU: rl.dispSap || 0,
     });
-  }
+  });
   if (rows.length === 0) {
     alert(
       'Export Backorder vacio. Diagnostico:\n' +
-        '- Total pedidos en globalPedidos: ' +
-        arr.length +
-        '\n' +
-        '- Pedidos abiertos (sin closedAt): ' +
-        totalPedidosOpen +
-        '\n' +
-        '- Lineas state=BO con qtyOpen>0: 0\n\n' +
+        '- Total pedidos en globalPedidos: ' + arr.length + '\n' +
+        '- Pedidos abiertos (sin closedAt): ' + totalPedidosOpen + '\n' +
+        '- Lineas post-FIFO+vencidas con qtyBackorder>0: 0\n\n' +
         'Posibles causas:\n' +
-        '1. No hay backorder abierto ahora mismo (todo confirmed o cerrado)\n' +
+        '1. No hay backorder abierto ahora mismo (todo confirmed, cerrado o vencido)\n' +
         '2. Los pedidos tienen closedAt seteado por error\n' +
-        '3. Las lineas BO tienen qtyOpen=0 (ya despachadas via ASIG->closed)'
+        '3. Todas las lineas BO tienen stock disponible (fueron promovidas a ASIG virtual)'
     );
     showSyncTag('Export Backorder: 0 lineas (ver alerta)', 3000);
     return;
@@ -1546,81 +1605,90 @@ window.exportBackorderAll = async function () {
 // motivo que exportBackorderAll.
 window.exportStockAsigAll = async function () {
   showSyncTag('Generando export de Stock Asignado (snapshot actual)...');
-  const rows = [];
+  // v1100 (2026-09-30): mismo módulo puro que renderBackordersTab en modo
+  // asignacion. Ahora el reporte coincide con el modal: FIFO cap por dispSap,
+  // filtro vencidas (ASIG >15d fuera, ASIG sin reserva vigente adentro),
+  // confirmed incluido, sin líneas "virtual_ASIG" fantasma.
   const arr =
     typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos) ? globalPedidos : [];
-  const getStk =
-    typeof window !== 'undefined' && typeof window.getStockDisponibleVenta === 'function'
-      ? window.getStockDisponibleVenta
-      : null;
-  let totalPedidosOpen = 0;
-  let asigCount = 0;
-  let boWithStockCount = 0;
-  for (const p of arr) {
-    if (!p || p.closedAt) continue;
-    totalPedidosOpen++;
-    const lines = Array.isArray(p.lines) ? p.lines : [];
-    lines.forEach((l, idx) => {
-      if (!l) return;
-      const qo = Number(l.qtyOpen) || 0;
-      if (qo <= 0) return;
-      let virtual = false;
-      if (l.state === 'ASIG') {
-        asigCount++;
-      } else if (l.state === 'BO') {
-        if (!getStk) return;
-        const stk = getStk(l.code) || 0;
-        if (stk <= 0) return;
-        virtual = true;
-        boWithStockCount++;
-      } else {
-        return;
-      }
-      rows.push({
-        Fecha_Pedido: p.createdAt
-          ? typeof p.createdAt === 'string'
-            ? p.createdAt.slice(0, 10)
-            : new Date(p.createdAt.toDate ? p.createdAt.toDate() : p.createdAt)
-                .toISOString()
-                .slice(0, 10)
-          : '',
-        Mes: p.month || '',
-        Cliente: p.clientName || '',
-        CardCode: p.clientCardCode || '',
-        Provincia: p.province || '',
-        Localidad: p.locName || '',
-        Vendedor: p.ownerVendor || '',
-        SKU: l.code || '',
-        Producto: l.desc || l.name || '',
-        Cantidad_Reservada: qo,
-        Estado_Real: virtual ? 'BO_con_stock_(virtual_ASIG)' : 'ASIG',
-        Precio_Unit_ARS: Number(l.priceAtCreation || l.precio || 0),
-        Subtotal_Reservado_ARS: Math.round(qo * (Number(l.priceAtCreation || l.precio || 0) || 0)),
-        Pedido_ID: p._fsId || '',
-        Linea_Idx: idx,
-        SQ_DocNum: p.transferidoSAP ? p.transferidoSAP.docNum || '' : '',
-        Origen: p.migrationSource || 'app',
-      });
+  const totalPedidosOpen = arr.filter((p) => p && !p.closedAt).length;
+  /** @type {(p: any) => string} */
+  const _resolveVendorFallback = (p) => {
+    try {
+      if (typeof window === 'undefined') return '';
+      const w = /** @type {any} */ (window);
+      if (typeof w.clientLocId !== 'function' || !w.clientMasterCache || !w.clientMasterCache.get) return '';
+      const cmDocId = w.clientLocId(p.province || '', p.locName || '', p.clientName || '');
+      const cmData = w.clientMasterCache.get(cmDocId);
+      return (cmData && cmData.assignedVendor) || '';
+    } catch (_e) { return ''; }
+  };
+  const w = /** @type {any} */ (typeof window !== 'undefined' ? window : {});
+  const computeFn = w.__phase0 && w.__phase0.pure && w.__phase0.pure.computeBackorderRawLines;
+  const rawLines = computeFn
+    ? computeFn(arr, 'asignacion', {}, {
+        getStockDisponibleVenta: typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : () => 0,
+        canonVendor: typeof w._canonVendor === 'function' ? w._canonVendor : (x) => String(x || '').trim().toUpperCase(),
+        products: Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [],
+        resolveVendorFallback: _resolveVendorFallback,
+      })
+    : [];
+  const pedidoById = {};
+  for (const p of arr) if (p && p._fsId) pedidoById[p._fsId] = p;
+  const rows = [];
+  rawLines.forEach((rl) => {
+    const c = rl.cliente;
+    const p = c.pedidoId ? pedidoById[c.pedidoId] : null;
+    const qty = c.qtyAsignada || 0;
+    let fechaPedido = '';
+    if (c.pedidoCreatedAt) {
+      const dt = c.pedidoCreatedAt;
+      fechaPedido = typeof dt === 'string'
+        ? dt.slice(0, 10)
+        : new Date(dt.toDate ? dt.toDate() : dt).toISOString().slice(0, 10);
+    }
+    let lineaIdx = -1;
+    if (p && Array.isArray(p.lines)) {
+      const idx = p.lines.findIndex((l) => l && String(l.code || '').toUpperCase() === rl.sku && l.state === c.state);
+      if (idx >= 0) lineaIdx = idx;
+    }
+    // Estado_Real: histórico "BO_con_stock_(virtual_ASIG)" vs "ASIG". v1100:
+    // ahora `confirmed` también entra (v962). Preservamos etiqueta legacy
+    // por compatibilidad con quien consume el Excel.
+    let estadoReal = 'ASIG';
+    if (c.state === 'BO') estadoReal = 'BO_con_stock_(virtual_ASIG)';
+    else if (c.state === 'confirmed') estadoReal = 'confirmed (SQ en SAP)';
+    rows.push({
+      Fecha_Pedido: fechaPedido,
+      Mes: (p && p.month) || '',
+      Cliente: c.nombre || '',
+      CardCode: c.code || (p && p.clientCardCode) || '',
+      Provincia: c.provincia || (p && p.province) || '',
+      Localidad: c.ciudad || (p && p.locName) || '',
+      Vendedor: c.vendorKey || '',
+      SKU: rl.sku || '',
+      Producto: rl.producto || '',
+      Cantidad_Reservada: qty,
+      Estado_Real: estadoReal,
+      Precio_Unit_ARS: c.precio || 0,
+      Subtotal_Reservado_ARS: Math.round(qty * (c.precio || 0)),
+      Pedido_ID: c.pedidoId || '',
+      Linea_Idx: lineaIdx,
+      SQ_DocNum: c.sqDocNum || '',
+      Origen: (p && p.migrationSource) || 'app',
+      // v1100: contexto útil para debugging paridad modal↔reporte.
+      Stock_Disp_SKU: rl.dispSap || 0,
     });
-  }
+  });
   if (rows.length === 0) {
     alert(
       'Export Stock Asignado vacio. Diagnostico:\n' +
-        '- Total pedidos en globalPedidos: ' +
-        arr.length +
-        '\n' +
-        '- Pedidos abiertos (sin closedAt): ' +
-        totalPedidosOpen +
-        '\n' +
-        '- Lineas state=ASIG con qtyOpen>0: ' +
-        asigCount +
-        '\n' +
-        '- Lineas state=BO con stock disponible (virtual ASIG): ' +
-        boWithStockCount +
-        '\n\n' +
+        '- Total pedidos en globalPedidos: ' + arr.length + '\n' +
+        '- Pedidos abiertos (sin closedAt): ' + totalPedidosOpen + '\n' +
+        '- Lineas post-FIFO+vencidas con qtyAsignada>0: 0\n\n' +
         'Posibles causas:\n' +
         '1. No hay stock asignado ahora mismo\n' +
-        '2. Todo el stock esta pendiente sin asignar (mode BO puro sin stock)\n' +
+        '2. Todos los ASIG estan vencidos (>15d desde asigAt)\n' +
         '3. Los pedidos tienen closedAt seteado'
     );
     showSyncTag('Export Stock Asig: 0 lineas (ver alerta)', 3000);

@@ -5940,7 +5940,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1099';
+const APP_VERSION = 'v1100';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13406,83 +13406,53 @@ window.exportBackordersToExcel = async function(){
   const mesF = backordersMesFilter;
   // v679 PERF Fase 3: ExcelJS ahora carga on-demand
   try { await window.loadExcelJS(); } catch (e) { alert('No se pudo cargar ExcelJS: ' + e.message); return; }
-  const prodByCode = {};
-  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
-    for (const p of PRODUCTS) prodByCode[(p.code || '').toUpperCase()] = p;
-  }
-  const filtered = [];
-  if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
-    for (const p of globalPedidos) {
-      if (!p || p.closedAt) continue;
-      const lines = Array.isArray(p.lines) ? p.lines : [];
-      for (const l of lines) {
-        if (!l || !l.code) continue;
-        if (l.state !== 'BO' && l.state !== 'ASIG') continue;
-        // v979 (2026-09-17): consistencia con v978. Export no incluye vencidas.
-        const _lrsFn979 = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
-        if (_lrsFn979 && !_lrsFn979(l, Date.now(), p)) continue;
-        const qty = Number(l.qtyOpen) || 0;
-        if (qty <= 0) continue;
-        const skuUp = String(l.code).toUpperCase();
-        // v1099 (2026-09-30): alinear con renderBackordersTab — solo mira
-        // stock DISPONIBLE (dep 11), NO tránsito. El check anterior contaba
-        // stkT en hasStock, así que un SKU sin stock disponible pero con
-        // unidades en tránsito (ej. SLXDC151HG: dispSap=0, tránsito=10, 18u
-        // pendientes en 10 clientes) aparecía en el modal como URGENTE y se
-        // omitía del export. El modal (v864 removió el gate SKU-level y usa
-        // getStockDisponibleVenta) es la fuente de verdad. Reportado por
-        // Mariano 2026-09-30 con captura del modal vs Backorders_2026-09-30.xlsx.
-        const stkD = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(skuUp) || 0) : 0;
-        if (isAsigMode && stkD <= 0) continue;
-        if (!isAsigMode && stkD > 0) continue;
-        // Filtro mes (por confirmedAt/createdAt).
-        if (mesF) {
-          const dt = String(p.confirmedAt || p.createdAt || '').slice(0, 7);
-          if (dt !== mesF) continue;
-        }
-        // v1064: filtro tienda (tq) + vendor (vf). Reemplaza el filtro `q` legacy.
-        const prod = prodByCode[skuUp];
-        const producto = l.desc || (prod && prod.desc) || '';
-        const cliente = p.clientName || '';
-        // v1079: _canonVendor aplica alias legacy (MARTIN BOIERO → PACHI).
-        // v1088 (2026-09-29): fallback a clientMasterCache.assignedVendor cuando
-        // pedido.ownerVendor viene vacio. Bug reportado por Mariano: WALTER
-        // ROSSINI + FERNANDO URQUIOLA salian como "(sin vendedor)" en el export
-        // aunque en el Master Cliente tenian Z5 y Z2 asignados. Root cause:
-        // pedidos historicos no seteaban ownerVendor. El Master Cliente es la
-        // fuente de verdad — si el pedido no lo trae, resolver por cliente.
-        let _pVendorKey = _canonVendor(p.ownerVendor || p.vendedor || p.vendorAssigned || p.vendor || '');
-        if (!_pVendorKey && typeof clientLocId === 'function' && typeof clientMasterCache !== 'undefined' && clientMasterCache.get) {
-          try {
-            const _cmDocId = clientLocId(p.province || '', p.locName || '', p.clientName || '');
-            const _cmData = clientMasterCache.get(_cmDocId);
-            if (_cmData && _cmData.assignedVendor) {
-              _pVendorKey = _canonVendor(_cmData.assignedVendor);
-            }
-          } catch (_e) { /* silent */ }
-        }
-        if (vf && _pVendorKey !== vf) continue;
-        if (tq) {
-          const skuHit = skuUp.toLowerCase().includes(tq);
-          const prodHit = producto.toLowerCase().includes(tq);
-          const cliHit = cliente.toLowerCase().includes(tq);
-          if (!skuHit && !prodHit && !cliHit) continue;
-        }
-        filtered.push({
-          sku: l.code,
-          producto,
-          clienteNombre: cliente,
-          clienteCiudad: p.clientLocality || p.locName || '',
-          // v1064: reusar _pVendorKey calculado arriba (mismo fallback v1063).
-          vendorKey: _pVendorKey,
-          pendiente: qty,
-          precioUnitario: Number(l.priceAtCreation || l.precio || 0),
-          sqDocNum: (p.transferidoSAP && p.transferidoSAP.docNum) || '',
-          sqDocDate: String(p.confirmedAt || p.createdAt || '').slice(0, 10),
-        });
-      }
+  // v1100 (2026-09-30): delega el compute al módulo puro
+  // src/pure/backorder-sku-map.js — mismo que renderBackordersTab. Antes
+  // este bloque tenía su propia lógica (sin cap FIFO, sin consolidación
+  // por cliente) → podía divergir del modal. Ahora es paridad 100%.
+  //
+  // v1088 fallback vendor via clientMasterCache: se inyecta como
+  // deps.resolveVendorFallback y solo dispara cuando el ownerVendor está vacío.
+  const _resolveVendorFallback = (p) => {
+    try {
+      if (typeof clientLocId !== 'function') return '';
+      if (typeof clientMasterCache === 'undefined' || !clientMasterCache.get) return '';
+      const cmDocId = clientLocId(p.province || '', p.locName || '', p.clientName || '');
+      const cmData = clientMasterCache.get(cmDocId);
+      return (cmData && cmData.assignedVendor) || '';
+    } catch (_e) { return ''; }
+  };
+  const _computeFnBk = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.computeBackorderSkuMap);
+  const _bkResult = _computeFnBk ? _computeFnBk(
+    (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
+    isAsigMode ? 'asignacion' : 'urgente',
+    { tiendaQuery: tq, vendorKey: vf, mesYYYYMM: mesF },
+    {
+      getStockDisponibleVenta: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
+      canonVendor: (typeof _canonVendor === 'function') ? _canonVendor : (x) => String(x || '').trim().toUpperCase(),
+      products: (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) ? PRODUCTS : [],
+      resolveVendorFallback: _resolveVendorFallback,
     }
-  }
+  ) : { skus: [], totalUnidades: 0, totalClientes: 0 };
+  // Aplanar skus[].clientes[] en `filtered` (1 fila por cliente).
+  const filtered = [];
+  _bkResult.skus.forEach(g => {
+    (g.clientes || []).forEach(c => {
+      const qty = isAsigMode ? (c.qtyAsignada || 0) : (c.qtyBackorder || 0);
+      if (qty <= 0) return;
+      filtered.push({
+        sku: g.sku,
+        producto: g.producto,
+        clienteNombre: c.nombre,
+        clienteCiudad: c.ciudad,
+        vendorKey: c.vendorKey || '',
+        pendiente: qty,
+        precioUnitario: c.precio,
+        sqDocNum: c.sqDocNum || '',
+        sqDocDate: c.sqDocDate,
+      });
+    });
+  });
   if (!filtered.length) {
     alert('No hay backorders para exportar en la seleccion actual.');
     return;
@@ -14004,290 +13974,41 @@ window.renderBackordersTab = function(){
       else backordersVendorFilter = ''; // el vendor previo desaparecio, resetear
     }
   }
-  // Agrupar por SKU. Cada grupo tiene: producto + total pendiente + clientes.
-  // v1064: reemplaza `q` (backordersSearchQuery legacy) por `tq` (tienda/SKU/producto)
-  // + `vf` (vendorKey). Semantica: tienda es texto libre matcheando cliente/SKU/
-  // producto; vendor es exact match sobre vendorKey normalizado uppercase.
+  // v1100 (2026-09-30): compute delegado a src/pure/backorder-sku-map.js.
+  // El módulo replica FIELMENTE la lógica que vivía inline (skuMap + FIFO
+  // cap + consolidación duplicados + filtro urgency + count summary) y ahora
+  // es reusable por los exports del diálogo "Reportes" (exportBackorderAll /
+  // exportStockAsigAll), que antes tenían su propia lógica divergente.
   const tq = backordersTiendaQuery;
   const vf = backordersVendorFilter;
   const mesF = backordersMesFilter;
-  const _passesFilters = (ln) => {
-    if (mesF && String(ln.sqDocDate || '').slice(0, 7) !== mesF) return false;
-    // v1079: alias legacy — pedidos historicos MARTIN BOIERO matchean filtro PACHI.
-    if (vf && _canonVendor(ln.vendorKey || '') !== vf) return false;
-    if (tq) {
-      const skuHit = (ln.sku || '').toLowerCase().includes(tq);
-      const prodHit = (ln.producto || '').toLowerCase().includes(tq);
-      const cliHit = (ln.clienteNombre || '').toLowerCase().includes(tq);
-      if (!skuHit && !prodHit && !cliHit) return false;
+  // v1100: llamada única al compute puro. Ver src/pure/backorder-sku-map.js
+  // para la lógica (idéntica a la que vivía inline entre líneas 14015..14268 pre-v1100).
+  const _computeFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.computeBackorderSkuMap);
+  const _bkResult = _computeFn ? _computeFn(
+    (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
+    (backordersMode === 'asignacion') ? 'asignacion' : 'urgente',
+    {
+      tiendaQuery: tq,
+      vendorKey: vf,
+      mesYYYYMM: mesF,
+      urgencyFilter: (typeof backordersUrgencyFilter !== 'undefined') ? backordersUrgencyFilter : '',
+    },
+    {
+      getStockDisponibleVenta: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
+      canonVendor: (typeof _canonVendor === 'function') ? _canonVendor : (x) => String(x || '').trim().toUpperCase(),
+      products: (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) ? PRODUCTS : [],
+      backorderLines: (typeof backorderLines !== 'undefined' && Array.isArray(backorderLines)) ? backorderLines : [],
+      sapGetClienteCode: (typeof sapGetClienteCode === 'function') ? sapGetClienteCode : undefined,
     }
-    // v576: NO filtramos por stock aca — recolectamos TODOS los candidatos
-    // (SAP + APP-BO + APP-ASIG) sin importar stock, y despues aplicamos cap
-    // FIFO en fase 2 para calcular qtyAsignada + qtyBackorder por linea.
-    return true;
-  };
-  // v576: skuMap enriquecido — cada cliente lleva source ('sap'|'app'),
-  // state (solo APP: 'BO'|'ASIG'), pendiente original, y despues del cap FIFO:
-  // qtyAsignada + qtyBackorder.
-  const skuMap = {};
-  backorderLines.forEach(ln => {
-    if (!_passesFilters(ln)) return;
-    const sku = ln.sku || '';
-    if (!skuMap[sku]) {
-      skuMap[sku] = {sku: sku, producto: ln.producto || '', familia: ln.familia || '', subfamilia: ln.subfamilia || '', totalPendiente: 0, clientes: []};
-    }
-    skuMap[sku].totalPendiente += (parseFloat(ln.pendiente) || 0);
-    skuMap[sku].clientes.push({
-      nombre: ln.clienteNombre || '',
-      code: ln.clienteCode || '',
-      ciudad: ln.clienteCiudad || '',
-      pendiente: parseFloat(ln.pendiente) || 0,
-      precio: parseFloat(ln.precioUnitario) || 0,
-      sqDocNum: ln.sqDocNum || 0,
-      sqDocDate: ln.sqDocDate || '',
-      vendorKey: ln.vendorKey || '',
-      source: 'sap',
-      state: null,
-    });
-  });
+  ) : { skus: [], totalUnidades: 0, totalClientes: 0 };
+  let skus = _bkResult.skus;
+  const totalUnidades = _bkResult.totalUnidades;
+  const totalClientes = _bkResult.totalClientes;
   // v576: recolectar APP lines (BO + ASIG). Antes se filtraba por modo con
   // _appLineTargetState, ahora traemos ambas y el cap FIFO decide donde van.
-  if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
-    const _prodByCode = {};
-    if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
-      for (const p of PRODUCTS) _prodByCode[(p.code || '').toUpperCase()] = p;
-    }
-    for (const p of globalPedidos) {
-      if (!p || !Array.isArray(p.lines)) continue;
-      // v819 (2026-09-07): FIX — antes filtrabamos por `!p.transferidoSAP` (v578).
-      // Ese guard tenia sentido pre-v816 cuando confirmed sin transferidoSAP era
-      // un estado inestable/transitorio. Post-v816 (fix VDE confirmados visibles)
-      // hay muchos pedidos `stage='confirmed'` sin transferidoSAP legitimos (VDE
-      // confirmo, aun esperando el auto-send CF v818). Esos pedidos SI consumen
-      // stock — el motivo original de v578 (excluir "pendientes de envio") ya
-      // no aplica porque el CF trigger los envia en <10s. Ahora filtramos por
-      // stage=confirmed que es el criterio real.
-      if (p.stage !== 'confirmed') continue;
-      for (const l of p.lines) {
-        if (!l || !l.code) continue;
-        // v962 (2026-09-17): incluir tambien state='confirmed' (SQ enviada a
-        // SAP). Antes solo BO+ASIG — pedido Mariano para que la app no "olvide"
-        // las lineas que ya viajaron a SAP. Se marcan visualmente con badge
-        // 'EN SAP' y NO tienen boton Eliminar (SAP es la fuente de verdad).
-        if (l.state !== 'BO' && l.state !== 'ASIG' && l.state !== 'confirmed') continue;
-        const qtyOpen = Number(l.qtyOpen || 0);
-        if (qtyOpen <= 0) continue;
-        // v978 (2026-09-17): Mariano — "todo lo vencido cerralo" (visualmente).
-        // Filtro por lineReservesStock: oculta ASIG >15d, ASIG B/C (asigReserva=false),
-        // BO >15d, confirmed >15d. Las lineas siguen vivas en Firestore y en la card
-        // del cliente, pero desaparecen del modal Stock Asignado / Backorder.
-        // Consistente con la CF v976 que ya las excluye del snapshot de reservas.
-        //
-        // v1072 (2026-09-25): en modo asignacion permitir ASIG con asigReserva=false
-        // si aun no expiro. Root cause "NO PUEDE NO HABER STOCK ASIGNADO" (Mariano):
-        // 100% de clientes tienen cliTipo=C default (bug conocido feedback v1057-f)
-        // -> 100% de asignaciones tienen asigReserva=false -> filtro v978 vaciaba
-        // el modal Stock Asignado siempre. Fix quirurgico: en modo asignacion,
-        // permitir ASIG-sin-reserva vigente (asigAt <= 15d). Sigue filtrado en
-        // modo backorder (no queremos mostrar ASIG en Backorder). Sigue filtrado
-        // ASIG expirada (asigAt > 15d) en ambos modos. El badge "SIN RESERVA"
-        // del UI (linea ~21832) las diferencia visualmente.
-        const _lrsFn978 = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
-        if (_lrsFn978 && !_lrsFn978(l, Date.now(), p)) {
-          const _isAsigMode = (backordersMode === 'asignacion');
-          const _isAsigSinReservaVigente =
-            _isAsigMode &&
-            l.state === 'ASIG' &&
-            l.asigReserva === false &&
-            (!l.asigAt || ((Date.now() - new Date(l.asigAt).getTime()) / (24 * 60 * 60 * 1000)) <= 15);
-          if (!_isAsigSinReservaVigente) continue;
-        }
-        const sku = String(l.code).toUpperCase();
-        // v1064: mismo filtrado que fuente SAP — tienda(tq) + vendor(vf) + mes(mesF).
-        // v1079: _canonVendor aplica alias legacy (MARTIN BOIERO → PACHI).
-        const _pVendorKey = _canonVendor(p.ownerVendor || p.vendedor || p.vendorAssigned || p.vendor || '');
-        if (vf && _pVendorKey !== vf) continue;
-        if (tq) {
-          const skuHit = sku.toLowerCase().includes(tq);
-          const prodHit = String(l.desc || '').toLowerCase().includes(tq);
-          const cliHit = String(p.clientName || '').toLowerCase().includes(tq);
-          if (!skuHit && !prodHit && !cliHit) continue;
-        }
-        if (mesF) {
-          const d = String(p.confirmedAt || '').slice(0, 7);
-          if (d !== mesF) continue;
-        }
-        if (!skuMap[sku]) {
-          const prod = _prodByCode[sku] || {};
-          skuMap[sku] = {sku: sku, producto: prod.desc || l.desc || '', familia: prod.fam || '', subfamilia: prod.sub || '', totalPendiente: 0, clientes: []};
-        }
-        skuMap[sku].totalPendiente += qtyOpen;
-        const cardCode = (typeof sapGetClienteCode === 'function') ? (sapGetClienteCode(p.clientName || '') || '') : '';
-        skuMap[sku].clientes.push({
-          nombre: p.clientName || '',
-          code: cardCode,
-          ciudad: p.locName || '',
-          pendiente: qtyOpen,
-          precio: parseFloat(l.precio || l.priceAtCreation || 0) || 0,
-          sqDocNum: 0,
-          sqDocDate: String(p.confirmedAt || '').slice(0, 10),
-          vendorKey: _pVendorKey,
-          source: 'app',
-          state: l.state,
-          pedidoId: p._fsId || '',
-          pedidoOrden: p.orderNumber || null,
-          // v958 (Fase 3, 2026-09-16): propaga asigReserva + asigCliTipo para
-          // que el render del modal Backorder/Stock Asignado muestre badge
-          // CON/SIN RESERVA. Ver setter en fifo-assign-core.js:computeAssignmentsFifo (v956)
-          // + backfill script v957.
-          asigReserva: l.asigReserva,
-          asigCliTipo: l.asigCliTipo || '',
-          // v969 (2026-09-17): createdAt del pedido para calcular la edad
-          // del BO en el badge VENCIDA. Usamos createdAt (no confirmedAt)
-          // porque los BO ya existian desde que el vendedor cargo el pedido.
-          pedidoCreatedAt: p.createdAt || null,
-        });
-      }
-    }
-  }
-  // v576 FASE 2 — Cap FIFO estricto por SKU.
-  //
-  // Regla (durante transicion SAP -> APP): SAP siempre gana a APP-BO (para
-  // ir agotando las Ofertas SAP viejas antes de que APP tome control). Dentro
-  // de cada source, orden por fecha ascendente (mas viejo gana).
-  //
-  // Excepcion: lineas APP-ASIG ya fueron promovidas por E4.5 FIFO y estan
-  // "reservadas" — consumen stock primero, sin competir. Aparecen siempre en
-  // STOCK ASIG. con su qty completa.
-  //
-  // Post-cap: cada cliente tiene qtyAsignada (lo que puede recibir HOY con
-  // stock disp) + qtyBackorder (lo que le falta). El modo del modal decide
-  // cual se muestra.
-  Object.values(skuMap).forEach(g => {
-    const dispSap = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(g.sku) || 0) : 0;
-    let restante = dispSap;
-    // v960 (2026-09-16): cap ASIG por dispSap FIFO. Antes: ASIG tomaba
-    // c.pendiente entero sin cap → si dispSap=21 pero 3 clientes tenian ASIG
-    // 10+10+3=23, el header decia 23 UNIDADES (pero solo hay 21 en dep 11).
-    // Ahora se respeta el tope fisico y el excedente cae a qtyBackorder.
-    // Reportado por Mariano 2026-09-16 con CVC66MH4SACO (21 disp / 23 asig).
-    //
-    // Paso 1: APP-ASIG + APP-confirmed consumen primero por FIFO de fecha
-    // (mas viejo gana) pero respetando el cap fisico dispSap.
-    // v962 (2026-09-17): confirmed tiene la misma prioridad que ASIG (ya
-    // enviada a SAP como SQ) — no compite con BO. Antes solo ASIG estaba en
-    // este paso, confirmed caia como "competidor" contra BO en Paso 2 lo cual
-    // era incorrecto porque confirmed >>> BO en prioridad de facturacion.
-    const prioritarios = g.clientes.filter(c =>
-      c.source === 'app' && (c.state === 'ASIG' || c.state === 'confirmed')
-    );
-    prioritarios.sort((a, b) => (a.sqDocDate || '').localeCompare(b.sqDocDate || ''));
-    for (const c of prioritarios) {
-      const asignable = Math.min(c.pendiente, Math.max(0, restante));
-      c.qtyAsignada = asignable;
-      c.qtyBackorder = c.pendiente - asignable;
-      restante -= asignable;
-    }
-    if (restante < 0) restante = 0;
-    // Paso 2: competidores (SAP + APP-BO) ordenados FIFO.
-    const competidores = g.clientes.filter(c =>
-      !(c.source === 'app' && (c.state === 'ASIG' || c.state === 'confirmed'))
-    );
-    competidores.sort((a, b) => {
-      // SAP siempre primero (transicion). Cuando ya no queden SAP, solo hay APP-BO.
-      if (a.source !== b.source) return a.source === 'sap' ? -1 : 1;
-      // Dentro de mismo source, fecha ascendente (mas viejo gana).
-      return (a.sqDocDate || '').localeCompare(b.sqDocDate || '');
-    });
-    for (const c of competidores) {
-      const asignable = Math.min(c.pendiente, Math.max(0, restante));
-      c.qtyAsignada = asignable;
-      c.qtyBackorder = c.pendiente - asignable;
-      restante -= asignable;
-    }
-  });
-  // v631 (2026-08-25): re-implementa SKU-level filter (revert de v627/v628).
-  // Mariano feedback definitivo:
-  // 'asignacion' (STOCK ASIG.) -> SOLO SKUs con dispSap > 0. TODOS los
-  // clientes con demanda de ese SKU aparecen (SAP + APP-BO + APP-ASIG).
-  // 'urgente' (BACKORDER) -> SOLO SKUs con dispSap = 0. Idem clientes.
-  //
-  // Bug reportado 2026-08-25 con screenshot: BACKORDER mostraba SKUs con
-  // stock porque v628 saco el filtro SKU-level. Ahora vuelve.
-  // v691 (2026-08-27): fix bug modal STOCK ASIG. mostraba totales de pendiente
-  // en vez de qtyAsignada por FIFO. Ej: SKU con 2 disp + 58 pendientes en 12
-  // clientes -> mostraba "58 UNIDADES" y "10, 10, 10..." por cliente. Correcto:
-  // "2 UNIDADES" y solo el primer cliente con "2 unid asignadas", el resto pasa
-  // a BACKORDER. Bug reportado por Mariano 2026-08-27.
-  Object.values(skuMap).forEach(g => {
-    const isAsig = (backordersMode === 'asignacion');
-    const dispSap = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(g.sku) || 0) : 0;
-    g.dispSap = dispSap; // guardar para render header
-    // v864 (2026-09-11): removido el gate SKU-level (v631). Antes: si el SKU
-    // tenia dispSap>0 se ocultaba entero del modo BACKORDER (asumiendo "hay
-    // stock, no urge importar"). Pero un SKU con stock parcial (ej dispSap=3
-    // + 4 clientes pidiendo) tiene el 4to en BO real y quedaba invisible.
-    // Bug reportado por Mariano 2026-09-11 con ST2500HGFM (JAVIER DJEMDJEMIAN).
-    // Fix: filtrar solo por qtyAsignada/qtyBackorder per-cliente. Un SKU con
-    // stock parcial ahora aparece en AMBOS modales — clientes con asignacion
-    // en STOCK ASIG. y clientes con backorder en BACKORDER.
-    // g.urgency (solo modo backorder): 'urgente' = dispSap=0, 'parcial' = dispSap>0.
-    if (isAsig) {
-      g.clientes = g.clientes.filter(c => (c.qtyAsignada || 0) > 0);
-    } else {
-      g.clientes = g.clientes.filter(c => (c.qtyBackorder || 0) > 0);
-      g.urgency = dispSap > 0 ? 'parcial' : 'urgente';
-    }
-    // v724 (2026-08-28): consolidar duplicados por cliente (cardCode + nombre).
-    // Mariano: 'LUIS ZYSMAN con 1 u y 11 u' deberian mostrarse como una sola
-    // linea de 12 u. Ocurre cuando el mismo cliente tiene 2+ pedidos-app open
-    // con el mismo SKU (dups heredados de migracion o split v600).
-    // Se consolidan DESPUES del FIFO cap (para que qtyAsignada+qtyBackorder
-    // reflejen la asignacion correcta por linea). Se preservan los pedidoIds
-    // para que Eliminar cancele TODAS las lineas del cliente para ese SKU.
-    const byKeyC = {};
-    for (const c of g.clientes) {
-      const k = (c.code || c.nombre || '(sin key)').toUpperCase();
-      if (!byKeyC[k]) {
-        byKeyC[k] = Object.assign({}, c, {
-          pendiente: 0,
-          qtyAsignada: 0,
-          qtyBackorder: 0,
-          pedidoIds: [],
-        });
-      }
-      byKeyC[k].pendiente += Number(c.pendiente) || 0;
-      byKeyC[k].qtyAsignada += Number(c.qtyAsignada) || 0;
-      byKeyC[k].qtyBackorder += Number(c.qtyBackorder) || 0;
-      if (c.pedidoId) byKeyC[k].pedidoIds.push({ pedidoId: c.pedidoId, state: c.state, qty: Number(c.pendiente) || 0 });
-    }
-    g.clientes = Object.values(byKeyC);
-    // Total segun modo: suma qtyAsignada en STOCK ASIG., qtyBackorder en BACKORDER.
-    if (isAsig) {
-      g.totalPendiente = g.clientes.reduce((s, c) => s + (c.qtyAsignada || 0), 0);
-    } else {
-      g.totalPendiente = g.clientes.reduce((s, c) => s + (c.qtyBackorder || 0), 0);
-    }
-  });
-  // v576: eliminar SKUs vacios post-cap (todos los clientes filtrados por modo).
-  let skus = Object.values(skuMap).filter(g => g.clientes && g.clientes.length > 0);
-  // v864 (2026-09-11): filtro adicional por urgency (solo en modo backorder).
-  // Preserva el uso de Mariano-importador: seleccionar "Solo urgentes" muestra
-  // el mismo set que antes (SKUs con dispSap=0). Default 'todos' incluye
-  // parciales para no perder BOs con stock repartido.
-  if (backordersMode !== 'asignacion' && typeof backordersUrgencyFilter !== 'undefined' && backordersUrgencyFilter && backordersUrgencyFilter !== 'todos') {
-    skus = skus.filter(g => g.urgency === backordersUrgencyFilter);
-  }
-  skus.sort((a,b) => b.totalPendiente - a.totalPendiente);
-  // Summary
-  const totalUnidades = skus.reduce((s,x) => s + x.totalPendiente, 0);
-  // v572: contar clientes distintos de las 2 fuentes (SAP + APP) tras filtros.
-  const _cliSet = new Set();
-  skus.forEach(g => (g.clientes || []).forEach(c => {
-    const k = c.code || c.nombre || '';
-    if (k) _cliSet.add(k);
-  }));
-  const totalClientes = _cliSet.size;
+  // v1100: el compute (skuMap + FIFO + consolidación + summary) vive ahora
+  // en src/pure/backorder-sku-map.js (llamado arriba, línea 14015).
   // v876 SEC: fix CodeQL js/xss-through-dom alert #25. Antes construíamos el
   // innerHTML concatenando _filtroBadges.join(...) donde uno de los pushes
   // era 'busqueda: "' + escapeHtml(q) + '"'. Aunque `q` estaba escaped,

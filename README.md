@@ -4673,7 +4673,41 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1099
+## 41) Changelog v300 → v1100
+
+### v1100 (2026-09-30) — Unificar compute Backorder/StockAsig: modal ↔ reporte
+
+**Contexto**: post-v1099, Mariano preguntó si los exports "Exportar todo" del modal (Backorder + Stock Asignado) coincidían con los "Exportar reporte" del diálogo Reportes. Auditoría: **no coincidían** — el diálogo Reportes usaba lógica propia sin cap FIFO, sin filtro vencidas y sin incluir `confirmed`; el modal aplicaba las tres.
+
+**Cambios**:
+
+1. **`src/pure/backorder-sku-map.js` (NUEVO)** — módulo puro centraliza el compute. Dos APIs:
+   - `computeBackorderSkuMap` — consolidado por cliente (modal).
+   - `computeBackorderRawLines` — líneas post-FIFO sin consolidar (reportes crudos).
+   - Aplica FIFO cap `dispSap` (v960), `BO+ASIG+confirmed` (v962), `lineReservesStock` con excepción v1072, consolidación duplicados (v724), filtros `tiendaQuery`/`vendorKey`/`mesYYYYMM`/`urgencyFilter`.
+
+2. **`tests/unit/backorder-sku-map.test.js` (NUEVO)** — 23 tests: FIFO cap, vencidas, consolidación, filtros, alias PACHI, edge cases.
+
+3. **`index.html:renderBackordersTab`** — skuMap + FIFO inline (~230 LOC) reemplazado por llamada al módulo. Comportamiento visible: idéntico.
+
+4. **`index.html:exportBackordersToExcel`** — compute inline (~70 LOC) delegado al módulo. Antes: sin cap FIFO → podía divergir del modal en SKUs con stock parcial. Ahora paridad total.
+
+5. **`src/domains/exports-core.js`** — 4 exports del diálogo Reportes ahora usan `computeBackorderRawLines`:
+   - `exportBackorderAll` — antes dump crudo BO sin cap ni vencidas. Ahora respeta FIFO+vencidas, incluye `confirmed`.
+   - `exportStockAsigAll` — antes "virtual_ASIG" sin cap. Ahora coincide con modal ASIG.
+   - `exportBackorderForMonth` / `exportStockAsigForMonth` — idem con `filters.mesYYYYMM`.
+   - Columnas del Excel preservadas; agregadas `Estado` + `Stock_Disp_SKU` para debug.
+
+**Convergencia modal↔reporte**:
+
+| Escenario | v1099 modal | v1099 reporte | v1100 |
+|-----------|-------------|---------------|-------|
+| SKU `dispSap>0` con BO parcial post-FIFO | ✅ | ❌ dump sin cap | ✅ paridad |
+| Línea ASIG >15d vencida | ❌ excluida | ✅ incluida | ❌ excluida |
+| Línea `state='confirmed'` (SQ SAP) | ✅ (v962) | ❌ ignorada | ✅ |
+| Consolidación por cliente | 1 fila/cliente | 1 fila/pedido | Modal: consolida. Reporte: 1 fila/pedido (mismos totales) |
+
+**Fallback vendor v1088**: preservado en todos los caminos vía `deps.resolveVendorFallback` que consulta `clientMasterCache`.
 
 ### v1099 (2026-09-30) — Fix export Backorder: tránsito NO cuenta como stock
 

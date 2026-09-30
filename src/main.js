@@ -54,6 +54,10 @@ import {
   getStockRealmenteDisponible,
   lineReservesStock,
 } from './pure/stock-realmente-disponible.js';
+import {
+  computeBackorderSkuMap,
+  computeBackorderRawLines,
+} from './pure/backorder-sku-map.js';
 import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
 import { createSapClient } from './sap-client.js';
 import { applySentryUserContext } from './sentry.js';
@@ -178,6 +182,8 @@ const phase0 = {
     getStockPorCliente,
     getStockPorClienteMemo,
     lineReservesStock,
+    computeBackorderSkuMap,
+    computeBackorderRawLines,
     canViewPanel,
     computeHealthStatus,
     computeAgeMinutes,
