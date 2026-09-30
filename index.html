@@ -5948,7 +5948,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1119';
+const APP_VERSION = 'v1120';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -6466,35 +6466,10 @@ var STOCK_BACKORDER = {};
 // v1117 (2026-09-30): SKUs descontinuados (forecast_config/discontinued_skus)
 // que se filtran del backorder SAP para que no aparezcan en el modal Backorder
 // ni en cálculos de recomendación. Se hidrata via listener onSnapshot.
+// v1120 ROLLBACK: DISCONTINUED_SKUS feature completo removido.
+// Causaba app colgada al reiniciar. Reimplementar aparte con approach mas
+// conservador (fetch on-demand solo cuando Mariano abre modal Backorder).
 var DISCONTINUED_SKUS = new Set();
-var _discontinuedSkusUnsub = null;
-// v1119 hotfix: listener movido a fn callable post-login. Si corria al load
-// del script (antes de auth), fallaba con permission-denied porque las rules
-// forecast_config son isMariano() — y ese fail podia colgar la carga inicial.
-function ensureDiscontinuedSkusListener(){
-  if (_discontinuedSkusUnsub) return;
-  if (typeof fbDb === 'undefined' || !fbDb) return;
-  if (!currentUser) return; // esperar post-login
-  try {
-    _discontinuedSkusUnsub = fbDb.collection('forecast_config').doc('discontinued_skus').onSnapshot((snap) => {
-      const d = snap.exists ? snap.data() : {};
-      const arr = Array.isArray(d.skus) ? d.skus : [];
-      DISCONTINUED_SKUS = new Set(arr.map((s) => String(s).trim().toUpperCase()));
-      // Re-filtrar STOCK_BACKORDER + recompute counts.
-      if (typeof STOCK_BACKORDER === 'object' && STOCK_BACKORDER) {
-        DISCONTINUED_SKUS.forEach((sku) => { delete STOCK_BACKORDER[sku]; });
-      }
-      try { if (typeof _updateBackorderButtonCounts === 'function') _updateBackorderButtonCounts(); } catch(e) {}
-      try { if (typeof renderBackordersTab === 'function') renderBackordersTab(); } catch(e) {}
-    }, (err) => {
-      // Rules pueden negar acceso a non-Mariano — es esperado, no rompe la app.
-      console.warn('[discontinued-skus] listener err (esperado si no sos Mariano)', err && err.code);
-      _discontinuedSkusUnsub = null;
-    });
-  } catch(e) {
-    console.warn('[discontinued-skus] init err', e);
-  }
-}
 // v827+ (2026-09-08): SKUs con U_CICLO_PROD='PRE LANZAMIENTO' en SAP. Aunque
 // haya unidades fisicas en el deposito 11, la app los trata como stock=0
 // (hasStock()=false, getStockQty()=0) y muestra badge naranja "PRE LANZAMIENTO"
@@ -23637,7 +23612,6 @@ function ensureAllListeners(){
   _try('vendorOverrides', () => ensureVendorOverridesListener());
   _try('stockSnapshot', () => ensureStockSnapshotListener());
   _try('stockSnapshotApp', () => ensureStockSnapshotAppListener());
-  _try('discontinuedSkus', () => ensureDiscontinuedSkusListener());
   _try('autoConfirmCfg', () => ensureAutoConfirmCfgListener());
   _try('ghActionsStatus', () => ensureGhActionsStatusListener());
   _try('sentryStatus', () => ensureSentryStatusListener());
