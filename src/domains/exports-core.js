@@ -1362,12 +1362,30 @@ async function exportBackorderForMonth(anio, monthIdx) {
   const computeFn = w.__phase0 && w.__phase0.pure && w.__phase0.pure.computeBackorderRawLines;
   const mesYYYYMM = anio + '-' + String(monthIdx + 1).padStart(2, '0');
   /** @type {(p: any) => string} */
+  // v1101 (2026-09-30): buscar primero por sapCardCode (único, no depende de
+  // normalización de strings) y sólo caer al clientLocId como último recurso.
+  // Ver comentario extendido en index.html:exportBackordersToExcel.
   const _resolveVendorFallback = (p) => {
     try {
-      if (!w.clientLocId || !w.clientMasterCache || !w.clientMasterCache.get) return '';
-      const cmDocId = w.clientLocId(p.province || '', p.locName || '', p.clientName || '');
-      const cmData = w.clientMasterCache.get(cmDocId);
-      return (cmData && cmData.assignedVendor) || '';
+      const cache = w.clientMasterCache;
+      if (!cache) return '';
+      const cc = String(p.clientCardCode || '').trim();
+      if (cc && typeof cache.forEach === 'function') {
+        let found = '';
+        cache.forEach((cmData) => {
+          if (found) return;
+          if (cmData && String(cmData.sapCardCode || '').trim() === cc && cmData.assignedVendor) {
+            found = cmData.assignedVendor;
+          }
+        });
+        if (found) return found;
+      }
+      if (typeof w.clientLocId === 'function' && typeof cache.get === 'function') {
+        const cmDocId = w.clientLocId(p.province || '', p.locName || '', p.clientName || '');
+        const cmData = cache.get(cmDocId);
+        return (cmData && cmData.assignedVendor) || '';
+      }
+      return '';
     } catch (_e) {
       return '';
     }
@@ -1451,12 +1469,30 @@ async function exportStockAsigForMonth(anio, monthIdx) {
   const computeFn = w.__phase0 && w.__phase0.pure && w.__phase0.pure.computeBackorderRawLines;
   const mesYYYYMM = anio + '-' + String(monthIdx + 1).padStart(2, '0');
   /** @type {(p: any) => string} */
+  // v1101 (2026-09-30): buscar primero por sapCardCode (único, no depende de
+  // normalización de strings) y sólo caer al clientLocId como último recurso.
+  // Ver comentario extendido en index.html:exportBackordersToExcel.
   const _resolveVendorFallback = (p) => {
     try {
-      if (!w.clientLocId || !w.clientMasterCache || !w.clientMasterCache.get) return '';
-      const cmDocId = w.clientLocId(p.province || '', p.locName || '', p.clientName || '');
-      const cmData = w.clientMasterCache.get(cmDocId);
-      return (cmData && cmData.assignedVendor) || '';
+      const cache = w.clientMasterCache;
+      if (!cache) return '';
+      const cc = String(p.clientCardCode || '').trim();
+      if (cc && typeof cache.forEach === 'function') {
+        let found = '';
+        cache.forEach((cmData) => {
+          if (found) return;
+          if (cmData && String(cmData.sapCardCode || '').trim() === cc && cmData.assignedVendor) {
+            found = cmData.assignedVendor;
+          }
+        });
+        if (found) return found;
+      }
+      if (typeof w.clientLocId === 'function' && typeof cache.get === 'function') {
+        const cmDocId = w.clientLocId(p.province || '', p.locName || '', p.clientName || '');
+        const cmData = cache.get(cmDocId);
+        return (cmData && cmData.assignedVendor) || '';
+      }
+      return '';
     } catch (_e) {
       return '';
     }

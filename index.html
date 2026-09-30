@@ -5940,7 +5940,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1100';
+const APP_VERSION = 'v1101';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13413,13 +13413,36 @@ window.exportBackordersToExcel = async function(){
   //
   // v1088 fallback vendor via clientMasterCache: se inyecta como
   // deps.resolveVendorFallback y solo dispara cuando el ownerVendor está vacío.
+  // v1101 (2026-09-30): buscar PRIMERO por sapCardCode (único, no depende de
+  // normalización de strings) y sólo caer al clientLocId cuando no hay
+  // clientCardCode en el pedido. Reporte Mariano: FERNANDO ANTONIO URQUIOLA
+  // (CardCode C20084809919, LOBOS) salía "(sin vendedor)" en el export
+  // aunque en Master Clientes tenía Z2 - Federico Castelanelli. Root cause:
+  // el doc_id del Master fue creado con convención distinta a
+  // clientLocId(prov, loc, tienda) — hay >=2 formatos históricos en la
+  // colección client_master. sapCardCode es único y siempre confiable.
   const _resolveVendorFallback = (p) => {
     try {
-      if (typeof clientLocId !== 'function') return '';
-      if (typeof clientMasterCache === 'undefined' || !clientMasterCache.get) return '';
-      const cmDocId = clientLocId(p.province || '', p.locName || '', p.clientName || '');
-      const cmData = clientMasterCache.get(cmDocId);
-      return (cmData && cmData.assignedVendor) || '';
+      if (typeof clientMasterCache === 'undefined' || !clientMasterCache) return '';
+      // Camino 1: match por sapCardCode del pedido (más confiable).
+      const cc = String(p.clientCardCode || '').trim();
+      if (cc && typeof clientMasterCache.forEach === 'function') {
+        let found = '';
+        clientMasterCache.forEach((cmData) => {
+          if (found) return;
+          if (cmData && String(cmData.sapCardCode || '').trim() === cc && cmData.assignedVendor) {
+            found = cmData.assignedVendor;
+          }
+        });
+        if (found) return found;
+      }
+      // Camino 2: fallback por clientLocId (formato histórico).
+      if (typeof clientLocId === 'function' && typeof clientMasterCache.get === 'function') {
+        const cmDocId = clientLocId(p.province || '', p.locName || '', p.clientName || '');
+        const cmData = clientMasterCache.get(cmDocId);
+        return (cmData && cmData.assignedVendor) || '';
+      }
+      return '';
     } catch (_e) { return ''; }
   };
   const _computeFnBk = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.computeBackorderSkuMap);
@@ -14000,6 +14023,31 @@ window.renderBackordersTab = function(){
       products: (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) ? PRODUCTS : [],
       backorderLines: (typeof backorderLines !== 'undefined' && Array.isArray(backorderLines)) ? backorderLines : [],
       sapGetClienteCode: (typeof sapGetClienteCode === 'function') ? sapGetClienteCode : undefined,
+      // v1101 (2026-09-30): mismo fallback que el export — busca primero por
+      // sapCardCode, luego por clientLocId. Consistencia modal↔export para
+      // clientes cuyos pedidos no traen ownerVendor pero sí tienen CardCode.
+      resolveVendorFallback: (p) => {
+        try {
+          if (typeof clientMasterCache === 'undefined' || !clientMasterCache) return '';
+          const cc = String(p.clientCardCode || '').trim();
+          if (cc && typeof clientMasterCache.forEach === 'function') {
+            let found = '';
+            clientMasterCache.forEach((cmData) => {
+              if (found) return;
+              if (cmData && String(cmData.sapCardCode || '').trim() === cc && cmData.assignedVendor) {
+                found = cmData.assignedVendor;
+              }
+            });
+            if (found) return found;
+          }
+          if (typeof clientLocId === 'function' && typeof clientMasterCache.get === 'function') {
+            const cmDocId = clientLocId(p.province || '', p.locName || '', p.clientName || '');
+            const cmData = clientMasterCache.get(cmDocId);
+            return (cmData && cmData.assignedVendor) || '';
+          }
+          return '';
+        } catch (_e) { return ''; }
+      },
     }
   ) : { skus: [], totalUnidades: 0, totalClientes: 0 };
   let skus = _bkResult.skus;
