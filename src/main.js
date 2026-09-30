@@ -11,6 +11,7 @@
 
 // E3 (e2b-perf 2026-07-28): loader para chunks lazy.
 import { installChunkStubs } from './loader.js';
+import { computeBackorderRawLines, computeBackorderSkuMap } from './pure/backorder-sku-map.js';
 import { calcClientDiscount } from './pure/discount.js';
 import { findSapDuplicateForProvisorio } from './pure/duplicate.js';
 import { passesTypeFilter } from './pure/filters.js';
@@ -54,10 +55,6 @@ import {
   getStockRealmenteDisponible,
   lineReservesStock,
 } from './pure/stock-realmente-disponible.js';
-import {
-  computeBackorderSkuMap,
-  computeBackorderRawLines,
-} from './pure/backorder-sku-map.js';
 import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
 import { createSapClient } from './sap-client.js';
 import { applySentryUserContext } from './sentry.js';
