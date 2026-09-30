@@ -98,6 +98,10 @@ const LAZY_CHUNKS = {
     'onRecoFamiliaChange',
     'onRecoFilterMinChange',
     'exportRecoExcel',
+    // v1112+ F3B: descontinuar / reactivar SKUs.
+    'discontinueSku',
+    'reactivateSku',
+    'openDiscontinuedModal',
   ],
   // v810 (2026-09-04) Loop iter 7: PANEL DE CONTROL Mariano-only (v611+).
   // 939 LOC de metricas/health/KPIs que solo abre 1 usuario, on-demand.

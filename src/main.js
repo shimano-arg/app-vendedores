@@ -142,6 +142,9 @@ installChunkStubs('forecast', [
   'onRecoFamiliaChange',
   'onRecoFilterMinChange',
   'exportRecoExcel',
+  'discontinueSku',
+  'reactivateSku',
+  'openDiscontinuedModal',
 ]);
 installChunkStubs('panel-control', ['openPanelControl', 'closePanelControl', 'renderPanelControl']);
 installChunkStubs('seguimiento', [
