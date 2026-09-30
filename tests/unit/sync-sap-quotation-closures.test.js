@@ -38,7 +38,8 @@ function makeFbDb(docs = {}) {
           async get() {
             const arr = [];
             for (const [id, data] of Object.entries(store)) {
-              if (!(data.transferidoSAP && data.transferidoSAP.closedManuallyInSap === true)) continue;
+              if (!(data.transferidoSAP && data.transferidoSAP.closedManuallyInSap === true))
+                continue;
               arr.push({ id, data: () => data });
             }
             return { forEach: (fn) => arr.forEach(fn), size: arr.length };
