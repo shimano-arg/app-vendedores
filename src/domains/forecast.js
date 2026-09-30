@@ -269,10 +269,10 @@ function _buildShellHtml() {
     '<button onclick="closeForecastModal()" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:700">Cerrar</button>' +
     '</div>';
   const tabsBar =
-    '<div id="forecast-tabs-bar" style="display:flex;gap:0;background:#1e293b;padding:0 18px;border-bottom:1px solid var(--border-subtle)">' +
-    '<button data-tab="sales-plans" onclick="switchForecastTab(\'sales-plans\')" class="forecast-tab" style="padding:10px 16px;background:transparent;color:#fff;border:none;border-bottom:3px solid #0d9488;cursor:pointer;font-weight:700;font-size:12px;letter-spacing:.4px;text-transform:uppercase">Sales Plans</button>' +
-    '<button data-tab="stat" onclick="switchForecastTab(\'stat\')" class="forecast-tab" style="padding:10px 16px;background:transparent;color:#94a3b8;border:none;border-bottom:3px solid transparent;cursor:pointer;font-weight:600;font-size:12px;letter-spacing:.4px;text-transform:uppercase">Forecast Estadístico</button>' +
-    '<button data-tab="legacy" onclick="switchForecastTab(\'legacy\')" class="forecast-tab" style="padding:10px 16px;background:transparent;color:#94a3b8;border:none;border-bottom:3px solid transparent;cursor:pointer;font-weight:600;font-size:12px;letter-spacing:.4px;text-transform:uppercase">Legacy (6m)</button>' +
+    '<div id="forecast-tabs-bar" style="display:flex;gap:0;background:var(--bg-secondary);padding:0 18px;border-bottom:1px solid var(--border-subtle)">' +
+    '<button data-tab="sales-plans" onclick="switchForecastTab(\'sales-plans\')" class="forecast-tab" style="padding:10px 16px;background:transparent;color:var(--text-primary);border:none;border-bottom:3px solid #0d9488;cursor:pointer;font-weight:700;font-size:12px;letter-spacing:.4px;text-transform:uppercase">Sales Plans</button>' +
+    '<button data-tab="stat" onclick="switchForecastTab(\'stat\')" class="forecast-tab" style="padding:10px 16px;background:transparent;color:var(--text-muted);border:none;border-bottom:3px solid transparent;cursor:pointer;font-weight:600;font-size:12px;letter-spacing:.4px;text-transform:uppercase">Forecast Estadístico</button>' +
+    '<button data-tab="legacy" onclick="switchForecastTab(\'legacy\')" class="forecast-tab" style="padding:10px 16px;background:transparent;color:var(--text-muted);border:none;border-bottom:3px solid transparent;cursor:pointer;font-weight:600;font-size:12px;letter-spacing:.4px;text-transform:uppercase">Legacy (6m)</button>' +
     '</div>';
   const tabSalesPlans = '<div id="forecast-tab-sales-plans" style="flex:1;overflow:auto"></div>';
   const tabStat = '<div id="forecast-tab-stat" style="flex:1;overflow:auto;display:none"></div>';
@@ -307,7 +307,7 @@ window.switchForecastTab = function (tabId) {
   const btns = document.querySelectorAll('#forecast-tabs-bar .forecast-tab');
   btns.forEach((b) => {
     const active = b.getAttribute('data-tab') === tabId;
-    b.style.color = active ? '#fff' : '#94a3b8';
+    b.style.color = active ? 'var(--text-primary)' : 'var(--text-muted)';
     b.style.borderBottomColor = active ? '#0d9488' : 'transparent';
     b.style.fontWeight = active ? '700' : '600';
   });
