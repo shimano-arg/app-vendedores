@@ -1857,11 +1857,11 @@ window.openDisparadorManualModal = async function () {
   el.innerHTML = _dispModalShellHtml();
   document.body.appendChild(el);
   try {
+    // v1121 fix: sin orderBy para no requerir composite index. Sort client-side.
     const snap = await window.fbDb
       .collection('rendiciones')
       .where('status', '==', 'approved')
-      .orderBy('createdAt', 'desc')
-      .limit(500)
+      .limit(2000)
       .get();
     /** @type {Array<any>} */
     const pending = [];
@@ -1870,6 +1870,11 @@ window.openDisparadorManualModal = async function () {
       if (!d.notifiedAt) {
         pending.push(Object.assign({ _fsId: doc.id }, d));
       }
+    });
+    pending.sort((a, b) => {
+      const ta = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate().getTime() : 0;
+      const tb = b.createdAt && b.createdAt.toDate ? b.createdAt.toDate().getTime() : 0;
+      return tb - ta;
     });
     _renderDisparadorManualBody(pending);
   } catch (e) {
