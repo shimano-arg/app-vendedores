@@ -11,6 +11,7 @@
 
 // E3 (e2b-perf 2026-07-28): loader para chunks lazy.
 import { installChunkStubs } from './loader.js';
+import { computeBackorderRawLines, computeBackorderSkuMap } from './pure/backorder-sku-map.js';
 import { calcClientDiscount } from './pure/discount.js';
 import { findSapDuplicateForProvisorio } from './pure/duplicate.js';
 import { passesTypeFilter } from './pure/filters.js';
@@ -178,6 +179,8 @@ const phase0 = {
     getStockPorCliente,
     getStockPorClienteMemo,
     lineReservesStock,
+    computeBackorderSkuMap,
+    computeBackorderRawLines,
     canViewPanel,
     computeHealthStatus,
     computeAgeMinutes,

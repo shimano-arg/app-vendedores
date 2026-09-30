@@ -4673,7 +4673,41 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1099
+## 41) Changelog v300 → v1100
+
+### v1100 (2026-09-30) — Unificar compute Backorder/StockAsig: modal ↔ reporte
+
+**Contexto**: post-v1099, Mariano preguntó si los exports "Exportar todo" del modal (Backorder + Stock Asignado) coincidían con los "Exportar reporte" del diálogo Reportes. Auditoría: **no coincidían** — el diálogo Reportes usaba lógica propia sin cap FIFO, sin filtro vencidas y sin incluir `confirmed`; el modal aplicaba las tres.
+
+**Cambios**:
+
+1. **`src/pure/backorder-sku-map.js` (NUEVO)** — módulo puro centraliza el compute. Dos APIs:
+   - `computeBackorderSkuMap` — consolidado por cliente (modal).
+   - `computeBackorderRawLines` — líneas post-FIFO sin consolidar (reportes crudos).
+   - Aplica FIFO cap `dispSap` (v960), `BO+ASIG+confirmed` (v962), `lineReservesStock` con excepción v1072, consolidación duplicados (v724), filtros `tiendaQuery`/`vendorKey`/`mesYYYYMM`/`urgencyFilter`.
+
+2. **`tests/unit/backorder-sku-map.test.js` (NUEVO)** — 23 tests: FIFO cap, vencidas, consolidación, filtros, alias PACHI, edge cases.
+
+3. **`index.html:renderBackordersTab`** — skuMap + FIFO inline (~230 LOC) reemplazado por llamada al módulo. Comportamiento visible: idéntico.
+
+4. **`index.html:exportBackordersToExcel`** — compute inline (~70 LOC) delegado al módulo. Antes: sin cap FIFO → podía divergir del modal en SKUs con stock parcial. Ahora paridad total.
+
+5. **`src/domains/exports-core.js`** — 4 exports del diálogo Reportes ahora usan `computeBackorderRawLines`:
+   - `exportBackorderAll` — antes dump crudo BO sin cap ni vencidas. Ahora respeta FIFO+vencidas, incluye `confirmed`.
+   - `exportStockAsigAll` — antes "virtual_ASIG" sin cap. Ahora coincide con modal ASIG.
+   - `exportBackorderForMonth` / `exportStockAsigForMonth` — idem con `filters.mesYYYYMM`.
+   - Columnas del Excel preservadas; agregadas `Estado` + `Stock_Disp_SKU` para debug.
+
+**Convergencia modal↔reporte**:
+
+| Escenario | v1099 modal | v1099 reporte | v1100 |
+|-----------|-------------|---------------|-------|
+| SKU `dispSap>0` con BO parcial post-FIFO | ✅ | ❌ dump sin cap | ✅ paridad |
+| Línea ASIG >15d vencida | ❌ excluida | ✅ incluida | ❌ excluida |
+| Línea `state='confirmed'` (SQ SAP) | ✅ (v962) | ❌ ignorada | ✅ |
+| Consolidación por cliente | 1 fila/cliente | 1 fila/pedido | Modal: consolida. Reporte: 1 fila/pedido (mismos totales) |
+
+**Fallback vendor v1088**: preservado en todos los caminos vía `deps.resolveVendorFallback` que consulta `clientMasterCache`.
 
 ### v1099 (2026-09-30) — Fix export Backorder: tránsito NO cuenta como stock
 
@@ -4734,8 +4768,9 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 - **Output**: Firestore `forecast_output/{sku}` con `{forecast: {'YYYY-MM': {mean, lo80, hi80}}, metrics: {mape, rmse, confidence}, versionId, generatedAt}`.
 - **UI**: nueva tab "Forecast Estadístico" en modal FORECAST — tabla SKU × 7 meses + click SKU → modal detalle con gráfico historia + forecast + IC 80% + overlay Sales Plan.
 - **Constraints heredados**: NO Free Inventory como input; NO NCM 9507 (empeora modelo); modelar qty total por SKU sin dividir por vendor.
+- **Feature layer adicional (2026-09-30)**: Mariano armó `Desktop\Estacionalidad_Pesca_por_Zona.xlsx` con calendario pesquero por zona (Z1-Z7) × mes: filas `COMPRA DEL CANAL (sell-in)` + `VENTA AL PÚBLICO (sell-out)` con nivel Baja/Media/Alta/Parcial/Veda, más hojas de Vedas y Equipos por especie. En F2A.3 el pipeline deriva 3 CSVs auxiliares (`calendario_zonas_meses.csv`, `vedas_zonas_meses.csv`, `sku_to_categoria_foco.csv`) que se cruzan con vendorKey→zona (ya está en la app) para agregar features de calendario pesquero zonal al modelo. Confianza: media (peso moderado; backtest decide si suma). Semilla estática: se re-consume cuando Mariano lo edita puntual.
 
-Sub-fases estimadas: F2A.1 baseline (2-3h) → F2A.2 jerarquía (2h) → F2A.3 exógenas (2h) → F2A.4 write Firestore + rules (1h) → F2A.5 script end-to-end (1h) → F2B.1 tabla UI (2h) → F2B.2 modal detalle (2h). Total ~12-14h. Pendiente: Mariano prepara `exogenas.csv` con Cowork antes de arrancar F2A.1.
+Sub-fases estimadas: F2A.1 baseline (2-3h) → F2A.2 jerarquía (2h) → F2A.3 exógenas macro + estacionalidad zonal (3h) → F2A.4 write Firestore + rules (1h) → F2A.5 script end-to-end (1h) → F2B.1 tabla UI (2h) → F2B.2 modal detalle (2h). Total ~13-15h. Pendiente: Mariano prepara `exogenas.csv` con Cowork antes de arrancar F2A.1.
 
 Bump `APP_VERSION`/`CACHE_VERSION` v1097 → v1098.
 
