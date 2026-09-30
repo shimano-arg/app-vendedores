@@ -4673,7 +4673,17 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1098
+## 41) Changelog v300 → v1099
+
+### v1099 (2026-09-30) — Fix export Backorder: tránsito NO cuenta como stock
+
+**Reporte Mariano** (captura 09:05 vs 09:08): SKU `SLXDC151HG` aparece en el modal Backorder con badge "URGENTE — sin stock, importar", 18 unidades pendientes en 10 clientes, con nota "10 en tránsito (dep. 12)". Al tocar "Exportar todo" y buscar el SKU en el Excel, "No hay coincidencias".
+
+**Root cause** (`index.html:13428-13432`): el filtro por modo del export sumaba `stkT` (`getStockTransito`) al chequeo `hasStock`, y en modo urgente (`!isAsigMode && hasStock`) saltaba `continue` — el SKU no llegaba nunca al `filtered.push`. Contexto histórico: el gate SKU-level fue removido del modal por v864 (2026-09-11, bug JAVIER DJEMDJEMIAN con `ST2500HGFM`), que además siempre miró solo `getStockDisponibleVenta` (dep 11), nunca tránsito. El export quedó desalineado.
+
+**Fix**: quitar `stkT` del filtro. Solo `dispSap` — mismo criterio que `renderBackordersTab`. El SKU con `dispSap=0 + stkT=10` vuelve a aparecer en el export con sus 18 unidades / 10 clientes.
+
+**Alcance conocido pendiente**: SKUs con stock parcial (`dispSap > 0` pero clientes con `qtyBackorder > 0` post-FIFO) siguen omitidos del export en modo BACKORDER — el filtro SKU-level lo saca. El modal sí los muestra (paridad completa requiere replicar el cap FIFO por SKU en el export). No es lo que Mariano reportó ahora — se difiere.
 
 ### v1098 (2026-09-29) — Forecast Fase 1: uploads Sales Plans (Rods / Reels / FG)
 
