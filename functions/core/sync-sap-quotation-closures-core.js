@@ -60,6 +60,7 @@ const DEFAULT_CLOSED_LOOKAHEAD = 2000;
  * @property {(url: string, init?: RequestInit) => Promise<Response>} fetch
  * @property {{ url: string, companyDB: string, userName: string, password: string }} sapConfig
  * @property {any} fbDb Firestore Admin instance.
+ * @property {any} [FieldValue] firestore.FieldValue (para .delete() en race-victim repair).
  * @property {(msg: string, extra?: Record<string, unknown>) => void} [log]
  * @property {number} [batchSize] Cuantos pedidos por corrida (default 100).
  * @property {number} [closedLookahead] Cuantas SQs cerradas escanear (default 2000).
@@ -85,16 +86,30 @@ const DEFAULT_CLOSED_LOOKAHEAD = 2000;
  * @returns {Promise<Array<{id: string, sqDocEntry: number}>>}
  */
 export async function listCandidatePedidos(deps, limit) {
-  const snap = await deps.fbDb.collection('pedidos').where('closedAt', '==', null).get();
-  /** @type {Array<{id: string, sqDocEntry: number}>} */
+  // v1102: dos queries — pedidos abiertos (comportamiento original) + pedidos
+  // marcados closedManuallyInSap:true (one-shot recheck de race victims v1095).
+  // Con el guard v1102 por NumAtCard, si un pedido fue marcado erróneamente
+  // como manual close pero en realidad tiene SO derivada, el handler lo
+  // salva automáticamente (unset closure flags + set orderDocEntry).
+  // Cuando ya no queden race victims, esta segunda query devuelve 0 resultados
+  // y no genera overhead adicional.
+  const snapOpen = await deps.fbDb.collection('pedidos').where('closedAt', '==', null).get();
+  const snapClosedManually = await deps.fbDb
+    .collection('pedidos')
+    .where('transferidoSAP.closedManuallyInSap', '==', true)
+    .get();
+  /** @type {Array<{id: string, sqDocEntry: number, alreadyClosed?: boolean}>} */
   const candidates = [];
-  snap.forEach((/** @type {any} */ d) => {
+  /** @type {Set<string>} */
+  const seenIds = new Set();
+  const push = (d, alreadyClosed) => {
+    if (seenIds.has(d.id)) return;
     const data = d.data() || {};
     const t = data.transferidoSAP || {};
     const sqDocEntry = Number(t.docEntry);
     if (!Number.isFinite(sqDocEntry) || sqDocEntry <= 0) return;
-    if (t.orderDocEntry) return; // ya convertido a SO → no aplica
-    if (t.closedManuallyInSap) return; // ya marcado (idempotencia soft)
+    if (t.orderDocEntry) return;
+    if (!alreadyClosed && t.closedManuallyInSap) return; // ya cerrados van al otro snap
     if (data.paidStatus === 'partial' || data.paidStatus === 'paid') return;
     const lineas = Array.isArray(data.lines)
       ? data.lines
@@ -102,9 +117,12 @@ export async function listCandidatePedidos(deps, limit) {
         ? data.items
         : [];
     if (lineas.some((/** @type {any} */ l) => (Number(l?.qtyInvoiced) || 0) > 0)) return;
-    candidates.push({ id: d.id, sqDocEntry });
-  });
-  candidates.sort((a, b) => a.sqDocEntry - b.sqDocEntry); // más viejos primero
+    candidates.push({ id: d.id, sqDocEntry, alreadyClosed });
+    seenIds.add(d.id);
+  };
+  snapOpen.forEach((/** @type {any} */ d) => push(d, false));
+  snapClosedManually.forEach((/** @type {any} */ d) => push(d, true));
+  candidates.sort((a, b) => a.sqDocEntry - b.sqDocEntry);
   return candidates.slice(0, limit);
 }
 
@@ -261,37 +279,98 @@ export async function syncSapQuotationClosures(deps) {
       candidatesToCheck: candidates.length,
     });
 
-    // v1095 (2026-09-29): ANTI-RACE guard. Antes de marcar sap_manual_close,
-    // enumerar /Orders para saber qué SQs YA tienen SO derivada (BaseType=23).
-    // Si una SQ está en `closedSet` (bost_Close) Y también en `derivedSqSet`
-    // (tiene SO), la razón del cierre NO es manual close — es conversion a
-    // SO. Se saltea; syncSapOrdersToApp la va a procesar como orderDocEntry.
-    // Precedente: SOLEDAD SANCHEZ SQ 2000241 → SO 20056 cerrada como manual.
-    const orderResult = await fetchQuotationsWithDerivedOrder(session, deps, closedLookahead);
-    /** @type {Set<number>} */
-    const derivedSqSet = orderResult.ok ? orderResult.derivedSqSet : new Set();
-    if (!orderResult.ok) {
-      log('[sync-quot-closures] SAP orders fetch failed (fail-open, no anti-race)', {
-        error: orderResult.error,
-      });
-    } else {
-      log('[sync-quot-closures] SAP orders scan done', {
-        ordersScanned: orderResult.scanned,
-        derivedSqCount: derivedSqSet.size,
-      });
-    }
-
+    // v1102 (2026-09-30): ANTI-RACE guard reescrito. El v1095 usaba
+    // `fetchQuotationsWithDerivedOrder` que enumeraba las 2000 SOs recientes
+    // globales (todas las BUs mezcladas). En prod la mayoría son bike, así
+    // que las SOs pesca correspondientes a las SQ pending caen fuera del scan
+    // y el guard NO detecta la race. Precedente REBORN 2026-09-29 (SQ 2000244
+    // → SO 20067): la CF marcó `sap_manual_close` erróneamente.
+    //
+    // Nuevo approach: para cada candidato en bost_Close, hacer un GET
+    // targeted /Orders?$filter=NumAtCard eq '<pedidoId>'. Si hay match, es
+    // race víctima — saltear (o mejor: poblar orderDocEntry directamente para
+    // evitar depender de otro tick del sync).
+    //
+    // Costo extra: 1 GET por candidato en bost_Close. Steady state esto es
+    // ~1-5 candidatos por tick, costo despreciable.
     for (const c of candidates) {
       if (!closedSet.has(c.sqDocEntry)) continue;
-      if (derivedSqSet.has(c.sqDocEntry)) {
-        // v1095: race víctima detectada. SQ bost_Close por conversion, no
-        // manual close. Skip — syncSapOrdersToApp lo procesará.
-        log('[sync-quot-closures] SKIP race-victim: SQ has derived SO', {
+      // Chequeo anti-race: ¿tiene la SQ una SO derivada?
+      let derivedSo = null;
+      try {
+        const escaped = String(c.id).replace(/'/g, "''");
+        const rSo = await sapGet(
+          session,
+          '/b1s/v1/Orders' +
+            `?$filter=${encodeURIComponent(`NumAtCard eq '${escaped}'`)}` +
+            `&$select=${encodeURIComponent('DocEntry,DocNum')}`,
+          deps
+        );
+        if (rSo.status === 200) {
+          const rows = (rSo.body && rSo.body.value) || [];
+          if (rows.length > 0) {
+            rows.sort((a, b) => Number(b.DocEntry) - Number(a.DocEntry));
+            const soDe = Number(rows[0].DocEntry);
+            const soDnRaw = Number(rows[0].DocNum);
+            if (Number.isFinite(soDe) && soDe > 0) {
+              derivedSo = { docEntry: soDe, docNum: Number.isFinite(soDnRaw) ? soDnRaw : null };
+            }
+          }
+        }
+      } catch (e) {
+        log('[sync-quot-closures] anti-race NumAtCard GET fallo (fail-open)', {
           pedidoId: c.id,
-          sqDocEntry: c.sqDocEntry,
+          err: e && /** @type {any} */ (e).message ? /** @type {any} */ (e).message : String(e),
         });
+      }
+      if (derivedSo) {
+        // Race víctima: SQ bost_Close por conversión a SO. Salvar poblando
+        // orderDocEntry/orderDocNum directamente + (si aplica) limpiar los
+        // closure flags que quedaron mal seteados por corridas previas (v1095).
+        try {
+          const nowIso = nowFn().toISOString();
+          /** @type {Record<string, any>} */
+          const patch = {
+            'transferidoSAP.orderDocEntry': derivedSo.docEntry,
+            'transferidoSAP.orderSyncedAt': nowIso,
+          };
+          if (derivedSo.docNum !== null) {
+            patch['transferidoSAP.orderDocNum'] = derivedSo.docNum;
+          }
+          if (c.alreadyClosed) {
+            // Fix retroactivo: pedido ya-cerrado erróneamente por v1095. Limpiar.
+            const delSentinel =
+              deps.FieldValue && typeof deps.FieldValue.delete === 'function'
+                ? deps.FieldValue.delete()
+                : null;
+            patch.closedAt = delSentinel;
+            patch.closedReason = delSentinel;
+            patch.closedBy = delSentinel;
+            patch['transferidoSAP.closedManuallyInSap'] = delSentinel;
+            patch['transferidoSAP.sapDocumentStatus'] = delSentinel;
+            patch['transferidoSAP.closedManuallyDetectedAt'] = delSentinel;
+            patch['transferidoSAP.raceVictimRepairedAt'] = nowIso;
+          }
+          await deps.fbDb.doc(`pedidos/${c.id}`).update(patch);
+          log('[sync-quot-closures] race-victim salvage', {
+            pedidoId: c.id,
+            sqDocEntry: c.sqDocEntry,
+            soDocEntry: derivedSo.docEntry,
+            soDocNum: derivedSo.docNum,
+            wasAlreadyClosed: c.alreadyClosed || false,
+          });
+        } catch (e) {
+          errors++;
+          log('[sync-quot-closures] race-victim salvage fail', {
+            pedidoId: c.id,
+            err: e && /** @type {any} */ (e).message ? /** @type {any} */ (e).message : String(e),
+          });
+        }
         continue;
       }
+      // v1102: pedidos ya-cerrados (`alreadyClosed=true`) que NO son race
+      // victims son cierres manuales legítimos — dejarlos como están.
+      if (c.alreadyClosed) continue;
       try {
         const nowIso = nowFn().toISOString();
         // Read-modify-write para preservar los otros campos de transferidoSAP.

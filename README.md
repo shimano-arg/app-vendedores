@@ -4673,7 +4673,39 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1104
+## 41) Changelog v300 → v1110
+
+### v1110 (2026-09-30) — Fix race SQ→SO: NumAtCard lookup + salvage race victims
+
+**Reporte Mariano**: pedido REBORN SRL (SAP:2000244) seguía en columna "Oferta" del Planner con monto incorrecto ($7.763.000 vs $4.992.375,30 real en SAP) aunque en SAP la SQ ya había sido convertida a SO 20067.
+
+**Root cause en cascada**:
+
+1. **`syncSapOrdersToApp` no matcheaba SO↔SQ**. La CF (v1015-v1054) enumeraba las 2000 SOs más recientes de SAP y buscaba `BaseType=23` apuntando a las SQ pending. Falló empíricamente porque la SAP DB de esta company mezcla múltiples BUs (Pesca + Bike + Marketing + Chile). Las 2000 SOs recientes están dominadas por bike; las SOs pesca correspondientes a las SQ pending caen fuera del scan. Diagnóstico 2026-09-30: 11 pending SQs pesca en rango 47941..52021 vs 2000 SOs escaneadas en rango 33234..37449 con 1890 BaseEntries únicos vistos, **cero matches**.
+
+2. **`syncSapQuotationClosuresToApp` (v1053) cerraba los pedidos como cierre manual** aunque la SQ estaba `bost_Close` por conversión a SO. El anti-race guard v1095 usaba el mismo scan limitado (mismo problema) — no detectaba race victims.
+
+3. **Constraints de SAP SL confirmados**:
+   - `$expand` NO funciona en `/Orders` ni `/Quotations` (collection ni single-entity): `400 "Cannot expand invalid navigation property 'DocumentLines' for entity type 'Document'"`.
+   - Sin `$expand`, `/Quotations(sqDe)` NO trae `TargetType`/`TargetEntry` (solo `POTarget*` que está `null`).
+   - Sin `$expand`, `/Orders` SÍ trae `DocumentLines` inline con `BaseType`/`BaseEntry`.
+   - **Descubrimiento clave**: SAP hereda `NumAtCard` de SQ a SO al convertir. La SO 20067 tiene `NumAtCard: 'P1lcGYlt0HUt0sytfTqn'` = pedidoId de REBORN.
+
+**Fix**:
+
+1. **`functions/core/sync-sap-orders-core.js`** — reescritura completa. Elimina el reverse scan y usa targeted `NumAtCard` lookup: para cada pending, `GET /Orders?$filter=NumAtCard eq '<pedidoId>'`. 1 GET/pedido, determinístico, cubre toda la historia SAP.
+
+2. **`functions/core/sync-sap-quotation-closures-core.js`** — anti-race guard reescrito con el mismo approach. Antes de marcar `sap_manual_close`, hace lookup `NumAtCard`. Si hay match → race victim, SALVA (puebla `orderDocEntry`/`orderDocNum` directamente).
+
+3. **`listCandidatePedidos` en quotation-closures** — extendido para incluir también pedidos con `closedManuallyInSap: true` (one-shot recheck). Los race victims quedados de v1095 se detectan y reparan automáticamente: unset `closedAt`/`closedReason`/`closedBy` + unset flags de closure + set `orderDocEntry`/`orderDocNum`/`raceVictimRepairedAt`.
+
+4. **`scripts/repair-quotation-closure-race-victims.mjs` (NUEVO)** — script one-shot standalone equivalente al fix retroactivo integrado en (3). Requiere `functions/serviceAccount.json` + `.env` con credenciales SAP. Dejado como referencia y método alternativo si en el futuro hace falta reparación manual.
+
+**Impacto**:
+- Trigger manual post-deploy salvó **15 pedidos race victims**, incluyendo REBORN (`P1lcGYlt0HUt0sytfTqn` → SO DocEntry 37382, DocNum 20067).
+- Nuevos pedidos: la race condition ya no ocurre. `syncSapOrdersToApp` matchea via `NumAtCard` directo (independiente del scan LOOKAHEAD), `syncSapQuotationClosures` verifica antes de cerrar.
+
+**Alcance pendiente**: el monto del card ($7.763.000 vs SAP $4.992.375,30) es un tema aparte — la CF `syncSapDocTotalsToApp` (cada 30 min) debería poblar `sapDocTotal` con el SO DocTotal ahora que `orderDocEntry` está seteado. Si persiste la discrepancia post-refresh, es otro bug.
 
 ### v1104 (2026-09-30) — Fix parser Sales Plan: soporte headers Excel multi-line
 

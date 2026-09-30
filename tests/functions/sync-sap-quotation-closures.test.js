@@ -40,7 +40,18 @@ function makeFbDb(pedidos) {
         },
         async update(patch) {
           const existing = store.get(id) || {};
-          store.set(id, { ...existing, ...patch });
+          // Soporta dot-notation ("transferidoSAP.orderDocEntry") como
+          // sub-field merge (same behavior que Firestore Admin update()).
+          const merged = { ...existing };
+          for (const [k, v] of Object.entries(patch)) {
+            if (k.includes('.')) {
+              const [top, sub] = k.split('.', 2);
+              merged[top] = { ...(merged[top] || {}), [sub]: v };
+            } else {
+              merged[k] = v;
+            }
+          }
+          store.set(id, merged);
           writes.push({ id, patch });
         },
       };
@@ -50,7 +61,11 @@ function makeFbDb(pedidos) {
 
 // ---- Fake SAP SL fetch ----------------------------------------------------
 
-function makeFetch({ closedQuotations = [], ordersWithBase = [] } = {}) {
+function makeFetch({
+  closedQuotations = [],
+  ordersWithBase = [],
+  numAtCardMapping = {},
+} = {}) {
   return async (url, init) => {
     const method = init?.method || 'GET';
     if (url.endsWith('/Login')) {
@@ -69,6 +84,17 @@ function makeFetch({ closedQuotations = [], ordersWithBase = [] } = {}) {
       return new Response(JSON.stringify({ value: page }), { status: 200 });
     }
     if (url.includes('/Orders?')) {
+      // v1102: filter NumAtCard eq 'pedidoId' — anti-race guard.
+      const decoded = decodeURIComponent(url);
+      const nacMatch = decoded.match(/NumAtCard\s+eq\s+'([^']+)'/);
+      if (nacMatch) {
+        const pedidoId = nacMatch[1];
+        const so = numAtCardMapping[pedidoId];
+        const value = so ? [so] : [];
+        return new Response(JSON.stringify({ value }), { status: 200 });
+      }
+      // Fallback: reverse scan (v1095 legacy — usado por tests de
+      // fetchQuotationsWithDerivedOrder).
       const skipMatch = url.match(/\$skip=(\d+)/);
       const skip = skipMatch ? parseInt(skipMatch[1], 10) : 0;
       const page = ordersWithBase.slice(skip, skip + 20);
@@ -103,13 +129,20 @@ describe('listCandidatePedidos', () => {
     expect(c.map((x) => x.id)).toEqual(['A']);
   });
 
-  it('excluye pedidos ya marcados closedManuallyInSap (idempotencia)', async () => {
+  it('incluye pedidos ya marcados closedManuallyInSap para race-victim recheck (v1102)', async () => {
     const deps = makeDeps({
       A: { closedAt: null, transferidoSAP: { docEntry: 100, closedManuallyInSap: true } },
       B: { closedAt: null, transferidoSAP: { docEntry: 200 } },
     });
     const c = await listCandidatePedidos(deps, 100);
-    expect(c.map((x) => x.id)).toEqual(['B']);
+    // v1102: A entra como candidato con alreadyClosed=true — el handler hará
+    // recheck vía NumAtCard y salvará el pedido si fue race victim de v1095.
+    const ids = c.map((x) => x.id).sort();
+    expect(ids).toEqual(['A', 'B']);
+    const A = c.find((x) => x.id === 'A');
+    expect(A.alreadyClosed).toBe(true);
+    const B = c.find((x) => x.id === 'B');
+    expect(B.alreadyClosed).toBe(false);
   });
 
   it('excluye pedidos con paidStatus=paid o partial', async () => {
@@ -231,16 +264,20 @@ describe('syncSapQuotationClosures — SOLEDAD race regression', () => {
           { DocEntry: 100, DocumentStatus: 'bost_Close', Cancelled: 'tNO' }, // SOLEDAD
           { DocEntry: 200, DocumentStatus: 'bost_Close', Cancelled: 'tNO' }, // CANCELADO
         ],
-        ordersWithBase: [
-          { DocEntry: 500, DocumentLines: [{ BaseType: 23, BaseEntry: 100 }] }, // SO 20056 desde SQ 100
-        ],
+        // v1102: anti-race por NumAtCard — SOLEDAD tiene SO derivada, CANCELADO no.
+        numAtCardMapping: {
+          soledad: { DocEntry: 500, DocNum: 20056 },
+        },
       }
     );
     const result = await syncSapQuotationClosures(deps);
     expect(result.checked).toBe(2);
-    expect(result.closedInApp).toBe(1); // solo CANCELADO cerrado, SOLEDAD skipped
+    expect(result.closedInApp).toBe(1); // solo CANCELADO cerrado, SOLEDAD race-victim salvage
     expect(deps.fbDb._store.get('soledad').closedAt).toBeNull();
     expect(deps.fbDb._store.get('soledad').closedReason).toBeUndefined();
+    // v1102: SOLEDAD ahora se salva poblando orderDocEntry automáticamente.
+    expect(deps.fbDb._store.get('soledad').transferidoSAP['orderDocEntry']).toBe(500);
+    expect(deps.fbDb._store.get('soledad').transferidoSAP['orderDocNum']).toBe(20056);
     expect(deps.fbDb._store.get('cancelada').closedAt).not.toBeNull();
     expect(deps.fbDb._store.get('cancelada').closedReason).toBe('sap_manual_close');
   });
