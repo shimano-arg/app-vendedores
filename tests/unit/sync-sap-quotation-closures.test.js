@@ -18,19 +18,34 @@ function makeFbDb(docs = {}) {
   const calls = { updates: [] };
   const collectionAPI = (_colName) => ({
     where(field, op, val) {
-      if (field !== 'closedAt' || op !== '==' || val !== null) {
-        throw new Error(`unsupported where(${field},${op},${val})`);
+      // v1102: soportamos 2 filtros — where('closedAt','==',null) para pedidos
+      // abiertos (comportamiento original) y where('transferidoSAP.closedManuallyInSap','==',true)
+      // para el one-shot recheck de race victims.
+      if (field === 'closedAt' && op === '==' && val === null) {
+        return {
+          async get() {
+            const arr = [];
+            for (const [id, data] of Object.entries(store)) {
+              if (data.closedAt) continue;
+              arr.push({ id, data: () => data });
+            }
+            return { forEach: (fn) => arr.forEach(fn), size: arr.length };
+          },
+        };
       }
-      return {
-        async get() {
-          const arr = [];
-          for (const [id, data] of Object.entries(store)) {
-            if (data.closedAt) continue;
-            arr.push({ id, data: () => data });
-          }
-          return { forEach: (fn) => arr.forEach(fn), size: arr.length };
-        },
-      };
+      if (field === 'transferidoSAP.closedManuallyInSap' && op === '==' && val === true) {
+        return {
+          async get() {
+            const arr = [];
+            for (const [id, data] of Object.entries(store)) {
+              if (!(data.transferidoSAP && data.transferidoSAP.closedManuallyInSap === true)) continue;
+              arr.push({ id, data: () => data });
+            }
+            return { forEach: (fn) => arr.forEach(fn), size: arr.length };
+          },
+        };
+      }
+      throw new Error(`unsupported where(${field},${op},${val})`);
     },
   });
   const docAPI = (path) => {
@@ -139,13 +154,20 @@ describe('listCandidatePedidos', () => {
     expect(res.map((r) => r.id)).toEqual(['B']);
   });
 
-  it('excluye pedidos ya marcados closedManuallyInSap (idempotencia)', async () => {
+  it('incluye pedidos ya marcados closedManuallyInSap para race-victim recheck (v1102)', async () => {
     const { db } = makeFbDb({
       A: { transferidoSAP: { docEntry: 1, closedManuallyInSap: true } },
       B: { transferidoSAP: { docEntry: 2 } },
     });
     const res = await listCandidatePedidos({ fbDb: db }, 100);
-    expect(res.map((r) => r.id)).toEqual(['B']);
+    // v1102: A entra como candidato con alreadyClosed=true — el handler hará
+    // recheck vía NumAtCard y salvará el pedido si fue race victim de v1095.
+    const ids = res.map((r) => r.id).sort();
+    expect(ids).toEqual(['A', 'B']);
+    const A = res.find((r) => r.id === 'A');
+    expect(A.alreadyClosed).toBe(true);
+    const B = res.find((r) => r.id === 'B');
+    expect(B.alreadyClosed).toBe(false);
   });
 
   it('excluye pedidos con paidStatus partial/paid', async () => {
