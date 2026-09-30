@@ -1872,8 +1872,8 @@ window.openDisparadorManualModal = async function () {
       }
     });
     pending.sort((a, b) => {
-      const ta = (a.createdAt && a.createdAt.toDate) ? a.createdAt.toDate().getTime() : 0;
-      const tb = (b.createdAt && b.createdAt.toDate) ? b.createdAt.toDate().getTime() : 0;
+      const ta = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate().getTime() : 0;
+      const tb = b.createdAt && b.createdAt.toDate ? b.createdAt.toDate().getTime() : 0;
       return tb - ta;
     });
     _renderDisparadorManualBody(pending);
