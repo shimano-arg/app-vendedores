@@ -646,7 +646,10 @@ window.onSalesPlanFileForFamilia = async function (event, familia) {
       rows: parsed.rows,
     };
     await window.fbDb.collection('sales_plan_cache').doc(familia).set(payload);
-    _salesPlanCaches[familia] = payload;
+    // v1107 fix: guardar cache local con Date real (no el SentinelValue) para
+    // que _fmtDateShort no muestre "Invalid Date". El server tiene el ts exacto,
+    // el local muestra el momento del upload (aproximado ~1s de diferencia).
+    _salesPlanCaches[familia] = Object.assign({}, payload, { parsedAt: new Date() });
     setStatus(
       '✓ OK. ' + parsed.rows.length + ' SKUs × ' + parsed.detectedMonths.length + ' meses.',
       '#16a34a'
