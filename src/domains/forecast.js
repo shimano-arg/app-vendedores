@@ -46,7 +46,14 @@ const SALES_PLAN_FAMILIAS = [
   { key: 'fg', label: 'FG (resto)', color: '#f59e0b' },
 ];
 const _salesPlanCaches = { rods: null, reels: null, fg: null }; // last loaded doc
-let _forecastActiveTab = 'sales-plans'; // 'sales-plans' | 'legacy'
+let _forecastActiveTab = 'sales-plans'; // 'sales-plans' | 'stat' | 'legacy'
+
+// v1103+ (Fase 2B): Forecast Estadístico — output publicado por
+// scripts/forecast/publish_to_firestore.py a forecast_output/{sub_slug}
+// + forecast_output_meta/current. 24 subs + 1 meta doc.
+let _forecastStatDocs = null; // [{id, subfamilia, forecast[7], metrics, bestModel, versionId}]
+let _forecastStatMeta = null; // {generatedAt, versionId, resumen: {...}}
+let _forecastStatHistoryCache = null; // { [sub]: [{ds, y}] } cache lazy on-demand
 
 // Whitelist de emails con acceso al modal FORECAST. Replica el patron de
 // "Analisis" (index.html:12625). Solo Mariano; si otro admin lo necesita
@@ -264,9 +271,11 @@ function _buildShellHtml() {
   const tabsBar =
     '<div id="forecast-tabs-bar" style="display:flex;gap:0;background:#1e293b;padding:0 18px;border-bottom:1px solid var(--border-subtle)">' +
     '<button data-tab="sales-plans" onclick="switchForecastTab(\'sales-plans\')" class="forecast-tab" style="padding:10px 16px;background:transparent;color:#fff;border:none;border-bottom:3px solid #0d9488;cursor:pointer;font-weight:700;font-size:12px;letter-spacing:.4px;text-transform:uppercase">Sales Plans</button>' +
-    '<button data-tab="legacy" onclick="switchForecastTab(\'legacy\')" class="forecast-tab" style="padding:10px 16px;background:transparent;color:#94a3b8;border:none;border-bottom:3px solid transparent;cursor:pointer;font-weight:600;font-size:12px;letter-spacing:.4px;text-transform:uppercase">Forecast Legacy (6m)</button>' +
+    '<button data-tab="stat" onclick="switchForecastTab(\'stat\')" class="forecast-tab" style="padding:10px 16px;background:transparent;color:#94a3b8;border:none;border-bottom:3px solid transparent;cursor:pointer;font-weight:600;font-size:12px;letter-spacing:.4px;text-transform:uppercase">Forecast Estadístico</button>' +
+    '<button data-tab="legacy" onclick="switchForecastTab(\'legacy\')" class="forecast-tab" style="padding:10px 16px;background:transparent;color:#94a3b8;border:none;border-bottom:3px solid transparent;cursor:pointer;font-weight:600;font-size:12px;letter-spacing:.4px;text-transform:uppercase">Legacy (6m)</button>' +
     '</div>';
   const tabSalesPlans = '<div id="forecast-tab-sales-plans" style="flex:1;overflow:auto"></div>';
+  const tabStat = '<div id="forecast-tab-stat" style="flex:1;overflow:auto;display:none"></div>';
   const legacyBar =
     '<div style="padding:12px 18px;background:var(--bg-secondary);border-bottom:1px solid var(--border-subtle);display:flex;flex-wrap:wrap;gap:14px;align-items:center">' +
     '<label style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;background:#0d9488;color:#fff;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer">' +
@@ -283,15 +292,17 @@ function _buildShellHtml() {
     legacyBar +
     legacyBody +
     '</div>';
-  return modalOuter + header + tabsBar + tabSalesPlans + tabLegacy + '</div>';
+  return modalOuter + header + tabsBar + tabSalesPlans + tabStat + tabLegacy + '</div>';
 }
 
-// v1098+ Fase 1: switch entre tabs Sales Plans <-> Legacy.
+// v1098+ Fase 1 + v1103+ Fase 2B: switch entre tabs Sales Plans / Stat / Legacy.
 window.switchForecastTab = function (tabId) {
   _forecastActiveTab = tabId;
   const sp = document.getElementById('forecast-tab-sales-plans');
+  const st = document.getElementById('forecast-tab-stat');
   const lg = document.getElementById('forecast-tab-legacy');
   if (sp) sp.style.display = tabId === 'sales-plans' ? 'block' : 'none';
+  if (st) st.style.display = tabId === 'stat' ? 'block' : 'none';
   if (lg) lg.style.display = tabId === 'legacy' ? 'flex' : 'none';
   const btns = document.querySelectorAll('#forecast-tabs-bar .forecast-tab');
   btns.forEach((b) => {
@@ -300,6 +311,20 @@ window.switchForecastTab = function (tabId) {
     b.style.borderBottomColor = active ? '#0d9488' : 'transparent';
     b.style.fontWeight = active ? '700' : '600';
   });
+  // Lazy load del contenido stat on-demand la primera vez
+  if (tabId === 'stat' && !_forecastStatDocs) {
+    _loadForecastOutput()
+      .then(_renderForecastStatTab)
+      .catch((e) => {
+        console.error('[FORECAST stat] load fail', e);
+        const c = document.getElementById('forecast-tab-stat');
+        if (c)
+          c.innerHTML =
+            '<div style="padding:60px 20px;text-align:center;color:#dc2626">Error cargando forecast_output: ' +
+            escapeHtmlSafe(e.message || String(e)) +
+            '</div>';
+      });
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -618,6 +643,437 @@ window.onSalesPlanFileForFamilia = async function (event, familia) {
   } finally {
     if (event && event.target) event.target.value = '';
   }
+};
+
+// ---------------------------------------------------------------------------
+// F2B — Forecast Estadístico: tabla + detalle
+// ---------------------------------------------------------------------------
+
+async function _loadForecastOutput() {
+  if (!window.fbDb) throw new Error('Firestore no inicializado');
+  const [snap, metaDoc] = await Promise.all([
+    window.fbDb.collection('forecast_output').get(),
+    window.fbDb.collection('forecast_output_meta').doc('current').get(),
+  ]);
+  const docs = [];
+  snap.forEach((d) => docs.push(Object.assign({ id: d.id }, d.data())));
+  docs.sort((a, b) => {
+    const wa = (a.metrics && a.metrics.wape) || 999;
+    const wb = (b.metrics && b.metrics.wape) || 999;
+    return wa - wb;
+  });
+  _forecastStatDocs = docs;
+  _forecastStatMeta = metaDoc.exists ? metaDoc.data() : null;
+  return docs;
+}
+
+function _wapeBadgeColor(w) {
+  if (w == null) return '#64748b';
+  if (w < 0.3) return '#16a34a'; // verde - excelente
+  if (w < 0.5) return '#84cc16'; // lima - bueno
+  if (w < 0.7) return '#eab308'; // amarillo - aceptable
+  if (w < 1.0) return '#f97316'; // naranja - pobre
+  return '#dc2626'; // rojo - muy pobre
+}
+
+function _fmtNum(n) {
+  if (n == null || !Number.isFinite(Number(n))) return '—';
+  return Number(n).toLocaleString('es-AR', { maximumFractionDigits: 0 });
+}
+
+function _fmtWape(w) {
+  if (w == null || !Number.isFinite(Number(w))) return '—';
+  return (Number(w) * 100).toFixed(0) + '%';
+}
+
+function _fmtDsShort(iso) {
+  // '2026-10-01' -> 'oct 26'
+  try {
+    const [y, m] = iso.split('-').map(Number);
+    const names = [
+      'ene',
+      'feb',
+      'mar',
+      'abr',
+      'may',
+      'jun',
+      'jul',
+      'ago',
+      'sep',
+      'oct',
+      'nov',
+      'dic',
+    ];
+    return names[m - 1] + ' ' + String(y).slice(-2);
+  } catch {
+    return iso;
+  }
+}
+
+function _renderForecastStatTab() {
+  const cont = document.getElementById('forecast-tab-stat');
+  if (!cont) return;
+  const docs = _forecastStatDocs || [];
+  const meta = _forecastStatMeta || {};
+  const resumen = meta.resumen || {};
+  if (!docs.length) {
+    cont.innerHTML =
+      '<div style="padding:60px 20px;text-align:center;color:var(--text-muted)">' +
+      'No hay forecast_output publicado.<br><br>' +
+      'Correr <code>python scripts/forecast/train_prod.py && python scripts/forecast/publish_to_firestore.py</code>.' +
+      '</div>';
+    return;
+  }
+  // Meses del forecast (ds del primer doc, se asume igual en todos).
+  const monthsIso = (docs[0].forecast || []).map((f) => f.ds);
+  const monthHeaders = monthsIso.map(_fmtDsShort);
+
+  // Metrics chip global
+  const generated = meta.generatedAt
+    ? new Date(meta.generatedAt).toLocaleString('es-AR', {
+        day: '2-digit',
+        month: 'short',
+        year: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '—';
+  const wapeMed =
+    resumen.wape_mediano_best_per_series != null
+      ? _fmtWape(resumen.wape_mediano_best_per_series)
+      : '—';
+  const nSubs = resumen.n_subfamilias || docs.length;
+  const nLt05 =
+    resumen.n_series_wape_lt_0_5 != null ? resumen.n_series_wape_lt_0_5 + '/' + nSubs : '—';
+  const nLt03 =
+    resumen.n_series_wape_lt_0_3 != null ? resumen.n_series_wape_lt_0_3 + '/' + nSubs : '—';
+
+  const banner =
+    '<div style="margin-bottom:14px;padding:12px 14px;background:var(--bg-secondary);border-left:3px solid #0d9488;border-radius:6px;font-size:12px;color:var(--text-secondary);line-height:1.5;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">' +
+    '<div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">WAPE mediano</div><div style="font-size:20px;font-weight:800;color:var(--text-primary)">' +
+    wapeMed +
+    '</div></div>' +
+    '<div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Subfamilias</div><div style="font-size:20px;font-weight:800;color:var(--text-primary)">' +
+    nSubs +
+    '</div></div>' +
+    '<div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">WAPE &lt; 30% (excelente)</div><div style="font-size:20px;font-weight:800;color:#16a34a">' +
+    nLt03 +
+    '</div></div>' +
+    '<div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">WAPE &lt; 50% (bueno)</div><div style="font-size:20px;font-weight:800;color:#84cc16">' +
+    nLt05 +
+    '</div></div>' +
+    '<div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Última corrida</div><div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-top:4px">' +
+    escapeHtmlSafe(generated) +
+    '</div></div>' +
+    '</div>';
+
+  // Tabla rows
+  const rowsHtml = docs
+    .map((d) => {
+      const wape = d.metrics && d.metrics.wape != null ? d.metrics.wape : null;
+      const bestModel = d.bestModel || '—';
+      const forecastMap = {};
+      (d.forecast || []).forEach((f) => {
+        forecastMap[f.ds] = f.y_hat;
+      });
+      const monthCells = monthsIso
+        .map(
+          (ds) =>
+            '<td style="padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:var(--text-primary)">' +
+            _fmtNum(forecastMap[ds]) +
+            '</td>'
+        )
+        .join('');
+      const total7 = (d.forecast || []).reduce((s, f) => s + (Number(f.y_hat) || 0), 0);
+      return (
+        '<tr onclick="openForecastStatDetail(\'' +
+        escapeHtmlSafe(d.id) +
+        '\')" style="cursor:pointer;border-bottom:1px solid var(--border-subtle)" onmouseover="this.style.background=\'var(--bg-secondary)\'" onmouseout="this.style.background=\'transparent\'">' +
+        '<td style="padding:8px 10px;font-weight:700;color:var(--text-primary)">' +
+        escapeHtmlSafe(d.subfamilia || d.id) +
+        '</td>' +
+        '<td style="padding:8px 10px;font-size:11px;color:var(--text-secondary)">' +
+        escapeHtmlSafe(bestModel) +
+        '</td>' +
+        '<td style="padding:8px 10px;text-align:center"><span style="display:inline-block;padding:3px 8px;border-radius:12px;background:' +
+        _wapeBadgeColor(wape) +
+        ';color:#fff;font-size:11px;font-weight:700">' +
+        _fmtWape(wape) +
+        '</span></td>' +
+        monthCells +
+        '<td style="padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:#0d9488;background:var(--bg-secondary)">' +
+        _fmtNum(total7) +
+        '</td>' +
+        '</tr>'
+      );
+    })
+    .join('');
+
+  const monthHeadersHtml = monthHeaders
+    .map(
+      (m) =>
+        '<th style="padding:8px 10px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:#94a3b8">' +
+        escapeHtmlSafe(m) +
+        '</th>'
+    )
+    .join('');
+
+  const table =
+    '<div style="overflow:auto;border:1px solid var(--border-subtle);border-radius:8px">' +
+    '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+    '<thead style="background:#0f172a;color:#fff"><tr>' +
+    '<th style="padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px">Subfamilia</th>' +
+    '<th style="padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px">Modelo</th>' +
+    '<th style="padding:8px 10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:.4px">WAPE</th>' +
+    monthHeadersHtml +
+    '<th style="padding:8px 10px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.4px;background:#134e4a">Total 7m</th>' +
+    '</tr></thead>' +
+    '<tbody>' +
+    rowsHtml +
+    '</tbody></table></div>';
+
+  const footer =
+    '<div style="margin-top:12px;font-size:11px;color:var(--text-muted);line-height:1.5">' +
+    '<b>Cómo leer</b>: WAPE (Weighted Absolute Percentage Error) mide el error del modelo relativo al total real: &lt;30% excelente, 30-50% bueno, 50-70% aceptable, &gt;70% pobre. Click en fila para detalle + gráfico. ' +
+    'Se elige el modelo con menor WAPE por serie tras backtest rolling-origin (h=2, ventanas=3).' +
+    '</div>';
+
+  cont.innerHTML = '<div style="padding:18px">' + banner + table + footer + '</div>';
+}
+
+// Cache historia agregada por subfamilia (para gráfico detalle).
+async function _loadForecastStatHistory() {
+  if (_forecastStatHistoryCache) return _forecastStatHistoryCache;
+  // La historia solo está en BQ (~10 años Baraldo + 12 meses Shimano). Como
+  // el pipeline la escribe a CSV local, acá no la podemos leer. Alternativa:
+  // usar sku_ventas_snapshot que tiene ventas mensuales pero solo grupo PESCA.
+  // En F2B.2 solo mostramos forecast+IC (sin overlay historia por ahora).
+  _forecastStatHistoryCache = {};
+  return _forecastStatHistoryCache;
+}
+
+function _buildForecastChartSvg(doc) {
+  const fc = doc.forecast || [];
+  if (!fc.length)
+    return '<div style="padding:30px;text-align:center;color:var(--text-muted)">Sin datos de forecast</div>';
+  // Dimensiones
+  const W = 640,
+    H = 260;
+  const padL = 50,
+    padR = 20,
+    padT = 20,
+    padB = 40;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+
+  // Y range: max(hi80) * 1.1
+  const maxY = Math.max(1, ...fc.map((f) => Number(f.hi80) || Number(f.y_hat) || 0));
+  const minY = 0;
+  const scaleX = (i) => padL + (innerW * i) / Math.max(1, fc.length - 1);
+  const scaleY = (v) => padT + innerH - (innerH * (v - minY)) / (maxY - minY);
+
+  // Grid + eje Y
+  const yTicks = [0, 0.25, 0.5, 0.75, 1]
+    .map((r) => {
+      const val = minY + r * (maxY - minY);
+      const yy = scaleY(val);
+      return (
+        '<line x1="' +
+        padL +
+        '" y1="' +
+        yy +
+        '" x2="' +
+        (W - padR) +
+        '" y2="' +
+        yy +
+        '" stroke="#e2e8f0" stroke-width="1"/>' +
+        '<text x="' +
+        (padL - 6) +
+        '" y="' +
+        (yy + 4) +
+        '" text-anchor="end" font-size="10" fill="#64748b">' +
+        _fmtNum(val) +
+        '</text>'
+      );
+    })
+    .join('');
+
+  // Eje X (meses)
+  const xLabels = fc
+    .map((f, i) => {
+      const xx = scaleX(i);
+      return (
+        '<text x="' +
+        xx +
+        '" y="' +
+        (H - padB + 15) +
+        '" text-anchor="middle" font-size="10" fill="#64748b">' +
+        _fmtDsShort(f.ds) +
+        '</text>'
+      );
+    })
+    .join('');
+
+  // Intervalo confianza (band)
+  const bandPoints =
+    fc.map((f, i) => scaleX(i) + ',' + scaleY(Number(f.hi80) || 0)).join(' ') +
+    ' ' +
+    fc
+      .slice()
+      .reverse()
+      .map((f, i) => scaleX(fc.length - 1 - i) + ',' + scaleY(Number(f.lo80) || 0))
+      .join(' ');
+  const band = '<polygon points="' + bandPoints + '" fill="#0d948833" stroke="none"/>';
+
+  // Line forecast + puntos
+  const linePoints = fc.map((f, i) => scaleX(i) + ',' + scaleY(Number(f.y_hat) || 0)).join(' ');
+  const line =
+    '<polyline points="' +
+    linePoints +
+    '" fill="none" stroke="#0d9488" stroke-width="2.5" stroke-linejoin="round"/>';
+  const points = fc
+    .map(
+      (f, i) =>
+        '<circle cx="' +
+        scaleX(i) +
+        '" cy="' +
+        scaleY(Number(f.y_hat) || 0) +
+        '" r="4" fill="#0d9488" stroke="#fff" stroke-width="2"/>'
+    )
+    .join('');
+  // Labels de valor
+  const valueLabels = fc
+    .map((f, i) => {
+      const xx = scaleX(i);
+      const yy = scaleY(Number(f.y_hat) || 0);
+      return (
+        '<text x="' +
+        xx +
+        '" y="' +
+        (yy - 8) +
+        '" text-anchor="middle" font-size="10" font-weight="700" fill="#0f766e">' +
+        _fmtNum(f.y_hat) +
+        '</text>'
+      );
+    })
+    .join('');
+
+  const svg =
+    '<svg viewBox="0 0 ' +
+    W +
+    ' ' +
+    H +
+    '" style="width:100%;max-width:800px;height:auto">' +
+    '<rect x="0" y="0" width="' +
+    W +
+    '" height="' +
+    H +
+    '" fill="#fff"/>' +
+    yTicks +
+    xLabels +
+    band +
+    line +
+    points +
+    valueLabels +
+    '</svg>';
+  return svg;
+}
+
+window.openForecastStatDetail = function (subId) {
+  if (!_forecastStatDocs) return;
+  const doc = _forecastStatDocs.find((d) => d.id === subId);
+  if (!doc) {
+    alert('No se encontró detalle de ' + subId);
+    return;
+  }
+  const existing = document.getElementById('forecast-stat-detail');
+  if (existing) existing.remove();
+
+  const el = document.createElement('div');
+  el.id = 'forecast-stat-detail';
+  el.style.cssText =
+    'position:fixed;inset:0;background:rgba(15,23,42,.65);z-index:2100;display:flex;align-items:center;justify-content:center;padding:2vh';
+  el.onclick = (ev) => {
+    if (ev.target === el) el.remove();
+  };
+
+  const wape = doc.metrics && doc.metrics.wape;
+  const bias = doc.metrics && doc.metrics.bias;
+  const mae = doc.metrics && doc.metrics.mae;
+  const rmse = doc.metrics && doc.metrics.rmse;
+  const bestModel = doc.bestModel || '—';
+  const versionId = doc.versionId || '—';
+  const svgHtml = _buildForecastChartSvg(doc);
+
+  const metricsHtml =
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:14px 0">' +
+    '<div style="padding:10px;background:var(--bg-secondary);border-radius:6px"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Modelo</div><div style="font-weight:700">' +
+    escapeHtmlSafe(bestModel) +
+    '</div></div>' +
+    '<div style="padding:10px;background:var(--bg-secondary);border-radius:6px"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">WAPE</div><div style="font-weight:700;color:' +
+    _wapeBadgeColor(wape) +
+    '">' +
+    _fmtWape(wape) +
+    '</div></div>' +
+    '<div style="padding:10px;background:var(--bg-secondary);border-radius:6px"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Bias</div><div style="font-weight:700">' +
+    (bias != null ? (bias * 100).toFixed(0) + '%' : '—') +
+    '</div></div>' +
+    '<div style="padding:10px;background:var(--bg-secondary);border-radius:6px"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">MAE</div><div style="font-weight:700">' +
+    _fmtNum(mae) +
+    '</div></div>' +
+    '<div style="padding:10px;background:var(--bg-secondary);border-radius:6px"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">RMSE</div><div style="font-weight:700">' +
+    _fmtNum(rmse) +
+    '</div></div>' +
+    '</div>';
+
+  const tableHtml =
+    '<table style="width:100%;font-size:12px;border-collapse:collapse;margin-top:10px">' +
+    '<thead style="background:#0f172a;color:#fff"><tr>' +
+    '<th style="padding:6px 10px;text-align:left">Mes</th>' +
+    '<th style="padding:6px 10px;text-align:right">Forecast</th>' +
+    '<th style="padding:6px 10px;text-align:right">IC 80% bajo</th>' +
+    '<th style="padding:6px 10px;text-align:right">IC 80% alto</th>' +
+    '</tr></thead><tbody>' +
+    (doc.forecast || [])
+      .map(
+        (f) =>
+          '<tr style="border-bottom:1px solid var(--border-subtle)"><td style="padding:6px 10px">' +
+          escapeHtmlSafe(_fmtDsShort(f.ds)) +
+          '</td>' +
+          '<td style="padding:6px 10px;text-align:right;font-weight:700">' +
+          _fmtNum(f.y_hat) +
+          '</td>' +
+          '<td style="padding:6px 10px;text-align:right;color:var(--text-muted)">' +
+          _fmtNum(f.lo80) +
+          '</td>' +
+          '<td style="padding:6px 10px;text-align:right;color:var(--text-muted)">' +
+          _fmtNum(f.hi80) +
+          '</td></tr>'
+      )
+      .join('') +
+    '</tbody></table>';
+
+  const content =
+    '<div style="background:var(--bg-elevated);border-radius:12px;padding:24px;max-width:820px;width:100%;max-height:96vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.4)">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+    '<div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Subfamilia</div><div style="font-size:22px;font-weight:800">' +
+    escapeHtmlSafe(doc.subfamilia || doc.id) +
+    '</div></div>' +
+    '<button onclick="document.getElementById(\'forecast-stat-detail\').remove()" style="background:transparent;border:1px solid var(--border-subtle);border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:700">Cerrar</button>' +
+    '</div>' +
+    metricsHtml +
+    '<div style="background:#fff;padding:8px;border-radius:8px;margin-top:10px;border:1px solid var(--border-subtle)">' +
+    svgHtml +
+    '</div>' +
+    tableHtml +
+    '<div style="margin-top:14px;font-size:11px;color:var(--text-muted)">Version: <code>' +
+    escapeHtmlSafe(versionId) +
+    '</code> · Approach: ' +
+    escapeHtmlSafe((doc.config || {}).approach || '—') +
+    '</div>' +
+    '</div>';
+  el.innerHTML = content;
+  document.body.appendChild(el);
 };
 
 window.openForecastModal = async function () {

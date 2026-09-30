@@ -93,6 +93,8 @@ const LAZY_CHUNKS = {
     // v1098+ Fase 1 Sales Plans (Rods/Reels/FG) — 3 slots upload.
     'switchForecastTab',
     'onSalesPlanFileForFamilia',
+    // v1103+ Fase 2B Forecast Estadístico — tabla + modal detalle.
+    'openForecastStatDetail',
   ],
   // v810 (2026-09-04) Loop iter 7: PANEL DE CONTROL Mariano-only (v611+).
   // 939 LOC de metricas/health/KPIs que solo abre 1 usuario, on-demand.

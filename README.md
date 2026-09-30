@@ -4673,7 +4673,34 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1102
+## 41) Changelog v300 → v1103
+
+### v1103 (2026-09-30) — Forecast Estadístico UI: tab + tabla + modal detalle (F2B)
+
+Completa el ciclo end-to-end del pipeline forecast: los 24 docs `forecast_output/*` publicados en v1102 ahora se ven en el CRM.
+
+**Cambios**:
+
+1. **`src/domains/forecast.js`** — 3 tabs en el modal FORECAST:
+   - `Sales Plans` (Fase 1, v1098)
+   - **`Forecast Estadístico`** (nueva, v1103)
+   - `Legacy (6m)` (renombrado el "Forecast Legacy (6m)")
+2. **Tab Forecast Estadístico** — carga lazy on-first-click desde Firestore:
+   - Query `forecast_output/*` (24 docs, ordenados por WAPE ascendente)
+   - Query `forecast_output_meta/current` (resumen global)
+3. **Banner de métricas globales**: WAPE mediano, N subs, N series con WAPE<0.3 (excelente), N con WAPE<0.5 (bueno), última corrida.
+4. **Tabla**: subfamilia | best model | WAPE badge (color por rango: verde <30%, lima <50%, amarillo <70%, naranja <100%, rojo ≥100%) | forecast 7 meses × mes | total 7m acumulado.
+5. **Modal detalle** al click en fila (`openForecastStatDetail`): SVG puro con curva forecast + banda IC80%, tabla de valores mes a mes, chips con MAE/RMSE/Bias/Modelo, versionId + approach.
+6. **Chart**: SVG puro (sin dep externa), 640×260, con grid + eje Y + eje X labels + banda IC80% (color transparencia).
+
+**Modificados**:
+- `build.js` LAZY_CHUNKS forecast: agrega `openForecastStatDetail`.
+- `src/main.js` installChunkStubs forecast: idem.
+- Bump `APP_VERSION` v1101 → v1103 + `CACHE_VERSION` v1101 → v1103.
+
+**No hay backend nuevo** — los 24 docs Firestore ya existen desde v1102. Este PR solo consume.
+
+**Uso**: abrí el modal FORECAST → tab "Forecast Estadístico". Click en cualquier fila para ver detalle + gráfico.
 
 ### v1102 (2026-09-30) — Forecast pipeline productivo (F2A.3 + F2A.4, offline)
 

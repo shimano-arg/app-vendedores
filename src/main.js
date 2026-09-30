@@ -139,6 +139,7 @@ installChunkStubs('forecast', [
   'exportForecastExcel',
   'switchForecastTab',
   'onSalesPlanFileForFamilia',
+  'openForecastStatDetail',
 ]);
 installChunkStubs('panel-control', ['openPanelControl', 'closePanelControl', 'renderPanelControl']);
 installChunkStubs('seguimiento', [
