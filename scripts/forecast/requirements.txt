@@ -1,0 +1,25 @@
+# Deps para el pipeline de forecasting (scripts/forecast/*.py).
+# Instalar con: pip install -r scripts/forecast/requirements.txt
+#
+# Se separa del requirements-forecast del build_exogenas para permitir
+# instalar solo lo necesario según qué script corras.
+
+# BigQuery + Firestore auth
+google-cloud-bigquery>=3.11.4
+google-auth>=2.23.0
+db-dtypes>=1.1.1
+
+# Data wrangling
+pandas>=2.0.0
+numpy>=1.24.0
+openpyxl>=3.1.0
+
+# Forecast core (F2A.1 y siguientes)
+statsforecast>=1.7.0
+
+# F2A.2 hierarchical (opcional hasta que se use)
+# hierarchicalforecast>=0.4.0
+
+# Fetch de exógenas (build_exogenas.py de Cowork)
+requests>=2.31.0
+pypdf>=3.17.0
