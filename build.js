@@ -88,9 +88,7 @@ const LAZY_CHUNKS = {
   forecast: [
     'openForecastModal',
     'closeForecastModal',
-    'onForecastSalesPlanFile',
-    'exportForecastExcel',
-    // v1098+ Fase 1 Sales Plans (Rods/Reels/FG) — 3 slots upload.
+    // v1098+ Fase 1 Sales Plans (Rods/Reels) — slots upload.
     'switchForecastTab',
     'onSalesPlanFileForFamilia',
     // v1103+ Fase 2B Forecast Estadístico — tabla + modal detalle.
