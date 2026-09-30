@@ -57,6 +57,18 @@ let _forecastStatDocs = null; // [{id, subfamilia, forecast[7], metrics, bestMod
 let _forecastStatMeta = null; // {generatedAt, versionId, resumen: {...}}
 let _forecastStatHistoryCache = null; // { [sub]: [{ds, y}] } cache lazy on-demand
 
+// v1109+ (Fase 3A): Tabla Recomendación de Compra — combina sales plans +
+// stock_snapshot + sku_ventas_snapshot para computar recomendado por SKU.
+let _recoStockSnapshot = null; // {warehouseBreakdown: {sku:{'11':n,'12':n,...}}, backorderBySku: {sku:n}}
+let _recoVentasSnapshot = null; // { [SKU upper]: {meses: {'YYYY-MM': {qty,ars}}} }
+let _recoFilterMinRec = true; // "solo mostrar SKUs con recomendado > 0"
+let _recoFilterFamilia = 'all'; // 'all' | 'rods' | 'reels'
+let _recoSearchText = '';
+
+const RECO_HORIZON_MONTHS = 7;
+const RECO_VENTA_PROMEDIO_WINDOW = 3; // meses hacia atrás para promedio venta
+const RECO_DEFAULT_MULTIPLIER = 1.0;
+
 // Whitelist de emails con acceso al modal FORECAST. Replica el patron de
 // "Analisis" (index.html:12625). Solo Mariano; si otro admin lo necesita
 // se agrega aca explicito.
@@ -561,14 +573,18 @@ function _renderSalesPlansTab() {
   const slots = SALES_PLAN_FAMILIAS.map(_buildSalesPlanSlotHtml).join('');
   const intro =
     '<div style="margin-bottom:16px;padding:12px 14px;background:var(--bg-secondary);border-left:3px solid #0d9488;border-radius:6px;font-size:12px;color:var(--text-secondary);line-height:1.5">' +
-    '<b style="color:var(--text-primary)">Fase 1</b> — Cargá los 3 Sales Plans mensuales (Rods / Reels / FG). Se parsea la hoja <b>SAR</b>: SKU, MOQ 12 months, y una columna por mes. ' +
-    'El Excel original queda snapshotado en Storage y el parseo queda en Firestore para el cálculo (próxima fase).' +
+    '<b style="color:var(--text-primary)">Fase 1</b> — Cargá los Sales Plans mensuales (Rods / Reels). Se parsea la hoja <b>SAR</b>: SKU, MOQ 12 months, y una columna por mes. ' +
+    'El Excel original queda snapshotado en Storage y el parseo queda en Firestore para el cálculo debajo.' +
     '</div>';
   const grid =
-    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:24px">' +
     slots +
     '</div>';
-  cont.innerHTML = '<div style="padding:18px">' + intro + grid + '</div>';
+  // v1109: contenedor para tabla Recomendación de Compra. Se rellena on-demand
+  // via _renderRecoSection() (lazy load de stock_snapshot + sku_ventas_snapshot).
+  const recoSection = '<div id="reco-section-container"></div>';
+  cont.innerHTML = '<div style="padding:18px">' + intro + grid + recoSection + '</div>';
+  _renderRecoSection();
 }
 
 window.onSalesPlanFileForFamilia = async function (event, familia) {
@@ -1273,4 +1289,430 @@ window.reloadForecastSnapshot = async function () {
     _forecastRows = _computeForecastRows(_forecastSnapshot, _forecastSalesPlan, hoy);
     _renderTable(_forecastRows);
   }
+};
+
+// ---------------------------------------------------------------------------
+// F3A — Tabla Recomendación de Compra (tab Sales Plans)
+// ---------------------------------------------------------------------------
+
+async function _loadRecoData() {
+  if (!window.fbDb) throw new Error('Firestore no inicializado');
+  const promises = [];
+  if (!_recoStockSnapshot) {
+    promises.push(
+      window.fbDb
+        .collection('app_config')
+        .doc('stock_snapshot')
+        .get()
+        .then((d) => {
+          const data = d.exists ? d.data() : {};
+          let wh = {};
+          let bo = {};
+          try {
+            wh = data.warehouseBreakdown ? JSON.parse(data.warehouseBreakdown) : {};
+          } catch {
+            wh = {};
+          }
+          try {
+            bo = data.backorderBySku ? JSON.parse(data.backorderBySku) : {};
+          } catch {
+            bo = {};
+          }
+          _recoStockSnapshot = { warehouseBreakdown: wh, backorderBySku: bo };
+        })
+    );
+  }
+  if (!_recoVentasSnapshot) {
+    promises.push(
+      window.fbDb
+        .collection('sku_ventas_snapshot')
+        .get()
+        .then((snap) => {
+          const map = {};
+          snap.forEach((doc) => {
+            const d = doc.data();
+            if (!d || !d.sku) return;
+            map[String(d.sku).trim().toUpperCase()] = { meses: d.meses || {} };
+          });
+          _recoVentasSnapshot = map;
+        })
+    );
+  }
+  await Promise.all(promises);
+}
+
+function _computeVentaMensualPromedio(skuUpper) {
+  // Promedio de los últimos RECO_VENTA_PROMEDIO_WINDOW meses cerrados
+  // (excluye el mes actual parcial).
+  const rec = _recoVentasSnapshot && _recoVentasSnapshot[skuUpper];
+  if (!rec || !rec.meses) return 0;
+  const hoy = new Date();
+  const monthsBack = [];
+  for (let i = 1; i <= RECO_VENTA_PROMEDIO_WINDOW; i++) {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
+    monthsBack.push(String(d.getFullYear()) + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+  }
+  let sum = 0;
+  let n = 0;
+  monthsBack.forEach((k) => {
+    const m = rec.meses[k];
+    if (m && Number.isFinite(Number(m.qty))) {
+      sum += Number(m.qty);
+      n++;
+    }
+  });
+  return n > 0 ? sum / n : 0;
+}
+
+function _computeSalesPlanFuturo(row) {
+  // Suma los meses de row.months desde el mes actual (inclusive) hasta el
+  // último mes del sales plan. Los meses son 'YYYY-MM'.
+  if (!row || !row.months) return 0;
+  const hoy = new Date();
+  const currentKey = String(hoy.getFullYear()) + '-' + String(hoy.getMonth() + 1).padStart(2, '0');
+  let sum = 0;
+  Object.keys(row.months).forEach((k) => {
+    if (k >= currentKey) sum += Number(row.months[k] || 0);
+  });
+  return sum;
+}
+
+function _computeRecommendations() {
+  // Combina Rods + Reels sales plans + stock + backorder + ventas promedio.
+  // Retorna array de rows con todos los campos + recomendado.
+  const rows = [];
+  const familias = ['rods', 'reels'];
+  for (const fam of familias) {
+    const cache = _salesPlanCaches[fam];
+    if (!cache || !cache.rows) continue;
+    for (const spRow of cache.rows) {
+      const sku = String(spRow.sku || '').trim();
+      const skuUpper = sku.toUpperCase();
+      const stockWh =
+        (_recoStockSnapshot &&
+          _recoStockSnapshot.warehouseBreakdown &&
+          _recoStockSnapshot.warehouseBreakdown[sku]) ||
+        {};
+      const stockLibre = Number(stockWh['11'] || 0);
+      const enTransito = Number(stockWh['12'] || 0);
+      const backorder = Number(
+        (_recoStockSnapshot &&
+          _recoStockSnapshot.backorderBySku &&
+          _recoStockSnapshot.backorderBySku[sku]) ||
+          0
+      );
+      const ventaMensual = _computeVentaMensualPromedio(skuUpper);
+      const salesPlanFut = _computeSalesPlanFuturo(spRow);
+      const moq = Number(spRow.moq || 0);
+      const multiplier = RECO_DEFAULT_MULTIPLIER; // v1109: fijo 1.0; F3B lo hace editable por subfamilia
+      const demandaEsperada = ventaMensual * multiplier * RECO_HORIZON_MONTHS;
+      const balance = stockLibre + enTransito + salesPlanFut - backorder - demandaEsperada;
+      let recomendado = 0;
+      if (balance < 0) {
+        const deficit = -balance;
+        recomendado = moq > 0 ? Math.max(moq, Math.ceil(deficit / moq) * moq) : Math.ceil(deficit);
+      }
+      rows.push({
+        familia: fam,
+        sku,
+        description: spRow.description || '',
+        moq,
+        stockLibre,
+        enTransito,
+        backorder,
+        ventaMensual: Math.round(ventaMensual * 10) / 10,
+        salesPlanFut,
+        multiplier,
+        demandaEsperada: Math.round(demandaEsperada * 10) / 10,
+        balance: Math.round(balance * 10) / 10,
+        recomendado,
+      });
+    }
+  }
+  // Ordenar por recomendado descendente
+  rows.sort((a, b) => b.recomendado - a.recomendado);
+  return rows;
+}
+
+function _fmtNumSigned(n) {
+  if (n == null || !Number.isFinite(Number(n))) return '—';
+  const v = Number(n);
+  const abs = Math.abs(v).toLocaleString('es-AR', { maximumFractionDigits: 0 });
+  return (v < 0 ? '−' : '') + abs;
+}
+
+function _fmtInt(n) {
+  if (n == null || !Number.isFinite(Number(n))) return '—';
+  return Math.round(Number(n)).toLocaleString('es-AR');
+}
+
+function _renderRecoSection() {
+  const cont = document.getElementById('reco-section-container');
+  if (!cont) return;
+  try {
+    _renderRecoSectionImpl(cont);
+  } catch (e) {
+    console.error('[FORECAST reco] render fail', e);
+    cont.innerHTML =
+      '<div style="padding:20px;color:#dc2626">' +
+      '<div style="font-weight:700;margin-bottom:8px">Error renderizando tabla recomendación</div>' +
+      '<pre style="font-size:11px;background:#fef2f2;padding:10px;border-radius:6px;overflow:auto;white-space:pre-wrap">' +
+      escapeHtmlSafe(e.stack || e.message || String(e)) +
+      '</pre></div>';
+  }
+}
+
+function _renderRecoSectionImpl(cont) {
+  const anyLoaded = !!(_salesPlanCaches.rods || _salesPlanCaches.reels);
+  if (!anyLoaded) {
+    cont.innerHTML = '';
+    return;
+  }
+  if (!_recoStockSnapshot || !_recoVentasSnapshot) {
+    cont.innerHTML =
+      '<div style="padding:40px 18px;text-align:center;color:var(--text-muted)">' +
+      '<div style="display:inline-block;width:24px;height:24px;border:3px solid #0d9488;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:10px"></div>' +
+      '<div>Cargando stock + ventas históricas...</div>' +
+      '<style>@keyframes spin{to{transform:rotate(360deg)}}</style></div>';
+    _loadRecoData()
+      .then(_renderRecoSection)
+      .catch((e) => {
+        console.error('[FORECAST reco] load fail', e);
+        cont.innerHTML =
+          '<div style="padding:20px;color:#dc2626">Error cargando datos: ' +
+          escapeHtmlSafe(e.message || String(e)) +
+          '</div>';
+      });
+    return;
+  }
+  const allRows = _computeRecommendations();
+  const searchLc = _recoSearchText.trim().toLowerCase();
+  const rows = allRows.filter((r) => {
+    if (_recoFilterFamilia !== 'all' && r.familia !== _recoFilterFamilia) return false;
+    if (_recoFilterMinRec && r.recomendado <= 0) return false;
+    if (searchLc) {
+      const hay =
+        r.sku.toLowerCase().includes(searchLc) || r.description.toLowerCase().includes(searchLc);
+      if (!hay) return false;
+    }
+    return true;
+  });
+  const totalReco = allRows.reduce((s, r) => s + r.recomendado, 0);
+  const totalConReco = allRows.filter((r) => r.recomendado > 0).length;
+
+  const header =
+    '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">' +
+    '<div style="flex:1;min-width:280px"><div style="font-size:18px;font-weight:800;color:var(--text-primary)">Recomendación de Compra</div>' +
+    '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">Balance = Stock + Tránsito + Plan − Backorder − (Venta mens. × ' +
+    RECO_HORIZON_MONTHS +
+    'm)</div></div>' +
+    '<div style="padding:6px 12px;background:#0d9488;color:#fff;border-radius:6px;font-size:12px;font-weight:700">' +
+    _fmtInt(totalConReco) +
+    ' SKUs con reco</div>' +
+    '<div style="padding:6px 12px;background:#134e4a;color:#fff;border-radius:6px;font-size:12px;font-weight:700">Σ ' +
+    _fmtInt(totalReco) +
+    ' unidades</div>' +
+    '</div>';
+
+  const filters =
+    '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;padding:10px;background:var(--bg-secondary);border-radius:6px">' +
+    '<input type="text" id="reco-search" placeholder="Buscar SKU o descripcion..." value="' +
+    escapeHtmlSafe(_recoSearchText) +
+    '" oninput="onRecoSearchChange(event)" style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--border-subtle);border-radius:4px;font-size:12px;background:var(--bg-elevated);color:var(--text-primary)"/>' +
+    '<select onchange="onRecoFamiliaChange(event)" style="padding:6px 10px;border:1px solid var(--border-subtle);border-radius:4px;font-size:12px;background:var(--bg-elevated);color:var(--text-primary)">' +
+    '<option value="all"' +
+    (_recoFilterFamilia === 'all' ? ' selected' : '') +
+    '>Todas las familias</option>' +
+    '<option value="rods"' +
+    (_recoFilterFamilia === 'rods' ? ' selected' : '') +
+    '>Solo Rods (Cañas)</option>' +
+    '<option value="reels"' +
+    (_recoFilterFamilia === 'reels' ? ' selected' : '') +
+    '>Solo Reels</option>' +
+    '</select>' +
+    '<label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);cursor:pointer">' +
+    '<input type="checkbox"' +
+    (_recoFilterMinRec ? ' checked' : '') +
+    ' onchange="onRecoFilterMinChange(event)"/>' +
+    'Solo con recomendado &gt; 0</label>' +
+    '<button onclick="exportRecoExcel()" style="padding:6px 12px;background:#16a34a;color:#fff;border:none;border-radius:4px;font-size:12px;font-weight:700;cursor:pointer">⬇ Excel</button>' +
+    '</div>';
+
+  const rowsHtml = rows
+    .map((r) => {
+      const balColor = r.balance < 0 ? '#dc2626' : r.balance < 50 ? '#f59e0b' : '#16a34a';
+      const recColor = r.recomendado > 0 ? '#dc2626' : '#94a3b8';
+      return (
+        '<tr style="border-bottom:1px solid var(--border-subtle)">' +
+        '<td style="padding:6px 8px"><span style="display:inline-block;padding:2px 6px;border-radius:10px;background:' +
+        (r.familia === 'rods' ? '#0ea5e9' : '#8b5cf6') +
+        ';color:#fff;font-size:10px;font-weight:700">' +
+        (r.familia === 'rods' ? 'ROD' : 'REEL') +
+        '</span></td>' +
+        '<td style="padding:6px 8px;font-family:monospace;font-size:11px;color:var(--text-primary);font-weight:700">' +
+        escapeHtmlSafe(r.sku) +
+        '</td>' +
+        '<td style="padding:6px 8px;font-size:11px;color:var(--text-secondary);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' +
+        escapeHtmlSafe(r.description) +
+        '">' +
+        escapeHtmlSafe(r.description) +
+        '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-primary)">' +
+        _fmtInt(r.stockLibre) +
+        '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-muted)">' +
+        _fmtInt(r.enTransito) +
+        '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:#dc2626">' +
+        _fmtInt(r.backorder) +
+        '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary)">' +
+        _fmtInt(r.ventaMensual) +
+        '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary)">' +
+        _fmtInt(r.demandaEsperada) +
+        '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-primary);font-weight:600">' +
+        _fmtInt(r.salesPlanFut) +
+        '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:' +
+        balColor +
+        '">' +
+        _fmtNumSigned(r.balance) +
+        '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-muted);font-size:11px">' +
+        _fmtInt(r.moq) +
+        '</td>' +
+        '<td style="padding:6px 8px;text-align:right"><span style="display:inline-block;padding:4px 10px;border-radius:12px;background:' +
+        recColor +
+        ';color:#fff;font-size:12px;font-weight:800;min-width:50px">' +
+        _fmtInt(r.recomendado) +
+        '</span></td>' +
+        '</tr>'
+      );
+    })
+    .join('');
+
+  const table =
+    '<div style="overflow:auto;max-height:60vh;border:1px solid var(--border-subtle);border-radius:8px">' +
+    '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+    '<thead style="background:#0f172a;color:#fff;position:sticky;top:0;z-index:1"><tr>' +
+    '<th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Fam</th>' +
+    '<th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">SKU</th>' +
+    '<th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Descripción</th>' +
+    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase" title="Whs 11 disponible venta">Stock</th>' +
+    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase" title="Whs 12">Tránsito</th>' +
+    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase">Backorder</th>' +
+    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase" title="Promedio últimos 3 meses">Vta/mes</th>' +
+    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase" title="Vta/mes × 7 meses">Demanda esp.</th>' +
+    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase" title="Suma columnas Sales Plan desde mes actual">Plan futuro</th>' +
+    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase">Balance</th>' +
+    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase">MOQ</th>' +
+    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase;background:#134e4a">Recomendado</th>' +
+    '</tr></thead><tbody>' +
+    (rows.length
+      ? rowsHtml
+      : '<tr><td colspan="12" style="padding:40px;text-align:center;color:var(--text-muted)">Sin resultados con los filtros actuales</td></tr>') +
+    '</tbody></table></div>';
+
+  const footer =
+    '<div style="margin-top:8px;font-size:10px;color:var(--text-muted)">' +
+    'Mostrando ' +
+    _fmtInt(rows.length) +
+    ' de ' +
+    _fmtInt(allRows.length) +
+    ' SKUs · ' +
+    'Balance = Stock + Tránsito + Plan − Backorder − Demanda. Rojo = quiebre esperado. Recomendado se redondea al múltiplo de MOQ superior.' +
+    '</div>';
+
+  cont.innerHTML =
+    '<div style="padding:18px 18px 30px">' + header + filters + table + footer + '</div>';
+}
+
+window.onRecoSearchChange = function (ev) {
+  _recoSearchText = ev.target.value || '';
+  _renderRecoSection();
+  // Restaurar focus + caret al input
+  setTimeout(() => {
+    const inp = document.getElementById('reco-search');
+    if (inp) {
+      inp.focus();
+      inp.setSelectionRange(inp.value.length, inp.value.length);
+    }
+  }, 0);
+};
+
+window.onRecoFamiliaChange = function (ev) {
+  _recoFilterFamilia = ev.target.value || 'all';
+  _renderRecoSection();
+};
+
+window.onRecoFilterMinChange = function (ev) {
+  _recoFilterMinRec = !!ev.target.checked;
+  _renderRecoSection();
+};
+
+window.exportRecoExcel = function () {
+  if (typeof XLSX === 'undefined') {
+    alert('SheetJS (XLSX) no cargado');
+    return;
+  }
+  const rows = _computeRecommendations();
+  const aoa = [
+    [
+      'Familia',
+      'SKU',
+      'Descripción',
+      'Stock',
+      'Tránsito',
+      'Backorder',
+      'Vta prom/mes',
+      'Demanda esp. 7m',
+      'Sales Plan futuro',
+      'Balance',
+      'MOQ',
+      'Recomendado',
+    ],
+  ];
+  for (const r of rows) {
+    aoa.push([
+      r.familia === 'rods' ? 'Rods (Cañas)' : 'Reels',
+      r.sku,
+      r.description,
+      r.stockLibre,
+      r.enTransito,
+      r.backorder,
+      r.ventaMensual,
+      r.demandaEsperada,
+      r.salesPlanFut,
+      r.balance,
+      r.moq,
+      r.recomendado,
+    ]);
+  }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [
+    { wch: 14 },
+    { wch: 18 },
+    { wch: 40 },
+    { wch: 8 },
+    { wch: 10 },
+    { wch: 11 },
+    { wch: 12 },
+    { wch: 15 },
+    { wch: 16 },
+    { wch: 10 },
+    { wch: 8 },
+    { wch: 12 },
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Recomendación');
+  const hoy = new Date();
+  const stamp =
+    hoy.getFullYear() +
+    '-' +
+    String(hoy.getMonth() + 1).padStart(2, '0') +
+    '-' +
+    String(hoy.getDate()).padStart(2, '0');
+  XLSX.writeFile(wb, 'Recomendacion_Compra_' + stamp + '.xlsx');
 };

@@ -95,6 +95,11 @@ const LAZY_CHUNKS = {
     'onSalesPlanFileForFamilia',
     // v1103+ Fase 2B Forecast Estadístico — tabla + modal detalle.
     'openForecastStatDetail',
+    // v1109+ Fase 3A tabla Recomendación de Compra.
+    'onRecoSearchChange',
+    'onRecoFamiliaChange',
+    'onRecoFilterMinChange',
+    'exportRecoExcel',
   ],
   // v810 (2026-09-04) Loop iter 7: PANEL DE CONTROL Mariano-only (v611+).
   // 939 LOC de metricas/health/KPIs que solo abre 1 usuario, on-demand.
