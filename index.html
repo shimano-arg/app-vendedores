@@ -5940,7 +5940,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1098';
+const APP_VERSION = 'v1099';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13424,12 +13424,17 @@ window.exportBackordersToExcel = async function(){
         const qty = Number(l.qtyOpen) || 0;
         if (qty <= 0) continue;
         const skuUp = String(l.code).toUpperCase();
-        // Filtrar por modo del modal.
+        // v1099 (2026-09-30): alinear con renderBackordersTab — solo mira
+        // stock DISPONIBLE (dep 11), NO tránsito. El check anterior contaba
+        // stkT en hasStock, así que un SKU sin stock disponible pero con
+        // unidades en tránsito (ej. SLXDC151HG: dispSap=0, tránsito=10, 18u
+        // pendientes en 10 clientes) aparecía en el modal como URGENTE y se
+        // omitía del export. El modal (v864 removió el gate SKU-level y usa
+        // getStockDisponibleVenta) es la fuente de verdad. Reportado por
+        // Mariano 2026-09-30 con captura del modal vs Backorders_2026-09-30.xlsx.
         const stkD = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(skuUp) || 0) : 0;
-        const stkT = (typeof getStockTransito === 'function') ? (getStockTransito(skuUp) || 0) : 0;
-        const hasStock = (stkD > 0 || stkT > 0);
-        if (isAsigMode && !hasStock) continue;
-        if (!isAsigMode && hasStock) continue;
+        if (isAsigMode && stkD <= 0) continue;
+        if (!isAsigMode && stkD > 0) continue;
         // Filtro mes (por confirmedAt/createdAt).
         if (mesF) {
           const dt = String(p.confirmedAt || p.createdAt || '').slice(0, 7);
