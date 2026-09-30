@@ -1234,9 +1234,12 @@ function _renderRecoSectionImpl(cont) {
     })
     .join('');
 
+  // v1112: min-width para forzar scroll horizontal si no cabe la columna
+  // Acción. Sin esto, table width:100% comprime todo y la última columna
+  // queda fuera del viewport sin scroll visible.
   const table =
     '<div style="overflow:auto;max-height:60vh;border:1px solid var(--border-subtle);border-radius:8px">' +
-    '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+    '<table style="width:100%;min-width:1400px;border-collapse:collapse;font-size:12px">' +
     '<thead style="background:#0f172a;color:#fff;position:sticky;top:0;z-index:1"><tr>' +
     '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Fam</th>' +
     '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">SKU</th>' +
