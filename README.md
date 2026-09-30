@@ -4673,7 +4673,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1100
+## 41) Changelog v300 → v1101
+
+### v1101 (2026-09-30) — Fallback vendor por sapCardCode (Master Clientes)
+
+**Reporte Mariano**: FERNANDO ANTONIO URQUIOLA (CardCode `C20084809919`, LOBOS) salía `(sin vendedor)` en el export aunque en Master Clientes tenía `Z2 - Federico Castelanelli`. Otros clientes del mismo vendedor (LEANDRO, CRISTIAN, LUCAS) exportaban con el vendedor correcto — sus pedidos traían `ownerVendor`. FERNANDO no.
+
+**Root cause**: el fallback v1088 buscaba en `clientMasterCache` con la clave `clientLocId(prov, loc, clientName)` que normaliza a lowercase+underscore. Pero los docs de `client_master` no tienen un doc_id uniforme — hay al menos 2 convenciones históricas (as-is `BUENOS AIRES__LOBOS__FERNANDO...` vs normalizada `buenos_aires__lobos__fernando...`), y para algunos docs el lookup por `clientLocId` no matcheaba. El campo `sapCardCode` sí existe en todos los docs (línea 763 de `master-clientes.js`) y es único.
+
+**Fix**: `_resolveVendorFallback` ahora prueba primero por `sapCardCode` (iterando `clientMasterCache.forEach` buscando `cmData.sapCardCode === p.clientCardCode`), y sólo cae al lookup por `clientLocId` cuando el pedido no tiene `clientCardCode` o cuando el match por CardCode no encuentra nada. Aplicado en los 5 puntos donde se usa el fallback:
+- `index.html:exportBackordersToExcel` (modal "Exportar todo").
+- `index.html:renderBackordersTab` (v1101: agregado por consistencia — el modal también usaba ahora `resolveVendorFallback`).
+- `src/domains/exports-core.js`: 4 exports del diálogo Reportes.
+
+**Iteración `forEach`**: no es óptima para colecciones grandes (`clientMasterCache` tiene ~300-500 clientes), pero para un export puntual es aceptable (~ms). Si crece a 10K+, considerar indexar por `sapCardCode` al momento de poblar el cache.
 
 ### v1100 (2026-09-30) — Unificar compute Backorder/StockAsig: modal ↔ reporte
 
