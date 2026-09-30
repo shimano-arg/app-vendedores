@@ -5259,6 +5259,9 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:11px;color:#7c2d12;line-height:1.5">
           <b>Vista de gestion:</b> lista completa de rendiciones de todos los vendedores. Tocar una card abre el detalle (foto ticket / adjunto / motivos). Filtrar por estado con los botones abajo.
         </div>
+        <!-- v1116: boton Disparador Manual (admin/gerente-only). Renderizado
+             lazy por renderDisparadorManualBtn() en rendiciones.js. -->
+        <div id="rd-disparador-container"></div>
         <!-- Filtros por estado -->
         <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
           <button class="rd-todas-filter active" data-rdfilter="all" onclick="setTodasRendFilter('all')" style="flex:1;padding:6px 10px;font-size:10px;background:#7c2d12;color:#fff;border:none;border-radius:5px;cursor:pointer;text-transform:uppercase;font-weight:800;letter-spacing:.3px">Todas <span id="rd-todas-count-all">0</span></button>
@@ -5940,7 +5943,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1115';
+const APP_VERSION = 'v1116';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

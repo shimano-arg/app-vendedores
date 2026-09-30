@@ -64,6 +64,7 @@ import { syncSapOrders } from './core/sync-sap-orders-core.js';
 import { handleSyncSapPayments } from './core/sync-sap-payments-core.js';
 // v1053 (2026-09-24): detección SQs cerradas manualmente en SAP (Close Document).
 import { syncSapQuotationClosures } from './core/sync-sap-quotation-closures-core.js';
+import { handleTriggerRendicionesEmailManual } from './core/trigger-rendiciones-email-core.js';
 
 if (!getApps().length) initializeApp();
 
@@ -77,6 +78,12 @@ const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY');
 // send_rendiciones_email.py en GitHub Actions (GMAIL_APP_PASSWORD secret
 // del repo) — copiar a Secret Manager con `gcloud secrets create ...`.
 const GMAIL_APP_PASSWORD = defineSecret('GMAIL_APP_PASSWORD');
+// v1116 (2026-09-30): Personal Access Token (fine-grained) para trigger
+// del workflow send-rendiciones-email.yml manualmente desde el frontend.
+// Scope: Actions: Write limitado al repo shimano-arg/app-vendedores.
+// Setup: `gcloud secrets create GITHUB_DISPATCH_TOKEN --data-file=-` con el PAT.
+// Luego IAM grant al SA de Compute (Firebase Functions).
+const GITHUB_DISPATCH_TOKEN = defineSecret('GITHUB_DISPATCH_TOKEN');
 // v829 (2026-09-08): password de SETUP WMS API para consultar estado de
 // pedidos (movimientos de salida). Confirmado por Marcos (SETUP) 2026-09-08:
 // mismo user sirve para prod (nur-integra) y sandbox (nur-prueba).
@@ -2146,6 +2153,53 @@ export const onPedidoCreatedCleanupWaitlist = onDocumentCreated(
         waitlistId,
         err: e && /** @type {any} */ (e).message ? /** @type {any} */ (e).message : String(e),
       });
+    }
+  }
+);
+
+/**
+ * v1116 (2026-09-30): triggerRendicionesEmailManual — dispara el workflow
+ * `send-rendiciones-email.yml` de GitHub Actions manualmente desde el
+ * frontend (modal Rendiciones -> boton Disparador Manual).
+ *
+ * Uso tipico: Mariano necesita forzar el envio de rendiciones aprobadas
+ * sin esperar el cron Lun/Mie 8 UTC.
+ *
+ * Auth: admin/gerente/Mariano-only.
+ *
+ * Requiere Secret GITHUB_DISPATCH_TOKEN (PAT fine-grained con
+ * Actions:Write en app-vendedores repo).
+ */
+export const triggerRendicionesEmailManual = onCall(
+  {
+    region: REGION,
+    cors: true,
+    secrets: [GITHUB_DISPATCH_TOKEN],
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async (request) => {
+    const db = getFirestore();
+    const getUserRole = async (/** @type {string} */ uid) => {
+      const doc = await db.collection('roles').doc(uid).get();
+      return doc.exists ? doc.data()?.role || '' : '';
+    };
+    try {
+      const r = await handleTriggerRendicionesEmailManual(
+        request.data || {},
+        request.auth || null,
+        {
+          fetch: /** @type {any} */ (globalThis.fetch),
+          getUserRole,
+          githubToken: GITHUB_DISPATCH_TOKEN.value(),
+          log: (msg, extra) => console.log(msg, extra || {}),
+        }
+      );
+      return r;
+    } catch (e) {
+      const err = /** @type {any} */ (e);
+      console.error('[triggerRendicionesEmailManual] error', err);
+      throw new HttpsError(err.code || 'internal', err.message || String(err));
     }
   }
 );
