@@ -1544,12 +1544,12 @@ function _renderRecoSectionImpl(cont) {
       const recColor = r.recomendado > 0 ? '#dc2626' : '#94a3b8';
       return (
         '<tr style="border-bottom:1px solid var(--border-subtle)">' +
-        '<td style="padding:6px 8px"><span style="display:inline-block;padding:2px 6px;border-radius:10px;background:' +
+        '<td style="padding:6px 8px;text-align:center"><span style="display:inline-block;padding:2px 6px;border-radius:10px;background:' +
         (r.familia === 'rods' ? '#0ea5e9' : '#8b5cf6') +
         ';color:#fff;font-size:10px;font-weight:700">' +
         (r.familia === 'rods' ? 'ROD' : 'REEL') +
         '</span></td>' +
-        '<td style="padding:6px 8px;font-family:monospace;font-size:11px;color:var(--text-primary);font-weight:700">' +
+        '<td style="padding:6px 8px;text-align:center;font-family:monospace;font-size:11px;color:var(--text-primary);font-weight:700">' +
         escapeHtmlSafe(r.sku) +
         '</td>' +
         '<td style="padding:6px 8px;font-size:11px;color:var(--text-secondary);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' +
@@ -1557,33 +1557,33 @@ function _renderRecoSectionImpl(cont) {
         '">' +
         escapeHtmlSafe(r.description) +
         '</td>' +
-        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-primary)">' +
+        '<td style="padding:6px 8px;text-align:center;font-variant-numeric:tabular-nums;color:var(--text-primary)">' +
         _fmtInt(r.stockLibre) +
         '</td>' +
-        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-muted)">' +
+        '<td style="padding:6px 8px;text-align:center;font-variant-numeric:tabular-nums;color:var(--text-muted)">' +
         _fmtInt(r.enTransito) +
         '</td>' +
-        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:#dc2626">' +
+        '<td style="padding:6px 8px;text-align:center;font-variant-numeric:tabular-nums;color:#dc2626">' +
         _fmtInt(r.backorder) +
         '</td>' +
-        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary)">' +
+        '<td style="padding:6px 8px;text-align:center;font-variant-numeric:tabular-nums;color:var(--text-secondary)">' +
         _fmtInt(r.ventaMensual) +
         '</td>' +
-        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary)">' +
+        '<td style="padding:6px 8px;text-align:center;font-variant-numeric:tabular-nums;color:var(--text-secondary)">' +
         _fmtInt(r.demandaEsperada) +
         '</td>' +
-        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-primary);font-weight:600">' +
+        '<td style="padding:6px 8px;text-align:center;font-variant-numeric:tabular-nums;color:var(--text-primary);font-weight:600">' +
         _fmtInt(r.salesPlanFut) +
         '</td>' +
-        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:' +
+        '<td style="padding:6px 8px;text-align:center;font-variant-numeric:tabular-nums;font-weight:700;color:' +
         balColor +
         '">' +
         _fmtNumSigned(r.balance) +
         '</td>' +
-        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-muted);font-size:11px">' +
+        '<td style="padding:6px 8px;text-align:center;font-variant-numeric:tabular-nums;color:var(--text-muted);font-size:11px">' +
         _fmtInt(r.moq) +
         '</td>' +
-        '<td style="padding:6px 8px;text-align:right"><span style="display:inline-block;padding:4px 10px;border-radius:12px;background:' +
+        '<td style="padding:6px 8px;text-align:center"><span style="display:inline-block;padding:4px 10px;border-radius:12px;background:' +
         recColor +
         ';color:#fff;font-size:12px;font-weight:800;min-width:50px">' +
         _fmtInt(r.recomendado) +
@@ -1597,18 +1597,18 @@ function _renderRecoSectionImpl(cont) {
     '<div style="overflow:auto;max-height:60vh;border:1px solid var(--border-subtle);border-radius:8px">' +
     '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
     '<thead style="background:#0f172a;color:#fff;position:sticky;top:0;z-index:1"><tr>' +
-    '<th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Fam</th>' +
-    '<th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">SKU</th>' +
-    '<th style="padding:8px;text-align:left;font-size:10px;text-transform:uppercase">Descripción</th>' +
-    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase" title="Whs 11 disponible venta">Stock</th>' +
-    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase" title="Whs 12">Tránsito</th>' +
-    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase">Backorder</th>' +
-    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase" title="Promedio últimos 3 meses">Vta/mes</th>' +
-    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase" title="Vta/mes × 7 meses">Demanda esp.</th>' +
-    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase" title="Suma columnas Sales Plan desde mes actual">Plan futuro</th>' +
-    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase">Balance</th>' +
-    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase">MOQ</th>' +
-    '<th style="padding:8px;text-align:right;font-size:10px;text-transform:uppercase;background:#134e4a">Recomendado</th>' +
+    '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Fam</th>' +
+    '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">SKU</th>' +
+    '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Descripción</th>' +
+    '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase" title="Whs 11 disponible venta">Stock</th>' +
+    '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase" title="Whs 12">Tránsito</th>' +
+    '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Backorder</th>' +
+    '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase" title="Promedio últimos 3 meses">Vta/mes</th>' +
+    '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase" title="Vta/mes × 7 meses">Demanda esp.</th>' +
+    '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase" title="Suma columnas Sales Plan desde mes actual">Plan futuro</th>' +
+    '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">Balance</th>' +
+    '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase">MOQ</th>' +
+    '<th style="padding:8px;text-align:center;font-size:10px;text-transform:uppercase;background:#134e4a">Recomendado</th>' +
     '</tr></thead><tbody>' +
     (rows.length
       ? rowsHtml
