@@ -6,7 +6,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 const daysAgo = (n) => new Date(NOW_MS - n * DAY_MS).toISOString();
 
-const identityVendor = (t) => String(t || '').trim().toUpperCase();
+const identityVendor = (t) =>
+  String(t || '')
+    .trim()
+    .toUpperCase();
 
 const baseDeps = (overrides = {}) => ({
   getStockDisponibleVenta: () => 0,
@@ -120,8 +123,18 @@ describe('computeBackorderSkuMap — mode urgente (Backorder)', () => {
 
   it('consolidar duplicados del mismo cliente (varios pedidos mismo SKU)', () => {
     const pedidos = [
-      pedido({ _fsId: 'p1', clientName: 'REBORN SRL', clientCardCode: 'C-REBORN', lines: [line({ qtyOpen: 5 })] }),
-      pedido({ _fsId: 'p2', clientName: 'REBORN SRL', clientCardCode: 'C-REBORN', lines: [line({ qtyOpen: 3 })] }),
+      pedido({
+        _fsId: 'p1',
+        clientName: 'REBORN SRL',
+        clientCardCode: 'C-REBORN',
+        lines: [line({ qtyOpen: 5 })],
+      }),
+      pedido({
+        _fsId: 'p2',
+        clientName: 'REBORN SRL',
+        clientCardCode: 'C-REBORN',
+        lines: [line({ qtyOpen: 3 })],
+      }),
     ];
     const r = computeBackorderSkuMap(pedidos, 'urgente', {}, baseDeps());
     expect(r.skus).toHaveLength(1);
@@ -240,7 +253,12 @@ describe('computeBackorderSkuMap — filtros', () => {
   ];
 
   it('filter vendorKey exacto → solo pedidos de ese vendor', () => {
-    const r = computeBackorderSkuMap(pedidos, 'urgente', { vendorKey: 'GONZALO DE LA ROSA' }, baseDeps());
+    const r = computeBackorderSkuMap(
+      pedidos,
+      'urgente',
+      { vendorKey: 'GONZALO DE LA ROSA' },
+      baseDeps()
+    );
     expect(r.skus).toHaveLength(1);
     expect(r.skus[0].sku).toBe('SKU1');
   });
@@ -271,7 +289,9 @@ describe('computeBackorderSkuMap — filtros', () => {
 
   it('canonVendor alias (PACHI → SANTIAGO ESTEBAN)', () => {
     const canonPachi = (t) => {
-      const u = String(t || '').trim().toUpperCase();
+      const u = String(t || '')
+        .trim()
+        .toUpperCase();
       if (u === 'PACHI') return 'SANTIAGO ESTEBAN';
       return u;
     };
@@ -309,9 +329,24 @@ describe('computeBackorderSkuMap — edge cases', () => {
 
   it('SKU count coincide con clientes distintos (Set por cardCode/nombre)', () => {
     const pedidos = [
-      pedido({ _fsId: 'p1', clientName: 'A', clientCardCode: 'CA', lines: [line({ code: 'SKU1', qtyOpen: 2 })] }),
-      pedido({ _fsId: 'p2', clientName: 'B', clientCardCode: 'CB', lines: [line({ code: 'SKU1', qtyOpen: 2 })] }),
-      pedido({ _fsId: 'p3', clientName: 'A', clientCardCode: 'CA', lines: [line({ code: 'SKU2', qtyOpen: 2 })] }),
+      pedido({
+        _fsId: 'p1',
+        clientName: 'A',
+        clientCardCode: 'CA',
+        lines: [line({ code: 'SKU1', qtyOpen: 2 })],
+      }),
+      pedido({
+        _fsId: 'p2',
+        clientName: 'B',
+        clientCardCode: 'CB',
+        lines: [line({ code: 'SKU1', qtyOpen: 2 })],
+      }),
+      pedido({
+        _fsId: 'p3',
+        clientName: 'A',
+        clientCardCode: 'CA',
+        lines: [line({ code: 'SKU2', qtyOpen: 2 })],
+      }),
     ];
     const r = computeBackorderSkuMap(pedidos, 'urgente', {}, baseDeps());
     expect(r.skus).toHaveLength(2);
