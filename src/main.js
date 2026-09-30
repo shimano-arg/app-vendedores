@@ -135,8 +135,6 @@ installChunkStubs('admin-users', [
 installChunkStubs('forecast', [
   'openForecastModal',
   'closeForecastModal',
-  'onForecastSalesPlanFile',
-  'exportForecastExcel',
   'switchForecastTab',
   'onSalesPlanFileForFamilia',
   'openForecastStatDetail',
