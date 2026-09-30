@@ -4673,7 +4673,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1103
+## 41) Changelog v300 → v1104
+
+### v1104 (2026-09-30) — Fix parser Sales Plan: soporte headers Excel multi-line
+
+**Reporte Mariano**: al cargar `SUR 2026 1H Rods Sales Plan - Set 26.xlsx` en el tab "Sales Plans", el parser rompe con "El Excel no tiene columnas de meses reconocibles" (headers esperados "Jan 2027", "May 2027", etc).
+
+**Root cause**: los Sales Plans SUR usan headers Excel **multi-line** en una sola celda: `'2021\nJan'`, `'2027\nDec'`, `'MOQ\n12 months'`, `'Base\nFOB(USD)'`. Mi parser hacía `String(label).trim()` que remueve whitespace del inicio/fin pero NO colapsa el `\n` interno. Entonces `'2021\nJan'.trim().toLowerCase()` da `'2021\njan'` que no matchea ningún pattern.
+
+**Fix** en `src/pure/sales-plan-parser.js`:
+- `normalizeMonthLabel`: agregar `.replace(/\s+/g, ' ')` antes del trim para colapsar newlines/tabs/CR a espacio. Plus soporte para formato **año-primero** `"2021 jan"` (regex `^(\d{4})[\s\-/._]+([a-z]{3,10})$`).
+- `findHeaderRow` + `detectColumns`: mismo `replace(/\s+/g, ' ')` para matchear headers como `"MOQ 12 months"` (originalmente `"MOQ\n12 months"`).
+
+**Validación**: Excel real de Mariano ahora detecta **84 meses** (2021-01 → 2027-12) + SKU (col 3) + Description (col 2) + MOQ 12 months (col 6). Antes: 0 meses.
+
+**Tests nuevos** (`tests/unit/sales-plan-parser.test.js`, 20/20 pass):
+- `normalizeMonthLabel('2021\nJan')` → `'2021-01'`
+- `normalizeMonthLabel('2027\nDec')` → `'2027-12'`
+- Con `\r\n`, `\t\t`, o espacios múltiples.
+- `detectColumns` de header multi-line con MOQ + Base FOB + meses.
+
+Bump `APP_VERSION`/`CACHE_VERSION` v1103 → v1104.
 
 ### v1103 (2026-09-30) — Forecast Estadístico UI: tab + tabla + modal detalle (F2B)
 
