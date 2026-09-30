@@ -289,6 +289,21 @@ service cloud.firestore {
                     && familia in ['rods', 'reels', 'fg'];
     }
 
+    // v1099+ (2026-09-30) F2A.4 Forecast output — pipeline Python
+    // scripts/forecast/train_prod.py + publish_to_firestore.py escribe
+    // 1 doc por subfamilia con { forecast: [{ds, y_hat, lo80, hi80}],
+    // metrics: {wape, bias, mae, rmse}, bestModel, versionId }.
+    // Consumido por modal FORECAST (Mariano-only). WAPE mediano en
+    // backtest: 0.476 (24 subfamilias) al 2026-09-30.
+    match /forecast_output/{subfamiliaSlug} {
+      allow read: if isMariano();
+      allow write: if isMariano();
+    }
+    match /forecast_output_meta/{docId} {
+      allow read: if isMariano();
+      allow write: if isMariano();
+    }
+
     match /client_locations/{docId} {
       allow read: if isReader();
       allow create: if isAdminOrGerente() || isVendor() || isInterno();

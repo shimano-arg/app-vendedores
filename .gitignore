@@ -108,3 +108,13 @@ NEEDS-VALIDATION.md
 # geo.json vigente es el unico source of truth.
 geo.json.backup-*
 
+# v1098+ (2026-09-30) F2A.1 forecast pipeline:
+# - Outputs contienen ventas por subfamilia (comercialmente sensible). Se
+#   regeneran corriendo `python scripts/forecast/train_baseline.py`.
+# - Inputs: CSVs de fuentes públicas (BCRA/Rofex) que se regeneran con
+#   build_exogenas.py de Cowork; Excel semilla de estacionalidad zonal
+#   (documento interno) que mantiene Mariano puntual.
+scripts/forecast/output/
+scripts/forecast/inputs/*.csv
+scripts/forecast/inputs/*.xlsx
+
