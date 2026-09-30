@@ -40,12 +40,14 @@ let _forecastLoading = false;
 // Se guardan en Firestore `sales_plan_cache/{familia}` + snapshot Excel original
 // en Storage `forecasts_snapshots/{YYYY-MM}/{familia}.xlsx`.
 // El parser puro vive en src/pure/sales-plan-parser.js (attach a window.SalesPlanParser).
+// v1108: FG removido del UI (Mariano pidió). Solo Rods + Reels por ahora.
+// La rule Firestore sigue aceptando 'fg' por si en el futuro se vuelve a
+// activar — no borrarla en storage/firestore.rules hasta confirmar deprecate.
 const SALES_PLAN_FAMILIAS = [
   { key: 'rods', label: 'Rods (Cañas)', color: '#0ea5e9' },
   { key: 'reels', label: 'Reels', color: '#8b5cf6' },
-  { key: 'fg', label: 'FG (resto)', color: '#f59e0b' },
 ];
-const _salesPlanCaches = { rods: null, reels: null, fg: null }; // last loaded doc
+const _salesPlanCaches = { rods: null, reels: null }; // last loaded doc
 let _forecastActiveTab = 'sales-plans'; // 'sales-plans' | 'stat' | 'legacy'
 
 // v1103+ (Fase 2B): Forecast Estadístico — output publicado por
