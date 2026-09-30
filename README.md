@@ -4673,7 +4673,45 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1101
+## 41) Changelog v300 → v1102
+
+### v1102 (2026-09-30) — Forecast pipeline productivo (F2A.3 + F2A.4, offline)
+
+Pipeline Python de forecasting estadístico para app-vendedores llegó a **WAPE mediano 0.476** en 24 subfamilias tras 4 iteraciones. Sin cambios al frontend — es infraestructura offline que llena `forecast_output/{subfamilia}` en Firestore para consumo del modal FORECAST (F2B pendiente).
+
+**Iteraciones**:
+- F2A.1 baseline (v1098) → WAPE ~1.0 (Naive/SeasonalNaive/AutoARIMA, splice Baraldo+BQ tras rolling-3m).
+- **iter 1** advanced (rolling Baraldo + exógenas macro + LightGBM + ensemble mediana) → WAPE 1.0. **Falla**: régimen partido 2025-09 confunde a modelos que entrenan sobre serie completa.
+- **iter 2** seasonal decomposition (SI Baraldo × nivel Shimano, modelo SOLO con post-splice) → WAPE 1.0. **Falla**: `v_ventas_lineas` con `is_pesca=TRUE` solo tiene 8 meses (catálogo `sap_items_raw` cubre solo 12% de items de invoices).
+- **iter 3** mapping externo (bypass v_ventas_lineas, usar `Desktop\FORECAST\DATOS_CRUDOS\Articulos 6-1 (2).xlsx` con 6717 items + query directo a `sap_invoices_raw + credit_notes`). Seasonal decomposition. → **WAPE 0.495 ✓ goal**.
+- **iter 4 (PROD)** cap del trend (evita overshoot cuando `slope × horizon >> level`) + ensemble ponderado 1/WAPE. → **WAPE 0.476 · 25% series WAPE<0.3 · 54% WAPE<0.5 · 67% WAPE<0.7**.
+
+**Modelos** evaluados: Naive, MA3, SeasonalNaive_YoY, Seasonal_Level (nivel × SI), Seasonal_Trend con cap (nivel+trend × SI), Seasonal_MA3 (desestacionalizado × SI), Ensemble_Weighted.
+
+**Ranking mediana WAPE**: Ensemble_Weighted 0.58 · Seasonal_Trend 0.62 · Seasonal_Level 0.78 · MA3 = SeasonalNaive_YoY 0.79 · Seasonal_MA3 0.81 · Naive 0.85. Best-per-series toma el ganador por serie.
+
+**Fuente de datos**:
+- Historia: Baraldo `baraldo_ventas_sku_historico.csv` (2016-2026, 10 años) suavizado rolling-3m → **índice estacional** por subfamilia × mes.
+- Nivel actual: `sap_invoices_raw + credit_notes` desde 2025-09-01 (13 meses de venta directa Shimano).
+- Splice: 2025-09 (transición Baraldo → venta directa).
+- Categorización: `Articulos 6-1 (2).xlsx` (catálogo maestro externo, no BQ).
+
+**Nuevos archivos**:
+- `scripts/forecast/train_prod.py` — pipeline productivo, corre `python scripts/forecast/train_prod.py`.
+- `scripts/forecast/publish_to_firestore.py` — publica 24 docs a `forecast_output/*` + 1 doc meta a `forecast_output_meta/current`.
+- `scripts/forecast/train_advanced.py`, `train_seasonal.py`, `train_final.py` — iteraciones intermedias (dejadas para referencia/debug).
+- `output/prod_publicable.md` — reporte human-readable.
+
+**Firestore rules** — nueva sección `forecast_output/*` + `forecast_output_meta/*` Mariano-only whitelist.
+
+**Advertencias / deuda**:
+- Solo se modelan 24 subfamilias (mapping catálogo Articulos.xlsx cubre 8.1% de rows / 5.8% del volumen de sap_invoices). El otro 94.2% del volumen queda sin categorizar hasta completar catálogo BQ `sap_items_raw` (hoy tiene 775 items, invoices 3468 items únicos).
+- Backtest solo cubre 6 meses de test (limitación historia post-splice).
+- SI de Baraldo es prior estacional: el modelo lo escala al nivel actual pero podría fallar si Shimano-directo tiene patrón estacional distinto al mayorista.
+
+**F2A.5 pendiente**: script `train_and_publish.py` unificado. **F2B pendiente**: UI en modal FORECAST que lee `forecast_output` y muestra tabla + gráfico.
+
+Uso operativo mensual: `python scripts/forecast/train_prod.py && python scripts/forecast/publish_to_firestore.py`.
 
 ### v1101 (2026-09-30) — Fallback vendor por sapCardCode (Master Clientes)
 

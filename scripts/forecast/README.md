@@ -76,15 +76,55 @@ Suma:
   `sku_to_categoria_foco.csv`. Se cruza con `sku → familia` + peso zonal
   histórico por SKU (fracción de ventas por zona).
 
-### F2A.4 — Firestore output (pendiente)
+### F2A.3 — Advanced / decomposition / prod (COMPLETADO 2026-09-30)
 
-Escribe `forecast_output/{sku}` con `{forecast, metrics, versionId, generatedAt}`.
-Rules `sales_plan_cache`-style (Mariano-only read/write).
+Tras F2A.1 baseline (WAPE mediano ~1.0), 3 iteraciones para llegar a
+**WAPE mediano 0.476** en 24 subfamilias:
+
+- **iter 1** `train_advanced.py` — Baraldo smooth-3m + exógenas macro +
+  LightGBM + AutoARIMA/AutoETS/MSTL + ensemble mediana → WAPE 1.0 (falla:
+  régimen partido en 2025-09 confunde a los modelos que unifican train).
+- **iter 2** `train_seasonal.py` — cambio radical: modelar SOLO con datos
+  post-splice, usar Baraldo únicamente para índice estacional (SI). Backtest
+  h=2 w=3. → WAPE 1.0 (falla: v_ventas_lineas con is_pesca=TRUE solo tiene
+  8 meses, filtro rompía la vista).
+- **iter 3** `train_final.py` — mapping externo desde `Articulos.xlsx`
+  (catálogo maestro, 6717 items) bypass v_ventas_lineas. Query directo
+  sap_invoices_raw + credit_notes. Seasonal decomposition (SI Baraldo ×
+  nivel Shimano). → **WAPE 0.495 ✓ goal cumplido**.
+- **iter 4 (PROD)** `train_prod.py` — refinamiento: cap del trend (evita
+  overshoot cuando slope × horizon >> level), ensemble ponderado por 1/WAPE
+  (no mediana simple), reporte publicable. → **WAPE 0.476, 25% series
+  WAPE<0.3, 54% WAPE<0.5, 67% WAPE<0.7**.
+
+**Modelos evaluados**: Naive, MA3, SeasonalNaive_YoY, Seasonal_Level,
+Seasonal_Trend (con cap), Seasonal_MA3, Ensemble_Weighted (media ponderada
+por 1/WAPE).
+
+### F2A.4 — Publish Firestore (COMPLETADO 2026-09-30)
+
+`publish_to_firestore.py` lee `output/prod_forecast_h7.csv` + `prod_best_per_series.csv`
+y escribe:
+- `forecast_output/{subfamilia_slug}` — 24 docs, uno por subfamilia con
+  forecast H=7 + IC80% + metrics + bestModel + versionId.
+- `forecast_output_meta/current` — resumen global.
+
+Rules Mariano-only (whitelist email) — ver firestore.rules § v1099.
 
 ### F2A.5 — Script end-to-end (pendiente)
 
-`train_and_publish.py` unifica los 3 pasos anteriores en un solo comando
-mensual.
+`train_and_publish.py` unifica prod + publish en un solo comando mensual.
+
+## Uso operativo mensual (post-F2A.4)
+
+Cada 1° del mes:
+```bash
+python scripts/forecast/train_prod.py            # 30-60 seg
+python scripts/forecast/publish_to_firestore.py  # 5 seg
+```
+
+Chequear en `output/prod_publicable.md` el reporte y en Firestore
+`forecast_output_meta/current` la versionId.
 
 ## Regeneración mensual de exógenas
 
