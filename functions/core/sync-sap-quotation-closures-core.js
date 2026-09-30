@@ -102,6 +102,10 @@ export async function listCandidatePedidos(deps, limit) {
   const candidates = [];
   /** @type {Set<string>} */
   const seenIds = new Set();
+  /**
+   * @param {any} d
+   * @param {boolean} alreadyClosed
+   */
   const push = (d, alreadyClosed) => {
     if (seenIds.has(d.id)) return;
     const data = d.data() || {};
@@ -122,7 +126,10 @@ export async function listCandidatePedidos(deps, limit) {
   };
   snapOpen.forEach((/** @type {any} */ d) => push(d, false));
   snapClosedManually.forEach((/** @type {any} */ d) => push(d, true));
-  candidates.sort((a, b) => a.sqDocEntry - b.sqDocEntry);
+  candidates.sort(
+    (/** @type {{sqDocEntry: number}} */ a, /** @type {{sqDocEntry: number}} */ b) =>
+      a.sqDocEntry - b.sqDocEntry
+  );
   return candidates.slice(0, limit);
 }
 
@@ -293,7 +300,8 @@ export async function syncSapQuotationClosures(deps) {
     //
     // Costo extra: 1 GET por candidato en bost_Close. Steady state esto es
     // ~1-5 candidatos por tick, costo despreciable.
-    for (const c of candidates) {
+    for (const _c of candidates) {
+      const c = /** @type {{id: string, sqDocEntry: number, alreadyClosed?: boolean}} */ (_c);
       if (!closedSet.has(c.sqDocEntry)) continue;
       // Chequeo anti-race: ¿tiene la SQ una SO derivada?
       let derivedSo = null;
@@ -309,7 +317,10 @@ export async function syncSapQuotationClosures(deps) {
         if (rSo.status === 200) {
           const rows = (rSo.body && rSo.body.value) || [];
           if (rows.length > 0) {
-            rows.sort((a, b) => Number(b.DocEntry) - Number(a.DocEntry));
+            rows.sort(
+              (/** @type {any} */ a, /** @type {any} */ b) =>
+                Number(b.DocEntry) - Number(a.DocEntry)
+            );
             const soDe = Number(rows[0].DocEntry);
             const soDnRaw = Number(rows[0].DocNum);
             if (Number.isFinite(soDe) && soDe > 0) {

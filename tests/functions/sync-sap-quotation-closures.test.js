@@ -61,11 +61,7 @@ function makeFbDb(pedidos) {
 
 // ---- Fake SAP SL fetch ----------------------------------------------------
 
-function makeFetch({
-  closedQuotations = [],
-  ordersWithBase = [],
-  numAtCardMapping = {},
-} = {}) {
+function makeFetch({ closedQuotations = [], ordersWithBase = [], numAtCardMapping = {} } = {}) {
   return async (url, init) => {
     const method = init?.method || 'GET';
     if (url.endsWith('/Login')) {

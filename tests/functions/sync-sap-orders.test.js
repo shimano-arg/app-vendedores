@@ -115,7 +115,7 @@ function makeSlFetch(scenarios) {
       const mapping = scenarios.mapping || {};
       /** @type {Array<any>} */
       const orders = [];
-      if (pedidoId && Object.prototype.hasOwnProperty.call(mapping, pedidoId)) {
+      if (pedidoId && Object.hasOwn(mapping, pedidoId)) {
         const so = mapping[pedidoId];
         const isObj = so && typeof so === 'object';
         const docEntry = Number(isObj ? so.docEntry : so);

@@ -112,7 +112,9 @@ export async function findSoByNumAtCard(session, deps, pedidoId) {
   const rows = (r.body && r.body.value) || [];
   if (rows.length === 0) return null;
   // Múltiples matches (raro): tomar la más reciente (mayor DocEntry).
-  rows.sort((a, b) => Number(b.DocEntry) - Number(a.DocEntry));
+  rows.sort(
+    (/** @type {any} */ a, /** @type {any} */ b) => Number(b.DocEntry) - Number(a.DocEntry)
+  );
   const so = rows[0];
   const docEntry = Number(so.DocEntry);
   if (!Number.isFinite(docEntry) || docEntry <= 0) return null;
