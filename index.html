@@ -5746,6 +5746,11 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
              esta haciendo un pedido sin cobertura de stock. -->
         <button class="stock-action-btn publish" id="wcard-bo-btn" onclick="waitlistGenerarBackorder()" style="background:#c2410c;color:#fff" title="Confirma que las lineas sin stock queden como Backorder en la app (BO). El CF FIFO las asigna cuando ingresa mercaderia SAP.">Generar Backorder</button>
         <button class="stock-action-btn publish" id="wcard-pass-btn" onclick="waitlistPasarAPendientes()" style="background:#1e40af;color:#fff">Pasar a Pendientes</button>
+        <!-- v1118 (2026-09-30): boton excepcion que salta el gate ASIG del cliente.
+             Pide password 'SHIMANO' para prevenir uso accidental. Uso: casos donde
+             no queremos limpiar stock asignado previo (ej: pedido urgente que no
+             puede esperar la revision). Deja auditoria en el pedido. -->
+        <button class="stock-action-btn publish" id="wcard-bypass-btn" onclick="waitlistPasarAPendientesBypass()" style="background:#7c2d12;color:#fff;border:2px dashed #fbbf24" title="Salta el gate 'revisar stock asignado' del cliente. Requiere password.">🔓 Enviar de todos modos</button>
       </div>
     </div>
   </div>
@@ -5943,7 +5948,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1117';
+const APP_VERSION = 'v1118';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -20226,6 +20231,44 @@ window.waitlistPasarAPendientes = async function(){
   window._waitlistPasarAPendientesContinuar(w);
 };
 
+// v1118 (2026-09-30): bypass del gate ASIG con password "SHIMANO".
+// Uso: casos excepcionales donde no se quiere limpiar el stock asignado
+// previo del cliente antes de mandar el nuevo pedido a SAP. Deja auditoria
+// en el pedido creado con flag bypassAsigGate + bypassedBy + bypassedAt.
+window.waitlistPasarAPendientesBypass = async function(){
+  const w = _wcardCurrent;
+  if (!w) return;
+  const pwd = prompt(
+    '⚠ BYPASS del gate "revisar stock asignado"\n\n' +
+    'Vas a mandar este pedido a SAP SIN limpiar/revisar el stock asignado ' +
+    'previo del cliente. Solo usar en casos excepcionales.\n\n' +
+    'Ingresá la contraseña de bypass:'
+  );
+  if (pwd == null) return; // cancelado
+  if (String(pwd).trim().toUpperCase() !== 'SHIMANO') {
+    alert('Contraseña incorrecta. Envío bypass cancelado.');
+    return;
+  }
+  const conf = confirm(
+    'Confirmar BYPASS?\n\n' +
+    'Cliente: ' + (w.clientName || '(sin nombre)') + '\n' +
+    'Items: ' + ((w.items || []).length) + '\n\n' +
+    'El pedido va a SAP sin pasar por la revisión de stock asignado.'
+  );
+  if (!conf) return;
+  // Setear flags globales que _waitlistPasarAPendientesContinuar consume
+  // al crear el pedido, para que quede la marca de auditoría en Firestore.
+  const email = ((window.currentUser && window.currentUser.email) || '').toLowerCase();
+  window._pendingBypassAsigGate = {
+    bypassed: true,
+    bypassedBy: email || 'unknown',
+    bypassedAt: new Date().toISOString(),
+    bypassReason: 'Envío de todos modos (password SHIMANO)',
+  };
+  // Continuar directo — salta el gate ASIG.
+  window._waitlistPasarAPendientesContinuar(w);
+};
+
 // v701 (2026-08-28): cuerpo original de waitlistPasarAPendientes movido a
 // funcion aparte para que el gate ASIG pueda invocarlo tras resolver el modal.
 window._waitlistPasarAPendientesContinuar = function(w){
@@ -28898,6 +28941,10 @@ window.doConfirmPedido = async function(){
     // sin depender de la variable en memoria _pendingWaitlistDelete. Ver comment
     // en _waitlistPasarAPendientesContinuar (linea ~20664).
     waitlistOrigenId: window._pendingPedidoWaitlistId || null,
+    // v1118 (2026-09-30): auditoria del bypass del gate ASIG (si el pedido
+    // se envio con el boton "Enviar de todos modos" saltando la revision
+    // de stock asignado). null si el flow fue normal.
+    bypassAsigGate: (window._pendingBypassAsigGate && window._pendingBypassAsigGate.bypassed) ? window._pendingBypassAsigGate : null,
     month: monthLabel, monthIdx: mesIdx, year: parseInt(anio),
     confirmedAt: new Date().toISOString(),
     // Condicion de pago seleccionada por el vendedor. Va al UDF U_TipoGasto
@@ -29019,6 +29066,8 @@ window.doConfirmPedido = async function(){
       window._pendingPedidoOrderNumber = null;
       // v1058 (2026-09-24): reset del waitlistOrigenId pendiente — ya se persistio.
       window._pendingPedidoWaitlistId = null;
+      // v1118 (2026-09-30): reset del flag bypass ASIG — ya se persistio.
+      window._pendingBypassAsigGate = null;
       // Fallback local: solo cuando Firestore lo acepto. Si fallo por permisos,
       // NO metemos nada en pending[] porque el listener del snapshot rerenderiza
       // sobre el estado local y hace que el pedido "aparezca y desaparezca".
