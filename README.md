@@ -4673,7 +4673,31 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1122
+## 41) Changelog v300 → v1123
+
+### v1123 (2026-10-01) — Virtual ASIG FIFO cross-cliente: fix "4u disp" cuando solo hay 1u real
+
+Bug reportado por Mariano: el modal "Pedido en espera" en la sección **STOCK ASIGNADO** mostraba líneas BO con stock disp como "4 u virtual ASIG" aunque el stock físico fuera 1u. El vendedor le prometía 4u al cliente y al facturar salía 1u → cliente confundido.
+
+**Root cause** (`index.html` loop `_renderClienteAllOpenLines`): si `getStk(sku) > 0`, la línea BO entera se promovía a virtual ASIG mostrando `qtyOpen` completo. Chequeo binario (hay stock sí/no), sin considerar cuánto es realmente ni que otros clientes compiten por el mismo stock.
+
+**Agravante cross-cliente**: 3 clientes con BO de 2u cada uno contra 1u real → los 3 modales mostraban "2u virtual ASIG" → total aparente 6u contra 1u físico.
+
+**Fix** (TDD, 17 tests nuevos):
+- Nueva fn pura `src/pure/virtual-asig-fifo.js` → `computeVirtualAsigFifo(pedidos, getStk)` que pre-aloca el stock físico a BO lines con FIFO cross-cliente por `pedido.createdAt` ASC. Descuenta primero las ASIG committed (ganan sobre BO).
+- `_renderClienteAllOpenLines` ahora llama a la fn una sola vez por render + usa el map `${pedidoId}:${lineIndex} → virtualAsigQty` para splitear cada línea BO en (porción virtual ASIG, porción BO real). La virtual va a STOCK ASIGNADO con el qty real; el resto va a BACKORDER.
+- Meta label actualizado: `BO + stock disp (virtual ASIG) · 1 u de 4 u BO` → aclara al vendedor que el BO original era 4u pero el fisico alcanza solo para 1.
+- Botón **Eliminar** oculto para virtual ASIG (no hay reserva committed que liberar — el stock está al mejor postor).
+- Botón **Parcial** oculto cuando qtyOpen=1 (prompt ridículo).
+- `_asigInlineResolve` adaptado: al accionar sobre virtual ASIG, consume solo la porción backeada por stock (ej 1u); el resto del BO queda `state='BO'` esperando reposición. Para ASIG real, comportamiento sin cambios.
+
+**Archivos**: `src/pure/virtual-asig-fifo.js` (nueva, 83 LOC), `tests/unit/virtual-asig-fifo.test.js` (nueva, 17 tests), `src/main.js` (expone `window.__phase0.pure.computeVirtualAsigFifo`), `index.html` (loop clasificación + render row + handler resolve).
+
+**No se tocó** el flow SAP ni los CFs — fix 100% client-side en el render del modal. Las reservas ASIG committed en Firestore siguen intactas.
+
+Deploy: v1123 shipped a dev; abrir PR a main para producción.
+
+---
 
 ### v1122 (2026-09-30) — Botón ELIMINAR (SAP) forzado en modal Backorder para líneas confirmed
 
