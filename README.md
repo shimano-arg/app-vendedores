@@ -4673,7 +4673,30 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1123
+## 41) Changelog v300 → v1124
+
+### v1124 (2026-10-01) — Virtual ASIG completo: modal "ASIG obligatorio", fusión + lineReservesStock + lock double-click
+
+Auditoría post-v1123 por 4 agentes paralelos (code-reviewer + 3 general-purpose) encontró **3 bugs restantes relacionados**:
+
+**1) `_findAsigDelCliente` (línea 20068-20096) y `_fusionarAsigDelSkuAlPedido` (línea 18407-18444) tenían el mismo bug de sobre-promesa que v1123 arregló en el modal "Pedido en espera".** El fix v1123 solo cubrió `_renderClienteAllOpenLines`; el modal "ASIG obligatorio" (gate antes de "Pasar a Pendientes") seguía mostrando `qtyOpen` entero del BO y recicleaba toda la línea aunque solo 1u estuviera backeada por stock.
+
+**2) `computeVirtualAsigFifo` sumaba TODAS las lineas ASIG como committed sin aplicar `lineReservesStock` (v976)**. ASIG expiradas (`asigAt > 15d`) y de clientes B/C (`asigReserva=false`) descontaban del físico, sub-promoviendo BOs legítimos. Precedente v976 ya aplicó este filtro a `getStockRealmenteDisponible`; la fn nueva lo ignoraba.
+
+**3) Double-click sobre "Agregar completo (N)"** permitía consumir 2x antes del snapshot re-render, porque los botones DOM seguían activos durante el await Firestore.
+
+**Fixes shipped**:
+- `src/pure/virtual-asig-fifo.js` acepta `nowMs` opcional + aplica `lineReservesStock` (filtra ASIG expiradas, BO expirados, asigReserva=false). Backwards-compat: sin `nowMs`, mantiene comportamiento v1123.
+- `_findAsigDelCliente` ahora precalcula `virtualAsigMap` global y emite rows con `qtyOpen=virtualAsigQty` + `fullBoQty=qo` para virtual ASIG. Rows ASIG real sin cambios.
+- `_showAsigResolveModal` muestra badge "VIRTUAL ASIG" + banner amarillo "N u disp de M u BO — sin reserva committed". Botón **Eliminar** oculto para virtual (no hay reserva committed). Botón **Parcial** oculto si `qty=1`.
+- Batch commit de `_asigResolveApply` respeta `isVirtualAsig`+`fullBoQty`: consume solo `qtyToAdd`, el resto queda `state='BO'` esperando reposición.
+- `window._asigResolveLocks` Set previene double-click en `_asigInlineResolve`. Liberado en finally.
+
+**Tests**: 5 nuevos en `virtual-asig-fifo.test.js` (asigReserva=false, asigAt expirada, ASIG fresca, BO expirado, backwards-compat sin nowMs). Total 22/22.
+
+**Precedente**: v1123 (ayer mismo) fue incompleto. Lesson: auditoría multi-agente ANTES de mergear fixes grandes.
+
+---
 
 ### v1123 (2026-10-01) — Virtual ASIG FIFO cross-cliente: fix "4u disp" cuando solo hay 1u real
 
