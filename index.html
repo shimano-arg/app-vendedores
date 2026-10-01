@@ -5948,7 +5948,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1122';
+const APP_VERSION = 'v1123';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18056,6 +18056,17 @@ function _renderClienteAllOpenLines(w){
   // aporta al flow de armar pedido en espera.
   const asignadoRows = [];
   const backorderRows = [];
+  // v1123 (2026-10-01): pre-aloca stock fisico a lineas BO con FIFO cross-cliente.
+  // Antes una linea state='BO' con stk>0 se promovia a "virtual ASIG" mostrando
+  // el qtyOpen COMPLETO (ej 4u) aunque el stock real fuera 1u — vendedor
+  // prometia 4u al cliente, se facturaba 1u. Peor, cross-cliente: 3 clientes
+  // con BO de 2u contra 1u real -> los 3 veian "2u virtual ASIG". Fix: la fn
+  // pura computeVirtualAsigFifo (phase0.pure) descuenta ASIG committed del
+  // fisico y asigna el remanente FIFO por pedido.createdAt. Linea BO se parte
+  // en (virtualAsigQty, virtualBoQty) → asignadoRows + backorderRows separados.
+  const _virtualAsigMap = (getStk && window.__phase0 && window.__phase0.pure && window.__phase0.pure.computeVirtualAsigFifo)
+    ? window.__phase0.pure.computeVirtualAsigFifo(globalPedidos, (sku) => getStk(sku) || 0)
+    : new Map();
   for (const p of globalPedidos) {
     if (!p || p.closedAt) continue;
     if (String(p.clientCardCode || '').trim() !== cc) continue;
@@ -18093,12 +18104,19 @@ function _renderClienteAllOpenLines(w){
           backorderRows.push(row);
         }
       } else if (l.state === 'BO') {
-        const stk = getStk ? (getStk(l.code) || 0) : 0;
-        if (stk > 0) {
-          row.isVirtualAsig = true;
-          asignadoRows.push(row);
-        } else {
-          backorderRows.push(row);
+        // v1123: split FIFO. virtualAsigQty = lo que esta backeado por stock
+        // fisico (post descuento ASIG committed y clientes mas viejos).
+        const virtualAsigQty = _virtualAsigMap.get(`${pedidoId}:${idx}`) || 0;
+        const virtualBoQty = qo - virtualAsigQty;
+        if (virtualAsigQty > 0) {
+          asignadoRows.push(Object.assign({}, row, {
+            qtyOpen: virtualAsigQty,
+            isVirtualAsig: true,
+            fullBoQty: qo, // ref al qty original del BO para _asigInlineResolve
+          }));
+        }
+        if (virtualBoQty > 0) {
+          backorderRows.push(Object.assign({}, row, { qtyOpen: virtualBoQty }));
         }
       }
       // v791: state='confirmed' se ignora — ya se envio a SAP, no accionable.
@@ -18148,32 +18166,46 @@ function _renderClienteAllOpenLines(w){
       if (it.desc) desc.textContent = it.desc; else desc.style.display = 'none';
       const meta = document.createElement('div');
       meta.style.cssText = 'color:var(--text-muted);font-size:9.5px;margin-top:2px';
-      const lbl = it.isVirtualAsig ? 'BO + stock disp (virtual ASIG)' : 'ASIG';
-      meta.textContent = lbl + ' · ' + it.qtyOpen + ' u · ' + (it.orderNumber ? ('ORDEN ' + it.orderNumber) : ('pedido ' + String(it.pedidoId).slice(0, 6)));
+      // v1123: cuando es virtual ASIG, aclarar "N de M pedidos" para que el
+      // vendedor sepa que el BO original era M pero el stock fisico alcanza
+      // solo para N. Evita que prometa M al cliente.
+      const lbl = it.isVirtualAsig
+        ? ('BO + stock disp (virtual ASIG) · ' + it.qtyOpen + ' u de ' + (it.fullBoQty || it.qtyOpen) + ' u BO')
+        : ('ASIG · ' + it.qtyOpen + ' u');
+      meta.textContent = lbl + ' · ' + (it.orderNumber ? ('ORDEN ' + it.orderNumber) : ('pedido ' + String(it.pedidoId).slice(0, 6)));
       left.appendChild(code); left.appendChild(desc); left.appendChild(meta);
       row.appendChild(left);
       const tag = document.createElement('span');
       tag.style.cssText = 'flex-shrink:0;background:#dcfce7;color:#14532d;padding:4px 8px;border-radius:4px;font-size:10.5px;font-weight:800';
       tag.textContent = it.qtyOpen + ' u';
       row.appendChild(tag);
-      const btnDel = document.createElement('button');
-      btnDel.type = 'button';
-      btnDel.textContent = 'Eliminar';
-      btnDel.style.cssText = 'flex-shrink:0;background:var(--color-danger-bg);color:var(--color-danger-strong);border:1px solid #fca5a5;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
-      btnDel.onclick = () => _asigInlineResolve(w, it, 'delete');
-      row.appendChild(btnDel);
+      // v1123: Eliminar solo aplica a ASIG real (libera reserva committed).
+      // Para virtual ASIG no hay reserva — el stock esta disponible al mejor
+      // postor. Si el vendedor no quiere la porcion, basta con no agregarla.
+      if (!it.isVirtualAsig) {
+        const btnDel = document.createElement('button');
+        btnDel.type = 'button';
+        btnDel.textContent = 'Eliminar';
+        btnDel.style.cssText = 'flex-shrink:0;background:var(--color-danger-bg);color:var(--color-danger-strong);border:1px solid #fca5a5;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
+        btnDel.onclick = () => _asigInlineResolve(w, it, 'delete');
+        row.appendChild(btnDel);
+      }
       const btnFull = document.createElement('button');
       btnFull.type = 'button';
       btnFull.textContent = 'Agregar completo (' + it.qtyOpen + ')';
       btnFull.style.cssText = 'flex-shrink:0;background:var(--color-success-bg);color:var(--color-success);border:1px solid #86efac;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
       btnFull.onclick = () => _asigInlineResolve(w, it, 'full');
       row.appendChild(btnFull);
-      const btnPart = document.createElement('button');
-      btnPart.type = 'button';
-      btnPart.textContent = 'Parcial';
-      btnPart.style.cssText = 'flex-shrink:0;background:#dbeafe;color:var(--text-primary);border:1px solid #93c5fd;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
-      btnPart.onclick = () => _asigInlineResolve(w, it, 'partial');
-      row.appendChild(btnPart);
+      // v1123: Parcial de 1u no tiene sentido (solo hay 1 opcion). Ocultar
+      // cuando qtyOpen = 1 para evitar prompts ridiculos.
+      if (it.qtyOpen > 1) {
+        const btnPart = document.createElement('button');
+        btnPart.type = 'button';
+        btnPart.textContent = 'Parcial';
+        btnPart.style.cssText = 'flex-shrink:0;background:#dbeafe;color:var(--text-primary);border:1px solid #93c5fd;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
+        btnPart.onclick = () => _asigInlineResolve(w, it, 'partial');
+        row.appendChild(btnPart);
+      }
       asigBox.appendChild(row);
     }
   }
@@ -18270,17 +18302,30 @@ async function _asigInlineResolve(w, it, action){
   if (!w || !it || !it.pedidoId) return;
   let qtyToAdd = 0;
   let qtyRemaining = it.qtyOpen;
+  // v1123 (2026-10-01): para virtual ASIG (state='BO' promovido parcialmente
+  // porque hay stock fisico), it.qtyOpen = porcion backeada por stock (ej 1u)
+  // y it.fullBoQty = qty total del BO original (ej 4u). El resto queda state=BO.
+  // Para ASIG real, no hay fullBoQty: it.qtyOpen = reserva committed.
+  const isVirtualAsig = !!it.isVirtualAsig;
+  const originalLineQty = isVirtualAsig ? (Number(it.fullBoQty) || it.qtyOpen) : it.qtyOpen;
   if (action === 'full') {
     qtyToAdd = it.qtyOpen;
-    qtyRemaining = 0;
+    qtyRemaining = originalLineQty - qtyToAdd;
   } else if (action === 'partial') {
-    const raw = prompt('¿Cuántas de las ' + it.qtyOpen + ' unidades ASIG de ' + it.code + ' agregar al pedido?\n(el resto queda ASIG para el próximo pedido)', String(it.qtyOpen));
+    const promptMsg = isVirtualAsig
+      ? ('¿Cuántas de las ' + it.qtyOpen + ' u con stock disp de ' + it.code + ' agregar al pedido?\n(el resto queda BO esperando reposición)')
+      : ('¿Cuántas de las ' + it.qtyOpen + ' unidades ASIG de ' + it.code + ' agregar al pedido?\n(el resto queda ASIG para el próximo pedido)');
+    const raw = prompt(promptMsg, String(it.qtyOpen));
     if (!raw) return;
     const n = parseInt(raw, 10);
     if (!Number.isFinite(n) || n <= 0 || n > it.qtyOpen) { alert('Cantidad inválida. Debe ser entre 1 y ' + it.qtyOpen); return; }
     qtyToAdd = n;
-    qtyRemaining = it.qtyOpen - n;
+    qtyRemaining = originalLineQty - qtyToAdd;
   } else if (action === 'delete') {
+    // v1123: delete no esta disponible para virtual ASIG (no hay reserva que
+    // liberar — el stock esta al mejor postor). Guardia defensiva por si se
+    // dispara igual.
+    if (isVirtualAsig) { alert('Esta linea no tiene reserva committed. Si no la querés, simplemente no la agregues.'); return; }
     if (!confirm('Eliminar la reserva ASIG de ' + it.code + ' (' + it.qtyOpen + ' u)?\n\nLibera el stock al siguiente vendedor. Es PERMANENTE.')) return;
   }
   try {
@@ -18294,14 +18339,18 @@ async function _asigInlineResolve(w, it, action){
       l.qtyOpen = 0;
       l.qtyCancelled = (Number(l.qtyCancelled) || 0) + it.qtyOpen;
       l.state = 'cancelled';
-    } else if (action === 'full') {
-      l.qtyOpen = 0;
-      l.qtyRecycled = (Number(l.qtyRecycled) || 0) + qtyToAdd;
-      l.state = 'recycled';
-    } else if (action === 'partial') {
+    } else if (action === 'full' || action === 'partial') {
+      // v1123: para virtual ASIG, el "completo" solo consume la porcion backeada
+      // por stock; el resto del BO (originalLineQty - qtyToAdd) sigue en state=BO
+      // esperando reposicion. Para ASIG real, qtyRemaining > 0 implica partial.
       l.qtyOpen = qtyRemaining;
       l.qtyRecycled = (Number(l.qtyRecycled) || 0) + qtyToAdd;
-      l.state = qtyRemaining > 0 ? 'ASIG' : 'recycled';
+      if (qtyRemaining <= 0) {
+        l.state = 'recycled';
+      } else {
+        // ASIG real + partial -> queda ASIG. Virtual ASIG + full/partial -> queda BO.
+        l.state = isVirtualAsig ? 'BO' : 'ASIG';
+      }
     }
     lines[it.lineIndex] = l;
     await ref.update({ lines: lines, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });

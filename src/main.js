@@ -55,6 +55,7 @@ import {
   getStockRealmenteDisponible,
   lineReservesStock,
 } from './pure/stock-realmente-disponible.js';
+import { computeVirtualAsigFifo } from './pure/virtual-asig-fifo.js';
 import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
 import { createSapClient } from './sap-client.js';
 import { applySentryUserContext } from './sentry.js';
@@ -187,6 +188,7 @@ const phase0 = {
     getStockPorCliente,
     getStockPorClienteMemo,
     lineReservesStock,
+    computeVirtualAsigFifo,
     computeBackorderSkuMap,
     computeBackorderRawLines,
     canViewPanel,
