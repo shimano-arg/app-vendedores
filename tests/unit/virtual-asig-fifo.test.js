@@ -24,25 +24,19 @@ describe('computeVirtualAsigFifo', () => {
   });
 
   it('BO de 4u con stock 1u -> virtual ASIG = 1u (cap al stock disp)', () => {
-    const pedidos = [
-      mkPedido('p1', 'C1', [{ code: 'CU3801HGK', state: 'BO', qtyOpen: 4 }], 1000),
-    ];
+    const pedidos = [mkPedido('p1', 'C1', [{ code: 'CU3801HGK', state: 'BO', qtyOpen: 4 }], 1000)];
     const result = computeVirtualAsigFifo(pedidos, stockMap({ CU3801HGK: 1 }));
     expect(result.get('p1:0')).toBe(1);
   });
 
   it('BO con stock 0 -> no entra en el map (va a BACKORDER)', () => {
-    const pedidos = [
-      mkPedido('p1', 'C1', [{ code: 'SKU', state: 'BO', qtyOpen: 4 }], 1000),
-    ];
+    const pedidos = [mkPedido('p1', 'C1', [{ code: 'SKU', state: 'BO', qtyOpen: 4 }], 1000)];
     const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 0 }));
     expect(result.has('p1:0')).toBe(false);
   });
 
   it('BO con stock >= qtyOpen -> virtual ASIG = qtyOpen (sin cap)', () => {
-    const pedidos = [
-      mkPedido('p1', 'C1', [{ code: 'SKU', state: 'BO', qtyOpen: 2 }], 1000),
-    ];
+    const pedidos = [mkPedido('p1', 'C1', [{ code: 'SKU', state: 'BO', qtyOpen: 2 }], 1000)];
     const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 10 }));
     expect(result.get('p1:0')).toBe(2);
   });
@@ -92,7 +86,9 @@ describe('computeVirtualAsigFifo', () => {
 
   it('pedidos con closedAt se ignoran (ni consumen stock ni compiten)', () => {
     const pedidos = [
-      mkPedido('pClosed', 'C1', [{ code: 'SKU', state: 'ASIG', qtyOpen: 100 }], 500, { seconds: 1 }),
+      mkPedido('pClosed', 'C1', [{ code: 'SKU', state: 'ASIG', qtyOpen: 100 }], 500, {
+        seconds: 1,
+      }),
       mkPedido('pOpen', 'C2', [{ code: 'SKU', state: 'BO', qtyOpen: 2 }], 1000),
     ];
     const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 2 }));
@@ -101,13 +97,18 @@ describe('computeVirtualAsigFifo', () => {
 
   it('lines con state distinto a ASIG/BO se ignoran (confirmed, pending, recycled, cancelled)', () => {
     const pedidos = [
-      mkPedido('p1', 'C1', [
-        { code: 'SKU', state: 'confirmed', qtyOpen: 100 },
-        { code: 'SKU', state: 'pending', qtyOpen: 100 },
-        { code: 'SKU', state: 'recycled', qtyOpen: 100 },
-        { code: 'SKU', state: 'cancelled', qtyOpen: 100 },
-        { code: 'SKU', state: 'BO', qtyOpen: 3 },
-      ], 1000),
+      mkPedido(
+        'p1',
+        'C1',
+        [
+          { code: 'SKU', state: 'confirmed', qtyOpen: 100 },
+          { code: 'SKU', state: 'pending', qtyOpen: 100 },
+          { code: 'SKU', state: 'recycled', qtyOpen: 100 },
+          { code: 'SKU', state: 'cancelled', qtyOpen: 100 },
+          { code: 'SKU', state: 'BO', qtyOpen: 3 },
+        ],
+        1000
+      ),
     ];
     const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 10 }));
     expect(result.get('p1:4')).toBe(3);
@@ -115,11 +116,16 @@ describe('computeVirtualAsigFifo', () => {
 
   it('qtyOpen <= 0 o code vacio se ignoran', () => {
     const pedidos = [
-      mkPedido('p1', 'C1', [
-        { code: 'SKU', state: 'BO', qtyOpen: 0 },
-        { code: '', state: 'BO', qtyOpen: 5 },
-        { code: 'SKU', state: 'BO', qtyOpen: 2 },
-      ], 1000),
+      mkPedido(
+        'p1',
+        'C1',
+        [
+          { code: 'SKU', state: 'BO', qtyOpen: 0 },
+          { code: '', state: 'BO', qtyOpen: 5 },
+          { code: 'SKU', state: 'BO', qtyOpen: 2 },
+        ],
+        1000
+      ),
     ];
     const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 10 }));
     expect(result.get('p1:2')).toBe(2);
@@ -128,9 +134,7 @@ describe('computeVirtualAsigFifo', () => {
   });
 
   it('SKU case-insensitive para el matching con stock', () => {
-    const pedidos = [
-      mkPedido('p1', 'C1', [{ code: 'cu3801hgk', state: 'BO', qtyOpen: 4 }], 1000),
-    ];
+    const pedidos = [mkPedido('p1', 'C1', [{ code: 'cu3801hgk', state: 'BO', qtyOpen: 4 }], 1000)];
     const result = computeVirtualAsigFifo(pedidos, stockMap({ CU3801HGK: 1 }));
     expect(result.get('p1:0')).toBe(1);
   });
@@ -158,10 +162,15 @@ describe('computeVirtualAsigFifo', () => {
 
   it('un mismo pedido con 2 lineas BO del mismo SKU: ambas lineas allocan FIFO en orden de index', () => {
     const pedidos = [
-      mkPedido('p1', 'C1', [
-        { code: 'SKU', state: 'BO', qtyOpen: 3 },
-        { code: 'SKU', state: 'BO', qtyOpen: 5 },
-      ], 1000),
+      mkPedido(
+        'p1',
+        'C1',
+        [
+          { code: 'SKU', state: 'BO', qtyOpen: 3 },
+          { code: 'SKU', state: 'BO', qtyOpen: 5 },
+        ],
+        1000
+      ),
     ];
     const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 4 }));
     // Primera linea: 3u (completa). Segunda: 1u (lo que queda).
@@ -171,9 +180,7 @@ describe('computeVirtualAsigFifo', () => {
 
   it('escenario Alan Oscar Nicolas Rodriguez: 4u BO con stock 1u -> 1u virtual + 3u BO real', () => {
     const pedidos = [
-      mkPedido('K88WVs', 'C_ALAN', [
-        { code: 'CU3801HGK', state: 'BO', qtyOpen: 4 },
-      ], 1700000000000),
+      mkPedido('K88WVs', 'C_ALAN', [{ code: 'CU3801HGK', state: 'BO', qtyOpen: 4 }], 1700000000000),
     ];
     const result = computeVirtualAsigFifo(pedidos, stockMap({ CU3801HGK: 1 }));
     expect(result.get('K88WVs:0')).toBe(1);
