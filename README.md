@@ -4673,7 +4673,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1124
+## 41) Changelog v300 → v1125
+
+### v1125 (2026-10-01) — Fix visual: amarillo repeat-sku no se pisa con Disponible SAP / Pedido Final
+
+Reportado por Mariano con screenshot: en el modal "Pedido en espera", la fila con `tr.repeat-sku` (naranja pastel `#fff7ed`, indica SKU ya pedido por el mismo cliente antes) quedaba cortada visualmente porque las columnas "Disponible SAP" (`td.disp-sap-col`, verde `!important` de v575) y "Pedido Final" (inline `#dbeafe` de v787) pisaban el fondo del row.
+
+**Fix** (`index.html`):
+- Columna "Pedido Final" ahora usa class `pedido-final-col` en vez de inline `style.background`. Permite que CSS rules de mayor specificity ganen.
+- Nuevas rules CSS: cuando la fila es `repeat-sku` / `warn-quiebra` / `warn-duplicado`, las 2 columnas destacadas (disp-sap-col + pedido-final-col) toman el fondo del row (naranja / amarillo / rojo pastel) con `!important`. El color de texto también se adapta para mantener contraste.
+- Combo `repeat-sku.exceed` / `repeat-sku.warn-duplicado` -> fondo rojo pastel.
+
+Precedente v575 (fondo verde Disponible SAP siempre visible) se preserva para filas "normales" — solo cambia cuando hay un flag de warning explícito en el row. Es un refinamiento del intent original de Mariano, no reversión.
+
+---
 
 ### v1124 (2026-10-01) — Virtual ASIG completo: modal "ASIG obligatorio", fusión + lineReservesStock + lock double-click
 
