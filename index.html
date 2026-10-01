@@ -5948,7 +5948,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1123';
+const APP_VERSION = 'v1124';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18065,7 +18065,7 @@ function _renderClienteAllOpenLines(w){
   // fisico y asigna el remanente FIFO por pedido.createdAt. Linea BO se parte
   // en (virtualAsigQty, virtualBoQty) → asignadoRows + backorderRows separados.
   const _virtualAsigMap = (getStk && window.__phase0 && window.__phase0.pure && window.__phase0.pure.computeVirtualAsigFifo)
-    ? window.__phase0.pure.computeVirtualAsigFifo(globalPedidos, (sku) => getStk(sku) || 0)
+    ? window.__phase0.pure.computeVirtualAsigFifo(globalPedidos, (sku) => getStk(sku) || 0, Date.now())
     : new Map();
   for (const p of globalPedidos) {
     if (!p || p.closedAt) continue;
@@ -18298,8 +18298,20 @@ function _renderE4BAsigApp(w){
 // parcial al waitlist. Mismo comportamiento que el modal ASIG obligatorio de
 // waitlistPasarAPendientes (v701) pero disparado desde la seccion azul del
 // modal Pedido en Espera, sin bloquear al vendedor.
+// v1124 (2026-10-01): lock de resolucion por linea para prevenir double-click.
+// Antes el vendedor podia clickear "Agregar completo (1)" dos veces antes de
+// que el onSnapshot re-renderizara (botones DOM todavia activos) -> virtual
+// ASIG consumido 2x del stock fisico. Set-based lock keyed por pedidoId:lineIndex.
+if (typeof window._asigResolveLocks === 'undefined') window._asigResolveLocks = new Set();
+
 async function _asigInlineResolve(w, it, action){
   if (!w || !it || !it.pedidoId) return;
+  const lockKey = `${it.pedidoId}:${it.lineIndex}`;
+  if (window._asigResolveLocks.has(lockKey)) {
+    console.warn('_asigInlineResolve: lock activo para', lockKey, '— skip double-click');
+    return;
+  }
+  window._asigResolveLocks.add(lockKey);
   let qtyToAdd = 0;
   let qtyRemaining = it.qtyOpen;
   // v1123 (2026-10-01): para virtual ASIG (state='BO' promovido parcialmente
@@ -18316,17 +18328,17 @@ async function _asigInlineResolve(w, it, action){
       ? ('¿Cuántas de las ' + it.qtyOpen + ' u con stock disp de ' + it.code + ' agregar al pedido?\n(el resto queda BO esperando reposición)')
       : ('¿Cuántas de las ' + it.qtyOpen + ' unidades ASIG de ' + it.code + ' agregar al pedido?\n(el resto queda ASIG para el próximo pedido)');
     const raw = prompt(promptMsg, String(it.qtyOpen));
-    if (!raw) return;
+    if (!raw) { window._asigResolveLocks.delete(lockKey); return; }
     const n = parseInt(raw, 10);
-    if (!Number.isFinite(n) || n <= 0 || n > it.qtyOpen) { alert('Cantidad inválida. Debe ser entre 1 y ' + it.qtyOpen); return; }
+    if (!Number.isFinite(n) || n <= 0 || n > it.qtyOpen) { alert('Cantidad inválida. Debe ser entre 1 y ' + it.qtyOpen); window._asigResolveLocks.delete(lockKey); return; }
     qtyToAdd = n;
     qtyRemaining = originalLineQty - qtyToAdd;
   } else if (action === 'delete') {
     // v1123: delete no esta disponible para virtual ASIG (no hay reserva que
     // liberar — el stock esta al mejor postor). Guardia defensiva por si se
     // dispara igual.
-    if (isVirtualAsig) { alert('Esta linea no tiene reserva committed. Si no la querés, simplemente no la agregues.'); return; }
-    if (!confirm('Eliminar la reserva ASIG de ' + it.code + ' (' + it.qtyOpen + ' u)?\n\nLibera el stock al siguiente vendedor. Es PERMANENTE.')) return;
+    if (isVirtualAsig) { alert('Esta linea no tiene reserva committed. Si no la querés, simplemente no la agregues.'); window._asigResolveLocks.delete(lockKey); return; }
+    if (!confirm('Eliminar la reserva ASIG de ' + it.code + ' (' + it.qtyOpen + ' u)?\n\nLibera el stock al siguiente vendedor. Es PERMANENTE.')) { window._asigResolveLocks.delete(lockKey); return; }
   }
   try {
     const ref = fbDb.collection('pedidos').doc(it.pedidoId);
@@ -18396,6 +18408,10 @@ async function _asigInlineResolve(w, it, action){
   } catch(e) {
     console.error('_asigInlineResolve', e);
     alert('Error: ' + (e.message || e));
+  } finally {
+    // v1124: liberar el lock para permitir futuras resoluciones de la misma
+    // linea (p.ej. partial consumption staged).
+    window._asigResolveLocks.delete(lockKey);
   }
 }
 
@@ -20037,6 +20053,13 @@ window._findAsigDelCliente = function(clientName, clientCardCode){
   // FIFOAssign) los promueva a ASIG. La UI STOCK ASIG los muestra igual via FIFO
   // virtual — por consistencia, esta seccion tambien.
   const getStk = (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : null;
+  // v1124 (2026-10-01): usar FIFO cross-cliente para splittear BO lines.
+  // Antes esta fn pusheaba qtyOpen entero del BO como "virtual ASIG" cuando
+  // getStk(sku)>0 — identico bug que v1123 arreglo en el modal "Pedido en
+  // espera". Ahora precalculamos el map global una vez y filtramos por linea.
+  const _virtualAsigMap = (getStk && window.__phase0 && window.__phase0.pure && window.__phase0.pure.computeVirtualAsigFifo)
+    ? window.__phase0.pure.computeVirtualAsigFifo(globalPedidos, (sku) => getStk(sku) || 0, Date.now())
+    : new Map();
   for (const p of globalPedidos) {
     if (!p || p.closedAt) continue;
     // v759 (2026-08-31): FIX bug filtro cliente demasiado permisivo.
@@ -20065,34 +20088,48 @@ window._findAsigDelCliente = function(clientName, clientCardCode){
       continue;
     }
     const lines = Array.isArray(p.lines) ? p.lines : [];
+    const pedidoId = p._fsId || p._id || '';
     lines.forEach((l, idx) => {
       if (!l) return;
       const qo = Number(l.qtyOpen) || 0;
       if (qo <= 0) return;
-      let isVirtualAsig = false;
       if (l.state === 'ASIG') {
-        // Reserva firme por E4.5.
+        // Reserva firme por E4.5 — qty = qtyOpen entero.
+        out.push({
+          pedidoId,
+          pedidoOrden: p.orderNumber || null,
+          lineIndex: idx,
+          code: l.code,
+          desc: l.desc || '',
+          qtyOpen: qo,
+          priceAtCreation: Number(l.priceAtCreation || l.precio || 0),
+          state: l.state,
+          isVirtualAsig: false,
+        });
       } else if (l.state === 'BO') {
-        // Virtual ASIG solo si el SKU tiene stock disponible dep 11 (evita
-        // mostrar todo el backorder pendiente sin stock — eso NO es "asignado").
+        // v1124 (2026-10-01): usar computeVirtualAsigFifo para el split correcto.
+        // Antes se pusheaba qty=qtyOpen entero cuando getStk(sku)>0 — sobre-promesa
+        // identica al bug v1123 del modal "Pedido en espera". Ahora solo la
+        // porcion backeada por stock fisico (post ASIG committed + FIFO cross-
+        // cliente) se marca como virtual ASIG; la porcion sin stock se descarta
+        // (BO queda info-only, el gate "Pasar a Pendientes" no la ofrece como
+        // accionable — el vendedor puede cancelarla desde el modal principal).
         if (!getStk) return;
-        const stk = getStk(l.code) || 0;
-        if (stk <= 0) return;
-        isVirtualAsig = true;
-      } else {
-        return;
+        const virtualAsigQty = _virtualAsigMap.get(`${pedidoId}:${idx}`) || 0;
+        if (virtualAsigQty <= 0) return;
+        out.push({
+          pedidoId,
+          pedidoOrden: p.orderNumber || null,
+          lineIndex: idx,
+          code: l.code,
+          desc: l.desc || '',
+          qtyOpen: virtualAsigQty, // v1124: solo la porcion backeada por stock
+          fullBoQty: qo,            // qty total original del BO (para batch apply)
+          priceAtCreation: Number(l.priceAtCreation || l.precio || 0),
+          state: l.state,
+          isVirtualAsig: true,
+        });
       }
-      out.push({
-        pedidoId: p._fsId || p._id || '',
-        pedidoOrden: p.orderNumber || null,
-        lineIndex: idx,
-        code: l.code,
-        desc: l.desc || '',
-        qtyOpen: qo,
-        priceAtCreation: Number(l.priceAtCreation || l.precio || 0),
-        state: l.state,
-        isVirtualAsig,
-      });
     });
   }
   return out;
@@ -20130,16 +20167,28 @@ window._showAsigResolveModal = function(w, asigLines, onDone){
       const k = keyOf(l);
       const st = state[k];
       const done = !!st.action;
+      // v1124: virtual ASIG = porcion backeada por stock de una linea BO. No
+      // tiene reserva committed -> no se puede Eliminar; su "100%" es l.qtyOpen
+      // de l.fullBoQty total.
+      const isVirt = !!l.isVirtualAsig;
+      const subtitleQty = isVirt ? (l.qtyOpen + ' u disp (de ' + (l.fullBoQty || l.qtyOpen) + ' u BO)') : (l.qtyOpen + ' u asignadas');
       html += '<div style="border:1.5px solid ' + (done ? '#86efac' : '#e2e8f0') + ';border-radius:8px;padding:12px;margin-bottom:10px;background:' + (done ? '#f0fdf4' : '#fff') + '">';
       html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">';
-      html += '<div><div style="font-weight:700;font-size:13px">' + escapeHtml(l.code) + '</div>';
+      html += '<div><div style="font-weight:700;font-size:13px">' + escapeHtml(l.code) + (isVirt ? ' <span style="font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:3px;font-weight:800;letter-spacing:.3px">VIRTUAL ASIG</span>' : '') + '</div>';
       html += '<div style="font-size:11px;color:var(--text-muted)">' + escapeHtml(l.desc) + '</div></div>';
-      html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:20px;font-weight:800;color:var(--color-accent-violet)">' + l.qtyOpen + '</div><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">asignadas</div></div>';
+      html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:20px;font-weight:800;color:var(--color-accent-violet)">' + l.qtyOpen + '</div><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase">' + (isVirt ? 'disp' : 'asignadas') + '</div></div>';
       html += '</div>';
+      if (isVirt) {
+        html += '<div style="font-size:10.5px;color:#78350f;margin-bottom:6px;background:#fef3c7;border:1px solid #fde68a;padding:4px 8px;border-radius:4px">' + escapeHtml(subtitleQty) + ' — sin reserva committed, al mejor postor</div>';
+      }
       html += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">';
-      html += '<button onclick="window._asigLineChoose(' + i + ',\'delete\')" style="background:' + (st.action==='delete'?'#dc2626':'#fee2e2') + ';color:' + (st.action==='delete'?'#fff':'#991b1b') + ';border:1px solid #fca5a5;border-radius:5px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer">Eliminar</button>';
+      if (!isVirt) {
+        html += '<button onclick="window._asigLineChoose(' + i + ',\'delete\')" style="background:' + (st.action==='delete'?'#dc2626':'#fee2e2') + ';color:' + (st.action==='delete'?'#fff':'#991b1b') + ';border:1px solid #fca5a5;border-radius:5px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer">Eliminar</button>';
+      }
       html += '<button onclick="window._asigLineChoose(' + i + ',\'full\')" style="background:' + (st.action==='full'?'#16a34a':'#dcfce7') + ';color:' + (st.action==='full'?'#fff':'#166534') + ';border:1px solid #86efac;border-radius:5px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer">&#10003; Agregar completo (' + l.qtyOpen + ')</button>';
-      html += '<button onclick="window._asigLineChoose(' + i + ',\'partial\')" style="background:' + (st.action==='partial'?'#0284c7':'#dbeafe') + ';color:' + (st.action==='partial'?'#fff':'#1e40af') + ';border:1px solid #93c5fd;border-radius:5px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer">Parcial</button>';
+      if (l.qtyOpen > 1) {
+        html += '<button onclick="window._asigLineChoose(' + i + ',\'partial\')" style="background:' + (st.action==='partial'?'#0284c7':'#dbeafe') + ';color:' + (st.action==='partial'?'#fff':'#1e40af') + ';border:1px solid #93c5fd;border-radius:5px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer">Parcial</button>';
+      }
       if (st.action === 'partial') {
         html += '<input type="number" min="1" max="' + l.qtyOpen + '" value="' + st.partialQty + '" oninput="window._asigLinePartialQty(' + i + ', this.value)" style="width:70px;padding:4px 6px;border:1px solid #93c5fd;border-radius:4px;font-size:12px">';
         html += '<span style="font-size:10px;color:var(--text-muted)">agregar / quedan ' + (l.qtyOpen - st.partialQty) + '</span>';
@@ -20172,11 +20221,22 @@ window._showAsigResolveModal = function(w, asigLines, onDone){
   window._asigResolveApply = () => {
     const mods = asigLines.map(l => {
       const st = state[keyOf(l)];
+      // v1124: para virtual ASIG, el "100%" visible al vendedor es la porcion
+      // backeada por stock (l.qtyOpen), pero la LINEA original Firestore tiene
+      // qtyOpen = l.fullBoQty. Al aplicar full/partial, reducimos sobre fullBoQty
+      // y la linea sigue state='BO' con el remanente. Para ASIG real, fullBoQty
+      // no esta seteado y qtyOpen = reserva committed.
+      const originalLineQty = l.isVirtualAsig ? (Number(l.fullBoQty) || l.qtyOpen) : l.qtyOpen;
+      const qtyToAdd = st.action === 'full' ? l.qtyOpen : (st.action === 'partial' ? st.partialQty : 0);
+      const qtyRemaining = (st.action === 'full' || st.action === 'partial')
+        ? (originalLineQty - qtyToAdd)
+        : 0;
       return {
         pedidoId: l.pedidoId, lineIndex: l.lineIndex, code: l.code,
         priceAtCreation: l.priceAtCreation, desc: l.desc, qtyOpen: l.qtyOpen,
-        action: st.action, qtyToAdd: st.action === 'full' ? l.qtyOpen : (st.action === 'partial' ? st.partialQty : 0),
-        qtyRemaining: st.action === 'full' ? 0 : (st.action === 'partial' ? (l.qtyOpen - st.partialQty) : 0),
+        isVirtualAsig: !!l.isVirtualAsig,
+        fullBoQty: Number(l.fullBoQty) || 0,
+        action: st.action, qtyToAdd, qtyRemaining,
       };
     });
     window._closeAsigResolveModal();
@@ -20325,18 +20385,23 @@ window.waitlistPasarAPendientes = async function(){
               if (!lines[m.lineIndex]) continue;
               const l = Object.assign({}, lines[m.lineIndex]);
               if (m.action === 'delete') {
+                // v1124: delete no aplica a virtual ASIG (no hay reserva committed
+                // que liberar). Si llega por error, skip defensivo.
+                if (m.isVirtualAsig) continue;
                 l.qtyOpen = 0;
                 l.qtyCancelled = (Number(l.qtyCancelled) || 0) + m.qtyOpen;
                 l.state = 'cancelled';
-              } else if (m.action === 'full') {
-                l.qtyOpen = 0;
-                l.qtyRecycled = (Number(l.qtyRecycled) || 0) + m.qtyOpen;
-                l.state = 'recycled';
-              } else if (m.action === 'partial') {
+              } else if (m.action === 'full' || m.action === 'partial') {
+                // v1124: para virtual ASIG, qtyRemaining = fullBoQty - qtyToAdd;
+                // la linea sigue state='BO' hasta que se consuma todo. Para ASIG
+                // real, qtyRemaining > 0 implica partial -> estado sigue ASIG.
                 l.qtyOpen = m.qtyRemaining;
                 l.qtyRecycled = (Number(l.qtyRecycled) || 0) + m.qtyToAdd;
-                // state sigue ASIG si queda qtyOpen; sino recycled.
-                l.state = m.qtyRemaining > 0 ? 'ASIG' : 'recycled';
+                if (m.qtyRemaining <= 0) {
+                  l.state = 'recycled';
+                } else {
+                  l.state = m.isVirtualAsig ? 'BO' : 'ASIG';
+                }
               }
               lines[m.lineIndex] = l;
               batch.update(ref, { lines: lines });

@@ -185,4 +185,90 @@ describe('computeVirtualAsigFifo', () => {
     const result = computeVirtualAsigFifo(pedidos, stockMap({ CU3801HGK: 1 }));
     expect(result.get('K88WVs:0')).toBe(1);
   });
+
+  // v1124 (2026-10-01): fix C2 reportado por el agente auditor — la fn pre-v1124
+  // sumaba todas las lineas ASIG como committed sin aplicar lineReservesStock,
+  // asi que ASIG expiradas (asigAt > 15d) y de clientes B/C (asigReserva=false)
+  // sub-promovian BOs legitimos. Ahora acepta nowMs opcional y aplica el filtro.
+
+  const NOW_MS = 1700000000000; // 2023-11-14 fija para los tests
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const FRESH_BO = NOW_MS - 3 * DAY_MS; // BOs frescos para no caer en v1124 BO expiration
+  const FRESH_BO_OLD = NOW_MS - 5 * DAY_MS;
+
+  it('v1124: ASIG con asigReserva=false NO consume stock (cliente B/C)', () => {
+    const pedidos = [
+      mkPedido(
+        'pAsigBC',
+        'C_BC',
+        [{ code: 'SKU', state: 'ASIG', qtyOpen: 10, asigReserva: false }],
+        FRESH_BO_OLD
+      ),
+      mkPedido('pBo', 'C_A', [{ code: 'SKU', state: 'BO', qtyOpen: 5 }], FRESH_BO),
+    ];
+    const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 5 }), NOW_MS);
+    // ASIG de B/C no reserva -> todo el fisico va al BO del cliente A.
+    expect(result.get('pBo:0')).toBe(5);
+  });
+
+  it('v1124: ASIG expirada (asigAt > 15d atras) NO consume stock', () => {
+    const expiredAsigAt = NOW_MS - 20 * DAY_MS; // 20 dias atras
+    const pedidos = [
+      mkPedido(
+        'pExp',
+        'C1',
+        [{ code: 'SKU', state: 'ASIG', qtyOpen: 10, asigAt: expiredAsigAt }],
+        FRESH_BO_OLD
+      ),
+      mkPedido('pBo', 'C2', [{ code: 'SKU', state: 'BO', qtyOpen: 3 }], FRESH_BO),
+    ];
+    const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 3 }), NOW_MS);
+    expect(result.get('pBo:0')).toBe(3);
+  });
+
+  it('v1124: ASIG fresca (asigAt <= 15d) SI consume stock (regresion check)', () => {
+    const freshAsigAt = NOW_MS - 5 * DAY_MS; // 5 dias atras
+    const pedidos = [
+      mkPedido(
+        'pAsig',
+        'C1',
+        [{ code: 'SKU', state: 'ASIG', qtyOpen: 3, asigAt: freshAsigAt }],
+        FRESH_BO_OLD
+      ),
+      mkPedido('pBo', 'C2', [{ code: 'SKU', state: 'BO', qtyOpen: 5 }], FRESH_BO),
+    ];
+    const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 5 }), NOW_MS);
+    // ASIG fresca consume 3; BO solo recibe 2.
+    expect(result.get('pBo:0')).toBe(2);
+  });
+
+  it('v1124: BO expirado (pedido.createdAt > 15d) NO cuenta en FIFO (es cola muerta)', () => {
+    const expiredCreatedAt = NOW_MS - 20 * DAY_MS;
+    const freshCreatedAt = NOW_MS - 2 * DAY_MS;
+    const pedidos = [
+      mkPedido('pBoExp', 'C1', [{ code: 'SKU', state: 'BO', qtyOpen: 3 }], expiredCreatedAt),
+      mkPedido('pBoFresh', 'C2', [{ code: 'SKU', state: 'BO', qtyOpen: 2 }], freshCreatedAt),
+    ];
+    const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 2 }), NOW_MS);
+    // BO expirado NO reserva ni compite; el fresco gana el stock.
+    expect(result.has('pBoExp:0')).toBe(false);
+    expect(result.get('pBoFresh:0')).toBe(2);
+  });
+
+  it('v1124: sin nowMs sigue comportamiento previo (no filtra, backwards compat)', () => {
+    const oldAsigAt = Date.now() - 30 * DAY_MS;
+    const pedidos = [
+      mkPedido(
+        'pAsig',
+        'C1',
+        [{ code: 'SKU', state: 'ASIG', qtyOpen: 3, asigAt: oldAsigAt }],
+        1000
+      ),
+      mkPedido('pBo', 'C2', [{ code: 'SKU', state: 'BO', qtyOpen: 5 }], 2000),
+    ];
+    // Sin nowMs -> no se aplica filtro de edad; ASIG vieja sigue consumiendo.
+    const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 3 }));
+    // Pre-v1124 behavior: ASIG consume 3, BO no recibe.
+    expect(result.has('pBo:0')).toBe(false);
+  });
 });
