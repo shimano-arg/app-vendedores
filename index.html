@@ -5968,7 +5968,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1127';
+const APP_VERSION = 'v1128';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27920,6 +27920,25 @@ function renderPlannerCard(pedido, column) {
   const cliente = escapeHtml(pedido.clientName || pedido.cardName || pedido.clientCardCode || pedido.cardCode || '(sin cliente)');
   const vdi = escapeHtml(pedido.ownerVendor || pedido.vendorKey || '—');
   const fecha = _plannerFmtDate(pedido.createdAt || pedido.updatedAt);
+  // v???(2026-10-02): badge "📅 <fecha> · <edad>" muestra cuanto hace que el
+  // pedido entra a la columna actual. Pure fns en src/pure/planner-column-age.js
+  // (window.__phase0.pure.columnEnteredAt/formatAge) con fallback progresivo
+  // para pedidos viejos sin cobradoAt/firstInvoicedAt.
+  var _ageBadgeHtml = '';
+  try {
+    var _pureAge = window.__phase0 && window.__phase0.pure;
+    if (_pureAge && typeof _pureAge.columnEnteredAt === 'function') {
+      var _enteredMs = _pureAge.columnEnteredAt(pedido, column);
+      if (_enteredMs != null) {
+        var _ageTxt = _pureAge.formatAge(_enteredMs);
+        var _enteredFecha = _plannerFmtDate(_enteredMs);
+        _ageBadgeHtml =
+          '<div class="planner-card-age" style="font-size:11px;color:#8a8a8e;margin-top:2px;letter-spacing:-0.01em;">' +
+            '📅 ' + escapeHtml(_enteredFecha) + ' · ' + escapeHtml(_ageTxt) +
+          '</div>';
+      }
+    }
+  } catch (_errAge) { /* no-op: badge opcional */ }
   // v1018 (2026-09-22): totales del pedido con schema real de Firestore.
   // Precedencia: totalAmountArs (schema mas comun) -> netAmountArs (variante)
   // -> subtotalArs -> total/totalARS (legacy) -> compute desde lines.
@@ -27993,6 +28012,7 @@ function renderPlannerCard(pedido, column) {
       ' onclick="openPlannerCardModal(\'' + escapeHtml(pedido.id) + '\')">' +
       '<div class="planner-card-cliente">' + cliente + '</div>' +
       '<div class="planner-card-meta">' + vdi + ' · ' + escapeHtml(fecha) + '</div>' +
+      _ageBadgeHtml +
       '<div class="planner-card-total">' + escapeHtml(total) + '</div>' +
       '<div class="planner-card-badges">' + badgesHtml + '</div>' +
       togglesHtml +

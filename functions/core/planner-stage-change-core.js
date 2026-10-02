@@ -429,10 +429,19 @@ export async function handlePlannerStageChanged(event, deps) {
     text,
   });
 
-  // Step 10 — mark as sent in the document (idempotency record)
-  await event.data.after.ref.update({
+  // Step 10 — mark as sent in the document (idempotency record).
+  // Planner Kanban timestamp (Bug #2b — "cuánto tiempo lleva en Cobrado"):
+  // fallback cuando el pago se marca manual (drag en el Planner setea
+  // plannerStage='cobrado_*') sin que `sync-sap-payments` haya corrido todavía.
+  // Solo escribe cobradoAt si el pedido entró a 'cobrado' y aún no lo tenía.
+  /** @type {Record<string, any>} */
+  const updatePatch = {
     [`plannerEmails.${afterCol}`]: { sentAt: deps.now(), to: recipients.join(',') },
-  });
+  };
+  if (afterCol === 'cobrado' && !after.cobradoAt) {
+    updatePatch.cobradoAt = deps.now();
+  }
+  await event.data.after.ref.update(updatePatch);
 
   // Step 11 — log
   deps.log.info(`Planner email sent: ${afterCol} -> ${recipients.join(',')}`);

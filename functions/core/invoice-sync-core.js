@@ -369,6 +369,13 @@ export async function applyInvoiceMatch(deps, match) {
         appliedInvoiceDocEntries: [...applied, match.invoiceDocEntry],
       }),
     };
+    // Planner Kanban timestamp (Bug #1 — "cuánto tiempo lleva en Facturar"):
+    // registrar la primera vez que apareció una invoice para este pedido.
+    // Idempotente: solo se escribe cuando appliedInvoiceDocEntries estaba vacío
+    // ANTES de este match, y preserva la primera fecha ante invoices subsiguientes.
+    if (applied.length === 0 && !data.firstInvoicedAt) {
+      update.firstInvoicedAt = nowIso;
+    }
     let closed = false;
     if (!anyStillOpen && !data.closedAt) {
       update.closedAt = nowIso;
