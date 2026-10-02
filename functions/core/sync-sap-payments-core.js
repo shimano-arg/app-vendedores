@@ -204,12 +204,21 @@ export async function applyPaymentUpdate(deps, pedidoId, data, invoiceMap, invoi
     return { updated: false, missedCount, invoicedAmount, paidAmount, paidStatus };
   }
 
-  await deps.fbDb.collection('pedidos').doc(pedidoId).update({
+  const nowIso = new Date().toISOString();
+  /** @type {Record<string, any>} */
+  const patch = {
     invoicedAmount,
     paidAmount,
     paidStatus,
-    paidSyncedAt: new Date().toISOString(),
-  });
+    paidSyncedAt: nowIso,
+  };
+  // Planner Kanban timestamp (Bug #2a — "cuánto tiempo lleva en Cobrado"):
+  // registrar la primera vez que detectamos pago (paid|partial). Preserva la
+  // primera fecha aunque haya ajustes posteriores (nunca se sobrescribe).
+  if ((paidStatus === 'paid' || paidStatus === 'partial') && !data.cobradoAt) {
+    patch.cobradoAt = nowIso;
+  }
+  await deps.fbDb.collection('pedidos').doc(pedidoId).update(patch);
   return { updated: true, missedCount, invoicedAmount, paidAmount, paidStatus };
 }
 

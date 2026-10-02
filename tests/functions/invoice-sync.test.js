@@ -985,6 +985,63 @@ describe('applyInvoiceMatch (E5 active mode)', () => {
     expect(result.get(7002)).toBeUndefined();
   });
 
+  // Planner Kanban (Bug #1 — "cuánto tiempo lleva en Facturar"):
+  // la primera invoice aplicada escribe `firstInvoicedAt`. Invoices subsiguientes
+  // NO sobrescriben el valor (idempotente).
+  it('TIMESTAMP firstInvoicedAt: primera invoice setea ISO string válido', async () => {
+    const fbDb = makeFakeFbDb({ pedidos: [_pedido()] });
+    const deps = { fbDb, log: vi.fn() };
+    const match = {
+      invoiceDocEntry: 7701,
+      invoiceDocNum: 1,
+      invoiceDocDate: '',
+      cardCode: 'C001',
+      sqDocEntry: 999,
+      soDocEntry: 888,
+      pedidoAppId: 'P1',
+      lines: [{ itemCode: 'SKU-A', qty: 3, lineNum: 0 }],
+    };
+    const t0 = Date.now();
+    await applyInvoiceMatch(deps, match);
+    const t1 = Date.now();
+    const p = fbDb._store.pedidos[0].data;
+    expect(typeof p.firstInvoicedAt).toBe('string');
+    // ISO 8601 format check
+    expect(p.firstInvoicedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    const parsed = Date.parse(p.firstInvoicedAt);
+    expect(parsed).toBeGreaterThanOrEqual(t0);
+    expect(parsed).toBeLessThanOrEqual(t1);
+  });
+
+  it('TIMESTAMP firstInvoicedAt: segunda invoice NO sobrescribe el valor', async () => {
+    const fbDb = makeFakeFbDb({ pedidos: [_pedido()] });
+    const deps = { fbDb, log: vi.fn() };
+    const match1 = {
+      invoiceDocEntry: 7702,
+      invoiceDocNum: 1,
+      invoiceDocDate: '',
+      cardCode: 'C001',
+      sqDocEntry: 999,
+      soDocEntry: 888,
+      pedidoAppId: 'P1',
+      lines: [{ itemCode: 'SKU-A', qty: 3, lineNum: 0 }],
+    };
+    await applyInvoiceMatch(deps, match1);
+    const firstTs = fbDb._store.pedidos[0].data.firstInvoicedAt;
+    expect(firstTs).toBeTruthy();
+    // Pequeña espera para garantizar diferencia de timestamp si se sobrescribiera.
+    await new Promise((r) => setTimeout(r, 5));
+    const match2 = {
+      ...match1,
+      invoiceDocEntry: 7703,
+      lines: [{ itemCode: 'SKU-A', qty: 2, lineNum: 1 }],
+    };
+    await applyInvoiceMatch(deps, match2);
+    const after = fbDb._store.pedidos[0].data;
+    expect(after.firstInvoicedAt).toBe(firstTs);
+    expect(after.sapLinkage.appliedInvoiceDocEntries).toEqual([7702, 7703]);
+  });
+
   it('no re-abre pedido ya cerrado (idempotencia dura)', async () => {
     const closedAt = '2026-08-01T00:00:00Z';
     const fbDb = makeFakeFbDb({

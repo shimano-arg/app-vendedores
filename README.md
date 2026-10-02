@@ -4673,7 +4673,39 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1127
+## 41) Changelog v300 → v1128
+
+### v1128 (2026-10-02) — Planner card: badge "hace cuánto en esta columna" (2 packs paralelos)
+
+Pedido Mariano: medir cuánto tiempo lleva cada card en cada columna del Planner Kanban y cuánto tarda el proceso completo (card creada → facturada). Esta release trae iter 1: **badge compacto por card** `📅 2/10 · 3d` debajo del cliente/vendor. Iter 2 (breakdown total por card + métricas agregadas por columna) queda para cuando acumule data histórica.
+
+**Pack #5A — Backend: 2 timestamps nuevos en el pedido doc:**
+- `firstInvoicedAt` (ISO string) → seteado dentro del `runTransaction` de `applyInvoiceMatch` cuando `appliedInvoiceDocEntries` estaba vacío (= es la PRIMERA factura aplicada). Idempotente: nunca se sobreescribe. Permite al Planner saber cuándo el pedido entró a la columna "Pendiente de facturar". File: `functions/core/invoice-sync-core.js:378-384`.
+- `cobradoAt` (ISO string) → seteado desde 2 lugares complementarios:
+  - `functions/core/sync-sap-payments-core.js:207-222` cuando `paidStatus` pasa a `paid|partial` (vía SAP).
+  - `functions/core/planner-stage-change-core.js:433-444` cuando `plannerStage` entra a `cobrado_parcial|cobrado_full` por drag manual.
+  - Ambos preservan la primera fecha ante escrituras posteriores. Permite saber cuándo el pedido entró a "Cobrado".
+- **Tests nuevos**: 9 regression (2 firstInvoicedAt + 4 cobradoAt payments + 3 cobradoAt planner). Todos verdes.
+
+**Pack #5B — Frontend: pure fns + render:**
+- Nuevo módulo `src/pure/planner-column-age.js` con 2 pure fns:
+  - `columnEnteredAt(pedido, column?)` → ms del timestamp relevante según `computeColumn()`. Chain de fallback progresivo (`cobradoAt → paidAt → firstInvoicedAt → orderSyncedAt → transferredAt → createdAt`) para pedidos "viejos" sin los campos nuevos → degrada a "antigüedad total".
+  - `formatAge(ms, nowMs?)` → compacto español: `ahora`, `Nm`, `Nh`, `Nh Nm`, `Nd`, `Nd Nh`, `N mes/meses`, `N año/años`.
+- Helper `toMillisSafe` duplicado inline (null/number/Date/Firestore Timestamp/`{seconds,nanoseconds}`/ISO) para auto-contención — NO importa de `stock-realmente-disponible.js`. Deuda consciente: cuando dedupe-emos `lineReservesStock` (backlog), ese helper será compartido.
+- Expuesto en `window.__phase0.pure` via `src/main.js`.
+- Badge insertado en `renderPlannerCard` (`index.html:28012`) entre `planner-card-meta` y `planner-card-total`. Formato: `📅 2/10 · 3d`. Style inline minimal: `font-size:11px;color:#8a8a8e;margin-top:2px`. Try/catch defensivo: si la pure fn falla, badge omite (no rompe render).
+- **Tests nuevos**: 53 regression (boundaries + fallback por columna + Firestore Timestamp handling). 632/632 unit suite green.
+
+**Suite completa post-v1128**: 1081 tests, 1071 pass + 10 pre-existentes intactos (`auto-send-sap`, `planner-stage-change` case 5 por `canonVendor` v1081, no relacionados).
+
+**Behaviour con pedidos existentes**: los pedidos pre-v1128 no tienen `firstInvoicedAt` ni `cobradoAt` seteados. El badge muestra "antigüedad total" (desde `createdAt`) hasta que llegue la próxima factura o pago sync, momento en que el campo se completa y el badge pasa a mostrar tiempo-en-columna real. **No requiere backfill**: la lógica se auto-cura con el flujo normal del sync.
+
+**Deploy**: 3 CFs re-deployadas:
+- `syncSapInvoicesToApp` (invoice-sync-core)
+- `syncSapPaymentsToApp` (sync-sap-payments-core)
+- `onPlannerStageChanged` (planner-stage-change-core)
+
+---
 
 ### v1127 (2026-10-02) — Auditoría BO/ASIG parte 2: 6 IMPORTANT (2 packs paralelos)
 

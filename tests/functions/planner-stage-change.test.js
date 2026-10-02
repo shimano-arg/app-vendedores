@@ -458,6 +458,68 @@ describe('handlePlannerStageChanged', () => {
     expect(callArgs.subject).not.toContain('SO:');
   });
 
+  // Planner Kanban (Bug #2b — "cuánto tiempo lleva en Cobrado"):
+  // fallback cuando el pago se marca manual (drag → plannerStage='cobrado_*')
+  // sin que `sync-sap-payments` haya corrido todavía. Setea `cobradoAt` en el
+  // mismo update() que ya hace el handler para plannerEmails. Idempotente: si
+  // el pedido ya tenía cobradoAt, no se sobrescribe.
+  it('TIMESTAMP cobradoAt: pedido con paidStatus=null + plannerStage=cobrado_parcial → update patch incluye cobradoAt', async () => {
+    const before = { items: [] };
+    const after = {
+      items: [],
+      transferidoSAP: { docNum: 12345 },
+      plannerStage: 'cobrado_parcial',
+    };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    expect(event.data.after.ref.update).toHaveBeenCalledTimes(1);
+    const updateArg = event.data.after.ref.update.mock.calls[0][0];
+    expect(updateArg).toHaveProperty('plannerEmails.cobrado');
+    expect(updateArg).toHaveProperty('cobradoAt');
+    // Debe usar el now() inyectado
+    expect(updateArg.cobradoAt).toEqual(new Date('2026-09-22T12:00:00Z'));
+  });
+
+  it('TIMESTAMP cobradoAt: pedido con cobradoAt ya seteado → NO se incluye en el update patch', async () => {
+    const existingCobradoAt = new Date('2026-09-15T10:00:00Z');
+    const before = { items: [] };
+    const after = {
+      items: [],
+      transferidoSAP: { docNum: 12345 },
+      plannerStage: 'cobrado_full',
+      cobradoAt: existingCobradoAt,
+    };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    expect(event.data.after.ref.update).toHaveBeenCalledTimes(1);
+    const updateArg = event.data.after.ref.update.mock.calls[0][0];
+    expect(updateArg).toHaveProperty('plannerEmails.cobrado');
+    expect(updateArg.cobradoAt).toBeUndefined();
+  });
+
+  it('TIMESTAMP cobradoAt: transición a columna NO cobrado (oferta) → NO incluye cobradoAt', async () => {
+    const before = { items: [] };
+    const after = {
+      items: [],
+      transferidoSAP: { docNum: 12345 },
+    };
+    const event = makeEvent(before, after);
+    const deps = makeDeps();
+
+    await handlePlannerStageChanged(event, deps);
+
+    expect(event.data.after.ref.update).toHaveBeenCalledTimes(1);
+    const updateArg = event.data.after.ref.update.mock.calls[0][0];
+    expect(updateArg).toHaveProperty('plannerEmails.oferta');
+    expect(updateArg.cobradoAt).toBeUndefined();
+  });
+
   // Case 9: facturar + sendToVdi + orphan VDI (no email) → log.warn + sendMail still called with primary email only
   it('case 9: facturar + sendToVdi + orphan VDI (no email field) → log.warn called AND sendMail called with fa@x.com only', async () => {
     const before = { items: [] };

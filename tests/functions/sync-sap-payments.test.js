@@ -323,6 +323,86 @@ describe('handleSyncSapPayments', () => {
     expect(b.invoicedAmount).toBe(50000);
   });
 
+  // Planner Kanban (Bug #2a — "cuánto tiempo lleva en Cobrado"):
+  // la primera vez que detectamos paidStatus=paid|partial, escribir `cobradoAt`.
+  // Preserva la primera fecha ante ajustes posteriores (idempotente).
+  it('TIMESTAMP cobradoAt: pedido sin paidStatus → tras sync queda con paidStatus=paid y cobradoAt seteado', async () => {
+    const pedidos = [
+      {
+        id: 'ped-cobrado-1',
+        data: { closedAt: null, sapLinkage: { appliedInvoiceDocEntries: [8001] } },
+      },
+    ];
+    const invoices = { 8001: { docTotal: 100000, paidToDate: 100000 } };
+    const deps = makeDeps(pedidos, invoices);
+    const t0 = Date.now();
+    await handleSyncSapPayments(deps);
+    const t1 = Date.now();
+    const stored = deps.fbDb._store.get('ped-cobrado-1');
+    expect(stored.paidStatus).toBe('paid');
+    expect(typeof stored.cobradoAt).toBe('string');
+    expect(stored.cobradoAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    const parsed = Date.parse(stored.cobradoAt);
+    expect(parsed).toBeGreaterThanOrEqual(t0);
+    expect(parsed).toBeLessThanOrEqual(t1);
+  });
+
+  it('TIMESTAMP cobradoAt: segunda corrida con paidStatus ya seteado NO cambia cobradoAt', async () => {
+    const existingCobradoAt = '2026-09-15T10:00:00.000Z';
+    const pedidos = [
+      {
+        id: 'ped-cobrado-2',
+        data: {
+          closedAt: null,
+          sapLinkage: { appliedInvoiceDocEntries: [8002] },
+          invoicedAmount: 100000,
+          paidAmount: 50000,
+          paidStatus: 'partial',
+          cobradoAt: existingCobradoAt,
+        },
+      },
+    ];
+    // Ajuste posterior: ahora quedó fully paid. Debe actualizar monto/status pero
+    // NO sobrescribir cobradoAt.
+    const invoices = { 8002: { docTotal: 100000, paidToDate: 100000 } };
+    const deps = makeDeps(pedidos, invoices);
+    await handleSyncSapPayments(deps);
+    const stored = deps.fbDb._store.get('ped-cobrado-2');
+    expect(stored.paidStatus).toBe('paid');
+    expect(stored.paidAmount).toBe(100000);
+    expect(stored.cobradoAt).toBe(existingCobradoAt);
+  });
+
+  it('TIMESTAMP cobradoAt: paidStatus=partial también setea cobradoAt (primera señal de cobro)', async () => {
+    const pedidos = [
+      {
+        id: 'ped-cobrado-3',
+        data: { closedAt: null, sapLinkage: { appliedInvoiceDocEntries: [8003] } },
+      },
+    ];
+    const invoices = { 8003: { docTotal: 100000, paidToDate: 30000 } };
+    const deps = makeDeps(pedidos, invoices);
+    await handleSyncSapPayments(deps);
+    const stored = deps.fbDb._store.get('ped-cobrado-3');
+    expect(stored.paidStatus).toBe('partial');
+    expect(typeof stored.cobradoAt).toBe('string');
+  });
+
+  it('TIMESTAMP cobradoAt: paidStatus=null NO setea cobradoAt', async () => {
+    const pedidos = [
+      {
+        id: 'ped-cobrado-4',
+        data: { closedAt: null, sapLinkage: { appliedInvoiceDocEntries: [8004] } },
+      },
+    ];
+    const invoices = { 8004: { docTotal: 100000, paidToDate: 0 } };
+    const deps = makeDeps(pedidos, invoices);
+    await handleSyncSapPayments(deps);
+    const stored = deps.fbDb._store.get('ped-cobrado-4');
+    expect(stored.paidStatus).toBe(null);
+    expect(stored.cobradoAt).toBeUndefined();
+  });
+
   it('case 13 (v1042): invoice NO compartida sigue funcionando 1:1 sin fracción', async () => {
     const pedidos = [
       {
