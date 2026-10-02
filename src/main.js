@@ -44,7 +44,12 @@ import {
   summarizeStorageUsage,
 } from './pure/panel-metrics.js';
 import { reenrichPedidoLine, splitPedidoLine } from './pure/pedido-split.js';
-import { columnEnteredAt, formatAge } from './pure/planner-column-age.js';
+import {
+  columnBreakdown,
+  columnEnteredAt,
+  columnStats,
+  formatAge,
+} from './pure/planner-column-age.js';
 import { matchSkuFromTitle } from './pure/product-match.js';
 import { renderSkeletonRowsPure } from './pure/render-skeleton.js';
 import { reportCriticalErrorPure } from './pure/report-critical-error.js';
@@ -183,6 +188,8 @@ const phase0 = {
     splitPedidoLine,
     reenrichPedidoLine,
     columnEnteredAt,
+    columnBreakdown,
+    columnStats,
     formatAge,
     renderSkeletonRowsPure,
     reportCriticalErrorPure,

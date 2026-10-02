@@ -4673,7 +4673,35 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1128
+## 41) Changelog v300 → v1129
+
+### v1129 (2026-10-02) — Planner iter 2: breakdown por card + métricas por columna
+
+Continuación de v1128 (badge por card). Esta release trae iter 2: **breakdown total por card** en modal detalle + **chip de métricas** en header de cada columna.
+
+**2 pure fns nuevas en `src/pure/planner-column-age.js`:**
+- `columnBreakdown(pedido, nowMs?)` → array `[{column, enteredAt, exitedAt, durationMs}]` secuencial. La columna actual tiene `exitedAt=null`. Columnas sin timestamp disponible se omiten (sin fallback — queremos data real). Soporta `paidAt` como fallback inmediato de `cobradoAt`.
+- `columnStats(pedidos, column, nowMs?)` → `{count, avgMs, medianMs, maxMs}` o `null`. Filtra por `computeColumn(pedido) === column` + timestamp resoluble. Mediana simple (`sorted[floor(count/2)]`).
+
+Ambas expuestas en `window.__phase0.pure` via `src/main.js:52-56` + `:191-194`.
+
+**Modal detalle del pedido (tab Historial)** → nueva sección "Timeline por columna" en `index.html:28491-28534` (dentro de `renderPlannerModalHistorial`). Fila por etapa con nombre + duración (`formatAge`), la columna actual en azul con sufijo `(actual)` en semibold, al final una fila **Total** en bold. Try/catch defensivo.
+
+**Header de cada columna del Planner** → chip pequeño gris debajo del subtotal pesos (`index.html:27888-27908`). Formato:
+```
+Lista de espera 20
+$ 68.613.000
+⌀ 3d  ·  max 15d
+```
+`max 15d` solo aparece cuando `max > 2 * avg` (indicador de outlier). Si la columna está vacía o nadie tiene timestamp resoluble → chip omitido.
+
+**Tests nuevos**: +29 (82 totales en `planner-column-age.test.js`). 661/661 unit suite green.
+
+**Suite completa post-v1129**: 1110 tests, 1100 pass + 10 pre-existentes intactos.
+
+**Deploy**: solo frontend. GitHub Pages auto-sirve `index.html` + `app.bundle.js` + `sw.js` nuevos. **No requiere re-deploy de CFs** (backend sin cambios).
+
+---
 
 ### v1128 (2026-10-02) — Planner card: badge "hace cuánto en esta columna" (2 packs paralelos)
 

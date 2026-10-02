@@ -186,3 +186,161 @@ export function formatAge(ms, nowMs) {
   const years = Math.floor(delta / YEAR_MS);
   return years + (years === 1 ? ' año' : ' años');
 }
+
+/**
+ * Orden canónico del pipeline Planner Kanban. El breakdown por card itera
+ * en este orden y encadena enteredAt/exitedAt entre etapas presentes.
+ *
+ * Mantener en sync con PLANNER_COLUMNS en index.html (sin 'confirmado'
+ * desde v1037). computeColumn del dominio Planner también lo respeta.
+ *
+ * @type {ReadonlyArray<'lista_espera'|'oferta'|'ordenes'|'facturar'|'cobrado'>}
+ */
+const PLANNER_COLUMN_ORDER = ['lista_espera', 'oferta', 'ordenes', 'facturar', 'cobrado'];
+
+/**
+ * Pickers específicos (sin fallback). Al contrario de COLUMN_FALLBACK, acá
+ * queremos saber SI y SOLO SI cada columna tiene su timestamp propio
+ * registrado — así el breakdown muestra solo las etapas que el pedido tocó
+ * realmente, sin interpolar.
+ *
+ * `cobrado` usa cobradoAt O paidAt como alias legacy (ambos son "el campo
+ * dedicado del cobro", igual que en COLUMN_FALLBACK).
+ *
+ * @type {Record<string, (p:any)=>any>}
+ */
+const COLUMN_SPECIFIC_PICKER = {
+  lista_espera: (p) => p && p.createdAt,
+  oferta: (p) => p && p.transferidoSAP && p.transferidoSAP.transferredAt,
+  ordenes: (p) => p && p.transferidoSAP && p.transferidoSAP.orderSyncedAt,
+  facturar: (p) => p && p.firstInvoicedAt,
+  cobrado: (p) => p && (p.cobradoAt || p.paidAt),
+};
+
+/**
+ * @typedef {Object} ColumnBreakdownEntry
+ * @property {'lista_espera'|'oferta'|'ordenes'|'facturar'|'cobrado'} column
+ * @property {number} enteredAt - ms epoch en que el pedido entró a esta etapa
+ * @property {number|null} exitedAt - ms epoch en que salió, null si es la actual
+ * @property {number} durationMs - cuánto tiempo pasó en esta etapa
+ */
+
+/**
+ * Devuelve el breakdown de tiempo que pasó este pedido en cada columna,
+ * en orden secuencial (lista_espera → oferta → ordenes → facturar → cobrado).
+ *
+ * - Cada etapa tiene {column, enteredAt, exitedAt, durationMs}.
+ * - La columna actual (= última etapa de la lista) tiene exitedAt=null y
+ *   durationMs = nowMs - enteredAt.
+ * - Las columnas que NUNCA alcanzó se omiten (sin interpolar).
+ * - Las columnas con timestamp específico ausente se omiten también —
+ *   usamos los pickers SIN fallback para no inventar transiciones.
+ * - El exitedAt de cada etapa = enteredAt de la siguiente etapa presente.
+ *
+ * @param {any} pedido
+ * @param {number} [nowMs=Date.now()]
+ * @returns {Array<ColumnBreakdownEntry>}
+ */
+export function columnBreakdown(pedido, nowMs) {
+  if (!pedido) return [];
+
+  // Resolver enteredAt real para cada columna del orden canónico.
+  // Mantener solo las que tienen timestamp válido.
+  /** @type {Array<{column: string, enteredAt: number}>} */
+  const presentStages = [];
+  for (const col of PLANNER_COLUMN_ORDER) {
+    const picker = COLUMN_SPECIFIC_PICKER[col];
+    if (!picker) continue;
+    let raw;
+    try {
+      raw = picker(pedido);
+    } catch (_e) {
+      raw = null;
+    }
+    const ms = toMillisSafe(raw);
+    if (ms !== null) presentStages.push({ column: col, enteredAt: ms });
+  }
+
+  if (presentStages.length === 0) return [];
+
+  const now = typeof nowMs === 'number' && Number.isFinite(nowMs) ? nowMs : Date.now();
+
+  /** @type {Array<ColumnBreakdownEntry>} */
+  const result = [];
+  for (let i = 0; i < presentStages.length; i++) {
+    const stage = presentStages[i];
+    const next = presentStages[i + 1];
+    const exitedAt = next ? next.enteredAt : null;
+    const durationMs =
+      exitedAt !== null
+        ? Math.max(0, exitedAt - stage.enteredAt)
+        : Math.max(0, now - stage.enteredAt);
+    result.push({
+      column: /** @type {any} */ (stage.column),
+      enteredAt: stage.enteredAt,
+      exitedAt,
+      durationMs,
+    });
+  }
+  return result;
+}
+
+/**
+ * @typedef {Object} ColumnStats
+ * @property {number} count - cantidad de pedidos considerados
+ * @property {number} avgMs - edad promedio en ms
+ * @property {number} medianMs - edad mediana en ms (simple, sin interpolación)
+ * @property {number} maxMs - edad máxima en ms
+ */
+
+/**
+ * Estadísticas agregadas de "tiempo en esta columna" para los pedidos
+ * actualmente en una columna dada. Usa columnEnteredAt (con fallback) para
+ * ser consistente con el badge por card.
+ *
+ * Un pedido se cuenta solo si:
+ *   1. computeColumn(pedido) === column (está realmente en esa columna)
+ *   2. columnEnteredAt(pedido, column) devuelve un ms finito
+ *
+ * @param {Array<any>} pedidos
+ * @param {string} column - una de las 5 columnas canónicas
+ * @param {number} [nowMs=Date.now()]
+ * @returns {ColumnStats | null}
+ *   null si no hay pedidos en esa columna o ninguno tiene timestamp resoluble.
+ */
+export function columnStats(pedidos, column, nowMs) {
+  if (!Array.isArray(pedidos) || pedidos.length === 0) return null;
+  const now = typeof nowMs === 'number' && Number.isFinite(nowMs) ? nowMs : Date.now();
+
+  /** @type {Array<number>} */
+  const ages = [];
+  for (const p of pedidos) {
+    if (!p) continue;
+    let col;
+    try {
+      col = computeColumn(p);
+    } catch (_e) {
+      continue;
+    }
+    if (col !== column) continue;
+    const entered = columnEnteredAt(p, column);
+    if (entered === null || !Number.isFinite(entered)) continue;
+    const age = Math.max(0, now - entered);
+    ages.push(age);
+  }
+
+  if (ages.length === 0) return null;
+
+  const count = ages.length;
+  let sum = 0;
+  let maxMs = 0;
+  for (const a of ages) {
+    sum += a;
+    if (a > maxMs) maxMs = a;
+  }
+  const avgMs = sum / count;
+  const sorted = ages.slice().sort((x, y) => x - y);
+  const medianMs = sorted[Math.floor(count / 2)];
+
+  return { count, avgMs, medianMs, maxMs };
+}

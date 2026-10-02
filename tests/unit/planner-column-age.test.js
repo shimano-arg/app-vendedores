@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { columnEnteredAt, formatAge } from '../../src/pure/planner-column-age.js';
+import {
+  columnBreakdown,
+  columnEnteredAt,
+  columnStats,
+  formatAge,
+} from '../../src/pure/planner-column-age.js';
 
 // Fijo arbitrario: 2026-10-02 15:00:00 UTC.
 const NOW = Date.parse('2026-10-02T15:00:00.000Z');
@@ -309,6 +314,341 @@ describe('formatAge', () => {
     it('sin nowMs usa Date.now() implícito y devuelve algo no-vacío', () => {
       const resultado = formatAge(Date.now() - hours(2));
       expect(resultado).toMatch(/h/);
+    });
+  });
+});
+
+describe('columnBreakdown', () => {
+  describe('null-safety', () => {
+    it('pedido null → []', () => {
+      expect(columnBreakdown(null, NOW)).toEqual([]);
+    });
+    it('pedido undefined → []', () => {
+      expect(columnBreakdown(undefined, NOW)).toEqual([]);
+    });
+    it('pedido vacío (sin ningún timestamp) → []', () => {
+      expect(columnBreakdown({}, NOW)).toEqual([]);
+    });
+    it('pedido con campo irrelevante → []', () => {
+      expect(columnBreakdown({ foo: 'bar' }, NOW)).toEqual([]);
+    });
+  });
+
+  describe('breakdown single-stage', () => {
+    it('pedido solo con createdAt → 1 etapa lista_espera (actual)', () => {
+      const createdAt = NOW - days(3);
+      const ped = { createdAt };
+      const res = columnBreakdown(ped, NOW);
+      expect(res).toHaveLength(1);
+      expect(res[0]).toEqual({
+        column: 'lista_espera',
+        enteredAt: createdAt,
+        exitedAt: null,
+        durationMs: days(3),
+      });
+    });
+  });
+
+  describe('breakdown multi-stage completo', () => {
+    it('5 etapas (lista_espera → oferta → ordenes → facturar → cobrado) encadenan exitedAt', () => {
+      const t0 = NOW - days(10);
+      const t1 = NOW - days(8);
+      const t2 = NOW - days(6);
+      const t3 = NOW - days(3);
+      const t4 = NOW - days(1);
+      const ped = {
+        createdAt: t0,
+        transferidoSAP: {
+          docNum: 1234,
+          transferredAt: t1,
+          orderSyncedAt: t2,
+          orderDocEntry: 999,
+        },
+        firstInvoicedAt: t3,
+        cobradoAt: t4,
+        paidStatus: 'paid',
+      };
+      const res = columnBreakdown(ped, NOW);
+      expect(res).toHaveLength(5);
+      expect(res[0]).toEqual({
+        column: 'lista_espera',
+        enteredAt: t0,
+        exitedAt: t1,
+        durationMs: t1 - t0,
+      });
+      expect(res[1]).toEqual({
+        column: 'oferta',
+        enteredAt: t1,
+        exitedAt: t2,
+        durationMs: t2 - t1,
+      });
+      expect(res[2]).toEqual({
+        column: 'ordenes',
+        enteredAt: t2,
+        exitedAt: t3,
+        durationMs: t3 - t2,
+      });
+      expect(res[3]).toEqual({
+        column: 'facturar',
+        enteredAt: t3,
+        exitedAt: t4,
+        durationMs: t4 - t3,
+      });
+      expect(res[4]).toEqual({
+        column: 'cobrado',
+        enteredAt: t4,
+        exitedAt: null,
+        durationMs: NOW - t4,
+      });
+    });
+  });
+
+  describe('breakdown con gaps (etapas intermedias ausentes)', () => {
+    it('createdAt + firstInvoicedAt (sin transferredAt/orderSyncedAt) → 2 etapas', () => {
+      const t0 = NOW - days(5);
+      const t3 = NOW - days(1);
+      const ped = {
+        createdAt: t0,
+        firstInvoicedAt: t3,
+      };
+      const res = columnBreakdown(ped, NOW);
+      expect(res).toHaveLength(2);
+      expect(res[0].column).toBe('lista_espera');
+      expect(res[0].enteredAt).toBe(t0);
+      expect(res[0].exitedAt).toBe(t3);
+      expect(res[0].durationMs).toBe(t3 - t0);
+      expect(res[1].column).toBe('facturar');
+      expect(res[1].enteredAt).toBe(t3);
+      expect(res[1].exitedAt).toBe(null);
+      expect(res[1].durationMs).toBe(NOW - t3);
+    });
+    it('createdAt + orderSyncedAt (sin transferredAt) → 2 etapas (lista_espera + ordenes)', () => {
+      const t0 = NOW - days(7);
+      const t2 = NOW - days(2);
+      const ped = {
+        createdAt: t0,
+        transferidoSAP: { docNum: 1234, orderSyncedAt: t2 },
+      };
+      const res = columnBreakdown(ped, NOW);
+      expect(res).toHaveLength(2);
+      expect(res.map((r) => r.column)).toEqual(['lista_espera', 'ordenes']);
+    });
+  });
+
+  describe('última etapa siempre tiene exitedAt=null', () => {
+    it('cada caso termina con exitedAt=null en la última entrada', () => {
+      const casos = [
+        { createdAt: NOW - hours(1) },
+        {
+          createdAt: NOW - days(3),
+          transferidoSAP: { docNum: 1234, transferredAt: NOW - days(2) },
+        },
+        {
+          createdAt: NOW - days(10),
+          transferidoSAP: {
+            docNum: 1234,
+            transferredAt: NOW - days(8),
+            orderSyncedAt: NOW - days(5),
+          },
+          firstInvoicedAt: NOW - days(2),
+        },
+      ];
+      for (const ped of casos) {
+        const res = columnBreakdown(ped, NOW);
+        expect(res.length).toBeGreaterThan(0);
+        expect(res[res.length - 1].exitedAt).toBe(null);
+      }
+    });
+  });
+
+  describe('timestamps como Firestore Timestamp', () => {
+    it('toMillis() funciona en TODOS los pickers', () => {
+      const t0 = NOW - days(5);
+      const t1 = NOW - days(3);
+      const ped = {
+        createdAt: { toMillis: () => t0, seconds: Math.floor(t0 / 1000) },
+        transferidoSAP: {
+          docNum: 1234,
+          transferredAt: { toMillis: () => t1, seconds: Math.floor(t1 / 1000) },
+        },
+      };
+      const res = columnBreakdown(ped, NOW);
+      expect(res).toHaveLength(2);
+      expect(res[0].enteredAt).toBe(t0);
+      expect(res[1].enteredAt).toBe(t1);
+    });
+    it('plain {seconds, nanoseconds} funciona', () => {
+      const t0 = NOW - days(3);
+      const ped = {
+        createdAt: { seconds: Math.floor(t0 / 1000), nanoseconds: 0 },
+      };
+      const res = columnBreakdown(ped, NOW);
+      expect(res).toHaveLength(1);
+      expect(res[0].enteredAt).toBe(Math.floor(t0 / 1000) * 1000);
+    });
+  });
+
+  describe('paidAt como fallback de cobradoAt', () => {
+    it('sin cobradoAt pero con paidAt → cobrado usa paidAt', () => {
+      const t0 = NOW - days(5);
+      const t4 = NOW - days(1);
+      const ped = {
+        createdAt: t0,
+        paidAt: t4,
+      };
+      const res = columnBreakdown(ped, NOW);
+      expect(res).toHaveLength(2);
+      expect(res.map((r) => r.column)).toEqual(['lista_espera', 'cobrado']);
+      expect(res[1].enteredAt).toBe(t4);
+    });
+    it('cobradoAt gana sobre paidAt cuando ambos existen', () => {
+      const t0 = NOW - days(5);
+      const tCobrado = NOW - days(1);
+      const tPaid = NOW - days(2);
+      const ped = {
+        createdAt: t0,
+        cobradoAt: tCobrado,
+        paidAt: tPaid,
+      };
+      const res = columnBreakdown(ped, NOW);
+      expect(res[res.length - 1].enteredAt).toBe(tCobrado);
+    });
+  });
+
+  describe('nowMs custom', () => {
+    it('respeta el nowMs inyectado para la última etapa', () => {
+      const customNow = Date.parse('2027-01-01T00:00:00.000Z');
+      const t0 = customNow - days(10);
+      const ped = { createdAt: t0 };
+      const res = columnBreakdown(ped, customNow);
+      expect(res[0].durationMs).toBe(days(10));
+    });
+    it('nowMs no-finito cae a Date.now() implícito', () => {
+      const ped = { createdAt: Date.now() - hours(2) };
+      const res = columnBreakdown(ped, Number.NaN);
+      expect(res).toHaveLength(1);
+      expect(res[0].durationMs).toBeGreaterThan(0);
+    });
+  });
+});
+
+describe('columnStats', () => {
+  describe('null-safety', () => {
+    it('array vacío → null', () => {
+      expect(columnStats([], 'lista_espera', NOW)).toBe(null);
+    });
+    it('null → null', () => {
+      expect(columnStats(null, 'lista_espera', NOW)).toBe(null);
+    });
+    it('undefined → null', () => {
+      expect(columnStats(undefined, 'lista_espera', NOW)).toBe(null);
+    });
+    it('array con solo pedidos de otra columna → null', () => {
+      const pedidos = [
+        {
+          createdAt: NOW - days(2),
+          transferidoSAP: { docNum: 1234, transferredAt: NOW - days(1) },
+        }, // oferta
+      ];
+      expect(columnStats(pedidos, 'lista_espera', NOW)).toBe(null);
+    });
+    it('array con pedidos en la columna pero sin timestamp resoluble → null', () => {
+      const pedidos = [{ foo: 'bar' }]; // computeColumn='lista_espera' pero sin createdAt
+      expect(columnStats(pedidos, 'lista_espera', NOW)).toBe(null);
+    });
+  });
+
+  describe('1 pedido', () => {
+    it('devuelve avg=median=max=age y count=1', () => {
+      const pedidos = [{ createdAt: NOW - days(3) }];
+      const stats = columnStats(pedidos, 'lista_espera', NOW);
+      expect(stats).not.toBe(null);
+      expect(stats.count).toBe(1);
+      expect(stats.avgMs).toBe(days(3));
+      expect(stats.medianMs).toBe(days(3));
+      expect(stats.maxMs).toBe(days(3));
+    });
+  });
+
+  describe('3 pedidos en la misma columna (ages 1d, 2d, 10d)', () => {
+    const pedidos = [
+      { createdAt: NOW - days(1) },
+      { createdAt: NOW - days(2) },
+      { createdAt: NOW - days(10) },
+    ];
+    it('count=3', () => {
+      expect(columnStats(pedidos, 'lista_espera', NOW).count).toBe(3);
+    });
+    it('avg = (1+2+10)/3 = 13/3 ≈ 4.33 días', () => {
+      const stats = columnStats(pedidos, 'lista_espera', NOW);
+      expect(stats.avgMs).toBeCloseTo(days(13 / 3), -3);
+    });
+    it('median = 2d (sorted[1] con count=3)', () => {
+      expect(columnStats(pedidos, 'lista_espera', NOW).medianMs).toBe(days(2));
+    });
+    it('max = 10d', () => {
+      expect(columnStats(pedidos, 'lista_espera', NOW).maxMs).toBe(days(10));
+    });
+  });
+
+  describe('pedidos mixtos (distintas columnas)', () => {
+    it('ignora pedidos que no están en la columna solicitada', () => {
+      const pedidos = [
+        { createdAt: NOW - days(3) }, // lista_espera
+        { createdAt: NOW - days(1) }, // lista_espera
+        {
+          createdAt: NOW - days(5),
+          transferidoSAP: { docNum: 1234, transferredAt: NOW - days(2) },
+        }, // oferta
+      ];
+      const statsLista = columnStats(pedidos, 'lista_espera', NOW);
+      expect(statsLista.count).toBe(2);
+      const statsOferta = columnStats(pedidos, 'oferta', NOW);
+      expect(statsOferta.count).toBe(1);
+      expect(statsOferta.avgMs).toBe(days(2));
+    });
+  });
+
+  describe('pedidos con timestamp irresoluble se ignoran', () => {
+    it('mezcla de resolubles e irresolubles', () => {
+      const pedidos = [
+        { createdAt: NOW - days(1) }, // ok
+        { foo: 'bar' }, // sin createdAt → ignorado
+        { createdAt: NOW - days(3) }, // ok
+      ];
+      const stats = columnStats(pedidos, 'lista_espera', NOW);
+      expect(stats.count).toBe(2);
+      expect(stats.maxMs).toBe(days(3));
+    });
+  });
+
+  describe('columna cobrado', () => {
+    it('pedidos en cobrado se cuentan correctamente', () => {
+      const pedidos = [
+        {
+          createdAt: NOW - days(10),
+          cobradoAt: NOW - days(2),
+          paidStatus: 'paid',
+        },
+        {
+          createdAt: NOW - days(5),
+          cobradoAt: NOW - days(1),
+          paidStatus: 'paid',
+        },
+      ];
+      const stats = columnStats(pedidos, 'cobrado', NOW);
+      expect(stats.count).toBe(2);
+      expect(stats.avgMs).toBe((days(2) + days(1)) / 2);
+    });
+  });
+
+  describe('nowMs default (sin inyectar)', () => {
+    it('no explota, devuelve stats con count>=1', () => {
+      const pedidos = [{ createdAt: Date.now() - hours(1) }];
+      const stats = columnStats(pedidos, 'lista_espera');
+      expect(stats).not.toBe(null);
+      expect(stats.count).toBe(1);
+      expect(stats.avgMs).toBeGreaterThan(0);
     });
   });
 });

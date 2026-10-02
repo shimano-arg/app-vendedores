@@ -5968,7 +5968,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1128';
+const APP_VERSION = 'v1129';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27885,6 +27885,26 @@ function renderPlannerKanban() {
     const subtotalStr = subtotal.toLocaleString('es-AR', {
       style: 'currency', currency: 'ARS', maximumFractionDigits: 0,
     });
+    // v???(2026-10-02): chip de métricas agregadas por columna via pure fn
+    // columnStats (src/pure/planner-column-age.js). Muestra promedio + max
+    // (solo si outlier, max > 2*avg) para resaltar cuellos de botella.
+    // Try/catch defensivo igual que el badge por card.
+    var _statsChipHtml = '';
+    try {
+      var _pureStats = window.__phase0 && window.__phase0.pure;
+      if (_pureStats && typeof _pureStats.columnStats === 'function' && typeof _pureStats.formatAge === 'function') {
+        var _stats = _pureStats.columnStats(byCol[col.key], col.key);
+        if (_stats && _stats.count > 0) {
+          var _avgTxt = _pureStats.formatAge(0, _stats.avgMs);
+          var _showMax = _stats.maxMs > 2 * _stats.avgMs;
+          var _maxTxt = _showMax ? '  ·  max ' + _pureStats.formatAge(0, _stats.maxMs) : '';
+          _statsChipHtml =
+            '<div class="planner-col-stats" style="font-size:11px;color:#8a8a8e;margin-top:2px;letter-spacing:-0.01em;">' +
+              '⌀ ' + escapeHtml(_avgTxt) + escapeHtml(_maxTxt) +
+            '</div>';
+        }
+      }
+    } catch (_errStats) { /* no-op: chip opcional */ }
     return (
       '<div class="planner-col" data-col="' + col.key + '">' +
         '<div class="planner-col-header">' +
@@ -27893,6 +27913,7 @@ function renderPlannerKanban() {
           '</span>' +
         '</div>' +
         '<div class="planner-col-subtotal">' + escapeHtml(subtotalStr) + '</div>' +
+        _statsChipHtml +
         '<div class="planner-col-cards">' + cardsHtml + '</div>' +
       '</div>'
     );
@@ -28489,6 +28510,49 @@ function renderPlannerModalHistorial(pedido) {
   const currentColLabel = (PLANNER_COLUMNS.find(c => c.key === currentCol) || {}).label || currentCol;
   const btnLabel = (hasEmailForCurrent ? 'Reenviar' : 'Enviar') + ' notif de columna actual (' + currentColLabel + ')';
 
+  // v???(2026-10-02): breakdown de tiempo por columna via pure fn
+  // columnBreakdown (src/pure/planner-column-age.js). Muestra las etapas
+  // reales que el pedido tocó + duración + total. Try/catch defensivo igual
+  // que el badge por card.
+  var _breakdownHtml = '';
+  try {
+    var _pureBd = window.__phase0 && window.__phase0.pure;
+    if (_pureBd && typeof _pureBd.columnBreakdown === 'function' && typeof _pureBd.formatAge === 'function') {
+      var _bd = _pureBd.columnBreakdown(pedido);
+      if (Array.isArray(_bd) && _bd.length > 0) {
+        var _totalMs = 0;
+        var _rowsHtml = _bd.map(function(stage) {
+          _totalMs += stage.durationMs || 0;
+          var _label = (PLANNER_COLUMNS.find(function(c){return c.key === stage.column;}) || {}).label || stage.column;
+          // formatAge(ms, nowMs) computa (nowMs - ms); con ms=0 y nowMs=durationMs
+          // obtenemos el formato "3d 5h" para una duración neta.
+          var _durTxt = _pureBd.formatAge(0, stage.durationMs);
+          var _isActual = stage.exitedAt === null;
+          var _rowStyle = _isActual
+            ? 'display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(0,0,0,0.06);font-weight:600;color:#007AFF;'
+            : 'display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(0,0,0,0.06);';
+          var _suffix = _isActual ? ' <span style="font-size:11px;opacity:.7;font-weight:500;">(actual)</span>' : '';
+          return (
+            '<div style="' + _rowStyle + '">' +
+              '<div style="font-size:13px;">' + escapeHtml(_label) + _suffix + '</div>' +
+              '<div style="font-size:13px;font-variant-numeric:tabular-nums;">' + escapeHtml(_durTxt) + '</div>' +
+            '</div>'
+          );
+        }).join('');
+        var _totalTxt = _pureBd.formatAge(0, _totalMs); // mismo truco: delta=totalMs
+        _breakdownHtml =
+          '<h4 style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:.55;margin:0 0 8px;font-weight:600;">Timeline por columna</h4>' +
+          '<div style="margin-bottom:24px;">' +
+            _rowsHtml +
+            '<div style="display:flex;justify-content:space-between;padding:10px 0 0;font-weight:700;">' +
+              '<div style="font-size:13px;">Total</div>' +
+              '<div style="font-size:13px;font-variant-numeric:tabular-nums;">' + escapeHtml(_totalTxt) + '</div>' +
+            '</div>' +
+          '</div>';
+      }
+    }
+  } catch (_errBd) { /* no-op: timeline opcional */ }
+
   const timelineHtml = history.length
     ? history.map(h => {
         const stageLabel = (PLANNER_COLUMNS.find(c => c.key === h.stage) || {}).label || h.stage;
@@ -28529,6 +28593,7 @@ function renderPlannerModalHistorial(pedido) {
         escapeHtml(btnLabel) +
       '</button>' +
     '</div>' +
+    _breakdownHtml +
     '<h4 style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:.55;margin:0 0 8px;font-weight:600;">Transiciones</h4>' +
     timelineHtml +
     '<h4 style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:.55;margin:24px 0 8px;font-weight:600;">Emails enviados</h4>' +
