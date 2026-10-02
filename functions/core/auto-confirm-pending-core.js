@@ -87,7 +87,7 @@ function _computeAvailableWhs11(sku, warehouseBreakdown, openPedidos, selfPedido
   for (const p of openPedidos) {
     if (!p || p.id === selfPedidoId) continue;
     if (p.data && p.data.closedAt) continue;
-    const lines = (p.data && Array.isArray(p.data.lines)) ? p.data.lines : [];
+    const lines = p.data && Array.isArray(p.data.lines) ? p.data.lines : [];
     for (const l of lines) {
       if (!l || !l.code) continue;
       if (String(l.code).toUpperCase() !== skuUp) continue;
@@ -192,7 +192,9 @@ export async function autoConfirmPendingPedidos({
   // falla, saltamos la re-validacion de stock (stockCheckEnabled=false) y
   // solo aplicamos el guard transaccional (que resuelve el bug principal
   // de dos ticks concurrentes).
+  /** @type {Record<string, Record<string, number>> | null} */
   let warehouseBreakdown = null;
+  /** @type {Array<any>} */
   let openPedidos = [];
   let stockCheckEnabled = false;
   try {

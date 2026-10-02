@@ -442,10 +442,25 @@ window.validateReviewAndPasarAPendientes = function () {
       const cliCardCode =
         cliName && typeof sapGetClienteCode === 'function' ? sapGetClienteCode(cliName) || '' : '';
       const currentPedidoId = (currentOrderClient && currentOrderClient._fsId) || null;
+      // Fix auditor 2026-10-02 (bug C2): defensa contra regresion silenciosa.
+      // En modo create (crear-view-only) currentPedidoId es null — correcto,
+      // el pedido aun no existe en globalPedidos → nada que auto-excluir. En
+      // modo edit (stage='pending'), index.html:viewPedido ahora plumbea
+      // _fsId al currentOrderClient (fix bug C2 2026-10-02). Si llegamos aca
+      // en modo pending CON currentPedidoId==null, es que el plumbing se
+      // rompio en un flow nuevo — warning para pillarlo en el proximo audit.
+      if (currentPedidoId == null && currentOrderClient && currentOrderClient.stage === 'pending') {
+        console.warn(
+          '[pedido] gate ASIG: currentPedidoId es null en modo pending — ' +
+            'el _fsId no se plumbo al currentOrderClient. ' +
+            'La gate puede contar las ASIG propias del pedido como "del cliente" y bloquear la confirmacion.'
+        );
+      }
       if (cliCardCode && typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
         let asigCount = 0;
         let asigPedidos = 0;
-        const _lrsFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
+        const _lrsFn =
+          window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock;
         const _nowTs = Date.now();
         globalPedidos.forEach((p) => {
           if (!p || p.closedAt) return;

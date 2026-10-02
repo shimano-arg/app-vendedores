@@ -198,15 +198,27 @@ async function resolveLineage(session, invoice, deps) {
 }
 
 /**
- * Busca pedidos-app que matcheen los sqDocEntry dados. Devuelve
+ * Busca pedidos-app ABIERTOS que matcheen los sqDocEntry dados. Devuelve
  * un Map<sqDocEntry, [pedidoAppId]> (puede haber multiples pedidos que
  * apunten al mismo sqDocEntry — anomalia, se reporta como orphan).
+ *
+ * EXPORTED para testing (regression Bug #1).
+ *
+ * FILTRO closedAt==null (Bug #1 fix): Firestore combinar `in` con otro `==`
+ * en el mismo query requiere composite index + puede violar la restriccion
+ * de 1 `in`/`array-contains` por query. Resolvemos filtrando in-memory
+ * tras el `in` — chunks de 30 maximo, el overhead es despreciable y evita
+ * el riesgo de que una Invoice tardia o nota de credito post-cierre
+ * mutule un pedido ya cerrado (via sqCancelExpiredCF, recycle manual, o
+ * closure por all_invoiced). SKIP_STATES en applyInvoiceMatch protege
+ * cancelled/recycled lines, pero confirmed/invoiced lines quedan expuestos
+ * a overflow de qtyInvoiced si no filtramos closedAt aca.
  *
  * @param {InvoiceSyncDeps} deps
  * @param {number[]} sqDocEntries
  * @returns {Promise<Map<number, string[]>>}
  */
-async function findPedidosBySqDocEntry(deps, sqDocEntries) {
+export async function findPedidosBySqDocEntry(deps, sqDocEntries) {
   const result = new Map();
   if (!sqDocEntries.length) return result;
   // Firestore no permite `in` con >30 valores en el mismo query.
@@ -221,6 +233,9 @@ async function findPedidosBySqDocEntry(deps, sqDocEntries) {
       .get();
     snap.forEach((/** @type {any} */ doc) => {
       const data = doc.data() || {};
+      // Bug #1: skip pedidos ya cerrados. Una Invoice tardia no debe
+      // mutar un pedido que ya cerro (closedAt seteado).
+      if (data.closedAt) return;
       const de = Number(data.transferidoSAP && data.transferidoSAP.docEntry);
       if (!de) return;
       const list = result.get(de) || [];

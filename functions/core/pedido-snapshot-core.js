@@ -37,6 +37,9 @@ const OPEN_STATES = new Set(['BO', 'ASIG']);
 // `src/pure/stock-realmente-disponible.js`. MANTENER SINCRONIZADO — si cambia
 // alla, cambiar aca tambien. Se copia inline porque la CF vive en functions/
 // y no puede importar de src/ (build de Firebase Functions es aislado).
+// Bug #2 (post v1126): TTL_DAYS en functions/core/asig-ttl-core.js tambien
+// debe mantenerse igual a este valor (15) — la CF TTL marca lineas 'expired'
+// en el mismo boundary donde dejan de reservar stock.
 const RESERVA_TTL_DAYS = 15;
 const DAY_MS = 24 * 60 * 60 * 1000;
 

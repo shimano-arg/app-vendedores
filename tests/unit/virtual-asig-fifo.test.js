@@ -340,6 +340,66 @@ describe('computeVirtualAsigFifo', () => {
       expect(result.get('pBo:0')).toBe(3);
     });
 
+    // Fix auditor 2026-10-02 (bug C1): pedido optimistic sin _fsId/_id
+    // (recien escrito por el UI, pre-ack Firestore) debe seguir sumando sus
+    // ASIG/confirmed al pool. Antes se skipeaba el pedido completo → sobre-
+    // promovia BOs legitimos a virtual ASIG. Divergencia con
+    // getStockRealmenteDisponible que SI contaba esas lineas.
+    it('bug C1: pedido optimistic sin _fsId/_id — ASIG consume pool pero BO no entra en map', () => {
+      // Pedido optimistic con ASIG=10, mas pedido normal con BO=5, stk=15.
+      // Pre-fix: pedido optimistic skipeado -> pool=15, BO recibe 5.
+      // Post-fix: ASIG optimistic consume 10 -> pool=5, BO recibe 5. OK en este caso.
+      // Caso critico: stk=15, ASIG optimistic=10 -> pool efectivo=5, BO=5 recibe 5.
+      // Si pre-fix skipeaba, pool=15 -> BO=5 recibiria 5. Mismo resultado aca.
+      // Mejor contraste: stk=15, ASIG optimistic=10, BO=10 -> post-fix BO=5, pre-fix BO=10.
+      const optimistic = {
+        // NO _fsId, NO _id
+        clientCardCode: 'C_OPT',
+        lines: [{ code: 'SKU-X', state: 'ASIG', qtyOpen: 10 }],
+        createdAt: { toMillis: () => 500 },
+        closedAt: null,
+      };
+      const normal = mkPedido(
+        'pNorm',
+        'C_NORM',
+        [{ code: 'SKU-X', state: 'BO', qtyOpen: 10 }],
+        1000
+      );
+      const result = computeVirtualAsigFifo([optimistic, normal], stockMap({ 'SKU-X': 15 }));
+      // ASIG optimistic consume 10 del pool fisico (15) -> BO solo recibe 5.
+      expect(result.get('pNorm:0')).toBe(5);
+      // El BO del pedido optimistic (si tuviera uno) NO deberia entrar en el map
+      // porque no hay forma de resolver pedidoId '' de vuelta al pedido.
+    });
+
+    it('bug C1: pedido optimistic con ASIG y BO — ASIG cuenta, BO omitido del map', () => {
+      // Pedido optimistic (sin id) con 1 ASIG + 1 BO, mas 1 pedido normal con BO.
+      // ASIG optimistic debe sumar al committedBySku; su BO NO debe aparecer en el map.
+      const optimistic = {
+        // NO _fsId, NO _id
+        clientCardCode: 'C_OPT',
+        lines: [
+          { code: 'SKU-X', state: 'ASIG', qtyOpen: 2 },
+          { code: 'SKU-X', state: 'BO', qtyOpen: 3 },
+        ],
+        createdAt: { toMillis: () => 100 }, // mas viejo que el normal
+        closedAt: null,
+      };
+      const normal = mkPedido(
+        'pNorm',
+        'C_NORM',
+        [{ code: 'SKU-X', state: 'BO', qtyOpen: 5 }],
+        1000
+      );
+      const result = computeVirtualAsigFifo([optimistic, normal], stockMap({ 'SKU-X': 10 }));
+      // ASIG optimistic consume 2 -> pool=8. BO optimistic NO entra (sin id).
+      // BO normal recibe min(5, 8) = 5.
+      expect(result.get('pNorm:0')).toBe(5);
+      // El BO del pedido optimistic no entra con key sintetica
+      expect(result.has(':1')).toBe(false);
+      expect(result.has(':0')).toBe(false);
+    });
+
     it('confirmed fresca (<15d) SI consume pool cuando nowMs es pasado', () => {
       const freshConfirmedAt = NOW_MS - 5 * DAY_MS;
       const pedidos = [

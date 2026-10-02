@@ -4673,7 +4673,30 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1126
+## 41) Changelog v300 → v1127
+
+### v1127 (2026-10-02) — Auditoría BO/ASIG parte 2: 6 IMPORTANT (2 packs paralelos)
+
+Continuación de v1126 (que cerró los 9 CRITICAL). Esta release arregla 6 de los 7 IMPORTANT bugs del backlog en 2 fix packs ejecutados por 2 general-purpose agents paralelos. El bug #7 restante (dedupe de `lineReservesStock` entre `src/pure/` y `functions/core/pedido-snapshot-core.js`) queda en backlog porque es refactor estructural que requiere discutir dónde vive el single source.
+
+**Suite completa: 1019 tests, 1009 pass + mismos 10 pre-existentes de auto-send-sap/planner-stage-change. 0 regresiones.**
+
+**Pack #4A — Backend fixes (`functions/core/*`):**
+- **`findPedidosBySqDocEntry` incluía pedidos cerrados** → facturas tardías de SAP mutaban documentos ya cerrados. Fix (`invoice-sync-core.js:200-243`): filter `data.closedAt` in-memory sobre el `snap.forEach` (Firestore no permite combinar `in` con `==` cleanly, y chunks de 30 docs hacen el filtro in-memory negligible).
+- **TTL mismatch 15d vs 30d** → ASIG dejaba de reservar stock a los 15d (per `lineReservesStock`) pero el TTL CF marcaba `expired` recién a los 30d → ventana de 15 días con "ASIG fantasma" en la UI. Fix (`asig-ttl-core.js:26`): `TTL_DAYS = 30` → `15`. Comentarios en ambos archivos (`asig-ttl-core.js` y `pedido-snapshot-core.js`) referencian el contrato de sincronización con `RESERVA_TTL_DAYS` en `src/pure/stock-realmente-disponible.js`. Grep confirmó que no hay otra lógica dependiente del 30 (solo audit log + export de tests).
+- **`loadBoCandidatesForSku` hacía full-scan de `pedidos` por cada SKU** → 50 SKUs = 50 reads. Fix (`fifo-assign-core.js`): hoist del `.where('closedAt', '==', null).get()` fuera del loop en `runFifoAssign`, materialize a array in-memory, pasa a cada llamada. Nueva signature acepta `openPedidos` opcional (backward-compat con `null` → old scan).
+- **Tests nuevos**: 2 regression tests para `findPedidosBySqDocEntry` + 1 nuevo para TTL=15 + 3 nuevos para FIFO scan count (con `_counters.pedidosClosedAtNullScans` en el fake fbDb). 87/87 en los 4 archivos tocados.
+
+**Pack #4B — Pure/UI robustness (`src/pure/` + `src/domains/` + `index.html`):**
+- **Pedido optimista sin `_fsId`/`_id` silently skipped en `computeVirtualAsigFifo`** → sus líneas ASIG/confirmed no se contaban en el pool, divergiendo de `getStockRealmenteDisponible` → sobre-promesa de virtual ASIG durante la ventana de escritura optimista. Fix (`virtual-asig-fifo.js:63-76,124-131`): flag `hasStableId`; las ASIG/confirmed del pedido optimista SIEMPRE contribuyen a `committedBySku`, pero sus BO lines NO entran a `boLinesBySku` (sin ID estable el caller no puede mapear virtual ASIG de vuelta).
+- **Dead code `currentPedidoId` self-exclusion en edit mode** → `currentOrderClient._fsId` siempre `null` en create mode (OK) pero también en edit de pending (BUG — gate contaba las propias líneas). Fix (`index.html:21597` + `pedidos-modal.js:444-462`): plumbed `_fsId` desde `viewPedido` cuando stage es `pending`/`readonly`, agregado `console.warn` defensivo si `currentPedidoId==null` mientras `stage==='pending'` para surfacear regresiones futuras.
+- **Orden display vs orden FIFO en modal BACKORDER** → modal ordenaba por `(SKU alfa, pedidoId)`, FIFO allocation usa `(createdAt, pedidoId, lineIndex)` → VDE leía mal cuál BO recibió el virtual ASIG. Fix (`index.html` ~18090-18175): `createdAt` capturado por pedido + incluido en cada row; `_sortRows` reescrito a `(SKU, createdAt ASC, pedidoId ASC, lineIndex ASC)` para alinear con `computeVirtualAsigFifo`. Comment Spanish en el sort referenciando el contrato.
+- **Tests nuevos**: 2 regression tests en `virtual-asig-fifo.test.js` (optimistic ASIG-only, optimistic ASIG+BO). 579/579 unit tests green.
+
+**Backlog restante (solo 1 bug IMPORTANT):**
+- **Dedupe `lineReservesStock`** → hay 2 copias (`src/pure/stock-realmente-disponible.js` + `functions/core/pedido-snapshot-core.js`) que fácilmente desincronizan. Requiere decidir dónde vive el single source (compartido entre browser + Node) y hacer refactor estructural. Separado como item de arquitectura para discutir antes de ejecutar.
+
+---
 
 ### v1126 (2026-10-02) — Auditoría BO/ASIG: 9 CRITICAL + 1 IMPORTANT (3 agentes paralelos)
 
