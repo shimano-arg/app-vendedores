@@ -393,10 +393,7 @@ export async function runFifoAssign(deps, beforeSnap, afterSnap) {
   // UNA sola vez, no una por SKU. A escala 500+ pedidos abiertos * 50 SKUs
   // con delta positivo (ej: carga grande de SAP), el patron anterior hacia
   // 50 full scans que podian saturar el timeout 300s de la CF.
-  const openPedidosSnap = await deps.fbDb
-    .collection('pedidos')
-    .where('closedAt', '==', null)
-    .get();
+  const openPedidosSnap = await deps.fbDb.collection('pedidos').where('closedAt', '==', null).get();
   /** @type {Array<{id: string, data: () => any}>} */
   const openPedidos = [];
   openPedidosSnap.forEach((/** @type {any} */ d) => {

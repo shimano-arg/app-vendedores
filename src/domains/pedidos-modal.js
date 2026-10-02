@@ -449,11 +449,7 @@ window.validateReviewAndPasarAPendientes = function () {
       // _fsId al currentOrderClient (fix bug C2 2026-10-02). Si llegamos aca
       // en modo pending CON currentPedidoId==null, es que el plumbing se
       // rompio en un flow nuevo — warning para pillarlo en el proximo audit.
-      if (
-        currentPedidoId == null &&
-        currentOrderClient &&
-        currentOrderClient.stage === 'pending'
-      ) {
+      if (currentPedidoId == null && currentOrderClient && currentOrderClient.stage === 'pending') {
         console.warn(
           '[pedido] gate ASIG: currentPedidoId es null en modo pending — ' +
             'el _fsId no se plumbo al currentOrderClient. ' +
@@ -463,7 +459,8 @@ window.validateReviewAndPasarAPendientes = function () {
       if (cliCardCode && typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
         let asigCount = 0;
         let asigPedidos = 0;
-        const _lrsFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
+        const _lrsFn =
+          window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock;
         const _nowTs = Date.now();
         globalPedidos.forEach((p) => {
           if (!p || p.closedAt) return;

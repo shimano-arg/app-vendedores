@@ -359,7 +359,12 @@ describe('computeVirtualAsigFifo', () => {
         createdAt: { toMillis: () => 500 },
         closedAt: null,
       };
-      const normal = mkPedido('pNorm', 'C_NORM', [{ code: 'SKU-X', state: 'BO', qtyOpen: 10 }], 1000);
+      const normal = mkPedido(
+        'pNorm',
+        'C_NORM',
+        [{ code: 'SKU-X', state: 'BO', qtyOpen: 10 }],
+        1000
+      );
       const result = computeVirtualAsigFifo([optimistic, normal], stockMap({ 'SKU-X': 15 }));
       // ASIG optimistic consume 10 del pool fisico (15) -> BO solo recibe 5.
       expect(result.get('pNorm:0')).toBe(5);
@@ -380,7 +385,12 @@ describe('computeVirtualAsigFifo', () => {
         createdAt: { toMillis: () => 100 }, // mas viejo que el normal
         closedAt: null,
       };
-      const normal = mkPedido('pNorm', 'C_NORM', [{ code: 'SKU-X', state: 'BO', qtyOpen: 5 }], 1000);
+      const normal = mkPedido(
+        'pNorm',
+        'C_NORM',
+        [{ code: 'SKU-X', state: 'BO', qtyOpen: 5 }],
+        1000
+      );
       const result = computeVirtualAsigFifo([optimistic, normal], stockMap({ 'SKU-X': 10 }));
       // ASIG optimistic consume 2 -> pool=8. BO optimistic NO entra (sin id).
       // BO normal recibe min(5, 8) = 5.
