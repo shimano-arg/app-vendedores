@@ -95,8 +95,14 @@ describe('computeVirtualAsigFifo', () => {
     expect(result.get('pOpen:0')).toBe(2);
   });
 
-  it('lines con state distinto a ASIG/BO se ignoran (confirmed, pending, recycled, cancelled)', () => {
-    const pedidos = [
+  it('lines con state pending/recycled/cancelled se ignoran (confirmed SI compite — fix auditor 2026-10-02)', () => {
+    // Fix auditor 2026-10-02 (bug C3): confirmed TAMBIEN descuenta del pool
+    // igual que ASIG (ambas estan en _STATES_QUE_RESERVAN). pending/recycled/
+    // cancelled siguen ignorandose.
+    //
+    // Primera variante: confirmed grande (100) con stock chico (10) → BO=0
+    // porque confirmed consume todo el pool.
+    const pedidosOversold = [
       mkPedido(
         'p1',
         'C1',
@@ -110,8 +116,25 @@ describe('computeVirtualAsigFifo', () => {
         1000
       ),
     ];
-    const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 10 }));
-    expect(result.get('p1:4')).toBe(3);
+    const resultOversold = computeVirtualAsigFifo(pedidosOversold, stockMap({ SKU: 10 }));
+    expect(resultOversold.has('p1:4')).toBe(false); // confirmed come todo el pool
+
+    // Segunda variante: pending/recycled/cancelled solos NO consumen pool.
+    const pedidosIgnored = [
+      mkPedido(
+        'p2',
+        'C1',
+        [
+          { code: 'SKU', state: 'pending', qtyOpen: 100 },
+          { code: 'SKU', state: 'recycled', qtyOpen: 100 },
+          { code: 'SKU', state: 'cancelled', qtyOpen: 100 },
+          { code: 'SKU', state: 'BO', qtyOpen: 3 },
+        ],
+        1000
+      ),
+    ];
+    const resultIgnored = computeVirtualAsigFifo(pedidosIgnored, stockMap({ SKU: 10 }));
+    expect(resultIgnored.get('p2:3')).toBe(3); // BO toma lo que puede del stock 10
   });
 
   it('qtyOpen <= 0 o code vacio se ignoran', () => {
@@ -270,5 +293,69 @@ describe('computeVirtualAsigFifo', () => {
     const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 3 }));
     // Pre-v1124 behavior: ASIG consume 3, BO no recibe.
     expect(result.has('pBo:0')).toBe(false);
+  });
+
+  // Fix auditor 2026-10-02 (bug C3): state='confirmed' tambien compite por el
+  // pool fisico (igual que ASIG). Pre-fix solo ASIG descontaba -> BOs quedaban
+  // sobre-promovidos a virtual ASIG cuando existian confirmed del mismo SKU.
+  describe('fix auditor C3: confirmed descuenta pool como ASIG', () => {
+    it('SKU con confirmed=4 + BO=3 + stk=5 -> BO virtual <=1 (no 3)', () => {
+      // Pre-fix: confirmed se ignoraba -> BO recibia min(3, 5) = 3.
+      // Post-fix: confirmed consume 4 de 5 -> BO recibe min(3, 1) = 1.
+      const pedidos = [
+        mkPedido('pConf', 'C1', [{ code: 'SKU', state: 'confirmed', qtyOpen: 4 }], 1000),
+        mkPedido('pBo', 'C2', [{ code: 'SKU', state: 'BO', qtyOpen: 3 }], 2000),
+      ];
+      const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 5 }));
+      expect(result.get('pBo:0')).toBe(1);
+    });
+
+    it('mix ASIG + confirmed consume pool juntos (ambos committed)', () => {
+      // ASIG=3 + confirmed=4 -> 7 committed. Stk=10 -> remaining=3 para BO.
+      const pedidos = [
+        mkPedido('pAsig', 'C1', [{ code: 'SKU', state: 'ASIG', qtyOpen: 3 }], 1000),
+        mkPedido('pConf', 'C2', [{ code: 'SKU', state: 'confirmed', qtyOpen: 4 }], 1500),
+        mkPedido('pBo', 'C3', [{ code: 'SKU', state: 'BO', qtyOpen: 10 }], 2000),
+      ];
+      const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 10 }));
+      expect(result.get('pBo:0')).toBe(3);
+    });
+
+    it('confirmed expirada (>15d) NO consume pool cuando nowMs es pasado', () => {
+      // confirmed vieja (>15d) no reserva -> BO recibe todo el stock.
+      const expiredConfirmedAt = NOW_MS - 20 * DAY_MS;
+      const pedidos = [
+        // mkPedido no setea confirmedAt directamente; agregamos a mano:
+        {
+          _fsId: 'pConfExpired',
+          clientCardCode: 'C1',
+          lines: [{ code: 'SKU', state: 'confirmed', qtyOpen: 10 }],
+          createdAt: { toMillis: () => FRESH_BO_OLD },
+          confirmedAt: { toMillis: () => expiredConfirmedAt },
+          closedAt: null,
+        },
+        mkPedido('pBo', 'C2', [{ code: 'SKU', state: 'BO', qtyOpen: 3 }], FRESH_BO),
+      ];
+      const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 3 }), NOW_MS);
+      expect(result.get('pBo:0')).toBe(3);
+    });
+
+    it('confirmed fresca (<15d) SI consume pool cuando nowMs es pasado', () => {
+      const freshConfirmedAt = NOW_MS - 5 * DAY_MS;
+      const pedidos = [
+        {
+          _fsId: 'pConfFresh',
+          clientCardCode: 'C1',
+          lines: [{ code: 'SKU', state: 'confirmed', qtyOpen: 2 }],
+          createdAt: { toMillis: () => FRESH_BO_OLD },
+          confirmedAt: { toMillis: () => freshConfirmedAt },
+          closedAt: null,
+        },
+        mkPedido('pBo', 'C2', [{ code: 'SKU', state: 'BO', qtyOpen: 5 }], FRESH_BO),
+      ];
+      const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 5 }), NOW_MS);
+      // confirmed fresca consume 2 -> BO recibe 3
+      expect(result.get('pBo:0')).toBe(3);
+    });
   });
 });

@@ -522,3 +522,96 @@ describe('getStockRealmenteDisponible — v963 confirmed expirada libera stock',
     expect(r).toBe(13);
   });
 });
+
+// Fix auditor 2026-10-02 (bugs C1 + C4): soportar Firestore Timestamp
+// (toMillis/seconds) y asigReserva=0 (entero) en lineReservesStock.
+describe('lineReservesStock — fix auditor 2026-10-02 Timestamp + asigReserva=0', () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const now = new Date('2026-10-02T12:00:00Z').getTime();
+  // Helpers para fabricar diferentes formatos de timestamp.
+  const tsToMillis = (ms) => ({ toMillis: () => ms });
+  const tsSeconds = (ms) => ({
+    seconds: Math.floor(ms / 1000),
+    nanoseconds: (ms % 1000) * 1e6,
+  });
+
+  it('C1: ASIG con asigAt como Firestore Timestamp (toMillis) expirado -> no reserva', () => {
+    const expired = now - 20 * DAY_MS;
+    const line = { state: 'ASIG', qtyOpen: 5, asigReserva: true, asigAt: tsToMillis(expired) };
+    expect(lineReservesStock(line, now)).toBe(false);
+  });
+
+  it('C1: ASIG con asigAt como plain {seconds,nanoseconds} expirado -> no reserva', () => {
+    const expired = now - 20 * DAY_MS;
+    const line = { state: 'ASIG', qtyOpen: 5, asigReserva: true, asigAt: tsSeconds(expired) };
+    expect(lineReservesStock(line, now)).toBe(false);
+  });
+
+  it('C1: ASIG con asigAt Timestamp FRESCA (<15d) -> si reserva', () => {
+    const fresh = now - 5 * DAY_MS;
+    const line = { state: 'ASIG', qtyOpen: 5, asigReserva: true, asigAt: tsToMillis(fresh) };
+    expect(lineReservesStock(line, now)).toBe(true);
+  });
+
+  it('C4: ASIG con asigReserva=0 (entero legacy/SAP) -> no reserva', () => {
+    // SAP serializa booleanos como 0/1 enteros. 0===false es false en JS, el
+    // guard original fallaba y la linea reservaba cuando no debia.
+    const line = { state: 'ASIG', qtyOpen: 5, asigReserva: 0 };
+    expect(lineReservesStock(line, now)).toBe(false);
+  });
+
+  it('C4: ASIG con asigReserva=1 (entero legacy) -> si reserva (equivalente a true)', () => {
+    const line = { state: 'ASIG', qtyOpen: 5, asigReserva: 1 };
+    expect(lineReservesStock(line, now)).toBe(true);
+  });
+
+  it('C1: BO con pedido.createdAt como Firestore Timestamp expirado -> no reserva', () => {
+    const expired = now - 20 * DAY_MS;
+    const line = { state: 'BO', qtyOpen: 5 };
+    const pedido = { createdAt: tsToMillis(expired) };
+    expect(lineReservesStock(line, now, pedido)).toBe(false);
+  });
+
+  it('C1: BO con pedido.createdAt como {seconds} fresco -> si reserva', () => {
+    const fresh = now - 5 * DAY_MS;
+    const line = { state: 'BO', qtyOpen: 5 };
+    const pedido = { createdAt: tsSeconds(fresh) };
+    expect(lineReservesStock(line, now, pedido)).toBe(true);
+  });
+
+  it('C1: confirmed con pedido.confirmedAt como Firestore Timestamp expirado -> no reserva', () => {
+    const expired = now - 20 * DAY_MS;
+    const line = { state: 'confirmed', qtyOpen: 5 };
+    const pedido = { confirmedAt: tsToMillis(expired) };
+    expect(lineReservesStock(line, now, pedido)).toBe(false);
+  });
+
+  it('C1: confirmed con pedido.confirmedAt como {seconds} expirado -> no reserva', () => {
+    const expired = now - 20 * DAY_MS;
+    const line = { state: 'confirmed', qtyOpen: 5 };
+    const pedido = { confirmedAt: tsSeconds(expired) };
+    expect(lineReservesStock(line, now, pedido)).toBe(false);
+  });
+
+  it('C1: confirmed con confirmedAt como Date object fresca -> si reserva', () => {
+    const fresh = new Date(now - 5 * DAY_MS);
+    const line = { state: 'confirmed', qtyOpen: 5 };
+    const pedido = { confirmedAt: fresh };
+    expect(lineReservesStock(line, now, pedido)).toBe(true);
+  });
+
+  it('C1: regresion — pre-fix new Date(timestampObj).getTime() daba NaN y la expiracion se salteaba', () => {
+    // Antes del fix: new Date({toMillis: () => X}).getTime() === NaN,
+    // Number.isFinite(NaN) === false -> if nunca entraba -> la fn retornaba
+    // true "para siempre". Ahora el expired debe devolver false.
+    const expired = now - 30 * DAY_MS;
+    const line1 = { state: 'ASIG', qtyOpen: 5, asigReserva: true, asigAt: tsToMillis(expired) };
+    const line2 = { state: 'confirmed', qtyOpen: 5 };
+    const pedido2 = { confirmedAt: tsSeconds(expired) };
+    const line3 = { state: 'BO', qtyOpen: 5 };
+    const pedido3 = { createdAt: tsToMillis(expired) };
+    expect(lineReservesStock(line1, now)).toBe(false);
+    expect(lineReservesStock(line2, now, pedido2)).toBe(false);
+    expect(lineReservesStock(line3, now, pedido3)).toBe(false);
+  });
+});

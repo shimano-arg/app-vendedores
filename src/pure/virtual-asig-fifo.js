@@ -21,9 +21,12 @@ import { lineReservesStock } from './stock-realmente-disponible.js';
  * virtual ASIG" cada uno contra 1u real.
  *
  * Esta fn fija ambos problemas:
- *   1. Pre-pasada global: suma de ASIG qtyOpen por SKU (filtrada por
+ *   1. Pre-pasada global: suma de ASIG + confirmed qtyOpen por SKU (filtrada por
  *      lineReservesStock si nowMs) se descuenta del fisico ANTES de considerar
- *      virtual ASIG (las ASIG committed ganan).
+ *      virtual ASIG (las lineas committed ganan). Fix auditor 2026-10-02:
+ *      confirmed tambien compite por el pool fisico — pre-fix solo ASIG lo
+ *      hacia y los BOs quedaban sobre-promovidos cuando existian confirmed
+ *      del mismo SKU.
  *   2. FIFO por antiguedad del pedido: solo el cliente mas viejo recibe la
  *      porcion de stock libre; si queda remaining, pasa al siguiente.
  *
@@ -48,8 +51,14 @@ export function computeVirtualAsigFifo(pedidos, getStk, nowMs) {
 
   /** @type {Map<string, {pedidoId: string, lineIndex: number, qtyOpen: number, createdAt: number}[]>} */
   const boLinesBySku = new Map();
+  // Fix auditor 2026-10-02 (bug C3): antes solo state='ASIG' descontaba del
+  // pool, pero state='confirmed' tambien reserva stock fisico segun
+  // `_STATES_QUE_RESERVAN` en stock-realmente-disponible.js. Resultado: BOs
+  // sobre-promovidos a virtual ASIG cuando existian confirmed del mismo SKU.
+  // Renombrado a committedBySku para reflejar que ASIG + confirmed son ambos
+  // "committed" para efectos del FIFO.
   /** @type {Map<string, number>} */
-  const asigConsumedBySku = new Map();
+  const committedBySku = new Map();
 
   for (const p of pedidos) {
     if (!p || p.closedAt) continue;
@@ -67,8 +76,27 @@ export function computeVirtualAsigFifo(pedidos, getStk, nowMs) {
     // lineReservesStock() funcione — su `new Date(pedido.createdAt).getTime()`
     // falla silenciosamente con Firestore Timestamp objects. Pasar createdAt
     // ya en ms resuelta nos aisla de la implementacion upstream.
+    //
+    // Fix auditor 2026-10-02: tambien normalizamos confirmedAt para que
+    // lineReservesStock pueda chequear expiracion de state='confirmed'.
+    const confirmedAtMs = (() => {
+      const v = p.confirmedAt;
+      if (!v) return 0;
+      if (typeof v.toMillis === 'function') return v.toMillis();
+      if (typeof v === 'number') return v;
+      if (v instanceof Date) return v.getTime();
+      if (typeof v.seconds === 'number') return v.seconds * 1000;
+      if (typeof v === 'string') {
+        const t = Date.parse(v);
+        return Number.isFinite(t) ? t : 0;
+      }
+      return 0;
+    })();
     const pedidoShim = applyFreshness
-      ? Object.assign({}, p, { createdAt: createdAt ? new Date(createdAt) : null })
+      ? Object.assign({}, p, {
+          createdAt: createdAt ? new Date(createdAt) : null,
+          confirmedAt: confirmedAtMs ? new Date(confirmedAtMs) : null,
+        })
       : p;
     const lines = Array.isArray(p.lines) ? p.lines : [];
     for (let i = 0; i < lines.length; i++) {
@@ -77,11 +105,12 @@ export function computeVirtualAsigFifo(pedidos, getStk, nowMs) {
       const qo = Number(l.qtyOpen) || 0;
       if (qo <= 0) continue;
       const code = String(l.code).toUpperCase();
-      if (l.state === 'ASIG') {
-        // v1124: skipear ASIG expirada (asigAt > 15d) o asigReserva=false.
-        // lineReservesStock(line, nowMs, pedido) devuelve false en esos casos.
+      if (l.state === 'ASIG' || l.state === 'confirmed') {
+        // Fix auditor bug C3 2026-10-02: confirmed tambien reserva stock
+        // (consistente con _STATES_QUE_RESERVAN en stock-realmente-disponible.js).
+        // v1124: skipear ASIG/confirmed expirada o asigReserva=false.
         if (applyFreshness && !lineReservesStock(l, nowMs, pedidoShim)) continue;
-        asigConsumedBySku.set(code, (asigConsumedBySku.get(code) || 0) + qo);
+        committedBySku.set(code, (committedBySku.get(code) || 0) + qo);
       } else if (l.state === 'BO') {
         // v1124: skipear BO expirado (pedido.createdAt > 15d) — ya no es cola activa.
         if (applyFreshness && !lineReservesStock(l, nowMs, pedidoShim)) continue;
@@ -97,7 +126,7 @@ export function computeVirtualAsigFifo(pedidos, getStk, nowMs) {
 
   for (const [code, boLines] of boLinesBySku) {
     const physStk = Number(getStk(code)) || 0;
-    const asigReserved = asigConsumedBySku.get(code) || 0;
+    const asigReserved = committedBySku.get(code) || 0;
     let remaining = Math.max(0, physStk - asigReserved);
     if (remaining <= 0) continue;
     boLines.sort((a, b) => {

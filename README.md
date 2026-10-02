@@ -4673,7 +4673,41 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1125
+## 41) Changelog v300 → v1126
+
+### v1126 (2026-10-02) — Auditoría BO/ASIG: 9 CRITICAL + 1 IMPORTANT (3 agentes paralelos)
+
+Auditoría sistemática del sistema BO/ASIG (4 code-reviewers paralelos sobre lógica pura / backend CFs / UI gates / test coverage) encontró **22 hallazgos**, consolidados a **9 CRITICAL + 7 IMPORTANT**. Esta release arregla los 9 CRITICAL en 3 fix packs ejecutados en paralelo. Suite completa: +944 tests pasando, 0 regresiones.
+
+**Pack #1 — Lógica pura (`src/pure/*` + `functions/core/pedido-snapshot-core.js`):**
+- **Bug Firestore Timestamp en `lineReservesStock`**: `new Date(firestoreTimestamp).getTime()` devolvía `NaN` → `Number.isFinite(NaN)=false` → el bloque de expiración se salteaba silenciosamente y la fn devolvía `true` ("sigue reservando"). Afectaba `pedido.createdAt`, `pedido.confirmedAt` y `line.asigAt` en ambas copias de la fn (`src/pure/stock-realmente-disponible.js` + `functions/core/pedido-snapshot-core.js`). Fix: helper interno `toMillisSafe(value)` que normaliza `Date` / `{toMillis()}` / `{seconds,nanoseconds}` / ms / ISO string → ms.
+- **Bug Timestamp en `backorder-sku-map.js`**: mismo patrón en `isAsigSinReservaVigente` + `String(p.confirmedAt||'').slice(0,10)` producía `"[object O"` cuando confirmedAt era Timestamp → FIFO sort no determinístico. Fix: `toDateString()` helper.
+- **Bug `computeVirtualAsigFifo` ignoraba líneas `confirmed`**: solo descontaba `state='ASIG'` del pool, cuando `confirmed` también reserva stock físico (per `_STATES_QUE_RESERVAN`). Resultado: BOs sobre-promovidos a virtual ASIG cuando había `confirmed` del mismo SKU. Fix: `committedBySku` (rename de `asigConsumedBySku`) ahora incluye ambos estados con mismo filtro `lineReservesStock`.
+- **Bug `asigReserva=0` (integer) no tratado como false**: `=== false` fallaba porque `0 !== false` en JS strict. Fix: `=== false || === 0` explícito en 3 lugares.
+- **Tests nuevos**: 19 regression tests (`stock-realmente-disponible.test.js`, `virtual-asig-fifo.test.js`, `backorder-sku-map.test.js`). 110/110 pure tests green.
+
+**Pack #2 — UI gates (`src/domains/pedidos-modal.js` + `index.html`):**
+- **Gate "Pasar a Pendientes" contaba ASIGs inertes**: filtraba `state==='ASIG'` sin `lineReservesStock` → ASIGs expiradas (>15d) y clientes B/C (`asigReserva=false`) disparaban el gate falsamente. VDE bloqueado de confirmar pedidos válidos. Fix (`pedidos-modal.js:460`): filter ahora llama `lineReservesStock(l, Date.now(), p)`.
+- **Mismo gate iteraba pedidos cerrados**: faltaba `if (p.closedAt) return`. Clientes con pedidos facturados + ASIGs históricas quedaban bloqueados forever. Fix (`pedidos-modal.js:451`): skip early.
+- **`_findAsigDelCliente` permitía cancelar líneas inertes**: VDE veía líneas que no reservaban nada en el modal "ASIG obligatorio" y las podía cancelar (`state='cancelled'` en Firestore). Fix (`index.html:20129`): `if (_lrsFn && !_lrsFn(l, Date.now(), p)) return;` antes del push.
+- **`_e4bAsigDelCliente` FIFO sin filtro de expired/B-C**: ASIGs expiradas de clientes ajenos consumían `restante` → cliente real veía 0u disp cuando le tocaban todas. Fix (`index.html:17796`): mismo filtro antes de `candidates.push`.
+
+**Pack #3 — Backend transactional (`functions/core/invoice-sync-core.js` + `auto-confirm-pending-core.js`):**
+- **`applyInvoiceMatch` NO era transaccional** → race condition double-invoicing. El propio código tenía el comment: *"Race window: if two simultaneous ticks read the same pedido before writing, one clobbers the other."* Scheduler fires con `retryCount:1` + clock drift → 2 instancias leen snapshot pre-write + ambas escriben → `qtyInvoiced` doble-contado o perdido. Fix: wrap read-modify-write en `fbDb.runTransaction` con idempotency check (`appliedInvoiceDocEntries.includes(invoiceDocEntry)`) adentro de la sección crítica.
+- **`autoConfirmPendingPedidos` promovía `pending→confirmed` sin re-verificar stock**: CF v921 (2026-09-14) corría cada 2 min + a los 10 min promovía sin re-leer snapshot. Si en esos 10 min otro VDE consumió stock, se mandaba SQ a SAP para unidades que ya no existían físicamente (silent overcommit). Fix: pre-load `stock_snapshot` + open pedidos → re-validar cada línea `confirmed` vs available net de `lineReservesStock(otros)`. Si wanted > available → SKIP con log `skipped_stock_evaporated`. El update se envuelve en `runTransaction` con re-check `stage==='pending'`.
+- **Tests nuevos**: 2 tests de concurrencia (`Promise.all` para probar isolation transaccional) + 4 tests de stock re-validation. Fake Firestore extendido con `runTransaction` serializado por mutex (`txChain`).
+
+**Metodología**: 4 code-reviewer agents paralelos para auditoría (branch read-only) + 3 general-purpose agents paralelos sobre archivos no-solapados para fix. Dedupe de hallazgos manual. Verificación: 1011 tests totales (10 failures son pre-existentes en `auto-send-sap.test.js` + `planner-stage-change.test.js`, no tocados).
+
+**Patrón sistémico identificado para futuro**: hay 2 copias de `lineReservesStock` (en `src/pure/` + `functions/core/pedido-snapshot-core.js`) que fácilmente desincronizan. Esta release aplicó el fix a ambas pero una dedupe futura (single source) eliminaría la clase entera. Backlog.
+
+**IMPORTANT bugs restantes (próxima iteración):**
+- `findPedidosBySqDocEntry` sin filtro `closedAt==null` (facturas tardías mutan pedidos cerrados)
+- TTL mismatch 15d (snapshot) vs 30d (TTL CF) → limbo de 15 días con ASIG fantasma
+- `backorder-sku-map.js` orden FIFO vs orden display (SKU alfa) no coinciden
+- `loadBoCandidatesForSku` full-scan por SKU (bomba de escalabilidad al crecer colección)
+
+---
 
 ### v1125 (2026-10-01) — Fix visual: amarillo repeat-sku no se pisa con Disponible SAP / Pedido Final
 

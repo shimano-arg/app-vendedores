@@ -26,6 +26,66 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const RESERVA_TTL_DAYS = 15;
 
 /**
+ * Normaliza un valor a timestamp ms. Local copy del helper de
+ * src/pure/stock-realmente-disponible.js (no se exporta desde alla; inline
+ * para evitar un modulo compartido nuevo). MANTENER SINCRONIZADO.
+ *
+ * Bug reportado por auditor (2026-10-02): `new Date(firestoreTimestamp).getTime()`
+ * devuelve NaN cuando el input es un Firestore Timestamp — el check
+ * `isAsigSinReservaVigente` nunca disparaba correctamente, y
+ * `String(p.confirmedAt||'').slice(0,10)` producia "[object O" rompiendo el
+ * sort por fecha.
+ *
+ * @param {any} value
+ * @returns {number|null}
+ */
+function toMillisSafe(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isFinite(t) ? t : null;
+  }
+  if (typeof value === 'object') {
+    if (typeof value.toMillis === 'function') {
+      try {
+        const t = value.toMillis();
+        return typeof t === 'number' && Number.isFinite(t) ? t : null;
+      } catch (_e) {
+        return null;
+      }
+    }
+    if (typeof value.seconds === 'number') {
+      const nanos = typeof value.nanoseconds === 'number' ? value.nanoseconds : 0;
+      return value.seconds * 1000 + nanos / 1e6;
+    }
+    return null;
+  }
+  if (typeof value === 'string') {
+    const t = Date.parse(value);
+    return Number.isFinite(t) ? t : null;
+  }
+  return null;
+}
+
+/**
+ * Devuelve el string YYYY-MM-DD representando la fecha del valor dado.
+ * Soporta ISO string, Firestore Timestamp, Date, number. Fallback a "" si
+ * no se puede parsear.
+ * @param {any} value
+ * @returns {string}
+ */
+function toDateString(value) {
+  const ms = toMillisSafe(value);
+  if (ms === null) return '';
+  try {
+    return new Date(ms).toISOString().slice(0, 10);
+  } catch (_e) {
+    return '';
+  }
+}
+
+/**
  * @typedef {'urgente'|'asignacion'} BackorderMode
  *
  * @typedef {Object} BackorderFilters
@@ -203,11 +263,16 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
       // v978/v979: filtro vencidas.
       if (!lineReservesStock(l, now, p)) {
         // v1072: en modo asignacion permitir ASIG sin reserva vigente (asigAt<=15d).
+        // Fix auditor 2026-10-02: usar toMillisSafe para soportar Firestore
+        // Timestamp (toMillis/seconds). Antes `new Date(timestampObj).getTime()`
+        // devolvia NaN → la expresion aritmetica tambien NaN → NaN<=15 = false
+        // → la linea quedaba descartada por error.
+        const asigAtMs = toMillisSafe(l.asigAt);
         const isAsigSinReservaVigente =
           isAsig &&
           l.state === 'ASIG' &&
-          l.asigReserva === false &&
-          (!l.asigAt || (now - new Date(l.asigAt).getTime()) / DAY_MS <= RESERVA_TTL_DAYS);
+          (l.asigReserva === false || l.asigReserva === 0) &&
+          (asigAtMs === null || (now - asigAtMs) / DAY_MS <= RESERVA_TTL_DAYS);
         if (!isAsigSinReservaVigente) continue;
       }
       const sku = String(l.code).toUpperCase();
@@ -223,9 +288,14 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
           /* silent */
         }
       }
+      // Fix auditor 2026-10-02: sqDocDate normalizado via toDateString ->
+      // ISO 'YYYY-MM-DD'. Antes `String(p.confirmedAt).slice(0,10)` producia
+      // "[object O" cuando confirmedAt es un Firestore Timestamp, rompiendo
+      // el sort cronologico del FIFO y el filtro mesYYYYMM.
+      const sqDocDate = toDateString(p.confirmedAt);
       if (
         !passesFilters({
-          sqDocDate: p.confirmedAt,
+          sqDocDate,
           vendorKey,
           sku,
           producto: String(l.desc || ''),
@@ -257,7 +327,7 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
         pendiente: qtyOpen,
         precio: parseFloat(l.precio || l.priceAtCreation || 0) || 0,
         sqDocNum: (p.transferidoSAP && p.transferidoSAP.docNum) || 0,
-        sqDocDate: String(p.confirmedAt || '').slice(0, 10),
+        sqDocDate,
         vendorKey,
         source: 'app',
         state: /** @type {'BO'|'ASIG'|'confirmed'} */ (l.state),
