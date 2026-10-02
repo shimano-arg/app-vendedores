@@ -192,7 +192,9 @@ export async function autoConfirmPendingPedidos({
   // falla, saltamos la re-validacion de stock (stockCheckEnabled=false) y
   // solo aplicamos el guard transaccional (que resuelve el bug principal
   // de dos ticks concurrentes).
+  /** @type {Record<string, Record<string, number>> | null} */
   let warehouseBreakdown = null;
+  /** @type {Array<any>} */
   let openPedidos = [];
   let stockCheckEnabled = false;
   try {
