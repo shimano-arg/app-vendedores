@@ -5968,7 +5968,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1125';
+const APP_VERSION = 'v1126';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17789,6 +17789,11 @@ window._e4bAsigDelCliente = function(cardCode){
         if (l.state !== 'BO' && l.state !== 'ASIG') continue;
         const qtyOpen = Number(l.qtyOpen || 0);
         if (qtyOpen <= 0) continue;
+        // v1125 (2026-10-02): excluir ASIGs expiradas / B/C sin reserva del
+        // FIFO cap. Sin este filtro, un ASIG vencido de otro cliente consume
+        // `restante` y le roba la asignacion al cliente real.
+        const _lrsFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
+        if (_lrsFn && !_lrsFn(l, Date.now(), p)) continue;
         candidates.push({
           source: 'app',
           state: l.state,
@@ -20116,6 +20121,12 @@ window._findAsigDelCliente = function(clientName, clientCardCode){
       if (!l) return;
       const qo = Number(l.qtyOpen) || 0;
       if (qo <= 0) return;
+      // v1125 (2026-10-02): filtrar lineas inertes (ASIG expirada >15d, B/C
+      // sin asigReserva, state transitioned). Sin este filtro, el VDE veia
+      // ASIGs vencidas en el modal y podia cancelarlas irreversiblemente,
+      // perdiendo historico.
+      const _lrsFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
+      if (_lrsFn && !_lrsFn(l, Date.now(), p)) return;
       if (l.state === 'ASIG') {
         // Reserva firme por E4.5 — qty = qtyOpen entero.
         out.push({

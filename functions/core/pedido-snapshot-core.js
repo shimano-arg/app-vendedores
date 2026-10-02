@@ -41,6 +41,43 @@ const RESERVA_TTL_DAYS = 15;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * Normaliza un valor a timestamp ms. Igual que en
+ * src/pure/stock-realmente-disponible.js (MANTENER SINCRONIZADO).
+ * Soporta null/undefined, number, Date, Firestore Timestamp (toMillis),
+ * plain {seconds, nanoseconds?}, string ISO.
+ * @param {any} value
+ * @returns {number|null}
+ */
+function toMillisSafe(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isFinite(t) ? t : null;
+  }
+  if (typeof value === 'object') {
+    if (typeof value.toMillis === 'function') {
+      try {
+        const t = value.toMillis();
+        return typeof t === 'number' && Number.isFinite(t) ? t : null;
+      } catch (_e) {
+        return null;
+      }
+    }
+    if (typeof value.seconds === 'number') {
+      const nanos = typeof value.nanoseconds === 'number' ? value.nanoseconds : 0;
+      return value.seconds * 1000 + nanos / 1e6;
+    }
+    return null;
+  }
+  if (typeof value === 'string') {
+    const t = Date.parse(value);
+    return Number.isFinite(t) ? t : null;
+  }
+  return null;
+}
+
+/**
  * Portado de src/pure/stock-realmente-disponible.js:lineReservesStock.
  * Retorna true si la linea reserva stock (segun state + edad + asigReserva).
  * @param {any} line
@@ -54,8 +91,8 @@ export function lineReservesStock(line, nowMs, pedido) {
   if (state === 'BO') {
     // v969: expira 15d desde pedido.createdAt.
     if (pedido && pedido.createdAt) {
-      const createdAtMs = new Date(pedido.createdAt).getTime();
-      if (Number.isFinite(createdAtMs) && (nowMs - createdAtMs) / DAY_MS > RESERVA_TTL_DAYS) {
+      const createdAtMs = toMillisSafe(pedido.createdAt);
+      if (createdAtMs !== null && (nowMs - createdAtMs) / DAY_MS > RESERVA_TTL_DAYS) {
         return false;
       }
     }
@@ -64,20 +101,23 @@ export function lineReservesStock(line, nowMs, pedido) {
   if (state === 'confirmed') {
     // v963: expira 15d desde pedido.confirmedAt.
     if (pedido && pedido.confirmedAt) {
-      const confirmedAtMs = new Date(pedido.confirmedAt).getTime();
-      if (Number.isFinite(confirmedAtMs) && (nowMs - confirmedAtMs) / DAY_MS > RESERVA_TTL_DAYS) {
+      const confirmedAtMs = toMillisSafe(pedido.confirmedAt);
+      if (confirmedAtMs !== null && (nowMs - confirmedAtMs) / DAY_MS > RESERVA_TTL_DAYS) {
         return false;
       }
     }
     return true;
   }
   if (state === 'ASIG') {
-    // v957: asigReserva=false (B/C) no reserva.
-    if (line.asigReserva === false) return false;
+    // v957 + fix auditor 2026-10-02: asigReserva=false (B/C) no reserva.
+    // Explicito tambien para entero 0 (SAP serializa booleanos como 0/1 y
+    // 0===false es false en JS). NO usar `!asigReserva` porque undefined/null
+    // significa "default true" historicamente.
+    if (line.asigReserva === false || line.asigReserva === 0) return false;
     // v959: expira 15d desde asigAt.
     if (line.asigAt) {
-      const asigAtMs = new Date(line.asigAt).getTime();
-      if (Number.isFinite(asigAtMs) && (nowMs - asigAtMs) / DAY_MS > RESERVA_TTL_DAYS) {
+      const asigAtMs = toMillisSafe(line.asigAt);
+      if (asigAtMs !== null && (nowMs - asigAtMs) / DAY_MS > RESERVA_TTL_DAYS) {
         return false;
       }
     }

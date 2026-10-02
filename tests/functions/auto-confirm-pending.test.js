@@ -12,17 +12,35 @@ import {
 const NOW_MS = new Date('2026-09-14T14:00:00.000Z').getTime();
 const nowFn = () => NOW_MS;
 
-function makeFbDbStub({ pedidos = [], config = null } = {}) {
+function makeFbDbStub({
+  pedidos = [],
+  config = null,
+  stockSnapshot = null,
+  updateHooks = {},
+} = {}) {
   const store = {
-    pedidos: pedidos.map((p) => ({ ...p })),
+    pedidos: pedidos.map((p) => ({ ...p, data: { ...p.data } })),
     notifications: [],
     updatesLog: [],
+    stockSnapshot,
   };
-  return {
+  // Mutex serial para runTransaction (ver fake de invoice-sync.test.js).
+  let txChain = Promise.resolve();
+  const applyUpdate = async (id, patch) => {
+    const hook = updateHooks[id];
+    if (hook) await hook();
+    const idx = store.pedidos.findIndex((p) => p.id === id);
+    if (idx >= 0) {
+      store.pedidos[idx].data = { ...store.pedidos[idx].data, ...patch };
+    }
+    store.updatesLog.push({ id, patch });
+  };
+  const db = {
     _store: store,
     doc(path) {
       if (path === 'app_config/auto_confirm') {
         return {
+          _path: path,
           async get() {
             return {
               exists: !!config,
@@ -31,25 +49,42 @@ function makeFbDbStub({ pedidos = [], config = null } = {}) {
           },
         };
       }
-      // pedidos/{id} handled via collection().doc().update()
-      return { async get() {}, async update() {}, async set() {} };
+      if (path === 'app_config/stock_snapshot') {
+        return {
+          _path: path,
+          async get() {
+            return {
+              exists: !!store.stockSnapshot,
+              data: () => store.stockSnapshot || {},
+            };
+          },
+        };
+      }
+      // pedidos/{id} directo (usado por runTransaction)
+      if (path.startsWith('pedidos/')) {
+        const id = path.split('/')[1];
+        return {
+          _path: path,
+          async get() {
+            const p = store.pedidos.find((x) => x.id === id);
+            return { exists: !!p, data: () => (p ? p.data : {}) };
+          },
+          async update(patch) {
+            await applyUpdate(id, patch);
+          },
+        };
+      }
+      return { _path: path, async get() {}, async update() {}, async set() {} };
     },
     collection(name) {
       if (name === 'pedidos') {
+        const parent = this;
         return {
           doc(id) {
-            return {
-              async update(patch) {
-                const idx = store.pedidos.findIndex((p) => p.id === id);
-                if (idx >= 0) {
-                  store.pedidos[idx].data = { ...store.pedidos[idx].data, ...patch };
-                }
-                store.updatesLog.push({ id, patch });
-              },
-            };
+            return parent.doc(`pedidos/${id}`);
           },
           where(field, op, value) {
-            // Solo soportamos stage=='pending'
+            // Soportamos stage=='pending' y closedAt==null
             const chain = {
               _filters: [{ field, op, value }],
               _orderBy: null,
@@ -65,7 +100,14 @@ function makeFbDbStub({ pedidos = [], config = null } = {}) {
               async get() {
                 let arr = store.pedidos.filter((p) => {
                   for (const f of chain._filters) {
-                    if (f.op === '==' && p.data[f.field] !== f.value) return false;
+                    if (f.op === '==') {
+                      const v = p.data[f.field];
+                      if (f.value === null) {
+                        if (v !== null && v !== undefined) return false;
+                      } else {
+                        if (v !== f.value) return false;
+                      }
+                    }
                   }
                   return true;
                 });
@@ -103,7 +145,46 @@ function makeFbDbStub({ pedidos = [], config = null } = {}) {
       }
       return { doc: () => ({ async set() {}, async update() {} }) };
     },
+    async runTransaction(fn) {
+      const prev = txChain;
+      let release;
+      txChain = new Promise((resolve) => {
+        release = resolve;
+      });
+      await prev;
+      try {
+        /** @type {Array<{id:string, patch:any}>} */
+        const pendingWrites = [];
+        const tx = {
+          async get(ref) {
+            return ref.get();
+          },
+          update(ref, patch) {
+            const p = ref._path;
+            if (!p || !p.startsWith('pedidos/')) return;
+            const id = p.split('/')[1];
+            // Diferimos la escritura al commit (post-fn) para pasar por el
+            // mismo applyUpdate (que respeta updateHooks para forzar errores).
+            pendingWrites.push({ id, patch });
+          },
+          set(ref, data) {
+            if (ref && ref._path === 'app_config/stock_snapshot') {
+              store.stockSnapshot = { ...(store.stockSnapshot || {}), ...data };
+            }
+          },
+        };
+        const r = await fn(tx);
+        // Commit — ejecuta los hooks (que pueden tirar error) y aplica.
+        for (const w of pendingWrites) {
+          await applyUpdate(w.id, w.patch);
+        }
+        return r;
+      } finally {
+        release();
+      }
+    },
   };
+  return db;
 }
 
 const FieldValue = { serverTimestamp: () => 'FV.serverTimestamp()' };
@@ -239,40 +320,155 @@ describe('autoConfirmPendingPedidos', () => {
   });
 
   it('procesa varios pedidos elegibles en la misma corrida y captura errores por pedido', async () => {
+    // Fuerza error en el update del pedido 'b' via updateHooks del stub.
+    // El tx.update(ref, patch) del fake difiere el write al commit, que
+    // llama applyUpdate(id, patch); ahi applyUpdate corre el updateHooks[id]
+    // y tira si esta seteado.
     const fbDb = makeFbDbStub({
       pedidos: [
         pedidoDoc({ id: 'a', data: { confirmedAt: isoMinutesAgo(20) } }),
         pedidoDoc({ id: 'b', data: { confirmedAt: isoMinutesAgo(11) } }),
       ],
+      updateHooks: {
+        b: async () => {
+          throw new Error('boom');
+        },
+      },
     });
-    // Forzar error en el update del pedido 'b' para verificar que 'a' sigue
-    // procesándose y el error queda registrado en r.errors.
-    const origUpdate = fbDb.collection('pedidos').doc('b').update;
-    fbDb.collection = ((orig) =>
-      function collection(name) {
-        const c = orig.call(this, name);
-        if (name !== 'pedidos') return c;
-        const origDoc = c.doc.bind(c);
-        return {
-          ...c,
-          doc(id) {
-            const d = origDoc(id);
-            if (id === 'b') {
-              return {
-                ...d,
-                async update() {
-                  throw new Error('boom');
-                },
-              };
-            }
-            return d;
-          },
-        };
-      })(fbDb.collection);
     const r = await autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn });
     expect(r.processed).toBe(1);
     expect(r.processedIds[0].id).toBe('a');
     expect(r.errors).toHaveLength(1);
     expect(r.errors[0].id).toBe('b');
+  });
+
+  it('STOCK: pedido con confirmed line y stock suficiente -> auto-confirm procede', async () => {
+    const fbDb = makeFbDbStub({
+      pedidos: [
+        pedidoDoc({
+          id: 'ok_stock',
+          data: {
+            clientCardCode: 'C001',
+            confirmedAt: isoMinutesAgo(15),
+            lines: [{ code: 'SKU-X', qty: 10, qtyOpen: 10, state: 'confirmed' }],
+          },
+        }),
+      ],
+      stockSnapshot: {
+        warehouseBreakdown: JSON.stringify({ 'SKU-X': { 11: 10, 12: 0 } }),
+      },
+    });
+    const r = await autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn });
+    expect(r.result).toBe(AUTO_CONFIRM_RESULT.PROCESSED);
+    expect(r.processed).toBe(1);
+    const updated = fbDb._store.pedidos.find((p) => p.id === 'ok_stock');
+    expect(updated.data.stage).toBe('confirmed');
+    expect(r.skippedForStock).toEqual([]);
+  });
+
+  it('STOCK: pedido con confirmed line y stock insuficiente -> SKIP + log skipped_stock_evaporated', async () => {
+    // Pedido quiere 10, snapshot muestra solo 5 whs 11 -> skip.
+    const fbDb = makeFbDbStub({
+      pedidos: [
+        pedidoDoc({
+          id: 'short_stock',
+          data: {
+            clientCardCode: 'C001',
+            confirmedAt: isoMinutesAgo(20),
+            lines: [{ code: 'SKU-Y', qty: 10, qtyOpen: 10, state: 'confirmed' }],
+          },
+        }),
+      ],
+      stockSnapshot: {
+        warehouseBreakdown: JSON.stringify({ 'SKU-Y': { 11: 5 } }),
+      },
+    });
+    const r = await autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn });
+    expect(r.processed).toBe(0);
+    // El pedido sigue en pending.
+    const notPromoted = fbDb._store.pedidos.find((p) => p.id === 'short_stock');
+    expect(notPromoted.data.stage).toBe('pending');
+    // La estructura skippedForStock debe tener el pedido con detalle.
+    expect(r.skippedForStock).toHaveLength(1);
+    expect(r.skippedForStock[0]).toMatchObject({
+      id: 'short_stock',
+      shortfalls: [{ sku: 'SKU-Y', wanted: 10, available: 5 }],
+    });
+  });
+
+  it('STOCK: stock whs 11 consumido por reservas de OTRO pedido confirmed -> SKIP', async () => {
+    // 10 fisicos pero otro pedido ya tiene reservado 7 (confirmed, no cerrado,
+    // transferidoSAP seteado para que lineReservesStock lo cuente). El pedido
+    // nuevo quiere 5 -> disponible neto = 10 - 7 = 3 < 5 -> skip.
+    const fbDb = makeFbDbStub({
+      pedidos: [
+        pedidoDoc({
+          id: 'nuevo',
+          data: {
+            clientCardCode: 'C001',
+            confirmedAt: isoMinutesAgo(15),
+            lines: [{ code: 'SKU-Z', qty: 5, qtyOpen: 5, state: 'confirmed' }],
+          },
+        }),
+        // Otro pedido abierto que ya reserva 7u del mismo SKU.
+        {
+          id: 'otro',
+          data: {
+            stage: 'confirmed',
+            closedAt: null,
+            clientCardCode: 'C002',
+            confirmedAt: isoMinutesAgo(60),
+            lines: [{ code: 'SKU-Z', qty: 7, qtyOpen: 7, state: 'confirmed' }],
+          },
+        },
+      ],
+      stockSnapshot: {
+        warehouseBreakdown: JSON.stringify({ 'SKU-Z': { 11: 10 } }),
+      },
+    });
+    const r = await autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn });
+    expect(r.processed).toBe(0);
+    expect(r.skippedForStock).toHaveLength(1);
+    expect(r.skippedForStock[0].shortfalls[0]).toMatchObject({
+      sku: 'SKU-Z',
+      wanted: 5,
+      available: 3,
+    });
+  });
+
+  it('CONCURRENCIA: dos llamadas Promise.all con mismo pedido elegible -> solo UNO promueve stage', async () => {
+    // Regression del race: dos ticks del scheduler coinciden, ambos filtran
+    // el mismo pedido como eligible. Con runTransaction + check stage==='pending'
+    // dentro del critical section, solo el primero gana.
+    const fbDb = makeFbDbStub({
+      pedidos: [
+        pedidoDoc({
+          id: 'conc_1',
+          data: {
+            clientCardCode: 'C001',
+            confirmedAt: isoMinutesAgo(15),
+            lines: [{ code: 'SKU-A', qty: 3, qtyOpen: 3, state: 'confirmed' }],
+          },
+        }),
+      ],
+      stockSnapshot: {
+        warehouseBreakdown: JSON.stringify({ 'SKU-A': { 11: 100 } }),
+      },
+    });
+    const [r1, r2] = await Promise.all([
+      autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn }),
+      autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn }),
+    ]);
+    // Solo uno promueve (el otro ve stage!='pending' en el tx y skippea).
+    const totalProcessed = r1.processed + r2.processed;
+    expect(totalProcessed).toBe(1);
+    const final = fbDb._store.pedidos.find((p) => p.id === 'conc_1');
+    expect(final.data.stage).toBe('confirmed');
+    // El finalizedBy no se escribio dos veces (confirmable por un unico
+    // update con stage='confirmed' en el log).
+    const confirmUpdates = fbDb._store.updatesLog.filter(
+      (u) => u.id === 'conc_1' && u.patch.stage === 'confirmed'
+    );
+    expect(confirmUpdates).toHaveLength(1);
   });
 });

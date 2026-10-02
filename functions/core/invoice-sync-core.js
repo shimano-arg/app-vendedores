@@ -244,11 +244,15 @@ async function findPedidosBySqDocEntry(deps, sqDocEntries) {
  * una Invoice (poco frecuente pero posible). Sumamos todas antes de asignar
  * a la (unica) linea del pedido con ese code.
  *
- * ATOMICIDAD: read-then-update sin transaccion. Race window: si dos ticks
- * simultaneos leen la misma pedido antes de escribir, uno pisa al otro. La
- * chance es baja (CF single-instance por defecto) pero real. Mejora futura:
- * runTransaction. Por ahora la guardia de appliedInvoiceDocEntries mitiga
- * el double-count si detectamos el race post-facto.
+ * ATOMICIDAD: toda la operacion (read + check idempotencia + modify + write)
+ * corre dentro de `runTransaction`. Esto cierra el race window donde dos
+ * ticks simultaneos de la CF (scheduler retryCount:1 + clock drift) podian
+ * leer el mismo snapshot sin el invoiceDocEntry en appliedInvoiceDocEntries,
+ * ambos computar nuevos qtyInvoiced, y pisarse mutuamente -> double-count
+ * o perdida de writes. Firestore detecta conflict en commit y reintenta la
+ * transaccion automaticamente (hasta 5 intentos default). El idempotency
+ * check dentro del critical section garantiza que el segundo intento vea
+ * el appliedInvoiceDocEntries ya actualizado y retorne null.
  *
  * @param {InvoiceSyncDeps} deps
  * @param {SyncMatch} match
@@ -256,104 +260,109 @@ async function findPedidosBySqDocEntry(deps, sqDocEntries) {
  */
 export async function applyInvoiceMatch(deps, match) {
   const pedidoRef = deps.fbDb.collection('pedidos').doc(match.pedidoAppId);
-  const snap = await pedidoRef.get();
-  if (!snap.exists) return null;
-  const data = snap.data() || {};
-  const sapLinkage = data.sapLinkage || {};
-  const applied = Array.isArray(sapLinkage.appliedInvoiceDocEntries)
-    ? sapLinkage.appliedInvoiceDocEntries
-    : [];
-  if (applied.includes(match.invoiceDocEntry)) return null; // idempotent
+  return await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
+    const snap = await tx.get(pedidoRef);
+    if (!snap.exists) return null;
+    const data = snap.data() || {};
+    const sapLinkage = data.sapLinkage || {};
+    const applied = Array.isArray(sapLinkage.appliedInvoiceDocEntries)
+      ? sapLinkage.appliedInvoiceDocEntries
+      : [];
+    // Idempotency guard DENTRO del critical section — garantiza que un
+    // retry por conflict (o un segundo tick concurrente que gane la carrera)
+    // vea el appliedInvoiceDocEntries ya actualizado y skipee.
+    if (applied.includes(match.invoiceDocEntry)) return null;
 
-  // Sumar qty por itemCode (SAP puede tener multiples lineas mismo SKU).
-  /** @type {Map<string, number>} */
-  const invoicedByCode = new Map();
-  for (const il of match.lines || []) {
-    const code = String(il.itemCode || '').toUpperCase();
-    if (!code) continue;
-    invoicedByCode.set(code, (invoicedByCode.get(code) || 0) + (Number(il.qty) || 0));
-  }
-
-  // Estados que NO reciben invoice: la linea nunca viajo a SAP como parte de
-  // este SQ (BO/ASIG) o fue explicitamente removida (cancelled/recycled).
-  // Aplica al escenario post-split (E2/E3) donde un pedido puede tener 2
-  // lineas del mismo SKU: {qty:70, state:'confirmed'} + {qty:30, state:'BO'}.
-  // Sin este skip, un invoice por 70 se aplicaria a AMBAS lineas duplicando
-  // qtyInvoiced (bug latente pre-split, unmasked por E2/E3).
-  const SKIP_STATES = new Set(['BO', 'ASIG', 'cancelled', 'recycled']);
-
-  const lines = Array.isArray(data.lines) ? [...data.lines] : [];
-  /** @type {Map<string, number>} */
-  const remaining = new Map(invoicedByCode);
-  let anyLineChanged = false;
-
-  // Pass 1: consumir contra qtyOpen (invoicing normal).
-  for (let i = 0; i < lines.length; i++) {
-    const l = lines[i];
-    if (!l || !l.code) continue;
-    if (SKIP_STATES.has(l.state)) continue;
-    const up = String(l.code).toUpperCase();
-    const rem = remaining.get(up) || 0;
-    if (rem <= 0) continue;
-    const qty = Number(l.qty) || 0;
-    const already = Number(l.qtyInvoiced) || 0;
-    const cancelled = Number(l.qtyCancelled) || 0;
-    const recycled = Number(l.qtyRecycled) || 0;
-    const openBefore = Math.max(qty - already - cancelled - recycled, 0);
-    if (openBefore <= 0) continue; // pass 2 maneja overflow
-    const applyQty = Math.min(rem, openBefore);
-    const newInvoiced = already + applyQty;
-    const qtyOpen = Math.max(qty - newInvoiced - cancelled - recycled, 0);
-    /** @type {Record<string, any>} */
-    const patch = { qtyInvoiced: newInvoiced, qtyOpen };
-    if (qtyOpen <= 0 && l.state !== 'invoiced' && l.state !== 'cancelled') {
-      patch.state = 'invoiced';
+    // Sumar qty por itemCode (SAP puede tener multiples lineas mismo SKU).
+    /** @type {Map<string, number>} */
+    const invoicedByCode = new Map();
+    for (const il of match.lines || []) {
+      const code = String(il.itemCode || '').toUpperCase();
+      if (!code) continue;
+      invoicedByCode.set(code, (invoicedByCode.get(code) || 0) + (Number(il.qty) || 0));
     }
-    lines[i] = Object.assign({}, l, patch);
-    remaining.set(up, rem - applyQty);
-    anyLineChanged = true;
-  }
 
-  // Pass 2: overflow (notas de credito / ajustes). Aplica lo que sobre a la
-  // primera linea eligible con el mismo code que ya haya sido invoiced.
-  // Preserva el comportamiento historico donde un invoice adicional post-cierre
-  // suma a qtyInvoiced aunque exceda qty (auditoria de ajustes).
-  for (let i = 0; i < lines.length; i++) {
-    const l = lines[i];
-    if (!l || !l.code) continue;
-    if (SKIP_STATES.has(l.state)) continue;
-    const up = String(l.code).toUpperCase();
-    const rem = remaining.get(up) || 0;
-    if (rem <= 0) continue;
-    const already = Number(l.qtyInvoiced) || 0;
-    const newInvoiced = already + rem;
-    lines[i] = Object.assign({}, l, { qtyInvoiced: newInvoiced });
-    remaining.set(up, 0);
-    anyLineChanged = true;
-  }
+    // Estados que NO reciben invoice: la linea nunca viajo a SAP como parte de
+    // este SQ (BO/ASIG) o fue explicitamente removida (cancelled/recycled).
+    // Aplica al escenario post-split (E2/E3) donde un pedido puede tener 2
+    // lineas del mismo SKU: {qty:70, state:'confirmed'} + {qty:30, state:'BO'}.
+    // Sin este skip, un invoice por 70 se aplicaria a AMBAS lineas duplicando
+    // qtyInvoiced (bug latente pre-split, unmasked por E2/E3).
+    const SKIP_STATES = new Set(['BO', 'ASIG', 'cancelled', 'recycled']);
 
-  if (!anyLineChanged) return null;
+    const lines = Array.isArray(data.lines) ? [...data.lines] : [];
+    /** @type {Map<string, number>} */
+    const remaining = new Map(invoicedByCode);
+    let anyLineChanged = false;
 
-  const nowIso = new Date().toISOString();
-  const anyStillOpen = lines.some((l) => (Number(l && l.qtyOpen) || 0) > 0);
-  /** @type {Record<string, any>} */
-  const update = {
-    lines,
-    updatedAt: nowIso,
-    sapLinkage: Object.assign({}, sapLinkage, {
-      lastInvoiceDocEntry: match.invoiceDocEntry,
-      lastSyncAt: nowIso,
-      appliedInvoiceDocEntries: [...applied, match.invoiceDocEntry],
-    }),
-  };
-  let closed = false;
-  if (!anyStillOpen && !data.closedAt) {
-    update.closedAt = nowIso;
-    update.closedReason = 'all_invoiced';
-    closed = true;
-  }
-  await pedidoRef.update(update);
-  return { closed };
+    // Pass 1: consumir contra qtyOpen (invoicing normal).
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (!l || !l.code) continue;
+      if (SKIP_STATES.has(l.state)) continue;
+      const up = String(l.code).toUpperCase();
+      const rem = remaining.get(up) || 0;
+      if (rem <= 0) continue;
+      const qty = Number(l.qty) || 0;
+      const already = Number(l.qtyInvoiced) || 0;
+      const cancelled = Number(l.qtyCancelled) || 0;
+      const recycled = Number(l.qtyRecycled) || 0;
+      const openBefore = Math.max(qty - already - cancelled - recycled, 0);
+      if (openBefore <= 0) continue; // pass 2 maneja overflow
+      const applyQty = Math.min(rem, openBefore);
+      const newInvoiced = already + applyQty;
+      const qtyOpen = Math.max(qty - newInvoiced - cancelled - recycled, 0);
+      /** @type {Record<string, any>} */
+      const patch = { qtyInvoiced: newInvoiced, qtyOpen };
+      if (qtyOpen <= 0 && l.state !== 'invoiced' && l.state !== 'cancelled') {
+        patch.state = 'invoiced';
+      }
+      lines[i] = Object.assign({}, l, patch);
+      remaining.set(up, rem - applyQty);
+      anyLineChanged = true;
+    }
+
+    // Pass 2: overflow (notas de credito / ajustes). Aplica lo que sobre a la
+    // primera linea eligible con el mismo code que ya haya sido invoiced.
+    // Preserva el comportamiento historico donde un invoice adicional post-cierre
+    // suma a qtyInvoiced aunque exceda qty (auditoria de ajustes).
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (!l || !l.code) continue;
+      if (SKIP_STATES.has(l.state)) continue;
+      const up = String(l.code).toUpperCase();
+      const rem = remaining.get(up) || 0;
+      if (rem <= 0) continue;
+      const already = Number(l.qtyInvoiced) || 0;
+      const newInvoiced = already + rem;
+      lines[i] = Object.assign({}, l, { qtyInvoiced: newInvoiced });
+      remaining.set(up, 0);
+      anyLineChanged = true;
+    }
+
+    if (!anyLineChanged) return null;
+
+    const nowIso = new Date().toISOString();
+    const anyStillOpen = lines.some((l) => (Number(l && l.qtyOpen) || 0) > 0);
+    /** @type {Record<string, any>} */
+    const update = {
+      lines,
+      updatedAt: nowIso,
+      sapLinkage: Object.assign({}, sapLinkage, {
+        lastInvoiceDocEntry: match.invoiceDocEntry,
+        lastSyncAt: nowIso,
+        appliedInvoiceDocEntries: [...applied, match.invoiceDocEntry],
+      }),
+    };
+    let closed = false;
+    if (!anyStillOpen && !data.closedAt) {
+      update.closedAt = nowIso;
+      update.closedReason = 'all_invoiced';
+      closed = true;
+    }
+    tx.update(pedidoRef, update);
+    return { closed };
+  });
 }
 
 /**

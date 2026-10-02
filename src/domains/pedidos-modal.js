@@ -445,15 +445,20 @@ window.validateReviewAndPasarAPendientes = function () {
       if (cliCardCode && typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
         let asigCount = 0;
         let asigPedidos = 0;
+        const _lrsFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
+        const _nowTs = Date.now();
         globalPedidos.forEach((p) => {
-          if (!p || !Array.isArray(p.lines)) return;
+          if (!p || p.closedAt) return;
+          if (!Array.isArray(p.lines)) return;
           if (p._fsId === currentPedidoId) return; // saltar el pedido actual
           const pCardCode =
             typeof sapGetClienteCode === 'function'
               ? sapGetClienteCode(p.clientName || '') || ''
               : '';
           if (pCardCode !== cliCardCode) return;
-          const asigLinesOfP = p.lines.filter((l) => l && l.state === 'ASIG');
+          const asigLinesOfP = p.lines.filter(
+            (l) => l && l.state === 'ASIG' && (!_lrsFn || _lrsFn(l, _nowTs, p))
+          );
           if (asigLinesOfP.length > 0) {
             asigPedidos++;
             asigCount += asigLinesOfP.length;

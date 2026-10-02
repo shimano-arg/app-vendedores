@@ -50,6 +50,52 @@ const RESERVA_TTL_DAYS = 15;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * Normaliza un valor a timestamp ms. Acepta:
+ *   - null/undefined → null
+ *   - number → tal cual
+ *   - Date → .getTime()
+ *   - Firestore Timestamp (toMillis()) → .toMillis()
+ *   - plain {seconds, nanoseconds?} → seconds*1000 + nanoseconds/1e6
+ *   - string ISO → Date.parse (null si NaN)
+ *   - cualquier otro → null
+ *
+ * Bug reportado por auditor (2026-10-02): `new Date(firestoreTimestamp).getTime()`
+ * devuelve NaN, Number.isFinite(NaN)===false, el bloque de expiracion se saltea
+ * silenciosamente y la fn se comporta como "reserva para siempre".
+ *
+ * @param {any} value
+ * @returns {number|null}
+ */
+function toMillisSafe(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isFinite(t) ? t : null;
+  }
+  if (typeof value === 'object') {
+    if (typeof value.toMillis === 'function') {
+      try {
+        const t = value.toMillis();
+        return typeof t === 'number' && Number.isFinite(t) ? t : null;
+      } catch (_e) {
+        return null;
+      }
+    }
+    if (typeof value.seconds === 'number') {
+      const nanos = typeof value.nanoseconds === 'number' ? value.nanoseconds : 0;
+      return value.seconds * 1000 + nanos / 1e6;
+    }
+    return null;
+  }
+  if (typeof value === 'string') {
+    const t = Date.parse(value);
+    return Number.isFinite(t) ? t : null;
+  }
+  return null;
+}
+
+/**
  * v957 (Fase 2, 2026-09-16): decide si una linea reserva stock.
  * v959 (2026-09-16): agrega expiracion 15 dias desde asigAt para ASIG.
  * v963 (2026-09-17): agrega expiracion 15 dias desde confirmedAt/asigAt para
@@ -91,8 +137,8 @@ export function lineReservesStock(line, nowMs, pedido) {
     // reservar). Si el caller no pasa pedido o el pedido no tiene createdAt,
     // BO nunca expira (comportamiento pre-v969).
     if (pedido && pedido.createdAt) {
-      const createdAtMs = new Date(pedido.createdAt).getTime();
-      if (Number.isFinite(createdAtMs)) {
+      const createdAtMs = toMillisSafe(pedido.createdAt);
+      if (createdAtMs !== null) {
         const now = typeof nowMs === 'number' ? nowMs : Date.now();
         const ageDays = (now - createdAtMs) / DAY_MS;
         if (ageDays > RESERVA_TTL_DAYS) return false;
@@ -104,8 +150,8 @@ export function lineReservesStock(line, nowMs, pedido) {
     // v963: expiracion 15d desde confirmedAt del pedido (no de la linea).
     // Si el caller no pasa pedido, mantener comportamiento pre-v963 (siempre reserva).
     if (pedido && pedido.confirmedAt) {
-      const confirmedAtMs = new Date(pedido.confirmedAt).getTime();
-      if (Number.isFinite(confirmedAtMs)) {
+      const confirmedAtMs = toMillisSafe(pedido.confirmedAt);
+      if (confirmedAtMs !== null) {
         const now = typeof nowMs === 'number' ? nowMs : Date.now();
         const ageDays = (now - confirmedAtMs) / DAY_MS;
         if (ageDays > RESERVA_TTL_DAYS) return false;
@@ -114,11 +160,17 @@ export function lineReservesStock(line, nowMs, pedido) {
     return true;
   }
   if (state === 'ASIG') {
-    if (line.asigReserva === false) return false;
+    // Bug fix auditor 2026-10-02: SAP/legacy serializa booleanos como 0/1
+    // enteros. `0 === false` es false en JS, por lo que el guard previo
+    // (`asigReserva === false`) no cachaba el entero 0 → la linea reservaba
+    // stock cuando no debia. Explicito con ambos valores; NO usamos
+    // `!line.asigReserva` porque undefined/null significa "default true"
+    // historicamente.
+    if (line.asigReserva === false || line.asigReserva === 0) return false;
     // v959: expiracion 15 dias desde asigAt.
     if (line.asigAt) {
-      const asigAtMs = new Date(line.asigAt).getTime();
-      if (Number.isFinite(asigAtMs)) {
+      const asigAtMs = toMillisSafe(line.asigAt);
+      if (asigAtMs !== null) {
         const now = typeof nowMs === 'number' ? nowMs : Date.now();
         const ageDays = (now - asigAtMs) / DAY_MS;
         if (ageDays > RESERVA_TTL_DAYS) return false;

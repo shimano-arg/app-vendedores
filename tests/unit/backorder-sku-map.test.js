@@ -363,3 +363,95 @@ describe('computeBackorderSkuMap — edge cases', () => {
     expect(r.skus[1].sku).toBe('SKU_LOW');
   });
 });
+
+// Fix auditor 2026-10-02 (bug C2): asigAt/confirmedAt como Firestore Timestamp
+// rompian el check `isAsigSinReservaVigente` (NaN) y el sqDocDate ("[object O").
+describe('computeBackorderSkuMap — fix auditor 2026-10-02 Timestamp handling', () => {
+  const tsToMillis = (ms) => ({ toMillis: () => ms });
+
+  it('C2: ASIG con asigReserva=false + asigAt Timestamp FRESCA -> aparece en modo asignacion (v1072)', () => {
+    const asigAtFresh = NOW_MS - 3 * DAY_MS;
+    const pedidos = [
+      pedido({
+        confirmedAt: tsToMillis(NOW_MS - 2 * DAY_MS),
+        createdAt: tsToMillis(NOW_MS - 3 * DAY_MS),
+        lines: [
+          line({
+            state: 'ASIG',
+            qtyOpen: 2,
+            asigReserva: false,
+            asigAt: tsToMillis(asigAtFresh),
+          }),
+        ],
+      }),
+    ];
+    const deps = baseDeps({ getStockDisponibleVenta: () => 5 });
+    const r = computeBackorderSkuMap(pedidos, 'asignacion', {}, deps);
+    // Pre-fix: new Date(timestampObj).getTime() -> NaN, isAsigSinReservaVigente
+    // devolvia false -> la linea quedaba descartada. Post-fix aparece.
+    expect(r.skus).toHaveLength(1);
+    expect(r.skus[0].clientes[0].qtyAsignada).toBe(2);
+  });
+
+  it('C2: ASIG con asigReserva=0 (entero) + asigAt Timestamp fresca -> aparece en modo asignacion', () => {
+    const asigAtFresh = NOW_MS - 3 * DAY_MS;
+    const pedidos = [
+      pedido({
+        confirmedAt: tsToMillis(NOW_MS - 2 * DAY_MS),
+        createdAt: tsToMillis(NOW_MS - 3 * DAY_MS),
+        lines: [
+          line({
+            state: 'ASIG',
+            qtyOpen: 2,
+            asigReserva: 0, // entero 0, equivalente a false
+            asigAt: tsToMillis(asigAtFresh),
+          }),
+        ],
+      }),
+    ];
+    const deps = baseDeps({ getStockDisponibleVenta: () => 5 });
+    const r = computeBackorderSkuMap(pedidos, 'asignacion', {}, deps);
+    expect(r.skus).toHaveLength(1);
+    expect(r.skus[0].clientes[0].qtyAsignada).toBe(2);
+  });
+
+  it('C2: sqDocDate normalizado a YYYY-MM-DD cuando confirmedAt es Timestamp (no "[object O")', () => {
+    // Pre-fix: String(timestampObj).slice(0,10) === "[object O" -> sort rompia
+    // y filtro mesYYYYMM no matcheaba. Post-fix sqDocDate = "YYYY-MM-DD" real.
+    const confirmedAtMs = new Date('2026-09-15T10:00:00Z').getTime();
+    const pedidos = [
+      pedido({
+        confirmedAt: tsToMillis(confirmedAtMs),
+        createdAt: tsToMillis(NOW_MS - 3 * DAY_MS),
+        lines: [line({ qtyOpen: 2 })],
+      }),
+    ];
+    const r = computeBackorderSkuMap(pedidos, 'urgente', {}, baseDeps());
+    expect(r.skus).toHaveLength(1);
+    expect(r.skus[0].clientes[0].sqDocDate).toBe('2026-09-15');
+  });
+
+  it('C2: filtro mesYYYYMM funciona con confirmedAt Timestamp (antes rompia)', () => {
+    const confAt1 = new Date('2026-09-15T10:00:00Z').getTime();
+    const confAt2 = new Date('2026-08-20T10:00:00Z').getTime();
+    const pedidos = [
+      pedido({
+        _fsId: 'pA',
+        clientName: 'CLIENTE A',
+        confirmedAt: tsToMillis(confAt1),
+        createdAt: tsToMillis(NOW_MS - 3 * DAY_MS),
+        lines: [line({ code: 'SKU1', qtyOpen: 2 })],
+      }),
+      pedido({
+        _fsId: 'pB',
+        clientName: 'CLIENTE B',
+        confirmedAt: tsToMillis(confAt2),
+        createdAt: tsToMillis(NOW_MS - 3 * DAY_MS),
+        lines: [line({ code: 'SKU2', qtyOpen: 3 })],
+      }),
+    ];
+    const r = computeBackorderSkuMap(pedidos, 'urgente', { mesYYYYMM: '2026-08' }, baseDeps());
+    expect(r.skus).toHaveLength(1);
+    expect(r.skus[0].sku).toBe('SKU2');
+  });
+});

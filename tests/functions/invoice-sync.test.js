@@ -1,18 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyInvoiceMatch, syncSapInvoices } from '../../functions/core/invoice-sync-core.js';
 
-/** Fake Firestore que emula .doc().get()/.set() y .collection().where().get() */
+/** Fake Firestore que emula .doc().get()/.set() y .collection().where().get()
+ *
+ * runTransaction: serializa las transacciones via mutex para simular aislamiento
+ * (como Firestore real que detectaria conflicts y retry). Es minimal pero
+ * suficiente para testear que una fn runTransaction-based no double-count
+ * cuando dos invocaciones corren con `Promise.all`.
+ */
 function makeFakeFbDb(initialState = {}) {
   const store = {
     syncState: initialState.syncState || null,
     pedidos: initialState.pedidos || [], // array de { id, data }
   };
   const writes = [];
-  return {
+  // Mutex serial: cada runTransaction encadena su callback despues del
+  // anterior. Simula el aislamiento real de Firestore (sin optimistic
+  // locking, pero suficiente para probar que el idempotency check dentro
+  // del critical section bloquea el double-count).
+  let txChain = Promise.resolve();
+  const db = {
     _writes: writes,
     _store: store,
     doc(path) {
-      return {
+      const ref = {
+        _path: path,
         async get() {
           if (path === 'app_config/sap_sync_state') {
             return {
@@ -42,6 +54,7 @@ function makeFakeFbDb(initialState = {}) {
           }
         },
       };
+      return ref;
     },
     collection(name) {
       const parent = this;
@@ -70,7 +83,46 @@ function makeFakeFbDb(initialState = {}) {
         },
       };
     },
+    async runTransaction(fn) {
+      // Serializar: cada tx corre despues de la anterior. Esto emula el
+      // comportamiento efectivo de Firestore cuando dos tx coliden (una
+      // gana el commit, la otra reintenta leyendo el state fresco).
+      const prev = txChain;
+      let release;
+      txChain = new Promise((resolve) => {
+        release = resolve;
+      });
+      await prev;
+      try {
+        const tx = {
+          async get(ref) {
+            return ref.get();
+          },
+          update(ref, patch) {
+            const p = ref._path;
+            if (!p) return;
+            if (p.startsWith('pedidos/')) {
+              const id = p.split('/')[1];
+              const pedido = store.pedidos.find((x) => x.id === id);
+              if (pedido) pedido.data = { ...pedido.data, ...patch };
+              writes.push({ type: 'update', path: p, data: patch });
+            }
+          },
+          set(ref, data, opts) {
+            const p = ref._path;
+            if (p === 'app_config/sap_sync_state') {
+              store.syncState = { ...(store.syncState || {}), ...data };
+              writes.push({ type: 'set', path: p, data, opts });
+            }
+          },
+        };
+        return await fn(tx);
+      } finally {
+        release();
+      }
+    },
   };
+  return db;
 }
 
 /** Helpers para armar respuestas SAP mock. */
@@ -844,6 +896,37 @@ describe('applyInvoiceMatch (E5 active mode)', () => {
     expect(p.lines[0].state).toBe('invoiced');
     expect(p.lines[1].qtyInvoiced).toBe(0);
     expect(p.lines[1].state).toBe('ASIG');
+  });
+
+  it('CONCURRENCIA: dos applyInvoiceMatch con mismo invoiceDocEntry en Promise.all -> qtyInvoiced NO se duplica', async () => {
+    // Regression test del race window pre-transaccion:
+    // Scheduler fires con retryCount:1 + clock drift -> dos ticks leen el
+    // mismo appliedInvoiceDocEntries sin el DocEntry nuevo, ambos computan
+    // y escriben, uno pisa al otro => qtyInvoiced x2.
+    // Con runTransaction + idempotency guard dentro del critical section,
+    // el segundo ve el appliedInvoiceDocEntries ya actualizado y retorna null.
+    const fbDb = makeFakeFbDb({ pedidos: [_pedido()] });
+    const deps = { fbDb, log: vi.fn() };
+    const match = {
+      invoiceDocEntry: 9999,
+      invoiceDocNum: 1,
+      invoiceDocDate: '',
+      cardCode: 'C001',
+      sqDocEntry: 999,
+      soDocEntry: 888,
+      pedidoAppId: 'P1',
+      lines: [{ itemCode: 'SKU-A', qty: 7, lineNum: 0 }],
+    };
+    const results = await Promise.all([
+      applyInvoiceMatch(deps, match),
+      applyInvoiceMatch(deps, match),
+    ]);
+    // Uno aplica, el otro skippea por idempotency.
+    const nonNull = results.filter((r) => r !== null);
+    expect(nonNull).toHaveLength(1);
+    const p = fbDb._store.pedidos[0].data;
+    expect(p.lines[0].qtyInvoiced).toBe(7); // NO 14
+    expect(p.sapLinkage.appliedInvoiceDocEntries).toEqual([9999]);
   });
 
   it('no re-abre pedido ya cerrado (idempotencia dura)', async () => {
