@@ -1,6 +1,11 @@
 // @ts-check
+// Must stay in sync with RESERVA_TTL_DAYS in src/pure/stock-realmente-disponible.js.
+// Bug #2 fix: alineado a 15d (antes 30d) — el snapshot y lineReservesStock
+// stops counting ASIG lines as reserving at asigAt > 15d; si la TTL CF marcaba
+// expired recien a los 30d, habia 15 dias de "ghost ASIG" en la UI (operador
+// las ve como state='ASIG' pero el stock ya no las retiene).
 /**
- * E7: TTL 30d para lineas ASIG. Diariamente libera lineas que llevan > 30 dias
+ * E7: TTL 15d para lineas ASIG. Diariamente libera lineas que llevan > 15 dias
  * en state='ASIG' sin reciclar ni cancelar.
  *
  * Efecto por linea expirada:
@@ -23,7 +28,7 @@
  * de lineas expiradas. Solo admin/gerente lee (rules).
  */
 
-const TTL_DAYS = 30;
+const TTL_DAYS = 15;
 const ASIG_TTL_LOG_COLLECTION = 'asig_ttl_log';
 
 /**

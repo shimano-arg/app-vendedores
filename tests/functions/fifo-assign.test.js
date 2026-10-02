@@ -14,9 +14,14 @@ function makeFakeFbDb(initialState = {}) {
     clientMaster: initialState.clientMaster || {},
   };
   const writes = [];
+  // Bug #3 regression counter: cuenta cuantas veces se invoca
+  // collection('pedidos').where('closedAt','==',null).get() — debe ser 1
+  // por run de runFifoAssign (no N por SKU).
+  const counters = { pedidosClosedAtNullScans: 0 };
   return {
     _writes: writes,
     _store: store,
+    _counters: counters,
     // v939 (SecAudit MED-14): mock de runTransaction. Reejecuta la fn una
     // sola vez con un `tx` que expone .get() (paralelo a doc.get()) y
     // .update() que persiste al store. Retry+conflict detection real no se
@@ -85,6 +90,10 @@ function makeFakeFbDb(initialState = {}) {
           return {
             async get() {
               if (name !== 'pedidos') return { forEach: () => {} };
+              // Bug #3 counter: incrementar en cada scan de pedidos closedAt==null.
+              if (field === 'closedAt' && op === '==' && value === null) {
+                counters.pedidosClosedAtNullScans += 1;
+              }
               const filtered = store.pedidos.filter((p) => {
                 if (field === 'closedAt' && op === '==' && value === null) {
                   return !p.data.closedAt;
@@ -764,5 +773,94 @@ describe('runFifoAssign — v956 escribe asigReserva + asigCliTipo en la linea',
     expect(line.state).toBe('ASIG');
     expect(line.asigReserva).toBe(false);
     expect(line.asigCliTipo).toBe('C');
+  });
+});
+
+// Bug #3 regression: hoisting del scan de pedidos fuera del loop por SKU
+describe('runFifoAssign — Bug #3: scan de pedidos UNA sola vez', () => {
+  it('con 10 SKUs con delta, hace 1 solo scan de pedidos (no 10)', async () => {
+    // Armar 10 SKUs con delta positivo + un pedido abierto con lineas BO
+    // para que cada SKU tenga candidato.
+    const lines = [];
+    const warehouseAfter = {};
+    const warehouseBefore = {};
+    for (let i = 0; i < 10; i++) {
+      const sku = `SKU-${i}`;
+      lines.push({ code: sku, qtyOpen: 2, state: 'BO' });
+      warehouseAfter[sku] = { 11: 10 };
+      warehouseBefore[sku] = { 11: 0 };
+    }
+    const fbDb = makeFakeFbDb({
+      syncState: { mode: 'active' },
+      pedidos: [
+        {
+          id: 'P_MULTI',
+          data: {
+            clientCardCode: 'C1',
+            closedAt: null,
+            createdAt: '2026-09-16T10:00:00Z',
+            lines,
+          },
+        },
+      ],
+    });
+    const deps = { fbDb, log: vi.fn() };
+    const r = await runFifoAssign(
+      deps,
+      { warehouseBreakdown: warehouseBefore },
+      { warehouseBreakdown: warehouseAfter }
+    );
+    expect(r.skusChecked).toBe(10);
+    // CRUCIAL: pedidos scan debe ser 1 (hoisted), no 10 (uno por SKU).
+    expect(fbDb._counters.pedidosClosedAtNullScans).toBe(1);
+  });
+
+  it('backward-compat: loadBoCandidatesForSku sin openPedidos sigue haciendo scan', async () => {
+    const fbDb = makeFakeFbDb({
+      pedidos: [
+        {
+          id: 'P1',
+          data: {
+            clientCardCode: 'C1',
+            closedAt: null,
+            createdAt: '2026-09-16T10:00:00Z',
+            lines: [{ code: 'SKU-A', qtyOpen: 3, state: 'BO' }],
+          },
+        },
+      ],
+    });
+    const deps = { fbDb, log: vi.fn() };
+    const cands = await loadBoCandidatesForSku(deps, 'SKU-A');
+    expect(cands).toHaveLength(1);
+    // Si no se pasa openPedidos, se hace el scan como antes.
+    expect(fbDb._counters.pedidosClosedAtNullScans).toBe(1);
+  });
+
+  it('con openPedidos pre-cargados: NO hace scan adicional', async () => {
+    const fbDb = makeFakeFbDb({
+      pedidos: [
+        {
+          id: 'P1',
+          data: {
+            clientCardCode: 'C1',
+            closedAt: null,
+            createdAt: '2026-09-16T10:00:00Z',
+            lines: [{ code: 'SKU-A', qtyOpen: 3, state: 'BO' }],
+          },
+        },
+      ],
+    });
+    const deps = { fbDb, log: vi.fn() };
+    // Simular que el caller ya pre-cargo los pedidos.
+    const openPedidos = [
+      {
+        id: 'P1',
+        data: () => fbDb._store.pedidos[0].data,
+      },
+    ];
+    const cands = await loadBoCandidatesForSku(deps, 'SKU-A', openPedidos);
+    expect(cands).toHaveLength(1);
+    // CRUCIAL: no se hizo scan de pedidos.
+    expect(fbDb._counters.pedidosClosedAtNullScans).toBe(0);
   });
 });

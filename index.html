@@ -5968,7 +5968,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1126';
+const APP_VERSION = 'v1127';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18098,6 +18098,17 @@ function _renderClienteAllOpenLines(w){
     if (p._id === w._id || p._fsId === w._id) continue;
     const pedidoId = p._fsId || p._id || '';
     const orderNumber = p.orderNumber || null;
+    // Fix auditor 2026-10-02 (bug C3): capturar createdAt del pedido para
+    // ordenar los rows FIFO (alineado con computeVirtualAsigFifo). Ver
+    // _sortRows abajo + src/pure/virtual-asig-fifo.js lineas 132-137.
+    let _rowCreatedAt = 0;
+    const _cRaw = p.createdAt;
+    if (_cRaw) {
+      if (typeof _cRaw.toMillis === 'function') _rowCreatedAt = _cRaw.toMillis();
+      else if (typeof _cRaw === 'number') _rowCreatedAt = _cRaw;
+      else if (_cRaw instanceof Date) _rowCreatedAt = _cRaw.getTime();
+      else if (typeof _cRaw.seconds === 'number') _rowCreatedAt = _cRaw.seconds * 1000;
+    }
     const lines = Array.isArray(p.lines) ? p.lines : [];
     for (let idx = 0; idx < lines.length; idx++) {
       const l = lines[idx];
@@ -18110,6 +18121,8 @@ function _renderClienteAllOpenLines(w){
         code: l.code, desc, qtyOpen: qo, state: l.state,
         // priceAtCreation por si _asigInlineResolve lo necesita.
         priceAtCreation: Number(l.priceAtCreation || l.precio || 0),
+        // Fix auditor 2026-10-02 (bug C3): createdAt para sort FIFO.
+        createdAt: _rowCreatedAt,
       };
       // v1060 (2026-09-24): chequear stock fisico dep 11 tambien para state='ASIG'.
       // Antes: state='ASIG' siempre iba a STOCK ASIGNADO sin verificar stock,
@@ -18147,7 +18160,25 @@ function _renderClienteAllOpenLines(w){
       // v791: state='confirmed' se ignora — ya se envio a SAP, no accionable.
     }
   }
-  const _sortRows = (a, b) => String(a.code).localeCompare(String(b.code)) || (a.pedidoId || '').localeCompare(b.pedidoId || '');
+  // Fix auditor 2026-10-02 (bug C3): sort alineado al orden FIFO de
+  // computeVirtualAsigFifo (src/pure/virtual-asig-fifo.js lineas 132-137):
+  // 1) createdAt ASC (mas viejo primero — es quien gana el stock),
+  // 2) pedidoId ASC (tiebreak determinista),
+  // 3) lineIndex ASC (orden original en el pedido).
+  // Agrupamos por SKU como primera clave para que el vendedor pueda escanear
+  // visualmente por producto; dentro de cada SKU el orden refleja la prioridad
+  // real de allocation. Asi el row que recibe la porcion de virtual ASIG
+  // aparece primero bajo su SKU, alineado con el badge "ASIG violeta" / "virtual ASIG".
+  const _sortRows = (a, b) => {
+    const codeCmp = String(a.code).localeCompare(String(b.code));
+    if (codeCmp !== 0) return codeCmp;
+    const caA = Number(a.createdAt) || 0;
+    const caB = Number(b.createdAt) || 0;
+    if (caA !== caB) return caA - caB;
+    const pidCmp = (a.pedidoId || '').localeCompare(b.pedidoId || '');
+    if (pidCmp !== 0) return pidCmp;
+    return (Number(a.lineIndex) || 0) - (Number(b.lineIndex) || 0);
+  };
   asignadoRows.sort(_sortRows);
   backorderRows.sort(_sortRows);
   const totalAsig = asignadoRows.reduce((s, r) => s + r.qtyOpen, 0);
@@ -21594,7 +21625,12 @@ window.viewPedido = function(stage, key, idx){
   const [tipo, prov, locName, clientName] = key.split('|');
   // En PENDIENTES el modal es editable; en CONFIRMADOS sigue siendo read-only.
   currentOrderKey = stage === 'pending' ? '__pending__' : '__readonly__';
-  currentOrderClient = {name: clientName, tipo, province: prov, locName, stage, viewKey: key, viewIdx: idx};
+  // Fix auditor 2026-10-02 (bug C2): plumbar _fsId del pedido Firestore al
+  // currentOrderClient para que _findAsigDelCliente en pedidos-modal.js pueda
+  // auto-excluir el pedido-que-se-esta-editando de la gate ASIG. Sin esto,
+  // currentPedidoId quedaba null en modo pending y la gate contaba las ASIG
+  // propias del pedido como "del cliente", bloqueando confirmaciones legitimas.
+  currentOrderClient = {name: clientName, tipo, province: prov, locName, stage, viewKey: key, viewIdx: idx, _fsId: (c && c._fsId) || null};
   // v944 (2026-09-16): pedido 100% backorder → titulo "cliente - BACKORDER"
   // en vez de "cliente - undefined" (algunos auto-confirmados v607 vienen sin
   // month seteado en el flow directo).

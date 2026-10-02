@@ -171,16 +171,35 @@ export function extractSkusWithStockIncrease(beforeSnap, afterSnap) {
  * Carga pedidos abiertos con al menos una linea state='BO' del sku dado.
  * Devuelve todas las lineas BO de ese sku (un pedido puede tener multiples,
  * aunque en practica es raro).
+ *
+ * Bug #3 (perf fix): acepta `openPedidos` pre-cargados para evitar un full
+ * scan de la coleccion `pedidos` por cada SKU. Antes: N SKUs = N scans de
+ * pedidos (riesgo de timeout 300s a escala). Ahora `runFifoAssign` hace 1
+ * sola carga y pasa el array a cada llamada.
+ *
+ * Backward compat: si `openPedidos` es null/undefined, hace el scan como antes.
+ *
  * @param {FifoAssignDeps} deps
  * @param {string} sku
+ * @param {Array<{id: string, data: () => any}>|null} [openPedidos] pre-cargados
  * @returns {Promise<BoCandidate[]>}
  */
-export async function loadBoCandidatesForSku(deps, sku) {
-  const snap = await deps.fbDb.collection('pedidos').where('closedAt', '==', null).get();
+export async function loadBoCandidatesForSku(deps, sku, openPedidos = null) {
+  /** @type {Array<{id: string, data: () => any}>} */
+  let docs;
+  if (openPedidos) {
+    docs = openPedidos;
+  } else {
+    const snap = await deps.fbDb.collection('pedidos').where('closedAt', '==', null).get();
+    docs = [];
+    snap.forEach((/** @type {any} */ d) => {
+      docs.push(d);
+    });
+  }
   /** @type {Array<BoCandidate & { _prov: string, _loc: string, _cli: string }>} */
   const preOut = [];
   const skuUp = String(sku).toUpperCase();
-  snap.forEach((/** @type {any} */ doc) => {
+  for (const doc of docs) {
     const data = doc.data() || {};
     const lines = Array.isArray(data.lines) ? data.lines : [];
     for (let i = 0; i < lines.length; i++) {
@@ -214,7 +233,7 @@ export async function loadBoCandidatesForSku(deps, sku) {
         _cli: String(data.clientName || '').trim(),
       });
     }
-  });
+  }
   // v956 (2026-09-16): resolver cliTipo dinamico via client_master. Cache
   // por docId dentro del batch para evitar duplicar reads si multiples
   // pedidos del mismo cliente estan en la cola.
@@ -370,9 +389,23 @@ export async function runFifoAssign(deps, beforeSnap, afterSnap) {
     return { mode, skusChecked: 0, promotions, errors };
   }
 
+  // Bug #3 (perf fix): cargar la coleccion `pedidos where closedAt==null`
+  // UNA sola vez, no una por SKU. A escala 500+ pedidos abiertos * 50 SKUs
+  // con delta positivo (ej: carga grande de SAP), el patron anterior hacia
+  // 50 full scans que podian saturar el timeout 300s de la CF.
+  const openPedidosSnap = await deps.fbDb
+    .collection('pedidos')
+    .where('closedAt', '==', null)
+    .get();
+  /** @type {Array<{id: string, data: () => any}>} */
+  const openPedidos = [];
+  openPedidosSnap.forEach((/** @type {any} */ d) => {
+    openPedidos.push(d);
+  });
+
   for (const [sku, delta] of deltas) {
     try {
-      const candidates = await loadBoCandidatesForSku(deps, sku);
+      const candidates = await loadBoCandidatesForSku(deps, sku, openPedidos);
       if (!candidates.length) continue;
       const { assignments, remaining } = computeAssignmentsFifo(candidates, delta);
       if (!assignments.length) continue;

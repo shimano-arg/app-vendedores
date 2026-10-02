@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { applyInvoiceMatch, syncSapInvoices } from '../../functions/core/invoice-sync-core.js';
+import {
+  applyInvoiceMatch,
+  findPedidosBySqDocEntry,
+  syncSapInvoices,
+} from '../../functions/core/invoice-sync-core.js';
 
 /** Fake Firestore que emula .doc().get()/.set() y .collection().where().get()
  *
@@ -927,6 +931,58 @@ describe('applyInvoiceMatch (E5 active mode)', () => {
     const p = fbDb._store.pedidos[0].data;
     expect(p.lines[0].qtyInvoiced).toBe(7); // NO 14
     expect(p.sapLinkage.appliedInvoiceDocEntries).toEqual([9999]);
+  });
+
+  // Bug #1 regression (post v1126): findPedidosBySqDocEntry filtra closedAt
+  // en memoria. Esto evita que un Invoice tardio (nota de credito, amendment)
+  // mutule un pedido ya cerrado via sqCancelExpiredCF, recycle manual, o
+  // closure por all_invoiced. SKIP_STATES en applyInvoiceMatch solo protege
+  // cancelled/recycled lines, pero confirmed/invoiced quedan expuestos a
+  // overflow de qtyInvoiced si no filtramos aca.
+  it('Bug #1: findPedidosBySqDocEntry excluye pedidos cerrados', async () => {
+    const fbDb = makeFakeFbDb({
+      pedidos: [
+        {
+          id: 'P_OPEN',
+          data: {
+            transferidoSAP: { docEntry: 7001 },
+            closedAt: null,
+            lines: [{ code: 'X', qty: 5 }],
+          },
+        },
+        {
+          id: 'P_CLOSED',
+          data: {
+            transferidoSAP: { docEntry: 7001 }, // mismo docEntry
+            closedAt: '2026-08-01T00:00:00Z',
+            closedReason: 'all_invoiced',
+            lines: [{ code: 'X', qty: 5, state: 'invoiced', qtyInvoiced: 5, qtyOpen: 0 }],
+          },
+        },
+      ],
+    });
+    const deps = { fbDb, log: vi.fn() };
+    const result = await findPedidosBySqDocEntry(deps, [7001]);
+    const list = result.get(7001) || [];
+    expect(list).toEqual(['P_OPEN']);
+    expect(list).not.toContain('P_CLOSED');
+  });
+
+  it('Bug #1: findPedidosBySqDocEntry retorna solo abiertos cuando TODOS cerrados -> no match', async () => {
+    const fbDb = makeFakeFbDb({
+      pedidos: [
+        {
+          id: 'P_CLOSED_1',
+          data: {
+            transferidoSAP: { docEntry: 7002 },
+            closedAt: '2026-07-01T00:00:00Z',
+          },
+        },
+      ],
+    });
+    const deps = { fbDb, log: vi.fn() };
+    const result = await findPedidosBySqDocEntry(deps, [7002]);
+    expect(result.get(7002)).toBeUndefined();
   });
 
   it('no re-abre pedido ya cerrado (idempotencia dura)', async () => {

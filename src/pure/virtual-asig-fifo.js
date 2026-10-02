@@ -62,8 +62,18 @@ export function computeVirtualAsigFifo(pedidos, getStk, nowMs) {
 
   for (const p of pedidos) {
     if (!p || p.closedAt) continue;
+    // Fix auditor 2026-10-02 (bug C1): pedido sin _fsId/_id (optimistic local
+    // antes del commit Firestore) NO debe skippearse completo. Antes se saltaba
+    // todas sus lineas incluyendo ASIG/confirmed → el pool fisico quedaba
+    // sobre-estimado y mas BOs de otros pedidos recibian virtual ASIG que ya
+    // no existia. getStockRealmenteDisponible no skippea por id → divergencia.
+    //
+    // Fix: dejamos que ASIG/confirmed de pedidos sin id SIEMPRE sumen a
+    // committedBySku (porque reservan stock real), pero no agregamos sus BOs
+    // a boLinesBySku — sin id estable, el caller no podria mapear la Key
+    // `${pedidoId}:${lineIndex}` de vuelta a un pedido visible para el UI.
     const pedidoId = p._fsId || p._id || '';
-    if (!pedidoId) continue;
+    const hasStableId = !!pedidoId;
     let createdAt = 0;
     const c = p.createdAt;
     if (c) {
@@ -114,6 +124,11 @@ export function computeVirtualAsigFifo(pedidos, getStk, nowMs) {
       } else if (l.state === 'BO') {
         // v1124: skipear BO expirado (pedido.createdAt > 15d) — ya no es cola activa.
         if (applyFreshness && !lineReservesStock(l, nowMs, pedidoShim)) continue;
+        // Fix auditor 2026-10-02 (bug C1): sin id estable no agregamos este BO
+        // como target de virtual ASIG (la Key `${pedidoId}:${lineIndex}` seria
+        // '':i → el UI no podria resolver a que pedido pertenece). Las lineas
+        // ASIG/confirmed del mismo pedido SI contaron arriba (reservan pool).
+        if (!hasStableId) continue;
         let arr = boLinesBySku.get(code);
         if (!arr) {
           arr = [];
