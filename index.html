@@ -3886,7 +3886,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <div id="pm-master-sync-block" style="background:#eff6ff;border:1px solid #93c5fd;border-radius:6px;padding:10px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
           <div style="flex:1;min-width:200px;font-size:11px;color:var(--text-primary);line-height:1.4">
             <b>Stock actualizado:</b> <span id="pm-master-stock-updated-at">-</span><br>
-            <span style="font-size:10px;color:var(--text-muted)">Actualizacion automatica cada 30 min desde CSV. Si necesitas fresco al instante, tocá el boton (~2 min via Service Layer).</span>
+            <span style="font-size:10px;color:var(--text-muted)">Sync cada 5 min desde SAP Service Layer (deposito 11 unicamente). Si necesitas fresco al instante, tocá el boton (~2 min).</span>
           </div>
           <button id="pm-master-sync-stock-btn" onclick="syncSapStock()" style="background:#1e40af;color:#fff;border:none;padding:9px 14px;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap">Sincronizar stock ahora</button>
         </div>
@@ -5968,7 +5968,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1129';
+const APP_VERSION = 'v1130';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -6625,23 +6625,27 @@ window.getStockDisponibleVenta = getStockDisponibleVenta;
 //
 // Formula v622: max(dep11 - backorderSAP - backorderSAP_pending, 0)
 // backorderSAP_pending = suma qtyOpen de lineas state='confirmed' en pedidos
-// con transferidoSAP.via='service_layer_auto' y
-// transferredAt > STOCK_UPDATED_AT.
+// con transferidoSAP.via auto-enviada por app (client-side service_layer_auto
+// o CF cf_auto / cf_auto_partial_stock) y transferredAt > STOCK_UPDATED_AT.
+// v1130 (2026-10-05): extendido para incluir cf_auto y cf_auto_partial_stock
+// (antes solo contaba service_layer_auto -> ventana de ~5min con riesgo de
+// overcommit mientras el CF enviaba y el next sync SAP no habia reflejado).
 function getStockDisponibleVentaNetSap(sku){
   const raw = getStockDisponibleVenta(sku);
   if (raw == null) return null;
   const skuUp = String(sku).toUpperCase().trim();
   const boSap = (typeof STOCK_BACKORDER === 'object' && STOCK_BACKORDER)
     ? Number(STOCK_BACKORDER[skuUp] || 0) : 0;
-  // v622: pending SAP backorder — SQs recien creadas aun no en STOCK_BACKORDER.
+  // v622+v1130: pending SAP backorder — SQs recien creadas aun no en STOCK_BACKORDER.
   let boSapPending = 0;
   try {
     const stockUpdIso = (typeof STOCK_UPDATED_AT !== 'undefined') ? STOCK_UPDATED_AT : null;
     const stockUpdTs = stockUpdIso ? new Date(stockUpdIso).getTime() : 0;
     const gp = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [];
+    const AUTO_SEND_VIAS = new Set(['service_layer_auto', 'cf_auto', 'cf_auto_partial_stock']);
     for (const p of gp) {
       if (!p || !p.transferidoSAP) continue;
-      if (p.transferidoSAP.via !== 'service_layer_auto') continue;
+      if (!AUTO_SEND_VIAS.has(p.transferidoSAP.via)) continue;
       if (p.closedAt) continue;
       const trAt = p.transferidoSAP.transferredAt;
       if (!trAt) continue;
@@ -25146,7 +25150,7 @@ window.queryStockLive = function(code, btn){
   const preLanzHdr = isPreLanzamiento(k)
     ? 'PRE LANZAMIENTO - SKU NO VENDIBLE\nAunque haya unidades fisicas en deposito, no se puede vender aun.\n\n'
     : '';
-  alert(preLanzHdr + 'Stock del SKU:\n\n' + code + '\n\n' + status + '\n\nFuente: snapshot SAP\nUltima actualizacion: ' + upd + ageStr + '\n\n(Se sincroniza automatico cada 30 min desde SAP Service Layer)');
+  alert(preLanzHdr + 'Stock del SKU:\n\n' + code + '\n\n' + status + '\n\nFuente: snapshot SAP (deposito 11, PESCA DISPONIBLE VENTA)\nUltima actualizacion: ' + upd + ageStr + '\n\n(El sync corre cada 5 min desde SAP Service Layer. Si la fecha se ve vieja, es porque el stock de los SKUs no cambio - no es un sync caido.)');
 };
 
 window.openStockModal = function(){
