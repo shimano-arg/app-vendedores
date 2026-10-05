@@ -5968,7 +5968,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1133';
+const APP_VERSION = 'v1135';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13500,7 +13500,7 @@ window.exportBackordersToExcel = async function(){
   const _bkResult = _computeFnBk ? _computeFnBk(
     (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
     isAsigMode ? 'asignacion' : 'urgente',
-    { tiendaQuery: tq, vendorKey: vf, mesYYYYMM: mesF },
+    { tiendaQuery: tq, vendorKey: vf, mesYYYYMM: mesF, aggregationMode: 'strict' },
     {
       getStockDisponibleVenta: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
       canonVendor: (typeof _canonVendor === 'function') ? _canonVendor : (x) => String(x || '').trim().toUpperCase(),
@@ -14067,6 +14067,10 @@ window.renderBackordersTab = function(){
       vendorKey: vf,
       mesYYYYMM: mesF,
       urgencyFilter: (typeof backordersUrgencyFilter !== 'undefined') ? backordersUrgencyFilter : '',
+      // v1135 (2026-10-05): alineado con tablero PBI. Binario a nivel SKU
+      // en vez de FIFO parcial. Ver src/pure/backorder-sku-map.js typedef
+      // AggregationMode y README §Backorder vs Tablero.
+      aggregationMode: 'strict',
     },
     {
       getStockDisponibleVenta: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
