@@ -333,7 +333,8 @@ function onTgtInputChange(input) {
   const id = targetDocId(tgtSelectedVendor, tgtSelectedYear, m);
   const val = input.value.trim();
   // Merge: preservar cambios de otros campos del mismo mes.
-  if (!tgtPendingChanges[id]) tgtPendingChanges[id] = { monthIdx: m, byFamily: {}, visitas: undefined };
+  if (!tgtPendingChanges[id])
+    tgtPendingChanges[id] = { monthIdx: m, byFamily: {}, visitas: undefined };
   // v1131: inputs de visitas se trackean aparte (no suman a byFamily ni a Total mes).
   if (input.dataset.visitas === 'true') {
     tgtPendingChanges[id].visitas = val;
@@ -403,9 +404,7 @@ async function _saveTargetFor(id, monthIdx) {
     return;
   }
   // v1131: leer input de visitas (cantidad entera, no ARS). Independiente del total.
-  const visitasEl = document.querySelector(
-    '.tgt-visitas-input[data-month="' + monthIdx + '"]'
-  );
+  const visitasEl = document.querySelector('.tgt-visitas-input[data-month="' + monthIdx + '"]');
   let targetVisitas = null;
   if (visitasEl) {
     const raw = (visitasEl.value || '').trim();
@@ -450,10 +449,7 @@ async function _saveTargetFor(id, monthIdx) {
       } else {
         payload.targetVisitas = firebase.firestore.FieldValue.delete();
       }
-      await fbDb
-        .collection('targets')
-        .doc(id)
-        .set(payload, { merge: true });
+      await fbDb.collection('targets').doc(id).set(payload, { merge: true });
     }
     delete tgtPendingChanges[id];
     const allInputs = rowInputs.map((r) => r.el).filter(Boolean);
