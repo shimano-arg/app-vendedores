@@ -521,3 +521,76 @@ describe('computeBackorderSkuMap — aggregationMode strict (alineado tablero PB
     expect(rStrict.totalUnidades).toBe(0);
   });
 });
+
+describe('computeBackorderSkuMap — v1137: strict incluye migrados SAP + sin TTL', () => {
+  it('strict + pedido con stage=null pero transferidoSAP → se incluye', () => {
+    const pedidos = [
+      pedido({
+        _fsId: 'migrated-1',
+        stage: null, // migrado desde SAP 2026-08-28, sin stage
+        transferidoSAP: { docNum: 25753, via: 'sap_migration_2026-08-28' },
+        clientName: 'WEEKEND OUTDOOR',
+        lines: [line({ state: 'ASIG', qtyOpen: 6, asigReserva: false, asigAt: daysAgo(2) })],
+      }),
+    ];
+    const r = computeBackorderSkuMap(
+      pedidos,
+      'asignacion',
+      { aggregationMode: 'strict' },
+      baseDeps({ getStockDisponibleVenta: () => 100 })
+    );
+    expect(r.totalUnidades).toBe(6);
+    expect(r.skus[0].clientes[0].nombre).toBe('WEEKEND OUTDOOR');
+  });
+
+  it('fifo (default) + pedido con stage=null + transferidoSAP → se EXCLUYE (preservado)', () => {
+    const pedidos = [
+      pedido({
+        stage: null,
+        transferidoSAP: { docNum: 25753 },
+        lines: [line({ state: 'ASIG', qtyOpen: 6, asigReserva: false, asigAt: daysAgo(2) })],
+      }),
+    ];
+    const r = computeBackorderSkuMap(
+      pedidos,
+      'asignacion',
+      {},
+      baseDeps({ getStockDisponibleVenta: () => 100 })
+    );
+    expect(r.totalUnidades).toBe(0);
+  });
+
+  it('strict + BO línea >15d → se incluye (sin TTL)', () => {
+    const pedidos = [
+      pedido({
+        stage: 'confirmed',
+        createdAt: daysAgo(20), // supera TTL 15d
+        lines: [line({ state: 'BO', qtyOpen: 10 })],
+      }),
+    ];
+    const r = computeBackorderSkuMap(
+      pedidos,
+      'urgente',
+      { aggregationMode: 'strict' },
+      baseDeps({ getStockDisponibleVenta: () => 0 })
+    );
+    expect(r.totalUnidades).toBe(10);
+  });
+
+  it('fifo (default) + BO línea >15d → se EXCLUYE por TTL (preservado)', () => {
+    const pedidos = [
+      pedido({
+        stage: 'confirmed',
+        createdAt: daysAgo(20),
+        lines: [line({ state: 'BO', qtyOpen: 10 })],
+      }),
+    ];
+    const r = computeBackorderSkuMap(
+      pedidos,
+      'urgente',
+      {},
+      baseDeps({ getStockDisponibleVenta: () => 0 })
+    );
+    expect(r.totalUnidades).toBe(0);
+  });
+});
