@@ -5968,7 +5968,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1135';
+const APP_VERSION = 'v1136';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14120,6 +14120,37 @@ window.renderBackordersTab = function(){
   // filtros. El texto va por textContent en un elemento aparte, imposible
   // de inyectar HTML sin importar qué venga en `q`.
   sum.innerHTML = '<b>' + skus.length + '</b> SKUs con backorder &middot; <b>' + Math.round(totalUnidades) + '</b> unidades pendientes &middot; <b>' + totalClientes + '</b> clientes';
+  // v1136 (2026-10-05): breakdown por estado agregado PBI (SIN REPOSICIÓN /
+  // EN TRÁNSITO / PARCIAL). Solo tiene sentido en modo backorder (en ASIG
+  // todos van a EN DEPÓSITO por strict mode). DOM via createElement para
+  // evitar innerHTML con conteos dinámicos.
+  (() => {
+    const prev = document.getElementById('bk-estado-breakdown');
+    if (prev) prev.remove();
+    if (backordersMode === 'asignacion' || skus.length === 0) return;
+    let nSin = 0, nTran = 0, nParc = 0;
+    let uSin = 0, uTran = 0, uParc = 0;
+    skus.forEach(g => {
+      const bo = Math.round(g.totalPendiente || 0);
+      const tr = (typeof getStockTransito === 'function') ? (getStockTransito(g.sku) || 0) : 0;
+      if (tr === 0) { nSin++; uSin += bo; }
+      else if (tr >= bo) { nTran++; uTran += bo; }
+      else { nParc++; uParc += bo; }
+    });
+    const wrap = document.createElement('div');
+    wrap.id = 'bk-estado-breakdown';
+    wrap.style.cssText = 'margin-top:8px;display:flex;gap:6px;flex-wrap:wrap';
+    const mkChip = (emoji, label, nSkus, nU, bg) => {
+      const sp = document.createElement('span');
+      sp.style.cssText = 'background:' + bg + ';color:var(--text-primary);padding:3px 9px;border-radius:12px;font-size:11px;font-weight:700';
+      sp.textContent = emoji + ' ' + label + ': ' + nSkus + ' SKUs / ' + nU + 'u';
+      return sp;
+    };
+    wrap.appendChild(mkChip('⛔', 'SIN REPOSICIÓN', nSin, uSin, 'rgba(0,0,0,.15)'));
+    wrap.appendChild(mkChip('🚚', 'EN TRÁNSITO', nTran, uTran, 'rgba(234,179,8,.25)'));
+    wrap.appendChild(mkChip('🔸', 'PARCIAL', nParc, uParc, 'rgba(234,179,8,.15)'));
+    sum.parentNode.insertBefore(wrap, sum.nextSibling);
+  })();
   const _filtroTxts = [];
   if (tq) _filtroTxts.push('busqueda: "' + tq + '"');
   if (mesF) {
@@ -14190,15 +14221,29 @@ window.renderBackordersTab = function(){
       html += '<div style="font-size:10px;opacity:.75;margin-top:2px">' + escapeHtml(g.familia || '-') + ' / ' + escapeHtml(g.subfamilia || '-') + '</div>';
     }
     html += '<div style="font-size:10px;opacity:.95;margin-top:4px;font-weight:700">' + _stkLabel + '</div>';
-    // v864 (2026-09-11): badge urgency solo en modo BACKORDER. Distinguir
-    // "urgente" (sin stock, importar YA) vs "parcial" (stock repartido, no
-    // urgente pero hay BOs igual).
-    if (!_isAsigMode && g.urgency) {
-      const _urgLbl = g.urgency === 'urgente'
-        ? 'URGENTE — sin stock, importar'
-        : 'PARCIAL — hay stock pero repartido';
-      const _urgBg = g.urgency === 'urgente' ? 'rgba(0,0,0,.35)' : 'rgba(255,255,255,.20)';
-      html += '<div style="margin-top:6px"><span style="background:' + _urgBg + ';color:#fff;padding:2px 8px;border-radius:10px;font-size:9.5px;font-weight:800;letter-spacing:.3px">' + _urgLbl + '</span></div>';
+    // v1136 (2026-10-05): badge "Estado Agregado" alineado con tablero PBI.
+    // Reemplaza el badge urgente/parcial legacy. Terminología idéntica al
+    // tablero: SIN REPOSICIÓN / EN TRÁNSITO / PARCIAL (en tránsito) / EN DEPÓSITO.
+    // Formula: SWITCH ( TRUE(), _bo<=0, BLANK(),
+    //   _dep11=0 && _dep12=0, "SIN REPOSICIÓN",
+    //   _dep12 >= _bo, "EN TRÁNSITO",
+    //   _dep12 > 0, "PARCIAL (en tránsito)", ...)
+    let _estadoPbi = '';
+    let _estadoBg = '';
+    if (_isAsigMode) {
+      // Modo asignacion: strict solo muestra SKUs con dispSap>0.
+      if (_stkDisp > 0) { _estadoPbi = 'EN DEPÓSITO'; _estadoBg = 'rgba(22,163,74,.55)'; }
+      else if (_stkTran > 0) { _estadoPbi = 'EN TRÁNSITO'; _estadoBg = 'rgba(234,179,8,.55)'; }
+      else { _estadoPbi = 'SIN STOCK FÍSICO'; _estadoBg = 'rgba(0,0,0,.35)'; }
+    } else if (g.urgency === 'urgente') {
+      // Modo backorder: strict solo muestra SKUs con dispSap=0.
+      const _bo = g.totalPendiente || 0;
+      if (_stkTran === 0) { _estadoPbi = 'SIN REPOSICIÓN'; _estadoBg = 'rgba(0,0,0,.35)'; }
+      else if (_stkTran >= _bo) { _estadoPbi = 'EN TRÁNSITO'; _estadoBg = 'rgba(234,179,8,.55)'; }
+      else { _estadoPbi = 'PARCIAL (en tránsito)'; _estadoBg = 'rgba(234,179,8,.35)'; }
+    }
+    if (_estadoPbi) {
+      html += '<div style="margin-top:6px"><span style="background:' + _estadoBg + ';color:#fff;padding:2px 8px;border-radius:10px;font-size:9.5px;font-weight:800;letter-spacing:.3px">' + _estadoPbi + '</span></div>';
     }
     html += '</div>';
     html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:18px;font-weight:800">' + totalStr + '</div><div style="font-size:9px;text-transform:uppercase;opacity:.9;letter-spacing:.4px">unidades</div></div>';
