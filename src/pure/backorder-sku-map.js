@@ -88,11 +88,25 @@ function toDateString(value) {
 /**
  * @typedef {'urgente'|'asignacion'} BackorderMode
  *
+ * @typedef {'fifo'|'strict'} AggregationMode
+ *   - `fifo` (default, v1100+): reparte stock disponible entre líneas por fecha
+ *      ascendente; produce casos "parcial" (pendiente=100 con stock=3 → BO=97 + ASIG=3).
+ *      Refleja "cuántas unidades reales no se cubren".
+ *   - `strict` (v1134+): binario a nivel SKU, alineado con tablero PBI
+ *      (`v_backorder_lineas` / `v_stock_asignado`):
+ *        - Si `dispSap > 0`: TODAS las líneas (BO/ASIG/confirmed) cuentan como asignadas,
+ *          `qtyBackorder=0`.
+ *        - Si `dispSap = 0`: solo las líneas `state='BO'` cuentan como backorder
+ *          (`qtyBackorder=pendiente`). Las líneas `state='ASIG'` o `'confirmed'` con stock=0
+ *          desaparecen del total (ni asignadas ni backorder, igual que PBI).
+ *      Refleja "qué SKUs están 100% en falta".
+ *
  * @typedef {Object} BackorderFilters
  * @property {string} [tiendaQuery] Texto libre (lowercase) que matchea contra sku/producto/cliente.
  * @property {string} [vendorKey] Vendor key canónico (post `canonVendor`) para match exacto.
  * @property {string} [mesYYYYMM] Filtro por prefijo `YYYY-MM` del confirmedAt/createdAt.
  * @property {'urgente'|'parcial'|'todos'} [urgencyFilter] Solo aplica en mode='urgente'.
+ * @property {AggregationMode} [aggregationMode] Default 'fifo'. Ver typedef arriba.
  *
  * @typedef {Object} BackorderDeps
  * @property {(sku: string) => number} getStockDisponibleVenta Stock físico dep 11.
@@ -342,41 +356,71 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
     }
   }
 
-  // FASE 2: FIFO cap por SKU. Setea qtyAsignada + qtyBackorder por línea.
-  // NO consolida — eso lo hace `computeBackorderSkuMap` a partir de este map.
+  // FASE 2: agregación. Dos modos:
+  //  - 'fifo' (default): reparte stock disponible entre líneas por fecha asc.
+  //    Permite casos "parcial" (ver typedef AggregationMode).
+  //  - 'strict' (v1134+): binario a nivel SKU, alineado con tablero PBI.
+  const aggregationMode = filters.aggregationMode === 'strict' ? 'strict' : 'fifo';
   Object.values(skuMap).forEach((g) => {
     const dispSap = getStk(g.sku) || 0;
     g.dispSap = dispSap;
-    let restante = dispSap;
-    // Paso 1: prioritarios (ASIG + confirmed) FIFO por fecha ascendente.
-    const prioritarios = g.clientes.filter(
-      (c) => c.source === 'app' && (c.state === 'ASIG' || c.state === 'confirmed')
-    );
-    prioritarios.sort((a, b) => (a.sqDocDate || '').localeCompare(b.sqDocDate || ''));
-    for (const c of prioritarios) {
-      const asignable = Math.min(c.pendiente, Math.max(0, restante));
-      c.qtyAsignada = asignable;
-      c.qtyBackorder = c.pendiente - asignable;
-      restante -= asignable;
+
+    if (aggregationMode === 'strict') {
+      // Modo binario a nivel SKU (tablero PBI). Ver typedef AggregationMode.
+      // - dispSap > 0: TODAS las líneas → ASIG (no FIFO, no parcial).
+      // - dispSap = 0: solo state='BO' → backorder; state ASIG/confirmed con
+      //   stock=0 desaparecen (igual que PBI: `IF(_stk=0, SUM(pendiente WHERE
+      //   estado='SIN ASIGNAR'), 0)` + `IF(dep11>0, [Unidades ASIG], 0)`).
+      g.clientes.forEach((c) => {
+        if (dispSap > 0) {
+          c.qtyAsignada = c.pendiente;
+          c.qtyBackorder = 0;
+        } else if (c.state === 'BO' || c.source === 'sap') {
+          // SAP legacy no tiene state APP; se trata como BO para el shim PBI
+          // (v_backorder_lineas_v2 map SAP → 'SIN ASIGNAR' por default).
+          c.qtyAsignada = 0;
+          c.qtyBackorder = c.pendiente;
+        } else {
+          // ASIG o confirmed con dispSap=0 → desaparece del total.
+          c.qtyAsignada = 0;
+          c.qtyBackorder = 0;
+        }
+      });
+      // En strict no hay 'parcial'. Solo 'urgente' cuando dispSap=0 y hay BO.
+      if (!isAsig) g.urgency = dispSap === 0 ? 'urgente' : undefined;
+    } else {
+      // Modo FIFO (comportamiento histórico v1100+).
+      let restante = dispSap;
+      // Paso 1: prioritarios (ASIG + confirmed) FIFO por fecha ascendente.
+      const prioritarios = g.clientes.filter(
+        (c) => c.source === 'app' && (c.state === 'ASIG' || c.state === 'confirmed')
+      );
+      prioritarios.sort((a, b) => (a.sqDocDate || '').localeCompare(b.sqDocDate || ''));
+      for (const c of prioritarios) {
+        const asignable = Math.min(c.pendiente, Math.max(0, restante));
+        c.qtyAsignada = asignable;
+        c.qtyBackorder = c.pendiente - asignable;
+        restante -= asignable;
+      }
+      if (restante < 0) restante = 0;
+      // Paso 2: competidores (SAP + APP-BO). SAP gana primero (transición SAP→APP),
+      // luego fecha ascendente.
+      const competidores = g.clientes.filter(
+        (c) => !(c.source === 'app' && (c.state === 'ASIG' || c.state === 'confirmed'))
+      );
+      competidores.sort((a, b) => {
+        if (a.source !== b.source) return a.source === 'sap' ? -1 : 1;
+        return (a.sqDocDate || '').localeCompare(b.sqDocDate || '');
+      });
+      for (const c of competidores) {
+        const asignable = Math.min(c.pendiente, Math.max(0, restante));
+        c.qtyAsignada = asignable;
+        c.qtyBackorder = c.pendiente - asignable;
+        restante -= asignable;
+      }
+      // urgency es SKU-level (dispSap-based), inmutable a partir de aquí.
+      if (!isAsig) g.urgency = dispSap > 0 ? 'parcial' : 'urgente';
     }
-    if (restante < 0) restante = 0;
-    // Paso 2: competidores (SAP + APP-BO). SAP gana primero (transición SAP→APP),
-    // luego fecha ascendente.
-    const competidores = g.clientes.filter(
-      (c) => !(c.source === 'app' && (c.state === 'ASIG' || c.state === 'confirmed'))
-    );
-    competidores.sort((a, b) => {
-      if (a.source !== b.source) return a.source === 'sap' ? -1 : 1;
-      return (a.sqDocDate || '').localeCompare(b.sqDocDate || '');
-    });
-    for (const c of competidores) {
-      const asignable = Math.min(c.pendiente, Math.max(0, restante));
-      c.qtyAsignada = asignable;
-      c.qtyBackorder = c.pendiente - asignable;
-      restante -= asignable;
-    }
-    // urgency es SKU-level (dispSap-based), inmutable a partir de aquí.
-    if (!isAsig) g.urgency = dispSap > 0 ? 'parcial' : 'urgente';
   });
 
   return { skuMap, isAsig };
