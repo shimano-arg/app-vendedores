@@ -5968,7 +5968,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1131';
+const APP_VERSION = 'v1132';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -8744,15 +8744,16 @@ function drawSapAltaPins(){
     const direccion = a.calle || a.address || '';
     const localidad = a.localidadFinal || a.localidad || '';
     const hasGeo = (a.lat != null && a.lng != null);
+    // v1132 (2026-10-05): color por tipo (SAP verde / Lead amarillo), NO por hasGeo.
+    // La precision de la posicion sigue informandose en statusLine del popup.
+    const isLead = !a.cardCodeSap && !!a.manualSapPending;
     let lat, lng, color, bgPill, txtPill, statusLine;
+    // Posicion: hasGeo usa lat/lng exacto; sin geo cae a centroide + jitter.
     if (hasGeo) {
-      // VERDE: tienda con todo (direccion + ubicacion).
       lat = parseFloat(a.lat); lng = parseFloat(a.lng);
-      color = '#166534';
-      bgPill = '#dcfce7'; txtPill = '#166534';
       statusLine = '';
     } else {
-      // AZUL: tienda SAP sin lat/lng. Estrategia:
+      // Estrategia sin geo:
       // 1) Si conocemos la LOCALIDAD (matchea POINT por prov+nombre), usar
       // el centroide de la localidad con jitter chico (~500m) - asi las
       // tiendas de Bahia Blanca caen en Bahia Blanca, no en el centro
@@ -8781,8 +8782,6 @@ function drawSapAltaPins(){
       const dy = (Math.floor(offset / side) - ring) * step;
       lat = centroid[0] + dy;
       lng = centroid[1] + dx;
-      color = '#1d4ed8';
-      bgPill = '#dbeafe'; txtPill = '#1e3a8a';
       // Mensaje segun caso: con direccion -> "sin ubicar" (geocoding fallo);
       // sin direccion -> "falta direccion". Si lo anclamos a la localidad,
       // avisar al usuario que el pin esta en el centro de la localidad.
@@ -8794,6 +8793,16 @@ function drawSapAltaPins(){
         statusLine = '<div style="background:var(--color-warning-bg);color:var(--color-warning);padding:4px 8px;border-radius:4px;font-size:10px;font-weight:700;margin-bottom:6px">Falta direccion - ubicacion aproximada</div>';
       }
     }
+    // Color SIEMPRE por tipo: Lead amarillo, SAP verde.
+    if (isLead) {
+      color = '#CA8A04';       // amarillo oscuro (yellow-600, contraste OK con blanco)
+      bgPill = '#FEF9C3';      // yellow-100
+      txtPill = '#854D0E';     // yellow-900
+    } else {
+      color = '#166534';       // verde (green-800) - cliente SAP
+      bgPill = '#DCFCE7';      // green-100
+      txtPill = '#166534';
+    }
     // E4 viewport skip: si el pin (post-jitter) esta fuera del viewport, skip.
     // Nota: los contadores locCounter/provCounter ya se incrementaron arriba
     // porque el jitter depende del orden de procesamiento; skipear el
@@ -8802,7 +8811,7 @@ function drawSapAltaPins(){
     // igual, pero evitamos el costo caro (crear DivIcon + Marker + popup + addTo).
     if (!bounds.contains([lat, lng])) return;
     const html = '<div style="background:' + color + ';border:2px solid #fff;border-radius:50%;width:14px;height:14px;box-shadow:0 0 0 1.5px ' + color + ',0 2px 4px rgba(0,0,0,.3)"></div>';
-    const icon = L.divIcon({className: hasGeo ? 'sap-alta-pin-icon-green' : 'sap-alta-pin-icon-blue', html: html, iconSize: [14,14], iconAnchor: [7,7]});
+    const icon = L.divIcon({className: isLead ? 'sap-alta-pin-icon-lead' : 'sap-alta-pin-icon-sap', html: html, iconSize: [14,14], iconAnchor: [7,7]});
     const marker = L.marker([lat, lng], {icon: icon, zIndexOffset: hasGeo ? 900 : 800});
     // FIX: usar escapeAttr (no JSON.stringify) para el onclick. JSON.stringify
     // genera string con dobles comillas, que rompe el attribute onclick="..."

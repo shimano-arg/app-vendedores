@@ -4673,7 +4673,16 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1131
+## 41) Changelog v300 → v1132
+
+### v1132 (2026-10-05) — Mapa: pines SAP verde / LEAD amarillo (en vez de verde/azul por hasGeo)
+
+Pedido Mariano: en `drawSapAltaPins` los pines venían coloreados por `hasGeo` (verde = tiene lat/lng exacta, azul = jitter sobre centroide). Cambio semántico a **color por tipo de cliente**:
+
+- **Cliente SAP** (`!!a.cardCodeSap`) → verde `#166534`
+- **Lead** (`!a.cardCodeSap && !!a.manualSapPending`) → amarillo `#CA8A04`
+
+La precisión de la posición (hasGeo o aproximada) se mantiene informada via `statusLine` del popup — no se pierde esa info, solo deja de pisar la semántica del color. `drawHabilitadosPins` ya era verde (no se tocó). Pills + className de divIcon actualizadas en línea para reflejar `sap-alta-pin-icon-{sap|lead}`.
 
 ### v1131 (2026-10-05) — Mapa: escala monocromática #49A2DA en lugar de semáforo verde/naranja/rojo
 
