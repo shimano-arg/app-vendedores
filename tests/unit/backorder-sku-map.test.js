@@ -455,3 +455,69 @@ describe('computeBackorderSkuMap — fix auditor 2026-10-02 Timestamp handling',
     expect(r.skus[0].sku).toBe('SKU2');
   });
 });
+
+describe('computeBackorderSkuMap — aggregationMode strict (alineado tablero PBI)', () => {
+  it('strict + dispSap=0 + state=BO → qtyBackorder=pendiente, urgency=urgente', () => {
+    const pedidos = [pedido({ lines: [line({ qtyOpen: 100, state: 'BO' })] })];
+    const r = computeBackorderSkuMap(
+      pedidos,
+      'urgente',
+      { aggregationMode: 'strict' },
+      baseDeps({ getStockDisponibleVenta: () => 0 })
+    );
+    expect(r.skus).toHaveLength(1);
+    expect(r.skus[0].urgency).toBe('urgente');
+    expect(r.skus[0].clientes[0].qtyBackorder).toBe(100);
+    expect(r.totalUnidades).toBe(100);
+  });
+
+  it('strict + dispSap=3 + pendiente=100 → NO backorder (dispSap>0 cubre todo bina­rio)', () => {
+    const pedidos = [pedido({ lines: [line({ qtyOpen: 100, state: 'BO' })] })];
+    const r = computeBackorderSkuMap(
+      pedidos,
+      'urgente',
+      { aggregationMode: 'strict' },
+      baseDeps({ getStockDisponibleVenta: () => 3 })
+    );
+    // Binario: cualquier stock > 0 excluye el SKU del backorder.
+    expect(r.totalUnidades).toBe(0);
+    expect(r.skus).toHaveLength(0);
+  });
+
+  it('strict + mode=asignacion + dispSap>0 + state=ASIG → cuenta como asignado', () => {
+    const pedidos = [pedido({ lines: [line({ qtyOpen: 50, state: 'ASIG' })] })];
+    const r = computeBackorderSkuMap(
+      pedidos,
+      'asignacion',
+      { aggregationMode: 'strict' },
+      baseDeps({ getStockDisponibleVenta: () => 100 })
+    );
+    expect(r.totalUnidades).toBe(50);
+    expect(r.skus[0].clientes[0].qtyAsignada).toBe(50);
+  });
+
+  it('strict + mode=asignacion + dispSap=0 + state=ASIG → DESAPARECE del total', () => {
+    // Caso crítico del diagnóstico: PBI dice "si stock=0, el ASIG no cuenta".
+    const pedidos = [pedido({ lines: [line({ qtyOpen: 50, state: 'ASIG' })] })];
+    const r = computeBackorderSkuMap(
+      pedidos,
+      'asignacion',
+      { aggregationMode: 'strict' },
+      baseDeps({ getStockDisponibleVenta: () => 0 })
+    );
+    expect(r.totalUnidades).toBe(0);
+    expect(r.skus).toHaveLength(0);
+  });
+
+  it('strict NO modifica el default (fifo): mismo pedido en ambos modos da resultados distintos', () => {
+    const pedidos = [pedido({ lines: [line({ qtyOpen: 100, state: 'BO' })] })];
+    const deps = baseDeps({ getStockDisponibleVenta: () => 30 });
+    const rFifo = computeBackorderSkuMap(pedidos, 'urgente', {}, deps);
+    const rStrict = computeBackorderSkuMap(pedidos, 'urgente', { aggregationMode: 'strict' }, deps);
+    // FIFO: 100-30=70 unidades de backorder; urgency=parcial.
+    expect(rFifo.totalUnidades).toBe(70);
+    expect(rFifo.skus[0].urgency).toBe('parcial');
+    // Strict: dispSap=30>0 → cero backorder.
+    expect(rStrict.totalUnidades).toBe(0);
+  });
+});
