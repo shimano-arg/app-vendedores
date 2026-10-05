@@ -4697,6 +4697,8 @@ Nuevo helper: `scripts/audit_backorder_overlap_adc.py` — wrapper que usa gclou
 
 **Suite completa post-v1130**: 661 unit + 25 smoke pass; typecheck limpio; lint sin errores nuevos (33 preexistentes intactos).
 
+**Addendum 2026-10-05 — agente autónomo diario BO Daily Audit** (GH Actions workflow `bo-daily-audit.yml` + `scripts/bo_daily_audit.py`): corre todos los días a las 10 UTC (~7 AM AR nominal, +delay GH 3-5h). Reutiliza las funciones puras del detector split-aware (`find_strict_duplicates` + `find_loose_overlaps`). Guarda snapshot resumido en Firestore `audit_bo_snapshots/{YYYY-MM-DD}` (append-only, idempotente por día), compara con snapshot anterior para calcular delta (nuevos STRICT unexpected, nuevos pares LOOSE, STRICT unexpected resueltos), y envía email HTML siempre a `mariano.erbino@shimano.com.ar` desde `bot.shimano.pesca@gmail.com` con subject tipo `🟢 BO Audit DD-MM: 0 STRICT unexp, N LOOSE` (`🔴` si strict_unexpected > 0, `🟡` si LOOSE delta ≥ 20). El email siempre sale aunque esté todo OK — así vos sabés que el agente está vivo. Secrets reutilizados: `FIREBASE_SERVICE_ACCOUNT` + `GMAIL_APP_PASSWORD` (los mismos que `send-rendiciones-email.yml`). Trigger manual disponible desde GitHub Actions tab (`workflow_dispatch`).
+
 ### v1129 (2026-10-02) — Planner iter 2: breakdown por card + métricas por columna
 
 Continuación de v1128 (badge por card). Esta release trae iter 2: **breakdown total por card** en modal detalle + **chip de métricas** en header de cada columna.

@@ -1,0 +1,43 @@
+name: BO Daily Audit
+
+# Agente autonomo diario que verifica duplicacion de backorder en produccion.
+# Reutiliza la logica de scripts/audit_backorder_overlap.py (v1130 split-aware)
+# y manda email a mariano.erbino@shimano.com.ar con sumario + delta vs ayer.
+#
+# Cron: 10 UTC diario = 7 AM AR nominal. GitHub Actions suele tener delay
+# 3-5h en horario pico US, por lo que el email suele caer entre 7-12 AM AR.
+# Si querés que caiga antes, bajar la hora UTC. Si querés mediodia, subirla.
+#
+# Configuracion previa requerida (GitHub Secrets, mismos que send-rendiciones):
+#   FIREBASE_SERVICE_ACCOUNT  JSON del SA de Firebase (acceso Firestore prod).
+#   GMAIL_APP_PASSWORD        App password 16 chars de bot.shimano.pesca@gmail.com.
+
+on:
+  schedule:
+    - cron: '0 10 * * *'  # 10 UTC diario = 7 AM AR nominal (+delay GH)
+  workflow_dispatch:       # boton "Run workflow" para forzar manual
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        # Mismas pins que send-rendiciones-email.yml para evitar la breakage
+        # de google-cloud-firestore 2.29.0 (URL-encodes (default) -> error).
+        run: pip install firebase-admin "google-cloud-firestore<2.29" "google-cloud-core<2.7" "google-api-core<2.35"
+
+      - name: Run bo_daily_audit
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_FROM: bot.shimano.pesca@gmail.com
+          MAIL_TO: mariano.erbino@shimano.com.ar
+        run: python scripts/bo_daily_audit.py
