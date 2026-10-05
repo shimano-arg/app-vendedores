@@ -4675,6 +4675,29 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1132
 
+### v1137 (2026-10-05) — strict mode 100% alineado con tablero PBI (fix WEEKEND 6u)
+
+**Bug reportado por Mariano**: CLC66MH2PY WEEKEND 6u aparecía en el tablero PBI pero no en la app Stock Asignado. Investigación encontró 3 bloqueos encadenados que impedían el match:
+
+1. **Pedido migrado con `stage=null`**: el pedido ASIG original (6u) `IkKnUQozjiBQsxyrtE76` había sido migrado desde SAP el 2026-08-28 con `transferidoSAP.via='sap_migration_2026-08-28'` y quedó con `stage=null`. El filtro v819 (`p.stage !== 'confirmed'`) lo excluía del compute. Hay ~62 SQs de oficina en la misma situación.
+2. **TTL de 15 días en BO**: el otro pedido BO (10u) `YJdNBOtxnKHU5ee0oeYk` tenía `createdAt=2026-09-18` (17 días de antigüedad), superaba el TTL de v969 (`lineReservesStock` auto-descarta BO > 15d) y también se excluía.
+3. **strict mode previo (v1134/v1135) mezclaba estados**: mi implementación anterior contaba BO y confirmed en modo asignación cuando `dispSap>0` → daba 168u en vez de 95u. La fórmula DAX del tablero filtra `v_stock_asignado` por `state='ASIG'` y `v_backorder_lineas` por `state='BO'` — nunca mezcla.
+
+**Fix (solo cuando `aggregationMode='strict'`, no toca el flujo FIFO default)**:
+
+- `src/pure/backorder-sku-map.js`: ahora acepta pedidos con `stage=null` siempre y cuando tengan `transferidoSAP` (migrados oficiales desde SAP). Fuera de strict, se preserva el filtro v819 original.
+- `src/pure/backorder-sku-map.js`: en strict mode se omite el check de `lineReservesStock` (TTL 15d). PBI no filtra por edad.
+- `src/pure/backorder-sku-map.js`: fix crítico de la lógica strict asignación/backorder:
+  - Modo asignación: SOLO `state='ASIG'` con `dispSap>0` cuenta como asignado.
+  - Modo backorder: SOLO `state='BO'` (o SAP legacy) con `dispSap=0` cuenta como backorder.
+  - Fórmula idéntica al DAX del tablero: `Asignado = IF(dep11>0, SUM(unidades WHERE state='ASIG'), 0)`, `Backorder = IF(dep11=0, SUM(pendiente WHERE state='BO'), 0)`.
+
+**Verificación dry-run contra producción**: CLC66MH2PY strict asignación = **95u exactas** = tablero PBI. WEEKEND aparece con 6u state='ASIG' stage=null (migrado) ✓.
+
+4 tests nuevos (`tests/unit/backorder-sku-map.test.js`): strict + stage=null + transferidoSAP + ASIG → incluido; fifo + stage=null + transferidoSAP → excluido (regression check); strict + BO 20d → incluido sin TTL; fifo + BO 20d → excluido.
+
+El flujo FIFO default (confirmación de pedido, split al transferir SAP, exports Excel) NO se toca — fix v606 preservado. **670/670 tests pass**.
+
 ### v1134 → v1136 (2026-10-05) — Alineamiento app vs tablero Power BI "TABLERO SAR"
 
 **Contexto**: Cowork (quien mantiene el modelo PBI) definió fórmulas DAX exactas para Backorder y Stock Reservado en el tablero. Mariano pidió alinear la app para que los números den idénticos a los del dashboard de Power BI.
