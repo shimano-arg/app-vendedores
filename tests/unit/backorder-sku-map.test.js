@@ -537,7 +537,7 @@ describe('computeBackorderSkuMap — v1137: strict incluye migrados SAP + sin TT
       pedidos,
       'asignacion',
       { aggregationMode: 'strict' },
-      baseDeps({ getStockDisponibleVenta: () => 100 }),
+      baseDeps({ getStockDisponibleVenta: () => 100 })
     );
     expect(r.totalUnidades).toBe(6);
     expect(r.skus[0].clientes[0].nombre).toBe('WEEKEND OUTDOOR');
@@ -551,7 +551,12 @@ describe('computeBackorderSkuMap — v1137: strict incluye migrados SAP + sin TT
         lines: [line({ state: 'ASIG', qtyOpen: 6, asigReserva: false, asigAt: daysAgo(2) })],
       }),
     ];
-    const r = computeBackorderSkuMap(pedidos, 'asignacion', {}, baseDeps({ getStockDisponibleVenta: () => 100 }));
+    const r = computeBackorderSkuMap(
+      pedidos,
+      'asignacion',
+      {},
+      baseDeps({ getStockDisponibleVenta: () => 100 })
+    );
     expect(r.totalUnidades).toBe(0);
   });
 
@@ -567,7 +572,7 @@ describe('computeBackorderSkuMap — v1137: strict incluye migrados SAP + sin TT
       pedidos,
       'urgente',
       { aggregationMode: 'strict' },
-      baseDeps({ getStockDisponibleVenta: () => 0 }),
+      baseDeps({ getStockDisponibleVenta: () => 0 })
     );
     expect(r.totalUnidades).toBe(10);
   });
@@ -580,7 +585,12 @@ describe('computeBackorderSkuMap — v1137: strict incluye migrados SAP + sin TT
         lines: [line({ state: 'BO', qtyOpen: 10 })],
       }),
     ];
-    const r = computeBackorderSkuMap(pedidos, 'urgente', {}, baseDeps({ getStockDisponibleVenta: () => 0 }));
+    const r = computeBackorderSkuMap(
+      pedidos,
+      'urgente',
+      {},
+      baseDeps({ getStockDisponibleVenta: () => 0 })
+    );
     expect(r.totalUnidades).toBe(0);
   });
 });
