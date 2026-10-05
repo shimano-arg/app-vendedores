@@ -4675,6 +4675,19 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1132
 
+### v1133 (2026-10-05) — Targets mensuales: nueva columna "Visitas"
+
+Nueva columna **Visitas** entre Líneas y Total mes en el modal de "Targets mensuales" (`src/domains/targets.js`). Es un objetivo independiente de la facturación en ARS: cantidad entera de visitas que el vendedor debería hacer en el mes.
+
+- Campo Firestore: `targets/{sellerId_year_month}.targetVisitas: number` (opcional).
+- No suma al **Total mes** (que sigue siendo la suma de Reel + Cañas + Líneas en ARS).
+- Mismo flujo autosave con debounce 900ms que las familias.
+- Si el user borra el valor, se usa `FieldValue.delete()` para no dejar basura en el doc.
+- Visual: columna con fondo amarillo claro (`#fef3c7`) para distinguirla del bloque de familias (fondo blanco) y del Total (fondo azul claro).
+- Toast de confirmación muestra "Target guardado ($X / N visitas)" cuando se cargan los dos.
+
+Rules sin cambios: `/targets/{docId}` ya permite create/update para admin/gerente sin whitelist de campos.
+
 ### v1132 (2026-10-05) — Mapa: pines SAP verde / LEAD amarillo (en vez de verde/azul por hasGeo)
 
 Pedido Mariano: en `drawSapAltaPins` los pines venían coloreados por `hasGeo` (verde = tiene lat/lng exacta, azul = jitter sobre centroide). Cambio semántico a **color por tipo de cliente**:

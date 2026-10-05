@@ -247,10 +247,11 @@ function renderTargetsTable() {
   const nowY = new Date().getFullYear();
   let html =
     '<table class="targets-table"><thead><tr>' +
-    '<th style="width:12%">Mes</th>' +
-    '<th style="width:19%">Reel</th>' +
-    '<th style="width:19%">Cañas</th>' +
-    '<th style="width:19%">Líneas</th>' +
+    '<th style="width:10%">Mes</th>' +
+    '<th style="width:16%">Reel</th>' +
+    '<th style="width:16%">Cañas</th>' +
+    '<th style="width:16%">Líneas</th>' +
+    '<th style="width:11%;background:#fef3c7">Visitas</th>' +
     '<th style="width:18%;background:#f0f9ff">Total mes</th>' +
     '<th style="width:13%">Estado</th>' +
     '</tr></thead><tbody>';
@@ -296,6 +297,14 @@ function renderTargetsTable() {
         val +
         '" oninput="onTgtInputChange(this)"/></td>';
     });
+    // v1131 (2026-10-05): target de visitas (cantidad entera, independiente del Total mes en ARS).
+    const visitasVal = t && t.targetVisitas != null ? Math.round(parseFloat(t.targetVisitas)) : '';
+    html +=
+      '<td style="background:#fef3c7"><input type="number" min="0" step="1" class="tgt-input tgt-visitas-input" data-month="' +
+      m +
+      '" data-visitas="true" placeholder="0" value="' +
+      visitasVal +
+      '" oninput="onTgtInputChange(this)"/></td>';
     html +=
       '<td style="text-align:right;font-weight:800;color:#0369a1;font-family:ui-monospace,Menlo,monospace;background:#f0f9ff" id="tgt-total-' +
       m +
@@ -307,7 +316,7 @@ function renderTargetsTable() {
   }
   html += '</tbody></table>';
   html +=
-    '<div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.5"><b>Tip:</b> carg&aacute; el target de cada familia (Reel / Ca&ntilde;as / L&iacute;neas) y el <b>Total mes</b> se calcula solo. Los valores se <b>guardan solos</b> al terminar de escribir (~1 segundo).</div>';
+    '<div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.5"><b>Tip:</b> carg&aacute; el target de facturaci&oacute;n por familia (Reel / Ca&ntilde;as / L&iacute;neas) y el <b>Total mes</b> se calcula solo. La columna <b>Visitas</b> es un objetivo aparte (cantidad entera de visitas al mes, no suma al total ARS). Los valores se <b>guardan solos</b> al terminar de escribir (~1 segundo).</div>';
   document.getElementById('tgt-table-wrap').innerHTML = html;
   document.getElementById('tgt-save-btn').textContent = 'Guardar Targets';
   document.getElementById('tgt-save-btn').disabled = false;
@@ -321,12 +330,18 @@ function renderTargetsTable() {
 const _tgtAutosaveTimers = {};
 function onTgtInputChange(input) {
   const m = parseInt(input.dataset.month, 10);
-  const familia = input.dataset.familia;
   const id = targetDocId(tgtSelectedVendor, tgtSelectedYear, m);
   const val = input.value.trim();
-  // Merge: preservar cambios de otras familias del mismo mes.
-  if (!tgtPendingChanges[id]) tgtPendingChanges[id] = { monthIdx: m, byFamily: {} };
-  tgtPendingChanges[id].byFamily[familia] = val;
+  // Merge: preservar cambios de otros campos del mismo mes.
+  if (!tgtPendingChanges[id])
+    tgtPendingChanges[id] = { monthIdx: m, byFamily: {}, visitas: undefined };
+  // v1131: inputs de visitas se trackean aparte (no suman a byFamily ni a Total mes).
+  if (input.dataset.visitas === 'true') {
+    tgtPendingChanges[id].visitas = val;
+  } else {
+    const familia = input.dataset.familia;
+    tgtPendingChanges[id].byFamily[familia] = val;
+  }
   input.classList.toggle('changed', true);
   // Actualizar total en vivo (leyendo TODOS los inputs del mes, no solo
   // el que se toco). Feedback inmediato mientras el debounce corre.
@@ -388,51 +403,70 @@ async function _saveTargetFor(id, monthIdx) {
     alert('Valor invalido en ' + invalido + '. Cargar un numero >= 0.');
     return;
   }
-  // Marcar los 3 inputs de la fila como saving.
+  // v1131: leer input de visitas (cantidad entera, no ARS). Independiente del total.
+  const visitasEl = document.querySelector('.tgt-visitas-input[data-month="' + monthIdx + '"]');
+  let targetVisitas = null;
+  if (visitasEl) {
+    const raw = (visitasEl.value || '').trim();
+    if (raw !== '') {
+      const n = parseInt(raw, 10);
+      if (Number.isNaN(n) || n < 0) {
+        alert('Valor invalido en Visitas. Cargar un entero >= 0.');
+        return;
+      }
+      targetVisitas = n;
+    }
+  }
+  const todoVacio = !alguna && targetVisitas == null;
+  // Marcar inputs de la fila como saving (familias + visitas).
   rowInputs.forEach(({ el }) => {
     if (el) el.classList.add('saving');
   });
+  if (visitasEl) visitasEl.classList.add('saving');
   try {
-    if (!alguna) {
-      // Todas las familias vacias = borrar el doc.
+    if (todoVacio) {
+      // Todo vacio (familias + visitas) = borrar el doc.
       await fbDb
         .collection('targets')
         .doc(id)
         .delete()
         .catch(() => {});
     } else {
-      await fbDb
-        .collection('targets')
-        .doc(id)
-        .set(
-          {
-            sellerId: tgtSelectedVendor,
-            year: tgtSelectedYear,
-            month: monthIdx,
-            targetArs: total, // suma calculada, para retro-compat con v_targets y PBI
-            targetByFamily: byFamily, // v310+: desglose por familia
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            updatedBy: currentUser.uid,
-            updatedByEmail: currentUser.email || '',
-          },
-          { merge: true }
-        );
+      const payload = {
+        sellerId: tgtSelectedVendor,
+        year: tgtSelectedYear,
+        month: monthIdx,
+        targetArs: total, // suma calculada, para retro-compat con v_targets y PBI
+        targetByFamily: byFamily, // v310+: desglose por familia
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByEmail: currentUser.email || '',
+      };
+      // v1131: incluir targetVisitas solo si fue cargado. Si null, usar deleteField
+      // para no dejar basura cuando el user borra el valor.
+      if (targetVisitas != null) {
+        payload.targetVisitas = targetVisitas;
+      } else {
+        payload.targetVisitas = firebase.firestore.FieldValue.delete();
+      }
+      await fbDb.collection('targets').doc(id).set(payload, { merge: true });
     }
     delete tgtPendingChanges[id];
-    rowInputs.forEach(({ el }) => {
-      if (!el) return;
+    const allInputs = rowInputs.map((r) => r.el).filter(Boolean);
+    if (visitasEl) allInputs.push(visitasEl);
+    allInputs.forEach((el) => {
       el.classList.remove('changed', 'saving');
       el.classList.add('saved');
-      setTimeout(() => {
-        el.classList.remove('saved');
-      }, 1200);
+      setTimeout(() => el.classList.remove('saved'), 1200);
     });
-    showSyncTag('Target guardado ($' + total.toLocaleString('es-AR') + ')');
+    const visitasMsg = targetVisitas != null ? ' / ' + targetVisitas + ' visitas' : '';
+    showSyncTag('Target guardado ($' + total.toLocaleString('es-AR') + visitasMsg + ')');
   } catch (e) {
     console.error('_saveTargetFor', id, e);
     rowInputs.forEach(({ el }) => {
       if (el) el.classList.remove('saving');
     });
+    if (visitasEl) visitasEl.classList.remove('saving');
     alert('Error guardando target: ' + (e.message || e));
   }
 }
