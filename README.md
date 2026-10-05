@@ -4675,6 +4675,48 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1132
 
+### v1134 → v1136 (2026-10-05) — Alineamiento app vs tablero Power BI "TABLERO SAR"
+
+**Contexto**: Cowork (quien mantiene el modelo PBI) definió fórmulas DAX exactas para Backorder y Stock Reservado en el tablero. Mariano pidió alinear la app para que los números den idénticos a los del dashboard de Power BI.
+
+**Diagnóstico (3 agentes paralelos sobre el repo)**:
+
+| Dimensión | App (pre-v1134) | Tablero PBI |
+|---|---|---|
+| Backorder: criterio | FIFO parcial a nivel línea | Binario a nivel SKU: `IF stock_whs11=0 THEN SUM(pendiente)` |
+| Asignado: criterio | Toda `state='ASIG'` con TTL<15d | Solo líneas con `stock_whs11 > 0` |
+| Estado agregado | Badges UI por SKU (urgente/parcial) | SIN REPOSICIÓN / EN TRÁNSITO / PARCIAL (en tránsito) / EN DEPÓSITO |
+
+**Ejemplo del impacto**: SKU con pendiente=100 y stock=3. App pre-v1134: BO=97 + ASIG=3 (FIFO). Tablero PBI: BO=0 (binario: `stock>0 → nada es backorder`).
+
+**Fix (3 PRs sucesivos, display-only, no toca flujo de split al confirmar pedido)**:
+
+#### #830 — v1134: `aggregationMode='strict'` opt-in en el core
+
+- `src/pure/backorder-sku-map.js`: agregado parámetro `aggregationMode: 'fifo' | 'strict'` a `computeBackorderSkuMap` y `computeBackorderRawLines`. Default `'fifo'` → cero cambio de comportamiento para callers actuales.
+- En modo `'strict'`: binario a nivel SKU alineado con medidas DAX del tablero (`v_backorder_lineas` / `v_stock_asignado`):
+  - `dispSap > 0`: TODAS las líneas (BO/ASIG/confirmed) cuentan como ASIG (`qtyAsignada=pendiente`, `qtyBackorder=0`). No hay "parcial".
+  - `dispSap = 0`: solo `state='BO'` → backorder. Líneas ASIG/confirmed con stock=0 desaparecen del total.
+- 5 tests nuevos en `tests/unit/backorder-sku-map.test.js` validando side-by-side FIFO vs strict.
+
+#### #831 — v1135: dashboard + modal backorders activan `strict`
+
+- `index.html:13503` (modal backorders / stock asignado) y `index.html:14065` (dashboard de pedidos) pasan `aggregationMode: 'strict'` al compute.
+- Números ahora idénticos al tablero PBI.
+- Exports a Excel (`src/domains/exports-core.js`) NO se tocan — siguen en FIFO para preservar granularidad por línea en reportes operativos.
+- Flujo de split al transferir pedido a SAP tampoco se toca (fix v606 preservado).
+
+#### #832 — v1136: badges "Estado Agregado" + breakdown KPIs
+
+- Badge por SKU reemplaza urgente/parcial legacy con terminología PBI:
+  - Modo backorder: `SIN REPOSICIÓN` (dep11=0 + dep12=0) / `EN TRÁNSITO` (dep12>=bo) / `PARCIAL (en tránsito)` (0<dep12<bo).
+  - Modo asignación: `EN DEPÓSITO` (dep11>0) / `EN TRÁNSITO` / `SIN STOCK FÍSICO`.
+  - Fórmula idéntica al DAX del tablero: `SWITCH(TRUE(), _dep11=0 && _dep12=0, 'SIN REPOSICIÓN', _dep12>=_bo, 'EN TRÁNSITO', _dep12>0, 'PARCIAL (en tránsito)', ...)`.
+- Breakdown agregado al top del modal (debajo del resumen "N SKUs / M u"): 3 chips globales con conteos `⛔ SIN REPOSICIÓN: X SKUs / Y u`, `🚚 EN TRÁNSITO: X SKUs / Y u`, `🔸 PARCIAL: X SKUs / Y u`. Solo visible en modo backorder. DOM via createElement (sin innerHTML con conteos dinámicos).
+- Lee `getStockTransito(sku)` (whs 12) que ya existía pre-v1136.
+
+**Impacto cuantitativo esperado** (según valores de referencia del tablero al momento del diagnóstico): Backorder ~7.701 u / ~$487M; Stock Reservado mes corriente 383 u / $22.8M; Asignado total 2.723 u / ~$124M. Si algún número de la app no coincide con PBI post-deploy, revisar `lineReservesStock` TTL (app auto-libera BO/ASIG >15d; tablero no filtra por fecha → diferencia residual esperada).
+
 ### v1133 (2026-10-05) — Targets mensuales: nueva columna "Visitas"
 
 Nueva columna **Visitas** entre Líneas y Total mes en el modal de "Targets mensuales" (`src/domains/targets.js`). Es un objetivo independiente de la facturación en ARS: cantidad entera de visitas que el vendedor debería hacer en el mes.
