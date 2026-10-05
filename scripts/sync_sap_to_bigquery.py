@@ -900,7 +900,14 @@ def flatten_item(item: dict, price_list_num: int, sync_ts: str) -> dict:
         'frozen': item.get('Frozen'),
         'create_date': item.get('CreateDate'),
         'update_date': item.get('UpdateDate'),
-        'stock_total_sellable': int(round(total_qty)),
+        # v1131 (2026-10-05): WHS 11 only, alineado con CLAUDE.md §26 y con
+        # sync_sap_to_firestore.has_stk. Antes sumaba total_qty (todos los
+        # whs menos 05/06), que inflaba 'vendible' con 07=muestras, 12=transito,
+        # 98=cuarentena. Caso disparador: CIS151HGC tenia 1u en whs 07, bot
+        # WhatsApp (que lee stock_total_sellable>0) decia "DISPONIBLE 11: 1"
+        # mientras la app (que ya filtra whs 11) decia "SIN STOCK". Ahora la
+        # columna significa lo que su nombre dice: unidades realmente vendibles.
+        'stock_total_sellable': int(round(whs_stock.get('11', 0))),
         'stock_by_warehouse_json': json.dumps(whs_stock, default=str) if whs_stock else None,
         # v839+ (2026-09-08): committed por warehouse. Transparencia + join.
         'committed_by_warehouse_json': json.dumps(whs_committed, default=str) if whs_committed else None,

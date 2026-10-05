@@ -95,16 +95,30 @@ def load_all_open_pedidos(db) -> list:
     return out
 
 
+EXPECTED_SPLIT_VIAS = frozenset({
+    'service_layer_auto',      # auto-send client-side (admin con app abierta)
+    'cf_auto',                 # auto-send CF trigger
+    'cf_auto_partial_stock',   # auto-send CF con recheck live stock dep11
+})
+"""Vias que generan split line intencional (v600+). Un pedido via una de estas
+puede tener legitimamente 2+ lineas mismo SKU con estados mixtos: SAP recibio
+la parte con stock, APP guarda la parte sin stock. NO es duplicacion."""
+
+
 def find_strict_duplicates(pedidos: list, min_qty: float = 0.0) -> list:
     """STRICT: pedidos con 2+ lineas mismo SKU + estados mixtos.
 
-    Retorna: [{pedidoId, clientCardCode, clientName, sku, sapLines[], appLines[]}, ...]
-    Cada entry es un pedido con al menos 1 SKU en duplicacion definitiva.
+    v1130 (2026-10-05): distingue splits ESPERADOS (via en EXPECTED_SPLIT_VIAS)
+    de UNEXPECTED (via desconocido o manual). Solo los unexpected se consideran
+    duplicacion real. Los esperados se reportan como `expected_split_count` para
+    tracking de volumen del flag v600 split.
     """
-    SAP_STATES = {'confirmed', 'invoiced'}  # cuentan en SAP-source
-    APP_STATES = {'BO', 'ASIG'}  # cuentan en APP-source
+    SAP_STATES = {'confirmed', 'invoiced'}
+    APP_STATES = {'BO', 'ASIG'}
     out = []
     for p in pedidos:
+        via = (p.get('transferidoSAP') or {}).get('via') or ''
+        is_expected_split = via in EXPECTED_SPLIT_VIAS
         lines = p.get('lines') or []
         by_sku = {}
         for i, l in enumerate(lines):
@@ -147,7 +161,8 @@ def find_strict_duplicates(pedidos: list, min_qty: float = 0.0) -> list:
                 'clientCardCode': p.get('clientCardCode') or '',
                 'clientName': p.get('clientName') or '',
                 'sqDocEntry': (p.get('transferidoSAP') or {}).get('docEntry'),
-                'via': (p.get('transferidoSAP') or {}).get('via'),
+                'via': via,
+                'is_expected_split': is_expected_split,
                 'dup_skus': dup_skus,
             })
     return out
@@ -217,6 +232,9 @@ def main():
     strict = find_strict_duplicates(pedidos, args.min_qty)
     loose = [] if args.strict_only else find_loose_overlaps(sap_by_client_sku, app_bo_by_client, args.min_qty)
 
+    strict_unexpected = [p for p in strict if not p.get('is_expected_split')]
+    strict_expected = [p for p in strict if p.get('is_expected_split')]
+
     report = {
         'timestamp': __import__('datetime').datetime.utcnow().isoformat() + 'Z',
         'sap_source_skus_count': len([k for k, v in sap_bo_sku.items() if float(v or 0) > 0]),
@@ -226,6 +244,8 @@ def main():
         'pedidos_open_with_sap': len(pedidos),
         'strict_duplicates_count': len(strict),
         'strict_duplicated_qty': sum(sum(s['app_qty_open'] for s in p['dup_skus']) for p in strict),
+        'strict_unexpected_count': len(strict_unexpected),
+        'strict_expected_split_count': len(strict_expected),
         'strict': strict,
         'loose_overlaps_count': len(loose),
         'loose': loose,
@@ -240,14 +260,13 @@ def main():
         print(f"Pedidos abiertos con transferidoSAP: {report['pedidos_open_with_sap']}\n")
 
         print("=" * 80)
-        print("STRICT (DUPLICACION DEFINITIVA) — mismo pedido, mismo SKU, estados mixtos")
+        print("STRICT UNEXPECTED (DUPLICACION DEFINITIVA) - via inesperado o manual")
         print("=" * 80)
-        if not strict:
-            print("OK: cero duplicaciones strict. El invariante se cumple.")
-            print("(No hay pedidos con 2+ lineas mismo SKU + mix confirmed/BO/ASIG.)")
+        if not strict_unexpected:
+            print("OK: cero duplicaciones strict con via inesperado. El invariante se cumple.")
         else:
-            print(f"WARN: {len(strict)} pedido(s) afectados, {report['strict_duplicated_qty']:.0f}u en riesgo\n")
-            for p in strict:
+            print(f"WARN: {len(strict_unexpected)} pedido(s), via NO en EXPECTED_SPLIT_VIAS\n")
+            for p in strict_unexpected:
                 print(f"[{p['pedidoId']}] {p['clientCardCode']} {p['clientName']} "
                       f"SQ={p['sqDocEntry']} via={p['via']}")
                 for s in p['dup_skus']:
@@ -257,6 +276,22 @@ def main():
                     for line in s['app_lines']:
                         print(f"    [line {line['lineIndex']}] state={line['state']} qty={line['qty']:.0f} open={line['qtyOpen']:.0f}")
                 print('')
+
+        if strict_expected:
+            print()
+            print("=" * 80)
+            print("STRICT EXPECTED SPLIT - via en EXPECTED_SPLIT_VIAS (informativo, no es bug)")
+            print("=" * 80)
+            print(f"INFO: {len(strict_expected)} pedido(s) con split line intencional del flag v600+.")
+            print("Esto es comportamiento esperado: SAP recibe la parte con stock, APP guarda")
+            print("la parte sin stock. Los lectores UI son disjuntos por state (verificado 2026-10-05).")
+            print()
+            for p in strict_expected[:5]:
+                skus = ', '.join(s['sku'] for s in p['dup_skus'])
+                print(f"[{p['pedidoId']}] {p['clientName'][:40]:<40} via={p['via']}  "
+                      f"skus: {skus}")
+            if len(strict_expected) > 5:
+                print(f"... y {len(strict_expected) - 5} mas. Usa --json para completo.")
 
         if not args.strict_only:
             print("=" * 80)
@@ -279,8 +314,9 @@ def main():
 
         print()
 
-    # Exit code 1 solo para STRICT (duplicacion definitiva). LOOSE es informativo.
-    sys.exit(1 if strict else 0)
+    # Exit code 1 solo para STRICT UNEXPECTED (duplicacion real no explicable
+    # por el split line v600+). STRICT expected y LOOSE son informativos.
+    sys.exit(1 if strict_unexpected else 0)
 
 
 if __name__ == '__main__':
