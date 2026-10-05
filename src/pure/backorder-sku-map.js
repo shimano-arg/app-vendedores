@@ -169,6 +169,7 @@ function toDateString(value) {
  */
 function _buildSkuMapRaw(pedidos, mode, filters, deps) {
   const isAsig = mode === 'asignacion';
+  const strictMode = filters.aggregationMode === 'strict';
   const tq = String(filters.tiendaQuery || '').toLowerCase();
   const vf = String(filters.vendorKey || '');
   const mesF = String(filters.mesYYYYMM || '');
@@ -267,7 +268,14 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
     // el filtro stage='confirmed' descarta la mayoría — cubrimos el edge case.
     if (p.closedAt) continue;
     // v819: solo pedidos stage='confirmed' (envío a SAP en curso).
-    if (p.stage !== 'confirmed') continue;
+    // v1137 (2026-10-05): strict mode ALSO acepta pedidos sin stage pero con
+    // transferidoSAP (migrados desde SAP el 2026-08-28 via sap_migration_script;
+    // ver `project_bo_migration_100_app`). Esto alinea con tablero PBI que lee
+    // v_backorder_app sin filtrar por stage. Fuera de strict (fifo default),
+    // se preserva el filtro original para no romper otros callers.
+    if (p.stage !== 'confirmed') {
+      if (!(strictMode && p.transferidoSAP)) continue;
+    }
     for (const l of p.lines) {
       if (!l || !l.code) continue;
       // v962: confirmed también entra (SQ enviada a SAP, prioridad = ASIG).
@@ -275,7 +283,9 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
       const qtyOpen = Number(l.qtyOpen || 0);
       if (qtyOpen <= 0) continue;
       // v978/v979: filtro vencidas.
-      if (!lineReservesStock(l, now, p)) {
+      // v1137 (2026-10-05): strict mode omite TTL (lineReservesStock) para
+      // alinear con tablero PBI que no filtra lineas BO/ASIG por edad.
+      if (!strictMode && !lineReservesStock(l, now, p)) {
         // v1072: en modo asignacion permitir ASIG sin reserva vigente (asigAt<=15d).
         // Fix auditor 2026-10-02: usar toMillisSafe para soportar Firestore
         // Timestamp (toMillis/seconds). Antes `new Date(timestampObj).getTime()`
@@ -366,22 +376,22 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
     g.dispSap = dispSap;
 
     if (aggregationMode === 'strict') {
-      // Modo binario a nivel SKU (tablero PBI). Ver typedef AggregationMode.
-      // - dispSap > 0: TODAS las líneas → ASIG (no FIFO, no parcial).
-      // - dispSap = 0: solo state='BO' → backorder; state ASIG/confirmed con
-      //   stock=0 desaparecen (igual que PBI: `IF(_stk=0, SUM(pendiente WHERE
-      //   estado='SIN ASIGNAR'), 0)` + `IF(dep11>0, [Unidades ASIG], 0)`).
+      // Modo binario a nivel SKU alineado con tablero PBI. Formula DAX:
+      //   Asignado = IF(dep11 > 0, SUM(unidades WHERE state='ASIG'), 0)
+      //   Backorder = IF(dep11 = 0, SUM(pendiente WHERE state='BO'), 0)
+      // El tablero filtra v_stock_asignado por state='ASIG' y v_backorder_lineas
+      // por estado='SIN ASIGNAR' (= state='BO'). confirmed NO cuenta.
+      // SAP legacy source se trata como 'BO' (v_backorder_lineas_v2 default).
       g.clientes.forEach((c) => {
-        if (dispSap > 0) {
+        const isBoLike = c.state === 'BO' || c.source === 'sap';
+        const isAsigLike = c.state === 'ASIG';
+        if (isAsig && isAsigLike && dispSap > 0) {
           c.qtyAsignada = c.pendiente;
           c.qtyBackorder = 0;
-        } else if (c.state === 'BO' || c.source === 'sap') {
-          // SAP legacy no tiene state APP; se trata como BO para el shim PBI
-          // (v_backorder_lineas_v2 map SAP → 'SIN ASIGNAR' por default).
+        } else if (!isAsig && isBoLike && dispSap === 0) {
           c.qtyAsignada = 0;
           c.qtyBackorder = c.pendiente;
         } else {
-          // ASIG o confirmed con dispSap=0 → desaparece del total.
           c.qtyAsignada = 0;
           c.qtyBackorder = 0;
         }
