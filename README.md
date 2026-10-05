@@ -4696,7 +4696,9 @@ Afecta solo `_clusterIconCreate` en `index.html:8508-8533`. El color por vendor 
 
 ### v1130 (2026-10-05) — Fix stock_total_sellable WHS 11 only + overcommit cf_auto + textos cada 5min
 
-Fix central (bug reportado 2026-10-05): `scripts/sync_sap_to_bigquery.py:903` poblaba `stock_total_sellable` con `total_qty` (todos los WHS menos 05/06). Eso contaba 07=muestras, 12=tránsito, 98=cuarentena como "vendible" — la columna mentía desde siempre. Alinea con CLAUDE.md §26 y con `has_stk` de `sync_sap_to_firestore` (ya corregido en v1002).
+**Contexto disparador**: Mariano reportó que el bot WhatsApp +54 9 11 5893-2710 daba "DEPÓSITO 11: 1 unidad" para `CIS151HGC` mientras el modal "Master de Productos" de la app decía "SIN STOCK en depositos vendibles". Dos fuentes de verdad distintas sobre el mismo SKU. Auditoría en paralelo (bot repo + app) encontró que: el bot lee `v_sap_items_enriched.stock_total_sellable` desde BigQuery; esa columna la escribe `sync_sap_to_bigquery.py` sumando todos los WHS vendibles (criterio heredado de v289); pero la app usa criterio WHS 11-only (alineado con `has_stk` del sync Firestore, ya fijo en v1002). CIS151HGC tenía 1u en WHS 07 (muestras) y 0u en WHS 11 — el bot reportaba la de muestras como vendible.
+
+**Fix central**: `scripts/sync_sap_to_bigquery.py:903` poblaba `stock_total_sellable` con `total_qty` (todos los WHS menos 05/06). Eso contaba 07=muestras, 12=tránsito, 98=cuarentena como "vendible" — la columna mentía desde siempre. Alinea con CLAUDE.md §26 y con `has_stk` de `sync_sap_to_firestore` (ya corregido en v1002). Post-fix, el bot sigue leyendo la misma columna sin cambios en su código: `WHERE stock_total_sellable > 0` ya no devuelve CIS151HGC → responde "sin stock" correctamente, alineado con la app.
 
 **Otros cambios del paquete**:
 
