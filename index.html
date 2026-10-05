@@ -5968,7 +5968,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1130';
+const APP_VERSION = 'v1131';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -8521,11 +8521,14 @@ function _clusterIconCreate(cluster) {
     const vm = (typeof vendorLookup !== 'undefined') ? vendorLookup[vk] : null;
     if (vm && vm.color) bg = vm.color;
   }
-  // Fallback default Leaflet por count.
+  // Fallback por count: escala monocromatica #49A2DA (claro -> oscuro).
+  // v1131 (2026-10-05): reemplazo del semaforo verde/naranja/rojo por una
+  // escala de azules (3 tonos del color brand) para que la concentracion de
+  // clientes se lea sin asociaciones semantica rojo=malo. Pedido Mariano.
   if (!bg) {
-    if (count < 10) bg = '#5cb85c'; // green
-    else if (count < 100) bg = '#f0ad4e'; // orange
-    else bg = '#d9534f'; // red
+    if (count < 10) bg = '#A2CFEA';   // azul claro (poca densidad)
+    else if (count < 100) bg = '#49A2DA'; // azul base
+    else bg = '#1A5C8F';              // azul oscuro (alta densidad)
   }
   const size = count < 10 ? 34 : count < 100 ? 40 : 46;
   const html = `<div style="background:${bg};color:#fff;border:2px solid rgba(255,255,255,.85);border-radius:50%;width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;font-weight:800;font-family:Arial;font-size:${count > 99 ? 12 : count > 9 ? 13 : 14}px;box-shadow:0 2px 6px rgba(0,0,0,.35)">${count}</div>`;

@@ -4673,7 +4673,17 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1130
+## 41) Changelog v300 → v1131
+
+### v1131 (2026-10-05) — Mapa: escala monocromática #49A2DA en lugar de semáforo verde/naranja/rojo
+
+Pedido Mariano: las burbujas de cluster del mapa de clientes (fallback cuando vendors mixtos) usaban escala rojo→amarillo→verde según cantidad de clientes agrupados, lo que daba lectura semántica "rojo = malo" indeseada. Cambio a 3 tonos del color brand `#49A2DA`:
+
+- `<10` clientes → `#A2CFEA` (azul claro)
+- `10-99` → `#49A2DA` (azul base)
+- `100+` → `#1A5C8F` (azul oscuro)
+
+Afecta solo `_clusterIconCreate` en `index.html:8508-8533`. El color por vendor (cuando todos los pines del cluster pertenecen al mismo VDE) se mantiene inalterado (feature v850).
 
 ### v1130 (2026-10-05) — Fix stock_total_sellable WHS 11 only + overcommit cf_auto + textos cada 5min
 
