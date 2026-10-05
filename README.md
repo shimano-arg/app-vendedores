@@ -4673,7 +4673,29 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1129
+## 41) Changelog v300 → v1130
+
+### v1130 (2026-10-05) — Fix stock_total_sellable WHS 11 only + overcommit cf_auto + textos cada 5min
+
+Fix central (bug reportado 2026-10-05): `scripts/sync_sap_to_bigquery.py:903` poblaba `stock_total_sellable` con `total_qty` (todos los WHS menos 05/06). Eso contaba 07=muestras, 12=tránsito, 98=cuarentena como "vendible" — la columna mentía desde siempre. Alinea con CLAUDE.md §26 y con `has_stk` de `sync_sap_to_firestore` (ya corregido en v1002).
+
+**Otros cambios del paquete**:
+
+- `index.html` pending SAP backorder incluye `cf_auto` y `cf_auto_partial_stock` (antes solo `service_layer_auto`, ventana ~5min con riesgo de overcommit).
+- `index.html` modal Stock del SKU dice "cada 5 min" (coincide con schedule real del workflow `sync-sap-catalog-stock.yml`, antes decía "cada 30 min") y menciona "depósito 11" explícitamente para transparentar el criterio.
+- `scripts/audit_backorder_overlap.py`: `find_strict_duplicates` ahora distingue `strict_unexpected` vs `strict_expected_split` según `transferidoSAP.via` esté en `EXPECTED_SPLIT_VIAS = {service_layer_auto, cf_auto, cf_auto_partial_stock}`. Exit code 1 solo para unexpected. Baseline post-fix: **0 unexpected / 33 expected informativos**.
+
+**Audit sistémico de duplicación backorder** (sesión paralela 2026-10-05): 3 agentes verificaron en prod:
+
+1. **STRICT 33 pedidos** reportados por el detector pre-fix = falsos positivos. Son resultado del split line v600+ actuando en volumen. Los lectores UI son disjuntos por state (dashboard KPIs separadas, modal cliente usa solo APP-source, snapshot CF filtra `state ∈ {BO, ASIG}`). Ningún código vivo suma SAP+APP; solo 2 comentarios históricos. Post-fix del detector: 0 unexpected.
+2. **LOOSE 143 pares ≈ 4-6 duplicaciones reales**. El resto es demanda legítima (REBORN pide mensualmente, 4 pedidos sucesivos separados ~16d) o cobertura incompleta del sync (SQs puros SAP sin backfill a app). Inspección manual del caso REBORN `ULT4000XGD` confirmó: 2 pedidos distintos con `orderDocNum` distintos (19974 vs 18980), separados ~2 meses.
+3. **`lineReservesStock` drift** (backlog del jueves): byte-por-byte equivalente post-v1126 entre `src/pure/stock-realmente-disponible.js` y `functions/core/pedido-snapshot-core.js`. Muestra 10 SKUs con BO real: 0/10 divergencias. **Backlog cerrado como "verificado alineado 2026-10-05"**.
+
+Nuevo helper: `scripts/audit_backorder_overlap_adc.py` — wrapper que usa gcloud ADC en vez de SA key en disco, para correr audits read-only desde cualquier terminal autenticada sin descargar `sa-key.json`.
+
+**Impacto PBI**: `valor_inventario_venta_ars` y `_cost_ars` bajan (correcto conceptualmente: solo valuar lo vendible). Dashboards que leyeran `stock_total_sellable` como "inventario físico total" van a mostrar números más chicos post-sync (próximo run cron a las :08/:38 cada hora).
+
+**Suite completa post-v1130**: 661 unit + 25 smoke pass; typecheck limpio; lint sin errores nuevos (33 preexistentes intactos).
 
 ### v1129 (2026-10-02) — Planner iter 2: breakdown por card + métricas por columna
 
