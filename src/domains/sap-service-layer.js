@@ -228,51 +228,75 @@ const sapSL = {
     return { ok: true, qty: total, byWhs };
   },
 
-  // v1156 (2026-10-06): batch pre-check de stock libre WHS 11 para N SKUs.
-  // Mismo pattern que `fetchLiveWhs11Availability` del server (sap-stock-recheck-core.js):
-  // 1 solo request con filter `or` chain. Permite al UI validar ANTES del envio
-  // a SAP que todas las lineas 'confirmed' tienen stock real suficiente.
+  // v1161 (2026-10-06): rewrite — bug reportado por Mariano: pre-check decia
+  // "CLC66MH2PY hay 0" pero el Master mostraba 89 unidades reales. Causa:
+  // encodeURIComponent(filter) encodeaba paréntesis `()` que SAP SL necesita
+  // sin encode, el filter OR fallaba silencioso y la respuesta omitia items.
+  // Caller interpretaba "no en map" como "available=0" (falso negativo).
   //
-  // Devuelve `{ ok, availabilityMap: Map<itemCode, { inStock, committed, available }>, error? }`.
-  //  - `available` = max(0, inStock - committed). Mismo calculo que el server.
-  //  - Si falla el GET (SL down, timeout), ok=false + error. El caller decide
-  //    si abortar o enviar fail-open.
+  // Nuevo approach: 1 request POR SKU en paralelo (batch 5), usando el
+  // endpoint simple `/Items('CODE')` que no requiere filter OR complejo.
+  //
+  // Devuelve `{ ok, availabilityMap, errors }`:
+  //  - `availabilityMap`: Map con los SKUs que SAP respondió correctamente.
+  //  - `errors`: array con los SKUs que fallaron o no tienen WHS 11.
+  //  - IMPORTANTE: el caller DEBE tratar "no está en map" como "no verificable"
+  //    (fail-safe → no marcar como degraded), NO como "available=0".
   async preCheckStockWhs11(itemCodes) {
     const codes = Array.from(
       new Set((itemCodes || []).map((c) => String(c || '').trim()).filter(Boolean))
     );
     if (codes.length === 0) {
-      return { ok: true, availabilityMap: new Map() };
+      return { ok: true, availabilityMap: new Map(), errors: [] };
     }
-    const filter = codes
-      .map((c) => "(ItemCode eq '" + String(c).replace(/'/g, "''") + "')")
-      .join(' or ');
-    const path =
-      '/b1s/v1/Items?$filter=' +
-      encodeURIComponent(filter) +
-      '&$select=ItemCode,ItemWarehouseInfoCollection&$top=' +
-      codes.length;
-    const r = await this.fetchWithSession(path);
-    if (!r.ok) return { ok: false, error: r.error };
-    const items = (r.body && Array.isArray(r.body.value) ? r.body.value : []) || [];
     /** @type {Map<string, {inStock: number, committed: number, available: number}>} */
     const map = new Map();
-    for (const it of items) {
-      const code = String(it.ItemCode || '').trim();
-      if (!code) continue;
-      const whs = Array.isArray(it.ItemWarehouseInfoCollection)
-        ? it.ItemWarehouseInfoCollection
-        : [];
-      const whs11 = whs.find((w) => String(w.WarehouseCode) === '11');
-      const inStock = whs11 ? parseFloat(whs11.InStock || 0) : 0;
-      const committed = whs11 ? parseFloat(whs11.Committed || 0) : 0;
-      map.set(code, {
-        inStock,
-        committed,
-        available: Math.max(0, Math.trunc(inStock - committed)),
-      });
+    /** @type {Array<{code: string, error?: any}>} */
+    const errors = [];
+    const BATCH_SIZE = 5; // concurrencia hacia SAP SL (evita rate limit)
+    for (let i = 0; i < codes.length; i += BATCH_SIZE) {
+      const chunk = codes.slice(i, i + BATCH_SIZE);
+      // eslint-disable-next-line no-await-in-loop
+      const results = await Promise.all(
+        chunk.map(async (code) => {
+          const safe = String(code).replace(/'/g, "''");
+          try {
+            const resp = await this.fetchWithSession(
+              "/b1s/v1/Items('" +
+                encodeURIComponent(safe) +
+                "')?$select=ItemCode,ItemWarehouseInfoCollection"
+            );
+            return { code, resp };
+          } catch (e) {
+            return { code, resp: { ok: false, error: (e && e.message) || String(e) } };
+          }
+        })
+      );
+      for (const { code, resp } of results) {
+        if (!resp || !resp.ok) {
+          errors.push({ code, error: resp && resp.error });
+          continue;
+        }
+        const whs =
+          resp.body && Array.isArray(resp.body.ItemWarehouseInfoCollection)
+            ? resp.body.ItemWarehouseInfoCollection
+            : [];
+        const whs11 = whs.find((w) => String(w.WarehouseCode) === '11');
+        if (!whs11) {
+          // Item sin info de WHS 11 → no verificable, no agregamos al map.
+          errors.push({ code, error: 'no_whs11' });
+          continue;
+        }
+        const inStock = parseFloat(whs11.InStock || 0);
+        const committed = parseFloat(whs11.Committed || 0);
+        map.set(code, {
+          inStock,
+          committed,
+          available: Math.max(0, Math.trunc(inStock - committed)),
+        });
+      }
     }
-    return { ok: true, availabilityMap: map };
+    return { ok: true, availabilityMap: map, errors };
   },
 
   // Trae TODOS los items del catalogo SAP paginando via OData.

@@ -6063,7 +6063,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1160';
+const APP_VERSION = 'v1161';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -30670,11 +30670,18 @@ window.confirmarDefinitivo = async function(){
           const sapCode = sapCodeByAppCode[String(l.code).toUpperCase()];
           requestedBySap[sapCode] = (requestedBySap[sapCode] || 0) + (Number(l.qty) || 0);
         });
-        // Detectar deltas.
+        // v1161 (2026-10-06): fail-safe. Si SAP no respondio para un sapCode
+        // (map.has() === false), tratarlo como "no verificable" y NO marcarlo
+        // como degraded. Antes el "0" default falso-positivaba cuando el
+        // batch request fallaba parcialmente (bug reportado CLC66MH2PY).
         const degradedBySap = {};
         for (const sapCode of Object.keys(requestedBySap)) {
+          if (!map.has(sapCode)) {
+            // Fail-safe: no sabemos el stock → asumir OK, no marcar como degraded.
+            continue;
+          }
           const requested = requestedBySap[sapCode];
-          const avail = map.has(sapCode) ? map.get(sapCode).available : 0;
+          const avail = map.get(sapCode).available;
           if (requested > avail) {
             degradedBySap[sapCode] = { requested, available: avail, lost: requested - avail };
           }
