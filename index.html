@@ -5384,6 +5384,11 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
             <button id="btn-export-lista-plana" class="bo-btn" onclick="exportBackordersToExcel()">Exportar todo</button>
             <button id="btn-export-stock-asig-cliente" class="bo-btn" onclick="openExportStockAsigCliente()">Exportar Stock Asignado por cliente</button>
             <button id="btn-backorders-graficos" class="bo-btn" onclick="openBackordersGraficos()" title="Ver graficos de top clientes + top SKUs con mas backorder">Gr&aacute;ficos</button>
+            <!-- v1146 (2026-10-06): Generar Backorder manual. Visible solo en modo urgente.
+                 Permite cargar BO cuando el cliente pide reservar demanda sobre SKUs sin
+                 stock. Crea pedido APP con stage='confirmed' + lineas state='BO' +
+                 transferidoSAP.via='manual-backorder' (NO se envia a SAP). -->
+            <button id="btn-generar-backorder" class="bo-btn" onclick="openGenerarBackorderModal()" title="Cargar backorder manual: cliente + SKUs + unidades. NO se envia a SAP, queda como demanda pendiente en la app." style="background:#b45309;color:#fff;border-color:#92400e">Generar Backorder</button>
             <!-- v1145 (2026-10-06): Crear Pedido - ST. Boton visible solo en modo asignacion.
                  Abre selector de cliente -> consolida sus SKUs en SA SIN RESERVA -> borra
                  las lineas ASIG viejas + crea pedido nuevo en revision_waitlist para que
@@ -5430,6 +5435,48 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
               <button class="bo-btn" onclick="_cpstVolver()" style="padding:8px 14px">Cancelar</button>
               <button id="cpst-confirm-btn" class="bo-btn" onclick="_cpstConfirmar()" style="padding:8px 14px;background:#1e40af;color:#fff;border-color:#1e3a8a">Confirmar y pasar a Lista de Espera</button>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- v1146 (2026-10-06): Modal "Generar Backorder manual". Flow:
+         1) VDE selecciona cliente (datalist padron SAP + Altas aprobadas).
+         2) Agrega N filas de SKU + qty (SKU con datalist desde PRODUCTS).
+         3) Precio se auto-completa desde getPriceInfo (editable).
+         4) Guardar -> crea doc en 'pedidos' con stage='confirmed' + lineas
+            state='BO' + transferidoSAP={via:'manual-backorder',skipSap:true}.
+         El pedido aparece en modal Backorder (modo urgente) como demanda
+         pendiente. NO se envia a SAP. Cuando llegue stock del SKU, el
+         cliente aparece en Stock Asignado y se puede usar "Crear Pedido - ST". -->
+    <div class="modal-overlay" id="generar-backorder-modal" onclick="if(event.target===this)closeGenerarBackorderModal()">
+      <div class="modal-box" style="width:min(900px,98vw);max-height:92vh;display:flex;flex-direction:column">
+        <div class="modal-head" style="background:linear-gradient(135deg,#92400e,#b45309)">
+          <div>
+            <h2>Generar Backorder manual</h2>
+            <div class="subt">Carga demanda cuando el cliente pide reservar stock que no tenemos. NO se envia a SAP.</div>
+          </div>
+          <button class="modal-close" onclick="closeGenerarBackorderModal()">&times;</button>
+        </div>
+        <div style="padding:14px;display:flex;flex-direction:column;gap:12px;flex:1;overflow:hidden">
+          <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+            <label style="font-size:12px;font-weight:600;color:#334155">Cliente</label>
+            <input id="gb-cliente" class="bo-ctl" list="gb-clientes-datalist" placeholder="Escribi el nombre del cliente..." oninput="_gbClienteChange()" autocomplete="off"/>
+            <datalist id="gb-clientes-datalist"></datalist>
+            <div id="gb-cliente-meta" style="font-size:11px;color:#64748b;min-height:16px"></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;flex:1;overflow:hidden">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+              <label style="font-size:12px;font-weight:600;color:#334155">SKUs y unidades</label>
+              <button class="bo-btn" onclick="_gbAgregarLinea()" style="padding:4px 10px;font-size:12px">+ Agregar SKU</button>
+            </div>
+            <div style="font-size:11px;color:#64748b;flex-shrink:0">Elegi el SKU del datalist (empezá a tipear codigo o descripcion). Precio se autocompleta y es editable.</div>
+            <div id="gb-lines-list" style="flex:1;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;padding:6px"></div>
+            <datalist id="gb-skus-datalist"></datalist>
+          </div>
+          <div id="gb-total" style="padding:10px 14px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-size:13px;color:#78350f;font-weight:600;text-align:right;flex-shrink:0">Total: $ 0 · 0 unidades · 0 SKUs</div>
+          <div style="display:flex;gap:10px;justify-content:flex-end;flex-shrink:0">
+            <button class="bo-btn" onclick="closeGenerarBackorderModal()" style="padding:8px 14px">Cancelar</button>
+            <button id="gb-confirm-btn" class="bo-btn" onclick="_gbConfirmar()" style="padding:8px 14px;background:#b45309;color:#fff;border-color:#92400e">Guardar Backorder</button>
           </div>
         </div>
       </div>
@@ -6020,7 +6067,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1145';
+const APP_VERSION = 'v1146';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13374,6 +13421,10 @@ function _applyBackordersMode(mode){
   // v1145 (2026-10-06): boton "Crear Pedido - ST" visible solo en modo asignacion.
   const stBtn = document.getElementById('btn-crear-pedido-st');
   if (stBtn) stBtn.style.display = (mode === 'asignacion') ? '' : 'none';
+  // v1146 (2026-10-06): boton "Generar Backorder" visible solo en modo urgente
+  // (en modo asignacion no tiene sentido: hay stock, deberia ser pedido normal).
+  const gbBtn = document.getElementById('btn-generar-backorder');
+  if (gbBtn) gbBtn.style.display = (mode === 'urgente') ? '' : 'none';
 }
 // v420 (2026-08-06): recomputa counts para ambos botones (urgente + asignacion)
 // contando SKUs distintos (no lineas) en cada categoria segun stock actual.
@@ -15063,6 +15114,348 @@ async function _cpstCancelLine(pedidoId, sku, targetState, clienteNombre){
     });
   } catch (_e) {}
 }
+
+// =============================================================================
+// v1146 (2026-10-06): Generar Backorder manual
+// Modal: VDE elige cliente + agrega N lineas SKU/qty/precio. Al guardar, crea
+// un pedido APP en Firestore con stage='confirmed' + transferidoSAP marcado
+// 'manual-backorder' (evita que el auto-send listener lo tome) + lineas con
+// state='BO'. El pedido aparece en modal Backorder (modo urgente) como
+// cualquier BO. Cuando llegue stock del SKU, aparecera en Stock Asignado y
+// se puede usar "Crear Pedido - ST" para generar el pedido real.
+// =============================================================================
+var _gbState = { cliResolved: null, lines: [] };
+
+window.openGenerarBackorderModal = function(){
+  _gbState = { cliResolved: null, lines: [] };
+  _gbPopulateDatalists();
+  const cli = document.getElementById('gb-cliente');
+  if (cli) cli.value = '';
+  const meta = document.getElementById('gb-cliente-meta');
+  if (meta) meta.textContent = '';
+  // Arrancar con 1 linea vacia para que el VDE pueda empezar a tipear directo.
+  _gbState.lines = [{ sku: '', desc: '', qty: 0, precio: 0 }];
+  _gbRenderLines();
+  _gbUpdateTotal();
+  document.getElementById('generar-backorder-modal').classList.add('open');
+  setTimeout(() => { if (cli) cli.focus(); }, 50);
+};
+
+window.closeGenerarBackorderModal = function(){
+  const el = document.getElementById('generar-backorder-modal');
+  if (el) el.classList.remove('open');
+  _gbState = { cliResolved: null, lines: [] };
+};
+
+function _gbPopulateDatalists(){
+  // Clientes: mismo filtro que _populateRevisionClienteDatalist (POINTS SAP-habilitados + Altas aprobadas).
+  const cliDL = document.getElementById('gb-clientes-datalist');
+  if (cliDL) {
+    while (cliDL.firstChild) cliDL.removeChild(cliDL.firstChild);
+    const names = new Set();
+    if (typeof POINTS !== 'undefined' && POINTS) {
+      POINTS.forEach(p => (p.clients || []).forEach(n => {
+        if (!n) return;
+        if (typeof isSapConfirmed !== 'function' || !isSapConfirmed(p.province, p.name, n)) return;
+        names.add(n);
+      }));
+    }
+    const altas = (typeof approvedAltasList !== 'undefined') ? approvedAltasList : [];
+    altas.forEach(a => {
+      const nom = a.comercio || a.fantasia || '';
+      if (!nom) return;
+      const esClienteSap = !!a.cardCodeSap;
+      const esLead = !!a.manualSapPending && !a.cardCodeSap;
+      if (!esClienteSap && !esLead) return;
+      names.add(nom);
+    });
+    [...names].sort().slice(0, 3000).forEach(n => {
+      const opt = document.createElement('option');
+      opt.value = n;
+      cliDL.appendChild(opt);
+    });
+  }
+  // SKUs: PRODUCTS array con shape {code, desc, cat, fam, sub}.
+  const skuDL = document.getElementById('gb-skus-datalist');
+  if (skuDL) {
+    while (skuDL.firstChild) skuDL.removeChild(skuDL.firstChild);
+    const prods = (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) ? PRODUCTS : [];
+    prods.slice(0, 5000).forEach(p => {
+      if (!p || !p.code) return;
+      const opt = document.createElement('option');
+      opt.value = p.code;
+      opt.label = (p.desc || '').slice(0, 80);
+      skuDL.appendChild(opt);
+    });
+  }
+}
+
+window._gbClienteChange = function(){
+  const el = document.getElementById('gb-cliente');
+  const meta = document.getElementById('gb-cliente-meta');
+  const val = el ? el.value.trim() : '';
+  if (!val) {
+    _gbState.cliResolved = null;
+    if (meta) meta.textContent = '';
+    return;
+  }
+  const r = (typeof _revisionResolveCliente === 'function') ? _revisionResolveCliente(val) : null;
+  _gbState.cliResolved = r;
+  if (!r) {
+    if (meta) { meta.textContent = '⚠ Cliente no encontrado en padron SAP ni Altas aprobadas'; meta.style.color = '#b45309'; }
+  } else {
+    if (meta) { meta.textContent = '✓ CardCode: ' + (r.cardCode || '(falta)') + ' · ' + (r.localidad || '-') + ', ' + (r.provincia || '-') + ' · Vendedor: ' + (r.vendor || '(sin asignar)'); meta.style.color = '#065f46'; }
+  }
+};
+
+window._gbAgregarLinea = function(){
+  _gbState.lines.push({ sku: '', desc: '', qty: 0, precio: 0 });
+  _gbRenderLines();
+};
+
+window._gbEliminarLinea = function(idx){
+  if (_gbState.lines.length <= 1) {
+    _gbState.lines = [{ sku: '', desc: '', qty: 0, precio: 0 }];
+  } else {
+    _gbState.lines.splice(idx, 1);
+  }
+  _gbRenderLines();
+  _gbUpdateTotal();
+};
+
+window._gbChangeSku = function(idx){
+  const el = document.getElementById('gb-line-sku-' + idx);
+  if (!el || !_gbState.lines[idx]) return;
+  const raw = String(el.value || '').trim().toUpperCase();
+  _gbState.lines[idx].sku = raw;
+  // Buscar en PRODUCTS para auto-rellenar desc + precio.
+  const prods = (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) ? PRODUCTS : [];
+  const p = prods.find(pp => pp && String(pp.code).toUpperCase() === raw);
+  if (p) {
+    _gbState.lines[idx].desc = p.desc || '';
+    const _pi = (typeof getPriceInfo === 'function') ? getPriceInfo(raw) : null;
+    const _price = _pi ? Number(_pi.price) || 0 : 0;
+    _gbState.lines[idx].precio = _price;
+    const descEl = document.getElementById('gb-line-desc-' + idx);
+    if (descEl) descEl.textContent = (p.desc || '').slice(0, 70);
+    const precEl = document.getElementById('gb-line-precio-' + idx);
+    if (precEl) precEl.value = _price;
+  } else {
+    _gbState.lines[idx].desc = '';
+    const descEl = document.getElementById('gb-line-desc-' + idx);
+    if (descEl) descEl.textContent = raw ? '⚠ SKU no encontrado' : '';
+  }
+  _gbUpdateLineSubtotal(idx);
+  _gbUpdateTotal();
+};
+
+window._gbChangeQty = function(idx){
+  const el = document.getElementById('gb-line-qty-' + idx);
+  if (!el || !_gbState.lines[idx]) return;
+  _gbState.lines[idx].qty = Math.max(0, Math.trunc(Number(el.value) || 0));
+  _gbUpdateLineSubtotal(idx);
+  _gbUpdateTotal();
+};
+
+window._gbChangePrecio = function(idx){
+  const el = document.getElementById('gb-line-precio-' + idx);
+  if (!el || !_gbState.lines[idx]) return;
+  _gbState.lines[idx].precio = Math.max(0, Number(el.value) || 0);
+  _gbUpdateLineSubtotal(idx);
+  _gbUpdateTotal();
+};
+
+function _gbUpdateLineSubtotal(idx){
+  const l = _gbState.lines[idx];
+  if (!l) return;
+  const sub = (Number(l.qty) || 0) * (Number(l.precio) || 0);
+  const el = document.getElementById('gb-line-subtotal-' + idx);
+  if (el) el.textContent = _cpstFmt(sub);
+}
+
+function _gbUpdateTotal(){
+  const totEl = document.getElementById('gb-total');
+  if (!totEl) return;
+  let totalArs = 0;
+  let totalU = 0;
+  let totalSkus = 0;
+  _gbState.lines.forEach(l => {
+    const q = Number(l.qty) || 0;
+    const p = Number(l.precio) || 0;
+    if (l.sku && q > 0) {
+      totalArs += q * p;
+      totalU += q;
+      totalSkus += 1;
+    }
+  });
+  totEl.textContent = 'Total: ' + _cpstFmt(totalArs) + ' · ' + totalU + ' unidades · ' + totalSkus + ' SKUs';
+}
+
+function _gbRenderLines(){
+  const box = document.getElementById('gb-lines-list');
+  if (!box) return;
+  if (_gbState.lines.length === 0) {
+    box.innerHTML = '<div style="padding:20px;text-align:center;color:#64748b">Agrega al menos un SKU.</div>';
+    return;
+  }
+  box.innerHTML = _gbState.lines.map((l, idx) => (
+    '<div style="display:grid;grid-template-columns:160px 1fr 80px 110px 110px 32px;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px solid #f1f5f9">' +
+      '<input id="gb-line-sku-' + idx + '" class="bo-ctl" list="gb-skus-datalist" placeholder="SKU..." value="' + _cpstEsc(l.sku) + '" oninput="_gbChangeSku(' + idx + ')" autocomplete="off" style="font-family:monospace;font-size:12px"/>' +
+      '<div id="gb-line-desc-' + idx + '" style="font-size:11px;color:#475569;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _cpstEsc(l.desc || '') + '</div>' +
+      '<input id="gb-line-qty-' + idx + '" class="bo-ctl" type="number" min="0" step="1" placeholder="Qty" value="' + (l.qty || '') + '" oninput="_gbChangeQty(' + idx + ')" style="font-size:12px;text-align:right"/>' +
+      '<input id="gb-line-precio-' + idx + '" class="bo-ctl" type="number" min="0" step="0.01" placeholder="Precio u." value="' + (l.precio || '') + '" oninput="_gbChangePrecio(' + idx + ')" style="font-size:12px;text-align:right" title="Precio unitario (se autocompleta del SKU - editable)"/>' +
+      '<div id="gb-line-subtotal-' + idx + '" style="text-align:right;font-weight:600;font-size:12px;color:#1e40af">' + _cpstFmt((Number(l.qty)||0) * (Number(l.precio)||0)) + '</div>' +
+      '<button onclick="_gbEliminarLinea(' + idx + ')" title="Eliminar linea" style="background:transparent;border:1px solid #fca5a5;color:#b91c1c;border-radius:4px;cursor:pointer;padding:2px 6px;font-weight:600">×</button>' +
+    '</div>'
+  )).join('');
+}
+
+window._gbConfirmar = async function(){
+  const r = _gbState.cliResolved;
+  const btn = document.getElementById('gb-confirm-btn');
+  // 1) Validaciones.
+  if (!r) {
+    alert('Elegi un cliente valido antes de guardar.');
+    const cli = document.getElementById('gb-cliente');
+    if (cli) cli.focus();
+    return;
+  }
+  const validLines = _gbState.lines.filter(l => l.sku && Number(l.qty) > 0);
+  if (validLines.length === 0) {
+    alert('Agregá al menos 1 linea con SKU y cantidad > 0.');
+    return;
+  }
+  // Validar que todos los SKUs existan en PRODUCTS (para no cargar codigos invalidos).
+  const prods = (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) ? PRODUCTS : [];
+  const prodMap = {};
+  prods.forEach(p => { if (p && p.code) prodMap[String(p.code).toUpperCase()] = p; });
+  const invalidSkus = validLines.filter(l => !prodMap[String(l.sku).toUpperCase()]);
+  if (invalidSkus.length > 0) {
+    alert('Los siguientes SKUs no existen en el catalogo:\n\n' + invalidSkus.map(l => l.sku).join('\n') + '\n\nCorregilos antes de guardar.');
+    return;
+  }
+  const totalArs = validLines.reduce((s, l) => s + Number(l.qty) * Number(l.precio), 0);
+  const totalU = validLines.reduce((s, l) => s + Number(l.qty), 0);
+  const confirmMsg =
+    'Guardar BACKORDER manual para:\n\n' +
+    r.nombre + '\n' +
+    validLines.length + ' SKU(s), ' + totalU + ' unidad(es), ' + _cpstFmt(totalArs) + '\n\n' +
+    'Esto va a:\n' +
+    '1) Crear un pedido APP con todas las lineas en state=BO.\n' +
+    '2) NO se envia a SAP (queda como demanda pendiente).\n' +
+    '3) Aparece en el modal Backorder como demanda del cliente.\n' +
+    '4) Cuando llegue stock del SKU, aparecera en Stock Asignado para generar el pedido real.\n\n' +
+    'Confirmar?';
+  if (!confirm(confirmMsg)) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+  try {
+    // 2) Reservar orderNumber.
+    let orderNum;
+    try {
+      orderNum = await reserveNextOrderNumber();
+    } catch (e) {
+      throw new Error('No se pudo reservar el numero de orden: ' + (e.message || e));
+    }
+    // 3) Armar lineas en el schema estandar de pedidos.
+    const lines = validLines.map(l => {
+      const p = prodMap[String(l.sku).toUpperCase()];
+      const q = Number(l.qty) || 0;
+      const pr = Number(l.precio) || 0;
+      return {
+        code: l.sku,
+        desc: p.desc || l.desc || '',
+        cat: p.cat || '',
+        fam: p.fam || '',
+        sub: p.sub || '',
+        qty: q,
+        precio: pr,
+        qtyOpen: q,
+        qtyInvoiced: 0,
+        qtyCancelled: 0,
+        qtyRecycled: 0,
+        state: 'BO',
+        asigAt: null,
+        recycledIntoPedidoId: null,
+        priceAtCreation: pr,
+        needsReview: false,
+        manualBackorder: true,
+      };
+    });
+    const nowIso = new Date().toISOString();
+    // 4) Payload del pedido. transferidoSAP con via='manual-backorder' evita que
+    // el auto-send listener (busca !transferidoSAP) lo tome. stage='confirmed'
+    // + schemaVersion=2 lo integran al flow normal del modal Backorder.
+    const docData = {
+      ownerUid: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.uid : '',
+      ownerEmail: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.email || '') : '',
+      ownerVendor: r.vendor || ((typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : ''),
+      createdByUid: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.uid : null,
+      createdByEmail: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.email || '') : '',
+      createdByDisplayName: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.displayName || currentUser.email || '') : '',
+      onBehalfOf: false,
+      stage: 'confirmed',
+      key: '',
+      tipo: '', province: r.provincia || '', locName: r.localidad || '', clientName: r.nombre,
+      clientCardCode: r.cardCode || '',
+      orderNumber: orderNum,
+      waitlistOrigenId: null,
+      bypassAsigGate: null,
+      month: '', monthIdx: null, year: new Date().getFullYear(),
+      confirmedAt: nowIso,
+      condicionPago: '',
+      formaEntrega: { tipo: '', transpNombre: '', transpDireccion: '', clienteDireccion: '', sucursalDireccion: '', retiroNombre: '', retiroApellido: '', retiroDni: '', retiroPatente: '' },
+      lines: lines,
+      hasSkusToReview: false,
+      skusToReviewCount: 0,
+      subtotalArs: Math.round(totalArs),
+      netAmountArs: Math.round(totalArs),
+      discountPct: 0,
+      discountSnapshot: null,
+      schemaVersion: 2,
+      sapLinkage: { soDocEntry: null, lastInvoiceDocEntry: null, lastSyncAt: null },
+      closedAt: null,
+      closedReason: null,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      // CRITICAL: marca para evitar auto-send a SAP. Otros flows deben
+      // chequear transferidoSAP.skipSap antes de hacer calls a /b1s/v1/.
+      transferidoSAP: {
+        via: 'manual-backorder',
+        skipSap: true,
+        docNum: null,
+        docEntry: null,
+        createdAt: nowIso,
+      },
+      source: 'manual-backorder',
+    };
+    const ref = await fbDb.collection('pedidos').add(docData);
+    try {
+      if (typeof logOp === 'function') logOp('manual_backorder_create', 'pedidos/' + ref.id, r.nombre, {
+        cliente: r.nombre,
+        orderNumber: orderNum,
+        skus: validLines.length,
+        unidades: totalU,
+        totalArs: Math.round(totalArs),
+      });
+    } catch (_e) {}
+    if (typeof showSyncTag === 'function') showSyncTag('Backorder ORDEN ' + orderNum + ' guardado');
+    alert(
+      'Backorder manual ORDEN ' + orderNum + ' guardado.\n\n' +
+      r.nombre + '\n' +
+      validLines.length + ' SKU(s) · ' + totalU + ' unidades · ' + _cpstFmt(totalArs) + '\n\n' +
+      'Aparecera en el modal Backorder como demanda pendiente del cliente.\n' +
+      'Cuando llegue stock, usa "Crear Pedido - ST" para generar el pedido real.'
+    );
+    closeGenerarBackorderModal();
+    try {
+      if (typeof renderBackordersTab === 'function') renderBackordersTab();
+    } catch (_e) {}
+  } catch (e) {
+    console.error('_gbConfirmar', e);
+    alert('Error guardando el backorder: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Guardar Backorder'; }
+  }
+};
 
 // v637 (2026-08-26): Graficos generales de Backorder. Chart 1: top clientes
 // con mas unidades pendientes. Chart 2: top SKUs con mas unidades pendientes.
