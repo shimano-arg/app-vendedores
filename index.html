@@ -5384,9 +5384,53 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
             <button id="btn-export-lista-plana" class="bo-btn" onclick="exportBackordersToExcel()">Exportar todo</button>
             <button id="btn-export-stock-asig-cliente" class="bo-btn" onclick="openExportStockAsigCliente()">Exportar Stock Asignado por cliente</button>
             <button id="btn-backorders-graficos" class="bo-btn" onclick="openBackordersGraficos()" title="Ver graficos de top clientes + top SKUs con mas backorder">Gr&aacute;ficos</button>
+            <!-- v1145 (2026-10-06): Crear Pedido - ST. Boton visible solo en modo asignacion.
+                 Abre selector de cliente -> consolida sus SKUs en SA SIN RESERVA -> borra
+                 las lineas ASIG viejas + crea pedido nuevo en revision_waitlist para que
+                 el VDE lo revise y envie a SAP. -->
+            <button id="btn-crear-pedido-st" class="bo-btn" onclick="openCrearPedidoSTModal()" title="Crear un pedido en lista de espera con los SKUs que un cliente tiene en Stock Asignado SIN RESERVA" style="background:#1e40af;color:#fff;border-color:#1e3a8a">Crear Pedido - ST</button>
           </div>
           <div id="backorders-summary" style="padding:10px 12px;background:var(--color-warning-bg);border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#78350f;flex-shrink:0"></div>
           <div id="backorders-list" style="flex:1;overflow-y:auto"></div>
+        </div>
+      </div>
+    </div>
+    <!-- v1145 (2026-10-06): Modal "Crear Pedido - ST". Flow:
+         1) Lista clientes con >=1 SKU en SA SIN RESERVA (asigReserva=false).
+         2) Al elegir cliente, muestra preview: SKUs + qty + precio + subtotal.
+         3) Al confirmar: cancela cada linea ASIG original (state='cancelled') +
+            crea doc en revision_waitlist para que el VDE lo revise y envie a SAP.
+         Simplifica la gestion de stock asignado para los vendedores. -->
+    <div class="modal-overlay" id="crear-pedido-st-modal" onclick="if(event.target===this)closeCrearPedidoSTModal()">
+      <div class="modal-box" style="width:min(820px,98vw);max-height:92vh;display:flex;flex-direction:column">
+        <div class="modal-head" style="background:linear-gradient(135deg,#1e3a8a,#1e40af)">
+          <div>
+            <h2 id="cpst-title">Crear Pedido - Stock Asignado</h2>
+            <div class="subt" id="cpst-subt">Elegí un cliente para consolidar sus SKUs en SA SIN RESERVA en un pedido en lista de espera.</div>
+          </div>
+          <button class="modal-close" onclick="closeCrearPedidoSTModal()">&times;</button>
+        </div>
+        <div style="padding:14px;display:flex;flex-direction:column;gap:10px;flex:1;overflow:hidden">
+          <!-- Paso 1: lista clientes (visible por default) -->
+          <div id="cpst-step-clientes" style="display:flex;flex-direction:column;gap:10px;flex:1;overflow:hidden">
+            <input id="cpst-search" class="bo-ctl" type="text" placeholder="Buscar cliente por nombre..." oninput="_cpstFilterClientes()" style="flex-shrink:0"/>
+            <div id="cpst-summary" style="padding:8px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;font-size:12px;color:#1e3a8a;flex-shrink:0"></div>
+            <div id="cpst-clientes-list" style="flex:1;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px"></div>
+          </div>
+          <!-- Paso 2: preview SKUs del cliente seleccionado (hidden por default) -->
+          <div id="cpst-step-preview" style="display:none;flex-direction:column;gap:10px;flex:1;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+              <button class="bo-btn" onclick="_cpstVolver()" style="padding:6px 10px">&larr; Volver</button>
+              <div style="font-weight:600;font-size:14px" id="cpst-preview-cliente"></div>
+            </div>
+            <div id="cpst-preview-meta" style="padding:8px 12px;background:#f1f5f9;border-radius:6px;font-size:12px;color:#475569;flex-shrink:0"></div>
+            <div id="cpst-preview-list" style="flex:1;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px"></div>
+            <div id="cpst-preview-total" style="padding:10px 14px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-size:13px;color:#78350f;font-weight:600;text-align:right;flex-shrink:0"></div>
+            <div style="display:flex;gap:10px;justify-content:flex-end;flex-shrink:0">
+              <button class="bo-btn" onclick="_cpstVolver()" style="padding:8px 14px">Cancelar</button>
+              <button id="cpst-confirm-btn" class="bo-btn" onclick="_cpstConfirmar()" style="padding:8px 14px;background:#1e40af;color:#fff;border-color:#1e3a8a">Confirmar y pasar a Lista de Espera</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -5976,7 +6020,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1144';
+const APP_VERSION = 'v1145';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13327,6 +13371,9 @@ function _applyBackordersMode(mode){
   // v509: boton "Exportar Stock Asignado" visible solo en modo asignacion.
   const tplBtn = document.getElementById('btn-export-stock-asig-cliente');
   if (tplBtn) tplBtn.style.display = (mode === 'asignacion') ? '' : 'none';
+  // v1145 (2026-10-06): boton "Crear Pedido - ST" visible solo en modo asignacion.
+  const stBtn = document.getElementById('btn-crear-pedido-st');
+  if (stBtn) stBtn.style.display = (mode === 'asignacion') ? '' : 'none';
 }
 // v420 (2026-08-06): recomputa counts para ambos botones (urgente + asignacion)
 // contando SKUs distintos (no lineas) en cada categoria segun stock actual.
@@ -14640,6 +14687,382 @@ window.deleteBackorderAppLine = async function(pedidoId, sku, clienteNombre, qty
     alert('Error eliminando la linea: ' + (e.message || e));
   }
 };
+
+// =============================================================================
+// v1145 (2026-10-06): Crear Pedido - ST (Stock Asignado)
+// Flow bulk: toma SKUs que un cliente tiene en SA SIN RESERVA (c.state='ASIG',
+// c.asigReserva=false) y los consolida en un pedido nuevo en revision_waitlist.
+// Las lineas ASIG viejas se marcan 'cancelled' (mismo pattern que ELIMINAR).
+// VDE revisa en bandeja de lista de espera + completa delivery + envia a SAP.
+// =============================================================================
+var _cpstClientesCache = null;
+var _cpstSelected = null;
+
+window.openCrearPedidoSTModal = function(){
+  if (typeof backordersMode === 'undefined' || backordersMode !== 'asignacion') {
+    alert('Esta accion solo esta disponible en modo Stock Asignado.');
+    return;
+  }
+  _cpstBuildCache();
+  _cpstSelected = null;
+  const stepC = document.getElementById('cpst-step-clientes');
+  const stepP = document.getElementById('cpst-step-preview');
+  if (stepC) stepC.style.display = '';
+  if (stepP) stepP.style.display = 'none';
+  const search = document.getElementById('cpst-search');
+  if (search) search.value = '';
+  _cpstRenderClientes('');
+  document.getElementById('crear-pedido-st-modal').classList.add('open');
+};
+
+window.closeCrearPedidoSTModal = function(){
+  const el = document.getElementById('crear-pedido-st-modal');
+  if (el) el.classList.remove('open');
+  _cpstClientesCache = null;
+  _cpstSelected = null;
+};
+
+// Recompute desde el pure fn (mismo call que renderBackordersTab con mode='asignacion'
+// + aggregationMode='strict'). Agrupa por cliente filtrado a c.source='app',
+// c.state='ASIG', c.asigReserva=false (SIN RESERVA, no retiene stock).
+function _cpstBuildCache(){
+  const _computeFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.computeBackorderSkuMap);
+  if (!_computeFn) { _cpstClientesCache = {}; return; }
+  const pedidos = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [];
+  const result = _computeFn(
+    pedidos,
+    'asignacion',
+    { aggregationMode: 'strict' },
+    {
+      getStockDisponibleVenta: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
+      canonVendor: (typeof _canonVendor === 'function') ? _canonVendor : (x) => String(x || '').trim().toUpperCase(),
+      products: (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) ? PRODUCTS : [],
+      backorderLines: (typeof backorderLines !== 'undefined' && Array.isArray(backorderLines)) ? backorderLines : [],
+      sapGetClienteCode: (typeof sapGetClienteCode === 'function') ? sapGetClienteCode : undefined,
+    }
+  ) || { skus: [] };
+  const map = {};
+  (result.skus || []).forEach(g => {
+    (g.clientes || []).forEach(c => {
+      if (c.source !== 'app') return;
+      if (c.state !== 'ASIG') return;
+      if (c.asigReserva !== false) return;
+      const qty = Number(c.qtyAsignada) || 0;
+      if (qty <= 0) return;
+      const nombre = c.nombre || '';
+      if (!nombre) return;
+      if (!map[nombre]) {
+        map[nombre] = {
+          nombre: nombre,
+          ciudad: c.ciudad || '',
+          provincia: c.provincia || '',
+          vendorKey: c.vendorKey || '',
+          totalU: 0,
+          skus: [],
+        };
+      }
+      const _priceInfo = (typeof getPriceInfo === 'function') ? getPriceInfo(g.sku) : null;
+      const precioUnit = _priceInfo ? Number(_priceInfo.price) || 0 : (Number(c.precio) || 0);
+      map[nombre].totalU += qty;
+      map[nombre].skus.push({
+        sku: g.sku,
+        desc: g.producto || '',
+        qty: qty,
+        precio: precioUnit,
+        subtotal: qty * precioUnit,
+        entries: Array.isArray(c.pedidoIds) && c.pedidoIds.length
+          ? c.pedidoIds.slice()
+          : [{ pedidoId: c.pedidoId, qty: qty, state: c.state }],
+      });
+    });
+  });
+  _cpstClientesCache = map;
+}
+
+function _cpstEsc(s){
+  return String(s||'').replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]);
+}
+
+function _cpstFmt(n){
+  if (typeof fmtMoney === 'function') return fmtMoney(n);
+  return '$ ' + (Number(n) || 0).toLocaleString('es-AR');
+}
+
+function _cpstRenderClientes(filterText){
+  const box = document.getElementById('cpst-clientes-list');
+  const summary = document.getElementById('cpst-summary');
+  if (!box) return;
+  const map = _cpstClientesCache || {};
+  const q = String(filterText || '').trim().toLowerCase();
+  const all = Object.values(map);
+  const filtered = q ? all.filter(c => (c.nombre || '').toLowerCase().includes(q)) : all;
+  filtered.sort((a,b) => (b.totalU || 0) - (a.totalU || 0));
+  const totalClientes = all.length;
+  const totalU = all.reduce((s,c) => s + (c.totalU || 0), 0);
+  if (summary) {
+    summary.textContent = totalClientes + ' clientes con Stock Asignado SIN RESERVA · ' + totalU + ' unidades totales'
+      + (q ? ' · ' + filtered.length + ' coinciden con el filtro' : '');
+  }
+  if (filtered.length === 0) {
+    box.innerHTML = '<div style="padding:30px;text-align:center;color:#64748b">' +
+      (totalClientes === 0
+        ? 'No hay clientes con Stock Asignado SIN RESERVA en este momento.'
+        : 'Ningun cliente coincide con el filtro.') +
+      '</div>';
+    return;
+  }
+  box.innerHTML = filtered.map((c, idx) => {
+    const totalSub = (c.skus||[]).reduce((s,sk) => s + (sk.subtotal||0), 0);
+    return (
+      '<div data-cpst-cli-idx="' + idx + '" ' +
+      'style="padding:10px 14px;border-bottom:1px solid #f1f5f9;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px">' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-weight:600;font-size:13px;color:#0f172a">' + _cpstEsc(c.nombre) + '</div>' +
+          '<div style="font-size:11px;color:#64748b;margin-top:2px">' + _cpstEsc(c.ciudad) + (c.provincia ? ', ' + _cpstEsc(c.provincia) : '') + '</div>' +
+        '</div>' +
+        '<div style="text-align:right">' +
+          '<div style="font-size:13px;font-weight:600;color:#1e40af">' + c.totalU + ' unid</div>' +
+          '<div style="font-size:11px;color:#475569">' + (c.skus||[]).length + ' SKUs · ' + _cpstFmt(totalSub) + '</div>' +
+        '</div>' +
+      '</div>'
+    );
+  }).join('');
+  // Bind clicks via delegation (apostrofe-safe).
+  box.onclick = function(ev){
+    const row = ev.target && ev.target.closest ? ev.target.closest('[data-cpst-cli-idx]') : null;
+    if (!row) return;
+    const idx = parseInt(row.getAttribute('data-cpst-cli-idx'), 10);
+    if (Number.isFinite(idx) && filtered[idx]) _cpstSelectClienteObj(filtered[idx]);
+  };
+}
+
+window._cpstFilterClientes = function(){
+  const el = document.getElementById('cpst-search');
+  _cpstRenderClientes(el ? el.value : '');
+};
+
+function _cpstSelectClienteObj(c){
+  if (!c) return;
+  const cliResolved = (typeof _revisionResolveCliente === 'function') ? _revisionResolveCliente(c.nombre) : null;
+  if (!cliResolved) {
+    alert('No encontre a "' + c.nombre + '" en el padron SAP ni en Altas aprobadas.\n\n' +
+          'No puedo crear el pedido en lista de espera porque faltan cardCode/provincia/localidad.\n\n' +
+          'Posibles causas: cliente no esta en POINTS SAP-habilitados ni en approvedAltasList, o cambio de nombre.');
+    return;
+  }
+  _cpstSelected = c;
+  _cpstSelected._cliResolved = cliResolved;
+  _cpstRenderPreview();
+  document.getElementById('cpst-step-clientes').style.display = 'none';
+  document.getElementById('cpst-step-preview').style.display = 'flex';
+}
+
+function _cpstRenderPreview(){
+  const c = _cpstSelected;
+  if (!c) return;
+  const r = c._cliResolved || {};
+  document.getElementById('cpst-preview-cliente').textContent = c.nombre;
+  const meta = document.getElementById('cpst-preview-meta');
+  if (meta) {
+    meta.innerHTML =
+      '<b>CardCode:</b> ' + _cpstEsc(r.cardCode || '(falta)') + ' · ' +
+      '<b>Provincia:</b> ' + _cpstEsc(r.provincia || '-') + ' · ' +
+      '<b>Localidad:</b> ' + _cpstEsc(r.localidad || '-') + ' · ' +
+      '<b>Vendedor asignado:</b> ' + _cpstEsc(r.vendor || '(sin asignar)') +
+      '<br/><b style="color:#b45309">⚠ Al confirmar:</b> se cancelan ' + c.skus.length +
+      ' linea(s) ASIG del cliente en los pedidos originales y se crea un pedido NUEVO en LISTA DE ESPERA. ' +
+      'El VDE debe completar la forma de entrega antes de enviar a SAP.';
+  }
+  const list = document.getElementById('cpst-preview-list');
+  if (list) {
+    list.innerHTML = c.skus.map(sk => (
+      '<div style="padding:8px 14px;border-bottom:1px solid #f1f5f9;display:flex;gap:10px;align-items:center">' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-weight:600;font-size:12px">' + _cpstEsc(sk.sku) + '</div>' +
+          '<div style="font-size:11px;color:#64748b">' + _cpstEsc(sk.desc) + '</div>' +
+        '</div>' +
+        '<div style="text-align:right">' +
+          '<div style="font-size:12px;font-weight:600">' + sk.qty + ' × ' + _cpstFmt(sk.precio) + '</div>' +
+          '<div style="font-size:12px;color:#1e40af;font-weight:600">' + _cpstFmt(sk.subtotal) + '</div>' +
+        '</div>' +
+      '</div>'
+    )).join('');
+  }
+  const tot = document.getElementById('cpst-preview-total');
+  if (tot) {
+    const totalSub = c.skus.reduce((s,sk) => s + (sk.subtotal||0), 0);
+    tot.textContent = 'Total ' + c.skus.length + ' SKUs · ' + c.totalU + ' unidades · ' + _cpstFmt(totalSub);
+  }
+}
+
+window._cpstVolver = function(){
+  _cpstSelected = null;
+  document.getElementById('cpst-step-clientes').style.display = '';
+  document.getElementById('cpst-step-preview').style.display = 'none';
+};
+
+window._cpstConfirmar = async function(){
+  const c = _cpstSelected;
+  if (!c) return;
+  const r = c._cliResolved || {};
+  const btn = document.getElementById('cpst-confirm-btn');
+  const confirmMsg =
+    'Confirmar la creacion del pedido en LISTA DE ESPERA para:\n\n' +
+    c.nombre + '\n' +
+    c.skus.length + ' SKU(s), ' + c.totalU + ' unidad(es)\n\n' +
+    'Esto va a:\n' +
+    '1) Cancelar las lineas ASIG viejas del cliente en los pedidos originales.\n' +
+    '2) Crear un pedido NUEVO en LISTA DE ESPERA con esos SKUs.\n' +
+    '3) El VDE revisa el pedido + completa la forma de entrega + lo envia a SAP.\n\n' +
+    'Esta accion es PERMANENTE (los ASIG viejos no se recuperan).';
+  if (!confirm(confirmMsg)) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Procesando...'; }
+  try {
+    let ordenNum;
+    try {
+      ordenNum = await reserveNextOrderNumber();
+    } catch (e) {
+      throw new Error('No se pudo reservar el numero de orden: ' + (e.message || e));
+    }
+    let okCount = 0;
+    let failCount = 0;
+    const errors = [];
+    for (const sk of c.skus) {
+      for (const entry of (sk.entries || [])) {
+        try {
+          await _cpstCancelLine(entry.pedidoId, sk.sku, entry.state || 'ASIG', c.nombre);
+          okCount++;
+        } catch (e) {
+          failCount++;
+          errors.push(sk.sku + ' (pedido ' + entry.pedidoId + '): ' + (e.message || e));
+        }
+      }
+    }
+    if (failCount > 0 && okCount === 0) {
+      throw new Error('No se pudo cancelar ninguna linea:\n' + errors.join('\n'));
+    }
+    const items = c.skus.map(sk => {
+      const stk = (typeof _revisionStockFor === 'function')
+        ? _revisionStockFor(sk.sku)
+        : { hasData: false, stockTotal: null, backorder: 0, disponible: null };
+      return {
+        code: sk.sku,
+        desc: sk.desc || '',
+        qty: sk.qty,
+        firstStockTotal: stk.hasData ? stk.stockTotal : null,
+        firstBackorder: stk.backorder || 0,
+        firstDisponible: stk.hasData ? stk.disponible : null,
+      };
+    });
+    const payload = {
+      clientName: r.nombre || c.nombre,
+      clientProvince: r.provincia || '',
+      clientLocality: r.localidad || '',
+      clientCardCode: r.cardCode || '',
+      vendorAssigned: r.vendor || c.vendorKey || '',
+      ownerUid: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.uid : '',
+      ownerEmail: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.email || '') : '',
+      ownerDisplayName: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.displayName || currentUser.email || '') : '',
+      ownerVendor: (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '',
+      orderNumber: ordenNum,
+      deliveryMethod: '',
+      deliveryDetails: {},
+      source: 'stock-asignado-batch',
+      sourceCancelledLines: okCount,
+      sourceCancelFailed: failCount,
+      items: items,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    };
+    const docRef = await fbDb.collection('revision_waitlist').add(payload);
+    try {
+      const optimistic = Object.assign({}, payload, {
+        _id: docRef.id,
+        createdAt: { toDate: () => new Date() },
+        updatedAt: { toDate: () => new Date() },
+      });
+      if (typeof revisionWaitlist !== 'undefined' && Array.isArray(revisionWaitlist)) {
+        revisionWaitlist.push(optimistic);
+      }
+    } catch (_e) {}
+    try {
+      if (typeof logOp === 'function') logOp('cpst_create', 'revision_waitlist/' + docRef.id, c.nombre, {
+        cliente: c.nombre, orderNumber: ordenNum, skus: c.skus.length, unidades: c.totalU,
+        cancelledOk: okCount, cancelledFail: failCount,
+      });
+    } catch (_e) {}
+    if (typeof showSyncTag === 'function') showSyncTag('Pedido ORDEN ' + ordenNum + ' creado en lista de espera');
+    let msg = 'Pedido ORDEN ' + ordenNum + ' creado en LISTA DE ESPERA.\n\n' +
+              c.nombre + '\n' + c.skus.length + ' SKU(s) · ' + c.totalU + ' unidades.\n\n' +
+              'Lineas ASIG canceladas: ' + okCount + '/' + (okCount + failCount) + '.\n\n' +
+              'Ahora el VDE puede revisarlo en LISTA DE ESPERA y enviarlo a SAP.';
+    if (failCount > 0) {
+      msg += '\n\n⚠ ' + failCount + ' linea(s) no se pudieron cancelar — revisar manualmente:\n' + errors.slice(0,5).join('\n');
+    }
+    alert(msg);
+    closeCrearPedidoSTModal();
+    try {
+      if (typeof renderBackordersTab === 'function') renderBackordersTab();
+    } catch (_e) {}
+  } catch (e) {
+    console.error('_cpstConfirmar', e);
+    alert('Error creando el pedido: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Confirmar y pasar a Lista de Espera'; }
+  }
+};
+
+// Variante batch-safe de deleteBackorderAppLine: cancela 1 linea sin confirm().
+// Mismo pattern (state='cancelled' + qtyOpen=0 + qtyCancelled+=qtyOpen) +
+// optimistic update de globalPedidos. Idempotente: si la linea ya esta cancelled,
+// el map no la encuentra con state='ASIG' y tira error (que el caller cuenta
+// como failed, pero no bloquea el flow completo).
+async function _cpstCancelLine(pedidoId, sku, targetState, clienteNombre){
+  if (!pedidoId || !sku) throw new Error('pedidoId o sku vacio');
+  const st = (targetState === 'BO') ? 'BO' : 'ASIG';
+  let p = null;
+  if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+    p = globalPedidos.find(pp => pp && pp._fsId === pedidoId);
+  }
+  if (!p || !Array.isArray(p.lines)) {
+    const snap = await fbDb.collection('pedidos').doc(pedidoId).get();
+    if (!snap.exists) throw new Error('pedido no encontrado');
+    p = snap.data() || {};
+    if (!Array.isArray(p.lines)) throw new Error('pedido sin lineas');
+  }
+  let modIdx = -1;
+  const newLines = p.lines.map((l, idx) => {
+    if (modIdx >= 0) return l;
+    if (l && String(l.code).toUpperCase() === String(sku).toUpperCase() && l.state === st) {
+      modIdx = idx;
+      const qo = Number(l.qtyOpen) || 0;
+      return Object.assign({}, l, {
+        qtyOpen: 0,
+        qtyCancelled: (Number(l.qtyCancelled) || 0) + qo,
+        state: 'cancelled',
+        cancelledAt: new Date().toISOString(),
+        cancelledFrom: 'crear-pedido-st',
+      });
+    }
+    return l;
+  });
+  if (modIdx < 0) throw new Error('linea no encontrada (state=' + st + ')');
+  if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+    globalPedidos = globalPedidos.map(pp => {
+      if (!pp || pp._fsId !== pedidoId) return pp;
+      return Object.assign({}, pp, { lines: newLines });
+    });
+  }
+  await fbDb.collection('pedidos').doc(pedidoId).update({
+    lines: newLines,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+  try {
+    if (typeof logOp === 'function') logOp('pedido_line_delete', 'pedidos/' + pedidoId, sku, {
+      sku: sku, qty: 0, cliente: clienteNombre || '', state: st, source: 'crear-pedido-st-batch',
+    });
+  } catch (_e) {}
+}
 
 // v637 (2026-08-26): Graficos generales de Backorder. Chart 1: top clientes
 // con mas unidades pendientes. Chart 2: top SKUs con mas unidades pendientes.
