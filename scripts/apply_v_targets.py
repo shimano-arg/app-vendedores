@@ -17,7 +17,11 @@ creds = service_account.Credentials.from_service_account_info(sa)
 client = bigquery.Client(project=BQ_PROJECT, credentials=creds, location=BQ_LOCATION)
 
 VIEWS = (Path(__file__).resolve().parent.parent / 'bigquery' / 'views.sql').read_text(encoding='utf-8')
-m = re.search(r'(CREATE OR REPLACE VIEW `[^`]+\.v_targets`[^;]+;)', VIEWS, re.DOTALL)
+# v1152 (2026-10-06): fix regex. El pattern `[^;]+;` cortaba prematuramente
+# cuando un `;` aparecia dentro de un comentario inline (ej: linea con
+# "no es empleado Shimano; cartera va a SANTI"). Usamos marker unico del
+# final del WHERE: `AND target_ars > 0;`.
+m = re.search(r'(CREATE OR REPLACE VIEW `[^`]+\.v_targets` AS[\s\S]+?AND target_ars > 0;)', VIEWS)
 if not m:
     raise SystemExit('No encontre v_targets en views.sql')
 

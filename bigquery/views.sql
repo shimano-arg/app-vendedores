@@ -1226,6 +1226,10 @@ SELECT
   target_reel_ars,
   target_canas_ars,
   target_lineas_ars,
+  -- v1152 (2026-10-06): target de visitas mensuales por VDE. Cantidad entera,
+  -- independiente del target ARS. Alimenta tarjetas "Visitas objetivo" + ratios
+  -- "Visitas realizadas / target_visitas" en PowerBI. Docs pre-v1131 tienen null.
+  target_visitas,
   _sync_timestamp
 FROM `app-vendedores-shimano.shimano_app.targets_raw`
 WHERE seller_id IN (
