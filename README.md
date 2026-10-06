@@ -4673,7 +4673,48 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1145
+## 41) Changelog v300 → v1146
+
+### v1146 (2026-10-06) — Generar Backorder manual (modal Backorder)
+
+**Pedido Mariano**: cuando el cliente pide "cargame X unidades de este SKU aunque no haya stock", el VDE necesita una forma rápida de registrar esa demanda en la app sin tener que armar un pedido completo con delivery method/condición de pago/etc.
+
+**Flow**:
+1. VDE abre modal Backorder (modo urgente, no asignación).
+2. Clica "Generar Backorder" (botón naranja al lado de "Gráficos", visible solo en modo urgente).
+3. Modal (`#generar-backorder-modal`):
+   - Input cliente con `<datalist>` autocompletar (mismo filtro que `_populateRevisionClienteDatalist`: POINTS SAP-habilitados + Altas con cardCodeSap/manualSapPending).
+   - Debajo del input, meta auto-resuelta via `_revisionResolveCliente`: cardCode + localidad + provincia + vendedor asignado. Si no resuelve → warning naranja.
+   - Tabla editable de líneas: SKU (datalist desde `PRODUCTS`), descripción auto-completada, qty (number), precio unitario (auto-completado desde `getPriceInfo(sku)`, editable), subtotal, botón eliminar.
+   - Botón "+ Agregar SKU" para N filas.
+   - Total general (ARS + unidades + SKUs válidos).
+4. Al confirmar:
+   - Reserva orderNumber vía `reserveNextOrderNumber()`.
+   - Crea doc en `pedidos` con `stage='confirmed'` + todas las líneas en `state='BO'` (qtyOpen=qty) + `transferidoSAP={via:'manual-backorder',skipSap:true,docNum:null}` + `source='manual-backorder'`.
+   - El pedido aparece en modal Backorder como demanda pendiente del cliente.
+
+**Clave: NO se envía a SAP**. El flag `transferidoSAP.via='manual-backorder'` + `skipSap=true` previene que el auto-send listener lo tome (filtro común `!transferidoSAP`). Mismo pattern que la memoria "Project: Migración 100% BO/ASIG SAP→APP" (62 SQs oficina migrados con `transferidoSAP.via='sap_migration_2026-08-28'`).
+
+**Validaciones**:
+- Cliente obligatorio y debe resolver en el padrón SAP o Altas aprobadas.
+- Al menos 1 línea con SKU válido en PRODUCTS + qty > 0.
+- Si algún SKU no existe en PRODUCTS → bloquea con lista de SKUs inválidos para corregir.
+- Precio editable (el VDE puede ajustar si el cliente negoció un precio especial).
+
+**Integración con el resto del sistema**:
+- Modal Backorder (modo urgente): aparece automáticamente — el compute puro `computeBackorderSkuMap` incluye pedidos con `transferidoSAP` + líneas state='BO' con `aggregationMode='strict'`.
+- Modal Stock Asignado (modo asignación): cuando llegue stock del SKU, la CF FIFO (v798) promocionará automáticamente la línea BO → ASIG. Ahí el VDE puede usar "Crear Pedido - ST" (v1145) para pasarlo a lista de espera + enviar a SAP real.
+- Dashboard, exports, etc.: trata al pedido como cualquier otro pedido confirmado con BO.
+
+**Archivos tocados**:
+- `index.html`:
+  - Línea ~5386: botón `#btn-generar-backorder` en header `#backorders-modal` (background naranja `#b45309`).
+  - Línea ~5398: modal nuevo `#generar-backorder-modal` (header `#92400e→#b45309`, input cliente + tabla editable + total + confirm).
+  - Línea ~13333: toggle visibility del botón en `_applyBackordersMode('urgente')` (SOLO urgente, opuesto al botón ST que es solo asignación).
+  - Línea ~14973: 13 funciones JS nuevas (`openGenerarBackorderModal`, `closeGenerarBackorderModal`, `_gbPopulateDatalists`, `_gbClienteChange`, `_gbAgregarLinea`, `_gbEliminarLinea`, `_gbChangeSku`, `_gbChangeQty`, `_gbChangePrecio`, `_gbUpdateLineSubtotal`, `_gbUpdateTotal`, `_gbRenderLines`, `_gbConfirmar`).
+- `sw.js`: CACHE_VERSION v1145 → v1146.
+
+**Guard**: cualquier CF/flow futuro que lea `pedidos` y haga calls SAP debe chequear `transferidoSAP.skipSap === true` para skip. Hoy no hay flow que lo mire explícitamente — se protege solo por el filtro `!transferidoSAP`. Si se agrega un flow nuevo que fuerce envío "aunque transferidoSAP exista", agregar el check `skipSap` explícito.
 
 ### v1145 (2026-10-06) — Crear Pedido - ST: botón bulk en modal Stock Asignado
 
