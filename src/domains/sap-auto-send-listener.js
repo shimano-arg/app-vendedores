@@ -182,7 +182,8 @@ function ensureSapAutoSendListener() {
                         docEntry: idem.docEntry,
                         docNum: idem.docNum,
                         transferredAt: new Date().toISOString(),
-                        transferredBy: 'auto-idempotent/' + ((currentUser && currentUser.email) || ''),
+                        transferredBy:
+                          'auto-idempotent/' + ((currentUser && currentUser.email) || ''),
                         sapDocRange: String(idem.docNum),
                         batchId: 'SL-IDEM-' + Date.now(),
                       },
