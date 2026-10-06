@@ -5418,7 +5418,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <div style="padding:14px;display:flex;flex-direction:column;gap:10px;flex:1;overflow:hidden">
           <!-- Paso 1: lista clientes (visible por default) -->
           <div id="cpst-step-clientes" style="display:flex;flex-direction:column;gap:10px;flex:1;overflow:hidden">
-            <input id="cpst-search" class="bo-ctl" type="text" placeholder="Buscar cliente por nombre..." oninput="_cpstFilterClientes()" style="flex-shrink:0;padding:12px 14px;font-size:14px;height:auto"/>
+            <input id="cpst-search" class="bo-ctl" type="text" placeholder="Buscar cliente por nombre..." oninput="_cpstFilterClientes()" style="flex-shrink:0;padding:12px 14px;font-size:14px;height:auto;width:100%;box-sizing:border-box"/>
             <div id="cpst-summary" style="padding:8px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;font-size:12px;color:#1e3a8a;flex-shrink:0"></div>
             <div id="cpst-clientes-list" style="flex:1;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px"></div>
           </div>
@@ -6067,7 +6067,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1149';
+const APP_VERSION = 'v1150';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
