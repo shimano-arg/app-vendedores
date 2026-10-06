@@ -2754,7 +2754,7 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 .pedido-summary{display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:var(--text-secondary);padding:8px 10px;background:var(--bg-secondary);border-radius:6px;border:1px solid var(--border-subtle)}
 .pedido-summary span:last-child{color:var(--color-success)}
 .pedido-lines{display:flex;flex-direction:column;gap:5px;flex:1;overflow-y:auto}
-.ped-line{display:grid;grid-template-columns:70px 1fr 62px 50px 22px;gap:5px;align-items:center;padding:6px 8px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:5px;font-size:11px}
+.ped-line{display:grid;grid-template-columns:70px 1fr 62px 50px 22px;gap:5px;align-items:center;padding:30px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:5px;font-size:11px}
 .ped-line .pname{color:var(--text-primary);font-weight:600;line-height:1.25;word-break:break-word}
 .ped-line .pcode{font-family:monospace;font-size:10px;color:var(--text-muted);font-weight:700}
 .ped-line input.qty{padding:4px 6px;border:1.5px solid var(--border-default);border-radius:4px;text-align:right;font-size:11px;font-weight:700;color:var(--text-primary);font-family:inherit;outline:none}
@@ -6061,7 +6061,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1162';
+const APP_VERSION = 'v1163';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
