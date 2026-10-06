@@ -6071,7 +6071,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1154';
+const APP_VERSION = 'v1155';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14905,6 +14905,16 @@ function _cpstSelectClienteObj(c){
           'Posibles causas: cliente no esta en POINTS SAP-habilitados ni en approvedAltasList, o cambio de nombre.');
     return;
   }
+  // v1155 (2026-10-06): bloquear si no tiene cardCode SAP. Sin cardCode, al
+  // enviar el waitlist a SAP falla con "cardCode requerido" y el flow se
+  // frustra en el ultimo paso. Mejor bloquear antes de empezar.
+  if (!cliResolved.cardCode) {
+    alert('"' + c.nombre + '" NO tiene cardCode SAP activo (es un LEAD/alta pendiente).\n\n' +
+          'No podes pasarlo a Lista de Espera porque al enviar a SAP va a fallar.\n\n' +
+          'Primero carga el alta en SAP (seccion Clientes). Cuando SAP devuelva el cardCode,\n' +
+          'volve a este flow.');
+    return;
+  }
   _cpstSelected = c;
   _cpstSelected._cliResolved = cliResolved;
   _cpstRenderPreview();
@@ -14953,6 +14963,15 @@ window._cpstVolver = function(){
   document.getElementById('cpst-step-preview').style.display = 'none';
 };
 
+// v1155 (2026-10-06): refactor atomic batch.
+// Antes (v1145-v1154): el flow hacia cada cancellation con un update individual.
+// Si fallaba la N-esima linea despues de 20 OK, continuaba y creaba el waitlist
+// igual con sourceCancelFailed=N -> riesgo de duplicado real en SAP si el VDE
+// no revisaba el warning.
+// Ahora: todas las cancellations + el waitlist doc se escriben en UN SOLO
+// batch Firestore. Si falla cualquiera, nada se commitea (atomic).
+// Post-batch: cierra pedidos originales que quedan con 100% lineas cancelled
+// (closedAt + closedReason='cancelled_by_cpst').
 window._cpstConfirmar = async function(){
   const c = _cpstSelected;
   if (!c) return;
@@ -14962,37 +14981,91 @@ window._cpstConfirmar = async function(){
     'Confirmar la creacion del pedido en LISTA DE ESPERA para:\n\n' +
     c.nombre + '\n' +
     c.skus.length + ' SKU(s), ' + c.totalU + ' unidad(es)\n\n' +
-    'Esto va a:\n' +
+    'Esto va a (atomico - todo o nada):\n' +
     '1) Cancelar las lineas ASIG viejas del cliente en los pedidos originales.\n' +
     '2) Crear un pedido NUEVO en LISTA DE ESPERA con esos SKUs.\n' +
-    '3) El VDE revisa el pedido + completa la forma de entrega + lo envia a SAP.\n\n' +
-    'Esta accion es PERMANENTE (los ASIG viejos no se recuperan).';
+    '3) Si alguna cancellation falla, NADA se escribe (rollback automatico).\n\n' +
+    'Despues el VDE revisa el pedido + completa la forma de entrega + lo envia a SAP.';
   if (!confirm(confirmMsg)) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Procesando...'; }
+  const nowIso = new Date().toISOString();
   try {
+    // PASO 1: reservar orderNumber (fuera del batch porque usa runTransaction).
+    // Si el batch falla despues, el orderNumber "se desperdicia" pero no causa
+    // duplicados (el counter es monotonic). Peor caso: hueco en la secuencia.
     let ordenNum;
     try {
       ordenNum = await reserveNextOrderNumber();
     } catch (e) {
       throw new Error('No se pudo reservar el numero de orden: ' + (e.message || e));
     }
-    let okCount = 0;
-    let failCount = 0;
+    // PASO 2: construir las modificaciones por pedidoId. Agrupamos porque
+    // Firestore requiere escribir el array `lines` completo (no field-level).
+    // pedidoId -> { newLines, origLines (para auto-close check), originalPedido }
+    const updates = new Map();
     const errors = [];
     for (const sk of c.skus) {
       for (const entry of (sk.entries || [])) {
-        try {
-          await _cpstCancelLine(entry.pedidoId, sk.sku, entry.state || 'ASIG', c.nombre);
-          okCount++;
-        } catch (e) {
-          failCount++;
-          errors.push(sk.sku + ' (pedido ' + entry.pedidoId + '): ' + (e.message || e));
+        const pid = entry.pedidoId;
+        if (!pid) {
+          errors.push(sk.sku + ': pedidoId vacio');
+          continue;
         }
+        // Fetch del pedido (cache local -> Firestore fallback).
+        if (!updates.has(pid)) {
+          let p = null;
+          if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+            p = globalPedidos.find(pp => pp && pp._fsId === pid);
+          }
+          if (!p || !Array.isArray(p.lines)) {
+            try {
+              const snap = await fbDb.collection('pedidos').doc(pid).get();
+              if (!snap.exists) {
+                errors.push(sk.sku + ' (pedido ' + pid + '): pedido no encontrado');
+                continue;
+              }
+              p = Object.assign({ _fsId: pid }, snap.data() || {});
+            } catch (e) {
+              errors.push(sk.sku + ' (pedido ' + pid + '): fetch fallo ' + (e.message || e));
+              continue;
+            }
+          }
+          if (!Array.isArray(p.lines)) {
+            errors.push(sk.sku + ' (pedido ' + pid + '): pedido sin lineas');
+            continue;
+          }
+          updates.set(pid, { newLines: p.lines.slice(), originalPedido: p });
+        }
+        // Modificar la linea en newLines (mutando el array acumulado).
+        const u = updates.get(pid);
+        const st = entry.state || 'ASIG';
+        const idx = u.newLines.findIndex(l =>
+          l && String(l.code).toUpperCase() === String(sk.sku).toUpperCase() && l.state === st
+        );
+        if (idx < 0) {
+          errors.push(sk.sku + ' (pedido ' + pid + '): linea no encontrada state=' + st);
+          continue;
+        }
+        const qo = Number(u.newLines[idx].qtyOpen) || 0;
+        u.newLines[idx] = Object.assign({}, u.newLines[idx], {
+          qtyOpen: 0,
+          qtyCancelled: (Number(u.newLines[idx].qtyCancelled) || 0) + qo,
+          state: 'cancelled',
+          cancelledAt: nowIso,
+          cancelledFrom: 'crear-pedido-st',
+        });
       }
     }
-    if (failCount > 0 && okCount === 0) {
-      throw new Error('No se pudo cancelar ninguna linea:\n' + errors.join('\n'));
+    // Si HUBO errores, abortar todo (atomic). Antes de commitear nada.
+    if (errors.length > 0) {
+      throw new Error('Pre-flight check fallo (' + errors.length + ' errores). Nada se escribio.\n\n' +
+                      errors.slice(0, 10).join('\n') +
+                      (errors.length > 10 ? '\n...y ' + (errors.length - 10) + ' mas' : ''));
     }
+    if (updates.size === 0) {
+      throw new Error('No hay lineas para cancelar (updates vacio).');
+    }
+    // PASO 3: construir items[] del waitlist payload.
     const items = c.skus.map(sk => {
       const stk = (typeof _revisionStockFor === 'function')
         ? _revisionStockFor(sk.sku)
@@ -15020,16 +15093,71 @@ window._cpstConfirmar = async function(){
       deliveryMethod: '',
       deliveryDetails: {},
       source: 'stock-asignado-batch',
-      sourceCancelledLines: okCount,
-      sourceCancelFailed: failCount,
+      sourceCancelledLines: 0, // se llena abajo
+      sourceCancelFailed: 0,
       items: items,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     };
-    const docRef = await fbDb.collection('revision_waitlist').add(payload);
+    // Contar lineas efectivamente modificadas para auditoria.
+    let totalCancelled = 0;
+    for (const u of updates.values()) {
+      totalCancelled += u.newLines.filter(l =>
+        l && l.cancelledAt === nowIso && l.cancelledFrom === 'crear-pedido-st'
+      ).length;
+    }
+    payload.sourceCancelledLines = totalCancelled;
+    // PASO 4: BATCH ATOMIC. Todas las updates de pedidos + crear waitlist en 1 commit.
+    // Si falla cualquier operacion, nada se escribe (Firestore batch rollback).
+    const batch = fbDb.batch();
+    for (const [pid, u] of updates) {
+      batch.update(fbDb.collection('pedidos').doc(pid), {
+        lines: u.newLines,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    const waitlistRef = fbDb.collection('revision_waitlist').doc();
+    batch.set(waitlistRef, payload);
+    await batch.commit();
+    // PASO 5 (post-batch, best-effort): auto-cerrar pedidos originales que
+    // quedan con 100% lineas cancelled. No critico — si falla, el pedido queda
+    // "vivo" pero con qtyOpen=0, visualmente feo pero no funcional.
+    const closedPedidos = [];
+    const nowClose = new Date().toISOString();
+    for (const [pid, u] of updates) {
+      try {
+        const allCancelled = u.newLines.length > 0 && u.newLines.every(l =>
+          l && (l.state === 'cancelled' || Number(l.qtyOpen) === 0)
+        );
+        if (allCancelled && !u.originalPedido.closedAt) {
+          await fbDb.collection('pedidos').doc(pid).update({
+            closedAt: nowClose,
+            closedReason: 'cancelled_by_cpst',
+            closedBy: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.email || '') : '',
+          });
+          closedPedidos.push(pid);
+        }
+      } catch (e) {
+        console.warn('[cpst] auto-close pedido fallo ' + pid + ':', e);
+      }
+    }
+    // Optimistic update local de globalPedidos.
+    if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+      globalPedidos = globalPedidos.map(p => {
+        if (!p || !updates.has(p._fsId)) return p;
+        const u = updates.get(p._fsId);
+        const patch = Object.assign({}, p, { lines: u.newLines });
+        if (closedPedidos.includes(p._fsId)) {
+          patch.closedAt = nowClose;
+          patch.closedReason = 'cancelled_by_cpst';
+        }
+        return patch;
+      });
+    }
+    // Optimistic update de revisionWaitlist.
     try {
       const optimistic = Object.assign({}, payload, {
-        _id: docRef.id,
+        _id: waitlistRef.id,
         createdAt: { toDate: () => new Date() },
         updatedAt: { toDate: () => new Date() },
       });
@@ -15037,20 +15165,32 @@ window._cpstConfirmar = async function(){
         revisionWaitlist.push(optimistic);
       }
     } catch (_e) {}
+    // Audit log por cada linea cancelada (para busqueda por SKU/cliente).
+    for (const [pid, u] of updates) {
+      for (const l of u.newLines) {
+        if (l && l.cancelledAt === nowIso && l.cancelledFrom === 'crear-pedido-st') {
+          try {
+            if (typeof logOp === 'function') logOp('pedido_line_delete', 'pedidos/' + pid, l.code, {
+              sku: l.code, qty: 0, cliente: c.nombre, state: 'ASIG', source: 'crear-pedido-st-batch',
+            });
+          } catch (_e) {}
+        }
+      }
+    }
     try {
-      if (typeof logOp === 'function') logOp('cpst_create', 'revision_waitlist/' + docRef.id, c.nombre, {
+      if (typeof logOp === 'function') logOp('cpst_create', 'revision_waitlist/' + waitlistRef.id, c.nombre, {
         cliente: c.nombre, orderNumber: ordenNum, skus: c.skus.length, unidades: c.totalU,
-        cancelledOk: okCount, cancelledFail: failCount,
+        cancelledOk: totalCancelled, pedidosAfectados: updates.size, pedidosCerrados: closedPedidos.length,
       });
     } catch (_e) {}
     if (typeof showSyncTag === 'function') showSyncTag('Pedido ORDEN ' + ordenNum + ' creado en lista de espera');
     let msg = 'Pedido ORDEN ' + ordenNum + ' creado en LISTA DE ESPERA.\n\n' +
               c.nombre + '\n' + c.skus.length + ' SKU(s) · ' + c.totalU + ' unidades.\n\n' +
-              'Lineas ASIG canceladas: ' + okCount + '/' + (okCount + failCount) + '.\n\n' +
-              'Ahora el VDE puede revisarlo en LISTA DE ESPERA y enviarlo a SAP.';
-    if (failCount > 0) {
-      msg += '\n\n⚠ ' + failCount + ' linea(s) no se pudieron cancelar — revisar manualmente:\n' + errors.slice(0,5).join('\n');
+              totalCancelled + ' linea(s) ASIG cancelada(s) en ' + updates.size + ' pedido(s) original(es).';
+    if (closedPedidos.length > 0) {
+      msg += '\n' + closedPedidos.length + ' pedido(s) original(es) cerrado(s) automatico (100% canceladas).';
     }
+    msg += '\n\nAhora el VDE puede revisarlo en LISTA DE ESPERA y enviarlo a SAP.';
     alert(msg);
     closeCrearPedidoSTModal();
     try {
@@ -15058,63 +15198,15 @@ window._cpstConfirmar = async function(){
     } catch (_e) {}
   } catch (e) {
     console.error('_cpstConfirmar', e);
-    alert('Error creando el pedido: ' + (e.message || e));
+    alert('Error creando el pedido (nada se escribio en Firestore):\n\n' + (e.message || e));
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Confirmar y pasar a Lista de Espera'; }
   }
 };
 
-// Variante batch-safe de deleteBackorderAppLine: cancela 1 linea sin confirm().
-// Mismo pattern (state='cancelled' + qtyOpen=0 + qtyCancelled+=qtyOpen) +
-// optimistic update de globalPedidos. Idempotente: si la linea ya esta cancelled,
-// el map no la encuentra con state='ASIG' y tira error (que el caller cuenta
-// como failed, pero no bloquea el flow completo).
-async function _cpstCancelLine(pedidoId, sku, targetState, clienteNombre){
-  if (!pedidoId || !sku) throw new Error('pedidoId o sku vacio');
-  const st = (targetState === 'BO') ? 'BO' : 'ASIG';
-  let p = null;
-  if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
-    p = globalPedidos.find(pp => pp && pp._fsId === pedidoId);
-  }
-  if (!p || !Array.isArray(p.lines)) {
-    const snap = await fbDb.collection('pedidos').doc(pedidoId).get();
-    if (!snap.exists) throw new Error('pedido no encontrado');
-    p = snap.data() || {};
-    if (!Array.isArray(p.lines)) throw new Error('pedido sin lineas');
-  }
-  let modIdx = -1;
-  const newLines = p.lines.map((l, idx) => {
-    if (modIdx >= 0) return l;
-    if (l && String(l.code).toUpperCase() === String(sku).toUpperCase() && l.state === st) {
-      modIdx = idx;
-      const qo = Number(l.qtyOpen) || 0;
-      return Object.assign({}, l, {
-        qtyOpen: 0,
-        qtyCancelled: (Number(l.qtyCancelled) || 0) + qo,
-        state: 'cancelled',
-        cancelledAt: new Date().toISOString(),
-        cancelledFrom: 'crear-pedido-st',
-      });
-    }
-    return l;
-  });
-  if (modIdx < 0) throw new Error('linea no encontrada (state=' + st + ')');
-  if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
-    globalPedidos = globalPedidos.map(pp => {
-      if (!pp || pp._fsId !== pedidoId) return pp;
-      return Object.assign({}, pp, { lines: newLines });
-    });
-  }
-  await fbDb.collection('pedidos').doc(pedidoId).update({
-    lines: newLines,
-    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-  });
-  try {
-    if (typeof logOp === 'function') logOp('pedido_line_delete', 'pedidos/' + pedidoId, sku, {
-      sku: sku, qty: 0, cliente: clienteNombre || '', state: st, source: 'crear-pedido-st-batch',
-    });
-  } catch (_e) {}
-}
+// v1155 (2026-10-06): _cpstCancelLine removida — reemplazada por la logica
+// inline del batch en _cpstConfirmar. Historicamente (v1145-v1154) hacia
+// updates individuales no atomicos; ahora todo va en 1 batch Firestore.
 
 // =============================================================================
 // v1146 (2026-10-06): Generar Backorder manual
