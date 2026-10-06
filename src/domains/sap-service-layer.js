@@ -244,7 +244,9 @@ const sapSL = {
     if (codes.length === 0) {
       return { ok: true, availabilityMap: new Map() };
     }
-    const filter = codes.map((c) => "(ItemCode eq '" + String(c).replace(/'/g, "''") + "')").join(' or ');
+    const filter = codes
+      .map((c) => "(ItemCode eq '" + String(c).replace(/'/g, "''") + "')")
+      .join(' or ');
     const path =
       '/b1s/v1/Items?$filter=' +
       encodeURIComponent(filter) +

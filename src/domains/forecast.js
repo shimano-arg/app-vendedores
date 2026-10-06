@@ -63,7 +63,7 @@ const RECO_MULT_MIN_BASELINE = 0.1; // evita división por cero
 
 const RECO_HORIZON_MONTHS = 7;
 const RECO_VENTA_PROMEDIO_WINDOW = 3; // meses hacia atrás para promedio venta
-const RECO_DEFAULT_MULTIPLIER = 1.0;
+// RECO_DEFAULT_MULTIPLIER removed 2026-10-06 (unused, flagged by biome).
 
 // Whitelist de emails con acceso al modal FORECAST. Replica el patron de
 // "Analisis" (index.html:12625). Solo Mariano; si otro admin lo necesita
@@ -1244,7 +1244,7 @@ window.editMultiplier = function (el, skuUpper) {
 
   const commit = async () => {
     const v = parseFloat(input.value);
-    if (isNaN(v) || v < 0.1 || v > 5) {
+    if (Number.isNaN(v) || v < 0.1 || v > 5) {
       _renderRecoSection();
       return;
     }
