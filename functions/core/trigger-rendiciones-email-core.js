@@ -102,7 +102,7 @@ export async function handleTriggerRendicionesEmailManual(data, auth, deps) {
   let errBody = '';
   try {
     errBody = await resp.text();
-  } catch (e) {
+  } catch (_e) {
     errBody = '(no body)';
   }
   deps.log('[triggerRendicionesEmail] fail', { status: resp.status, body: errBody.slice(0, 300) });

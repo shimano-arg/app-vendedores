@@ -272,8 +272,8 @@ describe('syncSapQuotationClosures — SOLEDAD race regression', () => {
     expect(deps.fbDb._store.get('soledad').closedAt).toBeNull();
     expect(deps.fbDb._store.get('soledad').closedReason).toBeUndefined();
     // v1102: SOLEDAD ahora se salva poblando orderDocEntry automáticamente.
-    expect(deps.fbDb._store.get('soledad').transferidoSAP['orderDocEntry']).toBe(500);
-    expect(deps.fbDb._store.get('soledad').transferidoSAP['orderDocNum']).toBe(20056);
+    expect(deps.fbDb._store.get('soledad').transferidoSAP.orderDocEntry).toBe(500);
+    expect(deps.fbDb._store.get('soledad').transferidoSAP.orderDocNum).toBe(20056);
     expect(deps.fbDb._store.get('cancelada').closedAt).not.toBeNull();
     expect(deps.fbDb._store.get('cancelada').closedReason).toBe('sap_manual_close');
   });

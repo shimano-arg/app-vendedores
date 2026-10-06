@@ -953,6 +953,108 @@ window.enviarPedidosASAPViaServiceLayer = async function (pedidos) {
       continue;
     }
     const payload = sapSL.buildQuotationPayload(p);
+    // v1156 (2026-10-06): pre-check stock live cliente-side ANTES del POST.
+    // Garantiza que lo que el UI prometio "disponible" sea EXACTO lo que SAP
+    // recibe. Si el stock cambio entre el click y el envio (otro VDE compro,
+    // sync fallo), muestra modal al VDE con desglose + opcion de ajustar o
+    // cancelar. Si el pre-check falla (SL down), fallback: enviar sin check
+    // (el CF server-side filterLinesByLiveStock sigue defendiendo).
+    try {
+      const docLines = payload && Array.isArray(payload.DocumentLines) ? payload.DocumentLines : [];
+      const skus = docLines.map((d) => d.ItemCode).filter(Boolean);
+      if (skus.length > 0 && typeof sapSL.preCheckStockWhs11 === 'function') {
+        const check = await sapSL.preCheckStockWhs11(skus);
+        if (check.ok && check.availabilityMap) {
+          const map = check.availabilityMap;
+          /** @type {Array<{code: string, requested: number, available: number, lineIdx: number}>} */
+          const degraded = [];
+          docLines.forEach((d, idx) => {
+            const avail = map.has(d.ItemCode) ? map.get(d.ItemCode).available : 0;
+            if ((Number(d.Quantity) || 0) > avail) {
+              degraded.push({
+                code: d.ItemCode,
+                requested: Number(d.Quantity) || 0,
+                available: avail,
+                lineIdx: idx,
+              });
+            }
+          });
+          if (degraded.length > 0) {
+            // Calcular monto perdido (sumando los deltas * precio original de la linea en el pedido).
+            let lostArs = 0;
+            const detalles = [];
+            degraded.forEach((d) => {
+              const origLine = (p.lines || []).find(
+                (l) =>
+                  l &&
+                  String(l.code).toUpperCase() === String(d.code).toUpperCase() &&
+                  l.state === 'confirmed'
+              );
+              const precio = origLine ? parseFloat(origLine.precio) || 0 : 0;
+              const perdidoU = d.requested - d.available;
+              const perdidoArs = perdidoU * precio;
+              lostArs += perdidoArs;
+              detalles.push(
+                '- ' +
+                  d.code +
+                  ': pedias ' +
+                  d.requested +
+                  ', hay ' +
+                  d.available +
+                  ' (-' +
+                  perdidoU +
+                  ' uni / $' +
+                  Math.round(perdidoArs).toLocaleString('es-AR') +
+                  ')'
+              );
+            });
+            const totalOrig = docLines.reduce((s, d) => {
+              const origLine = (p.lines || []).find(
+                (l) =>
+                  l &&
+                  String(l.code).toUpperCase() === String(d.ItemCode).toUpperCase() &&
+                  l.state === 'confirmed'
+              );
+              const precio = origLine ? parseFloat(origLine.precio) || 0 : 0;
+              return s + (Number(d.Quantity) || 0) * precio;
+            }, 0);
+            const totalFinal = totalOrig - lostArs;
+            const confirmMsg =
+              '⚠ STOCK CAMBIO desde que preparaste el pedido ' +
+              (p.clientName || p._fsId) +
+              '.\n\n' +
+              degraded.length +
+              ' SKU(s) tienen stock insuficiente ahora:\n\n' +
+              detalles.slice(0, 10).join('\n') +
+              (detalles.length > 10 ? '\n...y ' + (detalles.length - 10) + ' mas' : '') +
+              '\n\nTotal original (lo que el UI dijo): $' +
+              Math.round(totalOrig).toLocaleString('es-AR') +
+              '\nTotal que recibira SAP:              $' +
+              Math.round(totalFinal).toLocaleString('es-AR') +
+              '\n\nAceptar = enviar lo ajustado (SAP crea SQ por $' +
+              Math.round(totalFinal).toLocaleString('es-AR') +
+              ')' +
+              '\nCancelar = NO enviar, revisar manual';
+            if (!confirm(confirmMsg)) {
+              // VDE cancelo. Liberar lock + skip al siguiente pedido.
+              try {
+                await docRef.update({ sendingSapLock: firebase.firestore.FieldValue.delete() });
+              } catch (_e) {}
+              skipped.push({
+                pedido: p._fsId,
+                cliente: p.clientName,
+                motivo: 'cancelado por VDE post-pre-check (stock cambio)',
+              });
+              continue;
+            }
+          }
+        } else if (check && !check.ok) {
+          console.warn('[sap-send] preCheckStockWhs11 fallo (fail-open):', check.error);
+        }
+      }
+    } catch (preErr) {
+      console.warn('[sap-send] preCheck exception (fail-open):', preErr);
+    }
     const r = await sapSL.createQuotation(payload);
     if (r.ok) {
       sent++;
