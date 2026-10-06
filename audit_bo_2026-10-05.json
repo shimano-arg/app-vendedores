@@ -1,0 +1,2913 @@
+{
+  "timestamp": "2026-10-05T11:58:46.308723Z",
+  "sap_source_skus_count": 1283,
+  "sap_source_qty_total": 13843.0,
+  "app_source_skus_count": 304,
+  "app_source_qty_total": 3023.0,
+  "pedidos_open_with_sap": 267,
+  "strict_duplicates_count": 33,
+  "strict_duplicated_qty": 339.0,
+  "strict": [
+    {
+      "pedidoId": "0XpVgP7fTuy7m80WPchd",
+      "clientCardCode": "C20251345350",
+      "clientName": "EZEQUIEL FERNANDO MAZZA",
+      "sqDocEntry": 52021,
+      "via": "service_layer_auto",
+      "dup_skus": [
+        {
+          "sku": "FXXT300MHSA",
+          "sap_lines": [
+            {
+              "lineIndex": 13,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 14,
+              "state": "ASIG",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "ALVSURFC390SA",
+          "sap_lines": [
+            {
+              "lineIndex": 17,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 18,
+              "state": "ASIG",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 2.0
+        },
+        {
+          "sku": "ALV6000FA",
+          "sap_lines": [
+            {
+              "lineIndex": 26,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 27,
+              "state": "BO",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 2.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "2ktXdhShLsDIClhIP5Y2",
+      "clientCardCode": "C23256905159",
+      "clientName": "FERNANDO LUIS HORACIO DEL INTENTO",
+      "sqDocEntry": 52045,
+      "via": "cf_auto_partial_stock",
+      "dup_skus": [
+        {
+          "sku": "LDM54TE5031515G",
+          "sap_lines": [
+            {
+              "lineIndex": 0,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 1,
+              "state": "BO",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 2.0
+        },
+        {
+          "sku": "21100100150Y",
+          "sap_lines": [
+            {
+              "lineIndex": 10,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 11,
+              "state": "ASIG",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 2.0
+        },
+        {
+          "sku": "597151",
+          "sap_lines": [
+            {
+              "lineIndex": 38,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 39,
+              "state": "BO",
+              "qty": 5.0,
+              "qtyOpen": 5.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 5.0
+        },
+        {
+          "sku": "ABYSS",
+          "sap_lines": [
+            {
+              "lineIndex": 40,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 41,
+              "state": "BO",
+              "qty": 14.0,
+              "qtyOpen": 14.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 14.0
+        },
+        {
+          "sku": "CLC100HCH",
+          "sap_lines": [
+            {
+              "lineIndex": 43,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 44,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "CRZSOL165UY",
+          "sap_lines": [
+            {
+              "lineIndex": 45,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 46,
+              "state": "BO",
+              "qty": 9.0,
+              "qtyOpen": 9.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 9.0
+        },
+        {
+          "sku": "STS66MH2C",
+          "sap_lines": [
+            {
+              "lineIndex": 48,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 49,
+              "state": "BO",
+              "qty": 9.0,
+              "qtyOpen": 9.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 9.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "3s7mx4X8eitSOoLyJ9LQ",
+      "clientCardCode": "C20223814434",
+      "clientName": "JAVIER ALBERTO DJEMDJEMIAN",
+      "sqDocEntry": 51163,
+      "via": "service_layer_auto",
+      "dup_skus": [
+        {
+          "sku": "LDM54TE5031515G",
+          "sap_lines": [
+            {
+              "lineIndex": 3,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 4,
+              "state": "BO",
+              "qty": 22.0,
+              "qtyOpen": 22.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 22.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "6ua7z7IcDxHvDLQcxzZE",
+      "clientCardCode": "C30714980080",
+      "clientName": "ARMERIA YIYO S.R.L.",
+      "sqDocEntry": 51917,
+      "via": "cf_auto",
+      "dup_skus": [
+        {
+          "sku": "LDM54TE1013015H",
+          "sap_lines": [
+            {
+              "lineIndex": 3,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 4,
+              "state": "BO",
+              "qty": 3.0,
+              "qtyOpen": 3.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 3.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "8lGQkjUJfZwqsfnNw4iw",
+      "clientCardCode": "C30710852762",
+      "clientName": "REBORN SRL",
+      "sqDocEntry": 51658,
+      "via": "cf_auto",
+      "dup_skus": [
+        {
+          "sku": "LDM64TE3023030G",
+          "sap_lines": [
+            {
+              "lineIndex": 9,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 10,
+              "state": "ASIG",
+              "qty": 5.0,
+              "qtyOpen": 5.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 5.0
+        },
+        {
+          "sku": "XAS66MHSA",
+          "sap_lines": [
+            {
+              "lineIndex": 107,
+              "state": "confirmed",
+              "qty": 5.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 108,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "ULT4000XGD",
+          "sap_lines": [
+            {
+              "lineIndex": 143,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 144,
+              "state": "BO",
+              "qty": 3.0,
+              "qtyOpen": 3.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 3.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "8w0riK02LjgrAImdwZTC",
+      "clientCardCode": "C33651833669",
+      "clientName": "ANGLER S AVENTURAS SOCIEDAD DE RESPONSABILIDAD LIMITADA",
+      "sqDocEntry": 50295,
+      "via": "service_layer_auto",
+      "dup_skus": [
+        {
+          "sku": "LDM54TE1819015G",
+          "sap_lines": [
+            {
+              "lineIndex": 1,
+              "state": "confirmed",
+              "qty": 3.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 2,
+              "state": "ASIG",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 2.0
+        },
+        {
+          "sku": "LDM54TE1819015H",
+          "sap_lines": [
+            {
+              "lineIndex": 6,
+              "state": "confirmed",
+              "qty": 4.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 7,
+              "state": "ASIG",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "LDM54TE4028015H",
+          "sap_lines": [
+            {
+              "lineIndex": 9,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 10,
+              "state": "BO",
+              "qty": 4.0,
+              "qtyOpen": 4.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 4.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "A8SBt60Xoq94HJmpdet6",
+      "clientCardCode": "C30711930392",
+      "clientName": "PESCAR.INFO SHOP S.R.L.",
+      "sqDocEntry": 51162,
+      "via": "service_layer_auto",
+      "dup_skus": [
+        {
+          "sku": "597151",
+          "sap_lines": [
+            {
+              "lineIndex": 0,
+              "state": "confirmed",
+              "qty": 11.0,
+              "qtyOpen": 8.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 1,
+              "state": "ASIG",
+              "qty": 4.0,
+              "qtyOpen": 4.0
+            }
+          ],
+          "sap_qty_open": 8.0,
+          "app_qty_open": 4.0
+        },
+        {
+          "sku": "597144",
+          "sap_lines": [
+            {
+              "lineIndex": 2,
+              "state": "confirmed",
+              "qty": 9.0,
+              "qtyOpen": 6.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 3,
+              "state": "ASIG",
+              "qty": 6.0,
+              "qtyOpen": 6.0
+            }
+          ],
+          "sap_qty_open": 6.0,
+          "app_qty_open": 6.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "ANoBYR5GgevOTDTYXmk0",
+      "clientCardCode": "C20170998406",
+      "clientName": "MARCELO DANIEL BOSCHETTO",
+      "sqDocEntry": 50755,
+      "via": "service_layer_auto",
+      "dup_skus": [
+        {
+          "sku": "SHMHOODLGREENL",
+          "sap_lines": [
+            {
+              "lineIndex": 7,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 8,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "SUS70MHAMX",
+          "sap_lines": [
+            {
+              "lineIndex": 13,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 14,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "ARKYXcp55oc79Wwrz0ko",
+      "clientCardCode": "C20114082865",
+      "clientName": "ANATOLIO SCHEWZOW",
+      "sqDocEntry": 51998,
+      "via": "cf_auto",
+      "dup_skus": [
+        {
+          "sku": "NEXS70H2SACH",
+          "sap_lines": [
+            {
+              "lineIndex": 13,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 14,
+              "state": "ASIG",
+              "qty": 3.0,
+              "qtyOpen": 3.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 3.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "BEL0j0NTfvONnGRT7NzY",
+      "clientCardCode": "C23365003939",
+      "clientName": "JULIAN SALOMON",
+      "sqDocEntry": 51495,
+      "via": "service_layer_auto",
+      "dup_skus": [
+        {
+          "sku": "SMC70MHB",
+          "sap_lines": [
+            {
+              "lineIndex": 27,
+              "state": "confirmed",
+              "qty": 17.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 28,
+              "state": "BO",
+              "qty": 7.0,
+              "qtyOpen": 7.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 7.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "Bi4OTayY0Vp2F5QXXR0Y",
+      "clientCardCode": "C20252470922",
+      "clientName": "FEDERICO ALBERTO FATECHI",
+      "sqDocEntry": 50743,
+      "via": "service_layer_auto",
+      "dup_skus": [
+        {
+          "sku": "SHMTECHLBLUEL",
+          "sap_lines": [
+            {
+              "lineIndex": 18,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 19,
+              "state": "BO",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 2.0
+        },
+        {
+          "sku": "SHMTECHLGREENM",
+          "sap_lines": [
+            {
+              "lineIndex": 23,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 24,
+              "state": "BO",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 2.0
+        },
+        {
+          "sku": "SHMHOODLGREENM",
+          "sap_lines": [
+            {
+              "lineIndex": 37,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 38,
+              "state": "BO",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 2.0
+        },
+        {
+          "sku": "SHMHOODLGREENL",
+          "sap_lines": [
+            {
+              "lineIndex": 39,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 40,
+              "state": "BO",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 2.0
+        },
+        {
+          "sku": "SHMHOODLGREEN2XL",
+          "sap_lines": [
+            {
+              "lineIndex": 42,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 43,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "SHMHOODLGREENS",
+          "sap_lines": [
+            {
+              "lineIndex": 45,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 46,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "CDC60HSAA",
+          "sap_lines": [
+            {
+              "lineIndex": 50,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 51,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "JLSXfVxWsAy8eD9FHwSA",
+      "clientCardCode": "C30717530507",
+      "clientName": "PESCA ESCOBAR S.R.L.",
+      "sqDocEntry": 52128,
+      "via": "cf_auto_partial_stock",
+      "dup_skus": [
+        {
+          "sku": "817587",
+          "sap_lines": [
+            {
+              "lineIndex": 4,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 5,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "SGS90MH2A",
+          "sap_lines": [
+            {
+              "lineIndex": 19,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 20,
+              "state": "BO",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 2.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "K88WVskzjJuzOC0kuNWX",
+      "clientCardCode": "C23347411299",
+      "clientName": "ALAN OSCAR NICOLAS RODRIGUEZ",
+      "sqDocEntry": 51789,
+      "via": "cf_auto",
+      "dup_skus": [
+        {
+          "sku": "CU301HGK",
+          "sap_lines": [
+            {
+              "lineIndex": 37,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 38,
+              "state": "BO",
+              "qty": 4.0,
+              "qtyOpen": 4.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 4.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "OEE9OzWFIkCv7qYPPcb3",
+      "clientCardCode": "C20293164852",
+      "clientName": "JUAN MIGUEL BENGOCHEA",
+      "sqDocEntry": 51337,
+      "via": "service_layer_auto",
+      "dup_skus": [
+        {
+          "sku": "LDM64TE1013030G",
+          "sap_lines": [
+            {
+              "lineIndex": 7,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 8,
+              "state": "BO",
+              "qty": 5.0,
+              "qtyOpen": 5.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 5.0
+        },
+        {
+          "sku": "597144",
+          "sap_lines": [
+            {
+              "lineIndex": 35,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 36,
+              "state": "ASIG",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 2.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "PrrWL6OSKDYii9WRCAGp",
+      "clientCardCode": "C20236640834",
+      "clientName": "SEBASTIAN SALES",
+      "sqDocEntry": 51167,
+      "via": "service_layer_auto",
+      "dup_skus": [
+        {
+          "sku": "ABYSS",
+          "sap_lines": [
+            {
+              "lineIndex": 3,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 4,
+              "state": "BO",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 2.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "QQSSfKaEWYvv3NNkmcsD",
+      "clientCardCode": "C20346628988",
+      "clientName": "DARIO RUBEN PEREYRA",
+      "sqDocEntry": 51690,
+      "via": "cf_auto",
+      "dup_skus": [
+        {
+          "sku": "31500150150E",
+          "sap_lines": [
+            {
+              "lineIndex": 5,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 6,
+              "state": "ASIG",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "SE6000FI",
+          "sap_lines": [
+            {
+              "lineIndex": 32,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 33,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "MIRC3000HG",
+          "sap_lines": [
+            {
+              "lineIndex": 41,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 42,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "TtjQ1nuYe0uK33VOaeH1",
+      "clientCardCode": "C30711930392",
+      "clientName": "PESCAR.INFO SHOP S.R.L.",
+      "sqDocEntry": 50751,
+      "via": "service_layer_auto",
+      "dup_skus": [
+        {
+          "sku": "SHMTECHLBLUEL",
+          "sap_lines": [
+            {
+              "lineIndex": 55,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 56,
+              "state": "BO",
+              "qty": 3.0,
+              "qtyOpen": 3.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 3.0
+        },
+        {
+          "sku": "SE2500HGFJ",
+          "sap_lines": [
+            {
+              "lineIndex": 153,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 154,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "WBaYkqJz9knLF0g2ugu4",
+      "clientCardCode": "C20175569635",
+      "clientName": "ALBERTO PONTORIERO",
+      "sqDocEntry": 51539,
+      "via": "service_layer_auto",
+      "dup_skus": [
+        {
+          "sku": "CIS151HGC",
+          "sap_lines": [
+            {
+              "lineIndex": 42,
+              "state": "confirmed",
+              "qty": 8.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 43,
+              "state": "BO",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 2.0
+        },
+        {
+          "sku": "BMBP14000XC",
+          "sap_lines": [
+            {
+              "lineIndex": 45,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 46,
+              "state": "BO",
+              "qty": 13.0,
+              "qtyOpen": 13.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 13.0
+        },
+        {
+          "sku": "CAT1000FE",
+          "sap_lines": [
+            {
+              "lineIndex": 55,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 56,
+              "state": "ASIG",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "SUNBASS",
+          "sap_lines": [
+            {
+              "lineIndex": 57,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 58,
+              "state": "ASIG",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 1.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "WNQ03ldzscAOtDt9z5XB",
+      "clientCardCode": "C20293659347",
+      "clientName": "LUIS ALBERTO SUGAIAR",
+      "sqDocEntry": 51996,
+      "via": "cf_auto_partial_stock",
+      "dup_skus": [
+        {
+          "sku": "LDM54TE5031515S",
+          "sap_lines": [
+            {
+              "lineIndex": 0,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 1,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "CIS151HGC",
+          "sap_lines": [
+            {
+              "lineIndex": 14,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 15,
+              "state": "BO",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 2.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "XYFWKuEkx5mQZ3b1lWUQ",
+      "clientCardCode": "C30717013367",
+      "clientName": "RED OROZA MULTIMARCA S.A",
+      "sqDocEntry": 51748,
+      "via": "cf_auto",
+      "dup_skus": [
+        {
+          "sku": "CUDC201HG",
+          "sap_lines": [
+            {
+              "lineIndex": 6,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 7,
+              "state": "ASIG",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 2.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "XpyxZNtpBtdKOVF0UbuZ",
+      "clientCardCode": "C30718510291",
+      "clientName": "BROBRO SA",
+      "sqDocEntry": 52188,
+      "via": "cf_auto",
+      "dup_skus": [
+        {
+          "sku": "CDC610MHSA",
+          "sap_lines": [
+            {
+              "lineIndex": 6,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 7,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "471499",
+          "sap_lines": [
+            {
+              "lineIndex": 28,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 29,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "522122",
+          "sap_lines": [
+            {
+              "lineIndex": 30,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 31,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "NEXSF420SSA",
+          "sap_lines": [
+            {
+              "lineIndex": 32,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 33,
+              "state": "BO",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 2.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "YXzv9COQY5JpWT4RxVGe",
+      "clientCardCode": "C30719465664",
+      "clientName": "KOVRA PRO GROUP S.R.L.",
+      "sqDocEntry": 51802,
+      "via": "cf_auto",
+      "dup_skus": [
+        {
+          "sku": "STC66HC2",
+          "sap_lines": [
+            {
+              "lineIndex": 37,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 38,
+              "state": "BO",
+              "qty": 10.0,
+              "qtyOpen": 10.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 10.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "cB63cojfJOxa69IniT5i",
+      "clientCardCode": "C20250448555",
+      "clientName": "GUSTAVO EMILIO DESIATA",
+      "sqDocEntry": 51787,
+      "via": "cf_auto",
+      "dup_skus": [
+        {
+          "sku": "STC66HC2",
+          "sap_lines": [
+            {
+              "lineIndex": 4,
+              "state": "confirmed",
+              "qty": 3.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 5,
+              "state": "BO",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 2.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "cOHdUzUeXAihFUSYI5Xx",
+      "clientCardCode": "C30714272817",
+      "clientName": "WEEKEND OUTDOOR S.R.L.",
+      "sqDocEntry": 51994,
+      "via": "cf_auto_partial_stock",
+      "dup_skus": [
+        {
+          "sku": "LDM54TE5031515G",
+          "sap_lines": [
+            {
+              "lineIndex": 2,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 3,
+              "state": "BO",
+              "qty": 29.0,
+              "qtyOpen": 29.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 29.0
+        },
+        {
+          "sku": "PLM58RE0150150S",
+          "sap_lines": [
+            {
+              "lineIndex": 11,
+              "state": "confirmed",
+              "qty": 4.0,
+              "qtyOpen": 4.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 12,
+              "state": "ASIG",
+              "qty": 6.0,
+              "qtyOpen": 6.0
+            }
+          ],
+          "sap_qty_open": 4.0,
+          "app_qty_open": 6.0
+        },
+        {
+          "sku": "SHMTECHLBLUEXL",
+          "sap_lines": [
+            {
+              "lineIndex": 14,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 15,
+              "state": "BO",
+              "qty": 5.0,
+              "qtyOpen": 5.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 5.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "ddWU92CQNAHW2wegCz7H",
+      "clientCardCode": "C33716739649",
+      "clientName": "MUNDO ESTURION S.R.L.",
+      "sqDocEntry": 51776,
+      "via": "cf_auto",
+      "dup_skus": [
+        {
+          "sku": "STC66HC2",
+          "sap_lines": [
+            {
+              "lineIndex": 37,
+              "state": "confirmed",
+              "qty": 3.0,
+              "qtyOpen": 3.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 38,
+              "state": "BO",
+              "qty": 7.0,
+              "qtyOpen": 7.0
+            }
+          ],
+          "sap_qty_open": 3.0,
+          "app_qty_open": 7.0
+        },
+        {
+          "sku": "CU301HGK",
+          "sap_lines": [
+            {
+              "lineIndex": 64,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 65,
+              "state": "BO",
+              "qty": 6.0,
+              "qtyOpen": 6.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 6.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "ewGoZIDQorxLESEGtTBB",
+      "clientCardCode": "C23347411299",
+      "clientName": "ALAN OSCAR NICOLAS RODRIGUEZ",
+      "sqDocEntry": 52186,
+      "via": "cf_auto",
+      "dup_skus": [
+        {
+          "sku": "SUNBASS",
+          "sap_lines": [
+            {
+              "lineIndex": 31,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 32,
+              "state": "BO",
+              "qty": 9.0,
+              "qtyOpen": 9.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 9.0
+        },
+        {
+          "sku": "SHMTECHLGREENL",
+          "sap_lines": [
+            {
+              "lineIndex": 67,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 68,
+              "state": "BO",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 2.0
+        },
+        {
+          "sku": "SHMTECHLGREYM",
+          "sap_lines": [
+            {
+              "lineIndex": 69,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 70,
+              "state": "BO",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 2.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "fMbjJtmfe3A1ipBgCnTA",
+      "clientCardCode": "C23256905159",
+      "clientName": "FERNANDO LUIS HORACIO DEL INTENTO",
+      "sqDocEntry": 51268,
+      "via": "service_layer_auto",
+      "dup_skus": [
+        {
+          "sku": "597144",
+          "sap_lines": [
+            {
+              "lineIndex": 2,
+              "state": "confirmed",
+              "qty": 3.0,
+              "qtyOpen": 3.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 3,
+              "state": "ASIG",
+              "qty": 3.0,
+              "qtyOpen": 3.0
+            }
+          ],
+          "sap_qty_open": 3.0,
+          "app_qty_open": 3.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "gbWAdWn58BitiROlvh3A",
+      "clientCardCode": "C30719465664",
+      "clientName": "KOVRA PRO GROUP S.R.L.",
+      "sqDocEntry": 50753,
+      "via": "service_layer_auto",
+      "dup_skus": [
+        {
+          "sku": "21100500150Y",
+          "sap_lines": [
+            {
+              "lineIndex": 1,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 2,
+              "state": "BO",
+              "qty": 3.0,
+              "qtyOpen": 3.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 3.0
+        },
+        {
+          "sku": "SHMTECHLBLUEL",
+          "sap_lines": [
+            {
+              "lineIndex": 28,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 29,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "SHMHOODLGREENL",
+          "sap_lines": [
+            {
+              "lineIndex": 56,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 57,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "h8gsxym89g36BlaTHEzO",
+      "clientCardCode": "C33716739649",
+      "clientName": "MUNDO ESTURION S.R.L.",
+      "sqDocEntry": 50794,
+      "via": "service_layer_auto",
+      "dup_skus": [
+        {
+          "sku": "SUS70MHAMX",
+          "sap_lines": [
+            {
+              "lineIndex": 19,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 20,
+              "state": "BO",
+              "qty": 4.0,
+              "qtyOpen": 4.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 4.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "m8hLGy8E6vp3xHprWZdP",
+      "clientCardCode": "C30716659379",
+      "clientName": "LA LOMITA OUTDOORS SRL",
+      "sqDocEntry": 51723,
+      "via": "cf_auto",
+      "dup_skus": [
+        {
+          "sku": "SGS90MH2A",
+          "sap_lines": [
+            {
+              "lineIndex": 2,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 3,
+              "state": "BO",
+              "qty": 9.0,
+              "qtyOpen": 9.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 9.0
+        },
+        {
+          "sku": "SGS66MACR",
+          "sap_lines": [
+            {
+              "lineIndex": 4,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 5,
+              "state": "BO",
+              "qty": 3.0,
+              "qtyOpen": 3.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 3.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "mhSJUMD9FFi4ZfeFqeJV",
+      "clientCardCode": "C20131936444",
+      "clientName": "OSVALDO RUBEN MASERA",
+      "sqDocEntry": 51674,
+      "via": "service_layer_auto",
+      "dup_skus": [
+        {
+          "sku": "CAPGL2401",
+          "sap_lines": [
+            {
+              "lineIndex": 0,
+              "state": "confirmed",
+              "qty": 5.0,
+              "qtyOpen": 5.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 1,
+              "state": "BO",
+              "qty": 7.0,
+              "qtyOpen": 7.0
+            }
+          ],
+          "sap_qty_open": 5.0,
+          "app_qty_open": 7.0
+        },
+        {
+          "sku": "CAPGL2402",
+          "sap_lines": [
+            {
+              "lineIndex": 2,
+              "state": "confirmed",
+              "qty": 11.0,
+              "qtyOpen": 6.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 3,
+              "state": "ASIG",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 6.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "CAC70MH2UR",
+          "sap_lines": [
+            {
+              "lineIndex": 25,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 26,
+              "state": "BO",
+              "qty": 28.0,
+              "qtyOpen": 28.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 28.0
+        },
+        {
+          "sku": "NEXSF420SSA",
+          "sap_lines": [
+            {
+              "lineIndex": 35,
+              "state": "confirmed",
+              "qty": 3.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 36,
+              "state": "BO",
+              "qty": 3.0,
+              "qtyOpen": 3.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 3.0
+        },
+        {
+          "sku": "FXXT300MHSA",
+          "sap_lines": [
+            {
+              "lineIndex": 38,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 39,
+              "state": "ASIG",
+              "qty": 4.0,
+              "qtyOpen": 4.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 4.0
+        },
+        {
+          "sku": "SGS80MH2A",
+          "sap_lines": [
+            {
+              "lineIndex": 48,
+              "state": "confirmed",
+              "qty": 3.0,
+              "qtyOpen": 3.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 49,
+              "state": "ASIG",
+              "qty": 3.0,
+              "qtyOpen": 3.0
+            }
+          ],
+          "sap_qty_open": 3.0,
+          "app_qty_open": 3.0
+        },
+        {
+          "sku": "SGS90MH2A",
+          "sap_lines": [
+            {
+              "lineIndex": 50,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 51,
+              "state": "ASIG",
+              "qty": 4.0,
+              "qtyOpen": 4.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 4.0
+        },
+        {
+          "sku": "SGS66MACR",
+          "sap_lines": [
+            {
+              "lineIndex": 54,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 55,
+              "state": "BO",
+              "qty": 4.0,
+              "qtyOpen": 4.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 4.0
+        },
+        {
+          "sku": "CIS151HGC",
+          "sap_lines": [
+            {
+              "lineIndex": 88,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 89,
+              "state": "BO",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 1.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "v5ZFu6QukN7e3UNrmIk9",
+      "clientCardCode": "C23201682819",
+      "clientName": "DANIEL SANTOS SFRAMELI",
+      "sqDocEntry": 51672,
+      "via": "service_layer_auto",
+      "dup_skus": [
+        {
+          "sku": "CAC70MH2UR",
+          "sap_lines": [
+            {
+              "lineIndex": 8,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 9,
+              "state": "BO",
+              "qty": 4.0,
+              "qtyOpen": 4.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 4.0
+        },
+        {
+          "sku": "FXXT300MHSA",
+          "sap_lines": [
+            {
+              "lineIndex": 13,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 14,
+              "state": "ASIG",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 1.0
+        },
+        {
+          "sku": "ALVSURFC390SA",
+          "sap_lines": [
+            {
+              "lineIndex": 17,
+              "state": "confirmed",
+              "qty": 2.0,
+              "qtyOpen": 2.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 18,
+              "state": "ASIG",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "sap_qty_open": 2.0,
+          "app_qty_open": 1.0
+        }
+      ]
+    },
+    {
+      "pedidoId": "vWGmFybKcB0yf4k3tAiU",
+      "clientCardCode": "C20131936444",
+      "clientName": "OSVALDO RUBEN MASERA",
+      "sqDocEntry": 52221,
+      "via": "cf_auto",
+      "dup_skus": [
+        {
+          "sku": "CLT01047",
+          "sap_lines": [
+            {
+              "lineIndex": 14,
+              "state": "confirmed",
+              "qty": 1.0,
+              "qtyOpen": 1.0
+            }
+          ],
+          "app_lines": [
+            {
+              "lineIndex": 15,
+              "state": "ASIG",
+              "qty": 5.0,
+              "qtyOpen": 5.0
+            }
+          ],
+          "sap_qty_open": 1.0,
+          "app_qty_open": 5.0
+        }
+      ]
+    }
+  ],
+  "loose_overlaps_count": 143,
+  "loose": [
+    {
+      "clientCardCode": "C20131936444",
+      "sku": "CLC66MH2PY",
+      "sap_qty": 6.0,
+      "app_qty": 15.0
+    },
+    {
+      "clientCardCode": "C20131936444",
+      "sku": "CLC70H2PY",
+      "sap_qty": 6.0,
+      "app_qty": 10.0
+    },
+    {
+      "clientCardCode": "C20131936444",
+      "sku": "CLC70MHAAR",
+      "sap_qty": 6.0,
+      "app_qty": 10.0
+    },
+    {
+      "clientCardCode": "C20131936444",
+      "sku": "CLS70MH2PY",
+      "sap_qty": 2.0,
+      "app_qty": 15.0
+    },
+    {
+      "clientCardCode": "C20131936444",
+      "sku": "CLS70XH2CH",
+      "sap_qty": 2.0,
+      "app_qty": 15.0
+    },
+    {
+      "clientCardCode": "C20131936444",
+      "sku": "EXGTVS90M4CH",
+      "sap_qty": 3.0,
+      "app_qty": 10.0
+    },
+    {
+      "clientCardCode": "C20203479752",
+      "sku": "MIRC3000HGA",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C20203479752",
+      "sku": "NEXC3000HGFJ",
+      "sap_qty": 4.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C20224147342",
+      "sku": "21100200100Y",
+      "sap_qty": 4.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C20224147342",
+      "sku": "21100500100E",
+      "sap_qty": 4.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C20224147342",
+      "sku": "21100650100E",
+      "sap_qty": 3.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C20224147342",
+      "sku": "CLS70MH2PY",
+      "sap_qty": 1.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C20224147342",
+      "sku": "LDM54TE3023015G",
+      "sap_qty": 5.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C20250448555",
+      "sku": "SEC5000XGFJ",
+      "sap_qty": 1.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C20251345350",
+      "sku": "ALV6000FA",
+      "sap_qty": 1.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C20254802019",
+      "sku": "26ZODIAS1610MH",
+      "sap_qty": 2.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C20254802019",
+      "sku": "275639",
+      "sap_qty": 2.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C20254802019",
+      "sku": "SUNBASS",
+      "sap_qty": 1.0,
+      "app_qty": 1.0
+    },
+    {
+      "clientCardCode": "C20330164787",
+      "sku": "21100500100E",
+      "sap_qty": 5.0,
+      "app_qty": 5.0
+    },
+    {
+      "clientCardCode": "C20341316201",
+      "sku": "CATC3000F",
+      "sap_qty": 1.0,
+      "app_qty": 1.0
+    },
+    {
+      "clientCardCode": "C23256905159",
+      "sku": "032737",
+      "sap_qty": 1.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C23256905159",
+      "sku": "597151",
+      "sap_qty": 4.0,
+      "app_qty": 5.0
+    },
+    {
+      "clientCardCode": "C23256905159",
+      "sku": "SPM14000XSD",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C23256905159",
+      "sku": "ULT14000XSE",
+      "sap_qty": 1.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C23256905159",
+      "sku": "ULTXR14000XSD",
+      "sap_qty": 1.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C23256905159",
+      "sku": "ULTXR14000XTD",
+      "sap_qty": 1.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C23335939069",
+      "sku": "396280",
+      "sap_qty": 1.0,
+      "app_qty": 1.0
+    },
+    {
+      "clientCardCode": "C27064094683",
+      "sku": "MIRC3000HGA",
+      "sap_qty": 1.0,
+      "app_qty": 1.0
+    },
+    {
+      "clientCardCode": "C27184733760",
+      "sku": "CU151MGM",
+      "sap_qty": 2.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C27184733760",
+      "sku": "CU201M",
+      "sap_qty": 1.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C27184733760",
+      "sku": "TMCX72HSABR",
+      "sap_qty": 1.0,
+      "app_qty": 6.0
+    },
+    {
+      "clientCardCode": "C27184733760",
+      "sku": "TMCX74HSABR",
+      "sap_qty": 7.0,
+      "app_qty": 14.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "21100300150E",
+      "sap_qty": 12.0,
+      "app_qty": 12.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "21100500300Y",
+      "sap_qty": 4.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "23SJT420SURFS",
+      "sap_qty": 4.0,
+      "app_qty": 6.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "33400400150Y",
+      "sap_qty": 2.0,
+      "app_qty": 8.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "33400500150E",
+      "sap_qty": 2.0,
+      "app_qty": 8.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "33400500150Y",
+      "sap_qty": 2.0,
+      "app_qty": 8.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "33400650150E",
+      "sap_qty": 2.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "CDC72HSA",
+      "sap_qty": 3.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "CVC66H2CSA",
+      "sap_qty": 36.0,
+      "app_qty": 12.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "CVC66HCSA",
+      "sap_qty": 5.0,
+      "app_qty": 6.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "CVC70H",
+      "sap_qty": 11.0,
+      "app_qty": 6.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "LDM54TE4028015G",
+      "sap_qty": 5.0,
+      "app_qty": 12.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "MIR4000XGA",
+      "sap_qty": 4.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "MIRC3000HGA",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "MIRC5000XGA",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "PLM58RE0200150G",
+      "sap_qty": 6.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "PLM58RE0200150Y",
+      "sap_qty": 6.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "SLXDC150HG",
+      "sap_qty": 1.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "STC66HC2",
+      "sap_qty": 12.0,
+      "app_qty": 12.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "STS56UL2C",
+      "sap_qty": 1.0,
+      "app_qty": 12.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "SUC56MLA",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "SUC66MHA",
+      "sap_qty": 6.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "SUC70MHASLA",
+      "sap_qty": 3.0,
+      "app_qty": 6.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "TMCX70HSA",
+      "sap_qty": 3.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "ULT2500HGD",
+      "sap_qty": 4.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "ULT4000XGD",
+      "sap_qty": 4.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C30710852762",
+      "sku": "ULTC3000XGD",
+      "sap_qty": 4.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C30714272817",
+      "sku": "CLS100H2MX",
+      "sap_qty": 6.0,
+      "app_qty": 12.0
+    },
+    {
+      "clientCardCode": "C30714272817",
+      "sku": "CLS110H2MX",
+      "sap_qty": 6.0,
+      "app_qty": 6.0
+    },
+    {
+      "clientCardCode": "C30714272817",
+      "sku": "LDM54TE4028015S",
+      "sap_qty": 10.0,
+      "app_qty": 30.0
+    },
+    {
+      "clientCardCode": "C30714272817",
+      "sku": "NEXC3000HGFJ",
+      "sap_qty": 4.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "11ECLTELO60",
+      "sap_qty": 1.0,
+      "app_qty": 7.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100100150W",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100100300W",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100100300Y",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100150100Y",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100150150Y",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100200100Y",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100200150W",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100200150Y",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100300150W",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100400100W",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100400150W",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100500100E",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100500100W",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100500100Y",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100500150W",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100650100E",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100650100W",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100650100Y",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100650150W",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100650300W",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100650300Y",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "21100800300E",
+      "sap_qty": 1.0,
+      "app_qty": 1.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "22CATPRII420",
+      "sap_qty": 60.0,
+      "app_qty": 6.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "275608",
+      "sap_qty": 1.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "31500100150C",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "31500100300C",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "31500150150C",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "31500150300C",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "31500200150C",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "31500200300C",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "33400300150Y",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "33400400150Y",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "33400400300E",
+      "sap_qty": 1.0,
+      "app_qty": 1.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "33400500150E",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "33400500150Y",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "33400650150E",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "CAC70MH2UR",
+      "sap_qty": 1.0,
+      "app_qty": 6.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "NAS4000XGFD",
+      "sap_qty": 2.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "PLM58RE0150150Y",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "PLM58RE0200150Y",
+      "sap_qty": 3.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "SE1000FJ",
+      "sap_qty": 1.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "SEC5000XGFJ",
+      "sap_qty": 1.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "SLX71XGA",
+      "sap_qty": 1.0,
+      "app_qty": 1.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "SMC66M2B",
+      "sap_qty": 1.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "SOCORRO",
+      "sap_qty": 2.0,
+      "app_qty": 6.0
+    },
+    {
+      "clientCardCode": "C30718510291",
+      "sku": "ULT4000XGD",
+      "sap_qty": 1.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30719034914",
+      "sku": "22CATPRII420",
+      "sap_qty": 1.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30719034914",
+      "sku": "CLC66MH2PY",
+      "sap_qty": 4.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C30719034914",
+      "sku": "CLC70H2PY",
+      "sap_qty": 4.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C30719034914",
+      "sku": "CVC66H2CSA",
+      "sap_qty": 3.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C30719034914",
+      "sku": "CVC66MH2",
+      "sap_qty": 3.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C30719465664",
+      "sku": "ABYSS",
+      "sap_qty": 1.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C30719465664",
+      "sku": "SLXDC151HG",
+      "sap_qty": 2.0,
+      "app_qty": 1.0
+    },
+    {
+      "clientCardCode": "C30719465664",
+      "sku": "STC66HC2",
+      "sap_qty": 2.0,
+      "app_qty": 10.0
+    },
+    {
+      "clientCardCode": "C33651833669",
+      "sku": "LDM54TE4028015H",
+      "sap_qty": 1.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "21100300150E",
+      "sap_qty": 4.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "21100300300E",
+      "sap_qty": 4.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "21100400150E",
+      "sap_qty": 3.0,
+      "app_qty": 4.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "21100400300E",
+      "sap_qty": 4.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "21100500150E",
+      "sap_qty": 4.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "CAPSH2401",
+      "sap_qty": 40.0,
+      "app_qty": 10.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "CAPSH2402",
+      "sap_qty": 40.0,
+      "app_qty": 10.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "CDC60HSAA",
+      "sap_qty": 1.0,
+      "app_qty": 1.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "CU301K",
+      "sap_qty": 1.0,
+      "app_qty": 1.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "CUDC201XG",
+      "sap_qty": 4.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "CVC66H2CSA",
+      "sap_qty": 9.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "METMGL151XGB",
+      "sap_qty": 1.0,
+      "app_qty": 1.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "SHMTECHDARKBL",
+      "sap_qty": 2.0,
+      "app_qty": 2.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "SHMTECHDARKBS",
+      "sap_qty": 1.0,
+      "app_qty": 1.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "STS4200",
+      "sap_qty": 9.0,
+      "app_qty": 10.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "STS4500",
+      "sap_qty": 10.0,
+      "app_qty": 10.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "STS56UL2C",
+      "sap_qty": 10.0,
+      "app_qty": 5.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "STS66MH2C",
+      "sap_qty": 14.0,
+      "app_qty": 5.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "SUS70MHAMX",
+      "sap_qty": 1.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "TMCX70HSA",
+      "sap_qty": 5.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "TMCX72HSABR",
+      "sap_qty": 5.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "TMCX74HSABR",
+      "sap_qty": 4.0,
+      "app_qty": 3.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "TRX201AHG",
+      "sap_qty": 1.0,
+      "app_qty": 1.0
+    },
+    {
+      "clientCardCode": "C33716739649",
+      "sku": "VANFORD",
+      "sap_qty": 2.0,
+      "app_qty": 5.0
+    }
+  ]
+}
