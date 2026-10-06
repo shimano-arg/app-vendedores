@@ -6071,7 +6071,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1157';
+const APP_VERSION = 'v1158';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -30702,13 +30702,18 @@ window.confirmarDefinitivo = async function(){
   if (!confirm('Confirmar definitivamente el pedido de "' + currentOrderClient.name + '" para ' + entry.month + '?')) return;
 
   // Pre-check stock SAP SL (opcional - fail-open si SL no disponible).
+  // v1158 (2026-10-06): fix caso LAMORA #2000294. v1157 gateaba por
+  // sapSL.isEnabled() pero el CF trigger server-side envía a SAP incluso cuando
+  // el cliente no tiene SL habilitado (usa sapProxy + Secret Manager). Entonces
+  // VDEs sin SL enabled pasaban el pre-check (skip) y el CF degradaba sin aviso.
+  // Fix: solo gatear por existencia de preCheckStockWhs11 (que usa sapProxy
+  // igual). Si sapProxy no está disponible o falla, el catch hace fail-open.
   const confirmedLines = (entry.lines || []).filter(l => l && l.state === 'confirmed' && (Number(l.qty) || 0) > 0);
   let autoSplitLines = null;
   let splitSummary = null;
   if (
     confirmedLines.length > 0 &&
     typeof sapSL !== 'undefined' &&
-    typeof sapSL.isEnabled === 'function' && sapSL.isEnabled() &&
     typeof sapSL.preCheckStockWhs11 === 'function'
   ) {
     // Resolver codigos SAP (algunos SKUs app tienen mapeo diferente).
@@ -30721,7 +30726,9 @@ window.confirmarDefinitivo = async function(){
     });
     const sapCodes = Array.from(new Set(Object.values(sapCodeByAppCode).filter(Boolean)));
     try {
+      console.log('[v1158 pre-check] consultando stock SAP para', sapCodes.length, 'SKUs...');
       const check = await sapSL.preCheckStockWhs11(sapCodes);
+      console.log('[v1158 pre-check] respuesta:', check && check.ok ? 'OK (' + (check.availabilityMap && check.availabilityMap.size) + ' items)' : 'FALLO ' + (check && check.error));
       if (check.ok && check.availabilityMap) {
         const map = check.availabilityMap;
         // Agrupar qty por sapCode (dedupe) para comparar contra availability.
