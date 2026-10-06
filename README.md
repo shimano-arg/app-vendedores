@@ -4673,7 +4673,46 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1132
+## 41) Changelog v300 → v1145
+
+### v1145 (2026-10-06) — Crear Pedido - ST: botón bulk en modal Stock Asignado
+
+**Pedido Mariano**: simplificar la gestión del stock asignado para los vendedores. Botón global en el header del modal Stock Asignado (al lado de "Gráficos") que consolida los SKUs que un cliente tiene en SA SIN RESERVA en un pedido nuevo en lista de espera.
+
+**Flujo**:
+1. VDE abre modal Stock Asignado (modo asignación).
+2. Clica "Crear Pedido - ST" (visible solo en modo asignación).
+3. Modal nuevo (`#crear-pedido-st-modal`) lista los clientes que tienen ≥1 SKU en SA SIN RESERVA (`c.state='ASIG'` + `c.asigReserva===false`), ordenados por total de unidades descendente.
+4. VDE busca el cliente, clica → preview con todos los SKUs del cliente, cantidad asignada, precio unitario (vía `getPriceInfo` = sap price list), subtotal.
+5. VDE confirma → el flow:
+   - Cancela cada línea ASIG vieja en los pedidos originales (`state='cancelled' + qtyOpen=0 + qtyCancelled+=qtyOpen` — mismo pattern que ELIMINAR del modal SA, sin confirm per-línea).
+   - Reserva orderNumber vía `reserveNextOrderNumber()` (counter atómico v913).
+   - Crea doc en `revision_waitlist` con `deliveryMethod=''` (el VDE lo completa al revisar) + metadata `source='stock-asignado-batch'`.
+   - Optimistic update de `revisionWaitlist` + re-render del modal SA.
+6. VDE abre LISTA DE ESPERA, elige la forma de entrega (TRANSPORTISTA / SUCURSAL / RETIRO), envía a SAP.
+
+**Decisiones de diseño validadas con Mariano**:
+- **Scope cliente**: botón global + modal selector (no botón por línea) — permite consolidar varios SKUs de un mismo cliente en 1 solo pedido.
+- **BO original**: equivalente a ELIMINAR (cancela línea ASIG vieja) + crea pedido nuevo. Semántica consistente con la UI actual del modal.
+- **Qty**: usa `c.qtyAsignada` del compute puro (que ya tiene el cap por stock WHS 11 real del snapshot). No se hace live-check real-time contra SAP — el snapshot cada 30 min ya refleja depósito.
+- **Flujo envío**: queda en `revision_waitlist` para que el VDE revise/complete delivery + envíe desde la bandeja habitual (no auto-send inmediato).
+
+**Precio**: usa `getPriceInfo(sku)` (SAP price list sync 30 min) en vez del precio congelado en la línea ASIG vieja. Permite al VDE revisar y ajustar antes de enviar.
+
+**Guardrails**:
+- Si el cliente no está en `POINTS` SAP-habilitados ni en `approvedAltasList` (via `_revisionResolveCliente`) → bloquea con alerta explicativa (no se puede crear sin cardCode).
+- Si fallan todas las cancelaciones → throw y no se crea el doc en waitlist (evita pedido en lista de espera sin backing cancel).
+- Si fallan algunas cancelaciones → se crea igual el pedido con metadata `sourceCancelFailed=N` + mensaje al final listando las 5 primeras fallas (para revisión manual).
+
+**Archivos tocados**:
+- `index.html`:
+  - Línea ~5386: botón `#btn-crear-pedido-st` en header `#backorders-modal` (background azul `#1e40af`).
+  - Línea ~5395: modal nuevo `#crear-pedido-st-modal` (header azul `#1e3a8a→#1e40af`, 2 pasos: lista clientes + preview).
+  - Línea ~13329: toggle visibility del botón en `_applyBackordersMode('asignacion')`.
+  - Línea ~14644: 11 funciones JS nuevas (`openCrearPedidoSTModal`, `closeCrearPedidoSTModal`, `_cpstBuildCache`, `_cpstRenderClientes`, `_cpstFilterClientes`, `_cpstSelectClienteObj`, `_cpstRenderPreview`, `_cpstVolver`, `_cpstConfirmar`, `_cpstCancelLine`, + 2 helpers `_cpstEsc`/`_cpstFmt`).
+- `sw.js`: CACHE_VERSION v1144 → v1145.
+
+**Diagnóstico FATECHI (bug anterior, cerrado en paralelo)**: SQ 2000283 (orphan, $7.296.000) + SQ 2000284 (oficial, $10.045.000 bruto / $10.695.916 total) sumaron $17.3M en SAP vs $10.045.000 esperados. Root cause: race condition — CF `onPedidoConfirmedSendToSap` hizo POST a `/Quotations`, SAP creó la SQ 2000283 pero el fetch del CF falló (network hiccup); 2s después el cliente re-envió via sapProxy y creó la SQ 2000284 oficial. El check idempotente por `NumAtCard eq pedidoId` existe en `functions/core/auto-send-sap-core.js:497` (v1006) pero NO en el flow manual via `sapProxy`. **Fix propuesto (no incluido en v1145)**: replicar el pre-check idempotente en `src/sap-client.js` antes de POST manual. Prioridad alta — ya pasó 2 veces (FATECHI 2026-10-06 + MARCELO BOSCHETTO 2026-09-21).
 
 ### v1137 (2026-10-05) — strict mode 100% alineado con tablero PBI (fix WEEKEND 6u)
 
