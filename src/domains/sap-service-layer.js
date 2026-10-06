@@ -228,14 +228,15 @@ const sapSL = {
     return { ok: true, qty: total, byWhs };
   },
 
-  // v1161 (2026-10-06): rewrite — bug reportado por Mariano: pre-check decia
-  // "CLC66MH2PY hay 0" pero el Master mostraba 89 unidades reales. Causa:
-  // encodeURIComponent(filter) encodeaba paréntesis `()` que SAP SL necesita
-  // sin encode, el filter OR fallaba silencioso y la respuesta omitia items.
-  // Caller interpretaba "no en map" como "available=0" (falso negativo).
+  // v1165 (2026-10-06): optimizacion — Mariano reporto que confirmar un pedido
+  // de 46 SKUs tardaba >10s (v1161 hacia 1 request por SKU). Vuelta a 1 request
+  // batch con filter OR + encoding correcto (NO encodeURIComponent del filter
+  // completo que rompia los parentesis `()`, era el bug v1156 reportado como
+  // CLC66MH2PY). Encode solo los valores dentro del filter.
   //
-  // Nuevo approach: 1 request POR SKU en paralelo (batch 5), usando el
-  // endpoint simple `/Items('CODE')` que no requiere filter OR complejo.
+  // Fallback: si el batch devuelve menos items que los esperados (ej: SKU no
+  // existe en SAP, o el filter rompio parcialmente), se hace un request
+  // individual solo para los faltantes (menos frecuente, no bloquea).
   //
   // Devuelve `{ ok, availabilityMap, errors }`:
   //  - `availabilityMap`: Map con los SKUs que SAP respondió correctamente.
@@ -253,37 +254,51 @@ const sapSL = {
     const map = new Map();
     /** @type {Array<{code: string, error?: any}>} */
     const errors = [];
-    const BATCH_SIZE = 5; // concurrencia hacia SAP SL (evita rate limit)
-    for (let i = 0; i < codes.length; i += BATCH_SIZE) {
-      const chunk = codes.slice(i, i + BATCH_SIZE);
-      // eslint-disable-next-line no-await-in-loop
-      const results = await Promise.all(
-        chunk.map(async (code) => {
-          const safe = String(code).replace(/'/g, "''");
-          try {
-            const resp = await this.fetchWithSession(
-              "/b1s/v1/Items('" +
-                encodeURIComponent(safe) +
-                "')?$select=ItemCode,ItemWarehouseInfoCollection"
-            );
-            return { code, resp };
-          } catch (e) {
-            return { code, resp: { ok: false, error: (e && e.message) || String(e) } };
-          }
-        })
-      );
-      for (const { code, resp } of results) {
-        if (!resp || !resp.ok) {
-          errors.push({ code, error: resp && resp.error });
-          continue;
-        }
-        const whs =
-          resp.body && Array.isArray(resp.body.ItemWarehouseInfoCollection)
-            ? resp.body.ItemWarehouseInfoCollection
-            : [];
+    // Build filter: `(ItemCode eq 'A') or (ItemCode eq 'B') or ...`.
+    // Encode SOLO los valores (apóstrofes se duplican via OData spec). NO
+    // encodear parentesis / espacios / operadores — son parte de la sintaxis
+    // OData y SAP SL los rechaza silenciosamente si vienen %28/%29. Espacios
+    // se encodean a %20 (requerido para URLs validas).
+    const chunks = [];
+    const CHUNK_SIZE = 50; // 50 SKUs por request. ~100 chars/item => 5KB URL (safe)
+    for (let i = 0; i < codes.length; i += CHUNK_SIZE) {
+      chunks.push(codes.slice(i, i + CHUNK_SIZE));
+    }
+    const codesFromAll = [];
+    for (const chunk of chunks) {
+      const filter = chunk
+        .map((c) => "(ItemCode eq '" + String(c).replace(/'/g, "''") + "')")
+        .join(' or ');
+      const filterUrlSafe = filter.replace(/ /g, '%20');
+      const path =
+        '/b1s/v1/Items?$filter=' +
+        filterUrlSafe +
+        '&$select=ItemCode,ItemWarehouseInfoCollection&$top=' +
+        chunk.length;
+      let resp;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        resp = await this.fetchWithSession(path);
+      } catch (e) {
+        resp = { ok: false, error: (e && e.message) || String(e) };
+      }
+      if (!resp || !resp.ok) {
+        // El chunk entero falló → marcar todos como error. Fallback individual.
+        chunk.forEach((c) => errors.push({ code: c, error: 'batch_failed' }));
+        continue;
+      }
+      const items = resp.body && Array.isArray(resp.body.value) ? resp.body.value : [];
+      for (const it of items) {
+        const code = String(it.ItemCode || '')
+          .trim()
+          .toUpperCase();
+        if (!code) continue;
+        codesFromAll.push(code);
+        const whs = Array.isArray(it.ItemWarehouseInfoCollection)
+          ? it.ItemWarehouseInfoCollection
+          : [];
         const whs11 = whs.find((w) => String(w.WarehouseCode) === '11');
         if (!whs11) {
-          // Item sin info de WHS 11 → no verificable, no agregamos al map.
           errors.push({ code, error: 'no_whs11' });
           continue;
         }
@@ -294,6 +309,51 @@ const sapSL = {
           committed,
           available: Math.max(0, Math.trunc(inStock - committed)),
         });
+      }
+    }
+    // Fallback individual para los SKUs que NO vinieron en la respuesta batch
+    // (puede pasar si el SKU no existe en SAP exactamente con ese nombre, o
+    // si el filter OR corto responde parcial). Hace max 1 req por faltante.
+    const codesSetInResponse = new Set(codesFromAll);
+    const missing = codes.filter((c) => !codesSetInResponse.has(String(c).toUpperCase()));
+    if (missing.length > 0 && missing.length <= 10) {
+      // Solo fallback si son pocos faltantes (<=10). Si faltan muchos, es un
+      // problema estructural y mejor dejar que fail-safe tome el control.
+      const BATCH_FB = 5;
+      for (let i = 0; i < missing.length; i += BATCH_FB) {
+        const chunk = missing.slice(i, i + BATCH_FB);
+        // eslint-disable-next-line no-await-in-loop
+        const results = await Promise.all(
+          chunk.map(async (code) => {
+            const safe = String(code).replace(/'/g, "''");
+            try {
+              const resp = await this.fetchWithSession(
+                "/b1s/v1/Items('" +
+                  encodeURIComponent(safe) +
+                  "')?$select=ItemCode,ItemWarehouseInfoCollection"
+              );
+              return { code, resp };
+            } catch (e) {
+              return { code, resp: { ok: false, error: (e && e.message) || String(e) } };
+            }
+          })
+        );
+        for (const { code, resp } of results) {
+          if (!resp || !resp.ok) continue; // ya está en errors por el batch
+          const whs =
+            resp.body && Array.isArray(resp.body.ItemWarehouseInfoCollection)
+              ? resp.body.ItemWarehouseInfoCollection
+              : [];
+          const whs11 = whs.find((w) => String(w.WarehouseCode) === '11');
+          if (!whs11) continue;
+          const inStock = parseFloat(whs11.InStock || 0);
+          const committed = parseFloat(whs11.Committed || 0);
+          map.set(String(code).toUpperCase(), {
+            inStock,
+            committed,
+            available: Math.max(0, Math.trunc(inStock - committed)),
+          });
+        }
       }
     }
     return { ok: true, availabilityMap: map, errors };
