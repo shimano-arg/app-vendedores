@@ -6067,7 +6067,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1148';
+const APP_VERSION = 'v1149';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15296,9 +15296,11 @@ function _gbRenderLines(){
     return;
   }
   box.innerHTML = _gbState.lines.map((l, idx) => (
-    '<div style="display:grid;grid-template-columns:2fr 1fr 80px 110px 110px 32px;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px solid #f1f5f9">' +
-      '<input id="gb-line-sku-' + idx + '" class="bo-ctl" list="gb-skus-datalist" placeholder="SKU..." value="' + _cpstEsc(l.sku) + '" oninput="_gbChangeSku(' + idx + ')" autocomplete="off" style="font-family:monospace;font-size:12px"/>' +
-      '<div id="gb-line-desc-' + idx + '" style="font-size:11px;color:#475569;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _cpstEsc(l.desc || '') + '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 80px 110px 110px 32px;gap:8px;align-items:center;padding:8px 4px;border-bottom:1px solid #f1f5f9">' +
+      '<div style="display:flex;flex-direction:column;gap:3px;min-width:0">' +
+        '<input id="gb-line-sku-' + idx + '" class="bo-ctl" list="gb-skus-datalist" placeholder="Buscar SKU (codigo o descripcion)..." value="' + _cpstEsc(l.sku) + '" oninput="_gbChangeSku(' + idx + ')" autocomplete="off" style="font-family:monospace;font-size:13px;padding:10px 12px;width:100%"/>' +
+        '<div id="gb-line-desc-' + idx + '" style="font-size:11px;color:#475569;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px">' + _cpstEsc(l.desc || '') + '</div>' +
+      '</div>' +
       '<input id="gb-line-qty-' + idx + '" class="bo-ctl" type="number" min="0" step="1" placeholder="Qty" value="' + (l.qty || '') + '" oninput="_gbChangeQty(' + idx + ')" style="font-size:12px;text-align:right"/>' +
       '<input id="gb-line-precio-' + idx + '" class="bo-ctl" type="number" min="0" step="0.01" placeholder="Precio u." value="' + (l.precio || '') + '" oninput="_gbChangePrecio(' + idx + ')" style="font-size:12px;text-align:right" title="Precio unitario (se autocompleta del SKU - editable)"/>' +
       '<div id="gb-line-subtotal-' + idx + '" style="text-align:right;font-weight:600;font-size:12px;color:#1e40af">' + _cpstFmt((Number(l.qty)||0) * (Number(l.precio)||0)) + '</div>' +
