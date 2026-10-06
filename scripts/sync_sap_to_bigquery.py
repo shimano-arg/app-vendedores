@@ -1340,6 +1340,12 @@ def sync_targets_from_firestore(db: firestore.Client, sync_ts: str) -> list:
         def _safe_num(v):
             try: return float(v) if v is not None else None
             except (TypeError, ValueError): return None
+        # v1152 (2026-10-06): targetVisitas (cantidad entera, independiente del
+        # target_ars). Introducido en app v1131. Pedido Mariano: previsualizar
+        # en PowerBI el objetivo mensual de visitas por VDE.
+        def _safe_int(v):
+            try: return int(round(float(v))) if v is not None else None
+            except (TypeError, ValueError): return None
         rows.append({
             'doc_id':           d.id,
             'seller_id':        data.get('sellerId', ''),
@@ -1349,6 +1355,7 @@ def sync_targets_from_firestore(db: firestore.Client, sync_ts: str) -> list:
             'target_reel_ars':   _safe_num(by_fam.get('REEL')),
             'target_canas_ars':  _safe_num(by_fam.get('CANAS')),
             'target_lineas_ars': _safe_num(by_fam.get('LINEAS')),
+            'target_visitas':   _safe_int(data.get('targetVisitas')),
             'updated_at':       updated_at.isoformat() if updated_at else None,
             'updated_by':       data.get('updatedBy', ''),
             'updated_by_email': data.get('updatedByEmail', ''),
@@ -3292,6 +3299,10 @@ def main():
         bigquery.SchemaField('target_reel_ars', 'FLOAT64'),
         bigquery.SchemaField('target_canas_ars', 'FLOAT64'),
         bigquery.SchemaField('target_lineas_ars', 'FLOAT64'),
+        # v1152 (2026-10-06): nueva columna target_visitas (cantidad entera,
+        # independiente del target_ars). Alimenta v_targets.target_visitas
+        # para visualizacion en PowerBI.
+        bigquery.SchemaField('target_visitas', 'INT64'),
         bigquery.SchemaField('updated_at', 'TIMESTAMP'),
         bigquery.SchemaField('updated_by', 'STRING'),
         bigquery.SchemaField('updated_by_email', 'STRING'),
