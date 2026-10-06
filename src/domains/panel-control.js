@@ -935,15 +935,10 @@ window.renderPanelControl = function () {
   html += _renderPedidosSection();
   html += _renderBackorderSection();
   html += _renderOpsLogSection();
-  if (_isMarianoEmail()) {
-    // Static HTML only (no user-supplied content); safe to concat.
-    html +=
-      '<div style="margin-top:24px;padding:16px;background:var(--bg-secondary);border-radius:8px">' +
-      '<div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Herramientas Mariano-only</div>' +
-      '<button onclick="closePanelControl();openMeliModal();" style="padding:10px 18px;background:#FFE600;color:#0f172a;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px">🛒 Mercado Libre</button>' +
-      '<div style="font-size:10px;color:var(--text-muted);margin-top:6px">Datos sincronizados diariamente desde mercado-intelligence</div>' +
-      '</div>';
-  }
+  // v1140 (2026-10-05): botón "Mercado Libre" reubicado al header del mapa
+  // (junto a Planner y Panel de Control) con mismo estilo pill Apple. Antes
+  // vivía acá dentro del Panel como "Herramientas Mariano-only". Dejo el
+  // bloque vacío por si en el futuro se suman más herramientas Mariano-only.
   html +=
     '<div style="text-align:right;font-size:10.5px;color:var(--text-muted);margin-top:8px">Renderizado ' +
     _escHtml(new Date().toLocaleTimeString('es-AR')) +
