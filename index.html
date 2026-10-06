@@ -5112,13 +5112,11 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <button class="tab-btn" data-tab="clients" onclick="setTab('clients')">Clientes <span class="tab-count" id="tab-cli-count">0</span></button>
         <button class="tab-btn" data-tab="pedidos" onclick="setTab('pedidos')">Pedidos <span class="tab-count" id="tab-ped-count">0</span></button>
         <button class="tab-btn" data-tab="rutas" onclick="setTab('rutas')">Rutas <span class="tab-count" id="tab-rutas-count">0</span></button>
-        <button class="tab-btn tab-action" data-tab="visita-action" onclick="openVisitaModal()" title="Abrir formulario de visita a tienda">Visita</button>
-        <button class="tab-btn tab-action" data-tab="contactado-action" onclick="openVisitaModal('contacto')" title="Registrar contacto no presencial (WhatsApp / tel&eacute;fono / email)">Contactado</button>
-        <!-- v1164 (2026-10-06): atajos rápidos. Mismo impacto que Visita/Contactado
-             pero solo piden cliente + mes (saltea form completo). Marcados con
-             quickMode:true en Firestore para que reports puedan distinguirlos. -->
-        <button class="tab-btn tab-action" data-tab="visita-rapida-action" onclick="openQuickVisitaModal('visita')" title="Carga rápida de visita: solo cliente + mes. Para registros masivos post-tour sin completar el formulario largo." style="background:#f59e0b;color:#fff">Visita R&aacute;pida</button>
-        <button class="tab-btn tab-action" data-tab="contactado-rapido-action" onclick="openQuickVisitaModal('contacto')" title="Carga rápida de contacto: solo cliente + mes. Para registros masivos." style="background:#14b8a6;color:#fff">Contactado R&aacute;pido</button>
+        <!-- v1166 (2026-10-06): Visita/Contactado abren un chooser modal con
+             2 opciones (Clásica / Rápida). Antes había 4 botones separados; ahora
+             los Rápida están nested dentro del chooser para menos ruido visual. -->
+        <button class="tab-btn tab-action" data-tab="visita-action" onclick="openVisitaChoice('visita')" title="Visita a tienda (clásica o rápida)">Visita</button>
+        <button class="tab-btn tab-action" data-tab="contactado-action" onclick="openVisitaChoice('contacto')" title="Contacto no presencial (clásico o rápido)">Contactado</button>
         <button class="tab-btn" data-tab="altacli" onclick="setTab('altacli')" title="Alta de clientes (en construccion)">Alta clientes <span class="tab-count" id="tab-altacli-count" style="display:none">0</span></button>
         <button class="tab-btn" data-tab="rendiciones" onclick="setTab('rendiciones')" title="Rendiciones: mis gastos + aprobaciones">Rendiciones <span class="tab-count" id="tab-rend-count" style="display:none">0</span></button>
         <button class="tab-btn" data-tab="planner" onclick="setTab('planner')" style="display:none;">&#128203; Planner</button>
@@ -6066,7 +6064,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1165';
+const APP_VERSION = 'v1166';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15208,7 +15206,42 @@ window._cpstConfirmar = async function(){
 // Modal mínimo: cliente + mes. Rellena resto de campos con defaults ('QUICK')
 // + quickMode:true. Mismo doc shape que flow clásico (visits collection) para
 // que dashboard/exports lo cuenten. Reports pueden filtrar por quickMode.
+// v1166 (2026-10-06): acceso via chooser (Clásica vs Rápida) en vez de 4
+// botones separados en el header.
 // =============================================================================
+
+// Chooser: al clicar "Visita" o "Contactado" abre modal con 2 opciones.
+var _visitaChoiceMode = 'visita';
+window.openVisitaChoice = function(mode){
+  _visitaChoiceMode = mode === 'contacto' ? 'contacto' : 'visita';
+  const isContacto = _visitaChoiceMode === 'contacto';
+  const head = document.getElementById('visita-choice-head');
+  const title = document.getElementById('visita-choice-title');
+  const tClasica = document.getElementById('visita-choice-clasica-title');
+  const tRapida = document.getElementById('visita-choice-rapida-title');
+  if (head) head.style.background = isContacto
+    ? 'linear-gradient(135deg,#0f766e,#14b8a6)'
+    : 'linear-gradient(135deg,#5b21b6,#7c3aed)';
+  if (title) title.textContent = isContacto ? '¿Qué tipo de contacto?' : '¿Qué tipo de visita?';
+  if (tClasica) tClasica.textContent = isContacto ? 'Contacto Clásico' : 'Visita Clásica';
+  if (tRapida) tRapida.textContent = isContacto ? 'Contacto Rápido' : 'Visita Rápida';
+  document.getElementById('visita-choice-modal').classList.add('open');
+};
+
+window.closeVisitaChoice = function(){
+  const el = document.getElementById('visita-choice-modal');
+  if (el) el.classList.remove('open');
+};
+
+window._visitaChoicePick = function(kind){
+  closeVisitaChoice();
+  if (kind === 'rapida') {
+    openQuickVisitaModal(_visitaChoiceMode);
+  } else {
+    openVisitaModal(_visitaChoiceMode === 'contacto' ? 'contacto' : undefined);
+  }
+};
+
 var _qvmMode = 'visita';
 
 window.openQuickVisitaModal = function(mode){
@@ -31423,6 +31456,32 @@ if ('serviceWorker' in navigator) {
   </button>
 </nav>
 
+<!-- v1166 (2026-10-06): chooser que aparece al clicar Visita/Contactado.
+     Pide elegir entre Clásica (form completo) y Rápida (solo cliente+mes). -->
+<div class="modal-overlay" id="visita-choice-modal" onclick="if(event.target===this)closeVisitaChoice()">
+  <div class="modal-box" style="width:min(480px,96vw);display:flex;flex-direction:column">
+    <div class="modal-head" id="visita-choice-head" style="background:linear-gradient(135deg,#5b21b6,#7c3aed)">
+      <div>
+        <h2 id="visita-choice-title">¿Qué tipo de visita?</h2>
+        <div class="subt">Elegí la modalidad de carga.</div>
+      </div>
+      <button class="modal-close" onclick="closeVisitaChoice()">&times;</button>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:12px">
+      <button id="visita-choice-clasica" onclick="_visitaChoicePick('clasica')" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px;border:2px solid #7c3aed;background:#f5f3ff;border-radius:10px;cursor:pointer;font-family:inherit">
+        <span style="font-size:28px">📋</span>
+        <span id="visita-choice-clasica-title" style="font-size:16px;font-weight:800;color:#5b21b6">Visita Clásica</span>
+        <span style="font-size:12px;color:#6b7280;text-align:center">Form completo: tipo cliente, fidelidad, relevancia, GPS, fotos, etc.</span>
+      </button>
+      <button id="visita-choice-rapida" onclick="_visitaChoicePick('rapida')" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px;border:2px solid #f59e0b;background:#fef3c7;border-radius:10px;cursor:pointer;font-family:inherit">
+        <span style="font-size:28px">⚡</span>
+        <span id="visita-choice-rapida-title" style="font-size:16px;font-weight:800;color:#92400e">Visita Rápida</span>
+        <span style="font-size:12px;color:#6b7280;text-align:center">Solo cliente + mes. Marcada quickMode=true en reportes.</span>
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- v1164 (2026-10-06): Modal "Visita/Contacto Rápido". Solo pide cliente + mes.
      Rellena el resto de los campos con defaults razonables + quickMode:true para
      que reports puedan filtrar/distinguir. Mismo doc shape que el flow clásico
@@ -31471,26 +31530,17 @@ if ('serviceWorker' in navigator) {
       <button class="cs-close" onclick="closeCargarSheet()" aria-label="Cerrar">&times;</button>
     </div>
     <div class="cs-body">
-      <button class="cs-cta cs-cta-visita" data-cargar-action="visita" onclick="closeCargarSheet();openVisitaModal()">
+      <!-- v1166 (2026-10-06): simplificado — abre el chooser (Clásica/Rápida)
+           desde el sheet móvil también. Antes tenía 4 botones aquí; ahora 2. -->
+      <button class="cs-cta cs-cta-visita" data-cargar-action="visita" onclick="closeCargarSheet();openVisitaChoice('visita')">
         <span class="cs-cta-icon"></span>
-        <span class="cs-cta-label">Visita Presencial</span>
-        <span class="cs-cta-sub">Registrar visita a tienda con GPS</span>
+        <span class="cs-cta-label">Visita</span>
+        <span class="cs-cta-sub">Clásica (con form completo) o Rápida (solo cliente+mes)</span>
       </button>
-      <button class="cs-cta cs-cta-contacto" data-cargar-action="contacto" onclick="closeCargarSheet();openVisitaModal('contacto')">
+      <button class="cs-cta cs-cta-contacto" data-cargar-action="contacto" onclick="closeCargarSheet();openVisitaChoice('contacto')">
         <span class="cs-cta-icon"></span>
-        <span class="cs-cta-label">Contacto No Presencial</span>
-        <span class="cs-cta-sub">WhatsApp / teléfono / email</span>
-      </button>
-      <!-- v1164 (2026-10-06): atajos rápidos. Solo cliente + mes. -->
-      <button class="cs-cta" data-cargar-action="visita-rapida" onclick="closeCargarSheet();openQuickVisitaModal('visita')" style="background:#fef3c7;border-color:#f59e0b">
-        <span class="cs-cta-icon">⚡</span>
-        <span class="cs-cta-label">Visita Rápida</span>
-        <span class="cs-cta-sub">Solo cliente + mes (sin form completo)</span>
-      </button>
-      <button class="cs-cta" data-cargar-action="contacto-rapido" onclick="closeCargarSheet();openQuickVisitaModal('contacto')" style="background:#ccfbf1;border-color:#14b8a6">
-        <span class="cs-cta-icon">⚡</span>
-        <span class="cs-cta-label">Contacto Rápido</span>
-        <span class="cs-cta-sub">Solo cliente + mes (sin form completo)</span>
+        <span class="cs-cta-label">Contactado</span>
+        <span class="cs-cta-sub">Clásico (con form completo) o Rápido (solo cliente+mes)</span>
       </button>
     </div>
   </div>
