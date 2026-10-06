@@ -6067,7 +6067,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1151';
+const APP_VERSION = 'v1153';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15355,31 +15355,92 @@ window._gbConfirmar = async function(){
     } catch (e) {
       throw new Error('No se pudo reservar el numero de orden: ' + (e.message || e));
     }
-    // 3) Armar lineas en el schema estandar de pedidos.
-    const lines = validLines.map(l => {
+    // 3) v1153 (2026-10-06): split por SKU segun stock libre REAL (WHS 11
+    // menos lo ya reservado en ASIG por otros clientes).
+    // - Si hay stock libre >= qty: toda la linea ASIG + asigReserva=true
+    //   (aparece en modal Stock Asignado como RESERVADA).
+    // - Si hay stock parcial (0 < libre < qty): 2 lineas (ASIG libre + BO resto).
+    // - Si no hay stock libre: toda BO (aparece en modal Backorder modo urgente).
+    //
+    // Fix v1152 reportado por Mariano: antes se creaba siempre state='BO'
+    // y, cuando el SKU tenia stock > 0, quedaba en limbo (modal Backorder
+    // excluye SKUs con dispSap>0 en strict mode; modal Stock Asignado solo
+    // acepta state='ASIG').
+    const nowIsoLine = new Date().toISOString();
+    const getStk = (sku) => (typeof getStockDisponibleVenta === 'function')
+      ? (Number(getStockDisponibleVenta(sku)) || 0) : 0;
+    const getAsigReservado = (sku) => {
+      if (typeof STOCK_ASIG_APP === 'object' && STOCK_ASIG_APP) {
+        return Number(STOCK_ASIG_APP[String(sku || '').toUpperCase().trim()] || 0);
+      }
+      return 0;
+    };
+    const lines = validLines.flatMap(l => {
       const p = prodMap[String(l.sku).toUpperCase()];
       const q = Number(l.qty) || 0;
       const pr = Number(l.precio) || 0;
-      return {
+      const dispSap = getStk(l.sku);
+      const asigYa = getAsigReservado(l.sku);
+      const dispLibre = Math.max(0, dispSap - asigYa);
+      const base = {
         code: l.sku,
         desc: p.desc || l.desc || '',
         cat: p.cat || '',
         fam: p.fam || '',
         sub: p.sub || '',
-        qty: q,
         precio: pr,
-        qtyOpen: q,
         qtyInvoiced: 0,
         qtyCancelled: 0,
         qtyRecycled: 0,
-        state: 'BO',
-        asigAt: null,
         recycledIntoPedidoId: null,
         priceAtCreation: pr,
         needsReview: false,
         manualBackorder: true,
       };
+      // Caso 1: suficiente stock libre -> toda ASIG.
+      if (dispLibre >= q) {
+        return [Object.assign({}, base, {
+          qty: q,
+          qtyOpen: q,
+          state: 'ASIG',
+          asigReserva: true,
+          asigAt: nowIsoLine,
+          asigCliTipo: 'manual-backorder',
+        })];
+      }
+      // Caso 2: nada de stock libre -> toda BO.
+      if (dispLibre === 0) {
+        return [Object.assign({}, base, {
+          qty: q,
+          qtyOpen: q,
+          state: 'BO',
+          asigAt: null,
+        })];
+      }
+      // Caso 3: parcial -> split en 2 lineas (ASIG libre + BO resto).
+      return [
+        Object.assign({}, base, {
+          qty: dispLibre,
+          qtyOpen: dispLibre,
+          state: 'ASIG',
+          asigReserva: true,
+          asigAt: nowIsoLine,
+          asigCliTipo: 'manual-backorder',
+        }),
+        Object.assign({}, base, {
+          qty: q - dispLibre,
+          qtyOpen: q - dispLibre,
+          state: 'BO',
+          asigAt: null,
+        }),
+      ];
     });
+    // Resumen de split para auditoria.
+    const splitSummary = lines.reduce((acc, ln) => {
+      if (ln.state === 'ASIG') acc.asigU += (Number(ln.qty) || 0);
+      else if (ln.state === 'BO') acc.boU += (Number(ln.qty) || 0);
+      return acc;
+    }, { asigU: 0, boU: 0 });
     const nowIso = new Date().toISOString();
     // 4) Payload del pedido. transferidoSAP con via='manual-backorder' evita que
     // el auto-send listener (busca !transferidoSAP) lo tome. stage='confirmed'
@@ -15434,15 +15495,27 @@ window._gbConfirmar = async function(){
         skus: validLines.length,
         unidades: totalU,
         totalArs: Math.round(totalArs),
+        asigU: splitSummary.asigU,
+        boU: splitSummary.boU,
       });
     } catch (_e) {}
     if (typeof showSyncTag === 'function') showSyncTag('Backorder ORDEN ' + orderNum + ' guardado');
+    // v1153: mostrar split ASIG/BO para que el VDE sepa donde buscar el pedido.
+    let destino = '';
+    if (splitSummary.asigU > 0 && splitSummary.boU > 0) {
+      destino = 'SPLIT: ' + splitSummary.asigU + ' uni van a Stock Asignado (hay stock) + ' +
+                splitSummary.boU + ' uni van a Backorder (sin stock).';
+    } else if (splitSummary.asigU > 0) {
+      destino = 'Hay stock disponible para las ' + splitSummary.asigU + ' uni -> aparece en modal Stock Asignado como reservadas.';
+    } else {
+      destino = 'No hay stock -> aparece en modal Backorder como demanda pendiente.';
+    }
     alert(
       'Backorder manual ORDEN ' + orderNum + ' guardado.\n\n' +
       r.nombre + '\n' +
       validLines.length + ' SKU(s) · ' + totalU + ' unidades · ' + _cpstFmt(totalArs) + '\n\n' +
-      'Aparecera en el modal Backorder como demanda pendiente del cliente.\n' +
-      'Cuando llegue stock, usa "Crear Pedido - ST" para generar el pedido real.'
+      destino + '\n\n' +
+      'Cuando llegue stock, los BO se promueven a ASIG automaticamente.'
     );
     closeGenerarBackorderModal();
     try {
