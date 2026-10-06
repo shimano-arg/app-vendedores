@@ -6071,7 +6071,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1155';
+const APP_VERSION = 'v1156';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -22767,10 +22767,24 @@ window.viewPedido = function(stage, key, idx){
       const pr = parseFloat(l.precio) || 0;
       totalU += q;
       subtotalCalc += q * pr;
-      // v955: acumular por state. Legacy sinStock (pre-v543) se cuenta como BO.
-      const _lineIsBo = l.state === 'BO' || (!l.state && !!l.sinStock);
+      // v1156 (2026-10-06): alinear "subtotal disponible" con el filtro que
+      // usa sapSL.buildQuotationPayload (sap-service-layer.js:402-406) y el
+      // CF server-side (auto-send-sap-core.js:179-181):
+      //   - 'confirmed' + qty>0 -> va a SAP como SQ (DISPONIBLE)
+      //   - 'legacy'|undefined pre-v543 sin sinStock=true -> fallback DISPONIBLE
+      //   - 'BO' o legacy con sinStock=true -> BACKORDER (no va a SAP)
+      //   - 'ASIG'|'invoiced'|'cancelled' -> no entran en ningun subtotal
+      //     (son post-sync SAP: ya facturadas, reservadas o anuladas).
+      // Antes (v955-v1155): el UI sumaba cualquier state != 'BO' como
+      // disponible, inflando el subtotal cuando habia lineas ASIG/invoiced
+      // de pedidos re-abiertos. Mariano pidio que lo que el UI promete
+      // "va a SAP" sea EXACTO lo que SAP recibe.
+      const _isLegacy = !l.state || l.state === 'legacy';
+      const _lineIsBo = l.state === 'BO' || (_isLegacy && !!l.sinStock);
+      const _lineIsDisp = l.state === 'confirmed' || (_isLegacy && !l.sinStock);
       if (_lineIsBo) subtotalBackorderCalc += q * pr;
-      else subtotalDispCalc += q * pr;
+      else if (_lineIsDisp) subtotalDispCalc += q * pr;
+      // ASIG/invoiced/cancelled: no suman ni como disp ni como BO.
       // v618 (2026-08-25): unificar sinStock legacy con state='BO' del schema v543+.
       // Bug reportado por Mariano: pedido CHALPAC S.A. mostraba linea 22CATPRII420
       // qty=2 en el modal Confirmado como si estuviera OK, pero la linea era

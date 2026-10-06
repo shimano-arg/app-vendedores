@@ -228,6 +228,51 @@ const sapSL = {
     return { ok: true, qty: total, byWhs };
   },
 
+  // v1156 (2026-10-06): batch pre-check de stock libre WHS 11 para N SKUs.
+  // Mismo pattern que `fetchLiveWhs11Availability` del server (sap-stock-recheck-core.js):
+  // 1 solo request con filter `or` chain. Permite al UI validar ANTES del envio
+  // a SAP que todas las lineas 'confirmed' tienen stock real suficiente.
+  //
+  // Devuelve `{ ok, availabilityMap: Map<itemCode, { inStock, committed, available }>, error? }`.
+  //  - `available` = max(0, inStock - committed). Mismo calculo que el server.
+  //  - Si falla el GET (SL down, timeout), ok=false + error. El caller decide
+  //    si abortar o enviar fail-open.
+  async preCheckStockWhs11(itemCodes) {
+    const codes = Array.from(
+      new Set((itemCodes || []).map((c) => String(c || '').trim()).filter(Boolean))
+    );
+    if (codes.length === 0) {
+      return { ok: true, availabilityMap: new Map() };
+    }
+    const filter = codes.map((c) => "(ItemCode eq '" + String(c).replace(/'/g, "''") + "')").join(' or ');
+    const path =
+      '/b1s/v1/Items?$filter=' +
+      encodeURIComponent(filter) +
+      '&$select=ItemCode,ItemWarehouseInfoCollection&$top=' +
+      codes.length;
+    const r = await this.fetchWithSession(path);
+    if (!r.ok) return { ok: false, error: r.error };
+    const items = (r.body && Array.isArray(r.body.value) ? r.body.value : []) || [];
+    /** @type {Map<string, {inStock: number, committed: number, available: number}>} */
+    const map = new Map();
+    for (const it of items) {
+      const code = String(it.ItemCode || '').trim();
+      if (!code) continue;
+      const whs = Array.isArray(it.ItemWarehouseInfoCollection)
+        ? it.ItemWarehouseInfoCollection
+        : [];
+      const whs11 = whs.find((w) => String(w.WarehouseCode) === '11');
+      const inStock = whs11 ? parseFloat(whs11.InStock || 0) : 0;
+      const committed = whs11 ? parseFloat(whs11.Committed || 0) : 0;
+      map.set(code, {
+        inStock,
+        committed,
+        available: Math.max(0, Math.trunc(inStock - committed)),
+      });
+    }
+    return { ok: true, availabilityMap: map };
+  },
+
   // Trae TODOS los items del catalogo SAP paginando via OData.
   // El server SL de Seidor bloquea el header 'Prefer' por CORS asi que
   // no podemos subir el pageSize. SL respeta ~20 items por request.
