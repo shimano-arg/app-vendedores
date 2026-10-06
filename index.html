@@ -5418,20 +5418,20 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <div style="padding:14px;display:flex;flex-direction:column;gap:10px;flex:1;overflow:hidden">
           <!-- Paso 1: lista clientes (visible por default) -->
           <div id="cpst-step-clientes" style="display:flex;flex-direction:column;gap:10px;flex:1;overflow:hidden">
-            <input id="cpst-search" class="bo-ctl" type="text" placeholder="Buscar cliente por nombre..." oninput="_cpstFilterClientes()" style="flex-shrink:0"/>
+            <input id="cpst-search" class="bo-ctl" type="text" placeholder="Buscar cliente por nombre..." oninput="_cpstFilterClientes()" style="flex-shrink:0;padding:12px 14px;font-size:14px;height:auto"/>
             <div id="cpst-summary" style="padding:8px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;font-size:12px;color:#1e3a8a;flex-shrink:0"></div>
             <div id="cpst-clientes-list" style="flex:1;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px"></div>
           </div>
           <!-- Paso 2: preview SKUs del cliente seleccionado (hidden por default) -->
           <div id="cpst-step-preview" style="display:none;flex-direction:column;gap:10px;flex:1;overflow:hidden">
-            <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
-              <button class="bo-btn" onclick="_cpstVolver()" style="padding:6px 10px">&larr; Volver</button>
-              <div style="font-weight:600;font-size:14px" id="cpst-preview-cliente"></div>
+            <div style="display:flex;align-items:center;gap:12px;flex-shrink:0;justify-content:center">
+              <button class="bo-btn" onclick="_cpstVolver()" style="padding:6px 12px">&larr; Volver</button>
+              <div style="font-weight:600;font-size:15px" id="cpst-preview-cliente"></div>
             </div>
             <div id="cpst-preview-meta" style="padding:8px 12px;background:#f1f5f9;border-radius:6px;font-size:12px;color:#475569;flex-shrink:0"></div>
             <div id="cpst-preview-list" style="flex:1;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px"></div>
             <div id="cpst-preview-total" style="padding:10px 14px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-size:13px;color:#78350f;font-weight:600;text-align:right;flex-shrink:0"></div>
-            <div style="display:flex;gap:10px;justify-content:flex-end;flex-shrink:0">
+            <div style="display:flex;gap:10px;justify-content:center;flex-shrink:0">
               <button class="bo-btn" onclick="_cpstVolver()" style="padding:8px 14px">Cancelar</button>
               <button id="cpst-confirm-btn" class="bo-btn" onclick="_cpstConfirmar()" style="padding:8px 14px;background:#1e40af;color:#fff;border-color:#1e3a8a">Confirmar y pasar a Lista de Espera</button>
             </div>
@@ -6067,7 +6067,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1147';
+const APP_VERSION = 'v1148';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14919,10 +14919,7 @@ function _cpstRenderPreview(){
       '<b>CardCode:</b> ' + _cpstEsc(r.cardCode || '(falta)') + ' · ' +
       '<b>Provincia:</b> ' + _cpstEsc(r.provincia || '-') + ' · ' +
       '<b>Localidad:</b> ' + _cpstEsc(r.localidad || '-') + ' · ' +
-      '<b>Vendedor asignado:</b> ' + _cpstEsc(r.vendor || '(sin asignar)') +
-      '<br/><b style="color:#b45309">⚠ Al confirmar:</b> se cancelan ' + c.skus.length +
-      ' linea(s) ASIG del cliente en los pedidos originales y se crea un pedido NUEVO en LISTA DE ESPERA. ' +
-      'El VDE debe completar la forma de entrega antes de enviar a SAP.';
+      '<b>Vendedor asignado:</b> ' + _cpstEsc(r.vendor || '(sin asignar)');
   }
   const list = document.getElementById('cpst-preview-list');
   if (list) {
