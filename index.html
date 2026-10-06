@@ -5861,11 +5861,9 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <button class="stock-action-btn publish" id="wcard-archivo-cliente-btn" onclick="waitlistExportArchivoCliente()" style="background:#0369a1;color:#fff" title="Excel para mandar al cliente: columna 'Pedido' = min(cantidad pedida, disponible SAP) — refleja lo que le vamos a entregar. Filas sin dispSap se omiten.">Exportar pedido para enviar al cliente</button>
         <button class="stock-action-btn cancel" id="wcard-delete-btn" onclick="waitlistDeleteCurrent()" style="background:var(--color-danger);color:#fff;display:none">Borrar de espera</button>
         <button class="stock-action-btn publish" id="wcard-pass-btn" onclick="waitlistPasarAPendientes()" style="background:#1e40af;color:#fff">Pasar a Pendientes</button>
-        <!-- v1118 (2026-09-30): boton excepcion que salta el gate ASIG del cliente.
-             Pide password 'SHIMANO' para prevenir uso accidental. Uso: casos donde
-             no queremos limpiar stock asignado previo (ej: pedido urgente que no
-             puede esperar la revision). Deja auditoria en el pedido. -->
-        <button class="stock-action-btn publish" id="wcard-bypass-btn" onclick="waitlistPasarAPendientesBypass()" style="background:#7c2d12;color:#fff;border:2px dashed #fbbf24" title="Salta el gate 'revisar stock asignado' del cliente. Requiere password.">🔓 Enviar de todos modos</button>
+        <!-- v1162 (2026-10-06): boton "🔓 Enviar de todos modos" (bypass del gate ASIG)
+             REMOVIDO. El gate ASIG se elimino tambien en v1162 (ver waitlistPasarAPendientes).
+             Separacion de flows: ASIG se resuelve desde "Crear Pedido - ST". -->
       </div>
     </div>
   </div>
@@ -6063,7 +6061,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1161';
+const APP_VERSION = 'v1162';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -19241,80 +19239,13 @@ function _renderClienteAllOpenLines(w){
   summary.textContent = 'Mostrar stock asignado (' + asignadoRows.length + ') + backorder (' + backorderRows.length + ') del cliente';
   while (body.firstChild) body.removeChild(body.firstChild);
 
-  // ============ SUBSECCION 1: STOCK ASIGNADO (accionable) ============
-  const asigBox = document.createElement('div');
-  asigBox.style.cssText = 'margin-bottom:10px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:6px;padding:10px 12px';
-  const asigTitle = document.createElement('div');
-  asigTitle.style.cssText = 'font-size:12px;font-weight:800;color:#14532d;margin-bottom:4px';
-  asigTitle.textContent = 'STOCK ASIGNADO — ' + asignadoRows.length + ' línea/s · ' + totalAsig + ' u';
-  asigBox.appendChild(asigTitle);
-  const asigDesc = document.createElement('div');
-  asigDesc.style.cssText = 'font-size:10.5px;color:#166534;margin-bottom:8px;line-height:1.4';
-  asigDesc.textContent = 'Reservas del cliente CON stock físico disponible ahora. Elegí qué hacer con cada línea: eliminar libera el stock para otros; agregar completo mueve las unidades al pedido actual; parcial pide cuántas.';
-  asigBox.appendChild(asigDesc);
-  if (asignadoRows.length === 0) {
-    const emptyMsg = document.createElement('div');
-    emptyMsg.style.cssText = 'padding:6px 0;color:var(--text-muted);font-size:11px;font-style:italic';
-    emptyMsg.textContent = 'Sin líneas con stock asignado hoy (todo lo del cliente está en backorder esperando reposición).';
-    asigBox.appendChild(emptyMsg);
-  } else {
-    for (const it of asignadoRows) {
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg-elevated);border:1px solid #bbf7d0;border-radius:5px;font-size:11px;flex-wrap:wrap;margin-bottom:6px';
-      const left = document.createElement('div');
-      left.style.cssText = 'flex:1;min-width:200px';
-      const code = document.createElement('div');
-      code.style.cssText = 'font-family:monospace;font-weight:800;color:var(--text-primary);font-size:10.5px';
-      code.textContent = it.code;
-      const desc = document.createElement('div');
-      desc.style.cssText = 'color:var(--text-secondary);margin-top:1px;font-size:10.5px';
-      if (it.desc) desc.textContent = it.desc; else desc.style.display = 'none';
-      const meta = document.createElement('div');
-      meta.style.cssText = 'color:var(--text-muted);font-size:9.5px;margin-top:2px';
-      // v1123: cuando es virtual ASIG, aclarar "N de M pedidos" para que el
-      // vendedor sepa que el BO original era M pero el stock fisico alcanza
-      // solo para N. Evita que prometa M al cliente.
-      const lbl = it.isVirtualAsig
-        ? ('BO + stock disp (virtual ASIG) · ' + it.qtyOpen + ' u de ' + (it.fullBoQty || it.qtyOpen) + ' u BO')
-        : ('ASIG · ' + it.qtyOpen + ' u');
-      meta.textContent = lbl + ' · ' + (it.orderNumber ? ('ORDEN ' + it.orderNumber) : ('pedido ' + String(it.pedidoId).slice(0, 6)));
-      left.appendChild(code); left.appendChild(desc); left.appendChild(meta);
-      row.appendChild(left);
-      const tag = document.createElement('span');
-      tag.style.cssText = 'flex-shrink:0;background:#dcfce7;color:#14532d;padding:4px 8px;border-radius:4px;font-size:10.5px;font-weight:800';
-      tag.textContent = it.qtyOpen + ' u';
-      row.appendChild(tag);
-      // v1123: Eliminar solo aplica a ASIG real (libera reserva committed).
-      // Para virtual ASIG no hay reserva — el stock esta disponible al mejor
-      // postor. Si el vendedor no quiere la porcion, basta con no agregarla.
-      if (!it.isVirtualAsig) {
-        const btnDel = document.createElement('button');
-        btnDel.type = 'button';
-        btnDel.textContent = 'Eliminar';
-        btnDel.style.cssText = 'flex-shrink:0;background:var(--color-danger-bg);color:var(--color-danger-strong);border:1px solid #fca5a5;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
-        btnDel.onclick = () => _asigInlineResolve(w, it, 'delete');
-        row.appendChild(btnDel);
-      }
-      const btnFull = document.createElement('button');
-      btnFull.type = 'button';
-      btnFull.textContent = 'Agregar completo (' + it.qtyOpen + ')';
-      btnFull.style.cssText = 'flex-shrink:0;background:var(--color-success-bg);color:var(--color-success);border:1px solid #86efac;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
-      btnFull.onclick = () => _asigInlineResolve(w, it, 'full');
-      row.appendChild(btnFull);
-      // v1123: Parcial de 1u no tiene sentido (solo hay 1 opcion). Ocultar
-      // cuando qtyOpen = 1 para evitar prompts ridiculos.
-      if (it.qtyOpen > 1) {
-        const btnPart = document.createElement('button');
-        btnPart.type = 'button';
-        btnPart.textContent = 'Parcial';
-        btnPart.style.cssText = 'flex-shrink:0;background:#dbeafe;color:var(--text-primary);border:1px solid #93c5fd;padding:5px 10px;border-radius:4px;font-size:10.5px;font-weight:700;cursor:pointer';
-        btnPart.onclick = () => _asigInlineResolve(w, it, 'partial');
-        row.appendChild(btnPart);
-      }
-      asigBox.appendChild(row);
-    }
-  }
-  body.appendChild(asigBox);
+  // v1162 (2026-10-06): SUBSECCION 1 "STOCK ASIGNADO" REMOVIDA del modal
+  // waitlist. Pedido Mariano: separar flows — el modal "Pedido en espera"
+  // ahora es 100% para armar pedido nuevo del cliente. Toda la resolucion
+  // de stock asignado (ASIG, Fusionar, Eliminar/Agregar completo/Parcial)
+  // se hace desde "Crear Pedido - ST" (v1145, modal Stock Asignado).
+  // Las variables asignadoRows + totalAsig siguen computandose arriba por
+  // si el futuro se quiere restaurar o usar para badge/warning no bloqueante.
 
   // v1160 (2026-10-06): SUBSECCION 2 "BACKORDER PENDIENTE" REMOVIDA.
   // Pedido Mariano: el bloque con la tabla roja de BO molestaba visualmente
@@ -20115,31 +20046,10 @@ function _renderWaitlistCard(){
         badge.title = 'El cliente ya tiene ' + porCli.reservadasPorCliente + ' u de ' + r.code + ' reservadas en ' + yaEnOtroFiltrado.length + ' pedido(s) anterior(es). Puede ser duplicado.';
         badge.style.cssText = 'color:var(--color-warning);font-weight:900;cursor:help';
         codeTd.appendChild(badge);
-        // v787 (2026-09-04): solo mostrar Fusionar si hay lineas que efectivamente
-        // se pueden consumir. Misma semantica que _findAsigDelCliente
-        // (state='ASIG' siempre, o state='BO' con stock fisico dep11 > 0).
-        // Bug reportado Mariano 2026-09-04: Fusionar aparecia para SKUs sin
-        // stock (SNZS05N) porque yaEnOtroFiltrado incluia lineas BO sin stock;
-        // al tocar Fusionar aparecia "No encontre lineas ASIG/BO del cliente".
-        const _fusionable = yaEnOtroFiltrado.filter(x =>
-          x && (x.state === 'ASIG' || (x.state === 'BO' && (stockDep11Only || 0) > 0))
-        );
-        const _fusionableQty = _fusionable.reduce((s, x) => s + (Number(x.qtyOpen) || 0), 0);
-        if (_fusionableQty > 0) {
-          // v714.1 (2026-08-28): boton Fusionar. Suma las reservadasPorCliente al
-          // pedido actual (waitlistAddProductWithQty) y marca las lineas viejas
-          // ASIG/BO como recycled en Firestore (via _fusionarAsigDelSkuAlPedido).
-          const btnFusionar = document.createElement('button');
-          btnFusionar.type = 'button';
-          btnFusionar.textContent = 'Fusionar (+' + _fusionableQty + ')';
-          btnFusionar.title = 'Consolidar las ' + _fusionableQty + ' u que el cliente ya tenia asignadas de ' + r.code + ' en este pedido (state=ASIG o BO+stock). Las lineas viejas quedan como recycled.';
-          btnFusionar.style.cssText = 'margin-left:6px;background:#dbeafe;color:var(--text-primary);border:1px solid #93c5fd;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:800;cursor:pointer';
-          btnFusionar.onclick = (ev) => {
-            ev.stopPropagation();
-            window._fusionarAsigDelSkuAlPedido(w, r.code);
-          };
-          codeTd.appendChild(btnFusionar);
-        }
+        // v1162 (2026-10-06): boton "Fusionar (+N)" REMOVIDO. Separacion de
+        // flows — ASIG viejas se resuelven desde "Crear Pedido - ST" (v1145).
+        // Historia: v714.1 (2026-08-28) agrego el boton. v787 (2026-09-04)
+        // lo gatearon por stock fisico. v1162 lo elimina por simplificacion UX.
       }
     }
     // v467: qty editable inline. Input number con onchange que persiste.
@@ -21416,112 +21326,15 @@ window.waitlistGenerarBackorder = async function(){
   }
 };
 
+// v1162 (2026-10-06): gate ASIG REMOVIDO + waitlistPasarAPendientesBypass eliminado.
+// Pedido Mariano: separar flows. El modal "Pedido en espera" ya no verifica
+// stock asignado del cliente al pasar a Pendientes. Resolver ASIG se hace
+// aparte via "Crear Pedido - ST" (v1145) o el modal Stock Asignado dedicado.
+// Historia: v701 (2026-08-28) agrego el gate. v1118 (2026-09-30) agrego bypass
+// con password SHIMANO. v1162 los elimina ambos por simplificacion UX.
 window.waitlistPasarAPendientes = async function(){
   const w = _wcardCurrent;
   if (!w) return;
-  // v701 (2026-08-28): gate obligatorio ASIG del cliente antes de continuar.
-  // Si el cliente tiene lineas state='ASIG' con qtyOpen>0 en algun pedido-app
-  // open, mostrar modal con 3 opciones por linea. Sin resolver todo, aborta.
-  try {
-    const cardCode = (typeof sapGetClienteCode === 'function') ? (sapGetClienteCode(w.clientName) || '') : '';
-    const asigLines = (typeof window._findAsigDelCliente === 'function') ? window._findAsigDelCliente(w.clientName, cardCode) : [];
-    if (asigLines.length > 0) {
-      window._showAsigResolveModal(w, asigLines, async (mods) => {
-        // Aplicar mods a Firestore antes de retomar el flujo.
-        try {
-          if (fbDb && mods.length) {
-            const batch = fbDb.batch();
-            for (const m of mods) {
-              if (!m.pedidoId) continue;
-              const ref = fbDb.collection('pedidos').doc(m.pedidoId);
-              const snap = await ref.get();
-              const d = snap.data() || {};
-              const lines = Array.isArray(d.lines) ? d.lines.slice() : [];
-              if (!lines[m.lineIndex]) continue;
-              const l = Object.assign({}, lines[m.lineIndex]);
-              if (m.action === 'delete') {
-                // v1124: delete no aplica a virtual ASIG (no hay reserva committed
-                // que liberar). Si llega por error, skip defensivo.
-                if (m.isVirtualAsig) continue;
-                l.qtyOpen = 0;
-                l.qtyCancelled = (Number(l.qtyCancelled) || 0) + m.qtyOpen;
-                l.state = 'cancelled';
-              } else if (m.action === 'full' || m.action === 'partial') {
-                // v1124: para virtual ASIG, qtyRemaining = fullBoQty - qtyToAdd;
-                // la linea sigue state='BO' hasta que se consuma todo. Para ASIG
-                // real, qtyRemaining > 0 implica partial -> estado sigue ASIG.
-                l.qtyOpen = m.qtyRemaining;
-                l.qtyRecycled = (Number(l.qtyRecycled) || 0) + m.qtyToAdd;
-                if (m.qtyRemaining <= 0) {
-                  l.state = 'recycled';
-                } else {
-                  l.state = m.isVirtualAsig ? 'BO' : 'ASIG';
-                }
-              }
-              lines[m.lineIndex] = l;
-              batch.update(ref, { lines: lines });
-            }
-            await batch.commit();
-          }
-        } catch (e) { console.error('asig resolve batch', e); alert('Error aplicando cambios ASIG: ' + (e.message || e)); return; }
-        // Agregar al waitlist items las lineas ASIG que se eligieron full/partial.
-        // Se hacen visibles como items del pedido nuevo que se va a crear.
-        const w2 = _wcardCurrent;
-        if (!w2) return;
-        if (!Array.isArray(w2.items)) w2.items = [];
-        mods.forEach(m => {
-          if (m.action === 'full' || m.action === 'partial') {
-            // Ver si ya hay item con el mismo code, sino agregar.
-            const existing = w2.items.find(it => (it.code||'').toUpperCase() === (m.code||'').toUpperCase());
-            if (existing) existing.qty = (Number(existing.qty)||0) + m.qtyToAdd;
-            else w2.items.push({ code: m.code, desc: m.desc, qty: m.qtyToAdd });
-          }
-        });
-        // Continuar con el flujo original.
-        window._waitlistPasarAPendientesContinuar(w2);
-      });
-      return; // El continuar lo llama el callback del modal.
-    }
-  } catch (e) { console.warn('waitlistPasarAPendientes ASIG gate', e); }
-  // Sin ASIG del cliente: flujo original.
-  window._waitlistPasarAPendientesContinuar(w);
-};
-
-// v1118 (2026-09-30): bypass del gate ASIG con password "SHIMANO".
-// Uso: casos excepcionales donde no se quiere limpiar el stock asignado
-// previo del cliente antes de mandar el nuevo pedido a SAP. Deja auditoria
-// en el pedido creado con flag bypassAsigGate + bypassedBy + bypassedAt.
-window.waitlistPasarAPendientesBypass = async function(){
-  const w = _wcardCurrent;
-  if (!w) return;
-  const pwd = prompt(
-    '⚠ BYPASS del gate "revisar stock asignado"\n\n' +
-    'Vas a mandar este pedido a SAP SIN limpiar/revisar el stock asignado ' +
-    'previo del cliente. Solo usar en casos excepcionales.\n\n' +
-    'Ingresá la contraseña de bypass:'
-  );
-  if (pwd == null) return; // cancelado
-  if (String(pwd).trim().toUpperCase() !== 'SHIMANO') {
-    alert('Contraseña incorrecta. Envío bypass cancelado.');
-    return;
-  }
-  const conf = confirm(
-    'Confirmar BYPASS?\n\n' +
-    'Cliente: ' + (w.clientName || '(sin nombre)') + '\n' +
-    'Items: ' + ((w.items || []).length) + '\n\n' +
-    'El pedido va a SAP sin pasar por la revisión de stock asignado.'
-  );
-  if (!conf) return;
-  // Setear flags globales que _waitlistPasarAPendientesContinuar consume
-  // al crear el pedido, para que quede la marca de auditoría en Firestore.
-  const email = ((window.currentUser && window.currentUser.email) || '').toLowerCase();
-  window._pendingBypassAsigGate = {
-    bypassed: true,
-    bypassedBy: email || 'unknown',
-    bypassedAt: new Date().toISOString(),
-    bypassReason: 'Envío de todos modos (password SHIMANO)',
-  };
-  // Continuar directo — salta el gate ASIG.
   window._waitlistPasarAPendientesContinuar(w);
 };
 
