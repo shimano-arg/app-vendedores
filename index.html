@@ -4953,6 +4953,10 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
              se confirmo por error o hay que editarlo antes de enviar a SAP). -->
         <div style="display:none;gap:8px" id="pm-actions-confirmed">
           <button onclick="volverAPendientes()" style="padding:9px 14px;border:1.5px solid #d97706;border-radius:6px;background:var(--bg-elevated);color:var(--color-warning);font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#8617; Volver a Pendientes</button>
+          <!-- v1154 (2026-10-06): eliminar pedido desde raiz (borra el doc en Firestore).
+               Admin/gerente only + doble confirm + warning extra si hay SQ en SAP.
+               Util para pedidos manual-backorder u otros que quedaron en limbo visual. -->
+          <button class="pm-delete-root" onclick="eliminarPedidoDeRaiz()" style="padding:9px 14px;border:1.5px solid #b91c1c;border-radius:6px;background:#fef2f2;color:#b91c1c;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.4px">&#128465;&nbsp;Eliminar</button>
         </div>
       </div>
       <div class="confirm-dialog" id="confirm-dialog">
@@ -6067,7 +6071,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1153';
+const APP_VERSION = 'v1154';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -31010,6 +31014,95 @@ window.volverAPendientes = async function(){
   saveConfirmed();
   closePedidoModal();
   setPedidoView('pendientes');
+};
+
+// ============================================================================
+// v1154 (2026-10-06): eliminar pedido de raiz (borra doc Firestore).
+//
+// Para pedidos confirmados que quedaron en limbo visual (ej: manual-backorder
+// con state=BO + stock disponible pre-v1153, pedidos de prueba, duplicados).
+// NO es "revertir a pending" — es borrar completo. Admin/gerente only + doble
+// confirm + warning extra si hay SQ real en SAP (en ese caso recomienda cancelar
+// la SQ primero manualmente).
+// ============================================================================
+window.eliminarPedidoDeRaiz = async function(){
+  if (!currentOrderClient || currentOrderClient.stage !== 'confirmed') return;
+  if (userRole !== 'admin' && userRole !== 'gerente') {
+    alert('Solo admin/gerente pueden eliminar un pedido confirmado.');
+    return;
+  }
+  const key = currentOrderClient.viewKey, idx = currentOrderClient.viewIdx;
+  const list = confirmed[key] || [];
+  const entry = list[idx];
+  if (!entry || !entry._fsId) {
+    alert('No se encontro el ID del pedido en Firestore (puede estar sincronizando). Refresca y reintenta.');
+    return;
+  }
+  // Detectar si hay SQ real en SAP (via SL directo, no manual-backorder/app_only/sap_migration).
+  const _sap = entry.transferidoSAP || null;
+  const _hasRealSqSap = _sap && _sap.docNum && _sap.via &&
+    _sap.via !== 'app_only' && _sap.via !== 'manual-backorder' &&
+    !String(_sap.via).startsWith('sap_migration');
+  const _sapDocNum = _sap ? (_sap.docNum || _sap.docEntry || '') : '';
+  const _via = _sap ? (_sap.via || '') : '';
+  // Primer confirm: resumen + warning SAP si corresponde.
+  let msg = 'ELIMINAR DE RAIZ el pedido de "' + currentOrderClient.name + '" (' + (entry.month || '-') + ')?\n\n' +
+            'Esta accion BORRA el documento en Firestore. Es PERMANENTE e IRREVERSIBLE.\n' +
+            'A diferencia de "Volver a Pendientes", el pedido NO queda editable: desaparece.\n\n' +
+            'Lineas: ' + ((entry.lines || []).length) + '\n' +
+            'OrderNumber: ' + (entry.orderNumber || '-') + '\n' +
+            'Doc ID: ' + entry._fsId + '\n' +
+            'Transferido SAP: ' + (_sap ? ('SI (via=' + _via + ', docNum=' + _sapDocNum + ')') : 'NO');
+  if (_hasRealSqSap) {
+    msg += '\n\n⚠ ATENCION: este pedido tiene una Sales Quotation REAL en SAP (#' + _sapDocNum + ' via ' + _via + ').\n' +
+           'Al borrar el doc Firestore, la SQ en SAP queda HUERFANA (no se cancela automatico).\n' +
+           'RECOMENDACION: cancela la SQ en SAP manualmente ANTES de borrar aca.\n' +
+           'Si continuas, va a aparecer en reportes SAP como SQ open sin pedido-app matcheando.';
+  }
+  if (!confirm(msg)) return;
+  // Segundo confirm: tipea para confirmar.
+  const expected = 'ELIMINAR';
+  const typed = prompt('Para confirmar, escribi exactamente: ' + expected);
+  if (typed !== expected) {
+    alert('Cancelado (no coincide la palabra).');
+    return;
+  }
+  // Audit log antes de borrar.
+  try {
+    if (typeof logOp === 'function') logOp('pedido_delete_root', 'pedidos/' + entry._fsId, currentOrderClient.name, {
+      cliente: currentOrderClient.name,
+      key: key,
+      month: entry.month,
+      orderNumber: entry.orderNumber || null,
+      lineas: (entry.lines || []).length,
+      transferidoSAP: _sap,
+      hadRealSqSap: _hasRealSqSap,
+      sapDocNum: _sapDocNum,
+    });
+  } catch (_e) {}
+  // Delete Firestore.
+  try {
+    await fbDb.collection('pedidos').doc(entry._fsId).delete();
+  } catch (e) {
+    console.error('eliminar pedido raiz', e);
+    alert('Error borrando el pedido en Firestore: ' + (e.message || e));
+    return;
+  }
+  // Optimistic update local: sacar del array confirmed + remover de globalPedidos cache.
+  confirmed[key] = list.filter((_, i) => i !== idx);
+  if (!confirmed[key].length) delete confirmed[key];
+  saveConfirmed();
+  if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+    globalPedidos = globalPedidos.filter(p => !p || p._fsId !== entry._fsId);
+  }
+  if (typeof showSyncTag === 'function') {
+    showSyncTag('Pedido ' + (entry.orderNumber || '') + ' eliminado' + (_hasRealSqSap ? ' (SQ SAP huerfana - cancelar manual)' : ''));
+  }
+  closePedidoModal();
+  // Re-render si estaban abiertos los modales que listan pedidos.
+  try {
+    if (typeof renderBackordersTab === 'function') renderBackordersTab();
+  } catch (_e) {}
 };
 
 // ========== Sugerencias: ahora usan globalPedidos (todos los vendedores) ==========
