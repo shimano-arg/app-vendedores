@@ -6071,7 +6071,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1156';
+const APP_VERSION = 'v1157';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -30674,19 +30674,166 @@ window.doConfirmPedido = async function(){
   setPedidoView('pendientes');
 };
 
-window.confirmarDefinitivo = function(){
+// v1157 (2026-10-06): pre-check stock SAP SL ANTES de confirmar + auto-split
+// transparente. Garantiza UI=SAP para el flow automatico (trigger CF).
+//
+// Caso LAMORA SRL 2026-10-06: UI dijo "disponible $3.699.000", SAP recibio
+// $1.667.000 (via=cf_auto_partial_stock). El CF server-side filterLinesByLiveStock
+// degrado 7 lineas sin stock real → VDE perdio $2M sin saberlo. v1156 cubrio
+// el flow MANUAL (admin panel), pero no este flow (VDE confirma, CF trigger
+// dispara automatico).
+//
+// Fix: antes de setear stage='confirmed', consultar stock live por SKU y si
+// hay deltas:
+//   1. Modal al VDE con desglose "SAP va a recibir $X en vez de $Y, M lineas
+//      pasan a BO por stock insuficiente ahora".
+//   2. Si acepta → auto-split (confirmed=available, BO=qty-available) y
+//      continuar.
+//   3. Si cancela → NO confirmar, VDE revisa manual.
+//
+// CF trigger cuando dispare va a ver las lines ya ajustadas → su
+// filterLinesByLiveStock no degrada nada → SAP recibe EXACTO lo que el VDE vio.
+window.confirmarDefinitivo = async function(){
   if (!currentOrderClient || currentOrderClient.stage !== 'pending') return;
   const key = currentOrderClient.viewKey, idx = currentOrderClient.viewIdx;
   const list = pending[key] || [];
   const entry = list[idx];
   if (!entry) return;
   if (!confirm('Confirmar definitivamente el pedido de "' + currentOrderClient.name + '" para ' + entry.month + '?')) return;
+
+  // Pre-check stock SAP SL (opcional - fail-open si SL no disponible).
+  const confirmedLines = (entry.lines || []).filter(l => l && l.state === 'confirmed' && (Number(l.qty) || 0) > 0);
+  let autoSplitLines = null;
+  let splitSummary = null;
+  if (
+    confirmedLines.length > 0 &&
+    typeof sapSL !== 'undefined' &&
+    typeof sapSL.isEnabled === 'function' && sapSL.isEnabled() &&
+    typeof sapSL.preCheckStockWhs11 === 'function'
+  ) {
+    // Resolver codigos SAP (algunos SKUs app tienen mapeo diferente).
+    const resolveItemCode = typeof sapGetProductCode === 'function'
+      ? (c) => sapGetProductCode(c) || c
+      : (c) => c;
+    const sapCodeByAppCode = {};
+    confirmedLines.forEach(l => {
+      sapCodeByAppCode[String(l.code).toUpperCase()] = String(resolveItemCode(l.code)).toUpperCase();
+    });
+    const sapCodes = Array.from(new Set(Object.values(sapCodeByAppCode).filter(Boolean)));
+    try {
+      const check = await sapSL.preCheckStockWhs11(sapCodes);
+      if (check.ok && check.availabilityMap) {
+        const map = check.availabilityMap;
+        // Agrupar qty por sapCode (dedupe) para comparar contra availability.
+        const requestedBySap = {};
+        confirmedLines.forEach(l => {
+          const sapCode = sapCodeByAppCode[String(l.code).toUpperCase()];
+          requestedBySap[sapCode] = (requestedBySap[sapCode] || 0) + (Number(l.qty) || 0);
+        });
+        // Detectar deltas.
+        const degradedBySap = {};
+        for (const sapCode of Object.keys(requestedBySap)) {
+          const requested = requestedBySap[sapCode];
+          const avail = map.has(sapCode) ? map.get(sapCode).available : 0;
+          if (requested > avail) {
+            degradedBySap[sapCode] = { requested, available: avail, lost: requested - avail };
+          }
+        }
+        if (Object.keys(degradedBySap).length > 0) {
+          // Armar auto-split de las lines originales.
+          // Repartir el `available` entre las lines del mismo sapCode en orden.
+          const availRemaining = {};
+          Object.keys(degradedBySap).forEach(sc => { availRemaining[sc] = map.has(sc) ? map.get(sc).available : 0; });
+          const newLinesPost = [];
+          const detalles = [];
+          let totalOrig = 0;
+          let totalFinal = 0;
+          (entry.lines || []).forEach(l => {
+            if (!l || l.state !== 'confirmed' || (Number(l.qty) || 0) <= 0) {
+              newLinesPost.push(l);
+              if (l) totalFinal += (Number(l.qty) || 0) * (Number(l.precio) || 0);
+              return;
+            }
+            const sapCode = sapCodeByAppCode[String(l.code).toUpperCase()];
+            const q = Number(l.qty) || 0;
+            const pr = Number(l.precio) || 0;
+            totalOrig += q * pr;
+            if (!degradedBySap[sapCode]) {
+              // Linea OK (stock suficiente), no tocar.
+              newLinesPost.push(l);
+              totalFinal += q * pr;
+              return;
+            }
+            // Linea degraded: tomar lo que queda del availRemaining[sapCode], el resto BO.
+            const take = Math.max(0, Math.min(q, availRemaining[sapCode] || 0));
+            availRemaining[sapCode] -= take;
+            if (take > 0) {
+              newLinesPost.push(Object.assign({}, l, { qty: take, qtyOpen: take }));
+              totalFinal += take * pr;
+            }
+            if (take < q) {
+              const boQty = q - take;
+              newLinesPost.push(Object.assign({}, l, {
+                qty: boQty,
+                qtyOpen: boQty,
+                state: 'BO',
+                asigAt: null,
+                autoSplitFromConfirmed: true,
+                autoSplitAt: new Date().toISOString(),
+              }));
+              detalles.push('- ' + l.code + ': pedias ' + q + ', hay ' + take + ' (-' + boQty + ' uni / $' + Math.round(boQty * pr).toLocaleString('es-AR') + ' pasa a BO)');
+            }
+          });
+          // Lineas que no son confirmed (BO/ASIG/invoiced): preservar + sumar al total original.
+          (entry.lines || []).forEach(l => {
+            if (!l || l.state === 'confirmed' || (Number(l.qty) || 0) <= 0) return;
+            // Ya se incluyen en newLinesPost arriba via el ramal "no es confirmed".
+            // Pero no agregamos al totalOrig (solo confirmed cuenta).
+          });
+          splitSummary = { totalOrig: Math.round(totalOrig), totalFinal: Math.round(totalFinal), detalles, lost: Math.round(totalOrig - totalFinal), degradedCount: detalles.length };
+          const confirmMsg =
+            '⚠ STOCK CAMBIO desde que preparaste el pedido.\n\n' +
+            splitSummary.degradedCount + ' SKU(s) tienen stock insuficiente ahora:\n\n' +
+            detalles.slice(0, 10).join('\n') +
+            (detalles.length > 10 ? '\n...y ' + (detalles.length - 10) + ' mas' : '') +
+            '\n\nTotal original (confirmed): $' + splitSummary.totalOrig.toLocaleString('es-AR') +
+            '\nTotal final (lo que SAP recibira): $' + splitSummary.totalFinal.toLocaleString('es-AR') +
+            '\nDiferencia que pasa a BACKORDER: $' + splitSummary.lost.toLocaleString('es-AR') +
+            '\n\nAceptar = auto-split (confirmed → BO para lo que no hay stock) + confirmar.\nCancelar = NO confirmar, revisar manual.';
+          if (!confirm(confirmMsg)) return;
+          autoSplitLines = newLinesPost;
+        }
+      } else if (check && !check.ok) {
+        console.warn('[confirmarDefinitivo] preCheckStockWhs11 fallo (fail-open):', check.error);
+      }
+    } catch (e) {
+      console.warn('[confirmarDefinitivo] preCheck exception (fail-open):', e);
+    }
+  }
+
+  // Firestore update: stage + finalizedAt + (opcional) lines splitteadas + metadata.
   if (entry._fsId && currentUser) {
-    fbDb.collection('pedidos').doc(entry._fsId).update({stage: 'confirmed', finalizedAt: new Date().toISOString()}).then(()=>showSyncTag('Pedido confirmado definitivamente')).catch(e=>{console.error('confirm def', e); alert('Error: '+(e.message||e));});
+    const nowIso = new Date().toISOString();
+    const updatePayload = { stage: 'confirmed', finalizedAt: nowIso };
+    if (autoSplitLines) {
+      updatePayload.lines = autoSplitLines;
+      updatePayload.autoSplitByStock = Object.assign({
+        at: nowIso,
+        by: currentUser.email || '',
+        source: 'confirmarDefinitivo-preCheck',
+      }, splitSummary);
+    }
+    fbDb.collection('pedidos').doc(entry._fsId).update(updatePayload)
+      .then(() => showSyncTag(autoSplitLines
+        ? 'Pedido confirmado + auto-split ($' + splitSummary.lost.toLocaleString('es-AR') + ' pasaron a BO)'
+        : 'Pedido confirmado definitivamente'))
+      .catch(e => { console.error('confirm def', e); alert('Error: ' + (e.message || e)); });
   }
   // local fallback (will be overwritten by snapshot)
   if (!confirmed[key]) confirmed[key] = [];
-  confirmed[key].push(Object.assign({}, entry, {finalizedAt: new Date().toISOString()}));
+  const localEntry = Object.assign({}, entry, { finalizedAt: new Date().toISOString() });
+  if (autoSplitLines) localEntry.lines = autoSplitLines;
+  confirmed[key].push(localEntry);
   saveConfirmed();
   pending[key] = list.filter((_, i) => i !== idx);
   if (!pending[key].length) delete pending[key];
