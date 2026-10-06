@@ -127,6 +127,32 @@ const sapSL = {
     });
   },
 
+  // v1144 (2026-10-06): búsqueda idempotente por NumAtCard = pedidoId.
+  // Usada por sap-auto-send-listener para detectar si SAP ya tiene una SQ
+  // creada por un intento previo que terminó en timeout (bug FATECHI
+  // 2000283/2000284: primer POST timeout, SAP sí creó la SQ, el retry
+  // sin pre-check creó una segunda SQ huérfana).
+  //
+  // Devuelve { ok, docNum, docEntry } con la SQ existente, o { ok: false }
+  // si no hay match / falló la query (fallback defensivo: dejar que el
+  // caller intente el POST).
+  async findQuotationByNumAtCard(pedidoId) {
+    const q = encodeURIComponent("NumAtCard eq '" + String(pedidoId) + "'");
+    const r = await this.fetchWithSession(
+      '/b1s/v1/Quotations?$filter=' + q + '&$select=DocEntry,DocNum,NumAtCard&$top=1',
+      { method: 'GET' }
+    );
+    if (r.ok && r.body && Array.isArray(r.body.value) && r.body.value.length > 0) {
+      const found = r.body.value[0];
+      const docNum = Number(found.DocNum);
+      const docEntry = Number(found.DocEntry);
+      if (Number.isFinite(docNum) && Number.isFinite(docEntry)) {
+        return { ok: true, docNum, docEntry };
+      }
+    }
+    return { ok: false };
+  },
+
   // v603 (2026-08-24): cancela una Sales Quotation en SAP.
   // Endpoint SL: POST /b1s/v1/Quotations({docEntry})/Cancel (sin body).
   // La SQ queda marcada Cancelled='tYES' + DocumentStatus='bost_Close'.

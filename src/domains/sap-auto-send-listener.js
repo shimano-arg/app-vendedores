@@ -152,6 +152,51 @@ function ensureSapAutoSendListener() {
                   showSyncTag('Pedido en BO app-only: ' + p.clientName);
                 return;
               }
+              // v1144 (2026-10-06): PRE-CHECK idempotente antes del POST.
+              // Bug FATECHI (pedido Ful3HCXvXt5mQdpJWwKY, 2026-10-06): primer
+              // POST timeout "fetch failed", SAP sí creó la SQ 2000283, el
+              // retry sin pre-check creó una segunda SQ 2000284 huérfana.
+              // La CF server-side (auto-send-sap-core.js:497) ya tenía este
+              // check desde v1006; faltaba en el client-side.
+              //
+              // Si SAP ya tiene una SQ con NumAtCard=pedidoId, adoptamos esa
+              // docNum sin re-POST. Si la query falla, seguimos con POST
+              // (fallback defensivo — no bloquear envíos legítimos).
+              try {
+                const idem = await sapSL.findQuotationByNumAtCard(fsId);
+                if (idem.ok) {
+                  console.warn(
+                    '[SAP auto] idempotent hit — SAP ya tiene SQ #' +
+                      idem.docNum +
+                      ' para pedido ' +
+                      fsId +
+                      '. NO re-POST.'
+                  );
+                  await fbDb.runTransaction(async (tx) => {
+                    const snap = await tx.get(docRef);
+                    const data = snap.data() || {};
+                    if (data.transferidoSAP && data.transferidoSAP.docNum) return;
+                    tx.update(docRef, {
+                      transferidoSAP: {
+                        via: 'service_layer_auto',
+                        docEntry: idem.docEntry,
+                        docNum: idem.docNum,
+                        transferredAt: new Date().toISOString(),
+                        transferredBy: 'auto-idempotent/' + ((currentUser && currentUser.email) || ''),
+                        sapDocRange: String(idem.docNum),
+                        batchId: 'SL-IDEM-' + Date.now(),
+                      },
+                      sendingSapLock: firebase.firestore.FieldValue.delete(),
+                      transferError: firebase.firestore.FieldValue.delete(),
+                    });
+                  });
+                  if (typeof showSyncTag === 'function')
+                    showSyncTag('Pedido ya estaba en SAP (#' + idem.docNum + '): ' + p.clientName);
+                  return;
+                }
+              } catch (idemErr) {
+                console.warn('[SAP auto] idempotent check falló (non-blocking):', idemErr);
+              }
               const r = await sapSL.createQuotation(payload);
               if (r.ok) {
                 // v577 (2026-08-21): DOUBLE-CHECK post-createQuotation. Si
